@@ -193,12 +193,15 @@ fn build_terrain_mesh(hm: &HeightMap, world_extent: f32) -> Mesh {
     mesh
 }
 
+#[allow(clippy::too_many_arguments)] // Bevy system: each arg is a distinct resource/query.
 pub(super) fn spawn_terrain_mesh(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<SplatTerrainMaterial>>,
+    mut road_materials: ResMut<Assets<StandardMaterial>>,
     hm_res: Res<FinishedHeightMap>,
+    did: Option<Res<crate::state::CurrentRoomDid>>,
     outgoing: Query<Entity, With<OutgoingTerrain>>,
 ) {
     // Atomic hand-off from the previous terrain (which has been displaying
@@ -301,6 +304,23 @@ pub(super) fn spawn_terrain_mesh(
         far_parts.as_ref().map(|(_, material)| material.clone()),
     ));
 
+    // A geodata region's streets (#1595), in the theme's road look: taken
+    // out of the ground, which keeps no copy of what the GPU now holds.
+    let streets = hm_res
+        .ground()
+        .and_then(|ground| ground.streets())
+        .and_then(|streets| streets.take())
+        .map(|parts| {
+            super::roads::road_surfaces(
+                &parts,
+                super::roads::road_theme(did.as_deref()),
+                &Default::default(),
+                &mut meshes,
+                &mut road_materials,
+            )
+        });
+    let road_offset = super::roads::road_offset(hm);
+
     commands
         .spawn((
             Transform::IDENTITY,
@@ -335,6 +355,20 @@ pub(super) fn spawn_terrain_mesh(
                         CollisionLayers::from_bits(super::geo::far::WALL_LAYER, u32::MAX),
                         Transform::from_translation(centre),
                     ));
+                }
+            }
+            // Berlin's streets ride with the ground they were meshed on: a
+            // child's collider joins the terrain's static body, as the walls'
+            // do, and goes with it.
+            for surface in streets.into_iter().flatten() {
+                let mut street = parent.spawn((
+                    Mesh3d(surface.mesh),
+                    MeshMaterial3d(surface.material),
+                    road_offset,
+                    surface.kind,
+                ));
+                if let Some(collider) = surface.collider {
+                    street.insert(collider);
                 }
             }
         });
@@ -385,6 +419,101 @@ pub(super) fn heightmap_from_data(d: gen_jobs::HeightmapData) -> HeightMap {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #1595: a geodata region's streets spawn with its terrain - children
+    /// of its root, at the road offset, the deck and the structure with
+    /// their colliders, no CPU copy kept - and the ground hands them over,
+    /// keeping none.
+    #[test]
+    fn a_berlin_grounds_streets_spawn_with_its_terrain() {
+        use bevy::ecs::system::RunSystemOnce;
+        use geodata::berlin::{Dedication, StreetAxis};
+        use geodata::request::Bbox;
+
+        use super::super::geo::GeoGround;
+        use super::super::geo::streets::{CoreFrame, Streets, mesh_streets};
+        use super::super::roads::{RoadSurfaceKind, road_offset};
+
+        // A T of 8 m streets on flat ground, 101 points 2 m apart.
+        let (n, cell) = (101, 2.0);
+        let frame = CoreFrame {
+            bbox: Bbox {
+                min_e: 0,
+                min_n: 0,
+                max_e: 202,
+                max_n: 202,
+            },
+            grid: n as u32,
+            cell,
+        };
+        let axis = |line: Vec<[f64; 2]>| StreetAxis {
+            uuid: String::new(),
+            lines: vec![line],
+            width: Some(8.0),
+            lanes: None,
+            separated: false,
+            pedestrian: false,
+            dedication: Dedication::Municipal,
+        };
+        let streets = Streets {
+            axes: vec![
+                axis(vec![[20.0, 101.0], [180.0, 101.0]]),
+                axis(vec![[101.0, 101.0], [101.0, 20.0]]),
+            ],
+            carriageways: Vec::new(),
+        };
+        let hm = HeightMap::new(n, n, cell);
+        let parts = mesh_streets(&streets, frame, &hm).expect("the T meshes");
+        let ground =
+            GeoGround::from_cover(n as u32, cell, vec![None; n * n], None).with_streets(parts);
+        let offset = road_offset(&hm);
+
+        let mut world = World::new();
+        world.init_resource::<Assets<Mesh>>();
+        world.init_resource::<Assets<Image>>();
+        world.init_resource::<Assets<StandardMaterial>>();
+        world.init_resource::<Assets<SplatTerrainMaterial>>();
+        world.insert_resource(FinishedHeightMap(hm, Some(ground)));
+        world
+            .run_system_once(spawn_terrain_mesh)
+            .expect("the spawn runs");
+
+        let root = world
+            .query_filtered::<Entity, With<TerrainMesh>>()
+            .single(&world)
+            .expect("one terrain");
+        let children: Vec<Entity> = world.get::<Children>(root).unwrap().iter().collect();
+        let surfaces: Vec<(RoadSurfaceKind, bool, Transform, Handle<Mesh>)> = children
+            .iter()
+            .filter_map(|&c| {
+                let kind = *world.get::<RoadSurfaceKind>(c)?;
+                Some((
+                    kind,
+                    world.get::<Collider>(c).is_some(),
+                    *world.get::<Transform>(c)?,
+                    world.get::<Mesh3d>(c)?.0.clone(),
+                ))
+            })
+            .collect();
+        let kinds: Vec<RoadSurfaceKind> = surfaces.iter().map(|s| s.0).collect();
+        assert!(
+            kinds.contains(&RoadSurfaceKind::Deck) && kinds.contains(&RoadSurfaceKind::Structure)
+        );
+        let meshes = world.resource::<Assets<Mesh>>();
+        for (kind, collides, transform, mesh) in &surfaces {
+            assert_eq!(*collides, *kind != RoadSurfaceKind::Neon, "{:?}", transform);
+            assert_eq!(*transform, offset);
+            assert_eq!(
+                meshes.get(mesh).unwrap().asset_usage,
+                RenderAssetUsages::RENDER_WORLD
+            );
+        }
+        let ground = world.resource::<FinishedHeightMap>().ground().unwrap();
+        assert!(
+            ground.streets().unwrap().with(|_| ()).is_none(),
+            "handed over"
+        );
+    }
 
     /// The terrain mesh must reach `Assets<Mesh>` without a CPU copy.
     ///

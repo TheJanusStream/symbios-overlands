@@ -425,9 +425,7 @@ pub(super) fn sync_road_appearance(
         return;
     }
     *last = Some(key);
-    let theme = did.as_ref().map_or(ThemeArchetype::Cyberpunk, |d| {
-        SceneCharacter::for_did(&d.0).theme
-    });
+    let theme = road_theme(did.as_deref());
     let resolved: Vec<[StandardMaterial; 3]> = appearances
         .iter()
         .map(|ap| resolved_road_materials(theme, ap))
@@ -446,8 +444,87 @@ pub(super) fn sync_road_appearance(
     }
 }
 
+/// The room's theme, which the road look follows: Cyberpunk's when the room
+/// is not known.
+pub(super) fn road_theme(did: Option<&CurrentRoomDid>) -> ThemeArchetype {
+    did.map_or(ThemeArchetype::Cyberpunk, |d| {
+        SceneCharacter::for_did(&d.0).theme
+    })
+}
+
+/// One road surface, ready to spawn.
+pub(super) struct RoadSurface {
+    pub mesh: Handle<Mesh>,
+    pub material: Handle<StandardMaterial>,
+    pub kind: RoadSurfaceKind,
+    /// The static trimesh it stands on: the deck's and the structure's.
+    pub collider: Option<Collider>,
+}
+
+/// The surfaces of `parts` that emitted faces, in `theme`'s road materials
+/// with `appearance` layered on (#891): what a road network's swap and a
+/// geodata region's streets (#1595) both spawn.
+///
+/// The drivable deck and the curb/skirt structure each carry a static
+/// trimesh collider built from their own geometry, so the WHOLE road body is
+/// solid - a high road over a dip is a real bridge the player and vehicles
+/// stand on. The neon edge-line is a decorative emissive overlay riding
+/// proud of the curb, so it stays non-collidable (it would only add thin
+/// lips above the curb the structure collider already covers).
+pub(super) fn road_surfaces(
+    parts: &crate::urban::RoadParts,
+    theme: ThemeArchetype,
+    appearance: &crate::pds::generator::RoadAppearance,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+) -> Vec<RoadSurface> {
+    let [deck_mat, structure_mat, neon_mat] = resolved_road_materials(theme, appearance);
+    let mut surfaces = Vec::new();
+    for (geo, material, kind, collide) in [
+        (&parts.deck, deck_mat, RoadSurfaceKind::Deck, true),
+        (
+            &parts.structure,
+            structure_mat,
+            RoadSurfaceKind::Structure,
+            true,
+        ),
+        (&parts.neon, neon_mat, RoadSurfaceKind::Neon, false),
+    ] {
+        if geo.is_empty() {
+            continue;
+        }
+        let mut bevy_mesh = crate::urban::to_bevy_mesh(geo);
+        // `trimesh_from_mesh` merges duplicate vertices and returns `None`
+        // (never panics) if the buffers can't form a trimesh, so a malformed
+        // surface degrades to a visible-but-non-collidable mesh, never a crash.
+        let collider = collide
+            .then(|| Collider::trimesh_from_mesh(&bevy_mesh))
+            .flatten();
+        // Nothing reads a road mesh back once its collider is built: no CPU
+        // copy for the life of the road (#1595).
+        bevy_mesh.asset_usage = bevy::asset::RenderAssetUsages::RENDER_WORLD;
+        surfaces.push(RoadSurface {
+            mesh: meshes.add(bevy_mesh),
+            material: materials.add(material),
+            kind,
+            collider,
+        });
+    }
+    surfaces
+}
+
+/// The transform a road mesh takes: the ribbon lives in the full heightmap
+/// frame, and the terrain mesh child is offset by -half, so the road shares
+/// that offset.
+pub(super) fn road_offset(heightmap: &HeightMap) -> Transform {
+    let half = (heightmap.width() - 1) as f32 * heightmap.scale() * 0.5;
+    Transform::from_xyz(-half, 0.0, -half)
+}
+
 /// Spawn the three road surface entities for `parts` - split from the
-/// rebuild system so the async completion path stays readable.
+/// rebuild system so the async completion path stays readable. One entity
+/// per non-empty surface; the despawn marker on each sweeps them all on the
+/// next rebuild.
 #[allow(clippy::too_many_arguments)] // one spawn site; each arg is a distinct sink.
 fn spawn_road_meshes(
     commands: &mut Commands,
@@ -459,64 +536,22 @@ fn spawn_road_meshes(
     appearance: &crate::pds::generator::RoadAppearance,
     network: RoadNetworkIndex,
 ) {
-    // The ribbon lives in the full heightmap frame; the terrain mesh child
-    // is offset by -half, so the road shares that offset.
-    {
-        let world_extent = (heightmap.width() - 1) as f32 * heightmap.scale();
-        let half = world_extent * 0.5;
-        let offset = Transform::from_xyz(-half, 0.0, -half);
-
-        // The road look follows the room's theme (client-side; not stored),
-        // with the record's authored overrides layered on top (#891).
-        let theme = did.as_ref().map_or(ThemeArchetype::Cyberpunk, |d| {
-            SceneCharacter::for_did(&d.0).theme
-        });
-        let [deck_mat, structure_mat, neon_mat] = resolved_road_materials(theme, appearance);
-        let deck = materials.add(deck_mat);
-        let structure = materials.add(structure_mat);
-        let neon = materials.add(neon_mat);
-
-        // One mesh + material per non-empty surface; the despawn marker on each
-        // sweeps them all on the next rebuild. The drivable deck and the
-        // curb/skirt structure each carry a static trimesh collider built from
-        // their own geometry, so the WHOLE road body is solid - a high road over
-        // a dip is a real bridge the player and vehicles stand on. The neon
-        // edge-line is a decorative emissive overlay riding proud of the curb, so
-        // it stays non-collidable (it would only add thin lips above the curb the
-        // structure collider already covers).
-        for (geo, material, kind, collide) in [
-            (&parts.deck, deck, RoadSurfaceKind::Deck, true),
-            (
-                &parts.structure,
-                structure,
-                RoadSurfaceKind::Structure,
-                true,
-            ),
-            (&parts.neon, neon, RoadSurfaceKind::Neon, false),
-        ] {
-            if geo.is_empty() {
-                continue;
-            }
-            let bevy_mesh = crate::urban::to_bevy_mesh(geo);
-            // `trimesh_from_mesh` merges duplicate vertices and returns `None`
-            // (never panics) if the buffers can't form a trimesh, so a malformed
-            // surface degrades to a visible-but-non-collidable mesh, never a crash.
-            let collider = collide
-                .then(|| Collider::trimesh_from_mesh(&bevy_mesh))
-                .flatten();
-            let mesh = meshes.add(bevy_mesh);
-            let mut entity = commands.spawn((
-                Mesh3d(mesh),
-                MeshMaterial3d(material),
-                offset,
-                Visibility::default(),
-                RoadMeshEntity,
-                kind,
-                network,
-            ));
-            if let Some(collider) = collider {
-                entity.insert((RigidBody::Static, collider));
-            }
+    let offset = road_offset(heightmap);
+    // The road look follows the room's theme (client-side; not stored),
+    // with the record's authored overrides layered on top (#891).
+    let theme = road_theme(did);
+    for surface in road_surfaces(parts, theme, appearance, meshes, materials) {
+        let mut entity = commands.spawn((
+            Mesh3d(surface.mesh),
+            MeshMaterial3d(surface.material),
+            offset,
+            Visibility::default(),
+            RoadMeshEntity,
+            surface.kind,
+            network,
+        ));
+        if let Some(collider) = surface.collider {
+            entity.insert((RigidBody::Static, collider));
         }
     }
 }

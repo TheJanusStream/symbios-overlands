@@ -1,0 +1,811 @@
+{"Legend": [{
+  "layerName": "c_dom",
+  "title": "DOM - Digitales Oberflächenmodell",
+  "rules": [  {
+    "name": "DOM",
+    "title": "DOM",
+    "symbolizers": [{"Raster":     {
+      "colormap":       {
+        "entries":         [
+                    {
+            "label": "bis -12 m",
+            "quantity": "-12",
+            "color": "#AFF0E9"
+          },
+                    {
+            "label": "-11 - -10 m",
+            "quantity": "-10",
+            "color": "#AFF0E4"
+          },
+                    {
+            "label": "-9 - -8 m",
+            "quantity": "-8",
+            "color": "#AFF0DE"
+          },
+                    {
+            "label": "-79 - -6 m",
+            "quantity": "-6",
+            "color": "#AFF0D9"
+          },
+                    {
+            "label": "-59 - -4 m",
+            "quantity": "-4",
+            "color": "#B1F2D6"
+          },
+                    {
+            "label": "-39 - -2 m",
+            "quantity": "-2",
+            "color": "#B1F2D0"
+          },
+                    {
+            "label": "-19 - 0 m",
+            "quantity": "0",
+            "color": "#B1F2CB"
+          },
+                    {
+            "label": "0 - 2 m",
+            "quantity": "2",
+            "color": "#B1F2C6"
+          },
+                    {
+            "label": "2 - 4 m",
+            "quantity": "4",
+            "color": "#B0F5BF"
+          },
+                    {
+            "label": "4 - 6 m",
+            "quantity": "6",
+            "color": "#B0F5BB"
+          },
+                    {
+            "label": "6 - 8 m",
+            "quantity": "8",
+            "color": "#B0F5B5"
+          },
+                    {
+            "label": "8 - 10 m",
+            "quantity": "10",
+            "color": "#B3F5B0"
+          },
+                    {
+            "label": "10 - 12 m",
+            "quantity": "12",
+            "color": "#B9F7B2"
+          },
+                    {
+            "label": "12 - 14 m",
+            "quantity": "14",
+            "color": "#C0F7B2"
+          },
+                    {
+            "label": "14 - 16 m",
+            "quantity": "16",
+            "color": "#C6F7B2"
+          },
+                    {
+            "label": "16 - 18 m",
+            "quantity": "18",
+            "color": "#CAF7B2"
+          },
+                    {
+            "label": "18 - 20 m",
+            "quantity": "20",
+            "color": "#D2FAB1"
+          },
+                    {
+            "label": "20 - 22 m",
+            "quantity": "22",
+            "color": "#D8FAB1"
+          },
+                    {
+            "label": "22 - 24 m",
+            "quantity": "24",
+            "color": "#DEFAB1"
+          },
+                    {
+            "label": "24 - 26 m",
+            "quantity": "26",
+            "color": "#E6FCB3"
+          },
+                    {
+            "label": "26 - 28 m",
+            "quantity": "28",
+            "color": "#EDFCB3"
+          },
+                    {
+            "label": "28 - 30 m",
+            "quantity": "30",
+            "color": "#F3FCB3"
+          },
+                    {
+            "label": "30 - 32 m",
+            "quantity": "32",
+            "color": "#F9FCB3"
+          },
+                    {
+            "label": "32 - 34 m",
+            "quantity": "34",
+            "color": "#FCFCB1"
+          },
+                    {
+            "label": "34 - 36 m",
+            "quantity": "36",
+            "color": "#F2F7A6"
+          },
+                    {
+            "label": "36 - 38 m",
+            "quantity": "38",
+            "color": "#E7F29B"
+          },
+                    {
+            "label": "38 - 40 m",
+            "quantity": "40",
+            "color": "#D8EB8F"
+          },
+                    {
+            "label": "40 - 42 m",
+            "quantity": "42",
+            "color": "#CCE685"
+          },
+                    {
+            "label": "42 - 44 m",
+            "quantity": "44",
+            "color": "#BEE079"
+          },
+                    {
+            "label": "44 - 46 m",
+            "quantity": "46",
+            "color": "#B0DB70"
+          },
+                    {
+            "label": "46 - 48 m",
+            "quantity": "48",
+            "color": "#A3D669"
+          },
+                    {
+            "label": "48 - 50 m",
+            "quantity": "50",
+            "color": "#92CF5D"
+          },
+                    {
+            "label": "50 - 52 m",
+            "quantity": "52",
+            "color": "#83C955"
+          },
+                    {
+            "label": "52 - 54 m",
+            "quantity": "54",
+            "color": "#74C44D"
+          },
+                    {
+            "label": "54 - 56 m",
+            "quantity": "56",
+            "color": "#65BF45"
+          },
+                    {
+            "label": "56 - 58 m",
+            "quantity": "58",
+            "color": "#56BA3D"
+          },
+                    {
+            "label": "58 - 60 m",
+            "quantity": "60",
+            "color": "#45B334"
+          },
+                    {
+            "label": "60 - 62 m",
+            "quantity": "62",
+            "color": "#37AD2F"
+          },
+                    {
+            "label": "62 - 64 m",
+            "quantity": "64",
+            "color": "#27A827"
+          },
+                    {
+            "label": "64 - 66 m",
+            "quantity": "66",
+            "color": "#21A329"
+          },
+                    {
+            "label": "66 - 68 m",
+            "quantity": "68",
+            "color": "#1B9E2C"
+          },
+                    {
+            "label": "68 - 70 m",
+            "quantity": "70",
+            "color": "#15962F"
+          },
+                    {
+            "label": "70 - 72 m",
+            "quantity": "72",
+            "color": "#109132"
+          },
+                    {
+            "label": "72 - 74 m",
+            "quantity": "74",
+            "color": "#0B8C36"
+          },
+                    {
+            "label": "74 - 76 m",
+            "quantity": "76",
+            "color": "#07873A"
+          },
+                    {
+            "label": "76 - 78 m",
+            "quantity": "78",
+            "color": "#00823E"
+          },
+                    {
+            "label": "78 - 80 m",
+            "quantity": "80",
+            "color": "#12823F"
+          },
+                    {
+            "label": "80 - 82 m",
+            "quantity": "82",
+            "color": "#22853E"
+          },
+                    {
+            "label": "82 - 84 m",
+            "quantity": "84",
+            "color": "#31873C"
+          },
+                    {
+            "label": "84 - 86 m",
+            "quantity": "86",
+            "color": "#3B8A3B"
+          },
+                    {
+            "label": "86 - 88 m",
+            "quantity": "88",
+            "color": "#458C39"
+          },
+                    {
+            "label": "88 - 90 m",
+            "quantity": "90",
+            "color": "#508F38"
+          },
+                    {
+            "label": "90 - 92 m",
+            "quantity": "92",
+            "color": "#5A9137"
+          },
+                    {
+            "label": "92 - 94 m",
+            "quantity": "94",
+            "color": "#639435"
+          },
+                    {
+            "label": "94 - 96 m",
+            "quantity": "96",
+            "color": "#6D9633"
+          },
+                    {
+            "label": "96 - 98 m",
+            "quantity": "98",
+            "color": "#769931"
+          },
+                    {
+            "label": "98 - 100 m",
+            "quantity": "100",
+            "color": "#829E2F"
+          },
+                    {
+            "label": "100 - 102 m",
+            "quantity": "102",
+            "color": "#8A9E2E"
+          },
+                    {
+            "label": "102 - 104 m",
+            "quantity": "104",
+            "color": "#93A12B"
+          },
+                    {
+            "label": "104 - 106 m",
+            "quantity": "106",
+            "color": "#9DA329"
+          },
+                    {
+            "label": "106 - 108 m",
+            "quantity": "108",
+            "color": "#A8A627"
+          },
+                    {
+            "label": "108 - 110 m",
+            "quantity": "110",
+            "color": "#B2A924"
+          },
+                    {
+            "label": "110 - 112 m",
+            "quantity": "112",
+            "color": "#BDAD22"
+          },
+                    {
+            "label": "112 - 114 m",
+            "quantity": "114",
+            "color": "#C7AE20"
+          },
+                    {
+            "label": "114 - 116 m",
+            "quantity": "116",
+            "color": "#D1B01B"
+          },
+                    {
+            "label": "116 - 118 m",
+            "quantity": "118",
+            "color": "#DBB418"
+          },
+                    {
+            "label": "118 - 120 m",
+            "quantity": "120",
+            "color": "#E5B412"
+          },
+                    {
+            "label": "120 - 122 m",
+            "quantity": "122",
+            "color": "#F0B70E"
+          },
+                    {
+            "label": "122 - 124 m",
+            "quantity": "124",
+            "color": "#FAB905"
+          },
+                    {
+            "label": "124 - 126 m",
+            "quantity": "126",
+            "color": "#F7AE00"
+          },
+                    {
+            "label": "126 - 128 m",
+            "quantity": "128",
+            "color": "#F2A200"
+          },
+                    {
+            "label": "128 - 130 m",
+            "quantity": "130",
+            "color": "#ED9700"
+          },
+                    {
+            "label": "130 - 132 m",
+            "quantity": "132",
+            "color": "#E88C00"
+          },
+                    {
+            "label": "132 - 134 m",
+            "quantity": "134",
+            "color": "#E38500"
+          },
+                    {
+            "label": "134 - 136 m",
+            "quantity": "136",
+            "color": "#DB7600"
+          },
+                    {
+            "label": "136 - 138 m",
+            "quantity": "138",
+            "color": "#D67000"
+          },
+                    {
+            "label": "138 - 140 m",
+            "quantity": "140",
+            "color": "#D16300"
+          },
+                    {
+            "label": "140 - 142 m",
+            "quantity": "142",
+            "color": "#CC5D00"
+          },
+                    {
+            "label": "142 - 144 m",
+            "quantity": "144",
+            "color": "#C75400"
+          },
+                    {
+            "label": "144 - 146 m",
+            "quantity": "146",
+            "color": "#BF4A00"
+          },
+                    {
+            "label": "146 - 148 m",
+            "quantity": "148",
+            "color": "#BA4200"
+          },
+                    {
+            "label": "148 - 150 m",
+            "quantity": "150",
+            "color": "#B53B00"
+          },
+                    {
+            "label": "150 - 152 m",
+            "quantity": "152",
+            "color": "#B03300"
+          },
+                    {
+            "label": "152 - 154 m",
+            "quantity": "154",
+            "color": "#AB2C00"
+          },
+                    {
+            "label": "154 - 156 m",
+            "quantity": "156",
+            "color": "#A32500"
+          },
+                    {
+            "label": "156 - 158 m",
+            "quantity": "158",
+            "color": "#9E1E00"
+          },
+                    {
+            "label": "158 - 160 m",
+            "quantity": "160",
+            "color": "#991800"
+          },
+                    {
+            "label": "160 - 162 m",
+            "quantity": "162",
+            "color": "#941300"
+          },
+                    {
+            "label": "162 - 164 m",
+            "quantity": "164",
+            "color": "#8F0D00"
+          },
+                    {
+            "label": "164 - 166 m",
+            "quantity": "166",
+            "color": "#870800"
+          },
+                    {
+            "label": "166 - 168 m",
+            "quantity": "168",
+            "color": "#820000"
+          },
+                    {
+            "label": "168 - 170 m",
+            "quantity": "170",
+            "color": "#780000"
+          },
+                    {
+            "label": "170 - 172 m",
+            "quantity": "172",
+            "color": "#780700"
+          },
+                    {
+            "label": "172 - 174 m",
+            "quantity": "174",
+            "color": "#780C00"
+          },
+                    {
+            "label": "174 - 176 m",
+            "quantity": "176",
+            "color": "#750E00"
+          },
+                    {
+            "label": "176 - 178 m",
+            "quantity": "178",
+            "color": "#751100"
+          },
+                    {
+            "label": "178 - 180 m",
+            "quantity": "180",
+            "color": "#751500"
+          },
+                    {
+            "label": "180 - 182 m",
+            "quantity": "182",
+            "color": "#751705"
+          },
+                    {
+            "label": "182 - 184 m",
+            "quantity": "184",
+            "color": "#731700"
+          },
+                    {
+            "label": "184 - 186 m",
+            "quantity": "186",
+            "color": "#731A06"
+          },
+                    {
+            "label": "186 - 188 m",
+            "quantity": "188",
+            "color": "#731C06"
+          },
+                    {
+            "label": "188 - 190 m",
+            "quantity": "190",
+            "color": "#701E07"
+          },
+                    {
+            "label": "190 - 192 m",
+            "quantity": "192",
+            "color": "#701F07"
+          },
+                    {
+            "label": "192 - 194 m",
+            "quantity": "196",
+            "color": "#702408"
+          },
+                    {
+            "label": "196 - 198 m",
+            "quantity": "198",
+            "color": "#6E2308"
+          },
+                    {
+            "label": "198 - 200 m",
+            "quantity": "200",
+            "color": "#6E2509"
+          },
+                    {
+            "label": "200 - 202 m",
+            "quantity": "202",
+            "color": "#6E2709"
+          },
+                    {
+            "label": "202 - 204 m",
+            "quantity": "204",
+            "color": "#6E290A"
+          },
+                    {
+            "label": "204 - 206 m",
+            "quantity": "206",
+            "color": "#6B290B"
+          },
+                    {
+            "label": "206 - 208 m",
+            "quantity": "208",
+            "color": "#6B2B0B"
+          },
+                    {
+            "label": "208 - 210 m",
+            "quantity": "210",
+            "color": "#6B2C0B"
+          },
+                    {
+            "label": "210 - 212 m",
+            "quantity": "212",
+            "color": "#692E0B"
+          },
+                    {
+            "label": "212 - 214 m",
+            "quantity": "214",
+            "color": "#692E0D"
+          },
+                    {
+            "label": "214 - 216 m",
+            "quantity": "216",
+            "color": "#69300E"
+          },
+                    {
+            "label": "216 - 218 m",
+            "quantity": "218",
+            "color": "#6E3613"
+          },
+                    {
+            "label": "218 - 220 m",
+            "quantity": "220",
+            "color": "#703A18"
+          },
+                    {
+            "label": "220 - 222 m",
+            "quantity": "222",
+            "color": "#753F1D"
+          },
+                    {
+            "label": "222 - 224 m",
+            "quantity": "224",
+            "color": "#784323"
+          },
+                    {
+            "label": "224 - 226 m",
+            "quantity": "226",
+            "color": "#7A4828"
+          },
+                    {
+            "label": "226 - 228 m",
+            "quantity": "228",
+            "color": "#7F4E2F"
+          },
+                    {
+            "label": "228 - 230 m",
+            "quantity": "230",
+            "color": "#825234"
+          },
+                    {
+            "label": "230 - 232 m",
+            "quantity": "232",
+            "color": "#85573A"
+          },
+                    {
+            "label": "232 - 234 m",
+            "quantity": "234",
+            "color": "#875C41"
+          },
+                    {
+            "label": "234 - 236 m",
+            "quantity": "236",
+            "color": "#8C6349"
+          },
+                    {
+            "label": "236 - 238 m",
+            "quantity": "238",
+            "color": "#8F674F"
+          },
+                    {
+            "label": "238 - 240 m",
+            "quantity": "240",
+            "color": "#916D56"
+          },
+                    {
+            "label": "240 - 242 m",
+            "quantity": "242",
+            "color": "#94715D"
+          },
+                    {
+            "label": "242 - 244 m",
+            "quantity": "244",
+            "color": "#967663"
+          },
+                    {
+            "label": "244 - 246 m",
+            "quantity": "246",
+            "color": "#997D6D"
+          },
+                    {
+            "label": "246 - 248 m",
+            "quantity": "248",
+            "color": "#9C8273"
+          },
+                    {
+            "label": "248 - 250 m",
+            "quantity": "250",
+            "color": "#9E887B"
+          },
+                    {
+            "label": "250 - 252 m",
+            "quantity": "252",
+            "color": "#A18E84"
+          },
+                    {
+            "label": "252 - 254 m",
+            "quantity": "254",
+            "color": "#A3958C"
+          },
+                    {
+            "label": "254 - 256 m",
+            "quantity": "256",
+            "color": "#A69C97"
+          },
+                    {
+            "label": "256 - 258 m",
+            "quantity": "258",
+            "color": "#A8A29E"
+          },
+                    {
+            "label": "258 - 260 m",
+            "quantity": "260",
+            "color": "#ABA9A7"
+          },
+                    {
+            "label": "260 - 262 m",
+            "quantity": "262",
+            "color": "#ADADAD"
+          },
+                    {
+            "label": "262 - 264 m",
+            "quantity": "264",
+            "color": "#B0B0B0"
+          },
+                    {
+            "label": "264 - 266 m",
+            "quantity": "266",
+            "color": "#B2B3B3"
+          },
+                    {
+            "label": "266 - 268 m",
+            "quantity": "268",
+            "color": "#B8B8B8"
+          },
+                    {
+            "label": "268 - 270 m",
+            "quantity": "270",
+            "color": "#BABABA"
+          },
+                    {
+            "label": "270 - 272 m",
+            "quantity": "272",
+            "color": "#BFBFBF"
+          },
+                    {
+            "label": "272 - 274 m",
+            "quantity": "274",
+            "color": "#C2C2C2"
+          },
+                    {
+            "label": "274 - 276 m",
+            "quantity": "276",
+            "color": "#C4C4C4"
+          },
+                    {
+            "label": "276 - 278 m",
+            "quantity": "278",
+            "color": "#C9C9C9"
+          },
+                    {
+            "label": "278 - 280 m",
+            "quantity": "280",
+            "color": "#CCCCCC"
+          },
+                    {
+            "label": "280 - 282 m",
+            "quantity": "282",
+            "color": "#D1CFD1"
+          },
+                    {
+            "label": "282 - 284 m",
+            "quantity": "284",
+            "color": "#D4D2D4"
+          },
+                    {
+            "label": "284 - 286 m",
+            "quantity": "286",
+            "color": "#D9D7D9"
+          },
+                    {
+            "label": "286 - 288 m",
+            "quantity": "288",
+            "color": "#DBD9DB"
+          },
+                    {
+            "label": "288 - 290 m",
+            "quantity": "290",
+            "color": "#DEDCDE"
+          },
+                    {
+            "label": "290 - 292 m",
+            "quantity": "292",
+            "color": "#E3E1E3"
+          },
+                    {
+            "label": "292 - 294 m",
+            "quantity": "294",
+            "color": "#E5E3E6"
+          },
+                    {
+            "label": "294 - 296 m",
+            "quantity": "296",
+            "color": "#EBE8EB"
+          },
+                    {
+            "label": "296 - 298 m",
+            "quantity": "298",
+            "color": "#F0EDF0"
+          },
+                    {
+            "label": "298 - 300 m",
+            "quantity": "300",
+            "color": "#F2F0F2"
+          },
+                    {
+            "label": "300 - 302 m",
+            "quantity": "302",
+            "color": "#F7F5F7"
+          },
+                    {
+            "label": "302 - 304 m",
+            "quantity": "304",
+            "color": "#FAF7FA"
+          },
+                    {
+            "label": "304 - 306 m",
+            "quantity": "306",
+            "color": "#FFFCFF"
+          }
+        ],
+        "type": "intervals"
+      },
+      "opacity": "1.0"
+    }}]
+  }]
+}]}

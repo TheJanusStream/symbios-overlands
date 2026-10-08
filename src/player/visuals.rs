@@ -121,16 +121,8 @@ pub fn spawn_attachment_tree(
     attachment: Option<&str>,
 ) {
     // The avatar spawner's `record` parameter is unused on every reachable
-    // dispatch arm - the sanitiser strips Terrain / Water / Portal upstream, and
-    // that Water arm is the only `ctx.record` reader - so a single shared
-    // default is a safe read-only sentinel. `RoomRecord::default` runs the whole
-    // seeded-defaults pipeline (terrain shape, palette, scatters, a generator
-    // tree), and this path is NOT rare - `rebuild_local_visuals` fires every
-    // frame while the avatar editor mutates the record, and `detect_remote_change`
-    // once per remote peer per avatar update - so build it ONCE and lend the same
-    // instance to every spawn (#638).
-    static SENTINEL: std::sync::OnceLock<crate::pds::RoomRecord> = std::sync::OnceLock::new();
-    let empty_record = SENTINEL.get_or_init(crate::pds::RoomRecord::default);
+    // dispatch arm, so it is the shared sentinel (#638).
+    let empty_record = crate::world_builder::avatar_spawn::detached_record();
 
     spawn_avatar_visuals_subtree(
         commands,

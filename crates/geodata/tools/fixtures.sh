@@ -23,6 +23,10 @@ map() { # service layers bbox size
   echo "$b/wms/$1?service=WMS&version=1.3.0&request=GetMap&layers=$2&styles=&crs=EPSG:25833&bbox=$3&width=$4&height=$4&format=image/png&transparent=true&format_options=antialias:none"
 }
 
+axes() { # type bbox - a page of street axes, as berlin::parse_axes reads them
+  echo "$b/wfs/atkis?service=WFS&version=2.0.0&request=GetFeature&typeNames=atkis:$1&outputFormat=application/json&bbox=$2,urn:ogc:def:crs:EPSG::25833&propertyName=uuid,brf,fsz,ftr,fkt,wdm,geom&count=2000"
+}
+
 get dgm1_legend.json "$(legend dgm1 c_dgm1)"
 get dgm1_392000_5820000_1024m_256px.png "$(map dgm1 c_dgm1 392000,5820000,393024,5821024 256)"
 get dgm1_391200_5819700_600m_300px.png "$(map dgm1 c_dgm1 391200,5819700,391800,5820300 300)"
@@ -32,7 +36,13 @@ get dgm1_391200_5819700_600m_300px.png "$(map dgm1 c_dgm1 391200,5819700,391800,
 get dgm1_391400_5819900_200m_100px.png "$(map dgm1 c_dgm1 391400,5819900,391600,5820100 100)"
 get dgm1_391200_5819700_600m_64px.png "$(map dgm1 c_dgm1 391200,5819700,391800,5820300 64)"
 
+get dom_legend.json "$(legend dom c_dom)"
+get dom_391200_5819700_600m_300px.png "$(map dom c_dom 391200,5819700,391800,5820300 300)"
+get dom_391200_5819700_600m_150px.png "$(map dom c_dom 391200,5819700,391800,5820300 150)"
+
 get landuse_legend.json "$(legend ua_flaechennutzung_2015 c_ua_realnutz_2015)"
+get landuse_391200_5819700_600m_150px.png \
+  "$(map ua_flaechennutzung_2015 c_ua_realnutz_2015 391200,5819700,391800,5820300 150)"
 get landuse_391400_5819900_200m_100px.png \
   "$(map ua_flaechennutzung_2015 c_ua_realnutz_2015 391400,5819900,391600,5820100 100)"
 get landuse_391200_5819700_600m_64px.png \
@@ -46,3 +56,9 @@ for layer in $(echo $storeys | tr , ' '); do
 done
 get storeys_391200_5819700_600m_300px.png \
   "$(map gebaeude_geschosse $storeys 391200,5819700,391800,5820300 300)"
+
+# The street and carriageway axes of the Museumsinsel square (#1595).
+get atkis_strassenachse_391200_5819700_600m.json \
+  "$(axes b08_ax_strassenachse_l 391200,5819700,391800,5820300)"
+get atkis_fahrbahnachse_391200_5819700_600m.json \
+  "$(axes b07_ax_fahrbahnachse_l 391200,5819700,391800,5820300)"

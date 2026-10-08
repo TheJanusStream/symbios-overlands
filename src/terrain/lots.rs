@@ -89,7 +89,7 @@ const FURNITURE_SINK_M: f32 = 0.1;
 /// Theme used when the room's own theme has no landmark-role catalogue entry
 /// yet - mirrors the settlement deriver's fallback so a road-growing room of a
 /// still-sparse theme is never left empty.
-const FALLBACK_THEME: ThemeArchetype = ThemeArchetype::AncientClassical;
+pub(crate) const FALLBACK_THEME: ThemeArchetype = ThemeArchetype::AncientClassical;
 /// Upper bound on injected building *placements*. Buildings share one generator
 /// per distinct catalogue entry (so generators stay few - a placement per lot,
 /// not an asset per lot); the injection clamps this to the record's free
@@ -101,7 +101,7 @@ pub(crate) const MAX_LOT_BUILDINGS: usize = 256;
 const LOT_STREAM_SALT: u64 = 0x10C5_B011_D196_5EED;
 /// Sink (m) below the terrain snap so foundations bite into slopes rather than
 /// leaving daylight under the downhill edge (matches the settlement deriver).
-const FOUNDATION_SINK_M: f32 = 0.35;
+pub(crate) const FOUNDATION_SINK_M: f32 = 0.35;
 /// The quarter-octave mantissas 2^(j/4), j = 0..3: every fit bucket is one
 /// of these times a power of two (#1553). A table rather than `exp2`, because
 /// the bucket is written INTO the record - the generator root's scale, the
@@ -360,7 +360,7 @@ fn bucket_scale(k: i32) -> f32 {
 /// between buckets stops at the floor. The floor is the one place a building
 /// can still outgrow its lot - as it always could, when the clamp was the
 /// whole of the fit.
-fn fitted_scale(fit: f32, lo: f32, hi: f32) -> f32 {
+pub(crate) fn fitted_scale(fit: f32, lo: f32, hi: f32) -> f32 {
     if fit.is_nan() || fit <= lo {
         return lo;
     }
@@ -403,7 +403,7 @@ fn fit_clamp(settings: &LotSettings, role: StructureRole) -> (f32, f32) {
 /// A drawn scale in the record's own fixed point (#1553): ten-thousandths,
 /// as the wire writes an [`Fp`]. The key one shared generator is grown and
 /// named under.
-fn scale_e4(scale: f32) -> i64 {
+pub(crate) fn scale_e4(scale: f32) -> i64 {
     (scale * FP_SCALE).round() as i64
 }
 
@@ -444,7 +444,7 @@ fn lot_character(scene: &SceneCharacter, settings: &LotSettings) -> (f32, f32) {
 
 /// The catalogue entries of `role` a network grows at `prosperity` and
 /// `escalation`, by their tiers.
-fn pool_for(
+pub(crate) fn pool_for(
     theme: ThemeArchetype,
     role: StructureRole,
     prosperity: f32,
@@ -466,7 +466,10 @@ fn pool_for(
 /// it on, as the seeded settlements' members are. Every Shape node takes the
 /// entry's seed (#1514): it was stamped on the root only, and every grammar
 /// entry roots on a footing box, so the seed reached none of them.
-fn grow_generator(
+///
+/// The middle ring of a geodata region grows its buildings with it too
+/// (#1587), so they are the lots' own.
+pub(crate) fn grow_generator(
     entry: &dyn CatalogueEntry,
     did: &str,
     entry_seed: u64,

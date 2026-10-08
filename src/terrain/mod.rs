@@ -51,6 +51,7 @@ pub(crate) use heightmap::heightmap_params;
 mod lifecycle;
 mod lots;
 pub mod referenced;
+pub(crate) mod ring_buildings;
 mod roads;
 mod splat;
 // The render tool's terrain report reads the ground's weights with it (#1461);
@@ -400,6 +401,14 @@ pub(crate) fn rebuild_terrain_for_record(record: &crate::pds::RoomRecord) -> Fin
 
 pub struct TerrainPlugin;
 
+/// The `Update` instances of the terrain teardown (the loading screen's
+/// abort, the backdrop's re-roll). A system that must run after a terrain
+/// is retired orders after this set, not after the system: bevy refuses to
+/// build a schedule that orders against a system it holds more than one
+/// instance of.
+#[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct TerrainTeardown;
+
 /// Register the terrain pipeline for a headless embedder - the render tool's
 /// `--terrain` mode (#994).
 ///
@@ -461,14 +470,17 @@ pub(crate) fn register_headless_terrain(app: &mut App) {
 
 /// Register the street half of [`TerrainPlugin`] that
 /// [`register_headless_terrain`] leaves out: the road re-mesh, its appearance
-/// re-tint, and the lot layer that grows buildings along the streets by
-/// writing them into the live record. The headless render tool's `--world`
-/// mode adds this on top of the terrain chain so a seeded settlement is
-/// sheeted with its streets and its grown district, as the game shows it.
+/// re-tint, the lot layer that grows buildings along the streets by
+/// writing them into the live record, and a geodata region's middle ring
+/// (#1587). The headless render tool's `--world` mode adds this on top of
+/// the terrain chain so a seeded settlement is sheeted with its streets and
+/// its grown district, and a Berlin square with the buildings round it, as
+/// the game shows them.
 ///
-/// The three systems are ordered after the heightmap steps exactly as the
+/// The systems are ordered after the heightmap steps exactly as the
 /// plugin orders them, and gated on the record alone - no `AppState` in a
-/// headless app. Their resources are plain defaults: the road pipeline
+/// headless app. The ring spawns through the world builder's spawn
+/// resources, which the `--world` mode registers. Their resources are plain defaults: the road pipeline
 /// state, the editor's road readout, the undo signal the lot layer raises
 /// and the toast queue it reports clamps to; nothing reads the last two
 /// here, they exist so the systems can be scheduled at all.
@@ -495,6 +507,10 @@ pub(crate) fn register_headless_roads(app: &mut App) {
                     .run_if(resource_exists::<LiveRoomRecord>)
                     .after(heightmap::poll_terrain_task)
                     .after(heightmap::spawn_terrain_mesh),
+                ring_buildings::start_ring_buildings.after(heightmap::spawn_terrain_mesh),
+                ring_buildings::spawn_ring_buildings
+                    .run_if(resource_exists::<ring_buildings::RingBuild>)
+                    .after(ring_buildings::start_ring_buildings),
             ),
         );
 }
@@ -581,6 +597,17 @@ impl Plugin for TerrainPlugin {
                         .run_if(resource_exists::<LiveRoomRecord>)
                         .after(heightmap::poll_terrain_task)
                         .after(heightmap::spawn_terrain_mesh),
+                    // A geodata region's middle ring (#1587): drawn when its
+                    // terrain lands, then spawned a slice a frame. After the
+                    // systems that retire a terrain, with the sync points
+                    // the ordering inserts, so a slice never hangs a
+                    // building on a terrain already gone.
+                    ring_buildings::start_ring_buildings.after(heightmap::spawn_terrain_mesh),
+                    ring_buildings::spawn_ring_buildings
+                        .run_if(resource_exists::<ring_buildings::RingBuild>)
+                        .after(ring_buildings::start_ring_buildings)
+                        .after(lifecycle::maybe_regenerate_terrain)
+                        .after(TerrainTeardown),
                 )
                     // Historically `not(Login)`; the attract backdrop
                     // (#897) widens the gate so the login screen's demo
@@ -638,6 +665,7 @@ impl Plugin for TerrainPlugin {
             .add_systems(
                 Update,
                 lifecycle::cleanup_terrain
+                    .in_set(TerrainTeardown)
                     .before(geo::poll_geo_terrain)
                     .run_if(
                         in_state(AppState::Loading)
@@ -662,6 +690,7 @@ impl Plugin for TerrainPlugin {
             .add_systems(
                 Update,
                 lifecycle::cleanup_terrain
+                    .in_set(TerrainTeardown)
                     .before(crate::attract::reroll_attract_scene)
                     .before(geo::poll_geo_terrain)
                     .run_if(
@@ -669,6 +698,48 @@ impl Plugin for TerrainPlugin {
                             .and_then(resource_exists::<crate::attract::AttractReroll>),
                     ),
             );
+    }
+}
+
+/// The critic's finding (#1587): ordering the ring after
+/// `cleanup_terrain` itself - which `Update` holds twice - made bevy refuse
+/// the whole schedule, so the game could not start; no test app registers
+/// the plugin whole. This builds every schedule the plugin adds to, as the
+/// app's first frame does, without running a system.
+#[cfg(test)]
+mod schedule_tests {
+    use super::*;
+    use bevy::ecs::schedule::ScheduleLabel;
+
+    #[test]
+    fn the_terrain_plugins_schedules_build() {
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            bevy::asset::AssetPlugin::default(),
+            bevy::state::app::StatesPlugin,
+        ));
+        app.init_state::<AppState>();
+        app.add_plugins(TerrainPlugin);
+        let labels: Vec<_> = app
+            .world()
+            .resource::<Schedules>()
+            .iter()
+            .map(|(_, schedule)| schedule.label())
+            .collect();
+        assert!(labels.contains(&Update.intern()));
+        for label in labels {
+            let world = app.world_mut();
+            let mut schedule = world
+                .resource_mut::<Schedules>()
+                .remove(label)
+                .expect("a schedule just listed");
+            let built = schedule.initialize(world);
+            world.resource_mut::<Schedules>().insert(schedule);
+            if let Err(error) = built {
+                panic!("{label:?} does not build: {error:?}");
+            }
+        }
     }
 }
 

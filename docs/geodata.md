@@ -85,8 +85,7 @@ Traps, each found the hard way:
   one typical width of its inner bound.
 - **The storeys layer is street-level only.** Its outline is a pixel wide at
   any scale, so at 40 m per pixel two thirds of the render is outline. The
-  middle ring needs the land-use blocks' urban-structure type instead
-  (#1587).
+  middle ring reads the surface model less the ground instead (#1587).
 - **No-store.** WMS answers say `Cache-Control: no-cache, no-store`, so the
   browser keeps nothing: the app caches by request URL itself (#1582).
   That is why the builders emit one canonical string per request.
@@ -124,7 +123,8 @@ and the wasm worker share it:
 
 - `square`: `GeoSquare` and the log-uniform size draw;
 - `berlin`: the host, the layer catalogue, `LandUse` (22 classes),
-  `StoreyBand`, `Borough`, and `Coverage`;
+  `StoreyBand`, `Borough`, and `Coverage`; the ATKIS street and carriageway
+  axes, read from a page of GeoJSON by `parse_axes` (#1595);
 - `request`: canonical `GetMap`, `GetLegendGraphic` and `GetFeature` URLs;
 - `legend`: GeoServer JSON legends, as value ranges or fill classes;
 - `raster`: PNG to RGBA; terrain to heights with clamped smoothing;
@@ -194,10 +194,11 @@ The terrain (P1.2, #1584, `src/terrain/geo.rs`) reads the source. A record
 with a Berlin square starts a geodata job instead of the procedural
 heightmap job.
 
-1. The job fetches four answers: the terrain legend and one render of the
-   core - the terrain config's `grid_size` points `cell_scale` apart,
-   centred on the square, with pixel centres on the grid points - and the
-   land-use legend and one render of the same box (P1.4). The core is never
+1. The job fetches the core's answers: the terrain legend and one render of
+   the core - the terrain config's `grid_size` points `cell_scale` apart,
+   centred on the square, with pixel centres on the grid points - the
+   land-use legend and one render of the same box (P1.4), and a page each
+   of the street and carriageway axes over it (#1595). The core is never
    wider than the square (`core_grid`), so a 250 m square is a 250 m
    world, and the core always lies inside Berlin, where the data is.
 2. It decodes them on the compute pool.
@@ -269,7 +270,14 @@ together and go together.
     2 m pixels, whose staircase showed from the ground as a row of teeth
     along the far bank. Within that two-pixel margin the shore's profile
     replaces the two rules above. Water narrower than about two pixels is
-    smoothed away with the steps.
+    smoothed away with the steps;
+  - the water runs on under its bridges (#1595). The land use maps a bridge
+    as the street it carries, so a run of street space along a row or a
+    column, at most 40 m, with water at both its ends and one of Berlin's
+    streets drawn over it, counts as water. Settled as land, such a strip
+    stood as a dam across the river. A footbridge or a rail bridge, which
+    no street deck covers, and every bridge of a region whose streets could
+    not be had, stays the dam it was, and can be walked.
 
   Lifting the ground is only a repair for the few low spots a plane would
   flood, so the body that sets the level must be one the plane can stand
@@ -286,8 +294,8 @@ together and go together.
   scatter bands, the streets, the editor and the tools) asks
   `drawn_water_level` for it. A body more than 3 m off the level, a lake on
   the plateau, is drawn dry; a region with water at several levels needs
-  bounded water planes, a later step. Bridges are causeways at the
-  waterline until P2 builds their decks.
+  bounded water planes, a later step. The streets' decks bridge the water
+  (#1595).
 - **Failure.** If only the land use cannot be had, Berlin's terrain lands
   without it, coloured by the record's altitude bands and with no water,
   and the fallback says so as it does for the terrain.
@@ -358,6 +366,95 @@ core's land use.
   water narrower than about 80 m is smoothed away. Seen from above, the far
   field's land use is plainly coarser than the core's.
 
+The middle ring (P2.1, #1587; `src/terrain/geo/ring.rs`,
+`src/terrain/ring_buildings.rs`) is Berlin's buildings round the walkable
+ground, drawn as the region's own catalogue buildings. It rides in the
+`GeoGround` beside the far field.
+
+- **Data.** Over a box reaching 1 km past the core on every side (at most
+  the square), two renders at 4 m a pixel: the land use, and the surface
+  model `c_dom` (ATKIS DOM, ground with everything on it, 2 m classes from
+  -12 m to 306 m; the Berliner Dom stands 90 m over its square). Less the
+  far field's ground, the surface is how high each thing stands. A pixel
+  of built-up land standing 3 m or more is building.
+- **Lots.** The ring is cut into 30 m lots; a lot is built where 35 % of it
+  is building. Its building stands at the middle of the lot's building
+  pixels (at most 7.5 m off the lot's middle) and faces the nearest street
+  (down the slope of the distance to street space). How high nine tenths of
+  it stand picks the building it takes. The lots nearest the walls come first, at most 6,000; a kilometre
+  of central Berlin round a seeded core is about 4,000. On the recorded
+  Museumsinsel square, 128 of the 145 lots have an ALKIS building within the
+  reach of their own building; most of the rest are courtyards of tall
+  trees, which a surface model cannot tell from roofs.
+- **Buildings.** The theme's own, as the road layer grows its lots: the same
+  pools by the room's prosperity and escalation, finish and ruin. The
+  tallest lots - 40 m or more, no two within 200 m, at most 8 - take the
+  theme's landmarks: Berlin's church towers, domes and high-rises. Every
+  other lot takes a secondary building, a bigger one where Berlin's stands
+  taller. A building is drawn no bigger than its lot holds, whichever way
+  it turns, down to half its catalogue size. Sounds, particles, signs,
+  portals and gateways are stripped: a kilometre off they only cost.
+- **Near and far.** A kilometre of Berlin is ~4,000 buildings of a handful
+  to hundreds of parts each, and in a browser every part costs CPU each
+  frame. Each distinct building (an entry at a drawn scale) is spawned once,
+  hidden, and baked: its parts merged into one mesh per material, carried
+  by the affine product of their transforms as the renderer carries them,
+  and a far form, the building filled into 1 m voxels and its outer faces
+  merged into rectangles, each in its parts' base colour - a few hundred
+  triangles (at most 2,048, then one colour), no holes where a facade is
+  tiled from small parts. Within 200 m of the walls, and while the near
+  copies stay inside 9,000 entities, a copy is the merged meshes, a few
+  entities. Past that it is the far form, one entity casting no shadow, at
+  most 4,000. Copies share their building's meshes. A 4 km square round
+  the Museumsinsel reached both caps: 8,990 near entities and 4,000 far
+  copies of its 5,838 lots, its outermost 1,200 or so left undrawn.
+- **Spawning.** Under one root hung on the terrain, so it goes with it, as a
+  remote avatar's visuals are spawned (no collider, editor marker or room
+  entity): 4 ms a frame, and at most two templates, one bake or 256 copies
+  of it. A template's full-detail meshes stay in the shared generator
+  caches, beside the room's own buildings of the same entries, until the
+  room compile's sweep. None of it is in the record or saved. The ring
+  waits on its own answers, apart from the far field's: a ring that is
+  late or cannot be had says so, and the horizon stays.
+
+The streets (#1595; `src/terrain/geo/streets.rs`) are Berlin's own on the
+walkable ground, meshed by the road networks' mesher.
+
+- **Data.** ATKIS's street axes (`atkis:b08_ax_strassenachse_l`) and
+  carriageway axes (`atkis:b07_ax_fahrbahnachse_l`), dl-de/zero, one WFS
+  page each over the core (a central core holds a few hundred, at about
+  300 bytes each). An axis carries its carriageway width (`brf`), lanes
+  (`fsz`), separation (`ftr`), function (`fkt`, 1808 a pedestrian zone),
+  dedication (`wdm`) and a stable `uuid`. ATKIS cuts its axes at every
+  junction and joins them at exactly shared end points. A street whose
+  carriageways run apart is drawn as its carriageway axes; its own axis,
+  which runs between them, is not. Both layers mark that separation, so
+  the two pages are read apart. A pedestrian zone is no carriageway and is
+  not drawn: the land use paints it as stone. The street sections
+  `rbs_strab` are CC BY and are not used.
+- **Graph.** The end points are welded into nodes, the lines cut 3 m inside
+  the core's edge (a cut end is capped), and the lines meeting two to a node
+  joined into the runs between junctions. A run's deck is as wide as its
+  carriageway (the length-weighted mean of its lines'); with no width, as
+  its lanes at 3.25 m; with neither, as its kind of street.
+- **Mesh.** `urban::mesh_chains` - the tensor networks' own mesher from the
+  chains on: junction truncation and hubs, the network-wide levelling, the
+  ribbons with their curbs and skirt. `mesh_road_graph` is now the tensor
+  front end over it. The mesh is built in the decode task and rides in the
+  `GeoGround` until the terrain spawns, which takes it out: the surfaces are
+  children of the terrain's root with their trimesh colliders, in the
+  theme's road palette, and keep no CPU copy (a road network's neither).
+- **Bridges.** The streets are read before the ground is settled, so the
+  water runs on under the bridges they cross. Streets drape over a copy of
+  the ground of their own: the higher of the terrain as drawn and as
+  settled, so a quay keeps the height the settle eased down to the water,
+  and over the water a span from bank to bank, along the shorter of the
+  row and the column through each cell, at least 1.5 m over the level. A
+  bridge is a deck from quay to quay, its skirt the bridge's side; on the
+  Museumsinsel the lowest deck over a bridge stands 1.7 m over the Spree.
+- **Failure.** Streets that cannot be had leave the ground without them,
+  painted on its stone layer, and say so.
+
 The ignored test `live_gdi_berlin_round_trip_decodes_and_is_kept` exercises
 the live path end to end: the real client, the disk store, and the decoders.
 It then checks that a second visit is answered from the store alone. Fire it
@@ -375,8 +472,9 @@ Each phase is a sub-issue of #1580, in build order:
 | #1584 | P1.2 real-scale terrain core from `c_dgm1`, collider, world digest |
 | #1585 | P1.3 far-field terrain ring to the square's edge, no collider, fog |
 | #1586 | P1.4 ground splat from land use, water from the water layers |
-| #1587 | P2.1 derived-content stage with stable ids; block-level buildings |
-| #1588 | P2.2 street-level core: footprints, trees, street furniture |
+| #1587 | P2.1 block-level buildings in the middle ring |
+| #1595 | Berlin's streets on the core, meshed by the road networks' mesher |
+| #1588 | P2.2 derived-content stage with stable ids (moved from P2.1); street-level core: footprints, trees, street furniture |
 | #1589 | P3.1 the DID draws the source; seed-row locks; exact-square lock |
 | #1590 | P3.2 owner edits over derived content; layer hashes |
 | #1591 | P4 walkable area past the core (revive terrain streaming) |

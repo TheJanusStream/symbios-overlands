@@ -205,7 +205,8 @@ pub(crate) fn decode_far(
 ) -> Result<FarField, String> {
     let mut heights = super::decode_heights(terrain_legend, terrain, plan.grid, plan.cell)?.data;
     let cover = super::ground::decode_cover(land_use_legend, land_use, plan.grid)?;
-    let water = super::ground::water_mask(&cover);
+    // At far pixels no street is drawn: the bridges stay as mapped.
+    let water = super::ground::water_mask(&cover, plan.grid as usize, plan.cell, None);
     let wet = level
         .and_then(|level| {
             geodata::water::settle_to(&mut heights, &water, plan.grid, plan.grid, plan.cell, level)

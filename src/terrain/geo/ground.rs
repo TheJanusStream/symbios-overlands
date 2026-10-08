@@ -32,6 +32,8 @@ use bevy_symbios_ground::WeightMap;
 use geodata::berlin::LandUse;
 
 use super::far::FarField;
+use super::ring::Ring;
+use crate::urban::RoadParts;
 
 /// The scatter layer of ground that is no natural ground: matched by no
 /// biome filter.
@@ -57,6 +59,54 @@ pub(crate) struct GeoGround {
     /// the core (#1585). Shared, so the clones the contact classifier keeps
     /// do not copy it.
     far: Option<Arc<FarField>>,
+    /// The buildings' lots round the core, where the far field has them
+    /// (#1587). Shared, as the far field is.
+    ring: Option<Arc<Ring>>,
+    /// Berlin's streets on the core, meshed (#1595), where it has any.
+    streets: Option<StreetMeshes>,
+}
+
+/// Berlin's streets meshed on a core (#1595), shared: the clones the
+/// contact classifier keeps do not copy them. The one spawn that draws them
+/// takes them out ([`Self::take`]), so the ground keeps no second copy of
+/// buffers the GPU already holds for the rest of the visit. Two are equal
+/// when they hold the same meshes.
+#[derive(Clone)]
+pub(crate) struct StreetMeshes(Arc<std::sync::Mutex<Option<RoadParts>>>);
+
+impl StreetMeshes {
+    /// Take the meshes out, to spawn them: none are left after.
+    pub(crate) fn take(&self) -> Option<RoadParts> {
+        self.0.lock().ok()?.take()
+    }
+
+    /// What `read` says of the meshes, while they are not yet taken.
+    pub(crate) fn with<R>(&self, read: impl FnOnce(&RoadParts) -> R) -> Option<R> {
+        self.0.lock().ok()?.as_ref().map(read)
+    }
+}
+
+impl PartialEq for StreetMeshes {
+    fn eq(&self, other: &Self) -> bool {
+        if Arc::ptr_eq(&self.0, &other.0) {
+            return true;
+        }
+        match (self.0.lock(), other.0.lock()) {
+            (Ok(a), Ok(b)) => *a == *b,
+            _ => false,
+        }
+    }
+}
+
+impl std::fmt::Debug for StreetMeshes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.with(|p| (p.chains, p.junctions)) {
+            Some((streets, junctions)) => {
+                write!(f, "StreetMeshes({streets} streets, {junctions} junctions)")
+            }
+            None => write!(f, "StreetMeshes(spawned)"),
+        }
+    }
 }
 
 impl GeoGround {
@@ -74,6 +124,33 @@ impl GeoGround {
     /// Give the ground its far field.
     pub(super) fn set_far(&mut self, far: FarField) {
         self.far = Some(Arc::new(far));
+    }
+
+    /// The middle ring: the lots of the buildings round the core.
+    pub(crate) fn ring(&self) -> Option<&Arc<Ring>> {
+        self.ring.as_ref()
+    }
+
+    /// Give the ground its middle ring.
+    pub(super) fn set_ring(&mut self, ring: Ring) {
+        self.ring = Some(Arc::new(ring));
+    }
+
+    /// Berlin's streets on the core, meshed.
+    pub(crate) fn streets(&self) -> Option<&StreetMeshes> {
+        self.streets.as_ref()
+    }
+
+    /// Give the ground its streets.
+    pub(super) fn set_streets(&mut self, parts: RoadParts) {
+        self.streets = Some(StreetMeshes(Arc::new(std::sync::Mutex::new(Some(parts)))));
+    }
+
+    /// Which cells are water, and the bridges over it that the streets
+    /// crossing `bridges` ride ([`water_mask`]): the mask the core's water
+    /// was settled with, given the same `bridges`.
+    pub(super) fn wet(&self, bridges: Option<&[bool]>) -> Vec<bool> {
+        water_mask(&self.cover, self.grid as usize, self.cell, bridges)
     }
 
     /// The splat weight map: one texel per cell, all of it on the cell's
@@ -144,12 +221,26 @@ impl GeoGround {
             cover,
             water_level,
             far: None,
+            ring: None,
+            streets: None,
         }
     }
 
     /// This ground with `far` round it.
     pub(crate) fn with_far(mut self, far: FarField) -> Self {
         self.set_far(far);
+        self
+    }
+
+    /// This ground with `ring` round it.
+    pub(crate) fn with_ring(mut self, ring: Ring) -> Self {
+        self.set_ring(ring);
+        self
+    }
+
+    /// This ground with `parts` as its streets.
+    pub(crate) fn with_streets(mut self, parts: RoadParts) -> Self {
+        self.set_streets(parts);
         self
     }
 }
@@ -209,17 +300,19 @@ pub(crate) fn is_natural(cover: Option<LandUse>) -> bool {
 
 /// Decode a land-use render of the core through its legend, and settle the
 /// core's water on `heights` (the decoded terrain, `grid` x `grid` cells
-/// `cell` metres apart): its beds carved, the rest of the ground kept above
-/// its level. On an error `heights` is untouched.
+/// `cell` metres apart): its beds carved, under the bridges Berlin's
+/// streets cross too (`bridges`, see [`water_mask`]), the rest of the
+/// ground kept above its level. On an error `heights` is untouched.
 pub(crate) fn decode_ground(
     legend: &[u8],
     render: &[u8],
     heights: &mut [f32],
     grid: u32,
     cell: f32,
+    bridges: Option<&[bool]>,
 ) -> Result<GeoGround, String> {
     let cover = decode_cover(legend, render, grid)?;
-    let wet = water_mask(&cover);
+    let wet = water_mask(&cover, grid as usize, cell, bridges);
     let water = geodata::water::settle(heights, &wet, grid, grid, cell);
     Ok(GeoGround {
         grid,
@@ -227,6 +320,8 @@ pub(crate) fn decode_ground(
         cover,
         water_level: water.map(|w| w.level),
         far: None,
+        ring: None,
+        streets: None,
     })
 }
 
@@ -254,9 +349,62 @@ pub(super) fn decode_cover(
         .collect())
 }
 
-/// Which pixels of `cover` are water.
-pub(super) fn water_mask(cover: &[Option<LandUse>]) -> Vec<bool> {
-    cover.iter().map(|&c| c == Some(LandUse::Water)).collect()
+/// The widest bridge the water runs on under (m): see [`water_mask`].
+const MAX_BRIDGE_M: f32 = 40.0;
+
+/// Which pixels of `cover` - `side` x `side` pixels `cell` metres apart -
+/// are water: its water, and the bridges over it that Berlin's streets
+/// cross (#1595).
+///
+/// The land use maps a bridge as the street it carries, so a river crossed
+/// by one is two bodies with a strip of street space between them, and
+/// settled as land the strip stood as a dam across the river. A run of
+/// street space along a row or a column, no longer than [`MAX_BRIDGE_M`],
+/// with water at both its ends and a street drawn over it - one of the
+/// `bridges` cells a drawn street axis crosses - is the water's: the river
+/// runs on under the bridge, and the street rides over it as a deck. With
+/// no `bridges` - the streets not fetched, or a far field too coarse for
+/// them - and on a footbridge or a rail bridge, which no street deck would
+/// cover, the strip stays the dam it was, and can be walked.
+pub(super) fn water_mask(
+    cover: &[Option<LandUse>],
+    side: usize,
+    cell: f32,
+    bridges: Option<&[bool]>,
+) -> Vec<bool> {
+    let water = |c: Option<LandUse>| c == Some(LandUse::Water);
+    let mut wet: Vec<bool> = cover.iter().map(|&c| water(c)).collect();
+    let Some(bridges) = bridges else {
+        return wet;
+    };
+    let longest = (MAX_BRIDGE_M / cell.max(0.01)).floor() as usize;
+    // Every row, then every column, as the step between its pixels.
+    let lines = (0..side)
+        .map(|r| (r * side, 1))
+        .chain((0..side).map(|c| (c, side)));
+    for (first, step) in lines {
+        let at = |i: usize| first + i * step;
+        let mut i = 0;
+        while i < side {
+            if cover[at(i)].is_some() {
+                i += 1;
+                continue;
+            }
+            let start = i;
+            while i < side && cover[at(i)].is_none() {
+                i += 1;
+            }
+            let bounded =
+                start > 0 && i < side && water(cover[at(start - 1)]) && water(cover[at(i)]);
+            let crossed = (start..i).any(|j| bridges[at(j)]);
+            if bounded && crossed && i - start <= longest {
+                for j in start..i {
+                    wet[at(j)] = true;
+                }
+            }
+        }
+    }
+    wet
 }
 
 /// A one-texel-per-cell weight map, all of each texel on its cell's layer.
@@ -309,6 +457,66 @@ mod tests {
             assert!(!is_natural(city), "{city:?}");
         }
         assert!(is_natural(Some(LandUse::Forest)) && is_natural(Some(LandUse::Farmland)));
+    }
+
+    /// #1595: a bridge is the street it carries in the land use; the water
+    /// runs on under it where a street is drawn over it, and nowhere else
+    /// street space meets water.
+    #[test]
+    fn the_water_runs_on_under_its_bridges() {
+        // A river down columns 14 and 15 of a 30-cell square; a street
+        // crosses it on row 4 and a footbridge on row 20, a quay runs
+        // beside it on column 17, and on row 8 a street of 13 cells runs
+        // between a pond at column 0 and the river. The streets drawn are
+        // row 4's, column 17's and row 8's.
+        let side = 30;
+        let mut cover = vec![Some(LandUse::Housing); side * side];
+        let at = |x: usize, z: usize| z * side + x;
+        let mut drawn = vec![false; side * side];
+        for z in 0..side {
+            cover[at(14, z)] = Some(LandUse::Water);
+            cover[at(15, z)] = Some(LandUse::Water);
+            cover[at(17, z)] = None;
+            drawn[at(17, z)] = true;
+        }
+        for x in 14..=15 {
+            cover[at(x, 4)] = None;
+            cover[at(x, 20)] = None;
+        }
+        for x in 0..side {
+            drawn[at(x, 4)] = true;
+            drawn[at(x, 8)] = true;
+        }
+        for x in 1..14 {
+            cover[at(x, 8)] = None;
+        }
+        cover[at(0, 8)] = Some(LandUse::Water);
+        let wet = water_mask(&cover, side, 4.0, Some(&drawn));
+        assert!(
+            wet[at(14, 4)] && wet[at(15, 4)],
+            "the bridge's span is the river's"
+        );
+        assert!(
+            !wet[at(14, 20)],
+            "no street over the footbridge: it stays a walk"
+        );
+        assert!(
+            !wet[at(17, 4)],
+            "the quay is no bridge: water on one side only"
+        );
+        assert!(
+            (1..14).all(|x| !wet[at(x, 8)]),
+            "52 m of street between two waters is a street"
+        );
+        let fine = water_mask(&cover, side, 3.0, Some(&drawn));
+        assert!(
+            (1..14).all(|x| fine[at(x, 8)]),
+            "at 3 m cells the same 13 are 39 m: a bridge"
+        );
+        // With no streets nothing is bridged: the dams stay walkable.
+        let bare = water_mask(&cover, side, 4.0, None);
+        assert!(!bare[at(14, 4)]);
+        assert_eq!(bare.iter().filter(|&&w| w).count(), 2 * side - 4 + 1);
     }
 
     #[test]

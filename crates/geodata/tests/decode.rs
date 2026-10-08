@@ -6,7 +6,7 @@
 use geodata::berlin::{self, LandUse, StoreyBand};
 use geodata::legend::{ClassLegend, parse_class_legend, parse_value_legend};
 use geodata::raster::{CLASS_NONE, decode_classes, decode_png, decode_terrain};
-use geodata::request::{Bbox, get_legend, get_map};
+use geodata::request::{Bbox, FeatureQuery, get_features, get_legend, get_map};
 use geodata::water;
 
 fn fixture(name: &str) -> Vec<u8> {
@@ -78,6 +78,13 @@ fn fixtures_are_what_the_builders_ask_for() {
         )
     );
     assert_eq!(
+        get_map(&berlin::SURFACE, MUSEUMSINSEL, 300, 300),
+        format!(
+            "{wms}/dom?service=WMS&version=1.3.0&request=GetMap&layers=c_dom{tail}\
+             &bbox=391200,5819700,391800,5820300&width=300&height=300{png}"
+        )
+    );
+    assert_eq!(
         get_map(&berlin::LAND_USE, MUSEUMSINSEL, 300, 300),
         format!(
             "{wms}/ua_flaechennutzung_2015?service=WMS&version=1.3.0&request=GetMap\
@@ -92,6 +99,29 @@ fn fixtures_are_what_the_builders_ask_for() {
              &layers=a_geschosszahl_mehr_10,b_geschosszahl_7_10,c_geschosszahl_5_6,\
              d_geschosszahl_3_4,e_geschosszahl_1_2,f_geschosszahl_unter_1{tail}\
              &bbox=391200,5819700,391800,5820300&width=300&height=300{png}"
+        )
+    );
+    let axes = FeatureQuery {
+        properties: berlin::AXIS_PROPERTIES,
+        count: Some(berlin::AXIS_PAGE),
+        start_index: None,
+    };
+    let wfs = "https://gdi.berlin.de/services/wfs";
+    let page = "&outputFormat=application/json\
+                &bbox=391200,5819700,391800,5820300,urn:ogc:def:crs:EPSG::25833\
+                &propertyName=uuid,brf,fsz,ftr,fkt,wdm,geom&count=2000";
+    assert_eq!(
+        get_features(&berlin::STREET_AXES, MUSEUMSINSEL, &axes),
+        format!(
+            "{wfs}/atkis?service=WFS&version=2.0.0&request=GetFeature\
+             &typeNames=atkis:b08_ax_strassenachse_l{page}"
+        )
+    );
+    assert_eq!(
+        get_features(&berlin::CARRIAGEWAY_AXES, MUSEUMSINSEL, &axes),
+        format!(
+            "{wfs}/atkis?service=WFS&version=2.0.0&request=GetFeature\
+             &typeNames=atkis:b07_ax_fahrbahnachse_l{page}"
         )
     );
     assert_eq!(
@@ -317,4 +347,94 @@ fn the_spree_at_the_museumsinsel_settles_at_its_level() {
             );
         }
     }
+}
+
+#[test]
+fn the_surface_model_stands_the_berliner_dom_90_m_over_its_square() {
+    let legend = parse_value_legend(&fixture("dom_legend.json")).unwrap();
+    let image = decode_png(&fixture("dom_391200_5819700_600m_300px.png"), 300, 300).unwrap();
+    let surface = decode_terrain(&image, &legend).unwrap();
+    assert_eq!((surface.transparent, surface.unmatched), (0, 0));
+    let ground = decode_terrain(
+        &decode_png(&fixture("dgm1_391200_5819700_600m_300px.png"), 300, 300).unwrap(),
+        &parse_value_legend(&fixture("dgm1_legend.json")).unwrap(),
+    )
+    .unwrap();
+    // The highest thing standing on the Museumsinsel square: the dome of the
+    // Berliner Dom, at E 391513 N 5819981, 98 m tall to its lantern cross.
+    let (top, at) =
+        surface.heights.iter().enumerate().fold(
+            (f32::MIN, 0),
+            |(m, a), (i, &h)| if h > m { (h, i) } else { (m, a) },
+        );
+    let (col, row) = (at % 300, at / 300);
+    assert_eq!(
+        (391_200 + 2 * col as i64 + 1, 5_820_300 - 2 * row as i64 - 1),
+        (391_513, 5_819_981)
+    );
+    let standing = top - ground.heights[at];
+    assert!(
+        (85.0..100.0).contains(&standing),
+        "{standing} m over the ground"
+    );
+    // Less the terrain, open ground stands at about nothing.
+    let above: Vec<f32> = surface
+        .heights
+        .iter()
+        .zip(&ground.heights)
+        .map(|(s, g)| s - g)
+        .collect();
+    let mut sorted = above.clone();
+    sorted.sort_by(f32::total_cmp);
+    assert!(
+        sorted[sorted.len() / 20] > -2.0,
+        "a twentieth below {}",
+        sorted[sorted.len() / 20]
+    );
+}
+
+/// The Museumsinsel square's streets, as ATKIS draws them: 70 stretches of
+/// street, 12 of them the middle of a street whose carriageways run apart
+/// (the Karl-Liebknecht-Strasse and the Schlossplatz), drawn as 28
+/// carriageways of their own - the Liebknechtbruecke among them - and the
+/// pedestrian zone round the museums.
+#[test]
+fn the_museumsinsel_streets_read_as_atkis_draws_them() {
+    let streets =
+        berlin::parse_axes(&fixture("atkis_strassenachse_391200_5819700_600m.json")).unwrap();
+    let carriageways =
+        berlin::parse_axes(&fixture("atkis_fahrbahnachse_391200_5819700_600m.json")).unwrap();
+    assert!(!streets.is_cut_short() && !carriageways.is_cut_short());
+    assert_eq!((streets.axes.len(), carriageways.axes.len()), (70, 28));
+    assert_eq!(streets.axes.iter().filter(|a| a.separated).count(), 12);
+    assert_eq!(streets.axes.iter().filter(|a| a.pedestrian).count(), 12);
+    assert!(
+        carriageways
+            .axes
+            .iter()
+            .all(|a| a.separated && !a.pedestrian)
+    );
+    // Every carriageway, and every street that is one, says how wide it is.
+    let drawn = streets
+        .axes
+        .iter()
+        .filter(|a| !a.separated)
+        .chain(&carriageways.axes);
+    assert!(
+        drawn
+            .clone()
+            .all(|a| a.width.is_some_and(|w| (4.0..=16.0).contains(&w)))
+    );
+    assert!(drawn.flat_map(|a| &a.lines).all(|l| l.len() >= 2));
+    // The Liebknechtbruecke, over the Spree beside the Dom, a federal road.
+    let bridge = carriageways
+        .axes
+        .iter()
+        .find(|a| a.uuid == "DEBEATKB10000FP5")
+        .expect("the bridge");
+    assert_eq!(
+        (bridge.width, bridge.dedication),
+        (Some(5.5), berlin::Dedication::Federal)
+    );
+    assert_eq!(bridge.lines[0][0], [391_606.037, 5_819_950.312_9]);
 }

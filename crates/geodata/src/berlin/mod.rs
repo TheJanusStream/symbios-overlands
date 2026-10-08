@@ -7,8 +7,12 @@
 
 mod coverage;
 mod coverage_table;
+mod streets;
 
 pub use coverage::{Coverage, Keep};
+pub use streets::{
+    AXIS_PAGE, AXIS_PROPERTIES, AxisError, AxisPage, Dedication, StreetAxis, parse_axes,
+};
 
 use crate::legend::ClassLegend;
 use crate::request::{WfsType, WmsLayer};
@@ -27,6 +31,18 @@ pub const TERRAIN: WmsLayer = WmsLayer {
     base: BASE_URL,
     service: "dgm1",
     layers: &["c_dgm1"],
+    epsg: EPSG,
+};
+
+/// The surface model: the ATKIS DOM, ground with everything standing on
+/// it - buildings, trees, bridges - drawn in two-metre height classes from
+/// -12 m to 306 m. Decode with [`crate::raster::decode_terrain`] and its
+/// legend, as the terrain; less the terrain, it is how high whatever stands
+/// on the ground rises (the Berliner Dom, 90 m over its square).
+pub const SURFACE: WmsLayer = WmsLayer {
+    base: BASE_URL,
+    service: "dom",
+    layers: &["c_dom"],
     epsg: EPSG,
 };
 
@@ -64,6 +80,16 @@ pub const STOREYS: WmsLayer = WmsLayer {
 /// Building footprints (ALKIS): multipolygons with function (`bezgfk`),
 /// storeys above ground (`aog`), name and address, keyed by `uuid`.
 pub const BUILDINGS: WfsType = wfs("alkis_gebaeude", "alkis_gebaeude:gebaeude");
+
+/// Street axes (ATKIS Basis-DLM `AX_Strassenachse`): one line per stretch
+/// of street between junctions, with its carriageway width, lanes,
+/// separation, function and dedication, keyed by `uuid`. Read a page with
+/// [`parse_axes`], asked for with [`AXIS_PROPERTIES`].
+pub const STREET_AXES: WfsType = wfs("atkis", "atkis:b08_ax_strassenachse_l");
+
+/// Carriageway axes (ATKIS `AX_Fahrbahnachse`): each carriageway of a
+/// street whose carriageways run apart, read as [`STREET_AXES`] is.
+pub const CARRIAGEWAY_AXES: WfsType = wfs("atkis", "atkis:b07_ax_fahrbahnachse_l");
 
 /// Street trees: points with species and genus, planting year, height,
 /// crown diameter and trunk girth, keyed by `gisid`.

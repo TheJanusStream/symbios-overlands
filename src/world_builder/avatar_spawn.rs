@@ -2,7 +2,9 @@
 //! [`super::compile::spawn_generator`] machinery. Routes a
 //! [`Generator`] tree through the same dispatch arms (primitives,
 //! LSystem, Shape) that rooms use, but with `avatar_mode = true` on
-//! [`super::compile::SpawnCtx`] so each spawn arm:
+//! [`super::compile::SpawnCtx`] - [`spawn_detached_tree`], which a geodata
+//! region's middle ring also spawns its buildings through (#1587) - so
+//! each spawn arm:
 //!
 //!   1. Skips the `RoomEntity` cleanup tag (avatar children live under
 //!      the chassis hierarchy and despawn through it).
@@ -72,6 +74,82 @@ pub fn spawn_avatar_visuals_subtree(
     // avatar's visuals-path marker. `None` for body visuals.
     attachment: Option<&str>,
 ) {
+    // Synthetic generator-ref namespace so the persistent caches don't
+    // collide between simultaneous avatar spawns and room generators.
+    // Every avatar shares the prefix; per-instance distinction comes
+    // from chassis-entity ID embedded in the cache key.
+    let cache_key = format!("avatar/{}", chassis.index());
+
+    // The visuals root carries its own transform - which the spawner
+    // applies to the entity it creates. Parent that entity to the
+    // chassis so the chassis's world transform anchors the whole tree.
+    // The root is tagged `AvatarVisualRoot` (with its authored base
+    // transform) so the player gait-animation layer has a stable,
+    // rebuild-safe handle to offset.
+    let local_tf = transform_from_data(&visuals.transform);
+    let (root, _) = spawn_detached_tree(
+        commands,
+        chassis,
+        visuals,
+        &cache_key,
+        local_tf,
+        meshes,
+        std_materials,
+        water_materials,
+        images,
+        palette,
+        heightmap,
+        terrain_meshes,
+        caches,
+        blob_image_cache,
+        blob_audio_cache,
+        water_surfaces,
+        record,
+        current_room,
+        is_local,
+        attachment,
+    );
+    if let Some(root) = root {
+        commands.entity(root).insert(super::AvatarVisualRoot {
+            base_translation: local_tf.translation,
+            base_rotation: local_tf.rotation,
+        });
+    }
+}
+
+/// Spawn `tree` under `parent` with no room behaviour, as an avatar's
+/// visuals are (see the module docs): its root at `transform` in the
+/// parent's frame, its caches filed under `cache_key`. Answers the root and
+/// how many entities the tree spawned.
+///
+/// Every tree spawned under one `cache_key` shares its derived grammar and
+/// meshes, so a key per distinct tree, not per copy, is what lets copies
+/// instance one another: the middle ring of a geodata region (#1587)
+/// spawns each of its shared buildings under one key, and every avatar
+/// under its own.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn spawn_detached_tree(
+    commands: &mut Commands,
+    parent: Entity,
+    tree: &Generator,
+    cache_key: &str,
+    transform: Transform,
+    meshes: &mut Assets<Mesh>,
+    std_materials: &mut Assets<StandardMaterial>,
+    water_materials: &mut Assets<WaterMaterial>,
+    images: &mut Assets<Image>,
+    palette: Option<&MaterialPalette>,
+    heightmap: Option<&FinishedHeightMap>,
+    terrain_meshes: &Query<Entity, (With<TerrainMesh>, Without<OutgoingTerrain>)>,
+    caches: &mut GeneratorCaches,
+    blob_image_cache: &mut BlobImageCache,
+    blob_audio_cache: &mut super::audio_resolver::BlobAudioCache,
+    water_surfaces: &mut WaterSurfaces,
+    record: &RoomRecord,
+    current_room: Option<&CurrentRoomDid>,
+    is_local: bool,
+    attachment: Option<&str>,
+) -> (Option<Entity>, u32) {
     // Touch-sets are scratch state for the room compiler's GC pass at
     // the end of compile_room_record. Avatar spawning doesn't run
     // through that GC, but `spawn_lsystem_entity` and
@@ -93,12 +171,6 @@ pub fn spawn_avatar_visuals_subtree(
 
     let mut entities_spawned: u32 = 0;
     let mut budget_warned = false;
-
-    // Synthetic generator-ref namespace so the persistent caches don't
-    // collide between simultaneous avatar spawns and room generators.
-    // Every avatar shares the prefix; per-instance distinction comes
-    // from chassis-entity ID embedded in the cache key.
-    let cache_key = format!("avatar/{}", chassis.index());
 
     let mut ctx = SpawnCtx {
         commands,
@@ -143,21 +215,22 @@ pub fn spawn_avatar_visuals_subtree(
         copy: &mut Default::default(),
         draw_cuts: Default::default(),
     };
+    let root = spawn_generator(&mut ctx, tree, cache_key, &[], transform, Some(parent));
+    (root, entities_spawned)
+}
 
-    // The visuals root carries its own transform - which the spawner
-    // applies to the entity it creates. Parent that entity to the
-    // chassis so the chassis's world transform anchors the whole tree.
-    // The root is tagged `AvatarVisualRoot` (with its authored base
-    // transform) so the player gait-animation layer has a stable,
-    // rebuild-safe handle to offset.
-    let local_tf = transform_from_data(&visuals.transform);
-    if let Some(root) = spawn_generator(&mut ctx, visuals, &cache_key, &[], local_tf, Some(chassis))
-    {
-        ctx.commands.entity(root).insert(super::AvatarVisualRoot {
-            base_translation: local_tf.translation,
-            base_rotation: local_tf.rotation,
-        });
-    }
+/// The record a detached tree is spawned against: no dispatch arm it
+/// reaches reads it - the avatar sanitiser strips Terrain / Water / Portal
+/// upstream, and that Water arm is the only `ctx.record` reader - so one
+/// shared default is a safe read-only sentinel. `RoomRecord::default` runs
+/// the whole seeded-defaults pipeline (terrain shape, palette, scatters, a
+/// generator tree), and a detached spawn is NOT rare - `rebuild_local_visuals`
+/// fires every frame while the avatar editor mutates the record, and
+/// `detect_remote_change` once per remote peer per avatar update - so it is
+/// built ONCE and the same instance lent to every spawn (#638).
+pub(crate) fn detached_record() -> &'static RoomRecord {
+    static SENTINEL: std::sync::OnceLock<RoomRecord> = std::sync::OnceLock::new();
+    SENTINEL.get_or_init(RoomRecord::default)
 }
 
 /// PDS `TransformData` → Bevy `Transform`, its rotation normalised (#1565).

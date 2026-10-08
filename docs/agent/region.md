@@ -1069,7 +1069,18 @@ null` goes back to the generated ground.
   a `default_landing` or a placement out there cannot be reached. Once the
   horizon has loaded the fog opens at least as far as the square's side so
   it shows, whatever `/environment/fog_visibility` says below that.
-- **Blocks and buildings are not Berlin's yet.**
+- **Berlin's buildings stand round the walkable ground** (#1587), out to
+  about a kilometre past its walls: the theme's own catalogue buildings,
+  one to each 30 m lot where Berlin has a building, the tallest Berlin
+  buildings taking the theme's landmarks. They are drawn and never walked,
+  derived on every visit, and not in the record: nothing an agent can
+  place, move or delete. The walkable ground's own blocks are not built
+  yet (P2.2).
+- **Berlin's streets are built on the walkable ground** (#1595): its real
+  street network, each street as wide as its carriageway, with curbs and
+  junctions, bridges where it crosses water. Like the buildings round it
+  they are Berlin's, derived on every visit and not in the record; a
+  `RoadNetwork` child still grows its own streets beside them.
 
 ## Arrivals
 

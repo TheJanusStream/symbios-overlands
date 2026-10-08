@@ -189,6 +189,18 @@ impl Dims {
             skirt_depth: c.skirt_depth.0,
         }
     }
+
+    /// The dimensions a network whose streets carry widths of their own is
+    /// drawn with (#1595): a road network's default curb and skirt, and
+    /// `widest` - the widest street's deck half-width - as both road
+    /// classes' width, which only the junction plan's reach reads.
+    pub(crate) fn for_streets(widest: f32) -> Self {
+        Self {
+            major_half_width: widest,
+            minor_half_width: widest,
+            ..Self::from_config(&RoadConfig::default())
+        }
+    }
 }
 
 /// Engine-agnostic vertex buffers for one road *surface* (Y-up), built CPU-side
@@ -198,7 +210,7 @@ impl Dims {
 /// profile face is its own strip. Junction hub decks are smooth-shaded from
 /// accumulated up-facing triangle normals, except at each mouth, whose corners
 /// share the ribbon's own mouth normal (see [`extrude_hubs`]).
-#[derive(Default)]
+#[derive(Default, PartialEq)]
 pub struct RoadGeometry {
     vertices: Vec<[f32; 3]>,
     normals: Vec<[f32; 3]>,
@@ -294,7 +306,7 @@ impl RoadGeometry {
 /// (curb + skirt + bottom cap) and emissive neon **edge-lines** - without
 /// stacking textures on the splat material (WebGL2's 16-sampler ceiling). Each
 /// non-empty part is uploaded as its own mesh + material.
-#[derive(Default)]
+#[derive(Default, PartialEq)]
 pub struct RoadParts {
     /// Flat drivable top surface plus the intersection fans.
     pub deck: RoadGeometry,
@@ -347,10 +359,9 @@ pub fn build_road_geometry(
 }
 
 /// Mesh a traced road graph over its district window `sub` (lower cell `lo`
-/// in the full heightmap): the drawn graph's chains, truncated and grouped
-/// into hubs by the junction plan, levelled network-wide, extruded, and
-/// closed by their hubs. Split out of [`build_road_geometry`] so a test can
-/// mesh a hand-built graph.
+/// in the full heightmap): the drawn graph's chains, meshed by
+/// [`mesh_chains`]. Split out of [`build_road_geometry`] so a test can mesh
+/// a hand-built graph.
 pub(crate) fn mesh_road_graph(
     graph: &symbios_tensor::RoadGraph,
     sub: &HeightMap,
@@ -362,12 +373,29 @@ pub(crate) fn mesh_road_graph(
     let drawn = drawn_graph(graph, sub);
     let chains = extract_chains(&drawn, sub, dims);
     let degree = active_degree(&drawn);
+    mesh_chains(&chains, &degree, sub, lo, dims)
+}
 
+/// Mesh a road network given as its `chains` over the heightmap window
+/// `sub` (lower cell `lo` in the full heightmap): the chains truncated and
+/// grouped into hubs by the junction plan, levelled network-wide, extruded,
+/// and closed by their hubs. `degree` is every node's count of drawn
+/// streets, indexed by the chains' `end_nodes`: three or more make a
+/// junction, one a dead end. The chains of a traced network come from
+/// [`mesh_road_graph`]; a geodata region builds its own from Berlin's
+/// street axes (#1595).
+pub(crate) fn mesh_chains(
+    chains: &[Chain],
+    degree: &[u32],
+    sub: &HeightMap,
+    lo: [usize; 2],
+    dims: &Dims,
+) -> RoadParts {
     // Pull-back per chain end abutting a hub, so each ribbon stops at the
     // intersection boundary instead of overlapping into it (#575), and which
     // junctions are drawn as one hub (#1558). Computed once, ahead of
     // extrusion.
-    let plan = plan_junctions(&chains, &degree, dims);
+    let plan = plan_junctions(chains, degree, dims);
 
     let mut parts = RoadParts::default();
     let world_offset = [lo[0] as f32 * sub.scale(), lo[1] as f32 * sub.scale()];
@@ -387,8 +415,8 @@ pub(crate) fn mesh_road_graph(
                 .flatten()
         })
         .collect();
-    let ground = hub_grounds(&chains, &samples, &plan, dims);
-    let base_ys = level_network(&chains, &samples, &plan, &ground, sub);
+    let ground = hub_grounds(chains, &samples, &plan, dims);
+    let base_ys = level_network(chains, &samples, &plan, &ground, sub);
 
     // Each chain extrudes its ribbon and records its end-frames at hubs, so
     // the hubs can be built to meet every incident road at its exact (levelled) mouth.
