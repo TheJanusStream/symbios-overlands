@@ -132,6 +132,44 @@ and the wasm worker share it:
 `tests/fixtures/README.md` lists the recorded answers and the truth rasters.
 `tools/fixtures.sh` and `tools/truth.py` regenerate them.
 
+`src/geodata` (P0.2, #1582) is the app's I/O half:
+
+- `GeoRequest`: one request, carrying its byte cap. Its canonical URL is
+  also its cache key. Only `https://gdi.berlin.de/services/` is asked, and
+  no render past the decoders' pixel cap. An answer redirected off that
+  prefix is refused: the browser follows redirects anywhere, and the
+  native client to any public host. Each request also says what a valid
+  answer looks like. GeoServer reports a bad request as an XML exception,
+  sometimes under a success status, so nothing is kept or used without
+  passing that check.
+- `GeoStore`: where answers are kept between visits, and for at most 30
+  days, because a URL's answer changes when Berlin updates its data
+  without the URL changing.
+  - Natively, it is a directory under the platform cache. An empty or
+    relative `XDG_CACHE_HOME` is ignored, as the XDG spec says. There is
+    one file per entry; each names its own URL and carries a checksum of
+    its body, so a damaged file reads as no entry. Each write goes through
+    a temporary file of its own and a rename. The directory is capped at
+    256 MiB and drops the least recently used entries first; only the
+    store's own files are counted or deleted.
+  - On the web, it is the browser's Cache API (`store_browser.rs`). That
+    file was verified in Chromium by compiling it into a scratch wasm crate.
+  - Bumping `CACHE_EPOCH` discards everything kept under the old value.
+- `GeoFetcher`: the resource the app asks. It merges identical requests and
+  runs at most four fetches at once. It retries transient failures after 2 s
+  and 8 s, three attempts in all. It counts progress for a loading screen.
+  Answers come back by id.
+  - Natively, the HTTP request runs on the shared Tokio runtime and is
+    awaited, so it never holds one of Bevy's few I/O pool threads.
+  - The frame system takes the resource mutably only when a fetch has
+    finished or one may start. Frames spent waiting do not mark it
+    changed.
+
+The ignored test `live_gdi_berlin_round_trip_decodes_and_is_kept` exercises
+the live path end to end: the real client, the disk store, and the decoders.
+It then checks that a second visit is answered from the store alone. Fire it
+by hand when the live path is in question.
+
 ## Phases
 
 Each phase is a sub-issue of #1580, in build order:

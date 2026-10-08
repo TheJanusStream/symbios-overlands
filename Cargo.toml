@@ -81,6 +81,10 @@ bevy_symbios_shape = "0.10"
 symbios-tensor = "0.6"
 bevy_symbios_avatar = "0.12"
 gen-jobs = { path = "crates/gen-jobs" }
+# Geodata regions (#1580): where a region's square of Berlin lies, the
+# GDI Berlin request URLs, and the decoders for what they answer. The app
+# adds the fetching and the cache (`src/geodata`).
+geodata = { path = "crates/geodata" }
 avian3d = "0.7"
 fast-surface-nets = "0.2"
 ndshape = "0.3"
@@ -202,6 +206,13 @@ web-sys = { version = "0.3", features = [
     "Storage",
     "Location",
     "History",
+    # The browser's Cache API, where fetched geodata is kept between visits:
+    # GDI Berlin answers `no-store`, so the HTTP cache keeps nothing (#1582).
+    "CacheStorage",
+    "Cache",
+    "Response",
+    "ResponseInit",
+    "Headers",
 ] }
 wasm-bindgen = "=0.2.128"
 wasm-bindgen-futures = "0.4"

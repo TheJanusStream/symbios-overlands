@@ -1723,6 +1723,22 @@ pub(crate) mod http {
         SHARED_RUNTIME.block_on(fut)
     }
 
+    /// Start `fut` on the shared HTTP runtime and return at once. The handle
+    /// resolves to its output and can be awaited from any executor - an
+    /// `IoTaskPool` task included - without holding that executor's thread,
+    /// which [`block_on`] does for the whole request. For fetches that run
+    /// several at a time (#1582): Bevy's I/O pool has as few as one thread,
+    /// and each one a request blocks is an asset fetch that cannot start.
+    /// Bounded, like every native request, by [`default_client`]'s timeout.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn spawn<F>(fut: F) -> tokio::task::JoinHandle<F::Output>
+    where
+        F: std::future::Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        SHARED_RUNTIME.spawn(fut)
+    }
+
     /// Drive one HTTP future to completion inside an `IoTaskPool` task,
     /// bounded on both targets, yielding `on_timeout` if it never settles.
     ///

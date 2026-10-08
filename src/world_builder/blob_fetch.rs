@@ -36,6 +36,21 @@ pub(crate) async fn fetch_url_bytes(
     max_bytes: usize,
     ctx: &str,
 ) -> FetchedBytes {
+    fetch_url_bytes_from(client, url, max_bytes, ctx)
+        .await
+        .map(|(body, _)| body)
+}
+
+/// [`fetch_url_bytes`], also answering the URL the body finally came from,
+/// after any redirects - so a caller that trusts one host can refuse a body
+/// that was redirected off it (the browser follows redirects anywhere, and
+/// the native client to any public host).
+pub(crate) async fn fetch_url_bytes_from(
+    client: &reqwest::Client,
+    url: &str,
+    max_bytes: usize,
+    ctx: &str,
+) -> Result<(Vec<u8>, String), AssetFetchError> {
     let resp = match client.get(url).send().await {
         Ok(r) => r,
         Err(e) => {
@@ -55,7 +70,9 @@ pub(crate) async fn fetch_url_bytes(
         warn!("{ctx} body too large: Content-Length {len} exceeds {max_bytes} for {url}");
         return Err(AssetFetchError::TooLarge { limit: max_bytes });
     }
-    read_capped_body(resp, url, max_bytes, ctx).await
+    let final_url = resp.url().as_str().to_owned();
+    let body = read_capped_body(resp, url, max_bytes, ctx).await?;
+    Ok((body, final_url))
 }
 
 #[cfg(not(target_arch = "wasm32"))]
