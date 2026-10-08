@@ -1,0 +1,16 @@
+{"Legend": [{
+  "layerName": "c_geschosszahl_5_6",
+  "title": "Gebäudegeschosse von 5 bis 6",
+  "rules": [  {
+    "filter": "[geschoss_kategorie = 'Geschoss_5_6']",
+    "symbolizers": [{"Polygon":     {
+      "stroke": "#7F7F7F",
+      "stroke-width": "0.1",
+      "stroke-opacity": "1",
+      "stroke-linecap": "butt",
+      "stroke-linejoin": "miter",
+      "fill": "#FF00FF",
+      "fill-opacity": "0.5"
+    }}]
+  }]
+}]}

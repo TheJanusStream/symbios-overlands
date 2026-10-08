@@ -1,0 +1,16 @@
+{"Legend": [{
+  "layerName": "a_geschosszahl_mehr_10",
+  "title": "Gebäudegeschosse größer 10",
+  "rules": [  {
+    "filter": "[geschoss_kategorie = 'Geschoss_gr_10']",
+    "symbolizers": [{"Polygon":     {
+      "stroke": "#7F7F7F",
+      "stroke-width": "0.1",
+      "stroke-opacity": "1",
+      "stroke-linecap": "butt",
+      "stroke-linejoin": "miter",
+      "fill": "#000080",
+      "fill-opacity": "0.5"
+    }}]
+  }]
+}]}

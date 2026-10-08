@@ -1,0 +1,16 @@
+{"Legend": [{
+  "layerName": "e_geschosszahl_1_2",
+  "title": "Gebäudegeschosse von 1 bis 2",
+  "rules": [  {
+    "filter": "[geschoss_kategorie = 'Geschoss_1_2']",
+    "symbolizers": [{"Polygon":     {
+      "stroke": "#7F7F7F",
+      "stroke-width": "0.1",
+      "stroke-opacity": "1",
+      "stroke-linecap": "butt",
+      "stroke-linejoin": "miter",
+      "fill": "#FFDCFF",
+      "fill-opacity": "0.5"
+    }}]
+  }]
+}]}

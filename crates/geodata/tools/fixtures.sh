@@ -1,0 +1,38 @@
+#!/bin/sh
+# Re-record the live GDI Berlin answers under tests/fixtures (all dl-de/zero-2.0).
+#
+#   sh crates/geodata/tools/fixtures.sh <empty download dir>
+#
+# The URLs are exactly what the crate's builders emit (tests/decode.rs holds
+# them to that), so the fixtures are what the app would fetch. Inspect the
+# downloads before copying them into tests/fixtures. The terrain truth grid
+# is not fetched here: see tests/fixtures/README.md.
+set -eu
+out=${1:?download dir}
+b=https://gdi.berlin.de/services
+
+get() {
+  curl -sS -m 120 -o "$out/$1" -w "$1 %{http_code} %{content_type} %{size_download}B\n" "$2"
+}
+
+legend() { # service layer
+  echo "$b/wms/$1?service=WMS&version=1.3.0&request=GetLegendGraphic&layer=$2&format=application/json"
+}
+
+map() { # service layers bbox size
+  echo "$b/wms/$1?service=WMS&version=1.3.0&request=GetMap&layers=$2&styles=&crs=EPSG:25833&bbox=$3&width=$4&height=$4&format=image/png&transparent=true&format_options=antialias:none"
+}
+
+get dgm1_legend.json "$(legend dgm1 c_dgm1)"
+get dgm1_392000_5820000_1024m_256px.png "$(map dgm1 c_dgm1 392000,5820000,393024,5821024 256)"
+
+get landuse_legend.json "$(legend ua_flaechennutzung_2015 c_ua_realnutz_2015)"
+get landuse_391200_5819700_600m_300px.png \
+  "$(map ua_flaechennutzung_2015 c_ua_realnutz_2015 391200,5819700,391800,5820300 300)"
+
+storeys=a_geschosszahl_mehr_10,b_geschosszahl_7_10,c_geschosszahl_5_6,d_geschosszahl_3_4,e_geschosszahl_1_2,f_geschosszahl_unter_1
+for layer in $(echo $storeys | tr , ' '); do
+  get "storeys_legend_$layer.json" "$(legend gebaeude_geschosse "$layer")"
+done
+get storeys_391200_5819700_600m_300px.png \
+  "$(map gebaeude_geschosse $storeys 391200,5819700,391800,5820300 300)"

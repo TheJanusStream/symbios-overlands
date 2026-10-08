@@ -1,0 +1,612 @@
+{"Legend": [{
+  "layerName": "c_dgm1",
+  "title": "Digitales Geländemodell",
+  "rules": [{"symbolizers": [{"Raster":   {
+    "colormap":     {
+      "entries":       [
+                {
+          "label": "unter 7",
+          "quantity": "-7.00000001",
+          "color": "#AFF0E9",
+          "opacity": "0.0"
+        },
+                {
+          "label": "-7 - 24 m",
+          "quantity": "-7.0",
+          "color": "#AFF0E9",
+          "opacity": "1.0"
+        },
+                {
+          "label": "24 - 25 m",
+          "quantity": "25.99999999",
+          "color": "#AFF0E0",
+          "opacity": "1.0"
+        },
+                {
+          "label": "25 - 26 m",
+          "quantity": "26.99999999",
+          "color": "#AFF0D7",
+          "opacity": "1.0"
+        },
+                {
+          "label": "26 - 27 m",
+          "quantity": "27.99999999",
+          "color": "#B1F2D0",
+          "opacity": "1.0"
+        },
+                {
+          "label": "27 - 28 m",
+          "quantity": "28.99999999",
+          "color": "#B1F2C7",
+          "opacity": "1.0"
+        },
+                {
+          "label": "28 - 29 m",
+          "quantity": "29.99999999",
+          "color": "#B0F5BE",
+          "opacity": "1.0"
+        },
+                {
+          "label": "29 - 30 m",
+          "quantity": "30.99999999",
+          "color": "#B0F5B5",
+          "opacity": "1.0"
+        },
+                {
+          "label": "30 - 31 m",
+          "quantity": "31.99999999",
+          "color": "#B7F7B2",
+          "opacity": "1.0"
+        },
+                {
+          "label": "31 - 32 m",
+          "quantity": "32.99999999",
+          "color": "#C1F7B2",
+          "opacity": "1.0"
+        },
+                {
+          "label": "32 - 33 m",
+          "quantity": "33.99999999",
+          "color": "#CAF7B2",
+          "opacity": "1.0"
+        },
+                {
+          "label": "33 - 34 m",
+          "quantity": "34.99999999",
+          "color": "#D4FAB1",
+          "opacity": "1.0"
+        },
+                {
+          "label": "34 - 35 m",
+          "quantity": "35.99999999",
+          "color": "#E1FAB1",
+          "opacity": "1.0"
+        },
+                {
+          "label": "35 - 36 m",
+          "quantity": "36.99999999",
+          "color": "#EEFCB3",
+          "opacity": "1.0"
+        },
+                {
+          "label": "36 - 37 m",
+          "quantity": "37.99999999",
+          "color": "#F6FCB3",
+          "opacity": "1.0"
+        },
+                {
+          "label": "37 - 38 m",
+          "quantity": "38.99999999",
+          "color": "#FCFCB1",
+          "opacity": "1.0"
+        },
+                {
+          "label": "38 - 39 m",
+          "quantity": "39.99999999",
+          "color": "#E7F29B",
+          "opacity": "1.0"
+        },
+                {
+          "label": "39 - 40 m",
+          "quantity": "40.99999999",
+          "color": "#D2E889",
+          "opacity": "1.0"
+        },
+                {
+          "label": "40 - 41 m",
+          "quantity": "41.99999999",
+          "color": "#BEE079",
+          "opacity": "1.0"
+        },
+                {
+          "label": "41 - 42 m",
+          "quantity": "42.99999999",
+          "color": "#A3D669",
+          "opacity": "1.0"
+        },
+                {
+          "label": "42 - 43 m",
+          "quantity": "43.99999999",
+          "color": "#8BCC5A",
+          "opacity": "1.0"
+        },
+                {
+          "label": "43 - 44 m",
+          "quantity": "44.99999999",
+          "color": "#75C44D",
+          "opacity": "1.0"
+        },
+                {
+          "label": "44 - 45 m",
+          "quantity": "45.99999999",
+          "color": "#5ABA3F",
+          "opacity": "1.0"
+        },
+                {
+          "label": "45 - 46 m",
+          "quantity": "46.99999999",
+          "color": "#3EB031",
+          "opacity": "1.0"
+        },
+                {
+          "label": "46 - 47 m",
+          "quantity": "47.99999999",
+          "color": "#27A827",
+          "opacity": "1.0"
+        },
+                {
+          "label": "47 - 48 m",
+          "quantity": "48.99999999",
+          "color": "#1C9E2C",
+          "opacity": "1.0"
+        },
+                {
+          "label": "48 - 49 m",
+          "quantity": "49.99999999",
+          "color": "#139431",
+          "opacity": "1.0"
+        },
+                {
+          "label": "49 - 50 m",
+          "quantity": "50.99999999",
+          "color": "#0B8C36",
+          "opacity": "1.0"
+        },
+                {
+          "label": "50 - 51 m",
+          "quantity": "51.99999999",
+          "color": "#04823D",
+          "opacity": "1.0"
+        },
+                {
+          "label": "51 - 52 m",
+          "quantity": "52.99999999",
+          "color": "#16823F",
+          "opacity": "1.0"
+        },
+                {
+          "label": "52 - 53 m",
+          "quantity": "53.99999999",
+          "color": "#31873C",
+          "opacity": "1.0"
+        },
+                {
+          "label": "53 - 54 m",
+          "quantity": "54.99999999",
+          "color": "#438C3B",
+          "opacity": "1.0"
+        },
+                {
+          "label": "54 - 55 m",
+          "quantity": "55.99999999",
+          "color": "#528F38",
+          "opacity": "1.0"
+        },
+                {
+          "label": "55 - 56 m",
+          "quantity": "56.99999999",
+          "color": "#649434",
+          "opacity": "1.0"
+        },
+                {
+          "label": "56 - 57 m",
+          "quantity": "57.99999999",
+          "color": "#759932",
+          "opacity": "1.0"
+        },
+                {
+          "label": "57 - 58 m",
+          "quantity": "58.99999999",
+          "color": "#849E2F",
+          "opacity": "1.0"
+        },
+                {
+          "label": "58 - 59 m",
+          "quantity": "59.99999999",
+          "color": "#93A12B",
+          "opacity": "1.0"
+        },
+                {
+          "label": "59 - 60 m",
+          "quantity": "60.99999999",
+          "color": "#A6A628",
+          "opacity": "1.0"
+        },
+                {
+          "label": "60 - 61 m",
+          "quantity": "61.99999999",
+          "color": "#B5A924",
+          "opacity": "1.0"
+        },
+                {
+          "label": "61 - 62 m",
+          "quantity": "62.99999999",
+          "color": "#C7AE20",
+          "opacity": "1.0"
+        },
+                {
+          "label": "62 - 63 m",
+          "quantity": "63.99999999",
+          "color": "#D6B11A",
+          "opacity": "1.0"
+        },
+                {
+          "label": "63 - 64 m",
+          "quantity": "64.99999999",
+          "color": "#E8B613",
+          "opacity": "1.0"
+        },
+                {
+          "label": "64 - 65 m",
+          "quantity": "65.99999999",
+          "color": "#FAB905",
+          "opacity": "1.0"
+        },
+                {
+          "label": "65 - 66 m",
+          "quantity": "66.99999999",
+          "color": "#F5A802",
+          "opacity": "1.0"
+        },
+                {
+          "label": "66 - 67 m",
+          "quantity": "67.99999999",
+          "color": "#EB9502",
+          "opacity": "1.0"
+        },
+                {
+          "label": "67 - 68 m",
+          "quantity": "68.99999999",
+          "color": "#E38502",
+          "opacity": "1.0"
+        },
+                {
+          "label": "68 - 69 m",
+          "quantity": "69.99999999",
+          "color": "#D97502",
+          "opacity": "1.0"
+        },
+                {
+          "label": "69 - 70 m",
+          "quantity": "70.99999999",
+          "color": "#D16302",
+          "opacity": "1.0"
+        },
+                {
+          "label": "70 - 71 m",
+          "quantity": "71.99999999",
+          "color": "#C75402",
+          "opacity": "1.0"
+        },
+                {
+          "label": "71 - 72 m",
+          "quantity": "72.99999999",
+          "color": "#BD4602",
+          "opacity": "1.0"
+        },
+                {
+          "label": "72 - 73 m",
+          "quantity": "73.99999999",
+          "color": "#B53B02",
+          "opacity": "1.0"
+        },
+                {
+          "label": "73 - 74 m",
+          "quantity": "74.99999999",
+          "color": "#AB2C02",
+          "opacity": "1.0"
+        },
+                {
+          "label": "74 - 75 m",
+          "quantity": "75.99999999",
+          "color": "#A12102",
+          "opacity": "1.0"
+        },
+                {
+          "label": "75 - 76 m",
+          "quantity": "76.99999999",
+          "color": "#991802",
+          "opacity": "1.0"
+        },
+                {
+          "label": "76 - 77 m",
+          "quantity": "77.99999999",
+          "color": "#8F1001",
+          "opacity": "1.0"
+        },
+                {
+          "label": "77 - 78 m",
+          "quantity": "78.99999999",
+          "color": "#850601",
+          "opacity": "1.0"
+        },
+                {
+          "label": "78 - 79 m",
+          "quantity": "79.99999999",
+          "color": "#780000",
+          "opacity": "1.0"
+        },
+                {
+          "label": "79 - 80 m",
+          "quantity": "80.99999999",
+          "color": "#780A02",
+          "opacity": "1.0"
+        },
+                {
+          "label": "80 - 81 m",
+          "quantity": "81.99999999",
+          "color": "#751104",
+          "opacity": "1.0"
+        },
+                {
+          "label": "81 - 82 m",
+          "quantity": "82.99999999",
+          "color": "#751504",
+          "opacity": "1.0"
+        },
+                {
+          "label": "82 - 83 m",
+          "quantity": "83.99999999",
+          "color": "#731705",
+          "opacity": "1.0"
+        },
+                {
+          "label": "83 - 84 m",
+          "quantity": "84.99999999",
+          "color": "#731C06",
+          "opacity": "1.0"
+        },
+                {
+          "label": "84 - 85 m",
+          "quantity": "85.99999999",
+          "color": "#701E07",
+          "opacity": "1.0"
+        },
+                {
+          "label": "85 - 86 m",
+          "quantity": "86.99999999",
+          "color": "#701F07",
+          "opacity": "1.0"
+        },
+                {
+          "label": "86 - 87 m",
+          "quantity": "87.99999999",
+          "color": "#702408",
+          "opacity": "1.0"
+        },
+                {
+          "label": "87 - 88 m",
+          "quantity": "88.99999999",
+          "color": "#6E2509",
+          "opacity": "1.0"
+        },
+                {
+          "label": "88 - 89 m",
+          "quantity": "89.99999999",
+          "color": "#6E280A",
+          "opacity": "1.0"
+        },
+                {
+          "label": "89 - 90 m",
+          "quantity": "90.99999999",
+          "color": "#6B2B0B",
+          "opacity": "1.0"
+        },
+                {
+          "label": "90 - 91 m",
+          "quantity": "91.99999999",
+          "color": "#6B2C0B",
+          "opacity": "1.0"
+        },
+                {
+          "label": "91 - 92 m",
+          "quantity": "92.99999999",
+          "color": "#692E0C",
+          "opacity": "1.0"
+        },
+                {
+          "label": "92 - 93 m",
+          "quantity": "93.99999999",
+          "color": "#6B320F",
+          "opacity": "1.0"
+        },
+                {
+          "label": "93 - 94 m",
+          "quantity": "94.99999999",
+          "color": "#703A18",
+          "opacity": "1.0"
+        },
+                {
+          "label": "94 - 95 m",
+          "quantity": "95.99999999",
+          "color": "#754020",
+          "opacity": "1.0"
+        },
+                {
+          "label": "95 - 96 m",
+          "quantity": "96.99999999",
+          "color": "#7D4A2A",
+          "opacity": "1.0"
+        },
+                {
+          "label": "96 - 97 m",
+          "quantity": "97.99999999",
+          "color": "#825234",
+          "opacity": "1.0"
+        },
+                {
+          "label": "97 - 98 m",
+          "quantity": "98.99999999",
+          "color": "#875A3E",
+          "opacity": "1.0"
+        },
+                {
+          "label": "98 - 99 m",
+          "quantity": "99.99999999",
+          "color": "#8C664A",
+          "opacity": "1.0"
+        },
+                {
+          "label": "99 - 100 m",
+          "quantity": "100.9999999",
+          "color": "#916D56",
+          "opacity": "1.0"
+        },
+                {
+          "label": "100 - 101 m",
+          "quantity": "101.9999999",
+          "color": "#967562",
+          "opacity": "1.0"
+        },
+                {
+          "label": "101 - 102 m",
+          "quantity": "102.9999999",
+          "color": "#997D6D",
+          "opacity": "1.0"
+        },
+                {
+          "label": "102 - 103 m",
+          "quantity": "103.9999999",
+          "color": "#9E887B",
+          "opacity": "1.0"
+        },
+                {
+          "label": "103 - 104 m",
+          "quantity": "104.9999999",
+          "color": "#A39389",
+          "opacity": "1.0"
+        },
+                {
+          "label": "104 - 105 m",
+          "quantity": "105.9999999",
+          "color": "#A69C97",
+          "opacity": "1.0"
+        },
+                {
+          "label": "105 - 106 m",
+          "quantity": "106.9999999",
+          "color": "#ABA9A7",
+          "opacity": "1.0"
+        },
+                {
+          "label": "106 - 107 m",
+          "quantity": "107.9999999",
+          "color": "#ADADAD",
+          "opacity": "1.0"
+        },
+                {
+          "label": "107 - 108 m",
+          "quantity": "108.9999999",
+          "color": "#B3B3B3",
+          "opacity": "1.0"
+        },
+                {
+          "label": "108 - 109 m",
+          "quantity": "109.9999999",
+          "color": "#BABABA",
+          "opacity": "1.0"
+        },
+                {
+          "label": "109 - 110 m",
+          "quantity": "110.9999999",
+          "color": "#BFBFBF",
+          "opacity": "1.0"
+        },
+                {
+          "label": "110 - 111 m",
+          "quantity": "111.9999999",
+          "color": "#C4C4C4",
+          "opacity": "1.0"
+        },
+                {
+          "label": "111 - 112 m",
+          "quantity": "112.9999999",
+          "color": "#CCCCCC",
+          "opacity": "1.0"
+        },
+                {
+          "label": "112 - 113 m",
+          "quantity": "113.9999999",
+          "color": "#D1CFD1",
+          "opacity": "1.0"
+        },
+                {
+          "label": "113 - 114 m",
+          "quantity": "114.9999999",
+          "color": "#D9D7D9",
+          "opacity": "1.0"
+        },
+                {
+          "label": "114 - 115 m",
+          "quantity": "115.9999999",
+          "color": "#DEDCDE",
+          "opacity": "1.0"
+        },
+                {
+          "label": "115 - 116 m",
+          "quantity": "116.9999999",
+          "color": "#E3E1E3",
+          "opacity": "1.0"
+        },
+                {
+          "label": "116 - 117 m",
+          "quantity": "117.9999999",
+          "color": "#EBE8EB",
+          "opacity": "1.0"
+        },
+                {
+          "label": "117 - 118 m",
+          "quantity": "118.9999999",
+          "color": "#F2F0F2",
+          "opacity": "1.0"
+        },
+                {
+          "label": "118 - 119 m",
+          "quantity": "119.9999999",
+          "color": "#F7F5F7",
+          "opacity": "1.0"
+        },
+                {
+          "label": "119 - 120 m",
+          "quantity": "120.9999999",
+          "color": "#FFFCFF",
+          "opacity": "1.0"
+        },
+                {
+          "label": "120 - 121 m",
+          "quantity": "121.9999999",
+          "color": "#FFFCFF",
+          "opacity": "1.0"
+        },
+                {
+          "label": "121 - 122 m",
+          "quantity": "122.9999999",
+          "color": "#FFFCFF",
+          "opacity": "1.0"
+        }
+      ],
+      "type": "intervals"
+    },
+    "opacity": "1.0"
+  }}]}]
+}]}

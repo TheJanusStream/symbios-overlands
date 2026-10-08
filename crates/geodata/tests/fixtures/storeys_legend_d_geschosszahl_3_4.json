@@ -1,0 +1,16 @@
+{"Legend": [{
+  "layerName": "d_geschosszahl_3_4",
+  "title": "Gebäudegeschosse von 3 bis 4",
+  "rules": [  {
+    "filter": "[geschoss_kategorie = 'Geschoss_3_4']",
+    "symbolizers": [{"Polygon":     {
+      "stroke": "#7F7F7F",
+      "stroke-width": "0.1",
+      "stroke-opacity": "1",
+      "stroke-linecap": "butt",
+      "stroke-linejoin": "miter",
+      "fill": "#FFA0FF",
+      "fill-opacity": "0.5"
+    }}]
+  }]
+}]}

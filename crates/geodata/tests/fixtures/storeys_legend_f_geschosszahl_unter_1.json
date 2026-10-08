@@ -1,0 +1,16 @@
+{"Legend": [{
+  "layerName": "f_geschosszahl_unter_1",
+  "title": "Gebäudegeschosse unter 1",
+  "rules": [  {
+    "filter": "[geschoss_kategorie = 'Geschoss_kl_1']",
+    "symbolizers": [{"Polygon":     {
+      "stroke": "#7F7F7F",
+      "stroke-width": "0.1",
+      "stroke-opacity": "1",
+      "stroke-linecap": "butt",
+      "stroke-linejoin": "miter",
+      "fill": "#BDFBBE",
+      "fill-opacity": "0.5"
+    }}]
+  }]
+}]}

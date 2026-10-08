@@ -1,0 +1,20 @@
+[package]
+name = "geodata"
+version = "0.1.0"
+edition = "2024"
+# Path-only member of the overlands workspace, never published (see gen-jobs
+# for why `publish = false` matters to the supply-chain gate).
+publish = false
+description = "Real-world geodata for Symbios Overlands regions: where a region's square of Berlin lies, how to ask GDI Berlin's WMS/WFS services for it, and how to decode what they answer. Pure functions only - no I/O, no Bevy - so the app and the wasm worker share it."
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Decodes the WMS renders. Already in the graph under `image`; no features.
+png = "0.18"
+# Pure-Rust libm: the size draw takes a logarithm and an exponential, and a
+# square must come out the same on a native peer and a browser peer (#1132).
+libm = "0.2"

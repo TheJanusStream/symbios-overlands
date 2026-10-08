@@ -20,11 +20,12 @@ autobins = false
 # a newcomer hit (#1162).
 default-run = "symbios-overlands"
 
-# The app is the workspace root; `crates/*` hold the compute-offload crates
-# shared with the wasm Web Worker (see crates/gen-jobs). Keeping them in one
-# workspace gives a shared lockfile, target dir, and feature unification.
+# The app is the workspace root; `crates/*` hold the Bevy-free crates shared
+# with the wasm Web Worker: the compute-offload jobs (see crates/gen-jobs) and
+# the geodata decoders (crates/geodata, #1580). Keeping them in one workspace
+# gives a shared lockfile, target dir, and feature unification.
 [workspace]
-members = ["crates/gen-jobs", "crates/gen-worker"]
+members = ["crates/gen-jobs", "crates/gen-worker", "crates/geodata"]
 # Which packages a bare `cargo test` / `cargo clippy` / `cargo nextest run`
 # actually selects (#1147).
 #
@@ -40,7 +41,7 @@ members = ["crates/gen-jobs", "crates/gen-worker"]
 # someone remembers a flag. `gen-worker` stays out on purpose: it is a
 # wasm-only binary with nothing to test on native, and the wasm check
 # already says `--workspace` explicitly to cover it.
-default-members = [".", "crates/gen-jobs"]
+default-members = [".", "crates/gen-jobs", "crates/geodata"]
 
 [features]
 # Native allocation tracer (#811): wraps the global allocator and prints a

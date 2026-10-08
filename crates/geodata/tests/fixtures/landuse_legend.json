@@ -1,0 +1,194 @@
+{"Legend": [{
+  "layerName": "c_ua_realnutz_2015",
+  "title": "Reale Nutzung 2015",
+  "rules":   [
+        {
+      "name": "100",
+      "title": "100",
+      "filter": "[grz = '100']",
+      "symbolizers": [{"Polygon":       {
+        "fill": "#006500",
+        "fill-opacity": "1.0"
+      }}]
+    },
+        {
+      "name": "121",
+      "filter": "[grz = '121']",
+      "symbolizers": [{"Polygon":       {
+        "fill": "#63CF63",
+        "fill-opacity": "1.0"
+      }}]
+    },
+        {
+      "name": "122",
+      "filter": "[grz = '122']",
+      "symbolizers": [{"Polygon":       {
+        "fill": "#93482F",
+        "fill-opacity": "1.0"
+      }}]
+    },
+        {
+      "name": "130",
+      "filter": "[grz = '130']",
+      "symbolizers": [{"Polygon":       {
+        "fill": "#70A800",
+        "fill-opacity": "1.0"
+      }}]
+    },
+        {
+      "name": "140",
+      "filter": "[grz = '140']",
+      "symbolizers": [{"Polygon":       {
+        "fill": "#FF0065",
+        "fill-opacity": "1.0"
+      }}]
+    },
+        {
+      "name": "150",
+      "filter": "[grz = '150']",
+      "symbolizers": [{"Polygon":       {
+        "fill": "#33CC9A",
+        "fill-opacity": "1.0"
+      }}]
+    },
+        {
+      "name": "160",
+      "filter": "[grz = '160']",
+      "symbolizers": [{"Polygon":       {
+        "fill": "#CCFFCC",
+        "fill-opacity": "1.0"
+      }}]
+    },
+        {
+      "name": "171",
+      "filter": "[grz = '171']",
+      "symbolizers": [{"Polygon":       {
+        "fill": "#FFFFBE",
+        "fill-opacity": "1.0"
+      }}]
+    },
+        {
+      "name": "172",
+      "filter": "[grz = '172']",
+      "symbolizers": [{"Polygon":       {
+        "fill": "#FFFF87",
+        "fill-opacity": "1.0"
+      }}]
+    },
+        {
+      "name": "173",
+      "filter": "[grz = '173']",
+      "symbolizers": [{"Polygon":       {
+        "fill": "#FFFF0D",
+        "fill-opacity": "1.0"
+      }}]
+    },
+        {
+      "name": "190",
+      "filter": "[grz = '190']",
+      "symbolizers": [{"Polygon":       {
+        "fill": "#338F94",
+        "fill-opacity": "1.0"
+      }}]
+    },
+        {
+      "name": "200",
+      "filter": "[grz = '200']",
+      "symbolizers": [{"Polygon":       {
+        "fill": "#610505",
+        "fill-opacity": "1.0"
+      }}]
+    },
+        {
+      "name": "110",
+      "title": "110",
+      "filter": "[grz = '110']",
+      "symbolizers": [{"Polygon":       {
+        "fill": "#9ACCFF",
+        "fill-opacity": "1.0"
+      }}]
+    },
+        {
+      "name": "10",
+      "filter": "[woz = '10']",
+      "symbolizers": [{"Polygon":       {
+        "fill": "#FFCC65",
+        "fill-opacity": "1.0"
+      }}]
+    },
+        {
+      "name": "21",
+      "filter": "[woz = '21']",
+      "symbolizers": [{"Polygon":       {
+        "fill": "#FF6699",
+        "fill-opacity": "1.0"
+      }}]
+    },
+        {
+      "name": "30",
+      "filter": "[woz = '30']",
+      "symbolizers": [{"Polygon":       {
+        "fill": "#CC3300",
+        "fill-opacity": "1.0"
+      }}]
+    },
+        {
+      "name": "40",
+      "filter": "[woz = '40']",
+      "symbolizers": [{"Polygon":       {
+        "fill": "#686868",
+        "fill-opacity": "1.0"
+      }}]
+    },
+        {
+      "name": "50",
+      "filter": "[woz = '50']",
+      "symbolizers": [{"Polygon":       {
+        "fill": "#005970",
+        "fill-opacity": "1.0"
+      }}]
+    },
+        {
+      "name": "60",
+      "filter": "[woz = '60']",
+      "symbolizers": [{"Polygon":       {
+        "fill": "#A3A3A3",
+        "fill-opacity": "1.0"
+      }}]
+    },
+        {
+      "name": "70",
+      "filter": "[woz = '70']",
+      "symbolizers": [{"Polygon":       {
+        "fill": "#CCFF00",
+        "fill-opacity": "1.0"
+      }}]
+    },
+        {
+      "name": "80",
+      "filter": "[woz = '80']",
+      "symbolizers": [{"Polygon":       {
+        "fill": "#E8BEFF",
+        "fill-opacity": "1.0"
+      }}]
+    },
+        {
+      "name": "90",
+      "filter": "[woz = '90']",
+      "symbolizers": [{"Polygon":       {
+        "fill": "#FF9ACC",
+        "fill-opacity": "1.0"
+      }}]
+    },
+        {
+      "name": "Umrandung",
+      "symbolizers": [{"Polygon":       {
+        "stroke": "#ababab",
+        "stroke-width": "1",
+        "stroke-opacity": "1",
+        "stroke-linecap": "butt",
+        "stroke-linejoin": "bevel"
+      }}]
+    }
+  ]
+}]}

@@ -1,0 +1,16 @@
+{"Legend": [{
+  "layerName": "b_geschosszahl_7_10",
+  "title": "Gebäudegeschosse von 7 bis 10",
+  "rules": [  {
+    "filter": "[geschoss_kategorie = 'Geschoss_7_10']",
+    "symbolizers": [{"Polygon":     {
+      "stroke": "#7F7F7F",
+      "stroke-width": "0.1",
+      "stroke-opacity": "1",
+      "stroke-linecap": "butt",
+      "stroke-linejoin": "miter",
+      "fill": "#9900E5",
+      "fill-opacity": "0.5"
+    }}]
+  }]
+}]}
