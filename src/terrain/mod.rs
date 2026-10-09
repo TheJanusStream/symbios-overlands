@@ -45,13 +45,13 @@
 //! the terrain tree; child modules reach them via `super::`) because
 //! every sub-module touches some subset of them.
 
+pub(crate) mod derived;
 pub(crate) mod geo;
 mod heightmap;
 pub(crate) use heightmap::heightmap_params;
 mod lifecycle;
 mod lots;
 pub mod referenced;
-pub(crate) mod ring_buildings;
 mod roads;
 mod splat;
 // The render tool's terrain report reads the ground's weights with it (#1461);
@@ -507,10 +507,10 @@ pub(crate) fn register_headless_roads(app: &mut App) {
                     .run_if(resource_exists::<LiveRoomRecord>)
                     .after(heightmap::poll_terrain_task)
                     .after(heightmap::spawn_terrain_mesh),
-                ring_buildings::start_ring_buildings.after(heightmap::spawn_terrain_mesh),
-                ring_buildings::spawn_ring_buildings
-                    .run_if(resource_exists::<ring_buildings::RingBuild>)
-                    .after(ring_buildings::start_ring_buildings),
+                derived::start_derived.after(heightmap::spawn_terrain_mesh),
+                derived::spawn_derived
+                    .run_if(resource_exists::<derived::DerivedBuilds>)
+                    .after(derived::start_derived),
             ),
         );
 }
@@ -597,15 +597,15 @@ impl Plugin for TerrainPlugin {
                         .run_if(resource_exists::<LiveRoomRecord>)
                         .after(heightmap::poll_terrain_task)
                         .after(heightmap::spawn_terrain_mesh),
-                    // A geodata region's middle ring (#1587): drawn when its
-                    // terrain lands, then spawned a slice a frame. After the
-                    // systems that retire a terrain, with the sync points
-                    // the ordering inserts, so a slice never hangs a
-                    // building on a terrain already gone.
-                    ring_buildings::start_ring_buildings.after(heightmap::spawn_terrain_mesh),
-                    ring_buildings::spawn_ring_buildings
-                        .run_if(resource_exists::<ring_buildings::RingBuild>)
-                        .after(ring_buildings::start_ring_buildings)
+                    // A geodata region's derived content (#1587, #1588):
+                    // drawn when its terrain lands, then spawned a slice a
+                    // frame. After the systems that retire a terrain, with
+                    // the sync points the ordering inserts, so a slice never
+                    // hangs an item on a terrain already gone.
+                    derived::start_derived.after(heightmap::spawn_terrain_mesh),
+                    derived::spawn_derived
+                        .run_if(resource_exists::<derived::DerivedBuilds>)
+                        .after(derived::start_derived)
                         .after(lifecycle::maybe_regenerate_terrain)
                         .after(TerrainTeardown),
                 )

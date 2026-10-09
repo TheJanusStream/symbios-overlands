@@ -96,40 +96,7 @@ impl AxisPage {
 }
 
 /// Why a page of axes could not be read.
-#[derive(Debug)]
-pub struct AxisError(String);
-
-impl std::fmt::Display for AxisError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "not a page of street axes: {}", self.0)
-    }
-}
-
-impl std::error::Error for AxisError {}
-
-#[derive(Deserialize)]
-struct Page {
-    #[serde(default)]
-    features: Vec<Feature>,
-    #[serde(rename = "numberMatched", default)]
-    number_matched: Option<serde_json::Value>,
-}
-
-#[derive(Deserialize)]
-struct Feature {
-    geometry: Option<Geometry>,
-    #[serde(default)]
-    properties: Properties,
-}
-
-#[derive(Deserialize)]
-#[serde(tag = "type", content = "coordinates")]
-enum Geometry {
-    LineString(Vec<Vec<f64>>),
-    MultiLineString(Vec<Vec<Vec<f64>>>),
-    #[serde(other)]
-    Other,
-}
+pub type AxisError = crate::features::FeatureError;
 
 #[derive(Deserialize, Default)]
 struct Properties {
@@ -149,21 +116,11 @@ struct Properties {
 
 /// Read a WFS `GetFeature` page of [`super::STREET_AXES`] or
 /// [`super::CARRIAGEWAY_AXES`] asked for with [`AXIS_PROPERTIES`]. A
-/// feature with no line, or whose line has fewer than two points, is
+/// feature with no line, or whose lines have fewer than two points, is
 /// left out; a width or lane count that is not a positive number is
 /// none.
 pub fn parse_axes(body: &[u8]) -> Result<AxisPage, AxisError> {
-    let page: Page = serde_json::from_slice(body).map_err(|e| AxisError(e.to_string()))?;
-    let point = |p: &Vec<f64>| -> Option<[f64; 2]> {
-        match p.as_slice() {
-            [e, n, ..] if e.is_finite() && n.is_finite() => Some([*e, *n]),
-            _ => None,
-        }
-    };
-    let line = |l: &Vec<Vec<f64>>| -> Option<Vec<[f64; 2]>> {
-        let points: Vec<[f64; 2]> = l.iter().map(point).collect::<Option<_>>()?;
-        (points.len() >= 2).then_some(points)
-    };
+    let page = crate::features::parse_page::<Properties>(body)?;
     let positive = |s: &Option<String>| {
         s.as_deref()
             .and_then(|s| s.trim().parse::<f32>().ok())
@@ -173,11 +130,13 @@ pub fn parse_axes(body: &[u8]) -> Result<AxisPage, AxisError> {
         .features
         .into_iter()
         .filter_map(|f| {
-            let lines: Vec<Vec<[f64; 2]>> = match f.geometry? {
-                Geometry::LineString(l) => line(&l).into_iter().collect(),
-                Geometry::MultiLineString(ls) => ls.iter().filter_map(line).collect(),
-                Geometry::Other => Vec::new(),
-            };
+            let lines: Vec<Vec<[f64; 2]>> = f
+                .geometry
+                .lines()
+                .into_iter()
+                .filter(|line| line.len() >= 2)
+                .map(<[[f64; 2]]>::to_vec)
+                .collect();
             if lines.is_empty() {
                 return None;
             }
@@ -195,7 +154,7 @@ pub fn parse_axes(body: &[u8]) -> Result<AxisPage, AxisError> {
         .collect();
     Ok(AxisPage {
         axes,
-        matched: page.number_matched.and_then(|v| v.as_u64()),
+        matched: page.matched,
     })
 }
 

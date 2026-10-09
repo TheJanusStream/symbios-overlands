@@ -411,6 +411,30 @@ pub(crate) struct SampleFilters<'a> {
     pub urban_exclusions: &'a [(f32, f32, f32)],
     /// Pre-resolved [`slope_cutoff`].
     pub slope_cutoff: Option<f32>,
+    /// The inventory trees a scatter of trees keeps clear of, on ground
+    /// built from real Berlin ([`tree_clearance`]).
+    pub tree_clearance: Option<&'a crate::terrain::geo::street_level::TreeClearance>,
+}
+
+/// The inventory trees a scatter of `generator_ref` keeps clear of (#1588):
+/// where its generator grows a tree - an L-system, as every seeded stand
+/// is, and no ground cover - and the ground's street level has trees,
+/// which stand where Berlin's do. `None` everywhere else. The clearance is
+/// the street level's own, built once when it was decoded.
+pub(crate) fn tree_clearance<'a>(
+    record: &crate::pds::RoomRecord,
+    generator_ref: &str,
+    heightmap: Option<&'a crate::terrain::FinishedHeightMap>,
+) -> Option<&'a crate::terrain::geo::street_level::TreeClearance> {
+    let grows_trees = record
+        .generators
+        .get(generator_ref)
+        .is_some_and(|g| matches!(g.kind, crate::pds::GeneratorKind::LSystem { .. }));
+    if !grows_trees {
+        return None;
+    }
+    let level = heightmap?.ground()?.street_level()?;
+    (!level.trees.is_empty()).then(|| level.tree_clearance())
 }
 
 /// `(centre_x, centre_z, radius²)` of every road district a scatter that
@@ -465,6 +489,14 @@ pub(crate) fn try_sample(
         let (dx, dz) = (world_x - cx, world_z - cz);
         dx * dx + dz * dz < r2
     }) {
+        return None;
+    }
+    // Berlin's own trees (#1588): a seeded one keeps a crown's width off
+    // each, so a park is not wooded twice over.
+    if filters
+        .tree_clearance
+        .is_some_and(|trees| trees.near(world_x, world_z))
+    {
         return None;
     }
 
@@ -948,6 +980,7 @@ mod tests {
             water_level: None,
             urban_exclusions: &[],
             slope_cutoff: None,
+            tree_clearance: None,
         };
         let mut rng = ChaCha8Rng::seed_from_u64(2);
         for naturalness in [
@@ -982,6 +1015,7 @@ mod tests {
             water_level: None,
             urban_exclusions: &[],
             slope_cutoff: slope_cutoff(&naturalness),
+            tree_clearance: None,
         };
         let mut rng = ChaCha8Rng::seed_from_u64(1);
         for _ in 0..100 {
@@ -991,6 +1025,7 @@ mod tests {
         let open = ScatterNaturalness::default();
         let filters = SampleFilters {
             slope_cutoff: None,
+            tree_clearance: None,
             ..filters
         };
         assert!(try_sample(&bounds, &open, &[], &mut rng, None, &filters).is_some());
@@ -1120,6 +1155,7 @@ mod tests {
             water_level: Some(30.5),
             urban_exclusions: &[],
             slope_cutoff: None,
+            tree_clearance: None,
         };
         let mut rng = ChaCha8Rng::seed_from_u64(7);
         let placed: Vec<(f32, f32, f32)> = (0..400)
@@ -1139,5 +1175,96 @@ mod tests {
             placed.iter().all(|&(x, _, _)| x < 0.5),
             "no tree in the housing east of x = 0"
         );
+    }
+
+    /// #1588: Berlin's own trees stand in its parks, and a seeded stand
+    /// keeps a crown's width off each of them - a stand of trees only: the
+    /// ground cover under them grows on.
+    #[test]
+    fn a_stand_on_berlin_ground_keeps_clear_of_berlins_own_trees() {
+        use crate::pds::{Generator, GeneratorKind};
+        use crate::terrain::geo::street_level::{CoreTree, STAND_CLEAR_M, StreetLevel};
+        use geodata::berlin::LandUse;
+        let mut hm = bevy_symbios_ground::HeightMap::new(129, 129, 1.0);
+        hm.data_mut().fill(40.0);
+        // A park, a row of lindens down it.
+        let trees: Vec<CoreTree> = (0..13)
+            .map(|i| CoreTree {
+                id: format!("linden-{i}").into(),
+                x: -20.0,
+                z: -60.0 + 10.0 * i as f32,
+                genus: Some("Tilia".to_owned()),
+                height: Some(15.0),
+                crown: Some(8.0),
+                girth: Some(120.0),
+            })
+            .collect();
+        let level = StreetLevel::new(Vec::new(), trees.clone(), Vec::new());
+        let ground = crate::terrain::geo::GeoGround::from_cover(
+            129,
+            1.0,
+            vec![Some(LandUse::Park); 129 * 129],
+            None,
+        )
+        .with_street_level(level);
+        let berlin = crate::terrain::FinishedHeightMap(hm, Some(ground));
+        let oak = crate::catalogue::by_slug("lsys_oak").expect("registered");
+        let mut generators = std::collections::HashMap::new();
+        generators.insert("tree_scatter_0".to_owned(), oak.build("did:plc:stand"));
+        generators.insert("cover".to_owned(), Generator::default_cuboid());
+        assert!(matches!(
+            generators["tree_scatter_0"].kind,
+            GeneratorKind::LSystem { .. }
+        ));
+        let record = crate::pds::RoomRecord {
+            lex_type: "network.symbios.room".to_owned(),
+            environment: Default::default(),
+            generators,
+            placements: Vec::new(),
+            traits: std::collections::HashMap::new(),
+            contact_effects: Default::default(),
+            default_landing: None,
+            geo_source: None,
+            opaque_refs: Default::default(),
+        };
+        assert!(tree_clearance(&record, "cover", Some(&berlin)).is_none());
+        assert!(tree_clearance(&record, "tree_scatter_0", None).is_none());
+        let clearance =
+            tree_clearance(&record, "tree_scatter_0", Some(&berlin)).expect("a stand keeps clear");
+        let anywhere = crate::pds::BiomeFilter::default();
+        let filters = SampleFilters {
+            biome_filter: &anywhere,
+            terrain_cfg: None,
+            water_level: None,
+            urban_exclusions: &[],
+            slope_cutoff: None,
+            tree_clearance: Some(clearance),
+        };
+        let mut rng = ChaCha8Rng::seed_from_u64(11);
+        let placed: Vec<(f32, f32, f32)> = (0..400)
+            .filter_map(|_| {
+                try_sample(
+                    &disc(60.0),
+                    &ScatterNaturalness::default(),
+                    &[],
+                    &mut rng,
+                    Some(&berlin),
+                    &filters,
+                )
+            })
+            .collect();
+        assert!(
+            (200..400).contains(&placed.len()),
+            "the park keeps most of its stand: {}",
+            placed.len()
+        );
+        for &(x, _, z) in &placed {
+            assert!(
+                trees
+                    .iter()
+                    .all(|t| (t.x - x).hypot(t.z - z) >= STAND_CLEAR_M),
+                "a seeded tree at ({x}, {z}) under a linden"
+            );
+        }
     }
 }

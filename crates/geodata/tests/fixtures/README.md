@@ -9,6 +9,10 @@ Berlin, <https://gdi.berlin.de>.
 
 | File | What | From |
 | --- | --- | --- |
+| `alkis_gebaeude_391200_5819700_600m.json` | the ALKIS buildings and building parts of the Museumsinsel square, the attributes `berlin::parse_buildings` reads | WFS `alkis_gebaeude:gebaeude` |
+| `baumbestand_strassenbaeume_391200_5819700_600m.json`, `baumbestand_anlagenbaeume_391200_5819700_600m.json` | the square's street trees and park trees, the attributes `berlin::parse_trees` reads | WFS `baumbestand:strassenbaeume`, `baumbestand:anlagenbaeume` |
+| `beleuchtung_beleuchtung_391200_5819700_600m.json` | the square's street lamps (and the lighting register's switch cabinets, which `berlin::parse_furniture` leaves out), every attribute | WFS `beleuchtung:beleuchtung` |
+| `strassenbefahrung_*_391200_5819700_600m.json` | the square's other street furniture, one page per kind `berlin::FurnitureKind` reads, every attribute (the shelters' page is empty: the square has none) | WFS `strassenbefahrung:*` |
 | `atkis_strassenachse_391200_5819700_600m.json`, `atkis_fahrbahnachse_391200_5819700_600m.json` | the ATKIS street and carriageway axes of the Museumsinsel square: one page of GeoJSON each, the attributes `berlin::parse_axes` reads | WFS `atkis:b08_ax_strassenachse_l`, `atkis:b07_ax_fahrbahnachse_l` |
 | `dgm1_legend.json` | JSON legend of the terrain layer `c_dgm1` (served in Latin-1) | `GetLegendGraphic` |
 | `dgm1_392000_5820000_1024m_256px.png` | terrain render, E 392000-393024, N 5820000-5821024, 4 m pixels | `GetMap` |

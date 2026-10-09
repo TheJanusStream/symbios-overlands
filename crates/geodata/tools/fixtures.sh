@@ -23,6 +23,10 @@ map() { # service layers bbox size
   echo "$b/wms/$1?service=WMS&version=1.3.0&request=GetMap&layers=$2&styles=&crs=EPSG:25833&bbox=$3&width=$4&height=$4&format=image/png&transparent=true&format_options=antialias:none"
 }
 
+features() { # service type bbox properties count - a page of GeoJSON features
+  echo "$b/wfs/$1?service=WFS&version=2.0.0&request=GetFeature&typeNames=$1:$2&outputFormat=application/json&bbox=$3,urn:ogc:def:crs:EPSG::25833${4:+&propertyName=$4}&count=$5"
+}
+
 axes() { # type bbox - a page of street axes, as berlin::parse_axes reads them
   echo "$b/wfs/atkis?service=WFS&version=2.0.0&request=GetFeature&typeNames=atkis:$1&outputFormat=application/json&bbox=$2,urn:ogc:def:crs:EPSG::25833&propertyName=uuid,brf,fsz,ftr,fkt,wdm,geom&count=2000"
 }
@@ -62,3 +66,19 @@ get atkis_strassenachse_391200_5819700_600m.json \
   "$(axes b08_ax_strassenachse_l 391200,5819700,391800,5820300)"
 get atkis_fahrbahnachse_391200_5819700_600m.json \
   "$(axes b07_ax_fahrbahnachse_l 391200,5819700,391800,5820300)"
+
+# The Museumsinsel square's buildings, trees and street furniture (#1588).
+square=391200,5819700,391800,5820300
+get alkis_gebaeude_391200_5819700_600m.json \
+  "$(features alkis_gebaeude gebaeude $square uuid,gfk,aog,bezeich,geom 3000)"
+for layer in strassenbaeume anlagenbaeume; do
+  get "baumbestand_${layer}_391200_5819700_600m.json" \
+    "$(features baumbestand "$layer" $square gisid,gattung,baumhoehe,kronedurch,stammumfg,geom 6000)"
+done
+get beleuchtung_beleuchtung_391200_5819700_600m.json \
+  "$(features beleuchtung beleuchtung $square "" 3000)"
+for layer in bj_sitzbank ah_abfallbehaelter_muellbox av_poller br_fahrgastunterstand \
+  aa_verkehrszeichen bv_springbrunnen_zierbrunnen ag_werbesaeule bq_fahrradstaender; do
+  get "strassenbefahrung_${layer}_391200_5819700_600m.json" \
+    "$(features strassenbefahrung "$layer" $square "" 3000)"
+done

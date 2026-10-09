@@ -45,8 +45,8 @@ pub(super) fn cleanup_terrain(
         commands.remove_resource::<super::geo::GeoTerrainJob>();
     }
     commands.remove_resource::<super::geo::GeoTerrainFallback>();
-    // A middle ring still spawning goes with its terrain (#1587).
-    commands.remove_resource::<super::ring_buildings::RingBuild>();
+    // Derived content still spawning goes with its terrain (#1587, #1588).
+    commands.remove_resource::<super::derived::DerivedBuilds>();
     // All `try_despawn` (#923): these flat sweeps overlap - a mid-swap
     // heightfield is in both `terrain` and `outgoing`, and the water
     // volumes are `RoomEntity`s that `end_attract_scene` (same

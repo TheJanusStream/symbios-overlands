@@ -16,6 +16,9 @@
 //!   where a square may lie and places one from a seeded draw;
 //! - [`request`]: the WMS `GetMap`/`GetLegendGraphic` and WFS `GetFeature`
 //!   URLs, built canonically so a URL can key a cache;
+//! - [`features`]: a WFS `GetFeature` page of GeoJSON read back into
+//!   geometry and properties, which [`berlin`]'s street, building, tree and
+//!   street-furniture readers build on;
 //! - [`legend`]: GeoServer's JSON legends, which name the colour of every
 //!   class a WMS layer is drawn with;
 //! - [`raster`]: decoding a WMS render back into data - heights from the
@@ -43,6 +46,7 @@
 //! north edge**, as a WMS serves them.
 
 pub mod berlin;
+pub mod features;
 pub mod legend;
 pub mod raster;
 pub mod request;

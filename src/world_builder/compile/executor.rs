@@ -893,6 +893,8 @@ fn step_unit(
             let max_attempts = count.saturating_mul(10).max(*count);
 
             let urban_exclusions = super::scatter::urban_exclusions(ctx.record, *avoid_urban);
+            let tree_clearance =
+                super::scatter::tree_clearance(ctx.record, generator_ref, ctx.heightmap);
             let filters = super::scatter::SampleFilters {
                 biome_filter,
                 terrain_cfg,
@@ -901,6 +903,7 @@ fn step_unit(
                 // `1 - normal.y` cutoff resolved once per unit (#912) - the
                 // trigonometry would otherwise be paid per sample.
                 slope_cutoff: super::scatter::slope_cutoff(naturalness),
+                tree_clearance,
             };
 
             while *spawned < *count && *attempts < max_attempts {

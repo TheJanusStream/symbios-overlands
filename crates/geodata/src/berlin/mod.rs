@@ -5,14 +5,24 @@
 //! and every one is dl-de/zero-2.0. The services are GeoServer, in
 //! EPSG:25833, with `Access-Control-Allow-Origin: *`.
 
+mod buildings;
 mod coverage;
 mod coverage_table;
+mod furniture;
 mod streets;
+mod trees;
 
+pub use buildings::{
+    BUILDING_PAGE, BUILDING_PROPERTIES, Building, BuildingPage, BuildingUse, parse_buildings,
+};
 pub use coverage::{Coverage, Keep};
+pub use furniture::{
+    FURNITURE_PAGE, FurnitureItem, FurnitureKind, FurniturePage, is_lamp, parse_furniture,
+};
 pub use streets::{
     AXIS_PAGE, AXIS_PROPERTIES, AxisError, AxisPage, Dedication, StreetAxis, parse_axes,
 };
+pub use trees::{InventoryTree, TREE_PAGE, TREE_PROPERTIES, TreePage, parse_trees};
 
 use crate::legend::ClassLegend;
 use crate::request::{WfsType, WmsLayer};
@@ -77,8 +87,9 @@ pub const STOREYS: WmsLayer = WmsLayer {
     epsg: EPSG,
 };
 
-/// Building footprints (ALKIS): multipolygons with function (`bezgfk`),
-/// storeys above ground (`aog`), name and address, keyed by `uuid`.
+/// Building footprints (ALKIS): multipolygons with function (`gfk`),
+/// storeys above ground (`aog`), name and address, keyed by `uuid`. Read a
+/// page with [`parse_buildings`], asked for with [`BUILDING_PROPERTIES`].
 pub const BUILDINGS: WfsType = wfs("alkis_gebaeude", "alkis_gebaeude:gebaeude");
 
 /// Street axes (ATKIS Basis-DLM `AX_Strassenachse`): one line per stretch
@@ -92,10 +103,11 @@ pub const STREET_AXES: WfsType = wfs("atkis", "atkis:b08_ax_strassenachse_l");
 pub const CARRIAGEWAY_AXES: WfsType = wfs("atkis", "atkis:b07_ax_fahrbahnachse_l");
 
 /// Street trees: points with species and genus, planting year, height,
-/// crown diameter and trunk girth, keyed by `gisid`.
+/// crown diameter and trunk girth, keyed by `gisid`. Read a page with
+/// [`parse_trees`], asked for with [`TREE_PROPERTIES`].
 pub const STREET_TREES: WfsType = wfs("baumbestand", "baumbestand:strassenbaeume");
 
-/// Park trees, attributed as [`STREET_TREES`].
+/// Park trees, attributed and read as [`STREET_TREES`].
 pub const PARK_TREES: WfsType = wfs("baumbestand", "baumbestand:anlagenbaeume");
 
 /// Water bodies: named polygons, whole rivers at a time (clip them).

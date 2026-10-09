@@ -208,6 +208,7 @@ fn replay(
     naturalness: &ScatterNaturalness,
 ) -> Option<Vec<(f32, f32)>> {
     let Placement::Scatter {
+        generator_ref,
         bounds,
         count,
         local_seed,
@@ -219,12 +220,14 @@ fn replay(
         return None;
     };
     let exclusions = urban_exclusions(record, *avoid_urban);
+    let trees = super::scatter::tree_clearance(record, generator_ref, Some(heightmap));
     let filters = SampleFilters {
         biome_filter,
         terrain_cfg: crate::pds::find_terrain_config(record),
         water_level,
         urban_exclusions: &exclusions,
         slope_cutoff: slope_cutoff(naturalness),
+        tree_clearance: trees,
     };
     Some(place(
         bounds,

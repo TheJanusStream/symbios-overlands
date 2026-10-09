@@ -253,15 +253,15 @@ pub(super) struct WorldReadiness<'w, 's> {
     job: Option<Res<'w, CompileJob>>,
     splat: Option<Res<'w, SplatApplied>>,
     roads: Option<Res<'w, RoadPanelStats>>,
-    /// A geodata region's middle ring still spawning (#1587).
-    ring: Option<Res<'w, crate::terrain::ring_buildings::RingBuild>>,
+    /// A geodata region's derived content still spawning (#1587, #1588).
+    derived: Option<Res<'w, crate::terrain::derived::DerivedBuilds>>,
     bakes: BakesInFlight<'w, 's>,
 }
 
 impl WorldReadiness<'_, '_> {
     /// At least one compile pass has landed, no pass is running, the
     /// ground shows its splat, no road re-mesh or lot re-derive is armed
-    /// or in flight, a geodata region's ring is spawned, and every
+    /// or in flight, a geodata region's derived content is spawned, and every
     /// procedural texture the compile dispatched has been baked and
     /// patched into its material.
     pub(super) fn settled(&self) -> bool {
@@ -269,21 +269,21 @@ impl WorldReadiness<'_, '_> {
             && self.job.as_ref().is_some_and(|j| j.progress().is_none())
             && self.splat.is_some()
             && self.roads.as_ref().is_some_and(|r| !r.pending)
-            && self.ring.is_none()
+            && self.derived.is_none()
             && self.bakes.count() == 0
     }
 
     /// One line for the progress log and the timeout panic.
     pub(super) fn status(&self) -> String {
         format!(
-            "compiled={} compile_progress={:?} splat={} roads_pending={:?} streets={:?} buildings={:?} ring_spawning={} bakes_in_flight={}",
+            "compiled={} compile_progress={:?} splat={} roads_pending={:?} streets={:?} buildings={:?} derived_spawning={} bakes_in_flight={}",
             self.compiled.is_some(),
             self.job.as_ref().and_then(|j| j.progress()),
             self.splat.is_some(),
             self.roads.as_ref().map(|r| r.pending),
             self.roads.as_ref().map(|r| r.streets),
             self.roads.as_ref().map(|r| r.buildings),
-            self.ring.is_some(),
+            self.derived.is_some(),
             self.bakes.count(),
         )
     }

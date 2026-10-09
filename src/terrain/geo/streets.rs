@@ -85,7 +85,7 @@ pub(crate) struct CoreFrame {
 
 impl CoreFrame {
     /// Heightmap-local `(x, z)` metres of E/N `[e, n]`.
-    fn local(&self, [e, n]: [f64; 2]) -> (f32, f32) {
+    pub(crate) fn local(&self, [e, n]: [f64; 2]) -> (f32, f32) {
         let pixel = (self.bbox.max_e - self.bbox.min_e) as f64 / f64::from(self.grid);
         let cell = f64::from(self.cell);
         let x = ((e - self.bbox.min_e as f64) / pixel - 0.5) * cell;
@@ -94,7 +94,7 @@ impl CoreFrame {
     }
 
     /// The heightmap's extent (m): its first point to its last.
-    fn extent(&self) -> f32 {
+    pub(crate) fn extent(&self) -> f32 {
         (self.grid.saturating_sub(1)) as f32 * self.cell
     }
 }
@@ -126,6 +126,18 @@ impl Streets {
             .filter(|a| !a.separated)
             .chain(&self.carriageways)
             .filter(|a| !a.pedestrian)
+    }
+}
+
+impl Streets {
+    /// Every segment of the drawn carriageways, in the core's `frame`.
+    pub(crate) fn segments(&self, frame: CoreFrame) -> Vec<((f32, f32), (f32, f32))> {
+        let mut segments = Vec::new();
+        for line in self.drawn().flat_map(|axis| &axis.lines) {
+            let pts: Vec<(f32, f32)> = line.iter().map(|&p| frame.local(p)).collect();
+            segments.extend(pts.windows(2).map(|w| (w[0], w[1])));
+        }
+        segments
     }
 }
 

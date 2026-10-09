@@ -124,6 +124,59 @@ fn fixtures_are_what_the_builders_ask_for() {
              &typeNames=atkis:b07_ax_fahrbahnachse_l{page}"
         )
     );
+    let page = |properties, count| FeatureQuery {
+        properties,
+        count: Some(count),
+        start_index: None,
+    };
+    let bbox = "&bbox=391200,5819700,391800,5820300,urn:ogc:def:crs:EPSG::25833";
+    let get = "?service=WFS&version=2.0.0&request=GetFeature";
+    assert_eq!(
+        get_features(
+            &berlin::BUILDINGS,
+            MUSEUMSINSEL,
+            &page(berlin::BUILDING_PROPERTIES, berlin::BUILDING_PAGE)
+        ),
+        format!(
+            "{wfs}/alkis_gebaeude{get}&typeNames=alkis_gebaeude:gebaeude\
+             &outputFormat=application/json{bbox}&propertyName=uuid,gfk,aog,bezeich,geom\
+             &count=3000"
+        )
+    );
+    assert_eq!(
+        get_features(
+            &berlin::PARK_TREES,
+            MUSEUMSINSEL,
+            &page(berlin::TREE_PROPERTIES, berlin::TREE_PAGE)
+        ),
+        format!(
+            "{wfs}/baumbestand{get}&typeNames=baumbestand:anlagenbaeume\
+             &outputFormat=application/json{bbox}\
+             &propertyName=gisid,gattung,baumhoehe,kronedurch,stammumfg,geom&count=6000"
+        )
+    );
+    assert_eq!(
+        get_features(
+            &berlin::FurnitureKind::Bench.layer(),
+            MUSEUMSINSEL,
+            &page(&[], berlin::FURNITURE_PAGE)
+        ),
+        format!(
+            "{wfs}/strassenbefahrung{get}&typeNames=strassenbefahrung:bj_sitzbank\
+             &outputFormat=application/json{bbox}&count=3000"
+        )
+    );
+    assert_eq!(
+        get_features(
+            &berlin::FurnitureKind::Lamp.layer(),
+            MUSEUMSINSEL,
+            &page(&[], berlin::FURNITURE_PAGE)
+        ),
+        format!(
+            "{wfs}/beleuchtung{get}&typeNames=beleuchtung:beleuchtung\
+             &outputFormat=application/json{bbox}&count=3000"
+        )
+    );
     assert_eq!(
         get_legend(&berlin::TERRAIN, 0),
         format!(
@@ -437,4 +490,81 @@ fn the_museumsinsel_streets_read_as_atkis_draws_them() {
         (Some(5.5), berlin::Dedication::Federal)
     );
     assert_eq!(bridge.lines[0][0], [391_606.037, 5_819_950.312_9]);
+}
+
+/// The Museumsinsel square's buildings, trees and street furniture, as the
+/// city records them: 66 buildings and 173 parts of them - the museums,
+/// the Dom, the Humboldt Forum's 20,000 m2 - 118 street trees and 349 park
+/// trees, lindens most of them, and the furniture of its streets.
+#[test]
+fn the_museumsinsel_street_level_reads_as_the_city_records_it() {
+    let buildings =
+        berlin::parse_buildings(&fixture("alkis_gebaeude_391200_5819700_600m.json")).unwrap();
+    assert!(!buildings.is_cut_short());
+    let (parts, whole): (Vec<_>, Vec<_>) = buildings.buildings.iter().partition(|b| b.part);
+    assert_eq!((whole.len(), parts.len()), (66, 173));
+    let largest = whole.iter().map(|b| b.area()).fold(0.0, f64::max);
+    assert!((20_000.0..21_000.0).contains(&largest), "{largest}");
+    let uses: std::collections::BTreeMap<String, usize> =
+        whole.iter().fold(Default::default(), |mut m, b| {
+            *m.entry(format!("{:?}", b.usage())).or_default() += 1;
+            m
+        });
+    assert_eq!(uses.get("Cultural"), Some(&14), "{uses:?}");
+    assert_eq!(uses.get("Religious"), Some(&1), "the Dom");
+    assert_eq!(uses.get("Underground"), Some(&2));
+
+    let trees: Vec<berlin::InventoryTree> = ["strassenbaeume", "anlagenbaeume"]
+        .iter()
+        .flat_map(|layer| {
+            berlin::parse_trees(&fixture(&format!(
+                "baumbestand_{layer}_391200_5819700_600m.json"
+            )))
+            .unwrap()
+            .trees
+        })
+        .collect();
+    assert_eq!(trees.len(), 118 + 349);
+    let lindens = trees
+        .iter()
+        .filter(|t| t.genus.as_deref() == Some("Tilia"))
+        .count();
+    assert_eq!(lindens, 74 + 160);
+    assert!(
+        trees
+            .iter()
+            .all(|t| t.height.is_none_or(|h| (1.0..45.0).contains(&h)))
+    );
+
+    let counts: Vec<(berlin::FurnitureKind, usize)> = berlin::FurnitureKind::ALL
+        .iter()
+        .map(|&kind| {
+            let layer = kind.layer().type_name.replace(':', "_");
+            let page = berlin::parse_furniture(
+                kind,
+                &fixture(&format!("{layer}_391200_5819700_600m.json")),
+            )
+            .unwrap();
+            assert!(
+                page.items.iter().all(|i| !i.id.is_empty()),
+                "{kind:?} keyed"
+            );
+            (kind, page.items.len())
+        })
+        .collect();
+    use berlin::FurnitureKind::*;
+    assert_eq!(
+        counts,
+        vec![
+            (Lamp, 186),
+            (Bench, 40),
+            (Bin, 45),
+            (Bollard, 223),
+            (Shelter, 0),
+            (Sign, 144),
+            (Fountain, 2),
+            (Column, 53),
+            (BikeRack, 141)
+        ]
+    );
 }

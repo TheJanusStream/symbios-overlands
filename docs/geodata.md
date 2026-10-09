@@ -124,7 +124,10 @@ and the wasm worker share it:
 - `square`: `GeoSquare` and the log-uniform size draw;
 - `berlin`: the host, the layer catalogue, `LandUse` (22 classes),
   `StoreyBand`, `Borough`, and `Coverage`; the ATKIS street and carriageway
-  axes, read from a page of GeoJSON by `parse_axes` (#1595);
+  axes, read from a page of GeoJSON by `parse_axes` (#1595); the ALKIS
+  buildings, the tree inventory and the street furniture (`parse_buildings`,
+  `parse_trees`, `parse_furniture`, P2.2);
+- `features`: one page of GeoJSON features, read once for every layer;
 - `request`: canonical `GetMap`, `GetLegendGraphic` and `GetFeature` URLs;
 - `legend`: GeoServer JSON legends, as value ranges or fill classes;
 - `raster`: PNG to RGBA; terrain to heights with clamped smoothing;
@@ -197,8 +200,9 @@ heightmap job.
 1. The job fetches the core's answers: the terrain legend and one render of
    the core - the terrain config's `grid_size` points `cell_scale` apart,
    centred on the square, with pixel centres on the grid points - the
-   land-use legend and one render of the same box (P1.4), and a page each
-   of the street and carriageway axes over it (#1595). The core is never
+   land-use legend and one render of the same box (P1.4), a page each
+   of the street and carriageway axes over it (#1595), and the street
+   level's twelve pages (P2.2). The core is never
    wider than the square (`core_grid`), so a 250 m square is a 250 m
    world, and the core always lies inside Berlin, where the data is.
 2. It decodes them on the compute pool.
@@ -256,7 +260,8 @@ together and go together.
   and fields and never across a street. A scatter's altitude band is not
   read on Berlin ground: a seeded treeline is a fraction of a procedural
   world's relief, tens of metres below Berlin's lowest ground, and would
-  strip every stand.
+  strip every stand. Where the street level has landed (P2.2), a scatter
+  of trees keeps 8 m off each of Berlin's own.
 - **Water.** The terrain layer draws water flat at its surface: the Spree at
   the Museumsinsel decodes to 30.54 m, its published level about 30.5 m.
   `geodata::water::settle` takes one level for the core, the median height
@@ -350,7 +355,8 @@ core's land use.
 - **Seen.** A 12 km square round Charlottenburg shows the Teufelsberg
   4.5 km out as a small forested bump on the horizon, as an 80 m hill is at
   that distance, and the Spree's water continuing past the core.
-- **Timing.** The core lands once its own four answers are in and the far
+- **Timing.** The core lands once its own answers are in (its terrain,
+  land use, streets and street level, eighteen in all) and the far
   field's are too, or 10 s after its own, whichever is first: the horizon
   is decoration, and gets one retry's grace, not the loading screen. The
   grace runs on the wall clock (`Time<Real>`), since it waits on the
@@ -367,9 +373,10 @@ core's land use.
   field's land use is plainly coarser than the core's.
 
 The middle ring (P2.1, #1587; `src/terrain/geo/ring.rs`,
-`src/terrain/ring_buildings.rs`) is Berlin's buildings round the walkable
+`src/terrain/derived/ring.rs`) is Berlin's buildings round the walkable
 ground, drawn as the region's own catalogue buildings. It rides in the
-`GeoGround` beside the far field.
+`GeoGround` beside the far field, and is spawned by the derived stage
+(P2.2), after the walkable ground's plans.
 
 - **Data.** Over a box reaching 1 km past the core on every side (at most
   the square), two renders at 4 m a pixel: the land use, and the surface
@@ -454,6 +461,105 @@ walkable ground, meshed by the road networks' mesher.
   Museumsinsel the lowest deck over a bridge stands 1.7 m over the Spree.
 - **Failure.** Streets that cannot be had leave the ground without them,
   painted on its stone layer, and say so.
+
+The street level (P2.2, #1588; `src/terrain/geo/street_level.rs`,
+`src/terrain/derived/`) is the walkable ground's buildings, trees and street
+furniture, each Berlin's own place and the region's own catalogue item.
+
+- **Data.** Twelve WFS pages over the core, one per layer: GeoServer refuses
+  a query over several types with a box. All dl-de/zero.
+  - The ALKIS buildings (`alkis_gebaeude:gebaeude`): `uuid`, function
+    (`gfk`), storeys above ground (`aog`), and whether a feature is a
+    building or a part of one (`bezeich`).
+  - The street and park trees (`baumbestand:strassenbaeume`,
+    `baumbestand:anlagenbaeume`): `gisid`, genus (`gattung`), height,
+    crown and girth.
+  - The street lamps, from the lighting register (`beleuchtung:beleuchtung`,
+    keyed by `leuchtstelle`). The street survey's own masts are not its
+    lamps: a square kilometre of Prenzlauer Berg has 6 of them and 604 lamps
+    in the register. A lamp is a lamp post or a gas lamp, which Berlin
+    stands on posts - in ten central districts every lamp was one of these;
+    its switch cabinets, light strips and catch-all are left out, and so
+    would be a lamp hung on a wire or a wall.
+  - The 2014 street survey (`strassenbefahrung`): benches, bins, bollards,
+    shelters, signs, fountains, advertising columns, bike racks, keyed by
+    `gis_id` (a sign by `sdatenid`). A bench is a line along its seat, a
+    rack or a fountain an area: each keeps its long side.
+
+  The densest layers over four central square kilometres (Prenzlauer Berg,
+  Tiergarten, Wrangelkiez, Mitte): 1,281 buildings and building parts,
+  1,276 street trees, 2,695 park trees, 1,765 bollards. A page holds 3,000
+  (the trees' 6,000); a page cut short draws what it holds, and the log
+  says so.
+- **Reading.** A building stands whole; its parts - a dome, a high-rise
+  section - only raise its peak storeys. An underground car park stands
+  nothing. Whatever reaches within 3 m of the core's edge is left out, and
+  each layer comes nearest the core's middle first. Two items of a kind
+  within half a metre of each other are one, the lower id kept whatever
+  order the server sent them in: the sign survey records some signs twice,
+  and two signs at one spot draw as one.
+- **Facing.** A building or an item faces its street: across to the
+  nearest carriageway the core draws, within 60 m, and elsewhere down the
+  slope of the land use's distance to street space (which, a four-neighbour
+  step count, only knows eight directions). A sign faces the traffic coming
+  at it, which keeps to the right; a bench or a rack keeps its own line,
+  fronting the street side.
+- **The derived stage.** None of it is in the record. Each item is named by
+  where it comes from, a `SourceId` (`alkis:<uuid>`, `tree:<gisid>`,
+  `furniture:<id>`, and `ring:<x>,<z>` for the ring, which has no ids), and
+  every entity drawn from it carries it as a `DerivedItem`: what P3.2's
+  edits will name (#1590). The record's own content comes first: nothing
+  derived stands within 12 m of the landing, nor within 2 m of an absolute
+  placement's ground reach. Each part is a plan, spawned as the ring's is:
+  templates, bakes, then copies, 4 ms a frame, the walkable ground first,
+  and each plan's copies nearest the landing first, so its budget keeps
+  those.
+- **Buildings.** A church, a cultural or public building of 1,200 m2 or
+  more, or a building of 12 storeys takes one of the theme's landmarks - at
+  most 6, no two within 150 m, places of worship first, each counted only
+  where it can stand. Every other
+  building of 30 m2 or more takes the theme's secondaries, bigger where
+  Berlin's stands taller. A footprint is filled in its box along its
+  longest edge: a row of entries for every 30 m of its depth (at most 4),
+  each fitted to its row's depth and set side by side down the length, a
+  copy wherever a slot's middle lies on the footprint. A row fronts the
+  street side; of several, the outer two front their own sides, as a
+  block's houses front the streets either side of it. A landmark stands at
+  the box's middle with rows either side of it; one that fits nowhere,
+  whose box's middle is off the footprint (a courtyard), or that would
+  reach the landing gives way to rows. A building's picks are seeded by
+  its uuid. Every copy stands on its voxel shell as its collider; past
+  12,000 near entities a copy is its shell, at most 3,000.
+- **Trees.** The owner chose Berlin's species over the region's biome: each
+  genus is the catalogue species nearest it (a linden, a maple or an ash a
+  dense oval crown, a plane or a chestnut a spreading one, an oak an oak, a
+  pine a pine), and a genus the table does not name is a broadleaf crown.
+  Each species is grown once, its growth held to the seeded stands'
+  per-tree budget, and each copy scaled to its tree's measured height (10 m
+  where none is measured). It stands on a trunk as thick as its girth, up
+  to 3 m of it. Its foliage keeps its wind sway: the bake reads a swaying
+  part through the wind material the wind system swapped onto it.
+- **Furniture.** A prop is one of a kind by the words of its slug (a street
+  lamp, a gas lamp and a stone lantern are lamps), searched among the
+  room's props and secondaries by its prosperity and escalation, each drawn
+  no bigger than its kind's reach. A kind the theme has no prop for is left
+  out; most themes have a few. A Modern City room at prosperity 0.71 and
+  escalation 0.14 draws lamps, benches, bins (its dumpster), shelters (its
+  transit stop) and fountains, a medieval one lanterns and benches. An item
+  takes one of its kind's matches by its own id. The 1,500 nearest the
+  landing are drawn, cut at the player's draw distance as ground cover is; a street
+  lamp is turned so its arm reaches over the carriageway. A pole stands on
+  a post of its own, the rest on their boxes.
+- **Seen.** The Museumsinsel's square kilometre in that Modern City room:
+  451 building copies (6,193 entities), 1,081 trees (2,206) and 855 items
+  of furniture (3,042), all near.
+- **Failure.** Each layer stands on its own page: one that cannot be had or
+  read is left out alone, and said, and the rest stand. The walkable ground
+  waits for these pages as it does for its terrain.
+- **Limits.** An L-shaped or courtyard building is filled from its box, so
+  its slots fall only where their middles are on it. An item stands where
+  the survey placed it, even where a drawn carriageway, wider than the real
+  one, reaches over the pavement.
 
 The ignored test `live_gdi_berlin_round_trip_decodes_and_is_kept` exercises
 the live path end to end: the real client, the disk store, and the decoders.

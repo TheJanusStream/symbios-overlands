@@ -16,7 +16,7 @@
 //!
 //! What stands on each lot is the region's own: its theme's catalogue
 //! buildings, drawn at their catalogue size or smaller by
-//! [`crate::terrain::ring_buildings`]. The tallest of Berlin's - a church
+//! [`crate::terrain::derived::ring`]. The tallest of Berlin's - a church
 //! tower, a dome, a high-rise - take the theme's landmarks, and a taller
 //! one of the rest a bigger building.
 //!
@@ -321,7 +321,7 @@ fn built_up(cover: Option<LandUse>) -> bool {
 /// Four-neighbour steps from each pixel to the nearest street pixel: the
 /// street space, which the land use leaves empty. `u32::MAX` everywhere on
 /// a render with no street.
-fn street_distance(cover: &[Option<LandUse>], n: usize) -> Vec<u32> {
+pub(super) fn street_distance(cover: &[Option<LandUse>], n: usize) -> Vec<u32> {
     let mut steps = vec![u32::MAX; n * n];
     let mut queue = std::collections::VecDeque::new();
     for (i, c) in cover.iter().enumerate() {

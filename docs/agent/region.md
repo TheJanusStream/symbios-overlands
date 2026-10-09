@@ -1052,6 +1052,8 @@ null` goes back to the generated ground.
   rail, sport grounds, construction sites and water count as no layer at
   all. So a stand with `biomes [0, 1]` grows in parks, woods and fields,
   never on a street. Its `altitude_band` is not read on Berlin ground.
+  A scatter of trees (an `LSystem` generator) keeps 8 m off each of
+  Berlin's own trees, so a park is not wooded twice over.
 - **Berlin sets the water level.** Where the square has a river or lake,
   every water child under `base_terrain` is drawn at Berlin's level (the
   Spree at the Museumsinsel: 30.5 m), whatever its `transform.translation` y
@@ -1060,9 +1062,10 @@ null` goes back to the generated ground.
   a body more than 3 m off the level (a lake on the plateau over a river)
   is drawn dry. The level is the largest body's that does not sink much of
   the square under it: a pond on a hill leaves the valley below it alone,
-  and if no body can set a level, the square has no water. Bridges are
-  causeways at the waterline until buildings come. The World Editor's
-  Region source shows the level.
+  and if no body can set a level, the square has no water. A bridge that
+  carries one of Berlin's streets is a deck over the water; a footbridge or
+  a rail bridge is a causeway at the waterline. The World Editor's Region
+  source shows the level.
 - **A square wider than the walkable ground has a horizon.** The rest of
   the square is drawn on to its edge, coarse, as the region's horizon. It
   is not walkable: invisible walls stand at the walkable ground's edge, so
@@ -1074,8 +1077,19 @@ null` goes back to the generated ground.
   one to each 30 m lot where Berlin has a building, the tallest Berlin
   buildings taking the theme's landmarks. They are drawn and never walked,
   derived on every visit, and not in the record: nothing an agent can
-  place, move or delete. The walkable ground's own blocks are not built
-  yet (P2.2).
+  place, move or delete.
+- **The walkable ground has Berlin's street level** (P2.2): the theme's
+  catalogue buildings on each of Berlin's building footprints (in rows down
+  a long one, a landmark on a church or a large museum), every tree of the
+  city's inventory as the catalogue species nearest its genus at its
+  measured height, and the street furniture (lamps, benches, bins,
+  bollards, shelters, signs, fountains, advertising columns, bike racks) as
+  the theme's matching props, where the theme has one. All of it stands on
+  colliders and blocks a body. It is derived on every visit and not in the
+  record: an agent cannot move or delete it. The record's own content comes
+  first: nothing derived stands within 12 m of `default_landing`, nor within
+  2 m of an absolute placement's reach (its `avoid_water_clearance`, else
+  4 m). To keep a spot open, build there.
 - **Berlin's streets are built on the walkable ground** (#1595): its real
   street network, each street as wide as its carriageway, with curbs and
   junctions, bridges where it crosses water. Like the buildings round it

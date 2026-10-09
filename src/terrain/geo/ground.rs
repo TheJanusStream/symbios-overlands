@@ -33,6 +33,7 @@ use geodata::berlin::LandUse;
 
 use super::far::FarField;
 use super::ring::Ring;
+use super::street_level::StreetLevel;
 use crate::urban::RoadParts;
 
 /// The scatter layer of ground that is no natural ground: matched by no
@@ -64,6 +65,9 @@ pub(crate) struct GeoGround {
     ring: Option<Arc<Ring>>,
     /// Berlin's streets on the core, meshed (#1595), where it has any.
     streets: Option<StreetMeshes>,
+    /// Its buildings, trees and street furniture (#1588), where they were
+    /// had. Shared, as the far field is.
+    street_level: Option<Arc<StreetLevel>>,
 }
 
 /// Berlin's streets meshed on a core (#1595), shared: the clones the
@@ -146,6 +150,21 @@ impl GeoGround {
         self.streets = Some(StreetMeshes(Arc::new(std::sync::Mutex::new(Some(parts)))));
     }
 
+    /// The walkable ground's buildings, trees and street furniture.
+    pub(crate) fn street_level(&self) -> Option<&Arc<StreetLevel>> {
+        self.street_level.as_ref()
+    }
+
+    /// Give the ground its street level.
+    pub(super) fn set_street_level(&mut self, level: StreetLevel) {
+        self.street_level = Some(Arc::new(level));
+    }
+
+    /// The land use of every cell, row-major from the north-west corner.
+    pub(super) fn cover(&self) -> &[Option<LandUse>] {
+        &self.cover
+    }
+
     /// Which cells are water, and the bridges over it that the streets
     /// crossing `bridges` ride ([`water_mask`]): the mask the core's water
     /// was settled with, given the same `bridges`.
@@ -223,6 +242,7 @@ impl GeoGround {
             far: None,
             ring: None,
             streets: None,
+            street_level: None,
         }
     }
 
@@ -241,6 +261,12 @@ impl GeoGround {
     /// This ground with `parts` as its streets.
     pub(crate) fn with_streets(mut self, parts: RoadParts) -> Self {
         self.set_streets(parts);
+        self
+    }
+
+    /// This ground with `level` as its street level.
+    pub(crate) fn with_street_level(mut self, level: StreetLevel) -> Self {
+        self.set_street_level(level);
         self
     }
 }
@@ -322,6 +348,7 @@ pub(crate) fn decode_ground(
         far: None,
         ring: None,
         streets: None,
+        street_level: None,
     })
 }
 
