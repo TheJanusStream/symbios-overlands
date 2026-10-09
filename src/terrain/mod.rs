@@ -122,7 +122,7 @@ pub(crate) struct HeightMapSource(pub(crate) Option<String>);
 
 /// The key a record's terrain is generated from: its terrain config (the
 /// default one where it has none, as the terrain task falls back to) and its
-/// geodata source, as JSON. Equal keys build the same heightmap.
+/// geodata source's square, as JSON. Equal keys build the same heightmap.
 pub(crate) fn terrain_source_key(record: &crate::pds::RoomRecord) -> Option<String> {
     terrain_fingerprint(
         &crate::pds::find_terrain_config(record)
@@ -133,14 +133,21 @@ pub(crate) fn terrain_source_key(record: &crate::pds::RoomRecord) -> Option<Stri
 }
 
 /// What a heightmap built from `cfg` for `record` depends on, as one string:
-/// the terrain config and the record's geodata source (#1584) - switching a
-/// region to real Berlin, or moving its square, builds a new heightmap
-/// exactly as a terrain edit does.
+/// the terrain config and the square of the record's geodata source
+/// (#1584), so switching a region to real Berlin, or moving its square,
+/// builds a new heightmap exactly as a terrain edit does. The rest of the
+/// source is the owner's edits over what stands on the ground and the layer
+/// hashes a save writes (#1590), neither of which moves the ground: an item
+/// removed must not rebuild the city under it.
 pub(crate) fn terrain_fingerprint(
     cfg: &crate::pds::SovereignTerrainConfig,
     record: &crate::pds::RoomRecord,
 ) -> Option<String> {
-    serde_json::to_string(&(cfg, &record.geo_source)).ok()
+    let square = record
+        .geo_source
+        .as_ref()
+        .map(|source| (source.dataset.as_str(), source.square()));
+    serde_json::to_string(&(cfg, square)).ok()
 }
 
 /// The terrain generation gave an answer that is not a heightmap (#1230
@@ -508,9 +515,15 @@ pub(crate) fn register_headless_roads(app: &mut App) {
                     .after(heightmap::poll_terrain_task)
                     .after(heightmap::spawn_terrain_mesh),
                 derived::start_derived.after(heightmap::spawn_terrain_mesh),
-                derived::spawn_derived
-                    .run_if(resource_exists::<derived::DerivedBuilds>)
+                derived::apply_derived_edits
+                    .run_if(
+                        resource_exists::<derived::DerivedBuilds>
+                            .and_then(resource_exists_and_changed::<LiveRoomRecord>),
+                    )
                     .after(derived::start_derived),
+                derived::spawn_derived
+                    .run_if(derived::derived_spawning)
+                    .after(derived::apply_derived_edits),
             ),
         );
 }
@@ -603,9 +616,20 @@ impl Plugin for TerrainPlugin {
                     // the sync points the ordering inserts, so a slice never
                     // hangs an item on a terrain already gone.
                     derived::start_derived.after(heightmap::spawn_terrain_mesh),
-                    derived::spawn_derived
-                        .run_if(resource_exists::<derived::DerivedBuilds>)
+                    // The owner's edits over it (#1590), as the record
+                    // changes: before the slice, which draws a restored
+                    // copy the frame it is restored.
+                    derived::apply_derived_edits
+                        .run_if(
+                            resource_exists::<derived::DerivedBuilds>
+                                .and_then(resource_exists_and_changed::<LiveRoomRecord>),
+                        )
                         .after(derived::start_derived)
+                        .after(lifecycle::maybe_regenerate_terrain)
+                        .after(TerrainTeardown),
+                    derived::spawn_derived
+                        .run_if(derived::derived_spawning)
+                        .after(derived::apply_derived_edits)
                         .after(lifecycle::maybe_regenerate_terrain)
                         .after(TerrainTeardown),
                 )
@@ -813,11 +837,57 @@ mod terrain_failure_tests {
             &Default::default(),
             0.0,
             None,
+            Default::default(),
         ));
         assert!(
             !should_start(&mut world),
             "a fetching geodata terrain must not start a second one"
         );
+    }
+}
+
+#[cfg(test)]
+mod fingerprint_tests {
+    use crate::pds::geo_source::Edit;
+    use crate::pds::{GeoSource, RoomRecord};
+
+    /// The owner's edits over Berlin's items and the save's layer hashes
+    /// (#1590) leave the ground standing; a moved square, or another
+    /// dataset, rebuilds it.
+    #[test]
+    fn edits_and_hashes_keep_the_terrain_and_a_moved_square_rebuilds_it() {
+        let square = geodata::GeoSquare {
+            min_e: 391_000,
+            min_n: 5_819_500,
+            size_m: 1_000,
+        };
+        let mut record = RoomRecord::default_for_did("did:plc:print");
+        record.geo_source = Some(GeoSource::berlin(square));
+        let key = super::terrain_source_key(&record);
+        let source = record.geo_source.as_mut().unwrap();
+        source.set_edit("alkis:A", Edit::Removed).unwrap();
+        source.set_edit("tree:1", Edit::Adopted).unwrap();
+        source
+            .layers
+            .insert("terrain".into(), "0123456789abcdef".into());
+        assert_eq!(super::terrain_source_key(&record), key);
+        let moved = record
+            .geo_source
+            .as_ref()
+            .unwrap()
+            .moved_to(geodata::GeoSquare {
+                min_e: 391_010,
+                ..square
+            });
+        record.geo_source = Some(moved);
+        assert_ne!(super::terrain_source_key(&record), key);
+        record.geo_source = Some(GeoSource {
+            dataset: "hamburg".into(),
+            ..GeoSource::berlin(square)
+        });
+        assert_ne!(super::terrain_source_key(&record), key);
+        record.geo_source = None;
+        assert_ne!(super::terrain_source_key(&record), key);
     }
 }
 

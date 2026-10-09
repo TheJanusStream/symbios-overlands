@@ -1,6 +1,7 @@
 //! One attempt at a request: from the store if it holds a fresh answer, else
 //! from the network - and kept only if it is the answer asked for, from the
-//! host it was asked of.
+//! host it was asked of. Or past the store, when what it holds is known to
+//! be older than the answer a record was saved with (#1590).
 
 use std::future::Future;
 use std::sync::Arc;
@@ -12,8 +13,8 @@ use super::{GeoFetchError, GeoRequest, GeoStore, is_gdi_services_url};
 /// Where an answer came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Source {
-    /// Kept from an earlier visit.
-    Store,
+    /// Kept from an earlier visit, `at` this time (Unix seconds).
+    Store { at: i64 },
     /// Fetched just now.
     Network,
 }
@@ -40,12 +41,41 @@ where
     if !request.is_allowed() {
         return Err(GeoFetchError::Refused);
     }
-    let cap = request.cap();
-    if let Some(body) = store.get(request.url(), cap, now).await
+    if let Some((body, at)) = store.get_stamped(request.url(), request.cap(), now).await
         && request.validate(&body).is_ok()
     {
-        return Ok((body.into(), Source::Store));
+        return Ok((body.into(), Source::Store { at }));
     }
+    fetch_network(request, store, now, get).await
+}
+
+/// One attempt at `request` past the store, at `now`: `get(url, cap)`'s
+/// answer, validated as [`fetch_once`] validates one, then kept in place of
+/// whatever the store held. For an answer whose stored copy is known to be
+/// stale.
+pub async fn fetch_fresh<F, Fut>(
+    request: &GeoRequest,
+    store: &GeoStore,
+    now: i64,
+    get: F,
+) -> Fetched
+where
+    F: FnOnce(String, usize) -> Fut,
+    Fut: Future<Output = GetResult>,
+{
+    if !request.is_allowed() {
+        return Err(GeoFetchError::Refused);
+    }
+    fetch_network(request, store, now, get).await
+}
+
+/// The network half of an attempt at an allowed `request`.
+async fn fetch_network<F, Fut>(request: &GeoRequest, store: &GeoStore, now: i64, get: F) -> Fetched
+where
+    F: FnOnce(String, usize) -> Fut,
+    Fut: Future<Output = GetResult>,
+{
+    let cap = request.cap();
     let (body, answered_from) = get(request.url().to_owned(), cap)
         .await
         .map_err(GeoFetchError::Fetch)?;
@@ -109,7 +139,7 @@ mod tests {
             panic!("a fresh stored answer must not reach the network")
         }))
         .unwrap();
-        assert_eq!((&*body, source), (LEGEND, Source::Store));
+        assert_eq!((&*body, source), (LEGEND, Source::Store { at: NOW }));
         assert_eq!(calls.get(), 1);
     }
 
@@ -189,6 +219,27 @@ mod tests {
             Err(GeoFetchError::Fetch(AssetFetchError::TooLarge {
                 limit: request.cap()
             }))
+        );
+    }
+
+    #[test]
+    fn a_fresh_attempt_goes_past_the_store_and_keeps_what_it_got() {
+        let store = memory();
+        let request = GeoRequest::legend(&berlin::TERRAIN, 0);
+        let older = br#"{"Legend":[{"layerName":"c_dgm1","rules":[{"name":"old"}]}]}"#;
+        block(store.put(request.url(), older, NOW));
+        let (body, source) = block(fetch_fresh(&request, &store, NOW, answer(LEGEND))).unwrap();
+        assert_eq!((&*body, source), (LEGEND, Source::Network));
+        let (body, source) = block(fetch_once(&request, &store, NOW, |_, _| async {
+            panic!("the fresh answer was kept")
+        }))
+        .unwrap();
+        assert_eq!((&*body, source), (LEGEND, Source::Store { at: NOW }));
+        // Refused as a plain attempt is.
+        let refused = GeoRequest::render(&berlin::TERRAIN, DOM, 4096, 4096);
+        assert_eq!(
+            block(fetch_fresh(&refused, &store, NOW, answer(LEGEND))),
+            Err(GeoFetchError::Refused)
         );
     }
 

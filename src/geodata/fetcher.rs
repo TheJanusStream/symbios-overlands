@@ -7,6 +7,12 @@
 //! service, and a region's first visit asks it for a handful of renders and
 //! pages at once), retries a transient failure after a backoff, and counts
 //! what it has done for a loading screen ([`GeoProgress`]).
+//!
+//! Each answer is settled with where it came from and its content hash
+//! ([`Answer`], #1590), so a consumer holding the hash a record was saved
+//! with can tell a stale stored answer from a fresh one, and fetch it again
+//! past the store ([`GeoFetcher::refetch`]) - keeping the stored answer
+//! should the network fail it.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -18,7 +24,7 @@ use bevy::tasks::{IoTaskPool, Task};
 
 use crate::world_builder::asset_failure::AssetFetchError;
 
-use super::fetch::{Fetched, GetResult, Source, fetch_once};
+use super::fetch::{GetResult, Source, fetch_fresh, fetch_once};
 use super::{GeoFetchError, GeoRequest, GeoStore};
 
 /// The most fetches running at once.
@@ -109,21 +115,44 @@ impl GeoProgress {
     }
 }
 
+/// A settled answer: its body, where it came from, and its content hash
+/// ([`super::content_hash`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Answer {
+    pub body: Arc<[u8]>,
+    pub source: Source,
+    pub hash: u64,
+}
+
+/// What one attempt answers.
+type Attempted = Result<Answer, GeoFetchError>;
+
 enum State {
     /// Waiting to start, not before this many seconds of real time.
     Queued {
         not_before: f64,
     },
-    InFlight(Task<Fetched>),
+    InFlight(Task<Attempted>),
 }
 
 struct Pending {
     request: GeoRequest,
+    /// Whether it is fetched past the store ([`GeoFetcher::refetch`]).
+    fresh: bool,
+    /// What a fetch past the store settles with if it fails for good: the
+    /// stored answer it was to replace, older but usable.
+    fallback: Option<Answer>,
     /// Every id submitted for this request while it was pending.
     waiting: Vec<GeoRequestId>,
     /// Attempts started so far.
     attempts: u32,
     state: State,
+}
+
+/// An id's answer, waiting to be taken, with the request it answers.
+struct Settled {
+    request: GeoRequest,
+    answer: Attempted,
 }
 
 /// Geodata requests in, answers out. See the module docs.
@@ -133,7 +162,7 @@ pub struct GeoFetcher {
     transport: Arc<dyn GeoTransport>,
     /// In submission order, which is the order they start in.
     pending: Vec<Pending>,
-    results: HashMap<GeoRequestId, Result<Arc<[u8]>, GeoFetchError>>,
+    results: HashMap<GeoRequestId, Settled>,
     next_id: u64,
     progress: GeoProgress,
 }
@@ -155,14 +184,36 @@ impl GeoFetcher {
     /// once it has settled; an identical request already pending is not
     /// fetched twice.
     pub fn submit(&mut self, request: GeoRequest) -> GeoRequestId {
+        self.submit_as(request, false, None)
+    }
+
+    /// [`Self::submit`], past the store where `fresh`, settling with
+    /// `fallback` should that fail. A fresh request is merged only with
+    /// another fresh one: a plain one pending may yet be answered from the
+    /// store.
+    fn submit_as(
+        &mut self,
+        request: GeoRequest,
+        fresh: bool,
+        fallback: Option<Answer>,
+    ) -> GeoRequestId {
         let id = GeoRequestId(self.next_id);
         self.next_id += 1;
-        match self.pending.iter_mut().find(|p| p.request == request) {
-            Some(pending) => pending.waiting.push(id),
+        match self
+            .pending
+            .iter_mut()
+            .find(|p| p.request == request && p.fresh == fresh)
+        {
+            Some(pending) => {
+                pending.waiting.push(id);
+                pending.fallback = pending.fallback.take().or(fallback);
+            }
             None => {
                 self.progress.requested += 1;
                 self.pending.push(Pending {
                     request,
+                    fresh,
+                    fallback,
                     waiting: vec![id],
                     attempts: 0,
                     state: State::Queued { not_before: 0.0 },
@@ -172,9 +223,31 @@ impl GeoFetcher {
         id
     }
 
+    /// Ask again for what `id` asked, past the store - whose answer is
+    /// known to be older than one a record was saved with (#1590) - and give
+    /// up `id`'s answer: the new request's id, or `None` where `id` has no
+    /// answer to give up (unsettled, taken or forgotten). Should the fetch
+    /// fail for good, the new id settles with the answer `id` had, where
+    /// it had one: an older answer is better than none.
+    pub fn refetch(&mut self, id: GeoRequestId) -> Option<GeoRequestId> {
+        let settled = self.results.remove(&id)?;
+        Some(self.submit_as(settled.request, true, settled.answer.ok()))
+    }
+
     /// The answer for `id`, once settled - handed over once.
     pub fn take(&mut self, id: GeoRequestId) -> Option<Result<Arc<[u8]>, GeoFetchError>> {
-        self.results.remove(&id)
+        self.take_answer(id)
+            .map(|answer| answer.map(|answer| answer.body))
+    }
+
+    /// The whole answer for `id`, once settled - handed over once.
+    pub fn take_answer(&mut self, id: GeoRequestId) -> Option<Result<Answer, GeoFetchError>> {
+        self.results.remove(&id).map(|settled| settled.answer)
+    }
+
+    /// The answer for `id`, once settled, left in place. Read-only.
+    pub fn answer(&self, id: GeoRequestId) -> Option<&Result<Answer, GeoFetchError>> {
+        self.results.get(&id).map(|settled| &settled.answer)
     }
 
     /// Whether `id` has an answer waiting to be [`Self::take`]n. Read-only,
@@ -284,6 +357,7 @@ impl GeoFetcher {
                 pending.attempts += 1;
                 pending.state = State::InFlight(spawn_fetch(
                     pending.request.clone(),
+                    pending.fresh,
                     self.store.clone(),
                     self.transport.clone(),
                 ));
@@ -292,15 +366,27 @@ impl GeoFetcher {
         }
     }
 
-    fn settle(&mut self, pending: Pending, result: Fetched) {
+    fn settle(&mut self, pending: Pending, result: Attempted) {
         self.progress.finished += 1;
+        let result = match (result, pending.fallback.clone()) {
+            (Err(error), Some(fallback)) => {
+                warn!(
+                    "geodata fetch past the store failed after {} attempt(s): {error} ({}) - \
+                     keeping the stored answer",
+                    pending.attempts,
+                    pending.request.url()
+                );
+                Ok(fallback)
+            }
+            (result, _) => result,
+        };
         let answer = match result {
-            Ok((body, source)) => {
-                match source {
-                    Source::Store => self.progress.from_store += 1,
-                    Source::Network => self.progress.bytes_fetched += body.len() as u64,
+            Ok(answer) => {
+                match answer.source {
+                    Source::Store { .. } => self.progress.from_store += 1,
+                    Source::Network => self.progress.bytes_fetched += answer.body.len() as u64,
                 }
-                Ok(body)
+                Ok(answer)
             }
             Err(error) => {
                 self.progress.failed += 1;
@@ -313,20 +399,38 @@ impl GeoFetcher {
             }
         };
         for id in pending.waiting {
-            self.results.insert(id, answer.clone());
+            self.results.insert(
+                id,
+                Settled {
+                    request: pending.request.clone(),
+                    answer: answer.clone(),
+                },
+            );
         }
     }
 }
 
-/// One attempt, on the I/O pool.
+/// One attempt, on the I/O pool - past the store where `fresh` - its
+/// answer hashed there, off the frame.
 fn spawn_fetch(
     request: GeoRequest,
+    fresh: bool,
     store: GeoStore,
     transport: Arc<dyn GeoTransport>,
-) -> Task<Fetched> {
+) -> Task<Attempted> {
     IoTaskPool::get().spawn(async move {
         let now = chrono::Utc::now().timestamp();
-        fetch_once(&request, &store, now, |url, cap| transport.get(url, cap)).await
+        let get = |url, cap| transport.get(url, cap);
+        let fetched = if fresh {
+            fetch_fresh(&request, &store, now, get).await
+        } else {
+            fetch_once(&request, &store, now, get).await
+        };
+        fetched.map(|(body, source)| Answer {
+            hash: super::content_hash(request.kind(), &body),
+            body,
+            source,
+        })
     })
 }
 
@@ -531,6 +635,71 @@ mod tests {
         assert_eq!(transport.calls.load(Ordering::SeqCst), 1);
         assert_eq!(second.progress().from_store, 1);
         assert_eq!(second.progress().bytes_fetched, 0);
+    }
+
+    /// An answer known stale (#1590) is asked for again past the store: the
+    /// network answers it, its hash is the new answer's, and the store keeps
+    /// that from then on.
+    #[test]
+    fn a_refetch_goes_past_the_store_and_hashes_what_it_got() {
+        let store = memory();
+        let newer = br#"{"Legend":[{"rules":[]}]}"#;
+        let transport = Scripted::new(vec![(
+            legend(0).url().into(),
+            vec![Ok(LEGEND.to_vec()), Ok(newer.to_vec())],
+        )]);
+        let mut first = GeoFetcher::new(store.clone(), transport.clone());
+        let id = first.submit(legend(0));
+        settle(&mut first, 0.0);
+        assert!(first.take(id).unwrap().is_ok());
+
+        let mut second = GeoFetcher::new(store, transport.clone());
+        let id = second.submit(legend(0));
+        settle(&mut second, 0.0);
+        let stored = second.answer(id).unwrap().clone().unwrap();
+        assert!(matches!(stored.source, Source::Store { .. }));
+        assert_eq!(
+            stored.hash,
+            super::super::content_hash(super::super::GeoKind::Legend, LEGEND)
+        );
+        let again = second.refetch(id).expect("a settled answer");
+        assert!(second.answer(id).is_none(), "the stale answer is gone");
+        assert!(second.refetch(id).is_none());
+        settle(&mut second, 0.0);
+        let fresh = second.take_answer(again).unwrap().unwrap();
+        assert_eq!((&*fresh.body, fresh.source), (&newer[..], Source::Network));
+        assert_ne!(fresh.hash, stored.hash);
+        assert_eq!(transport.calls.load(Ordering::SeqCst), 2);
+        // A plain request merges with no fresh one, and the store now
+        // answers the newer body.
+        let plain = second.submit(legend(0));
+        settle(&mut second, 0.0);
+        assert_eq!(second.take(plain).unwrap().unwrap().as_ref(), newer);
+        assert_eq!(transport.calls.load(Ordering::SeqCst), 2);
+    }
+
+    /// A fetch past the store that fails for good settles with the stored
+    /// answer it was to replace: an older answer, not none.
+    #[test]
+    fn a_failed_refetch_keeps_the_stored_answer() {
+        let store = memory();
+        let transport = Scripted::new(vec![(
+            legend(0).url().into(),
+            vec![Ok(LEGEND.to_vec()), Err(AssetFetchError::HttpStatus(404))],
+        )]);
+        let mut first = GeoFetcher::new(store.clone(), transport.clone());
+        let id = first.submit(legend(0));
+        settle(&mut first, 0.0);
+        assert!(first.take(id).unwrap().is_ok());
+        let mut second = GeoFetcher::new(store, transport.clone());
+        let id = second.submit(legend(0));
+        settle(&mut second, 0.0);
+        let stored = second.answer(id).unwrap().clone().unwrap();
+        let again = second.refetch(id).unwrap();
+        settle(&mut second, 0.0);
+        assert_eq!(transport.calls.load(Ordering::SeqCst), 2, "it was asked");
+        assert_eq!(second.take_answer(again), Some(Ok(stored)));
+        assert_eq!(second.progress().failed, 0);
     }
 
     #[test]

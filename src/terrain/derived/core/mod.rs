@@ -23,6 +23,7 @@ use crate::pds::{Placement, RoomRecord};
 use crate::terrain::FinishedHeightMap;
 use crate::terrain::geo::street_level::StreetLevel;
 
+use super::SourceId;
 use super::fit::RoomScene;
 use super::plan::Plan;
 
@@ -49,21 +50,37 @@ impl Kept {
     /// (#1589) - and every absolute placement of `record`, where it stands
     /// on `ground`: a snapped seeded structure walked off water and streets
     /// as the compile walks it, so Berlin's buildings keep clear of the
-    /// gate, not of where its record put it.
+    /// gate, not of where its record put it. The copy of an item made the
+    /// world's own (#1590) keeps nothing while `level` - the walkable
+    /// ground's street level - holds the item: it stands where Berlin's
+    /// stood, among its neighbours as they did. Off the square its item was
+    /// on (the square moved since), it is a placement like any other.
     pub(crate) fn of(
         record: Option<&RoomRecord>,
         landing: (f32, f32),
         ground: Option<&crate::world_builder::AnchorGround<'_>>,
+        level: Option<&StreetLevel>,
     ) -> Self {
         let mut discs = vec![(landing.0, landing.1, LANDING_CLEAR_M)];
+        let source = record.and_then(|r| r.geo_source.as_ref());
+        // A copy standing in for an item this ground draws.
+        let stands_in = |generator: &str| {
+            source.is_some_and(|source| source.is_adopted_generator(generator))
+                && crate::pds::geo_source::adopted_source_of(generator)
+                    .and_then(SourceId::parse)
+                    .zip(level)
+                    .is_some_and(|(id, level)| level.holds(&id))
+        };
         for placement in record.map(|r| r.placements.as_slice()).unwrap_or_default() {
             if let Placement::Absolute {
+                generator_ref,
                 transform,
                 snap_to_terrain,
                 avoid_water,
                 avoid_water_clearance,
                 ..
             } = placement
+                && !stands_in(generator_ref)
             {
                 let [x, _, z] = match ground.filter(|_| *snap_to_terrain) {
                     Some(ground) => crate::world_builder::snapped_absolute_anchor(
@@ -124,7 +141,7 @@ pub(crate) fn draw_core(
         crate::world_builder::compile::drawn_water_level(record, Some(heightmap))
     });
     let anchors = crate::world_builder::AnchorGround::new(heightmap, water_y);
-    let kept = Kept::of(record, landing, Some(&anchors));
+    let kept = Kept::of(record, landing, Some(&anchors), Some(level));
     let ground = |x: f32, z: f32| heightmap.world_height_at(x, z);
     vec![
         buildings::plan(&level.buildings, room, &kept, &ground),
@@ -169,7 +186,52 @@ mod tests {
                 seed: None,
             },
         ];
-        let kept = Kept::of(Some(&record), (50.0, 20.0), None);
+        // A copy of an item made the world's own keeps no disc of its own.
+        let mut source = crate::pds::GeoSource::berlin(geodata::GeoSquare {
+            min_e: 391_000,
+            min_n: 5_819_500,
+            size_m: 1_000,
+        });
+        source
+            .set_edit("alkis:A", crate::pds::geo_source::Edit::Adopted)
+            .unwrap();
+        record.geo_source = Some(source);
+        record.placements.push(Placement::Absolute {
+            generator_ref: "alkis:A#1".to_owned(),
+            transform: TransformData {
+                translation: Fp3([-200.0, 0.0, -200.0]),
+                ..Default::default()
+            },
+            snap_to_terrain: true,
+            avoid_water: false,
+            avoid_water_clearance: Fp(0.0),
+            seed: None,
+        });
+        // While the walkable ground draws the item, its copy keeps nothing;
+        // off the square, it is a placement like any other.
+        let level = StreetLevel::new(
+            vec![crate::terrain::geo::street_level::CoreBuilding {
+                id: "A".into(),
+                outline: vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 0.0)],
+                usage: geodata::berlin::BuildingUse::Residential,
+                storeys: None,
+                peak_storeys: None,
+                area: 1.0,
+                street_yaw: 0.0,
+            }],
+            Vec::new(),
+            Vec::new(),
+        );
+        let elsewhere = Kept::of(Some(&record), (50.0, 20.0), None, None);
+        assert!(
+            !elsewhere.clear(-200.0, -200.0, 1.0),
+            "off its square: a placement"
+        );
+        let kept = Kept::of(Some(&record), (50.0, 20.0), None, Some(&level));
+        assert!(
+            kept.clear(-200.0, -200.0, 1.0),
+            "the adopted copy keeps nothing"
+        );
         // The landing, not the origin.
         assert!(!kept.clear(50.0, 20.0 + LANDING_CLEAR_M + 0.9, 1.0));
         assert!(kept.clear(50.0, 20.0 + LANDING_CLEAR_M + 1.1, 1.0));
@@ -182,6 +244,6 @@ mod tests {
         assert!(!kept.clear(-100.0 + villa - 0.1, 0.0, 0.0));
         assert!(kept.clear(-100.0 + villa + 0.1, 0.0, 0.0));
         // No record keeps the origin.
-        assert!(!Kept::of(None, (0.0, 0.0), None).clear(LANDING_CLEAR_M - 1.0, 0.0, 0.5));
+        assert!(!Kept::of(None, (0.0, 0.0), None, None).clear(LANDING_CLEAR_M - 1.0, 0.0, 0.5));
     }
 }

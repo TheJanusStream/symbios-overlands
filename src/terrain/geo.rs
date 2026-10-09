@@ -40,15 +40,24 @@
 //! colours following the record's altitude bands and with no water, and
 //! the fallback says that instead; so it does where only the horizon, the
 //! ring, the streets or the street level cannot be had.
+//!
+//! Each layer's answers are hashed as they come ([`layers`], #1590). Where
+//! the record holds the hashes its owner's last save drew from, a layer
+//! whose stored answers hash otherwise, and were kept more than a day ago
+//! ([`REFETCH_AGE_S`]), is fetched once more past the store, and the ground
+//! is drawn from what the network says; the layers it drew ride with it,
+//! for the next save to record.
 
 pub(crate) mod far;
 mod ground;
+pub(crate) mod layers;
 pub(crate) mod ring;
 pub(crate) mod street_level;
 pub(crate) mod streets;
 
 pub(crate) use ground::GeoGround;
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bevy::prelude::*;
@@ -56,8 +65,9 @@ use bevy::tasks::{AsyncComputeTaskPool, Task};
 use geodata::GeoSquare;
 use geodata::request::Bbox;
 
-use crate::geodata::{GeoFetchError, GeoFetcher, GeoRequest, GeoRequestId};
+use crate::geodata::{Answer, GeoFetchError, GeoFetcher, GeoRequest, GeoRequestId, Source};
 use crate::pds::SovereignTerrainConfig;
+use layers::{DrawnLayers, Layer};
 
 use super::TerrainTask;
 
@@ -69,6 +79,14 @@ const MAX_CORE_GRID: u32 = 2048;
 /// after 2 s, and no longer - the far field is decoration, and the ground
 /// lands without it rather than hold a loading screen (#1585).
 const FAR_GRACE_S: f64 = 10.0;
+
+/// How old a stored answer must be (s) before a hash it does not share
+/// with the record's save sends it back to the network (#1590): a day.
+/// Berlin re-renders its data seldom, so an answer kept since then is the
+/// data as it stands, and where it differs from the save, Berlin has moved
+/// on since - which no fetch undoes. Without this, a world whose owner has
+/// not saved since would be fetched past the cache on every visit.
+pub(crate) const REFETCH_AGE_S: i64 = 86_400;
 
 /// The requests a core is built from: the terrain's and the land use's
 /// legend and render over the core's box, and its street and carriageway
@@ -150,6 +168,20 @@ impl StreetLevelRequests {
         [self.buildings, self.street_trees, self.park_trees]
             .into_iter()
             .chain(self.furniture)
+    }
+
+    /// Every id through `f`.
+    fn map_ids(&mut self, f: &mut impl FnMut(GeoRequestId) -> GeoRequestId) {
+        for id in [
+            &mut self.buildings,
+            &mut self.street_trees,
+            &mut self.park_trees,
+        ]
+        .into_iter()
+        .chain(&mut self.furniture)
+        {
+            *id = f(*id);
+        }
     }
 }
 
@@ -258,6 +290,123 @@ impl CoreRequests {
         let far = self.far.map(|far| far.ids());
         self.core_ids().into_iter().chain(far.into_iter().flatten())
     }
+
+    /// Each layer's requests, in the order its hash folds them (#1590).
+    fn layers(&self) -> Vec<(Layer, Vec<GeoRequestId>)> {
+        let level = &self.street_level;
+        let mut layers = vec![
+            (Layer::Terrain, vec![self.terrain_legend, self.terrain]),
+            (Layer::LandUse, vec![self.land_use_legend, self.land_use]),
+            (
+                Layer::Streets,
+                vec![self.street_axes, self.carriageway_axes],
+            ),
+            (Layer::Buildings, vec![level.buildings]),
+            (Layer::Trees, vec![level.street_trees, level.park_trees]),
+            (Layer::Furniture, level.furniture.to_vec()),
+        ];
+        if let Some(far) = self.far {
+            layers.push((Layer::Horizon, far.far_ids().to_vec()));
+            layers.push((Layer::Ring, far.ring_ids().to_vec()));
+        }
+        layers
+    }
+
+    /// Every id through `f`: a refetch's new ids in place of the old.
+    fn map_ids(&mut self, mut f: impl FnMut(GeoRequestId) -> GeoRequestId) {
+        for id in [
+            &mut self.terrain_legend,
+            &mut self.terrain,
+            &mut self.land_use_legend,
+            &mut self.land_use,
+            &mut self.street_axes,
+            &mut self.carriageway_axes,
+        ] {
+            *id = f(*id);
+        }
+        self.street_level.map_ids(&mut f);
+        if let Some(far) = &mut self.far {
+            for id in [
+                &mut far.terrain,
+                &mut far.land_use,
+                &mut far.ring.surface_legend,
+                &mut far.ring.land_use,
+                &mut far.ring.surface,
+            ] {
+                *id = f(*id);
+            }
+        }
+    }
+}
+
+/// A layer's hash from the answers in hand to `ids` ([`crate::geodata::combined`]),
+/// and whether any of them came from the store; `None` unless every one of
+/// them was had.
+fn layer_hash(fetcher: &GeoFetcher, ids: &[GeoRequestId]) -> Option<(u64, bool)> {
+    let mut stored = false;
+    let mut hashes = Vec::with_capacity(ids.len());
+    for &id in ids {
+        let answer = fetcher.answer(id)?.as_ref().ok()?;
+        stored |= matches!(answer.source, Source::Store { .. });
+        hashes.push(answer.hash);
+    }
+    Some((crate::geodata::combined(hashes), stored))
+}
+
+/// How the job weighs its answers against the hashes the record was saved
+/// with (#1590).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Freshness {
+    /// The square fetched.
+    square: GeoSquare,
+    /// The record's saved hashes, by the layers this build knows.
+    saved: BTreeMap<Layer, u64>,
+    /// Whether the stale answers have been fetched again: once, whatever
+    /// the network then says.
+    refetched: bool,
+}
+
+impl Freshness {
+    /// The requests of every layer whose answers in hand hash otherwise
+    /// than the record says and came, some of them, from the store more
+    /// than [`REFETCH_AGE_S`] before `now` (Unix seconds): those stored
+    /// answers, which a fetch past the store may put right. Empty once
+    /// refetched.
+    fn stale(&self, requests: &CoreRequests, fetcher: &GeoFetcher, now: i64) -> Vec<GeoRequestId> {
+        if self.refetched {
+            return Vec::new();
+        }
+        let old = |id: GeoRequestId| {
+            matches!(
+                fetcher.answer(id),
+                Some(Ok(Answer { source: Source::Store { at }, .. }))
+                    if now.saturating_sub(*at) >= REFETCH_AGE_S
+            )
+        };
+        requests
+            .layers()
+            .into_iter()
+            .filter(|(layer, ids)| {
+                matches!(
+                    (self.saved.get(layer), layer_hash(fetcher, ids)),
+                    (Some(saved), Some((hash, true))) if *saved != hash
+                )
+            })
+            .flat_map(|(_, ids)| ids)
+            .filter(|&id| old(id))
+            .collect()
+    }
+
+    /// The layers drawn, from the answers in hand: taken before the answers
+    /// are.
+    fn drawn(&self, requests: &CoreRequests, fetcher: &GeoFetcher) -> DrawnLayers {
+        let hashes = requests
+            .layers()
+            .into_iter()
+            .filter_map(|(layer, ids)| Some((layer, layer_hash(fetcher, &ids)?.0)))
+            .collect();
+        DrawnLayers::new(self.square, hashes, &self.saved)
+    }
 }
 
 /// Why a street level was left out, wholly or in part, as one reason: the
@@ -301,6 +450,8 @@ pub(crate) enum GeoTerrainJob {
         source: Option<String>,
         /// The procedural ground to fall back to.
         fallback: gen_jobs::HeightmapParams,
+        /// The answers against the record's saved hashes.
+        freshness: Freshness,
     },
     /// Decoding them on the compute pool.
     Decoding {
@@ -308,6 +459,8 @@ pub(crate) enum GeoTerrainJob {
         started: f64,
         source: Option<String>,
         fallback: gen_jobs::HeightmapParams,
+        /// The layers the answers drew, for the ground to carry.
+        drawn: DrawnLayers,
     },
 }
 
@@ -459,13 +612,15 @@ pub(crate) fn core_bbox(square: GeoSquare, grid: u32, cell: f32) -> Bbox {
     }
 }
 
-/// Start fetching the core of `square` on `cfg`'s grid.
+/// Start fetching the core of `square` on `cfg`'s grid, weighing the
+/// answers against the layer hashes `saved` a record holds (#1590).
 pub(crate) fn start(
     fetcher: &mut GeoFetcher,
     square: GeoSquare,
     cfg: &SovereignTerrainConfig,
     now: f64,
     source: Option<String>,
+    saved: BTreeMap<Layer, u64>,
 ) -> GeoTerrainJob {
     let (grid, cell) = core_grid(square.size_m, cfg);
     let far = far::far_plan(square, cfg);
@@ -482,6 +637,11 @@ pub(crate) fn start(
         started: now,
         source,
         fallback: super::heightmap::heightmap_params(cfg),
+        freshness: Freshness {
+            square,
+            saved,
+            refetched: false,
+        },
     }
 }
 
@@ -765,6 +925,7 @@ pub(super) fn poll_geo_terrain(
             started,
             source,
             fallback,
+            freshness,
         } => {
             let (requests, core_in_at, grid, cell, started) =
                 (**requests, *core_in_at, *grid, *cell, *started);
@@ -808,6 +969,41 @@ pub(super) fn poll_geo_terrain(
                     Some(at) if wall - at < FAR_GRACE_S => return,
                     Some(_) => {}
                 }
+            }
+            // A stored answer older than the record's save is fetched once
+            // more past the store (#1590), and the job waits for it as for
+            // any answer - the horizon's grace starting over.
+            let stale = freshness.stale(&requests, fetcher, chrono::Utc::now().timestamp());
+            if !stale.is_empty() {
+                info!(
+                    "geodata: {} stored answers are older than this world's last save - \
+                     fetching them again",
+                    stale.len()
+                );
+                let mut refetched = requests;
+                refetched.map_ids(|id| {
+                    if stale.contains(&id) {
+                        fetcher.refetch(id).unwrap_or(id)
+                    } else {
+                        id
+                    }
+                });
+                if let GeoTerrainJob::Fetching {
+                    requests,
+                    core_in_at,
+                    freshness,
+                    ..
+                } = &mut *job
+                {
+                    **requests = refetched;
+                    *core_in_at = None;
+                    freshness.refetched = true;
+                }
+                return;
+            }
+            let drawn = freshness.drawn(&requests, fetcher);
+            if let Some(changed) = drawn.changed_sentence() {
+                info!("geodata: {changed}");
             }
             let terrain = taken(fetcher, requests.terrain_legend, "terrain")
                 .and_then(|legend| Ok((legend, taken(fetcher, requests.terrain, "terrain")?)));
@@ -887,6 +1083,7 @@ pub(super) fn poll_geo_terrain(
                         started,
                         source,
                         fallback,
+                        drawn,
                     };
                 }
                 Err(reason) => fall_back(
@@ -909,6 +1106,7 @@ pub(super) fn poll_geo_terrain(
                 started,
                 source,
                 fallback,
+                drawn,
             } = &mut *job
             else {
                 return;
@@ -928,7 +1126,8 @@ pub(super) fn poll_geo_terrain(
                     street_level,
                 }) => {
                     let ground = match ground {
-                        Ok(ground) => {
+                        Ok(mut ground) => {
+                            ground.set_layers(drawn.clone());
                             // Every loss is logged; the one said is the
                             // nearest the player: the streets they walk,
                             // then the horizon, then its buildings.
@@ -1376,6 +1575,15 @@ pub(crate) mod tests {
 
     /// [`berlin_app`] for any record and transport.
     fn berlin_app_with(record: RoomRecord, transport: impl GeoTransport + 'static) -> App {
+        berlin_app_on(record, transport, GeoStore::Off)
+    }
+
+    /// [`berlin_app_with`], keeping answers in `store`.
+    fn berlin_app_on(
+        record: RoomRecord,
+        transport: impl GeoTransport + 'static,
+        store: GeoStore,
+    ) -> App {
         bevy::tasks::IoTaskPool::get_or_init(bevy::tasks::TaskPool::default);
         bevy::tasks::AsyncComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
         let mut app = App::new();
@@ -1384,7 +1592,7 @@ pub(crate) mod tests {
             .init_resource::<crate::diagnostics::SessionLog>()
             .init_resource::<crate::diagnostics::MetricsRegistry>()
             .insert_resource(LiveRoomRecord(record))
-            .insert_resource(GeoFetcher::new(GeoStore::Off, Arc::new(transport)))
+            .insert_resource(GeoFetcher::new(store, Arc::new(transport)))
             .add_systems(
                 Update,
                 (
@@ -1452,9 +1660,26 @@ pub(crate) mod tests {
             &expected.heights.data[..],
             "the decoded, settled heights, bit for bit"
         );
-        // The ground rides with them, the Spree's level in it.
+        // The ground rides with them, the Spree's level in it, and the
+        // layers it was drawn from (#1590): every one the core asked for.
         let ground = finished.ground().expect("Berlin's ground lands with it");
-        assert_eq!(Some(ground), expected.ground.as_ref().ok());
+        let drawn = ground.layers().expect("its layers are named");
+        assert_eq!(
+            drawn.hashes.keys().copied().collect::<Vec<_>>(),
+            [
+                Layer::Terrain,
+                Layer::LandUse,
+                Layer::Streets,
+                Layer::Buildings,
+                Layer::Trees,
+                Layer::Furniture
+            ]
+        );
+        assert_eq!(drawn.square, museum_square());
+        assert!(drawn.changed.is_empty(), "no hashes were saved");
+        let mut expected_ground = expected.ground.clone().expect("decodes");
+        expected_ground.set_layers(drawn.clone());
+        assert_eq!(ground, &expected_ground);
         let level = ground.water_level().expect("the Spree");
         // The Spree off the island's northern tip is under the level; the
         // Lustgarten (mapped as a city square) and the Marx-Engels-Forum
@@ -1492,6 +1717,126 @@ pub(crate) mod tests {
             level.buildings.len(),
             level.trees.len(),
             level.furniture.len()
+        );
+    }
+
+    /// The Museumsinsel's buildings page as the job asks for it, and the
+    /// layer hash its recorded answer has.
+    fn museum_buildings() -> (GeoRequest, u64) {
+        let page = StreetLevelRequests::requests(core_bbox(museum_square(), 300, 2.0))
+            .into_iter()
+            .next()
+            .expect("the buildings' page comes first");
+        let body = fixture("alkis_gebaeude_391200_5819700_600m.json");
+        let hash = crate::geodata::combined([crate::geodata::content_hash(page.kind(), &body)]);
+        (page, hash)
+    }
+
+    /// A memory store holding `body` as the answer to `request`, kept
+    /// `age` seconds ago.
+    fn storing(request: &GeoRequest, body: &[u8], age: i64) -> GeoStore {
+        let store = GeoStore::Memory(Arc::new(std::sync::Mutex::new(HashMap::new())));
+        let now = chrono::Utc::now().timestamp();
+        futures_lite::future::block_on(store.put(request.url(), body, now - age));
+        store
+    }
+
+    /// Two days: a stored answer old enough to be weighed against a save.
+    const DAYS_OLD: i64 = 2 * REFETCH_AGE_S;
+
+    /// Run a Museumsinsel region whose record saved the buildings' hash
+    /// `saved`, on a store holding `stored` as their page, kept `age`
+    /// seconds ago, until its ground lands: what it drew, and how many
+    /// buildings.
+    fn landed_against(saved: u64, stored: &[u8], age: i64) -> (DrawnLayers, usize) {
+        let (page, _) = museum_buildings();
+        let mut record = museum_record();
+        record
+            .geo_source
+            .as_mut()
+            .unwrap()
+            .layers
+            .insert("buildings".into(), crate::geodata::hash_text(saved));
+        let mut app = berlin_app_on(record, Recorded::answering(), storing(&page, stored, age));
+        run_until(&mut app, |w| {
+            w.contains_resource::<super::super::FinishedHeightMap>()
+        });
+        let finished = app.world().resource::<super::super::FinishedHeightMap>();
+        let ground = finished.ground().expect("Berlin's ground");
+        let buildings = ground
+            .street_level()
+            .expect("its street level")
+            .buildings
+            .len();
+        (ground.layers().expect("named").clone(), buildings)
+    }
+
+    /// A visitor whose cache holds an older page than the owner saved with
+    /// fetches it past the cache, and draws what the owner drew (#1590).
+    #[test]
+    fn a_stale_stored_page_is_fetched_again_and_matches_the_save() {
+        let (_, hash) = museum_buildings();
+        let stale =
+            br#"{"type":"FeatureCollection","features":[],"timeStamp":"2026-09-01T00:00:00Z"}"#;
+        let (drawn, buildings) = landed_against(hash, stale, DAYS_OLD);
+        assert_eq!(drawn.hashes[&Layer::Buildings], hash);
+        assert!(drawn.changed.is_empty());
+        assert!(
+            buildings > 20,
+            "the page fetched, not the stale one: {buildings}"
+        );
+    }
+
+    /// Where Berlin itself has changed since the save, the fresh page still
+    /// differs: it is drawn, once fetched, and said - never fetched again
+    /// and again.
+    #[test]
+    fn a_page_changed_since_the_save_is_fetched_once_and_said() {
+        let (_, hash) = museum_buildings();
+        let real = fixture("alkis_gebaeude_391200_5819700_600m.json");
+        let (drawn, buildings) = landed_against(hash ^ 1, &real, DAYS_OLD);
+        assert_eq!(drawn.hashes[&Layer::Buildings], hash);
+        assert_eq!(drawn.changed, [Layer::Buildings]);
+        assert!(buildings > 20, "{buildings}");
+        assert!(
+            drawn
+                .changed_sentence()
+                .is_some_and(|s| s.contains("buildings changed"))
+        );
+    }
+
+    /// A page kept within the day is Berlin as it stands: where it differs
+    /// from the save, Berlin has moved on since, so it is drawn as kept and
+    /// said, not fetched again on every visit.
+    #[test]
+    fn a_page_kept_today_is_not_fetched_again() {
+        let (_, hash) = museum_buildings();
+        let newer =
+            br#"{"type":"FeatureCollection","features":[],"timeStamp":"2026-10-09T00:00:00Z"}"#;
+        let (drawn, buildings) = landed_against(hash, newer, 3_600);
+        assert_eq!(buildings, 0, "the kept page, not the network's");
+        assert_eq!(drawn.changed, [Layer::Buildings]);
+    }
+
+    /// Without saved hashes the store's answer stands, as before #1590.
+    #[test]
+    fn without_saved_hashes_the_stored_page_stands() {
+        let (page, _) = museum_buildings();
+        let stale = br#"{"type":"FeatureCollection","features":[]}"#;
+        let mut app = berlin_app_on(
+            museum_record(),
+            Recorded::answering(),
+            storing(&page, stale, DAYS_OLD),
+        );
+        run_until(&mut app, |w| {
+            w.contains_resource::<super::super::FinishedHeightMap>()
+        });
+        let finished = app.world().resource::<super::super::FinishedHeightMap>();
+        let ground = finished.ground().expect("Berlin's ground");
+        assert!(
+            ground
+                .street_level()
+                .is_none_or(|level| level.buildings.is_empty())
         );
     }
 
@@ -2071,6 +2416,7 @@ pub(crate) mod tests {
                 started: 0.0,
                 source: super::super::terrain_source_key(&record),
                 fallback: super::super::heightmap::heightmap_params(&museum_config()),
+                drawn: DrawnLayers::new(museum_square(), BTreeMap::new(), &BTreeMap::new()),
             })
             .add_systems(
                 Update,
@@ -2103,7 +2449,14 @@ pub(crate) mod tests {
         };
         let mut app = App::new();
         let mut fetcher = GeoFetcher::new(GeoStore::Off, Arc::new(Recorded::answering()));
-        let job = start(&mut fetcher, museum_square(), &museum_config(), 0.0, None);
+        let job = start(
+            &mut fetcher,
+            museum_square(),
+            &museum_config(),
+            0.0,
+            None,
+            BTreeMap::new(),
+        );
         app.init_resource::<TerrainSplatState>()
             .init_resource::<RoadRebuild>()
             .init_resource::<RoadPanelStats>()
@@ -2153,7 +2506,14 @@ pub(crate) mod tests {
     #[test]
     fn an_abandoned_job_forgets_its_fetches() {
         let mut fetcher = GeoFetcher::new(GeoStore::Off, Arc::new(Recorded::answering()));
-        let job = start(&mut fetcher, museum_square(), &museum_config(), 0.0, None);
+        let job = start(
+            &mut fetcher,
+            museum_square(),
+            &museum_config(),
+            0.0,
+            None,
+            BTreeMap::new(),
+        );
         assert!(!fetcher.is_idle());
         job.abandon(Some(&mut fetcher));
         assert!(

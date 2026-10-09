@@ -14,7 +14,10 @@
 //!   on the web (`store_browser`) - bounded by a time-to-live, an epoch, and
 //!   natively a size cap;
 //! - [`fetch_once`] (`fetch`): one attempt - from the store if it can, else
-//!   from the network, kept only if it validates;
+//!   from the network, kept only if it validates - and [`fetch_fresh`], one
+//!   past the store;
+//! - [`content_hash`] (`hash`): an answer's content hash, which a save
+//!   stores per layer so a stale cache can be told (#1590);
 //! - [`GeoFetcher`] (`fetcher`): the resource the rest of the app asks -
 //!   requests in, answers out by id, identical requests merged, at most
 //!   [`MAX_IN_FLIGHT`] running, transient failures retried after a backoff,
@@ -26,6 +29,7 @@
 
 mod fetch;
 mod fetcher;
+mod hash;
 mod request;
 mod store;
 #[cfg(target_arch = "wasm32")]
@@ -37,11 +41,12 @@ use bevy::prelude::*;
 
 use crate::world_builder::asset_failure::AssetFetchError;
 
-pub use fetch::{Fetched, GetResult, Source, fetch_once};
+pub use fetch::{Fetched, GetResult, Source, fetch_fresh, fetch_once};
 pub use fetcher::{
-    GeoFetcher, GeoProgress, GeoRequestId, GeoTransport, GetFuture, HttpTransport, MAX_ATTEMPTS,
-    MAX_IN_FLIGHT, RETRY_BACKOFF_SECS,
+    Answer, GeoFetcher, GeoProgress, GeoRequestId, GeoTransport, GetFuture, HttpTransport,
+    MAX_ATTEMPTS, MAX_IN_FLIGHT, RETRY_BACKOFF_SECS,
 };
+pub use hash::{combined, content_hash, hash_text};
 pub use request::{
     FEATURES_CAP, GeoKind, GeoRequest, HITS_CAP, LEGEND_CAP, RENDER_CAP, is_gdi_services_url,
 };

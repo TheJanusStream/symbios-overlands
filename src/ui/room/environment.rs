@@ -10,7 +10,9 @@
 //! world origin.
 //!
 //! And the **region source** (#1583): whether the region is built from a
-//! square of real Berlin ([`crate::pds::GeoSource`]) or from its seed alone.
+//! square of real Berlin ([`crate::pds::GeoSource`]) or from its seed alone,
+//! and the owner's edits over Berlin's items there (#1590), each with
+//! Restore.
 
 use bevy::prelude::*;
 use bevy_egui::egui;
@@ -73,6 +75,7 @@ pub(super) fn draw_environment_tab(
     ground: BuiltGround<'_>,
     player_pose: Option<PlayerPose>,
     dirty: &mut bool,
+    restore: &mut Option<String>,
     audio_editor: &mut super::audio::AudioEditorState,
     assets: &mut super::assets::AssetPanel<'_>,
 ) {
@@ -81,7 +84,9 @@ pub(super) fn draw_environment_tab(
 
     egui::CollapsingHeader::new("Region source")
         .default_open(false)
-        .show(ui, |ui| draw_region_source(ui, geo_source, ground, dirty));
+        .show(ui, |ui| {
+            draw_region_source(ui, geo_source, ground, dirty, restore)
+        });
     draw_arrival_point(ui, landing, player_pose, dirty);
 
     egui::CollapsingHeader::new("Lighting & sky")
@@ -437,12 +442,19 @@ fn draw_arrival_point(
 /// Every square it writes lies wholly inside Berlin: a drawn one by
 /// construction, an edited one moved by [`Coverage::nearest`] to the
 /// closest place it fits - the same rule the record sanitiser applies, so
-/// an edit is never rewritten under the owner on the next round trip.
+/// an edit is never rewritten under the owner on the next round trip. A
+/// moved square keeps the owner's edits over Berlin's items (#1590), which
+/// name their items wherever the square lies.
+///
+/// The edits are listed, each with Restore, which it asks for through
+/// `restore`: an adopted item's copy is record content beyond the source,
+/// for the caller to take away with it.
 fn draw_region_source(
     ui: &mut egui::Ui,
     source: &mut Option<GeoSource>,
     ground: BuiltGround<'_>,
     dirty: &mut bool,
+    restore: &mut Option<String>,
 ) {
     let weak = crate::ui::theme::current(ui.ctx()).text_weak;
     // A dataset a newer version wrote: shown, kept, and never edited here.
@@ -508,7 +520,7 @@ fn draw_region_source(
         .on_hover_text("A new square of a new size, anywhere it fits wholly inside Berlin.")
         .clicked()
     {
-        *current = GeoSource::berlin(drawn_square(fresh_seed()));
+        *current = current.moved_to(drawn_square(fresh_seed()));
         *dirty = true;
     }
 
@@ -535,7 +547,7 @@ fn draw_region_source(
             && let Some(resized) = resized_keeping_centre(square, side)
             && resized != square
         {
-            *current = GeoSource::berlin(resized);
+            *current = current.moved_to(resized);
             *dirty = true;
         }
     });
@@ -568,7 +580,7 @@ fn draw_region_source(
             None
         };
         if let Some(moved) = moved.filter(|m| *m != square) {
-            *current = GeoSource::berlin(moved);
+            *current = current.moved_to(moved);
             *dirty = true;
         }
     });
@@ -604,13 +616,90 @@ fn draw_region_source(
             ),
             (None, _) => "No water is mapped in this square.".to_owned(),
         });
+        // Berlin's data moved on since the last save (#1590).
+        if let Some(changed) = berlin
+            .layers()
+            .and_then(crate::terrain::geo::layers::DrawnLayers::changed_sentence)
+        {
+            ui.label(egui::RichText::new(changed).small().color(weak));
+        }
     }
+
+    draw_berlin_edits(
+        ui,
+        current,
+        ground
+            .berlin
+            .and_then(crate::terrain::geo::GeoGround::street_level)
+            .map(|level| &**level),
+        restore,
+    );
 
     ui.label(
         egui::RichText::new("Map data: Geoportal Berlin, dl-de/zero-2.0")
             .small()
             .color(weak),
     );
+}
+
+/// The owner's edits over Berlin's items (#1590): how to make them, then
+/// every item removed or made the world's own, by what Berlin records of
+/// it on the walkable ground `level`, each with Restore - asked for through
+/// `restore`.
+fn draw_berlin_edits(
+    ui: &mut egui::Ui,
+    source: &GeoSource,
+    level: Option<&crate::terrain::geo::street_level::StreetLevel>,
+    restore: &mut Option<String>,
+) {
+    let weak = crate::ui::theme::current(ui.ctx()).text_weak;
+    ui.add_space(4.0);
+    ui.strong("Berlin's buildings, trees and street furniture");
+    ui.label(
+        egui::RichText::new(
+            "Click one in the world to remove it, or to make a copy of it this world's \
+             own. The buildings round the walkable ground stay as Berlin draws them.",
+        )
+        .small()
+        .color(weak),
+    );
+    if source.removed.is_empty() && source.adopted.is_empty() {
+        return;
+    }
+    let rows = source
+        .adopted
+        .iter()
+        .map(|id| (id, true))
+        .chain(source.removed.iter().map(|id| (id, false)));
+    egui::ScrollArea::vertical()
+        .id_salt("berlin-edits")
+        .max_height(180.0)
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            for (id, adopted) in rows {
+                ui.horizontal_wrapped(|ui| {
+                    let hover = if adopted {
+                        "Draw it from Berlin again, and take this world's copy of it away."
+                    } else {
+                        "Draw it from Berlin again."
+                    };
+                    if ui.small_button("Restore").on_hover_text(hover).clicked() {
+                        *restore = Some(id.clone());
+                    }
+                    let named = crate::terrain::derived::SourceId::parse(id).map_or_else(
+                        || "An item this version does not draw".to_owned(),
+                        |id| crate::terrain::derived::edit::describe(level, &id),
+                    );
+                    let state = if adopted {
+                        "made this world's own"
+                    } else {
+                        "removed"
+                    };
+                    ui.label(format!("{named}: {state}"))
+                        .on_hover_text(id.as_str());
+                });
+            }
+        });
 }
 
 /// "250 m", "1.25 km".
@@ -762,23 +851,48 @@ mod tests {
             min_e: 1,
             min_n: 2,
             size_m: 3,
+            ..Default::default()
         });
         // Berlin's ground as built (#1586) is read, never written.
         let wet = crate::terrain::geo::GeoGround::from_cover(2, 2.0, vec![None; 4], Some(30.5));
         let dry = crate::terrain::geo::GeoGround::from_cover(2, 2.0, vec![None; 4], None);
-        let grounds = [None, Some(&wet), Some(&dry)]
+        // Drawn from layers Berlin has changed since the save (#1590).
+        let changed = {
+            use crate::terrain::geo::layers::{DrawnLayers, Layer};
+            let square = GeoSquare {
+                min_e: 391_000,
+                min_n: 5_819_500,
+                size_m: 1_000,
+            };
+            let hashes = std::collections::BTreeMap::from([(Layer::Trees, 2)]);
+            let saved = std::collections::BTreeMap::from([(Layer::Trees, 1)]);
+            dry.clone()
+                .with_layers(DrawnLayers::new(square, hashes, &saved))
+        };
+        let grounds = [None, Some(&wet), Some(&dry), Some(&changed)]
             .into_iter()
             .flat_map(|berlin| [true, false].map(|has_water| BuiltGround { berlin, has_water }));
-        for start in [None, berlin, other] {
+        let mut edited = berlin.clone();
+        if let Some(source) = edited.as_mut() {
+            source
+                .set_edit("tree:1", crate::pds::geo_source::Edit::Removed)
+                .unwrap();
+            source
+                .set_edit("alkis:A", crate::pds::geo_source::Edit::Adopted)
+                .unwrap();
+        }
+        for start in [None, berlin, other, edited] {
             for ground in grounds.clone() {
                 let ctx = egui::Context::default();
                 let mut source = start.clone();
                 let mut dirty = false;
+                let mut restore = None;
                 let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
-                    draw_region_source(ui, &mut source, ground, &mut dirty);
+                    draw_region_source(ui, &mut source, ground, &mut dirty, &mut restore);
                 });
                 assert_eq!(source, start);
                 assert!(!dirty);
+                assert_eq!(restore, None);
             }
         }
     }

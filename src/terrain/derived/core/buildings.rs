@@ -596,7 +596,7 @@ mod tests {
         let plan = plan(
             &[blocked, open],
             &RoomScene::for_did(&did),
-            &Kept::of(None, (0.0, 0.0), None),
+            &Kept::of(None, (0.0, 0.0), None, None),
             &|_, _| 30.0,
         );
         let roles = |id: &str| -> Vec<StructureRole> {
@@ -633,7 +633,7 @@ mod tests {
         let plan = plan(
             &level.buildings,
             &RoomScene::for_did(&did),
-            &Kept::of(None, (0.0, 0.0), None),
+            &Kept::of(None, (0.0, 0.0), None, None),
             &|_, _| 30.0,
         );
         let on_it: Vec<&PlannedCopy> = plan

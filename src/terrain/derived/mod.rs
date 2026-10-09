@@ -31,14 +31,21 @@
 //! A slice is [`SLICE_MS`] and a few steps of each stage at most: a step
 //! runs to its end once begun, and the spawns it queues are applied after
 //! the slice's clock has stopped.
+//!
+//! The owner's edits (#1590, [`edit`]) name the walkable ground's items the
+//! record suppresses - removed, or made the world's own - and none of them
+//! is drawn. They apply as the record changes, with no rebuild: a
+//! suppressed item's entities are despawned, and a restored one drawn again
+//! from its plan, which stays resident for its terrain's life for that.
 
 pub(crate) mod bake;
 pub(crate) mod core;
+pub(crate) mod edit;
 pub(crate) mod fit;
 pub(crate) mod plan;
 pub(crate) mod ring;
 
-use std::collections::VecDeque;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use bevy::platform::time::Instant;
@@ -90,6 +97,25 @@ impl SourceId {
             key: key.into(),
         }
     }
+
+    /// The item a record's edit names (`alkis:<uuid>`, `tree:<gisid>`,
+    /// `furniture:<id>`): the walkable ground's layers only, the ring's lots
+    /// having no stable ids to edit them by.
+    pub(crate) fn parse(id: &str) -> Option<Self> {
+        let (layer, key) = id.split_once(':')?;
+        let layer = match layer {
+            "alkis" => SourceLayer::Building,
+            "tree" => SourceLayer::Tree,
+            "furniture" => SourceLayer::Furniture,
+            _ => return None,
+        };
+        (!key.is_empty()).then(|| SourceId::new(layer, key))
+    }
+
+    /// Whether the owner may edit the item: one of the walkable ground's.
+    pub(crate) fn is_editable(&self) -> bool {
+        self.layer != SourceLayer::RingLot
+    }
 }
 
 impl std::fmt::Display for SourceId {
@@ -113,15 +139,116 @@ pub(crate) struct DerivedItem(pub SourceId);
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct DerivedRoot(pub &'static str);
 
-/// The plans being spawned onto the terrain they were drawn for, the one in
-/// front first.
+/// The plans of the terrain they were drawn for: spawned in order, then
+/// kept for that terrain's life, so the record's edits apply to them as it
+/// changes.
 #[derive(Resource)]
 pub(crate) struct DerivedBuilds {
     /// The terrain root the plans belong to.
     terrain: Entity,
-    builds: VecDeque<Build>,
+    builds: Vec<Build>,
+    /// The plan being spawned: the first not yet done.
+    next: usize,
     /// The one material every far form is drawn with, its colour the form's.
     far_material: Option<Handle<StandardMaterial>>,
+    /// The items the record's edits keep from being drawn (#1590).
+    suppressed: HashSet<SourceId>,
+    /// Copies to draw again, `(plan, copy)`: restored since the spawn
+    /// passed them suppressed.
+    restores: Vec<(usize, usize)>,
+}
+
+impl DerivedBuilds {
+    /// `builds` on `terrain`, none of them begun, `suppressed` kept from
+    /// being drawn.
+    fn new(terrain: Entity, builds: Vec<Build>, suppressed: HashSet<SourceId>) -> Self {
+        DerivedBuilds {
+            terrain,
+            builds,
+            next: 0,
+            far_material: None,
+            suppressed,
+            restores: Vec::new(),
+        }
+    }
+
+    /// Whether every plan is spawned and no copy waits to be drawn again.
+    pub(crate) fn is_idle(&self) -> bool {
+        self.next >= self.builds.len() && self.restores.is_empty()
+    }
+
+    /// The plans, spawned or being spawned.
+    pub(crate) fn builds(&self) -> &[Build] {
+        &self.builds
+    }
+
+    /// The nearest drawn item of the walkable ground, of those `keep` keeps,
+    /// whose copy's box `ray` enters, and how far along it: what a click in
+    /// the World Editor may pick (#1590). A box, not the mesh: a copy's
+    /// merged meshes keep no copy on the CPU for a mesh ray to read, and a
+    /// box takes a tree's crown as well as its trunk. A box the ray starts
+    /// in is not one it enters: a camera under a crown picks through it.
+    pub(crate) fn pick(
+        &self,
+        ray: Ray3d,
+        keep: impl Fn(&SourceId) -> bool,
+    ) -> Option<(SourceId, f32)> {
+        let mut nearest: Option<(SourceId, f32)> = None;
+        for build in &self.builds {
+            for (c, copy) in build.plan.copies.iter().enumerate() {
+                if build.drawn[c] == plan::Drawn::No
+                    || !copy.source.is_editable()
+                    || !keep(&copy.source)
+                {
+                    continue;
+                }
+                let Some((lo, hi)) = build.plan.bounds(copy.building) else {
+                    continue;
+                };
+                // The ray in the copy's frame, where its box is: the same
+                // distance along it, the map being affine.
+                let to_copy = build.copy_pose(c).compute_affine().inverse();
+                let hit = ray_box_distance(
+                    to_copy.transform_point3(ray.origin),
+                    to_copy.transform_vector3(*ray.direction),
+                    (lo, hi),
+                );
+                if let Some(distance) = hit
+                    && nearest.as_ref().is_none_or(|(_, d)| distance < *d)
+                {
+                    nearest = Some((copy.source.clone(), distance));
+                }
+            }
+        }
+        nearest
+    }
+
+    /// Every copy of `id`, as `(plan, copy)`.
+    pub(crate) fn copies_of<'a>(
+        &'a self,
+        id: &'a SourceId,
+    ) -> impl Iterator<Item = (usize, usize)> + 'a {
+        self.builds.iter().enumerate().flat_map(move |(b, build)| {
+            build
+                .plan
+                .copies
+                .iter()
+                .enumerate()
+                .filter(move |(_, copy)| copy.source == *id)
+                .map(move |(c, _)| (b, c))
+        })
+    }
+}
+
+/// How far along the ray from `origin` along `direction` it enters the box
+/// `(lo, hi)`, in steps of `direction`: `None` where it misses, the box lies
+/// behind it, or it starts inside the box and so enters it nowhere.
+fn ray_box_distance(origin: Vec3, direction: Vec3, (lo, hi): (Vec3, Vec3)) -> Option<f32> {
+    let step = direction.recip();
+    let (t0, t1) = ((lo - origin) * step, (hi - origin) * step);
+    let enter = t0.min(t1).max_element();
+    let leave = t0.max(t1).min_element();
+    (enter >= 0.0 && leave >= enter).then_some(enter)
 }
 
 /// When a terrain lands, draw its plans - where its ground has street-level
@@ -175,16 +302,27 @@ pub(super) fn start_derived(
             Build::new(plan, root)
         })
         .collect();
-    commands.insert_resource(DerivedBuilds {
+    commands.insert_resource(DerivedBuilds::new(
         terrain,
         builds,
-        far_material: None,
-    });
+        edit::suppressed_by(record),
+    ));
 }
 
-/// Work the front plan's stages (see the module docs) for at most
-/// [`SLICE_MS`] a frame. A terrain going out, or gone, takes its plans with
-/// it, so the work stops there too.
+/// Whether there is spawning to do: plans not yet spawned, or copies to
+/// draw again. [`spawn_derived`]'s run condition, so that once its plans
+/// are spawned it no longer holds the asset stores every frame; a terrain
+/// going out takes them with it through the teardown and the next
+/// terrain's [`start_derived`].
+pub(super) fn derived_spawning(builds: Option<Res<DerivedBuilds>>) -> bool {
+    builds.is_some_and(|builds| !builds.is_idle())
+}
+
+/// Draw again the copies restored since the spawn passed them, then work
+/// the front plan's stages (see the module docs) for at most [`SLICE_MS`] a
+/// frame, a copy the record's edits suppress passed over. A terrain going
+/// out, or gone, takes its plans with it, so the work stops there too. Runs
+/// only while there is work ([`derived_spawning`]).
 ///
 /// A stage ends a frame's slice when it is done, so the next stage reads the
 /// world the last one's commands made: the bake reads the templates' parts,
@@ -209,8 +347,27 @@ pub(super) fn spawn_derived(
     let started = Instant::now();
     let out_of_time = || started.elapsed().as_secs_f64() * 1_000.0 >= SLICE_MS;
     let builds = &mut *builds;
-    let Some(build) = builds.builds.front_mut() else {
-        commands.remove_resource::<DerivedBuilds>();
+    for (b, c) in std::mem::take(&mut builds.restores) {
+        let build = &mut builds.builds[b];
+        if builds.suppressed.contains(&build.plan.copies[c].source)
+            || build.drawn[c] != plan::Drawn::No
+        {
+            continue;
+        }
+        let far_material = builds
+            .far_material
+            .get_or_insert_with(|| materials.add(plan::far_material()))
+            .clone();
+        build.spawn_copy(
+            c,
+            &mut commands,
+            (&mut meshes, &mut materials, &mut images),
+            &mut deps,
+            &far_material,
+            cuts.as_deref(),
+        );
+    }
+    let Some(build) = builds.builds.get_mut(builds.next) else {
         return;
     };
     // This frame's steps, against the stage's cap.
@@ -262,8 +419,11 @@ pub(super) fn spawn_derived(
                 if out_of_time() || steps == COPIES_PER_SLICE {
                     return;
                 }
-                steps += 1;
                 build.stage = Stage::Copies(c + 1);
+                if builds.suppressed.contains(&build.plan.copies[c].source) {
+                    continue;
+                }
+                steps += 1;
                 let far_material = builds
                     .far_material
                     .get_or_insert_with(|| materials.add(plan::far_material()))
@@ -288,10 +448,48 @@ pub(super) fn spawn_derived(
         build.plan.copies.len(),
         build.plan.buildings.len()
     );
-    builds.builds.pop_front();
-    if builds.builds.is_empty() {
-        commands.remove_resource::<DerivedBuilds>();
+    builds.next += 1;
+}
+
+/// Bring what is drawn into line with the record's edits as it changes
+/// (#1590): an item newly suppressed - removed, or made the world's own -
+/// has its entities despawned and what they cost its plan given back; one
+/// newly restored is drawn again, now where the spawn has passed it, else
+/// when the spawn reaches it. An id no plan draws is passed over: an item
+/// the data no longer holds, or one outside the walkable ground.
+pub(super) fn apply_derived_edits(
+    mut commands: Commands,
+    mut builds: ResMut<DerivedBuilds>,
+    record: Option<Res<LiveRoomRecord>>,
+    items: Query<(Entity, &DerivedItem)>,
+) {
+    let wanted = edit::suppressed_by(record.as_deref().map(|record| &record.0));
+    // Read through `Deref`: a record change that edits nothing here stamps
+    // no change.
+    if wanted == builds.suppressed {
+        return;
     }
+    let builds = &mut *builds;
+    let gone: HashSet<SourceId> = wanted.difference(&builds.suppressed).cloned().collect();
+    let back: HashSet<SourceId> = builds.suppressed.difference(&wanted).cloned().collect();
+    if !gone.is_empty() {
+        for (entity, item) in &items {
+            if gone.contains(&item.0) {
+                commands.entity(entity).despawn();
+            }
+        }
+    }
+    for (b, build) in builds.builds.iter_mut().enumerate() {
+        for c in 0..build.plan.copies.len() {
+            let source = &build.plan.copies[c].source;
+            if gone.contains(source) {
+                build.take_back(c);
+            } else if back.contains(source) && build.reached(c) {
+                builds.restores.push((b, c));
+            }
+        }
+    }
+    builds.suppressed = wanted;
 }
 
 #[cfg(test)]
@@ -401,7 +599,14 @@ mod tests {
         app.init_resource::<crate::diagnostics::SessionLog>();
         app.add_systems(
             Update,
-            spawn_derived.run_if(resource_exists::<DerivedBuilds>),
+            (
+                apply_derived_edits.run_if(
+                    resource_exists::<DerivedBuilds>
+                        .and_then(resource_exists_and_changed::<LiveRoomRecord>),
+                ),
+                spawn_derived.run_if(derived_spawning),
+            )
+                .chain(),
         );
         app
     }
@@ -409,6 +614,15 @@ mod tests {
     /// `plans` handed to the spawner on a terrain of their own: the terrain
     /// and each plan's root.
     fn building(app: &mut App, plans: Vec<Plan>) -> (Entity, Vec<Entity>) {
+        building_with(app, plans, HashSet::new())
+    }
+
+    /// [`building`], `suppressed` kept from being drawn.
+    fn building_with(
+        app: &mut App,
+        plans: Vec<Plan>,
+        suppressed: HashSet<SourceId>,
+    ) -> (Entity, Vec<Entity>) {
         let world = app.world_mut();
         let terrain = world
             .spawn((TerrainMesh, Transform::IDENTITY, Visibility::default()))
@@ -429,18 +643,18 @@ mod tests {
                 Build::new(plan, root)
             })
             .collect();
-        world.insert_resource(DerivedBuilds {
-            terrain,
-            builds,
-            far_material: None,
-        });
+        world.insert_resource(DerivedBuilds::new(terrain, builds, suppressed));
         (terrain, roots)
     }
 
     fn run_to_done(app: &mut App) {
         for _ in 0..400 {
             app.update();
-            if !app.world().contains_resource::<DerivedBuilds>() {
+            if app
+                .world()
+                .get_resource::<DerivedBuilds>()
+                .is_none_or(DerivedBuilds::is_idle)
+            {
                 return;
             }
         }
@@ -632,5 +846,323 @@ mod tests {
         app.world_mut().entity_mut(terrain).insert(OutgoingTerrain);
         app.update();
         assert!(!app.world().contains_resource::<DerivedBuilds>());
+    }
+
+    /// The walkable ground's three items, by their source ids.
+    fn ids() -> [SourceId; 3] {
+        [
+            SourceId::new(SourceLayer::Building, "DEBE00YY11100001"),
+            SourceId::new(SourceLayer::Tree, "00008100:0001"),
+            SourceId::new(SourceLayer::Furniture, "40477-2210001-00"),
+        ]
+    }
+
+    /// A record of the lit city's DID on a Berlin square, with `edits`
+    /// made of the walkable ground's items.
+    fn edited_record(
+        edits: &[(&SourceId, crate::pds::geo_source::Edit)],
+    ) -> crate::pds::RoomRecord {
+        let mut record = crate::pds::RoomRecord::default_for_did("did:plc:edited");
+        let mut source = crate::pds::GeoSource::berlin(geodata::GeoSquare {
+            min_e: 391_000,
+            min_n: 5_819_500,
+            size_m: 1_000,
+        });
+        for (id, edit) in edits {
+            source.set_edit(&id.to_string(), *edit).unwrap();
+        }
+        record.geo_source = Some(source);
+        record
+    }
+
+    /// The layers of the items drawn under `roots`.
+    fn drawn_items(app: &mut App) -> Vec<SourceId> {
+        let world = app.world_mut();
+        let mut query = world.query::<&DerivedItem>();
+        let mut items: Vec<SourceId> = query.iter(world).map(|item| item.0.clone()).collect();
+        items.sort_by_key(|id| id.to_string());
+        items.dedup();
+        items
+    }
+
+    fn core_plans() -> Vec<Plan> {
+        let heightmap = FinishedHeightMap(bevy_symbios_ground::HeightMap::new(8, 8, 2.0), None);
+        core::draw_core(
+            &street_level(),
+            &fit::RoomScene::for_did(&lit_city()),
+            None,
+            &heightmap,
+        )
+    }
+
+    /// An item the record removes is never drawn; restored, it is drawn
+    /// from its plan with no rebuild; removed again, its entities go - each
+    /// the frame the record changes (#1590).
+    #[test]
+    fn a_removed_item_is_not_drawn_and_a_restored_one_is_drawn_again() {
+        use crate::pds::geo_source::Edit;
+        let [building, tree, lamp] = ids();
+        let mut app = derived_app();
+        let record = edited_record(&[(&tree, Edit::Removed)]);
+        app.insert_resource(LiveRoomRecord(record.clone()));
+        let suppressed = edit::suppressed_by(Some(&record));
+        assert_eq!(suppressed, HashSet::from([tree.clone()]));
+        building_with(&mut app, core_plans(), suppressed);
+        run_to_done(&mut app);
+        let mut items = drawn_items(&mut app);
+        assert!(!items.contains(&tree), "the removed tree is not drawn");
+        assert!(items.contains(&building) && items.contains(&lamp));
+        // Restored: drawn again from its plan, the same frame.
+        let mut restored = record.clone();
+        edit::restore(&mut restored, &tree.to_string()).unwrap();
+        app.world_mut().resource_mut::<LiveRoomRecord>().0 = restored.clone();
+        app.update();
+        items = drawn_items(&mut app);
+        assert!(items.contains(&tree), "the restored tree stands again");
+        // Removed once more, and the lamp with it: both go.
+        let mut removed = restored;
+        edit::remove(&mut removed, &tree).unwrap();
+        edit::remove(&mut removed, &lamp).unwrap();
+        app.world_mut().resource_mut::<LiveRoomRecord>().0 = removed;
+        app.update();
+        app.update();
+        items = drawn_items(&mut app);
+        assert_eq!(items, [building]);
+        // What the removed items cost their plans is given back.
+        let builds = app.world().resource::<DerivedBuilds>();
+        for build in &builds.builds[1..] {
+            assert_eq!(
+                (build.spawned, build.far_spawned),
+                (0, 0),
+                "{}",
+                build.plan.label
+            );
+            assert!(build.drawn.iter().all(|d| *d == plan::Drawn::No));
+        }
+        // A record change that edits nothing here leaves the plans alone.
+        let before = app.world().resource_ref::<DerivedBuilds>().last_changed();
+        app.world_mut()
+            .resource_mut::<LiveRoomRecord>()
+            .0
+            .environment
+            .sun_illuminance
+            .0 += 1.0;
+        app.update();
+        assert_eq!(
+            app.world().resource_ref::<DerivedBuilds>().last_changed(),
+            before
+        );
+    }
+
+    /// Made the world's own, an item's copy is ordinary record content as
+    /// drawn: its generators, one to each catalogue item and size, placed
+    /// where its copies stood, turned and sized as they were; and the
+    /// original is drawn no more. Restored, the copy goes (#1590).
+    #[test]
+    fn an_adopted_item_is_copied_as_drawn_and_restored_without_its_copy() {
+        use crate::pds::geo_source::Edit;
+        let [building, tree, _] = ids();
+        let mut app = derived_app();
+        // Not grown yet: refused, and the record as it was.
+        building_with(&mut app, core_plans(), HashSet::new());
+        let mut record = edited_record(&[]);
+        let ground = |_: f32, _: f32| 0.0;
+        {
+            let builds = app.world().resource::<DerivedBuilds>();
+            let refused = edit::adopt(&mut record, &tree, builds, &ground).unwrap_err();
+            assert!(refused.contains("still being drawn"), "{refused}");
+            assert!(record.geo_source.as_ref().unwrap().adopted.is_empty());
+        }
+        run_to_done(&mut app);
+        let builds = app.world().resource::<DerivedBuilds>();
+        // The tree: one generator, its copy's size in its root.
+        let placed = edit::adopt(&mut record, &tree, builds, &ground).expect("copied");
+        assert_eq!(placed, 1);
+        let name = format!("{tree}#1");
+        let generator = &record.generators[&name];
+        let (b, c) = builds.copies_of(&tree).next().unwrap();
+        let pose = builds.builds[b].copy_pose(c);
+        assert!(pose.scale.x != 1.0, "the tree is drawn to its height");
+        let root = Transform::from(&generator.transform);
+        let grown = builds.builds[b]
+            .plan
+            .grown(builds.builds[b].plan.copies[c].building)
+            .unwrap();
+        let expected =
+            Transform::from_scale(Vec3::splat(pose.scale.x)) * Transform::from(&grown.transform);
+        assert!((root.scale - expected.scale).abs().max_element() < 1e-6);
+        let Some(crate::pds::Placement::Absolute {
+            generator_ref,
+            transform,
+            snap_to_terrain: true,
+            avoid_water: false,
+            ..
+        }) = record.placements.last()
+        else {
+            panic!("a snapped absolute placement");
+        };
+        assert_eq!(generator_ref, &name);
+        let at = Transform::from(transform);
+        assert_eq!(at.translation, pose.translation, "on the ground, as drawn");
+        assert!(at.rotation.angle_between(pose.rotation) < 1e-6);
+        assert_eq!(at.scale, Vec3::ONE);
+        let source = record.geo_source.as_ref().unwrap();
+        assert_eq!(source.edit_of(&tree.to_string()), Edit::Adopted);
+        assert!(edit::suppressed_by(Some(&record)).contains(&tree));
+        // Twice is refused.
+        assert!(edit::adopt(&mut record, &tree, builds, &ground).is_err());
+        // The building: a row of copies sharing their generators - those
+        // drawn.
+        let before = record.placements.len();
+        let copies = builds
+            .copies_of(&building)
+            .filter(|&(b, c)| builds.builds[b].drawn[c] != plan::Drawn::No)
+            .count();
+        assert!(copies >= 1);
+        assert_eq!(
+            edit::adopt(&mut record, &building, builds, &ground),
+            Ok(copies)
+        );
+        assert_eq!(record.placements.len(), before + copies);
+        let generators = record
+            .generators
+            .keys()
+            .filter(|name| name.starts_with(&building.to_string()))
+            .count();
+        assert!(
+            (1..=copies).contains(&generators),
+            "{generators} for {copies} copies"
+        );
+        // Restored: the copy goes, generators and placements both.
+        let placements = record.placements.len();
+        edit::restore(&mut record, &tree.to_string()).unwrap();
+        assert!(!record.generators.contains_key(&name));
+        assert_eq!(record.placements.len(), placements - 1);
+        assert_eq!(
+            record
+                .geo_source
+                .as_ref()
+                .unwrap()
+                .edit_of(&tree.to_string()),
+            Edit::Drawn
+        );
+    }
+
+    /// Past the record's counts, a copy is refused and says why, and the
+    /// record is as it was.
+    #[test]
+    fn a_copy_past_the_records_counts_is_refused() {
+        let [_, tree, _] = ids();
+        let mut app = derived_app();
+        building_with(&mut app, core_plans(), HashSet::new());
+        run_to_done(&mut app);
+        let builds = app.world().resource::<DerivedBuilds>();
+        let mut record = edited_record(&[]);
+        for i in record.generators.len()..crate::pds::sanitize::limits::MAX_GENERATORS {
+            record.generators.insert(
+                format!("filler_{i:03}"),
+                crate::pds::Generator::default_cuboid(),
+            );
+        }
+        let generators = record.generators.len();
+        let refused = edit::adopt(&mut record, &tree, builds, &|_, _| 0.0).unwrap_err();
+        assert!(refused.contains("256 items"), "{refused}");
+        assert_eq!(record.generators.len(), generators);
+        assert!(record.geo_source.as_ref().unwrap().adopted.is_empty());
+    }
+
+    /// The panel names an item by what Berlin records of it, and an item
+    /// the walkable ground does not hold by its kind.
+    #[test]
+    fn an_item_is_named_by_what_berlin_records() {
+        let [building, tree, lamp] = ids();
+        let level = street_level();
+        assert_eq!(
+            edit::describe(Some(&level), &building),
+            "A residential building, of 5 storeys, 720 m\u{b2}"
+        );
+        assert_eq!(
+            edit::describe(Some(&level), &tree),
+            "A linden (Tilia), 16 m tall"
+        );
+        assert_eq!(edit::describe(Some(&level), &lamp), "A street lamp");
+        assert_eq!(
+            edit::describe(None, &tree),
+            "A tree, not on this world's walkable ground"
+        );
+        // A record's ids parse back to the items, and the ring's to none.
+        for id in ids() {
+            assert_eq!(SourceId::parse(&id.to_string()), Some(id));
+        }
+        assert_eq!(SourceId::parse("ring:10,20"), None);
+        assert_eq!(SourceId::parse("tree:"), None);
+    }
+
+    /// A click picks the nearest drawn item whose box the ray passes
+    /// through - a tree by its crown as well as its trunk - and nothing
+    /// removed, or of the ring.
+    #[test]
+    fn a_ray_picks_the_nearest_drawn_item_by_its_box() {
+        let [_, tree, lamp] = ids();
+        let mut app = derived_app();
+        building_with(&mut app, core_plans(), HashSet::new());
+        run_to_done(&mut app);
+        let builds = app.world().resource::<DerivedBuilds>();
+        let (b, c) = builds.copies_of(&tree).next().unwrap();
+        let pose = builds.builds[b].copy_pose(c);
+        let (lo, hi) = builds.builds[b]
+            .plan
+            .bounds(builds.builds[b].plan.copies[c].building)
+            .unwrap();
+        let crown = pose.transform_point((lo + hi) / 2.0 + Vec3::Y * (hi.y - lo.y) * 0.3);
+        // From the west, level with the crown.
+        let from = crown - Vec3::X * 20.0;
+        let ray = Ray3d::new(from, Dir3::X);
+        let (picked, distance) = builds.pick(ray, |_| true).expect("the crown is hit");
+        assert_eq!(picked, tree);
+        assert!(distance > 0.0 && distance < 20.0, "{distance}");
+        // Straight up from far below the lamp: the lamp, nearest.
+        let (bl, cl) = builds.copies_of(&lamp).next().unwrap();
+        let at = builds.builds[bl].copy_pose(cl).translation;
+        let up = Ray3d::new(at - Vec3::Y * 5.0, Dir3::Y);
+        assert_eq!(
+            builds.pick(up, |_| true).map(|(id, _)| id),
+            Some(lamp.clone())
+        );
+        // Pointing away: nothing; nor from inside the crown's box, nor an
+        // item the caller does not keep (one not on screen).
+        assert!(
+            builds
+                .pick(Ray3d::new(from, Dir3::NEG_X), |_| true)
+                .is_none()
+        );
+        assert_ne!(
+            builds
+                .pick(Ray3d::new(crown, Dir3::X), |_| true)
+                .map(|(id, _)| id),
+            Some(tree.clone())
+        );
+        assert_ne!(
+            builds.pick(ray, |id| *id != tree).map(|(id, _)| id),
+            Some(tree.clone())
+        );
+        // Removed, it is no longer there to pick.
+        let record = edited_record(&[(&tree, crate::pds::geo_source::Edit::Removed)]);
+        app.insert_resource(LiveRoomRecord(record));
+        app.update();
+        let builds = app.world().resource::<DerivedBuilds>();
+        assert_ne!(builds.pick(ray, |_| true).map(|(id, _)| id), Some(tree));
+    }
+
+    #[test]
+    fn a_ray_enters_a_box_where_it_crosses_it() {
+        let unit = (Vec3::ZERO, Vec3::ONE);
+        let at = |o: Vec3, d: Vec3| ray_box_distance(o, d, unit);
+        assert_eq!(at(Vec3::new(-2.0, 0.5, 0.5), Vec3::X), Some(2.0));
+        assert_eq!(at(Vec3::splat(0.5), Vec3::X), None, "from inside");
+        assert_eq!(at(Vec3::new(-2.0, 0.5, 0.5), Vec3::NEG_X), None, "behind");
+        assert_eq!(at(Vec3::new(-2.0, 3.0, 0.5), Vec3::X), None, "above");
+        // Along an axis the ray runs parallel to.
+        assert_eq!(at(Vec3::new(0.5, -1.0, 0.5), Vec3::Y), Some(1.0));
     }
 }

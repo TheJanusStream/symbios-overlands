@@ -566,9 +566,11 @@ impl Plugin for EditorGizmoPlugin {
 ///
 /// Mesh raycast for everything selectable: most catalogue props carry no
 /// collider, so `SpatialQuery` would see through them, while `MeshRayCast`
-/// hits anything rendered. The one exception is the ground, which since
-/// #1134 has no main-world vertices to hit - see [`ScenePick::hit_under_cursor`]
-/// for why terrain still has to be found, given that it can never be picked.
+/// hits anything rendered. The exceptions are the ground, which since
+/// #1134 has no main-world vertices to hit - see [`ScenePick`] for why
+/// terrain still has to be found, given that it can never be picked - and
+/// a Berlin region's derived items (#1590), which keep none either and are
+/// picked by their copies' boxes.
 ///
 /// **Drag safety.** Picking is suppressed whenever any [`GizmoTarget`]
 /// reports `is_focused()` (pointer hovering a handle) or `is_active()` (a
@@ -610,11 +612,13 @@ fn pick_on_scene_click(
         Query<&crate::player::attachments::LocalAttachment>,
         Query<&AttachmentPrim>,
     ),
-    (mut face_pick, face_groups, meshes, time): (
+    (mut face_pick, face_groups, meshes, time, derived, derived_views): (
         ResMut<face_pick::FacePick>,
         Query<(&PrimFaceGroup, &Mesh3d)>,
         Res<Assets<Mesh>>,
         Res<Time>,
+        Option<Res<crate::terrain::derived::DerivedBuilds>>,
+        Query<(&crate::terrain::derived::DerivedItem, &ViewVisibility)>,
     ),
 ) {
     // Left button only - the orbit/pan camera owns Right/Middle, so this
@@ -649,7 +653,8 @@ fn pick_on_scene_click(
     // all, and the reason to keep noticing is occlusion: without it, a click
     // on a hillside would reach through the hill and select whatever stands
     // behind it.
-    let hit = pick.hit_under_cursor();
+    let ray = pick.cursor_ray();
+    let hit = ray.and_then(|ray| pick.hit_along(ray));
     let hit_entity = match hit {
         Some(SceneHit::Mesh { entity, .. }) => Some(entity),
         Some(SceneHit::Terrain { .. }) | None => None,
@@ -744,6 +749,7 @@ fn pick_on_scene_click(
                 if room_state.has_selection() {
                     room_state.clear_selection();
                 }
+                room_state.derived_pick.pick(None);
                 return;
             }
             if let Ok(marker) = avatar_prims.get(entity) {
@@ -752,6 +758,7 @@ fn pick_on_scene_click(
                 if room_state.has_selection() {
                     room_state.clear_selection();
                 }
+                room_state.derived_pick.pick(None);
                 if let Some((face, outline)) = picked_face {
                     face_pick.record(
                         crate::ui::room::generators::AvatarVisualsTreeSource::ROOT_NAME.to_string(),
@@ -789,6 +796,7 @@ fn pick_on_scene_click(
         if room_state.has_selection() && !face_pick.is_armed() {
             room_state.clear_selection();
         }
+        room_state.derived_pick.pick(None);
         return;
     }
 
@@ -814,6 +822,41 @@ fn pick_on_scene_click(
         }
         cursor_entity = parents.get(entity).ok().map(ChildOf::parent);
     }
+
+    // One of the walkable ground's Berlin items (#1590), picked whichever
+    // tab is up: the editor names it, and offers to remove it or make it
+    // the world's own. Its meshes keep nothing on the CPU for the mesh ray
+    // to hit, so it is found by its collider - a building's shell, a prop's
+    // box, a tree's trunk - and by its copy's box, which takes a crown
+    // ([`derived_pick_of`] weighs the two against what the mesh ray hit).
+    // Only an item on screen is picked. The ring's lots are no one's to
+    // edit, and are never picked.
+    if let (Some(ray), Some(builds)) = (ray, derived.as_deref()) {
+        let on_screen: std::collections::HashSet<&crate::terrain::derived::SourceId> =
+            derived_views
+                .iter()
+                .filter(|(_, view)| view.get())
+                .map(|(item, _)| &item.0)
+                .collect();
+        let keep = |id: &crate::terrain::derived::SourceId| on_screen.contains(id);
+        let scene = hit.map(|hit| {
+            (
+                hit.point().distance(ray.origin),
+                picked_prim.is_some() || picked_placement.is_some(),
+            )
+        });
+        if let Some(id) = derived_pick_of(
+            pick.derived_collider_along(ray, &keep),
+            builds.pick(ray, keep),
+            scene,
+        ) {
+            room_state.clear_selection();
+            room_state.derived_pick.pick(Some(id));
+            expand_window(ctx, UiWindow::WorldEditor);
+            return;
+        }
+    }
+    room_state.derived_pick.pick(None);
 
     // A face is only ever picked on the prim the same click selects, so the
     // record rides along with whichever branch below does the selecting.
@@ -962,6 +1005,15 @@ pub(super) enum SceneHit {
     Terrain { point: Vec3 },
 }
 
+impl SceneHit {
+    /// Where the ray met it.
+    pub(super) fn point(&self) -> Vec3 {
+        match self {
+            SceneHit::Mesh { point, .. } | SceneHit::Terrain { point } => *point,
+        }
+    }
+}
+
 /// The two rays a scene click needs, bundled so both pick sites cast them the
 /// same way - and so neither blows past Bevy's system-parameter ceiling.
 ///
@@ -991,6 +1043,9 @@ pub(super) struct ScenePick<'w, 's> {
     raycast: MeshRayCast<'w, 's>,
     spatial: SpatialQuery<'w, 's>,
     terrain: Query<'w, 's, Entity, With<crate::terrain::TerrainMesh>>,
+    /// A Berlin region's derived items, for the colliders that name them
+    /// (#1590).
+    derived: Query<'w, 's, &'static crate::terrain::derived::DerivedItem>,
 }
 
 impl ScenePick<'_, '_> {
@@ -1035,11 +1090,58 @@ impl ScenePick<'_, '_> {
         nearer_hit(mesh_hit, terrain_hit)
     }
 
-    /// Cursor → ray → nearest surface, in one call. The context menu splits
-    /// the two steps because it needs the ray itself for its own bookkeeping.
-    pub(super) fn hit_under_cursor(&mut self) -> Option<SceneHit> {
-        let ray = self.cursor_ray()?;
-        self.hit_along(ray)
+    /// The nearest of the walkable ground's derived items, of those `keep`
+    /// keeps, whose collider `ray` meets, and how far along it (#1590): a
+    /// building's shell, a prop's box, a tree's trunk - what truly stands
+    /// in the way, where a copy's box only bounds it.
+    pub(super) fn derived_collider_along(
+        &self,
+        ray: Ray3d,
+        keep: &dyn Fn(&crate::terrain::derived::SourceId) -> bool,
+    ) -> Option<(crate::terrain::derived::SourceId, f32)> {
+        let derived = &self.derived;
+        let hit = self.spatial.cast_ray_predicate(
+            ray.origin,
+            ray.direction,
+            SCENE_PICK_RANGE,
+            false,
+            &SpatialQueryFilter::default(),
+            &|e| {
+                derived
+                    .get(e)
+                    .is_ok_and(|item| item.0.is_editable() && keep(&item.0))
+            },
+        )?;
+        Some((derived.get(hit.entity).ok()?.0.clone(), hit.distance))
+    }
+}
+
+/// Which of the walkable ground's derived items a scene click picks
+/// (#1590), from the nearest whose `collider` the ray meets, the nearest
+/// whose copy's box it enters (`boxed`), and the `scene` the mesh and
+/// terrain rays hit - how far, and whether it is the owner's own content (a
+/// prim or a placement) - each `(item, distance)`.
+///
+/// The owner's own content is what the editor is for: a derived item takes
+/// a click from it only where its collider truly stands in front, never by
+/// a box, which a bench under a crown would lose to. Otherwise the nearer
+/// of the two derived hits, where it is no farther than what the scene hit.
+pub(super) fn derived_pick_of(
+    collider: Option<(crate::terrain::derived::SourceId, f32)>,
+    boxed: Option<(crate::terrain::derived::SourceId, f32)>,
+    scene: Option<(f32, bool)>,
+) -> Option<crate::terrain::derived::SourceId> {
+    match scene {
+        Some((at, true)) => collider.filter(|(_, d)| *d < at).map(|(id, _)| id),
+        _ => {
+            let nearest = match (collider, boxed) {
+                (Some(c), Some(b)) => Some(if c.1 <= b.1 { c } else { b }),
+                (c, b) => c.or(b),
+            }?;
+            scene
+                .is_none_or(|(at, _)| nearest.1 <= at)
+                .then_some(nearest.0)
+        }
     }
 }
 
@@ -1099,6 +1201,52 @@ pub(crate) struct DragState {
 #[cfg(test)]
 mod pick_tests {
     use super::*;
+
+    /// #1590: the owner's own content keeps a click from every derived
+    /// box, and from a collider behind it; a collider truly in front takes
+    /// it. Over ground, the nearer of collider and box wins, where it is
+    /// nearer than the ground.
+    #[test]
+    fn a_derived_item_takes_a_click_only_where_it_stands_in_front() {
+        use crate::terrain::derived::{SourceId, SourceLayer};
+        let tree = || SourceId::new(SourceLayer::Tree, "t");
+        let house = || SourceId::new(SourceLayer::Building, "h");
+        // A bench under a crown: the crown's box is nearer, the bench wins.
+        assert_eq!(
+            derived_pick_of(None, Some((tree(), 3.0)), Some((8.0, true))),
+            None
+        );
+        // A shell in front of the owner's statue: the shell wins.
+        assert_eq!(
+            derived_pick_of(Some((house(), 5.0)), None, Some((8.0, true))),
+            Some(house())
+        );
+        // Behind the statue: the statue.
+        assert_eq!(
+            derived_pick_of(Some((house(), 9.0)), None, Some((8.0, true))),
+            None
+        );
+        // Over ground, a crown's box nearer than a trunk behind it.
+        assert_eq!(
+            derived_pick_of(
+                Some((house(), 12.0)),
+                Some((tree(), 6.0)),
+                Some((20.0, false))
+            ),
+            Some(tree())
+        );
+        // Past the ground the ray met: nothing.
+        assert_eq!(
+            derived_pick_of(None, Some((tree(), 25.0)), Some((20.0, false))),
+            None
+        );
+        // Into the sky.
+        assert_eq!(
+            derived_pick_of(None, Some((tree(), 25.0)), None),
+            Some(tree())
+        );
+        assert_eq!(derived_pick_of(None, None, None), None);
+    }
 
     fn mesh(distance: f32) -> Option<(Entity, Option<usize>, Vec3, f32)> {
         Some((

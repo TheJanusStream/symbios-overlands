@@ -33,6 +33,12 @@ pub struct PublishRoomTask {
     /// there is nothing left to notice it. Since #1110 `stored` is also
     /// the baseline the attachment delete set is derived from, which
     /// makes a wrong snapshot here a wrong *delete* on the next save.
+    ///
+    /// Bar one thing: the layer hashes the publish stamps on the way out
+    /// (#1590) are not in it. They are what the ground drawn now hashes
+    /// to, which no editor holds; pinned here, every save would leave a
+    /// difference behind it that no edit made, and the world would read
+    /// as unsaved straight after saving.
     pub published: RoomRecord,
 }
 
@@ -54,6 +60,11 @@ pub struct ResetRoomTask {
 /// unsaved-edits guard ([`crate::ui::unsaved_guard`]) drives the same
 /// pipeline for its "Publish & continue" path - the shared
 /// [`poll_publish_tasks`] system lands the result either way.
+///
+/// `drawn` is what the world's ground was drawn from, where it is Berlin's:
+/// its layer hashes go into the record written (#1590), for a visitor's
+/// client to weigh its cache against - and only there (see
+/// [`PublishRoomTask::published`]).
 pub(crate) fn spawn_room_publish_task(
     commands: &mut Commands,
     session: &AtprotoSession,
@@ -61,14 +72,16 @@ pub(crate) fn spawn_room_publish_task(
     record: RoomRecord,
     did: String,
     now: f64,
+    drawn: Option<&crate::terrain::geo::layers::DrawnLayers>,
 ) {
     let session_clone = session.clone();
     let refresh_clone = refresh.clone();
+    let published = record.clone();
+    let record = for_the_wire(record, drawn);
     // Split wire format (#697): the budget gauge tracks the largest single
     // record the publish writes (manifest or biggest child), not the
     // in-memory monolith.
     let record_bytes = pds::room::max_publish_record_bytes(&record);
-    let published = record.clone();
     let pool = bevy::tasks::IoTaskPool::get();
     let task = pool.spawn(async move {
         let fut = async {
@@ -88,6 +101,19 @@ pub(crate) fn spawn_room_publish_task(
         record_bytes,
         published,
     });
+}
+
+/// The record a save writes: `record`, with the layer hashes of the ground
+/// `drawn` stamped into its source where that is the square they were
+/// drawn for (#1590).
+fn for_the_wire(
+    mut record: RoomRecord,
+    drawn: Option<&crate::terrain::geo::layers::DrawnLayers>,
+) -> RoomRecord {
+    if let (Some(drawn), Some(source)) = (drawn, record.geo_source.as_mut()) {
+        drawn.stamp(source);
+    }
+    record
 }
 
 /// Spawn the hard-reset publish task - wipe the stored manifest + child
@@ -359,6 +385,44 @@ mod tests {
     use crate::network::chunk::{LIVE_WORLD, OversizeNotices, SendOutcome, warn_once_on_refusal};
     use crate::protocol::OverlandsMessage;
     use bevy_symbios_multiuser::prelude::{Broadcast, SendTo};
+
+    /// A save writes the layer hashes of the ground drawn now (#1590), into
+    /// a square's source that is the one drawn - never another square's,
+    /// and never into the record the editor keeps.
+    #[test]
+    fn a_save_writes_the_drawn_layer_hashes_for_its_own_square_only() {
+        use crate::terrain::geo::layers::{DrawnLayers, Layer};
+        let square = geodata::GeoSquare {
+            min_e: 391_000,
+            min_n: 5_819_500,
+            size_m: 1_000,
+        };
+        let drawn = DrawnLayers::new(
+            square,
+            std::collections::BTreeMap::from([(Layer::Buildings, 0xbeef)]),
+            &Default::default(),
+        );
+        let mut record = RoomRecord::default_for_did("did:plc:saver");
+        record.geo_source = Some(pds::GeoSource::berlin(square));
+        let wire = for_the_wire(record.clone(), Some(&drawn));
+        assert_eq!(
+            wire.geo_source.as_ref().unwrap().layers["buildings"],
+            "000000000000beef"
+        );
+        assert!(record.geo_source.as_ref().unwrap().layers.is_empty());
+        // Another square, or no ground drawn from Berlin: as it was.
+        let mut elsewhere = record.clone();
+        elsewhere.geo_source = Some(pds::GeoSource::berlin(geodata::GeoSquare {
+            min_n: 5_820_500,
+            ..square
+        }));
+        let same = |a: &RoomRecord, b: &RoomRecord| !crate::state::records_differ(a, b);
+        assert!(same(
+            &for_the_wire(elsewhere.clone(), Some(&drawn)),
+            &elsewhere
+        ));
+        assert!(same(&for_the_wire(record.clone(), None), &record));
+    }
 
     #[test]
     fn a_result_is_stale_only_when_the_expected_did_differs() {

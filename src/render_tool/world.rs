@@ -253,7 +253,8 @@ pub(super) struct WorldReadiness<'w, 's> {
     job: Option<Res<'w, CompileJob>>,
     splat: Option<Res<'w, SplatApplied>>,
     roads: Option<Res<'w, RoadPanelStats>>,
-    /// A geodata region's derived content still spawning (#1587, #1588).
+    /// A geodata region's derived content (#1587, #1588), spawning until
+    /// it is idle.
     derived: Option<Res<'w, crate::terrain::derived::DerivedBuilds>>,
     bakes: BakesInFlight<'w, 's>,
 }
@@ -269,7 +270,10 @@ impl WorldReadiness<'_, '_> {
             && self.job.as_ref().is_some_and(|j| j.progress().is_none())
             && self.splat.is_some()
             && self.roads.as_ref().is_some_and(|r| !r.pending)
-            && self.derived.is_none()
+            && self
+                .derived
+                .as_ref()
+                .is_none_or(|derived| derived.is_idle())
             && self.bakes.count() == 0
     }
 
@@ -283,7 +287,9 @@ impl WorldReadiness<'_, '_> {
             self.roads.as_ref().map(|r| r.pending),
             self.roads.as_ref().map(|r| r.streets),
             self.roads.as_ref().map(|r| r.buildings),
-            self.derived.is_some(),
+            self.derived
+                .as_ref()
+                .is_some_and(|derived| !derived.is_idle()),
             self.bakes.count(),
         )
     }

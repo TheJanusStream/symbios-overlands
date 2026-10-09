@@ -1,15 +1,17 @@
-//! Wire guard for a geodata region's source on the room record (#1583).
+//! Wire guard for a geodata region's source on the room record (#1583), and
+//! the owner's edits over what is drawn from it (#1590).
 //!
 //! Three directions, as every record field gets. A record without a source,
 //! which is every record written before #1583, decodes, keeps no key and
-//! re-encodes unchanged. A record with one names it `geo_source`, with the
-//! bytes pinned in `tests/fixtures/geo_source_wire.jsonl`. And a newer
+//! re-encodes unchanged; so does a source without edits, which keeps the
+//! bytes it had before #1590. A record with one names it `geo_source`, with
+//! the bytes pinned in `tests/fixtures/geo_source_wire.jsonl`. And a newer
 //! client's source, with a dataset this build cannot draw or keys it does
 //! not know, decodes rather than failing the room. Regenerate the fixture
 //! only when the wire form is meant to move, with `GEO_SOURCE_WIRE_BLESS=1`,
 //! and say so in the commit.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 use serde_json::{Value, json};
@@ -42,20 +44,42 @@ fn empty_room() -> RoomRecord {
     }
 }
 
+/// The Dom's square with an item of each kind changed, and the hashes of
+/// two layers it was drawn from.
+fn edited_dom() -> GeoSource {
+    GeoSource {
+        removed: vec![
+            "furniture:40477-2210001-00".into(),
+            "tree:00008100_0014f258".into(),
+        ],
+        adopted: vec!["alkis:DEBE00YY13U0001a".into()],
+        layers: BTreeMap::from([
+            ("buildings".into(), "00ff00ff00ff00ff".into()),
+            ("terrain".into(), "0123456789abcdef".into()),
+        ]),
+        ..dom()
+    }
+}
+
 fn corpus() -> Vec<String> {
     let other = GeoSource {
         dataset: "hamburg".into(),
         min_e: 560_000,
         min_n: 5_930_000,
         size_m: 2_500,
+        ..Default::default()
     };
-    [("berlin/dom", dom()), ("hamburg/unknown-dataset", other)]
-        .into_iter()
-        .map(|(label, source)| {
-            let bytes = serde_json::to_string(&source).expect("a source serialises");
-            format!("{label}\t{bytes}")
-        })
-        .collect()
+    [
+        ("berlin/dom", dom()),
+        ("hamburg/unknown-dataset", other),
+        ("berlin/edited", edited_dom()),
+    ]
+    .into_iter()
+    .map(|(label, source)| {
+        let bytes = serde_json::to_string(&source).expect("a source serialises");
+        format!("{label}\t{bytes}")
+    })
+    .collect()
 }
 
 #[test]
@@ -108,7 +132,7 @@ fn a_newer_clients_source_decodes_rather_than_failing_the_room() {
         "min_e": 560_000,
         "min_n": 5_930_000,
         "size_m": 2_500,
-        "layer_hashes": {"terrain": "0123abcd"},
+        "imagery": {"aerial": 2027},
         "vintage": 2027,
     });
     let mut decoded: RoomRecord = serde_json::from_value(value).unwrap();
@@ -145,5 +169,37 @@ fn a_hostile_source_is_put_right_or_dropped_with_the_record() {
     assert_eq!(
         with(json!({"dataset": id, "min_e": 391_000, "min_n": 5_819_500, "size_m": 1_000})),
         None
+    );
+}
+
+#[test]
+fn a_sources_edits_round_trip_and_hostile_ones_are_put_right() {
+    let mut room = empty_room();
+    room.geo_source = Some(edited_dom());
+    let bytes = serde_json::to_string(&room).unwrap();
+    let mut decoded: RoomRecord = serde_json::from_str(&bytes).unwrap();
+    decoded.sanitize();
+    assert_eq!(decoded.geo_source, Some(edited_dom()));
+    assert_eq!(serde_json::to_string(&decoded).unwrap(), bytes);
+    // Out of order, twice over, in both lists and not ids at all: sorted,
+    // deduplicated, adopted kept over removed, and the rest dropped.
+    let mut value = serde_json::to_value(empty_room()).unwrap();
+    value["geo_source"] = json!({
+        "dataset": BERLIN,
+        "min_e": 391_000,
+        "min_n": 5_819_500,
+        "size_m": 1_000,
+        "removed": ["tree:2", "tree:1", "tree:2", "alkis:A", "<script>"],
+        "adopted": ["alkis:A"],
+        "layers": {"terrain": "not a hash", "trees": "0123456789abcdef"},
+    });
+    let mut room: RoomRecord = serde_json::from_value(value).expect("decodes");
+    room.sanitize();
+    let source = room.geo_source.expect("kept");
+    assert_eq!(source.removed, ["tree:1", "tree:2"]);
+    assert_eq!(source.adopted, ["alkis:A"]);
+    assert_eq!(
+        source.layers,
+        BTreeMap::from([("trees".to_owned(), "0123456789abcdef".to_owned())])
     );
 }

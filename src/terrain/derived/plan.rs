@@ -157,6 +157,17 @@ pub(crate) struct Plan {
 }
 
 impl Plan {
+    /// The generator of building `b`, once grown: what a copy of it made
+    /// the world's own carries (#1590).
+    pub(crate) fn grown(&self, b: usize) -> Option<&Generator> {
+        self.buildings[b].tree.as_ref()
+    }
+
+    /// The box building `b`'s template filled, once baked.
+    pub(crate) fn bounds(&self, b: usize) -> Option<(Vec3, Vec3)> {
+        self.buildings[b].bounds
+    }
+
     /// The generator of building `b`, grown on first asking, stripped for
     /// distance.
     pub(super) fn tree(&mut self, b: usize) -> &Generator {
@@ -262,7 +273,21 @@ pub(super) enum Stage {
     Copies(usize),
 }
 
-/// A plan being spawned.
+/// How a copy is drawn now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Drawn {
+    /// Not at all: not reached yet, past its plan's budgets, or suppressed
+    /// by the record's edits (#1590).
+    No,
+    /// Near, costing this many of its plan's entities.
+    Near(u32),
+    /// Far: one of its plan's far copies.
+    Far,
+}
+
+/// A plan being spawned, or spawned: kept for its terrain's life, so a copy
+/// the owner removed and then restored (#1590) is drawn again from the
+/// forms its plan baked.
 pub(crate) struct Build {
     pub(super) plan: Plan,
     /// The root its copies hang under, a child of the terrain.
@@ -272,17 +297,53 @@ pub(crate) struct Build {
     pub(super) spawned: u32,
     /// The far copies it has spawned so far.
     pub(super) far_spawned: usize,
+    /// How each copy is drawn now.
+    pub(super) drawn: Vec<Drawn>,
 }
 
 impl Build {
     pub(super) fn new(plan: Plan, root: Entity) -> Self {
         Build {
+            drawn: vec![Drawn::No; plan.copies.len()],
             plan,
             root,
             stage: Stage::Templates(0),
             spawned: 0,
             far_spawned: 0,
         }
+    }
+
+    /// The plan.
+    pub(crate) fn plan(&self) -> &Plan {
+        &self.plan
+    }
+
+    /// Whether the spawn has passed copy `c`: it was drawn then, or left
+    /// out, and is drawn again only when restored.
+    pub(super) fn reached(&self, c: usize) -> bool {
+        matches!(self.stage, Stage::Copies(next) if next > c)
+    }
+
+    /// Give back what copy `c` cost its plan's budgets, its entities gone.
+    pub(super) fn take_back(&mut self, c: usize) {
+        match std::mem::replace(&mut self.drawn[c], Drawn::No) {
+            Drawn::Near(cost) => self.spawned = self.spawned.saturating_sub(cost),
+            Drawn::Far => self.far_spawned = self.far_spawned.saturating_sub(1),
+            Drawn::No => {}
+        }
+    }
+
+    /// Where copy `c` stands, turned, and scaled to its height: once its
+    /// building is baked, the pose its entities are drawn at.
+    pub(crate) fn copy_pose(&self, c: usize) -> Transform {
+        let copy = &self.plan.copies[c];
+        let scale = copy
+            .height
+            .zip(self.plan.buildings[copy.building].bounds)
+            .map_or(1.0, |(height, (lo, hi))| {
+                (height / (hi.y - lo.y).max(0.1)).clamp(HEIGHT_SCALE_RANGE.0, HEIGHT_SCALE_RANGE.1)
+            });
+        copy.pose.with_scale(Vec3::splat(scale))
     }
 
     /// Bake building `b` from its template, and despawn the template.
@@ -350,14 +411,9 @@ impl Build {
     ) -> bool {
         let copy = self.plan.copies[c].clone();
         let (root, policy) = (self.root, self.plan.policy);
+        let pose = self.copy_pose(c);
+        let scale = pose.scale.x;
         let building = &self.plan.buildings[copy.building];
-        let scale = copy
-            .height
-            .zip(building.bounds)
-            .map_or(1.0, |(height, (lo, hi))| {
-                (height / (hi.y - lo.y).max(0.1)).clamp(HEIGHT_SCALE_RANGE.0, HEIGHT_SCALE_RANGE.1)
-            });
-        let pose = copy.pose.with_scale(Vec3::splat(scale));
         let tag = DerivedItem(copy.source.clone());
         // The draw distance a small copy is cut at, where its plan cuts.
         let cut = building
@@ -405,6 +461,7 @@ impl Build {
                 }
             };
             self.spawned += spent;
+            self.drawn[c] = Drawn::Near(spent);
             true
         } else if self.far_spawned < policy.far_copies
             && let Some(far) = self.plan.buildings[copy.building].far.clone()
@@ -419,6 +476,7 @@ impl Build {
             ));
             stamp(&mut part, cut);
             self.far_spawned += 1;
+            self.drawn[c] = Drawn::Far;
             true
         } else {
             false

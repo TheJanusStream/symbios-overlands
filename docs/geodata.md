@@ -214,9 +214,10 @@ heightmap job.
 - **Heights** are metres above sea level, with no datum shift. Berlin's
   ground never lies below 26 m, so where Berlin has no water a seeded water
   plane stays under it.
-- **Rebuilds.** The terrain fingerprint covers `geo_source`, so switching to
-  Berlin or moving the square rebuilds the ground in place, as a terrain
-  edit does.
+- **Rebuilds.** The terrain fingerprint covers `geo_source`'s square, so
+  switching to Berlin or moving the square rebuilds the ground in place, as
+  a terrain edit does. The owner's edits and the layer hashes (P3.2) do not
+  move the ground, and rebuild nothing.
 - **Failure.** If Berlin's terrain cannot be had - the service is
   unreachable after the fetcher's retries, or the answer does not decode -
   the region falls back to the procedural ground its terrain config
@@ -230,7 +231,8 @@ heightmap job.
 - **Known divergence.** Each peer fetches for itself and keeps a 30-day
   cache. If Berlin re-renders its data within that window, two peers can
   hold different heightmaps; the world digest reports it. P3.2's layer
-  hashes in the record (#1590) are the cure.
+  hashes in the record (#1590) are the cure: a peer whose stored answers
+  hash otherwise than the owner's save fetches them again.
 - **Tools.** The native tools' `rebuild_heightmap_for_record` fetches and
   decodes the same way, blocking. The render tool takes
   `--world N --geo-square E,N,SIZE` to render a region from real Berlin.
@@ -509,7 +511,7 @@ furniture, each Berlin's own place and the region's own catalogue item.
   where it comes from, a `SourceId` (`alkis:<uuid>`, `tree:<gisid>`,
   `furniture:<id>`, and `ring:<x>,<z>` for the ring, which has no ids), and
   every entity drawn from it carries it as a `DerivedItem`: what P3.2's
-  edits will name (#1590). The record's own content comes first: nothing
+  edits name (#1590). The record's own content comes first: nothing
   derived stands within 12 m of the landing, nor within 2 m of an absolute
   placement's ground reach. Each part is a plan, spawned as the ring's is:
   templates, bakes, then copies, 4 ms a frame, the walkable ground first,
@@ -619,6 +621,81 @@ a seeded room comes to be a Berlin region, and how an owner keeps one.
 - **Tools.** `--describe` prints each room's ground; the terrain report's
   landing is where a body sets down, with its record's spot beside it
   where the two differ.
+
+The owner's edits (P3.2, #1590; `src/terrain/derived/edit.rs`) keep what
+the owner changed of what is drawn, and the layer hashes keep what it was
+drawn from.
+
+- **Picking.** With the World Editor open, a click on one of the walkable
+  ground's buildings, trees or items of street furniture picks it (owner,
+  2026-10-09), whichever tab is up: the editor names it as Berlin records
+  it - "A residential building, of 5 storeys, 720 m2", "A linden (Tilia),
+  12 m tall", "A street lamp" - with its id, and offers Remove and Make it
+  this world's own. A copy's merged meshes keep nothing on the CPU for the
+  mesh ray to read, so the click is tested against its collider - a
+  building's shell, a prop's box, a tree's trunk - and its copy's box,
+  which takes a tree by its crown. The owner's own content wins a click
+  unless a derived collider truly stands in front of it, never to a box (a
+  bench under a crown stays the bench's); over anything else the nearer
+  derived hit wins where it is nearer than what the editor's own rays hit.
+  Only an item on screen is picked - not one past its draw distance - and
+  a box the camera stands in is not one the click enters. The ring's lots
+  carry no stable ids, and stay as drawn (owner, 2026-10-09).
+- **Remove.** The item's id goes into `geo_source.removed`, and it is drawn
+  no more.
+- **Make it this world's own.** A copy as drawn (owner, 2026-10-09): the
+  same catalogue items at the same place, turn and size - those drawn, near
+  or far, not those the plan's budgets left out - as ordinary record
+  content - snapped absolute placements, their height an offset
+  from the ground, so a building's sunk foundations stay sunk - of
+  generators named `<id>#<n>`, one to each catalogue building and size its
+  copies are, which the copies share. A footprint's row comes over whole.
+  The size rides in the generator's root, as a placement drops its own.
+  The id goes into `geo_source.adopted`, and the original is drawn no
+  more. Past the record's counts (256 items, 1,024 placements) or its
+  100 KiB size budget the copy is refused, and the panel says why; before
+  its plan has grown and baked the item, too. A copy keeps no clear disc
+  round it, as a placement does, so its neighbours stand as they stood -
+  while the walkable ground draws its item; once the square has moved off
+  it, the copy is a placement like any other.
+- **Restore.** The Region source section lists every item removed or made
+  the world's own, by what Berlin records of it, each with Restore: the
+  item is drawn from Berlin again, and an adopted item's copy - every
+  placement of its generators, and the generators - goes. Each edit is one
+  undo step.
+- **Live.** The edits apply as the record changes, with no rebuild: the
+  terrain fingerprint covers only the square. A suppressed item's entities
+  are despawned and what they cost their plan's budgets given back; a
+  restored one is drawn again from its plan, which stays resident for its
+  terrain's life for that, or when the spawn reaches it. A visitor's world
+  follows the owner's as any live edit does.
+- **Ids.** A list holds at most 1,024 ids, each 1 to 96 of ASCII letters,
+  digits and `.`, `_`, `:`, `-`, sorted and deduplicated by the sanitiser;
+  an id in both lists is kept as adopted, which has content. An id the
+  square's data no longer holds is kept and ignored, and listed as not on
+  the walkable ground. Moving the square keeps the edits - an id names its
+  item wherever the square lies - and a re-roll, which replaces everything
+  the world holds, drops them, the square lock or not.
+- **Layer hashes.** Each answer is hashed as it settles, on the I/O pool:
+  64-bit FNV-1a over its bytes, a page of features' own `"timeStamp"` left
+  out, the one thing that changes between two fetches of the same data. A
+  layer's hash folds its answers' in the order the job asks for them:
+  terrain, land use, streets, buildings, trees, furniture, horizon and
+  ring, each only where all of its answers were had. A save writes the
+  drawn layers' hashes into `geo_source.layers` (16 hex digits each) on
+  the way out, where the record names the square they were drawn for - and
+  only there: the editor's record never holds them, or every save would
+  leave behind a difference no edit made.
+- **Stale caches.** A load whose record holds hashes weighs its answers
+  against them: a layer whose stored answers hash otherwise, and were kept
+  more than a day ago, is fetched once more past the store, and the ground
+  drawn from what the network says - or, should the network fail, from
+  what was kept. If the fresh answer still differs, Berlin has changed
+  since the save: it is drawn as Berlin has it now, the Region source
+  section says which layers changed, and the owner's next save records
+  them. An answer kept within the day is Berlin as it stands, so a
+  difference there is not fetched again on every visit, and a layer is
+  never fetched twice over in one load.
 
 The ignored test `live_gdi_berlin_round_trip_decodes_and_is_kept` exercises
 the live path end to end: the real client, the disk store, and the decoders.

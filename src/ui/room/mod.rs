@@ -41,6 +41,7 @@
 pub(crate) mod assets;
 pub mod audio;
 pub(crate) mod audio_slots;
+mod berlin_item;
 pub(crate) mod caps;
 pub(crate) mod construct;
 mod contact_effects;
@@ -206,6 +207,11 @@ pub struct RoomEditorState {
     /// a GUI-originated selection (tree row click) naturally falls back
     /// to camera proximity without anyone having to clear this.
     pub preferred_pick: Option<PreferredPick>,
+    /// The Berlin item a scene click picked (#1590): one of the walkable
+    /// ground's buildings, trees or items of street furniture, which the
+    /// editor names and offers to remove or make the world's own. No gizmo
+    /// selection - none of it is in the record.
+    pub(crate) derived_pick: crate::terrain::derived::edit::DerivedPick,
     /// The Raw JSON tab's text, and what it was seeded from (#1212).
     raw: raw::RawJsonBuffer,
     /// Seconds remaining before a pending widget change is flushed into
@@ -314,6 +320,7 @@ impl RoomEditorState {
         self.tree.selection.clear();
         self.tree.view.set_selected(Vec::new());
         self.preferred_pick = None;
+        self.derived_pick.pick(None);
     }
 
     /// Every selected placement index, anchor first (#1244 f415).
@@ -475,6 +482,9 @@ pub struct RoomEditorExtras<'w, 's> {
     /// is several seconds during which the World Editor said nothing at
     /// all and the old mesh stayed on screen.
     terrain_task: Option<Res<'w, crate::terrain::TerrainTask>>,
+    /// A Berlin region's derived plans (#1590): what a picked item's copy
+    /// is made from when the owner makes it the world's own.
+    derived: Option<Res<'w, crate::terrain::derived::DerivedBuilds>>,
 }
 
 /// The footer line while a terrain rebuild is in flight (#1249 f63).
@@ -780,6 +790,7 @@ pub fn room_admin_ui(
         players,
         gizmo_focus,
         terrain_task,
+        derived,
         peers,
         mut player_move,
         grammar_diag,
@@ -840,6 +851,7 @@ pub fn room_admin_ui(
         audio_editor,
         reroll,
         seed_source,
+        derived_pick,
         recovery_reset_confirm,
         placement_bulk_delete,
         publish_guard,
@@ -873,6 +885,18 @@ pub fn room_admin_ui(
     // its request here, because it is this level that holds the record's
     // placements, the player's pose and the tab/selection state.
     let mut place_root: Option<String> = None;
+    // The Berlin item panel's request, and the Region source list's
+    // Restore (#1590): performed after the window, where the record is
+    // whole.
+    let mut item_action: Option<berlin_item::ItemAction> = None;
+    let mut restore: Option<String> = None;
+    // The walkable ground's buildings, trees and street furniture, as
+    // Berlin records them: what the panel and the list name items by.
+    let street_level = heightmap
+        .as_deref()
+        .and_then(crate::terrain::FinishedHeightMap::ground)
+        .and_then(crate::terrain::geo::GeoGround::street_level)
+        .cloned();
 
     {
         // Taken before the bypassing reborrow below, which is what makes
@@ -1025,6 +1049,19 @@ pub fn room_admin_ui(
                             );
                         }
                     });
+                    ui.add_space(6.0);
+                }
+
+                // A Berlin item picked in the world (#1590), whichever tab
+                // is up: none of it belongs to a tab, being no record
+                // content.
+                if let Some(id) = &derived_pick.picked {
+                    item_action = berlin_item::draw_berlin_item(
+                        ui,
+                        id,
+                        street_level.as_deref(),
+                        derived_pick.refused.as_deref(),
+                    );
                     ui.add_space(6.0);
                 }
 
@@ -1470,6 +1507,10 @@ pub fn room_admin_ui(
                                 record_mut.clone(),
                                 room_did.0.clone(),
                                 now,
+                                heightmap
+                                    .as_deref()
+                                    .and_then(crate::terrain::FinishedHeightMap::ground)
+                                    .and_then(crate::terrain::geo::GeoGround::layers),
                             );
                         }
 
@@ -1609,6 +1650,7 @@ pub fn room_admin_ui(
                                         },
                                         player_pose,
                                         &mut widget_change,
+                                        &mut restore,
                                         audio_editor,
                                         &mut asset_panel,
                                     );
@@ -1631,6 +1673,76 @@ pub fn room_admin_ui(
                     }
                 }
             });
+
+        // The Berlin item panel's edit, and a Restore (#1590). Each is one
+        // whole edit, applied and broadcast at once, as a Load is.
+        if let Some(action) = item_action
+            && let Some(id) = derived_pick.picked.clone()
+        {
+            let now = time.elapsed_secs_f64();
+            let done = match action {
+                berlin_item::ItemAction::Close => {
+                    derived_pick.pick(None);
+                    None
+                }
+                berlin_item::ItemAction::Remove => Some(
+                    crate::terrain::derived::edit::remove(record_mut, &id)
+                        .map(|()| format!("removal of {id}")),
+                ),
+                berlin_item::ItemAction::Adopt => {
+                    Some(match (derived.as_deref(), heightmap.as_deref()) {
+                        (Some(builds), Some(heightmap)) => {
+                            crate::terrain::derived::edit::adopt(
+                                record_mut,
+                                &id,
+                                builds,
+                                &|x, z| heightmap.world_height_at(x, z),
+                            )
+                            .map(|copies| {
+                                toasts.success(
+                            match copies {
+                                1 => "It is this world's own now: its copy is under Placements."
+                                    .to_owned(),
+                                n => format!(
+                                    "It is this world's own now: its copy, {n} placements, is \
+                                     under Placements."
+                                ),
+                            },
+                            now,
+                        );
+                                format!("adoption of {id}")
+                            })
+                        }
+                        _ => Err("Berlin's items are not drawn in this world now.".to_owned()),
+                    })
+                }
+            };
+            match done {
+                Some(Ok(label)) => {
+                    undo_labels
+                        .slot(crate::ui::shortcuts::EditorKind::World)
+                        .set(label);
+                    derived_pick.pick(None);
+                    needs_broadcast = true;
+                }
+                Some(Err(why)) => derived_pick.refused = Some(why),
+                None => {}
+            }
+        }
+        if let Some(id) = restore {
+            match crate::terrain::derived::edit::restore(record_mut, &id) {
+                Ok(()) => {
+                    undo_labels
+                        .slot(crate::ui::shortcuts::EditorKind::World)
+                        .set(format!("restore of {id}"));
+                    // A placement row may have gone with an adopted copy.
+                    *selected_placement = None;
+                    extra_placements.clear();
+                    needs_broadcast = true;
+                }
+                Err(why) => toasts.warn(why, time.elapsed_secs_f64()),
+            }
+        }
 
         // #1239 f81: perform the requested placement. Appending here - not
         // in the tree panel - is what lets it also switch the tab and land

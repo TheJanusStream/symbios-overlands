@@ -945,6 +945,12 @@ pub(crate) mod glyph_coverage_tests {
         // #1583: `Borough::name` labels a geodata region's square in the
         // World Editor - "Tempelhof-Sch\u{f6}neberg", "Neuk\u{f6}lln".
         "crates/geodata/src/berlin/mod.rs",
+        // #1590: `describe` names a picked Berlin item in the World Editor
+        // ("..., 720 m\u{b2}"), and the refusals of its edits are shown
+        // there; `DrawnLayers::changed_sentence` is the Region source
+        // section's line on Berlin's data having moved on.
+        "src/terrain/derived/edit.rs",
+        "src/terrain/geo/layers.rs",
     ];
 
     /// Non-ASCII glyphs drawn by the sculpting sections the Body tab HOSTS

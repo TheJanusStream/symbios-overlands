@@ -113,6 +113,19 @@ pub(crate) struct StreetLevel {
 }
 
 impl StreetLevel {
+    /// Whether it holds the item `id` (#1590): one of its buildings, trees
+    /// or items of street furniture.
+    pub(crate) fn holds(&self, id: &crate::terrain::derived::SourceId) -> bool {
+        use crate::terrain::derived::SourceLayer;
+        let key = &*id.key;
+        match id.layer {
+            SourceLayer::Building => self.buildings.iter().any(|b| &*b.id == key),
+            SourceLayer::Tree => self.trees.iter().any(|t| &*t.id == key),
+            SourceLayer::Furniture => self.furniture.iter().any(|f| &*f.id == key),
+            SourceLayer::RingLot => false,
+        }
+    }
+
     pub(crate) fn new(
         buildings: Vec<CoreBuilding>,
         trees: Vec<CoreTree>,

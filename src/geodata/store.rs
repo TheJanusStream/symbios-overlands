@@ -76,6 +76,13 @@ impl GeoStore {
     /// The body kept for `url`, if one is, is younger than [`TTL_SECS`] at
     /// `now` (Unix seconds), and is at most `cap` bytes.
     pub async fn get(&self, url: &str, cap: usize, now: i64) -> Option<Vec<u8>> {
+        self.get_stamped(url, cap, now).await.map(|(body, _)| body)
+    }
+
+    /// [`Self::get`], with when the body was kept (Unix seconds): how old
+    /// the answer is, for a caller that must tell an answer older than a
+    /// save from one fetched since (#1590).
+    pub async fn get_stamped(&self, url: &str, cap: usize, now: i64) -> Option<(Vec<u8>, i64)> {
         match self {
             GeoStore::Off => None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -86,7 +93,7 @@ impl GeoStore {
                 sweep_browser_epochs_once(&name).await;
                 let (stored, body) = super::store_browser::read(&name, url).await?;
                 if fresh(stored, now) && body.len() <= cap {
-                    Some(body)
+                    Some((body, stored))
                 } else {
                     super::store_browser::remove(&name, url).await;
                     None
@@ -96,7 +103,7 @@ impl GeoStore {
             GeoStore::Memory(map) => {
                 let map = map.lock().unwrap();
                 let (stored, body) = map.get(url)?;
-                (fresh(*stored, now) && body.len() <= cap).then(|| body.clone())
+                (fresh(*stored, now) && body.len() <= cap).then(|| (body.clone(), *stored))
             }
         }
     }
@@ -226,7 +233,8 @@ pub(crate) mod disk {
             self.dir.join(format!("{:016x}.bin", fnv1a_64(url)))
         }
 
-        pub(super) fn get(&self, url: &str, cap: usize, now: i64) -> Option<Vec<u8>> {
+        /// The body kept for `url`, and when it was kept.
+        pub(super) fn get(&self, url: &str, cap: usize, now: i64) -> Option<(Vec<u8>, i64)> {
             self.sweep_old_epochs();
             let path = self.path_for(url);
             // Too big to be this URL's answer within its cap: not read at all.
@@ -242,7 +250,9 @@ pub(crate) mod disk {
                     if let Ok(file) = std::fs::File::options().append(true).open(&path) {
                         let _ = file.set_modified(std::time::SystemTime::now());
                     }
-                    Some(body.to_vec())
+                    // A hit has a whole header: its stamp is there to read.
+                    let stored = i64::from_le_bytes(bytes[5..13].try_into().expect("8 bytes"));
+                    Some((body.to_vec(), stored))
                 }
                 // Another URL with the same hash: its entry is valid, and the
                 // next put of this URL replaces it.
@@ -446,6 +456,11 @@ mod tests {
         assert_eq!(block(store.get(url, 100, NOW)), None);
         block(store.put(url, b"body", NOW));
         assert_eq!(block(store.get(url, 100, NOW + 10)), Some(b"body".to_vec()));
+        // And when it was kept (#1590).
+        assert_eq!(
+            block(store.get_stamped(url, 100, NOW + 10)),
+            Some((b"body".to_vec(), NOW))
+        );
         assert_eq!(block(store.get(url, 3, NOW)), None, "over the cap");
         assert_eq!(
             block(store.get("https://gdi.berlin.de/other", 100, NOW)),

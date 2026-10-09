@@ -84,8 +84,21 @@ fn save_room(world: &mut World) -> Result<SizeReadout, String> {
         .map(|room| room.0.clone())
         .unwrap_or_default();
     let now = world.resource::<Time>().elapsed_secs_f64();
+    let drawn = world
+        .get_resource::<crate::terrain::FinishedHeightMap>()
+        .and_then(crate::terrain::FinishedHeightMap::ground)
+        .and_then(crate::terrain::geo::GeoGround::layers)
+        .cloned();
     with_session(world, |commands, session, refresh| {
-        crate::ui::room::spawn_room_publish_task(commands, session, refresh, record, room_did, now);
+        crate::ui::room::spawn_room_publish_task(
+            commands,
+            session,
+            refresh,
+            record,
+            room_did,
+            now,
+            drawn.as_ref(),
+        );
     })?;
     world.resource_mut::<PublishFeedback<RoomRecord>>().status =
         PublishStatus::Publishing { since_secs: now };

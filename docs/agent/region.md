@@ -1099,10 +1099,26 @@ null` goes back to the generated ground.
   bollards, shelters, signs, fountains, advertising columns, bike racks) as
   the theme's matching props, where the theme has one. All of it stands on
   colliders and blocks a body. It is derived on every visit and not in the
-  record: an agent cannot move or delete it. The record's own content comes
+  record, so an agent cannot move it. The record's own content comes
   first: nothing derived stands within 12 m of `default_landing`, nor within
   2 m of an absolute placement's reach (its `avoid_water_clearance`, else
   4 m). To keep a spot open, build there.
+- **What the owner changed of it is in the record** (#1590), under
+  `/geo_source`, each item named by its Berlin id: `alkis:<uuid>` for a
+  building, `tree:<gisid>` for a tree, `furniture:<id>` for an item of
+  street furniture. `removed` lists the items not drawn; `adopted` those
+  made the world's own, whose copies are ordinary placements of the
+  generators named `<id>#1`, `<id>#2` ... (while its item is on the
+  walkable ground, a copy keeps no 2 m disc clear round it, as other
+  placements do). Owners make both edits by clicking an
+  item with the World Editor open, and Restore them from its Region source
+  section. An agent that knows an item's id can remove it with `room set
+  /geo_source/removed`, the whole list with the id in it (at most 1,024;
+  the write sorts it); making one the world's own copies its drawn geometry,
+  which only the World Editor can.
+  `/geo_source/layers` holds the content hashes a save writes, by which a
+  visitor tells that its cached Berlin data is older than the owner's: never
+  set it by hand.
 - **Berlin's streets are built on the walkable ground** (#1595): its real
   street network, each street as wide as its carriageway, with curbs and
   junctions, bridges where it crosses water. Like the buildings round it

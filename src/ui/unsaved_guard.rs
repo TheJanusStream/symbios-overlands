@@ -312,6 +312,9 @@ pub struct GuardRecords<'w> {
     /// silently as looking at neither did.
     room_editor: ResMut<'w, crate::ui::room::RoomEditorState>,
     avatar_editor: ResMut<'w, crate::ui::avatar::AvatarEditorState>,
+    /// The ground as drawn: a room save stamps the layers it was drawn
+    /// from (#1590).
+    heightmap: Option<Res<'w, crate::terrain::FinishedHeightMap>>,
 }
 
 impl GuardRecords<'_> {
@@ -734,6 +737,11 @@ pub fn unsaved_guard_ui(
                         live.0.clone(),
                         room_did,
                         time.elapsed_secs_f64(),
+                        records
+                            .heightmap
+                            .as_deref()
+                            .and_then(crate::terrain::FinishedHeightMap::ground)
+                            .and_then(crate::terrain::geo::GeoGround::layers),
                     );
                 }
                 if matches!(guard.action, GuardedAction::Logout | GuardedAction::Quit) {
