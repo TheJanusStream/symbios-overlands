@@ -44,8 +44,38 @@
 //! toggle through [`snapped_absolute_anchor`], the executor through the
 //! walk itself. The drag commit needs neither - it rebases against the
 //! pose the drag started from, which is already the walked one (#1398).
+//!
+//! On Berlin's ground (#1589) the walk is to open, dry ground: off the
+//! water and off the street space the land use leaves, and where the
+//! anchor's bearing finds none, to the nearest. Every site reads the
+//! ground through an [`AnchorGround`], so they agree there too.
 
 use bevy::math::Vec3;
+
+/// The ground a snapped anchor's walks read: the heights, the room's water
+/// line, and - on Berlin's ground (#1589) - where its streets run.
+#[derive(Clone, Copy)]
+pub(crate) struct AnchorGround<'a> {
+    pub hm: &'a bevy_symbios_ground::HeightMap,
+    /// The room's water line, as the compile reads it (`drawn_water_level`).
+    pub water_y: Option<f32>,
+    /// Berlin's ground, where the region is built from it.
+    pub berlin: Option<&'a crate::terrain::geo::GeoGround>,
+}
+
+impl<'a> AnchorGround<'a> {
+    /// `heightmap`'s ground, under the room's water line `water_y`.
+    pub(crate) fn new(
+        heightmap: &'a crate::terrain::FinishedHeightMap,
+        water_y: Option<f32>,
+    ) -> Self {
+        AnchorGround {
+            hm: &heightmap.0,
+            water_y,
+            berlin: heightmap.ground(),
+        }
+    }
+}
 
 /// Samples around the footprint rim. A heightfield's maximum over a disc
 /// lies either at a grid vertex inside it or somewhere on its rim; the
@@ -114,46 +144,88 @@ pub(super) fn relocation_clearance(avoid_water: bool, clearance: f32, scale_x: f
     avoid_water.then_some(clearance * scale_x.max(0.0))
 }
 
-/// Walk a snapped anchor to where the compile stands it: off water, then
-/// off over-steep ground (#905), along its bearing through the origin.
-/// Moves X/Z only. `clearance` comes from [`relocation_clearance`]; a
-/// placement without one is never walked.
+/// Walk a snapped anchor to where the compile stands it: off water - on
+/// Berlin's ground, to open dry ground (#1589) - then off over-steep
+/// ground (#905), along its bearing through the origin. Moves X/Z only.
+/// `clearance` comes from [`relocation_clearance`]; a placement without one
+/// is never walked.
 pub(super) fn relocate_snapped_anchor(
-    hm: &bevy_symbios_ground::HeightMap,
+    ground: &AnchorGround<'_>,
     translation: &mut Vec3,
     clearance: f32,
-    room_water_y: Option<f32>,
 ) {
+    let hm = ground.hm;
     let extent = (hm.width().saturating_sub(1)) as f32 * hm.scale();
     let half = extent * 0.5;
-    if let Some(water_y) = room_water_y {
-        super::water::relocate_above_water(hm, extent, half, translation, water_y, clearance);
+    let steep = |translation: &mut Vec3| {
+        super::slope::relocate_off_steep_ground(
+            hm,
+            extent,
+            half,
+            translation,
+            ground.water_y,
+            clearance,
+        );
+    };
+    match ground.berlin {
+        Some(berlin) => {
+            let open = |translation: &mut Vec3| {
+                super::water::relocate_to_open_ground(
+                    hm,
+                    (extent, half),
+                    translation,
+                    ground.water_y,
+                    berlin,
+                    clearance,
+                );
+            };
+            open(translation);
+            steep(translation);
+            // The slope walk knows no streets: a spot it moved onto one, or
+            // onto water, is walked open again, which it leaves alone where
+            // it stands.
+            open(translation);
+        }
+        None => {
+            if let Some(water_y) = ground.water_y {
+                super::water::relocate_above_water(
+                    hm,
+                    extent,
+                    half,
+                    translation,
+                    water_y,
+                    clearance,
+                );
+            }
+            steep(translation);
+        }
     }
-    super::slope::relocate_off_steep_ground(hm, extent, half, translation, room_water_y, clearance);
 }
 
 /// Where the compile draws a SNAPPED `Absolute` placement's anchor: its
 /// record's x/z, walked by [`relocate_snapped_anchor`] when it avoids
 /// water, on the ground there ([`snapped_ground_y`]) plus its authored Y
-/// as an offset. `room_water_y` is the room's water line, as the compile
-/// reads it (`drawn_water_level`: Berlin's in a geodata region, #1586).
+/// as an offset. `ground` carries the room's water line, as the compile
+/// reads it (`drawn_water_level`: Berlin's in a geodata region, #1586),
+/// and Berlin's ground where there is one (#1589).
 ///
 /// The editor's reading of the anchor, for the sites in the module docs'
-/// "Where it stands" (#1399).
-pub fn snapped_absolute_anchor(
-    hm: &bevy_symbios_ground::HeightMap,
+/// "Where it stands" (#1399) - and the derived stage's, which keeps
+/// Berlin's buildings clear of where a seeded gate stands, not of where its
+/// record put it.
+pub(crate) fn snapped_absolute_anchor(
+    ground: &AnchorGround<'_>,
     transform: &crate::pds::TransformData,
     avoid_water: bool,
     avoid_water_clearance: f32,
-    room_water_y: Option<f32>,
 ) -> Vec3 {
     let mut anchor = Vec3::from_array(transform.translation.0);
     let scale_x = transform.scale.0[0];
     if let Some(clearance) = relocation_clearance(avoid_water, avoid_water_clearance, scale_x) {
-        relocate_snapped_anchor(hm, &mut anchor, clearance, room_water_y);
+        relocate_snapped_anchor(ground, &mut anchor, clearance);
     }
     let radius = snap_radius_of(avoid_water, avoid_water_clearance, scale_x);
-    anchor.y += snapped_ground_y(hm, anchor.x, anchor.z, radius);
+    anchor.y += snapped_ground_y(ground.hm, anchor.x, anchor.z, radius);
     anchor
 }
 

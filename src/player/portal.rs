@@ -562,6 +562,7 @@ pub(super) fn release_travel_on_arrival(
     traveling: Option<Res<TravelingTo>>,
     heightmap: Option<Res<crate::terrain::FinishedHeightMap>>,
     compiled: Option<Res<crate::world_builder::WorldCompiled>>,
+    room: Option<Res<LiveRoomRecord>>,
     mut players: Query<
         (&mut Position, &mut LinearVelocity, &mut AngularVelocity),
         With<LocalPlayer>,
@@ -577,6 +578,19 @@ pub(super) fn release_travel_on_arrival(
         return;
     };
     if let Ok((mut pos, mut lin, mut ang)) = players.single_mut() {
+        // An arrival at the destination's landing - no baked target - comes
+        // ashore on Berlin's ground, as a spawn there does (#1589): the
+        // landing was taken before the ground it lands on existed.
+        if traveling.target_pos.is_none()
+            && let Some(room) = room.as_deref()
+        {
+            let (x, z) =
+                crate::world_builder::compile::landing_ashore(&room.0, heightmap, (pos.x, pos.z));
+            if (x, z) != (pos.x, pos.z) {
+                pos.x = x;
+                pos.z = z;
+            }
+        }
         super::hotswap::snap_above_ground(&heightmap.0, &mut pos, &mut lin, &mut ang);
     }
     // The editor selection belonging to the world we LEFT is dropped by

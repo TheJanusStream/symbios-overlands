@@ -31,12 +31,16 @@ pub(super) fn spawn_local_player(
 
     // Spawn-pose precedence (#745): an explicit URL/CLI placement wins
     // wholesale; otherwise the room record's owner-configured default
-    // landing; otherwise the legacy random scatter. The landing converts to
-    // the same `TargetPos` shape the placement path uses (optional y =
-    // drop-pin, height from the heightmap) so the two sources can't drift.
+    // landing - walked ashore on Berlin's ground (#1589); otherwise the
+    // legacy random scatter. The landing converts to the same `TargetPos`
+    // shape the placement path uses (optional y = drop-pin, height from the
+    // heightmap) so the two sources can't drift.
     let (pose_pos, pose_yaw_deg) = match placement.as_deref() {
         Some(p) => (p.pos, p.yaw_deg),
-        None => match room.as_deref().and_then(|r| r.0.default_landing) {
+        None => match room
+            .as_deref()
+            .and_then(|r| crate::world_builder::compile::landing_on(&r.0, &hm_res))
+        {
             Some(landing) => (
                 Some(TargetPos {
                     x: landing.pos.0[0],

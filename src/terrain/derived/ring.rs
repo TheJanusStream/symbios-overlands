@@ -27,11 +27,10 @@ use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
 
 use crate::catalogue::StructureRole;
-use crate::seeded_defaults::fnv1a_64;
 use crate::terrain::geo::ring::RingLot;
 use crate::terrain::lots::{FOUNDATION_SINK_M, scale_e4};
 
-use super::fit::{cache_key, footing, pick_landmark, pick_ranked, radius, room_theme, sized_pool};
+use super::fit::{RoomScene, cache_key, footing, pick_landmark, pick_ranked, radius, sized_pool};
 use super::plan::{Grow, Plan, PlannedBuilding, PlannedCopy, Policy, Solid};
 use super::{SourceId, SourceLayer};
 
@@ -67,10 +66,14 @@ const RING_POLICY: Policy = Policy {
     cut: false,
 };
 
-/// Draw the ring's buildings on `lots` (see the module docs), for the room
-/// `did`, standing on `ground` - the ground's height at a world point.
-pub(crate) fn draw_ring(lots: &[RingLot], did: &str, ground: &dyn Fn(f32, f32) -> f32) -> Plan {
-    let (theme, character) = room_theme(did);
+/// Draw the ring's buildings on `lots` (see the module docs), for `room`,
+/// standing on `ground` - the ground's height at a world point.
+pub(crate) fn draw_ring(
+    lots: &[RingLot],
+    room: &RoomScene,
+    ground: &dyn Fn(f32, f32) -> f32,
+) -> Plan {
+    let (theme, character) = room.theme();
     let landmarks = sized_pool(theme, StructureRole::Landmark, character);
     let secondaries = sized_pool(theme, StructureRole::Secondary, character);
 
@@ -88,14 +91,14 @@ pub(crate) fn draw_ring(lots: &[RingLot], did: &str, ground: &dyn Fn(f32, f32) -
         rank[i] = (place as f32 + 0.5) / others.len() as f32;
     }
 
-    let seed = fnv1a_64(did) ^ RING_STREAM_SALT;
+    let seed = room.seed ^ RING_STREAM_SALT;
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
     let mut plan = Plan {
         label: "ring",
         policy: RING_POLICY,
         buildings: Vec::new(),
         copies: Vec::new(),
-        did: did.to_owned(),
+        did: room.did.clone(),
         character,
         seed,
     };
@@ -204,7 +207,7 @@ mod tests {
         }
         lots[7].room = 8.0;
         let ground = |x: f32, z: f32| 30.0 + 0.01 * x - 0.02 * z;
-        let plan = draw_ring(&lots, &did, &ground);
+        let plan = draw_ring(&lots, &RoomScene::for_did(&did), &ground);
         assert_eq!(plan.copies.len(), lots.len(), "a building on every lot");
         let landmarks: Vec<usize> = plan
             .copies
@@ -247,7 +250,7 @@ mod tests {
         keys.dedup();
         assert_eq!(keys.len(), plan.buildings.len());
         // And the same room draws the same ring.
-        let again = draw_ring(&lots, &did, &ground);
+        let again = draw_ring(&lots, &RoomScene::for_did(&did), &ground);
         let picks = |p: &Plan| -> Vec<(String, PlannedCopy)> {
             p.copies
                 .iter()
@@ -266,7 +269,7 @@ mod tests {
                 lot(x, (i / 20) as f32 * 30.0, 3.0 + 0.1 * i as f32, x)
             })
             .collect();
-        let plan = draw_ring(&lots, &did, &|_, _| 0.0);
+        let plan = draw_ring(&lots, &RoomScene::for_did(&did), &|_, _| 0.0);
         let reach = |range: std::ops::Range<usize>| {
             let n = range.len() as f32;
             plan.copies[range]

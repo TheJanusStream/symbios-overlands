@@ -116,13 +116,16 @@ pub struct BuildingPage {
     pub buildings: Vec<Building>,
     /// `numberMatched`, where the server counted.
     pub matched: Option<u64>,
+    /// How many features the page held, before any was left out: what
+    /// [`Self::is_cut_short`] measures against.
+    pub features: usize,
 }
 
 impl BuildingPage {
     /// Whether the server matched more buildings than the page holds.
     pub fn is_cut_short(&self) -> bool {
         self.matched
-            .is_some_and(|matched| matched > self.buildings.len() as u64)
+            .is_some_and(|matched| matched > self.features as u64)
     }
 }
 
@@ -153,6 +156,7 @@ fn whole(v: &Option<serde_json::Value>) -> Option<u64> {
 /// or more is left out.
 pub fn parse_buildings(body: &[u8]) -> Result<BuildingPage, crate::features::FeatureError> {
     let page = crate::features::parse_page::<Properties>(body)?;
+    let held = page.features.len();
     let buildings = page
         .features
         .into_iter()
@@ -180,6 +184,7 @@ pub fn parse_buildings(body: &[u8]) -> Result<BuildingPage, crate::features::Fea
     Ok(BuildingPage {
         buildings,
         matched: page.matched,
+        features: held,
     })
 }
 

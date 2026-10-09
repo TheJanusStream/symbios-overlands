@@ -22,6 +22,8 @@
 
 use std::collections::HashMap;
 
+use geodata::GeoSquare;
+
 use crate::pds::COLLECTION;
 use crate::pds::PrimCommon;
 use crate::pds::contact_effects::ContactEffects;
@@ -80,11 +82,29 @@ const SETTLEMENT_PROXY_GRID: u32 = 96;
 
 /// Build the seeded default room from a pre-computed seed - the
 /// manual re-roll path. `seed` drives every derived value (terrain
-/// shape, palette, atmosphere, scatters, landmark, audio, …); `did`
-/// is kept only for the per-species generator builders that take the
-/// local DID. `default_for_did` is exactly
-/// `default_for_seed(fnv1a_64(did), did)`.
+/// shape, palette, atmosphere, scatters, landmark, audio, …), its source
+/// among them (#1589): a quarter of seeds draw a square of real Berlin
+/// ([`crate::seeded_defaults::RegionSource`]). `did` is kept only for the
+/// per-species generator builders that take the local DID.
+/// `default_for_did` is exactly `default_for_seed(fnv1a_64(did), did)`.
 pub fn build_room(seed: u64, did: &str) -> RoomRecord {
+    let berlin = crate::seeded_defaults::RegionSource::for_seed(seed).berlin_square();
+    build_room_with_source(seed, did, berlin)
+}
+
+/// [`build_room`] on the ground `berlin` names, whatever `seed` draws: a
+/// square of real Berlin, or the seed's own terrain for `None` - a re-roll
+/// that keeps the room's square, or the login backdrop, which keeps to
+/// the procedural.
+///
+/// On a Berlin square the city is the settlement (owner, 2026-10-09):
+/// Berlin's buildings, drawn in the room's theme by the derived stage,
+/// stand where the seeded settlement would have, its churches and museums
+/// the landmarks. The gateway and the owner's monument stand near the
+/// square's middle ([`crate::seeded_defaults::GatewaySpot::at_centre`]),
+/// the landing in front of them; the seeded stands of trees and rocks and
+/// the ground cover keep to Berlin's parks and woods.
+pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -> RoomRecord {
     use crate::pds::generator::{
         AnimationFrameMode, EmitterShape, ParticleBlendMode, SimulationSpace, TextureFilter,
     };
@@ -527,7 +547,9 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
     // Built once here and reused by the gateway wiring below, which
     // anchors the gate to the primary landmark.
     let settlement_plan = SettlementPlan::from_scene_sited(&scene, did_seed, &terrain_probe);
-    {
+    // A Berlin square is its own settlement (see the docs above): only its
+    // landmark's bearing is kept, for the gate's.
+    if berlin.is_none() {
         let (prosperity, escalation) = (scene.prosperity, scene.escalation);
         for (ci, cluster) in settlement_plan.clusters.iter().enumerate() {
             if let Some(landmark) = &cluster.landmark {
@@ -604,11 +626,25 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
     if let Some(entry) = gateway_entry {
         let gate_clearance = entry.footprint().clearance;
         let primary_landmark = settlement_plan.primary_landmark();
-        let spot = crate::seeded_defaults::GatewaySpot::for_landmark(
-            primary_landmark.offset,
-            primary_landmark.clearance,
-            gate_clearance,
-        );
+        let spot = match berlin {
+            None => crate::seeded_defaults::GatewaySpot::for_landmark(
+                primary_landmark.offset,
+                primary_landmark.clearance,
+                gate_clearance,
+            ),
+            // On the bearing the landmark would have stood on, north where
+            // it stands on the origin.
+            Some(_) => {
+                let [x, z] = primary_landmark.offset;
+                let length = x.hypot(z);
+                let bearing = if length > 1e-3 {
+                    [x / length, z / length]
+                } else {
+                    [0.0, -1.0]
+                };
+                crate::seeded_defaults::GatewaySpot::at_centre(bearing, gate_clearance)
+            }
+        };
         let mut gate = entry.build(did);
         // Socio finish for material coherence - but no ruin pass: a
         // collapsed gate that still teleports reads as a bug, not
@@ -743,7 +779,7 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
         traits,
         contact_effects: ContactEffects::default(),
         default_landing,
-        geo_source: None,
+        geo_source: berlin.map(crate::pds::GeoSource::berlin),
         opaque_refs: std::collections::BTreeMap::new(),
     }
 }
@@ -1599,9 +1635,16 @@ mod tests {
     #[test]
     fn default_room_carries_a_themed_settlement() {
         use crate::seeded_defaults::room::settlement::MAX_SECONDARIES;
+        let mut procedural = 0;
         for s in 0u64..16 {
             let did = format!("did:test:{s}");
             let record = RoomRecord::default_for_did(&did);
+            // A Berlin square is its own settlement (#1589): see
+            // `a_berlin_room_is_its_own_settlement`.
+            if record.geo_source.is_some() {
+                continue;
+            }
+            procedural += 1;
 
             // Every room carries exactly one landmark, and it's a
             // building - never Terrain/Water (those are positionally
@@ -1674,6 +1717,91 @@ mod tests {
             );
             assert!(props <= 20, "too many distinct props: {props}");
         }
+        assert!(procedural >= 8, "{procedural} procedural rooms of 16");
+    }
+
+    /// #1589: a seed drawing Berlin builds a room on its square with no
+    /// seeded settlement - Berlin's buildings are its settlement - but its
+    /// gateway and its owner's monument near the square's middle, the
+    /// landing in front of the gate facing it, and its stands of trees,
+    /// rocks and ground cover to keep to Berlin's parks and woods.
+    #[test]
+    fn a_berlin_room_is_its_own_settlement() {
+        use crate::seeded_defaults::RegionSource;
+        let did = (0u64..64)
+            .map(|s| format!("did:test:{s}"))
+            .find(|did| {
+                RegionSource::for_seed(crate::seeded_defaults::fnv1a_64(did)).kind
+                    == crate::seeded_defaults::SourceKind::Berlin
+            })
+            .expect("a quarter of DIDs draw Berlin");
+        let seed = crate::seeded_defaults::fnv1a_64(&did);
+        let record = RoomRecord::default_for_did(&did);
+        let square = RegionSource::for_seed(seed).square();
+        assert_eq!(
+            record.geo_source,
+            Some(crate::pds::GeoSource::berlin(square))
+        );
+        assert!(
+            record
+                .generators
+                .keys()
+                .all(|name| !name.starts_with("landmark") && !name.starts_with("settlement_")),
+            "{:?}",
+            record.generators.keys().collect::<Vec<_>>()
+        );
+        let absolute = |name: &str| {
+            record.placements.iter().find_map(|p| match p {
+                Placement::Absolute {
+                    generator_ref,
+                    transform,
+                    avoid_water,
+                    ..
+                } if generator_ref == name => Some((transform.translation.0, *avoid_water)),
+                _ => None,
+            })
+        };
+        let (gate, gate_dry) = absolute("social_gateway").expect("a gateway");
+        let (monument, monument_dry) = absolute("owner_monument").expect("a monument");
+        assert!(gate_dry && monument_dry, "both walk off Berlin's water");
+        let landing = record.default_landing.expect("a landing");
+        let [lx, lz] = landing.pos.0;
+        let (gate_d, landing_d) = (gate[0].hypot(gate[2]), lx.hypot(lz));
+        assert!((10.0..30.0).contains(&gate_d), "the gate {gate_d} m out");
+        assert!(landing_d < gate_d, "the landing in front of the gate");
+        assert!(
+            monument[0].hypot(monument[2]) < 40.0,
+            "the monument beside it"
+        );
+        // Facing the gate: along the bearing out from the origin.
+        let facing = bevy::math::Quat::from_rotation_y(landing.yaw_deg.0.to_radians())
+            * bevy::math::Vec3::NEG_Z;
+        let out = bevy::math::Vec3::new(gate[0], 0.0, gate[2]).normalize();
+        assert!(facing.dot(out) > 0.99, "{facing} vs {out}");
+        // The natural dressing stays, to keep to Berlin's natural ground.
+        assert!(
+            record
+                .generators
+                .keys()
+                .any(|name| name.starts_with("tree_scatter_"))
+        );
+        assert!(record.generators.contains_key("base_terrain"));
+
+        // The same seed on its own terrain, or on another square.
+        let procedural = build_room_with_source(seed, &did, None);
+        assert_eq!(procedural.geo_source, None);
+        assert!(procedural.generators.contains_key("landmark"));
+        let elsewhere = geodata::GeoSquare {
+            min_e: 391_000,
+            min_n: 5_819_500,
+            size_m: 1_000,
+        };
+        let moved = build_room_with_source(seed, &did, Some(elsewhere));
+        assert_eq!(
+            moved.geo_source,
+            Some(crate::pds::GeoSource::berlin(elsewhere))
+        );
+        assert_eq!(moved.default_landing, record.default_landing);
     }
 
     /// #1514: a seeded settlement's grammar buildings draw with their own

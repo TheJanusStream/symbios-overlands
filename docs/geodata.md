@@ -112,9 +112,10 @@ Squares from fixed draws are pinned in a test, and an independent Python
 implementation (`crates/geodata/tools/place_check.py`) reproduces them. Changing the draw mapping moves every
 seeded region and needs a migration, not a re-bless.
 
-The two draws come from the region's own salted stream in the app
-(`ChaCha8Rng::seed_from_u64(room_seed ^ SALT)`, like every other seeded
-stream). The crate maps them to a square and owns no randomness.
+The square's two draws come from the region's own salted stream in the
+app (`ChaCha8Rng::seed_from_u64(room_seed ^ SALT)`, like every other seeded
+stream), after the draw of the room's source (P3.1, below). The crate maps
+them to a square and owns no randomness.
 
 ## Code
 
@@ -561,6 +562,64 @@ furniture, each Berlin's own place and the region's own catalogue item.
   the survey placed it, even where a drawn carriageway, wider than the real
   one, reaches over the pavement.
 
+The source draw (P3.1, #1589; `src/seeded_defaults/room/source.rs`) is how
+a seeded room comes to be a Berlin region, and how an owner keeps one.
+
+- **The draw.** A stream of its own, salted apart from every other, so
+  nothing a seed decided before it moves. Its first draw picks the kind:
+  one seed in four draws Berlin (`BERLIN_SHARE`, the owner's choice,
+  2026-10-09). Its next two draw the square, whatever the kind, so a seed's
+  square stays where it is if the share ever changes. The draws of six
+  seeds are pinned (`seeded_sources_are_pinned`); changing them moves
+  every seeded room drawn from them, which needs a migration. Seed 253, the
+  README's world, stays procedural; seed 3 draws a 17.3 km square.
+- **Kept.** A seeded room's square is drawn afresh from its seed on every
+  visit. Saving the room stores it in `geo_source`, which holds it exactly
+  from then on, whatever the draw does later.
+- **The room.** On a Berlin square the city is the settlement (owner,
+  2026-10-09): the seeded landmark, secondaries and props are left out, and
+  Berlin's buildings, in the room's theme, stand where they would have
+  been. The gateway and the owner's monument stand near the square's
+  middle, on the bearing the landmark would have stood on, the landing in
+  front of the gate facing it. The seeded stands of trees and rocks and the
+  ground cover stay, and keep to Berlin's parks and woods.
+- **Open ground.** The record cannot know where Berlin's water and streets
+  run, so where the gate, the monument or the landing would stand on them,
+  each is walked to open dry ground: along its bearing through the origin
+  first, as the compile walks every seeded structure off water, so the
+  landing mostly keeps to the gate's forecourt; and where that finds none -
+  a square centred far out on a lake - to the nearest, the landing turned
+  to face its gate wherever that came to stand. The compile, the
+  editor's outline, the terrain report and the derived stage all read
+  where a structure stands through one resolver (`AnchorGround`), and the
+  spawn, a return to spawn, a fall and a portal arrival through one landing
+  walk (`landing_ashore`). Berlin's buildings keep clear of where the gate
+  stands, not of where its record put it. On procedural ground nothing of
+  this changes: the water walk is the one it was, and a landing stays where
+  its owner or its seed put it.
+- **The theme.** The derived stage dresses Berlin in the theme of the seed
+  the room was built from - the seed its base terrain carries, which on
+  Berlin's ground shapes nothing else - not of the owner's DID. A room
+  re-rolled to a theme is that theme's Berlin; `--world <seed>` renders the
+  seed's own.
+- **The seed row.** The World editor's re-roll section gains the source
+  axes as pins, hunted as the scene's are: the ground (procedural or
+  Berlin), the square's size (Small to 1 km, Medium to 5 km, Large to 19 km,
+  about a third of draws each) and the borough its middle lies in. A size
+  or a borough asks for Berlin, so with the ground pinned procedural they
+  are refused, and say why. Every size class reaches every borough; the
+  rarest pair, a large square in Marzahn-Hellersdorf, is one large square
+  in about 100 - one Berlin square in about 340 - so even that hunt takes a
+  few hundredths of a second. A
+  square lock keeps the room's own ground - its exact square, drawn, moved
+  or resized in the Region source section, or its own terrain - across
+  re-rolls, which then draw everything else.
+- **The login screen.** Its backdrop stays procedural (owner, 2026-10-09):
+  the login screen fetches nothing.
+- **Tools.** `--describe` prints each room's ground; the terrain report's
+  landing is where a body sets down, with its record's spot beside it
+  where the two differ.
+
 The ignored test `live_gdi_berlin_round_trip_decodes_and_is_kept` exercises
 the live path end to end: the real client, the disk store, and the decoders.
 It then checks that a second visit is answered from the store alone. Fire it
@@ -585,6 +644,5 @@ Each phase is a sub-issue of #1580, in build order:
 | #1590 | P3.2 owner edits over derived content; layer hashes |
 | #1591 | P4 walkable area past the core (revive terrain streaming) |
 
-The Berlin share of the source draw stays at 0 until P2 makes a themed
-Berlin worth landing in. Before that, a Berlin region can only be chosen on
-purpose.
+The Berlin share of the source draw was held at 0 until P2 made a themed
+Berlin worth landing in; since P3.1 it is one seeded room in four.

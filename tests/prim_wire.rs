@@ -170,13 +170,16 @@ fn primitive_wire_fixture_is_a_fixed_point() {
 /// order and its bytes are not stable across processes.
 #[test]
 fn seeded_room_bytes_are_pinned() {
-    use symbios_overlands::pds::RoomRecord;
     use symbios_overlands::seeded_defaults::fnv1a_64;
+    use symbios_overlands::seeded_defaults::room::build::build_room_with_source;
 
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/seeded_rooms.txt");
     let got: Vec<String> = (1..=12u64)
         .map(|seed| {
-            let room = RoomRecord::default_for_seed(seed, "did:plc:corpus");
+            // The recipe's own prims, on each seed's own terrain: a seed
+            // drawing Berlin (#1589) builds no settlement, and the wire is
+            // what is pinned here.
+            let room = build_room_with_source(seed, "did:plc:corpus", None);
             let mut names: Vec<&String> = room.generators.keys().collect();
             names.sort();
             let rkeys: String = names
@@ -207,5 +210,67 @@ fn seeded_room_bytes_are_pinned() {
         got.iter().map(String::as_str).collect::<Vec<_>>(),
         "a seeded room's bytes moved: some primitive a catalogue entry builds \
          serialises differently now"
+    );
+}
+
+/// #1589: a seed that draws Berlin builds its room on its square, the city
+/// its settlement, with its gate, monument and landing near the middle.
+/// Pinned as the procedural recipe is, for the first three such seeds of
+/// `1..=40`: the square, every generator's rkey, the placements and the
+/// landing. Moving the gate's spot, the monument's or the draw moves every
+/// unsaved Berlin room on every peer - a migration, never a re-bless.
+#[test]
+fn seeded_berlin_room_bytes_are_pinned() {
+    use symbios_overlands::pds::RoomRecord;
+    use symbios_overlands::seeded_defaults::{RegionSource, SourceKind, fnv1a_64};
+
+    let path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/seeded_berlin_rooms.txt");
+    let got: Vec<String> = (1..=40u64)
+        .filter(|&seed| RegionSource::for_seed(seed).kind == SourceKind::Berlin)
+        .take(3)
+        .map(|seed| {
+            let room = RoomRecord::default_for_seed(seed, "did:plc:corpus");
+            let source = room.geo_source.as_ref().expect("a Berlin draw");
+            let mut names: Vec<&String> = room.generators.keys().collect();
+            names.sort();
+            let rkeys: String = names
+                .iter()
+                .map(|name| {
+                    format!(
+                        "{name}={}\n",
+                        child_rkey(name, &room.generators[*name])
+                            .expect("fixture generators are addressable")
+                    )
+                })
+                .collect();
+            let placements = serde_json::to_string(&room.placements).expect("placements serialise");
+            let landing = room.default_landing.expect("a landing");
+            format!(
+                "seed {seed}\tsquare {} {} {}\t{:016x}\t{} generators\tplacements {:016x}\t\
+                 landing {:.2} {:.2} {:.1}",
+                source.min_e,
+                source.min_n,
+                source.size_m,
+                fnv1a_64(&rkeys),
+                names.len(),
+                fnv1a_64(&placements),
+                landing.pos.0[0],
+                landing.pos.0[1],
+                landing.yaw_deg.0
+            )
+        })
+        .collect();
+    assert_eq!(got.len(), 3, "a quarter of seeds draw Berlin");
+    if std::env::var_os("PRIM_WIRE_BLESS").is_some() {
+        std::fs::write(&path, got.join("\n") + "\n").expect("write fixture");
+        return;
+    }
+    let want = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("{}: {e} - bless with PRIM_WIRE_BLESS=1", path.display()));
+    assert_eq!(
+        want.trim_end().lines().collect::<Vec<_>>(),
+        got.iter().map(String::as_str).collect::<Vec<_>>(),
+        "a seeded Berlin room moved: its gate, monument, landing or draw changed"
     );
 }

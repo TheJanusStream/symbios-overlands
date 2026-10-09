@@ -494,12 +494,16 @@ mod proxy_fidelity {
     //! measurement is worth keeping, because if that ever stops being true
     //! the relaxation starts trusting the wrong map and the symptom is a
     //! silently empty patch of ground rather than a failure.
-    use crate::pds::RoomRecord;
-
     #[test]
     fn proxy_tracks_the_full_map_closely_enough_to_relax_bands_against() {
         for seed in [1u64, 3, 9, 12] {
-            let record = RoomRecord::default_for_seed(seed, "did:plc:probe");
+            // The procedural terrain the proxy stands for, whatever source
+            // the seed draws (#1589): seed 3 draws Berlin.
+            let record = crate::seeded_defaults::room::build::build_room_with_source(
+                seed,
+                "did:plc:probe",
+                None,
+            );
             let cfg = crate::pds::find_terrain_config(&record)
                 .cloned()
                 .unwrap_or_default();

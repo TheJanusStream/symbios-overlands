@@ -75,4 +75,4 @@ pub use spawn_ctx::{GeneratorCaches, SpawnCtx, budget_exceeded};
 /// reeds are placed in would sit at different heights (#913). Every reader
 /// with a heightmap asks [`drawn_water_level`], so in a geodata region they
 /// all read Berlin's level (#1586).
-pub(crate) use water::{drawn_water_level, room_water_level};
+pub(crate) use water::{drawn_water_level, landing_ashore, landing_on, room_water_level};

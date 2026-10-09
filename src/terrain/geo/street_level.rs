@@ -221,7 +221,7 @@ pub(crate) fn decode_street_level(
         &mut lost,
     );
     if let Some(page) = page {
-        warn_cut_short("buildings", page.buildings.len(), page.matched);
+        warn_cut_short("buildings", page.features, page.matched);
         let mut parts: Vec<((f32, f32), u8)> = Vec::new();
         for building in &page.buildings {
             let Some(ring) = building
@@ -282,7 +282,7 @@ pub(crate) fn decode_street_level(
         let Some(page) = read_page(body, what, geodata::berlin::parse_trees, &mut lost) else {
             continue;
         };
-        warn_cut_short(what, page.trees.len(), page.matched);
+        warn_cut_short(what, page.features, page.matched);
         for tree in page.trees {
             let (x, z) = world(tree.at);
             if inside((x, z)) {
@@ -306,7 +306,7 @@ pub(crate) fn decode_street_level(
         let Some(page) = read_page(body, kind.name(), parse, &mut lost) else {
             continue;
         };
-        warn_cut_short(kind.name(), page.items.len(), page.matched);
+        warn_cut_short(kind.name(), page.features, page.matched);
         let items = page
             .items
             .into_iter()
@@ -360,7 +360,9 @@ fn read_page<T>(
     read.map_err(|reason| lost.push(reason)).ok()
 }
 
-/// Say so where a page of `what` holds fewer than the server matched.
+/// Say so where a page of `what` held fewer features than the server
+/// matched - counted before any was left out, so a lamp page less its
+/// switch cabinets is not cut short.
 fn warn_cut_short(what: &str, held: usize, matched: Option<u64>) {
     if let Some(matched) = matched.filter(|&m| m > held as u64) {
         bevy::log::warn!(

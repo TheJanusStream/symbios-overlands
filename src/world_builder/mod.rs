@@ -121,7 +121,8 @@ use bevy::math::Isometry3d;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 
-pub use compile::pad::{snap_footprint_radius, snapped_absolute_anchor, snapped_ground_y};
+pub(crate) use compile::pad::{AnchorGround, snapped_absolute_anchor};
+pub use compile::pad::{snap_footprint_radius, snapped_ground_y};
 pub use lsystem::{LSystemMaterialCache, LSystemMeshCache};
 #[cfg(test)]
 pub(crate) use prim::for_touch;
@@ -760,11 +761,10 @@ fn draw_placement_visualizers(
                 // so the sphere marks the building, not the spot its
                 // record names (#1399).
                 pos = snapped_absolute_anchor(
-                    &hm.0,
+                    &AnchorGround::new(hm, compile::drawn_water_level(record, Some(hm))),
                     transform,
                     *avoid_water,
                     avoid_water_clearance.0,
-                    compile::drawn_water_level(record, Some(hm)),
                 );
             }
             gizmos.sphere(pos, 1.0, color);

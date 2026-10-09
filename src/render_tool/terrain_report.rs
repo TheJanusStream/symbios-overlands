@@ -88,12 +88,36 @@ pub(super) fn parse_xz(raw: &str) -> Result<(f32, f32), String> {
 pub(super) struct Ground<'a> {
     map: &'a HeightMap,
     extent: f32,
+    /// Berlin's ground under the map, where the region is built from it:
+    /// what a seeded structure walks off (#1589).
+    berlin: Option<&'a crate::terrain::geo::GeoGround>,
 }
 
 impl<'a> Ground<'a> {
     pub(super) fn new(map: &'a HeightMap) -> Self {
         let extent = (map.width().saturating_sub(1)) as f32 * map.scale();
-        Self { map, extent }
+        Self {
+            map,
+            extent,
+            berlin: None,
+        }
+    }
+
+    /// The ground of `terrain`, Berlin's included.
+    pub(super) fn of(terrain: &'a crate::terrain::FinishedHeightMap) -> Self {
+        Self {
+            berlin: terrain.ground(),
+            ..Self::new(&terrain.0)
+        }
+    }
+
+    /// Where a snapped anchor's walks read: this ground under `water`.
+    fn anchor(&self, water: Option<f32>) -> crate::world_builder::AnchorGround<'a> {
+        crate::world_builder::AnchorGround {
+            hm: self.map,
+            water_y: water,
+            berlin: self.berlin,
+        }
     }
 
     fn cell(&self, x: f32, z: f32) -> (f32, f32) {
@@ -270,7 +294,12 @@ fn heights(map: &HeightMap, water: Option<f32>) -> Value {
 /// (walked off water and steep ground when it avoids water, on the ground it
 /// rests on), a scatter or a grid by its bounds. The ground itself is left
 /// out.
-fn placements(record: &RoomRecord, map: &HeightMap, water: Option<f32>) -> Vec<Value> {
+fn placements(
+    record: &RoomRecord,
+    terrain: &crate::terrain::FinishedHeightMap,
+    water: Option<f32>,
+) -> Vec<Value> {
+    let anchor_ground = crate::world_builder::AnchorGround::new(terrain, water);
     let is_ground = |name: &str| {
         record
             .generators
@@ -293,11 +322,10 @@ fn placements(record: &RoomRecord, map: &HeightMap, water: Option<f32>) -> Vec<V
                 let [rx, ry, rz] = transform.translation.0;
                 let stands = if *snap_to_terrain {
                     pad::snapped_absolute_anchor(
-                        map,
+                        &anchor_ground,
                         transform,
                         *avoid_water,
                         avoid_water_clearance.0,
-                        water,
                     )
                     .to_array()
                 } else {
@@ -368,16 +396,25 @@ pub(super) fn terrain_report(request: &Request<'_>) -> Value {
     let record = &request.record;
     let terrain = crate::terrain::rebuild_terrain_for_record(record);
     let map = &terrain.0;
-    let ground = Ground::new(map);
+    let ground = Ground::of(&terrain);
     let splat = Splat::new(record, Some(&terrain));
     // The water line as drawn: Berlin's in a geodata region (#1586).
     let water = drawn_water_level(record, Some(&terrain));
-    let landing_json = record.default_landing.map(|landing| {
+    // Where a body sets down: walked to open dry ground on Berlin's (#1589),
+    // its record's spot kept beside it where the two differ.
+    let landing_json = crate::world_builder::compile::landing_on(record, &terrain).map(|landing| {
         let (lx, lz) = (landing.pos.0[0], landing.pos.0[1]);
         // Facing as the arrival turns: counter-clockwise from -Z (session 873).
         let yaw = landing.yaw_deg.0.to_radians();
         let mut at = point(&ground, lx, lz, None, water);
         at["facing"] = json!([round2(-yaw.sin()), round2(-yaw.cos())]);
+        if let Some(recorded) = record
+            .default_landing
+            .map(|l| l.pos.0)
+            .filter(|&[x, z]| (x, z) != (lx, lz))
+        {
+            at["recorded"] = json!([round2(recorded[0]), round2(recorded[1])]);
+        }
         splat.read(&ground, lx, lz, &mut at);
         at
     });
@@ -398,7 +435,7 @@ pub(super) fn terrain_report(request: &Request<'_>) -> Value {
                 at
             })
             .collect::<Vec<_>>(),
-        "placements": placements(record, map, water),
+        "placements": placements(record, &terrain, water),
     });
     if let (Some(obj), Value::Object(h)) = (report.as_object_mut(), heights(map, water)) {
         obj.extend(h);
@@ -768,11 +805,10 @@ mod plan {
                     }
                     let stands = if *snap_to_terrain {
                         pad::snapped_absolute_anchor(
-                            ground.map,
+                            &ground.anchor(water),
                             transform,
                             *avoid_water,
                             avoid_water_clearance.0,
-                            water,
                         )
                     } else {
                         bevy::math::Vec3::from_array(transform.translation.0)
@@ -905,7 +941,9 @@ mod tests {
     /// the landing's ground as the game does - one heightmap, one mapping.
     #[test]
     fn a_seeded_worlds_report_reads_the_ground_the_game_stands_things_on() {
-        let record = RoomRecord::default_for_seed(3, "did:render:3");
+        // Procedural: seed 3 draws Berlin (#1589), and a test fetches nothing.
+        let record =
+            crate::seeded_defaults::room::build::build_room_with_source(3, "did:render:3", None);
         let map = crate::terrain::rebuild_heightmap_for_record(&record);
         let finished = crate::terrain::FinishedHeightMap(map, None);
         let landing = record
@@ -946,11 +984,10 @@ mod tests {
             panic!("the seeded gateway is placed absolutely");
         };
         let stands = pad::snapped_absolute_anchor(
-            &finished.0,
+            &crate::world_builder::AnchorGround::new(&finished, room_water_level(&record)),
             transform,
             *avoid_water,
             avoid_water_clearance.0,
-            room_water_level(&record),
         );
         assert_eq!(gateway["stands_y"], round2(stands.y));
         assert!(
@@ -968,7 +1005,9 @@ mod tests {
     /// equal to its own heightmap's.
     #[test]
     fn a_seed_scan_reads_each_seeds_own_ground() {
-        let record = RoomRecord::default_for_seed(3, "did:render:3");
+        // Procedural: seed 3 draws Berlin (#1589), and a test fetches nothing.
+        let record =
+            crate::seeded_defaults::room::build::build_room_with_source(3, "did:render:3", None);
         let request = Request {
             record: record.clone(),
             at: vec![],
@@ -1026,7 +1065,9 @@ mod tests {
     /// world, where a point and a texel are the same sample.
     #[test]
     fn a_points_layers_are_the_weight_map_the_ground_is_drawn_with() {
-        let record = RoomRecord::default_for_seed(3, "did:render:3");
+        // Procedural: seed 3 draws Berlin (#1589), and a test fetches nothing.
+        let record =
+            crate::seeded_defaults::room::build::build_room_with_source(3, "did:render:3", None);
         let map = crate::terrain::rebuild_heightmap_for_record(&record);
         let texels = crate::terrain::record_splat_mapper(Some(&record)).generate(&map);
         let ground = Ground::new(&map);
@@ -1087,7 +1128,12 @@ mod tests {
         let mut flat = HeightMap::new(33, 33, 2.0);
         flat.data_mut().fill(1.0);
         let rules = |rock_slope_max: f32| {
-            let mut record = RoomRecord::default_for_seed(3, "did:render:3");
+            // Procedural: seed 3 draws Berlin (#1589), and a test fetches nothing.
+            let mut record = crate::seeded_defaults::room::build::build_room_with_source(
+                3,
+                "did:render:3",
+                None,
+            );
             let cfg = record
                 .generators
                 .values_mut()

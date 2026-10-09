@@ -63,7 +63,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use bevy::math::Affine3A;
 use bevy::prelude::*;
-use bevy_symbios_ground::HeightMap;
 use serde_json::{Value, json};
 
 use self::body::{Body, CONTACT_M, Part, distance};
@@ -118,7 +117,7 @@ pub(super) fn print_floating_report(world: &str, record: &RoomRecord) {
     let water = crate::world_builder::compile::drawn_water_level(record, Some(&terrain));
     println!(
         "{}",
-        one_row_a_line(&report(world, record, &terrain.0, water, &bodies))
+        one_row_a_line(&report(world, record, &terrain, water, &bodies))
     );
 }
 
@@ -217,8 +216,7 @@ struct Uses {
 /// or a grid under the generator as it draws itself.
 fn uses_of<'a>(
     record: &'a RoomRecord,
-    map: &HeightMap,
-    water: Option<f32>,
+    anchor_ground: &crate::world_builder::AnchorGround<'_>,
 ) -> HashMap<(&'a str, Option<u64>), Uses> {
     let mut uses: HashMap<(&str, Option<u64>), Uses> = HashMap::new();
     for (index, placement) in record.placements.iter().enumerate() {
@@ -240,11 +238,10 @@ fn uses_of<'a>(
                 // is just as real.
                 let at = if *snap_to_terrain {
                     pad::snapped_absolute_anchor(
-                        map,
+                        anchor_ground,
                         transform,
                         *avoid_water,
                         avoid_water_clearance.0,
-                        water,
                     )
                 } else {
                     Vec3::from_array(transform.translation.0)
@@ -279,13 +276,15 @@ fn uses_of<'a>(
 fn report(
     world: &str,
     record: &RoomRecord,
-    map: &HeightMap,
+    terrain: &crate::terrain::FinishedHeightMap,
     water: Option<f32>,
     bodies: &BTreeMap<BodyKey, Body>,
 ) -> Vec<(&'static str, Value)> {
+    let map = &terrain.0;
+    let anchor_ground = crate::world_builder::AnchorGround::new(terrain, water);
     let ground = Ground::new(map);
     let height = |x: f32, z: f32| ground.height(x, z);
-    let uses = uses_of(record, map, water);
+    let uses = uses_of(record, &anchor_ground);
     let mut rows: Vec<Row> = Vec::new();
     let mut scatters = Vec::new();
     // By name: a generator drawn with several grammar seeds is one

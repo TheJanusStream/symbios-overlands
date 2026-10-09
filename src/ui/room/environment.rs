@@ -622,15 +622,9 @@ fn side_text(size_m: u32) -> String {
     }
 }
 
-/// A square drawn as a seeded region draws one, from `seed`.
+/// A square drawn as a seeded region draws one, from `seed` (#1589).
 fn drawn_square(seed: u64) -> GeoSquare {
-    use rand_chacha::ChaCha8Rng;
-    use rand_chacha::rand_core::{RngCore, SeedableRng};
-    let mut rng = ChaCha8Rng::seed_from_u64(seed);
-    let (size_draw, place_draw) = (rng.next_u64(), rng.next_u64());
-    Coverage::berlin()
-        .square_from_draws(size_draw, place_draw)
-        .expect("every drawn size fits somewhere in Berlin")
+    crate::seeded_defaults::RegionSource::for_seed(seed).square()
 }
 
 /// A seed for an owner's "draw another": the clock and a counter, so two

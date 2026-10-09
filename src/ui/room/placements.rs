@@ -832,11 +832,10 @@ fn draw_placement_detail(
                     // (#1399). `avoid_water` is untouched by this toggle,
                     // so the walk reads exactly as it did while snapped.
                     transform.translation = Fp3(crate::world_builder::snapped_absolute_anchor(
-                        &hm.0,
+                        &crate::world_builder::AnchorGround::new(hm, room_water_y),
                         transform,
                         *avoid_water,
                         avoid_water_clearance.0,
-                        room_water_y,
                     )
                     .to_array());
                 }
@@ -1756,7 +1755,12 @@ mod tests {
         let Placement::Absolute { transform, .. } = landmark(25.0) else {
             panic!("landmark() is Absolute");
         };
-        let drawn = snapped_absolute_anchor(&hm.0, &transform, true, 3.0, room_water_y);
+        let drawn = snapped_absolute_anchor(
+            &crate::world_builder::AnchorGround::new(&hm, room_water_y),
+            &transform,
+            true,
+            3.0,
+        );
         assert_eq!(
             [drawn.x, drawn.z],
             [37.0, 0.0],

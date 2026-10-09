@@ -76,6 +76,18 @@ impl GatewaySpot {
         Self::finish(offset, landing, bearing)
     }
 
+    /// A gatehouse near the region's middle, on `bearing` (a unit vector
+    /// from the origin): a Berlin region (#1589) has no settlement to front -
+    /// the city is its settlement - so its gate stands [`MIN_GATE_DIST`] and
+    /// its own clearance out, facing the origin, the landing in front of it.
+    pub fn at_centre(bearing: [f32; 2], gate_clearance: f32) -> Self {
+        let gate_dist = MIN_GATE_DIST + gate_clearance;
+        let offset = [bearing[0] * gate_dist, bearing[1] * gate_dist];
+        let landing_dist = (gate_dist - LANDING_STANDOFF).max(MIN_LANDING_DIST);
+        let landing = [bearing[0] * landing_dist, bearing[1] * landing_dist];
+        Self::finish(offset, landing, bearing)
+    }
+
     /// Shared tail: the gate faces the origin; the landing faces the gate
     /// (i.e. along `+bearing`, away from the origin). `bearing` is the
     /// unit origin→gate direction.

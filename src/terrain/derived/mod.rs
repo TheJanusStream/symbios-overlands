@@ -145,17 +145,15 @@ pub(super) fn start_derived(
         return;
     };
     let did = did.as_deref().map_or("", |did| did.0.as_str());
+    let record = record.as_deref().map(|record| &record.0);
+    // The room as its record was rolled: its theme dresses Berlin (#1589).
+    let room = fit::RoomScene::of(did, record);
     let mut plans = Vec::new();
     if let Some(level) = ground.street_level() {
-        plans.extend(core::draw_core(
-            level,
-            did,
-            record.as_deref().map(|record| &record.0),
-            &heightmap,
-        ));
+        plans.extend(core::draw_core(level, &room, record, &heightmap));
     }
     if let Some(ring) = ground.ring() {
-        plans.push(ring::draw_ring(ring.lots(), did, &|x, z| {
+        plans.push(ring::draw_ring(ring.lots(), &room, &|x, z| {
             heightmap.view_height_at(x, z)
         }));
     }
@@ -369,8 +367,10 @@ mod tests {
         (0..10_000)
             .map(|i| format!("did:plc:lit{i}"))
             .find(|did| {
-                fit::room_theme(did).0 == ThemeArchetype::ModernCity
-                    && !core::furniture::matches_for(did)[&FurnitureKind::Lamp].is_empty()
+                fit::RoomScene::for_did(did).theme().0 == ThemeArchetype::ModernCity
+                    && !core::furniture::matches_for(&fit::RoomScene::for_did(did))
+                        [&FurnitureKind::Lamp]
+                        .is_empty()
             })
             .expect("a lit city")
     }
@@ -461,7 +461,11 @@ mod tests {
                 lot((i % 12) as f32 * 30.0, beyond, 12.0 + i as f32, beyond)
             })
             .collect();
-        let plan = ring::draw_ring(&lots, &did_of(ThemeArchetype::ModernCity), &|_, _| 30.0);
+        let plan = ring::draw_ring(
+            &lots,
+            &fit::RoomScene::for_did(&did_of(ThemeArchetype::ModernCity)),
+            &|_, _| 30.0,
+        );
         let (_, roots) = building(&mut app, vec![plan]);
         run_to_done(&mut app);
         let world = app.world_mut();
@@ -527,7 +531,12 @@ mod tests {
     fn the_walkable_grounds_copies_stand_on_colliders_and_name_their_source() {
         let mut app = derived_app();
         let heightmap = FinishedHeightMap(bevy_symbios_ground::HeightMap::new(8, 8, 2.0), None);
-        let plans = core::draw_core(&street_level(), &lit_city(), None, &heightmap);
+        let plans = core::draw_core(
+            &street_level(),
+            &fit::RoomScene::for_did(&lit_city()),
+            None,
+            &heightmap,
+        );
         assert_eq!(
             plans.iter().map(|p| p.label).collect::<Vec<_>>(),
             ["core buildings", "core trees", "core furniture"]
@@ -614,7 +623,11 @@ mod tests {
     fn a_terrain_going_out_stops_its_plans() {
         let mut app = derived_app();
         let lots = [lot(0.0, 0.0, 20.0, 0.0), lot(30.0, 0.0, 20.0, 0.0)];
-        let plan = ring::draw_ring(&lots, &did_of(ThemeArchetype::ModernCity), &|_, _| 30.0);
+        let plan = ring::draw_ring(
+            &lots,
+            &fit::RoomScene::for_did(&did_of(ThemeArchetype::ModernCity)),
+            &|_, _| 30.0,
+        );
         let (terrain, _) = building(&mut app, vec![plan]);
         app.world_mut().entity_mut(terrain).insert(OutgoingTerrain);
         app.update();

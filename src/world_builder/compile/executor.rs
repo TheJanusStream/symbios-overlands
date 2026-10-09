@@ -652,10 +652,9 @@ fn start_unit(
             // (#1399), so the two cannot disagree about where it stands.
             if let Some(clearance) = avoid_water {
                 super::pad::relocate_snapped_anchor(
-                    hm,
+                    &super::pad::AnchorGround::new(hm_res, room_water_y),
                     &mut anchor_world_tf.translation,
                     clearance,
-                    room_water_y,
                 );
             }
             // Absolute placements keep their authored Y as an offset
@@ -1419,11 +1418,10 @@ mod tests {
                 panic!("test record uses Absolute placements");
             };
             let read = crate::world_builder::snapped_absolute_anchor(
-                &hm.0,
+                &crate::world_builder::AnchorGround::new(&hm, room_water_y),
                 transform,
                 *avoid_water,
                 avoid_water_clearance.0,
-                room_water_y,
             );
             assert_eq!(
                 bits(read),

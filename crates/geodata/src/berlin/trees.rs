@@ -47,13 +47,16 @@ pub struct TreePage {
     pub trees: Vec<InventoryTree>,
     /// `numberMatched`, where the server counted.
     pub matched: Option<u64>,
+    /// How many features the page held, before any was left out: what
+    /// [`Self::is_cut_short`] measures against.
+    pub features: usize,
 }
 
 impl TreePage {
     /// Whether the server matched more trees than the page holds.
     pub fn is_cut_short(&self) -> bool {
         self.matched
-            .is_some_and(|matched| matched > self.trees.len() as u64)
+            .is_some_and(|matched| matched > self.features as u64)
     }
 }
 
@@ -87,6 +90,7 @@ fn measure(v: &Option<serde_json::Value>) -> Option<f32> {
 /// point is left out; a measure that is not a positive number is none.
 pub fn parse_trees(body: &[u8]) -> Result<TreePage, crate::features::FeatureError> {
     let page = crate::features::parse_page::<Properties>(body)?;
+    let held = page.features.len();
     let trees = page
         .features
         .into_iter()
@@ -109,6 +113,7 @@ pub fn parse_trees(body: &[u8]) -> Result<TreePage, crate::features::FeatureErro
     Ok(TreePage {
         trees,
         matched: page.matched,
+        features: held,
     })
 }
 

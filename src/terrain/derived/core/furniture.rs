@@ -31,7 +31,7 @@ use crate::seeded_defaults::fnv1a_64;
 use crate::terrain::geo::street_level::CoreFurniture;
 use crate::terrain::lots::scale_e4;
 
-use super::super::fit::{cache_key, fitted, footing, radius, room_theme, sized_pool};
+use super::super::fit::{RoomScene, cache_key, fitted, footing, radius, sized_pool};
 use super::super::plan::{Grow, Plan, PlannedBuilding, PlannedCopy, Policy, Solid};
 use super::super::{SourceId, SourceLayer};
 use super::Kept;
@@ -112,9 +112,9 @@ const fn solid_of(kind: FurnitureKind) -> Solid {
 /// Each kind's matches among the room's props and secondary buildings, each
 /// at the scale it is drawn at.
 pub(crate) fn matches_for(
-    did: &str,
+    room: &RoomScene,
 ) -> HashMap<FurnitureKind, Vec<(&'static dyn CatalogueEntry, f32)>> {
-    let (theme, character) = room_theme(did);
+    let (theme, character) = room.theme();
     let pool: Vec<&'static dyn CatalogueEntry> = [StructureRole::Prop, StructureRole::Secondary]
         .into_iter()
         .flat_map(|role| sized_pool(theme, role, character))
@@ -132,16 +132,16 @@ pub(crate) fn matches_for(
         .collect()
 }
 
-/// The furniture's plan (see the module docs), for the room `did`, keeping
-/// clear of `kept`, standing on `ground`.
+/// The furniture's plan (see the module docs), for `room`, keeping clear of
+/// `kept`, standing on `ground`.
 pub(crate) fn plan(
     furniture: &[CoreFurniture],
-    did: &str,
+    room: &RoomScene,
     kept: &Kept,
     ground: &dyn Fn(f32, f32) -> f32,
 ) -> Plan {
-    let (_, character) = room_theme(did);
-    let found = matches_for(did);
+    let (_, character) = room.theme();
+    let found = matches_for(room);
     let mut plan = Plan {
         label: "core furniture",
         policy: Policy {
@@ -151,9 +151,9 @@ pub(crate) fn plan(
         },
         buildings: Vec::new(),
         copies: Vec::new(),
-        did: did.to_owned(),
+        did: room.did.clone(),
         character,
-        seed: fnv1a_64(did) ^ STREAM_SALT,
+        seed: room.seed ^ STREAM_SALT,
     };
     let mut by_key: HashMap<(&'static str, i64), usize> = HashMap::new();
     // Nearest the landing first: the cap keeps those.
@@ -255,8 +255,8 @@ mod tests {
         (0..10_000)
             .map(|i| format!("did:plc:lit{i}"))
             .find(|did| {
-                room_theme(did).0 == ThemeArchetype::ModernCity
-                    && matches_for(did)[&FurnitureKind::Lamp]
+                RoomScene::for_did(did).theme().0 == ThemeArchetype::ModernCity
+                    && matches_for(&RoomScene::for_did(did))[&FurnitureKind::Lamp]
                         .iter()
                         .any(|(entry, _)| entry.slug() == "street_lamp")
             })
@@ -271,7 +271,12 @@ mod tests {
         let kept = Kept {
             discs: vec![(150.0, -150.0, super::super::LANDING_CLEAR_M)],
         };
-        let plan = plan(&level.furniture, &did, &kept, &|_, _| 30.0);
+        let plan = plan(
+            &level.furniture,
+            &RoomScene::for_did(&did),
+            &kept,
+            &|_, _| 30.0,
+        );
         assert!(plan.policy.cut && plan.policy.far_copies == 0);
         // Nearest the landing first, which the cap keeps.
         let from_landing =
@@ -313,7 +318,7 @@ mod tests {
         }
         assert!(lamps > 100, "{lamps} street lamps");
         // A kind the theme has no prop for is left out, not drawn as another.
-        let found = matches_for(&did);
+        let found = matches_for(&RoomScene::for_did(&did));
         for item in &level.furniture {
             if found[&item.kind].is_empty() {
                 assert!(plan.copies.iter().all(|c| *c.source.key != *item.id));

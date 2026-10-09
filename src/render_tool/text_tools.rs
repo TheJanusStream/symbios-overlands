@@ -927,14 +927,16 @@ pub(super) fn print_foundation_audit(filter: &str) {
 /// this is what the depth rule should be sized from rather than a
 /// worst-case slope assumption.
 pub(super) fn print_settlement_drop(seeds: u64) {
-    use crate::pds::{Placement, RoomRecord};
+    use crate::pds::Placement;
 
     let mut all: Vec<(f32, f32)> = Vec::new(); // (clearance, drop)
     let mut covered = 0usize;
     let mut short: Vec<(f32, f32)> = Vec::new(); // (drop, daylight gap)
     for seed in 0..seeds.max(1) {
         let did = format!("did:plc:drop{seed}");
-        let record = RoomRecord::default_for_seed(seed, &did);
+        // The procedural recipe, whose settlement this measures: a seed
+        // drawing Berlin has none (#1589).
+        let record = crate::seeded_defaults::room::build::build_room_with_source(seed, &did, None);
         let hm = crate::terrain::rebuild_heightmap_for_record(&record);
         let extent = (hm.width() - 1) as f32 * hm.scale();
         let half = extent * 0.5;
@@ -1074,7 +1076,7 @@ pub(super) fn describe_rooms(what: &str) {
             .parse()
             .unwrap_or_else(|e| panic!("--describe {what:?}: {e}"));
         println!(
-            "{:>5}  {:<10} {:<10} {:<14} {:>5} {:>5}  {:>6} {:>5} {:>5}  {:>5} {:>5}",
+            "{:>5}  {:<10} {:<10} {:<14} {:>5} {:>5}  {:>6} {:>5} {:>5}  {:>5} {:>5}  ground",
             "seed",
             "landform",
             "biome",
@@ -1085,12 +1087,12 @@ pub(super) fn describe_rooms(what: &str) {
             "sun_y",
             "cloud",
             "abs",
-            "scat"
+            "scat",
         );
         for seed in a..b {
             let d = RoomDescription::for_seed(seed);
             println!(
-                "{:>5}  {:<10} {:<10} {:<14} {:>5.2} {:>5.2}  {:>6.0} {:>5.2} {:>5.2}  {:>5} {:>5}",
+                "{:>5}  {:<10} {:<10} {:<14} {:>5.2} {:>5.2}  {:>6.0} {:>5.2} {:>5.2}  {:>5} {:>5}  {}",
                 seed,
                 d.landform,
                 d.biome,
@@ -1102,6 +1104,7 @@ pub(super) fn describe_rooms(what: &str) {
                 d.cloud_cover,
                 d.absolute,
                 d.scattered,
+                d.ground,
             );
         }
         return;
@@ -1120,6 +1123,7 @@ pub(super) fn describe_rooms(what: &str) {
         "  air        fog visibility {:.0} m  sun height {:.2} (of unit)  cloud cover {:.2}  sky {}",
         d.fog_visibility, d.sun_height, d.cloud_cover, d.sky
     );
+    println!("  ground     {}", d.ground);
     println!("  water      level {}", d.water);
     println!("  landing    {}", d.landing);
     println!(
@@ -1148,6 +1152,8 @@ struct RoomDescription {
     sun_height: f32,
     cloud_cover: f32,
     sky: String,
+    /// Its own terrain, or the Berlin square it is built on (#1589).
+    ground: String,
     water: String,
     landing: String,
     absolute: usize,
@@ -1201,6 +1207,25 @@ impl RoomDescription {
                 _ => {}
             }
         }
+        let ground = record
+            .geo_source
+            .as_ref()
+            .and_then(crate::pds::GeoSource::berlin_square)
+            .map_or_else(
+                || "its own terrain".to_string(),
+                |square| {
+                    let (e, n) = square.centre();
+                    let borough = geodata::berlin::Coverage::berlin()
+                        .borough_at(e, n)
+                        .map_or("Berlin", geodata::berlin::Borough::name);
+                    format!(
+                        "Berlin, a {:.2} km square in {borough} from E {} N {}",
+                        f64::from(square.size_m) / 1_000.0,
+                        square.min_e,
+                        square.min_n
+                    )
+                },
+            );
         let water = crate::world_builder::compile::room_water_level(record)
             .map_or_else(|| "none".to_string(), |y| format!("{y:.1} m"));
         let landing = record.default_landing.as_ref().map_or_else(
@@ -1225,6 +1250,7 @@ impl RoomDescription {
             sun_height: sun.y,
             cloud_cover: env.cloud_cover.0,
             sky: format!("({:.2}, {:.2}, {:.2})", sky[0], sky[1], sky[2]),
+            ground,
             water,
             landing,
             absolute,

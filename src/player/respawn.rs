@@ -304,7 +304,10 @@ pub(super) fn apply_player_move(
     let from_y = pos.y;
     let (destination, told) = match what {
         PlayerMove::ReturnToSpawn => {
-            let landing = room.as_deref().and_then(|r| r.0.default_landing);
+            // Walked ashore on Berlin's ground, as the spawn is (#1589).
+            let landing = room
+                .as_deref()
+                .and_then(|r| crate::world_builder::compile::landing_on(&r.0, &hm_res));
             let pose = recovery_pose(&hm_res.0, landing);
             rot.0 = pose.rot;
             (pose.pos, RecoveryReason::Requested.toast())
@@ -380,7 +383,10 @@ pub(super) fn respawn_if_fallen(
     let non_finite = reason == RecoveryReason::NonFinite;
     // Depth the player fell to, before the respawn overwrites their position.
     let fell_to_y = pos.y;
-    let landing = room.as_deref().and_then(|r| r.0.default_landing);
+    // Walked ashore on Berlin's ground, as the spawn is (#1589).
+    let landing = room
+        .as_deref()
+        .and_then(|r| crate::world_builder::compile::landing_on(&r.0, &hm_res));
     let pose = recovery_pose(hm, landing);
     pos.0 = pose.pos;
     rot.0 = pose.rot;

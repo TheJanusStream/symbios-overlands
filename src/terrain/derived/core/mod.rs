@@ -23,6 +23,7 @@ use crate::pds::{Placement, RoomRecord};
 use crate::terrain::FinishedHeightMap;
 use crate::terrain::geo::street_level::StreetLevel;
 
+use super::fit::RoomScene;
 use super::plan::Plan;
 
 /// How far round the landing nothing derived stands (m): an arrival is
@@ -44,21 +45,36 @@ pub(crate) struct Kept {
 }
 
 impl Kept {
-    /// The landing (the world's origin, where the record names none) and
-    /// every absolute placement of `record`.
-    pub(crate) fn of(record: Option<&RoomRecord>) -> Self {
-        let landing = record
-            .and_then(|r| r.default_landing.as_ref())
-            .map_or((0.0, 0.0), |l| (l.pos.0[0], l.pos.0[1]));
+    /// The landing at `landing` - where a body sets down, walked ashore
+    /// (#1589) - and every absolute placement of `record`, where it stands
+    /// on `ground`: a snapped seeded structure walked off water and streets
+    /// as the compile walks it, so Berlin's buildings keep clear of the
+    /// gate, not of where its record put it.
+    pub(crate) fn of(
+        record: Option<&RoomRecord>,
+        landing: (f32, f32),
+        ground: Option<&crate::world_builder::AnchorGround<'_>>,
+    ) -> Self {
         let mut discs = vec![(landing.0, landing.1, LANDING_CLEAR_M)];
         for placement in record.map(|r| r.placements.as_slice()).unwrap_or_default() {
             if let Placement::Absolute {
                 transform,
+                snap_to_terrain,
+                avoid_water,
                 avoid_water_clearance,
                 ..
             } = placement
             {
-                let [x, _, z] = transform.translation.0;
+                let [x, _, z] = match ground.filter(|_| *snap_to_terrain) {
+                    Some(ground) => crate::world_builder::snapped_absolute_anchor(
+                        ground,
+                        transform,
+                        *avoid_water,
+                        avoid_water_clearance.0,
+                    )
+                    .to_array(),
+                    None => transform.translation.0,
+                };
                 let reach = if avoid_water_clearance.0 > 0.0 {
                     avoid_water_clearance.0
                 } else {
@@ -92,20 +108,28 @@ impl Kept {
     }
 }
 
-/// The walkable ground's plans for `level`, for the room `did`, keeping
-/// clear of what `record` keeps, standing on `heightmap`.
+/// The walkable ground's plans for `level`, for `room`, keeping clear of
+/// what `record` keeps - its landing as a body sets down on `heightmap`,
+/// walked ashore - standing on `heightmap`.
 pub(crate) fn draw_core(
     level: &StreetLevel,
-    did: &str,
+    room: &RoomScene,
     record: Option<&RoomRecord>,
     heightmap: &FinishedHeightMap,
 ) -> Vec<Plan> {
-    let kept = Kept::of(record);
+    let landing = record
+        .and_then(|record| crate::world_builder::compile::landing_on(record, heightmap))
+        .map_or((0.0, 0.0), |landing| (landing.pos.0[0], landing.pos.0[1]));
+    let water_y = record.and_then(|record| {
+        crate::world_builder::compile::drawn_water_level(record, Some(heightmap))
+    });
+    let anchors = crate::world_builder::AnchorGround::new(heightmap, water_y);
+    let kept = Kept::of(record, landing, Some(&anchors));
     let ground = |x: f32, z: f32| heightmap.world_height_at(x, z);
     vec![
-        buildings::plan(&level.buildings, did, &kept, &ground),
-        trees::plan(&level.trees, did, &kept, &ground),
-        furniture::plan(&level.furniture, did, &kept, &ground),
+        buildings::plan(&level.buildings, room, &kept, &ground),
+        trees::plan(&level.trees, room, &kept, &ground),
+        furniture::plan(&level.furniture, room, &kept, &ground),
     ]
 }
 
@@ -145,7 +169,7 @@ mod tests {
                 seed: None,
             },
         ];
-        let kept = Kept::of(Some(&record));
+        let kept = Kept::of(Some(&record), (50.0, 20.0), None);
         // The landing, not the origin.
         assert!(!kept.clear(50.0, 20.0 + LANDING_CLEAR_M + 0.9, 1.0));
         assert!(kept.clear(50.0, 20.0 + LANDING_CLEAR_M + 1.1, 1.0));
@@ -158,6 +182,6 @@ mod tests {
         assert!(!kept.clear(-100.0 + villa - 0.1, 0.0, 0.0));
         assert!(kept.clear(-100.0 + villa + 0.1, 0.0, 0.0));
         // No record keeps the origin.
-        assert!(!Kept::of(None).clear(LANDING_CLEAR_M - 1.0, 0.0, 0.5));
+        assert!(!Kept::of(None, (0.0, 0.0), None).clear(LANDING_CLEAR_M - 1.0, 0.0, 0.5));
     }
 }

@@ -85,13 +85,16 @@ pub struct AxisPage {
     pub axes: Vec<StreetAxis>,
     /// `numberMatched`, where the server counted.
     pub matched: Option<u64>,
+    /// How many features the page held, before any was left out: what
+    /// [`Self::is_cut_short`] measures against.
+    pub features: usize,
 }
 
 impl AxisPage {
     /// Whether the server matched more axes than the page holds.
     pub fn is_cut_short(&self) -> bool {
         self.matched
-            .is_some_and(|matched| matched > self.axes.len() as u64)
+            .is_some_and(|matched| matched > self.features as u64)
     }
 }
 
@@ -126,6 +129,7 @@ pub fn parse_axes(body: &[u8]) -> Result<AxisPage, AxisError> {
             .and_then(|s| s.trim().parse::<f32>().ok())
             .filter(|v| v.is_finite() && *v > 0.0)
     };
+    let held = page.features.len();
     let axes = page
         .features
         .into_iter()
@@ -155,6 +159,7 @@ pub fn parse_axes(body: &[u8]) -> Result<AxisPage, AxisError> {
     Ok(AxisPage {
         axes,
         matched: page.matched,
+        features: held,
     })
 }
 
@@ -176,7 +181,17 @@ mod tests {
         ]}"#;
         let page = parse_axes(body).unwrap();
         assert_eq!(page.axes.len(), 2, "a one-point line is no line");
-        assert!(page.is_cut_short(), "three matched, two read");
+        // Three matched, three held: the one the reader left out does not
+        // cut the page short. A fourth matched would.
+        assert_eq!(page.features, 3);
+        assert!(!page.is_cut_short());
+        let mut short = body.to_vec();
+        let at = short
+            .windows(17)
+            .position(|w| w == b"\"numberMatched\":3")
+            .unwrap();
+        short[at + 16] = b'4';
+        assert!(parse_axes(&short).unwrap().is_cut_short());
         let a = &page.axes[0];
         assert_eq!(a.uuid, "A");
         assert_eq!(

@@ -1105,10 +1105,10 @@ impl<P> Default for PinHuntCache<P> {
 impl<P: Copy + PartialEq> PinHuntCache<P> {
     /// The seed a re-roll from `start` under `pins` will build from -
     /// `ScenePins::find_seed` / `AvatarPins::find_seed` passed as
-    /// `hunt` - or `None` if the hunt capped out (practically
-    /// unreachable for a legal pin-set). Both the readout and the
-    /// "Re-roll" handler read this, so the preview and the applied
-    /// record can never disagree.
+    /// `hunt` - or `None` if the set cannot be met or the hunt capped out
+    /// (rare: a set the seeds all but never roll). Both the readout and the
+    /// "Re-roll" handler read this, so the preview and the applied record
+    /// can never disagree.
     pub fn effective_seed(
         &mut self,
         start: u64,
@@ -1154,10 +1154,11 @@ impl<P: crate::seeded_defaults::SeedPins> ReRollState<P> {
     }
 
     /// The seed a re-roll from `start` will *actually* build from - with
-    /// locks engaged the hunt may walk past the typed seed. `None` only if
-    /// the hunt capped out, which is practically unreachable for a legal
-    /// pin-set. Both the readout and the "Re-roll" handler read this, so
-    /// the preview and the applied record can never disagree.
+    /// locks engaged the hunt may walk past the typed seed. `None` where the
+    /// set cannot be met, or the hunt capped out - rare, a set the seeds all
+    /// but never roll (every scene and source axis of a room locked at once,
+    /// #1589). Both the readout and the "Re-roll" handler read this, so the
+    /// preview and the applied record can never disagree.
     pub fn effective_seed(&mut self, start: u64) -> Option<u64> {
         let pins = self.pins;
         self.hunt.effective_seed(start, pins, |s| pins.find_seed(s))
@@ -1295,10 +1296,10 @@ pub fn seed_row(
 /// `None` when the typed seed is the one being used, which is every
 /// unpinned re-roll.
 ///
-/// The miss arm is real code describing a state a user will not reach -
-/// with all axes locked, `PIN_HUNT_CAP` misses with probability ~e⁻¹³⁸ per
-/// its own doc - but a click that does literally nothing needs a sentence
-/// more than a likely one does.
+/// The miss arm is a rare state - a room's every scene and source axis
+/// locked at once misses `PIN_HUNT_CAP` (#1589); the scene axes alone miss
+/// with probability ~e⁻¹³⁸ - and a click that does literally nothing needs a
+/// sentence more than a likely one does.
 pub fn hunt_disclosure(start: u64, effective: Option<u64>) -> Option<(StatusTone, String)> {
     match effective {
         Some(seed) if seed == start => None,

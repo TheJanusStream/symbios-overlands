@@ -242,7 +242,9 @@ fn fixed_step(time: &Time) -> (i64, f64) {
 /// tilted to the slope there and turned to its bearing, a metre up - the
 /// local player's spawn (`player::spawn::spawn_local_player`).
 fn start_pose(spec: &DriverSpec, room: &RoomRecord, heightmap: &FinishedHeightMap) -> Transform {
-    let landing = room.default_landing.as_ref();
+    // Where a body sets down: walked to open dry ground on Berlin's (#1589).
+    let walked = crate::world_builder::compile::landing_on(room, heightmap);
+    let landing = walked.as_ref();
     let hm = &heightmap.0;
     let extent = (hm.width() - 1) as f32 * hm.scale();
     let half = extent * 0.5;

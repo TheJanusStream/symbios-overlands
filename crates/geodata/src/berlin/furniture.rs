@@ -121,13 +121,16 @@ pub struct FurniturePage {
     pub items: Vec<FurnitureItem>,
     /// `numberMatched`, where the server counted.
     pub matched: Option<u64>,
+    /// How many features the page held, before any was left out: what
+    /// [`Self::is_cut_short`] measures against.
+    pub features: usize,
 }
 
 impl FurniturePage {
     /// Whether the server matched more items than the page holds.
     pub fn is_cut_short(&self) -> bool {
         self.matched
-            .is_some_and(|matched| matched > self.items.len() as u64)
+            .is_some_and(|matched| matched > self.features as u64)
     }
 }
 
@@ -165,6 +168,7 @@ pub fn parse_furniture(
     body: &[u8],
 ) -> Result<FurniturePage, crate::features::FeatureError> {
     let page = crate::features::parse_page::<Properties>(body)?;
+    let held = page.features.len();
     let items = page
         .features
         .into_iter()
@@ -191,6 +195,7 @@ pub fn parse_furniture(
     Ok(FurniturePage {
         items,
         matched: page.matched,
+        features: held,
     })
 }
 
@@ -348,6 +353,9 @@ mod tests {
         let page = parse_furniture(FurnitureKind::Lamp, body).unwrap();
         let ids: Vec<&str> = page.items.iter().map(|i| i.id.as_str()).collect();
         assert_eq!(ids, ["40477-2210001-00", "40477-2210003-00"]);
+        // Four held, four matched: the two left out do not cut it short.
+        assert_eq!(page.features, 4);
+        assert!(!page.is_cut_short());
         assert_eq!(page.items[0].at, [1.0, 2.0]);
         assert_eq!(
             FurnitureKind::Lamp.layer().type_name,

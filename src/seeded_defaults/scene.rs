@@ -449,11 +449,12 @@ impl SceneCharacter {
     }
 }
 
-/// Ceiling on the pinned-re-roll seed hunt (#1005). The hardest legal
-/// room pin-set (all five axes locked) matches ~1 seed in 14,490, so two
-/// million trials miss with probability ~e⁻¹³⁸ - the cap exists to bound
-/// the loop if a future draw stops being uniform, not because a miss is
-/// ever expected.
+/// Ceiling on the pinned-re-roll seed hunt (#1005). The hardest room
+/// pin-set of the five scene axes matches ~1 seed in 14,490, so two million
+/// trials miss it with probability ~e⁻¹³⁸. The source axes (#1589) can ask
+/// for rarer: Berlin, a large square and its least likely borough together
+/// are ~1 seed in 1,350, so all eight locked at once miss - and the editor
+/// says so, after about a second's hunt.
 const PIN_HUNT_CAP: u64 = 2_000_000;
 
 /// Deterministic pinned-re-roll seed hunt (#1005): the first seed at or
@@ -478,6 +479,11 @@ pub fn find_matching_seed(start: u64, accepts: impl Fn(u64) -> bool) -> Option<u
 /// combination can exist, and peers re-derive it bit-identically from the
 /// seed alone. Pins are editor UI state only; nothing is stored in the
 /// record.
+///
+/// The source axes (#1589) are a second draw off the seed, as the avatar's
+/// craft type is off its anchor ([`crate::seeded_defaults::RegionSource`]):
+/// a size or a borough pinned asks for Berlin, a procedural world having no
+/// square.
 #[derive(Clone, Copy, Default, PartialEq, Debug)]
 pub struct ScenePins {
     pub landform: Option<LandformArchetype>,
@@ -489,6 +495,12 @@ pub struct ScenePins {
     pub prosperity: Option<ProsperityTier>,
     /// Pinned as the discrete tier, like [`Self::prosperity`].
     pub escalation: Option<EscalationTier>,
+    /// Where the ground comes from.
+    pub source: Option<crate::seeded_defaults::SourceKind>,
+    /// How big a Berlin square is.
+    pub size: Option<crate::seeded_defaults::SizeClass>,
+    /// The borough a Berlin square's middle lies in.
+    pub borough: Option<geodata::berlin::Borough>,
 }
 
 impl ScenePins {
@@ -502,14 +514,45 @@ impl ScenePins {
             && self.escalation.is_none_or(|p| p == c.escalation_tier())
     }
 
-    /// The first seed at or after `start` whose [`SceneCharacter`]
-    /// satisfies every pin. With no pins this is `start` itself, so the
-    /// un-pinned path is bit-identical to the pre-#1005 re-roll.
+    /// Whether `seed`'s source draw satisfies the source pins - the
+    /// borough, which costs a walk of the map, asked last.
+    pub fn source_matches(&self, seed: u64) -> bool {
+        use crate::seeded_defaults::{RegionSource, SourceKind};
+        if self.source.is_none() && self.size.is_none() && self.borough.is_none() {
+            return true;
+        }
+        let drawn = RegionSource::for_seed(seed);
+        let berlin = self.size.is_some() || self.borough.is_some();
+        self.source.is_none_or(|kind| kind == drawn.kind)
+            && (!berlin || drawn.kind == SourceKind::Berlin)
+            && self.size.is_none_or(|size| size == drawn.size_class())
+            && self
+                .borough
+                .is_none_or(|borough| drawn.borough() == Some(borough))
+    }
+
+    /// Whether any seed can satisfy the pins: not where a procedural world
+    /// is pinned with a size or a borough, which only a Berlin square has.
+    /// Every size class reaches every borough (a test holds it).
+    pub fn is_reachable(&self) -> bool {
+        use crate::seeded_defaults::SourceKind;
+        self.source != Some(SourceKind::Procedural)
+            || (self.size.is_none() && self.borough.is_none())
+    }
+
+    /// The first seed at or after `start` whose [`SceneCharacter`] and
+    /// source draw satisfy every pin. With no pins this is `start` itself,
+    /// so the un-pinned path is bit-identical to the pre-#1005 re-roll.
     pub fn find_seed(&self, start: u64) -> Option<u64> {
         if *self == Self::default() {
             return Some(start);
         }
-        find_matching_seed(start, |s| self.matches(&SceneCharacter::for_seed(s)))
+        if !self.is_reachable() {
+            return None;
+        }
+        find_matching_seed(start, |s| {
+            self.matches(&SceneCharacter::for_seed(s)) && self.source_matches(s)
+        })
     }
 }
 
@@ -808,12 +851,85 @@ mod tests {
             theme: Some(ThemeArchetype::GothicHorror),
             prosperity: Some(ProsperityTier::Poor),
             escalation: Some(EscalationTier::Conflict),
+            ..Default::default()
         };
         let s = pins
             .find_seed(0xDEAD_BEEF)
             .expect("full pin-set unreachable");
         let c = SceneCharacter::for_seed(s);
         assert!(pins.matches(&c), "hunt returned a non-matching seed");
+    }
+
+    /// #1589: the source axes hunt like the scene's - a Berlin square of a
+    /// size, in a borough, under a theme - and the seed found draws them.
+    #[test]
+    fn a_pinned_source_hunts_a_berlin_square() {
+        use crate::seeded_defaults::{RegionSource, SizeClass, SourceKind};
+        use geodata::berlin::Borough;
+        let pins = ScenePins {
+            theme: Some(ThemeArchetype::ModernCity),
+            source: Some(SourceKind::Berlin),
+            size: Some(SizeClass::Medium),
+            borough: Some(Borough::Mitte),
+            ..Default::default()
+        };
+        let seed = pins.find_seed(7).expect("a medium square in Mitte");
+        let drawn = RegionSource::for_seed(seed);
+        assert_eq!(
+            SceneCharacter::for_seed(seed).theme,
+            ThemeArchetype::ModernCity
+        );
+        assert_eq!(drawn.kind, SourceKind::Berlin);
+        assert_eq!(drawn.size_class(), SizeClass::Medium);
+        assert_eq!(drawn.borough(), Some(Borough::Mitte));
+        // A size alone asks for Berlin: a procedural world has no square.
+        let small = ScenePins {
+            size: Some(SizeClass::Small),
+            ..Default::default()
+        };
+        let seed = small.find_seed(7).expect("a small square");
+        assert_eq!(RegionSource::for_seed(seed).kind, SourceKind::Berlin);
+        // And a procedural world with a borough is answered at once.
+        let nowhere = ScenePins {
+            source: Some(SourceKind::Procedural),
+            borough: Some(Borough::Spandau),
+            ..Default::default()
+        };
+        assert!(!nowhere.is_reachable());
+        assert_eq!(nowhere.find_seed(7), None);
+        // A procedural world alone is a plain pin.
+        let procedural = ScenePins {
+            source: Some(SourceKind::Procedural),
+            ..Default::default()
+        };
+        let seed = procedural.find_seed(3).expect("a procedural seed");
+        assert_eq!(RegionSource::for_seed(seed).kind, SourceKind::Procedural);
+        assert!(seed > 3, "seed 3 draws Berlin, so the hunt walks on");
+    }
+
+    /// Every size class reaches every borough, which is why no pair is
+    /// refused: the rarest, a large square in Marzahn-Hellersdorf, is one
+    /// large square in about 100, one Berlin square in about 340.
+    #[test]
+    fn every_size_class_reaches_every_borough() {
+        use crate::seeded_defaults::{SizeClass, SourceKind};
+        use geodata::berlin::Borough;
+        for size in SizeClass::ALL {
+            for borough in Borough::ALL {
+                let pins = ScenePins {
+                    source: Some(SourceKind::Berlin),
+                    size: Some(size),
+                    borough: Some(borough),
+                    ..Default::default()
+                };
+                assert!(pins.is_reachable());
+                let seed = pins.find_seed(0);
+                assert!(
+                    seed.is_some_and(|s| s < 50_000),
+                    "{size:?} in {borough:?}: {seed:?}"
+                );
+            }
+        }
     }
 
     #[test]

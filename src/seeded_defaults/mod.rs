@@ -27,6 +27,8 @@
 //!                             below the trees)
 //!         · room::particles  (biome-mood ambient emitter)
 //!         · room::settlement (themed catalogue cluster near spawn)
+//!         · room::source     (procedural or a square of real Berlin, and
+//!                             which square - its own salted stream)
 //!         · room::gateway    (the room's one social gateway spot and its
 //!                             forecourt landing pose)
 //!         · room::monument   (the owner-identity monument beside it)
@@ -111,11 +113,11 @@ pub use avatar::{
 pub use avatar::mood;
 pub use hash::fnv1a_64;
 pub use room::{
-    AmbientParticles, AmbientRecipe, Atmosphere, BUILD_SLOPE_LIMIT, BiomeTextures, BuildableRegion,
-    GatewaySpot, GroundTextureParams, MonumentSpot, ParticleMood, RockScatters, RockTextureParams,
-    RoomPalette, Settlement, SettlementCluster, SettlementMember, SettlementPlan, SplatRule,
-    TerrainProbe, TerrainShape, ThemeAccent, TreeScatter, TreeScatters, TreeSpecies, WaterDynamics,
-    theme_luminosity,
+    AmbientParticles, AmbientRecipe, Atmosphere, BERLIN_SHARE, BUILD_SLOPE_LIMIT, BiomeTextures,
+    BuildableRegion, GatewaySpot, GroundTextureParams, MonumentSpot, ParticleMood, RegionSource,
+    RockScatters, RockTextureParams, RoomPalette, Settlement, SettlementCluster, SettlementMember,
+    SettlementPlan, SizeClass, SourceKind, SplatRule, TerrainProbe, TerrainShape, ThemeAccent,
+    TreeScatter, TreeScatters, TreeSpecies, WaterDynamics, theme_luminosity,
 };
 pub use scene::{
     BiomeArchetype, EscalationBand, EscalationTier, LandformArchetype, ProsperityBand,

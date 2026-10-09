@@ -310,7 +310,8 @@ mod tests {
     }
 
     /// The first `n` Cyberpunk rooms the seeds give at escalation `tier`,
-    /// built as the game builds a seeded room.
+    /// built as the game builds a seeded room on its own terrain: a seed
+    /// drawing Berlin has no settlement to measure (#1589).
     fn cyberpunk_rooms(
         tier: crate::seeded_defaults::EscalationTier,
         n: usize,
@@ -325,7 +326,9 @@ mod tests {
             .take(n)
             .map(|seed| {
                 let did = format!("did:render:{seed}");
-                (seed, crate::pds::RoomRecord::default_for_seed(seed, &did))
+                let room =
+                    crate::seeded_defaults::room::build::build_room_with_source(seed, &did, None);
+                (seed, room)
             })
             .collect()
     }
@@ -416,7 +419,7 @@ mod tests {
     /// of a downtown building at the ground, in plan, within 5 cm.
     #[test]
     fn no_prop_stands_in_a_downtown_building() {
-        use crate::pds::{GeneratorKind, Placement, RoomRecord};
+        use crate::pds::{GeneratorKind, Placement};
         use crate::seeded_defaults::{SceneCharacter, ThemeArchetype};
         use bevy::math::Vec2;
         // A solid in plan, turned with its placement: centre, half
@@ -484,7 +487,13 @@ mod tests {
             if SceneCharacter::for_seed(seed).theme != ThemeArchetype::Cyberpunk {
                 continue;
             }
-            let record = RoomRecord::default_for_seed(seed, &format!("did:render:{seed}"));
+            // On its own terrain: a seed drawing Berlin has no settlement
+            // (#1589).
+            let record = crate::seeded_defaults::room::build::build_room_with_source(
+                seed,
+                &format!("did:render:{seed}"),
+                None,
+            );
             let (mut buildings, mut props) = (Vec::new(), Vec::new());
             for placement in &record.placements {
                 let Placement::Absolute {

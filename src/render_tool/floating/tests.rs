@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 
 use super::body::tests::{cuboid, fp, generator, prim, sphere};
 use super::*;
+use bevy_symbios_ground::HeightMap;
 
 /// A 33 x 33 map, 2 m a cell, its centre at the world's origin, whose
 /// ground rises half a metre per metre toward +X: `0.5 * (x + 32)`.
@@ -63,7 +64,8 @@ fn scatter(name: &str) -> Value {
 /// The report's fields for `record` over `map`, by name.
 fn fields(record: &RoomRecord, map: &HeightMap) -> HashMap<&'static str, Value> {
     let water = crate::world_builder::compile::room_water_level(record);
-    report("did:test", record, map, water, &bodies_of(record))
+    let terrain = crate::terrain::FinishedHeightMap(map.clone(), None);
+    report("did:test", record, &terrain, water, &bodies_of(record))
         .into_iter()
         .collect()
 }
@@ -484,10 +486,11 @@ fn the_report_prints_a_row_a_line() {
     );
     let record = record(vec![("a/b~c", tree)], vec![absolute("a/b~c", 0.0, 0.0)]);
     let water = crate::world_builder::compile::room_water_level(&record);
+    let terrain = crate::terrain::FinishedHeightMap(flat(), None);
     let printed = one_row_a_line(&report(
         "did:test",
         &record,
-        &flat(),
+        &terrain,
         water,
         &bodies_of(&record),
     ));

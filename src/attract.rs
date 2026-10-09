@@ -52,7 +52,6 @@
 use bevy::prelude::*;
 use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraSystemSet};
 
-use crate::pds::RoomRecord;
 use crate::state::{AppState, LiveRoomRecord, LoginScreenSettings};
 use crate::terrain::FinishedHeightMap;
 
@@ -178,14 +177,18 @@ pub fn start_attract_scene(
 /// Mint a demo [`LiveRoomRecord`] and arm the pipeline gates for it.
 ///
 /// A different world every visit: the wall clock (chrono is wasm-safe,
-/// unlike `std::time`) hashed through the same `default_for_did` path a
-/// first-visit room takes, so the demo showcases exactly what a fresh
-/// user would get. Shared with [`reroll_attract_scene`], whose whole job
-/// is to land on a *different* millisecond.
+/// unlike `std::time`) hashed through the same recipe a first-visit room
+/// takes, so the demo showcases what a fresh user would get - on its own
+/// terrain, whatever source the seed draws (#1589, the owner's choice): a
+/// Berlin region fetches its ground, and the login screen fetches nothing.
+/// Shared with [`reroll_attract_scene`], whose whole job is to land on a
+/// *different* millisecond.
 fn seed_demo_world(commands: &mut Commands) {
     let demo_did = format!("did:attract:{:x}", chrono::Utc::now().timestamp_millis());
     info!("Attract backdrop: seeding demo world from {demo_did}");
-    commands.insert_resource(LiveRoomRecord(RoomRecord::default_for_did(&demo_did)));
+    let seed = crate::seeded_defaults::fnv1a_64(&demo_did);
+    let record = crate::seeded_defaults::room::build::build_room_with_source(seed, &demo_did, None);
+    commands.insert_resource(LiveRoomRecord(record));
     commands.insert_resource(AttractScene);
 }
 

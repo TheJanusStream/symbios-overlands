@@ -21,7 +21,7 @@ use bevy::prelude::*;
 use crate::seeded_defaults::fnv1a_64;
 use crate::terrain::geo::street_level::CoreTree;
 
-use super::super::fit::room_theme;
+use super::super::fit::RoomScene;
 use super::super::plan::{Grow, Plan, PlannedBuilding, PlannedCopy, Policy, Solid};
 use super::super::{SourceId, SourceLayer};
 use super::Kept;
@@ -97,15 +97,15 @@ pub(crate) fn species_for(genus: Option<&str>) -> (&'static str, Option<&'static
         .unwrap_or(BROADLEAF)
 }
 
-/// The trees' plan (see the module docs), for the room `did`, keeping clear
-/// of `kept`, standing on `ground`.
+/// The trees' plan (see the module docs), for `room`, keeping clear of
+/// `kept`, standing on `ground`.
 pub(crate) fn plan(
     trees: &[CoreTree],
-    did: &str,
+    room: &RoomScene,
     kept: &Kept,
     ground: &dyn Fn(f32, f32) -> f32,
 ) -> Plan {
-    let (_, character) = room_theme(did);
+    let (_, character) = room.theme();
     let mut plan = Plan {
         label: "core trees",
         policy: Policy {
@@ -115,9 +115,9 @@ pub(crate) fn plan(
         },
         buildings: Vec::new(),
         copies: Vec::new(),
-        did: did.to_owned(),
+        did: room.did.clone(),
         character,
-        seed: fnv1a_64(did),
+        seed: room.seed,
     };
     // Each species looked up once: `None` where the catalogue lacks it.
     let mut by_species: HashMap<(&'static str, Option<&'static str>), Option<usize>> =
@@ -204,7 +204,12 @@ mod tests {
         let kept = Kept {
             discs: vec![(-150.0, 150.0, super::super::LANDING_CLEAR_M)],
         };
-        let plan = plan(&level.trees, "did:plc:trees", &kept, &|_, _| 30.0);
+        let plan = plan(
+            &level.trees,
+            &RoomScene::for_did("did:plc:trees"),
+            &kept,
+            &|_, _| 30.0,
+        );
         let mut standing: Vec<&CoreTree> = level
             .trees
             .iter()

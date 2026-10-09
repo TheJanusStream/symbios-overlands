@@ -55,6 +55,7 @@ pub(crate) use placements::new_absolute_placement;
 mod publish;
 pub(crate) use publish::stale_result;
 mod raw;
+mod seed_source;
 mod shape;
 mod terrain;
 pub(crate) mod widgets;
@@ -223,6 +224,9 @@ pub struct RoomEditorState {
     /// axes and the memoized hunt over the two. See
     /// [`crate::ui::editable::ReRollState`].
     reroll: crate::ui::editable::ReRollState<crate::seeded_defaults::ScenePins>,
+    /// The seed row's source rows and square lock (#1589). See
+    /// [`seed_source::SourceRow`].
+    seed_source: seed_source::SourceRow,
     /// Pending recovery-banner "Reset PDS to default" confirmation
     /// (#840): the button hard-overwrites the stored record, and a
     /// stale banner (pre-#840) could offer it against a healthy one.
@@ -835,6 +839,7 @@ pub fn room_admin_ui(
         pending_flush_secs,
         audio_editor,
         reroll,
+        seed_source,
         recovery_reset_confirm,
         placement_bulk_delete,
         publish_guard,
@@ -1207,6 +1212,13 @@ pub fn room_admin_ui(
                                     &mut reroll.pins.escalation,
                                     rolled.escalation_tier(),
                                 );
+                                // Where the ground comes from (#1589).
+                                seed_source.rows(
+                                    ui,
+                                    &mut reroll.pins,
+                                    effective.unwrap_or(start),
+                                    record_mut,
+                                );
                             });
                         crate::ui::editable::hunt_disclosure_line(ui, start, effective);
                         (action, start, effective)
@@ -1235,7 +1247,19 @@ pub fn room_admin_ui(
                             since_secs: clicked_at,
                         });
                         reroll.seed_row.set_seed(seed);
-                        *record_mut = pds::RoomRecord::default_for_seed(seed, &room_did.0);
+                        // On the ground the seed draws, or the room's own
+                        // where its square is locked (#1589).
+                        let ground = seed_source.reroll_source(seed, record_mut);
+                        let mut rolled =
+                            crate::seeded_defaults::room::build::build_room_with_source(
+                                seed,
+                                &room_did.0,
+                                ground.berlin,
+                            );
+                        if let Some(kept) = ground.kept {
+                            rolled.geo_source = kept;
+                        }
+                        *record_mut = rolled;
                         raw.sync_to(&*record_mut);
                         tree.selection.root = None;
                         *selected_placement = None;
@@ -1244,9 +1268,10 @@ pub fn room_admin_ui(
                         needs_broadcast = true;
                         undo_labels.set_room(format!("seed re-roll ({seed})"));
                     } else {
-                        // Unreachable in practice (the cap misses a legal
-                        // pin-set with probability ~e⁻¹³⁸); keep the record
-                        // untouched rather than violate the locks.
+                        // Rare: the cap misses only a set the seeds all but
+                        // never roll - every scene axis locked with all three
+                        // source axes (#1589); keep the record untouched
+                        // rather than violate the locks.
                         bevy::log::warn!(
                             "pinned re-roll found no seed matching {:?} from {start}",
                             reroll.pins

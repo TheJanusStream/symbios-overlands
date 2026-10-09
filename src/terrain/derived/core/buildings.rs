@@ -38,7 +38,7 @@ use crate::terrain::geo::street_level::{CoreBuilding, centroid, contains, yaw_to
 use crate::terrain::lots::{FOUNDATION_SINK_M, scale_e4};
 
 use super::super::fit::{
-    cache_key, footing, pick_landmark, pick_ranked, radius, room_theme, sized_pool,
+    RoomScene, cache_key, footing, pick_landmark, pick_ranked, radius, sized_pool,
 };
 use super::super::plan::{Grow, Plan, PlannedBuilding, PlannedCopy, Policy, Solid};
 use super::super::{SourceId, SourceLayer};
@@ -246,18 +246,18 @@ fn row(
         .collect()
 }
 
-/// The buildings' plan (see the module docs), for the room `did`, keeping
-/// clear of `kept`, standing on `ground`.
+/// The buildings' plan (see the module docs), for `room`, keeping clear of
+/// `kept`, standing on `ground`.
 pub(crate) fn plan(
     buildings: &[CoreBuilding],
-    did: &str,
+    room: &RoomScene,
     kept: &Kept,
     ground: &dyn Fn(f32, f32) -> f32,
 ) -> Plan {
-    let (theme, character) = room_theme(did);
+    let (theme, character) = room.theme();
     let landmarks = sized_pool(theme, StructureRole::Landmark, character);
     let secondaries = sized_pool(theme, StructureRole::Secondary, character);
-    let seed = fnv1a_64(did) ^ STREAM_SALT;
+    let seed = room.seed ^ STREAM_SALT;
 
     // The landmarks: the most telling, spaced, each counted only once it
     // can stand - one that gives way takes no landmark's place.
@@ -304,7 +304,7 @@ pub(crate) fn plan(
         },
         buildings: Vec::new(),
         copies: Vec::new(),
-        did: did.to_owned(),
+        did: room.did.clone(),
         character,
         seed,
     };
@@ -426,7 +426,7 @@ mod tests {
     #[test]
     fn a_footprint_takes_a_row_down_its_length_facing_its_street() {
         let did = did_of(ThemeArchetype::ModernCity);
-        let (theme, character) = room_theme(&did);
+        let (theme, character) = RoomScene::for_did(&did).theme();
         let pool = sized_pool(theme, StructureRole::Secondary, character);
         let terrace = building(
             "terrace",
@@ -462,7 +462,7 @@ mod tests {
     #[test]
     fn a_deep_footprint_takes_rows_fronting_both_its_sides() {
         let did = did_of(ThemeArchetype::ModernCity);
-        let (theme, character) = room_theme(&did);
+        let (theme, character) = RoomScene::for_did(&did).theme();
         let pool = sized_pool(theme, StructureRole::Secondary, character);
         let block = building("block", rectangle((0.0, 0.0), 80.0, 64.0, 0.0), (0.0, 1.0));
         let mut rng = ChaCha8Rng::seed_from_u64(3);
@@ -499,7 +499,12 @@ mod tests {
         let kept = Kept {
             discs: vec![(landing.0, landing.1, super::super::LANDING_CLEAR_M)],
         };
-        let plan = plan(&level.buildings, &did, &kept, &|_, _| 30.0);
+        let plan = plan(
+            &level.buildings,
+            &RoomScene::for_did(&did),
+            &kept,
+            &|_, _| 30.0,
+        );
         let by_id: HashMap<&str, &CoreBuilding> =
             level.buildings.iter().map(|b| (&*b.id, b)).collect();
         assert!(plan.copies.len() > level.buildings.len(), "rows of several");
@@ -554,7 +559,12 @@ mod tests {
                 .all(|w| from_landing(&w[0]) <= from_landing(&w[1]))
         );
         // The same room draws the same city.
-        let again = super::plan(&level.buildings, &did, &kept, &|_, _| 30.0);
+        let again = super::plan(
+            &level.buildings,
+            &RoomScene::for_did(&did),
+            &kept,
+            &|_, _| 30.0,
+        );
         let picks = |p: &Plan| -> Vec<(String, PlannedCopy)> {
             p.copies
                 .iter()
@@ -583,7 +593,12 @@ mod tests {
             landmark_rank(&blocked) < landmark_rank(&open),
             "the blocked one comes first"
         );
-        let plan = plan(&[blocked, open], &did, &Kept::of(None), &|_, _| 30.0);
+        let plan = plan(
+            &[blocked, open],
+            &RoomScene::for_did(&did),
+            &Kept::of(None, (0.0, 0.0), None),
+            &|_, _| 30.0,
+        );
         let roles = |id: &str| -> Vec<StructureRole> {
             plan.copies
                 .iter()
@@ -615,7 +630,12 @@ mod tests {
             .iter()
             .find(|b| b.usage == BuildingUse::Religious)
             .expect("the Berliner Dom");
-        let plan = plan(&level.buildings, &did, &Kept::of(None), &|_, _| 30.0);
+        let plan = plan(
+            &level.buildings,
+            &RoomScene::for_did(&did),
+            &Kept::of(None, (0.0, 0.0), None),
+            &|_, _| 30.0,
+        );
         let on_it: Vec<&PlannedCopy> = plan
             .copies
             .iter()

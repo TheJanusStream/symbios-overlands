@@ -367,7 +367,13 @@ pub(super) fn resolve_focus(
     let ground = |x: f32, z: f32| heightmap.map_or(0.0, |h| h.world_height_at(x, z));
     match focus {
         Focus::Origin => Vec3::new(0.0, ground(0.0, 0.0), 0.0),
-        Focus::Landing => match record.and_then(|r| r.default_landing.as_ref()) {
+        // Where a body sets down: walked to open dry ground on Berlin's
+        // (#1589).
+        Focus::Landing => match record.and_then(|r| {
+            heightmap
+                .and_then(|h| crate::world_builder::compile::landing_on(r, h))
+                .or(r.default_landing)
+        }) {
             Some(landing) => {
                 let [x, z] = landing.pos.0;
                 Vec3::new(x, landing.y.map_or(ground(x, z), |y| y.0), z)
@@ -403,14 +409,20 @@ fn settlement_centre(record: &RoomRecord) -> Option<Vec2> {
 }
 
 /// Where the walk starts and which way it goes, on the ground plane.
-fn walker_path(spec: &WalkerSpec, record: &RoomRecord) -> (Vec2, Vec2) {
+/// The landing is where a body sets down on `heightmap` (#1589), where
+/// there is one.
+fn walker_path(
+    spec: &WalkerSpec,
+    record: &RoomRecord,
+    heightmap: Option<&FinishedHeightMap>,
+) -> (Vec2, Vec2) {
     let from = spec
         .from
         .map(Vec2::from_array)
         .or_else(|| {
-            record
-                .default_landing
-                .as_ref()
+            heightmap
+                .and_then(|h| crate::world_builder::compile::landing_on(record, h))
+                .or(record.default_landing)
                 .map(|l| Vec2::from_array(l.pos.0))
         })
         .unwrap_or(Vec2::new(0.0, 14.0));
@@ -437,8 +449,12 @@ pub(super) fn companion_offset(index: usize, spread: f32) -> (f32, f32) {
 /// Every body's start and heading: the lead on the line [`walker_path`]
 /// gives, its companions placed by [`companion_offset`] beside and behind
 /// it. All share the heading, so the group stays together as it walks.
-fn walker_starts(spec: &WalkerSpec, record: &RoomRecord) -> Vec<(Vec2, Vec2)> {
-    let (from, dir) = walker_path(spec, record);
+fn walker_starts(
+    spec: &WalkerSpec,
+    record: &RoomRecord,
+    heightmap: Option<&FinishedHeightMap>,
+) -> Vec<(Vec2, Vec2)> {
+    let (from, dir) = walker_path(spec, record, heightmap);
     let right = Vec2::new(-dir.y, dir.x);
     (0..spec.bodies().len())
         .map(|i| {
@@ -469,7 +485,7 @@ pub(super) fn spawn_walker(
     if !existing.is_empty() {
         return;
     }
-    for (i, ((from2, dir2), body)) in walker_starts(&spec, &record.0)
+    for (i, ((from2, dir2), body)) in walker_starts(&spec, &record.0, Some(&heightmap))
         .into_iter()
         .zip(spec.bodies())
         .enumerate()
@@ -701,7 +717,7 @@ mod tests {
         s.seeds = vec![3, 7, 12];
         s.from = Some([0.0, 0.0]);
         s.to = Some([0.0, -10.0]);
-        let starts = walker_starts(&s, &record);
+        let starts = walker_starts(&s, &record, None);
         assert_eq!(starts.len(), 3);
         let dir = Vec2::new(0.0, -1.0);
         for (_, d) in &starts {
@@ -737,7 +753,7 @@ mod tests {
         );
         s.from = Some([0.0, 0.0]);
         s.to = Some([0.0, -10.0]);
-        let starts = walker_starts(&s, &record);
+        let starts = walker_starts(&s, &record, None);
         assert_eq!(starts.len(), 3, "one start per body, the file's included");
         assert!(
             starts[0].0.length() < 1e-6,
@@ -834,7 +850,7 @@ mod tests {
             .default_landing
             .as_ref()
             .expect("a seeded room has a landing");
-        let (from, dir) = walker_path(&spec(), &record);
+        let (from, dir) = walker_path(&spec(), &record, None);
         assert_eq!(from, Vec2::from_array(landing.pos.0));
         // Heads at the origin: the direction is the landing's own bearing,
         // negated.
@@ -848,11 +864,11 @@ mod tests {
         let mut s = spec();
         s.from = Some([10.0, 10.0]);
         s.to = Some([10.0, 0.0]);
-        let (from, dir) = walker_path(&s, &record);
+        let (from, dir) = walker_path(&s, &record, None);
         assert_eq!(from, Vec2::new(10.0, 10.0));
         assert!((dir - Vec2::new(0.0, -1.0)).length() < 1e-6);
         s.to = Some([10.0, 10.0]);
-        let (_, dir) = walker_path(&s, &record);
+        let (_, dir) = walker_path(&s, &record, None);
         assert_eq!(dir, Vec2::NEG_Y);
     }
 

@@ -1027,6 +1027,19 @@ and real altitude: the heightmap keeps `base_terrain`'s `grid_size` and
 read. Heights are metres above sea level, 26-123 m. `room set /geo_source
 null` goes back to the generated ground.
 
+- **A seeded room may already be one.** One seeded room in four - a room
+  whose owner never saved it - is drawn as a square of Berlin, its square
+  drawn from its seed with the rest of it. Such a room has no seeded
+  settlement: Berlin's buildings, in the room's theme, are its settlement,
+  with the gateway and the owner's monument near the square's middle and
+  the landing in front of the gate. `room get /geo_source` says which
+  ground a room stands on; saving the room keeps its square exactly.
+- **The landing comes to open, dry ground.** On Berlin's ground a landing
+  that falls on its water or its street space - and a seeded gate or
+  monument that does - is walked to open dry ground: along its bearing from
+  the world's origin first, else to the nearest. So a `default_landing` you
+  set there may set a body down a few metres from where you put it; the
+  terrain report's landing says where.
 - **The square is checked.** Its side snaps to whole 10 m between 250 m and
   19 km, and a square that is not wholly inside Berlin is moved to the
   nearest place it fits. `room get /geo_source` after the set shows where

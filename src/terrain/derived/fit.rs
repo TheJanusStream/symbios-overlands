@@ -14,27 +14,62 @@ use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::RngCore;
 
 use crate::catalogue::{CatalogueEntry, StructureRole, entries_for};
-use crate::seeded_defaults::{SceneCharacter, ThemeArchetype};
+use crate::pds::RoomRecord;
+use crate::seeded_defaults::{SceneCharacter, ThemeArchetype, fnv1a_64};
 use crate::terrain::lots::{FALLBACK_THEME, fitted_scale, pool_for};
 
 /// The smallest a derived building is drawn, as a share of its catalogue
 /// size.
 pub(crate) const SCALE_MIN: f32 = 0.5;
 
-/// The room's theme and its prosperity and escalation, as its DID draws
-/// them: the lot layer's, a theme with no landmark yet borrowing the
-/// settlements' fallback.
-pub(crate) fn room_theme(did: &str) -> (ThemeArchetype, (f32, f32)) {
-    let scene = SceneCharacter::for_did(did);
-    let theme = if entries_for(scene.theme, StructureRole::Landmark)
-        .next()
-        .is_some()
-    {
-        scene.theme
-    } else {
-        FALLBACK_THEME
-    };
-    (theme, (scene.prosperity, scene.escalation))
+/// The room a plan is drawn for: the DID its catalogue items are built
+/// for, and the seed its scene is drawn from - the theme, prosperity and
+/// escalation its buildings, trees and props are picked by (#1589).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct RoomScene {
+    pub did: String,
+    pub seed: u64,
+}
+
+impl RoomScene {
+    /// The room `did` owns, as `record` was rolled: from the seed its base
+    /// terrain was built from - a seeded record's own seed, a re-roll's as
+    /// much as the DID's, which on Berlin's ground shapes nothing else - or,
+    /// with no terrain, from the DID's. So a room re-rolled to a theme
+    /// dresses Berlin in that theme, not its owner's.
+    pub(crate) fn of(did: &str, record: Option<&RoomRecord>) -> Self {
+        let seed = record
+            .and_then(crate::pds::find_terrain_config)
+            .map_or_else(|| fnv1a_64(did), |terrain| terrain.seed);
+        RoomScene {
+            did: did.to_owned(),
+            seed,
+        }
+    }
+
+    /// The room `did`'s own seed draws.
+    #[cfg(test)]
+    pub(crate) fn for_did(did: &str) -> Self {
+        RoomScene {
+            did: did.to_owned(),
+            seed: fnv1a_64(did),
+        }
+    }
+
+    /// The room's theme and its prosperity and escalation: the lot layer's,
+    /// a theme with no landmark yet borrowing the settlements' fallback.
+    pub(crate) fn theme(&self) -> (ThemeArchetype, (f32, f32)) {
+        let scene = SceneCharacter::for_seed(self.seed);
+        let theme = if entries_for(scene.theme, StructureRole::Landmark)
+            .next()
+            .is_some()
+        {
+            scene.theme
+        } else {
+            FALLBACK_THEME
+        };
+        (theme, (scene.prosperity, scene.escalation))
+    }
 }
 
 /// The entries of `role` the room grows, smallest first (by [`radius`],
@@ -125,12 +160,12 @@ pub(crate) fn footing(x: f32, z: f32, reach: f32, ground: &dyn Fn(f32, f32) -> f
     .fold(f32::INFINITY, f32::min)
 }
 
-/// A DID whose room grows `theme`'s buildings.
+/// A DID whose own room grows `theme`'s buildings.
 #[cfg(test)]
 pub(crate) fn did_of(theme: ThemeArchetype) -> String {
     (0..10_000)
         .map(|i| format!("did:plc:derived{i}"))
-        .find(|did| room_theme(did).0 == theme)
+        .find(|did| RoomScene::for_did(did).theme().0 == theme)
         .expect("a DID of the theme")
 }
 
