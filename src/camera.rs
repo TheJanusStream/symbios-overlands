@@ -305,7 +305,7 @@ pub(crate) fn clear_of_terrain(
     }
     let dir = offset / dist;
     // The ground as drawn, a Berlin region's far field included (#1585).
-    let ground = |x: f32, z: f32| hm.view_height_at(x, z);
+    let ground = |x: f32, z: f32| hm.world_height_at(x, z);
     let clamped = match settings.camera_ground_avoidance {
         CameraGroundAvoidance::Off => dist,
         CameraGroundAvoidance::CameraOnly => {

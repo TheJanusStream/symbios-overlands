@@ -574,7 +574,7 @@ pub(crate) fn write_transform_into_placement(
                 // For a placement the compile did not move, the two x/z
                 // are the same numbers.
                 translation[1] -= crate::world_builder::snapped_ground_y(
-                    &hm.0,
+                    hm,
                     drag_start.translation.x,
                     drag_start.translation.z,
                     radius,
@@ -597,7 +597,7 @@ pub(crate) fn write_transform_into_placement(
                 // toggle, #700). Grid anchors are point-like, so `radius`
                 // is `None` and this is the plain centre sample.
                 translation[1] = crate::world_builder::snapped_ground_y(
-                    &hm.0,
+                    hm,
                     translation[0],
                     translation[2],
                     radius,
@@ -735,7 +735,7 @@ mod tests {
         // The anchor the compile spawns at (x, z): its own ground reading
         // plus the offset.
         let drawn_at = |x: f32, z: f32| {
-            Transform::from_xyz(x, snapped_ground_y(&hm.0, x, z, radius) + OFFSET, z)
+            Transform::from_xyz(x, snapped_ground_y(&hm, x, z, radius) + OFFSET, z)
         };
         // Two metres along the ground, no lift.
         let sideways = |start: &Transform| {
@@ -761,7 +761,7 @@ mod tests {
             committed(&start).map(f32::to_bits),
             [
                 released.x,
-                released.y - snapped_ground_y(&hm.0, rx, rz, radius),
+                released.y - snapped_ground_y(&hm, rx, rz, radius),
                 released.z
             ]
             .map(f32::to_bits),

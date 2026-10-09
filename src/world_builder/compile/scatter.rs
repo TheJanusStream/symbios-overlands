@@ -360,21 +360,14 @@ impl ScatterPreview {
 /// Terrain steepness at a world XZ, as `1 - normal.y` - the same measure
 /// [`dominant_biome`] scores the splat rules against, so a scatter's slope
 /// cutoff and its biome allow-list are talking about the same quantity.
-/// `0` is dead flat, `1` is a vertical face.
+/// `0` is dead flat, `1` is a vertical face. Read from the ground as drawn,
+/// a Berlin region's walked far field past the core included (P4.1).
 pub(crate) fn terrain_slope_at(
-    hm: &bevy_symbios_ground::HeightMap,
+    heightmap: &crate::terrain::FinishedHeightMap,
     world_x: f32,
     world_z: f32,
 ) -> f32 {
-    // Normal sampling reads the raw heightmap frame; mirror the world→map
-    // shift that `world_height_at` applies to the height.
-    let extent = (hm.width() - 1) as f32 * hm.scale();
-    let half = extent * 0.5;
-    let normal = hm.get_normal_at(
-        (world_x + half).clamp(0.0, extent),
-        (world_z + half).clamp(0.0, extent),
-    );
-    (1.0 - normal[1]).max(0.0)
+    (1.0 - heightmap.normal_at(world_x, world_z).y).max(0.0)
 }
 
 /// Convert [`ScatterNaturalness::max_slope_deg`] into the `1 - normal.y`
@@ -510,7 +503,6 @@ pub(crate) fn try_sample(
         return unconstrained.then_some((world_x, 0.0, world_z));
     };
 
-    let hm = &hm_res.0;
     let y = hm_res.world_height_at(world_x, world_z);
 
     // Microbiome bands (#913). Checked before the slope work because they
@@ -541,7 +533,7 @@ pub(crate) fn try_sample(
     // splat layer) and the explicit cutoff - so sample it once, and only if
     // one of them is going to read it.
     let slope = (!filters.biome_filter.is_noop() || filters.slope_cutoff.is_some())
-        .then(|| terrain_slope_at(hm, world_x, world_z));
+        .then(|| terrain_slope_at(hm_res, world_x, world_z));
     if !filters
         .slope_cutoff
         .is_none_or(|cutoff| slope.is_some_and(|s| s <= cutoff))

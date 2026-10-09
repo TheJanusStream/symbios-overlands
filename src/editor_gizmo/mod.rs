@@ -1042,7 +1042,8 @@ pub(super) struct ScenePick<'w, 's> {
         Query<'w, 's, (&'static Camera, &'static GlobalTransform), crate::camera::IsWorldCamera>,
     raycast: MeshRayCast<'w, 's>,
     spatial: SpatialQuery<'w, 's>,
-    terrain: Query<'w, 's, Entity, With<crate::terrain::TerrainMesh>>,
+    /// The ground: the core's terrain and the far field past it (P4.1).
+    terrain: Query<'w, 's, Entity, crate::terrain::GroundFilter>,
     /// A Berlin region's derived items, for the colliders that name them
     /// (#1590).
     derived: Query<'w, 's, &'static crate::terrain::derived::DerivedItem>,

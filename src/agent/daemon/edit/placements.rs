@@ -339,7 +339,7 @@ fn moved_height(
             ..
         } => {
             let radius = snap_footprint_radius(placement);
-            let ground = |x: f32, z: f32| snapped_ground_y(&heightmap.0, x, z, radius);
+            let ground = |x: f32, z: f32| snapped_ground_y(heightmap, x, z, radius);
             start.translation.y + ground(to.x, to.y)
                 - ground(start.translation.x, start.translation.z)
         }
@@ -550,7 +550,7 @@ mod tests {
     fn drawn(app: &mut App, placement: Placement, lift: f32) -> usize {
         let at = Vec3::from_array(translation(&placement));
         let radius = snap_footprint_radius(&placement);
-        let ground = snapped_ground_y(&slope().0, at.x, at.z, radius);
+        let ground = snapped_ground_y(&slope(), at.x, at.z, radius);
         let world = app.world_mut();
         let mut live = world.resource_mut::<LiveRoomRecord>();
         live.0.placements.push(placement);

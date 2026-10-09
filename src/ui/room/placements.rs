@@ -1741,7 +1741,7 @@ mod tests {
 
         // Control: recorded on dry ground, so never walked - the ground
         // under it baked into Y, to the bit what it always was.
-        let ground = snapped_ground_y(&hm.0, 44.0, 0.0, Some(3.0));
+        let ground = snapped_ground_y(&hm, 44.0, 0.0, Some(3.0));
         let before = [44.0, -0.35 + ground, 0.0];
         let after = snapped_off(landmark(44.0));
         assert_eq!(

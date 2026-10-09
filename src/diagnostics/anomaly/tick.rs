@@ -176,17 +176,10 @@ fn diagnostic_tick(
     let player_pos = player_q.iter().next().map(|t| t.translation);
     let player_y = player_pos.map(|p| p.y);
     // Terrain height under the player, for the fell-through-terrain rule -
-    // the same clamped heightmap sample `respawn_if_fallen` reads (#672).
+    // the same sample `respawn_if_fallen` reads (#672): the ground as
+    // drawn, a Berlin region's far field past the core (P4.1, #1596).
     let ground_y = match (player_pos, hm_res.as_ref()) {
-        (Some(p), Some(hm_res)) => {
-            let hm = &hm_res.0;
-            let extent = (hm.width() - 1) as f32 * hm.scale();
-            let half = extent * 0.5;
-            Some(hm.get_height_at(
-                (p.x + half).clamp(0.0, extent),
-                (p.z + half).clamp(0.0, extent),
-            ))
-        }
+        (Some(p), Some(hm_res)) => Some(hm_res.world_height_at(p.x, p.z)),
         _ => None,
     };
     // Bound cost: this is a 1 Hz scan of physics-body transforms only.

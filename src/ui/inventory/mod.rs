@@ -39,7 +39,7 @@ pub(crate) use drop::choose_room_generator_key;
 /// Unix-only like the agent.
 #[cfg(unix)]
 pub(crate) use drop::{GiftSending, gift_contents, send_gift_offer};
-pub use drop::{handle_generator_drop, preview_generator_drop};
+pub(crate) use drop::{handle_generator_drop, preview_generator_drop};
 
 use browser::{PaneItem, RowGesture, RowKind, apply_row_gesture, draw_pane, stash_row};
 

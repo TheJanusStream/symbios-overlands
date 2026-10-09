@@ -26,7 +26,8 @@
 //!    forms ([`bake`]) and the template despawned. A building whose parts
 //!    cannot all be merged per material keeps its tree for its near copies.
 //! 3. **Copies**: each copy, near while its plan's entity budget lasts and
-//!    far past it, on its collider where it stands on the walkable ground.
+//!    far past it, on its collider - the ring's too, since P4.1 (#1596)
+//!    walks the ground round the core.
 //!
 //! A slice is [`SLICE_MS`] and a few steps of each stage at most: a step
 //! runs to its end once begun, and the spawns it queues are applied after
@@ -153,6 +154,12 @@ pub(crate) struct DerivedBuilds {
     far_material: Option<Handle<StandardMaterial>>,
     /// The items the record's edits keep from being drawn (#1590).
     suppressed: HashSet<SourceId>,
+    /// The ring's items a detail patch stands over (P4.2, #1597): its own
+    /// street level is drawn there, so they are not, while it stands.
+    covered: HashSet<SourceId>,
+    /// Where the detail patch's plans begin: the plans before are the
+    /// walkable core's and the ring's, the rest the patch's.
+    patch_from: usize,
     /// Copies to draw again, `(plan, copy)`: restored since the spawn
     /// passed them suppressed.
     restores: Vec<(usize, usize)>,
@@ -164,11 +171,122 @@ impl DerivedBuilds {
     fn new(terrain: Entity, builds: Vec<Build>, suppressed: HashSet<SourceId>) -> Self {
         DerivedBuilds {
             terrain,
+            patch_from: builds.len(),
             builds,
             next: 0,
             far_material: None,
             suppressed,
+            covered: HashSet::new(),
             restores: Vec::new(),
+        }
+    }
+
+    /// No plans on `terrain` yet, `suppressed` kept from being drawn: where
+    /// a detail patch lands on a terrain whose core drew none (P4.2).
+    pub(crate) fn empty(terrain: Entity, suppressed: HashSet<SourceId>) -> Self {
+        Self::new(terrain, Vec::new(), suppressed)
+    }
+
+    /// The terrain root the plans belong to.
+    pub(crate) fn terrain(&self) -> Entity {
+        self.terrain
+    }
+
+    /// Whether `id` is kept from being drawn: suppressed by the record, or
+    /// covered by a detail patch.
+    fn hidden(&self, id: &SourceId) -> bool {
+        self.suppressed.contains(id) || self.covered.contains(id)
+    }
+
+    /// Put a detail patch's plans (P4.2, #1597), each with the root its
+    /// copies hang under, in place of the last patch's - whose roots go
+    /// with that patch - and spawn them after the core's and the ring's.
+    pub(crate) fn set_patch(&mut self, plans: Vec<(plan::Plan, Entity)>) {
+        let from = self.patch_from;
+        self.builds.truncate(from);
+        self.restores.retain(|&(b, _)| b < from);
+        self.next = self.next.min(from);
+        self.builds.extend(
+            plans
+                .into_iter()
+                .filter(|(plan, _)| !plan.copies.is_empty())
+                .map(|(plan, root)| Build::new(plan, root)),
+        );
+    }
+
+    /// The ring's items standing within `rect` - world `(x, z)` - grown by
+    /// `margin` (m): what a detail patch there covers.
+    pub(crate) fn ring_items_within(
+        &self,
+        rect: bevy::math::Rect,
+        margin: f32,
+    ) -> HashSet<SourceId> {
+        let rect = rect.inflate(margin);
+        self.builds[..self.patch_from]
+            .iter()
+            .flat_map(|build| &build.plan.copies)
+            .filter(|copy| {
+                copy.source.layer == SourceLayer::RingLot
+                    && rect.contains(copy.pose.translation.xz())
+            })
+            .map(|copy| copy.source.clone())
+            .collect()
+    }
+
+    /// Cover `covered` of the ring's items (P4.2, #1597) in place of those
+    /// covered before: the newly covered have their entities despawned and
+    /// what they cost given back, the uncovered are drawn again - each
+    /// unless the record suppresses it.
+    pub(crate) fn cover(
+        &mut self,
+        covered: HashSet<SourceId>,
+        commands: &mut Commands,
+        items: &Query<(Entity, &DerivedItem)>,
+    ) {
+        if covered == self.covered {
+            return;
+        }
+        let gone: HashSet<SourceId> = covered
+            .difference(&self.covered)
+            .filter(|id| !self.suppressed.contains(*id))
+            .cloned()
+            .collect();
+        let back: HashSet<SourceId> = self
+            .covered
+            .difference(&covered)
+            .filter(|id| !self.suppressed.contains(*id))
+            .cloned()
+            .collect();
+        self.covered = covered;
+        self.hide_and_restore(&gone, &back, commands, items);
+    }
+
+    /// Despawn the entities of the items in `gone`, giving back what their
+    /// copies cost their plans; draw again the copies of those in `back`,
+    /// now where the spawn has passed them, else when it reaches them.
+    fn hide_and_restore(
+        &mut self,
+        gone: &HashSet<SourceId>,
+        back: &HashSet<SourceId>,
+        commands: &mut Commands,
+        items: &Query<(Entity, &DerivedItem)>,
+    ) {
+        if !gone.is_empty() {
+            for (entity, item) in items {
+                if gone.contains(&item.0) {
+                    commands.entity(entity).despawn();
+                }
+            }
+        }
+        for (b, build) in self.builds.iter_mut().enumerate() {
+            for c in 0..build.plan.copies.len() {
+                let source = &build.plan.copies[c].source;
+                if gone.contains(source) {
+                    build.take_back(c);
+                } else if back.contains(source) && build.reached(c) {
+                    self.restores.push((b, c));
+                }
+            }
         }
     }
 
@@ -275,13 +393,18 @@ pub(super) fn start_derived(
     let record = record.as_deref().map(|record| &record.0);
     // The room as its record was rolled: its theme dresses Berlin (#1589).
     let room = fit::RoomScene::of(did, record);
+    // What the record keeps for its own: nothing derived stands on it, on
+    // the walkable ground or - walked since P4.1 (#1596) - in the ring.
+    let kept = core::kept_for(record, &heightmap);
     let mut plans = Vec::new();
     if let Some(level) = ground.street_level() {
-        plans.extend(core::draw_core(level, &room, record, &heightmap));
+        plans.extend(core::draw_core(level, &room, &kept, &|x, z| {
+            heightmap.world_height_at(x, z)
+        }));
     }
     if let Some(ring) = ground.ring() {
-        plans.push(ring::draw_ring(ring.lots(), &room, &|x, z| {
-            heightmap.view_height_at(x, z)
+        plans.push(ring::draw_ring(ring.lots(), &room, &kept, &|x, z| {
+            heightmap.world_height_at(x, z)
         }));
     }
     plans.retain(|plan| !plan.copies.is_empty());
@@ -348,10 +471,9 @@ pub(super) fn spawn_derived(
     let out_of_time = || started.elapsed().as_secs_f64() * 1_000.0 >= SLICE_MS;
     let builds = &mut *builds;
     for (b, c) in std::mem::take(&mut builds.restores) {
+        let hidden = builds.hidden(&builds.builds[b].plan.copies[c].source);
         let build = &mut builds.builds[b];
-        if builds.suppressed.contains(&build.plan.copies[c].source)
-            || build.drawn[c] != plan::Drawn::No
-        {
+        if hidden || build.drawn[c] != plan::Drawn::No {
             continue;
         }
         let far_material = builds
@@ -420,7 +542,8 @@ pub(super) fn spawn_derived(
                     return;
                 }
                 build.stage = Stage::Copies(c + 1);
-                if builds.suppressed.contains(&build.plan.copies[c].source) {
+                let source = &build.plan.copies[c].source;
+                if builds.suppressed.contains(source) || builds.covered.contains(source) {
                     continue;
                 }
                 steps += 1;
@@ -470,26 +593,20 @@ pub(super) fn apply_derived_edits(
         return;
     }
     let builds = &mut *builds;
-    let gone: HashSet<SourceId> = wanted.difference(&builds.suppressed).cloned().collect();
-    let back: HashSet<SourceId> = builds.suppressed.difference(&wanted).cloned().collect();
-    if !gone.is_empty() {
-        for (entity, item) in &items {
-            if gone.contains(&item.0) {
-                commands.entity(entity).despawn();
-            }
-        }
-    }
-    for (b, build) in builds.builds.iter_mut().enumerate() {
-        for c in 0..build.plan.copies.len() {
-            let source = &build.plan.copies[c].source;
-            if gone.contains(source) {
-                build.take_back(c);
-            } else if back.contains(source) && build.reached(c) {
-                builds.restores.push((b, c));
-            }
-        }
-    }
+    // An item a detail patch covers is not drawn either way (P4.2).
+    let gone: HashSet<SourceId> = wanted
+        .difference(&builds.suppressed)
+        .filter(|id| !builds.covered.contains(*id))
+        .cloned()
+        .collect();
+    let back: HashSet<SourceId> = builds
+        .suppressed
+        .difference(&wanted)
+        .filter(|id| !builds.covered.contains(*id))
+        .cloned()
+        .collect();
     builds.suppressed = wanted;
+    builds.hide_and_restore(&gone, &back, &mut commands, &items);
 }
 
 #[cfg(test)]
@@ -678,16 +795,25 @@ mod tests {
         let plan = ring::draw_ring(
             &lots,
             &fit::RoomScene::for_did(&did_of(ThemeArchetype::ModernCity)),
+            &core::Kept::nothing(),
             &|_, _| 30.0,
         );
         let (_, roots) = building(&mut app, vec![plan]);
         run_to_done(&mut app);
         let world = app.world_mut();
-        let children: Vec<Entity> = world
+        // Every copy stands on its shell (P4.1, #1596): one collider each,
+        // apart from the parts drawn.
+        let (shells, children): (Vec<Entity>, Vec<Entity>) = world
             .get::<Children>(roots[0])
             .expect("the ring has buildings")
             .iter()
-            .collect();
+            .partition(|child| world.get::<Collider>(*child).is_some());
+        assert_eq!(shells.len(), 24, "a shell under every copy drawn");
+        assert!(
+            shells
+                .iter()
+                .all(|shell| world.get::<Mesh3d>(*shell).is_none())
+        );
         let (mut near, mut far) = (Vec::new(), Vec::new());
         for child in &children {
             assert!(
@@ -695,10 +821,6 @@ mod tests {
                 "a part, not a template"
             );
             assert!(world.get::<Mesh3d>(*child).is_some());
-            assert!(
-                world.get::<Collider>(*child).is_none(),
-                "no one walks there"
-            );
             let item = world.get::<DerivedItem>(*child).expect("named by its lot");
             assert_eq!(item.0.layer, SourceLayer::RingLot);
             let t = world.get::<Transform>(*child).unwrap().translation;
@@ -748,8 +870,8 @@ mod tests {
         let plans = core::draw_core(
             &street_level(),
             &fit::RoomScene::for_did(&lit_city()),
-            None,
-            &heightmap,
+            &core::kept_for(None, &heightmap),
+            &|x, z| heightmap.world_height_at(x, z),
         );
         assert_eq!(
             plans.iter().map(|p| p.label).collect::<Vec<_>>(),
@@ -840,6 +962,7 @@ mod tests {
         let plan = ring::draw_ring(
             &lots,
             &fit::RoomScene::for_did(&did_of(ThemeArchetype::ModernCity)),
+            &core::Kept::nothing(),
             &|_, _| 30.0,
         );
         let (terrain, _) = building(&mut app, vec![plan]);
@@ -890,8 +1013,8 @@ mod tests {
         core::draw_core(
             &street_level(),
             &fit::RoomScene::for_did(&lit_city()),
-            None,
-            &heightmap,
+            &core::kept_for(None, &heightmap),
+            &|x, z| heightmap.world_height_at(x, z),
         )
     }
 
@@ -1152,6 +1275,95 @@ mod tests {
         app.update();
         let builds = app.world().resource::<DerivedBuilds>();
         assert_ne!(builds.pick(ray, |_| true).map(|(id, _)| id), Some(tree));
+    }
+
+    /// Stand a detail patch over `rect` with `plans` (P4.2), as its landing
+    /// does: its plans in place of the last patch's, the ring's lots under
+    /// it covered.
+    fn stand_patch(app: &mut App, plans: Vec<Plan>, rect: bevy::math::Rect) {
+        use bevy::ecs::system::RunSystemOnce;
+        let world = app.world_mut();
+        let terrain = world.resource::<DerivedBuilds>().terrain();
+        let rooted: Vec<(Plan, Entity)> = plans
+            .into_iter()
+            .map(|plan| {
+                let root = world
+                    .spawn((
+                        DerivedRoot(plan.label),
+                        Transform::IDENTITY,
+                        Visibility::default(),
+                        ChildOf(terrain),
+                    ))
+                    .id();
+                (plan, root)
+            })
+            .collect();
+        let mut rooted = Some(rooted);
+        world
+            .run_system_once(
+                move |mut commands: Commands,
+                      mut builds: ResMut<DerivedBuilds>,
+                      items: Query<(Entity, &DerivedItem)>| {
+                    builds.set_patch(rooted.take().unwrap_or_default());
+                    let covered = builds.ring_items_within(rect, 15.0);
+                    builds.cover(covered, &mut commands, &items);
+                },
+            )
+            .expect("stands");
+    }
+
+    /// P4.2 (#1597): a detail patch's plans spawn after the ring's and
+    /// replace the last patch's alone, and the ring's lots under a patch
+    /// are not drawn while it stands - drawn again once it moves on.
+    #[test]
+    fn a_patch_covers_the_ring_under_it_and_replaces_the_last_patch() {
+        let mut app = derived_app();
+        let lots: Vec<RingLot> = (0..12)
+            .map(|i| lot(i as f32 * 30.0, 0.0, 12.0, 20.0))
+            .collect();
+        let ring = ring::draw_ring(
+            &lots,
+            &fit::RoomScene::for_did(&did_of(ThemeArchetype::ModernCity)),
+            &core::Kept::nothing(),
+            &|_, _| 30.0,
+        );
+        building(&mut app, vec![ring]);
+        run_to_done(&mut app);
+        let drawn = |app: &mut App, layer: SourceLayer| {
+            drawn_items(app)
+                .into_iter()
+                .filter(|id| id.layer == layer)
+                .count()
+        };
+        assert_eq!(drawn(&mut app, SourceLayer::RingLot), 12);
+
+        // Over the lots from x = 180 on (165 with half a lot): six go, and
+        // the patch's own street level is drawn after the ring.
+        let over = |from: f32| bevy::math::Rect::new(from, -100.0, from + 300.0, 100.0);
+        stand_patch(&mut app, core_plans(), over(180.0));
+        run_to_done(&mut app);
+        assert_eq!(drawn(&mut app, SourceLayer::RingLot), 6);
+        assert_eq!(drawn(&mut app, SourceLayer::Building), 1);
+        assert_eq!(drawn(&mut app, SourceLayer::Tree), 1);
+        let labels: Vec<&str> = app
+            .world()
+            .resource::<DerivedBuilds>()
+            .builds()
+            .iter()
+            .map(|b| b.plan().label)
+            .collect();
+        assert_eq!(
+            labels,
+            ["ring", "core buildings", "core trees", "core furniture"]
+        );
+
+        // The next patch, further on, with nothing of its own drawn: the
+        // last patch's plans go, and the lots it alone covered come back.
+        stand_patch(&mut app, Vec::new(), over(270.0));
+        run_to_done(&mut app);
+        let builds = app.world().resource::<DerivedBuilds>();
+        assert_eq!(builds.builds().len(), 1, "the ring's plan alone");
+        assert_eq!(drawn(&mut app, SourceLayer::RingLot), 9);
     }
 
     #[test]

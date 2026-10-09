@@ -49,6 +49,11 @@
 //! water and off the street space the land use leaves, and where the
 //! anchor's bearing finds none, to the nearest. Every site reads the
 //! ground through an [`AnchorGround`], so they agree there too.
+//!
+//! Past the core's edge a Berlin region's far field is walked (P4.1,
+//! #1596), and an owner may build there: the ground a placement rests on is
+//! the ground as drawn ([`crate::terrain::ground_height`]), the far field
+//! past the core.
 
 use bevy::math::Vec3;
 
@@ -64,6 +69,12 @@ pub(crate) struct AnchorGround<'a> {
 }
 
 impl<'a> AnchorGround<'a> {
+    /// The far field past the core, walked since P4.1 (#1596).
+    pub(crate) fn far(&self) -> Option<&'a crate::terrain::geo::far::FarField> {
+        self.berlin
+            .and_then(|ground| ground.far().map(|far| &**far))
+    }
+
     /// `heightmap`'s ground, under the room's water line `water_y`.
     pub(crate) fn new(
         heightmap: &'a crate::terrain::FinishedHeightMap,
@@ -118,19 +129,32 @@ fn snap_radius_of(avoid_water: bool, clearance: f32, scale_x: f32) -> Option<f32
 }
 
 /// The ground a snapped placement sits on - the single reading every
-/// consumer must use (see the module docs).
+/// consumer must use (see the module docs) - on `heightmap`, the far field
+/// past its core included (P4.1, #1596).
 ///
 /// `radius` comes from [`snap_footprint_radius`]; `None` gives the plain
 /// centre sample a point-like placement wants.
 pub fn snapped_ground_y(
+    heightmap: &crate::terrain::FinishedHeightMap,
+    x: f32,
+    z: f32,
+    radius: Option<f32>,
+) -> f32 {
+    ground_y_over(&heightmap.0, heightmap.far(), x, z, radius)
+}
+
+/// [`snapped_ground_y`] over the core `hm` and the far field `far` past
+/// its edge.
+pub(crate) fn ground_y_over(
     hm: &bevy_symbios_ground::HeightMap,
+    far: Option<&crate::terrain::geo::far::FarField>,
     x: f32,
     z: f32,
     radius: Option<f32>,
 ) -> f32 {
     let extent = (hm.width().saturating_sub(1)) as f32 * hm.scale();
     let half = extent * 0.5;
-    footprint_height(hm, extent, half, x, z, radius.unwrap_or(0.0))
+    footprint_height(hm, far, extent, half, x, z, radius.unwrap_or(0.0))
 }
 
 /// The dry disc a snapped placement's relocation must clear, or `None`
@@ -148,7 +172,7 @@ pub(super) fn relocation_clearance(avoid_water: bool, clearance: f32, scale_x: f
 /// Berlin's ground, to open dry ground (#1589) - then off over-steep
 /// ground (#905), along its bearing through the origin. Moves X/Z only.
 /// `clearance` comes from [`relocation_clearance`]; a placement without one
-/// is never walked.
+/// is never walked, and nor is one past the core on a far field (P4.1).
 pub(super) fn relocate_snapped_anchor(
     ground: &AnchorGround<'_>,
     translation: &mut Vec3,
@@ -157,6 +181,11 @@ pub(super) fn relocate_snapped_anchor(
     let hm = ground.hm;
     let extent = (hm.width().saturating_sub(1)) as f32 * hm.scale();
     let half = extent * 0.5;
+    // Past the core, on a Berlin region's walked far field (P4.1, #1596),
+    // an anchor stands where it was put: both walks read the core alone.
+    if ground.far().is_some() && (translation.x.abs() > half || translation.z.abs() > half) {
+        return;
+    }
     let steep = |translation: &mut Vec3| {
         super::slope::relocate_off_steep_ground(
             hm,
@@ -225,29 +254,28 @@ pub(crate) fn snapped_absolute_anchor(
         relocate_snapped_anchor(ground, &mut anchor, clearance);
     }
     let radius = snap_radius_of(avoid_water, avoid_water_clearance, scale_x);
-    anchor.y += snapped_ground_y(ground.hm, anchor.x, anchor.z, radius);
+    anchor.y += ground_y_over(ground.hm, ground.far(), anchor.x, anchor.z, radius);
     anchor
 }
 
 /// Height of the ground a footprint of `radius` centred on `(x, z)` rests
-/// on: the highest terrain under the building.
+/// on: the highest terrain under the building - the core `hm`'s, and past
+/// its edge the far field `far`'s, as drawn (P4.1) - its detail patch's
+/// where one has loaded (P4.2).
 ///
 /// Falls back to the plain centre sample for a non-positive or
 /// non-finite radius, which is also what a point-like placement wants.
 pub(super) fn footprint_height(
     hm: &bevy_symbios_ground::HeightMap,
+    far: Option<&crate::terrain::geo::far::FarField>,
     extent: f32,
     half: f32,
     x: f32,
     z: f32,
     radius: f32,
 ) -> f32 {
-    let sample = |px: f32, pz: f32| {
-        hm.get_height_at(
-            (px + half).clamp(0.0, extent),
-            (pz + half).clamp(0.0, extent),
-        )
-    };
+    debug_assert_eq!(extent, (hm.width().saturating_sub(1)) as f32 * hm.scale());
+    let sample = |px: f32, pz: f32| crate::terrain::ground_height(hm, far, px, pz);
     let mut highest = sample(x, z);
     // NaN is caught by the finite check before the comparison sees it.
     if !radius.is_finite() || radius <= 0.0 {
@@ -266,11 +294,12 @@ pub(super) fn footprint_height(
         ));
     }
 
-    // The interior, at the grid vertices themselves. Between its
+    // The interior, at the core's grid vertices themselves. Between its
     // vertices the map is bilinear, which attains no interior maximum of
     // its own - so the vertices inside the disc, plus the rim above, are
     // the whole story. Sampling *at* a vertex makes the bilinear filter
-    // return that vertex's value exactly.
+    // return that vertex's value exactly. Past the core the far field's
+    // mesh is the ground, and the same holds of its vertices, below.
     let cell = hm.scale().max(1e-3);
     let vertex = |i: usize| i as f32 * cell - half;
     let index_of = |w: f32| (w + half) / cell;
@@ -293,6 +322,33 @@ pub(super) fn footprint_height(
             let dx = vertex(ix) - x;
             if dx * dx + dz * dz <= r2 {
                 highest = highest.max(hm.get(ix, iz));
+            }
+        }
+    }
+    // Past the core (P4.1, #1596): the far mesh's vertices inside the disc.
+    // Its pixels run from about 17 m to 74 m, and its cells along the core
+    // as narrow as a quarter of one, so a vertex can stand inside any
+    // footprint; between its vertices the mesh is planar triangles, which
+    // keep their maximum at a vertex or on the rim. Where a detail patch has
+    // loaded (P4.2, #1597), its points inside the disc as well, read as the
+    // core's are; a far vertex on the patch reads the patch.
+    if let Some(far) = far
+        && (x.abs() + radius > half || z.abs() + radius > half)
+    {
+        if let Some(top) = far
+            .patch()
+            .with(|patch| patch.and_then(|patch| patch.highest_point_within(x, z, radius)))
+        {
+            highest = highest.max(top);
+        }
+        let columns: Vec<f32> = far.lines_within(half, x - radius, x + radius).collect();
+        for lz in far.lines_within(half, z - radius, z + radius) {
+            let dz = lz - z;
+            for &lx in &columns {
+                let dx = lx - x;
+                if dx * dx + dz * dz <= r2 && (lx.abs() > half || lz.abs() > half) {
+                    highest = highest.max(crate::terrain::ground_height(hm, Some(far), lx, lz));
+                }
             }
         }
     }
@@ -343,7 +399,7 @@ mod tests {
     #[test]
     fn flat_ground_resolves_to_the_plain_sample() {
         let hm = map_from(|_, _| 7.5);
-        let y = footprint_height(&hm, EXTENT, HALF, 3.0, -11.0, 8.0);
+        let y = footprint_height(&hm, None, EXTENT, HALF, 3.0, -11.0, 8.0);
         assert!((y - 7.5).abs() < 1e-4, "{y}");
     }
 
@@ -353,7 +409,7 @@ mod tests {
         // the editor-placement / point-object path.
         let hm = map_from(|x, _| x);
         for radius in [0.0, -3.0, f32::NAN] {
-            let y = footprint_height(&hm, EXTENT, HALF, 10.0, 0.0, radius);
+            let y = footprint_height(&hm, None, EXTENT, HALF, 10.0, 0.0, radius);
             assert!((y - 10.0).abs() < 1e-4, "radius {radius} gave {y}");
         }
     }
@@ -367,7 +423,7 @@ mod tests {
         let hm = map_from(|x, z| 0.3 * x + 2.0 * (-(z * z) / 50.0).exp());
         let (cx, cz) = (5.0, -4.0);
         let radius = 9.0;
-        let floor = footprint_height(&hm, EXTENT, HALF, cx, cz, radius);
+        let floor = footprint_height(&hm, None, EXTENT, HALF, cx, cz, radius);
 
         // Dense independent sweep of the disc - not the sample pattern.
         for i in 0..64 {
@@ -398,7 +454,7 @@ mod tests {
             "fixture should bury the uphill edge: {uphill} vs {centre_only}"
         );
 
-        let floor = footprint_height(&hm, EXTENT, HALF, cx, cz, radius);
+        let floor = footprint_height(&hm, None, EXTENT, HALF, cx, cz, radius);
         assert!(
             floor >= uphill - 0.02,
             "resolved floor {floor} still sits below the uphill edge {uphill}"
@@ -412,7 +468,7 @@ mod tests {
         let hm = map_from(|x, z| ((x * 0.2).sin() * 3.0) + ((z * 0.15).cos() * 2.0));
         for (cx, cz) in [(0.0, 0.0), (-20.0, 13.0), (31.0, -27.0), (7.0, 44.0)] {
             let centre = at(&hm, cx, cz);
-            let floor = footprint_height(&hm, EXTENT, HALF, cx, cz, 8.0);
+            let floor = footprint_height(&hm, None, EXTENT, HALF, cx, cz, 8.0);
             assert!(floor >= centre - 1e-4, "floor {floor} < centre {centre}");
         }
     }
@@ -423,7 +479,7 @@ mod tests {
     fn edge_footprints_stay_in_bounds() {
         let hm = map_from(|x, z| 0.1 * (x + z));
         for (cx, cz) in [(-63.0, 0.0), (63.0, 0.0), (0.0, -63.0), (0.0, 63.0)] {
-            let y = footprint_height(&hm, EXTENT, HALF, cx, cz, 20.0);
+            let y = footprint_height(&hm, None, EXTENT, HALF, cx, cz, 20.0);
             assert!(y.is_finite(), "({cx}, {cz}) gave {y}");
         }
     }
@@ -470,6 +526,95 @@ mod tests {
         assert_eq!(snap_footprint_radius(&hand), None);
     }
 
+    /// P4.1 (#1596): an owner may build past the core, on a Berlin region's
+    /// far field, and the snap reads the ground as drawn there - the far
+    /// field's height, footprint and all - where it used to hold the core's
+    /// edge height out to infinity.
+    #[test]
+    fn a_placement_past_the_core_rests_on_the_far_field() {
+        use crate::terrain::geo::GeoGround;
+        use crate::terrain::geo::far::FarField;
+        let core = map_from(|_, _| 30.0);
+        // A 1,280 m square whose far ground rises 0.05 m a metre eastwards.
+        let far = FarField::from_fn(32, 40.0, |x, _| 30.0 + 0.05 * x);
+        let ground = GeoGround::from_cover(129, 1.0, vec![None; 129 * 129], None).with_far(far);
+        let berlin = crate::terrain::FinishedHeightMap(core.clone(), Some(ground));
+        let bare = crate::terrain::FinishedHeightMap(core, None);
+        // 300 m east: the far field's 45 m, not the core edge's 30 m.
+        assert!((snapped_ground_y(&berlin, 300.0, 0.0, None) - 45.0).abs() < 1e-3);
+        assert_eq!(snapped_ground_y(&bare, 300.0, 0.0, None), 30.0);
+        // A footprint rests on its highest ground: its eastern rim.
+        let pad = snapped_ground_y(&berlin, 300.0, 0.0, Some(10.0));
+        assert!((pad - 45.5).abs() < 1e-3, "{pad}");
+        // On the core, nothing changes.
+        assert_eq!(
+            snapped_ground_y(&berlin, 10.0, -5.0, Some(4.0)),
+            snapped_ground_y(&bare, 10.0, -5.0, Some(4.0))
+        );
+    }
+
+    /// P4.1 (#1596): past the core a footprint rests on the highest far mesh
+    /// vertex inside it, as on the core's own: a 10 m pad round a far
+    /// hilltop whose slopes fall away under its whole rim rests on the
+    /// top, not on the rim.
+    #[test]
+    fn a_footprint_past_the_core_rests_on_the_far_vertices_inside_it() {
+        use crate::terrain::geo::GeoGround;
+        use crate::terrain::geo::far::FarField;
+        let core = map_from(|_, _| 30.0);
+        // A 1,280 m square of 40 m pixels: flat at 30 m but for one hilltop
+        // pixel centre, 50 m, at (300, -20).
+        let far = FarField::from_fn(32, 40.0, |x, z| {
+            if (x - 300.0).abs() < 1.0 && (z + 20.0).abs() < 1.0 {
+                50.0
+            } else {
+                30.0
+            }
+        });
+        let ground = GeoGround::from_cover(129, 1.0, vec![None; 129 * 129], None).with_far(far);
+        let berlin = crate::terrain::FinishedHeightMap(core, Some(ground));
+        let pad = snapped_ground_y(&berlin, 304.0, -20.0, Some(10.0));
+        assert!((pad - 50.0).abs() < 1e-3, "on the hilltop: {pad}");
+        // Its rim alone stands lower: the top is what holds it up.
+        let rim = snapped_ground_y(&berlin, 304.0, -20.0 + 10.0, None);
+        assert!(rim < 46.0, "the rim at {rim}");
+    }
+
+    /// P4.2 (#1597): on a detail patch past the core, a footprint rests on
+    /// the highest of the patch's own points inside it, as on the core's: a
+    /// 5 m pad beside a 10 m spike whose slopes reach neither its centre
+    /// nor its rim rests on the spike.
+    #[test]
+    fn a_footprint_on_a_patch_rests_on_its_points_inside_it() {
+        use crate::terrain::geo::GeoGround;
+        use crate::terrain::geo::far::FarField;
+        use crate::terrain::geo::patch::{Lattice, PatchGround, PatchPlan};
+        let core = map_from(|_, _| 30.0);
+        let far = FarField::from_fn(32, 40.0, |_, _| 30.0);
+        let ground = GeoGround::from_cover(129, 1.0, vec![None; 129 * 129], None).with_far(far);
+        let berlin = crate::terrain::FinishedHeightMap(core.clone(), Some(ground));
+        // East of the core, 100 m a side, flat but for one point at
+        // (114, -14), 40 m.
+        let plan = PatchPlan {
+            x0: 128,
+            z0: 0,
+            cells: 100,
+        };
+        let mut heights = bevy_symbios_ground::HeightMap::new(101, 101, 1.0);
+        heights.data_mut().fill(30.0);
+        heights.set(50, 50, 40.0);
+        let patch = PatchGround::from_heights(plan, Lattice::of(&core), heights, None);
+        assert_eq!(snapped_ground_y(&berlin, 116.0, -14.0, Some(5.0)), 30.0);
+        berlin
+            .far()
+            .expect("its far field")
+            .patch()
+            .set(Some(std::sync::Arc::new(patch)));
+        let pad = snapped_ground_y(&berlin, 116.0, -14.0, Some(5.0));
+        assert!((pad - 40.0).abs() < 1e-4, "on the spike: {pad}");
+        assert_eq!(snapped_ground_y(&berlin, 116.0, -14.0, None), 30.0);
+    }
+
     /// The invariant that keeps a drag from ratcheting (#1011): the
     /// ground a drag commit subtracts is the same one the compile adds
     /// back, so re-committing an unmoved placement is a fixpoint.
@@ -484,11 +629,12 @@ mod tests {
         let radius = Some(9.0);
 
         // What the compile renders at, for a stored offset of -0.35.
-        let ground = footprint_height(&hm, EXTENT, HALF, x, z, 9.0);
+        let ground = footprint_height(&hm, None, EXTENT, HALF, x, z, 9.0);
         let world_y = ground + -0.35;
 
         // What a drag commit stores back, having not moved the placement.
-        let offset = world_y - super::snapped_ground_y(&hm, x, z, radius);
+        let finished = crate::terrain::FinishedHeightMap(hm.clone(), None);
+        let offset = world_y - super::snapped_ground_y(&finished, x, z, radius);
         assert!(
             (offset - -0.35).abs() < 1e-4,
             "offset drifted to {offset} - the sites disagree"
@@ -508,9 +654,12 @@ mod tests {
     #[test]
     fn resolution_is_deterministic() {
         let hm = map_from(|x, z| (x * 0.11).sin() * (z * 0.07).cos() * 5.0);
-        let a = footprint_height(&hm, EXTENT, HALF, 12.0, -6.0, 7.0);
+        let a = footprint_height(&hm, None, EXTENT, HALF, 12.0, -6.0, 7.0);
         for _ in 0..8 {
-            assert_eq!(a, footprint_height(&hm, EXTENT, HALF, 12.0, -6.0, 7.0));
+            assert_eq!(
+                a,
+                footprint_height(&hm, None, EXTENT, HALF, 12.0, -6.0, 7.0)
+            );
         }
     }
 }

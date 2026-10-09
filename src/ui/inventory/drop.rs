@@ -18,7 +18,6 @@ use crate::diagnostics::event::EventPayload;
 use crate::pds::{Fp3, Fp4, Generator, Placement, TransformData};
 use crate::protocol::OverlandsMessage;
 use crate::state::{CurrentRoomDid, LiveInventoryRecord, LiveRoomRecord, PendingOutgoingOffers};
-use crate::terrain::TerrainMesh;
 
 use crate::pds::inventory::is_drop_placeable;
 
@@ -56,14 +55,14 @@ use super::{DropSource, PendingGeneratorDrop};
 /// the selection underneath it, against the ladder's own "one step per
 /// press" contract.
 #[allow(clippy::too_many_arguments)]
-pub fn handle_generator_drop(
+pub(crate) fn handle_generator_drop(
     mut contexts: EguiContexts,
     mut pending: ResMut<PendingGeneratorDrop>,
     mouse: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform), crate::camera::IsWorldCamera>,
     spatial: SpatialQuery,
-    terrain_q: Query<Entity, With<TerrainMesh>>,
+    terrain_q: Query<Entity, crate::terrain::GroundFilter>,
     session: Option<Res<AtprotoSession>>,
     room_did: Option<Res<CurrentRoomDid>>,
     inventory: Option<Res<LiveInventoryRecord>>,
@@ -453,14 +452,14 @@ pub(crate) fn choose_room_generator_key(
 /// Over egui areas nothing draws: the follow-cursor tooltip is the
 /// feedback there, and a release there is the cancel gesture.
 #[allow(clippy::too_many_arguments)]
-pub fn preview_generator_drop(
+pub(crate) fn preview_generator_drop(
     mut contexts: EguiContexts,
     pending: Res<PendingGeneratorDrop>,
     mut gizmos: Gizmos,
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform), crate::camera::IsWorldCamera>,
     spatial: SpatialQuery,
-    terrain_q: Query<Entity, With<TerrainMesh>>,
+    terrain_q: Query<Entity, crate::terrain::GroundFilter>,
     session: Option<Res<AtprotoSession>>,
     room_did: Option<Res<CurrentRoomDid>>,
 ) {

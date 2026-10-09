@@ -24,10 +24,9 @@ pub(super) fn spawn_local_player(
     room: Option<Res<LiveRoomRecord>>,
     mut avatar_deps: visuals::AvatarSpawnDeps,
 ) {
-    let hm = &hm_res.0;
-    let extent = (hm.width() - 1) as f32 * hm.scale();
-    let half = extent * 0.5;
-    let centre = half;
+    // Where a body may be set down: a Berlin region's far field past the
+    // core included, which is walked (P4.1, #1596), clear of its walls.
+    let half = hm_res.set_down_half_extent();
 
     // Spawn-pose precedence (#745): an explicit URL/CLI placement wins
     // wholesale; otherwise the room record's owner-configured default
@@ -54,17 +53,14 @@ pub(super) fn spawn_local_player(
     };
 
     // Pick (rx, rz) from the resolved pose when supplied, falling back to
-    // the random spawn-scatter. World coordinates are centred on (0, 0); the
-    // heightmap sample uses (centre + x, centre + z).
+    // the random spawn-scatter. World coordinates are centred on (0, 0), as
+    // the ground's sampler reads them.
     let (rx, rz) = match pose_pos {
         Some(TargetPos { x, z, .. }) => (x.clamp(-half, half), z.clamp(-half, half)),
         None => random_spawn_xz(),
     };
-    let hm_x = (centre + rx).clamp(0.0, extent);
-    let hm_z = (centre + rz).clamp(0.0, extent);
-    let ground_y = hm.get_height_at(hm_x, hm_z);
-    let surface_normal = hm.get_normal_at(hm_x, hm_z);
-    let tilt = Quat::from_rotation_arc(Vec3::Y, Vec3::from_array(surface_normal));
+    let ground_y = hm_res.world_height_at(rx, rz);
+    let tilt = Quat::from_rotation_arc(Vec3::Y, hm_res.normal_at(rx, rz));
     // Apply yaw on top of the surface tilt so a landmark "facing N" lands the
     // chassis aimed at -Z while still resting flush on the slope.
     let yaw = pose_yaw_deg.map(spawn_facing).unwrap_or(Quat::IDENTITY);

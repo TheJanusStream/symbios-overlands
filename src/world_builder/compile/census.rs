@@ -300,7 +300,7 @@ fn slope_percentiles(points: &[(f32, f32)], heightmap: &FinishedHeightMap) -> (f
     let mut degs: Vec<f32> = points
         .iter()
         .map(|&(x, z)| {
-            let s = super::scatter::terrain_slope_at(&heightmap.0, x, z);
+            let s = super::scatter::terrain_slope_at(heightmap, x, z);
             (1.0 - s).clamp(-1.0, 1.0).acos().to_degrees()
         })
         .collect();

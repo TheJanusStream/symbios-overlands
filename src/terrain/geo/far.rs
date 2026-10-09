@@ -7,9 +7,17 @@
 //! square at about 40 m a pixel ([`far_plan`]). It has the city's hills, its
 //! land use painted on the region's own ground layers, and its water at the
 //! core's level ([`decode_far`]), so the river the core stands by runs on to
-//! the horizon. It has no collider: nobody walks there.
+//! the horizon. It is walked (P4.1, #1596): it stands on a collider made
+//! of its own mesh, and the walls that end the world stand at its edge
+//! ([`edge_walls`]), the square's. Round a body past the core a detail
+//! patch stands in for it (P4.2, #1597, [`super::patch`]): the far field
+//! holds the patch in a slot every clone of it shares
+//! ([`FarField::patch`]), its readers read the patch where it lies, its
+//! colliders leave out the cells the patch fills whole
+//! ([`FarField::colliders`]), and its material cuts the patch's hole in the
+//! shader.
 //!
-//! The far field meets the core without a crack ([`build_far_mesh`]). Its
+//! The far field meets the core without a crack ([`build_far_ground`]). Its
 //! grid is the renders' pixel centres plus the core's four edges, and along
 //! those edges every boundary vertex of the core is a vertex of the far
 //! field too, at the core's own height, fanned out to the coarse grid.
@@ -26,6 +34,7 @@ use geodata::GeoSquare;
 use geodata::berlin::LandUse;
 use geodata::request::Bbox;
 
+use super::patch::PatchSlot;
 use crate::pds::SovereignTerrainConfig;
 
 /// The far field's pixel size the renders aim at (m): fine enough for the
@@ -50,17 +59,29 @@ const SKY_MARGIN_M: f32 = 500.0;
 /// The boundary walls' thickness (m).
 const WALL_THICKNESS_M: f32 = 2.0;
 
-/// How far below the core's lowest ground the boundary walls reach (m).
+/// How far below the lowest ground the boundary walls reach (m).
 const WALL_BELOW_M: f32 = 50.0;
 
-/// How far above the core's highest ground the boundary walls stand (m):
-/// past any jump, and above the cloud deck.
+/// How far above the highest ground the boundary walls stand (m): past any
+/// jump, and above the cloud deck.
 const WALL_ABOVE_M: f32 = 500.0;
 
 /// The collision layer the boundary walls alone belong to. They interact
 /// with every layer, so they stop every body; a spatial query that leaves
 /// this bit out of its mask - a particle's bounce - passes them by.
 pub(crate) const WALL_LAYER: u32 = 1 << 1;
+
+/// On the ground past the core - the far field's colliders, and a detail
+/// patch's root (P4.2, #1597): what the pick rays that ask for the ground
+/// take as ground beside the core's [`crate::terrain::TerrainMesh`], which
+/// neither carries - one terrain is one core (P4.1).
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub(crate) struct FarGround;
+
+/// On each of the far field's own colliders: what a detail patch swaps for
+/// colliders with its hole cut, and back again (P4.2, #1597).
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub(crate) struct FarCollider;
 
 /// The far field a square gets: the whole square, in renders of `grid`
 /// pixels a side, round a core `core_m` metres across.
@@ -120,6 +141,9 @@ pub(crate) struct FarField {
     /// the core's level and its ground kept above it, so the region's water
     /// plane may span it.
     wet: bool,
+    /// The detail patch standing in for it round a body past the core, while
+    /// one is loaded (P4.2, #1597): read in its place wherever it lies.
+    patch: PatchSlot,
 }
 
 impl FarField {
@@ -129,7 +153,8 @@ impl FarField {
     }
 
     /// The far mesh's extent (m), first pixel centre to last: what a water
-    /// plane spanning the far field must cover, and no more.
+    /// plane spanning the far field must cover, and no more - and, the far
+    /// field being walked (P4.1), where the walkable world ends.
     pub(crate) fn span_m(&self) -> f32 {
         (self.grid - 1) as f32 * self.cell
     }
@@ -149,10 +174,11 @@ impl FarField {
         self.side_m()
     }
 
-    /// The sky's half-width round a core `core_m` across: past the far
-    /// field's farthest edge from anywhere on the walkable ground.
-    pub(crate) fn sky_half_m(&self, core_m: f32) -> f32 {
-        self.side_m() / 2.0 + core_m / 2.0 + SKY_MARGIN_M
+    /// The sky's half-width: past the far field's farthest edge from
+    /// anywhere on it - the far field being walked (P4.1, #1596), a viewer
+    /// may stand at one edge of the square and look across the whole side.
+    pub(crate) fn sky_half_m(&self) -> f32 {
+        self.side_m() + SKY_MARGIN_M
     }
 
     /// `(scale, offset)` that turn the far mesh's UVs - the core's own
@@ -169,9 +195,445 @@ impl FarField {
         super::ground::one_hot_weights(&self.cover, self.grid as usize)
     }
 
+    /// The detail patch standing in for the far field round a body past the
+    /// core (P4.2, #1597): its slot, which every clone of the ground shares.
+    pub(crate) fn patch(&self) -> &PatchSlot {
+        &self.patch
+    }
+
+    /// The ground as drawn at world `(x, z)` past the core `core`, and as
+    /// walked: the detail patch's where one has loaded there (P4.2, #1597),
+    /// else the far mesh's own triangle ([`Self::mesh_height_at`]). On the
+    /// core, the core's own height.
+    pub(crate) fn drawn_height_at(&self, core: &HeightMap, x: f32, z: f32) -> f32 {
+        let core_half = (core.width() - 1) as f32 * core.scale() / 2.0;
+        if x.abs() > core_half || z.abs() > core_half {
+            let patched = self.patch.with(|patch| {
+                patch
+                    .filter(|patch| patch.holds(x, z))
+                    .map(|patch| patch.height_at(x, z))
+            });
+            if let Some(height) = patched {
+                return height;
+            }
+        }
+        self.mesh_height_at(core, x, z)
+    }
+
+    /// The far mesh's own ground at world `(x, z)` past the core `core`, and
+    /// as its colliders walk it (P4.1, #1596): the height of the far mesh's
+    /// own triangle there ([`build_far_ground`]), so a body set down on it,
+    /// an item snapped to it and the collider under both agree to the
+    /// triangle - a far cell is two triangles, not the bilinear patch
+    /// [`Self::height_at`] would read, and a cell along the core fans the
+    /// core's boundary vertices out. On the core, the core's own height, as
+    /// the mesh's hole leaves it; past the drawn edge, the edge's. No
+    /// allocation: it is read per body, per frame. A detail patch eases into
+    /// it at its edges ([`super::patch::blend`]).
+    pub(crate) fn mesh_height_at(&self, core: &HeightMap, x: f32, z: f32) -> f32 {
+        let core_half = (core.width() - 1) as f32 * core.scale() / 2.0;
+        if x.abs() <= core_half && z.abs() <= core_half {
+            let extent = 2.0 * core_half;
+            return core.get_height_at(
+                (x + core_half).clamp(0.0, extent),
+                (z + core_half).clamp(0.0, extent),
+            );
+        }
+        let edge = self.span_m() / 2.0;
+        let (x, z) = (x.clamp(-edge, edge), z.clamp(-edge, edge));
+        let at = Vec2::new(x, z);
+        // A fan along the core reaches a hair past its own cell, to the core
+        // vertex nearest its far corner: the cells round it are asked too.
+        let (xs, nx) = self.cells_round(core_half, x);
+        let (zs, nz) = self.cells_round(core_half, z);
+        for &xs in &xs[..nx] {
+            for &zs in &zs[..nz] {
+                if let Some(height) = self.height_in_cell(core, core_half, xs, zs, at) {
+                    return height;
+                }
+            }
+        }
+        self.height_at(x, z)
+    }
+
+    /// The ground's upward normal as drawn at world `(x, z)` past the core
+    /// `core`: the detail patch's own where one has loaded there (P4.2),
+    /// read as the core's is; elsewhere the slope of
+    /// [`Self::drawn_height_at`] a metre either way, the core's own heights
+    /// where a step reaches onto it.
+    pub(crate) fn drawn_normal_at(&self, core: &HeightMap, x: f32, z: f32) -> Vec3 {
+        let patched = self.patch.with(|patch| {
+            patch
+                .filter(|patch| patch.holds(x, z))
+                .map(|patch| patch.normal_at(x, z))
+        });
+        if let Some(normal) = patched {
+            return normal;
+        }
+        let at = |x: f32, z: f32| self.drawn_height_at(core, x, z);
+        let (dx, dz) = (
+            at(x + 1.0, z) - at(x - 1.0, z),
+            at(x, z + 1.0) - at(x, z - 1.0),
+        );
+        Vec3::new(-dx, 2.0, -dz).normalize()
+    }
+
+    /// The land use at world `(x, z)` past the core: the detail patch's
+    /// where one has loaded there (P4.2), else that of the far pixel it
+    /// lies in.
+    pub(crate) fn cover_at(&self, x: f32, z: f32) -> Option<LandUse> {
+        let patched = self.patch.with(|patch| {
+            patch
+                .filter(|patch| patch.holds(x, z))
+                .map(|patch| patch.cover_at(x, z))
+        });
+        if let Some(cover) = patched {
+            return cover;
+        }
+        let half = self.side_m() / 2.0;
+        let last = self.grid as usize - 1;
+        let pixel = |v: f32| (((v + half) / self.cell).floor().max(0.0) as usize).min(last);
+        self.cover[pixel(z) * self.grid as usize + pixel(x)]
+    }
+
+    /// The splat layer weights at world `(x, z)` past the core, as drawn:
+    /// the detail patch's where one has loaded there (P4.2), else the far
+    /// mesh's, all on the layer of its pixel's land use.
+    pub(crate) fn weights_at(&self, x: f32, z: f32) -> [f32; 4] {
+        let patched = self.patch.with(|patch| {
+            patch
+                .filter(|patch| patch.holds(x, z))
+                .map(|patch| patch.weights_at(x, z))
+        });
+        if let Some(weights) = patched {
+            return weights;
+        }
+        let mut weights = [0.0; 4];
+        weights[super::ground::layer(self.cover_at(x, z))] = 1.0;
+        weights
+    }
+
+    /// The far mesh's grid lines along one axis within `[lo, hi]`, as
+    /// [`grid_lines`] draws them - the pixel centres, less those within a
+    /// quarter pixel of a core edge, and the core's edges - found without
+    /// drawing them all; ascending.
+    pub(crate) fn lines_within(
+        &self,
+        core_half: f32,
+        lo: f32,
+        hi: f32,
+    ) -> impl Iterator<Item = f32> + '_ {
+        let half = self.grid as f32 * self.cell / 2.0;
+        let index = |v: f32| ((v + half) / self.cell - 0.5).floor() as i64;
+        let (first, last) = (
+            index(lo).max(0),
+            (index(hi) + 1).min(i64::from(self.grid) - 1),
+        );
+        let centres = (first..=last)
+            .map(move |k| -half + (k as f32 + 0.5) * self.cell)
+            .filter(move |line| (line.abs() - core_half).abs() >= self.cell / 4.0);
+        let edges = [-core_half, core_half].into_iter();
+        let mut merged: Vec<f32> = centres
+            .chain(edges)
+            .filter(|line| (lo..=hi).contains(line))
+            .collect();
+        merged.sort_by(f32::total_cmp);
+        merged.dedup();
+        merged.into_iter()
+    }
+
+    /// Where the far mesh's cells inside `rect` - world `(x, z)` - begin
+    /// whole, from each of its edges: the first of its grid lines
+    /// ([`grid_lines`]) at or inside its west, east, north and south edges,
+    /// in that order. Between an edge and its line lie the far cells the
+    /// edge crosses, which keep their colliders while a detail patch fills
+    /// `rect` (P4.2, #1597); an edge on a grid line crosses none.
+    pub(crate) fn inner_lines(&self, core_half: f32, rect: bevy::math::Rect) -> [f32; 4] {
+        let first = |lo: f32, hi: f32| self.lines_within(core_half, lo, hi).next().unwrap_or(lo);
+        let last = |lo: f32, hi: f32| self.lines_within(core_half, lo, hi).last().unwrap_or(hi);
+        [
+            first(rect.min.x, rect.max.x),
+            last(rect.min.x, rect.max.x),
+            first(rect.min.y, rect.max.y),
+            last(rect.min.y, rect.max.y),
+        ]
+    }
+
+    /// The far mesh's grid intervals along one axis round `v` - the one it
+    /// lies in and its neighbours - and how many there are, from the lines
+    /// [`grid_lines`] draws, found without drawing them all or allocating.
+    fn cells_round(&self, core_half: f32, v: f32) -> ([(f32, f32); 3], usize) {
+        let half = self.grid as f32 * self.cell / 2.0;
+        let i = ((v + half) / self.cell - 0.5).floor() as i64;
+        // Eight pixel centres round `v` and the two core edges.
+        let mut lines = [0.0_f32; 10];
+        let mut n = 0;
+        for k in i - 3..=i + 4 {
+            if !(0..i64::from(self.grid)).contains(&k) {
+                continue;
+            }
+            let line = -half + (k as f32 + 0.5) * self.cell;
+            if (line.abs() - core_half).abs() >= self.cell / 4.0 {
+                lines[n] = line;
+                n += 1;
+            }
+        }
+        for line in [-core_half, core_half] {
+            lines[n] = line;
+            n += 1;
+        }
+        let lines = &mut lines[..n];
+        lines.sort_by(f32::total_cmp);
+        let mut kept = 0;
+        for j in 0..lines.len() {
+            if kept == 0 || lines[j] != lines[kept - 1] {
+                lines[kept] = lines[j];
+                kept += 1;
+            }
+        }
+        let lines = &lines[..kept];
+        let mut cells = [(0.0, 0.0); 3];
+        let Some(k) = lines.windows(2).position(|w| w[0] <= v && v <= w[1]) else {
+            return (cells, 0);
+        };
+        let mut count = 0;
+        for j in k.saturating_sub(1)..(k + 2).min(lines.len() - 1) {
+            cells[count] = (lines[j], lines[j + 1]);
+            count += 1;
+        }
+        (cells, count)
+    }
+
+    /// The height at `at` of whichever triangle the far mesh draws over the
+    /// cell `(x0, x1)` by `(z0, z1)` holds it ([`Self::cell_triangles`]);
+    /// `None` where none does.
+    fn height_in_cell(
+        &self,
+        core: &HeightMap,
+        core_half: f32,
+        xs: (f32, f32),
+        zs: (f32, f32),
+        at: Vec2,
+    ) -> Option<f32> {
+        self.cell_triangles(core, core_half, xs, zs, |[a, b, c]| height_in(at, a, b, c))
+    }
+
+    /// The triangles the far mesh draws over the cell `(x0, x1)` by
+    /// `(z0, z1)`, as [`build_far_ground`] draws them, handed to `each` in
+    /// turn until it answers: none inside the core; along a core edge, the
+    /// core's boundary vertices fanned out to the cell's two far corners;
+    /// elsewhere two triangles split from `(x1, z0)` to `(x0, z1)`, a corner
+    /// on a core corner being the core's own vertex. Their corners come in
+    /// the mesh's order, before it turns each to face up.
+    fn cell_triangles<T>(
+        &self,
+        core: &HeightMap,
+        core_half: f32,
+        (x0, x1): (f32, f32),
+        (z0, z1): (f32, f32),
+        mut each: impl FnMut([Vec3; 3]) -> Option<T>,
+    ) -> Option<T> {
+        let (width, depth, scale) = (core.width(), core.height(), core.scale());
+        let inside_x = ((x0 + x1) / 2.0).abs() < core_half;
+        let inside_z = ((z0 + z1) / 2.0).abs() < core_half;
+        if inside_x && inside_z {
+            return None;
+        }
+        let far = |x: f32, z: f32| Vec3::new(x, self.height_at(x, z), z);
+        let boundary = |edge: Edge, k: usize| {
+            let (cx, cz) = edge.vertex(k, width, depth);
+            Vec3::new(
+                cx as f32 * scale - core_half,
+                core.get(cx, cz),
+                cz as f32 * scale - core_half,
+            )
+        };
+        let along_core = if inside_x && z1 == -core_half {
+            Some((Edge::North, x0, x1, far(x0, z0), far(x1, z0)))
+        } else if inside_x && z0 == core_half {
+            Some((Edge::South, x0, x1, far(x0, z1), far(x1, z1)))
+        } else if inside_z && x1 == -core_half {
+            Some((Edge::West, z0, z1, far(x0, z0), far(x0, z1)))
+        } else if inside_z && x0 == core_half {
+            Some((Edge::East, z0, z1, far(x1, z0), far(x1, z1)))
+        } else {
+            None
+        };
+        let Some((edge, from, to, o0, o1)) = along_core else {
+            let vertex = |x: f32, z: f32| {
+                if x.abs() == core_half && z.abs() == core_half {
+                    let edge = if z < 0.0 { Edge::North } else { Edge::South };
+                    boundary(edge, if x < 0.0 { 0 } else { width - 1 })
+                } else {
+                    far(x, z)
+                }
+            };
+            let (p00, p10, p01, p11) = (
+                vertex(x0, z0),
+                vertex(x1, z0),
+                vertex(x0, z1),
+                vertex(x1, z1),
+            );
+            return each([p00, p01, p10]).or_else(|| each([p10, p01, p11]));
+        };
+        let count = edge.count(width, depth);
+        let nearest =
+            |along: f32| (((along + core_half) / scale).round().max(0.0) as usize).min(count - 1);
+        let (first, last) = (nearest(from), nearest(to));
+        let middle = first + (last - first) / 2;
+        for k in first..last {
+            let apex = if k < middle { o0 } else { o1 };
+            if let Some(answer) = each([apex, boundary(edge, k), boundary(edge, k + 1)]) {
+                return Some(answer);
+            }
+        }
+        each([o0, boundary(edge, middle), o1])
+    }
+
+    /// The colliders the far field is walked on (P4.1, #1596): the far
+    /// mesh's triangles exactly, in two parts. The plain cells - between
+    /// four pixel centres, off the core - as a heightfield over the pixel
+    /// grid, whose split is the mesh's; and the cells the core's edges
+    /// cross or bend (the core edges' lines run through the whole square,
+    /// and the centres within a quarter pixel of them are dropped), with
+    /// the fans along the core, as a small triangle mesh. A triangle mesh
+    /// of it all keeps 34 MB at the largest square (256 pixels round a
+    /// 512-point core), its internal-edge fix the most of it; the two keep
+    /// about a megabyte. Both take parry's internal-edge fix, as the
+    /// core's heightfield does (#1538). Empty where parry refuses either -
+    /// the far field is then drawn, not walked.
+    ///
+    /// With a `hole` - world `(x, z)` - the cells wholly inside it are left
+    /// out: a detail patch stands there on a collider of its own (P4.2,
+    /// #1597). The cells its edges cross keep theirs, and the patch draws
+    /// their ground there ([`FarField::inner_lines`]).
+    pub(crate) fn colliders(
+        &self,
+        core: &HeightMap,
+        hole: Option<bevy::math::Rect>,
+    ) -> Vec<avian3d::prelude::Collider> {
+        use avian3d::parry::shape::{
+            HeightField, HeightFieldCellStatus, HeightFieldFlags, SharedShape,
+        };
+        use avian3d::parry::utils::Array2;
+        use avian3d::prelude::{Collider, TrimeshFlags};
+        let core_half = (core.width() - 1) as f32 * core.scale() / 2.0;
+        let grid = self.grid as usize;
+        let half = self.grid as f32 * self.cell / 2.0;
+        let centre = |i: usize| -half + (i as f32 + 0.5) * self.cell;
+        let kept = |line: f32| (line.abs() - core_half).abs() >= self.cell / 4.0;
+        // A pixel interval the mesh draws as one cell: both ends kept, no
+        // core edge between them.
+        let plain: Vec<bool> = (0..grid - 1)
+            .map(|i| {
+                let (a, b) = (centre(i), centre(i + 1));
+                kept(a)
+                    && kept(b)
+                    && !(a < -core_half && -core_half < b)
+                    && !(a < core_half && core_half < b)
+            })
+            .collect();
+        let inside = |i: usize| centre(i).abs() < core_half && centre(i + 1).abs() < core_half;
+        // A cell wholly inside the hole.
+        let holed = |(x0, x1): (f32, f32), (z0, z1): (f32, f32)| {
+            hole.is_some_and(|hole| {
+                hole.min.x <= x0 && x1 <= hole.max.x && hole.min.y <= z0 && z1 <= hole.max.y
+            })
+        };
+
+        // The plain cells, on the heightfield: column-major, rows along Z.
+        let mut heights = Vec::with_capacity(grid * grid);
+        for x in 0..grid {
+            for z in 0..grid {
+                heights.push(self.heights[z * grid + x]);
+            }
+        }
+        let span = (grid - 1) as f32 * self.cell;
+        let mut field = HeightField::with_flags(
+            Array2::new(grid, grid, heights),
+            Vec3::new(span, 1.0, span),
+            HeightFieldFlags::FIX_INTERNAL_EDGES,
+        );
+        for z in 0..grid - 1 {
+            for x in 0..grid - 1 {
+                if !(plain[z] && plain[x])
+                    || (inside(z) && inside(x))
+                    || holed((centre(x), centre(x + 1)), (centre(z), centre(z + 1)))
+                {
+                    field.set_cell_status(z, x, HeightFieldCellStatus::CELL_REMOVED);
+                }
+            }
+        }
+
+        // The rest, as the mesh draws them, each turned to face up.
+        let lines = grid_lines(self, core_half);
+        let is_plain = |a: f32, b: f32| {
+            let i = ((a + half) / self.cell - 0.5).round();
+            i >= 0.0
+                && (i as usize) < grid - 1
+                && centre(i as usize) == a
+                && centre(i as usize + 1) == b
+                && plain[i as usize]
+        };
+        let mut vertices: Vec<Vec3> = Vec::new();
+        let mut triangles: Vec<[u32; 3]> = Vec::new();
+        for zs in lines.windows(2) {
+            for xs in lines.windows(2) {
+                if (is_plain(xs[0], xs[1]) && is_plain(zs[0], zs[1]))
+                    || holed((xs[0], xs[1]), (zs[0], zs[1]))
+                {
+                    continue;
+                }
+                self.cell_triangles(
+                    core,
+                    core_half,
+                    (xs[0], xs[1]),
+                    (zs[0], zs[1]),
+                    |[a, b, c]| {
+                        let turn = (b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x);
+                        let corners = if turn < 0.0 {
+                            [a, b, c]
+                        } else if turn > 0.0 {
+                            [a, c, b]
+                        } else {
+                            return None::<()>;
+                        };
+                        let first = vertices.len() as u32;
+                        vertices.extend(corners);
+                        triangles.push([first, first + 1, first + 2]);
+                        None
+                    },
+                );
+            }
+        }
+        let mut colliders = vec![Collider::from(SharedShape::new(field))];
+        if !triangles.is_empty() {
+            let rest = Collider::try_trimesh_with_config(
+                vertices.clone(),
+                triangles.clone(),
+                TrimeshFlags::FIX_INTERNAL_EDGES,
+            )
+            .or_else(|error| {
+                warn!("geodata: the far field's edges take no internal-edge fix ({error:?})");
+                Collider::try_trimesh(vertices, triangles)
+            });
+            match rest {
+                Ok(rest) => colliders.push(rest),
+                Err(error) => {
+                    warn!(
+                        "geodata: the far field makes no collider ({error:?}) - it is drawn, not walked"
+                    );
+                    return Vec::new();
+                }
+            }
+        }
+        colliders
+    }
+
     /// The height at world `(x, z)`, between the pixel centres round it, the
     /// world centring the square on the origin. Clamped to the outermost
-    /// centres.
+    /// centres. The far mesh's vertices stand at it; between them the mesh
+    /// is triangles ([`Self::drawn_height_at`]).
     pub(crate) fn height_at(&self, x: f32, z: f32) -> f32 {
         let last = (self.grid - 1) as f32;
         let half = self.side_m() / 2.0;
@@ -188,6 +650,22 @@ impl FarField {
         let south = at(x0, z1) + (at(x1, z1) - at(x0, z1)) * fx;
         north + (south - north) * fz
     }
+}
+
+/// The height at `at` of the triangle `(a, b, c)` - in `(x, z)` and up -
+/// where `at` lies on it, a whisker of rounding allowed; `None` off it, or
+/// for a triangle with no area.
+fn height_in(at: Vec2, a: Vec3, b: Vec3, c: Vec3) -> Option<f32> {
+    let (a2, b2, c2) = (a.xz(), b.xz(), c.xz());
+    let area = (b2 - a2).perp_dot(c2 - a2);
+    if area.abs() < 1e-9 {
+        return None;
+    }
+    let s = (at - a2).perp_dot(c2 - a2) / area;
+    let t = (b2 - a2).perp_dot(at - a2) / area;
+    const EPS: f32 = 1e-5;
+    (s >= -EPS && t >= -EPS && s + t <= 1.0 + EPS)
+        .then_some(a.y + s * (b.y - a.y) + t * (c.y - a.y))
 }
 
 /// Decode the far renders: the terrain through its legend, the land use
@@ -218,25 +696,52 @@ pub(crate) fn decode_far(
         heights,
         cover,
         wet,
+        patch: PatchSlot::default(),
     })
 }
 
-/// The far field's mesh: the square minus the core, in world coordinates
-/// round the origin as the core is drawn, with no CPU copy.
+/// The far field's mesh and the collider it stands on.
 ///
-/// Its grid lines are the far renders' pixel centres and the core's four
-/// edges. A cell whose edge lies along the core takes the core's boundary
-/// vertices on that edge - from the one nearest each of its corners, so no
-/// far vertex sits partway along a core edge - at the core's height, and
-/// fans them out to its far corners: the two meshes share their boundary
-/// vertex for vertex. There the far mesh also takes the core's own normals,
-/// so the light runs on across the seam. All other cells are two triangles,
-/// and every triangle faces up.
+/// The mesh is the square minus the core, in world coordinates round the
+/// origin as the core is drawn, with no CPU copy. Its grid lines are the far
+/// renders' pixel centres and the core's four edges. A cell whose edge lies
+/// along the core takes the core's boundary vertices on that edge - from the
+/// one nearest each of its corners, so no far vertex sits partway along a
+/// core edge - at the core's height, and fans them out to its far corners:
+/// the two meshes share their boundary vertex for vertex. There the far mesh
+/// also takes the core's own normals, so the light runs on across the seam.
+/// All other cells are two triangles, and every triangle faces up. Its UVs
+/// are the core's mapping run on past the core's edges, so the layers' tiles
+/// run on across the seam; [`FarField::weight_uv`] turns them into the far
+/// weight map's.
 ///
-/// Its UVs are the core's mapping run on past the core's edges, so the
-/// layers' tiles run on across the seam; [`FarField::weight_uv`] turns them
-/// into the far weight map's.
+/// The colliders (P4.1, #1596; [`FarField::colliders`]) are the same
+/// triangles, so the ground walked is the ground drawn, the core's hole in
+/// it and the seam to the core's boundary vertex for vertex. They take
+/// parry's internal-edge fix, as the core's heightfield does (#1538):
+/// without it a wheel crossing from one triangle to the next can meet the
+/// edge between them as a wall. Where the triangles make no collider at
+/// all (parry refuses a degenerate mesh) there are none, with a warning:
+/// the far field is then drawn and not walked, the walls standing at the
+/// core's edge ([`core_walls`]) as they did before.
+pub(crate) fn build_far_ground(
+    far: &FarField,
+    core: &HeightMap,
+) -> (Mesh, Vec<avian3d::prelude::Collider>) {
+    (
+        far_mesh(far, core).into_mesh(core),
+        far.colliders(core, None),
+    )
+}
+
+/// The far field's mesh alone, as [`build_far_ground`] draws it.
+#[cfg(test)]
 pub(crate) fn build_far_mesh(far: &FarField, core: &HeightMap) -> Mesh {
+    far_mesh(far, core).into_mesh(core)
+}
+
+/// The far field's triangles, before they are a [`Mesh`].
+fn far_mesh(far: &FarField, core: &HeightMap) -> FarMesh {
     let (width, depth, scale) = (core.width(), core.height(), core.scale());
     let core_m = (width - 1) as f32 * scale;
     let core_half = core_m / 2.0;
@@ -306,7 +811,7 @@ pub(crate) fn build_far_mesh(far: &FarField, core: &HeightMap) -> Mesh {
             mesh.triangle(o0, polyline[middle], o1);
         }
     }
-    mesh.into_mesh(core)
+    mesh
 }
 
 /// One of the core's four edges.
@@ -457,7 +962,7 @@ impl FarMesh {
 /// The core mesh's own normal at its vertex `(x, z)`: the area-weighted sum
 /// of its triangles there, split as `HeightMapMeshBuilder` splits each cell
 /// (top-left, bottom-left, top-right; top-right, bottom-left, bottom-right).
-fn core_normal(core: &HeightMap, x: usize, z: usize) -> Vec3 {
+pub(super) fn core_normal(core: &HeightMap, x: usize, z: usize) -> Vec3 {
     let s = core.scale();
     let at = |x: usize, z: usize| Vec3::new(x as f32 * s, core.get(x, z), z as f32 * s);
     let mut sum = Vec3::ZERO;
@@ -482,20 +987,32 @@ fn core_normal(core: &HeightMap, x: usize, z: usize) -> Vec3 {
     }
 }
 
-/// The four invisible walls round a core whose square has a far field:
-/// `(size, centre)` of each cuboid, just outside the core's edges, from
-/// [`WALL_BELOW_M`] under its lowest ground to [`WALL_ABOVE_M`] over its
-/// highest. The far field is drawn and not walked (P4, #1591, walks it), and
-/// it looks like ground, so without them a visitor would step off the core
-/// onto it and fall through.
-pub(crate) fn boundary_walls(core: &HeightMap) -> [(Vec3, Vec3); 4] {
-    let half = (core.width() - 1) as f32 * core.scale() / 2.0;
-    let (low, high) = core
-        .data()
-        .iter()
-        .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), &h| {
-            (lo.min(h), hi.max(h))
-        });
+/// The four invisible walls that end a Berlin region's world, at the far
+/// field's edge - the square's, where its drawn ground ends - since the far
+/// field is walked (P4.1, #1596): `(size, centre)` of each cuboid, just
+/// outside that edge, from [`WALL_BELOW_M`] under the lowest ground, core
+/// or far, to [`WALL_ABOVE_M`] over the highest.
+pub(crate) fn edge_walls(far: &FarField, core: &HeightMap) -> [(Vec3, Vec3); 4] {
+    walls_round(far.span_m() / 2.0, core.data().iter().chain(&far.heights))
+}
+
+/// The walls round the core alone, just outside its edges: where the far
+/// field is drawn and cannot be walked - its triangles made no collider -
+/// the world ends at the core, as it did before P4.1.
+pub(crate) fn core_walls(core: &HeightMap) -> [(Vec3, Vec3); 4] {
+    walls_round(
+        (core.width() - 1) as f32 * core.scale() / 2.0,
+        core.data().iter(),
+    )
+}
+
+/// Four walls just outside `half` of the origin either way, from
+/// [`WALL_BELOW_M`] under the lowest of `heights` to [`WALL_ABOVE_M`] over
+/// the highest: `(size, centre)` of each cuboid.
+fn walls_round<'a>(half: f32, heights: impl Iterator<Item = &'a f32>) -> [(Vec3, Vec3); 4] {
+    let (low, high) = heights.fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), &h| {
+        (lo.min(h), hi.max(h))
+    });
     let (bottom, top) = (low - WALL_BELOW_M, high + WALL_ABOVE_M);
     let (y, height) = ((bottom + top) / 2.0, top - bottom);
     let (t, length) = (WALL_THICKNESS_M, 2.0 * (half + WALL_THICKNESS_M));
@@ -538,6 +1055,16 @@ impl FarField {
             heights,
             cover: vec![None; (grid * grid) as usize],
             wet: false,
+            patch: PatchSlot::default(),
+        }
+    }
+
+    /// Set each pixel's land use to `cover(x, z)` at its centre.
+    pub(crate) fn set_cover(&mut self, cover: impl Fn(f32, f32) -> Option<LandUse>) {
+        let half = self.grid as f32 * self.cell / 2.0;
+        let centre = |i: u32| -half + (i as f32 + 0.5) * self.cell;
+        for i in 0..self.grid * self.grid {
+            self.cover[i as usize] = cover(centre(i % self.grid), centre(i / self.grid));
         }
     }
 
@@ -728,26 +1255,157 @@ mod tests {
         }
     }
 
+    /// The walls end the world at the far field's edge (P4.1): wholly
+    /// outside its drawn ground (pixel centres 75 m out), touching it, from
+    /// below the lowest ground, core or far, to above the highest.
     #[test]
-    fn the_walls_close_the_core_and_stand_clear_of_it() {
-        let (_, core) = scene();
-        let walls = boundary_walls(&core);
+    fn the_walls_close_the_far_field_and_stand_clear_of_it() {
+        let (far, core) = scene();
+        let walls = edge_walls(&far, &core);
         let (low, high) = core
             .data()
             .iter()
+            .chain(&far.heights)
             .fold((f32::MAX, f32::MIN), |(lo, hi), &h| (lo.min(h), hi.max(h)));
+        let edge = far.span_m() / 2.0;
+        assert_eq!(edge, 75.0);
         for (size, centre) in walls {
             let (min, max) = (centre - size / 2.0, centre + size / 2.0);
-            // Below the lowest ground to above the highest.
             assert!(min.y <= low - 50.0 + 1e-3 && max.y >= high + 500.0 - 1e-3);
-            // Wholly outside the 40 m core, touching its edge.
-            let outside = min.x >= 20.0 - 1e-3
-                || max.x <= -20.0 + 1e-3
-                || min.z >= 20.0 - 1e-3
-                || max.z <= -20.0 + 1e-3;
-            assert!(outside, "a wall from {min} to {max} reaches into the core");
+            let outside = min.x >= edge - 1e-3
+                || max.x <= -edge + 1e-3
+                || min.z >= edge - 1e-3
+                || max.z <= -edge + 1e-3;
+            assert!(
+                outside,
+                "a wall from {min} to {max} reaches onto the ground"
+            );
             // Long enough to meet the walls across the corners.
-            assert!(size.x >= 44.0 - 1e-3 || size.z >= 44.0 - 1e-3);
+            assert!(size.x >= 2.0 * edge + 4.0 - 1e-3 || size.z >= 2.0 * edge + 4.0 - 1e-3);
+        }
+    }
+
+    /// The ground as drawn is the far mesh's own triangles (P4.1): sampled
+    /// at random points over the far field, it reads what a brute-force
+    /// search of the built mesh does - in the plain cells, the fans along
+    /// the core and the cells at its corners - on a core whose edge falls
+    /// clear of the pixel centres and on one that drops a line within a
+    /// quarter pixel of it.
+    #[test]
+    fn the_ground_as_drawn_is_the_far_meshs_triangles() {
+        for core_points in [21_usize, 25] {
+            let far = FarField::from_fn(16, 10.0, |x, z| {
+                30.0 + 0.05 * x - 0.02 * z + 3.0 * (x * 0.07).sin() * (z * 0.05).cos()
+            });
+            let mut core = HeightMap::new(core_points, core_points, 2.0);
+            let half = (core_points - 1) as f32;
+            for z in 0..core_points {
+                for x in 0..core_points {
+                    let (wx, wz) = (x as f32 * 2.0 - half, z as f32 * 2.0 - half);
+                    core.set(
+                        x,
+                        z,
+                        27.0 + 0.05 * wx - 0.02 * wz + 0.3 * ((x * 7 + z * 3) % 5) as f32,
+                    );
+                }
+            }
+            let mesh = build_far_mesh(&far, &core);
+            let (p, tris) = (positions(&mesh), triangles(&mesh));
+            let brute = |x: f32, z: f32| {
+                tris.iter().find_map(|t| {
+                    let [a, b, c] = t.map(|i| Vec3::from(p[i]));
+                    height_in(Vec2::new(x, z), a, b, c)
+                })
+            };
+            let mut seed = 0x2545_f491_4f6c_dd1d_u64;
+            let mut next = || {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                (seed >> 11) as f32 / (1u64 << 53) as f32
+            };
+            let mut sampled = 0;
+            while sampled < 2_000 {
+                let (x, z) = (next() * 150.0 - 75.0, next() * 150.0 - 75.0);
+                if x.abs() <= half && z.abs() <= half {
+                    continue;
+                }
+                let drawn = far.drawn_height_at(&core, x, z);
+                let truth = brute(x, z).expect("the far mesh covers the square less the core");
+                assert!(
+                    (drawn - truth).abs() < 1e-3,
+                    "core {core_points}: ({x}, {z}) drawn {drawn}, mesh {truth}"
+                );
+                sampled += 1;
+            }
+        }
+    }
+
+    /// The far field stands on colliders of its own triangles (P4.1): a
+    /// body comes down on them where the mesh is drawn, at the drawn height,
+    /// in a plain cell, on a fan along the core and in a cell a core edge's
+    /// line crosses; and through the core's hole onto nothing of them, the
+    /// core's own heightfield being the ground there. So on a core whose
+    /// edge falls clear of the pixel centres and on one that drops a line.
+    #[test]
+    fn the_far_field_is_walked_on_its_drawn_triangles() {
+        for core_points in [21_usize, 25] {
+            let far = FarField::from_fn(16, 10.0, |x, z| {
+                30.0 + 0.05 * x - 0.02 * z + 3.0 * (x * 0.07).sin() * (z * 0.05).cos()
+            });
+            let mut core = HeightMap::new(core_points, core_points, 2.0);
+            let half = (core_points - 1) as f32;
+            for z in 0..core_points {
+                for x in 0..core_points {
+                    core.set(x, z, 27.0 + 0.3 * ((x * 7 + z * 3) % 5) as f32);
+                }
+            }
+            let (mesh, colliders) = build_far_ground(&far, &core);
+            assert_eq!(colliders.len(), 2, "the plain cells and the rest");
+            assert_eq!(
+                positions(&mesh).len(),
+                positions(&build_far_mesh(&far, &core)).len()
+            );
+            let down = |x: f32, z: f32| {
+                colliders
+                    .iter()
+                    .filter_map(|collider| {
+                        collider.cast_ray(
+                            Vec3::ZERO,
+                            Quat::IDENTITY,
+                            Vec3::new(x, 500.0, z),
+                            Vec3::NEG_Y,
+                            1_000.0,
+                            true,
+                        )
+                    })
+                    .map(|(distance, _)| 500.0 - distance)
+                    .reduce(f32::max)
+            };
+            let mut seed = 0x9e37_79b9_7f4a_7c15_u64;
+            let mut next = || {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                (seed >> 11) as f32 / (1u64 << 53) as f32
+            };
+            let mut sampled = 0;
+            while sampled < 2_000 {
+                let (x, z) = (next() * 149.0 - 74.5, next() * 149.0 - 74.5);
+                if x.abs() <= half + 0.01 && z.abs() <= half + 0.01 {
+                    continue;
+                }
+                let drawn = far.drawn_height_at(&core, x, z);
+                let walked = down(x, z).expect("the far field is ground everywhere it is drawn");
+                assert!(
+                    (walked - drawn).abs() < 1e-3,
+                    "core {core_points}: ({x}, {z}) walked {walked}, drawn {drawn}"
+                );
+                sampled += 1;
+            }
+            // Inside the core: no far ground at all; past the edge, nothing.
+            assert_eq!(down(3.0, -7.0), None);
+            assert_eq!(down(79.0, 0.0), None);
         }
     }
 

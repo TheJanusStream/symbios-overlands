@@ -245,9 +245,9 @@ fn start_pose(spec: &DriverSpec, room: &RoomRecord, heightmap: &FinishedHeightMa
     // Where a body sets down: walked to open dry ground on Berlin's (#1589).
     let walked = crate::world_builder::compile::landing_on(room, heightmap);
     let landing = walked.as_ref();
-    let hm = &heightmap.0;
-    let extent = (hm.width() - 1) as f32 * hm.scale();
-    let half = extent * 0.5;
+    // Where a body may be set down: a Berlin region's far field included
+    // (P4.1), clear of its walls.
+    let half = heightmap.set_down_half_extent();
     let [x, z] = spec
         .from
         .or_else(|| landing.map(|l| l.pos.0))
@@ -266,8 +266,7 @@ fn start_pose(spec: &DriverSpec, room: &RoomRecord, heightmap: &FinishedHeightMa
         .map(|b| -b)
         .or_else(|| landing.map(|l| l.yaw_deg.0))
         .unwrap_or(0.0);
-    let normal = hm.get_normal_at((x + half).clamp(0.0, extent), (z + half).clamp(0.0, extent));
-    let tilt = Quat::from_rotation_arc(Vec3::Y, Vec3::from_array(normal));
+    let tilt = Quat::from_rotation_arc(Vec3::Y, heightmap.normal_at(x, z));
     let y = pinned.unwrap_or_else(|| {
         heightmap.world_height_at(x, z) + crate::config::rover::SPAWN_HEIGHT_OFFSET
     });

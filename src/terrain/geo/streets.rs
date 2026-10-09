@@ -6,8 +6,8 @@
 //! layers ([`geodata::berlin::STREET_AXES`],
 //! [`geodata::berlin::CARRIAGEWAY_AXES`]). ATKIS cuts its axes at every
 //! junction and joins them at exactly shared end points, so they are a
-//! street graph as they come: [`street_chains`] welds the end points into
-//! nodes, cuts the lines at the edge of the core, and joins the lines that
+//! street graph as they come: [`street_chains_within`] welds the end points
+//! into nodes, cuts the lines at the edge of the core, and joins the lines that
 //! meet two to a node into the runs between junctions that the road
 //! networks' mesher extrudes ([`crate::urban::mesh_chains`]) - curbs and
 //! skirt, junction hubs, decks levelled across them.
@@ -42,7 +42,7 @@ pub(crate) const BRIDGE_DECK_M: f32 = 1.5;
 pub(crate) const LANE_M: f32 = 3.25;
 
 /// How far inside the core's edge the streets end (m): their curbs and
-/// end caps stay off the boundary walls.
+/// end caps stay on the core's own ground.
 pub(crate) const EDGE_MARGIN_M: f32 = 3.0;
 
 /// The narrowest and widest deck half-width a street is drawn at (m).
@@ -171,19 +171,51 @@ pub(crate) fn street_cells(streets: &Streets, frame: CoreFrame) -> Vec<bool> {
     cells
 }
 
-/// The chains Berlin's `streets` make in `frame`, and every node's count of
-/// streets meeting at it (see the module docs). The streets end
-/// [`EDGE_MARGIN_M`] inside the core's edge; an end the edge cut is marked
-/// as clipped, so the ribbon caps it.
+/// Where the streets meshed in a frame end, in its local metres: `x` and `z`
+/// each `(from, to)`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct StreetBounds {
+    pub x: (f32, f32),
+    pub z: (f32, f32),
+}
+
+impl StreetBounds {
+    /// [`EDGE_MARGIN_M`] inside `frame`'s edges: a core's, whose ground ends
+    /// there.
+    pub(crate) fn inside(frame: CoreFrame) -> Self {
+        let (lo, hi) = (EDGE_MARGIN_M, frame.extent() - EDGE_MARGIN_M);
+        StreetBounds {
+            x: (lo, hi),
+            z: (lo, hi),
+        }
+    }
+}
+
+/// [`street_chains_within`] a core's own bounds, [`EDGE_MARGIN_M`] inside
+/// its edge.
+#[cfg(test)]
 pub(crate) fn street_chains(streets: &Streets, frame: CoreFrame) -> (Vec<Chain>, Vec<u32>) {
-    let (lo, hi) = (EDGE_MARGIN_M, frame.extent() - EDGE_MARGIN_M);
+    street_chains_within(streets, frame, StreetBounds::inside(frame))
+}
+
+/// The chains Berlin's `streets` make in `frame`, and every node's count of
+/// streets meeting at it (see the module docs). The streets end at
+/// `bounds` - [`EDGE_MARGIN_M`] inside a core's edge; a detail patch's run
+/// on past the edge it shares with the core, to where the core's end
+/// (P4.2, #1597) - and an end the bounds cut is marked as clipped, so the
+/// ribbon caps it.
+pub(crate) fn street_chains_within(
+    streets: &Streets,
+    frame: CoreFrame,
+    bounds: StreetBounds,
+) -> (Vec<Chain>, Vec<u32>) {
     let mut stretches: Vec<Stretch> = Vec::new();
-    if hi > lo {
+    if bounds.x.1 > bounds.x.0 && bounds.z.1 > bounds.z.0 {
         for axis in streets.drawn() {
             let half_w = half_width(axis);
             for line in &axis.lines {
                 let pts: Vec<(f32, f32)> = line.iter().map(|&p| frame.local(p)).collect();
-                for (pts, cut) in clip_to_square(&pts, lo, hi) {
+                for (pts, cut) in clip_to_rect(&pts, bounds) {
                     stretches.push(Stretch { pts, half_w, cut });
                 }
             }
@@ -299,8 +331,22 @@ type Cut = (Vec<(f32, f32)>, [bool; 2]);
 /// The parts of the polyline `pts` inside the square `[lo, hi]` on both
 /// axes, each with whether the square's edge cut it at its first and last
 /// point.
+#[cfg(test)]
 fn clip_to_square(pts: &[(f32, f32)], lo: f32, hi: f32) -> Vec<Cut> {
-    let inside = |p: (f32, f32)| (lo..=hi).contains(&p.0) && (lo..=hi).contains(&p.1);
+    clip_to_rect(
+        pts,
+        StreetBounds {
+            x: (lo, hi),
+            z: (lo, hi),
+        },
+    )
+}
+
+/// The parts of the polyline `pts` inside `bounds`, each with whether the
+/// bounds cut its first and its last end.
+fn clip_to_rect(pts: &[(f32, f32)], bounds: StreetBounds) -> Vec<Cut> {
+    let ((x_lo, x_hi), (z_lo, z_hi)) = (bounds.x, bounds.z);
+    let inside = |p: (f32, f32)| (x_lo..=x_hi).contains(&p.0) && (z_lo..=z_hi).contains(&p.1);
     let mut parts = Vec::new();
     let mut current: Vec<(f32, f32)> = Vec::new();
     let mut cut_first = false;
@@ -311,10 +357,10 @@ fn clip_to_square(pts: &[(f32, f32)], lo: f32, hi: f32) -> Vec<Cut> {
         let (mut t0, mut t1) = (0.0f32, 1.0f32);
         let mut visible = true;
         for (p, q) in [
-            (-dx, a.0 - lo),
-            (dx, hi - a.0),
-            (-dz, a.1 - lo),
-            (dz, hi - a.1),
+            (-dx, a.0 - x_lo),
+            (dx, x_hi - a.0),
+            (-dz, a.1 - z_lo),
+            (dz, z_hi - a.1),
         ] {
             if p == 0.0 {
                 if q < 0.0 {
@@ -428,7 +474,17 @@ pub(crate) fn mesh_streets(
     frame: CoreFrame,
     ground: &HeightMap,
 ) -> Option<RoadParts> {
-    let (chains, degree) = street_chains(streets, frame);
+    mesh_streets_within(streets, frame, StreetBounds::inside(frame), ground)
+}
+
+/// [`mesh_streets`] ending at `bounds` ([`street_chains_within`]).
+pub(crate) fn mesh_streets_within(
+    streets: &Streets,
+    frame: CoreFrame,
+    bounds: StreetBounds,
+    ground: &HeightMap,
+) -> Option<RoadParts> {
+    let (chains, degree) = street_chains_within(streets, frame, bounds);
     let widest = chains.iter().map(|c| c.half_w).fold(0.0f32, f32::max);
     if chains.is_empty() {
         return None;

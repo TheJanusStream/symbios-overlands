@@ -7,7 +7,9 @@
 //! A building's parts - a high-rise section, a lower wing - only raise the
 //! building's peak storeys: the building alone stands. An underground car
 //! park stands nothing. Whatever reaches past [`EDGE_MARGIN_M`] inside the
-//! core's edge is left out: its walls stop there.
+//! core's edge is left out: the core's pages end there, and past it the far
+//! field and the ring are drawn coarser (P4.1, #1596, walks them; P4.2,
+//! #1597, brings the street level out to wherever a body walks).
 //!
 //! Each building and item of furniture is turned to its street
 //! ([`Facing`]): across to the nearest carriageway the core draws, within
@@ -29,7 +31,8 @@ use geodata::berlin::{BuildingUse, FurnitureKind, LandUse};
 
 use super::streets::{CoreFrame, Streets};
 
-/// How far inside the core's edge the street level stops (m): its walls.
+/// How far inside the core's edge the street level stops (m), so nothing
+/// drawn from the core's pages straddles where its ground ends.
 pub(crate) const EDGE_MARGIN_M: f32 = 3.0;
 
 /// How far from a carriageway a building or an item still faces it (m).
@@ -146,6 +149,30 @@ impl StreetLevel {
         }
     }
 
+    /// The same street level moved `(dx, dz)` metres: a detail patch's
+    /// (P4.2, #1597), read in its own frame round its centre and carried to
+    /// where it stands in the world.
+    pub(crate) fn moved(self, dx: f32, dz: f32) -> Self {
+        let StreetLevel {
+            mut buildings,
+            mut trees,
+            mut furniture,
+            ..
+        } = self;
+        for building in &mut buildings {
+            for point in &mut building.outline {
+                *point = (point.0 + dx, point.1 + dz);
+            }
+        }
+        for tree in &mut trees {
+            (tree.x, tree.z) = (tree.x + dx, tree.z + dz);
+        }
+        for item in &mut furniture {
+            (item.x, item.z) = (item.x + dx, item.z + dz);
+        }
+        StreetLevel::new(buildings, trees, furniture)
+    }
+
     /// Where its inventory trees keep a seeded stand clear.
     pub(crate) fn tree_clearance(&self) -> &TreeClearance {
         &self.clearance
@@ -201,11 +228,13 @@ pub(crate) struct StreetLevelBodies {
 }
 
 /// Read the street level's pages and carry them into the world frame round
-/// the core `frame`, its `streets` and land use `cover` turning each
-/// building and item to its street (see the module docs). Answers what was
-/// read, and why each layer left out was: a page that could not be had or
-/// read, in the order the pages are asked for. A page the server cut short
-/// still draws what it holds.
+/// the core `frame` - or a detail patch's, round its centre (P4.2, #1597;
+/// [`StreetLevel::moved`] carries it on to where the patch stands) - its
+/// `streets` and land use `cover` turning each building and item to its
+/// street (see the module docs). Answers what was read, and why each layer
+/// left out was: a page that could not be had or read, in the order the
+/// pages are asked for. A page the server cut short still draws what it
+/// holds.
 pub(crate) fn decode_street_level(
     bodies: &StreetLevelBodies,
     frame: CoreFrame,

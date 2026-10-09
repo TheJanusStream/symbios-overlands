@@ -382,7 +382,7 @@ pub(super) fn lift_player_above_new_ground(
     let Ok((mut pos, mut lin_vel, mut ang_vel)) = query.single_mut() else {
         return;
     };
-    snap_above_ground(&hm_res.0, &mut pos, &mut lin_vel, &mut ang_vel);
+    snap_above_ground(&hm_res, &mut pos, &mut lin_vel, &mut ang_vel);
 }
 
 /// Raise `pos` to stand on `hm` if it is currently below it, killing the
@@ -396,16 +396,14 @@ pub(super) fn lift_player_above_new_ground(
 /// arrives at a literal `y = 0.0` - so the one arrival most in need of a
 /// lift was the one arrival that never got one.
 pub(super) fn snap_above_ground(
-    hm: &bevy_symbios_ground::HeightMap,
+    heightmap: &crate::terrain::FinishedHeightMap,
     pos: &mut Position,
     lin_vel: &mut LinearVelocity,
     ang_vel: &mut AngularVelocity,
 ) {
-    let extent = (hm.width() - 1) as f32 * hm.scale();
-    let half = extent * 0.5;
-    let hm_x = (pos.x + half).clamp(0.0, extent);
-    let hm_z = (pos.z + half).clamp(0.0, extent);
-    let ground_y = hm.get_height_at(hm_x, hm_z);
+    // The ground as drawn: past the core, a Berlin region's far field,
+    // which is walked (P4.1, #1596).
+    let ground_y = heightmap.world_height_at(pos.x, pos.z);
     let min_y = ground_y + cfg::SPAWN_HEIGHT_OFFSET;
     if pos.y < min_y {
         pos.y = min_y;

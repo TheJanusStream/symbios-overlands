@@ -62,16 +62,11 @@ pub(crate) fn fog_visibility(
 
 /// The sky cuboid's scale (its half-width, m): the default backdrop, or,
 /// round a Berlin region's far field, wide enough to stand beyond its
-/// horizon from anywhere on the walkable ground (#1585).
+/// horizon from anywhere on the walkable ground (#1585) - the far field
+/// included, which is walked (P4.1, #1596).
 pub(crate) fn sky_scale(heightmap: Option<&crate::terrain::FinishedHeightMap>) -> f32 {
     let default = crate::config::lighting::SKY_SCALE;
-    match (heightmap, far_field(heightmap)) {
-        (Some(map), Some(far)) => {
-            let core_m = (map.0.width() - 1) as f32 * map.0.scale();
-            default.max(far.sky_half_m(core_m))
-        }
-        _ => default,
-    }
+    far_field(heightmap).map_or(default, |far| default.max(far.sky_half_m()))
 }
 
 /// The far field the ground landed with, if any.
@@ -305,9 +300,9 @@ mod tests {
         let default = crate::config::lighting::SKY_SCALE;
         assert_eq!(sky_scale(None), default);
         assert_eq!(sky_scale(Some(&ground(None))), default);
-        // Past the far edge of 10 km seen from the near edge of the 200 m
-        // core.
+        // Past the far edge of 10 km seen from the near edge of the square,
+        // where a walker on the far field may stand (P4.1).
         let half = sky_scale(Some(&ground(Some(far()))));
-        assert!(half > 10_000.0 / 2.0 + 200.0 / 2.0, "{half}");
+        assert!(half > 10_000.0, "{half}");
     }
 }

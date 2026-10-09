@@ -259,7 +259,11 @@ pub(super) fn placement_generator_ref(placement: &Placement) -> Option<&str> {
 ///   the home-water plane those filters target in practice; a
 ///   scatter near a *moved scattered pond* can go stale until the next
 ///   full rebuild, which heightmap edits and placement-count changes
-///   both force).
+///   both force),
+/// - the detail patch standing past a Berlin region's core (P4.2, #1597),
+///   for a placement whose ground reaches it ([`reaches_patch`]): the
+///   ground it stands on there is the patch's, so it is set down again
+///   when a patch lands on it or goes from under it.
 ///
 /// Once-per-planning-pass fingerprint inputs that are pure functions of
 /// the whole record: the room water level and the terrain config, both
@@ -279,15 +283,75 @@ pub(super) fn placement_generator_ref(placement: &Placement) -> Option<&str> {
 pub(super) struct FingerprintPass {
     water_level: Option<serde_json::Value>,
     terrain: Option<serde_json::Value>,
+    /// The detail patch standing: its world `(x, z)` rectangle and name.
+    patch: Option<(bevy::math::Rect, u64)>,
 }
 
 impl FingerprintPass {
-    pub(super) fn new(record: &RoomRecord, room_water_y: Option<f32>) -> Self {
+    pub(super) fn new(
+        record: &RoomRecord,
+        room_water_y: Option<f32>,
+        patch: Option<(bevy::math::Rect, u64)>,
+    ) -> Self {
         Self {
             water_level: serde_json::to_value(room_water_y).ok(),
             terrain: serde_json::to_value(crate::pds::find_terrain_config(record)).ok(),
+            patch,
         }
     }
+}
+
+/// Whether `placement` stands on ground within `rect` - world `(x, z)` - as
+/// the compile reads it: a snapped absolute placement's footprint, a
+/// snapped grid's cells, a scatter's bounds (its filters read the ground's
+/// land use and slope there, snapped or not), each taken as the disc
+/// round it. A placement left where its record put it reads no ground.
+pub(super) fn reaches_patch(placement: &Placement, rect: bevy::math::Rect) -> bool {
+    use crate::pds::ScatterBounds;
+    let disc = match placement {
+        Placement::Absolute {
+            transform,
+            snap_to_terrain: true,
+            avoid_water,
+            avoid_water_clearance,
+            ..
+        } => {
+            let [x, _, z] = transform.translation.0;
+            let reach = if *avoid_water {
+                avoid_water_clearance.0 * transform.scale.0[0].max(0.0)
+            } else {
+                0.0
+            };
+            Some((x, z, reach))
+        }
+        Placement::Grid {
+            transform,
+            counts,
+            gaps,
+            snap_to_terrain: true,
+            ..
+        } => {
+            let [x, _, z] = transform.translation.0;
+            let scale = transform.scale.0[0].abs().max(transform.scale.0[2].abs());
+            let half =
+                |axis: usize| counts[axis].saturating_sub(1) as f32 * gaps.0[axis].abs() / 2.0;
+            Some((x, z, half(0).hypot(half(2)) * scale))
+        }
+        Placement::Scatter { bounds, .. } => match bounds {
+            ScatterBounds::Circle { center, radius } => {
+                Some((center.0[0], center.0[1], radius.0.abs()))
+            }
+            ScatterBounds::Rect {
+                center, extents, ..
+            } => Some((center.0[0], center.0[1], extents.0[0].hypot(extents.0[1]))),
+        },
+        _ => None,
+    };
+    disc.is_some_and(|(x, z, reach)| {
+        let at = bevy::math::Vec2::new(x, z);
+        let nearest = at.clamp(rect.min, rect.max);
+        at.distance(nearest) <= reach.max(0.0)
+    })
 }
 
 /// Routed through `serde_json::to_value` so any `HashMap`-backed field
@@ -327,6 +391,11 @@ pub(super) fn unit_fingerprint(
         }
         _ => {}
     }
+    if let Some((rect, name)) = pass.patch
+        && reaches_patch(placement, rect)
+    {
+        extras.insert("patch".into(), name.into());
+    }
 
     let v = serde_json::json!({
         "placement": serde_json::to_value(placement).ok()?,
@@ -342,8 +411,10 @@ mod tests {
     //! The fingerprint is the planner's entire decision input, so it
     //! carries the unit coverage; the executor's ECS flow is exercised
     //! by the existing integration suite plus manual smoke tests.
-    use super::{ActiveJob, CompileJob, FingerprintPass, QueuedUnit, unit_fingerprint};
-    use crate::pds::{Fp, RoomRecord};
+    use super::{
+        ActiveJob, CompileJob, FingerprintPass, QueuedUnit, reaches_patch, unit_fingerprint,
+    };
+    use crate::pds::{Fp, Placement, RoomRecord};
     use std::collections::VecDeque;
 
     /// #1230 f281. The loading screen's longest and least legible phase was
@@ -395,12 +466,91 @@ mod tests {
 
     fn fingerprints(record: &RoomRecord) -> Vec<Option<String>> {
         // Same once-per-pass construction the planner uses.
-        let pass = FingerprintPass::new(record, super::super::water::room_water_level(record));
+        let pass =
+            FingerprintPass::new(record, super::super::water::room_water_level(record), None);
         record
             .placements
             .iter()
             .map(|p| unit_fingerprint(record, p, &pass))
             .collect()
+    }
+
+    /// P4.2 (#1597): a detail patch landing past the core sets down again
+    /// what of the record stands on it - a snapped item's footprint, a
+    /// snapped grid, a scatter's bounds - and nothing else.
+    #[test]
+    fn a_patch_restamps_only_what_stands_on_it() {
+        use crate::pds::{Fp2, Fp3, ScatterBounds, TransformData};
+        let rect = bevy::math::Rect::new(600.0, -300.0, 1_600.0, 700.0);
+        let at = |x: f32, z: f32| TransformData {
+            translation: Fp3([x, 0.0, z]),
+            ..Default::default()
+        };
+        let absolute = |x: f32, snap: bool, clearance: f32| Placement::Absolute {
+            generator_ref: "house".into(),
+            transform: at(x, 0.0),
+            snap_to_terrain: snap,
+            avoid_water: clearance > 0.0,
+            avoid_water_clearance: Fp(clearance),
+            seed: None,
+        };
+        let scatter = |x: f32, radius: f32| Placement::Scatter {
+            generator_ref: "tree".into(),
+            bounds: ScatterBounds::Circle {
+                center: Fp2([x, 0.0]),
+                radius: Fp(radius),
+            },
+            count: 10,
+            local_seed: 1,
+            biome_filter: Default::default(),
+            snap_to_terrain: true,
+            random_yaw: true,
+            avoid_urban: false,
+            float_on_water: false,
+            naturalness: Default::default(),
+        };
+        let grid = |x: f32| Placement::Grid {
+            generator_ref: "lamp".into(),
+            transform: at(x, 0.0),
+            counts: [5, 1, 5],
+            gaps: Fp3([10.0, 0.0, 10.0]),
+            snap_to_terrain: true,
+            random_yaw: false,
+        };
+        assert!(reaches_patch(&absolute(700.0, true, 0.0), rect));
+        assert!(
+            !reaches_patch(&absolute(700.0, false, 0.0), rect),
+            "unsnapped"
+        );
+        assert!(!reaches_patch(&absolute(590.0, true, 0.0), rect));
+        assert!(
+            reaches_patch(&absolute(590.0, true, 15.0), rect),
+            "its footprint"
+        );
+        assert!(reaches_patch(&scatter(550.0, 60.0), rect));
+        assert!(!reaches_patch(&scatter(500.0, 60.0), rect));
+        assert!(reaches_patch(&grid(575.0), rect), "its cells reach 28 m");
+        assert!(!reaches_patch(&grid(560.0), rect));
+
+        let mut record = RoomRecord::default_for_did("did:plc:fp_patch");
+        record.placements = vec![absolute(700.0, true, 0.0), absolute(0.0, true, 0.0)];
+        let stamped = |patch| {
+            let pass = FingerprintPass::new(&record, None, patch);
+            record
+                .placements
+                .iter()
+                .map(|p| unit_fingerprint(&record, p, &pass))
+                .collect::<Vec<_>>()
+        };
+        let (none, first, second) = (
+            stamped(None),
+            stamped(Some((rect, 1))),
+            stamped(Some((rect, 2))),
+        );
+        assert_ne!(none[0], first[0], "the item on the patch is set down again");
+        assert_ne!(first[0], second[0], "and again on the next patch");
+        assert_eq!(none[1], first[1], "the item in the core stays");
+        assert_eq!(first[1], second[1]);
     }
 
     #[test]

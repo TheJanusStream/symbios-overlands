@@ -478,39 +478,78 @@ pub(super) fn road_surfaces(
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
 ) -> Vec<RoadSurface> {
-    let [deck_mat, structure_mat, neon_mat] = resolved_road_materials(theme, appearance);
-    let mut surfaces = Vec::new();
-    for (geo, material, kind, collide) in [
-        (&parts.deck, deck_mat, RoadSurfaceKind::Deck, true),
-        (
-            &parts.structure,
-            structure_mat,
-            RoadSurfaceKind::Structure,
-            true,
-        ),
-        (&parts.neon, neon_mat, RoadSurfaceKind::Neon, false),
+    add_road_surfaces(
+        build_road_surfaces(parts),
+        theme,
+        appearance,
+        meshes,
+        materials,
+    )
+}
+
+/// One road surface built, before its assets are added: what
+/// [`road_surfaces`] does off the asset stores, so a detail patch's streets
+/// (P4.2, #1597) are built on the compute pool and only added on landing.
+pub(crate) struct BuiltSurface {
+    mesh: Mesh,
+    kind: RoadSurfaceKind,
+    collider: Option<Collider>,
+}
+
+/// The surfaces of `parts` that emitted faces, built: each its mesh, with
+/// no CPU copy kept, and the deck's and the structure's trimesh colliders.
+pub(crate) fn build_road_surfaces(parts: &crate::urban::RoadParts) -> Vec<BuiltSurface> {
+    let mut built = Vec::new();
+    for (geo, kind, collide) in [
+        (&parts.deck, RoadSurfaceKind::Deck, true),
+        (&parts.structure, RoadSurfaceKind::Structure, true),
+        (&parts.neon, RoadSurfaceKind::Neon, false),
     ] {
         if geo.is_empty() {
             continue;
         }
-        let mut bevy_mesh = crate::urban::to_bevy_mesh(geo);
+        let mut mesh = crate::urban::to_bevy_mesh(geo);
         // `trimesh_from_mesh` merges duplicate vertices and returns `None`
         // (never panics) if the buffers can't form a trimesh, so a malformed
         // surface degrades to a visible-but-non-collidable mesh, never a crash.
         let collider = collide
-            .then(|| Collider::trimesh_from_mesh(&bevy_mesh))
+            .then(|| Collider::trimesh_from_mesh(&mesh))
             .flatten();
         // Nothing reads a road mesh back once its collider is built: no CPU
         // copy for the life of the road (#1595).
-        bevy_mesh.asset_usage = bevy::asset::RenderAssetUsages::RENDER_WORLD;
-        surfaces.push(RoadSurface {
-            mesh: meshes.add(bevy_mesh),
-            material: materials.add(material),
+        mesh.asset_usage = bevy::asset::RenderAssetUsages::RENDER_WORLD;
+        built.push(BuiltSurface {
+            mesh,
             kind,
             collider,
         });
     }
-    surfaces
+    built
+}
+
+/// `built` surfaces added to the asset stores, in `theme`'s road materials
+/// with `appearance` layered on.
+pub(super) fn add_road_surfaces(
+    built: Vec<BuiltSurface>,
+    theme: ThemeArchetype,
+    appearance: &crate::pds::generator::RoadAppearance,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+) -> Vec<RoadSurface> {
+    let [deck, structure, neon] = resolved_road_materials(theme, appearance);
+    built
+        .into_iter()
+        .map(|surface| RoadSurface {
+            mesh: meshes.add(surface.mesh),
+            material: materials.add(match surface.kind {
+                RoadSurfaceKind::Deck => deck.clone(),
+                RoadSurfaceKind::Structure => structure.clone(),
+                RoadSurfaceKind::Neon => neon.clone(),
+            }),
+            kind: surface.kind,
+            collider: surface.collider,
+        })
+        .collect()
 }
 
 /// The transform a road mesh takes: the ribbon lives in the full heightmap

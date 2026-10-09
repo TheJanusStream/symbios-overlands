@@ -279,8 +279,14 @@ pub(super) fn spawn_terrain_mesh(
                 albedo_fade_near: tcfg::splat::ALBEDO_FADE_NEAR,
                 albedo_fade_far: tcfg::splat::ALBEDO_FADE_FAR,
                 weight_uv_scale: 1.0,
-                weight_uv_offset: 0.0,
-                _pad0: 0,
+                weight_uv_offset_u: 0.0,
+                weight_uv_offset_v: 0.0,
+                // No hole: a far field's is cut while a detail patch stands
+                // in it (P4.2, #1597).
+                hole_min_x: 0.0,
+                hole_min_z: 0.0,
+                hole_max_x: 0.0,
+                hole_max_z: 0.0,
             },
             ..default() // weight_map defaults to 1x1 D2, which is fine for the weight sampler
         },
@@ -291,18 +297,28 @@ pub(super) fn spawn_terrain_mesh(
         // The far mesh runs the core's UVs on past its edges, so its layers
         // tile as the core's; its weight map is looked up through this.
         let mut material = placeholder();
+        // A detail patch's hole is cut in it (P4.2, #1597), its pipelines
+        // ready for one from the start.
+        material.base.alpha_mode = crate::splat::HOLEABLE_ALPHA;
         let (scale, offset) = far.weight_uv(world_extent);
         material.extension.uniforms.weight_uv_scale = scale;
-        material.extension.uniforms.weight_uv_offset = offset;
-        (
-            meshes.add(super::geo::far::build_far_mesh(far, hm)),
-            materials.add(material),
-        )
+        material.extension.uniforms.weight_uv_offset_u = offset;
+        material.extension.uniforms.weight_uv_offset_v = offset;
+        let (mesh, colliders) = super::geo::far::build_far_ground(far, hm);
+        // Without its colliders the far field is drawn and not walked: the
+        // world ends at the core, as it did before P4.1.
+        let walls = if colliders.is_empty() {
+            super::geo::far::core_walls(hm)
+        } else {
+            super::geo::far::edge_walls(far, hm)
+        };
+        (meshes.add(mesh), materials.add(material), colliders, walls)
     });
 
     commands.insert_resource(SplatMaterialHandle(
         mat_handle.clone(),
-        far_parts.as_ref().map(|(_, material)| material.clone()),
+        far_parts.as_ref().map(|(_, material, ..)| material.clone()),
+        None,
     ));
 
     // A geodata region's streets (#1595), in the theme's road look: taken
@@ -338,19 +354,30 @@ pub(super) fn spawn_terrain_mesh(
                 MeshMaterial3d(mat_handle),
                 Transform::from_xyz(-half, 0.0, -half),
             ));
-            // The far field, as the region's horizon (#1585): drawn, not
-            // walked - no collider, and walls at the core's edge, so nobody
-            // steps off the walkable ground onto a horizon that would let
-            // them fall through it. The walls carry no `TerrainMesh`, so the
-            // pick rays that ask for the ground pass them by.
-            if let Some((far_mesh, far_material)) = far_parts {
+            // The far field, as the region's horizon (#1585), and walked
+            // (P4.1, #1596): its colliders are its own triangles, joining
+            // the terrain's static body, and the walls that end the world
+            // stand at its edge, the square's. The walls carry no `TerrainMesh`,
+            // so the pick rays that ask for the ground pass them by; the
+            // far ground is marked as ground for them apart from the core.
+            if let Some((far_mesh, far_material, colliders, walls)) = far_parts {
                 parent.spawn((
                     Mesh3d(far_mesh),
                     MeshMaterial3d(far_material),
                     Transform::IDENTITY,
                     bevy::light::NotShadowCaster,
+                    super::geo::far::FarGround,
                 ));
-                for (size, centre) in super::geo::far::boundary_walls(hm) {
+                // Its colliders, each an entity of its own: one shape apiece.
+                for collider in colliders {
+                    parent.spawn((
+                        collider,
+                        Transform::IDENTITY,
+                        super::geo::far::FarGround,
+                        super::geo::far::FarCollider,
+                    ));
+                }
+                for (size, centre) in walls {
                     parent.spawn((
                         Collider::cuboid(size.x, size.y, size.z),
                         CollisionLayers::from_bits(super::geo::far::WALL_LAYER, u32::MAX),
@@ -420,6 +447,113 @@ pub(super) fn heightmap_from_data(d: gen_jobs::HeightmapData) -> HeightMap {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// P4.1 (#1596): a Berlin region's far field spawns walked - on a
+    /// collider of its own triangles, marked as ground for the rays - and
+    /// the walls that end the world stand at its edge, not the core's.
+    #[test]
+    fn a_far_field_spawns_walked_with_the_walls_at_its_edge() {
+        use bevy::ecs::system::RunSystemOnce;
+
+        use super::super::geo::GeoGround;
+        use super::super::geo::far::{FarField, FarGround, WALL_LAYER};
+
+        // A 40 m core in a 160 m square, its far pixels 10 m.
+        let mut core = HeightMap::new(21, 21, 2.0);
+        for z in 0..21 {
+            for x in 0..21 {
+                core.set(x, z, 30.0);
+            }
+        }
+        let far = FarField::from_fn(16, 10.0, |x, _| 30.0 + 0.01 * x);
+        let edge = far.span_m() / 2.0;
+        let ground = GeoGround::from_cover(21, 2.0, vec![None; 21 * 21], None).with_far(far);
+        let mut world = World::new();
+        world.init_resource::<Assets<Mesh>>();
+        world.init_resource::<Assets<Image>>();
+        world.init_resource::<Assets<StandardMaterial>>();
+        world.init_resource::<Assets<SplatTerrainMaterial>>();
+        world.insert_resource(FinishedHeightMap(core, Some(ground)));
+        world
+            .run_system_once(spawn_terrain_mesh)
+            .expect("the spawn runs");
+        let root = world
+            .query_filtered::<Entity, With<TerrainMesh>>()
+            .single(&world)
+            .expect("one terrain");
+        let children: Vec<Entity> = world.get::<Children>(root).unwrap().iter().collect();
+        let far_ground: Vec<Entity> = children
+            .iter()
+            .copied()
+            .filter(|&c| world.get::<FarGround>(c).is_some())
+            .collect();
+        let drawn = far_ground
+            .iter()
+            .filter(|&&c| world.get::<Mesh3d>(c).is_some())
+            .count();
+        let walked = far_ground
+            .iter()
+            .filter(|&&c| world.get::<Collider>(c).is_some())
+            .count();
+        assert_eq!(drawn, 1, "one far mesh");
+        assert_eq!(
+            walked, 2,
+            "walked on its plain cells' heightfield and its edges' mesh"
+        );
+        // Its colliders are the far field's own, for a detail patch to swap
+        // (P4.2), and its material is a mask from the start, the patch's
+        // hole compiled into its pipelines before any patch lands.
+        let marked = far_ground
+            .iter()
+            .filter(|&&c| {
+                world
+                    .get::<super::super::geo::far::FarCollider>(c)
+                    .is_some()
+            })
+            .count();
+        assert_eq!(marked, walked);
+        let far_material = world
+            .resource::<SplatMaterialHandle>()
+            .1
+            .clone()
+            .expect("the far field's material");
+        let far_material = world
+            .resource::<Assets<SplatTerrainMaterial>>()
+            .get(&far_material)
+            .expect("in the store");
+        assert_eq!(far_material.base.alpha_mode, crate::splat::HOLEABLE_ALPHA);
+        assert_eq!(
+            far_material.extension.uniforms.hole_max_x, 0.0,
+            "no hole yet"
+        );
+        assert!(
+            far_ground
+                .iter()
+                .all(|&c| world.get::<TerrainMesh>(c).is_none()),
+            "one terrain, one core"
+        );
+        let walls: Vec<Vec3> = children
+            .iter()
+            .filter(|&&c| {
+                world
+                    .get::<CollisionLayers>(c)
+                    .is_some_and(|layers| layers.memberships.0 == WALL_LAYER)
+            })
+            .map(|&c| world.get::<Transform>(c).unwrap().translation)
+            .collect();
+        assert_eq!(walls.len(), 4);
+        for centre in walls {
+            let off = centre.x.abs().max(centre.z.abs());
+            assert!(
+                (off - (edge + 1.0)).abs() < 1e-3,
+                "a wall {off} m out, the edge {edge} m"
+            );
+        }
+        assert_eq!(
+            world.resource::<FinishedHeightMap>().walkable_half_extent(),
+            edge
+        );
+    }
 
     /// #1595: a geodata region's streets spawn with its terrain - children
     /// of its root, at the road offset, the deck and the structure with

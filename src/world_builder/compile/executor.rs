@@ -69,13 +69,19 @@ pub(crate) fn compile_room_record(
     mut blob_image_cache: ResMut<BlobImageCache>,
     mut blob_audio_cache: ResMut<super::super::audio_resolver::BlobAudioCache>,
     mut water_surfaces: ResMut<WaterSurfaces>,
+    patch: Option<Res<crate::terrain::geo::patch::follow::PatchStamp>>,
 ) {
     let Some(record) = record else {
         return;
     };
     let heightmap_changed = heightmap.as_ref().is_some_and(|h| h.is_changed());
     let record_changed = record.is_changed();
-    if !record_changed && !heightmap_changed && generator_caches.job.0.is_none() {
+    // A detail patch landing past the core, or going (P4.2, #1597): what of
+    // the record stands on it is set down again, nothing else rebuilt - but
+    // the replan restarts a unit midway through building, as any replan
+    // does, wherever it stands.
+    let patch_changed = patch.as_ref().is_some_and(|patch| patch.is_changed());
+    if !record_changed && !heightmap_changed && !patch_changed && generator_caches.job.0.is_none() {
         return;
     }
     // The change tick above is read off the `Res<LiveRoomRecord>`
@@ -83,7 +89,7 @@ pub(crate) fn compile_room_record(
     let record = &record.0;
 
     // ---- Phase 1: plan -------------------------------------------------
-    if record_changed || heightmap_changed {
+    if record_changed || heightmap_changed || patch_changed {
         plan_job(
             &mut commands,
             &existing,
@@ -91,6 +97,7 @@ pub(crate) fn compile_room_record(
             heightmap_changed,
             // Berlin's level where a geodata region's core has water (#1586).
             super::water::drawn_water_level(record, heightmap.as_deref()),
+            patch.and_then(|patch| patch.0),
             &mut generator_caches.world,
             &mut generator_caches.job,
             &mut water_surfaces,
@@ -366,6 +373,7 @@ fn plan_job(
     record: &RoomRecord,
     heightmap_changed: bool,
     room_water_y: Option<f32>,
+    patch: Option<(bevy::math::Rect, u64)>,
     world: &mut CompiledWorld,
     job: &mut CompileJob,
     water_surfaces: &mut WaterSurfaces,
@@ -406,7 +414,7 @@ fn plan_job(
     // (#673): `room_water_y` - the water line as drawn, Berlin's in a
     // geodata region - feeds both the fingerprints below and (via the job)
     // `start_unit`'s dry-land walk during the execute slices.
-    let fp_pass = FingerprintPass::new(record, room_water_y);
+    let fp_pass = FingerprintPass::new(record, room_water_y, patch);
 
     let len = record.placements.len();
     // Full when the heightmap was swapped (every snapped transform
@@ -641,7 +649,6 @@ fn start_unit(
     let mut anchor_world_tf = anchor_tf;
     if snap {
         if let Some(hm_res) = ctx.heightmap {
-            let hm = &hm_res.0;
             // Water-avoiding placements slide to dry land before the
             // height sample (may move X/Z, preserves bearing), then off
             // over-steep ground (#905) - the safety net under the
@@ -679,7 +686,7 @@ fn start_unit(
             // one, and a disagreement between them and this line lands in
             // the stored offset and compounds per drag (#1011).
             let ground = super::pad::snapped_ground_y(
-                hm,
+                hm_res,
                 anchor_world_tf.translation.x,
                 anchor_world_tf.translation.z,
                 super::pad::snap_footprint_radius(placement),

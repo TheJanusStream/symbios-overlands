@@ -1079,18 +1079,34 @@ null` goes back to the generated ground.
   carries one of Berlin's streets is a deck over the water; a footbridge or
   a rail bridge is a causeway at the waterline. The World Editor's Region
   source shows the level.
-- **A square wider than the walkable ground has a horizon.** The rest of
-  the square is drawn on to its edge, coarse, as the region's horizon. It
-  is not walkable: invisible walls stand at the walkable ground's edge, so
-  a `default_landing` or a placement out there cannot be reached. Once the
-  horizon has loaded the fog opens at least as far as the square's side so
-  it shows, whatever `/environment/fog_visibility` says below that.
-- **Berlin's buildings stand round the walkable ground** (#1587), out to
-  about a kilometre past its walls: the theme's own catalogue buildings,
+- **A square wider than the walkable ground has a horizon, and it is
+  walked** (#1596). The rest of the square is drawn on to its edge,
+  coarse - about 17 to 74 m a pixel, its land use painted, no streets - and a
+  body walks and drives out to the square's edge, where invisible walls
+  end the world. A placement or a `default_landing` out there stands on
+  the ground as drawn, where it was put: the walks off water and streets
+  run on the core alone. Once the horizon has loaded the fog opens at
+  least as far as the square's side so it shows, whatever
+  `/environment/fog_visibility` says below that.
+- **Past the walkable ground, Berlin comes in at full detail round the
+  body** (#1597). Within 200 m of the core's edge, and out past it, a
+  patch as big as the core (narrower where the square leaves less room)
+  loads round the agent's own body: the street-level ground, streets,
+  buildings, trees and street furniture, as on the core, standing against
+  the core where the two meet. A new patch loads every 250 m or so of
+  travel, a second or so after it is asked for; one 300 m deep in the core
+  is let go. Each client loads its own round its own body, so what another
+  visitor sees out there depends on where they are. A placement on a patch
+  stands on its ground, and moves to it when the patch loads: `snap_to_terrain`
+  placements past the core are set down again whenever a patch arrives or
+  leaves under them. None of it is in the record.
+- **Berlin's buildings stand round the street-level ground** (#1587), out
+  to about a kilometre past its edge: the theme's own catalogue buildings,
   one to each 30 m lot where Berlin has a building, the tallest Berlin
-  buildings taking the theme's landmarks. They are drawn and never walked,
-  derived on every visit, and not in the record: nothing an agent can
-  place, move or delete.
+  buildings taking the theme's landmarks. They are solid (#1596), keep
+  clear of `default_landing` and of every absolute placement's reach as
+  the street level does, and are derived on every visit and not in the
+  record: nothing an agent can place, move or delete.
 - **The walkable ground has Berlin's street level** (P2.2): the theme's
   catalogue buildings on each of Berlin's building footprints (in rows down
   a long one, a landmark on a church or a large museum), every tree of the

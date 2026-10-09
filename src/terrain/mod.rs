@@ -81,6 +81,11 @@ pub(crate) struct TextureTasksStarted;
 #[derive(Component)]
 pub struct TerrainMesh;
 
+/// What the rays that ask for the ground take as ground: the core's
+/// terrain and, since P4.1 (#1596) walks it, a Berlin region's far field -
+/// and the detail patch standing in for it round a body (P4.2, #1597).
+pub(crate) type GroundFilter = Or<(With<TerrainMesh>, With<geo::far::FarGround>)>;
+
 /// Marker inserted on the previous terrain entity during an in-place
 /// regenerate. Kept alive (with its collider + textured mesh) until the new
 /// heightmap task completes and `spawn_terrain_mesh` swaps in the fresh one -
@@ -248,31 +253,92 @@ impl FinishedHeightMap {
         self.1.as_ref()
     }
 
-    /// Terrain height at **world** coordinates: the heightmap's own frame
-    /// starts at `(0, 0)` in its corner, while the world centres the
-    /// terrain on the origin - this does the half-extent shift + clamp
-    /// every sampler needs. Single-sourced so the placement executor, the
-    /// placement gizmo, and the editor's snap-toggle compensation all
-    /// agree on the sample (#700) - a disagreement shows up as objects
-    /// jumping between preview and compile.
-    pub fn world_height_at(&self, x: f32, z: f32) -> f32 {
-        let hm = &self.0;
-        let extent = (hm.width() - 1) as f32 * hm.scale();
-        let half = extent * 0.5;
-        hm.get_height_at((x + half).clamp(0.0, extent), (z + half).clamp(0.0, extent))
+    /// A Berlin region's far field (#1585), walked since P4.1 (#1596).
+    pub(crate) fn far(&self) -> Option<&geo::far::FarField> {
+        self.ground()
+            .and_then(|ground| ground.far().map(|far| &**far))
     }
 
-    /// The ground as drawn at world `(x, z)`: the walkable ground's height
-    /// on it, and past its edge a Berlin region's far field's (#1585), where
-    /// [`Self::world_height_at`] holds the edge's height out to infinity.
-    /// For the camera, which may orbit out over the far field and must not
-    /// sink into a hill there; placements keep to the walkable ground.
-    pub(crate) fn view_height_at(&self, x: f32, z: f32) -> f32 {
-        let half = (self.0.width() - 1) as f32 * self.0.scale() * 0.5;
-        match self.ground().and_then(geo::GeoGround::far) {
-            Some(far) if x.abs() > half || z.abs() > half => far.height_at(x, z),
-            _ => self.world_height_at(x, z),
+    /// The ground as drawn at **world** coordinates ([`ground_height`]):
+    /// the heightmap's own frame starts at `(0, 0)` in its corner, while the
+    /// world centres the terrain on the origin - this does the half-extent
+    /// shift every sampler needs - and past the core's edge a Berlin
+    /// region's far field, which is walked (P4.1, #1596), or the detail
+    /// patch where one has loaded (P4.2, #1597), where without one the
+    /// core's edge height holds out to infinity. Single-sourced so the
+    /// placement executor, the placement gizmo, the editor's snap-toggle
+    /// compensation, the camera and the recovery checks all agree on the
+    /// sample (#700) - a disagreement shows up as objects jumping between
+    /// preview and compile.
+    pub fn world_height_at(&self, x: f32, z: f32) -> f32 {
+        ground_height(&self.0, self.far(), x, z)
+    }
+
+    /// The ground's upward normal at world `(x, z)`: the core's own where it
+    /// stands on it, and past its edge the slope of the ground as drawn.
+    pub(crate) fn normal_at(&self, x: f32, z: f32) -> Vec3 {
+        let hm = &self.0;
+        let half = (hm.width() - 1) as f32 * hm.scale() * 0.5;
+        match self.far() {
+            Some(far) if x.abs() > half || z.abs() > half => far.drawn_normal_at(hm, x, z),
+            _ => Vec3::from_array(hm.get_normal_at(
+                (x + half).clamp(0.0, 2.0 * half),
+                (z + half).clamp(0.0, 2.0 * half),
+            )),
         }
+    }
+
+    /// How far from the origin the walkable world runs, along either axis
+    /// (m): a Berlin region's far field's edge, the square's, where it has
+    /// one (P4.1, #1596), else the core's. Past it the world has ended: the
+    /// recovery and the water's lift read it.
+    ///
+    /// The far field's edge assumes its collider was built: were parry to
+    /// refuse its triangles (a degenerate mesh, never seen), its walls stand
+    /// at the core's edge ([`geo::far::core_walls`]) while this still reads
+    /// the far field's.
+    pub(crate) fn walkable_half_extent(&self) -> f32 {
+        match self.far() {
+            Some(far) => far.span_m() / 2.0,
+            None => (self.0.width() - 1) as f32 * self.0.scale() * 0.5,
+        }
+    }
+
+    /// How far from the origin a body may be set down, along either axis
+    /// (m): a spawn, a return to spawn, a "Go to" - the walkable world, kept
+    /// [`SET_DOWN_INSET_M`] clear of the walls at a far field's edge, so a
+    /// body, a long hull included, lands on the ground and not in a wall.
+    /// The core's edge, as ever, where there is no far field.
+    pub(crate) fn set_down_half_extent(&self) -> f32 {
+        match self.far() {
+            Some(far) => (far.span_m() / 2.0 - SET_DOWN_INSET_M).max(0.0),
+            None => self.walkable_half_extent(),
+        }
+    }
+}
+
+/// How far inside the walls at a far field's edge a body is set down at
+/// most (m): clear of them by more than the longest hull's half.
+pub(crate) const SET_DOWN_INSET_M: f32 = 8.0;
+
+/// The ground as drawn at world `(x, z)`, the core `hm` centred on the
+/// origin: its own height on it; past its edge the far field's, where
+/// there is one (P4.1, #1596) - the detail patch's where one has loaded
+/// (P4.2, #1597), else the height of the far mesh's own triangle there,
+/// each its collider's too ([`geo::far::FarField::drawn_height_at`]), so a
+/// body set down past the core lands on the ground it is drawn on - and
+/// without one the core's edge height, held out to infinity.
+pub(crate) fn ground_height(
+    hm: &HeightMap,
+    far: Option<&geo::far::FarField>,
+    x: f32,
+    z: f32,
+) -> f32 {
+    let extent = (hm.width() - 1) as f32 * hm.scale();
+    let half = extent * 0.5;
+    match far {
+        Some(far) if x.abs() > half || z.abs() > half => far.drawn_height_at(hm, x, z),
+        _ => hm.get_height_at((x + half).clamp(0.0, extent), (z + half).clamp(0.0, extent)),
     }
 }
 
@@ -322,6 +388,9 @@ struct SplatMaterialHandle(
     Handle<SplatTerrainMaterial>,
     /// A geodata region's far field's own material (#1585): the same layers,
     /// its own weight map.
+    Option<Handle<SplatTerrainMaterial>>,
+    /// A detail patch's own material while one stands (P4.2, #1597): the
+    /// same layers, its own weight map.
     Option<Handle<SplatTerrainMaterial>>,
 );
 
@@ -498,6 +567,8 @@ pub(crate) fn register_headless_terrain(app: &mut App) {
 pub(crate) fn register_headless_roads(app: &mut App) {
     app.init_resource::<roads::RoadRebuild>()
         .init_resource::<RoadPanelStats>()
+        .init_resource::<geo::patch::follow::RoamingPatch>()
+        .init_resource::<geo::patch::follow::PatchStamp>()
         .init_resource::<crate::state::RoomWriteSignals>()
         .init_resource::<crate::notify::Toasts>()
         .add_systems(
@@ -521,6 +592,15 @@ pub(crate) fn register_headless_roads(app: &mut App) {
                             .and_then(resource_exists_and_changed::<LiveRoomRecord>),
                     )
                     .after(derived::start_derived),
+                // The detail patch round the body (P4.2, #1597): before the
+                // slice, which spawns its plans.
+                (
+                    geo::patch::follow::follow_body,
+                    geo::patch::follow::drive_patch,
+                )
+                    .chain()
+                    .after(derived::start_derived)
+                    .before(derived::spawn_derived),
                 derived::spawn_derived
                     .run_if(derived::derived_spawning)
                     .after(derived::apply_derived_edits),
@@ -558,6 +638,8 @@ impl Plugin for TerrainPlugin {
             .init_resource::<PendingTerrainConfigJson>()
             .init_resource::<roads::RoadRebuild>()
             .init_resource::<RoadPanelStats>()
+            .init_resource::<geo::patch::follow::RoamingPatch>()
+            .init_resource::<geo::patch::follow::PatchStamp>()
             // Terrain + texture + mesh spawning runs as conditional Update
             // systems in both Loading and InGame so the same plumbing handles
             // the initial world build *and* in-place regeneration when the
@@ -627,6 +709,18 @@ impl Plugin for TerrainPlugin {
                         .after(derived::start_derived)
                         .after(lifecycle::maybe_regenerate_terrain)
                         .after(TerrainTeardown),
+                    // The detail patch round the body (P4.2, #1597): after
+                    // the systems that retire a terrain, as the stage's are,
+                    // and before the slice, which spawns its plans.
+                    (
+                        geo::patch::follow::follow_body,
+                        geo::patch::follow::drive_patch,
+                    )
+                        .chain()
+                        .after(derived::start_derived)
+                        .after(lifecycle::maybe_regenerate_terrain)
+                        .after(TerrainTeardown)
+                        .before(derived::spawn_derived),
                     derived::spawn_derived
                         .run_if(derived::derived_spawning)
                         .after(derived::apply_derived_edits)
@@ -894,6 +988,46 @@ mod fingerprint_tests {
 #[cfg(test)]
 mod world_height_tests {
     use super::*;
+
+    /// P4.1 (#1596): the ground as drawn runs on past the core onto a
+    /// Berlin region's far field, fanned from the core's edge to the far
+    /// mesh's first grid line, so the two meet; without a far field the
+    /// core's edge height holds, as it always did. The walkable world ends
+    /// at the far field's edge, or the core's.
+    #[test]
+    fn the_ground_as_drawn_runs_on_past_the_core_onto_the_far_field() {
+        use geo::far::FarField;
+        // A flat 40 m core at 30 m in a 160 m square whose far ground stands
+        // at 40 m.
+        let mut core = HeightMap::new(21, 21, 2.0);
+        for z in 0..21 {
+            for x in 0..21 {
+                core.set(x, z, 30.0);
+            }
+        }
+        let far = FarField::from_fn(16, 10.0, |_, _| 40.0);
+        let bare = FinishedHeightMap(core.clone(), None);
+        let ground = geo::GeoGround::from_cover(21, 2.0, vec![None; 21 * 21], None).with_far(far);
+        let berlin = FinishedHeightMap(core, Some(ground));
+        // On the core, both are the core.
+        assert_eq!(berlin.world_height_at(5.0, -7.0), 30.0);
+        assert_eq!(bare.world_height_at(5.0, -7.0), 30.0);
+        // At the core's edge the two meet, the far mesh fanning the core's
+        // boundary vertices out to its first grid line, 5 m on; past it,
+        // the far field.
+        assert_eq!(berlin.world_height_at(20.0, 0.0), 30.0);
+        let fan = berlin.world_height_at(22.5, 0.0);
+        assert!((fan - 35.0).abs() < 1e-4, "half way up the fan: {fan}");
+        assert_eq!(berlin.world_height_at(25.0, 0.0), 40.0);
+        assert_eq!(berlin.world_height_at(-60.0, 60.0), 40.0);
+        // Without a far field the edge holds out to infinity.
+        assert_eq!(bare.world_height_at(60.0, 0.0), 30.0);
+        // The walkable world: the far field's drawn edge, or the core's.
+        assert_eq!(berlin.walkable_half_extent(), 75.0);
+        assert_eq!(bare.walkable_half_extent(), 20.0);
+        // Out on the far field the ground's normal is its slope's: flat.
+        assert!((berlin.normal_at(-60.0, 60.0) - Vec3::Y).length() < 1e-6);
+    }
 
     /// The world→heightmap frame shift (#700): world coordinates centre the
     /// terrain on the origin, so `world_height_at(-half, -half)` must read

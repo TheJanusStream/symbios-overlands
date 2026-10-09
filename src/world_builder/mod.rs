@@ -737,7 +737,7 @@ fn draw_placement_visualizers(
     let get_y = |x: f32, z: f32| -> f32 {
         heightmap
             .as_deref()
-            .map(|hm| snapped_ground_y(&hm.0, x, z, radius))
+            .map(|hm| snapped_ground_y(hm, x, z, radius))
             .unwrap_or(0.0)
     };
 

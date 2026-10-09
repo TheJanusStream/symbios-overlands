@@ -1,8 +1,8 @@
 //! The middle ring (#1587, epic #1580): Berlin's buildings round the
 //! walkable ground, drawn as the region's own catalogue buildings.
 //!
-//! Past the walkable ground's walls the city goes on. Over a box reaching
-//! [`RING_M`] past them, two renders at [`RING_CELL_M`] a pixel say where
+//! Past the core's edge the city goes on. Over a box reaching [`RING_M`]
+//! past it, two renders at [`RING_CELL_M`] a pixel say where
 //! its buildings stand: the land use, and the surface model - the ground
 //! with everything standing on it - which, less the far field's ground, is
 //! how high each thing rises. The ring is cut into lots [`LOT_M`] a side,
@@ -10,7 +10,7 @@
 //! standing [`MIN_STANDING_M`] or more over the ground ([`decode_ring`]).
 //! Its building stands where the lot's building is and faces the lot's
 //! nearest street, and how high Berlin's building there stands picks which
-//! building it is. The lots nearest the walls come first, and at most
+//! building it is. The lots nearest the core come first, and at most
 //! [`MAX_RING_BUILDINGS`] are kept: the whole ring of all but the densest
 //! squares.
 //!
@@ -25,8 +25,9 @@
 //! off, where that matters little; the street-level core (#1588) reads the
 //! buildings' own footprints instead.
 //!
-//! Like the far field it is drawn and never walked, and derived again on
-//! every visit: none of it is saved.
+//! Like the far field it is walked (P4.1, #1596): each building stands on
+//! its voxel shell. It is derived again on every visit: none of it is
+//! saved.
 
 use geodata::berlin::LandUse;
 use geodata::request::Bbox;
@@ -60,7 +61,7 @@ pub(crate) const MIN_STANDING_M: f32 = 3.0;
 /// The share of a lot's pixels that must be building for it to be built.
 const BUILT_SHARE: f32 = 0.35;
 
-/// The most lots the ring keeps: past it the nearest the walls are kept. A
+/// The most lots the ring keeps: past it the nearest the core are kept. A
 /// kilometre of central Berlin round a seeded core is about 4,000.
 pub(crate) const MAX_RING_BUILDINGS: usize = 6_000;
 
@@ -132,7 +133,7 @@ pub(crate) struct RingLot {
     pub beyond: f32,
 }
 
-/// The ring's lots, nearest the walls first.
+/// The ring's lots, nearest the core first.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct Ring {
     lots: Vec<RingLot>,
@@ -197,7 +198,7 @@ pub(crate) fn decode_ring(
             }));
         }
     }
-    // Nearest the walls first, then north to south and west to east.
+    // Nearest the core first, then north to south and west to east.
     lots.sort_by(|p, q| {
         p.beyond
             .total_cmp(&q.beyond)
@@ -457,7 +458,7 @@ mod tests {
             assert!((LOT_M / 4.0..=LOT_M / 2.0).contains(&lot.room), "{lot:?}");
             assert!(lot.standing >= MIN_STANDING_M, "{lot:?}");
             assert_eq!(lot.beyond, lot.x.abs().max(lot.z.abs()) - core_half);
-            assert!(lot.beyond >= last, "nearest the walls first");
+            assert!(lot.beyond >= last, "nearest the core first");
             last = lot.beyond;
         }
 

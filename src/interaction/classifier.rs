@@ -100,8 +100,21 @@ impl TerrainSurfaceQuery {
     }
 
     /// Ground height, normalised `[Grass, Dirt, Rock, Snow]` splat
-    /// weights and unit surface normal at a world XZ.
+    /// weights and unit surface normal at a world XZ: past the core, a
+    /// Berlin region's far field as drawn and walked (P4.1, #1596), so a
+    /// body out there steps, raises dust and leaves its mark on the ground
+    /// it stands on.
     fn sample(&self, world_x: f32, world_z: f32) -> (f32, [f32; 4], Vec3) {
+        if let Some(far) = self.ground.as_ref().and_then(|ground| ground.far())
+            && (world_x.abs() > self.half_extent || world_z.abs() > self.half_extent)
+        {
+            let core = &self.query.heightmap;
+            return (
+                far.drawn_height_at(core, world_x, world_z),
+                far.weights_at(world_x, world_z),
+                far.drawn_normal_at(core, world_x, world_z),
+            );
+        }
         let lx = world_x + self.half_extent;
         let lz = world_z + self.half_extent;
         let h = self.query.height_at(lx, lz);
@@ -636,6 +649,37 @@ mod tests {
             normal: Vec3::Y,
             ground_y: 0.0,
         }
+    }
+
+    /// P4.1 (#1596): past the core, on a Berlin region's walked far field,
+    /// a body is on the ground it stands on - the far field's, as drawn -
+    /// not on the core's edge height held out under it.
+    #[test]
+    fn a_body_on_the_far_field_touches_its_ground() {
+        use crate::terrain::geo::GeoGround;
+        use crate::terrain::geo::far::FarField;
+        // A flat 8 m core at 0 m in a 400 m square whose far ground is 20 m
+        // up.
+        let far = FarField::from_fn(40, 10.0, |_, _| 20.0);
+        let ground = GeoGround::from_cover(9, 1.0, vec![None; 81], None).with_far(far);
+        let terrain = TerrainSurfaceQuery::new(
+            TerrainQuery::new(
+                bevy_symbios_ground::HeightMap::new(9, 9, 1.0),
+                bevy_symbios_ground::SplatMapper::default(),
+            ),
+            4.0,
+        )
+        .with_ground(Some(ground));
+        let (height, weights, normal) = terrain.sample(100.0, -60.0);
+        assert_eq!(height, 20.0);
+        assert_eq!(weights.iter().sum::<f32>(), 1.0);
+        assert!((normal - Vec3::Y).length() < 1e-6);
+        // Standing on it: on the ground - where the core's edge, 20 m
+        // below, would have had the body in the air.
+        let at = |y: f32| Vec3::new(100.0, y, -60.0);
+        assert!(probe_terrain(at(20.5), 1.0, 0.0, false, &terrain).is_some());
+        // On the core, the core.
+        assert_eq!(terrain.sample(1.0, 1.0).0, 0.0);
     }
 
     /// A car on its wheels is on the ground and a car in the air is not

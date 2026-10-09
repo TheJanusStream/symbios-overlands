@@ -196,30 +196,16 @@ impl GeoGround {
     /// interpolated between the cells around it as the GPU samples the
     /// weight map. Clamped to the core's edge.
     pub(crate) fn weights_at_local(&self, lx: f32, lz: f32) -> [f32; 4] {
-        let last = self.grid.saturating_sub(1) as usize;
-        let (gx, gz) = (
-            (lx / self.cell).clamp(0.0, last as f32),
-            (lz / self.cell).clamp(0.0, last as f32),
-        );
-        let (x0, z0) = (gx.floor() as usize, gz.floor() as usize);
-        let (x1, z1) = ((x0 + 1).min(last), (z0 + 1).min(last));
-        let (fx, fz) = (gx - x0 as f32, gz - z0 as f32);
-        let mut weights = [0.0; 4];
-        for (x, z, share) in [
-            (x0, z0, (1.0 - fx) * (1.0 - fz)),
-            (x1, z0, fx * (1.0 - fz)),
-            (x0, z1, (1.0 - fx) * fz),
-            (x1, z1, fx * fz),
-        ] {
-            weights[layer(self.cover[z * (last + 1) + x])] += share;
-        }
-        weights
+        weights_between(&self.cover, self.grid as usize, self.cell, lx, lz)
     }
 
     /// The splat layer a scatter's biome filter sees at world `(x, z)`: the
     /// nearest cell's layer where it is natural ground, else [`NOT_NATURAL`].
+    /// Past the core it is the land use as drawn there
+    /// ([`Self::drawn_cover_at`]), so a scatter out there grows by the land
+    /// it stands on.
     pub(crate) fn scatter_layer_at(&self, world_x: f32, world_z: f32) -> u8 {
-        let cover = self.cover_at(world_x, world_z);
+        let cover = self.drawn_cover_at(world_x, world_z);
         if is_natural(cover) {
             layer(cover) as u8
         } else {
@@ -227,8 +213,25 @@ impl GeoGround {
         }
     }
 
-    /// The land use of the cell nearest world `(x, z)`, the world centring
-    /// the core on the origin as it does the heightmap.
+    /// The land use as drawn at world `(x, z)`: the core's nearest cell on
+    /// it ([`Self::cover_at`]), and past its edge, where the far field is
+    /// walked (P4.1, #1596), the detail patch's nearest point where one has
+    /// loaded (P4.2, #1597), else the far pixel's.
+    pub(crate) fn drawn_cover_at(&self, world_x: f32, world_z: f32) -> Option<LandUse> {
+        let half = self.grid.saturating_sub(1) as f32 * self.cell * 0.5;
+        match &self.far {
+            Some(far) if world_x.abs() > half || world_z.abs() > half => {
+                far.cover_at(world_x, world_z)
+            }
+            _ => self.cover_at(world_x, world_z),
+        }
+    }
+
+    /// The land use of the core's cell nearest world `(x, z)`, the world
+    /// centring the core on the origin as it does the heightmap - held at
+    /// the core's edge past it, as the walks off water and streets read it,
+    /// so they walk alike on every peer whether its far field landed or
+    /// not.
     pub(crate) fn cover_at(&self, world_x: f32, world_z: f32) -> Option<LandUse> {
         let last = self.grid.saturating_sub(1) as usize;
         let half = last as f32 * self.cell * 0.5;
@@ -290,6 +293,38 @@ impl GeoGround {
         self.set_layers(layers);
         self
     }
+}
+
+/// The four layers' weights at local `(lx, lz)` metres over `cover` - `grid`
+/// x `grid` points `cell` metres apart, row-major from the north-west - as
+/// the GPU samples a one-hot weight map of it: interpolated between the
+/// points round it, clamped to its edge. A core's and a detail patch's
+/// (P4.2) alike.
+pub(super) fn weights_between(
+    cover: &[Option<LandUse>],
+    grid: usize,
+    cell: f32,
+    lx: f32,
+    lz: f32,
+) -> [f32; 4] {
+    let last = grid.saturating_sub(1);
+    let (gx, gz) = (
+        (lx / cell).clamp(0.0, last as f32),
+        (lz / cell).clamp(0.0, last as f32),
+    );
+    let (x0, z0) = (gx.floor() as usize, gz.floor() as usize);
+    let (x1, z1) = ((x0 + 1).min(last), (z0 + 1).min(last));
+    let (fx, fz) = (gx - x0 as f32, gz - z0 as f32);
+    let mut weights = [0.0; 4];
+    for (x, z, share) in [
+        (x0, z0, (1.0 - fx) * (1.0 - fz)),
+        (x1, z0, fx * (1.0 - fz)),
+        (x0, z1, (1.0 - fx) * fz),
+        (x1, z1, fx * fz),
+    ] {
+        weights[layer(cover[z * (last + 1) + x])] += share;
+    }
+    weights
 }
 
 /// The splat layer a land-use class is drawn with (see the module docs).
@@ -616,5 +651,35 @@ mod tests {
         assert_eq!(g.scatter_layer_at(2.0, 0.0), NOT_NATURAL, "street");
         assert_eq!(g.scatter_layer_at(0.9, -0.9), 0, "the nearest cell");
         assert_eq!(g.scatter_layer_at(-90.0, -90.0), 1, "clamped to the edge");
+    }
+
+    /// P4.1 (#1596): past the core the land use is the far field's pixel
+    /// a point lies in, so a scatter out there grows by the land it stands
+    /// on, not by the core's nearest edge cell.
+    #[test]
+    fn past_the_core_the_land_use_is_the_far_fields() {
+        let core = ground(2, vec![Some(LandUse::Water); 4]);
+        let mut far = super::super::far::FarField::from_fn(10, 10.0, |_, _| 30.0);
+        far.set_cover(|x, _| (x > 0.0).then_some(LandUse::Park));
+        let walked = core.clone().with_far(far);
+        assert_eq!(
+            walked.drawn_cover_at(0.0, 0.0),
+            Some(LandUse::Water),
+            "the core's own"
+        );
+        assert_eq!(walked.drawn_cover_at(35.0, 0.0), Some(LandUse::Park));
+        assert_eq!(
+            walked.drawn_cover_at(-35.0, 0.0),
+            None,
+            "street space out west"
+        );
+        assert_eq!(
+            walked.scatter_layer_at(35.0, 0.0),
+            layer(Some(LandUse::Park)) as u8
+        );
+        // The walks' reading holds the core's edge, far field or not.
+        assert_eq!(walked.cover_at(35.0, 0.0), Some(LandUse::Water));
+        // Without a far field, the core's nearest cell, as it was.
+        assert_eq!(core.drawn_cover_at(35.0, 0.0), Some(LandUse::Water));
     }
 }

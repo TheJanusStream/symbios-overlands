@@ -41,6 +41,10 @@
 //! the fallback says that instead; so it does where only the horizon, the
 //! ring, the streets or the street level cannot be had.
 //!
+//! Past the core, a detail patch the size of the core follows the body
+//! ([`patch`], P4.2, #1597): fetched and decoded as a core is, set into the
+//! far field, and let go deep in the core.
+//!
 //! Each layer's answers are hashed as they come ([`layers`], #1590). Where
 //! the record holds the hashes its owner's last save drew from, a layer
 //! whose stored answers hash otherwise, and were kept more than a day ago
@@ -51,6 +55,7 @@
 pub(crate) mod far;
 mod ground;
 pub(crate) mod layers;
+pub(crate) mod patch;
 pub(crate) mod ring;
 pub(crate) mod street_level;
 pub(crate) mod streets;
@@ -888,6 +893,47 @@ fn taken(fetcher: &mut GeoFetcher, id: GeoRequestId, what: &str) -> Result<Arc<[
     }
 }
 
+/// The walkable ground's answers to `requests`, taken - the terrain's, the
+/// land use's, the streets' and the street level's, each or why it could
+/// not be had - as the bodies a decode reads, with no far field or ring;
+/// or why the terrain could not be had, which nothing is drawn without. A
+/// core's and a detail patch's (P4.2, #1597) alike. Every answer is taken,
+/// whatever failed.
+fn take_walkable(fetcher: &mut GeoFetcher, requests: &CoreRequests) -> Result<CoreBodies, String> {
+    let terrain = taken(fetcher, requests.terrain_legend, "terrain")
+        .and_then(|legend| Ok((legend, taken(fetcher, requests.terrain, "terrain")?)));
+    let land_use = taken(fetcher, requests.land_use_legend, "land use")
+        .and_then(|legend| Ok((legend, taken(fetcher, requests.land_use, "land use")?)));
+    let streets = taken(fetcher, requests.street_axes, "streets")
+        .and_then(|axes| Ok((axes, taken(fetcher, requests.carriageway_axes, "streets")?)));
+    // Each street-level page, or why it could not be had.
+    let street_level = {
+        let level = requests.street_level;
+        let mut take = |id, what| taken(fetcher, id, what);
+        street_level::StreetLevelBodies {
+            buildings: take(level.buildings, "buildings"),
+            street_trees: take(level.street_trees, "street trees"),
+            park_trees: take(level.park_trees, "park trees"),
+            furniture: geodata::berlin::FurnitureKind::ALL
+                .into_iter()
+                .zip(level.furniture)
+                .map(|(kind, id)| (kind, take(id, kind.name())))
+                .collect(),
+        }
+    };
+    let (terrain_legend, terrain) = terrain?;
+    Ok(CoreBodies {
+        bbox: requests.bbox,
+        terrain_legend,
+        terrain,
+        land_use,
+        far: None,
+        ring: None,
+        streets: Some(streets),
+        street_level: Some(street_level),
+    })
+}
+
 /// Drive a [`GeoTerrainJob`]: once the core's answers have settled, and the
 /// far field's and the ring's too or their grace has run out, decode them
 /// on the compute pool; once decoded, hand the heightmap and its ground on
@@ -1005,27 +1051,7 @@ pub(super) fn poll_geo_terrain(
             if let Some(changed) = drawn.changed_sentence() {
                 info!("geodata: {changed}");
             }
-            let terrain = taken(fetcher, requests.terrain_legend, "terrain")
-                .and_then(|legend| Ok((legend, taken(fetcher, requests.terrain, "terrain")?)));
-            let land_use = taken(fetcher, requests.land_use_legend, "land use")
-                .and_then(|legend| Ok((legend, taken(fetcher, requests.land_use, "land use")?)));
-            let streets = taken(fetcher, requests.street_axes, "streets")
-                .and_then(|axes| Ok((axes, taken(fetcher, requests.carriageway_axes, "streets")?)));
-            // Each street-level page, or why it could not be had.
-            let street_level = {
-                let level = requests.street_level;
-                let mut take = |id, what| taken(fetcher, id, what);
-                street_level::StreetLevelBodies {
-                    buildings: take(level.buildings, "buildings"),
-                    street_trees: take(level.street_trees, "street trees"),
-                    park_trees: take(level.park_trees, "park trees"),
-                    furniture: geodata::berlin::FurnitureKind::ALL
-                        .into_iter()
-                        .zip(level.furniture)
-                        .map(|(kind, id)| (kind, take(id, kind.name())))
-                        .collect(),
-                }
-            };
+            let walkable = take_walkable(fetcher, &requests);
             let far = requests.far.map(|far| {
                 let bodies = if far_in {
                     taken(fetcher, far.terrain, "horizon")
@@ -1063,18 +1089,13 @@ pub(super) fn poll_geo_terrain(
             for id in requests.ids() {
                 fetcher.forget(id);
             }
-            match terrain {
-                Ok((terrain_legend, terrain)) => {
+            match walkable {
+                Ok(walkable) => {
                     let (source, fallback) = (source.clone(), fallback.clone());
                     let bodies = CoreBodies {
-                        bbox: requests.bbox,
-                        terrain_legend,
-                        terrain,
-                        land_use,
                         far,
                         ring,
-                        streets: Some(streets),
-                        street_level: Some(street_level),
+                        ..walkable
                     };
                     let task = AsyncComputeTaskPool::get()
                         .spawn(async move { decode_core(&bodies, grid, cell) });
@@ -1364,8 +1385,9 @@ pub(crate) mod tests {
         }
     }
 
-    /// The Museumsinsel's answers, as the job hands them to the decode.
-    fn museum_bodies() -> CoreBodies {
+    /// The Museumsinsel's answers, as the job hands them to the decode -
+    /// and as a detail patch's (P4.2) of the same 300 points 2 m apart.
+    pub(crate) fn museum_bodies() -> CoreBodies {
         CoreBodies {
             bbox: core_bbox(museum_square(), 300, 2.0),
             terrain_legend: fixture(TERRAIN_LEGEND).into(),

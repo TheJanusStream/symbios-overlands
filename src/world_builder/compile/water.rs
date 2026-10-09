@@ -152,6 +152,11 @@ const SHORE_STEP_M: f32 = 4.0;
 /// nothing - a square centred far out on a lake, or a bearing that runs
 /// down a street - to the nearest open dry ground of the walkable ground.
 /// Left where it is only where there is none.
+///
+/// An anchor past the core, on the far field a Berlin region walks (P4.1,
+/// #1596), is left where it was put: the walk reads the core's land use,
+/// and the far field's, about 17 to 74 m a pixel, is too coarse to walk by -
+/// a landing or an item out there is its owner's to place.
 pub(super) fn relocate_to_open_ground(
     hm: &bevy_symbios_ground::HeightMap,
     (extent, half): (f32, f32),
@@ -160,9 +165,12 @@ pub(super) fn relocate_to_open_ground(
     berlin: &crate::terrain::geo::GeoGround,
     clearance: f32,
 ) {
+    let (x0, z0) = (translation.x, translation.z);
+    if berlin.far().is_some() && (x0.abs() > half || z0.abs() > half) {
+        return;
+    }
     let stands =
         |x: f32, z: f32| is_open_and_dry(hm, (extent, half), berlin, (x, z), water_y, clearance);
-    let (x0, z0) = (translation.x, translation.z);
     if stands(x0, z0) {
         return;
     }
@@ -412,6 +420,35 @@ mod water_avoidance_tests {
             crate::terrain::FinishedHeightMap(hm.clone(), Some(ground)),
             hm,
         )
+    }
+
+    /// P4.1 (#1596): past the core, on the far field a Berlin region walks,
+    /// a landing stands where its owner set it - the walk reads the core's
+    /// land use alone - while one on the core's water still comes ashore.
+    /// Without a far field the core is the world, and the walk is as it was.
+    #[test]
+    fn a_landing_past_the_core_stands_where_it_was_set() {
+        use crate::terrain::geo::far::FarField;
+        let (berlin, hm) = lake_and_street();
+        let record = RoomRecord::default_for_did("did:test:far-landing");
+        let far = FarField::from_fn(64, 40.0, |_, _| 35.0);
+        let ground = berlin.ground().unwrap().clone().with_far(far);
+        let walked = crate::terrain::FinishedHeightMap(hm, Some(ground));
+        // Just west of the core, where the core's edge reads the lake.
+        assert_eq!(
+            landing_ashore(&record, &walked, (-410.0, 0.0)),
+            (-410.0, 0.0)
+        );
+        let (x, z) = landing_ashore(&record, &walked, (0.0, -10.0));
+        assert!(
+            x == 0.0 && z <= -30.0,
+            "on the core's lake, walked: ({x}, {z})"
+        );
+        assert_ne!(
+            landing_ashore(&record, &berlin, (-410.0, 0.0)),
+            (-410.0, 0.0),
+            "the core is the world without a far field, and the walk is as it was"
+        );
     }
 
     /// #1589: a landing on Berlin's water or street comes to open dry

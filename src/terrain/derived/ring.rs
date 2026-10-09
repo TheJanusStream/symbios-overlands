@@ -14,11 +14,12 @@
 //!   take one for variety.
 //!
 //! A kilometre of central Berlin is about 4,000 buildings. Within
-//! [`NEAR_RING_M`] of the walls, while the copies stay inside
+//! [`NEAR_RING_M`] of the core's edge, while the copies stay inside
 //! [`RING_ENTITY_BUDGET`] entities, a building is drawn near, its parts
 //! merged per material; past that, as its voxel shell, at most
-//! [`MAX_FAR_COPIES`] of them ([`super::bake`]). No one walks to the ring:
-//! its copies stand on no collider.
+//! [`MAX_FAR_COPIES`] of them ([`super::bake`]). The ring is walked (P4.1,
+//! #1596): each copy drawn, near or far, stands on its voxel shell, as the
+//! walkable ground's buildings do.
 
 use std::collections::HashMap;
 
@@ -46,7 +47,7 @@ pub(crate) const LANDMARK_SPACING_M: f32 = 200.0;
 /// The most landmarks the ring draws.
 pub(crate) const MAX_RING_LANDMARKS: usize = 8;
 
-/// How far past the walls a lot's building is drawn near (m).
+/// How far past the core's edge a lot's building is drawn near (m).
 pub(crate) const NEAR_RING_M: f32 = 200.0;
 
 /// The most entities the ring's near copies may be: a near copy past it is
@@ -67,10 +68,14 @@ const RING_POLICY: Policy = Policy {
 };
 
 /// Draw the ring's buildings on `lots` (see the module docs), for `room`,
-/// standing on `ground` - the ground's height at a world point.
+/// keeping clear of what the record keeps (`kept`) - its landing and its
+/// absolute placements, as the walkable ground's plans do, the ring being
+/// walked too (P4.1, #1596) - standing on `ground`, the ground's height at
+/// a world point.
 pub(crate) fn draw_ring(
     lots: &[RingLot],
     room: &RoomScene,
+    kept: &super::core::Kept,
     ground: &dyn Fn(f32, f32) -> f32,
 ) -> Plan {
     let (theme, character) = room.theme();
@@ -114,6 +119,11 @@ pub(crate) fn draw_ring(
         else {
             continue;
         };
+        // Picked whether it stands or not, so a lot given up for the
+        // record leaves the picks of the lots after it as they were.
+        if !kept.clear(lot.x, lot.z, radius(entry) * scale) {
+            continue;
+        }
         let key = (entry.slug(), scale_e4(scale));
         let building = *by_key.entry(key).or_insert_with(|| {
             plan.buildings.push(PlannedBuilding::new(
@@ -132,7 +142,7 @@ pub(crate) fn draw_ring(
             near: lot.beyond <= NEAR_RING_M,
             source: SourceId::new(SourceLayer::RingLot, format!("{:.0},{:.0}", lot.x, lot.z)),
             height: None,
-            solid: Solid::None,
+            solid: Solid::Shell,
         });
     }
     plan
@@ -175,10 +185,11 @@ fn landmark_lots(lots: &[RingLot]) -> Vec<bool> {
 mod tests {
     use super::*;
     use crate::seeded_defaults::ThemeArchetype;
+    use crate::terrain::derived::core::Kept;
 
     use super::super::fit::{SCALE_MIN, did_of};
 
-    /// A lot at `(x, z)`, `beyond` past the walls, with the whole of its
+    /// A lot at `(x, z)`, `beyond` past the core's edge, with the whole of its
     /// 30 m to itself, Berlin's building on it `standing` high.
     fn lot(x: f32, z: f32, standing: f32, beyond: f32) -> RingLot {
         RingLot {
@@ -207,7 +218,7 @@ mod tests {
         }
         lots[7].room = 8.0;
         let ground = |x: f32, z: f32| 30.0 + 0.01 * x - 0.02 * z;
-        let plan = draw_ring(&lots, &RoomScene::for_did(&did), &ground);
+        let plan = draw_ring(&lots, &RoomScene::for_did(&did), &Kept::nothing(), &ground);
         assert_eq!(plan.copies.len(), lots.len(), "a building on every lot");
         let landmarks: Vec<usize> = plan
             .copies
@@ -239,8 +250,9 @@ mod tests {
             assert_eq!(copy.pose.translation.y, under - FOUNDATION_SINK_M);
             assert!(under <= ground(lot.x, lot.z));
             assert_eq!(copy.near, lot.beyond <= NEAR_RING_M);
-            // No one walks to the ring; a lot is named by its place.
-            assert_eq!((copy.solid, copy.height), (Solid::None, None));
+            // The ring is walked, on its shells (P4.1); a lot is named by
+            // its place.
+            assert_eq!((copy.solid, copy.height), (Solid::Shell, None));
             assert_eq!(copy.source.layer, SourceLayer::RingLot);
         }
         // One building per entry and scale, shared by its copies.
@@ -250,7 +262,7 @@ mod tests {
         keys.dedup();
         assert_eq!(keys.len(), plan.buildings.len());
         // And the same room draws the same ring.
-        let again = draw_ring(&lots, &RoomScene::for_did(&did), &ground);
+        let again = draw_ring(&lots, &RoomScene::for_did(&did), &Kept::nothing(), &ground);
         let picks = |p: &Plan| -> Vec<(String, PlannedCopy)> {
             p.copies
                 .iter()
@@ -269,7 +281,12 @@ mod tests {
                 lot(x, (i / 20) as f32 * 30.0, 3.0 + 0.1 * i as f32, x)
             })
             .collect();
-        let plan = draw_ring(&lots, &RoomScene::for_did(&did), &|_, _| 0.0);
+        let plan = draw_ring(
+            &lots,
+            &RoomScene::for_did(&did),
+            &Kept::nothing(),
+            &|_, _| 0.0,
+        );
         let reach = |range: std::ops::Range<usize>| {
             let n = range.len() as f32;
             plan.copies[range]
@@ -284,5 +301,44 @@ mod tests {
             reach(200..300),
             reach(0..100)
         );
+    }
+
+    /// P4.1 (#1596): the ring is walked, so it keeps clear of what the
+    /// record keeps - a landing out there, an owner's placement - as the
+    /// walkable ground's plans do, and the lots after one given up keep
+    /// their picks.
+    #[test]
+    fn the_ring_keeps_clear_of_what_the_record_keeps() {
+        let did = super::super::fit::did_of(crate::seeded_defaults::ThemeArchetype::ModernCity);
+        let lots: Vec<RingLot> = (0..6)
+            .map(|i| RingLot {
+                x: 600.0 + 40.0 * i as f32,
+                z: 0.0,
+                yaw: 0.0,
+                room: 15.0,
+                standing: 12.0,
+                beyond: 100.0,
+            })
+            .collect();
+        let room = RoomScene::for_did(&did);
+        let all = draw_ring(&lots, &room, &Kept::nothing(), &|_, _| 30.0);
+        assert_eq!(all.copies.len(), 6);
+        // A landing on the third lot.
+        let kept = Kept::of(None, (680.0, 0.0), None, None);
+        let around = draw_ring(&lots, &room, &kept, &|_, _| 30.0);
+        let at = |plan: &Plan| -> Vec<f32> {
+            plan.copies.iter().map(|c| c.pose.translation.x).collect()
+        };
+        assert!(!at(&around).contains(&680.0), "{:?}", at(&around));
+        // The others stand as they did, the same buildings on them.
+        let key = |plan: &Plan, x: f32| {
+            plan.copies
+                .iter()
+                .find(|c| c.pose.translation.x == x)
+                .map(|c| plan.buildings[c.building].key.clone())
+        };
+        for x in [600.0, 760.0, 800.0] {
+            assert_eq!(key(&around, x), key(&all, x), "lot at {x}");
+        }
     }
 }

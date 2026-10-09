@@ -90,14 +90,21 @@ struct SplatUniforms {
     albedo_fade_near: f32,
     /// View distance (m) where the albedo is fully each layer's mean colour.
     albedo_fade_far: f32,
-    /// The weight map's UV from the mesh's: uv * scale + offset (#1585). A
-    /// far field's mesh carries the core's UV mapping run on past its
-    /// edges; zero scale reads as 1, the mesh's own UV.
+    /// The weight map's UV from the mesh's: uv * scale + offset, the offset
+    /// per axis (#1585, #1597). A far field's mesh, and a detail patch's,
+    /// carries the core's UV mapping run on past its edges; zero scale reads
+    /// as 1, the mesh's own UV.
     weight_uv_scale: f32,
-    weight_uv_offset: f32,
-    /// Pad to 48 bytes - WebGL2 requires uniform blocks be a multiple of
-    /// 16. Mirrors `_pad0` on the Rust `SplatUniforms`.
-    _pad0: u32,
+    weight_uv_offset_u: f32,
+    weight_uv_offset_v: f32,
+    /// The hole cut in this ground, world (min x, min z, max x, max z) (P4.2,
+    /// #1597): a fragment strictly inside it is discarded. Read only where
+    /// `SPLAT_HOLE` is defined. 64 bytes in all, a multiple of 16 as WebGL2
+    /// requires; mirrored in `splat_prepass.wgsl` and on the Rust side.
+    hole_min_x: f32,
+    hole_min_z: f32,
+    hole_max_x: f32,
+    hole_max_z: f32,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(106) var<uniform> splat_uniforms: SplatUniforms;
@@ -235,6 +242,16 @@ fn fragment(
     in: VertexOutput,
     @builtin(front_facing) is_front: bool,
 ) -> FragmentOutput {
+#ifdef SPLAT_HOLE
+    // A far field draws nothing under the detail patch that stands in for
+    // it (P4.2, #1597).
+    let at = in.world_position.xz;
+    if at.x > splat_uniforms.hole_min_x && at.x < splat_uniforms.hole_max_x
+        && at.y > splat_uniforms.hole_min_z && at.y < splat_uniforms.hole_max_z {
+        discard;
+    }
+#endif
+
     // Start from standard PBR state (reads base_color, roughness, etc. from
     // the StandardMaterial uniform; no textures are set on the base so N is
     // the interpolated vertex normal and base_color is the uniform value).
@@ -248,7 +265,8 @@ fn fragment(
             1.0,
             splat_uniforms.weight_uv_scale == 0.0,
         );
-        let weight_uv = in.uv * weight_scale + vec2<f32>(splat_uniforms.weight_uv_offset);
+        let weight_uv = in.uv * weight_scale
+            + vec2<f32>(splat_uniforms.weight_uv_offset_u, splat_uniforms.weight_uv_offset_v);
         let raw_weights = textureSample(splat_weight_map, splat_weight_sampler, weight_uv);
 
         // Normalise weights so they always sum to exactly 1.  SplatMapper rules

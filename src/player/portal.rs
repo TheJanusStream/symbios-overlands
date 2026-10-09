@@ -591,7 +591,7 @@ pub(super) fn release_travel_on_arrival(
                 pos.z = z;
             }
         }
-        super::hotswap::snap_above_ground(&heightmap.0, &mut pos, &mut lin, &mut ang);
+        super::hotswap::snap_above_ground(heightmap, &mut pos, &mut lin, &mut ang);
     }
     // The editor selection belonging to the world we LEFT is dropped by
     // `ui::room::clear_selection_on_room_change`, which watches

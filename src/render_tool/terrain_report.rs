@@ -168,7 +168,11 @@ fn point(ground: &Ground<'_>, x: f32, z: f32, footprint: Option<f32>, water: Opt
         "contour_yaw_deg": contour_yaw,
     });
     if let Some(radius) = footprint.filter(|r| *r > 0.0) {
-        let rests_on = pad::snapped_ground_y(ground.map, x, z, Some(radius));
+        // As the compile rests it: past the core, on the far field (P4.1).
+        let far = ground
+            .berlin
+            .and_then(|berlin| berlin.far().map(|far| &**far));
+        let rests_on = pad::ground_y_over(ground.map, far, x, z, Some(radius));
         let lowest = lowest_under(ground, x, z, radius);
         out["footprint"] = json!({
             "radius_m": round2(radius),

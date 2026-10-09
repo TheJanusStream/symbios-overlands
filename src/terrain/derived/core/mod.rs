@@ -45,31 +45,37 @@ pub(crate) struct Kept {
     discs: Vec<(f32, f32, f32)>,
 }
 
-impl Kept {
+/// The places the record keeps for its own before a street level is known:
+/// the landing's disc, then each absolute placement's, with
+/// the derived item it is a copy of where it is one made the world's own
+/// (#1590). Drawn on the main thread, where the ground is; a detail
+/// patch's plans (P4.2, #1597) are drawn on the compute pool against the
+/// street level its decode reads there ([`Self::for_level`]).
+#[derive(Clone, Debug)]
+pub(crate) struct KeptPlaces {
+    discs: Vec<((f32, f32, f32), Option<SourceId>)>,
+}
+
+impl KeptPlaces {
     /// The landing at `landing` - where a body sets down, walked ashore
     /// (#1589) - and every absolute placement of `record`, where it stands
     /// on `ground`: a snapped seeded structure walked off water and streets
     /// as the compile walks it, so Berlin's buildings keep clear of the
-    /// gate, not of where its record put it. The copy of an item made the
-    /// world's own (#1590) keeps nothing while `level` - the walkable
-    /// ground's street level - holds the item: it stands where Berlin's
-    /// stood, among its neighbours as they did. Off the square its item was
-    /// on (the square moved since), it is a placement like any other.
+    /// gate, not of where its record put it.
     pub(crate) fn of(
         record: Option<&RoomRecord>,
         landing: (f32, f32),
         ground: Option<&crate::world_builder::AnchorGround<'_>>,
-        level: Option<&StreetLevel>,
     ) -> Self {
-        let mut discs = vec![(landing.0, landing.1, LANDING_CLEAR_M)];
+        let mut discs = vec![((landing.0, landing.1, LANDING_CLEAR_M), None)];
         let source = record.and_then(|r| r.geo_source.as_ref());
-        // A copy standing in for an item this ground draws.
-        let stands_in = |generator: &str| {
-            source.is_some_and(|source| source.is_adopted_generator(generator))
-                && crate::pds::geo_source::adopted_source_of(generator)
-                    .and_then(SourceId::parse)
-                    .zip(level)
-                    .is_some_and(|(id, level)| level.holds(&id))
+        // The item a copy made the world's own stands in for.
+        let copy_of = |generator: &str| {
+            source
+                .is_some_and(|source| source.is_adopted_generator(generator))
+                .then(|| crate::pds::geo_source::adopted_source_of(generator))
+                .flatten()
+                .and_then(SourceId::parse)
         };
         for placement in record.map(|r| r.placements.as_slice()).unwrap_or_default() {
             if let Placement::Absolute {
@@ -80,7 +86,6 @@ impl Kept {
                 avoid_water_clearance,
                 ..
             } = placement
-                && !stands_in(generator_ref)
             {
                 let [x, _, z] = match ground.filter(|_| *snap_to_terrain) {
                     Some(ground) => crate::world_builder::snapped_absolute_anchor(
@@ -97,10 +102,50 @@ impl Kept {
                 } else {
                     PLACEMENT_REACH_M
                 };
-                discs.push((x, z, reach + PLACEMENT_MARGIN_M));
+                discs.push(((x, z, reach + PLACEMENT_MARGIN_M), copy_of(generator_ref)));
             }
         }
+        KeptPlaces { discs }
+    }
+
+    /// What is kept beside `level`: every place, but the copy of an item
+    /// made the world's own (#1590) keeps nothing while `level` - the
+    /// street level the plans are drawn from - holds the item: it stands
+    /// where Berlin's stood, among its neighbours as they did. Off the
+    /// ground its item was on (the square moved since, or the item is a
+    /// detail patch's that is not loaded), it is a placement like any other.
+    pub(crate) fn for_level(&self, level: Option<&StreetLevel>) -> Kept {
+        let discs = self
+            .discs
+            .iter()
+            .filter(|(_, copy)| {
+                copy.as_ref()
+                    .zip(level)
+                    .is_none_or(|(id, level)| !level.holds(id))
+            })
+            .map(|&(disc, _)| disc)
+            .collect();
         Kept { discs }
+    }
+}
+
+impl Kept {
+    /// The places the record keeps beside `level` ([`KeptPlaces::of`],
+    /// [`KeptPlaces::for_level`]).
+    #[cfg(test)]
+    pub(crate) fn of(
+        record: Option<&RoomRecord>,
+        landing: (f32, f32),
+        ground: Option<&crate::world_builder::AnchorGround<'_>>,
+        level: Option<&StreetLevel>,
+    ) -> Self {
+        KeptPlaces::of(record, landing, ground).for_level(level)
+    }
+
+    /// Nothing kept, not even a landing: for a plan drawn on its own.
+    #[cfg(test)]
+    pub(crate) fn nothing() -> Self {
+        Kept { discs: Vec::new() }
     }
 
     /// The landing: the first kept place.
@@ -125,15 +170,25 @@ impl Kept {
     }
 }
 
-/// The walkable ground's plans for `level`, for `room`, keeping clear of
-/// what `record` keeps - its landing as a body sets down on `heightmap`,
-/// walked ashore - standing on `heightmap`.
-pub(crate) fn draw_core(
-    level: &StreetLevel,
-    room: &RoomScene,
+/// What `record` keeps for its own on `heightmap` ([`KeptPlaces::of`],
+/// [`KeptPlaces::for_level`]): its
+/// landing as a body sets down there, walked ashore, and its absolute
+/// placements where they stand. The walkable ground's plans keep clear of
+/// it, and - since the ring is walked (P4.1, #1596) - the ring's.
+pub(crate) fn kept_for(record: Option<&RoomRecord>, heightmap: &FinishedHeightMap) -> Kept {
+    let level = heightmap
+        .ground()
+        .and_then(|ground| ground.street_level())
+        .map(|level| &**level);
+    kept_places_for(record, heightmap).for_level(level)
+}
+
+/// The places `record` keeps on `heightmap`, before a street level says
+/// which adopted copies stand in for its items ([`KeptPlaces`]).
+pub(crate) fn kept_places_for(
     record: Option<&RoomRecord>,
     heightmap: &FinishedHeightMap,
-) -> Vec<Plan> {
+) -> KeptPlaces {
     let landing = record
         .and_then(|record| crate::world_builder::compile::landing_on(record, heightmap))
         .map_or((0.0, 0.0), |landing| (landing.pos.0[0], landing.pos.0[1]));
@@ -141,12 +196,22 @@ pub(crate) fn draw_core(
         crate::world_builder::compile::drawn_water_level(record, Some(heightmap))
     });
     let anchors = crate::world_builder::AnchorGround::new(heightmap, water_y);
-    let kept = Kept::of(record, landing, Some(&anchors), Some(level));
-    let ground = |x: f32, z: f32| heightmap.world_height_at(x, z);
+    KeptPlaces::of(record, landing, Some(&anchors))
+}
+
+/// The walkable ground's plans for `level`, for `room`, keeping clear of
+/// what the record keeps (`kept`), standing on `ground` - the height at
+/// world `(x, z)`: the core's, or a detail patch's (P4.2, #1597).
+pub(crate) fn draw_core(
+    level: &StreetLevel,
+    room: &RoomScene,
+    kept: &Kept,
+    ground: &dyn Fn(f32, f32) -> f32,
+) -> Vec<Plan> {
     vec![
-        buildings::plan(&level.buildings, room, &kept, &ground),
-        trees::plan(&level.trees, room, &kept, &ground),
-        furniture::plan(&level.furniture, room, &kept, &ground),
+        buildings::plan(&level.buildings, room, kept, ground),
+        trees::plan(&level.trees, room, kept, ground),
+        furniture::plan(&level.furniture, room, kept, ground),
     ]
 }
 

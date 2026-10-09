@@ -436,6 +436,17 @@ struct Args {
     /// GDI Berlin through the game's own fetcher and cache.
     #[arg(long, requires = "world", value_name = "E,N,SIZE")]
     geo_square: Option<String>,
+    /// With `--world` on Berlin's ground: stand a stand-in body at world
+    /// `X,Z` from the start, so the detail patch it asks for past the core
+    /// (P4.2, #1597) is fetched, landed and drawn before the shot - which
+    /// waits for it. Not with `--driver`, whose car is the body.
+    #[arg(
+        long,
+        requires = "world",
+        conflicts_with = "driver",
+        value_name = "X,Z"
+    )]
+    patch_at: Option<String>,
     /// With `--world`: open the game's own editing surfaces over it - the
     /// toolbar and the World Editor, drawn by the game's egui systems into
     /// the same frame (#1353). The editor is owner-only, so an offline
@@ -1290,6 +1301,9 @@ pub fn run() {
     );
     if let Subject::World(spec) = &subject {
         world::register(&mut app, spec, walker);
+        if let Some(at) = args.patch_at.as_deref().map(parse_xz) {
+            world::stand_in_for_patch(&mut app, at);
+        }
         if let Some(driver) = &driver {
             driver::register(&mut app, driver.clone());
         }

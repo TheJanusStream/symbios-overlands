@@ -426,6 +426,23 @@ pub(super) fn apply_splat_textures(
         }
     }
 
+    // A detail patch's (P4.2, #1597), standing before the layers landed or
+    // as a late fetch rebuilds them: its own weight map, the shared layers.
+    if let Some(patch_mat) = splat_mat.2.as_ref()
+        && let Some(own) = materials
+            .get(patch_mat)
+            .map(|m| m.extension.weight_map.clone())
+        && let Some(mut mat) = materials.get_mut(patch_mat)
+    {
+        enable_splat(
+            &mut mat,
+            own,
+            (albedo_array.clone(), normal_array.clone()),
+            triplanar_scale,
+            water_y,
+        );
+    }
+
     if let Some(mut mat) = materials.get_mut(&splat_mat.0) {
         enable_splat(
             &mut mat,
@@ -481,7 +498,7 @@ pub(super) fn apply_splat_textures(
 /// A weight map's bytes as the image the splat shader samples: one texel
 /// per heightmap cell, linear between them, clamped at the edges, and
 /// RENDER_WORLD only - the CPU bytes are never needed again after upload.
-fn weight_image(width: u32, height: u32, bytes: Vec<u8>) -> Image {
+pub(super) fn weight_image(width: u32, height: u32, bytes: Vec<u8>) -> Image {
     let mut image = Image::new(
         Extent3d {
             width,
@@ -588,8 +605,12 @@ pub(super) fn sync_moisture_water_level(
         // No water generator, no waterline to be damp around.
         None => (0.0, 0.0),
     };
-    // The far field's material too (#1585), which shares the water line.
-    for handle in std::iter::once(&splat_mat.0).chain(splat_mat.1.as_ref()) {
+    // The far field's material too (#1585), and a detail patch's (P4.2),
+    // which share the water line.
+    for handle in std::iter::once(&splat_mat.0)
+        .chain(splat_mat.1.as_ref())
+        .chain(splat_mat.2.as_ref())
+    {
         // Peek before taking the change-triggering mutable borrow.
         let stale = materials.get(handle).is_some_and(|m| {
             m.extension.uniforms.water_y != water_y

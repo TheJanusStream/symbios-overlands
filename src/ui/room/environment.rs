@@ -600,9 +600,10 @@ fn draw_region_source(
     // The far field (#1585).
     ui.label(
         egui::RichText::new(
-            "A square wider than the walkable ground is drawn on to its edge as the \
-             horizon: coarser, not walkable - invisible walls stand at the walkable ground's \
-             edge - and the world's fog opens at least far enough to show it.",
+            "A square wider than its street-level ground is drawn on to its edge as the \
+             horizon, coarser, and walked: anyone may walk or drive out to the square's edge, \
+             where invisible walls end the world, and the owner may build there. The world's \
+             fog opens at least far enough to show it.",
         )
         .small()
         .color(weak),

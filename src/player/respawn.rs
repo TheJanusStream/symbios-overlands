@@ -150,19 +150,18 @@ pub struct RecoveryPose {
 /// stops two players stacking on one point. With a landing configured it
 /// is a pure function of the record and the heightmap.
 ///
-/// The (x, z) is clamped into the terrain extent so a landing aimed
-/// outside the heightmap (possible in a hand-edited record - sanitize
-/// only bounds magnitude) can't strand the player on an endless
-/// fall-respawn-fall loop over the void. An explicit landing height is
-/// honoured (sky-platform landings) but floored at ground level, because
-/// respawning *below* the terrain re-triggers the fall path every frame.
+/// The (x, z) is clamped into the walkable world - a Berlin region's far
+/// field included, which is walked (P4.1, #1596) - so a landing aimed
+/// outside it (possible in a hand-edited record - sanitize only bounds
+/// magnitude) can't strand the player on an endless fall-respawn-fall loop
+/// over the void. An explicit landing height is honoured (sky-platform
+/// landings) but floored at ground level, because respawning *below* the
+/// terrain re-triggers the fall path every frame.
 pub fn recovery_pose(
-    hm: &bevy_symbios_ground::HeightMap,
+    heightmap: &crate::terrain::FinishedHeightMap,
     landing: Option<crate::pds::DefaultLanding>,
 ) -> RecoveryPose {
-    let extent = (hm.width() - 1) as f32 * hm.scale();
-    let half = extent * 0.5;
-    let centre = extent * 0.5;
+    let half = heightmap.set_down_half_extent();
     let (ox, oz, explicit_y, yaw_deg) = match landing {
         Some(l) => (
             l.pos.0[0].clamp(-half, half),
@@ -175,11 +174,8 @@ pub fn recovery_pose(
             (x, z, None, None)
         }
     };
-    let hm_x = (centre + ox).clamp(0.0, extent);
-    let hm_z = (centre + oz).clamp(0.0, extent);
-    let ground_y = hm.get_height_at(hm_x, hm_z);
-    let surface_normal = hm.get_normal_at(hm_x, hm_z);
-    let tilt = Quat::from_rotation_arc(Vec3::Y, Vec3::from_array(surface_normal));
+    let ground_y = heightmap.world_height_at(ox, oz);
+    let tilt = Quat::from_rotation_arc(Vec3::Y, heightmap.normal_at(ox, oz));
     let yaw = yaw_deg
         .map(|deg| Quat::from_rotation_y(deg.to_radians()))
         .unwrap_or(Quat::IDENTITY);
@@ -308,14 +304,19 @@ pub(super) fn apply_player_move(
             let landing = room
                 .as_deref()
                 .and_then(|r| crate::world_builder::compile::landing_on(&r.0, &hm_res));
-            let pose = recovery_pose(&hm_res.0, landing);
+            let pose = recovery_pose(&hm_res, landing);
             rot.0 = pose.rot;
             (pose.pos, RecoveryReason::Requested.toast())
         }
         PlayerMove::GoTo(target) => {
             // Put down ON the ground beside it, whatever height the object
-            // itself sits at - an editor selection can be a sky platform.
+            // itself sits at - an editor selection can be a sky platform -
+            // and inside the walls that end the world: a placement may lie
+            // past them, on nothing (P4.1, #1596).
             let mut at = target;
+            let inside = hm_res.set_down_half_extent();
+            at.x = at.x.clamp(-inside, inside);
+            at.z = at.z.clamp(-inside, inside);
             at.y = hm_res.world_height_at(at.x, at.z) + cfg::SPAWN_HEIGHT_OFFSET;
             (at, "Moved to your selection.")
         }
@@ -366,13 +367,11 @@ pub(super) fn respawn_if_fallen(
     // and the heightmap sample runs on garbage coordinates.
     let finite =
         pos.0.is_finite() && rot.0.is_finite() && lin_vel.0.is_finite() && ang_vel.0.is_finite();
-    let hm = &hm_res.0;
-    let extent = (hm.width() - 1) as f32 * hm.scale();
-    let half = extent * 0.5;
+    // The walkable world's edge and the ground as drawn: past the core, a
+    // Berlin region's far field (P4.1, #1596), where a body walks now.
+    let half = hm_res.walkable_half_extent();
     let local_ground = if finite {
-        let hm_x = (pos.x + half).clamp(0.0, extent);
-        let hm_z = (pos.z + half).clamp(0.0, extent);
-        hm.get_height_at(hm_x, hm_z)
+        hm_res.world_height_at(pos.x, pos.z)
     } else {
         // No meaningful sample under a non-finite body; log-only value.
         0.0
@@ -387,7 +386,7 @@ pub(super) fn respawn_if_fallen(
     let landing = room
         .as_deref()
         .and_then(|r| crate::world_builder::compile::landing_on(&r.0, &hm_res));
-    let pose = recovery_pose(hm, landing);
+    let pose = recovery_pose(&hm_res, landing);
     pos.0 = pose.pos;
     rot.0 = pose.rot;
     lin_vel.0 = Vec3::ZERO;
@@ -661,5 +660,45 @@ mod tests {
             escalating(recent.count_recent(1.0)),
             "the third catch inside the window is the thrash signature"
         );
+    }
+
+    /// P4.1 (#1596): on a Berlin region the far field is walked, so a body
+    /// standing on it a kilometre past the core has neither fallen nor left
+    /// the world, and a landing out there is honoured; one past the far
+    /// field's edge is brought back onto it.
+    #[test]
+    fn the_far_field_is_inside_the_world() {
+        use crate::terrain::geo::GeoGround;
+        use crate::terrain::geo::far::FarField;
+        let mut core = bevy_symbios_ground::HeightMap::new(65, 65, 2.0);
+        for z in 0..65 {
+            for x in 0..65 {
+                core.set(x, z, 30.0);
+            }
+        }
+        // A 4 km square, its far ground at 50 m.
+        let far = FarField::from_fn(100, 40.0, |_, _| 50.0);
+        let ground = GeoGround::from_cover(65, 2.0, vec![None; 65 * 65], None).with_far(far);
+        let heightmap = crate::terrain::FinishedHeightMap(core, Some(ground));
+        let half = heightmap.walkable_half_extent();
+        assert_eq!(half, 99.0 * 40.0 / 2.0);
+        let walker = Vec3::new(1_000.0, 51.0, -800.0);
+        let ground_y = heightmap.world_height_at(walker.x, walker.z);
+        assert_eq!(ground_y, 50.0);
+        assert_eq!(automatic_recovery(true, walker, ground_y, half), None);
+        // Below the far ground: fallen through it, as through the core.
+        assert_eq!(
+            automatic_recovery(true, Vec3::new(1_000.0, 0.0, -800.0), ground_y, half),
+            Some(RecoveryReason::FellThrough)
+        );
+        let landing = |x: f32, z: f32| crate::pds::DefaultLanding {
+            pos: crate::pds::Fp2([x, z]),
+            ..Default::default()
+        };
+        let out = recovery_pose(&heightmap, Some(landing(1_000.0, -800.0)));
+        assert_eq!((out.pos.x, out.pos.z), (1_000.0, -800.0));
+        assert_eq!(out.pos.y, 50.0 + cfg::SPAWN_HEIGHT_OFFSET);
+        let beyond = recovery_pose(&heightmap, Some(landing(9_000.0, 0.0)));
+        assert_eq!(beyond.pos.x, half - crate::terrain::SET_DOWN_INSET_M);
     }
 }

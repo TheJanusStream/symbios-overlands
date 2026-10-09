@@ -31,8 +31,9 @@ DE).
   - a walkable street-level **core** about today's world (~1 km, centred on
     spawn, at most the square);
   - a **middle ring** at block level;
-  - a coarse **far field** out to the square's edge, as a real horizon with
-    no colliders.
+  - a coarse **far field** out to the square's edge, as a real horizon -
+    with no colliders, at first: the owner chose to walk it on 2026-10-09
+    (P4.1, below).
 - **Fetched at visit**, with the app's own cache, not baked into packs.
   Requests are sized to the pixels needed: the GDI viewer's zoom-fitting
   loading, used as distance LOD.
@@ -315,8 +316,10 @@ the core, drawn coarse to its edge. It rides in the `GeoGround` beside the
 core's land use.
 
 - **Far field.** One more render of the terrain and of the land use over the
-  whole square, 64 to 256 pixels a side: 40 m a pixel up to a 10 km square,
-  coarser beyond (74 m at 19 km). It has the city's hills, its land use on
+  whole square, 64 to 256 pixels a side: about 40 m a pixel from a 2.6 km
+  square to a 10 km one, finer below (at least 64 pixels a side, so about
+  17 m at the smallest square that has a far field) and coarser beyond
+  (74 m at 19 km). It has the city's hills, its land use on
   the region's layers, and its water at the core's level:
   `geodata::water::settle_to` carves the far bodies within 3 m of that level
   and keeps the rest of the far ground above it, under the same two
@@ -335,13 +338,12 @@ core's land use.
   the core's size and phase, and a weight-map transform in the splat
   uniforms (`weight_uv_scale`, `weight_uv_offset`) maps them onto the far
   weight map.
-- **Not walked.** The far field has no collider; P4 (#1591) walks it. It
-  looks like ground, so invisible walls stand just outside the core's
-  edges, from 50 m under its lowest ground to 500 m over its highest. They
+- **Walked** (P4.1, #1596, below). The far field stands on a collider of
+  its own triangles, and invisible walls end the world just outside its
+  edge, from 50 m under the lowest ground to 500 m over the highest. They
   carry no `TerrainMesh`, so the pick rays that ask for the ground pass
   them by, and they are on a collision layer of their own that particles'
-  bounces leave out. The camera, which may orbit out over the far field,
-  keeps clear of its hills (`FinishedHeightMap::view_height_at`).
+  bounces leave out.
 - **Water.** Where the far field took the core's water, the terrain's water
   plane spans the far field, so the river runs on to the horizon.
 - **Haze and sky.** Round a far field that landed, the fog visibility is at
@@ -352,8 +354,8 @@ core's land use.
   keeps more than a third. Half the side was tried first and lost the
   edge, and a hill 5 km out with it. A region whose horizon could not be
   had keeps its own fog, which hides the end of its walkable ground. The
-  sky cuboid stands past the far field's farthest edge from anywhere in
-  the core. The camera's far plane is 25 km; Bevy's projection is infinite
+  sky cuboid stands past the far field's farthest edge from anywhere on
+  it, the far field being walked (P4.1). The camera's far plane is 25 km; Bevy's projection is infinite
   reverse-Z, so that bounds culling only.
 - **Seen.** A 12 km square round Charlottenburg shows the Teufelsberg
   4.5 km out as a small forested bump on the horizon, as an 80 m hill is at
@@ -697,6 +699,150 @@ drawn from.
   difference there is not fetched again on every visit, and a layer is
   never fetched twice over in one load.
 
+The walkable horizon (P4.1, #1596; owner, 2026-10-09: "horizon first, then
+detail" and "build anywhere walkable") lets a body walk and drive from the
+core out to the square's edge, on the far field and through the ring. A
+full-detail patch follows the body out there (P4.2, #1597, below).
+
+- **Ground.** The far field stands on colliders of its own mesh's triangles
+  (`FarField::colliders`), the core's hole and the seam to the core's
+  boundary vertices included: the plain cells - between four pixel
+  centres, off the core - as a heightfield over the pixel grid, whose split
+  is the mesh's, and the cells the core's edges cross or bend, with the
+  fans along the core, as a small triangle mesh. A test casts rays down at
+  random points against both and reads the drawn height to a millimetre.
+  Both take parry's internal-edge fix, as the core's heightfield does
+  (#1538), so a wheel does not meet the edge between two triangles as a
+  wall; where the two colliders meet, and at the core's edge, it does not
+  apply. If parry refused the triangles the far field would be drawn and
+  not walked, its walls at the core's edge as before. It joins the terrain's static body and carries
+  `FarGround`, which the rays that ask for the ground take as ground beside
+  the core's `TerrainMesh` (the editor's pick and context menu, the
+  inventory drop). The walls stand at the far field's edge.
+- **The ground as drawn.** Every reader of the ground's height past the
+  core reads the far mesh's own triangle there
+  (`FarField::drawn_height_at`): a far cell is two triangles, not the
+  bilinear patch its pixels suggest, and a cell along the core fans the
+  core's boundary vertices out. A test samples it against a brute-force
+  search of the built mesh. So a body set down out there - a spawn, a
+  return to spawn, a portal's arrival, a "Go to" - lands on the collider,
+  not under it, and the placement snap, the editor's gizmo and snap
+  toggle, the camera, the agents' senses, the footsteps, dust and marks
+  of the contact classifier, and a scatter's slope and land use all agree
+  with it. A sample costs about a third of a microsecond, allocating
+  nothing.
+- **Building.** An owner may build anywhere walkable: a placement past the
+  core sits on the far ground - on a detail patch where one has loaded
+  (P4.2, below). The walks that move a landing or a seeded
+  structure off water, streets and steep ground read the core's land use
+  alone, so past the core they do not run - a landing or an item out there
+  stands where its owner put it.
+- **The ring.** Its buildings stand on their voxel shells, near or far, and
+  keep clear of what the record keeps (`Kept`): its landing and its
+  absolute placements, as the walkable ground's plans do. A lot given up
+  for one keeps the picks of the lots after it.
+- **The world's edge.** The recovery reads the walkable world's edge - the
+  far field's, where a region has one - for its "left the world" rule, and
+  the ground as drawn for its "fell through" rule; a boat's lift fades at
+  the same edge. A "Go to" sets a body down inside the walls. The sky
+  stands past the square's far side from anywhere on it.
+- **Cost.** At the largest square (256 far pixels round a 512-point core)
+  the far colliders build in about 3 ms, beside the far mesh's 0.23 s, and
+  keep about a megabyte: one triangle mesh of it all kept 34 MB, its
+  internal-edge fix the most of it, on a web heap that never shrinks.
+- **Limits.** Where no detail patch stands (P4.2, below), the far ground
+  is the far field's: about 17 to 74 m a pixel, its land use painted, no
+  streets meshed, and no buildings past the ring (a kilometre beyond the
+  core); the ring draws near forms only within 200 m of the core's edge.
+  The core's streets and street level stop 3 m inside its edge. The
+  region's water plane spans the far field only where the far field took
+  the core's water; elsewhere its beds lie dry. A road network grows on
+  the core. The core and the far field are two colliders, so their seam
+  is not smoothed as an internal edge is. The far mesh casts no shadows. A
+  peer whose far field missed its grace has the core as its world, as
+  before.
+
+The detail patch (P4.2, #1597; owner, 2026-10-09: the patch "as big as
+the core", and round it "the coarse ground only") brings Berlin at full
+detail to wherever a body walks or drives past the core
+(`src/terrain/geo/patch/`).
+
+- **Where.** A patch is a square of the core's own lattice: its points are
+  the core's carried on past its edges, as many as the core's, or fewer
+  where the ground between the core and the far field's edge is narrower
+  (none under 250 m). It never overlaps the core: one that would, or that
+  falls short of it by less than a step, stands against it, sharing the
+  core's boundary vertices. Its place snaps to a lattice of 250 m, so a
+  body coming back to a place asks for the patch it had there, which the
+  store answers.
+- **When.** A body within 200 m of the core's edge, or past it, asks for
+  a patch; one 300 m deep in the core lets it go. A patch serves until its
+  body has moved three quarters of a step from where it asked for it, so
+  a new patch comes every 250 m or so of travel, and a body pacing about
+  the halfway line does not fetch two by turns. One patch is on its way at
+  a time, and lands before the next is asked for.
+- **What.** A patch is fetched as a core is - the terrain and the land use
+  rendered over its box at the core's pixel, its streets, buildings, trees
+  and street furniture - and decoded as a core is. Its water settles to
+  the region's one level where the region's water plane spans the far
+  field; there its dry ground is kept above the level whether it has water
+  of its own or not, so the plane floods nothing it does not call water.
+  Where its terrain or land use cannot be had, it does not land, and is
+  not asked for again until the body asks for another; a street level
+  layer or the streets lost leave the rest standing.
+- **The seams.** Against the core the patch takes the core's own boundary
+  heights and normals, and its streets run on 3 m past the shared edge to
+  where the core's end, so a street crossing onto it runs on unbroken.
+  Against the far field the patch is cut out of the far mesh in the shader
+  (`SPLAT_HOLE`), and a prepass shader of its own (`splat_prepass.wgsl`)
+  cuts the same hole from the depth prepass. The far material is drawn as
+  a mask from its spawn, its hole empty while no patch stands, so a patch
+  landing compiles nothing: a pipeline still compiling is not drawn, and
+  the horizon would blink out round the first patch. What that costs is
+  the far mesh's early depth test, its shader run for fragments hidden
+  behind nearer ground too; the core's ground and a patch's stay opaque.
+  The far cells the patch's edge crosses keep their colliders,
+  and within them the patch draws the far field's own triangles at its
+  points; from there it eases into Berlin's heights over 40 m, and from
+  the core's boundary over 6 m. The far colliders leave out every cell the
+  patch fills whole, and the patch stands on a heightfield of its own.
+- **Readers.** The patch rides in the far field (`FarField::patch`, one
+  slot every clone of the ground shares), so every reader of the ground as
+  drawn reads it where it lies, with no reader of its own: the placement
+  snap - a footprint rests on the patch's highest point inside it - the
+  camera, the recovery, the contact classifier, a scatter's land use and
+  slope. The rays that ask for the ground take the patch as ground.
+- **The record.** What of the record stands on a patch - a snapped item's
+  footprint, a snapped grid, a scatter's bounds - is set down again when a
+  patch lands under it or goes, and nothing else is rebuilt: the patch's
+  stamp rides in those placements' compile fingerprints. A body on the
+  ground a landing patch replaces is lifted by as much as the ground rises
+  under it. A patch landing restarts a placement the compile is midway
+  through building, wherever it stands; at a patch every 250 m or so,
+  that delays a long one, it does not starve it.
+- **Derived content.** The patch's buildings, trees and street furniture
+  are drawn as the core's and spawned after the core's and the ring's
+  plans, a slice a frame; the ring's lots under the patch, and within half
+  a lot of it, are not drawn while it stands. The owner's edits apply to
+  the patch's items as to the core's: an item removed or made the world's
+  own is not drawn on any patch that holds it.
+- **Cost.** Measured on a 942 m core (427 points a side; `did:plc:berlin53`
+  over Mitte), a patch is fetched in what a core's fetch costs and built in
+  about 0.15 s on the compute pool - its mesh's tangents computed from the
+  grid, where mikktspace took a second - and lands in a millisecond or
+  two. On the web the compute pool is the main thread, so the build waits
+  a frame between its stages, the longest about 50 ms natively.
+- **Limits.** Each client loads its own patch round its own body: two
+  visitors past the core see detail round themselves, and the coarse
+  ground round each other, and an item placed past the core stands on
+  whichever ground each client has there. A building straddling the core's
+  edge is drawn by neither (each reads only what lies wholly inside). A
+  patch's streets that reach past the core's corner along the shared edge
+  run 3 m out over the far field. A body that reaches the far field before
+  its patch has landed drops onto the patch's ground where that lies
+  lower, a metre or two at most. Streets drape over a dry cutting rather
+  than bridging it, on a patch as on the core.
+
 The ignored test `live_gdi_berlin_round_trip_decodes_and_is_kept` exercises
 the live path end to end: the real client, the disk store, and the decoders.
 It then checks that a second visit is answered from the store alone. Fire it
@@ -719,7 +865,7 @@ Each phase is a sub-issue of #1580, in build order:
 | #1588 | P2.2 derived-content stage with stable ids (moved from P2.1); street-level core: footprints, trees, street furniture |
 | #1589 | P3.1 the DID draws the source; seed-row locks; exact-square lock |
 | #1590 | P3.2 owner edits over derived content; layer hashes |
-| #1591 | P4 walkable area past the core (revive terrain streaming) |
+| #1591 | P4 walkable area past the core: P4.1 walkable horizon (#1596), P4.2 detail patch (#1597) |
 
 The Berlin share of the source draw was held at 0 until P2 made a themed
 Berlin worth landing in; since P3.1 it is one seeded room in four.

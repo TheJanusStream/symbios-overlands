@@ -6,8 +6,9 @@
 //! A copy is drawn near - its building's parts merged per material, a few
 //! entities - while its plan's near copies stay inside the plan's entity
 //! budget, and far - one entity, its building's voxel shell - past that,
-//! where the plan draws far copies at all. A copy on the walkable ground
-//! stands on a collider: its building's shell, its box, or a tree's trunk.
+//! where the plan draws far copies at all. Every copy drawn stands on a
+//! collider: its building's shell, its box, or a tree's trunk - the ring's
+//! too, since the ring is walked (P4.1, #1596).
 //! Every entity a copy spawns at its top carries its [`DerivedItem`], the
 //! stable id of the Berlin feature it was drawn from: each merged part, a
 //! far form, a collider - and the root of a copy drawn whole, its parts
@@ -61,11 +62,9 @@ pub(crate) enum Grow {
     Plant { variant: Option<&'static str> },
 }
 
-/// What a copy stands on.
+/// What a copy stands on: every derived copy is walked to (P4.1).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Solid {
-    /// Nothing: a copy no one walks to.
-    None,
     /// Its building's voxel shell: a building's.
     Shell,
     /// The box its building fills: a prop's.
@@ -491,7 +490,6 @@ impl Build {
     fn collider(&self, copy: &PlannedCopy, pose: Transform) -> Option<(Collider, Transform)> {
         let building = &self.plan.buildings[copy.building];
         match copy.solid {
-            Solid::None => None,
             Solid::Shell => building.shell.clone().map(|shell| (shell, pose)),
             Solid::Box => {
                 let (lo, hi) = building.bounds?;
