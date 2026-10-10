@@ -68,6 +68,40 @@ impl Sanitize for SpinTerm {
                 clamp(gain, -limits::MAX_STEER_GAIN, limits::MAX_STEER_GAIN, 0.0);
                 clamp(limit, 0.0, limits::MAX_STEER_LIMIT_DEG, 30.0);
             }
+            SpinTerm::Speed { idle, gain } => {
+                let rate = limits::MAX_SPIN_RATE_DEG;
+                clamp(idle, -rate, rate, 0.0);
+                let per_m = limits::MAX_SPEED_GAIN_DEG_PER_M;
+                clamp(gain, -per_m, per_m, 0.0);
+            }
+            SpinTerm::Lean { gain, period } => {
+                clamp(gain, -limits::MAX_LEAN_GAIN, limits::MAX_LEAN_GAIN, 0.0);
+                clamp(
+                    period,
+                    limits::MIN_SWING_PERIOD_S,
+                    limits::MAX_LEAN_PERIOD_S,
+                    1.2,
+                );
+            }
+            SpinTerm::Wind { amplitude } => {
+                let reach = limits::MAX_WIND_AMPLITUDE_DEG;
+                clamp(amplitude, -reach, reach, 0.0);
+            }
+            SpinTerm::Wobble { amplitude, period } => {
+                let reach = limits::MAX_SWING_AMPLITUDE_DEG;
+                clamp(amplitude, -reach, reach, 0.0);
+                clamp(
+                    period,
+                    limits::MIN_SWING_PERIOD_S,
+                    limits::MAX_SWING_PERIOD_S,
+                    2.0,
+                );
+            }
+            SpinTerm::Vane { facing } => {
+                // A direction, held like the spin's own axis: only where it
+                // points counts, and a zero one turns nothing.
+                *facing = Fp3(facing.0.map(|v| clamp_finite(v, -1.0, 1.0, 0.0)));
+            }
             SpinTerm::Unknown => {}
         }
     }
@@ -100,6 +134,44 @@ mod tests {
                 },
             ],
         });
+        let more = sanitized(Spin {
+            axis: Fp3([0.0, 1.0, 0.0]),
+            terms: vec![
+                SpinTerm::Speed {
+                    idle: Fp(-1e9),
+                    gain: Fp(f32::INFINITY),
+                },
+                SpinTerm::Lean {
+                    gain: Fp(99.0),
+                    period: Fp(0.0),
+                },
+                SpinTerm::Wind {
+                    amplitude: Fp(-400.0),
+                },
+                SpinTerm::Vane {
+                    facing: Fp3([2.0, f32::NAN, -0.25]),
+                },
+            ],
+        });
+        assert_eq!(
+            more.terms,
+            vec![
+                SpinTerm::Speed {
+                    idle: Fp(-limits::MAX_SPIN_RATE_DEG),
+                    gain: Fp::ZERO,
+                },
+                SpinTerm::Lean {
+                    gain: Fp(limits::MAX_LEAN_GAIN),
+                    period: Fp(limits::MIN_SWING_PERIOD_S),
+                },
+                SpinTerm::Wind {
+                    amplitude: Fp(-limits::MAX_WIND_AMPLITUDE_DEG),
+                },
+                SpinTerm::Vane {
+                    facing: Fp3([1.0, 0.0, -0.25]),
+                },
+            ]
+        );
         assert_eq!(spin.axis, Fp3([0.0, 1.0, -0.5]));
         assert_eq!(
             spin.terms,

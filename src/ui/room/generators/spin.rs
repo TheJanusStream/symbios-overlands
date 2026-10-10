@@ -76,7 +76,14 @@ pub(super) fn draw_spin_section(
         return;
     };
 
-    draw_axis(ui, &mut current.axis, salt, dirty);
+    draw_direction(
+        ui,
+        "Axis",
+        "Turn the other way round the same axis.",
+        &mut current.axis,
+        salt,
+        dirty,
+    );
 
     let mut remove = None;
     for (i, term) in current.terms.iter_mut().enumerate() {
@@ -129,32 +136,35 @@ pub(super) fn draw_spin_section(
     );
 }
 
-/// The axis row: X, Y or Z of the node's own frame, the other way round, or
-/// any direction typed in.
-fn draw_axis(ui: &mut egui::Ui, axis: &mut Fp3, salt: &str, dirty: &mut bool) {
+/// A direction row - the spin's axis, a vane's downwind side: X, Y or Z of
+/// the node's own frame, the other way round, or any direction typed in.
+fn draw_direction(
+    ui: &mut egui::Ui,
+    label: &str,
+    flip_help: &str,
+    axis: &mut Fp3,
+    salt: &str,
+    dirty: &mut bool,
+) {
     ui.horizontal(|ui| {
-        ui.label("Axis");
+        ui.label(label);
         let v = bevy::math::Vec3::from_array(axis.0).normalize_or_zero();
         for (name, along) in AXES {
             let along = bevy::math::Vec3::from_array(along);
-            // Selected either way round: "Flip" keeps the axis, reversed.
+            // Selected either way round: "Flip" keeps the line, reversed.
             let selected = v.dot(along).abs() > 0.999;
             if ui.selectable_label(selected, name).clicked() && !selected {
                 *axis = Fp3(along.to_array());
                 *dirty = true;
             }
         }
-        if ui
-            .button("Flip")
-            .on_hover_text("Turn the other way round the same axis.")
-            .clicked()
-        {
+        if ui.button("Flip").on_hover_text(flip_help).clicked() {
             *axis = Fp3(axis.0.map(|c| -c));
             *dirty = true;
         }
     });
     egui::CollapsingHeader::new("Any direction")
-        .id_salt((salt, "spin_axis_free"))
+        .id_salt((salt, label, "free"))
         .default_open(false)
         .show(ui, |ui| {
             let mut v = axis.0;
@@ -233,9 +243,123 @@ fn draw_term(ui: &mut egui::Ui, term: &mut SpinTerm, dirty: &mut bool) {
                 dirty,
             );
         }
+        SpinTerm::Speed { idle, gain } => {
+            let rate = limits::MAX_SPIN_RATE_DEG;
+            number(ui, "Idle", idle, -rate..=rate, 1.0, " °/s", dirty);
+            let per_m = limits::MAX_SPEED_GAIN_DEG_PER_M;
+            number(ui, "Per metre", gain, -per_m..=per_m, 1.0, " °/m", dirty).on_hover_text(
+                "Degrees a second more for each metre a second the part travels \
+                 forward - toward its parent's +Z, as vehicles are drawn. It \
+                 slows, and turns back, as the vehicle reverses.",
+            );
+        }
+        SpinTerm::Lean { gain, period } => {
+            hanging_magnitude(ui, "Per m/s²", gain, limits::MAX_LEAN_GAIN, 0.1, "°", dirty);
+            let periods = limits::MIN_SWING_PERIOD_S..=limits::MAX_LEAN_PERIOD_S;
+            number(ui, "Swings every", period, periods, 0.05, " s", dirty);
+            weak_note(
+                ui,
+                "Leans against its vehicle's speeding up and slowing down, and \
+                 swings back. 5.84° per m/s² is a real pendulum.",
+            );
+        }
+        SpinTerm::Wind { amplitude } => {
+            hanging_magnitude(
+                ui,
+                "Sway",
+                amplitude,
+                limits::MAX_WIND_AMPLITUDE_DEG,
+                0.5,
+                "°",
+                dirty,
+            );
+            weak_note(
+                ui,
+                "In the world's wind, the one its trees sway in (Environment), \
+                 when it crosses the axis squarely; further in a stronger wind.",
+            );
+        }
+        SpinTerm::Wobble { amplitude, period } => {
+            let reach = limits::MAX_SWING_AMPLITUDE_DEG;
+            number(
+                ui,
+                "Either side",
+                amplitude,
+                -reach..=reach,
+                0.5,
+                "°",
+                dirty,
+            );
+            let periods = limits::MIN_SWING_PERIOD_S..=limits::MAX_SWING_PERIOD_S;
+            number(ui, "About every", period, periods, 0.05, " s", dirty);
+        }
+        SpinTerm::Vane { facing } => {
+            draw_direction(
+                ui,
+                "Downwind",
+                "Point the other side of the part downwind.",
+                facing,
+                "spin_vane",
+                dirty,
+            );
+            weak_note(
+                ui,
+                "Turns until this side of the part points downwind in the \
+                 world's wind (Environment) - a weather vane's tail, a \
+                 windmill's head.",
+            );
+        }
         SpinTerm::Unknown => {
             unrecognised_value_line(ui, "spin term", Some("it turns nothing here"));
         }
+    }
+}
+
+/// A weak note under a term's fields.
+fn weak_note(ui: &mut egui::Ui, text: &str) {
+    ui.label(
+        egui::RichText::new(text)
+            .small()
+            .color(crate::ui::theme::current(ui.ctx()).text_weak),
+    );
+}
+
+/// A magnitude whose sign says whether the part hangs below its axis
+/// (positive) or stands on it (negative): one number and a checkbox, rather
+/// than a sign the owner has to remember.
+fn hanging_magnitude(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: &mut Fp,
+    max: f32,
+    speed: f64,
+    suffix: &str,
+    dirty: &mut bool,
+) {
+    let mut magnitude = Fp(value.0.abs());
+    // By the sign bit, so unticking at a zero magnitude (which writes -0.0)
+    // stays unticked rather than reading back as "hangs".
+    let mut hangs = !value.0.is_sign_negative();
+    let mut changed = false;
+    number(
+        ui,
+        label,
+        &mut magnitude,
+        0.0..=max,
+        speed,
+        suffix,
+        &mut changed,
+    );
+    changed |= ui
+        .checkbox(&mut hangs, "Hangs below its axis")
+        .on_hover_text(
+            "Ticked, its bottom swings - a sign, a lantern. Unticked, it stands \
+             on its axis and its top moves - a mast, an aerial.",
+        )
+        .changed();
+    if changed {
+        *value = Fp(if hangs { magnitude.0 } else { -magnitude.0 });
+        *dirty = true;
     }
 }
 
@@ -274,6 +398,11 @@ fn term_help(kind: &str) -> &'static str {
         "Swing" => "Swing to and fro: a pendulum, a hanging sign.",
         "Roll" => "Roll with the part's own travel, like a wheel.",
         "Steer" => "Turn with the turning of the part above: front wheels into a bend.",
+        "Speed" => "Turn faster as the part travels: a propeller, a fan.",
+        "Lean" => "Lean against speeding up and slowing down: a hanging lantern.",
+        "Wind" => "Sway in the world's wind: a hanging sign, a banner.",
+        "Wobble" => "Wander to and fro without a beat: a bobbing buoy, a hovering drone.",
+        "Vane" => "Turn to point downwind: a weather vane, a windmill's head.",
         _ => "",
     }
 }

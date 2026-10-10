@@ -100,9 +100,20 @@ The record's wire form, as the World Editor's Raw JSON tab shows it:
   `transform` stays the pose on record. Up to 4 terms, summed:
   `{"$type": "network.symbios.spin.constant", "rate": 300000}` (30 deg/s; a
   minus turns the other way), `.swing` (`amplitude` deg either side, one
-  full swing every `period` s, starting `phase` deg in), `.roll` (`radius` m:
-  turns with the part's own travel, as a wheel does) and `.steer` (`gain`,
-  `limit` deg: follows its parent's turning, as front wheels do). A node turns
+  full swing every `period` s, starting `phase` deg in), `.wobble`
+  (`amplitude`, `period`: a wander that never repeats a beat), `.roll`
+  (`radius` m: turns with the part's own travel, as a wheel does), `.steer`
+  (`gain`, `limit` deg: follows its parent's turning, as front wheels do),
+  `.speed` (`idle` deg/s plus `gain` deg per metre travelled forward: a
+  propeller), `.lean` (`gain` deg per m/s^2, `period` s: leans against its
+  carrier's speeding up and slowing down - 58400 is a real pendulum),
+  `.wind` (`amplitude` deg: sways in the world's wind, the one its trees
+  sway in) and `.vane` (`facing`, scaled like the axis - `[0, 0, 10000]` is
+  the part's own +Z - the direction that turns to point downwind: a flag, a
+  windmill's head). For
+  `.lean` and `.wind` a positive number means the part HANGS from its axis
+  (its bottom swings), a negative one that it stands on it (its top moves);
+  "forward" for `.speed` and `.steer` is the parent's +Z. A node turns
   about its own ORIGIN, so put the spin on a part centred on the pivot - a
   hub, an axle - stood unturned, and nest the blades under it. A turning part
   and everything under it has no solid collider. Everything stands still while

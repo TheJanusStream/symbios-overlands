@@ -7,16 +7,20 @@
 //!
 //! - [`animate_spinners`], before it, writes each spinner's `Transform` as
 //!   its authored pose turned about the node's axis by the sum of its terms.
-//!   Clock terms ([`SpinTerm::Constant`], [`SpinTerm::Swing`]) are a
-//!   function of the time - UTC in the game, so every client shows a
-//!   windmill at the same angle and a spinner skipped while out of sight
-//!   comes back at the right one. Motion terms ([`SpinTerm::Roll`],
-//!   [`SpinTerm::Steer`]) integrate what [`sample_spinner_motion`] measured.
-//! - [`sample_spinner_motion`], after it, differences each motion
+//!   Clock terms ([`SpinTerm::Constant`], [`SpinTerm::Swing`],
+//!   [`SpinTerm::Wobble`]) are a function of the time - UTC in the game, so
+//!   every client shows a windmill at the same angle and a spinner skipped
+//!   while out of sight comes back at the right one. Wind terms
+//!   ([`SpinTerm::Wind`], [`SpinTerm::Vane`]) add the room's wind - the
+//!   foliage's own [`VegetationWind`](crate::wind::VegetationWind) - to the
+//!   clock. Motion terms ([`SpinTerm::Roll`], [`SpinTerm::Steer`],
+//!   [`SpinTerm::Speed`], [`SpinTerm::Lean`]) integrate what
+//!   [`sample_spinner_motion`] measured.
+//! - [`sample_spinner_motion`], after it, differences each motion or wind
 //!   spinner's world position, and its parent's world rotation, over the
-//!   frame they spanned. After propagation is the only place that delta is
-//!   honest for a remote peer, whose pose propagates only in `PostUpdate`
-//!   (#1323).
+//!   frame they spanned, and records how the part stands in the world.
+//!   After propagation is the only place that delta is honest for a remote
+//!   peer, whose pose propagates only in `PostUpdate` (#1323).
 //!
 //! **Selection freezes the world.** While an editor has anything selected
 //! ([`SpinHold`], mirrored from the editors), every spinner stands at its
@@ -36,6 +40,8 @@
 //! A spinner that has lost its parent is the gizmo's - it detaches its
 //! target into world space - and is never written.
 
+#[cfg(test)]
+use std::f32::consts::FRAC_PI_2;
 use std::f32::consts::{PI, TAU};
 
 use bevy::prelude::*;
@@ -63,6 +69,32 @@ const STEER_SETTLE_S: f32 = 0.12;
 /// creeping or standing still keeps the forward sense, so the wheels do not
 /// flick across as it stops.
 const REVERSING_M_S: f32 = 0.3;
+
+/// A lean term's spring damping ratio: under-damped, so a hanging lantern
+/// swings past its lean and back a few times before it settles.
+const LEAN_DAMPING: f32 = 0.3;
+
+/// The furthest a lean term tips its part (degrees) - its target, and its
+/// swing past the target too. The chassis takes its velocity straight from
+/// the drive, so its measured acceleration can hold far past anything a
+/// pendulum would answer for frames together, and an under-damped spring
+/// overshoots its target by a third.
+const MAX_LEAN_DEG: f32 = 60.0;
+
+/// The longest step a lean term's spring takes (s): a frame longer than this
+/// is integrated in several, or a stiff spring would blow up across a hitch.
+const LEAN_STEP_S: f32 = 1.0 / 120.0;
+
+/// The wind speed a wind term's amplitude is authored at (m/s) - the
+/// default room's, which drifts the clouds at 4 m/s.
+const REFERENCE_WIND_M_S: f32 = 4.0;
+
+/// The most a stronger wind scales a wind term's sway by.
+const MAX_WIND_SCALE: f32 = 2.0;
+
+/// How far a vane hunts either side of downwind in the reference wind
+/// (degrees).
+const VANE_HUNT_DEG: f32 = 5.0;
 
 /// Register the spin systems and their resources on `app`, with the clock
 /// its spinners read. The game passes [`SpinClock::utc`]; the headless
@@ -161,7 +193,8 @@ fn splitmix64(mut z: u64) -> u64 {
     z ^ (z >> 31)
 }
 
-/// One term, in the units the runtime turns by.
+/// One term, in the units the runtime turns by - and, for a lean, the state
+/// of its spring.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Turn {
     /// Radians per second, in f64: at UTC's ~1.8e9 s, an f32 rate's own
@@ -179,6 +212,23 @@ enum Turn {
     /// Radians of turn per radian per second of the parent's turning, and
     /// the radians it is held within.
     Steer { gain: f32, limit: f32 },
+    /// Radians per second standing still, and radians per metre travelled
+    /// forward.
+    Speed { idle: f32, per_metre: f32 },
+    /// Radians per m/s^2 across the axis, the spring's angular frequency
+    /// (rad/s), and the spring's angle (rad) and rate (rad/s).
+    Lean {
+        gain: f32,
+        omega: f32,
+        angle: f32,
+        rate: f32,
+    },
+    /// Radians of sway in the reference wind crossing the axis squarely.
+    Wind { amplitude: f32 },
+    /// Radians either side, cycles per second of its slowest swing.
+    Wobble { amplitude: f32, per_second: f64 },
+    /// The unit direction, in the part's own frame, that points downwind.
+    Vane { facing: Vec3 },
 }
 
 impl Turn {
@@ -204,18 +254,109 @@ impl Turn {
                 gain: gain.0,
                 limit: limit.0.to_radians(),
             },
+            SpinTerm::Speed { idle, gain } => Self::Speed {
+                idle: idle.0.to_radians(),
+                per_metre: gain.0.to_radians(),
+            },
+            SpinTerm::Lean { gain, period } => Self::Lean {
+                gain: gain.0.to_radians(),
+                omega: TAU / period.0,
+                angle: 0.0,
+                rate: 0.0,
+            },
+            SpinTerm::Wind { amplitude } => Self::Wind {
+                amplitude: amplitude.0.to_radians(),
+            },
+            SpinTerm::Wobble { amplitude, period } => Self::Wobble {
+                amplitude: amplitude.0.to_radians(),
+                per_second: 1.0 / period.0 as f64,
+            },
+            SpinTerm::Vane { facing } => Self::Vane {
+                facing: Vec3::from_array(facing.0).try_normalize()?,
+            },
             SpinTerm::Unknown => return None,
         })
     }
+
+    /// Back to rest: a lean's spring hangs straight again.
+    fn settle(&mut self) {
+        if let Self::Lean { angle, rate, .. } = self {
+            *angle = 0.0;
+            *rate = 0.0;
+        }
+    }
 }
 
-/// What [`sample_spinner_motion`] last measured of a motion spinner.
+/// Three incommensurate swings summed, scaled to stay within one either way
+/// (their amplitudes sum to 1.95): a wander that never settles into a beat.
+/// `cycles` counts the slowest swing's cycles - some 6e8 by the wall clock,
+/// which f64 still holds to a ten-millionth of a cycle, so it is never
+/// reduced and the wander never jumps.
+fn wobble(cycles: f64) -> f32 {
+    use std::f64::consts::TAU as TAU64;
+    let w = (TAU64 * cycles).sin()
+        + 0.6 * (TAU64 * 1.618_034 * cycles + 1.3).sin()
+        + 0.35 * (TAU64 * 2.414_214 * cycles + 4.1).sin();
+    (w / 1.95) as f32
+}
+
+/// The room's wind as a spinner reads it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct RoomWind {
+    /// Unit downwind direction across the ground, or zero in a still room.
+    downwind: Vec3,
+    /// Wind speed (m/s).
+    speed: f32,
+}
+
+impl RoomWind {
+    fn of(wind: &crate::wind::VegetationWind) -> Self {
+        let dir = Vec3::new(wind.dir.x, 0.0, wind.dir.y).normalize_or_zero();
+        let speed = if wind.speed.is_finite() {
+            wind.speed.max(0.0)
+        } else {
+            0.0
+        };
+        Self {
+            downwind: if speed > 0.0 { dir } else { Vec3::ZERO },
+            speed,
+        }
+    }
+
+    /// How hard it blows, against the speed a wind term is authored at.
+    fn scale(&self) -> f32 {
+        (self.speed / REFERENCE_WIND_M_S).min(MAX_WIND_SCALE)
+    }
+
+    /// A bend at `at` and `now` with the foliage's pace, `speed x 0.35`
+    /// radians a second, and its gust front, which reaches a point later the
+    /// further downwind it stands - so a sign sways with the trees' rhythm,
+    /// though never in step with them: the shader runs on its own clock and
+    /// phases each plant by a hash. `phase` keeps two terms of one part from
+    /// bending in step.
+    fn bend(&self, now: f64, at: Vec3, phase: f32) -> f32 {
+        let pace = (now * self.speed as f64 * 0.35).rem_euclid(std::f64::consts::TAU) as f32;
+        let gust = at.dot(self.downwind) * 0.08;
+        (pace - gust + phase).sin()
+    }
+}
+
+/// What [`sample_spinner_motion`] last measured of a motion or wind
+/// spinner.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 struct Motion {
     /// World position and parent world rotation at the last sample.
     last: Option<(Vec3, Quat)>,
     /// World velocity over the last frame (m/s).
     velocity: Vec3,
+    /// Whether [`Self::velocity`] was measured over two samples, so the next
+    /// can difference it: the first velocity after a spawn is no reading.
+    velocity_known: bool,
+    /// World acceleration over the last frame (m/s^2).
+    acceleration: Vec3,
+    /// How the part stands in the world unturned: its parent's world
+    /// rotation composed with its own authored one.
+    frame: Quat,
     /// The parent's world angular velocity over the last frame (rad/s).
     turning: Vec3,
     /// The spin axis in world space, at the last sample.
@@ -238,7 +379,10 @@ pub struct Spinner {
     epoch: f64,
     /// Whether any term reads the part's motion.
     follows_motion: bool,
-    /// The angle the roll terms have turned (rad, wrapped).
+    /// Whether any term reads the room's wind.
+    reads_wind: bool,
+    /// The angle the rate terms - roll and speed - have turned (rad,
+    /// wrapped).
     rolled: f32,
     /// The steer terms' settled angle (rad).
     steered: f32,
@@ -255,12 +399,14 @@ impl Spinner {
             return None;
         }
         let follows_motion = spin.terms.iter().any(|t| t.moves() && t.follows_motion());
+        let reads_wind = spin.terms.iter().any(|t| t.moves() && t.reads_wind());
         Some(Self {
             base,
             axis,
             turns,
             epoch,
             follows_motion,
+            reads_wind,
             rolled: 0.0,
             steered: 0.0,
             motion: Motion::default(),
@@ -293,21 +439,95 @@ impl Spinner {
                     angle +=
                         amplitude as f64 * (std::f64::consts::TAU * cycle + phase as f64).sin();
                 }
-                Turn::Roll { .. } | Turn::Steer { .. } => {}
+                Turn::Wobble {
+                    amplitude,
+                    per_second,
+                } => {
+                    angle += (amplitude * wobble(t * per_second)) as f64;
+                }
+                Turn::Roll { .. }
+                | Turn::Steer { .. }
+                | Turn::Speed { .. }
+                | Turn::Lean { .. }
+                | Turn::Wind { .. }
+                | Turn::Vane { .. } => {}
             }
         }
         angle as f32
+    }
+
+    /// The angle the wind terms give at `now`, for a part standing at `at`
+    /// in `wind` (rad).
+    fn wind_angle(&self, now: f64, wind: RoomWind, at: Vec3) -> f32 {
+        if wind.downwind == Vec3::ZERO {
+            return 0.0;
+        }
+        let t = now + self.epoch;
+        let axis = self.motion.frame * self.axis;
+        let up = self.motion.frame * Vec3::Y;
+        let mut angle = 0.0;
+        for turn in &self.turns {
+            match *turn {
+                // A turn about the axis carries the part's top toward
+                // `axis x up`; how squarely the wind blows that way is how
+                // hard it pushes. A hanging part's BOTTOM swings downwind, so
+                // a positive amplitude turns it against that push.
+                Turn::Wind { amplitude } => {
+                    let push = wind.downwind.dot(axis.cross(up));
+                    let sway = 0.6 + 0.4 * wind.bend(t, at, 0.0);
+                    angle -= amplitude * wind.scale() * push * sway;
+                }
+                Turn::Vane { facing } => {
+                    let flat = |v: Vec3| (v - axis * v.dot(axis)).normalize_or_zero();
+                    let (from, to) = (flat(self.motion.frame * facing), flat(wind.downwind));
+                    if from == Vec3::ZERO || to == Vec3::ZERO {
+                        continue;
+                    }
+                    let hunt = VANE_HUNT_DEG.to_radians()
+                        * wind.scale().min(1.0)
+                        * wind.bend(t * 0.7, at, 2.1);
+                    angle += from.cross(to).dot(axis).atan2(from.dot(to)) + hunt;
+                }
+                _ => {}
+            }
+        }
+        angle
+    }
+
+    /// The lean terms' springs' angles (rad).
+    fn lean_angle(&self) -> f32 {
+        self.turns
+            .iter()
+            .map(|turn| match *turn {
+                Turn::Lean { angle, .. } => angle,
+                _ => 0.0,
+            })
+            .sum()
+    }
+
+    /// Back to rest, as a freeze leaves every part: nothing rolled, nothing
+    /// steered, every lean hanging straight.
+    fn settle(&mut self) {
+        self.rolled = 0.0;
+        self.steered = 0.0;
+        for turn in &mut self.turns {
+            turn.settle();
+        }
     }
 
     /// Advance the motion terms by `dt` on the last sampled motion.
     fn follow_motion(&mut self, dt: f32) {
         let Motion {
             velocity,
+            acceleration,
             turning,
             axis_world,
             forward_speed,
+            frame,
             ..
         } = self.motion;
+        // A turn about the axis carries the part's top toward `axis x up`.
+        let tipping = axis_world.cross(frame * Vec3::Y);
         // Reversing through a bend turns the vehicle the other way for the
         // same wheels, so the wheels that follow its turning turn back.
         let heading = if forward_speed < -REVERSING_M_S {
@@ -317,19 +537,61 @@ impl Spinner {
         };
         let mut rate = 0.0;
         let mut steer = 0.0;
-        for turn in &self.turns {
-            match *turn {
+        for turn in &mut self.turns {
+            match turn {
                 // A wheel rolling with velocity v on ground whose normal is
                 // up turns at (up x v) / r: project that onto the axis, so
                 // the sign follows the axis and a wheel turned across its
                 // travel rolls only as far as it is carried along it.
                 Turn::Roll { per_metre } => {
-                    rate += Vec3::Y.cross(velocity).dot(axis_world) * per_metre;
+                    rate += Vec3::Y.cross(velocity).dot(axis_world) * *per_metre;
                 }
                 Turn::Steer { gain, limit } => {
-                    steer += (heading * gain * turning.dot(axis_world)).clamp(-limit, limit);
+                    steer += (heading * *gain * turning.dot(axis_world)).clamp(-*limit, *limit);
                 }
-                Turn::Constant(_) | Turn::Swing { .. } => {}
+                Turn::Speed { idle, per_metre } => {
+                    rate += *idle + *per_metre * forward_speed;
+                }
+                // A hanging part's bottom lags its carrier's acceleration:
+                // it swings toward minus the acceleration, which a positive
+                // turn does when the acceleration runs along `axis x up`.
+                Turn::Lean {
+                    gain,
+                    omega,
+                    angle,
+                    rate: swing,
+                } => {
+                    let cap = MAX_LEAN_DEG.to_radians();
+                    let target = *gain * acceleration.dot(tipping);
+                    let target = if target.is_finite() {
+                        target.clamp(-cap, cap)
+                    } else {
+                        0.0
+                    };
+                    let steps = (dt / LEAN_STEP_S).ceil().clamp(1.0, 64.0);
+                    let h = dt / steps;
+                    for _ in 0..steps as usize {
+                        let pull = *omega * *omega * (target - *angle);
+                        let drag = 2.0 * LEAN_DAMPING * *omega * *swing;
+                        *swing += (pull - drag) * h;
+                        *angle += *swing * h;
+                        // A stop, not a bounce: the part comes to rest
+                        // against the bound and swings back from it.
+                        if angle.abs() > cap {
+                            *angle = angle.signum() * cap;
+                            *swing = 0.0;
+                        }
+                    }
+                    if !angle.is_finite() || !swing.is_finite() {
+                        *angle = 0.0;
+                        *swing = 0.0;
+                    }
+                }
+                Turn::Constant(_)
+                | Turn::Swing { .. }
+                | Turn::Wind { .. }
+                | Turn::Wobble { .. }
+                | Turn::Vane { .. } => {}
             }
         }
         // A teleport reads as one enormous frame of travel: the cap keeps it
@@ -366,6 +628,7 @@ pub(crate) fn animate_spinners(
     mut clock: ResMut<SpinClock>,
     hold: Res<SpinHold>,
     settings: Option<Res<crate::state::LocalSettings>>,
+    wind: Option<Res<crate::wind::VegetationWind>>,
     cameras: Query<(&Camera, &GlobalTransform)>,
     mut spinners: Query<
         (
@@ -384,8 +647,7 @@ pub(crate) fn animate_spinners(
         if !*frozen {
             for (mut spinner, mut tf, ..) in &mut spinners {
                 *tf = spinner.base;
-                spinner.rolled = 0.0;
-                spinner.steered = 0.0;
+                spinner.settle();
             }
             *frozen = true;
         }
@@ -405,6 +667,13 @@ pub(crate) fn animate_spinners(
 
     let now = clock.now(&time, &real);
     let dt = time.delta_secs();
+    let wind = wind.map_or(
+        RoomWind {
+            downwind: Vec3::ZERO,
+            speed: 0.0,
+        },
+        |w| RoomWind::of(&w),
+    );
     let eyes: Vec<Vec3> = cameras
         .iter()
         .filter(|(camera, _)| camera.is_active)
@@ -421,14 +690,21 @@ pub(crate) fn animate_spinners(
         if !seen {
             continue;
         }
-        let angle = spinner.clock_angle(now) + spinner.rolled + spinner.steered;
+        let mut angle =
+            spinner.clock_angle(now) + spinner.rolled + spinner.steered + spinner.lean_angle();
+        // Not before the part's first sample: until then its world frame is
+        // unknown, and a vane drawn against an unturned frame would face the
+        // wrong way for a frame and snap. The authored pose stands in.
+        if spinner.reads_wind && spinner.motion.last.is_some() {
+            angle += spinner.wind_angle(now, wind, at);
+        }
         *tf = spinner.posed(angle);
     }
 }
 
-/// Measure each motion spinner's travel and its parent's turning over the
-/// frame just propagated. See the module docs for why it runs after
-/// propagation.
+/// Measure each motion or wind spinner's travel, its parent's turning and
+/// how it stands in the world, over the frame just propagated. See the
+/// module docs for why it runs after propagation.
 pub(crate) fn sample_spinner_motion(
     time: Res<Time>,
     mut spinners: Query<(&mut Spinner, &GlobalTransform, &ChildOf)>,
@@ -439,17 +715,26 @@ pub(crate) fn sample_spinner_motion(
         return;
     }
     for (mut spinner, global, child_of) in &mut spinners {
-        if !spinner.follows_motion {
+        if !spinner.follows_motion && !spinner.reads_wind {
             continue;
         }
         let at = global.translation();
         let parent = frames
             .get(child_of.parent())
             .map_or(Quat::IDENTITY, GlobalTransform::rotation);
-        let axis_world = (parent * (spinner.base.rotation * spinner.axis)).normalize_or_zero();
+        let frame = parent * spinner.base.rotation;
+        let axis_world = (frame * spinner.axis).normalize_or_zero();
         let motion = &mut spinner.motion;
+        motion.frame = frame;
         if let Some((last_at, last_parent)) = motion.last {
-            motion.velocity = (at - last_at) / dt;
+            let velocity = (at - last_at) / dt;
+            motion.acceleration = if motion.velocity_known {
+                (velocity - motion.velocity) / dt
+            } else {
+                Vec3::ZERO
+            };
+            motion.velocity = velocity;
+            motion.velocity_known = true;
             // The shorter way round: a quaternion and its negation are one
             // rotation, and only one of them has an angle under a half turn.
             let mut delta = parent * last_parent.inverse();
@@ -817,6 +1102,228 @@ mod tests {
         assert!(
             (about_neg_x - 4.0).abs() < 0.2,
             "rolled {about_neg_x} rad about -X, wanted ~4"
+        );
+    }
+
+    #[test]
+    fn a_speed_term_idles_spins_up_and_backs_in_reverse() {
+        let mut prop = spinner(
+            [0.0, 0.0, 1.0],
+            vec![SpinTerm::Speed {
+                idle: Fp(120.0),
+                gain: Fp(60.0),
+            }],
+        );
+        let turned = |prop: &mut Spinner, forward: f32| {
+            prop.rolled = 0.0;
+            prop.motion.forward_speed = forward;
+            prop.follow_motion(0.25);
+            let a = prop.rolled;
+            (if a > PI { a - TAU } else { a }).to_degrees() * 4.0
+        };
+        assert!((turned(&mut prop, 0.0) - 120.0).abs() < 1e-2, "idles");
+        assert!((turned(&mut prop, 2.0) - 240.0).abs() < 1e-2, "spins up");
+        assert!((turned(&mut prop, -3.0) + 60.0).abs() < 1e-2, "backs");
+    }
+
+    /// The pendulum's own rule: a part hanging from a lateral axis settles
+    /// at `gain` per m/s^2 of acceleration, its bottom swung back AGAINST
+    /// the acceleration - and swings past that on the way, as a lantern does.
+    #[test]
+    fn a_hanging_lean_settles_lagging_its_carriers_acceleration() {
+        let mut lantern = spinner(
+            [1.0, 0.0, 0.0],
+            vec![SpinTerm::Lean {
+                gain: Fp(5.8),
+                period: Fp(1.2),
+            }],
+        );
+        lantern.motion.frame = Quat::IDENTITY;
+        lantern.motion.axis_world = Vec3::X;
+        // Speeding up toward -Z, Bevy's forward, at 2 m/s^2.
+        lantern.motion.acceleration = Vec3::new(0.0, 0.0, -2.0);
+        let mut deepest = 0.0_f32;
+        for _ in 0..600 {
+            lantern.follow_motion(1.0 / 60.0);
+            deepest = deepest.min(lantern.lean_angle());
+        }
+        let settled = lantern.lean_angle();
+        assert!(
+            (settled.to_degrees() + 11.6).abs() < 0.1,
+            "{}",
+            settled.to_degrees()
+        );
+        assert!(
+            deepest < settled - 0.02,
+            "it swings past its lean on the way"
+        );
+        // Its bottom, -Y, now stands toward +Z: behind, against the push.
+        let bottom = Quat::from_axis_angle(Vec3::X, settled) * Vec3::NEG_Y;
+        assert!(bottom.z > 0.1, "{bottom}");
+        // A standing part (negative gain) tips its TOP back instead.
+        let mut aerial = spinner(
+            [1.0, 0.0, 0.0],
+            vec![SpinTerm::Lean {
+                gain: Fp(-5.8),
+                period: Fp(1.2),
+            }],
+        );
+        aerial.motion = lantern.motion;
+        for _ in 0..600 {
+            aerial.follow_motion(1.0 / 60.0);
+        }
+        let top = Quat::from_axis_angle(Vec3::X, aerial.lean_angle()) * Vec3::Y;
+        assert!(top.z > 0.1, "{top}");
+    }
+
+    #[test]
+    fn a_lean_survives_a_hitch_and_a_spike() {
+        let mut lantern = spinner(
+            [1.0, 0.0, 0.0],
+            vec![SpinTerm::Lean {
+                gain: Fp(30.0),
+                period: Fp(0.5),
+            }],
+        );
+        lantern.motion.frame = Quat::IDENTITY;
+        lantern.motion.axis_world = Vec3::X;
+        lantern.motion.acceleration = Vec3::new(0.0, 0.0, 1e6);
+        // A quarter-second hitch, a stiff spring and an absurd spike.
+        lantern.follow_motion(0.25);
+        let a = lantern.lean_angle();
+        assert!(
+            a.is_finite() && a.abs() <= MAX_LEAN_DEG.to_radians() + 1e-6,
+            "{a}"
+        );
+        // Held for frames together, as a driven chassis's can be, the swing
+        // still never passes the bound its target is clamped to.
+        lantern.motion.acceleration = Vec3::new(0.0, 0.0, -45.0);
+        for _ in 0..240 {
+            lantern.follow_motion(1.0 / 60.0);
+            assert!(lantern.lean_angle().abs() <= MAX_LEAN_DEG.to_radians() + 1e-6);
+        }
+    }
+
+    fn wind(downwind: Vec3, speed: f32) -> RoomWind {
+        RoomWind { downwind, speed }
+    }
+
+    /// A sign hanging from a pole across the wind swings its bottom
+    /// downwind; one standing on its axis tips its top downwind; the wind
+    /// along the axis, or no wind, moves neither; a stronger wind moves them
+    /// further.
+    #[test]
+    fn the_wind_swings_a_hanging_part_downwind_and_bends_a_standing_one() {
+        let sign = |amplitude: f32| {
+            let mut s = spinner(
+                [1.0, 0.0, 0.0],
+                vec![SpinTerm::Wind {
+                    amplitude: Fp(amplitude),
+                }],
+            );
+            s.motion.frame = Quat::IDENTITY;
+            s
+        };
+        let blow = wind(Vec3::Z, 4.0);
+        for t in [0.0, 1.3, 2.9, 7.7, 1.8e9] {
+            let hanging = sign(20.0).wind_angle(t, blow, Vec3::ZERO);
+            let bottom = Quat::from_axis_angle(Vec3::X, hanging) * Vec3::NEG_Y;
+            assert!(bottom.z > 0.0, "t {t}: the bottom swings downwind");
+            assert!(hanging.abs() <= 20f32.to_radians() + 1e-5);
+            let standing = sign(-20.0).wind_angle(t, blow, Vec3::ZERO);
+            let top = Quat::from_axis_angle(Vec3::X, standing) * Vec3::Y;
+            assert!(top.z > 0.0, "t {t}: the top bends downwind");
+        }
+        assert_eq!(
+            sign(20.0).wind_angle(3.0, wind(Vec3::X, 4.0), Vec3::ZERO),
+            0.0
+        );
+        assert_eq!(
+            sign(20.0).wind_angle(3.0, wind(Vec3::ZERO, 0.0), Vec3::ZERO),
+            0.0
+        );
+        let calm = sign(20.0).wind_angle(3.0, blow, Vec3::ZERO);
+        let gale = sign(20.0).wind_angle(3.0, wind(Vec3::Z, 8.0), Vec3::ZERO);
+        assert!(gale.abs() > calm.abs(), "{gale} vs {calm}");
+    }
+
+    #[test]
+    fn a_vane_points_its_tail_downwind_whatever_its_parent_does() {
+        let mut vane = spinner(
+            [0.0, 1.0, 0.0],
+            vec![SpinTerm::Vane {
+                facing: Fp3([0.0, 0.0, 1.0]),
+            }],
+        );
+        vane.motion.frame = Quat::IDENTITY;
+        let east = wind(Vec3::X, 4.0);
+        for t in [0.0, 2.0, 5.5, 1.8e9] {
+            let a = vane.wind_angle(t, east, Vec3::ZERO);
+            let tail = Quat::from_axis_angle(Vec3::Y, a) * Vec3::Z;
+            assert!(tail.angle_between(Vec3::X) <= (VANE_HUNT_DEG + 0.01).to_radians());
+        }
+        // Its parent turned a quarter round already points it downwind.
+        vane.motion.frame = Quat::from_rotation_y(FRAC_PI_2);
+        assert!(vane.wind_angle(0.0, east, Vec3::ZERO).abs() <= VANE_HUNT_DEG.to_radians());
+    }
+
+    #[test]
+    fn a_wobble_wanders_within_its_amplitude_and_agrees_with_itself() {
+        let buoy = spinner(
+            [1.0, 0.0, 0.0],
+            vec![SpinTerm::Wobble {
+                amplitude: Fp(10.0),
+                period: Fp(3.0),
+            }],
+        );
+        let reach = 10f32.to_radians();
+        let mut widest = 0.0_f32;
+        for k in 0..2000 {
+            let t = 1.8e9 + k as f64 * 0.05;
+            let a = buoy.clock_angle(t);
+            assert!(a.abs() <= reach + 1e-5, "{a}");
+            assert_eq!(a, buoy.clock_angle(t), "one time, one angle");
+            widest = widest.max(a.abs());
+        }
+        assert!(widest > 0.5 * reach, "it does wander: {widest}");
+    }
+
+    /// Through the real schedule: a lantern hung from a carrier that speeds
+    /// up swings back, on an acceleration measured after propagation.
+    #[test]
+    fn a_lantern_on_a_carrier_that_sets_off_swings_back() {
+        let mut app = spin_app();
+        let (carrier, lantern) = spawn_spinner(
+            &mut app,
+            &Spin::about(
+                [1.0, 0.0, 0.0],
+                SpinTerm::Lean {
+                    gain: Fp(5.8),
+                    period: Fp(1.2),
+                },
+            ),
+            Transform::IDENTITY,
+        );
+        // Setting off toward -Z at 3 m/s^2.
+        app.add_systems(
+            Update,
+            move |time: Res<Time>,
+                  mut frames: Query<&mut Transform, Without<Spinner>>,
+                  mut speed: Local<f32>| {
+                let dt = time.delta_secs();
+                *speed += 3.0 * dt;
+                if let Ok(mut tf) = frames.get_mut(carrier) {
+                    tf.translation.z -= *speed * dt;
+                }
+            },
+        );
+        for _ in 0..32 {
+            app.update();
+        }
+        let bottom = pose(&app, lantern).rotation * Vec3::NEG_Y;
+        assert!(
+            bottom.z > 0.05,
+            "the lantern's bottom lags behind: {bottom}"
         );
     }
 

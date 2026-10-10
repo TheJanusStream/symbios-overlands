@@ -328,8 +328,8 @@ generation cores shared with the wasm Web Worker.
   [image cache](../src/world_builder/image_cache.rs) shared by
   signs / portals / particles, and [spin](../src/world_builder/spin.rs) - the
   turn each client gives a node whose record says it turns (a windmill's
-  sails, a wheel rolling with its vehicle), held at the authored pose while
-  an editor has a selection.
+  sails, a wheel rolling with its vehicle, a flag streaming in the room's
+  wind), held at the authored pose while an editor has a selection.
 - [`src/terrain/`](../src/terrain/), [`src/urban/`](../src/urban/),
   [`src/splat.rs`](../src/splat.rs), [`src/water.rs`](../src/water.rs),
   [`src/clouds.rs`](../src/clouds.rs), [`src/wind.rs`](../src/wind.rs) -

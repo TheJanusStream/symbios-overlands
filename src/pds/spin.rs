@@ -6,9 +6,11 @@
 //! steady rate, a pendulum swings, a wheel rolls with the vehicle carrying
 //! it - and each client works out the angle. Nothing about the motion
 //! crosses the network, so two clients may show a rolling wheel at slightly
-//! different angles; the steady terms ([`SpinTerm::Constant`],
-//! [`SpinTerm::Swing`]) read the wall clock, so clients agree on them as
-//! closely as their clocks agree.
+//! different angles; the clock terms ([`SpinTerm::Constant`],
+//! [`SpinTerm::Swing`], [`SpinTerm::Wobble`]) and the wind terms
+//! ([`SpinTerm::Wind`], [`SpinTerm::Vane`]), which add the room's own wind,
+//! read the wall clock, so clients agree on them as closely as their clocks
+//! agree.
 //!
 //! The node turns about its own origin, and everything below it turns with
 //! it, so compound motion is built by nesting: a steering node holding a
@@ -68,9 +70,7 @@ impl Spin {
     /// at least one term that moves. A node whose spin does not is spawned
     /// exactly as one without a spin, colliders and all.
     pub fn moves(&self) -> bool {
-        let axis = self.axis.0;
-        let axis_len_sq = axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2];
-        axis_len_sq.is_finite() && axis_len_sq > 1e-8 && self.terms.iter().any(SpinTerm::moves)
+        is_direction(self.axis) && self.terms.iter().any(SpinTerm::moves)
     }
 }
 
@@ -125,6 +125,64 @@ pub enum SpinTerm {
         #[serde(default = "default_steer_limit")]
         limit: Fp,
     },
+    /// Turn at a rate that follows the part's speed: `idle` degrees per
+    /// second standing still, and `gain` degrees more for each metre it
+    /// travels along its parent's +Z - forward, as every vehicle in
+    /// Overlands is drawn. A propeller that idles, spins up with its craft
+    /// and backs as it reverses.
+    #[serde(rename = "network.symbios.spin.speed")]
+    Speed {
+        #[serde(default)]
+        idle: Fp,
+        #[serde(default)]
+        gain: Fp,
+    },
+    /// Lean against the part's acceleration and swing back, as a hanging
+    /// lantern does when its carrier sets off or stops: `gain` degrees for
+    /// each m/s^2 of acceleration along the way a turn about the axis would
+    /// swing the part, reached through a spring that swings once every
+    /// `period` seconds. Positive for a part that
+    /// HANGS from its axis, whose bottom lags (5.84 is a real pendulum's: one
+    /// over gravity, in degrees); negative for one that stands on it, whose
+    /// top lags - a whip aerial, a mast.
+    #[serde(rename = "network.symbios.spin.lean")]
+    Lean {
+        #[serde(default = "default_lean_gain")]
+        gain: Fp,
+        #[serde(default = "default_lean_period")]
+        period: Fp,
+    },
+    /// Sway in the room's wind - the one its trees sway in: up to
+    /// `amplitude` degrees about the axis when the wind crosses it squarely,
+    /// gusting at the foliage's own pace, and further in a stronger wind.
+    /// Positive for a part that HANGS from its axis, whose bottom swings
+    /// downwind (a sign, a banner); negative for one that stands on it,
+    /// whose top bends downwind.
+    #[serde(rename = "network.symbios.spin.wind")]
+    Wind {
+        #[serde(default)]
+        amplitude: Fp,
+    },
+    /// Wander to and fro without settling into a beat: up to `amplitude`
+    /// degrees either side, about once every `period` seconds - three
+    /// incommensurate swings summed. A bobbing buoy, a hovering drone. Read
+    /// off the clock, as a swing is, so clients agree on it.
+    #[serde(rename = "network.symbios.spin.wobble")]
+    Wobble {
+        #[serde(default)]
+        amplitude: Fp,
+        #[serde(default = "default_swing_period")]
+        period: Fp,
+    },
+    /// Turn about the axis until `facing` - a direction in the part's own
+    /// frame - points downwind in the room's wind, hunting a few degrees as
+    /// it gusts: a weather vane, a windmill's head with its tail vane behind
+    /// it, a flag on its pole. In a still room it keeps its authored pose.
+    #[serde(rename = "network.symbios.spin.vane")]
+    Vane {
+        #[serde(default = "default_vane_facing")]
+        facing: Fp3,
+    },
 
     #[serde(other, skip_serializing)]
     Unknown,
@@ -133,11 +191,14 @@ pub enum SpinTerm {
 impl SpinTerm {
     /// The kind names the editor offers, in its order, each with a fresh
     /// term of that kind.
-    pub const KINDS: [&'static str; 4] = ["Constant", "Swing", "Roll", "Steer"];
+    pub const KINDS: [&'static str; 9] = [
+        "Constant", "Swing", "Roll", "Steer", "Speed", "Lean", "Wind", "Wobble", "Vane",
+    ];
 
     /// A fresh term of the kind [`Self::label`] names, at values that show
     /// it working: a slow turn, a gentle swing, a wheel of half a metre, a
-    /// steer that follows a vehicle's turning.
+    /// steer that follows a vehicle's turning, a propeller's idle, a hanging
+    /// lantern's lean, a hanging sign's sway, a buoy's wander, a vane's tail.
     pub fn fresh(kind: &str) -> Option<Self> {
         Some(match kind {
             "Constant" => Self::Constant { rate: Fp(30.0) },
@@ -153,6 +214,24 @@ impl SpinTerm {
                 gain: Fp(0.5),
                 limit: default_steer_limit(),
             },
+            "Speed" => Self::Speed {
+                idle: Fp(120.0),
+                gain: Fp(60.0),
+            },
+            "Lean" => Self::Lean {
+                gain: default_lean_gain(),
+                period: default_lean_period(),
+            },
+            "Wind" => Self::Wind {
+                amplitude: Fp(15.0),
+            },
+            "Wobble" => Self::Wobble {
+                amplitude: Fp(10.0),
+                period: Fp(3.0),
+            },
+            "Vane" => Self::Vane {
+                facing: default_vane_facing(),
+            },
             _ => return None,
         })
     }
@@ -164,6 +243,11 @@ impl SpinTerm {
             Self::Swing { .. } => "Swing",
             Self::Roll { .. } => "Roll",
             Self::Steer { .. } => "Steer",
+            Self::Speed { .. } => "Speed",
+            Self::Lean { .. } => "Lean",
+            Self::Wind { .. } => "Wind",
+            Self::Wobble { .. } => "Wobble",
+            Self::Vane { .. } => "Vane",
             Self::Unknown => "Unknown",
         }
     }
@@ -178,6 +262,11 @@ impl SpinTerm {
             } => amplitude.0 != 0.0 && period.0 > 0.0,
             Self::Roll { radius } => radius.0 > 0.0,
             Self::Steer { gain, limit } => gain.0 != 0.0 && limit.0 > 0.0,
+            Self::Speed { idle, gain } => idle.0 != 0.0 || gain.0 != 0.0,
+            Self::Lean { gain, period } => gain.0 != 0.0 && period.0 > 0.0,
+            Self::Wind { amplitude } => amplitude.0 != 0.0,
+            Self::Wobble { amplitude, period } => amplitude.0 != 0.0 && period.0 > 0.0,
+            Self::Vane { facing } => is_direction(*facing),
             Self::Unknown => false,
         }
     }
@@ -185,7 +274,16 @@ impl SpinTerm {
     /// Whether the term reads the part's motion rather than the clock: a
     /// part that only turns by the clock needs no motion sampled.
     pub fn follows_motion(&self) -> bool {
-        matches!(self, Self::Roll { .. } | Self::Steer { .. })
+        matches!(
+            self,
+            Self::Roll { .. } | Self::Steer { .. } | Self::Speed { .. } | Self::Lean { .. }
+        )
+    }
+
+    /// Whether the term reads the room's wind - and so, like a motion term,
+    /// the way its part stands in the world.
+    pub fn reads_wind(&self) -> bool {
+        matches!(self, Self::Wind { .. } | Self::Vane { .. })
     }
 }
 
@@ -199,6 +297,28 @@ fn default_roll_radius() -> Fp {
 
 fn default_steer_limit() -> Fp {
     Fp(30.0)
+}
+
+/// A real pendulum's lean: one over gravity, in degrees per m/s^2 - 5.84,
+/// written as the wire holds it, so a fresh term saves and reloads exactly.
+fn default_lean_gain() -> Fp {
+    Fp(5.84)
+}
+
+fn default_lean_period() -> Fp {
+    Fp(1.2)
+}
+
+fn default_vane_facing() -> Fp3 {
+    Fp3([0.0, 0.0, 1.0])
+}
+
+/// Whether `v` names a direction at all: finite and not zero. Lenient about
+/// length, as the runtime is when it normalises one - a direction written
+/// as `[0, 0, 1]` on the wire (a ten-thousandth long) still points along Z.
+fn is_direction(v: Fp3) -> bool {
+    let len_sq = v.0[0] * v.0[0] + v.0[1] * v.0[1] + v.0[2] * v.0[2];
+    len_sq.is_finite() && len_sq > 1e-12
 }
 
 /// Whether `v` is written as zero: the skip predicate for an optional
@@ -292,7 +412,7 @@ mod tests {
     #[test]
     fn a_term_from_a_newer_engine_decodes_turns_nothing_and_cannot_be_written() {
         let spin: Spin = serde_json::from_str(
-            r#"{"terms":[{"$type":"network.symbios.spin.wind","gust":5000},
+            r#"{"terms":[{"$type":"network.symbios.spin.follow","ratio":5000},
                          {"$type":"network.symbios.spin.constant","rate":100000}]}"#,
         )
         .expect("an open union tolerates a future term");

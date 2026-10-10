@@ -8,7 +8,7 @@ use std::f32::consts::{FRAC_PI_2, TAU};
 use crate::catalogue::items::coastal_resort::{POOL_AQUA, water};
 use crate::catalogue::items::util::{
     assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_x, quat_z, solid,
-    steady, swaying, torus, tube, turning,
+    steady, torus, tube, turning, vane,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -112,16 +112,24 @@ fn build_tree() -> Generator {
     }
     // A cap plate on the leg tops, and a gearbox head on it that the tail
     // boom runs through: the head used to hang 0.35 m over the legs (#1537).
+    // The head turns to face the wind (#1604), so the plate must clear the
+    // wheel at every heading: 2.16 m across, still over the legs' outer faces
+    // (1.06 m out), its corner (1.527 m from the axis) short of the rim
+    // disc's back face (1.54 m out); and sunk half its thickness onto the
+    // legs, its top (10.35 m) under the wheel's hub (10.36 m), which a
+    // diagonal heading swings out over the corner.
     let leg_top = 0.3 + tower_h;
     prims.push(prim(
-        solid(cuboid_tapered([2.2, 0.1, 2.2], 0.0, enamel(STEEL))),
-        [0.0, leg_top + 0.05, 0.0],
+        solid(cuboid_tapered([2.16, 0.1, 2.16], 0.0, enamel(STEEL))),
+        [0.0, leg_top, 0.0],
         id_quat(),
     ));
 
-    // Fan wheel at the top, facing the −Z front (the camera) so the multi-blade
-    // wheel reads head-on; the tail vane trails to the +Z back. A rotated
-    // cylinder/torus is fine here - these are non-first children, not the root.
+    // Fan wheel at the top, authored facing the −Z front (the camera) so the
+    // multi-blade wheel reads head-on in a calm and on a contact sheet; the
+    // tail vane trails to the +Z back. In a world the head turns the wheel
+    // into the wind (below). A rotated cylinder/torus is fine here - these
+    // are non-first children, not the root.
     let hub_y = 0.3 + tower_h + 0.4;
     let hub_z = -(half + 0.6);
     let blade_z = hub_z - 0.08; // blades stand proud on the front face
@@ -185,20 +193,21 @@ fn build_tree() -> Generator {
         [0.0, hub_y, hub_z + 1.45],
         id_quat(),
     );
-    let head_low = leg_top + 0.1 - 0.01;
+    let head_low = leg_top + 0.05 - 0.01;
     let head_high = hub_y + 0.05 + 0.06;
     // The vane stands 0.3 m up on the boom, so its foot clears the cap plate
     // it hung 15 cm through (#1537's review).
-    let mut vane = prim(
+    let mut tail = prim(
         solid(cuboid_tapered([0.06, 1.1, 1.5], 0.0, enamel(TRACTOR_GREEN))),
         [0.0, hub_y + 0.3, hub_z + 2.6],
         id_quat(),
     );
-    vane.audio = fx::windmill_creak();
-    // The head the boom runs through turns lazily on the tower's axis as the
-    // vane follows the breeze, carrying the wheel, the boom and the vane with
-    // it (#1604): the wheel's rim clears the leg faces by 0.2 m at either end
-    // of the sway.
+    tail.audio = fx::windmill_creak();
+    // The head the boom runs through turns on the tower's axis until the
+    // tail vane (+Z) points downwind and the wheel faces into the room's
+    // wind, hunting a little as it gusts (#1604). Every heading is clear:
+    // the rim disc's back face stays 1.54 m out, past the legs' outer
+    // corners (1.50 m) and the cap plate's (1.527 m).
     prims.push(turning(
         prim(
             solid(cuboid_tapered(
@@ -210,8 +219,8 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
         [0.0, 1.0, 0.0],
-        swaying(10.0, 14.0),
-        vec![wheel, boom, vane],
+        vane([0.0, 0.0, 1.0]),
+        vec![wheel, boom, tail],
     ));
 
     // Galvanised stock tank the pump fills - an open-topped ring of water

@@ -84,7 +84,7 @@ fn pod_ducted(ctx: &PartCtx) -> Generator {
             id_quat(),
         ));
     }
-    fan.spin = Some(airscrew_turn(360.0));
+    fan.spin = Some(airscrew_turn(240.0, 60.0));
     p.children.push(fan);
     p.children.push(pod_tail(-0.22, ring.clone()));
     pod_pylon(&mut p, &ring);
@@ -102,7 +102,8 @@ fn pod_screw(ctx: &PartCtx) -> Generator {
 
     let mut p = pod_nacelle(0.13, 0.5, 12, body.clone());
     // Brass screw at the front (Helix laid along Z via quat_x(90°)), turning
-    // about its own axis - the helix's local Y (#1604) - so its thread runs.
+    // about its own axis - the helix's local Y (#1604) - so its thread runs,
+    // idling and driving faster as the airship flies.
     let mut screw = prim(
         helix(0.11, 0.02, 0.11, 2.5, 16, brass.clone()),
         [0.0, 0.0, 0.18],
@@ -110,8 +111,9 @@ fn pod_screw(ctx: &PartCtx) -> Generator {
     );
     screw.spin = Some(crate::pds::Spin::about(
         [0.0, 1.0, 0.0],
-        crate::pds::SpinTerm::Constant {
-            rate: crate::pds::Fp(240.0),
+        crate::pds::SpinTerm::Speed {
+            idle: crate::pds::Fp(120.0),
+            gain: crate::pds::Fp(30.0),
         },
     ));
     p.children.push(screw);

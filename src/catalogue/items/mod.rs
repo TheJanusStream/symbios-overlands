@@ -840,6 +840,12 @@ mod tests {
                     .normalize()
                     .to_array()
                     .map(|c| c.round() as i32);
+                let world = |v: [f32; 3]| {
+                    (p.world.rotation * bevy::prelude::Vec3::from_array(v))
+                        .normalize()
+                        .to_array()
+                        .map(|c| c.round() as i32)
+                };
                 let terms: Vec<String> = spin
                     .terms
                     .iter()
@@ -848,6 +854,14 @@ mod tests {
                         SpinTerm::Swing {
                             amplitude, period, ..
                         } => format!("sway {}/{}s", amplitude.0, period.0),
+                        SpinTerm::Wobble { amplitude, period } => {
+                            format!("wobble {}/{}s", amplitude.0, period.0)
+                        }
+                        SpinTerm::Wind { amplitude } => format!("wind {}", amplitude.0),
+                        SpinTerm::Lean { gain, period } => {
+                            format!("lean {}/{}s", gain.0, period.0)
+                        }
+                        SpinTerm::Vane { facing } => format!("vane {:?}", world(facing.0)),
                         other => other.label().to_string(),
                     })
                     .collect();
@@ -856,6 +870,7 @@ mod tests {
         }
         got.sort();
         let want = [
+            "banner_pole [0, 1, 0] vane [0, 0, 1]",
             "cog_tower [0, 0, -1] steady -20",
             "cog_tower [0, 0, -1] steady -28",
             "cog_tower [0, 0, -1] steady 10",
@@ -863,16 +878,20 @@ mod tests {
             "drone_perch [0, 1, 0] steady -900",
             "drone_perch [0, 1, 0] steady 900",
             "drone_perch [0, 1, 0] steady 900",
-            "drone_perch [0, 1, 0] sway 8/7s",
+            "drone_perch [0, 1, 0] wobble 8/7s",
+            "flagpole [0, 1, 0] vane [1, 0, 0]",
             "foundry [0, 0, -1] steady -21",
             "foundry [0, 0, -1] steady 10",
+            "harbour_tavern [1, 0, 0] wind 12",
+            "ships_lantern [1, 0, 0] lean 2.5/0.8s",
             "steampunk_gateway [0, 0, -1] steady -25",
             "steampunk_gateway [0, 0, -1] steady -25",
             "steampunk_gateway [0, 0, -1] steady 12",
             "wind_pump [0, 0, 1] steady -55",
+            "wind_turbine [0, 1, 0] vane [-1, 0, 0]",
             "wind_turbine [1, 0, 0] steady -60",
             "windmill [0, 0, 1] steady -40",
-            "windmill [0, 1, 0] sway 10/14s",
+            "windmill [0, 1, 0] vane [0, 0, 1]",
         ];
         assert_eq!(got, want);
     }

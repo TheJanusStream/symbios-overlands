@@ -107,7 +107,17 @@ pub(in crate::catalogue::items) fn assert_nothing_floats_but(
 /// Defects found in one item, each fixed by that item's overhaul: (slug,
 /// where it was found, what is wrong and the fix that was tried). Delete a
 /// row when its fix lands; the item's guards should then hold it.
-pub(in crate::catalogue::items) const KNOWN_DEFECTS: &[(&str, &str, &str)] = &[];
+pub(in crate::catalogue::items) const KNOWN_DEFECTS: &[(&str, &str, &str)] = &[(
+    "saloon",
+    "found by #1607's review (2026-10-10), giving its corner sign a wind sway",
+    "The hanging corner sign (board 0.12 x 0.9 x 1.4 m at x -3.6, y slab_h + 4.3, z \
+     front_z - 1.0) hangs into the upstairs gallery: the balustrade's top rail (y 4.29-4.41, \
+     z front_z - 1.36 to - 1.24, the full width) passes through the board's lower part at \
+     rest, and the end baluster (x -3.8) stands 11 cm off its face - inside any swing. So the \
+     sign was left without the wind sway the harbour tavern's has. Fix: hang the board clear \
+     of the gallery - forward of front_z - 1.4 and above the rail, or at another corner - \
+     then give it a pin and `windblown`, as harbour_tavern does.",
+)];
 
 /// The grammar entries a visitor walks through above the footing, because
 /// their Shape nodes list no `solid_meshes` (#1572, folded into #972; #1506

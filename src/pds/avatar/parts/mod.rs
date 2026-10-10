@@ -367,6 +367,47 @@ mod tests {
         }
     }
 
+    /// #1604: each festival lantern swings on its own pin on the line - a
+    /// lean and a wind sway about the line's X - and hangs exactly where it
+    /// was drawn before it could: at `(x, dip)` under the line, its x one of
+    /// the five stations, its dip the swag's.
+    #[test]
+    fn every_festival_lantern_swings_on_its_own_pin_where_it_hung() {
+        use crate::pds::generator::GeneratorKind;
+        use bevy::prelude::{Transform, Vec3};
+        let part = entries()
+            .find(|p| p.slug() == "airship_orn_lanterns")
+            .expect("the lantern string is a part");
+        let seed = (0u64..400)
+            .find(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Airship)
+            .expect("an airship seed");
+        let root = part.build(&PartCtx::for_seed(seed));
+        let mut lanterns = Vec::new();
+        let mut pins = 0;
+        for pin in &root.children {
+            let Some(spin) = &pin.spin else { continue };
+            pins += 1;
+            assert_eq!(spin.axis.0, [1.0, 0.0, 0.0], "about the line");
+            let kinds: Vec<&str> = spin.terms.iter().map(|t| t.label()).collect();
+            assert_eq!(kinds, ["Lean", "Wind"]);
+            let at = Transform::from(&pin.transform);
+            for part in &pin.children {
+                if matches!(part.kind, GeneratorKind::Sphere { .. }) {
+                    lanterns
+                        .push(at.transform_point(Vec3::from_array(part.transform.translation.0)));
+                }
+            }
+        }
+        assert_eq!(pins, 5, "one pin a lantern");
+        for (got, x) in lanterns.iter().zip([-0.3f32, -0.15, 0.0, 0.15, 0.3]) {
+            let dip = -0.08 - 0.05 * (1.0 - x.abs() / 0.3);
+            assert!(
+                got.distance(Vec3::new(x, dip, 0.0)) < 1e-6,
+                "{got} vs ({x}, {dip})"
+            );
+        }
+    }
+
     #[test]
     fn slugs_are_unique() {
         let all: Vec<&'static dyn BodyPart> = entries().collect();

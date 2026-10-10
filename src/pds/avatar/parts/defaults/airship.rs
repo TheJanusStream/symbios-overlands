@@ -768,13 +768,15 @@ pub(crate) fn pod_nacelle(
     core
 }
 
-/// An airscrew's steady turn about the pod's travel axis, `deg_per_s` degrees
-/// a second (#1604) - for a hub that stands unturned on the pod's axis.
-pub(crate) fn airscrew_turn(deg_per_s: f32) -> crate::pds::Spin {
+/// An airscrew's turn about the pod's travel axis (#1604): `idle` degrees a
+/// second hanging still, and `per_metre` more for each metre a second the
+/// airship flies forward - for a hub that stands unturned on the pod's axis.
+pub(crate) fn airscrew_turn(idle: f32, per_metre: f32) -> crate::pds::Spin {
     crate::pds::Spin::about(
         [0.0, 0.0, 1.0],
-        crate::pds::SpinTerm::Constant {
-            rate: Fp(deg_per_s),
+        crate::pds::SpinTerm::Speed {
+            idle: Fp(idle),
+            gain: Fp(per_metre),
         },
     )
 }
@@ -820,7 +822,7 @@ pub(super) fn pod(ctx: &PartCtx) -> Generator {
             id_quat(),
         ));
     }
-    screw.spin = Some(airscrew_turn(540.0));
+    screw.spin = Some(airscrew_turn(300.0, 90.0));
     p.children.push(screw);
     // Prop-guard ring around the airscrew (torus in the plane ⟂ Z).
     p.children.push(prim(

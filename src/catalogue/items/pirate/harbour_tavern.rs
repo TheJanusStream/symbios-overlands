@@ -32,7 +32,7 @@ use std::f32::consts::FRAC_PI_2;
 use crate::catalogue::items::util::{
     BALUSTER_PITCH, attach, bonded_boards, bonded_siding, cuboid_tapered, cuboid_tapered_xz,
     cylinder_tapered, face_uv_offset, footing, glow, id_quat, lit_interior, nest, plane, prim,
-    quat_x, quat_y, quat_z, railing, solid, torus, tube, with_face,
+    quat_x, quat_y, quat_z, railing, solid, torus, tube, turning, windblown, with_face,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -687,7 +687,7 @@ fn head() -> Vec<Generator> {
         id_quat(),
     ));
     let sign_c = [bx, by - 1.0, FRONT_Z - arm + 0.1];
-    out.push(prim(
+    let mut sign = vec![prim(
         solid(cuboid_tapered(
             [1.3, 0.95, 0.09],
             0.0,
@@ -695,7 +695,7 @@ fn head() -> Vec<Generator> {
         )),
         sign_c,
         id_quat(),
-    ));
+    )];
     // Painted face, deep-saturated at low strength: a broad pale lit panel
     // blooms to a white blank (the standing gotcha).
     // Painted face - small and deep-saturated, so it holds its hue where a
@@ -706,7 +706,7 @@ fn head() -> Vec<Generator> {
     // the lit face stood edge-on to the street and stuck through the board
     // sideways, which read in-world as the sign's device rotated 90° off
     // (#1028). The board is thin in Z; anything mounted on it must be too.
-    out.push(prim(
+    sign.push(prim(
         cuboid_tapered([1.05, 0.72, 0.05], 0.0, glow(SIGN_AMBER, 1.6)),
         [bx, by - 1.0, FRONT_Z - arm + 0.1 - 0.075],
         id_quat(),
@@ -716,11 +716,27 @@ fn head() -> Vec<Generator> {
     // its axis on +Y, so facing the street (−Z) is a quarter-turn about X -
     // the `quat_z` the first build used stood the ring edge-on beside the
     // board, the same 90° family of error as the face above.
-    out.push(prim(
-        torus(0.03, 0.52, glow(GOLD_LEAF, 0.45)),
+    // Its radius keeps the ring's crown 2 cm under the hanger's foot, so the
+    // ring cannot swing into the iron as the sign swings (#1604); it still
+    // shows above and below the painted face, as it did at 0.52.
+    sign.push(prim(
+        torus(0.03, 0.45, glow(GOLD_LEAF, 0.45)),
         [bx, by - 1.0, FRONT_Z - arm + 0.1 - 0.06],
         quat_x(FRAC_PI_2),
     ));
+    // The board swings on its hooks in the room's wind (#1604), about a
+    // hidden pin inside the hanger's foot - its top edge runs along X, so
+    // a wind up or down the lane swings its foot downwind.
+    let pin = prim(
+        solid(cuboid_tapered(
+            [0.03, 0.03, 0.03],
+            0.0,
+            iron(IRON_BLACK, 0x79),
+        )),
+        [bx, by - 0.47, FRONT_Z - arm + 0.1],
+        id_quat(),
+    );
+    out.push(turning(pin, [1.0, 0.0, 0.0], windblown(12.0), sign));
     out.push(lantern([bx, by - 0.2, FRONT_Z - arm + 0.1], 0.46, 0x7A));
     out
 }

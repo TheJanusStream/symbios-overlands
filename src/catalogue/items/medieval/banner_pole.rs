@@ -5,7 +5,8 @@
 //! freestanding standard, distinct from the wall-hung civic banner.
 
 use crate::catalogue::items::util::{
-    assemble, cone, cuboid_tapered, cylinder_tapered, id_quat, prim, solid, torus, wedge,
+    assemble, cone, cuboid_tapered, cylinder_tapered, id_quat, prim, solid, torus, turning, vane,
+    wedge,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -90,18 +91,26 @@ fn build_tree() -> Generator {
 
     // Iron spear finial at the top.
     let top = pole_base + pole_h;
-    prims.push(prim(
+    let finial = prim(
         solid(cone(0.12, 0.5, 8, iron(IRON_DARK))),
         [0.0, top + 0.2, 0.0],
         id_quat(),
-    ));
+    );
     // A triangular pennon streaming downwind from the finial: the tall hoist
     // edge is at the pole, tapering to a point at the fly (+Z). A wedge gives
-    // the real flag taper a tapered box can't.
-    prims.push(prim(
+    // the real flag taper a tapered box can't. It does stream downwind: the
+    // finial, standing on the pole's axis, turns it until the fly points down
+    // the room's wind (#1604), clear of the crossbar below at every heading.
+    let pennon = prim(
         wedge([0.05, 0.5, 1.5], cloth(HERALD_RED, CLOTH_CREAM)),
         [0.0, top - 0.35, 0.75],
         id_quat(),
+    );
+    prims.push(turning(
+        finial,
+        [0.0, 1.0, 0.0],
+        vane([0.0, 0.0, 1.0]),
+        vec![pennon],
     ));
 
     // Crossbar carrying the gonfalon, near the top.

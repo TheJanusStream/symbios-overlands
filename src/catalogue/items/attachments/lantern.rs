@@ -238,7 +238,29 @@ fn build_tree() -> Generator {
     }
     .at([0.0, -0.08, 0.0], EMBER_SEED);
 
-    let mut root = nest(collar, vec![ring, cage, embers]);
+    // Carried, it swings (#1604): the cage and its embers lean on a hidden pin
+    // inside the collar - the grip - against the hand's every start and stop,
+    // and swing back. Gentler than a free pendulum's 5.84 per m/s^2, since a
+    // walking hand's swing alone reaches some 8 m/s^2, and quicker, as a
+    // short hanger swings. A pin rather than the collar, so the collar and
+    // ring the hand holds stay put and, placed in a world, the root keeps
+    // its collider: a part that turns, and all below it, has none.
+    let mut pin = nest(
+        prim(
+            cuboid_tapered([0.012, 0.012, 0.012], 0.0, brass()),
+            [0.0, 0.0, 0.0],
+            id_quat(),
+        ),
+        vec![cage, embers],
+    );
+    pin.spin = Some(crate::pds::Spin::about(
+        [1.0, 0.0, 0.0],
+        crate::pds::SpinTerm::Lean {
+            gain: Fp(2.5),
+            period: Fp(0.8),
+        },
+    ));
+    let mut root = nest(collar, vec![ring, pin]);
     root.audio = lantern_creak();
     root
 }

@@ -385,3 +385,15 @@ pub const MAX_ROLL_RADIUS_M: f32 = 50.0;
 pub const MAX_STEER_GAIN: f32 = 10.0;
 /// Widest a steer term may turn its part either side (degrees).
 pub const MAX_STEER_LIMIT_DEG: f32 = 90.0;
+/// Bound on a speed term's gain either way (degrees per metre travelled):
+/// two turns a metre. The runtime caps the summed rate at
+/// [`MAX_SPIN_RATE_DEG`] whatever the gain.
+pub const MAX_SPEED_GAIN_DEG_PER_M: f32 = 720.0;
+/// Bound on a lean term's gain either way (degrees per m/s^2): five times a
+/// real pendulum's.
+pub const MAX_LEAN_GAIN: f32 = 30.0;
+/// Slowest a lean term's spring may swing (seconds per swing). Its quickest
+/// is a swing's, [`MIN_SWING_PERIOD_S`].
+pub const MAX_LEAN_PERIOD_S: f32 = 10.0;
+/// Widest a wind term may sway a part either way (degrees).
+pub const MAX_WIND_AMPLITUDE_DEG: f32 = 90.0;

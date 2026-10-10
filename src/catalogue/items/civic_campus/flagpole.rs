@@ -4,6 +4,7 @@
 
 use crate::catalogue::items::util::{
     assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_y, solid, sphere, torus,
+    turning, vane,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -70,11 +71,11 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
     // Gilt truck ball.
-    prims.push(prim(
+    let truck = prim(
         solid(sphere(0.14, 3, painted([0.80, 0.66, 0.24]))),
         [0.0, 6.4, 0.0],
         id_quat(),
-    ));
+    );
     // Halyard rope running the pole, with a tie-off cleat near the foot.
     prims.push(prim(
         solid(cylinder_tapered(
@@ -94,15 +95,20 @@ fn build_tree() -> Generator {
     ));
     // A flag flying from the upper pole - five panels rippling on the breeze,
     // each cranked a touch in yaw and stepped in Z so the cloth waves.
-    for i in 0..5 {
-        let zo = if i % 2 == 0 { 0.07 } else { -0.07 };
-        let yaw = if i % 2 == 0 { 0.18 } else { -0.18 };
-        prims.push(prim(
-            cuboid_tapered([0.42, 1.0, 0.03], 0.0, painted(FLAG_RED)),
-            [0.27 + i as f32 * 0.38, 5.5, zo],
-            quat_y(yaw),
-        ));
-    }
+    let flag = (0..5)
+        .map(|i| {
+            let zo = if i % 2 == 0 { 0.07 } else { -0.07 };
+            let yaw = if i % 2 == 0 { 0.18 } else { -0.18 };
+            prim(
+                cuboid_tapered([0.42, 1.0, 0.03], 0.0, painted(FLAG_RED)),
+                [0.27 + i as f32 * 0.38, 5.5, zo],
+                quat_y(yaw),
+            )
+        })
+        .collect();
+    // The flag flies downwind: the truck ball, on the pole's axis, turns it
+    // until its fly (+X) points down the room's wind (#1604).
+    prims.push(turning(truck, [0.0, 1.0, 0.0], vane([1.0, 0.0, 0.0]), flag));
 
     assemble(prims)
 }

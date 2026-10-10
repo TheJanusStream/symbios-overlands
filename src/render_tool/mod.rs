@@ -1305,6 +1305,17 @@ pub fn run() {
     .add_plugins(ScheduleRunnerPlugin::run_loop(Duration::ZERO));
     // Resources + texture/material plugins the real spawn path reads.
     crate::world_builder::register_headless_spawn(&mut app);
+    // A sheet stands in no world, so in no world's wind: in a calm, every
+    // part that turns to face the wind or sways in it (#1604) shows as
+    // authored - the windmill's wheel to the hero camera, a flag where its
+    // maker hung it - and foliage holds still. A `--world` takes its room's
+    // own wind from the record, as the game does.
+    if !is_world {
+        app.insert_resource(crate::wind::VegetationWind {
+            dir: Vec2::ZERO,
+            speed: 0.0,
+        });
+    }
     // `--terrain` (#994) drives the game's own terrain pipeline; everything it
     // needs beyond the spawn path lives here so the other modes pay nothing.
     if let Subject::Terrain { record, .. } = &subject {

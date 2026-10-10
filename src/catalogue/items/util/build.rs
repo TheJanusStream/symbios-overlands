@@ -193,16 +193,34 @@ pub(in crate::catalogue::items) fn steady(deg_per_s: f32) -> crate::pds::SpinTer
     }
 }
 
-/// A swing to and fro, `amplitude_deg` either side, one full swing every
-/// `period_s` seconds - [`turning`]'s term for a part that sways.
-pub(in crate::catalogue::items) fn swaying(
+/// A wander to and fro without a beat, up to `amplitude_deg` either side,
+/// about once every `period_s` seconds - [`turning`]'s term for a part that
+/// hovers or bobs.
+pub(in crate::catalogue::items) fn wobbling(
     amplitude_deg: f32,
     period_s: f32,
 ) -> crate::pds::SpinTerm {
-    crate::pds::SpinTerm::Swing {
+    crate::pds::SpinTerm::Wobble {
         amplitude: Fp(amplitude_deg),
         period: Fp(period_s),
-        phase: Fp::ZERO,
+    }
+}
+
+/// A sway in the room's wind, up to `amplitude_deg` when it crosses the
+/// axis squarely - [`turning`]'s term for a part that HANGS from its axis
+/// (a sign, a banner): its bottom swings downwind.
+pub(in crate::catalogue::items) fn windblown(amplitude_deg: f32) -> crate::pds::SpinTerm {
+    crate::pds::SpinTerm::Wind {
+        amplitude: Fp(amplitude_deg),
+    }
+}
+
+/// A turn that points `facing` - a direction in the hub's frame - downwind
+/// in the room's wind: [`turning`]'s term for a vane, a flag, a windmill's
+/// head.
+pub(in crate::catalogue::items) fn vane(facing: [f32; 3]) -> crate::pds::SpinTerm {
+    crate::pds::SpinTerm::Vane {
+        facing: Fp3(facing),
     }
 }
 

@@ -3,13 +3,14 @@
 //!
 //! The rotor turns in the Y-Z plane (nacelle axis along X), so its three
 //! blades radiate from the hub at 120° via [`quat_x`] alone - no Z-axis
-//! rotation needed - and every client turns it on its hub cap (#1604).
+//! rotation needed - and every client turns it on its hub cap, the nacelle
+//! yawing to face it into the room's wind (#1604).
 
 use std::f32::consts::{FRAC_PI_2, TAU};
 
 use crate::catalogue::items::util::{
     assemble, cone, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_x, quat_z,
-    solid, sphere, steady, turning,
+    solid, sphere, steady, turning, vane,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -83,11 +84,11 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
     // Nacelle, axis along X.
-    prims.push(prim(
+    let nacelle = prim(
         solid(cuboid_tapered([1.8, 0.9, 0.9], 0.1, steel(STEEL_WHITE))),
         [0.0, hub_y, 0.0],
         id_quat(),
-    ));
+    );
     // Hub at the front of the nacelle.
     let hub = [1.0_f32, hub_y, 0.0];
     let mut hub_cap = prim(solid(sphere(0.4, 4, steel(STEEL_GREY))), hub, id_quat());
@@ -117,8 +118,17 @@ fn build_tree() -> Generator {
         ));
     }
     // The rotor turns on its hub cap (#1604): clockwise as the wind sees it,
-    // ten turns a minute - a big rotor's unhurried pace.
-    prims.push(turning(hub_cap, [1.0, 0.0, 0.0], steady(-60.0), rotor));
+    // ten turns a minute - a big rotor's unhurried pace. The nacelle carrying
+    // it yaws on the tower until its back (-X) points downwind and the rotor
+    // faces into the room's wind; the blades' disc stays 1 m out from the
+    // tower's axis at every heading, clear of the tower.
+    let rotor = turning(hub_cap, [1.0, 0.0, 0.0], steady(-60.0), rotor);
+    prims.push(turning(
+        nacelle,
+        [0.0, 1.0, 0.0],
+        vane([-1.0, 0.0, 0.0]),
+        vec![rotor],
+    ));
 
     assemble(prims)
 }

@@ -19,7 +19,7 @@ pub(super) use build::{
     blob_group, carved, cone, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing,
     footing_disc, foundation_block, foundation_disc, helix, id_quat, nest, pfp_panel, plane, prim,
     prim_scaled, quat_mul, quat_x, quat_y, quat_z, railing, solid, sphere, steady, strut,
-    superellipsoid, swaying, torus, tube, turning, wedge, with_cut, with_face,
+    superellipsoid, torus, tube, turning, vane, wedge, windblown, with_cut, with_face, wobbling,
 };
 #[cfg(test)]
 pub(super) use checks::{

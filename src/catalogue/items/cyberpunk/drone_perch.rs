@@ -4,7 +4,7 @@
 
 use crate::catalogue::items::util::{
     cuboid_tapered, cylinder_tapered, foundation_block, glow, id_quat, prim, solid, sphere, steady,
-    swaying, torus, turning,
+    torus, turning, wobbling,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -162,8 +162,8 @@ fn build_tree() -> Generator {
     // Whirring rotors are the drone's signature sound.
     nav.audio = fx::drone_whir();
     drone.push(nav);
-    // The body carries the whole drone, holding station with a slow yaw to
-    // and fro as it hovers (#1604).
+    // The body carries the whole drone, holding station with a wandering
+    // yaw as it hovers, never quite still and never in a beat (#1604).
     root.children.push(turning(
         prim(
             solid(cuboid_tapered([0.46, 0.18, 0.46], 0.0, metal(body))),
@@ -171,7 +171,7 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
         [0.0, 1.0, 0.0],
-        swaying(8.0, 7.0),
+        wobbling(8.0, 7.0),
         drone,
     ));
 
