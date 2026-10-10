@@ -211,7 +211,8 @@ mod tests {
     #[test]
     fn a_sanitised_spin_is_unchanged_by_a_second_pass_and_by_the_wire() {
         let once = sanitized(Spin {
-            axis: Fp3([0.577_35, -0.577_35, 0.577_35]),
+            // A unit direction off every axis, exact on the wire.
+            axis: Fp3([0.6, -0.48, 0.64]),
             terms: SpinTerm::KINDS
                 .iter()
                 .map(|kind| SpinTerm::fresh(kind).expect("offered"))

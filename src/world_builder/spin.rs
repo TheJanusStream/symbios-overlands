@@ -289,14 +289,16 @@ impl Turn {
 
 /// Three incommensurate swings summed, scaled to stay within one either way
 /// (their amplitudes sum to 1.95): a wander that never settles into a beat.
-/// `cycles` counts the slowest swing's cycles - some 6e8 by the wall clock,
-/// which f64 still holds to a ten-millionth of a cycle, so it is never
-/// reduced and the wander never jumps.
+/// The two faster swings run at the golden and the silver ratio of the
+/// slowest, numbers no fraction approximates well, so the three never line
+/// up again. `cycles` counts the slowest swing's cycles - some 6e8 by the
+/// wall clock, which f64 still holds to a ten-millionth of a cycle, so it is
+/// never reduced and the wander never jumps.
 fn wobble(cycles: f64) -> f32 {
-    use std::f64::consts::TAU as TAU64;
+    use std::f64::consts::{GOLDEN_RATIO, SQRT_2, TAU as TAU64};
     let w = (TAU64 * cycles).sin()
-        + 0.6 * (TAU64 * 1.618_034 * cycles + 1.3).sin()
-        + 0.35 * (TAU64 * 2.414_214 * cycles + 4.1).sin();
+        + 0.6 * (TAU64 * GOLDEN_RATIO * cycles + 1.3).sin()
+        + 0.35 * (TAU64 * (1.0 + SQRT_2) * cycles + 4.1).sin();
     (w / 1.95) as f32
 }
 
