@@ -303,7 +303,7 @@ impl VoxelGrid {
                 }
             };
             let k = u16::try_from(k + 1).ok()?;
-            for triangle in indices.chunks_exact(3) {
+            for triangle in indices.as_chunks::<3>().0 {
                 let [a, b, c] =
                     [0, 1, 2].map(|i| Vec3::from_array(positions[triangle[i] as usize]));
                 let longest = (b - a).length().max((c - a).length()).max((c - b).length());
@@ -866,7 +866,7 @@ mod tests {
             panic!("normals");
         };
         let indices: Vec<usize> = far.indices().unwrap().iter().collect();
-        for t in indices.chunks_exact(3) {
+        for t in indices.as_chunks::<3>().0 {
             let [a, b, c] = [points[t[0]], points[t[1]], points[t[2]]];
             assert!((b - a).cross(c - a).dot(Vec3::from_array(normals[t[0]])) > 0.0);
         }

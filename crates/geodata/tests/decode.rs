@@ -37,8 +37,10 @@ fn truth_heights() -> Vec<f32> {
         (256, 256, png::BitDepth::Sixteen)
     );
     buffer
-        .chunks_exact(2)
-        .map(|be| f32::from(u16::from_be_bytes([be[0], be[1]])) / 100.0)
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&be| f32::from(u16::from_be_bytes(be)) / 100.0)
         .collect()
 }
 
@@ -232,7 +234,14 @@ fn terrain_decodes_within_a_quarter_metre_of_the_raw_model() {
 
     // Row 0 is north: against the truth flipped north-south the decode is
     // metres out, so a flip in either would show.
-    let flipped: Vec<f32> = truth.chunks_exact(256).rev().flatten().copied().collect();
+    let flipped: Vec<f32> = truth
+        .as_chunks::<256>()
+        .0
+        .iter()
+        .rev()
+        .flatten()
+        .copied()
+        .collect();
     assert!(error(&grid.heights, &flipped).1 > 1.0);
 
     // The smoothing removes the one-metre terraces: where the ground is

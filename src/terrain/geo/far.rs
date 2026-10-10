@@ -927,7 +927,7 @@ impl FarMesh {
 
     fn into_mesh(self, core: &HeightMap) -> Mesh {
         let mut normals = vec![Vec3::ZERO; self.positions.len()];
-        for tri in self.indices.chunks_exact(3) {
+        for tri in self.indices.as_chunks::<3>().0 {
             let [p0, p1, p2] = [0, 1, 2].map(|k| Vec3::from(self.positions[tri[k] as usize]));
             let face = (p1 - p0).cross(p2 - p0);
             for &i in tri {
@@ -1090,7 +1090,9 @@ mod tests {
     fn triangles(mesh: &Mesh) -> Vec<[usize; 3]> {
         match mesh.indices() {
             Some(Indices::U32(i)) => i
-                .chunks_exact(3)
+                .as_chunks::<3>()
+                .0
+                .iter()
                 .map(|t| [t[0] as usize, t[1] as usize, t[2] as usize])
                 .collect(),
             other => panic!("indices: {other:?}"),

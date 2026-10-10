@@ -113,11 +113,12 @@ jobs:
         # exactly that happened.
         #
         # The budgets are soft ceilings a few percent above the sizes
-        # measured on 2026-08-29, not targets: they exist so a dependency
-        # bump or a feature-flag change that adds megabytes fails the deploy
-        # instead of landing unremarked, which is how the app reached 57.9 MB
-        # raw without anyone noticing. Raising one is fine - raising it in
-        # the same commit as the change that needed it is the point.
+        # measured when each was last set (see its line), not targets: they
+        # exist so a dependency bump or a feature-flag change that adds
+        # megabytes fails the deploy instead of landing unremarked, which is
+        # how the app reached 57.9 MB raw without anyone noticing. Raising
+        # one is fine - raising it in the same commit as the change that
+        # needed it is the point.
         run: |
           set -euo pipefail
           fail=0
@@ -143,13 +144,23 @@ jobs:
             fi
           }
           # app:        57.9 MB raw / 15.95 MB gzip on 2026-08-29
-          check ./dist/symbios-overlands_bg.wasm 65000000 18000000
+          #             64,918,671 B raw / 18,207,498 B gzip on 2026-10-10,
+          # measured locally with this file's own build and wasm-bindgen:
+          # the Berlin regions (#1580-#1599, 64,497,004 / 18,112,490 B
+          # before #1600) and their 48 detached houses and halls (#1600,
+          # +421,667 / +95,008 B, about 70 % of the gzip their grammars'
+          # text) took it past 18,000,000 gzip. Raised to about 5 % above.
+          # The Bevy feature trim (#1576) measured -12 % gzip, should the
+          # room be wanted back.
+          check ./dist/symbios-overlands_bg.wasm 68000000 19000000
           # gen-worker:  3.25 MB raw /  0.68 MB gzip on 2026-08-29
           #              3.57 MB raw /  0.80 MB gzip on 2026-09-22, after the
           # outfit textures (#1403). Measured locally, that commit added
           # 355 KB raw / 99 KB gzip, about three quarters of it serde code
           # for the 35 texture configs' wire format, which crosses the worker
           # boundary inside the avatar record (#1406).
+          #              3,916,966 B raw / 870,443 B gzip on 2026-10-10
+          # (98 % / 97 % of the budget, left as it was: nothing needed it).
           check ./dist/gen-worker_bg.wasm 4000000 900000
           exit $fail
 
