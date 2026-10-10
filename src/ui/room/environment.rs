@@ -17,7 +17,7 @@
 use bevy::prelude::*;
 use bevy_egui::egui;
 use geodata::GeoSquare;
-use geodata::berlin::{Coverage, Keep};
+use geodata::berlin::Coverage;
 use geodata::square::{SIZE_MAX_M, SIZE_MIN_M, SIZE_STEP_M};
 
 use crate::pds::geo_source::BERLIN;
@@ -437,7 +437,9 @@ fn draw_arrival_point(
 }
 
 /// The body of the Region source section: build this region from a square
-/// of real Berlin, at real scale, or from its seed as before.
+/// of real Berlin, at real scale, or from its seed as before. The square is
+/// set by its side and by its middle's latitude and longitude (#1599),
+/// which anyone can read off a web map.
 ///
 /// Every square it writes lies wholly inside Berlin: a drawn one by
 /// construction, an edited one moved by [`Coverage::nearest`] to the
@@ -460,12 +462,11 @@ fn draw_region_source(
     // A dataset a newer version wrote: shown, kept, and never edited here.
     if let Some(other) = source.as_ref().filter(|s| s.dataset != BERLIN) {
         ui.label(format!(
-            "Built from the \"{}\" dataset, which this version cannot draw: \
-             visitors on it see the world drawn from its seed.",
+            "Dataset \"{}\" needs a newer version.",
             other.dataset
         ));
         if ui
-            .button("Use the world drawn from its seed")
+            .button("Build from the seed instead")
             .on_hover_text("Forget the other dataset's square.")
             .clicked()
         {
@@ -478,13 +479,7 @@ fn draw_region_source(
     let mut berlin = source.is_some();
     if ui
         .checkbox(&mut berlin, "Build from real Berlin")
-        .on_hover_text(
-            "Build the region's ground from a square of real Berlin, at real \
-             scale and real altitude: the city's own terrain, land use and \
-             water, centred on this square, under everything else in the \
-             world. Off: the ground is drawn from the world's terrain \
-             settings.",
-        )
+        .on_hover_text("Terrain, land use and water from a square of Berlin, at real scale.")
         .changed()
     {
         *source = berlin.then(|| GeoSource::berlin(drawn_square(fresh_seed())));
@@ -499,25 +494,17 @@ fn draw_region_source(
     let borough = Coverage::berlin()
         .borough_at(centre_e, centre_n)
         .map_or("Berlin", |b| b.name());
-    ui.label(format!(
-        "A {} square in {borough}",
-        side_text(square.size_m)
-    ));
-    ui.label(
-        egui::RichText::new(format!(
+    ui.label(format!("{} square in {borough}", side_text(square.size_m)))
+        .on_hover_text(format!(
             "E {} to {}, N {} to {} (ETRS89 / UTM 33N)",
             square.min_e,
             square.max_e(),
             square.min_n,
             square.max_n()
-        ))
-        .small()
-        .color(weak),
-    );
-
+        ));
     if ui
         .button("Draw another square")
-        .on_hover_text("A new square of a new size, anywhere it fits wholly inside Berlin.")
+        .on_hover_text("A random size, anywhere inside Berlin.")
         .clicked()
     {
         *current = current.moved_to(drawn_square(fresh_seed()));
@@ -525,99 +512,58 @@ fn draw_region_source(
     }
 
     // Typed values apply when typing ends (Enter, or leaving the field):
-    // applied per keystroke, the first digit of a new easting is far off
+    // applied per keystroke, the first digit of a new latitude is far off
     // the map, and every keystroke after it would start from where that one
     // was put. Dragging still applies as it goes.
-    let mut side = square.size_m;
-    ui.horizontal(|ui| {
-        ui.label("Side");
-        if ui
-            .add(
-                crate::ui::num::drag(&mut side)
-                    .range(SIZE_MIN_M..=SIZE_MAX_M)
-                    .speed(f64::from(SIZE_STEP_M))
-                    .suffix(" m")
-                    .update_while_editing(false),
-            )
-            .on_hover_text(
-                "The region's extent, in steps of 10 m. It keeps its centre where the new \
-                 size fits.",
-            )
-            .changed()
-            && let Some(resized) = resized_keeping_centre(square, side)
-            && resized != square
-        {
-            *current = current.moved_to(resized);
-            *dirty = true;
+    let memory = ui.make_persistent_id("region-middle");
+    let asked = ui.data(|d| d.get_temp::<AskedMiddle>(memory));
+    let (lat, lon) = middle_shown(square, asked);
+    let (mut side, mut new_lat, mut new_lon) = (square.size_m, lat, lon);
+    let (mut resized, mut lat_edited, mut lon_edited) = (false, false, false);
+    egui::Grid::new("region-square")
+        .num_columns(2)
+        .show(ui, |ui| {
+            ui.label("Side");
+            resized = ui
+                .add(
+                    crate::ui::num::drag(&mut side)
+                        .range(SIZE_MIN_M..=SIZE_MAX_M)
+                        .speed(f64::from(SIZE_STEP_M))
+                        .suffix(" m")
+                        .update_while_editing(false),
+                )
+                .on_hover_text("Steps of 10 m; the middle stays.")
+                .changed();
+            ui.end_row();
+            lat_edited = degrees_field(ui, "Latitude", &mut new_lat, lat, "\u{b0} N");
+            lon_edited = degrees_field(ui, "Longitude", &mut new_lon, lon, "\u{b0} E");
+        });
+    let edited = if resized {
+        resized_keeping_centre(square, side)
+    } else if lat_edited || lon_edited {
+        let moved = moved_middle(square, (new_lat, new_lon), lat_edited);
+        if let Some((_, asked)) = moved {
+            ui.data_mut(|d| d.insert_temp(memory, asked));
         }
-    });
+        moved.map(|(square, _)| square)
+    } else {
+        None
+    };
+    if let Some(edited) = edited.filter(|m| *m != square) {
+        *current = current.moved_to(edited);
+        *dirty = true;
+    }
 
-    let (mut west, mut south) = (square.min_e, square.min_n);
-    ui.horizontal(|ui| {
-        ui.label("West edge");
-        let moved_e = ui
-            .add(
-                crate::ui::num::drag(&mut west)
-                    .speed(10.0)
-                    .update_while_editing(false),
-            )
-            .on_hover_text("Easting of the west edge, metres. The south edge stays where it is.")
-            .changed();
-        ui.label("South edge");
-        let moved_n = ui
-            .add(
-                crate::ui::num::drag(&mut south)
-                    .speed(10.0)
-                    .update_while_editing(false),
-            )
-            .on_hover_text("Northing of the south edge, metres. The west edge stays where it is.")
-            .changed();
-        let moved = if moved_e {
-            moved_west(square, west)
-        } else if moved_n {
-            moved_south(square, south)
-        } else {
-            None
-        };
-        if let Some(moved) = moved.filter(|m| *m != square) {
-            *current = current.moved_to(moved);
-            *dirty = true;
-        }
-    });
-
-    // What Berlin makes of the ground (#1586): the land use paints it and
-    // zones the scatters, and the water sets the world's.
-    ui.label(
-        egui::RichText::new(
-            "Berlin's land use paints the ground with the world's own layers: parks and \
-             woods on the first, built-up blocks and bare earth on the second, streets and \
-             squares on the third. Seeded trees and rocks keep to its open, natural ground. \
-             Its rivers and lakes set the water: the world's water is drawn at their level.",
-        )
-        .small()
-        .color(weak),
-    );
-    // The far field (#1585).
-    ui.label(
-        egui::RichText::new(
-            "A square wider than its street-level ground is drawn on to its edge as the \
-             horizon, coarser, and walked: anyone may walk or drive out to the square's edge, \
-             where invisible walls end the world, and the owner may build there. The world's \
-             fog opens at least far enough to show it.",
-        )
-        .small()
-        .color(weak),
-    );
+    // What Berlin makes of the world's water (#1586), and its data moving
+    // on since the last save (#1590).
     if let Some(berlin) = ground.berlin {
         ui.label(match (berlin.water_level(), ground.has_water) {
-            (Some(level), true) => format!("Water at {level:.1} m above sea level, from Berlin."),
-            (Some(level), false) => format!(
-                "Berlin's water lies at {level:.1} m, but this world has no water to draw \
-                 there: its beds lie dry."
-            ),
-            (None, _) => "No water is mapped in this square.".to_owned(),
+            (Some(level), true) => format!("Water at {level:.1} m above sea level"),
+            (Some(level), false) => {
+                format!("Water at {level:.1} m, not drawn: this world has none")
+            }
+            (None, _) => "No water in this square".to_owned(),
         });
-        // Berlin's data moved on since the last save (#1590).
         if let Some(changed) = berlin
             .layers()
             .and_then(crate::terrain::geo::layers::DrawnLayers::changed_sentence)
@@ -643,9 +589,123 @@ fn draw_region_source(
     );
 }
 
-/// The owner's edits over Berlin's items (#1590): how to make them, then
-/// every item removed or made the world's own, by what Berlin records of
-/// it on the walkable ground `level`, each with Restore - asked for through
+/// How far a drag of one pixel moves the square's middle (degrees): about
+/// 11 m of latitude and 7 m of longitude, in Berlin.
+const DEGREES_PER_DRAG: f64 = 0.0001;
+
+/// The decimals a latitude or longitude is shown with: a tenth of a metre
+/// or finer, so the number shown, written back, lands on the same metre.
+const DEGREE_DECIMALS: usize = 6;
+
+/// One coordinate of the square's middle in the Region source grid,
+/// labelled `label`: `value`, shown as `shown`, edited in degrees, `suffix`
+/// after it. Whether the owner changed it: a commit of the number it shows,
+/// by a click in and out (which egui writes back) or by typing that number,
+/// is no change.
+fn degrees_field(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: &mut f64,
+    shown: f64,
+    suffix: &str,
+) -> bool {
+    ui.label(label);
+    let changed = ui
+        .add(
+            crate::ui::num::drag(value)
+                .custom_parser(degrees)
+                .speed(DEGREES_PER_DRAG)
+                .fixed_decimals(DEGREE_DECIMALS)
+                .suffix(suffix)
+                .update_while_editing(false),
+        )
+        .on_hover_text("Of the square's middle.")
+        .changed();
+    ui.end_row();
+    changed && !same_shown(*value, shown)
+}
+
+/// Whether `value` is what a field showing `shown` reads as, to its
+/// [`DEGREE_DECIMALS`].
+fn same_shown(value: f64, shown: f64) -> bool {
+    let scale = 10f64.powi(DEGREE_DECIMALS as i32);
+    (value - (shown * scale).round() / scale).abs() < 1e-9
+}
+
+/// A typed latitude or longitude: degrees, a degree sign and an `N` or `E`
+/// allowed after it, and a lone comma read as the decimal comma - no
+/// coordinate has a thousands group, and the locale reader would take
+/// `52,520` for fifty-two thousand.
+fn degrees(text: &str) -> Option<f64> {
+    let number = text
+        .trim()
+        .trim_end_matches(['N', 'n', 'E', 'e'])
+        .trim_end()
+        .trim_end_matches('\u{b0}')
+        .trim();
+    crate::ui::num::locale_number(&number.replacen(',', ".", 1))
+}
+
+/// What the owner last asked of the square's middle (#1599), and the
+/// square that answer produced. While the square is still that one, the
+/// fields show what was asked rather than a reading off a square rounded to
+/// whole metres or moved to fit the map: a slow drag of one coordinate
+/// leaves the other where the owner put it, and a latitude dragged off the
+/// map and back brings the square back.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct AskedMiddle {
+    lat: f64,
+    lon: f64,
+    square: GeoSquare,
+}
+
+/// The middle the fields show for `square`: the owner's, where `asked`
+/// produced `square`, else `square`'s own.
+fn middle_shown(square: GeoSquare, asked: Option<AskedMiddle>) -> (f64, f64) {
+    match asked {
+        Some(asked) if asked.square == square => (asked.lat, asked.lon),
+        _ => {
+            let (e, n) = square.centre();
+            geodata::latlon::to_lat_lon(e, n)
+        }
+    }
+}
+
+/// `square` moved to the middle `(lat, lon)` (see [`centred_at`]), and what
+/// to remember of the asking: the middle as asked where the square sits on
+/// it, else - moved to fit the map - the edited coordinate as the square
+/// took it (`lat_edited`, else the longitude) and the other as asked.
+fn moved_middle(
+    square: GeoSquare,
+    (lat, lon): (f64, f64),
+    lat_edited: bool,
+) -> Option<(GeoSquare, AskedMiddle)> {
+    let moved = centred_at(square, lat, lon)?;
+    let (e, n) = moved.centre();
+    let (asked_e, asked_n) = grid_of(lat, lon)?;
+    let asked = if (asked_e - e).abs() <= 1.0 && (asked_n - n).abs() <= 1.0 {
+        (lat, lon)
+    } else {
+        let (took_lat, took_lon) = geodata::latlon::to_lat_lon(e, n);
+        if lat_edited {
+            (took_lat, lon)
+        } else {
+            (lat, took_lon)
+        }
+    };
+    Some((
+        moved,
+        AskedMiddle {
+            lat: asked.0,
+            lon: asked.1,
+            square: moved,
+        },
+    ))
+}
+
+/// The owner's edits over Berlin's items (#1590): how many, then every item
+/// removed or made the world's own, by what Berlin records of it on the
+/// walkable ground `level`, each with Restore - asked for through
 /// `restore`.
 fn draw_berlin_edits(
     ui: &mut egui::Ui,
@@ -654,17 +714,19 @@ fn draw_berlin_edits(
     restore: &mut Option<String>,
 ) {
     let weak = crate::ui::theme::current(ui.ctx()).text_weak;
+    let edits = source.removed.len() + source.adopted.len();
     ui.add_space(4.0);
-    ui.strong("Berlin's buildings, trees and street furniture");
-    ui.label(
-        egui::RichText::new(
-            "Click one in the world to remove it, or to make a copy of it this world's \
-             own. The buildings round the walkable ground stay as Berlin draws them.",
-        )
-        .small()
-        .color(weak),
-    );
-    if source.removed.is_empty() && source.adopted.is_empty() {
+    let count = if edits == 0 {
+        "Changes to Berlin's items: none".to_owned()
+    } else {
+        format!("Changes to Berlin's items: {edits}")
+    };
+    ui.label(egui::RichText::new(count).small().color(weak))
+        .on_hover_text(
+            "Click a building, tree or street item in the world to remove it or make it \
+             this world's own.",
+        );
+    if edits == 0 {
         return;
     }
     let rows = source
@@ -717,6 +779,13 @@ fn drawn_square(seed: u64) -> GeoSquare {
     crate::seeded_defaults::RegionSource::for_seed(seed).square()
 }
 
+/// The grid point of `(lat, lon)` (degrees), brought within the band the
+/// projection holds in: `None` for a coordinate that is no number.
+fn grid_of(lat: f64, lon: f64) -> Option<(f64, f64)> {
+    (lat.is_finite() && lon.is_finite())
+        .then(|| geodata::latlon::to_grid(lat.clamp(-80.0, 84.0), lon.clamp(-15.0, 45.0)))
+}
+
 /// A seed for an owner's "draw another": the clock and a counter, so two
 /// clicks in one millisecond still differ. Not a seeded region's draw - the
 /// square it makes is stored in the record.
@@ -743,25 +812,18 @@ fn resized_keeping_centre(square: GeoSquare, side: u32) -> Option<GeoSquare> {
     )
 }
 
-/// `square` with its west edge at `west` - the south edge held where it
-/// is, the west edge as near `west` as the square fits along that row. Only
-/// if the square fits nowhere on its row does the south edge move too.
-fn moved_west(square: GeoSquare, west: i32) -> Option<GeoSquare> {
-    let (e, n) = (i64::from(west), i64::from(square.min_n));
-    let coverage = Coverage::berlin();
-    coverage
-        .nearest_keeping(square.size_m, e, n, Keep::Northing)
-        .or_else(|| coverage.nearest(square.size_m, e, n))
-}
-
-/// `square` with its south edge at `south`, the west edge held - as
-/// [`moved_west`], the other way.
-fn moved_south(square: GeoSquare, south: i32) -> Option<GeoSquare> {
-    let (e, n) = (i64::from(square.min_e), i64::from(south));
-    let coverage = Coverage::berlin();
-    coverage
-        .nearest_keeping(square.size_m, e, n, Keep::Easting)
-        .or_else(|| coverage.nearest(square.size_m, e, n))
+/// `square` with its middle at latitude `lat` and longitude `lon`
+/// (degrees, ETRS89), or as near there as it fits inside Berlin. A point
+/// far off the map is first brought within the band its projection holds
+/// in; the square then lands where it fits nearest.
+fn centred_at(square: GeoSquare, lat: f64, lon: f64) -> Option<GeoSquare> {
+    let (e, n) = grid_of(lat, lon)?;
+    let half = f64::from(square.size_m) / 2.0;
+    Coverage::berlin().nearest(
+        square.size_m,
+        (e - half).round() as i64,
+        (n - half).round() as i64,
+    )
 }
 
 #[cfg(test)]
@@ -790,44 +852,164 @@ mod tests {
         assert_eq!(smaller.centre(), dom.centre());
         // A side off the 10 m step is snapped onto it.
         assert_eq!(resized_keeping_centre(dom, 1_003).unwrap().size_m, 1_000);
-        // An edge typed off the map lands on it, the other edge held.
-        let moved = moved_west(dom, 0).unwrap();
-        assert!(coverage.contains(&moved));
-        assert_eq!(moved.min_n, dom.min_n);
-        assert_eq!(moved_west(dom, 391_000), Some(dom));
-        assert_eq!(moved_south(dom, 5_819_500), Some(dom));
+        // A middle typed off the map - the equator, the poles, nonsense -
+        // lands on it, or changes nothing.
+        for (lat, lon) in [(0.0, 0.0), (90.0, 13.4), (52.5, 180.0), (-90.0, -180.0)] {
+            let moved = centred_at(dom, lat, lon).unwrap();
+            assert!(coverage.contains(&moved), "({lat}, {lon}): {moved:?}");
+        }
+        assert_eq!(centred_at(dom, f64::NAN, 13.4), None);
+        // Its own middle leaves it where it is.
+        let (e, n) = dom.centre();
+        let (lat, lon) = geodata::latlon::to_lat_lon(e, n);
+        assert_eq!(centred_at(dom, lat, lon), Some(dom));
     }
 
-    /// The edits the owner makes one edge at a time leave the other edge
-    /// where it was: a west edge dragged 30 km east (off the map) and back
-    /// returns the square to where it started, and so does a south edge.
+    /// A middle typed as latitude and longitude (#1599) puts the square's
+    /// middle within a metre of it - the square sits on whole metres -
+    /// wherever in Berlin it is typed, at any size that fits there.
     #[test]
-    fn an_edge_dragged_off_the_map_and_back_leaves_the_square_where_it_was() {
+    fn a_typed_middle_lands_within_a_metre_of_it() {
         let dom = GeoSquare {
             min_e: 391_000,
             min_n: 5_819_500,
             size_m: 1_000,
         };
-        // Out 30 km in kilometre steps, and back the same way.
-        let there_and_back =
-            |from: i32| (0..=30).chain((0..30).rev()).map(move |k| from + 1_000 * k);
-        let mut square = dom;
-        for west in there_and_back(dom.min_e) {
-            square = moved_west(square, west).unwrap();
-            assert_eq!(
-                square.min_n, dom.min_n,
-                "the south edge held at west {west}"
+        // The Brandenburg Gate, Hermannplatz, Spandau's old town, the
+        // Mueggelsee's north shore.
+        for (lat, lon) in [
+            (52.516_275, 13.377_704),
+            (52.487_2, 13.424_3),
+            (52.536_0, 13.205_0),
+            (52.445_0, 13.640_0),
+        ] {
+            let moved = centred_at(dom, lat, lon).unwrap();
+            let (e, n) = moved.centre();
+            let (got_lat, got_lon) = geodata::latlon::to_lat_lon(e, n);
+            // A metre is about 9e-6 degrees of latitude and 1.5e-5 of
+            // longitude here.
+            assert!(
+                (got_lat - lat).abs() < 9e-6 && (got_lon - lon).abs() < 1.5e-5,
+                "({lat}, {lon}) put the middle at ({got_lat}, {got_lon})"
             );
         }
-        assert_eq!(square, dom);
-        for south in there_and_back(dom.min_n) {
-            square = moved_south(square, south).unwrap();
-            assert_eq!(
-                square.min_e, dom.min_e,
-                "the west edge held at south {south}"
-            );
+    }
+
+    /// The panel's edit of the middle as a frame makes it: one field given
+    /// `lat` or `lon` - a drag's value is egui's own running total from
+    /// where the drag began, which the panel's writes do not touch - the
+    /// other as shown, the square moved to fit and the asking remembered.
+    fn frame(
+        square: GeoSquare,
+        asked: Option<AskedMiddle>,
+        (lat, lon): (Option<f64>, Option<f64>),
+    ) -> (GeoSquare, Option<AskedMiddle>) {
+        let shown = middle_shown(square, asked);
+        let middle = (lat.unwrap_or(shown.0), lon.unwrap_or(shown.1));
+        match moved_middle(square, middle, lat.is_some()) {
+            Some((moved, asked)) => (moved, Some(asked)),
+            None => (square, asked),
         }
-        assert_eq!(square, dom);
+    }
+
+    /// A latitude dragged off the map and back - or typed off it and back -
+    /// returns the square to where it started (#1599, the critic's HIGH):
+    /// the longitude shown is the one the owner left, not one read back off
+    /// the square while it slid along the map's edge to fit.
+    #[test]
+    fn a_latitude_dragged_off_the_map_and_back_leaves_the_square_where_it_was() {
+        let start = GeoSquare {
+            min_e: 387_500,
+            min_n: 5_830_000,
+            size_m: 1_000,
+        };
+        let (lat, lon) = middle_shown(start, None);
+        let (mut square, mut asked) = (start, None);
+        // A tenth of a degree north, past the map's edge, and back.
+        for k in (1..=100).chain((0..100).rev()) {
+            (square, asked) = frame(square, asked, (Some(lat + 0.001 * f64::from(k)), None));
+            assert!(Coverage::berlin().contains(&square));
+            assert_eq!(middle_shown(square, asked).1, lon, "the longitude held");
+        }
+        assert_eq!(square, start);
+        // Typed far off the map, then typed back.
+        let (far, asked) = moved_middle(start, (60.0, lon), true).unwrap();
+        assert_ne!(far, start);
+        let (back, _) = moved_middle(far, (lat, middle_shown(far, Some(asked)).1), true).unwrap();
+        assert_eq!(back, start);
+    }
+
+    /// A slow drag of one coordinate - a pixel a frame - leaves the other
+    /// where it was (the critic's MEDIUM): read back off each whole-metre
+    /// square, it drifted 70 m along the grid in 300 frames.
+    #[test]
+    fn a_slow_drag_of_one_coordinate_leaves_the_other() {
+        let start = GeoSquare {
+            min_e: 391_000,
+            min_n: 5_814_500,
+            size_m: 500,
+        };
+        let (lat0, lon0) = middle_shown(start, None);
+        let step = |k: u32| DEGREES_PER_DRAG * f64::from(k);
+        // The latitude dragged north.
+        let (mut square, mut asked) = (start, None);
+        for k in 1..=300 {
+            (square, asked) = frame(square, asked, (Some(lat0 + step(k)), None));
+        }
+        let (e, n) = square.centre();
+        assert_eq!(middle_shown(square, asked), (lat0 + step(300), lon0));
+        let on = geodata::latlon::to_lat_lon(e, n).1;
+        assert!((on - lon0).abs() < 1.5e-5, "the square stayed on it: {on}");
+        // The longitude dragged east.
+        let (mut square, mut asked) = (start, None);
+        for k in 1..=300 {
+            (square, asked) = frame(square, asked, (None, Some(lon0 + step(k))));
+        }
+        let (e, n) = square.centre();
+        assert_eq!(middle_shown(square, asked), (lat0, lon0 + step(300)));
+        let on = geodata::latlon::to_lat_lon(e, n).0;
+        assert!((on - lat0).abs() < 9e-6, "the square stayed on it: {on}");
+    }
+
+    /// The number a field shows, written back - egui writes it on a click
+    /// in and out, and an owner may type it - lands on the same metre, so
+    /// no square moves and the record stays clean (the critic's MEDIUM: at
+    /// five decimals, one square in ten moved).
+    #[test]
+    fn the_number_shown_written_back_moves_nothing() {
+        let scale = 10f64.powi(DEGREE_DECIMALS as i32);
+        let round = |v: f64| (v * scale).round() / scale;
+        for min_e in (370_000..410_000).step_by(997) {
+            for min_n in (5_805_000..5_835_000).step_by(1_499) {
+                let square = GeoSquare {
+                    min_e,
+                    min_n,
+                    size_m: 500,
+                };
+                if !Coverage::berlin().contains(&square) {
+                    continue;
+                }
+                let (lat, lon) = middle_shown(square, None);
+                assert!(same_shown(round(lat), lat) && same_shown(round(lon), lon));
+                assert_eq!(centred_at(square, round(lat), lon), Some(square));
+                assert_eq!(centred_at(square, lat, round(lon)), Some(square));
+            }
+        }
+        assert!(!same_shown(52.4872, 52.4871));
+    }
+
+    /// A latitude or longitude reads a lone comma as the decimal comma -
+    /// the locale reader took `52,520` for fifty-two thousand five hundred
+    /// and twenty, and put the square on the map's north edge - and takes
+    /// the degree sign and the hemisphere a field shows.
+    #[test]
+    fn a_typed_coordinate_reads_its_comma_as_a_decimal_comma() {
+        assert_eq!(degrees("52,520"), Some(52.52));
+        assert_eq!(degrees("13,42480"), Some(13.4248));
+        assert_eq!(degrees(" 52.487100\u{b0} N "), Some(52.4871));
+        assert_eq!(degrees("13.4248 E"), Some(13.4248));
+        assert_eq!(degrees("-52,5"), Some(-52.5));
+        assert_eq!(degrees("Berlin"), None);
     }
 
     #[test]

@@ -456,7 +456,8 @@ struct Args {
     world_record: Option<String>,
     /// With `--world`: build the region from this square of real Berlin
     /// (#1584) - `E,N,SIZE`, the south-west corner and the side in whole
-    /// metres of EPSG:25833 (the World Editor's Region source shows them).
+    /// metres of EPSG:25833 (the World Editor's Region source shows them
+    /// over its square's summary).
     /// Set on the record `--world` resolves to (the seeded one or
     /// `--world-record`'s), then sanitised as a fetched record is, so a
     /// square off the map is moved onto it. The ground is fetched from

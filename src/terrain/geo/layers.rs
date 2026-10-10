@@ -152,7 +152,9 @@ impl DrawnLayers {
         }
     }
 
-    /// The changed layers as a sentence, or `None` where none changed.
+    /// The changed layers as a line for the Region source section and the
+    /// log, or `None` where none changed. The world is drawn as Berlin has
+    /// it now, and the next save records it.
     pub(crate) fn changed_sentence(&self) -> Option<String> {
         let words: Vec<&str> = self.changed.iter().map(|layer| layer.words()).collect();
         let (last, rest) = words.split_last()?;
@@ -161,10 +163,7 @@ impl DrawnLayers {
         } else {
             format!("{} and {last}", rest.join(", "))
         };
-        Some(format!(
-            "Berlin's {list} changed since this world was last saved: it is drawn as Berlin \
-             has it now, and the next save records that."
-        ))
+        Some(format!("Berlin's {list} changed since the last save"))
     }
 }
 

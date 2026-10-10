@@ -15,7 +15,7 @@ mod trees;
 pub use buildings::{
     BUILDING_PAGE, BUILDING_PROPERTIES, Building, BuildingPage, BuildingUse, parse_buildings,
 };
-pub use coverage::{Coverage, Keep};
+pub use coverage::Coverage;
 pub use furniture::{
     FURNITURE_PAGE, FurnitureItem, FurnitureKind, FurniturePage, is_lamp, parse_furniture,
 };

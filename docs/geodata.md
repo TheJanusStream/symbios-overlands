@@ -186,10 +186,18 @@ stays byte-identical. The bytes are pinned in
   not know are dropped on save, as from every record field.
 - **Editor.** The World Editor's Environment tab has a Region source
   section. It can turn Berlin on (a square drawn the way a seeded region
-  draws one), draw another, change the side keeping the centre, or move one
-  edge.
-  - Moving one edge holds the other where it is (`nearest_keeping`). Only a
-    square that fits nowhere on its row moves both ways.
+  draws one), draw another, change the side keeping the middle, or move the
+  middle by its latitude and longitude (#1599). Those are ETRS89's, about
+  a metre from the WGS84 a web map shows, converted to and from the grid by
+  `geodata::latlon` (Krueger's series, within a millimetre). The square's
+  summary shows its grid corners on hover, the numbers `render
+  --geo-square` takes.
+  - A middle typed off the map lands where the square fits nearest
+    (`Coverage::nearest`). The fields show what the owner asked while the
+    square is the one that asking produced, so a slow drag of one leaves
+    the other alone and a latitude dragged off the map and back brings the
+    square back; they show six decimals, a tenth of a metre, so the number
+    shown, written back, moves nothing.
   - Typed values apply when typing ends, never per keystroke, because a
     first digit is far off the map.
   - Every edit goes through the same rules as the sanitiser, so the
@@ -308,8 +316,7 @@ together and go together.
 - **Failure.** If only the land use cannot be had, Berlin's terrain lands
   without it, coloured by the record's altitude bands and with no water,
   and the fallback says so as it does for the terrain.
-- **Editor.** The Region source section says what the land use does and
-  shows the water level Berlin set.
+- **Editor.** The Region source section shows the water level Berlin set.
 
 The horizon (P1.3, #1585, `src/terrain/geo/far.rs`) is the square beyond
 the core, drawn coarse to its edge. It rides in the `GeoGround` beside the

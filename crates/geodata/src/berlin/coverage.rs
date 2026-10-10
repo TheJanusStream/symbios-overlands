@@ -186,33 +186,6 @@ impl Coverage {
     /// back on the map this way, as close as possible to where it was asked
     /// for (#1583).
     pub fn nearest(&self, size_m: u32, min_e: i64, min_n: i64) -> Option<GeoSquare> {
-        self.nearest_where(size_m, min_e, min_n, None)
-    }
-
-    /// [`Self::nearest`], moving the corner along one axis only: the nearest
-    /// square of side `size_m` wholly inside Berlin whose corner has exactly
-    /// the `keep` coordinate asked for, or `None` if no such square has it.
-    ///
-    /// What an edit of one edge wants. Searching both axes, a west edge
-    /// dragged or typed off the map would also move the south edge - and
-    /// leave it moved when the west edge came back.
-    pub fn nearest_keeping(
-        &self,
-        size_m: u32,
-        min_e: i64,
-        min_n: i64,
-        keep: Keep,
-    ) -> Option<GeoSquare> {
-        self.nearest_where(size_m, min_e, min_n, Some(keep))
-    }
-
-    fn nearest_where(
-        &self,
-        size_m: u32,
-        min_e: i64,
-        min_n: i64,
-        keep: Option<Keep>,
-    ) -> Option<GeoSquare> {
         if let (Ok(e), Ok(n)) = (i32::try_from(min_e), i32::try_from(min_n)) {
             let asked = GeoSquare {
                 min_e: e,
@@ -229,14 +202,6 @@ impl Coverage {
             let first_e = i64::from(ORIGIN_E + col as i32 * CELL_M + base_e);
             let first_n = i64::from(ORIGIN_N + row as i32 * CELL_M + base_n);
             let (last_e, last_n) = (first_e + count_e as i64 - 1, first_n + count_n as i64 - 1);
-            let held = match keep {
-                Some(Keep::Easting) => (first_e..=last_e).contains(&min_e),
-                Some(Keep::Northing) => (first_n..=last_n).contains(&min_n),
-                None => true,
-            };
-            if !held {
-                return false;
-            }
             let e = min_e.clamp(first_e, last_e);
             let n = min_n.clamp(first_n, last_n);
             // In i128: a target anywhere in i64 is a legal question.
@@ -311,16 +276,6 @@ impl Coverage {
 
 /// One offset class per axis, east then north: `(first offset, how many)`.
 type Span = ((i32, u64), (i32, u64));
-
-/// Which coordinate of a square's corner [`Coverage::nearest_keeping`]
-/// holds.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Keep {
-    /// Keep the west edge; move north or south.
-    Easting,
-    /// Keep the south edge; move east or west.
-    Northing,
-}
 
 #[cfg(test)]
 mod tests {
@@ -546,75 +501,6 @@ mod tests {
             None
         );
         assert_eq!(coverage.nearest(0, 391_000, 5_819_500), None);
-    }
-
-    #[test]
-    fn nearest_keeping_moves_along_one_axis_only() {
-        let coverage = Coverage::berlin();
-        let dom = GeoSquare {
-            min_e: 391_000,
-            min_n: 5_819_500,
-            size_m: 1_000,
-        };
-        // A west edge dragged 30 km east, off the map: the south edge stays,
-        // and the west edge stops where the row ends inside Berlin.
-        let far = coverage
-            .nearest_keeping(1_000, 421_000, 5_819_500, Keep::Northing)
-            .unwrap();
-        assert_eq!(far.min_n, dom.min_n);
-        assert!(coverage.contains(&far) && far.min_e < 421_000);
-        // ...and dragged back, it is where it started.
-        assert_eq!(
-            coverage.nearest_keeping(1_000, 391_000, far.min_n.into(), Keep::Northing),
-            Some(dom)
-        );
-        // The same for a south edge.
-        let south = coverage
-            .nearest_keeping(1_000, 391_000, 5_700_000, Keep::Easting)
-            .unwrap();
-        assert_eq!(south.min_e, dom.min_e);
-        assert!(coverage.contains(&south));
-        // A row with no place for the square at all: no answer.
-        assert_eq!(
-            coverage.nearest_keeping(1_000, 391_000, 5_000_000_000, Keep::Northing),
-            None
-        );
-
-        // Against every placement of the largest square: the answer keeps
-        // the coordinate and is the nearest that does.
-        let mut fits = Vec::new();
-        coverage.walk(
-            SIZE_MAX_M,
-            |col, row, ((base_e, count_e), (base_n, count_n)), _| {
-                for oe in 0..count_e as i32 {
-                    for on in 0..count_n as i32 {
-                        fits.push((
-                            i64::from(ORIGIN_E + col as i32 * CELL_M + base_e + oe),
-                            i64::from(ORIGIN_N + row as i32 * CELL_M + base_n + on),
-                        ));
-                    }
-                }
-                false
-            },
-        );
-        let (row_n, col_e) = (fits[0].1, fits[0].0);
-        for target_e in [0, 380_000, 391_000, 450_000] {
-            let got = coverage
-                .nearest_keeping(SIZE_MAX_M, target_e, row_n, Keep::Northing)
-                .unwrap();
-            let best = fits
-                .iter()
-                .filter(|f| f.1 == row_n)
-                .map(|f| (f.0 - target_e).abs())
-                .min()
-                .unwrap();
-            assert_eq!((i64::from(got.min_e) - target_e).abs(), best);
-            assert_eq!(i64::from(got.min_n), row_n);
-        }
-        let got = coverage
-            .nearest_keeping(SIZE_MAX_M, col_e, 0, Keep::Easting)
-            .unwrap();
-        assert_eq!(i64::from(got.min_e), col_e);
     }
 
     #[test]

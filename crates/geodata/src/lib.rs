@@ -11,6 +11,8 @@
 //! the wasm worker can share it:
 //!
 //! - [`square`]: a [`GeoSquare`] of the map, and the log-uniform size draw;
+//! - [`latlon`]: latitude and longitude to and from the map's grid, for
+//!   anyone who reads a place off a web map;
 //! - [`berlin`]: the Berlin dataset - its host, its layer catalogue, its
 //!   land-use classes and boroughs, and the [`berlin::Coverage`] that says
 //!   where a square may lie and places one from a seeded draw;
@@ -47,6 +49,7 @@
 
 pub mod berlin;
 pub mod features;
+pub mod latlon;
 pub mod legend;
 pub mod raster;
 pub mod request;
