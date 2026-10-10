@@ -653,6 +653,12 @@ pub struct LocalSettings {
     /// Headroom the ground avoidance keeps between the camera and the
     /// terrain surface, in metres (#872).
     pub camera_ground_clearance_m: f32,
+    /// Draw the world through an orthographic camera instead of a
+    /// perspective one (#1603): nothing shrinks with distance, as in a map
+    /// or an isometric game. Off by default; old prefs files default off
+    /// through the struct-level `serde(default)`. Applied by
+    /// `camera::follow_projection_setting`.
+    pub orthographic_camera: bool,
     /// How loudly the room's contact effects are allowed to play (#1221
     /// f308). The visual counterpart to the app-wide audio mute, and the
     /// accessibility control the app lacked for flashing and motion.
@@ -782,6 +788,7 @@ impl Default for LocalSettings {
             theme: crate::ui::theme::UserTheme::Dark,
             camera_ground_avoidance: crate::camera::CameraGroundAvoidance::default(),
             camera_ground_clearance_m: crate::config::camera::TERRAIN_CLEARANCE,
+            orthographic_camera: false,
             effects_intensity: EffectsIntensity::default(),
             show_peer_nametags: true,
             ui_scale: 1.0,

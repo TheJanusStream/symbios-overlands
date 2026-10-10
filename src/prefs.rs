@@ -1416,6 +1416,7 @@ mod tests {
             // proves only that the DEFAULT survives the wire (#1226 f325).
             show_peer_nametags: false,
             load_external_assets: false,
+            orthographic_camera: true,
             theme: UserTheme::HighContrast,
             ui_scale: 1.4,
             ..Default::default()

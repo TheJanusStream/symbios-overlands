@@ -752,7 +752,7 @@ pub(crate) fn find_right_of(nodes: &[WidgetNode], text: &str, ppp: f32) -> Looku
 struct LiveScene<'a> {
     nodes: &'a [WidgetNode],
     ppp: f32,
-    camera: Option<(&'a Camera, &'a GlobalTransform, f32)>,
+    camera: Option<(&'a Camera, &'a GlobalTransform, PixelSpan)>,
     gizmo: Option<(Vec3, Quat)>,
     local: bool,
     heightmap: Option<&'a FinishedHeightMap>,
@@ -769,13 +769,13 @@ impl Scene for LiveScene<'_> {
 
     fn gizmo_handle(&self, axis: Axis) -> Option<(Vec3, Vec3)> {
         let (at, rotation) = self.gizmo?;
-        let (camera, eye, fov) = self.camera?;
+        let (camera, eye, span) = self.camera?;
         let dir = if self.local {
             rotation * axis.unit()
         } else {
             axis.unit()
         };
-        let per_px = world_per_pixel(camera, eye, fov, at)?;
+        let per_px = world_per_pixel(camera, eye, span, at)?;
         Some((at + dir * HANDLE_PX * per_px, dir))
     }
 
@@ -790,12 +790,32 @@ impl Scene for LiveScene<'_> {
     }
 }
 
+/// What sets how many metres a frame pixel spans: the perspective lens's
+/// vertical field of view (rad), under which the span grows with depth, or
+/// the orthographic lens's visible height (m, #1603), under which it is the
+/// same at every depth.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum PixelSpan {
+    Perspective(f32),
+    Orthographic(f32),
+}
+
 /// Metres per frame pixel at `at`'s depth: the scale the gizmo crate keeps
 /// its handles a fixed size on screen by.
-fn world_per_pixel(camera: &Camera, eye: &GlobalTransform, fov: f32, at: Vec3) -> Option<f32> {
-    let depth = (at - eye.translation()).dot(*eye.forward());
+fn world_per_pixel(
+    camera: &Camera,
+    eye: &GlobalTransform,
+    span: PixelSpan,
+    at: Vec3,
+) -> Option<f32> {
     let height = camera.logical_viewport_size()?.y;
-    (depth > 0.0).then(|| 2.0 * depth * (fov * 0.5).tan() / height)
+    match span {
+        PixelSpan::Perspective(fov) => {
+            let depth = (at - eye.translation()).dot(*eye.forward());
+            (depth > 0.0).then(|| 2.0 * depth * (fov * 0.5).tan() / height)
+        }
+        PixelSpan::Orthographic(metres) => Some(metres / height),
+    }
 }
 
 /// Whether the script's setup steps have played - what the warm-up waits on.
@@ -872,8 +892,15 @@ pub(crate) fn run_script(
         .single()
         .ok()
         .and_then(|(camera, eye, projection)| match projection {
-            Projection::Perspective(perspective) => Some((camera, eye, perspective.fov)),
-            _ => None,
+            Projection::Perspective(perspective) => {
+                Some((camera, eye, PixelSpan::Perspective(perspective.fov)))
+            }
+            Projection::Orthographic(orthographic) => Some((
+                camera,
+                eye,
+                PixelSpan::Orthographic(orthographic.area.height()),
+            )),
+            Projection::Custom(_) => None,
         });
     let scene = LiveScene {
         nodes: &nodes,

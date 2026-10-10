@@ -377,6 +377,20 @@ pub(crate) mod camera {
     /// Highest allowed orbit pitch (rad): just shy of straight-down so
     /// the orbit basis never reaches the pole.
     pub const PITCH_UPPER_LIMIT: f32 = 1.54;
+    /// Lowest orbit pitch (rad) under the orthographic camera (#1603): 20
+    /// degrees down. An orthographic view has no horizon - nothing shrinks
+    /// with distance - so looking level shows a wall of terrain under a flat
+    /// band of sky; looking down at least this far keeps the ground in view.
+    pub const ORTHO_PITCH_LOWER_LIMIT: f32 = 0.35;
+    /// How far behind an orthographic camera its view reaches, per metre of
+    /// its lens's scale (#1603). An orthographic view is a box as wide at
+    /// the camera as at its focus; one cut off at the camera would slice the
+    /// ground at the frame's foot near the pitch floor, and a building or a
+    /// hill beside the camera at any pitch. Twice the scale clears the
+    /// ground at the floor (`(1 + 2) sin 0.35 > tan 22.5 cos 0.35`) and,
+    /// at the farthest zoom, still stays inside the sky cuboid round the
+    /// camera.
+    pub const ORTHO_BACK_SHARE: f32 = 2.0;
     /// Clearance (m) the terrain clamp keeps between the camera and the
     /// ground surface.
     pub const TERRAIN_CLEARANCE: f32 = 1.0;

@@ -678,7 +678,11 @@ fn fragment(
     // ------------------------------------------------------------------
     // Fresnel - the fix for "sometimes very translucent"
     // ------------------------------------------------------------------
-    let v = normalize(cam_pos - pos);
+    // Bevy's own view vector: toward the eye, or - under an orthographic
+    // camera, whose lines of sight are parallel (#1603) - back along the
+    // view, where `cam_pos - pos` would bend toward wherever the camera
+    // happens to stand.
+    let v = pbr_input.V;
     let n_dot_v = clamp(dot(n, v), 0.0, 1.0);
     let f0 = clamp(water_uniforms.reflectance, 0.0, 1.0);
     let fresnel = f0 + (1.0 - f0) * pow(1.0 - n_dot_v, 5.0);

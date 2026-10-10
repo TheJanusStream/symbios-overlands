@@ -605,6 +605,9 @@ a camera operator's lag, so a landing's bounce is not a shake. `--eye x,z`
 `--fov` changes the lens from the game's 45 degrees, and `--time-scale 0.25`
 films four times slower than life (the warm-up runs at full speed, and the
 chassis is eased between physics steps as the game eases a player's).
+`--ortho` (#1603) draws through the game's orthographic camera instead -
+what a player who chose it in Settings sees - framing at the focus what the
+45-degree lens frames from `--dist` away.
 
 `--editor` (#1353, with `--world`) draws the game's own editing surfaces
 into the same frame as the world: the toolbar, the World Editor, the

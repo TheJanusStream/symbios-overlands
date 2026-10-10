@@ -925,7 +925,11 @@ pub(crate) fn build_client_app(app: &mut App, boot: boot_params::BootParams, she
         .add_systems(Startup, setup_lighting)
         .add_systems(
             Update,
-            (clouds::track_cloud_layer_to_camera, track_skybox_to_camera),
+            (
+                clouds::track_cloud_layer_to_camera,
+                clouds::hide_cloud_deck,
+                track_skybox_to_camera,
+            ),
         );
     // The sun's shadow cascades follow the orbit zoom (#1475).
     shadow_reach::register(app, shadow_reach::follow_orbit_zoom);
@@ -954,7 +958,11 @@ pub(crate) fn register_headless_atmosphere(app: &mut App) {
         .add_systems(Startup, setup_lighting)
         .add_systems(
             Update,
-            (clouds::track_cloud_layer_to_camera, track_skybox_to_camera),
+            (
+                clouds::track_cloud_layer_to_camera,
+                clouds::hide_cloud_deck,
+                track_skybox_to_camera,
+            ),
         );
 }
 

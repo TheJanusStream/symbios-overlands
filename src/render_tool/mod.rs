@@ -827,6 +827,11 @@ struct Args {
     /// that flattens a jump's run-up, a wide one inside the action (#1546).
     #[arg(long)]
     fov: Option<f32>,
+    /// `--world`: draw through the game's orthographic camera (#1603) - the
+    /// lens a player who chose it sees, framing at the look-at point what
+    /// the game's lens frames from where the camera stands.
+    #[arg(long, requires = "world", conflicts_with = "fov")]
+    ortho: bool,
     /// Clips: seconds of the world's time a second of the clip shows - 0.25
     /// is four times slower than life (#1546). The warm-up runs at full
     /// speed; wind, water, particles and a driven car all slow together.
@@ -1430,6 +1435,7 @@ pub fn run() {
             }),
             clip_step: args.time_scale / args.fps,
             fov: args.fov,
+            ortho: args.ortho,
         })
         .insert_resource(Clock {
             step: 1.0 / args.fps,

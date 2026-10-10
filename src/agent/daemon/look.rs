@@ -293,6 +293,7 @@ fn world_camera_lens(world: &mut World) -> Option<Lens> {
 }
 
 fn start(world: &mut World, shot: Shot, spec: LookSpec, reply: mpsc::Sender<Response>) {
+    let view = spec.view;
     let (path, keep_in) = match picture_path(world, spec.out) {
         Ok(found) => found,
         Err(e) => {
@@ -312,6 +313,13 @@ fn start(world: &mut World, shot: Shot, spec: LookSpec, reply: mpsc::Sender<Resp
     ));
     if let Some(lens) = lens {
         if let Some(projection) = lens.projection {
+            // The body's own eyes look through the perspective lens whatever
+            // the world camera's is (#1603): an orthographic look level from
+            // eye height is a wall of terrain under a flat band of sky.
+            let projection = match view {
+                LookView::Eyes => Projection::Perspective(crate::camera::perspective_lens()),
+                LookView::Play => projection,
+            };
             camera.insert(projection);
         }
         if let Some(fog) = lens.fog {

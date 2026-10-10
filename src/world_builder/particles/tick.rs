@@ -73,7 +73,7 @@ pub fn tick_particles(
     spatial: SpatialQuery,
     mut meshes: ResMut<Assets<Mesh>>,
     mut atlas_meshes: ResMut<ParticleAtlasMeshes>,
-    cameras: Query<&GlobalTransform, crate::camera::IsWorldCamera>,
+    cameras: Query<(&GlobalTransform, &Projection), crate::camera::IsWorldCamera>,
     mut emitters: Query<&mut EmitterState>,
     emitter_lookup: Query<(&ParticleEmitter, Option<&EmitterMaterialRamp>)>,
     mut particles: Query<(
@@ -88,7 +88,13 @@ pub fn tick_particles(
     if dt <= 0.0 {
         return;
     }
-    let camera_pos = cameras.iter().next().map(|t| t.translation());
+    // Where a billboard turns: toward the eye, or - under an orthographic
+    // camera, whose lines of sight are parallel (#1603) - back along the
+    // view, so every quad faces the screen square.
+    let eye = cameras
+        .iter()
+        .next()
+        .map(|(camera, projection)| billboard_eye(camera, projection));
 
     for (entity, mut particle, mut transform, mut material, mut mesh3d) in particles.iter_mut() {
         particle.age += dt;
@@ -183,16 +189,42 @@ pub fn tick_particles(
         // the velocity vector. If neither is meaningful (no camera in
         // scene, zero velocity), leave the previous orientation.
         if emitter.billboard {
-            if let Some(cam) = camera_pos {
-                let to_cam = cam - transform.translation;
+            if let Some(eye) = eye {
+                let to_cam = eye.toward(transform.translation);
                 if to_cam.length_squared() > 1e-6 {
-                    transform.look_at(cam, Vec3::Y);
+                    transform.look_to(to_cam, Vec3::Y);
                 }
             }
         } else if particle.velocity.length_squared() > 1e-6 {
             let dir = particle.velocity.normalize();
             transform.rotation = Quat::from_rotation_arc(Vec3::Z, dir);
         }
+    }
+}
+
+/// Where a billboard faces (#1603): the eye's position under a perspective
+/// camera, or its view direction under an orthographic one.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum BillboardEye {
+    At(Vec3),
+    Along(Vec3),
+}
+
+impl BillboardEye {
+    /// The way a quad at `at` turns to face the camera.
+    fn toward(self, at: Vec3) -> Vec3 {
+        match self {
+            BillboardEye::At(eye) => eye - at,
+            BillboardEye::Along(back) => back,
+        }
+    }
+}
+
+/// The [`BillboardEye`] of a camera standing at `camera` behind `projection`.
+fn billboard_eye(camera: &GlobalTransform, projection: &Projection) -> BillboardEye {
+    match projection {
+        Projection::Orthographic(_) => BillboardEye::Along(camera.back().into()),
+        _ => BillboardEye::At(camera.translation()),
     }
 }
 
@@ -245,5 +277,37 @@ fn apply_collisions(
             *velocity = Vec3::ZERO;
         }
         let _ = dt;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Under a perspective camera a billboard turns toward the eye, so two
+    /// quads apart turn differently; under an orthographic one (#1603) every
+    /// quad turns back along the view, square to the screen.
+    #[test]
+    fn a_billboard_faces_the_eye_or_along_the_view() {
+        let camera = GlobalTransform::from(
+            Transform::from_xyz(0.0, 10.0, 20.0).looking_at(Vec3::ZERO, Vec3::Y),
+        );
+        let (left, right) = (Vec3::new(-8.0, 0.0, 0.0), Vec3::new(8.0, 0.0, 0.0));
+
+        let eye = billboard_eye(&camera, &Projection::Perspective(default()));
+        assert_eq!(eye, BillboardEye::At(camera.translation()));
+        assert_ne!(
+            eye.toward(left).normalize(),
+            eye.toward(right).normalize(),
+            "toward the eye, from where each stands"
+        );
+
+        let eye = billboard_eye(
+            &camera,
+            &Projection::Orthographic(OrthographicProjection::default_3d()),
+        );
+        let back = Vec3::from(camera.back());
+        assert_eq!(eye.toward(left), back);
+        assert_eq!(eye.toward(right), back);
     }
 }

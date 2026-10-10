@@ -308,6 +308,11 @@ pub(super) fn register(app: &mut App, spec: &WorldSpec, walker: Option<WalkerSpe
     crate::register_headless_atmosphere(app);
     // The game's zoom-following shadow reach, fed from the rig (#1475).
     crate::shadow_reach::register(app, super::headless::follow_rig_zoom);
+    // An orthographic rig's scale, before the camera's matrices (#1603).
+    app.add_systems(
+        PostUpdate,
+        super::headless::follow_rig_lens.before(bevy::camera::CameraUpdateSystems),
+    );
     app.init_resource::<LocalSettings>()
         .init_resource::<crate::diagnostics::MetricsRegistry>()
         .insert_resource(LiveRoomRecord(spec.record.clone()))
@@ -334,26 +339,35 @@ pub(super) fn stand_in_for_patch(app: &mut App, [x, z]: [f32; 2]) {
 /// loop steers it like any other.
 ///
 /// `fov` is `--fov` (#1546): a vertical field of view in degrees for a shot
-/// on another lens than the game's, which is Bevy's default.
+/// on another lens than the game's, which is Bevy's default. `ortho` is
+/// `--ortho` (#1603): the game's orthographic lens instead, its scale
+/// following the rig ([`super::headless::follow_rig_lens`]).
 pub(super) fn spawn_world_camera(
     commands: &mut Commands,
     target: Handle<Image>,
     editor: bool,
     fov: Option<f32>,
+    ortho: bool,
 ) {
-    let lens = PerspectiveProjection::default();
+    // The game's far plane: the cloud deck, the sky cuboid and a Berlin
+    // region's far field stay inside the frustum.
+    let projection = if ortho {
+        Projection::Orthographic(crate::camera::orthographic_lens(
+            crate::config::camera::ORBIT_RADIUS,
+        ))
+    } else {
+        let lens = crate::camera::perspective_lens();
+        Projection::from(PerspectiveProjection {
+            fov: fov.map_or(lens.fov, f32::to_radians),
+            ..lens
+        })
+    };
     let mut camera = commands.spawn((
         Camera3d::default(),
         WorldCamera,
         RenderTarget::Image(target.into()),
         Msaa::Sample4,
-        // The game's far plane: the cloud deck, the sky cuboid and a Berlin
-        // region's far field stay inside the frustum.
-        Projection::from(PerspectiveProjection {
-            far: crate::config::camera::FAR_PLANE_M,
-            fov: fov.map_or(lens.fov, f32::to_radians),
-            ..lens
-        }),
+        projection,
         // Shore foam reads the opaque prepass depth (see `camera.rs`).
         DepthPrepass,
         crate::camera::default_distance_fog(),

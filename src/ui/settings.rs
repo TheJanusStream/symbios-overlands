@@ -124,6 +124,24 @@ pub fn settings_ui(
                 ui.add_space(8.0);
                 ui.separator();
                 ui.strong("Camera");
+                // #1603: the same free orbit under either lens.
+                ui.label("Projection:");
+                ui.horizontal(|ui| {
+                    for (orthographic, label, hover) in [
+                        (false, "Perspective", "Distant things look smaller."),
+                        (
+                            true,
+                            "Orthographic",
+                            "Nothing shrinks with distance, as on a map. The camera \
+                         looks down at least 20 degrees.",
+                        ),
+                    ] {
+                        dirty |= ui
+                            .selectable_value(&mut s.orthographic_camera, orthographic, label)
+                            .on_hover_text(hover)
+                            .changed();
+                    }
+                });
                 ui.label("Ground avoidance:");
                 ui.horizontal(|ui| {
                     for mode in [

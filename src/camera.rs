@@ -6,8 +6,38 @@
 //! its `target_yaw` is rotated by the delta of the chassis yaw so
 //! steering rotates the world around the player instead of whipping
 //! the view around.
+//!
+//! The player may choose an orthographic camera (#1603,
+//! [`crate::state::LocalSettings::orthographic_camera`]): nothing shrinks
+//! with distance. The orbit is the same free orbit - the crate turns its
+//! zoom into the projection's scale - with three adjustments:
+//!
+//! - **The lens is calibrated to the orbit's radius** ([`orthographic_lens`]):
+//!   at its focus it frames what the perspective lens frames from that far
+//!   away, so the radius keeps its meaning - the zoom limits, the shadow
+//!   reach, the AI agent's camera commands - and a switch keeps the view.
+//! - **The camera stands where a perspective one would**
+//!   ([`stand_orthographic_camera`]): the crate parks an orthographic camera
+//!   halfway to its far plane, kilometres off, and every distance taken from
+//!   the camera - draw distances, the hair's far tier, the fog, the shadow
+//!   cascades, the listening ear, the cloud deck overhead - would follow it
+//!   there.
+//! - **It looks down at least 20 degrees** ([`cfg::ORTHO_PITCH_LOWER_LIMIT`]):
+//!   an orthographic view has no horizon, so a level look shows a wall of
+//!   terrain under a flat band of sky.
+//!
+//! The orthographic view is a box as wide at the camera as at its focus, so
+//! it reaches back behind the camera ([`cfg::ORTHO_BACK_SHARE`]) - cut off
+//! at the camera, it would slice the ground and the buildings beside it -
+//! and the cloud deck is hidden under it (`clouds::hide_cloud_deck`):
+//! looking down, an orthographic view never shows the sky the deck hangs
+//! in, and a box that tall would hold the deck between the camera and the
+//! ground. Distances are still taken from where the camera stands, so a
+//! detail tier judged for the perspective lens - the hair's far tier - turns
+//! with distance as before, though nothing on screen shrinks.
 
 use bevy::audio::SpatialListener;
+use bevy::camera::ScalingMode;
 #[cfg(not(target_arch = "wasm32"))]
 use bevy::core_pipeline::prepass::DepthPrepass;
 use bevy::pbr::{DistanceFog, FogFalloff};
@@ -40,6 +70,16 @@ impl Plugin for CameraPlugin {
                 PostUpdate,
                 (
                     gate_camera_on_gui.before(PanOrbitCameraSystemSet),
+                    // Before the crate, so it lays a new lens out on the
+                    // frame it is chosen (#1603).
+                    follow_projection_setting.before(PanOrbitCameraSystemSet),
+                    // After the crate has written the camera Transform and
+                    // before the terrain clamp reads it (#1603).
+                    stand_orthographic_camera
+                        .after(PanOrbitCameraSystemSet)
+                        .before(clamp_camera_to_terrain)
+                        .before(bevy::transform::TransformSystems::Propagate)
+                        .before(bevy::camera::CameraUpdateSystems),
                     // After the crate has written the camera Transform,
                     // before propagation snapshots it for rendering.
                     clamp_camera_to_terrain
@@ -386,6 +426,101 @@ pub fn egui_global_settings() -> EguiGlobalSettings {
     }
 }
 
+/// The world camera's perspective lens: Bevy's default 45 degrees, its far
+/// plane past a Berlin region's horizon ([`cfg::FAR_PLANE_M`]).
+pub(crate) fn perspective_lens() -> PerspectiveProjection {
+    PerspectiveProjection {
+        far: cfg::FAR_PLANE_M,
+        ..default()
+    }
+}
+
+/// How tall a slice of the world [`perspective_lens`] shows a metre in
+/// front of it (#1603): `2 tan(fov / 2)`, 0.83 for Bevy's 45 degrees.
+fn height_per_metre() -> f32 {
+    2.0 * (PerspectiveProjection::default().fov / 2.0).tan()
+}
+
+/// The world camera's orthographic lens (#1603), framing at its focus what
+/// [`perspective_lens`] frames from `distance` away: its `scale` IS that
+/// distance. `bevy_panorbit_camera` writes an orthographic camera's orbit
+/// radius into its scale, so the radius keeps its meaning under either
+/// lens - the zoom limits, the shadow reach and the AI agent's camera
+/// commands with it - and a switch between the lenses keeps the view.
+pub(crate) fn orthographic_lens(distance: f32) -> OrthographicProjection {
+    OrthographicProjection {
+        near: -cfg::ORTHO_BACK_SHARE * distance,
+        far: cfg::FAR_PLANE_M,
+        scaling_mode: ScalingMode::FixedVertical {
+            viewport_height: height_per_metre(),
+        },
+        scale: distance,
+        ..OrthographicProjection::default_3d()
+    }
+}
+
+/// Give the world camera the lens the player chose (#1603): perspective, or
+/// [`orthographic_lens`] at the orbit's radius, under which the orbit may
+/// look no less than [`cfg::ORTHO_PITCH_LOWER_LIMIT`] down - the crate eases
+/// a lower pitch up to it. Runs before the orbit crate, which lays the new
+/// lens out on the same frame (`force_update`). Writes nothing while the
+/// lens already matches.
+fn follow_projection_setting(
+    settings: Res<crate::state::LocalSettings>,
+    mut cameras: Query<(&mut Projection, &mut PanOrbitCamera), IsWorldCamera>,
+) {
+    let orthographic = settings.orthographic_camera;
+    for (mut projection, mut orbit) in cameras.iter_mut() {
+        if matches!(*projection, Projection::Orthographic(_)) == orthographic {
+            continue;
+        }
+        let radius = orbit.radius.unwrap_or(cfg::ORBIT_RADIUS);
+        *projection = if orthographic {
+            Projection::Orthographic(orthographic_lens(radius))
+        } else {
+            Projection::Perspective(perspective_lens())
+        };
+        orbit.pitch_lower_limit = Some(if orthographic {
+            cfg::ORTHO_PITCH_LOWER_LIMIT
+        } else {
+            cfg::PITCH_LOWER_LIMIT
+        });
+        orbit.force_update = true;
+    }
+}
+
+/// Stand an orthographic world camera where a perspective one framing the
+/// same view would stand (#1603): its lens's scale - the orbit's radius -
+/// from its focus, back along its view. The orbit crate parks an
+/// orthographic camera halfway to its far plane, kilometres off, and every
+/// distance taken from the camera would follow it there: draw distances,
+/// the hair's far tier, the fog, the shadow cascades, the listening ear.
+///
+/// Only a camera FARTHER than that from its focus is moved: the crate has
+/// just parked it, having moved. One nearer is where the terrain clamp
+/// pulled it in, as a perspective camera stays pulled in until the orbit
+/// next moves. The lens's near plane follows its scale, which the crate
+/// writes and leaves the near plane behind ([`cfg::ORTHO_BACK_SHARE`]).
+/// Writes only what moved.
+fn stand_orthographic_camera(
+    mut cameras: Query<(&PanOrbitCamera, &mut Projection, &mut Transform), IsWorldCamera>,
+) {
+    for (orbit, mut projection, mut transform) in cameras.iter_mut() {
+        let Projection::Orthographic(lens) = &*projection else {
+            continue;
+        };
+        let scale = lens.scale;
+        let near = -cfg::ORTHO_BACK_SHARE * scale;
+        let stale_near = lens.near != near;
+        if stale_near && let Projection::Orthographic(lens) = &mut *projection {
+            lens.near = near;
+        }
+        if transform.translation.distance(orbit.focus) > scale + 1e-3 {
+            transform.translation = orbit.focus + transform.rotation * Vec3::Z * scale;
+        }
+    }
+}
+
 /// The world camera's atmospheric haze at the config defaults - what the
 /// camera spawns with before the first room's `Environment` re-tints it
 /// (`world_builder::compile::apply_environment_state` patches every
@@ -444,10 +579,7 @@ fn spawn_orbit_camera(mut commands: Commands) {
         // The projection is infinite reverse-Z, so the far plane bounds
         // frustum culling only and costs no depth precision; see
         // `FAR_PLANE_M`.
-        Projection::from(PerspectiveProjection {
-            far: cfg::FAR_PLANE_M,
-            ..default()
-        }),
+        Projection::from(perspective_lens()),
         // Opaque depth prepass. The transparent water material is
         // `AlphaMode::Blend` and keeps `enable_prepass() -> false`, so
         // it never *writes* prepass depth (writing it would occlude
@@ -582,6 +714,191 @@ fn follow_local_player(
 mod tests {
     use super::*;
     use bevy::MinimalPlugins;
+
+    /// The orthographic lens frames, at its focus, what the perspective
+    /// lens frames from its scale away (#1603): a point half the framed
+    /// height above the focus lands on the top edge of the view under both,
+    /// at the closest zoom, at rest and at the farthest.
+    #[test]
+    fn the_orthographic_lens_frames_what_the_perspective_lens_does() {
+        use bevy::camera::CameraProjection;
+        for distance in [
+            cfg::ZOOM_LOWER_LIMIT,
+            cfg::ORBIT_RADIUS,
+            cfg::ZOOM_UPPER_LIMIT,
+        ] {
+            let mut orthographic = orthographic_lens(distance);
+            orthographic.update(1920.0, 1080.0);
+            let mut perspective = perspective_lens();
+            perspective.update(1920.0, 1080.0);
+            let top = Vec4::new(0.0, distance * height_per_metre() / 2.0, -distance, 1.0);
+            for (lens, clip) in [
+                ("orthographic", orthographic.get_clip_from_view()),
+                ("perspective", perspective.get_clip_from_view()),
+            ] {
+                let ndc = clip * top;
+                let y = ndc.y / ndc.w;
+                assert!((y - 1.0).abs() < 1e-4, "{lens} at {distance} m: {y}");
+            }
+        }
+    }
+
+    /// An orthographic camera's view reaches back far enough behind it that,
+    /// looking down at the pitch floor on flat ground, the foot of the frame
+    /// starts above the focus - not under the ground, where the frame showed
+    /// a band of sky (#1603, the critic's finding) - at the closest zoom, at
+    /// rest and at the farthest.
+    #[test]
+    fn an_orthographic_view_clears_the_ground_at_the_pitch_floor() {
+        use bevy::camera::CameraProjection;
+        let pitch = cfg::ORTHO_PITCH_LOWER_LIMIT;
+        for distance in [
+            cfg::ZOOM_LOWER_LIMIT,
+            cfg::ORBIT_RADIUS,
+            cfg::ZOOM_UPPER_LIMIT,
+        ] {
+            let mut lens = orthographic_lens(distance);
+            lens.update(1920.0, 1080.0);
+            let focus = Vec3::new(0.0, 1.0, 0.0);
+            let eye = focus + Vec3::new(0.0, pitch.sin(), pitch.cos()) * distance;
+            let camera = Transform::from_translation(eye).looking_at(focus, Vec3::Y);
+            // The near face's bottom edge, at view depth `-near`.
+            let foot = camera.transform_point(Vec3::new(0.0, lens.area.min.y, -lens.near));
+            assert!(
+                foot.y > focus.y,
+                "at {distance} m the view starts {} m under the focus",
+                focus.y - foot.y
+            );
+        }
+    }
+
+    /// Choosing the orthographic camera swaps in its lens at the orbit's
+    /// radius, raises the pitch floor and has the orbit lay it out at once;
+    /// choosing perspective again puts both back (#1603). Nothing is written
+    /// while the lens already matches.
+    #[test]
+    fn the_lens_follows_the_setting() {
+        let mut app = App::new();
+        app.insert_resource(crate::state::LocalSettings::default());
+        app.add_systems(Update, follow_projection_setting);
+        let camera = app
+            .world_mut()
+            .spawn((
+                WorldCamera,
+                Projection::Perspective(perspective_lens()),
+                PanOrbitCamera {
+                    radius: Some(30.0),
+                    pitch_lower_limit: Some(cfg::PITCH_LOWER_LIMIT),
+                    ..default()
+                },
+            ))
+            .id();
+        app.update();
+        let changed = |app: &App| {
+            app.world()
+                .entity(camera)
+                .get_ref::<Projection>()
+                .expect("a lens")
+                .last_changed()
+        };
+        let before = changed(&app);
+        app.update();
+        assert_eq!(changed(&app), before, "a matching lens is not written");
+
+        app.world_mut()
+            .resource_mut::<crate::state::LocalSettings>()
+            .orthographic_camera = true;
+        app.update();
+        let Some(Projection::Orthographic(lens)) = app.world().get::<Projection>(camera) else {
+            panic!("an orthographic lens");
+        };
+        assert_eq!(lens.scale, 30.0, "at the orbit's radius");
+        let orbit = app.world().get::<PanOrbitCamera>(camera).expect("an orbit");
+        assert_eq!(orbit.pitch_lower_limit, Some(cfg::ORTHO_PITCH_LOWER_LIMIT));
+        assert!(orbit.force_update, "laid out on the frame it is chosen");
+
+        app.world_mut()
+            .get_mut::<PanOrbitCamera>(camera)
+            .expect("an orbit")
+            .force_update = false;
+        app.world_mut()
+            .resource_mut::<crate::state::LocalSettings>()
+            .orthographic_camera = false;
+        app.update();
+        assert!(matches!(
+            app.world().get::<Projection>(camera),
+            Some(Projection::Perspective(_))
+        ));
+        let orbit = app.world().get::<PanOrbitCamera>(camera).expect("an orbit");
+        assert_eq!(orbit.pitch_lower_limit, Some(cfg::PITCH_LOWER_LIMIT));
+        assert!(orbit.force_update);
+    }
+
+    /// An orthographic world camera the orbit crate has parked halfway to
+    /// its far plane stands its lens's scale from its focus, back along its
+    /// view, as a perspective one would (#1603); one the terrain clamp has
+    /// pulled in is left there; a perspective camera is the crate's alone.
+    #[test]
+    fn an_orthographic_camera_stands_where_a_perspective_one_would() {
+        let mut app = App::new();
+        app.add_systems(Update, stand_orthographic_camera);
+        let focus = Vec3::new(5.0, 2.0, -3.0);
+        let rotation = Quat::from_euler(EulerRot::YXZ, 0.7, -0.5, 0.0);
+        let parked = focus + rotation * Vec3::Z * (cfg::FAR_PLANE_M / 2.0);
+        let camera = app
+            .world_mut()
+            .spawn((
+                WorldCamera,
+                Projection::Orthographic(orthographic_lens(40.0)),
+                PanOrbitCamera { focus, ..default() },
+                Transform {
+                    translation: parked,
+                    rotation,
+                    ..default()
+                },
+            ))
+            .id();
+        app.update();
+        let at = |app: &App| *app.world().get::<Transform>(camera).expect("placed");
+        let stand = focus + rotation * Vec3::Z * 40.0;
+        assert!(
+            at(&app).translation.distance(stand) < 1e-2,
+            "{}",
+            at(&app).translation
+        );
+        assert_eq!(at(&app).rotation, rotation, "its view is the crate's");
+
+        let pulled = focus + rotation * Vec3::Z * 15.0;
+        app.world_mut()
+            .get_mut::<Transform>(camera)
+            .expect("placed")
+            .translation = pulled;
+        app.update();
+        assert_eq!(at(&app).translation, pulled, "the clamp's pull is kept");
+
+        // The crate zooms out by writing the scale alone: the near plane
+        // follows it.
+        if let Some(Projection::Orthographic(lens)) =
+            app.world_mut().get_mut::<Projection>(camera).as_deref_mut()
+        {
+            lens.scale = 60.0;
+        }
+        app.update();
+        let Some(Projection::Orthographic(lens)) = app.world().get::<Projection>(camera) else {
+            panic!("an orthographic lens");
+        };
+        assert_eq!(lens.near, -cfg::ORTHO_BACK_SHARE * 60.0);
+
+        *app.world_mut()
+            .get_mut::<Projection>(camera)
+            .expect("a lens") = Projection::Perspective(perspective_lens());
+        app.world_mut()
+            .get_mut::<Transform>(camera)
+            .expect("placed")
+            .translation = parked;
+        app.update();
+        assert_eq!(at(&app).translation, parked, "perspective is the crate's");
+    }
 
     /// #1561: a sound to the listener's right is louder in its right ear, one
     /// to its left in its left, and one straight ahead in neither.

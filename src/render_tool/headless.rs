@@ -403,6 +403,10 @@ pub(super) struct RenderJob {
     /// `--fov`: the world camera's vertical field of view in degrees, when
     /// not the game's lens.
     pub(super) fov: Option<f32>,
+    /// `--ortho`: the world camera draws through the game's orthographic
+    /// lens (#1603), its scale following the rig's distance
+    /// ([`follow_rig_lens`]).
+    pub(super) ortho: bool,
 }
 
 impl RenderJob {
@@ -672,7 +676,7 @@ pub(super) fn setup(
         let target = images.add(new_target(job.tile));
         targets.push(target.clone());
         if matches!(job.subject, Subject::World(_)) {
-            spawn_world_camera(&mut commands, target, editor.is_some(), job.fov);
+            spawn_world_camera(&mut commands, target, editor.is_some(), job.fov, job.ortho);
             continue;
         }
         commands.spawn((
@@ -1833,6 +1837,25 @@ pub(super) fn follow_rig_zoom(
     );
 }
 
+/// `--ortho` (#1603): the rig camera's orthographic lens framed as the
+/// game's is - its scale the distance from where [`aim_rig`] stood the
+/// camera to the point it aimed it at, the perspective framing from there
+/// (`camera::orthographic_lens`). Before Bevy derives the camera's matrices,
+/// so the frame drawn is the frame aimed. Writes only a changed scale.
+pub(super) fn follow_rig_lens(
+    capture: Res<Capture>,
+    mut cameras: Query<(&Transform, &mut Projection), IsWorldCamera>,
+) {
+    let (Some(look), Ok((camera, mut projection))) = (capture.look, cameras.single_mut()) else {
+        return;
+    };
+    let scale = camera.translation.distance(look);
+    let stale = matches!(&*projection, Projection::Orthographic(lens) if lens.scale != scale);
+    if stale && let Projection::Orthographic(lens) = &mut *projection {
+        lens.scale = scale;
+    }
+}
+
 /// Write the clip: the GIF, and the PNG frames beside it on request, both at
 /// `--downscale`.
 fn finish_clip(capture: &Capture, job: &RenderJob) -> Result<(), String> {
@@ -2426,6 +2449,7 @@ mod tests {
             warmup: WARMUP,
             clip_step: 0.1,
             fov: None,
+            ortho: false,
         });
         let cam = world
             .spawn((

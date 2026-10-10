@@ -123,3 +123,65 @@ pub fn track_cloud_layer_to_camera(
         transform.translation.z = cam.z;
     }
 }
+
+/// Hide the cloud deck under an orthographic world camera (#1603), and show
+/// it again under a perspective one. Looking down, as an orthographic camera
+/// always does, the view never shows the sky the deck hangs in; and that
+/// view is a box reaching back behind the camera, tall enough at a wide zoom
+/// to hold the deck between the camera and the ground - a sheet of cloud
+/// over the frame. Writes only a change.
+pub fn hide_cloud_deck(
+    camera: Query<&Projection, crate::camera::IsWorldCamera>,
+    mut decks: Query<&mut Visibility, With<CloudLayer>>,
+) {
+    let Ok(projection) = camera.single() else {
+        return;
+    };
+    let wanted = match projection {
+        Projection::Orthographic(_) => Visibility::Hidden,
+        _ => Visibility::Inherited,
+    };
+    for mut visibility in decks.iter_mut() {
+        if *visibility != wanted {
+            *visibility = wanted;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The deck is hidden while the world camera is orthographic and shown
+    /// again when it is not (#1603).
+    #[test]
+    fn the_deck_hides_under_an_orthographic_camera() {
+        let mut app = App::new();
+        app.add_systems(Update, hide_cloud_deck);
+        let camera = app
+            .world_mut()
+            .spawn((
+                Camera3d::default(),
+                crate::camera::WorldCamera,
+                Projection::Orthographic(OrthographicProjection::default_3d()),
+            ))
+            .id();
+        let deck = app
+            .world_mut()
+            .spawn((CloudLayer, Visibility::Inherited))
+            .id();
+        app.update();
+        assert_eq!(
+            app.world().get::<Visibility>(deck),
+            Some(&Visibility::Hidden)
+        );
+        *app.world_mut()
+            .get_mut::<Projection>(camera)
+            .expect("a lens") = Projection::Perspective(default());
+        app.update();
+        assert_eq!(
+            app.world().get::<Visibility>(deck),
+            Some(&Visibility::Inherited)
+        );
+    }
+}
