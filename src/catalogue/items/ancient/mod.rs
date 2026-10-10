@@ -23,6 +23,9 @@ pub mod monument;
 pub mod observatory;
 pub mod ruined_temple;
 pub mod stone_circle;
+pub mod street_block;
+pub mod street_house;
+pub mod street_low;
 pub mod villa;
 pub mod ziggurat;
 // Established (town) secondaries + props - primitive-built.
@@ -47,8 +50,9 @@ use bevy_symbios_texture::metal::MetalStyle;
 use super::util::{ageing, tile, tiles_per_metre};
 
 use crate::pds::{
-    Fp, Fp3, Fp64, SovereignAshlarConfig, SovereignMarbleConfig, SovereignMaterialSettings,
-    SovereignMetalConfig, SovereignStuccoConfig, SovereignTextureConfig,
+    Fp, Fp3, Fp64, SovereignAshlarConfig, SovereignBrickConfig, SovereignMarbleConfig,
+    SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig, SovereignShingleConfig,
+    SovereignStuccoConfig, SovereignTextureConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
@@ -154,6 +158,70 @@ pub(super) fn bronze(color: [f32; 3]) -> SovereignMaterialSettings {
             metallic: Fp(0.85),
             rust_level: Fp64(0.35),
             weathering: ageing::verdigris(0x34, 0.9),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+/// Fired roof tiles - the low-pitched tegula-and-imbrex roofs of the
+/// street buildings (#1598): warm terracotta laid in overlapping courses.
+pub(super) fn roof_tile(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.7),
+        uv_scale: tiles_per_metre(tile::SHINGLE),
+        texture: SovereignTextureConfig::Shingle(SovereignShingleConfig {
+            color_tile: Fp3(color),
+            color_grout: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.55, 0.5, 0.48],
+            )),
+            scale: Fp64(6.0),
+            shape_profile: Fp64(0.6),
+            overlap: Fp64(0.35),
+            moss_level: Fp64(0.08),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+/// Opus latericium - the thin fired bricks of an insula's walls (#1598),
+/// long and flat in thick pale mortar.
+pub(super) fn brick(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.88),
+        uv_scale: tiles_per_metre(tile::BRICK),
+        texture: SovereignTextureConfig::Brick(SovereignBrickConfig {
+            color_brick: Fp3(color),
+            color_mortar: Fp3([0.80, 0.76, 0.68]),
+            scale: Fp64(7.0),
+            cell_variance: Fp64(0.25),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+/// Sawn and oiled timber - the maeniana balconies, shutters and doors of
+/// the street buildings (#1598).
+pub(super) fn wood(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.8),
+        uv_scale: tiles_per_metre(tile::PLANK_BOARD * 6.0),
+        texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
+            color_wood_light: Fp3(crate::catalogue::items::util::tint(color, [1.2, 1.2, 1.2])),
+            color_wood_dark: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.62, 0.62, 0.62],
+            )),
+            plank_count: Fp64(6.0),
+            knot_density: Fp64(0.2),
+            grain_warp: Fp64(0.35),
+            stagger: Fp64(0.0),
             ..Default::default()
         }),
         ..Default::default()

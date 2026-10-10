@@ -1,0 +1,131 @@
+// The hive's long block (#1598): a hive body of brood cells. See
+// street_block.rs for the block, and catalogue::items::street for the
+// conventions and for what is declared ahead of these rules and after them.
+
+const WallD = 0.42
+const PaneSet = 0.28
+const PlinthH = 0.6
+const StepH = 0.5
+const RollH = 0.6
+const ParapetH = 1.0
+const BroodH = 3.0
+// One gullet to a section, as a slab is built: a maw at street level, the
+// gullet climbing over it, a brood sac on the roof. Under twelve metres so
+// the steps' frontages, less the party walls, hold two, three and four of
+// them: a Repeat floors its count.
+const SectionW = 11.5
+
+// -- 1. The body: its shell rolled once, then foot, segments, parapet --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + ParapetH + BroodH) Shell
+Shell --> 30% Mat("ChitinViolet") Massing | 25% Mat("ChitinGreen") Massing
+    | 25% Mat("ChitinAmber") Massing | 20% Mat("ChitinRust") Massing
+Massing --> Split(Y) { GroundH: Ground | ~1: Uppers | ParapetH: Parapet | BroodH: RoofTop }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+Rib --> Extrude(WallD + 0.28) Mat("Rib") I("Rib")
+Brow --> Extrude(WallD + 0.2) Mat("Lip") I("Lip")
+
+// -- 2. The foot: a fleshy storey under a sinew band, a maw a section --
+Ground --> Mat("Foot") Comp(Faces) { Front: GroundFace | Back: RearGroundInset
+    | Left: PartyIn | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFace --> Split(Y) { ~1: GroundFrontInset | 0.3: Sinew }
+Sinew --> Extrude(0.14) Mat("Sinew") I("Trim")
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> Repeat(X, SectionW) { GroundSection }
+GroundSection --> Split(X) { ~1: GroundRun | 2.6: Maw | ~1: GroundRun }
+GroundRun --> when(Trade == 1): StallRun | else: PodRun
+StallRun --> Repeat(X, 4.2) { StallBay }
+StallBay --> Split(X) { 0.36: Rib | ~1: StallWin }
+StallWin --> Split(Y) { PlinthH: Wall | ~1: ShopGlazing | 0.55: SporeBand }
+SporeBand --> Extrude(WallD + 0.06) Mat("Spore") I("Fascia")
+PodRun --> Repeat(X, 2.9) { PodBay }
+PodBay --> Split(X) { ~1: Wall | 1.4: GroundPod | ~1: Wall }
+GroundPod --> Split(Y) { 1.2: Wall | 1.4: Glazing | 0.16: Brow | ~1: Wall }
+// The maw: a fleshy leaf up a chitin step, under a fleshy brow.
+Maw --> Split(X) { 0.3: Wall | ~1: MawCol | 0.3: Wall }
+MawCol --> Split(Y) { StepH: Step | 2.3: MawLeaf | 0.25: MawBrow | ~1: Wall }
+Step --> Extrude(WallD + 0.35) Mat("Carapace") I("Trim")
+MawLeaf --> Extrude(WallD - 0.2) Mat("Flesh") I("Door")
+MawBrow --> Extrude(WallD + 1.0) Mat("Lip") I("Canopy")
+// The back: pods over high sills.
+RearGroundInset --> Split(X) { WallD: NIL | ~1: RearGroundIn | WallD: NIL }
+RearGroundIn --> Translate(0, 0, -WallD) RearGround
+RearGround --> Repeat(X, 3.6) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.4: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.2: Wall | 1.4: Glazing | ~1: Wall }
+
+// -- 3. The brood segments: a sinew joint at each floor, cells between
+// ribs, the gullet on each section's axis, and sac ledges at the ends of
+// its runs where the block has them --
+Uppers --> Comp(Faces) { Front: UpperFrontInset | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperFrontInset --> Split(X) { WallD: NIL | ~1: UpperFrontIn | WallD: NIL }
+UpperFrontIn --> Translate(0, 0, -WallD) UpperFront
+UpperFront --> Repeat(Y, FloorH) { Storey }
+Storey --> Split(Y) { ~1: Band | RollH: Roll }
+// A fleshy roll at each floor: a tube laid along the street, half sunk in
+// the shell, a wall behind it; the body reads as its segments.
+Roll --> Extrude(WallD + 0.32) Split(Z) { WallD - 0.14: RollBack | ~1: RollTube }
+RollBack --> I("Wall")
+RollTube --> Translate(scope.x, 0, 0) Rotate(0.70710678, 0, 0, 0.70710678)
+    Size(scope.y, scope.x, scope.z) Mat("Sinew") I("Tube")
+Band --> Repeat(X, SectionW) { Section }
+Section --> Split(X) { ~1: Run | 2.4: Gullet | ~1: Run }
+Run --> when(split.i == 0): Split(X) { ~1: Wall | 1.6: OuterCol | ~0.5: Wall | 0.36: Rib
+    | ~0.5: Wall | 1.6: CellCol | ~1: Wall }
+    | else: Split(X) { ~1: Wall | 1.6: CellCol | ~0.5: Wall | 0.36: Rib | ~0.5: Wall
+    | 1.6: OuterCol | ~1: Wall }
+OuterCol --> Pick("sacs") { 50% SacCol | 50% CellCol }
+// Each cell its own size: the hive grows them, nobody lays them out.
+CellCol --> 40% CellMid | 30% CellTall | 30% CellLow
+CellMid --> Split(Y) { 0.55: Wall | 1.45: Glazing | 0.16: Brow | ~1: Wall }
+CellTall --> Split(Y) { 0.3: Wall | 1.75: Glazing | 0.16: Brow | ~1: Wall }
+CellLow --> Split(Y) { 0.75: Wall | 1.05: Glazing | 0.16: Brow | ~1: Wall }
+SacCol --> Split(Y) { 0.8: Sac | 1.35: Glazing | 0.16: Brow | ~1: Wall }
+Sac --> Extrude(WallD + 1.1) Mat("Flesh") I("Pod")
+// The gullet: a fleshy tube a storey, ringed by a rib at each floor.
+Gullet --> Split(X) { 0.2: Wall | ~1: GulletCol | 0.2: Wall }
+GulletCol --> Split(Y) { ~1: TubeRow | 0.3: TubeHoop }
+TubeRow --> Split(X) { 0.15: Wall | ~1: Tube | 0.15: Wall }
+Tube --> Extrude(WallD + 0.7) Split(Z) { WallD - 0.2: TubeBack | ~1: TubeOut }
+TubeBack --> I("Wall")
+TubeOut --> Mat("Flesh") I("Tube")
+TubeHoop --> Extrude(WallD + 0.85) Split(Z) { WallD - 0.2: TubeBack | ~1: HoopOut }
+HoopOut --> Mat("Rib") I("Hoop")
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) RearUpper
+RearUpper --> Repeat(Y, FloorH) { RearStorey }
+RearStorey --> Split(Y) { ~1: RearBand | RollH: Roll }
+RearBand --> Repeat(X, 6.0) { RearUpperBay }
+RearUpperBay --> Split(X) { ~1: Wall | 1.6: RearUpperWindow | ~1: Wall }
+RearUpperWindow --> Split(Y) { 0.8: Wall | 1.5: Glazing | ~1: Wall }
+
+// -- 4. The parapet, its rib coping, and the deck inside it --
+Parapet --> Comp(Faces) { Front: ParapetFace | Back: ParapetFace | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+ParapetFace --> Split(Y) { ~1: ParapetInset | 0.2: Coping }
+ParapetInset --> Split(X) { WallD: NIL | ~1: ParapetIn | WallD: NIL }
+ParapetIn --> Translate(0, 0, -WallD) Wall
+Coping --> Extrude(0.12) Mat("Carapace") I("Shell")
+// The deck fills the ring inside the parapet's walls, so no face of it
+// lies in theirs: the bottom face's inward is up.
+Deck --> Translate(WallD, WallD, -0.2) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("Deck") I("Roof")
+
+// -- 5. Over each gullet, set down to the deck: a brood sac or spines --
+RoofTop --> Repeat(X, SectionW) { RoofSection }
+RoofSection --> Split(X) { ~1: NIL | 4.4: BroodSlot | ~1: NIL }
+BroodSlot --> Split(Z) { ~1: NIL | ~2: Brood | ~1: NIL }
+Brood --> Translate(0, 0.2 - ParapetH, 0) Size(scope.x, ParapetH - 0.2 + BroodH, scope.z)
+    BroodKind
+BroodKind --> Pick("brood") { 55% BroodSac | 45% SpineCluster }
+BroodSac --> Split(Y) { ~1: SacBody | 0.6: SacTip }
+SacBody --> Mat("Flesh") I("Pod")
+SacTip --> Split(X) { ~1: NIL | ~1: SacTipX | ~1: NIL }
+SacTipX --> Split(Z) { ~1: NIL | ~1: SacGlow | ~1: NIL }
+SacGlow --> Mat("Spore") I("Pod")
+SpineCluster --> Split(X) { ~1: SpineA | ~1: NIL | ~1: SpineB }
+SpineA --> Split(Z) { ~1: Spine | ~1: NIL }
+SpineB --> Split(Z) { ~1: NIL | ~1: Spine }
+Spine --> Taper(1) Mat("Rib") I("Spike")

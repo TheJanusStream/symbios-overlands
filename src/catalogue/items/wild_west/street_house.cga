@@ -1,0 +1,136 @@
+// The frontier theme's street house (#1598): a false-front hotel. See
+// street_house.rs for the hotel, and catalogue::items::street for the
+// conventions and for what is declared ahead of these rules (Storeys, Trade,
+// Frontage, Depth, GroundH, FloorH) and after them (Glazing, ShopGlazing,
+// Wall).
+
+const WallD = 0.3
+const PaneSet = 0.12
+const StepH = 0.55
+const PlinthH = 0.6
+const CanopyH = 0.22
+// The boardwalk and the veranda reach this far out of the lot's front; a
+// post stands just inside their edge.
+const WalkOut = 1.75
+const PostOut = 1.55
+const PostD = 0.18
+// The false front: board thickness, and a height that grows with the
+// frontage, 1.5 + Frontage * 0.12, so it always hides the roof's gable
+// behind it.
+const FrontD = 0.3
+
+// -- 1. The hotel: its paint rolled once, then storeys and the false front --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + 1.5 + Frontage * 0.12) Paint
+Paint --> 24% Mat("ClapRed") Massing | 22% Mat("ClapWhite") Massing
+    | 20% Mat("ClapTan") Massing | 18% Mat("ClapOchre") Massing
+    | 16% Mat("ClapGreen") Massing
+Massing --> Split(Y) { GroundH: Ground | ~1: Uppers | 1.5 + Frontage * 0.12: Crown }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+
+// -- 2. The ground storey: the boardwalk, the veranda on its posts, and
+// shops or parlours behind them --
+Ground --> Comp(Faces) { Front: GroundFace | Back: RearGroundInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFace --> Split(Y) { StepH: Boardwalk | ~1: GroundMid | CanopyH: Canopy }
+// Plank decking a step high, the whole frontage: the sink buries most of
+// it, and every door of the front opens onto it.
+Boardwalk --> Extrude(WalkOut) Mat("Boardwalk") I("Boardwalk")
+Canopy --> Extrude(WalkOut) Mat("Tin") Split(Z) { ~1: CanopyDeck | 0.08: CanopyEdge }
+CanopyDeck --> I("Canopy")
+// The veranda's edge: a plain lip, or the rail of a gallery on its roof
+// (`Pick`ed once), balusters between a handrail and the lip.
+CanopyEdge --> Pick("gallery") { 45% GalleryRail | 55% CanopyDeck }
+GalleryRail --> Size(scope.x, CanopyH + 1.0, scope.z) Mat("Trim")
+    Split(Y) { CanopyH: CanopyDeck | ~1: Balusters | 0.1: Handrail }
+Balusters --> Repeat(X, 0.3) { BalusterBay }
+BalusterBay --> Split(X) { ~1: NIL | 0.07: Baluster | ~1: NIL }
+Baluster --> I("Balcony")
+Handrail --> I("Balcony")
+GroundMid --> Split(X) { WallD: EndPost | ~1: GroundFrontIn | WallD: EndPost }
+EndPost --> Extrude(PostOut) Split(Z) { ~1: NIL | PostD: Post }
+Post --> Mat("Post") I("Post")
+// A pier between two bays stands its post out at the veranda's edge.
+Pier --> Extrude(WallD + PostOut) Split(Z) { WallD: PierWall | ~1: NIL | PostD: Post }
+PierWall --> I("Wall")
+GroundFrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> when(Trade == 1): ShopFront | else: HomeFront
+ShopFront --> Split(X) { ~1: ShopRun | 2.2: Entrance | ~1: ShopRun }
+ShopRun --> Repeat(X, 3.6) { ShopBay }
+ShopBay --> Split(X) { 0.4: Pier | ~1: ShopUnit | 0.4: Wall }
+ShopUnit --> when(scope.x > 2.4): Split(X) { ~1: ShopWindow | 1.1: ShopDoor }
+    | else: ShopWindow
+ShopWindow --> Split(Y) { PlinthH: Wall | ~1: ShopGlazing | 0.45: Wall }
+ShopDoor --> Split(Y) { 2.4: DoorLeaf | ~1: Fanlight }
+DoorLeaf --> Extrude(WallD - 0.12) Mat("Door") I("Door")
+Fanlight --> Split(Y) { ~1: Glazing | 0.3: Wall }
+HomeFront --> Split(X) { ~1: HomeRun | 2.2: Entrance | ~1: HomeRun }
+HomeRun --> Repeat(X, 2.8) { HomeBay }
+HomeBay --> Split(X) { 0.4: Pier | ~1: Wall | 1.2: HomeWindow | ~1: Wall }
+HomeWindow --> Split(Y) { 0.75: Wall | 2.0: Glazing | ~1: Wall }
+// The hotel's door: a tall leaf under a fanlight.
+Entrance --> Split(X) { 0.3: Wall | ~1: EntranceDoor | 0.3: Wall }
+EntranceDoor --> Split(Y) { 2.6: DoorLeaf | ~1: Fanlight }
+// The yard side: windows over high sills.
+RearGroundInset --> Split(X) { WallD: NIL | ~1: RearGroundIn | WallD: NIL }
+RearGroundIn --> Translate(0, 0, -WallD) RearGround
+RearGround --> Repeat(X, 3.0) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.0: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.4: Wall | 1.6: Glazing | ~1: Wall }
+
+// -- 3. The hotel's storeys: tall sashes under board heads --
+Uppers --> Comp(Faces) { Front: UpperFrontInset | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperFrontInset --> Split(X) { WallD: NIL | ~1: UpperFrontIn | WallD: NIL }
+UpperFrontIn --> Translate(0, 0, -WallD) UpperFront
+UpperFront --> Repeat(Y, FloorH) { Storey }
+Storey --> Split(X) { 0.6: Wall | ~1: Bays | 0.6: Wall }
+Bays --> Repeat(X, 2.3) { WinBay }
+WinBay --> Split(X) { ~1: Wall | 1.0: WinCol | ~1: Wall }
+WinCol --> Split(Y) { 0.7: Wall | 0.1: Sill | 2.0: Glazing | 0.3: Head | ~1: Wall }
+Sill --> Extrude(WallD + 0.06) Mat("Trim") I("Trim")
+Head --> Extrude(WallD + 0.1) Mat("Trim") I("Trim")
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) RearUpper
+RearUpper --> Repeat(Y, FloorH) { RearStorey }
+RearStorey --> Repeat(X, 3.0) { RearUpperBay }
+RearUpperBay --> Split(X) { ~1: Wall | 1.0: RearUpperWindow | ~1: Wall }
+RearUpperWindow --> Split(Y) { 0.8: Wall | 1.8: Glazing | ~1: Wall }
+
+// -- 4. The false front over the street, a low tin roof behind it --
+// The roof's gable end stands a hand's breadth behind the false front, so
+// the two never share a plane.
+Crown --> Split(Z) { FrontD: FrontSlab | 0.06: NIL | ~1: RoofBox }
+FrontSlab --> Comp(Faces) { Front: FalseFace | Back: NIL | Left: NIL | Right: NIL
+    | Top: NIL | Bottom: NIL }
+FalseFace --> Translate(0, 0, -FrontD) FalseFront
+FalseFront --> Pick("front") { 40% FrontFlat | 35% FrontStepped | 25% FrontPediment }
+FrontFlat --> Split(Y) { ~1: FrontBody | 0.3: FrontCap }
+FrontStepped --> Split(X) { ~1: Shoulder | ~2.4: FrontFlat | ~1: Shoulder }
+Shoulder --> Split(Y) { ~2: Board | 0.3: FrontCap | ~1: NIL }
+FrontPediment --> Split(Y) { ~1: FrontBody | 0.3: FrontCap | 0.01: Pediment }
+Pediment --> Split(X) { ~1: NIL | ~1.6: PedMid | ~1: NIL }
+PedMid --> Extrude(FrontD + 0.12) Roof(Gable, 22, overhang=0, ridge=Z)
+    { Slope: PedSlope | GableEnd: PedFace }
+PedSlope --> Mat("Trim") I("Cornice")
+PedFace --> I("Wall")
+FrontBody --> Split(Y) { 0.45: Board | ~1: SignRow | 0.35: Board }
+SignRow --> Split(X) { ~1: Board | ~7: Sign | ~1: Board }
+Board --> Extrude(FrontD) I("Wall")
+FrontCap --> Extrude(FrontD + 0.24) Mat("Trim") I("Cornice")
+// The sign: a painted board with its lettering standing out of it.
+Sign --> Pick("sign") { 60% SignDark | 40% SignRed }
+SignDark --> Mat("Sign") SignBoard
+SignRed --> Mat("SignRed") SignBoard
+SignBoard --> Split(Y) { ~1: SignFill | ~2: Letters | ~1: SignFill }
+Letters --> Repeat(X, 0.6) { Glyph }
+// A letter or a space, glyph by glyph.
+Glyph --> 78% LetterGlyph | 22% SignFill
+LetterGlyph --> Split(X) { ~1: SignFill | 0.34: Letter | ~1: SignFill }
+SignFill --> Extrude(FrontD + 0.08) I("Fascia")
+Letter --> Extrude(FrontD + 0.12) Mat("Lettering") I("Fascia")
+// The roof: its gable to the street, hidden by the false front; its ends
+// the eaves over the party walls, where a row's roofs meet.
+RoofBox --> Roof(Gable, 14, overhang=0, ridge=Z) { Slope: TinRoof | GableEnd: Gable }
+TinRoof --> Mat("Tin") I("Roof")
+Gable --> I("Wall")

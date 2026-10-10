@@ -1103,13 +1103,19 @@ null` goes back to the generated ground.
 - **Berlin's buildings stand round the street-level ground** (#1587), out
   to about a kilometre past its edge: the theme's own catalogue buildings,
   one to each 30 m lot where Berlin has a building, the tallest Berlin
-  buildings taking the theme's landmarks. They are solid (#1596), keep
+  buildings taking the theme's landmarks and every other lot one of the
+  theme's three street buildings (#1598), its storeys by Berlin's height
+  there. They are solid (#1596), keep
   clear of `default_landing` and of every absolute placement's reach as
   the street level does, and are derived on every visit and not in the
   record: nothing an agent can place, move or delete.
 - **The walkable ground has Berlin's street level** (P2.2): the theme's
   catalogue buildings on each of Berlin's building footprints (in rows down
-  a long one, a landmark on a church or a large museum), every tree of the
+  a long one, a landmark on a church or a large museum) - since #1598 the
+  theme's street house, long block and low building, each copy as deep as
+  its footprint's row allows and as tall as Berlin's storeys, its frontage
+  one of its kind's few down the row, a shop's ground floor where Berlin's
+  use trades - every tree of the
   city's inventory as the catalogue species nearest its genus at its
   measured height, and the street furniture (lamps, benches, bins,
   bollards, shelters, signs, fountains, advertising columns, bike racks) as

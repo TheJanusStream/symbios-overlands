@@ -1,0 +1,132 @@
+// The pirate theme's street house (#1598): a Caribbean colonial
+// townhouse. See street_house.rs for the house, and catalogue::items::street
+// for the conventions and for what is declared ahead of these rules
+// (Storeys, Trade, Frontage, Depth, GroundH, FloorH) and after them
+// (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.5
+const PaneSet = 0.18
+const PlinthH = 0.7
+const CourseH = 0.3
+const StepH = 0.55
+const CrownH = 0.6
+const RoofH = 1.0
+// How far a gallery stands out of the wall's face.
+const GalleryOut = 1.25
+
+// -- 1. The house: its limewash rolled once, then storeys, cornice, roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + CrownH + RoofH) Limewash
+Limewash --> 22% Mat("Ochre") Massing | 20% Mat("Coral") Massing
+    | 20% Mat("SeaGreen") Massing | 18% Mat("Sky") Massing | 20% Mat("Lime") Massing
+Massing --> Split(Y) { GroundH: Ground | ~1: Uppers | CrownH: Crown | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+Trim --> Mat("Trim") I("Trim")
+
+// -- 2. The ground storey: coral stone, arched shop bays or parlours --
+Ground --> Mat("Stone") Comp(Faces) { Front: GroundFace | Back: RearGroundInset
+    | Left: PartyIn | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFace --> Split(Y) { ~1: GroundFrontInset | CourseH: Course }
+Course --> Extrude(0.14) Trim
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> when(Trade == 1): ShopFront | else: HomeFront
+ShopFront --> Split(X) { ~1: ShopRun | 2.3: Entrance | ~1: ShopRun }
+// A Repeat floors its count: a run narrower than one bay is one bay.
+ShopRun --> when(scope.x < 3.4): ShopBay | else: Repeat(X, 3.4) { ShopBay }
+ShopBay --> Split(X) { 0.5: Wall | ~1: ShopUnit | 0.5: Wall }
+ShopUnit --> when(scope.x > 2.2): Split(X) { ~1: ShopWindow | 1.0: ShopDoor }
+    | else: ShopWindow
+// Each opening under a band of dressed voussoirs, a keystone at its middle.
+ShopWindow --> Split(Y) { PlinthH: Wall | ~1: ShopGlazing | 0.5: Voussoirs | 0.3: Wall }
+ShopDoor --> Split(Y) { StepH: Step | 2.4: DoorLeaf | ~1: Glazing | 0.5: Voussoirs
+    | 0.3: Wall }
+Voussoirs --> Split(X) { ~1: Voussoir | 0.34: Keystone | ~1: Voussoir }
+Voussoir --> Extrude(WallD + 0.06) Trim
+Keystone --> Extrude(WallD + 0.14) Trim
+Step --> Extrude(WallD + 0.3) Trim
+DoorLeaf --> Extrude(WallD - 0.2) Mat("Door") I("Door")
+HomeFront --> Split(X) { ~1: HomeRun | 2.3: Entrance | ~1: HomeRun }
+HomeRun --> when(scope.x < 2.8): HomeBay | else: Repeat(X, 2.8) { HomeBay }
+HomeBay --> Split(X) { ~1: Wall | 1.3: HomeWindow | ~1: Wall }
+HomeWindow --> Split(Y) { 1.1: Wall | 2.2: Glazing | 0.4: Voussoirs | ~1: Wall }
+// The house door: a tall oak leaf under a fanlight, up a step.
+Entrance --> Split(X) { 0.3: Wall | ~1: EntranceDoor | 0.3: Wall }
+EntranceDoor --> Split(Y) { StepH: Step | 2.8: DoorLeaf | ~1: Fanlight }
+Fanlight --> Split(Y) { ~1: Glazing | 0.45: Voussoirs | 0.2: Wall }
+// The courtyard side: windows over high sills.
+RearGroundInset --> Split(X) { WallD: NIL | ~1: RearGroundIn | WallD: NIL }
+RearGroundIn --> Translate(0, 0, -WallD) RearGround
+RearGround --> Repeat(X, 3.0) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.1: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.4: Wall | 2.0: Glazing | ~1: Wall }
+
+// -- 3. The limewashed storeys: shuttered windows, and galleries --
+Uppers --> Comp(Faces) { Front: UpperFrontInset | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperFrontInset --> Split(X) { WallD: NIL | ~1: UpperFrontIn | WallD: NIL }
+UpperFrontIn --> Translate(0, 0, -WallD) UpperFront
+UpperFront --> Repeat(Y, FloorH) { Storey }
+Storey --> Split(X) { 0.7: Wall | ~1: Bays | 0.7: Wall }
+Bays --> Repeat(X, 2.6) { Bay }
+// Galleries: on every storey or none, `Pick`ed once a house. Side by side,
+// the bays' balconies run as one gallery.
+Bay --> Pick("gallery") { 55% GalleryBay | 45% WinBay }
+WinBay --> Split(X) { ~1: Wall | 0.46: ShutterCol | 1.1: WinCol | 0.46: ShutterCol | ~1: Wall }
+WinCol --> Split(Y) { 0.75: Wall | 0.12: Sill | 2.25: Glazing | 0.22: Hood | ~1: Wall }
+ShutterCol --> Split(Y) { 0.87: Wall | 2.25: Shutter | ~1: Wall }
+Sill --> Extrude(WallD + 0.06) Trim
+Hood --> Extrude(WallD + 0.12) Trim
+// A louvred leaf either side of a window, one colour a house.
+Shutter --> Pick("shutters") { 40% ShutGreen | 30% ShutBlue | 30% ShutRed }
+ShutGreen --> Mat("ShutGreen") ShutterLeaf
+ShutBlue --> Mat("ShutBlue") ShutterLeaf
+ShutRed --> Mat("ShutRed") ShutterLeaf
+ShutterLeaf --> Extrude(WallD + 0.05) I("Shutter")
+// A gallery bay: a timber floor the bay's width, a railing at its edge,
+// and a pair of glazed doors onto it between their shutters.
+GalleryBay --> Split(Y) { 0.18: GalleryFloor | ~1: GalleryWall }
+GalleryFloor --> Extrude(WallD + GalleryOut) Split(Z) { WallD: GalleryJoist | ~1: GalleryDeck
+    | 0.08: Railing }
+GalleryJoist --> I("Wall")
+GalleryDeck --> Mat("Gallery") I("Balcony")
+Railing --> Size(scope.x, 1.1, scope.z) Mat("Rail")
+    Split(Y) { 0.18: RailBand | ~1: Balusters | 0.1: RailBand }
+RailBand --> I("Balcony")
+Balusters --> Repeat(X, 0.4) { BalusterBay }
+BalusterBay --> Split(X) { ~1: NIL | 0.07: RailBand | ~1: NIL }
+GalleryWall --> Split(X) { ~1: Wall | 0.46: GalleryShutter | 1.1: GalleryDoor
+    | 0.46: GalleryShutter | ~1: Wall }
+GalleryDoor --> Split(Y) { 2.45: Glazing | 0.22: Hood | ~1: Wall }
+GalleryShutter --> Split(Y) { 2.45: Shutter | ~1: Wall }
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) RearUpper
+RearUpper --> Repeat(Y, FloorH) { RearStorey }
+RearStorey --> Repeat(X, 3.0) { RearUpperBay }
+RearUpperBay --> Split(X) { ~1: Wall | 1.1: RearUpperWindow | ~1: Wall }
+RearUpperWindow --> Split(Y) { 0.9: Wall | 2.0: Glazing | ~1: Wall }
+
+// -- 4. The cornice: the whole frontage, cut from the full face --
+Crown --> Comp(Faces) { Front: Cornice | Back: RearCrownInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+Cornice --> Split(Y) { 0.26: CorniceBed | ~1: CorniceTop }
+CorniceBed --> Extrude(0.18) Mat("Trim") I("Cornice")
+CorniceTop --> Extrude(0.42) Mat("Trim") I("Cornice")
+RearCrownInset --> Split(X) { WallD: NIL | ~1: RearCrownIn | WallD: NIL }
+RearCrownIn --> Translate(0, 0, -WallD) Wall
+
+// -- 5. The roof: shingle along the street, or a deck behind a parapet --
+RoofZone --> Pick("roof") { 60% ShingleRoof | 40% FlatRoof }
+ShingleRoof --> Roof(Gable, 32, overhang=0, ridge=X) { Slope: Shingles | GableEnd: Gable }
+Shingles --> Mat("Shingle") I("Roof")
+Gable --> I("Wall")
+FlatRoof --> Comp(Faces) { Front: ParapetFace | Back: ParapetFace | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+ParapetFace --> Split(Y) { ~1: ParapetInset | 0.16: Coping }
+ParapetInset --> Split(X) { WallD: NIL | ~1: ParapetIn | WallD: NIL }
+ParapetIn --> Translate(0, 0, -WallD) Wall
+Coping --> Extrude(0.06) Mat("Coping") I("Trim")
+// The deck fills the ring inside the parapet's walls, so no face of it
+// lies in theirs: the bottom face's inward is up.
+Deck --> Translate(WallD, WallD, -0.2) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("Deck") I("Roof")

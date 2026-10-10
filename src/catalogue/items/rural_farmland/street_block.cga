@@ -1,0 +1,125 @@
+// The farm country's long block (#1598): a roller mill and granary. See
+// street_block.rs for the block, and catalogue::items::street for the
+// conventions and for what is declared ahead of these rules and after them.
+
+const WallD = 0.45
+const PaneSet = 0.16
+const PlinthH = 0.6
+const StepH = 0.55
+const SignH = 0.9
+const CrownH = 0.4
+const RoofH = 1.0
+// The lucams' boxes stand this far into the roof, so the roof's front
+// slope starts this far behind the front.
+const LoftSet = 0.04
+// One stair and one stack of loading doors to a section, a lucam and a
+// headhouse over it. Under twelve metres so the frontages, less the party
+// walls, hold two, three and four of them: a Repeat floors its count.
+const SectionW = 11.5
+
+// -- 1. The mill: its cladding rolled once, then base, storeys, roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + CrownH + RoofH + 0.01) Cladding
+Cladding --> 45% Mat("BrickRed") Massing | 35% Mat("BarnRed") Massing
+    | 20% Mat("BoardGrey") Massing
+Massing --> Split(Y) { GroundH: Ground | ~1: Uppers | CrownH: Crown | RoofH: RoofZone
+    | 0.01: HouseZone }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+Trim --> Mat("Trim") I("Trim")
+StoneWall --> Mat("Stone") Wall
+
+// -- 2. The base: fieldstone, a feed store or the mill floor, a door to
+// each stair, and the mill's name painted across the whole frontage --
+Ground --> Mat("Stone") Comp(Faces) { Front: GroundFace | Back: RearGroundInset
+    | Left: PartyIn | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFace --> Split(Y) { ~1: GroundFrontInset | SignH: SignBand }
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> Repeat(X, SectionW) { GroundSection }
+GroundSection --> Split(X) { ~1: GroundRun | 2.8: Doorway | ~1: GroundRun }
+GroundRun --> when(Trade == 1): ShopRun | else: MillRun
+ShopRun --> Repeat(X, 4.2) { ShopBay }
+ShopBay --> Split(X) { 0.4: Wall | ~1: ShopUnit | 0.4: Wall }
+ShopUnit --> Split(Y) { PlinthH: Wall | 2.1: ShopGlazing | 0.18: Canopy | ~1: Wall }
+Canopy --> Extrude(WallD + 1.4) Mat("MetalRoof") I("Canopy")
+MillRun --> Repeat(X, 2.9) { MillBay }
+MillBay --> Split(X) { ~1: Wall | 1.0: MillWindow | ~1: Wall }
+MillWindow --> Split(Y) { 1.6: Wall | 1.1: Glazing | 0.18: Head | ~1: Wall }
+Head --> Extrude(WallD + 0.08) Trim
+Sill --> Extrude(WallD + 0.06) Trim
+// The stair door: a plank leaf up a step.
+Doorway --> Split(X) { 0.3: Wall | ~1: DoorCol | 0.3: Wall }
+DoorCol --> Split(Y) { StepH: Step | 2.5: DoorLeaf | 0.18: Head | ~1: Wall }
+Step --> Extrude(WallD + 0.3) Mat("Stone") I("Trim")
+DoorLeaf --> Extrude(WallD - 0.18) Mat("Door") I("Door")
+// The sign band: a painted board the whole frontage, cut from the full
+// face, its lettering standing out of it.
+SignBand --> Split(Y) { 0.12: SignEdge | ~1: SignMid | 0.12: SignEdge }
+SignEdge --> Extrude(0.1) Mat("Sign") I("Fascia")
+SignMid --> Repeat(X, 0.9) { Glyph }
+// A letter or a space, glyph by glyph.
+Glyph --> 80% LetterGlyph | 20% SignEdge
+LetterGlyph --> Split(X) { ~1: SignEdge | 0.5: Letter | ~1: SignEdge }
+Letter --> Extrude(0.14) Mat("Lettering") I("Fascia")
+// The yard side: windows over high sills.
+RearGroundInset --> Split(X) { WallD: NIL | ~1: RearGroundIn | WallD: NIL }
+RearGroundIn --> Translate(0, 0, -WallD) RearGround
+RearGround --> Repeat(X, 4.0) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.0: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.6: Wall | 1.1: Glazing | ~1: Wall }
+
+// -- 3. The floors: rows of small windows, a loading door on each
+// section's axis --
+Uppers --> Comp(Faces) { Front: UpperFrontInset | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperFrontInset --> Split(X) { WallD: NIL | ~1: UpperFrontIn | WallD: NIL }
+UpperFrontIn --> Translate(0, 0, -WallD) UpperFront
+UpperFront --> Repeat(Y, FloorH) { Storey }
+Storey --> Repeat(X, SectionW) { Section }
+Section --> Split(X) { ~1: Run | 2.4: LoadCol | ~1: Run }
+Run --> Repeat(X, 2.3) { WinBay }
+WinBay --> Split(X) { ~1: Wall | 1.1: WinCol | ~1: Wall }
+WinCol --> Split(Y) { 1.0: Wall | 1.3: Glazing | 0.18: Head | ~1: Wall }
+LoadCol --> Split(X) { ~1: Wall | 1.6: LoadDoor | ~1: Wall }
+LoadDoor --> Split(Y) { 0.15: Sill | 2.3: Hatch | 0.18: Head | ~1: Wall }
+Hatch --> Extrude(WallD - 0.15) Mat("Door") I("Door")
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) RearUpper
+RearUpper --> Repeat(Y, FloorH) { RearStorey }
+RearStorey --> Repeat(X, 4.6) { RearUpperBay }
+RearUpperBay --> Split(X) { ~1: Wall | 1.0: RearUpperWindow | ~1: Wall }
+RearUpperWindow --> Split(Y) { 0.9: Wall | 1.3: Glazing | ~1: Wall }
+
+// -- 4. The eaves, the long metal roof, the lucams over the loading doors
+// and the headhouses over the stairs --
+Crown --> Comp(Faces) { Front: Eaves | Back: Eaves | Left: PartyIn | Right: PartyIn
+    | Top: NIL | Bottom: NIL }
+Eaves --> Extrude(0.16) Trim
+RoofZone --> Split(Z) { LoftSet: LucamLayer | ~1: RoofBody }
+RoofBody --> Roof(Gable, 35, overhang=0, ridge=X) { Slope: Metal | GableEnd: Gable }
+Metal --> Mat("MetalRoof") I("Roof")
+Gable --> I("Wall")
+LucamLayer --> Comp(Faces) { Front: LucamFace | Back: NIL | Left: NIL | Right: NIL | Top: NIL
+    | Bottom: NIL }
+LucamFace --> Split(X) { WallD: NIL | ~1: LucamRow | WallD: NIL }
+LucamRow --> Repeat(X, SectionW) { LucamSection }
+LucamSection --> Split(X) { ~1: NIL | 2.4: Lucam | ~1: NIL }
+// A lucam: the hoist's timber housing, jutting from the roof's foot over
+// the loading doors, its own little gable to the street.
+Lucam --> Size(scope.x, 2.41, 0) Translate(0, 0, -2 * LoftSet) Extrude(2 * LoftSet + 1.3)
+    Split(Y) { 2.4: LucamBox | 0.01: LucamTop }
+LucamBox --> Mat("Lucam") I("Lucam")
+LucamTop --> Roof(Gable, 40, overhang=0, ridge=Z) { Slope: Metal | GableEnd: LucamGable }
+LucamGable --> Mat("Lucam") I("Lucam")
+// A galvanised headhouse over each stair, tall enough to clear the ridge.
+// Each stands from the roof's foot, through the ridge, a gable on top.
+HouseZone --> Split(X) { WallD: NIL | ~1: HouseRow | WallD: NIL }
+HouseRow --> Repeat(X, SectionW) { HouseSection }
+HouseSection --> Split(X) { ~1: NIL | 3.6: HouseSlot | ~1: NIL }
+HouseSlot --> Split(Z) { ~1: NIL | 3.2: HouseSite | ~1: NIL }
+HouseSite --> 60% Headhouse | 40% NIL
+Headhouse --> Translate(0, -RoofH, 0) Size(scope.x, Depth * 0.36 + 2.0, scope.z)
+    Split(Y) { ~1: HouseBody | 0.01: HouseTop }
+HouseBody --> Mat("Silo") I("Wall")
+HouseTop --> Roof(Gable, 30, overhang=0, ridge=X) { Slope: Metal | GableEnd: HouseGable }
+HouseGable --> Mat("Silo") I("Wall")

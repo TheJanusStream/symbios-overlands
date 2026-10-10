@@ -1,0 +1,161 @@
+// The fantasy theme's long block (#1598): an elven guild hall range. See
+// street_block.rs for the block, and catalogue::items::street for the
+// conventions and for what is declared ahead of these rules and after them.
+
+const WallD = 0.4
+const PaneSet = 0.14
+const PlinthH = 0.7
+const StepH = 0.55
+const CourseH = 0.16
+const ParapetH = 1.2
+const RoofH = 1.0
+const PierW = 0.45
+const PinH = 3.2
+// A stair tower to each section: its slot along the front, how far its
+// drum stands out of the wall's face and reaches behind it, so the drum
+// fills its slot at the face; and its cone over the parapet.
+const TowerW = 2.6
+const TurOut = 1.4
+const TurIn = 1.25
+const TurD = 2.65
+const CorbelH = 0.8
+const CapH = 6.2
+// One door to a section: under twelve metres so the steps' frontages,
+// less the party walls, hold two, three and four of them.
+const SectionW = 11.5
+const BayW = 2.4
+
+// -- 1. The range: its ashlar rolled once, then storeys, parapet, roof.
+// The piers, courses and towers are the palest stone, so they stand out
+// of any of them --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + ParapetH + RoofH) Ashlar
+Ashlar --> 36% Mat("Sandstone") Massing | 34% Mat("Grey") Massing | 30% Mat("Rosy") Massing
+Massing --> Split(Y) { GroundH: Ground | ~1: Uppers | ParapetH: Parapet | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+
+// -- 2. The ground storey: a mossy plinth, a door to each section --
+Ground --> Comp(Faces) { Front: GroundFace | Back: RearGroundInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFace --> Split(Y) { ~1: GroundFrontInset | CourseH: FullCourse }
+FullCourse --> Extrude(0.14) Mat("Trim") I("Trim")
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) Repeat(X, SectionW) { GroundSection }
+GroundSection --> Split(X) { ~1: GroundRun | TowerW: Doorway | ~1: GroundRun }
+GroundRun --> when(Trade == 1): Repeat(X, 3.8) { ShopBay } | else: Repeat(X, BayW) { HallBay }
+// A guild shop between piers: its window on a mossy plinth under a sign.
+ShopBay --> Split(X) { PierW: Pier | ~1: ShopUnit | 0.15: Wall }
+ShopUnit --> Split(Y) { PlinthH: Plinth | ~1: ShopGlazing | 0.12: Wall | 0.6: Sign
+    | ~1: Wall }
+Plinth --> Extrude(WallD + 0.06) Mat("Plinth") I("Trim")
+Sign --> Extrude(WallD + 0.08) Mat("Sign") I("Fascia")
+HallBay --> Split(X) { PierW: Pier | ~1: HallStack | 0.2: Wall }
+HallStack --> Split(Y) { PlinthH: Plinth | ~1: HallWall }
+HallWall --> Split(X) { ~1: Wall | 1.0: HallWindow | ~1: Wall }
+HallWindow --> Split(Y) { 0.5: Wall | 0.1: Sill | 1.9: Glazing | 0.36: Hood | ~1: Wall }
+// The door: a gilded hood, a rune glowing over it, up a step.
+Doorway --> Split(X) { 0.35: Wall | ~1: DoorCol | 0.35: Wall }
+DoorCol --> Split(Y) { StepH: Step | 2.4: DoorLeaf | 0.4: DoorHood | 0.35: RuneBand
+    | ~1: Wall }
+Step --> Extrude(WallD + 0.32) Mat("Plinth") I("Trim")
+DoorLeaf --> Extrude(WallD - 0.18) Mat("Door") I("Door")
+DoorHood --> Extrude(WallD + 0.24) Taper(0.85) Mat("Gold") I("Hood")
+RuneBand --> Split(X) { ~1: Wall | 0.55: Rune | ~1: Wall }
+Rune --> Extrude(WallD + 0.05) Mat("Rune") I("Trim")
+RearGroundInset --> Split(X) { WallD: NIL | ~1: RearGroundIn | WallD: NIL }
+RearGroundIn --> Translate(0, 0, -WallD) Repeat(X, 3.0) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.2: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.2: Wall | 1.6: Glazing | ~1: Wall }
+
+// -- 3. The storeys: buttress piers between lancets, a course at each
+// floor, a stair tower on each section's axis --
+Uppers --> Comp(Faces) { Front: UpperFrontInset | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperFrontInset --> Split(X) { WallD: NIL | ~1: UpperFrontIn | WallD: NIL }
+UpperFrontIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { Storey }
+Storey --> Split(Y) { ~1: Band(split.i) | CourseH: Course }
+Course --> Extrude(WallD + 0.12) Mat("Trim") I("Trim")
+Band(f) --> Repeat(X, SectionW) { Section(f) }
+Section(f) --> Split(X) { ~1: Run | TowerW: TowerStorey(f) | ~1: Run }
+Run --> Repeat(X, BayW) { Bay }
+Bay --> Split(X) { PierW: Pier | ~1: Wall | 1.1: WinCol | ~1: Wall }
+Pier --> Extrude(WallD + 0.3) Mat("Trim") I("Pier")
+WinCol --> Split(Y) { 0.5: Wall | 0.1: Sill | 1.9: Glazing | 0.36: Hood | ~1: Wall }
+Sill --> Extrude(WallD + 0.07) Mat("Trim") I("Trim")
+// A pointed hood: a short tapered block over the lancet.
+Hood --> Extrude(WallD + 0.14) Taper(0.85) Mat("Trim") I("Hood")
+// The tower's drum in pale stone, drawn round ("Spire"), a storey at a
+// time: the first on a corbel of three rings over the door, each a lancet
+// on its front.
+TowerStorey(f) --> Translate(0, 0, WallD) TowerAtFace(f)
+// Brought out to the wall's face, where the parapet's drum stands too.
+TowerAtFace(f) --> when(f == 0): Split(Y) { CorbelH: CorbelSlot | ~1: DrumSlot }
+    | else: DrumSlot
+DrumSlot --> Translate(0, 0, -TurIn) Extrude(TurD) Mat("Trim") Comp(Faces)
+    { Front: Drum | Back: DrumFace | _: NIL }
+Drum --> Translate(0, 0, -TurD) Extrude(TurD) I("Spire")
+DrumFace --> Split(Y) { ~1: NIL | 1.6: LancetRow | 0.5: NIL }
+// Held 2 cm off the drum, whose front facet may lie in the box's face.
+LancetRow --> Split(X) { ~1: NIL | 0.7: Lancet | ~1: NIL }
+Lancet --> 50% Translate(0, 0, 0.02) Extrude(0.12) Comp(Faces) { Back: PaneCard | Front: LitRoom | _: LancetFrame }
+    | 50% Translate(0, 0, 0.02) Extrude(0.12) Comp(Faces) { Back: PaneCard | Front: DarkRoom | _: LancetFrame }
+LancetFrame --> Mat("Gold") I("Trim")
+// Under the rings the wall stands at its face, held clear of the rings'
+// top and bottom, which would share its planes.
+CorbelSlot --> Translate(0, 0, -WallD) Extrude(WallD + TurOut) Comp(Faces)
+    { Front: CorbelWall | Back: CorbelRings | _: NIL }
+CorbelWall --> Split(Y) { 0.02: NIL | ~1: CorbelWallIn | 0.02: NIL }
+CorbelWallIn --> Translate(0, 0, -WallD) Extrude(WallD) I("Wall")
+CorbelRings --> Translate(0, 0, -TurD) Extrude(TurD)
+    Split(Y) { 0.25: Ring(0.45) | 0.25: Ring(0.7) | ~1: Ring(0.9) }
+Ring(k) --> Size(scope.x * k, scope.y, scope.z * k) Center(XZ) Mat("Trim") I("Spire")
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { RearStorey }
+RearStorey --> Repeat(X, 3.0) { RearUpperBay }
+RearUpperBay --> Split(X) { ~1: Wall | 1.2: RearUpperWindow | ~1: Wall }
+RearUpperWindow --> Split(Y) { 0.8: Wall | 1.6: Glazing | ~1: Wall }
+
+// -- 4. The parapet: a pinnacle over every pier, a coping, a deck --
+Parapet --> Comp(Faces) { Front: ParapetFront | Back: ParapetBack | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+ParapetFront --> Split(Y) { ~1: ParapetFrontInset | 0.14: Coping }
+ParapetFrontInset --> Split(X) { WallD: NIL | ~1: ParapetFrontIn | WallD: NIL }
+// The parapet repeats the storeys' sections and bays, so its pinnacles
+// stand over their piers.
+ParapetFrontIn --> Repeat(X, SectionW) { PSection }
+PSection --> Split(X) { ~1: PRun | TowerW: PTower | ~1: PRun }
+PRun --> Repeat(X, BayW) { PBay }
+PBay --> Split(X) { PierW: PinSlot | ~1: ParapetIn }
+// The tower's last course, and a sliver at its top to carry its cone.
+PTower --> Split(Y) { ~1: PDrum | 0.01: CapSlot }
+PDrum --> Translate(0, 0, -TurIn) Extrude(TurD) Mat("Trim") I("Spire")
+CapSlot --> Translate(-0.15, -0.01, -TurIn - 0.15) Size(scope.x + 0.3, CapH, 0)
+    Extrude(TurD + 0.3) Split(Y) { ~1: Cone | 0.6: ConeTip }
+Cone --> Taper(1) Pick("slate") { 60% GreenCone | 40% BlueCone }
+GreenCone --> Mat("Slate") I("Spire")
+BlueCone --> Mat("SlateBlue") I("Spire")
+ConeTip --> Size(0.14, scope.y, 0.14) Center(XZ) Mat("Gold") I("Spire")
+ParapetIn --> Translate(0, 0, -WallD) Wall
+// A sliver at the slot's top carries the pinnacle, so one slot draws both.
+PinSlot --> Split(Y) { ~1: ParapetIn | 0.01: PinSliver }
+PinSliver --> Translate(0, 0, -WallD) Size(scope.x, PinH, 0) Extrude(WallD + 0.3)
+    Split(Y) { 0.9: PinBase | ~1: PinSpire | 0.45: PinTip }
+PinBase --> I("Pier")
+PinSpire --> Taper(1) Mat("Trim") I("Spire")
+PinTip --> Size(0.1, scope.y, 0.1) Center(XZ) Mat("Gold") I("Spire")
+ParapetBack --> Split(Y) { ~1: ParapetBackInset | 0.14: Coping }
+ParapetBackInset --> Split(X) { WallD: NIL | ~1: ParapetIn | WallD: NIL }
+Coping --> Extrude(0.06) Mat("Trim") I("Cornice")
+// The deck fills the ring inside the parapet's walls, so no face of it
+// lies in theirs: the bottom face's inward is up. It stands 2 cm clear of
+// the parapet's foot, where the towers' drums end.
+Deck --> Translate(WallD, WallD, -0.22) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("Deck") I("Roof")
+
+// -- 5. The roof: steep slate along the street, or a roof walk --
+RoofZone --> Pick("roof") { 70% SteepRoof | 30% NIL }
+SteepRoof --> Roof(Gable, 50, overhang=0, ridge=X) { Slope: Slates | GableEnd: Gable }
+Slates --> Pick("slate") { 60% GreenSlates | 40% BlueSlates }
+GreenSlates --> Mat("Slate") I("Roof")
+BlueSlates --> Mat("SlateBlue") I("Roof")
+Gable --> I("Wall")

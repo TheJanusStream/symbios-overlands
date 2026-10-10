@@ -294,6 +294,21 @@ a second (`exports/reeve/b/sg_house.py`, `sg_farm.py`, and `sg_village.py`,
 `sg_crofts.py`, `sg_farmstead.py` placing them): read those first, they carry
 every trap below in their comments.
 
+**Seventy-two street grammars to read** (#1598): every theme's street
+house, long block and low building is a `.cga` file,
+`src/catalogue/items/<theme>/street_{house,block,low}.cga`, each written to
+one set of conventions (`src/catalogue/items/street/`'s docs): inset
+facades, windows that are real openings with a room behind them, party
+walls, a door up a step, `Pick`s for what the whole building must agree
+on. Place one as any catalogue entry (`A place medieval_street_house ...`);
+it stands at its kind's own fit. Their builders met traps worth knowing:
+a rule defined twice silently keeps only the later definition; a `when(...)`
+guard holds no nested parentheses (`when(a && (b || c))` does not parse:
+write two guarded alternatives); a `Split` whose `~1` part comes to zero
+size fails the derivation; a `Repeat` floors its count, so size it against
+the width it is given; and a flat face is drawn as a 1 mm slab, so a roof's
+gable end lying in a wall's face z-fights with it.
+
 **Use one where many buildings share a kind and differ in size and
 detail**, the owner's rule (2026-09-28): "Not all building need to be replaced with
 shape grammers ultimately. Only those were it turns out to make sense.

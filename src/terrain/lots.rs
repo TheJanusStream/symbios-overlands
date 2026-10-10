@@ -473,10 +473,43 @@ pub(crate) fn grow_generator(
     entry: &dyn CatalogueEntry,
     did: &str,
     entry_seed: u64,
+    character: (f32, f32),
+    scale: f32,
+) -> Generator {
+    grow_built(entry, entry.build(did), entry_seed, character, scale)
+}
+
+/// [`grow_built`] for a building that stands flush in a row: a street
+/// building on a Berlin footprint (#1598). Its ruin sinks and weathers it
+/// as any other's, but leaves its size and its stance alone - a shrunken
+/// copy opens a gap at both its party walls, and its entry bounds its lean
+/// to nothing ([`CatalogueEntry::ruin_max_lean`]).
+pub(crate) fn grow_flush(
+    entry: &dyn CatalogueEntry,
+    built: Generator,
+    entry_seed: u64,
     (prosperity, escalation): (f32, f32),
     scale: f32,
 ) -> Generator {
-    let mut tree = entry.build(did).with_shape_seed(entry_seed);
+    let mut tree = built.with_shape_seed(entry_seed);
+    material_finish::apply_socio_finish(&mut tree, prosperity, escalation);
+    let size = tree.transform.scale;
+    ruin::apply_ruin_bounded(&mut tree, escalation, entry_seed, entry.ruin_max_lean());
+    tree.transform.scale = size;
+    crate::seeded_defaults::room::build::scale_about_ground(&mut tree, scale);
+    tree
+}
+
+/// [`grow_generator`] for `entry` as `built` rather than as it builds
+/// itself, reseeded, finished, ruined and scaled as every other.
+pub(crate) fn grow_built(
+    entry: &dyn CatalogueEntry,
+    built: Generator,
+    entry_seed: u64,
+    (prosperity, escalation): (f32, f32),
+    scale: f32,
+) -> Generator {
+    let mut tree = built.with_shape_seed(entry_seed);
     material_finish::apply_socio_finish(&mut tree, prosperity, escalation);
     ruin::apply_ruin_bounded(&mut tree, escalation, entry_seed, entry.ruin_max_lean());
     crate::seeded_defaults::room::build::scale_about_ground(&mut tree, scale);
@@ -3044,12 +3077,14 @@ mod tests {
         }
     }
 
-    /// #1555, the critic's fourth finding: Downtown in a theme with no
-    /// secondary building at its tier fills the tail with props, never the
-    /// same landmark on every lot (a Pirate district at a low prosperity
-    /// stood one on all 68).
+    /// #1555, the critic's fourth finding: Downtown never stands the same
+    /// landmark on every lot (a Pirate district at a low prosperity stood
+    /// one on all 68, having no secondary building at its tier). Since
+    /// #1598 its only secondaries there are its street buildings, which
+    /// suit every tier, so its tail grows those: once props, until a theme
+    /// had them.
     #[test]
-    fn downtown_without_a_secondary_fills_its_tail_with_props() {
+    fn downtown_at_a_low_prosperity_fills_its_tail_with_street_buildings() {
         let settings = LotSettings {
             theme_override: String::from("Pirate"),
             tier_bias: crate::pds::generator::LotTierBias::Downtown,
@@ -3058,11 +3093,11 @@ mod tests {
             ..LotSettings::default()
         };
         let theme = resolve_lot_theme("Pirate").expect("a Pirate theme");
+        let secondaries = pool_for(theme, StructureRole::Secondary, 0.1, 0.0);
         assert!(
-            pool_for(theme, StructureRole::Secondary, 0.1, 0.0).is_empty(),
-            "the premise: Pirate has no secondary at a low prosperity"
+            !secondaries.is_empty() && secondaries.iter().all(|e| e.street().is_some()),
+            "the premise: Pirate's only secondaries at a low prosperity are its street buildings"
         );
-        assert!(!pool_for(theme, StructureRole::Prop, 0.1, 0.0).is_empty());
         let did = urban_did();
         let lots: Vec<BuildingLot> = (0..68)
             .map(|i| lot(i as f32 * 50.0, 0.0, 10.0 + i as f32 * 0.5, 30.0))
@@ -3077,8 +3112,13 @@ mod tests {
         assert_eq!(
             landmarks,
             (68usize * 15).div_ceil(100),
-            "only the top ~15% are landmarks; the tail grew props"
+            "only the top ~15% are landmarks"
         );
+        let tail_streets = grown(&record, &lots, &prefix)
+            .into_iter()
+            .filter(|(key, ..)| entry_of(key, &prefix).street().is_some())
+            .count();
+        assert!(tail_streets > 0, "the tail grew street buildings");
     }
 
     /// #1554: the triangle report grows the districts a record carries no

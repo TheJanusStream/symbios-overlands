@@ -583,9 +583,10 @@ impl Underived {
     }
 
     /// Why the grammar drew nothing, as the editor's grammar forge shows
-    /// it, and as the agent's `room set` answers it (#1507) - on the
-    /// platforms the agent builds for.
-    #[cfg(unix)]
+    /// it, as the agent's `room set` answers it (#1507), and as a street
+    /// building's check reports it (#1598) - on the platforms those build
+    /// for.
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn message(&self) -> &str {
         &self.message
     }

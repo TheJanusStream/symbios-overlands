@@ -23,6 +23,9 @@ pub mod membrane_wall;
 pub mod monument;
 pub mod pod_cluster;
 pub mod spore_vent;
+pub mod street_block;
+pub mod street_house;
+pub mod street_low;
 pub mod tendril;
 // Poor (necrotic) variants - the prosperity-Poor end of the theme.
 pub mod husk_pods;

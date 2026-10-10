@@ -35,8 +35,8 @@ mod requests;
 mod session_file;
 
 // The z-fighting check `room set` answers with (#1436), lent to the
-// catalogue's overhaul guard and census (#1575).
-#[cfg(test)]
+// catalogue's overhaul guard and census (#1575) and to the street
+// buildings' check (#1598).
 pub(crate) use daemon::coplanar_overlap_lines;
 
 use std::process::ExitCode;

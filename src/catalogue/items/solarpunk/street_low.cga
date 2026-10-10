@@ -1,0 +1,105 @@
+// The solarpunk theme's low building (#1598): a row of green-roofed
+// cottages, or - where it trades - a greenhouse market. See street_low.rs
+// for the building, and catalogue::items::street for the conventions and
+// for what is declared ahead of these rules and after them.
+
+const WallD = 0.34
+const PaneSet = 0.12
+const PlinthH = 0.6
+const StepH = 0.5
+const RoofH = 1.0
+// A cottage's width along the street: a lot holds as many as fit.
+const CottageW = 5.2
+
+Lot --> when(Trade == 1): Market | else: Terrace
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+Greens --> 50% Mat("Leaf") Green | 30% Mat("Crop") Green | 20% Mat("Bloom") Green
+Green --> I("Green")
+Step --> Extrude(WallD + 0.3) Mat("Lime") I("Trim")
+DoorLeaf --> Extrude(WallD - 0.16) Mat("Door") I("Door")
+PlainWall --> I("Wall")
+// A planter before a plinth: a box of greens on the pavement.
+PlinthPlanter --> Extrude(WallD + 0.6) Split(Z) { WallD: PlainWall | ~1: Planter }
+Planter --> Split(Y) { 0.4: PlanterBox | ~1: Greens }
+PlanterBox --> Mat("Frame") I("Planter")
+
+// -- 1. The cottages: cob, lime or larch rolled once, a sod roof --
+Terrace --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Walls
+Walls --> 40% Mat("Cob") Cottages | 30% Mat("Lime") Cottages | 30% Mat("Larch") Cottages
+Cottages --> when(Storeys == 1): Split(Y) { GroundH: CotGround | RoofH: CotRoof }
+    | else: Split(Y) { GroundH: CotGround | ~1: CotUpper | RoofH: CotRoof }
+CotGround --> Comp(Faces) { Front: CotFrontInset | Back: CotRearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+CotFrontInset --> Split(X) { WallD: NIL | ~1: CotFrontIn | WallD: NIL }
+CotFrontIn --> Translate(0, 0, -WallD) Repeat(X, CottageW) { Cottage }
+// Each cottage: a round-headed window, a door under a planted hood, a
+// rain barrel beside the door.
+Cottage --> Split(X) { ~1: Wall | 1.3: CotWindow | 0.6: Wall | 1.1: CotDoor | 0.75: BarrelStrip
+    | ~1: Wall }
+CotWindow --> Split(Y) { 0.9: Wall | 1.2: Glazing | 0.3: ArchHead | ~1: Wall }
+ArchHead --> Split(X) { 0.22: Wall | ~1: Glazing | 0.22: Wall }
+CotDoor --> Split(Y) { StepH: Step | 2.1: DoorLeaf | 0.12: HoodSlab | 0.3: HoodGreen
+    | ~1: Wall }
+HoodSlab --> Extrude(WallD + 0.5) Mat("Frame") I("Trim")
+HoodGreen --> Extrude(WallD + 0.5) Split(Z) { WallD: PlainWall | ~1: Greens }
+BarrelStrip --> Extrude(WallD + 0.7) Split(Z) { WallD: PlainWall | ~1: BarrelSlot }
+BarrelSlot --> Split(X) { 0.05: NIL | ~1: BarrelCol | 0.05: NIL }
+BarrelCol --> Split(Y) { 0.35: NIL | 0.9: Barrel | ~1: NIL }
+Barrel --> Mat("Frame") I("Barrel")
+CotRearInset --> Split(X) { WallD: NIL | ~1: CotRearIn | WallD: NIL }
+CotRearIn --> Translate(0, 0, -WallD) Repeat(X, 2.6) { CotRearBay }
+CotRearBay --> Split(X) { ~1: Wall | 1.2: CotRearWindow | ~1: Wall }
+CotRearWindow --> Split(Y) { 0.9: Wall | 1.4: Glazing | ~1: Wall }
+// A timber storey over the cottages: two windows to each.
+CotUpper --> Mat("Larch") Comp(Faces) { Front: CotUpInset | Back: CotUpInset
+    | Left: PartyIn | Right: PartyIn | Top: NIL | Bottom: NIL }
+CotUpInset --> Split(X) { WallD: NIL | ~1: CotUpIn | WallD: NIL }
+CotUpIn --> Translate(0, 0, -WallD) Repeat(X, 2.6) { CotUpBay }
+CotUpBay --> Split(X) { ~1: Wall | 1.2: CotUpWindow | ~1: Wall }
+CotUpWindow --> Split(Y) { 0.8: Wall | 1.3: Glazing | ~1: Wall }
+// A sod roof along the street, its gable ends the party walls.
+CotRoof --> Roof(Gable, 35, overhang=0, ridge=X) { Slope: Sod | GableEnd: CotGable }
+// Cottage by cottage, a panel set into the sod, or sod alone.
+Sod --> Repeat(X, CottageW) { SodBay }
+SodBay --> 55% Split(X) { ~1: SodPart | 2.4: PanelCol | ~1: SodPart } | 45% SodPart
+PanelCol --> Split(Y) { ~1: SodPart | ~1.4: Panel | ~1: SodPart }
+SodPart --> Mat("Sod") I("Roof")
+Panel --> Mat("PV") I("PV")
+CotGable --> I("Wall")
+
+// -- 2. The greenhouse market: tall glass between timber posts, crates of
+// greens under a green canopy, a glass roof along the street --
+Market --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Mat("Frame") MarketMass
+MarketMass --> when(Storeys == 1): Split(Y) { GroundH: MarketGround | RoofH: GlassRoof }
+    | else: Split(Y) { GroundH: MarketGround | ~1: Gallery | RoofH: GlassRoof }
+MarketGround --> Comp(Faces) { Front: MarketFace | Back: MarketRearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+MarketFace --> Split(Y) { 2.85: MarketInset | 0.16: Canopy | ~1: ClerestoryInset }
+Canopy --> Extrude(1.4) Mat("Sod") I("Canopy")
+MarketInset --> Split(X) { WallD: NIL | ~1: MarketIn | WallD: NIL }
+MarketIn --> Translate(0, 0, -WallD) Split(X) { ~1: MarketRun | 1.6: MarketDoor | ~1: MarketRun }
+MarketRun --> Repeat(X, 2.4) { MarketBay }
+MarketBay --> Split(X) { 0.16: MarketPost | ~1: MarketWindow | 0.16: MarketPost }
+MarketPost --> Extrude(WallD + 0.1) I("Frame")
+MarketWindow --> Split(Y) { PlinthH: PlinthPlanter | ~1: ShopGlazing }
+MarketDoor --> Split(X) { 0.16: MarketPost | ~1: DoorCol | 0.16: MarketPost }
+DoorCol --> Split(Y) { StepH: Step | 2.2: DoorLeaf | ~1: ShopGlazing }
+ClerestoryInset --> Split(X) { WallD: NIL | ~1: ClerestoryIn | WallD: NIL }
+ClerestoryIn --> Translate(0, 0, -WallD) Repeat(X, 1.6) { ClerestoryBay }
+ClerestoryBay --> Split(X) { 0.12: MarketPost | ~1: ShopGlazing }
+MarketRearInset --> Split(X) { WallD: NIL | ~1: MarketRearIn | WallD: NIL }
+MarketRearIn --> Translate(0, 0, -WallD) Repeat(X, 2.4) { MarketRearBay }
+MarketRearBay --> Split(X) { ~1: Wall | 1.6: MarketRearWindow | ~1: Wall }
+MarketRearWindow --> Split(Y) { 0.9: Wall | 1.8: ShopGlazing | ~1: Wall }
+// A gallery over the market: one ribbon of windows.
+Gallery --> Comp(Faces) { Front: GalleryInset | Back: GalleryInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GalleryInset --> Split(X) { WallD: NIL | ~1: GalleryIn | WallD: NIL }
+GalleryIn --> Translate(0, 0, -WallD) Split(Y) { 0.8: Wall | 1.5: Ribbon | ~1: Wall }
+Ribbon --> Repeat(X, 1.6) { RibbonBay }
+RibbonBay --> Split(X) { 0.14: MarketPost | ~1: Glazing }
+// The glass roof, its gable ends the party walls.
+GlassRoof --> Roof(Gable, 30, overhang=0, ridge=X) { Slope: GlassSlope | GableEnd: Gable }
+GlassSlope --> Mat("GlassRoof") I("Glasshouse")
+Gable --> I("Wall")

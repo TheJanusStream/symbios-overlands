@@ -27,6 +27,9 @@ pub mod rune_stones;
 pub mod shield_rack;
 pub mod signal_beacon;
 pub mod stave_church;
+pub mod street_block;
+pub mod street_house;
+pub mod street_low;
 pub mod totem_pole;
 // Poor (croft) variants - the prosperity-Poor end of the theme.
 pub mod sod_shelter;
@@ -45,7 +48,7 @@ use crate::catalogue::items::util::{
 use crate::pds::{
     Fp, Fp3, Fp4, Fp64, Generator, SovereignAshlarConfig, SovereignCobblestoneConfig,
     SovereignFabricConfig, SovereignLogEndConfig, SovereignMaterialSettings, SovereignMetalConfig,
-    SovereignPlankConfig, SovereignTextureConfig, SovereignThatchConfig,
+    SovereignPlankConfig, SovereignShingleConfig, SovereignTextureConfig, SovereignThatchConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
@@ -230,6 +233,40 @@ pub(super) fn log_end(color: [f32; 3]) -> SovereignMaterialSettings {
         texture: SovereignTextureConfig::LogEnd(SovereignLogEndConfig {
             color_early: Fp3(crate::catalogue::items::util::tint(color, [1.2, 1.2, 1.15])),
             color_late: Fp3(color),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+/// Painted board cladding - the street buildings' walls (#1598): boards
+/// laid in unbroken courses (`stagger` off, #972 lesson 4), so a front
+/// reads as long boards, not as masonry.
+pub(super) fn boards(color: [f32; 3]) -> SovereignMaterialSettings {
+    let mut mat = timber(color);
+    if let SovereignTextureConfig::Plank(cfg) = &mut mat.texture {
+        cfg.plank_count = Fp64(10.0);
+        cfg.knot_density = Fp64(0.1);
+        cfg.stagger = Fp64(0.0);
+    }
+    mat.uv_scale = tiles_per_metre(tile::PLANK_BOARD * 10.0);
+    mat
+}
+
+/// Split wooden shakes, tarred dark - the steep roofs of the street
+/// buildings (#1598).
+pub(super) fn shingle(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.9),
+        uv_scale: tiles_per_metre(tile::SHINGLE),
+        texture: SovereignTextureConfig::Shingle(SovereignShingleConfig {
+            color_tile: Fp3(color),
+            color_grout: Fp3(crate::catalogue::items::util::tint(color, [0.5, 0.5, 0.5])),
+            scale: Fp64(7.0),
+            shape_profile: Fp64(0.2),
+            overlap: Fp64(0.45),
+            moss_level: Fp64(0.15),
             ..Default::default()
         }),
         ..Default::default()

@@ -36,8 +36,8 @@ mod save;
 mod size;
 mod zfight;
 
-// The z-fighting check, lent to the catalogue's overhaul guard (#1575).
-#[cfg(test)]
+// The z-fighting check, lent to the catalogue's overhaul guard (#1575) and
+// to the street buildings' check (#1598).
 pub(crate) use zfight::coplanar_overlap_lines;
 
 use bevy::prelude::*;

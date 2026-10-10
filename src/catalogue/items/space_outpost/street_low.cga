@@ -1,0 +1,138 @@
+// The outpost's low building (#1598): a row of crew cabins, or - where it
+// trades - a supply depot. See street_low.rs for the building, and
+// catalogue::items::street for the conventions and for what is declared
+// ahead of these rules and after them.
+
+const WallD = 0.34
+const PaneSet = 0.12
+const PlinthH = 0.55
+const StepH = 0.5
+const RingH = 0.24
+const RoofH = 1.0
+const ParapetH = 0.8
+const KitH = 3.6
+// A cabin's width along the street: a lot holds as many as fit.
+const CabinW = 5.5
+
+Lot --> when(Trade == 1): Depot | else: Cabins
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+// A steel ring frame the whole frontage at a floor, proud of the plating.
+Ring --> Extrude(0.12) Mat("Steel") I("Ring")
+Step --> Extrude(WallD + 0.3) Mat("Steel") I("Trim")
+Lamp --> Extrude(WallD + 0.06) Mat("Status") I("Trim")
+Port --> Split(X) { 0.1: Jamb | ~1: Glazing | 0.1: Jamb }
+Jamb --> Extrude(WallD + 0.07) Mat("Frame") I("Frame")
+Sill --> Extrude(WallD + 0.1) Mat("Frame") I("Frame")
+
+// -- 1. The cabins: under one hull vault, the livery rolled once --
+Cabins --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Livery
+Livery --> 35% Mat("HullWhite") CabMass | 35% Mat("HullGrey") CabMass
+    | 30% Mat("HullSand") CabMass
+CabMass --> when(Storeys == 1): Split(Y) { GroundH: CabGround | RoofH: CabRoof }
+    | else: Split(Y) { GroundH: CabGround | ~1: CabUpper | RoofH: CabRoof }
+CabGround --> Comp(Faces) { Front: CabGroundFace | Back: CabRearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+CabGroundFace --> Split(Y) { ~1: CabFrontInset | RingH: Ring }
+CabFrontInset --> Split(X) { WallD: NIL | ~1: CabFrontIn | WallD: NIL }
+CabFrontIn --> Translate(0, 0, -WallD) CabFront
+CabFront --> Repeat(X, CabinW) { Cabin }
+// Each cabin: its viewport and its airlock hatch, a lamp over the hatch.
+Cabin --> Split(X) { ~1: Wall | 1.4: CabPort | 0.6: Wall | 1.2: CabHatch | ~1: Wall }
+CabPort --> Split(Y) { 0.95: Wall | 0.12: Sill | 1.3: Port | 0.12: Sill | ~1: Wall }
+CabHatch --> Split(Y) { StepH: Step | 2.15: HatchLeaf | 0.12: Lintel | 0.24: LampRow | ~1: Wall }
+Lintel --> Extrude(WallD + 0.1) Mat("Frame") I("Frame")
+LampRow --> Split(X) { ~1: Wall | 0.4: Lamp | ~1: Wall }
+// Each crew its own hatch colour.
+HatchLeaf --> 40% Mat("HatchGrey") Leaf | 30% Mat("HatchOrange") Leaf
+    | 30% Mat("HatchBlue") Leaf
+Leaf --> Extrude(WallD - 0.16) I("Door")
+CabRearInset --> Split(X) { WallD: NIL | ~1: CabRearIn | WallD: NIL }
+CabRearIn --> Translate(0, 0, -WallD) CabRear
+CabRear --> Repeat(X, 2.75) { CabRearBay }
+CabRearBay --> Split(X) { ~1: Wall | 1.2: CabRearPort | ~1: Wall }
+CabRearPort --> Split(Y) { 1.0: Wall | 1.2: Glazing | ~1: Wall }
+CabUpper --> Comp(Faces) { Front: CabUpFace | Back: CabUpRearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+CabUpFace --> Split(Y) { ~1: CabUpFrontInset | RingH: Ring }
+CabUpFrontInset --> Split(X) { WallD: NIL | ~1: CabUpFrontIn | WallD: NIL }
+CabUpFrontIn --> Translate(0, 0, -WallD) CabUpFront
+CabUpFront --> Repeat(X, CabinW) { CabUpCabin }
+CabUpCabin --> Split(X) { ~1: Wall | 1.3: CabUpPort | ~1: Wall | 1.3: CabUpPort | ~1: Wall }
+CabUpPort --> Split(Y) { 0.75: Wall | 0.12: Sill | 1.15: Port | 0.12: Sill | ~1: Wall }
+CabUpRearInset --> Split(X) { WallD: NIL | ~1: CabUpRearIn | WallD: NIL }
+CabUpRearIn --> Translate(0, 0, -WallD) CabUpRear
+CabUpRear --> Repeat(X, 2.75) { CabUpRearBay }
+CabUpRearBay --> Split(X) { ~1: Wall | 1.2: CabUpRearPort | ~1: Wall }
+CabUpRearPort --> Split(Y) { 0.8: Wall | 1.1: Glazing | ~1: Wall }
+// A pressure vault along the street over a deck that closes the row's top:
+// a hull laid on its side, a steel hoop at every cabin's end, short of the
+// party walls so a row's vaults read as modules.
+CabRoof --> Split(Y) { 0.2: VaultDeck | ~1: VaultZone }
+VaultDeck --> Mat("Deck") I("Roof")
+VaultZone --> Split(X) { 0.2: NIL | 0.3: VaultHoop | ~1: VaultRun | 0.2: NIL }
+VaultRun --> Repeat(X, CabinW) { VaultSeg }
+VaultSeg --> Split(X) { ~1: VaultPlate | 0.3: VaultHoop }
+// A plate and a hoop, each laid on its side: its length along the street,
+// its centre on the deck, the depth less the walls at each end.
+VaultPlate --> Translate(scope.x, -Depth * 0.18 - 0.4, WallD) Rotate(0.70710678, 0, 0, 0.70710678)
+    Size(Depth * 0.36 + 0.8, scope.x, Depth - 2 * WallD) Mat("HullWhite") I("Vault")
+VaultHoop --> Translate(scope.x, -Depth * 0.18 - 0.55, WallD - 0.15)
+    Rotate(0.70710678, 0, 0, 0.70710678)
+    Size(Depth * 0.36 + 1.1, scope.x, Depth - 2 * WallD + 0.3) Mat("Steel") I("Hoop")
+
+// -- 2. The depot: counters under a canopy and a lit sign band --
+Depot --> Extrude(GroundH + FloorH * (Storeys - 1) + ParapetH + KitH) Livery2
+Livery2 --> 40% Mat("HullWhite") DepotMass | 30% Mat("HullGrey") DepotMass
+    | 30% Mat("HullSand") DepotMass
+DepotMass --> when(Storeys == 1): Split(Y) { GroundH: DepGround | ParapetH: Parapet | KitH: Kit }
+    | else: Split(Y) { GroundH: DepGround | ~1: DepUpper | ParapetH: Parapet | KitH: Kit }
+DepGround --> Comp(Faces) { Front: DepFrontInset | Back: DepRearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+DepFrontInset --> Split(X) { WallD: NIL | ~1: DepFrontIn | WallD: NIL }
+DepFrontIn --> Translate(0, 0, -WallD) DepFront
+DepFront --> Split(Y) { ~1: DepShops | 0.2: Canopy | 0.6: Sign }
+DepShops --> Repeat(X, 4.0) { DepBay }
+DepBay --> Split(X) { 0.3: Wall | ~1: DepUnit | 0.3: Wall }
+DepUnit --> when(scope.x > 2.6): Split(X) { ~1: DepWindow | 1.3: DepHatch }
+    | else: DepWindow
+DepWindow --> Split(Y) { PlinthH: Wall | ~1: ShopGlazing }
+DepHatch --> Split(Y) { StepH: Step | 2.2: DepLeaf | ~1: ShopGlazing }
+DepLeaf --> Split(X) { ~1: DepLeafHalf | 0.06: DepSeam | ~1: DepLeafHalf }
+DepLeafHalf --> Extrude(WallD - 0.16) Mat("HatchGrey") I("Door")
+DepSeam --> Extrude(WallD - 0.22) Mat("HazardDark") I("Door")
+Canopy --> Extrude(WallD + 1.5) Mat("Steel") I("Canopy")
+Sign --> Extrude(WallD + 0.1) Mat("Sign") I("Fascia")
+// The pad side: a store's high ports.
+DepRearInset --> Split(X) { WallD: NIL | ~1: DepRearIn | WallD: NIL }
+DepRearIn --> Translate(0, 0, -WallD) DepRear
+DepRear --> Repeat(X, 3.0) { DepRearBay }
+DepRearBay --> Split(X) { ~1: Wall | 1.2: DepRearWindow | ~1: Wall }
+DepRearWindow --> Split(Y) { 1.6: Wall | 0.8: Glazing | ~1: Wall }
+// A control room over the counters: one ribbon of framed ports.
+DepUpper --> Comp(Faces) { Front: DepUpFrontInset | Back: DepUpFrontInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+DepUpFrontInset --> Split(X) { WallD: NIL | ~1: DepUpFrontIn | WallD: NIL }
+DepUpFrontIn --> Translate(0, 0, -WallD) DepUpFront
+DepUpFront --> Split(Y) { 0.7: Wall | 0.12: Sill | 1.3: Ribbon | 0.12: Sill | ~1: Wall }
+Ribbon --> Repeat(X, 1.6) { RibbonBay }
+RibbonBay --> Split(X) { 0.14: Jamb | ~1: Glazing }
+// The parapet, its hazard coping, and the deck inside it.
+Parapet --> Comp(Faces) { Front: ParapetFace | Back: ParapetFace | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+ParapetFace --> Split(Y) { ~1: ParapetInset | 0.14: Coping }
+ParapetInset --> Split(X) { WallD: NIL | ~1: ParapetIn | WallD: NIL }
+ParapetIn --> Translate(0, 0, -WallD) Wall
+Coping --> Extrude(0.05) Mat("Hazard") I("Trim")
+Deck --> Translate(WallD, WallD, -0.2) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("Deck") I("Roof")
+// On the deck, set down to it: a comms box, and a mast with its beacon.
+Kit --> Split(X) { ~1: NIL | 1.6: CommsSlot | 0.8: NIL | 0.4: MastSlot | 1.0: NIL }
+CommsSlot --> Split(Z) { ~1: NIL | 1.6: Comms | ~1: NIL }
+Comms --> Translate(0, 0.2 - ParapetH, 0) Size(scope.x, ParapetH - 0.2 + 0.9, scope.z)
+    Mat("Steel") I("Roof")
+MastSlot --> Split(Z) { ~1: NIL | 0.4: Mast | ~1: NIL }
+Mast --> Translate(0, 0.2 - ParapetH, 0) Size(scope.x, ParapetH - 0.2 + KitH, scope.z)
+    Split(Y) { ~1: MastPole | 0.35: BeaconLamp }
+MastPole --> Mat("Steel") I("Mast")
+BeaconLamp --> Mat("Beacon") I("Mast")

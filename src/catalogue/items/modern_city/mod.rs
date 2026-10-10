@@ -22,7 +22,10 @@ pub mod office_block;
 pub mod parked_car;
 pub mod parking_garage;
 pub mod rowhouse_terrace;
+pub mod street_block;
+pub mod street_house;
 pub mod street_lamp;
+pub mod street_low;
 pub mod traffic_light;
 pub mod transit_stop;
 // Poor (inner-city) variants - the prosperity-Poor end of the theme.
@@ -38,8 +41,8 @@ use super::util::{tile, tiles_per_metre};
 use crate::catalogue::items::util::{cuboid_tapered, id_quat, prim};
 use crate::pds::{
     Fp, Fp3, Fp64, Generator, SovereignBrickConfig, SovereignConcreteConfig, SovereignEnamelConfig,
-    SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig, SovereignTextureConfig,
-    SovereignWindowConfig,
+    SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig, SovereignShingleConfig,
+    SovereignStuccoConfig, SovereignTextureConfig, SovereignWindowConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
@@ -128,6 +131,49 @@ pub(super) fn enamel(color: [f32; 3]) -> SovereignMaterialSettings {
             color: Fp3(color),
             gloss_roughness: Fp(0.25),
             metallic: Fp(0.5),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+/// Lime render over masonry - the painted fronts of Berlin's street
+/// buildings (#1598): a fine plaster grain, its shadow a little darker than
+/// its colour, never board-formed like [`concrete`].
+pub(super) fn stucco(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.9),
+        uv_scale: tiles_per_metre(tile::STUCCO),
+        texture: SovereignTextureConfig::Stucco(SovereignStuccoConfig {
+            color_base: Fp3(color),
+            color_shadow: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.82, 0.81, 0.78],
+            )),
+            scale: Fp64(7.0),
+            roughness: Fp64(0.35),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+/// Natural slate - the mansards and roofs of Berlin's street buildings
+/// (#1598): small dark slates laid in overlapping courses.
+pub(super) fn slate(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.55),
+        metallic: Fp(0.05),
+        uv_scale: tiles_per_metre(tile::SHINGLE),
+        texture: SovereignTextureConfig::Shingle(SovereignShingleConfig {
+            color_tile: Fp3(color),
+            color_grout: Fp3(crate::catalogue::items::util::tint(color, [0.6, 0.6, 0.64])),
+            scale: Fp64(8.0),
+            shape_profile: Fp64(0.15),
+            overlap: Fp64(0.5),
+            moss_level: Fp64(0.05),
             ..Default::default()
         }),
         ..Default::default()

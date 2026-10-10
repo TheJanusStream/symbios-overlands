@@ -24,6 +24,9 @@ pub mod pallet_stack;
 pub mod pipe_run;
 pub mod sawtooth_mill;
 pub mod shipping_containers;
+pub mod street_block;
+pub mod street_house;
+pub mod street_low;
 pub mod tank_farm;
 // Poor (derelict) variants - the prosperity-Poor end of the theme.
 pub mod derelict_shed;

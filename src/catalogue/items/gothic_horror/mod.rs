@@ -25,6 +25,9 @@ pub mod iron_fence;
 pub mod mausoleum;
 pub mod monument;
 pub mod stone_cross;
+pub mod street_block;
+pub mod street_house;
+pub mod street_low;
 // Poor (forsaken) variants - the prosperity-Poor end of the theme.
 pub mod bone_pile;
 pub mod pauper_graves;
@@ -36,9 +39,9 @@ use super::util::{tile, tiles_per_metre};
 use bevy_symbios_texture::metal::MetalStyle;
 
 use crate::pds::{
-    Fp, Fp3, Fp64, SovereignAshlarConfig, SovereignCobblestoneConfig, SovereignMaterialSettings,
-    SovereignMetalConfig, SovereignPlankConfig, SovereignStainedGlassConfig,
-    SovereignTextureConfig,
+    Fp, Fp3, Fp64, SovereignAshlarConfig, SovereignBrickConfig, SovereignCobblestoneConfig,
+    SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig, SovereignShingleConfig,
+    SovereignStainedGlassConfig, SovereignTextureConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
@@ -154,6 +157,47 @@ pub(super) fn matte(color: [f32; 3]) -> SovereignMaterialSettings {
         metallic: Fp(0.0),
         uv_scale: Fp(1.0),
         texture: SovereignTextureConfig::None,
+        ..Default::default()
+    }
+}
+
+/// Wet black slate - the steep roofs of the street buildings (#1598):
+/// small dark slates in overlapping courses, a little moss in them.
+pub(super) fn slate(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.5),
+        metallic: Fp(0.05),
+        uv_scale: tiles_per_metre(tile::SHINGLE),
+        texture: SovereignTextureConfig::Shingle(SovereignShingleConfig {
+            color_tile: Fp3(color),
+            color_grout: Fp3(crate::catalogue::items::util::tint(color, [0.6, 0.6, 0.64])),
+            scale: Fp64(9.0),
+            shape_profile: Fp64(0.35),
+            overlap: Fp64(0.5),
+            moss_level: Fp64(0.18),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+/// Soot-darkened brick - the Victorian street buildings' walls (#1598).
+pub(super) fn brick(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.9),
+        uv_scale: tiles_per_metre(tile::BRICK),
+        texture: SovereignTextureConfig::Brick(SovereignBrickConfig {
+            color_brick: Fp3(color),
+            color_mortar: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.9, 0.95, 1.05],
+            )),
+            scale: Fp64(5.0),
+            cell_variance: Fp64(0.22),
+            ..Default::default()
+        }),
         ..Default::default()
     }
 }

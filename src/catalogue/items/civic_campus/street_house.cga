@@ -1,0 +1,134 @@
+// The civic campus's street house (#1598): an institute's townhouse in
+// dressed ashlar. See street_house.rs for the house, and
+// catalogue::items::street for the conventions and for what is declared ahead
+// of these rules (Storeys, Trade, Frontage, Depth, GroundH, FloorH) and after
+// them (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.45
+const PaneSet = 0.18
+const CourseH = 0.4
+const CrownH = 1.7
+const RoofH = 1.0
+// The portico: its width along the front and how far it stands out.
+const PorticoW = 3.6
+const PorticoD = 1.6
+
+// -- 1. The house: its stone rolled once, then storeys, crown, roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + CrownH + RoofH) Stone
+Stone --> 30% Mat("StonePale") Massing | 25% Mat("StoneBuff") Massing
+    | 20% Mat("StoneGrey") Massing | 25% Mat("BrickRed") Massing
+Massing --> Split(Y) { GroundH: Ground | ~1: Uppers | CrownH: Crown | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+// Marble dressings: a pilaster, a sill, a hood.
+Pilaster --> Mat("Marble") Extrude(WallD + 0.16) I("Trim")
+Sill --> Extrude(WallD + 0.08) Mat("Marble") I("Trim")
+Hood --> Extrude(WallD + 0.14) Mat("Marble") I("Trim")
+
+// -- 2. The ground storey: rusticated, the portico in the middle, shops or
+// tall windows either side, under a marble string course --
+Ground --> Comp(Faces) { Front: GroundFace | Back: RearGroundInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFace --> Split(Y) { ~1: GroundFrontInset | CourseH: Course }
+Course --> Extrude(0.18) Mat("Marble") I("Cornice")
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) Mat("Rustic") GroundFront
+GroundFront --> Split(X) { ~1: GroundSide | PorticoW: Portico | ~1: GroundSide }
+GroundSide --> when(Trade == 1): ShopSide | else: HallSide
+HallSide --> Repeat(X, 2.6) { HallBay }
+HallBay --> Split(X) { ~1: Wall | 1.3: HallWindow | ~1: Wall }
+HallWindow --> Split(Y) { 1.1: Wall | 0.1: Sill | 2.3: Glazing | 0.2: Hood | ~1: Wall }
+// A bookshop or a cafe: windows on a plinth, a door, a painted sign band.
+ShopSide --> Split(Y) { ~1: ShopLevel | 0.6: SignBand | 0.3: Wall }
+ShopLevel --> Split(X) { 0.3: Wall | ~1: ShopRun | 1.2: ShopDoor | 0.3: Wall }
+ShopRun --> Repeat(X, 2.6) { ShopBay }
+ShopBay --> Split(X) { 0.2: Wall | ~1: ShopWindow | 0.2: Wall }
+ShopWindow --> Split(Y) { 0.6: Wall | ~1: ShopGlazing }
+ShopDoor --> Split(Y) { 0.5: ShopStep | 2.3: DoorLeaf | ~1: ShopGlazing }
+ShopStep --> Extrude(WallD + 0.3) Mat("Marble") I("Trim")
+DoorLeaf --> Extrude(WallD - 0.18) Mat("Door") I("Door")
+SignBand --> Extrude(WallD + 0.08) Mat("Fascia") I("Fascia")
+// The portico: marble steps, two round columns, an entablature and a
+// pediment, standing out of the front before the house door.
+Portico --> Split(X) { 0.2: Wall | ~1: PorticoCol | 0.2: Wall }
+PorticoCol --> Extrude(WallD + PorticoD) Split(Z) { WallD: PorticoSlab | ~1: PorticoFront }
+PorticoSlab --> Comp(Faces) { Back: PorticoFace | Front: NIL | Left: NIL | Right: NIL
+    | Top: NIL | Bottom: NIL }
+PorticoFace --> Translate(0, 0, -WallD) HouseDoor
+HouseDoor --> Split(X) { ~1: Wall | 1.6: DoorCol | ~1: Wall }
+DoorCol --> Split(Y) { 0.8: Wall | 2.7: DoorLeaf | 0.15: Wall | ~1: Glazing }
+PorticoFront --> Split(Y) { 0.4: LowStep | 0.4: HighStepZone | ~1: ColumnZone
+    | 0.45: Entablature }
+LowStep --> Mat("Marble") I("Trim")
+HighStepZone --> Split(Z) { ~1: HighStep | 0.35: NIL }
+HighStep --> Mat("Marble") I("Trim")
+ColumnZone --> Split(Z) { ~1: NIL | 0.5: ColumnLine | 0.4: NIL }
+ColumnLine --> Split(X) { 0.5: Column | ~1: NIL | 0.5: Column }
+Column --> Mat("Marble") I("Column")
+Entablature --> Split(Y) { ~1: EntablatureBody | 0.01: PedimentZone }
+EntablatureBody --> Mat("Marble") I("Cornice")
+// The pediment stands clear of the string course behind it.
+PedimentZone --> Split(Z) { 0.22: NIL | ~1: Pediment }
+Pediment --> Roof(Gable, 22, overhang=0, ridge=Z) { Slope: PedimentRoof | GableEnd: Tympanum }
+PedimentRoof --> Mat("Copper") I("Roof")
+Tympanum --> Mat("Marble") I("Cornice")
+RearGroundInset --> Split(X) { WallD: NIL | ~1: RearGroundIn | WallD: NIL }
+RearGroundIn --> Translate(0, 0, -WallD) RearGround
+RearGround --> Repeat(X, 2.8) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.2: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.2: Wall | 2.2: Glazing | ~1: Wall }
+
+// -- 3. The upper storeys: marble pilasters between the bays, each window
+// on a sill under a hood, the first storey's hoods pedimented --
+Uppers --> Comp(Faces) { Front: UpperFrontInset | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperFrontInset --> Split(X) { WallD: NIL | ~1: UpperFrontIn | WallD: NIL }
+UpperFrontIn --> Translate(0, 0, -WallD) UpperFront
+UpperFront --> Split(X) { 0.8: Pilaster | ~1: Bays | 0.8: Pilaster }
+Bays --> Repeat(X, 3.2) { PilasterBay }
+PilasterBay --> when(split.i == split.n - 1): WinStack | else: Split(X) { ~1: WinStack | 0.45: Pilaster }
+WinStack --> Split(X) { ~1: Wall | 1.35: WinCol | ~1: Wall }
+WinCol --> Repeat(Y, FloorH) { UpWin(split.i) }
+UpWin(n) --> Split(Y) { 0.75: Wall | 0.12: Sill | 2.3: Glazing | 0.24: UpHood(n) | ~1: Wall }
+UpHood(n) --> when(n == 0): PedHood | else: Hood
+PedHood --> Extrude(WallD + 0.2) Split(Y) { ~1: HoodBox | 0.01: HoodPedZone }
+HoodBox --> Mat("Marble") I("Trim")
+HoodPedZone --> Split(Z) { WallD + 0.03: NIL | ~1: HoodPed }
+HoodPed --> Roof(Gable, 24, overhang=0, ridge=Z) { Slope: HoodPedFace | GableEnd: HoodPedFace }
+HoodPedFace --> Mat("Marble") I("Trim")
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) RearUpper
+RearUpper --> Repeat(Y, FloorH) { RearStorey }
+RearStorey --> Repeat(X, 2.8) { RearUpperBay }
+RearUpperBay --> Split(X) { ~1: Wall | 1.2: RearUpperWindow | ~1: Wall }
+RearUpperWindow --> Split(Y) { 0.9: Wall | 2.1: Glazing | ~1: Wall }
+
+// -- 4. The crown: a marble cornice the whole frontage, a balustrade over
+// it, and a deck behind --
+Crown --> Comp(Faces) { Front: CrownFace | Back: RearCrownInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: CrownDeck }
+CrownFace --> Split(Y) { 0.3: CorniceBed | 0.25: CorniceCorona | ~1: AtticInset
+    | 0.18: AtticCap }
+CorniceBed --> Extrude(0.2) Mat("Marble") I("Cornice")
+CorniceCorona --> Extrude(0.55) Mat("Marble") I("Cornice")
+AtticInset --> Split(X) { WallD: NIL | ~1: AtticIn | WallD: NIL }
+AtticIn --> Translate(0, 0, -WallD) Mat("Marble") Balustrade
+Balustrade --> Split(X) { 0.5: Wall | ~1: BalusterRun | 0.5: Wall }
+BalusterRun --> Repeat(X, 0.42) { BalusterBay }
+BalusterBay --> Split(X) { ~1: NIL | 0.2: Baluster | ~1: NIL }
+Baluster --> Extrude(WallD - 0.1) I("Trim")
+AtticCap --> Split(X) { WallD: NIL | ~1: AtticCapIn | WallD: NIL }
+AtticCapIn --> Translate(0, 0, -WallD) Extrude(WallD + 0.08) Mat("Marble") I("Cornice")
+RearCrownInset --> Split(X) { WallD: NIL | ~1: RearCrownIn | WallD: NIL }
+RearCrownIn --> Translate(0, 0, -WallD) Wall
+CrownDeck --> Translate(WallD, WallD, -0.2) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("Deck") I("Roof")
+
+// -- 5. The roof: a copper mansard along the street, or none over the
+// deck --
+RoofZone --> Pick("roof") { 60% Mansard | 40% NIL }
+// The break a storey up whatever the depth (see the modern city's house).
+Mansard --> Roof(Gambrel, 68, 24, overhang=0, ridge=X, tier=2.2 / Depth)
+    { LowerSlope: Copper | UpperSlope: Copper | GableEnd: Gable }
+Copper --> Mat("Copper") I("Roof")
+Gable --> I("Wall")

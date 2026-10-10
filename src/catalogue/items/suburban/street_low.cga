@@ -1,0 +1,147 @@
+// The suburb's low building (#1598): a row of sided townhouses, or - where
+// it trades - a strip mall. See street_low.rs for the building, and
+// catalogue::items::street for the conventions and for what is declared
+// ahead of these rules and after them.
+
+const WallD = 0.3
+const PaneSet = 0.12
+const StepH = 0.5
+const RoofH = 1.0
+const ParapetH = 1.1
+// A townhouse's width along the street: the facade, less the party walls,
+// and the roof, the lot's whole frontage, hold the same count of them.
+const UnitW = 5.6
+const PorchD = 1.5
+
+Lot --> when(Trade == 1): Mall | else: Row
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+
+// -- 1. The townhouse row: the siding rolled once, a gable to each unit --
+Row --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Siding
+Siding --> 28% Mat("SidingBlue") Units | 26% Mat("SidingCream") Units
+    | 24% Mat("SidingSage") Units | 22% Mat("SidingGrey") Units
+Units --> when(Storeys == 1): Split(Y) { GroundH: RowGround | RoofH: RowRoof }
+    | else: Split(Y) { GroundH: RowGround | ~1: RowUpper | RoofH: RowRoof }
+RowGround --> Comp(Faces) { Front: RowFrontInset | Back: RowRearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+RowFrontInset --> Split(X) { WallD: NIL | ~1: RowFrontIn | WallD: NIL }
+RowFrontIn --> Translate(0, 0, -WallD) RowFront
+RowFront --> Repeat(X, UnitW) { Unit }
+// Each unit its garage and its porch, mirrored unit by unit.
+Unit --> when(split.i % 2 == 1): Split(X) { 0.2: Wall | 2.6: PorchSlot | ~1: Wall
+    | 2.4: Garage | 0.2: Wall }
+    | else: Split(X) { 0.2: Wall | 2.4: Garage | ~1: Wall | 2.6: PorchSlot | 0.2: Wall }
+Garage --> Split(Y) { 0.4: Wall | 2.15: GarageDoor | 0.14: GarageHead | ~1: Wall }
+GarageDoor --> Repeat(Y, 0.54) { GaragePanel }
+GaragePanel --> Split(Y) { ~1: GarageLeaf | 0.04: GarageGroove }
+GarageLeaf --> Extrude(WallD - 0.1) Mat("Garage") I("Door")
+GarageGroove --> Extrude(WallD - 0.14) Mat("Garage") I("Door")
+GarageHead --> Extrude(WallD + 0.06) Mat("Trim") I("Trim")
+// The porch: the front door and a window behind a deck, posts and a roof.
+PorchSlot --> Extrude(WallD + PorchD) Split(Z) { WallD: PorchWallSlab | ~1: Porch }
+PorchWallSlab --> Comp(Faces) { Back: PorchFace | Front: NIL | Left: NIL | Right: NIL
+    | Top: NIL | Bottom: NIL }
+PorchFace --> Translate(0, 0, -WallD) PorchBack
+PorchBack --> Split(X) { 0.15: Wall | 0.95: FrontDoor | 0.3: Wall | 1.0: PorchWindow | ~1: Wall }
+FrontDoor --> Split(Y) { StepH: Wall | 2.15: DoorLeaf | ~1: Wall }
+// Each household its own door colour.
+DoorLeaf --> 35% Mat("DoorRed") Leaf | 30% Mat("DoorBlue") Leaf | 35% Mat("DoorWood") Leaf
+Leaf --> Extrude(WallD - 0.12) I("Door")
+PorchWindow --> Split(Y) { 1.0: Wall | 1.5: Glazing | ~1: Wall }
+Porch --> Split(Y) { StepH: PorchDeck | ~1: PorchAir | 0.2: PorchRoof }
+PorchDeck --> Mat("Base") I("Trim")
+PorchRoof --> Mat("Trim") I("Trim")
+PorchAir --> Split(X) { 0.15: PostCol | ~1: NIL | 0.15: PostCol }
+PostCol --> Split(Z) { ~1: NIL | 0.15: Post }
+Post --> Mat("Trim") I("Trim")
+RowRearInset --> Split(X) { WallD: NIL | ~1: RowRearIn | WallD: NIL }
+RowRearIn --> Translate(0, 0, -WallD) RowRear
+RowRear --> Repeat(X, 2.8) { RowRearBay }
+RowRearBay --> Split(X) { ~1: Wall | 1.2: RowRearWindow | ~1: Wall }
+RowRearWindow --> Split(Y) { 1.0: Wall | 1.4: Glazing | ~1: Wall }
+// Bedrooms over: two windows to a unit, white sills under them.
+RowUpper --> Comp(Faces) { Front: RowUpFrontInset | Back: RowUpRearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+RowUpFrontInset --> Split(X) { WallD: NIL | ~1: RowUpFrontIn | WallD: NIL }
+RowUpFrontIn --> Translate(0, 0, -WallD) RowUpFront
+RowUpFront --> Repeat(Y, FloorH) { RowUpStorey }
+RowUpStorey --> Repeat(X, UnitW) { UpUnit }
+UpUnit --> Split(X) { ~1: Wall | 1.1: UpWindow | ~1: Wall | 1.1: UpWindow | ~1: Wall }
+UpWindow --> Split(Y) { 0.75: Wall | 0.08: Sill | 1.4: Glazing | ~1: Wall }
+Sill --> Extrude(WallD + 0.06) Mat("Trim") I("Trim")
+RowUpRearInset --> Split(X) { WallD: NIL | ~1: RowUpRearIn | WallD: NIL }
+RowUpRearIn --> Translate(0, 0, -WallD) RowUpRear
+RowUpRear --> Repeat(Y, FloorH) { RowUpRearStorey }
+RowUpRearStorey --> Repeat(X, 2.8) { RowUpRearBay }
+RowUpRearBay --> Split(X) { ~1: Wall | 1.1: RowUpRearWindow | ~1: Wall }
+RowUpRearWindow --> Split(Y) { 0.75: Wall | 1.4: Glazing | ~1: Wall }
+// The roofs: a gable to the street over each unit, or one along it.
+RowRoof --> Pick("roof") { 70% FrontGables | 30% SideGable }
+FrontGables --> Repeat(X, UnitW) { FrontGable }
+FrontGable --> Roof(Gable, 38, overhang=0, ridge=Z) { Slope: Shingles | GableEnd: Gable }
+SideGable --> Roof(Gable, 32, overhang=0, ridge=X) { Slope: BrownShingles | GableEnd: Gable }
+Shingles --> Mat("Shingle") I("Roof")
+BrownShingles --> Mat("ShingleBrown") I("Roof")
+Gable --> I("Wall")
+
+// -- 2. The strip mall: shops under a shingled mansard and a lit sign --
+Mall --> Extrude(GroundH + FloorH * (Storeys - 1) + ParapetH) MallSkin
+MallSkin --> 55% Mat("MallBrick") MallMass | 45% Mat("MallRender") MallMass
+MallMass --> when(Storeys == 1): Split(Y) { GroundH: MallGround | ParapetH: Parapet }
+    | else: Split(Y) { GroundH: MallGround | ~1: MallUpper | ParapetH: Parapet }
+MallGround --> Comp(Faces) { Front: MallFrontInset | Back: MallRearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+MallFrontInset --> Split(X) { WallD: NIL | ~1: MallFrontIn | WallD: NIL }
+MallFrontIn --> Translate(0, 0, -WallD) MallFront
+MallFront --> Split(Y) { ~1: Shops | 1.0: MansardStrip }
+Shops --> Repeat(X, 4.0) { ShopBay }
+ShopBay --> Split(X) { 0.3: Wall | ~1: ShopUnit | 0.3: Wall }
+ShopUnit --> when(scope.x > 2.6): Split(X) { ~1: ShopWindow | 1.1: ShopDoor } | else: ShopWindow
+ShopWindow --> Split(Y) { 0.55: Wall | ~1: ShopGlazing }
+ShopDoor --> Split(Y) { 0.45: Step | ~1: GlassDoor }
+Step --> Extrude(WallD + 0.3) Mat("Base") I("Trim")
+GlassDoor --> Extrude(WallD - 0.12) Mat("DoorGlass") I("Door")
+// The mansard: a little shingled gable along the front over a soffit,
+// standing out over the walk.
+MansardStrip --> Extrude(WallD + PorchD) Split(Z) { WallD: MansardSlab | ~1: Mansard }
+MansardSlab --> Comp(Faces) { Back: MansardFace | Front: NIL | Left: NIL | Right: NIL
+    | Top: NIL | Bottom: NIL }
+MansardFace --> Translate(0, 0, -WallD) Wall
+Mansard --> Split(Y) { 0.16: Soffit | ~1: MansardRoof }
+Soffit --> Mat("Canopy") I("Canopy")
+MansardRoof --> Roof(Gable, 50, overhang=0, ridge=X) { Slope: Shingles | GableEnd: MansardEnd }
+MansardEnd --> Mat("Trim") I("Trim")
+MallRearInset --> Split(X) { WallD: NIL | ~1: MallRearIn | WallD: NIL }
+MallRearIn --> Translate(0, 0, -WallD) MallRear
+MallRear --> Repeat(X, 3.2) { MallRearBay }
+MallRearBay --> Split(X) { ~1: Wall | 1.2: MallRearWindow | ~1: Wall }
+MallRearWindow --> Split(Y) { 1.6: Wall | 0.8: Glazing | ~1: Wall }
+// Offices over the shops: a window to each bay.
+MallUpper --> Comp(Faces) { Front: MallUpFrontInset | Back: MallUpFrontInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+MallUpFrontInset --> Split(X) { WallD: NIL | ~1: MallUpFrontIn | WallD: NIL }
+MallUpFrontIn --> Translate(0, 0, -WallD) MallUpFront
+MallUpFront --> Split(Y) { 0.9: Wall | 1.3: OfficeRow | ~1: Wall }
+OfficeRow --> Repeat(X, 2.0) { OfficeBay }
+OfficeBay --> Split(X) { ~1: Wall | 1.3: Glazing | ~1: Wall }
+// The parapet, a lit sign on its front, and the deck inside it.
+Parapet --> Comp(Faces) { Front: SignFace | Back: ParapetFace | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+SignFace --> Split(Y) { ~1: SignInset | 0.12: Coping }
+SignInset --> Split(X) { WallD: NIL | ~1: SignIn | WallD: NIL }
+SignIn --> Translate(0, 0, -WallD) SignWall
+SignWall --> Extrude(WallD + 0.05) Split(Z) { WallD: SignBack | ~1: Letters }
+SignBack --> I("Wall")
+Letters --> Split(Y) { 0.25: NIL | ~1: LetterRow | 0.2: NIL }
+LetterRow --> Repeat(X, 4.0) { SignBay }
+SignBay --> Split(X) { ~1: NIL | 2.7: Cells | ~1: NIL }
+Cells --> Repeat(X, 0.45) { Cell }
+Cell --> Split(X) { 0.1: NIL | ~1: CellLit }
+CellLit --> Mat("SignLit") I("Sign")
+ParapetFace --> Split(Y) { ~1: ParapetInset | 0.12: Coping }
+ParapetInset --> Split(X) { WallD: NIL | ~1: ParapetIn | WallD: NIL }
+ParapetIn --> Translate(0, 0, -WallD) Wall
+Coping --> Extrude(0.05) Mat("Trim") I("Trim")
+Deck --> Translate(WallD, WallD, -0.2) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("Deck") I("Roof")

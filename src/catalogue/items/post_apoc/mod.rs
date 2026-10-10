@@ -23,6 +23,9 @@ pub mod radio_mast;
 pub mod salvage_shack;
 pub mod scrap_wall;
 pub mod signal_fire;
+pub mod street_block;
+pub mod street_house;
+pub mod street_low;
 pub mod tire_wall;
 pub mod wrecked_car;
 // Poor (drifter) variants - the prosperity-Poor end of the theme.
@@ -91,6 +94,25 @@ pub(super) fn concrete(color: [f32; 3]) -> SovereignMaterialSettings {
             formwork_lines: Fp64(3.0),
             pit_density: Fp64(0.2),
             weathering: ageing::stained(0xC0, 0.85),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+/// Stained render on a surviving wall - the street buildings' fronts. The
+/// [`concrete`] of a slab, without its board marks: the boards' lines read
+/// as timber on a rendered front.
+pub(super) fn render(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.92),
+        uv_scale: tiles_per_metre(tile::CONCRETE),
+        texture: SovereignTextureConfig::Concrete(SovereignConcreteConfig {
+            color_base: Fp3(color),
+            formwork_lines: Fp64(0.0),
+            pit_density: Fp64(0.3),
+            weathering: ageing::stained(0xC1, 0.9),
             ..Default::default()
         }),
         ..Default::default()

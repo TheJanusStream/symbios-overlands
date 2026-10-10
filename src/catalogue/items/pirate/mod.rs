@@ -53,6 +53,9 @@ pub mod quay_capstan;
 pub mod rotting_hulk;
 pub mod rum_tuns;
 pub mod signal_mast;
+pub mod street_block;
+pub mod street_house;
+pub mod street_low;
 pub mod tideline_bones;
 
 pub mod careening_slip;
@@ -509,6 +512,29 @@ pub(super) fn tinted_glass(color: [f32; 3], lit: f32) -> SovereignMaterialSettin
         metallic: Fp(0.15),
         uv_scale: Fp(1.0),
         texture: SovereignTextureConfig::None,
+        ..Default::default()
+    }
+}
+
+/// Limewash over rubble and coral stone - the painted fronts of a colonial
+/// harbour town's houses (#1598): a coarse plaster grain, its shadow a
+/// little darker than its colour, faded by the sun and the salt.
+pub(super) fn limewash(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.93),
+        metallic: Fp(0.0),
+        uv_scale: tiles_per_metre(tile::STUCCO),
+        texture: SovereignTextureConfig::Stucco(crate::pds::SovereignStuccoConfig {
+            color_base: Fp3(color),
+            color_shadow: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.80, 0.78, 0.74],
+            )),
+            scale: Fp64(6.0),
+            roughness: Fp64(0.45),
+            ..Default::default()
+        }),
         ..Default::default()
     }
 }

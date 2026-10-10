@@ -1,0 +1,143 @@
+// The suburb's street house (#1598): a stacked-porch apartment house in lap
+// siding. See street_house.rs for the house, and catalogue::items::street for
+// the conventions and for what is declared ahead of these rules (Storeys,
+// Trade, Frontage, Depth, GroundH, FloorH) and after them (Glazing,
+// ShopGlazing, Wall).
+
+const WallD = 0.3
+const PaneSet = 0.12
+const StepH = 0.6
+const FriezeH = 0.55
+const RoofH = 1.0
+// The porch stack: its width along the front and how far it stands out.
+const PorchW = 3.6
+const PorchD = 1.8
+const CornerW = 0.3
+
+// -- 1. The house: its siding rolled once, then storeys, frieze, roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + FriezeH + RoofH) Cladding
+Cladding --> 24% Mat("SidingBlue") Massing | 22% Mat("SidingCream") Massing
+    | 20% Mat("SidingSage") Massing | 18% Mat("SidingYellow") Massing
+    | 16% Mat("SidingGrey") Massing
+Massing --> Split(Y) { GroundH: Ground | ~1: Uppers | FriezeH: Frieze | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+// White corner boards at both ends of the front, standing proud.
+Corner --> Extrude(WallD + 0.05) Mat("Trim") I("Trim")
+
+// -- 2. The ground storey: a porch and windows, or a corner store --
+Ground --> Comp(Faces) { Front: GroundFrontInset | Back: RearGroundInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> Split(X) { CornerW: Corner | ~1: GroundField | CornerW: Corner }
+GroundField --> when(Trade == 1): ShopFront | else: HomeFront
+// The porch stands where the stack above it does: the same Pick key.
+HomeFront --> Pick("porch") { 40% HomeL | 30% HomeM | 30% HomeR }
+HomeL --> Split(X) { PorchW: GroundPorchSlot | ~1: Bays }
+HomeM --> Split(X) { ~1: Bays | PorchW: GroundPorchSlot | ~1: Bays }
+HomeR --> Split(X) { ~1: Bays | PorchW: GroundPorchSlot }
+GroundPorchSlot --> Extrude(WallD + PorchD) Split(Z) { WallD: GroundWallSlab | ~1: GroundPorch }
+GroundWallSlab --> Comp(Faces) { Back: GroundPorchFace | Front: NIL | Left: NIL | Right: NIL
+    | Top: NIL | Bottom: NIL }
+GroundPorchFace --> Translate(0, 0, -WallD) GroundPorchBack
+// The front door up on the porch, a window beside it.
+GroundPorchBack --> Split(X) { ~1: Wall | 1.1: FrontDoor | 0.5: Wall | 1.0: WinCol | ~1: Wall }
+FrontDoor --> Split(Y) { StepH: Wall | 2.3: DoorLeaf | 0.15: Head | ~1: Wall }
+DoorLeaf --> Pick("door") { 40% RedLeaf | 30% BlueLeaf | 30% WoodLeaf }
+RedLeaf --> Mat("DoorRed") Leaf
+BlueLeaf --> Mat("DoorBlue") Leaf
+WoodLeaf --> Mat("DoorWood") Leaf
+Leaf --> Extrude(WallD - 0.12) I("Door")
+// The porch: a raised deck, posts and a spindle rail.
+GroundPorch --> Split(Y) { StepH: Platform | ~1: PorchAir }
+Platform --> Mat("Deck") I("Porch")
+// The corner store: windows on a brick plinth, an awning, a lit sign.
+ShopFront --> Split(Y) { ~1: ShopLevel | 0.25: AwningStrip | 0.7: SignBand | 0.15: Wall }
+ShopLevel --> Split(X) { ~1: ShopRun | 1.4: ShopDoor | ~1: ShopRun }
+ShopRun --> Repeat(X, 3.2) { ShopBay }
+ShopBay --> Split(X) { 0.3: Wall | ~1: ShopWindow | 0.3: Wall }
+ShopWindow --> Split(Y) { 0.65: ShopPlinth | ~1: ShopGlazing }
+ShopPlinth --> Mat("ShopBrick") Wall
+ShopDoor --> Split(Y) { 0.5: Step | ~1: ShopLeaf | 0.3: ShopGlazing }
+ShopLeaf --> Extrude(WallD - 0.12) Mat("DoorRed") I("Door")
+Step --> Extrude(WallD + 0.3) Mat("Base") I("Trim")
+AwningStrip --> Extrude(WallD + 1.3) Pick("awning") { 55% GreenAwning | 45% RedAwning }
+GreenAwning --> Mat("Awning") I("Awning")
+RedAwning --> Mat("AwningRed") I("Awning")
+SignBand --> Extrude(WallD + 0.1) Split(Z) { WallD + 0.06: Fascia | ~1: Letters }
+Fascia --> Mat("Fascia") I("Fascia")
+Letters --> Split(Y) { 0.22: NIL | ~1: LetterRow | 0.22: NIL }
+LetterRow --> Split(X) { ~1: NIL | 3.6: Cells | ~1: NIL }
+Cells --> Repeat(X, 0.45) { Cell }
+Cell --> Split(X) { 0.1: NIL | ~1: CellLit }
+CellLit --> Mat("SignLit") I("Sign")
+RearGroundInset --> Split(X) { WallD: NIL | ~1: RearGroundIn | WallD: NIL }
+RearGroundIn --> Translate(0, 0, -WallD) RearFloor
+
+// -- 3. The upper storeys: corner boards, a porch on each storey --
+Uppers --> Comp(Faces) { Front: UpperFrontInset | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperFrontInset --> Split(X) { WallD: NIL | ~1: UpperFrontIn | WallD: NIL }
+UpperFrontIn --> Translate(0, 0, -WallD) UpperFront
+UpperFront --> Split(X) { CornerW: Corner | ~1: UpperField | CornerW: Corner }
+UpperField --> Repeat(Y, FloorH) { Storey }
+// The top storey's porch carries a roof of its own.
+Storey --> when(split.i == split.n - 1): Floor(1) | else: Floor(0)
+Floor(top) --> Pick("porch") { 40% FloorL(top) | 30% FloorM(top) | 30% FloorR(top) }
+FloorL(top) --> Split(X) { PorchW: PorchSlot(top) | ~1: Bays }
+FloorM(top) --> Split(X) { ~1: Bays | PorchW: PorchSlot(top) | ~1: Bays }
+FloorR(top) --> Split(X) { ~1: Bays | PorchW: PorchSlot(top) }
+PorchSlot(top) --> Extrude(WallD + PorchD) Split(Z) { WallD: WallSlab | ~1: Porch(top) }
+WallSlab --> Comp(Faces) { Back: PorchFace | Front: NIL | Left: NIL | Right: NIL | Top: NIL
+    | Bottom: NIL }
+PorchFace --> Translate(0, 0, -WallD) PorchBack
+// Each flat's own door onto its porch, a window beside it.
+PorchBack --> Split(X) { ~1: Wall | 1.0: FlatDoor | 0.5: Wall | 1.0: WinCol | ~1: Wall }
+FlatDoor --> Split(Y) { 0.22: Wall | 2.15: DoorLeaf | ~1: Wall }
+Porch(top) --> when(top == 1): Split(Y) { 0.22: Deck | ~1: PorchAir | 0.2: PorchRoof }
+    | else: Split(Y) { 0.22: Deck | ~1: PorchAir }
+Deck --> Mat("Deck") I("Porch")
+PorchRoof --> Mat("Trim") I("Porch")
+// Posts at the porch's outer corners, a spindle rail between them.
+PorchAir --> Split(X) { 0.16: PostCol | ~1: RailCol | 0.16: PostCol }
+PostCol --> Split(Z) { ~1: NIL | 0.16: Post }
+Post --> Mat("Trim") I("Porch")
+RailCol --> Split(Z) { ~1: NIL | 0.07: RailPlane }
+RailPlane --> Split(Y) { 0.12: NIL | 0.07: RailBar | 0.7: Spindles | 0.08: RailBar | ~1: NIL }
+RailBar --> Mat("Trim") I("Porch")
+Spindles --> Repeat(X, 0.3) { SpindleBay }
+SpindleBay --> Split(X) { ~1: NIL | 0.06: Spindle | ~1: NIL }
+Spindle --> Mat("Trim") I("Porch")
+// The windows: shutters either side, a sill and a head board.
+Bays --> Repeat(X, 2.7) { Bay }
+Bay --> Split(X) { ~1: Wall | 0.42: Shutter | 1.0: WinCol | 0.42: Shutter | ~1: Wall }
+WinCol --> Split(Y) { 0.8: Wall | 0.08: Sill | 1.65: Glazing | 0.15: Head | ~1: Wall }
+Sill --> Extrude(WallD + 0.06) Mat("Trim") I("Trim")
+Head --> Extrude(WallD + 0.08) Mat("Trim") I("Trim")
+Shutter --> Split(Y) { 0.88: Wall | 1.65: ShutterLeaf | ~1: Wall }
+ShutterLeaf --> Pick("shutters") { 40% BlueLouvre | 30% WhiteLouvre | 30% RedLouvre }
+BlueLouvre --> Mat("DoorBlue") Louvre
+WhiteLouvre --> Mat("Trim") Louvre
+RedLouvre --> Mat("DoorRed") Louvre
+Louvre --> Extrude(WallD + 0.04) I("Trim")
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) RearUpper
+RearUpper --> Repeat(Y, FloorH) { RearFloor }
+RearFloor --> Repeat(X, 2.8) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.0: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 0.85: Wall | 1.55: Glazing | ~1: Wall }
+
+// -- 4. The frieze: a white board under the eaves, the whole frontage --
+Frieze --> Comp(Faces) { Front: FriezeBoard | Back: RearFriezeInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+FriezeBoard --> Extrude(0.12) Mat("Trim") I("Trim")
+RearFriezeInset --> Split(X) { WallD: NIL | ~1: RearFriezeIn | WallD: NIL }
+RearFriezeIn --> Translate(0, 0, -WallD) Wall
+
+// -- 5. The roof: a shingled gable to the street, or along it --
+RoofZone --> Pick("roof") { 55% FrontGable | 45% SideGable }
+FrontGable --> Roof(Gable, 30, overhang=0, ridge=Z) { Slope: Shingles | GableEnd: Gable }
+SideGable --> Roof(Gable, 36, overhang=0, ridge=X) { Slope: Shingles | GableEnd: Gable }
+Shingles --> Mat("Shingle") I("Roof")
+Gable --> I("Wall")

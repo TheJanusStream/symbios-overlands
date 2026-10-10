@@ -57,6 +57,15 @@ pub(crate) enum Grow {
     /// As the lot layer grows its buildings and props: finished and ruined
     /// by the room's prosperity and escalation, drawn at its scale.
     Built,
+    /// A street building (#1598) built to `fit`, the fit its footprint
+    /// gives it, and drawn with its `variant`th seed
+    /// ([`super::streets::variant_seed`]); then as [`Self::Built`], but
+    /// ruined in place: it stands flush in a row
+    /// ([`crate::terrain::lots::grow_flush`]).
+    Street {
+        fit: crate::catalogue::items::street::StreetFit,
+        variant: u8,
+    },
     /// A plant, re-skinned by its named variant, its growth held to the
     /// seeded stands' per-tree budget, drawn at its catalogue size.
     Plant { variant: Option<&'static str> },
@@ -95,6 +104,16 @@ pub(crate) struct PlannedBuilding {
 }
 
 impl PlannedBuilding {
+    /// How far its copies reach from where they stand, turned any way (m):
+    /// a street building's lot at its fit (#1598), any other entry's
+    /// clearance, at its scale.
+    pub(crate) fn reach(&self) -> f32 {
+        match self.grow {
+            Grow::Street { fit, .. } => fit.reach_m() * self.scale,
+            Grow::Built | Grow::Plant { .. } => super::fit::radius(self.entry) * self.scale,
+        }
+    }
+
     pub(crate) fn new(
         entry: &'static dyn CatalogueEntry,
         scale: f32,
@@ -179,6 +198,17 @@ impl Plan {
                     building.entry,
                     did,
                     seed ^ fnv1a_64(slug),
+                    character,
+                    building.scale,
+                ),
+                Grow::Street { fit, variant } => crate::terrain::lots::grow_flush(
+                    building.entry,
+                    building
+                        .entry
+                        .street()
+                        .expect("a street template is a street building's")
+                        .build(fit),
+                    super::streets::variant_seed(seed ^ fnv1a_64(slug), variant),
                     character,
                     building.scale,
                 ),
@@ -600,6 +630,29 @@ mod tests {
         assert!(tree.audio.is_none());
         assert_eq!(tree.children.len(), 1, "the wall stays, the sparks go");
         assert!(tree.children[0].children.is_empty() && tree.children[0].audio.is_none());
+    }
+
+    /// A street building is ruined in place (#1598): a fought-over room
+    /// sinks and weathers it, but neither leans nor shrinks it, so it
+    /// stands flush against its neighbours as it was drawn to.
+    #[test]
+    fn a_street_copy_is_ruined_in_place() {
+        let entry = crate::catalogue::by_slug("city_street_house").expect("registered");
+        let spec = entry.street().expect("a street building");
+        let built = spec.build(spec.kind.default_fit());
+        for seed in 0..8u64 {
+            let tree =
+                crate::terrain::lots::grow_flush(entry, built.clone(), seed, (0.5, 0.95), 1.0);
+            assert_eq!(tree.transform.scale, built.transform.scale, "seed {seed}");
+            assert_eq!(
+                tree.transform.rotation, built.transform.rotation,
+                "seed {seed}"
+            );
+            assert!(
+                tree.transform.translation.0[1] < built.transform.translation.0[1],
+                "seed {seed}: sunk"
+            );
+        }
     }
 
     /// A plant is grown as the seeded stands grow one: re-skinned by its

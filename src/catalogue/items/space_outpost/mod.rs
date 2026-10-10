@@ -26,6 +26,9 @@ pub mod landing_pad;
 pub mod monument;
 pub mod rover;
 pub mod solar_array;
+pub mod street_block;
+pub mod street_house;
+pub mod street_low;
 // Poor (wreck) variants - the prosperity-Poor end of the theme.
 pub mod crash_shelter;
 pub mod scrap_canister;

@@ -110,7 +110,8 @@ const fn solid_of(kind: FurnitureKind) -> Solid {
 }
 
 /// Each kind's matches among the room's props and secondary buildings, each
-/// at the scale it is drawn at.
+/// at the scale it is drawn at - never a street building (#1598), which is
+/// a row's house, not a street's furniture.
 pub(crate) fn matches_for(
     room: &RoomScene,
 ) -> HashMap<FurnitureKind, Vec<(&'static dyn CatalogueEntry, f32)>> {
@@ -118,6 +119,7 @@ pub(crate) fn matches_for(
     let pool: Vec<&'static dyn CatalogueEntry> = [StructureRole::Prop, StructureRole::Secondary]
         .into_iter()
         .flat_map(|role| sized_pool(theme, role, character))
+        .filter(|entry| entry.street().is_none())
         .collect();
     FurnitureKind::ALL
         .into_iter()

@@ -1,0 +1,105 @@
+// The wasteland theme's low building (#1598): a row of scrap shanties, or
+// - where it trades - a scrap trader's shop. See street_low.rs for the
+// building, and catalogue::items::street for the conventions and for what
+// is declared ahead of these rules and after them.
+
+const WallD = 0.3
+const PaneSet = 0.1
+const StepH = 0.5
+const RoofH = 1.0
+const ParapetH = 0.7
+const AwningD = 1.8
+// A shack's width along the street: a lot holds as many as fit.
+const ShackW = 3.6
+
+Lot --> when(Trade == 1): Trader | else: Shanties
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+
+// -- Every window is a window still: glazed, boarded or half sheeted --
+Win --> 45% Glazing | 30% Boarded | 25% Sheeted
+Boarded --> Split(Y) { ~1: Glazing | 0.25: Board | ~1.4: Glazing }
+Board --> Extrude(WallD + 0.05) Mat("Plank") I("Board")
+Sheeted --> Split(Y) { ~1.2: SheetOver | ~1: Glazing }
+SheetOver --> 60% Mat("RustSheet") Patch | 40% Mat("Sheet") Patch
+Patch --> Extrude(WallD + 0.05) I("Patch")
+Step --> Extrude(WallD + 0.3) Mat("Block") I("Trim")
+DoorLeaf --> Extrude(WallD - 0.12) Mat("Door") I("Door")
+
+// -- 1. The shanties: shack by shack, each its own sheet, a lean-to roof --
+Shanties --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Shell
+Shell --> 50% Mat("Block") ShantyMass | 50% Mat("RustSheet") ShantyMass
+ShantyMass --> when(Storeys == 1): Split(Y) { GroundH: ShackGround | RoofH: ShackRoof }
+    | else: Split(Y) { GroundH: ShackGround | ~1: Loft | RoofH: ShackRoof }
+ShackGround --> Comp(Faces) { Front: ShackFrontInset | Back: RearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+ShackFrontInset --> Split(X) { WallD: NIL | ~1: ShackFrontIn | WallD: NIL }
+ShackFrontIn --> Translate(0, 0, -WallD) Repeat(X, ShackW) { Shack }
+Shack --> 30% Mat("RustSheet") ShackFace | 25% Mat("Sheet") ShackFace
+    | 20% Mat("BlueSheet") ShackFace | 15% Mat("GreenSheet") ShackFace
+    | 10% Mat("Plank") ShackFace
+// Each shack: a door under a sheet hood, a window, a post at its edge.
+ShackFace --> Split(X) { 0.12: ShackPost | ~1: Wall | 1.0: ShackDoor | 0.3: Wall
+    | 1.1: ShackWindow | ~1: Wall }
+ShackPost --> Extrude(WallD + 0.12) Mat("Rust") I("Trim")
+ShackDoor --> Split(Y) { StepH: Step | 2.1: DoorLeaf | 0.1: Hood | ~1: Wall }
+Hood --> Extrude(WallD + 0.6) Mat("Sheet") I("Roof")
+ShackWindow --> Split(Y) { 1.0: Wall | 1.2: Win | ~1: Wall }
+RearInset --> Split(X) { WallD: NIL | ~1: RearIn | WallD: NIL }
+RearIn --> Translate(0, 0, -WallD) Repeat(X, 3.6) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.0: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.2: Wall | 1.0: Glazing | ~1: Wall }
+// A plank loft over the shacks, a window to each.
+Loft --> Mat("Plank") Comp(Faces) { Front: LoftInset | Back: LoftInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+LoftInset --> Split(X) { WallD: NIL | ~1: LoftIn | WallD: NIL }
+LoftIn --> Translate(0, 0, -WallD) Repeat(X, 3.0) { LoftBay }
+LoftBay --> Split(X) { ~1: Wall | 1.1: LoftWindow | ~1: Wall }
+LoftWindow --> Split(Y) { 0.8: Wall | 1.1: Win | ~1: Wall }
+// A lean-to of sheet, falling to the street.
+ShackRoof --> Roof(Shed, 10, overhang=0, ridge=X) { Slope: RoofSheet | All: RoofWall }
+RoofSheet --> Mat("Roof") I("Roof")
+RoofWall --> I("Wall")
+
+// -- 2. The trader's shop: counters behind shutters, a tarp awning on
+// posts, a sign plank and a worklight --
+Trader --> Extrude(GroundH + FloorH * (Storeys - 1) + ParapetH) TraderShell
+TraderShell --> 50% Mat("Block") TraderMass | 50% Mat("RustSheet") TraderMass
+TraderMass --> when(Storeys == 1): Split(Y) { GroundH: TraderGround | ParapetH: Parapet }
+    | else: Split(Y) { GroundH: TraderGround | ~1: Loft | ParapetH: Parapet }
+TraderGround --> Comp(Faces) { Front: TraderFace | Back: RearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+TraderFace --> Split(Y) { ~1: TraderInset | 0.12: Awning | 0.55: SignInset }
+TraderInset --> Split(X) { WallD: NIL | ~1: TraderIn | WallD: NIL }
+TraderIn --> Translate(0, 0, -WallD) TraderFront
+TraderFront --> Split(X) { 0.14: PostStrip | ~1: Stalls | 0.14: PostStrip }
+// A post's strip of the front is the wall behind it and the post at the
+// awning's edge.
+PostStrip --> Extrude(WallD + AwningD - 0.05) Split(Z) { WallD: PostWall | ~1: NIL
+    | 0.14: Post }
+PostWall --> I("Wall")
+Post --> Mat("Rust") I("Post")
+Awning --> 55% Mat("Tarp") AwningSheet | 45% Mat("TarpRed") AwningSheet
+AwningSheet --> Extrude(AwningD) I("Awning")
+Stalls --> Split(X) { ~1: StallRun | 1.2: TraderDoor | ~1: StallRun }
+StallRun --> Repeat(X, 2.6) { StallBay }
+StallBay --> Split(X) { 0.3: Wall | ~1: Stall | 0.3: Wall }
+// A stall: a counter under the shop's glass, a shutter half drawn.
+Stall --> Split(Y) { 0.9: Wall | 0.08: Counter | ~1: ShopGlazing | 0.7: Shutter }
+Counter --> Extrude(WallD + 0.4) Mat("Plank") I("Trim")
+Shutter --> Extrude(WallD + 0.05) Mat("Sheet") I("Shutter")
+TraderDoor --> Split(Y) { StepH: Step | 2.2: DoorLeaf | ~1: Wall }
+SignInset --> Split(X) { WallD: NIL | ~1: SignIn | WallD: NIL }
+SignIn --> Translate(0, 0, -WallD) Split(X) { ~1: Wall | 4.2: Sign | 0.3: Wall | 0.5: Lamp
+    | ~1: Wall }
+Sign --> 55% Mat("Sign") Fascia | 45% Mat("Plank") Fascia
+Fascia --> Extrude(WallD + 0.1) I("Fascia")
+Lamp --> Split(Y) { ~1: Wall | 0.3: LampBox | 0.1: Wall }
+LampBox --> Extrude(WallD + 0.3) Mat("Lamp") I("Lamp")
+// The parapet, and a roof of sheet inside it.
+Parapet --> Comp(Faces) { Front: ParapetInset | Back: ParapetInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+ParapetInset --> Split(X) { WallD: NIL | ~1: ParapetIn | WallD: NIL }
+ParapetIn --> Translate(0, 0, -WallD) Wall
+Deck --> Translate(WallD, WallD, -0.15) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.15) Mat("Roof") I("Roof")

@@ -1,0 +1,113 @@
+// The classical theme's low building (#1598): a row of tabernae, or - where
+// it houses people - a domus front. See street_low.rs for the building, and
+// catalogue::items::street for the conventions and for what is declared
+// ahead of these rules and after them.
+
+const WallD = 0.45
+const PaneSet = 0.16
+const PlinthH = 0.7
+const StepH = 0.55
+const CornH = 0.55
+const RoofH = 0.5
+
+Lot --> when(Trade == 1): Tabernae | else: Domus
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+
+// -- 1. The tabernae: shop bays under a tiled pentice, brick or plaster --
+Tabernae --> Extrude(GroundH + FloorH * (Storeys - 1) + CornH + RoofH) TabFace
+TabFace --> 60% Mat("Brick") TabMass | 40% Mat("PlasterOchre") TabMass
+TabMass --> when(Storeys == 1): Split(Y) { GroundH: TabGround | CornH: Crown | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: TabGround | ~1: Upper | CornH: Crown | RoofH: RoofZone }
+TabGround --> Comp(Faces) { Front: TabGroundFace | Back: RearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+TabGroundFace --> Split(Y) { ~1: TabFrontInset | 0.3: Pentice }
+TabFrontInset --> Split(X) { WallD: NIL | ~1: TabFrontIn | WallD: NIL }
+TabFrontIn --> Translate(0, 0, -WallD) TabFront
+TabFront --> Repeat(X, 3.6) { Taberna }
+Taberna --> Split(X) { 0.5: Pier | ~1: TabUnit | 0.5: Pier }
+Pier --> Mat("Travertine") Wall
+TabUnit --> when(scope.x > 2.3): Split(X) { ~1: TabWindow | 1.0: TabDoor }
+    | else: TabWindow
+TabWindow --> Split(Y) { PlinthH: Counter | 1.9: ShopGlazing | 0.3: Lintel | 0.5: Sign
+    | ~1: Wall }
+TabDoor --> Split(Y) { StepH: Step | 2.05: DoorLeaf | 0.3: Lintel | 0.5: Sign | ~1: Wall }
+Counter --> Extrude(WallD + 0.25) Mat("Travertine") I("Trim")
+Sign --> Extrude(WallD + 0.06) Mat("Sign") I("Fascia")
+Lintel --> Extrude(WallD + 0.08) Mat("Travertine") I("Trim")
+Step --> Extrude(WallD + 0.3) Mat("Travertine") I("Trim")
+DoorLeaf --> Extrude(WallD - 0.2) Mat("Door") I("Door")
+// The pentice: tiles over the street on a timber beam, the whole front.
+Pentice --> Extrude(1.5) Split(Y) { 0.18: PentBeam | ~1: PentRoof }
+PentBeam --> Mat("Timber") I("Trim")
+PentRoof --> Roof(Shed, 16, overhang=0) { Slope: Tiles | All: Gable }
+
+// -- 2. The domus: a plain plastered front, its door between columns --
+Domus --> Extrude(GroundH + FloorH * (Storeys - 1) + CornH + RoofH) DomFace
+DomFace --> 35% Mat("PlasterRed") DomMass | 30% Mat("PlasterOchre") DomMass
+    | 35% Mat("PlasterCream") DomMass
+DomMass --> when(Storeys == 1): Split(Y) { GroundH: DomGround | CornH: Crown | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: DomGround | ~1: Upper | CornH: Crown | RoofH: RoofZone }
+DomGround --> Comp(Faces) { Front: DomFrontInset | Back: RearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+DomFrontInset --> Split(X) { WallD: NIL | ~1: DomFrontIn | WallD: NIL }
+DomFrontIn --> Translate(0, 0, -WallD) DomFront
+DomFront --> Split(X) { ~1: DomRun | 3.4: Portal | ~1: DomRun }
+DomRun --> when(scope.x < 3.0): DomBay | else: Repeat(X, 3.0) { DomBay }
+DomBay --> Split(X) { ~1: Wall | 0.8: DomWindow | ~1: Wall }
+DomWindow --> Split(Y) { 2.2: Wall | 0.9: Glazing | 0.24: Arch | ~1: Wall }
+Arch --> Extrude(WallD + 0.04) Mat("Brick") I("Trim")
+// The portal: a column either side of the door, standing clear of the
+// wall, a marble beam over them and a pediment facing the street. Each
+// part is extruded with the wall's slot and split from it, so the wall
+// behind it stays whole.
+Portal --> Split(Y) { 3.0: PortalLow | ~1: PortalCap }
+PortalLow --> Split(X) { 0.5: PortalCol | ~1: PortalDoor | 0.5: PortalCol }
+PortalCol --> Extrude(WallD + 0.52) Split(Z) { WallD: SlotWall | 0.02: NIL | 0.5: ColStand }
+SlotWall --> I("Wall")
+ColStand --> Split(Y) { 0.3: ColBase | ~1: Column }
+ColBase --> Mat("Travertine") I("Trim")
+Column --> Taper(0.08) Mat("Marble") I("Column")
+PortalDoor --> Split(Y) { StepH: Step | 2.3: DoorLeaf | ~1: Wall }
+PortalCap --> Extrude(WallD + 0.6) Split(Z) { WallD: SlotWall | ~1: CapFront }
+// The pediment stands a hair clear of the wall: its back gable would lie
+// in the wall's face.
+CapFront --> Split(Y) { 0.3: PortalBeam | ~1: PedSlot }
+PedSlot --> Split(Z) { 0.03: NIL | ~1: Pediment }
+PortalBeam --> Mat("Marble") I("Cornice")
+Pediment --> Roof(Gable, 20, overhang=0, ridge=Z) { Slope: Tiles | GableEnd: PedField }
+PedField --> Mat("Marble") I("Trim")
+
+// -- 3. The shared parts: the upper storey, the yard side, the crown --
+Upper --> Comp(Faces) { Front: UpperInset | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperInset --> Split(X) { WallD: NIL | ~1: UpperIn | WallD: NIL }
+UpperIn --> Translate(0, 0, -WallD) UpperFront
+UpperFront --> Repeat(X, 2.4) { UpBay }
+UpBay --> 55% ShutBay | 45% OpenBay
+ShutBay --> Split(X) { ~1: Wall | 0.4: ShutterCol | 0.8: UpWindow | 0.4: ShutterCol | ~1: Wall }
+OpenBay --> Split(X) { ~1: Wall | 0.8: UpWindow | ~1: Wall }
+UpWindow --> Split(Y) { 0.9: Wall | 1.2: Glazing | 0.24: Arch | ~1: Wall }
+ShutterCol --> Split(Y) { 0.9: Wall | 1.2: Shutter | ~1: Wall }
+Shutter --> Extrude(WallD + 0.05) Mat("Timber") I("Trim")
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) RearUpper
+RearUpper --> Repeat(X, 3.0) { RearBay }
+// The yard side: small windows over high sills.
+RearInset --> Split(X) { WallD: NIL | ~1: RearIn | WallD: NIL }
+RearIn --> Translate(0, 0, -WallD) RearGround
+RearGround --> Repeat(X, 3.0) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 0.8: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.5: Wall | 1.0: Glazing | ~1: Wall }
+// A travertine cornice the whole frontage.
+Crown --> Comp(Faces) { Front: Cornice | Back: RearCrownInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+Cornice --> Split(Y) { 0.22: CorniceBed | ~1: CorniceCorona }
+CorniceBed --> Extrude(0.15) Mat("Travertine") I("Cornice")
+CorniceCorona --> Extrude(0.45) Mat("Travertine") I("Cornice")
+RearCrownInset --> Split(X) { WallD: NIL | ~1: RearCrownIn | WallD: NIL }
+RearCrownIn --> Translate(0, 0, -WallD) Wall
+// A low tiled roof along the street, its gable ends the party walls.
+RoofZone --> Roof(Gable, 22, overhang=0, ridge=X) { Slope: Tiles | GableEnd: Gable }
+Tiles --> Mat("Tile") I("Roof")
+Gable --> I("Wall")

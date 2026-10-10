@@ -1,0 +1,141 @@
+// The steampunk theme's street house (#1598): a brick-and-iron townhouse of
+// the gaslight age. See street_house.rs for the house, and
+// catalogue::items::street for the conventions and for what is declared
+// ahead of these rules (Storeys, Trade, Frontage, Depth, GroundH, FloorH)
+// and after them (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.42
+const PaneSet = 0.16
+const PlinthH = 0.6
+const StepH = 0.55
+const BandH = 0.24
+const CrownH = 2.0
+const RoofH = 1.0
+const DialD = 1.7
+
+// -- 1. The house: its brick rolled once, then storeys, crown, roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + CrownH + RoofH) Brick
+Brick --> 30% Mat("BrickSoot") Massing | 26% Mat("BrickRed") Massing
+    | 24% Mat("BrickBrown") Massing | 20% Mat("BrickYellow") Massing
+Massing --> Split(Y) { GroundH: Ground | ~1: Uppers | CrownH: Crown | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+// A copper downpipe stands before each party wall's end, the height of
+// every storey, with a brass boss at each floor: the strips the front's
+// inset leaves at its ends. It stands a centimetre off the wall, so its
+// ends never share the wall's planes.
+PipeStrip --> Size(0.24, scope.y, 0) Center(X) Translate(0, 0, 0.01) Extrude(0.3)
+    Mat("Copper") I("Pipe")
+PipeRun --> Size(0.24, scope.y, 0) Center(X) Translate(0, 0, 0.01) Repeat(Y, FloorH)
+    { PipeLength }
+PipeLength --> Extrude(0.3) Split(Y) { ~1: PipeShaft | 0.22: PipeBoss }
+PipeShaft --> Mat("Copper") I("Pipe")
+PipeBoss --> Size(scope.x + 0.12, scope.y, scope.z + 0.12) Center(XZ) Mat("Brass") I("Pipe")
+
+// -- 2. The ground storey: iron-framed shops or a home, under an iron band --
+Ground --> Comp(Faces) { Front: GroundFace | Back: RearGroundInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFace --> Split(X) { WallD: PipeStrip | ~1: GroundMid | WallD: PipeStrip }
+GroundMid --> Split(Y) { ~1: GroundFrontIn | BandH: Band }
+// A riveted iron band at every floor, from pipe to pipe.
+Band --> Extrude(0.12) Mat("Iron") I("Band")
+GroundFrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> when(Trade == 1): ShopFront | else: HomeFront
+ShopFront --> Split(X) { ~1: ShopRun | 2.1: Entrance | ~1: ShopRun }
+ShopRun --> Repeat(X, 3.6) { ShopBay }
+// A shop between cast-iron pilasters: its window on a brick plinth, a
+// door where the bay is wide enough, a fascia board under a brass rail.
+ShopBay --> Split(X) { 0.3: Pilaster | ~1: ShopUnit | 0.3: Pilaster }
+Pilaster --> Extrude(WallD + 0.1) Mat("Iron") I("Trim")
+ShopUnit --> Split(Y) { ~1: ShopLow | 0.7: Fascia | 0.1: Rail | 0.25: Wall }
+ShopLow --> when(scope.x > 2.4): Split(X) { ~1: ShopWindow | 1.1: ShopDoor }
+    | else: ShopWindow
+ShopWindow --> Split(Y) { PlinthH: Wall | ~1: ShopGlazing }
+ShopDoor --> Split(Y) { StepH: Step | 2.3: DoorLeaf | ~1: ShopGlazing }
+Fascia --> Extrude(WallD + 0.08) Mat("Sign") I("Fascia")
+Rail --> Extrude(WallD + 0.12) Mat("Brass") I("Trim")
+DoorLeaf --> 55% Mat("Door") Leaf | 45% Mat("DoorGreen") Leaf
+Leaf --> Extrude(WallD - 0.2) I("Door")
+Step --> Extrude(WallD + 0.3) Mat("Iron") I("Trim")
+HomeFront --> Split(X) { ~1: HomeRun | 2.1: Entrance | ~1: HomeRun }
+HomeRun --> Repeat(X, 2.6) { HomeBay }
+HomeBay --> Split(X) { ~1: Wall | 1.25: HomeWindow | ~1: Wall }
+HomeWindow --> Split(Y) { 1.35: Wall | 0.12: Sill | 2.05: Glazing | 0.26: Lintel | ~1: Wall }
+// The house door: a tall leaf under a fanlight, up an iron step.
+Entrance --> Split(X) { 0.3: Wall | ~1: EntranceDoor | 0.3: Wall }
+EntranceDoor --> Split(Y) { StepH: Step | 2.75: DoorLeaf | 0.26: Lintel | ~1: Fanlight }
+Fanlight --> Split(Y) { ~1: Glazing | 0.2: Wall }
+RearGroundInset --> Split(X) { WallD: NIL | ~1: RearGroundIn | WallD: NIL }
+RearGroundIn --> Translate(0, 0, -WallD) Repeat(X, 2.8) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.1: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.45: Wall | 2.0: Glazing | ~1: Wall }
+
+// -- 3. The upper storeys: banded, then bayed, iron balconies at the ends --
+Uppers --> Comp(Faces) { Front: UpperFace | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperFace --> Split(X) { WallD: PipeRun | ~1: UpperMid | WallD: PipeRun }
+UpperMid --> Repeat(Y, FloorH) { StoreyFace }
+StoreyFace --> Split(Y) { BandH: Band | ~1: StoreyIn }
+StoreyIn --> Translate(0, 0, -WallD) Split(X) { 0.5: Wall | ~1: Bays | 0.5: Wall }
+Bays --> Repeat(X, 2.4) { Bay }
+// The end bays carry the balconies, where the house has them. A guard
+// holds no nested parentheses: one guard per end bay.
+Bay --> when(split.n >= 3 && split.i == 0): SideBay
+    | when(split.n >= 3 && split.i == split.n - 1): SideBay | else: WinBay
+SideBay --> Pick("balconies") { 45% BalconyBay | 55% WinBay }
+WinBay --> Split(X) { ~1: Wall | 1.3: WinCol | ~1: Wall }
+WinCol --> Split(Y) { 0.6: Wall | 0.12: Sill | 2.05: Glazing | 0.26: Lintel | ~1: Wall }
+Sill --> Extrude(WallD + 0.08) Mat("Iron") I("Trim")
+// An iron lintel with a brass keystone at its middle.
+Lintel --> Split(X) { ~1: IronLintel | 0.3: Keystone | ~1: IronLintel }
+IronLintel --> Extrude(WallD + 0.1) Mat("Iron") I("Trim")
+Keystone --> Extrude(WallD + 0.16) Mat("Brass") I("Trim")
+BalconyBay --> Split(X) { 0.3: Wall | ~1: BalconyCol | 0.3: Wall }
+BalconyCol --> Split(Y) { 1.05: Balcony | 0.08: Rail | 1.6: Glazing | 0.26: Lintel | ~1: Wall }
+Balcony --> Extrude(WallD + 1.1) Mat("Iron") I("Balcony")
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { RearStorey }
+RearStorey --> Repeat(X, 2.8) { RearUpperBay }
+RearUpperBay --> Split(X) { ~1: Wall | 1.1: RearUpperWindow | ~1: Wall }
+RearUpperWindow --> Split(Y) { 0.9: Wall | 2.0: Glazing | ~1: Wall }
+
+// -- 4. The crown: an iron cornice, and an attic with a clock dial --
+Crown --> Comp(Faces) { Front: CrownFace | Back: RearCrownInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+CrownFace --> Split(X) { WallD: PipeStrip | ~1: CrownMid | WallD: PipeStrip }
+CrownMid --> Split(Y) { 0.3: CorniceBed | 0.22: CorniceCorona | ~1: Attic }
+CorniceBed --> Extrude(0.16) Mat("Iron") I("Cornice")
+CorniceCorona --> Extrude(0.5) Mat("Iron") I("Cornice")
+Attic --> Split(X) { ~1: AtticWall | DialD: DialSlot | ~1: AtticWall }
+AtticWall --> Extrude(0.1) I("Wall")
+// The dial's slot: the attic wall behind it, and a sliver at its top that
+// carries the dial - a disc turned to face the street, drawn round, on a
+// brass ring.
+DialSlot --> Split(Y) { ~1: AtticWall | 0.01: DialSliver }
+DialSliver --> Translate(0, 0.01 - DialD + 0.05, 0.1) Size(scope.x, DialD - 0.1, 0)
+    Split(X) { 0.05: NIL | ~1: Dial | 0.05: NIL }
+Dial --> Translate(0, scope.y, 0) Rotate(0.7071068, 0.7071068, 0, 0)
+    Size(scope.x, 0.14, scope.x) Split(Y) { 0.06: DialRing | ~1: DialFace }
+DialRing --> Mat("Brass") I("Dial")
+DialFace --> Size(scope.x * 0.86, scope.y, scope.z * 0.86) Center(XZ) Mat("Dial") I("Dial")
+RearCrownInset --> Split(X) { WallD: NIL | ~1: RearCrownIn | WallD: NIL }
+RearCrownIn --> Translate(0, 0, -WallD) Wall
+
+// -- 5. The roof: a mansard along the street in iron plate or slate, its
+// gable ends the party walls, and a sliver at the zone's top that stands a
+// copper stack over each party wall --
+RoofZone --> Split(Y) { ~1: Mansard | 0.01: StackLayer }
+// The break is a storey up whatever the depth (see the modern city's).
+Mansard --> Roof(Gambrel, 70, 22, overhang=0, ridge=X, tier=2.4 / Depth)
+    { LowerSlope: Plates | UpperSlope: Plates | GableEnd: Gable }
+Plates --> Pick("roof") { 55% IronPlates | 45% Slates }
+IronPlates --> Mat("IronPlate") I("Roof")
+Slates --> Mat("Slate") I("Roof")
+Gable --> I("Wall")
+StackLayer --> Translate(0, 0.01 - RoofH, 0)
+    Size(scope.x, 3.3 + 0.404 * (Depth / 2 - 1.2) + 1.4, scope.z)
+    Split(X) { 0.35: NIL | 0.7: StackCol | ~1: NIL | 0.7: StackCol | 0.35: NIL }
+StackCol --> Split(Z) { ~1: NIL | 0.7: Stack | ~1: NIL }
+Stack --> Split(Y) { ~1: StackShaft | 0.3: StackCap }
+StackShaft --> Mat("Copper") I("Stack")
+StackCap --> Size(scope.x + 0.18, scope.y, scope.z + 0.18) Center(XZ) Mat("Brass") I("Stack")

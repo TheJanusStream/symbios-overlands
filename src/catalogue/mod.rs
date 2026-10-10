@@ -408,6 +408,15 @@ pub trait CatalogueEntry: Sync {
     fn wear_fit(&self) -> Option<WearFit> {
         None
     }
+
+    /// The Berlin street building this entry is, where it is one (#1598):
+    /// one of a theme's street house, long block and low building, which a
+    /// Berlin region shapes to each footprint it stands on
+    /// ([`items::street::StreetSpec::build`]) and draws its rows of
+    /// buildings from alone. `None`, the default, for every other entry.
+    fn street(&self) -> Option<&'static items::street::StreetSpec> {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -454,7 +463,10 @@ mod tests {
                 None,
                 "{slug}: its ground is its clearance"
             );
-            assert_eq!(entry.ruin_max_lean(), None, "{slug}: the tier leans it");
+            // A street building stands flush in a row (#1598): no lean at
+            // all, or it leans into its neighbours.
+            let lean = entry.street().map(|_| 0.0);
+            assert_eq!(entry.ruin_max_lean(), lean, "{slug}: the tier leans it");
             others += 1;
         }
         assert_eq!(

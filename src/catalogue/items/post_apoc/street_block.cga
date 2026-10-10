@@ -1,0 +1,125 @@
+// The wasteland theme's long block (#1598): a Plattenbau slab wrapped in a
+// salvagers' scaffold. See street_block.rs for the block, and
+// catalogue::items::street for the conventions and for what is declared
+// ahead of these rules and after them.
+
+const WallD = 0.36
+const PaneSet = 0.14
+const PlinthH = 0.6
+const StepH = 0.5
+const WalkH = 0.1
+const ScaffoldD = 1.3
+const ParapetH = 1.0
+const RoofH = 2.6
+// One stair to a section, as a slab is built. Under twelve metres so the
+// frontages, less the party walls and the last pole, hold two, three and
+// four of them: a Repeat floors its count.
+const SectionW = 11.5
+
+// -- 1. The block: its stain rolled once, then base, storeys, parapet --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + ParapetH + RoofH) Panels
+Panels --> 40% Mat("Concrete") Massing | 30% Mat("Soot") Massing | 30% Mat("Faded") Massing
+Massing --> Split(Y) { GroundH: Ground | ~1: Uppers | ParapetH: Parapet | RoofH: RoofTop }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+
+// -- Every window is a window still: glazed, boarded or half sheeted --
+Win --> 55% Glazing | 25% Boarded | 20% Sheeted
+Boarded --> Split(Y) { ~1: Glazing | 0.3: Board | ~1.4: Glazing }
+Board --> Extrude(WallD + 0.05) Mat("Plank") I("Board")
+Sheeted --> Split(Y) { ~1.2: SheetOver | ~1: Glazing }
+SheetOver --> 60% Mat("RustSheet") Patch | 40% Mat("Sheet") Patch
+Patch --> Extrude(WallD + 0.05) I("Patch")
+
+// -- The scaffold: a pole at the edge of each section and stair, rising
+// storey on storey, and a plank walk at every floor line. A pole's strip
+// of the facade is the wall behind it and the pole at the walk's edge --
+PoleStrip --> Extrude(WallD + ScaffoldD) Split(Z) { WallD: PoleWall | ~1: NIL | 0.1: Pole }
+PoleWall --> I("Wall")
+Pole --> Mat("Scaffold") I("Pole")
+Walk --> Extrude(WallD + ScaffoldD) Mat("Plank") I("Walk")
+
+// -- 2. The base: a barricaded plinth storey, an entrance to each stair --
+Ground --> Mat("Base") Comp(Faces) { Front: GroundFrontInset | Back: RearGroundInset
+    | Left: PartyIn | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) Split(Y) { ~1: GroundFront | WalkH: Walk }
+GroundFront --> Split(X) { ~1: GroundSections | 0.1: PoleStrip }
+GroundSections --> Repeat(X, SectionW) { GroundSection }
+GroundSection --> Split(X) { 0.1: PoleStrip | ~1: GroundRun | 2.4: Doorway | ~1: GroundRun }
+GroundRun --> when(Trade == 1): ShopRun | else: FlatRun
+ShopRun --> Repeat(X, 4.2) { ShopBay }
+ShopBay --> Split(X) { 0.35: Wall | ~1: ShopWindow | 0.35: Wall }
+// A stall behind shutters half drawn, under a sign plank.
+ShopWindow --> Split(Y) { PlinthH: Wall | ~1: ShopGlazing | 0.9: Shutter | 0.5: Sign }
+Shutter --> Extrude(WallD + 0.06) Mat("RustSheet") I("Shutter")
+Sign --> Extrude(WallD + 0.08) Mat("Sign") I("Fascia")
+FlatRun --> Repeat(X, 2.9) { FlatBay }
+FlatBay --> Split(X) { ~1: Wall | 1.5: FlatWindow | ~1: Wall }
+FlatWindow --> Split(Y) { 1.2: Wall | 1.4: Barred | ~1: Wall }
+Barred --> 60% Boarded | 40% Sheeted
+// The entrance: a plank door up a step, a sheet over its light.
+Doorway --> Split(X) { 0.25: Wall | ~1: DoorCol | 0.25: Wall }
+DoorCol --> Split(Y) { StepH: Step | 2.2: DoorLeaf | ~1: Win }
+Step --> Extrude(WallD + 0.35) Mat("Base") I("Trim")
+DoorLeaf --> Extrude(WallD - 0.18) Mat("Door") I("Door")
+// The courtyard side: windows over high sills.
+RearGroundInset --> Split(X) { WallD: NIL | ~1: RearGroundIn | WallD: NIL }
+RearGroundIn --> Translate(0, 0, -WallD) RearGround
+RearGround --> Repeat(X, 4.0) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.4: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.2: Wall | 1.4: Win | ~1: Wall }
+
+// -- 3. The storeys: panel bands, the scaffold before them, and tarps
+// hung over the outer bays of a section where a % rule hangs them --
+Uppers --> Comp(Faces) { Front: UpperFrontInset | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperFrontInset --> Split(X) { WallD: NIL | ~1: UpperFrontIn | WallD: NIL }
+UpperFrontIn --> Translate(0, 0, -WallD) UpperFront
+UpperFront --> Repeat(Y, FloorH) { Storey }
+Storey --> Split(Y) { ~1: Band | WalkH: Walk }
+Band --> Split(X) { ~1: Sections | 0.1: PoleStrip }
+Sections --> Repeat(X, SectionW) { Section }
+Section --> Split(X) { 0.1: PoleStrip | ~1: Run | 2.4: StairCol | ~1: Run }
+Run --> when(split.i == 1): Split(X) { ~1: OuterBay | ~1: WinBay }
+    | else: Split(X) { ~1: WinBay | ~1: OuterBay }
+OuterBay --> 30% TarpBay | 70% WinBay
+WinBay --> Split(X) { ~1: Wall | 1.6: WinCol | ~1: Wall }
+WinCol --> Split(Y) { 0.8: Wall | 1.45: Win | ~1: Wall }
+// A tarp hung from the walk over a bay: a blank wall behind it.
+TarpBay --> Extrude(WallD + ScaffoldD - 0.05) Split(Z) { WallD: PoleWall | ~1: NIL
+    | 0.04: TarpSheet | 0.01: NIL }
+TarpSheet --> 55% Mat("Tarp") I("Tarp") | 45% Mat("TarpBlue") I("Tarp")
+// A landing between two floors: its window high in the band.
+StairCol --> Split(X) { 0.5: Wall | ~1: StairWin | 0.5: Wall }
+StairWin --> Split(Y) { ~1: Wall | 1.0: Win | 0.3: Wall }
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) RearUpper
+RearUpper --> Repeat(Y, FloorH) { RearStorey }
+RearStorey --> Repeat(X, 4.0) { RearUpperBay }
+RearUpperBay --> Split(X) { ~1: Wall | 1.6: RearUpperWindow | ~1: Wall }
+RearUpperWindow --> Split(Y) { 0.8: Wall | 1.45: Glazing | ~1: Wall }
+
+// -- 4. The parapet, broken to a jagged line, and the deck inside it --
+Parapet --> Comp(Faces) { Front: ParapetInset | Back: ParapetInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+ParapetInset --> Split(X) { WallD: NIL | ~1: ParapetIn | WallD: NIL }
+ParapetIn --> Translate(0, 0, -WallD) Repeat(X, 1.5) { ParapetSeg }
+ParapetSeg --> 55% Wall | 30% Split(Y) { ~1: Wall | 0.3: NIL } | 15% Split(Y) { ~1: Wall
+    | 0.55: NIL }
+// The deck fills the ring inside the parapet's walls: the bottom face's
+// inward is up.
+Deck --> Translate(WallD, WallD, -0.2) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("Deck") I("Roof")
+
+// -- 5. A water drum over each stair, a worklight beside it --
+RoofTop --> Translate(0, 0.2 - ParapetH, 0) Size(scope.x, scope.y + ParapetH - 0.2, scope.z)
+    Split(Z) { ~1: NIL | 2.0: DrumRow | ~1: NIL }
+DrumRow --> Repeat(X, SectionW) { DrumSeg }
+DrumSeg --> Split(X) { ~1: NIL | 2.0: Drum | 0.6: NIL | 0.3: LampPost | ~1: NIL }
+Drum --> Split(Y) { 2.2: DrumBody | ~1: NIL }
+DrumBody --> Mat("Rust") I("Tank")
+LampPost --> Split(Z) { ~1: NIL | 0.3: LampStem | ~1: NIL }
+LampStem --> Split(Y) { ~1: Stem | 0.35: LampHead }
+Stem --> Mat("Scaffold") I("Pole")
+LampHead --> Mat("Lamp") I("Lamp")

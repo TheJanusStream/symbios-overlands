@@ -24,6 +24,9 @@ pub mod hay_bales;
 pub mod monument;
 pub mod rail_fence;
 pub mod scarecrow;
+pub mod street_block;
+pub mod street_house;
+pub mod street_low;
 pub mod tractor;
 pub mod windmill;
 // Poor (hardscrabble) variants - the prosperity-Poor end of the theme.
@@ -291,6 +294,25 @@ pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
             color_stone: Fp3(color),
             color_mud: Fp3(crate::catalogue::items::util::tint(color, [0.5, 0.45, 0.4])),
             roundness: Fp64(1.3),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+/// Common red brick - the farm town's tall houses and its mill (#1598):
+/// soft-fired, uneven bricks in a grey lime mortar.
+pub(super) fn brick(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.88),
+        metallic: Fp(0.0),
+        uv_scale: tiles_per_metre(tile::BRICK),
+        texture: SovereignTextureConfig::Brick(crate::pds::SovereignBrickConfig {
+            color_brick: Fp3(color),
+            color_mortar: Fp3([0.70, 0.68, 0.63]),
+            scale: Fp64(5.0),
+            cell_variance: Fp64(0.24),
             ..Default::default()
         }),
         ..Default::default()

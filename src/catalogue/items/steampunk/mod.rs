@@ -26,6 +26,9 @@ pub mod monument;
 pub mod pipework;
 pub mod pressure_tank;
 pub mod pump_house;
+pub mod street_block;
+pub mod street_house;
+pub mod street_low;
 // Poor (soot-yard) variants - the prosperity-Poor end of the theme.
 pub mod cog_scrap;
 pub mod scrap_boiler;
@@ -147,6 +150,27 @@ pub(super) fn corrugated(color: [f32; 3]) -> SovereignMaterialSettings {
             color_metal: Fp3(color),
             ridges: Fp64(10.0),
             rust_level: Fp64(0.35),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+/// Sooty slate in overlapping courses - the mansards and pitched roofs of
+/// the street buildings (#1598).
+pub(super) fn slate(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.6),
+        metallic: Fp(0.05),
+        uv_scale: tiles_per_metre(tile::SHINGLE),
+        texture: SovereignTextureConfig::Shingle(crate::pds::SovereignShingleConfig {
+            color_tile: Fp3(color),
+            color_grout: Fp3(crate::catalogue::items::util::tint(color, [0.6, 0.6, 0.64])),
+            scale: Fp64(8.0),
+            shape_profile: Fp64(0.15),
+            overlap: Fp64(0.5),
+            moss_level: Fp64(0.02),
             ..Default::default()
         }),
         ..Default::default()

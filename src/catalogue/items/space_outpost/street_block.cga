@@ -1,0 +1,141 @@
+// The outpost's long block (#1598): a hab block of printed modules. See
+// street_block.rs for the block, and catalogue::items::street for the
+// conventions and for what is declared ahead of these rules and after them.
+
+const WallD = 0.38
+const PaneSet = 0.14
+const PlinthH = 0.6
+const StepH = 0.5
+const RingH = 0.22
+const HazH = 0.3
+const ParapetH = 1.0
+const PlantH = 3.0
+// One stair core to a section, as a slab is built: an airlock at street
+// level, a column of core ports over it, plant on the roof. Under twelve
+// metres so the steps' frontages, less the party walls, hold two, three
+// and four of them: a Repeat floors its count.
+const SectionW = 11.5
+
+// -- 1. The block: its hull livery rolled once, then plinth, storeys, parapet --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + ParapetH + PlantH) Livery
+Livery --> 30% Mat("HullWhite") Massing | 25% Mat("HullGrey") Massing
+    | 25% Mat("HullSand") Massing | 20% Mat("HullBlue") Massing
+Massing --> Split(Y) { GroundH: Ground | ~1: Uppers | ParapetH: Parapet | PlantH: RoofTop }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+
+// -- 2. The plinth: pad concrete under a hazard band, an airlock a section --
+Ground --> Mat("Base") Comp(Faces) { Front: GroundFace | Back: RearGroundInset
+    | Left: PartyIn | Right: PartyIn | Top: NIL | Bottom: NIL }
+// The hazard band the whole frontage, striped, over the plinth storey.
+GroundFace --> Split(Y) { ~1: GroundFrontInset | HazH: HazBand }
+HazBand --> Repeat(X, 1.8) { HazPair }
+HazPair --> Split(X) { ~1: StripeY | ~1: StripeD }
+StripeY --> Extrude(0.12) Mat("Hazard") I("Trim")
+StripeD --> Extrude(0.12) Mat("HazardDark") I("Trim")
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> Repeat(X, SectionW) { GroundSection }
+GroundSection --> Split(X) { ~1: GroundRun | 2.6: Airlock | ~1: GroundRun }
+GroundRun --> when(Trade == 1): CounterRun | else: QuarterRun
+CounterRun --> Repeat(X, 4.2) { CounterBay }
+CounterBay --> Split(X) { 0.35: Wall | ~1: CounterWin | 0.35: Wall }
+CounterWin --> Split(Y) { PlinthH: Wall | ~1: ShopGlazing | 0.55: Sign }
+Sign --> Extrude(WallD + 0.06) Mat("Sign") I("Fascia")
+QuarterRun --> Repeat(X, 2.9) { QuarterBay }
+QuarterBay --> Split(X) { ~1: Wall | 1.5: QuarterWin | ~1: Wall }
+QuarterWin --> Split(Y) { 1.08: Wall | 0.12: Sill | 1.4: Glazing | 0.12: Hood | ~1: Wall }
+// The airlock: a split hatch up a step, under a steel canopy and a lamp.
+Airlock --> Split(X) { 0.3: Wall | ~1: AirCol | 0.3: Wall }
+AirCol --> Split(Y) { StepH: Step | 2.2: Hatch | 0.2: Canopy | ~1: AirTop }
+AirTop --> Split(Y) { 0.1: Wall | 0.2: Lamp | ~1: Wall }
+Hatch --> Split(X) { ~1: HatchLeaf | 0.06: HatchSeam | ~1: HatchLeaf }
+HatchLeaf --> Extrude(WallD - 0.18) Mat("Hatch") I("Door")
+HatchSeam --> Extrude(WallD - 0.24) Mat("HazardDark") I("Door")
+Step --> Extrude(WallD + 0.35) Mat("Steel") I("Trim")
+Canopy --> Extrude(WallD + 1.2) Mat("Steel") I("Canopy")
+Lamp --> Extrude(WallD + 0.06) Mat("Status") I("Trim")
+// The service side: ports over high sills.
+RearGroundInset --> Split(X) { WallD: NIL | ~1: RearGroundIn | WallD: NIL }
+RearGroundIn --> Translate(0, 0, -WallD) RearGround
+RearGround --> Repeat(X, 3.0) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.4: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.2: Wall | 1.4: Glazing | ~1: Wall }
+
+// -- 3. The module storeys: a ring joint at each floor, framed ports, the
+// core's ports on each section's axis between steel spines, and stacked
+// gantries at the ends of its runs where the block has them --
+Uppers --> Comp(Faces) { Front: UpperFrontInset | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperFrontInset --> Split(X) { WallD: NIL | ~1: UpperFrontIn | WallD: NIL }
+UpperFrontIn --> Translate(0, 0, -WallD) UpperFront
+UpperFront --> Repeat(Y, FloorH) { Storey }
+Storey --> Split(Y) { ~1: Band | RingH: Joint }
+// The ring between two modules: a steel band, just proud.
+Joint --> Extrude(WallD + 0.06) Mat("Steel") I("Ring")
+Band --> Repeat(X, SectionW) { Section }
+Section --> Split(X) { ~1: Run | 2.6: CoreCol | ~1: Run }
+Run --> when(split.i == 0): Split(X) { ~1: Wall | 1.9: OuterCol | ~1.2: Wall | 1.9: WinCol | ~1: Wall }
+    | else: Split(X) { ~1: Wall | 1.9: WinCol | ~1.2: Wall | 1.9: OuterCol | ~1: Wall }
+OuterCol --> Pick("gantries") { 50% GantryCol | 50% WinCol }
+WinCol --> Split(Y) { 0.66: Wall | 0.12: Sill | 1.4: Glazing | 0.12: Hood | ~1: Wall }
+Sill --> Extrude(WallD + 0.1) Mat("Frame") I("Frame")
+Hood --> Extrude(WallD + 0.14) Mat("Frame") I("Frame")
+// The core: two steel spines, a port high in each band between them.
+CoreCol --> Split(X) { 0.45: Spine | ~1: CorePort | 0.45: Spine }
+// The spines in the block's livery, picked once.
+Spine --> Pick("livery") { 30% SpineOrange | 25% SpineBlue | 20% SpineRed | 25% SpineSteel }
+SpineOrange --> Mat("LiveryOrange") SpineBar
+SpineBlue --> Mat("LiveryBlue") SpineBar
+SpineRed --> Mat("LiveryRed") SpineBar
+SpineSteel --> Mat("Steel") SpineBar
+SpineBar --> Extrude(WallD + 0.3) I("Frame")
+CorePort --> Split(Y) { ~1: Wall | 1.1: Glazing | 0.35: Wall }
+GantryCol --> Split(Y) { 0.95: Gantry | 1.55: Glazing | ~1: Wall }
+Gantry --> Split(Y) { ~1: GantryBody | 0.1: GantryRail }
+GantryBody --> Extrude(WallD + 1.25) Mat("Frame") I("Balcony")
+GantryRail --> Extrude(WallD + 1.25) Mat("Hazard") I("Balcony")
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) RearUpper
+RearUpper --> Repeat(Y, FloorH) { RearStorey }
+RearStorey --> Split(Y) { ~1: RearBand | RingH: Joint }
+RearBand --> Repeat(X, 4.8) { RearUpperBay }
+RearUpperBay --> Split(X) { ~1: Wall | 2.2: RearUpperWindow | ~1: Wall }
+RearUpperWindow --> Split(Y) { 0.8: Wall | 1.4: Glazing | ~1: Wall }
+
+// -- 4. The parapet, its coping, and the deck inside it --
+Parapet --> Comp(Faces) { Front: ParapetFace | Back: ParapetFace | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+ParapetFace --> Split(Y) { ~1: ParapetInset | 0.14: Coping }
+ParapetInset --> Split(X) { WallD: NIL | ~1: ParapetIn | WallD: NIL }
+ParapetIn --> Translate(0, 0, -WallD) Wall
+Coping --> Extrude(0.06) Mat("Steel") I("Trim")
+// The deck fills the ring inside the parapet's walls, so no face of it
+// lies in theirs: the bottom face's inward is up.
+Deck --> Translate(WallD, WallD, -0.2) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("Deck") I("Roof")
+
+// -- 5. Plant over each core, set down to the deck: a hab module laid on
+// a skid beside a mast, or a solar rack --
+RoofTop --> Repeat(X, SectionW) { RoofSection }
+RoofSection --> Split(X) { ~1: NIL | 5.0: PlantSlot | ~1: NIL }
+PlantSlot --> Split(Z) { ~1: NIL | 3.0: Plant | ~1: NIL }
+Plant --> Translate(0, 0.2 - ParapetH, 0) Size(scope.x, ParapetH - 0.2 + PlantH, scope.z)
+    PlantKind
+PlantKind --> Pick("plant") { 55% HabPlant | 45% SolarPlant }
+HabPlant --> Split(X) { ~1: Module | 0.3: NIL | 0.32: MastFoot | 0.2: NIL }
+Module --> Split(Y) { 0.3: Skid | 2.8: ModuleBody | ~1: NIL }
+Skid --> Split(Z) { ~1: NIL | ~2: SkidBeam | ~1: NIL }
+SkidBeam --> Mat("Steel") I("Housing")
+// The module: a hull laid on its side, its ends capped.
+ModuleBody --> Translate(scope.x, 0, 0) Rotate(0.70710678, 0, 0, 0.70710678)
+    Size(scope.y, scope.x, scope.z) I("Vault")
+MastFoot --> Split(Z) { ~1: NIL | 0.32: Mast | ~1: NIL }
+Mast --> Size(scope.x, ParapetH + PlantH + 3.0, scope.z) Split(Y) { ~1: MastPole | 0.4: BeaconLamp }
+MastPole --> Mat("Steel") I("Mast")
+BeaconLamp --> Mat("Beacon") I("Mast")
+SolarPlant --> Split(Y) { ParapetH - 0.2 + 0.4: RackBase | ~1: RackTilt }
+RackBase --> Mat("Steel") I("Housing")
+RackTilt --> Roof(Shed, 16, overhang=0) { Slope: SolarFace | _: RackSide }
+SolarFace --> Mat("Solar") I("Panel")
+RackSide --> Mat("Steel") I("Housing")

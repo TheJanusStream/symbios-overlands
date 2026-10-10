@@ -33,7 +33,6 @@ mod status;
 mod travel;
 mod ui;
 
-#[cfg(test)]
 pub(crate) use edit::coplanar_overlap_lines;
 
 use std::path::PathBuf;

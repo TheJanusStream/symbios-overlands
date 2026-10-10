@@ -1,0 +1,107 @@
+// The fantasy theme's low building (#1598): a row of thatched cottages, or
+// - where it trades - an apothecary with bow windows. See street_low.rs for
+// the building, and catalogue::items::street for the conventions and for
+// what is declared ahead of these rules and after them.
+
+const WallD = 0.36
+const PaneSet = 0.12
+const PlinthH = 0.55
+const StepH = 0.5
+const BeamH = 0.25
+const RoofH = 1.0
+// A cottage's width along the street: a lot holds as many as fit, and a
+// chimney stands on the ridge over each.
+const CottageW = 5.5
+
+// -- 1. The building: its daub rolled once, its storeys, its thatch --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Daub
+Daub --> 30% Mat("Cream") Massing | 25% Mat("Ochre") Massing | 25% Mat("Sage") Massing
+    | 20% Mat("Rose") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Loft | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+
+// -- 2. The ground storey: cottages or the apothecary, under a beam --
+Ground --> Comp(Faces) { Front: GroundFace | Back: RearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFace --> Split(Y) { ~1: GroundFrontInset | BeamH: Beam }
+// A timber beam the whole frontage under the eaves or the loft.
+Beam --> Extrude(0.22) Mat("Timber") I("Beam")
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> when(Trade == 1): Apothecary | else: Repeat(X, CottageW) { Cottage }
+// Each cottage: a post at its end, its window over a flower box, its door
+// in its own colour, its walls on a mossy sill.
+Cottage --> Split(X) { 0.16: Post | ~1: SillWall | 1.3: CotWindow | 0.6: SillWall
+    | 1.05: CotDoor | ~1: SillWall | 0.16: Post }
+SillWall --> Split(Y) { PlinthH: Plinth | ~1: Wall }
+Plinth --> Extrude(WallD + 0.05) Mat("Moss") I("Trim")
+Post --> Extrude(WallD + 0.06) Mat("Timber") I("Beam")
+CotWindow --> Split(Y) { PlinthH: Plinth | 0.35: Wall | 0.28: Planter | 1.4: Glazing | 0.18: Lintel | ~1: Wall }
+Planter --> Extrude(WallD + 0.3) Mat("Leaf") I("Planter")
+Lintel --> Extrude(WallD + 0.04) Mat("Timber") I("Beam")
+CotDoor --> Split(Y) { StepH: Step | 2.0: DoorLeaf | 0.18: Lintel | ~1: Wall }
+Step --> Extrude(WallD + 0.28) Mat("Stone") I("Trim")
+DoorLeaf --> 25% Mat("DoorRed") Leaf | 25% Mat("DoorBlue") Leaf | 25% Mat("DoorGreen") Leaf
+    | 25% Mat("DoorOak") Leaf
+Leaf --> Extrude(WallD - 0.14) I("Door")
+// The apothecary: bow windows on corbels either side of its door, a sign
+// board over them.
+Apothecary --> Split(Y) { 2.6: ShopRow | 0.45: SignRow | ~1: Wall }
+SignRow --> Split(X) { ~1: Wall | 3.0: Sign | ~1: Wall }
+Sign --> Extrude(WallD + 0.1) Mat("Sign") I("Fascia")
+ShopRow --> Split(X) { ~1: BowRun | 1.3: ShopDoor | ~1: BowRun }
+ShopDoor --> Split(X) { 0.15: Wall | ~1: ShopDoorIn | 0.15: Wall }
+ShopDoorIn --> Split(Y) { StepH: Step | 2.0: DoorLeaf | ~1: Lintel }
+BowRun --> Repeat(X, 2.9) { BowBay }
+BowBay --> Split(X) { ~1: Wall | 2.2: BowCol | ~1: Wall }
+BowCol --> Split(Y) { PlinthH: Plinth | 0.25: BowSill | 1.6: BowWin | ~1: Wall }
+BowSill --> Extrude(WallD + 0.6) Mat("Timber") I("Oriel")
+// The bow: a box out of the wall's face (this scope is the wall's inner
+// plane), its front the shop's glazing, its sides and its top timber; the
+// walls beside it close its reveal.
+BowWin --> Translate(0, 0, WallD) Extrude(0.55) Comp(Faces)
+    { Back: BowFront | Left: BowSide | Right: BowSide | Top: BowTop | _: NIL }
+BowFront --> Translate(0, 0, -WallD) ShopGlazing
+BowSide --> Mat("Timber") I("Oriel")
+BowTop --> Extrude(0.16) Mat("Timber") I("Oriel")
+RearInset --> Split(X) { WallD: NIL | ~1: RearIn | WallD: NIL }
+RearIn --> Translate(0, 0, -WallD) Repeat(X, 2.75) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.1: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.0: Wall | 1.3: Glazing | ~1: Wall }
+
+// -- 3. The loft: posts, small windows under the eaves --
+Loft --> Comp(Faces) { Front: LoftInset | Back: LoftRearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+LoftInset --> Split(X) { WallD: NIL | ~1: LoftIn | WallD: NIL }
+LoftIn --> Translate(0, 0, -WallD) Repeat(X, CottageW) { LoftBay }
+LoftBay --> Split(X) { 0.16: Post | ~1: Wall | 1.1: LoftWindow | ~1: Wall | 1.1: LoftWindow
+    | ~1: Wall | 0.16: Post }
+LoftWindow --> Split(Y) { 0.7: Wall | 0.22: Planter | 1.15: Glazing | 0.16: Lintel | ~1: Wall }
+LoftRearInset --> Split(X) { WallD: NIL | ~1: LoftRearIn | WallD: NIL }
+LoftRearIn --> Translate(0, 0, -WallD) Repeat(X, 2.75) { LoftRearBay }
+LoftRearBay --> Split(X) { ~1: Wall | 1.1: LoftRearWindow | ~1: Wall }
+LoftRearWindow --> Split(Y) { 0.8: Wall | 1.1: Glazing | ~1: Wall }
+
+// -- 4. The thatch: a gable along the street, its ends the party walls,
+// and a sliver at the zone's top that draws its thick eaves, front and
+// back, and stands a round chimney on the ridge over each cottage --
+RoofZone --> Split(Y) { ~1: Thatch | 0.01: TopLayer }
+Thatch --> Roof(Gable, 45, overhang=0, ridge=X) { Slope: Straw | GableEnd: Gable }
+Straw --> Mat("Thatch") I("Roof")
+Gable --> I("Wall")
+TopLayer --> Translate(0, 0.01 - RoofH, 0) Split(Z) { 0.01: FrontEave | ~1: ChimLayer
+    | 0.01: BackEave }
+// An eave roll a hand short of each side, so two neighbours' rolls never
+// share the party wall's plane.
+FrontEave --> Translate(0.01, -0.3, -0.45) Size(scope.x - 0.02, 0.42, 0.75) Mat("Thatch")
+    I("Roof")
+BackEave --> Translate(0.01, -0.3, -0.29) Size(scope.x - 0.02, 0.42, 0.75) Mat("Thatch")
+    I("Roof")
+ChimLayer --> Size(scope.x, Depth / 2 + 0.9, scope.z) Repeat(X, CottageW) { ChimSlot }
+ChimSlot --> Split(X) { ~1: NIL | 0.8: ChimCol | 0.9: NIL }
+ChimCol --> Split(Z) { ~1: NIL | 0.8: Chimney | ~1: NIL }
+Chimney --> Split(Y) { ~1: Stack | 0.3: ChimCap }
+Stack --> Mat("Stone") I("Chimney")
+ChimCap --> Size(scope.x + 0.16, scope.y, scope.z + 0.16) Center(XZ) Mat("Timber") I("Chimney")

@@ -26,6 +26,9 @@ pub mod machiya_row;
 pub mod monument;
 pub mod pagoda;
 pub mod stone_lantern;
+pub mod street_block;
+pub mod street_house;
+pub mod street_low;
 pub mod tea_house;
 pub mod torii_gate;
 // Poor (farmstead) variants - the prosperity-Poor end of the theme.
@@ -154,6 +157,26 @@ pub(super) fn paper(color: [f32; 3]) -> SovereignMaterialSettings {
             thread_count: Fp64(40.0),
             thread_width: Fp64(0.95),
             fuzz: Fp64(0.15),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+/// Namako-kabe - square dark tiles set on the diagonal in raised white
+/// lime joints, the fireproof skirt of a storehouse or a merchant block
+/// (#1598).
+pub(super) fn namako(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.55),
+        uv_scale: tiles_per_metre(tile::ENCAUSTIC),
+        texture: SovereignTextureConfig::Encaustic(crate::pds::SovereignEncausticConfig {
+            pattern: bevy_symbios_texture::encaustic::EncausticPattern::Diamond,
+            color_a: Fp3(color),
+            color_b: Fp3(crate::catalogue::items::util::tint(color, [0.8, 0.8, 0.85])),
+            color_grout: Fp3([0.88, 0.87, 0.82]),
+            scale: Fp64(4.0),
             ..Default::default()
         }),
         ..Default::default()

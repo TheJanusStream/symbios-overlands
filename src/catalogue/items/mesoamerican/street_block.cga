@@ -1,0 +1,122 @@
+// The Mesoamerican theme's long block (#1598): a palace range on a portico
+// of square piers. See street_block.rs for the block, and
+// catalogue::items::street for the conventions and for what is declared
+// ahead of these rules and after them.
+
+const WallD = 0.45
+const PaneSet = 0.16
+const StepH = 0.5
+const BenchH = 0.6
+const MouldH = 0.18
+const FriezeH = 0.5
+const CrownH = 1.0
+const MerlonH = 0.9
+// The portico: how far it stands out over the pavement, the depth of its
+// lintel beam, and its piers' side and rhythm.
+const PorticoOut = 1.8
+const BeamH = 0.55
+const PierW = 0.7
+const PierStep = 2.875
+// A doorway to a section: under twelve metres so the steps' frontages,
+// less the party walls, hold two, three and four of them.
+const SectionW = 11.5
+
+// -- 1. The range: its stucco rolled once, then storeys and crown --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + CrownH) Stucco
+Stucco --> 28% Mat("Cream") Massing | 26% Mat("Red") Massing | 18% Mat("Ochre") Massing
+    | 14% Mat("Turquoise") Massing | 14% Mat("White") Massing
+Massing --> Split(Y) { GroundH: Ground | ~1: Uppers | CrownH: Crown }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+Mould --> Extrude(0.2) Mat("Stone") I("Trim")
+Frieze --> Extrude(0.1) Pick("frieze") { 60% RedFrieze | 40% JadeFrieze }
+RedFrieze --> Mat("Frieze") I("Frieze")
+JadeFrieze --> Mat("FriezeJade") I("Frieze")
+Lintel --> Extrude(WallD + 0.08) Mat("Lintel") I("Lintel")
+
+// -- 2. The ground storey behind its portico: a doorway to each section,
+// stalls or windows between --
+Ground --> Comp(Faces) { Front: GroundFace | Back: RearGroundInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+// A sliver at the face's top carries the portico, so the face draws both.
+GroundFace --> Split(Y) { ~1: GroundFrontInset | 0.01: PorticoSliver }
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) Repeat(X, SectionW) { GroundSection }
+GroundSection --> Split(X) { ~1: GroundRun | 2.4: Doorway | ~1: GroundRun }
+GroundRun --> when(Trade == 1): Repeat(X, 3.4) { StallBay } | else: Repeat(X, 2.8) { WinBay }
+StallBay --> Split(X) { 0.45: Wall | ~1: Stall | 0.45: Wall }
+Stall --> Split(Y) { BenchH: Bench | 2.0: ShopGlazing | 0.24: Lintel | ~1: Wall }
+Bench --> Extrude(WallD + 0.35) Mat("Stone") I("Trim")
+WinBay --> Split(X) { ~1: Wall | 1.1: GroundWin | ~1: Wall }
+GroundWin --> Split(Y) { 1.2: Wall | 1.4: Glazing | 0.24: Lintel | ~1: Wall }
+// The doorway: up a stone step, under a lintel studded with jade.
+Doorway --> Split(X) { 0.3: Wall | ~1: DoorCol | 0.3: Wall }
+DoorCol --> Split(Y) { StepH: Step | 2.3: DoorLeaf | 0.3: DoorLintel | ~1: Wall }
+Step --> Extrude(WallD + 0.35) Mat("Stone") I("Trim")
+DoorLeaf --> Extrude(WallD - 0.2) Mat("Door") I("Door")
+DoorLintel --> Split(X) { ~1: Lintel | 0.22: Stud | 0.3: Lintel | 0.22: Stud | ~1: Lintel }
+Stud --> Extrude(WallD + 0.14) Mat("Jade") I("Trim")
+// The portico: square limestone piers on the pavement under a long
+// lintel beam, its moulding and frieze along the beam's face.
+PorticoSliver --> Translate(0, 0.01 - GroundH, 0) Size(scope.x, GroundH, 0) Extrude(PorticoOut)
+    Mat("Stone") Split(Y) { ~1: PierRow | BeamH: Beam }
+PierRow --> Split(X) { WallD: NIL | ~1: PierRun | WallD: NIL }
+PierRun --> Repeat(X, PierStep) { PierSlot }
+PierSlot --> Split(X) { ~1: NIL | PierW: PierCol | ~1: NIL }
+PierCol --> Split(Z) { ~1: NIL | PierW: Pier | 0.1: NIL }
+Pier --> Split(Y) { ~1: PierShaft | 0.25: PierCap }
+PierShaft --> I("Pier")
+PierCap --> Size(scope.x + 0.16, scope.y, scope.z + 0.16) Center(XZ) I("Pier")
+// The beam: a stone box, and a layer on its face carrying the frieze.
+Beam --> Split(Z) { ~1: BeamBox | 0.1: BeamFront }
+BeamBox --> I("Lintel")
+BeamFront --> Split(Y) { ~1: BeamBox | FriezeH: BeamFrieze }
+BeamFrieze --> Pick("frieze") { 60% RedFrieze | 40% JadeFrieze }
+RearGroundInset --> Split(X) { WallD: NIL | ~1: RearGroundIn | WallD: NIL }
+RearGroundIn --> Translate(0, 0, -WallD) Repeat(X, 2.8) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.0: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.3: Wall | 1.3: Glazing | ~1: Wall }
+
+// -- 3. The storeys: each on a stepped talud, its openings in a tablero
+// between mouldings, the frieze over it --
+Uppers --> Comp(Faces) { Front: UpperFront | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperFront --> Repeat(Y, FloorH) { StoreyFace }
+StoreyFace --> Split(Y) { 0.45: Talud | MouldH: Mould | ~1: TableroInset | MouldH: Mould
+    | FriezeH: Frieze }
+Talud --> Split(Y) { 0.15: Course(0.36) | 0.15: Course(0.24) | ~1: Course(0.12) }
+Course(d) --> Extrude(d) Mat("Stone") I("Talud")
+TableroInset --> Split(X) { WallD: NIL | ~1: TableroIn | WallD: NIL }
+TableroIn --> Translate(0, 0, -WallD) Repeat(X, SectionW) { Section }
+Section --> Split(X) { ~1: Run | 2.4: AxisBay | ~1: Run }
+Run --> Repeat(X, 2.6) { Bay }
+Bay --> Split(X) { ~1: Wall | 1.2: WinCol | ~1: Wall }
+WinCol --> Split(Y) { ~1: Wall | 1.4: Glazing | 0.24: Lintel | 0.12: Wall }
+// On the section's axis a taller opening under a jade-studded lintel.
+AxisBay --> Split(X) { ~1: Wall | 1.3: AxisCol | ~1: Wall }
+AxisCol --> Split(Y) { ~1: Wall | 1.5: Glazing | 0.3: AxisLintel | 0.04: Wall }
+AxisLintel --> Split(X) { ~1: Lintel | 0.2: Stud | ~1: Lintel }
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { RearStorey }
+RearStorey --> Repeat(X, 3.2) { RearUpperBay }
+RearUpperBay --> Split(X) { ~1: Wall | 1.0: RearUpperWindow | ~1: Wall }
+RearUpperWindow --> Split(Y) { 1.0: Wall | 1.3: Glazing | ~1: Wall }
+
+// -- 4. The crown: a parapet, and on it a row of stepped merlons; the
+// deck inside it --
+Crown --> Comp(Faces) { Front: CrownFace | Back: ParapetInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+CrownFace --> Split(Y) { ~1: ParapetInset | 0.01: MerlonSliver }
+ParapetInset --> Split(X) { WallD: NIL | ~1: ParapetIn | WallD: NIL }
+ParapetIn --> Translate(0, 0, -WallD) Wall
+MerlonSliver --> Translate(0, 0.01, -WallD) Size(scope.x, MerlonH, 0) Extrude(WallD)
+    Split(X) { WallD: NIL | ~1: MerlonRow | WallD: NIL }
+MerlonRow --> Repeat(X, 1.2) { MerlonSlot }
+MerlonSlot --> Split(X) { 0.2: NIL | ~1: Merlon | 0.2: NIL }
+Merlon --> Mat("Stone") Split(Y) { 0.4: MerlonBase | ~1: MerlonTop }
+MerlonBase --> I("Merlon")
+MerlonTop --> Size(scope.x * 0.5, scope.y, scope.z) Center(X) I("Merlon")
+// The deck fills the ring inside the parapet's walls, 2 cm clear of its
+// foot: the bottom face's inward is up.
+Deck --> Translate(WallD, WallD, -0.22) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("Deck") I("Roof")

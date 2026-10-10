@@ -1,0 +1,131 @@
+// The medieval theme's long block (#1598): a guild hall or a merchants'
+// warehouse. See street_block.rs for the block, and catalogue::items::street
+// for the conventions and for what is declared ahead of these rules and
+// after them.
+
+const WallD = 0.45
+const PaneSet = 0.15
+const StepH = 0.55
+const ParapetH = 1.2
+const RoofH = 0.5
+// One merchant's bay to a section: under twelve metres so the frontages,
+// less the party walls, hold two, three and four (a Repeat floors its count).
+const SectionW = 11.5
+// The hoist gable over each section's middle, and how deep it runs back.
+const HoistW = 3.2
+const HoistD = 3.0
+
+// -- 1. The hall: its stone rolled once, then storeys, parapet, roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + ParapetH + RoofH) Masonry
+Masonry --> 40% Mat("StonePale") Massing | 35% Mat("Stone") Massing
+    | 25% Mat("Rubble") Massing
+Massing --> Split(Y) { GroundH: Ground | ~1: Uppers | ParapetH: Parapet | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+
+// -- 2. The ground storey: a market arcade or small windows, a hall door
+// to each section --
+Ground --> Comp(Faces) { Front: GroundFace | Back: RearGroundInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFace --> Split(Y) { ~1: GroundFrontInset | 0.3: Course }
+Course --> Extrude(0.12) Mat("Dressing") I("Trim")
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> Repeat(X, SectionW) { GroundSection }
+GroundSection --> Split(X) { ~1: GroundRun | 2.6: HallDoor | ~1: GroundRun }
+GroundRun --> when(Trade == 1): Arcade | else: StoreRun
+// The arcade: market bays between heavy piers, a shutter let down as a
+// counter under each.
+Arcade --> Repeat(X, 3.4) { ArcadeBay }
+ArcadeBay --> Split(X) { 0.7: Pier | ~1: Stall | 0.7: Pier }
+Pier --> Extrude(WallD + 0.15) Mat("Dressing") I("Trim")
+Stall --> Split(Y) { 0.8: Wall | 0.1: Counter | 2.0: ShopGlazing | 0.35: Lintel | ~1: Wall }
+Counter --> Extrude(WallD + 0.6) Mat("Shutter") I("Shutter")
+StoreRun --> Repeat(X, 3.0) { StoreBay }
+StoreBay --> Split(X) { ~1: Wall | 0.9: StoreWin | ~1: Wall }
+StoreWin --> Split(Y) { 2.0: Wall | 1.1: Glazing | 0.25: Lintel | ~1: Wall }
+HallDoor --> Split(X) { 0.3: Jamb | ~1: HallDoorCol | 0.3: Jamb }
+HallDoorCol --> Split(Y) { StepH: Step | 2.9: DoorLeaf | 0.35: Lintel | ~1: Wall }
+Jamb --> Extrude(WallD + 0.1) Mat("Dressing") I("Trim")
+Lintel --> Extrude(WallD + 0.06) Mat("Dressing") I("Trim")
+Step --> Extrude(WallD + 0.3) Mat("Dressing") I("Trim")
+DoorLeaf --> Extrude(WallD - 0.18) Mat("Door") I("Door")
+// The yard side: small windows.
+RearGroundInset --> Split(X) { WallD: NIL | ~1: RearGroundIn | WallD: NIL }
+RearGroundIn --> Translate(0, 0, -WallD) RearGround
+RearGround --> Repeat(X, 3.6) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 0.9: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.5: Wall | 1.1: Glazing | ~1: Wall }
+
+// -- 3. The storeys: two-light windows under hoods either side of each
+// section's column of loading doors, a guild banner over its hall door --
+Uppers --> Comp(Faces) { Front: UpperFrontInset | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperFrontInset --> Split(X) { WallD: NIL | ~1: UpperFrontIn | WallD: NIL }
+UpperFrontIn --> Translate(0, 0, -WallD) UpperFront
+UpperFront --> Repeat(Y, FloorH) { Storey }
+Storey --> when(split.i == 0): Repeat(X, SectionW) { BannerSection }
+    | else: Repeat(X, SectionW) { Section }
+Section --> Split(X) { ~1: Run | 1.6: LoadCol | ~1: Run }
+BannerSection --> Split(X) { ~1: Run | 1.6: BannerCol | ~1: Run }
+Run --> Repeat(X, 3.0) { WinBay }
+WinBay --> Split(X) { ~1: Wall | 1.5: WinCol | ~1: Wall }
+WinCol --> Split(Y) { 0.85: Wall | 0.12: Sill | 1.5: Lights | 0.2: Hood | ~1: Wall }
+Lights --> Split(X) { ~1: Glazing | 0.18: Mullion | ~1: Glazing }
+Mullion --> Extrude(WallD - PaneSet + 0.02) Mat("Dressing") I("Trim")
+Sill --> Extrude(WallD + 0.06) Mat("Dressing") I("Trim")
+Hood --> Extrude(WallD + 0.1) Mat("Dressing") I("Trim")
+// A loading door each storey up the section's axis.
+LoadCol --> Split(X) { ~1: Wall | 1.2: LoadDoorCol | ~1: Wall }
+LoadDoorCol --> Split(Y) { 0.3: Wall | 2.2: LoadDoor | ~1: Wall }
+LoadDoor --> Extrude(WallD - 0.12) Mat("Shutter") I("Shutter")
+// Over the hall door, the guild's banner instead.
+BannerCol --> Split(X) { ~1: Wall | 1.1: BannerSlot | ~1: Wall }
+BannerSlot --> Split(Y) { 0.15: Wall | 2.6: Banner | ~1: Wall }
+Banner --> Extrude(WallD + 0.06) Mat("Banner") I("Banner")
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) RearUpper
+RearUpper --> Repeat(Y, FloorH) { RearStorey }
+RearStorey --> Repeat(X, 3.8) { RearUpperBay }
+RearUpperBay --> Split(X) { ~1: Wall | 0.9: RearUpperWindow | ~1: Wall }
+RearUpperWindow --> Split(Y) { 0.9: Wall | 1.3: Glazing | ~1: Wall }
+
+// -- 4. The parapet: merlons on a corbel course, and over each section's
+// loading doors a hoist gable, its beam standing out of its foot --
+// Its party walls stop where the roof's gable ends start, sunk into it.
+Parapet --> Comp(Faces) { Front: ParapetInset | Back: RearParapetInset | Left: ParapetSide
+    | Right: ParapetSide | Top: NIL | Bottom: Gutter }
+// The gutter behind the parapet: a stone deck under the sunk roof's foot,
+// inside the walls, so the crenels look down onto stone rather than into
+// the hall. It stands clear of the walls' tops, which the hoist blocks
+// start from, and under the roof's eaves.
+Gutter --> Translate(WallD, WallD, -0.25) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.1) Mat("Dressing") I("Roof")
+ParapetSide --> Split(Y) { 0.3: PartyIn | ~1: NIL }
+ParapetInset --> Split(X) { WallD: NIL | ~1: ParapetIn | WallD: NIL }
+ParapetIn --> Translate(0, 0, -WallD) ParapetFront
+ParapetFront --> Repeat(X, SectionW) { CrownSection }
+CrownSection --> Split(X) { ~1: Battlement | HoistW: Hoist | ~1: Battlement }
+Battlement --> Split(Y) { 0.3: Corbel | ~1: Merlons }
+Corbel --> Extrude(WallD + 0.2) Mat("Dressing") I("Trim")
+Merlons --> Repeat(X, 1.1) { MerlonBay }
+MerlonBay --> Split(X) { ~1: Wall | 0.45: NIL }
+// The hoist gable: a block of wall run back into the roof, a gable turned
+// to the street on it, and the hoist beam split out of the block's top.
+Hoist --> Translate(0, 0, -HoistD) Size(scope.x, ParapetH + 1.0, 0) Extrude(HoistD + WallD)
+    Split(Y) { ParapetH: HoistBase | ~1: HoistRoof }
+HoistBase --> Split(X) { ~1: HoistWall | 0.3: BeamCol | ~1: HoistWall }
+HoistWall --> I("Wall")
+BeamCol --> Split(Y) { ~1: HoistWall | 0.3: HoistBeam }
+HoistBeam --> Translate(0, 0, 1.3) Mat("Oak") I("Timber")
+HoistRoof --> Roof(Gable, 55, overhang=0, ridge=Z) { Slope: RoofSlope | GableEnd: HoistWall }
+RearParapetInset --> Split(X) { WallD: NIL | ~1: RearParapetIn | WallD: NIL }
+RearParapetIn --> Translate(0, 0, -WallD) Wall
+
+// -- 5. The roof: steep, along the street, sunk behind the parapet --
+RoofZone --> Translate(0, 0.3 - ParapetH, WallD + 0.3)
+    Size(scope.x, scope.y, scope.z - 2 * WallD - 0.6) HallRoof
+HallRoof --> Roof(Gable, 48, overhang=0, ridge=X) { Slope: RoofSlope | GableEnd: HoistWall }
+RoofSlope --> Pick("roof") { 50% TileSlope | 50% SlateSlope }
+TileSlope --> Mat("Tile") I("Roof")
+SlateSlope --> Mat("Slate") I("Roof")

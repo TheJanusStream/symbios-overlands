@@ -1,0 +1,119 @@
+// The classical theme's street house (#1598): a Roman insula. See
+// street_house.rs for the house, and catalogue::items::street for the
+// conventions and for what is declared ahead of these rules (Storeys, Trade,
+// Frontage, Depth, GroundH, FloorH) and after them (Glazing, ShopGlazing,
+// Wall).
+
+const WallD = 0.5
+const PaneSet = 0.18
+const PlinthH = 0.7
+const CourseH = 0.35
+const StepH = 0.55
+const CrownH = 0.9
+const RoofH = 0.6
+
+// -- 1. The insula: its face rolled once, then storeys, crown, roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + CrownH + RoofH) Face
+Face --> 26% Mat("PlasterOchre") Massing | 22% Mat("PlasterRed") Massing
+    | 20% Mat("PlasterCream") Massing | 32% Mat("Brick") Massing
+Massing --> Split(Y) { GroundH: Ground | ~1: Uppers | CrownH: Crown | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+
+// -- 2. The ground storey: tabernae or a domus front, under the course --
+Ground --> Comp(Faces) { Front: GroundFace | Back: RearGroundInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFace --> Split(Y) { ~1: GroundFrontInset | CourseH: Course }
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> when(Trade == 1): ShopFront | else: HomeFront
+// The tabernae: wide openings between travertine piers, each over a
+// masonry counter and under a lintel and a painted sign.
+ShopFront --> Split(X) { ~1: ShopRun | 2.4: Entrance | ~1: ShopRun }
+ShopRun --> Repeat(X, 3.6) { Taberna }
+Taberna --> Split(X) { 0.5: Pier | ~1: TabUnit | 0.5: Pier }
+Pier --> Mat("Travertine") Wall
+TabUnit --> when(scope.x > 2.3): Split(X) { ~1: TabWindow | 1.0: TabDoor }
+    | else: TabWindow
+TabWindow --> Split(Y) { PlinthH: Counter | 1.9: ShopGlazing | 0.3: Lintel | 0.55: Sign
+    | ~1: Wall }
+TabDoor --> Split(Y) { StepH: Step | 2.05: DoorLeaf | 0.3: Lintel | 0.55: Sign | ~1: Wall }
+Counter --> Extrude(WallD + 0.25) Mat("Travertine") I("Trim")
+Sign --> Extrude(WallD + 0.06) Mat("Sign") I("Fascia")
+Lintel --> Extrude(WallD + 0.08) Mat("Travertine") I("Trim")
+// A travertine step, standing out of the wall: the sink buries all but
+// the top of it, so a door starts above the pavement.
+Step --> Extrude(WallD + 0.3) Mat("Travertine") I("Trim")
+DoorLeaf --> Extrude(WallD - 0.2) Mat("Door") I("Door")
+// A domus front: blank walls, small windows set high.
+HomeFront --> Split(X) { ~1: HomeRun | 2.4: Entrance | ~1: HomeRun }
+HomeRun --> Repeat(X, 2.8) { HomeBay }
+HomeBay --> Split(X) { ~1: Wall | 0.9: HomeWindow | ~1: Wall }
+HomeWindow --> Split(Y) { 2.1: Wall | 1.0: Glazing | 0.25: Lintel | ~1: Wall }
+// The insula's stair door between travertine jambs.
+Entrance --> Split(X) { 0.35: Jamb | ~1: EntranceDoor | 0.35: Jamb }
+Jamb --> Extrude(WallD + 0.12) Mat("Travertine") I("Trim")
+EntranceDoor --> Split(Y) { StepH: Step | 2.75: DoorLeaf | 0.35: Lintel | ~1: Wall }
+// The courtyard side: small windows over high sills.
+RearGroundInset --> Split(X) { WallD: NIL | ~1: RearGroundIn | WallD: NIL }
+RearGroundIn --> Translate(0, 0, -WallD) RearGround
+RearGround --> Repeat(X, 3.0) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 0.9: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.6: Wall | 1.2: Glazing | ~1: Wall }
+
+// -- 3. The course over the ground storey, or the maenianum: a timber
+// deck the whole frontage at the first floor, a rail at its edge --
+Course --> Pick("maenianum") { 45% Maenianum | 55% Pentice }
+// Or a pentice of tiles over the street on a timber beam.
+Pentice --> Extrude(1.3) Split(Y) { 0.18: PentBeam | ~1: PentRoof }
+PentBeam --> Mat("Timber") I("Trim")
+PentRoof --> Roof(Shed, 16, overhang=0) { Slope: Tiles | All: Gable }
+// The deck fills the course; the rail rises a metre over the floor.
+Maenianum --> Size(scope.x, CourseH + 1.0, 0) Mat("Timber") Split(Y)
+    { CourseH: MaenDeck | ~1: MaenRail }
+MaenDeck --> Extrude(1.35) I("Balcony")
+MaenRail --> Repeat(X, 0.8) { RailBay }
+RailBay --> Split(X) { 0.14: RailPost | ~1: RailPanel }
+RailPost --> Translate(0, 0, 1.12) Extrude(0.18) I("Balcony")
+RailPanel --> Split(Y) { ~1: RailBoard | 0.12: NIL | 0.14: RailBoard }
+RailBoard --> Translate(0, 0, 1.15) Extrude(0.1) I("Balcony")
+
+// -- 4. The upper storeys: small windows under travertine lintels --
+Uppers --> Comp(Faces) { Front: UpperFrontInset | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperFrontInset --> Split(X) { WallD: NIL | ~1: UpperFrontIn | WallD: NIL }
+UpperFrontIn --> Translate(0, 0, -WallD) UpperFront
+UpperFront --> Repeat(Y, FloorH) { Storey }
+Storey --> Split(X) { 0.6: Wall | ~1: Bays | 0.6: Wall }
+Bays --> Repeat(X, 2.6) { WinBay }
+// Each window under a brick flat arch; most of them shuttered.
+WinBay --> 60% ShutBay | 40% OpenBay
+ShutBay --> Split(X) { ~1: Wall | 0.48: ShutterCol | 1.0: WinCol | 0.48: ShutterCol | ~1: Wall }
+OpenBay --> Split(X) { ~1: Wall | 1.0: WinCol | ~1: Wall }
+WinCol --> Split(Y) { 1.0: Wall | 0.1: Sill | 1.45: Glazing | 0.3: Arch | ~1: Wall }
+Sill --> Extrude(WallD + 0.06) Mat("Travertine") I("Trim")
+Arch --> Extrude(WallD + 0.04) Mat("Brick") I("Trim")
+ShutterCol --> Split(Y) { 1.1: Wall | 1.45: Shutter | ~1: Wall }
+Shutter --> Extrude(WallD + 0.05) Mat("Timber") I("Trim")
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) RearUpper
+RearUpper --> Repeat(Y, FloorH) { RearStorey }
+RearStorey --> Repeat(X, 2.8) { RearUpperBay }
+RearUpperBay --> Split(X) { ~1: Wall | 0.9: RearUpperWindow | ~1: Wall }
+RearUpperWindow --> Split(Y) { 1.1: Wall | 1.2: Glazing | ~1: Wall }
+
+// -- 5. The crown: a travertine cornice the whole frontage --
+Crown --> Comp(Faces) { Front: Cornice | Back: RearCrownInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+Cornice --> Split(Y) { 0.25: CorniceBed | 0.3: CorniceCorona | ~1: Attic }
+CorniceBed --> Extrude(0.18) Mat("Travertine") I("Cornice")
+CorniceCorona --> Extrude(0.55) Mat("Travertine") I("Cornice")
+Attic --> Extrude(0.1) I("Wall")
+RearCrownInset --> Split(X) { WallD: NIL | ~1: RearCrownIn | WallD: NIL }
+RearCrownIn --> Translate(0, 0, -WallD) Wall
+
+// -- 6. The roof: low tiles along the street, its gable ends the party
+// walls, so a row's roofs meet gable to gable --
+RoofZone --> Roof(Gable, 22, overhang=0, ridge=X) { Slope: Tiles | GableEnd: Gable }
+Tiles --> Mat("Tile") I("Roof")
+Gable --> I("Wall")

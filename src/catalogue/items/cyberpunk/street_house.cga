@@ -1,0 +1,138 @@
+// The cyberpunk theme's street house (#1598): a neon tenement. See
+// street_house.rs for the house, and catalogue::items::street for the
+// conventions and for what is declared ahead of these rules (Storeys,
+// Trade, Frontage, Depth, GroundH, FloorH) and after them (Glazing,
+// ShopGlazing, Wall).
+
+const WallD = 0.4
+const PaneSet = 0.14
+const PlinthH = 0.6
+const StepH = 0.55
+const NeonH = 0.12
+const ParapetH = 1.0
+const RoofH = 7.0
+
+// -- 1. The house: its skin rolled once, then storeys, parapet, roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + ParapetH + RoofH) Skin
+Skin --> 35% Mat("Metal") Massing | 25% Mat("Gunmetal") Massing
+    | 25% Mat("Concrete") Massing | 15% Mat("Stained") Massing
+Massing --> Split(Y) { GroundH: Ground | ~1: Uppers | ParapetH: Parapet | RoofH: RoofTop }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+
+// -- The house's neon, Picked once: a part names its kind --
+Neon(k) --> Pick("neon") { 30% NeonCyan(k) | 30% NeonMagenta(k) | 20% NeonLime(k)
+    | 20% NeonAmber(k) }
+NeonCyan(k) --> Mat("NeonCyan") NeonPart(k)
+NeonMagenta(k) --> Mat("NeonMagenta") NeonPart(k)
+NeonLime(k) --> Mat("NeonLime") NeonPart(k)
+NeonAmber(k) --> Mat("NeonAmber") NeonPart(k)
+NeonPart(k) --> when(k == 1): Tube | when(k == 2): BladeEdge | else: DoorTube
+// A tube along a floor line, cut from the full face: a row's tubes meet.
+Tube --> Extrude(0.1) I("Neon")
+BladeEdge --> I("Neon")
+DoorTube --> Extrude(WallD + 0.08) I("Neon")
+// A holo sign: each its own colour.
+Holo --> 35% Mat("HoloCyan") HoloSign | 35% Mat("HoloMagenta") HoloSign
+    | 30% Mat("HoloAmber") HoloSign
+HoloSign --> Extrude(WallD + 0.12) I("Sign")
+// A window: glazed, or half behind a grille shutter.
+Win --> 75% Glazing | 25% Split(Y) { ~1: Glazing | 0.6: GrilleShut }
+GrilleShut --> Extrude(WallD + 0.04) Mat("Grille") I("Grille")
+Step --> Extrude(WallD + 0.3) Mat("Steel") I("Trim")
+DoorLeaf --> Extrude(WallD - 0.2) Mat("Door") I("Door")
+
+// -- 2. The ground storey: shops under holo signs, or shuttered homes --
+Ground --> Comp(Faces) { Front: GroundFace | Back: RearGroundInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFace --> Split(Y) { ~1: GroundFrontInset | NeonH: Neon(1) }
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> when(Trade == 1): ShopFront | else: HomeFront
+ShopFront --> Split(X) { ~1: ShopRun | 2.1: Entrance | ~1: ShopRun }
+ShopRun --> Repeat(X, 3.6) { ShopBay }
+ShopBay --> Split(X) { 0.35: Wall | ~1: ShopUnit | 0.35: Wall }
+ShopUnit --> when(scope.x > 2.4): Split(X) { ~1: ShopWindow | 1.1: ShopDoor }
+    | else: ShopWindow
+ShopWindow --> Split(Y) { PlinthH: Wall | ~1: ShopGlazing | 0.15: Wall | 0.9: Holo
+    | 0.2: Wall }
+ShopDoor --> Split(Y) { StepH: Step | 2.3: DoorLeaf | ~1: ShopGlazing | 0.15: Wall | 0.9: Holo
+    | 0.2: Wall }
+HomeFront --> Split(X) { ~1: HomeRun | 2.1: Entrance | ~1: HomeRun }
+HomeRun --> Repeat(X, 2.6) { HomeBay }
+HomeBay --> Split(X) { ~1: Wall | 1.4: HomeWindow | ~1: Wall }
+HomeWindow --> Split(Y) { 1.4: Wall | 1.2: Glazing | 0.9: GrilleShut | ~1: Wall }
+// The house door: a dark leaf up a step, a tube over it, a lit light.
+Entrance --> Split(X) { 0.3: Wall | ~1: EntranceDoor | 0.3: Wall }
+EntranceDoor --> Split(Y) { StepH: Step | 2.6: DoorLeaf | NeonH: Neon(3) | ~1: Fanlight }
+Fanlight --> Split(Y) { ~1: Glazing | 0.3: Wall }
+// The back: windows over high sills.
+RearGroundInset --> Split(X) { WallD: NIL | ~1: RearGroundIn | WallD: NIL }
+RearGroundIn --> Translate(0, 0, -WallD) RearGround
+RearGround --> Repeat(X, 2.8) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.1: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.5: Wall | 1.8: Win | ~1: Wall }
+
+// -- 3. The upper storeys: a tube at every floor line, AC boxes under the
+// windows, and the blade sign down one end where the house has one --
+Uppers --> Comp(Faces) { Front: UpperFace | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperFace --> Repeat(Y, FloorH) { StoreyFace }
+StoreyFace --> Split(Y) { ~1: StoreyInset | NeonH: Neon(1) }
+StoreyInset --> Split(X) { WallD: NIL | ~1: StoreyIn | WallD: NIL }
+StoreyIn --> Translate(0, 0, -WallD) Storey
+Storey --> Split(X) { 0.9: EndStrip | ~1: Bays | 0.9: Wall }
+Bays --> Repeat(X, 2.4) { Bay }
+Bay --> Split(X) { ~1: Wall | 1.4: WinCol | ~1: Wall }
+WinCol --> Split(Y) { 0.4: Wall | 0.42: Below | 0.1: Wall | 1.6: Win | ~1: Wall }
+Below --> 35% Split(X) { 0.15: Wall | ~1: ACBox | 0.15: Wall } | 65% Wall
+ACBox --> Extrude(WallD + 0.5) Mat("AC") I("AC")
+// The blade: a lit panel standing out of the front, a tube at its edge,
+// storey on storey.
+EndStrip --> Pick("blade") { 60% BladeStrip | 40% Wall }
+BladeStrip --> Extrude(WallD + 1.5) Split(Z) { WallD: BladeWall | ~1: BladeBody }
+BladeWall --> I("Wall")
+BladeBody --> Split(X) { ~1: NIL | 0.24: BladePanel | ~1: NIL }
+BladePanel --> Split(Y) { 0.15: NIL | ~1: BladeLit | 0.15: NIL }
+BladeLit --> Split(Z) { ~1: Holo2 | 0.08: Neon(2) }
+Holo2 --> Pick("bladelit") { 35% BladeCyan | 35% BladeMagenta | 30% BladeAmber }
+BladeCyan --> Mat("HoloCyan") I("Sign")
+BladeMagenta --> Mat("HoloMagenta") I("Sign")
+BladeAmber --> Mat("HoloAmber") I("Sign")
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) RearUpper
+RearUpper --> Repeat(Y, FloorH) { RearStorey }
+RearStorey --> Repeat(X, 2.8) { RearUpperBay }
+RearUpperBay --> Split(X) { ~1: Wall | 1.1: RearUpperWindow | ~1: Wall }
+RearUpperWindow --> Split(Y) { 0.9: Wall | 1.6: Win | ~1: Wall }
+
+// -- 4. The parapet, its coping, and the deck inside it --
+Parapet --> Comp(Faces) { Front: ParapetFace | Back: ParapetFace | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+ParapetFace --> Split(Y) { ~1: ParapetInset | 0.14: Coping }
+ParapetInset --> Split(X) { WallD: NIL | ~1: ParapetIn | WallD: NIL }
+ParapetIn --> Translate(0, 0, -WallD) Wall
+Coping --> Extrude(0.06) Mat("Steel") I("Trim")
+// The deck fills the ring inside the parapet's walls: the bottom face's
+// inward is up.
+Deck --> Translate(WallD, WallD, -0.2) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("Deck") I("Roof")
+
+// -- 5. The roof: a billboard on a frame toward the street, a mast --
+RoofTop --> Translate(0, 0.2 - ParapetH, 0) Size(scope.x, scope.y + ParapetH - 0.2, scope.z)
+    Split(Z) { WallD + 0.3: NIL | 0.4: BoardRow | ~1: NIL | 0.25: MastRow | 0.9: NIL }
+BoardRow --> Split(X) { ~1: NIL | ~5: Billboard | ~1: NIL }
+Billboard --> Split(Y) { 1.4: Legs | 3.2: Board | ~1: NIL }
+Legs --> Split(X) { 0.2: Leg | ~1: NIL | 0.2: Leg }
+Leg --> Mat("Steel") I("Trim")
+Board --> Split(Z) { 0.06: Screen | ~1: BoardBack }
+// The screen: two lit panels, each its own colour, in a dark frame.
+Screen --> Split(Y) { 0.2: BoardBack | ~1: ScreenArt | 0.2: BoardBack }
+ScreenArt --> Split(X) { 0.2: BoardBack | ~2: ScreenLit | 0.15: BoardBack | ~1: ScreenLit
+    | 0.2: BoardBack }
+ScreenLit --> 35% Mat("HoloMagenta") I("Billboard") | 35% Mat("HoloCyan") I("Billboard")
+    | 30% Mat("HoloAmber") I("Billboard")
+BoardBack --> Mat("Metal") I("Billboard")
+MastRow --> Split(X) { ~1: NIL | 0.25: Mast | 1.6: NIL }
+Mast --> Split(Y) { 6.4: MastStem | ~1: NIL }
+MastStem --> Mat("Steel") I("Mast")

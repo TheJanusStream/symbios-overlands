@@ -25,6 +25,9 @@ pub mod monument;
 pub mod motel;
 pub mod road_sign;
 pub mod roadside_diner;
+pub mod street_block;
+pub mod street_house;
+pub mod street_low;
 pub mod traffic_cone;
 pub mod vending_machine;
 // Poor (busted-shoulder) variants - the prosperity-Poor end of the theme.

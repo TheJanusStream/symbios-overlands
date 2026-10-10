@@ -25,6 +25,9 @@ pub mod mana_font;
 pub mod monument;
 pub mod runestone;
 pub mod spell_circle;
+pub mod street_block;
+pub mod street_house;
+pub mod street_low;
 pub mod wizard_tower;
 // Poor (hedge-magic) variants - the prosperity-Poor end of the theme.
 pub mod hedge_hut;
@@ -164,6 +167,49 @@ pub(super) fn matte(color: [f32; 3]) -> SovereignMaterialSettings {
         metallic: Fp(0.0),
         uv_scale: Fp(1.0),
         texture: SovereignTextureConfig::None,
+        ..Default::default()
+    }
+}
+
+/// Lime daub in a storybook colour - the infill between a townhouse's
+/// timbers and a cottage's walls (#1598): a stucco grain, so a broad wall
+/// reads as hand-laid plaster rather than paint.
+pub(super) fn daub(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.92),
+        uv_scale: tiles_per_metre(tile::STUCCO),
+        texture: SovereignTextureConfig::Stucco(crate::pds::SovereignStuccoConfig {
+            color_base: Fp3(color),
+            color_shadow: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.80, 0.79, 0.76],
+            )),
+            scale: Fp64(6.0),
+            roughness: Fp64(0.4),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+/// Small slates in overlapping courses - the steep roofs and turret caps of
+/// the street buildings (#1598), in a blue, green or violet cast.
+pub(super) fn slate(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.55),
+        metallic: Fp(0.05),
+        uv_scale: tiles_per_metre(tile::SHINGLE),
+        texture: SovereignTextureConfig::Shingle(crate::pds::SovereignShingleConfig {
+            color_tile: Fp3(color),
+            color_grout: Fp3(crate::catalogue::items::util::tint(color, [0.6, 0.6, 0.64])),
+            scale: Fp64(8.0),
+            shape_profile: Fp64(0.55),
+            overlap: Fp64(0.5),
+            moss_level: Fp64(0.12),
+            ..Default::default()
+        }),
         ..Default::default()
     }
 }

@@ -1,0 +1,84 @@
+// The industrial park's low building (#1598): a sawtooth workshop hall, or
+// live-work lofts in one. See street_low.rs for the building, and
+// catalogue::items::street for the conventions and for what is declared ahead
+// of these rules and after them.
+
+const WallD = 0.3
+const PaneSet = 0.12
+const StepH = 0.5
+const PlinthH = 1.1
+const FasciaH = 0.7
+// The sawtooth: one tooth to so many metres of frontage, each rising so far.
+const ToothW = 4.0
+const ToothH = 1.8
+
+// -- 1. The hall: its cladding rolled once, then storeys and sawtooth --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + ToothH) Cladding
+Cladding --> 30% Mat("CladBlue") Hall | 25% Mat("CladGrey") Hall | 25% Mat("CladGreen") Hall
+    | 20% Mat("CladRed") Hall
+Hall --> when(Storeys == 1): Split(Y) { GroundH: Ground | ToothH: SawRoof }
+    | else: Split(Y) { GroundH: Ground | ~1: Upper | ToothH: SawRoof }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+// A full-height panel of the front: concrete plinth wall, cladding over it.
+Panel --> Split(Y) { PlinthH: BaseWall | ~1: Wall }
+BaseWall --> Mat("Base") Wall
+
+// -- 2. The ground storey: roller doors, or lofts, under a steel fascia --
+Ground --> Comp(Faces) { Front: GroundFrontInset | Back: RearGroundInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> when(Storeys == 1): Split(Y) { ~1: HallFront | FasciaH: Fascia }
+    | else: HallFront
+Fascia --> Extrude(WallD + 0.12) Mat("Fascia") I("Fascia")
+HallFront --> Repeat(X, 4.2) { HallBay }
+HallBay --> when(Trade == 1): WorkBay(split.i) | else: LoftBay
+// The workshop: roller doors, every other bay a door and a window.
+WorkBay(n) --> when(n % 2 == 0): RollerBay | else: DoorBay
+RollerBay --> Split(X) { ~1: Panel | 3.2: Roller | ~1: Panel }
+Roller --> Split(Y) { 0.4: BaseWall | 3.6: RollerDoor | 0.22: Lintel | ~1: Wall }
+RollerDoor --> Extrude(WallD - 0.1) Mat("Roller") I("Door")
+Lintel --> Extrude(WallD + 0.06) Mat("Steel") I("Trim")
+DoorBay --> Split(X) { ~1: Panel | 1.1: SideDoor | 0.5: Panel | 1.6: SideWindow | ~1: Panel }
+SideDoor --> Split(Y) { StepH: Step | 2.2: DoorLeaf | 0.22: Lintel | ~1: Wall }
+Step --> Extrude(WallD + 0.3) Mat("Base") I("Trim")
+DoorLeaf --> Extrude(WallD - 0.1) Mat("Door") I("Door")
+SideWindow --> Split(Y) { PlinthH: BaseWall | 1.6: Glazing | ~1: Wall }
+// The lofts: a door up a step and a big steel-framed window to each.
+LoftBay --> Split(X) { ~1: Panel | 1.1: SideDoor | 0.4: Panel | 2.2: LoftWindow | ~1: Panel }
+LoftWindow --> Split(Y) { 0.8: BaseWall | 2.6: Glazing | 0.22: Lintel | ~1: Wall }
+RearGroundInset --> Split(X) { WallD: NIL | ~1: RearGroundIn | WallD: NIL }
+RearGroundIn --> Translate(0, 0, -WallD) RearGround
+RearGround --> Repeat(X, 3.4) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.6: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.6: Wall | 1.6: Glazing | ~1: Wall }
+
+// -- 3. The office floor over it, where it has one: a ribbon of windows --
+Upper --> Comp(Faces) { Front: UpFrontInset | Back: UpRearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpFrontInset --> Split(X) { WallD: NIL | ~1: UpFrontIn | WallD: NIL }
+UpFrontIn --> Translate(0, 0, -WallD) UpFront
+UpFront --> Split(Y) { 0.9: Wall | 1.4: Ribbon | ~1: Wall | FasciaH: Fascia }
+Ribbon --> Split(X) { ~1: RibbonRun | 0.12: Mullion }
+RibbonRun --> Repeat(X, 1.4) { RibbonBay }
+RibbonBay --> Split(X) { 0.12: Mullion | ~1: Glazing }
+Mullion --> Extrude(WallD - 0.06) Mat("Steel") I("Trim")
+UpRearInset --> Split(X) { WallD: NIL | ~1: UpRearIn | WallD: NIL }
+UpRearIn --> Translate(0, 0, -WallD) UpRear
+UpRear --> Repeat(X, 3.4) { UpRearBay }
+UpRearBay --> Split(X) { ~1: Wall | 1.6: UpRearWindow | ~1: Wall }
+UpRearWindow --> Split(Y) { 0.9: Wall | 1.4: Glazing | ~1: Wall }
+
+// -- 4. The sawtooth: shed teeth across the street, so their profile is
+// the hall's front, each one's glazed northlight facing along the street.
+// A shed slopes along its scope's Z, so the roof's scope is turned a
+// quarter about Y first: its corner moved to the back, its Z then the
+// frontage --
+SawRoof --> Translate(0, 0, scope.z) Rotate(0.7071068, 0, 0.7071068, 0)
+    Size(scope.z, scope.y, scope.x) Repeat(Z, ToothW) { Tooth }
+Tooth --> Roof(Shed, height=ToothH, overhang=0) { Slope: Sheet | Back: Northlight
+    | _: ToothEnd }
+Sheet --> Mat("RoofSheet") I("Roof")
+Northlight --> Mat("Northlight") I("Roof")
+ToothEnd --> I("Wall")

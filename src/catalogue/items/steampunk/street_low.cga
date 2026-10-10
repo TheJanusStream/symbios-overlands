@@ -1,0 +1,109 @@
+// The steampunk theme's low building (#1598): a tinker's workshop under an
+// iron gantry, or - where nobody trades - a row of boiler-house cottages.
+// See street_low.rs for the building, and catalogue::items::street for the
+// conventions and for what is declared ahead of these rules and after them.
+
+const WallD = 0.38
+const PaneSet = 0.14
+const PlinthH = 0.6
+const StepH = 0.5
+const BandH = 0.22
+const RoofH = 1.0
+const CottageW = 5.5
+const ToothD = 3.2
+const GantryOut = 1.7
+
+// -- 1. The building: its brick rolled once, a workshop or cottages --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Brick
+Brick --> 38% Mat("BrickSoot") Body | 34% Mat("BrickRed") Body | 28% Mat("BrickBrown") Body
+Body --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Upper | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+
+// -- 2. The ground storey --
+Ground --> Comp(Faces) { Front: GroundFace | Back: RearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFace --> when(Trade == 1): Split(Y) { ~1: WorksFace | 0.01: GantrySliver }
+    | else: Split(Y) { ~1: GroundFrontInset | BandH: Band }
+Band --> Extrude(0.12) Mat("Iron") I("Band")
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> when(Trade == 1): Repeat(X, 3.6) { WorkBay } | else: Repeat(X, CottageW) { Cottage }
+// The workshop: bays between brick piers, each a wide iron-framed window
+// or the double doors of a bay, a sign board over them under a brass
+// rail.
+WorksFace --> Split(Y) { ~1: GroundFrontInset | 0.55: SignBand | 0.08: Rail | BandH: Band }
+SignBand --> Split(X) { WallD: NIL | ~1: Sign | WallD: NIL }
+Sign --> Extrude(0.1) Mat("Sign") I("Fascia")
+Rail --> Extrude(0.14) Mat("Brass") I("Trim")
+WorkBay --> Split(X) { 0.45: Pier | ~1: WorkUnit(split.i, split.n) }
+Pier --> Extrude(WallD + 0.16) I("Wall")
+// The first bay is always a window, so the shop shows its wares, and the
+// last its doors; a bay is narrow enough that the least frontage holds two.
+WorkUnit(i, n) --> when(i == 0): WorkWindow | when(i == n - 1): WorkDoors | else: AnyUnit
+AnyUnit --> 60% WorkWindow | 40% WorkDoors
+WorkWindow --> Split(Y) { PlinthH: Wall | ~1: ShopGlazing | 0.24: Lintel }
+WorkDoors --> Split(Y) { StepH: Step | ~1: Leaves | 0.24: Lintel }
+Leaves --> Split(X) { ~1: Leaf | 0.06: Wall | ~1: Leaf }
+Leaf --> Extrude(WallD - 0.16) Mat("Door") I("Door")
+Lintel --> Extrude(WallD + 0.08) Mat("Iron") I("Trim")
+Step --> Extrude(WallD + 0.3) Mat("Iron") I("Trim")
+// The gantry: from a sliver at the storey's top, two iron posts on the
+// pavement and a beam between them under the eaves, a hoist at its middle.
+GantrySliver --> Translate(0, 0.01 - GroundH, 0) Size(scope.x, GroundH - 0.3, 0)
+    Extrude(GantryOut) Split(X) { 0.1: NIL | 0.3: GantryPost | ~1: GantrySpan | 0.3: GantryPost
+    | 0.1: NIL }
+GantryPost --> Split(Z) { ~1: NIL | 0.3: Post | 0.1: NIL }
+Post --> Mat("Iron") I("Gantry")
+GantrySpan --> Split(Y) { ~1: HoistRow | 0.36: BeamRow }
+BeamRow --> Split(Z) { ~1: NIL | 0.36: GantryBeam | 0.04: NIL }
+GantryBeam --> Mat("Iron") I("Gantry")
+HoistRow --> Split(Y) { ~1: NIL | 0.9: HoistBand }
+HoistBand --> Split(X) { ~1: NIL | 0.3: HoistCol | ~1: NIL }
+HoistCol --> Split(Z) { ~1: NIL | 0.3: Hoist | 0.07: NIL }
+Hoist --> Split(Y) { 0.3: HoistBlock | ~1: HoistChain }
+HoistBlock --> Mat("Brass") I("Gantry")
+HoistChain --> Size(0.06, scope.y, 0.06) Center(XZ) Mat("Iron") I("Gantry")
+// The cottages: each a brass-framed window and a plank door under an iron
+// hood.
+Cottage --> Split(X) { ~1: Wall | 1.3: CotWindow | 0.7: Wall | 1.1: CotDoor | ~1: Wall }
+CotWindow --> Split(Y) { 0.95: Wall | 0.1: Sill | 1.5: Glazing | 0.22: Lintel | ~1: Wall }
+Sill --> Extrude(WallD + 0.07) Mat("Iron") I("Trim")
+CotDoor --> Split(Y) { StepH: Step | 2.15: CotLeaf | 0.16: Hood | ~1: Wall }
+CotLeaf --> 55% Mat("Door") Leaf | 45% Mat("DoorGreen") Leaf
+Hood --> Extrude(WallD + 0.5) Mat("Iron") I("Trim")
+RearInset --> Split(X) { WallD: NIL | ~1: RearIn | WallD: NIL }
+RearIn --> Translate(0, 0, -WallD) Repeat(X, 2.75) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.2: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.0: Wall | 1.4: Glazing | ~1: Wall }
+
+// -- 3. The upper storey: small windows over the band --
+Upper --> Comp(Faces) { Front: UpperInset | Back: UpperRearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperInset --> Split(X) { WallD: NIL | ~1: UpperIn | WallD: NIL }
+UpperIn --> Translate(0, 0, -WallD) Repeat(X, 2.75) { UpperBay }
+UpperBay --> Split(X) { ~1: Wall | 1.2: UpperWindow | ~1: Wall }
+UpperWindow --> Split(Y) { 0.8: Wall | 0.1: Sill | 1.3: Glazing | 0.22: Lintel | ~1: Wall }
+UpperRearInset --> Split(X) { WallD: NIL | ~1: UpperRearIn | WallD: NIL }
+UpperRearIn --> Translate(0, 0, -WallD) Repeat(X, 2.75) { UpperRearBay }
+UpperRearBay --> Split(X) { ~1: Wall | 1.2: UpperRearWindow | ~1: Wall }
+UpperRearWindow --> Split(Y) { 0.8: Wall | 1.2: Glazing | ~1: Wall }
+
+// -- 4. The roof: the workshop's sawtooth of amber northlights, or the
+// cottages' rusted iron gable; and a sliver at the zone's top that stands
+// copper stacks on it --
+RoofZone --> Split(Y) { ~1: RoofBody | 0.01: StackLayer }
+RoofBody --> when(Trade == 1): Repeat(Z, ToothD) { Tooth }
+    | else: Roof(Gable, 35, overhang=0, ridge=X) { Slope: Sheeting | GableEnd: Gable }
+Tooth --> Roof(Shed, 26, overhang=0) { Slope: Sheeting | Back: NorthLight | GableEnd: Gable }
+Sheeting --> Mat("Sheet") I("Roof")
+NorthLight --> Mat("NorthLight") I("Roof")
+Gable --> I("Wall")
+StackLayer --> Translate(0, 0.01 - RoofH, 0) Size(scope.x, Depth * 0.35 + 1.8, scope.z)
+    Repeat(X, CottageW) { StackSlot }
+StackSlot --> Split(X) { ~1: NIL | 0.6: StackCol | 0.8: NIL }
+StackCol --> Split(Z) { ~1: NIL | 0.6: Stack | ~1: NIL }
+Stack --> Split(Y) { ~1: StackShaft | 0.25: StackCap }
+StackShaft --> Mat("Copper") I("Stack")
+StackCap --> Size(scope.x + 0.16, scope.y, scope.z + 0.16) Center(XZ) Mat("Brass") I("Stack")

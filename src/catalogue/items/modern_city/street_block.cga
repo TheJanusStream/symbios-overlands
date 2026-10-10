@@ -1,0 +1,103 @@
+// The modern city's long block (#1598): a Berlin Plattenbau slab. See
+// street_block.rs for the block, and catalogue::items::street for the
+// conventions and for what is declared ahead of these rules and after them.
+
+const WallD = 0.36
+const PaneSet = 0.14
+const PlinthH = 0.6
+const StepH = 0.5
+const JointH = 0.08
+const ParapetH = 1.0
+const HousingH = 2.8
+// One stair to a section, as a slab is built: a door at street level, a
+// column of landing windows over it, a lift's housing on the roof. Under
+// twelve metres so the steps' frontages, less the party walls, hold two,
+// three and four of them: a Repeat floors its count.
+const SectionW = 11.5
+
+// -- 1. The block: its panels rolled once, then base, storeys, parapet --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + ParapetH + HousingH) Panels
+Panels --> 26% Mat("Cream") Massing | 22% Mat("Sand") Massing | 18% Mat("Sage") Massing
+    | 18% Mat("Terracotta") Massing | 16% Mat("Concrete") Massing
+Massing --> Split(Y) { GroundH: Ground | ~1: Uppers | ParapetH: Parapet | HousingH: RoofTop }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+
+// -- 2. The base: a dark plinth storey, an entrance to each stair --
+Ground --> Mat("Base") Comp(Faces) { Front: GroundFrontInset | Back: RearGroundInset
+    | Left: PartyIn | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> Repeat(X, SectionW) { GroundSection }
+GroundSection --> Split(X) { ~1: GroundRun | 2.4: Doorway | ~1: GroundRun }
+GroundRun --> when(Trade == 1): ShopRun | else: FlatRun
+ShopRun --> Repeat(X, 4.2) { ShopBay }
+ShopBay --> Split(X) { 0.35: Wall | ~1: ShopWindow | 0.35: Wall }
+ShopWindow --> Split(Y) { PlinthH: Wall | ~1: ShopGlazing | 0.6: Fascia }
+Fascia --> Extrude(WallD + 0.06) Mat("Metal") I("Fascia")
+FlatRun --> Repeat(X, 2.9) { FlatBay }
+FlatBay --> Split(X) { ~1: Wall | 1.5: FlatWindow | ~1: Wall }
+FlatWindow --> Split(Y) { 1.2: Wall | 1.4: Glazing | ~1: Wall }
+// The entrance: a glazed door up a step, under a canopy.
+Doorway --> Split(X) { 0.25: Wall | ~1: DoorCol | 0.25: Wall }
+DoorCol --> Split(Y) { StepH: Step | 2.3: DoorLeaf | 0.2: Canopy | ~1: Glazing }
+Step --> Extrude(WallD + 0.35) Mat("Base") I("Trim")
+DoorLeaf --> Extrude(WallD - 0.18) Mat("Door") I("Door")
+Canopy --> Extrude(WallD + 1.2) Mat("Metal") I("Canopy")
+// The courtyard side: windows over high sills.
+RearGroundInset --> Split(X) { WallD: NIL | ~1: RearGroundIn | WallD: NIL }
+RearGroundIn --> Translate(0, 0, -WallD) RearGround
+RearGround --> Repeat(X, 3.0) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.4: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.2: Wall | 1.4: Glazing | ~1: Wall }
+
+// -- 3. The storeys: panel bands, a joint at each floor, the landing
+// windows on each section's axis, and stacked loggias at the ends of its
+// runs where the block has them --
+Uppers --> Comp(Faces) { Front: UpperFrontInset | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperFrontInset --> Split(X) { WallD: NIL | ~1: UpperFrontIn | WallD: NIL }
+UpperFrontIn --> Translate(0, 0, -WallD) UpperFront
+UpperFront --> Repeat(Y, FloorH) { Storey }
+Storey --> Split(Y) { ~1: Band | JointH: Joint }
+// The joint between two storeys' panels: a groove, the panel set back.
+Joint --> Extrude(WallD - 0.03) Mat("Joint") I("Wall")
+Band --> Repeat(X, SectionW) { Section }
+Section --> Split(X) { ~1: Run | 2.4: StairCol | ~1: Run }
+Run --> when(split.i == 0): Split(X) { ~1: OuterBay | ~1: WinBay }
+    | else: Split(X) { ~1: WinBay | ~1: OuterBay }
+OuterBay --> Pick("loggias") { 55% BalconyBay | 45% WinBay }
+WinBay --> Split(X) { ~1: Wall | 1.8: WinCol | ~1: Wall }
+WinCol --> Split(Y) { 0.8: Wall | 1.55: Glazing | ~1: Wall }
+// A landing between two floors: its window high in the band.
+StairCol --> Split(X) { 0.5: Wall | ~1: StairWin | 0.5: Wall }
+StairWin --> Split(Y) { ~1: Wall | 1.0: Glazing | 0.3: Wall }
+BalconyBay --> Split(X) { 0.2: Wall | ~1: BalconyCol | 0.2: Wall }
+BalconyCol --> Split(Y) { 1.0: Balcony | 1.6: Glazing | ~1: Wall }
+Balcony --> Extrude(WallD + 1.3) Mat("Accent") I("Balcony")
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) RearUpper
+RearUpper --> Repeat(Y, FloorH) { RearStorey }
+RearStorey --> Split(Y) { ~1: RearBand | JointH: Joint }
+RearBand --> Repeat(X, 3.0) { RearUpperBay }
+RearUpperBay --> Split(X) { ~1: Wall | 1.6: RearUpperWindow | ~1: Wall }
+RearUpperWindow --> Split(Y) { 0.8: Wall | 1.55: Glazing | ~1: Wall }
+
+// -- 4. The parapet, its coping, and the deck inside it --
+Parapet --> Comp(Faces) { Front: ParapetFace | Back: ParapetFace | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+ParapetFace --> Split(Y) { ~1: ParapetInset | 0.14: Coping }
+ParapetInset --> Split(X) { WallD: NIL | ~1: ParapetIn | WallD: NIL }
+ParapetIn --> Translate(0, 0, -WallD) Wall
+Coping --> Extrude(0.05) Mat("Metal") I("Trim")
+// The deck fills the ring inside the parapet's walls, so no face of it
+// lies in theirs: the bottom face's inward is up.
+Deck --> Translate(WallD, WallD, -0.2) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("Deck") I("Roof")
+
+// -- 5. A lift's housing over each stair --
+RoofTop --> Repeat(X, SectionW) { RoofSection }
+RoofSection --> Split(X) { ~1: NIL | 4.2: HousingSlot | ~1: NIL }
+HousingSlot --> Split(Z) { ~1: NIL | 4.5: Housing | ~1: NIL }
+Housing --> Translate(0, 0.2 - ParapetH, 0) Size(scope.x, ParapetH - 0.2 + HousingH, scope.z)
+    I("Wall")

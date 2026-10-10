@@ -1,0 +1,118 @@
+// The sports theme's long block (#1598): a sports centre slab. See
+// street_block.rs for the block, and catalogue::items::street for the
+// conventions and for what is declared ahead of these rules and after them.
+
+const WallD = 0.38
+const PaneSet = 0.14
+const PlinthH = 0.5
+const StepH = 0.5
+const NameH = 0.7
+const JointH = 0.1
+const ParapetH = 1.2
+const RoofH = 5.0
+// One entrance to a section, as a slab is built. Under twelve metres so
+// the frontages, less the party walls, hold two, three and four of them:
+// a Repeat floors its count.
+const SectionW = 11.5
+
+// -- 1. The block: its panels rolled once, then hall, storeys, parapet --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + ParapetH + RoofH) Panels
+Panels --> 40% Mat("Panel") Massing | 35% Mat("White") Massing | 25% Mat("Concrete") Massing
+Massing --> Split(Y) { GroundH + FloorH: Hall | ~1: Uppers | ParapetH: Parapet
+    | RoofH: RoofTop }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+
+// -- The club's colour, Picked once: a part names its kind --
+Team(k) --> Pick("team") { 30% TeamRed(k) | 25% TeamBlue(k) | 25% TeamGreen(k)
+    | 20% TeamOrange(k) }
+TeamRed(k) --> Mat("TeamRed") TeamPart(k)
+TeamBlue(k) --> Mat("TeamBlue") TeamPart(k)
+TeamGreen(k) --> Mat("TeamGreen") TeamPart(k)
+TeamOrange(k) --> Mat("TeamOrange") TeamPart(k)
+TeamPart(k) --> when(k == 1): Band | when(k == 2): Canopy | when(k == 3): Fin | else: Fascia
+// A band cut from the full face: a row's bands meet at the party walls.
+Band --> Extrude(0.18) I("Band")
+Canopy --> Extrude(WallD + 1.6) I("Canopy")
+Fin --> Extrude(WallD + 0.55) I("Fin")
+Fascia --> Extrude(WallD + 0.08) I("Band")
+
+// -- 2. The hall: two storeys of glass between mullions, a name band --
+Hall --> Mat("Base") Comp(Faces) { Front: HallFace | Back: RearHallInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+HallFace --> Split(Y) { ~1: HallInset | NameH: NameBand }
+HallInset --> Split(X) { WallD: NIL | ~1: HallIn | WallD: NIL }
+HallIn --> Translate(0, 0, -WallD) HallFront
+HallFront --> Repeat(X, SectionW) { HallSection }
+HallSection --> Split(X) { ~1: GlassRun | 3.0: Entrance | ~1: GlassRun }
+GlassRun --> Repeat(X, 1.6) { GlassBay }
+GlassBay --> Split(X) { 0.14: Mullion | ~1: GlassCol }
+Mullion --> Extrude(WallD + 0.1) Mat("Steel") I("Mullion")
+// The hall's lit glass, a transom at the first floor - or, where the
+// block trades, a fascia in the club's colour over its shops.
+GlassCol --> when(Trade == 1): Split(Y) { PlinthH: Wall | GroundH - PlinthH - 0.3: ShopGlazing
+    | 0.6: Team(4) | ~1: ShopGlazing }
+    | else: Split(Y) { PlinthH: Wall | GroundH - PlinthH - 0.1: ShopGlazing | 0.2: Transom
+    | ~1: ShopGlazing }
+Transom --> Extrude(WallD + 0.06) Mat("Steel") I("Mullion")
+// The entrance: glazed doors up a step, under a canopy in the club's
+// colour.
+Entrance --> Split(X) { 0.3: Mullion | ~1: DoorCol | 0.3: Mullion }
+DoorCol --> Split(Y) { StepH: Step | 2.5: DoorLeaf | 0.25: Team(2) | ~1: ShopGlazing }
+Step --> Extrude(WallD + 0.35) Mat("Base") I("Trim")
+DoorLeaf --> Extrude(WallD - 0.18) Mat("Door") I("Door")
+// The centre's name: a band in the club's colour, a lit sign on it at
+// each section.
+NameBand --> Repeat(X, SectionW) { NameSeg }
+NameSeg --> Split(X) { ~1: Team(1) | 5.0: NameSign | ~1: Team(1) }
+NameSign --> Split(Y) { 0.14: Team(1) | ~1: NameLit | 0.14: Team(1) }
+NameLit --> Extrude(0.22) Mat("NameLit") I("Sign")
+// The yard side: the hall's high windows.
+RearHallInset --> Split(X) { WallD: NIL | ~1: RearHallIn | WallD: NIL }
+RearHallIn --> Translate(0, 0, -WallD) RearHall
+RearHall --> Repeat(X, 3.0) { RearHallBay }
+RearHallBay --> Split(X) { ~1: Wall | 1.6: RearHallWindow | ~1: Wall }
+RearHallWindow --> Split(Y) { 1.6: Wall | 1.6: Glazing | ~1: Wall | 1.6: Glazing | 0.8: Wall }
+
+// -- 3. The storeys: ribbon windows between panel joints, a fin in the
+// club's colour between each pair where the block has them --
+Uppers --> Comp(Faces) { Front: UpperFrontInset | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperFrontInset --> Split(X) { WallD: NIL | ~1: UpperFrontIn | WallD: NIL }
+UpperFrontIn --> Translate(0, 0, -WallD) UpperFront
+UpperFront --> Repeat(Y, FloorH) { Storey }
+Storey --> Split(Y) { ~1: Band2 | JointH: Joint }
+Joint --> Extrude(WallD - 0.03) Mat("Base") I("Wall")
+Band2 --> Split(X) { 0.6: Wall | ~1: Ribbon | 0.6: Wall }
+Ribbon --> Repeat(X, 2.5) { RibbonBay }
+RibbonBay --> Split(X) { ~1: Wall | 0.16: FinSlot | ~1: Wall | 2.0: RibbonWin }
+FinSlot --> Pick("fins") { 55% Team(3) | 45% Wall }
+RibbonWin --> Split(Y) { 0.85: Wall | 1.5: Glazing | ~1: Wall }
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) RearUpper
+RearUpper --> Repeat(Y, FloorH) { RearStorey }
+RearStorey --> Split(Y) { ~1: RearBand | JointH: Joint }
+RearBand --> Repeat(X, 3.0) { RearUpperBay }
+RearUpperBay --> Split(X) { ~1: Wall | 1.6: RearUpperWindow | ~1: Wall }
+RearUpperWindow --> Split(Y) { 0.85: Wall | 1.5: Glazing | ~1: Wall }
+
+// -- 4. The parapet: a stripe in the club's colour, a coping, the deck --
+Parapet --> Comp(Faces) { Front: ParapetFace | Back: ParapetFace | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+ParapetFace --> Split(Y) { 0.45: Team(1) | ~1: ParapetInset | 0.14: Coping }
+ParapetInset --> Split(X) { WallD: NIL | ~1: ParapetIn | WallD: NIL }
+ParapetIn --> Translate(0, 0, -WallD) Wall
+Coping --> Extrude(0.06) Mat("Trim") I("Trim")
+// The deck fills the ring inside the parapet's walls: the bottom face's
+// inward is up.
+Deck --> Translate(WallD, WallD, -0.2) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("Deck") I("Roof")
+
+// -- 5. Floodlight masts over each section --
+RoofTop --> Split(Z) { ~1: NIL | 0.3: MastRow | ~1: NIL }
+MastRow --> Repeat(X, SectionW) { MastSeg }
+MastSeg --> Split(X) { ~1: NIL | 0.3: Mast | ~1: NIL }
+Mast --> Translate(0, 0.2 - ParapetH, 0) Size(scope.x, scope.y + ParapetH - 0.2, scope.z)
+    Split(Y) { ~1: MastStem | 0.6: LampSlot }
+MastStem --> Mat("Steel") I("Mast")
+LampSlot --> Translate(-0.6, 0, -0.04) Size(1.5, 0.6, 0.38) Mat("Lamp") I("Lamp")

@@ -1,0 +1,111 @@
+// The industrial park's long block (#1598): a Gewerbehof, a many-storeyed
+// factory block. See street_block.rs for the block, and
+// catalogue::items::street for the conventions and for what is declared ahead
+// of these rules and after them.
+
+const WallD = 0.4
+const PaneSet = 0.16
+const StepH = 0.5
+const ParapetH = 1.2
+const RoofTopH = 8.2
+// The frame's grid along the street, and its columns' width: under six
+// metres so the frontages, less the party walls and the end columns, hold
+// whole bays (a Repeat floors its count).
+const BayW = 5.8
+const ColW = 0.6
+
+// -- 1. The block: its infill rolled once, then floors, parapet, roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + ParapetH + RoofTopH) Infill
+Infill --> 40% Mat("BrickRed") Massing | 30% Mat("BrickYellow") Massing
+    | 30% Mat("Concrete") Massing
+Massing --> Split(Y) { GroundH: Ground | ~1: Uppers | ParapetH: Parapet | RoofTopH: RoofTop }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+// The frame: a concrete column, standing out of the front.
+Column --> Extrude(WallD + 0.3) Mat("Frame") I("Frame")
+
+// -- 2. The loading floor: roller doors under steel canopies, a stair door
+// in every third bay; a trading block's workshops show their windows --
+Ground --> Comp(Faces) { Front: GroundFrontInset | Back: RearGroundInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> Split(X) { ColW: Column | ~1: GroundRun | ColW: Column }
+GroundRun --> Repeat(X, BayW) { GroundGrid }
+GroundGrid --> when(split.i == split.n - 1): GroundBay(split.i)
+    | else: Split(X) { ~1: GroundBay(split.i) | ColW: Column }
+GroundBay(n) --> Split(Y) { ~1: GroundLevel(n) | 0.25: Canopy | 0.45: Wall }
+Canopy --> Extrude(WallD + 1.6) Mat("Steel") I("Canopy")
+GroundLevel(n) --> when(n % 3 == 1): StairBay | when(Trade == 1): Workshop | else: LoadingBay
+LoadingBay --> Split(X) { ~1: Wall | 3.6: Roller | ~1: Wall }
+Roller --> Split(Y) { 0.45: Wall | ~1: RollerDoor | 0.3: Wall }
+RollerDoor --> Extrude(WallD - 0.15) Mat("Roller") I("Door")
+// A stair door between two windows.
+StairBay --> Split(X) { ~1: Wall | 1.3: GroundWindow | 0.5: Wall | 1.5: StairDoor | 0.5: Wall
+    | 1.3: GroundWindow | ~1: Wall }
+StairDoor --> Split(Y) { StepH: Step | 2.6: DoorLeaf | ~1: Glazing }
+Step --> Extrude(WallD + 0.35) Mat("Base") I("Trim")
+DoorLeaf --> Extrude(WallD - 0.16) Mat("Door") I("Door")
+GroundWindow --> Split(Y) { 1.2: Wall | ~1: Glazing | 0.3: Wall }
+Workshop --> Split(X) { 0.3: Wall | ~1: WorkWindow | 1.2: WorkDoor | 0.3: Wall }
+WorkWindow --> Split(Y) { 0.6: WorkPlinth | ~1: ShopGlazing }
+WorkPlinth --> Mat("Base") Wall
+WorkDoor --> Split(Y) { StepH: Step | 2.4: DoorLeaf | ~1: ShopGlazing }
+RearGroundInset --> Split(X) { WallD: NIL | ~1: RearGroundIn | WallD: NIL }
+RearGroundIn --> Translate(0, 0, -WallD) RearGround
+RearGround --> Repeat(X, 4.0) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 2.4: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.2: Wall | 2.4: Glazing | ~1: Wall }
+
+// -- 3. The factory floors: the frame's columns the full height, and in
+// each bay a floor band, a spandrel and a ribbon of steel windows --
+Uppers --> Comp(Faces) { Front: UpperFrontInset | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperFrontInset --> Split(X) { WallD: NIL | ~1: UpperFrontIn | WallD: NIL }
+UpperFrontIn --> Translate(0, 0, -WallD) UpperFront
+UpperFront --> Split(X) { ColW: Column | ~1: BayRun | ColW: Column }
+BayRun --> Repeat(X, BayW) { FrameBay }
+FrameBay --> when(split.i == split.n - 1): BayStack | else: Split(X) { ~1: BayStack | ColW: Column }
+BayStack --> Repeat(Y, FloorH) { FloorBay }
+FloorBay --> Split(Y) { 0.35: FloorBand | 0.85: Wall | ~1: Ribbon }
+FloorBand --> Extrude(WallD + 0.15) Mat("Frame") I("Frame")
+Ribbon --> Split(X) { ~1: RibbonRun | 0.14: Mullion }
+RibbonRun --> Repeat(X, 1.6) { RibbonBay }
+RibbonBay --> Split(X) { 0.14: Mullion | ~1: Glazing }
+Mullion --> Extrude(WallD - 0.08) Mat("Steel") I("Trim")
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) RearUpper
+RearUpper --> Repeat(Y, FloorH) { RearStorey }
+RearStorey --> Repeat(X, 4.0) { RearUpperBay }
+RearUpperBay --> Split(X) { ~1: Wall | 2.6: RearUpperWindow | ~1: Wall }
+RearUpperWindow --> Split(Y) { 1.0: Wall | 2.3: Glazing | ~1: Wall }
+
+// -- 4. The parapet, its coping, and the deck inside it --
+Parapet --> Comp(Faces) { Front: ParapetFace | Back: ParapetFace | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+ParapetFace --> Split(Y) { ~1: ParapetInset | 0.2: Coping }
+ParapetInset --> Split(X) { WallD: NIL | ~1: ParapetIn | WallD: NIL }
+ParapetIn --> Translate(0, 0, -WallD) Wall
+Coping --> Split(X) { WallD: NIL | ~1: CopingIn | WallD: NIL }
+CopingIn --> Translate(0, 0, -WallD) Extrude(WallD + 0.08) Mat("Frame") I("Trim")
+// The deck fills the ring inside the parapet's walls: its top 0.2 m over
+// the walls, where the roof's housings stand.
+Deck --> Translate(WallD, WallD, -0.2) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("Deck") I("Roof")
+
+// -- 5. The roof: a stair tower, and a brick chimney where the block has
+// one --
+RoofTop --> Split(X) { 1.5: NIL | 5.0: TowerSlot | 3.0: StackSlot | ~1: NIL }
+TowerSlot --> Split(Z) { 1.5: NIL | ~1: Tower | 1.5: NIL }
+Tower --> Translate(0, 0.2 - ParapetH, 0) Size(scope.x, ParapetH - 0.2 + 4.0, scope.z)
+    Split(Y) { ~1: TowerWall | 0.3: TowerCap }
+TowerWall --> I("Wall")
+TowerCap --> Mat("Frame") I("Trim")
+StackSlot --> Pick("chimney") { 60% StackRoom | 40% NIL }
+StackRoom --> Split(X) { ~1: NIL | 2.2: StackCol | ~1: NIL }
+StackCol --> Split(Z) { ~1: NIL | 2.2: StackSquare | ~1: NIL }
+StackSquare --> Translate(0, 0.2 - ParapetH, 0) Size(scope.x, ParapetH - 0.2 + 8.0, scope.z)
+    Split(Y) { 1.2: StackFoot | ~1: Shaft | 0.5: StackCap }
+StackFoot --> Mat("Stack") I("Stack")
+Shaft --> Taper(0.25) Mat("Stack") I("Stack")
+StackCap --> Size(1.8, scope.y, 1.8) Translate(0.2, 0, 0.2) Mat("Frame") I("Stack")

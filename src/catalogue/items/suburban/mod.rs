@@ -24,6 +24,9 @@ pub mod mini_mart;
 pub mod minivan;
 pub mod monument;
 pub mod picket_fence;
+pub mod street_block;
+pub mod street_house;
+pub mod street_low;
 pub mod suburban_house;
 pub mod swing_set;
 // Poor (trailer-lot) variants - the prosperity-Poor end of the theme.

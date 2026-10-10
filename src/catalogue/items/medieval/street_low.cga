@@ -1,0 +1,105 @@
+// The medieval theme's low building (#1598): a row of craftsmen's
+// cottages, or - where it trades - a workshop. See street_low.rs for the
+// building, and catalogue::items::street for the conventions and for what
+// is declared ahead of these rules and after them.
+
+const WallD = 0.3
+const PaneSet = 0.12
+const StepH = 0.5
+const SoleH = 0.45
+const RoofH = 0.5
+const Jetty = 0.35
+// A cottage's width along the street: a row holds as many as fit.
+const CottageW = 5.5
+
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Daub
+Daub --> 30% Mat("DaubCream") Kind | 25% Mat("DaubWhite") Kind
+    | 25% Mat("DaubOchre") Kind | 20% Mat("DaubRose") Kind
+Kind --> when(Trade == 1): Workshop | else: Row
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+// The frame's timber is Picked once, whatever member it is.
+Beam --> Pick("frame") { 50% OakBeam | 30% DarkBeam | 20% RedBeam }
+OakBeam --> Mat("Oak") I("Timber")
+DarkBeam --> Mat("DarkOak") I("Timber")
+RedBeam --> Mat("Oxblood") I("Timber")
+
+// -- 1. The cottage row: framed cottages on a stone sole, a thatched roof --
+Row --> when(Storeys == 1): Split(Y) { GroundH: RowGround | RoofH: Thatched }
+    | else: Split(Y) { GroundH: RowGround | ~1: Loft | RoofH: Thatched }
+RowGround --> Comp(Faces) { Front: RowFrontInset | Back: RearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+RowFrontInset --> Split(X) { WallD: NIL | ~1: RowFrontIn | WallD: NIL }
+RowFrontIn --> Translate(0, 0, -WallD) RowFront
+RowFront --> Repeat(X, CottageW) { Cottage }
+// Each cottage: a window and a door between posts, a rail at the sill and
+// at the head, every household its own door.
+Cottage --> Split(X) { 0.2: Post | ~1: PanelCol | 1.0: WinCol | 0.5: PanelCol | 1.1: DoorCol
+    | ~1: PanelCol | 0.2: Post }
+Post --> Split(Y) { SoleH: Sole | ~1: PostBeam }
+PostBeam --> Extrude(WallD + 0.05) Beam
+Sole --> Mat("Stone") Wall
+PanelCol --> Split(Y) { SoleH: Sole | 0.16: SillBeam | 0.7: Wall | 0.14: Rail | ~1: Wall }
+WinCol --> Split(Y) { SoleH: Sole | 0.16: SillBeam | 0.7: Wall | 0.14: Rail | 1.1: Glazing
+    | 0.14: Rail | ~1: Wall }
+DoorCol --> Split(Y) { StepH: Step | 2.1: DoorLeaf | 0.14: Rail | ~1: Wall }
+SillBeam --> Extrude(WallD + 0.06) Beam
+Rail --> Extrude(WallD + 0.04) Beam
+Step --> Extrude(WallD + 0.3) Mat("Dressing") I("Trim")
+DoorLeaf --> 40% Mat("Door") Leaf | 35% Mat("Shutter") Leaf | 25% Mat("Oxblood") Leaf
+Leaf --> Extrude(WallD - 0.14) I("Door")
+// A steep thatch along the street, its gable ends the party walls.
+Thatched --> Roof(Gable, 45, overhang=0, ridge=X) { Slope: ThatchSlope | GableEnd: Gable }
+ThatchSlope --> Mat("Thatch") I("Roof")
+Gable --> I("Wall")
+
+// -- 2. The workshop: open bays between stone piers under a pentice --
+Workshop --> when(Storeys == 1): Split(Y) { GroundH: ShopGround | RoofH: Tiled }
+    | else: Split(Y) { GroundH: ShopGround | ~1: Loft | RoofH: Tiled }
+ShopGround --> Mat("Stone") Comp(Faces) { Front: ShopFace | Back: RearInset
+    | Left: PartyIn | Right: PartyIn | Top: NIL | Bottom: NIL }
+ShopFace --> Split(Y) { ~1: ShopFrontInset | 0.3: Pentice }
+ShopFrontInset --> Split(X) { WallD: NIL | ~1: ShopFrontIn | WallD: NIL }
+ShopFrontIn --> Translate(0, 0, -WallD) ShopFront
+ShopFront --> Repeat(X, 3.6) { WorkBay }
+WorkBay --> Split(X) { 0.55: Pier | ~1: WorkUnit | 0.55: Pier }
+Pier --> Extrude(WallD + 0.1) Mat("Dressing") I("Trim")
+WorkUnit --> when(scope.x > 2.2): Split(X) { ~1: Stall | 1.0: WorkDoor } | else: Stall
+// A stall: a window over a shutter let down as a counter, a sign over it.
+Stall --> Split(Y) { 0.8: Wall | 0.1: Counter | 1.5: ShopGlazing | 0.4: SignBoard | ~1: Wall }
+Counter --> Extrude(WallD + 0.6) Mat("Shutter") I("Shutter")
+SignBoard --> Extrude(WallD + 0.05) Mat("Sign") I("Sign")
+WorkDoor --> Split(Y) { StepH: Step | 2.1: WorkLeaf | ~1: Wall }
+WorkLeaf --> Mat("Door") Leaf
+// The pentice: shingles over the street on a beam, the whole front.
+Pentice --> Extrude(1.4) Split(Y) { 0.16: Beam | ~1: PentRoof }
+PentRoof --> Roof(Shed, 18, overhang=0) { Slope: RoofSlope | All: Gable }
+// A steep tiled or slated roof along the street.
+Tiled --> Roof(Gable, 45, overhang=0, ridge=X) { Slope: RoofSlope | GableEnd: Gable }
+RoofSlope --> Pick("roof") { 60% TileSlope | 40% SlateSlope }
+TileSlope --> Mat("Tile") I("Roof")
+SlateSlope --> Mat("Slate") I("Roof")
+
+// -- 3. The shared parts: a jettied loft, the yard side --
+Loft --> Comp(Faces) { Front: LoftFace | Back: RearLoftInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+// The loft stands a step out on a bressumer over the whole frontage.
+LoftFace --> Split(Y) { 0.22: Bressumer | ~1: LoftBody }
+Bressumer --> Extrude(Jetty) Beam
+LoftBody --> Translate(0, 0, Jetty - WallD) Split(X) { 0.2: LoftPost | ~1: LoftBays
+    | 0.2: LoftPost }
+LoftPost --> Extrude(WallD + 0.05) Beam
+LoftBays --> Repeat(X, 2.6) { LoftBay }
+LoftBay --> Split(X) { ~1: LoftPanel | 0.9: LoftWin | ~1: LoftPanel | 0.18: LoftPost }
+LoftPanel --> Split(Y) { 0.7: Wall | 0.14: Rail | ~1: Wall }
+LoftWin --> Split(Y) { 0.7: Wall | 0.14: Rail | 1.0: Glazing | 0.14: Rail | ~1: Wall }
+RearLoftInset --> Split(X) { WallD: NIL | ~1: RearLoftIn | WallD: NIL }
+RearLoftIn --> Translate(0, 0, -WallD) RearLoft
+RearLoft --> Repeat(X, 3.0) { RearLoftBay }
+RearLoftBay --> Split(X) { ~1: Wall | 0.8: RearLoftWin | ~1: Wall }
+RearLoftWin --> Split(Y) { 0.8: Wall | 1.0: Glazing | ~1: Wall }
+RearInset --> Split(X) { WallD: NIL | ~1: RearIn | WallD: NIL }
+RearIn --> Translate(0, 0, -WallD) RearGround
+RearGround --> Repeat(X, 3.0) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 0.8: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.3: Wall | 1.0: Glazing | ~1: Wall }

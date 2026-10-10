@@ -138,15 +138,22 @@ fn effective_theme(theme: ThemeArchetype) -> ThemeArchetype {
 /// while a theme without one still yields a coherent member rather than an
 /// empty pool. Props don't use this - their cross-theme tier props ride the
 /// always-present civic kit, so [`entries_for_room`] suffices there.
+///
+/// A theme's street buildings are never members (#1598): they are Berlin's
+/// street types, built to stand flush in a row along a street, and a
+/// settlement stands its members apart on open ground.
 fn tiered_pool(
     theme: ThemeArchetype,
     role: StructureRole,
     prosperity: ProsperityTier,
     escalation: EscalationTier,
 ) -> Vec<&'static dyn crate::catalogue::CatalogueEntry> {
-    let tiered: Vec<_> = entries_for_room(theme, role, prosperity, escalation).collect();
+    let unstreeted = |e: &&'static dyn crate::catalogue::CatalogueEntry| e.street().is_none();
+    let tiered: Vec<_> = entries_for_room(theme, role, prosperity, escalation)
+        .filter(unstreeted)
+        .collect();
     if tiered.is_empty() {
-        entries_for(theme, role).collect()
+        entries_for(theme, role).filter(unstreeted).collect()
     } else {
         tiered
     }

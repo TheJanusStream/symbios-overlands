@@ -1,0 +1,149 @@
+// The frontier theme's low building (#1598): a general store behind a
+// false front, or - where nothing trades - a row of clapboard cabins. See
+// street_low.rs for the building, and catalogue::items::street for the
+// conventions and for what is declared ahead of these rules and after them.
+
+const WallD = 0.28
+const PaneSet = 0.12
+const StepH = 0.55
+const PlinthH = 0.6
+const CanopyH = 0.2
+// The store's boardwalk and veranda reach this far out of the lot's front;
+// a post stands just inside their edge.
+const WalkOut = 1.75
+const PostOut = 1.55
+const PostD = 0.16
+// The false front's boards; its height, 1.4 + Frontage * 0.1, always hides
+// the roof's gable behind it.
+const FrontD = 0.28
+// A cabin's width along the street: a lot holds as many as fit.
+const CabinW = 5.9
+const PorchOut = 1.3
+const RoofH = 1.0
+
+Lot --> when(Trade == 1): Store | else: Cabins
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+Post --> Mat("Post") I("Post")
+DoorLeaf --> Extrude(WallD - 0.1) Mat("Door") I("Door")
+
+// -- 1. The store: its paint rolled once, then its floors and false front --
+Store --> Extrude(GroundH + FloorH * (Storeys - 1) + 1.4 + Frontage * 0.1) StorePaint
+StorePaint --> 26% Mat("ClapRed") StoreMass | 24% Mat("ClapWhite") StoreMass
+    | 18% Mat("ClapTan") StoreMass | 16% Mat("ClapOchre") StoreMass
+    | 16% Mat("Weathered") StoreMass
+StoreMass --> when(Storeys == 1):
+    Split(Y) { GroundH: Ground | 1.4 + Frontage * 0.1: Crown }
+    | else: Split(Y) { GroundH: Ground | ~1: Loft | 1.4 + Frontage * 0.1: Crown }
+Ground --> Comp(Faces) { Front: GroundFace | Back: RearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFace --> Split(Y) { StepH: Boardwalk | ~1: GroundMid | CanopyH: Canopy }
+// Plank decking a step high, the whole frontage, and a tin veranda over it.
+Boardwalk --> Extrude(WalkOut) Mat("Boardwalk") I("Boardwalk")
+Canopy --> Extrude(WalkOut) Mat("Tin") I("Canopy")
+GroundMid --> Split(X) { WallD: EndPost | ~1: GroundFrontIn | WallD: EndPost }
+EndPost --> Extrude(PostOut) Split(Z) { ~1: NIL | PostD: Post }
+// A pier between two windows stands its post out at the veranda's edge.
+Pier --> Extrude(WallD + PostOut) Split(Z) { WallD: PierWall | ~1: NIL | PostD: Post }
+PierWall --> I("Wall")
+GroundFrontIn --> Translate(0, 0, -WallD) StoreFront
+StoreFront --> Split(X) { ~1: DisplayRun | 2.4: DoubleDoor | ~1: DisplayRun }
+// A Repeat floors its count: a run narrower than one bay is one bay.
+DisplayRun --> when(scope.x < 3.4): DisplayBay | else: Repeat(X, 3.4) { DisplayBay }
+DisplayBay --> Split(X) { 0.36: Pier | ~1: Display | 0.36: Wall }
+Display --> Split(Y) { PlinthH: Wall | ~1: ShopGlazing | 0.4: Wall }
+// The store's double door, a transom light over it.
+DoubleDoor --> Split(X) { 0.25: Wall | ~1: DoorLeaves | 0.25: Wall }
+DoorLeaves --> Split(Y) { 2.5: Leaves | ~1: Transom }
+Leaves --> Split(X) { ~1: DoorLeaf | 0.06: Wall | ~1: DoorLeaf }
+Transom --> Split(Y) { ~1: Glazing | 0.25: Wall }
+// The yard side: a stockroom's windows over high sills.
+RearInset --> Split(X) { WallD: NIL | ~1: RearIn | WallD: NIL }
+RearIn --> Translate(0, 0, -WallD) Rear
+Rear --> Repeat(X, 3.2) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.0: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.5: Wall | 1.2: Glazing | ~1: Wall }
+// The storekeeper's loft: sashes under board heads.
+Loft --> Comp(Faces) { Front: LoftInset | Back: RearLoftInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+LoftInset --> Split(X) { WallD: NIL | ~1: LoftIn | WallD: NIL }
+LoftIn --> Translate(0, 0, -WallD) LoftFront
+LoftFront --> Split(X) { 0.5: Wall | ~1: LoftBays | 0.5: Wall }
+LoftBays --> Repeat(X, 2.4) { LoftBay }
+LoftBay --> Split(X) { ~1: Wall | 1.0: LoftCol | ~1: Wall }
+LoftCol --> Split(Y) { 0.6: Wall | 0.1: Sill | 1.7: Glazing | 0.26: Head | ~1: Wall }
+Sill --> Extrude(WallD + 0.06) Mat("Trim") I("Trim")
+Head --> Extrude(WallD + 0.1) Mat("Trim") I("Trim")
+RearLoftInset --> Split(X) { WallD: NIL | ~1: RearLoftIn | WallD: NIL }
+RearLoftIn --> Translate(0, 0, -WallD) RearLoft
+RearLoft --> Repeat(X, 3.2) { RearLoftBay }
+RearLoftBay --> Split(X) { ~1: Wall | 1.0: RearLoftWindow | ~1: Wall }
+RearLoftWindow --> Split(Y) { 0.8: Wall | 1.4: Glazing | ~1: Wall }
+// The false front: flat, stepped or pedimented, the store's sign across it;
+// the roof's gable end stands a hand's breadth behind it.
+Crown --> Split(Z) { FrontD: FrontSlab | 0.06: NIL | ~1: RoofBox }
+FrontSlab --> Comp(Faces) { Front: FalseFace | Back: NIL | Left: NIL | Right: NIL
+    | Top: NIL | Bottom: NIL }
+FalseFace --> Translate(0, 0, -FrontD) FalseFront
+FalseFront --> Pick("front") { 40% FrontFlat | 35% FrontStepped | 25% FrontPediment }
+FrontFlat --> Split(Y) { ~1: FrontBody | 0.28: FrontCap }
+FrontStepped --> Split(X) { ~1: Shoulder | ~2.4: FrontFlat | ~1: Shoulder }
+Shoulder --> Split(Y) { ~2: Board | 0.28: FrontCap | ~1: NIL }
+FrontPediment --> Split(Y) { ~1: FrontBody | 0.28: FrontCap | 0.01: Pediment }
+Pediment --> Split(X) { ~1: NIL | ~1.6: PedMid | ~1: NIL }
+PedMid --> Extrude(FrontD + 0.12) Roof(Gable, 22, overhang=0, ridge=Z)
+    { Slope: PedSlope | GableEnd: PedFace }
+PedSlope --> Mat("Trim") I("Cornice")
+PedFace --> I("Wall")
+FrontBody --> Split(Y) { 0.4: Board | ~1: SignRow | 0.3: Board }
+SignRow --> Split(X) { ~1: Board | ~7: Sign | ~1: Board }
+Board --> Extrude(FrontD) I("Wall")
+FrontCap --> Extrude(FrontD + 0.22) Mat("Trim") I("Cornice")
+// The sign: a painted board, its lettering standing out of it.
+Sign --> Pick("sign") { 55% SignDark | 45% SignRed }
+SignDark --> Mat("Sign") SignBoard
+SignRed --> Mat("SignRed") SignBoard
+SignBoard --> Split(Y) { ~1: SignFill | ~2: Letters | ~1: SignFill }
+Letters --> Repeat(X, 0.55) { Glyph }
+// A letter or a space, glyph by glyph.
+Glyph --> 78% LetterGlyph | 22% SignFill
+LetterGlyph --> Split(X) { ~1: SignFill | 0.32: Letter | ~1: SignFill }
+SignFill --> Extrude(FrontD + 0.08) I("Fascia")
+Letter --> Extrude(FrontD + 0.12) Mat("Lettering") I("Fascia")
+RoofBox --> Roof(Gable, 14, overhang=0, ridge=Z) { Slope: TinRoof | GableEnd: Gable }
+TinRoof --> Mat("Tin") I("Roof")
+Gable --> I("Wall")
+
+// -- 2. The cabins: a window and a porched door each, under one tin roof --
+Cabins --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) CabinPaint
+CabinPaint --> 34% Mat("Weathered") CabinMass | 24% Mat("ClapWhite") CabinMass
+    | 22% Mat("ClapTan") CabinMass | 20% Mat("ClapRed") CabinMass
+CabinMass --> when(Storeys == 1): Split(Y) { GroundH: CabGround | RoofH: CabRoof }
+    | else: Split(Y) { GroundH: CabGround | ~1: CabUpper | RoofH: CabRoof }
+CabGround --> Comp(Faces) { Front: CabFrontInset | Back: RearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+CabFrontInset --> Split(X) { WallD: NIL | ~1: CabFrontIn | WallD: NIL }
+CabFrontIn --> Translate(0, 0, -WallD) CabFront
+CabFront --> Repeat(X, CabinW) { Cabin }
+Cabin --> Split(X) { ~1: Wall | 1.2: CabWindow | ~1: Wall | 2.0: Porch | ~1: Wall }
+CabWindow --> Split(Y) { 0.9: Wall | 0.1: Sill | 1.5: Glazing | 0.24: Head | ~1: Wall }
+// The porch: a plank floor a step high, a tin roof on two posts, and the
+// door between them - every household its own colour.
+Porch --> Split(Y) { StepH: PorchFloor | 2.6: PorchMid | CanopyH: PorchRoof | ~1: Wall }
+PorchFloor --> Extrude(WallD + PorchOut) Mat("Boardwalk") I("Boardwalk")
+PorchRoof --> Extrude(WallD + PorchOut) Mat("Tin") I("Canopy")
+PorchMid --> Split(X) { 0.2: PorchPost | ~1: PorchDoor | 0.2: PorchPost }
+PorchPost --> Extrude(WallD + PorchOut - 0.1) Split(Z) { WallD: PierWall | ~1: NIL
+    | PostD: Post }
+PorchDoor --> Split(X) { ~1: Wall | 1.0: CabDoor | ~1: Wall }
+CabDoor --> Split(Y) { 2.15: CabLeaf | ~1: Wall }
+CabLeaf --> 40% Mat("Door") Leaf | 30% Mat("DoorGreen") Leaf | 30% Mat("DoorBlue") Leaf
+Leaf --> Extrude(WallD - 0.1) I("Door")
+CabUpper --> Comp(Faces) { Front: CabUpInset | Back: RearLoftInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+CabUpInset --> Split(X) { WallD: NIL | ~1: CabUpIn | WallD: NIL }
+CabUpIn --> Translate(0, 0, -WallD) CabUpFront
+CabUpFront --> Repeat(X, CabinW) { CabUpCabin }
+CabUpCabin --> Split(X) { ~1: Wall | 1.0: LoftCol | ~1: Wall | 1.0: LoftCol | ~1: Wall }
+// A tin gable along the street, its ends the party walls.
+CabRoof --> Roof(Gable, 30, overhang=0, ridge=X) { Slope: TinRoof | GableEnd: Gable }

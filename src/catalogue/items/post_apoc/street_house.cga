@@ -1,0 +1,148 @@
+// The wasteland theme's street house (#1598): a patched tenement. See
+// street_house.rs for the house, and catalogue::items::street for the
+// conventions and for what is declared ahead of these rules (Storeys,
+// Trade, Frontage, Depth, GroundH, FloorH) and after them (Glazing,
+// ShopGlazing, Wall).
+
+const WallD = 0.42
+const PaneSet = 0.16
+const PlinthH = 0.65
+const CourseH = 0.3
+const StepH = 0.55
+const CrownH = 1.0
+const RoofH = 4.0
+
+// -- 1. The house: its render rolled once, then storeys, crown, roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + CrownH + RoofH) Render
+Render --> 30% Mat("Soot") Massing | 25% Mat("Ochre") Massing
+    | 25% Mat("Concrete") Massing | 20% Mat("BrickRed") Massing
+Massing --> Split(Y) { GroundH: Ground | ~1: Uppers | CrownH: Crown | RoofH: RoofTop }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+
+// -- Every window is a window still: glazed, boarded or half sheeted --
+Win --> 45% Glazing | 30% Boarded | 25% Sheeted
+Boarded --> Split(Y) { ~1: Glazing | 0.22: Board | ~1: Glazing | 0.22: Board | ~1: Glazing }
+Board --> Extrude(WallD + 0.05) Mat("Plank") I("Board")
+Sheeted --> Split(Y) { ~1.3: SheetOver | ~1: Glazing }
+SheetOver --> 45% Mat("RustSheet") Patch | 30% Mat("Sheet") Patch | 25% Mat("Tarp") Patch
+// A scrap patch: sheet nailed over a hole, proud of the wall it replaced.
+Patch --> Extrude(WallD + 0.05) I("Patch")
+Step --> Extrude(WallD + 0.3) Mat("Trim") I("Trim")
+DoorLeaf --> Extrude(WallD - 0.2) Mat("Door") I("Door")
+
+// -- 2. The ground storey: a barricaded store or a sheeted home --
+Ground --> Comp(Faces) { Front: GroundFace | Back: RearGroundInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFace --> Split(Y) { ~1: GroundFrontInset | CourseH: Course }
+// The string course survives in pieces: where a piece is gone, the wall.
+// Over the party walls it holds; between them, piece by piece.
+Course --> Split(X) { WallD: CourseEnd | ~1: CourseRun | WallD: CourseEnd }
+CourseEnd --> Extrude(0.12) Mat("Trim") I("Trim")
+CourseRun --> Repeat(X, 1.8) { CourseSeg }
+CourseSeg --> 70% Extrude(0.12) Mat("Trim") I("Trim") | 30% Broken
+Broken --> Translate(0, 0, -WallD) Extrude(WallD) I("Wall")
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> when(Trade == 1): ShopFront | else: HomeFront
+ShopFront --> Split(X) { ~1: ShopRun | 2.1: Entrance | ~1: ShopRun }
+ShopRun --> Repeat(X, 3.6) { ShopBay }
+ShopBay --> Split(X) { 0.4: Wall | ~1: ShopUnit | 0.4: Wall }
+ShopUnit --> when(scope.x > 2.4): Split(X) { ~1: ShopWindow | 1.1: ShopDoor }
+    | else: ShopWindow
+// A shop window: shutters half down, or boarded, under a sign plank.
+ShopWindow --> 55% Split(Y) { PlinthH: Wall | ~1: ShopGlazing | 1.1: Shutter | 0.7: SignPlank }
+    | 45% Split(Y) { PlinthH: Wall | ~1: ShopGlazing | 0.25: Board | ~1: ShopGlazing
+    | 0.25: Board | 0.7: SignPlank }
+Shutter --> Extrude(WallD + 0.06) Mat("RustSheet") I("Shutter")
+ShopDoor --> Split(Y) { StepH: Step | 2.3: DoorLeaf | ~1: ShopGlazing | 0.7: SignPlank }
+SignPlank --> 55% Mat("Sign") Fascia | 45% Mat("Plank") Fascia
+Fascia --> Extrude(WallD + 0.1) I("Fascia")
+HomeFront --> Split(X) { ~1: HomeRun | 2.1: Entrance | ~1: HomeRun }
+HomeRun --> Repeat(X, 2.6) { HomeBay }
+HomeBay --> Split(X) { ~1: Wall | 1.25: HomeWindow | ~1: Wall }
+HomeWindow --> Split(Y) { 1.45: Wall | 2.0: HomeWin | ~1: Wall }
+HomeWin --> 50% Boarded | 50% Sheeted
+// The house door: a plank leaf up a step, a sheeted fanlight.
+Entrance --> Split(X) { 0.3: Wall | ~1: EntranceDoor | 0.3: Wall }
+EntranceDoor --> Split(Y) { StepH: Step | 2.75: DoorLeaf | ~1: Fanlight }
+Fanlight --> Split(Y) { ~1: Win | 0.3: Wall }
+// The yard side: windows over high sills.
+RearGroundInset --> Split(X) { WallD: NIL | ~1: RearGroundIn | WallD: NIL }
+RearGroundIn --> Translate(0, 0, -WallD) RearGround
+RearGround --> Repeat(X, 2.8) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.1: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.45: Wall | 2.0: Win | ~1: Wall }
+
+// -- 3. The upper storeys: bays of windows, scrap patches between --
+Uppers --> Comp(Faces) { Front: UpperFrontInset | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperFrontInset --> Split(X) { WallD: NIL | ~1: UpperFrontIn | WallD: NIL }
+UpperFrontIn --> Translate(0, 0, -WallD) UpperFront
+UpperFront --> Repeat(Y, FloorH) { Storey }
+Storey --> Split(X) { 0.9: Wall | ~1: Bays | 0.9: Wall }
+Bays --> Repeat(X, 2.4) { Bay }
+// The end bays carry what is left of the balconies, where the house has
+// them. A guard holds no nested parentheses: one guard per end bay.
+Bay --> when(split.n >= 3 && split.i == 0): SideBay
+    | when(split.n >= 3 && split.i == split.n - 1): SideBay | else: MidBay
+SideBay --> Pick("balconies") { 50% BalconyBay | 50% MidBay }
+MidBay --> 80% WinBay | 20% PatchBay
+WinBay --> Split(X) { ~1: Wall | 1.3: WinCol | ~1: Wall }
+PatchBay --> Split(X) { ~1: SheetOver | 1.3: WinCol | ~1: Wall }
+WinCol --> Split(Y) { 0.72: Wall | 0.12: Sill | 2.25: Win | ~1: Lintel }
+// Smoke from an old fire has blackened the wall over some windows.
+Lintel --> 25% Mat("Soot") Wall | 75% Wall
+Sill --> Extrude(WallD + 0.07) Mat("Trim") I("Trim")
+// A balcony: a slab, a rusted rail at its edge over a low wall.
+BalconyBay --> Split(X) { 0.35: Wall | ~1: BalconyCol | 0.35: Wall }
+BalconyCol --> Split(Y) { 0.22: BalconySlab | 0.9: BalconyRail | 1.95: Win | ~1: Wall }
+BalconySlab --> Extrude(WallD + 1.0) Mat("Trim") I("Balcony")
+BalconyRail --> Extrude(WallD + 1.0) Split(Z) { WallD: LowWall | ~1: NIL | 0.06: RustRail }
+LowWall --> I("Wall")
+RustRail --> Mat("Rust") I("Balcony")
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) RearUpper
+RearUpper --> Repeat(Y, FloorH) { RearStorey }
+RearStorey --> Repeat(X, 2.8) { RearUpperBay }
+RearUpperBay --> Split(X) { ~1: Wall | 1.1: RearUpperWindow | ~1: Wall }
+RearUpperWindow --> Split(Y) { 0.9: Wall | 2.0: Win | ~1: Wall }
+
+// -- 4. The crown: a cornice in pieces, an attic over it, the deck --
+Crown --> Comp(Faces) { Front: CrownFace | Back: RearCrownInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+CrownFace --> Split(Y) { 0.32: CorniceBed | ~1: Attic }
+CorniceBed --> Split(X) { WallD: CorniceEnd | ~1: CorniceRun | WallD: CorniceEnd }
+CorniceEnd --> Extrude(0.32) Mat("Trim") I("Cornice")
+CorniceRun --> Repeat(X, 1.6) { CorniceSeg }
+CorniceSeg --> 65% Extrude(0.32) Mat("Trim") I("Cornice") | 35% Broken
+// The attic wall is broken to a jagged line.
+Attic --> Split(X) { WallD: NIL | ~1: AtticRun | WallD: NIL }
+AtticRun --> Repeat(X, 1.3) { AtticSeg }
+AtticSeg --> 50% AtticWall | 30% Split(Y) { ~1: AtticWall | 0.25: NIL }
+    | 20% Split(Y) { ~1: AtticWall | 0.45: NIL }
+AtticWall --> Translate(0, 0, -WallD) Wall
+RearCrownInset --> Split(X) { WallD: NIL | ~1: RearCrownIn | WallD: NIL }
+RearCrownIn --> Translate(0, 0, -WallD) Wall
+
+// -- 5. On the deck: a salvage shack, a drum, a fire --
+// The deck fills the ring inside the crown's walls: the bottom face's
+// inward is up.
+Deck --> Translate(WallD, WallD, -0.2) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("Deck") I("Roof")
+RoofTop --> Translate(0, 0.2 - CrownH, 0) Size(scope.x, scope.y + CrownH - 0.2, scope.z)
+    RoofThings
+RoofThings --> Split(Z) { 1.2: NIL | 0.8: FireRow | ~1: NIL | 3.0: ShackRow | 0.6: NIL }
+FireRow --> Split(X) { ~1: NIL | 0.8: FireBarrel | 2.2: NIL }
+FireBarrel --> Split(Y) { 0.9: Drum | 0.35: Flame | ~1: NIL }
+Drum --> Mat("Rust") I("Tank")
+Flame --> Translate(0.15, 0, 0.15) Size(0.5, scope.y, 0.5) Mat("Fire") I("Fire")
+ShackRow --> Pick("rooftop") { 60% Shanty | 40% TankOnly }
+Shanty --> Split(X) { 1.0: NIL | 1.6: TankSlot | ~1: NIL | 3.6: ShackSlot | 0.8: NIL }
+TankOnly --> Split(X) { 1.0: NIL | 1.6: TankSlot | ~1: NIL }
+TankSlot --> Split(Z) { ~1: NIL | 1.6: TankZ | ~1: NIL }
+TankZ --> Split(Y) { 1.8: Tank | ~1: NIL }
+Tank --> Mat("Rust") I("Tank")
+ShackSlot --> Split(Y) { 2.2: Shack | 0.12: ShackRoof | ~1: NIL }
+Shack --> Mat("RustSheet") I("Shack")
+ShackRoof --> Mat("Sheet") I("Roof")

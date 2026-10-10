@@ -1,0 +1,93 @@
+// The pirate theme's low building (#1598): a harbour tavern, or - where
+// nothing trades - a row of fishermen's cottages. See street_low.rs for the
+// building, and catalogue::items::street for the conventions and for what
+// is declared ahead of these rules and after them.
+
+const WallD = 0.4
+const PaneSet = 0.14
+const PlinthH = 0.8
+const StepH = 0.5
+const RoofH = 1.0
+// A cottage's width along the street: a lot holds as many as fit.
+const CotW = 5.2
+
+Lot --> when(Trade == 1): Tavern | else: Cottages
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+Step --> Extrude(WallD + 0.3) Mat("Stone") I("Trim")
+Trim --> Mat("Trim") I("Trim")
+Lintel --> Extrude(WallD + 0.08) Trim
+Sill --> Extrude(WallD + 0.06) Trim
+ShingleRoof --> Roof(Gable, 38, overhang=0, ridge=X) { Slope: Shingles | GableEnd: Gable }
+Shingles --> Mat("Shingle") I("Roof")
+Gable --> I("Wall")
+
+// -- 1. The tavern: tarred strakes on a stone plinth, small-paned windows,
+// a broad door, and its sign hung out on an iron bracket --
+Tavern --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Mat("Strake") TavMass
+TavMass --> when(Storeys == 1): Split(Y) { GroundH: TavGround | RoofH: ShingleRoof }
+    | else: Split(Y) { GroundH: TavGround | ~1: TavLoft | RoofH: ShingleRoof }
+TavGround --> Comp(Faces) { Front: TavFrontInset | Back: RearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+TavFrontInset --> Split(X) { WallD: NIL | ~1: TavFrontIn | WallD: NIL }
+TavFrontIn --> Translate(0, 0, -WallD) TavFront
+TavFront --> Split(X) { ~1: TavRun | 0.12: SignCol | 2.0: TavDoor | ~1: TavRun }
+// A Repeat floors its count: a run narrower than one bay is one bay.
+TavRun --> when(scope.x < 2.8): TavBay | else: Repeat(X, 2.8) { TavBay }
+TavBay --> Split(Y) { PlinthH: Plinth | ~1: TavBayUp }
+Plinth --> Mat("Stone") Wall
+TavBayUp --> Split(X) { ~1: Wall | 1.7: TavWindow | ~1: Wall }
+TavWindow --> Split(Y) { 0.1: Sill | 1.5: Glazing | 0.24: Lintel | ~1: Wall }
+TavDoor --> Split(X) { 0.2: Wall | ~1: TavDoorCol | 0.2: Wall }
+TavDoorCol --> Split(Y) { StepH: Step | 2.3: DoorLeaf | 0.24: Lintel | ~1: Wall }
+DoorLeaf --> Extrude(WallD - 0.14) Mat("Door") I("Door")
+// The sign: a board hung square to the street under an iron bracket.
+SignCol --> Split(Y) { 2.0: Wall | 0.75: SignBand | 0.1: BracketBand | ~1: Wall }
+SignBand --> Extrude(WallD + 1.35) Split(Z) { WallD: Wall0 | 0.3: NIL | ~1: SignBoard }
+Wall0 --> I("Wall")
+SignBoard --> Mat("Sign") I("Fascia")
+BracketBand --> Extrude(WallD + 1.45) Split(Z) { WallD: Wall0 | ~1: Bracket }
+Bracket --> Mat("Iron") I("Bracket")
+// The yard side: a scullery's windows.
+RearInset --> Split(X) { WallD: NIL | ~1: RearIn | WallD: NIL }
+RearIn --> Translate(0, 0, -WallD) Rear
+Rear --> Repeat(X, 3.2) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.0: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.3: Wall | 1.1: Glazing | ~1: Wall }
+// The loft over the taproom: small windows between plain shutters.
+TavLoft --> Comp(Faces) { Front: LoftInset | Back: RearLoftInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+LoftInset --> Split(X) { WallD: NIL | ~1: LoftIn | WallD: NIL }
+LoftIn --> Translate(0, 0, -WallD) Loft
+Loft --> when(scope.x < 2.8): LoftBay | else: Repeat(X, 2.8) { LoftBay }
+LoftBay --> Split(X) { ~1: Wall | 0.36: ShutterCol | 0.9: LoftWin | 0.36: ShutterCol | ~1: Wall }
+LoftWin --> Split(Y) { 0.65: Wall | 0.1: Sill | 1.2: Glazing | ~1: Wall }
+ShutterCol --> Split(Y) { 0.75: Wall | 1.2: Shutter | ~1: Wall }
+Shutter --> Extrude(WallD + 0.05) Mat("Shutter") I("Shutter")
+RearLoftInset --> Split(X) { WallD: NIL | ~1: RearLoftIn | WallD: NIL }
+RearLoftIn --> Translate(0, 0, -WallD) RearLoft
+RearLoft --> Repeat(X, 3.2) { RearLoftBay }
+RearLoftBay --> Split(X) { ~1: Wall | 0.9: RearLoftWin | ~1: Wall }
+RearLoftWin --> Split(Y) { 0.75: Wall | 1.1: Glazing | ~1: Wall }
+
+// -- 2. The cottages: each its own limewash and its own door, a shuttered
+// window beside it, all under one shingle roof --
+Cottages --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Mat("Lime") CotMass
+CotMass --> Split(Y) { ~1: CotBody | RoofH: ShingleRoof }
+CotBody --> Comp(Faces) { Front: CotFrontInset | Back: RearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+CotFrontInset --> Split(X) { WallD: NIL | ~1: CotFrontIn | WallD: NIL }
+CotFrontIn --> Translate(0, 0, -WallD) CotFront
+CotFront --> when(scope.x < CotW): Cottage | else: Repeat(X, CotW) { Cottage }
+Cottage --> 22% Mat("Ochre") CotCol | 20% Mat("Coral") CotCol | 20% Mat("SeaGreen") CotCol
+    | 18% Mat("Sky") CotCol | 20% Mat("Lime") CotCol
+CotCol --> when(Storeys == 1): CotGround
+    | else: Split(Y) { GroundH: CotGround | ~1: CotUp }
+CotGround --> Split(X) { ~1: Wall | 0.36: ShutterCol | 1.1: CotWindow | 0.36: ShutterCol
+    | 0.5: Wall | 1.0: CotDoor | ~1: Wall }
+CotWindow --> Split(Y) { 0.65: Wall | 0.1: Sill | 1.2: Glazing | 0.2: Lintel | ~1: Wall }
+CotDoor --> Split(Y) { StepH: Step | 2.15: CotLeaf | 0.2: Lintel | ~1: Wall }
+// Every household its own door colour.
+CotLeaf --> 35% Mat("Door") Leaf | 35% Mat("DoorBlue") Leaf | 30% Mat("DoorRed") Leaf
+Leaf --> Extrude(WallD - 0.14) I("Door")
+CotUp --> Split(X) { ~1: Wall | 0.36: ShutterCol | 0.9: LoftWin | 0.36: ShutterCol | ~1: Wall }

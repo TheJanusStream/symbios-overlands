@@ -239,6 +239,9 @@ pub fn is_road_grown(placement: &crate::pds::Placement) -> bool {
     lots::is_road_grown(placement)
 }
 
+/// A street building's check holds every door and window above it (#1598).
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use lots::FOUNDATION_SINK_M;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use lots::grow_missing_districts;
 pub(crate) use lots::{

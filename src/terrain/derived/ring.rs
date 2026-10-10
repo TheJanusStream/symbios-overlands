@@ -8,7 +8,11 @@
 //! - The tallest of Berlin's buildings - [`LANDMARK_STANDING_M`] or more,
 //!   no two within [`LANDMARK_SPACING_M`], at most [`MAX_RING_LANDMARKS`] -
 //!   take the theme's landmarks: a church tower, a dome, a high-rise.
-//! - Every other lot takes a secondary building, a bigger one where
+//! - Every other lot takes one of the theme's street buildings (#1598,
+//!   [`super::streets`]) where it has them, shaped to the lot
+//!   ([`ring_street`]): its kind and storeys by Berlin's height there, its
+//!   frontage and depth the biggest that keeps to the lot.
+//! - A theme without them takes a secondary building, a bigger one where
 //!   Berlin's stands taller: the pool is ranked by size, and a lot aims at
 //!   the place in it that its height has among the ring's lots, give or
 //!   take one for variety.
@@ -25,14 +29,19 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 use rand_chacha::ChaCha8Rng;
-use rand_chacha::rand_core::SeedableRng;
+use rand_chacha::rand_core::{RngCore, SeedableRng};
 
-use crate::catalogue::StructureRole;
+use crate::catalogue::items::street::{StreetFit, StreetKind};
+use crate::catalogue::{CatalogueEntry, StructureRole};
 use crate::terrain::geo::ring::RingLot;
-use crate::terrain::lots::{FOUNDATION_SINK_M, scale_e4};
+use crate::terrain::lots::{FOUNDATION_SINK_M, fitted_scale, scale_e4};
 
-use super::fit::{RoomScene, cache_key, footing, pick_landmark, pick_ranked, radius, sized_pool};
+use super::fit::{
+    RoomScene, SCALE_MIN, cache_key, footing, pick_landmark, pick_ranked, radius, sized_pool,
+    street_cache_key,
+};
 use super::plan::{Grow, Plan, PlannedBuilding, PlannedCopy, Policy, Solid};
+use super::streets::{self, STREET_VARIANTS, StreetKey, Streets, kind_of, smaller};
 use super::{SourceId, SourceLayer};
 
 /// How high over the ground Berlin's building on a lot must rise for the
@@ -60,6 +69,25 @@ pub(crate) const MAX_FAR_COPIES: usize = 4_000;
 /// The salt of the ring's own random stream.
 const RING_STREAM_SALT: u64 = 0x5249_4E47_B011_D1E5;
 
+/// What Berlin's height on a lot says of its storeys: that height is the
+/// ninetieth percentile of the surface model over the lot's building, near
+/// its ridge ([`RingLot::standing`]), so a crown of [`RING_CROWN_M`] comes
+/// off it and each storey takes [`RING_STOREY_M`] of the rest. A pitched
+/// Altbau's 24 m reads six storeys, a flat slab's 31 m eight, a cottage's
+/// 9 m two.
+const RING_CROWN_M: f32 = 2.5;
+
+/// See [`RING_CROWN_M`] (m).
+const RING_STOREY_M: f32 = 3.4;
+
+/// One lot in this many takes a street building whose ground floor trades:
+/// the ring's lots know no use.
+const RING_TRADE_ONE_IN: u32 = 3;
+
+/// The most street templates the ring grows (#1598,
+/// [`streets::template`]).
+pub(crate) const MAX_RING_STREET_TEMPLATES: usize = 64;
+
 /// The ring's plan: its drawing policy.
 const RING_POLICY: Policy = Policy {
     near_entities: RING_ENTITY_BUDGET,
@@ -80,7 +108,10 @@ pub(crate) fn draw_ring(
 ) -> Plan {
     let (theme, character) = room.theme();
     let landmarks = sized_pool(theme, StructureRole::Landmark, character);
-    let secondaries = sized_pool(theme, StructureRole::Secondary, character);
+    let mut secondaries = sized_pool(theme, StructureRole::Secondary, character);
+    let streets = Streets::of(&secondaries);
+    // A theme without its street buildings draws the rest.
+    secondaries.retain(|entry| entry.street().is_none());
 
     let landmark_lots = landmark_lots(lots);
     // Each other lot's place by height among the other lots, in (0, 1).
@@ -108,33 +139,67 @@ pub(crate) fn draw_ring(
         seed,
     };
     let mut by_key: HashMap<(&'static str, i64), usize> = HashMap::new();
+    let mut by_street: HashMap<StreetKey, usize> = HashMap::new();
+    let mut street_keys: Vec<StreetKey> = Vec::new();
     for (i, lot) in lots.iter().enumerate() {
         let landmark = if landmark_lots[i] {
             pick_landmark(&landmarks, lot.room, &mut rng)
         } else {
             None
         };
-        let Some((entry, scale)) =
-            landmark.or_else(|| pick_ranked(&secondaries, lot.room, rank[i], &mut rng))
-        else {
+        let pick = match (landmark, &streets) {
+            (Some((entry, scale)), _) => Some((entry, scale, None)),
+            (None, Some(streets)) => ring_street(streets, lot, &mut rng)
+                .map(|(entry, fit, scale, variant)| (entry, scale, Some((fit, variant)))),
+            (None, None) => pick_ranked(&secondaries, lot.room, rank[i], &mut rng)
+                .map(|(entry, scale)| (entry, scale, None)),
+        };
+        let Some((entry, scale, street)) = pick else {
             continue;
+        };
+        let reach = match street {
+            Some((fit, _)) => fit.reach_m() * scale,
+            None => radius(entry) * scale,
         };
         // Picked whether it stands or not, so a lot given up for the
         // record leaves the picks of the lots after it as they were.
-        if !kept.clear(lot.x, lot.z, radius(entry) * scale) {
+        if !kept.clear(lot.x, lot.z, reach) {
             continue;
         }
-        let key = (entry.slug(), scale_e4(scale));
-        let building = *by_key.entry(key).or_insert_with(|| {
-            plan.buildings.push(PlannedBuilding::new(
-                entry,
-                scale,
-                Grow::Built,
-                cache_key("ring", key.0, key.1),
-            ));
-            plan.buildings.len() - 1
-        });
-        let y = footing(lot.x, lot.z, radius(entry) * scale, ground) - FOUNDATION_SINK_M;
+        let building = match street {
+            None => {
+                let key = (entry.slug(), scale_e4(scale));
+                *by_key.entry(key).or_insert_with(|| {
+                    plan.buildings.push(PlannedBuilding::new(
+                        entry,
+                        scale,
+                        Grow::Built,
+                        cache_key("ring", key.0, key.1),
+                    ));
+                    plan.buildings.len() - 1
+                })
+            }
+            Some((fit, variant)) => {
+                let want = (entry.slug(), fit, variant, scale_e4(scale));
+                let Some(key) = streets::template(&street_keys, MAX_RING_STREET_TEMPLATES, want)
+                else {
+                    continue;
+                };
+                *by_street.entry(key).or_insert_with(|| {
+                    street_keys.push(key);
+                    let (_, fit, variant, _) = key;
+                    plan.buildings.push(PlannedBuilding::new(
+                        entry,
+                        scale,
+                        Grow::Street { fit, variant },
+                        street_cache_key("ring", key),
+                    ));
+                    plan.buildings.len() - 1
+                })
+            }
+        };
+        let reach = plan.buildings[building].reach();
+        let y = footing(lot.x, lot.z, reach, ground) - FOUNDATION_SINK_M;
         plan.copies.push(PlannedCopy {
             building,
             pose: Transform::from_xyz(lot.x, y, lot.z)
@@ -146,6 +211,42 @@ pub(crate) fn draw_ring(
         });
     }
     plan
+}
+
+/// The street building `lot` takes (#1598), and its seed variant: its kind
+/// and storeys by Berlin's height on the lot ([`RING_CROWN_M`]),
+/// trading on one lot in [`RING_TRADE_ONE_IN`], at the biggest of its
+/// kind's fits that keeps to the lot's room - the next kind down's where
+/// none of its own does - or else a low building's smallest drawn smaller,
+/// down to [`SCALE_MIN`]. `None` where even that outgrows the lot.
+fn ring_street(
+    streets: &Streets,
+    lot: &RingLot,
+    rng: &mut ChaCha8Rng,
+) -> Option<(&'static dyn CatalogueEntry, StreetFit, f32, u8)> {
+    let storeys = ((lot.standing - RING_CROWN_M) / RING_STOREY_M)
+        .round()
+        .clamp(1.0, 30.0) as u8;
+    let trade = rng.next_u32().is_multiple_of(RING_TRADE_ONE_IN);
+    let variant = (rng.next_u32() % u32::from(STREET_VARIANTS)) as u8;
+    let mut kind = Some(kind_of(storeys, false));
+    while let Some(k) = kind {
+        let biggest = k
+            .frontages()
+            .iter()
+            .flat_map(|&f| k.depths().iter().map(move |&d| (f, d)))
+            .map(|(f, d)| StreetFit::new(f, d, storeys, trade).snapped(k))
+            .filter(|fit| fit.reach_m() <= lot.room)
+            .max_by_key(|fit| (u32::from(fit.frontage) * u32::from(fit.depth), fit.depth));
+        if let Some(fit) = biggest {
+            return Some((streets.entry(k), fit, 1.0, variant));
+        }
+        kind = smaller(k);
+    }
+    let low = StreetKind::Low;
+    let fit = StreetFit::new(low.frontages()[0], low.depths()[0], storeys, trade).snapped(low);
+    let scale = fitted_scale(lot.room / fit.reach_m(), SCALE_MIN, 1.0);
+    (scale * fit.reach_m() <= lot.room).then_some((streets.entry(low), fit, scale, variant))
 }
 
 /// Which lots take a landmark: the tallest, tallest first, at least
@@ -232,7 +333,7 @@ mod tests {
         assert_eq!(landmarks, vec![0, 15], "the tallest, spaced");
         for (copy, lot) in plan.copies.iter().zip(&lots) {
             let building = &plan.buildings[copy.building];
-            let reach = radius(building.entry) * building.scale;
+            let reach = building.reach();
             assert!(
                 reach <= lot.room,
                 "{} at {} on a lot of room {}",
@@ -255,7 +356,14 @@ mod tests {
             assert_eq!((copy.solid, copy.height), (Solid::Shell, None));
             assert_eq!(copy.source.layer, SourceLayer::RingLot);
         }
-        // One building per entry and scale, shared by its copies.
+        // The modern city's lots take its street buildings (#1598).
+        let streets = plan
+            .copies
+            .iter()
+            .filter(|c| matches!(plan.buildings[c.building].grow, Grow::Street { .. }))
+            .count();
+        assert_eq!(streets, lots.len() - 2, "every lot but the landmarks'");
+        // One building per entry, fit and scale, shared by its copies.
         assert!(plan.buildings.len() < plan.copies.len());
         let mut keys: Vec<&str> = plan.buildings.iter().map(|b| b.key.as_str()).collect();
         keys.sort_unstable();
@@ -272,8 +380,10 @@ mod tests {
         assert_eq!(picks(&plan), picks(&again));
     }
 
+    /// A taller lot takes a taller building: its street building's walls
+    /// (#1598) stand higher, its storeys Berlin's there.
     #[test]
-    fn a_taller_lot_takes_a_bigger_building() {
+    fn a_taller_lot_takes_a_taller_building() {
         let did = did_of(ThemeArchetype::ModernCity);
         let lots: Vec<RingLot> = (0..300)
             .map(|i| {
@@ -287,19 +397,26 @@ mod tests {
             &Kept::nothing(),
             &|_, _| 0.0,
         );
-        let reach = |range: std::ops::Range<usize>| {
+        let walls = |range: std::ops::Range<usize>| {
             let n = range.len() as f32;
             plan.copies[range]
                 .iter()
-                .map(|c| radius(plan.buildings[c.building].entry))
+                .map(|c| {
+                    let building = &plan.buildings[c.building];
+                    let Grow::Street { fit, .. } = building.grow else {
+                        panic!("{} is no street building", building.key);
+                    };
+                    let spec = building.entry.street().expect("a street building");
+                    spec.walls_m(fit.storeys) * building.scale
+                })
                 .sum::<f32>()
                 / n
         };
         assert!(
-            reach(200..300) > reach(0..100),
+            walls(200..300) > walls(0..100) + 10.0,
             "{} > {}",
-            reach(200..300),
-            reach(0..100)
+            walls(200..300),
+            walls(0..100)
         );
     }
 

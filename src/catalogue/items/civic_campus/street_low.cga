@@ -1,0 +1,101 @@
+// The civic campus's low building (#1598): a classical pavilion behind a
+// marble colonnade. See street_low.rs for the building, and
+// catalogue::items::street for the conventions and for what is declared ahead
+// of these rules and after them.
+
+const WallD = 0.4
+const PaneSet = 0.16
+const StyloH = 0.45
+const EntH = 0.55
+const CorniceH = 0.6
+const RoofH = 1.0
+// How far the colonnade stands out of the front, and its columns' spacing.
+const ColD = 1.8
+const ColStep = 2.4
+
+// -- 1. The pavilion: its wall rolled once, then storeys, cornice, roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + CorniceH + RoofH) Walls
+Walls --> 40% Mat("BrickRed") Massing | 35% Mat("StonePale") Massing
+    | 25% Mat("StoneBuff") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | CorniceH: Cornice | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Upper | CorniceH: Cornice | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+Marble --> Mat("Marble") I("Trim")
+
+// -- 2. The ground storey: rooms or a shop behind a colonnade --
+Ground --> Comp(Faces) { Front: GroundFrontInset | Back: RearGroundInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> Extrude(WallD + ColD) Split(Z) { WallD: GroundSlab | ~1: Colonnade }
+GroundSlab --> Comp(Faces) { Back: GroundFace | Front: NIL | Left: NIL | Right: NIL | Top: NIL
+    | Bottom: NIL }
+GroundFace --> Translate(0, 0, -WallD) Behind
+Behind --> when(Trade == 1): Shop | else: Rooms
+// Rooms: the door in the middle, tall windows either side of it.
+Rooms --> Split(X) { ~1: WinRun | 1.5: Door | ~1: WinRun }
+Door --> Split(Y) { StyloH: Wall | 2.5: DoorLeaf | 0.15: Wall | ~1: Glazing }
+DoorLeaf --> Extrude(WallD - 0.16) Mat("Door") I("Door")
+WinRun --> Repeat(X, ColStep) { WinBay }
+WinBay --> Split(X) { ~1: Wall | 1.2: TallWindow | ~1: Wall }
+TallWindow --> Split(Y) { 0.9: Wall | 2.3: Glazing | ~1: Wall }
+// A campus shop or cafe: windows on a plinth and a door.
+Shop --> Split(X) { ~1: ShopRun | 1.2: ShopDoor | ~1: ShopRun }
+ShopRun --> Repeat(X, 2.6) { ShopBay }
+ShopBay --> Split(X) { 0.2: Wall | ~1: ShopWindow | 0.2: Wall }
+ShopWindow --> Split(Y) { 0.7: Wall | ~1: ShopGlazing | 0.7: Wall }
+ShopDoor --> Split(Y) { StyloH: Wall | 2.4: DoorLeaf | ~1: ShopGlazing }
+// The colonnade: a stylobate a step high, round columns, an entablature
+// tied back into the front - a painted sign on it where the shop trades.
+Colonnade --> Split(Y) { StyloH: Stylobate | ~1: ColumnZone | EntH: Entablature }
+Stylobate --> Marble
+ColumnZone --> Split(Z) { ~1: NIL | 0.5: ColumnLine | 0.2: NIL }
+// A wider span in the middle, framing the door.
+ColumnLine --> Split(X) { ~1: LeftColumns | 2.1: NIL | ~1: RightColumns }
+LeftColumns --> Split(X) { 0.5: Column | ~1: LeftRun }
+LeftRun --> when(scope.x < ColStep): LeftBay | else: Repeat(X, ColStep) { LeftBay }
+LeftBay --> Split(X) { ~1: NIL | 0.5: Column }
+RightColumns --> Split(X) { ~1: RightRun | 0.5: Column }
+RightRun --> when(scope.x < ColStep): RightBay | else: Repeat(X, ColStep) { RightBay }
+RightBay --> Split(X) { 0.5: Column | ~1: NIL }
+Column --> Mat("Marble") I("Column")
+Entablature --> when(Trade == 1): Split(Z) { ~1: Marble | 0.05: SignLayer } | else: Marble
+SignLayer --> Split(Y) { 0.1: NIL | ~1: SignRow | 0.1: NIL }
+SignRow --> Split(X) { ~1: NIL | min(5, scope.x - 2): Sign | ~1: NIL }
+Sign --> Mat("Fascia") I("Fascia")
+RearGroundInset --> Split(X) { WallD: NIL | ~1: RearGroundIn | WallD: NIL }
+RearGroundIn --> Translate(0, 0, -WallD) RearGround
+RearGround --> Repeat(X, 3.0) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.2: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.2: Wall | 1.8: Glazing | ~1: Wall }
+
+// -- 3. A storey of rooms over the colonnade, where it has one: windows on
+// marble sills over its columns' spacing --
+Upper --> Comp(Faces) { Front: UpFrontInset | Back: UpRearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpFrontInset --> Split(X) { WallD: NIL | ~1: UpFrontIn | WallD: NIL }
+UpFrontIn --> Translate(0, 0, -WallD) UpFront
+UpFront --> Repeat(X, ColStep) { UpBay }
+UpBay --> Split(X) { ~1: Wall | 1.1: UpWindow | ~1: Wall }
+UpWindow --> Split(Y) { 0.8: Wall | 0.12: Sill | 1.8: Glazing | ~1: Wall }
+Sill --> Extrude(WallD + 0.08) Mat("Marble") I("Trim")
+UpRearInset --> Split(X) { WallD: NIL | ~1: UpRearIn | WallD: NIL }
+UpRearIn --> Translate(0, 0, -WallD) UpRear
+UpRear --> Repeat(X, 3.0) { UpRearBay }
+UpRearBay --> Split(X) { ~1: Wall | 1.1: UpRearWindow | ~1: Wall }
+UpRearWindow --> Split(Y) { 0.8: Wall | 1.6: Glazing | ~1: Wall }
+
+// -- 4. The cornice: marble the whole frontage --
+Cornice --> Comp(Faces) { Front: CorniceFace | Back: RearCorniceInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+CorniceFace --> Split(Y) { 0.3: CorniceBed | ~1: CorniceCorona }
+CorniceBed --> Extrude(0.15) Mat("Marble") I("Cornice")
+CorniceCorona --> Extrude(0.42) Mat("Marble") I("Cornice")
+RearCorniceInset --> Split(X) { WallD: NIL | ~1: RearCorniceIn | WallD: NIL }
+RearCorniceIn --> Translate(0, 0, -WallD) Wall
+
+// -- 5. The roof: a low copper gable along the street --
+RoofZone --> Roof(Gable, 20, overhang=0, ridge=X) { Slope: Copper | GableEnd: Gable }
+Copper --> Mat("Copper") I("Roof")
+Gable --> I("Wall")

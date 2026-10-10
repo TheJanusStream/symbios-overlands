@@ -1,0 +1,119 @@
+// The pirate theme's long block (#1598): a stone customs house and prize
+// warehouse. See street_block.rs for the block, and catalogue::items::street
+// for the conventions and for what is declared ahead of these rules and
+// after them.
+
+const WallD = 0.55
+const PaneSet = 0.18
+const PlinthH = 0.7
+const StepH = 0.55
+const CourseH = 0.3
+const CrownH = 0.95
+const RoofH = 1.0
+// One stair and one stack of loading doors to a section. Under twelve
+// metres so the frontages, less the party walls, hold two, three and four
+// of them: a Repeat floors its count.
+const SectionW = 11.3
+
+// -- 1. The block: its stone rolled once, then storeys, crown, roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + CrownH + RoofH) Stone
+Stone --> 40% Mat("QuayStone") Massing | 35% Mat("Limestone") Massing
+    | 25% Mat("Render") Massing
+Massing --> Split(Y) { GroundH: Ground | ~1: Uppers | CrownH: Crown | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+Dressing --> Mat("Dressing") I("Trim")
+
+// -- 2. The ground storey: arched bays on the quay, or barred store
+// windows, and a door to each stair --
+Ground --> Comp(Faces) { Front: GroundFace | Back: RearGroundInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFace --> Split(Y) { ~1: GroundFrontInset | CourseH: Course }
+Course --> Extrude(0.16) Dressing
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> Repeat(X, SectionW) { GroundSection }
+GroundSection --> Split(X) { ~1: GroundRun | 2.8: Doorway | ~1: GroundRun }
+GroundRun --> when(Trade == 1): ArchRun | else: StoreRun
+ArchRun --> Repeat(X, 4.2) { ArchBay }
+ArchBay --> Split(X) { 0.55: Wall | ~1: ArchOpen | 0.55: Wall }
+ArchOpen --> Split(Y) { ~1: ArchLower | 0.5: Voussoirs | 0.35: Wall }
+ArchLower --> Split(X) { ~1: ArchWindow | 1.2: ArchDoor }
+ArchWindow --> Split(Y) { PlinthH: Wall | ~1: ShopGlazing }
+ArchDoor --> Split(Y) { StepH: Step | 2.5: Leaf | ~1: Glazing }
+Voussoirs --> Split(X) { ~1: Voussoir | 0.36: Keystone | ~1: Voussoir }
+Voussoir --> Extrude(WallD + 0.06) Dressing
+Keystone --> Extrude(WallD + 0.14) Dressing
+Step --> Extrude(WallD + 0.3) Dressing
+Leaf --> Extrude(WallD - 0.2) Mat("Door") I("Door")
+// A store's windows: high in the wall, barred with iron.
+StoreRun --> Repeat(X, 2.9) { StoreBay }
+StoreBay --> Split(X) { ~1: Wall | 1.1: StoreWindow | ~1: Wall }
+StoreWindow --> Split(Y) { 2.0: Wall | 1.3: BarredLight | 0.32: Lintel | ~1: Wall }
+BarredLight --> Split(X) { ~1: Glazing | 0.06: Bar | ~1: Glazing | 0.06: Bar | ~1: Glazing }
+Bar --> Extrude(WallD) Mat("Iron") I("Bars")
+Lintel --> Extrude(WallD + 0.08) Dressing
+// The stair door: a strake-built leaf up a stone step, a fanlight over it.
+Doorway --> Split(X) { 0.35: Wall | ~1: DoorCol | 0.35: Wall }
+DoorCol --> Split(Y) { StepH: Step | 2.9: Leaf | ~1: Fanlight }
+Fanlight --> Split(Y) { ~1: Glazing | 0.45: Voussoirs }
+// The yard side: windows over high sills.
+RearGroundInset --> Split(X) { WallD: NIL | ~1: RearGroundIn | WallD: NIL }
+RearGroundIn --> Translate(0, 0, -WallD) RearGround
+RearGround --> Repeat(X, 4.5) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.1: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 2.0: Wall | 1.3: Glazing | ~1: Wall }
+
+// -- 3. The lofts: rows of small windows on dressed sills, a loading
+// door on each section's axis --
+Uppers --> Comp(Faces) { Front: UpperFrontInset | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperFrontInset --> Split(X) { WallD: NIL | ~1: UpperFrontIn | WallD: NIL }
+UpperFrontIn --> Translate(0, 0, -WallD) UpperFront
+UpperFront --> Repeat(Y, FloorH) { Storey }
+Storey --> Repeat(X, SectionW) { Section }
+Section --> Split(X) { ~1: Run | 2.4: LoadCol | ~1: Run }
+Run --> Repeat(X, 2.2) { WinBay }
+WinBay --> Split(X) { ~1: Wall | 1.0: WinCol | ~1: Wall }
+WinCol --> Split(Y) { 0.9: Wall | 0.12: Sill | 1.4: Glazing | 0.3: Lintel | ~1: Wall }
+Sill --> Extrude(WallD + 0.06) Dressing
+// A loading door in every loft: a painted hatch on a dressed threshold.
+LoadCol --> Split(X) { ~1: Wall | 1.5: LoadDoor | ~1: Wall }
+LoadDoor --> Split(Y) { 0.2: Sill | 2.3: Hatch | 0.3: Lintel | ~1: Wall }
+Hatch --> Extrude(WallD - 0.15) Mat("Hatch") I("Door")
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) RearUpper
+RearUpper --> Repeat(Y, FloorH) { RearStorey }
+RearStorey --> Repeat(X, 5.0) { RearUpperBay }
+RearUpperBay --> Split(X) { ~1: Wall | 1.0: RearUpperWindow | ~1: Wall }
+RearUpperWindow --> Split(Y) { 0.9: Wall | 1.4: Glazing | ~1: Wall }
+
+// -- 4. The crown: a stone cornice the whole frontage, and over each
+// section's loading doors a hoist beam standing out of the wall --
+Crown --> Comp(Faces) { Front: CrownFace | Back: RearCrownInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+CrownFace --> Split(Y) { 0.3: Cornice | ~1: CrownInset }
+Cornice --> Extrude(0.3) Dressing
+CrownInset --> Split(X) { WallD: NIL | ~1: CrownIn | WallD: NIL }
+CrownIn --> Translate(0, 0, -WallD) CrownRow
+CrownRow --> Repeat(X, SectionW) { CrownSection }
+CrownSection --> Split(X) { ~1: Wall | 0.32: HoistBeam | ~1: Wall }
+HoistBeam --> Extrude(WallD + 1.3) Mat("Beam") I("Beam")
+RearCrownInset --> Split(X) { WallD: NIL | ~1: RearCrownIn | WallD: NIL }
+RearCrownIn --> Translate(0, 0, -WallD) Wall
+
+// -- 5. The roof: a long shingle gable, or a deck behind a parapet --
+RoofZone --> Pick("roof") { 65% LongRoof | 35% FlatRoof }
+LongRoof --> Roof(Gable, 30, overhang=0, ridge=X) { Slope: Shingles | GableEnd: Gable }
+Shingles --> Mat("Shingle") I("Roof")
+Gable --> I("Wall")
+FlatRoof --> Comp(Faces) { Front: ParapetFace | Back: ParapetFace | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+ParapetFace --> Split(Y) { ~1: ParapetInset | 0.16: Coping }
+ParapetInset --> Split(X) { WallD: NIL | ~1: ParapetIn | WallD: NIL }
+ParapetIn --> Translate(0, 0, -WallD) Wall
+Coping --> Extrude(0.06) Dressing
+// The deck fills the ring inside the parapet's walls, so no face of it
+// lies in theirs: the bottom face's inward is up.
+Deck --> Translate(WallD, WallD, -0.2) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("Deck") I("Roof")

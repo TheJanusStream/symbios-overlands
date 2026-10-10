@@ -22,6 +22,9 @@ pub mod hitching_post;
 pub mod jail;
 pub mod monument;
 pub mod saloon;
+pub mod street_block;
+pub mod street_house;
+pub mod street_low;
 pub mod wagon;
 pub mod water_tower;
 pub mod wind_pump;
@@ -160,6 +163,39 @@ pub(super) fn canvas(color: [f32; 3]) -> SovereignMaterialSettings {
         metallic: Fp(0.0),
         uv_scale: Fp(1.0),
         texture: SovereignTextureConfig::None,
+        ..Default::default()
+    }
+}
+
+/// Lap siding - the painted clapboard of the street buildings (#1598):
+/// [`clapboard`]'s boards with `stagger` held at zero (#972 lesson 4), so
+/// a long wall reads as boards run the length of it rather than as the
+/// generator's butt-joint grid, which reads as brick at a street's
+/// distance.
+pub(super) fn lap_siding(color: [f32; 3]) -> SovereignMaterialSettings {
+    let mut m = clapboard(color);
+    if let SovereignTextureConfig::Plank(cfg) = &mut m.texture {
+        cfg.stagger = Fp64(0.0);
+    }
+    m
+}
+
+/// Fired brick - the bank and hotel blocks a frontier town raised once the
+/// railroad brought a kiln (#1598): plain stretcher courses in a pale lime
+/// mortar.
+pub(super) fn brick(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.88),
+        metallic: Fp(0.0),
+        uv_scale: tiles_per_metre(tile::BRICK),
+        texture: SovereignTextureConfig::Brick(crate::pds::SovereignBrickConfig {
+            color_brick: Fp3(color),
+            color_mortar: Fp3([0.74, 0.70, 0.62]),
+            scale: Fp64(5.0),
+            cell_variance: Fp64(0.22),
+            ..Default::default()
+        }),
         ..Default::default()
     }
 }

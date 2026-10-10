@@ -1,0 +1,113 @@
+// The monolith's low building (#1598): a row of obsidian cells, or - where
+// it trades - a glyph pavilion. See street_low.rs for the building, and
+// catalogue::items::street for the conventions and for what is declared
+// ahead of these rules and after them.
+
+const WallD = 0.45
+const PaneSet = 0.3
+const PlinthH = 0.6
+const StepH = 0.55
+const GlyphH = 0.12
+const CapH = 0.8
+const CapOut = 0.6
+// A cell's width along the street: a lot holds as many as fit.
+const CellW = 5.0
+
+Lot --> when(Trade == 1): Pavilion | else: Cells
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+Step --> Extrude(WallD + 0.35) Mat("Step") I("Trim")
+Lintel --> Extrude(WallD + 0.06) Mat("Energy") I("Trim")
+Fin --> Extrude(WallD + 0.35) Mat("Fin") I("Fin")
+// The building's one glyph colour, for its lines.
+GlyphLine --> Pick("glyph") { 65% LineCyan | 35% LineViolet }
+LineCyan --> Extrude(WallD + 0.05) Mat("Glyph") I("Trim")
+LineViolet --> Extrude(WallD + 0.05) Mat("GlyphViolet") I("Trim")
+// The capstone: one slab over the whole building, standing out front and
+// back, glyph-light along its underside's edges.
+Capstone --> Translate(0, 0, -CapOut) Size(scope.x, CapH, scope.z + 2 * CapOut)
+    Split(Y) { 0.12: CapUnder | ~1: CapBody }
+CapUnder --> Split(Z) { 0.08: CapGlow | ~1: CapBody | 0.08: CapGlow }
+CapGlow --> Pick("glyph") { 65% CapGlowCyan | 35% CapGlowViolet }
+CapGlowCyan --> Mat("Glyph") I("Trim")
+CapGlowViolet --> Mat("GlyphViolet") I("Trim")
+CapBody --> I("Cap")
+
+// -- 1. The cells: under one capstone, the stone rolled once --
+Cells --> Extrude(GroundH + FloorH * (Storeys - 1) + CapH) Stone
+Stone --> 40% Mat("Obsidian") CellMass | 30% Mat("ObsidianBlue") CellMass
+    | 30% Mat("ObsidianViolet") CellMass
+CellMass --> when(Storeys == 1): Split(Y) { GroundH: CellGround | CapH: Capstone }
+    | else: Split(Y) { GroundH: CellGround | ~1: CellUpper | CapH: Capstone }
+CellGround --> Comp(Faces) { Front: CellFrontInset | Back: CellRearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+CellFrontInset --> Split(X) { WallD: NIL | ~1: CellFrontIn | WallD: NIL }
+CellFrontIn --> Translate(0, 0, -WallD) Split(Y) { ~1: CellFront | GlyphH: GlyphLine }
+CellFront --> Repeat(X, CellW) { Cell }
+// Each cell: a slit and a portal between fins, a lintel over the portal.
+Cell --> Split(X) { 0.35: Fin | ~1: Wall | 0.6: CellSlit | 0.6: Wall | 1.2: CellPortal | ~1: Wall
+    | 0.35: Fin }
+CellSlit --> Split(Y) { 0.9: Wall | 2.4: Glazing | ~1: Wall }
+CellPortal --> Split(Y) { StepH: Step | 2.6: CellLeaf | 0.16: CellLintel | ~1: Wall }
+CellLeaf --> Extrude(WallD - 0.28) Mat("Portal") I("Door")
+// Each cell its own glyph colour over its portal.
+CellLintel --> 50% Lintel | 25% LineCyan | 25% LineViolet
+CellRearInset --> Split(X) { WallD: NIL | ~1: CellRearIn | WallD: NIL }
+CellRearIn --> Translate(0, 0, -WallD) CellRear
+CellRear --> Repeat(X, 2.5) { CellRearBay }
+CellRearBay --> Split(X) { ~1: Wall | 0.6: CellRearSlit | ~1: Wall }
+CellRearSlit --> Split(Y) { 1.0: Wall | 2.0: Glazing | ~1: Wall }
+CellUpper --> Comp(Faces) { Front: CellUpFrontInset | Back: CellUpRearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+CellUpFrontInset --> Split(X) { WallD: NIL | ~1: CellUpFrontIn | WallD: NIL }
+CellUpFrontIn --> Translate(0, 0, -WallD) CellUpFront
+CellUpFront --> Repeat(X, CellW) { CellUp }
+CellUp --> Split(X) { 0.35: Fin | ~1: Wall | 0.55: CellUpSlit | 0.7: Wall | 0.55: CellUpSlit
+    | ~1: Wall | 0.35: Fin }
+CellUpSlit --> Split(Y) { 0.4: Wall | 2.1: Glazing | ~1: Wall }
+CellUpRearInset --> Split(X) { WallD: NIL | ~1: CellUpRearIn | WallD: NIL }
+CellUpRearIn --> Translate(0, 0, -WallD) CellUpRear
+CellUpRear --> Repeat(X, 2.5) { CellUpRearBay }
+CellUpRearBay --> Split(X) { ~1: Wall | 0.6: CellUpSlit | ~1: Wall }
+
+// -- 2. The pavilion: walls of light behind black pillars --
+Pavilion --> Extrude(GroundH + FloorH * (Storeys - 1) + CapH) Stone2
+Stone2 --> 45% Mat("Obsidian") PavMass | 30% Mat("ObsidianBlue") PavMass
+    | 25% Mat("ObsidianViolet") PavMass
+PavMass --> when(Storeys == 1): Split(Y) { GroundH: PavGround | CapH: Capstone }
+    | else: Split(Y) { GroundH: PavGround | ~1: PavUpper | CapH: Capstone }
+PavGround --> Comp(Faces) { Front: PavFrontInset | Back: PavRearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+PavFrontInset --> Split(X) { WallD: NIL | ~1: PavFrontIn | WallD: NIL }
+PavFrontIn --> Translate(0, 0, -WallD) PavFront
+PavFront --> Split(Y) { ~1: Colonnade | 0.75: Entablature }
+Colonnade --> Split(X) { ~1: PavBays | 0.9: Pillar }
+PavBays --> Repeat(X, 3.4) { PavBay }
+PavBay --> Split(X) { 0.9: Pillar | ~1: PavUnit }
+// A pillar: round, standing clear of the light behind it, its back in the
+// wall.
+Pillar --> Extrude(WallD + 1.4) Split(Z) { WallD + 0.25: PillarBack | ~1: PillarShaft }
+PillarBack --> I("Wall")
+PillarShaft --> Mat("Fin") I("Pillar")
+PavUnit --> when(scope.x > 2.2): Split(X) { ~1: PavWindow | 1.2: PavPortal }
+    | else: PavWindow
+PavWindow --> Split(Y) { PlinthH: Wall | ~1: ShopGlazing }
+PavPortal --> Split(Y) { StepH: Step | 2.4: PavLeaf | 0.16: Lintel | ~1: ShopGlazing }
+PavLeaf --> Extrude(WallD - 0.28) Mat("Portal") I("Door")
+// The entablature over the pillars, its underside's front edge lit.
+Entablature --> Split(Y) { 0.16: EntGlow | ~1: EntBody }
+EntGlow --> Extrude(WallD + 1.5) Mat("Energy") I("Fascia")
+EntBody --> Extrude(WallD + 1.5) Mat("Fin") I("Cornice")
+PavRearInset --> Split(X) { WallD: NIL | ~1: PavRearIn | WallD: NIL }
+PavRearIn --> Translate(0, 0, -WallD) PavRear
+PavRear --> Repeat(X, 3.0) { PavRearBay }
+PavRearBay --> Split(X) { ~1: Wall | 0.6: PavRearSlit | ~1: Wall }
+PavRearSlit --> Split(Y) { 1.4: Wall | 1.4: Glazing | ~1: Wall }
+// A hall storey over the light: a ribbon of slits.
+PavUpper --> Comp(Faces) { Front: PavUpFrontInset | Back: PavUpFrontInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+PavUpFrontInset --> Split(X) { WallD: NIL | ~1: PavUpFrontIn | WallD: NIL }
+PavUpFrontIn --> Translate(0, 0, -WallD) Split(Y) { ~1: PavUpFront | GlyphH: GlyphLine }
+PavUpFront --> Repeat(X, 1.2) { PavUpBay }
+PavUpBay --> Split(X) { ~1: Wall | 0.5: PavUpSlit | ~1: Wall }
+PavUpSlit --> Split(Y) { 0.5: Wall | 1.9: Glazing | ~1: Wall }

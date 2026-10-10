@@ -1,0 +1,109 @@
+// The nordic theme's low building (#1598): a boathouse front of gables, or
+// - where it houses people - a longhouse row under turf. See street_low.rs
+// for the building, and catalogue::items::street for the conventions and
+// for what is declared ahead of these rules and after them.
+
+const WallD = 0.25
+const PaneSet = 0.1
+const PlinthH = 0.6
+const StepH = 0.5
+const EaveH = 0.35
+const RoofH = 0.5
+// One boathouse gable, or one cottage, to every five and a half metres.
+const BayW = 5.5
+// The boathouse gables' pitch, and its rise over a run of one: tan(50).
+const Pitch = 50
+const Rise = 1.19
+
+Lot --> when(Trade == 1): Boathouses | else: Longhouse
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+// Trim: corner boards, window frames, sills and head boards.
+Corner --> Extrude(WallD + 0.04) Mat("Trim") I("Trim")
+Frame --> Extrude(WallD + 0.05) Mat("Trim") I("Trim")
+Sill --> Extrude(WallD + 0.07) Mat("Trim") I("Trim")
+Head --> Extrude(WallD + 0.09) Mat("Trim") I("Trim")
+Framed --> Split(X) { 0.1: Frame | ~1: Glazing | 0.1: Frame }
+GWall --> Split(Y) { PlinthH: Plinth | ~1: Wall }
+GCorner --> Split(Y) { PlinthH: Plinth | ~1: Corner }
+Plinth --> Extrude(WallD + 0.08) Mat("Plinth") I("Plinth")
+Step --> Extrude(WallD + 0.3) Mat("Stone") I("Plinth")
+DoorLeaf --> Extrude(WallD - 0.1) Mat("Door") I("Door")
+
+// -- 1. The boathouses: tarred or red, a gable to each, side by side --
+Boathouses --> Extrude(GroundH + FloorH * (Storeys - 1) + EaveH + RoofH) Tar
+Tar --> 60% Mat("Tar") Naustar | 40% Mat("FaluRed") Naustar
+Naustar --> Repeat(X, BayW) { Naust }
+Naust --> when(Storeys == 1): Split(Y) { GroundH: NGround | EaveH: NEaves | RoofH: NRoof }
+    | else: Split(Y) { GroundH: NGround | ~1: NLoft | EaveH: NEaves | RoofH: NRoof }
+NGround --> Comp(Faces) { Front: NFrontInset | Back: RearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+NFrontInset --> Split(X) { WallD: NIL | ~1: NFrontIn | WallD: NIL }
+NFrontIn --> Translate(0, 0, -WallD) NFront
+// A wide plank door of two leaves between narrow windows.
+NFront --> Split(X) { 0.25: GCorner | ~1: NSide | 2.6: BigDoor | ~1: NSide | 0.25: GCorner }
+NSide --> Split(X) { ~1: GWall | 0.6: SlitWin | ~1: GWall }
+SlitWin --> Split(Y) { PlinthH: Plinth | 0.9: Wall | 0.1: Sill | 1.3: Framed | 0.2: Head
+    | ~1: Wall }
+BigDoor --> Split(Y) { StepH: Step | 2.7: Leaves | 0.25: Head | ~1: Wall }
+Leaves --> Split(X) { ~1: DoorLeaf | 0.1: Frame | ~1: DoorLeaf }
+NLoft --> Comp(Faces) { Front: NLoftInset | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+NLoftInset --> Split(X) { WallD: NIL | ~1: NLoftIn | WallD: NIL }
+NLoftIn --> Translate(0, 0, -WallD) Split(X) { 0.25: Corner | ~1: Wall | 1.1: LoftWin | ~1: Wall
+    | 0.25: Corner }
+LoftWin --> Split(Y) { 0.6: Wall | 0.1: Sill | 1.3: Framed | 0.2: Head | ~1: Wall }
+// The eaves, and a carved post up each gable's middle, its head a finial
+// over the peak. The gable's rise is Rise times its half-width.
+NEaves --> Comp(Faces) { Front: NEaveFace | Back: RearEaveInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+NEaveFace --> GableEave(scope.x)
+GableEave(w) --> Split(X) { ~1: EaveRun | 0.28: Mast(w) | ~1: EaveRun }
+Mast(w) --> Size(scope.x, EaveH + Rise * w / 2 + 1.0, 0) Translate(0, 0, -0.3) Extrude(0.42)
+    Mat("Carving") I("Carving")
+NRoof --> Roof(Gable, Pitch, overhang=0, ridge=Z) { Slope: Shakes | GableEnd: Gable }
+Shakes --> Mat("Shakes") I("Roof")
+
+// -- 2. The longhouse row: log or board cottages under one turf roof --
+Longhouse --> Extrude(GroundH + FloorH * (Storeys - 1) + EaveH + RoofH) Logs
+Logs --> 40% Mat("Log") LongMass | 30% Mat("Tar") LongMass | 30% Mat("FaluRed") LongMass
+LongMass --> when(Storeys == 1): Split(Y) { GroundH: LGround | EaveH: LEaves | RoofH: Turfed }
+    | else: Split(Y) { GroundH: LGround | ~1: LLoft | EaveH: LEaves | RoofH: Turfed }
+LGround --> Comp(Faces) { Front: LFrontInset | Back: RearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+LFrontInset --> Split(X) { WallD: NIL | ~1: LFrontIn | WallD: NIL }
+LFrontIn --> Translate(0, 0, -WallD) Split(X) { 0.25: GCorner | ~1: Cottages | 0.25: GCorner }
+Cottages --> Repeat(X, BayW) { Cottage }
+// Each cottage: a door between two small framed windows.
+Cottage --> Split(X) { ~1: GWall | 0.9: CotWin | 0.6: GWall | 1.1: CotDoor | 0.6: GWall
+    | 0.9: CotWin | ~1: GWall }
+CotWin --> Split(Y) { PlinthH: Plinth | 0.5: Wall | 0.1: Sill | 1.2: Framed | 0.2: Head
+    | ~1: Wall }
+CotDoor --> Split(Y) { StepH: Step | 2.2: DoorLeaf | 0.2: Head | ~1: Wall }
+LLoft --> Comp(Faces) { Front: LLoftInset | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+LLoftInset --> Split(X) { WallD: NIL | ~1: LLoftIn | WallD: NIL }
+LLoftIn --> Translate(0, 0, -WallD) Split(X) { 0.25: Corner | ~1: LLoftRun | 0.25: Corner }
+LLoftRun --> Repeat(X, 2.75) { LLoftBay }
+LLoftBay --> Split(X) { ~1: Wall | 0.9: LoftWin | ~1: Wall }
+LEaves --> Comp(Faces) { Front: EaveRun | Back: RearEaveInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+// A low turf roof along the street, its gable ends the party walls.
+Turfed --> Roof(Gable, 27, overhang=0, ridge=X) { Slope: TurfSlope | GableEnd: Gable }
+TurfSlope --> Mat("Turf") I("Roof")
+
+// -- 3. The shared parts: the eave board, the yard side --
+EaveRun --> Split(Y) { ~1: Frieze | 0.22: EaveBoard }
+Frieze --> Extrude(0.06) I("Wall")
+EaveBoard --> Extrude(0.3) Mat("Trim") I("Trim")
+Gable --> I("Wall")
+RearEaveInset --> Split(X) { WallD: NIL | ~1: RearEaveIn | WallD: NIL }
+RearEaveIn --> Translate(0, 0, -WallD) Wall
+RearInset --> Split(X) { WallD: NIL | ~1: RearIn | WallD: NIL }
+RearIn --> Translate(0, 0, -WallD) Repeat(X, 3.0) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 0.8: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.3: Wall | 1.0: Glazing | ~1: Wall }
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) Repeat(X, 3.0) { RearUpperBay }
+RearUpperBay --> Split(X) { ~1: Wall | 0.8: RearUpperWindow | ~1: Wall }
+RearUpperWindow --> Split(Y) { 0.7: Wall | 1.0: Glazing | ~1: Wall }

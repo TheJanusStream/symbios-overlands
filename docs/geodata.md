@@ -402,10 +402,16 @@ ground, drawn as the region's own catalogue buildings. It rides in the
   pools by the room's prosperity and escalation, finish and ruin. The
   tallest lots - 40 m or more, no two within 200 m, at most 8 - take the
   theme's landmarks: Berlin's church towers, domes and high-rises. Every
-  other lot takes a secondary building, a bigger one where Berlin's stands
-  taller. A building is drawn no bigger than its lot holds, whichever way
-  it turns, down to half its catalogue size. Sounds, particles, signs,
-  portals and gateways are stripped: a kilometre off they only cost.
+  other lot takes one of the theme's street buildings (#1598, see "Street
+  buildings" below), shaped to the lot: its kind and storeys by Berlin's
+  height there (near its ridge, so 2.5 m of crown off it and 3.4 m a storey:
+  a pitched Altbau reads six storeys, a flat slab eight), its ground floor
+  trading on one lot in three, at the biggest of its kind's fits that keeps
+  to the lot. A theme
+  without them takes a secondary building, a bigger one where Berlin's
+  stands taller, drawn no bigger than its lot holds, whichever way it
+  turns, down to half its catalogue size. Sounds, particles, signs, portals
+  and gateways are stripped: a kilometre off they only cost.
 - **Near and far.** A kilometre of Berlin is ~4,000 buildings of a handful
   to hundreds of parts each, and in a browser every part costs CPU each
   frame. Each distinct building (an entry at a drawn scale) is spawned once,
@@ -523,14 +529,27 @@ furniture, each Berlin's own place and the region's own catalogue item.
   more, or a building of 12 storeys takes one of the theme's landmarks - at
   most 6, no two within 150 m, places of worship first, each counted only
   where it can stand. Every other
-  building of 30 m2 or more takes the theme's secondaries, bigger where
-  Berlin's stands taller. A footprint is filled in its box along its
-  longest edge: a row of entries for every 30 m of its depth (at most 4),
-  each fitted to its row's depth and set side by side down the length, a
-  copy wherever a slot's middle lies on the footprint. A row fronts the
-  street side; of several, the outer two front their own sides, as a
-  block's houses front the streets either side of it. A landmark stands at
-  the box's middle with rows either side of it; one that fits nowhere,
+  building of 30 m2 or more takes rows of the theme's street buildings
+  (#1598, below). A footprint is filled in its box along its street front -
+  the longest of its edges within 30 degrees of square to its street,
+  rather than its longest edge, which on a house with a side wing is the
+  wing: a row for every 30 m of its depth (at most 4), a copy wherever a
+  slot's middle lies on the footprint. A row fronts the street side; of
+  several, the outer two front their own sides, as a block's houses front
+  the streets either side of it. Each copy is shaped to the footprint: its kind
+  by Berlin's storeys and use (one or two storeys, or a shop, workshop,
+  garage or utility of three, is a low building; three to seven a house;
+  more a long block), Berlin's storeys snapped to its kind's, its ground
+  floor trading where the use is a shop's, a workshop's, a garage's, a
+  utility's or mixed; its depth the deepest of its kind's that fits the
+  row, its front on the row's own edge as a Berlin house stands on the
+  street line; its frontages rolled down the row, a tail its kind leaves
+  taking the next kind down. A row too shallow for a kind's shallowest step,
+  or too short for its narrowest, draws it smaller, in quarter-octaves down
+  to half. A theme without its street buildings fills a box along its
+  longest edge with its secondaries, each fitted to its row's depth, bigger
+  where Berlin's stands taller. A landmark stands at the middle of the box
+  along the longest edge, with rows either side of it; one that fits nowhere,
   whose box's middle is off the footprint (a courtyard), or that would
   reach the landing gives way to rows. A building's picks are seeded by
   its uuid. Every copy stands on its voxel shell as its collider; past
@@ -848,6 +867,59 @@ the live path end to end: the real client, the disk store, and the decoders.
 It then checks that a second visit is answered from the store alone. Fire it
 by hand when the live path is in question.
 
+## Street buildings (#1598)
+
+The owner's decisions (2026-10-09): every theme has three shape-grammar
+buildings of Berlin's street types in its own dress - a Roman insula, a
+timber-framed burgher house, a neon tenement, a chitin tower house - and a
+Berlin footprint's and a ring lot's secondary buildings are drawn from them
+alone, each copy shaped to its footprint; landmarks are as they were.
+Elsewhere they are ordinary catalogue entries: in the inventory, and on a
+road network's lots, at their kind's own fit. A seeded settlement and the
+street furniture leave them out: a settlement stands its members apart on
+open ground, and they are built to stand flush in a row.
+
+| Kind | Berlin type | Frontage (m) | Depth (m) | Storeys | Own fit |
+| --- | --- | --- | --- | --- | --- |
+| House | the Altbau, the perimeter-block house | 12, 16, 20 | 8, 11, 14 | 3-7 | 16 x 14 x 5, trading |
+| Block | the Gruenderzeit block, the Plattenbau slab | 24, 36, 48 | 8, 11, 14 | 6, 8, 10, 12 | 36 x 14 x 8 |
+| Low | a house, a cottage row, a shop, a workshop | 8, 12, 16, 24 | 6, 9, 13, 17 | 1, 2 | 12 x 13 x 2 |
+
+A fit is snapped to its kind's steps, a storey count of two as near to the
+lower, so copies share meshes: copies of one building at one fit, seed and
+scale are one template, grown and baked once. Each fit is drawn with two
+seeds, neighbours rolled apart - their cladding, their roofs and balconies,
+their lit windows - and a plan grows at most 96 templates on the walkable
+ground (64 in the ring; a detail patch is a plan of its own, its templates
+filed under the core's keys, so a patch over the same room finds most of
+them cached): past half of them a copy takes its fit's first seed, and past
+all of them the nearest grown of its building that does not outgrow its
+slot - a shallower one standing back to keep its front on the street line
+- or, where none fits, it is left out. A plan takes its buildings nearest
+the landing first, so the budget goes to what a visitor sees first. A kilometre round Hermannplatz drew 946 copies from 98
+distinct buildings, landmarks included, all of them near.
+
+- **The conventions** every street grammar keeps, and the check that holds
+  it to them, are in `src/catalogue/items/street/` (`mod.rs`'s docs and
+  `check.rs`): the lot is `frontage x depth` with its street side local
+  -Z, nothing past its sides, the front and back out 2 m at most, walls as
+  high as the storeys and a crown 10 m over them at most, a door on the
+  front up a step, a window in every storey, no door or window under the
+  0.35 m sink, nothing z-fighting or floating, and the grammar inside a
+  record's 16 KiB.
+- **A grammar is a `.cga` file** beside its spec: one statement a line, a
+  line starting with white space continuing the one above, `//` lines
+  dropped. The fit's declarations (`Storeys`, `Trade`, `Frontage`,
+  `Depth`, `GroundH`, `FloorH`) go ahead of it and the shared openings
+  (`Glazing`, `ShopGlazing`, `Wall`) after it.
+- **Drafting without a rebuild.** `render --catalogue <slug> --street-fit
+  F,D,S[,trade]` draws one at a fit, `--street-rules <file>` draws it with
+  a rules file read at run time, `--street-seed N` at another seed, and
+  `--street-check` holds it (or the draft) to every convention at its
+  kind's smallest, largest and two middle fits and four seeds, prints each
+  fault with the first part at fault, and its parts against its kind's
+  budget (house 1,200, block 2,600, low 600).
+
 ## Phases
 
 Each phase is a sub-issue of #1580, in build order:
@@ -866,6 +938,7 @@ Each phase is a sub-issue of #1580, in build order:
 | #1589 | P3.1 the DID draws the source; seed-row locks; exact-square lock |
 | #1590 | P3.2 owner edits over derived content; layer hashes |
 | #1591 | P4 walkable area past the core: P4.1 walkable horizon (#1596), P4.2 detail patch (#1597) |
+| #1598 | Street buildings: three per theme, shaped to Berlin's footprints |
 
 The Berlin share of the source draw was held at 0 until P2 made a themed
 Berlin worth landing in; since P3.1 it is one seeded room in four.

@@ -1,0 +1,123 @@
+// The solarpunk theme's long block (#1598): a timber-frame eco-block. See
+// street_block.rs for the block, and catalogue::items::street for the
+// conventions and for what is declared ahead of these rules and after them.
+
+const WallD = 0.36
+const PaneSet = 0.14
+const PlinthH = 0.6
+const StepH = 0.5
+const BeamH = 0.22
+const PostW = 0.26
+const ParapetH = 1.0
+const RoofH = 3.0
+// One stair to a section, as a slab is built. Under twelve metres so the
+// frontages, less the party walls and the last post, hold two, three and
+// four of them: a Repeat floors its count.
+const SectionW = 11.5
+
+// -- 1. The block: its infill rolled once, then base, storeys, parapet --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + ParapetH + RoofH) Infill
+Infill --> 35% Mat("Larch") Massing | 25% Mat("Silver") Massing | 20% Mat("Honey") Massing
+    | 20% Mat("Lime") Massing
+Massing --> Split(Y) { GroundH: Ground | ~1: Uppers | ParapetH: Parapet | RoofH: RoofTop }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+
+// -- The frame: a beam at every floor line, cut from the full face so a
+// row's beams meet, a post at every bay's edge, standing out of the infill --
+Beam --> Extrude(0.14) Mat("Frame") I("Frame")
+Post --> Extrude(WallD + 0.14) Mat("Frame") I("Frame")
+Greens --> 50% Mat("Leaf") Green | 30% Mat("Moss") Green | 20% Mat("Bloom") Green
+Green --> I("Green")
+// A planter before a plinth: a box of greens on the pavement.
+PlinthPlanter --> Extrude(WallD + 0.6) Split(Z) { WallD: PlainWall | ~1: Planter }
+PlainWall --> I("Wall")
+Planter --> Split(Y) { 0.4: PlanterBox | ~1: Greens }
+PlanterBox --> Mat("Frame") I("Planter")
+Step --> Extrude(WallD + 0.35) Mat("Lime") I("Trim")
+DoorLeaf --> Extrude(WallD - 0.18) Mat("Door") I("Door")
+
+// -- 2. The base: a market's shopfronts or planted flats, a door to each
+// stair under a green canopy --
+Ground --> Comp(Faces) { Front: GroundFace | Back: RearGroundInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFace --> Split(Y) { ~1: GroundFrontInset | BeamH: Beam }
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) Split(X) { ~1: GroundSections | PostW: Post }
+GroundSections --> Repeat(X, SectionW) { GroundSection }
+GroundSection --> Split(X) { PostW: Post | ~1: GroundRun | 2.4: Doorway | ~1: GroundRun }
+GroundRun --> when(Trade == 1): ShopRun | else: FlatRun
+ShopRun --> Repeat(X, 3.6) { ShopBay }
+ShopBay --> Split(X) { 0.3: Wall | ~1: ShopWindow | 0.3: Wall }
+ShopWindow --> Split(Y) { PlinthH: PlinthPlanter | ~1: ShopGlazing | 0.55: Fascia }
+Fascia --> Extrude(WallD + 0.1) Mat("Frame") I("Fascia")
+FlatRun --> Repeat(X, 2.9) { FlatBay }
+FlatBay --> Split(X) { ~1: Wall | 1.6: FlatWindow | ~1: Wall }
+FlatWindow --> Split(Y) { PlinthH: PlinthPlanter | 0.6: Wall | 1.5: Glazing | ~1: Wall }
+Doorway --> Split(X) { 0.25: Wall | ~1: DoorCol | 0.25: Wall }
+DoorCol --> Split(Y) { StepH: Step | 2.3: DoorLeaf | 0.2: Canopy | ~1: Glazing }
+Canopy --> Extrude(WallD + 1.2) Mat("Moss") I("Canopy")
+RearGroundInset --> Split(X) { WallD: NIL | ~1: RearGroundIn | WallD: NIL }
+RearGroundIn --> Translate(0, 0, -WallD) Split(Y) { 1.0: Wall | 1.8: RearRow | ~1: Wall }
+RearRow --> Repeat(X, 4.2) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.6: Glazing | ~1: Wall }
+
+// -- 3. The storeys: the frame's grid, a stair's tall glazing, and at the
+// ends of each section's runs balconies or a vertical garden (Picked once,
+// so they climb the whole height) --
+Uppers --> Comp(Faces) { Front: UpperFace | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperFace --> Repeat(Y, FloorH) { StoreyFace }
+StoreyFace --> Split(Y) { ~1: StoreyInset | BeamH: Beam }
+StoreyInset --> Split(X) { WallD: NIL | ~1: StoreyIn | WallD: NIL }
+StoreyIn --> Translate(0, 0, -WallD) Split(X) { ~1: Sections | PostW: Post }
+Sections --> Repeat(X, SectionW) { Section }
+Section --> Split(X) { PostW: Post | ~1: Run | 2.4: StairCol | ~1: Run }
+Run --> when(split.i == 1): Split(X) { ~1: OuterBay | PostW: Post | ~1: WinBay }
+    | else: Split(X) { ~1: WinBay | PostW: Post | ~1: OuterBay }
+OuterBay --> Pick("outer") { 40% BalconyBay | 35% GardenBay | 25% WinBay }
+WinBay --> Split(X) { ~1: Wall | 1.6: WinCol | ~1: Wall }
+// A solar shade over every other window, rolled window by window.
+WinCol --> 50% Split(Y) { 0.8: Wall | 1.55: Glazing | 0.1: Shade | ~1: Wall }
+    | 50% Split(Y) { 0.8: Wall | 1.55: Glazing | ~1: Wall }
+Shade --> Extrude(WallD + 0.7) Mat("PV") I("Shade")
+// A vertical garden: leaves over the wall, the window open through them.
+GardenBay --> Split(X) { ~1: GreenWall | 1.6: GardenCol | ~1: GreenWall }
+GardenCol --> Split(Y) { 0.8: GreenWall | 1.55: Glazing | ~1: GreenWall }
+GreenWall --> Extrude(WallD + 0.22) Greens
+// A planted balcony: a timber deck, a planter along its edge over a low
+// wall, a glazed door behind.
+BalconyBay --> Split(X) { 0.2: Wall | ~1: BalconyCol | 0.2: Wall }
+BalconyCol --> Split(Y) { 0.18: BalconyDeck | 0.8: PlanterZone | 1.7: Glazing | ~1: Wall }
+BalconyDeck --> Extrude(WallD + 1.2) Mat("Frame") I("Balcony")
+PlanterZone --> Extrude(WallD + 1.2) Split(Z) { WallD: PlainWall | ~1: NIL | 0.55: Planter }
+// A stair: glazed the height of each storey.
+StairCol --> Split(X) { 0.45: Wall | ~1: StairWin | 0.45: Wall }
+StairWin --> Split(Y) { 0.3: Wall | ~1: Glazing | 0.3: Wall }
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) RearUpper
+RearUpper --> Repeat(Y, FloorH) { RearStorey }
+RearStorey --> Split(Y) { 0.8: Wall | 1.6: RearRow | ~1: Wall }
+
+// -- 4. The parapet: timber, a coping, a green roof inside it --
+Parapet --> Comp(Faces) { Front: ParapetFace | Back: ParapetFace | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+ParapetFace --> Split(Y) { ~1: ParapetInset | 0.12: Coping }
+ParapetInset --> Split(X) { WallD: NIL | ~1: ParapetIn | WallD: NIL }
+ParapetIn --> Translate(0, 0, -WallD) Wall
+Coping --> Extrude(0.08) Mat("Frame") I("Trim")
+// The deck fills the ring inside the parapet's walls: the bottom face's
+// inward is up.
+Deck --> Translate(WallD, WallD, -0.2) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("Moss") I("Roof")
+
+// -- 5. A pergola of solar panels over each section of the roof garden --
+RoofTop --> Translate(0, 0.2 - ParapetH, 0) Size(scope.x, scope.y + ParapetH - 0.2, scope.z)
+    Split(Z) { WallD + 0.8: NIL | ~1: PergolaZone | WallD + 0.8: NIL }
+PergolaZone --> Repeat(X, SectionW) { PergolaSeg }
+PergolaSeg --> Split(X) { 1.2: NIL | ~1: Pergola | 1.2: NIL }
+Pergola --> Split(Y) { 2.5: PergolaLegs | 0.12: PanelDeck | ~1: NIL }
+PergolaLegs --> Split(X) { 0.16: LegCol | ~1: NIL | 0.16: LegCol }
+LegCol --> Split(Z) { 0.16: Leg | ~1: NIL | 0.16: Leg }
+Leg --> Mat("Steel") I("Trim")
+PanelDeck --> Mat("PV") I("PV")

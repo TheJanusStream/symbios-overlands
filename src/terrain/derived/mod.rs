@@ -45,6 +45,7 @@ pub(crate) mod edit;
 pub(crate) mod fit;
 pub(crate) mod plan;
 pub(crate) mod ring;
+pub(crate) mod streets;
 
 use std::collections::HashSet;
 use std::sync::Arc;

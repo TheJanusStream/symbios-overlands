@@ -1,0 +1,131 @@
+// The gothic horror theme's street house (#1598): a Victorian gothic town
+// house. See street_house.rs for the house, and catalogue::items::street
+// for the conventions and for what is declared ahead of these rules
+// (Storeys, Trade, Frontage, Depth, GroundH, FloorH) and after them
+// (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.45
+const PaneSet = 0.15
+const StepH = 0.55
+const CourseH = 0.3
+const CrownH = 0.8
+const RoofH = 0.5
+// The oriel: how far it stands out, and the width of its bay.
+const OrielD = 0.9
+const BayW = 2.6
+// The main roof's rise over a run of one: tan(50 degrees).
+const Rise = 1.19
+
+// -- 1. The house: its masonry rolled once, then storeys, crown, roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + CrownH + RoofH) Masonry
+Masonry --> 35% Mat("Brick") Massing | 25% Mat("BlackBrick") Massing
+    | 25% Mat("Stone") Massing | 15% Mat("PaleStone") Massing
+Massing --> Split(Y) { GroundH: Ground | ~1: Uppers | CrownH: Crown | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+SlotWall --> I("Wall")
+// A pointed hood over a window: a drip-stone, and on it a steep little
+// gable of dressed stone standing a hair clear of the wall, so its back
+// shares no plane with the wall's face.
+HoodBase --> Extrude(WallD + 0.16) Split(Z) { WallD: SlotWall | ~1: HoodFront }
+HoodFront --> Split(Y) { 0.1: Drip | ~1: PeakSlot }
+Drip --> Mat("Dressing") I("Trim")
+PeakSlot --> Split(Z) { 0.03: NIL | ~1: Peak }
+Peak --> Roof(Gable, 55, overhang=0, ridge=Z) { Slope: Dressed | GableEnd: Dressed }
+Dressed --> Mat("Dressing") I("Trim")
+Sill --> Extrude(WallD + 0.08) Mat("Dressing") I("Trim")
+Step --> Extrude(WallD + 0.3) Mat("Dressing") I("Trim")
+
+// -- 2. The ground storey: a black shopfront, or a stoop and windows --
+Ground --> Comp(Faces) { Front: GroundFace | Back: RearGroundInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFace --> Split(Y) { ~1: GroundFrontInset | CourseH: Course }
+Course --> Extrude(0.1) Mat("Dressing") I("Trim")
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> when(Trade == 1): ShopFront | else: HomeFront
+ShopFront --> Split(X) { ~1: ShopRun | 1.8: ShopEntrance | ~1: ShopRun }
+ShopRun --> Repeat(X, 3.4) { ShopBay }
+ShopBay --> Split(X) { 0.35: Pilaster | ~1: ShopWin | 0.35: Pilaster }
+Pilaster --> Extrude(WallD + 0.12) Mat("Fascia") I("Fascia")
+ShopWin --> Split(Y) { 0.7: Stall | 2.2: ShopGlazing | ~1: FasciaBand }
+Stall --> Extrude(WallD + 0.05) Mat("Fascia") I("Fascia")
+FasciaBand --> Extrude(WallD + 0.15) Mat("Fascia") I("Fascia")
+ShopEntrance --> Split(Y) { StepH: Step | 2.5: Door | 0.4: Fanlight | ~1: FasciaBand }
+Door --> Extrude(WallD - 0.15) Mat("DoorBlack") I("Door")
+Fanlight --> Extrude(WallD - 0.15) Mat("Stained") I("Pane")
+// A house of homes: its door up a stoop of three steps, under a fanlight
+// and a pointed hood, and tall windows over a high sill.
+HomeFront --> Split(X) { ~1: HomeRun | 2.0: HomeEntrance | ~1: HomeRun }
+HomeRun --> Repeat(X, 2.6) { HomeBay }
+HomeBay --> Split(X) { ~1: Wall | 1.1: HomeWin | ~1: Wall }
+HomeWin --> Split(Y) { 1.3: Wall | 0.12: Sill | 2.0: Glazing | 0.14: HoodBase | ~1: Wall }
+HomeEntrance --> Split(X) { 0.3: Wall | ~1: HomeDoorCol | 0.3: Wall }
+HomeDoorCol --> Split(Y) { 1.2: Stoop | 2.1: HomeDoor | 0.2: Fanlight | 0.14: HoodBase | ~1: Wall }
+HomeDoor --> Extrude(WallD - 0.15) Mat("Door") I("Door")
+Stoop --> Split(Y) { 0.4: StoopLow | 0.4: StoopMid | ~1: StoopTop }
+StoopLow --> Extrude(WallD + 1.2) Mat("Dressing") I("Trim")
+StoopMid --> Extrude(WallD + 0.85) Mat("Dressing") I("Trim")
+StoopTop --> Extrude(WallD + 0.5) Mat("Dressing") I("Trim")
+// The yard side: plain windows.
+RearGroundInset --> Split(X) { WallD: NIL | ~1: RearGroundIn | WallD: NIL }
+RearGroundIn --> Translate(0, 0, -WallD) Repeat(X, 3.0) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.0: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.4: Wall | 1.6: Glazing | ~1: Wall }
+
+// -- 3. The upper storeys: tall windows under pointed hoods, and the
+// oriel up the first bay where the house has one --
+Uppers --> Comp(Faces) { Front: UpperFrontInset | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperFrontInset --> Split(X) { WallD: NIL | ~1: UpperFrontIn | WallD: NIL }
+UpperFrontIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { Storey }
+Storey --> Split(X) { 0.6: Wall | ~1: Bays | 0.6: Wall }
+Bays --> Repeat(X, BayW) { Bay }
+Bay --> when(split.i == 0): Pick("oriel") { 55% OrielBay | 45% WinBay } | else: WinBay
+WinBay --> Split(X) { ~1: Wall | 1.1: WinCol | ~1: Wall }
+WinCol --> Split(Y) { 0.9: Wall | 0.12: Sill | 2.0: Glazing | 0.14: HoodBase | ~1: Wall }
+// The oriel: solid under and over its window, so the stack is closed top
+// and bottom, and hollow at the window, its sides walls of their own.
+OrielBay --> Split(Y) { 0.9: OrielSolid | 2.0: OrielWin | ~1: OrielSolid }
+OrielSolid --> Extrude(WallD + OrielD) I("Oriel")
+OrielWin --> Extrude(WallD + OrielD) Split(Z) { WallD: SlotWall | ~1: OrielHollow }
+OrielHollow --> Comp(Faces) { Front: OrielFront | Left: OrielSide | Right: OrielSide | All: NIL }
+OrielSide --> Translate(0, 0, -WallD) Wall
+// The front stands between the sides, which turn its corners.
+OrielFront --> Translate(0, 0, -WallD) Split(X) { WallD: NIL | 0.12: Wall | ~1: Glazing
+    | 0.12: Wall | WallD: NIL }
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { RearStorey }
+RearStorey --> Repeat(X, 3.0) { RearUpperBay }
+RearUpperBay --> Split(X) { ~1: Wall | 1.0: RearUpperWindow | ~1: Wall }
+RearUpperWindow --> Split(Y) { 0.9: Wall | 1.6: Glazing | ~1: Wall }
+
+// -- 4. The crown: a cornice the whole frontage, and over the oriel a
+// steep pointed gable run back into the roof --
+Crown --> Comp(Faces) { Front: CrownFace | Back: RearCrownInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+CrownFace --> Pick("oriel") { 55% OrielCrown | 45% Cornice }
+OrielCrown --> Split(X) { WallD + 0.6: Cornice | BayW: OrielGable | ~1: Cornice }
+Cornice --> Split(Y) { 0.25: CorniceBed | 0.25: CorniceCorona | ~1: Attic }
+CorniceBed --> Extrude(0.2) Mat("Dressing") I("Cornice")
+CorniceCorona --> Extrude(0.55) Mat("Dressing") I("Cornice")
+Attic --> Extrude(0.08) I("Wall")
+OrielGable --> Translate(0, 0, 0.3 - Depth / 2) Size(scope.x, CrownH + 1.4 + 3.0, 0)
+    Extrude(Depth / 2 - 0.3 + OrielD) Split(Y) { CrownH + 1.4: SlotWall | ~1: GableRoof }
+GableRoof --> Roof(Gable, 60, overhang=0, ridge=Z) { Slope: SlateSlope | GableEnd: SlotWall }
+RearCrownInset --> Split(X) { WallD: NIL | ~1: RearCrownIn | WallD: NIL }
+RearCrownIn --> Translate(0, 0, -WallD) Wall
+
+// -- 5. The roof: steep slate along the street, its gable ends the party
+// walls, iron cresting along its ridge: the roof is drawn from a sliver at
+// the zone's foot, the cresting from the rest, lifted to the ridge --
+RoofZone --> Split(Y) { 0.01: MainRoof | ~1: CrestZone }
+MainRoof --> Roof(Gable, 50, overhang=0, ridge=X) { Slope: SlateSlope | GableEnd: SlotWall }
+SlateSlope --> Mat("Slate") I("Roof")
+CrestZone --> Translate(0.05, Rise * Depth / 2 - 0.1, Depth / 2 - 0.04)
+    Size(scope.x - 0.1, 0.55, 0.08)
+    Mat("Iron") Split(Y) { 0.1: CrestRail | ~1: Spikes }
+CrestRail --> I("Iron")
+Spikes --> Repeat(X, 0.45) { SpikeBay }
+SpikeBay --> Split(X) { ~1: NIL | 0.06: Spike | ~1: NIL }
+Spike --> I("Iron")

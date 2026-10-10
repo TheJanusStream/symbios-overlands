@@ -1,0 +1,111 @@
+// The nordic theme's street house (#1598): a wooden town house of a
+// northern port. See street_house.rs for the house, and
+// catalogue::items::street for the conventions and for what is declared
+// ahead of these rules (Storeys, Trade, Frontage, Depth, GroundH, FloorH)
+// and after them (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.25
+const PaneSet = 0.1
+const PlinthH = 0.7
+const StepH = 0.55
+const EaveH = 0.45
+const RoofH = 0.5
+// The cross-gable over the middle bays: its width, its storey's height.
+const ArkW = 3.6
+const ArkH = 1.7
+
+// -- 1. The house: its paint rolled once, then storeys, eaves, roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + EaveH + RoofH) Paint
+Paint --> 30% Mat("FaluRed") Massing | 25% Mat("Ochre") Massing
+    | 25% Mat("White") Massing | 20% Mat("GreyBlue") Massing
+Massing --> Split(Y) { GroundH: Ground | ~1: Uppers | EaveH: Eaves | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+// White trim: corner boards, window frames, sills and head boards.
+Corner --> Extrude(WallD + 0.04) Mat("Trim") I("Trim")
+Frame --> Extrude(WallD + 0.05) Mat("Trim") I("Trim")
+Sill --> Extrude(WallD + 0.07) Mat("Trim") I("Trim")
+Head --> Extrude(WallD + 0.09) Mat("Trim") I("Trim")
+Framed --> Split(X) { 0.1: Frame | ~1: Glazing | 0.1: Frame }
+
+// -- 2. The ground storey on its fieldstone plinth: a shop or a home --
+Ground --> Comp(Faces) { Front: GroundFrontInset | Back: RearGroundInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> Split(X) { 0.3: GCorner | ~1: GroundRun | 1.6: Doorway | ~1: GroundRun
+    | 0.3: GCorner }
+GCorner --> Split(Y) { PlinthH: Plinth | ~1: Corner }
+GWall --> Split(Y) { PlinthH: Plinth | ~1: Wall }
+Plinth --> Extrude(WallD + 0.08) Mat("Plinth") I("Plinth")
+GroundRun --> when(Trade == 1): Repeat(X, 3.2) { ShopBay } | else: Repeat(X, 2.4) { GWinBay }
+ShopBay --> Split(X) { ~1: GWall | 2.2: ShopWin | ~1: GWall }
+ShopWin --> Split(Y) { PlinthH: Plinth | 0.1: Sill | 1.9: ShopFramed | 0.25: Head | ~1: Wall }
+ShopFramed --> Split(X) { 0.12: Frame | ~1: ShopGlazing | 0.12: Frame }
+GWinBay --> Split(X) { ~1: GWall | 1.1: GWinCol | ~1: GWall }
+GWinCol --> Split(Y) { PlinthH: Plinth | 0.45: Wall | 0.1: Sill | 1.5: Framed | 0.25: Head
+    | ~1: Wall }
+// The door up a stone step, a woven sign over it where the house trades.
+Doorway --> Split(X) { 0.15: Frame | ~1: DoorCol | 0.15: Frame }
+DoorCol --> Split(Y) { StepH: Step | 2.3: DoorLeaf | 0.25: Head | ~1: OverDoor }
+Step --> Extrude(WallD + 0.3) Mat("Stone") I("Plinth")
+DoorLeaf --> Extrude(WallD - 0.1) Mat("Door") I("Door")
+OverDoor --> when(Trade == 1): Split(Y) { 0.04: Wall | 0.4: Sign | ~1: Wall } | else: Wall
+Sign --> Extrude(WallD + 0.05) Mat("Sign") I("Sign")
+// The yard side: plain windows.
+RearGroundInset --> Split(X) { WallD: NIL | ~1: RearGroundIn | WallD: NIL }
+RearGroundIn --> Translate(0, 0, -WallD) RearGround
+RearGround --> Repeat(X, 3.0) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.0: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.2: Wall | 1.3: Glazing | ~1: Wall }
+
+// -- 3. The board storeys: framed windows between corner boards --
+Uppers --> Comp(Faces) { Front: UpperFrontInset | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperFrontInset --> Split(X) { WallD: NIL | ~1: UpperFrontIn | WallD: NIL }
+UpperFrontIn --> Translate(0, 0, -WallD) UpperFront
+UpperFront --> Repeat(Y, FloorH) { Storey }
+Storey --> Split(X) { 0.3: Corner | ~1: Bays | 0.3: Corner }
+Bays --> Repeat(X, 2.4) { WinBay }
+WinBay --> Split(X) { ~1: Wall | 1.1: WinCol | ~1: Wall }
+WinCol --> Split(Y) { 0.85: Wall | 0.1: Sill | 1.5: Framed | 0.25: Head | ~1: Wall }
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) RearUpper
+RearUpper --> Repeat(Y, FloorH) { RearStorey }
+RearStorey --> Repeat(X, 3.0) { RearUpperBay }
+RearUpperBay --> Split(X) { ~1: Wall | 1.0: RearUpperWindow | ~1: Wall }
+RearUpperWindow --> Split(Y) { 0.9: Wall | 1.3: Glazing | ~1: Wall }
+
+// -- 4. The eaves: a frieze under a white eave board the whole frontage,
+// and - Picked once - a cross-gable rising out of it over the middle --
+Eaves --> Comp(Faces) { Front: EaveFace | Back: RearEaveInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+EaveFace --> Pick("ark") { 60% ArkEaves | 40% EaveRun }
+EaveRun --> Split(Y) { ~1: Frieze | 0.25: EaveBoard }
+Frieze --> Extrude(0.06) I("Wall")
+EaveBoard --> Extrude(0.35) Mat("Trim") I("Trim")
+ArkEaves --> Split(X) { ~1: EaveRun | ArkW: Ark | ~1: EaveRun }
+// The cross-gable: a wall run back half the house's depth, a storey of
+// it over the eaves with a window, and a gable over that whose eaves
+// stand out as its bargeboards. Kept low enough that its peak stays
+// under the main roof's slope behind it at the shallowest depth.
+Ark --> Translate(0, 0, 0.3 - Depth / 2) Size(scope.x, EaveH + ArkH + 3.0, 0)
+    Extrude(Depth / 2 - 0.3) Split(Y) { EaveH: ArkBase | ArkH: ArkStorey | ~1: ArkRoof }
+ArkBase --> I("Wall")
+ArkStorey --> Comp(Faces) { Front: ArkFront | Left: ArkSide | Right: ArkSide | All: NIL }
+ArkSide --> Translate(0, 0, -WallD) Wall
+ArkFront --> Split(X) { 0.25: Corner | ~1: Wall | 1.1: ArkWin | ~1: Wall | 0.25: Corner }
+ArkWin --> Split(Y) { 0.2: Sill | 1.2: Framed | ~1: Head }
+ArkRoof --> Roof(Gable, 42, overhang=0.25, ridge=Z) { Slope: RoofSlope | GableEnd: ArkGable }
+ArkGable --> I("Wall")
+RearEaveInset --> Split(X) { WallD: NIL | ~1: RearEaveIn | WallD: NIL }
+RearEaveIn --> Translate(0, 0, -WallD) Wall
+
+// -- 5. The roof: steep along the street, Picked once - tarred shakes,
+// turf or slate - its gable ends the party walls --
+RoofZone --> Roof(Gable, 45, overhang=0, ridge=X) { Slope: RoofSlope | GableEnd: Gable }
+RoofSlope --> Pick("roof") { 45% ShakeSlope | 30% TurfSlope | 25% SlateSlope }
+ShakeSlope --> Mat("Shakes") I("Roof")
+TurfSlope --> Mat("Turf") I("Roof")
+SlateSlope --> Mat("Slate") I("Roof")
+Gable --> I("Wall")

@@ -38,6 +38,7 @@ pub mod solarpunk;
 pub mod space_outpost;
 pub mod sports_rec;
 pub mod steampunk;
+pub mod street;
 pub mod suburban;
 pub mod tools;
 pub mod wild_west;
@@ -72,6 +73,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &ancient::urn::Urn,
     &ancient::statue_plinth::StatuePlinth,
     &ancient::brazier::Brazier,
+    &street::StreetEntry(&ancient::street_house::SPEC),
+    &street::StreetEntry(&ancient::street_block::SPEC),
+    &street::StreetEntry(&ancient::street_low::SPEC),
     // Buildings - Ancient/Classical poor (mudbrick) variants, prosperity Poor.
     &ancient::mudbrick_hut::MudbrickHut,
     &ancient::ruined_wall::RuinedWall,
@@ -86,6 +90,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &medieval::barrel_stack::BarrelStack,
     &medieval::trade_stall::TradeStall,
     &medieval::banner_pole::BannerPole,
+    &street::StreetEntry(&medieval::street_house::SPEC),
+    &street::StreetEntry(&medieval::street_block::SPEC),
+    &street::StreetEntry(&medieval::street_low::SPEC),
     // Buildings - Medieval poor (cottar) variants, prosperity Poor.
     &medieval::wattle_hovel::WattleHovel,
     &medieval::lean_to::LeanTo,
@@ -99,6 +106,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &cyberpunk::neon_kiosk::NeonKiosk,
     &cyberpunk::drone_perch::DronePerch,
     &cyberpunk::cable_arch::CableArch,
+    &street::StreetEntry(&cyberpunk::street_house::SPEC),
+    &street::StreetEntry(&cyberpunk::street_block::SPEC),
+    &street::StreetEntry(&cyberpunk::street_low::SPEC),
     // Buildings - Cyberpunk poor (undercity) variants, prosperity Poor.
     &cyberpunk::scrap_shanty::ScrapShanty,
     &cyberpunk::container_stack::ContainerStack,
@@ -115,6 +125,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &nordic::shield_rack::ShieldRack,
     &nordic::drying_rack::DryingRack,
     &nordic::totem_pole::TotemPole,
+    &street::StreetEntry(&nordic::street_house::SPEC),
+    &street::StreetEntry(&nordic::street_block::SPEC),
+    &street::StreetEntry(&nordic::street_low::SPEC),
     // Buildings - Nordic poor (croft) variants, prosperity Poor.
     &nordic::turf_house::TurfHouse,
     &nordic::sod_shelter::SodShelter,
@@ -129,6 +142,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &feudal_japan::koi_pond::KoiPond,
     &feudal_japan::bamboo_fence::BambooFence,
     &feudal_japan::bonsai::Bonsai,
+    &street::StreetEntry(&feudal_japan::street_house::SPEC),
+    &street::StreetEntry(&feudal_japan::street_block::SPEC),
+    &street::StreetEntry(&feudal_japan::street_low::SPEC),
     // Buildings - Feudal Japan poor (farmstead) variants, prosperity Poor.
     &feudal_japan::minka::Minka,
     &feudal_japan::rice_shed::RiceShed,
@@ -143,6 +159,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &mesoamerican::idol::Idol,
     &mesoamerican::fire_bowl::FireBowl,
     &mesoamerican::calendar_stone::CalendarStone,
+    &street::StreetEntry(&mesoamerican::street_house::SPEC),
+    &street::StreetEntry(&mesoamerican::street_block::SPEC),
+    &street::StreetEntry(&mesoamerican::street_low::SPEC),
     // Buildings - Mesoamerican poor (commoner) variants, prosperity Poor.
     &mesoamerican::adobe_hut::AdobeHut,
     &mesoamerican::maize_granary::MaizeGranary,
@@ -152,6 +171,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &modern_city::office_block::OfficeBlock,
     &modern_city::parking_garage::ParkingGarage,
     &modern_city::rowhouse_terrace::RowhouseTerrace,
+    &street::StreetEntry(&modern_city::street_house::SPEC),
+    &street::StreetEntry(&modern_city::street_block::SPEC),
+    &street::StreetEntry(&modern_city::street_low::SPEC),
     &modern_city::transit_stop::TransitStop,
     &modern_city::street_lamp::StreetLamp,
     &modern_city::traffic_light::TrafficLight,
@@ -171,6 +193,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &suburban::mailbox::Mailbox,
     &suburban::minivan::Minivan,
     &suburban::swing_set::SwingSet,
+    &street::StreetEntry(&suburban::street_house::SPEC),
+    &street::StreetEntry(&suburban::street_block::SPEC),
+    &street::StreetEntry(&suburban::street_low::SPEC),
     // Buildings - Suburban poor (trailer-lot) variants, prosperity Poor.
     &suburban::trailer_home::TrailerHome,
     &suburban::carport::Carport,
@@ -185,6 +210,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &rural_farmland::hay_bales::HayBales,
     &rural_farmland::scarecrow::Scarecrow,
     &rural_farmland::rail_fence::RailFence,
+    &street::StreetEntry(&rural_farmland::street_house::SPEC),
+    &street::StreetEntry(&rural_farmland::street_block::SPEC),
+    &street::StreetEntry(&rural_farmland::street_low::SPEC),
     // Buildings - Rural/Farmland poor (hardscrabble) variants, prosperity Poor.
     &rural_farmland::homestead_shack::HomesteadShack,
     &rural_farmland::pole_barn::PoleBarn,
@@ -199,6 +227,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &industrial_park::pipe_run::PipeRun,
     &industrial_park::pallet_stack::PalletStack,
     &industrial_park::floodlight::Floodlight,
+    &street::StreetEntry(&industrial_park::street_house::SPEC),
+    &street::StreetEntry(&industrial_park::street_block::SPEC),
+    &street::StreetEntry(&industrial_park::street_low::SPEC),
     // Buildings - Industrial Park poor (derelict) variants, prosperity Poor.
     &industrial_park::derelict_shed::DerelictShed,
     &industrial_park::rusted_tank::RustedTank,
@@ -213,6 +244,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &coastal_resort::deck_chair::DeckChair,
     &coastal_resort::dinghy::Dinghy,
     &coastal_resort::buoy::Buoy,
+    &street::StreetEntry(&coastal_resort::street_house::SPEC),
+    &street::StreetEntry(&coastal_resort::street_block::SPEC),
+    &street::StreetEntry(&coastal_resort::street_low::SPEC),
     // Buildings - Coastal Resort poor (fishing-hamlet) variants, prosperity Poor.
     &coastal_resort::fishing_shack::FishingShack,
     &coastal_resort::bait_stand::BaitStand,
@@ -227,6 +261,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &roadside::traffic_cone::TrafficCone,
     &roadside::vending_machine::VendingMachine,
     &roadside::guardrail::Guardrail,
+    &street::StreetEntry(&roadside::street_house::SPEC),
+    &street::StreetEntry(&roadside::street_block::SPEC),
+    &street::StreetEntry(&roadside::street_low::SPEC),
     // Buildings - Roadside poor (busted-shoulder) variants, prosperity Poor.
     &roadside::produce_stand::ProduceStand,
     &roadside::boarded_shack::BoardedShack,
@@ -241,6 +278,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &civic_campus::bike_rack::BikeRack,
     &civic_campus::notice_board::NoticeBoard,
     &civic_campus::campus_lamp::CampusLamp,
+    &street::StreetEntry(&civic_campus::street_house::SPEC),
+    &street::StreetEntry(&civic_campus::street_block::SPEC),
+    &street::StreetEntry(&civic_campus::street_low::SPEC),
     // Buildings - Civic / Campus poor (underfunded) variants, prosperity Poor.
     &civic_campus::portable_classroom::PortableClassroom,
     &civic_campus::bus_shelter::BusShelter,
@@ -256,6 +296,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &sports_rec::scoreboard::Scoreboard,
     &sports_rec::players_bench::PlayersBench,
     &sports_rec::pelican_bicycle::PelicanBicycle,
+    &street::StreetEntry(&sports_rec::street_house::SPEC),
+    &street::StreetEntry(&sports_rec::street_block::SPEC),
+    &street::StreetEntry(&sports_rec::street_low::SPEC),
     // Buildings - Sports / Recreation poor (rec-ground) variants, prosperity Poor.
     &sports_rec::rec_court::RecCourt,
     &sports_rec::backstop::Backstop,
@@ -270,6 +313,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &steampunk::gear_pile::GearPile,
     &steampunk::gas_lamp::GasLamp,
     &steampunk::coal_hopper::CoalHopper,
+    &street::StreetEntry(&steampunk::street_house::SPEC),
+    &street::StreetEntry(&steampunk::street_block::SPEC),
+    &street::StreetEntry(&steampunk::street_low::SPEC),
     // Buildings - Steampunk poor (soot-yard) variants, prosperity Poor.
     &steampunk::tinkerers_shack::TinkerersShack,
     &steampunk::scrap_boiler::ScrapBoiler,
@@ -284,6 +330,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &solarpunk::water_channel::WaterChannel,
     &solarpunk::solar_lamp::SolarLamp,
     &solarpunk::beehive::Beehive,
+    &street::StreetEntry(&solarpunk::street_house::SPEC),
+    &street::StreetEntry(&solarpunk::street_block::SPEC),
+    &street::StreetEntry(&solarpunk::street_low::SPEC),
     // Buildings - Solarpunk poor (grassroots) variants, prosperity Poor.
     &solarpunk::cob_roundhouse::CobRoundhouse,
     &solarpunk::poly_tunnel::PolyTunnel,
@@ -298,6 +347,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &space_outpost::cargo_crate::CargoCrate,
     &space_outpost::beacon::Beacon,
     &space_outpost::airlock::Airlock,
+    &street::StreetEntry(&space_outpost::street_house::SPEC),
+    &street::StreetEntry(&space_outpost::street_block::SPEC),
+    &street::StreetEntry(&space_outpost::street_low::SPEC),
     // Buildings - Space Outpost poor (wreck) variants, prosperity Poor.
     &space_outpost::crash_shelter::CrashShelter,
     &space_outpost::solar_wreck::SolarWreck,
@@ -312,6 +364,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &fantasy::spell_circle::SpellCircle,
     &fantasy::mana_font::ManaFont,
     &fantasy::crystal_cluster::CrystalCluster,
+    &street::StreetEntry(&fantasy::street_house::SPEC),
+    &street::StreetEntry(&fantasy::street_block::SPEC),
+    &street::StreetEntry(&fantasy::street_low::SPEC),
     // Buildings - High Fantasy poor (hedge-magic) variants, prosperity Poor.
     &fantasy::hedge_hut::HedgeHut,
     &fantasy::standing_stone::StandingStone,
@@ -326,6 +381,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &gothic_horror::dead_tree::DeadTree,
     &gothic_horror::iron_fence::IronFence,
     &gothic_horror::stone_cross::StoneCross,
+    &street::StreetEntry(&gothic_horror::street_house::SPEC),
+    &street::StreetEntry(&gothic_horror::street_block::SPEC),
+    &street::StreetEntry(&gothic_horror::street_low::SPEC),
     // Buildings - Gothic Horror poor (forsaken) variants, prosperity Poor.
     &gothic_horror::ruined_chapel::RuinedChapel,
     &gothic_horror::pauper_graves::PauperGraves,
@@ -340,6 +398,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &alien_organic::tendril::Tendril,
     &alien_organic::spore_vent::SporeVent,
     &alien_organic::creep_patch::CreepPatch,
+    &street::StreetEntry(&alien_organic::street_house::SPEC),
+    &street::StreetEntry(&alien_organic::street_block::SPEC),
+    &street::StreetEntry(&alien_organic::street_low::SPEC),
     // Buildings - Alien Organic poor (necrotic) variants, prosperity Poor.
     &alien_organic::withered_hive::WitheredHive,
     &alien_organic::husk_pods::HuskPods,
@@ -354,6 +415,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &alien_monolithic::energy_node::EnergyNode,
     &alien_monolithic::monolith_shard::MonolithShard,
     &alien_monolithic::light_disc::LightDisc,
+    &street::StreetEntry(&alien_monolithic::street_house::SPEC),
+    &street::StreetEntry(&alien_monolithic::street_block::SPEC),
+    &street::StreetEntry(&alien_monolithic::street_low::SPEC),
     // Buildings - Alien Monolithic poor (dormant) variants, prosperity Poor.
     &alien_monolithic::broken_monolith::BrokenMonolith,
     &alien_monolithic::dead_pylon::DeadPylon,
@@ -368,6 +432,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &post_apoc::fuel_barrels::FuelBarrels,
     &post_apoc::tire_wall::TireWall,
     &post_apoc::signal_fire::SignalFire,
+    &street::StreetEntry(&post_apoc::street_house::SPEC),
+    &street::StreetEntry(&post_apoc::street_block::SPEC),
+    &street::StreetEntry(&post_apoc::street_low::SPEC),
     // Buildings - Post-apocalyptic poor (drifter) variants, prosperity Poor.
     &post_apoc::survivor_lean_to::SurvivorLeanTo,
     &post_apoc::rubble_barricade::RubbleBarricade,
@@ -382,6 +449,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &wild_west::wagon::Wagon,
     &wild_west::frontier_fence::FrontierFence,
     &wild_west::wind_pump::WindPump,
+    &street::StreetEntry(&wild_west::street_house::SPEC),
+    &street::StreetEntry(&wild_west::street_block::SPEC),
+    &street::StreetEntry(&wild_west::street_low::SPEC),
     // Buildings - Wild West poor (bust) variants, prosperity Poor.
     &wild_west::prospector_shack::ProspectorShack,
     &wild_west::boot_hill::BootHill,
@@ -399,6 +469,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &pirate::rotting_hulk::RottingHulk,
     &pirate::gibbet_cage::GibbetCage,
     &pirate::tideline_bones::TidelineBones,
+    &street::StreetEntry(&pirate::street_house::SPEC),
+    &street::StreetEntry(&pirate::street_block::SPEC),
+    &street::StreetEntry(&pirate::street_low::SPEC),
     // Buildings - cross-theme socio-political props (Prop role, tagged
     // with every theme but gated to a prosperity / escalation tier band;
     // see crate::catalogue::items::civic).

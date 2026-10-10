@@ -1,0 +1,121 @@
+// The Mesoamerican theme's street house (#1598): a painted stucco town
+// house of talud and tablero. See street_house.rs for the house, and
+// catalogue::items::street for the conventions and for what is declared
+// ahead of these rules (Storeys, Trade, Frontage, Depth, GroundH, FloorH)
+// and after them (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.45
+const PaneSet = 0.16
+const StepH = 0.5
+const BenchH = 0.6
+const MouldH = 0.18
+const FriezeH = 0.5
+const CrownH = 1.0
+const RoofH = 1.0
+const MerlonH = 1.0
+const CombW = 4.2
+const CombH = 3.4
+
+// -- 1. The house: its stucco rolled once, then storeys, crown, roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + CrownH + RoofH) Stucco
+Stucco --> 26% Mat("Cream") Massing | 22% Mat("Red") Massing | 20% Mat("Ochre") Massing
+    | 16% Mat("Turquoise") Massing | 16% Mat("White") Massing
+Massing --> Split(Y) { GroundH: Ground | ~1: Uppers | CrownH: Crown | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+// The proud parts run the whole frontage from the full face, so a row's
+// bands meet at the party walls: a stone moulding, and the painted frieze,
+// red or jade.
+Mould --> Extrude(0.2) Mat("Stone") I("Trim")
+Frieze --> Extrude(0.1) Pick("frieze") { 60% RedFrieze | 40% JadeFrieze }
+RedFrieze --> Mat("Frieze") I("Frieze")
+JadeFrieze --> Mat("FriezeJade") I("Frieze")
+Lintel --> Extrude(WallD + 0.08) Mat("Lintel") I("Lintel")
+
+// -- 2. The ground storey: market stalls or a home, under a moulding and
+// the frieze --
+Ground --> Comp(Faces) { Front: GroundFace | Back: RearGroundInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFace --> Split(Y) { ~1: GroundFrontInset | MouldH: Mould | FriezeH: Frieze }
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> when(Trade == 1): Split(X) { ~1: StallRun | 2.2: Entrance | ~1: StallRun }
+    | else: Split(X) { ~1: HomeRun | 2.2: Entrance | ~1: HomeRun }
+// A stall: an opening over a stone bench, a timber lintel, and a palm
+// thatch awning over it.
+StallRun --> Repeat(X, 3.4) { StallBay }
+StallBay --> Split(X) { 0.5: Wall | ~1: Stall | 0.5: Wall }
+Stall --> Split(Y) { BenchH: Bench | ~1: ShopGlazing | 0.24: Lintel | 0.16: Awning | ~1: Wall }
+Bench --> Extrude(WallD + 0.35) Mat("Stone") I("Trim")
+Awning --> Extrude(WallD + 1.3) Mat("Thatch") I("Canopy")
+HomeRun --> Repeat(X, 2.6) { HomeBay }
+HomeBay --> Split(X) { ~1: Wall | 1.1: HomeWindow | ~1: Wall }
+HomeWindow --> Split(Y) { 1.2: Wall | 1.4: Glazing | 0.24: Lintel | ~1: Wall }
+// The house door: up a stone step, under a timber lintel studded with jade.
+Entrance --> Split(X) { 0.3: Wall | ~1: EntranceDoor | 0.3: Wall }
+EntranceDoor --> Split(Y) { StepH: Step | 2.2: DoorLeaf | 0.3: DoorLintel | ~1: Wall }
+Step --> Extrude(WallD + 0.35) Mat("Stone") I("Trim")
+DoorLeaf --> Extrude(WallD - 0.2) Mat("Door") I("Door")
+DoorLintel --> Split(X) { ~1: Lintel | 0.22: Stud | 0.3: Lintel | 0.22: Stud | ~1: Lintel }
+Stud --> Extrude(WallD + 0.14) Mat("Jade") I("Trim")
+RearGroundInset --> Split(X) { WallD: NIL | ~1: RearGroundIn | WallD: NIL }
+RearGroundIn --> Translate(0, 0, -WallD) Repeat(X, 2.8) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.0: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.3: Wall | 1.3: Glazing | ~1: Wall }
+
+// -- 3. The upper storeys: each on a stepped talud, its windows in a
+// tablero between mouldings, the frieze over it --
+Uppers --> Comp(Faces) { Front: UpperFront | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperFront --> Repeat(Y, FloorH) { StoreyFace }
+StoreyFace --> Split(Y) { 0.45: Talud | MouldH: Mould | ~1: TableroInset | MouldH: Mould
+    | FriezeH: Frieze }
+// The talud: three courses, each set back from the one under it.
+Talud --> Split(Y) { 0.15: Course(0.36) | 0.15: Course(0.24) | ~1: Course(0.12) }
+Course(d) --> Extrude(d) Mat("Stone") I("Talud")
+TableroInset --> Split(X) { WallD: NIL | ~1: TableroIn | WallD: NIL }
+TableroIn --> Translate(0, 0, -WallD) Split(X) { 0.6: Wall | ~1: Bays | 0.6: Wall }
+Bays --> Repeat(X, 2.4) { Bay }
+Bay --> Split(X) { ~1: Wall | 1.1: WinCol | ~1: Wall }
+WinCol --> Split(Y) { ~1: Wall | 1.45: Glazing | 0.24: Lintel | 0.12: Wall }
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { RearStorey }
+RearStorey --> Repeat(X, 2.8) { RearUpperBay }
+RearUpperBay --> Split(X) { ~1: Wall | 1.0: RearUpperWindow | ~1: Wall }
+RearUpperWindow --> Split(Y) { 1.0: Wall | 1.3: Glazing | ~1: Wall }
+
+// -- 4. The crown: a parapet, and on it a row of stepped merlons; the
+// deck inside it --
+Crown --> Comp(Faces) { Front: CrownFace | Back: ParapetInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+CrownFace --> Split(Y) { ~1: ParapetInset | 0.01: MerlonSliver }
+ParapetInset --> Split(X) { WallD: NIL | ~1: ParapetIn | WallD: NIL }
+ParapetIn --> Translate(0, 0, -WallD) Wall
+// The merlons stand on the parapet's top, from a sliver of its face.
+MerlonSliver --> Translate(0, 0.01, -WallD) Size(scope.x, MerlonH, 0) Extrude(WallD)
+    Split(X) { WallD: NIL | ~1: MerlonRow | WallD: NIL }
+MerlonRow --> Repeat(X, 1.3) { MerlonSlot }
+MerlonSlot --> Split(X) { 0.18: NIL | ~1: Merlon | 0.18: NIL }
+Merlon --> Mat("Stone") Split(Y) { 0.45: MerlonBase | ~1: MerlonTop }
+MerlonBase --> I("Merlon")
+MerlonTop --> Size(scope.x * 0.5, scope.y, scope.z) Center(X) I("Merlon")
+// The deck fills the ring inside the parapet's walls, 2 cm clear of its
+// foot: the bottom face's inward is up.
+Deck --> Translate(WallD, WallD, -0.22) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("Deck") I("Roof")
+
+// -- 5. A roof comb over the middle, where the house has one: a pierced
+// crest standing on the deck, a gold sun disc on its face --
+RoofZone --> Pick("comb") { 45% CombZone | 55% NIL }
+CombZone --> Split(X) { ~1: NIL | CombW: CombCol | ~1: NIL }
+CombCol --> Split(Z) { 1.4: NIL | 0.5: Comb | ~1: NIL }
+Comb --> Translate(0, 0.22 - CrownH, 0) Size(scope.x, CombH, scope.z) Mat("Red")
+    Split(Y) { 0.9: CombWall | 1.0: CombPierced | ~1: CombHead }
+CombWall --> I("Wall")
+CombPierced --> Split(X) { 0.5: CombWall | ~1: NIL | 0.6: CombWall | ~1: NIL | 0.5: CombWall }
+CombHead --> Split(Y) { 0.01: DiscSliver | ~1: CombWall }
+// The disc: a face of the comb's turned to the street, drawn round.
+DiscSliver --> Comp(Faces) { Front: DiscFace | _: NIL }
+DiscFace --> Split(X) { ~1: NIL | 1.2: DiscSlot | ~1: NIL }
+DiscSlot --> Translate(0, 0.1 + 1.2, 0) Rotate(0.7071068, 0.7071068, 0, 0)
+    Size(scope.x, 0.1, 1.2) Mat("Gold") I("Disc")

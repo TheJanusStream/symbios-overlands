@@ -134,8 +134,8 @@ mod editor;
 mod figure;
 mod floating;
 // The floating report's class a for one generator, lent to the catalogue's
-// overhaul guard and census (#1575).
-#[cfg(test)]
+// overhaul guard and census (#1575) and to the street buildings' check
+// (#1598).
 pub(crate) use floating::free_parts;
 mod generator_file;
 mod gif;
@@ -143,6 +143,7 @@ mod headless;
 mod rig;
 pub(crate) mod rigged;
 pub(crate) mod sizes;
+mod street;
 mod terrain_report;
 mod text_tools;
 mod triangles;
@@ -371,6 +372,32 @@ struct Args {
     /// print the entry's available variants and exit.
     #[arg(long)]
     variant: Option<String>,
+    /// With `--catalogue <slug>` of a street building (#1598): build it at
+    /// this fit rather than its kind's own - `FRONTAGE,DEPTH,STOREYS` in
+    /// metres and storeys, then `,trade` for a ground floor that trades -
+    /// snapped to its kind's steps as a Berlin footprint's copy is. Applies
+    /// to `--dump` too.
+    #[arg(long, value_name = "F,D,S[,trade]")]
+    street_fit: Option<String>,
+    /// With `--catalogue <slug>` of a street building (#1598): draw it with
+    /// this rules file - a draft of its `.cga` - in place of the rules it
+    /// was built with, read at run time, so a grammar is redrawn with no
+    /// rebuild. Applies to `--dump` and `--street-check` too.
+    #[arg(long, value_name = "FILE")]
+    street_rules: Option<String>,
+    /// With `--catalogue <slug>` of a street building (#1598): hold it -
+    /// or `--street-rules`' draft of it - to the street conventions at its
+    /// kind's sampled fits and at `--street-fit`'s, and check that nothing
+    /// of it z-fights or floats; print each fault and exit, 1 if there is
+    /// one. Renders nothing.
+    #[arg(long, default_value_t = false)]
+    street_check: bool,
+    /// With `--catalogue <slug>` of a street building (#1598): draw it at
+    /// this grammar seed in place of its own, as a Berlin footprint's copy
+    /// draws with a seed of its own - its cladding, its `Pick`s, its lit
+    /// windows rolled again.
+    #[arg(long)]
+    street_seed: Option<u64>,
     /// Render a [`Generator`] deserialized from a JSON file. Lets the agent
     /// iterate on an L-system grammar (or any generator) without recompiling
     /// the crate: `--dump` a catalogue entry to seed the JSON, edit the
@@ -1069,6 +1096,21 @@ pub fn run() {
         return;
     }
 
+    // `--street-check`: hold a street building, or a draft of its rules, to
+    // the street conventions and exit (#1598).
+    if args.street_check {
+        let slug = args
+            .catalogue
+            .as_deref()
+            .unwrap_or_else(|| panic!("--street-check needs --catalogue <street slug>"));
+        let clean = street::street_check(
+            slug,
+            args.street_fit.as_deref(),
+            args.street_rules.as_deref(),
+        );
+        std::process::exit(if clean { 0 } else { 1 });
+    }
+
     // `--catalogue-sizes [words]`: grow every entry a catalogue search finds
     // in one app with no renderer, print their boxes as JSON and exit (#1466).
     if let Some(words) = &args.catalogue_sizes {
@@ -1083,9 +1125,12 @@ pub fn run() {
     // drive the fast no-recompile geometry loop.
     if args.dump {
         let g = if let Some(slug) = args.catalogue.as_deref() {
-            crate::catalogue::by_slug(slug)
-                .unwrap_or_else(|| panic!("unknown catalogue slug {slug:?}"))
-                .build(TOOL_DID)
+            street::catalogue_generator(
+                slug,
+                args.street_fit.as_deref(),
+                args.street_rules.as_deref(),
+                args.street_seed,
+            )
         } else if let Some(tag) = args.prim.as_deref() {
             // Same construction as resolve_subject's --prim arm, so the
             // dumped JSON is exactly what a render of the same flags spawns.
@@ -2032,8 +2077,22 @@ fn resolve_subject(args: &Args) -> Resolved {
     if let Some(slug) = &args.catalogue {
         let entry = crate::catalogue::by_slug(slug)
             .unwrap_or_else(|| panic!("unknown catalogue slug {slug:?}"));
-        let mut generator = entry.build(TOOL_DID);
+        let mut generator = street::catalogue_generator(
+            slug,
+            args.street_fit.as_deref(),
+            args.street_rules.as_deref(),
+            args.street_seed,
+        );
         let mut label = format!("cat-{slug}");
+        if let Some(fit) = &args.street_fit {
+            label.push_str(&format!("-fit-{}", fit.replace(',', "x")));
+        }
+        if args.street_rules.is_some() {
+            label.push_str("-draft");
+        }
+        if let Some(seed) = args.street_seed {
+            label.push_str(&format!("-seed-{seed}"));
+        }
         if let Some(variant) = &args.variant {
             if variant == "list" {
                 println!("{slug} variants:");

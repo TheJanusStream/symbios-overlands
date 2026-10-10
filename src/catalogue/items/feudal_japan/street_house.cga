@@ -1,0 +1,113 @@
+// The Edo theme's street house (#1598): a merchant's tower house, a machiya
+// grown tall with a tiled eave over every storey. See street_house.rs for
+// the house, and catalogue::items::street for the conventions and for what
+// is declared ahead of these rules (Storeys, Trade, Frontage, Depth,
+// GroundH, FloorH) and after them (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.3
+const PaneSet = 0.1
+const PlinthH = 0.5
+const StepH = 0.5
+const RoofH = 1.0
+const PostW = 0.2
+// A pent eave: how far it reaches out to the street, how far its low edge
+// hangs under the storey's top, and the plaster kept clear under it.
+const EaveOut = 1.2
+const EaveDrop = 0.56
+const EaveClear = 0.8
+const FireW = 0.36
+
+// -- 1. The house: its plaster rolled once; a centimetre's layer at its
+// front carries the eaves and the fire walls, the body behind it the
+// storeys and the roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Plaster
+Plaster --> 46% Mat("Plaster") Massing | 30% Mat("Earth") Massing | 24% Mat("Ash") Massing
+Massing --> Split(Z) { 0.01: FrontLayer | ~1: Body }
+Body --> Split(Y) { GroundH: Ground | ~1: Uppers | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+Post --> Extrude(WallD + 0.06) Pick("lattice") { 60% DarkPost | 40% RedPost }
+DarkPost --> Mat("TimberDark") I("Post")
+RedPost --> Mat("Bengara") I("Post")
+Rail --> Extrude(WallD + 0.03) Mat("TimberDark") I("Trim")
+
+// -- 2. The ground storey: a shop under noren, or a lattice home --
+Ground --> Comp(Faces) { Front: GroundFrontInset | Back: RearGroundInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> when(Trade == 1): Split(X) { PostW: Post | ~1: ShopRun | 2.0: Entry
+    | ~1: ShopRun | PostW: Post }
+    | else: Split(X) { PostW: Post | ~1: LatticeRun | 2.0: Entry | ~1: LatticeRun
+    | PostW: Post }
+// A shop bay: open to the street behind its glazing over a stone sill, a
+// noren curtain across its head, each its own colour.
+ShopRun --> Repeat(X, 2.8) { ShopBay }
+ShopBay --> Split(X) { ~1: ShopUnit | 0.16: Post }
+ShopUnit --> Split(Y) { PlinthH: Sill | ~1: ShopGlazing | 0.85: Noren | EaveClear: Wall }
+Sill --> Extrude(WallD + 0.05) Mat("Stone") I("Trim")
+Noren --> 40% Mat("Indigo") Cloth | 30% Mat("Madder") Cloth | 30% Mat("Undyed") Cloth
+Cloth --> Extrude(WallD + 0.04) I("Noren")
+// A home's close lattice front over a stone sill.
+LatticeRun --> Repeat(X, 2.2) { LatticeBay }
+LatticeBay --> Split(X) { ~1: LatticeUnit | 0.16: Post }
+LatticeUnit --> Split(Y) { PlinthH: Sill | 0.35: Wall | 0.08: Rail | ~1: Glazing | 0.08: Rail
+    | EaveClear: Wall }
+// The entry: a sliding plank door up a step, a paper lantern hung on a
+// post either side.
+Entry --> Split(X) { PostW: LanternPost | ~1: EntryDoor | PostW: LanternPost }
+EntryDoor --> Split(Y) { StepH: Step | 2.2: DoorLeaf | 0.08: Rail | ~1: Wall }
+Step --> Extrude(WallD + 0.3) Mat("Stone") I("Trim")
+DoorLeaf --> Extrude(WallD - 0.12) Mat("Timber") I("Door")
+// A sliver at the post's top carries its lantern, so one post draws both.
+LanternPost --> Split(Y) { ~1: Post | 0.01: LanternSliver }
+LanternSliver --> Translate(-0.16, -1.75, WallD + 0.06) Size(0.52, 0.75, 0) Extrude(0.52)
+    Mat("Lantern") I("Lantern")
+RearGroundInset --> Split(X) { WallD: NIL | ~1: RearGroundIn | WallD: NIL }
+RearGroundIn --> Translate(0, 0, -WallD) Repeat(X, 2.6) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.2: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.2: Wall | 1.5: Glazing | ~1: Wall }
+
+// -- 3. The upper storeys: lattice bays between posts, under each
+// storey's eave --
+Uppers --> Comp(Faces) { Front: UpperFrontInset | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperFrontInset --> Split(X) { WallD: NIL | ~1: UpperFrontIn | WallD: NIL }
+UpperFrontIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { Storey }
+Storey --> Split(X) { PostW: Post | ~1: Bays | PostW: Post }
+Bays --> Repeat(X, 2.1) { Bay }
+Bay --> Split(X) { ~1: BayFront | 0.16: Post }
+BayFront --> Split(Y) { 0.5: Wall | 0.08: Rail | ~1: Glazing | 0.08: Rail | EaveClear: Wall }
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { RearStorey }
+RearStorey --> Repeat(X, 2.6) { RearUpperBay }
+RearUpperBay --> Split(X) { ~1: Wall | 1.1: RearUpperWindow | ~1: Wall }
+RearUpperWindow --> Split(Y) { 0.9: Wall | 1.4: Glazing | ~1: Wall }
+
+// -- 4. The front layer: a tiled pent eave over every storey, sloping to
+// the street, and where the house has them a fire wall at each party wall
+// from the first floor up through the roof's eave --
+FrontLayer --> Split(Y) { GroundH: Eave | ~1: UpperLayer | RoofH: NIL }
+UpperLayer --> Pick("udatsu") { 45% WithFirewalls | 55% UpperEaves }
+// The upper eaves stop a centimetre short of the fire walls, so their
+// ends never lie in the walls' faces.
+WithFirewalls --> Split(X) { FireW: Firewall | 0.01: NIL | ~1: UpperEaves | 0.01: NIL
+    | FireW: Firewall }
+UpperEaves --> Repeat(Y, FloorH) { Eave }
+// The eave: a shed of tiles from a sliver of the storey's top, its high
+// edge at the wall, a timber fascia under its low one.
+Eave --> Translate(0, scope.y - EaveDrop, -EaveOut) Size(scope.x, 0.2, EaveOut + 0.01)
+    Roof(Shed, 25, overhang=0, fascia=0.14) { Slope: EaveTiles | Fascia: EaveFascia
+    | GableEnd: EaveEnd | Back: NIL }
+EaveTiles --> Mat("Tile") I("Eave")
+EaveFascia --> Mat("TimberDark") I("Fascia")
+EaveEnd --> Mat("TimberDark") I("Eave")
+Firewall --> Translate(0, 0, -EaveOut - 0.04) Size(scope.x, scope.y + 0.55, EaveOut + 0.05)
+    Split(Y) { ~1: FirewallBody | 0.22: FirewallCap }
+FirewallBody --> I("Firewall")
+FirewallCap --> Mat("Tile") I("Firewall")
+
+// -- 5. The roof: a tiled gable along the street, its ends the party walls --
+RoofZone --> Roof(Gable, 27, overhang=0, ridge=X) { Slope: Tiles | GableEnd: Gable }
+Tiles --> Mat("Tile") I("Roof")
+Gable --> I("Wall")

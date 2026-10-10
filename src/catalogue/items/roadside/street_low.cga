@@ -1,0 +1,148 @@
+// The roadside strip's low building (#1598): a chrome-banded diner, or -
+// where it does not trade - a motor court. See street_low.rs for the
+// building, and catalogue::items::street for the conventions and for what is
+// declared ahead of these rules and after them.
+
+const WallD = 0.3
+const PaneSet = 0.12
+const StepH = 0.5
+const ParapetH = 0.9
+const SignH = 4.5
+const RoofH = 1.0
+// The motor court's covered walk: how far it stands out, how high its
+// paving stands, and a room's width along it.
+const WalkD = 1.9
+const WalkH = 0.45
+const RoomW = 3.6
+
+Lot --> when(Trade == 1): Diner | else: Court
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+Step --> Extrude(WallD + 0.35) Mat("Base") I("Trim")
+Chrome --> Extrude(WallD + 0.08) Mat("Chrome") I("Trim")
+
+// -- 1. The diner: an enamel box, chrome bands round a ribbon of windows,
+// a neon sign on its roof --
+Diner --> Extrude(GroundH + FloorH * (Storeys - 1) + ParapetH + SignH) Enamel
+Enamel --> 36% Mat("DinerRed") DinerMass | 34% Mat("DinerTeal") DinerMass
+    | 30% Mat("DinerCream") DinerMass
+DinerMass --> when(Storeys == 1): Split(Y) { GroundH: DinerGround | ParapetH: Parapet
+    | SignH: SignZone }
+    | else: Split(Y) { GroundH: DinerGround | ~1: DinerUpper | ParapetH: Parapet
+    | SignH: SignZone }
+DinerGround --> Comp(Faces) { Front: DinerFrontInset | Back: RearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+DinerFrontInset --> Split(X) { WallD: NIL | ~1: DinerFrontIn | WallD: NIL }
+DinerFrontIn --> Translate(0, 0, -WallD) DinerFront
+DinerFront --> Split(X) { ~1: DinerRun | 1.4: DinerDoor | ~1: DinerRun }
+DinerRun --> Split(Y) { 0.45: Wall | 0.08: Chrome | 0.37: Wall | 0.1: Chrome | 1.75: Ribbon
+    | 0.1: Chrome | ~1: Wall }
+Ribbon --> Split(X) { ~1: RibbonRun | 0.08: Mullion }
+RibbonRun --> Repeat(X, 1.2) { RibbonBay }
+RibbonBay --> Split(X) { 0.08: Mullion | ~1: ShopGlazing }
+Mullion --> Extrude(WallD - 0.06) Mat("Chrome") I("Trim")
+DinerDoor --> Split(Y) { StepH: Step | 2.3: DinerLeaf | 0.22: DoorCanopy | ~1: Wall }
+DinerLeaf --> Extrude(WallD - 0.12) Mat("DoorChrome") I("Door")
+DoorCanopy --> Extrude(WallD + 1.4) Mat("Chrome") I("Canopy")
+RearInset --> Split(X) { WallD: NIL | ~1: RearIn | WallD: NIL }
+RearIn --> Translate(0, 0, -WallD) Rear
+Rear --> Repeat(X, 3.2) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.2: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.2: Wall | 1.0: Glazing | ~1: Wall }
+DinerUpper --> Comp(Faces) { Front: DinerUpInset | Back: RearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+DinerUpInset --> Split(X) { WallD: NIL | ~1: DinerUpIn | WallD: NIL }
+DinerUpIn --> Translate(0, 0, -WallD) DinerUp
+DinerUp --> Split(Y) { 0.9: Wall | 1.4: UpRibbon | ~1: Wall }
+UpRibbon --> Split(X) { ~1: UpRibbonRun | 0.08: Mullion }
+UpRibbonRun --> Repeat(X, 1.4) { UpRibbonBay }
+UpRibbonBay --> Split(X) { 0.08: Mullion | ~1: Glazing }
+// The parapet, a chrome coping, and the deck inside it.
+Parapet --> Comp(Faces) { Front: ParapetFace | Back: ParapetFace | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+ParapetFace --> Split(Y) { ~1: ParapetInset | 0.12: Coping }
+ParapetInset --> Split(X) { WallD: NIL | ~1: ParapetIn | WallD: NIL }
+ParapetIn --> Translate(0, 0, -WallD) Wall
+Coping --> Extrude(0.06) Mat("Chrome") I("Trim")
+Deck --> Translate(WallD, WallD, -0.2) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("Deck") I("Roof")
+// The sign: a board on steel legs on the deck, a grid of neon cells.
+SignZone --> Split(Z) { 0.5: NIL | 0.35: SignSlab | ~1: NIL }
+SignSlab --> Split(X) { ~1: NIL | min(Frontage - 2, 9): SignBox | ~1: NIL }
+SignBox --> Translate(0, 0.2 - ParapetH, 0) Size(scope.x, ParapetH - 0.2 + SignH, scope.z)
+    Split(Y) { ParapetH + 0.5: Legs | 2.6: Board | ~1: NIL }
+Legs --> Split(X) { 0.25: Leg | ~1: NIL | 0.25: Leg }
+Leg --> Mat("Steel") I("Steel")
+Board --> Split(Z) { 0.07: NeonFace | ~1: BoardBack }
+BoardBack --> Mat("SignBack") I("Sign")
+NeonFace --> Split(Y) { 0.3: NIL | ~1: NeonRows | 0.3: NIL }
+NeonRows --> Repeat(Y, 1.0) { NeonRow }
+NeonRow --> Split(Y) { 0.12: NIL | ~1: CellRow | 0.12: NIL }
+CellRow --> Split(X) { 0.3: NIL | ~1: CellRun | 0.3: NIL }
+CellRun --> Repeat(X, 0.45) { CellBay }
+CellBay --> Split(X) { 0.1: NIL | ~1: Cell }
+// Some cells dark, cell by cell, so the grid reads as lettering.
+Cell --> 70% LitCell | 30% NIL
+LitCell --> Pick("neon") { 40% RedCell | 30% CyanCell | 30% AmberCell }
+RedCell --> Mat("NeonRed") I("Sign")
+CyanCell --> Mat("NeonCyan") I("Sign")
+AmberCell --> Mat("NeonAmber") I("Sign")
+
+// -- 2. The motor court: rooms behind a covered walk on steel posts, a
+// gallery over it where it has two storeys, under a low gable --
+Court --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Paint
+Paint --> 36% Mat("PaintCream") CourtMass | 34% Mat("PaintMint") CourtMass
+    | 30% Mat("PaintSalmon") CourtMass
+CourtMass --> when(Storeys == 1): Split(Y) { GroundH: CourtGround | RoofH: CourtRoof }
+    | else: Split(Y) { GroundH: CourtGround | ~1: CourtUpper | RoofH: CourtRoof }
+CourtGround --> Comp(Faces) { Front: CourtFrontInset | Back: RearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+CourtFrontInset --> Split(X) { WallD: NIL | ~1: CourtFrontIn | WallD: NIL }
+CourtFrontIn --> Translate(0, 0, -WallD) CourtFront
+CourtFront --> Extrude(WallD + WalkD) Split(Z) { WallD: CourtSlab | ~1: Walk }
+CourtSlab --> Comp(Faces) { Back: CourtFace | Front: NIL | Left: NIL | Right: NIL | Top: NIL
+    | Bottom: NIL }
+CourtFace --> Translate(0, 0, -WallD) Rooms(WalkH)
+// A room: its door, every one its own colour, and its window.
+Rooms(foot) --> Repeat(X, RoomW) { Room(foot) }
+Room(foot) --> Split(X) { 0.3: Wall | 0.95: RoomDoor(foot) | 0.45: Wall | 1.4: RoomWindow
+    | ~1: Wall }
+RoomDoor(foot) --> Split(Y) { foot: Wall | 2.1: RoomLeaf | ~1: Wall }
+RoomLeaf --> 28% Mat("DoorRed") Leaf | 26% Mat("DoorTeal") Leaf | 24% Mat("DoorYellow") Leaf
+    | 22% Mat("DoorBlue") Leaf
+Leaf --> Extrude(WallD - 0.12) I("Door")
+RoomWindow --> Split(Y) { 1.0: Wall | 1.3: Glazing | ~1: Wall }
+// The walk: raised paving, posts at the rooms' ends, a corrugated roof -
+// or, where it has two storeys, the gallery's deck over it.
+Walk --> when(Storeys == 1): Split(Y) { WalkH: Paving | ~1: WalkAir | 0.18: WalkRoof }
+    | else: Split(Y) { WalkH: Paving | ~1: WalkAir }
+Paving --> Mat("Base") I("Trim")
+WalkRoof --> Mat("WalkRoof") I("Canopy")
+WalkAir --> Split(Z) { ~1: NIL | 0.14: PostLine }
+PostLine --> Split(X) { 0.14: Post | ~1: PostRun }
+PostRun --> Repeat(X, RoomW) { PostBay }
+PostBay --> Split(X) { ~1: NIL | 0.14: Post }
+Post --> Mat("Steel") I("Steel")
+CourtUpper --> Comp(Faces) { Front: CourtUpInset | Back: RearUpInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+CourtUpInset --> Split(X) { WallD: NIL | ~1: CourtUpIn | WallD: NIL }
+CourtUpIn --> Translate(0, 0, -WallD) CourtUp
+CourtUp --> Extrude(WallD + WalkD) Split(Z) { WallD: CourtUpSlab | ~1: Gallery }
+CourtUpSlab --> Comp(Faces) { Back: CourtUpFace | Front: NIL | Left: NIL | Right: NIL
+    | Top: NIL | Bottom: NIL }
+CourtUpFace --> Translate(0, 0, -WallD) Rooms(0.22)
+Gallery --> Split(Y) { 0.2: GalleryDeck | ~1: GalleryAir | 0.18: WalkRoof }
+GalleryDeck --> Mat("Deck") I("Balcony")
+GalleryAir --> Split(Z) { ~1: NIL | 0.14: GalleryEdge }
+GalleryEdge --> Split(X) { 0.14: Post | ~1: GalleryRun }
+GalleryRun --> Repeat(X, RoomW) { GalleryBay }
+GalleryBay --> Split(X) { ~1: RailBay | 0.14: Post }
+RailBay --> Split(Y) { 0.9: Rail | ~1: NIL }
+Rail --> Split(Y) { ~1: NIL | 0.08: TopRail }
+TopRail --> Mat("Chrome") I("Balcony")
+RearUpInset --> Split(X) { WallD: NIL | ~1: RearUpIn | WallD: NIL }
+RearUpIn --> Translate(0, 0, -WallD) Rear
+// A low corrugated gable along the street, its ends the party walls.
+CourtRoof --> Roof(Gable, 18, overhang=0, ridge=X) { Slope: Corrugated | GableEnd: Gable }
+Corrugated --> Mat("WalkRoof") I("Roof")
+Gable --> I("Wall")

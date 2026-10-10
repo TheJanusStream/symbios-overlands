@@ -1,0 +1,104 @@
+// The modern city's low building (#1598): a terrace of Siedlung cottages,
+// or - where it trades - a shop pavilion. See street_low.rs for the
+// building, and catalogue::items::street for the conventions and for what
+// is declared ahead of these rules and after them.
+
+const WallD = 0.34
+const PaneSet = 0.14
+const PlinthH = 0.55
+const StepH = 0.5
+const RoofH = 1.0
+const ParapetH = 0.8
+// A cottage's width along the street: a lot holds as many as fit.
+const CottageW = 5.5
+
+Lot --> when(Trade == 1): Pavilion | else: Terrace
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+
+// -- 1. The terrace: cottages under one tiled roof, the render rolled once --
+Terrace --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Render
+Render --> 30% Mat("Lime") Cottages | 25% Mat("Cream") Cottages
+    | 25% Mat("Ochre") Cottages | 20% Mat("Brick") Cottages
+Cottages --> when(Storeys == 1): Split(Y) { GroundH: CotGround | RoofH: CotRoof }
+    | else: Split(Y) { GroundH: CotGround | ~1: CotUpper | RoofH: CotRoof }
+CotGround --> Comp(Faces) { Front: CotFrontInset | Back: CotRearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+CotFrontInset --> Split(X) { WallD: NIL | ~1: CotFrontIn | WallD: NIL }
+CotFrontIn --> Translate(0, 0, -WallD) CotFront
+CotFront --> Repeat(X, CottageW) { Cottage }
+// Each cottage: its window and its door, a hood over the door.
+Cottage --> Split(X) { ~1: Wall | 1.3: CotWindow | 0.7: Wall | 1.1: CotDoor | ~1: Wall }
+CotWindow --> Split(Y) { 0.95: Wall | 1.5: Glazing | ~1: Wall }
+CotDoor --> Split(Y) { StepH: Step | 2.15: DoorLeaf | 0.15: Hood | ~1: Wall }
+Step --> Extrude(WallD + 0.3) Mat("Stone") I("Trim")
+// Each household its own door colour.
+DoorLeaf --> 30% Mat("DoorGreen") Leaf | 25% Mat("DoorRed") Leaf | 45% Mat("DoorWood") Leaf
+Leaf --> Extrude(WallD - 0.16) I("Door")
+Hood --> Extrude(WallD + 0.45) Mat("Stone") I("Trim")
+CotRearInset --> Split(X) { WallD: NIL | ~1: CotRearIn | WallD: NIL }
+CotRearIn --> Translate(0, 0, -WallD) CotRear
+CotRear --> Repeat(X, 2.75) { CotRearBay }
+CotRearBay --> Split(X) { ~1: Wall | 1.2: CotRearWindow | ~1: Wall }
+CotRearWindow --> Split(Y) { 0.95: Wall | 1.4: Glazing | ~1: Wall }
+CotUpper --> Comp(Faces) { Front: CotUpFrontInset | Back: CotUpRearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+CotUpFrontInset --> Split(X) { WallD: NIL | ~1: CotUpFrontIn | WallD: NIL }
+CotUpFrontIn --> Translate(0, 0, -WallD) CotUpFront
+CotUpFront --> Repeat(Y, FloorH) { CotUpStorey }
+CotUpStorey --> Repeat(X, CottageW) { CotUpCottage }
+CotUpCottage --> Split(X) { ~1: Wall | 1.2: CotUpWindow | ~1: Wall | 1.2: CotUpWindow | ~1: Wall }
+CotUpWindow --> Split(Y) { 0.85: Wall | 1.3: Glazing | ~1: Wall }
+CotUpRearInset --> Split(X) { WallD: NIL | ~1: CotUpRearIn | WallD: NIL }
+CotUpRearIn --> Translate(0, 0, -WallD) CotUpRear
+CotUpRear --> Repeat(Y, FloorH) { CotUpRearStorey }
+CotUpRearStorey --> Repeat(X, 2.75) { CotUpRearBay }
+CotUpRearBay --> Split(X) { ~1: Wall | 1.2: CotUpWindow | ~1: Wall }
+// A gable along the street, its ends the party walls.
+CotRoof --> Roof(Gable, 42, overhang=0, ridge=X) { Slope: Tiles | GableEnd: Gable }
+Tiles --> Mat("Tiles") I("Roof")
+Gable --> I("Wall")
+
+// -- 2. The pavilion: shopfronts under a canopy and a sign band --
+Pavilion --> Extrude(GroundH + FloorH * (Storeys - 1) + ParapetH) Panels
+Panels --> 35% Mat("PanelWhite") PavMass | 35% Mat("PanelGrey") PavMass
+    | 30% Mat("Brick") PavMass
+PavMass --> when(Storeys == 1): Split(Y) { GroundH: PavGround | ParapetH: Parapet }
+    | else: Split(Y) { GroundH: PavGround | ~1: PavUpper | ParapetH: Parapet }
+PavGround --> Comp(Faces) { Front: PavFrontInset | Back: PavRearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+PavFrontInset --> Split(X) { WallD: NIL | ~1: PavFrontIn | WallD: NIL }
+PavFrontIn --> Translate(0, 0, -WallD) PavFront
+PavFront --> Split(Y) { ~1: PavShops | 0.2: Canopy | 0.6: Sign }
+PavShops --> Repeat(X, 4.0) { PavBay }
+PavBay --> Split(X) { 0.3: Wall | ~1: PavUnit | 0.3: Wall }
+PavUnit --> when(scope.x > 2.6): Split(X) { ~1: PavWindow | 1.2: PavDoor }
+    | else: PavWindow
+PavWindow --> Split(Y) { PlinthH: Wall | ~1: ShopGlazing }
+PavDoor --> Split(Y) { StepH: Step | ~1: GlassDoor }
+GlassDoor --> Extrude(WallD - 0.16) Mat("DoorMetal") I("Door")
+Canopy --> Extrude(WallD + 1.5) Mat("Metal") I("Canopy")
+Sign --> Extrude(WallD + 0.1) Mat("Sign") I("Fascia")
+// The yard side: a stockroom's high windows.
+PavRearInset --> Split(X) { WallD: NIL | ~1: PavRearIn | WallD: NIL }
+PavRearIn --> Translate(0, 0, -WallD) PavRear
+PavRear --> Repeat(X, 3.0) { PavRearBay }
+PavRearBay --> Split(X) { ~1: Wall | 1.2: PavRearWindow | ~1: Wall }
+PavRearWindow --> Split(Y) { 1.6: Wall | 0.8: Glazing | ~1: Wall }
+// An office storey over the shops: one ribbon of windows.
+PavUpper --> Comp(Faces) { Front: PavUpFrontInset | Back: PavUpFrontInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+PavUpFrontInset --> Split(X) { WallD: NIL | ~1: PavUpFrontIn | WallD: NIL }
+PavUpFrontIn --> Translate(0, 0, -WallD) PavUpFront
+PavUpFront --> Split(Y) { 0.8: Wall | 1.4: Ribbon | ~1: Wall }
+Ribbon --> Repeat(X, 1.5) { RibbonBay }
+RibbonBay --> Split(X) { 0.12: Wall | ~1: Glazing }
+// The parapet, its coping, and the deck inside it.
+Parapet --> Comp(Faces) { Front: ParapetFace | Back: ParapetFace | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+ParapetFace --> Split(Y) { ~1: ParapetInset | 0.12: Coping }
+ParapetInset --> Split(X) { WallD: NIL | ~1: ParapetIn | WallD: NIL }
+ParapetIn --> Translate(0, 0, -WallD) Wall
+Coping --> Extrude(0.05) Mat("Metal") I("Trim")
+Deck --> Translate(WallD, WallD, -0.2) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("Deck") I("Roof")

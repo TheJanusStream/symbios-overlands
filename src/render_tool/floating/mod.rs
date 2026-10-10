@@ -413,7 +413,7 @@ fn anchoring(body: &Body, grounded: &[bool]) -> Anchoring {
 /// built, with no world under it, so class b - over falling ground - is not
 /// asked, and what the report cannot see it cannot judge here either
 /// ([`NOT_CHECKED`]): a part resting on an L-system or a sign reads as free.
-#[cfg(test)]
+/// A street building's check asks it too (#1598).
 pub(crate) fn free_parts(root: &crate::pds::Generator) -> Vec<(Vec<usize>, String)> {
     let body = Body::of(root);
     let grounded: Vec<bool> = body

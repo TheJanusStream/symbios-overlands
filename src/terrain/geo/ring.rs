@@ -125,8 +125,9 @@ pub(crate) struct RingLot {
     /// The radius a building standing at `(x, z)` may have and keep to its
     /// lot (m).
     pub room: f32,
-    /// How high Berlin's building on the lot rises over the ground (m): as
-    /// high as nine tenths of it.
+    /// How high Berlin's building on the lot rises over the ground (m):
+    /// the ninetieth percentile of the surface model's heights over its
+    /// built pixels - near its ridge, past a chimney's or a mast's few.
     pub standing: f32,
     /// How far past the walkable ground's edge the lot's building stands
     /// (m).

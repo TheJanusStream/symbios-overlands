@@ -1,0 +1,121 @@
+// The coastal resort's low building (#1598): a run of boardwalk shops, or
+// - where nothing trades - a row of beach cottages. See street_low.rs for
+// the building, and catalogue::items::street for the conventions and for
+// what is declared ahead of these rules and after them.
+
+const WallD = 0.25
+const PaneSet = 0.1
+const PlinthH = 0.55
+const StepH = 0.5
+const RoofH = 1.0
+const ParapetH = 0.9
+const CrestH = 0.9
+// A shop's and a cottage's width along the street: a lot holds as many as
+// fit.
+const ShopW = 4.6
+const CotW = 4.4
+
+Lot --> when(Trade == 1): Shops | else: Cottages
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+Trim --> Mat("Trim") I("Trim")
+Step --> Extrude(WallD + 0.3) Trim
+Sill --> Extrude(WallD + 0.06) Trim
+Head --> Extrude(WallD + 0.1) Trim
+Coping --> Extrude(0.06) Trim
+
+// -- 1. The shops: a boardwalk, each shop its own paint, awning and sign,
+// a stepped parapet over each --
+Shops --> Extrude(GroundH + FloorH * (Storeys - 1) + ParapetH + CrestH) Mat("PlankWhite")
+    ShopMass
+ShopMass --> when(Storeys == 1):
+    Split(Y) { GroundH: ShopGround | ParapetH: Parapet | CrestH: Crests }
+    | else: Split(Y) { GroundH: ShopGround | ~1: ShopUpper | ParapetH: Parapet
+    | CrestH: Crests }
+ShopGround --> Comp(Faces) { Front: ShopFace | Back: RearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+ShopFace --> Split(Y) { StepH: Boardwalk | ~1: ShopFrontInset }
+// Plank decking a step high, the whole frontage: every door opens onto it.
+Boardwalk --> Extrude(1.6) Mat("Post") I("Trim")
+ShopFrontInset --> Split(X) { WallD: NIL | ~1: ShopFrontIn | WallD: NIL }
+ShopFrontIn --> Translate(0, 0, -WallD) ShopRow
+// A Repeat floors its count: a row narrower than one shop is one shop.
+ShopRow --> when(scope.x < ShopW): Shop | else: Repeat(X, ShopW) { Shop }
+// Each shop its own paint and its own awning.
+Shop --> 22% Mat("PlankMint") ShopPaint | 20% Mat("PlankPink") ShopPaint
+    | 20% Mat("PlankLemon") ShopPaint | 20% Mat("PlankSky") ShopPaint
+    | 18% Mat("PlankWhite") ShopPaint
+ShopPaint --> 34% ShopBody(1) | 33% ShopBody(2) | 33% ShopBody(3)
+ShopBody(k) --> Split(X) { 0.3: Wall | ~1: ShopUnit(k) | 0.3: Wall }
+ShopUnit(k) --> Split(Y) { 2.3: ShopLower | 0.18: Awning(k) | 0.5: ShopSign | ~1: Wall }
+ShopLower --> Split(X) { ~1: ShopWindow | 1.0: ShopDoor }
+ShopWindow --> Split(Y) { PlinthH: Wall | ~1: ShopGlazing }
+ShopDoor --> Split(Y) { 2.1: DoorLeaf | ~1: Glazing }
+DoorLeaf --> Extrude(WallD - 0.1) Mat("Door") I("Door")
+ShopSign --> Split(X) { ~1: Wall | ~4: SignBoard | ~1: Wall }
+SignBoard --> Extrude(WallD + 0.08) Mat("Sign") I("Fascia")
+Awning(k) --> when(k == 1): Mat("AwningRed") AwningBody
+    | when(k == 2): Mat("AwningTeal") AwningBody | else: Mat("AwningYellow") AwningBody
+AwningBody --> Extrude(WallD + 1.3) Split(Z) { ~1: AwningTop | 0.05: Valance }
+AwningTop --> I("Canopy")
+Valance --> Translate(0, -0.3, 0) Size(scope.x, 0.48, scope.z) I("Canopy")
+// The yard side: a stockroom's windows.
+RearInset --> Split(X) { WallD: NIL | ~1: RearIn | WallD: NIL }
+RearIn --> Translate(0, 0, -WallD) Rear
+Rear --> Repeat(X, 3.2) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.0: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.3: Wall | 1.0: Glazing | ~1: Wall }
+// Rooms over the shops: one ribbon of windows.
+ShopUpper --> Comp(Faces) { Front: UpperInset | Back: UpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperInset --> Split(X) { WallD: NIL | ~1: UpperIn | WallD: NIL }
+UpperIn --> Translate(0, 0, -WallD) Upper
+Upper --> Split(Y) { 0.75: Wall | 0.08: Sill | 1.3: Ribbon | 0.12: Head | ~1: Wall }
+Ribbon --> Repeat(X, 1.5) { RibbonBay }
+RibbonBay --> Split(X) { 0.14: Wall | ~1: Glazing }
+// The parapet, the deck inside it, and a little white gable over each shop.
+Parapet --> Comp(Faces) { Front: ParapetFace | Back: ParapetFace | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+ParapetFace --> Split(Y) { ~1: ParapetInset | 0.12: Coping }
+ParapetInset --> Split(X) { WallD: NIL | ~1: ParapetIn | WallD: NIL }
+ParapetIn --> Translate(0, 0, -WallD) Wall
+Deck --> Translate(WallD, WallD, -0.2) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("Deck") I("Roof")
+Crests --> Comp(Faces) { Front: CrestFace | Back: NIL | Left: NIL | Right: NIL | Top: NIL
+    | Bottom: NIL }
+CrestFace --> Split(X) { WallD: NIL | ~1: CrestIn | WallD: NIL }
+CrestIn --> Translate(0, 0, -WallD) CrestRow
+CrestRow --> when(scope.x < ShopW): CrestShop | else: Repeat(X, ShopW) { CrestShop }
+CrestShop --> Split(X) { ~1: NIL | ~2: Crest | ~1: NIL }
+Crest --> Extrude(WallD) Roof(Gable, 32, overhang=0, ridge=Z)
+    { Slope: CrestSlope | GableEnd: CrestEnd }
+CrestSlope --> Mat("Trim") I("Trim")
+CrestEnd --> I("Wall")
+
+// -- 2. The cottages: each its own pastel and its own door, a hood over
+// the door, under one shingle roof --
+Cottages --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Mat("PlankWhite") CotMass
+CotMass --> Split(Y) { ~1: CotBody | RoofH: CotRoof }
+CotBody --> Comp(Faces) { Front: CotFrontInset | Back: RearInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+CotFrontInset --> Split(X) { WallD: NIL | ~1: CotFrontIn | WallD: NIL }
+CotFrontIn --> Translate(0, 0, -WallD) CotFront
+CotFront --> when(scope.x < CotW): Cottage | else: Repeat(X, CotW) { Cottage }
+Cottage --> 22% Mat("PlankMint") CotCol | 20% Mat("PlankPink") CotCol
+    | 20% Mat("PlankLemon") CotCol | 20% Mat("PlankSky") CotCol
+    | 18% Mat("PlankWhite") CotCol
+CotCol --> when(Storeys == 1): CotGround
+    | else: Split(Y) { GroundH: CotGround | ~1: CotUp }
+CotGround --> Split(X) { ~1: Wall | 1.2: CotWindow | 0.4: Wall | 1.0: CotDoor | ~1: Wall }
+CotWindow --> Split(Y) { 0.85: Wall | 0.08: Sill | 1.45: Glazing | 0.14: Head | ~1: Wall }
+CotDoor --> Split(Y) { StepH: Step | 2.15: CotLeaf | 0.12: Hood | ~1: Wall }
+Hood --> Extrude(WallD + 0.8) Trim
+// Every household its own door colour.
+CotLeaf --> 35% Mat("Door") Leaf | 35% Mat("DoorRed") Leaf | 30% Mat("DoorNavy") Leaf
+Leaf --> Extrude(WallD - 0.1) I("Door")
+CotUp --> Split(X) { ~1: Wall | 1.1: CotUpWindow | ~1: Wall }
+CotUpWindow --> Split(Y) { 0.7: Wall | 0.08: Sill | 1.3: Glazing | 0.14: Head | ~1: Wall }
+// A shingle gable along the street, its ends the party walls.
+CotRoof --> Roof(Gable, 36, overhang=0, ridge=X) { Slope: Shingles | GableEnd: Gable }
+Shingles --> Mat("Shingle") I("Roof")
+Gable --> I("Wall")

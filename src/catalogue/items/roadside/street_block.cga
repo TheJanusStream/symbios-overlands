@@ -1,0 +1,137 @@
+// The roadside strip's long block (#1598): a Googie motor lodge slab. See
+// street_block.rs for the block, and catalogue::items::street for the
+// conventions and for what is declared ahead of these rules and after them.
+
+const WallD = 0.32
+const PaneSet = 0.13
+const StepH = 0.5
+const ParapetH = 0.9
+const PavH = 5.0
+const EndW = 1.4
+// One entrance to a section: under twelve metres so the field between the
+// brick ends holds whole sections (a Repeat floors its count).
+const SectionW = 11.5
+
+// -- 1. The slab: its panel colour rolled once, then storeys, parapet,
+// pavilion --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + ParapetH + PavH) Panels
+Panels --> 28% Mat("PanelTeal") Massing | 26% Mat("PanelOrange") Massing
+    | 24% Mat("PanelLemon") Massing | 22% Mat("PanelCoral") Massing
+Massing --> Split(Y) { GroundH: Ground | ~1: Uppers | ParapetH: Parapet | PavH: RoofTop }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+// The cream brick ends, standing a little proud of the panels.
+BrickEnd --> Mat("BrickCream") Extrude(WallD + 0.1) I("Wall")
+
+// -- 2. The lobby storey: an entrance under a porte-cochere canopy to each
+// section, shops under a neon band or a ribbon of lobby windows between --
+Ground --> Comp(Faces) { Front: GroundFrontInset | Back: RearGroundInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> Split(X) { EndW: BrickEnd | ~1: GroundField | EndW: BrickEnd }
+GroundField --> Repeat(X, SectionW) { GroundSection }
+GroundSection --> Split(X) { ~1: GroundRun | 5.0: Entrance | ~1: GroundRun }
+GroundRun --> when(Trade == 1): ShopRun | else: LobbyRun
+Entrance --> Split(Y) { 3.1: EntranceLevel | 0.3: Canopy | ~1: Glazing }
+EntranceLevel --> Split(X) { ~1: SideLight | 2.2: DoorPair | ~1: SideLight }
+SideLight --> Split(Y) { StepH: Wall | ~1: Glazing }
+DoorPair --> Split(Y) { StepH: Step | ~1: DoorLeaf }
+Step --> Extrude(WallD + 0.4) Mat("Deck") I("Trim")
+DoorLeaf --> Extrude(WallD - 0.12) Mat("Door") I("Door")
+// The canopy: a deep slab with a chrome edge, a neon tube under its lip.
+Canopy --> Extrude(WallD + 1.95) Split(Z) { ~1: CanopySlab | 0.14: CanopyEdge }
+CanopySlab --> Mat("Canopy") I("Canopy")
+CanopyEdge --> Split(Y) { 0.06: Tube | ~1: Lip }
+Tube --> Mat("NeonCyan") I("Sign")
+Lip --> Mat("Chrome") I("Canopy")
+ShopRun --> Split(Y) { ~1: ShopLevel | 0.7: SignBand | 0.3: Wall }
+ShopLevel --> Repeat(X, 3.4) { ShopBay }
+ShopBay --> Split(X) { 0.25: Wall | ~1: ShopUnit | 0.25: Wall }
+ShopUnit --> when(scope.x > 2.4): Split(X) { ~1: ShopWindow | 1.0: ShopDoor } | else: ShopWindow
+ShopWindow --> Split(Y) { 0.55: ShopPlinth | ~1: ShopGlazing }
+ShopPlinth --> Mat("Base") Wall
+ShopDoor --> Split(Y) { StepH: Step | 2.2: DoorLeaf | ~1: ShopGlazing }
+SignBand --> Extrude(WallD + 0.1) Split(Z) { WallD + 0.06: Fascia | ~1: SignCells }
+Fascia --> Mat("Fascia") I("Fascia")
+SignCells --> Split(Y) { 0.18: NIL | ~1: CellRow | 0.18: NIL }
+CellRow --> Split(X) { 0.3: NIL | ~1: CellRun | 0.3: NIL }
+CellRun --> Repeat(X, 0.45) { CellBay }
+CellBay --> Split(X) { 0.1: NIL | ~1: Cell }
+// Some cells dark, cell by cell, so the grid reads as lettering.
+Cell --> 70% LitCell | 30% NIL
+LitCell --> Pick("neon") { 40% RedCell | 30% AmberCell | 30% CyanCell }
+RedCell --> Mat("NeonRed") I("Sign")
+AmberCell --> Mat("NeonAmber") I("Sign")
+CyanCell --> Mat("NeonCyan") I("Sign")
+LobbyRun --> Split(Y) { 0.9: Wall | ~1: LobbyRibbon | 0.6: Wall }
+LobbyRibbon --> Split(X) { ~1: LobbyBays | 0.1: Mullion }
+LobbyBays --> Repeat(X, 1.5) { RibbonBay }
+RearGroundInset --> Split(X) { WallD: NIL | ~1: RearGroundIn | WallD: NIL }
+RearGroundIn --> Translate(0, 0, -WallD) RearGround
+RearGround --> Repeat(X, 3.6) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.6: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.0: Wall | 1.6: Glazing | ~1: Wall }
+
+// -- 3. The storeys: enamel spandrels under ribbons of windows between the
+// brick ends, a chrome strip on each band, and the blade sign standing
+// out from one end --
+Uppers --> Comp(Faces) { Front: UpperFrontInset | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperFrontInset --> Split(X) { WallD: NIL | ~1: UpperFrontIn | WallD: NIL }
+UpperFrontIn --> Translate(0, 0, -WallD) UpperFront
+UpperFront --> Split(X) { EndW: EndA | ~1: Field | EndW: EndB }
+// One key, one choice: the blade stands at the left end or the right.
+EndA --> Pick("blade") { 50% BladeEnd | 50% BrickEnd }
+EndB --> Pick("blade") { 50% BrickEnd | 50% BladeEnd }
+Field --> Repeat(Y, FloorH) { Band }
+Band --> Split(Y) { 0.92: Spandrel | 0.08: Strip | ~1: Ribbon | 0.25: Wall }
+Spandrel --> Extrude(WallD + 0.06) I("Wall")
+Strip --> Extrude(WallD + 0.1) Mat("Chrome") I("Trim")
+Ribbon --> Split(X) { ~1: RibbonRun | 0.1: Mullion }
+RibbonRun --> Repeat(X, 1.5) { RibbonBay }
+RibbonBay --> Split(X) { 0.1: Mullion | ~1: Glazing }
+Mullion --> Extrude(WallD - 0.06) Mat("Chrome") I("Trim")
+// The blade: a fin out of the brick end, neon cells up both its faces.
+BladeEnd --> Mat("BrickCream") Extrude(WallD + 1.8) Split(Z) { WallD + 0.1: EndPier | ~1: BladeZone }
+EndPier --> I("Wall")
+BladeZone --> Split(X) { ~1: NIL | 0.4: BladeCol | ~1: NIL }
+BladeCol --> Split(Y) { ~1: NIL | min(FloorH * (Storeys - 1) - 1.2, 14): Blade | 0.4: NIL }
+Blade --> Split(X) { 0.06: BladeFace | ~1: BladeCore | 0.06: BladeFace }
+BladeCore --> Mat("SignBack") I("Sign")
+BladeFace --> Split(Z) { 0.25: NIL | ~1: BladeCells | 0.25: NIL }
+BladeCells --> Repeat(Y, 0.7) { BladeCellBay }
+BladeCellBay --> Split(Y) { 0.14: NIL | ~1: Cell }
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) RearUpper
+RearUpper --> Repeat(Y, FloorH) { RearStorey }
+RearStorey --> Repeat(X, 3.6) { RearUpperBay }
+RearUpperBay --> Split(X) { ~1: Wall | 1.8: RearUpperWindow | ~1: Wall }
+RearUpperWindow --> Split(Y) { 0.95: Wall | 1.5: Glazing | ~1: Wall }
+
+// -- 4. The parapet, a chrome coping, and the deck inside it --
+Parapet --> Comp(Faces) { Front: ParapetFace | Back: ParapetFace | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+ParapetFace --> Split(Y) { ~1: ParapetInset | 0.12: Coping }
+ParapetInset --> Split(X) { WallD: NIL | ~1: ParapetIn | WallD: NIL }
+ParapetIn --> Translate(0, 0, -WallD) Wall
+Coping --> Extrude(0.06) Mat("Chrome") I("Trim")
+Deck --> Translate(WallD, WallD, -0.2) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("Deck") I("Roof")
+
+// -- 5. The pavilion: a glazed lounge on the deck under a butterfly roof --
+RoofTop --> Split(X) { ~1: NIL | min(Frontage * 0.45, 16): PavSlot | ~1: NIL }
+PavSlot --> Split(Z) { 2.0: NIL | ~1: Pavilion | 1.6: NIL }
+Pavilion --> Translate(0, 0.2 - ParapetH, 0) Size(scope.x, ParapetH - 0.2 + PavH, scope.z)
+    Split(Y) { ParapetH - 0.2: PavBase | 2.6: Lounge | ~1: PavRoof }
+PavBase --> Mat("BrickCream") I("Wall")
+Lounge --> Comp(Faces) { Side: LoungeSide | Top: NIL | Bottom: NIL }
+LoungeSide --> Split(X) { ~1: LoungeRun | 0.12: LoungeMullion }
+LoungeRun --> Repeat(X, 0.9) { LoungeBay }
+LoungeBay --> Split(X) { 0.12: LoungeMullion | ~1: LoungeLight }
+LoungeMullion --> Extrude(0.1) Mat("Chrome") I("Trim")
+LoungeLight --> Mat("RoomLit") I("Pane")
+// Its two slopes rise out to the ends past the lounge's walls, in the
+// slab's own enamel.
+PavRoof --> Roof(Butterfly, 22, overhang=0.7) { _: PavDeck }
+PavDeck --> I("Roof")

@@ -1,0 +1,118 @@
+// The coastal resort's long block (#1598): a sixties beachfront hotel slab.
+// See street_block.rs for the block, and catalogue::items::street for the
+// conventions and for what is declared ahead of these rules and after them.
+
+const WallD = 0.3
+const PaneSet = 0.1
+const PlinthH = 0.6
+const StepH = 0.5
+const SlabH = 0.18
+// How far the balconies stand out of the front.
+const SlabOut = 1.6
+const ParapetH = 1.1
+const ShadeH = 2.6
+// One lobby door to a section, and a canvas shade over it on the roof.
+// Under twelve metres so the frontages, less the party walls, hold two,
+// three and four of them: a Repeat floors its count.
+const SectionW = 11.5
+// One room's balcony along the front, between two dividers.
+const RoomW = 3.0
+
+// -- 1. The slab: its pastel rolled once, then lobby, storeys, roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + ParapetH + ShadeH) Pastel
+Pastel --> 28% Mat("White") Massing | 26% Mat("Sand") Massing | 24% Mat("Aqua") Massing
+    | 22% Mat("Coral") Massing
+Massing --> Split(Y) { GroundH: Ground | ~1: Uppers | ParapetH: Parapet | ShadeH: RoofTop }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+Wall0 --> I("Wall")
+
+// -- 2. The lobby storey on the promenade: glass or shops, a door to
+// each section, all under the first balcony --
+Ground --> Comp(Faces) { Front: GroundFrontInset | Back: RearGroundInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> Repeat(X, SectionW) { GroundSection }
+GroundSection --> Split(X) { ~1: GroundRun | 2.6: Doorway | ~1: GroundRun }
+GroundRun --> when(Trade == 1): ShopRun | else: LobbyRun
+ShopRun --> Repeat(X, 4.2) { ShopBay }
+ShopBay --> Split(X) { 0.3: Wall | ~1: ShopWindow | 0.3: Wall }
+ShopWindow --> Split(Y) { PlinthH: Wall | ~1: ShopGlazing | 0.6: Fascia }
+Fascia --> Extrude(WallD + 0.06) Mat("DivTeal") I("Trim")
+LobbyRun --> Repeat(X, 2.2) { LobbyBay }
+LobbyBay --> Split(X) { 0.25: Wall | ~1: LobbyGlass }
+LobbyGlass --> Split(Y) { PlinthH: Wall | ~1: Glazing | 0.6: Wall }
+Doorway --> Split(X) { 0.25: Wall | ~1: DoorCol | 0.25: Wall }
+DoorCol --> Split(Y) { StepH: Step | 2.5: DoorLeaves | ~1: Glazing }
+DoorLeaves --> Split(X) { ~1: DoorLeaf | 0.06: Wall | ~1: DoorLeaf }
+DoorLeaf --> Extrude(WallD - 0.1) Mat("Door") I("Door")
+Step --> Extrude(WallD + 0.35) Mat("Slab") I("Trim")
+// The courtyard side: the kitchens' and the offices' windows.
+RearGroundInset --> Split(X) { WallD: NIL | ~1: RearGroundIn | WallD: NIL }
+RearGroundIn --> Translate(0, 0, -WallD) RearGround
+RearGround --> Repeat(X, 4.0) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.6: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.2: Wall | 1.4: Glazing | ~1: Wall }
+
+// -- 3. The storeys: a balcony the whole frontage at every floor, cut from
+// the full face, and behind it each room's glass wall between dividers --
+Uppers --> Comp(Faces) { Front: UpperFace | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperFace --> Repeat(Y, FloorH) { StoreyFace }
+StoreyFace --> Split(Y) { SlabH: BalconySlab | ~1: StoreyBody }
+BalconySlab --> Extrude(SlabOut) Split(Z) { ~1: SlabDeck | 0.06: SlabEdge }
+SlabDeck --> Mat("Slab") I("Balcony")
+// The balcony's front: a white band, or a steel rail on posts (`Pick`ed
+// once a slab).
+SlabEdge --> Pick("railing") { 50% SolidFront | 50% SteelRail }
+SolidFront --> Size(scope.x, 1.05, scope.z) Mat("Slab") I("Balcony")
+SteelRail --> Size(scope.x, 1.05, scope.z) Mat("Rail")
+    Split(Y) { SlabH: RailLip | ~1: RailRow | 0.07: RailBar }
+RailLip --> Mat("Slab") I("Balcony")
+RailRow --> Repeat(X, 3.0) { RailBay }
+RailBay --> Split(X) { ~1: RailSlats | 0.05: RailBar }
+RailSlats --> Split(Y) { ~1: NIL | 0.05: RailBar | ~1: NIL | 0.05: RailBar | ~1: NIL }
+RailBar --> I("Balcony")
+StoreyBody --> Split(X) { WallD: NIL | ~1: StoreyIn | WallD: NIL }
+StoreyIn --> Translate(0, 0, -WallD) Rooms
+Rooms --> Repeat(X, RoomW) { Room }
+Room --> Split(X) { 0.16: Divider | ~1: RoomGlass }
+// A divider between two rooms' balconies: a coloured fin, one colour a slab.
+Divider --> Extrude(WallD + SlabOut - 0.1) Pick("divider") { 34% DivTeal | 33% DivYellow
+    | 33% DivBlue }
+DivTeal --> Mat("DivTeal") I("Trim")
+DivYellow --> Mat("DivYellow") I("Trim")
+DivBlue --> Mat("DivBlue") I("Trim")
+RoomGlass --> Split(Y) { ~1: Glazing | 0.4: Wall }
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) RearUpper
+RearUpper --> Repeat(Y, FloorH) { RearStorey }
+RearStorey --> Repeat(X, 4.0) { RearUpperBay }
+RearUpperBay --> Split(X) { ~1: Wall | 1.6: RearUpperWindow | ~1: Wall }
+RearUpperWindow --> Split(Y) { 0.8: Wall | 1.5: Glazing | ~1: Wall }
+
+// -- 4. The parapet, its coping, and the deck inside it --
+Parapet --> Comp(Faces) { Front: ParapetFace | Back: ParapetFace | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+ParapetFace --> Split(Y) { ~1: ParapetInset | 0.14: Coping }
+ParapetInset --> Split(X) { WallD: NIL | ~1: ParapetIn | WallD: NIL }
+ParapetIn --> Translate(0, 0, -WallD) Wall
+Coping --> Extrude(0.06) Mat("Slab") I("Trim")
+// The deck fills the ring inside the parapet's walls, so no face of it
+// lies in theirs: the bottom face's inward is up.
+Deck --> Translate(WallD, WallD, -0.2) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("Deck") I("Roof")
+
+// -- 5. The sun deck: a canvas shade on four posts over each section --
+RoofTop --> Repeat(X, SectionW) { RoofSection }
+RoofSection --> Split(X) { ~1: NIL | 6.0: ShadeSlot | ~1: NIL }
+ShadeSlot --> Split(Z) { ~1: NIL | 4.0: Shade | ~1: NIL }
+Shade --> Translate(0, 0.2 - ParapetH, 0) Size(scope.x, ParapetH - 0.2 + ShadeH, scope.z)
+    Split(Y) { ~1: ShadePosts | 0.12: Canvas }
+Canvas --> Pick("shade") { 50% ShadeRed | 50% ShadeTeal }
+ShadeRed --> Mat("ShadeRed") I("Shade")
+ShadeTeal --> Mat("ShadeTeal") I("Shade")
+ShadePosts --> Split(X) { 0.1: PostPair | ~1: NIL | 0.1: PostPair }
+PostPair --> Split(Z) { 0.1: Post | ~1: NIL | 0.1: Post }
+Post --> Mat("Rail") I("Post")

@@ -1,0 +1,140 @@
+// The coastal resort's street house (#1598): an Art Deco beach hotel. See
+// street_house.rs for the hotel, and catalogue::items::street for the
+// conventions and for what is declared ahead of these rules (Storeys, Trade,
+// Frontage, Depth, GroundH, FloorH) and after them (Glazing, ShopGlazing,
+// Wall).
+
+const WallD = 0.35
+const PaneSet = 0.12
+const PlinthH = 0.6
+const StepH = 0.5
+const BandH = 0.25
+const ParapetH = 1.3
+// The parapet steps up over the middle of the front, round the fin.
+const TowerH = 1.6
+// The sign fin: its width along the front, and how far it stands out.
+const FinW = 0.5
+const FinOut = 1.25
+
+// -- 1. The hotel: its pastel rolled once, then storeys, parapet, tower --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + ParapetH + TowerH) Pastel
+Pastel --> 24% Mat("Pink") Massing | 22% Mat("Mint") Massing | 18% Mat("Lemon") Massing
+    | 20% Mat("Sky") Massing | 16% Mat("Lilac") Massing
+Massing --> Split(Y) { GroundH: Ground | ~1: Uppers | ParapetH: Parapet | TowerH: Tower }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+Wall0 --> I("Wall")
+Trim --> Mat("Trim") I("Trim")
+// A thin concrete shade over a window: the beachfront's eyebrow.
+Eyebrow --> Extrude(WallD + 0.55) Trim
+
+// -- 2. The ground storey: cafes under striped awnings, or a lobby --
+Ground --> Comp(Faces) { Front: GroundFace | Back: RearGroundInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFace --> Split(Y) { ~1: GroundFrontInset | BandH: Band }
+Band --> Extrude(0.1) Trim
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> when(Trade == 1): CafeFront | else: LobbyFront
+CafeFront --> Split(X) { ~1: CafeRun | 2.4: Entrance | ~1: CafeRun }
+// A Repeat floors its count: a run narrower than one bay is one bay.
+CafeRun --> when(scope.x < 3.6): CafeBay | else: Repeat(X, 3.6) { CafeBay }
+CafeBay --> Split(X) { 0.35: Wall | ~1: CafeUnit | 0.35: Wall }
+CafeUnit --> when(scope.x > 2.4): Split(X) { ~1: CafeWindow | 1.0: CafeDoor }
+    | else: CafeWindow
+CafeWindow --> Split(Y) { PlinthH: Wall | 2.4: ShopGlazing | 0.2: Awning | ~1: Wall }
+CafeDoor --> Split(Y) { StepH: Step | 2.5: DoorLeaf | 0.2: Awning | ~1: Wall }
+Step --> Extrude(WallD + 0.3) Trim
+DoorLeaf --> Extrude(WallD - 0.12) Mat("Door") I("Door")
+// A striped awning, one stripe a hotel, its valance hanging at the edge.
+Awning --> Pick("awning") { 50% AwningRed | 50% AwningTeal }
+AwningRed --> Mat("AwningRed") AwningBody
+AwningTeal --> Mat("AwningTeal") AwningBody
+AwningBody --> Extrude(WallD + 1.6) Split(Z) { ~1: AwningTop | 0.06: Valance }
+AwningTop --> I("Canopy")
+Valance --> Translate(0, -0.34, 0) Size(scope.x, 0.54, scope.z) I("Canopy")
+LobbyFront --> Split(X) { ~1: LobbyRun | 2.4: Entrance | ~1: LobbyRun }
+LobbyRun --> when(scope.x < 2.8): LobbyBay | else: Repeat(X, 2.8) { LobbyBay }
+LobbyBay --> Split(X) { ~1: Wall | 1.7: LobbyWindow | ~1: Wall }
+LobbyWindow --> Split(Y) { 0.9: Wall | 2.2: Glazing | 0.14: Eyebrow | ~1: Wall }
+// The hotel's door: glazed leaves up a step, under a marquee.
+Entrance --> Split(X) { 0.3: Wall | ~1: EntranceDoor | 0.3: Wall }
+EntranceDoor --> Split(Y) { StepH: Step | 2.6: DoorLeaves | 0.22: Marquee | ~1: Glazing }
+DoorLeaves --> Split(X) { ~1: DoorLeaf | 0.06: Wall | ~1: DoorLeaf }
+Marquee --> Extrude(WallD + 1.8) Trim
+// The courtyard side: windows over high sills.
+RearGroundInset --> Split(X) { WallD: NIL | ~1: RearGroundIn | WallD: NIL }
+RearGroundIn --> Translate(0, 0, -WallD) RearGround
+RearGround --> Repeat(X, 3.0) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 1.3: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.2: Wall | 1.6: Glazing | ~1: Wall }
+
+// -- 3. The storeys: windows under eyebrows either side of the fin, and
+// balconies stacked at the ends where the hotel has them --
+Uppers --> Comp(Faces) { Front: UpperFrontInset | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperFrontInset --> Split(X) { WallD: NIL | ~1: UpperFrontIn | WallD: NIL }
+UpperFrontIn --> Translate(0, 0, -WallD) UpperFront
+UpperFront --> Split(X) { ~1: LeftHalf | FinW: FinCol | ~1: RightHalf }
+LeftHalf --> Repeat(Y, FloorH) { LeftStorey }
+LeftStorey --> Split(X) { 0.6: Wall | ~1: LeftBays | 0.6: Wall }
+LeftBays --> Repeat(X, 2.6) { LeftBay }
+LeftBay --> when(split.i == 0): EndBay | else: WinBay
+RightHalf --> Repeat(Y, FloorH) { RightStorey }
+RightStorey --> Split(X) { 0.6: Wall | ~1: RightBays | 0.6: Wall }
+RightBays --> Repeat(X, 2.6) { RightBay }
+RightBay --> when(split.i == split.n - 1): EndBay | else: WinBay
+EndBay --> Pick("balconies") { 55% BalconyBay | 45% WinBay }
+WinBay --> Split(X) { ~1: Wall | 1.5: WinCol | ~1: Wall }
+WinCol --> Split(Y) { 0.8: Wall | 1.6: Glazing | 0.14: Eyebrow | ~1: Wall }
+// A balcony: a white slab, a streamlined steel rail at its edge, and a
+// glazed door onto it.
+BalconyBay --> Split(X) { 0.25: Wall | ~1: BalconyCol | 0.25: Wall }
+BalconyCol --> Split(Y) { 0.16: BalconySlab | 2.3: BalconyWall | 0.14: Eyebrow | ~1: Wall }
+BalconySlab --> Extrude(WallD + 1.3) Split(Z) { WallD: Wall0 | ~1: SlabDeck | 0.05: Rail }
+SlabDeck --> Mat("Trim") I("Balcony")
+Rail --> Size(scope.x, 1.05, scope.z) Mat("Rail")
+    Split(X) { 0.05: RailBar | ~1: RailMid | 0.05: RailBar }
+RailMid --> Split(Y) { 0.16: RailBar | ~1: NIL | 0.05: RailBar | ~1: NIL | 0.05: RailBar
+    | ~1: NIL | 0.06: RailBar }
+RailBar --> I("Balcony")
+BalconyWall --> Split(X) { ~1: Wall | 1.4: Glazing | ~1: Wall }
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) RearUpper
+RearUpper --> Repeat(Y, FloorH) { RearStorey }
+RearStorey --> Repeat(X, 3.0) { RearUpperBay }
+RearUpperBay --> Split(X) { ~1: Wall | 1.3: RearUpperWindow | ~1: Wall }
+RearUpperWindow --> Split(Y) { 0.8: Wall | 1.6: Glazing | ~1: Wall }
+
+// -- 4. The fin: a white blade the height of the front, banded in neon,
+// standing over the entrance and up through the parapet --
+FinCol --> Extrude(WallD + FinOut) Split(Z) { WallD: Wall0 | ~1: Fin }
+FinUp --> Translate(0, 0, -WallD) Extrude(WallD + FinOut) Split(Z) { WallD: Wall0 | ~1: Fin }
+Fin --> Repeat(Y, 1.6) { FinSegment }
+FinSegment --> Split(Y) { ~1: FinBlade | 0.28: FinNeon }
+FinBlade --> Mat("Fin") I("Fin")
+FinNeon --> Pick("neon") { 60% NeonPink | 40% NeonBlue }
+NeonPink --> Mat("Neon") I("Fin")
+NeonBlue --> Mat("NeonBlue") I("Fin")
+
+// -- 5. The parapet, the deck inside it, and its step over the middle --
+Parapet --> Comp(Faces) { Front: ParapetFront | Back: ParapetFace | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+ParapetFront --> Split(X) { ~1: ParapetLeft | FinW: FinUp | ~1: ParapetRight }
+ParapetLeft --> Split(Y) { ~1: ParapetLeftInset | 0.16: Coping }
+ParapetLeftInset --> Split(X) { WallD: NIL | ~1: ParapetIn }
+ParapetRight --> Split(Y) { ~1: ParapetRightInset | 0.16: Coping }
+ParapetRightInset --> Split(X) { ~1: ParapetIn | WallD: NIL }
+ParapetFace --> Split(Y) { ~1: ParapetInset | 0.16: Coping }
+ParapetInset --> Split(X) { WallD: NIL | ~1: ParapetIn | WallD: NIL }
+ParapetIn --> Translate(0, 0, -WallD) Wall
+Coping --> Extrude(0.08) Trim
+// The deck fills the ring inside the parapet's walls, so no face of it
+// lies in theirs: the bottom face's inward is up.
+Deck --> Translate(WallD, WallD, -0.2) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("Deck") I("Roof")
+Tower --> Comp(Faces) { Front: TowerFront | Back: NIL | Left: NIL | Right: NIL | Top: NIL
+    | Bottom: NIL }
+TowerFront --> Split(X) { ~1: NIL | ~1.1: StepBlock | FinW: FinUp | ~1.1: StepBlock | ~1: NIL }
+StepBlock --> Split(Y) { ~1: StepWall | 0.16: Coping }
+StepWall --> Translate(0, 0, -WallD) Wall

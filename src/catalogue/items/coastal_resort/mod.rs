@@ -28,6 +28,9 @@ pub mod grand_hotel;
 pub mod lifeguard_tower;
 pub mod monument;
 pub mod resort_pier;
+pub mod street_block;
+pub mod street_house;
+pub mod street_low;
 // Poor (fishing-hamlet) variants - the prosperity-Poor end of the theme.
 pub mod bait_stand;
 pub mod crab_traps;
@@ -269,6 +272,29 @@ pub(super) fn water(color: [f32; 3]) -> SovereignMaterialSettings {
         // read as a stale pre-#936 repeat count.
         uv_scale: Fp(1.0),
         texture: SovereignTextureConfig::None,
+        ..Default::default()
+    }
+}
+
+/// Cedar shingle - the roofs of the beach cottages and boardwalk shops
+/// (#1598): small grey-brown shingles in overlapping courses, silvered by
+/// the salt air.
+pub(super) fn shingle(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.9),
+        metallic: Fp(0.0),
+        uv_scale: tiles_per_metre(tile::SHINGLE),
+        texture: SovereignTextureConfig::Shingle(crate::pds::SovereignShingleConfig {
+            color_tile: Fp3(color),
+            color_grout: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.55, 0.55, 0.55],
+            )),
+            scale: Fp64(7.0),
+            moss_level: Fp64(0.04),
+            ..Default::default()
+        }),
         ..Default::default()
     }
 }

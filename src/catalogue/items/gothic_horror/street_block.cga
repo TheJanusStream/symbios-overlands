@@ -1,0 +1,115 @@
+// The gothic horror theme's long block (#1598): an asylum or a workhouse
+// range. See street_block.rs for the block, and catalogue::items::street
+// for the conventions and for what is declared ahead of these rules and
+// after them.
+
+const WallD = 0.45
+const PaneSet = 0.15
+const StepH = 0.55
+const CourseH = 0.15
+const CrownH = 0.8
+const RoofH = 0.5
+// One ward to a section: under twelve metres so the frontages, less the
+// party walls, hold two, three and four (a Repeat floors its count).
+const SectionW = 11.5
+// The ward's gable over its middle, and the roof's pitch: 45 degrees, so
+// its ridge stands half the depth over its eaves.
+const GableW = 3.4
+
+// -- 1. The range: its masonry rolled once, then storeys, crown, roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + CrownH + RoofH) Masonry
+Masonry --> 40% Mat("BlackBrick") Massing | 30% Mat("Brick") Massing
+    | 30% Mat("Stone") Massing
+Massing --> Split(Y) { GroundH: Ground | ~1: Uppers | CrownH: Crown | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+SlotWall --> I("Wall")
+// A pointed hood over a window: a drip-stone, and on it a steep little
+// gable of dressed stone a hair clear of the wall.
+HoodBase --> Extrude(WallD + 0.16) Split(Z) { WallD: SlotWall | ~1: HoodFront }
+HoodFront --> Split(Y) { 0.1: Drip | ~1: PeakSlot }
+Drip --> Mat("Dressing") I("Trim")
+PeakSlot --> Split(Z) { 0.03: NIL | ~1: Peak }
+Peak --> Roof(Gable, 55, overhang=0, ridge=Z) { Slope: Dressed | GableEnd: Dressed }
+Dressed --> Mat("Dressing") I("Trim")
+Sill --> Extrude(WallD + 0.08) Mat("Dressing") I("Trim")
+Step --> Extrude(WallD + 0.3) Mat("Dressing") I("Trim")
+Quoin --> Extrude(WallD + 0.06) Mat("Dressing") I("Trim")
+
+// -- 2. The ground storey of mossy rustication: shops, or narrow barred
+// windows, and a pointed door to each ward --
+Ground --> Mat("Mossy") Comp(Faces) { Front: GroundFace | Back: RearGroundInset
+    | Left: PartyIn | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFace --> Split(Y) { ~1: GroundFrontInset | 0.3: Course }
+Course --> Extrude(0.1) Mat("Dressing") I("Trim")
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) Repeat(X, SectionW) { GroundSection }
+GroundSection --> Split(X) { ~1: GroundRun | 2.2: WardDoor | ~1: GroundRun }
+GroundRun --> when(Trade == 1): Repeat(X, 3.4) { ShopBay } | else: Repeat(X, 2.2) { CellBay }
+ShopBay --> Split(X) { 0.35: Pilaster | ~1: ShopWin | 0.35: Pilaster }
+Pilaster --> Extrude(WallD + 0.12) Mat("Fascia") I("Fascia")
+ShopWin --> Split(Y) { 0.7: Stall | 2.2: ShopGlazing | 0.6: FasciaBand | ~1: Wall }
+Stall --> Extrude(WallD + 0.05) Mat("Fascia") I("Fascia")
+FasciaBand --> Extrude(WallD + 0.15) Mat("Fascia") I("Fascia")
+CellBay --> Split(X) { ~1: Wall | 0.8: CellWin | ~1: Wall }
+CellWin --> Split(Y) { 1.5: Wall | 1.8: Barred | 0.25: Lintel | ~1: Wall }
+Lintel --> Extrude(WallD + 0.06) Mat("Dressing") I("Trim")
+Barred --> Split(X) { ~1: Glazing | 0.06: Bar | ~1: Glazing }
+Bar --> Extrude(WallD - PaneSet + 0.04) Mat("Iron") I("Iron")
+WardDoor --> Split(X) { 0.3: Quoin | ~1: WardDoorCol | 0.3: Quoin }
+WardDoorCol --> Split(Y) { StepH: Step | 2.7: DoorLeaf | 0.14: HoodBase | ~1: Wall }
+DoorLeaf --> Extrude(WallD - 0.15) Mat("DoorBlack") I("Door")
+RearGroundInset --> Split(X) { WallD: NIL | ~1: RearGroundIn | WallD: NIL }
+RearGroundIn --> Translate(0, 0, -WallD) Repeat(X, 3.6) { RearBay }
+RearBay --> Split(X) { ~1: Wall | 0.9: RearWindow | ~1: Wall }
+RearWindow --> Split(Y) { 1.5: Wall | 1.5: Glazing | ~1: Wall }
+
+// -- 3. The ward storeys: a string course at each floor, pointed windows,
+// quoins at each ward's ends --
+Uppers --> Comp(Faces) { Front: UpperFrontInset | Back: RearUpperInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperFrontInset --> Split(X) { WallD: NIL | ~1: UpperFrontIn | WallD: NIL }
+UpperFrontIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { Storey }
+Storey --> Split(Y) { CourseH: StoreyCourse | ~1: Band }
+StoreyCourse --> Extrude(WallD + 0.08) Mat("Dressing") I("Trim")
+Band --> Repeat(X, SectionW) { Section }
+Section --> Split(X) { 0.5: Quoin | ~1: Run | 0.5: Quoin }
+Run --> Repeat(X, 2.8) { WinBay }
+WinBay --> Split(X) { ~1: Wall | 1.0: WinCol | ~1: Wall }
+WinCol --> Split(Y) { 0.87: Wall | 1.75: Glazing | 0.14: HoodBase | ~1: Wall }
+RearUpperInset --> Split(X) { WallD: NIL | ~1: RearUpperIn | WallD: NIL }
+RearUpperIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { RearStorey }
+RearStorey --> Repeat(X, 6.0) { RearUpperBay }
+RearUpperBay --> Split(X) { ~1: Wall | 0.9: RearUpperWindow | ~1: Wall }
+RearUpperWindow --> Split(Y) { 0.9: Wall | 1.5: Glazing | ~1: Wall }
+
+// -- 4. The crown: a cornice, and over each ward's middle a steep gable
+// run back into the roof, low enough that its peak stays under the
+// ridge at the shallowest depth --
+Crown --> Comp(Faces) { Front: CrownInset | Back: RearCrownInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+CrownInset --> Split(X) { WallD: NIL | ~1: CrownIn | WallD: NIL }
+CrownIn --> Translate(0, 0, -WallD) Repeat(X, SectionW) { CrownSection }
+CrownSection --> Split(X) { ~1: Cornice | GableW: WardGable | ~1: Cornice }
+Cornice --> Split(Y) { 0.25: CorniceBed | 0.25: CorniceCorona | ~1: Attic }
+CorniceBed --> Extrude(WallD + 0.2) Mat("Dressing") I("Cornice")
+CorniceCorona --> Extrude(WallD + 0.5) Mat("Dressing") I("Cornice")
+Attic --> Wall
+WardGable --> Translate(0, 0, WallD + 0.3 - Depth / 2) Size(scope.x, CrownH + 1.0 + 3.0, 0)
+    Extrude(Depth / 2 - 0.3) Split(Y) { CrownH + 1.0: SlotWall | ~1: WardGableRoof }
+WardGableRoof --> Roof(Gable, 55, overhang=0, ridge=Z) { Slope: SlateSlope | GableEnd: SlotWall }
+RearCrownInset --> Split(X) { WallD: NIL | ~1: RearCrownIn | WallD: NIL }
+RearCrownIn --> Translate(0, 0, -WallD) Wall
+
+// -- 5. The roof: steep slate along the street, drawn from a sliver at
+// the zone's foot; from the rest, two tall stacks to each ward,
+// standing astride the ridge --
+RoofZone --> Split(Y) { 0.01: MainRoof | ~1: StackZone }
+MainRoof --> Roof(Gable, 45, overhang=0, ridge=X) { Slope: SlateSlope | GableEnd: SlotWall }
+SlateSlope --> Mat("Slate") I("Roof")
+StackZone --> Translate(0, -0.01, Depth / 2 - 0.5) Size(scope.x, Depth / 2 + 1.5, 1.0)
+    Repeat(X, SectionW) { StackSection }
+StackSection --> Split(X) { 1.2: NIL | 1.1: Stack | ~1: NIL | 1.1: Stack | 1.2: NIL }
+Stack --> Mat("Brick") Split(Y) { ~1: StackBody | 0.3: StackCap }
+StackBody --> I("Chimney")
+StackCap --> Mat("Dressing") I("Chimney")
