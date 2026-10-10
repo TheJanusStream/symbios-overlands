@@ -651,6 +651,7 @@ fn generator_node_transform_rejects_non_finite_fields() {
         },
         children: Vec::new(),
         audio: symbios_overlands::pds::SovereignAudioConfig::None,
+        spin: None,
     };
     // Must not panic.
     sanitize_generator(&mut generator);
@@ -1268,4 +1269,61 @@ fn room_generator_keys_lose_invisible_characters_deterministically() {
         p,
         Placement::Scatter { generator_ref, .. } if generator_ref == "Rock"
     )));
+}
+
+// ---------------------------------------------------------------------------
+// Node spin (#1604)
+// ---------------------------------------------------------------------------
+
+fn turning() -> Option<symbios_overlands::pds::Spin> {
+    Some(symbios_overlands::pds::Spin::about(
+        [0.0, 0.0, 1.0],
+        symbios_overlands::pds::SpinTerm::Constant { rate: Fp(30.0) },
+    ))
+}
+
+/// A turning Terrain root would carry a whole region round its origin, and
+/// Water and roads are laid in the world's own terms: their spins go. Every
+/// other kind keeps its own, clamped.
+#[test]
+fn spin_comes_off_the_kinds_that_anchor_a_world_and_stays_on_the_rest() {
+    let mut r = RoomRecord::default_for_did(TEST_DID);
+    let root = r
+        .generators
+        .get_mut("base_terrain")
+        .expect("a seeded region has a terrain root");
+    root.spin = turning();
+    let water = root
+        .children
+        .iter_mut()
+        .find(|c| matches!(c.kind, GeneratorKind::Water { .. }))
+        .expect("a seeded region has water");
+    water.spin = turning();
+    let mut prop = Generator::default_cuboid();
+    prop.spin = turning();
+    r.generators.insert("prop".into(), prop);
+    r.sanitize();
+
+    let root = &r.generators["base_terrain"];
+    assert!(root.spin.is_none(), "the region stays where it is");
+    assert!(
+        root.children
+            .iter()
+            .filter(|c| matches!(c.kind, GeneratorKind::Water { .. }))
+            .all(|c| c.spin.is_none()),
+        "water lies flat"
+    );
+    assert_eq!(r.generators["prop"].spin, turning(), "a part turns");
+}
+
+/// A spin whose every term was dropped is no spin: written as none, so the
+/// record carries no empty `spin` key.
+#[test]
+fn a_spin_with_no_terms_is_written_as_none() {
+    let mut g = Generator::default_cuboid();
+    g.spin = Some(symbios_overlands::pds::Spin::default());
+    sanitize_generator(&mut g);
+    assert!(g.spin.is_none());
+    let wire = serde_json::to_string(&g).expect("serialise");
+    assert!(!wire.contains("spin"), "{wire}");
 }

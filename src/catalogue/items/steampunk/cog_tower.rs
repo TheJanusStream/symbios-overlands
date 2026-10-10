@@ -22,7 +22,7 @@ use crate::seeded_defaults::ThemeArchetype;
 
 use super::{
     BRASS, BRICK_SOOT, COPPER_ORANGE, FURNACE_ORANGE, GAUGE_AMBER, IRON_DARK, brass, brick, cog,
-    copper, fx, iron,
+    copper, fx, iron, turning_cog,
 };
 
 pub struct CogTower;
@@ -111,33 +111,46 @@ fn build_tree() -> Generator {
 
     // Exposed gear train on the hero (−Z) face - the signature silhouette.
     // cog() lies flat; quat_x(−π/2) stands it to face −Z, teeth ringing it.
+    // The train turns (#1604): the great cog slowly, each smaller one the
+    // other way and faster by the ratio of their radii, rim keeping pace
+    // with rim.
     let gear_y = base_h + 4.7;
-    prims.push(cog(
-        [0.0, gear_y, gear_z],
-        quat_x(-FRAC_PI_2),
-        1.7,
-        0.32,
-        16,
-        brass(BRASS),
-        iron(IRON_DARK),
+    let great = 10.0;
+    prims.push(turning_cog(
+        cog(
+            [0.0, gear_y, gear_z],
+            quat_x(-FRAC_PI_2),
+            1.7,
+            0.32,
+            16,
+            brass(BRASS),
+            iron(IRON_DARK),
+        ),
+        great,
     ));
-    prims.push(cog(
-        [1.98, gear_y - 1.7, gear_z],
-        quat_x(-FRAC_PI_2),
-        0.85,
-        0.3,
-        12,
-        iron(IRON_DARK),
-        brass(BRASS),
+    prims.push(turning_cog(
+        cog(
+            [1.98, gear_y - 1.7, gear_z],
+            quat_x(-FRAC_PI_2),
+            0.85,
+            0.3,
+            12,
+            iron(IRON_DARK),
+            brass(BRASS),
+        ),
+        -great * 1.7 / 0.85,
     ));
-    prims.push(cog(
-        [-1.72, gear_y + 1.55, gear_z],
-        quat_x(-FRAC_PI_2),
-        0.6,
-        0.28,
-        10,
-        brass(BRASS),
-        iron(IRON_DARK),
+    prims.push(turning_cog(
+        cog(
+            [-1.72, gear_y + 1.55, gear_z],
+            quat_x(-FRAC_PI_2),
+            0.6,
+            0.28,
+            10,
+            brass(BRASS),
+            iron(IRON_DARK),
+        ),
+        -great * 1.7 / 0.6,
     ));
 
     // Glowing clock dial high on the hero face - emissive, with hands.

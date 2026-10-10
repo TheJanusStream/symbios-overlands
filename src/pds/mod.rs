@@ -113,6 +113,8 @@
 //! * [`tid`] - monotonic ATProto TID generation, for the collections above
 //!   that are TID-keyed rather than `self`-keyed.
 //! * [`serde_util`] - the serde adaptors the lexicons share.
+//! * [`spin`] - a generator node's client-side [`Spin`] (#1604): an axis
+//!   and the open-union [`SpinTerm`]s each client turns the node by.
 
 pub(crate) const COLLECTION: &str = "network.symbios.overlands.room";
 pub(crate) const AVATAR_COLLECTION: &str = "network.symbios.overlands.avatar";
@@ -180,6 +182,7 @@ pub mod room;
 pub mod ruin;
 pub mod sanitize;
 pub(crate) mod serde_util;
+pub mod spin;
 pub mod terrain;
 pub mod texture;
 pub mod tid;
@@ -219,6 +222,7 @@ pub use room::{
     publish_room_record, reset_room_record,
 };
 pub use sanitize::{limits, sanitize_avatar_visuals, sanitize_generator};
+pub use spin::{Spin, SpinTerm};
 pub use terrain::{
     SovereignGeneratorKind, SovereignMaterialConfig, SovereignSplatRule, SovereignTerrainConfig,
 };

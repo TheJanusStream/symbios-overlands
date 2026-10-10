@@ -240,7 +240,14 @@ impl AvatarBody {
     /// of the record sanitises.
     pub fn sanitize(&mut self) {
         match self {
-            Self::Generator(body) => sanitize_avatar_visuals(&mut body.visuals),
+            Self::Generator(body) => {
+                sanitize_avatar_visuals(&mut body.visuals);
+                // The visuals ROOT is the gait layer's to move (#1604): it
+                // writes the root's pose every frame, so a spin there could
+                // only fight it. Every node below may turn, and a worn
+                // prop's root may too - nothing else moves that.
+                body.visuals.spin = None;
+            }
             Self::Rigged(body) => body.sanitize(),
             Self::Unknown | Self::Absent => {}
         }
@@ -327,6 +334,37 @@ mod tests {
         )
         .expect("decodes");
         assert_eq!(future.body, AvatarBody::Unknown);
+    }
+
+    /// #1604: a body's visuals root is the gait layer's to move, so its spin
+    /// goes; the parts below it keep theirs, and so does a worn prop's root,
+    /// which nothing else moves.
+    #[test]
+    fn a_body_root_cannot_turn_but_its_parts_and_a_worn_props_root_can() {
+        use crate::pds::{Fp, Spin, SpinTerm};
+        let turning = || {
+            Some(Spin::about(
+                [0.0, 1.0, 0.0],
+                SpinTerm::Constant { rate: Fp(30.0) },
+            ))
+        };
+        let mut visuals = Generator::default_cuboid();
+        visuals.spin = turning();
+        let mut wheel = Generator::default_cuboid();
+        wheel.spin = turning();
+        visuals.children.push(wheel);
+
+        let mut body = AvatarBody::generator(visuals.clone());
+        body.sanitize();
+        let AvatarBody::Generator(body) = body else {
+            panic!("still a generator body");
+        };
+        assert!(body.visuals.spin.is_none(), "the gait moves the root");
+        assert!(body.visuals.children[0].spin.is_some(), "a wheel turns");
+
+        let mut prop = super::super::AttachmentRecord::new(visuals, symbios_avatar::Socket::Crown);
+        prop.sanitize();
+        assert!(prop.item.spin.is_some(), "a worn prop's root may turn");
     }
 
     #[test]

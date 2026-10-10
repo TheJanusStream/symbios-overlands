@@ -134,7 +134,16 @@ pub(super) fn wheels(
     c: &WagonColours,
 ) {
     for (at, r) in plan.wheels() {
-        spoked_wheel(kids, at, at[0], [0.0, 0.0, 0.0, 1.0], r, style, c);
+        let mut parts = Vec::new();
+        spoked_wheel(&mut parts, at, at[0], [0.0, 0.0, 0.0, 1.0], r, style, c);
+        // Rolling, and steering on the front axle (#1604).
+        kids.push(super::super::road_wheel(
+            at,
+            r,
+            plan.steers(at),
+            parts,
+            &c.iron,
+        ));
     }
 }
 

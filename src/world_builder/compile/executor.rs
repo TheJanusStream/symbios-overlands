@@ -168,6 +168,9 @@ pub(crate) fn compile_room_record(
                 .as_deref()
                 .copied()
                 .unwrap_or_default(),
+            // Set per node and per copy by the dispatch (#1604).
+            spinning: false,
+            spin_epoch: 0.0,
         };
 
         loop {
@@ -1531,6 +1534,96 @@ mod tests {
                 "collides at {collides_at}, drawn at {drawn_at}"
             );
         }
+    }
+
+    /// #1604: a part that turns carries its spinner, and neither it nor
+    /// anything below it is solid - a primitive or a grammar's walls - while
+    /// the root that does not turn keeps its collider. Every spinner of one
+    /// copy shares its clock offset (a copy's cogs stay meshed), and two
+    /// copies draw different ones (a row of windmills is not in lockstep).
+    #[test]
+    fn a_turning_part_spins_without_colliders_and_shares_its_copys_clock() {
+        use crate::world_builder::PrimMarker;
+        use crate::world_builder::spin::Spinner;
+        use avian3d::prelude::Collider;
+        let mill: Generator = serde_json::from_value(serde_json::json!({
+            "$type": "network.symbios.gen.cuboid", "size": [10000, 10000, 10000], "solid": true,
+            "children": [
+                {"$type": "network.symbios.gen.cylinder", "radius": 2000, "height": 2000,
+                 "resolution": 12, "solid": true, "transform": {"translation": [0, 60000, 0]},
+                 "spin": {"axis": [0, 0, 10000],
+                          "terms": [{"$type": "network.symbios.spin.constant", "rate": 300000}]},
+                 "children": [
+                    {"$type": "network.symbios.gen.cuboid", "size": [80000, 5000, 1000],
+                     "solid": true},
+                    {"$type": "network.symbios.gen.shape",
+                     "grammar_source": "Lot --> Extrude(2) I(\"Wall\")",
+                     "root_rule": "Lot", "footprint": [20_000, 0, 10_000], "seed": "1",
+                     "solid_meshes": ["Wall"]}
+                 ]},
+                {"$type": "network.symbios.gen.cuboid", "size": [5000, 5000, 5000],
+                 "solid": true, "transform": {"translation": [0, 20000, 0]},
+                 "spin": {"terms": [{"$type": "network.symbios.spin.swing",
+                                     "amplitude": 100000, "period": 20000}]}},
+                // The control: the same walls, standing still, collide.
+                {"$type": "network.symbios.gen.shape",
+                 "grammar_source": "Lot --> Extrude(2) I(\"Wall\")",
+                 "root_rule": "Lot", "footprint": [20_000, 0, 10_000], "seed": "1",
+                 "solid_meshes": ["Wall"], "transform": {"translation": [30000, 0, 0]}}
+            ]
+        }))
+        .expect("wire JSON");
+        let mut record = test_record(2);
+        record.generators.insert("box".into(), mill);
+        let mut app = compile_app(record);
+        settle(&mut app);
+
+        let nodes: Vec<(usize, Vec<usize>, Option<f64>, bool)> = app
+            .world_mut()
+            .query::<(&PrimMarker, &PlacementUnit, Option<&Spinner>, Has<Collider>)>()
+            .iter(app.world())
+            .map(|(marker, unit, spinner, solid)| {
+                (
+                    unit.0,
+                    marker.path.clone(),
+                    spinner.map(Spinner::epoch),
+                    solid,
+                )
+            })
+            .collect();
+        let node = |unit: usize, path: &[usize]| {
+            nodes
+                .iter()
+                .find(|(u, p, ..)| *u == unit && p == path)
+                .unwrap_or_else(|| panic!("no node {path:?} in copy {unit}: {nodes:?}"))
+        };
+        for unit in 0..2 {
+            let (.., root_spins, root_solid) = node(unit, &[]);
+            assert!(
+                root_spins.is_none() && *root_solid,
+                "the tower stands and is solid"
+            );
+            let (.., hub, hub_solid) = node(unit, &[0]);
+            let (.., sail, sail_solid) = node(unit, &[0, 0]);
+            let (.., walls, walls_solid) = node(unit, &[0, 1]);
+            let (.., pendulum, pendulum_solid) = node(unit, &[1]);
+            let (.., still_walls_solid) = node(unit, &[2]);
+            assert!(still_walls_solid, "walls that do not turn collide");
+            assert!(
+                hub.is_some() && pendulum.is_some(),
+                "both turning parts spin"
+            );
+            assert!(
+                sail.is_none() && walls.is_none(),
+                "a part below rides along"
+            );
+            assert!(
+                !hub_solid && !sail_solid && !walls_solid && !pendulum_solid,
+                "nothing that turns collides: {nodes:?}"
+            );
+            assert_eq!(hub, pendulum, "one copy, one clock");
+        }
+        assert_ne!(node(0, &[0]).2, node(1, &[0]).2, "two copies, two clocks");
     }
 
     /// #1506: a Shape node's terminals listed solid collide where they are

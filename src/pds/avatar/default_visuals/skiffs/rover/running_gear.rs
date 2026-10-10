@@ -145,8 +145,18 @@ pub(super) fn wheels(
     for (i, (at, r)) in plan.wheels().into_iter().enumerate() {
         let w = r * TYRE_W;
         let lay = outboard(at[0]);
-        kids.push(solid(&tyre_profile(r, w), 20, true, &c.tyre, at, lay));
         let rim = if Some(i) == odd { &c.odd_rim } else { &c.rim };
-        kids.push(solid(&rim_profile(r, w), 12, false, rim, at, lay));
+        let parts = vec![
+            solid(&tyre_profile(r, w), 20, true, &c.tyre, at, lay),
+            solid(&rim_profile(r, w), 12, false, rim, at, lay),
+        ];
+        // Rolling, and the front pair steering (#1604).
+        kids.push(super::super::road_wheel(
+            at,
+            r,
+            plan.steers(at),
+            parts,
+            &c.tyre,
+        ));
     }
 }

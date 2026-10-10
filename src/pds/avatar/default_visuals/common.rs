@@ -83,6 +83,7 @@ pub(crate) fn prim(kind: GeneratorKind, translation: [f32; 3], rotation: Fp4) ->
         },
         children: Vec::new(),
         audio: crate::pds::SovereignAudioConfig::None,
+        spin: None,
     }
 }
 

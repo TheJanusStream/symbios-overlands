@@ -188,6 +188,7 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
         },
         children: Vec::new(),
         audio: crate::pds::SovereignAudioConfig::None,
+        spin: None,
     });
 
     // Seeded rooms grow no road network: the RoadNetwork generator (and

@@ -28,6 +28,7 @@ pub(in crate::catalogue::items) fn prim(
         },
         children: Vec::new(),
         audio: crate::pds::SovereignAudioConfig::None,
+        spin: None,
     }
 }
 
@@ -52,6 +53,7 @@ pub(in crate::catalogue::items) fn prim_scaled(
         },
         children: Vec::new(),
         audio: crate::pds::SovereignAudioConfig::None,
+        spin: None,
     }
 }
 
@@ -156,6 +158,52 @@ pub(in crate::catalogue::items) fn attach(root: &mut Generator, child: Generator
     t[1] -= ry;
     t[2] -= rz;
     root.children.push(child);
+}
+
+/// A sub-assembly that turns (#1604): `parts` nested under `hub` exactly as
+/// [`nest`] nests them, and the hub given a spin about `axis` by `term`.
+///
+/// Every client turns the hub about its own origin, with everything nested
+/// under it, so the hub must sit ON the pivot - a rotor's hub cap, a fan's
+/// axle - and, like any sub-root, stand axis-aligned: the parts are rebased
+/// by translation alone, and `axis` is read in the hub's frame, which is
+/// then the prop's own. A turned rotor part - a blade, a rim disc - is a
+/// child like any other.
+///
+/// A spin is visual only: the hub and its parts spawn without colliders.
+pub(in crate::catalogue::items) fn turning(
+    hub: Generator,
+    axis: [f32; 3],
+    term: crate::pds::SpinTerm,
+    parts: Vec<Generator>,
+) -> Generator {
+    debug_assert!(
+        hub.transform.rotation.wire() == id_quat().wire(),
+        "a turning hub stands axis-aligned: its parts are rebased by translation"
+    );
+    let mut hub = nest(hub, parts);
+    hub.spin = Some(crate::pds::Spin::about(axis, term));
+    hub
+}
+
+/// A steady turn, `deg_per_s` degrees a second - [`turning`]'s usual term.
+pub(in crate::catalogue::items) fn steady(deg_per_s: f32) -> crate::pds::SpinTerm {
+    crate::pds::SpinTerm::Constant {
+        rate: Fp(deg_per_s),
+    }
+}
+
+/// A swing to and fro, `amplitude_deg` either side, one full swing every
+/// `period_s` seconds - [`turning`]'s term for a part that sways.
+pub(in crate::catalogue::items) fn swaying(
+    amplitude_deg: f32,
+    period_s: f32,
+) -> crate::pds::SpinTerm {
+    crate::pds::SpinTerm::Swing {
+        amplitude: Fp(amplitude_deg),
+        period: Fp(period_s),
+        phase: Fp::ZERO,
+    }
 }
 
 /// Rotation around X - tilts ramps and dome slits.

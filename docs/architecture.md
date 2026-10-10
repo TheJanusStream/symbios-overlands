@@ -324,9 +324,12 @@ generation cores shared with the wasm Web Worker.
   per-generator spawn arms (terrain, water, portal,
   [gateway](../src/world_builder/gateway.rs), sign, particles, L-system,
   shape grammar, primitives including SDF blob groups), the cross-compile
-  geometry / material caches, and the source-keyed
+  geometry / material caches, the source-keyed
   [image cache](../src/world_builder/image_cache.rs) shared by
-  signs / portals / particles.
+  signs / portals / particles, and [spin](../src/world_builder/spin.rs) - the
+  turn each client gives a node whose record says it turns (a windmill's
+  sails, a wheel rolling with its vehicle), held at the authored pose while
+  an editor has a selection.
 - [`src/terrain/`](../src/terrain/), [`src/urban/`](../src/urban/),
   [`src/splat.rs`](../src/splat.rs), [`src/water.rs`](../src/water.rs),
   [`src/clouds.rs`](../src/clouds.rs), [`src/wind.rs`](../src/wind.rs) -

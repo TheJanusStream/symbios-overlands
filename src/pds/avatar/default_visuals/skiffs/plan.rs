@@ -284,6 +284,13 @@ impl BodyPlan {
         out
     }
 
+    /// Whether the wheel at `at` steers (#1604): one on the front axle of a
+    /// machine with more than one axle, which turns into a bend. A chariot's
+    /// one axle carries her and steers nothing.
+    pub(crate) fn steers(&self, at: [f32; 3]) -> bool {
+        self.axles.len() > 1 && (at[2] - self.axles[0].at * self.wheelbase * 0.5).abs() < 1e-4
+    }
+
     /// The wheel anchors alone, front axle first.
     pub(crate) fn wheel_anchors(&self) -> Vec<[f32; 3]> {
         self.wheels().into_iter().map(|(at, _)| at).collect()

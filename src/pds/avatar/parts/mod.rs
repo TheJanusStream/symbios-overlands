@@ -315,6 +315,58 @@ pub fn by_slug(slug: &str) -> Option<&'static dyn BodyPart> {
 mod tests {
     use super::*;
 
+    /// #1608 and #1604: every engine pod stands in its own frame - +Z
+    /// forward, +Y up - and its airscrew turns about the travel axis ahead of
+    /// the nacelle. Composed through the real transforms: the pods' root was
+    /// the quarter-turned barrel until #1608, which put every airscrew under
+    /// the nacelle and the pylon out in front, while every offset in the
+    /// builders read as if it were not.
+    #[test]
+    fn every_engine_pod_screws_forward_and_hangs_from_a_pylon_above() {
+        use bevy::prelude::{Transform, Vec3};
+        fn walk(g: &Generator, parent: Transform, out: &mut Vec<(Transform, Generator)>) {
+            let here = parent * Transform::from(&g.transform);
+            out.push((here, g.clone()));
+            for c in &g.children {
+                walk(c, here, out);
+            }
+        }
+        let seed = (0u64..400)
+            .find(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Airship)
+            .expect("an airship seed");
+        let ctx = PartCtx::for_seed(seed);
+        let pods: Vec<&dyn BodyPart> = entries().filter(|p| p.slot() == PartSlot::Pod).collect();
+        assert_eq!(pods.len(), 3, "the default, ducted and screw pods");
+        for pod in pods {
+            let mut nodes = Vec::new();
+            walk(&pod.build(&ctx), Transform::IDENTITY, &mut nodes);
+            let turning: Vec<&(Transform, Generator)> =
+                nodes.iter().filter(|(_, g)| g.spin.is_some()).collect();
+            assert_eq!(turning.len(), 1, "{}: one airscrew", pod.slug());
+            let (at, screw) = turning[0];
+            let spin = screw.spin.as_ref().expect("turns");
+            let axis = at.rotation * Vec3::from_array(spin.axis.0);
+            assert!(
+                axis.distance(Vec3::Z) < 1e-4,
+                "{}: turns about {axis}",
+                pod.slug()
+            );
+            let c = at.translation;
+            assert!(
+                c.z > 0.1 && c.x.abs() < 1e-4 && c.y.abs() < 1e-4,
+                "{}: the airscrew stands at {c}, not ahead on the travel axis",
+                pod.slug()
+            );
+            assert!(
+                nodes
+                    .iter()
+                    .any(|(t, _)| t.translation.y > 0.25 && t.translation.z.abs() < 1e-4),
+                "{}: no pylon reaches up into the flank",
+                pod.slug()
+            );
+        }
+    }
+
     #[test]
     fn slugs_are_unique() {
         let all: Vec<&'static dyn BodyPart> = entries().collect();

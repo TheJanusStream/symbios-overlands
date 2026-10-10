@@ -334,9 +334,10 @@ pub fn settings_ui(
                                  one of each per second."
                                 }
                                 crate::state::EffectsIntensity::Off => {
-                                    "None at all. Rooms you visit are authored by other \
-                                 people, and this is the only control over what they \
-                                 can put on your screen."
+                                    "None at all, and the world's turning parts - \
+                                 windmills, wheels, pendulums - stand still. Rooms you \
+                                 visit are authored by other people, and this is the \
+                                 only control over what they can put on your screen."
                                 }
                             })
                             .changed();

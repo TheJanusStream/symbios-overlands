@@ -352,3 +352,36 @@ pub const MAX_CONTACT_AUDIO_PITCH_JITTER: f32 = 1.0;
 /// pathological string the same way the Sign sanitiser does.
 pub const MAX_CONTACT_AUDIO_URL: usize = 2_048;
 pub const MAX_CONTACT_AUDIO_ID: usize = 256;
+
+// --- Node spin (#1604) -----------------------------------------------------
+/// Most terms one node's spin sums. Four is a steady turn, a swing and a
+/// steer with one to spare; a hostile list cannot make the per-frame sum
+/// walk a long tail.
+pub const MAX_SPIN_TERMS: usize = 4;
+/// Fastest a part may turn (degrees per second): a steady rate's bound and
+/// the cap the runtime puts on a rolling wheel. Four turns a second already
+/// strobes at 60 frames a second - a two-bladed rotor moves 24 degrees a
+/// frame - and faster only flickers; the room's guests did not choose it.
+pub const MAX_SPIN_RATE_DEG: f32 = 1440.0;
+/// Widest a swing reaches either side of the authored pose (degrees): a
+/// half turn each way is a full circle of travel.
+pub const MAX_SWING_AMPLITUDE_DEG: f32 = 180.0;
+/// Quickest a swing may be (seconds per full swing): twice a second is a
+/// pendulum six centimetres long. Faster reads as a flicker, which is the
+/// motion `EffectsIntensity` exists to protect guests from.
+pub const MIN_SWING_PERIOD_S: f32 = 0.5;
+/// Slowest a swing may be (seconds per full swing): ten minutes, past any
+/// tide a part would be drawn following.
+pub const MAX_SWING_PERIOD_S: f32 = 600.0;
+/// Bound on a swing's starting phase (degrees): one turn either way.
+pub const MAX_SWING_PHASE_DEG: f32 = 360.0;
+/// Smallest radius a rolling term may name (m). Smaller only spins the
+/// part faster, which [`MAX_SPIN_RATE_DEG`] caps anyway.
+pub const MIN_ROLL_RADIUS_M: f32 = 0.01;
+/// Largest radius a rolling term may name (m): a fairground wheel.
+pub const MAX_ROLL_RADIUS_M: f32 = 50.0;
+/// Bound on a steer term's gain (degrees of turn per degree per second of
+/// the parent's turning) either way.
+pub const MAX_STEER_GAIN: f32 = 10.0;
+/// Widest a steer term may turn its part either side (degrees).
+pub const MAX_STEER_LIMIT_DEG: f32 = 90.0;

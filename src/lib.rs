@@ -598,6 +598,7 @@ pub(crate) fn build_client_app(app: &mut App, boot: boot_params::BootParams, she
             (
                 ui::avatar::mirror_rig_hold,
                 ui::room::mirror_placement_focus,
+                ui::room::mirror_spin_hold,
                 ui::login::mirror_login_activity,
                 ui::confirm::mirror_attention_held,
                 ui::catalogue::mirror_preview_request,

@@ -620,6 +620,7 @@ fn scatter_rubble(node: &mut Generator, rng: &mut ChaCha8Rng) {
             },
             children: Vec::new(),
             audio: super::audio::SovereignAudioConfig::None,
+            spin: None,
         });
     }
 }
@@ -673,6 +674,7 @@ mod tests {
             },
             children: Vec::new(),
             audio: super::super::audio::SovereignAudioConfig::None,
+            spin: None,
         };
         let mut root = part(0.5);
         root.children = vec![part(1.5), part(2.5), part(3.5)];
@@ -816,6 +818,7 @@ mod tests {
                 },
                 children: Vec::new(),
                 audio: super::super::audio::SovereignAudioConfig::None,
+                spin: None,
             }
         }
         fn neon_strengths(n: &Generator, out: &mut Vec<f32>) {
@@ -894,6 +897,7 @@ mod tests {
             },
             children: Vec::new(),
             audio: super::super::audio::SovereignAudioConfig::None,
+            spin: None,
         }
     }
 
@@ -916,6 +920,7 @@ mod tests {
             },
             children: Vec::new(),
             audio: super::super::audio::SovereignAudioConfig::None,
+            spin: None,
         }
     }
 

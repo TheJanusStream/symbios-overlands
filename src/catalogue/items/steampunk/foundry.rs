@@ -15,7 +15,9 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{BRASS, BRICK_SOOT, COPPER_ORANGE, IRON_DARK, brass, brick, cog, copper, fx, iron};
+use super::{
+    BRASS, BRICK_SOOT, COPPER_ORANGE, IRON_DARK, brass, brick, cog, copper, fx, iron, turning_cog,
+};
 
 pub struct Foundry;
 
@@ -112,24 +114,33 @@ fn build_tree() -> Generator {
     ));
 
     // A great exposed gear train on the −Z wall beside the door; the small
-    // pinion sits inboard of the corner pipes so it isn't occluded.
-    prims.push(cog(
-        [3.1, 3.0, wall - 0.15],
-        quat_x(-FRAC_PI_2),
-        1.7,
-        0.32,
-        16,
-        brass(BRASS),
-        iron(IRON_DARK),
+    // pinion sits inboard of the corner pipes so it isn't occluded. Both
+    // turn (#1604), the pinion the other way and faster by the ratio of
+    // their radii.
+    let great = 10.0;
+    prims.push(turning_cog(
+        cog(
+            [3.1, 3.0, wall - 0.15],
+            quat_x(-FRAC_PI_2),
+            1.7,
+            0.32,
+            16,
+            brass(BRASS),
+            iron(IRON_DARK),
+        ),
+        great,
     ));
-    prims.push(cog(
-        [4.5, 1.55, wall - 0.15],
-        quat_x(-FRAC_PI_2),
-        0.8,
-        0.28,
-        12,
-        iron(IRON_DARK),
-        brass(BRASS),
+    prims.push(turning_cog(
+        cog(
+            [4.5, 1.55, wall - 0.15],
+            quat_x(-FRAC_PI_2),
+            0.8,
+            0.28,
+            12,
+            iron(IRON_DARK),
+            brass(BRASS),
+        ),
+        -great * 1.7 / 0.8,
     ));
 
     // Hollow copper pipes climbing the −Z wall corners.

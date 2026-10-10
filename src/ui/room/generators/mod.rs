@@ -44,6 +44,7 @@ mod particles;
 mod primitive;
 mod reparent;
 mod sign;
+mod spin;
 mod tree;
 pub(crate) use tree::node_salt;
 mod water;
@@ -230,6 +231,13 @@ pub(crate) trait GeneratorTreeSource {
     /// no branch of the pick can address must say so here.
     fn resolves_face_picks(&self) -> bool {
         true
+    }
+
+    /// Why this tree's ROOT may not turn, or `None` when it may (#1604).
+    /// The Spin section paints the reason in place of its controls: a
+    /// control hidden without a word reads as a feature that is missing.
+    fn root_spin_refusal(&self) -> Option<&'static str> {
+        None
     }
 }
 
@@ -419,6 +427,12 @@ impl GeneratorTreeSource for AvatarVisualsTreeSource<'_> {
     }
     fn allowed_kinds_for_child(&self) -> &'static [&'static str] {
         AVATAR_KINDS
+    }
+    fn root_spin_refusal(&self) -> Option<&'static str> {
+        Some(
+            "The root of a body's visuals cannot turn: its gait moves it every \
+             frame. Turn a part below it - a wheel, a rotor - instead.",
+        )
     }
 }
 

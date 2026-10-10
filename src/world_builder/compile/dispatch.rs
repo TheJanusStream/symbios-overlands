@@ -94,6 +94,11 @@ pub(crate) fn dispatch_top_level(
     // ponds are now legitimate - each cell's local transform produces a
     // distinct entry in the registry - so the strip step has been removed.
     let root_tf = cell_tf * transform_from_data(&generator.transform);
+    // Every spinner of this copy shares one clock offset, drawn from where
+    // the copy stands (#1604): a copy's cogs stay meshed, and a scatter's
+    // windmills do not turn in lockstep.
+    ctx.spin_epoch =
+        crate::world_builder::spin::copy_epoch(ctx.placement_index, cell_tf.translation);
     let entity = spawn_generator(ctx, generator, generator_ref, &[], root_tf, Some(anchor));
     if let Some(entity) = entity
         && !is_terrain_root
@@ -145,7 +150,13 @@ pub fn spawn_generator(
     // box lands in the copy's frame however deep it hangs (#1480). Around
     // the whole node rather than inside it: the node's arms return early.
     let saved = ctx.copy.enter_node(&transform);
+    // A node that turns takes everything below it out of the physics
+    // (#1604) - restored here, on the way back up, rather than in the node,
+    // for the same reason.
+    let spinning = ctx.spinning;
+    ctx.spinning |= generator.moving_spin().is_some();
     let entity = spawn_node(ctx, generator, base_ref, path, transform, parent);
+    ctx.spinning = spinning;
     ctx.copy.leave_node(saved);
     entity
 }
@@ -349,6 +360,14 @@ fn spawn_node(
                     path: path.to_vec(),
                 });
         }
+        // A node that turns (#1604) carries its spinner, which composes the
+        // turn onto `transform` - the pose it is spawned at - every frame.
+        if let Some(spin) = generator.moving_spin()
+            && let Some(spinner) =
+                crate::world_builder::spin::Spinner::new(spin, transform, ctx.spin_epoch)
+        {
+            ctx.commands.entity(e).insert(spinner);
+        }
         // Recurse into the children list, parenting each child entity to
         // this node's generated entity so the hierarchy mirrors the
         // blueprint shape.
@@ -457,7 +476,8 @@ fn spawn_primitive_entity(
     // `get_and_touch` also marks the key reachable for this pass, on hit and
     // miss alike, which is what the end-of-job GC retains against (#919).
     let cached = get_and_touch(ctx.prim_mesh_cache, ctx.prim_mesh_touched, mesh_key);
-    let needs_collider = solid && !ctx.avatar_mode;
+    // Nor on a part that turns, or hangs below one (#1604).
+    let needs_collider = solid && !ctx.avatar_mode && !ctx.spinning;
     let (groups, collider) = match cached {
         // Avatar mode strips colliders unconditionally - the locomotion
         // preset's chassis collider is the only physics body on the avatar,

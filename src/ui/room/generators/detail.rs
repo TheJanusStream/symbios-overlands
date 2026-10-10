@@ -3,7 +3,8 @@
 //! editor (delegated to [`primitive`](super::primitive),
 //! [`sign`](super::sign), [`particles`](super::particles),
 //! [`water`](super::water), or the Terrain / LSystem / Shape forges in
-//! sibling modules of the room editor).
+//! sibling modules of the room editor), then the node's own audio slot and
+//! its [`spin`](super::spin).
 
 use bevy_egui::egui;
 
@@ -172,6 +173,12 @@ pub(super) fn draw_detail_panel(
     // Resolved BEFORE the mutable node borrow below: which nodes the
     // terrain plugin actually reads roads from (#886/#895).
     let active_road_nodes = active_road_node_ids(source);
+    // And why this tree's root may not turn, if it may not (#1604).
+    let spin_refusal = if is_root {
+        source.root_spin_refusal()
+    } else {
+        None
+    };
 
     if let Some(node) = find_node_mut(source, &id) {
         let child_count = node.children.len();
@@ -276,6 +283,18 @@ pub(super) fn draw_detail_panel(
                     dirty,
                     audio_editor,
                     assets,
+                );
+
+                // How every client turns this node (#1604).
+                ui.add_space(6.0);
+                ui.separator();
+                super::spin::draw_spin_section(
+                    ui,
+                    &mut node.spin,
+                    &node.kind,
+                    spin_refusal,
+                    &salt,
+                    dirty,
                 );
             });
     }

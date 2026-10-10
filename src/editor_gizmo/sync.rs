@@ -18,7 +18,7 @@ use crate::ui::room::{EditorTab, RoomEditorState};
 use crate::world_builder::{AttachmentPrim, AvatarVisualPrim, PlacementMarker, PrimMarker};
 
 use super::blob::{BlobEditContext, proxy::BlobElementProxy};
-use super::{ActiveTarget, GizmoDetachedPrim, GizmoFramePref, determine_active_target};
+use super::{ActiveTarget, GizmoDetachedPrim, GizmoFramePref};
 
 /// Keep the `GizmoTarget` component in sync with whichever editor has a
 /// selection this frame.
@@ -70,7 +70,7 @@ pub(super) fn sync_gizmo_selection(
     // attachment record rkey rather than by a path into a visuals tree, and
     // `rigged_bodies` is the rig each one hangs off - needed because a
     // prop's frame is its joint's REST frame, which only the rig knows.
-    (detached_query, global_tf, attachment_query, rigged_bodies, part_query): (
+    (detached_query, global_tf, attachment_query, rigged_bodies, part_query, spin_settled): (
         Query<&GizmoDetachedPrim>,
         Query<&GlobalTransform>,
         Query<(
@@ -93,6 +93,9 @@ pub(super) fn sync_gizmo_selection(
             Has<GizmoDetachedPrim>,
             Option<&ChildOf>,
         )>,
+        // Whether every spinning part stands at its authored pose as this
+        // frame propagated (#1604) - absent without the spin layer.
+        Option<Res<crate::world_builder::spin::SpinSettled>>,
     ),
     camera_query: Query<&GlobalTransform, crate::camera::IsWorldCamera>,
     // Any entity still carrying gizmo state a deselect would need to tear down.
@@ -125,7 +128,6 @@ pub(super) fn sync_gizmo_selection(
     gizmo_options.snap_angle = frame_pref.snap_angle_deg.to_radians();
     gizmo_options.snap_scale = frame_pref.snap_scale;
 
-    let mut active = determine_active_target(&room_state, &avatar_state);
     // The room gizmo exists only while the World-editor window is open
     // (#702) - a selection may survive the window closing (so reopening
     // restores it), but the gizmo itself detaches. The tab gates below
@@ -135,9 +137,22 @@ pub(super) fn sync_gizmo_selection(
     // …and only in a room the user OWNS (#1237 f142). The window flag
     // alone was not enough: it stays true for a visitor, so a selection
     // carried through a gateway kept a live gizmo in a stranger's world
-    // whose drag commits rewrote their record locally.
-    if active == ActiveTarget::Room && !access.can_edit_room() {
-        active = ActiveTarget::None;
+    // whose drag commits rewrote their record locally. `engaged_target`
+    // holds that rule, shared with the spin hold below.
+    let active = super::engaged_target(&room_state, &avatar_state, access.can_edit_room());
+
+    // A part caught mid-turn must not be baked (#1604). The attach below
+    // copies the target's `GlobalTransform` into its local pose, and the
+    // commit converts back against its parent's: a gizmo attached while a
+    // spinner - the target, or anything above it - stood turned would carry
+    // the turn into the record. The spin layer freezes every spinner at its
+    // authored pose a frame after the editors make a selection (the hold is
+    // mirrored in `PreUpdate`), so no NEW gizmo attaches until it reports
+    // that freeze propagated. A gizmo already up is never held back: the
+    // freeze is on for as long as anything is selected.
+    let settling = spin_settled.as_deref().is_some_and(|settled| !settled.0);
+    if active != ActiveTarget::None && settling && gizmoed.is_empty() {
+        return;
     }
 
     // Idle fast path (#640): nothing selected AND nothing still carrying gizmo

@@ -604,6 +604,59 @@ pub fn mirror_placement_focus(
     }
 }
 
+/// Publish [`crate::world_builder::spin::SpinHold`] - whether an editor has
+/// something selected that a gizmo may move, or a gizmo has not yet let go of
+/// what it held (#1604) - the ONE writer of that resource.
+///
+/// It reads both editors because the gizmo does, and by the gizmo's own
+/// rule ([`crate::editor_gizmo::engaged_target`]): the gizmo waits for the
+/// freeze this hold starts before it attaches, so the hold must be on
+/// whenever the gizmo would engage, or the gizmo would wait for nothing.
+///
+/// And it outlasts the selection until the gizmo has let go. The release
+/// reattaches a detached part against its parent's `GlobalTransform` (and a
+/// drag that ends then commits against it), but the editors' egui pass is
+/// unordered against the gizmo's systems: a selection cleared AFTER them in
+/// one frame is released only in the next, and a hold read off the
+/// selection alone would let every spinner turn - and propagate turned -
+/// before that release, so the part would be put back against a turned
+/// parent. Entities still carrying gizmo state keep the hold on until the
+/// release has landed.
+///
+/// `PreUpdate`, unconditionally, like the mirrors beside it; with no
+/// editor state and no gizmo (before login, the headless render tool)
+/// nothing is held.
+#[allow(clippy::type_complexity)]
+pub(crate) fn mirror_spin_hold(
+    room: Option<Res<RoomEditorState>>,
+    avatar: Option<Res<crate::ui::avatar::AvatarEditorState>>,
+    access: Option<crate::ui::toolbar::RoomEditAccess>,
+    gizmoed: Query<
+        (),
+        Or<(
+            With<transform_gizmo_bevy::GizmoTarget>,
+            With<crate::editor_gizmo::GizmoDetachedPrim>,
+        )>,
+    >,
+    mut hold: ResMut<crate::world_builder::spin::SpinHold>,
+) {
+    let engaged = match (room.as_deref(), avatar.as_deref()) {
+        (Some(room), Some(avatar)) => {
+            let can_edit_room = access.as_ref().is_some_and(|a| a.can_edit_room());
+            crate::editor_gizmo::engaged_target(room, avatar, can_edit_room)
+                != crate::editor_gizmo::ActiveTarget::None
+        }
+        _ => false,
+    };
+    let next = crate::world_builder::spin::SpinHold {
+        editing: engaged || !gizmoed.is_empty(),
+    };
+    // Guarded write (#879).
+    if *hold != next {
+        *hold = next;
+    }
+}
+
 /// Drop the room-scoped editor selection when the room changes (#1237
 /// f142, moved out of `player::portal` by #1297 group 3).
 ///
@@ -2146,5 +2199,77 @@ mod placement_focus_tests {
             None,
             "clearing the selection releases the focus"
         );
+    }
+
+    fn spin_held(app: &mut App) -> bool {
+        app.world_mut()
+            .run_system_once(mirror_spin_hold)
+            .expect("the mirror runs");
+        app.world()
+            .resource::<crate::world_builder::spin::SpinHold>()
+            .editing
+    }
+
+    /// #1604: the spin hold is on exactly when a gizmo would engage, by the
+    /// gizmo's own rule - in either editor, never for a visitor's carried
+    /// selection, and off again when the selection clears. The gizmo waits
+    /// on this hold before it attaches, so a hold that missed a case the
+    /// gizmo engages on would leave the gizmo waiting.
+    #[test]
+    fn the_spin_hold_follows_what_the_gizmo_engages_on() {
+        use crate::ui::avatar::AvatarEditorState;
+        let mut app = App::new();
+        app.init_resource::<crate::world_builder::spin::SpinHold>();
+        assert!(!spin_held(&mut app), "no editors, nothing held");
+
+        app.insert_resource(UiPanels {
+            world_editor: true,
+            ..Default::default()
+        });
+        app.insert_resource(session("did:plc:alice"));
+        app.insert_resource(CurrentRoomDid(String::from("did:plc:alice")));
+        app.insert_resource(AvatarEditorState::default());
+        app.insert_resource(RoomEditorState {
+            selected_tab: EditorTab::Placements,
+            selected_placement: Some(2),
+            ..Default::default()
+        });
+        assert!(spin_held(&mut app), "the owner's room selection holds");
+
+        // A visitor's carried selection engages no gizmo, so holds nothing.
+        app.insert_resource(CurrentRoomDid(String::from("did:plc:bob")));
+        assert!(!spin_held(&mut app), "a visitor holds nothing");
+
+        // An avatar part needs no room access.
+        app.world_mut()
+            .resource_mut::<RoomEditorState>()
+            .clear_selection();
+        app.world_mut()
+            .resource_mut::<AvatarEditorState>()
+            .select_from_scene_pick(vec![0]);
+        assert!(spin_held(&mut app), "a visuals part holds, anywhere");
+
+        app.insert_resource(AvatarEditorState::default());
+        assert!(!spin_held(&mut app), "released with the selection");
+
+        // The selection can be cleared after the gizmo's systems ran in a
+        // frame, which then let go only in the next: until they have, the
+        // hold stays on, or the part would be put back against a parent
+        // already turning again.
+        let gizmo = app
+            .world_mut()
+            .spawn(transform_gizmo_bevy::GizmoTarget::default())
+            .id();
+        assert!(spin_held(&mut app), "a gizmo still holding a part holds");
+        app.world_mut().entity_mut(gizmo).despawn();
+        let detached = app
+            .world_mut()
+            .spawn(crate::editor_gizmo::GizmoDetachedPrim {
+                original_parent: Entity::PLACEHOLDER,
+            })
+            .id();
+        assert!(spin_held(&mut app), "a part not yet put back holds");
+        app.world_mut().entity_mut(detached).despawn();
+        assert!(!spin_held(&mut app), "let go: the world turns again");
     }
 }

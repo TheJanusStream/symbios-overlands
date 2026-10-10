@@ -243,6 +243,7 @@ mod tests {
             transform: Default::default(),
             children: Vec::new(),
             audio: Default::default(),
+            spin: None,
         };
         if let GeneratorKind::BlobGroup { elements: e, .. } = &mut node.kind {
             *e = elements;

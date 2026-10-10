@@ -99,9 +99,19 @@ pub(super) fn wheels(kids: &mut Vec<Generator>, f: &Frame, c: &BuggyColours, wor
         let w = tyre_half_width(at[2], r);
         let lay = outboard(at[0]);
         let odd = worn && at[2] < 0.0 && side(at[0]) == NEAR;
-        kids.push(solid(&tyre_profile(r, w), 28, true, &c.tyre, at, lay));
         let rim: &SovereignMaterialSettings = if odd { &c.odd_rim } else { &c.rim };
-        kids.push(solid(&rim_profile(r, w), 24, false, rim, at, lay));
+        let parts = vec![
+            solid(&tyre_profile(r, w), 28, true, &c.tyre, at, lay),
+            solid(&rim_profile(r, w), 24, false, rim, at, lay),
+        ];
+        // Rolling, and steering on the front axle (#1604).
+        kids.push(super::super::road_wheel(
+            at,
+            r,
+            f.plan.steers(at),
+            parts,
+            &c.tyre,
+        ));
     }
 }
 

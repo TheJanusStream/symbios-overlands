@@ -25,6 +25,7 @@ use crate::seeded_defaults::ThemeArchetype;
 
 use super::{
     BRASS, COPPER_ORANGE, GAUGE_AMBER, IRON_DARK, LAMP_GAS, brass, cog, copper, fx, glass, iron,
+    turning_cog,
 };
 
 pub struct SteampunkGateway;
@@ -208,14 +209,20 @@ fn build_tree() -> Generator {
     // Crown: a great brass cog facing −Z with a glowing aether core, flanked by
     // two smaller iron cogs meshing at the lintel corners - the signature
     // steampunk silhouette. cog() lies flat; quat_x(−π/2) stands it to face −Z.
-    prims.push(cog(
-        [0.0, 4.95, -0.2],
-        quat_x(-FRAC_PI_2),
-        0.95,
-        0.28,
-        14,
-        brass(BRASS),
-        iron(IRON_DARK),
+    // The crown turns (#1604), and the two iron cogs meshing at its corners
+    // turn the other way, faster by the ratio of their radii.
+    let crown = 12.0;
+    prims.push(turning_cog(
+        cog(
+            [0.0, 4.95, -0.2],
+            quat_x(-FRAC_PI_2),
+            0.95,
+            0.28,
+            14,
+            brass(BRASS),
+            iron(IRON_DARK),
+        ),
+        crown,
     ));
     prims.push(prim(
         sphere(0.34, 3, glow(AETHER_TEAL, 3.0)),
@@ -223,14 +230,17 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
     for sign in [-1.0_f32, 1.0] {
-        prims.push(cog(
-            [sign * 1.15, 4.4, -0.2],
-            quat_x(-FRAC_PI_2),
-            0.45,
-            0.24,
-            10,
-            iron(IRON_DARK),
-            brass(BRASS),
+        prims.push(turning_cog(
+            cog(
+                [sign * 1.15, 4.4, -0.2],
+                quat_x(-FRAC_PI_2),
+                0.45,
+                0.24,
+                10,
+                iron(IRON_DARK),
+                brass(BRASS),
+            ),
+            -crown * 0.95 / 0.45,
         ));
     }
 

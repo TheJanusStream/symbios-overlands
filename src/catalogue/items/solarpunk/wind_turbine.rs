@@ -3,13 +3,13 @@
 //!
 //! The rotor turns in the Y-Z plane (nacelle axis along X), so its three
 //! blades radiate from the hub at 120° via [`quat_x`] alone - no Z-axis
-//! rotation needed.
+//! rotation needed - and every client turns it on its hub cap (#1604).
 
 use std::f32::consts::{FRAC_PI_2, TAU};
 
 use crate::catalogue::items::util::{
     assemble, cone, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_x, quat_z,
-    solid, sphere,
+    solid, sphere, steady, turning,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -92,13 +92,12 @@ fn build_tree() -> Generator {
     let hub = [1.0_f32, hub_y, 0.0];
     let mut hub_cap = prim(solid(sphere(0.4, 4, steel(STEEL_GREY))), hub, id_quat());
     hub_cap.audio = fx::rotor_whoosh();
-    prims.push(hub_cap);
     // Spinner nose-cone pointing forward into the wind (+X).
-    prims.push(prim(
+    let mut rotor = vec![prim(
         solid(cone(0.4, 0.7, 10, steel(STEEL_WHITE))),
         [hub[0] + 0.4, hub[1], hub[2]],
         quat_z(-FRAC_PI_2),
-    ));
+    )];
 
     // Three aerofoil blades radiating from the hub at 120° around the X axis -
     // a wide root chord tapering to a slim tip so they catch the light edge-on
@@ -107,7 +106,7 @@ fn build_tree() -> Generator {
     for i in 0..3 {
         let a = i as f32 / 3.0 * TAU;
         let c = blade_len * 0.5 + 0.45;
-        prims.push(prim(
+        rotor.push(prim(
             solid(cuboid_tapered(
                 [0.16, blade_len, 0.72],
                 0.7,
@@ -117,6 +116,9 @@ fn build_tree() -> Generator {
             quat_x(a),
         ));
     }
+    // The rotor turns on its hub cap (#1604): clockwise as the wind sees it,
+    // ten turns a minute - a big rotor's unhurried pace.
+    prims.push(turning(hub_cap, [1.0, 0.0, 0.0], steady(-60.0), rotor));
 
     assemble(prims)
 }

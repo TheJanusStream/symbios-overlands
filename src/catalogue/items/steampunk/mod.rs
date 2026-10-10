@@ -44,7 +44,7 @@ use super::util::{tile, tiles_per_metre};
 use bevy_symbios_texture::metal::MetalStyle;
 
 use crate::catalogue::items::util::{
-    cuboid_tapered, cylinder_tapered, id_quat, prim, quat_y, solid,
+    cuboid_tapered, cylinder_tapered, id_quat, prim, quat_y, solid, steady,
 };
 use crate::pds::{
     Fp, Fp3, Fp4, Fp64, Generator, SovereignBrickConfig, SovereignCorrugatedConfig,
@@ -243,6 +243,19 @@ pub(super) fn plank(color: [f32; 3]) -> SovereignMaterialSettings {
         }),
         ..Default::default()
     }
+}
+
+/// A [`cog`] that turns on its own axle, `deg_per_s` degrees a second
+/// (#1604). A cog's root is its turned blank, and its teeth, holes and hub
+/// sit in the blank's own frame, so the axle is the blank's local Y however
+/// the cog was stood. The kit draws a train as cogs overlapping at the rim,
+/// a hair apart in depth: turned the other way from its neighbour, at a rate
+/// inverse to its radius, each keeps rim pace with the next and the train
+/// reads as meshing at these speeds - though no two of the kit's tooth
+/// pitches match, so no rate could make the teeth truly mesh.
+pub(super) fn turning_cog(mut cog: Generator, deg_per_s: f32) -> Generator {
+    cog.spin = Some(crate::pds::Spin::about([0.0, 1.0, 0.0], steady(deg_per_s)));
+    cog
 }
 
 /// Build a toothed cog - the kit's signature silhouette. A cylindrical gear

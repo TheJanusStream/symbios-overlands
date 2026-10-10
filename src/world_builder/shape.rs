@@ -1075,13 +1075,15 @@ pub(super) fn spawn_shape_entity(
     // The solid terminals' collider (#1506), of the terminals drawn: past
     // the budget, a terminal that is not drawn is no wall either. Not on
     // an avatar, whose locomotion preset's chassis is its only body - as a
-    // solid primitive's collider is not.
+    // solid primitive's collider is not - nor on a building that turns, or
+    // hangs below a part that does (#1604).
     let collider = if drawn == build.instances.len() {
         build.solid.clone()
     } else {
         solid_collider(&build.instances[..drawn])
     };
     if !ctx.avatar_mode
+        && !ctx.spinning
         && let Some(collider) = collider
     {
         ctx.commands.entity(parent).insert(collider);

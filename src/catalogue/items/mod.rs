@@ -817,6 +817,66 @@ mod tests {
         );
     }
 
+    /// #1604: which catalogue entries turn, and how - each turning part's
+    /// term and its axis in the entry's own frame (a cog stood to face -Z
+    /// turns about -Z whatever frame its blank was authored in). Pinned
+    /// whole, so a rotor that stops turning in an edit, or a part that
+    /// starts, is a decision someone took rather than an accident. (A part
+    /// turns about its own origin, so each of these is a hub, an axle or a
+    /// cog blank standing on its rotor's centre - which the renders checked,
+    /// not this.)
+    #[test]
+    fn the_catalogue_turns_exactly_these_parts() {
+        use crate::catalogue::items::util::placed;
+        use crate::pds::SpinTerm;
+        let mut got: Vec<String> = Vec::new();
+        for e in ENTRIES {
+            let built = e.build("");
+            for p in placed(&built) {
+                let Some(spin) = &p.node.spin else {
+                    continue;
+                };
+                let axis = (p.world.rotation * bevy::prelude::Vec3::from_array(spin.axis.0))
+                    .normalize()
+                    .to_array()
+                    .map(|c| c.round() as i32);
+                let terms: Vec<String> = spin
+                    .terms
+                    .iter()
+                    .map(|t| match t {
+                        SpinTerm::Constant { rate } => format!("steady {}", rate.0.round()),
+                        SpinTerm::Swing {
+                            amplitude, period, ..
+                        } => format!("sway {}/{}s", amplitude.0, period.0),
+                        other => other.label().to_string(),
+                    })
+                    .collect();
+                got.push(format!("{} {axis:?} {}", e.slug(), terms.join(" + ")));
+            }
+        }
+        got.sort();
+        let want = [
+            "cog_tower [0, 0, -1] steady -20",
+            "cog_tower [0, 0, -1] steady -28",
+            "cog_tower [0, 0, -1] steady 10",
+            "drone_perch [0, 1, 0] steady -900",
+            "drone_perch [0, 1, 0] steady -900",
+            "drone_perch [0, 1, 0] steady 900",
+            "drone_perch [0, 1, 0] steady 900",
+            "drone_perch [0, 1, 0] sway 8/7s",
+            "foundry [0, 0, -1] steady -21",
+            "foundry [0, 0, -1] steady 10",
+            "steampunk_gateway [0, 0, -1] steady -25",
+            "steampunk_gateway [0, 0, -1] steady -25",
+            "steampunk_gateway [0, 0, -1] steady 12",
+            "wind_pump [0, 0, 1] steady -55",
+            "wind_turbine [1, 0, 0] steady -60",
+            "windmill [0, 0, 1] steady -40",
+            "windmill [0, 1, 0] sway 10/14s",
+        ];
+        assert_eq!(got, want);
+    }
+
     #[test]
     fn by_slug_resolves_every_entry() {
         for entry in ENTRIES {

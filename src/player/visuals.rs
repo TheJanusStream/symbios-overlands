@@ -77,9 +77,25 @@ pub fn spawn_avatar_visuals(
     let Some(visuals) = body.visuals() else {
         return;
     };
+    let visuals = with_still_root(visuals);
     spawn_visual_tree(
-        commands, chassis, visuals, meshes, materials, images, deps, is_local,
+        commands, chassis, &visuals, meshes, materials, images, deps, is_local,
     );
+}
+
+/// A body's visuals as they are spawned: the root never turns (#1604). The
+/// gait layer writes the visuals root's pose every frame, so a spin there -
+/// one a live edit carried past the sanitiser, which takes it off a saved
+/// body - could only fight it. A node below the root may turn, and so may a
+/// worn prop's root, which no gait moves. Borrowed unless the root does
+/// carry a spin, so the editor's per-frame rebuild clones nothing.
+fn with_still_root(visuals: &crate::pds::Generator) -> std::borrow::Cow<'_, crate::pds::Generator> {
+    if visuals.spin.is_none() {
+        return std::borrow::Cow::Borrowed(visuals);
+    }
+    let mut still = visuals.clone();
+    still.spin = None;
+    std::borrow::Cow::Owned(still)
 }
 
 /// The generator-tree walk itself, body-kind agnostic. Split from
@@ -253,4 +269,86 @@ pub(crate) fn spawn_path_app() -> bevy::app::App {
     app.init_resource::<crate::diagnostics::SessionLog>();
     app.init_resource::<Time>();
     app
+}
+
+#[cfg(test)]
+mod spin_tests {
+    use super::*;
+    use crate::pds::avatar::AvatarBody;
+    use crate::pds::{Fp, Generator, Spin, SpinTerm};
+    use crate::world_builder::spin::Spinner;
+    use bevy::ecs::system::RunSystemOnce;
+
+    /// #1604: a body's visuals root never turns - the gait layer writes its
+    /// pose every frame - while a part below it does, and so does a worn
+    /// prop's root, which no gait moves. Through the real spawn path, since
+    /// the two meet in one spawner that cannot tell them apart.
+    #[test]
+    fn a_bodys_root_stands_still_and_a_worn_props_root_turns() {
+        let turning = || {
+            Some(Spin::about(
+                [0.0, 1.0, 0.0],
+                SpinTerm::Constant { rate: Fp(30.0) },
+            ))
+        };
+        let mut tree = Generator::default_cuboid();
+        tree.spin = turning();
+        let mut wheel = Generator::default_cuboid();
+        wheel.spin = turning();
+        tree.children.push(wheel);
+        let body = AvatarBody::generator(tree.clone());
+
+        let mut app = spawn_path_app();
+        let chassis = app.world_mut().spawn(Transform::default()).id();
+        let socket = app.world_mut().spawn(Transform::default()).id();
+        app.world_mut()
+            .run_system_once(
+                move |mut commands: Commands,
+                      mut meshes: ResMut<Assets<Mesh>>,
+                      mut materials: ResMut<Assets<StandardMaterial>>,
+                      mut images: ResMut<Assets<Image>>,
+                      mut deps: AvatarSpawnDeps| {
+                    spawn_avatar_visuals(
+                        &mut commands,
+                        chassis,
+                        &body,
+                        None,
+                        &mut meshes,
+                        &mut materials,
+                        &mut images,
+                        &mut deps,
+                        false,
+                    );
+                    spawn_attachment_tree(
+                        &mut commands,
+                        socket,
+                        &tree,
+                        &mut meshes,
+                        &mut materials,
+                        &mut images,
+                        &mut deps,
+                        false,
+                        None,
+                    );
+                },
+            )
+            .expect("spawns");
+        let world = app.world_mut();
+        let root_of = |world: &mut World, parent: Entity| {
+            let children = world.get::<Children>(parent).expect("a root hangs here");
+            children[0]
+        };
+        let body_root = root_of(world, chassis);
+        let prop_root = root_of(world, socket);
+        assert!(
+            world.get::<Spinner>(body_root).is_none(),
+            "the gait moves it"
+        );
+        let wheel = root_of(world, body_root);
+        assert!(world.get::<Spinner>(wheel).is_some(), "a body's part turns");
+        assert!(
+            world.get::<Spinner>(prop_root).is_some(),
+            "a prop's root turns"
+        );
+    }
 }

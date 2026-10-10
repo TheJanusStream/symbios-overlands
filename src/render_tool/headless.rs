@@ -18,8 +18,9 @@
 //! scene builds and warms up, and during a clip **once per captured frame**
 //! ([`Clock::once`], armed by the drive loop on the frame before each shot,
 //! and only once the scene has caught up with the frame before: see
-//! [`clip_step`]). Wind, clouds, water, particles and the walker's gait all
-//! read the shader globals or `Time`, so a clip's frame `k` is the scene at
+//! [`clip_step`]). Wind, clouds, water, particles, the walker's gait and the
+//! parts that turn (#1604, on `SpinClock::Scene` rather than the game's UTC)
+//! all read the shader globals or `Time`, so a clip's frame `k` is the scene at
 //! exactly `k / fps` seconds no matter how many app frames the readback of
 //! frame `k - 1` took, and no matter how fast the machine is.
 

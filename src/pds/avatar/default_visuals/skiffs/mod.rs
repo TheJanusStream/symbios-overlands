@@ -91,6 +91,64 @@ fn dim(v: f32) -> f32 {
     v.max(MIN_DIM)
 }
 
+/// How far a steering wheel turns for each degree per second its machine
+/// turns (#1604) - a bend taken at 40 deg/s turns the front wheels 12 deg.
+const STEER_GAIN: f32 = 0.3;
+/// The furthest a steering wheel turns either way (degrees). Rendered at
+/// full lock: at 15 a turned tyre stays inside the armoured car's fenders
+/// and under the roadster's cycle wings, neither of which steers; at 28 it
+/// cut through both.
+const STEER_LIMIT_DEG: f32 = 15.0;
+/// The side of the hidden cube a wheel's hubs are (m): inside the smallest
+/// rim or nave any type draws, and over [`MIN_DIM`].
+const HUB_CUBE: f32 = 0.02;
+
+/// One road wheel that turns with its machine (#1604): `parts` - tyre, rim,
+/// nave, spokes, each drawn in the machine's frame - nested on a hidden axle
+/// hub at the wheel's centre `at`, which rolls them about the machine's X axis
+/// as a wheel of outer radius `r` rolls. A steering wheel ([`BodyPlan::steers`])
+/// hangs from a second hidden hub, its kingpin, which turns the rolling wheel
+/// about the machine's up axis as she turns into a bend.
+///
+/// Both hubs stand unturned, so every part keeps the pose it was drawn at, and
+/// one axis rolls the wheels on both sides forwards. Each hub is a cube of
+/// [`HUB_CUBE`], hidden in the rim or nave it sits in.
+fn road_wheel(
+    at: [f32; 3],
+    r: f32,
+    steers: bool,
+    parts: Vec<Generator>,
+    core: &crate::pds::texture::SovereignMaterialSettings,
+) -> Generator {
+    use super::common::{cuboid, id_quat, prim};
+    use crate::pds::{Fp, Fp3, Spin, SpinTerm};
+    let hub = |at: [f32; 3]| prim(cuboid([HUB_CUBE; 3], core.clone()), at, id_quat());
+    let mut axle = hub(at);
+    for mut part in parts {
+        let t = &mut part.transform.translation.0;
+        *t = [t[0] - at[0], t[1] - at[1], t[2] - at[2]];
+        axle.children.push(part);
+    }
+    axle.spin = Some(Spin::about(
+        [1.0, 0.0, 0.0],
+        SpinTerm::Roll { radius: Fp(r) },
+    ));
+    if !steers {
+        return axle;
+    }
+    axle.transform.translation = Fp3([0.0; 3]);
+    let mut kingpin = hub(at);
+    kingpin.children.push(axle);
+    kingpin.spin = Some(Spin::about(
+        [0.0, 1.0, 0.0],
+        SpinTerm::Steer {
+            gain: Fp(STEER_GAIN),
+            limit: Fp(STEER_LIMIT_DEG),
+        },
+    ));
+    kingpin
+}
+
 /// How a craft type drives: the numbers
 /// [`skiff_locomotion`](super::skiff_locomotion) scales its preset by.
 ///
@@ -1944,6 +2002,160 @@ mod tests {
                  {SOFT_RECORD_BUDGET_BYTES}-byte soft budget - a craft type is \
                  spending nodes where it should be spending shape"
             );
+        }
+    }
+
+    /// #1604: a wheel's hubs move no part of it. The rebase is exact: every
+    /// part, composed through the axle hub and (steering) the kingpin above
+    /// it, stands where it was drawn.
+    #[test]
+    fn a_road_wheels_hubs_move_none_of_its_parts() {
+        use super::super::common::{cuboid, prim, quat_xyzw, quat_z};
+        use bevy::prelude::Transform;
+        let at = [0.9, 0.42, 1.3];
+        let drawn = [
+            prim(
+                cuboid([0.3, 0.1, 0.3], Default::default()),
+                at,
+                quat_xyzw(quat_z(0.7)),
+            ),
+            prim(
+                cuboid([0.02, 0.5, 0.02], Default::default()),
+                [1.1, 0.6, 1.2],
+                quat_xyzw(quat_z(-1.1)),
+            ),
+        ];
+        for steers in [false, true] {
+            let wheel = road_wheel(at, 0.42, steers, drawn.to_vec(), &Default::default());
+            let mut placed = Vec::new();
+            fn walk(g: &Generator, parent: Transform, out: &mut Vec<Transform>) {
+                let here = parent * Transform::from(&g.transform);
+                if g.spin.is_none() {
+                    out.push(here);
+                }
+                for c in &g.children {
+                    walk(c, here, out);
+                }
+            }
+            walk(&wheel, Transform::IDENTITY, &mut placed);
+            assert_eq!(placed.len(), drawn.len());
+            for (got, part) in placed.iter().zip(&drawn) {
+                let want = Transform::from(&part.transform);
+                assert!(
+                    got.translation.distance(want.translation) < 1e-6,
+                    "steers {steers}"
+                );
+                assert!(
+                    got.rotation.angle_between(want.rotation) < 1e-6,
+                    "steers {steers}"
+                );
+            }
+        }
+    }
+
+    /// #1604: every road wheel of every seeded skiff rolls - one Roll hub per
+    /// wheel her plan publishes, at that wheel's own radius, about her X
+    /// axis - and the front axle of a machine with more than one steers, from
+    /// a kingpin over its rolling hub. Spares, which are bolted on, do not
+    /// turn.
+    #[test]
+    fn every_road_wheel_rolls_and_the_front_axle_steers() {
+        use crate::pds::SpinTerm;
+        fn spins(g: &Generator, out: &mut Vec<(SpinTerm, [f32; 3])>) {
+            if let Some(spin) = &g.spin {
+                for term in &spin.terms {
+                    out.push((term.clone(), spin.axis.0));
+                }
+            }
+            for c in &g.children {
+                spins(c, out);
+            }
+        }
+        let mut checked = 0;
+        for s in (0u64..400).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Skiff) {
+            let (_, plan) = body_for(s).expect("a skiff seed has a body");
+            let mut found = Vec::new();
+            spins(&build(s, None), &mut found);
+            let mut rolled: Vec<f32> = found
+                .iter()
+                .filter_map(|(term, axis)| match term {
+                    SpinTerm::Roll { radius } => {
+                        assert_eq!(*axis, [1.0, 0.0, 0.0], "seed {s}: rolls about X");
+                        Some(radius.0)
+                    }
+                    _ => None,
+                })
+                .collect();
+            let mut want: Vec<f32> = plan.wheels().iter().map(|&(_, r)| r).collect();
+            rolled.sort_by(f32::total_cmp);
+            want.sort_by(f32::total_cmp);
+            assert_eq!(rolled, want, "seed {s}: one rolling hub per road wheel");
+            let steered = found
+                .iter()
+                .filter(|(term, axis)| {
+                    matches!(term, SpinTerm::Steer { .. }) && *axis == [0.0, 1.0, 0.0]
+                })
+                .count();
+            let fronts = plan
+                .wheels()
+                .iter()
+                .filter(|&&(at, _)| plan.steers(at))
+                .count();
+            assert_eq!(steered, fronts, "seed {s}: the front axle steers");
+            assert_eq!(
+                found.len(),
+                want.len() + fronts,
+                "seed {s}: nothing else turns"
+            );
+            checked += 1;
+        }
+        assert!(checked > 40, "too few skiffs sampled: {checked}");
+    }
+
+    /// #1604's clearance probe, fired by hand: every type's first seed with
+    /// its kingpins turned to full lock, every spin then cleared, written as
+    /// `--generator` files under `$SPIN_PROBE_OUT` - so a render shows where a
+    /// steered wheel meets the guards and the bodywork that do not steer.
+    #[test]
+    #[ignore = "a render input, written by hand"]
+    fn probe_full_lock_for_every_type() {
+        use crate::pds::{Fp4, SpinTerm};
+        use crate::seeded_defaults::SkiffType;
+        let out = std::path::PathBuf::from(
+            std::env::var("SPIN_PROBE_OUT").expect("SPIN_PROBE_OUT names a directory"),
+        );
+        fn lock(g: &mut Generator) {
+            if let Some(spin) = g.spin.take()
+                && spin
+                    .terms
+                    .iter()
+                    .any(|t| matches!(t, SpinTerm::Steer { .. }))
+            {
+                let base = bevy::math::Quat::from_array(g.transform.rotation.0);
+                let turn = bevy::math::Quat::from_rotation_y(STEER_LIMIT_DEG.to_radians());
+                g.transform.rotation = Fp4((base * turn).to_array());
+            }
+            for c in &mut g.children {
+                lock(c);
+            }
+        }
+        for t in SkiffType::ALL {
+            let seed = (0u64..2000)
+                .find(|&s| {
+                    ChassisFamily::for_seed(s) == ChassisFamily::Skiff
+                        && SkiffType::for_seed(s) == t
+                })
+                .expect("a seed of every type");
+            let slug = t.label().to_lowercase().replace(' ', "-");
+            let straight = build(seed, None);
+            let mut locked = straight.clone();
+            lock(&mut locked);
+            for (name, tree) in [("straight", &straight), ("lock", &locked)] {
+                let path = out.join(format!("{name}-{slug}.json"));
+                std::fs::write(&path, serde_json::to_string(tree).expect("serialise"))
+                    .expect("write");
+                println!("{} seed {seed} -> {}", t.label(), path.display());
+            }
         }
     }
 

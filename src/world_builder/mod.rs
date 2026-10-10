@@ -108,6 +108,7 @@ pub mod prim_cache;
 mod shape;
 mod sign;
 pub mod spatial_audio;
+pub(crate) mod spin;
 mod surface_bake;
 pub mod voice_budget;
 
@@ -193,6 +194,10 @@ pub fn register_headless_spawn(app: &mut App) {
         // overwrites, so the sink-backed `SessionLog` that `DiagnosticsPlugin`
         // inserts in the full app still wins.
         .init_resource::<crate::diagnostics::SessionLog>();
+    // Parts turn here too (#1604), on the app's own clock rather than UTC:
+    // the render tool steps that clock by hand, so a clip's frame `k` shows
+    // every spinner at `k / fps` seconds on every run.
+    spin::register(app, spin::SpinClock::Scene);
 }
 
 /// Register the room-compile systems themselves - the half of
@@ -605,6 +610,10 @@ impl Plugin for WorldBuilderPlugin {
         // The looping-voice budget (#1557): every construct voice the pollers
         // above attach arrives held back, and only this gives it a player.
         voice_budget::register(app);
+        // Parts that turn (#1604), on the wall clock: every client shows a
+        // windmill's sails at the same angle. Not state-gated - the attract
+        // backdrop and the avatar previews turn their parts as well.
+        spin::register(app, spin::SpinClock::utc());
     }
 }
 

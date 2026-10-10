@@ -108,8 +108,18 @@ pub(super) fn wheels(
         let w = r * super::TYRE_W;
         let lay = outboard(at[0]);
         let odd = worn && at[2] > 0.0 && side(at[0]) == NEAR;
-        kids.push(solid(&tyre_profile(r, w), 28, true, &c.tyre, at, lay));
         let rim: &SovereignMaterialSettings = if odd { &c.odd_rim } else { &c.rim };
-        kids.push(solid(&rim_profile(r, w), 24, false, rim, at, lay));
+        let parts = vec![
+            solid(&tyre_profile(r, w), 28, true, &c.tyre, at, lay),
+            solid(&rim_profile(r, w), 24, false, rim, at, lay),
+        ];
+        // Rolling, and the front pair steering (#1604).
+        kids.push(super::super::road_wheel(
+            at,
+            r,
+            plan.steers(at),
+            parts,
+            &c.tyre,
+        ));
     }
 }

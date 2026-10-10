@@ -56,14 +56,25 @@ pub(super) trait Wheels: Sync {
         pressed_disc(wheel_r)
     }
 
-    /// Draw the road wheels on every anchor the plan publishes.
+    /// Draw the road wheels on every anchor the plan publishes, each rolling
+    /// and the front pair steering (#1604).
     fn build(&self, kids: &mut Vec<Generator>, plan: &RoadsterPlan, c: &SkiffColours) {
         let w = self.profiles(plan.wheel_r);
         for anchor in plan.wheel_anchors() {
             let lay = lay(anchor[0]);
-            kids.push(turned(&w.tyre, 28, true, c.rubber.clone(), anchor, lay));
-            kids.push(turned(&w.disc, 28, false, c.disc.clone(), anchor, lay));
-            kids.push(turned(&w.drum, 20, false, c.machinery.clone(), anchor, lay));
+            let parts = vec![
+                turned(&w.tyre, 28, true, c.rubber.clone(), anchor, lay),
+                turned(&w.disc, 28, false, c.disc.clone(), anchor, lay),
+                turned(&w.drum, 20, false, c.machinery.clone(), anchor, lay),
+            ];
+            let steers = plan.steers(anchor);
+            kids.push(super::super::road_wheel(
+                anchor,
+                plan.wheel_r,
+                steers,
+                parts,
+                &c.machinery,
+            ));
         }
     }
 }
@@ -222,20 +233,15 @@ impl Wheels for Wire {
         for anchor in plan.wheel_anchors() {
             let side = anchor[0].signum();
             let lay = lay(anchor[0]);
-            kids.push(turned(&base.tyre, 28, true, c.rubber.clone(), anchor, lay));
-            kids.push(turned(
-                &base.drum,
-                20,
-                false,
-                c.machinery.clone(),
-                anchor,
-                lay,
-            ));
+            let mut parts = vec![
+                turned(&base.tyre, 28, true, c.rubber.clone(), anchor, lay),
+                turned(&base.drum, 20, false, c.machinery.clone(), anchor, lay),
+            ];
             let face = anchor[0] + side * (base.face + spoke * 0.6);
             let hub_x = face + side * WIRE_DISH * w;
             for k in 0..WIRE_PAIRS {
                 let (s, co) = (PI * k as f32 / WIRE_PAIRS as f32).sin_cos();
-                kids.push(line(
+                parts.push(line(
                     &[
                         ([face, anchor[1] + rim * s, anchor[2] + rim * co], spoke),
                         ([hub_x, anchor[1], anchor[2]], spoke),
@@ -245,13 +251,24 @@ impl Wheels for Wire {
                     c.disc.clone(),
                 ));
             }
-            kids.push(turned(
+            parts.push(turned(
                 &hub,
                 16,
                 false,
                 c.brightwork.clone(),
                 [hub_x - side * w * 0.10, anchor[1], anchor[2]],
                 lay,
+            ));
+            // Spokes, hub and all roll on the axle, the front pair steering
+            // (#1604): each spoke's points are the machine's, so the axle
+            // hub's rebase carries them as it carries the turned parts.
+            let steers = plan.steers(anchor);
+            kids.push(super::super::road_wheel(
+                anchor,
+                plan.wheel_r,
+                steers,
+                parts,
+                &c.machinery,
             ));
         }
     }

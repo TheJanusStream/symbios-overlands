@@ -284,6 +284,16 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     pub(crate) copy: &'a mut CopyRecorder,
     /// The draw-distance cuts in force, which [`Self::end_copy`] stamps.
     pub(crate) draw_cuts: DrawDistanceCuts,
+    /// Whether the node being spawned turns, or hangs below one that does
+    /// (#1604). Every spawner leaves such a node without a solid collider:
+    /// it would turn with the part, under bodies its static anchor never
+    /// wakes, and a spin is the record's word that the part is for looking
+    /// at. Sensors - a portal's, a gateway's - keep theirs.
+    pub(crate) spinning: bool,
+    /// The clock offset every spinner of the copy being spawned shares -
+    /// see [`crate::world_builder::spin::copy_epoch`]. Zero outside a room
+    /// placement.
+    pub(crate) spin_epoch: f64,
 }
 
 impl SpawnCtx<'_, '_, '_, '_, '_> {

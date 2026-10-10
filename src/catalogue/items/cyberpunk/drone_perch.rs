@@ -3,7 +3,8 @@
 //! scattered through the settlement as street clutter.
 
 use crate::catalogue::items::util::{
-    cuboid_tapered, cylinder_tapered, foundation_block, glow, id_quat, prim, solid, sphere, torus,
+    cuboid_tapered, cylinder_tapered, foundation_block, glow, id_quat, prim, solid, sphere, steady,
+    swaying, torus, turning,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -103,20 +104,15 @@ fn build_tree() -> Generator {
 
     // ---- Quad-rotor drone hovering above the pad -------------------------
     let h = rel(pad_y + 0.95); // hover height
-    // Body + a rounded sensor turret underneath.
-    root.children.push(prim(
-        solid(cuboid_tapered([0.46, 0.18, 0.46], 0.0, metal(body))),
-        [0.0, h, 0.0],
-        id_quat(),
-    ));
-    root.children.push(prim(
+    // A rounded sensor turret underneath the body.
+    let mut drone = vec![prim(
         sphere(0.08, 3, glow(NEON_MAGENTA, 8.0)),
         [0.0, h - 0.14, 0.0],
         id_quat(),
-    ));
+    )];
     // Four arms reaching out to the rotor pods (plus-quad layout).
     for (ax, az) in [(1.0_f32, 0.0_f32), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
-        root.children.push(prim(
+        drone.push(prim(
             solid(cuboid_tapered(
                 [0.5 * ax.abs() + 0.08, 0.05, 0.5 * az.abs() + 0.08],
                 0.0,
@@ -126,19 +122,34 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
         // Rotor housing + a faint translucent rotor-blur disc above it.
-        root.children.push(prim(
+        drone.push(prim(
             solid(cylinder_tapered(0.17, 0.06, 12, 0.0, metal(body))),
             [ax * 0.55, h, az * 0.55],
             id_quat(),
         ));
-        root.children.push(prim(
+        drone.push(prim(
             cylinder_tapered(0.16, 0.015, 16, 0.0, glow(NEON_CYAN, 0.7)),
             [ax * 0.55, h + 0.05, az * 0.55],
             id_quat(),
         ));
+        // A two-blade prop standing 4.5 mm proud of the blur disc (#1537's
+        // stagger), turning on its own centre (#1604): the side pair one way,
+        // the fore-and-aft pair the other, as a quad's diagonal pairs
+        // counter-rotate. On the side pair the nav light stands at the prop's
+        // centre, its hub cap.
+        drone.push(turning(
+            prim(
+                cuboid_tapered([0.3, 0.012, 0.035], 0.0, metal(body)),
+                [ax * 0.55, h + 0.068, az * 0.55],
+                id_quat(),
+            ),
+            [0.0, 1.0, 0.0],
+            steady(if az == 0.0 { 900.0 } else { -900.0 }),
+            Vec::new(),
+        ));
     }
     // Port/starboard nav lights - red/green like a real aircraft.
-    root.children.push(prim(
+    drone.push(prim(
         sphere(0.04, 2, glow([1.0, 0.15, 0.1], 7.0)),
         [-0.55, h + 0.07, 0.0],
         id_quat(),
@@ -150,7 +161,19 @@ fn build_tree() -> Generator {
     );
     // Whirring rotors are the drone's signature sound.
     nav.audio = fx::drone_whir();
-    root.children.push(nav);
+    drone.push(nav);
+    // The body carries the whole drone, holding station with a slow yaw to
+    // and fro as it hovers (#1604).
+    root.children.push(turning(
+        prim(
+            solid(cuboid_tapered([0.46, 0.18, 0.46], 0.0, metal(body))),
+            [0.0, h, 0.0],
+            id_quat(),
+        ),
+        [0.0, 1.0, 0.0],
+        swaying(8.0, 7.0),
+        drone,
+    ));
 
     root
 }

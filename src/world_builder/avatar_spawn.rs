@@ -214,6 +214,10 @@ pub(crate) fn spawn_detached_tree(
         // (#1480), and this recorder never starts one.
         copy: &mut Default::default(),
         draw_cuts: Default::default(),
+        // Set per node by the dispatch (#1604); a body or a worn prop is no
+        // placement's copy, so its spinners share the clock unshifted.
+        spinning: false,
+        spin_epoch: 0.0,
     };
     let root = spawn_generator(&mut ctx, tree, cache_key, &[], transform, Some(parent));
     (root, entities_spawned)

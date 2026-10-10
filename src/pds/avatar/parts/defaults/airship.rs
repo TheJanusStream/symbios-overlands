@@ -736,20 +736,46 @@ pub(crate) fn pod_pylon(pod: &mut Generator, material: &SovereignMaterialSetting
     ));
 }
 
-/// The pod nacelle barrel - a cylinder laid along the travel axis (`quat_x(90°)`
-/// aims the barrel's +Y along +Z, the authored travel-forward direction).
-/// The shared root of every engine-pod variant (their spinners / cowls / screws
-/// mount as its children). `segs` lets a rounder variant ask for more sides.
+/// The pod's root: a hidden structural core at the mount pivot, carrying the
+/// nacelle barrel - a cylinder laid along the travel axis (`quat_x(90°)` aims
+/// the barrel's +Y along +Z, the authored travel-forward direction) - as its
+/// first child. The shared root of every engine-pod variant: their spinners,
+/// cowls and screws mount on the core, in the pod's own frame (+Z forward, +Y
+/// up), which is the frame their offsets are written in. `segs` lets a
+/// rounder variant ask for more sides.
+///
+/// The barrel itself was the root until #1608, and its quarter turn carried
+/// every part mounted on it a quarter turn round: the noses, airscrews and
+/// rings hung under the nacelle and the pylon stuck out forward. The core is
+/// the `env_core` pattern - unturned, and small enough to stay inside the
+/// barrel.
 pub(crate) fn pod_nacelle(
     radius: f32,
     length: f32,
     segs: u32,
     material: SovereignMaterialSettings,
 ) -> Generator {
-    prim(
+    let mut core = prim(
+        cuboid([radius, radius, length * 0.5], material.clone()),
+        [0.0, 0.0, 0.0],
+        id_quat(),
+    );
+    core.children.push(prim(
         cylinder(radius, length, segs, material),
         [0.0, 0.0, 0.0],
         quat_xyzw(quat_x(FRAC_PI_2)),
+    ));
+    core
+}
+
+/// An airscrew's steady turn about the pod's travel axis, `deg_per_s` degrees
+/// a second (#1604) - for a hub that stands unturned on the pod's axis.
+pub(crate) fn airscrew_turn(deg_per_s: f32) -> crate::pds::Spin {
+    crate::pds::Spin::about(
+        [0.0, 0.0, 1.0],
+        crate::pds::SpinTerm::Constant {
+            rate: Fp(deg_per_s),
+        },
     )
 }
 
@@ -783,16 +809,19 @@ pub(super) fn pod(ctx: &PartCtx) -> Generator {
         [0.0, 0.0, 0.3],
         quat_xyzw(quat_x(FRAC_PI_2)),
     ));
-    p.children
-        .push(prim(sphere(0.045, 3, hub), [0.0, 0.0, 0.42], id_quat()));
-    // Two-blade airscrew at the front (a thin vertical pair, X-symmetric).
+    let screw_z = 0.42;
+    let mut screw = prim(sphere(0.045, 3, hub), [0.0, 0.0, screw_z], id_quat());
+    // Two-blade airscrew at the front (a thin vertical pair, X-symmetric),
+    // turning on the hub cap (#1604).
     for sy in [-1.0f32, 1.0] {
-        p.children.push(prim(
+        screw.children.push(prim(
             cuboid([0.03, 0.2, 0.02], dark.clone()),
-            [0.0, sy * 0.13, 0.36],
+            [0.0, sy * 0.13, 0.36 - screw_z],
             id_quat(),
         ));
     }
+    screw.spin = Some(airscrew_turn(540.0));
+    p.children.push(screw);
     // Prop-guard ring around the airscrew (torus in the plane ⟂ Z).
     p.children.push(prim(
         torus(0.02, 0.2, dark.clone()),

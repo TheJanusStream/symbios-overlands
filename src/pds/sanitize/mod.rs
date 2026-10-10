@@ -33,6 +33,7 @@ mod particles;
 mod primitive;
 mod sign;
 pub(crate) use sign::{is_fetchable_endpoint, is_fetchable_reference, refusal_reason};
+mod spin;
 mod terrain;
 mod transform;
 mod water;
@@ -102,6 +103,7 @@ fn sanitize_generator_node(
     }
 
     sanitize_kind_with(&mut node.kind, max_dim);
+    sanitize_node_spin(node);
 
     // Water is a leaf - `spawn_water_volume` does not consume children, so
     // strip authored children to keep the editor and spawner in sync.
@@ -126,6 +128,21 @@ fn sanitize_generator_node(
     }
     if visited < node.children.len() {
         node.children.truncate(visited);
+    }
+}
+
+/// Clamp a node's spin (#1604), and take it off the kinds that may not turn
+/// ([`GeneratorKind::may_spin`]). A spin with no terms left is no spin, and
+/// is written as none.
+fn sanitize_node_spin(node: &mut Generator) {
+    if !node.kind.may_spin() {
+        node.spin = None;
+    }
+    if let Some(spin) = node.spin.as_mut() {
+        spin.sanitize();
+        if spin.terms.is_empty() {
+            node.spin = None;
+        }
     }
 }
 

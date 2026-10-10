@@ -8,7 +8,7 @@ use std::f32::consts::{FRAC_PI_2, TAU};
 use crate::catalogue::items::coastal_resort::{POOL_AQUA, water};
 use crate::catalogue::items::util::{
     assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_x, quat_z, solid,
-    torus, tube,
+    steady, swaying, torus, tube, turning,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -125,23 +125,25 @@ fn build_tree() -> Generator {
     let hub_y = 0.3 + tower_h + 0.4;
     let hub_z = -(half + 0.6);
     let blade_z = hub_z - 0.08; // blades stand proud on the front face
-    // Wheel rim disc and hub.
-    prims.push(prim(
-        solid(cylinder_tapered(
-            1.7,
-            0.12,
-            24,
-            0.0,
-            enamel([0.66, 0.68, 0.70]),
-        )),
-        [0.0, hub_y, hub_z],
-        quat_x(FRAC_PI_2),
-    ));
-    prims.push(prim(
-        solid(cylinder_tapered(0.34, 0.5, 12, 0.0, enamel(STEEL))),
-        [0.0, hub_y, hub_z],
-        quat_x(FRAC_PI_2),
-    ));
+    let mut fan = vec![
+        // Wheel rim disc and hub.
+        prim(
+            solid(cylinder_tapered(
+                1.7,
+                0.12,
+                24,
+                0.0,
+                enamel([0.66, 0.68, 0.70]),
+            )),
+            [0.0, hub_y, hub_z],
+            quat_x(FRAC_PI_2),
+        ),
+        prim(
+            solid(cylinder_tapered(0.34, 0.5, 12, 0.0, enamel(STEEL))),
+            [0.0, hub_y, hub_z],
+            quat_x(FRAC_PI_2),
+        ),
+    ];
     // Radial sheet-steel blades around the wheel face.
     // Neighbours overlap near the hub, so every other blade stands 4 mm
     // further forward: in one plane their faces z-fought (#1537).
@@ -149,38 +151,42 @@ fn build_tree() -> Generator {
     for k in 0..blades {
         let th = k as f32 / blades as f32 * TAU;
         let z = blade_z - if k % 2 == 1 { 0.004 } else { 0.0 };
-        prims.push(prim(
+        fan.push(prim(
             cuboid_tapered([1.1, 0.26, 0.03], 0.0, enamel([0.8, 0.82, 0.84])),
             [0.95 * th.cos(), hub_y + 0.95 * th.sin(), z],
             quat_z(th),
         ));
     }
     // Outer band ring catching the blade tips.
-    prims.push(prim(
+    fan.push(prim(
         torus(0.05, 1.55, enamel(STEEL)),
         [0.0, hub_y, blade_z],
         quat_x(FRAC_PI_2),
     ));
+    // The wheel turns on its axle (#1604): a square shaft through the hub, its
+    // nut proud of the face, and every blade and ring nested on it. Thin
+    // enough to stay inside the tail boom it runs into, however it turns.
+    let wheel = turning(
+        prim(
+            solid(cuboid_tapered([0.06, 0.06, 0.62], 0.0, enamel(STEEL))),
+            [0.0, hub_y, hub_z],
+            id_quat(),
+        ),
+        [0.0, 0.0, 1.0],
+        steady(-40.0),
+        fan,
+    );
 
     // Tail boom and vane trailing to the +Z back. The boom starts 5 cm inside
     // the hub (its back face is at hub_z + 0.25) - it used to stop 25 cm
     // short - and runs through the gearbox head on the tower's cap.
-    prims.push(prim(
+    let boom = prim(
         solid(cuboid_tapered([0.1, 0.1, 2.5], 0.0, enamel(STEEL))),
         [0.0, hub_y, hub_z + 1.45],
         id_quat(),
-    ));
+    );
     let head_low = leg_top + 0.1 - 0.01;
     let head_high = hub_y + 0.05 + 0.06;
-    prims.push(prim(
-        solid(cuboid_tapered(
-            [0.36, head_high - head_low, 0.5],
-            0.0,
-            enamel(STEEL),
-        )),
-        [0.0, (head_low + head_high) * 0.5, 0.0],
-        id_quat(),
-    ));
     // The vane stands 0.3 m up on the boom, so its foot clears the cap plate
     // it hung 15 cm through (#1537's review).
     let mut vane = prim(
@@ -189,7 +195,24 @@ fn build_tree() -> Generator {
         id_quat(),
     );
     vane.audio = fx::windmill_creak();
-    prims.push(vane);
+    // The head the boom runs through turns lazily on the tower's axis as the
+    // vane follows the breeze, carrying the wheel, the boom and the vane with
+    // it (#1604): the wheel's rim clears the leg faces by 0.2 m at either end
+    // of the sway.
+    prims.push(turning(
+        prim(
+            solid(cuboid_tapered(
+                [0.36, head_high - head_low, 0.5],
+                0.0,
+                enamel(STEEL),
+            )),
+            [0.0, (head_low + head_high) * 0.5, 0.0],
+            id_quat(),
+        ),
+        [0.0, 1.0, 0.0],
+        swaying(10.0, 14.0),
+        vec![wheel, boom, vane],
+    ));
 
     // Galvanised stock tank the pump fills - an open-topped ring of water
     // (a real open vessel, not a sealed solid).

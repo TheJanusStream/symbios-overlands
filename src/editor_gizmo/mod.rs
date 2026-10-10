@@ -378,6 +378,26 @@ pub(crate) fn determine_active_target(
     }
 }
 
+/// The target a gizmo engages: [`determine_active_target`], less a room
+/// selection the user may not edit (#1237 f142 - a selection carried through
+/// a gateway must not keep a live gizmo in a stranger's world).
+///
+/// One rule for the gizmo and for the spin hold that settles the world
+/// before the gizmo attaches (#1604): `ui::room::mirror_spin_hold` freezes
+/// every spinner by it, and [`sync::sync_gizmo_selection`] attaches no new
+/// gizmo until that freeze has propagated. Were the two to disagree, a
+/// gizmo could wait on a freeze that never comes.
+pub(crate) fn engaged_target(
+    room: &RoomEditorState,
+    avatar: &AvatarEditorState,
+    can_edit_room: bool,
+) -> ActiveTarget {
+    match determine_active_target(room, avatar) {
+        ActiveTarget::Room if !can_edit_room => ActiveTarget::None,
+        active => active,
+    }
+}
+
 /// Where the thing carrying the gizmo actually is, and how big it is
 /// (#1244 f148).
 ///

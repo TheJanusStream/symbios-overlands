@@ -130,6 +130,10 @@ fn sizing_app() -> App {
             .disable::<bevy::winit::WinitPlugin>(),
     );
     crate::world_builder::register_headless_spawn(&mut app);
+    // Measured at the authored pose (#1604): a box is read once it holds
+    // still, which a turning part never would - and a windmill's size is
+    // the one its record draws, not wherever its sails were.
+    app.insert_resource(crate::world_builder::spin::SpinHold { editing: true });
     app
 }
 

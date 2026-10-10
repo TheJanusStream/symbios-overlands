@@ -740,7 +740,8 @@ pub enum EffectsIntensity {
     /// gets a floor so a Dwell recipe cannot stamp once per frame.
     Reduced,
     /// None at all - the same early-return the empty-registry path already
-    /// takes.
+    /// takes - and every turning part stands at its authored pose (#1604,
+    /// `world_builder::spin`).
     Off,
 }
 

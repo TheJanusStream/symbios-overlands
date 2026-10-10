@@ -258,6 +258,11 @@ pub(super) fn register(
                     .after(EguiPreUpdateSet::ProcessInput)
                     .before(EguiPreUpdateSet::BeginPass),
                 ui::catalogue::mirror_preview_request,
+                // The gizmo attaches only once every turning part stands at
+                // its authored pose (#1604), and this is what holds them
+                // there: without it, a world with a windmill in it would
+                // never show a gizmo.
+                ui::room::mirror_spin_hold,
             ),
         )
         .add_systems(

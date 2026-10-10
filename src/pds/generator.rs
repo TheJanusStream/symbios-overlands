@@ -2468,6 +2468,18 @@ impl GeneratorKind {
         self.common().is_some()
     }
 
+    /// Whether a node of this kind may turn (#1604). A spin turns a node
+    /// about its own origin with everything below it: on a Terrain root that
+    /// is a whole region carried round its origin, and Water and roads are
+    /// laid in the world's terms whatever their node's pose. The sanitiser
+    /// takes a spin off these kinds and the spawner ignores one.
+    pub fn may_spin(&self) -> bool {
+        !matches!(
+            self,
+            GeneratorKind::Terrain(_) | GeneratorKind::Water { .. } | GeneratorKind::RoadNetwork(_)
+        )
+    }
+
     /// Short **wire** tag for the variant - the serialized `$type`
     /// discriminant, and the key into
     /// `ui::room::construct::make_default_for_kind`.
@@ -2878,6 +2890,12 @@ pub struct Generator {
         skip_serializing_if = "super::audio::SovereignAudioConfig::is_none"
     )]
     pub audio: super::audio::SovereignAudioConfig,
+    /// How each client turns this node and everything below it (#1604) -
+    /// animation only, never the `transform` on record. `None` (the common
+    /// case, left off the wire) keeps the node at its authored pose; an
+    /// older client ignores the key. See [`super::spin`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spin: Option<super::spin::Spin>,
 }
 
 impl Generator {
@@ -2890,7 +2908,18 @@ impl Generator {
             transform: TransformData::default(),
             children: Vec::new(),
             audio: super::audio::SovereignAudioConfig::None,
+            spin: None,
         }
+    }
+
+    /// The node's spin, when it turns anything (see
+    /// [`super::spin::Spin::moves`]) on a kind that may turn
+    /// ([`GeneratorKind::may_spin`]).
+    pub fn moving_spin(&self) -> Option<&super::spin::Spin> {
+        if !self.kind.may_spin() {
+            return None;
+        }
+        self.spin.as_ref().filter(|spin| spin.moves())
     }
 
     /// Convenience constructor for the canonical 1×1×1 cuboid.

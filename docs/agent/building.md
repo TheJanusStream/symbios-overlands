@@ -93,6 +93,20 @@ The record's wire form, as the World Editor's Raw JSON tab shows it:
 - **The generator's origin stands on the ground** at the placement's point:
   local y = 0 is the ground there. On dunes or a slope, sink walls about a
   metre below 0 so no gap shows under them.
+- **A part can turn** (#1604): `"spin": {"axis": [0, 0, 10000], "terms":
+  [...]}` on any node but terrain, water or a road network. Every visitor's
+  client turns the node, and everything below it, about `axis` - a direction
+  in the node's own frame, after its rotation; leave it out for up - while
+  `transform` stays the pose on record. Up to 4 terms, summed:
+  `{"$type": "network.symbios.spin.constant", "rate": 300000}` (30 deg/s; a
+  minus turns the other way), `.swing` (`amplitude` deg either side, one
+  full swing every `period` s, starting `phase` deg in), `.roll` (`radius` m:
+  turns with the part's own travel, as a wheel does) and `.steer` (`gain`,
+  `limit` deg: follows its parent's turning, as front wheels do). A node turns
+  about its own ORIGIN, so put the spin on a part centred on the pivot - a
+  hub, an axle - stood unturned, and nest the blades under it. A turning part
+  and everything under it has no solid collider. Everything stands still while
+  the World Editor has a selection; deselect to watch it.
 
 Write buildings as a script that prints the JSON (every number derived from
 a few named dimensions) and keep it: the same script rebuilds after a

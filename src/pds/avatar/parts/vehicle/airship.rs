@@ -9,8 +9,9 @@ use crate::pds::avatar::default_visuals::common::{
     cone, cuboid, cylinder, helix, id_quat, prim, quat_x, quat_xyzw, sphere, torus,
 };
 use crate::pds::avatar::parts::defaults::airship::{
-    GondolaDims, airship_colors, ctx_profile, dress_gondola, env_core, envelope_material,
-    lathe_spindle, pod_nacelle, pod_pylon, pod_tail, push_env_gores, push_env_rings,
+    GondolaDims, airscrew_turn, airship_colors, ctx_profile, dress_gondola, env_core,
+    envelope_material, lathe_spindle, pod_nacelle, pod_pylon, pod_tail, push_env_gores,
+    push_env_rings,
 };
 use crate::pds::avatar::parts::defaults::common::shade;
 use crate::pds::generator::Generator;
@@ -71,20 +72,20 @@ fn pod_ducted(ctx: &PartCtx) -> Generator {
         [0.0, 0.0, 0.2],
         quat_xyzw(quat_x(FRAC_PI_2)),
     ));
-    // A dark hub + spokes over the disc so it reads as a spinning fan, not a lamp.
-    p.children.push(prim(
-        sphere(0.045, 3, ring.clone()),
-        [0.0, 0.0, 0.23],
-        id_quat(),
-    ));
+    // A dark hub + spokes over the disc so it reads as a spinning fan, not a
+    // lamp - and the fan does turn, on its hub (#1604).
+    let fan_z = 0.23;
+    let mut fan = prim(sphere(0.045, 3, ring.clone()), [0.0, 0.0, fan_z], id_quat());
     // (Spoke thickness stays ≥ the sanitiser's 0.01 min cuboid dim.)
     for size in [[0.28, 0.02, 0.012], [0.02, 0.28, 0.012]] {
-        p.children.push(prim(
+        fan.children.push(prim(
             cuboid(size, ring.clone()),
-            [0.0, 0.0, 0.225],
+            [0.0, 0.0, 0.225 - fan_z],
             id_quat(),
         ));
     }
+    fan.spin = Some(airscrew_turn(360.0));
+    p.children.push(fan);
     p.children.push(pod_tail(-0.22, ring.clone()));
     pod_pylon(&mut p, &ring);
     p
@@ -100,12 +101,20 @@ fn pod_screw(ctx: &PartCtx) -> Generator {
     let brass = ctx.materials.trim(c.stripe);
 
     let mut p = pod_nacelle(0.13, 0.5, 12, body.clone());
-    // Brass screw at the front (Helix laid along Z via quat_x(90°)).
-    p.children.push(prim(
+    // Brass screw at the front (Helix laid along Z via quat_x(90°)), turning
+    // about its own axis - the helix's local Y (#1604) - so its thread runs.
+    let mut screw = prim(
         helix(0.11, 0.02, 0.11, 2.5, 16, brass.clone()),
         [0.0, 0.0, 0.18],
         quat_xyzw(quat_x(FRAC_PI_2)),
+    );
+    screw.spin = Some(crate::pds::Spin::about(
+        [0.0, 1.0, 0.0],
+        crate::pds::SpinTerm::Constant {
+            rate: crate::pds::Fp(240.0),
+        },
     ));
+    p.children.push(screw);
     // Spinner cone capping the screw shaft.
     p.children.push(prim(
         cone(0.07, 0.14, 10, brass),

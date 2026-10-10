@@ -9,7 +9,8 @@
 use std::f32::consts::{FRAC_PI_2, TAU};
 
 use crate::catalogue::items::util::{
-    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_z, solid, torus,
+    assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_z, solid, steady,
+    torus, turning,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -111,11 +112,11 @@ fn build_tree() -> Generator {
 
     // Fan wheel mounted at the top, facing −Z (the render FRONT).
     let hub = [0.0_f32, tower_h + 0.35, -lw - 0.3];
-    prims.push(prim(
+    let mut fan = vec![prim(
         solid(cylinder_tapered(0.18, 0.5, 12, 0.0, iron(IRON_DARK))),
         hub,
         quat_x(FRAC_PI_2),
-    ));
+    )];
     // Multi-blade fan: narrow tin paddles radiating in the X-Y plane.
     let blades = 18;
     let wheel_r = 1.3_f32;
@@ -123,22 +124,35 @@ fn build_tree() -> Generator {
     let blade_len = 1.15_f32;
     for i in 0..blades {
         let a = i as f32 / blades as f32 * TAU;
-        prims.push(prim(
+        fan.push(prim(
             solid(cuboid_tapered([0.16, blade_len, 0.03], 0.0, tin(TIN_GREY))),
             [hub[0] + a.cos() * rc, hub[1] + a.sin() * rc, hub[2] + 0.04],
             quat_z(a - FRAC_PI_2),
         ));
     }
     // Outer rim + inner ring binding the blades (rings in the X-Y plane).
-    prims.push(prim(
+    fan.push(prim(
         solid(torus(0.045, wheel_r, iron(IRON_DARK))),
         [hub[0], hub[1], hub[2] + 0.04],
         quat_x(FRAC_PI_2),
     ));
-    prims.push(prim(
+    fan.push(prim(
         solid(torus(0.04, wheel_r * 0.34, iron(IRON_DARK))),
         [hub[0], hub[1], hub[2] + 0.04],
         quat_x(FRAC_PI_2),
+    ));
+    // The wheel turns on its axle (#1604): a square shaft through the hub,
+    // its nut 4 cm proud of the face and its back end a centimetre short of
+    // the tail boom, so the two never share a face.
+    prims.push(turning(
+        prim(
+            solid(cuboid_tapered([0.04, 0.04, 0.58], 0.0, iron(IRON_DARK))),
+            hub,
+            id_quat(),
+        ),
+        [0.0, 0.0, 1.0],
+        steady(-55.0),
+        fan,
     ));
 
     // Tail vane on a boom behind the hub, streaming back along +Z.
