@@ -27,6 +27,8 @@ pub mod skull_rack;
 pub mod stela;
 pub mod step_pyramid;
 pub mod street_block;
+pub mod street_detached;
+pub mod street_hall;
 pub mod street_house;
 pub mod street_low;
 // Poor (commoner) variants - the prosperity-Poor end of the theme.

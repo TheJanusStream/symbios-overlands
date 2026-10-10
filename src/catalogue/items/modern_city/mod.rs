@@ -23,6 +23,8 @@ pub mod parked_car;
 pub mod parking_garage;
 pub mod rowhouse_terrace;
 pub mod street_block;
+pub mod street_detached;
+pub mod street_hall;
 pub mod street_house;
 pub mod street_lamp;
 pub mod street_low;
@@ -40,9 +42,10 @@ use bevy_symbios_texture::metal::MetalStyle;
 use super::util::{tile, tiles_per_metre};
 use crate::catalogue::items::util::{cuboid_tapered, id_quat, prim};
 use crate::pds::{
-    Fp, Fp3, Fp64, Generator, SovereignBrickConfig, SovereignConcreteConfig, SovereignEnamelConfig,
-    SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig, SovereignShingleConfig,
-    SovereignStuccoConfig, SovereignTextureConfig, SovereignWindowConfig,
+    Fp, Fp3, Fp64, Generator, SovereignBrickConfig, SovereignConcreteConfig,
+    SovereignCorrugatedConfig, SovereignEnamelConfig, SovereignMaterialSettings,
+    SovereignMetalConfig, SovereignPlankConfig, SovereignShingleConfig, SovereignStuccoConfig,
+    SovereignTextureConfig, SovereignWindowConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
@@ -113,6 +116,29 @@ pub(super) fn steel(color: [f32; 3]) -> SovereignMaterialSettings {
             roughness: Fp64(0.4),
             metallic: Fp(0.85),
             rust_level: Fp64(0.04),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+/// Profiled steel sheet - a hall's cladding and roofing (#1600): its ribs
+/// run up a wall and down a roof, factory-coated, cleaner than the
+/// industrial park's weathered corrugation.
+pub(super) fn sheet(color: [f32; 3]) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(color),
+        roughness: Fp(0.5),
+        metallic: Fp(0.6),
+        uv_scale: tiles_per_metre(tile::CORRUGATED_PITCH * tile::CORRUGATED_BROAD * 16.0),
+        texture: SovereignTextureConfig::Corrugated(SovereignCorrugatedConfig {
+            color_metal: Fp3(color),
+            color_rust: Fp3([0.42, 0.26, 0.14]),
+            ridges: Fp64(16.0),
+            ridge_depth: Fp64(0.7),
+            roughness: Fp64(0.5),
+            metallic: Fp(0.6),
+            rust_level: Fp64(0.02),
             ..Default::default()
         }),
         ..Default::default()

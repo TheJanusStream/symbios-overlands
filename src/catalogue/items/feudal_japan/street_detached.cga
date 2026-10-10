@@ -1,0 +1,109 @@
+// The Edo theme's detached house (#1600): a minka in its garden. See
+// street_detached.rs for the house, and catalogue::items::street for the
+// conventions and for what is declared ahead of these rules (Storeys,
+// Trade, Frontage, Depth, GroundH, FloorH) and after them (Glazing,
+// ShopGlazing, Wall).
+
+const WallD = 0.3
+const PaneSet = 0.1
+const PlinthH = 0.5
+const RoofH = 0.5
+// A corner post: wider than the wall is deep, so a side's first window
+// stands clear of the front's corner post.
+const PostW = 0.4
+// How far the deep roof reaches past the walls: the walls stand this far
+// in from the lot's sides, so the eaves keep inside it.
+const Eave = 0.8
+// The engawa: its floor's height, how far it stands out from the wall.
+const DeckH = 0.6
+const DeckD = 0.6
+// The pent eave over the ground storey: how far it reaches out, how far
+// its low edge hangs under the storey's top.
+const EaveOut = 0.7
+const EaveDrop = 0.56
+const BayW = 2.2
+// How far a post under the roof's eave stops short of it.
+const Cap = 0.08
+
+// -- 1. The minka: its walls stand in from the lot, the plaster rolled
+// once; a centimetre's layer at its front carries the pent eave, the body
+// behind it the storeys and the roof --
+Lot --> Split(X) { Eave: NIL | ~1: LotRow | Eave: NIL }
+LotRow --> Split(Z) { Eave: NIL | ~1: Plot | Eave: NIL }
+Plot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Plaster
+Plaster --> 46% Mat("Plaster") Massing | 30% Mat("Earth") Massing | 24% Mat("Ash") Massing
+Massing --> Split(Z) { 0.01: FrontLayer | ~1: Body }
+Body --> when(Storeys == 1): Split(Y) { GroundH: Ground | ~1: RoofZone }
+    | else: Split(Y) { GroundH: Ground | FloorH * (Storeys - 1): Uppers | ~1: RoofZone }
+Post --> Extrude(WallD + 0.06) Pick("lattice") { 60% DarkPost | 40% RedPost }
+DarkPost --> Mat("TimberDark") I("Post")
+RedPost --> Mat("Bengara") I("Post")
+// Under an eave a post stops short by c, so the eave does not cut its top.
+CapPost(c) --> when(c > 0): Split(Y) { ~1: Post | c: Wall } | else: Post
+Rail --> Extrude(WallD + 0.03) Mat("TimberDark") I("Trim")
+Sill --> Extrude(WallD + 0.05) Mat("Stone") I("Trim")
+
+// -- 2. The lattice walls: posts at the corners and between the bays, a
+// lattice window in each bay over a plaster panel, tall or set high --
+Bays(c) --> Split(X) { PostW: CapPost(c) | ~1: BayRun(c) | PostW: CapPost(c) }
+BayRun(c) --> when(scope.x > BayW): Repeat(X, BayW) { Bay(c) } | else: Bay(c)
+Bay(c) --> Split(X) { ~1: BayUnit | 0.16: CapPost(c) }
+BayUnit --> 55% Split(Y) { 0.4: Wall | 0.08: Rail | ~1: Glazing | 0.08: Rail | 0.7: Wall }
+    | 45% Split(Y) { 0.9: Wall | 0.08: Rail | ~1: Glazing | 0.08: Rail | 0.7: Wall }
+// A storey of them: a stone sill under the ground storey's, the top
+// storey's posts capped.
+GroundBays --> when(Storeys == 1): GroundStorey(Cap) | else: GroundStorey(0)
+GroundStorey(c) --> Split(Y) { PlinthH: Sill | ~1: Bays(c) }
+UpperBays --> when(split.i == split.n - 1): Bays(Cap) | else: Bays(0)
+
+// -- 3. The ground storey: the engawa and the door on the front, lattice
+// windows all round --
+Ground --> Comp(Faces) { Front: FrontFace | Back: BackInset | Left: SideIn
+    | Right: SideIn | Top: NIL | Bottom: NIL }
+// The engawa: a timber deck the whole frontage, standing out from the
+// wall's foot; the front over it.
+FrontFace --> Split(Y) { DeckH: Engawa | ~1: FrontInset }
+Engawa --> Extrude(DeckD) Mat("Boards") I("Deck")
+FrontInset --> Split(X) { WallD: NIL | ~1: FrontIn | WallD: NIL }
+FrontIn --> Translate(0, 0, -WallD) Split(X) { ~1: FrontRun | 1.8: Entry | ~1: FrontRun }
+// Under the pent eave the front's posts stop where the eave meets the wall.
+FrontRun --> when(Storeys == 1): Bays(Cap) | else: Bays(EaveDrop)
+// The entry: a sliding plank door up a step from the engawa, between posts.
+Entry --> when(Storeys == 1): EntryPosts(Cap) | else: EntryPosts(EaveDrop)
+EntryPosts(c) --> Split(X) { 0.16: CapPost(c) | ~1: EntryDoor | 0.16: CapPost(c) }
+EntryDoor --> Split(Y) { 0.15: Step | 2.0: DoorLeaf | 0.08: Rail | ~1: Wall }
+Step --> Extrude(WallD + 0.3) Mat("Stone") I("Trim")
+DoorLeaf --> Extrude(WallD - 0.12) Mat("Timber") I("Door")
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) GroundBays
+// The sides: their walls run the full depth, turning the corners.
+SideIn --> Translate(0, 0, -WallD) GroundBays
+
+// -- 4. The upper storeys: lattice bays between posts, all round --
+Uppers --> Comp(Faces) { Front: UpInset | Back: UpInset | Left: UpSideIn
+    | Right: UpSideIn | Top: NIL | Bottom: NIL }
+UpInset --> Split(X) { WallD: NIL | ~1: UpIn | WallD: NIL }
+UpIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { UpperBays }
+UpSideIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { UpperBays }
+
+// -- 5. The front layer: a tiled pent eave over the ground storey, sloping
+// to the street, where the house has an upper storey --
+FrontLayer --> when(Storeys == 1): NIL | else: Split(Y) { GroundH: Eave | ~1: NIL }
+// The eave: a shed of tiles from a sliver of the storey's top, its high
+// edge at the wall, a timber fascia under its low one.
+Eave --> Translate(0, scope.y - EaveDrop, -EaveOut) Size(scope.x, 0.2, EaveOut + 0.01)
+    Roof(Shed, 25, overhang=0, fascia=0.14) { Slope: EaveTiles | Fascia: EaveFascia
+    | GableEnd: EaveEnd | Back: NIL }
+EaveTiles --> Mat("Tile") I("Eave")
+EaveFascia --> Mat("TimberDark") I("Fascia")
+EaveEnd --> Mat("TimberDark") I("Eave")
+
+// -- 6. The roof, deep over all four sides, Picked once: a thatched hip, a
+// tiled irimoya - a hip with a gable over it - or a tiled hip --
+RoofZone --> Pick("roof") { 40% ThatchHip | 35% Irimoya | 25% TileHip }
+ThatchHip --> Roof(Hip, 45, overhang=Eave) { Slope: Thatch }
+Irimoya --> Roof(DutchGable, 30, overhang=Eave, ridge=X) { Slope: Tiles | GableEnd: Gable }
+TileHip --> Roof(Hip, 28, overhang=Eave) { Slope: Tiles }
+Thatch --> Mat("Thatch") I("Roof")
+Tiles --> Mat("Tile") I("Roof")
+Gable --> I("Wall")

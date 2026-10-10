@@ -1,0 +1,129 @@
+// The wasteland theme's hall (#1600): a salvage depot, or - where it
+// trades - a scrap market. See street_hall.rs for the hall, and
+// catalogue::items::street for the conventions and for what is declared
+// ahead of these rules (Storeys, Trade, Frontage, Depth, GroundH, FloorH)
+// and after them (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.3
+const PaneSet = 0.1
+const StepH = 0.5
+const RoofH = 1.0
+const AwningD = 2.0
+// A depot bay of one roller door.
+const BayW = 7.5
+
+// -- 1. The hall: its cladding rolled once, then storeys and a roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Cladding
+Cladding --> 40% Mat("RustSheet") Massing | 25% Mat("Sheet") Massing
+    | 20% Mat("Concrete") Massing | 15% Mat("Soot") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Upper | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners. A hall's
+// ends are its cladding, blank.
+PartyIn --> Translate(0, 0, -WallD) Wall
+
+// -- Every window is a window still: glazed, boarded or half sheeted --
+Win --> 40% Glazing | 35% Boarded | 25% Sheeted
+Boarded --> Split(Y) { ~1: Glazing | 0.2: Board | ~1.4: Glazing }
+Board --> Extrude(WallD + 0.05) Mat("Plank") I("Board")
+Sheeted --> Split(Y) { ~1.2: SheetOver | ~1: Glazing }
+// A scrap patch: another sheet nailed over a hole, proud of the wall.
+SheetOver --> 35% Mat("RustSheet") Patch | 25% Mat("Sheet") Patch
+    | 20% Mat("BlueSheet") Patch | 20% Mat("GreenSheet") Patch
+Patch --> Extrude(WallD + 0.05) I("Patch")
+// A stretch of wall, patched here and there.
+PatchyBand --> Repeat(X, 5.0) { PatchyWall }
+PatchyWall --> 75% Wall | 25% SheetOver
+Step --> Extrude(WallD + 0.3) Mat("Concrete") I("Trim")
+DoorLeaf --> Extrude(WallD - 0.12) Mat("Door") I("Door")
+// A ribbon of high windows.
+Ribbon --> Repeat(X, 3.6) { RibbonBay }
+RibbonBay --> Split(X) { 0.25: Wall | ~1: Win | 0.25: Wall }
+
+// -- 2. The ground storey: a depot's doors, or a market's stalls --
+Ground --> Comp(Faces) { Front: FrontInset | Back: BackInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+FrontInset --> Split(X) { WallD: NIL | ~1: FrontIn | WallD: NIL }
+FrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> when(Trade == 1): Market | else: Depot
+// The depot: a plank door at one end, then bays of roller doors, some
+// patched shut or blank, under the ribbon.
+Depot --> Split(Y) { ~1: DepotDoors | 1.1: Ribbon | 0.5: PatchyBand }
+DepotDoors --> Split(X) { 1.4: Wall | 1.1: ManDoor | 1.2: Wall | ~1: DoorRun | 1.4: Wall }
+ManDoor --> Split(Y) { StepH: Step | 2.2: DoorLeaf | ~1: Wall }
+DoorRun --> Repeat(X, BayW) { DoorBay }
+// The first bay always has its door; the rest, bay by bay.
+DoorBay --> when(split.i == 0): RollerBay | else: MaybeDoor
+MaybeDoor --> 55% RollerBay | 25% PatchBay | 20% Wall
+PatchBay --> Split(X) { ~1: Wall | ~2: SheetOver | ~1: Wall }
+RollerBay --> Split(X) { ~1: Wall | 4.2: RollerCol | ~1: Wall }
+// A roller door over its concrete apron: jammed half down over a dark
+// gap, boarded across, or gone to a tarp.
+RollerCol --> Split(Y) { 0.45: Apron | 3.8: RollerState | ~1: Lintel }
+Apron --> Extrude(WallD + 1.4) Mat("Concrete") I("Trim")
+Lintel --> Extrude(WallD + 0.08) Mat("Rust") I("Trim")
+RollerState --> 40% HalfDown | 30% BoardedDoor | 30% TarpDoor
+HalfDown --> Split(Y) { ~1: DarkGap | ~2: Roller }
+DarkGap --> Extrude(WallD - 0.25) Mat("RoomDark") I("Door")
+Roller --> Extrude(WallD - 0.1) Mat("Sheet") I("Door")
+BoardedDoor --> Split(Y) { ~1: PlankLeaf | 0.25: Board | ~1: PlankLeaf | 0.25: Board | ~1: PlankLeaf }
+PlankLeaf --> Extrude(WallD - 0.1) Mat("Plank") I("Door")
+TarpDoor --> 55% Mat("Tarp") TarpLeaf | 45% Mat("TarpRed") TarpLeaf
+TarpLeaf --> Extrude(WallD - 0.15) I("Door")
+// The market: stalls behind half-drawn shutters, a door in every wide
+// bay, under a tarp awning on rusted posts, a row of sign planks and
+// worklights, the ribbon over them.
+Market --> Split(Y) { 3.4: Stalls | 0.12: Awning | 0.8: SignRow | ~1: HighRibbon }
+Stalls --> Split(X) { ~1: StallRun | 0.14: PostStrip }
+StallRun --> Repeat(X, 4.0) { StallBay }
+StallBay --> Split(X) { 0.14: PostStrip | ~1: StallUnit }
+// A post's strip of the front is the wall behind it and the post at the
+// awning's edge.
+PostStrip --> Extrude(WallD + AwningD - 0.05) Split(Z) { WallD: PostWall | ~1: NIL | 0.14: Post }
+PostWall --> I("Wall")
+Post --> Mat("Rust") I("Post")
+StallUnit --> when(scope.x > 2.6): Split(X) { 0.3: Wall | ~1: Stall | 1.1: StallDoor | 0.2: Wall }
+    | else: Split(X) { 0.3: Wall | ~1: Stall | 0.2: Wall }
+// A stall: a counter under the shop's glass, a shutter half drawn.
+Stall --> Split(Y) { 0.9: Wall | 0.08: Counter | ~1: ShopGlazing | 0.7: Shutter }
+Counter --> Extrude(WallD + 0.4) Mat("Plank") I("Trim")
+Shutter --> Extrude(WallD + 0.05) Mat("RustSheet") I("Shutter")
+StallDoor --> Split(Y) { StepH: Step | 2.2: DoorLeaf | ~1: Wall }
+// The awning, tarp by tarp.
+Awning --> Repeat(X, 4.0) { AwningBay }
+AwningBay --> 40% Mat("Tarp") AwningSheet | 30% Mat("TarpRed") AwningSheet
+    | 30% Mat("RustSheet") AwningSheet
+AwningSheet --> Extrude(AwningD) I("Awning")
+SignRow --> Repeat(X, 8.0) { SignBay }
+SignBay --> Split(X) { ~1: Wall | 3.6: Sign | 0.3: Wall | 0.5: Lamp | ~1: Wall }
+Sign --> 55% Mat("Sign") Fascia | 45% Mat("Plank") Fascia
+Fascia --> Extrude(WallD + 0.1) I("Fascia")
+Lamp --> Split(Y) { ~1: Wall | 0.3: LampBox | 0.1: Wall }
+LampBox --> Extrude(WallD + 0.3) Mat("Lamp") I("Lamp")
+HighRibbon --> Split(Y) { 0.2: Wall | ~1: Ribbon | 0.3: Wall }
+// The yard side: a roller door here and there under a sparser ribbon.
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) Split(Y) { ~1: BackDoors | 1.1: BackRibbon | 0.5: PatchyBand }
+BackDoors --> Split(X) { 1.4: Wall | ~1: BackRun | 1.4: Wall }
+BackRun --> when(scope.x > 12): Repeat(X, 12.0) { MaybeDoor } | else: RollerBay
+BackRibbon --> Repeat(X, 6.0) { RibbonBay }
+
+// -- 3. An upper storey: offices, a ribbon of windows front and back --
+Upper --> Comp(Faces) { Front: UpInset | Back: UpInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpInset --> Split(X) { WallD: NIL | ~1: UpIn | WallD: NIL }
+UpIn --> Translate(0, 0, -WallD) Split(Y) { ~1: PatchyBand | 1.4: Ribbon | 0.8: Wall }
+
+// -- 4. The roof: a low gable or a sawtooth, its sheet patched with rust --
+RoofZone --> Pick("roof") { 55% LowGable | 45% Sawtooth }
+GableWall --> I("Wall")
+LowGable --> Roof(Gable, 9, overhang=0, ridge=X) { Slope: PatchedSheet | GableEnd: GableWall }
+PatchedSheet --> Repeat(X, 4.0) { RoofStrip }
+RoofStrip --> 70% Mat("Roof") I("Roof") | 30% Mat("RustSheet") I("Roof")
+// Teeth along the street, each its slope and its north light, a broken
+// pane here and there sheeted over.
+Sawtooth --> Repeat(Z, 10.0) { Tooth }
+Tooth --> Roof(Shed, 22, overhang=0) { Slope: ToothSheet | Back: NorthLight | GableEnd: GableWall }
+ToothSheet --> Repeat(X, 6.0) { RoofStrip }
+NorthLight --> Repeat(X, 5.0) { NorthPane }
+NorthPane --> 70% Mat("Glass") I("Pane") | 30% Mat("Sheet") I("Patch")

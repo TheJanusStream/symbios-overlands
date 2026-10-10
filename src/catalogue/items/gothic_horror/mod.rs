@@ -26,6 +26,8 @@ pub mod mausoleum;
 pub mod monument;
 pub mod stone_cross;
 pub mod street_block;
+pub mod street_detached;
+pub mod street_hall;
 pub mod street_house;
 pub mod street_low;
 // Poor (forsaken) variants - the prosperity-Poor end of the theme.

@@ -1,0 +1,121 @@
+// The steampunk theme's detached house (#1600): an engineer's villa in its
+// garden. See street_detached.rs for the villa, and catalogue::items::street
+// for the conventions and for what is declared ahead of these rules
+// (Storeys, Trade, Frontage, Depth, GroundH, FloorH) and after them
+// (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.42
+const PaneSet = 0.16
+const StepH = 0.5
+const BandH = 0.24
+const RoofH = 1.0
+// How far the roof reaches past the walls: the walls stand this far in
+// from the lot's sides, so the eaves and verges keep inside it.
+const Eave = 0.45
+
+// -- 1. The villa: its walls stand in from the lot, the brick rolled once --
+Lot --> Split(X) { Eave: NIL | ~1: LotRow | Eave: NIL }
+LotRow --> Split(Z) { Eave: NIL | ~1: Plot | Eave: NIL }
+Plot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Brick
+Brick --> 30% Mat("BrickSoot") Massing | 26% Mat("BrickRed") Massing
+    | 24% Mat("BrickBrown") Massing | 20% Mat("BrickYellow") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Uppers | RoofH: RoofZone }
+// A riveted iron band round the villa at the top of every storey: on the
+// front and the back the wall's own top course behind the iron, on the
+// sides a bar of iron the full depth, wrapping the corners.
+Band --> Extrude(WallD + 0.12) Split(Z) { WallD: BandWall | ~1: BandIron }
+BandWall --> I("Wall")
+BandIron --> Mat("Iron") I("Band")
+SideBand --> Translate(-0.12, 0, -WallD) Size(scope.x + 0.24, scope.y, 0) Extrude(WallD + 0.12)
+    Mat("Iron") I("Band")
+// A copper downpipe before each end of the front, in the strips the
+// front's inset leaves, clear of the side band's end; a brass boss
+// under every band.
+PipeStrip --> Size(0.24, scope.y, 0) Center(X) Translate(0, 0, 0.13) Extrude(0.3)
+    Mat("Copper") I("Pipe")
+PipeRun --> Size(0.24, scope.y, 0) Center(X) Translate(0, 0, 0.13) Repeat(Y, FloorH)
+    { PipeLength }
+PipeLength --> Extrude(0.3) Split(Y) { ~1: PipeShaft | 0.22: PipeBoss | 0.3: PipeShaft }
+PipeShaft --> Mat("Copper") I("Pipe")
+PipeBoss --> Size(scope.x + 0.12, scope.y, scope.z + 0.12) Center(XZ) Mat("Brass") I("Pipe")
+// A window in its brass frame on an iron sill, under an iron lintel with a
+// brass keystone.
+Sill --> Extrude(WallD + 0.08) Mat("Iron") I("Trim")
+Lintel --> Split(X) { ~1: IronLintel | 0.3: Keystone | ~1: IronLintel }
+IronLintel --> Extrude(WallD + 0.1) Mat("Iron") I("Trim")
+Keystone --> Extrude(WallD + 0.16) Mat("Brass") I("Trim")
+WinBay --> Split(X) { ~1: Wall | 1.2: WinCol | ~1: Wall }
+WinCol --> Split(Y) { 0.9: Wall | 0.1: Sill | 1.75: Glazing | 0.26: Lintel | ~1: Wall }
+UpBay --> Split(X) { ~1: Wall | 1.2: UpWinCol | ~1: Wall }
+UpWinCol --> Split(Y) { 0.7: Wall | 0.1: Sill | 1.65: Glazing | 0.26: Lintel | ~1: Wall }
+
+// -- 2. The ground storey: the door on the front, windows all round --
+Ground --> Comp(Faces) { Front: GroundFace | Back: BackFace | Left: SideFace
+    | Right: SideFace | Top: NIL | Bottom: NIL }
+GroundFace --> Split(X) { WallD: PipeStrip | ~1: GroundMid | WallD: PipeStrip }
+GroundMid --> Translate(0, 0, -WallD) Split(Y) { ~1: GroundFront | BandH: Band }
+GroundFront --> Split(X) { ~1: Run | 2.0: Entrance | ~1.4: Run }
+Run --> when(scope.x > 1.6): Repeat(X, 1.6) { WinBay } | else: WinBay
+// The door up an iron step under a fanlight, and over it an iron hood or
+// a deeper porch canopy.
+Entrance --> Split(X) { ~1: Wall | 1.2: DoorCol | ~1: Wall }
+DoorCol --> Split(Y) { StepH: Step | 2.1: DoorLeaf | 0.34: Fanlight | 0.12: Porch | ~1: Wall }
+Step --> Extrude(WallD + 0.35) Mat("Iron") I("Trim")
+DoorLeaf --> 55% Mat("Door") Leaf | 45% Mat("DoorGreen") Leaf
+Leaf --> Extrude(WallD - 0.2) I("Door")
+Fanlight --> Glazing
+Porch --> Pick("porch") { 55% Hood | 45% Canopy }
+Hood --> Extrude(WallD + 0.55) Mat("Iron") I("Canopy")
+Canopy --> Extrude(WallD + 1.3) Mat("Iron") I("Canopy")
+// The garden side: a tall window to the lawn, one bay in two.
+BackFace --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) Split(Y) { ~1: BackRun | BandH: Band }
+BackRun --> Repeat(X, 2.2) { BackBay }
+BackBay --> 50% WinBay | 50% Split(X) { ~1: Wall | 1.4: GardenCol | ~1: Wall }
+GardenCol --> Split(Y) { 0.5: Wall | 2.3: Glazing | 0.26: Lintel | ~1: Wall }
+// The sides: their walls run the full depth, turning the corners.
+SideFace --> Split(Y) { ~1: SideIn | BandH: SideBand }
+SideIn --> Translate(0, 0, -WallD) Split(X) { 0.8: Wall | ~1: SideRun | 0.8: Wall }
+SideRun --> when(scope.x > 2.4): Repeat(X, 2.4) { WinBay } | else: WinBay
+
+// -- 3. The upper storeys: banded, windows over the ground floor's --
+Uppers --> Comp(Faces) { Front: UpperFace | Back: UpBackFace | Left: UpSideFace
+    | Right: UpSideFace | Top: NIL | Bottom: NIL }
+UpperFace --> Split(X) { WallD: PipeRun | ~1: UpperMid | WallD: PipeRun }
+UpperMid --> Repeat(Y, FloorH) { StoreyFace }
+StoreyFace --> Translate(0, 0, -WallD) Split(Y) { ~1: UpRun | BandH: Band }
+UpRun --> when(scope.x > 2.4): Repeat(X, 2.4) { UpBay } | else: UpBay
+UpBackFace --> Split(X) { WallD: NIL | ~1: UpBackIn | WallD: NIL }
+UpBackIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { UpBackStorey }
+UpBackStorey --> Split(Y) { ~1: UpRun | BandH: Band }
+UpSideFace --> Repeat(Y, FloorH) { UpSideStorey }
+UpSideStorey --> Split(Y) { ~1: UpSideIn | BandH: SideBand }
+UpSideIn --> Translate(0, 0, -WallD) Split(X) { 0.8: Wall | ~1: UpRun | 0.8: Wall }
+
+// -- 4. The roof: a mansard, a hip or a gable, and a sliver at the zone's
+// top that stands a pair of copper stacks over its middle --
+RoofZone --> Split(Y) { ~1: RoofBody | 0.01: StackLayer }
+RoofBody --> Pick("roof") { 40% Mansard | 35% HipRoof | 25% GableRoof }
+// A steep mansard all round, its break a storey's windows up whatever the
+// plot: the lower slope's run is held near 0.8 m.
+Mansard --> Roof(Mansard, 72, 24, overhang=0, tier=0.8 / (min(scope.x, scope.z) / 2))
+    { LowerSlope: Plates | UpperSlope: Plates }
+HipRoof --> Roof(Hip, 34, overhang=Eave) { Slope: Plates }
+GableRoof --> Roof(Gable, 42, overhang=Eave, ridge=X) { Slope: Plates | GableEnd: Gable }
+Plates --> Pick("plates") { 40% IronPlates | 35% Slates | 25% Verdigris }
+IronPlates --> Mat("IronPlate") I("Roof")
+Slates --> Mat("Slate") I("Roof")
+Verdigris --> Mat("Verdigris") I("Roof")
+Gable --> I("Wall")
+// Two stacks side by side along the longer way, over the ridge.
+StackLayer --> Translate(0, 0.01 - RoofH, 0) Size(scope.x, Depth * 0.42 + 0.8, scope.z)
+    StackPair
+StackPair --> when(Frontage >= Depth): Split(X) { ~1: NIL | 0.7: StackCol | 1.4: NIL
+    | 0.7: StackCol | ~1: NIL }
+    | else: Split(Z) { ~1: NIL | 0.7: StackRow | 1.4: NIL | 0.7: StackRow | ~1: NIL }
+StackCol --> Split(Z) { ~1: NIL | 0.7: Stack | ~1: NIL }
+StackRow --> Split(X) { ~1: NIL | 0.7: Stack | ~1: NIL }
+Stack --> Split(Y) { ~1: StackShaft | 0.3: StackCap }
+StackShaft --> Mat("Copper") I("Stack")
+StackCap --> Size(scope.x + 0.18, scope.y, scope.z + 0.18) Center(XZ) Mat("Brass") I("Stack")

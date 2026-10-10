@@ -1,0 +1,146 @@
+// The frontier theme's detached house (#1600): a homesteader's clapboard
+// farmhouse alone in its yard. See street_detached.rs for the house, and
+// catalogue::items::street for the conventions and for what is declared
+// ahead of these rules (Storeys, Trade, Frontage, Depth, GroundH, FloorH)
+// and after them (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.3
+const PaneSet = 0.12
+const StepH = 0.55
+const CanopyH = 0.18
+const RoofH = 1.0
+// How far the roof reaches past the walls: the walls stand this far in
+// from the lot's sides, so the eaves and verges keep inside it.
+const Eave = 0.4
+// The porch: how far its floor and roof stand out of the front wall, and
+// its posts just inside their edge.
+const PorchOut = 2.0
+const PostOut = 1.85
+const PostD = 0.16
+
+// -- 1. The house: its walls stand in from the lot, its paint rolled once --
+Lot --> Split(X) { Eave: NIL | ~1: LotRow | Eave: NIL }
+LotRow --> Split(Z) { Eave: NIL | ~1: Plot | Eave: NIL }
+Plot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Paint
+Paint --> 30% Mat("ClapWhite") Massing | 18% Mat("ClapRed") Massing
+    | 18% Mat("ClapTan") Massing | 18% Mat("Weathered") Massing
+    | 16% Mat("ClapGreen") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Uppers | RoofH: RoofZone }
+// The sides: their walls run the full depth, turning the corners.
+SideIn --> Translate(0, 0, -WallD) SideFace
+Trim --> Mat("Trim") I("Trim")
+Sill --> Extrude(WallD + 0.06) Trim
+Head --> Extrude(WallD + 0.1) Trim
+Post --> Mat("Post") I("Post")
+PierWall --> I("Wall")
+DoorLeaf --> 40% Mat("Door") Leaf | 30% Mat("DoorGreen") Leaf | 30% Mat("DoorBlue") Leaf
+Leaf --> Extrude(WallD - 0.1) I("Door")
+// A sash between its plank shutters, one colour a house - or none.
+ShutterCol --> Pick("shutters") { 40% ShutGreen | 35% ShutRed | 25% Wall }
+ShutGreen --> Mat("Shutter") ShutterLeaf
+ShutRed --> Mat("ShutterRed") ShutterLeaf
+ShutterLeaf --> Extrude(WallD + 0.05) I("Shutter")
+
+// -- 2. The ground storey: a porch on the front, windows all round --
+Ground --> Comp(Faces) { Front: GroundFace | Back: BackInset | Left: SideIn
+    | Right: SideIn | Top: GroundTop | Bottom: NIL }
+GroundTop --> when(Storeys == 1): Chimney | else: NIL
+GroundFace --> Pick("porch") { 65% Veranda | 35% Stoop }
+// The veranda: a plank floor a step high the whole front, a tin roof on a
+// row of posts, the front's windows and its door behind them.
+Veranda --> Split(Y) { StepH: PorchFloor | 2.35: VerMid | CanopyH: Canopy | ~1: TopBand }
+PorchFloor --> Extrude(PorchOut) Mat("Boardwalk") I("Boardwalk")
+Canopy --> Extrude(PorchOut) Mat("Tin") Split(Z) { ~1: CanopyDeck | 0.08: CanopyEdge }
+CanopyDeck --> I("Canopy")
+// Over a storey, the veranda's roof a sleeping porch behind a rail
+// (`Pick`ed once), or its plain tin lip.
+CanopyEdge --> when(Storeys == 1): CanopyDeck | else: RailPick
+RailPick --> Pick("rail") { 50% PorchRail | 50% CanopyDeck }
+PorchRail --> Size(scope.x, CanopyH + 0.95, scope.z) Mat("Trim")
+    Split(Y) { CanopyH: CanopyDeck | ~1: Balusters | 0.08: Handrail }
+Balusters --> Repeat(X, 0.3) { BalusterBay }
+BalusterBay --> Split(X) { ~1: NIL | 0.06: Baluster | ~1: NIL }
+Baluster --> I("Balcony")
+Handrail --> I("Balcony")
+VerMid --> Split(X) { WallD: EndPost | ~1: VerFrontIn | WallD: EndPost }
+EndPost --> Extrude(PostOut) Split(Z) { ~1: NIL | PostD: Post }
+// A pier between two windows stands its post out at the porch's edge.
+Pier --> Extrude(WallD + PostOut) Split(Z) { WallD: PierWall | ~1: NIL | PostD: Post }
+VerFrontIn --> Translate(0, 0, -WallD) VerFront
+VerFront --> Split(X) { ~1: VerRun | 1.5: Entrance | ~1: VerRun }
+// A Repeat floors its count: a run narrower than one bay is one bay.
+VerRun --> when(scope.x < 3.0): VerBay | else: Repeat(X, 3.0) { VerBay }
+VerBay --> Split(X) { 0.3: Pier | ~1: PorchWin }
+PorchWin --> Split(X) { ~1: Wall | 0.36: PorchShutter | 0.9: PorchWinCol | 0.36: PorchShutter
+    | ~1: Wall }
+PorchWinCol --> Split(Y) { 0.35: Wall | 0.08: Sill | 1.6: Glazing | 0.2: Head | ~1: Wall }
+PorchShutter --> Split(Y) { 0.43: Wall | 1.6: ShutterCol | ~1: Wall }
+Entrance --> Split(X) { ~1: Wall | 1.0: EntranceDoor | ~1: Wall }
+EntranceDoor --> Split(Y) { 2.15: DoorLeaf | ~1: Wall }
+TopBand --> Split(X) { WallD: NIL | ~1: TopBandIn | WallD: NIL }
+TopBandIn --> Translate(0, 0, -WallD) Wall
+// The stoop: the door alone up a step, under a tin hood on two posts.
+Stoop --> Split(X) { WallD: NIL | ~1: StoopIn | WallD: NIL }
+StoopIn --> Translate(0, 0, -WallD) StoopFront
+StoopFront --> Split(X) { ~1: Run | 1.9: StoopEntrance | ~1: Run }
+Run --> when(scope.x < 3.0): WinBay | else: Repeat(X, 3.0) { WinBay }
+WinBay --> Split(X) { ~1: Wall | 0.36: ShutterBand | 0.9: WinCol | 0.36: ShutterBand
+    | ~1: Wall }
+WinCol --> Split(Y) { 0.9: Wall | 0.08: Sill | 1.6: Glazing | 0.2: Head | ~1: Wall }
+ShutterBand --> Split(Y) { 0.98: Wall | 1.6: ShutterCol | ~1: Wall }
+StoopEntrance --> Split(Y) { StepH: StoopFloor | 2.35: StoopMid | CanopyH: StoopRoof
+    | ~1: Wall }
+StoopFloor --> Extrude(WallD + 1.4) Mat("Boardwalk") I("Boardwalk")
+StoopRoof --> Extrude(WallD + 1.4) Mat("Tin") I("Canopy")
+StoopMid --> Split(X) { PostD: StoopPost | ~1: StoopDoor | PostD: StoopPost }
+StoopPost --> Extrude(WallD + 1.3) Split(Z) { WallD: PierWall | ~1: NIL | PostD: Post }
+StoopDoor --> Split(X) { ~1: Wall | 1.0: StoopLeaf | ~1: Wall }
+StoopLeaf --> Split(Y) { 2.15: DoorLeaf | ~1: Wall }
+// The kitchen side: windows and the back door up a step.
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) BackFace
+BackFace --> Split(X) { ~1: Run | 1.3: BackDoor | ~1.4: Run }
+BackDoor --> Split(Y) { StepH: BackStep | 2.15: DoorLeaf | ~1: Wall }
+BackStep --> Extrude(WallD + 0.7) Mat("Boardwalk") I("Boardwalk")
+SideFace --> Split(X) { 0.7: Wall | ~1: SideRun | 0.7: Wall }
+SideRun --> when(scope.x < 2.8): SideBay | else: Repeat(X, 2.8) { SideBay }
+SideBay --> Split(X) { ~1: Wall | 0.9: WinCol | ~1: Wall }
+
+// -- 3. The upper storeys: shuttered sashes front and back, a sash or two
+// down each side --
+Uppers --> Comp(Faces) { Front: UpInset | Back: UpInset | Left: UpSideIn
+    | Right: UpSideIn | Top: Chimney | Bottom: NIL }
+UpInset --> Split(X) { WallD: NIL | ~1: UpIn | WallD: NIL }
+UpIn --> Translate(0, 0, -WallD) UpFace
+UpFace --> Repeat(Y, FloorH) { UpStorey }
+UpStorey --> when(scope.x < 3.0): UpBay | else: Repeat(X, 3.0) { UpBay }
+UpBay --> Split(X) { ~1: Wall | 0.36: UpShutterBand | 0.9: UpWinCol | 0.36: UpShutterBand
+    | ~1: Wall }
+UpWinCol --> Split(Y) { 0.75: Wall | 0.08: Sill | 1.5: Glazing | 0.2: Head | ~1: Wall }
+UpShutterBand --> Split(Y) { 0.83: Wall | 1.5: ShutterCol | ~1: Wall }
+UpSideIn --> Translate(0, 0, -WallD) UpSide
+UpSide --> Repeat(Y, FloorH) { UpSideStorey }
+UpSideStorey --> Split(X) { 0.7: Wall | ~1: UpSideRun | 0.7: Wall }
+UpSideRun --> when(scope.x < 2.8): UpSideBay | else: Repeat(X, 2.8) { UpSideBay }
+UpSideBay --> Split(X) { ~1: Wall | 0.9: UpWinCol | ~1: Wall }
+
+// -- 4. The roof: a steep gable along the yard's front, end-on to it, or
+// hipped; tin or shakes, and a fieldstone chimney through it --
+RoofZone --> Pick("roof") { 45% GableRoof | 30% EndRoof | 25% HipRoof }
+GableRoof --> Roof(Gable, 40, overhang=Eave, ridge=X) { Slope: Cover | GableEnd: Gable }
+EndRoof --> Roof(Gable, 40, overhang=Eave, ridge=Z) { Slope: Cover | GableEnd: Gable }
+HipRoof --> Roof(Hip, 34, overhang=Eave) { Slope: Cover }
+Cover --> Pick("cover") { 55% TinCover | 45% ShakeCover }
+TinCover --> Mat("Tin") I("Roof")
+ShakeCover --> Mat("Shakes") I("Roof")
+Gable --> I("Wall")
+// The chimney stands on the top storey's ceiling a little off the middle,
+// tall enough to clear the ridge of whichever roof the house has.
+Chimney --> Split(X) { ~1: NIL | 0.8: ChimneyRow | ~1.5: NIL }
+ChimneyRow --> Split(Y) { ~1: NIL | 0.8: ChimneyFoot | ~1: NIL }
+ChimneyFoot --> Pick("roof") { 45% Stack((Depth - 2 * Eave) * 0.42 + 0.9)
+    | 30% Stack((Frontage - 2 * Eave) * 0.42 + 0.9) | 25% HipStack }
+HipStack --> when(Frontage < Depth): Stack((Frontage - 2 * Eave) * 0.34 + 0.9)
+    | else: Stack((Depth - 2 * Eave) * 0.34 + 0.9)
+Stack(h) --> Extrude(h) Mat("Fieldstone") I("Chimney")

@@ -82,3 +82,7 @@ for layer in bj_sitzbank ah_abfallbehaelter_muellbox av_poller br_fahrgastunters
   get "strassenbefahrung_${layer}_391200_5819700_600m.json" \
     "$(features strassenbefahrung "$layer" $square "" 3000)"
 done
+
+# The Museumsinsel square's blocks by urban-structure type (#1600).
+get ua_stadtstruktur_b_stadtstruktur_differenziert_2024_391200_5819700_600m.json \
+  "$(features ua_stadtstruktur b_stadtstruktur_differenziert_2024 $square schluessel,typ,geom 1000)"

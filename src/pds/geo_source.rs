@@ -46,7 +46,7 @@ pub const MAX_SOURCE_ID_CHARS: usize = 96;
 /// before it is made.
 pub const MAX_EDITS: usize = 1_024;
 
-/// The most layer hashes a record may carry: a Berlin region draws eight.
+/// The most layer hashes a record may carry: a Berlin region draws nine.
 pub const MAX_LAYERS: usize = 32;
 
 /// The longest layer name.

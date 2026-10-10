@@ -1,0 +1,150 @@
+// The fantasy theme's detached house (#1600): a storybook cottage in its
+// garden, with a round turret. See street_detached.rs for the cottage, and
+// catalogue::items::street for the conventions and for what is declared
+// ahead of these rules (Storeys, Trade, Frontage, Depth, GroundH, FloorH)
+// and after them (Glazing, ShopGlazing, Wall, PaneCard, LitRoom,
+// DarkRoom).
+
+const WallD = 0.4
+const PaneSet = 0.14
+const StepH = 0.5
+const JettyH = 0.26
+const RoofH = 1.0
+// How far the roof reaches past the walls: the walls stand this far in
+// from the lot's sides, so the eaves and verges keep inside it.
+const Eave = 0.45
+// The turret: its drum's width along the front, how far it stands out of
+// the wall's face and how far it reaches behind it, how high it rises
+// over the walls, and its cone.
+const TurW = 2.2
+const TurOut = 1.0
+const TurIn = 1.0
+const TurUp = 1.6
+const CapH = 4.0
+
+// -- 1. The cottage: its walls stand in from the lot, the daub rolled
+// once; the strip before its front stands its turret, if it has one --
+Lot --> Split(X) { Eave: NIL | ~1: LotRow | Eave: NIL }
+LotRow --> Split(Z) { Eave: FrontStrip | ~1: Plot | Eave: NIL }
+Plot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Daub
+Daub --> 24% Mat("Cream") Massing | 20% Mat("Ochre") Massing | 20% Mat("Sage") Massing
+    | 18% Mat("Rose") Massing | 18% Mat("Lilac") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Uppers | RoofH: RoofZone }
+// A jetty beam round the cottage at the top of every storey: on the front
+// and the back the wall's own top course behind the timber, on the sides a
+// beam the full depth, wrapping the corners.
+Jetty --> Extrude(WallD + 0.28) Split(Z) { WallD: JettyWall | ~1: JettyBeam }
+JettyWall --> I("Wall")
+JettyBeam --> Mat("Timber") I("Beam")
+SideJetty --> Translate(-0.28, 0, -WallD) Size(scope.x + 0.56, scope.y, 0) Extrude(WallD + 0.28)
+    Mat("Timber") I("Beam")
+InWall --> Translate(0, 0, -WallD) Wall
+// A leaded window under a timber lintel, over a sill or a flower box.
+WinBay --> Split(X) { ~1: Wall | 1.1: WinCol | ~1: Wall }
+WinCol --> Split(Y) { 0.75: Wall | 0.26: SillZone | 1.6: Glazing | 0.2: Lintel | ~1: Wall }
+UpBay --> Split(X) { 0.12: Post | ~1: Wall | 1.1: UpWinCol | ~1: Wall | 0.12: Post }
+UpWinCol --> Split(Y) { 0.5: Wall | 0.26: SillZone | 1.45: Glazing | 0.2: Lintel | ~1: Wall }
+Post --> Extrude(WallD + 0.08) Mat("Timber") I("Beam")
+Lintel --> Extrude(WallD + 0.05) Mat("Timber") I("Beam")
+SillZone --> 45% FlowerBox | 55% Split(Y) { ~1: Wall | 0.08: Sill }
+Sill --> Extrude(WallD + 0.08) Mat("Timber") I("Trim")
+FlowerBox --> Extrude(WallD + 0.3) Mat("Leaf") I("Planter")
+Run --> when(scope.x > 2.4): Repeat(X, 2.4) { WinBay } | when(scope.x > 1.2): WinBay | else: Wall
+UpRun --> when(scope.x > 2.3): Repeat(X, 2.3) { UpBay } | when(scope.x > 1.4): UpBay | else: Wall
+
+// -- 2. The ground storey: stone, the door on the front, windows all
+// round; the front's walls stand back where the turret stands --
+Ground --> Mat("Stone") Comp(Faces) { Front: GroundFace | Back: BackFace | Left: SideFace
+    | Right: SideFace | Top: NIL | Bottom: NIL }
+GroundFace --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) Split(Y) { ~1: GroundTurret | JettyH: Jetty }
+GroundTurret --> Pick("turret") { 45% GroundLeft | 25% GroundRight | 30% GroundRow }
+// The front face's X runs from the lot's right to its left: a turret at
+// the lot's left stands at the face's far end.
+GroundLeft --> Split(X) { ~1: GroundRow | TurW + 0.3: Wall }
+GroundRight --> Split(X) { 0.3 + TurW: Wall | ~1: GroundRow }
+GroundRow --> Split(X) { ~1: Run | 1.5: Entrance | ~1: Run }
+// The door: a plank leaf in its own colour up a stone step, a glowing
+// rune over it.
+Entrance --> Split(X) { ~1: Wall | 1.1: DoorCol | ~1: Wall }
+DoorCol --> Split(Y) { StepH: Step | 2.0: DoorLeaf | 0.18: Lintel | 0.22: RuneBand | ~1: Wall }
+Step --> Extrude(WallD + 0.3) Mat("Stone") I("Trim")
+DoorLeaf --> 30% Mat("Door") Leaf | 25% Mat("DoorBlue") Leaf | 25% Mat("DoorRed") Leaf
+    | 20% Mat("DoorGreen") Leaf
+Leaf --> Extrude(WallD - 0.18) I("Door")
+RuneBand --> Split(X) { ~1: Wall | 0.3: Rune | ~1: Wall }
+Rune --> Extrude(WallD + 0.05) Mat("Rune") I("Trim")
+BackFace --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) Split(Y) { ~1: Run | JettyH: Jetty }
+// The sides: their walls run the full depth, turning the corners.
+SideFace --> Split(Y) { ~1: SideIn | JettyH: SideJetty }
+SideIn --> Translate(0, 0, -WallD) Split(X) { 0.6: Wall | ~1: Run | 0.6: Wall }
+
+// -- 3. The upper storeys: timbered daub, a jetty beam at each floor --
+Uppers --> Comp(Faces) { Front: UpFrontFace | Back: UpBackFace | Left: UpSideFace
+    | Right: UpSideFace | Top: NIL | Bottom: NIL }
+UpFrontFace --> Split(X) { WallD: NIL | ~1: UpFrontIn | WallD: NIL }
+UpFrontIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { UpFrontStorey }
+UpFrontStorey --> Split(Y) { ~1: UpTurret | JettyH: Jetty }
+UpTurret --> Pick("turret") { 45% UpLeft | 25% UpRight | 30% UpRun }
+UpLeft --> Split(X) { ~1: UpRun | TurW + 0.3: Wall }
+UpRight --> Split(X) { 0.3 + TurW: Wall | ~1: UpRun }
+UpBackFace --> Split(X) { WallD: NIL | ~1: UpBackIn | WallD: NIL }
+UpBackIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { UpBackStorey }
+UpBackStorey --> Split(Y) { ~1: UpRun | JettyH: Jetty }
+UpSideFace --> Repeat(Y, FloorH) { UpSideStorey }
+UpSideStorey --> Split(Y) { ~1: UpSideIn | JettyH: SideJetty }
+UpSideIn --> Translate(0, 0, -WallD) Split(X) { 0.3: Wall | ~1: UpRun | 0.3: Wall }
+
+// -- 4. The turret: a stone drum from the strip before the front, half
+// out of the wall, a lancet on every storey and a slate cone over the
+// eaves --
+FrontStrip --> Pick("turret") { 45% StripLeft | 25% StripRight | 30% NIL }
+StripLeft --> Split(X) { WallD + 0.3: NIL | TurW: TurretFoot | ~1: NIL }
+StripRight --> Split(X) { ~1: NIL | TurW: TurretFoot | 0.3 + WallD: NIL }
+// Its foot a hand over the lot's, so the drum's base never shares the
+// walls' plane.
+TurretFoot --> Translate(0, 0.02, Eave - TurOut) Size(TurW, 0, TurOut + TurIn)
+    Extrude(GroundH + FloorH * (Storeys - 1) + TurUp - 0.02) Mat("Stone") Turret
+Turret --> Split(Y) { ~1: TurretBody | 0.01: CapSlot }
+// The drum drawn whole from its back face, its lancets from its front.
+TurretBody --> Comp(Faces) { Back: Drum | Front: LancetFace | _: NIL }
+Drum --> Translate(0, 0, -TurOut - TurIn) Extrude(TurOut + TurIn) I("Turret")
+LancetFace --> when(Storeys == 1): Split(Y) { GroundH - 0.02: LancetStorey | ~1: NIL }
+    | else: Split(Y) { GroundH - 0.02: LancetStorey | FloorH * (Storeys - 1): UpLancets
+    | ~1: NIL }
+UpLancets --> Repeat(Y, FloorH) { LancetStorey }
+LancetStorey --> Split(Y) { 0.8: NIL | 1.5: LancetRow | ~1: NIL }
+// Held 2 cm off the drum, whose front lies in the box's face.
+LancetRow --> Split(X) { ~1: NIL | 0.6: Lancet | ~1: NIL }
+Lancet --> 50% Translate(0, 0, 0.02) Extrude(0.12) Comp(Faces) { Back: PaneCard | Front: LitRoom | _: LancetFrame }
+    | 50% Translate(0, 0, 0.02) Extrude(0.12) Comp(Faces) { Back: PaneCard | Front: DarkRoom | _: LancetFrame }
+LancetFrame --> Mat("Timber") I("Trim")
+// The cone, a little wider than the drum, its slate the roof's.
+CapSlot --> Translate(-0.15, 0, -0.15) Size(scope.x + 0.3, CapH, scope.z + 0.3)
+    Pick("slate") { 60% BlueCap | 40% GreenCap }
+BlueCap --> Mat("Slate") Cap
+GreenCap --> Mat("SlateGreen") Cap
+Cap --> Split(Y) { ~1: Cone | 0.6: Finial }
+Cone --> Taper(1) I("Cap")
+Finial --> Size(0.12, scope.y, 0.12) Center(XZ) Mat("Gold") I("Finial")
+
+// -- 5. The roof: steep thatch or slate, and a sliver at the zone's top
+// that stands a round stone chimney on its ridge --
+RoofZone --> Split(Y) { ~1: RoofBody | 0.01: ChimLayer }
+RoofBody --> Pick("roof") { 35% ThatchGable | 35% SlateGable | 30% SlateHip }
+ThatchGable --> Roof(Gable, 45, overhang=Eave, ridge=X) { Slope: Straw | GableEnd: Gable }
+SlateGable --> Roof(Gable, 46, overhang=Eave, ridge=X) { Slope: Slates | GableEnd: Gable }
+SlateHip --> Roof(Hip, 45, overhang=Eave) { Slope: Slates }
+Straw --> Mat("Thatch") I("Roof")
+Slates --> Pick("slate") { 60% BlueSlates | 40% GreenSlates }
+BlueSlates --> Mat("Slate") I("Roof")
+GreenSlates --> Mat("SlateGreen") I("Roof")
+Gable --> I("Wall")
+ChimLayer --> Translate(0, 0.01 - RoofH, 0) Size(scope.x, scope.z * 0.52 + 1.0, scope.z)
+    Split(X) { ~3: NIL | 0.8: ChimCol | ~1: NIL }
+ChimCol --> Split(Z) { ~1: NIL | 0.8: Chimney | ~1: NIL }
+Chimney --> Split(Y) { ~1: Stack | 0.3: ChimCap }
+Stack --> Mat("Stone") I("Chimney")
+ChimCap --> Size(scope.x + 0.16, scope.y, scope.z + 0.16) Center(XZ) Mat("Timber") I("Chimney")

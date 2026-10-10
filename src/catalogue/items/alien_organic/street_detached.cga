@@ -1,0 +1,135 @@
+// The hive's detached house (#1600): a brood pod grown alone in its creep.
+// See street_detached.rs for the pod, and catalogue::items::street for the
+// conventions and for what is declared ahead of these rules (Storeys,
+// Trade, Frontage, Depth, GroundH, FloorH) and after them (Glazing,
+// ShopGlazing, Wall).
+
+const WallD = 0.45
+const PaneSet = 0.3
+const StepH = 0.55
+const RollH = 0.55
+const RimH = 0.3
+const RoofH = 3.0
+// How far the carapace's rim reaches past the body: the body stands this
+// far in from the lot's sides, so the rim keeps inside it.
+const Eave = 0.4
+
+// -- 1. The body: it stands in from the lot, its shell rolled once --
+Lot --> Split(X) { Eave: NIL | ~1: LotRow | Eave: NIL }
+LotRow --> Split(Z) { Eave: NIL | ~1: Plot | Eave: NIL }
+Plot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Shell
+Shell --> 30% Mat("ChitinViolet") Massing | 25% Mat("ChitinGreen") Massing
+    | 25% Mat("ChitinAmber") Massing | 20% Mat("ChitinRust") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Uppers | RoofH: RoofZone }
+// A fleshy roll at each floor: a tube laid along the face, half sunk in
+// the shell, a wall behind it; the body reads as segments.
+Roll --> Extrude(WallD + 0.34) Split(Z) { WallD - 0.14: RollBack | ~1: RollTube }
+RollBack --> I("Wall")
+RollTube --> Translate(scope.x, 0, 0) Rotate(0.70710678, 0, 0, 0.70710678)
+    Size(scope.y, scope.x, scope.z) Mat("Sinew") I("Tube")
+// A dark rib, standing proud of the shell.
+Rib --> Extrude(WallD + 0.3) Mat("Rib") I("Rib")
+// A pod's fleshy sill and brow.
+Lip --> Extrude(WallD + 0.14) Mat("Lip") I("Lip")
+Brow --> Extrude(WallD + 0.24) Mat("Lip") I("Lip")
+Step --> Extrude(WallD + 0.35) Mat("Carapace") I("Trim")
+// A pod in a bay, each its own size: the hive grows them.
+PodBay --> Split(X) { ~1: Wall | 1.2: PodCol | ~1: Wall }
+PodCol --> 40% PodMid | 30% PodTall | 30% PodLow
+PodMid --> Split(Y) { 0.75: Wall | 0.16: Lip | 1.5: Glazing | 0.2: Brow | ~1: Wall }
+PodTall --> Split(Y) { 0.6: Wall | 0.16: Lip | 1.75: Glazing | 0.2: Brow | ~1: Wall }
+PodLow --> Split(Y) { 1.0: Wall | 0.16: Lip | 1.2: Glazing | 0.2: Brow | ~1: Wall }
+UpBay --> Split(X) { ~1: Wall | 1.2: UpPod | ~1: Wall }
+UpPod --> 40% UpMid | 30% UpTall | 30% UpLow
+UpMid --> Split(Y) { 0.45: Wall | 0.16: Lip | 1.4: Glazing | 0.2: Brow | ~1: Wall }
+UpTall --> Split(Y) { 0.3: Wall | 0.16: Lip | 1.6: Glazing | 0.2: Brow | ~1: Wall }
+UpLow --> Split(Y) { 0.7: Wall | 0.16: Lip | 1.1: Glazing | 0.2: Brow | ~1: Wall }
+
+// -- 2. The ground segment: a maw on the front, pods all round --
+Ground --> Comp(Faces) { Front: FrontInset | Back: BackInset | Left: SideIn
+    | Right: SideIn | Top: NIL | Bottom: NIL }
+FrontInset --> Split(X) { WallD: NIL | ~1: FrontIn | WallD: NIL }
+FrontIn --> Translate(0, 0, -WallD) Split(Y) { ~1: GroundFront | RollH: Roll }
+GroundFront --> Split(X) { ~1: PodRun | 2.4: Maw | ~1: PodRun }
+PodRun --> when(scope.x > 2.6): Repeat(X, 2.6) { PodBay } | else: PodBay
+// The maw: a fleshy leaf between tapering fangs, up a chitin step, under a
+// brow.
+Maw --> Split(X) { 0.25: Wall | 0.3: Fang | ~1: MawCol | 0.3: Fang | 0.25: Wall }
+Fang --> Split(Y) { StepH: Wall | ~1: FangBody | 0.4: Wall }
+FangBody --> Extrude(WallD + 0.3) Taper(0.7) Mat("Rib") I("Rib")
+MawCol --> Split(Y) { StepH: Step | 2.0: MawLeaf | 0.2: Brow | ~1: Wall }
+MawLeaf --> 50% Mat("Flesh") Leaf | 50% Mat("FleshDark") Leaf
+Leaf --> Extrude(WallD - 0.2) I("Door")
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) Split(Y) { ~1: PodRun | RollH: Roll }
+// The flanks: their walls the full depth, turning the corners, a rib by
+// each corner.
+SideIn --> Translate(0, 0, -WallD) Split(Y) { ~1: SideRow | RollH: Roll }
+SideRow --> Split(X) { 0.5: Wall | 0.3: Rib | ~1: SideRun | 0.3: Rib | 0.5: Wall }
+SideRun --> when(scope.x > 3.0): Repeat(X, 3.0) { PodBay } | else: PodBay
+
+// -- 3. The brood segments: a roll at each floor, pods all round --
+Uppers --> Comp(Faces) { Front: UpInset | Back: UpInset | Left: UpSideIn
+    | Right: UpSideIn | Top: NIL | Bottom: NIL }
+UpInset --> Split(X) { WallD: NIL | ~1: UpIn | WallD: NIL }
+UpIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { UpSeg }
+UpSeg --> Split(Y) { ~1: UpRow | RollH: Roll }
+UpRow --> Split(X) { 0.3: Rib | ~1: UpRun | 0.3: Rib }
+UpRun --> when(scope.x > 2.6): Repeat(X, 2.6) { UpFrontBay } | else: UpBay
+// The end bays of the front and back carry sac ledges, where the pod has
+// them. A guard holds no nested parentheses: one guard per end bay.
+UpFrontBay --> when(split.n >= 3 && split.i == 0): SideBay
+    | when(split.n >= 3 && split.i == split.n - 1): SideBay | else: UpBay
+SideBay --> Pick("sacs") { 45% SacBay | 55% UpBay }
+// A sac ledge: a rounded fleshy bulge under a lower pod.
+SacBay --> Split(X) { ~1: Wall | 1.5: SacCol | ~1: Wall }
+SacCol --> Split(Y) { 0.8: Sac | 1.2: Glazing | 0.2: Brow | ~1: Wall }
+Sac --> Extrude(WallD + 1.0) Mat("Flesh") I("Pod")
+UpSideIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { UpSideSeg }
+UpSideSeg --> Split(Y) { ~1: UpSideRow | RollH: Roll }
+UpSideRow --> Split(X) { 0.5: Wall | 0.3: Rib | ~1: UpSideRun | 0.3: Rib | 0.5: Wall }
+UpSideRun --> when(scope.x > 3.0): Repeat(X, 3.0) { UpBay } | else: UpBay
+
+// -- 4. The carapace: a rim out to the lot's edges, and over it a dome, a
+// hooped vault, or a crown of spines --
+RoofZone --> Split(Y) { RimH: Rim | ~1: Crown }
+Rim --> Translate(-Eave, 0, -Eave) Size(scope.x + 2 * Eave, RimH, scope.z + 2 * Eave)
+    Mat("Carapace") I("Roof")
+Crown --> Pick("roof") { 45% Dome | 30% Vault | 25% Spines }
+// The dome: three turned, tapered shells, one on the next, crowned by a
+// spore vent that glows in some; taller over a deeper body.
+Dome --> Size(scope.x, 1.6 + Depth * 0.2, scope.z)
+    Split(Y) { ~1.1: DomeLow | ~0.8: DomeMidZone | ~0.5: DomeTopZone }
+DomeLow --> Taper(0.18) Mat("Carapace") I("Carapace")
+DomeMidZone --> Split(X) { ~0.09: NIL | ~0.82: DomeMidX | ~0.09: NIL }
+DomeMidX --> Split(Z) { ~0.09: NIL | ~0.82: DomeMid | ~0.09: NIL }
+DomeMid --> Taper(0.4) Mat("Carapace") I("Carapace")
+DomeTopZone --> Split(X) { ~0.254: NIL | ~0.492: DomeTopX | ~0.254: NIL }
+DomeTopX --> Split(Z) { ~0.254: NIL | ~0.492: DomeTop | ~0.254: NIL }
+DomeTop --> Pick("vent") { 60% ShellTop | 40% VentTop }
+ShellTop --> Taper(0.9) Mat("Carapace") I("Carapace")
+VentTop --> Taper(0.9) Mat("Spore") I("Pod")
+// The vault: a carapace laid along the street, a turned shell on its
+// side, ringed by bone hoops, short of the flanks. Half of it sinks into
+// the top storey, so its ends stand behind the side walls' rooms, never in
+// a side window.
+Vault --> Split(X) { 0.8: NIL | ~1: VaultBody | 0.8: NIL }
+VaultBody --> when(scope.x > 2.6): Repeat(X, 2.6) { VaultSeg } | else: VaultSeg
+VaultSeg --> Split(X) { ~1: VaultPlate | 0.3: VaultHoop }
+VaultPlate --> Mat("Carapace") Translate(scope.x, -scope.z * 0.22 - 0.6, 0)
+    Rotate(0.70710678, 0, 0, 0.70710678) Size(scope.z * 0.44 + 1.2, scope.x, scope.z)
+    I("Carapace")
+VaultHoop --> Mat("Rib") Translate(scope.x, -scope.z * 0.22 - 0.85, -0.25)
+    Rotate(0.70710678, 0, 0, 0.70710678) Size(scope.z * 0.44 + 1.7, scope.x, scope.z + 0.5)
+    I("Hoop")
+// The spines: a low hump of carapace, and bone spines bristling through
+// it from the rim.
+Spines --> Split(Y) { 0.01: HumpZone | ~1: SpineZone }
+HumpZone --> Size(scope.x, 1.6, scope.z) Taper(0.45) Mat("Carapace") I("Carapace")
+SpineZone --> Translate(0, -0.01, 0) Split(Z) { ~1: NIL | ~3: SpineRow | ~1: NIL }
+SpineRow --> when(scope.x > 2.2): Repeat(X, 2.2) { SpineSlot } | else: SpineSlot
+SpineSlot --> Split(X) { ~1: NIL | 0.8: SpineFoot | ~1: NIL }
+SpineFoot --> Split(Z) { ~1: NIL | 0.8: Spine | ~1: NIL }
+Spine --> 40% Size(scope.x, 3.8, scope.z) SpineBody | 60% Size(scope.x, 2.8, scope.z) SpineBody
+SpineBody --> Taper(1) Mat("Rib") I("Spike")

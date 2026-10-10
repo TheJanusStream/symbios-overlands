@@ -1,0 +1,77 @@
+// The modern city's detached house (#1600): a Berlin house in its garden.
+// See street_detached.rs for the house, and catalogue::items::street for the
+// conventions and for what is declared ahead of these rules (Storeys, Trade,
+// Frontage, Depth, GroundH, FloorH) and after them (Glazing, ShopGlazing,
+// Wall).
+
+const WallD = 0.36
+const PaneSet = 0.14
+const StepH = 0.5
+const RoofH = 1.0
+// How far the roof reaches past the walls: the walls stand this far in
+// from the lot's sides, so the eaves and verges keep inside it.
+const Eave = 0.45
+
+// -- 1. The house: its walls stand in from the lot, the render rolled once --
+Lot --> Split(X) { Eave: NIL | ~1: LotRow | Eave: NIL }
+LotRow --> Split(Z) { Eave: NIL | ~1: Plot | Eave: NIL }
+Plot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Render
+Render --> 30% Mat("White") Massing | 25% Mat("Cream") Massing
+    | 20% Mat("Ochre") Massing | 25% Mat("Grey") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Uppers | RoofH: RoofZone }
+
+// -- 2. The ground storey: the door on the front, windows all round --
+Ground --> Comp(Faces) { Front: FrontInset | Back: BackInset | Left: SideIn
+    | Right: SideIn | Top: NIL | Bottom: NIL }
+FrontInset --> Split(X) { WallD: NIL | ~1: FrontIn | WallD: NIL }
+FrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> Split(X) { ~1: Run | 1.7: Entrance | ~2: Run }
+Run --> Repeat(X, 1.5) { WinBay }
+WinBay --> Split(X) { ~1: Wall | 1.1: WinCol | ~1: Wall }
+WinCol --> Split(Y) { 0.9: Wall | 0.08: Sill | 1.45: Glazing | ~1: Wall }
+Sill --> Extrude(WallD + 0.06) Mat("Trim") I("Trim")
+// The door up a step, under a flat canopy.
+Entrance --> Split(X) { ~1: Wall | 1.1: DoorCol | ~1: Wall }
+DoorCol --> Split(Y) { StepH: Step | 2.1: DoorLeaf | 0.12: Canopy | ~1: Wall }
+Step --> Extrude(WallD + 0.35) Mat("Stone") I("Trim")
+DoorLeaf --> 40% Mat("DoorWood") Leaf | 35% Mat("DoorGrey") Leaf | 25% Mat("DoorRed") Leaf
+Leaf --> Extrude(WallD - 0.16) I("Door")
+Canopy --> Extrude(WallD + 0.9) Mat("Metal") I("Canopy")
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) BackRun
+BackRun --> Repeat(X, 2.0) { BackBay }
+// The garden side: a wide window to the terrace, one in two.
+BackBay --> 50% Split(X) { ~1: Wall | 1.1: WinCol | ~1: Wall }
+    | 50% Split(X) { ~1: Wall | 1.5: TerraceCol | ~1: Wall }
+TerraceCol --> Split(Y) { 0.45: Wall | 2.05: Glazing | ~1: Wall }
+// The sides: their walls run the full depth, turning the corners.
+SideIn --> Translate(0, 0, -WallD) SideFace
+SideFace --> Split(X) { 0.7: Wall | ~1: SideRun | 0.7: Wall }
+SideRun --> Repeat(X, 2.3) { WinBay }
+
+// -- 3. The upper storeys: windows over the ground floor's, all round --
+Uppers --> Comp(Faces) { Front: UpFrontInset | Back: UpFrontInset | Left: UpSideIn
+    | Right: UpSideIn | Top: NIL | Bottom: NIL }
+UpFrontInset --> Split(X) { WallD: NIL | ~1: UpFrontIn | WallD: NIL }
+UpFrontIn --> Translate(0, 0, -WallD) UpFront
+UpFront --> Repeat(Y, FloorH) { UpStorey }
+UpStorey --> Repeat(X, 2.4) { UpBay }
+UpBay --> Split(X) { ~1: Wall | 1.1: UpWinCol | ~1: Wall }
+UpWinCol --> Split(Y) { 0.85: Wall | 0.08: Sill | 1.35: Glazing | ~1: Wall }
+UpSideIn --> Translate(0, 0, -WallD) UpSide
+UpSide --> Repeat(Y, FloorH) { UpSideStorey }
+UpSideStorey --> Split(X) { 0.7: Wall | ~1: UpSideRun | 0.7: Wall }
+UpSideRun --> Repeat(X, 2.3) { UpBay }
+
+// -- 4. The roof: a tiled gable or hip, or a flat slab, its eaves out --
+RoofZone --> Pick("roof") { 45% GableRoof | 30% HipRoof | 25% FlatRoof }
+GableRoof --> Roof(Gable, 40, overhang=Eave, ridge=X) { Slope: Tiles | GableEnd: Gable }
+HipRoof --> Roof(Hip, 32, overhang=Eave) { Slope: Tiles }
+Tiles --> Pick("tiles") { 55% TileRed | 45% TileDark }
+TileRed --> Mat("TilesRed") I("Roof")
+TileDark --> Mat("TilesDark") I("Roof")
+Gable --> I("Wall")
+// The slab reaches out to the lot's edges, its fascia the house's trim.
+FlatRoof --> Translate(-Eave, 0, -Eave)
+    Size(scope.x + 2 * Eave, 0.3, scope.z + 2 * Eave) Mat("Trim") I("Roof")

@@ -1,0 +1,141 @@
+// The steampunk theme's hall (#1600): a brick engine works, or - where it
+// trades - an iron-and-glass market hall. See street_hall.rs for the hall,
+// and catalogue::items::street for the conventions and for what is declared
+// ahead of these rules (Storeys, Trade, Frontage, Depth, GroundH, FloorH)
+// and after them (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.42
+const PaneSet = 0.16
+const StepH = 0.5
+const BandH = 0.24
+// The roof zone: a works' sheeting or lantern, a market's glass gables.
+const RoofH = 1.0
+
+// -- 1. The hall: its brick rolled once, then storeys and a roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Brick
+Brick --> 38% Mat("BrickSoot") Massing | 34% Mat("BrickRed") Massing
+    | 28% Mat("BrickBrown") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Upper | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners. A hall's
+// ends are its brick, blank.
+PartyIn --> Translate(0, 0, -WallD) Wall
+// A riveted iron band along the front at the top of every storey.
+Band --> Extrude(0.12) Mat("Iron") I("Band")
+// Iron lintels with a brass keystone, iron steps, plank doors.
+Lintel --> Split(X) { ~1: IronLintel | 0.3: Keystone | ~1: IronLintel }
+IronLintel --> Extrude(WallD + 0.1) Mat("Iron") I("Trim")
+Keystone --> Extrude(WallD + 0.16) Mat("Brass") I("Trim")
+Step --> Extrude(WallD + 0.35) Mat("Iron") I("Trim")
+DoorLeaf --> 55% Mat("Door") Leaf | 45% Mat("DoorGreen") Leaf
+Leaf --> Extrude(WallD - 0.2) I("Door")
+Pier --> Extrude(WallD + 0.14) I("Wall")
+// A ribbon of brass-framed high windows between brick piers.
+Ribbon --> Repeat(X, 3.0) { RibbonBay }
+RibbonBay --> Split(X) { 0.5: Wall | ~1: Glazing | 0.5: Wall }
+
+// -- 2. The ground storey: a works' doors, or a market's front --
+Ground --> Comp(Faces) { Front: GroundFace | Back: BackInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFace --> Split(Y) { ~1: FrontInset | BandH: Band }
+FrontInset --> Split(X) { WallD: NIL | ~1: FrontIn | WallD: NIL }
+FrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> when(Trade == 1): MarketFront | else: WorksFront
+// The works: a plank door for its hands at one end, bays of great plank
+// doors between brick piers along the rest, the ribbon over them all.
+WorksFront --> Split(Y) { 4.3: WorksDoors | 1.2: Ribbon | ~1: Wall }
+WorksDoors --> Split(X) { 1.2: Wall | 1.2: HandDoor | 1.0: Wall | ~1: DoorRun | 1.2: Wall }
+HandDoor --> Split(Y) { StepH: Step | 2.3: DoorLeaf | 0.26: Lintel | ~1: Wall }
+// The first bay always has its doors; the rest, seven in ten.
+DoorRun --> when(scope.x > 6.5): Repeat(X, 6.5) { DoorBay } | else: OpenBay
+DoorBay --> when(split.i == 0): OpenBay | else: AnyBay
+OpenBay --> Split(X) { 0.5: Pier | ~1: DoorSlot | 0.5: Pier }
+AnyBay --> 70% OpenBay | 30% Split(X) { 0.5: Pier | ~1: Wall | 0.5: Pier }
+DoorSlot --> Split(X) { ~1: Wall | 4.2: GreatDoor | ~1: Wall }
+// Great doors over an iron threshold plate: the sink buries all but its
+// top.
+GreatDoor --> Split(Y) { 0.45: Apron | 3.5: GreatLeaves | ~1: Lintel }
+Apron --> Extrude(WallD + 1.2) Mat("Iron") I("Trim")
+GreatLeaves --> Split(X) { ~1: DoorLeaf | 0.08: Wall | ~1: DoorLeaf }
+// The market: tall shop windows between cast-iron pilasters either side
+// of its doors, an iron canopy the whole front, the sign over the doors
+// and a clerestory over the windows - the doors a quarter of a long front.
+MarketFront --> when(scope.x < 30): Split(X) { ~1: MarketSide | 6.4: MarketMid | ~1: MarketSide }
+    | else: Split(X) { ~3: MarketSide | ~2: MarketMid | ~3: MarketSide }
+MarketSide --> Split(Y) { 3.4: ShopRun | 0.16: Canopy | ~1: Clerestory }
+MarketMid --> Split(Y) { 3.4: Entry | 0.16: Canopy | ~1: SignZone }
+ShopRun --> when(scope.x > 3.0): Repeat(X, 3.0) { ShopBay } | else: ShopBay
+ShopBay --> Split(X) { 0.3: Pilaster | ~1: ShopWin | 0.3: Pilaster }
+Pilaster --> Extrude(WallD + 0.1) Mat("Iron") I("Trim")
+ShopWin --> Split(Y) { 0.6: Wall | ~1: ShopGlazing | 0.26: IronLintel }
+Entry --> Split(X) { ~1: ShopRun | 2.4: Doors | ~1: ShopRun }
+Doors --> Split(Y) { StepH: Step | 2.5: Leaves | ~1: Glazing }
+Leaves --> Split(X) { ~1: DoorLeaf | 0.08: Wall | ~1: DoorLeaf }
+Canopy --> Extrude(WallD + 1.8) Mat("Iron") I("Canopy")
+Clerestory --> Split(Y) { 0.3: Wall | 1.2: Ribbon | ~1: Wall }
+SignZone --> Split(Y) { 0.3: Wall | 1.1: SignRow | 0.1: Rail | ~1: Wall }
+SignRow --> Split(X) { 0.4: Wall | ~1: Sign | 0.4: Wall }
+Sign --> Extrude(WallD + 0.1) Mat("Sign") I("Fascia")
+Rail --> Extrude(WallD + 0.14) Mat("Brass") I("Trim")
+// The yard side: a great door here and there, the ribbon over them.
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) Split(Y) { 4.3: BackDoors | 1.2: Ribbon | ~1: Wall }
+BackDoors --> Split(X) { 1.2: Wall | ~1: BackRun | 1.2: Wall }
+BackRun --> when(scope.x > 12): Repeat(X, 12.0) { DoorBay } | else: OpenBay
+
+// -- 3. An upper storey: a drawing office, tall windows on the street, a
+// ribbon on the yard --
+Upper --> Comp(Faces) { Front: UpFace | Back: UpBackInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpFace --> Split(Y) { ~1: UpInset | BandH: Band }
+UpInset --> Split(X) { WallD: NIL | ~1: UpIn | WallD: NIL }
+UpIn --> Translate(0, 0, -WallD) UpRun
+UpRun --> Repeat(X, 3.2) { UpBay }
+UpBay --> Split(X) { ~1: Wall | 1.3: UpWinCol | ~1: Wall }
+UpWinCol --> Split(Y) { 0.9: Wall | 0.1: Sill | 1.9: Glazing | 0.26: IronLintel | ~1: Wall }
+Sill --> Extrude(WallD + 0.08) Mat("Iron") I("Trim")
+UpBackInset --> Split(X) { WallD: NIL | ~1: UpBackIn | WallD: NIL }
+UpBackIn --> Translate(0, 0, -WallD) Split(Y) { 1.0: Wall | 1.6: Ribbon | ~1: Wall }
+
+// -- 4. The roof: a works' sawtooth or lantern gable under copper stacks,
+// a market's row of glazed gables --
+RoofZone --> when(Trade == 1): MarketRoof | else: Split(Y) { ~1: WorksRoof | 0.01: StackLayer }
+WorksRoof --> Pick("roof") { 55% Sawtooth | 45% LanternRoof }
+// Teeth along the street, each its sheeting and its amber north light.
+Sawtooth --> Repeat(Z, 8.0) { Tooth }
+Tooth --> Roof(Shed, 22, overhang=0) { Slope: Sheeting | Back: NorthLight | GableEnd: Gable }
+Sheeting --> Mat("Sheet") I("Roof")
+NorthLight --> Mat("NorthLight") I("Roof")
+Gable --> I("Wall")
+// A low gable of riveted plate, and on its ridge a glazed lantern two
+// metres short of each end.
+LanternRoof --> Split(Y) { ~1: LowGable | 0.01: LanternLayer }
+LowGable --> Roof(Gable, 16, overhang=0, ridge=X) { Slope: Plates | GableEnd: Gable }
+Plates --> Mat("IronPlate") I("Roof")
+LanternLayer --> Translate(0, Depth * 0.1434 - 0.6 - RoofH, 0) Size(scope.x, 2.0, scope.z)
+    Split(Z) { ~1: NIL | 3.0: LanternBand | ~1: NIL }
+LanternBand --> Split(X) { 2.0: NIL | ~1: Lantern | 2.0: NIL }
+Lantern --> Mat("IronPlate") Split(Y) { 0.7: LanternFoot | 1.0: LanternGlass | ~1: LanternTop }
+LanternFoot --> I("Roof")
+LanternGlass --> Comp(Faces) { Front: LanternPanes | Back: LanternPanes | Left: LanternEnd
+    | Right: LanternEnd | Top: NIL | Bottom: NIL }
+LanternPanes --> Mat("NorthLight") I("Roof")
+LanternEnd --> I("Roof")
+LanternTop --> Size(scope.x, scope.y, scope.z + 0.4) Center(Z) I("Roof")
+// Copper stacks, one to every sixteen metres of front, two thirds back.
+StackLayer --> Translate(0, 0.01 - RoofH, 0) Size(scope.x, min(Depth * 0.16, 4.9) + 3.5, scope.z)
+    Repeat(X, 16.0) { StackSlot }
+StackSlot --> Split(X) { ~1: NIL | 0.9: StackCol | ~1: NIL }
+StackCol --> Split(Z) { ~2: NIL | 0.9: Stack | ~1: NIL }
+Stack --> Split(Y) { ~1: StackShaft | 0.35: StackCap }
+StackShaft --> Mat("Copper") I("Stack")
+StackCap --> Size(scope.x + 0.2, scope.y, scope.z + 0.2) Center(XZ) Mat("Brass") I("Stack")
+// The market's glass gables to the street, one to every twelve metres,
+// and a sliver at the zone's top that hangs the hall's lit ceiling under
+// the glass, between its walls.
+MarketRoof --> Split(Y) { ~1: Spans | 0.01: CeilingLayer }
+Spans --> Repeat(X, 12.0) { Span }
+CeilingLayer --> Translate(WallD, 0.01 - RoofH - 0.4, WallD)
+    Size(scope.x - 2 * WallD, 0.1, scope.z - 2 * WallD) Mat("ShopLit") I("Roof")
+Span --> Roof(Gable, 30, overhang=0, ridge=Z) { Slope: GlassSlope | GableEnd: GlassSlope }
+GlassSlope --> Mat("GlassRoof") I("Roof")

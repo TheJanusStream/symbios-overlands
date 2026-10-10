@@ -23,14 +23,31 @@
 //! Where the theme has its street buildings (#1598,
 //! [`super::super::streets`]), a row is drawn from those alone, each copy
 //! shaped to the footprint ([`fill_street`]): the kind by the building's
-//! storeys and use, its storeys Berlin's, its ground floor trading where
-//! Berlin's use is a shop's, a workshop's or mixed; the depth its kind's
-//! deepest that fits the row, the copy's front on the row's own edge as a
-//! Berlin house stands on its street line; and frontages down the row's
-//! length, a smaller kind's in a tail its own leaves. A theme without them
-//! fills its rows as before ([`fill`]): its secondary buildings set side
-//! by side, each fitted to its row's depth, bigger where Berlin's building
-//! stands taller.
+//! storeys, use, size and block ([`street_of`]), its storeys Berlin's, its
+//! ground floor trading where Berlin's use is a shop's, a workshop's or
+//! mixed; the depth its kind's deepest that fits the row, the copy's front
+//! on the row's own edge as a Berlin house stands on its street line; and
+//! frontages down the row's length, a smaller kind's in a tail its own
+//! leaves. A theme without them fills its rows as before ([`fill`]): its
+//! secondary buildings set side by side, each fitted to its row's depth,
+//! bigger where Berlin's building stands taller.
+//!
+//! How its block is built up (#1600, [`Development`]) places a building
+//! further. In a block of houses or of garden plots, a building of up to
+//! three storeys whose footprint is one house's - a home, and its garage,
+//! its shed, the corner shop: anything but a church or a museum - is a
+//! detached house standing alone at its footprint's middle, its front to
+//! its street. A works building of one or two storeys over a hall's
+//! footprint - or, in a block of works, any but a home - is a hall, a row
+//! of the widest halls that fit; a hall trades where it is a shop's, a
+//! retail box. A detached house or a hall stands only where it lands on
+//! its footprint, three quarters of its lot on it and half the footprint
+//! covered; halls are tried from the deepest down, so a long wing takes
+//! shallower halls along its front, and a footprint no hall lands on - a
+//! comb of wings - takes the rows its storeys and use give it instead, as
+//! before #1600. A hall's rows and
+//! an estate's run along the footprint's longest edge, as its slabs turn
+//! their long sides to their lawns, not along its street front.
 //!
 //! Every copy stands on its building's voxel shell as a collider, and the
 //! nearest the landing are drawn near: past the plan's entity budget a copy
@@ -39,7 +56,7 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
-use geodata::berlin::BuildingUse;
+use geodata::berlin::{BuildingUse, Development};
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::{RngCore, SeedableRng};
 
@@ -55,7 +72,7 @@ use super::super::fit::{
 };
 use super::super::plan::{Grow, Plan, PlannedBuilding, PlannedCopy, Policy, Solid};
 use super::super::streets::{
-    self, STREET_VARIANTS, StreetKey, Streets, depth_for, kind_of, smaller,
+    self, STREET_VARIANTS, StreetKey, Streets, depth_for, frontage_for, kind_of, smaller,
 };
 use super::super::{SourceId, SourceLayer};
 use super::Kept;
@@ -85,6 +102,29 @@ const LANDMARK_AREA_M2: f32 = 1_200.0;
 /// The storeys a building is drawn with where ALKIS has none: a Berlin
 /// street's own.
 const USUAL_STOREYS: u8 = 5;
+
+/// The footprint from which a works building of one or two storeys is a
+/// hall (m2, #1600): past a low building's largest lot, 24 by 17.
+const HALL_AREA_M2: f32 = 500.0;
+
+/// How far past a detached house's widest frontage and deepest depth a
+/// home's footprint may run and still be one house standing free, as a
+/// share of them (#1600): 20 by 20 m at most.
+const DETACHED_SLACK: f32 = 1.25;
+
+/// The share of a detached house's or a hall's lot that must lie on its
+/// footprint for it to stand there (#1600): the rest overhangs a yard, a
+/// garden or the street.
+const LAND_SHARE: f32 = 0.75;
+
+/// The share of a footprint its detached house or its halls must cover,
+/// where they land, before they are drawn rather than its rows (#1600): an
+/// L-shaped works or a comb of wings takes no hall at all.
+const COVER_SHARE: f32 = 0.5;
+
+/// How many points a lot is sampled at along each side to measure how much
+/// of it lies on its footprint.
+const LAND_SAMPLES: usize = 8;
 
 /// The most street templates the plan grows (#1598,
 /// [`streets::template`]): each a tree, its merged meshes and its shell,
@@ -131,11 +171,41 @@ pub(crate) fn role_of(building: &CoreBuilding) -> Option<Role> {
     })
 }
 
-/// The street building `building` is drawn as (#1598): its kind
-/// ([`kind_of`]), its storeys - ALKIS's, else its tallest part's, else
-/// [`USUAL_STOREYS`] - and whether its ground floor trades: a shop's, a
-/// workshop's, a garage's, a utility's or a mixed building's does.
+/// The street building `building` is drawn as (#1598, #1600): its kind - a
+/// hall ([`is_hall`]), a detached house ([`is_detached`]), else by its
+/// storeys and use ([`kind_of`]) - its storeys - ALKIS's, else its tallest
+/// part's, else [`USUAL_STOREYS`] - and whether its ground floor trades: a
+/// shop's, a workshop's, a garage's, a utility's or a mixed building's
+/// does; of a hall, only a shop's - a retail box rather than a works; of a
+/// detached house, never.
 pub(crate) fn street_of(building: &CoreBuilding) -> (StreetKind, u8, bool) {
+    let storeys = building
+        .storeys
+        .or(building.peak_storeys)
+        .unwrap_or(USUAL_STOREYS)
+        .max(1);
+    let works = matches!(
+        building.usage,
+        BuildingUse::Commercial
+            | BuildingUse::Industrial
+            | BuildingUse::Parking
+            | BuildingUse::Utility
+    );
+    if is_hall(building, storeys, works) {
+        let shop = building.usage == BuildingUse::Commercial;
+        return (StreetKind::Hall, storeys, shop);
+    }
+    if is_detached(building, storeys) {
+        return (StreetKind::Detached, storeys, false);
+    }
+    by_storeys(building)
+}
+
+/// The street building `building` is drawn as by its storeys and use alone
+/// (#1598): what [`street_of`] gives a building that is no hall and no
+/// detached house, and what a hall or a detached house that does not land
+/// on its footprint is drawn as instead ([`fill_street`]).
+fn by_storeys(building: &CoreBuilding) -> (StreetKind, u8, bool) {
     let storeys = building
         .storeys
         .or(building.peak_storeys)
@@ -150,6 +220,54 @@ pub(crate) fn street_of(building: &CoreBuilding) -> (StreetKind, u8, bool) {
     );
     let trade = works || building.usage == BuildingUse::Mixed;
     (kind_of(storeys, works), storeys, trade)
+}
+
+/// Whether `building`, of `storeys`, is a hall (#1600): of one or two
+/// storeys over [`HALL_AREA_M2`] or more, at least a hall's shallowest
+/// depth across, and a works building - a shop's, an industry's, a
+/// garage's, a utility's - or, in a block of works, anything but a home.
+fn is_hall(building: &CoreBuilding, storeys: u8, works: bool) -> bool {
+    let home = matches!(
+        building.usage,
+        BuildingUse::Residential | BuildingUse::Mixed
+    );
+    let in_works = building.development == Some(Development::Works) && !home;
+    if storeys > 2 || building.area < HALL_AREA_M2 || !(works || in_works) {
+        return false;
+    }
+    let shallowest = f32::from(StreetKind::Hall.depths()[0]);
+    oriented_box(&building.outline).is_some_and(|bx| 2.0 * bx.half_depth >= shallowest - 1e-3)
+}
+
+/// Whether `building`, of `storeys`, is a house standing free in its
+/// garden (#1600): of three storeys or fewer, no part of it higher, in a
+/// block of houses or of garden plots, and its footprint one house's - its
+/// street box within [`DETACHED_SLACK`] of a detached house's widest
+/// frontage and deepest depth, its middle on the footprint. Whatever its
+/// use but worship's or culture's: a garage, a shed, a corner shop among
+/// the houses is drawn as one of them, where a low building would stand a
+/// shopfront and its sign in a garden.
+fn is_detached(building: &CoreBuilding, storeys: u8) -> bool {
+    let in_gardens = matches!(
+        building.development,
+        Some(Development::Houses | Development::Gardens)
+    );
+    let civic = matches!(
+        building.usage,
+        BuildingUse::Religious | BuildingUse::Cultural
+    );
+    let low = storeys <= 3 && building.peak_storeys.is_none_or(|peak| peak <= 3);
+    if !in_gardens || civic || !low {
+        return false;
+    }
+    let kind = StreetKind::Detached;
+    let widest = kind.frontages().last().map_or(0.0, |&f| f32::from(f));
+    let deepest = kind.depths().last().map_or(0.0, |&d| f32::from(d));
+    street_box(&building.outline, building.street_yaw).is_some_and(|bx| {
+        2.0 * bx.half_length <= widest * DETACHED_SLACK
+            && 2.0 * bx.half_depth <= deepest * DETACHED_SLACK
+            && contains(&building.outline, bx.centre)
+    })
 }
 
 /// How telling a landmark is, for choosing among them: places of worship,
@@ -307,6 +425,17 @@ fn rows_of(half_depth: f32) -> usize {
     ((2.0 * half_depth / ROW_DEPTH_M).round() as usize).clamp(1, MAX_ROWS)
 }
 
+/// How many rows of halls a box `half_depth` deep takes (#1600): one for
+/// each hall's deepest step, so a footprint deeper than a hall takes halls
+/// back to back.
+fn hall_rows(half_depth: f32) -> usize {
+    let deepest = StreetKind::Hall
+        .depths()
+        .last()
+        .map_or(ROW_DEPTH_M, |&d| f32::from(d));
+    ((2.0 * half_depth / deepest).round() as usize).clamp(1, MAX_ROWS)
+}
+
 /// Fill `building`'s footprint with rows (see the module docs) from `pool`
 /// at `rank`, leaving clear the stretch of its box's length within
 /// `spared` of the box's middle: a landmark's.
@@ -377,17 +506,102 @@ fn row(
 
 /// Fill `building`'s footprint with rows of the theme's street buildings
 /// (#1598, see the module docs), leaving clear the stretch of its box's
-/// length within `spared` of its middle: a landmark's.
+/// length within `spared` of its middle: a landmark's. A detached house
+/// stands alone instead ([`alone`], #1600). A detached house, or a hall,
+/// stands only where it lands ([`landing`]); halls are tried from the
+/// deepest the row holds down, so a long wing narrower than its box takes
+/// shallower halls along its front. Where none lands - a comb of wings, a
+/// T turned to its street - the footprint takes the rows its storeys and
+/// use give it ([`by_storeys`]), as before #1600.
 pub(crate) fn fill_street(
     building: &CoreBuilding,
     streets: &Streets,
     rng: &mut ChaCha8Rng,
     spared: f32,
 ) -> Vec<Slot> {
-    // Its rows run along its street front - or, where a landmark stands at
-    // the middle of the box along its longest edge, along that box, so the
-    // stretch they spare is the landmark's.
-    let bx = if spared > 0.0 {
+    let drawn = street_of(building);
+    let (kind, storeys, _) = drawn;
+    match kind {
+        StreetKind::Detached => {
+            let house = alone(building, streets, storeys, rng).into_iter().collect();
+            if let Some(landed) = landing(building, house) {
+                return landed;
+            }
+        }
+        StreetKind::Hall => {
+            for &depth in kind.depths().iter().rev() {
+                let halls = fill_rows(building, streets, drawn, f32::from(depth), rng, spared);
+                if let Some(landed) = landing(building, halls) {
+                    return landed;
+                }
+            }
+        }
+        _ => return fill_rows(building, streets, drawn, f32::INFINITY, rng, spared),
+    }
+    let rows = by_storeys(building);
+    fill_rows(building, streets, rows, f32::INFINITY, rng, spared)
+}
+
+/// `slots` that land on `building`'s footprint (#1600): each with
+/// [`LAND_SHARE`] of its lot on the footprint, the rest left out, and
+/// together covering [`COVER_SHARE`] of it - or `None`.
+fn landing(building: &CoreBuilding, slots: Vec<Slot>) -> Option<Vec<Slot>> {
+    let mut covered = 0.0;
+    let mut landed = Vec::new();
+    for slot in slots {
+        let (on, lot) = landed_area(building, &slot);
+        if on >= LAND_SHARE * lot {
+            covered += on;
+            landed.push(slot);
+        }
+    }
+    (!landed.is_empty() && covered >= COVER_SHARE * building.area).then_some(landed)
+}
+
+/// How much of `slot`'s lot lies on `building`'s footprint (m2), measured
+/// at [`LAND_SAMPLES`] points a side, and the lot's whole area.
+fn landed_area(building: &CoreBuilding, slot: &Slot) -> (f32, f32) {
+    let Some((fit, _)) = slot.street else {
+        return (0.0, 0.0);
+    };
+    let (width, depth) = (fit.frontage_m() * slot.scale, fit.depth_m() * slot.scale);
+    let turn = Quat::from_rotation_y(slot.yaw);
+    let along = turn * Vec3::X;
+    let back = turn * Vec3::Z;
+    let n = LAND_SAMPLES;
+    let step = |i: usize| (i as f32 + 0.5) / n as f32 - 0.5;
+    let on = (0..n)
+        .flat_map(|i| (0..n).map(move |j| (step(i), step(j))))
+        .filter(|&(u, v)| {
+            let x = slot.at.0 + along.x * u * width + back.x * v * depth;
+            let z = slot.at.1 + along.z * u * width + back.z * v * depth;
+            contains(&building.outline, (x, z))
+        })
+        .count();
+    let lot = width * depth;
+    (lot * on as f32 / (n * n) as f32, lot)
+}
+
+/// `building`'s footprint filled with rows of `drawn` - a kind, its storeys
+/// and whether it trades - from `streets`, each no deeper than `deepest`
+/// (m) nor its row (see [`fill_street`]).
+fn fill_rows(
+    building: &CoreBuilding,
+    streets: &Streets,
+    (kind, storeys, trade): (StreetKind, u8, bool),
+    deepest: f32,
+    rng: &mut ChaCha8Rng,
+    spared: f32,
+) -> Vec<Slot> {
+    // Its rows run along its street front - or along the box along its
+    // longest edge: where a landmark stands at that box's middle, so the
+    // stretch they spare is the landmark's; and where it is a hall, or
+    // stands in an estate, whose slabs turn their long sides to their
+    // lawns rather than to the street (#1600).
+    let longest = spared > 0.0
+        || kind == StreetKind::Hall
+        || building.development == Some(Development::Estate);
+    let bx = if longest {
         oriented_box(&building.outline)
     } else {
         street_box(&building.outline, building.street_yaw)
@@ -397,8 +611,11 @@ pub(crate) fn fill_street(
     };
     let across = (-bx.along.1, bx.along.0);
     let street = fronts_across(&bx, building.street_yaw);
-    let (kind, storeys, trade) = street_of(building);
-    let rows = rows_of(bx.half_depth);
+    let rows = if kind == StreetKind::Hall {
+        hall_rows(bx.half_depth)
+    } else {
+        rows_of(bx.half_depth)
+    };
     let band = 2.0 * bx.half_depth / rows as f32;
     let mut slots = Vec::new();
     for k in 0..rows {
@@ -415,9 +632,14 @@ pub(crate) fn fill_street(
         };
         let yaw = facing(&bx, to_across);
         for (from, to) in stretches(bx.half_length, spared) {
-            for (entry, fit, scale, u) in
-                street_row(streets, kind, (storeys, trade), band, (from, to), rng)
-            {
+            for (entry, fit, scale, u) in street_row(
+                streets,
+                kind,
+                (storeys, trade),
+                band.min(deepest),
+                (from, to),
+                rng,
+            ) {
                 // Its front on the row's own edge: Berlin's street line.
                 let depth = fit.depth_m() * scale;
                 let v = if to_across {
@@ -450,7 +672,9 @@ pub(crate) fn fill_street(
 /// scale and its middle along the length. The row is `kind`'s, at `storeys`,
 /// trading or not; its frontages are rolled from its kind's, each leaving
 /// room for another while the row has it and the widest that fits after,
-/// and a tail its kind leaves takes the next kind down.
+/// and a tail its kind leaves takes the next kind down. A hall is one
+/// building however long its footprint (#1600): a row of halls takes the
+/// widest that fits, each.
 fn street_row(
     streets: &Streets,
     kind: StreetKind,
@@ -492,7 +716,7 @@ fn street_row(
             .copied()
             .filter(|&(_, width)| left - width >= narrowest - 1e-3)
             .collect();
-        let (frontage, width) = if leaving.is_empty() {
+        let (frontage, width) = if leaving.is_empty() || k == StreetKind::Hall {
             *fitting.last().expect("one fits")
         } else {
             leaving[rng.next_u32() as usize % leaving.len()]
@@ -510,6 +734,35 @@ fn street_row(
             (entry, fit, scale, u)
         })
         .collect()
+}
+
+/// A detached house standing alone in its garden (#1600): one copy of
+/// `streets`' detached house at `building`'s street box's middle, its front
+/// to its street, at `storeys`; as wide and as deep as its kind's steps
+/// fit the box at their size, or its narrowest or shallowest drawn
+/// smaller, the two at the smaller scale. `None` where even that is too
+/// large.
+fn alone(
+    building: &CoreBuilding,
+    streets: &Streets,
+    storeys: u8,
+    rng: &mut ChaCha8Rng,
+) -> Option<Slot> {
+    let kind = StreetKind::Detached;
+    let bx = street_box(&building.outline, building.street_yaw)?;
+    let (frontage, along) = frontage_for(kind, 2.0 * bx.half_length)?;
+    let (depth, deep) = depth_for(kind, 2.0 * bx.half_depth)?;
+    let variant = (rng.next_u32() % u32::from(STREET_VARIANTS)) as u8;
+    Some(Slot {
+        entry: streets.entry(kind),
+        scale: along.min(deep),
+        at: bx.centre,
+        yaw: front_yaw(&bx, building.street_yaw),
+        street: Some((
+            StreetFit::new(frontage, depth, storeys, false).snapped(kind),
+            variant,
+        )),
+    })
 }
 
 /// The buildings' plan (see the module docs), for `room`, keeping clear of
@@ -718,6 +971,7 @@ mod tests {
             storeys: Some(5),
             peak_storeys: Some(5),
             street_yaw: yaw_towards(street),
+            development: None,
         }
     }
 
@@ -964,6 +1218,258 @@ mod tests {
         assert_eq!(slots[0].entry.slug(), "city_street_house");
         assert_eq!(fit.storeys, 5);
         assert!(slots[0].scale < 1.0 && fit.frontage_m() * slots[0].scale <= 10.0 + 1e-3);
+    }
+
+    /// The street building a slot draws, by its slug, and its fit.
+    fn drawn(slot: &Slot) -> (&'static str, StreetFit) {
+        let (fit, _) = slot.street.expect("a street building");
+        (slot.entry.slug(), fit)
+    }
+
+    /// The way a slot's front faces, in world `(x, z)`.
+    fn front_of(slot: &Slot) -> (f32, f32) {
+        let front = Quat::from_rotation_y(slot.yaw) * Vec3::NEG_Z;
+        (front.x, front.z)
+    }
+
+    /// A home of two storeys, 11 m by 9, in a block of houses (#1600)
+    /// stands alone at its footprint's middle as one detached house, as
+    /// wide and deep as the kind's steps fit, its front to its street; so
+    /// does a garage there. In a perimeter block, or where the block is not
+    /// known, the same footprint is a low building's terrace, as before; and
+    /// a footprint three houses long in a block of houses is a terrace too.
+    #[test]
+    fn a_home_in_a_block_of_houses_stands_alone_facing_its_street() {
+        let streets = city_streets();
+        let house = |development| CoreBuilding {
+            storeys: Some(2),
+            peak_storeys: Some(2),
+            development,
+            ..building("house", rectangle((3.0, -2.0), 11.0, 9.0, 0.0), (0.0, 1.0))
+        };
+        let mut rng = ChaCha8Rng::seed_from_u64(3);
+        let alone = fill_street(&house(Some(Development::Houses)), &streets, &mut rng, 0.0);
+        assert_eq!(alone.len(), 1);
+        assert_eq!(
+            drawn(&alone[0]),
+            ("city_street_detached", StreetFit::new(10, 8, 2, false))
+        );
+        assert_eq!(alone[0].scale, 1.0);
+        let (x, z) = alone[0].at;
+        assert!(
+            (x - 3.0).abs() < 1e-3 && (z + 2.0).abs() < 1e-3,
+            "{:?}",
+            alone[0].at
+        );
+        let (fx, fz) = front_of(&alone[0]);
+        assert!(
+            fx.abs() < 1e-3 && (fz - 1.0).abs() < 1e-3,
+            "faces {fx}, {fz}"
+        );
+        // An allotment's weekend house stands alone too, and a garage among
+        // the houses is one of them, not a shop: it never trades.
+        let garden = fill_street(&house(Some(Development::Gardens)), &streets, &mut rng, 0.0);
+        assert_eq!(drawn(&garden[0]).0, "city_street_detached");
+        let garage = CoreBuilding {
+            usage: BuildingUse::Parking,
+            storeys: Some(1),
+            peak_storeys: Some(1),
+            development: Some(Development::Houses),
+            ..building("garage", rectangle((0.0, 0.0), 7.0, 6.0, 0.0), (0.0, 1.0))
+        };
+        assert_eq!(street_of(&garage), (StreetKind::Detached, 1, false));
+        let garage_on_a_street = CoreBuilding {
+            development: Some(Development::Perimeter),
+            ..garage.clone()
+        };
+        assert_eq!(street_of(&garage_on_a_street), (StreetKind::Low, 1, true));
+        for development in [Some(Development::Perimeter), None] {
+            let slots = fill_street(&house(development), &streets, &mut rng, 0.0);
+            assert!(!slots.is_empty(), "{development:?}");
+            for slot in &slots {
+                assert_eq!(drawn(slot).0, "city_street_low", "{development:?}");
+            }
+        }
+        let terrace = CoreBuilding {
+            storeys: Some(2),
+            peak_storeys: Some(2),
+            development: Some(Development::Houses),
+            ..building(
+                "terrace",
+                rectangle((0.0, 0.0), 30.0, 10.0, 0.0),
+                (0.0, 1.0),
+            )
+        };
+        let slots = fill_street(&terrace, &streets, &mut rng, 0.0);
+        assert!(slots.len() >= 2, "{} slots", slots.len());
+        assert!(slots.iter().all(|slot| drawn(slot).0 == "city_street_low"));
+    }
+
+    /// A works building of one storey over 4,000 m2 is a hall (#1600) -
+    /// one, the widest that fits, rather than a row of low buildings - and
+    /// a shop's is a store, trading; a building of no known use is a hall
+    /// in a block of works, and not elsewhere; a home never is, nor a works
+    /// too small or too tall.
+    #[test]
+    fn a_works_shed_is_a_hall_and_a_shops_trades() {
+        let streets = city_streets();
+        let shed = |usage, storeys, length: f32, development| CoreBuilding {
+            usage,
+            storeys: Some(storeys),
+            peak_storeys: Some(storeys),
+            development,
+            ..building("shed", rectangle((0.0, 0.0), length, 40.0, 0.0), (0.0, 1.0))
+        };
+        let mut rng = ChaCha8Rng::seed_from_u64(4);
+        let works = fill_street(
+            &shed(BuildingUse::Industrial, 1, 100.0, None),
+            &streets,
+            &mut rng,
+            0.0,
+        );
+        assert_eq!(works.len(), 1);
+        assert_eq!(
+            drawn(&works[0]),
+            ("city_street_hall", StreetFit::new(96, 36, 1, false))
+        );
+        let store = fill_street(
+            &shed(BuildingUse::Commercial, 1, 100.0, None),
+            &streets,
+            &mut rng,
+            0.0,
+        );
+        assert_eq!(
+            drawn(&store[0]),
+            ("city_street_hall", StreetFit::new(96, 36, 1, true))
+        );
+        let kind = |building: &CoreBuilding| street_of(building).0;
+        let works_block = Some(Development::Works);
+        assert_eq!(
+            kind(&shed(BuildingUse::Unknown, 1, 15.0, works_block)),
+            StreetKind::Hall
+        );
+        assert_eq!(
+            kind(&shed(BuildingUse::Unknown, 1, 15.0, None)),
+            StreetKind::Low
+        );
+        assert_eq!(
+            kind(&shed(BuildingUse::Residential, 1, 15.0, works_block)),
+            StreetKind::Low,
+            "a home is never a hall"
+        );
+        assert_eq!(
+            kind(&shed(BuildingUse::Industrial, 1, 12.0, None)),
+            StreetKind::Low,
+            "480 m2: too small"
+        );
+        assert_eq!(
+            kind(&shed(BuildingUse::Industrial, 3, 100.0, None)),
+            StreetKind::Low,
+            "three storeys: too tall"
+        );
+    }
+
+    /// A works of one storey shaped like an L (#1600) - a wing 100 m long
+    /// and 22 deep on its street, an arm 30 m back from one end - takes a
+    /// hall along its wing, 24 m deep, standing on it: the deepest hall its
+    /// box holds would stand half on the yard, its middle off the footprint
+    /// (which drew nothing at all). A T turned to its street - a stem 20 m
+    /// wide to the street, a crossbar 100 m long behind - takes no hall at
+    /// any depth, and takes the low buildings its storeys and use give it,
+    /// each on the footprint, as before #1600.
+    #[test]
+    fn a_works_no_hall_fits_takes_a_shallower_hall_or_its_rows() {
+        let streets = city_streets();
+        let works = |id: &str, outline: Vec<(f32, f32)>| CoreBuilding {
+            usage: BuildingUse::Industrial,
+            storeys: Some(1),
+            peak_storeys: Some(1),
+            development: Some(Development::Works),
+            ..building(id, outline, (0.0, -1.0))
+        };
+        let l_shape = works(
+            "l",
+            vec![
+                (-50.0, -11.0),
+                (50.0, -11.0),
+                (50.0, 41.0),
+                (28.0, 41.0),
+                (28.0, 11.0),
+                (-50.0, 11.0),
+                (-50.0, -11.0),
+            ],
+        );
+        assert_eq!(street_of(&l_shape).0, StreetKind::Hall, "the premise");
+        let mut rng = ChaCha8Rng::seed_from_u64(6);
+        let halls = fill_street(&l_shape, &streets, &mut rng, 0.0);
+        assert_eq!(halls.len(), 1);
+        let (slug, fit) = drawn(&halls[0]);
+        assert_eq!(
+            (slug, fit.frontage, fit.depth),
+            ("city_street_hall", 96, 24)
+        );
+        let (on, lot) = landed_area(&l_shape, &halls[0]);
+        assert!(on >= LAND_SHARE * lot, "{on} of {lot}");
+        let (_, z) = halls[0].at;
+        assert!(z < 11.0, "on the wing: {z}");
+        let t_shape = works(
+            "t",
+            vec![
+                (-10.0, 0.0),
+                (10.0, 0.0),
+                (10.0, 30.0),
+                (50.0, 30.0),
+                (50.0, 50.0),
+                (-50.0, 50.0),
+                (-50.0, 30.0),
+                (-10.0, 30.0),
+                (-10.0, 0.0),
+            ],
+        );
+        assert_eq!(street_of(&t_shape).0, StreetKind::Hall, "the premise");
+        let slots = fill_street(&t_shape, &streets, &mut rng, 0.0);
+        assert!(!slots.is_empty());
+        for slot in &slots {
+            assert_eq!(drawn(slot).0, "city_street_low");
+            assert!(contains(&t_shape.outline, slot.at), "{:?}", slot.at);
+        }
+    }
+
+    /// A slab of ten storeys, 60 m long and 12 deep, its end to its street
+    /// (#1600): in an estate its blocks run its length, fronting its long
+    /// sides, as an estate's slabs turn to their lawns; elsewhere its rows
+    /// take its street front, the short end, as a perimeter block's would.
+    #[test]
+    fn an_estates_slab_runs_its_length_not_its_street() {
+        let streets = city_streets();
+        let slab = |development| CoreBuilding {
+            storeys: Some(10),
+            peak_storeys: Some(10),
+            development,
+            ..building(
+                "slab",
+                rectangle((0.0, 0.0), 60.0, 12.0, std::f32::consts::FRAC_PI_2),
+                (0.0, 1.0),
+            )
+        };
+        let mut rng = ChaCha8Rng::seed_from_u64(5);
+        let estate = fill_street(&slab(Some(Development::Estate)), &streets, &mut rng, 0.0);
+        assert!(!estate.is_empty());
+        let mut length = 0.0;
+        for slot in &estate {
+            let (slug, fit) = drawn(slot);
+            assert_eq!(slug, "city_street_block");
+            let (fx, _) = front_of(slot);
+            assert!((fx.abs() - 1.0).abs() < 1e-3, "fronts a long side: {fx}");
+            length += fit.frontage_m() * slot.scale;
+        }
+        assert!(length >= 48.0, "{length} m of its 60");
+        let street = fill_street(&slab(None), &streets, &mut rng, 0.0);
+        assert!(!street.is_empty());
+        for slot in &street {
+            let (_, fz) = front_of(slot);
+            assert!((fz.abs() - 1.0).abs() < 1e-3, "fronts an end: {fz}");
+        }
     }
 
     /// A block 80 m long and 64 deep takes two rows of street buildings,

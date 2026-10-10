@@ -1,0 +1,125 @@
+// The sports theme's detached house (#1600): a groundsman's house at a
+// club's ground. See street_detached.rs for the house, and
+// catalogue::items::street for the conventions and for what is declared ahead
+// of these rules (Storeys, Trade, Frontage, Depth, GroundH, FloorH) and after
+// them (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.32
+const PaneSet = 0.12
+const StepH = 0.5
+const RoofH = 1.0
+// How far the roof reaches past the walls: the walls stand this far in
+// from the lot's sides, so the eaves and verges keep inside it.
+const Eave = 0.5
+// The band at each floor line, and the fascia under the eaves.
+const BandH = 0.3
+const FasciaH = 0.25
+// How far the veranda stands out of the front.
+const PorchD = 1.9
+
+// -- 1. The house: its walls stand in from the lot, its wall rolled once --
+Lot --> Split(X) { Eave: NIL | ~1: LotRow | Eave: NIL }
+LotRow --> Split(Z) { Eave: NIL | ~1: Plot | Eave: NIL }
+Plot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Paint
+Paint --> 40% Mat("Render") Massing | 30% Mat("Cream") Massing | 30% Mat("Block") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Uppers | RoofH: RoofZone }
+Trim --> Mat("Trim") I("Trim")
+Sill --> Extrude(WallD + 0.06) Trim
+Step --> Extrude(WallD + 0.3) Mat("Block") I("Trim")
+Wall0 --> I("Wall")
+
+// -- The club's colour, Picked once: a part names its kind --
+Team(k) --> Pick("team") { 30% TeamRed(k) | 25% TeamBlue(k) | 25% TeamGreen(k)
+    | 20% TeamOrange(k) }
+TeamRed(k) --> Mat("TeamRed") TeamPart(k)
+TeamBlue(k) --> Mat("TeamBlue") TeamPart(k)
+TeamGreen(k) --> Mat("TeamGreen") TeamPart(k)
+TeamOrange(k) --> Mat("TeamOrange") TeamPart(k)
+TeamPart(k) --> when(k == 1): FrontBand | when(k == 2): SideBand | when(k == 3): TeamDoor
+    | when(k == 4): TeamPost | else: Fascia
+// A band runs through the wall: the front's and back's turn the corners,
+// the sides' stop at them.
+FrontBand --> Translate(-0.1, 0, -WallD) Size(scope.x + 0.2, scope.y, scope.z)
+    Extrude(WallD + 0.1) I("Band")
+SideBand --> Split(X) { WallD: NIL | ~1: SideBandIn | WallD: NIL }
+SideBandIn --> Translate(0, 0, -WallD) Extrude(WallD + 0.1) I("Band")
+TeamDoor --> Extrude(WallD - 0.14) I("Door")
+TeamPost --> I("Rail")
+Fascia --> I("Band")
+
+// -- 2. Windows: wide, on a white sill; f is the sill's height over the
+// scope's foot --
+WinBay(f) --> Split(X) { ~1: Wall | 1.5: WinCol(f) | ~1: Wall }
+WinCol(f) --> Split(Y) { f: Wall | 0.08: Sill | 1.3: Glazing | ~1: Wall }
+// A run of them; a Repeat floors its count, so a short run is one window.
+Run(f) --> when(scope.x < 2.4): WinBay(f) | else: Repeat(X, 2.4) { WinBay(f) }
+
+// -- 3. The ground storey: a veranda or a stoop on the front, windows all
+// round --
+Ground --> Comp(Faces) { Front: FrontInset | Back: BackInset | Left: SideIn
+    | Right: SideIn | Top: NIL | Bottom: NIL }
+FrontInset --> Split(X) { WallD: NIL | ~1: FrontIn | WallD: NIL }
+FrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> Pick("porch") { 60% Veranda | 40% Stoop }
+// The stoop: the door up a step under a steel canopy.
+Stoop --> Split(X) { ~1: Run(0.9) | 1.6: Entrance | ~1: Run(0.9) }
+Entrance --> Split(X) { ~1: Wall | 1.0: DoorCol | ~1: Wall }
+DoorCol --> Split(Y) { StepH: Step | 2.15: Team(3) | 0.12: DoorCanopy | ~1: Wall }
+DoorCanopy --> Extrude(WallD + 1.0) Mat("Steel") I("Canopy")
+// The veranda: a deck a step high, the door and windows on it, a sheet
+// roof on posts in the club's colour, and the club's lit crest on its edge
+// over the steps - deck and roof reach the corners.
+Veranda --> Split(Y) { StepH: DeckRow | 2.2: PorchRow | 0.18: PorchRoofRow | ~1: Wall }
+DeckRow --> Extrude(WallD + PorchD) Split(Z) { WallD: Wall0 | ~1: Deck }
+Deck --> Translate(-WallD, 0, 0) Size(scope.x + 2 * WallD, scope.y, scope.z)
+    Mat("Block") I("Trim")
+PorchRow --> Split(X) { ~1: Run(0.4) | 1.6: PorchEntrance | ~1: Run(0.4) }
+PorchEntrance --> Split(X) { ~1: Wall | 1.0: PorchDoor | ~1: Wall }
+PorchDoor --> Split(Y) { 2.15: Team(3) | ~1: Wall }
+PorchRoofRow --> Extrude(WallD + PorchD) Split(Z) { WallD: Wall0 | ~1: PorchRoof }
+PorchRoof --> Translate(-WallD, 0, 0) Size(scope.x + 2 * WallD, scope.y, scope.z)
+    Mat("Sheet") Split(Z) { ~1: Canopy | 0.14: PostLine }
+Canopy --> I("Canopy")
+// Posts at the ends and either side of the steps, and one between where a
+// run is long; each hangs from the roof's edge beam down to the deck.
+PostLine --> Split(X) { 0.14: Post | ~1: BeamRun | 0.14: Post | 1.8: CrestBeam | 0.14: Post
+    | ~1: BeamRun | 0.14: Post }
+BeamRun --> when(scope.x > 4.0): Split(X) { ~1: Canopy | 0.14: Post | ~1: Canopy }
+    | else: Canopy
+Post --> Translate(0, -2.2, 0) Size(scope.x, scope.y + 2.2, scope.z) Team(4)
+CrestBeam --> Split(X) { ~1: Canopy | 1.0: Crest | ~1: Canopy }
+Crest --> Size(scope.x, 0.55, scope.z) Mat("Score") I("Sign")
+// The garden side: wide windows.
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) BackRun
+BackRun --> when(scope.x < 3.0): BackBay | else: Repeat(X, 3.0) { BackBay }
+BackBay --> Split(X) { ~1: Wall | 2.0: BackCol | ~1: Wall }
+BackCol --> Split(Y) { 0.9: Wall | 0.08: Sill | 1.4: Glazing | ~1: Wall }
+// The sides: their walls run the full depth, turning the corners.
+SideIn --> Translate(0, 0, -WallD) SideFace
+SideFace --> Split(X) { 0.6: Wall | ~1: Run(0.9) | 0.6: Wall }
+
+// -- 4. The upper storeys: a band in the club's colour at each floor line,
+// then windows all round --
+Uppers --> Comp(Faces) { Front: UpFull | Back: UpFull | Left: UpSideFull
+    | Right: UpSideFull | Top: NIL | Bottom: NIL }
+UpFull --> Repeat(Y, FloorH) { UpStorey }
+UpStorey --> Split(Y) { BandH: Team(1) | ~1: UpFrontInset }
+UpFrontInset --> Split(X) { WallD: NIL | ~1: UpFrontIn | WallD: NIL }
+UpFrontIn --> Translate(0, 0, -WallD) Run(0.6)
+UpSideFull --> Repeat(Y, FloorH) { UpSideStorey }
+UpSideStorey --> Split(Y) { BandH: Team(2) | ~1: UpSideIn }
+UpSideIn --> Translate(0, 0, -WallD) UpSide
+UpSide --> Split(X) { 0.6: Wall | ~1: Run(0.6) | 0.6: Wall }
+
+// -- 5. The roof: sheet, a mono-pitch rising to the back or a gable along
+// the street, its eaves out to the lot's edges over a fascia in the club's
+// colour --
+RoofZone --> Pick("roof") { 50% Mono | 50% GableRoof }
+Mono --> Roof(Shed, 12, overhang=Eave, fascia=FasciaH)
+    { Slope: Sheet | Fascia: Team(5) | All: RoofWall }
+GableRoof --> Roof(Gable, 25, overhang=Eave, ridge=X, fascia=FasciaH)
+    { Slope: Sheet | GableEnd: RoofWall | Fascia: Team(5) }
+Sheet --> Mat("Sheet") I("Roof")
+RoofWall --> I("Wall")

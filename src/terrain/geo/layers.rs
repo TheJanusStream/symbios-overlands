@@ -33,6 +33,8 @@ pub(crate) enum Layer {
     Streets,
     /// The buildings' page.
     Buildings,
+    /// The blocks' page, by urban-structure type (#1600).
+    Blocks,
     /// The two tree inventories' pages.
     Trees,
     /// Each furniture kind's page.
@@ -44,11 +46,12 @@ pub(crate) enum Layer {
 }
 
 impl Layer {
-    pub(crate) const ALL: [Layer; 8] = [
+    pub(crate) const ALL: [Layer; 9] = [
         Layer::Terrain,
         Layer::LandUse,
         Layer::Streets,
         Layer::Buildings,
+        Layer::Blocks,
         Layer::Trees,
         Layer::Furniture,
         Layer::Horizon,
@@ -62,6 +65,7 @@ impl Layer {
             Layer::LandUse => "land_use",
             Layer::Streets => "streets",
             Layer::Buildings => "buildings",
+            Layer::Blocks => "blocks",
             Layer::Trees => "trees",
             Layer::Furniture => "furniture",
             Layer::Horizon => "horizon",
@@ -76,6 +80,7 @@ impl Layer {
             Layer::LandUse => "land use",
             Layer::Streets => "streets",
             Layer::Buildings => "buildings",
+            Layer::Blocks => "block types",
             Layer::Trees => "trees",
             Layer::Furniture => "street furniture",
             Layer::Horizon => "horizon",

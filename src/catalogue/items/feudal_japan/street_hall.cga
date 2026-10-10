@@ -1,0 +1,117 @@
+// The Edo theme's hall (#1600): a kura warehouse, or - where it trades - a
+// wholesaler's hall open under noren. See street_hall.rs for the hall, and
+// catalogue::items::street for the conventions and for what is declared
+// ahead of these rules (Storeys, Trade, Frontage, Depth, GroundH, FloorH)
+// and after them (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.4
+const PaneSet = 0.12
+const PlinthH = 0.5
+const StepH = 0.5
+const RoofH = 0.8
+const PostW = 0.25
+// The namako skirt's height.
+const SkirtH = 1.4
+// A kura bay along the front: a heavy door, or barred windows.
+const BayW = 7.0
+// The pent eave: how far it reaches out, how far its low edge hangs under
+// the storey's top.
+const EaveOut = 1.4
+const EaveDrop = 0.6
+
+// -- 1. The hall: its plaster rolled once; a centimetre's layer at its
+// front carries the pent eave, the body behind it the storeys and roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Plaster
+Plaster --> when(Trade == 1): ShopPlaster | else: KuraPlaster
+KuraPlaster --> 70% Mat("Plaster") Massing | 30% Mat("Ash") Massing
+ShopPlaster --> 46% Mat("Plaster") Massing | 30% Mat("Earth") Massing | 24% Mat("Ash") Massing
+Massing --> Split(Z) { 0.01: FrontLayer | ~1: Body }
+Body --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Upper | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+Post --> Extrude(WallD + 0.06) Pick("lattice") { 60% DarkPost | 40% RedPost }
+DarkPost --> Mat("TimberDark") I("Post")
+RedPost --> Mat("Bengara") I("Post")
+Rail --> Extrude(WallD + 0.03) Mat("TimberDark") I("Trim")
+Jamb --> Extrude(WallD + 0.08) Mat("TimberDark") I("Trim")
+Sill --> Extrude(WallD + 0.05) Mat("Stone") I("Trim")
+Step --> Extrude(WallD + 0.3) Mat("Stone") I("Trim")
+// The namako skirt: dark tiles on the diagonal, standing a little proud.
+Namako --> Extrude(WallD + 0.04) Mat("Namako") I("Wall")
+Skirt --> Split(Y) { SkirtH: Namako | ~1: Wall }
+// A barred window set high over the skirt, between dark jambs.
+SkirtWall --> Split(X) { ~1: Skirt | 1.0: BarCol | ~1: Skirt }
+BarCol --> Split(Y) { SkirtH: Namako | 1.9: Wall | 0.12: Jamb | 1.1: Glazing | 0.12: Jamb
+    | ~1: Wall }
+
+// -- 2. The ground storey: a kura's heavy doors, or a shop under noren --
+Ground --> Comp(Faces) { Front: FrontInset | Back: BackInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+FrontInset --> Split(X) { WallD: NIL | ~1: FrontIn | WallD: NIL }
+FrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> when(Trade == 1): ShopFront | else: KuraFront
+// The kura: bays of heavy doors in thick plaster frames over stone sills,
+// the first bay always a door, between bays of barred windows.
+KuraFront --> Split(X) { 0.8: Skirt | ~1: KuraRun | 0.8: Skirt }
+KuraRun --> when(scope.x > BayW): Repeat(X, BayW) { KuraBay } | else: KuraBay
+KuraBay --> when(split.i == 0): DoorBay | else: AnyBay
+AnyBay --> 60% DoorBay | 40% Split(X) { ~1: SkirtWall | ~1: SkirtWall }
+DoorBay --> Split(X) { ~1: SkirtWall | 3.0: KuraDoor | ~1: SkirtWall }
+KuraDoor --> Split(X) { 0.4: DoorFrame | ~1: DoorCol | 0.4: DoorFrame }
+DoorFrame --> Split(Y) { 0.45: Namako | 3.8: FrameJamb | ~1: Wall }
+FrameJamb --> Extrude(WallD + 0.25) I("Trim")
+DoorCol --> Split(Y) { 0.45: DoorSill | 3.4: KuraLeaf | 0.4: DoorHead | ~1: Wall }
+DoorSill --> Extrude(WallD + 0.5) Mat("Stone") I("Trim")
+KuraLeaf --> Extrude(WallD - 0.15) Mat("TimberDark") I("Door")
+DoorHead --> Extrude(WallD + 0.25) I("Trim")
+// The wholesaler's: shop bays between posts, each its glazing over a stone
+// sill under a noren of its own colour and a lattice over that; the door
+// between lantern posts under a sign board.
+ShopFront --> Split(X) { PostW: Post | ~1: ShopRun | 2.4: Entry | ~1: ShopRun | PostW: Post }
+ShopRun --> when(scope.x > 2.8): Repeat(X, 2.8) { ShopBay } | else: ShopBay
+ShopBay --> Split(X) { ~1: ShopUnit | 0.16: Post }
+ShopUnit --> Split(Y) { PlinthH: Sill | 2.6: ShopGlazing | 0.9: Noren | 0.3: Wall | 0.08: Rail
+    | 0.9: Glazing | 0.08: Rail | ~1: Wall }
+Noren --> 40% Mat("Indigo") Cloth | 30% Mat("Madder") Cloth | 30% Mat("Undyed") Cloth
+Cloth --> Extrude(WallD + 0.04) I("Noren")
+Entry --> Split(X) { PostW: LanternPost | ~1: EntryDoor | PostW: LanternPost }
+EntryDoor --> Split(Y) { StepH: Step | 2.6: DoorLeaf | 0.08: Rail | 0.2: Wall | 0.8: SignBoard
+    | ~1: Wall }
+DoorLeaf --> Extrude(WallD - 0.12) Mat("Timber") I("Door")
+SignBoard --> Extrude(WallD + 0.08) Mat("SignBoard") I("Sign")
+// A sliver at the post's top carries its lantern, so one post draws both.
+LanternPost --> Split(Y) { ~1: Post | 0.01: LanternSliver }
+LanternSliver --> Translate(-0.135, -3.2, WallD + 0.06) Size(0.52, 0.75, 0) Extrude(0.52)
+    Mat("Lantern") I("Lantern")
+// The yard side: barred windows over the skirt.
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) Split(X) { 0.8: Skirt | ~1: BackRun | 0.8: Skirt }
+BackRun --> when(scope.x > 6.0): Repeat(X, 6.0) { SkirtWall } | else: SkirtWall
+
+// -- 3. An upper storey: the loft, barred mushiko windows in the plaster --
+Upper --> Comp(Faces) { Front: UpInset | Back: UpBackInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpInset --> Split(X) { WallD: NIL | ~1: UpIn | WallD: NIL }
+UpIn --> Translate(0, 0, -WallD) Repeat(X, 3.0) { LoftBay }
+UpBackInset --> Split(X) { WallD: NIL | ~1: UpBackIn | WallD: NIL }
+UpBackIn --> Translate(0, 0, -WallD) Repeat(X, 6.0) { LoftBay }
+LoftBay --> Split(X) { ~1: Wall | 1.4: Mushiko | ~1: Wall }
+Mushiko --> Split(Y) { 0.9: Wall | 0.12: Jamb | 1.2: Glazing | 0.12: Jamb | ~1: Wall }
+
+// -- 4. The front layer: a tiled pent eave over the ground storey, sloping
+// to the street, the whole frontage --
+FrontLayer --> Split(Y) { GroundH: Eave | ~1: NIL }
+// The eave: a shed of tiles from a sliver of the storey's top, its high
+// edge at the wall, a timber fascia under its low one.
+Eave --> Translate(0, scope.y - EaveDrop, -EaveOut) Size(scope.x, 0.2, EaveOut + 0.01)
+    Roof(Shed, 25, overhang=0, fascia=0.14) { Slope: EaveTiles | Fascia: EaveFascia
+    | GableEnd: EaveEnd | Back: NIL }
+EaveTiles --> Mat("Tile") I("Eave")
+EaveFascia --> Mat("TimberDark") I("Fascia")
+EaveEnd --> Mat("TimberDark") I("Eave")
+
+// -- 5. The roof: a tiled gable along the street, its ends the party walls --
+RoofZone --> Roof(Gable, 20, overhang=0, ridge=X) { Slope: Tiles | GableEnd: Gable }
+Tiles --> Mat("Tile") I("Roof")
+Gable --> I("Wall")

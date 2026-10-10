@@ -283,6 +283,7 @@ mod tests {
                 peak_storeys: None,
                 area: 1.0,
                 street_yaw: 0.0,
+                development: None,
             }],
             Vec::new(),
             Vec::new(),

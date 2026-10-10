@@ -1,6 +1,7 @@
 # geodata fixtures
 
-Live answers of GDI Berlin's services, recorded 2026-10-08, and truth rasters
+Live answers of GDI Berlin's services, recorded 2026-10-08 (the urban
+structure's page on 2026-10-10), and truth rasters
 derived from independent sources to score the decoders against. All of it is
 under the Datenlizenz Deutschland - Zero - Version 2.0
 (<https://www.govdata.de/dl-de/zero-2-0>), which allows any use without
@@ -14,6 +15,7 @@ Berlin, <https://gdi.berlin.de>.
 | `beleuchtung_beleuchtung_391200_5819700_600m.json` | the square's street lamps (and the lighting register's switch cabinets, which `berlin::parse_furniture` leaves out), every attribute | WFS `beleuchtung:beleuchtung` |
 | `strassenbefahrung_*_391200_5819700_600m.json` | the square's other street furniture, one page per kind `berlin::FurnitureKind` reads, every attribute (the shelters' page is empty: the square has none) | WFS `strassenbefahrung:*` |
 | `atkis_strassenachse_391200_5819700_600m.json`, `atkis_fahrbahnachse_391200_5819700_600m.json` | the ATKIS street and carriageway axes of the Museumsinsel square: one page of GeoJSON each, the attributes `berlin::parse_axes` reads | WFS `atkis:b08_ax_strassenachse_l`, `atkis:b07_ax_fahrbahnachse_l` |
+| `ua_stadtstruktur_b_stadtstruktur_differenziert_2024_391200_5819700_600m.json` | the Environmental Atlas's blocks of the Museumsinsel square with their urban-structure types, the attributes `berlin::parse_blocks` reads | WFS `ua_stadtstruktur:b_stadtstruktur_differenziert_2024` |
 | `dgm1_legend.json` | JSON legend of the terrain layer `c_dgm1` (served in Latin-1) | `GetLegendGraphic` |
 | `dgm1_392000_5820000_1024m_256px.png` | terrain render, E 392000-393024, N 5820000-5821024, 4 m pixels | `GetMap` |
 | `dgm1_391200_5819700_600m_300px.png` | terrain render over the land-use square (Museumsinsel, the Spree at 30-31 m), 2 m pixels | `GetMap` |

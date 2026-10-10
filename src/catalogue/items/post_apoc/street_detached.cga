@@ -1,0 +1,102 @@
+// The wasteland theme's detached house (#1600): a family house that
+// outlived its suburb. See street_detached.rs for the house, and
+// catalogue::items::street for the conventions and for what is declared
+// ahead of these rules (Storeys, Trade, Frontage, Depth, GroundH, FloorH)
+// and after them (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.36
+const PaneSet = 0.14
+const StepH = 0.5
+const RoofH = 1.0
+// How far the roof reaches past the walls: the walls stand this far in
+// from the lot's sides, so the eaves and verges keep inside it.
+const Eave = 0.45
+
+// -- 1. The house: its walls stand in from the lot, the render rolled once --
+Lot --> Split(X) { Eave: NIL | ~1: LotRow | Eave: NIL }
+LotRow --> Split(Z) { Eave: NIL | ~1: Plot | Eave: NIL }
+Plot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Render
+Render --> 30% Mat("Soot") Massing | 25% Mat("Ochre") Massing
+    | 25% Mat("Concrete") Massing | 20% Mat("BrickRed") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Uppers | RoofH: RoofZone }
+
+// -- Every window is a window still: glazed, boarded or half sheeted --
+Win --> 45% Glazing | 30% Boarded | 25% Sheeted
+Boarded --> Split(Y) { ~1: Glazing | 0.2: Board | ~1: Glazing | 0.2: Board | ~1: Glazing }
+Board --> Extrude(WallD + 0.05) Mat("Plank") I("Board")
+Sheeted --> Split(Y) { ~1.3: SheetOver | ~1: Glazing }
+SheetOver --> 45% Mat("RustSheet") Patch | 30% Mat("Sheet") Patch | 25% Mat("Tarp") Patch
+// A scrap patch: sheet nailed over a hole, proud of the wall it replaced.
+Patch --> Extrude(WallD + 0.05) I("Patch")
+Sill --> Extrude(WallD + 0.06) Mat("Trim") I("Trim")
+Step --> Extrude(WallD + 0.3) Mat("Trim") I("Trim")
+DoorLeaf --> Extrude(WallD - 0.16) Mat("Door") I("Door")
+// A bay: a window, or here and there a window beside a scrap patch.
+Bay --> 80% Split(X) { ~1: Wall | 1.1: WinCol | ~1: Wall }
+    | 20% Split(X) { ~1: SheetOver | 1.1: WinCol | ~1: Wall }
+WinCol --> Split(Y) { 0.9: Wall | 0.1: Sill | 1.4: Win | ~1: Wall }
+UpBay --> 80% Split(X) { ~1: Wall | 1.1: UpWinCol | ~1: Wall }
+    | 20% Split(X) { ~1: Wall | 1.1: UpWinCol | ~1: SheetOver }
+UpWinCol --> Split(Y) { 0.8: Wall | 0.1: Sill | 1.3: Win | ~1: Lintel }
+// Smoke from an old fire has blackened the wall over some windows.
+Lintel --> 25% Mat("Soot") Wall | 75% Wall
+
+// -- 2. The ground storey: a door up a step, windows all round --
+Ground --> Comp(Faces) { Front: FrontInset | Back: BackInset | Left: SideIn
+    | Right: SideIn | Top: NIL | Bottom: NIL }
+FrontInset --> Split(X) { WallD: NIL | ~1: FrontIn | WallD: NIL }
+FrontIn --> Translate(0, 0, -WallD) Split(X) { ~1: Run | 2.4: Entrance | ~1.4: Run }
+Run --> when(scope.x > 2.4): Repeat(X, 2.4) { Bay } | else: Bay
+// The door, a rain drum beside it; or the door under a lean-to porch of
+// corrugated sheet on rusted posts.
+Entrance --> Pick("porch") { 50% DrumEntrance | 50% PorchEntrance }
+DrumEntrance --> Split(X) { 0.2: Wall | 1.0: DoorCol | 0.25: Wall | 0.75: DrumCol | ~1: Wall }
+DoorCol --> Split(Y) { StepH: Step | 2.1: DoorLeaf | ~1: Wall }
+DrumCol --> Split(Y) { 1.0: Drum | ~1: Wall }
+Drum --> Extrude(WallD + 0.75) Split(Z) { WallD: DrumWall | ~1: DrumTank }
+DrumWall --> I("Wall")
+DrumTank --> Mat("Rust") I("Tank")
+PorchEntrance --> Split(Y) { 2.75: PorchBody | 0.1: PorchRoof | ~1: Wall }
+PorchBody --> Split(X) { 0.14: PostStrip | ~1: Wall | 1.0: DoorCol | ~1: Wall | 0.14: PostStrip }
+// A post's strip of the front is the wall behind it and the post at the
+// porch's edge.
+PostStrip --> Extrude(WallD + 1.5) Split(Z) { WallD: DrumWall | ~1: NIL | 0.14: Post }
+Post --> Mat("Rust") I("Post")
+PorchRoof --> Extrude(WallD + 1.6) Mat("RustSheet") I("Awning")
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) Run
+// The flanks: their walls the full depth, turning the corners.
+SideIn --> Translate(0, 0, -WallD) Split(X) { 0.6: Wall | ~1: SideRun | 0.6: Wall }
+SideRun --> when(scope.x > 2.8): Repeat(X, 2.8) { Bay } | else: Bay
+
+// -- 3. The upper storeys: windows over the ground floor's, all round --
+Uppers --> Comp(Faces) { Front: UpInset | Back: UpInset | Left: UpSideIn
+    | Right: UpSideIn | Top: NIL | Bottom: NIL }
+UpInset --> Split(X) { WallD: NIL | ~1: UpIn | WallD: NIL }
+UpIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { UpStorey }
+UpStorey --> when(scope.x > 2.4): Repeat(X, 2.4) { UpBay } | else: UpBay
+UpSideIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { UpSideStorey }
+UpSideStorey --> Split(X) { 0.6: Wall | ~1: UpSideRun | 0.6: Wall }
+UpSideRun --> when(scope.x > 2.8): Repeat(X, 2.8) { UpBay } | else: UpBay
+
+// -- 4. The roof, patched: a gable, a hip, or a lean-to of sheet --
+RoofZone --> Pick("roof") { 45% GableRoof | 30% HipRoof | 25% LeanTo }
+Tiles --> Pick("tiles") { 60% TileRed | 40% TileDark }
+TileRed --> Mat("Tiles") I("Roof")
+TileDark --> Mat("TilesDark") I("Roof")
+RustPatch --> Mat("RustSheet") I("Roof")
+SheetPatch --> Mat("Sheet") I("Roof")
+GableWall --> I("Wall")
+// The gable's slopes are patched strip by strip with rusted and bare
+// sheet where the tiles are gone.
+GableRoof --> Roof(Gable, 35, overhang=Eave, ridge=X) { Slope: Patched | GableEnd: GableWall }
+Patched --> Repeat(X, 1.6) { Strip }
+Strip --> 65% Tiles | 20% RustPatch | 15% SheetPatch
+// A hip's slopes are not strips: a slope is patched whole, or not.
+HipRoof --> Roof(Hip, 30, overhang=Eave) { Slope: HipSlope }
+HipSlope --> 70% Tiles | 30% RustPatch
+// The lean-to rises to the back, its sheets of two kinds.
+LeanTo --> Roof(Shed, 12, overhang=Eave) { Slope: Corrugated | Back: GableWall | GableEnd: GableWall }
+Corrugated --> Repeat(X, 2.0) { CorrStrip }
+CorrStrip --> 60% Mat("Roof") I("Roof") | 40% Mat("RustSheet") I("Roof")

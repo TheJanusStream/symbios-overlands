@@ -1,0 +1,115 @@
+// The cyberpunk theme's detached house (#1600): a prefab capsule home on
+// its plot. See street_detached.rs for the house, and catalogue::items::street
+// for the conventions and for what is declared ahead of these rules
+// (Storeys, Trade, Frontage, Depth, GroundH, FloorH) and after them
+// (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.3
+const PaneSet = 0.1
+const PadH = 0.4
+const NeonH = 0.1
+const RoofH = 1.0
+const SlabH = 0.3
+// How far the roof reaches past the walls: the walls stand this far in
+// from the lot's sides, so the slab's or the shed's eaves keep inside it.
+const Eave = 0.5
+
+// -- 1. The capsule: its walls stand in from the lot, its skin rolled once --
+Lot --> Split(X) { Eave: NIL | ~1: LotRow | Eave: NIL }
+LotRow --> Split(Z) { Eave: NIL | ~1: Plot | Eave: NIL }
+Plot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Skin
+Skin --> 30% Mat("Capsule") Massing | 25% Mat("Metal") Massing
+    | 20% Mat("BoxTeal") Massing | 15% Mat("Concrete") Massing
+    | 10% Mat("BoxRust") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Uppers | RoofH: RoofZone }
+
+// -- The capsule's neon, Picked once: a part names its kind --
+Neon(k) --> Pick("neon") { 30% NeonCyan(k) | 30% NeonMagenta(k) | 20% NeonLime(k)
+    | 20% NeonAmber(k) }
+NeonCyan(k) --> Mat("NeonCyan") NeonPart(k)
+NeonMagenta(k) --> Mat("NeonMagenta") NeonPart(k)
+NeonLime(k) --> Mat("NeonLime") NeonPart(k)
+NeonAmber(k) --> Mat("NeonAmber") NeonPart(k)
+NeonPart(k) --> when(k == 1): Tube | else: DoorTube
+// A tube round the waist, cut from the full face.
+Tube --> Extrude(0.1) I("Neon")
+DoorTube --> Extrude(WallD + 0.08) I("Neon")
+// A slot window: glazed, or half behind a grille shutter; an AC box under
+// one in three.
+Win --> 70% Glazing | 30% Split(Y) { ~1: Glazing | 0.4: GrilleShut }
+GrilleShut --> Extrude(WallD + 0.04) Mat("Grille") I("Grille")
+Below --> 35% Split(X) { 0.25: Wall | ~1: ACBox | 0.25: Wall } | 65% Wall
+ACBox --> Extrude(WallD + 0.4) Mat("AC") I("AC")
+Bay(b) --> Split(X) { ~1: Wall | 1.8: WinCol(b) | ~1: Wall }
+WinCol(b) --> Split(Y) { b: Wall | 0.4: Below | 0.08: Wall | 1.0: Win | ~1: Wall }
+// The pad the module stands on, round its foot.
+PadBand --> Mat("Pad") Split(X) { WallD: NIL | ~1: PadIn | WallD: NIL }
+PadIn --> Translate(0, 0, -WallD) Wall
+SidePad --> Mat("Pad") Translate(0, 0, -WallD) Wall
+// A band of the skin over each storey's tube, the walls' full height.
+CapBand --> Split(X) { WallD: NIL | ~1: CapIn | WallD: NIL }
+CapIn --> Translate(0, 0, -WallD) Wall
+SideCap --> Translate(0, 0, -WallD) Wall
+
+// -- 2. The ground module: the door under its hood, slot windows all round --
+Ground --> Comp(Faces) { Front: GroundFace | Back: BackFace | Left: SideFace
+    | Right: SideFace | Top: NIL | Bottom: NIL }
+GroundFace --> Split(Y) { PadH: PadBand | ~1: GroundInset | NeonH: Neon(1) | 0.12: CapBand }
+GroundInset --> Split(X) { WallD: NIL | ~1: GroundIn | WallD: NIL }
+GroundIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> Split(X) { ~1: Run | 1.4: Entrance | ~1: Run }
+// A Repeat floors its count: a run narrower than one bay is one bay.
+Run --> when(scope.x < 3.0): Bay(0.3) | else: Repeat(X, 3.0) { Bay(0.3) }
+// The door: a dark leaf up a steel step, a tube over it, and a hood.
+Entrance --> Split(X) { ~1: Wall | 1.0: DoorCol | ~1: Wall }
+DoorCol --> Split(Y) { 0.15: Step | 2.0: DoorLeaf | NeonH: Neon(3) | 0.05: Wall | 0.12: Hood
+    | ~1: Wall }
+Step --> Extrude(WallD + 0.5) Mat("Steel") I("Trim")
+DoorLeaf --> Extrude(WallD - 0.12) Mat("Door") I("Door")
+Hood --> Extrude(WallD + 0.8) Mat("Steel") I("Canopy")
+BackFace --> Split(Y) { PadH: PadBand | ~1: BackInset | NeonH: Neon(1) | 0.12: CapBand }
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) Run
+// The sides: their walls run the full depth, turning the corners.
+SideFace --> Split(Y) { PadH: SidePad | ~1: SideIn | NeonH: Neon(1) | 0.12: SideCap }
+SideIn --> Translate(0, 0, -WallD) SideRow
+SideRow --> Split(X) { 0.6: Wall | ~1: SideRun | 0.6: Wall }
+SideRun --> when(scope.x < 2.9): Bay(0.3) | else: Repeat(X, 2.9) { Bay(0.3) }
+
+// -- 3. The modules stacked over it: slot windows on every side, a tube at
+// every floor line --
+Uppers --> Comp(Faces) { Front: UpFace | Back: UpFace | Left: UpSideFace
+    | Right: UpSideFace | Top: NIL | Bottom: NIL }
+UpFace --> Repeat(Y, FloorH) { UpStoreyFace }
+UpStoreyFace --> Split(Y) { ~1: UpInset | NeonH: Neon(1) | 0.12: CapBand }
+UpInset --> Split(X) { WallD: NIL | ~1: UpIn | WallD: NIL }
+UpIn --> Translate(0, 0, -WallD) UpRun
+UpRun --> when(scope.x < 3.0): Bay(0.6) | else: Repeat(X, 3.0) { Bay(0.6) }
+UpSideFace --> Repeat(Y, FloorH) { UpSideStoreyFace }
+UpSideStoreyFace --> Split(Y) { ~1: UpSideIn | NeonH: Neon(1) | 0.12: SideCap }
+UpSideIn --> Translate(0, 0, -WallD) UpSideRow
+UpSideRow --> Split(X) { 0.6: Wall | ~1: UpSideRun | 0.6: Wall }
+UpSideRun --> when(scope.x < 2.9): Bay(0.6) | else: Repeat(X, 2.9) { Bay(0.6) }
+
+// -- 4. The roof: a slab out to the lot's edges with its gear, or a
+// mono-pitch shed --
+RoofZone --> Pick("roof") { 60% SlabRoof | 40% ShedRoof }
+SlabRoof --> Split(Y) { SlabH: Slab | ~1: RoofGear }
+// The slab reaches out to the lot's edges.
+Slab --> Translate(-Eave, 0, -Eave) Size(scope.x + 2 * Eave, SlabH, scope.z + 2 * Eave)
+    Mat("Gunmetal") I("Roof")
+// On it, solar panels on their frames and an antenna mast at the back.
+RoofGear --> Split(Z) { ~1: NIL | ~3: SolarRow | 0.8: NIL | 0.25: MastRow | 0.5: NIL }
+SolarRow --> Split(X) { 0.6: NIL | ~1: Panels | 0.6: NIL }
+Panels --> when(scope.x < 1.3): Panel | else: Repeat(X, 1.3) { Panel }
+Panel --> Split(X) { 0.08: NIL | ~1: PanelBody | 0.08: NIL }
+PanelBody --> Split(Y) { 0.25: Frame | 0.06: SolarFace | ~1: NIL }
+Frame --> Mat("Steel") I("Trim")
+SolarFace --> Mat("Solar") I("Solar")
+MastRow --> Split(X) { ~1: NIL | 0.25: Mast | 0.8: NIL }
+Mast --> Size(scope.x, 4.0, scope.z) Mat("Steel") I("Mast")
+ShedRoof --> Roof(Shed, 12, overhang=Eave) { Slope: ShedSheet | Back: ShedBack
+    | GableEnd: ShedBack }
+ShedSheet --> Mat("Gunmetal") I("Roof")
+ShedBack --> I("Wall")

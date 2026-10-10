@@ -1,0 +1,92 @@
+// The industrial park's detached house (#1600): a works foreman's house in
+// its own yard. See street_detached.rs for the house, and
+// catalogue::items::street for the conventions and for what is declared
+// ahead of these rules (Storeys, Trade, Frontage, Depth, GroundH, FloorH)
+// and after them (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.4
+const PaneSet = 0.16
+const StepH = 0.5
+const PlinthH = 0.6
+const RoofH = 1.0
+// How far the roof reaches past the walls: the walls stand this far in
+// from the lot's sides, so the eaves and verges keep inside it.
+const Eave = 0.45
+
+// -- 1. The house: its walls stand in from the lot, the skin rolled once --
+Lot --> Split(X) { Eave: NIL | ~1: LotRow | Eave: NIL }
+LotRow --> Split(Z) { Eave: NIL | ~1: Plot | Eave: NIL }
+Plot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Skin
+Skin --> 25% Mat("BrickDark") Massing | 25% Mat("BrickRed") Massing
+    | 20% Mat("BrickBrown") Massing | 15% Mat("CladGrey") Massing | 15% Mat("CladBlue") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Uppers | RoofH: RoofZone }
+Concrete --> Mat("Concrete") I("Trim")
+// A ground-floor wall: the skin over a concrete plinth.
+Plinthed --> Split(Y) { PlinthH: PlinthWall | ~1: Wall }
+PlinthWall --> Mat("Concrete") Wall
+Sill --> Extrude(WallD + 0.08) Concrete
+Lintel --> Extrude(WallD + 0.06) Concrete
+
+// -- 2. The ground storey: the door under its canopy on the front,
+// steel-framed windows all round --
+Ground --> Comp(Faces) { Front: FrontInset | Back: BackInset | Left: SideIn
+    | Right: SideIn | Top: NIL | Bottom: NIL }
+FrontInset --> Split(X) { WallD: NIL | ~1: FrontIn | WallD: NIL }
+FrontIn --> Translate(0, 0, -WallD) Split(X) { ~1: Run | 1.8: Entrance | ~1: Run }
+// A Repeat floors its count: a run narrower than one bay is one bay.
+Run --> when(scope.x > 2.6): Repeat(X, 2.6) { Bay } | else: Bay
+Bay --> Split(X) { ~1: Plinthed | 1.5: WinCol | ~1: Plinthed }
+WinCol --> Split(Y) { PlinthH: PlinthWall | 0.4: Wall | 0.12: Sill | 1.5: Glazing
+    | 0.25: Lintel | ~1: Wall }
+// The door: steel, up a concrete step, under a steel canopy on brackets.
+Entrance --> Split(X) { 0.35: Plinthed | ~1: DoorCol | 0.35: Plinthed }
+DoorCol --> Split(Y) { StepH: Step | 2.2: DoorLeaf | 0.12: Canopy | ~1: Wall }
+Step --> Extrude(WallD + 0.5) Concrete
+DoorLeaf --> Extrude(WallD - 0.16) Mat("Door") I("Door")
+Canopy --> Extrude(WallD + 1.0) Mat("Steel") I("Steel")
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) Split(X) { 0.4: Plinthed | ~1: Run | 0.4: Plinthed }
+// The sides: their walls run the full depth, turning the corners.
+SideIn --> Translate(0, 0, -WallD) Split(X) { 0.6: Plinthed | ~1: Run | 0.6: Plinthed }
+
+// -- 3. The upper storeys: windows over the ground floor's, all round --
+Uppers --> Comp(Faces) { Front: UpInset | Back: UpInset | Left: UpSideIn
+    | Right: UpSideIn | Top: NIL | Bottom: NIL }
+UpInset --> Split(X) { WallD: NIL | ~1: UpIn | WallD: NIL }
+UpIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { UpStorey }
+UpStorey --> Split(X) { 0.4: Wall | ~1: UpRun | 0.4: Wall }
+UpRun --> when(scope.x > 2.6): Repeat(X, 2.6) { UpBay } | else: UpBay
+UpBay --> Split(X) { ~1: Wall | 1.5: UpWinCol | ~1: Wall }
+UpWinCol --> Split(Y) { 0.8: Wall | 0.12: Sill | 1.5: Glazing | 0.25: Lintel | ~1: Wall }
+UpSideIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { UpSide }
+UpSide --> Split(X) { 0.6: Wall | ~1: UpRun | 0.6: Wall }
+
+// -- 4. The roof: a corrugated gable along the street, a monopitch rising
+// to the back, or a flat deck behind a parapet; a sliver at one end of the
+// roof zone carries the brick stack, as high as the roof the same Pick key
+// draws needs --
+RoofZone --> Split(X) { 0.01: StackSlot | ~1: RoofBody }
+RoofBody --> Pick("roof") { 40% SheetGable | 30% Monopitch | 30% Parapet }
+SheetGable --> Roof(Gable, 30, overhang=Eave, ridge=X) { Slope: Sheet | GableEnd: Gable }
+Monopitch --> Roof(Shed, 15, overhang=Eave) { Slope: Sheet | Back: Gable | GableEnd: Gable }
+Sheet --> Pick("sheet") { 60% GreySheet | 40% RustSheet }
+GreySheet --> Mat("RoofSheet") I("Roof")
+RustSheet --> Mat("RoofRust") I("Roof")
+Gable --> I("Wall")
+Parapet --> Comp(Faces) { Front: ParapetFace | Back: ParapetFace | Left: ParapetSide
+    | Right: ParapetSide | Top: NIL | Bottom: Deck }
+ParapetFace --> Split(X) { WallD: NIL | ~1: ParapetIn | WallD: NIL }
+ParapetIn --> Translate(0, 0, -WallD) Split(Y) { ~1: Wall | 0.15: Coping }
+ParapetSide --> Translate(0, 0, -WallD) Split(Y) { ~1: Wall | 0.15: Coping }
+Coping --> Mat("Concrete") Wall
+Deck --> Translate(WallD, WallD, -0.22) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("Deck") I("Roof")
+StackSlot --> Pick("roof") { 40% Stack(0.29 * (Depth - 2 * Eave) + 1.3)
+    | 30% Stack(0.134 * Depth + 1.5) | 30% Stack(2.6) }
+Stack(h) --> Pick("stack") { 70% BrickStack(h) | 30% NIL }
+BrickStack(h) --> Translate(0.7, -0.4, scope.z / 2 + 0.3) Size(0.9, h, 0.9) Mat("Chimney")
+    Split(Y) { ~1: StackShaft | 0.2: StackCap }
+StackShaft --> I("Chimney")
+StackCap --> Translate(-0.06, 0, -0.06) Size(scope.x + 0.12, scope.y, scope.z + 0.12)
+    Mat("Concrete") I("Chimney")

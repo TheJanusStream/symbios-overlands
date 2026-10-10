@@ -17,6 +17,10 @@ use crate::terrain::FOUNDATION_SINK_M;
 /// cornice, a parapet, a roof, a rooftop's plant.
 pub(crate) const MAX_CROWN_M: f32 = 10.0;
 
+/// How far in from its lot's back or side a building standing free has its
+/// wall there (m, #1600): its eaves' reach and the wall's depth.
+const SIDE_BAND_M: f32 = MAX_REACH_M + 0.5;
+
 /// The material slots [`OPENINGS`](super::OPENINGS) reads, which every
 /// street building's palette fills.
 pub(crate) const OPENING_SLOTS: [&str; 5] =
@@ -49,6 +53,8 @@ pub(crate) fn part_budget(kind: StreetKind) -> usize {
         StreetKind::House => 1200,
         StreetKind::Block => 2600,
         StreetKind::Low => 600,
+        StreetKind::Detached => 800,
+        StreetKind::Hall => 1200,
     }
 }
 
@@ -62,14 +68,15 @@ pub(crate) fn parts(spec: &StreetSpec, rules: &str, fit: StreetFit) -> Option<us
 
 /// The fits a street building is held to the conventions at: its kind's
 /// smallest and largest - the smallest with a ground floor of homes, the
-/// largest trading - and two between.
+/// largest trading where its kind may trade - and two between.
 pub(crate) fn sample_fits(kind: StreetKind) -> Vec<StreetFit> {
     let (f, d, s) = (kind.frontages(), kind.depths(), kind.storeys());
     let (fl, dl, sl) = (f.len() - 1, d.len() - 1, s.len() - 1);
+    let trade = kind.trades();
     vec![
         StreetFit::new(f[0], d[0], s[0], false),
-        StreetFit::new(f[fl], d[dl], s[sl], true),
-        StreetFit::new(f[fl / 2], d[0], s[sl], true),
+        StreetFit::new(f[fl], d[dl], s[sl], trade),
+        StreetFit::new(f[fl / 2], d[0], s[sl], trade),
         StreetFit::new(f[0], d[dl], s[sl / 2], false),
     ]
 }
@@ -232,8 +239,10 @@ pub(crate) fn conventions(
             Some(_) => {}
         }
         // An opening thinner across the street than along it faces a side:
-        // within a metre of one, it looks into the neighbour's wall.
-        if matches!(id, "Door" | "Pane")
+        // within a metre of one, it looks into the neighbour's wall - where
+        // the building has a neighbour.
+        if !spec.kind.freestanding()
+            && matches!(id, "Door" | "Pane")
             && hi[0] - lo[0] < hi[2] - lo[2]
             && (lo[0] < 1.0 || hi[0] > w - 1.0)
         {
@@ -260,7 +269,9 @@ pub(crate) fn conventions(
 
     // Its roof: something at its walls' top or over them across the lot,
     // or it stands open to the sky. Each square metre is looked down on
-    // through the boxes of what stands that high.
+    // through the boxes of what stands that high, to within [`EPS`]: a
+    // gable's ridge along the street on an odd depth runs along a row of
+    // the squares' middles, where its two slopes meet.
     let high: Vec<_> = model
         .terminals
         .iter()
@@ -273,9 +284,9 @@ pub(crate) fn conventions(
     let open = cells
         .iter()
         .filter(|&&(x, z)| {
-            !high
-                .iter()
-                .any(|(lo, hi)| lo[0] <= x && x <= hi[0] && lo[2] <= z && z <= hi[2])
+            !high.iter().any(|(lo, hi)| {
+                lo[0] - EPS <= x && x <= hi[0] + EPS && lo[2] - EPS <= z && z <= hi[2] + EPS
+            })
         })
         .count();
     if open as f64 > OPEN_ROOF_SHARE * cells.len() as f64 {
@@ -310,6 +321,37 @@ pub(crate) fn conventions(
             .any(|(id, (lo, hi))| *id == "Pane" && lo[1] >= foot - EPS && hi[1] <= head + EPS);
         if !lit {
             problems.push(format!("storey {} has no window on its front", storey + 1));
+        }
+    }
+
+    // A building standing free (#1600) shows every side: each has a window.
+    // A pane wider across the street than deep faces the front or the back,
+    // and one deeper faces a side; it counts for a face within
+    // [`SIDE_BAND_M`] of it, where the face's wall stands - a porch's cheek
+    // or an oriel's further in is not the wall.
+    if spec.kind.freestanding() {
+        let panes: Vec<_> = model
+            .terminals
+            .iter()
+            .filter(|t| t.mesh_id == "Pane")
+            .map(bounds)
+            .collect();
+        let across = |(lo, hi): &([f64; 3], [f64; 3])| hi[0] - lo[0] >= hi[2] - lo[2];
+        let band = f64::from(SIDE_BAND_M);
+        for (face, lit) in [
+            ("back", panes.iter().any(|b| across(b) && b.0[2] > d - band)),
+            (
+                "left side",
+                panes.iter().any(|b| !across(b) && b.1[0] < band),
+            ),
+            (
+                "right side",
+                panes.iter().any(|b| !across(b) && b.0[0] > w - band),
+            ),
+        ] {
+            if !lit {
+                problems.push(format!("its {face} has no window, though it stands free"));
+            }
         }
     }
     problems
@@ -400,6 +442,41 @@ BackIn --> Translate(0, 0, -WallD) Wall
             &conventions(&LOW, STRETCHED, FIT, None),
             "has no Mat"
         ));
+    }
+
+    /// A house standing free (#1600) keeps windows on every side: the
+    /// modern city's detached house does, and with its sides blanked - as a
+    /// street house's party walls are - it is caught, side by side.
+    #[test]
+    fn a_detached_house_with_blank_sides_is_caught() {
+        use crate::catalogue::items::modern_city::street_detached::SPEC as DETACHED;
+        let fit = StreetFit::new(10, 10, 2, false);
+        assert_eq!(
+            conventions(&DETACHED, DETACHED.rules, fit, None),
+            Vec::<String>::new()
+        );
+        let blank = DETACHED
+            .rules
+            .replace("SideRun --> Repeat(X, 2.3) { WinBay }", "SideRun --> Wall")
+            .replace(
+                "UpSideRun --> Repeat(X, 2.3) { UpBay }",
+                "UpSideRun --> Wall",
+            );
+        assert_ne!(blank, DETACHED.rules, "the probe edits the rules");
+        let problems = conventions(&DETACHED, &blank, fit, None);
+        assert!(
+            says(&problems, "its left side has no window"),
+            "{problems:#?}"
+        );
+        assert!(
+            says(&problems, "its right side has no window"),
+            "{problems:#?}"
+        );
+        assert!(!says(&problems, "its back"), "{problems:#?}");
+        assert!(
+            !says(&conventions(&LOW, LOW.rules, FIT, None), "stands free"),
+            "a street building's party walls are blank"
+        );
     }
 
     /// The modern city's own low building keeps them all, as the fleet's

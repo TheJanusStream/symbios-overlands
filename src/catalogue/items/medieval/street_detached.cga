@@ -1,0 +1,116 @@
+// The medieval theme's detached house (#1600): a timber-framed hall house
+// in its garden. See street_detached.rs for the house, and
+// catalogue::items::street for the conventions and for what is declared
+// ahead of these rules (Storeys, Trade, Frontage, Depth, GroundH, FloorH)
+// and after them (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.3
+const PaneSet = 0.12
+const StepH = 0.5
+const SoleH = 0.45
+const RoofH = 0.5
+// How far the roof reaches past the walls: the walls stand this far in
+// from the lot's sides, so the eaves and verges keep inside it.
+const Eave = 0.5
+// One frame bay: a post, and a window between daub panels.
+const BayW = 2.6
+// The roof's pitch, and its rise over a run of one: tan(48).
+const Pitch = 48
+const Rise = 1.11
+const ChimW = 1.0
+
+// -- 1. The house: its walls stand in from the lot, the daub rolled once --
+Lot --> Split(X) { Eave: NIL | ~1: LotRow | Eave: NIL }
+LotRow --> Split(Z) { Eave: NIL | ~1: Plot | Eave: NIL }
+Plot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Daub
+Daub --> 30% Mat("DaubCream") Massing | 25% Mat("DaubWhite") Massing
+    | 25% Mat("DaubOchre") Massing | 20% Mat("DaubRose") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | ~1: RoofZone }
+    | else: Split(Y) { GroundH: Ground | FloorH * (Storeys - 1): Uppers | ~1: RoofZone }
+// The frame's timber is Picked once per house, whatever member it is.
+Beam --> Pick("frame") { 50% OakBeam | 30% DarkBeam | 20% RedBeam }
+OakBeam --> Mat("Oak") I("Timber")
+DarkBeam --> Mat("DarkOak") I("Timber")
+RedBeam --> Mat("Oxblood") I("Timber")
+Post --> Extrude(WallD + 0.05) Beam
+Rail --> Extrude(WallD + 0.04) Beam
+Plate --> Extrude(WallD + 0.06) Beam
+Sole --> Mat("Stone") Wall
+
+// -- 2. The frame: in bands, so each rail runs the face's width. A plain
+// band has a post closing every bay, a window band a window in each bay
+// between daub panels; the bays of every band line up --
+Band(c) --> Split(X) { 0.2: CapPost(c) | ~1: BandRun(c) }
+BandRun(c) --> when(scope.x > BayW): Repeat(X, BayW) { BandBay(c) } | else: BandBay(c)
+BandBay(c) --> Split(X) { ~1: Wall | 0.2: CapPost(c) }
+// Under the eaves a post stops short by c, so the eaves do not cut its top.
+CapPost(c) --> when(c > 0): Split(Y) { ~1: Post | c: Wall } | else: Post
+WinBand --> Split(X) { 0.2: Post | ~1: WinRun }
+WinRun --> when(scope.x > BayW): Repeat(X, BayW) { WinBay } | else: WinBay
+WinBay --> 45% Split(X) { ~1: Wall | 0.42: ShutterLeaf | 0.9: Glazing | ~1: Wall | 0.2: Post }
+    | 55% Split(X) { ~1: Wall | 0.9: Glazing | ~1: Wall | 0.2: Post }
+// A shutter stands open beside its window, one in two.
+ShutterLeaf --> Extrude(WallD + 0.05) Mat("Shutter") I("Shutter")
+// A framed storey: a stone sole and a sill beam under the ground storey's,
+// a plate under an upper one's. The top storey's top band is capped.
+GroundBands --> when(Storeys == 1): GroundStorey(0.08) | else: GroundStorey(0)
+GroundStorey(c) --> Split(Y) { SoleH: Sole | 0.16: Plate | 0.55: Band(0) | 0.14: Rail
+    | 1.2: WinBand | 0.14: Rail | ~1: Band(c) }
+UpperBands --> when(split.i == split.n - 1): UpperStorey(0.08) | else: UpperStorey(0)
+UpperStorey(c) --> Split(Y) { 0.2: Plate | 0.5: Band(0) | 0.14: Rail | 1.1: WinBand | 0.14: Rail
+    | ~1: Band(c) }
+
+// -- 3. The ground storey: the door on the front, windows all round, the
+// chimney stack in the left gable --
+Ground --> Comp(Faces) { Front: FrontInset | Back: BackInset | Left: ChimSideIn
+    | Right: SideIn | Top: NIL | Bottom: NIL }
+FrontInset --> Split(X) { WallD: NIL | ~1: FrontIn | WallD: NIL }
+FrontIn --> Translate(0, 0, -WallD) Split(X) { ~1: GroundBands | 1.6: DoorBay | ~1: GroundBands }
+// The door up a stone step between posts, under a lintel.
+DoorBay --> Split(X) { 0.2: DoorPost | ~1: DoorCol | 0.2: DoorPost }
+DoorPost --> Split(Y) { SoleH: Sole | ~1: Post | 0.08: Wall }
+DoorCol --> Split(Y) { StepH: Step | 2.1: DoorLeaf | 0.16: Plate | ~1: Wall }
+Step --> Extrude(WallD + 0.3) Mat("Dressing") I("Trim")
+DoorLeaf --> 40% Mat("Door") Leaf | 35% Mat("Shutter") Leaf | 25% Mat("Oxblood") Leaf
+Leaf --> Extrude(WallD - 0.14) I("Door")
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) GroundBands
+// The sides: their walls run the full depth, turning the corners.
+SideIn --> Translate(0, 0, -WallD) GroundBands
+ChimSideIn --> Translate(0, 0, -WallD) Split(X) { ~1: GroundBands | ChimW: Chimney
+    | ~1: GroundBands }
+// The stack: from the ground up through the roof, the wall's depth and a
+// hearth behind it, standing a hand proud of the gable so it shares no
+// plane with it; how high, the roof Picked once decides - over the ridge
+// of a gable, a little over the slope of a hip.
+Chimney --> Pick("roof") { 40% HipStack | 30% GableStack | 30% GableStack }
+HipStack --> Stack(GroundH + FloorH * (Storeys - 1) + 2.6)
+GableStack --> Stack(GroundH + FloorH * (Storeys - 1) + (Depth - 2 * Eave + WallD) / 2 * Rise + 0.9)
+Stack(h) --> Translate(0, 0, -0.8) Size(scope.x, h, 0) Extrude(WallD + 0.95) Mat("Rubble")
+    I("Chimney")
+
+// -- 4. The upper storeys: the front jettied out a wall's depth on its
+// bressumer, the whole frontage; the back and sides in their planes --
+Uppers --> Comp(Faces) { Front: UpFront | Back: UpBackInset | Left: UpChimSideIn
+    | Right: UpSideIn | Top: NIL | Bottom: NIL }
+UpFront --> Repeat(Y, FloorH) { UpperBands }
+UpBackInset --> Split(X) { WallD: NIL | ~1: UpBackIn | WallD: NIL }
+UpBackIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { UpperBands }
+UpSideIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { UpperBands }
+UpChimSideIn --> Translate(0, 0, -WallD) Split(X) { ~1: UpSide | ChimW: NIL | ~1: UpSide }
+UpSide --> Repeat(Y, FloorH) { UpperBands }
+
+// -- 5. The roof: steep, Picked once - a thatched hip, a thatched gable
+// or a tiled gable along the street; over a jettied front it reaches out
+// with the jetty, so its eave covers the jettied wall's top --
+RoofZone --> when(Storeys == 1): RoofPick
+    | else: Translate(0, 0, -WallD) Size(scope.x, scope.y, scope.z + WallD) RoofPick
+RoofPick --> Pick("roof") { 40% HipThatch | 30% GableThatch | 30% GableTile }
+HipThatch --> Roof(Hip, Pitch, overhang=Eave) { Slope: Thatch }
+GableThatch --> Roof(Gable, Pitch, overhang=Eave, ridge=X) { Slope: Thatch | GableEnd: Gable }
+GableTile --> Roof(Gable, Pitch, overhang=Eave, ridge=X) { Slope: Tiles | GableEnd: Gable }
+Thatch --> Mat("Thatch") I("Roof")
+Tiles --> Pick("tiles") { 60% TileSlope | 40% SlateSlope }
+TileSlope --> Mat("Tile") I("Roof")
+SlateSlope --> Mat("Slate") I("Roof")
+Gable --> I("Wall")

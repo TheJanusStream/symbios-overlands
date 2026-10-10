@@ -1,0 +1,130 @@
+// The Mesoamerican theme's hall (#1600): a long painted storehouse, or -
+// where it trades - a market hall of stalls between painted piers. See
+// street_hall.rs for the hall, and catalogue::items::street for the
+// conventions and for what is declared ahead of these rules (Storeys, Trade,
+// Frontage, Depth, GroundH, FloorH) and after them (Glazing, ShopGlazing,
+// Wall).
+
+const WallD = 0.45
+const PaneSet = 0.16
+const StepH = 0.62
+const BenchH = 0.7
+const MouldH = 0.18
+const FriezeH = 0.5
+const RoofH = 1.0
+const MerlonH = 1.0
+// The thatch: one steep ridge along the street to so many metres of depth.
+const RidgeD = 10.0
+
+// -- 1. The hall: its stucco rolled once, then storeys and a roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Stucco
+Stucco --> 35% Mat("Adobe") Massing | 25% Mat("Ochre") Massing | 25% Mat("White") Massing
+    | 15% Mat("Red") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Upper | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+// The proud parts run the whole frontage from the full face, so a row's
+// bands meet at the party walls: a stone moulding, the painted frieze, red
+// or jade, and the stepped talud along the foot.
+Mould --> Extrude(0.2) Mat("Stone") I("Trim")
+Frieze --> Extrude(0.1) Pick("frieze") { 60% RedFrieze | 40% JadeFrieze }
+RedFrieze --> Mat("Frieze") I("Frieze")
+JadeFrieze --> Mat("FriezeJade") I("Frieze")
+Lintel --> Extrude(WallD + 0.08) Mat("Lintel") I("Lintel")
+Course(d) --> Extrude(d) Mat("Stone") I("Talud")
+Step --> Extrude(WallD + 0.7) Mat("Stone") I("Trim")
+DoorLeaf --> Extrude(WallD - 0.2) Mat("Door") I("Door")
+
+// -- 2. The ground storey: a storehouse's doorways, or market stalls, on
+// the talud and under the moulding and the frieze --
+Ground --> Comp(Faces) { Front: GroundFace | Back: BackInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFace --> Split(Y) { 0.01: TaludSliver | ~1: GroundFrontInset | MouldH: Mould
+    | FriezeH: Frieze }
+// The talud: three courses from a sliver at the foot, each set back from
+// the one under it; the doors and benches stand over it.
+TaludSliver --> Size(scope.x, 0.6, 0)
+    Split(Y) { 0.2: Course(0.36) | 0.2: Course(0.24) | ~1: Course(0.12) }
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> when(Trade == 1): Market | else: Store
+// The storehouse: a door for people at one end, wide doorways along the
+// rest - some bays blank but for a small opening - and a row of high
+// openings over them all.
+Store --> Split(Y) { ~1: StoreDoors | 1.0: HighRow | 0.4: Wall }
+StoreDoors --> Split(X) { 1.2: Wall | 1.1: ManDoor | 1.0: Wall | ~1: DoorRun | 1.2: Wall }
+ManDoor --> Split(Y) { StepH: Step | 2.1: DoorLeaf | 0.26: DoorLintel | ~1: Wall }
+DoorLintel --> Split(X) { ~1: Lintel | 0.2: Stud | 0.3: Lintel | 0.2: Stud | ~1: Lintel }
+Stud --> Extrude(WallD + 0.14) Mat("Jade") I("Trim")
+DoorRun --> when(scope.x > 7.2): Repeat(X, 7.2) { DoorBay } | else: DoorBay
+DoorBay --> 65% Split(X) { ~1: Wall | 3.6: Doorway | ~1: Wall }
+    | 35% Split(X) { ~1: Wall | 1.0: SmallWin | ~1: Wall }
+// A doorway: plank doors over a stone threshold, under a heavy lintel.
+Doorway --> Split(Y) { 0.5: Threshold | 2.5: Leaves | 0.3: Lintel | ~1: Wall }
+Threshold --> Extrude(WallD + 1.0) Mat("Stone") I("Trim")
+Leaves --> Split(X) { ~1: DoorLeaf | 0.12: Post | ~1: DoorLeaf }
+Post --> Extrude(WallD - 0.1) Mat("Lintel") I("Lintel")
+SmallWin --> Split(Y) { 1.4: Wall | 1.1: Glazing | 0.24: Lintel | ~1: Wall }
+HighRow --> Repeat(X, 2.6) { HighBay }
+HighBay --> Split(X) { ~1: Wall | 1.2: HighCol | ~1: Wall }
+HighCol --> Split(Y) { ~1: Glazing | 0.22: Lintel }
+// The market: stall openings over stone benches between painted piers,
+// each under a palm-thatch awning, a doorway in the middle, and the high
+// openings over them.
+Market --> Split(Y) { ~1: Stalls | 1.0: HighRow | 0.3: Wall }
+Stalls --> Split(X) { ~1: StallRun | 2.4: HallDoor | ~1: StallRun }
+StallRun --> when(scope.x > 3.2): Repeat(X, 3.2) { StallBay } | else: StallBay
+StallBay --> Split(X) { 0.5: Pier | ~1: Stall }
+Pier --> Extrude(WallD + 0.18) Mat("Red") I("Pier")
+Stall --> Split(Y) { BenchH: Bench | 2.2: ShopGlazing | 0.26: Lintel | 0.16: Awning | ~1: Wall }
+Bench --> Extrude(WallD + 0.5) Mat("Stone") I("Trim")
+Awning --> Extrude(WallD + 1.3) Mat("Thatch") I("Canopy")
+HallDoor --> Split(X) { 0.3: Wall | ~1: HallDoorCol | 0.3: Wall }
+HallDoorCol --> Split(Y) { StepH: Step | 2.3: DoorLeaf | 0.26: DoorLintel | ~1: Wall }
+// The yard side: a doorway here and there, the high openings over them.
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) BackFace
+BackFace --> Split(Y) { ~1: BackDoors | 1.0: HighRow | 0.4: Wall }
+BackDoors --> Split(X) { 1.2: Wall | ~1: BackRun | 1.2: Wall }
+BackRun --> when(scope.x > 12): Repeat(X, 12) { DoorBay } | else: DoorBay
+
+// -- 3. An upper storey: a loft on a stepped talud, small deep openings
+// under lintels front and back --
+Upper --> Comp(Faces) { Front: UpperFace | Back: UpperBackInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpperFace --> Split(Y) { 0.36: Talud | ~1: UpperInset }
+Talud --> Split(Y) { 0.12: Course(0.3) | 0.12: Course(0.2) | ~1: Course(0.1) }
+UpperInset --> Split(X) { WallD: NIL | ~1: UpperIn | WallD: NIL }
+UpperIn --> Translate(0, 0, -WallD) Repeat(X, 3.0) { UpperBay }
+UpperBay --> Split(X) { ~1: Wall | 1.0: UpperWindow | ~1: Wall }
+UpperWindow --> Split(Y) { 0.6: Wall | 1.1: Glazing | 0.24: Lintel | ~1: Wall }
+UpperBackInset --> Split(X) { WallD: NIL | ~1: UpperBackIn | WallD: NIL }
+UpperBackIn --> Translate(0, 0, -WallD) Repeat(X, 3.6) { UpperBackBay }
+UpperBackBay --> Split(X) { ~1: Wall | 1.0: UpperBackWindow | ~1: Wall }
+UpperBackWindow --> Split(Y) { 1.0: Wall | 1.1: Glazing | ~1: Wall }
+
+// -- 4. The roof: steep palm-thatch ridges along the street, or a flat
+// deck behind a merloned parapet --
+RoofZone --> Pick("roof") { 55% Ridges | 45% Crown }
+Ridges --> when(scope.z > RidgeD): Repeat(Z, RidgeD) { Ridge } | else: Ridge
+Ridge --> Roof(Gable, 35, overhang=0, ridge=X) { Slope: Palm | GableEnd: Gable }
+Palm --> Mat("Thatch") I("Roof")
+Gable --> I("Wall")
+Crown --> Comp(Faces) { Front: CrownFace | Back: ParapetInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+CrownFace --> Split(Y) { ~1: ParapetInset | 0.01: MerlonSliver }
+ParapetInset --> Split(X) { WallD: NIL | ~1: ParapetIn | WallD: NIL }
+ParapetIn --> Translate(0, 0, -WallD) Wall
+// The merlons stand on the parapet's top, from a sliver of its face.
+MerlonSliver --> Translate(0, 0.01, -WallD) Size(scope.x, MerlonH, 0) Extrude(WallD)
+    Split(X) { WallD: NIL | ~1: MerlonRow | WallD: NIL }
+MerlonRow --> Repeat(X, 2.0) { MerlonSlot }
+MerlonSlot --> Split(X) { 0.4: NIL | ~1: Merlon | 0.4: NIL }
+Merlon --> Mat("Stone") Split(Y) { 0.45: MerlonBase | ~1: MerlonTop }
+MerlonBase --> I("Merlon")
+MerlonTop --> Size(scope.x * 0.5, scope.y, scope.z) Center(X) I("Merlon")
+// The deck fills the ring inside the parapet's walls, 2 cm clear of its
+// foot: the bottom face's inward is up.
+Deck --> Translate(WallD, WallD, -0.22) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("Deck") I("Roof")

@@ -1,0 +1,136 @@
+// The pirate theme's detached house (#1600): a planter's house in its
+// garden above the harbour. See street_detached.rs for the house, and
+// catalogue::items::street for the conventions and for what is declared
+// ahead of these rules (Storeys, Trade, Frontage, Depth, GroundH, FloorH)
+// and after them (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.45
+const PaneSet = 0.16
+// The coral-stone plinth round the house, which the gallery's floor and
+// the door stand on.
+const PlinthH = 0.9
+const CanopyH = 0.2
+const RoofH = 1.0
+// How far the roof reaches past the walls: the walls stand this far in
+// from the lot's sides, so the eaves and verges keep inside it.
+const Eave = 0.6
+// The gallery: how far its floor and roof stand out of the front wall,
+// its posts just inside their edge.
+const GalleryOut = 1.9
+const PostOut = 1.75
+const PostD = 0.18
+
+// -- 1. The house: its walls stand in from the lot, its limewash rolled once --
+Lot --> Split(X) { Eave: NIL | ~1: LotRow | Eave: NIL }
+LotRow --> Split(Z) { Eave: NIL | ~1: Plot | Eave: NIL }
+Plot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Limewash
+Limewash --> 22% Mat("Ochre") Massing | 20% Mat("Coral") Massing
+    | 20% Mat("SeaGreen") Massing | 18% Mat("Sky") Massing | 20% Mat("Lime") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Uppers | RoofH: RoofZone }
+Trim --> Mat("Trim") I("Trim")
+Sill --> Extrude(WallD + 0.06) Trim
+Hood --> Extrude(WallD + 0.12) Trim
+Post --> Mat("Post") I("Post")
+PierWall --> I("Wall")
+DoorLeaf --> Extrude(WallD - 0.2) Mat("Door") I("Door")
+// A louvred leaf either side of a window, one colour a house.
+Shutter --> Pick("shutters") { 40% ShutGreen | 30% ShutBlue | 30% ShutRed }
+ShutGreen --> Mat("ShutGreen") ShutterLeaf
+ShutBlue --> Mat("ShutBlue") ShutterLeaf
+ShutRed --> Mat("ShutRed") ShutterLeaf
+ShutterLeaf --> Extrude(WallD + 0.05) I("Shutter")
+// The coral-stone plinth: a band round the foot of every wall.
+SidePlinth --> Mat("Stone") Translate(0, 0, -WallD) Wall
+
+// -- 2. The ground storey: the gallery or a stoop on the front, shuttered
+// windows all round over the plinth --
+Ground --> Comp(Faces) { Front: GroundFace | Back: BackFace | Left: SideFace
+    | Right: SideFace | Top: NIL | Bottom: NIL }
+GroundFace --> Pick("gallery") { 60% Gallery | 40% Stoop }
+// The gallery: a stone floor up at the plinth's height the whole front, a
+// railing between oak posts, and a timber roof over it.
+Gallery --> Split(Y) { PlinthH: GalleryFloor | 2.5: GalleryMid | CanopyH: Canopy
+    | ~1: TopBand }
+GalleryFloor --> Extrude(GalleryOut) Mat("Stone") I("Trim")
+Canopy --> Extrude(GalleryOut) Mat("Gallery") Split(Z) { ~1: CanopyDeck | 0.08: CanopyEdge }
+CanopyDeck --> I("Canopy")
+// Over a storey, the gallery's roof the upper gallery's floor, a railing at
+// its edge.
+CanopyEdge --> when(Storeys == 1): CanopyDeck
+    | else: Size(scope.x, CanopyH + 1.0, scope.z) Split(Y) { CanopyH: CanopyDeck | ~1: Railing }
+Railing --> Mat("Rail") Split(Y) { ~1: Balusters | 0.1: RailBand }
+Balusters --> Repeat(X, 0.4) { BalusterBay }
+BalusterBay --> Split(X) { ~1: NIL | 0.07: RailBand | ~1: NIL }
+RailBand --> I("Balcony")
+GalleryMid --> Split(X) { WallD: EndPost | ~1: GalleryFrontIn | WallD: EndPost }
+EndPost --> Extrude(PostOut) Split(Z) { ~1: NIL | PostD: Post }
+// A pier between two windows stands its post out at the gallery's edge,
+// a stretch of railing either side of it.
+Pier --> Extrude(WallD + PostOut) Split(Z) { WallD: PierWall | ~1: NIL | PostD: Post }
+GalleryFrontIn --> Translate(0, 0, -WallD) GalleryFront
+GalleryFront --> Split(X) { ~1: GalleryRun | 1.6: Entrance | ~1: GalleryRun }
+// A Repeat floors its count: a run narrower than one bay is one bay.
+GalleryRun --> when(scope.x < 3.0): GalleryBay | else: Repeat(X, 3.0) { GalleryBay }
+GalleryBay --> Split(X) { 0.3: Pier | ~1: WinBay(0.15) }
+Entrance --> Split(X) { ~1: Wall | 1.1: EntranceDoor | ~1: Wall }
+EntranceDoor --> Split(Y) { 2.25: DoorLeaf | ~1: Wall }
+TopBand --> Split(X) { WallD: NIL | ~1: TopBandIn | WallD: NIL }
+TopBandIn --> Translate(0, 0, -WallD) Wall
+// The stoop: the door alone up stone steps, under a timber hood.
+Stoop --> Split(Y) { PlinthH: StoopPlinth | ~1: StoopInset }
+StoopPlinth --> Mat("Stone") Split(X) { WallD: NIL | ~1: StoopPlinthIn | WallD: NIL }
+StoopPlinthIn --> Translate(0, 0, -WallD) Split(X) { ~1: Wall | 1.8: StoopSteps | ~1: Wall }
+StoopSteps --> Split(X) { 0.2: Wall | ~1: Steps | 0.2: Wall }
+StoopInset --> Split(X) { WallD: NIL | ~1: StoopIn | WallD: NIL }
+StoopIn --> Translate(0, 0, -WallD) StoopFront
+StoopFront --> Split(X) { ~1: Run | 1.8: StoopEntrance | ~1: Run }
+StoopEntrance --> Split(Y) { 2.3: StoopDoor | 0.18: StoopHood | ~1: Wall }
+StoopDoor --> Split(X) { ~1: Wall | 1.1: DoorLeaf | ~1: Wall }
+StoopHood --> Extrude(WallD + 0.9) Mat("Gallery") I("Canopy")
+// The steps stand out of the plinth under a door, two treads.
+Steps --> Split(Y) { 0.45: StepLow | ~1: StepHigh }
+StepLow --> Extrude(WallD + 0.9) I("Trim")
+StepHigh --> Extrude(WallD + 0.45) I("Trim")
+Run --> when(scope.x < 3.0): WinBay(0.3) | else: Repeat(X, 3.0) { WinBay(0.3) }
+// A window: a sill and a hood across it and its shutters, `b` over the
+// foot of its storey.
+WinBay(b) --> Split(X) { ~1: Wall | 1.84: WinStack(b) | ~1: Wall }
+WinStack(b) --> Split(Y) { b: Wall | 0.08: Sill | 1.9: WinRow | 0.18: Hood | ~1: Wall }
+WinRow --> Split(X) { 0.42: Shutter | ~1: Glazing | 0.42: Shutter }
+// The garden side: shuttered windows and a door up a step.
+BackFace --> Split(Y) { PlinthH: BackPlinth | ~1: BackInset }
+BackPlinth --> Mat("Stone") Split(X) { WallD: NIL | ~1: BackPlinthIn | WallD: NIL }
+BackPlinthIn --> Translate(0, 0, -WallD) Split(X) { ~1: Wall | 1.4: BackSteps | ~1.4: Wall }
+BackSteps --> Split(X) { 0.15: Wall | ~1: Steps | 0.15: Wall }
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) BackRow
+BackRow --> Split(X) { ~1: Run | 1.4: BackDoor | ~1.4: Run }
+BackDoor --> Split(X) { 0.15: Wall | ~1: BackDoorCol | 0.15: Wall }
+BackDoorCol --> Split(Y) { 2.25: DoorLeaf | ~1: Wall }
+// The sides: their walls run the full depth, turning the corners.
+SideFace --> Split(Y) { PlinthH: SidePlinth | ~1: SideIn }
+SideIn --> Translate(0, 0, -WallD) SideRow
+SideRow --> Split(X) { 0.7: Wall | ~1: SideRun | 0.7: Wall }
+SideRun --> when(scope.x < 2.9): WinBay(0.3) | else: Repeat(X, 2.9) { WinBay(0.3) }
+
+// -- 3. The upper storeys: shuttered windows on every side --
+Uppers --> Comp(Faces) { Front: UpInset | Back: UpInset | Left: UpSideIn
+    | Right: UpSideIn | Top: NIL | Bottom: NIL }
+UpInset --> Split(X) { WallD: NIL | ~1: UpIn | WallD: NIL }
+UpIn --> Translate(0, 0, -WallD) UpFace
+UpFace --> Repeat(Y, FloorH) { UpStorey }
+UpStorey --> when(scope.x < 3.0): WinBay(0.75) | else: Repeat(X, 3.0) { WinBay(0.75) }
+UpSideIn --> Translate(0, 0, -WallD) UpSide
+UpSide --> Repeat(Y, FloorH) { UpSideStorey }
+UpSideStorey --> Split(X) { 0.7: Wall | ~1: UpSideRun | 0.7: Wall }
+UpSideRun --> when(scope.x < 2.9): WinBay(0.75) | else: Repeat(X, 2.9) { WinBay(0.75) }
+
+// -- 4. The roof: the islands' deep hip, or a steep gable, its eaves out --
+RoofZone --> Pick("roof") { 60% HipRoof | 40% GableRoof }
+HipRoof --> Roof(Hip, 30, overhang=Eave) { Slope: Cover }
+GableRoof --> Roof(Gable, 38, overhang=Eave, ridge=X) { Slope: Cover | GableEnd: Gable }
+Cover --> Pick("cover") { 60% GreyShingle | 40% RedShingle }
+GreyShingle --> Mat("Shingle") I("Roof")
+RedShingle --> Mat("ShingleRed") I("Roof")
+Gable --> I("Wall")

@@ -1,0 +1,111 @@
+// The monolith's detached house (#1600): a dwelling block standing alone.
+// See street_detached.rs for the block, and catalogue::items::street for
+// the conventions and for what is declared ahead of these rules (Storeys,
+// Trade, Frontage, Depth, GroundH, FloorH) and after them (Glazing,
+// ShopGlazing, Wall).
+
+const WallD = 0.5
+const PaneSet = 0.34
+const StepH = 0.6
+const GlyphH = 0.12
+const RoofH = 0.6
+const CapH = 0.8
+// How far the crown reaches past the block: the block stands this far in
+// from the lot's sides, so the crown keeps inside it.
+const Eave = 0.5
+
+// -- 1. The block: it stands in from the lot, its stone rolled once --
+Lot --> Split(X) { Eave: NIL | ~1: LotRow | Eave: NIL }
+LotRow --> Split(Z) { Eave: NIL | ~1: Plot | Eave: NIL }
+Plot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Stone
+Stone --> 35% Mat("Obsidian") Massing | 25% Mat("ObsidianBlue") Massing
+    | 25% Mat("ObsidianViolet") Massing | 15% Mat("Basalt") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Uppers | RoofH: RoofZone }
+// A glyph line round the block at a floor, just proud of the stone, in the
+// dwelling's one glyph colour.
+GlyphLine --> Pick("glyph") { 65% GlyphCyan | 35% GlyphViolet }
+GlyphCyan --> Extrude(0.06) Mat("Glyph") I("Trim")
+GlyphViolet --> Extrude(0.06) Mat("GlyphViolet") I("Trim")
+GlyphStroke --> Pick("glyph") { 65% StrokeCyan | 35% StrokeViolet }
+StrokeCyan --> Extrude(WallD + 0.04) Mat("Glyph") I("Trim")
+StrokeViolet --> Extrude(WallD + 0.04) Mat("GlyphViolet") I("Trim")
+// A fin: a blade of polished stone standing out of the face.
+Fin --> Extrude(WallD + 0.4) Mat("Fin") I("Fin")
+Step --> Extrude(WallD + 0.4) Mat("Step") I("Trim")
+PortalLeaf --> Extrude(WallD - 0.3) Mat("Portal") I("Door")
+Lintel --> Extrude(WallD + 0.06) Mat("Energy") I("Trim")
+// A group of two slits between fins, a pier between them that now and then
+// carries a glyph.
+Group --> Split(X) { ~1: Wall | 0.5: Slit | 0.45: MidPier | 0.5: Slit | ~1: Wall | 0.35: Fin }
+Slit --> Split(Y) { 0.5: Wall | 2.3: Glazing | ~1: Wall }
+MidPier --> 70% Wall | 30% GlyphPier
+GlyphPier --> Split(Y) { ~1: Wall | 1.1: GlyphCol | ~1.4: Wall }
+GlyphCol --> Split(X) { ~1: Wall | 0.12: GlyphStroke | ~1: Wall }
+// A single tall slit in a bay.
+SlitBay --> Split(X) { ~1: Wall | 0.6: GroundSlit | ~1: Wall }
+GroundSlit --> Split(Y) { 1.0: Wall | 2.2: Glazing | ~1: Wall }
+
+// -- 2. The ground storey: a portal on the front, slits all round --
+Ground --> Comp(Faces) { Front: GroundFace | Back: BackFace | Left: GroundSide
+    | Right: GroundSide | Top: NIL | Bottom: NIL }
+GroundFace --> FrontInset
+FrontInset --> Split(X) { WallD: NIL | ~1: FrontIn | WallD: NIL }
+FrontIn --> Translate(0, 0, -WallD) Split(X) { ~1: SlitRun | 3.0: Portal | ~1: SlitRun }
+SlitRun --> when(scope.x > 2.0): Repeat(X, 2.0) { SlitBay } | else: SlitBay
+// The portal: a tall dark leaf deep in a frame of fins, under a glowing
+// lintel, up a stone step.
+Portal --> Split(X) { 0.35: Wall | 0.35: PortalJamb | ~1: PortalCol | 0.35: PortalJamb
+    | 0.35: Wall }
+PortalJamb --> Split(Y) { StepH: Wall | ~1: Fin }
+PortalCol --> Split(Y) { StepH: Step | 2.6: PortalLeaf | 0.2: Lintel | ~1: Wall }
+BackFace --> BackInset
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) Split(X) { 0.6: Wall | ~1: Groups | 0.6: Wall }
+Groups --> when(scope.x > 3.2): Repeat(X, 3.2) { Group } | else: Group
+// The flanks: their walls the full depth, turning the corners.
+GroundSide --> Translate(0, 0, -WallD) Split(X) { 0.6: Wall | ~1: Groups | 0.6: Wall }
+
+// -- 3. The storeys: a glyph line round the block at each floor, slits
+// between fins all round; the walls stand to the top --
+Uppers --> Comp(Faces) { Front: UpFace | Back: UpFace | Left: UpSide
+    | Right: UpSide | Top: NIL | Bottom: NIL }
+UpFace --> Repeat(Y, FloorH) { FaceStorey }
+FaceStorey --> Split(Y) { GlyphH: GlyphLine | ~1: FaceInset }
+FaceInset --> Split(X) { WallD: NIL | ~1: FaceIn | WallD: NIL }
+FaceIn --> Translate(0, 0, -WallD) Storey
+Storey --> Split(X) { 0.6: Wall | ~1: Groups | 0.6: Wall }
+UpSide --> Repeat(Y, FloorH) { SideStorey }
+SideStorey --> Split(Y) { GlyphH: GlyphLine | ~1: SideStoreyIn }
+SideStoreyIn --> Translate(0, 0, -WallD) Storey
+
+// -- 4. The crown: a capstone out to the lot's edges, a pyramid on a
+// cornice, or setback tiers on a cornice --
+RoofZone --> Pick("roof") { 45% Capstone | 30% Pyramidion | 25% Stepped }
+// The capstone: one slab, glyph-light along its underside's front and back
+// edges.
+Capstone --> Translate(-Eave, 0, -Eave) Size(scope.x + 2 * Eave, CapH, scope.z + 2 * Eave)
+    Split(Y) { 0.12: CapUnder | ~1: CapBody }
+CapUnder --> Split(Z) { 0.08: CapGlow | ~1: CapBody | 0.08: CapGlow }
+CapGlow --> Pick("glyph") { 65% CapGlowCyan | 35% CapGlowViolet }
+CapGlowCyan --> Mat("Glyph") I("Trim")
+CapGlowViolet --> Mat("GlyphViolet") I("Trim")
+CapBody --> Mat("Fin") I("Cap")
+// The pyramid, on a cornice of polished stone, its eaves - a hand past
+// the cornice - lit by a glyph fascia.
+Pyramidion --> Split(Y) { 0.3: CorniceZone | ~1: PyrZone }
+CorniceZone --> Translate(-0.25, 0, -0.25) Size(scope.x + 0.5, 0.3, scope.z + 0.5)
+    Mat("Fin") I("Cornice")
+PyrZone --> Roof(Pyramid, 40, overhang=0.3, fascia=0.12) { Slope: PyrSlope | Fascia: EaveGlyph }
+PyrSlope --> Mat("Fin") I("Roof")
+EaveGlyph --> Pick("glyph") { 65% CapGlowCyan | 35% CapGlowViolet }
+// Setback tiers on a cornice, each capped with a glyph line.
+Stepped --> Split(Y) { 0.3: CorniceZone | ~1: Tiers }
+Tiers --> Split(X) { ~0.12: NIL | ~0.76: TierX | ~0.12: NIL }
+TierX --> Split(Z) { ~0.12: NIL | ~0.76: Tier1 | ~0.12: NIL }
+Tier1 --> Size(scope.x, 2.6, scope.z) Split(Y) { 1.3: TierBlock | 0.12: TierLine | ~1: Tier2Zone }
+TierBlock --> Mat("Fin") I("Cap")
+TierLine --> Pick("glyph") { 65% CapGlowCyan | 35% CapGlowViolet }
+Tier2Zone --> Split(X) { ~0.22: NIL | ~0.56: Tier2X | ~0.22: NIL }
+Tier2X --> Split(Z) { ~0.22: NIL | ~0.56: Tier2 | ~0.22: NIL }
+Tier2 --> Split(Y) { ~1: TierBlock | 0.12: TierLine }

@@ -1,0 +1,142 @@
+// The roadside strip's hall (#1600): a truck garage, or - where it trades -
+// a discount store under a neon sign. See street_hall.rs for the hall, and
+// catalogue::items::street for the conventions and for what is declared ahead
+// of these rules (Storeys, Trade, Frontage, Depth, GroundH, FloorH) and after
+// them (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.3
+const PaneSet = 0.12
+const StepH = 0.5
+// The roof zone: a garage's gable or curve.
+const RoofH = 1.0
+// A store's parapet, and its sign's height over it.
+const ParapetH = 1.0
+const SignH = 5.0
+
+Lot --> when(Trade == 1): Store | else: Garage
+// Party walls: the sides, the full depth, turning the corners. A hall's
+// gable ends are its cladding, blank.
+PartyIn --> Translate(0, 0, -WallD) Wall
+Step --> Extrude(WallD + 0.35) Mat("Base") I("Trim")
+Chrome --> Extrude(WallD + 0.08) Mat("Chrome") I("Trim")
+Mullion --> Extrude(WallD - 0.06) Mat("Chrome") I("Trim")
+// A ribbon of high windows, along any front.
+Ribbon --> Repeat(X, 2.4) { RibbonBay }
+RibbonBay --> Split(X) { 0.1: Mullion | ~1: Glazing | 0.1: Mullion }
+// A roller door over its concrete apron, one enamel colour a hall: the sink
+// buries all but the apron's top.
+RollerBay --> Split(X) { ~1: Wall | 4.4: RollerCol | ~1: Wall }
+RollerCol --> Split(Y) { 0.45: Apron | 3.9: Roller | ~1: Lintel }
+Apron --> Extrude(WallD + 1.4) Mat("Base") I("Trim")
+Roller --> Pick("doors") { 40% RedRoller | 30% YellowRoller | 30% SilverRoller }
+RedRoller --> Mat("DoorRed") RollerLeaf
+YellowRoller --> Mat("DoorYellow") RollerLeaf
+SilverRoller --> Mat("Roller") RollerLeaf
+RollerLeaf --> Extrude(WallD - 0.1) I("Door")
+Lintel --> Chrome
+// The yard side: a loading door here and there, the ribbon over it.
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) BackFace
+BackFace --> Split(Y) { ~1: BackDoors | 1.0: Ribbon | 0.4: Wall }
+BackDoors --> Split(X) { 1.2: Wall | ~1: BackRun | 1.2: Wall }
+BackRun --> Repeat(X, 12.0) { BackBay }
+BackBay --> 50% RollerBay | 50% Wall
+// An upper storey: offices, a ribbon between chrome bands front and back.
+Upper --> Comp(Faces) { Front: UpInset | Back: UpInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpInset --> Split(X) { WallD: NIL | ~1: UpIn | WallD: NIL }
+UpIn --> Translate(0, 0, -WallD) UpFace
+UpFace --> Split(Y) { ~1: Wall | 0.1: Chrome | 1.3: Ribbon | 0.1: Chrome | 0.8: Wall }
+
+// -- 1. The garage: corrugated sheet rolled once, roller doors under a
+// chrome band and a ribbon, a low gable or a curved roof --
+Garage --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Sheet
+Sheet --> 45% Mat("SheetGrey") GarageMass | 30% Mat("SheetRust") GarageMass
+    | 25% Mat("SheetCream") GarageMass
+GarageMass --> when(Storeys == 1): Split(Y) { GroundH: GarageGround | RoofH: GarageRoof }
+    | else: Split(Y) { GroundH: GarageGround | ~1: Upper | RoofH: GarageRoof }
+GarageGround --> Comp(Faces) { Front: GarageFrontInset | Back: BackInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GarageFrontInset --> Split(X) { WallD: NIL | ~1: GarageFrontIn | WallD: NIL }
+GarageFrontIn --> Translate(0, 0, -WallD) GarageFront
+GarageFront --> Split(Y) { ~1: GarageDoors | 0.12: Chrome | 1.0: Ribbon | 0.3: Wall }
+// A door for people at one end, the bays of roller doors along the rest.
+GarageDoors --> Split(X) { 1.2: Wall | 1.1: ManDoor | 1.2: Wall | ~1: DoorRun | 1.2: Wall }
+ManDoor --> Split(Y) { StepH: Step | 2.2: ManLeaf | ~1: Wall }
+ManLeaf --> Extrude(WallD - 0.12) Mat("DoorChrome") I("Door")
+DoorRun --> Repeat(X, 6.0) { DoorBay }
+// A lone bay always has its door; along a longer run, some are blank.
+DoorBay --> when(split.n == 1): RollerBay | else: MaybeRoller
+MaybeRoller --> 75% RollerBay | 25% Wall
+// A low corrugated gable along the road, or a curved roof of two pitches.
+GarageRoof --> Pick("roof") { 65% LowGable | 35% Curved }
+LowGable --> Roof(Gable, 12, overhang=0, ridge=X) { Slope: Roofing | GableEnd: Gable }
+Curved --> Roof(Gambrel, 30, 10, overhang=0, ridge=X, tier=0.35)
+    { LowerSlope: Roofing | UpperSlope: Roofing | GableEnd: Gable }
+Roofing --> Mat("Roofing") I("Roof")
+Gable --> I("Wall")
+
+// -- 2. The discount store: painted brick rolled once, glass doors and shop
+// windows under a chrome canopy, a neon sign on legs over the parapet --
+Store --> Extrude(GroundH + FloorH * (Storeys - 1) + ParapetH + SignH) Paint
+Paint --> 36% Mat("PaintCream") StoreMass | 34% Mat("PaintMint") StoreMass
+    | 30% Mat("PaintSalmon") StoreMass
+StoreMass --> when(Storeys == 1):
+    Split(Y) { GroundH: StoreGround | ParapetH: Parapet | SignH: SignZone }
+    | else: Split(Y) { GroundH: StoreGround | ~1: Upper | ParapetH: Parapet
+    | SignH: SignZone }
+StoreGround --> Comp(Faces) { Front: StoreFrontInset | Back: BackInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+StoreFrontInset --> Split(X) { WallD: NIL | ~1: StoreFrontIn | WallD: NIL }
+StoreFrontIn --> Translate(0, 0, -WallD) StoreFront
+// The entrance in the middle: never narrower than its doors and a window
+// either side, a quarter of a long front.
+StoreFront --> when(scope.x < 30): Split(X) { ~1: StoreSide | 9.0: StoreEntrance | ~1: StoreSide }
+    | else: Split(X) { ~3: StoreSide | ~2: StoreEntrance | ~3: StoreSide }
+// Either side: painted brick between chrome bands, the ribbon high up.
+StoreSide --> Split(Y) { 1.0: Wall | 0.1: Chrome | ~1: Wall | 0.1: Chrome | 1.0: Ribbon
+    | 0.1: Chrome | 0.5: Wall }
+StoreEntrance --> Split(Y) { 0.45: Plinth | 2.8: Entry | 0.25: Canopy | ~1: Wall }
+Plinth --> Extrude(WallD + 0.05) Mat("Base") I("Trim")
+Entry --> Split(X) { ~1: ShopRun | 2.4: GlassDoors | ~1: ShopRun }
+ShopRun --> when(scope.x > 2.4): Repeat(X, 2.4) { ShopBay } | else: ShopBay
+ShopBay --> Split(X) { 0.1: Mullion | ~1: ShopGlazing | 0.1: Mullion }
+GlassDoors --> Split(X) { ~1: GlassDoor | 0.1: Mullion | ~1: GlassDoor }
+GlassDoor --> Extrude(WallD - 0.12) Mat("DoorChrome") I("Door")
+Canopy --> Extrude(WallD + 1.9) Mat("Chrome") I("Canopy")
+// The parapet, a chrome coping, and the deck inside it.
+Parapet --> Comp(Faces) { Front: ParapetFace | Back: ParapetFace | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+ParapetFace --> Split(Y) { ~1: ParapetInset | 0.12: Coping }
+ParapetInset --> Split(X) { WallD: NIL | ~1: ParapetIn | WallD: NIL }
+ParapetIn --> Translate(0, 0, -WallD) Wall
+Coping --> Extrude(0.06) Mat("Chrome") I("Trim")
+Deck --> Translate(WallD, WallD, -0.2) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("Deck") I("Roof")
+
+// -- 3. The sign: a board on steel legs on the deck over the entrance, as
+// wide as a third of a long front, a grid of neon cells, its colour Picked
+// once --
+SignZone --> Split(Z) { 0.5: NIL | 0.35: SignSlab | ~1: NIL }
+SignSlab --> Split(X) { ~1: NIL | min(Frontage - 4, max(12, Frontage * 0.3)): SignBox | ~1: NIL }
+SignBox --> Translate(0, 0.2 - ParapetH, 0) Size(scope.x, ParapetH - 0.2 + SignH, scope.z)
+    Split(Y) { ParapetH + 0.8: Legs | 3.0: Board | ~1: NIL }
+// A leg at each end, and one every eight metres between.
+Legs --> Split(X) { 0.3: Leg | ~1: LegRun }
+LegRun --> when(scope.x < 8.0): LegBay | else: Repeat(X, 8.0) { LegBay }
+LegBay --> Split(X) { ~1: NIL | 0.3: Leg }
+Leg --> Mat("Steel") I("Steel")
+Board --> Split(Z) { 0.07: NeonFace | ~1: BoardBack }
+BoardBack --> Mat("SignBack") I("Sign")
+NeonFace --> Split(Y) { 0.3: NIL | ~1: NeonRows | 0.3: NIL }
+NeonRows --> Repeat(Y, 1.2) { NeonRow }
+NeonRow --> Split(Y) { 0.15: NIL | ~1: CellRow | 0.15: NIL }
+CellRow --> Split(X) { 0.3: NIL | ~1: CellRun | 0.3: NIL }
+CellRun --> Repeat(X, 0.5) { CellBay }
+CellBay --> Split(X) { 0.1: NIL | ~1: Cell }
+// Some cells dark, cell by cell, so the grid reads as lettering.
+Cell --> 70% LitCell | 30% NIL
+LitCell --> Pick("neon") { 40% RedCell | 30% CyanCell | 30% AmberCell }
+RedCell --> Mat("NeonRed") I("Sign")
+CyanCell --> Mat("NeonCyan") I("Sign")
+AmberCell --> Mat("NeonAmber") I("Sign")

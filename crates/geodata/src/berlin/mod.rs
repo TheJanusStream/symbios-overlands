@@ -1,10 +1,12 @@
 //! The Berlin dataset: GDI Berlin's services, the layers a geodata region
 //! reads, and where on the map a region's square may lie.
 //!
-//! Every layer here was requested live and decoded on 2026-10-08 (#1579),
-//! and every one is dl-de/zero-2.0. The services are GeoServer, in
+//! Every layer here was requested live and decoded on 2026-10-08 (#1579) -
+//! the urban structure on 2026-10-10 (#1600) - and every one is
+//! dl-de/zero-2.0. The services are GeoServer, in
 //! EPSG:25833, with `Access-Control-Allow-Origin: *`.
 
+mod blocks;
 mod buildings;
 mod coverage;
 mod coverage_table;
@@ -12,6 +14,7 @@ mod furniture;
 mod streets;
 mod trees;
 
+pub use blocks::{BLOCK_PAGE, BLOCK_PROPERTIES, Block, BlockPage, Development, parse_blocks};
 pub use buildings::{
     BUILDING_PAGE, BUILDING_PROPERTIES, Building, BuildingPage, BuildingUse, parse_buildings,
 };
@@ -119,6 +122,16 @@ pub const WATER: WfsType = wfs("gewaesserkarte", "gewaesserkarte:e_gew_gewaesser
 pub const LAND_USE_BLOCKS: WfsType = wfs(
     "ua_flaechennutzung_2015",
     "ua_flaechennutzung_2015:c_ua_realnutz_2015",
+);
+
+/// The urban structure (#1600): the Environmental Atlas's blocks for
+/// 2021-2024, each with its urban-structure type (`typ`, about fifty, with
+/// their names in German and English), its use and area, keyed by
+/// `schluessel`. Read a page with [`parse_blocks`], asked for with
+/// [`BLOCK_PROPERTIES`].
+pub const URBAN_STRUCTURE: WfsType = wfs(
+    "ua_stadtstruktur",
+    "ua_stadtstruktur:b_stadtstruktur_differenziert_2024",
 );
 
 /// The state boundary - an input of `tools/coverage.py`.

@@ -24,6 +24,8 @@ pub mod salvage_shack;
 pub mod scrap_wall;
 pub mod signal_fire;
 pub mod street_block;
+pub mod street_detached;
+pub mod street_hall;
 pub mod street_house;
 pub mod street_low;
 pub mod tire_wall;

@@ -1,0 +1,122 @@
+// The classical theme's hall (#1600): a Roman horreum, or - where it
+// trades - a macellum's market hall. See street_hall.rs for the hall, and
+// catalogue::items::street for the conventions and for what is declared
+// ahead of these rules (Storeys, Trade, Frontage, Depth, GroundH, FloorH)
+// and after them (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.5
+const PaneSet = 0.18
+const StepH = 0.55
+const CrownH = 0.6
+const RoofH = 0.6
+// The market hall's portal: its width, and its columns' height.
+const PortalW = 5.0
+const ColH = 4.4
+
+// -- 1. The hall: its brick or plaster rolled once, then storeys, the
+// cornice and the roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + CrownH + RoofH) Face
+Face --> when(Trade == 1): MarketFace | else: WorksFace
+WorksFace --> 45% Mat("Brick") Massing | 30% Mat("BrickDark") Massing
+    | 25% Mat("PlasterOchre") Massing
+MarketFace --> 40% Mat("PlasterCream") Massing | 30% Mat("PlasterRed") Massing
+    | 30% Mat("Brick") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | CrownH: Crown | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Upper | CrownH: Crown | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners. A hall's
+// gable ends are its walls, blank.
+PartyIn --> Translate(0, 0, -WallD) Wall
+// Travertine dressings, brick arches, doors.
+Step --> Extrude(WallD + 0.3) Mat("Travertine") I("Trim")
+Lintel --> Extrude(WallD + 0.12) Mat("Travertine") I("Trim")
+Arch --> Extrude(WallD + 0.04) Mat("Brick") I("Trim")
+Pilaster --> Extrude(WallD + 0.12) Mat("Travertine") I("Trim")
+DoorLeaf --> Extrude(WallD - 0.2) Mat("Door") I("Door")
+// A ribbon of small windows set high, each under a brick arch.
+Ribbon --> Repeat(X, 3.0) { RibbonBay }
+RibbonBay --> Split(X) { ~1: Wall | 0.7: Slit | ~1: Wall }
+Slit --> Split(Y) { ~1: Wall | 0.9: Glazing | 0.24: Arch }
+
+// -- 2. The ground storey: a horreum's portals, or a market's arcade --
+Ground --> Comp(Faces) { Front: FrontInset | Back: BackInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+FrontInset --> Split(X) { WallD: NIL | ~1: FrontIn | WallD: NIL }
+FrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> when(Trade == 1): MarketFront | else: WorksFront
+// The horreum: a door for people at one end, cart doors in travertine
+// portals along the rest, and the ribbon over them all.
+WorksFront --> Split(Y) { ~1: WorksDoors | 1.2: Ribbon | 0.6: Wall }
+WorksDoors --> Split(X) { 1.2: Wall | 1.1: ManDoor | 0.8: Wall | ~1: PortalRun | 1.2: Wall }
+ManDoor --> Split(Y) { StepH: Step | 2.2: DoorLeaf | 0.3: Lintel | ~1: Wall }
+PortalRun --> when(scope.x > 8.0): Repeat(X, 8.0) { PortalBay } | else: PortalBay
+// A bay: a cart door in its portal - the first always - or, one in
+// three, blank brick behind a pilaster.
+PortalBay --> when(split.i == 0): CartBay | else: AnyBay
+AnyBay --> 65% CartBay | 35% Split(X) { ~1: Wall | 0.6: Pilaster | ~1: Wall }
+CartBay --> Split(X) { ~1: Wall | 3.6: Portal | ~1: Wall }
+Portal --> Split(X) { 0.5: Pilaster | ~1: CartCol | 0.5: Pilaster }
+// A cart door over its travertine threshold: the sink buries all but its
+// top.
+CartCol --> Split(Y) { 0.45: Threshold | 3.2: CartLeaf | 0.4: Lintel | ~1: Wall }
+Threshold --> Extrude(WallD + 0.6) Mat("Travertine") I("Trim")
+CartLeaf --> Extrude(WallD - 0.2) Mat("Timber") I("Door")
+// The macellum: shop bays between travertine piers either side of a
+// columned portal under a pediment.
+MarketFront --> Split(X) { ~1: ShopSide | PortalW: GrandPortal | ~1: ShopSide }
+ShopSide --> Split(Y) { ~1: ShopRun | 1.2: Ribbon | 0.6: Wall }
+ShopRun --> when(scope.x > 3.6): Repeat(X, 3.6) { Taberna } | else: Taberna
+Taberna --> Split(X) { 0.5: Pilaster | ~1: TabUnit | 0.5: Pilaster }
+TabUnit --> Split(Y) { 0.7: Counter | 2.0: ShopGlazing | 0.3: Arch | 0.55: Sign | ~1: Wall }
+Counter --> Extrude(WallD + 0.25) Mat("Travertine") I("Trim")
+Sign --> Extrude(WallD + 0.06) Mat("Sign") I("Fascia")
+// The portal: two turned columns standing clear of the wall, a marble
+// entablature over them and a pediment facing the street. Each part is
+// extruded with the wall's slot and split from it, so the wall behind it
+// stays whole; the pediment stands a hair clear of the wall.
+GrandPortal --> Split(Y) { ColH: PortalLow | 0.6: PortalTop | ~1: Wall }
+PortalLow --> Split(X) { 0.7: PortalCol | ~1: PortalDoor | 0.7: PortalCol }
+PortalCol --> Extrude(WallD + 1.4) Split(Z) { WallD: SlotWall | ~1: NIL | 0.6: ColStand }
+SlotWall --> I("Wall")
+ColStand --> Split(Y) { 0.35: ColBase | ~1: Column }
+ColBase --> Mat("Travertine") I("Trim")
+Column --> Taper(0.08) Mat("Marble") I("Column")
+PortalDoor --> Split(Y) { StepH: Step | 3.2: DoorLeaf | ~1: Wall }
+PortalTop --> Extrude(WallD + 1.4) Split(Z) { WallD: SlotWall | ~1: Entab }
+Entab --> Mat("Marble") Split(Y) { ~1: EntabBox | 0.01: PedSlot }
+EntabBox --> I("Cornice")
+PedSlot --> Split(Z) { 0.03: NIL | ~1: Pediment }
+Pediment --> Roof(Gable, 18, overhang=0, ridge=Z) { Slope: Tiles | GableEnd: PedField }
+PedField --> I("Trim")
+// The yard side: portals at wider spacing, the ribbon over them.
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) BackFace
+BackFace --> Split(Y) { ~1: BackDoors | 1.2: Ribbon | 0.6: Wall }
+BackDoors --> Split(X) { 1.2: Wall | ~1: BackRun | 1.2: Wall }
+BackRun --> when(scope.x > 16.0): Repeat(X, 16.0) { PortalBay } | else: PortalBay
+
+// -- 3. An upper storey: the granaries, a ribbon of windows front and back --
+Upper --> Comp(Faces) { Front: UpInset | Back: UpInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpInset --> Split(X) { WallD: NIL | ~1: UpIn | WallD: NIL }
+UpIn --> Translate(0, 0, -WallD) UpFace
+UpFace --> Split(Y) { ~1: Wall | 1.4: UpRibbon | 0.9: Wall }
+UpRibbon --> Repeat(X, 3.0) { UpBay }
+UpBay --> Split(X) { ~1: Wall | 0.9: UpSlit | ~1: Wall }
+UpSlit --> Split(Y) { 0.1: Sill | ~1: Glazing | 0.24: Arch }
+Sill --> Extrude(WallD + 0.06) Mat("Travertine") I("Trim")
+
+// -- 4. The crown: a travertine cornice the whole frontage --
+Crown --> Comp(Faces) { Front: Cornice | Back: RearCrownInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+Cornice --> Split(Y) { 0.25: CorniceBed | 0.3: CorniceCorona | ~1: Attic }
+CorniceBed --> Extrude(0.18) Mat("Travertine") I("Cornice")
+CorniceCorona --> Extrude(0.55) Mat("Travertine") I("Cornice")
+Attic --> Extrude(0.1) I("Wall")
+RearCrownInset --> Split(X) { WallD: NIL | ~1: RearCrownIn | WallD: NIL }
+RearCrownIn --> Translate(0, 0, -WallD) Wall
+
+// -- 5. The roof: low tiles along the street, its gable ends the party
+// walls --
+RoofZone --> Roof(Gable, 18, overhang=0, ridge=X) { Slope: Tiles | GableEnd: Gable }
+Tiles --> Mat("Tile") I("Roof")
+Gable --> I("Wall")

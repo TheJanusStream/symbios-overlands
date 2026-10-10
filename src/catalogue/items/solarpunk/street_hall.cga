@@ -1,0 +1,135 @@
+// The solarpunk theme's hall (#1600): a timber maker hall under a sawtooth
+// of solar panels, or - where it trades - a greenhouse market hall. See
+// street_hall.rs for the hall, and catalogue::items::street for the
+// conventions and for what is declared ahead of these rules (Storeys,
+// Trade, Frontage, Depth, GroundH, FloorH) and after them (Glazing,
+// ShopGlazing, Wall).
+
+const WallD = 0.4
+const PaneSet = 0.14
+const StepH = 0.5
+const BeamH = 0.25
+const RoofH = 1.0
+
+Lot --> when(Trade == 1): Market | else: Works
+// Party walls: the sides, the full depth, turning the corners. A hall's
+// ends are its cladding, blank.
+PartyIn --> Translate(0, 0, -WallD) Wall
+PlainWall --> I("Wall")
+Gable --> I("Wall")
+Greens --> 50% Mat("Leaf") Green | 30% Mat("Crop") Green | 20% Mat("Bloom") Green
+Green --> I("Green")
+Ivy --> 60% Mat("Leaf") Green | 40% Mat("Sod") Green
+Step --> Extrude(WallD + 0.3) Mat("Lime") I("Trim")
+DoorLeaf --> Extrude(WallD - 0.18) Mat("Door") I("Door")
+Leaves --> Split(X) { ~1: DoorLeaf | 0.08: Wall | ~1: DoorLeaf }
+Panel --> Mat("PV") I("PV")
+// A ribbon of high windows between board piers.
+Ribbon --> Repeat(X, 2.4) { RibbonBay }
+RibbonBay --> Split(X) { 0.3: Wall | ~1: Glazing | 0.3: Wall }
+
+// -- 1. The maker hall: its boards rolled once, then storeys and a roof --
+Works --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Boards
+Boards --> 40% Mat("Larch") WorksMass | 30% Mat("Silver") WorksMass
+    | 30% Mat("Honey") WorksMass
+WorksMass --> when(Storeys == 1): Split(Y) { GroundH: WorksGround | RoofH: WorksRoof }
+    | else: Split(Y) { GroundH: WorksGround | ~1: Upper | RoofH: WorksRoof }
+WorksGround --> Comp(Faces) { Front: WorksFace | Back: WorksBackInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+// A frame beam along the front at the top of every storey.
+WorksFace --> Split(Y) { ~1: WorksInset | BeamH: Beam }
+Beam --> Extrude(0.15) Mat("Frame") I("Frame")
+WorksInset --> Split(X) { WallD: NIL | ~1: WorksIn | WallD: NIL }
+WorksIn --> Translate(0, 0, -WallD) Split(Y) { 4.0: WorksDoors | 0.5: SignBand | 1.2: Ribbon
+    | ~1: Wall }
+// A door for the hands at one end, bays of wide timber doors between
+// frame posts along the rest, a climber up a post here and there.
+WorksDoors --> Split(X) { 1.2: Wall | 1.2: HandDoor | 1.0: Wall | ~1: DoorRun | 1.2: Wall }
+HandDoor --> Split(Y) { StepH: Step | 2.3: DoorLeaf | ~1: Wall }
+// The first bay always has its door; the rest, seven in ten.
+DoorRun --> when(scope.x > 6.5): Repeat(X, 6.5) { DoorBay } | else: OpenBay
+DoorBay --> when(split.i == 0): OpenBay | else: AnyBay
+OpenBay --> Split(X) { 0.3: FramePost | ~1: DoorSlot | 0.3: FramePost }
+AnyBay --> 70% OpenBay | 30% Split(X) { 0.3: FramePost | ~1: Wall | 0.3: FramePost }
+FramePost --> 22% Extrude(WallD + 0.15) Ivy | 78% Extrude(WallD + 0.15) Mat("Frame") I("Frame")
+DoorSlot --> Split(X) { ~1: Wall | 4.0: WideDoor | ~1: Wall }
+// A wide door over a lime apron: the sink buries all but its top.
+WideDoor --> Split(Y) { 0.45: Apron | 3.25: Leaves | ~1: DoorHead }
+Apron --> Extrude(WallD + 1.2) Mat("Lime") I("Trim")
+DoorHead --> Extrude(WallD + 0.1) Mat("Frame") I("Frame")
+SignBand --> Split(X) { ~1: Wall | ~2: Sign | ~1: Wall }
+Sign --> Extrude(WallD + 0.1) Mat("Frame") I("Fascia")
+// The yard side: a wide door here and there, the ribbon over them.
+WorksBackInset --> Split(X) { WallD: NIL | ~1: WorksBackIn | WallD: NIL }
+WorksBackIn --> Translate(0, 0, -WallD) Split(Y) { 4.0: BackDoors | 1.2: Ribbon | ~1: Wall }
+BackDoors --> Split(X) { 1.2: Wall | ~1: BackRun | 1.2: Wall }
+BackRun --> when(scope.x > 12): Repeat(X, 12.0) { DoorBay } | else: OpenBay
+// A gallery over the hall: one ribbon of windows front and back.
+Upper --> Comp(Faces) { Front: UpFace | Back: UpInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpFace --> Split(Y) { ~1: UpInset | BeamH: Beam }
+UpInset --> Split(X) { WallD: NIL | ~1: UpIn | WallD: NIL }
+UpIn --> Translate(0, 0, -WallD) Split(Y) { 0.8: Wall | 1.6: Ribbon | ~1: Wall }
+// The roof: a sawtooth of panels and north lights, or a low sod gable
+// with panels let into it bay by bay.
+WorksRoof --> Pick("roof") { 60% Sawtooth | 40% SodGable }
+Sawtooth --> Repeat(Z, 8.0) { Tooth }
+Tooth --> Roof(Shed, 22, overhang=0) { Slope: Panel | Back: NorthLight | GableEnd: Gable }
+NorthLight --> Mat("NorthLight") I("Glasshouse")
+SodGable --> Roof(Gable, 12, overhang=0, ridge=X) { Slope: SodSlope | GableEnd: Gable }
+SodSlope --> Repeat(X, 6.0) { SodBay }
+SodBay --> Split(X) { ~1: Sod | 4.0: PanelCol | ~1: Sod }
+PanelCol --> Split(Y) { ~1: Sod | ~2: Panel | ~1: Sod }
+Sod --> Mat("Sod") I("Roof")
+
+// -- 2. The greenhouse market: tall glass between timber posts, greens at
+// its feet, a green canopy, and a ridge-and-furrow glass roof --
+Market --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Mat("Frame") MarketMass
+MarketMass --> when(Storeys == 1): Split(Y) { GroundH: MarketGround | RoofH: MarketRoof }
+    | else: Split(Y) { GroundH: MarketGround | ~1: Gallery | RoofH: MarketRoof }
+MarketGround --> Comp(Faces) { Front: MarketFace | Back: MarketBackInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+MarketFace --> Split(Y) { 3.4: MarketInset | 0.16: Canopy | 0.5: Fascia | ~1: ClerestoryInset }
+Canopy --> Extrude(1.6) Mat("Sod") I("Canopy")
+Fascia --> Extrude(0.12) Mat("Larch") I("Fascia")
+MarketInset --> Split(X) { WallD: NIL | ~1: MarketIn | WallD: NIL }
+// One door in the middle of a short front, two along a long one.
+MarketIn --> Translate(0, 0, -WallD) MarketRow
+MarketRow --> when(scope.x < 30): Split(X) { ~1: MarketRun | 2.4: MarketDoor | ~1: MarketRun }
+    | else: Split(X) { ~1: MarketRun | 2.4: MarketDoor | ~1: MarketRun | 2.4: MarketDoor
+    | ~1: MarketRun }
+MarketRun --> Repeat(X, 2.4) { MarketBay }
+MarketBay --> Split(X) { 0.16: MarketPost | ~1: MarketWindow | 0.16: MarketPost }
+MarketPost --> Extrude(WallD + 0.1) I("Frame")
+MarketWindow --> Split(Y) { 0.6: PlinthPlanter | ~1: ShopGlazing }
+// A planter before the glass's plinth: a box of greens on the pavement.
+PlinthPlanter --> Extrude(WallD + 0.6) Split(Z) { WallD: PlainWall | ~1: Planter }
+Planter --> Split(Y) { 0.4: PlanterBox | ~1: Greens }
+PlanterBox --> Mat("Frame") I("Planter")
+MarketDoor --> Split(X) { 0.16: MarketPost | ~1: DoorCol | 0.16: MarketPost }
+DoorCol --> Split(Y) { StepH: Step | 2.3: Leaves | ~1: ShopGlazing }
+ClerestoryInset --> Split(X) { WallD: NIL | ~1: ClerestoryIn | WallD: NIL }
+ClerestoryIn --> Translate(0, 0, -WallD) Repeat(X, 2.4) { ClerestoryBay }
+ClerestoryBay --> Split(X) { 0.16: MarketPost | ~1: ShopGlazing }
+MarketBackInset --> Split(X) { WallD: NIL | ~1: MarketBackIn | WallD: NIL }
+MarketBackIn --> Translate(0, 0, -WallD) Repeat(X, 2.4) { MarketBackBay }
+MarketBackBay --> Split(X) { ~1: Wall | 1.6: MarketBackWindow | ~1: Wall }
+MarketBackWindow --> Split(Y) { 0.9: Wall | 2.4: ShopGlazing | ~1: Wall }
+// A gallery over the market: one ribbon of windows front and back.
+Gallery --> Comp(Faces) { Front: GalleryInset | Back: GalleryInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GalleryInset --> Split(X) { WallD: NIL | ~1: GalleryIn | WallD: NIL }
+GalleryIn --> Translate(0, 0, -WallD) Split(Y) { 0.8: Wall | 1.6: GalleryRibbon | ~1: Wall }
+GalleryRibbon --> Repeat(X, 2.4) { GalleryBay }
+GalleryBay --> Split(X) { 0.16: MarketPost | ~1: Glazing }
+// Ridge and furrow: a glass gable to the street every four metres, one
+// here and there a field of panels.
+MarketRoof --> Split(Y) { ~1: Spans | 0.01: CeilingLayer }
+Spans --> Repeat(X, 4.0) { Span }
+// The market's lit ceiling under the glass, hung between its walls from a
+// sliver at the zone's top.
+CeilingLayer --> Translate(WallD, 0.01 - RoofH - 0.4, WallD)
+    Size(scope.x - 2 * WallD, 0.1, scope.z - 2 * WallD) Mat("ShopLit") I("Roof")
+Span --> 80% Roof(Gable, 26, overhang=0, ridge=Z) { Slope: GlassSlope | GableEnd: GlassSlope }
+    | 20% Roof(Gable, 26, overhang=0, ridge=Z) { Slope: Panel | GableEnd: GlassSlope }
+GlassSlope --> Mat("GlassRoof") I("Glasshouse")

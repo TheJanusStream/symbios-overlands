@@ -1,0 +1,144 @@
+// The gothic horror theme's detached house (#1600): a Victorian gothic
+// villa alone in its garden. See street_detached.rs for the villa, and
+// catalogue::items::street for the conventions and for what is declared
+// ahead of these rules (Storeys, Trade, Frontage, Depth, GroundH, FloorH)
+// and after them (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.45
+const PaneSet = 0.15
+const CourseH = 0.3
+const RoofH = 0.6
+// How far the roof reaches past the walls: the walls stand this far in
+// from the lot's sides, so the eaves and verges keep inside it.
+const Eave = 0.5
+// The main roof's rise over a run of one: tan(50 degrees).
+const Rise = 1.19
+// The corner tower's side.
+const TowerW = 2.6
+
+// -- 1. The villa: its walls stand in from the lot, the masonry rolled once --
+Lot --> Split(X) { Eave: NIL | ~1: LotRow | Eave: NIL }
+LotRow --> Split(Z) { Eave: NIL | ~1: Plot | Eave: NIL }
+Plot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Masonry
+Masonry --> 35% Mat("Brick") Massing | 25% Mat("BlackBrick") Massing
+    | 25% Mat("Stone") Massing | 15% Mat("Mossy") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Uppers | RoofH: RoofZone }
+SlotWall --> I("Wall")
+// A pointed hood over a window: a drip-stone, and on it a steep little
+// gable of dressed stone standing a hair clear of the wall, as the town
+// house's.
+HoodBase --> Extrude(WallD + 0.16) Split(Z) { WallD: SlotWall | ~1: HoodFront }
+HoodFront --> Split(Y) { 0.1: Drip | ~1: PeakSlot }
+Drip --> Mat("Dressing") I("Trim")
+PeakSlot --> Split(Z) { 0.03: NIL | ~1: Peak }
+Peak --> Roof(Gable, 55, overhang=0, ridge=Z) { Slope: Dressed | GableEnd: Dressed }
+Dressed --> Mat("Dressing") I("Trim")
+Sill --> Extrude(WallD + 0.08) Mat("Dressing") I("Trim")
+// The string course over the ground storey, wrapping the villa.
+Course --> Extrude(0.1) Mat("Dressing") I("Trim")
+// A pointed window: a tall window over its sill, under its hood.
+WinBay --> Split(X) { ~1: Wall | 1.0: PointedWin | ~1: Wall }
+PointedWin --> Split(Y) { 0.9: Wall | 0.12: Sill | 1.9: Glazing | 0.14: HoodBase | ~1: Wall }
+UpBay --> Split(X) { ~1: Wall | 1.0: UpWin | ~1: Wall }
+UpWin --> Split(Y) { 0.75: Wall | 0.12: Sill | 1.75: Glazing | 0.14: HoodBase | ~1: Wall }
+
+// -- 2. The ground storey: a stoop to the door, pointed windows all round --
+Ground --> Comp(Faces) { Front: GroundFace | Back: BackFace | Left: SideFace
+    | Right: SideFace | Top: NIL | Bottom: NIL }
+GroundFace --> Split(Y) { ~1: FrontInset | CourseH: Course }
+FrontInset --> Split(X) { WallD: NIL | ~1: FrontIn | WallD: NIL }
+FrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> Split(X) { ~1: Run | 2.0: Entrance | ~1.4: Run }
+Run --> when(scope.x > 2.8): Repeat(X, 2.8) { WinBay } | else: WinBay
+// The door up a stoop of two steps, under a stained fanlight and a
+// pointed hood, or under a gabled porch on brackets.
+Entrance --> Pick("porch") { 55% HoodEntrance | 45% PorchEntrance }
+HoodEntrance --> Split(X) { 0.35: Wall | ~1: HoodDoorCol | 0.35: Wall }
+HoodDoorCol --> Split(Y) { 0.8: Stoop | 2.05: DoorLeaf | 0.18: Fanlight | 0.14: HoodBase | ~1: Wall }
+PorchEntrance --> Split(Y) { 3.05: PorchBody | 0.16: Porch | ~1: Wall }
+PorchBody --> Split(X) { 0.35: Wall | ~1: PorchDoorCol | 0.35: Wall }
+PorchDoorCol --> Split(Y) { 0.8: Stoop | 2.05: DoorLeaf | 0.18: Fanlight | ~1: Wall }
+Stoop --> Split(Y) { 0.4: StoopLow | ~1: StoopTop }
+StoopLow --> Extrude(WallD + 0.9) Mat("Dressing") I("Trim")
+StoopTop --> Extrude(WallD + 0.5) Mat("Dressing") I("Trim")
+DoorLeaf --> 55% Mat("Door") Leaf | 45% Mat("DoorBlack") Leaf
+Leaf --> Extrude(WallD - 0.15) I("Door")
+Fanlight --> Extrude(WallD - 0.15) Mat("Stained") I("Pane")
+// The porch: a dark beam out of the wall on brackets, a steep slate gable
+// over it, a hair clear of the wall.
+Porch --> Extrude(WallD + 1.3) Split(Z) { WallD: SlotWall | ~1: PorchFront }
+PorchFront --> Split(Y) { 0.1: PorchBeam | ~1: PorchPeakSlot }
+PorchBeam --> Mat("Barge") I("Trim")
+PorchPeakSlot --> Split(Z) { 0.03: NIL | ~1: PorchPeak }
+PorchPeak --> Roof(Gable, 50, overhang=0, ridge=Z) { Slope: SlateSlope | GableEnd: Barge }
+Barge --> Mat("Barge") I("Trim")
+// The garden side and the flanks: pointed windows, the flanks' walls the
+// full depth, turning the corners.
+BackFace --> Split(Y) { ~1: BackInset | CourseH: Course }
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) Run
+SideFace --> Split(Y) { ~1: SideIn | CourseH: Course }
+SideIn --> Translate(0, 0, -WallD) Split(X) { 0.6: Wall | ~1: SideRun | 0.6: Wall }
+SideRun --> when(scope.x > 3.2): Repeat(X, 3.2) { WinBay } | else: WinBay
+
+// -- 3. The upper storeys: pointed windows over the ground floor's, all round --
+Uppers --> Comp(Faces) { Front: UpInset | Back: UpInset | Left: UpSideIn
+    | Right: UpSideIn | Top: NIL | Bottom: NIL }
+UpInset --> Split(X) { WallD: NIL | ~1: UpIn | WallD: NIL }
+UpIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { UpStorey }
+UpStorey --> when(scope.x > 2.8): Repeat(X, 2.8) { UpBay } | else: UpBay
+UpSideIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { UpSideStorey }
+UpSideStorey --> Split(X) { 0.6: Wall | ~1: UpSideRun | 0.6: Wall }
+UpSideRun --> when(scope.x > 3.2): Repeat(X, 3.2) { UpBay } | else: UpBay
+
+// -- 4. The roof: steep slate along the lane, the same with a spired
+// tower, or a steep gable turned to the lane --
+RoofZone --> Pick("roof") { 45% LongRoof | 30% TowerRoof | 25% FrontGable }
+SlateSlope --> Mat("Slate") I("Roof")
+// Each part is drawn from its own sliver at the zone's foot.
+LongRoof --> Split(Y) { 0.01: MainRoof | 0.01: ChimneyZone | ~1: CrestZone }
+TowerRoof --> Split(Y) { 0.01: MainRoof | 0.01: TowerZone | ~1: CrestZone }
+MainRoof --> Roof(Gable, 50, overhang=Eave, ridge=X) { Slope: SlateSlope | GableEnd: SlotWall }
+// Iron cresting along the ridge, lifted to it.
+CrestZone --> Translate(0.05, Rise * scope.z / 2 - 0.12, scope.z / 2 - 0.04)
+    Size(scope.x - 0.1, 0.55, 0.08) Mat("Iron") Split(Y) { 0.1: CrestRail | ~1: Spikes }
+CrestRail --> I("Iron")
+Spikes --> Repeat(X, 0.5) { SpikeBay }
+SpikeBay --> Split(X) { ~1: NIL | 0.06: Spike | ~1: NIL }
+Spike --> I("Iron")
+// A tall chimney stack on the back slope by a flank, its cap dressed.
+ChimneyZone --> Translate(0.5, -0.01, scope.z * 0.62)
+    Size(0.9, Rise * scope.z * 0.38 + 1.4, 0.7) Split(Y) { ~1: Stack | 0.2: ChimneyCap }
+Stack --> I("Chimney")
+ChimneyCap --> Translate(-0.08, 0, -0.08) Size(scope.x + 0.16, 0.2, scope.z + 0.16)
+    Mat("Dressing") I("Trim")
+// The corner tower: a lancet front and flank, a needle spire of slate. It
+// stands a hand proud of the walls, so its faces share no plane with the
+// roof's gable end.
+TowerZone --> Split(X) { TowerW: TowerX | ~1: NIL }
+TowerX --> Split(Z) { TowerW: TowerFoot | ~1: NIL }
+TowerFoot --> Translate(-0.12, -0.01, -0.12) Size(scope.x + 0.12, 3.0, scope.z + 0.12)
+    Split(Y) { ~1: TowerRoom | 0.01: Spire }
+TowerRoom --> Comp(Faces) { Front: TowerInset | Back: TowerInset | Left: TowerSide
+    | Right: TowerSide | Top: NIL | Bottom: NIL }
+TowerInset --> Split(X) { WallD: NIL | ~1: TowerIn | WallD: NIL }
+TowerIn --> Translate(0, 0, -WallD) TowerFace
+TowerSide --> Translate(0, 0, -WallD) TowerFace
+TowerFace --> Split(X) { ~1: Wall | 0.7: TowerLancet | ~1: Wall }
+TowerLancet --> Split(Y) { 0.7: Wall | 1.5: Glazing | ~1: Wall }
+Spire --> Roof(Pyramid, 70, overhang=0.15) { Slope: SlateSlope }
+// The gable turned to the lane: a lancet in its peak under a hood, iron
+// cresting along its ridge.
+FrontGable --> Split(Y) { 0.01: FrontRoof | 0.01: AtticZone | ~1: CrestZoneZ }
+FrontRoof --> Roof(Gable, 50, overhang=Eave, ridge=Z) { Slope: SlateSlope | GableEnd: SlotWall }
+AtticZone --> Translate(scope.x / 2 - 0.5, 0.5, -0.13) Size(1.0, 1.75, 0.16)
+    Split(Y) { 1.5: AtticGlazed | 0.1: Drip | ~1: AtticPeak }
+AtticGlazed --> Split(Z) { 0.03: AtticPane | ~1: AtticRoom }
+AtticPane --> Mat("Glass") I("Pane")
+AtticRoom --> 40% Mat("RoomLit") I("Room") | 60% Mat("RoomDark") I("Room")
+AtticPeak --> Roof(Gable, 55, overhang=0, ridge=Z) { Slope: Dressed | GableEnd: Dressed }
+CrestZoneZ --> Translate(scope.x / 2 - 0.04, Rise * scope.x / 2 - 0.12, 0.05)
+    Size(0.08, 0.55, scope.z - 0.1) Mat("Iron") Split(Y) { 0.1: CrestRail | ~1: SpikesZ }
+SpikesZ --> Repeat(Z, 0.5) { SpikeBayZ }
+SpikeBayZ --> Split(Z) { ~1: NIL | 0.06: Spike | ~1: NIL }

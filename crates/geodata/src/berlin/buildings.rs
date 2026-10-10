@@ -143,7 +143,7 @@ struct Properties {
 
 /// A whole number from a property GeoServer may give as a number or as a
 /// string.
-fn whole(v: &Option<serde_json::Value>) -> Option<u64> {
+pub(super) fn whole(v: &Option<serde_json::Value>) -> Option<u64> {
     match v.as_ref()? {
         serde_json::Value::Number(n) => n.as_u64(),
         serde_json::Value::String(s) => s.trim().parse().ok(),

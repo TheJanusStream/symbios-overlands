@@ -1,0 +1,128 @@
+// The pirate theme's hall (#1600): a harbour warehouse, or - where it
+// trades - a market exchange behind its arches. See street_hall.rs for the
+// hall, and catalogue::items::street for the conventions and for what is
+// declared ahead of these rules (Storeys, Trade, Frontage, Depth, GroundH,
+// FloorH) and after them (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.5
+const PaneSet = 0.18
+const StepH = 0.55
+const PlinthH = 0.8
+const CorniceH = 0.45
+const RoofH = 1.0
+
+// -- 1. The hall: its wall rolled once, then storeys, a cornice, a roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + CorniceH + RoofH) Masonry
+Masonry --> 45% Mat("CoralStone") Massing | 20% Mat("Ochre") Massing
+    | 15% Mat("Stone") Massing | 20% Mat("Strake") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | CorniceH: Crown | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Loft | CorniceH: Crown | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners. A hall's
+// ends are its own masonry, blank.
+PartyIn --> Translate(0, 0, -WallD) Wall
+Dressing --> Mat("Lime") I("Trim")
+Sill --> Extrude(WallD + 0.06) Dressing
+Lintel --> Extrude(WallD + 0.08) Dressing
+Step --> Extrude(WallD + 0.35) Mat("Stone") I("Trim")
+DoorLeaf --> Extrude(WallD - 0.2) Mat("Door") I("Door")
+// An arch's head: a band of dressed voussoirs, a keystone at its middle.
+Voussoirs --> Split(X) { ~1: Voussoir | 0.5: Keystone | ~1: Voussoir }
+Voussoir --> Extrude(WallD + 0.06) Dressing
+Keystone --> Extrude(WallD + 0.16) Dressing
+// A small window between its plank shutters.
+ShutRow --> Split(X) { 0.36: ShutterLeaf | ~1: Glazing | 0.36: ShutterLeaf }
+ShutterLeaf --> Extrude(WallD + 0.05) Mat("Shutter") I("Shutter")
+SmallWin --> Split(Y) { 1.9: Wall | 0.08: Sill | 1.3: ShutRow | 0.26: Lintel | ~1: Wall }
+// A hoist beam over a loading door.
+BeamRow --> Split(X) { ~1: Wall | 0.3: Beam | ~1: Wall }
+Beam --> Extrude(WallD + 1.4) Mat("Beam") I("Beam")
+
+// -- 2. The ground storey: a warehouse's cart doors, or the exchange's
+// arches --
+Ground --> Comp(Faces) { Front: FrontInset | Back: BackInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+FrontInset --> Split(X) { WallD: NIL | ~1: FrontIn | WallD: NIL }
+FrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> when(Trade == 1): Exchange | else: Warehouse
+// The warehouse: the clerk's door and window at one end, then bay after
+// bay, most an arched cart door, some a pair of shuttered windows.
+Warehouse --> Split(X) { 1.4: Wall | 1.2: ManDoor | 0.8: Wall | 1.6: SmallWin | ~1: BayRun
+    | 1.4: Wall }
+ManDoor --> Split(Y) { StepH: Step | 2.3: DoorLeaf | 0.3: Lintel | ~1: Wall }
+BayRun --> when(scope.x < 13): CartBay | else: Repeat(X, 6.5) { Bay }
+Bay --> 70% CartBay | 30% Split(X) { ~1: Wall | 1.6: SmallWin | 1.0: Wall | 1.6: SmallWin
+    | ~1: Wall }
+CartBay --> Split(X) { ~1: Wall | 3.6: CartCol | ~1: Wall }
+// A cart door of two oak leaves over a stone apron, under its voussoirs,
+// and on a warehouse of one storey a hoist beam over it.
+CartCol --> Split(Y) { 0.45: Apron | 3.2: CartDoor | 0.5: Voussoirs | ~1: OverCart }
+Apron --> Extrude(WallD + 1.0) Mat("Stone") I("Trim")
+CartDoor --> Split(X) { ~1: DoorLeaf | ~1: DoorLeaf }
+OverCart --> when(Storeys == 1): Split(Y) { ~1: Wall | 0.3: BeamRow | 0.25: Wall } | else: Wall
+// The exchange: arched shop windows on a plinth, a broad door to every
+// section with its sign hung beside it, a stone course over the arches
+// and the exchange's name board.
+Exchange --> Split(Y) { 4.0: Arcade | 0.3: Course | 0.9: NameBand | ~1: Wall }
+Course --> Extrude(WallD + 0.1) Dressing
+Arcade --> Repeat(X, 14.4) { Section }
+Section --> Split(X) { ~1: ArchRun | 0.12: SignCol | 2.4: ArchDoor | ~1: ArchRun }
+ArchRun --> when(scope.x < 3.6): ArchBay | else: Repeat(X, 3.6) { ArchBay }
+ArchBay --> Split(X) { 0.5: Wall | ~1: ArchCol | 0.5: Wall }
+ArchCol --> Split(Y) { PlinthH: Wall | 2.6: ShopGlazing | 0.5: Voussoirs | ~1: Wall }
+ArchDoor --> Split(X) { 0.3: Wall | ~1: ArchDoorCol | 0.3: Wall }
+ArchDoorCol --> Split(Y) { StepH: Step | 2.85: CartDoor | 0.5: Voussoirs | ~1: Wall }
+// A sign: a board hung square to the street under an iron bracket.
+SignCol --> Split(Y) { 2.9: Wall | 0.8: SignBand | 0.1: BracketBand | ~1: Wall }
+SignBand --> Extrude(WallD + 1.35) Split(Z) { WallD: SignWall | 0.3: NIL | ~1: SignBoard }
+SignWall --> I("Wall")
+SignBoard --> Mat("Sign") I("Fascia")
+BracketBand --> Extrude(WallD + 1.45) Split(Z) { WallD: SignWall | ~1: Bracket }
+Bracket --> Mat("Iron") I("Bracket")
+NameBand --> when(scope.x > 30): Split(X) { ~1: Wall | 20.0: NameBoard | ~1: Wall }
+    | else: Split(X) { ~1: Wall | ~4: NameBoard | ~1: Wall }
+NameBoard --> Mat("Sign") Split(Y) { ~1: NameFill | ~2: Letters | ~1: NameFill }
+Letters --> Repeat(X, 1.0) { Glyph }
+// A gilt letter or a space, glyph by glyph.
+Glyph --> 78% Split(X) { ~1: NameFill | 0.5: Letter | ~1: NameFill } | 22% NameFill
+NameFill --> Extrude(WallD + 0.08) I("Fascia")
+Letter --> Extrude(WallD + 0.12) Mat("Gilt") I("Fascia")
+// The yard side: a cart door and a shuttered window to a bay.
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) BackFace
+BackFace --> Split(X) { 1.4: Wall | ~1: BackRun | 1.4: Wall }
+BackRun --> Repeat(X, 12.0) { BackBay }
+BackBay --> Split(X) { ~1: Wall | 3.6: CartCol | ~1: Wall | 1.6: SmallWin | ~1: Wall }
+
+// -- 3. The loft: shuttered windows, and on a warehouse a loading door
+// here and there under its hoist beam --
+Loft --> Comp(Faces) { Front: LoftInset | Back: LoftInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+LoftInset --> Split(X) { WallD: NIL | ~1: LoftIn | WallD: NIL }
+LoftIn --> Translate(0, 0, -WallD) LoftFace
+LoftFace --> Split(X) { 1.4: Wall | ~1: LoftRun | 1.4: Wall }
+LoftRun --> Repeat(X, 3.2) { LoftBay }
+LoftBay --> when(Trade == 1): LoftWinBay | else: WorksLoftBay
+WorksLoftBay --> 75% LoftWinBay | 25% Split(X) { ~1: Wall | 1.4: LoadCol | ~1: Wall }
+LoftWinBay --> Split(X) { ~1: Wall | 1.6: LoftWin | ~1: Wall }
+LoftWin --> Split(Y) { 0.8: Wall | 0.08: Sill | 1.3: ShutRow | 0.26: Lintel | ~1: Wall }
+LoadCol --> Split(Y) { 0.45: Wall | 2.3: LoadDoor | 0.3: BeamRow | ~1: Wall }
+LoadDoor --> Extrude(WallD - 0.2) Mat("Door") I("Door")
+
+// -- 4. The cornice: the whole frontage, cut from the full face --
+Crown --> Comp(Faces) { Front: Cornice | Back: CrownBackInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+Cornice --> Split(Y) { 0.15: CorniceBed | ~1: CorniceTop }
+CorniceBed --> Extrude(0.12) Mat("Trim") I("Cornice")
+CorniceTop --> Extrude(0.3) Mat("Trim") I("Cornice")
+CrownBackInset --> Split(X) { WallD: NIL | ~1: CrownBackIn | WallD: NIL }
+CrownBackIn --> Translate(0, 0, -WallD) Wall
+
+// -- 5. The roof: a row of steep gables to the quay, store after store,
+// or one long gable along it; the exchange's the long gable --
+RoofZone --> when(Trade == 1): LongGable | else: WorksRoof
+WorksRoof --> Pick("roof") { 55% Gables | 45% LongGable }
+Gables --> Repeat(X, 12.0) { Storehead }
+Storehead --> Roof(Gable, 40, overhang=0, ridge=Z) { Slope: Shingles | GableEnd: Gable }
+LongGable --> Roof(Gable, 20, overhang=0, ridge=X) { Slope: Shingles | GableEnd: Gable }
+Shingles --> Mat("Shingle") I("Roof")
+Gable --> I("Wall")

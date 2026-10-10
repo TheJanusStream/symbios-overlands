@@ -1,0 +1,121 @@
+// The medieval theme's hall (#1600): a tithe barn, or - where it trades - a
+// market hall of framed stalls. See street_hall.rs for the hall, and
+// catalogue::items::street for the conventions and for what is declared
+// ahead of these rules (Storeys, Trade, Frontage, Depth, GroundH, FloorH)
+// and after them (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.45
+const PaneSet = 0.15
+const StepH = 0.5
+const RoofH = 0.6
+// The loft stands out over the street by the wall's depth, so its back
+// meets the party walls' ends face to face.
+const Jetty = 0.45
+// One barn bay along the front: a buttress, or a cart door's porch.
+const BayW = 9.0
+// One span of the roof, back from the street: each a steep gable.
+const SpanD = 12.0
+const Pitch = 45
+
+// -- 1. The hall: stone for a barn, daub for a market, rolled once --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Face
+Face --> when(Trade == 1): MarketFace | else: BarnFace
+BarnFace --> 60% Mat("Rubble") Massing | 40% Mat("Stone") Massing
+MarketFace --> 30% Mat("DaubCream") Massing | 25% Mat("DaubWhite") Massing
+    | 25% Mat("DaubOchre") Massing | 20% Mat("DaubRose") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Loft | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+// The frame's timber is Picked once, whatever member it is.
+Beam --> Pick("frame") { 50% OakBeam | 30% DarkBeam | 20% RedBeam }
+OakBeam --> Mat("Oak") I("Timber")
+DarkBeam --> Mat("DarkOak") I("Timber")
+RedBeam --> Mat("Oxblood") I("Timber")
+Post --> Extrude(WallD + 0.05) Beam
+Rail --> Extrude(WallD + 0.04) Beam
+Step --> Extrude(WallD + 0.3) Mat("Dressing") I("Trim")
+DoorLeaf --> Extrude(WallD - 0.15) Mat("Door") I("Door")
+// A slit window set high in the stone, between blank wall.
+SlitWall --> Split(X) { ~1: Wall | 0.45: SlitCol | ~1: Wall }
+SlitCol --> Split(Y) { 3.0: Wall | 1.7: Glazing | ~1: Wall }
+
+// -- 2. The ground storey: a barn's doors, or a market's stalls --
+Ground --> Comp(Faces) { Front: FrontInset | Back: BackInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+FrontInset --> Split(X) { WallD: NIL | ~1: FrontIn | WallD: NIL }
+FrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> when(Trade == 1): MarketFront | else: BarnFront
+// The barn: a door for people at one end, then bays of buttresses and of
+// cart doors in their porches - the first bay always a porch.
+BarnFront --> Split(X) { 1.0: Wall | 1.1: ManDoor | 0.8: Wall | ~1: BarnRun | 1.0: Wall }
+ManDoor --> Split(Y) { StepH: Step | 2.2: DoorLeaf | 0.3: Lintel | ~1: Wall }
+Lintel --> Extrude(WallD + 0.06) Mat("Dressing") I("Trim")
+BarnRun --> when(scope.x > BayW): Repeat(X, BayW) { BarnBay } | else: BarnBay
+BarnBay --> when(split.i == 0): PorchBay | else: AnyBay
+AnyBay --> 60% ButtressBay | 40% PorchBay
+ButtressBay --> Split(X) { ~1: SlitWall | 0.8: Buttress | ~1: SlitWall }
+Buttress --> Split(Y) { ~1: ButtressLow | 1.4: ButtressTop }
+ButtressLow --> Extrude(WallD + 0.8) Mat("Dressing") I("Trim")
+ButtressTop --> Extrude(WallD + 0.4) Mat("Dressing") I("Trim")
+// The midstrey: a porch standing out of the front, its cheeks and its
+// head the barn's own stone, a steep gable over it, the cart door at its
+// back over a stone threshold. The porch's gable stands a hair clear of
+// the wall: its back would lie in the wall's face.
+PorchBay --> Split(X) { ~1: SlitWall | 4.8: Midstrey | ~1: SlitWall }
+Midstrey --> Split(Y) { 4.7: PorchLow | ~1: PorchHigh }
+PorchLow --> Split(X) { 0.6: PorchCheek | ~1: CartCol | 0.6: PorchCheek }
+PorchCheek --> Extrude(WallD + 1.8) I("Wall")
+CartCol --> Split(Y) { 0.45: Threshold | 3.8: CartLeaf | ~1: PorchCheek }
+Threshold --> Extrude(WallD + 1.8) Mat("Dressing") I("Trim")
+CartLeaf --> Extrude(WallD - 0.15) Mat("Door") I("Door")
+PorchHigh --> Extrude(WallD + 1.8) Split(Z) { WallD: SlotWall | ~1: PorchHead }
+SlotWall --> I("Wall")
+PorchHead --> Split(Y) { ~1: SlotWall | 0.01: PorchRoofSlot }
+PorchRoofSlot --> Split(Z) { 0.03: NIL | ~1: PorchRoof }
+PorchRoof --> Roof(Gable, Pitch, overhang=0, ridge=Z) { Slope: RoofSlope | GableEnd: Gable }
+// The market: framed stalls between posts either side of its doors, each
+// a window over a shutter let down as a counter under its sign, a rail
+// over them and a high window in each bay over that.
+MarketFront --> Split(X) { 0.25: FullPost | ~1: StallRun | 2.2: MarketDoor | ~1: StallRun
+    | 0.25: FullPost }
+FullPost --> Post
+StallRun --> when(scope.x > 3.6): Repeat(X, 3.6) { StallBay } | else: StallBay
+StallBay --> Split(X) { ~1: Stall | 0.25: FullPost }
+Stall --> Split(Y) { 0.8: Wall | 0.1: Counter | 1.6: ShopGlazing | 0.45: SignBoard | 0.25: Rail
+    | ~1: HighWall }
+Counter --> Extrude(WallD + 0.6) Mat("Shutter") I("Shutter")
+SignBoard --> Extrude(WallD + 0.05) Mat("Sign") I("Sign")
+HighWall --> Split(X) { ~1: Wall | 1.0: HighWin | ~1: Wall }
+HighWin --> Split(Y) { 0.5: Wall | 1.3: Glazing | ~1: Wall }
+MarketDoor --> Split(Y) { StepH: Step | 2.75: DoorLeaf | 0.25: Rail | ~1: HighWall }
+// The yard side: buttresses and slits, barn or market alike.
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) Split(X) { 1.0: Wall | ~1: BackRun | 1.0: Wall }
+BackRun --> when(scope.x > BayW): Repeat(X, BayW) { ButtressBay } | else: ButtressBay
+
+// -- 3. The loft: framed, jettied over the street on a bressumer the whole
+// frontage; small windows to the yard --
+Loft --> Comp(Faces) { Front: LoftFace | Back: RearLoftInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+LoftFace --> Split(Y) { 0.25: Bressumer | ~1: LoftBody }
+Bressumer --> Extrude(Jetty) Beam
+LoftBody --> Translate(0, 0, Jetty - WallD) Split(X) { 0.22: Post | ~1: LoftBays | 0.22: Post }
+LoftBays --> Repeat(X, 3.2) { LoftBay }
+LoftBay --> Split(X) { ~1: LoftPanel | 1.0: LoftWin | ~1: LoftPanel | 0.2: Post }
+LoftPanel --> Split(Y) { 0.8: Wall | 0.14: Rail | ~1: Wall }
+LoftWin --> Split(Y) { 0.8: Wall | 0.14: Rail | 1.2: Glazing | 0.14: Rail | ~1: Wall }
+RearLoftInset --> Split(X) { WallD: NIL | ~1: RearLoftIn | WallD: NIL }
+RearLoftIn --> Translate(0, 0, -WallD) Repeat(X, 4.0) { RearLoftBay }
+RearLoftBay --> Split(X) { ~1: Wall | 0.8: RearLoftWin | ~1: Wall }
+RearLoftWin --> Split(Y) { 0.9: Wall | 1.1: Glazing | ~1: Wall }
+
+// -- 4. The roof: steep gables along the street in spans back from it, so
+// a deep hall's crown stays low; their ends are the party walls --
+RoofZone --> when(scope.z > SpanD): Repeat(Z, SpanD) { Span } | else: Span
+Span --> Roof(Gable, Pitch, overhang=0, ridge=X) { Slope: RoofSlope | GableEnd: Gable }
+RoofSlope --> Pick("roof") { 35% ThatchSlope | 40% TileSlope | 25% SlateSlope }
+ThatchSlope --> Mat("Thatch") I("Roof")
+TileSlope --> Mat("Tile") I("Roof")
+SlateSlope --> Mat("Slate") I("Roof")
+Gable --> I("Wall")

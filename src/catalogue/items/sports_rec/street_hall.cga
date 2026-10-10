@@ -1,0 +1,121 @@
+// The sports theme's hall (#1600): a district sports hall, or - where it
+// trades - a sports megastore. See street_hall.rs for the hall, and
+// catalogue::items::street for the conventions and for what is declared ahead
+// of these rules (Storeys, Trade, Frontage, Depth, GroundH, FloorH) and after
+// them (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.32
+const PaneSet = 0.12
+const StepH = 0.5
+// The roof zone: a sports hall's vault or gable, a store's parapet.
+const RoofH = 1.4
+// The broad band in the club's colour over the ground storey's front.
+const BandH = 1.2
+
+// -- 1. The hall: its cladding rolled once, then storeys and a roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Cladding
+Cladding --> 40% Mat("Panel") Massing | 30% Mat("Render") Massing
+    | 30% Mat("Concrete") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Upper | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners. A hall's
+// gable ends are its cladding, blank.
+PartyIn --> Translate(0, 0, -WallD) Wall
+Step --> Extrude(WallD + 0.3) Mat("Trim") I("Trim")
+
+// -- The club's colour, Picked once: a part names its kind --
+Team(k) --> Pick("team") { 30% TeamRed(k) | 25% TeamBlue(k) | 25% TeamGreen(k)
+    | 20% TeamOrange(k) }
+TeamRed(k) --> Mat("TeamRed") TeamPart(k)
+TeamBlue(k) --> Mat("TeamBlue") TeamPart(k)
+TeamGreen(k) --> Mat("TeamGreen") TeamPart(k)
+TeamOrange(k) --> Mat("TeamOrange") TeamPart(k)
+TeamPart(k) --> when(k == 1): Band | when(k == 2): TeamDoor | else: Fascia
+Band --> Extrude(0.12) I("Band")
+TeamDoor --> Extrude(WallD - 0.14) I("Door")
+Fascia --> Extrude(WallD + 0.1) I("Fascia")
+// A ribbon of high windows, along any front.
+Ribbon --> Repeat(X, 2.4) { RibbonBay }
+RibbonBay --> Split(X) { 0.15: Wall | ~1: Glazing | 0.15: Wall }
+// A fire door up a step, here and there along a run.
+FireRun --> when(scope.x < 12.0): FireBay | else: Repeat(X, 12.0) { FireBay }
+FireBay --> Split(X) { ~1: Wall | 1.2: FireDoor | ~1: Wall }
+FireDoor --> Split(Y) { StepH: Step | 2.2: FireLeaf | ~1: Wall }
+FireLeaf --> Extrude(WallD - 0.12) Mat("Counter") I("Door")
+
+// -- 2. The ground storey: the club's doors or a store's front under the
+// band, the ribbon over them --
+Ground --> Comp(Faces) { Front: GroundFace | Back: BackInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFace --> Split(Y) { ~1: GroundFrontInset | BandH: Team(1) }
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> when(Trade == 1): StoreFront | else: HallFront
+HallFront --> Split(Y) { ~1: HallDoors | 1.4: Ribbon | 0.4: Wall }
+// The club's doors at one end, under a canopy and its lit crest; fire
+// doors along the rest.
+HallDoors --> Split(X) { 1.2: Wall | 3.2: ClubEntrance | ~1: FireRun | 1.2: Wall }
+ClubEntrance --> Split(X) { 0.3: Wall | ~1: EntryCol | 0.3: Wall }
+EntryCol --> Split(Y) { StepH: Step | 2.5: EntryDoors | 0.15: EntryCanopy | 0.15: Wall
+    | 0.6: CrestRow | ~1: Wall }
+EntryDoors --> Split(X) { ~1: Team(2) | 0.1: Wall | ~1: Team(2) }
+EntryCanopy --> Extrude(WallD + 1.5) Mat("Steel") I("Canopy")
+CrestRow --> Split(X) { 0.3: Wall | ~1: Crest | 0.3: Wall }
+Crest --> Extrude(WallD + 0.08) Mat("Score") I("Sign")
+// The megastore: shop windows either side of its doors under a canopy and
+// a fascia in the club's colour, the ribbon either side - a quarter of a
+// long front, never narrower than its doors and a window either side.
+StoreFront --> when(scope.x < 30): Split(X) { ~1: StoreSide | 8.0: StoreEntrance | ~1: StoreSide }
+    | else: Split(X) { ~3: StoreSide | ~2: StoreEntrance | ~3: StoreSide }
+StoreSide --> Split(Y) { ~1: Wall | 1.4: Ribbon | 0.4: Wall }
+StoreEntrance --> Split(Y) { 0.45: Plinth | 2.8: Entry | 0.3: StoreCanopy | 1.4: Team(3)
+    | ~1: Wall }
+Plinth --> Extrude(WallD + 0.05) Mat("Trim") I("Trim")
+Entry --> Split(X) { ~1: ShopRun | 2.4: GlassDoors | ~1: ShopRun }
+ShopRun --> when(scope.x > 2.4): Repeat(X, 2.4) { ShopBay } | else: ShopBay
+ShopBay --> Split(X) { 0.12: Wall | ~1: ShopGlazing | 0.12: Wall }
+GlassDoors --> Split(X) { ~1: Team(2) | 0.1: Wall | ~1: Team(2) }
+StoreCanopy --> Extrude(WallD + 1.8) Mat("Steel") I("Canopy")
+// The yard side: fire doors, the ribbon over them.
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) BackFace
+BackFace --> Split(Y) { ~1: BackDoors | 1.4: Ribbon | 0.4: Wall }
+BackDoors --> Split(X) { 1.2: Wall | ~1: FireRun | 1.2: Wall }
+
+// -- 3. An upper storey: a gallery's ribbon front and back --
+Upper --> Comp(Faces) { Front: UpInset | Back: UpInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpInset --> Split(X) { WallD: NIL | ~1: UpIn | WallD: NIL }
+UpIn --> Translate(0, 0, -WallD) UpFace
+UpFace --> Split(Y) { ~1: Wall | 1.4: Ribbon | 0.8: Wall }
+
+// -- 4. The roof: a sports hall's shallow vault or low gable; a store's
+// parapet with its scoreboard, round a deck painted as a court --
+RoofZone --> when(Trade == 1): Parapet | else: HallRoof
+HallRoof --> Pick("roof") { 65% Vault | 35% LowGable }
+// A vault of two pitches, steep at the eaves and flat over the courts.
+Vault --> Roof(Gambrel, 32, 10, overhang=0, ridge=X, tier=0.35)
+    { LowerSlope: Sheet | UpperSlope: Sheet | GableEnd: Gable }
+LowGable --> Roof(Gable, 10, overhang=0, ridge=X) { Slope: Sheet | GableEnd: Gable }
+Sheet --> Mat("Sheet") I("Roof")
+Gable --> I("Wall")
+Parapet --> Comp(Faces) { Front: ParapetFront | Back: ParapetFace | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+ParapetFace --> Split(Y) { ~1: ParapetInset | 0.14: Coping }
+ParapetInset --> Split(X) { WallD: NIL | ~1: ParapetIn | WallD: NIL }
+ParapetIn --> Translate(0, 0, -WallD) Wall
+// The front parapet carries the scoreboard: lit cells in a dark housing.
+ParapetFront --> Split(Y) { ~1: ParapetBoardInset | 0.14: Coping }
+ParapetBoardInset --> Split(X) { WallD: NIL | ~1: ParapetBoardIn | WallD: NIL }
+// The board grows with the front, to a sixth of a long one.
+ParapetBoardIn --> Translate(0, 0, -WallD)
+    Split(X) { ~1: Wall | max(4.4, Frontage / 6): Board | ~1: Wall }
+Board --> Split(Y) { 0.12: Housing | ~1: BoardRow | 0.12: Housing }
+BoardRow --> Split(X) { 0.15: Housing | ~1: Cell | 0.25: Housing | ~1: Cell | 0.25: Housing
+    | ~1: Cell | 0.15: Housing }
+Housing --> Extrude(WallD + 0.12) Mat("Door") I("Sign")
+Cell --> Extrude(WallD + 0.16) Mat("Score") I("Sign")
+Coping --> Extrude(0.05) Mat("Trim") I("Trim")
+// The deck fills the ring inside the parapet's walls: a court.
+Deck --> Translate(WallD, WallD, -0.2) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("Court") I("Roof")

@@ -27,6 +27,8 @@ pub mod library;
 pub mod monument;
 pub mod notice_board;
 pub mod street_block;
+pub mod street_detached;
+pub mod street_hall;
 pub mod street_house;
 pub mod street_low;
 pub mod town_hall;

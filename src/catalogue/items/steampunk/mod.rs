@@ -27,6 +27,8 @@ pub mod pipework;
 pub mod pressure_tank;
 pub mod pump_house;
 pub mod street_block;
+pub mod street_detached;
+pub mod street_hall;
 pub mod street_house;
 pub mod street_low;
 // Poor (soot-yard) variants - the prosperity-Poor end of the theme.

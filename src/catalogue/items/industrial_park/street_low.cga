@@ -34,8 +34,10 @@ GroundFront --> when(Storeys == 1): Split(Y) { ~1: HallFront | FasciaH: Fascia }
 Fascia --> Extrude(WallD + 0.12) Mat("Fascia") I("Fascia")
 HallFront --> Repeat(X, 4.2) { HallBay }
 HallBay --> when(Trade == 1): WorkBay(split.i) | else: LoftBay
-// The workshop: roller doors, every other bay a door and a window.
-WorkBay(n) --> when(n % 2 == 0): RollerBay | else: DoorBay
+// The workshop: roller doors, every other bay a door and a window; a
+// workshop one bay wide has its roller door and a window side by side.
+WorkBay(n) --> when(split.n == 1): SoloBay | when(n % 2 == 0): RollerBay | else: DoorBay
+SoloBay --> Split(X) { ~1: Panel | 3.2: Roller | 0.5: Panel | 1.6: SideWindow | ~1: Panel }
 RollerBay --> Split(X) { ~1: Panel | 3.2: Roller | ~1: Panel }
 Roller --> Split(Y) { 0.4: BaseWall | 3.6: RollerDoor | 0.22: Lintel | ~1: Wall }
 RollerDoor --> Extrude(WallD - 0.1) Mat("Roller") I("Door")

@@ -145,6 +145,18 @@ fn fixtures_are_what_the_builders_ask_for() {
     );
     assert_eq!(
         get_features(
+            &berlin::URBAN_STRUCTURE,
+            MUSEUMSINSEL,
+            &page(berlin::BLOCK_PROPERTIES, berlin::BLOCK_PAGE)
+        ),
+        format!(
+            "{wfs}/ua_stadtstruktur{get}\
+             &typeNames=ua_stadtstruktur:b_stadtstruktur_differenziert_2024\
+             &outputFormat=application/json{bbox}&propertyName=schluessel,typ,geom&count=1000"
+        )
+    );
+    assert_eq!(
+        get_features(
             &berlin::PARK_TREES,
             MUSEUMSINSEL,
             &page(berlin::TREE_PROPERTIES, berlin::TREE_PAGE)
@@ -490,6 +502,47 @@ fn the_museumsinsel_streets_read_as_atkis_draws_them() {
         (Some(5.5), berlin::Dedication::Federal)
     );
     assert_eq!(bridge.lines[0][0], [391_606.037, 5_819_950.312_9]);
+}
+
+/// The Museumsinsel square's blocks by how they are built up (#1600): 32
+/// of them - the island's museums, the Spree, its parks and squares, the
+/// GDR's estates to the east - and the Berliner Dom in a block of its own,
+/// typed a church.
+#[test]
+fn the_museumsinsel_blocks_read_as_the_atlas_types_them() {
+    use berlin::Development::*;
+    let page = berlin::parse_blocks(&fixture(
+        "ua_stadtstruktur_b_stadtstruktur_differenziert_2024_391200_5819700_600m.json",
+    ))
+    .unwrap();
+    assert!(!page.is_cut_short());
+    assert_eq!(page.blocks.len(), 32);
+    let families: std::collections::BTreeMap<String, usize> =
+        page.blocks.iter().fold(Default::default(), |mut m, b| {
+            *m.entry(format!("{:?}", b.development())).or_default() += 1;
+            m
+        });
+    let count = |family: berlin::Development| families.get(&format!("{family:?}")).copied();
+    assert_eq!(
+        (
+            count(Civic),
+            count(Open),
+            count(Perimeter),
+            count(Estate),
+            count(Works)
+        ),
+        (Some(10), Some(15), Some(3), Some(3), Some(1)),
+        "{families:?}"
+    );
+    // The Dom's footprint's middle, in ALKIS's footprint.
+    let dom = [391_511.0, 5_819_976.4];
+    let holders: Vec<&berlin::Block> = page.blocks.iter().filter(|b| b.contains(dom)).collect();
+    assert_eq!(holders.len(), 1);
+    assert_eq!(
+        (holders[0].key.as_str(), holders[0].typ),
+        ("0101020341000000", Some(49))
+    );
+    assert_eq!(holders[0].development(), Civic);
 }
 
 /// The Museumsinsel square's buildings, trees and street furniture, as the

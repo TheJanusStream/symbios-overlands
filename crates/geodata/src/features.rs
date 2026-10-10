@@ -53,6 +53,18 @@ impl Geometry {
         }
     }
 
+    /// Every polygon's rings, outer and holes alike: what an even-odd test
+    /// of a point reads, where a point inside a hole lies outside.
+    pub fn rings(&self) -> Vec<&[[f64; 2]]> {
+        match self {
+            Geometry::Polygon(rings) => rings.iter().map(Vec::as_slice).collect(),
+            Geometry::MultiPolygon(polygons) => {
+                polygons.iter().flatten().map(Vec::as_slice).collect()
+            }
+            _ => Vec::new(),
+        }
+    }
+
     /// The point, for a point or a one-point multi-point.
     pub fn point(&self) -> Option<[f64; 2]> {
         match self {
@@ -234,6 +246,12 @@ mod tests {
         let rings = f[2].geometry.outer_rings();
         assert_eq!(rings.len(), 1);
         assert_eq!(rings[0].len(), 4, "the outer ring, the hole left out");
+        assert_eq!(
+            f[2].geometry.rings().len(),
+            2,
+            "the outer ring and its hole"
+        );
+        assert!(f[0].geometry.rings().is_empty(), "a point has no rings");
         assert_eq!(
             f[2].properties,
             Props::default(),

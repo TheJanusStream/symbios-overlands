@@ -45,6 +45,8 @@ pub mod neon_kiosk;
 pub mod neon_megatower;
 pub mod parking_stack;
 pub mod street_block;
+pub mod street_detached;
+pub mod street_hall;
 pub mod street_house;
 pub mod street_low;
 // Poor (undercity) variants - the prosperity-Poor end of the theme.

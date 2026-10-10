@@ -1,0 +1,136 @@
+// The hive's hall (#1600): a digestion hall, or - where it trades - a spore
+// market hall. See street_hall.rs for the hall, and catalogue::items::street
+// for the conventions and for what is declared ahead of these rules
+// (Storeys, Trade, Frontage, Depth, GroundH, FloorH) and after them
+// (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.5
+const PaneSet = 0.3
+const StepH = 0.55
+const RollH = 0.7
+const CrownH = 0.6
+const VaultH = 1.0
+// A works bay between two ribs.
+const BayW = 6.0
+
+// -- 1. The hall: its shell rolled once, then segments, crown, carapace --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + CrownH + VaultH) Shell
+Shell --> 30% Mat("ChitinViolet") Massing | 25% Mat("ChitinGreen") Massing
+    | 25% Mat("ChitinAmber") Massing | 20% Mat("ChitinRust") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | CrownH: Crown | VaultH: VaultZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Upper | CrownH: Crown | VaultH: VaultZone }
+// Party walls: the sides, the full depth, turning the corners. A hall's
+// ends are its shell, blank.
+PartyIn --> Translate(0, 0, -WallD) Wall
+// A fleshy roll: a tube laid along the front, half sunk in the shell.
+Roll --> Extrude(WallD + 0.4) Split(Z) { WallD - 0.14: RollBack | ~1: RollTube }
+RollBack --> I("Wall")
+RollTube --> Translate(scope.x, 0, 0) Rotate(0.70710678, 0, 0, 0.70710678)
+    Size(scope.y, scope.x, scope.z) Mat("Sinew") I("Tube")
+Rib --> Extrude(WallD + 0.32) Mat("Rib") I("Rib")
+Lip --> Extrude(WallD + 0.14) Mat("Lip") I("Lip")
+Brow --> Extrude(WallD + 0.24) Mat("Lip") I("Lip")
+Step --> Extrude(WallD + 0.35) Mat("Carapace") I("Trim")
+MawLeaf --> Extrude(WallD - 0.2) Mat("Flesh") I("Door")
+// A ribbon of pods high in the wall.
+PodRibbon --> Repeat(X, 3.0) { RibbonBay }
+RibbonBay --> Split(X) { ~1: Wall | 1.3: RibbonPod | ~1: Wall }
+RibbonPod --> Split(Y) { 0.12: Lip | 1.1: Glazing | 0.2: Brow | ~1: Wall }
+
+// -- 2. The ground segment: a works' sphincters, or a market's stalls --
+Ground --> Comp(Faces) { Front: FrontInset | Back: BackInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+FrontInset --> Split(X) { WallD: NIL | ~1: FrontIn | WallD: NIL }
+FrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> when(Trade == 1): Market | else: Works
+// The works: a small maw for the drones at one end, then ribbed bays, each
+// a great sphincter or blank shell, under a ribbon of pods and a roll.
+Works --> Split(Y) { ~1: WorksDoors | 1.5: PodRibbon | RollH: Roll }
+WorksDoors --> Split(X) { 1.0: Wall | 1.4: SmallMaw | 0.8: Wall | ~1: DoorRun | 0.6: Wall }
+SmallMaw --> Split(Y) { StepH: Step | 2.3: MawLeaf | 0.2: Brow | ~1: Wall }
+DoorRun --> Repeat(X, BayW) { DoorBay }
+// The first bay always opens; the rest, bay by bay.
+DoorBay --> when(split.i == 0): Split(X) { 0.4: Rib | ~1: SphincterBay }
+    | else: Split(X) { 0.4: Rib | ~1: MaybeDoor }
+MaybeDoor --> 60% SphincterBay | 40% Wall
+SphincterBay --> Split(X) { ~1: Wall | 0.35: Fang | 3.4: Sphincter | 0.35: Fang | ~1: Wall }
+Fang --> Split(Y) { 0.45: Wall | ~1: FangBody | 0.3: Wall }
+FangBody --> Extrude(WallD + 0.35) Taper(0.7) Mat("Rib") I("Rib")
+// A sphincter: pleats of flesh, light and dark, over a chitin apron the
+// sink buries all but the top of, under a brow.
+Sphincter --> Split(Y) { 0.45: Apron | 3.2: Pleats | 0.25: Brow | ~1: Wall }
+Apron --> Extrude(WallD + 1.2) Mat("Carapace") I("Trim")
+Pleats --> Repeat(X, 0.85) { Pleat }
+Pleat --> 50% Mat("Flesh") PleatLeaf | 50% Mat("FleshDark") PleatLeaf
+PleatLeaf --> Extrude(WallD - 0.2) I("Door")
+// The market: stalls of glowing membrane over a plinth between ribs, a maw
+// in every wide bay, under a fleshy bolster and a glowing spore band, a
+// ribbon of pods over them.
+Market --> Split(Y) { 3.6: Stalls | 0.9: Bolster | 0.6: SporeBand | ~1: MarketHigh }
+Stalls --> Repeat(X, 4.0) { StallBay }
+StallBay --> Split(X) { 0.34: Rib | ~1: StallUnit | 0.34: Rib }
+StallUnit --> when(scope.x > 2.6): Split(X) { ~1: StallWin | 1.2: StallMaw } | else: StallWin
+StallWin --> Split(Y) { 0.55: Wall | ~1: ShopGlazing }
+StallMaw --> Split(Y) { StepH: Step | 2.3: MawLeaf | ~1: ShopGlazing }
+Bolster --> Extrude(WallD + 1.4) Split(Z) { WallD - 0.1: RollBack | ~1: BolsterTube }
+BolsterTube --> Translate(scope.x, 0, 0) Rotate(0.70710678, 0, 0, 0.70710678)
+    Size(scope.y, scope.x, scope.z) Mat("Flesh") I("Tube")
+SporeBand --> Extrude(WallD + 0.08) Mat("Spore") I("Fascia")
+MarketHigh --> Repeat(X, 3.0) { HighBay }
+HighBay --> Split(X) { ~1: Wall | 1.2: HighPod | ~1: Wall }
+HighPod --> Split(Y) { 0.1: Lip | 0.9: Glazing | 0.18: Brow | ~1: Wall }
+// The yard side: a sphincter here and there under a sparser ribbon.
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) Split(Y) { ~1: BackDoors | 1.5: BackRibbon | RollH: Roll }
+BackDoors --> Split(X) { 1.4: Wall | ~1: BackRun | 1.4: Wall }
+BackRun --> Repeat(X, 12.0) { DoorBay }
+BackRibbon --> Repeat(X, 4.0) { RibbonBay }
+
+// -- 3. A brood storey: a roll at its top, pods between ribs --
+Upper --> Comp(Faces) { Front: UpInset | Back: UpBackInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpInset --> Split(X) { WallD: NIL | ~1: UpIn | WallD: NIL }
+UpIn --> Translate(0, 0, -WallD) Split(Y) { ~1: UpRow | RollH: Roll }
+UpRow --> Repeat(X, 3.6) { UpBay }
+UpBay --> Split(X) { 0.3: Rib | ~1: Wall | 1.3: UpPod | ~1: Wall }
+UpPod --> Split(Y) { 0.6: Wall | 0.16: Lip | 1.7: Glazing | 0.2: Brow | ~1: Wall }
+UpBackInset --> Split(X) { WallD: NIL | ~1: UpBackIn | WallD: NIL }
+UpBackIn --> Translate(0, 0, -WallD) Split(Y) { ~1: UpBackRow | RollH: Roll }
+UpBackRow --> Repeat(X, 4.0) { UpBackBay }
+UpBackBay --> Split(X) { ~1: Wall | 1.2: UpBackPod | ~1: Wall }
+UpBackPod --> Split(Y) { 0.7: Wall | 1.5: Glazing | ~1: Wall }
+
+// -- 4. The crown: a carapace lip front and back, a fleshy deck inside --
+Crown --> Comp(Faces) { Front: CrownFace | Back: CrownFace | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+CrownFace --> Split(Y) { 0.35: CarapaceLip | ~1: CrownPlate }
+CarapaceLip --> Extrude(0.5) Mat("Carapace") I("Trim")
+CrownPlate --> Extrude(0.1) I("Wall")
+// The deck fills the ring inside the crown's walls: the bottom face's
+// inward is up.
+Deck --> Translate(WallD, WallD, -0.2) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("FleshDark") I("Roof")
+
+// -- 5. The carapace: one great vault, or a grub's row of lesser ones --
+VaultZone --> Pick("roof") { 55% GreatVault | 45% GrubVaults }
+// One carapace laid along the street, ringed by bone hoops, short of the
+// party walls so a row's carapaces read as one body's segments.
+GreatVault --> Split(X) { 0.2: NIL | ~1: VaultBody | 0.2: NIL }
+VaultBody --> Repeat(X, 3.0) { VaultSeg }
+VaultSeg --> Split(X) { ~1: VaultPlate | 0.35: VaultHoop }
+VaultPlate --> Mat("Carapace") Translate(scope.x, -0.1 - Depth * 0.12 - 0.5, WallD)
+    Rotate(0.70710678, 0, 0, 0.70710678) Size(Depth * 0.24 + 1.0, scope.x, Depth - 2 * WallD)
+    I("Carapace")
+VaultHoop --> Mat("Rib") Translate(scope.x, -0.1 - Depth * 0.12 - 0.7, WallD - 0.2)
+    Rotate(0.70710678, 0, 0, 0.70710678)
+    Size(Depth * 0.24 + 1.4, scope.x, Depth - 2 * WallD + 0.4) I("Hoop")
+// Lesser carapaces side by side from the street to the back, each laid
+// along the street, a bone hoop at each end.
+GrubVaults --> Split(Z) { WallD: NIL | ~1: GrubRun | WallD: NIL }
+GrubRun --> Repeat(Z, 8.0) { GrubSeg }
+GrubSeg --> Split(X) { 0.2: NIL | 0.35: GrubHoop | ~1: GrubBody | 0.35: GrubHoop | 0.2: NIL }
+GrubBody --> Mat("Carapace") Translate(scope.x, -2.6, 0.2) Rotate(0.70710678, 0, 0, 0.70710678)
+    Size(5.2, scope.x, scope.z - 0.4) I("Carapace")
+// A hoop is a hair short of the slice, so two neighbours' never meet.
+GrubHoop --> Mat("Rib") Translate(scope.x, -2.85, 0.01) Rotate(0.70710678, 0, 0, 0.70710678)
+    Size(5.7, scope.x, scope.z - 0.02) I("Hoop")

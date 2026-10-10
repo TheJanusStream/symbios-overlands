@@ -1,0 +1,131 @@
+// The suburb's hall (#1600): a big-box store, or - where nothing trades - a
+// self-storage depot of roll-up doors. See street_hall.rs for the hall, and
+// catalogue::items::street for the conventions and for what is declared
+// ahead of these rules (Storeys, Trade, Frontage, Depth, GroundH, FloorH)
+// and after them (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.3
+const PaneSet = 0.12
+const StepH = 0.5
+// The roof zone: a store's parapet, a depot's eaves.
+const RoofH = 1.2
+// The store's entrance porch: how far it stands out of the front.
+const PorchD = 1.8
+
+// -- 1. The hall: its skin rolled once, then storeys and a roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Skin
+Skin --> 40% Mat("MallBrick") Massing | 35% Mat("MallRender") Massing
+    | 25% Mat("SidingGrey") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Upper | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+Step --> Extrude(WallD + 0.4) Mat("Base") I("Trim")
+Head --> Extrude(WallD + 0.06) Mat("Trim") I("Trim")
+Shingles --> Mat("Shingle") I("Roof")
+BrownShingles --> Mat("ShingleBrown") I("Roof")
+
+// -- 2. The ground storey: a depot's doors, or a store's front --
+Ground --> Comp(Faces) { Front: FrontInset | Back: BackInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+FrontInset --> Split(X) { WallD: NIL | ~1: FrontIn | WallD: NIL }
+FrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> when(Trade == 1): StoreFront | else: DepotFront
+// The depot: a door for people at one end, roll-up doors along the rest
+// over concrete aprons, some bays blank, small high windows over them.
+DepotFront --> Split(Y) { ~1: DepotDoors | 0.9: HighRow | 0.5: Wall }
+DepotDoors --> Split(X) { 1.4: Wall | 1.1: ManDoor | 1.0: Wall | ~1: DoorRun | 1.4: Wall }
+ManDoor --> Split(Y) { StepH: Step | 2.15: ManLeaf | 0.12: Head | ~1: Wall }
+ManLeaf --> Extrude(WallD - 0.12) Mat("DoorBlue") I("Door")
+DoorRun --> when(scope.x > 4.0): Repeat(X, 4.0) { DoorBay } | else: DoorBay
+DoorBay --> 75% Split(X) { ~1: Wall | 3.0: RollCol | ~1: Wall } | 25% Wall
+RollCol --> Split(Y) { 0.42: Apron | 3.0: RollUp | 0.15: Head | ~1: Wall }
+Apron --> Extrude(WallD + 1.2) Mat("Apron") I("Trim")
+RollUp --> Extrude(WallD - 0.1) Mat("Roller") I("Door")
+HighRow --> Repeat(X, 3.0) { HighBay }
+HighBay --> Split(X) { ~1: Wall | 1.6: Glazing | ~1: Wall }
+// The store: a gabled entrance porch out of the middle of its front, and
+// either side of it display windows under a shingled mansard canopy and
+// the store's lit sign.
+StoreFront --> when(scope.x < 30): Split(X) { ~1: StoreSide | 8.0: Entrance | ~1: StoreSide }
+    | else: Split(X) { ~1: StoreSide | 12.0: Entrance | ~1: StoreSide }
+StoreSide --> Split(Y) { 0.45: Wall | 2.6: Displays | 0.3: Wall | 1.1: MansardStrip | 0.3: Wall
+    | 1.0: SignBand | ~1: Wall }
+Displays --> when(scope.x > 4.0): Repeat(X, 4.0) { Display } | else: Display
+Display --> Split(X) { ~1: Wall | 2.6: ShopGlazing | ~1: Wall }
+// The mansard: a little shingled gable along the front over a soffit,
+// standing out over the walk.
+MansardStrip --> Extrude(WallD + 1.2) Split(Z) { WallD: MansardSlab | ~1: Mansard }
+MansardSlab --> Comp(Faces) { Back: MansardFace | Front: NIL | Left: NIL | Right: NIL
+    | Top: NIL | Bottom: NIL }
+MansardFace --> Translate(0, 0, -WallD) Wall
+Mansard --> Split(Y) { 0.16: Soffit | ~1: MansardRoof }
+Soffit --> Mat("Canopy") I("Canopy")
+MansardRoof --> Roof(Gable, 50, overhang=0, ridge=X) { Slope: Shingles | GableEnd: MansardEnd }
+MansardEnd --> Mat("Trim") I("Trim")
+// The sign: a dark board with lit letters on it.
+SignBand --> when(scope.x > 10): Split(X) { ~1: Wall | 8.0: SignBoard | ~1: Wall }
+    | else: Split(X) { ~1: Wall | ~4: SignBoard | ~1: Wall }
+SignBoard --> Extrude(WallD + 0.1) Split(Z) { WallD + 0.06: Fascia | ~1: Letters }
+Fascia --> Mat("Fascia") I("Fascia")
+Letters --> Split(Y) { 0.25: NIL | ~1: LetterRow | 0.25: NIL }
+LetterRow --> Split(X) { 0.4: NIL | ~1: Cells | 0.4: NIL }
+Cells --> Repeat(X, 0.45) { Cell }
+Cell --> Split(X) { 0.1: NIL | ~1: CellLit }
+CellLit --> Mat("SignLit") I("Sign")
+// The entrance porch: glass doors and windows in the wall behind it, a
+// deck, two square posts, a beam and a shingled gable turned to the lot.
+Entrance --> Extrude(WallD + PorchD) Split(Z) { WallD: EntrySlab | ~1: Portico }
+EntrySlab --> Comp(Faces) { Back: EntryFace | Front: NIL | Left: NIL | Right: NIL | Top: NIL
+    | Bottom: NIL }
+EntryFace --> Translate(0, 0, -WallD) Split(Y) { 0.45: Wall | 3.0: EntryLevel | ~1: Wall }
+EntryLevel --> Split(X) { ~1: EntryRun | 2.6: GlassDoors | ~1: EntryRun }
+EntryRun --> Split(X) { 0.3: Wall | ~1: ShopGlazing | 0.3: Wall }
+GlassDoors --> Extrude(WallD - 0.12) Mat("DoorGlass") I("Door")
+Portico --> Split(Y) { 0.45: Platform | 4.1: PorticoAir | 0.4: Beam | ~1: PorticoTop }
+Platform --> Mat("Base") I("Trim")
+Beam --> Mat("Trim") I("Trim")
+PorticoAir --> Split(X) { 0.45: PostCol | ~1: NIL | 0.45: PostCol }
+PostCol --> Split(Z) { ~1: NIL | 0.45: Post }
+Post --> Mat("Trim") I("Trim")
+// The gable stands clear of the wall by a hair, so its back never lies
+// in the wall's face.
+PorticoTop --> Split(Z) { 0.03: NIL | ~1: PorticoGable | 0.03: NIL }
+PorticoGable --> Roof(Gable, 25, overhang=0, ridge=Z) { Slope: Shingles | GableEnd: Pediment }
+Pediment --> Mat("Trim") I("Trim")
+// The yard side: roll-up doors here and there, the high windows over them.
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) BackFace
+BackFace --> Split(Y) { ~1: BackDoors | 0.9: HighRow | 0.5: Wall }
+BackDoors --> Split(X) { 1.4: Wall | ~1: BackRun | 1.4: Wall }
+BackRun --> when(scope.x > 12): Repeat(X, 12) { DoorBay } | else: DoorBay
+
+// -- 3. An upper storey: offices, one row of windows front and back --
+Upper --> Comp(Faces) { Front: UpInset | Back: UpInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpInset --> Split(X) { WallD: NIL | ~1: UpIn | WallD: NIL }
+UpIn --> Translate(0, 0, -WallD) Split(Y) { 0.9: Wall | 1.3: Offices | ~1: Wall }
+Offices --> Repeat(X, 2.4) { OfficeBay }
+OfficeBay --> Split(X) { 0.35: Wall | ~1: Glazing | 0.35: Wall }
+
+// -- 4. The roof: a store's flat deck, a depot's low shingled gable or a
+// mansard edge round a deck --
+RoofZone --> when(Trade == 1): Parapet | else: DepotRoof
+DepotRoof --> Pick("roof") { 55% LowGable | 45% MansardTop }
+LowGable --> Roof(Gable, 9, overhang=0, ridge=X) { Slope: GableShingles | GableEnd: Gable }
+GableShingles --> Pick("tiles") { 60% Shingles | 40% BrownShingles }
+Gable --> I("Wall")
+Parapet --> Comp(Faces) { Front: ParapetFace | Back: ParapetFace | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+ParapetFace --> Split(Y) { ~1: ParapetInset | 0.12: Coping }
+ParapetInset --> Split(X) { WallD: NIL | ~1: ParapetIn | WallD: NIL }
+ParapetIn --> Translate(0, 0, -WallD) Wall
+Coping --> Extrude(0.05) Mat("Trim") I("Trim")
+// A depot's mansard edge: the shingled strip along its front, over the
+// parapet's wall, the deck behind it.
+MansardTop --> Comp(Faces) { Front: MansardEdge | Back: ParapetFace | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+MansardEdge --> Split(X) { WallD: NIL | ~1: MansardEdgeIn | WallD: NIL }
+MansardEdgeIn --> Translate(0, 0, -WallD) MansardStrip
+Deck --> Translate(WallD, WallD, -0.2) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("Deck") I("Roof")

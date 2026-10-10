@@ -1,0 +1,141 @@
+// The monolith's hall (#1600): a vault hall, or - where it trades - a hall
+// of light. See street_hall.rs for the hall, and catalogue::items::street
+// for the conventions and for what is declared ahead of these rules
+// (Storeys, Trade, Frontage, Depth, GroundH, FloorH) and after them
+// (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.55
+const PaneSet = 0.34
+const PlinthH = 0.7
+const StepH = 0.6
+const GlyphH = 0.12
+const RoofH = 1.0
+const CapH = 1.0
+const CapOut = 0.8
+// A works bay between two fins.
+const BayW = 7.0
+
+// -- 1. The hall: its stone rolled once, then storeys and a crown --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Stone
+Stone --> 35% Mat("Obsidian") Massing | 25% Mat("ObsidianBlue") Massing
+    | 25% Mat("ObsidianViolet") Massing | 15% Mat("Basalt") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Upper | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners. A hall's
+// ends are its obsidian, blank.
+PartyIn --> Translate(0, 0, -WallD) Wall
+// The hall's one glyph colour, for its lines.
+GlyphLine --> Pick("glyph") { 65% GlyphCyan | 35% GlyphViolet }
+GlyphCyan --> Extrude(0.06) Mat("Glyph") I("Trim")
+GlyphViolet --> Extrude(0.06) Mat("GlyphViolet") I("Trim")
+Glow --> Pick("glyph") { 65% GlowCyan | 35% GlowViolet }
+GlowCyan --> Mat("Glyph") I("Trim")
+GlowViolet --> Mat("GlyphViolet") I("Trim")
+Fin --> Extrude(WallD + 0.4) Mat("Fin") I("Fin")
+Step --> Extrude(WallD + 0.4) Mat("Step") I("Trim")
+Lintel --> Extrude(WallD + 0.06) Mat("Energy") I("Trim")
+PortalLeaf --> Extrude(WallD - 0.3) Mat("Portal") I("Door")
+// A ribbon of slits high in the wall.
+SlitRibbon --> Repeat(X, 2.6) { RibbonBay }
+RibbonBay --> Split(X) { ~1: Wall | 0.5: RibbonSlit | ~1: Wall }
+RibbonSlit --> Split(Y) { 0.1: Wall | 1.2: Glazing | ~1: Wall }
+
+// -- 2. The ground storey: a works' portals, or a hall of light --
+Ground --> Comp(Faces) { Front: FrontInset | Back: BackInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+FrontInset --> Split(X) { WallD: NIL | ~1: FrontIn | WallD: NIL }
+FrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> when(Trade == 1): HallOfLight | else: Works
+// The works: a portal for people at one end, then bays between fins, each
+// a great portal door or blank stone, under a ribbon of slits.
+Works --> Split(Y) { ~1: WorksDoors | 1.8: SlitRibbon | 0.4: Wall }
+WorksDoors --> Split(X) { 1.2: Wall | 3.0: Portal | 0.8: Wall | ~1: DoorRun | 0.8: Wall }
+// The portal: a tall dark leaf deep in a frame of fins, under a glowing
+// lintel, up a stone step.
+Portal --> Split(X) { 0.35: Wall | 0.35: PortalJamb | ~1: PortalCol | 0.35: PortalJamb
+    | 0.35: Wall }
+PortalJamb --> Split(Y) { StepH: Wall | ~1: Fin }
+PortalCol --> Split(Y) { StepH: Step | 2.6: PortalLeaf | 0.2: Lintel | ~1: Wall }
+DoorRun --> Repeat(X, BayW) { DoorBay }
+// The first bay always opens; the rest, bay by bay.
+DoorBay --> when(split.i == 0): Split(X) { 0.5: Fin | ~1: GreatBay }
+    | else: Split(X) { 0.5: Fin | ~1: MaybeDoor }
+MaybeDoor --> 60% GreatBay | 40% Wall
+GreatBay --> Split(X) { ~1: Wall | 0.4: Jamb | 4.0: GreatDoor | 0.4: Jamb | ~1: Wall }
+Jamb --> Split(Y) { 0.5: Wall | ~1: JambFin }
+JambFin --> Extrude(WallD + 0.5) Mat("Fin") I("Fin")
+// A great portal door: two dark leaves and a seam of light between them,
+// over a stone apron the sink buries all but the top of, under a lintel.
+GreatDoor --> Split(Y) { 0.5: Apron | 3.8: GreatLeaves | 0.25: Lintel | ~1: Wall }
+Apron --> Extrude(WallD + 1.4) Mat("Step") I("Trim")
+GreatLeaves --> Split(X) { ~1: PortalLeaf | 0.1: Seam | ~1: PortalLeaf }
+Seam --> Extrude(WallD - 0.26) Mat("Energy") I("Trim")
+// The hall of light: walls of light behind round pillars, a portal in
+// every wide bay, an entablature lit along its edge, slits over it.
+HallOfLight --> Split(Y) { 4.6: Colonnade | 0.9: Entablature | ~1: SlitRibbon }
+Colonnade --> Split(X) { ~1: PavBays | 1.0: Pillar }
+PavBays --> Repeat(X, 4.0) { PavBay }
+PavBay --> Split(X) { 1.0: Pillar | ~1: PavUnit }
+// A pillar: round, standing clear of the light behind it, its back in the
+// wall.
+Pillar --> Extrude(WallD + 1.6) Split(Z) { WallD + 0.3: PillarBack | ~1: PillarShaft }
+PillarBack --> I("Wall")
+PillarShaft --> Mat("Fin") I("Pillar")
+PavUnit --> when(scope.x > 2.2): Split(X) { ~1: PavWindow | 1.3: PavPortal } | else: PavWindow
+PavWindow --> Split(Y) { PlinthH: Wall | ~1: ShopGlazing }
+PavPortal --> Split(Y) { StepH: Step | 2.8: PortalLeaf | 0.18: Lintel | ~1: ShopGlazing }
+Entablature --> Split(Y) { 0.16: EntGlow | ~1: EntBody }
+EntGlow --> Extrude(WallD + 1.7) Mat("Energy") I("Fascia")
+EntBody --> Extrude(WallD + 1.7) Mat("Fin") I("Cornice")
+// The yard side: a great door here and there under a sparser ribbon.
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) Split(Y) { ~1: BackDoors | 1.8: BackRibbon | 0.4: Wall }
+BackDoors --> Split(X) { 1.4: Wall | ~1: BackRun | 1.4: Wall }
+BackRun --> when(scope.x > 14): Repeat(X, 14.0) { BackBay } | else: BackBay
+BackBay --> Split(X) { 0.5: Fin | ~1: GreatBay }
+BackRibbon --> Repeat(X, 4.0) { RibbonBay }
+
+// -- 3. An upper hall: a glyph line at its floor, pairs of slits between
+// fins --
+Upper --> Comp(Faces) { Front: UpFace | Back: UpBackFace | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpFace --> Split(Y) { GlyphH: GlyphLine | ~1: UpInset }
+UpInset --> Split(X) { WallD: NIL | ~1: UpIn | WallD: NIL }
+UpIn --> Translate(0, 0, -WallD) Split(X) { 0.8: Wall | ~1: Groups | 0.8: Wall }
+Groups --> Repeat(X, 4.2) { Group }
+Group --> Split(X) { ~1: Wall | 0.5: Slit | 0.45: Wall | 0.5: Slit | ~1: Wall | 0.4: Fin }
+Slit --> Split(Y) { 0.6: Wall | 2.6: Glazing | ~1: Wall }
+UpBackFace --> Split(Y) { GlyphH: GlyphLine | ~1: UpBackInset }
+UpBackInset --> Split(X) { WallD: NIL | ~1: UpBackIn | WallD: NIL }
+UpBackIn --> Translate(0, 0, -WallD) Repeat(X, 4.0) { UpBackBay }
+UpBackBay --> Split(X) { ~1: Wall | 0.5: Slit | ~1: Wall }
+
+// -- 4. The crown: a capstone, a low pyramidion, or setback tiers --
+RoofZone --> Pick("roof") { 45% Capstone | 30% Pyramidion | 25% Stepped }
+// One slab over the whole hall, standing out front and back, glyph-light
+// along its underside's edges.
+Capstone --> Translate(0, 0, -CapOut) Size(scope.x, CapH, scope.z + 2 * CapOut)
+    Split(Y) { 0.14: CapUnder | ~1: CapBody }
+CapUnder --> Split(Z) { 0.1: Glow | ~1: CapBody | 0.1: Glow }
+CapBody --> Mat("Fin") I("Cap")
+// A low pyramidion along the street over a heavy cornice, its ends the
+// party walls.
+Pyramidion --> Split(Y) { 0.4: CrownBand | ~1: PyrZone }
+CrownBand --> Comp(Faces) { Front: CrownBlock | Back: CrownBlock | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+CrownBlock --> Extrude(0.4) Mat("Fin") I("Cornice")
+PyrZone --> Roof(Gable, 14, overhang=0, ridge=X) { Slope: PyrSlope | GableEnd: PyrEnd }
+PyrSlope --> Mat("Fin") I("Roof")
+PyrEnd --> I("Wall")
+// Setback tiers on a deck, each capped with glyph lines.
+Stepped --> Split(Y) { 0.25: RoofDeck | ~1: Tiers }
+RoofDeck --> Mat("Deck") I("Roof")
+Tiers --> Split(X) { ~0.12: NIL | ~0.76: TierX | ~0.12: NIL }
+TierX --> Split(Z) { ~0.12: NIL | ~0.76: Tier1 | ~0.12: NIL }
+Tier1 --> Size(scope.x, 3.0, scope.z) Split(Y) { 1.5: TierBlock | 0.14: TierLine | ~1: Tier2Zone }
+TierBlock --> Mat("Fin") I("Cap")
+// A tier's cap, glyph-light along its front and back edges.
+TierLine --> Split(Z) { 0.1: Glow | ~1: TierBlock | 0.1: Glow }
+Tier2Zone --> Split(X) { ~0.22: NIL | ~0.56: Tier2X | ~0.22: NIL }
+Tier2X --> Split(Z) { ~0.22: NIL | ~0.56: Tier2 | ~0.22: NIL }
+Tier2 --> Split(Y) { ~1: TierBlock | 0.14: TierLine }

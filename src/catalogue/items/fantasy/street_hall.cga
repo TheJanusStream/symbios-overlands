@@ -1,0 +1,126 @@
+// The fantasy theme's hall (#1600): a great guild barn, or - where it
+// trades - a guild market hall. See street_hall.rs for the hall, and
+// catalogue::items::street for the conventions and for what is declared
+// ahead of these rules (Storeys, Trade, Frontage, Depth, GroundH, FloorH)
+// and after them (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.4
+const PaneSet = 0.14
+const StepH = 0.5
+const BeamH = 0.26
+// The stone storey under the loft, and the roof zone.
+const LowH = 3.6
+const RoofH = 1.0
+// How high over the walls the fleche's finial stands, and its spire.
+const FlecheH = 9.8
+const SpireH = 3.2
+
+// -- 1. The hall: its daub rolled once, then storeys and a roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Daub
+Daub --> 30% Mat("Cream") Massing | 25% Mat("Ochre") Massing | 25% Mat("Sage") Massing
+    | 20% Mat("Rose") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Upper | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners. A hall's
+// ends are its daub, blank.
+PartyIn --> Translate(0, 0, -WallD) Wall
+// A timber beam along the front at every floor, and over the stone.
+Beam --> Extrude(0.28) Mat("Timber") I("Beam")
+Post --> Extrude(WallD + 0.1) Mat("Timber") I("Beam")
+Lintel --> Extrude(WallD + 0.08) Mat("Timber") I("Beam")
+Step --> Extrude(WallD + 0.3) Mat("Stone") I("Trim")
+DoorLeaf --> 30% Mat("Door") Leaf | 25% Mat("DoorBlue") Leaf | 25% Mat("DoorGreen") Leaf
+    | 20% Mat("Timber") Leaf
+Leaf --> Extrude(WallD - 0.18) I("Door")
+Leaves --> Split(X) { ~1: DoorLeaf | 0.06: Wall | ~1: DoorLeaf }
+// A row of small leaded windows between timber posts.
+LoftRibbon --> Repeat(X, 3.0) { LoftBay }
+LoftBay --> Split(X) { 0.12: Post | ~1: Wall | 0.8: Glazing | ~1: Wall | 0.12: Post }
+
+// -- 2. The ground storey: stone under a beam, a timbered loft over it --
+Ground --> Comp(Faces) { Front: GroundFace | Back: BackInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFace --> Split(Y) { LowH: LowFace | BeamH: Beam | ~1: LoftFace | BeamH: Beam }
+LowFace --> Split(X) { WallD: NIL | ~1: LowIn | WallD: NIL }
+LowIn --> Mat("Stone") Translate(0, 0, -WallD) LowFront
+LowFront --> when(Trade == 1): MarketLow | else: BarnLow
+LoftFace --> Split(X) { WallD: NIL | ~1: LoftIn | WallD: NIL }
+LoftIn --> Translate(0, 0, -WallD) Split(Y) { ~1: Wall | 0.9: LoftRibbon | 0.2: Wall }
+// The barn: a plank door for its hands at one end, bays of wagon doors
+// between timber posts along the rest.
+BarnLow --> Split(X) { 1.0: Wall | 1.1: HandDoor | 1.0: Wall | ~1: DoorRun | 1.0: Wall }
+HandDoor --> Split(Y) { StepH: Step | 2.2: DoorLeaf | 0.22: Lintel | ~1: Wall }
+// The first bay always has its wagon door; the rest, seven in ten.
+DoorRun --> when(scope.x > 6.0): Repeat(X, 6.0) { DoorBay } | else: OpenBay
+DoorBay --> when(split.i == 0): OpenBay | else: AnyBay
+OpenBay --> Split(X) { 0.3: Post | ~1: DoorSlot | 0.3: Post }
+AnyBay --> 70% OpenBay | 30% Split(X) { 0.3: Post | ~1: Wall | 0.3: Post }
+DoorSlot --> Split(X) { ~1: Wall | 3.6: WagonDoor | ~1: Wall }
+// A wagon door over a stone threshold: the sink buries all but its top.
+WagonDoor --> Split(Y) { 0.45: Threshold | 2.9: Leaves | ~1: Lintel }
+Threshold --> Extrude(WallD + 0.8) Mat("Stone") I("Trim")
+// The market: leaded shop windows on mossy plinths, each under its own
+// painted sign, either side of its doors - two along a long front - and
+// a glowing rune over each door.
+MarketLow --> when(scope.x < 30): Split(X) { ~1: ShopRun | 2.2: Entrance | ~1: ShopRun }
+    | else: Split(X) { ~1: ShopRun | 2.2: Entrance | ~1: ShopRun | 2.2: Entrance
+    | ~1: ShopRun }
+ShopRun --> when(scope.x > 3.4): Repeat(X, 3.4) { ShopBay } | else: ShopBay
+ShopBay --> Split(X) { 0.45: Wall | ~1: ShopUnit | 0.45: Wall }
+ShopUnit --> Split(Y) { 0.6: Plinth | 2.0: ShopGlazing | 0.22: Lintel | 0.1: Wall | 0.55: Sign
+    | ~1: Wall }
+Plinth --> Extrude(WallD + 0.06) Mat("Moss") I("Trim")
+Sign --> 34% Mat("SignRed") SignBoard | 33% Mat("SignBlue") SignBoard
+    | 33% Mat("SignGreen") SignBoard
+SignBoard --> Extrude(WallD + 0.1) I("Fascia")
+Entrance --> Split(X) { 0.2: Wall | ~1: EntranceDoor | 0.2: Wall }
+EntranceDoor --> Split(Y) { StepH: Step | 2.4: Leaves | 0.22: Lintel | 0.45: RuneBand | ~1: Wall }
+RuneBand --> Split(X) { ~1: Wall | 0.45: Rune | ~1: Wall }
+Rune --> Extrude(WallD + 0.05) Mat("Rune") I("Trim")
+// The yard side: a wagon door here and there, the loft's windows over.
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) Split(Y) { LowH: BackDoors | ~1: Wall | 0.9: LoftRibbon
+    | 0.4: Wall }
+BackDoors --> Split(X) { 1.0: Wall | ~1: BackRun | 1.0: Wall }
+BackRun --> when(scope.x > 12): Repeat(X, 12.0) { DoorBay } | else: OpenBay
+
+// -- 3. An upper storey: the guild's loft, timbered, windows under
+// pointed hoods --
+Upper --> Comp(Faces) { Front: UpFace | Back: UpBackInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpFace --> Split(Y) { ~1: UpInset | BeamH: Beam }
+UpInset --> Split(X) { WallD: NIL | ~1: UpIn | WallD: NIL }
+UpIn --> Translate(0, 0, -WallD) Split(Y) { 0.6: Wall | 1.8: UpRibbon | ~1: Wall }
+UpRibbon --> Repeat(X, 3.0) { UpBay }
+UpBay --> Split(X) { 0.12: Post | ~1: Wall | 1.0: UpWinCol | ~1: Wall | 0.12: Post }
+UpWinCol --> Split(Y) { ~1: Glazing | 0.3: Hood }
+Hood --> Extrude(WallD + 0.16) Taper(0.8) Mat("Timber") I("Trim")
+UpBackInset --> Split(X) { WallD: NIL | ~1: UpBackIn | WallD: NIL }
+UpBackIn --> Translate(0, 0, -WallD) Split(Y) { 0.8: Wall | 1.2: LoftRibbon | ~1: Wall }
+
+// -- 4. The roof: steep piles along the street, one to every twelve
+// metres of depth, in thatch or slate; and a sliver at the zone's top
+// that stands a fleche on the first pile's ridge --
+RoofZone --> Split(Y) { ~1: Piles | 0.01: FlecheLayer }
+Piles --> when(Depth > 16): Repeat(Z, 12.0) { Pile } | else: Pile
+Pile --> Roof(Gable, 42, overhang=0, ridge=X) { Slope: Cover | GableEnd: Gable }
+Cover --> Pick("roof") { 45% Straw | 55% Slates }
+Straw --> Mat("Thatch") I("Roof")
+Slates --> Pick("slate") { 60% BlueSlates | 40% GreenSlates }
+BlueSlates --> Mat("Slate") I("Roof")
+GreenSlates --> Mat("SlateGreen") I("Roof")
+Gable --> I("Wall")
+FlecheLayer --> Translate(0, 0.01 - RoofH, 0) Size(scope.x, FlecheH, scope.z)
+    Split(X) { ~1: NIL | 1.4: FlecheCol | ~1: NIL }
+FlecheCol --> when(Depth > 16): Split(Z) { 5.3: NIL | 1.4: Fleche | ~1: NIL }
+    | else: Split(Z) { ~1: NIL | 1.4: Fleche | ~1: NIL }
+// A timber shaft up through the ridge, a slate spire on it, gold on top.
+Fleche --> Split(Y) { ~1: FlecheShaft | SpireH: SpireSlot }
+FlecheShaft --> Mat("Timber") I("Beam")
+SpireSlot --> Size(scope.x + 0.3, scope.y, scope.z + 0.3) Center(XZ)
+    Pick("slate") { 60% BlueSpire | 40% GreenSpire }
+BlueSpire --> Mat("Slate") Spire
+GreenSpire --> Mat("SlateGreen") Spire
+Spire --> Split(Y) { ~1: Cone | 0.6: Finial }
+Cone --> Taper(1) I("Cap")
+Finial --> Size(0.12, scope.y, 0.12) Center(XZ) Mat("Gold") I("Finial")

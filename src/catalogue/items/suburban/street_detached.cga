@@ -1,0 +1,137 @@
+// The suburb's detached house (#1600): a family house in lap siding in its
+// own yard. See street_detached.rs for the house, and catalogue::items::street
+// for the conventions and for what is declared ahead of these rules
+// (Storeys, Trade, Frontage, Depth, GroundH, FloorH) and after them
+// (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.3
+const PaneSet = 0.12
+const StepH = 0.6
+const RoofH = 1.0
+const CornerW = 0.3
+// The porch: its width at the door and how far it stands out.
+const PorchW = 2.8
+const PorchD = 1.8
+// How far the roof reaches past the walls: the walls stand this far in
+// from the lot's sides, so the eaves and verges keep inside it.
+const Eave = 0.5
+
+// -- 1. The house: its walls stand in from the lot, the siding rolled once --
+Lot --> Split(X) { Eave: NIL | ~1: LotRow | Eave: NIL }
+LotRow --> Split(Z) { Eave: NIL | ~1: Plot | Eave: NIL }
+Plot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Cladding
+Cladding --> 24% Mat("SidingBlue") Massing | 22% Mat("SidingCream") Massing
+    | 20% Mat("SidingSage") Massing | 18% Mat("SidingYellow") Massing
+    | 16% Mat("SidingGrey") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Uppers | RoofH: RoofZone }
+// White corner boards turn every corner: the sides' at their ends, the
+// front's and back's between them.
+Corner --> Extrude(WallD + 0.05) Mat("Trim") I("Trim")
+
+// -- 2. The ground storey: a porch and the garage on the front, windows
+// all round --
+Ground --> Comp(Faces) { Front: FrontInset | Back: BackInset | Left: SideIn
+    | Right: SideIn | Top: NIL | Bottom: NIL }
+FrontInset --> Split(X) { WallD: NIL | ~1: FrontIn | WallD: NIL }
+FrontIn --> Translate(0, 0, -WallD) GroundFront
+// A house wide enough has its garage at one end.
+GroundFront --> when(scope.x > 10): Split(X) { CornerW: Corner | ~1: HomePart | 3.2: GarageCol
+    | CornerW: Corner }
+    | else: Split(X) { CornerW: Corner | ~1: HomePart | CornerW: Corner }
+GarageCol --> Split(X) { 0.3: Wall | ~1: Garage | 0.3: Wall }
+Garage --> Split(Y) { 0.42: Wall | 2.15: GarageDoor | 0.14: Head | ~1: Wall }
+GarageDoor --> Repeat(Y, 0.54) { GaragePanel }
+GaragePanel --> Split(Y) { ~1: GarageLeaf | 0.04: GarageGroove }
+GarageLeaf --> Extrude(WallD - 0.1) Mat("Garage") I("Door")
+GarageGroove --> Extrude(WallD - 0.14) Mat("Garage") I("Door")
+HomePart --> Pick("porch") { 55% EntryFront | 45% LongPorch }
+EntryFront --> Split(X) { ~1: Bays | PorchW: PorchSlot | ~1: Bays }
+// The porch stands out of the wall: the wall behind it is the porch's
+// back, with the front door and a window.
+PorchSlot --> Extrude(WallD + PorchD) Split(Z) { WallD: WallSlab | ~1: Porch }
+WallSlab --> Comp(Faces) { Back: PorchFace | Front: NIL | Left: NIL | Right: NIL | Top: NIL
+    | Bottom: NIL }
+PorchFace --> Translate(0, 0, -WallD) PorchBack
+PorchBack --> Split(X) { ~1: Wall | 1.0: FrontDoor | 0.4: Wall | 1.0: WinCol | ~1: Wall }
+// A porch along the whole front: the door in the middle of it.
+LongPorch --> Extrude(WallD + PorchD) Split(Z) { WallD: LongSlab | ~1: Porch }
+LongSlab --> Comp(Faces) { Back: LongFace | Front: NIL | Left: NIL | Right: NIL | Top: NIL
+    | Bottom: NIL }
+LongFace --> Translate(0, 0, -WallD) Split(X) { ~1: PlainRun | 1.0: FrontDoor | ~1: PlainRun }
+FrontDoor --> Split(Y) { StepH: Wall | 2.05: DoorLeaf | 0.12: Head | ~1: Wall }
+DoorLeaf --> Pick("door") { 40% RedLeaf | 30% BlueLeaf | 30% WoodLeaf }
+RedLeaf --> Mat("DoorRed") Leaf
+BlueLeaf --> Mat("DoorBlue") Leaf
+WoodLeaf --> Mat("DoorWood") Leaf
+Leaf --> Extrude(WallD - 0.12) I("Door")
+// The porch: a raised deck, posts and a spindle rail, a roof under the
+// eaves.
+Porch --> Split(Y) { StepH: Platform | 2.1: PorchAir | 0.14: PorchRoof | ~1: NIL }
+Platform --> Mat("Deck") I("Porch")
+PorchRoof --> Mat("Trim") I("Porch")
+PorchAir --> Split(X) { 0.16: PostCol | ~1: RailCol | 0.16: PostCol }
+PostCol --> Split(Z) { ~1: NIL | 0.16: Post }
+Post --> Mat("Trim") I("Porch")
+RailCol --> Split(Z) { ~1: NIL | 0.07: RailPlane }
+RailPlane --> Split(Y) { 0.12: NIL | 0.07: RailBar | 0.6: Spindles | 0.08: RailBar | ~1: NIL }
+RailBar --> Mat("Trim") I("Porch")
+Spindles --> Repeat(X, 0.3) { SpindleBay }
+SpindleBay --> Split(X) { ~1: NIL | 0.06: Spindle | ~1: NIL }
+Spindle --> Mat("Trim") I("Porch")
+// The front's windows: shutters either side where a bay is wide enough,
+// a sill and a head board.
+Bays --> when(scope.x > 2.7): Repeat(X, 2.7) { Bay } | else: PlainBay
+Bay --> Split(X) { ~1: Wall | 0.42: Shutter | 1.0: WinCol | 0.42: Shutter | ~1: Wall }
+PlainRun --> when(scope.x > 2.4): Repeat(X, 2.4) { PlainBay } | else: PlainBay
+PlainBay --> Split(X) { ~1: Wall | 1.0: WinCol | ~1: Wall }
+WinCol --> Split(Y) { 0.8: Wall | 0.08: Sill | 1.5: Glazing | 0.12: Head | ~1: Wall }
+Sill --> Extrude(WallD + 0.06) Mat("Trim") I("Trim")
+Head --> Extrude(WallD + 0.08) Mat("Trim") I("Trim")
+Shutter --> Split(Y) { 0.88: Wall | 1.5: ShutterLeaf | ~1: Wall }
+ShutterLeaf --> Pick("shutters") { 40% BlueLouvre | 30% WhiteLouvre | 30% RedLouvre }
+BlueLouvre --> Mat("DoorBlue") Louvre
+WhiteLouvre --> Mat("Trim") Louvre
+RedLouvre --> Mat("DoorRed") Louvre
+Louvre --> Extrude(WallD + 0.04) I("Trim")
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) Split(X) { CornerW: Corner | ~1: PlainRun | CornerW: Corner }
+// The sides: their walls run the full depth, turning the corners.
+SideIn --> Translate(0, 0, -WallD) Split(X) { CornerW: Corner | ~1: SideRun | CornerW: Corner }
+SideRun --> when(scope.x > 2.8): Repeat(X, 2.8) { PlainBay } | else: PlainBay
+
+// -- 3. The upper storeys: shuttered windows on the front, plain ones
+// round the rest --
+Uppers --> Comp(Faces) { Front: UpFrontInset | Back: UpBackInset | Left: UpSideIn
+    | Right: UpSideIn | Top: NIL | Bottom: NIL }
+UpFrontInset --> Split(X) { WallD: NIL | ~1: UpFrontIn | WallD: NIL }
+UpFrontIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { UpStorey }
+UpStorey --> Split(X) { CornerW: Corner | ~1: Bays | CornerW: Corner }
+UpBackInset --> Split(X) { WallD: NIL | ~1: UpBackIn | WallD: NIL }
+UpBackIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { UpBack }
+UpBack --> Split(X) { CornerW: Corner | ~1: PlainRun | CornerW: Corner }
+UpSideIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { UpSide }
+UpSide --> Split(X) { CornerW: Corner | ~1: SideRun | CornerW: Corner }
+
+// -- 4. The roof: a side gable, a front gable or a hip, its eaves out to
+// the lot's edges, and a brick chimney through it. A sliver at one end of
+// the roof zone carries the chimney --
+RoofZone --> Split(X) { 0.01: ChimneySlot | ~1: RoofBody }
+RoofBody --> Pick("roof") { 45% SideGable | 30% FrontGable | 25% HipRoof }
+SideGable --> Roof(Gable, 35, overhang=Eave, ridge=X) { Slope: Shingles | GableEnd: Gable }
+FrontGable --> Roof(Gable, 35, overhang=Eave, ridge=Z) { Slope: Shingles | GableEnd: Gable }
+HipRoof --> Roof(Hip, 28, overhang=Eave) { Slope: Shingles }
+Shingles --> Pick("tiles") { 60% GreyShingle | 40% BrownShingle }
+GreyShingle --> Mat("Shingle") I("Roof")
+BrownShingle --> Mat("ShingleBrown") I("Roof")
+Gable --> I("Wall")
+// The chimney stands up through the roof from inside the top storey, just
+// behind the ridge or near the verge, as high as the roof it is drawn with
+// needs: the same Pick key decides both.
+ChimneySlot --> Pick("roof") { 45% Chimney(0.35 * (Depth - 2 * Eave) + 1.2)
+    | 30% Chimney(2.6) | 25% Chimney(2.4) }
+Chimney(h) --> Pick("chimney") { 65% ChimneyStack(h) | 35% NIL }
+ChimneyStack(h) --> Translate(0.7, -0.4, scope.z / 2 + 0.3) Size(0.8, h, 0.8) Mat("Chimney")
+    Split(Y) { ~1: Stack | 0.16: Cap }
+Stack --> I("Chimney")
+Cap --> Translate(-0.06, 0, -0.06) Size(scope.x + 0.12, scope.y, scope.z + 0.12) I("Chimney")

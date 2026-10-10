@@ -25,6 +25,8 @@ pub mod monument;
 pub mod rail_fence;
 pub mod scarecrow;
 pub mod street_block;
+pub mod street_detached;
+pub mod street_hall;
 pub mod street_house;
 pub mod street_low;
 pub mod tractor;

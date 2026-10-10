@@ -1,0 +1,132 @@
+// The nordic theme's detached house (#1600): a painted wooden house in its
+// garden. See street_detached.rs for the house, and catalogue::items::street
+// for the conventions and for what is declared ahead of these rules
+// (Storeys, Trade, Frontage, Depth, GroundH, FloorH) and after them
+// (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.25
+const PaneSet = 0.1
+const PlinthH = 0.6
+const StepH = 0.55
+const RoofH = 0.5
+// How far the roof reaches past the walls: the walls stand this far in
+// from the lot's sides, so the eaves and verges keep inside it.
+const Eave = 0.5
+// The doorway's width, and the porch's depth out from the wall.
+const DoorW = 2.0
+const PorchD = 1.2
+// The cross-gable over the door: its width, its storey's height, how far
+// it runs back into the roof.
+const ArkW = 3.2
+const ArkH = 1.6
+const ArkD = 3.6
+
+// -- 1. The house: its walls stand in from the lot, the paint rolled once --
+Lot --> Split(X) { Eave: NIL | ~1: LotRow | Eave: NIL }
+LotRow --> Split(Z) { Eave: NIL | ~1: Plot | Eave: NIL }
+Plot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Paint
+Paint --> 35% Mat("FaluRed") Massing | 25% Mat("Ochre") Massing
+    | 20% Mat("White") Massing | 20% Mat("GreyBlue") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | ~1: RoofZone }
+    | else: Split(Y) { GroundH: Ground | FloorH * (Storeys - 1): Uppers | ~1: RoofZone }
+// White trim: corner boards, window frames, sills and head boards. A
+// corner board stops short of the eaves, which would cut its top.
+Corner --> Extrude(WallD + 0.04) Mat("Trim") I("Trim")
+TopCorner --> Split(Y) { ~1: Corner | 0.06: Wall }
+Frame --> Extrude(WallD + 0.05) Mat("Trim") I("Trim")
+Sill --> Extrude(WallD + 0.07) Mat("Trim") I("Trim")
+Head --> Extrude(WallD + 0.09) Mat("Trim") I("Trim")
+Framed --> Split(X) { 0.1: Frame | ~1: Glazing | 0.1: Frame }
+GCorner --> when(Storeys == 1): Split(Y) { PlinthH: Plinth | ~1: Corner | 0.06: Wall }
+    | else: Split(Y) { PlinthH: Plinth | ~1: Corner }
+GWall --> Split(Y) { PlinthH: Plinth | ~1: Wall }
+Plinth --> Extrude(WallD + 0.08) Mat("Plinth") I("Plinth")
+Step --> Extrude(WallD + 0.3) Mat("Stone") I("Plinth")
+DoorLeaf --> 40% Mat("Door") Leaf | 35% Mat("DoorBlue") Leaf | 25% Mat("DoorRed") Leaf
+Leaf --> Extrude(WallD - 0.1) I("Door")
+
+// -- 2. The ground storey on its fieldstone plinth: the door on the front,
+// framed windows all round --
+Ground --> Comp(Faces) { Front: FrontInset | Back: BackInset | Left: SideIn
+    | Right: SideIn | Top: NIL | Bottom: NIL }
+FrontInset --> Split(X) { WallD: NIL | ~1: FrontIn | WallD: NIL }
+FrontIn --> Translate(0, 0, -WallD) Split(X) { 0.3: GCorner | ~1: GRun | DoorW: Doorway
+    | ~1: GRun | 0.3: GCorner }
+GRun --> when(scope.x > 2.8): Repeat(X, 2.8) { GWinBay } | else: GWinBay
+GWinBay --> Split(X) { ~1: GWall | 1.1: GWinCol | ~1: GWall }
+GWinCol --> Split(Y) { PlinthH: Plinth | 0.45: Wall | 0.1: Sill | 1.4: Framed | 0.22: Head
+    | ~1: Wall }
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) GFace
+// The sides: their walls run the full depth, turning the corners.
+SideIn --> Translate(0, 0, -WallD) GFace
+GFace --> Split(X) { 0.3: GCorner | ~1: GRun | 0.3: GCorner }
+// The doorway: a sliver at its top carries the cross-gable, so one column
+// draws both; the door under a porch or a head board, Picked once.
+Doorway --> Split(Y) { ~1: DoorPick | 0.01: ArkSliver }
+DoorPick --> Pick("porch") { 55% Porch | 45% PlainDoor }
+PlainDoor --> Split(X) { ~1: GWall | 0.12: Frame | 1.1: DoorCol | 0.12: Frame | ~1: GWall }
+DoorCol --> Split(Y) { StepH: Step | 2.1: DoorLeaf | 0.22: Head | ~1: Wall }
+// The porch: two white posts standing out from the wall, a beam from the
+// wall to them and a little gable over it facing the street. Each part is
+// extruded with the wall's slot and split from it, so the wall behind it
+// stays whole; the beam and the gable stand a hair clear of the wall.
+Porch --> Split(Y) { 2.7: PorchLow | ~1: PorchTop }
+PorchLow --> Split(X) { 0.16: PorchPostCol | ~1: PorchMid | 0.16: PorchPostCol }
+PorchPostCol --> Extrude(WallD + PorchD) Split(Z) { WallD: SlotWall | ~1: NIL | 0.16: PorchPost }
+SlotWall --> Split(Y) { PlinthH: SlotPlinth | ~1: SlotBoards }
+SlotPlinth --> Mat("Plinth") I("Plinth")
+SlotBoards --> I("Wall")
+PorchPost --> Mat("Trim") I("Trim")
+PorchMid --> Split(X) { ~1: GWall | 1.1: PorchDoor | ~1: GWall }
+PorchDoor --> Split(Y) { StepH: Step | 2.1: DoorLeaf | ~1: Wall }
+PorchTop --> Extrude(WallD + PorchD) Split(Z) { WallD: SlotBoards | 0.03: NIL | ~1: PorchHead }
+PorchHead --> Split(Y) { 0.12: PorchBeam | 0.01: PorchRoofSlot | ~1: NIL }
+PorchBeam --> Mat("Trim") I("Trim")
+PorchRoofSlot --> Roof(Gable, 40, overhang=0, ridge=Z) { Slope: ArkSlope | GableEnd: PorchGable }
+PorchGable --> I("Wall")
+
+// -- 3. The upper storeys: framed windows between corner boards, all round --
+Uppers --> Comp(Faces) { Front: UpInset | Back: UpInset | Left: UpSideIn
+    | Right: UpSideIn | Top: NIL | Bottom: NIL }
+UpInset --> Split(X) { WallD: NIL | ~1: UpIn | WallD: NIL }
+UpIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { UpStorey }
+UpSideIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { UpStorey }
+UpStorey --> when(split.i == split.n - 1): Split(X) { 0.3: TopCorner | ~1: UpRun | 0.3: TopCorner }
+    | else: Split(X) { 0.3: Corner | ~1: UpRun | 0.3: Corner }
+UpRun --> when(scope.x > 2.8): Repeat(X, 2.8) { WinBay } | else: WinBay
+WinBay --> Split(X) { ~1: Wall | 1.1: WinCol | ~1: Wall }
+WinCol --> Split(Y) { 0.8: Wall | 0.1: Sill | 1.3: Framed | 0.22: Head | ~1: Wall }
+
+// -- 4. The cross-gable: on a house of more than one storey, most of them,
+// a storey of wall over the door from the eaves back into the roof, its
+// framed window under a little gable of its own. Not under a low turf
+// roof, whose slope would not cover its back --
+ArkSliver --> when(Storeys == 1): NIL | else: ArkRoll
+ArkRoll --> Pick("roof") { 35% ArkPick | 25% ArkPick | 20% ArkPick | 20% NIL }
+ArkPick --> Pick("ark") { 65% Ark | 35% NIL }
+Ark --> Translate(-(ArkW - scope.x) / 2, 0.01 + FloorH * (Storeys - 1), WallD - ArkD)
+    Size(ArkW, ArkH + 3.0, 0) Extrude(ArkD) Split(Y) { ArkH: ArkStorey | ~1: ArkRoof }
+// The box was extruded out from the house, so its street face is its Back.
+ArkStorey --> Comp(Faces) { Back: ArkFrontInset | Left: ArkSide | Right: ArkSide | All: NIL }
+ArkSide --> Translate(0, 0, -WallD) Wall
+ArkFrontInset --> Split(X) { WallD: NIL | ~1: ArkFrontIn | WallD: NIL }
+ArkFrontIn --> Translate(0, 0, -WallD) Split(X) { 0.25: Corner | ~1: Wall | 1.1: ArkWin | ~1: Wall
+    | 0.25: Corner }
+ArkWin --> Split(Y) { 0.2: Sill | 1.1: Framed | ~1: Head }
+ArkRoof --> Roof(Gable, 40, overhang=0, ridge=Z) { Slope: ArkSlope | GableEnd: ArkGable }
+ArkGable --> I("Wall")
+
+// -- 5. The roof along the street, Picked once: tarred shakes, slate or
+// turf, steep - or turf on a lower pitch --
+RoofZone --> Pick("roof") { 35% ShakeRoof | 25% SlateRoof | 20% TurfRoof | 20% LowTurfRoof }
+ShakeRoof --> Roof(Gable, 45, overhang=Eave, ridge=X) { Slope: ShakeSlope | GableEnd: Gable }
+SlateRoof --> Roof(Gable, 45, overhang=Eave, ridge=X) { Slope: SlateSlope | GableEnd: Gable }
+TurfRoof --> Roof(Gable, 40, overhang=Eave, ridge=X) { Slope: TurfSlope | GableEnd: Gable }
+LowTurfRoof --> Roof(Gable, 27, overhang=Eave, ridge=X) { Slope: TurfSlope | GableEnd: Gable }
+// The porch's and the cross-gable's roofs are the house's.
+ArkSlope --> Pick("roof") { 35% ShakeSlope | 25% SlateSlope | 20% TurfSlope | 20% TurfSlope }
+ShakeSlope --> Mat("Shakes") I("Roof")
+SlateSlope --> Mat("Slate") I("Roof")
+TurfSlope --> Mat("Turf") I("Roof")
+Gable --> I("Wall")

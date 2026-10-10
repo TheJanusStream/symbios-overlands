@@ -1,0 +1,131 @@
+// The industrial park's hall (#1600): a brick factory hall, or - where it
+// trades - a trade counter's showroom in one. See street_hall.rs for the
+// hall, and catalogue::items::street for the conventions and for what is
+// declared ahead of these rules (Storeys, Trade, Frontage, Depth, GroundH,
+// FloorH) and after them (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.45
+const PaneSet = 0.18
+const StepH = 0.5
+const PlinthH = 1.2
+const BandH = 0.5
+const RoofH = 1.0
+// The front's rhythm: a brick pier, then a bay, so many metres a bay.
+const PierW = 0.8
+const BayW = 6.0
+// The sawtooth: one tooth to so many metres of frontage, each rising so far.
+const ToothW = 6.0
+const ToothH = 2.6
+
+// -- 1. The hall: its skin rolled once, then storeys and a roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Skin
+Skin --> 30% Mat("BrickDark") Massing | 25% Mat("BrickRed") Massing
+    | 20% Mat("BrickBrown") Massing | 15% Mat("CladBlue") Massing | 10% Mat("CladGrey") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Upper | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+Concrete --> Mat("Concrete") I("Trim")
+// A pier of the skin, standing proud of the front.
+Pier --> Extrude(WallD + 0.25) I("Wall")
+// A ground-floor wall: the skin over a concrete plinth wall.
+Plinthed --> Split(Y) { PlinthH: PlinthWall | ~1: Wall }
+PlinthWall --> Mat("Concrete") Wall
+Lintel --> Extrude(WallD + 0.06) Mat("Steel") I("Steel")
+Step --> Extrude(WallD + 0.4) Concrete
+HighRow --> Repeat(X, BayW) { HighBay }
+HighBay --> Split(X) { ~1: Wall | 3.6: Glazing | ~1: Wall }
+
+// -- 2. The ground storey: a works' bays, or a trade counter's showroom,
+// under a concrete band the whole frontage --
+Ground --> Comp(Faces) { Front: GroundFace | Back: BackInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFace --> Split(Y) { ~1: GroundFrontInset | BandH: Band }
+Band --> Extrude(0.12) Concrete
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) Split(X) { PierW: Pier | ~1: GroundField | PierW: Pier }
+GroundField --> when(Trade == 1): Counter | else: Repeat(X, BayW) { PierBay }
+// The works: a pier between each two bays, the first bay the door for
+// people, the rest a roller door or a tall window, at random.
+PierBay --> when(split.i == split.n - 1): LastBay(split.i) | else: InnerBay(split.i)
+LastBay(i) --> when(i == 0): ManDoorBay | else: WorksBay
+InnerBay(i) --> when(i == 0): Split(X) { ~1: ManDoorBay | PierW: Pier }
+    | else: Split(X) { ~1: WorksBay | PierW: Pier }
+WorksBay --> 55% RollerBay | 45% WindowBay
+RollerBay --> Split(Y) { ~1: RollLevel | 1.4: HighBay | 0.3: Wall }
+RollLevel --> Split(X) { ~1: Plinthed | 4.0: RollCol | ~1: Plinthed }
+// A roller door over its concrete apron: the sink buries all but its top.
+RollCol --> Split(Y) { 0.42: Apron | 3.6: Roller | 0.24: Lintel | ~1: Wall }
+Apron --> Extrude(WallD + 1.4) Concrete
+Roller --> Extrude(WallD - 0.12) Mat("Roller") I("Door")
+// A tall steel-framed window over the plinth wall.
+WindowBay --> Split(X) { ~1: Plinthed | 3.6: TallWin | ~1: Plinthed }
+TallWin --> Split(Y) { PlinthH: PlinthWall | 0.12: Sill | ~1: Glazing | 0.3: Lintel | 0.4: Wall }
+Sill --> Extrude(WallD + 0.08) Concrete
+ManDoorBay --> Split(Y) { ~1: ManLevel | 1.4: HighBay | 0.3: Wall }
+ManLevel --> Split(X) { ~1: Plinthed | 1.2: ManDoor | 0.8: Plinthed | 2.0: SmallWin
+    | ~1: Plinthed }
+ManDoor --> Split(Y) { StepH: Step | 2.3: DoorLeaf | 0.2: Lintel | ~1: Wall }
+DoorLeaf --> Extrude(WallD - 0.18) Mat("Door") I("Door")
+SmallWin --> Split(Y) { PlinthH: PlinthWall | 0.12: Sill | 1.6: Glazing | 0.24: Lintel | ~1: Wall }
+// The trade counter: showroom windows on a concrete plinth either side of
+// its glass doors, a painted steel fascia over them, the high windows over
+// that.
+Counter --> Split(Y) { 3.6: ShowLevel | 0.9: Fascia | 0.2: Wall | ~1: HighRow | 0.2: Wall }
+ShowLevel --> Split(X) { ~1: ShowRun | 2.4: GlassDoors | ~1: ShowRun }
+ShowRun --> when(scope.x > 3.4): Repeat(X, 3.4) { ShowBay } | else: ShowBay
+ShowBay --> Split(X) { 0.25: Wall | ~1: ShowWindow | 0.25: Wall }
+ShowWindow --> Split(Y) { 0.6: PlinthWall | ~1: ShopGlazing }
+GlassDoors --> Split(Y) { StepH: Step | 2.6: DoorLeaf | ~1: ShopGlazing }
+Fascia --> Extrude(WallD + 0.1) Mat("Fascia") I("Fascia")
+// The yard side: a roller door here and there, the high windows over them.
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) Split(Y) { ~1: BackDoors | 1.4: HighRow | 0.3: Wall }
+BackDoors --> Split(X) { 1.4: Plinthed | ~1: BackRun | 1.4: Plinthed }
+BackRun --> when(scope.x > 12): Repeat(X, 12) { RollLevel } | else: RollLevel
+
+// -- 3. An upper storey: offices, a row of steel windows front and back --
+Upper --> Comp(Faces) { Front: UpInset | Back: UpInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpInset --> Split(X) { WallD: NIL | ~1: UpIn | WallD: NIL }
+UpIn --> Translate(0, 0, -WallD) Split(Y) { 0.9: Wall | 1.6: Offices | ~1: Wall }
+Offices --> Repeat(X, 2.4) { OfficeBay }
+OfficeBay --> Split(X) { 0.3: Wall | ~1: Glazing | 0.3: Wall }
+
+// -- 4. The roof: a sawtooth across the street or a gable with a glazed
+// monitor along its ridge; a sliver at one end of the roof zone carries
+// the chimney --
+RoofZone --> Split(X) { ~1: RoofBody | 0.01: StackSlot }
+RoofBody --> Pick("roof") { 50% SawRoof | 50% MonitorRoof }
+Sheet --> Mat("RoofSheet") I("Roof")
+Northlight --> Mat("Northlight") I("Roof")
+Gable --> I("Wall")
+// Shed teeth across the street, so their profile is the hall's front,
+// each one's glazed northlight facing along the street. A shed slopes
+// along its scope's Z, so the roof's scope is turned a quarter about Y
+// first: its corner moved to the back, its Z then the frontage.
+SawRoof --> Translate(0, 0, scope.z) Rotate(0.7071068, 0, 0.7071068, 0)
+    Size(scope.z, scope.y, scope.x) Repeat(Z, ToothW) { Tooth }
+Tooth --> Roof(Shed, height=ToothH, overhang=0) { Slope: Sheet | Back: Northlight
+    | _: Gable }
+// The monitor roof: two low sheds rising to a glazed monitor along the
+// middle of the depth, the back one turned about to face the front's.
+MonitorRoof --> Split(Z) { ~2: FrontShed | ~1: Monitor | ~2: BackShed }
+FrontShed --> Roof(Shed, 8, overhang=0) { Slope: Sheet | Back: NIL | GableEnd: Gable }
+BackShed --> Translate(scope.x, 0, scope.z) Rotate(0, 0, 1, 0)
+    Roof(Shed, 8, overhang=0) { Slope: Sheet | Back: NIL | GableEnd: Gable }
+// The monitor stands from where the sheds meet it: glazed front and back,
+// its ends in the party walls' planes, a low gable over it.
+Monitor --> Translate(0, 0.0562 * Depth, 0) Size(scope.x, 2.2, scope.z)
+    Split(Y) { 1.5: Clerestory | ~1: MonitorTop }
+Clerestory --> Comp(Faces) { Front: Lights | Back: Lights | Left: Gable | Right: Gable
+    | Top: NIL | Bottom: NIL }
+Lights --> Repeat(X, 2.4) { LightBay }
+LightBay --> Split(X) { 0.3: Gable | ~1: Northlight }
+MonitorTop --> Roof(Gable, 12, overhang=0, ridge=X) { Slope: Sheet | GableEnd: Gable }
+// A round brick chimney at the back, where the works has one.
+StackSlot --> Pick("stack") { 40% Stack | 60% NIL }
+Stack --> Translate(-3.5, -0.5, scope.z - 3.5) Size(2.2, 9.5, 2.2) Mat("Stack")
+    Split(Y) { ~1: StackShaft | 0.5: StackCap }
+StackShaft --> I("Stack")
+StackCap --> Translate(-0.15, 0, -0.15) Size(scope.x + 0.3, scope.y, scope.z + 0.3) I("Stack")

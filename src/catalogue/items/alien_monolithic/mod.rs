@@ -25,6 +25,8 @@ pub mod light_pylon;
 pub mod monolith_shard;
 pub mod monument;
 pub mod street_block;
+pub mod street_detached;
+pub mod street_hall;
 pub mod street_house;
 pub mod street_low;
 // Poor (dormant) variants - the prosperity-Poor end of the theme.

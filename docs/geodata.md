@@ -128,7 +128,10 @@ and the wasm worker share it:
   `StoreyBand`, `Borough`, and `Coverage`; the ATKIS street and carriageway
   axes, read from a page of GeoJSON by `parse_axes` (#1595); the ALKIS
   buildings, the tree inventory and the street furniture (`parse_buildings`,
-  `parse_trees`, `parse_furniture`, P2.2);
+  `parse_trees`, `parse_furniture`, P2.2); the Environmental Atlas's blocks
+  by urban-structure type, and the families they sort into (`parse_blocks`,
+  `Development`, #1600);
+- `latlon`: a grid point's latitude and longitude and back (#1599);
 - `features`: one page of GeoJSON features, read once for every layer;
 - `request`: canonical `GetMap`, `GetLegendGraphic` and `GetFeature` URLs;
 - `legend`: GeoServer JSON legends, as value ranges or fill classes;
@@ -484,11 +487,19 @@ The street level (P2.2, #1588; `src/terrain/geo/street_level.rs`,
 `src/terrain/derived/`) is the walkable ground's buildings, trees and street
 furniture, each Berlin's own place and the region's own catalogue item.
 
-- **Data.** Twelve WFS pages over the core, one per layer: GeoServer refuses
-  a query over several types with a box. All dl-de/zero.
+- **Data.** Thirteen WFS pages over the core, one per layer: GeoServer
+  refuses a query over several types with a box. All dl-de/zero.
   - The ALKIS buildings (`alkis_gebaeude:gebaeude`): `uuid`, function
     (`gfk`), storeys above ground (`aog`), and whether a feature is a
     building or a part of one (`bezeich`).
+  - The urban structure (`ua_stadtstruktur:b_stadtstruktur_differenziert_2024`,
+    #1600): the Environmental Atlas's blocks for 2021-2024, the ground
+    between the streets, each with its key (`schluessel`) and its
+    urban-structure type (`typ`) - about fifty types, from the closed
+    Wilhelminian block to the estate of slabs, the street of detached houses
+    and the commercial area. The Museumsinsel's 600 m square has 32
+    blocks, Hermannplatz's 2 km square 169: a square kilometre holds
+    about 30 to 90.
   - The street and park trees (`baumbestand:strassenbaeume`,
     `baumbestand:anlagenbaeume`): `gisid`, genus (`gattung`), height,
     crown and girth.
@@ -510,8 +521,10 @@ furniture, each Berlin's own place and the region's own catalogue item.
   (the trees' 6,000); a page cut short draws what it holds, and the log
   says so.
 - **Reading.** A building stands whole; its parts - a dome, a high-rise
-  section - only raise its peak storeys. An underground car park stands
-  nothing. Whatever reaches within 3 m of the core's edge is left out, and
+  section - only raise its peak storeys. It takes how its block is built
+  up: the family of the urban-structure type of the block that holds its
+  middle (`Development`, see "Street buildings"), or none where the block
+  page could not be had. An underground car park stands nothing. Whatever reaches within 3 m of the core's edge is left out, and
   each layer comes nearest the core's middle first. Two items of a kind
   within half a metre of each other are one, the lower id kept whatever
   order the server sent them in: the sign survey records some signs twice,
@@ -535,32 +548,39 @@ furniture, each Berlin's own place and the region's own catalogue item.
 - **Buildings.** A church, a cultural or public building of 1,200 m2 or
   more, or a building of 12 storeys takes one of the theme's landmarks - at
   most 6, no two within 150 m, places of worship first, each counted only
-  where it can stand. Every other
-  building of 30 m2 or more takes rows of the theme's street buildings
-  (#1598, below). A footprint is filled in its box along its street front -
-  the longest of its edges within 30 degrees of square to its street,
-  rather than its longest edge, which on a house with a side wing is the
-  wing: a row for every 30 m of its depth (at most 4), a copy wherever a
-  slot's middle lies on the footprint. A row fronts the street side; of
-  several, the outer two front their own sides, as a block's houses front
-  the streets either side of it. Each copy is shaped to the footprint: its kind
-  by Berlin's storeys and use (one or two storeys, or a shop, workshop,
-  garage or utility of three, is a low building; three to seven a house;
-  more a long block), Berlin's storeys snapped to its kind's, its ground
-  floor trading where the use is a shop's, a workshop's, a garage's, a
-  utility's or mixed; its depth the deepest of its kind's that fits the
-  row, its front on the row's own edge as a Berlin house stands on the
-  street line; its frontages rolled down the row, a tail its kind leaves
-  taking the next kind down. A row too shallow for a kind's shallowest step,
-  or too short for its narrowest, draws it smaller, in quarter-octaves down
-  to half. A theme without its street buildings fills a box along its
-  longest edge with its secondaries, each fitted to its row's depth, bigger
-  where Berlin's stands taller. A landmark stands at the middle of the box
-  along the longest edge, with rows either side of it; one that fits nowhere,
-  whose box's middle is off the footprint (a courtyard), or that would
-  reach the landing gives way to rows. A building's picks are seeded by
-  its uuid. Every copy stands on its voxel shell as its collider; past
-  12,000 near entities a copy is its shell, at most 3,000.
+  where it can stand. Every other building of 30 m2 or more takes rows of
+  the theme's street buildings (#1598, below). A footprint is filled in its
+  box along its street front - the longest of its edges within 30 degrees of
+  square to its street, rather than its longest edge, which on a house with
+  a side wing is the wing: a row for every 30 m of its depth (at most 4), a
+  copy wherever a slot's middle lies on the footprint. A row fronts the
+  street side; of several, the outer two front their own sides, as a block's
+  houses front the streets either side of it. Each copy is shaped to the
+  footprint: its kind by Berlin's storeys, use, size and block (one of up to
+  three storeys that is one house's size - a home, its garage, its shed, the
+  corner shop, anything but a church or a museum - in a block of houses or
+  garden plots is a detached house standing alone; one of one or two storeys
+  over 500 m2 that is a works building, or in a block of works anything but
+  a home, a hall; otherwise one or two storeys, or a shop, workshop, garage
+  or utility of three, is a low building; three to seven a house; more a
+  long block), Berlin's storeys snapped to its kind's, its ground floor
+  trading where the use is a shop's, a workshop's, a garage's, a utility's
+  or mixed (a hall's only where it is a shop's, a detached house's never);
+  its depth the deepest of its kind's that fits the row, its front on the
+  row's own edge as a Berlin house stands on the street line; its frontages
+  rolled down the row, a tail its kind leaves taking the next kind down. A
+  hall's rows, and an estate's, run along the box along the footprint's
+  longest edge instead, as an estate's slabs turn their long sides to their
+  lawns. A row too shallow for a kind's shallowest step, or too short for
+  its narrowest, draws it smaller, in quarter-octaves down to half. A theme
+  without its street buildings fills a box along its longest edge with its
+  secondaries, each fitted to its row's depth, bigger where Berlin's stands
+  taller. A landmark stands at the middle of the box along the longest edge,
+  with rows either side of it; one that fits nowhere, whose box's middle is
+  off the footprint (a courtyard), or that would reach the landing gives way
+  to rows. A building's picks are seeded by its uuid. Every copy stands on
+  its voxel shell as its collider; past 12,000 near entities a copy is its
+  shell, at most 3,000.
 - **Trees.** The owner chose Berlin's species over the region's biome: each
   genus is the catalogue species nearest it (a linden, a maple or an ash a
   dense oval crown, a plane or a chestnut a spreading one, an oak an oak, a
@@ -708,8 +728,9 @@ drawn from.
   64-bit FNV-1a over its bytes, a page of features' own `"timeStamp"` left
   out, the one thing that changes between two fetches of the same data. A
   layer's hash folds its answers' in the order the job asks for them:
-  terrain, land use, streets, buildings, trees, furniture, horizon and
-  ring, each only where all of its answers were had. A save writes the
+  terrain, land use, streets, buildings, blocks, trees, furniture, horizon
+  and ring, each only where all of its answers were had. A record saved
+  before a layer existed holds no hash for it, so says nothing changed. A save writes the
   drawn layers' hashes into `geo_source.layers` (16 hex digits each) on
   the way out, where the record names the square they were drawn for - and
   only there: the editor's record never holds them, or every save would
@@ -874,7 +895,7 @@ the live path end to end: the real client, the disk store, and the decoders.
 It then checks that a second visit is answered from the store alone. Fire it
 by hand when the live path is in question.
 
-## Street buildings (#1598)
+## Street buildings (#1598, #1600)
 
 The owner's decisions (2026-10-09): every theme has three shape-grammar
 buildings of Berlin's street types in its own dress - a Roman insula, a
@@ -886,11 +907,49 @@ road network's lots, at their kind's own fit. A seeded settlement and the
 street furniture leave them out: a settlement stands its members apart on
 open ground, and they are built to stand flush in a row.
 
+The owner's decisions on #1600 (2026-10-10): the planner reads each block's
+urban-structure type, and every theme has two more kinds - a detached house
+and a hall - so a street of villas and a commercial area's sheds are drawn
+as Berlin builds them; data under dl-de/zero only, and not the 1945
+war-damage map.
+
 | Kind | Berlin type | Frontage (m) | Depth (m) | Storeys | Own fit |
 | --- | --- | --- | --- | --- | --- |
 | House | the Altbau, the perimeter-block house | 12, 16, 20 | 8, 11, 14 | 3-7 | 16 x 14 x 5, trading |
 | Block | the Gruenderzeit block, the Plattenbau slab | 24, 36, 48 | 8, 11, 14 | 6, 8, 10, 12 | 36 x 14 x 8 |
-| Low | a house, a cottage row, a shop, a workshop | 8, 12, 16, 24 | 6, 9, 13, 17 | 1, 2 | 12 x 13 x 2 |
+| Low | a cottage row, a shop, a workshop | 8, 12, 16, 24 | 6, 9, 13, 17 | 1, 2 | 12 x 13 x 2 |
+| Detached | a house or a villa in its garden (#1600) | 8, 10, 12, 16 | 8, 10, 12, 16 | 1, 2, 3 | 10 x 10 x 2 |
+| Hall | a works hall, a warehouse, a retail box (#1600) | 16, 24, 36, 48, 72, 96 | 12, 16, 24, 36, 48 | 1, 2 | 36 x 24 x 1 |
+
+How a block is built up places its buildings (#1600). The atlas's types
+sort into families (`geodata::berlin::Development`); their shares are of
+Berlin's 794 km2 of blocks, from the whole atlas fetched on 2026-10-10:
+
+| Family | Types | Share of Berlin | Placement |
+| --- | --- | --- | --- |
+| Perimeter | closed and semi-open block edges, the core (1-3, 6-8, 10, 29, 38) | 6.7 % | rows along the street front, flush |
+| Estate | parallel rows, free rows, large estates, 1990s flats (9, 11, 72, 73) | 8.6 % | rows along the footprint's longest edge |
+| Houses | detached homes, villas, villages, densified (21, 23-25) | 15.8 % | a building of one house's size - a home, a garage, a shed - stands alone as a detached house |
+| RowHouses | row houses and duplexes (22) | 2.3 % | rows along the street front: a low building's terrace |
+| Works | commercial, industrial, utility, sparse mixed (30-33) | 8.2 % | halls; any but a home of one or two storeys over 500 m2 is one |
+| Civic | schools, hospitals, offices of state, culture, churches (12, 13, 17, 41, 43-47, 49, 51, 60) | 6.5 % | rows along the street front |
+| Gardens | allotments, weekend plots, camping (37, 58, 59) | 5.0 % | as Houses |
+| Open | forest, water, parks, farmland, railway, traffic, the rest | 47.0 % | rows along the street front |
+
+A detached house stands alone at the middle of its street box, as wide
+and deep as its steps fit, its front to its street: windows on all four
+sides, its walls standing in from its lot's sides so its roof reaches out
+over them. A hall stands flush like the rest, its gable ends its party
+walls, and a row of halls takes the widest that fits, each; it trades
+where its building is a shop's - a store's front under its sign rather
+than a works' roller doors. Either stands only where it lands: three
+quarters of each copy's lot on its footprint, the copies together covering
+half of it. Halls are tried from the deepest the row holds down, so a long
+wing narrower than its box takes shallower halls along its front, and a
+footprint no hall lands on - a comb of wings, a T turned to its street -
+takes the rows its storeys and use give it, as before #1600. Where the
+block page could not be had, a building is placed as before #1600, but a
+works building of hall size is a hall still.
 
 A fit is snapped to its kind's steps, a storey count of two as near to the
 lower, so copies share meshes: copies of one building at one fit, seed and
@@ -913,7 +972,8 @@ distinct buildings, landmarks included, all of them near.
   high as the storeys and a crown 10 m over them at most, a door on the
   front up a step, a window in every storey, no door or window under the
   0.35 m sink, nothing z-fighting or floating, and the grammar inside a
-  record's 16 KiB.
+  record's 16 KiB. A detached house also has a window on its back and on
+  each side, where a street building's sides are its party walls.
 - **A grammar is a `.cga` file** beside its spec: one statement a line, a
   line starting with white space continuing the one above, `//` lines
   dropped. The fit's declarations (`Storeys`, `Trade`, `Frontage`,
@@ -925,7 +985,13 @@ distinct buildings, landmarks included, all of them near.
   `--street-check` holds it (or the draft) to every convention at its
   kind's smallest, largest and two middle fits and four seeds, prints each
   fault with the first part at fault, and its parts against its kind's
-  budget (house 1,200, block 2,600, low 600).
+  budget (house 1,200, block 2,600, low 600, detached house 800, hall
+  1,200). The ignored test
+  `every_street_building_keeps_the_conventions_at_every_fit` holds every
+  street building to the conventions at every fit its kind builds (#1600;
+  about 9,500 derivations, 9 s under `test-release`): fire it by hand after
+  a street grammar changes. Its first run found three of #1598's buildings
+  failing at fits the four samples miss.
 
 ## Phases
 
@@ -946,6 +1012,7 @@ Each phase is a sub-issue of #1580, in build order:
 | #1590 | P3.2 owner edits over derived content; layer hashes |
 | #1591 | P4 walkable area past the core: P4.1 walkable horizon (#1596), P4.2 detail patch (#1597) |
 | #1598 | Street buildings: three per theme, shaped to Berlin's footprints |
+| #1600 | Block types: a detached house and a hall per theme, placed by how each block is built up |
 
 The Berlin share of the source draw was held at 0 until P2 made a themed
 Berlin worth landing in; since P3.1 it is one seeded room in four.

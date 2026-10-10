@@ -1,0 +1,108 @@
+// The civic campus's detached house (#1600): a professor's villa in its
+// garden. See street_detached.rs for the villa, and catalogue::items::street
+// for the conventions and for what is declared ahead of these rules
+// (Storeys, Trade, Frontage, Depth, GroundH, FloorH) and after them
+// (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.4
+const PaneSet = 0.16
+const RoofH = 1.0
+// How far the roof reaches past the walls: the walls stand this far in
+// from the lot's sides, so the eaves and verges keep inside it.
+const Eave = 0.5
+// The string course at every floor line, and how far it stands out.
+const CourseH = 0.25
+const CourseOut = 0.12
+// The portico: its width along the front and how far it stands out.
+const PorticoW = 3.0
+const PorticoD = 1.5
+
+// -- 1. The villa: its walls stand in from the lot, its stone rolled once --
+Lot --> Split(X) { Eave: NIL | ~1: LotRow | Eave: NIL }
+LotRow --> Split(Z) { Eave: NIL | ~1: Plot | Eave: NIL }
+Plot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Stone
+Stone --> 30% Mat("StonePale") Massing | 25% Mat("StoneBuff") Massing
+    | 20% Mat("StoneGrey") Massing | 25% Mat("BrickRed") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Uppers | RoofH: RoofZone }
+Marble --> Mat("Marble") I("Trim")
+Sill --> Extrude(WallD + 0.08) Marble
+Hood --> Extrude(WallD + 0.14) Marble
+
+// -- 2. Windows: tall, each on a marble sill under a hood; f is the sill's
+// height over the scope's foot --
+WinBay(f) --> Split(X) { ~1: Wall | 1.1: WinCol(f) | ~1: Wall }
+WinCol(f) --> Split(Y) { f: Wall | 0.1: Sill | 2.0: Glazing | 0.18: Hood | ~1: Wall }
+// A run of them; a Repeat floors its count, so a short run is one window.
+Run(f) --> when(scope.x < 2.4): WinBay(f) | else: Repeat(X, 2.4) { WinBay(f) }
+
+// -- 3. The ground storey: the portico in the middle of the front, tall
+// windows all round, a French window to the garden --
+Ground --> Comp(Faces) { Front: FrontInset | Back: BackInset | Left: SideIn
+    | Right: SideIn | Top: NIL | Bottom: NIL }
+FrontInset --> Split(X) { WallD: NIL | ~1: FrontIn | WallD: NIL }
+FrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> Split(X) { ~1: Run(0.9) | PorticoW: Portico | ~1: Run(0.9) }
+// The portico: marble steps, two round columns, an entablature and a
+// pediment, standing out of the front before the door.
+Portico --> Split(X) { 0.2: Wall | ~1: PorticoCol | 0.2: Wall }
+PorticoCol --> Extrude(WallD + PorticoD) Split(Z) { WallD: PorticoSlab | ~1: PorticoFront }
+PorticoSlab --> Comp(Faces) { Back: PorticoFace | Front: NIL | Left: NIL | Right: NIL
+    | Top: NIL | Bottom: NIL }
+PorticoFace --> Translate(0, 0, -WallD) HouseDoor
+HouseDoor --> Split(X) { ~1: Wall | 1.3: DoorCol | ~1: Wall }
+DoorCol --> Split(Y) { 0.5: Wall | 2.5: DoorLeaf | ~1: Wall }
+DoorLeaf --> Extrude(WallD - 0.18) Mat("Door") I("Door")
+PorticoFront --> Split(Y) { 0.25: LowStep | 0.25: HighStepZone | ~1: ColumnZone
+    | 0.35: Entablature | 0.25: NIL }
+LowStep --> Marble
+HighStepZone --> Split(Z) { ~1: HighStep | 0.3: NIL }
+HighStep --> Marble
+ColumnZone --> Split(Z) { ~1: NIL | 0.45: ColumnLine | 0.3: NIL }
+ColumnLine --> Split(X) { 0.45: Column | ~1: NIL | 0.45: Column }
+Column --> Mat("Marble") I("Column")
+Entablature --> Split(Y) { ~1: EntablatureBody | 0.01: PedimentZone }
+EntablatureBody --> Mat("Marble") I("Cornice")
+// The pediment stands clear of the wall behind it.
+PedimentZone --> Split(Z) { 0.25: NIL | ~1: Pediment }
+Pediment --> Roof(Gable, 22, overhang=0, ridge=Z) { Slope: PedimentRoof | GableEnd: Tympanum }
+PedimentRoof --> Tiles
+Tympanum --> Mat("Marble") I("Cornice")
+// The garden side: a French window in one bay of two.
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) BackRun
+BackRun --> when(scope.x < 2.4): WinBay(0.9) | else: Repeat(X, 2.4) { BackBay }
+BackBay --> 50% WinBay(0.9) | 50% Split(X) { ~1: Wall | 1.3: FrenchCol | ~1: Wall }
+FrenchCol --> Split(Y) { 0.5: Wall | 2.5: Glazing | 0.18: Hood | ~1: Wall }
+// The sides: their walls run the full depth, turning the corners.
+SideIn --> Translate(0, 0, -WallD) SideFace
+SideFace --> Split(X) { 0.7: Wall | ~1: Run(0.9) | 0.7: Wall }
+
+// -- 4. The upper storeys: a marble string course at each floor line, then
+// windows all round --
+Uppers --> Comp(Faces) { Front: UpFull | Back: UpFull | Left: UpSideFull
+    | Right: UpSideFull | Top: NIL | Bottom: NIL }
+UpFull --> Repeat(Y, FloorH) { UpStorey }
+UpStorey --> Split(Y) { CourseH: Course | ~1: UpFrontInset }
+UpFrontInset --> Split(X) { WallD: NIL | ~1: UpFrontIn | WallD: NIL }
+UpFrontIn --> Translate(0, 0, -WallD) Run(0.55)
+UpSideFull --> Repeat(Y, FloorH) { UpSideStorey }
+UpSideStorey --> Split(Y) { CourseH: SideCourse | ~1: UpSideIn }
+UpSideIn --> Translate(0, 0, -WallD) UpSide
+UpSide --> Split(X) { 0.7: Wall | ~1: Run(0.55) | 0.7: Wall }
+// The course runs through the wall: the front's and back's turn the
+// corners, the sides' stop at them.
+Course --> Translate(-CourseOut, 0, -WallD) Size(scope.x + 2 * CourseOut, scope.y, scope.z)
+    Extrude(WallD + CourseOut) Mat("Marble") I("Cornice")
+SideCourse --> Split(X) { WallD: NIL | ~1: SideCourseIn | WallD: NIL }
+SideCourseIn --> Translate(0, 0, -WallD) Extrude(WallD + CourseOut) Mat("Marble") I("Cornice")
+
+// -- 5. The roof: a hip or a gable along the street, copper or slate, its
+// eaves out to the lot's edges --
+RoofZone --> Pick("roof") { 60% HipRoof | 40% GableRoof }
+HipRoof --> Roof(Hip, 30, overhang=Eave) { Slope: Tiles }
+GableRoof --> Roof(Gable, 35, overhang=Eave, ridge=X) { Slope: Tiles | GableEnd: Gable }
+Tiles --> Pick("tiles") { 55% Copper | 45% Slate }
+Copper --> Mat("Copper") I("Roof")
+Slate --> Mat("Slate") I("Roof")
+Gable --> I("Wall")

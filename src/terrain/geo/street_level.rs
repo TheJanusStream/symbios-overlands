@@ -5,7 +5,12 @@
 //! where the derived stage draws them ([`crate::terrain::derived::core`]).
 //!
 //! A building's parts - a high-rise section, a lower wing - only raise the
-//! building's peak storeys: the building alone stands. An underground car
+//! building's peak storeys: the building alone stands. Each building takes
+//! how its block is built up (#1600): the family of the urban-structure
+//! type of the block that holds its middle ([`geodata::berlin::Development`],
+//! read from [`geodata::berlin::URBAN_STRUCTURE`]), which the planner
+//! places it by - flush on the street line, free in a garden, a slab among
+//! lawns. An underground car
 //! park stands nothing. Whatever reaches past [`EDGE_MARGIN_M`] inside the
 //! core's edge is left out: the core's pages end there, and past it the far
 //! field and the ring are drawn coarser (P4.1, #1596, walks them; P4.2,
@@ -27,7 +32,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use geodata::berlin::{BuildingUse, FurnitureKind, LandUse};
+use geodata::berlin::{BuildingUse, Development, FurnitureKind, LandUse};
 
 use super::streets::{CoreFrame, Streets};
 
@@ -71,6 +76,9 @@ pub(crate) struct CoreBuilding {
     /// The turn about +Y that faces a catalogue front (local -Z) to its
     /// street, from its centroid.
     pub street_yaw: f32,
+    /// How its block is built up (#1600), where the block page could be had
+    /// and one of its blocks holds the footprint's middle.
+    pub development: Option<Development>,
 }
 
 /// One tree of the inventory, in the world frame round the core.
@@ -218,10 +226,11 @@ impl TreeClearance {
 /// One page as fetched, or why it could not be had, as a sentence.
 pub(crate) type Page = Result<Arc<[u8]>, String>;
 
-/// The street level's pages as fetched: the buildings', the two tree
-/// inventories', and each furniture kind's.
+/// The street level's pages as fetched: the buildings', the blocks'
+/// (#1600), the two tree inventories', and each furniture kind's.
 pub(crate) struct StreetLevelBodies {
     pub buildings: Page,
+    pub blocks: Page,
     pub street_trees: Page,
     pub park_trees: Page,
     pub furniture: Vec<(FurnitureKind, Page)>,
@@ -295,6 +304,7 @@ pub(crate) fn decode_street_level(
                 usage: building.usage(),
                 storeys: building.storeys,
                 peak_storeys: building.storeys,
+                development: None,
             });
         }
         // Each part to the building whose footprint holds its middle: the
@@ -312,6 +322,30 @@ pub(crate) fn decode_street_level(
                 building.peak_storeys =
                     Some(building.peak_storeys.map_or(storeys, |s| s.max(storeys)));
             }
+        }
+    }
+
+    // Blocks (#1600): each building takes how the block that holds its
+    // middle is built up.
+    let blocks = read_page(
+        &bodies.blocks,
+        "block types",
+        geodata::berlin::parse_blocks,
+        &mut lost,
+    );
+    if let Some(page) = blocks {
+        warn_cut_short("block types", page.features, page.matched);
+        let areas: Vec<BlockArea> = page
+            .blocks
+            .iter()
+            .map(|block| BlockArea::new(block, &world))
+            .collect();
+        for building in &mut whole {
+            let at = centroid(&building.outline);
+            building.development = areas
+                .iter()
+                .find(|area| area.holds(at))
+                .map(|area| area.development);
         }
     }
 
@@ -387,6 +421,43 @@ pub(crate) fn decode_street_level(
             .then(a.id.cmp(&b.id))
     });
     (StreetLevel::new(whole, trees, furniture), lost)
+}
+
+/// A block of the urban structure in the world frame round the core: how
+/// it is built up, the box round its rings, and the rings.
+struct BlockArea {
+    development: Development,
+    bounds: [f32; 4],
+    rings: Vec<Vec<(f32, f32)>>,
+}
+
+impl BlockArea {
+    /// `block` carried into the world frame by `world`.
+    fn new(block: &geodata::berlin::Block, world: &impl Fn([f64; 2]) -> (f32, f32)) -> Self {
+        let rings: Vec<Vec<(f32, f32)>> = block
+            .rings
+            .iter()
+            .map(|ring| ring.iter().map(|&p| world(p)).collect())
+            .collect();
+        let bounds = rings.iter().map(|ring| bounds(ring)).fold(
+            [f32::MAX, f32::MAX, f32::MIN, f32::MIN],
+            |[x0, z0, x1, z1], [a0, b0, a1, b1]| [x0.min(a0), z0.min(b0), x1.max(a1), z1.max(b1)],
+        );
+        BlockArea {
+            development: block.development(),
+            bounds,
+            rings,
+        }
+    }
+
+    /// Whether world `at` lies inside it: inside its box, then inside an
+    /// odd number of its rings - outside a hole, where another block lies.
+    fn holds(&self, at: (f32, f32)) -> bool {
+        let [x0, z0, x1, z1] = self.bounds;
+        (x0..=x1).contains(&at.0)
+            && (z0..=z1).contains(&at.1)
+            && self.rings.iter().filter(|ring| contains(ring, at)).count() % 2 == 1
+    }
 }
 
 /// A layer's `page`, read by `parse`, or `None`, and why pushed onto `lost`.
@@ -859,6 +930,20 @@ mod tests {
             .collect();
         assert_eq!(worship.len(), 1, "the Berliner Dom");
         assert!(worship[0].area > 5_000.0, "{}", worship[0].area);
+        // Each takes how its block is built up (#1600), counted apart from
+        // the code (a Python pass over the fixtures): the island's museums
+        // and the Dom in their blocks of culture and worship, the GDR's
+        // slabs in their estates, and every one in a block.
+        let of = |d| {
+            buildings
+                .iter()
+                .filter(|b| b.development == Some(d))
+                .count()
+        };
+        use Development::*;
+        assert_eq!([Perimeter, Estate, Civic, Works].map(of), [15, 8, 10, 1]);
+        assert!(buildings.iter().all(|b| b.development.is_some()));
+        assert_eq!(worship[0].development, Some(Civic));
         assert!(
             buildings
                 .iter()

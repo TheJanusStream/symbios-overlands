@@ -1,0 +1,139 @@
+// The gothic horror theme's hall (#1600): a Victorian mill, or - where it
+// trades - a covered market hall. See street_hall.rs for the hall, and
+// catalogue::items::street for the conventions and for what is declared
+// ahead of these rules (Storeys, Trade, Frontage, Depth, GroundH, FloorH)
+// and after them (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.5
+const PaneSet = 0.15
+const StepH = 0.55
+const RoofH = 0.6
+// A works bay between two buttresses, and a market's.
+const BayW = 5.6
+const ShopW = 4.4
+// The main roof's rise over a run of one: tan(20 degrees).
+const Rise = 0.364
+
+// -- 1. The hall: its brick rolled once, then storeys and a roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Masonry
+Masonry --> 35% Mat("BlackBrick") Massing | 30% Mat("RedBrick") Massing
+    | 20% Mat("Brick") Massing | 15% Mat("Stone") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Upper | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners. A hall's
+// gable ends are its brick, blank.
+PartyIn --> Translate(0, 0, -WallD) Wall
+SlotWall --> I("Wall")
+// A pointed hood over a window or a door, as the town house's.
+HoodBase --> Extrude(WallD + 0.16) Split(Z) { WallD: SlotWall | ~1: HoodFront }
+HoodFront --> Split(Y) { 0.1: Drip | ~1: PeakSlot }
+Drip --> Mat("Dressing") I("Trim")
+PeakSlot --> Split(Z) { 0.03: NIL | ~1: Peak }
+Peak --> Roof(Gable, 55, overhang=0, ridge=Z) { Slope: Dressed | GableEnd: Dressed }
+Dressed --> Mat("Dressing") I("Trim")
+Sill --> Extrude(WallD + 0.08) Mat("Dressing") I("Trim")
+Step --> Extrude(WallD + 0.3) Mat("Dressing") I("Trim")
+// A buttress of the hall's brick, stepped back once, capped with dressed
+// stone: the lower step's top is the ledge the upper stands on.
+Buttress --> Split(Y) { ~3: ButtressLow | ~2: ButtressHigh | 0.2: ButtressCap }
+ButtressLow --> Extrude(WallD + 0.6) I("Buttress")
+ButtressHigh --> Extrude(WallD + 0.35) I("Buttress")
+ButtressCap --> Extrude(WallD + 0.42) Mat("Dressing") I("Trim")
+// A tall pointed window high in the wall, over its sill, under its hood.
+HighBay --> Split(X) { ~1: Wall | 1.2: HighWin | ~1: Wall }
+HighWin --> Split(Y) { 0.25: Wall | 0.12: Sill | 1.25: Glazing | 0.14: HoodBase | ~1: Wall }
+
+// -- 2. The ground storey: a works' cart doors, or a market's front --
+Ground --> Comp(Faces) { Front: FrontInset | Back: BackInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+FrontInset --> Split(X) { WallD: NIL | ~1: FrontIn | WallD: NIL }
+FrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> when(Trade == 1): MarketFront | else: WorksFront
+// The works: a door for men at one end, then buttressed bays, each a
+// cart door or blank brick below and a pointed window high over it.
+WorksFront --> Split(X) { 1.2: Wall | 1.2: ManDoor | 0.8: Wall | ~1: Bays | 0.6: Wall }
+ManDoor --> Split(Y) { StepH: Step | 2.3: ManLeaf | 0.14: HoodBase | ~1: Wall }
+ManLeaf --> Extrude(WallD - 0.15) Mat("DoorBlack") I("Door")
+Bays --> Repeat(X, BayW) { Bay }
+Bay --> Split(X) { 0.8: Buttress | ~1: BayBody }
+BayBody --> Split(Y) { 4.0: BayLow | ~1: HighBay }
+BayLow --> 65% Split(X) { ~1: Wall | 3.4: CartCol | ~1: Wall } | 35% Wall
+// A cart door of tarred timber, strapped with iron, over a stone apron the
+// sink buries all but the top of, under a dressed lintel.
+CartCol --> Split(Y) { 0.45: Apron | 3.1: CartDoor | 0.3: Lintel | ~1: Wall }
+Apron --> Extrude(WallD + 1.2) Mat("Dressing") I("Trim")
+CartDoor --> Split(X) { ~1: CartLeaf | 0.1: Strap | ~1: CartLeaf }
+CartLeaf --> Extrude(WallD - 0.15) Mat("Timber") I("Door")
+Strap --> Extrude(WallD - 0.1) Mat("Iron") I("Iron")
+Lintel --> Extrude(WallD + 0.1) Mat("Dressing") I("Trim")
+// The market: black-framed shop windows in buttressed bays under a black
+// fascia, a pointed window over each, and a tall door in the middle under
+// a stained fanlight and a hood.
+MarketFront --> Split(X) { ~1: ShopRun | 3.0: MarketEntrance | ~1: ShopRun }
+ShopRun --> when(scope.x > ShopW): Repeat(X, ShopW) { ShopBay } | else: ShopBay
+ShopBay --> Split(X) { 0.7: Buttress | ~1: ShopUnit }
+ShopUnit --> Split(Y) { 0.7: Stall | 2.6: ShopWin | 0.8: FasciaBand | ~1: HighBay }
+Stall --> Extrude(WallD + 0.05) Mat("Fascia") I("Fascia")
+ShopWin --> Split(X) { 0.15: Mullion | ~1: ShopGlazing | 0.15: Mullion }
+Mullion --> Extrude(WallD + 0.08) Mat("Fascia") I("Fascia")
+FasciaBand --> Extrude(WallD + 0.15) Mat("Fascia") I("Fascia")
+MarketEntrance --> Split(X) { 0.4: Wall | ~1: EntranceCol | 0.4: Wall }
+EntranceCol --> Split(Y) { StepH: Step | 2.9: EntranceDoor | 1.0: Fanlight | 0.14: HoodBase | ~1: Wall }
+EntranceDoor --> Split(X) { ~1: MarketLeaf | 0.1: Strap | ~1: MarketLeaf }
+MarketLeaf --> Extrude(WallD - 0.15) Mat("Door") I("Door")
+Fanlight --> Extrude(WallD - 0.15) Mat("Stained") I("Pane")
+// The yard side: a plain window high in every bay.
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) Split(X) { 0.6: Wall | ~1: BackRun | 0.6: Wall }
+BackRun --> Repeat(X, BayW) { BackBay }
+BackBay --> Split(X) { ~1: Wall | 1.2: BackWin | ~1: Wall }
+BackWin --> Split(Y) { 3.4: Wall | 1.6: Glazing | ~1: Wall }
+
+// -- 3. An upper storey: a loft of offices, pointed windows front, plain
+// ones behind --
+Upper --> Comp(Faces) { Front: UpInset | Back: UpBackInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpInset --> Split(X) { WallD: NIL | ~1: UpIn | WallD: NIL }
+UpIn --> Translate(0, 0, -WallD) Split(X) { 0.6: Wall | ~1: UpRun | 0.6: Wall }
+UpRun --> Repeat(X, 4.4) { UpBay }
+UpBay --> Split(X) { ~1: Wall | 1.1: UpWin | ~1: Wall }
+UpWin --> Split(Y) { 0.8: Wall | 0.12: Sill | 2.0: Glazing | 0.14: HoodBase | ~1: Wall }
+UpBackInset --> Split(X) { WallD: NIL | ~1: UpBackIn | WallD: NIL }
+UpBackIn --> Translate(0, 0, -WallD) Split(X) { 0.6: Wall | ~1: UpBackRun | 0.6: Wall }
+UpBackRun --> Repeat(X, BayW) { UpBackBay }
+UpBackBay --> Split(X) { ~1: Wall | 1.1: UpBackWin | ~1: Wall }
+UpBackWin --> Split(Y) { 0.9: Wall | 1.8: Glazing | ~1: Wall }
+
+// -- 4. The roof: slate, a works' gable or sawtooth, a market's gable and
+// its entrance gable; each part drawn from its own sliver of the zone --
+RoofZone --> when(Trade == 1): MarketRoof | else: WorksRoof
+WorksRoof --> Pick("roof") { 60% CrestedRoof | 40% Sawtooth }
+CrestedRoof --> Split(Y) { 0.01: MainRoof | ~1: CrestZone }
+MainRoof --> Roof(Gable, 20, overhang=0, ridge=X) { Slope: SlateSlope | GableEnd: SlotWall }
+SlateSlope --> Mat("Slate") I("Roof")
+// Iron cresting along the ridge, lifted to it.
+CrestZone --> Translate(0.05, Rise * Depth / 2 - 0.12, Depth / 2 - 0.04)
+    Size(scope.x - 0.1, 0.5, 0.08) Mat("Iron") Split(Y) { 0.1: CrestRail | ~1: Spikes }
+CrestRail --> I("Iron")
+Spikes --> Repeat(X, 1.4) { SpikeBay }
+SpikeBay --> Split(X) { ~1: NIL | 0.08: Spike | ~1: NIL }
+Spike --> I("Iron")
+// A weaving shed's teeth along the street, each its slate slope and its
+// glazed north light.
+Sawtooth --> Repeat(Z, 8.0) { Tooth }
+Tooth --> Roof(Shed, 22, overhang=0) { Slope: SlateSlope | Back: NorthLight | GableEnd: SlotWall }
+NorthLight --> Repeat(X, 4.0) { NorthPane }
+NorthPane --> Mat("Glass") I("Pane")
+// The market: the crested gable, and over its door a pointed gable run
+// back into the roof.
+MarketRoof --> Split(Y) { 0.01: MainRoof | 0.01: GableZone | ~1: CrestZone }
+GableZone --> Split(X) { ~1: NIL | 4.0: EntranceGable | ~1: NIL }
+EntranceGable --> Translate(0, -0.01, 0) Size(scope.x, 4.0, Depth / 2)
+    Split(Y) { 1.6: GableBase | ~1: GableRoof }
+// A stained window in its face, set back in the brick.
+GableBase --> Split(Z) { 0.3: GableFront | ~1: SlotWall }
+GableFront --> Split(X) { ~1: SlotWall | 1.4: RoseCol | ~1: SlotWall }
+RoseCol --> Split(Y) { 0.2: SlotWall | 1.2: Rose | ~1: SlotWall }
+Rose --> Split(Z) { 0.12: NIL | 0.04: RosePane | ~1: SlotWall }
+RosePane --> Mat("Stained") I("Pane")
+GableRoof --> Roof(Gable, 50, overhang=0, ridge=Z) { Slope: SlateSlope | GableEnd: SlotWall }

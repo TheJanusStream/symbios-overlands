@@ -1,0 +1,121 @@
+// The farm country's detached house (#1600): a farmhouse alone in its yard.
+// See street_detached.rs for the house, and catalogue::items::street for the
+// conventions and for what is declared ahead of these rules (Storeys, Trade,
+// Frontage, Depth, GroundH, FloorH) and after them (Glazing, ShopGlazing,
+// Wall).
+
+const WallD = 0.3
+const PaneSet = 0.12
+const PlinthH = 0.7
+const RoofH = 1.0
+const DoorW = 1.6
+// The veranda: how far it stands out of the front.
+const PorchD = 1.8
+// How far the roof reaches past the walls: the walls stand this far in
+// from the lot's sides, so the eaves and verges keep inside it.
+const Eave = 0.5
+
+// -- 1. The house: its walls stand in from the lot, the cladding rolled
+// once --
+Lot --> Split(X) { Eave: NIL | ~1: LotRow | Eave: NIL }
+LotRow --> Split(Z) { Eave: NIL | ~1: Plot | Eave: NIL }
+Plot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Cladding
+Cladding --> 30% Mat("White") Massing | 25% Mat("Cream") Massing | 15% Mat("Sage") Massing
+    | 30% Mat("BrickRed") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Uppers | RoofH: RoofZone }
+Trim --> Mat("Trim") I("Trim")
+Sill --> Extrude(WallD + 0.06) Trim
+Head --> Extrude(WallD + 0.1) Trim
+StoneWall --> Mat("Stone") Wall
+// A ground-floor wall: cladding over the fieldstone plinth.
+Plinthed --> Split(Y) { PlinthH: StoneWall | ~1: Wall }
+
+// -- 2. The ground storey: the door on the front, windows all round, all
+// on a fieldstone plinth --
+Ground --> Comp(Faces) { Front: FrontInset | Back: BackInset | Left: SideIn
+    | Right: SideIn | Top: NIL | Bottom: NIL }
+FrontInset --> Split(X) { WallD: NIL | ~1: FrontIn | WallD: NIL }
+FrontIn --> Translate(0, 0, -WallD) Pick("porch") { 55% Veranda | 45% HoodFront }
+// The door under a hood, up a stone step.
+HoodFront --> Split(X) { ~1: FrontRun | DoorW: Entrance | ~1: FrontRun }
+Entrance --> Split(Y) { PlinthH: Steps | 2.1: DoorCol | 0.14: Hood | ~1: Wall }
+Steps --> Split(X) { 0.2: StoneWall | ~1: Step | 0.2: StoneWall }
+Step --> Extrude(WallD + 0.6) Mat("Stone") I("Trim")
+Hood --> Extrude(WallD + 0.7) Trim
+DoorCol --> Split(X) { 0.25: Wall | ~1: DoorLeaf | 0.25: Wall }
+DoorLeaf --> Pick("door") { 40% BrownLeaf | 35% GreenLeaf | 25% RedLeaf }
+BrownLeaf --> Mat("Door") Leaf
+GreenLeaf --> Mat("DoorGreen") Leaf
+RedLeaf --> Mat("DoorRed") Leaf
+Leaf --> Extrude(WallD - 0.1) I("Door")
+// The veranda along the whole front: the wall behind it is its back, with
+// the door; a deck on the plinth, posts and a rail, a tin roof.
+Veranda --> Extrude(WallD + PorchD) Split(Z) { WallD: VerandaSlab | ~1: Porch }
+VerandaSlab --> Comp(Faces) { Back: VerandaFace | Front: NIL | Left: NIL | Right: NIL
+    | Top: NIL | Bottom: NIL }
+VerandaFace --> Translate(0, 0, -WallD) Split(X) { ~1: FrontRun | DoorW: PorchDoor | ~1: FrontRun }
+PorchDoor --> Split(Y) { PlinthH: StoneWall | 2.1: DoorCol | ~1: Wall }
+Porch --> Split(Y) { PlinthH: Deck | 2.0: PorchAir | ~1: PorchTop }
+Deck --> Mat("Deck") I("Porch")
+PorchAir --> Split(X) { 0.16: PostCol | ~1: PorchMid | 0.16: PostCol }
+PorchMid --> when(scope.x > 6): Split(X) { ~1: RailCol | 0.16: PostCol | ~1: RailCol }
+    | else: RailCol
+PostCol --> Split(Z) { ~1: NIL | 0.16: Post }
+Post --> Mat("Post") I("Post")
+RailCol --> Split(Z) { ~1: NIL | 0.08: RailPlane }
+RailPlane --> Split(Y) { 0.1: NIL | 0.08: Rail | 0.6: NIL | 0.08: Rail | ~1: NIL }
+Rail --> Mat("Post") I("Post")
+// The tin roof slopes down from the wall: a shed turned about, so its
+// high side is the wall's.
+PorchTop --> Translate(scope.x, 0, scope.z) Rotate(0, 0, 1, 0)
+    Roof(Shed, 12, overhang=0) { Slope: Tin | Back: NIL | GableEnd: Trim }
+Tin --> Mat("Tin") I("Roof")
+// The front's windows: green shutters either side where the house has
+// them and a bay is wide enough.
+FrontRun --> when(scope.x > 2.8): Repeat(X, 2.8) { FrontBay } | else: Bay
+FrontBay --> Pick("shutters") { 60% ShutteredBay | 40% Bay }
+ShutteredBay --> Split(X) { ~1: Plinthed | 0.42: ShutterCol | 1.1: WinCol | 0.42: ShutterCol
+    | ~1: Plinthed }
+ShutterCol --> Split(Y) { PlinthH: StoneWall | 0.21: Wall | 1.6: Shutter | ~1: Wall }
+Shutter --> Extrude(WallD + 0.05) Mat("Shutter") I("Shutter")
+Bay --> Split(X) { ~1: Plinthed | 1.1: WinCol | ~1: Plinthed }
+WinCol --> Split(Y) { PlinthH: StoneWall | 0.13: Wall | 0.08: Sill | 1.6: Glazing | 0.12: Head
+    | ~1: Wall }
+Run --> when(scope.x > 2.8): Repeat(X, 2.8) { Bay } | else: Bay
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) Split(X) { 0.4: Plinthed | ~1: Run | 0.4: Plinthed }
+// The sides: their walls run the full depth, turning the corners.
+SideIn --> Translate(0, 0, -WallD) Split(X) { 0.6: Plinthed | ~1: Run | 0.6: Plinthed }
+
+// -- 3. The upper storeys: windows over the ground floor's, all round --
+Uppers --> Comp(Faces) { Front: UpFrontInset | Back: UpFrontInset | Left: UpSideIn
+    | Right: UpSideIn | Top: NIL | Bottom: NIL }
+UpFrontInset --> Split(X) { WallD: NIL | ~1: UpFrontIn | WallD: NIL }
+UpFrontIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { UpStorey }
+UpStorey --> Split(X) { 0.4: Wall | ~1: UpRun | 0.4: Wall }
+UpRun --> when(scope.x > 2.8): Repeat(X, 2.8) { UpBay } | else: UpBay
+UpBay --> Split(X) { ~1: Wall | 1.1: UpWinCol | ~1: Wall }
+UpWinCol --> Split(Y) { 0.7: Wall | 0.08: Sill | 1.5: Glazing | 0.12: Head | ~1: Wall }
+UpSideIn --> Translate(0, 0, -WallD) Repeat(Y, FloorH) { UpSide }
+UpSide --> Split(X) { 0.6: Wall | ~1: UpRun | 0.6: Wall }
+
+// -- 4. The roof: a steep gable or a half-hipped one along the street,
+// shingle or tin, its eaves out to the lot's edges; a sliver at one end of
+// the roof zone carries the chimney --
+RoofZone --> Split(X) { 0.01: ChimneySlot | ~1: RoofBody }
+RoofBody --> Pick("roof") { 55% SteepGable | 45% HalfHip }
+SteepGable --> Roof(Gable, 40, overhang=Eave, ridge=X) { Slope: Cover | GableEnd: Gable }
+HalfHip --> Roof(Jerkinhead, 40, overhang=Eave, ridge=X)
+    { Slope: Cover | HipEnd: Cover | GableEnd: Gable }
+Cover --> Pick("tiles") { 55% Shingles | 45% Metal }
+Shingles --> Mat("Shingle") I("Roof")
+Metal --> Mat("MetalRoof") I("Roof")
+Gable --> I("Wall")
+// The chimney stands up through the roof from inside the top storey, just
+// behind the ridge, over it.
+ChimneySlot --> Pick("chimney") { 75% Chimney | 25% NIL }
+Chimney --> Translate(0.8, -0.4, scope.z / 2 + 0.3)
+    Size(0.8, 1.4 + 0.42 * (Depth - 2 * Eave), 0.8) Mat("Chimney") Split(Y) { ~1: Stack | 0.16: Cap }
+Stack --> I("Chimney")
+Cap --> Translate(-0.06, 0, -0.06) Size(scope.x + 0.12, scope.y, scope.z + 0.12) I("Chimney")

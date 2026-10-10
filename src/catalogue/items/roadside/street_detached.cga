@@ -1,0 +1,126 @@
+// The roadside strip's detached house (#1600): a ranch house in its yard.
+// See street_detached.rs for the house, and catalogue::items::street for the
+// conventions and for what is declared ahead of these rules (Storeys, Trade,
+// Frontage, Depth, GroundH, FloorH) and after them (Glazing, ShopGlazing,
+// Wall).
+
+const WallD = 0.3
+const PaneSet = 0.12
+const StepH = 0.5
+const RoofH = 1.0
+// How far the roof reaches past the walls: the walls stand this far in
+// from the lot's sides, so the eaves and verges keep inside it.
+const Eave = 0.6
+// The covered walk: how far it stands out of the front, and how high its
+// paving stands.
+const WalkD = 1.8
+const WalkH = 0.45
+
+// -- 1. The house: its walls stand in from the lot, its paint rolled once --
+Lot --> Split(X) { Eave: NIL | ~1: LotRow | Eave: NIL }
+LotRow --> Split(Z) { Eave: NIL | ~1: Plot | Eave: NIL }
+Plot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Paint
+Paint --> 36% Mat("PaintCream") Massing | 34% Mat("PaintMint") Massing
+    | 30% Mat("PaintSalmon") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Uppers | RoofH: RoofZone }
+Trim --> Mat("Trim") I("Trim")
+Sill --> Extrude(WallD + 0.06) Trim
+Step --> Extrude(WallD + 0.35) Mat("Base") I("Trim")
+Wall0 --> I("Wall")
+
+// -- 2. Windows: wide and low, on a cream sill; f is the sill's height
+// over the scope's foot --
+WinBay(f) --> Split(X) { ~1: Wall | 1.4: WinCol(f) | ~1: Wall }
+WinCol(f) --> Split(Y) { f: Wall | 0.08: Sill | 1.2: Glazing | ~1: Wall }
+// A run of them; a Repeat floors its count, so a short run is one window.
+Run(f) --> when(scope.x < 2.0): WinBay(f) | else: Repeat(X, 2.2) { WinBay(f) }
+// The picture window: three lights, the middle one twice as wide.
+PictureBay(f) --> Split(X) { ~1: Wall | min(scope.x - 0.6, 3.6): PictureCol(f) | ~1: Wall }
+PictureCol(f) --> Split(Y) { f - 0.3: Wall | 0.08: Sill | 1.6: Picture | ~1: Wall }
+Picture --> Split(X) { ~1: Glazing | 0.1: Mullion | ~2: Glazing | 0.1: Mullion | ~1: Glazing }
+Mullion --> Extrude(WallD - 0.06) Trim
+// Every house its own door colour.
+DoorLeaf --> 28% Mat("DoorRed") Leaf | 26% Mat("DoorTeal") Leaf | 24% Mat("DoorYellow") Leaf
+    | 22% Mat("DoorBlue") Leaf
+Leaf --> Extrude(WallD - 0.12) I("Door")
+
+// -- 3. The ground storey: windows, the door and the picture window on
+// the front, under a covered walk or with a canopy over the door alone --
+Ground --> Comp(Faces) { Front: FrontInset | Back: BackInset | Left: LeftIn
+    | Right: SideIn | Top: NIL | Bottom: NIL }
+FrontInset --> Split(X) { WallD: NIL | ~1: FrontIn | WallD: NIL }
+FrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> Pick("porch") { 55% Walk | 45% Stoop }
+Stoop --> Split(X) { ~1: Run(0.9) | 1.3: StoopDoor | ~1.3: PictureBay(0.9) }
+StoopDoor --> Split(X) { ~1: Wall | 1.0: StoopCol | ~1: Wall }
+StoopCol --> Split(Y) { StepH: Step | 2.1: DoorLeaf | 0.12: DoorCanopy | ~1: Wall }
+DoorCanopy --> Extrude(WallD + 1.2) Mat("WalkRoof") I("Canopy")
+// The covered walk: raised paving, the door and windows behind it, and a
+// corrugated roof on steel posts - paving and roof reach the corners.
+Walk --> Split(Y) { WalkH: PavingRow | 2.25: WalkRow | 0.16: WalkRoofRow | ~1: Wall }
+PavingRow --> Extrude(WallD + WalkD) Split(Z) { WallD: Wall0 | ~1: Paving }
+Paving --> Translate(-WallD, 0, 0) Size(scope.x + 2 * WallD, scope.y, scope.z)
+    Mat("Base") I("Trim")
+WalkRow --> Split(X) { ~1: Run(0.45) | 1.3: WalkDoor | ~1.3: PictureBay(0.45) }
+WalkDoor --> Split(X) { ~1: Wall | 1.0: WalkDoorCol | ~1: Wall }
+WalkDoorCol --> Split(Y) { 2.1: DoorLeaf | ~1: Wall }
+WalkRoofRow --> Extrude(WallD + WalkD) Split(Z) { WallD: Wall0 | ~1: WalkRoof }
+WalkRoof --> Translate(-WallD, 0, 0) Size(scope.x + 2 * WallD, scope.y, scope.z)
+    Mat("WalkRoof") Split(Z) { ~1: WalkPlate | 0.1: PostLine }
+WalkPlate --> I("Canopy")
+// Steel posts at the ends and every three metres between, each hanging from
+// the roof's edge down to the paving.
+PostLine --> Split(X) { 0.1: Post | ~1: PostRun }
+PostRun --> when(scope.x < 3.0): PostBay | else: Repeat(X, 3.0) { PostBay }
+PostBay --> Split(X) { ~1: WalkPlate | 0.1: Post }
+Post --> Translate(0, -2.25, 0) Size(scope.x, scope.y + 2.25, scope.z) Mat("Steel")
+    I("Steel")
+// The yard side: windows, and a wider one to the patio in one bay of two.
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) BackRun
+BackRun --> when(scope.x < 2.6): WinBay(0.9) | else: Repeat(X, 2.6) { BackBay }
+BackBay --> 50% WinBay(0.9) | 50% Split(X) { ~1: Wall | 1.8: PatioCol | ~1: Wall }
+PatioCol --> Split(Y) { 0.5: Wall | 2.0: Glazing | ~1: Wall }
+// The sides: their walls run the full depth, turning the corners; up one
+// of them, where it has one, a brick chimney.
+SideIn --> Translate(0, 0, -WallD) SideFace
+SideFace --> Split(X) { 0.6: Wall | ~1: Run(0.9) | 0.6: Wall }
+LeftIn --> Translate(0, 0, -WallD) LeftFace
+LeftFace --> Pick("chimney") { 60% ChimneySide | 40% SideFace }
+ChimneySide --> Split(X) { 0.6: Wall | ~1: Run(0.9) | 1.4: ChimneyCol | 0.6: Wall }
+// The stack is let a little into the wall, so no face of it lies in the
+// wall's or a gable's, and stands a little narrower than its column.
+ChimneyCol --> Extrude(WallD + 0.5) Split(Z) { WallD - 0.1: Wall0 | ~1: Chimney }
+Chimney --> Translate(0.05, 0, 0)
+    Size(scope.x - 0.1, GroundH + FloorH * (Storeys - 1) + 1.4, scope.z)
+    Split(Y) { ~1: Stack | 0.2: ChimneyCap }
+Stack --> Mat("ChimneyBrick") I("Chimney")
+ChimneyCap --> Mat("Base") I("Chimney")
+
+// -- 4. The upper storeys, where it has them: windows all round, the
+// chimney's column blank --
+Uppers --> Comp(Faces) { Front: UpFrontInset | Back: UpFrontInset | Left: UpLeftIn
+    | Right: UpSideIn | Top: NIL | Bottom: NIL }
+UpFrontInset --> Split(X) { WallD: NIL | ~1: UpFrontIn | WallD: NIL }
+UpFrontIn --> Translate(0, 0, -WallD) UpFront
+UpFront --> Repeat(Y, FloorH) { UpStorey }
+UpStorey --> Run(0.8)
+UpSideIn --> Translate(0, 0, -WallD) UpSide
+UpSide --> Repeat(Y, FloorH) { UpSideStorey }
+UpSideStorey --> Split(X) { 0.6: Wall | ~1: Run(0.8) | 0.6: Wall }
+UpLeftIn --> Translate(0, 0, -WallD) UpLeft
+UpLeft --> Repeat(Y, FloorH) { UpLeftStorey }
+UpLeftStorey --> Pick("chimney") { 60% UpChimneySide | 40% UpSideStorey }
+UpChimneySide --> Split(X) { 0.6: Wall | ~1: Run(0.8) | 1.4: Wall | 0.6: Wall }
+
+// -- 5. The roof: low, its eaves out to the lot's edges - a hip, a gable
+// along the road or one to it - in grey or brown shingle --
+RoofZone --> Pick("roof") { 50% HipRoof | 35% GableRoof | 15% FrontGable }
+HipRoof --> Roof(Hip, 22, overhang=Eave) { Slope: Shingles }
+GableRoof --> Roof(Gable, 20, overhang=Eave, ridge=X) { Slope: Shingles | GableEnd: Gable }
+FrontGable --> Roof(Gable, 22, overhang=Eave, ridge=Z) { Slope: Shingles | GableEnd: Gable }
+Shingles --> Pick("shingle") { 55% GreyShingle | 45% BrownShingle }
+GreyShingle --> Mat("ShingleGrey") I("Roof")
+BrownShingle --> Mat("ShingleBrown") I("Roof")
+Gable --> I("Wall")

@@ -113,11 +113,13 @@ pub(crate) struct CoreRequests {
 }
 
 /// The street level's requests (#1588): a page of the core's buildings, of
-/// each tree inventory, and of each furniture kind, in
-/// [`geodata::berlin::FurnitureKind::ALL`]'s order.
+/// its blocks by urban-structure type (#1600), of each tree inventory, and
+/// of each furniture kind, in [`geodata::berlin::FurnitureKind::ALL`]'s
+/// order.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct StreetLevelRequests {
     buildings: GeoRequestId,
+    blocks: GeoRequestId,
     street_trees: GeoRequestId,
     park_trees: GeoRequestId,
     furniture: [GeoRequestId; 9],
@@ -125,8 +127,8 @@ struct StreetLevelRequests {
 
 impl StreetLevelRequests {
     /// The street level's pages over `bbox`, in the order of the struct's
-    /// fields: the buildings', the street trees', the park trees', then
-    /// each furniture kind's, every attribute.
+    /// fields: the buildings', the blocks', the street trees', the park
+    /// trees', then each furniture kind's, every attribute.
     fn requests(bbox: Bbox) -> Vec<GeoRequest> {
         use geodata::berlin::{self, FurnitureKind};
         let page = |layer: &geodata::request::WfsType, properties: &[&str], count: u32| {
@@ -147,6 +149,11 @@ impl StreetLevelRequests {
                 berlin::BUILDING_PROPERTIES,
                 berlin::BUILDING_PAGE,
             ),
+            page(
+                &berlin::URBAN_STRUCTURE,
+                berlin::BLOCK_PROPERTIES,
+                berlin::BLOCK_PAGE,
+            ),
             page(&berlin::STREET_TREES, trees.0, trees.1),
             page(&berlin::PARK_TREES, trees.0, trees.1),
         ]
@@ -163,6 +170,7 @@ impl StreetLevelRequests {
         // A struct's fields are evaluated as written: in the requests' order.
         StreetLevelRequests {
             buildings: next(),
+            blocks: next(),
             street_trees: next(),
             park_trees: next(),
             furniture: std::array::from_fn(|_| next()),
@@ -170,15 +178,21 @@ impl StreetLevelRequests {
     }
 
     fn ids(&self) -> impl Iterator<Item = GeoRequestId> + use<> {
-        [self.buildings, self.street_trees, self.park_trees]
-            .into_iter()
-            .chain(self.furniture)
+        [
+            self.buildings,
+            self.blocks,
+            self.street_trees,
+            self.park_trees,
+        ]
+        .into_iter()
+        .chain(self.furniture)
     }
 
     /// Every id through `f`.
     fn map_ids(&mut self, f: &mut impl FnMut(GeoRequestId) -> GeoRequestId) {
         for id in [
             &mut self.buildings,
+            &mut self.blocks,
             &mut self.street_trees,
             &mut self.park_trees,
         ]
@@ -307,6 +321,7 @@ impl CoreRequests {
                 vec![self.street_axes, self.carriageway_axes],
             ),
             (Layer::Buildings, vec![level.buildings]),
+            (Layer::Blocks, vec![level.blocks]),
             (Layer::Trees, vec![level.street_trees, level.park_trees]),
             (Layer::Furniture, level.furniture.to_vec()),
         ];
@@ -912,6 +927,7 @@ fn take_walkable(fetcher: &mut GeoFetcher, requests: &CoreRequests) -> Result<Co
         let mut take = |id, what| taken(fetcher, id, what);
         street_level::StreetLevelBodies {
             buildings: take(level.buildings, "buildings"),
+            blocks: take(level.blocks, "block types"),
             street_trees: take(level.street_trees, "street trees"),
             park_trees: take(level.park_trees, "park trees"),
             furniture: geodata::berlin::FurnitureKind::ALL
@@ -1315,6 +1331,7 @@ pub(crate) mod tests {
     fn street_level_answers(bbox: Bbox) -> Vec<(String, String)> {
         let names = [
             "alkis_gebaeude",
+            "ua_stadtstruktur_b_stadtstruktur_differenziert_2024",
             "baumbestand_strassenbaeume",
             "baumbestand_anlagenbaeume",
         ]
@@ -1345,6 +1362,7 @@ pub(crate) mod tests {
         let mut page = || pages.next().expect("a page");
         street_level::StreetLevelBodies {
             buildings: page(),
+            blocks: page(),
             street_trees: page(),
             park_trees: page(),
             furniture: geodata::berlin::FurnitureKind::ALL
@@ -1693,6 +1711,7 @@ pub(crate) mod tests {
                 Layer::LandUse,
                 Layer::Streets,
                 Layer::Buildings,
+                Layer::Blocks,
                 Layer::Trees,
                 Layer::Furniture
             ]

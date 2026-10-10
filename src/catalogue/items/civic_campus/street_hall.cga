@@ -1,0 +1,143 @@
+// The civic campus's hall (#1600): an institute's machine hall, or - where
+// it trades - an exhibition hall behind a colonnade. See street_hall.rs for
+// the hall, and catalogue::items::street for the conventions and for what is
+// declared ahead of these rules (Storeys, Trade, Frontage, Depth, GroundH,
+// FloorH) and after them (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.45
+const PaneSet = 0.16
+// The roof zone: a machine hall's gable or teeth, an exhibition hall's
+// parapet.
+const RoofH = 1.0
+const CorniceH = 0.5
+// The colonnade: how far it stands out of the front, its stylobate's and
+// its entablature's height, and its columns' spacing.
+const ColD = 1.8
+const StyloH = 0.45
+const EntH = 0.7
+const ColStep = 2.6
+
+// -- 1. The hall: its wall rolled once, then storeys and a roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Walls
+Walls --> 45% Mat("BrickRed") Massing | 30% Mat("StonePale") Massing
+    | 25% Mat("StoneBuff") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Upper | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners. A hall's
+// gable ends are its walls, blank.
+PartyIn --> Translate(0, 0, -WallD) Wall
+Marble --> Mat("Marble") I("Trim")
+Sill --> Extrude(WallD + 0.08) Marble
+Hood --> Extrude(WallD + 0.14) Marble
+Pilaster --> Extrude(WallD + 0.15) Marble
+// The marble cornice over the top storey's front.
+Cornice --> Split(Y) { ~1: CorniceBed | 0.25: CorniceCorona }
+CorniceBed --> Extrude(0.15) Mat("Marble") I("Cornice")
+CorniceCorona --> Extrude(0.4) Mat("Marble") I("Cornice")
+
+// -- 2. Bays: a tall window on a marble sill under a hood, a transom
+// across it, between marble pilasters --
+HallBay --> Split(X) { ~1: Wall | min(2.0, scope.x - 0.5): TallCol | ~1: Wall }
+TallCol --> Split(Y) { 1.0: Wall | 0.12: Sill | 4.2: TallWindow | 0.2: Hood | ~1: Wall }
+TallWindow --> Split(Y) { ~3: Glazing | 0.12: Transom | ~1: Glazing }
+Transom --> Extrude(WallD - 0.1) Marble
+// A run of bays either side of the middle, a pilaster at each bay's outer
+// end; a Repeat floors its count, so a short run is one bay.
+BayRunL --> when(scope.x < 4.0): BayL | else: Repeat(X, 4.0) { BayL }
+BayL --> Split(X) { ~1: HallBay | 0.6: Pilaster }
+BayRunR --> when(scope.x < 4.0): BayR | else: Repeat(X, 4.0) { BayR }
+BayR --> Split(X) { 0.6: Pilaster | ~1: HallBay }
+
+// -- 3. The ground storey: a machine hall's portal, or an exhibition
+// hall's colonnade, between bays of tall windows --
+Ground --> Comp(Faces) { Front: GroundFace | Back: BackInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFace --> when(Storeys == 1): Split(Y) { ~1: GroundFrontInset | CorniceH: Cornice }
+    | else: GroundFrontInset
+GroundFrontInset --> Split(X) { WallD: NIL | ~1: GroundFrontIn | WallD: NIL }
+GroundFrontIn --> Translate(0, 0, -WallD) GroundFront
+GroundFront --> when(Trade == 1): ExFront | else: WorksFront
+WorksFront --> Split(X) { 0.6: Pilaster | ~1: BayRunL | 5.0: Portal | ~1: BayRunR
+    | 0.6: Pilaster }
+// The portal: a pair of timber doors for the machines over a stone apron,
+// under a marble lintel and a pediment.
+Portal --> Split(X) { 0.4: Wall | ~1: PortalCol | 0.4: Wall }
+PortalCol --> Split(Y) { 0.45: Apron | 4.2: MachineDoors | 0.4: Lintel | ~1: Wall }
+Apron --> Extrude(WallD + 1.2) Mat("Rustic") I("Trim")
+MachineDoors --> Split(X) { ~1: DoorLeaf | 0.1: Wall | ~1: DoorLeaf }
+DoorLeaf --> Extrude(WallD - 0.18) Mat("Door") I("Door")
+Lintel --> Extrude(WallD + 0.2) Split(Y) { ~1: LintelBody | 0.01: PortalPedZone }
+LintelBody --> Mat("Marble") I("Cornice")
+// The pediment stands on the lintel, a hair clear of the wall behind it.
+PortalPedZone --> Split(Z) { WallD + 0.03: NIL | ~1: PortalPed }
+PortalPed --> Roof(Gable, 18, overhang=0, ridge=Z) { Slope: PedTop | GableEnd: PedFace }
+PedTop --> Mat("Copper") I("Roof")
+PedFace --> Mat("Marble") I("Cornice")
+// The exhibition hall: a colonnade along the middle of the front, its
+// doors and lit windows behind it.
+ExFront --> when(scope.x < 30): Split(X) { 0.6: Pilaster | ~1: BayRunL | 8.0: Colonnade
+    | ~1: BayRunR | 0.6: Pilaster }
+    | else: Split(X) { 0.6: Pilaster | ~3: BayRunL | ~2: Colonnade | ~3: BayRunR
+    | 0.6: Pilaster }
+Colonnade --> Extrude(WallD + ColD) Split(Z) { WallD: ColSlab | ~1: Porch }
+ColSlab --> Comp(Faces) { Back: ColFace | Front: NIL | Left: NIL | Right: NIL | Top: NIL
+    | Bottom: NIL }
+ColFace --> Translate(0, 0, -WallD) Behind
+Behind --> Split(X) { ~1: ExRun | 2.4: ExDoors | ~1: ExRun }
+ExRun --> when(scope.x < ColStep): ExBay | else: Repeat(X, ColStep) { ExBay }
+ExBay --> Split(X) { ~1: Wall | 1.6: ExWindow | ~1: Wall }
+ExWindow --> Split(Y) { 0.8: Wall | 3.4: ShopGlazing | ~1: Wall }
+ExDoors --> Split(Y) { StyloH: Wall | 3.2: ExLeaves | ~1: Wall }
+ExLeaves --> Split(X) { ~1: DoorLeaf | 0.1: Wall | ~1: DoorLeaf }
+// A stylobate a step high, round columns, and an entablature with the
+// hall's name on it.
+Porch --> Split(Y) { StyloH: Stylobate | ~1: ColumnZone | EntH: Entablature | 0.3: NIL }
+Stylobate --> Marble
+ColumnZone --> Split(Z) { ~1: NIL | 0.6: ColumnLine | 0.2: NIL }
+ColumnLine --> Split(X) { 0.6: Column | ~1: ColRun }
+ColRun --> when(scope.x < ColStep): ColBay | else: Repeat(X, ColStep) { ColBay }
+ColBay --> Split(X) { ~1: NIL | 0.6: Column }
+Column --> Mat("Marble") I("Column")
+Entablature --> Split(Z) { ~1: Marble | 0.05: SignLayer }
+SignLayer --> Split(Y) { 0.12: NIL | ~1: SignRow | 0.12: NIL }
+SignRow --> Split(X) { ~1: NIL | min(6, scope.x - 2): Sign | ~1: NIL }
+Sign --> Mat("Fascia") I("Fascia")
+// The yard side: tall windows, wide apart.
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) BackRun
+BackRun --> Repeat(X, 6.0) { BackBay }
+BackBay --> Split(X) { ~1: Wall | 2.0: BackCol | ~1: Wall }
+BackCol --> Split(Y) { 1.2: Wall | 3.6: Glazing | ~1: Wall }
+
+// -- 4. An upper storey: windows on marble sills over the hall, front and
+// back, the cornice over the front --
+Upper --> Comp(Faces) { Front: UpFace | Back: UpBackInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+UpFace --> Split(Y) { ~1: UpFrontInset | CorniceH: Cornice }
+UpFrontInset --> Split(X) { WallD: NIL | ~1: UpIn | WallD: NIL }
+UpBackInset --> Split(X) { WallD: NIL | ~1: UpIn | WallD: NIL }
+UpIn --> Translate(0, 0, -WallD) UpRun
+UpRun --> Repeat(X, 3.0) { UpBay }
+UpBay --> Split(X) { ~1: Wall | 1.4: UpWindow | ~1: Wall }
+UpWindow --> Split(Y) { 0.8: Wall | 0.12: Sill | 2.2: Glazing | 0.18: Hood | ~1: Wall }
+
+// -- 5. The roof: a machine hall's low copper gable or copper teeth with
+// north lights; an exhibition hall's parapet round a deck --
+RoofZone --> when(Trade == 1): Parapet | else: WorksRoof
+WorksRoof --> Pick("roof") { 55% LowGable | 45% Sawtooth }
+LowGable --> Roof(Gable, 15, overhang=0, ridge=X) { Slope: Copper | GableEnd: Gable }
+Copper --> Mat("Copper") I("Roof")
+Gable --> I("Wall")
+// Teeth along the street, each its copper slope and its glazed north light.
+Sawtooth --> Repeat(Z, 8.0) { Tooth }
+Tooth --> Roof(Shed, 25, overhang=0) { Slope: Copper | Back: NorthLight | GableEnd: Gable }
+NorthLight --> Repeat(X, 2.4) { NorthPane }
+NorthPane --> Mat("Glass") I("Pane")
+Parapet --> Comp(Faces) { Front: ParapetFace | Back: ParapetFace | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: Deck }
+ParapetFace --> Split(Y) { ~1: ParapetInset | 0.16: Coping }
+ParapetInset --> Split(X) { WallD: NIL | ~1: ParapetIn | WallD: NIL }
+ParapetIn --> Translate(0, 0, -WallD) Wall
+Coping --> Extrude(0.08) Mat("Marble") I("Cornice")
+Deck --> Translate(WallD, WallD, -0.2) Size(scope.x - 2 * WallD, scope.y - 2 * WallD, 0)
+    Extrude(0.2) Mat("Deck") I("Roof")

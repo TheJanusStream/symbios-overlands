@@ -8,14 +8,19 @@
 //! ITS FOOTPRINT - its frontage, depth and storeys come from Berlin's data,
 //! on a few steps so copies still share meshes. Elsewhere - the inventory,
 //! a road network's lots - they are ordinary catalogue entries, built at
-//! their kind's own fit; a seeded settlement leaves them out.
+//! their kind's own fit; a seeded settlement leaves them out. Owner
+//! decisions on #1600 (2026-10-10): every theme has TWO MORE - a detached
+//! house and a hall - so the planner can draw a block of villas, a
+//! commercial area's sheds, as Berlin's urban structure types them.
 //!
 //! - **The kinds** ([`StreetKind`]): the street house - Berlin's
 //!   perimeter-block house, the Altbau, three to seven storeys, shops on
 //!   its ground floor where the building trades; the long block - the
-//!   Gruenderzeit block or the Plattenbau slab, six to twelve storeys; and
-//!   the low building - a house, a shop or a workshop hall of one or two
-//!   storeys.
+//!   Gruenderzeit block or the Plattenbau slab, six to twelve storeys; the
+//!   low building - a cottage row, a shop or a workshop of one or two
+//!   storeys; the detached house - a house or a villa of one to three
+//!   storeys standing free in its garden; and the hall - a works hall, a
+//!   warehouse or a retail box of one or two tall storeys.
 //! - **The fit** ([`StreetFit`]): the frontage along the street (local X),
 //!   the depth back from it (local Z), the storeys, and whether the ground
 //!   floor trades. Each kind has its own steps.
@@ -42,7 +47,8 @@
 //! Every street grammar keeps them; [`check`] holds a drawing to them, and
 //! the tests below hold every street building in the catalogue to them at
 //! its kind's smallest and largest fits and two between, at its own grammar
-//! seed and three others.
+//! seed and three others - and, fired by hand after a grammar changes, at
+//! every fit its kind builds (an ignored sweep, #1600).
 //!
 //! - **The lot** is `frontage x depth`, its corner at the grammar's origin,
 //!   and its street side is `Front` (local -Z), which the Berlin planner
@@ -50,6 +56,11 @@
 //!   stand flush against them, party wall to party wall. The front and the
 //!   back may reach out [`MAX_REACH_M`] - steps, balconies, oriels, a
 //!   cornice, an awning.
+//! - **A detached house stands free** ([`StreetKind::freestanding`]): no
+//!   neighbour stands against it, so its sides are walls with windows, not
+//!   party walls, and every face - front, back and both sides - has a
+//!   window. Nothing reaches past its lot's sides all the same: where its
+//!   roof's verge would, its walls stand in from them. It never trades.
 //! - **The storeys are its storeys.** The fit's declarations are `Storeys`,
 //!   `Trade` (1 where the ground floor trades), `Frontage` and `Depth`, and
 //!   the spec's [`StreetSpec::storey_m`] as `GroundH` and `FloorH`; its
@@ -91,7 +102,7 @@ pub(crate) mod check;
 /// sides, where its neighbours stand.
 pub(crate) const MAX_REACH_M: f32 = 2.0;
 
-/// The street types of Berlin a theme dresses (#1598).
+/// The street types of Berlin a theme dresses (#1598, #1600).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum StreetKind {
     /// Berlin's perimeter-block house, the Altbau: three to seven storeys
@@ -101,14 +112,27 @@ pub enum StreetKind {
     /// The long block - a Gruenderzeit block, a Plattenbau slab - six to
     /// twelve storeys on a frontage of 24 to 48 m.
     Block,
-    /// A low building of one or two storeys: a house, or, where it trades,
-    /// a shop, a workshop, a hall.
+    /// A low building of one or two storeys: a cottage row, or, where it
+    /// trades, a shop, a workshop.
     Low,
+    /// A detached house or a villa (#1600): one to three storeys on a
+    /// frontage of 8 to 16 m, standing free in its garden, homes only.
+    Detached,
+    /// A hall (#1600) - a works hall, a warehouse, a retail box - of one or
+    /// two tall storeys on a frontage of 16 to 96 m: a store's front where
+    /// it trades, a works' doors where it does not.
+    Hall,
 }
 
 impl StreetKind {
     /// Every kind.
-    pub const ALL: [Self; 3] = [Self::House, Self::Block, Self::Low];
+    pub const ALL: [Self; 5] = [
+        Self::House,
+        Self::Block,
+        Self::Low,
+        Self::Detached,
+        Self::Hall,
+    ];
 
     /// The frontages a copy is built at (m), smallest first.
     pub fn frontages(self) -> &'static [u16] {
@@ -116,6 +140,8 @@ impl StreetKind {
             StreetKind::House => &[12, 16, 20],
             StreetKind::Block => &[24, 36, 48],
             StreetKind::Low => &[8, 12, 16, 24],
+            StreetKind::Detached => &[8, 10, 12, 16],
+            StreetKind::Hall => &[16, 24, 36, 48, 72, 96],
         }
     }
 
@@ -126,6 +152,8 @@ impl StreetKind {
         match self {
             StreetKind::House | StreetKind::Block => &[8, 11, 14],
             StreetKind::Low => &[6, 9, 13, 17],
+            StreetKind::Detached => &[8, 10, 12, 16],
+            StreetKind::Hall => &[12, 16, 24, 36, 48],
         }
     }
 
@@ -135,7 +163,20 @@ impl StreetKind {
             StreetKind::House => &[3, 4, 5, 6, 7],
             StreetKind::Block => &[6, 8, 10, 12],
             StreetKind::Low => &[1, 2],
+            StreetKind::Detached => &[1, 2, 3],
+            StreetKind::Hall => &[1, 2],
         }
+    }
+
+    /// Whether it stands free (#1600): no neighbour against its sides, so
+    /// they have windows - a detached house.
+    pub fn freestanding(self) -> bool {
+        self == StreetKind::Detached
+    }
+
+    /// Whether its ground floor may trade: a detached house's never does.
+    pub fn trades(self) -> bool {
+        self != StreetKind::Detached
     }
 
     /// The fit an entry of this kind is built at where no footprint shapes
@@ -145,6 +186,8 @@ impl StreetKind {
             StreetKind::House => StreetFit::new(16, 14, 5, true),
             StreetKind::Block => StreetFit::new(36, 14, 8, false),
             StreetKind::Low => StreetFit::new(12, 13, 2, false),
+            StreetKind::Detached => StreetFit::new(10, 10, 2, false),
+            StreetKind::Hall => StreetFit::new(36, 24, 1, false),
         }
     }
 
@@ -154,6 +197,8 @@ impl StreetKind {
             StreetKind::House => "street house",
             StreetKind::Block => "long block",
             StreetKind::Low => "low building",
+            StreetKind::Detached => "detached house",
+            StreetKind::Hall => "hall",
         }
     }
 }
@@ -209,13 +254,13 @@ impl StreetFit {
     }
 
     /// The fit `kind` builds nearest `self`: each dimension on its nearest
-    /// step.
+    /// step, and trading only where the kind may.
     pub fn snapped(self, kind: StreetKind) -> Self {
         StreetFit {
             frontage: nearest(kind.frontages(), self.frontage_m()),
             depth: nearest(kind.depths(), self.depth_m()),
             storeys: nearest(kind.storeys(), f32::from(self.storeys)),
-            trade: self.trade,
+            trade: self.trade && kind.trades(),
         }
     }
 }
@@ -481,6 +526,14 @@ mod tests {
         assert_eq!(fit, StreetFit::new(16, 14, 7, true));
         let low = StreetFit::new(3, 1, 0, false).snapped(StreetKind::Low);
         assert_eq!(low, StreetFit::new(8, 6, 1, false));
+        let house = StreetFit::new(11, 13, 4, true).snapped(StreetKind::Detached);
+        assert_eq!(
+            house,
+            StreetFit::new(10, 12, 3, false),
+            "a detached house never trades"
+        );
+        let hall = StreetFit::new(100, 30, 1, true).snapped(StreetKind::Hall);
+        assert_eq!(hall, StreetFit::new(96, 24, 1, true));
         for kind in StreetKind::ALL {
             let default = kind.default_fit();
             assert_eq!(default.snapped(kind), default, "{}", kind.name());
@@ -573,10 +626,74 @@ mod tests {
         is_whole(StreetKind::Low);
     }
 
-    /// Every theme has its street buildings, one of each kind (#1598): a
-    /// Berlin footprint draws its rows from them alone, so a theme short of
-    /// one would fill its rows with what Berlin's streets were not drawn
-    /// for.
+    #[test]
+    fn every_detached_house_keeps_the_conventions() {
+        keeps_the_conventions(StreetKind::Detached);
+    }
+
+    #[test]
+    fn every_hall_keeps_the_conventions() {
+        keeps_the_conventions(StreetKind::Hall);
+    }
+
+    #[test]
+    fn no_detached_house_z_fights_or_floats() {
+        is_whole(StreetKind::Detached);
+    }
+
+    #[test]
+    fn no_hall_z_fights_or_floats() {
+        is_whole(StreetKind::Hall);
+    }
+
+    /// Every street building keeps the conventions at EVERY fit its kind
+    /// builds - each frontage, depth and storey step, trading and not where
+    /// it may trade - at its own grammar seed (#1600). The tests above
+    /// sample four fits, and a grammar can fail between them: a split part
+    /// that comes to nothing at one width, a storey's windows lost at one
+    /// depth. Ignored, as the gates leave a sweep of nine thousand
+    /// derivations: fire it by hand after a street grammar changes.
+    #[test]
+    #[ignore = "a sweep of every fit: fire by hand after a street grammar changes"]
+    fn every_street_building_keeps_the_conventions_at_every_fit() {
+        let mut faults = Vec::new();
+        for spec in specs() {
+            let kind = spec.kind;
+            let trades: &[bool] = if kind.trades() {
+                &[false, true]
+            } else {
+                &[false]
+            };
+            for &frontage in kind.frontages() {
+                for &depth in kind.depths() {
+                    for &storeys in kind.storeys() {
+                        for &trade in trades {
+                            let fit = StreetFit::new(frontage, depth, storeys, trade);
+                            let problems = conventions(spec, spec.rules, fit, None);
+                            if !problems.is_empty() {
+                                faults.push(format!(
+                                    "{} at {fit:?}:\n  {}",
+                                    spec.slug,
+                                    problems.join("\n  ")
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            faults.is_empty(),
+            "{} fits fail:\n{}",
+            faults.len(),
+            faults.join("\n")
+        );
+    }
+
+    /// Every theme has its street buildings, one of each kind (#1598,
+    /// #1600): a Berlin footprint draws its rows from them alone, so a theme
+    /// short of one would fill its rows with what Berlin's streets were not
+    /// drawn for.
     #[test]
     fn every_theme_has_one_street_building_of_each_kind() {
         for theme in ThemeArchetype::ALL {

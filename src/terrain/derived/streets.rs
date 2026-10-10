@@ -1,9 +1,10 @@
 //! Berlin's street buildings on Berlin's footprints (#1598): where the
-//! room's theme has its street house, long block and low building
-//! ([`crate::catalogue::items::street`]), a footprint's secondary buildings
-//! are drawn from those alone, each copy shaped to its footprint - a kind
-//! by the building's storeys and use, a depth by its row, a frontage by
-//! what is left of the row - rather than an entry scaled to fit.
+//! room's theme has its street house, long block, low building, detached
+//! house and hall ([`crate::catalogue::items::street`], #1600), a
+//! footprint's secondary buildings are drawn from those alone, each copy
+//! shaped to its footprint - a kind by the building's storeys, use, size and
+//! block, a depth by its row, a frontage by what is left of the row - rather
+//! than an entry scaled to fit.
 //!
 //! Copies of one street building at one fit, seed and scale share a
 //! template: one tree grown, one set of merged meshes, one shell. A row of
@@ -37,20 +38,21 @@ pub(crate) fn variant_seed(entry_seed: u64, variant: u8) -> u64 {
 
 /// A theme's street buildings, one of each kind.
 #[derive(Clone, Copy)]
-pub(crate) struct Streets([&'static dyn CatalogueEntry; 3]);
+pub(crate) struct Streets([&'static dyn CatalogueEntry; 5]);
 
 impl Streets {
     /// The street buildings among `pool`, one of each kind - the first of a
     /// kind where there are more - or `None` where it lacks a kind: then
     /// its footprints take its other secondary buildings, as before #1598.
     pub(crate) fn of(pool: &[&'static dyn CatalogueEntry]) -> Option<Self> {
-        let mut by_kind: [Option<&'static dyn CatalogueEntry>; 3] = [None; 3];
+        let mut by_kind: [Option<&'static dyn CatalogueEntry>; 5] = [None; 5];
         for &entry in pool {
             if let Some(spec) = entry.street() {
                 by_kind[index(spec.kind)].get_or_insert(entry);
             }
         }
-        Some(Streets([by_kind[0]?, by_kind[1]?, by_kind[2]?]))
+        let [house, block, low, detached, hall] = by_kind;
+        Some(Streets([house?, block?, low?, detached?, hall?]))
     }
 
     /// The street building of `kind`.
@@ -65,16 +67,20 @@ fn index(kind: StreetKind) -> usize {
         StreetKind::House => 0,
         StreetKind::Block => 1,
         StreetKind::Low => 2,
+        StreetKind::Detached => 3,
+        StreetKind::Hall => 4,
     }
 }
 
 /// The next kind down, for a row's tail or a band too shallow for a kind:
-/// a block's is a house, a house's a low building.
+/// a block's is a house, a house's a low building. A detached house stands
+/// alone and a hall is one building, so a tail either leaves is a garden
+/// or a yard.
 pub(crate) fn smaller(kind: StreetKind) -> Option<StreetKind> {
     match kind {
         StreetKind::Block => Some(StreetKind::House),
         StreetKind::House => Some(StreetKind::Low),
-        StreetKind::Low => None,
+        StreetKind::Low | StreetKind::Detached | StreetKind::Hall => None,
     }
 }
 
@@ -95,13 +101,25 @@ pub(crate) fn kind_of(storeys: u8, works: bool) -> StreetKind {
 /// smaller, in the lot layer's quarter-octaves down to [`SCALE_MIN`];
 /// `None` where even that is too deep.
 pub(crate) fn depth_for(kind: StreetKind, band: f32) -> Option<(u16, f32)> {
-    let depths = kind.depths();
-    if let Some(&depth) = depths.iter().rev().find(|&&d| f32::from(d) <= band + 1e-3) {
-        return Some((depth, 1.0));
+    step_for(kind.depths(), band)
+}
+
+/// The frontage `kind` is drawn at alone on a stretch `room` long (m), and
+/// its scale, as [`depth_for`] takes a depth: a detached house's (#1600).
+pub(crate) fn frontage_for(kind: StreetKind, room: f32) -> Option<(u16, f32)> {
+    step_for(kind.frontages(), room)
+}
+
+/// The largest of `steps` within `room` (m) at its size, or else the
+/// smallest drawn smaller, down to [`SCALE_MIN`]; `None` where even that
+/// is too large.
+fn step_for(steps: &[u16], room: f32) -> Option<(u16, f32)> {
+    if let Some(&step) = steps.iter().rev().find(|&&s| f32::from(s) <= room + 1e-3) {
+        return Some((step, 1.0));
     }
-    let shallowest = f32::from(depths[0]);
-    let scale = fitted_scale(band / shallowest, SCALE_MIN, 1.0);
-    (scale * shallowest <= band + 1e-3).then_some((depths[0], scale))
+    let smallest = f32::from(steps[0]);
+    let scale = fitted_scale(room / smallest, SCALE_MIN, 1.0);
+    (scale * smallest <= room + 1e-3).then_some((steps[0], scale))
 }
 
 /// One street template of a plan: the building's slug, its fit, its seed
@@ -175,6 +193,17 @@ mod tests {
             "under half its size"
         );
         assert_eq!(depth_for(StreetKind::Low, 6.0), Some((6, 1.0)));
+        assert_eq!(frontage_for(StreetKind::Detached, 13.0), Some((12, 1.0)));
+        let (frontage, scale) = frontage_for(StreetKind::Detached, 7.0).expect("drawn smaller");
+        assert_eq!(frontage, 8);
+        assert!(scale < 1.0 && scale * 8.0 <= 7.0, "{scale}");
+    }
+
+    #[test]
+    fn a_detached_house_and_a_hall_leave_their_tails_empty() {
+        assert_eq!(smaller(StreetKind::Block), Some(StreetKind::House));
+        assert_eq!(smaller(StreetKind::Detached), None);
+        assert_eq!(smaller(StreetKind::Hall), None);
     }
 
     #[test]

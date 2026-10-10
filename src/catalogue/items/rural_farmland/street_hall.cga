@@ -1,0 +1,134 @@
+// The farm country's hall (#1600): a big board barn, or - where it trades -
+// a feed-and-seed store. See street_hall.rs for the hall, and
+// catalogue::items::street for the conventions and for what is declared
+// ahead of these rules (Storeys, Trade, Frontage, Depth, GroundH, FloorH)
+// and after them (Glazing, ShopGlazing, Wall).
+
+const WallD = 0.3
+const PaneSet = 0.12
+const PlinthH = 0.8
+const StepH = 0.55
+const RoofH = 1.0
+const CanopyH = 0.18
+// The store's canopy reaches this far out of the lot's front; a post
+// stands just inside its edge.
+const CanopyOut = 1.8
+const PostOut = 1.6
+const PostD = 0.16
+
+// -- 1. The barn: its boards rolled once, then storeys and a roof --
+Lot --> Extrude(GroundH + FloorH * (Storeys - 1) + RoofH) Boards
+Boards --> 50% Mat("BarnRed") Massing | 30% Mat("BarnGrey") Massing
+    | 20% Mat("MetalGreen") Massing
+Massing --> when(Storeys == 1): Split(Y) { GroundH: Ground | RoofH: RoofZone }
+    | else: Split(Y) { GroundH: Ground | ~1: Loft | RoofH: RoofZone }
+// Party walls: the sides, the full depth, turning the corners.
+PartyIn --> Translate(0, 0, -WallD) Wall
+Trim --> Mat("Trim") I("Trim")
+StoneWall --> Mat("Stone") Wall
+// A ground-floor wall: boards over the fieldstone plinth.
+Plinthed --> Split(Y) { PlinthH: StoneWall | ~1: Wall }
+Step --> Extrude(WallD + 0.4) Mat("Stone") I("Trim")
+Head --> Extrude(WallD + 0.08) Trim
+DoorLeaf --> Extrude(WallD - 0.1) Mat("Door") I("Door")
+
+// -- 2. The ground storey: a barn's sliding doors, or a store's front --
+Ground --> Comp(Faces) { Front: GroundFace | Back: BackInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+GroundFace --> when(Trade == 1): StoreFace | else: BarnFace
+BarnFace --> Split(X) { WallD: NIL | ~1: BarnFrontIn | WallD: NIL }
+BarnFrontIn --> Translate(0, 0, -WallD) Split(Y) { ~1: BarnDoors | 1.0: LoftRow | 0.4: Wall }
+// The barn: a door for people at one end, big sliding doors along the
+// rest, some bays only a small window, loft windows over them all.
+BarnDoors --> Split(X) { 1.2: Plinthed | 1.1: ManDoor | 1.0: Plinthed | ~1: DoorRun
+    | 1.2: Plinthed }
+ManDoor --> Split(Y) { StepH: Step | 2.2: DoorLeaf | 0.12: Head | ~1: Wall }
+DoorRun --> when(scope.x > 7.0): Repeat(X, 7.0) { DoorBay } | else: DoorBay
+DoorBay --> 70% Split(X) { ~1: Plinthed | 4.4: SlideCol | ~1: Plinthed }
+    | 30% Split(X) { ~1: Plinthed | 1.2: SmallWin | ~1: Plinthed }
+SmallWin --> Split(Y) { PlinthH: StoneWall | 0.6: Wall | 1.2: Glazing | 0.12: Head | ~1: Wall }
+// A sliding door: two plank leaves in a white frame, each braced with a
+// white cross, over a concrete apron.
+SlideCol --> Split(Y) { 0.42: Apron | 3.4: Slider | ~1: Wall }
+Apron --> Extrude(WallD + 1.4) Mat("Apron") I("Trim")
+Slider --> Split(Y) { ~1: SliderLeaves | 0.15: FrameBoard }
+SliderLeaves --> Split(X) { 0.15: FrameBoard | 2.0: BracedLeaf | 0.1: FrameBoard
+    | 2.0: BracedLeaf | 0.15: FrameBoard }
+FrameBoard --> Extrude(WallD + 0.04) Trim
+// The cross: two boards corner to corner over the leaf, turned on the
+// leaf's face about its corners, standing off the leaf's back, one a
+// hair prouder than the other.
+BracedLeaf --> Split(X) { 0.01: BraceSlot | ~1: DoorLeaf }
+BraceSlot --> Split(Y) { 0.01: BraceUp | ~1: DoorLeaf | 0.01: BraceDown }
+BraceUp --> Translate(0.04, 0.02, 0) Rotate(0.8729, 0, 0, 0.4879) Size(3.72, 0.12, 0)
+    Translate(0, -0.06, 0.05) Extrude(WallD - 0.09) Trim
+BraceDown --> Translate(0.04, -0.01, 0) Rotate(0.8729, 0, 0, -0.4879) Size(3.72, 0.12, 0)
+    Translate(0, -0.06, 0.06) Extrude(WallD - 0.09) Trim
+LoftRow --> Repeat(X, 4.0) { LoftBay }
+LoftBay --> Split(X) { ~1: Wall | 1.0: LoftCol | ~1: Wall }
+LoftCol --> Split(Y) { 0.1: Wall | 0.75: Glazing | ~1: Wall }
+// The store: produce windows on the plinth between piers, a big plank
+// door in the middle, a tin canopy on posts the whole frontage and the
+// sign board over it.
+StoreFace --> Split(Y) { 3.6: StoreLevel | CanopyH: Canopy | ~1: StoreUpperInset }
+Canopy --> Extrude(CanopyOut) Mat("Canopy") I("Canopy")
+StoreLevel --> Split(X) { WallD: EndPost | ~1: StoreFrontIn | WallD: EndPost }
+EndPost --> Extrude(PostOut) Split(Z) { ~1: NIL | PostD: Post }
+Post --> Mat("Post") I("Post")
+// A pier between two windows stands its post out at the canopy's edge.
+Pier --> Extrude(WallD + PostOut) Split(Z) { WallD: PierWall | ~1: NIL | PostD: Post }
+PierWall --> I("Wall")
+StoreFrontIn --> Translate(0, 0, -WallD) Split(X) { ~1: ProduceRun | 3.0: BigDoor
+    | ~1: ProduceRun }
+ProduceRun --> when(scope.x > 3.2): Repeat(X, 3.2) { ProduceBay } | else: ProduceBay
+ProduceBay --> Split(X) { 0.35: Pier | ~1: ProduceWin | 0.35: Plinthed }
+ProduceWin --> Split(Y) { PlinthH: StoneWall | 1.9: ShopGlazing | 0.14: Head | ~1: Wall }
+BigDoor --> Split(X) { 0.15: Frame | ~1: BigLeaves | 0.15: Frame }
+Frame --> Split(Y) { StepH: StoneWall | ~1: FrameBoard }
+BigLeaves --> Split(Y) { StepH: Step | 2.8: Leaves | 0.15: FrameBoard | ~1: Wall }
+Leaves --> Split(X) { ~1: DoorLeaf | 0.1: FrameBoard | ~1: DoorLeaf }
+StoreUpperInset --> Split(X) { WallD: NIL | ~1: StoreUpperIn | WallD: NIL }
+StoreUpperIn --> Translate(0, 0, -WallD) Split(Y) { 0.25: Wall | 0.9: SignRow | ~1: Wall }
+SignRow --> when(scope.x > 14): Split(X) { ~1: Wall | 12.0: SignBoard | ~1: Wall }
+    | else: Split(X) { ~1: Wall | ~4: SignBoard | ~1: Wall }
+SignBoard --> Extrude(WallD + 0.06) Mat("Sign") I("Fascia")
+// The yard side: a sliding door here and there, loft windows over them.
+BackInset --> Split(X) { WallD: NIL | ~1: BackIn | WallD: NIL }
+BackIn --> Translate(0, 0, -WallD) Split(Y) { ~1: BackDoors | 1.0: LoftRow | 0.4: Wall }
+BackDoors --> Split(X) { 1.2: Plinthed | ~1: BackRun | 1.2: Plinthed }
+BackRun --> when(scope.x > 14): Repeat(X, 14) { DoorBay } | else: DoorBay
+
+// -- 3. The hayloft, where it has two storeys: windows either side of a
+// loft door, front and back --
+Loft --> Comp(Faces) { Front: LoftInset | Back: LoftInset | Left: PartyIn
+    | Right: PartyIn | Top: NIL | Bottom: NIL }
+LoftInset --> Split(X) { WallD: NIL | ~1: LoftIn | WallD: NIL }
+LoftIn --> Translate(0, 0, -WallD) Split(X) { ~1: LoftRun | 2.2: LoftDoorCol | ~1: LoftRun }
+LoftRun --> when(scope.x > 3.0): Repeat(X, 3.0) { LoftWinBay } | else: LoftWinBay
+LoftWinBay --> Split(X) { ~1: Wall | 1.1: LoftWin | ~1: Wall }
+LoftWin --> Split(Y) { 0.8: Wall | 1.3: Glazing | 0.12: Head | ~1: Wall }
+LoftDoorCol --> Split(X) { ~1: Wall | 1.8: LoftDoor | ~1: Wall }
+LoftDoor --> Split(Y) { 0.4: Wall | 2.4: DoorLeaf | 0.15: FrameBoard | ~1: Wall }
+
+// -- 4. The roof: a gambrel where the barn is shallow enough for one, its
+// break three metres in from the eaves; a low gable over a deeper one; a
+// row of ventilator cupolas along the ridge. A sliver at one end of the
+// roof zone carries the cupolas --
+RoofZone --> Split(X) { 0.01: CupolaSlot | ~1: RoofBody }
+RoofBody --> when(Depth < 30): Roof(Gambrel, 55, 25, overhang=0, ridge=X, tier=6 / Depth)
+    { LowerSlope: Cover | UpperSlope: Cover | GableEnd: Gable }
+    | else: Roof(Gable, 14, overhang=0, ridge=X) { Slope: Cover | GableEnd: Gable }
+Cover --> Pick("tiles") { 60% RedMetal | 40% GreyMetal }
+RedMetal --> Mat("MetalRoof") I("Roof")
+GreyMetal --> Mat("MetalGrey") I("Roof")
+Gable --> I("Wall")
+CupolaSlot --> Pick("cupola") { 65% CupolaRow | 35% NIL }
+CupolaRow --> when(Depth < 30): Cupolas(4.28 + 0.466 * (Depth / 2 - 3))
+    | else: Cupolas(0.249 * Depth / 2)
+Cupolas(h) --> Translate(0, h - 0.4, Depth / 2 - 0.8) Size(Frontage - 0.01, 1.9, 1.6)
+    Repeat(X, 16) { CupolaBay }
+CupolaBay --> Split(X) { ~1: NIL | 1.6: Cupola | ~1: NIL }
+Cupola --> Split(Y) { 0.5: CupolaBase | 0.7: Louvre | ~1: CupolaCap }
+CupolaBase --> I("Wall")
+Louvre --> Trim
+CupolaCap --> Roof(Pyramid, 35, overhang=0) { Slope: Cover }

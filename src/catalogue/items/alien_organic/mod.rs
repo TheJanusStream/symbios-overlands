@@ -24,6 +24,8 @@ pub mod monument;
 pub mod pod_cluster;
 pub mod spore_vent;
 pub mod street_block;
+pub mod street_detached;
+pub mod street_hall;
 pub mod street_house;
 pub mod street_low;
 pub mod tendril;

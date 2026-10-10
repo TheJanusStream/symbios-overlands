@@ -96,7 +96,7 @@ Parapet --> Comp(Faces) { Front: CorniceFace | Back: ParapetFace | Left: PartyIn
 // Cut from the full face, so a row of copies shows one unbroken cornice.
 CorniceFace --> Split(Y) { 0.24: Frieze | 0.26: Brackets | 0.2: Corona | ~1: ParapetFace }
 Frieze --> Extrude(0.12) Mat("Cornice") I("Cornice")
-Brackets --> Repeat(X, 1.1) { BracketBay }
+Brackets --> Repeat(X, 1.2) { BracketBay }
 BracketBay --> Split(X) { ~1: Frieze | 0.22: Bracket | ~1: Frieze }
 Bracket --> Extrude(0.5) Mat("Cornice") I("Cornice")
 Corona --> Extrude(0.62) Mat("Cornice") I("Cornice")

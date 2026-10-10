@@ -657,6 +657,7 @@ mod tests {
                 peak_storeys: Some(5),
                 area: 720.0,
                 street_yaw: 0.0,
+                development: None,
             }],
             vec![CoreTree {
                 id: "00008100:0001".into(),
