@@ -557,6 +557,7 @@ pub(super) fn poll_portal_travel_tasks(
 /// config does not produce - and a gateway hop with a drop-pin landing
 /// arrives at a literal `y = 0.0`, so the one arrival that got no lift was
 /// the one most likely to need it.
+#[allow(clippy::type_complexity)]
 pub(super) fn release_travel_on_arrival(
     mut commands: Commands,
     traveling: Option<Res<TravelingTo>>,
@@ -570,6 +571,7 @@ pub(super) fn release_travel_on_arrival(
             &mut LinearVelocity,
             &mut AngularVelocity,
             Option<&mut super::helicopter::RotorLift>,
+            Option<&mut super::airplane::Throttle>,
         ),
         With<LocalPlayer>,
     >,
@@ -583,7 +585,7 @@ pub(super) fn release_travel_on_arrival(
     let (Some(heightmap), Some(_)) = (heightmap.as_deref(), compiled.as_deref()) else {
         return;
     };
-    if let Ok((mut pos, mut lin, mut ang, lift)) = players.single_mut() {
+    if let Ok((mut pos, mut lin, mut ang, lift, throttle)) = players.single_mut() {
         // An arrival at the destination's landing - no baked target - comes
         // ashore on Berlin's ground, as a spawn there does (#1589): the
         // landing was taken before the ground it lands on existed.
@@ -604,8 +606,10 @@ pub(super) fn release_travel_on_arrival(
             });
         super::hotswap::snap_above_ground(heightmap, clearance, &mut pos, &mut lin, &mut ang);
         // Arrived, it is set down at the landing: a craft that flew into
-        // the gateway comes down there rather than hanging over it (#1612).
+        // the gateway comes down there rather than hanging over it (#1612),
+        // and an airplane stays there, her throttle closed (#1615).
         super::helicopter::set_down(lift);
+        super::airplane::set_down(throttle);
     }
     // The editor selection belonging to the world we LEFT is dropped by
     // `ui::room::clear_selection_on_room_change`, which watches

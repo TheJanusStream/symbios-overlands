@@ -40,9 +40,9 @@
 //! 2026-09-24): halted, stuck, or left by the player it followed, it first
 //! comes down - a rotorcraft straight down where it is, an airplane where it
 //! can, straight ahead - and the movement ends once it is down. Only another
-//! movement, or travel, cuts it off at once. And an airplane's engine runs
-//! with no key held, so with no movement under way it holds its engine cut
-//! ([`park`]) or it would take off on its own.
+//! movement, or travel, cuts it off at once. And with no movement under
+//! way an airplane holds Shift - its throttle closed and its brakes on
+//! ([`park`]) - as a person leaves one parked.
 //!
 //! This file holds the movement under way and the systems that steer it;
 //! [`ground`] how a walker and a driven body are steered, [`flight`] how a
@@ -393,7 +393,7 @@ fn begin(world: &mut World, aim: Aim, run: bool) -> Result<(Started, Vec3), Stri
         .locomotion;
     let drive = Drive::of(locomotion)?;
     let stopping = Stopping::of(locomotion);
-    if let Drive::Wing(_) = drive {
+    if let Drive::Wing(wing) = drive {
         match &aim {
             Aim::Peer { .. } => {
                 return Err(
@@ -402,7 +402,9 @@ fn begin(world: &mut World, aim: Aim, run: bool) -> Result<(Started, Vec3), Stri
                         .to_owned(),
                 );
             }
-            Aim::Heading { .. } if sense::craft(world).is_some_and(|c| wing::airborne(&c)) => {
+            Aim::Heading { .. }
+                if sense::craft(world).is_some_and(|c| wing::airborne(&wing, &c)) =>
+            {
                 return Err(
                     "an airplane turns on the spot on the ground only; walk-to a point \
                             to land it first (#1431)"
@@ -479,14 +481,17 @@ fn come_down_then(goal: &mut Goal, outcome: MoveOutcome, craft: &Craft, now: f64
         left,
     };
     goal.flight = Some(Flight::landing(craft, now));
-    goal.sortie = Some(Sortie::landing_ahead(craft, now));
+    goal.sortie = match goal.drive {
+        Drive::Wing(wing) => Some(Sortie::landing_ahead(&wing, craft, now)),
+        Drive::Rotor(_) | Drive::Ground(_) => None,
+    };
 }
 
 /// Whether a body is down, as far as ending a movement goes: a rotorcraft
 /// down on what is below it, an airplane on the ground.
 fn grounded(drive: Drive, craft: &Craft) -> bool {
     match drive {
-        Drive::Wing(_) => !wing::airborne(craft),
+        Drive::Wing(wing) => !wing::airborne(&wing, craft),
         Drive::Rotor(_) | Drive::Ground(_) => craft.down(),
     }
 }
@@ -1033,7 +1038,7 @@ fn steer_wing(
     now: f64,
 ) -> Step {
     let Goal { aim, sortie, .. } = goal;
-    let sortie = sortie.get_or_insert_with(|| Sortie::new(craft, now));
+    let sortie = sortie.get_or_insert_with(|| Sortie::new(wing, craft, now));
     match aim {
         Aim::Point(target) => match wing::fly_to(wing, sortie, craft, sensing, *target, now) {
             Flown::Hold(keys) => Step::Drive(Controls::keys(keys)),
@@ -1059,10 +1064,11 @@ fn steer_wing(
 }
 
 /// `PreUpdate`, after the steering: an airplane with no movement under way
-/// holds its engine cut. Its engine runs at cruise with no key held, so
-/// left alone on the ground it takes off within a second and climbs for
-/// ever - from the moment it is spawned, too. A person would hold Shift;
-/// so does the agent.
+/// holds Shift, its throttle closed and its brakes on. Its throttle holds
+/// where it is left (#1615), so a movement that ended with it open - stuck
+/// on its take-off run, say - would leave it rolling on, and up into the
+/// air once it was fast enough; and on a slope only its brakes hold it. A
+/// person would hold Shift; so does the agent.
 pub(super) fn park(
     mut keys: ResMut<ButtonInput<KeyCode>>,
     movement: Option<Res<Movement>>,
@@ -1335,6 +1341,12 @@ mod tests {
     /// A daemon frame, as the agent's loop runs them.
     const FRAME: f64 = 1.0 / 30.0;
 
+    /// The stand-in airplane's box is no higher than this over the ground
+    /// standing on its wheels (m): their reach, which its weight sags.
+    fn on_its_wheels() -> f32 {
+        crate::pds::AirplaneParams::default().gear_height.0
+    }
+
     /// The airship stand-in's record - wearing the default airplane
     /// instead, when `airplane`.
     fn stand_in(airplane: bool) -> crate::pds::avatar::AvatarRecord {
@@ -1523,9 +1535,8 @@ mod tests {
         );
     }
 
-    /// An airplane's engine runs with no key held: left alone on the ground
-    /// it takes off within a second and climbs for ever. With nothing flying
-    /// it, the daemon holds its engine cut, and it stays put.
+    /// An airplane with nothing flying it stays put on its wheels: the
+    /// daemon holds its throttle closed and its brakes on.
     #[test]
     fn an_airplane_with_nothing_to_do_stays_on_the_ground() {
         let mut daemon = Daemon::wearing(&stand_in(true), Vec3::new(0.0, 0.35, 0.0));
@@ -1536,7 +1547,7 @@ mod tests {
         }
 
         assert!(
-            daemon.height() < 0.1 && daemon.bench.position().distance(from) < 0.5,
+            daemon.height() < on_its_wheels() && daemon.bench.position().distance(from) < 0.5,
             "it is {:.2} m up, {:.2} m from where it stood",
             daemon.height(),
             daemon.bench.position().distance(from)
@@ -1584,12 +1595,12 @@ mod tests {
             height.is_some_and(|h| h <= f64::from(crate::config::agent::TOUCHDOWN_HEIGHT_M)),
             "ended {height:?} m up"
         );
-        // And down, it stays down: the parking holds its engine cut.
+        // And down, it stays down: the parking holds its throttle closed.
         for _ in 0..(3 * 30) {
             daemon.frame();
         }
         assert!(
-            daemon.height() < 0.1,
+            daemon.height() < on_its_wheels(),
             "{:.2} m up after landing",
             daemon.height()
         );

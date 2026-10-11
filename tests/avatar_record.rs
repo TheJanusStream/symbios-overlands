@@ -251,8 +251,8 @@ fn pre_gait_pre_feel_records_still_deserialize() {
         LocomotionConfig::Helicopter(Box::default()),
         LocomotionConfig::Car(Box::default()),
     ];
-    // Every field #874/#876/#1524 added, across all presets. Stripping keys
-    // a preset doesn't carry is a no-op.
+    // Every field #874/#876/#1524/#1615 added, across all presets. Stripping
+    // keys a preset doesn't carry is a no-op.
     let added_fields = [
         "stop_damping",
         "turn_rate",
@@ -266,6 +266,12 @@ fn pre_gait_pre_feel_records_still_deserialize() {
         "air_angular_damping",
         "air_control_accel",
         "air_level_accel",
+        "cruise_speed",
+        "roll_rate",
+        "pitch_rate",
+        "yaw_rate",
+        "gear_height",
+        "brake",
     ];
     for preset in presets {
         let mut avatar = AvatarRecord::default_for_did("did:plc:alice");
@@ -281,7 +287,7 @@ fn pre_gait_pre_feel_records_still_deserialize() {
         }
 
         let old: AvatarRecord = serde_json::from_value(value)
-            .unwrap_or_else(|e| panic!("{tag}: pre-#874/#876/#1524 record must decode: {e}"));
+            .unwrap_or_else(|e| panic!("{tag}: pre-#874/#876/#1524/#1615 record must decode: {e}"));
         assert!(old.gait.is_none(), "{tag}: absent gait stays None");
         // Re-published, it carries the defaults on the wire and reads back
         // the same.

@@ -1053,23 +1053,25 @@ const UNRECOGNISED_ROWS: &[ControlRow] = &[ControlRow {
     keys: "-",
     action: "this build can't drive your preset · pick one in Avatar › Locomotion",
 }];
+// The flight model of #1615: the throttle holds, a held bank is a turn,
+// and let go she levels her wings and her path.
 const AIRPLANE_ROWS: &[ControlRow] = &[
     ControlRow {
         keys: "W / S  or  ⬆ / ⬇",
-        action: "pitch down / up",
+        action: "nose down / up; let go, she flies level",
     },
     ControlRow {
         // `player::airplane` (#1529): A takes the left wing down.
         keys: "A / D  or  ⬅ / ➡",
-        action: "roll left / right",
+        action: "bank left / right, held to turn; on the ground, steer",
     },
     ControlRow {
         keys: "Q / E",
-        action: "yaw (rudder)",
+        action: "rudder; on the ground, steer",
     },
     ControlRow {
         keys: "Space / Shift",
-        action: "throttle up / down",
+        action: "throttle up / down - it holds; closed, Shift brakes",
     },
 ];
 

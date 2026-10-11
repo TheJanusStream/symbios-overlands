@@ -1,53 +1,116 @@
-//! Airplane preset - arcade flight model: continuous thrust, lift =
-//! `lift_per_speed × forward airspeed`, drag along the velocity vector,
-//! pitch / roll / yaw from input.
+//! Airplane preset - a light airplane's flight model (#1615): a throttle
+//! that holds, lift along the wings that grows with speed and angle of
+//! attack and stalls, control as rates the plane's own inertia is driven
+//! at, wings and flight path that level when the keys are let go, and
+//! landing gear to taxi, steer and brake on. See `player::airplane` for the
+//! physics, and its module docs for the keys.
 
 use super::{LocomotionConfig, LocomotionPreset, clamp_half_extents, clamp_pos, clamp_unit};
 use crate::pds::types::{Fp, Fp3};
 use serde::{Deserialize, Serialize};
 
-/// Airplane preset: arcade flight model. W/S pitch, A/D roll, Q/E yaw,
-/// Space throttle up, Shift throttle down. Lift = `lift_per_speed` ×
-/// forward airspeed (no AOA simulation); drag damps motion along the
-/// negative-velocity direction. No take-off mechanic - the avatar is
-/// always "airborne" and crashes on terrain contact like any other
-/// physics body.
+/// Airplane preset: W/S pitch, A/D bank, Q/E rudder, Space/Shift throttle.
+///
+/// # Five fields no system reads since #1615
+///
+/// `pitch_torque`, `roll_torque`, `yaw_torque`, `lift_per_speed` and
+/// `cruise_throttle` belonged to the arcade model this replaced, and are
+/// still written, with their old defaults, because a client built before
+/// it requires them: a record without them would not decode there. The
+/// controls they drove are rates now (`roll_rate`, `pitch_rate`,
+/// `yaw_rate`), lift is `cruise_speed`'s, and the throttle holds where it
+/// is set rather than idling at a cruise fraction. The editor no longer
+/// shows them.
+///
+/// A record published before #1615 flies the new model with the numbers it
+/// was saved with: its 1500 N of thrust on 40 kg makes it a rocket, until
+/// its owner sets the Locomotion tab's sliders or picks the preset afresh.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct AirplaneParams {
-    /// Fuselage cuboid collider half-extents (m).
+    /// Fuselage cuboid collider half-extents (m). The landing gear stands
+    /// under it ([`Self::gear_height`]); the wings, like a rotor's disc,
+    /// are drawn outside it.
     pub chassis_half_extents: Fp3,
     pub mass: Fp,
     pub linear_damping: Fp,
     pub angular_damping: Fp,
-    /// Continuous forward thrust applied by the throttle input (N).
+    /// Full-throttle thrust along the nose (N).
     pub thrust: Fp,
-    /// Pitch input torque (N·m). Positive W input pitches nose down.
+    /// Retired (#1615): see the struct docs.
     pub pitch_torque: Fp,
-    /// Roll input torque (N·m).
+    /// Retired (#1615): see the struct docs.
     pub roll_torque: Fp,
-    /// Yaw / rudder input torque (N·m).
+    /// Retired (#1615): see the struct docs.
     pub yaw_torque: Fp,
-    /// Lift force per (m/s) of forward airspeed (N·s/m). Multiplied by
-    /// the chassis-local forward-velocity component each fixed step.
+    /// Retired (#1615): see the struct docs.
     pub lift_per_speed: Fp,
-    /// Air-resistance coefficient applied along the velocity vector (N·s/m).
+    /// Air resistance along the velocity (N per (m/s)^2): with `thrust` it
+    /// sets her top speed - a little under `sqrt(thrust / drag_coefficient)`
+    /// in level flight, her damping and the drag her lift costs taking the
+    /// rest: 25 m/s for the default.
     pub drag_coefficient: Fp,
-    /// Minimum forward airspeed (m/s) below which lift drops to zero -
-    /// approximates a stall without simulating AOA.
+    /// Her STALL speed (m/s): the slowest her wings can carry her weight,
+    /// at the steepest angle of attack they take before they stall. Since
+    /// #1615; before it, the speed under which lift simply stopped.
     pub min_airspeed: Fp,
-    /// Hands-off throttle fraction of `thrust` - the airplane flies by
-    /// default; Space/Shift add/subtract the same fraction (so 1.0 =
-    /// full, 0.0 = idle). Promoted from a hard-coded constant by #876;
-    /// field-level serde default keeps pre-#876 records at the
-    /// historical feel.
+    /// Retired (#1615): see the struct docs.
     #[serde(default = "default_cruise_throttle")]
     pub cruise_throttle: Fp,
+    /// The speed her wings carry her weight at with the nose on the flight
+    /// path (m/s) - level flight at no angle of attack. Slower, she flies
+    /// level nose-high; faster, nose-low. With `min_airspeed` it sets how
+    /// much lift a steeper angle buys: `(cruise / stall)^2` times as much
+    /// at the stall.
+    #[serde(default = "default_cruise_speed")]
+    pub cruise_speed: Fp,
+    /// How fast A and D roll her toward her bank, and back level when let
+    /// go (degrees per second).
+    #[serde(default = "default_roll_rate")]
+    pub roll_rate: Fp,
+    /// How fast W and S pitch her nose (degrees per second).
+    #[serde(default = "default_pitch_rate")]
+    pub pitch_rate: Fp,
+    /// How fast Q and E yaw her nose (degrees per second); on the ground
+    /// the steering is a multiple of it.
+    #[serde(default = "default_yaw_rate")]
+    pub yaw_rate: Fp,
+    /// How far her wheels reach under the fuselage box, unloaded (m): at
+    /// least 5 cm, or her wheels would never meet the ground and she would
+    /// have no brakes or steering on it.
+    #[serde(default = "default_gear_height")]
+    pub gear_height: Fp,
+    /// How hard full brakes slow her on the ground (m/s^2): Shift held with
+    /// the throttle closed.
+    #[serde(default = "default_brake")]
+    pub brake: Fp,
 }
 
 /// Serde fallback for records published before #876 - the constant the
-/// throttle table hard-coded. Shared with `Default`.
+/// throttle table hard-coded. Shared with `Default`. Retired since #1615.
 fn default_cruise_throttle() -> Fp {
     Fp(0.5)
+}
+
+/// Serde fallbacks for the fields #1615 added - and the defaults a fresh
+/// airplane takes: a 3 m light airplane that stalls at 11 m/s, flies level
+/// with her nose on her path at 20 and tops out about 25.
+fn default_cruise_speed() -> Fp {
+    Fp(20.0)
+}
+fn default_roll_rate() -> Fp {
+    Fp(90.0)
+}
+fn default_pitch_rate() -> Fp {
+    Fp(45.0)
+}
+fn default_yaw_rate() -> Fp {
+    Fp(25.0)
+}
+fn default_gear_height() -> Fp {
+    Fp(0.25)
+}
+fn default_brake() -> Fp {
+    Fp(4.0)
 }
 
 impl Default for AirplaneParams {
@@ -57,14 +120,22 @@ impl Default for AirplaneParams {
             mass: Fp(40.0),
             linear_damping: Fp(0.05),
             angular_damping: Fp(2.0),
-            thrust: Fp(1_500.0),
+            // 0.75 g: a short take-off run and a steep climb, and with the
+            // drag below a top speed of about 25 m/s.
+            thrust: Fp(300.0),
             pitch_torque: Fp(900.0),
             roll_torque: Fp(900.0),
             yaw_torque: Fp(450.0),
             lift_per_speed: Fp(45.0),
-            drag_coefficient: Fp(0.6),
-            min_airspeed: Fp(6.0),
+            drag_coefficient: Fp(0.38),
+            min_airspeed: Fp(11.0),
             cruise_throttle: default_cruise_throttle(),
+            cruise_speed: default_cruise_speed(),
+            roll_rate: default_roll_rate(),
+            pitch_rate: default_pitch_rate(),
+            yaw_rate: default_yaw_rate(),
+            gear_height: default_gear_height(),
+            brake: default_brake(),
         }
     }
 }
@@ -86,9 +157,64 @@ impl LocomotionPreset for AirplaneParams {
         self.drag_coefficient = clamp_pos(self.drag_coefficient, 0.0, 100.0);
         self.min_airspeed = clamp_pos(self.min_airspeed, 0.0, 100.0);
         self.cruise_throttle = clamp_unit(self.cruise_throttle);
+        self.cruise_speed = clamp_pos(self.cruise_speed, 1.0, 200.0);
+        self.roll_rate = clamp_pos(self.roll_rate, 0.0, 720.0);
+        self.pitch_rate = clamp_pos(self.pitch_rate, 0.0, 360.0);
+        self.yaw_rate = clamp_pos(self.yaw_rate, 0.0, 360.0);
+        self.gear_height = clamp_pos(self.gear_height, 0.05, 5.0);
+        self.brake = clamp_pos(self.brake, 0.0, 50.0);
     }
 
     fn into_config(self) -> LocomotionConfig {
         LocomotionConfig::Airplane(Box::new(self))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A record published before #1615 has none of its fields, and
+    /// decodes to the defaults a fresh airplane takes for them.
+    #[test]
+    fn a_record_from_before_the_flight_model_decodes() {
+        let mut old = serde_json::to_value(AirplaneParams::default()).expect("serializes");
+        let map = old.as_object_mut().expect("an object");
+        for field in [
+            "cruise_speed",
+            "roll_rate",
+            "pitch_rate",
+            "yaw_rate",
+            "gear_height",
+            "brake",
+        ] {
+            assert!(map.remove(field).is_some(), "{field} is written");
+        }
+        let back: AirplaneParams = serde_json::from_value(old).expect("decodes");
+        assert_eq!(back, AirplaneParams::default());
+    }
+
+    /// And the retired fields are still written, so a client from before
+    /// #1615 - which requires them - decodes a record written after it.
+    #[test]
+    fn the_retired_fields_are_still_written() {
+        let json = serde_json::to_value(AirplaneParams::default()).expect("serializes");
+        for field in [
+            "pitch_torque",
+            "roll_torque",
+            "yaw_torque",
+            "lift_per_speed",
+            "cruise_throttle",
+        ] {
+            assert!(json.get(field).is_some(), "{field} is not written");
+        }
+    }
+
+    /// The defaults survive the sanitiser unchanged.
+    #[test]
+    fn the_defaults_are_inside_the_sanitiser() {
+        let mut p = AirplaneParams::default();
+        p.sanitize();
+        assert_eq!(p, AirplaneParams::default());
     }
 }

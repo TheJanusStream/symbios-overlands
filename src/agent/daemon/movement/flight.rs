@@ -108,11 +108,6 @@ impl Craft {
         self.underside - self.below
     }
 
-    /// How fast it turns about `axis` (rad/s, right-handed).
-    pub(super) fn pitch_rate(&self, axis: Vec3) -> f32 {
-        self.spin.dot(axis)
-    }
-
     /// Whether it is down on what is below it - or near enough that it
     /// needs no landing.
     pub(super) fn down(&self) -> bool {

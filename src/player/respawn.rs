@@ -278,6 +278,7 @@ pub(super) fn apply_player_move(
             &mut LinearVelocity,
             &mut AngularVelocity,
             Option<&mut super::helicopter::RotorLift>,
+            Option<&mut super::airplane::Throttle>,
         ),
         With<LocalPlayer>,
     >,
@@ -299,7 +300,7 @@ pub(super) fn apply_player_move(
         toasts.warn(reason, now);
         return;
     }
-    let (Some(hm_res), Ok((mut pos, mut rot, mut lin_vel, mut ang_vel, lift))) =
+    let (Some(hm_res), Ok((mut pos, mut rot, mut lin_vel, mut ang_vel, lift, throttle))) =
         (hm_res, query.single_mut())
     else {
         return;
@@ -335,6 +336,7 @@ pub(super) fn apply_player_move(
     lin_vel.0 = Vec3::ZERO;
     ang_vel.0 = Vec3::ZERO;
     super::helicopter::set_down(lift);
+    super::airplane::set_down(throttle);
     toasts.info(told, now);
     session_log.info(
         now,
@@ -356,6 +358,7 @@ pub(super) fn respawn_if_fallen(
             &mut LinearVelocity,
             &mut AngularVelocity,
             Option<&mut super::helicopter::RotorLift>,
+            Option<&mut super::airplane::Throttle>,
         ),
         With<LocalPlayer>,
     >,
@@ -368,7 +371,9 @@ pub(super) fn respawn_if_fallen(
     mut recent_respawns: ResMut<crate::diagnostics::anomaly::RecentRespawns>,
     mut toasts: ResMut<crate::notify::Toasts>,
 ) {
-    let Ok((entity, mut pos, mut rot, mut lin_vel, mut ang_vel, lift)) = query.single_mut() else {
+    let Ok((entity, mut pos, mut rot, mut lin_vel, mut ang_vel, lift, throttle)) =
+        query.single_mut()
+    else {
         return;
     };
     let Some(hm_res) = hm_res else {
@@ -408,6 +413,7 @@ pub(super) fn respawn_if_fallen(
     lin_vel.0 = Vec3::ZERO;
     ang_vel.0 = Vec3::ZERO;
     super::helicopter::set_down(lift);
+    super::airplane::set_down(throttle);
     let now = time.elapsed_secs_f64();
     crate::diagnostics::samplers::player_respawned(&mut metrics);
     // Feed the respawn-thrashing window (#672) alongside the monotonic metric.

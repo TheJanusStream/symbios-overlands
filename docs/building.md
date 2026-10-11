@@ -1111,17 +1111,18 @@ movement ends once it is down - only another movement or travel cuts it off
 at once. A flight is `stuck` when the body has neither moved nor turned for
 six seconds, never by how far it still has to go, and its `movement_ended`
 carries `height_m`. An airplane (#1431) is flown as the game's airplane
-actually flies - its lift is straight up in proportion to its forward speed,
-so it holds its height by its throttle and turns by its rudder, its nose
-kept level (at the daemon's frame one press of A or D rolls it about 140
-degrees). On the ground it swings round to a clear run and takes off; it
-comes onto a straight final toward the point from 80 m out, glides down by
-slowing, cuts its engine at touchdown and stops within 10 m of the point;
-not lined up, or with something on the final, it goes round - out to 170 m
-and back - and after two of those it lands where it can and ends `stuck`.
-Its engine runs with no key held, so with nothing flying it the agent holds
-it cut, or it would take off on its own. It `face`s on the ground only and
-does not `follow`. `status.movement`
+flies (#1615): it turns by banking, holds its height with no key held, and
+keeps its throttle where it is left, so a flight sets its speed on the
+throttle, its climb on W and S and its heading on A and D - letting go of a
+bank early by the turn its roll-out still has in it. On the ground it swings
+round on the spot to a clear run and takes off; it comes onto a straight
+final toward the point from 80 m out, closes its throttle 3 m up, brakes
+once its wheels are down and stops within 10 m of the point; not lined up,
+or with something on the final, it goes round - out to 170 m and back - and
+after two of those it lands where it can and ends `stuck`. With nothing
+flying it, the agent holds Shift - throttle closed, brakes on - as a person
+leaves one parked. It `face`s on the ground only and does not `follow`.
+`status.movement`
 says what the agent is doing (a flight's `phase` too), `status.height_m`
 how far the body could come straight down before it touched something
 (water included), and `status.peers` gives each player where they are and

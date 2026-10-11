@@ -126,7 +126,9 @@ the push keys do nothing, A and D still turn it on the spot, and only Space
 lifts it off. It lands only at rest - slow over the ground, no key held - and
 every set-down (a spawn, a restart, a move to spawn or to a selection, an
 arrival in another world) starts it landed, so it comes down onto what is
-under it. An airplane takes
-off, lands on a straight final and cannot `follow`. The details, and the
+under it. An airplane flies as a light airplane does (#1615) - it banks to
+turn and holds its height hands-off - so it takes off on a run of some 35 m,
+lands on a straight final, rolls about 20 m on its brakes, and cannot
+`follow`. The details, and the
 offline stand-ins that let you try each body, are in
 [../building.md](../building.md) under "Agent client".

@@ -26,8 +26,9 @@
 //! - **Humanoid** - capsule rigid body with `LockedAxes` keeping it
 //!   upright, velocity-driven walk controller, jump impulse, swim/wading
 //!   modes triggered by water depth.
-//! - **Airplane** - cuboid fuselage, continuous thrust, lift proportional
-//!   to forward airspeed, pitch / roll / yaw torque from input.
+//! - **Airplane** - cuboid fuselage on three-wheel landing gear, a throttle
+//!   that holds, lift along the wings that stalls, and rate control that
+//!   levels the wings and the flight path when let go (#1615).
 //! - **Helicopter** - cuboid fuselage, auto-stabilising hover thrust,
 //!   cyclic + strafe + yaw input, vertical climb/descend on Space/Shift.
 //! - **Car** - cuboid chassis, four-corner raycast suspension with a bump
@@ -60,7 +61,7 @@
 //!   uprighting systems.
 //! * [`humanoid`] - Humanoid preset: walk controller (dry/wading/swim
 //!   modes) and the `humanoid_water_state` classifier.
-//! * [`airplane`] - Airplane preset: thrust + control-surface forces.
+//! * [`airplane`] - Airplane preset: the flight model and the landing gear.
 //! * [`helicopter`] - Helicopter preset: auto-stabilised hover + cyclic.
 //! * [`car`] - Car preset: suspension + bump stop, ground drive + steering +
 //!   handbrake, the air model, uprighting.
@@ -91,8 +92,11 @@ pub(crate) mod sim;
 mod spawn;
 pub mod visuals;
 
-// Read only by the agent's `drive` (#1527), which is Unix-only like the
-// rest of the agent: ungated, this is an unused import on wasm32.
+// Read only by the agent's `drive` (#1527) and its airplane pilot (#1615),
+// which are Unix-only like the rest of the agent: ungated, these are unused
+// imports on wasm32.
+#[cfg(unix)]
+pub(crate) use airplane::Handling as AirplaneHandling;
 #[cfg(unix)]
 pub(crate) use car::CarContact;
 pub(crate) use hotswap::AppliedAvatar;
@@ -462,13 +466,13 @@ impl Plugin for PlayerPlugin {
                     hover_boat::apply_hover_boat_suspension,
                     hover_boat::apply_hover_boat_buoyancy,
                     // Passive stabilisation runs UNGATED, exactly like
-                    // suspension/buoyancy above: helicopter hover +
-                    // self-righting and airplane cruise/lift/drag are
-                    // not input responses, so egui focus must not cut
-                    // them (#821 - the airship used to fall out of the
-                    // sky whenever a text field grabbed the keyboard).
+                    // suspension/buoyancy above: helicopter hover and
+                    // self-righting are not input responses, so egui focus
+                    // must not cut them (#821 - the airship used to fall
+                    // out of the sky whenever a text field grabbed the
+                    // keyboard). The airplane's flight model is ungated too,
+                    // below, after her keys are read.
                     helicopter::apply_helicopter_stabilization,
-                    airplane::apply_airplane_aerodynamics,
                     // The fourth preset's righting assist (#1240 f162),
                     // ungated like the car's and the hover-boat's: a
                     // flipped aircraft keeps righting even while the owner
@@ -497,10 +501,16 @@ impl Plugin for PlayerPlugin {
                     // that could have acted on it, even when the walk
                     // system itself was gated off (#852).
                     humanoid::clear_jump_queue,
-                    airplane::apply_airplane_forces
+                    airplane::read_airplane_keys
                         .run_if(not(egui_wants_any_keyboard_input))
                         .run_if(not(avatar_visuals_row_selected))
                         .run_if(not(guard_attention_held)),
+                    // The airplane's flight model (#1615) runs UNGATED
+                    // straight after her keys are read: the held throttle,
+                    // the air, the gear and the levelling are hers, not the
+                    // player's, and a step the keys stood down on is a step
+                    // with none.
+                    airplane::fly_airplane,
                     helicopter::apply_helicopter_forces
                         .run_if(not(egui_wants_any_keyboard_input))
                         .run_if(not(avatar_visuals_row_selected))

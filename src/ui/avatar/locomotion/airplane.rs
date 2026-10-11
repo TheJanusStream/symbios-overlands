@@ -1,4 +1,8 @@
-//! Airplane locomotion panel.
+//! Airplane locomotion panel - the flight model's live fields (#1615). The
+//! five the arcade model read and nothing reads now (`pitch_torque`,
+//! `roll_torque`, `yaw_torque`, `lift_per_speed`, `cruise_throttle`) are
+//! still written for older clients, and are not shown: a slider that moves
+//! nothing is a promise the panel cannot keep.
 
 use bevy_egui::egui;
 
@@ -25,30 +29,37 @@ impl LocomotionPanel for AirplaneParams {
                 fp_slider(ui, &mut self.angular_damping, 0.0..=20.0, 0.1, dirty);
             });
 
-        egui::CollapsingHeader::new("Thrust & control surfaces")
+        egui::CollapsingHeader::new("Engine & wings")
             .default_open(true)
             .show(ui, |ui| {
-                ui.label("Thrust (N)");
-                fp_slider(ui, &mut self.thrust, 0.0..=10_000.0, 50.0, dirty);
-                ui.label("Cruise throttle (hands-off fraction)");
-                fp_slider(ui, &mut self.cruise_throttle, 0.0..=1.0, 0.01, dirty);
-                ui.label("Pitch torque (N·m)");
-                fp_slider(ui, &mut self.pitch_torque, 0.0..=5_000.0, 25.0, dirty);
-                ui.label("Roll torque (N·m)");
-                fp_slider(ui, &mut self.roll_torque, 0.0..=5_000.0, 25.0, dirty);
-                ui.label("Yaw / rudder torque (N·m)");
-                fp_slider(ui, &mut self.yaw_torque, 0.0..=5_000.0, 25.0, dirty);
+                ui.label("Thrust at full throttle (N)");
+                fp_slider(ui, &mut self.thrust, 0.0..=10_000.0, 10.0, dirty);
+                ui.label("Cruise speed - level with the nose on her path (m/s)");
+                fp_slider(ui, &mut self.cruise_speed, 1.0..=80.0, 0.5, dirty);
+                ui.label("Stall speed (m/s)");
+                fp_slider(ui, &mut self.min_airspeed, 0.0..=40.0, 0.5, dirty);
+                ui.label("Drag coefficient");
+                fp_slider(ui, &mut self.drag_coefficient, 0.0..=5.0, 0.01, dirty);
             });
 
-        egui::CollapsingHeader::new("Aerodynamics")
+        egui::CollapsingHeader::new("Control rates")
+            .default_open(true)
+            .show(ui, |ui| {
+                ui.label("Roll rate - A / D (deg/s)");
+                fp_slider(ui, &mut self.roll_rate, 0.0..=360.0, 5.0, dirty);
+                ui.label("Pitch rate - W / S (deg/s)");
+                fp_slider(ui, &mut self.pitch_rate, 0.0..=180.0, 5.0, dirty);
+                ui.label("Yaw rate - Q / E (deg/s)");
+                fp_slider(ui, &mut self.yaw_rate, 0.0..=180.0, 5.0, dirty);
+            });
+
+        egui::CollapsingHeader::new("Landing gear")
             .default_open(false)
             .show(ui, |ui| {
-                ui.label("Lift per (m/s) airspeed");
-                fp_slider(ui, &mut self.lift_per_speed, 0.0..=200.0, 1.0, dirty);
-                ui.label("Drag coefficient");
-                fp_slider(ui, &mut self.drag_coefficient, 0.0..=5.0, 0.05, dirty);
-                ui.label("Min airspeed (m/s)");
-                fp_slider(ui, &mut self.min_airspeed, 0.0..=30.0, 0.5, dirty);
+                ui.label("Gear height under the box (m)");
+                fp_slider(ui, &mut self.gear_height, 0.05..=2.0, 0.01, dirty);
+                ui.label("Brakes - Shift at closed throttle (m/s²)");
+                fp_slider(ui, &mut self.brake, 0.0..=20.0, 0.5, dirty);
             });
     }
 }

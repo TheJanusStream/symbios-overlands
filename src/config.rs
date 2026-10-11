@@ -280,10 +280,11 @@ pub(crate) mod rover {
     pub const AIRPLANE_UPRIGHT_ASSIST_ACCEL: f32 = 6.0;
     /// Spin damping, so the assist settles level instead of oscillating.
     pub const AIRPLANE_UPRIGHT_ASSIST_DAMPING: f32 = 3.0;
-    /// Tilt past which the passive cruise thrust is cut, in degrees off
-    /// world-up. Tighter than the engage tilt: an inverted plane under
-    /// thrust is driving itself INTO the ground, and the assist should not
-    /// have to fight the engine to lift it off.
+    /// Tilt past which an airplane's thrust is cut, in degrees off
+    /// world-up - under her stall speed only (#1615): over the top of a
+    /// loop she is flying, and needs it. Tighter than the engage tilt: an
+    /// inverted plane under thrust is driving itself INTO the ground, and
+    /// the assist should not have to fight the engine to lift it off.
     pub const AIRPLANE_THRUST_CUT_TILT_DEGREES: f32 = 100.0;
     /// Metres *below local ground* at which the rover is considered fallen
     /// through the terrain and respawned. Using a ground-relative delta
@@ -2141,46 +2142,46 @@ pub(crate) mod agent {
     /// them, never on them.
     pub const ESCORT_ROOM_M: f32 = 1.5;
 
-    // --- Flying an airplane (#1431, owner 2026-09-24) ---
+    // --- Flying an airplane (#1431, owner 2026-09-24; #1615) ---
     //
-    // The game's airplane lifts straight up in proportion to its forward
-    // speed and nothing else, so it holds its height by its speed; and at
-    // the daemon's frame one press of A or D rolls it about 140 degrees and
-    // one of W or S pitches it about 27, so it flies nose-level and turns by
-    // the rudder alone. See `agent::daemon::movement::wing`.
+    // The game's airplane flies as a light airplane does (#1615): it turns
+    // by banking, holds its height with no key held, and keeps its throttle
+    // where it is left. So a flight sets its speed on the throttle, its
+    // climb on W and S, and its heading on A and D - see
+    // `agent::daemon::movement::wing`.
 
-    /// The slowest an airplane flies, as a share over its stall speed.
-    pub const WING_STALL_MARGIN: f32 = 1.2;
+    /// The speeds a flight flies it at, as multiples of its stall speed:
+    /// cruising, coming down a final, and lifting her nose on her take-off
+    /// run.
+    pub const WING_CRUISE_OVER_STALL: f32 = 1.5;
+    pub const WING_APPROACH_OVER_STALL: f32 = 1.3;
+    pub const WING_ROTATE_OVER_STALL: f32 = 1.15;
     /// The vertical speed an airplane asks for per metre it is off its
-    /// height (1/s), and the most it asks for up and down (m/s).
+    /// height (1/s), and the most it asks for up and down (m/s). Its sink
+    /// has to be well over a final's own - [`GLIDE_SLOPE`] at its approach
+    /// speed, 2.1 m/s for the default airplane - or a final begun over the
+    /// glide never comes down onto it.
     pub const WING_CLIMB_GAIN: f32 = 0.6;
     pub const WING_MAX_CLIMB: f32 = 3.0;
-    pub const WING_MAX_SINK: f32 = 2.0;
-    /// The forward speed it asks for over the speed that holds it level,
-    /// per m/s its vertical speed is short of the one it wants (s).
-    pub const WING_SPEED_PER_CLIMB: f32 = 1.2;
-    /// How far under the speed it asks for its forward speed may fall
-    /// before it opens the throttle to cruise, and to full at three times
-    /// as far (m/s). Inside that, the engine is cut: a frame at cruise adds
-    /// about 0.6 m/s and one at full 1.2, so the speed is held by the odd
-    /// frame of power against the drag.
-    pub const WING_SPEED_BAND: f32 = 0.2;
-    /// How far off where it wants its nose an airplane may leave it
-    /// (degrees). A frame of rudder turns it about 12.
-    pub const WING_YAW_DEAD_ZONE_DEG: f32 = 6.0;
-    /// How far past its point the nose may lead its path, so the path,
-    /// which follows the nose only over seconds, comes round sooner
-    /// (degrees).
-    pub const WING_LEAD_MAX_DEG: f32 = 40.0;
-    /// The most its nose may point off its path (degrees): its lift is its
-    /// speed along its nose, and a nose swung 140 degrees round to a point
-    /// behind it left it no lift at all.
-    pub const WING_NOSE_OFF_PATH_MAX_DEG: f32 = 45.0;
-    /// How far its nose may pitch off level before it is pitched back
-    /// (degrees). Nothing in flight pitches it, but a knock does - and
-    /// pitched up, its thrust and its lift point skyward and it climbs
-    /// without end.
-    pub const WING_PITCH_TOLERANCE_DEG: f32 = 20.0;
+    pub const WING_MAX_SINK: f32 = 4.0;
+    /// How far its climb may be off the one it wants before it pitches
+    /// (m/s). Inside that no key is held, and its path holds.
+    pub const WING_CLIMB_BAND: f32 = 0.3;
+    /// How far its speed may be off the one it wants before it moves the
+    /// throttle (m/s). Inside that no key is held, and the throttle holds.
+    pub const WING_SPEED_BAND: f32 = 0.5;
+    /// How far off where it wants its path an airplane may leave it in the
+    /// air, past the turn its bank still has in it (degrees).
+    pub const WING_BANK_DEAD_ZONE_DEG: f32 = 1.5;
+    /// How far off where it wants its nose it may leave it on the ground
+    /// (degrees). A frame of steering turns it about 2.
+    pub const WING_YAW_DEAD_ZONE_DEG: f32 = 3.0;
+    /// Its box's underside this far over its wheels' reach, it is down: a
+    /// frame closes it (m).
+    pub const WING_WHEELS_DOWN_M: f32 = 0.1;
+    /// Coming in to land, it closes its throttle this far over the ground
+    /// (m): a second or so out, time for the throttle to shut.
+    pub const WING_POWER_OFF_M: f32 = 3.0;
     /// Its path lines up on its point when it points within this of it
     /// (degrees).
     pub const LINED_UP_DEG: f32 = 10.0;
@@ -2203,27 +2204,25 @@ pub(crate) mod agent {
     pub const MAX_GO_ROUNDS: u32 = 2;
     /// The final's glide: metres down per metre on.
     pub const GLIDE_SLOPE: f32 = 0.15;
-    /// Where it aims to touch down, short of the point (m): about what it
-    /// slides, engine off, after a gentle touchdown at its approach speed.
-    /// Set down gently its lift still carries nearly all its weight, so the
-    /// ground barely brakes it: 15.6 m from 8.4 m/s on terrain built with
-    /// parry's internal-edge fix (#1538). Before it the heightfield's
-    /// internal edges braked a slide to about 9 m, and an aim of 8 that
-    /// stopped the bench's landings 8.2-9.4 m past their point overran one
-    /// to 11. At 14 they stop 1.6-3.7 m from it.
+    /// Where its glide meets the ground, short of the point (m): about what
+    /// it rolls, braking, after it floats onto its wheels at a little over
+    /// its stall. With the default airplane, rounding out it touches down
+    /// about 20 m short and rolls 17 (#1615); ten approaches on the bench's
+    /// floor stop 0.7-5.8 m from their point.
     pub const TOUCHDOWN_SHORT_M: f32 = 14.0;
-    /// Under this height it rounds out, coming down more slowly the lower
-    /// it is (m).
-    pub const FLARE_FROM_M: f32 = 1.0;
+    /// Under this height over its wheels' reach it rounds out, coming down
+    /// more slowly the lower it is (m).
+    pub const FLARE_FROM_M: f32 = 2.0;
     /// The sink it touches down at, rounded out (m/s).
     pub const FLARE_SINK: f32 = 0.6;
     /// Stopped this near its point, an airplane has arrived (m). Where it
-    /// touches down and how far it slides vary with its approach, so its
+    /// touches down and how far it rolls vary with its approach, so its
     /// stop cannot be promised much nearer: the bench's landings stop
-    /// 1.6-3.7 m off (#1538), and before that fix one stopped 7.1 m off.
+    /// 0.7-5.8 m off (#1615).
     pub const ARRIVE_WINGED_M: f32 = 10.0;
-    /// The clear run an airplane needs on the ground to take off (m).
-    pub const TAKE_OFF_RUN_M: f32 = 25.0;
+    /// The clear run an airplane needs on the ground to take off (m): the
+    /// default airplane is a metre up 35 m on (#1615).
+    pub const TAKE_OFF_RUN_M: f32 = 40.0;
     /// How high over the ground it sweeps its run (m): clear of the ground
     /// it rests on, not of a kerb.
     pub const TAKE_OFF_SWEEP_LIFT_M: f32 = 0.3;

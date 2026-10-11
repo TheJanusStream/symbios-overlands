@@ -119,10 +119,16 @@ const SET_DOWN_CLEARANCE_M: f32 = 0.1;
 /// taller than that, when it is its own half-height and a hand's breadth:
 /// an airship's box reaches its gondola since #1612, up to 1.34 m below its
 /// origin, and set down a metre up its keel started in the ground and was
-/// shoved out of it.
+/// shoved out of it. An airplane reaches below her box by her gear (#1615):
+/// set down on gear taller than the metre leaves, she started with her
+/// wheels pressed into the ground and sprang up off them.
 pub(crate) fn set_down_height(locomotion: &LocomotionConfig) -> f32 {
     let reach = chassis_spec(locomotion).map_or(0.0, |spec| spec.shape.half_height());
-    cfg::SPAWN_HEIGHT_OFFSET.max(reach + SET_DOWN_CLEARANCE_M)
+    let gear = match locomotion {
+        LocomotionConfig::Airplane(p) => p.gear_height.0,
+        _ => 0.0,
+    };
+    cfg::SPAWN_HEIGHT_OFFSET.max(reach + gear + SET_DOWN_CLEARANCE_M)
 }
 
 impl ChassisSpec {
@@ -192,9 +198,13 @@ impl PresetComponents for AirplaneParams {
     }
 
     fn insert_preset(&self, commands: &mut Commands, entity: Entity) {
-        commands
-            .entity(entity)
-            .insert((AirplanePreset, VehicleChassis));
+        // Throttle closed (#1615): a fresh airplane stays where it is put.
+        commands.entity(entity).insert((
+            AirplanePreset,
+            VehicleChassis,
+            super::airplane::Throttle::default(),
+            super::airplane::Stick::default(),
+        ));
     }
 }
 
@@ -455,6 +465,8 @@ pub(super) fn strip_preset_components(commands: &mut Commands, entity: Entity) {
         super::car::CarContact,
         super::car::CarAirKeys,
         super::helicopter::RotorLift,
+        super::airplane::Throttle,
+        super::airplane::Stick,
         VehicleChassis,
         super::gait::GaitAnimation,
     )>();
@@ -642,6 +654,23 @@ mod tests {
             kept.run_system_once(sync_chassis).expect("the sync runs");
             assert_eq!(ticks(&kept), settled, "{kind}: an idle sync wrote");
         }
+    }
+
+    /// An airplane is set down with her wheels clear of the ground (#1615):
+    /// on the default gear that is still the spawn's metre, and on tall
+    /// gear it is higher by what the gear reaches.
+    #[test]
+    fn an_airplane_is_set_down_on_her_gear() {
+        let mut p = AirplaneParams::default();
+        let fresh = LocomotionConfig::Airplane(Box::new(p.clone()));
+        assert_eq!(set_down_height(&fresh), cfg::SPAWN_HEIGHT_OFFSET);
+        p.gear_height = Fp(2.0);
+        let tall = LocomotionConfig::Airplane(Box::new(p.clone()));
+        let wheels = set_down_height(&tall) - p.chassis_half_extents.0[1] - 2.0;
+        assert!(
+            (wheels - SET_DOWN_CLEARANCE_M).abs() < 1e-5,
+            "on 2 m gear her wheels start {wheels} m up"
+        );
     }
 
     /// Every seeded body is set down clear of the ground by its own box or

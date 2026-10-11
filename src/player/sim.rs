@@ -179,9 +179,9 @@ impl FlightBench {
             (
                 super::preset::sync_chassis,
                 super::helicopter::apply_helicopter_stabilization,
-                super::airplane::apply_airplane_aerodynamics,
                 super::airplane::apply_airplane_uprighting,
-                super::airplane::apply_airplane_forces,
+                super::airplane::read_airplane_keys,
+                super::airplane::fly_airplane,
                 super::helicopter::apply_helicopter_forces,
             )
                 .chain(),
@@ -209,16 +209,46 @@ impl FlightBench {
     }
 
     /// A body wearing `record` set down on the floor at `(x, z)`, facing -Z:
-    /// its box's underside two centimetres over it - the start a take-off
-    /// is measured from, read off the record's own box rather than written
-    /// down for one craft.
+    /// what it stands on two centimetres over it - a rotorcraft's box, an
+    /// airplane's wheels (#1615) - the start a take-off is measured from,
+    /// read off the record's own box rather than written down for one
+    /// craft.
     pub(crate) fn set_down(record: &AvatarRecord, x: f32, z: f32) -> Self {
-        let half_height = match &record.locomotion {
+        let stands = match &record.locomotion {
             crate::pds::LocomotionConfig::Helicopter(p) => p.chassis_half_extents.0[1],
-            crate::pds::LocomotionConfig::Airplane(p) => p.chassis_half_extents.0[1],
+            crate::pds::LocomotionConfig::Airplane(p) => {
+                p.chassis_half_extents.0[1] + p.gear_height.0
+            }
             _ => panic!("the flight bench sets down a flying preset"),
         };
-        Self::new(record, Vec3::new(x, half_height + 0.02, z))
+        Self::new(record, Vec3::new(x, stands + 0.02, z))
+    }
+
+    /// An airplane's throttle (#1615), from 0 (closed) to 1 (full).
+    pub(crate) fn throttle(&self) -> f32 {
+        self.component::<super::airplane::Throttle>().0
+    }
+
+    /// Set an airplane's throttle, as if the keys had left it there.
+    pub(crate) fn set_throttle(&mut self, setting: f32) {
+        let body = self.body;
+        if let Some(mut throttle) = self
+            .app
+            .world_mut()
+            .get_mut::<super::airplane::Throttle>(body)
+        {
+            throttle.0 = setting;
+        }
+    }
+
+    /// Its velocity (m/s).
+    pub(crate) fn velocity(&self) -> Vec3 {
+        self.component::<LinearVelocity>().0
+    }
+
+    /// Its angular velocity (rad/s).
+    pub(crate) fn angular_velocity(&self) -> Vec3 {
+        self.component::<AngularVelocity>().0
     }
 
     /// Put a rotorcraft that is where it was placed in the air aloft,
@@ -537,13 +567,13 @@ pub(crate) fn run_at_frame_rate(
             super::hover_boat::apply_hover_boat_suspension,
             super::hover_boat::apply_hover_boat_buoyancy,
             super::helicopter::apply_helicopter_stabilization,
-            super::airplane::apply_airplane_aerodynamics,
             super::airplane::apply_airplane_uprighting,
             super::hover_boat::apply_hover_boat_drive,
             super::hover_boat::apply_hover_boat_uprighting,
             super::humanoid::apply_humanoid_walk,
             super::humanoid::clear_jump_queue,
-            super::airplane::apply_airplane_forces,
+            super::airplane::read_airplane_keys,
+            super::airplane::fly_airplane,
             super::helicopter::apply_helicopter_forces,
             super::car::apply_car_suspension,
             super::car::apply_car_drive,
@@ -649,11 +679,13 @@ mod frame_rate_tests {
                 vec![],
             ),
             (
+                // Parked, her throttle closed (#1615): Space opens it and
+                // she rolls off, D steering her.
                 "airplane",
                 wearing(LocomotionConfig::Airplane(Box::default())),
-                Transform::from_xyz(0.0, 0.5, 0.0),
+                Transform::from_xyz(0.0, 0.6, 0.0),
                 None,
-                vec![KeyCode::KeyW],
+                vec![KeyCode::Space, KeyCode::KeyD],
             ),
             (
                 "swimmer",

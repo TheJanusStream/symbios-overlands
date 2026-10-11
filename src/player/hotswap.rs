@@ -379,6 +379,7 @@ pub(super) fn lift_player_above_new_ground(
             &mut LinearVelocity,
             &mut AngularVelocity,
             Option<&mut super::helicopter::RotorLift>,
+            Option<&mut super::airplane::Throttle>,
         ),
         With<LocalPlayer>,
     >,
@@ -389,15 +390,17 @@ pub(super) fn lift_player_above_new_ground(
     if !hm_res.is_added() {
         return;
     }
-    let Ok((mut pos, mut lin_vel, mut ang_vel, lift)) = query.single_mut() else {
+    let Ok((mut pos, mut lin_vel, mut ang_vel, lift, throttle)) = query.single_mut() else {
         return;
     };
     let clearance = live.as_deref().map_or(cfg::SPAWN_HEIGHT_OFFSET, |live| {
         super::preset::set_down_height(&live.0.locomotion)
     });
-    // Raised out of ground that rose under it, it is set down (#1612).
+    // Raised out of ground that rose under it, it is set down (#1612),
+    // an airplane's throttle closed with it (#1615).
     if snap_above_ground(&hm_res, clearance, &mut pos, &mut lin_vel, &mut ang_vel) {
         super::helicopter::set_down(lift);
+        super::airplane::set_down(throttle);
     }
 }
 
