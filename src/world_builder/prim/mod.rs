@@ -42,7 +42,40 @@ use colliders::convex_hull_from_mesh;
 pub use faces::{FaceTable, PrimMesh};
 pub(super) use shapes::prim_parts;
 pub use split::{FacePlan, build_primitive_groups, group_material, plan_faces};
-use torture::{apply_vertex_torture, torture_of};
+use torture::{apply_vertex_torture, torture_of, torture_points};
+
+/// Where every vertex of a primitive [`GeneratorKind`] is drawn, in its own
+/// frame: the base mesh's positions through its vertex torture, and none of
+/// the rest of a mesh (#1612).
+///
+/// The positions [`build_primitive_mesh`] draws, to the bit - its UV
+/// projection can split a vertex but never moves one - at a fraction of its
+/// cost, since the projection and the tangents it derives are most of the
+/// work. What a reader that only needs where a shape reaches asks: an
+/// avatar sizing its collider to what it draws, measured every time its
+/// record is built.
+pub fn primitive_points(kind: &GeneratorKind) -> Vec<Vec3> {
+    let base = match prim_parts(kind) {
+        Some(parts) => parts.shape.base_mesh(),
+        // As `build_primitive_raw`'s defensive unit cube.
+        None => faces::classified(
+            Cuboid::new(1.0, 1.0, 1.0).mesh().build(),
+            FaceKey::Wall,
+            faces::box_face,
+        ),
+    };
+    let mut points: Vec<Vec3> = match base.mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
+        Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) => {
+            positions.iter().map(|p| Vec3::from_array(*p)).collect()
+        }
+        _ => Vec::new(),
+    };
+    let torture = torture_of(kind);
+    if !torture.is_identity() {
+        torture_points(&mut points, torture);
+    }
+    points
+}
 
 /// What the vehicle guards' touch helper reads a prim with
 /// (`pds::avatar::default_visuals::common::touch`, #1393): the mesher's own

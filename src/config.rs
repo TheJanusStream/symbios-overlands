@@ -2079,11 +2079,15 @@ pub(crate) mod agent {
     pub const TOUCHDOWN_STILL_M: f32 = 0.03;
     /// How long it has to have been at rest to have landed (s).
     pub const TOUCHDOWN_SECS: f64 = 0.3;
-    /// How far from upright a body may lean and still be at rest (degrees).
-    /// Set down on a hillside, an airship meets it with its uphill edge and
-    /// tips, and its stabiliser then stands it up again - pivoting on that
-    /// edge, which lifts it a hand's breadth clear.
-    pub const TOUCHDOWN_LEAN_DEG: f32 = 2.0;
+    /// How fast a coming-down body may still be tipping - turning about a
+    /// level axis - and be at rest (rad/s): under a degree over
+    /// [`TOUCHDOWN_SECS`]. Set down on a
+    /// hillside, a rotorcraft meets it with one edge and tips onto it; it is
+    /// not down until the tipping has stopped. It used to be judged by its
+    /// lean, when a weightless body's stabiliser always stood it level again
+    /// on its uphill edge - since #1612 it rests on its weight and settles
+    /// flat on the slope instead, at whatever lean the slope has.
+    pub const TOUCHDOWN_SPIN_RAD_S: f32 = 0.05;
     /// The vertical speed a flying body asks for per metre it is off the
     /// height it wants (1/s).
     pub const ALTITUDE_GAIN: f32 = 1.0;

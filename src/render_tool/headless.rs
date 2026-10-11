@@ -335,10 +335,10 @@ pub(super) enum Ride {
     /// Given by `--ride-height`, because there was nothing to read.
     Told(f32),
     /// Nothing to read and nothing given: stand the subject on its own drawn
-    /// bounds. The honest fallback for an airship (it holds itself up with
-    /// thrust and has no ground ride height at all), for the reference
-    /// figure (it has feet), and for a `--generator` prototype before anyone
-    /// has worked out where it should float.
+    /// bounds. Where an airship rests (landed, it sits on its box, which
+    /// since #1612 spans exactly what it draws), the honest fallback for the
+    /// reference figure (it has feet), and for a `--generator` prototype
+    /// before anyone has worked out where it should float.
     Bounds,
 }
 

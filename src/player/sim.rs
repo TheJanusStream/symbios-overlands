@@ -208,6 +208,36 @@ impl FlightBench {
         spawn_block(&mut self.app, at, half);
     }
 
+    /// A body wearing `record` set down on the floor at `(x, z)`, facing -Z:
+    /// its box's underside two centimetres over it - the start a take-off
+    /// is measured from, read off the record's own box rather than written
+    /// down for one craft.
+    pub(crate) fn set_down(record: &AvatarRecord, x: f32, z: f32) -> Self {
+        let half_height = match &record.locomotion {
+            crate::pds::LocomotionConfig::Helicopter(p) => p.chassis_half_extents.0[1],
+            crate::pds::LocomotionConfig::Airplane(p) => p.chassis_half_extents.0[1],
+            _ => panic!("the flight bench sets down a flying preset"),
+        };
+        Self::new(record, Vec3::new(x, half_height + 0.02, z))
+    }
+
+    /// Put a rotorcraft that is where it was placed in the air aloft,
+    /// holding itself up (#1612). A fresh chassis starts LANDED and comes
+    /// down onto what is under it, as the game's set-down wants; a bench
+    /// that places a craft high to study its flight says so with this. A
+    /// body of any other preset is left as it is.
+    pub(crate) fn aloft(mut self) -> Self {
+        let body = self.body;
+        if let Some(mut lift) = self
+            .app
+            .world_mut()
+            .get_mut::<super::helicopter::RotorLift>(body)
+        {
+            *lift = super::helicopter::RotorLift::aloft();
+        }
+        self
+    }
+
     /// Set the body moving at `velocity`, as if it had been flying.
     pub(crate) fn set_velocity(&mut self, velocity: Vec3) {
         let body = self.body;

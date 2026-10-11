@@ -32,7 +32,10 @@ use super::common::{cylinder, id_quat, offset, offset_rot, prim, quat_xyzw, quat
 /// cable breaching the crown.
 const CABLE_ENVELOPE_EMBED: f32 = 0.2;
 
-pub(super) fn build(seed: u64) -> Generator {
+/// The seeded airship for `seed`, posed for travel, and how far it reaches
+/// above and below its body's origin (m) - the half-height its collider box
+/// has to have to hold everything it draws (#1612).
+pub(super) fn build(seed: u64) -> (Generator, f32) {
     // The envelope is the structural root (centred at the origin, no scale).
     let (outfit, ctx, mut root) = assemble_root(seed, PartSlot::Envelope);
 
@@ -129,10 +132,20 @@ pub(super) fn build(seed: u64) -> Generator {
         }
     }
 
-    // No vertical drop - a helicopter hovers.
+    // Centred on its own drawn height (#1612). The envelope used to sit on
+    // the body's origin inside a box 0.6 of its girth tall, which every
+    // seeded airship's gondola hung 0.33-1.04 m below (median 0.64 m) and
+    // its crown poked out of the top of. A craft that hovered all the time
+    // never showed it; one that lands on its weight would rest its gondola
+    // in the ground. So the box spans what the craft draws, top to keel, and
+    // the craft hangs so that span is centred on the origin - the one place
+    // a box can reach, since avian centres a collider on its body.
     // The airship is the size class the other two are being scaled up to
     // meet (#1359), so it carries no bridge scale of its own.
     apply_travel_pose(&mut root, 0.0);
+    let drawn = crate::catalogue::items::measure::tree_bounds(&root)
+        .expect("an airship draws its envelope");
+    apply_travel_pose(&mut root, (drawn.min.y + drawn.max.y) * 0.5);
     debug_assert_slots_handled(
         &outfit,
         PartSlot::Envelope,
@@ -143,7 +156,7 @@ pub(super) fn build(seed: u64) -> Generator {
             PartSlot::Ornament,
         ],
     );
-    root
+    (root, (drawn.max.y - drawn.min.y) * 0.5)
 }
 
 /// Per-envelope-form mount landmarks (metres, envelope centred at the origin).

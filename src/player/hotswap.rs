@@ -369,9 +369,19 @@ pub(super) fn detect_remote_change(
 
 /// Lift the player above freshly hot-loaded terrain (a region re-seed can
 /// raise the ground under their feet mid-session).
+#[allow(clippy::type_complexity)]
 pub(super) fn lift_player_above_new_ground(
     hm_res: Option<Res<crate::terrain::FinishedHeightMap>>,
-    mut query: Query<(&mut Position, &mut LinearVelocity, &mut AngularVelocity), With<LocalPlayer>>,
+    live: Option<Res<LiveAvatarRecord>>,
+    mut query: Query<
+        (
+            &mut Position,
+            &mut LinearVelocity,
+            &mut AngularVelocity,
+            Option<&mut super::helicopter::RotorLift>,
+        ),
+        With<LocalPlayer>,
+    >,
 ) {
     let Some(hm_res) = hm_res else {
         return;
@@ -379,10 +389,16 @@ pub(super) fn lift_player_above_new_ground(
     if !hm_res.is_added() {
         return;
     }
-    let Ok((mut pos, mut lin_vel, mut ang_vel)) = query.single_mut() else {
+    let Ok((mut pos, mut lin_vel, mut ang_vel, lift)) = query.single_mut() else {
         return;
     };
-    snap_above_ground(&hm_res, &mut pos, &mut lin_vel, &mut ang_vel);
+    let clearance = live.as_deref().map_or(cfg::SPAWN_HEIGHT_OFFSET, |live| {
+        super::preset::set_down_height(&live.0.locomotion)
+    });
+    // Raised out of ground that rose under it, it is set down (#1612).
+    if snap_above_ground(&hm_res, clearance, &mut pos, &mut lin_vel, &mut ang_vel) {
+        super::helicopter::set_down(lift);
+    }
 }
 
 /// Raise `pos` to stand on `hm` if it is currently below it, killing the
@@ -395,21 +411,28 @@ pub(super) fn lift_player_above_new_ground(
 /// `FinishedHeightMap` at all, and a gateway hop with a drop-pin landing
 /// arrives at a literal `y = 0.0` - so the one arrival most in need of a
 /// lift was the one arrival that never got one.
+///
+/// `clearance` is how high over the ground the body's origin has to be -
+/// its [`set_down_height`](super::preset::set_down_height) (#1612). Whether
+/// it moved the body.
 pub(super) fn snap_above_ground(
     heightmap: &crate::terrain::FinishedHeightMap,
+    clearance: f32,
     pos: &mut Position,
     lin_vel: &mut LinearVelocity,
     ang_vel: &mut AngularVelocity,
-) {
+) -> bool {
     // The ground as drawn: past the core, a Berlin region's far field,
     // which is walked (P4.1, #1596).
     let ground_y = heightmap.world_height_at(pos.x, pos.z);
-    let min_y = ground_y + cfg::SPAWN_HEIGHT_OFFSET;
+    let min_y = ground_y + clearance;
     if pos.y < min_y {
         pos.y = min_y;
         lin_vel.0 = Vec3::ZERO;
         ang_vel.0 = Vec3::ZERO;
+        return true;
     }
+    false
 }
 
 #[cfg(test)]

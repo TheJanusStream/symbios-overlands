@@ -17,7 +17,6 @@ use avian3d::prelude::*;
 use bevy::ecs::system::{SystemParam, SystemState};
 use bevy::prelude::*;
 
-use crate::config::rover::BODY_TOUCH_M;
 use crate::state::LocalPlayer;
 use crate::terrain::FinishedHeightMap;
 use crate::water::WaterSurfaces;
@@ -27,11 +26,6 @@ use super::flight::{Craft, Terrain};
 /// How far down the body looks for what is below it (m): further than any
 /// world's ground falls.
 const LOOK_DOWN_M: f32 = 4000.0;
-
-/// The least a contact's normal may lean from straight up for what it
-/// touches to be under the body (the cosine of 60 degrees): a wall beside it
-/// or a roof over it is not what it rests on.
-const UNDER_NORMAL_Y: f32 = 0.5;
 
 /// How much of its width and length the body's footprint keeps when it is
 /// swept down (0-1): a wall it leans on touches its side, and a footprint
@@ -115,37 +109,13 @@ impl Sensing<'_, '_> {
         })
     }
 
-    /// Whether the physics has `body` touching something under it - a
-    /// contact whose normal, turned to point out of the thing touched, leans
-    /// less than 60 degrees from straight up, with a point within
-    /// [`BODY_TOUCH_M`] of it. Avian counts a pair as touching from as far
-    /// off as the body could close in one step, 23 cm at 15 m/s, and a body
-    /// flying that low over the ground is not on it (#1528).
+    /// Whether the physics has `body` touching something under it - the
+    /// game's own reading ([`crate::player::resting_on_something`]), which a
+    /// landed rotorcraft rests its weight on (#1612).
     fn resting_on_something(&self, body: Entity) -> bool {
-        let Some(contacts) = self.contacts.as_ref() else {
-            return false;
-        };
-        contacts
-            .contact_pairs_with(body)
-            .filter(|pair| pair.is_touching())
-            .any(|pair| {
-                let (other, out_of_other) = if pair.collider1 == body {
-                    (pair.collider2, -1.0)
-                } else {
-                    (pair.collider1, 1.0)
-                };
-                // A manifold's normal points from the first collider to the
-                // second: turned to point out of the other, it points up out
-                // of a thing under the body.
-                !self.sensors.contains(other)
-                    && pair.manifolds.iter().any(|manifold| {
-                        out_of_other * manifold.normal.y >= UNDER_NORMAL_Y
-                            && manifold
-                                .points
-                                .iter()
-                                .any(|point| point.penetration > -BODY_TOUCH_M)
-                    })
-            })
+        self.contacts.as_ref().is_some_and(|contacts| {
+            crate::player::resting_on_something(contacts, &self.sensors, body)
+        })
     }
 
     /// The body itself, and the gateway veils and portal volumes a body
@@ -214,11 +184,13 @@ mod tests {
     use crate::pds::avatar::AvatarRecord;
     use crate::player::sim::FlightBench;
 
+    /// The airship stand-in in the air at `at`, holding itself up there.
     fn airship_at(at: Vec3) -> FlightBench {
         FlightBench::new(
             &AvatarRecord::default_for_did("did:plc:agentofflineair222222222"),
             at,
         )
+        .aloft()
     }
 
     /// Hold `keys` for `secs` of physics.

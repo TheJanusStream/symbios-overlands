@@ -1347,8 +1347,9 @@ mod tests {
     }
 
     impl Daemon {
-        fn at(at: Vec3) -> Self {
-            Self::wearing(&stand_in(false), at)
+        /// The airship stand-in set down on the floor at the origin.
+        fn set_down() -> Self {
+            Self::over(FlightBench::set_down(&stand_in(false), 0.0, 0.0))
         }
 
         fn wearing(record: &crate::pds::avatar::AvatarRecord, at: Vec3) -> Self {
@@ -1444,7 +1445,7 @@ mod tests {
     /// once.
     #[test]
     fn a_halt_in_the_air_comes_down_before_it_ends() {
-        let mut daemon = Daemon::at(Vec3::new(0.0, 0.52, 0.0));
+        let mut daemon = Daemon::set_down();
         walk_to(daemon.world(), Vec2::new(0.0, -80.0), false).expect("a walk-to");
         daemon.until(20.0, |daemon| daemon.height() > 10.0);
 
@@ -1472,7 +1473,7 @@ mod tests {
     /// it comes down where it is, and says `stuck` once it is down.
     #[test]
     fn a_flight_stuck_in_the_air_comes_down_before_it_ends() {
-        let mut daemon = Daemon::at(Vec3::new(0.0, 0.52, 0.0));
+        let mut daemon = Daemon::set_down();
         daemon.bench.block(
             Transform::from_xyz(0.0, 12.0, 0.0),
             Vec3::new(60.0, 0.5, 60.0),
@@ -1496,7 +1497,7 @@ mod tests {
     /// `peer_left` once it is down.
     #[test]
     fn an_escort_left_in_the_air_comes_down_before_it_ends() {
-        let mut daemon = Daemon::at(Vec3::new(0.0, 0.52, 0.0));
+        let mut daemon = Daemon::set_down();
         let friend = daemon
             .world()
             .spawn((

@@ -280,6 +280,56 @@ pub struct GaitAnimation {
     /// until a record says otherwise, which is what every skiff did before
     /// #1381.
     bank_sign: f32,
+    /// The rotorcraft lean (#1612): how far it may tip (radians, from the
+    /// record's `lean_degrees`, 0 for a body that does not lean) and the
+    /// speed it tips fully at (m/s, its top speed under cyclic), both
+    /// refreshed from the record each frame, and the lean it shows now -
+    /// eased toward the one its motion asks for, so a peer's jittery
+    /// finite-difference speed does not shake it.
+    lean: Lean,
+}
+
+/// A rotorcraft's lean into its motion (#1612): see [`GaitAnimation`].
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Lean {
+    /// The most it tips (radians).
+    reach: f32,
+    /// The speed it tips fully at (m/s).
+    full_at: f32,
+    /// Nose-down pitch it shows now (radians; negative is nose up).
+    pitch: f32,
+    /// Right-side-down roll it shows now (radians; negative is left down).
+    roll: f32,
+}
+
+/// How long the lean takes to settle on the pose its motion asks for (s):
+/// the lag of a craft that tips its whole weight, not a twitch.
+const LEAN_SETTLE_S: f32 = 0.35;
+
+impl Lean {
+    /// Ease toward the pose a body moving at `forward` and `side` m/s
+    /// (along its nose, to its right) and turning at `yaw_rate` (rad/s,
+    /// positive to the left) leans into, over `dt` seconds; the pose shown.
+    ///
+    /// Nose down in proportion to forward speed, as a helicopter holds its
+    /// disc tipped against its drag; banked into a turn by the coordinated
+    /// angle `atan(v * w / g)`; rolled toward a strafe. All within `reach`.
+    fn eased(&mut self, dt: f32, forward: f32, side: f32, yaw_rate: f32) -> (f32, f32) {
+        let (pitch, roll) = if self.reach > 0.0 {
+            let share = |v: f32| (v / self.full_at.max(0.1)).clamp(-1.0, 1.0);
+            let bank_left = (forward * yaw_rate / 9.81).atan();
+            (
+                self.reach * share(forward),
+                (self.reach * share(side) - bank_left).clamp(-self.reach, self.reach),
+            )
+        } else {
+            (0.0, 0.0)
+        };
+        let k = (dt / LEAN_SETTLE_S).min(1.0);
+        self.pitch += (pitch - self.pitch) * k;
+        self.roll += (roll - self.roll) * k;
+        (self.pitch, self.roll)
+    }
 }
 
 impl GaitAnimation {
@@ -299,6 +349,7 @@ impl GaitAnimation {
             prev_yaw: None,
             salt,
             bank_sign: 1.0,
+            lean: Lean::default(),
         }
     }
 
@@ -325,6 +376,18 @@ impl GaitAnimation {
         self.bank_sign = match &record.locomotion {
             LocomotionConfig::Car(p) => skiff_bank_sign(p.mass.0),
             _ => 1.0,
+        };
+        // How far a rotorcraft leans and at what speed it is fully over
+        // (#1612): its top speed under cyclic, where the push meets its drag.
+        self.lean.reach = record
+            .gait
+            .as_ref()
+            .map_or(0.0, |g| g.lean_degrees.0.to_radians());
+        self.lean.full_at = match &record.locomotion {
+            LocomotionConfig::Helicopter(p) => {
+                p.cyclic_force.0 / (p.mass.0 * p.linear_damping.0).max(1e-3)
+            }
+            _ => 0.0,
         };
     }
 }
@@ -508,24 +571,28 @@ pub(super) fn animate_avatar_gait(
                     break;
                 }
             }
+            // Held level, it resumes from level (#1612), not from the lean
+            // it had when the gizmo took it.
+            if anim.lean.pitch != 0.0 || anim.lean.roll != 0.0 {
+                anim.lean.pitch = 0.0;
+                anim.lean.roll = 0.0;
+            }
             continue;
         }
 
-        // Horizontal speed: physics velocity when present (local player),
-        // else a 1-frame finite difference of the replicated transform.
-        let speed = match velocity {
-            Some(v) => Vec2::new(v.0.x, v.0.z).length(),
+        // Velocity: the physics' when present (local player), else a 1-frame
+        // finite difference of the replicated transform.
+        let moving_at = match velocity {
+            Some(v) => v.0,
             None => {
                 let prev = anim.prev_pos.replace(chassis_tf.translation);
                 match prev {
-                    Some(p) if dt > 1e-6 => {
-                        let d = chassis_tf.translation - p;
-                        Vec2::new(d.x, d.z).length() / dt
-                    }
-                    _ => 0.0,
+                    Some(p) if dt > 1e-6 => (chassis_tf.translation - p) / dt,
+                    _ => Vec3::ZERO,
                 }
             }
         };
+        let speed = Vec2::new(moving_at.x, moving_at.z).length();
         // Yaw-rate (heading change, rad/s) for skiff banking: physics angular
         // velocity when present (local), else a 1-frame finite difference of
         // the replicated heading, wrapped to the shortest arc.
@@ -544,19 +611,48 @@ pub(super) fn animate_avatar_gait(
 
         let (offset, yaw, roll) = anim.advance(dt, t, speed, yaw_rate);
 
+        // A rotorcraft's lean into its motion (#1612), read along the
+        // chassis's own level axes: forward along its nose, side to its right.
+        let lean = if anim.mode == GaitMode::Airship {
+            let level = |v: Vec3| v.with_y(0.0).normalize_or_zero();
+            let forward = level(chassis_tf.rotation * Vec3::NEG_Z);
+            let right = level(chassis_tf.rotation * Vec3::X);
+            let (pitch, roll) =
+                anim.lean
+                    .eased(dt, moving_at.dot(forward), moving_at.dot(right), yaw_rate);
+            lean_rotation(pitch, roll)
+        } else {
+            Quat::IDENTITY
+        };
+
         // The chassis's one visual-root child (bursts/FX children lack
         // the marker, so the lookup skips them). Yaw is a heading turn (Y),
         // roll a bank / list about the fore-aft axis (Z); both compose in the
-        // root's local frame onto the authored base pose.
+        // root's local frame onto the authored base pose. The lean turns the
+        // whole of that in the chassis's frame, about the chassis's origin -
+        // translation and all - so it tips a craft the way its chassis faces
+        // however its visuals were authored, and an airship hung below its
+        // root (#1612) swings about its body rather than off its box.
         for child in children.iter() {
             if let Ok((root, mut tf)) = roots.get_mut(child) {
-                tf.translation = root.base_translation + offset;
-                tf.rotation =
-                    root.base_rotation * Quat::from_rotation_y(yaw) * Quat::from_rotation_z(roll);
+                tf.translation = lean * (root.base_translation + offset);
+                tf.rotation = lean
+                    * root.base_rotation
+                    * Quat::from_rotation_y(yaw)
+                    * Quat::from_rotation_z(roll);
                 break;
             }
         }
     }
+}
+
+/// The turn that leans a visual root `pitch` nose-down and `roll`
+/// right-side-down (radians), in its chassis's frame - nose along `-Z`,
+/// right along `+X` - so it tips the craft the way the chassis faces
+/// whatever frame its visuals were authored in (#1612).
+fn lean_rotation(pitch: f32, roll: f32) -> Quat {
+    // Turning about +X lifts -Z, and about +Z lifts +X: both go negative.
+    Quat::from_rotation_x(-pitch) * Quat::from_rotation_z(-roll)
 }
 
 impl GaitAnimation {
@@ -710,6 +806,101 @@ mod tests {
 
     fn anim_mode(mode: GaitMode) -> GaitAnimation {
         GaitAnimation::for_did("did:plc:gait-test", mode)
+    }
+
+    /// A lean of `reach` degrees, fully over at 10 m/s.
+    fn leaning(reach: f32) -> Lean {
+        Lean {
+            reach: reach.to_radians(),
+            full_at: 10.0,
+            ..Lean::default()
+        }
+    }
+
+    /// The pose a body settles on, held at one motion for long enough.
+    fn settled(lean: &mut Lean, forward: f32, side: f32, yaw_rate: f32) -> (f32, f32) {
+        let mut pose = (0.0, 0.0);
+        for _ in 0..600 {
+            pose = lean.eased(1.0 / 60.0, forward, side, yaw_rate);
+        }
+        pose
+    }
+
+    /// The lean's turn tips the craft the way its chassis faces (#1612):
+    /// pitch takes the nose (chassis -Z) down, roll the right side (+X).
+    #[test]
+    fn a_lean_dips_the_nose_and_drops_the_right_side() {
+        let nose = lean_rotation(0.2, 0.0) * Vec3::NEG_Z;
+        assert!(nose.y < -0.15, "pitch moved the nose to {nose}");
+        let right = lean_rotation(0.0, 0.2) * Vec3::X;
+        assert!(right.y < -0.15, "roll moved the right side to {right}");
+        assert_eq!(lean_rotation(0.0, 0.0), Quat::IDENTITY);
+    }
+
+    /// A rotorcraft leans into its motion and no further than its reach:
+    /// nose down flying forward and up backing off, banked into a turn -
+    /// the left side down turning left - and rolled toward a strafe.
+    #[test]
+    fn a_rotorcraft_leans_into_its_motion() {
+        let reach = 15f32.to_radians();
+        let (pitch, roll) = settled(&mut leaning(15.0), 10.0, 0.0, 0.0);
+        assert!(
+            (pitch - reach).abs() < 1e-3 && roll.abs() < 1e-3,
+            "{pitch} {roll}"
+        );
+        let (pitch, _) = settled(&mut leaning(15.0), -5.0, 0.0, 0.0);
+        assert!((pitch + reach * 0.5).abs() < 1e-3, "backing off: {pitch}");
+        // Turning left at 0.5 rad/s at 5 m/s: banked by atan(v w / g).
+        let (_, roll) = settled(&mut leaning(15.0), 5.0, 0.0, 0.5);
+        let bank = (5.0f32 * 0.5 / 9.81).atan();
+        assert!((roll + bank).abs() < 1e-3, "a left turn rolled it {roll}");
+        let (_, roll) = settled(&mut leaning(15.0), 0.0, 4.0, 0.0);
+        assert!(
+            (roll - reach * 0.4).abs() < 1e-3,
+            "a strafe right rolled it {roll}"
+        );
+        // Hard over, no further than its reach.
+        let (pitch, roll) = settled(&mut leaning(15.0), 40.0, 0.0, 3.0);
+        assert!(
+            pitch <= reach + 1e-6 && roll >= -reach - 1e-6,
+            "{pitch} {roll}"
+        );
+    }
+
+    /// It eases toward the pose rather than snapping to it, so a peer's
+    /// jittery speed does not shake the craft; and a body with no lean -
+    /// every airship - never tips at all.
+    #[test]
+    fn a_lean_eases_and_a_craft_without_one_stays_level() {
+        let mut lean = leaning(15.0);
+        let (first, _) = lean.eased(1.0 / 60.0, 10.0, 0.0, 0.0);
+        assert!(first > 0.0 && first < 15f32.to_radians() * 0.1, "{first}");
+        let mut level = leaning(0.0);
+        assert_eq!(settled(&mut level, 10.0, 4.0, 1.0), (0.0, 0.0));
+    }
+
+    /// The lean is read off the record (#1612): a rotorcraft's gait carries
+    /// it, and its top speed under cyclic is what it tips fully at; a
+    /// record that says nothing leans nothing.
+    #[test]
+    fn the_lean_is_read_off_the_record() {
+        let mut record = crate::pds::avatar::AvatarRecord::default_for_did("did:plc:gait-test");
+        let heli = crate::pds::HelicopterParams::default();
+        let top = heli.cyclic_force.0 / (heli.mass.0 * heli.linear_damping.0);
+        record.locomotion = LocomotionConfig::Helicopter(Box::new(heli));
+        let mut a = anim_mode(GaitMode::Airship);
+        a.refresh_from_record(&record);
+        assert_eq!(a.lean.reach, 0.0, "a record without a lean");
+        let mut gait = crate::pds::GaitParams::for_seed(1);
+        gait.lean_degrees = crate::pds::Fp(20.0);
+        record.gait = Some(gait);
+        a.refresh_from_record(&record);
+        assert!((a.lean.reach - 20f32.to_radians()).abs() < 1e-6);
+        assert!(
+            (a.lean.full_at - top).abs() < 1e-3,
+            "{} against {top}",
+            a.lean.full_at
+        );
     }
 
     #[test]

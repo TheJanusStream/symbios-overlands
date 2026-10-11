@@ -99,6 +99,40 @@ pub fn transform_of(t: &TransformData) -> Transform {
     Transform::from(t)
 }
 
+/// The bounds of everything `root` draws, in the frame its root's own
+/// transform maps into, read off the mesher's own vertex positions
+/// ([`primitive_points`](crate::world_builder::primitive_points)) - or `None`
+/// for a tree that draws nothing.
+///
+/// Each node's transform is composed as the spawn path composes it, as
+/// affines, so a rotated child of a non-uniformly scaled parent lands where
+/// it is drawn; [`walk`]'s `Transform` product cannot shear and would put it
+/// somewhere else. An avatar sizes its collider from this (#1612): a body
+/// whose box stops short of what it draws rests what it draws in the ground.
+pub fn tree_bounds(root: &Generator) -> Option<Bounds> {
+    fn visit(node: &Generator, parent: bevy::math::Affine3A, out: &mut Option<Bounds>) {
+        let world = parent * transform_of(&node.transform).compute_affine();
+        if is_primitive(&node.kind) {
+            for p in crate::world_builder::primitive_points(&node.kind) {
+                let at = world.transform_point3(p);
+                *out = Some(match *out {
+                    None => Bounds { min: at, max: at },
+                    Some(b) => Bounds {
+                        min: b.min.min(at),
+                        max: b.max.max(at),
+                    },
+                });
+            }
+        }
+        for child in &node.children {
+            visit(child, world, out);
+        }
+    }
+    let mut out = None;
+    visit(root, bevy::math::Affine3A::IDENTITY, &mut out);
+    out
+}
+
 pub(super) fn walk(
     node: &Generator,
     world: &Transform,

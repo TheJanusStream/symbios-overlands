@@ -110,6 +110,13 @@ impl Fp {
         self.0 == 0.0
     }
 
+    /// Whether `self` is written as zero: the skip predicate for an optional
+    /// scalar, compared as the wire holds it (#1565), so a value a hair off
+    /// zero is left out as zero is rather than written out as a zero.
+    pub(crate) fn is_wire_zero(&self) -> bool {
+        (self.0 * FP_SCALE).round() as i32 == 0
+    }
+
     /// `self` clamped into `[lo, hi]`, with any non-finite value collapsed
     /// to `lo`. `f32::clamp` propagates NaN, so a hostile record could
     /// otherwise carry a NaN straight through a sanitiser into a transform.

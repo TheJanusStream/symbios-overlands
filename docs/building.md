@@ -790,9 +790,10 @@ slot, one row each, the way `--ages` does.
 each subject where the game does rather than resting it on its bounds: a
 craft that settles on a suspension goes with its chassis origin at
 `half_y + suspension_rest_length - static compression`, read off the
-locomotion the same build produced. An airship has no ground ride height at
-all (it holds itself up with thrust) and a `--generator` file has no
-locomotion record, so those rest on their own drawn bounds unless
+locomotion the same build produced. A rotorcraft lands on its box, which
+since #1612 spans exactly what an airship draws, so it rests on its own
+drawn bounds - as does a `--generator` file, which has no locomotion record -
+unless
 `--ride-height` says otherwise - one value for every slot, or a list with
 `auto` for the slots that keep their derived height. The log names which rule
 each slot landed on, and every slot's origin is placed at exactly the game's

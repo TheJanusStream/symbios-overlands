@@ -97,6 +97,32 @@ impl ChassisShape {
             Self::Capsule { radius, length } => Collider::capsule(radius, length),
         }
     }
+
+    /// How far the shape reaches below its body's origin (m).
+    fn half_height(self) -> f32 {
+        match self {
+            Self::Box(half) => half[1],
+            Self::Capsule { radius, length } => radius + length * 0.5,
+        }
+    }
+}
+
+/// How far a body's underside clears the ground when it is set down (m):
+/// a hand's breadth, so it drops onto the ground rather than starting in it.
+const SET_DOWN_CLEARANCE_M: f32 = 0.1;
+
+/// How high above the ground a body wearing `locomotion` is set down (m):
+/// where a spawn, a recovery, a requested move or an arrival puts its
+/// origin.
+///
+/// The spawn's metre ([`cfg::SPAWN_HEIGHT_OFFSET`]) - unless the body is
+/// taller than that, when it is its own half-height and a hand's breadth:
+/// an airship's box reaches its gondola since #1612, up to 1.34 m below its
+/// origin, and set down a metre up its keel started in the ground and was
+/// shoved out of it.
+pub(crate) fn set_down_height(locomotion: &LocomotionConfig) -> f32 {
+    let reach = chassis_spec(locomotion).map_or(0.0, |spec| spec.shape.half_height());
+    cfg::SPAWN_HEIGHT_OFFSET.max(reach + SET_DOWN_CLEARANCE_M)
 }
 
 impl ChassisSpec {
@@ -183,9 +209,12 @@ impl PresetComponents for HelicopterParams {
     }
 
     fn insert_preset(&self, commands: &mut Commands, entity: Entity) {
-        commands
-            .entity(entity)
-            .insert((HelicopterPreset, VehicleChassis));
+        // Landed (#1612): a fresh chassis comes down onto what is under it.
+        commands.entity(entity).insert((
+            HelicopterPreset,
+            VehicleChassis,
+            super::helicopter::RotorLift::default(),
+        ));
     }
 }
 
@@ -425,6 +454,7 @@ pub(super) fn strip_preset_components(commands: &mut Commands, entity: Entity) {
         CarPreset,
         super::car::CarContact,
         super::car::CarAirKeys,
+        super::helicopter::RotorLift,
         VehicleChassis,
         super::gait::GaitAnimation,
     )>();
@@ -614,6 +644,41 @@ mod tests {
         }
     }
 
+    /// Every seeded body is set down clear of the ground by its own box or
+    /// capsule (#1612), and never lower than the spawn's metre. The bodies
+    /// that ride a suspension - boats and skiffs - keep exactly that metre,
+    /// which their ride heights are measured from; what rises is an airship,
+    /// whose box reaches its gondola, and a person tall enough that the
+    /// metre left their capsule a few millimetres off the ground.
+    #[test]
+    fn every_seeded_body_is_set_down_clear_of_the_ground() {
+        let mut raised = 0;
+        for seed in 0u64..400 {
+            let record = AvatarRecord::default_for_seed(seed);
+            let height = set_down_height(&record.locomotion);
+            let reach = chassis_spec(&record.locomotion)
+                .expect("a seeded body has a chassis")
+                .shape
+                .half_height();
+            assert!(
+                height >= reach + SET_DOWN_CLEARANCE_M - 1e-6 && height >= cfg::SPAWN_HEIGHT_OFFSET,
+                "seed {seed}: set down {height} m up, reaching {reach} m below its origin"
+            );
+            match ChassisFamily::for_seed(seed) {
+                ChassisFamily::Boat | ChassisFamily::Skiff => {
+                    assert_eq!(height, cfg::SPAWN_HEIGHT_OFFSET, "seed {seed}");
+                }
+                ChassisFamily::Airship | ChassisFamily::Humanoid => {
+                    raised += usize::from(height > cfg::SPAWN_HEIGHT_OFFSET);
+                }
+            }
+        }
+        assert!(
+            raised > 50,
+            "only {raised} bodies under 400 are set down higher"
+        );
+    }
+
     /// A variant change is the rebuild's: until it lands, the body built
     /// for the old variant is left alone rather than given the new one's
     /// box, mass and dampings.
@@ -735,7 +800,7 @@ mod tests {
             "the seeded airships no longer span a mass range worth testing"
         );
         for (was, now) in [(heavy, light), (light, heavy)] {
-            let mut bench = FlightBench::new(was, Vec3::new(0.0, 30.0, 0.0));
+            let mut bench = FlightBench::new(was, Vec3::new(0.0, 30.0, 0.0)).aloft();
             for _ in 0..64 {
                 bench.step();
             }

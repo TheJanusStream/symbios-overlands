@@ -123,6 +123,24 @@ pub(super) fn draw_gait_section(
                 1.0,
                 &mut changed,
             );
+            // The rotorcraft lean (#1612): the Helicopter preset's profile
+            // alone draws it, so no other preset is offered a knob that
+            // would move nothing.
+            if mode == GaitMode::Airship {
+                ui.label("Lean into motion (°, the most it tips)")
+                    .on_hover_text(
+                        "How far the craft tips where it is going: the nose dips flying \
+                     forward, it banks into a turn and rolls toward a strafe. 0 \
+                     keeps it level, as an airship flies.",
+                    );
+                fp_slider(
+                    ui,
+                    &mut p.lean_degrees,
+                    0.0..=crate::pds::avatar::gait::MAX_LEAN_DEGREES,
+                    1.0,
+                    &mut changed,
+                );
+            }
             ui.label("Overall intensity");
             fp_slider(ui, &mut p.idle_intensity, 0.0..=3.0, 0.05, &mut changed);
 

@@ -563,8 +563,14 @@ pub(super) fn release_travel_on_arrival(
     heightmap: Option<Res<crate::terrain::FinishedHeightMap>>,
     compiled: Option<Res<crate::world_builder::WorldCompiled>>,
     room: Option<Res<LiveRoomRecord>>,
+    live: Option<Res<crate::state::LiveAvatarRecord>>,
     mut players: Query<
-        (&mut Position, &mut LinearVelocity, &mut AngularVelocity),
+        (
+            &mut Position,
+            &mut LinearVelocity,
+            &mut AngularVelocity,
+            Option<&mut super::helicopter::RotorLift>,
+        ),
         With<LocalPlayer>,
     >,
 ) {
@@ -577,7 +583,7 @@ pub(super) fn release_travel_on_arrival(
     let (Some(heightmap), Some(_)) = (heightmap.as_deref(), compiled.as_deref()) else {
         return;
     };
-    if let Ok((mut pos, mut lin, mut ang)) = players.single_mut() {
+    if let Ok((mut pos, mut lin, mut ang, lift)) = players.single_mut() {
         // An arrival at the destination's landing - no baked target - comes
         // ashore on Berlin's ground, as a spawn there does (#1589): the
         // landing was taken before the ground it lands on existed.
@@ -591,7 +597,15 @@ pub(super) fn release_travel_on_arrival(
                 pos.z = z;
             }
         }
-        super::hotswap::snap_above_ground(heightmap, &mut pos, &mut lin, &mut ang);
+        let clearance = live
+            .as_deref()
+            .map_or(crate::config::rover::SPAWN_HEIGHT_OFFSET, |live| {
+                super::preset::set_down_height(&live.0.locomotion)
+            });
+        super::hotswap::snap_above_ground(heightmap, clearance, &mut pos, &mut lin, &mut ang);
+        // Arrived, it is set down at the landing: a craft that flew into
+        // the gateway comes down there rather than hanging over it (#1612).
+        super::helicopter::set_down(lift);
     }
     // The editor selection belonging to the world we LEFT is dropped by
     // `ui::room::clear_selection_on_room_change`, which watches
@@ -693,6 +707,39 @@ mod tests {
             Vec3::ZERO,
             "the fall the arrival pose implied must not be carried into the \
              new world"
+        );
+    }
+
+    /// A rotorcraft that flew into the gateway arrives SET DOWN (#1612): it
+    /// keeps the same chassis through a travel, and one still aloft from
+    /// the flight in hung over the landing, the complaint the landed state
+    /// was for. It starts landed, and clear of the ground by its own box -
+    /// an airship's reaches its gondola, further down than the spawn's metre.
+    #[test]
+    fn a_rotorcraft_arrives_set_down_at_its_own_height() {
+        let record =
+            crate::pds::avatar::AvatarRecord::default_for_did("did:plc:agentofflineair222222222");
+        let clearance = super::super::preset::set_down_height(&record.locomotion);
+        let mut world = arriving(0.0, true, true);
+        world.insert_resource(crate::state::LiveAvatarRecord(record));
+        let player = world
+            .query_filtered::<Entity, With<LocalPlayer>>()
+            .single(&world)
+            .expect("the local player");
+        world
+            .entity_mut(player)
+            .insert(super::super::helicopter::RotorLift::aloft());
+        run_gate(&mut world);
+        let at = world.entity(player);
+        assert_eq!(
+            at.get::<super::super::helicopter::RotorLift>(),
+            Some(&super::super::helicopter::RotorLift::default()),
+            "arrived still aloft"
+        );
+        let y = at.get::<Position>().expect("a position").y;
+        assert!(
+            y >= 10.0 + clearance - 1e-4,
+            "set down at y={y} with the ground at 10 m and a clearance of {clearance}"
         );
     }
 

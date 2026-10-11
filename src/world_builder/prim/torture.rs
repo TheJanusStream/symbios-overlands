@@ -165,6 +165,30 @@ pub(crate) fn undeform_vertex(p: Vec3, y_min: f32, y_range: f32, torture: Tortur
     ))
 }
 
+/// The height span [`deform_vertex`] reads a shape over: its lowest point
+/// and its height, never zero so a flat shape divides safely.
+fn y_span(points: &[Vec3]) -> (f32, f32) {
+    let (mut y_min, mut y_max) = (f32::INFINITY, f32::NEG_INFINITY);
+    for p in points {
+        y_min = y_min.min(p.y);
+        y_max = y_max.max(p.y);
+    }
+    (y_min, (y_max - y_min).max(1e-6))
+}
+
+/// Where `torture` moves a shape's `points`: the positions
+/// [`apply_vertex_torture`] writes, without the normals it re-derives or
+/// the tangents it regenerates (#1612).
+pub(super) fn torture_points(points: &mut [Vec3], torture: Torture) {
+    if points.is_empty() {
+        return;
+    }
+    let (y_min, y_range) = y_span(points);
+    for p in points {
+        *p = deform_vertex(*p, y_min, y_range, torture);
+    }
+}
+
 /// Mutate `mesh`'s vertex positions in-place through [`deform_vertex`], then
 /// transform each vertex normal by the **inverse-transpose Jacobian** of that
 /// deformation so the original shading character survives the warp.
@@ -188,12 +212,7 @@ pub(super) fn apply_vertex_torture(mesh: &mut Mesh, torture: Torture) {
     }
     let orig: Vec<Vec3> = positions.iter().map(|p| Vec3::from_array(*p)).collect();
 
-    let (mut y_min, mut y_max) = (f32::INFINITY, f32::NEG_INFINITY);
-    for p in &orig {
-        y_min = y_min.min(p.y);
-        y_max = y_max.max(p.y);
-    }
-    let y_range = (y_max - y_min).max(1e-6);
+    let (y_min, y_range) = y_span(&orig);
     let deform = |p: Vec3| deform_vertex(p, y_min, y_range, torture);
 
     let new_pos: Vec<[f32; 3]> = orig.iter().map(|p| deform(*p).to_array()).collect();

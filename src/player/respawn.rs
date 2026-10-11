@@ -14,7 +14,7 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 
 use crate::config::rover as cfg;
-use crate::state::{LiveRoomRecord, LocalPlayer, TravelingTo};
+use crate::state::{LiveAvatarRecord, LiveRoomRecord, LocalPlayer, TravelingTo};
 
 use super::random_spawn_xz;
 
@@ -157,9 +157,14 @@ pub struct RecoveryPose {
 /// over the void. An explicit landing height is honoured (sky-platform
 /// landings) but floored at ground level, because respawning *below* the
 /// terrain re-triggers the fall path every frame.
+///
+/// `clearance` is how high over the ground the body's origin goes - its
+/// [`set_down_height`](super::preset::set_down_height), so a tall body
+/// starts clear of the ground rather than in it (#1612).
 pub fn recovery_pose(
     heightmap: &crate::terrain::FinishedHeightMap,
     landing: Option<crate::pds::DefaultLanding>,
+    clearance: f32,
 ) -> RecoveryPose {
     let half = heightmap.set_down_half_extent();
     let (ox, oz, explicit_y, yaw_deg) = match landing {
@@ -179,7 +184,7 @@ pub fn recovery_pose(
     let yaw = yaw_deg
         .map(|deg| Quat::from_rotation_y(deg.to_radians()))
         .unwrap_or(Quat::IDENTITY);
-    let floor_y = ground_y + cfg::SPAWN_HEIGHT_OFFSET;
+    let floor_y = ground_y + clearance;
     RecoveryPose {
         pos: Vec3::new(ox, explicit_y.map_or(floor_y, |y| y.max(floor_y)), oz),
         rot: tilt * yaw,
@@ -263,7 +268,7 @@ pub fn go_to_pose(centre: Vec3, radius: f32, from: Vec3) -> Vec3 {
 /// `NeedsLocomotionRebuild`, and it does not feed the respawn-thrashing
 /// window - a player who resets three times in a minute has been lost
 /// three times, not corrupted.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(super) fn apply_player_move(
     mut request: ResMut<PlayerMoveRequest>,
     mut query: Query<
@@ -272,9 +277,11 @@ pub(super) fn apply_player_move(
             &mut Rotation,
             &mut LinearVelocity,
             &mut AngularVelocity,
+            Option<&mut super::helicopter::RotorLift>,
         ),
         With<LocalPlayer>,
     >,
+    live: Option<Res<LiveAvatarRecord>>,
     hm_res: Option<Res<crate::terrain::FinishedHeightMap>>,
     room: Option<Res<LiveRoomRecord>>,
     traveling: Option<Res<TravelingTo>>,
@@ -292,19 +299,22 @@ pub(super) fn apply_player_move(
         toasts.warn(reason, now);
         return;
     }
-    let (Some(hm_res), Ok((mut pos, mut rot, mut lin_vel, mut ang_vel))) =
+    let (Some(hm_res), Ok((mut pos, mut rot, mut lin_vel, mut ang_vel, lift))) =
         (hm_res, query.single_mut())
     else {
         return;
     };
     let from_y = pos.y;
+    let clearance = live.as_deref().map_or(cfg::SPAWN_HEIGHT_OFFSET, |live| {
+        super::preset::set_down_height(&live.0.locomotion)
+    });
     let (destination, told) = match what {
         PlayerMove::ReturnToSpawn => {
             // Walked ashore on Berlin's ground, as the spawn is (#1589).
             let landing = room
                 .as_deref()
                 .and_then(|r| crate::world_builder::compile::landing_on(&r.0, &hm_res));
-            let pose = recovery_pose(&hm_res, landing);
+            let pose = recovery_pose(&hm_res, landing, clearance);
             rot.0 = pose.rot;
             (pose.pos, RecoveryReason::Requested.toast())
         }
@@ -317,13 +327,14 @@ pub(super) fn apply_player_move(
             let inside = hm_res.set_down_half_extent();
             at.x = at.x.clamp(-inside, inside);
             at.z = at.z.clamp(-inside, inside);
-            at.y = hm_res.world_height_at(at.x, at.z) + cfg::SPAWN_HEIGHT_OFFSET;
+            at.y = hm_res.world_height_at(at.x, at.z) + clearance;
             (at, "Moved to your selection.")
         }
     };
     pos.0 = destination;
     lin_vel.0 = Vec3::ZERO;
     ang_vel.0 = Vec3::ZERO;
+    super::helicopter::set_down(lift);
     toasts.info(told, now);
     session_log.info(
         now,
@@ -344,9 +355,11 @@ pub(super) fn respawn_if_fallen(
             &mut Rotation,
             &mut LinearVelocity,
             &mut AngularVelocity,
+            Option<&mut super::helicopter::RotorLift>,
         ),
         With<LocalPlayer>,
     >,
+    live: Option<Res<LiveAvatarRecord>>,
     hm_res: Option<Res<crate::terrain::FinishedHeightMap>>,
     room: Option<Res<LiveRoomRecord>>,
     time: Res<Time>,
@@ -355,7 +368,7 @@ pub(super) fn respawn_if_fallen(
     mut recent_respawns: ResMut<crate::diagnostics::anomaly::RecentRespawns>,
     mut toasts: ResMut<crate::notify::Toasts>,
 ) {
-    let Ok((entity, mut pos, mut rot, mut lin_vel, mut ang_vel)) = query.single_mut() else {
+    let Ok((entity, mut pos, mut rot, mut lin_vel, mut ang_vel, lift)) = query.single_mut() else {
         return;
     };
     let Some(hm_res) = hm_res else {
@@ -386,11 +399,15 @@ pub(super) fn respawn_if_fallen(
     let landing = room
         .as_deref()
         .and_then(|r| crate::world_builder::compile::landing_on(&r.0, &hm_res));
-    let pose = recovery_pose(&hm_res, landing);
+    let clearance = live.as_deref().map_or(cfg::SPAWN_HEIGHT_OFFSET, |live| {
+        super::preset::set_down_height(&live.0.locomotion)
+    });
+    let pose = recovery_pose(&hm_res, landing, clearance);
     pos.0 = pose.pos;
     rot.0 = pose.rot;
     lin_vel.0 = Vec3::ZERO;
     ang_vel.0 = Vec3::ZERO;
+    super::helicopter::set_down(lift);
     let now = time.elapsed_secs_f64();
     crate::diagnostics::samplers::player_respawned(&mut metrics);
     // Feed the respawn-thrashing window (#672) alongside the monotonic metric.
@@ -695,10 +712,18 @@ mod tests {
             pos: crate::pds::Fp2([x, z]),
             ..Default::default()
         };
-        let out = recovery_pose(&heightmap, Some(landing(1_000.0, -800.0)));
+        let out = recovery_pose(
+            &heightmap,
+            Some(landing(1_000.0, -800.0)),
+            cfg::SPAWN_HEIGHT_OFFSET,
+        );
         assert_eq!((out.pos.x, out.pos.z), (1_000.0, -800.0));
         assert_eq!(out.pos.y, 50.0 + cfg::SPAWN_HEIGHT_OFFSET);
-        let beyond = recovery_pose(&heightmap, Some(landing(9_000.0, 0.0)));
+        let beyond = recovery_pose(
+            &heightmap,
+            Some(landing(9_000.0, 0.0)),
+            cfg::SPAWN_HEIGHT_OFFSET,
+        );
         assert_eq!(beyond.pos.x, half - crate::terrain::SET_DOWN_INSET_M);
     }
 }

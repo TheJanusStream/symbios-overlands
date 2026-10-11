@@ -269,7 +269,10 @@ fn build_seeded(seed: u64, livery: Option<usize>) -> (RecordBody, LocomotionConf
     // `apply_travel_pose`'s signature.
     let (mut visuals, loco) = match family {
         ChassisFamily::Boat => (boats::build(seed, livery), boat_locomotion(seed)),
-        ChassisFamily::Airship => (airship::build(seed), airship_locomotion(seed)),
+        ChassisFamily::Airship => {
+            let (visuals, half_height) = airship::build(seed);
+            (visuals, airship_locomotion(seed, half_height))
+        }
         ChassisFamily::Skiff => (skiffs::build(seed, livery), skiff_locomotion(seed)),
         // Handled above; a family added later lands here loudly rather
         // than silently assembling nothing.
@@ -577,11 +580,46 @@ fn boat_locomotion(seed: u64) -> LocomotionConfig {
     p.into_config()
 }
 
+/// A uniform box's moments of inertia per kilogram about its own x (pitch),
+/// y (yaw) and z (roll) axes, from its half-extents - what avian gives a
+/// body whose only collider is that box.
+fn box_inertia_per_kg([hx, hy, hz]: [f32; 3]) -> [f32; 3] {
+    [
+        (hy * hy + hz * hz) / 3.0,
+        (hx * hx + hz * hz) / 3.0,
+        (hx * hx + hy * hy) / 3.0,
+    ]
+}
+
+/// The yaw and stabilising torques (N·m) that give a rotorcraft of `mass`
+/// in a box of `half` extents the turn and the righting the preset's
+/// defaults give its default body (#1612), for a yaw that is `yaw_accel`
+/// per kilogram on that default body.
+///
+/// Torque turns a body by its INERTIA, not its mass: a long envelope of the
+/// same weight turns slower, and a stabilising torque the same on every
+/// craft stood a light one up three times as fast as a heavy one. Scaled by
+/// inertia, every seeded rotorcraft turns and rights the way the default
+/// does, whatever its size - and the default body itself is unchanged.
+fn rotor_torques(mass: f32, half: [f32; 3], yaw_accel: f32) -> (f32, f32) {
+    let reference = HelicopterParams::default();
+    let [ref_pitch, ref_yaw, _] = box_inertia_per_kg(reference.chassis_half_extents.0);
+    let [pitch, yaw, _] = box_inertia_per_kg(half);
+    let yaw_torque = mass * yaw_accel * yaw / ref_yaw;
+    let stabilize_torque =
+        reference.stabilize_torque.0 * (mass * pitch) / (reference.mass.0 * ref_pitch);
+    (yaw_torque.min(50_000.0), stabilize_torque.min(50_000.0))
+}
+
 /// Airship (helicopter) locomotion from the seeded envelope class + girth.
 /// A twin-hull envelope carries more mass and angular damping (harder to spin
 /// up); a fat blimp is more ponderous than a slim zeppelin. `hover_thrust` is
 /// re-derived as `mass · 9.81` so a fresh airship still floats at idle.
-fn airship_locomotion(seed: u64) -> LocomotionConfig {
+///
+/// `half_height` is how far the drawn craft reaches above and below its
+/// origin ([`airship::build`]): the box holds everything it draws, so a
+/// landed airship rests on its gondola rather than on air under it (#1612).
+fn airship_locomotion(seed: u64, half_height: f32) -> LocomotionConfig {
     let outfit = AvatarOutfit::for_seed(seed);
     let a = VehicleBlueprint::from_seed(seed).and_then(|b| b.airship().copied());
     // (mass factor over the 60 kg baseline, drive accel, yaw accel, angular
@@ -604,9 +642,11 @@ fn airship_locomotion(seed: u64) -> LocomotionConfig {
     p.hover_thrust = Fp(mass * 9.81);
     p.cyclic_force = Fp((mass * drive_accel).min(50_000.0));
     p.strafe_force = Fp((mass * drive_accel * 0.9).min(50_000.0));
-    p.yaw_torque = Fp((mass * yaw_accel).min(50_000.0));
     p.angular_damping = Fp(ang_damp);
-    p.chassis_half_extents = fit_extents([0.7 * radius_mult, 0.6 * radius_mult, 1.4 * len_mult]);
+    p.chassis_half_extents = fit_extents([0.7 * radius_mult, half_height, 1.4 * len_mult]);
+    let (yaw_torque, stabilize_torque) = rotor_torques(mass, p.chassis_half_extents.0, yaw_accel);
+    p.yaw_torque = Fp(yaw_torque);
+    p.stabilize_torque = Fp(stabilize_torque);
     p.into_config()
 }
 
@@ -1428,6 +1468,83 @@ mod tests {
             }
         }
         assert!(checked > 0, "no airship seed exercised the invariant");
+    }
+
+    /// Every seeded airship's box holds everything it draws, top to keel,
+    /// and is no taller (#1612). It stopped 0.33-1.04 m short of the gondola
+    /// and under the crown, which a craft that never landed did not show;
+    /// one that lands on its weight rested its gondola in the ground.
+    #[test]
+    fn every_seeded_airships_box_holds_what_it_draws() {
+        let mut checked = 0;
+        for s in (0u64..400).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Airship) {
+            let (body, loco) = build_for_seed(s);
+            let LocomotionConfig::Helicopter(p) = &loco else {
+                panic!("airship seed {s} is not on the helicopter preset");
+            };
+            let half = p.chassis_half_extents.0[1];
+            let drawn = crate::catalogue::items::measure::tree_bounds(
+                body.visuals().expect("an airship draws a tree"),
+            )
+            .expect("an airship draws something");
+            // A ten-thousandth: the wire's grid, which the box is written on.
+            assert!(
+                (drawn.min.y + half).abs() < 2e-4 && (drawn.max.y - half).abs() < 2e-4,
+                "airship seed {s}: draws {:.4}..{:.4} in a box of +-{half:.4}",
+                drawn.min.y,
+                drawn.max.y
+            );
+            checked += 1;
+        }
+        assert!(checked > 50, "only {checked} airship seeds under 400");
+    }
+
+    /// The default rotorcraft keeps the torques the preset's defaults give
+    /// it - the reference the scaling is cut against (#1612).
+    #[test]
+    fn the_default_rotorcraft_keeps_its_torques() {
+        let d = HelicopterParams::default();
+        let (yaw, stabilize) = rotor_torques(d.mass.0, d.chassis_half_extents.0, 7.0);
+        assert!((yaw - d.mass.0 * 7.0).abs() < 1e-3, "yaw {yaw}");
+        assert!(
+            (stabilize - d.stabilize_torque.0).abs() < 1e-3,
+            "stabilise {stabilize}"
+        );
+    }
+
+    /// Every seeded rotorcraft rights itself and turns as fast as the
+    /// default body does, whatever its size (#1612): torque over INERTIA is
+    /// the same for each, where a torque the same for each stood a light
+    /// craft up three times as fast as a heavy one.
+    #[test]
+    fn every_seeded_rotorcraft_rights_and_turns_as_the_default_does() {
+        let d = HelicopterParams::default();
+        let per_kg = |half: [f32; 3]| box_inertia_per_kg(half);
+        let [d_pitch, _, _] = per_kg(d.chassis_half_extents.0);
+        let righting = d.stabilize_torque.0 / (d.mass.0 * d_pitch);
+        let mut turns = Vec::new();
+        for s in (0u64..400).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Airship) {
+            let (_, loco) = build_for_seed(s);
+            let LocomotionConfig::Helicopter(p) = &loco else {
+                panic!("airship seed {s} is not on the helicopter preset");
+            };
+            let [pitch, yaw, _] = per_kg(p.chassis_half_extents.0);
+            let rights = p.stabilize_torque.0 / (p.mass.0 * pitch);
+            assert!(
+                (rights - righting).abs() < righting * 1e-3,
+                "airship seed {s} rights at {rights:.3} rad/s2 against {righting:.3}"
+            );
+            turns.push(p.yaw_torque.0 / (p.mass.0 * yaw));
+        }
+        // The turn is the envelope class's own (a twin is the slowest), so
+        // it is a handful of values, not one per seed.
+        turns.sort_by(f32::total_cmp);
+        turns.dedup_by(|a, b| (*a - *b).abs() < 1e-3);
+        assert!(
+            turns.len() <= 4,
+            "{} distinct turn rates across the seeded airships: {turns:?}",
+            turns.len()
+        );
     }
 
     /// Every seeded vehicle locomotion must already sit inside the sanitiser's

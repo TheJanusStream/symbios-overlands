@@ -119,7 +119,13 @@ the default car about 25 degrees a second, so a point behind it takes some
 7 s of swinging before it closes (#1541); an airship flies a
 `walk-to` and lands on the point, never ending in the air - it climbs over
 a building in its way instead of ending `stuck` against it, which makes it
-the quickest body for work round a build; an airplane takes
+the quickest body for work round a build. Landed, a rotorcraft rests on its
+own weight (#1612): it settles flat on a slope up to 30 degrees, Shift and
+the push keys do nothing, A and D still turn it on the spot, and only Space
+lifts it off. It lands only at rest - slow over the ground, no key held - and
+every set-down (a spawn, a restart, a move to spawn or to a selection, an
+arrival in another world) starts it landed, so it comes down onto what is
+under it. An airplane takes
 off, lands on a straight final and cannot `follow`. The details, and the
 offline stand-ins that let you try each body, are in
 [../building.md](../building.md) under "Agent client".

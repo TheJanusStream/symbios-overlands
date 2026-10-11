@@ -7,8 +7,11 @@ use serde::{Deserialize, Serialize};
 
 /// Helicopter preset: arcade hover model. The chassis auto-stabilises to
 /// upright (no torque-induced spin), `hover_thrust` exactly cancels
-/// gravity at idle, Space ascends, Shift descends, W/S apply a tilt-cyclic
-/// horizontal force, A/D yaw, Q/E strafe.
+/// gravity at idle, Space ascends, Shift descends, W/S push along the nose
+/// (cyclic) and Q/E beside it, A/D yaw. The chassis itself stays level - a
+/// record's gait `lean_degrees` tips the drawn craft into its motion - and
+/// down on something solid it lands, resting on its weight until Space
+/// lifts it off (#1612).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct HelicopterParams {
     pub chassis_half_extents: Fp3,

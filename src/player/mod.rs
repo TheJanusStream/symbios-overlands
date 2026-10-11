@@ -205,6 +205,67 @@ pub(super) fn ground_ray_filter(
     SpatialQueryFilter::default().with_excluded_entities(std::iter::once(chassis).chain(sensors))
 }
 
+/// The least a contact's normal may lean from straight up for what it
+/// touches to be UNDER a body (the cosine of 60 degrees): a wall beside it or
+/// a roof over it is not what it rests on.
+///
+/// Native-only, with [`resting_on_something`]: the agent is its one reader,
+/// and a `pub(crate)` item with no caller on wasm is dead code under CI's
+/// `-D warnings` (#1351).
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) const UNDER_NORMAL_Y: f32 = 0.5;
+
+/// Whether the physics has `body` resting on something under it: a contact
+/// whose normal, turned to point out of the thing touched, leans less than
+/// 60 degrees from straight up ([`UNDER_NORMAL_Y`]), with a point within
+/// [`BODY_TOUCH_M`](cfg::BODY_TOUCH_M) of it, against anything but a sensor.
+/// Avian counts a pair as touching from as far off as the body could close
+/// in one step, 23 cm at 15 m/s, and a body flying that low over the ground
+/// is not on it (#1528).
+///
+/// What the agent's sensing of its own height reads (#1430); a landed
+/// rotorcraft (#1612) asks [`resting_on`] the same, on flatter ground.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn resting_on_something(
+    contacts: &ContactGraph,
+    sensors: &Query<Entity, With<Sensor>>,
+    body: Entity,
+) -> bool {
+    resting_on(contacts, sensors, body, UNDER_NORMAL_Y)
+}
+
+/// Whether the physics has `body` resting on something under it, as
+/// [`resting_on_something`] reads it, on nothing steeper than `min_normal_y`:
+/// the cosine of the steepest slope that counts.
+pub(crate) fn resting_on(
+    contacts: &ContactGraph,
+    sensors: &Query<Entity, With<Sensor>>,
+    body: Entity,
+    min_normal_y: f32,
+) -> bool {
+    contacts
+        .contact_pairs_with(body)
+        .filter(|pair| pair.is_touching())
+        .any(|pair| {
+            let (other, out_of_other) = if pair.collider1 == body {
+                (pair.collider2, -1.0)
+            } else {
+                (pair.collider1, 1.0)
+            };
+            // A manifold's normal points from the first collider to the
+            // second: turned to point out of the other, it points up out of
+            // a thing under the body.
+            !sensors.contains(other)
+                && pair.manifolds.iter().any(|manifold| {
+                    out_of_other * manifold.normal.y >= min_normal_y
+                        && manifold
+                            .points
+                            .iter()
+                            .any(|point| point.penetration > -cfg::BODY_TOUCH_M)
+                })
+        })
+}
+
 /// The pose a vehicle's fixed-step systems read their chassis at (#1548):
 /// avian's own `Position` and `Rotation`, as its solver left them at the end
 /// of the last step. Not `GlobalTransform`: in `FixedUpdate` that is the pose

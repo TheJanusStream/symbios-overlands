@@ -6,7 +6,6 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 
 use crate::boot_params::TargetPos;
-use crate::config::rover as cfg;
 use crate::state::{LiveAvatarRecord, LiveRoomRecord, LocalPlayer, PendingSpawnPlacement};
 
 use super::preset::build_preset_components;
@@ -69,7 +68,9 @@ pub(super) fn spawn_local_player(
     // form (`pos=x,z`) keeps the heightmap-resolved height.
     let oy = match pose_pos.and_then(|p| p.y) {
         Some(y) => y,
-        None => ground_y + cfg::SPAWN_HEIGHT_OFFSET,
+        // As high as the body needs: an airship's box reaches its gondola
+        // (#1612).
+        None => ground_y + super::preset::set_down_height(&live.0.locomotion),
     };
     let (ox, oz) = (rx, rz);
 

@@ -81,6 +81,16 @@ pub struct GaitParams {
     /// Overall idle-motion intensity multiplier applied to the composed
     /// offsets (1.0 = authored amplitudes, 0.0 = perfectly still).
     pub idle_intensity: Fp,
+    /// How far a rotorcraft leans into its motion (degrees, the most it
+    /// tips; 0 = it never does), #1612: the nose dips flying forward, the
+    /// craft banks into a turn and rolls toward a strafe, as a helicopter
+    /// tips its rotor where it is going. The Helicopter preset's physics
+    /// pushes its chassis level - the lean is drawn on the visual root - so
+    /// a record says it here. Airships keep 0 and move as they always did;
+    /// absent from the wire at 0, so every record published before it keeps
+    /// its bytes.
+    #[serde(default, skip_serializing_if = "Fp::is_wire_zero")]
+    pub lean_degrees: Fp,
 }
 
 impl GaitParams {
@@ -97,6 +107,7 @@ impl GaitParams {
             idle_sway_amplitude: Fp(g.idle_sway_amplitude),
             head_turn_variance_degrees: Fp(g.head_turn_variance_degrees),
             idle_intensity: Fp::ONE,
+            lean_degrees: Fp::ZERO,
         }
     }
 
@@ -127,8 +138,14 @@ impl GaitParams {
         self.idle_sway_amplitude = clamp_pos(self.idle_sway_amplitude, 0.0, 0.2);
         self.head_turn_variance_degrees = clamp_pos(self.head_turn_variance_degrees, 0.0, 60.0);
         self.idle_intensity = clamp_pos(self.idle_intensity, 0.0, 3.0);
+        self.lean_degrees = clamp_pos(self.lean_degrees, 0.0, MAX_LEAN_DEGREES);
     }
 }
+
+/// The most a record may lean a rotorcraft into its motion (degrees): a
+/// helicopter hard over in a turn, and short of a visual root lying on its
+/// side.
+pub(crate) const MAX_LEAN_DEGREES: f32 = 45.0;
 
 #[cfg(test)]
 mod tests {
@@ -166,6 +183,7 @@ mod tests {
             idle_sway_amplitude: Fp(f32::INFINITY),
             head_turn_variance_degrees: Fp(1e6),
             idle_intensity: Fp(-1.0),
+            lean_degrees: Fp(f32::NAN),
         };
         p.sanitize();
         assert_eq!(p.step_cadence.0, 0.2);
@@ -174,5 +192,37 @@ mod tests {
         assert_eq!(p.idle_sway_amplitude.0, 0.0);
         assert_eq!(p.head_turn_variance_degrees.0, 60.0);
         assert_eq!(p.idle_intensity.0, 0.0);
+        assert_eq!(p.lean_degrees.0, 0.0);
+        p.lean_degrees = Fp(1e6);
+        p.sanitize();
+        assert_eq!(p.lean_degrees.0, MAX_LEAN_DEGREES);
+    }
+
+    /// The lean is an optional field (#1612), in all three directions: a
+    /// record without one reads as 0, a record at 0 writes nothing (so every
+    /// record published before it keeps its bytes), and a lean that is set
+    /// survives the round trip.
+    #[test]
+    fn the_lean_is_absent_at_zero_and_survives_when_set() {
+        let p = GaitParams::for_seed(7);
+        let json = serde_json::to_value(&p).expect("serialises");
+        assert!(
+            json.get("lean_degrees").is_none(),
+            "a gait that does not lean writes no lean: {json}"
+        );
+        // Compared as the wire holds it: every field is a ten-thousandth
+        // grid there, which the seeded floats are not.
+        let back: GaitParams = serde_json::from_value(json.clone()).expect("reads back");
+        assert_eq!(back.lean_degrees, Fp::ZERO, "no field reads as no lean");
+        assert_eq!(serde_json::to_value(&back).expect("serialises"), json);
+
+        let leaning = GaitParams {
+            lean_degrees: Fp(12.0),
+            ..back
+        };
+        let json = serde_json::to_value(&leaning).expect("serialises");
+        assert!(json.get("lean_degrees").is_some(), "{json}");
+        let back: GaitParams = serde_json::from_value(json).expect("reads back");
+        assert_eq!(back, leaning);
     }
 }

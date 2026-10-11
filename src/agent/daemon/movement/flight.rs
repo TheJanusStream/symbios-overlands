@@ -39,8 +39,8 @@ use crate::config::agent::{
     LAND_OVER_SPEED, LAND_SINK_M, LAND_SLIDE_GAIN, LAND_SLIDE_SPEED, NOSE_HOLD_WITHIN_M,
     OBSTACLE_MARGIN_M, OBSTACLE_SWEEP_M, PLAYER_STILL_M, PROGRESS_STEP_M, PROGRESS_TURN_DEG,
     STUCK_AFTER_SECS, SURFACE_M, SWING_FIRST_DEG, TAKE_OFF_WITHIN_M, THRUST_BAND,
-    TOUCHDOWN_HEIGHT_M, TOUCHDOWN_LEAN_DEG, TOUCHDOWN_SECS, TOUCHDOWN_STILL_M, WATER_COAST_FROM_M,
-    WATER_REST_M, YAW_DEAD_ZONE_DEG,
+    TOUCHDOWN_HEIGHT_M, TOUCHDOWN_SECS, TOUCHDOWN_SPIN_RAD_S, TOUCHDOWN_STILL_M,
+    WATER_COAST_FROM_M, WATER_REST_M, YAW_DEAD_ZONE_DEG,
 };
 use crate::pds::HelicopterParams;
 
@@ -538,12 +538,14 @@ fn come_down(
     } else {
         climb_key(vy, 0.0)
     };
-    // Down: at rest on the surface below, upright - judged by the body
-    // staying put rather than by its speed, which a contact jolts, and not
-    // while its stabiliser is still standing it up after a hillside tipped
-    // it.
-    let upright = craft.up.y >= TOUCHDOWN_LEAN_DEG.to_radians().cos();
-    let could_be_down = over_the_spot && upright && craft.down();
+    // Down: at rest on the surface below - judged by the body staying put
+    // rather than by its speed, which a contact jolts, and not while it is
+    // still tipping onto a hillside it met with one edge. Resting on its
+    // weight (#1612) it settles flat on a slope, so what says it is at rest
+    // is that it has stopped tipping - about a level axis; a turn on the
+    // spot is not tipping - not how level it is.
+    let settled = craft.spin.with_y(0.0).length() <= TOUCHDOWN_SPIN_RAD_S;
+    let could_be_down = over_the_spot && settled && craft.down();
     match *resting {
         Some((since, at)) if could_be_down && craft.position.distance(at) <= TOUCHDOWN_STILL_M => {
             if now - since >= TOUCHDOWN_SECS {
@@ -796,7 +798,7 @@ mod tests {
     #[test]
     fn an_airship_takes_off_cruises_and_lands_on_its_point() {
         let (record, rotor) = airship();
-        let mut bench = FlightBench::new(&record, Vec3::new(0.0, 0.52, 0.0));
+        let mut bench = FlightBench::set_down(&record, 0.0, 0.0);
         let target = Vec2::new(40.0, 30.0);
 
         let (end, trace) = fly(&mut bench, &rotor, target, 60.0);
@@ -859,7 +861,8 @@ mod tests {
     #[test]
     fn a_point_behind_is_swung_round_to_before_the_body_moves() {
         let (record, rotor) = airship();
-        let mut bench = FlightBench::new(&record, Vec3::new(0.0, CRUISE_HEIGHT_M + 0.5, 0.0));
+        let mut bench =
+            FlightBench::new(&record, Vec3::new(0.0, CRUISE_HEIGHT_M + 0.5, 0.0)).aloft();
         let target = Vec2::new(0.0, 40.0);
 
         let (end, trace) = fly(&mut bench, &rotor, target, 60.0);
@@ -885,7 +888,7 @@ mod tests {
     #[test]
     fn a_point_under_the_body_is_come_down_on_straight() {
         let (record, rotor) = airship();
-        let mut bench = FlightBench::new(&record, Vec3::new(0.0, 15.5, 0.0));
+        let mut bench = FlightBench::new(&record, Vec3::new(0.0, 15.5, 0.0)).aloft();
 
         let (end, trace) = fly(&mut bench, &rotor, Vec2::new(1.0, 0.5), 60.0);
 
@@ -924,7 +927,7 @@ mod tests {
     fn water_is_landed_on_not_sunk_into() {
         let (record, rotor) = airship();
         for start in [6.0 + CRUISE_HEIGHT_M, 8.5] {
-            let mut bench = FlightBench::new(&record, Vec3::new(0.0, start, 0.0));
+            let mut bench = FlightBench::new(&record, Vec3::new(0.0, start, 0.0)).aloft();
             flood(&mut bench, 6.0);
 
             let (end, trace) = fly(&mut bench, &rotor, Vec2::new(0.5, 0.5), 60.0);
@@ -954,12 +957,13 @@ mod tests {
     /// ground has stopped - which pressed it into the slope and down it,
     /// kept the touchdown from ever being judged, and ended `stuck`; let go,
     /// the ground sprang it a metre and a half back up. Down on a slope, it
-    /// lets go, is judged landed once its stabiliser has stood it up again,
-    /// and stays where that leaves it.
+    /// lets go, settles flat on the slope on its own weight (#1612), is
+    /// judged landed once it has stopped tipping, and stays where that
+    /// leaves it.
     #[test]
     fn a_landing_on_a_slope_stays_where_it_touched_down() {
         let (record, rotor) = airship();
-        let mut bench = FlightBench::new(&record, Vec3::new(0.0, 16.0, 0.0));
+        let mut bench = FlightBench::new(&record, Vec3::new(0.0, 16.0, 0.0)).aloft();
         let tilt = Quat::from_rotation_x(-SLOPE_DEG.to_radians());
         let normal = tilt * Vec3::Y;
         bench.block(
@@ -990,7 +994,7 @@ mod tests {
     #[test]
     fn a_flight_under_a_roof_is_stuck() {
         let (record, rotor) = airship();
-        let mut bench = FlightBench::new(&record, Vec3::new(0.0, 0.52, 0.0));
+        let mut bench = FlightBench::set_down(&record, 0.0, 0.0);
         bench.block(
             Transform::from_xyz(0.0, 3.0, 0.0),
             Vec3::new(10.0, 0.5, 10.0),
@@ -1015,7 +1019,7 @@ mod tests {
     #[test]
     fn a_tower_in_the_way_is_climbed_over() {
         let (record, rotor) = airship();
-        let mut bench = FlightBench::new(&record, Vec3::new(0.0, 0.52, 0.0));
+        let mut bench = FlightBench::set_down(&record, 0.0, 0.0);
         let tower_top = 3.0 * CRUISE_HEIGHT_M;
         bench.block(
             Transform::from_xyz(0.0, tower_top * 0.5, -40.0),
@@ -1053,7 +1057,7 @@ mod tests {
     #[test]
     fn a_turn_in_the_air_keeps_its_height_and_place() {
         let (record, rotor) = airship();
-        let mut bench = FlightBench::new(&record, Vec3::new(0.0, 10.5, 0.0));
+        let mut bench = FlightBench::new(&record, Vec3::new(0.0, 10.5, 0.0)).aloft();
         let start = bench.elapsed();
         let from = bench.position();
         // 150 degrees to the right of the nose, which looks down -Z.
@@ -1107,7 +1111,7 @@ mod tests {
     #[test]
     fn an_escort_flies_low_after_a_player_and_lands_beside_them_once_they_stand() {
         let (record, rotor) = airship();
-        let mut bench = FlightBench::new(&record, Vec3::new(0.0, 0.52, 10.0));
+        let mut bench = FlightBench::set_down(&record, 0.0, 10.0);
         let keep = 3.0;
         let start = bench.elapsed();
         let mut flight: Option<Flight> = None;

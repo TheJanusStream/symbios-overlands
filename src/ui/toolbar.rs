@@ -1020,6 +1020,8 @@ const SKIFF_ROWS: &[ControlRow] = &[
         action: "in the air the car levels its pitch and roll",
     },
 ];
+// Landed, a rotorcraft rests on its weight and only Space and the turn keys
+// act (#1612).
 const AIRSHIP_ROWS: &[ControlRow] = &[
     ControlRow {
         keys: "W / S  or  ⬆ / ⬇",
@@ -1027,15 +1029,19 @@ const AIRSHIP_ROWS: &[ControlRow] = &[
     },
     ControlRow {
         keys: "A / D  or  ⬅ / ➡",
-        action: "yaw (turn)",
+        action: "yaw (turn), on the ground too",
     },
     ControlRow {
         keys: "Q / E",
         action: "strafe left / right",
     },
     ControlRow {
-        keys: "Space / Shift",
-        action: "climb / descend",
+        keys: "Space",
+        action: "climb; on the ground, take off",
+    },
+    ControlRow {
+        keys: "Shift",
+        action: "descend; touch down to land",
     },
 ];
 // The one "row" for a preset this build cannot drive (#1241 f161). Not a

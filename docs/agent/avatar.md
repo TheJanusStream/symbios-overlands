@@ -17,7 +17,11 @@ PDS, so they see a change to those only after `A save avatar --wait`.
 it lands on its point - a roof or a hill to look down at a build from.
 Keep what the seed gave unless there is a reason: the numbers are tuned
 together, and `hover_thrust` must stay `mass x 9.81` or the craft sinks or
-climbs at idle.
+climbs at idle. Landed, it rests its weight on its box's underside (#1612),
+so a shape that hangs below `-half_y` stands in the ground. A rotorcraft
+that should tip into its motion - nose down flying forward, banked into a
+turn - says how far in `/record/gait/lean_degrees` (0 to 45; absent is 0,
+level as an airship flies).
 
 ## Shaping a generator body
 

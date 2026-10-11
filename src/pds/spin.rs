@@ -99,7 +99,7 @@ pub enum SpinTerm {
         amplitude: Fp,
         #[serde(default = "default_swing_period")]
         period: Fp,
-        #[serde(default, skip_serializing_if = "is_wire_zero")]
+        #[serde(default, skip_serializing_if = "Fp::is_wire_zero")]
         phase: Fp,
     },
     /// Roll along the ground like a wheel of this radius (metres), with the
@@ -319,13 +319,6 @@ fn default_vane_facing() -> Fp3 {
 fn is_direction(v: Fp3) -> bool {
     let len_sq = v.0[0] * v.0[0] + v.0[1] * v.0[1] + v.0[2] * v.0[2];
     len_sq.is_finite() && len_sq > 1e-12
-}
-
-/// Whether `v` is written as zero: the skip predicate for an optional
-/// scalar, compared as the wire holds it (#1565), so a value a hair off zero
-/// is left out as zero is.
-fn is_wire_zero(v: &Fp) -> bool {
-    (v.0 * super::types::FP_SCALE).round() as i32 == 0
 }
 
 #[cfg(test)]
