@@ -121,6 +121,19 @@ impl VehicleStance {
         }
     }
 
+    /// `(length, girth, cabin)` multipliers for an airplane of this stance
+    /// (#1617, #1616 recommendation 8: the stance shapes the cabin's length
+    /// and the fuselage's fullness). Moves her inside the agreed form - a
+    /// Compact machine is short with a full fuselage and a short cabin, a
+    /// Sleek one long and slim with a long one, a Heavy one the fullest.
+    fn airplane_factors(self) -> (f32, f32, f32) {
+        match self {
+            Self::Compact => (0.95, 1.04, 0.92),
+            Self::Sleek => (1.05, 0.95, 1.08),
+            Self::Heavy => (1.00, 1.08, 1.02),
+        }
+    }
+
     /// `(length, width, height)` multipliers for a skiff of this stance
     /// (#1364).
     ///
@@ -469,6 +482,106 @@ const MAX_GIRTH: f32 = 1.34;
 const MIN_BOOM: f32 = 0.92;
 const MAX_BOOM: f32 = 1.08;
 
+/// Concrete airplane proportions in **true metres**, nose at `+Z` (#1617).
+///
+/// The helicopter's three numbers for a fixed-wing: the agreed form (#1616)
+/// is ONE fuselage profile every mount is read off, the length sets the
+/// scale it is drawn at, and the girth and the cabin are the two ways the
+/// owner asked a seed to move it. The nominal blueprint is the prototype's
+/// proportion C exactly: a 3.19 m airframe, its fuselage 18 % fuller than
+/// a true light monoplane's, its cabin as drawn.
+#[derive(Clone, Copy, Debug)]
+pub struct AirplaneBlueprint {
+    pub stance: VehicleStance,
+    /// Spinner to rudder (m) - the nominal every other dimension is a
+    /// fraction of, and her box's length. The wing spans half as far again
+    /// either side.
+    pub length: f32,
+    /// How much fuller her fuselage is than a true light monoplane's: each
+    /// section's radius, the fuselage swelling upward off its belly (1.18
+    /// is proportion C).
+    pub girth: f32,
+    /// The cabin's length over the prototype's, the cowl and the tail cone
+    /// unchanged: a Sleek machine's runs longer and a Compact one's shorter.
+    pub cabin: f32,
+}
+
+impl AirplaneBlueprint {
+    fn derive(body: &AvatarBody, rng: &mut ChaCha8Rng) -> Self {
+        let stance = VehicleStance::sample(rng);
+        let (len_f, girth_f, cabin_f) = stance.airplane_factors();
+        // Overall size rides the body height knob, damped as every other
+        // craft's is, and is clamped to the owner's band (#1616
+        // recommendation 8): 2.9-3.5 m.
+        let size = 1.0 + (body.height_scale - 1.0) * BODY_SIZE_DAMPING;
+        let length = (NOMINAL_AIRFRAME_LEN * size * len_f * range_f32(rng, 0.97, 1.03))
+            .clamp(MIN_AIRFRAME_LEN, MAX_AIRFRAME_LEN);
+        // A broad-shouldered avatar flies a fuller fuselage.
+        let girth =
+            (NOMINAL_AIRPLANE_GIRTH * girth_f * body.shoulder_width_scale.clamp(0.94, 1.06))
+                .clamp(MIN_AIRPLANE_GIRTH, MAX_AIRPLANE_GIRTH);
+        let cabin = (cabin_f * range_f32(rng, 0.97, 1.03)).clamp(MIN_CABIN, MAX_CABIN);
+        Self {
+            stance,
+            length,
+            girth,
+            cabin,
+        }
+    }
+
+    /// The prototype's proportion C, which the nominal seed draws - the
+    /// blueprint a guard or a survey reaches for when it wants THE machine.
+    /// Its stance is a placeholder, as the corners' is: proportion C is no
+    /// stance's factors, and nothing past the derive reads one.
+    pub const NOMINAL: Self = Self {
+        stance: VehicleStance::Sleek,
+        length: NOMINAL_AIRFRAME_LEN,
+        girth: NOMINAL_AIRPLANE_GIRTH,
+        cabin: 1.0,
+    };
+
+    /// The blueprint corners a seeded airplane can reach: every clamp bound
+    /// of the three numbers, crossed - what the family's guards sweep.
+    pub fn corners() -> Vec<Self> {
+        let mut out = Vec::new();
+        for length in [MIN_AIRFRAME_LEN, MAX_AIRFRAME_LEN] {
+            for girth in [MIN_AIRPLANE_GIRTH, MAX_AIRPLANE_GIRTH] {
+                for cabin in [MIN_CABIN, MAX_CABIN] {
+                    out.push(Self {
+                        stance: VehicleStance::Sleek,
+                        length,
+                        girth,
+                        cabin,
+                    });
+                }
+            }
+        }
+        out
+    }
+}
+
+/// Airframe length (m) a nominal seeded airplane is drawn at, spinner to
+/// rudder: the prototype's proportion C (#1616), which the owner chose
+/// over the true one, which read spindly under its wing, and over one a
+/// tenth larger, which spanned 5.2 m. Airship class, like the others: a
+/// scale model of a bigger machine, lit windows and no pilot.
+pub const NOMINAL_AIRFRAME_LEN: f32 = 3.19;
+
+/// The owner's band for a seeded airplane's airframe (m), #1616
+/// recommendation 8.
+const MIN_AIRFRAME_LEN: f32 = 2.9;
+const MAX_AIRFRAME_LEN: f32 = 3.5;
+
+/// The fuselage girth of proportion C over a true light monoplane's, and
+/// the band a seed may move it in.
+const NOMINAL_AIRPLANE_GIRTH: f32 = 1.18;
+const MIN_AIRPLANE_GIRTH: f32 = 1.10;
+const MAX_AIRPLANE_GIRTH: f32 = 1.28;
+
+/// The band a seed may lengthen or shorten the cabin in.
+const MIN_CABIN: f32 = 0.90;
+const MAX_CABIN: f32 = 1.10;
+
 /// Per-family vehicle proportion blueprint. One variant per chassis that has
 /// been wired to the shared-landmark system; [`VehicleBlueprint::from_seed`]
 /// yields `None` for a chassis without one yet (and for the humanoid).
@@ -478,6 +591,7 @@ pub enum VehicleBlueprint {
     Airship(AirshipBlueprint),
     Skiff(SkiffBlueprint),
     Helicopter(HelicopterBlueprint),
+    Airplane(AirplaneBlueprint),
 }
 
 impl VehicleBlueprint {
@@ -503,6 +617,9 @@ impl VehicleBlueprint {
             ChassisFamily::Helicopter => Some(Self::Helicopter(HelicopterBlueprint::derive(
                 body, &mut rng,
             ))),
+            ChassisFamily::Airplane => {
+                Some(Self::Airplane(AirplaneBlueprint::derive(body, &mut rng)))
+            }
             // Rigged: no parts to size (#1060).
             ChassisFamily::Humanoid => None,
         }
@@ -536,6 +653,14 @@ impl VehicleBlueprint {
     pub fn helicopter(&self) -> Option<&HelicopterBlueprint> {
         match self {
             Self::Helicopter(h) => Some(h),
+            _ => None,
+        }
+    }
+
+    /// The airplane blueprint, if this is an airplane.
+    pub fn airplane(&self) -> Option<&AirplaneBlueprint> {
+        match self {
+            Self::Airplane(a) => Some(a),
             _ => None,
         }
     }
@@ -582,6 +707,12 @@ mod tests {
                     assert!(
                         bp.and_then(|b| b.helicopter().copied()).is_some(),
                         "seed {s} helicopter"
+                    );
+                }
+                ChassisFamily::Airplane => {
+                    assert!(
+                        bp.and_then(|b| b.airplane().copied()).is_some(),
+                        "seed {s} airplane"
                     );
                 }
                 ChassisFamily::Humanoid => {
@@ -744,6 +875,64 @@ mod tests {
             assert!([MIN_FUSELAGE_LEN, MAX_FUSELAGE_LEN].contains(&c.length));
             assert!([MIN_GIRTH, MAX_GIRTH].contains(&c.girth));
             assert!([MIN_BOOM, MAX_BOOM].contains(&c.boom));
+        }
+    }
+
+    /// Every airplane seed lands inside the owner's bands (#1616
+    /// recommendation 8), and the fleet spreads across them rather than
+    /// piling onto the clamps.
+    #[test]
+    fn airplane_dims_stay_in_the_owners_bands() {
+        let (mut seen, mut clamped) = (0, 0);
+        let (mut shortest, mut longest) = (f32::MAX, f32::MIN);
+        for s in 0u64..900 {
+            let Some(a) = VehicleBlueprint::from_seed(s).and_then(|bp| bp.airplane().copied())
+            else {
+                continue;
+            };
+            assert!(
+                (MIN_AIRFRAME_LEN..=MAX_AIRFRAME_LEN).contains(&a.length),
+                "seed {s}: length {}",
+                a.length
+            );
+            assert!(
+                (MIN_AIRPLANE_GIRTH..=MAX_AIRPLANE_GIRTH).contains(&a.girth),
+                "seed {s}: girth {}",
+                a.girth
+            );
+            assert!(
+                (MIN_CABIN..=MAX_CABIN).contains(&a.cabin),
+                "seed {s}: cabin {}",
+                a.cabin
+            );
+            clamped += usize::from(a.length == MIN_AIRFRAME_LEN || a.length == MAX_AIRFRAME_LEN);
+            shortest = shortest.min(a.length);
+            longest = longest.max(a.length);
+            seen += 1;
+        }
+        assert!(seen > 100, "too few airplanes sampled: {seen}");
+        assert!(
+            clamped * 5 < seen,
+            "{clamped} of {seen} airplanes sit on a length clamp"
+        );
+        assert!(
+            longest - shortest > 0.3,
+            "the fleet spans only {shortest}..{longest} m"
+        );
+    }
+
+    /// The nominal blueprint is the prototype's proportion C, and the
+    /// corners are the clamp bounds - the two the family's guards lean on.
+    #[test]
+    fn the_nominal_airplane_is_proportion_c_and_the_corners_are_the_clamps() {
+        let n = AirplaneBlueprint::NOMINAL;
+        assert_eq!((n.length, n.girth, n.cabin), (3.19, 1.18, 1.0));
+        let corners = AirplaneBlueprint::corners();
+        assert_eq!(corners.len(), 8);
+        for c in corners {
+            assert!([MIN_AIRFRAME_LEN, MAX_AIRFRAME_LEN].contains(&c.length));
+            assert!([MIN_AIRPLANE_GIRTH, MAX_AIRPLANE_GIRTH].contains(&c.girth));
+            assert!([MIN_CABIN, MAX_CABIN].contains(&c.cabin));
         }
     }
 

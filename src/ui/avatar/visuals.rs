@@ -27,17 +27,18 @@ pub(super) fn draw_tab(ui: &mut egui::Ui, ctx: &mut TabCtx, aim: &mut AimCtx, he
         // still coming (it shipped, as the Body tab) and to advise a bare
         // re-roll, which lands back on a rigged body whenever
         // `ChassisFamily::for_seed` rolls `Humanoid` - about one seed in
-        // five. The Chassis pin row is the deterministic control, so the
-        // advice routes through it and names the four tree families by the
-        // labels that row actually shows (`ChassisFamily::label`).
+        // six since the aircraft came (#1614, #1617). The Chassis pin row is
+        // the deterministic control, so the advice routes through it and
+        // names the five tree families by the labels that row actually shows
+        // (`ChassisFamily::label`).
         let Some(visuals) = ctx.record.body.visuals_mut() else {
             ui.label(
                 egui::RichText::new(
                     "You're wearing a rigged body - sculpt it on the \
                      Body tab. For a construction-kit body instead, \
                      open Seed & re-roll below, lock Chassis to \
-                     Hover-boat, Airship, Land-skiff or Helicopter, and \
-                     re-roll.",
+                     Hover-boat, Airship, Land-skiff, Helicopter or \
+                     Airplane, and re-roll.",
                 )
                 .small()
                 .weak(),

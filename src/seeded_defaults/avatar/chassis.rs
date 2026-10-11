@@ -2,11 +2,11 @@
 //!
 //! Sampled into the [`AvatarCharacter`](super::AvatarCharacter) anchor so the
 //! rest of the avatar pipeline can branch: a DID resolves to exactly one
-//! visual family (hover-boat, airship, humanoid, land-skiff, helicopter), and
-//! only that family's build path runs. Locomotion follows the family
-//! (boat → HoverBoat, airship and helicopter → Helicopter, humanoid →
-//! Humanoid, skiff → Car) so the default chassis *feels* like what it looks
-//! like.
+//! visual family (hover-boat, airship, humanoid, land-skiff, helicopter,
+//! airplane), and only that family's build path runs. Locomotion follows the
+//! family (boat → HoverBoat, airship and helicopter → Helicopter, humanoid →
+//! Humanoid, skiff → Car, airplane → Airplane) so the default chassis *feels*
+//! like what it looks like.
 //!
 //! # The pick is two stages (#1611, owner decision 1)
 //!
@@ -19,20 +19,20 @@
 //! Appending two families to one six-way table would have moved about 75 %
 //! of the fleet; this moves a third of it, and only into the new families.
 //!
-//! The airplane share is drawn but not yet flown: until its family is built
-//! (#1617) it falls through to the second stage, so those seeds keep their
-//! family too, and no avatar changes family twice on the way (decision 7).
-//! Today one seed in six is a helicopter and the other four families share
-//! the rest.
+//! The airplane share was drawn but not flown until its family was built
+//! (#1617): it fell through to the second stage, so no avatar changed family
+//! twice on the way (decision 7). Now one seed in six is a helicopter, one in
+//! six an airplane, and the other four families share the rest.
 //!
 //! The first-stage salt was HUNTED, which is why it reads as it does: its
 //! high half spells the stage and its low half is the first value under
 //! which every stand-in the tests, the docs and the agents lean on keeps its
 //! family - see `the_stand_ins_keep_their_families`.
 //!
-//! Diversity inside a family is NOT one mechanism. A boat, a skiff or a
-//! helicopter rolls a [`CraftType`](super::CraftType) and is drawn by that
-//! type's own builder over one profile (#1363, #1364, #1614); an airship is
+//! Diversity inside a family is NOT one mechanism. A boat, a skiff, a
+//! helicopter or an airplane rolls a [`CraftType`](super::CraftType) and is
+//! drawn by that type's own builder over one profile (#1363, #1364, #1614,
+//! #1617); an airship is
 //! composed by the seeded [`AvatarOutfit`](super::AvatarOutfit) filling slots
 //! from the tagged part catalogue ([`crate::pds::avatar::parts`]) - the last
 //! family that is; a humanoid is a seeded `symbios-avatar` engine record
@@ -56,7 +56,7 @@ const AVATAR_AIRCRAFT_SALT: u64 = 0xA14C_4AF7_00E6_3FFB;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Share {
     Helicopter,
-    /// Not flown until #1617 - it falls through to the second stage.
+    /// Flown since #1617; until then it fell through to the second stage.
     Airplane,
     /// One of the four sixths the second stage draws over.
     Rest,
@@ -91,16 +91,20 @@ pub enum ChassisFamily {
     /// Rotorcraft - a light utility helicopter on skids, the first of the
     /// aircraft families (#1614; [`HelicopterType`](super::HelicopterType)).
     Helicopter,
+    /// Fixed-wing - a high-wing light monoplane taildragger, the second of
+    /// the aircraft families (#1617; [`AirplaneType`](super::AirplaneType)).
+    Airplane,
 }
 
 impl ChassisFamily {
     /// Every family, for a picker or a census.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Boat,
         Self::Airship,
         Self::Humanoid,
         Self::Skiff,
         Self::Helicopter,
+        Self::Airplane,
     ];
 
     /// The four families of the pick before the aircraft, in its order -
@@ -116,6 +120,7 @@ impl ChassisFamily {
             Self::Humanoid => "Humanoid",
             Self::Skiff => "Land-skiff",
             Self::Helicopter => "Helicopter",
+            Self::Airplane => "Airplane",
         }
     }
 
@@ -129,7 +134,8 @@ impl ChassisFamily {
         let mut first = ChaCha8Rng::seed_from_u64(seed ^ AVATAR_AIRCRAFT_SALT);
         match pick(&SHARES, &mut first) {
             Share::Helicopter => Self::Helicopter,
-            Share::Airplane | Share::Rest => {
+            Share::Airplane => Self::Airplane,
+            Share::Rest => {
                 let mut rng = ChaCha8Rng::seed_from_u64(seed ^ AVATAR_CHASSIS_SALT);
                 pick(&Self::PRE_AIRCRAFT, &mut rng)
             }
@@ -154,13 +160,13 @@ mod tests {
         // 300 seeds: the rarest family is a sixth of them, so the odds of
         // one never appearing are (5/6)^300, about 10^-24 - a miss means the
         // sampler is broken, not unlucky.
-        let mut seen = [false; 5];
+        let mut seen = [false; 6];
         for s in 0u64..300 {
             let f = ChassisFamily::for_did(&format!("did:test:{s}"));
             let i = ChassisFamily::ALL.iter().position(|x| *x == f).unwrap();
             seen[i] = true;
         }
-        assert_eq!(seen, [true; 5], "some chassis family never sampled");
+        assert_eq!(seen, [true; 6], "some chassis family never sampled");
     }
 
     /// The pick before the aircraft, written out: the second stage alone.
@@ -178,10 +184,10 @@ mod tests {
     /// stages at once still fails here.
     const PRE_AIRCRAFT_0_TO_39: &str = "AHSSSBASASSAABHSBHHBHSSBSHSSBAHAHAAHSSHA";
 
-    /// Every seed under 40 is a helicopter now or the family it had then.
+    /// Every seed under 40 is an aircraft now or the family it had then.
     #[test]
     fn the_first_forty_seeds_keep_the_families_they_had() {
-        let mut helicopters = 0;
+        let mut aircraft = 0;
         for (seed, was) in (0u64..).zip(PRE_AIRCRAFT_0_TO_39.chars()) {
             let was = match was {
                 'B' => ChassisFamily::Boat,
@@ -196,55 +202,56 @@ mod tests {
                 "seed {seed}: the second stage moved"
             );
             match ChassisFamily::for_seed(seed) {
-                ChassisFamily::Helicopter => helicopters += 1,
+                ChassisFamily::Helicopter | ChassisFamily::Airplane => aircraft += 1,
                 now => assert_eq!(now, was, "seed {seed} changed family"),
             }
         }
         assert!(
-            (3..=12).contains(&helicopters),
-            "{helicopters} of the first forty are helicopters"
+            (7..=21).contains(&aircraft),
+            "{aircraft} of the first forty are aircraft"
         );
     }
 
-    /// Decision 1's promise: a seed is either a helicopter or EXACTLY the
-    /// family it was before the aircraft came - never a different one of the
-    /// four - and the helicopter takes a sixth of the fleet. Over 24 000
-    /// seeds a sixth is 4 000 with a standard deviation of about 58, so the
-    /// band is five of them wide. (CI runs this at opt-level 0: kept small.)
+    /// Decision 1's promise: a seed is a helicopter, an airplane, or EXACTLY
+    /// the family it was before the aircraft came - never a different one of
+    /// the four - and each aircraft family takes a sixth of the fleet. Over
+    /// 24 000 seeds a sixth is 4 000 with a standard deviation of about 58,
+    /// so each band is five of them wide. (CI runs this at opt-level 0: kept
+    /// small.)
     #[test]
-    fn a_seed_is_a_helicopter_or_the_family_it_always_was() {
+    fn a_seed_is_an_aircraft_or_the_family_it_always_was() {
         const N: u64 = 24_000;
-        let mut helicopters = 0u64;
+        let (mut helicopters, mut airplanes) = (0u64, 0u64);
         for s in 0..N {
             match ChassisFamily::for_seed(s) {
                 ChassisFamily::Helicopter => helicopters += 1,
+                ChassisFamily::Airplane => airplanes += 1,
                 f => assert_eq!(f, pre_aircraft(s), "seed {s} changed family"),
             }
         }
-        assert!(
-            (3_700..=4_300).contains(&helicopters),
-            "{helicopters} helicopters in {N} seeds, expected about a sixth"
-        );
+        for (count, family) in [(helicopters, "helicopters"), (airplanes, "airplanes")] {
+            assert!(
+                (3_700..=4_300).contains(&count),
+                "{count} {family} in {N} seeds, expected about a sixth"
+            );
+        }
     }
 
-    /// The airplane's sixth is DRAWN today, and falls through to the four:
-    /// so when #1617 flies it, it takes a sixth that no helicopter seed
-    /// holds, and the four keep two thirds of the fleet between them.
+    /// The airplane's sixth is the one the first stage drew for it since
+    /// #1614 - drawn then, and falling through to the four until #1617 flew
+    /// it - so no seed that was a helicopter became an airplane, and a seed
+    /// that changed family to one was in that draw.
     #[test]
-    fn the_airplane_share_is_a_sixth_of_its_own() {
-        const N: u64 = 24_000;
-        let mut airplanes = 0u64;
-        for s in 0..N {
+    fn the_airplane_share_is_the_one_drawn_for_it() {
+        for s in 0u64..6_000 {
             let mut first = ChaCha8Rng::seed_from_u64(s ^ AVATAR_AIRCRAFT_SALT);
-            if pick(&SHARES, &mut first) == Share::Airplane {
-                airplanes += 1;
-                assert_eq!(ChassisFamily::for_seed(s), pre_aircraft(s), "seed {s}");
-            }
+            let drawn = pick(&SHARES, &mut first) == Share::Airplane;
+            assert_eq!(
+                ChassisFamily::for_seed(s) == ChassisFamily::Airplane,
+                drawn,
+                "seed {s}"
+            );
         }
-        assert!(
-            (3_700..=4_300).contains(&airplanes),
-            "{airplanes} airplane draws in {N} seeds, expected about a sixth"
-        );
     }
 
     /// The stand-ins keep their families, and the salt was hunted for it:
@@ -256,7 +263,7 @@ mod tests {
     /// fall outside both aircraft shares under any salt, so a salt that
     /// keeps all forty is rare - about one in eleven million, the 15 089 660th
     /// tried - and changing it is a hunt, not an edit. Neither aircraft share
-    /// holds any of them, so the airplane (#1617) will not move them either.
+    /// holds any of them, so flying the airplane (#1617) moved none of them.
     #[test]
     fn the_stand_ins_keep_their_families() {
         use ChassisFamily::*;

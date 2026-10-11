@@ -203,10 +203,11 @@ almost everything downstream:
   any body authored in the editor's Body tab.
 - **`#generator`** - the classic `Generator` tree, spawned by the avatar-side
   spawner back through the world compiler's own primitive / L-system /
-  shape-grammar machinery. This is the vehicle families: boat, airship, skiff
-  and helicopter - whether the tree came from the part catalogue (the
-  airship) or from a craft type's own builder (the boat since #1363, the
-  skiff since #1364, the helicopter since #1614).
+  shape-grammar machinery. This is the vehicle families: boat, airship,
+  skiff, helicopter and airplane - whether the tree came from the part
+  catalogue (the airship) or from a craft type's own builder (the boat since
+  #1363, the skiff since #1364, the helicopter since #1614, the airplane
+  since #1617).
 - **Neither** - two marker variants that never appear on the wire. A record
   published *before* the union has no `body` field at all, and is treated as
   *no record*: the seeded default is synthesised, matching the record layer's
@@ -449,16 +450,18 @@ generation cores shared with the wasm Web Worker.
   - which also fixes the room's default landing pose - with the owner-identity
   monument standing beside it, a light
   theme accent nudged back onto the natural derivers (fog tint, particle mood),
-  and the layered ambient soundtrack. Avatar side: one of five chassis
-  families (boat / airship / humanoid / skiff / helicopter) plus its palette,
-  body proportions and gait. The family is a two-stage pick (#1614): a sixth of
-  seeds are helicopters, a sixth are held for the airplane (#1617) and fall
-  through until it flies, and the rest keep the four-way pick they always had.
-  The airship alone assembles its geometry from a tagged outfit the part
-  catalogue fills. The boat, the land-skiff and the helicopter do not: since
-  #1363, #1364 and #1614 each is drawn by one builder per seeded craft type,
+  and the layered ambient soundtrack. Avatar side: one of six chassis
+  families (boat / airship / humanoid / skiff / helicopter / airplane) plus
+  its palette, body proportions and gait. The family is a two-stage pick
+  (#1614): a sixth of seeds are helicopters, a sixth airplanes (#1617), and
+  the rest keep the four-way pick they always had. The airship alone
+  assembles its geometry from a tagged outfit the part catalogue fills. The
+  boat, the land-skiff, the helicopter and the airplane do not: since #1363,
+  #1364, #1614 and #1617 each is drawn by one builder per seeded craft type,
   reading every line and mount off a single profile - `HullProfile` for the
-  boat, `BodyPlan` for the skiff, `PodPlan` for the helicopter - which is what
+  boat, `BodyPlan` for the skiff, `PodPlan` for the helicopter, `FusePlan`
+  for the airplane, whose record also carries where her drawn wheels stand
+  so the physics sits her tail-down on them - which is what
   stopped their trim floating and their mounts needing embed fudge factors. The humanoid family short-circuits both
   pipelines and rolls a seeded `symbios-avatar` engine record instead, whose
   stature the locomotion capsule is then cut to.

@@ -92,6 +92,8 @@ pub(crate) mod sim;
 mod spawn;
 pub mod visuals;
 
+// The seeded airplane family sizes her gear by it (#1617).
+pub(crate) use airplane::reach_for_stance as airplane_reach_for_stance;
 // Read only by the agent's `drive` (#1527) and its airplane pilot (#1615),
 // which are Unix-only like the rest of the agent: ungated, these are unused
 // imports on wasm32.

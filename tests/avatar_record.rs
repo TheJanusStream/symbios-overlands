@@ -19,7 +19,8 @@ fn default_avatar_locomotion_matches_seeded_chassis_family() {
     // The default is DID-seeded: each chassis family maps to the
     // locomotion preset that matches its visuals (boat → HoverBoat,
     // airship and helicopter → Helicopter, humanoid → Humanoid, skiff →
-    // Car) - see `pds::avatar::default_visuals::build_for_did`.
+    // Car, airplane → Airplane) - see
+    // `pds::avatar::default_visuals::build_for_did`.
     for did in [
         "did:plc:alice",
         "did:plc:bob",
@@ -32,6 +33,7 @@ fn default_avatar_locomotion_matches_seeded_chassis_family() {
             ChassisFamily::Airship | ChassisFamily::Helicopter => "helicopter",
             ChassisFamily::Humanoid => "humanoid",
             ChassisFamily::Skiff => "car",
+            ChassisFamily::Airplane => "airplane",
         };
         assert_eq!(
             a.locomotion.kind_tag(),
@@ -251,8 +253,8 @@ fn pre_gait_pre_feel_records_still_deserialize() {
         LocomotionConfig::Helicopter(Box::default()),
         LocomotionConfig::Car(Box::default()),
     ];
-    // Every field #874/#876/#1524/#1615 added, across all presets. Stripping
-    // keys a preset doesn't carry is a no-op.
+    // Every field #874/#876/#1524/#1615/#1617 added, across all presets.
+    // Stripping keys a preset doesn't carry is a no-op.
     let added_fields = [
         "stop_damping",
         "turn_rate",
@@ -272,6 +274,11 @@ fn pre_gait_pre_feel_records_still_deserialize() {
         "yaw_rate",
         "gear_height",
         "brake",
+        "gear_track",
+        "gear_ahead",
+        "tail_wheel_aft",
+        "tail_gear_share",
+        "center_of_mass_ahead",
     ];
     for preset in presets {
         let mut avatar = AvatarRecord::default_for_did("did:plc:alice");
@@ -286,8 +293,9 @@ fn pre_gait_pre_feel_records_still_deserialize() {
             loco.remove(field);
         }
 
-        let old: AvatarRecord = serde_json::from_value(value)
-            .unwrap_or_else(|e| panic!("{tag}: pre-#874/#876/#1524/#1615 record must decode: {e}"));
+        let old: AvatarRecord = serde_json::from_value(value).unwrap_or_else(|e| {
+            panic!("{tag}: pre-#874/#876/#1524/#1615/#1617 record must decode: {e}")
+        });
         assert!(old.gait.is_none(), "{tag}: absent gait stays None");
         // Re-published, it carries the defaults on the wire and reads back
         // the same.

@@ -224,8 +224,9 @@ pub fn run(request: RunRequest) -> Result<ExitCode, String> {
 }
 
 /// Testing only (#1431): the offline stand-in flies the default airplane.
-/// No seeded body is an airplane, and the preset exists for published
-/// records, which an offline agent has none of.
+/// None of the offline stand-ins' bodies is an airplane - a sixth of seeds
+/// are since #1617, but the stand-ins were kept in their families - and an
+/// offline agent has no published record to wear one from.
 #[derive(Resource)]
 struct WearAirplane;
 

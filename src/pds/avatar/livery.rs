@@ -1139,6 +1139,203 @@ pub fn helicopter_livery(
     pick(HELICOPTER_LIVERIES, |l| l.weight(style), seed, over)
 }
 
+/// An airplane's scheme (#1617): the two hues of her airframe, as the owner
+/// agreed the form on the phase-5 renders - "two hues plus dark glass and a
+/// contrasting jewel window light", with "the scheme list per theme, as the
+/// helicopter's" (#1616 recommendation 6).
+///
+/// Weighted by THEME, as the helicopter's list is and for the same reason:
+/// a light airplane's paint says what she is - a farm strip's yellow, a
+/// flying club's white and red, a bush plane's orange, an army spotter's
+/// olive. A scheme scores [`PLANE_AT_HOME`] on a theme it is at home on, and
+/// the two civil classics carry a [`PLANE_FLOOR`] on every theme. The
+/// seeded accent goes on the identity slot and nowhere else (the cheat line
+/// down each flank).
+#[derive(Clone, Copy, Debug)]
+pub struct AirplaneLivery {
+    /// See [`BoatLivery::name`].
+    pub name: &'static str,
+    /// The themes the scheme is at home on.
+    home: &'static [ThemeArchetype],
+    /// Whether every theme can roll it - see [`PLANE_FLOOR`].
+    floor: bool,
+    /// The fuselage, the wing and the tail surfaces.
+    body: [f32; 3],
+    /// The cowl's nose ring and the fin's top.
+    trim: [f32; 3],
+}
+
+impl AirplaneLivery {
+    /// This scheme's share of the draw on `style`.
+    fn weight(&self, style: ThemeArchetype) -> u32 {
+        let floor = if self.floor { PLANE_FLOOR } else { 0 };
+        floor
+            + if self.home.contains(&style) {
+                PLANE_AT_HOME
+            } else {
+                0
+            }
+    }
+}
+
+/// An airplane scheme's weight on a theme it is at home on, and the floor
+/// the two civil classics carry on every theme - the helicopter's six and
+/// two.
+const PLANE_AT_HOME: u32 = 6;
+const PLANE_FLOOR: u32 = 2;
+
+/// The airplane's eleven schemes (#1617). The first three are the
+/// prototype's own, as the owner saw them on the phase-5 renders (#1616);
+/// the rest are what the other themes fly. Every theme is at home on at
+/// least one (`every_theme_is_at_home_on_an_airplane_scheme`).
+pub const AIRPLANE_LIVERIES: &[AirplaneLivery] = &[
+    AirplaneLivery {
+        name: "Cub yellow",
+        home: &[
+            ThemeArchetype::RuralFarmland,
+            ThemeArchetype::Roadside,
+            ThemeArchetype::SportsRec,
+            ThemeArchetype::Suburban,
+        ],
+        floor: true,
+        body: [0.93, 0.70, 0.08],
+        trim: [0.06, 0.06, 0.06],
+    },
+    AirplaneLivery {
+        name: "White and red",
+        home: &[
+            ThemeArchetype::ModernCity,
+            ThemeArchetype::CoastalResort,
+            ThemeArchetype::CivicCampus,
+            ThemeArchetype::Suburban,
+        ],
+        floor: true,
+        body: [0.90, 0.90, 0.88],
+        trim: [0.70, 0.06, 0.05],
+    },
+    AirplaneLivery {
+        name: "Olive drab",
+        home: &[
+            ThemeArchetype::PostApoc,
+            ThemeArchetype::WildWest,
+            ThemeArchetype::Medieval,
+            ThemeArchetype::Nordic,
+        ],
+        floor: false,
+        body: [0.30, 0.33, 0.20],
+        trim: [0.85, 0.84, 0.78],
+    },
+    AirplaneLivery {
+        name: "Silver and blue",
+        home: &[
+            ThemeArchetype::ModernCity,
+            ThemeArchetype::SpaceOutpost,
+            ThemeArchetype::IndustrialPark,
+            ThemeArchetype::CivicCampus,
+        ],
+        floor: false,
+        body: [0.70, 0.71, 0.73],
+        trim: [0.10, 0.22, 0.55],
+    },
+    AirplaneLivery {
+        name: "Bush orange",
+        home: &[
+            ThemeArchetype::Nordic,
+            ThemeArchetype::IndustrialPark,
+            ThemeArchetype::SpaceOutpost,
+            ThemeArchetype::CoastalResort,
+        ],
+        floor: false,
+        body: [0.85, 0.36, 0.08],
+        trim: [0.92, 0.91, 0.88],
+    },
+    AirplaneLivery {
+        name: "Navy and cream",
+        home: &[
+            ThemeArchetype::CoastalResort,
+            ThemeArchetype::Pirate,
+            ThemeArchetype::Nordic,
+            ThemeArchetype::AncientClassical,
+        ],
+        floor: false,
+        body: [0.07, 0.12, 0.28],
+        trim: [0.90, 0.86, 0.74],
+    },
+    AirplaneLivery {
+        name: "Racing red",
+        home: &[
+            ThemeArchetype::Roadside,
+            ThemeArchetype::SportsRec,
+            ThemeArchetype::Steampunk,
+            ThemeArchetype::WildWest,
+        ],
+        floor: false,
+        body: [0.60, 0.06, 0.05],
+        trim: [0.92, 0.86, 0.70],
+    },
+    AirplaneLivery {
+        name: "Night black",
+        home: &[
+            ThemeArchetype::Cyberpunk,
+            ThemeArchetype::AlienMonolithic,
+            ThemeArchetype::GothicHorror,
+            ThemeArchetype::Pirate,
+            ThemeArchetype::FeudalJapan,
+        ],
+        floor: false,
+        body: [0.040, 0.040, 0.045],
+        trim: [0.62, 0.63, 0.66],
+    },
+    AirplaneLivery {
+        name: "Oxblood and brass",
+        home: &[
+            ThemeArchetype::Steampunk,
+            ThemeArchetype::Fantasy,
+            ThemeArchetype::GothicHorror,
+            ThemeArchetype::Medieval,
+            ThemeArchetype::FeudalJapan,
+        ],
+        floor: false,
+        body: [0.34, 0.07, 0.055],
+        trim: [0.72, 0.55, 0.22],
+    },
+    AirplaneLivery {
+        name: "Forest green and cream",
+        home: &[
+            ThemeArchetype::Solarpunk,
+            ThemeArchetype::AlienOrganic,
+            ThemeArchetype::RuralFarmland,
+            ThemeArchetype::Fantasy,
+        ],
+        floor: false,
+        body: [0.10, 0.24, 0.14],
+        trim: [0.86, 0.84, 0.78],
+    },
+    AirplaneLivery {
+        name: "Desert sand",
+        home: &[
+            ThemeArchetype::PostApoc,
+            ThemeArchetype::Mesoamerican,
+            ThemeArchetype::AncientClassical,
+            ThemeArchetype::WildWest,
+        ],
+        floor: false,
+        body: [0.62, 0.52, 0.34],
+        trim: [0.30, 0.24, 0.16],
+    },
+];
+
+/// The scheme this airplane seed wears on `style`, a pick from
+/// [`AIRPLANE_LIVERIES`]; `over` wraps inside it (`render --livery 0` is
+/// Cub yellow, `1` White and red).
+pub fn airplane_livery(
+    seed: u64,
+    style: ThemeArchetype,
+    over: Option<usize>,
+) -> &'static AirplaneLivery {
+    pick(AIRPLANE_LIVERIES, |l| l.weight(style), seed, over)
+}
+
 // ---------------------------------------------------------------------------
 // Turning a scheme into surfaces
 // ---------------------------------------------------------------------------
@@ -2771,6 +2968,115 @@ pub(crate) fn helicopter_colours(ctx: &PartCtx) -> HelicopterColours {
     }
 }
 
+/// The surfaces an airplane is built in (#1617): her scheme's two hues on
+/// the big masses, the seeded accent on the cheat line down each flank, and
+/// the colours the rest of her simply is - dark glass, bare metal, dark
+/// rubber and a dark airscrew.
+///
+/// What is lit, as the owner agreed it (#1616): the cabin windows, which are
+/// the fleet's lit window - the tertiary's light, held off her body's own
+/// colour ([`standing_off`]); the nav lights on her wingtips, the white
+/// tail light and the landing light, which are lamps and glow on every
+/// theme; and on an ornate seed the beacon on her fin. The cheat line goes
+/// through [`trim`], so it lights on a luminous kit and is paint on every
+/// other. Nothing else glows.
+pub(crate) struct AirplaneColours {
+    /// The fuselage, the wing, the stabiliser and the fin: the scheme's
+    /// body hue, floored off mud on a battered kit.
+    pub(crate) body: SovereignMaterialSettings,
+    /// The scheme's second hue: the cowl's nose ring and the fin's top.
+    pub(crate) trim: SovereignMaterialSettings,
+    /// **Identity.** The cheat line down each flank: the coachline's rule,
+    /// held clear of the body it lies on.
+    pub(crate) stripe: SovereignMaterialSettings,
+    /// The windscreen.
+    pub(crate) glass: SovereignMaterialSettings,
+    /// The cabin windows: the tertiary's light, standing off her body.
+    pub(crate) lamp: SovereignMaterialSettings,
+    /// The spinner, the struts, the gear legs, the hubs, the pitot and the
+    /// strut steps.
+    pub(crate) metal: SovereignMaterialSettings,
+    /// The airscrew, the tyres, the exhaust stack, the cylinder heads and
+    /// the hidden hubs.
+    pub(crate) dark: SovereignMaterialSettings,
+    /// The nav light on her left (port) wingtip: red, as on every aircraft.
+    pub(crate) port: SovereignMaterialSettings,
+    /// The nav light on her right (starboard) wingtip: green.
+    pub(crate) starboard: SovereignMaterialSettings,
+    /// The tail light on her rudder and the landing light in her port wing.
+    pub(crate) white: SovereignMaterialSettings,
+    /// The anti-collision beacon an ornate machine carries on her fin.
+    pub(crate) beacon: SovereignMaterialSettings,
+}
+
+/// How far apart (in RGB) her window light and her body must be, or the
+/// light is turned to its complement: amber panes on a yellow fuselage, 0.22
+/// apart, read as cream paint on the phase-5 renders (#1616), and amber on
+/// white, 0.69 apart, read as lit.
+const WINDOW_STAND_OFF: f32 = 0.35;
+
+/// A window light that stands off the body it is set in: `light` itself
+/// when it is [`WINDOW_STAND_OFF`] or more from `body`, and otherwise
+/// whichever of its complement's jewel and the fleet's two lamp jewels, an
+/// amber and a cyan, stands furthest off - the yellow fuselage's blue. The
+/// complement alone was not enough: a greyed light on a silver body has a
+/// grey complement too, and stood 0.20 off it.
+fn standing_off(light: [f32; 3], body: [f32; 3]) -> [f32; 3] {
+    let apart = |c: [f32; 3]| {
+        c.iter()
+            .zip(body)
+            .map(|(a, b)| (a - b).powi(2))
+            .sum::<f32>()
+            .sqrt()
+    };
+    if apart(light) >= WINDOW_STAND_OFF {
+        return light;
+    }
+    let complement = window_light([1.0 - light[0], 1.0 - light[1], 1.0 - light[2]]);
+    [complement, LAMP_AMBER, LAMP_CYAN]
+        .into_iter()
+        .max_by(|a, b| apart(*a).total_cmp(&apart(*b)))
+        .unwrap_or(complement)
+}
+
+/// The fleet's two lamp jewels, a warm and a cool: the lit window a cabin
+/// on a pale body and on a warm one most often shows.
+const LAMP_AMBER: [f32; 3] = [0.84, 0.60, 0.26];
+const LAMP_CYAN: [f32; 3] = [0.22, 0.62, 0.78];
+
+const PLANE_GLASS: [f32; 3] = [0.08, 0.12, 0.16];
+const PLANE_METAL: [f32; 3] = [0.55, 0.56, 0.58];
+const PLANE_DARK: [f32; 3] = [0.12, 0.12, 0.13];
+const LAMP_WHITE: [f32; 3] = [1.00, 0.97, 0.90];
+
+pub(crate) fn airplane_colours(ctx: &PartCtx) -> AirplaneColours {
+    let p = &ctx.palette;
+    let m = &ctx.materials;
+    let style = AvatarCharacter::for_seed(ctx.seed).style;
+    let l = airplane_livery(ctx.seed, style, ctx.livery);
+    let body = floor_finished(m, l.body, HELI_MASS_FLOOR);
+    let paint = m.paint(body);
+    // Off the body as it is PAINTED: a kit's grime moves it, and a light
+    // held off the scheme's own colour stood 0.20 off a battered silver.
+    let lamp = window_material(standing_off(
+        window_light(p.tertiary_accent),
+        paint.base_color.0,
+    ));
+    AirplaneColours {
+        body: paint,
+        trim: m.paint(floor_finished(m, l.trim, HELI_MASS_FLOOR)),
+        stripe: trim(m, clear_of(p.primary_accent, luma(body), COACHLINE_DELTA)),
+        glass: m.glass(PLANE_GLASS),
+        lamp,
+        metal: m.paint(PLANE_METAL),
+        dark: m.paint(PLANE_DARK),
+        port: m.glow(NAV_RED),
+        starboard: m.glow(NAV_GREEN),
+        white: m.glow(LAMP_WHITE),
+        beacon: m.glow(BEACON_RED),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3537,7 +3843,7 @@ mod tests {
     }
 
     /// An armoured car's colours read on every scheme of her list, on every
-    /// seed drawn as one under 3000 (#1375), BOTH directions.
+    /// seed drawn as one under 4000 (#1375), BOTH directions.
     ///
     /// What is lit: her vision slits and her lamp lenses, which are one slot -
     /// the tertiary's window light - and her tail lamps. Every plate of her,
@@ -3556,7 +3862,7 @@ mod tests {
     fn an_armoured_cars_flash_band_and_slits_read_on_every_scheme() {
         use crate::seeded_defaults::SkiffType;
         let (mut cars, mut lit, mut dark) = (0, 0, 0);
-        for s in (0u64..3000).filter(|&s| {
+        for s in (0u64..4000).filter(|&s| {
             ChassisFamily::for_seed(s) == ChassisFamily::Skiff
                 && SkiffType::for_seed(s) == SkiffType::ArmouredCar
         }) {
@@ -3636,7 +3942,7 @@ mod tests {
             }
             cars += 1;
         }
-        assert!(cars > 50, "only {cars} armoured-car seeds under 3000");
+        assert!(cars > 50, "only {cars} armoured-car seeds under 4000");
         // Her three themes are all FLAT today, so the luminous arm above is
         // unexercised by the population and says so rather than pretending:
         // the day one of them turns luminous this test starts checking it.
@@ -3648,7 +3954,7 @@ mod tests {
     }
 
     /// A rover's colours read on every scheme of her list, on every seed
-    /// drawn as one under 3000 (#1378), BOTH directions.
+    /// drawn as one under 4000 (#1378), BOTH directions.
     ///
     /// **Hers is the first guard in the fleet whose LIT arm is exercised on
     /// every seed.** All three of her themes are luminous, so her deck band
@@ -3681,7 +3987,7 @@ mod tests {
         use crate::pds::texture::SovereignTextureConfig;
         use crate::seeded_defaults::{RoverVariant, SkiffType};
         let (mut rovers, mut lit, mut dark) = (0, 0, 0);
-        for s in (0u64..3000).filter(|&s| {
+        for s in (0u64..4000).filter(|&s| {
             ChassisFamily::for_seed(s) == ChassisFamily::Skiff
                 && SkiffType::for_seed(s) == SkiffType::Rover
         }) {
@@ -3831,7 +4137,7 @@ mod tests {
             }
             rovers += 1;
         }
-        assert!(rovers > 40, "only {rovers} rover seeds under 3000");
+        assert!(rovers > 40, "only {rovers} rover seeds under 4000");
         // Every one of her three themes is LUMINOUS, so unlike the armoured
         // car's the lit arm above is the exercised one and the flat arm is
         // the one the population never reaches. The day a flat theme picks
@@ -4074,6 +4380,156 @@ mod tests {
         // apart in value before any kit finishes them.
         for l in HELICOPTER_LIVERIES {
             let d = (luma(l.body) - luma(l.lower)).abs();
+            assert!(d > 0.15, "{}: its two hues are only {d} apart", l.name);
+        }
+    }
+
+    /// The airplane's list keeps the helicopter's promises (#1617): every
+    /// scheme is at home on some theme, every theme is at home on at least
+    /// one and reaches two, the two civil classics are the floors, and the
+    /// draw reaches every scheme.
+    #[test]
+    fn every_theme_is_at_home_on_an_airplane_scheme() {
+        for l in AIRPLANE_LIVERIES {
+            assert!(
+                ThemeArchetype::ALL.iter().any(|s| l.home.contains(s)),
+                "{} is at home on no theme",
+                l.name
+            );
+        }
+        for style in ThemeArchetype::ALL {
+            let home = AIRPLANE_LIVERIES
+                .iter()
+                .filter(|l| l.home.contains(&style))
+                .count();
+            assert!(home >= 1, "{style:?} is at home on no airplane scheme");
+            let reachable = AIRPLANE_LIVERIES
+                .iter()
+                .filter(|l| l.weight(style) > 0)
+                .count();
+            assert!(reachable >= 2, "{style:?} reaches {reachable} scheme(s)");
+        }
+        let floors: Vec<&str> = AIRPLANE_LIVERIES
+            .iter()
+            .filter(|l| l.floor)
+            .map(|l| l.name)
+            .collect();
+        assert_eq!(floors, ["Cub yellow", "White and red"]);
+        let mut drawn = vec![0usize; AIRPLANE_LIVERIES.len()];
+        for s in 0u64..4_000 {
+            let style = AvatarCharacter::for_seed(s).style;
+            let l = airplane_livery(s, style, None);
+            drawn[AIRPLANE_LIVERIES
+                .iter()
+                .position(|x| x.name == l.name)
+                .expect("the pick came from the table")] += 1;
+        }
+        assert!(
+            drawn.iter().all(|&n| n > 0),
+            "an airplane scheme is never drawn: {drawn:?}"
+        );
+    }
+
+    /// An airplane's colours read on every scheme of her list, on every seed
+    /// drawn as one under 900 (#1617), BOTH directions: her windows are lit
+    /// and stand off her body - the phase-5 lesson, amber on yellow reading
+    /// as cream paint - by four fifths of [`WINDOW_STAND_OFF`] at the least,
+    /// since where no light the fleet has stands the whole way off her paint,
+    /// `standing_off` takes the one that stands furthest; her nav, tail and
+    /// landing lights and her beacon are
+    /// lamps, her cheat line is the seed's accent through [`trim`], lit
+    /// exactly when the kit is luminous and off the body otherwise, and
+    /// everything else is paint.
+    #[test]
+    fn an_airplanes_windows_lights_and_cheat_line_read_on_every_scheme() {
+        let (mut lit, mut dark, mut turned) = (0, 0, 0);
+        for s in (0u64..900).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Airplane) {
+            let mut ctx = PartCtx::for_seed(s);
+            let luminous = ctx.materials.emissive_accents();
+            for (i, scheme) in AIRPLANE_LIVERIES.iter().enumerate() {
+                ctx.livery = Some(i);
+                let c = airplane_colours(&ctx);
+                for (what, m) in [
+                    ("airframe", &c.body),
+                    ("nose ring and fin top", &c.trim),
+                    ("windscreen", &c.glass),
+                    ("struts and gear", &c.metal),
+                    ("airscrew and tyres", &c.dark),
+                ] {
+                    assert_eq!(
+                        m.emission_strength.0, 0.0,
+                        "seed {s} in {}: the {what} is self-lit",
+                        scheme.name
+                    );
+                }
+                assert!(
+                    c.lamp.emission_strength.0 > 0.0,
+                    "seed {s} in {}: the windows are dark",
+                    scheme.name
+                );
+                let apart = c
+                    .lamp
+                    .base_color
+                    .0
+                    .iter()
+                    .zip(c.body.base_color.0)
+                    .map(|(a, b)| (a - b).powi(2))
+                    .sum::<f32>()
+                    .sqrt();
+                assert!(
+                    apart >= WINDOW_STAND_OFF * 0.8,
+                    "seed {s} in {}: the windows are {apart} from the body",
+                    scheme.name
+                );
+                let tertiary = window_light(ctx.palette.tertiary_accent);
+                turned += usize::from(c.lamp.base_color.0 != tertiary);
+                for (what, m) in [
+                    ("port light", &c.port),
+                    ("starboard light", &c.starboard),
+                    ("tail and landing lights", &c.white),
+                    ("beacon", &c.beacon),
+                ] {
+                    assert!(
+                        m.emission_strength.0 > 0.0,
+                        "seed {s} in {}: the {what} is dark",
+                        scheme.name
+                    );
+                }
+                assert!(
+                    c.port.base_color.0[0] > c.port.base_color.0[1]
+                        && c.starboard.base_color.0[1] > c.starboard.base_color.0[0],
+                    "red is to port and green to starboard"
+                );
+                let on = c.stripe.emission_strength.0 > 0.0;
+                assert_eq!(
+                    on, luminous,
+                    "seed {s} in {}: the cheat line is lit {on} on a kit luminous {luminous}",
+                    scheme.name
+                );
+                if !luminous {
+                    let l = |m: &SovereignMaterialSettings| luma(m.base_color.0);
+                    let d = (l(&c.stripe) - l(&c.body)).abs();
+                    assert!(
+                        d > COACHLINE_DELTA * 0.6,
+                        "seed {s} in {}: the cheat line is {d} from the body",
+                        scheme.name
+                    );
+                }
+            }
+            if luminous {
+                lit += 1;
+            } else {
+                dark += 1;
+            }
+        }
+        assert!(
+            lit > 0 && dark > 0,
+            "the population saw only one kind: {lit} lit, {dark} dark"
+        );
+        assert!(turned > 0, "no window light was ever turned off its body");
+        // The two hues are a step apart before any kit finishes them.
+        for l in AIRPLANE_LIVERIES {
+            let d = (luma(l.body) - luma(l.trim)).abs();
             assert!(d > 0.15, "{}: its two hues are only {d} apart", l.name);
         }
     }

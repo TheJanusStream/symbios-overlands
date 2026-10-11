@@ -494,7 +494,7 @@ mod tests {
     fn a_pirate_seed_draws_the_kit_and_no_one_else_does() {
         use crate::seeded_defaults::{AvatarCharacter, BoatType, SloopRig, ThemeArchetype};
         let (mut pirates, mut others) = (0, 0);
-        for s in (0u64..1200).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat) {
+        for s in (0u64..1600).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat) {
             if BoatType::for_seed(s) != BoatType::Sloop {
                 continue;
             }
@@ -1324,7 +1324,7 @@ mod tests {
         use crate::seeded_defaults::LongshipVariant;
         let (mut ships, mut worst) = (0, 0.0f32);
         let mut seen = Vec::new();
-        for s in (0u64..3000).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat) {
+        for s in (0u64..4000).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat) {
             if BoatType::for_seed(s) != BoatType::Longship {
                 continue;
             }
@@ -1357,7 +1357,7 @@ mod tests {
             worst = worst.max(air);
             ships += 1;
         }
-        assert!(ships > 50, "only {ships} longship seeds under 3000");
+        assert!(ships > 50, "only {ships} longship seeds under 4000");
         assert_eq!(
             seen.len(),
             LongshipVariant::ALL.len(),

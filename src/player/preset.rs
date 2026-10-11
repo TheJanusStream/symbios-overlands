@@ -73,7 +73,8 @@ pub(super) struct ChassisSpec {
     linear_damping: f32,
     angular_damping: f32,
     /// Where the body's mass is centred in its own frame - the car's,
-    /// lowered (#804); `None` leaves avian's own, the shape's middle.
+    /// lowered (#804), and the airplane's, where her record puts it along
+    /// her (#1617); `None` leaves avian's own, the shape's middle.
     center_of_mass: Option<Vec3>,
     /// The preset writes its dampings itself every fixed step - the car's
     /// suspension blends its air and ground ones by the wheels it has down
@@ -189,12 +190,20 @@ impl PresetComponents for HoverBoatParams {
 
 impl PresetComponents for AirplaneParams {
     fn chassis(&self) -> ChassisSpec {
-        ChassisSpec::vehicle(
-            self.chassis_half_extents.0,
-            self.mass.0,
-            self.linear_damping.0,
-            self.angular_damping.0,
-        )
+        let half = self.chassis_half_extents.0;
+        ChassisSpec {
+            // Forward of the box's middle by the record's share (#1617): over
+            // the wing, so the tail wheel carries what a taildragger's does.
+            // Always set, the middle included, so a record that moves it
+            // later has a component to move.
+            center_of_mass: Some(Vec3::new(0.0, 0.0, -self.center_of_mass_ahead.0 * half[2])),
+            ..ChassisSpec::vehicle(
+                half,
+                self.mass.0,
+                self.linear_damping.0,
+                self.angular_damping.0,
+            )
+        }
     }
 
     fn insert_preset(&self, commands: &mut Commands, entity: Entity) {
@@ -701,7 +710,9 @@ mod tests {
                 ChassisFamily::Boat | ChassisFamily::Skiff | ChassisFamily::Helicopter => {
                     assert_eq!(height, cfg::SPAWN_HEIGHT_OFFSET, "seed {seed}");
                 }
-                ChassisFamily::Airship | ChassisFamily::Humanoid => {
+                // An airplane stands on her gear (#1617): a long one on her
+                // tall legs reaches past the metre, and is set down higher.
+                ChassisFamily::Airship | ChassisFamily::Humanoid | ChassisFamily::Airplane => {
                     raised += usize::from(height > cfg::SPAWN_HEIGHT_OFFSET);
                 }
             }

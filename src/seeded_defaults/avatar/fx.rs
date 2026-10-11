@@ -50,8 +50,8 @@ pub enum ParticleAura {
     Wake,
     /// Airship chassis floor: a soft vapour puff venting under the gondola.
     Vent,
-    /// Skiff and helicopter chassis floor: a thin exhaust wisp off the
-    /// tailpipe, or off a turbine's stack.
+    /// Skiff, helicopter and airplane chassis floor: a thin exhaust wisp
+    /// off the tailpipe, a turbine's stack, or the stack under a cowl.
     Exhaust,
 }
 
@@ -93,22 +93,30 @@ impl ParticleAura {
     /// The chassis-signature aura a vehicle falls back to when its *style*
     /// rolls [`Self::None`] - the diegetic wake / vent / exhaust every craft
     /// carries. Humanoids have no floor (they read clean). A helicopter's is
-    /// the wisp off her turbine's exhaust stack (#1614).
+    /// the wisp off her turbine's exhaust stack (#1614), and an airplane's
+    /// the wisp off the stack under her cowl (#1617).
     fn family_floor(chassis: ChassisFamily) -> Self {
         match chassis {
             ChassisFamily::Boat => Self::Wake,
             ChassisFamily::Airship => Self::Vent,
-            ChassisFamily::Skiff | ChassisFamily::Helicopter => Self::Exhaust,
+            ChassisFamily::Skiff | ChassisFamily::Helicopter | ChassisFamily::Airplane => {
+                Self::Exhaust
+            }
             ChassisFamily::Humanoid => Self::None,
         }
     }
 
-    /// Whether a craft of this family flies, so a downward
+    /// Whether a craft of this family HOVERS, so a downward
     /// [`Self::Thruster`] wash has air under it rather than water or road.
+    /// An airplane flies on her wing, not on a jet under her (#1617): a
+    /// thruster style trails her exhaust instead, as a surface craft's does.
     fn airborne(chassis: ChassisFamily) -> bool {
         match chassis {
             ChassisFamily::Airship | ChassisFamily::Helicopter => true,
-            ChassisFamily::Boat | ChassisFamily::Skiff | ChassisFamily::Humanoid => false,
+            ChassisFamily::Boat
+            | ChassisFamily::Skiff
+            | ChassisFamily::Humanoid
+            | ChassisFamily::Airplane => false,
         }
     }
 

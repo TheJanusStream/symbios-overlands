@@ -88,14 +88,15 @@ pub fn required_slots(chassis: ChassisFamily) -> &'static [PartSlot] {
     use PartSlot::*;
     match chassis {
         // A rigged family assembles no parts (#1060), and since #1363 / #1364
-        // neither does a boat or a skiff, nor a helicopter (#1614): the
-        // craft types draw their own geometry off one profile, so there is
-        // nothing for an outfit to fill. The airship is the last family with
-        // parts.
+        // neither does a boat or a skiff, nor a helicopter (#1614) or an
+        // airplane (#1617): the craft types draw their own geometry off one
+        // profile, so there is nothing for an outfit to fill. The airship is
+        // the last family with parts.
         ChassisFamily::Humanoid
         | ChassisFamily::Boat
         | ChassisFamily::Skiff
-        | ChassisFamily::Helicopter => &[],
+        | ChassisFamily::Helicopter
+        | ChassisFamily::Airplane => &[],
         ChassisFamily::Airship => &[Envelope, Gondola, Fin, Pod],
     }
 }
@@ -108,7 +109,8 @@ pub fn optional_slots(chassis: ChassisFamily) -> &'static [PartSlot] {
         ChassisFamily::Humanoid
         | ChassisFamily::Boat
         | ChassisFamily::Skiff
-        | ChassisFamily::Helicopter => &[],
+        | ChassisFamily::Helicopter
+        | ChassisFamily::Airplane => &[],
         ChassisFamily::Airship => &[Ornament],
     }
 }

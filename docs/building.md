@@ -816,9 +816,9 @@ done
 
 The index is into that family's own table in `src/pds/avatar/livery.rs` and
 wraps, so a loop that runs past the end draws each scheme once rather than the
-last one twice. (A helicopter's list is the one weighted by theme, #1614: the
-index still names its scheme outright, whatever the subject's theme would have
-picked.) `--outfit <seed>` prints the scheme a seed picked for itself,
+last one twice. (A helicopter's list and an airplane's are the ones weighted
+by theme, #1614 and #1617: the index still names its scheme outright, whatever
+the subject's theme would have picked.) `--outfit <seed>` prints the scheme a seed picked for itself,
 beside its craft type. A `--generator` file carries its own colours and is
 unaffected.
 
@@ -864,7 +864,7 @@ cargo run --bin render -- --diff-sessions old.jsonl new.jsonl
 # Road-network graph diagnostics for a seed or DID:
 cargo run --bin render -- --road-dump 1
 # List seeds that produce a given avatar chassis family (boat, airship,
-# humanoid, skiff or helicopter):
+# humanoid, skiff, helicopter or airplane):
 cargo run --bin render -- --family-seeds skiff --family-count 8
 # ...narrowed to one seeded craft type (#1362) - the survey each craft-type
 # slice opens with. A craft type is a property of the SEED, so this answers
@@ -1142,10 +1142,11 @@ the agent knows it works (#1452).
 commands reach it with `--account <DID>`; `--room <DID>` puts it in another
 seeded world. Either DID has to be well formed (`did:plc:` and 24 of `a-z`
 and `2-7`): the directory refuses a malformed one, which the loading screen
-takes for an outage and retries for minutes. No seeded body is an airplane,
-so for testing, `start --offline --wear-airplane` (hidden from `--help`)
-flies the default airplane in place of the stand-in's own locomotion, its
-body left as it is.
+takes for an outage and retries for minutes. None of the stand-ins is an
+airplane (a sixth of seeds are since #1617, but the stand-ins kept their
+families), so for testing, `start --offline --wear-airplane` (hidden from
+`--help`) flies the default airplane in place of the stand-in's own
+locomotion, its body left as it is.
 
 `look` renders a 1024x576 PNG only when asked: the daemon parks the world
 camera, so between pictures it draws nothing at all, and each picture gets a

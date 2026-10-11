@@ -41,11 +41,10 @@ pub(crate) fn quat_z(angle_rad: f32) -> [f32; 4] {
 /// Hamilton product of two `[x, y, z, w]` quaternions: the rotation that
 /// applies `b` first and then `a`.
 ///
-/// Test-only since #1364. It composed the two axis rotations that laid a
-/// legacy skiff wheel on its axle; the redesigned family lays a turned wheel
-/// with one [`quat_z`], so the only caller left is the airship's fin-cluster
-/// test, which uses it to rotate a vector by hand.
-#[cfg(test)]
+/// Compose two rotations, `a` after `b`. Test-only from #1364, when the
+/// redesigned skiff stopped laying its wheels with two; the airplane's
+/// airscrew needs it again (#1617), its lower blade turned half round about
+/// the shaft after its pitch.
 pub(crate) fn quat_mul(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
     let [ax, ay, az, aw] = a;
     let [bx, by, bz, bw] = b;

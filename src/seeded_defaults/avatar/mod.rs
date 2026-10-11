@@ -86,7 +86,7 @@ pub use character::{
     AvatarCharacter, AvatarPins, FinishRegister, OrnatenessBand, OrnatenessTier, WearBand, WearTier,
 };
 pub use chassis::ChassisFamily;
-pub use craft::{BoatType, CraftType, HelicopterType, SkiffType, craft_axis};
+pub use craft::{AirplaneType, BoatType, CraftType, HelicopterType, SkiffType, craft_axis};
 pub use fx::{AvatarFx, AvatarVoice, ParticleAura};
 pub use gait::AvatarGait;
 pub use longship::LongshipVariant;
@@ -100,7 +100,8 @@ pub use scow::ScowLoad;
 pub use sloop::{SloopHull, SloopRig};
 pub use tug::TugVariant;
 pub use vehicle_blueprint::{
-    AirshipBlueprint, BoatBlueprint, HelicopterBlueprint, NOMINAL_BODY_LEN, NOMINAL_FUSELAGE_LEN,
-    NOMINAL_HULL_LEN, SkiffBlueprint, VehicleBlueprint, VehicleStance,
+    AirplaneBlueprint, AirshipBlueprint, BoatBlueprint, HelicopterBlueprint, NOMINAL_AIRFRAME_LEN,
+    NOMINAL_BODY_LEN, NOMINAL_FUSELAGE_LEN, NOMINAL_HULL_LEN, SkiffBlueprint, VehicleBlueprint,
+    VehicleStance,
 };
 pub use wagon::WagonBody;

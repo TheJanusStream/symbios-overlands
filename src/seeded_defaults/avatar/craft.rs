@@ -50,6 +50,12 @@
 //! It is a type rather than nothing - the airship's answer - because the
 //! fan-out is coming and its seam should already be cut: the builder table,
 //! the pinned re-roll and the survey readouts all key on it today.
+//!
+//! # So has the airplane family (#1617)
+//!
+//! [`AirplaneType`] opens the same way: its hero alone, the high-wing light
+//! monoplane taildragger the owner agreed on the phase-5 renders (#1616), the
+//! family's universal floor until the fan-out adds the rest.
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
@@ -72,13 +78,14 @@ pub(super) const AT_HOME: u32 = 6;
 /// at home in the theme scores this on top of [`AT_HOME`].
 pub(super) const FLOOR: u32 = 2;
 
-/// The craft type of a seeded vehicle avatar, for the three families that
+/// The craft type of a seeded vehicle avatar, for the four families that
 /// have one. Airships and the rigged humanoid family have no type pick.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CraftType {
     Boat(BoatType),
     Skiff(SkiffType),
     Helicopter(HelicopterType),
+    Airplane(AirplaneType),
 }
 
 impl CraftType {
@@ -106,6 +113,10 @@ impl CraftType {
     /// Every helicopter type as a craft type, in [`HelicopterType::ALL`]'s
     /// order.
     pub const HELICOPTERS: [Self; 1] = [Self::Helicopter(HelicopterType::Utility)];
+
+    /// Every airplane type as a craft type, in [`AirplaneType::ALL`]'s
+    /// order.
+    pub const AIRPLANES: [Self; 1] = [Self::Airplane(AirplaneType::HighWing)];
 
     /// The craft type for a seed, or `None` for a family without one (the
     /// airship, whose envelope forms are its variety, and the humanoid).
@@ -148,6 +159,7 @@ impl CraftType {
             Self::Boat(_) => ChassisFamily::Boat,
             Self::Skiff(_) => ChassisFamily::Skiff,
             Self::Helicopter(_) => ChassisFamily::Helicopter,
+            Self::Airplane(_) => ChassisFamily::Airplane,
         }
     }
 
@@ -158,6 +170,7 @@ impl CraftType {
             ChassisFamily::Boat => &Self::BOATS,
             ChassisFamily::Skiff => &Self::SKIFFS,
             ChassisFamily::Helicopter => &Self::HELICOPTERS,
+            ChassisFamily::Airplane => &Self::AIRPLANES,
             ChassisFamily::Airship | ChassisFamily::Humanoid => &[],
         }
     }
@@ -174,6 +187,7 @@ impl CraftType {
             Self::Boat(t) => t.weight(style),
             Self::Skiff(t) => t.weight(style),
             Self::Helicopter(t) => t.weight(style),
+            Self::Airplane(t) => t.weight(style),
         }
     }
 
@@ -183,6 +197,7 @@ impl CraftType {
             Self::Boat(t) => t.label(),
             Self::Skiff(t) => t.label(),
             Self::Helicopter(t) => t.label(),
+            Self::Airplane(t) => t.label(),
         }
     }
 }
@@ -190,7 +205,7 @@ impl CraftType {
 /// The craft axis of an already-derived anchor: the type it rolled, or why
 /// its family has none.
 ///
-/// One match over the five families, so the value and the explanation can
+/// One match over the six families, so the value and the explanation can
 /// never disagree and neither arm is dead. [`CraftType::for_character`] is
 /// this with the words thrown away, and the pinned re-roll draws its craft
 /// row straight from it: `Ok` as a lockable value, `Err` as the weak
@@ -201,6 +216,9 @@ pub fn craft_axis(c: &AvatarCharacter) -> Result<CraftType, &'static str> {
         ChassisFamily::Boat => Ok(CraftType::Boat(BoatType::for_style(c.style, c.seed))),
         ChassisFamily::Skiff => Ok(CraftType::Skiff(SkiffType::for_style(c.style, c.seed))),
         ChassisFamily::Helicopter => Ok(CraftType::Helicopter(HelicopterType::for_style(
+            c.style, c.seed,
+        ))),
+        ChassisFamily::Airplane => Ok(CraftType::Airplane(AirplaneType::for_style(
             c.style, c.seed,
         ))),
         ChassisFamily::Airship => Err("an airship has no craft types"),
@@ -270,6 +288,20 @@ pub enum HelicopterType {
     /// rotor and a tail rotor on a slim boom - the JetRanger's layout, and
     /// the family's universal floor.
     Utility,
+}
+
+/// The recognisable kind of fixed-wing a seeded airplane avatar is (#1617).
+///
+/// One so far, as the helicopter's: the hero the owner agreed on the
+/// phase-5 renders (#1616), which is the family's universal floor, so every
+/// style reaches her. The fan-out (#1618) adds the types a theme would
+/// rather fly.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AirplaneType {
+    /// High-wing light monoplane taildragger: a round-cowled cabin under a
+    /// strut-braced wing, on fat tyres and a tail wheel - the Cub's layout,
+    /// and the family's universal floor.
+    HighWing,
 }
 
 impl BoatType {
@@ -570,6 +602,64 @@ impl HelicopterType {
     }
 }
 
+impl AirplaneType {
+    pub const ALL: [Self; 1] = [Self::HighWing];
+
+    /// The type every airplane theme can reach - see [`FLOOR`].
+    pub const UNIVERSAL: Self = Self::HighWing;
+
+    /// Human-readable display name.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::HighWing => "High-wing monoplane",
+        }
+    }
+
+    /// Lower-case, hyphen-free name for the `--craft` survey filter.
+    pub fn slug(self) -> &'static str {
+        match self {
+            Self::HighWing => "high_wing",
+        }
+    }
+
+    /// Whether this type is at home on `style` - the affinity table.
+    fn at_home(self, style: ThemeArchetype) -> bool {
+        match self {
+            // The universal hero. Strongest where a light airplane is what a
+            // field beside the town keeps: the farm strip, the roadside
+            // airfield and the flying club, the coast and the suburbs - and
+            // the bush, where she is the only way in.
+            Self::HighWing => matches!(
+                style,
+                ThemeArchetype::RuralFarmland
+                    | ThemeArchetype::Roadside
+                    | ThemeArchetype::Suburban
+                    | ThemeArchetype::CoastalResort
+                    | ThemeArchetype::SportsRec
+                    | ThemeArchetype::Nordic
+                    | ThemeArchetype::WildWest
+            ),
+        }
+    }
+
+    /// Sampling weight of this type for an avatar of `style`.
+    pub fn weight(self, style: ThemeArchetype) -> u32 {
+        let floor = if self == Self::UNIVERSAL { FLOOR } else { 0 };
+        floor + if self.at_home(style) { AT_HOME } else { 0 }
+    }
+
+    /// The type for a seed, weighted by the avatar's style.
+    pub fn for_seed(seed: u64) -> Self {
+        Self::for_style(AvatarCharacter::for_seed(seed).style, seed)
+    }
+
+    /// The type for an already-resolved style.
+    pub fn for_style(style: ThemeArchetype, seed: u64) -> Self {
+        let mut rng = ChaCha8Rng::seed_from_u64(seed ^ AVATAR_CRAFT_SALT);
+        pick_weighted(&Self::ALL, |t| t.weight(style), &mut rng).unwrap_or(Self::UNIVERSAL)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -582,6 +672,7 @@ mod tests {
             BoatType::ALL.map(BoatType::slug).to_vec(),
             SkiffType::ALL.map(SkiffType::slug).to_vec(),
             HelicopterType::ALL.map(HelicopterType::slug).to_vec(),
+            AirplaneType::ALL.map(AirplaneType::slug).to_vec(),
         ] {
             let mut sorted = slugs.clone();
             sorted.sort_unstable();
@@ -597,6 +688,7 @@ mod tests {
             .map(|t| t.label())
             .chain(SkiffType::ALL.iter().map(|t| t.label()))
             .chain(HelicopterType::ALL.iter().map(|t| t.label()))
+            .chain(AirplaneType::ALL.iter().map(|t| t.label()))
             .collect();
         labels.sort_unstable();
         let before = labels.len();
@@ -620,6 +712,10 @@ mod tests {
             assert!(
                 HelicopterType::UNIVERSAL.weight(style) > 0,
                 "{style:?} cannot reach the utility helicopter"
+            );
+            assert!(
+                AirplaneType::UNIVERSAL.weight(style) > 0,
+                "{style:?} cannot reach the high-wing monoplane"
             );
         }
     }
@@ -691,6 +787,12 @@ mod tests {
                 "{t:?} is at home in no theme"
             );
         }
+        for t in AirplaneType::ALL {
+            assert!(
+                ThemeArchetype::ALL.iter().any(|&s| t.at_home(s)),
+                "{t:?} is at home in no theme"
+            );
+        }
     }
 
     #[test]
@@ -704,7 +806,7 @@ mod tests {
         );
     }
 
-    /// Only the three craft-type vehicle families carry a type - the airship
+    /// Only the four craft-type vehicle families carry a type - the airship
     /// is composed from parts instead, and the humanoid is rigged.
     #[test]
     fn the_type_follows_the_family() {
@@ -713,7 +815,8 @@ mod tests {
             match (ChassisFamily::for_seed(s), CraftType::for_seed(s)) {
                 (ChassisFamily::Boat, Some(CraftType::Boat(_)))
                 | (ChassisFamily::Skiff, Some(CraftType::Skiff(_)))
-                | (ChassisFamily::Helicopter, Some(CraftType::Helicopter(_))) => families += 1,
+                | (ChassisFamily::Helicopter, Some(CraftType::Helicopter(_)))
+                | (ChassisFamily::Airplane, Some(CraftType::Airplane(_))) => families += 1,
                 (ChassisFamily::Airship | ChassisFamily::Humanoid, None) => families += 1,
                 (fam, craft) => panic!("seed {s}: {fam:?} got craft {craft:?}"),
             }
@@ -728,11 +831,13 @@ mod tests {
         let mut boats: Vec<BoatType> = Vec::new();
         let mut skiffs: Vec<SkiffType> = Vec::new();
         let mut helicopters: Vec<HelicopterType> = Vec::new();
+        let mut airplanes: Vec<AirplaneType> = Vec::new();
         for s in 0u64..4000 {
             match CraftType::for_seed(s) {
                 Some(CraftType::Boat(t)) if !boats.contains(&t) => boats.push(t),
                 Some(CraftType::Skiff(t)) if !skiffs.contains(&t) => skiffs.push(t),
                 Some(CraftType::Helicopter(t)) if !helicopters.contains(&t) => helicopters.push(t),
+                Some(CraftType::Airplane(t)) if !airplanes.contains(&t) => airplanes.push(t),
                 _ => {}
             }
         }
@@ -750,6 +855,11 @@ mod tests {
             helicopters.len(),
             HelicopterType::ALL.len(),
             "unsampled helicopter types: got {helicopters:?}"
+        );
+        assert_eq!(
+            airplanes.len(),
+            AirplaneType::ALL.len(),
+            "unsampled airplane types: got {airplanes:?}"
         );
     }
 

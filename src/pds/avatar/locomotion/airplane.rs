@@ -83,6 +83,28 @@ pub struct AirplaneParams {
     /// the throttle closed.
     #[serde(default = "default_brake")]
     pub brake: Fp,
+    /// How far out her main wheels stand either side, as a share of the
+    /// box's half-width - past 1 on legs that splay out of it (#1617).
+    #[serde(default = "default_gear_track")]
+    pub gear_track: Fp,
+    /// How far ahead of the box's middle her main wheels stand, as a share
+    /// of its half-length (#1617).
+    #[serde(default = "default_gear_ahead")]
+    pub gear_ahead: Fp,
+    /// How far behind the box's middle her tail wheel stands, as a share of
+    /// its half-length (#1617).
+    #[serde(default = "default_tail_wheel_aft")]
+    pub tail_wheel_aft: Fp,
+    /// Her tail wheel's reach, as a share of [`Self::gear_height`] (#1617):
+    /// 1 stands her level on all three wheels; shorter, she sits tail-down
+    /// as a taildragger does, and flies level.
+    #[serde(default = "default_tail_gear_share")]
+    pub tail_gear_share: Fp,
+    /// How far ahead of the box's middle her centre of mass is, as a share
+    /// of its half-length (#1617): forward over her wing, her tail wheel
+    /// carries a smaller share of her weight.
+    #[serde(default)]
+    pub center_of_mass_ahead: Fp,
 }
 
 /// Serde fallback for records published before #876 - the constant the
@@ -113,6 +135,23 @@ fn default_brake() -> Fp {
     Fp(4.0)
 }
 
+/// Serde fallbacks for the wheel layout #1617 put on the record - and the
+/// layout every airplane had before it: mains three quarters out and three
+/// tenths of the half-length ahead, the tail wheel nine tenths behind and
+/// as tall as the mains, her centre of mass in the box's middle.
+fn default_gear_track() -> Fp {
+    Fp(0.75)
+}
+fn default_gear_ahead() -> Fp {
+    Fp(0.30)
+}
+fn default_tail_wheel_aft() -> Fp {
+    Fp(0.90)
+}
+fn default_tail_gear_share() -> Fp {
+    Fp(1.0)
+}
+
 impl Default for AirplaneParams {
     fn default() -> Self {
         Self {
@@ -136,7 +175,23 @@ impl Default for AirplaneParams {
             yaw_rate: default_yaw_rate(),
             gear_height: default_gear_height(),
             brake: default_brake(),
+            gear_track: default_gear_track(),
+            gear_ahead: default_gear_ahead(),
+            tail_wheel_aft: default_tail_wheel_aft(),
+            tail_gear_share: default_tail_gear_share(),
+            center_of_mass_ahead: Fp::ZERO,
         }
+    }
+}
+
+impl AirplaneParams {
+    /// Where her centre of mass may stand, ahead of the box's middle as a
+    /// share of its half-length (#1617): never further ahead than a
+    /// twentieth of the half-length behind her mains - with no wheel ahead
+    /// of it, she would sit on her nose - nor more than nine tenths behind.
+    /// The sanitiser holds the record to it and the editor's slider spans it.
+    pub fn center_of_mass_range(&self) -> std::ops::RangeInclusive<f32> {
+        -0.9..=(self.gear_ahead.0 - 0.05).max(-0.9)
     }
 }
 
@@ -163,6 +218,16 @@ impl LocomotionPreset for AirplaneParams {
         self.yaw_rate = clamp_pos(self.yaw_rate, 0.0, 360.0);
         self.gear_height = clamp_pos(self.gear_height, 0.05, 5.0);
         self.brake = clamp_pos(self.brake, 0.0, 50.0);
+        self.gear_track = clamp_pos(self.gear_track, 0.0, 4.0);
+        self.gear_ahead = clamp_pos(self.gear_ahead, 0.0, 1.0);
+        self.tail_wheel_aft = clamp_pos(self.tail_wheel_aft, 0.0, 1.0);
+        self.tail_gear_share = clamp_pos(self.tail_gear_share, 0.0, 1.0);
+        // A value that is no number puts it in the middle - or as near it
+        // as her mains let it stand.
+        let range = self.center_of_mass_range();
+        let ahead = self.center_of_mass_ahead.0;
+        let ahead = if ahead.is_finite() { ahead } else { 0.0 };
+        self.center_of_mass_ahead = Fp(ahead.clamp(*range.start(), *range.end()));
     }
 
     fn into_config(self) -> LocomotionConfig {
@@ -174,8 +239,9 @@ impl LocomotionPreset for AirplaneParams {
 mod tests {
     use super::*;
 
-    /// A record published before #1615 has none of its fields, and
-    /// decodes to the defaults a fresh airplane takes for them.
+    /// A record published before #1615 has none of its fields, nor
+    /// #1617's wheel layout, and decodes to the defaults a fresh airplane
+    /// takes for them.
     #[test]
     fn a_record_from_before_the_flight_model_decodes() {
         let mut old = serde_json::to_value(AirplaneParams::default()).expect("serializes");
@@ -187,6 +253,11 @@ mod tests {
             "yaw_rate",
             "gear_height",
             "brake",
+            "gear_track",
+            "gear_ahead",
+            "tail_wheel_aft",
+            "tail_gear_share",
+            "center_of_mass_ahead",
         ] {
             assert!(map.remove(field).is_some(), "{field} is written");
         }
@@ -216,5 +287,36 @@ mod tests {
         let mut p = AirplaneParams::default();
         p.sanitize();
         assert_eq!(p, AirplaneParams::default());
+    }
+
+    /// Her centre of mass is held behind her mains and inside the box, and
+    /// one that is no number goes as near the middle as her mains let it -
+    /// inside the span the editor's slider offers, where a second pass
+    /// moves nothing (#1617).
+    #[test]
+    fn her_centre_of_mass_is_held_behind_her_mains() {
+        for (gear_ahead, asked, held) in [
+            (0.30, 0.9, 0.25),
+            (0.30, -2.0, -0.9),
+            (0.30, f32::NAN, 0.0),
+            (0.0, f32::NAN, -0.05),
+            (0.0, 0.5, -0.05),
+        ] {
+            let mut p = AirplaneParams {
+                gear_ahead: Fp(gear_ahead),
+                center_of_mass_ahead: Fp(asked),
+                ..AirplaneParams::default()
+            };
+            p.sanitize();
+            let ahead = p.center_of_mass_ahead.0;
+            assert!(
+                (ahead - held).abs() < 1e-6,
+                "{asked} with her mains {gear_ahead} ahead was held at {ahead}"
+            );
+            assert!(p.center_of_mass_range().contains(&ahead), "{ahead}");
+            let once = p.clone();
+            p.sanitize();
+            assert_eq!(p, once, "a second pass moved her");
+        }
     }
 }

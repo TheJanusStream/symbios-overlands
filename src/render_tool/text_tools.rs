@@ -7,7 +7,7 @@ use crate::pds::avatar::livery;
 use crate::pds::{Generator, GeneratorKind, Placement, RoomRecord};
 use crate::seeded_defaults::hash::fnv1a_64;
 use crate::seeded_defaults::{
-    ArmouredVariant, AvatarPalette, BoatType, BuggyVariant, ChassisFamily, CraftType,
+    AirplaneType, ArmouredVariant, AvatarPalette, BoatType, BuggyVariant, ChassisFamily, CraftType,
     HelicopterType, LongshipVariant, RoadsterBody, RoadsterTop, RoadsterWheels, RoverVariant,
     RunaboutVariant, ScowLoad, SkiffType, SloopHull, SloopRig, TugVariant, WagonBody,
 };
@@ -17,9 +17,10 @@ use super::Args;
 /// Print the first `count` u64 seeds whose
 /// [`ChassisFamily`] matches `fam`
 /// (case-insensitive `humanoid` | `boat` | `airship` | `skiff` |
-/// `helicopter`). A survey aid for the avatar overhaul - a helicopter is a
-/// sixth of the seeds and the other four share the rest (#1614), so scanning
-/// a few thousand always finds enough.
+/// `helicopter` | `airplane`). A survey aid for the avatar overhaul - a
+/// helicopter and an airplane are a sixth of the seeds each and the other
+/// four share the rest (#1614, #1617), so scanning a few thousand always
+/// finds enough.
 pub(super) fn print_family_seeds(fam: &str, count: usize, craft: Option<&str>) {
     use crate::seeded_defaults::ChassisFamily;
     let want = match fam.to_lowercase().as_str() {
@@ -28,7 +29,10 @@ pub(super) fn print_family_seeds(fam: &str, count: usize, craft: Option<&str>) {
         "airship" => ChassisFamily::Airship,
         "skiff" => ChassisFamily::Skiff,
         "helicopter" => ChassisFamily::Helicopter,
-        other => panic!("unknown family {other:?} (humanoid|boat|airship|skiff|helicopter)"),
+        "airplane" => ChassisFamily::Airplane,
+        other => {
+            panic!("unknown family {other:?} (humanoid|boat|airship|skiff|helicopter|airplane)")
+        }
     };
     let craft = craft.map(|c| resolve_craft(c, want));
     let seeds: Vec<u64> = (0u64..1_000_000)
@@ -68,15 +72,19 @@ fn resolve_craft(name: &str, fam: ChassisFamily) -> CraftType {
     let boat = BoatType::ALL.iter().find(|t| t.slug() == name);
     let skiff = SkiffType::ALL.iter().find(|t| t.slug() == name);
     let helicopter = HelicopterType::ALL.iter().find(|t| t.slug() == name);
-    match (fam, boat, skiff, helicopter) {
-        (ChassisFamily::Boat, Some(&t), _, _) => CraftType::Boat(t),
-        (ChassisFamily::Skiff, _, Some(&t), _) => CraftType::Skiff(t),
-        (ChassisFamily::Helicopter, _, _, Some(&t)) => CraftType::Helicopter(t),
-        (_, None, None, None) => panic!(
-            "unknown craft type {name:?} - boats are {:?}, skiffs are {:?}, helicopters are {:?}",
+    let airplane = AirplaneType::ALL.iter().find(|t| t.slug() == name);
+    match (fam, boat, skiff, helicopter, airplane) {
+        (ChassisFamily::Boat, Some(&t), _, _, _) => CraftType::Boat(t),
+        (ChassisFamily::Skiff, _, Some(&t), _, _) => CraftType::Skiff(t),
+        (ChassisFamily::Helicopter, _, _, Some(&t), _) => CraftType::Helicopter(t),
+        (ChassisFamily::Airplane, _, _, _, Some(&t)) => CraftType::Airplane(t),
+        (_, None, None, None, None) => panic!(
+            "unknown craft type {name:?} - boats are {:?}, skiffs are {:?}, helicopters are \
+             {:?}, airplanes are {:?}",
             BoatType::ALL.map(BoatType::slug),
             SkiffType::ALL.map(SkiffType::slug),
-            HelicopterType::ALL.map(HelicopterType::slug)
+            HelicopterType::ALL.map(HelicopterType::slug),
+            AirplaneType::ALL.map(AirplaneType::slug)
         ),
         _ => panic!("craft type {name:?} is not a {fam:?} - it belongs to another family"),
     }
@@ -174,9 +182,11 @@ pub(super) fn print_outfit(subject: &str) {
                 // for the same reason.
                 CraftType::Skiff(SkiffType::Rover) => livery::rover_livery(seed, None).name,
                 CraftType::Skiff(_) => livery::skiff_livery(seed, None).name,
-                // A helicopter's list is weighted by her THEME (#1614).
+                // A helicopter's list is weighted by her THEME (#1614), and
+                // so is an airplane's (#1617).
                 CraftType::Helicopter(_) =>
                     livery::helicopter_livery(seed, character.style, None).name,
+                CraftType::Airplane(_) => livery::airplane_livery(seed, character.style, None).name,
             }
         );
         // And the sloop's own two picks (#1366), for every boat drawn as one

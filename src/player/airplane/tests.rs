@@ -202,15 +202,31 @@ fn the_air_laws_ask_for_what_each_key_wants() {
     assert!(air_rates(Stick::default(), &p, climbing, wings).pitch < 0.0);
 }
 
-/// The gear's springs sink a third of her weight [`GEAR_SAG`] of their
-/// height each.
+/// A wheel's spring sinks [`GEAR_SAG`] of its reach under the load it
+/// carries at rest; and the three wheels' shares are her whole weight, the
+/// tail wheel's its lever over both (#1617) - a quarter for the layout
+/// every airplane had before the record held one.
 #[test]
 fn the_gear_sags_its_share_under_her_weight() {
-    let (mass, height) = (40.0, 0.25);
-    let (stiffness, damping) = gear_spring(mass, height);
-    let sag = (mass / 3.0) * G / stiffness;
-    assert!((sag - GEAR_SAG * height).abs() < 1e-5, "{sag}");
+    let (load, reach) = (15.0, 0.25);
+    let (stiffness, damping) = gear_spring(load, reach);
+    let sag = load * G / stiffness;
+    assert!((sag - GEAR_SAG * reach).abs() < 1e-5, "{sag}");
     assert!(damping > 0.0);
+    let gear = wheels(&params());
+    let total: f32 = gear.iter().map(|w| w.share).sum();
+    assert!((total - 1.0).abs() < 1e-6, "{total}");
+    assert!((gear[2].share - 0.25).abs() < 1e-6, "{:?}", gear[2]);
+    // Her centre of mass forward over her wing lightens her tail wheel.
+    let forward = AirplaneParams {
+        center_of_mass_ahead: crate::pds::types::Fp(0.2),
+        ..params()
+    };
+    assert!(
+        wheels(&forward)[2].share < 0.15,
+        "{:?}",
+        wheels(&forward)[2]
+    );
 }
 
 /// #1240 f162: an inverted airplane is righted and a banking one is not.
@@ -424,6 +440,88 @@ fn a_bank_let_go_turns_her_as_far_as_her_handling_says() {
              her handling said {said:.1}"
         );
     }
+}
+
+/// The taildragger's stance: ten degrees nose-up, her box's floor 48 cm
+/// over the ground above her mains.
+const TAILDRAGGER_PITCH_DEG: f32 = 10.0;
+const TAILDRAGGER_MAINS_M: f32 = 0.48;
+
+/// A taildragger's record (#1617): mains out on splayed legs well ahead of
+/// her middle, a short tail wheel at her tail, her centre of mass forward
+/// over her wing - the seeded airplane's layout, near enough - reached to
+/// stand as the two constants above say ([`reach_for_stance`]).
+fn taildragger() -> AvatarRecord {
+    use crate::pds::types::{Fp, Fp3};
+    let mut p = AirplaneParams {
+        chassis_half_extents: Fp3([0.27, 0.33, 1.59]),
+        gear_track: Fp(1.53),
+        gear_ahead: Fp(0.55),
+        tail_wheel_aft: Fp(0.96),
+        center_of_mass_ahead: Fp(0.28),
+        ..params()
+    };
+    // Both legs meet her floor, so standing pitched her tail's stands lower
+    // by the rise of the floor between them.
+    let pitch = TAILDRAGGER_PITCH_DEG.to_radians();
+    let between = (p.gear_ahead.0 + p.tail_wheel_aft.0) * p.chassis_half_extents.0[2];
+    let tail = TAILDRAGGER_MAINS_M - between * pitch.sin();
+    let (reach, share) = reach_for_stance(&p, pitch, TAILDRAGGER_MAINS_M, tail);
+    p.gear_height = Fp(reach);
+    p.tail_gear_share = Fp(share);
+    let mut record = airplane();
+    record.locomotion = LocomotionConfig::Airplane(Box::new(p));
+    record
+}
+
+/// Set down, she stands at the pitch her reaches were worked out for, her
+/// box's floor at the height asked over the ground above her mains - her
+/// rays plumb, each wheel carrying what it carries standing pitched, not
+/// what its spring was sized for - and stays put.
+#[test]
+fn a_taildragger_stands_where_her_reaches_were_worked_out_to_stand_her() {
+    let record = taildragger();
+    let LocomotionConfig::Airplane(p) = &record.locomotion else {
+        unreachable!("an airplane record")
+    };
+    let mut bench = FlightBench::set_down(&record, 0.0, 100.0);
+    run(&mut bench, &[], 3.0);
+    let (_, _, pitch) = attitude(&bench);
+    assert!(
+        (pitch - TAILDRAGGER_PITCH_DEG).abs() < 0.05,
+        "she stands {pitch:.3} degrees nose-up, her reaches were worked out for \
+         {TAILDRAGGER_PITCH_DEG}"
+    );
+    let [hx, hy, hz] = p.chassis_half_extents.0;
+    for side in [-1.0, 1.0] {
+        let leg = Vec3::new(side * p.gear_track.0 * hx, -hy, -p.gear_ahead.0 * hz);
+        let floor = (bench.position() + bench.rotation() * leg).y;
+        assert!(
+            (floor - TAILDRAGGER_MAINS_M).abs() < 1e-3,
+            "her floor stands {floor:.4} m over a main, {TAILDRAGGER_MAINS_M} was asked"
+        );
+    }
+    let at = bench.position();
+    run(&mut bench, &[], 2.0);
+    assert!(bench.position().distance(at) < 0.02, "she crept");
+}
+
+/// From her three wheels she takes off as a taildragger does, with no pull
+/// at all: her tail-down stance is her wing's angle of attack, so full power
+/// alone lifts her off - within the run the agent's pilot sweeps clear.
+#[test]
+fn a_taildragger_takes_off_from_three_points_on_power_alone() {
+    let mut bench = FlightBench::set_down(&taildragger(), 0.0, 100.0);
+    let mut lifted = None;
+    bench.hold(&[KeyCode::Space]);
+    for _ in 0..(8.0 * 64.0) as usize {
+        bench.step();
+        if lifted.is_none() && bench.underside() > 1.0 {
+            lifted = Some(100.0 - bench.position().z);
+        }
+    }
+    let lifted = lifted.expect("she never left the ground");
+    assert!(lifted < 38.0, "a {lifted:.1} m take-off run");
 }
 
 /// Q and E swing her nose at her rudder's rate, and her path follows it

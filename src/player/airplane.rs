@@ -34,10 +34,12 @@
 //!
 //! On the ground she stands on three wheels - two mains ahead of her centre
 //! and a castering tail wheel - cast like the car's suspension, gripping
-//! sideways at the mains, rolling with a little drag, and braking. How much
-//! of her weight they carry is how much of her control is the ground's:
-//! taking off, the air's fades in as her lift unloads them
-//! ([`gear_points`], [`gear_spring`]).
+//! sideways at the mains, rolling with a little drag, and braking. Where
+//! they stand, how far the tail wheel reaches and where her centre of mass
+//! is are the record's (#1617), so a drawn taildragger stands tail-down on
+//! her own wheels ([`wheels`], [`gear_spring`]). How much of her weight
+//! they carry is how much of her control is the ground's: taking off, the
+//! air's fades in as her lift unloads them.
 //!
 //! # What is passive
 //!
@@ -117,12 +119,15 @@ const GROUND_STEER: f32 = 2.4;
 const GROUND_LATERAL: f32 = 3.0;
 
 /// The gear: how far past its reach a wheel still counts as down (m), how
-/// far her weight compresses it as a share of its height, how damped it is
+/// far her weight compresses it as a share of its reach, how damped it is
 /// (of critical), how hard the mains grip sideways (1/s), the rolling drag
 /// (m/s^2), and how far past upright she may lean before her wheels are no
-/// longer under her (degrees).
+/// longer under her (degrees). The sag was 0.35 (#1615) until a drawn
+/// airplane stood on it (#1617): her drawn wheels hang where they stand
+/// loaded, and the physics' wheel meets the ground its sag sooner - at
+/// 0.35, 26 cm before the drawn one on a touchdown.
 const GEAR_SLACK_M: f32 = 0.05;
-const GEAR_SAG: f32 = 0.35;
+const GEAR_SAG: f32 = 0.15;
 const GEAR_DAMPING_RATIO: f32 = 0.8;
 const GEAR_GRIP: f32 = 10.0;
 const ROLLING_DRAG: f32 = 0.4;
@@ -380,27 +385,114 @@ fn box_inertia(mass: f32, [hx, hy, hz]: [f32; 3]) -> Vec3 {
     )
 }
 
-/// Where her three wheels stand in her own frame, on the box's underside:
-/// two mains a little ahead of her centre and a tail wheel near her tail
-/// (nose at -Z) - and whether each is a main, which grips sideways and
-/// brakes, or the castering tail wheel, which does neither.
-fn gear_points([hx, hy, hz]: [f32; 3]) -> [(Vec3, bool); 3] {
+/// One of her three wheels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Wheel {
+    /// Where its leg meets the box's floor, in her own frame (nose at -Z).
+    at: Vec3,
+    /// How far it reaches under that, unloaded (m).
+    reach: f32,
+    /// The share of her weight its spring is sized for: what it carries
+    /// standing level.
+    share: f32,
+    /// A main, which grips sideways and brakes - or the castering tail
+    /// wheel, which does neither.
+    main: bool,
+}
+
+/// Her wheels, from the record's layout (#1617): two mains `gear_track` of
+/// the half-width out and `gear_ahead` of the half-length ahead of the box's
+/// middle, and a tail wheel `tail_wheel_aft` behind it reaching
+/// `tail_gear_share` of the mains' reach. What each is sized to carry is its
+/// lever about her centre of mass along her - the tail wheel the mains' arm
+/// over both - so standing level each spring sinks the same [`GEAR_SAG`] of
+/// its own reach; standing pitched, her legs swing under her and the
+/// shares move ([`reach_for_stance`]).
+fn wheels(p: &AirplaneParams) -> [Wheel; 3] {
+    let [hx, hy, hz] = p.chassis_half_extents.0;
+    let ahead = p.gear_ahead.0 * hz;
+    let aft = p.tail_wheel_aft.0 * hz;
+    let mass_ahead = p.center_of_mass_ahead.0 * hz;
+    // A wheel on her centre of mass would carry everything; held a twentieth
+    // of the half-length off it, none is left carrying nothing.
+    let to_mains = (ahead - mass_ahead).max(0.05 * hz);
+    let to_tail = (aft + mass_ahead).max(0.05 * hz);
+    let tail = to_mains / (to_mains + to_tail);
+    let main = (1.0 - tail) * 0.5;
+    let x = p.gear_track.0 * hx;
+    let reach = p.gear_height.0;
     [
-        (Vec3::new(-0.75 * hx, -hy, -0.30 * hz), true),
-        (Vec3::new(0.75 * hx, -hy, -0.30 * hz), true),
-        (Vec3::new(0.0, -hy, 0.90 * hz), false),
+        Wheel {
+            at: Vec3::new(-x, -hy, -ahead),
+            reach,
+            share: main,
+            main: true,
+        },
+        Wheel {
+            at: Vec3::new(x, -hy, -ahead),
+            reach,
+            share: main,
+            main: true,
+        },
+        Wheel {
+            at: Vec3::new(0.0, -hy, aft),
+            reach: reach * p.tail_gear_share.0,
+            share: tail,
+            main: false,
+        },
     ]
 }
 
-/// A wheel's spring rate (N/m) and damping (N s/m) for a body of `mass` on
-/// gear `height` tall: her weight shared three ways sinks each
-/// [`GEAR_SAG`] of the height, damped at [`GEAR_DAMPING_RATIO`] of
-/// critical.
-fn gear_spring(mass: f32, height: f32) -> (f32, f32) {
-    let height = height.max(0.05);
-    let share = mass / 3.0;
-    let stiffness = share * G / (GEAR_SAG * height);
-    let damping = 2.0 * GEAR_DAMPING_RATIO * (stiffness * share).sqrt();
+/// Her wheels' reaches, `(gear_height, tail_gear_share)`, to stand her
+/// `pitch` nose-up (radians) on level ground with her box's floor `mains`
+/// metres over it above her mains and `tail` above her tail wheel, plumb:
+/// what a drawn airplane's record carries so that the wheels she draws
+/// stand on the ground (#1617). Her layout and centre of mass are read,
+/// never moved.
+///
+/// Her rays fall plumb whatever her pitch, so the heights are plumb ones.
+/// Each spring sinks [`GEAR_SAG`] of its reach under the share of her
+/// weight it is sized for ([`wheels`]: its lever about her centre of mass,
+/// along her) and in proportion under what it carries - and standing
+/// pitched, the two differ. Her legs meet her box's floor, under her centre
+/// of mass, so a nose-up stance swings them forward under her and moves
+/// weight off her mains onto her tail wheel. Reached in her own frame, the
+/// seeded airplane's mains stood a centimetre over the ground at ten
+/// degrees (the #1617 review).
+pub(crate) fn reach_for_stance(
+    p: &AirplaneParams,
+    pitch: f32,
+    mains: f32,
+    tail: f32,
+) -> (f32, f32) {
+    let [main, _, tail_wheel] = wheels(p);
+    let centre = Vec3::new(
+        0.0,
+        0.0,
+        -p.center_of_mass_ahead.0 * p.chassis_half_extents.0[2],
+    );
+    // Nose-up turns her nose, -Z, toward +Y: a turn about +X.
+    let standing = Quat::from_rotation_x(pitch);
+    // How far ahead of her centre of mass a leg's top stands, along the
+    // ground.
+    let ahead = |wheel: &Wheel| -(standing * (wheel.at - centre)).z;
+    let (to_mains, to_tail) = (ahead(&main), -ahead(&tail_wheel));
+    let on_tail = (to_mains / (to_mains + to_tail)).clamp(0.0, 1.0);
+    // What a spring leaves of its reach carrying `carried` of her weight,
+    // sized for `share` of it - never under a tenth, whatever the layout.
+    let leaves = |carried: f32, share: f32| (1.0 - GEAR_SAG * carried / share).max(0.1);
+    let main_reach = mains / leaves(1.0 - on_tail, 2.0 * main.share);
+    let tail_reach = tail / leaves(on_tail, tail_wheel.share);
+    (main_reach, tail_reach / main_reach)
+}
+
+/// A wheel's spring rate (N/m) and damping (N s/m), carrying `load_mass`
+/// (kg) at rest on a leg `reach` long: it sinks [`GEAR_SAG`] of its reach
+/// under it, damped at [`GEAR_DAMPING_RATIO`] of critical.
+fn gear_spring(load_mass: f32, reach: f32) -> (f32, f32) {
+    let reach = reach.max(0.02);
+    let stiffness = load_mass * G / (GEAR_SAG * reach);
+    let damping = 2.0 * GEAR_DAMPING_RATIO * (stiffness * load_mass).sqrt();
     (stiffness, damping)
 }
 
@@ -582,7 +674,6 @@ pub(super) fn fly_airplane(
         pose.right().as_vec3(),
         pose.up().as_vec3(),
     );
-    let centre = pose.translation();
     let velocity = forces.linear_velocity();
     let spin = forces.angular_velocity();
     let mass = p.mass.0;
@@ -592,21 +683,23 @@ pub(super) fn fly_airplane(
     // The gear: three wheels, cast like the car's springs.
     let mut carried = 0.0;
     if up.y >= GEAR_TILT_LIMIT_DEG.to_radians().cos() {
-        let height = p.gear_height.0;
-        let (stiffness, damping) = gear_spring(mass, height);
-        let share = mass / 3.0;
         let filter = super::ground_ray_filter(body, sensors.iter());
         let ahead = Vec3::new(forward.x, 0.0, forward.z).normalize_or_zero();
         let aside = Vec3::new(right.x, 0.0, right.z).normalize_or_zero();
         let local = pose.compute_transform();
-        for (point, main) in gear_points(half) {
-            let at = local.transform_point(point);
-            let Some(hit) = spatial.cast_ray(at, Dir3::NEG_Y, height + GEAR_SLACK_M, true, &filter)
+        for wheel in wheels(p) {
+            let at = local.transform_point(wheel.at);
+            let Some(hit) =
+                spatial.cast_ray(at, Dir3::NEG_Y, wheel.reach + GEAR_SLACK_M, true, &filter)
             else {
                 continue;
             };
-            let moving = velocity + spin.cross(at - centre);
-            let compression = (height - hit.distance).max(0.0);
+            let carries = wheel.share * mass;
+            let (stiffness, damping) = gear_spring(carries, wheel.reach);
+            // About her centre of mass, which is not the box's middle when
+            // the record moves it.
+            let moving = forces.velocity_at_point(at);
+            let compression = (wheel.reach - hit.distance).max(0.0);
             let load = if compression > 0.0 {
                 (stiffness * compression - damping * moving.y).max(0.0)
             } else {
@@ -615,13 +708,18 @@ pub(super) fn fly_airplane(
             carried += load;
             // What the wheel does along the ground scales with how much of
             // her it carries: nothing, lifting off.
-            let grip = (load / (share * G)).clamp(0.0, 1.5);
+            let grip = (load / (carries * G)).clamp(0.0, 1.5);
             let rolling = moving.dot(ahead);
-            let slowing = ROLLING_DRAG + if braking && main { p.brake.0 } else { 0.0 };
+            let slowing = ROLLING_DRAG
+                + if braking && wheel.main {
+                    p.brake.0
+                } else {
+                    0.0
+                };
             // No more than stops the wheel, so a brake never backs her up.
             let along = -rolling.signum() * slowing.min(rolling.abs() / dt);
-            let mut push = Vec3::Y * load + ahead * (share * grip * along);
-            if main {
+            let mut push = Vec3::Y * load + ahead * (carries * grip * along);
+            if wheel.main {
                 // Two mains share her sideways grip; the tail wheel castors.
                 push -= aside * (0.5 * mass * GEAR_GRIP * grip * moving.dot(aside));
             }

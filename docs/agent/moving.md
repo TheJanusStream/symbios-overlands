@@ -129,6 +129,8 @@ arrival in another world) starts it landed, so it comes down onto what is
 under it. An airplane flies as a light airplane does (#1615) - it banks to
 turn and holds its height hands-off - so it takes off on a run of some 35 m,
 lands on a straight final, rolls about 20 m on its brakes, and cannot
-`follow`. The details, and the
+`follow`. A seeded one (#1617) sits tail-down on her three wheels and takes
+off from them on power alone; the pilot flies her the same way. The
+details, and the
 offline stand-ins that let you try each body, are in
 [../building.md](../building.md) under "Agent client".

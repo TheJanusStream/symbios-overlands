@@ -24,6 +24,13 @@ that should tip into its motion - nose down flying forward, banked into a
 turn - says how far in `/record/gait/lean_degrees` (0 to 45; absent is 0,
 level as an airship flies; a seeded helicopter leans 15, and her seeded gait
 zeroes the airship's heave and nose wander, so she sits still on her skids).
+A seeded airplane flies the `airplane` preset (#1617): she banks and pitches
+as she flies, so her gait does nothing, and her record carries where her
+drawn wheels stand - `gear_track`, `gear_ahead`, `tail_wheel_aft`,
+`tail_gear_share` and `center_of_mass_ahead`, shares of her box. A
+`tail_gear_share` under 1 is what sits her tail-down on the ground and level
+in the air; move her wheels in the tree and these with them, or she stands
+on wheels nobody can see.
 
 ## Shaping a generator body
 

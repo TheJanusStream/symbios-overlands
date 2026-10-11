@@ -4,14 +4,14 @@
 //! it resolves the DID's [`ChassisFamily`] and dispatches to that
 //! family's builder, returning both halves of the avatar record - the
 //! body and a locomotion preset that *matches* it (boat → HoverBoat,
-//! airship and helicopter → Helicopter, humanoid → Humanoid, skiff → Car),
-//! so the default chassis drives the way it looks.
+//! airship and helicopter → Helicopter, humanoid → Humanoid, skiff → Car,
+//! airplane → Airplane), so the default chassis drives the way it looks.
 //!
-//! **The humanoid family is rigged now** (#1060, epic #1054). The four
+//! **The humanoid family is rigged now** (#1060, epic #1054). The five
 //! vehicle families build a [`crate::pds::Generator`] tree, one module each -
-//! the [`airship`] out of the tagged part catalogue, [`boats`], [`skiffs`]
-//! and [`helicopters`] from their own craft-type builders (see the next
-//! paragraph); a humanoid
+//! the [`airship`] out of the tagged part catalogue, [`boats`], [`skiffs`],
+//! [`helicopters`] and [`airplanes`] from their own craft-type builders (see
+//! the next paragraph); a humanoid
 //! instead resolves to a
 //! parametric `symbios-avatar` body rolled from the same seed. That body
 //! is filled in **locally** rather than fetched: the engine's roll is
@@ -35,10 +35,13 @@
 //! **The helicopter is drawn the same way** (#1614): one builder per
 //! [`HelicopterType`](crate::seeded_defaults::HelicopterType) over one pod
 //! plan, at the size she is drawn at, the first aircraft family of epic
-//! #1611.
+//! #1611 - and so is the airplane, the second (#1617): one builder per
+//! [`AirplaneType`](crate::seeded_defaults::AirplaneType) over one fuselage
+//! plan, her record carrying where her drawn wheels stand.
 //!
 //! Shared primitive/material vocabulary lives in [`common`].
 
+mod airplanes;
 mod airship;
 mod assemble;
 mod boats;
@@ -59,7 +62,7 @@ use crate::seeded_defaults::{
 
 use super::gait::GaitParams;
 use super::locomotion::{
-    CarParams, HelicopterParams, HoverBoatParams, HumanoidParams, LocomotionConfig,
+    AirplaneParams, CarParams, HelicopterParams, HoverBoatParams, HumanoidParams, LocomotionConfig,
     LocomotionPreset,
 };
 
@@ -211,6 +214,16 @@ enum Propulsion {
     /// her style picked off its mouth (`fx::drawn_aura` needs no arm for
     /// her).
     Turbine,
+    /// An air-cooled flat four turning a two-blade airscrew (#1617, #1616
+    /// recommendation 10): the engine's steady drone under the airscrew's
+    /// thrum at its blade pass - two blades at the four turns a second her
+    /// drawn airscrew reaches at her cruise. The airplane's. NOT the dune
+    /// buggy's [`AirCooled`](Self::AirCooled) clatter, which is a car's
+    /// engine heard without a propeller. Her engine is air-cooled as the
+    /// buggy's is, so a picked steam is drawn as the exhaust wisp from the
+    /// stack under her cowl (`fx::drawn_aura`), where every aura she
+    /// trails leaves her.
+    Propeller,
 }
 
 impl Propulsion {
@@ -228,6 +241,7 @@ impl Propulsion {
             Self::Diesel => "under power, diesel",
             Self::Servo => "under power, servo",
             Self::Turbine => "under power, turbine",
+            Self::Propeller => "under power, propeller",
         }
     }
 }
@@ -295,6 +309,7 @@ fn build_seeded(seed: u64, livery: Option<usize>) -> (RecordBody, LocomotionConf
             helicopters::build(seed, livery),
             helicopter_locomotion(seed),
         ),
+        ChassisFamily::Airplane => (airplanes::build(seed, livery), airplane_locomotion(seed)),
         // Handled above; a family added later lands here loudly rather
         // than silently assembling nothing.
         ChassisFamily::Humanoid => unreachable!("the rigged family returns above"),
@@ -384,6 +399,10 @@ fn fx_mount(aura: ParticleAura, family: ChassisFamily, seed: u64) -> [f32; 3] {
         // exhaust leaves the stack on her roof, and the rest issue under her
         // cabin.
         ChassisFamily::Helicopter => helicopters::fx_mount(seed, aura).unwrap_or([0.0, -0.3, 0.0]),
+        // An airplane's, likewise off her own body (#1617): her engine's
+        // exhaust leaves the stack under her cowl, and the rest issue under
+        // her cabin.
+        ChassisFamily::Airplane => airplanes::fx_mount(seed, aura).unwrap_or([0.0, -0.3, 0.0]),
     }
 }
 
@@ -714,6 +733,50 @@ fn helicopter_locomotion(seed: u64) -> LocomotionConfig {
     p.into_config()
 }
 
+/// The Airplane preset's default body: a 40 kg machine in a 3 m box (#1615),
+/// the one the owner validated the flight model on - what a seeded
+/// airplane's mass is reckoned against.
+const AIRPLANE_REF_MASS: f32 = 40.0;
+const AIRPLANE_REF_LEN: f32 = 3.0;
+
+/// Airplane locomotion from the seeded craft type and her drawn layout
+/// (#1617).
+///
+/// The flight model is the one the owner validated (#1615), scaled to her
+/// (#1616 recommendation 9): her mass in proportion to her length, and her
+/// thrust and drag with it, so she climbs, cruises and tops out at the
+/// preset's speeds whatever she weighs; the control rates and her stall and
+/// cruise speeds as the preset's. Her box is her fuselage, and her gear
+/// stands where she draws it ([`airplanes::AirplaneLayout`]) - the mains,
+/// the shorter tail wheel that sits her tail-down, her centre of mass over
+/// her wing.
+fn airplane_locomotion(seed: u64) -> LocomotionConfig {
+    let (feel, layout, length) = airplanes::feel_and_layout(seed);
+    let mut p = AirplaneParams::default();
+    let mass =
+        (AIRPLANE_REF_MASS * feel.mass_factor * (length / AIRPLANE_REF_LEN)).clamp(20.0, 120.0);
+    let scale = mass / AIRPLANE_REF_MASS;
+    p.mass = Fp(mass);
+    p.thrust = Fp(p.thrust.0 * scale);
+    p.drag_coefficient = Fp(p.drag_coefficient.0 * scale);
+    p.chassis_half_extents = fit_extents(layout.half_extents);
+    p.gear_track = Fp(layout.gear_track);
+    p.gear_ahead = Fp(layout.gear_ahead);
+    p.tail_wheel_aft = Fp(layout.tail_wheel_aft);
+    p.center_of_mass_ahead = Fp(layout.center_of_mass_ahead);
+    // Her reaches last: what each wheel must reach to stand her as drawn
+    // turns on where all three stand and where her weight is centred.
+    let (gear_height, tail_gear_share) = crate::player::airplane_reach_for_stance(
+        &p,
+        layout.stance,
+        layout.floor_over_mains,
+        layout.floor_over_tail,
+    );
+    p.gear_height = Fp(gear_height);
+    p.tail_gear_share = Fp(tail_gear_share);
+    p.into_config()
+}
+
 /// Skiff (car) locomotion from the seeded craft type + its true proportions.
 ///
 /// The type carries the feel now (`SkiffCraft::feel`), where the four chassis
@@ -835,6 +898,14 @@ pub fn seeded_gait(seed: u64) -> GaitParams {
             g.head_turn_variance_degrees = Fp::ZERO;
             g.lean_degrees = Fp(idle.lean_degrees);
         }
+        // The Airplane preset has no gait (#1617): she banks and pitches as
+        // she flies, so nothing here would move her - and her record says
+        // as much rather than carrying an airship's heave.
+        ChassisFamily::Airplane => {
+            g.idle_sway_amplitude = Fp::ZERO;
+            g.head_turn_variance_degrees = Fp::ZERO;
+            g.lean_degrees = Fp::ZERO;
+        }
         // No craft type, and the angular field keeps its old meaning.
         ChassisFamily::Airship | ChassisFamily::Humanoid => {}
     }
@@ -937,12 +1008,14 @@ mod tests {
     // is found with `BoatType::for_seed` (or `render --family-seeds --craft`)
     // rather than by the slug of a part that no longer exists.
 
-    /// Drive acceleration (drive force / mass, m/s²) of a vehicle preset.
+    /// Drive acceleration (drive force / mass, m/s²) of a vehicle preset -
+    /// an airplane's full-throttle thrust (#1617).
     fn drive_accel(loco: &LocomotionConfig) -> f32 {
         match loco {
             LocomotionConfig::HoverBoat(b) => b.drive_force.0 / b.mass.0,
             LocomotionConfig::Car(c) => c.drive_force.0 / c.mass.0,
             LocomotionConfig::Helicopter(h) => h.cyclic_force.0 / h.mass.0,
+            LocomotionConfig::Airplane(a) => a.thrust.0 / a.mass.0,
             _ => panic!("not a vehicle preset"),
         }
     }
@@ -1282,9 +1355,10 @@ mod tests {
     /// Its hover text promises "what an untouched avatar of this seed would
     /// show", and the seeded derivation is craft-aware now, so a button
     /// still calling `GaitParams::for_seed` would hand a wagon the buzz she
-    /// does not have and make its own sentence false. Asked of the three
+    /// does not have and make its own sentence false. Asked of the four
     /// craft families, which are the only ones the derivation touches - the
-    /// helicopter's since #1614, which stills her and gives her a lean.
+    /// helicopter's since #1614, which stills her and gives her a lean, and
+    /// the airplane's since #1617, which stills her and gives her none.
     #[test]
     fn the_editors_reseed_agrees_with_a_re_roll() {
         let mut checked = 0;
@@ -1292,7 +1366,10 @@ mod tests {
             let family = ChassisFamily::for_seed(seed);
             if !matches!(
                 family,
-                ChassisFamily::Boat | ChassisFamily::Skiff | ChassisFamily::Helicopter
+                ChassisFamily::Boat
+                    | ChassisFamily::Skiff
+                    | ChassisFamily::Helicopter
+                    | ChassisFamily::Airplane
             ) {
                 continue;
             }
@@ -1754,6 +1831,7 @@ mod tests {
                 ChassisFamily::Airship | ChassisFamily::Helicopter => "helicopter",
                 ChassisFamily::Humanoid => "humanoid",
                 ChassisFamily::Skiff => "car",
+                ChassisFamily::Airplane => "airplane",
             };
             assert_eq!(tag, expected, "family {fam:?} got locomotion {tag}");
         }
@@ -2258,7 +2336,7 @@ mod tests {
 
     /// #1359 owner decision 4, as a test at last (#1382): **machines are swept
     /// and turned, never blobs.** No boat, no skiff and - by #1611's decision
-    /// 2, which carried the rule over - no helicopter draws a
+    /// 2, which carried the rule over - no helicopter and no airplane draws a
     /// [`GeneratorKind::BlobGroup`] node.
     ///
     /// A blob iso-surface is what the retired #778 pipeline built hulls from,
@@ -2266,13 +2344,13 @@ mod tests {
     /// rather than manufactured - and that nothing can be predicted off it, so
     /// every trim line floats. The redesigned fleet uses Spine, Lathe, Bevel
     /// and Wedge instead. Blobs remain legal for a genuinely organic part, and
-    /// none of the twelve types has wanted one.
+    /// none of the fourteen types has wanted one.
     ///
     /// The airship is deliberately NOT swept by this: she was never
     /// redesigned, she is the quality bar, and decision 4 is about the
     /// families that were drawn to it.
     #[test]
-    fn no_seeded_boat_skiff_or_helicopter_draws_a_blob() {
+    fn no_seeded_boat_skiff_helicopter_or_airplane_draws_a_blob() {
         use crate::pds::generator::{BlobElement, BlobShape, GeneratorKind, PrimCommon};
         use crate::pds::types::Fp;
         fn blobs(g: &Generator, path: &str, out: &mut Vec<String>) {
@@ -2305,13 +2383,14 @@ mod tests {
         blobs(&probe, "0", &mut found);
         assert_eq!(found, ["0/0"], "the control blob was not detected");
 
-        let (mut boats, mut skiffs, mut helicopters) = (0, 0, 0);
+        let (mut boats, mut skiffs, mut helicopters, mut airplanes) = (0, 0, 0, 0);
         for s in 0u64..900 {
             let family = ChassisFamily::for_seed(s);
             match family {
                 ChassisFamily::Boat => boats += 1,
                 ChassisFamily::Skiff => skiffs += 1,
                 ChassisFamily::Helicopter => helicopters += 1,
+                ChassisFamily::Airplane => airplanes += 1,
                 _ => continue,
             }
             let tree = visuals_for_seed(s).expect("a vehicle seed assembles a tree");
@@ -2325,8 +2404,9 @@ mod tests {
             );
         }
         assert!(
-            boats > 100 && skiffs > 100 && helicopters > 100,
-            "{boats} boats, {skiffs} skiffs and {helicopters} helicopters were swept"
+            boats > 100 && skiffs > 100 && helicopters > 100 && airplanes > 100,
+            "{boats} boats, {skiffs} skiffs, {helicopters} helicopters and {airplanes} \
+             airplanes were swept"
         );
     }
 

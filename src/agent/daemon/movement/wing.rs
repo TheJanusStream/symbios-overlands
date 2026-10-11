@@ -1,6 +1,7 @@
 //! Flying an airplane to a point and landing on it (#1431), on the flight
-//! model of #1615. No seeded body is an airplane: the preset is worn by
-//! published records.
+//! model of #1615 - a published record's airplane, or a seeded one, a sixth
+//! of seeds since #1617, which sits tail-down on her own gear and takes off
+//! from it on power alone.
 //!
 //! The game's airplane flies as a light airplane does: its lift leans with
 //! its wings, so it turns by banking; it holds its height hands-off, its
@@ -803,6 +804,33 @@ mod tests {
             highest < CRUISE_HEIGHT_M + 3.0,
             "it climbed to {highest:.1} m: its take-off ran away with it"
         );
+    }
+
+    /// A seeded airplane flies the same flights (#1617): tail-down on her
+    /// own gear, her centre of mass forward over her wing, she takes off
+    /// from three points, comes down the glide and stops at a point ahead -
+    /// and swings round on the spot first for one behind her.
+    #[test]
+    fn a_seeded_airplane_takes_off_and_lands_on_her_point() {
+        use crate::seeded_defaults::ChassisFamily;
+        let seed = (0u64..600)
+            .find(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Airplane)
+            .expect("some seed is an airplane");
+        let record = AvatarRecord::default_for_seed(seed);
+        let LocomotionConfig::Airplane(params) = &record.locomotion else {
+            panic!("seed {seed}: an airplane flies the Airplane preset");
+        };
+        let wing = Wing::of(params);
+        for target in [Vec2::new(0.0, -150.0), Vec2::new(0.0, 150.0)] {
+            let mut bench = FlightBench::set_down(&record, 0.0, 0.0);
+            let (end, trace) = fly(&mut bench, &wing, target, 120.0);
+            assert_eq!(end, Some(Flown::Landed), "{target}: {:?}", trace.last());
+            let missed = landed_within(&bench, target);
+            assert!(
+                missed <= ARRIVE_WINGED_M,
+                "{target}: stopped {missed:.2} m from the point"
+            );
+        }
     }
 
     /// A point behind is swung round to on the spot - its steering turns
