@@ -1,0 +1,353 @@
+//! One pod plan per rotorcraft, and every line and mount read off it.
+//!
+//! The helicopter's counterpart of the skiff's
+//! [`BodyPlan`](super::super::skiffs::BodyPlan) and the boat's
+//! `HullProfile`, for the reason every family has one: a single profile that
+//! feeds the body, every skin laid on it and every mount hung off it, so
+//! nothing she carries can float (#1359). Here it is the POD - the cabin a
+//! light helicopter is built round - as `(z, centreline height, radius)`
+//! stations nose to rear, its section drawn [`PodProfile::section`] times
+//! taller than it is wide.
+//!
+//! # Two frames, and the one map between them
+//!
+//! A type is AUTHORED in its prototype's frame: metres as the agreed
+//! prototype drew them (#1613), nose at `+Z`, `y = 0` on the skid bottoms.
+//! That frame is kept on purpose. The prototype was signed off as a Python
+//! writer, and a port that reads `crown(0.05) + 0.20` where the writer reads
+//! `crown(0.05) + 0.20` can be checked against it node for node; a port that
+//! re-derived every number in true metres could not.
+//!
+//! [`PodPlan::at`] takes a prototype point to the DRAWN frame: true metres,
+//! nose at `+Z`, `y = 0` on the body DATUM, and the craft centred fore and
+//! aft. Between the two stand the blueprint's three numbers:
+//!
+//! * the GIRTH fattens every pod section, mostly UPWARD - the centreline
+//!   rises by half the half-height's growth, so the crown rises three times
+//!   as far as the belly drops (the prototype's `set_fat`, kept as drawn:
+//!   the agreed proportion B was drawn with it). The skids' cross tubes
+//!   read the keel off the same sections, so they meet it at any girth;
+//! * the BOOM stretches everything aft of [`PodProfile::boom_root`] - the
+//!   boom, the fin, the stabiliser and the tail rotor ride its stations, and
+//!   so, by a centimetre at most, do the pod's tail cone, the skins, the
+//!   fairing and the skid tails that reach past it - and leaves the cabin
+//!   alone;
+//! * the SCALE is whatever makes the drawn nose-to-boom-end exactly the
+//!   blueprint's length.
+//!
+//! # Why the datum and the centring
+//!
+//! The visual root is a hidden hub, and the assembler overwrites its
+//! translation ([`apply_travel_pose`](super::super::assemble::apply_travel_pose)),
+//! so it stands at the drawn frame's origin: on the datum it is buried in
+//! the cabin, where a hub on the skid line showed between the skids (#1613).
+//! And avian centres a collider on its body, so a box can only hold what is
+//! drawn round the body's origin: the craft is centred fore and aft on it,
+//! nose to fin, as a skiff is between her bumpers.
+
+use crate::seeded_defaults::HelicopterBlueprint;
+
+/// A type's pod, in its prototype's frame - the one table a rotorcraft
+/// type is.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PodProfile {
+    /// `(z, centreline height, radius)` nose to rear (m, prototype frame,
+    /// at girth 1).
+    pub(crate) stations: &'static [(f32, f32, f32)],
+    /// How much taller the pod's section is than it is wide - the node
+    /// scale every sweep over the pod shares, so their sections meet flush.
+    pub(crate) section: f32,
+    /// The body datum's height over the skid bottoms (m, prototype frame):
+    /// where the root's hidden hub sits, inside the cabin.
+    pub(crate) datum: f32,
+    /// The station aft of which the boom stretch applies (m, prototype
+    /// frame): where the boom leaves the pod.
+    pub(crate) boom_root: f32,
+    /// The boom's end, where the fin stands (m, prototype frame, before the
+    /// stretch): the aft end of the length the blueprint names.
+    pub(crate) boom_end: f32,
+    /// How far aft of the boom's end the craft is drawn (m, prototype
+    /// frame): the fin's raked top. Measured, not remembered - the family's
+    /// `the_box_holds_the_drawn_fuselage` reads it off the drawn tree.
+    pub(crate) tail_reach: f32,
+}
+
+/// One rotorcraft's pod at its seeded proportions.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PodPlan {
+    profile: PodProfile,
+    /// True metres per prototype metre.
+    scale: f32,
+    /// The cabin's girth over the profile's.
+    girth: f32,
+    /// The boom's reach over the profile's.
+    boom: f32,
+    /// The craft's fore-and-aft centre (m, prototype frame, stretched).
+    z_mid: f32,
+}
+
+impl PodPlan {
+    /// The plan for a seeded machine of this type.
+    pub(crate) fn new(bp: &HelicopterBlueprint, profile: PodProfile) -> Self {
+        let nose = profile.stations[0].0;
+        let mut plan = Self {
+            profile,
+            scale: 1.0,
+            girth: bp.girth,
+            boom: bp.boom,
+            z_mid: 0.0,
+        };
+        let boom_end = plan.stretch(profile.boom_end);
+        plan.scale = bp.length / (nose - boom_end);
+        plan.z_mid = (nose + boom_end - profile.tail_reach) * 0.5;
+        plan
+    }
+
+    /// The cabin's girth over the profile's - what the skid track grows by.
+    pub(crate) fn girth(&self) -> f32 {
+        self.girth
+    }
+
+    /// The pod's section scale, for a sweep laid over it.
+    pub(crate) fn section(&self) -> f32 {
+        self.profile.section
+    }
+
+    /// A prototype station `z` after the boom stretch.
+    pub(crate) fn stretch(&self, z: f32) -> f32 {
+        let root = self.profile.boom_root;
+        if z < root {
+            root + (z - root) * self.boom
+        } else {
+            z
+        }
+    }
+
+    /// A prototype point in the drawn frame (m): scaled, the boom stretched,
+    /// the datum at `y = 0` and the craft centred fore and aft.
+    pub(crate) fn at(&self, x: f32, y: f32, z: f32) -> [f32; 3] {
+        [
+            x * self.scale,
+            (y - self.profile.datum) * self.scale,
+            (self.stretch(z) - self.z_mid) * self.scale,
+        ]
+    }
+
+    /// A prototype point `dz` fore (`+`) or aft (`-`) of station `z`, the
+    /// offset RIGID: the stretch carries a part fixed to something on a
+    /// stretched station along with its mount, rather than stretching the
+    /// gap between them - a beacon on a fin, a nav light on an end plate.
+    pub(crate) fn at_off(&self, x: f32, y: f32, z: f32, dz: f32) -> [f32; 3] {
+        let [x, y, z] = self.at(x, y, z);
+        [x, y, z + dz * self.scale]
+    }
+
+    /// A prototype length in true metres - a radius, a side, a gap.
+    pub(crate) fn len(&self, v: f32) -> f32 {
+        v * self.scale
+    }
+
+    /// The pod's stations at this girth, nose first: `(z, centreline y,
+    /// radius)` in the prototype frame, `z` not yet stretched. Each
+    /// section's centreline rises by half its half-height's growth, so the
+    /// cabin swells three parts up to one part down (the prototype's
+    /// `set_fat`).
+    pub(crate) fn stations(&self) -> impl Iterator<Item = (f32, f32, f32)> + '_ {
+        let (g, section) = (self.girth, self.profile.section);
+        self.profile
+            .stations
+            .iter()
+            .map(move |&(z, y, r)| (z, y + (g - 1.0) * r * section * 0.5, r * g))
+    }
+
+    /// `(centreline y, half-width, half-height)` of the pod at prototype
+    /// station `z`, linear between stations and held past the ends.
+    pub(crate) fn pod_at(&self, z: f32) -> (f32, f32, f32) {
+        let pts: Vec<(f32, f32, f32)> = self.stations().collect();
+        let (first, last) = (pts[0], pts[pts.len() - 1]);
+        let (y, r) = if z >= first.0 {
+            (first.1, first.2)
+        } else if z <= last.0 {
+            (last.1, last.2)
+        } else {
+            let (a, b) = pts
+                .windows(2)
+                .map(|w| (w[0], w[1]))
+                .find(|(a, b)| a.0 >= z && z >= b.0)
+                .expect("a station inside the pod lies between two of them");
+            let t = (a.0 - z) / (a.0 - b.0);
+            (a.1 + (b.1 - a.1) * t, a.2 + (b.2 - a.2) * t)
+        };
+        (y, r, r * self.profile.section)
+    }
+
+    /// The pod's top at prototype station `z` (prototype frame).
+    pub(crate) fn crown(&self, z: f32) -> f32 {
+        let (y, _, h) = self.pod_at(z);
+        y + h
+    }
+
+    /// The pod's keel at prototype station `z` (prototype frame).
+    pub(crate) fn sill(&self, z: f32) -> f32 {
+        let (y, _, h) = self.pod_at(z);
+        y - h
+    }
+
+    /// The arc-length fraction along the pod's STORED centreline, nose
+    /// first, at prototype station `z` - what a sweep's `profile_cut` reads,
+    /// so a skin trimmed to `[along(z1), along(z0)]` covers `z0..z1` of the
+    /// pod it is laid on. Read off the stations as drawn (stretched, the
+    /// section divided out), the prototype's `along`.
+    pub(crate) fn along(&self, z: f32) -> f32 {
+        let section = self.profile.section;
+        let pts: Vec<(f32, f32)> = self
+            .stations()
+            .map(|(zz, y, _)| (self.stretch(zz), y / section))
+            .collect();
+        let z = self.stretch(z);
+        let seg: Vec<f32> = pts
+            .windows(2)
+            .map(|w| ((w[0].0 - w[1].0).powi(2) + (w[0].1 - w[1].1).powi(2)).sqrt())
+            .collect();
+        let total: f32 = seg.iter().sum();
+        let mut run = 0.0;
+        for (w, d) in pts.windows(2).zip(&seg) {
+            if w[0].0 >= z && z >= w[1].0 {
+                return (run + d * (w[0].0 - z) / (w[0].0 - w[1].0)) / total;
+            }
+            run += d;
+        }
+        if z > pts[0].0 { 0.0 } else { 1.0 }
+    }
+
+    /// The pod's own stations as sweep points in the drawn frame, each
+    /// radius `proud` metres (prototype) over the pod's: the pod itself at
+    /// `0`, a skin laid on it a few millimetres out. The `y` is divided by
+    /// the section, which the sweep's node scale multiplies back.
+    pub(crate) fn pod_sweep(&self, proud: f32) -> Vec<([f32; 3], f32)> {
+        let section = self.profile.section;
+        self.stations()
+            .map(|(z, y, r)| {
+                let [x, y, z] = self.at(0.0, y, z);
+                ([x, y / section, z], self.len(r + proud))
+            })
+            .collect()
+    }
+
+    /// The fuselage's length, nose to boom end (m): the blueprint's own
+    /// length, by construction of the scale.
+    pub(crate) fn fuselage_len(&self) -> f32 {
+        let nose = self.profile.stations[0].0;
+        (nose - self.stretch(self.profile.boom_end)) * self.scale
+    }
+
+    /// The drawn nose tip and the drawn tail (m, along `z`) - what the box
+    /// spans fore and aft.
+    pub(crate) fn nose_and_tail(&self) -> (f32, f32) {
+        let nose = self.profile.stations[0].0;
+        let tail = self.profile.boom_end;
+        (
+            self.at(0.0, 0.0, nose)[2],
+            self.at(0.0, 0.0, tail)[2] - self.len(self.profile.tail_reach),
+        )
+    }
+
+    /// How far the datum stands over the skid bottoms (m) - where the
+    /// ground is under the drawn frame's origin.
+    pub(crate) fn datum_height(&self) -> f32 {
+        self.len(self.profile.datum)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PROFILE: PodProfile = PodProfile {
+        stations: &[(1.0, 0.5, 0.05), (0.0, 0.5, 0.25), (-0.6, 0.6, 0.1)],
+        section: 1.2,
+        datum: 0.5,
+        boom_root: -0.5,
+        boom_end: -1.5,
+        tail_reach: 0.1,
+    };
+
+    fn plan(length: f32, girth: f32, boom: f32) -> PodPlan {
+        PodPlan::new(
+            &HelicopterBlueprint {
+                length,
+                girth,
+                boom,
+                ..HelicopterBlueprint::NOMINAL
+            },
+            PROFILE,
+        )
+    }
+
+    /// The drawn nose to boom end IS the blueprint's length, whatever the
+    /// boom does to the proportion - and the craft is centred on the origin
+    /// from her nose to her drawn tail.
+    #[test]
+    fn the_drawn_length_is_the_blueprints_and_the_craft_is_centred() {
+        for (length, boom) in [(2.9, 0.92), (3.2, 1.0), (3.5, 1.08)] {
+            let p = plan(length, 1.2, boom);
+            let nose = p.at(0.0, 0.0, 1.0)[2];
+            let end = p.at(0.0, 0.0, -1.5)[2];
+            assert!((nose - end - length).abs() < 1e-5, "{length} / {boom}");
+            assert!(
+                (p.fuselage_len() - length).abs() < 1e-5,
+                "{length} / {boom}"
+            );
+            let (nose, tail) = p.nose_and_tail();
+            assert!((nose + tail).abs() < 1e-5, "off centre by {}", nose + tail);
+        }
+    }
+
+    /// The girth swells every section three parts up to one part down:
+    /// the half-height grows by `(g - 1) r section`, the belly drops by half
+    /// that and the crown rises by one and a half times it.
+    #[test]
+    fn the_girth_swells_the_cabin_mostly_upward() {
+        let (thin, fat) = (plan(3.2, 1.0, 1.0), plan(3.2, 1.3, 1.0));
+        for z in [0.9, 0.3, 0.0, -0.4] {
+            let (_, r, _) = thin.pod_at(z);
+            let growth = 0.3 * r * PROFILE.section;
+            let drop = thin.sill(z) - fat.sill(z);
+            let rise = fat.crown(z) - thin.crown(z);
+            assert!((drop - 0.5 * growth).abs() < 1e-5, "z {z}: drop {drop}");
+            assert!((rise - 1.5 * growth).abs() < 1e-5, "z {z}: rise {rise}");
+        }
+    }
+
+    /// A rigid offset rides its station's stretch and is not stretched.
+    #[test]
+    fn a_rigid_offset_rides_the_stretch() {
+        for boom in [0.92, 1.0, 1.08] {
+            let p = plan(3.2, 1.2, boom);
+            let anchor = p.at(0.0, 0.9, -1.5)[2];
+            let off = p.at_off(0.0, 0.9, -1.5, -0.06)[2];
+            assert!((anchor - off - p.len(0.06)).abs() < 1e-6, "boom {boom}");
+        }
+    }
+
+    /// The boom stretch moves only what is aft of its root, and joins
+    /// without a step.
+    #[test]
+    fn the_boom_stretches_only_the_tail() {
+        let p = plan(3.2, 1.2, 1.08);
+        assert_eq!(p.stretch(0.3), 0.3);
+        assert_eq!(p.stretch(-0.5), -0.5);
+        assert!((p.stretch(-1.5) - (-0.5 - 1.08)).abs() < 1e-6);
+    }
+
+    /// `along` runs nose 0 to rear 1, and halfway along the stations it is
+    /// strictly between.
+    #[test]
+    fn along_runs_nose_to_rear() {
+        let p = plan(3.2, 1.2, 1.0);
+        assert_eq!(p.along(1.0), 0.0);
+        assert!((p.along(-0.6) - 1.0).abs() < 1e-6);
+        let mid = p.along(0.0);
+        assert!(mid > 0.3 && mid < 0.8, "{mid}");
+    }
+}

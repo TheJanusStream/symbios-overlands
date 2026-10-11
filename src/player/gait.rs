@@ -1057,8 +1057,11 @@ mod tests {
         // Since #1381 a seeded engine-less skiff carries amplitude 0 - she
         // has no engine to idle - and a record that happened to roll one
         // would make every count zero for a reason that is not the
-        // frequency.
+        // frequency. The wander's reach likewise: since #1614 a seeded
+        // helicopter writes it to zero - she sits still on her skids - and
+        // the airship profile counts the wander.
         gait.idle_sway_amplitude = crate::pds::Fp(0.02);
+        gait.head_turn_variance_degrees = crate::pds::Fp(12.0);
         let mut a = anim_mode(mode);
         a.refresh_from_record(&record);
         let mut count = 0;

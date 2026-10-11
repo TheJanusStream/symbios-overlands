@@ -665,7 +665,11 @@ mod tests {
                 "seed {seed}: set down {height} m up, reaching {reach} m below its origin"
             );
             match ChassisFamily::for_seed(seed) {
-                ChassisFamily::Boat | ChassisFamily::Skiff => {
+                // A helicopter's box is her fuselage, at most 1.5 m tall at
+                // the blueprint's largest corner: half of it and the set-down
+                // clearance is under the stock metre, so she sets down from
+                // the stock height too.
+                ChassisFamily::Boat | ChassisFamily::Skiff | ChassisFamily::Helicopter => {
                     assert_eq!(height, cfg::SPAWN_HEIGHT_OFFSET, "seed {seed}");
                 }
                 ChassisFamily::Airship | ChassisFamily::Humanoid => {

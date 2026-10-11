@@ -26,17 +26,18 @@ pub(super) fn draw_tab(ui: &mut egui::Ui, ctx: &mut TabCtx, aim: &mut AimCtx, he
         // to draw. #1265 f101: this used to promise the rigged editor was
         // still coming (it shipped, as the Body tab) and to advise a bare
         // re-roll, which lands back on a rigged body whenever
-        // `ChassisFamily::for_seed` rolls `Humanoid` - one of four families,
-        // so a coin flip. The Chassis pin row is the deterministic control,
-        // so the advice routes through it and names the three families by
-        // the labels that row actually shows (`ChassisFamily::label`).
+        // `ChassisFamily::for_seed` rolls `Humanoid` - about one seed in
+        // five. The Chassis pin row is the deterministic control, so the
+        // advice routes through it and names the four tree families by the
+        // labels that row actually shows (`ChassisFamily::label`).
         let Some(visuals) = ctx.record.body.visuals_mut() else {
             ui.label(
                 egui::RichText::new(
                     "You're wearing a rigged body - sculpt it on the \
                      Body tab. For a construction-kit body instead, \
                      open Seed & re-roll below, lock Chassis to \
-                     Hover-boat, Airship or Land-skiff, and re-roll.",
+                     Hover-boat, Airship, Land-skiff or Helicopter, and \
+                     re-roll.",
                 )
                 .small()
                 .weak(),

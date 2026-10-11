@@ -10,7 +10,7 @@
 //! biases its samples around the same anchor.
 //!
 //! Two discrete axes anchor the design space - the [`ChassisFamily`] (the
-//! body plan: humanoid / boat / airship / skiff) and the
+//! body plan: humanoid / boat / airship / skiff / helicopter) and the
 //! [`ThemeArchetype`] *style* (deliberately the **same** enum the room
 //! uses, so a cyberpunk avatar and a cyberpunk room speak one style
 //! vocabulary). Two continuous socio-style axes follow - `ornateness`
@@ -174,7 +174,7 @@ pub struct AvatarCharacter {
     /// `[-1, 1]` cool → warm bias. Shifts accent colours and material
     /// tones toward blue/cyan (`-1`) or amber/orange (`+1`).
     pub temperature: f32,
-    /// Body plan - humanoid / boat / airship / skiff. Picked via the
+    /// Body plan - humanoid / boat / airship / skiff / helicopter. Picked via the
     /// existing [`ChassisFamily::for_seed`] so this anchor stays
     /// bit-compatible with the standalone chassis pick.
     pub chassis: ChassisFamily,
@@ -277,7 +277,7 @@ impl AvatarCharacter {
 /// [`Self::craft`] breaks that. It depends on the chassis absolutely (there
 /// are no craft types under Airship or Humanoid) and on the style by
 /// weight: a type that is neither its family's floor nor at home on a theme
-/// scores zero there and can never be rolled. 184 of the 288 (type, style)
+/// scores zero there and can never be rolled. 184 of the 312 (type, style)
 /// pairs are unreachable, so a naive combo would offer mostly pin sets no
 /// seed satisfies - and each one would walk the *whole* two-million-trial
 /// cap before failing, 0.38 s native and several times that on wasm, on the
@@ -415,7 +415,7 @@ impl AvatarPins {
 
     /// Pin (or clear) the chassis family. **Any** change clears the craft
     /// pin - the brief's rule, and the only consistent one: one family's
-    /// types mean nothing under another, and two of the four families have
+    /// types mean nothing under another, and two of the five families have
     /// none at all. A no-op when unchanged, for the reason in
     /// [`Self::lock_craft`].
     pub fn set_chassis(&mut self, chassis: Option<ChassisFamily>) {
@@ -718,6 +718,7 @@ mod tests {
         CraftType::BOATS
             .into_iter()
             .chain(CraftType::SKIFFS)
+            .chain(CraftType::HELICOPTERS)
             .flat_map(|c| ThemeArchetype::ALL.into_iter().map(move |t| (c, t)))
     }
 
@@ -760,13 +761,14 @@ mod tests {
                 enabled += 1;
             }
         }
-        // Measured at b1b4648: 92 of 144 unreachable in EACH family. Pinned
-        // so that an affinity edit has to come here on purpose - the table
-        // is a taste call, and a silent change to it changes which pin sets
-        // an owner can even build.
+        // Measured at b1b4648: 92 of 144 unreachable in EACH family - and
+        // none of the helicopter's 24, whose one type is every style's floor
+        // until the fan-out (#1614). Pinned so that an affinity edit has to
+        // come here on purpose - the table is a taste call, and a silent
+        // change to it changes which pin sets an owner can even build.
         assert_eq!(
             (refused, enabled),
-            (184, 104),
+            (184, 128),
             "the (type, style) census moved"
         );
     }
@@ -931,7 +933,7 @@ mod tests {
             assert!(pins.accepts(s));
             enabled += 1;
         }
-        assert_eq!(enabled, 104);
+        assert_eq!(enabled, 128);
     }
 
     #[test]

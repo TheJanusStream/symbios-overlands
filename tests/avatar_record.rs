@@ -18,8 +18,8 @@ use symbios_overlands::seeded_defaults::ChassisFamily;
 fn default_avatar_locomotion_matches_seeded_chassis_family() {
     // The default is DID-seeded: each chassis family maps to the
     // locomotion preset that matches its visuals (boat → HoverBoat,
-    // airship → Helicopter, humanoid → Humanoid, skiff → Car) - see
-    // `pds::avatar::default_visuals::build_for_did`.
+    // airship and helicopter → Helicopter, humanoid → Humanoid, skiff →
+    // Car) - see `pds::avatar::default_visuals::build_for_did`.
     for did in [
         "did:plc:alice",
         "did:plc:bob",
@@ -29,7 +29,7 @@ fn default_avatar_locomotion_matches_seeded_chassis_family() {
         let a = AvatarRecord::default_for_did(did);
         let expected = match ChassisFamily::for_did(did) {
             ChassisFamily::Boat => "hover_boat",
-            ChassisFamily::Airship => "helicopter",
+            ChassisFamily::Airship | ChassisFamily::Helicopter => "helicopter",
             ChassisFamily::Humanoid => "humanoid",
             ChassisFamily::Skiff => "car",
         };

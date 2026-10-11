@@ -116,7 +116,8 @@ the hang time, do not guess it.
 
 A car or hover-boat turns on the spot before it drives, at its own pace -
 the default car about 25 degrees a second, so a point behind it takes some
-7 s of swinging before it closes (#1541); an airship flies a
+7 s of swinging before it closes (#1541); an airship or a helicopter (one
+preset, #1614) flies a
 `walk-to` and lands on the point, never ending in the air - it climbs over
 a building in its way instead of ending `stuck` against it, which makes it
 the quickest body for work round a build. Landed, a rotorcraft rests on its

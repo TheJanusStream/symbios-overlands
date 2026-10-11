@@ -816,7 +816,9 @@ done
 
 The index is into that family's own table in `src/pds/avatar/livery.rs` and
 wraps, so a loop that runs past the end draws each scheme once rather than the
-last one twice. `--outfit <seed>` prints the scheme a seed picked for itself,
+last one twice. (A helicopter's list is the one weighted by theme, #1614: the
+index still names its scheme outright, whatever the subject's theme would have
+picked.) `--outfit <seed>` prints the scheme a seed picked for itself,
 beside its craft type. A `--generator` file carries its own colours and is
 unaffected.
 
@@ -861,7 +863,8 @@ cargo run --bin render -- --analyze-session diagnostics/session-latest.jsonl
 cargo run --bin render -- --diff-sessions old.jsonl new.jsonl
 # Road-network graph diagnostics for a seed or DID:
 cargo run --bin render -- --road-dump 1
-# List seeds that produce a given avatar chassis family:
+# List seeds that produce a given avatar chassis family (boat, airship,
+# humanoid, skiff or helicopter):
 cargo run --bin render -- --family-seeds skiff --family-count 8
 # ...narrowed to one seeded craft type (#1362) - the survey each craft-type
 # slice opens with. A craft type is a property of the SEED, so this answers

@@ -45,14 +45,20 @@
 //!
 //! # Theme speaks through finish, not hue
 //!
-//! Nothing here is keyed to the avatar's
-//! [`ThemeArchetype`](crate::seeded_defaults::ThemeArchetype). A cyberpunk
-//! avatar and a medieval one can both roll a bottle-green car; what tells
-//! them apart is the [`MaterialKit`] - its finish family, its wear, and its
-//! luminous flag, which lights the identity trim on the neon themes through
-//! [`trim`]. That is deliberate: hue-keying the schemes by theme would put
-//! every avatar of a theme in the same car, which is the variety problem this
-//! module is supposed to solve.
+//! No boat's or land craft's scheme is keyed to the avatar's
+//! [`ThemeArchetype`]. A cyberpunk avatar and a medieval one can both roll a
+//! bottle-green car; what tells them apart is the [`MaterialKit`] - its
+//! finish family, its wear, and its luminous flag, which lights the identity
+//! trim on the neon themes through [`trim`]. That is deliberate: hue-keying
+//! the schemes by theme would put every avatar of a theme in the same car,
+//! which is the variety problem this module is supposed to solve.
+//!
+//! **The helicopter's list is the one keyed to theme** (#1614, the owner's
+//! ask), and it keys WEIGHTS, not colours: a helicopter's paint says what she
+//! is for - rescue red, police navy, army olive - so each theme weighs the
+//! roles it would fly, and two civil classics stay open to every theme. A
+//! theme still draws from several schemes, so its avatars do not all fly one
+//! machine; see [`HelicopterLivery`].
 //!
 //! **A boat's hull lines are the one exception, and it is a render result**
 //! (#1365 phase 2). The boot top and the cove line carry the accent as PAINT
@@ -89,8 +95,10 @@ use super::colour::{floor_value, luma, mix, shade, to_value, window_light, windo
 use super::parts::PartCtx;
 use crate::pds::texture::SovereignMaterialSettings;
 use crate::pds::types::Fp;
-use crate::seeded_defaults::scene::pick_weighted;
-use crate::seeded_defaults::{BuggyVariant, MaterialKit, RunaboutVariant, WagonBody};
+use crate::seeded_defaults::scene::{ThemeArchetype, pick_weighted};
+use crate::seeded_defaults::{
+    AvatarCharacter, BuggyVariant, MaterialKit, RunaboutVariant, WagonBody,
+};
 
 /// Sub-stream salt for the livery draw - distinct from every sibling avatar
 /// deriver salt, so which scheme a craft wears is decorrelated from its type,
@@ -939,6 +947,196 @@ pub const LONGSHIP_LIVERIES: &[LongshipLivery] = &[
 /// Tarred and ochre).
 pub fn longship_livery(seed: u64, over: Option<usize>) -> &'static LongshipLivery {
     pick(LONGSHIP_LIVERIES, |l| l.weight, seed, over)
+}
+
+/// A helicopter's scheme (#1614): the two hues of her pod, as the owner
+/// agreed the form on the phase-2 renders - "two hues per livery plus dark
+/// glass, lit doors, beacon and nav lights" (#1613 recommendation 4).
+///
+/// **The one list in the fleet that is weighted by THEME**, and that was the
+/// owner's ask ("the scheme list per theme"). A helicopter's paint says what
+/// she is FOR - a rescue machine's red, a police machine's navy, a crop
+/// sprayer's yellow, an army machine's olive - so where every other list is a
+/// heritage palette any owner may roll, this one is a set of roles each theme
+/// would actually fly. The pick is the craft pick's own rule: a scheme scores
+/// [`HELI_AT_HOME`] on a theme it is at home on, and the two civil classics
+/// carry a [`HELI_FLOOR`] on every theme, so no theme is cornered into one
+/// colour. The seeded accent still goes on the identity slot and nowhere
+/// else (the stripes along her boom), and theme still also speaks through
+/// the [`MaterialKit`]'s finish.
+#[derive(Clone, Copy, Debug)]
+pub struct HelicopterLivery {
+    /// See [`BoatLivery::name`].
+    pub name: &'static str,
+    /// The themes the scheme is at home on.
+    home: &'static [ThemeArchetype],
+    /// Whether every theme can roll it - see [`HELI_FLOOR`].
+    floor: bool,
+    /// The pod, her fairing, boom, fins and stabiliser.
+    body: [f32; 3],
+    /// The two-tone's lower band and the stabiliser's end plates.
+    lower: [f32; 3],
+}
+
+impl HelicopterLivery {
+    /// This scheme's share of the draw on `style`.
+    fn weight(&self, style: ThemeArchetype) -> u32 {
+        let floor = if self.floor { HELI_FLOOR } else { 0 };
+        floor
+            + if self.home.contains(&style) {
+                HELI_AT_HOME
+            } else {
+                0
+            }
+    }
+}
+
+/// A helicopter scheme's weight on a theme it is at home on, and the floor
+/// the two civil classics carry on every theme - the craft-type pick's own
+/// six and two (`seeded_defaults::avatar::craft`), so a theme's own schemes
+/// outweigh the floor three to one.
+const HELI_AT_HOME: u32 = 6;
+const HELI_FLOOR: u32 = 2;
+
+/// The helicopter's ten schemes (#1614). The first three are the prototype's
+/// own, as the owner saw them on the phase-2 renders (#1613); the rest are
+/// the roles the other themes fly. Every theme is at home on at least one
+/// (`every_theme_is_at_home_on_a_helicopter_scheme`).
+pub const HELICOPTER_LIVERIES: &[HelicopterLivery] = &[
+    HelicopterLivery {
+        name: "Rescue red",
+        home: &[
+            ThemeArchetype::CoastalResort,
+            ThemeArchetype::SportsRec,
+            ThemeArchetype::Suburban,
+            ThemeArchetype::CivicCampus,
+        ],
+        floor: true,
+        body: [0.62, 0.07, 0.06],
+        lower: [0.92, 0.91, 0.88],
+    },
+    HelicopterLivery {
+        name: "Executive white",
+        home: &[
+            ThemeArchetype::ModernCity,
+            ThemeArchetype::CivicCampus,
+            ThemeArchetype::AncientClassical,
+            ThemeArchetype::SpaceOutpost,
+        ],
+        floor: true,
+        body: [0.90, 0.90, 0.88],
+        lower: [0.08, 0.20, 0.55],
+    },
+    HelicopterLivery {
+        name: "Army olive",
+        home: &[
+            ThemeArchetype::PostApoc,
+            ThemeArchetype::WildWest,
+            ThemeArchetype::Medieval,
+            ThemeArchetype::Nordic,
+        ],
+        floor: false,
+        body: [0.30, 0.33, 0.20],
+        lower: [0.12, 0.12, 0.10],
+    },
+    HelicopterLivery {
+        name: "Police",
+        home: &[
+            ThemeArchetype::ModernCity,
+            ThemeArchetype::Suburban,
+            ThemeArchetype::Roadside,
+            ThemeArchetype::Cyberpunk,
+        ],
+        floor: false,
+        body: [0.05, 0.08, 0.20],
+        lower: [0.88, 0.88, 0.86],
+    },
+    HelicopterLivery {
+        name: "Utility yellow",
+        home: &[
+            ThemeArchetype::RuralFarmland,
+            ThemeArchetype::Roadside,
+            ThemeArchetype::IndustrialPark,
+            ThemeArchetype::WildWest,
+        ],
+        floor: false,
+        body: [0.86, 0.64, 0.08],
+        lower: [0.10, 0.10, 0.10],
+    },
+    HelicopterLivery {
+        name: "Survey orange",
+        home: &[
+            ThemeArchetype::SpaceOutpost,
+            ThemeArchetype::IndustrialPark,
+            ThemeArchetype::Nordic,
+            ThemeArchetype::CoastalResort,
+        ],
+        floor: false,
+        body: [0.85, 0.33, 0.06],
+        lower: [0.90, 0.90, 0.88],
+    },
+    HelicopterLivery {
+        name: "Desert sand",
+        home: &[
+            ThemeArchetype::PostApoc,
+            ThemeArchetype::Mesoamerican,
+            ThemeArchetype::AncientClassical,
+            ThemeArchetype::WildWest,
+        ],
+        floor: false,
+        body: [0.62, 0.52, 0.34],
+        lower: [0.30, 0.24, 0.16],
+    },
+    HelicopterLivery {
+        name: "Night black",
+        home: &[
+            ThemeArchetype::Cyberpunk,
+            ThemeArchetype::AlienMonolithic,
+            ThemeArchetype::GothicHorror,
+            ThemeArchetype::Pirate,
+            ThemeArchetype::FeudalJapan,
+        ],
+        floor: false,
+        body: [0.040, 0.040, 0.045],
+        lower: [0.30, 0.31, 0.33],
+    },
+    HelicopterLivery {
+        name: "Oxblood and brass",
+        home: &[
+            ThemeArchetype::Steampunk,
+            ThemeArchetype::Fantasy,
+            ThemeArchetype::GothicHorror,
+            ThemeArchetype::Medieval,
+            ThemeArchetype::FeudalJapan,
+        ],
+        floor: false,
+        body: [0.34, 0.07, 0.055],
+        lower: [0.72, 0.55, 0.22],
+    },
+    HelicopterLivery {
+        name: "Forest green",
+        home: &[
+            ThemeArchetype::Solarpunk,
+            ThemeArchetype::AlienOrganic,
+            ThemeArchetype::RuralFarmland,
+            ThemeArchetype::Fantasy,
+            ThemeArchetype::Nordic,
+        ],
+        floor: false,
+        body: [0.10, 0.24, 0.14],
+        lower: [0.86, 0.84, 0.78],
+    },
+];
+
+/// The scheme this helicopter seed wears on `style`, a pick from
+/// [`HELICOPTER_LIVERIES`]; `over` wraps inside it (`render --livery 0` is
+/// Rescue red, `1` Executive white).
+pub fn helicopter_livery(
+    seed: u64,
+    style: ThemeArchetype,
+    over: Option<usize>,
+) -> &'static HelicopterLivery {
+    pick(HELICOPTER_LIVERIES, |l| l.weight(style), seed, over)
 }
 
 // ---------------------------------------------------------------------------
@@ -2506,6 +2704,73 @@ pub(crate) fn longship_colours(ctx: &PartCtx) -> LongshipColours {
     }
 }
 
+/// The surfaces a helicopter is built in (#1614): her scheme's two hues on
+/// the big masses, the seeded accent on the stripes along her boom, and the
+/// colours the rest of her simply is - dark glass, bare metal, dark blades.
+///
+/// What is lit, as the owner agreed it (#1613): the door panes, which are
+/// the fleet's lit window (the tertiary's light, as every cabin's is); the
+/// anti-collision beacon on her fin and the two nav lights on her
+/// stabiliser, which are lamps and glow on every theme; and on an ornate
+/// seed her searchlight's lens, which is the window light again. The boom
+/// stripes go through [`trim`], so they light on a luminous kit and are
+/// paint on every other. Nothing else glows.
+pub(crate) struct HelicopterColours {
+    /// The pod, the roof fairing, the boom, the fins and the stabiliser: the
+    /// scheme's body hue, floored off mud on a battered kit.
+    pub(crate) body: SovereignMaterialSettings,
+    /// The two-tone's lower band and the stabiliser's end plates.
+    pub(crate) lower: SovereignMaterialSettings,
+    /// **Identity.** The stripes along the tail boom: the coachline's rule,
+    /// held clear of the body they lie on.
+    pub(crate) stripe: SovereignMaterialSettings,
+    /// The windscreen and the chin windows.
+    pub(crate) glass: SovereignMaterialSettings,
+    /// The door panes and the searchlight's lens: the tertiary's light.
+    pub(crate) lamp: SovereignMaterialSettings,
+    /// The mast, the rotor head, the skids, the pitot and the steps.
+    pub(crate) metal: SovereignMaterialSettings,
+    /// The blades, the exhaust stack, the cargo hook and the hidden hubs.
+    pub(crate) dark: SovereignMaterialSettings,
+    /// The nav light on her left (port) side: red, as on every aircraft.
+    pub(crate) port: SovereignMaterialSettings,
+    /// The nav light on her right (starboard) side: green.
+    pub(crate) starboard: SovereignMaterialSettings,
+    /// The anti-collision beacon on her fin.
+    pub(crate) beacon: SovereignMaterialSettings,
+}
+
+/// A helicopter's big masses are floored at a boat's topsides value after
+/// grime: a Night black scheme goes charcoal on a battered seed, never mud.
+const HELI_MASS_FLOOR: f32 = BOAT_MASS_FLOOR;
+const HELI_GLASS: [f32; 3] = [0.08, 0.12, 0.16];
+const HELI_METAL: [f32; 3] = [0.55, 0.56, 0.58];
+const HELI_DARK: [f32; 3] = [0.16, 0.16, 0.17];
+const NAV_RED: [f32; 3] = [0.90, 0.08, 0.05];
+const NAV_GREEN: [f32; 3] = [0.08, 0.85, 0.20];
+const BEACON_RED: [f32; 3] = [1.00, 0.06, 0.04];
+
+pub(crate) fn helicopter_colours(ctx: &PartCtx) -> HelicopterColours {
+    let p = &ctx.palette;
+    let m = &ctx.materials;
+    let style = AvatarCharacter::for_seed(ctx.seed).style;
+    let l = helicopter_livery(ctx.seed, style, ctx.livery);
+    let body = floor_finished(m, l.body, HELI_MASS_FLOOR);
+    let lamp = window_material(window_light(p.tertiary_accent));
+    HelicopterColours {
+        body: m.paint(body),
+        lower: m.paint(floor_finished(m, l.lower, HELI_MASS_FLOOR)),
+        stripe: trim(m, clear_of(p.primary_accent, luma(body), COACHLINE_DELTA)),
+        glass: m.glass(HELI_GLASS),
+        lamp,
+        metal: m.paint(HELI_METAL),
+        dark: m.paint(HELI_DARK),
+        port: m.glow(NAV_RED),
+        starboard: m.glow(NAV_GREEN),
+        beacon: m.glow(BEACON_RED),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3676,5 +3941,140 @@ mod tests {
             same * 10 < n,
             "{same} of {n} adjacent seeds matched on livery AND accent value"
         );
+    }
+
+    /// The helicopter's list is weighted by THEME (#1614): every scheme is
+    /// at home on some theme - a scheme no theme flies is a scheme nobody
+    /// agreed to - every theme is at home on at least one, so each theme's
+    /// population has paint of its own, and the two civil classics are
+    /// every theme's floor. And every scheme is actually drawn by some seed
+    /// on its own theme, the pick's half of the claim.
+    #[test]
+    fn every_theme_is_at_home_on_a_helicopter_scheme() {
+        for l in HELICOPTER_LIVERIES {
+            assert!(
+                ThemeArchetype::ALL.iter().any(|s| l.home.contains(s)),
+                "{} is at home on no theme",
+                l.name
+            );
+        }
+        for style in ThemeArchetype::ALL {
+            let home = HELICOPTER_LIVERIES
+                .iter()
+                .filter(|l| l.home.contains(&style))
+                .count();
+            assert!(home >= 1, "{style:?} is at home on no helicopter scheme");
+            let reachable = HELICOPTER_LIVERIES
+                .iter()
+                .filter(|l| l.weight(style) > 0)
+                .count();
+            assert!(reachable >= 2, "{style:?} reaches {reachable} scheme(s)");
+        }
+        let floors: Vec<&str> = HELICOPTER_LIVERIES
+            .iter()
+            .filter(|l| l.floor)
+            .map(|l| l.name)
+            .collect();
+        assert_eq!(floors, ["Rescue red", "Executive white"]);
+        let mut drawn = vec![0usize; HELICOPTER_LIVERIES.len()];
+        for s in 0u64..4_000 {
+            let style = AvatarCharacter::for_seed(s).style;
+            let l = helicopter_livery(s, style, None);
+            drawn[HELICOPTER_LIVERIES
+                .iter()
+                .position(|x| x.name == l.name)
+                .expect("the pick came from the table")] += 1;
+        }
+        assert!(
+            drawn.iter().all(|&n| n > 0),
+            "a helicopter scheme is never drawn: {drawn:?}"
+        );
+    }
+
+    /// A helicopter's colours read on every scheme of her list, on every
+    /// seed drawn as one under 900 (#1614), BOTH directions.
+    ///
+    /// What is lit: her door panes and her searchlight's lens, which are the
+    /// window light (the tertiary's, as every cabin's is); her beacon and her
+    /// two nav lights, which are lamps on every kit; and her boom stripes,
+    /// the seed's accent through [`trim`], exactly when the kit is luminous.
+    /// Everything else is paint. And the stripes read off the body they lie
+    /// on, and each scheme's two hues read off each other.
+    #[test]
+    fn a_helicopters_stripes_band_and_lights_read_on_every_scheme() {
+        let (mut lit, mut dark) = (0, 0);
+        for s in (0u64..900).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Helicopter) {
+            let mut ctx = PartCtx::for_seed(s);
+            let luminous = ctx.materials.emissive_accents();
+            let window = window_material(window_light(ctx.palette.tertiary_accent));
+            for (i, scheme) in HELICOPTER_LIVERIES.iter().enumerate() {
+                ctx.livery = Some(i);
+                let c = helicopter_colours(&ctx);
+                for (what, m) in [
+                    ("pod, boom and fins", &c.body),
+                    ("lower band and end plates", &c.lower),
+                    ("glass", &c.glass),
+                    ("mast, rotor head and skids", &c.metal),
+                    ("blades and stack", &c.dark),
+                ] {
+                    assert_eq!(
+                        m.emission_strength.0, 0.0,
+                        "seed {s} in {}: the {what} is self-lit",
+                        scheme.name
+                    );
+                }
+                assert_eq!(
+                    c.lamp, window,
+                    "seed {s} in {}: the door panes are not the window light",
+                    scheme.name
+                );
+                for (what, m) in [
+                    ("port light", &c.port),
+                    ("starboard light", &c.starboard),
+                    ("beacon", &c.beacon),
+                ] {
+                    assert!(
+                        m.emission_strength.0 > 0.0,
+                        "seed {s} in {}: the {what} is dark",
+                        scheme.name
+                    );
+                }
+                assert!(
+                    c.port.base_color.0[0] > c.port.base_color.0[1]
+                        && c.starboard.base_color.0[1] > c.starboard.base_color.0[0],
+                    "red is to port and green to starboard"
+                );
+                let on = c.stripe.emission_strength.0 > 0.0;
+                assert_eq!(
+                    on, luminous,
+                    "seed {s} in {}: the stripes are lit {on} on a kit luminous {luminous}",
+                    scheme.name
+                );
+                if !luminous {
+                    let l = |m: &SovereignMaterialSettings| luma(m.base_color.0);
+                    let d = (l(&c.stripe) - l(&c.body)).abs();
+                    assert!(
+                        d > COACHLINE_DELTA * 0.6,
+                        "seed {s} in {}: the stripes are {d} from the body",
+                        scheme.name
+                    );
+                }
+            }
+            if luminous {
+                lit += 1;
+            } else {
+                dark += 1;
+            }
+        }
+        assert!(
+            lit > 0 && dark > 0,
+            "the population saw only one kind: {lit} lit, {dark} dark"
+        );
+        // The two-tone is the scheme's own design: its two hues are a step
+        // apart in value before any kit finishes them.
+        for l in HELICOPTER_LIVERIES {
+            let d = (luma(l.body) - luma(l.lower)).abs();
+            assert!(d > 0.15, "{}: its two hues are only {d} apart", l.name);
+        }
     }
 }

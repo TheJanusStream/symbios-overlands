@@ -107,19 +107,20 @@ impl AvatarRecord {
     /// touching the editor.
     ///
     /// The DID first resolves to the [`crate::seeded_defaults::AvatarCharacter`]
-    /// anchor - one of four visual families
+    /// anchor - one of five visual families
     /// ([`crate::seeded_defaults::ChassisFamily`]: hover-boat, airship,
-    /// humanoid figure, land-skiff) plus a style + ornateness / wear. The
-    /// assembler in [`default_visuals`] then draws that family: a boat or a
-    /// skiff from its own seeded craft type's builder over one profile
-    /// (#1363, #1364), an airship composed from the tagged part catalogue
+    /// humanoid figure, land-skiff, helicopter) plus a style + ornateness /
+    /// wear. The assembler in [`default_visuals`] then draws that family: a
+    /// boat, a skiff or a helicopter from its own seeded craft type's builder
+    /// over one profile (#1363, #1364, #1614), an airship composed from the
+    /// tagged part catalogue
     /// ([`parts`]) via the seeded
     /// [`crate::seeded_defaults::AvatarOutfit`], a humanoid as a rigged
     /// `symbios-avatar` record. Colours come from
     /// [`crate::seeded_defaults::AvatarPalette`] and finishes from
     /// [`crate::seeded_defaults::MaterialKit`]. Locomotion follows the family
-    /// (boat → HoverBoat, airship → Helicopter, humanoid → Humanoid, skiff →
-    /// Car) so the chassis drives like it looks.
+    /// (boat → HoverBoat, airship and helicopter → Helicopter, humanoid →
+    /// Humanoid, skiff → Car) so the chassis drives like it looks.
     pub fn default_for_did(did: &str) -> Self {
         Self::default_for_seed(crate::seeded_defaults::fnv1a_64(did))
     }

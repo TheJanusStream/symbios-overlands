@@ -5,7 +5,7 @@
 //! [`StylizationTier`](super::body::StylizationTier)) into concrete
 //! world-space DIMENSIONS for one vehicle chassis: a boat's seven numbers
 //! (length, beam, freeboard, two sheer rises, draft, and the stance that
-//! banded them), a skiff's eight, an airship's four.
+//! banded them), a skiff's eight, an airship's four, a helicopter's four.
 //!
 //! # Dimensions here, landmarks downstream
 //!
@@ -21,7 +21,7 @@
 //! ([`crate::pds::avatar::parts`]) size themselves from
 //! [`AirshipBlueprint`] directly.
 //!
-//! Per-family structs behind the [`VehicleBlueprint`] enum, because the three
+//! Per-family structs behind the [`VehicleBlueprint`] enum, because the four
 //! families share no dimension: a hull has a draft and a skiff has a
 //! wheelbase. A chassis reads its own family's struct or nothing, and the
 //! rigged humanoid family - whose body is a parametric `symbios-avatar`
@@ -105,6 +105,19 @@ impl VehicleStance {
             Self::Compact => (0.92, 1.02),
             Self::Sleek => (1.13, 0.9),
             Self::Heavy => (0.93, 1.14),
+        }
+    }
+
+    /// `(length, girth, boom)` multipliers for a helicopter of this stance
+    /// (#1614): the owner's "stance shapes the cabin and boom" (#1613
+    /// recommendation 6). Moves her inside the agreed form, never out of it -
+    /// a Compact machine is a short, full cabin on a short boom, a Sleek one
+    /// a long, slim cabin on a long boom, a Heavy one the fullest cabin.
+    fn helicopter_factors(self) -> (f32, f32, f32) {
+        match self {
+            Self::Compact => (0.95, 1.04, 0.94),
+            Self::Sleek => (1.05, 0.95, 1.06),
+            Self::Heavy => (1.00, 1.08, 1.00),
         }
     }
 
@@ -357,6 +370,105 @@ impl SkiffBlueprint {
 /// skiff was the last family to hold one.
 pub const NOMINAL_BODY_LEN: f32 = 2.65;
 
+/// Concrete helicopter proportions in **true metres**, nose at `+Z`
+/// (#1614).
+///
+/// Three numbers and the stance that banded them, because the agreed form
+/// (#1613) is ONE pod profile that every mount is read off: the length sets
+/// the scale it is drawn at, and the girth and the boom are the two ways the
+/// owner asked a seed to move it - "stance shapes the cabin and boom". The
+/// nominal blueprint is the prototype's proportion B exactly: a 3.2 m
+/// fuselage, its cabin 22 % fuller than the first draft, its boom as drawn.
+#[derive(Clone, Copy, Debug)]
+pub struct HelicopterBlueprint {
+    pub stance: VehicleStance,
+    /// Nose to the end of the tail boom, where the fin stands (m) - the
+    /// nominal every other dimension is a fraction of. The fin, the beacon
+    /// and the tail rotor stand a little aft of it, and the main rotor's
+    /// disc reaches past both ends.
+    pub length: f32,
+    /// How much fuller her cabin is than the prototype's first draft: each
+    /// pod section's radius, the cabin swelling mostly upward (1.22 is
+    /// proportion B).
+    pub girth: f32,
+    /// The tail boom's reach over the prototype's, the pod unchanged: a
+    /// Sleek machine's runs longer and a Compact one's shorter.
+    pub boom: f32,
+}
+
+impl HelicopterBlueprint {
+    fn derive(body: &AvatarBody, rng: &mut ChaCha8Rng) -> Self {
+        let stance = VehicleStance::sample(rng);
+        let (len_f, girth_f, boom_f) = stance.helicopter_factors();
+        // Overall size rides the body height knob, damped as a boat's and a
+        // skiff's are (#1363), and is clamped to the owner's band (#1613
+        // recommendation 6): 2.9-3.5 m, so a clamp corner is still the
+        // machine the owner agreed.
+        let size = 1.0 + (body.height_scale - 1.0) * BODY_SIZE_DAMPING;
+        let length = (NOMINAL_FUSELAGE_LEN * size * len_f * range_f32(rng, 0.97, 1.03))
+            .clamp(MIN_FUSELAGE_LEN, MAX_FUSELAGE_LEN);
+        // A broad-shouldered avatar flies a fuller cabin.
+        let girth = (NOMINAL_GIRTH * girth_f * body.shoulder_width_scale.clamp(0.94, 1.06))
+            .clamp(MIN_GIRTH, MAX_GIRTH);
+        let boom = (boom_f * range_f32(rng, 0.97, 1.03)).clamp(MIN_BOOM, MAX_BOOM);
+        Self {
+            stance,
+            length,
+            girth,
+            boom,
+        }
+    }
+
+    /// The prototype's proportion B, which the nominal seed draws - the
+    /// blueprint a guard or a survey reaches for when it wants THE machine.
+    pub const NOMINAL: Self = Self {
+        stance: VehicleStance::Sleek,
+        length: NOMINAL_FUSELAGE_LEN,
+        girth: NOMINAL_GIRTH,
+        boom: 1.0,
+    };
+
+    /// The blueprint corners a seeded helicopter can reach: every clamp
+    /// bound of the three numbers, crossed - what the family's guards sweep.
+    pub fn corners() -> Vec<Self> {
+        let mut out = Vec::new();
+        for length in [MIN_FUSELAGE_LEN, MAX_FUSELAGE_LEN] {
+            for girth in [MIN_GIRTH, MAX_GIRTH] {
+                for boom in [MIN_BOOM, MAX_BOOM] {
+                    out.push(Self {
+                        stance: VehicleStance::Sleek,
+                        length,
+                        girth,
+                        boom,
+                    });
+                }
+            }
+        }
+        out
+    }
+}
+
+/// Fuselage length (m) a nominal seeded helicopter is drawn at, nose to boom
+/// end: the prototype's proportion B (#1613), which the owner chose because
+/// the first draft read as a toy beside the fleet. Airship class, like the
+/// others: a scale model of a bigger machine, lit doors and no pilot.
+pub const NOMINAL_FUSELAGE_LEN: f32 = 3.2;
+
+/// The owner's band for a seeded helicopter's fuselage (m), #1613
+/// recommendation 6.
+const MIN_FUSELAGE_LEN: f32 = 2.9;
+const MAX_FUSELAGE_LEN: f32 = 3.5;
+
+/// The cabin girth of proportion B over the first draft, and the band a seed
+/// may move it in.
+const NOMINAL_GIRTH: f32 = 1.22;
+const MIN_GIRTH: f32 = 1.12;
+const MAX_GIRTH: f32 = 1.34;
+
+/// The band a seed may stretch or shorten the tail boom in.
+const MIN_BOOM: f32 = 0.92;
+const MAX_BOOM: f32 = 1.08;
+
 /// Per-family vehicle proportion blueprint. One variant per chassis that has
 /// been wired to the shared-landmark system; [`VehicleBlueprint::from_seed`]
 /// yields `None` for a chassis without one yet (and for the humanoid).
@@ -365,6 +477,7 @@ pub enum VehicleBlueprint {
     Boat(BoatBlueprint),
     Airship(AirshipBlueprint),
     Skiff(SkiffBlueprint),
+    Helicopter(HelicopterBlueprint),
 }
 
 impl VehicleBlueprint {
@@ -387,6 +500,9 @@ impl VehicleBlueprint {
             ChassisFamily::Boat => Some(Self::Boat(BoatBlueprint::derive(body, &mut rng))),
             ChassisFamily::Airship => Some(Self::Airship(AirshipBlueprint::derive(body, &mut rng))),
             ChassisFamily::Skiff => Some(Self::Skiff(SkiffBlueprint::derive(body, &mut rng))),
+            ChassisFamily::Helicopter => Some(Self::Helicopter(HelicopterBlueprint::derive(
+                body, &mut rng,
+            ))),
             // Rigged: no parts to size (#1060).
             ChassisFamily::Humanoid => None,
         }
@@ -412,6 +528,14 @@ impl VehicleBlueprint {
     pub fn skiff(&self) -> Option<&SkiffBlueprint> {
         match self {
             Self::Skiff(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    /// The helicopter blueprint, if this is a helicopter.
+    pub fn helicopter(&self) -> Option<&HelicopterBlueprint> {
+        match self {
+            Self::Helicopter(h) => Some(h),
             _ => None,
         }
     }
@@ -452,6 +576,12 @@ mod tests {
                     assert!(
                         bp.and_then(|b| b.skiff().copied()).is_some(),
                         "seed {s} skiff"
+                    );
+                }
+                ChassisFamily::Helicopter => {
+                    assert!(
+                        bp.and_then(|b| b.helicopter().copied()).is_some(),
+                        "seed {s} helicopter"
                     );
                 }
                 ChassisFamily::Humanoid => {
@@ -557,6 +687,64 @@ mod tests {
             seen += 1;
         }
         assert!(seen > 20, "too few skiffs sampled: {seen}");
+    }
+
+    /// Every helicopter seed lands inside the owner's bands (#1613
+    /// recommendation 6), and the fleet actually spreads across them rather
+    /// than piling onto the clamps.
+    #[test]
+    fn helicopter_dims_stay_in_the_owners_bands() {
+        let (mut seen, mut clamped) = (0, 0);
+        let (mut shortest, mut longest) = (f32::MAX, f32::MIN);
+        for s in 0u64..900 {
+            let Some(h) = VehicleBlueprint::from_seed(s).and_then(|bp| bp.helicopter().copied())
+            else {
+                continue;
+            };
+            assert!(
+                (MIN_FUSELAGE_LEN..=MAX_FUSELAGE_LEN).contains(&h.length),
+                "seed {s}: length {}",
+                h.length
+            );
+            assert!(
+                (MIN_GIRTH..=MAX_GIRTH).contains(&h.girth),
+                "seed {s}: girth {}",
+                h.girth
+            );
+            assert!(
+                (MIN_BOOM..=MAX_BOOM).contains(&h.boom),
+                "seed {s}: boom {}",
+                h.boom
+            );
+            clamped += usize::from(h.length == MIN_FUSELAGE_LEN || h.length == MAX_FUSELAGE_LEN);
+            shortest = shortest.min(h.length);
+            longest = longest.max(h.length);
+            seen += 1;
+        }
+        assert!(seen > 100, "too few helicopters sampled: {seen}");
+        assert!(
+            clamped * 5 < seen,
+            "{clamped} of {seen} helicopters sit on a length clamp"
+        );
+        assert!(
+            longest - shortest > 0.3,
+            "the fleet spans only {shortest}..{longest} m"
+        );
+    }
+
+    /// The nominal blueprint is the prototype's proportion B, and the
+    /// corners are the clamp bounds - the two the family's guards lean on.
+    #[test]
+    fn the_nominal_helicopter_is_proportion_b_and_the_corners_are_the_clamps() {
+        let n = HelicopterBlueprint::NOMINAL;
+        assert_eq!((n.length, n.girth, n.boom), (3.2, 1.22, 1.0));
+        let corners = HelicopterBlueprint::corners();
+        assert_eq!(corners.len(), 8);
+        for c in corners {
+            assert!([MIN_FUSELAGE_LEN, MAX_FUSELAGE_LEN].contains(&c.length));
+            assert!([MIN_GIRTH, MAX_GIRTH].contains(&c.girth));
+            assert!([MIN_BOOM, MAX_BOOM].contains(&c.boom));
+        }
     }
 
     #[test]

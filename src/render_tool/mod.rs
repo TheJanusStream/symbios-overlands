@@ -243,7 +243,10 @@ struct Args {
     /// and a raider's
     /// [`livery::RAIDER_LIVERIES`](crate::pds::avatar::livery::RAIDER_LIVERIES),
     /// [`livery::CYCLECAR_LIVERIES`](crate::pds::avatar::livery::CYCLECAR_LIVERIES),
-    /// [`livery::JUNK_LIVERIES`](crate::pds::avatar::livery::JUNK_LIVERIES)).
+    /// [`livery::JUNK_LIVERIES`](crate::pds::avatar::livery::JUNK_LIVERIES)),
+    /// or the helicopter's theme-weighted list
+    /// ([`livery::HELICOPTER_LIVERIES`](crate::pds::avatar::livery::HELICOPTER_LIVERIES),
+    /// whose index names a scheme outright, whatever the subject's theme).
     /// It WRAPS, so a survey loop that runs past the end draws each scheme
     /// once rather than the last one twice. `--outfit` prints the name a seed
     /// picked for itself.
@@ -2207,7 +2210,7 @@ fn generator_body(body: AvatarBody, subject: &str) -> Generator {
         AvatarBody::Generator(body) => body.visuals,
         _ => panic!(
             "avatar {subject:?} is a rigged body - this tool renders generator trees. \n\
-             Vehicle seeds (boat / airship / skiff) still render here; for a rigged \n\
+             Vehicle seeds (boat / airship / skiff / helicopter) still render here; for a rigged \n\
              body use the bevy_symbios_avatar viewer's --shot capture."
         ),
     }

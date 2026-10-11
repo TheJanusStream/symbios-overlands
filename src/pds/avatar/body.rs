@@ -12,7 +12,7 @@
 //!     fetched in the same pass as the avatar record and carried on
 //!     [`RiggedBody::resolved`], which never touches the wire.
 //!   - [`AvatarBody::Generator`] - the classic tree. Post-#1060 this is the
-//!     vehicle chassis' variant (boat / airship / skiff); until the legacy
+//!     vehicle chassis' variant (boat / airship / skiff / helicopter); until the legacy
 //!     humanoid builder is deleted it carries seeded humanoids too, which is
 //!     why the variant is named for its payload and not for a role.
 //!   - [`AvatarBody::Unknown`] - a body kind from a newer client, kept as a

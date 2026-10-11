@@ -3,7 +3,7 @@
 The avatar is the one record the agent may edit in any world. Two kinds of
 body: a **rigged** person (a sculpt and worn items, kept in records of their
 own) and a **generator** body - every vehicle: a car, a hover-boat, an
-airship, an airplane - whose whole shape is one generator tree at
+airship, a helicopter, an airplane - whose whole shape is one generator tree at
 `/record/body/visuals`, the same JSON as a building's
 ([building.md](building.md)). Everyone sees a generator body's edits at
 once; other clients fetch a rigged body's sculpt and worn items from your
@@ -12,7 +12,8 @@ PDS, so they see a change to those only after `A save avatar --wait`.
 ## Choosing how it moves
 
 `/record/locomotion` decides. For building and inspecting, a rotorcraft (the
-`helicopter` preset every airship flies) is the best body found so far: a
+`helicopter` preset every airship and every seeded helicopter flies, #1614)
+is the best body found so far: a
 `walk-to` climbs over whatever is in the way instead of ending `stuck`, and
 it lands on its point - a roof or a hill to look down at a build from.
 Keep what the seed gave unless there is a reason: the numbers are tuned
@@ -21,7 +22,8 @@ climbs at idle. Landed, it rests its weight on its box's underside (#1612),
 so a shape that hangs below `-half_y` stands in the ground. A rotorcraft
 that should tip into its motion - nose down flying forward, banked into a
 turn - says how far in `/record/gait/lean_degrees` (0 to 45; absent is 0,
-level as an airship flies).
+level as an airship flies; a seeded helicopter leans 15, and her seeded gait
+zeroes the airship's heave and nose wander, so she sits still on her skids).
 
 ## Shaping a generator body
 

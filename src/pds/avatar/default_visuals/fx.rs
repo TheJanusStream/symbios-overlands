@@ -372,13 +372,14 @@ fn voice_patch(voice: AvatarVoice, family: ChassisFamily, seed: u64) -> Option<A
     driven_voice_patch(voice, family, drive_of(family, seed), detune_bucket(seed))
 }
 
-/// How the avatar for `seed` on `family` is driven. A boat and a skiff each
-/// answer for the craft they are DRAWN as (#1383, #1377); the airship's
-/// rotors are an engine.
+/// How the avatar for `seed` on `family` is driven. A boat, a skiff and a
+/// helicopter each answer for the craft they are DRAWN as (#1383, #1377,
+/// #1614); the airship's rotors are an engine.
 pub(super) fn drive_of(family: ChassisFamily, seed: u64) -> Propulsion {
     match family {
         ChassisFamily::Boat => super::boats::propulsion(seed),
         ChassisFamily::Skiff => super::skiffs::propulsion(seed),
+        ChassisFamily::Helicopter => super::helicopters::propulsion(seed),
         ChassisFamily::Airship | ChassisFamily::Humanoid => Propulsion::Engine,
     }
 }
@@ -474,7 +475,7 @@ pub(super) fn voice_label(seed: u64) -> String {
     let under = match (drive, family) {
         (Propulsion::Sail, _) => "wash and rig wind",
         (Propulsion::Engine, ChassisFamily::Boat) => "boat engine hum",
-        (Propulsion::Engine, ChassisFamily::Airship) => "rotor thump",
+        (Propulsion::Engine, ChassisFamily::Airship | ChassisFamily::Helicopter) => "rotor thump",
         (Propulsion::Engine, ChassisFamily::Skiff | ChassisFamily::Humanoid) => "putter",
         (Propulsion::Rolling, _) => "roll and creak",
         (Propulsion::Poled, _) => "lap and sweep creak",
@@ -484,6 +485,7 @@ pub(super) fn voice_label(seed: u64) -> String {
         (Propulsion::Battened, _) => "batten creak",
         (Propulsion::Diesel, _) => "diesel rumble",
         (Propulsion::Servo, _) => "gear whirr",
+        (Propulsion::Turbine, _) => "rotor chop and turbine whine",
     };
     let bucket = detune_bucket(seed);
     match voice {
@@ -537,7 +539,12 @@ fn family_drive(
     match (drive, family) {
         (Propulsion::Sail, _) => under_sail(g),
         (Propulsion::Engine, ChassisFamily::Boat) => boat_hum(g, detune),
-        (Propulsion::Engine, ChassisFamily::Airship) => airship_rotor(g, detune),
+        // No seed puts an engine under a helicopter - hers is a turbine -
+        // but a rotorcraft's engine is the airship's rotor, so the walk over
+        // every drive on every chassis hears a rotor there too.
+        (Propulsion::Engine, ChassisFamily::Airship | ChassisFamily::Helicopter) => {
+            airship_rotor(g, detune)
+        }
         (Propulsion::Engine, ChassisFamily::Skiff | ChassisFamily::Humanoid) => {
             skiff_putter(g, detune)
         }
@@ -549,6 +556,7 @@ fn family_drive(
         (Propulsion::Battened, _) => batten_creak(g),
         (Propulsion::Diesel, _) => diesel_rumble(g, detune),
         (Propulsion::Servo, _) => gear_whirr(g, detune),
+        (Propulsion::Turbine, _) => turbine_chop(g, detune),
     }
 }
 
@@ -1037,6 +1045,58 @@ fn gear_whirr(g: &mut GraphBuilder, detune: f32) -> NodeId {
     g.sink(NodeKind::Gain(Gain { gain: 0.72 }), &[gear, body])
 }
 
+/// A helicopter's turboshaft under her two-blade rotor (#1614, #1613
+/// recommendation 9): the rotor's CHOP - brown noise banded low under a
+/// 38 Hz thump, gated at the blade pass, six times a second, by the tug's
+/// decaying saw squared through a second in series, so each slap starts hard
+/// and dies early - over a turbine's steady WHINE, a 620 Hz tone and its
+/// octave. The six is read off her drawn rotor
+/// ([`BLADE_PASS_HZ`](super::helicopters::BLADE_PASS_HZ): two blades at three
+/// turns a second), so what is heard is what is seen - and a turbine type
+/// whose rotor turns otherwise will want its own rate here.
+///
+/// Every rate is whole hertz after the detune, the octave is twice the
+/// rounded fundamental, and the slap's envelope restarts at the loop seam,
+/// so the noise under it cannot step there (#1385, #1387). Not the
+/// airship's rotor: that is a hum pumped by a sine at 5 Hz, all pitch and
+/// no slap.
+fn turbine_chop(g: &mut GraphBuilder, detune: f32) -> NodeId {
+    let noise = g.src(NodeKind::BrownNoise(BrownNoise { amplitude: 0.7 }));
+    let slap = g.sink(
+        NodeKind::BiquadBandpass(BiquadBandpass {
+            center_hz: 160.0,
+            q: 0.9,
+        }),
+        &[noise],
+    );
+    let thump = g.src(NodeKind::Sine(sine(hz(38.0, detune), 0.22)));
+    let body = g.sink(NodeKind::Gain(Gain { gain: 1.0 }), &[slap, thump]);
+    let decay = || {
+        NodeKind::Lfo(Lfo {
+            rate_hz: hz(super::helicopters::BLADE_PASS_HZ, detune),
+            shape: LfoShape::Saw,
+            depth: -0.5,
+            offset: 0.5,
+        })
+    };
+    let fall = g.src(decay());
+    let fall_again = g.src(decay());
+    let chop = g.vca(&[body], fall);
+    let chop = g.vca(&[chop], fall_again);
+    let chop = g.sink(
+        NodeKind::BiquadLowpass(BiquadLowpass {
+            cutoff_hz: 900.0,
+            q: 0.7,
+        }),
+        &[chop],
+    );
+    let chop = g.sink(NodeKind::Gain(Gain { gain: 1.5 }), &[chop]);
+    let pitch = hz(620.0, detune);
+    let whine = g.src(NodeKind::Sine(sine(pitch, 0.05)));
+    let octave = g.src(NodeKind::Sine(sine(2.0 * pitch, 0.02)));
+    g.sink(NodeKind::Gain(Gain { gain: 1.0 }), &[chop, whine, octave])
+}
+
 /// Skiff engine - a saw/sine putter around 78 Hz, chugged by a faster LFO;
 /// the two oscillators sit one hertz apart, so they beat once a second for an
 /// idling-motor waver. (They used to sit 1 % apart, a pair that can never
@@ -1196,7 +1256,7 @@ mod audio_tests {
         AvatarVoice::NeonBuzz,
         AvatarVoice::ArcaneShimmer,
     ];
-    const DRIVES: [Propulsion; 10] = [
+    const DRIVES: [Propulsion; 11] = [
         Propulsion::Sail,
         Propulsion::Engine,
         Propulsion::Rolling,
@@ -1207,6 +1267,7 @@ mod audio_tests {
         Propulsion::Battened,
         Propulsion::Diesel,
         Propulsion::Servo,
+        Propulsion::Turbine,
     ];
 
     /// Every voice patch there is: each voice on each chassis under each
@@ -1324,7 +1385,7 @@ mod audio_tests {
     ///
     /// The TIGHTER of the two seam guards, and the narrower: it asks these
     /// seven for `seam <= inner` exactly, where
-    /// [`every_avatar_voice_meets_itself_at_the_loop_seam`] walks all 266
+    /// [`every_avatar_voice_meets_itself_at_the_loop_seam`] walks all 287
     /// distinct patches at 1.05x, the ceiling that yardstick has once a fade
     /// has made the seam an ordinary step. Keep both: this one is the guard
     /// on the WARM-UP, and it would still hold with the fade removed.
@@ -1345,6 +1406,7 @@ mod audio_tests {
             (ChassisFamily::Skiff, Propulsion::Electric),
             (ChassisFamily::Skiff, Propulsion::Diesel),
             (ChassisFamily::Skiff, Propulsion::Servo),
+            (ChassisFamily::Helicopter, Propulsion::Turbine),
         ] {
             let patch =
                 driven_voice_patch(AvatarVoice::Drive, family, drive, 0).expect("a drive voice");
@@ -1372,8 +1434,9 @@ mod audio_tests {
         }
     }
 
-    /// Every avatar voice meets itself at its loop seam (#1387) - all 266
-    /// distinct patches, on every detune bucket, not the seven tonal ones
+    /// Every avatar voice meets itself at its loop seam (#1387) - all 287
+    /// distinct patches (266 until the helicopter's turbine added 21,
+    /// #1614), on every detune bucket, not the seven tonal ones
     /// [`a_tonal_voice_meets_itself_at_the_loop_seam`] names on bucket 0.
     ///
     /// A closed rate and a warm filter (#1385) settle everything PERIODIC in
@@ -1397,7 +1460,7 @@ mod audio_tests {
     /// worst 1.008.
     #[test]
     fn every_avatar_voice_meets_itself_at_the_loop_seam() {
-        // One bake each over the DISTINCT patches - 266 of the 840 labelled
+        // One bake each over the DISTINCT patches - 287 of the 1155 labelled
         // pairs, since a drive's voice is the same graph on every chassis
         // that carries it. Timed in one binary before it was written this
         // wide: 1.0 s at test-release, 7.9 s under the plain `cargo test`
@@ -1432,7 +1495,7 @@ mod audio_tests {
                 worst = (ratio, label);
             }
         }
-        assert_eq!(seen.len(), 266, "the census walked 266 distinct patches");
+        assert_eq!(seen.len(), 287, "the census walked 287 distinct patches");
         assert!(
             worst.0 <= 1.05,
             "{}: the seam steps {:.2}x the largest step inside its own loop",
@@ -1681,6 +1744,7 @@ mod audio_tests {
             (ChassisFamily::Boat, Propulsion::Battened),
             (ChassisFamily::Skiff, Propulsion::Diesel),
             (ChassisFamily::Skiff, Propulsion::Servo),
+            (ChassisFamily::Helicopter, Propulsion::Turbine),
         ] {
             let patch = driven_voice_patch(AvatarVoice::Drive, family, drive, 3).expect("a drive");
             assert_audible(&patch, &format!("{family:?} {drive:?}"));
@@ -1706,9 +1770,9 @@ mod audio_tests {
 
     #[test]
     fn the_family_drives_are_distinct() {
-        // The twelve drive voices - sail, motor boat, rotor, putter, wagon,
-        // scow, tug, buggy, cyclecar, junk, armoured car, rover - are
-        // genuinely different voices, not one shared hum. It is what
+        // The thirteen drive voices - sail, motor boat, rotor, putter, wagon,
+        // scow, tug, buggy, cyclecar, junk, armoured car, rover, helicopter -
+        // are genuinely different voices, not one shared hum. It is what
         // separates the buggy's square from the armoured car's, which a "has
         // a square" claim no longer can (#1375), and the rover's banded saw
         // from the putter's (#1378).
@@ -1725,6 +1789,7 @@ mod audio_tests {
             (ChassisFamily::Boat, Propulsion::Battened),
             (ChassisFamily::Skiff, Propulsion::Diesel),
             (ChassisFamily::Skiff, Propulsion::Servo),
+            (ChassisFamily::Helicopter, Propulsion::Turbine),
         ]
         .iter()
         .map(|&(family, drive)| {
@@ -1775,6 +1840,7 @@ mod audio_tests {
             (ChassisFamily::Skiff, 330.0, 5),
             (ChassisFamily::Skiff, 33.0, 3),
             (ChassisFamily::Skiff, 150.0, 5),
+            (ChassisFamily::Helicopter, 620.0, 7),
         ] {
             let mut pitches: Vec<i32> = (0..DETUNE_BUCKETS)
                 .map(|b| hz(base, detune_factor(b)) as i32)
@@ -2125,10 +2191,40 @@ mod audio_tests {
             folded += usize::from(AvatarFx::for_seed(s).aura == ParticleAura::Steam);
             buggies += 1;
         }
+        // 87 under 3000 since the helicopter took a sixth of the seeds
+        // (#1614); 104 before it.
         assert!(
-            buggies > 90 && folded > 0,
+            buggies > 70 && folded > 0,
             "{buggies} buggies under 3000, {folded} of them folded from steam"
         );
+    }
+
+    /// The helicopter's chop is her drawn rotor's blade pass (#1614): every
+    /// LFO in her turbine voice, on every detune bucket, runs at the rate
+    /// her two blades pass at - so what is heard is what is seen, and a
+    /// rotor turned faster takes its chop with it.
+    #[test]
+    fn a_helicopters_chop_is_her_rotors_blade_pass() {
+        use super::super::helicopters::BLADE_PASS_HZ;
+        for bucket in 0..DETUNE_BUCKETS {
+            let patch = driven_voice_patch(
+                AvatarVoice::Drive,
+                ChassisFamily::Helicopter,
+                Propulsion::Turbine,
+                bucket,
+            )
+            .expect("a drive voice");
+            let rates: Vec<f32> = patch
+                .graph
+                .nodes
+                .iter()
+                .filter_map(|n| match &n.kind {
+                    NodeKind::Lfo(l) => Some(l.rate_hz),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(rates, [BLADE_PASS_HZ; 2], "bucket {bucket}");
+        }
     }
 
     #[test]

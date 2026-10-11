@@ -15,7 +15,8 @@
 //!     → palette    (skin/hair/eye + style/temperature/wear-aware accents)
 //!     → materials  (MaterialKit: style + wear finish per surface role)
 //!     → fx         (style-gated particle aura + spatial-audio voice)
-//!     → craft      (the craft TYPE a boat or a skiff is, weighted by style)
+//!     → craft      (the craft TYPE a boat, a skiff or a helicopter is,
+//!                  weighted by style)
 //!     → outfit     (slot → part choice, querying the part catalogue - the
 //!                  AIRSHIP's path only, since #1363 and #1364)
 //!     → body/gait  (proportions + locomotion tuning)
@@ -24,23 +25,24 @@
 //! ```
 //!
 //! The top-level discrete pick is [`ChassisFamily`] (boat / airship /
-//! humanoid / skiff), and inside the two part-assembled vehicle families a
-//! second discrete pick follows it: the [`CraftType`] (sloop / longship /
-//! tug / junk / runabout / scow, roadster / buggy / armoured car / cyclecar /
-//! wagon / rover), weighted by the style through the shared mood taxonomy in
-//! [`mood`] so a theme arrives on the craft it would actually build (#1362).
-//! Since #1369 every one of those twelve types is BUILT, on both sides: the
-//! rover closed the skiff half at #1378 and the longship closes the boat
-//! half.
+//! humanoid / skiff / helicopter - two stages since #1614, see [`chassis`]),
+//! and inside three of the vehicle families a second discrete pick follows
+//! it: the [`CraftType`] (sloop / longship / tug / junk / runabout / scow,
+//! roadster / buggy / armoured car / cyclecar / wagon / rover, and the
+//! utility helicopter), weighted by the style through the shared mood
+//! taxonomy in [`mood`] so a theme arrives on the craft it would actually
+//! build (#1362). Every one of those thirteen types is BUILT: the rover
+//! closed the skiff half at #1378, the longship the boat half at #1369, and
+//! the helicopter family opened with its hero built (#1614).
 //!
 //! How that pick becomes a silhouette depends on the family, and the two
 //! routes are not the same one:
 //!
-//! * A BOAT or a SKIFF is drawn by ITS OWN TYPE'S BUILDER, one per
-//!   [`CraftType`], each reading every line and every mount off one profile
-//!   derived from [`VehicleBlueprint`] - a `HullProfile` for the boat
-//!   (#1363), a `BodyPlan` for the skiff (#1364). Neither fills a slot and
-//!   neither rolls an outfit. Variety inside a type comes from the type's own
+//! * A BOAT, a SKIFF or a HELICOPTER is drawn by ITS OWN TYPE'S BUILDER, one
+//!   per [`CraftType`], each reading every line and every mount off one
+//!   profile derived from [`VehicleBlueprint`] - a `HullProfile` for the boat
+//!   (#1363), a `BodyPlan` for the skiff (#1364), a `PodPlan` for the
+//!   helicopter (#1614). None fills a slot and none rolls an outfit. Variety inside a type comes from the type's own
 //!   seeded variants (a sloop's rig and hull form, a roadster's body, top and
 //!   wheels) and from the livery.
 //! * The AIRSHIP is the one family still *composed* from the tagged part
@@ -84,7 +86,7 @@ pub use character::{
     AvatarCharacter, AvatarPins, FinishRegister, OrnatenessBand, OrnatenessTier, WearBand, WearTier,
 };
 pub use chassis::ChassisFamily;
-pub use craft::{BoatType, CraftType, SkiffType, craft_axis};
+pub use craft::{BoatType, CraftType, HelicopterType, SkiffType, craft_axis};
 pub use fx::{AvatarFx, AvatarVoice, ParticleAura};
 pub use gait::AvatarGait;
 pub use longship::LongshipVariant;
@@ -98,7 +100,7 @@ pub use scow::ScowLoad;
 pub use sloop::{SloopHull, SloopRig};
 pub use tug::TugVariant;
 pub use vehicle_blueprint::{
-    AirshipBlueprint, BoatBlueprint, NOMINAL_BODY_LEN, NOMINAL_HULL_LEN, SkiffBlueprint,
-    VehicleBlueprint, VehicleStance,
+    AirshipBlueprint, BoatBlueprint, HelicopterBlueprint, NOMINAL_BODY_LEN, NOMINAL_FUSELAGE_LEN,
+    NOMINAL_HULL_LEN, SkiffBlueprint, VehicleBlueprint, VehicleStance,
 };
 pub use wagon::WagonBody;

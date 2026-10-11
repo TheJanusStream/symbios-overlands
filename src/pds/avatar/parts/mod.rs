@@ -88,10 +88,14 @@ pub fn required_slots(chassis: ChassisFamily) -> &'static [PartSlot] {
     use PartSlot::*;
     match chassis {
         // A rigged family assembles no parts (#1060), and since #1363 / #1364
-        // neither does a boat or a skiff: the redesigned craft types draw
-        // their own geometry off one profile, so there is nothing for an
-        // outfit to fill. The airship is the last family with parts.
-        ChassisFamily::Humanoid | ChassisFamily::Boat | ChassisFamily::Skiff => &[],
+        // neither does a boat or a skiff, nor a helicopter (#1614): the
+        // craft types draw their own geometry off one profile, so there is
+        // nothing for an outfit to fill. The airship is the last family with
+        // parts.
+        ChassisFamily::Humanoid
+        | ChassisFamily::Boat
+        | ChassisFamily::Skiff
+        | ChassisFamily::Helicopter => &[],
         ChassisFamily::Airship => &[Envelope, Gondola, Fin, Pod],
     }
 }
@@ -101,7 +105,10 @@ pub fn required_slots(chassis: ChassisFamily) -> &'static [PartSlot] {
 pub fn optional_slots(chassis: ChassisFamily) -> &'static [PartSlot] {
     use PartSlot::*;
     match chassis {
-        ChassisFamily::Humanoid | ChassisFamily::Boat | ChassisFamily::Skiff => &[],
+        ChassisFamily::Humanoid
+        | ChassisFamily::Boat
+        | ChassisFamily::Skiff
+        | ChassisFamily::Helicopter => &[],
         ChassisFamily::Airship => &[Ornament],
     }
 }
@@ -519,7 +526,9 @@ mod tests {
         // - crucially, the vehicle parts must survive sanitize at the extremes
         // of their seeded blueprint dimensions, not just at the nominal
         // fallback. Seeds chosen to cover boat / airship / skiff chassis so a
-        // family part meets a real blueprint of its own family.
+        // family part meets a real blueprint of its own family. (68 has been a
+        // helicopter since #1614, which has no parts; the other six still
+        // cover all three.)
         for seed in [11u64, 13, 68, 2, 5, 0, 42] {
             let ctx = PartCtx::for_seed(seed);
             for part in entries() {

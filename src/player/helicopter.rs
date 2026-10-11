@@ -629,6 +629,57 @@ mod tests {
         );
     }
 
+    /// A seeded HELICOPTER flies the same preset (#1614), and this is her
+    /// physics read as a player meets it: set down where the game sets a
+    /// body down, she comes down onto her skids - her box's floor - and
+    /// rests there; Space lifts her off; and held forward she tops out at her
+    /// type's 12.5 m/s (cyclic 10 over damping 0.8), where the airship
+    /// stand-in, a twin envelope, makes 7.5 and the fastest airship 10 - the
+    /// "nimbler than an airship" of #1613 recommendation 8, measured on the
+    /// systems rather than read off the table (12.49 against 7.50 when it
+    /// was written).
+    #[test]
+    fn a_seeded_helicopter_rests_on_her_skids_lifts_off_and_outflies_the_airship() {
+        use crate::seeded_defaults::ChassisFamily;
+        let record = (0u64..600)
+            .find(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Helicopter)
+            .map(AvatarRecord::default_for_seed)
+            .expect("a helicopter seed under 600");
+        let up = super::super::preset::set_down_height(&record.locomotion);
+        let mut bench = FlightBench::new(&record, Vec3::new(0.0, up, 0.0));
+        run(&mut bench, &[], 2.0);
+        assert!(
+            bench.underside().abs() < 0.02,
+            "two seconds after her set-down her skids are {:.3} m off the floor",
+            bench.underside()
+        );
+        run(&mut bench, &[KeyCode::Space], 1.0);
+        assert!(
+            bench.underside() > 2.0,
+            "a second of Space lifted her {:.2} m",
+            bench.underside()
+        );
+        // Held forward from five metres up, aloft and clear of the floor:
+        // the ground covered in the eighth second is her top speed.
+        let top_speed = |record: &AvatarRecord| {
+            let at = FlightBench::set_down(record, 0.0, 0.0).position() + Vec3::Y * 5.0;
+            let mut bench = FlightBench::new(record, at).aloft();
+            run(&mut bench, &[KeyCode::KeyW], 7.0);
+            let from = bench.position();
+            run(&mut bench, &[KeyCode::KeyW], 1.0);
+            (bench.position() - from).with_y(0.0).length()
+        };
+        let (heli, ship) = (top_speed(&record), top_speed(&airship()));
+        assert!(
+            (heli - 12.5).abs() < 0.6,
+            "held forward she makes {heli:.2} m/s, not her 12.5"
+        );
+        assert!(
+            heli > ship + 1.5,
+            "she makes {heli:.2} m/s against the airship's {ship:.2}"
+        );
+    }
+
     /// Landed, the push keys do not skate a body over the ground on its
     /// skids, but A and D still turn it on the spot.
     #[test]

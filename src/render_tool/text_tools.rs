@@ -8,17 +8,18 @@ use crate::pds::{Generator, GeneratorKind, Placement, RoomRecord};
 use crate::seeded_defaults::hash::fnv1a_64;
 use crate::seeded_defaults::{
     ArmouredVariant, AvatarPalette, BoatType, BuggyVariant, ChassisFamily, CraftType,
-    LongshipVariant, RoadsterBody, RoadsterTop, RoadsterWheels, RoverVariant, RunaboutVariant,
-    ScowLoad, SkiffType, SloopHull, SloopRig, TugVariant, WagonBody,
+    HelicopterType, LongshipVariant, RoadsterBody, RoadsterTop, RoadsterWheels, RoverVariant,
+    RunaboutVariant, ScowLoad, SkiffType, SloopHull, SloopRig, TugVariant, WagonBody,
 };
 
 use super::Args;
 
 /// Print the first `count` u64 seeds whose
 /// [`ChassisFamily`] matches `fam`
-/// (case-insensitive `humanoid` | `boat` | `airship` | `skiff`). A survey aid
-/// for the avatar overhaul - seeds map 25 % to each family, so scanning a few
-/// thousand always finds enough.
+/// (case-insensitive `humanoid` | `boat` | `airship` | `skiff` |
+/// `helicopter`). A survey aid for the avatar overhaul - a helicopter is a
+/// sixth of the seeds and the other four share the rest (#1614), so scanning
+/// a few thousand always finds enough.
 pub(super) fn print_family_seeds(fam: &str, count: usize, craft: Option<&str>) {
     use crate::seeded_defaults::ChassisFamily;
     let want = match fam.to_lowercase().as_str() {
@@ -26,7 +27,8 @@ pub(super) fn print_family_seeds(fam: &str, count: usize, craft: Option<&str>) {
         "boat" => ChassisFamily::Boat,
         "airship" => ChassisFamily::Airship,
         "skiff" => ChassisFamily::Skiff,
-        other => panic!("unknown family {other:?} (humanoid|boat|airship|skiff)"),
+        "helicopter" => ChassisFamily::Helicopter,
+        other => panic!("unknown family {other:?} (humanoid|boat|airship|skiff|helicopter)"),
     };
     let craft = craft.map(|c| resolve_craft(c, want));
     let seeds: Vec<u64> = (0u64..1_000_000)
@@ -65,15 +67,18 @@ fn resolve_craft(name: &str, fam: ChassisFamily) -> CraftType {
     let name = name.to_lowercase();
     let boat = BoatType::ALL.iter().find(|t| t.slug() == name);
     let skiff = SkiffType::ALL.iter().find(|t| t.slug() == name);
-    match (fam, boat, skiff) {
-        (ChassisFamily::Boat, Some(&t), _) => CraftType::Boat(t),
-        (ChassisFamily::Skiff, _, Some(&t)) => CraftType::Skiff(t),
-        (_, None, None) => panic!(
-            "unknown craft type {name:?} - boats are {:?}, skiffs are {:?}",
+    let helicopter = HelicopterType::ALL.iter().find(|t| t.slug() == name);
+    match (fam, boat, skiff, helicopter) {
+        (ChassisFamily::Boat, Some(&t), _, _) => CraftType::Boat(t),
+        (ChassisFamily::Skiff, _, Some(&t), _) => CraftType::Skiff(t),
+        (ChassisFamily::Helicopter, _, _, Some(&t)) => CraftType::Helicopter(t),
+        (_, None, None, None) => panic!(
+            "unknown craft type {name:?} - boats are {:?}, skiffs are {:?}, helicopters are {:?}",
             BoatType::ALL.map(BoatType::slug),
-            SkiffType::ALL.map(SkiffType::slug)
+            SkiffType::ALL.map(SkiffType::slug),
+            HelicopterType::ALL.map(HelicopterType::slug)
         ),
-        _ => panic!("craft type {name:?} is not a {fam:?} - it belongs to the other family"),
+        _ => panic!("craft type {name:?} is not a {fam:?} - it belongs to another family"),
     }
 }
 
@@ -169,6 +174,9 @@ pub(super) fn print_outfit(subject: &str) {
                 // for the same reason.
                 CraftType::Skiff(SkiffType::Rover) => livery::rover_livery(seed, None).name,
                 CraftType::Skiff(_) => livery::skiff_livery(seed, None).name,
+                // A helicopter's list is weighted by her THEME (#1614).
+                CraftType::Helicopter(_) =>
+                    livery::helicopter_livery(seed, character.style, None).name,
             }
         );
         // And the sloop's own two picks (#1366), for every boat drawn as one
@@ -224,6 +232,17 @@ pub(super) fn print_outfit(subject: &str) {
         // And the rover's (#1378), which her theme picks as well.
         if let CraftType::Skiff(SkiffType::Rover) = craft {
             println!("  rover: {}", RoverVariant::for_seed(seed).label());
+        }
+        // And a helicopter's three seeded proportions (#1614), which her
+        // body knobs and her stance move.
+        if let CraftType::Helicopter(_) = craft
+            && let Some(h) = crate::seeded_defaults::VehicleBlueprint::from_seed(seed)
+                .and_then(|b| b.helicopter().copied())
+        {
+            println!(
+                "  helicopter: {:.3} m, girth {:.3}, boom {:.3} ({:?})",
+                h.length, h.girth, h.boom, h.stance
+            );
         }
     }
     let seed = match subject.parse::<u64>() {

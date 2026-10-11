@@ -30,7 +30,8 @@ use crate::seeded_defaults::scene::ThemeArchetype;
 /// [`Self::for_style`]); the last three are the *chassis-signature* floors a
 /// vehicle falls back to when its style rolls [`Self::None`] - so no craft
 /// idles in dead-clean air (a boat always leaves a wake, an airship always
-/// vents, a skiff always trails exhaust). See [`AvatarFx::for_character`].
+/// vents, a skiff and a helicopter always trail exhaust). See
+/// [`AvatarFx::for_character`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ParticleAura {
     /// No aura - the avatar reads clean.
@@ -49,7 +50,8 @@ pub enum ParticleAura {
     Wake,
     /// Airship chassis floor: a soft vapour puff venting under the gondola.
     Vent,
-    /// Skiff chassis floor: a thin exhaust wisp off the tailpipe.
+    /// Skiff and helicopter chassis floor: a thin exhaust wisp off the
+    /// tailpipe, or off a turbine's stack.
     Exhaust,
 }
 
@@ -90,13 +92,23 @@ impl ParticleAura {
 
     /// The chassis-signature aura a vehicle falls back to when its *style*
     /// rolls [`Self::None`] - the diegetic wake / vent / exhaust every craft
-    /// carries. Humanoids have no floor (they read clean).
+    /// carries. Humanoids have no floor (they read clean). A helicopter's is
+    /// the wisp off her turbine's exhaust stack (#1614).
     fn family_floor(chassis: ChassisFamily) -> Self {
         match chassis {
             ChassisFamily::Boat => Self::Wake,
             ChassisFamily::Airship => Self::Vent,
-            ChassisFamily::Skiff => Self::Exhaust,
+            ChassisFamily::Skiff | ChassisFamily::Helicopter => Self::Exhaust,
             ChassisFamily::Humanoid => Self::None,
+        }
+    }
+
+    /// Whether a craft of this family flies, so a downward
+    /// [`Self::Thruster`] wash has air under it rather than water or road.
+    fn airborne(chassis: ChassisFamily) -> bool {
+        match chassis {
+            ChassisFamily::Airship | ChassisFamily::Helicopter => true,
+            ChassisFamily::Boat | ChassisFamily::Skiff | ChassisFamily::Humanoid => false,
         }
     }
 
@@ -112,7 +124,7 @@ impl ParticleAura {
         }
         match style_aura {
             Self::None => Self::family_floor(chassis),
-            Self::Thruster if chassis != ChassisFamily::Airship => Self::family_floor(chassis),
+            Self::Thruster if !Self::airborne(chassis) => Self::family_floor(chassis),
             other => other,
         }
     }
@@ -244,6 +256,7 @@ mod tests {
             ChassisFamily::Boat,
             ChassisFamily::Airship,
             ChassisFamily::Skiff,
+            ChassisFamily::Helicopter,
         ] {
             for style in ThemeArchetype::ALL {
                 let aura = ParticleAura::effective(ParticleAura::for_style(style), chassis);
@@ -267,13 +280,18 @@ mod tests {
             ParticleAura::effective(ParticleAura::None, ChassisFamily::Skiff),
             ParticleAura::Exhaust
         );
+        assert_eq!(
+            ParticleAura::effective(ParticleAura::None, ChassisFamily::Helicopter),
+            ParticleAura::Exhaust
+        );
     }
 
     #[test]
     fn downward_thruster_is_reserved_for_airborne_craft() {
         // A Solarpunk / SpaceOutpost boat or skiff would fire a jet into the
         // water / road - it trails its family wake / exhaust instead. An
-        // airship keeps the thruster wash, and a humanoid is unchanged.
+        // airship and a helicopter keep the thruster wash, and a humanoid is
+        // unchanged.
         assert_eq!(
             ParticleAura::effective(ParticleAura::Thruster, ChassisFamily::Boat),
             ParticleAura::Wake
@@ -284,6 +302,10 @@ mod tests {
         );
         assert_eq!(
             ParticleAura::effective(ParticleAura::Thruster, ChassisFamily::Airship),
+            ParticleAura::Thruster
+        );
+        assert_eq!(
+            ParticleAura::effective(ParticleAura::Thruster, ChassisFamily::Helicopter),
             ParticleAura::Thruster
         );
         assert_eq!(

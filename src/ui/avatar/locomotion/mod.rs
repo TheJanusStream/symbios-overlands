@@ -323,12 +323,16 @@ mod inert_panel_tests {
     use bevy_egui::egui;
 
     /// One seed per craft type from the craft pin's own hunt (#1380), plus
-    /// an airship and a humanoid: fourteen records, every locomotion preset
+    /// an airship and a humanoid: fifteen records, every locomotion preset
     /// a seed can produce. The two non-craft families are found by pinning
     /// the chassis, which is the only axis they have.
     fn seeded_fleet() -> Vec<(String, u64, AvatarRecord)> {
         let mut out = Vec::new();
-        for craft in CraftType::BOATS.into_iter().chain(CraftType::SKIFFS) {
+        for craft in CraftType::BOATS
+            .into_iter()
+            .chain(CraftType::SKIFFS)
+            .chain(CraftType::HELICOPTERS)
+        {
             let mut pins = AvatarPins::default();
             pins.lock_craft(Some(craft));
             let seed = pins
@@ -741,7 +745,8 @@ mod inert_panel_tests {
 
     /// THE GUARD. Drawing the Locomotion tab, every section open and
     /// nothing touched, leaves the record bit-identical and the editor
-    /// clean - on all fourteen seeded presets (#1390).
+    /// clean - on all fifteen seeded presets (#1390), the helicopter's
+    /// (#1614) among them.
     #[test]
     fn an_untouched_locomotion_tab_writes_nothing() {
         let mut complaints = Vec::new();

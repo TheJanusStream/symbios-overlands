@@ -4,13 +4,14 @@
 //! it resolves the DID's [`ChassisFamily`] and dispatches to that
 //! family's builder, returning both halves of the avatar record - the
 //! body and a locomotion preset that *matches* it (boat → HoverBoat,
-//! airship → Helicopter, humanoid → Humanoid, skiff → Car), so the
-//! default chassis drives the way it looks.
+//! airship and helicopter → Helicopter, humanoid → Humanoid, skiff → Car),
+//! so the default chassis drives the way it looks.
 //!
-//! **The humanoid family is rigged now** (#1060, epic #1054). The three
+//! **The humanoid family is rigged now** (#1060, epic #1054). The four
 //! vehicle families build a [`crate::pds::Generator`] tree, one module each -
-//! the [`airship`] out of the tagged part catalogue, [`boats`] and [`skiffs`]
-//! from their own craft-type builders (see the next paragraph); a humanoid
+//! the [`airship`] out of the tagged part catalogue, [`boats`], [`skiffs`]
+//! and [`helicopters`] from their own craft-type builders (see the next
+//! paragraph); a humanoid
 //! instead resolves to a
 //! parametric `symbios-avatar` body rolled from the same seed. That body
 //! is filled in **locally** rather than fetched: the engine's roll is
@@ -31,6 +32,11 @@
 //! particle sprites) reads the **drawn** dimensions, and compares them against
 //! a named true nominal.
 //!
+//! **The helicopter is drawn the same way** (#1614): one builder per
+//! [`HelicopterType`](crate::seeded_defaults::HelicopterType) over one pod
+//! plan, at the size she is drawn at, the first aircraft family of epic
+//! #1611.
+//!
 //! Shared primitive/material vocabulary lives in [`common`].
 
 mod airship;
@@ -38,6 +44,7 @@ mod assemble;
 mod boats;
 pub(crate) mod common;
 mod fx;
+mod helicopters;
 mod skiffs;
 
 use crate::pds::avatar::parts::PartSlot;
@@ -47,7 +54,7 @@ use crate::pds::avatar::body::AvatarBody as RecordBody;
 use crate::pds::types::{Fp, Fp3};
 use crate::seeded_defaults::{
     AvatarFx, AvatarGait, AvatarOutfit, AvatarPalette, ChassisFamily, NOMINAL_BODY_LEN,
-    NOMINAL_HULL_LEN, ParticleAura, VehicleBlueprint, fnv1a_64,
+    NOMINAL_FUSELAGE_LEN, NOMINAL_HULL_LEN, ParticleAura, VehicleBlueprint, fnv1a_64,
 };
 
 use super::gait::GaitParams;
@@ -195,6 +202,15 @@ enum Propulsion {
     /// (`fx::drawn_aura`), as a rolling wagon and an electric pod do not -
     /// which is what leaves her 25 SpaceOutpost seeds with no emitter at all.
     Servo,
+    /// A turboshaft under a two-blade rotor (#1614): the rotor's chop at the
+    /// blade-pass rate - two blades at three turns a second, the 6 Hz her
+    /// drawn rotor turns at - over a turbine's high whine. The helicopter's,
+    /// and NOT the airship's [`Engine`](Self::Engine) thump: an envelope's
+    /// props beat at 5 Hz under a hum, and a helicopter is the louder,
+    /// harder machine. A turbine has an exhaust stack, so she trails what
+    /// her style picked off its mouth (`fx::drawn_aura` needs no arm for
+    /// her).
+    Turbine,
 }
 
 impl Propulsion {
@@ -211,6 +227,7 @@ impl Propulsion {
             Self::Battened => "under battened sail",
             Self::Diesel => "under power, diesel",
             Self::Servo => "under power, servo",
+            Self::Turbine => "under power, turbine",
         }
     }
 }
@@ -274,6 +291,10 @@ fn build_seeded(seed: u64, livery: Option<usize>) -> (RecordBody, LocomotionConf
             (visuals, airship_locomotion(seed, half_height))
         }
         ChassisFamily::Skiff => (skiffs::build(seed, livery), skiff_locomotion(seed)),
+        ChassisFamily::Helicopter => (
+            helicopters::build(seed, livery),
+            helicopter_locomotion(seed),
+        ),
         // Handled above; a family added later lands here loudly rather
         // than silently assembling nothing.
         ChassisFamily::Humanoid => unreachable!("the rigged family returns above"),
@@ -359,6 +380,10 @@ fn fx_mount(aura: ParticleAura, family: ChassisFamily, seed: u64) -> [f32; 3] {
         // it (#1364) - an exhaust wisp leaves the pipe mouth of the machine
         // that is actually there, not a fraction of a nominal one.
         ChassisFamily::Skiff => skiffs::fx_mount(seed, aura).unwrap_or([0.0, 0.3, 0.0]),
+        // A helicopter's, likewise off her own body (#1614): her turbine's
+        // exhaust leaves the stack on her roof, and the rest issue under her
+        // cabin.
+        ChassisFamily::Helicopter => helicopters::fx_mount(seed, aura).unwrap_or([0.0, -0.3, 0.0]),
     }
 }
 
@@ -434,7 +459,8 @@ fn humanoid_locomotion(seed: u64) -> LocomotionConfig {
 // The **airplane** preset is a deliberate orphan: `ChassisFamily` has no
 // `Airplane` variant, so no seed ever produces one - it is reachable only by a
 // user manually picking it in the avatar editor (picker-only), and keeps its
-// plain `default_config`. A fixed-wing visual family is out of scope here.
+// plain `default_config`. Its family is epic #1611's phase 6 (#1617), after
+// its flight model (#1615).
 // ---------------------------------------------------------------------------
 
 /// Reference mass (kg) the hover-boat preset's default support fields
@@ -650,6 +676,44 @@ fn airship_locomotion(seed: u64, half_height: f32) -> LocomotionConfig {
     p.into_config()
 }
 
+/// Reference mass (kg) of a nominal seeded helicopter (#1614): a scale model
+/// of a light helicopter, twice an airship's lift-gas default and far under
+/// a skiff, scaled by her fuselage length over the nominal's, so the nominal
+/// machine weighs exactly this. It cancels out of how she flies - every
+/// force and torque is per kilogram - and sets how hard she shoves another
+/// body.
+const HELICOPTER_REF_MASS: f32 = 120.0;
+
+/// Helicopter locomotion from the seeded craft type + her true proportions
+/// (#1614), on the same preset the airship flies - and landed by the same
+/// state (#1612): she rests on her box's floor, which is her skid bottoms.
+///
+/// The box is her fuselage, skid bottoms to rotor head, skid track wide,
+/// nose to fin long - owner decision 3 of #1611; the rotor's disc stands
+/// outside it. The type carries the feel ([`helicopters::HelicopterFeel`]):
+/// every force is that times her mass, so the mass cancels; the torques
+/// scale with her box's inertia ([`rotor_torques`]), so she turns and rights
+/// as a default body with her numbers would, whatever her size; and the
+/// hover thrust cancels her weight, the preset's invariant.
+fn helicopter_locomotion(seed: u64) -> LocomotionConfig {
+    let (feel, half_extents, length) = helicopters::feel_and_box(seed);
+    let mut p = HelicopterParams::default();
+    let mass = (HELICOPTER_REF_MASS * feel.mass_factor * (length / NOMINAL_FUSELAGE_LEN))
+        .clamp(80.0, 300.0);
+    p.mass = Fp(mass);
+    p.hover_thrust = Fp(mass * GRAVITY);
+    p.cyclic_force = Fp((mass * feel.cyclic_accel).min(50_000.0));
+    p.strafe_force = Fp((mass * feel.cyclic_accel * 0.9).min(50_000.0));
+    p.linear_damping = Fp(feel.linear_damping);
+    p.angular_damping = Fp(feel.angular_damping);
+    p.chassis_half_extents = fit_extents(half_extents);
+    let (yaw_torque, stabilize_torque) =
+        rotor_torques(mass, p.chassis_half_extents.0, feel.yaw_accel);
+    p.yaw_torque = Fp(yaw_torque);
+    p.stabilize_torque = Fp(stabilize_torque);
+    p.into_config()
+}
+
 /// Skiff (car) locomotion from the seeded craft type + its true proportions.
 ///
 /// The type carries the feel now (`SkiffCraft::feel`), where the four chassis
@@ -724,6 +788,10 @@ fn skiff_locomotion(seed: u64) -> LocomotionConfig {
 ///   spread across it so a type is not in unison, and always inside
 ///   [`SKIFF_SWAY_BAND`]; and the angular field carries her BANK CLAMP,
 ///   which `player::gait::skiff_bank_clamp` reads back.
+/// * HELICOPTERS sit still on their skids: `idle_sway_amplitude` and the
+///   angular field - the airship gait's heave and nose wander - both go to
+///   ZERO, because a machine on skids does neither, and `lean_degrees`
+///   takes the type's lean into her motion (#1614).
 /// * AIRSHIPS AND HUMANOIDS pass through untouched. Neither has a craft
 ///   type, and the angular field keeps its old meaning for both.
 ///
@@ -760,6 +828,12 @@ pub fn seeded_gait(seed: u64) -> GaitParams {
             g.idle_sway_amplitude = Fp(idle.shiver.map_or(0.0, |s| amp * s.amplitude));
             g.idle_sway_frequency = Fp(skiff_pace(idle.shiver, g.idle_sway_frequency.0));
             g.head_turn_variance_degrees = Fp(idle.bank_degrees);
+        }
+        ChassisFamily::Helicopter => {
+            let idle = helicopters::idle_for(seed);
+            g.idle_sway_amplitude = Fp::ZERO;
+            g.head_turn_variance_degrees = Fp::ZERO;
+            g.lean_degrees = Fp(idle.lean_degrees);
         }
         // No craft type, and the angular field keeps its old meaning.
         ChassisFamily::Airship | ChassisFamily::Humanoid => {}
@@ -850,7 +924,7 @@ mod tests {
         build_for_did(did).0.visuals().cloned()
     }
 
-    /// A DID per VEHICLE family - the three that still assemble parts.
+    /// A DID per VEHICLE family - the four that build a generator tree.
     fn vehicle_dids() -> Vec<(ChassisFamily, String)> {
         family_dids()
             .into_iter()
@@ -1208,14 +1282,18 @@ mod tests {
     /// Its hover text promises "what an untouched avatar of this seed would
     /// show", and the seeded derivation is craft-aware now, so a button
     /// still calling `GaitParams::for_seed` would hand a wagon the buzz she
-    /// does not have and make its own sentence false. Asked of the two
-    /// craft families, which are the only ones the derivation touches.
+    /// does not have and make its own sentence false. Asked of the three
+    /// craft families, which are the only ones the derivation touches - the
+    /// helicopter's since #1614, which stills her and gives her a lean.
     #[test]
     fn the_editors_reseed_agrees_with_a_re_roll() {
         let mut checked = 0;
         for seed in 0u64..400 {
             let family = ChassisFamily::for_seed(seed);
-            if !matches!(family, ChassisFamily::Boat | ChassisFamily::Skiff) {
+            if !matches!(
+                family,
+                ChassisFamily::Boat | ChassisFamily::Skiff | ChassisFamily::Helicopter
+            ) {
                 continue;
             }
             let from_record = crate::pds::AvatarRecord::default_for_seed(seed)
@@ -1448,6 +1526,19 @@ mod tests {
                 assert_ne!(a, b, "the {an} and the {bn} carry the same feel tuple");
             }
         }
+        // One helicopter type so far (#1614); the fan-out's will be held to
+        // the same rule.
+        let helicopters = helicopters::every_feel();
+        assert_eq!(
+            helicopters.len(),
+            crate::seeded_defaults::HelicopterType::ALL.len(),
+            "every helicopter type is built"
+        );
+        for (i, (an, a)) in helicopters.iter().enumerate() {
+            for (bn, b) in helicopters.iter().skip(i + 1) {
+                assert_ne!(a, b, "the {an} and the {bn} carry the same feel tuple");
+            }
+        }
     }
 
     /// The helicopter weight-support invariant: `hover_thrust ≈ mass · 9.81`,
@@ -1515,14 +1606,35 @@ mod tests {
     /// Every seeded rotorcraft rights itself and turns as fast as the
     /// default body does, whatever its size (#1612): torque over INERTIA is
     /// the same for each, where a torque the same for each stood a light
-    /// craft up three times as fast as a heavy one.
+    /// craft up three times as fast as a heavy one. The helicopters too
+    /// (#1614), on their own type's turn.
     #[test]
     fn every_seeded_rotorcraft_rights_and_turns_as_the_default_does() {
         let d = HelicopterParams::default();
         let per_kg = |half: [f32; 3]| box_inertia_per_kg(half);
-        let [d_pitch, _, _] = per_kg(d.chassis_half_extents.0);
+        let [d_pitch, d_yaw, _] = per_kg(d.chassis_half_extents.0);
         let righting = d.stabilize_torque.0 / (d.mass.0 * d_pitch);
         let mut turns = Vec::new();
+        for s in (0u64..400).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Helicopter) {
+            let (_, loco) = build_for_seed(s);
+            let LocomotionConfig::Helicopter(p) = &loco else {
+                panic!("helicopter seed {s} is not on the helicopter preset");
+            };
+            let [pitch, yaw, _] = per_kg(p.chassis_half_extents.0);
+            let rights = p.stabilize_torque.0 / (p.mass.0 * pitch);
+            assert!(
+                (rights - righting).abs() < righting * 1e-3,
+                "helicopter seed {s} rights at {rights:.3} rad/s2 against {righting:.3}"
+            );
+            // Her yaw: her type's 9 per kilogram on the default body, so a
+            // turn of 9 / d_yaw rad/s2 on her own, whatever her box.
+            let turn = p.yaw_torque.0 / (p.mass.0 * yaw);
+            let want = helicopters::every_feel()[0].1.yaw_accel / d_yaw;
+            assert!(
+                (turn - want).abs() < want * 1e-3,
+                "helicopter seed {s} turns at {turn:.3} rad/s2 against {want:.3}"
+            );
+        }
         for s in (0u64..400).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Airship) {
             let (_, loco) = build_for_seed(s);
             let LocomotionConfig::Helicopter(p) = &loco else {
@@ -1610,11 +1722,15 @@ mod tests {
             if !found.iter().any(|(f, _)| *f == fam) {
                 found.push((fam, did));
             }
-            if found.len() == 4 {
+            if found.len() == ChassisFamily::ALL.len() {
                 break;
             }
         }
-        assert_eq!(found.len(), 4, "couldn't find a DID for every family");
+        assert_eq!(
+            found.len(),
+            ChassisFamily::ALL.len(),
+            "couldn't find a DID for every family"
+        );
         found
     }
 
@@ -1635,7 +1751,7 @@ mod tests {
             let tag = loco.kind_tag();
             let expected = match fam {
                 ChassisFamily::Boat => "hover_boat",
-                ChassisFamily::Airship => "helicopter",
+                ChassisFamily::Airship | ChassisFamily::Helicopter => "helicopter",
                 ChassisFamily::Humanoid => "humanoid",
                 ChassisFamily::Skiff => "car",
             };
@@ -1943,7 +2059,11 @@ mod tests {
     fn a_pinned_craft_type_is_the_type_the_builder_draws() {
         use crate::seeded_defaults::{AvatarPins, CraftType};
 
-        for craft in CraftType::BOATS.into_iter().chain(CraftType::SKIFFS) {
+        for craft in CraftType::BOATS
+            .into_iter()
+            .chain(CraftType::SKIFFS)
+            .chain(CraftType::HELICOPTERS)
+        {
             let mut pins = AvatarPins::default();
             // Through the coupling method, as the UI writes it: locking a
             // craft is also what pins the chassis.
@@ -2137,7 +2257,8 @@ mod tests {
     }
 
     /// #1359 owner decision 4, as a test at last (#1382): **machines are swept
-    /// and turned, never blobs.** No boat and no skiff draws a
+    /// and turned, never blobs.** No boat, no skiff and - by #1611's decision
+    /// 2, which carried the rule over - no helicopter draws a
     /// [`GeneratorKind::BlobGroup`] node.
     ///
     /// A blob iso-surface is what the retired #778 pipeline built hulls from,
@@ -2148,10 +2269,10 @@ mod tests {
     /// none of the twelve types has wanted one.
     ///
     /// The airship is deliberately NOT swept by this: she was never
-    /// redesigned, she is the quality bar, and decision 4 is about the two
-    /// families that were.
+    /// redesigned, she is the quality bar, and decision 4 is about the
+    /// families that were drawn to it.
     #[test]
-    fn no_seeded_boat_or_skiff_draws_a_blob() {
+    fn no_seeded_boat_skiff_or_helicopter_draws_a_blob() {
         use crate::pds::generator::{BlobElement, BlobShape, GeneratorKind, PrimCommon};
         use crate::pds::types::Fp;
         fn blobs(g: &Generator, path: &str, out: &mut Vec<String>) {
@@ -2184,12 +2305,13 @@ mod tests {
         blobs(&probe, "0", &mut found);
         assert_eq!(found, ["0/0"], "the control blob was not detected");
 
-        let (mut boats, mut skiffs) = (0, 0);
+        let (mut boats, mut skiffs, mut helicopters) = (0, 0, 0);
         for s in 0u64..900 {
             let family = ChassisFamily::for_seed(s);
             match family {
                 ChassisFamily::Boat => boats += 1,
                 ChassisFamily::Skiff => skiffs += 1,
+                ChassisFamily::Helicopter => helicopters += 1,
                 _ => continue,
             }
             let tree = visuals_for_seed(s).expect("a vehicle seed assembles a tree");
@@ -2203,8 +2325,32 @@ mod tests {
             );
         }
         assert!(
-            boats > 100 && skiffs > 100,
-            "{boats} boats and {skiffs} skiffs were swept"
+            boats > 100 && skiffs > 100 && helicopters > 100,
+            "{boats} boats, {skiffs} skiffs and {helicopters} helicopters were swept"
         );
+    }
+
+    /// A seeded helicopter sits STILL on her skids and leans into her
+    /// motion (#1614): the airship gait's heave and nose wander are both
+    /// zero in her published gait - an envelope does both on the air, a
+    /// machine on skids neither - and her lean is her type's. Every seed,
+    /// because the amplitude zeroed is the seed's own.
+    #[test]
+    fn a_seeded_helicopter_sits_still_and_leans_into_her_motion() {
+        let mut seen = 0;
+        for s in 0u64..600 {
+            let gait = seeded_gait(s);
+            if ChassisFamily::for_seed(s) != ChassisFamily::Helicopter {
+                // And nothing else leans: the field is the helicopter's.
+                assert_eq!(gait.lean_degrees, Fp::ZERO, "seed {s}");
+                continue;
+            }
+            assert_eq!(gait.idle_sway_amplitude, Fp::ZERO, "seed {s}");
+            assert_eq!(gait.head_turn_variance_degrees, Fp::ZERO, "seed {s}");
+            assert_eq!(gait.lean_degrees, Fp(helicopters::idle_for(s).lean_degrees));
+            assert!((10.0..=20.0).contains(&gait.lean_degrees.0), "seed {s}");
+            seen += 1;
+        }
+        assert!(seen > 50, "only {seen} helicopters under 600");
     }
 }

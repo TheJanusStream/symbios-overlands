@@ -135,7 +135,7 @@ in your inventory.
 
 **Avatars are recipes too.** Your body is one of two kinds, and either rides
 one of five physics presets - `HoverBoat`, `Humanoid`, `Airplane`, `Helicopter`
-or `Car`. Vehicles - hover-boats, airships, land-skiffs - are generator trees
+or `Car`. Vehicles - hover-boats, airships, land-skiffs, helicopters - are generator trees
 built from the same vocabulary the world is. People are parametric skinned
 bodies from the `symbios-avatar` engine: a few dozen sculpting axes, no
 imported mesh, and every motion computed rather than played back - the walk,
