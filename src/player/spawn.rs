@@ -338,7 +338,7 @@ mod tests {
             .add_systems(
                 FixedUpdate,
                 (
-                    crate::player::hover_boat::sync_hover_boat_physics,
+                    crate::player::preset::sync_chassis,
                     crate::player::hover_boat::apply_hover_boat_drive,
                     crate::player::car::apply_car_drive,
                 )

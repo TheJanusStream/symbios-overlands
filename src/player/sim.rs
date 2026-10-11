@@ -177,6 +177,7 @@ impl FlightBench {
             record,
             Transform::from_translation(at),
             (
+                super::preset::sync_chassis,
                 super::helicopter::apply_helicopter_stabilization,
                 super::airplane::apply_airplane_aerodynamics,
                 super::airplane::apply_airplane_uprighting,
@@ -294,6 +295,7 @@ impl DriveBench {
             record,
             at,
             (
+                super::preset::sync_chassis,
                 super::car::apply_car_suspension,
                 super::car::apply_car_drive.run_if(not_typing),
                 super::car::apply_car_uprighting,
@@ -501,7 +503,7 @@ pub(crate) fn run_at_frame_rate(
     .add_systems(
         FixedUpdate,
         (
-            super::hover_boat::sync_hover_boat_physics,
+            super::preset::sync_chassis,
             super::hover_boat::apply_hover_boat_suspension,
             super::hover_boat::apply_hover_boat_buoyancy,
             super::helicopter::apply_helicopter_stabilization,

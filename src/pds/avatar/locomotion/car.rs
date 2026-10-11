@@ -56,8 +56,9 @@ pub struct CarParams {
     #[serde(default = "default_upright_damping")]
     pub upright_assist_damping: Fp,
     /// Centre-of-mass drop as a fraction of the chassis half-height,
-    /// below the body origin (#804's anti-rollover lever). Applied when
-    /// the chassis is (re)built, like the collider dimensions.
+    /// below the body origin (#804's anti-rollover lever). Live, like the
+    /// collider dimensions and the mass: `player::preset::sync_chassis`
+    /// keeps the chassis in step with the record (#1610).
     #[serde(default = "default_center_of_mass_drop")]
     pub center_of_mass_drop: Fp,
     /// Linear damping (1/s) while no wheel is on the ground (#1524). With

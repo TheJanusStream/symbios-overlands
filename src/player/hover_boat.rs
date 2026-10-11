@@ -11,34 +11,6 @@ use crate::state::{LiveAvatarRecord, LocalPlayer, TravelingTo};
 
 use super::{HoverBoatPreset, chassis_corners};
 
-/// Push tuning changes (mass, damping) from the live record onto the
-/// chassis components every fixed step, so slider tweaks take effect
-/// immediately without requiring a locomotion rebuild.
-#[allow(clippy::type_complexity)]
-pub(super) fn sync_hover_boat_physics(
-    live: Res<LiveAvatarRecord>,
-    mut query: Query<
-        (&mut Mass, &mut LinearDamping, &mut AngularDamping),
-        (With<LocalPlayer>, With<HoverBoatPreset>),
-    >,
-) {
-    let Ok((mut mass, mut lin_damp, mut ang_damp)) = query.single_mut() else {
-        return;
-    };
-    let LocomotionConfig::HoverBoat(p) = &live.0.locomotion else {
-        return;
-    };
-    if mass.0 != p.mass.0 {
-        mass.0 = p.mass.0;
-    }
-    if lin_damp.0 != p.linear_damping.0 {
-        lin_damp.0 = p.linear_damping.0;
-    }
-    if ang_damp.0 != p.angular_damping.0 {
-        ang_damp.0 = p.angular_damping.0;
-    }
-}
-
 #[allow(clippy::type_complexity)]
 pub(super) fn apply_hover_boat_suspension(
     live: Res<LiveAvatarRecord>,

@@ -75,13 +75,6 @@ impl LocomotionPanel for CarParams {
             .show(ui, |ui| {
                 ui.label("Centre-of-mass drop (× half-height)");
                 fp_slider(ui, &mut self.center_of_mass_drop, 0.0..=1.0, 0.01, dirty);
-                ui.label(
-                    egui::RichText::new(
-                        "Applies when the chassis rebuilds (preset swap / respawn).",
-                    )
-                    .small()
-                    .weak(),
-                );
                 ui.label("Upright assist engages beyond tilt (°)");
                 // The sanitiser's own range (#1532).
                 fp_slider(

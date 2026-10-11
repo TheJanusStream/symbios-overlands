@@ -263,6 +263,7 @@ pub(crate) fn register_headless_car(app: &mut App) {
         .add_systems(
             FixedUpdate,
             (
+                preset::sync_chassis,
                 car::apply_car_suspension,
                 car::apply_car_drive,
                 car::apply_car_uprighting,
@@ -396,7 +397,7 @@ impl Plugin for PlayerPlugin {
             .add_systems(
                 FixedUpdate,
                 (
-                    hover_boat::sync_hover_boat_physics,
+                    preset::sync_chassis,
                     hover_boat::apply_hover_boat_suspension,
                     hover_boat::apply_hover_boat_buoyancy,
                     // Passive stabilisation runs UNGATED, exactly like
