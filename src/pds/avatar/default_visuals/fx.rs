@@ -1202,7 +1202,8 @@ fn airscrew_thrum(g: &mut GraphBuilder, detune: f32, blade_pass: f32) -> NodeId 
 /// ([`BIPLANE_BLADE_PASS_HZ`](super::airplanes::BIPLANE_BLADE_PASS_HZ): her
 /// airscrew is the high-wing's, at the same ceiling, which she reaches at
 /// 16.4 m/s, under her level-flight speed), so what is heard flying level is
-/// what is seen.
+/// what is seen. The autogyro's too (#1624 Q-I): her radial and airscrew
+/// are the biplane's, and hers reaches the same ceiling at her top speed.
 ///
 /// Every rate is whole hertz after the detune - the lope's two is one
 /// already - and the thrum's envelope dies to nothing and restarts at the

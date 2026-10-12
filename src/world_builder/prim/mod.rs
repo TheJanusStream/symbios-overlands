@@ -77,6 +77,131 @@ pub fn primitive_points(kind: &GeneratorKind) -> Vec<Vec3> {
     points
 }
 
+/// Where a primitive [`GeneratorKind`] is drawn, as [`primitive_points`]
+/// reads it but without building a swept shape's mesh: a Spine's or a
+/// Lathe's every distinct vertex - its rings, its bore, the centres its caps
+/// and its cut faces close on - laid round the mesher's own stations as the
+/// mesher lays them (`sweeps::build_spine_mesh`, `sweeps::build_lathe_mesh`),
+/// through the same vertex torture; any other shape's [`primitive_points`].
+///
+/// The same positions to the bit, and so the same extents: what a swept
+/// shape's mesh costs is its tangents, about 3 us a vertex - a fuselage's
+/// 2400 take 7 ms - and a reader of where a shape reaches needs none of
+/// them. What a craft that measures itself every time its record is built
+/// reads (the autogyro, #1624).
+pub fn primitive_outline(kind: &GeneratorKind) -> Vec<Vec3> {
+    let mut out = match kind {
+        GeneratorKind::Spine {
+            points,
+            resolution,
+            samples_per_segment,
+            common,
+        } => spine_outline(points, *resolution, *samples_per_segment, &common.torture),
+        GeneratorKind::Lathe {
+            points,
+            resolution,
+            smooth,
+            common,
+        } => lathe_outline(points, *resolution, *smooth, &common.torture),
+        _ => return primitive_points(kind),
+    };
+    let torture = torture_of(kind);
+    if !torture.is_identity() {
+        torture_points(&mut out, torture);
+    }
+    out
+}
+
+/// A swept shape's kept angular range, as each swept mesher's shape reads
+/// it: its path cut's, or the whole turn.
+fn swept_arc(cuts: &crate::pds::TortureParams) -> (f32, f32) {
+    if cuts.cuts_are_identity() {
+        (0.0, std::f32::consts::TAU)
+    } else {
+        cuts::path_cut_angles(cuts)
+    }
+}
+
+/// A Spine's distinct vertices, before its torture's deform: what
+/// `sweeps::build_spine_mesh` lays.
+fn spine_outline(
+    points: &[crate::pds::generator::SpinePoint],
+    resolution: u32,
+    samples_per_segment: u32,
+    cuts: &crate::pds::TortureParams,
+) -> Vec<Vec3> {
+    let (a0, a1) = swept_arc(cuts);
+    // `build_spine_mesh`'s own parameters: its ring's angles, its bore, the
+    // stations its path trim keeps.
+    let res = resolution.clamp(3, 64);
+    let open = (a1 - a0).abs() < std::f32::consts::TAU - 1e-3;
+    let k = cuts.hollow.0.clamp(0.0, 0.99);
+    let hollow = k > 1e-4;
+    let points: Vec<(Vec3, f32)> = points
+        .iter()
+        .map(|p| (Vec3::from_array(p.position.0), p.radius.0))
+        .collect();
+    let all = sweeps::spine_stations(&points, samples_per_segment);
+    let stations = &all[sweeps::kept_stations(&all, cuts.profile_cut.0[0], cuts.profile_cut.0[1])];
+    let shells: &[f32] = if hollow { &[1.0, k] } else { &[1.0] };
+    let mut out = Vec::with_capacity(stations.len() * (res as usize + 2) * shells.len());
+    for (i, st) in stations.iter().enumerate() {
+        for &scale in shells {
+            for j in 0..=res {
+                let (sn, cs) = (a0 + (a1 - a0) * (j as f32 / res as f32)).sin_cos();
+                let dir = st.normal * cs + st.binormal * sn;
+                out.push(st.pos + dir * (st.radius * scale));
+            }
+        }
+        // A solid tube's caps close on its end stations' centres, and an
+        // open one's cut faces on every station's.
+        let end = i == 0 || i + 1 == stations.len();
+        if !hollow && (end || open) {
+            out.push(st.pos);
+        }
+    }
+    out
+}
+
+/// A Lathe's distinct vertices, before its torture's deform: what
+/// `sweeps::build_lathe_mesh` lays.
+fn lathe_outline(
+    points: &[crate::pds::generator::LathePoint],
+    resolution: u32,
+    smooth: bool,
+    cuts: &crate::pds::TortureParams,
+) -> Vec<Vec3> {
+    let (a0, a1) = swept_arc(cuts);
+    // `build_lathe_mesh`'s own parameters, as `build_spine_mesh`'s above.
+    let segs = resolution.clamp(3, 128);
+    let open = (a1 - a0).abs() < std::f32::consts::TAU - 1e-3;
+    let k = cuts.hollow.0.clamp(0.0, 0.99);
+    let hollow = k > 1e-4;
+    let profile: Vec<(f32, f32)> = points.iter().map(|p| (p.radius.0, p.height.0)).collect();
+    let stations = sweeps::trim_profile_stations(
+        sweeps::lathe_stations(&profile, smooth),
+        cuts.profile_cut.0[0],
+        cuts.profile_cut.0[1],
+    );
+    let shells: &[f32] = if hollow { &[1.0, k] } else { &[1.0] };
+    let mut out = Vec::with_capacity(stations.len() * (segs as usize + 2) * shells.len());
+    for (i, st) in stations.iter().enumerate() {
+        for &scale in shells {
+            for j in 0..=segs {
+                let (s, c) = (a0 + (a1 - a0) * (j as f32 / segs as f32)).sin_cos();
+                out.push(Vec3::new(scale * st.x * c, st.y, scale * st.x * s));
+            }
+        }
+        // A solid lathe's caps close on the axis at an end off it, and an
+        // open one's cut faces at every station.
+        let end = (i == 0 || i + 1 == stations.len()) && st.x > 1e-4;
+        if !hollow && (end || open) {
+            out.push(Vec3::new(0.0, st.y, 0.0));
+        }
+    }
+    out
+}
+
 /// What the vehicle guards' touch helper reads a prim with
 /// (`pds::avatar::default_visuals::common::touch`, #1393): the mesher's own
 /// stations, deform rows and deform, rather than copies of them that could
@@ -292,6 +417,124 @@ mod tests {
                 .map_or(0, |p| p.len());
             assert!(count > 0, "{tag} meshes to nothing");
         }
+    }
+
+    /// A swept shape's outline is its mesh's vertices to the bit, both
+    /// ways, and so reaches exactly as far: a Spine whole, path-cut to a
+    /// half and to less than one (where the centre its cut faces close on
+    /// stands outside the arc), trimmed, hollowed, tapered and twisted, and
+    /// a Lathe smooth and raw, cut, trimmed, hollowed and twisted. Any other
+    /// shape's outline is its points.
+    #[test]
+    fn a_swept_shapes_outline_is_its_meshs_vertices() {
+        use crate::pds::generator::SpinePoint;
+        let spine = |path: [f32; 2], profile: [f32; 2], hollow: f32, twist: f32, taper: f32| {
+            GeneratorKind::Spine {
+                points: [
+                    ([0.0, 0.0, 0.0], 0.10),
+                    ([0.3, 0.5, 0.1], 0.16),
+                    ([0.1, 1.1, -0.4], 0.07),
+                    ([-0.2, 1.4, -0.9], 0.12),
+                ]
+                .iter()
+                .map(|&(p, r)| SpinePoint {
+                    position: Fp3(p),
+                    radius: Fp(r),
+                })
+                .collect(),
+                resolution: 22,
+                samples_per_segment: 7,
+                common: PrimCommon {
+                    torture: TortureParams {
+                        path_cut: Fp2(path),
+                        profile_cut: Fp2(profile),
+                        hollow: Fp(hollow),
+                        twist: Fp(twist),
+                        taper: Fp2([taper, taper]),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            }
+        };
+        let bounds = |pts: &[Vec3]| {
+            pts.iter().fold((Vec3::MAX, Vec3::MIN), |(lo, hi), p| {
+                (lo.min(*p), hi.max(*p))
+            })
+        };
+        // A point's bits, a signed zero read as zero: the set a shape is
+        // drawn through, to the bit, whichever way round it was built.
+        let bits = |pts: &[Vec3]| {
+            pts.iter()
+                .map(|p| (*p + Vec3::ZERO).to_array().map(f32::to_bits))
+                .collect::<std::collections::BTreeSet<_>>()
+        };
+        let same = |kind: &GeneratorKind| {
+            let (outline, points) = (primitive_outline(kind), primitive_points(kind));
+            assert_eq!(
+                bounds(&outline),
+                bounds(&points),
+                "{:?}: the outline does not reach as far as the mesh",
+                kind.torture()
+            );
+            assert_eq!(
+                bits(&outline),
+                bits(&points),
+                "{:?}: the outline is not the mesh's vertices",
+                kind.torture()
+            );
+        };
+        for kind in [
+            spine([0.0, 1.0], [0.0, 1.0], 0.0, 0.0, 0.0),
+            spine([0.0, 0.5], [0.0, 1.0], 0.0, 0.0, 0.0),
+            spine([0.1, 0.3], [0.0, 1.0], 0.0, 0.0, 0.0),
+            spine([0.0, 1.0], [0.2, 0.8], 0.0, 0.0, 0.0),
+            spine([0.2, 0.9], [0.1, 0.7], 0.5, 0.0, 0.0),
+            spine([0.0, 1.0], [0.0, 1.0], 0.0, 40.0, 0.3),
+            spine([0.05, 0.4], [0.3, 1.0], 0.0, 25.0, 0.2),
+        ] {
+            same(&kind);
+        }
+        let lathe = |smooth: bool, path: [f32; 2], profile: [f32; 2], hollow: f32, twist: f32| {
+            GeneratorKind::Lathe {
+                points: [
+                    (0.20, 0.0),
+                    (0.26, 0.3),
+                    (0.12, 0.7),
+                    (0.15, 1.0),
+                    (0.0, 1.2),
+                ]
+                .iter()
+                .map(|&(r, h)| crate::pds::generator::LathePoint {
+                    radius: Fp(r),
+                    height: Fp(h),
+                })
+                .collect(),
+                resolution: 18,
+                smooth,
+                common: PrimCommon {
+                    torture: TortureParams {
+                        path_cut: Fp2(path),
+                        profile_cut: Fp2(profile),
+                        hollow: Fp(hollow),
+                        twist: Fp(twist),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            }
+        };
+        for kind in [
+            lathe(true, [0.0, 1.0], [0.0, 1.0], 0.0, 0.0),
+            lathe(false, [0.0, 1.0], [0.0, 1.0], 0.0, 0.0),
+            lathe(true, [0.1, 0.35], [0.0, 1.0], 0.0, 0.0),
+            lathe(true, [0.0, 1.0], [0.2, 0.7], 0.0, 0.0),
+            lathe(false, [0.2, 0.9], [0.1, 0.8], 0.4, 30.0),
+        ] {
+            same(&kind);
+        }
+        let other = cylinder(0.3, 1.2, 30.0, 0.2, [0.0; 3]);
+        assert_eq!(primitive_outline(&other), primitive_points(&other));
     }
 
     /// The geometry half of [`build_primitive_mesh`], for the tests that

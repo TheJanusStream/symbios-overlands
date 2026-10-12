@@ -9,15 +9,17 @@
 //! scale. [`craft`] is the only match over [`HelicopterType`], so a new type
 //! is a compile error here until it is built.
 //!
-//! TWO types are built. The light utility helicopter the owner agreed on the
-//! phase-2 renders (#1613) - a glazed pod on skids, a two-blade main rotor
-//! and a tail rotor on a slim boom - at the proportion they chose (B: a 3.2 m
-//! fuselage, the cabin 22 % fuller than the first draft) and with all ten of
-//! that issue's recommendations taken. And the fan-out's first (#1618): the
+//! THREE types are built. The light utility helicopter the owner agreed on
+//! the phase-2 renders (#1613) - a glazed pod on skids, a two-blade main
+//! rotor and a tail rotor on a slim boom - at the proportion they chose (B: a
+//! 3.2 m fuselage, the cabin 22 % fuller than the first draft) and with all
+//! ten of that issue's recommendations taken. And two of the fan-out's
+//! (#1618), each on a profile of her own read off the same [`PodPlan`]: the
 //! bubble-canopy trainer (#1621) - a glazed bubble over an open engine bay,
-//! saddle tanks, an open truss boom and tall skids - on a profile of her own
-//! read off the same [`PodPlan`], with all eight of her recommendations
-//! taken.
+//! saddle tanks, an open truss boom and tall skids - with all eight of her
+//! recommendations taken, and the autogyro (#1624) - a radial's airscrew at
+//! her nose, a free rotor on a pylon and three wheels - with all nine of
+//! hers.
 //!
 //! # Where a helicopter sits
 //!
@@ -28,17 +30,21 @@
 //! which decision 3 accepts - and so does the tail rotor's sweep. The
 //! Helicopter preset's landed state (#1612) rests her on the box's floor, so
 //! the travel pose ([`travel_drop`]) hangs the drawn frame so that the skid
-//! bottoms are exactly that floor.
+//! bottoms are exactly that floor. The autogyro stands on wheels instead,
+//! tail-down, drawn turned in the same level box: her box is measured off
+//! her as she stands, and its floor is her tyres (#1624).
 //!
 //! # What she does at rest
 //!
 //! Sits still on her skids, rotors turning (#1613 recommendation 3: the
 //! rotors are always turning, a Constant spin, until a ground idle earns a
-//! Spin term of its own). The airship gait's heave and nose wander are what
-//! an envelope does on the air; a machine on skids does neither, so her
-//! seeded gait writes both to zero and leans her into her motion instead
-//! ([`HelicopterIdle`]).
+//! Spin term of its own) - but for the autogyro's free rotor, which turns
+//! slowly at rest and faster with her speed, on a Speed spin (#1624). The
+//! airship gait's heave and nose wander are what an envelope does on the
+//! air; a machine on skids or wheels does neither, so her seeded gait writes
+//! both to zero and leans her into her motion instead ([`HelicopterIdle`]).
 
+mod autogyro;
 mod plan;
 mod trainer;
 mod utility;
@@ -56,10 +62,11 @@ use crate::seeded_defaults::{
 };
 
 /// The helicopter family's colours, which live in the fleet's one livery
-/// home (#1365) rather than beside its geometry: the utility's, and the
-/// trainer's (#1621).
+/// home (#1365) rather than beside its geometry: the utility's, the
+/// trainer's (#1621) and the autogyro's (#1624).
 pub(crate) use crate::pds::avatar::livery::{
-    HelicopterColours, TrainerColours, helicopter_colours, trainer_colours,
+    AutogyroColours, HelicopterColours, TrainerColours, autogyro_colours, helicopter_colours,
+    trainer_colours,
 };
 
 use super::Propulsion;
@@ -132,12 +139,13 @@ pub(super) trait HelicopterCraft {
 
     /// The widest the fuselage is drawn (m) at `ornateness` - the skids,
     /// nearly always, or what a tier hangs past them (the trainer's litter
-    /// pods, #1621) - and what the box is as wide as. NOT the rotor's disc:
-    /// see the module header.
+    /// pods, #1621), or what the autogyro is drawn as, measured (#1624) -
+    /// and what the box is as wide as. NOT the rotor's disc: see the module
+    /// header.
     fn overall_width(&self, plan: &PodPlan, ornateness: OrnatenessTier) -> f32;
 
-    /// How far the top of her rotor head stands over her skid bottoms (m) -
-    /// what the box is as tall as.
+    /// How far the top of her rotor head stands over what she stands on -
+    /// her skid bottoms, or her tyres (m) - what the box is as tall as.
     fn height(&self, plan: &PodPlan) -> f32;
 
     /// Where a seeded particle aura issues from, read off her body (drawn
@@ -157,6 +165,7 @@ fn craft(t: HelicopterType) -> &'static dyn HelicopterCraft {
     match t {
         HelicopterType::Utility => &utility::Utility,
         HelicopterType::Trainer => &trainer::Trainer,
+        HelicopterType::Autogyro => &autogyro::Autogyro,
     }
 }
 
@@ -194,9 +203,9 @@ fn body_for(seed: u64) -> Option<(&'static dyn HelicopterCraft, PodPlan)> {
 // ---------------------------------------------------------------------------
 
 /// Half-extents (m) of the chassis collider for this plan at `ornateness`:
-/// skid bottoms to rotor head, as wide as she is drawn, nose to tail - the
-/// fuselage, owner decision 3. The drawn frame is centred fore and aft on
-/// the origin ([`PodPlan::at`]), so the box is symmetric.
+/// skid bottoms (or tyres) to rotor head, as wide as she is drawn, nose to
+/// tail - the fuselage, owner decision 3. The drawn frame is centred fore
+/// and aft on the origin ([`PodPlan::at`]), so the box is symmetric.
 pub(super) fn chassis_half_extents(
     craft: &dyn HelicopterCraft,
     plan: &PodPlan,
@@ -214,9 +223,10 @@ pub(super) fn chassis_half_extents(
 /// hangs the drawn frame's origin (the datum).
 ///
 /// **Derived, not tuned.** The chassis origin is the box's centre, half her
-/// height over the skid bottoms; the datum is [`PodPlan::datum_height`] over
-/// them. Dropping the drawn frame by the difference puts the skid bottoms
-/// exactly on the box's floor, which is what a landed body rests on (#1612).
+/// height over her skid bottoms or her tyres; the datum is
+/// [`PodPlan::datum_height`] over them. Dropping the drawn frame by the
+/// difference puts them exactly on the box's floor, which is what a landed
+/// body rests on (#1612).
 pub(super) fn travel_drop(craft: &dyn HelicopterCraft, plan: &PodPlan) -> f32 {
     craft.height(plan) * 0.5 - plan.datum_height()
 }

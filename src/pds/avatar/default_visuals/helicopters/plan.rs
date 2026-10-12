@@ -56,6 +56,16 @@
 //! vertices and hands it to [`PodPlan::with_nose_reach`], which carries it
 //! into the box's nose and the centring, so her collider holds her glass and
 //! her shape is the one the owner agreed.
+//!
+//! # So is a craft drawn standing
+//!
+//! A type may stand pitched in her level box - the autogyro sits tail-down
+//! on her tail wheel (#1624), every part turned about her main axle. Turned,
+//! neither end is where the profile's stations put it, so she measures both
+//! off the machine she draws, standing, and hands them to
+//! [`PodPlan::with_nose_reach`] and [`PodPlan::with_tail_reach`]: her box
+//! and her centring are the standing machine's. The turn is rigid, so the
+//! two reaches it measures do not move with the centring they set.
 
 use crate::seeded_defaults::HelicopterBlueprint;
 
@@ -80,7 +90,9 @@ pub(crate) struct PodProfile {
     pub(crate) boom_end: f32,
     /// How far aft of the boom's end the craft is drawn (m, prototype
     /// frame): the fin's raked top. Measured, not remembered - the family's
-    /// `the_box_holds_the_drawn_fuselage` reads it off the drawn tree.
+    /// `the_box_holds_the_drawn_fuselage` reads it off the drawn tree. A
+    /// type that measures it as she draws ([`PodPlan::with_tail_reach`])
+    /// writes zero here.
     pub(crate) tail_reach: f32,
 }
 
@@ -100,6 +112,10 @@ pub(crate) struct PodPlan {
     /// frame): nothing for a pointed nose, measured for a blunt one
     /// ([`Self::with_nose_reach`]).
     nose_reach: f32,
+    /// How far aft of the boom's end the craft is drawn (m, prototype
+    /// frame): the profile's, or measured off a craft drawn standing
+    /// ([`Self::with_tail_reach`]).
+    tail_reach: f32,
 }
 
 impl PodPlan {
@@ -113,6 +129,7 @@ impl PodPlan {
             boom: bp.boom,
             z_mid: 0.0,
             nose_reach: 0.0,
+            tail_reach: profile.tail_reach,
         };
         let boom_end = plan.stretch(profile.boom_end);
         plan.scale = bp.length / (nose - boom_end);
@@ -125,7 +142,7 @@ impl PodPlan {
     fn centre(&mut self) {
         let nose = self.profile.stations[0].0 + self.nose_reach;
         let boom_end = self.stretch(self.profile.boom_end);
-        self.z_mid = (nose + boom_end - self.profile.tail_reach) * 0.5;
+        self.z_mid = (nose + boom_end - self.tail_reach) * 0.5;
     }
 
     /// This plan with its pod drawn `reach` (m, prototype frame) ahead of its
@@ -134,6 +151,16 @@ impl PodPlan {
     /// her scale and every station stay as they were.
     pub(crate) fn with_nose_reach(mut self, reach: f32) -> Self {
         self.nose_reach = reach.max(0.0);
+        self.centre();
+        self
+    }
+
+    /// This plan with its tail drawn `reach` (m, prototype frame) aft of its
+    /// boom's end - measured off the machine the type draws, standing - in
+    /// the box's tail and the craft's centring, in place of the profile's.
+    /// Her length, her scale and every station stay as they were.
+    pub(crate) fn with_tail_reach(mut self, reach: f32) -> Self {
+        self.tail_reach = reach.max(0.0);
         self.centre();
         self
     }
@@ -155,6 +182,18 @@ impl PodPlan {
             root + (z - root) * self.boom
         } else {
             z
+        }
+    }
+
+    /// The prototype station whose stretch is `drawn` - [`Self::stretch`]
+    /// undone: what a part fixed RIGIDLY off a stretched station reads the
+    /// pod at, where it is drawn rather than where its own station is.
+    pub(crate) fn unstretch(&self, drawn: f32) -> f32 {
+        let root = self.profile.boom_root;
+        if drawn < root {
+            root + (drawn - root) / self.boom
+        } else {
+            drawn
         }
     }
 
@@ -289,7 +328,7 @@ impl PodPlan {
         let tail = self.profile.boom_end;
         (
             self.at(0.0, 0.0, nose)[2] + self.len(self.nose_reach),
-            self.at(0.0, 0.0, tail)[2] - self.len(self.profile.tail_reach),
+            self.at(0.0, 0.0, tail)[2] - self.len(self.tail_reach),
         )
     }
 
@@ -377,6 +416,22 @@ mod tests {
         assert_eq!(unreached.at(0.1, 0.6, -0.4), p.at(0.1, 0.6, -0.4));
     }
 
+    /// A measured tail reach moves the box's tail by exactly that much,
+    /// in place of the profile's, and keeps the craft centred.
+    #[test]
+    fn a_tail_reach_moves_the_tail_and_keeps_her_centred() {
+        let p = plan(3.2, 1.2, 1.0);
+        let reached = p.with_nose_reach(0.03).with_tail_reach(0.25);
+        let (nose, tail) = reached.nose_and_tail();
+        assert!((nose + tail).abs() < 1e-5, "off centre by {}", nose + tail);
+        let ((n0, t0), (n1, t1)) = (p.nose_and_tail(), reached.nose_and_tail());
+        let grown = (n1 - t1) - (n0 - t0);
+        assert!((grown - p.len(0.03 + 0.25 - PROFILE.tail_reach)).abs() < 1e-5);
+        assert!((reached.fuselage_len() - p.fuselage_len()).abs() < 1e-6);
+        let kept = p.with_tail_reach(PROFILE.tail_reach);
+        assert_eq!(kept.nose_and_tail(), p.nose_and_tail());
+    }
+
     /// A rigid offset rides its station's stretch and is not stretched.
     #[test]
     fn a_rigid_offset_rides_the_stretch() {
@@ -389,13 +444,16 @@ mod tests {
     }
 
     /// The boom stretch moves only what is aft of its root, and joins
-    /// without a step.
+    /// without a step - and `unstretch` undoes it.
     #[test]
     fn the_boom_stretches_only_the_tail() {
         let p = plan(3.2, 1.2, 1.08);
         assert_eq!(p.stretch(0.3), 0.3);
         assert_eq!(p.stretch(-0.5), -0.5);
         assert!((p.stretch(-1.5) - (-0.5 - 1.08)).abs() < 1e-6);
+        for z in [0.3, -0.5, -0.9, -1.5] {
+            assert!((p.unstretch(p.stretch(z)) - z).abs() < 1e-6, "{z}");
+        }
     }
 
     /// `along` runs nose 0 to rear 1, and halfway along the stations it is

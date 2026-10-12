@@ -112,11 +112,12 @@ fn pod(plan: &PodPlan, side: f32, material: SovereignMaterialSettings) -> Genera
 
 /// How far out the litter pods are drawn (m, drawn frame): their capsules'
 /// outboard faces, read off the mesher's own vertices of the very sweep
-/// [`litter_pods`] draws - what an ornate trainer's box is as wide as. The
-/// node's squash scales `y` alone.
+/// [`litter_pods`] draws, without building its mesh (`primitive_outline`) -
+/// what an ornate trainer's box is as wide as. The node's squash scales `y`
+/// alone.
 pub(super) fn pods_half_width(plan: &PodPlan) -> f32 {
     let g = pod(plan, 1.0, SovereignMaterialSettings::default());
-    crate::world_builder::primitive_points(&g.kind)
+    crate::world_builder::primitive_outline(&g.kind)
         .into_iter()
         .map(|p| p.x.abs())
         .fold(0.0, f32::max)

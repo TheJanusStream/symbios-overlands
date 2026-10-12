@@ -4,16 +4,21 @@
 //! the ones a rotorcraft adds: the box holds her fuselage and rests on her
 //! skids, her rotors turn at the agreed rates and sweep clear of her and of
 //! each other, and her aura leaves her stack. Every one sweeps EVERY type
-//! (the trainer's since #1621), each held to its own numbers; and the
-//! trainer has four of her own - her truss's struts drawn straight, the
-//! root's hub hidden in her upper longeron, her stabiliser bar clear of her
-//! bubble, and her identity on her door hoop.
+//! (the trainer's since #1621, the autogyro's since #1624), each held to
+//! its own numbers - the two with a tail rotor, its own; and the trainer
+//! has four of her own - her truss's struts drawn straight, the root's hub
+//! hidden in her upper longeron, her stabiliser bar clear of her bubble,
+//! and her identity on her door hoop. The autogyro has seven: her rotor,
+//! her airscrew and her wheels turn as agreed, her airscrew's thrum is her
+//! voice's at her top speed, she stands tail-down on three wheels, her
+//! rotor clears her airframe, her airscrew clears her cowl ring, the root's
+//! hub hides in her fuselage, and her identity is on her cheat line.
 
-use bevy::math::{Quat, Vec3};
+use bevy::math::{Affine3A, Quat, Vec3};
 
 use super::super::common::{first_difference, touch};
 use super::*;
-use super::{trainer, utility};
+use super::{autogyro, trainer, utility};
 use crate::catalogue::items::measure::tree_bounds;
 use crate::pds::generator::GeneratorKind;
 use crate::seeded_defaults::{ChassisFamily, OrnatenessTier, VehicleBlueprint, WearTier};
@@ -82,15 +87,17 @@ fn every_drawn() -> Vec<Drawn> {
     out
 }
 
-/// `root` with every BLADE pruned - each cuboid a spinning hub carries - so
-/// what is left is what her box answers for: the fuselage, the mast, the
-/// rotor head and the tail rotor's gearbox. The blades are outside it by
-/// owner decision 3 (#1611).
+/// `root` with every BLADE pruned - each cuboid a spinning hub carries that
+/// does not spin of itself - so what is left is what her box answers for:
+/// the fuselage, the mast, the rotor head and the tail rotor's gearbox. The
+/// blades are outside it by owner decision 3 (#1611). A hub a hub carries
+/// is no blade: the autogyro's tail wheel rolls on one inside the one it
+/// steers on.
 fn without_blades(root: &Generator) -> Generator {
     let mut out = root.clone();
     if out.spin.is_some() {
         out.children
-            .retain(|c| !matches!(c.kind, GeneratorKind::Cuboid { .. }));
+            .retain(|c| !(matches!(c.kind, GeneratorKind::Cuboid { .. }) && c.spin.is_none()));
     }
     out.children = out.children.iter().map(without_blades).collect();
     out
@@ -220,7 +227,10 @@ fn a_seeded_helicopter_builds_deterministically() {
 /// `PodPlan::with_nose_reach` - so she is held to the same centimetre.)
 /// Past that, the utility pokes ONE part out of it on purpose: her pitot,
 /// from her nose when she is adorned. The trainer's ornate litter pods are
-/// in her box, which is as wide as her ornateness draws her.
+/// in her box, which is as wide as her ornateness draws her. And the
+/// autogyro's box is read off her as she stands, tail-down (#1624): her
+/// nose and tail off her plain machine, her width off her tier's - so here
+/// it is held across every tier, and her floor is her mains' tyres.
 #[test]
 fn the_box_holds_the_drawn_fuselage() {
     for Drawn {
@@ -272,14 +282,17 @@ fn the_box_holds_the_drawn_fuselage() {
 }
 
 /// She stands under the air draft and inside the gateway mouth (#1359 rule
-/// 6), rotors and all: the gate's lintel is over her rotor head and her tail
-/// rotor's tip, and her fuselage passes the narrowest mouth. Her rotor's
-/// DISC does not, and owner decision 3 of #1611 says so - pinned here both
-/// ways so it stays a decision rather than a drift. A light helicopter's
-/// disc is a little longer than her fuselage, each type's ceiling its own:
-/// the utility's 3.82 m at most, the trainer's 4.27 - at the longest
-/// blueprint on the shortest boom, whose scale draws everything else larger
-/// to keep her length.
+/// 6), rotors and all: the gate's lintel is over her rotor head, her tail
+/// rotor's tip and her autogyro's tilted disc, and her fuselage passes the
+/// narrowest mouth. Her rotor's DISC does not, and owner decision 3 of
+/// #1611 says so - pinned here both ways so it stays a decision rather than
+/// a drift. The disc is read off its blades as drawn ([`disc`]), whatever
+/// way they stand round it: the autogyro's three span less than it across
+/// her. A light helicopter's disc is a little longer than her fuselage,
+/// each type's ceiling its own: the utility's 3.82 m at most, the
+/// trainer's 4.27 and the autogyro's 4.43 - at the longest blueprint on the
+/// shortest boom, whose scale draws everything else larger to keep her
+/// length.
 #[test]
 fn a_helicopter_stands_under_the_air_draft_and_inside_the_mouth() {
     for Drawn {
@@ -301,11 +314,11 @@ fn a_helicopter_stands_under_the_air_draft_and_inside_the_mouth() {
             wide < GATEWAY_MOUTH,
             "{what}: her fuselage is {wide} m wide, past the {GATEWAY_MOUTH} m mouth"
         );
-        let disc = tree_bounds(&built).expect("she draws");
-        let span = disc.max.x - disc.min.x;
+        let span = 2.0 * disc(main_rotor(&built)).reach;
         let ceiling = match t {
             HelicopterType::Utility => 4.0,
             HelicopterType::Trainer => 4.4,
+            HelicopterType::Autogyro => 4.6,
         };
         assert!(
             (GATEWAY_MOUTH..ceiling).contains(&span),
@@ -317,20 +330,32 @@ fn a_helicopter_stands_under_the_air_draft_and_inside_the_mouth() {
 
 /// The rates each type's rotors were agreed at, as literals: the main
 /// rotor's and the tail rotor's (degrees a second), and the blade pass her
-/// voice is gated at (Hz).
-fn agreed_rates(t: HelicopterType) -> (f32, f32, f32) {
+/// voice is gated at (Hz) - for a type driven round her rotor's torque by a
+/// tail rotor. The autogyro has none: her free rotor turns with her speed,
+/// and her own guard holds it
+/// (`the_autogyros_rotor_airscrew_and_wheels_turn_as_agreed`).
+fn agreed_rates(t: HelicopterType) -> Option<(f32, f32, f32)> {
     match t {
         // #1613: three turns a second and four, and a 6 Hz chop.
-        HelicopterType::Utility => (1080.0, 1440.0, 6.0),
+        HelicopterType::Utility => Some((1080.0, 1440.0, 6.0)),
         // #1621 Q-G: two and a half and four, and a 5 Hz slap.
-        HelicopterType::Trainer => (900.0, 1440.0, 5.0),
+        HelicopterType::Trainer => Some((900.0, 1440.0, 5.0)),
+        HelicopterType::Autogyro => None,
     }
+}
+
+/// Every type with a tail rotor.
+fn tail_rotored() -> impl Iterator<Item = HelicopterType> {
+    HelicopterType::ALL
+        .into_iter()
+        .filter(|&t| agreed_rates(t).is_some())
 }
 
 /// Her rotors turn, always, at the agreed rates (#1613 recommendation 3,
 /// #1621 Q-G): exactly two spinning nodes, the main rotor about her up axis
 /// carrying its yoke and two blades, the tail rotor about her lateral axis
-/// carrying two - both Constant, both inside the sanitiser's ceiling.
+/// carrying two - both Constant, both inside the sanitiser's ceiling. On
+/// every type with a tail rotor.
 #[test]
 fn her_rotors_turn_at_the_agreed_rates() {
     use crate::pds::SpinTerm;
@@ -342,6 +367,9 @@ fn her_rotors_turn_at_the_agreed_rates() {
         ..
     } in every_drawn()
     {
+        let Some((main, tail, _)) = agreed_rates(t) else {
+            continue;
+        };
         let rotors = spinning(&built);
         assert_eq!(rotors.len(), 2, "{what}: {} spinning nodes", rotors.len());
         let mut seen = Vec::new();
@@ -359,7 +387,6 @@ fn her_rotors_turn_at_the_agreed_rates() {
             seen.push((spin.axis.0, rate.0, blades));
         }
         seen.sort_by(|a, b| a.1.total_cmp(&b.1));
-        let (main, tail, _) = agreed_rates(t);
         assert_eq!(
             seen,
             [([0.0, 1.0, 0.0], main, 3), ([1.0, 0.0, 0.0], tail, 2)],
@@ -370,19 +397,19 @@ fn her_rotors_turn_at_the_agreed_rates() {
     // Each type's constants are its agreed numbers, and two blades at the
     // main rotor's rate pass at the rate her voice is gated at.
     assert_eq!(
-        (
+        Some((
             utility::MAIN_ROTOR_DEG_S,
             utility::TAIL_ROTOR_DEG_S,
             UTILITY_BLADE_PASS_HZ
-        ),
+        )),
         agreed_rates(HelicopterType::Utility)
     );
     assert_eq!(
-        (
+        Some((
             trainer::MAIN_ROTOR_DEG_S,
             trainer::TAIL_ROTOR_DEG_S,
             TRAINER_BLADE_PASS_HZ
-        ),
+        )),
         agreed_rates(HelicopterType::Trainer)
     );
 }
@@ -429,7 +456,23 @@ fn disc(hub: &Generator) -> Disc {
     }
 }
 
-/// The main rotor's hub and the tail rotor's, off the root.
+/// The main rotor's hub, off the root: the hub turning about its own up
+/// axis that carries blades - the autogyro's tail wheel steers about its
+/// up axis too, and carries a wheel.
+fn main_rotor(root: &Generator) -> &Generator {
+    root.children
+        .iter()
+        .find(|c| {
+            c.spin.as_ref().is_some_and(|s| s.axis.0 == [0.0, 1.0, 0.0])
+                && c.children
+                    .iter()
+                    .any(|b| matches!(b.kind, GeneratorKind::Cuboid { .. }))
+        })
+        .expect("a main rotor's hub on the root")
+}
+
+/// The main rotor's hub and the tail rotor's, off the root of a type with
+/// a tail rotor.
 fn rotor_hubs(root: &Generator) -> (&Generator, &Generator) {
     let about = |axis: [f32; 3]| {
         root.children
@@ -450,7 +493,7 @@ fn rotor_hubs(root: &Generator) -> (&Generator, &Generator) {
 #[test]
 fn her_tail_rotor_sweeps_clear_of_the_rest_of_her() {
     let ctx = PartCtx::for_seed(a_helicopter_seed());
-    for t in HelicopterType::ALL {
+    for t in tail_rotored() {
         let mut closest = f32::MAX;
         for bp in blueprints() {
             let plan = craft(t).plan(&bp);
@@ -494,7 +537,7 @@ fn her_tail_rotor_sweeps_clear_of_the_rest_of_her() {
 #[test]
 fn her_two_rotors_never_cross() {
     let ctx = PartCtx::for_seed(a_helicopter_seed());
-    for t in HelicopterType::ALL {
+    for t in tail_rotored() {
         let mut tightest = f32::MAX;
         for bp in blueprints() {
             let plan = craft(t).plan(&bp);
@@ -540,6 +583,7 @@ fn her_two_rotors_never_cross() {
         let near = match t {
             HelicopterType::Utility => 0.2,
             HelicopterType::Trainer => 0.4,
+            HelicopterType::Autogyro => unreachable!("she has no tail rotor"),
         };
         assert!(tightest < near, "{t:?}: no corner came near: {tightest}");
     }
@@ -601,20 +645,25 @@ fn the_trainers_door_hoop_carries_her_identity() {
 }
 
 /// Every seed drawn as a helicopter is driven as her type is - the utility
-/// by her turbine, the trainer by her piston engine - and her aura LEAVES
-/// HER STACK when it is one that burns: the emitter in her saved record
-/// stands at the mouth of the stack she draws, read off the stack's own
-/// node - not off the function that placed the emitter, which would compare
-/// one call with itself (#1382 gap 2's lesson).
+/// by her turbine, the trainer by her piston engine, the autogyro by her
+/// radial - and her aura LEAVES HER STACK when it is one that burns: the
+/// emitter in her saved record stands at the mouth of the stack she draws,
+/// read off the stack's own node - not off the function that placed the
+/// emitter, which would compare one call with itself (#1382 gap 2's
+/// lesson). The utility's stack stands on her roof and the trainer's under
+/// her engine, each raked aft, its mouth its upper end; the autogyro's
+/// hangs under her cowl raked 30 degrees forward - 18 as she stands
+/// tail-down - its mouth its lower end.
 #[test]
 fn a_helicopters_aura_leaves_her_exhaust_stack() {
     use crate::seeded_defaults::AvatarFx;
-    let mut burning = [0usize; 2];
+    let mut burning = vec![0usize; HelicopterType::ALL.len()];
     for s in helicopter_seeds(900) {
         let t = HelicopterType::for_seed(s);
         let drive = match t {
             HelicopterType::Utility => Propulsion::Turbine,
             HelicopterType::Trainer => Propulsion::PistonRotor,
+            HelicopterType::Autogyro => Propulsion::Radial,
         };
         assert_eq!(propulsion(s), drive, "seed {s}");
         let aura = AvatarFx::for_seed(s).aura;
@@ -631,31 +680,46 @@ fn a_helicopters_aura_leaves_her_exhaust_stack() {
             .iter()
             .find(|c| matches!(c.kind, GeneratorKind::ParticleSystem(_)))
             .expect("a burning aura hangs an emitter");
-        // The stack: the one cylinder on the root raked backward about X.
-        let stack = root
-            .children
-            .iter()
-            .find(|c| {
-                matches!(c.kind, GeneratorKind::Cylinder { .. })
-                    && c.transform.rotation.0[0].abs() > 0.1
-                    && c.transform.rotation.0[0] < 0.0
-            })
-            .expect("she draws an exhaust stack");
+        // The stack, and which end of it is its mouth.
+        let cylinder = |c: &&Generator| matches!(c.kind, GeneratorKind::Cylinder { .. });
+        let (stack, end) = match t {
+            // The one cylinder on the root raked backward about X.
+            HelicopterType::Utility | HelicopterType::Trainer => (
+                root.children.iter().filter(cylinder).find(|c| {
+                    c.transform.rotation.0[0].abs() > 0.1 && c.transform.rotation.0[0] < 0.0
+                }),
+                0.5,
+            ),
+            // The one cylinder raked forward as she stands.
+            HelicopterType::Autogyro => (
+                root.children.iter().filter(cylinder).find(|c| {
+                    let rake = (30.0 - autogyro::GROUND_DEG).to_radians();
+                    Quat::from_array(c.transform.rotation.0)
+                        .angle_between(Quat::from_rotation_x(rake))
+                        < 1e-3
+                }),
+                -0.5,
+            ),
+        };
+        let stack = stack.expect("she draws an exhaust stack");
         let GeneratorKind::Cylinder { height, .. } = &stack.kind else {
             unreachable!()
         };
         let mouth = Vec3::from(stack.transform.translation.0)
-            + Quat::from_array(stack.transform.rotation.0) * Vec3::new(0.0, height.0 * 0.5, 0.0);
+            + Quat::from_array(stack.transform.rotation.0) * Vec3::new(0.0, height.0 * end, 0.0);
         let at = Vec3::from(emitter.transform.translation.0);
         assert!(
             at.distance(mouth) < 2e-3,
             "seed {s} ({t:?}): her {aura:?} issues at {at}, her stack's mouth is at {mouth}"
         );
-        burning[usize::from(t == HelicopterType::Trainer)] += 1;
+        burning[HelicopterType::ALL
+            .iter()
+            .position(|&x| x == t)
+            .expect("her type is a type")] += 1;
     }
     assert!(
-        burning[0] > 10 && burning[1] > 3,
-        "only {burning:?} burning auras sampled (utility, trainer)"
+        burning[0] > 10 && burning[1] > 3 && burning[2] > 3,
+        "only {burning:?} burning auras sampled (utility, trainer, autogyro)"
     );
 }
 
@@ -703,17 +767,20 @@ fn a_seeded_helicopters_record_stays_well_inside_the_budget() {
 }
 
 /// The tier ladder is real: each step of ornateness adds parts, wear adds
-/// none (#1613 recommendation 7, #1621 Q-F - wear is the kit's grime). The
-/// utility's adorned step adds a pitot and two steps, her ornate one a
-/// searchlight's housing and lens and a hook's block and pin; the trainer's
-/// adorned step adds a searchlight's housing and lens and two steps, her
-/// ornate one two litter pods on two struts each.
+/// none (#1613 recommendation 7, #1621 Q-F, #1624 Q-G - wear is the kit's
+/// grime). The utility's adorned step adds a pitot and two steps, her
+/// ornate one a searchlight's housing and lens and a hook's block and pin;
+/// the trainer's adorned step adds a searchlight's housing and lens and two
+/// steps, her ornate one two litter pods on two struts each; the
+/// autogyro's adorned step adds a pitot and two steps, her ornate one two
+/// spats and a beacon.
 #[test]
 fn ornateness_adds_parts_and_wear_does_not() {
     let ctx = PartCtx::for_seed(a_helicopter_seed());
     for (t, steps) in [
         (HelicopterType::Utility, (3, 4)),
         (HelicopterType::Trainer, (4, 6)),
+        (HelicopterType::Autogyro, (3, 3)),
     ] {
         let plan = craft(t).plan(&HelicopterBlueprint::NOMINAL);
         let count = |o: OrnatenessTier, w: WearTier| {
@@ -945,4 +1012,450 @@ fn her_stabiliser_bar_clears_her_bubble() {
         tightest < 0.1,
         "the bar never came near her bubble: {tightest}"
     );
+}
+
+/// Every point a node draws under `parent`, and every node under it: the
+/// mesher's own vertices through each node's transform.
+fn points_under(node: &Generator, parent: Affine3A, out: &mut Vec<Vec3>) {
+    let t = &node.transform;
+    let world = parent
+        * Affine3A::from_scale_rotation_translation(
+            Vec3::from(t.scale.0),
+            Quat::from_array(t.rotation.0).normalize(),
+            Vec3::from(t.translation.0),
+        );
+    out.extend(
+        primitive_points(&node.kind)
+            .into_iter()
+            .map(|p| world.transform_point3(p)),
+    );
+    for c in &node.children {
+        points_under(c, world, out);
+    }
+}
+
+/// The autogyro at every blueprint the guards sweep, on `ctx`'s tiers: her
+/// blueprint, her plan and her tree as built.
+fn autogyros(ctx: &PartCtx) -> Vec<(HelicopterBlueprint, PodPlan, Generator)> {
+    blueprints()
+        .into_iter()
+        .map(|bp| {
+            let plan = autogyro::Autogyro.plan(&bp);
+            (bp, plan, autogyro::build_dressed(ctx, &plan))
+        })
+        .collect()
+}
+
+/// Her rotor, her airscrew and her wheels turn as agreed (#1624 Q-C,
+/// Q-I), at every blueprint extreme and on every tier: her rotor free on a
+/// Speed spin about its own leaning axis - 120 degrees a second at rest and
+/// 90 more a metre a second - carrying its head and three blades; her
+/// airscrew on a Speed spin about her nose - 540 and 76 - carrying its
+/// hubcap, two blades and its shaft; her two mains rolling on their tyres'
+/// radius; and her tail wheel steering, the airplanes' way, round a wheel
+/// that rolls on its own. Six turning nodes, none of them Constant: nothing
+/// on her turns but with her.
+#[test]
+fn the_autogyros_rotor_airscrew_and_wheels_turn_as_agreed() {
+    use crate::pds::SpinTerm;
+    for Drawn {
+        craft: t,
+        built,
+        plan,
+        what,
+        ..
+    } in every_drawn()
+    {
+        if t != HelicopterType::Autogyro {
+            continue;
+        }
+        let turning = spinning(&built);
+        assert_eq!(turning.len(), 6, "{what}: {} turning nodes", turning.len());
+        let (mut speeds, mut rolls, mut steers) = (Vec::new(), Vec::new(), 0);
+        for (node, path) in &turning {
+            let spin = node.spin.as_ref().expect("a turning node");
+            let blades = node
+                .children
+                .iter()
+                .filter(|c| matches!(c.kind, GeneratorKind::Cuboid { .. }))
+                .count();
+            match spin.terms.as_slice() {
+                [SpinTerm::Speed { idle, gain }] => {
+                    speeds.push((spin.axis.0, idle.0, gain.0, blades, node.children.len()));
+                }
+                [SpinTerm::Roll { radius }] => rolls.push(radius.0),
+                [SpinTerm::Steer { gain, limit }] => {
+                    assert_eq!((gain.0, limit.0), (0.4, 25.0), "{what}: {path}");
+                    steers += 1;
+                }
+                terms => panic!("{what}: {path} turns by {terms:?}"),
+            }
+        }
+        speeds.sort_by(|a, b| a.1.total_cmp(&b.1));
+        assert_eq!(
+            speeds,
+            [
+                ([0.0, 1.0, 0.0], 120.0, 90.0, 3, 4),
+                ([0.0, 0.0, 1.0], 540.0, 76.0, 2, 4)
+            ],
+            "{what}: her rotor carries its head and three blades, her airscrew its \
+             hubcap, two blades and its shaft"
+        );
+        rolls.sort_by(f32::total_cmp);
+        let want = [plan.len(0.05), plan.len(0.15), plan.len(0.15)];
+        assert!(
+            rolls.len() == 3 && rolls.iter().zip(want).all(|(a, b)| (a - b).abs() < 1e-6),
+            "{what}: her wheels roll on {rolls:?}, her tyres are {want:?}"
+        );
+        assert_eq!(steers, 1, "{what}: one tail wheel steers");
+    }
+    // Each constant is its agreed number.
+    assert_eq!(
+        (
+            autogyro::ROTOR_IDLE_DEG_S,
+            autogyro::ROTOR_GAIN_DEG_PER_M,
+            autogyro::BLADES,
+            autogyro::PROP_IDLE_DEG_S,
+            autogyro::PROP_GAIN_DEG_PER_M,
+            autogyro::TAIL_STEER_GAIN,
+            autogyro::TAIL_STEER_LIMIT
+        ),
+        (120.0, 90.0, 3, 540.0, 76.0, 0.4, 25.0)
+    );
+}
+
+/// What her voice thrums at is what her airscrew does at her top speed
+/// (#1624 Q-I): her radial voice is the biplane's, gated at two blades
+/// passing at the runtime's ceiling, and her airscrew reaches that ceiling
+/// within half a metre a second under the top speed her cyclic and her
+/// damping give her - where the biplane's reaches it under her level-flight
+/// speed. Her free rotor never reaches the ceiling at all: about 3.3 turns
+/// a second at her top speed.
+#[test]
+fn the_autogyros_airscrew_reaches_her_voice_at_her_top_speed() {
+    use crate::pds::sanitize::limits::MAX_SPIN_RATE_DEG;
+    let feel = craft(HelicopterType::Autogyro).feel();
+    let top = feel.cyclic_accel / feel.linear_damping;
+    let reached = (MAX_SPIN_RATE_DEG - autogyro::PROP_IDLE_DEG_S) / autogyro::PROP_GAIN_DEG_PER_M;
+    assert!(
+        reached <= top && top - reached < 0.5,
+        "her airscrew reaches its ceiling at {reached} m/s, her top speed is {top}"
+    );
+    assert_eq!(
+        2.0 * MAX_SPIN_RATE_DEG / 360.0,
+        super::super::airplanes::BIPLANE_BLADE_PASS_HZ,
+        "two blades at the ceiling pass at her voice's gate"
+    );
+    let rotor = autogyro::ROTOR_IDLE_DEG_S + autogyro::ROTOR_GAIN_DEG_PER_M * top;
+    assert!(
+        rotor < MAX_SPIN_RATE_DEG,
+        "her free rotor turns at {rotor} degrees a second at her top speed"
+    );
+}
+
+/// She stands tail-down on her three wheels (#1624 Q-B), at every
+/// blueprint extreme: drawn pitched twelve degrees nose-up - her fuselage's
+/// line, nose station to tail post, turned that far from the level
+/// profile's - her mains' axles a tyre's radius over the ground under her
+/// box and each tyre's lowest vertex on it, her tail wheel's axle its own
+/// tyre's radius over it, and that tyre, turned with her, its facets within
+/// two millimetres of it. The ground is her box's floor
+/// (`the_box_holds_the_drawn_fuselage`); this is what stands on it.
+#[test]
+fn the_autogyro_stands_tail_down_on_her_three_wheels() {
+    use crate::pds::SpinTerm;
+    let ctx = PartCtx::for_seed(a_helicopter_seed());
+    for (bp, plan, built) in autogyros(&ctx) {
+        let what = format!(
+            "a {} m autogyro, girth {}, boom {}",
+            bp.length, bp.girth, bp.boom
+        );
+        let ground = -plan.datum_height();
+        let fuselage = &built.children[0];
+        let GeneratorKind::Spine { points, .. } = &fuselage.kind else {
+            panic!("{what}: her first part is her fuselage");
+        };
+        let scale = Vec3::from(fuselage.transform.scale.0);
+        let drawn = |i: usize| Vec3::from(points[i].position.0) * scale;
+        let level: Vec<Vec3> = plan
+            .stations()
+            .map(|(z, y, _)| Vec3::from(plan.at(0.0, y, z)))
+            .collect();
+        let pitch = |nose: Vec3, tail: Vec3| (nose.y - tail.y).atan2(nose.z - tail.z);
+        let turned =
+            pitch(drawn(0), drawn(points.len() - 1)) - pitch(level[0], level[level.len() - 1]);
+        assert!(
+            (turned.to_degrees() - autogyro::GROUND_DEG).abs() < 0.01,
+            "{what}: she stands {} degrees nose-up",
+            turned.to_degrees()
+        );
+        let (mut mains, mut tails) = (0, 0);
+        for hub in built.children.iter().filter(|c| c.spin.is_some()) {
+            let terms = &hub.spin.as_ref().expect("a turning hub").terms;
+            let mut tyre = Vec::new();
+            points_under(hub, Affine3A::IDENTITY, &mut tyre);
+            let low = tyre.iter().map(|p| p.y).fold(f32::MAX, f32::min) - ground;
+            let axle = hub.transform.translation.0[1] - ground;
+            match terms.as_slice() {
+                [SpinTerm::Roll { .. }] => {
+                    assert!(
+                        (axle - plan.len(0.15)).abs() < 1e-5 && low.abs() < 1e-5,
+                        "{what}: a main's axle stands {axle} over the ground, its tyre {low}"
+                    );
+                    mains += 1;
+                }
+                [SpinTerm::Steer { .. }] => {
+                    assert!(
+                        (axle - plan.len(0.05)).abs() < 1e-4 && (0.0..0.002).contains(&low),
+                        "{what}: the tail wheel's axle stands {axle} over the ground, its \
+                         tyre {low}"
+                    );
+                    tails += 1;
+                }
+                _ => {}
+            }
+        }
+        assert_eq!((mains, tails), (2, 1), "{what}: three wheels");
+    }
+}
+
+/// Her rotor turns clear of her airframe at every blueprint extreme (#1624
+/// Q-C): leaning aft eighteen degrees as she stands, its disc holds nothing
+/// of her beyond its own head - no vertex of any part that does not turn,
+/// as the mesher draws it, lies within the slab its blades sweep inside
+/// their reach and outside twice the head's radius, where the housing and
+/// the pylon's top stand - her fuselage stands at least half a metre under
+/// it, along its axis, wherever it is under it, and her fin is out of its
+/// reach altogether.
+#[test]
+fn the_autogyros_rotor_clears_her_airframe() {
+    let ctx = PartCtx::for_seed(a_helicopter_seed());
+    let colours = autogyro_colours(&ctx);
+    let mut tightest = f32::MAX;
+    for (bp, plan, built) in autogyros(&ctx) {
+        let what = format!(
+            "a {} m autogyro, girth {}, boom {}",
+            bp.length, bp.girth, bp.boom
+        );
+        let rotor = main_rotor(&built);
+        let d = disc(rotor);
+        let turn = Quat::from_array(rotor.transform.rotation.0).normalize();
+        let head = plan.len(0.06) * 2.0;
+        let mut under = f32::MAX;
+        for (i, part) in built.children.iter().enumerate() {
+            if part.spin.is_some() {
+                continue;
+            }
+            for p in drawn_points(part) {
+                let q = turn.inverse() * (p - d.centre);
+                let radial = (q.x * q.x + q.z * q.z).sqrt();
+                if radial < head || radial > d.reach {
+                    continue;
+                }
+                assert!(
+                    !(d.slab.0..=d.slab.1).contains(&q.y),
+                    "{what}: her rotor sweeps through her at {p}"
+                );
+                if i == 0 {
+                    under = under.min(d.slab.0 - q.y);
+                }
+            }
+        }
+        assert!(
+            under > plan.len(0.5) && under < f32::MAX,
+            "{what}: her fuselage stands {under} m under her rotor"
+        );
+        tightest = tightest.min(under / plan.len(1.0));
+        let fin = built
+            .children
+            .iter()
+            .find(|c| {
+                c.kind.material() == Some(&colours.body)
+                    && c.transform.scale.0[0] < 0.5
+                    && c.transform.scale.0[1] == 1.0
+            })
+            .expect("she draws a fin");
+        for p in drawn_points(fin) {
+            let q = turn.inverse() * (p - d.centre);
+            let radial = (q.x * q.x + q.z * q.z).sqrt();
+            assert!(
+                radial > d.reach,
+                "{what}: her fin stands in her rotor's reach"
+            );
+        }
+    }
+    assert!(
+        tightest < 0.8,
+        "her rotor never came near her fuselage: {tightest}"
+    );
+}
+
+/// Her airscrew turns clear of her cowl ring (#1624 Q-D): every point of
+/// both blades stands ahead of the ring's lip at every blueprint extreme -
+/// the biplane's guard on her nose, which is the biplane's. Read off her
+/// LEVEL tree, where the ring's axis is her fore-and-aft one; her stance
+/// turns both the same way.
+#[test]
+fn the_autogyros_airscrew_turns_clear_of_her_cowl_ring() {
+    use crate::pds::SpinTerm;
+    for bp in blueprints() {
+        let plan = autogyro::Autogyro.plan(&bp);
+        let level = autogyro::draw_level(&plan, OrnatenessTier::Plain);
+        let ring = level
+            .iter()
+            .find(|c| {
+                matches!(&c.kind, GeneratorKind::Cylinder { common, .. } if common.torture.hollow.0 > 0.0)
+            })
+            .expect("she draws a cowl ring");
+        let GeneratorKind::Cylinder { height, .. } = &ring.kind else {
+            unreachable!()
+        };
+        // Laid along her by a quarter turn about +X: its height is fore and
+        // aft.
+        let lip = ring.transform.translation.0[2] + height.0 * 0.5;
+        let screw = level
+            .iter()
+            .find(|c| {
+                matches!(
+                    c.spin.as_ref().map(|s| &s.terms[0]),
+                    Some(SpinTerm::Speed { .. })
+                ) && c.spin.as_ref().is_some_and(|s| s.axis.0 == [0.0, 0.0, 1.0])
+            })
+            .expect("she has an airscrew");
+        let at = Vec3::from(screw.transform.translation.0);
+        let mut aft = f32::MAX;
+        let mut blades = 0;
+        for blade in screw
+            .children
+            .iter()
+            .filter(|c| matches!(c.kind, GeneratorKind::Cuboid { .. }))
+        {
+            let turn = Quat::from_array(blade.transform.rotation.0);
+            let place = Vec3::from(blade.transform.translation.0);
+            for p in primitive_points(&blade.kind) {
+                aft = aft.min((at + place + turn * p).z);
+            }
+            blades += 1;
+        }
+        assert_eq!(blades, 2, "a {blades}-blade airscrew");
+        assert!(
+            aft - lip > plan.len(0.005),
+            "a {} m autogyro (girth {}, boom {}): her blades reach {:.4} m ahead of \
+             the cowl ring's lip",
+            bp.length,
+            bp.girth,
+            bp.boom,
+            aft - lip
+        );
+    }
+}
+
+/// The root's hidden hub hides inside her fuselage at every blueprint
+/// (#1624): PodPlan hangs the drawn frame's origin at her box's middle,
+/// which standing tail-down is about 1.2 m behind her mains, where her
+/// fuselage has dropped with the turn - drawn on the LEVEL centreline's
+/// height, the prototype's, it stood 2 cm under her crown. Every corner of
+/// the cube stands well inside the fuselage AS DRAWN: inside the flats of
+/// its section, round in the sweep's own frame, along the centreline its
+/// stations were turned to. And the hub is ON that centreline, within the
+/// 2.2 cm her profile's datum claims, where it crosses her box's middle.
+#[test]
+fn her_root_hub_hides_in_her_fuselage() {
+    use std::f32::consts::PI;
+    let ctx = PartCtx::for_seed(a_helicopter_seed());
+    for (bp, _, built) in autogyros(&ctx) {
+        let GeneratorKind::Cuboid { size, .. } = &built.kind else {
+            panic!("the root is a hub cube");
+        };
+        let half = Vec3::from(size.0) * 0.5;
+        let fuselage = &built.children[0];
+        let GeneratorKind::Spine {
+            points, resolution, ..
+        } = &fuselage.kind
+        else {
+            panic!("her first part is her fuselage");
+        };
+        let scale = Vec3::from(fuselage.transform.scale.0);
+        let flats = (PI / *resolution as f32).cos();
+        let line: Vec<(Vec3, f32)> = points
+            .iter()
+            .map(|p| (Vec3::from(p.position.0), p.radius.0))
+            .collect();
+        // The standing centreline's height where it crosses her box's
+        // middle (drawn frame): the hub is at the origin.
+        let centre = line
+            .windows(2)
+            .map(|w| (w[0].0 * scale, w[1].0 * scale))
+            .find(|(a, b)| (a.z >= 0.0) != (b.z >= 0.0))
+            .map(|(a, b)| a.y + (b.y - a.y) * a.z / (a.z - b.z))
+            .expect("her fuselage spans her box's middle");
+        assert!(
+            centre.abs() < 0.022,
+            "a {} m autogyro (girth {}, boom {}): her standing centreline crosses her \
+             box's middle {centre:.4} m from the root's hub",
+            bp.length,
+            bp.girth,
+            bp.boom
+        );
+        for corner in [-1.0f32, 1.0].iter().flat_map(|&x| {
+            [-1.0f32, 1.0]
+                .iter()
+                .flat_map(move |&y| [-1.0f32, 1.0].map(|z| Vec3::new(x, y, z)))
+        }) {
+            // In the sweep's own frame its sections are round.
+            let p = corner * half / scale;
+            let (off, radius) = line
+                .windows(2)
+                .map(|w| {
+                    let ((a, ra), (b, rb)) = (w[0], w[1]);
+                    let t = ((p - a).dot(b - a) / (b - a).length_squared()).clamp(0.0, 1.0);
+                    (p.distance(a + (b - a) * t), ra + (rb - ra) * t)
+                })
+                .min_by(|x, y| x.0.total_cmp(&y.0))
+                .expect("a fuselage has segments");
+            assert!(
+                off < radius * flats * 0.5,
+                "a {} m autogyro (girth {}, boom {}): the root hub's corner {} stands \
+                 {off:.4} off her fuselage's line, half her {:.4} section is {:.4}",
+                bp.length,
+                bp.girth,
+                bp.boom,
+                corner * half,
+                radius * flats,
+                radius * flats * 0.5
+            );
+        }
+    }
+}
+
+/// The autogyro carries her identity on her cheat line (#1624, the port's
+/// first change): one band of the seeded accent down EACH flank, and
+/// nowhere else.
+#[test]
+fn the_autogyros_cheat_line_carries_her_identity() {
+    let mut n = 0;
+    for s in
+        helicopter_seeds(900).filter(|&s| HelicopterType::for_seed(s) == HelicopterType::Autogyro)
+    {
+        let ctx = PartCtx::for_seed(s);
+        let colours = autogyro_colours(&ctx);
+        let (_, plan) = body_for(s).expect("an autogyro seed has a body");
+        let built = autogyro::build_dressed(&ctx, &plan);
+        let mut sides: Vec<f32> = built
+            .children
+            .iter()
+            .filter(|c| c.kind.material() == Some(&colours.stripe))
+            .map(|g| {
+                let pts = primitive_points(&g.kind);
+                pts.iter().map(|p| p.x).sum::<f32>() / pts.len() as f32
+            })
+            .collect();
+        sides.sort_by(f32::total_cmp);
+        assert!(
+            sides.len() == 2 && sides[0] < -0.05 && sides[1] > 0.05,
+            "seed {s}: her accent is drawn at mean x {sides:?}"
+        );
+        n += 1;
+    }
+    assert!(n > 5, "only {n} autogyro seeds sampled");
 }

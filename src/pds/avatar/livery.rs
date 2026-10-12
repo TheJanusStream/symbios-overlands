@@ -3489,6 +3489,88 @@ pub(crate) fn biplane_colours(ctx: &PartCtx) -> BiplaneColours {
     }
 }
 
+/// The surfaces an autogyro is built in (#1624 Q-F): a biplane's, slot for
+/// slot - the old worlds' two aircraft wear the same nine schemes
+/// ([`BIPLANE_LIVERIES`]), and wear them the same way. Her fuselage takes
+/// the scheme's body hue, her rotor and her tail surfaces its wing hue, her
+/// cowl ring and her fin's top its trim; the seeded accent is her cheat line,
+/// and her two cockpit wells are the fleet's lit window, held off her
+/// fuselage as the biplane's are.
+///
+/// Its `Default` is every surface in the default material: her shape, which
+/// is the same in any paint - what her box is measured off.
+#[derive(Default)]
+pub(crate) struct AutogyroColours {
+    /// The fuselage, the fin and an ornate machine's spats.
+    pub(crate) body: SovereignMaterialSettings,
+    /// The rotor's three blades, the stabiliser and its end plates.
+    pub(crate) wings: SovereignMaterialSettings,
+    /// The cowl ring and the fin's top.
+    pub(crate) trim: SovereignMaterialSettings,
+    /// **Identity.** The cheat line down each flank.
+    pub(crate) stripe: SovereignMaterialSettings,
+    /// The windscreens.
+    pub(crate) glass: SovereignMaterialSettings,
+    /// The two cockpit wells: the tertiary's light, standing off her body.
+    pub(crate) lamp: SovereignMaterialSettings,
+    /// The lip at the back of each cockpit.
+    pub(crate) leather: SovereignMaterialSettings,
+    /// The crankcase, the airscrew's hubcap and shaft, the pylon and the
+    /// rotor's housing and head, the gear legs and hubs, the tail wheel's
+    /// fork, the pitot and the steps.
+    pub(crate) metal: SovereignMaterialSettings,
+    /// The cylinders, the exhaust stack, the tyres and the hidden hubs.
+    pub(crate) dark: SovereignMaterialSettings,
+    /// The airscrew's two blades.
+    pub(crate) wood: SovereignMaterialSettings,
+    /// The nav light on her left (port) end plate: red.
+    pub(crate) port: SovereignMaterialSettings,
+    /// The nav light on her right (starboard) end plate: green.
+    pub(crate) starboard: SovereignMaterialSettings,
+    /// The tail light on her rudder.
+    pub(crate) white: SovereignMaterialSettings,
+    /// The anti-collision beacon an ornate machine carries on her rotor's
+    /// housing.
+    pub(crate) beacon: SovereignMaterialSettings,
+}
+
+pub(crate) fn autogyro_colours(ctx: &PartCtx) -> AutogyroColours {
+    // A biplane scheme, picked on her theme and turned into surfaces the
+    // biplane's way: one rule for the old worlds' paint.
+    let BiplaneColours {
+        body,
+        wings,
+        trim,
+        stripe,
+        glass,
+        lamp,
+        leather,
+        metal,
+        dark,
+        wood,
+        port,
+        starboard,
+        white,
+        beacon,
+    } = biplane_colours(ctx);
+    AutogyroColours {
+        body,
+        wings,
+        trim,
+        stripe,
+        glass,
+        lamp,
+        leather,
+        metal,
+        dark,
+        wood,
+        port,
+        starboard,
+        white,
+        beacon,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5162,6 +5244,52 @@ mod tests {
         assert!(
             drawn.iter().all(|&n| n > 0),
             "a biplane scheme is never drawn: {drawn:?}"
+        );
+    }
+
+    /// The biplane's list covers the autogyro's homes too (#1624 Q-F): she
+    /// wears it, and every one of her nine themes is at home on at least
+    /// two of its schemes, and the draw over her own seeds reaches every
+    /// one of them.
+    #[test]
+    fn the_biplanes_list_covers_the_autogyros_homes() {
+        use crate::seeded_defaults::HelicopterType;
+        let homes: Vec<ThemeArchetype> = ThemeArchetype::ALL
+            .into_iter()
+            .filter(|&s| HelicopterType::Autogyro.weight(s) > 0)
+            .collect();
+        assert_eq!(homes.len(), 9, "her homes: {homes:?}");
+        for style in homes {
+            let at_home = BIPLANE_LIVERIES
+                .iter()
+                .filter(|l| l.home.contains(&style))
+                .count();
+            assert!(at_home >= 2, "{style:?} is at home on {at_home} schemes");
+        }
+        let mut drawn = vec![0usize; BIPLANE_LIVERIES.len()];
+        for s in (0u64..8_000).filter(|&s| {
+            ChassisFamily::for_seed(s) == ChassisFamily::Helicopter
+                && HelicopterType::for_seed(s) == HelicopterType::Autogyro
+        }) {
+            let ctx = PartCtx::for_seed(s);
+            let c = autogyro_colours(&ctx);
+            let l = biplane_livery(s, AvatarCharacter::for_seed(s).style, None);
+            assert_eq!(
+                c.body.base_color.0,
+                ctx.materials
+                    .paint(floor_finished(&ctx.materials, l.body, HELI_MASS_FLOOR))
+                    .base_color
+                    .0,
+                "seed {s}: her fuselage is not her scheme's"
+            );
+            drawn[BIPLANE_LIVERIES
+                .iter()
+                .position(|x| x.name == l.name)
+                .expect("the pick came from the table")] += 1;
+        }
+        assert!(
+            drawn.iter().all(|&n| n > 0),
+            "an autogyro never wears a scheme: {drawn:?}"
         );
     }
 

@@ -43,7 +43,7 @@
 //! never-saved seeded default is free to change look, and a saved avatar keeps
 //! its own generator tree).
 //!
-//! # The helicopter family has two types (#1614, #1621)
+//! # The helicopter family has three types (#1614, #1621, #1624)
 //!
 //! [`HelicopterType`] opened with its hero alone, the light utility
 //! helicopter, which is the family's universal floor and so every style's
@@ -52,7 +52,9 @@
 //! builder table, the pinned re-roll and the survey readouts all keyed on
 //! it. The fan-out's first type (#1618) is the bubble-canopy trainer, at
 //! home on the farm, the roadside, the suburbs, the frontier, the coast and
-//! the north, where the utility keeps every home she had.
+//! the north, where the utility keeps every home she had. Its second is the
+//! autogyro, at home on the old worlds the trainer does not fly and in the
+//! boiler age - the nine themes no rotorcraft was at home on.
 //!
 //! # So has the airplane family (#1617, #1623)
 //!
@@ -119,9 +121,10 @@ impl CraftType {
 
     /// Every helicopter type as a craft type, in [`HelicopterType::ALL`]'s
     /// order.
-    pub const HELICOPTERS: [Self; 2] = [
+    pub const HELICOPTERS: [Self; 3] = [
         Self::Helicopter(HelicopterType::Utility),
         Self::Helicopter(HelicopterType::Trainer),
+        Self::Helicopter(HelicopterType::Autogyro),
     ];
 
     /// Every airplane type as a craft type, in [`AirplaneType::ALL`]'s
@@ -305,6 +308,11 @@ pub enum HelicopterType {
     /// saddle tanks, an open truss boom and tall skids - the light
     /// helicopter of the 1950s (#1621).
     Trainer,
+    /// Autogyro: a slim fuselage with two open cockpits, a radial turning
+    /// an airscrew at her nose, a free three-blade rotor on a tripod pylon,
+    /// and wide main gear and a tail wheel she stands tail-down on - the
+    /// Cierva C.30's layout (#1624).
+    Autogyro,
 }
 
 /// The recognisable kind of fixed-wing a seeded airplane avatar is (#1617).
@@ -565,7 +573,7 @@ impl SkiffType {
 }
 
 impl HelicopterType {
-    pub const ALL: [Self; 2] = [Self::Utility, Self::Trainer];
+    pub const ALL: [Self; 3] = [Self::Utility, Self::Trainer, Self::Autogyro];
 
     /// The type every helicopter theme can reach - see [`FLOOR`].
     pub const UNIVERSAL: Self = Self::Utility;
@@ -575,6 +583,7 @@ impl HelicopterType {
         match self {
             Self::Utility => "Utility helicopter",
             Self::Trainer => "Bubble-canopy trainer",
+            Self::Autogyro => "Autogyro",
         }
     }
 
@@ -583,6 +592,7 @@ impl HelicopterType {
         match self {
             Self::Utility => "utility",
             Self::Trainer => "trainer",
+            Self::Autogyro => "autogyro",
         }
     }
 
@@ -616,6 +626,17 @@ impl HelicopterType {
                         style,
                         ThemeArchetype::CoastalResort | ThemeArchetype::Nordic
                     )
+            }
+            // The rotorcraft of a world before the modern one (#1624 Q-E):
+            // the old-world and ritual themes (HISTORIC) but the north and
+            // the frontier, where the trainer is at home, and the boiler
+            // age's - the nine themes no rotorcraft was at home on. There,
+            // where only the utility's floor reached a helicopter, an
+            // autogyro is three seeds in four.
+            Self::Autogyro => {
+                (holds(HISTORIC, style)
+                    && !matches!(style, ThemeArchetype::Nordic | ThemeArchetype::WildWest))
+                    || style == ThemeArchetype::Steampunk
             }
         }
     }
@@ -973,6 +994,27 @@ mod tests {
         }
         for style in [ModernCity, IndustrialPark, CivicCampus, SportsRec] {
             assert!(!HelicopterType::Trainer.at_home(style), "{style:?}");
+        }
+        // And the autogyro's (#1624): HISTORIC but the trainer's north and
+        // frontier, with Steampunk - and none of the other two types' homes,
+        // nor the speculative themes.
+        for style in [
+            Medieval,
+            PostApoc,
+            Fantasy,
+            AncientClassical,
+            FeudalJapan,
+            Mesoamerican,
+            GothicHorror,
+            Pirate,
+            Steampunk,
+        ] {
+            assert!(HelicopterType::Autogyro.at_home(style), "{style:?}");
+            assert!(!HelicopterType::Utility.at_home(style), "{style:?}");
+            assert!(!HelicopterType::Trainer.at_home(style), "{style:?}");
+        }
+        for style in [Nordic, WildWest, ModernCity, CoastalResort, Cyberpunk] {
+            assert!(!HelicopterType::Autogyro.at_home(style), "{style:?}");
         }
         // And the biplane's (#1623): all ten of HISTORIC with Steampunk, and
         // none of the town, coast, sport or speculative themes.

@@ -236,7 +236,8 @@ enum Propulsion {
     /// A seven-cylinder radial turning a two-blade airscrew (#1623 Q-H): a
     /// rounder, deeper drone than the high-wing's flat four, loped twice a
     /// second - the radial's uneven beat - under the same airscrew thrum at
-    /// her blade pass, her airscrew being the high-wing's. The biplane's.
+    /// her blade pass, her airscrew being the high-wing's. The biplane's,
+    /// and the autogyro's, whose nose is hers (#1624 Q-I).
     /// NOT the high-wing's [`Propeller`](Self::Propeller): her flat four is
     /// steadier and higher. A radial is air-cooled, so a picked steam is
     /// drawn as the wisp from the stack behind her cowl ring

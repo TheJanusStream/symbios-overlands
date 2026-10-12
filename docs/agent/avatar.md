@@ -22,9 +22,12 @@ climbs at idle. Landed, it rests its weight on its box's underside (#1612),
 so a shape that hangs below `-half_y` stands in the ground. A rotorcraft
 that should tip into its motion - nose down flying forward, banked into a
 turn - says how far in `/record/gait/lean_degrees` (0 to 45; absent is 0,
-level as an airship flies; a seeded utility helicopter leans 15 and a
-bubble-canopy trainer 18 (#1621), and a seeded helicopter's gait zeroes the
-airship's heave and nose wander, so she sits still on her skids).
+level as an airship flies; a seeded utility helicopter leans 15, a
+bubble-canopy trainer 18 (#1621) and an autogyro 12, which levels her
+tail-down stance flying forward (#1624), and a seeded helicopter's gait zeroes
+the airship's heave and nose wander, so she sits still on her skids or her
+wheels). An autogyro is drawn standing tail-down in her level box, every part
+turned about her main axle, so her box's floor is her tyres.
 A seeded airplane flies the `airplane` preset (#1617): she banks and pitches
 as she flies, so her gait does nothing, and her record carries where her
 drawn wheels stand - `gear_track`, `gear_ahead`, `tail_wheel_aft`,

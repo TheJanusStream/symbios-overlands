@@ -51,7 +51,8 @@ pub(super) fn bubble(kids: &mut Vec<Generator>, plan: &PodPlan, c: &TrainerColou
 
 /// How far ahead of its first station the bubble is DRAWN (m, prototype
 /// frame), read off the mesher's own vertices of the very sweep [`bubble`]
-/// draws - the blunt nose's bulge, which her box's nose takes on
+/// draws, without building its mesh (`primitive_outline`) - the blunt
+/// nose's bulge, which her box's nose takes on
 /// ([`PodPlan::with_nose_reach`]). The girth raises each station by half its
 /// own growth, so the centreline climbs off the small first station and the
 /// rings it tilts lean forward: 3.7 cm on her slimmest bubble, 7.5 on her
@@ -59,7 +60,7 @@ pub(super) fn bubble(kids: &mut Vec<Generator>, plan: &PodPlan, c: &TrainerColou
 /// the mesh's own.
 pub(super) fn nose_reach(plan: &PodPlan) -> f32 {
     let g = over_bubble(plan, 0.0, BUBBLE_RES, SovereignMaterialSettings::default());
-    let front = crate::world_builder::primitive_points(&g.kind)
+    let front = crate::world_builder::primitive_outline(&g.kind)
         .into_iter()
         .map(|p| p.z)
         .fold(f32::MIN, f32::max);
