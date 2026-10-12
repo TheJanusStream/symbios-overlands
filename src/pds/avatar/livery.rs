@@ -60,7 +60,8 @@
 //! A theme still draws from several schemes, so its avatars do not all fly
 //! one machine; see [`HelicopterLivery`]. Each helicopter type has its own
 //! list (the trainer's since #1621, the coaxial's since #1628), and so does
-//! the airplane.
+//! each airplane type (the biplane's since #1623, the twin's since #1625,
+//! the air racer's since #1629).
 //!
 //! **A boat's hull lines are the one exception, and it is a render result**
 //! (#1365 phase 2). The boot top and the cove line carry the accent as PAINT
@@ -1616,6 +1617,137 @@ pub const TWIN_LIVERIES: &[TwinLivery] = &[
 /// Airliner white and blue, `1` Polished metal and red).
 pub fn twin_livery(seed: u64, style: ThemeArchetype, over: Option<usize>) -> &'static TwinLivery {
     pick(TWIN_LIVERIES, |l| l.weight(style), seed, over)
+}
+
+/// An air racer's scheme (#1629 Q-E): her body's hue - her fuselage, her
+/// wing and her tail - and her trim's: her spinner, her spats, her fin's top
+/// and an ornate machine's winglets. Racing paint, weighted by THEME as
+/// every airplane's list is, with the same at-home weight and floor; her two
+/// floors are the racing white and red and the chrome and electric blue.
+/// The seeded accent goes on the identity slot and nowhere else (the racing
+/// stripe down each flank).
+#[derive(Clone, Copy, Debug)]
+pub struct RacerLivery {
+    /// See [`BoatLivery::name`].
+    pub name: &'static str,
+    /// The themes the scheme is at home on.
+    home: &'static [ThemeArchetype],
+    /// Whether every theme can roll it - see [`PLANE_FLOOR`].
+    floor: bool,
+    /// The fuselage, the wing, the stabiliser and the fin.
+    body: [f32; 3],
+    /// The spinner, the spats, the fin's top and an ornate machine's
+    /// winglets.
+    trim: [f32; 3],
+}
+
+impl RacerLivery {
+    /// This scheme's share of the draw on `style`.
+    fn weight(&self, style: ThemeArchetype) -> u32 {
+        let floor = if self.floor { PLANE_FLOOR } else { 0 };
+        floor
+            + if self.home.contains(&style) {
+                PLANE_AT_HOME
+            } else {
+                0
+            }
+    }
+}
+
+/// The racer's ten schemes (#1629 Q-E), as the owner saw them on the
+/// phase-1 renders: two floors - the racing white and red and the chrome -
+/// and eight for the neon city, the solar town, the outpost and the two
+/// alien worlds. Each of her five themes is at home on three or four
+/// (`the_racers_list_covers_her_homes`).
+pub const RACER_LIVERIES: &[RacerLivery] = &[
+    RacerLivery {
+        name: "Racing white and red",
+        home: &[
+            ThemeArchetype::SpaceOutpost,
+            ThemeArchetype::Solarpunk,
+            ThemeArchetype::Cyberpunk,
+        ],
+        floor: true,
+        body: [0.93, 0.93, 0.91],
+        trim: [0.80, 0.08, 0.06],
+    },
+    RacerLivery {
+        name: "Chrome and electric blue",
+        home: &[
+            ThemeArchetype::Cyberpunk,
+            ThemeArchetype::SpaceOutpost,
+            ThemeArchetype::AlienMonolithic,
+        ],
+        floor: true,
+        body: [0.74, 0.76, 0.80],
+        trim: [0.10, 0.35, 0.95],
+    },
+    RacerLivery {
+        name: "Neon black and pink",
+        home: &[ThemeArchetype::Cyberpunk],
+        floor: false,
+        body: [0.04, 0.04, 0.05],
+        trim: [0.95, 0.15, 0.60],
+    },
+    RacerLivery {
+        name: "Volt yellow and black",
+        home: &[ThemeArchetype::Cyberpunk, ThemeArchetype::Solarpunk],
+        floor: false,
+        body: [0.88, 0.86, 0.10],
+        trim: [0.05, 0.05, 0.06],
+    },
+    RacerLivery {
+        name: "Orbit white and orange",
+        home: &[ThemeArchetype::SpaceOutpost],
+        floor: false,
+        body: [0.92, 0.92, 0.90],
+        trim: [0.95, 0.42, 0.06],
+    },
+    RacerLivery {
+        name: "Solar green and white",
+        home: &[ThemeArchetype::Solarpunk],
+        floor: false,
+        body: [0.22, 0.58, 0.30],
+        trim: [0.93, 0.93, 0.88],
+    },
+    RacerLivery {
+        name: "Pearl and teal",
+        home: &[ThemeArchetype::Solarpunk, ThemeArchetype::AlienOrganic],
+        floor: false,
+        body: [0.90, 0.88, 0.84],
+        trim: [0.05, 0.55, 0.55],
+    },
+    RacerLivery {
+        name: "Chitin green and amber",
+        home: &[ThemeArchetype::AlienOrganic],
+        floor: false,
+        body: [0.18, 0.32, 0.14],
+        trim: [0.90, 0.62, 0.12],
+    },
+    RacerLivery {
+        name: "Bioluminescent violet and green",
+        home: &[
+            ThemeArchetype::AlienOrganic,
+            ThemeArchetype::AlienMonolithic,
+        ],
+        floor: false,
+        body: [0.26, 0.08, 0.38],
+        trim: [0.40, 0.92, 0.55],
+    },
+    RacerLivery {
+        name: "Obsidian and gold",
+        home: &[ThemeArchetype::AlienMonolithic],
+        floor: false,
+        body: [0.05, 0.05, 0.07],
+        trim: [0.82, 0.64, 0.20],
+    },
+];
+
+/// The scheme this racer seed wears on `style`, a pick from
+/// [`RACER_LIVERIES`]; `over` wraps inside it (`render --livery 0` is Racing
+/// white and red, `1` Chrome and electric blue).
+pub fn racer_livery(seed: u64, style: ThemeArchetype, over: Option<usize>) -> &'static RacerLivery {
+    pick(RACER_LIVERIES, |l| l.weight(style), seed, over)
 }
 
 /// A biplane's scheme (#1623 Q-E): her fuselage's hue, her wings' and her
@@ -3675,6 +3807,78 @@ pub(crate) fn twin_colours(ctx: &PartCtx) -> TwinColours {
     }
 }
 
+/// What a race roundel's disc is painted (#1629 Q-F): a racing white, on a
+/// dark rim so it reads on a white body too.
+const ROUNDEL_WHITE: [f32; 3] = [0.94, 0.94, 0.92];
+
+/// The surfaces an air racer is built in (#1629): her scheme's two hues -
+/// her fuselage, wing and tail in the body, her spinner, spats and fin's
+/// top in the trim - the seeded accent on her racing stripe, her canopy's
+/// lit sides the fleet's lit window held off her body, and what the rest of
+/// her simply is, the high-wing's way (#1629 Q-E).
+pub(crate) struct RacerColours {
+    /// The fuselage, the wing, the stabiliser and the fin: the scheme's
+    /// body hue, floored off mud on a battered kit.
+    pub(crate) body: SovereignMaterialSettings,
+    /// The spinner, the spats, the fin's top and an ornate machine's
+    /// winglets.
+    pub(crate) trim: SovereignMaterialSettings,
+    /// **Identity.** The racing stripe down each flank: the coachline's
+    /// rule, held clear of the body it lies on.
+    pub(crate) stripe: SovereignMaterialSettings,
+    /// The canopy's dark glass.
+    pub(crate) glass: SovereignMaterialSettings,
+    /// The canopy's lit sides, and an ornate machine's lit strips: the
+    /// tertiary's light, standing off her body.
+    pub(crate) lamp: SovereignMaterialSettings,
+    /// The gear legs, the hubs, the tail wheel's fork and the pitot.
+    pub(crate) metal: SovereignMaterialSettings,
+    /// The airscrew's blades, the tyres, the cooling scoop's mouth, the
+    /// race roundels' rims and the hidden hubs.
+    pub(crate) dark: SovereignMaterialSettings,
+    /// The race roundels' discs.
+    pub(crate) roundel: SovereignMaterialSettings,
+    /// The nav light on her left (port) wingtip: red.
+    pub(crate) port: SovereignMaterialSettings,
+    /// The nav light on her right (starboard) wingtip: green.
+    pub(crate) starboard: SovereignMaterialSettings,
+    /// The tail light at her tail post.
+    pub(crate) white: SovereignMaterialSettings,
+}
+
+pub(crate) fn racer_colours(ctx: &PartCtx) -> RacerColours {
+    let style = AvatarCharacter::for_seed(ctx.seed).style;
+    let l = racer_livery(ctx.seed, style, ctx.livery);
+    // A two-hue scheme turned into surfaces the high-wing's way; she
+    // carries no beacon.
+    let AirplaneColours {
+        body,
+        trim,
+        stripe,
+        glass,
+        lamp,
+        metal,
+        dark,
+        port,
+        starboard,
+        white,
+        ..
+    } = plane_colours(ctx, l.body, l.trim);
+    RacerColours {
+        body,
+        trim,
+        stripe,
+        glass,
+        lamp,
+        metal,
+        dark,
+        roundel: ctx.materials.paint(ROUNDEL_WHITE),
+        port,
+        starboard,
+        white,
+    }
+}
+
 /// The surfaces a biplane is built in (#1623): her scheme's three hues on
 /// the big masses - fuselage, wings and trim - the seeded accent on the
 /// cheat line down each flank, and the colours the rest of her simply is:
@@ -5728,6 +5932,156 @@ mod tests {
                     assert!(
                         d > COACHLINE_DELTA * 0.6,
                         "seed {s} in {}: the cheat line is {d} from the body",
+                        scheme.name
+                    );
+                }
+            }
+            if luminous {
+                lit += 1;
+            } else {
+                dark += 1;
+            }
+        }
+        assert!(
+            lit > 0 && dark > 0,
+            "the population saw only one kind: {lit} lit, {dark} dark"
+        );
+    }
+
+    /// The racer's list covers her homes (#1629 Q-E): every theme she is at
+    /// home on is at home on at least three of her schemes, her floors are
+    /// the racing white and red and the chrome, every scheme's trim stands
+    /// off its body - by colour, as a window light is held - and the draw
+    /// over her own seeds reaches every scheme.
+    #[test]
+    fn the_racers_list_covers_her_homes() {
+        use crate::seeded_defaults::AirplaneType;
+        let homes: Vec<ThemeArchetype> = ThemeArchetype::ALL
+            .into_iter()
+            .filter(|&s| AirplaneType::Racer.weight(s) > 0)
+            .collect();
+        assert_eq!(homes.len(), 5, "her homes: {homes:?}");
+        for style in homes {
+            let at_home = RACER_LIVERIES
+                .iter()
+                .filter(|l| l.home.contains(&style))
+                .count();
+            assert!(at_home >= 3, "{style:?} is at home on {at_home} schemes");
+        }
+        let floors: Vec<&str> = RACER_LIVERIES
+            .iter()
+            .filter(|l| l.floor)
+            .map(|l| l.name)
+            .collect();
+        assert_eq!(floors, ["Racing white and red", "Chrome and electric blue"]);
+        for l in RACER_LIVERIES {
+            let d = l
+                .trim
+                .iter()
+                .zip(l.body)
+                .map(|(x, y)| (x - y).powi(2))
+                .sum::<f32>()
+                .sqrt();
+            assert!(
+                d >= WINDOW_STAND_OFF,
+                "{}: its trim is {d} off its body",
+                l.name
+            );
+        }
+        let mut drawn = vec![0usize; RACER_LIVERIES.len()];
+        for s in (0u64..20_000).filter(|&s| {
+            ChassisFamily::for_seed(s) == ChassisFamily::Airplane
+                && AirplaneType::for_seed(s) == AirplaneType::Racer
+        }) {
+            let style = AvatarCharacter::for_seed(s).style;
+            let l = racer_livery(s, style, None);
+            drawn[RACER_LIVERIES
+                .iter()
+                .position(|x| x.name == l.name)
+                .expect("the pick came from the table")] += 1;
+        }
+        assert!(
+            drawn.iter().all(|&n| n > 0),
+            "a racer scheme is never drawn: {drawn:?}"
+        );
+    }
+
+    /// A racer's colours read on every scheme of her list, on every airplane
+    /// seed under 900 (#1629), BOTH directions: her canopy's sides are lit
+    /// and stand off her body; her nav and tail lights are lamps; her racing
+    /// stripe is the seed's accent through [`trim`], lit exactly when the kit
+    /// is luminous and off her body otherwise; and everything else - her race
+    /// roundels' white among it - is paint.
+    #[test]
+    fn a_racers_canopy_lights_and_stripe_read_on_every_scheme() {
+        let (mut lit, mut dark) = (0, 0);
+        for s in (0u64..900).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Airplane) {
+            let mut ctx = PartCtx::for_seed(s);
+            let luminous = ctx.materials.emissive_accents();
+            for (i, scheme) in RACER_LIVERIES.iter().enumerate() {
+                ctx.livery = Some(i);
+                let c = racer_colours(&ctx);
+                for (what, m) in [
+                    ("body", &c.body),
+                    ("spinner and spats", &c.trim),
+                    ("canopy", &c.glass),
+                    ("gear", &c.metal),
+                    ("blades and tyres", &c.dark),
+                    ("roundels", &c.roundel),
+                ] {
+                    assert_eq!(
+                        m.emission_strength.0, 0.0,
+                        "seed {s} in {}: the {what} is self-lit",
+                        scheme.name
+                    );
+                }
+                assert!(
+                    c.lamp.emission_strength.0 > 0.0,
+                    "seed {s} in {}: the canopy's sides are dark",
+                    scheme.name
+                );
+                let apart = c
+                    .lamp
+                    .base_color
+                    .0
+                    .iter()
+                    .zip(c.body.base_color.0)
+                    .map(|(a, b)| (a - b).powi(2))
+                    .sum::<f32>()
+                    .sqrt();
+                assert!(
+                    apart >= WINDOW_STAND_OFF * 0.8,
+                    "seed {s} in {}: the canopy's light is {apart} from the body",
+                    scheme.name
+                );
+                for (what, m) in [
+                    ("port light", &c.port),
+                    ("starboard light", &c.starboard),
+                    ("tail light", &c.white),
+                ] {
+                    assert!(
+                        m.emission_strength.0 > 0.0,
+                        "seed {s} in {}: the {what} is dark",
+                        scheme.name
+                    );
+                }
+                assert!(
+                    c.port.base_color.0[0] > c.port.base_color.0[1]
+                        && c.starboard.base_color.0[1] > c.starboard.base_color.0[0],
+                    "red is to port and green to starboard"
+                );
+                let on = c.stripe.emission_strength.0 > 0.0;
+                assert_eq!(
+                    on, luminous,
+                    "seed {s} in {}: the racing stripe is lit {on} on a kit luminous {luminous}",
+                    scheme.name
+                );
+                if !luminous {
+                    let l = |m: &SovereignMaterialSettings| luma(m.base_color.0);
+                    let d = (l(&c.stripe) - l(&c.body)).abs();
+                    assert!(
+                        d > COACHLINE_DELTA * 0.6,
+                        "seed {s} in {}: the racing stripe is {d} from the body",
                         scheme.name
                     );
                 }

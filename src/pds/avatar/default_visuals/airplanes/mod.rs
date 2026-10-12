@@ -9,7 +9,7 @@
 //! over [`AirplaneType`], so a type the fan-out (#1618) adds is a compile
 //! error here until it is built.
 //!
-//! THREE types are built. The hero is the high-wing light monoplane
+//! FOUR types are built. The hero is the high-wing light monoplane
 //! taildragger the owner agreed on the phase-5 renders (#1616) - a
 //! round-cowled cabin under a strut-braced wing, on fat tyres and a tail
 //! wheel - at the proportion they chose (C: a 3.19 m airframe, the fuselage
@@ -19,21 +19,23 @@
 //! open cowl ring, with all eight of that issue's recommendations taken. Its
 //! second is the twin-engine transport (#1625): a cabin with a row of lit
 //! windows, a low wing, a radial in a closed cowl on a nacelle either side
-//! and a twin-fin tail, with all eight of hers.
+//! and a twin-fin tail, with all eight of hers. Its third is the air racer
+//! (#1629): a slim fuselage from a pointed electric cowl to a swept fin, a
+//! bubble canopy, a short low wing and spatted mains, with all nine of hers.
 //!
 //! # Where an airplane sits
 //!
-//! On her three wheels, tail-down as a taildragger stands - the high-wing at
-//! ten degrees, the twin at eleven, the biplane at twelve - and level in the
-//! air (#1616 recommendation 3). Her box is her fuselage ([`FusePlan`]'s
-//! header): the wings, the tail surfaces, the gear and the airscrew stand
-//! outside it, a span past the 2.6 m gateway mouth, which owner decision 3
-//! of #1611 accepts. Her wheels are the Airplane preset's raycast gear
-//! under the box (#1615), so the record carries where the drawn ones stand
-//! ([`AirplaneLayout`]): the mains' track and how far ahead they are, the
-//! tail wheel's shorter reach that sits her tail-down, and her centre of
-//! mass forward over her wing. Her drawn origin is her box's middle, so the
-//! travel pose hangs her with no drop at all.
+//! On her three wheels, tail-down as a taildragger stands - the high-wing and
+//! the racer at ten degrees, the twin at eleven, the biplane at twelve - and
+//! level in the air (#1616 recommendation 3). Her box is her fuselage
+//! ([`FusePlan`]'s header): the wings, the tail surfaces, the gear and the
+//! airscrew stand outside it, a span past the 2.6 m gateway mouth, which
+//! owner decision 3 of #1611 accepts. Her wheels are the Airplane preset's
+//! raycast gear under the box (#1615), so the record carries where the drawn
+//! ones stand ([`AirplaneLayout`]): the mains' track and how far ahead they
+//! are, the tail wheel's shorter reach that sits her tail-down, and her
+//! centre of mass forward over her wing. Her drawn origin is her box's
+//! middle, so the travel pose hangs her with no drop at all.
 //!
 //! # What she does at rest
 //!
@@ -47,6 +49,7 @@
 mod biplane;
 mod high_wing;
 mod plan;
+mod racer;
 mod twin;
 
 /// The biplane's (Hz): what her radial voice thrums at (#1623 Q-H).
@@ -54,6 +57,8 @@ pub(super) use biplane::BLADE_PASS_HZ as BIPLANE_BLADE_PASS_HZ;
 /// The hero's blade pass (Hz): what her propeller voice thrums at.
 pub(super) use high_wing::BLADE_PASS_HZ;
 pub(crate) use plan::{FusePlan, FuseProfile};
+/// The racer's (Hz): what her racing whine's thrum is gated at (#1629 Q-H).
+pub(super) use racer::BLADE_PASS_HZ as RACER_BLADE_PASS_HZ;
 /// The twin's (Hz): what her twin-radial voice thrums at (#1625 Q-H).
 pub(super) use twin::BLADE_PASS_HZ as TWIN_BLADE_PASS_HZ;
 
@@ -66,7 +71,8 @@ use crate::seeded_defaults::{AirplaneBlueprint, AirplaneType, ParticleAura};
 /// The airplane family's colours, which live in the fleet's one livery
 /// home (#1365) rather than beside its geometry.
 pub(crate) use crate::pds::avatar::livery::{
-    AirplaneColours, BiplaneColours, TwinColours, airplane_colours, biplane_colours, twin_colours,
+    AirplaneColours, BiplaneColours, RacerColours, TwinColours, airplane_colours, biplane_colours,
+    racer_colours, twin_colours,
 };
 
 use super::Propulsion;
@@ -239,6 +245,7 @@ fn craft(t: AirplaneType) -> &'static dyn AirplaneCraft {
         AirplaneType::HighWing => &high_wing::HighWing,
         AirplaneType::Biplane => &biplane::Biplane,
         AirplaneType::Twin => &twin::Twin,
+        AirplaneType::Racer => &racer::Racer,
     }
 }
 

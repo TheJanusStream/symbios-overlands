@@ -7,19 +7,24 @@
 //! physics with every drawn tyre on it - her airscrew and wheels turn as
 //! agreed, her aura leaves her stack, and no sweep of hers loops past its
 //! stations. Every one sweeps EVERY type (the biplane's since #1623, the
-//! twin's since #1625), each held to its own numbers; and the biplane has
+//! twin's since #1625, the racer's since #1629), each held to its own
+//! numbers; and the biplane has
 //! her own - her struts and wires end inside her wings and her cabane's feet
 //! in her fuselage, her airscrew turns clear of her cowl ring, her record
 //! carries the handling the owner agreed, and she takes off and tops out as
 //! it says she will - and so has the twin: her airscrews turn clear of her
 //! fuselage and of the ground, her record carries her handling, and she
-//! takes off and tops out as it says.
+//! takes off and tops out as it says. And so has the air racer: her airscrew
+//! turns clear of her cowl's face and of the ground and reaches her voice by
+//! her level flight, her spats hold her wheels and stand clear of the
+//! ground, her embers leave her cooling scoop, her record carries her
+//! handling, and she takes off and tops out as it says.
 
 use bevy::math::{Quat, Vec3};
 
 use super::super::common::{first_difference, touch};
 use super::*;
-use super::{biplane, high_wing, twin};
+use super::{biplane, high_wing, racer, twin};
 use crate::catalogue::items::measure::tree_bounds;
 use crate::pds::generator::GeneratorKind;
 use crate::pds::{SpinTerm, sanitize::limits::MAX_SPIN_RATE_DEG};
@@ -42,11 +47,11 @@ fn seeds_of(t: AirplaneType, n: u64) -> impl Iterator<Item = u64> {
 }
 
 /// The attitude each type stands at on her three wheels (degrees): the
-/// high-wing's ten (#1616 recommendation 3), the biplane's twelve and the
-/// twin's eleven.
+/// high-wing's ten (#1616 recommendation 3), the biplane's twelve, the
+/// twin's eleven and the racer's ten.
 fn ground_deg(t: AirplaneType) -> f32 {
     match t {
-        AirplaneType::HighWing => 10.0,
+        AirplaneType::HighWing | AirplaneType::Racer => 10.0,
         AirplaneType::Biplane => 12.0,
         AirplaneType::Twin => 11.0,
     }
@@ -58,6 +63,7 @@ fn profile(t: AirplaneType) -> FuseProfile {
         AirplaneType::HighWing => high_wing::PROFILE,
         AirplaneType::Biplane => biplane::PROFILE,
         AirplaneType::Twin => twin::PROFILE,
+        AirplaneType::Racer => racer::PROFILE,
     }
 }
 
@@ -68,26 +74,31 @@ fn tyres(t: AirplaneType) -> [f32; 2] {
         AirplaneType::HighWing => [0.155, 0.055],
         AirplaneType::Biplane => [0.165, 0.05],
         AirplaneType::Twin => [0.15, 0.05],
+        AirplaneType::Racer => [0.11, 0.035],
     }
 }
 
 /// How each type is driven: the high-wing's flat four (#1617), the
-/// biplane's radial (#1623 Q-H) and the twin's two radials (#1625 Q-H).
+/// biplane's radial (#1623 Q-H), the twin's two radials (#1625 Q-H) and the
+/// racer's electric airscrew (#1629 Q-H).
 fn drive(t: AirplaneType) -> Propulsion {
     match t {
         AirplaneType::HighWing => Propulsion::Propeller,
         AirplaneType::Biplane => Propulsion::Radial,
         AirplaneType::Twin => Propulsion::TwinRadial,
+        AirplaneType::Racer => Propulsion::ElectricProp,
     }
 }
 
 /// Each type's airscrews, as agreed: how many, their idle and their gain a
 /// metre a second - the high-wing's one at 540 and 55 (#1616), the
-/// biplane's the same (#1623), the twin's two at 540 and 41 (#1625 Q-H).
+/// biplane's the same (#1623), the twin's two at 540 and 41 (#1625 Q-H),
+/// the racer's one at 540 and 36 (#1629 Q-G).
 fn airscrews(t: AirplaneType) -> (usize, f32, f32) {
     match t {
         AirplaneType::HighWing | AirplaneType::Biplane => (1, 540.0, 55.0),
         AirplaneType::Twin => (2, 540.0, 41.0),
+        AirplaneType::Racer => (1, 540.0, 36.0),
     }
 }
 
@@ -334,8 +345,10 @@ fn the_box_holds_the_drawn_airframe() {
             -hz
         );
         // Her nose: the airscrew's tip - the hub's lathe, a spinner or a
-        // hubcap, its height ahead - or, the twin's airscrews being on her
-        // wings, her fuselage's own nose: its tip station. The sweep's
+        // hubcap, its height ahead of where it is set on the hub (the
+        // racer's base 4.5 cm behind it, on her cowl's face) - or, the
+        // twin's airscrews being on her wings, her fuselage's own nose: its
+        // tip station. The sweep's
         // section there is a disc square to its spine, which drops toward
         // the tip - the more, the fatter she is, her girth raising each
         // station by its own half-height - so the disc's top leans ahead of
@@ -343,7 +356,7 @@ fn the_box_holds_the_drawn_airframe() {
         // the sweep's own frame, which her section's scale stretches only
         // upward. Nothing else of her may stand past it.
         let (tip, lean) = match t {
-            AirplaneType::HighWing | AirplaneType::Biplane => {
+            AirplaneType::HighWing | AirplaneType::Biplane | AirplaneType::Racer => {
                 let (screw, at) = spinning(&built)
                     .into_iter()
                     .find(|(g, _)| {
@@ -353,10 +366,13 @@ fn the_box_holds_the_drawn_airframe() {
                         )
                     })
                     .expect("she has an airscrew");
-                let GeneratorKind::Lathe { points, .. } = &screw.children[0].kind else {
+                let spinner = &screw.children[0];
+                let GeneratorKind::Lathe { points, .. } = &spinner.kind else {
                     panic!("{what}: the airscrew's first part is not its spinner");
                 };
-                let tip = at.z + points.last().expect("a spinner has stations").height.0;
+                let tip = at.z
+                    + spinner.transform.translation.0[2]
+                    + points.last().expect("a spinner has stations").height.0;
                 (tip, 0.0)
             }
             AirplaneType::Twin => {
@@ -421,7 +437,8 @@ fn her_drawn_wheels_stand_where_her_record_stands_them() {
 
 /// Set down on the game's own physics, a seeded airplane settles tail-down
 /// at her drawn angle - the high-wing's ten degrees, the biplane's twelve,
-/// the twin's eleven - with every tyre she draws ON the ground - its lowest
+/// the twin's eleven, the racer's ten - with every tyre she draws ON the
+/// ground - its lowest
 /// point within a millimetre of it - and her box's tail corner clear of it
 /// (the #1617 review); and knocked in roll there, she comes to rest again
 /// (#1625). The guards round this one read her in her own frame, where her
@@ -531,7 +548,8 @@ fn on_her_back_she_is_rolled_harder_than_her_roof_holds_her() {
 
 /// Standing on her three wheels she is tail-down at her agreed angle - the
 /// high-wing's ten degrees (#1616 recommendation 3), the biplane's twelve,
-/// the twin's eleven - and her box's tail corner clears the ground by a
+/// the twin's eleven, the racer's ten - and her box's tail corner clears
+/// the ground by a
 /// centimetre at least, at every blueprint extreme. Floored at her belly,
 /// the high-wing's stood 3 cm into the ground ahead of her tail wheel.
 #[test]
@@ -668,11 +686,16 @@ fn her_airscrew_and_wheels_turn_as_agreed() {
 }
 
 /// Every seed drawn as an airplane is driven by her own type's engine - the
-/// high-wing's flat four, the biplane's radial, the twin's two radials - and
-/// her aura LEAVES HER STACK when it is one that burns: the emitter in her
-/// saved record stands at the mouth of the stack she draws - under her nose,
-/// or on the twin's port nacelle - read off the stack's own node (#1382 gap
-/// 2's lesson), for each type.
+/// high-wing's flat four, the biplane's radial, the twin's two radials, the
+/// racer's electric airscrew - and her aura LEAVES HER STACK when it is one
+/// that burns: the emitter in her saved record stands at the mouth of the
+/// stack she draws - under her nose, or on the twin's port nacelle - read off
+/// the stack's own node (#1382 gap 2's lesson), for each type. The racer
+/// draws no stack (#1629): an electric motor has neither a pipe nor a
+/// boiler, so the exhaust her Solarpunk and SpaceOutpost seeds pick - their
+/// thruster wash, floored to an airplane's exhaust - is DROPPED, and she
+/// hangs no emitter at all, as a cyclecar's is (#1376); embers would leave
+/// her cooling scoop (`a_racers_embers_leave_her_cooling_scoop`).
 #[test]
 fn an_airplanes_aura_leaves_her_exhaust_stack() {
     use crate::seeded_defaults::AvatarFx;
@@ -692,8 +715,38 @@ fn an_airplanes_aura_leaves_her_exhaust_stack() {
         let emitter = root
             .children
             .iter()
-            .find(|c| matches!(c.kind, GeneratorKind::ParticleSystem(_)))
-            .expect("a burning aura hangs an emitter");
+            .find(|c| matches!(c.kind, GeneratorKind::ParticleSystem(_)));
+        let count = &mut burning[AirplaneType::ALL
+            .iter()
+            .position(|&x| x == t)
+            .expect("her type is a type")];
+        if t == AirplaneType::Racer {
+            match aura {
+                ParticleAura::Exhaust | ParticleAura::Steam => assert!(
+                    emitter.is_none(),
+                    "seed {s}: an electric racer trails her {aura:?}"
+                ),
+                // Embers: none of her homes picks them - defensive.
+                _ => {
+                    let at = Vec3::from(
+                        emitter
+                            .expect("embers hang an emitter")
+                            .transform
+                            .translation
+                            .0,
+                    );
+                    let (_, plan) = body_for(s).expect("an airplane seed has a body");
+                    let mouth = Vec3::from(racer::Racer.fx_mount(aura, &plan));
+                    assert!(
+                        at.distance(mouth) < 2e-3,
+                        "seed {s}: her {aura:?} issue at {at}, her scoop's tail is at {mouth}"
+                    );
+                }
+            }
+            *count += 1;
+            continue;
+        }
+        let emitter = emitter.expect("a burning aura hangs an emitter");
         // The stack. The high-wing's and the biplane's: the one cylinder on
         // the root raked forward about X by less than a quarter turn - the
         // high-wing's pitot lies along her at a quarter, and so does the
@@ -713,6 +766,7 @@ fn an_airplanes_aura_leaves_her_exhaust_stack() {
                     < 1e-3
                     && c.transform.translation.0[0] > 0.0
             }),
+            AirplaneType::Racer => unreachable!("a racer draws no stack"),
         }
         .expect("she draws an exhaust stack");
         let GeneratorKind::Cylinder { height, .. } = &stack.kind else {
@@ -725,10 +779,7 @@ fn an_airplanes_aura_leaves_her_exhaust_stack() {
             at.distance(mouth) < 2e-3,
             "seed {s}: her {aura:?} issues at {at}, her stack's mouth is at {mouth}"
         );
-        burning[AirplaneType::ALL
-            .iter()
-            .position(|&x| x == t)
-            .expect("her type is a type")] += 1;
+        *count += 1;
     }
     assert!(
         burning.iter().all(|&n| n > 5),
@@ -741,8 +792,8 @@ fn an_airplanes_aura_leaves_her_exhaust_stack() {
 /// included, and the heaviest she can draw: every type at every blueprint
 /// extreme on her fullest ladder, Ornate and Battered, carrying the heaviest
 /// FX overhead a live seed carries. The prototypes put the high-wing at
-/// about 21 KB (#1616), the biplane at 26.5 to 28.4 (#1623) and the twin at
-/// 25 to 27.5 (#1625).
+/// about 21 KB (#1616), the biplane at 26.5 to 28.4 (#1623), the twin at
+/// 25 to 27.5 (#1625) and the racer at 18 to 22 (#1629).
 #[test]
 fn a_seeded_airplanes_record_stays_well_inside_the_budget() {
     use crate::pds::avatar::AvatarRecord;
@@ -786,7 +837,9 @@ fn a_seeded_airplanes_record_stays_well_inside_the_budget() {
 /// the biplane a pitot and two wing walks - and Ornate three more, two spats
 /// and a beacon; on the twin (#1625 Q-F) Adorned adds four - a pitot, an
 /// aerial mast and a wire from it to each fin - and Ornate three, a beacon
-/// and two tip tanks.
+/// and two tip tanks; and on the racer (#1629 Q-F) Adorned adds five - two
+/// race roundels, each a rim and a disc, and a pitot - and Ornate four, two
+/// winglets and two lit strips.
 #[test]
 fn ornateness_adds_parts_and_wear_does_not() {
     let ctx = PartCtx::for_seed(an_airplane_seed());
@@ -803,6 +856,7 @@ fn ornateness_adds_parts_and_wear_does_not() {
         let steps = match t {
             AirplaneType::HighWing | AirplaneType::Biplane => (3, 3),
             AirplaneType::Twin => (4, 3),
+            AirplaneType::Racer => (5, 4),
         };
         assert_eq!((adorned - plain, ornate - adorned), steps, "{t:?}");
         for w in WearTier::ALL {
@@ -1336,5 +1390,361 @@ fn a_twin_takes_off_on_power_alone_and_tops_out_over_the_high_wing() {
     assert!(
         w - h > 1.0,
         "she tops out at {w:.2} m/s, the high-wing at {h:.2}"
+    );
+}
+
+/// Every racer the family can draw - [`every_drawn`]'s racers.
+fn every_racer() -> Vec<Drawn> {
+    every_drawn()
+        .into_iter()
+        .filter(|d| d.craft == AirplaneType::Racer)
+        .collect()
+}
+
+/// Where every vertex of `part` is drawn - the mesher's own points through
+/// its node's translation, turn and scale.
+fn drawn_points(part: &Generator) -> Vec<Vec3> {
+    let t = &part.transform;
+    let (at, turn, scale) = (
+        Vec3::from(t.translation.0),
+        Quat::from_array(t.rotation.0).normalize(),
+        Vec3::from(t.scale.0),
+    );
+    crate::world_builder::primitive_outline(&part.kind)
+        .into_iter()
+        .map(|p| at + turn * (p * scale))
+        .collect()
+}
+
+/// Her airscrew's hub and where it stands in the drawn frame.
+fn racer_airscrew(built: &Generator) -> (&Generator, Vec3) {
+    spinning(built)
+        .into_iter()
+        .find(|(g, _)| {
+            matches!(
+                g.spin.as_ref().map(|s| &s.terms[0]),
+                Some(SpinTerm::Speed { .. })
+            )
+        })
+        .expect("she has an airscrew")
+}
+
+/// Her sweeps drawn `flat` as wide as they are long across her - a racer's
+/// spats at 0.58, her cooling scoop at 1.6 - by their node's x scale.
+fn sweeps_drawn(built: &Generator, flat: f32) -> Vec<&Generator> {
+    built
+        .children
+        .iter()
+        .filter(|c| {
+            matches!(c.kind, GeneratorKind::Spine { .. })
+                && (c.transform.scale.0[0] - flat).abs() < 1e-4
+        })
+        .collect()
+}
+
+/// The racer's airscrew turns clear of her cowl's face and of the ground
+/// (#1629), at every blueprint extreme and on every tier: every point of
+/// both blades stands ahead of every point of her fuselage within the disc
+/// they sweep - her cowl's face behind her spinner - by more than 5 mm, the
+/// biplane's bound (6.4 mm at her fattest girth, where the face's ring tilts
+/// most up her climbing centreline toward the blades: the prototype's hub
+/// had them 8 mm into it there), and flying level - her tail up on her
+/// take-off run - the disc's lowest point stands over the line her mains'
+/// tyres meet the ground on by more than 5 cm. Standing tail-down, her disc
+/// only rises.
+#[test]
+fn a_racers_airscrew_turns_clear_of_her_cowl_and_the_ground() {
+    use crate::world_builder::{primitive_outline, primitive_points};
+    let mut tightest = (f32::MAX, f32::MAX);
+    for Drawn {
+        built, plan, what, ..
+    } in every_racer()
+    {
+        let (screw, at) = racer_airscrew(&built);
+        let (_, reach) = airscrew_disc(screw, at);
+        let mut aft = f32::MAX;
+        let mut blades = 0;
+        for blade in screw
+            .children
+            .iter()
+            .filter(|c| matches!(c.kind, GeneratorKind::Cuboid { .. }))
+        {
+            let turn = Quat::from_array(blade.transform.rotation.0);
+            let place = Vec3::from(blade.transform.translation.0);
+            for p in primitive_points(&blade.kind) {
+                aft = aft.min((at + place + turn * p).z);
+            }
+            blades += 1;
+        }
+        assert_eq!(blades, 2, "{what}: a {blades}-blade airscrew");
+        // Her fuselage as drawn, within the disc: its sweep's own vertices
+        // through its node.
+        let fuselage = &built.children[0];
+        let (place, scale) = (
+            Vec3::from(fuselage.transform.translation.0),
+            Vec3::from(fuselage.transform.scale.0),
+        );
+        let cowl = primitive_outline(&fuselage.kind)
+            .into_iter()
+            .map(|p| place + p * scale)
+            .filter(|p| (p.truncate() - at.truncate()).length() < reach)
+            .map(|p| p.z)
+            .fold(f32::MIN, f32::max);
+        let ahead = aft - cowl;
+        assert!(
+            ahead > plan.len(0.005),
+            "{what}: her blades reach {ahead:.4} m ahead of her cowl"
+        );
+        let wheels = rolling_wheels(&built);
+        let ground = wheels[0].0.y - wheels[0].1;
+        let under = at.y - reach - ground;
+        assert!(
+            under > plan.len(0.05),
+            "{what}: her airscrew turns {under:.4} m over the ground flying level"
+        );
+        tightest = (
+            tightest.0.min(ahead / plan.len(1.0)),
+            tightest.1.min(under / plan.len(1.0)),
+        );
+    }
+    assert!(
+        tightest.0 < 0.02 && tightest.1 < 0.2,
+        "nothing came near her airscrew: {tightest:?}"
+    );
+}
+
+/// What her voice thrums at is what her airscrew does flying level (#1629
+/// Q-H): two blades at the runtime's ceiling pass at her racing whine's
+/// gate, and her airscrew reaches that ceiling at or under the speed her own
+/// handling flies level at.
+#[test]
+fn a_racers_airscrew_reaches_her_voice_by_her_level_flight() {
+    assert_eq!(RACER_BLADE_PASS_HZ, 2.0 * MAX_SPIN_RATE_DEG / 360.0);
+    let level = racer::Racer
+        .feel()
+        .handling
+        .expect("she flies her own handling")
+        .cruise;
+    let reached = (MAX_SPIN_RATE_DEG - racer::PROP_IDLE_DEG_S) / racer::PROP_GAIN_DEG_PER_M;
+    assert!(
+        reached <= level,
+        "her airscrew reaches the ceiling at {reached} m/s, past her level-flight speed of {level}"
+    );
+}
+
+/// The racer's spats hold her wheels and stand clear of the ground (#1629
+/// Q-C), at every blueprint extreme and on every tier: each main tyre's top
+/// stands inside its spat and its bottom shows under it, read in the spat's
+/// own frame off its stations; and standing ten degrees tail-down on her
+/// three wheels, every point of both spats as the mesher draws them stands
+/// over the ground by more than a centimetre - the spats' tails running aft
+/// of the axles drop as she sits back.
+#[test]
+fn a_racers_spats_hold_her_wheels_and_clear_the_ground() {
+    let mut lowest = f32::MAX;
+    for Drawn {
+        built, plan, what, ..
+    } in every_racer()
+    {
+        let wheels = rolling_wheels(&built);
+        let (contact_z, ground) = (wheels[0].0.z, wheels[0].0.y - wheels[0].1);
+        let stand = ground_deg(AirplaneType::Racer).to_radians();
+        let spats = sweeps_drawn(&built, 0.58);
+        assert_eq!(spats.len(), 2, "{what}: {} spats", spats.len());
+        for (hub, tyre) in &wheels[..2] {
+            let spat = spats
+                .iter()
+                .min_by(|a, b| {
+                    let x = |g: &&&Generator| (stations_of(g)[0].0.x - hub.x).abs();
+                    x(a).total_cmp(&x(b))
+                })
+                .expect("a spat on each side");
+            // The spat's own centreline and radius over the axle, linear
+            // between its stations - drawn, as its node scales them.
+            let line = stations_of(spat);
+            let (y, r) = line
+                .windows(2)
+                .find(|w| w[0].0.z >= hub.z && hub.z >= w[1].0.z)
+                .map(|w| {
+                    let t = (w[0].0.z - hub.z) / (w[0].0.z - w[1].0.z);
+                    (
+                        w[0].0.y + (w[1].0.y - w[0].0.y) * t,
+                        w[0].1 + (w[1].1 - w[0].1) * t,
+                    )
+                })
+                .expect("a spat spans its axle");
+            assert!(
+                hub.y + tyre < y + r && hub.y - tyre < y - r,
+                "{what}: a tyre {:.4}..{:.4} in a spat {:.4}..{:.4}",
+                hub.y - tyre,
+                hub.y + tyre,
+                y - r,
+                y + r
+            );
+        }
+        for spat in spats {
+            for p in drawn_points(spat) {
+                let over = (p.y - ground) * stand.cos() + (p.z - contact_z) * stand.sin();
+                assert!(
+                    over > plan.len(0.01),
+                    "{what}: a spat stands {over:.4} m over the ground, standing"
+                );
+                lowest = lowest.min(over / plan.len(1.0));
+            }
+        }
+    }
+    assert!(
+        lowest < 0.05,
+        "nothing of her spats came near the ground: {lowest}"
+    );
+}
+
+/// The racer's embers leave her cooling scoop (#1629): she draws no stack
+/// and her motor has neither a pipe nor a boiler, so a picked exhaust or
+/// steam is dropped (`fx::drawn_aura`), and embers - the one burning aura
+/// that stands, though none of her five homes picks it: defensive - issue
+/// on her centreline under the tail of the scoop she draws under her nose,
+/// read off the scoop's own node at every blueprint extreme. Her five
+/// themes' flourishes issue on her centreline under her belly, behind her
+/// wing's root.
+#[test]
+fn a_racers_embers_leave_her_cooling_scoop() {
+    use super::super::fx::drawn_aura;
+    for aura in [ParticleAura::Exhaust, ParticleAura::Steam] {
+        assert_eq!(
+            drawn_aura(aura, Propulsion::ElectricProp),
+            ParticleAura::None,
+            "{aura:?}"
+        );
+    }
+    assert_eq!(
+        drawn_aura(ParticleAura::Embers, Propulsion::ElectricProp),
+        ParticleAura::Embers
+    );
+    for Drawn {
+        built, plan, what, ..
+    } in every_racer()
+    {
+        let scoop = sweeps_drawn(&built, 1.6);
+        assert_eq!(scoop.len(), 1, "{what}: {} cooling scoops", scoop.len());
+        let (tail, radius) = *stations_of(scoop[0]).last().expect("a scoop has stations");
+        let at = Vec3::from(racer::Racer.fx_mount(ParticleAura::Embers, &plan));
+        assert!(
+            at.x == 0.0 && (at.z - tail.z).abs() < 1e-4 && at.y < tail.y - radius,
+            "{what}: her embers issue at {at}, her scoop's tail is at {tail} ({radius:.4})"
+        );
+        // Her wing: the one sweep drawn 0.12 as thick as its chord.
+        let wing = built
+            .children
+            .iter()
+            .find(|c| {
+                matches!(c.kind, GeneratorKind::Spine { .. })
+                    && (c.transform.scale.0[1] - 0.12).abs() < 1e-4
+            })
+            .expect("she draws a wing");
+        let trailing = drawn_points(wing)
+            .into_iter()
+            .filter(|p| p.x.abs() < plan.len(0.25))
+            .map(|p| p.z)
+            .fold(f32::MAX, f32::min);
+        let keel = drawn_points(&built.children[0]);
+        for aura in [
+            ParticleAura::NeonHaze,
+            ParticleAura::ArcaneMotes,
+            ParticleAura::Thruster,
+        ] {
+            let at = Vec3::from(racer::Racer.fx_mount(aura, &plan));
+            let under = keel
+                .iter()
+                .filter(|p| (p.z - at.z).abs() < plan.len(0.05))
+                .map(|p| p.y)
+                .fold(f32::MAX, f32::min);
+            assert!(
+                at.x == 0.0 && at.y < under && at.z < trailing,
+                "{what}: her {aura:?} issues at {at}, her keel there is at {under:.4} and her \
+                 wing's root ends at {trailing:.4}"
+            );
+        }
+    }
+}
+
+/// The racer's record carries the handling the owner agreed (#1629 Q-G):
+/// her stall, level-flight speed and rates as written, her thrust per kilo
+/// the high-wing's and her drag per kilo 0.6 times it - a racer's airframe on
+/// the same power for her weight.
+#[test]
+fn a_racers_record_carries_her_handling() {
+    use crate::pds::{AirplaneParams, LocomotionConfig};
+    let params = |t: AirplaneType| {
+        let s = seeds_of(t, 3000)
+            .next()
+            .expect("some seed is of every type");
+        match super::super::build_for_seed(s).1 {
+            LocomotionConfig::Airplane(p) => *p,
+            _ => panic!("seed {s}: an airplane flies the Airplane preset"),
+        }
+    };
+    let (racer, high_wing) = (params(AirplaneType::Racer), params(AirplaneType::HighWing));
+    let handling = |p: &AirplaneParams| {
+        (
+            p.min_airspeed.0,
+            p.cruise_speed.0,
+            p.roll_rate.0,
+            p.pitch_rate.0,
+            p.yaw_rate.0,
+        )
+    };
+    assert_eq!(handling(&racer), (13.0, 26.0, 150.0, 60.0, 30.0));
+    let per_kilo = |p: &AirplaneParams| (p.thrust.0 / p.mass.0, p.drag_coefficient.0 / p.mass.0);
+    let ((rt, rd), (ht, hd)) = (per_kilo(&racer), per_kilo(&high_wing));
+    assert!(
+        (rt / ht - 1.0).abs() < 1e-4,
+        "thrust per kilo {rt} against {ht}"
+    );
+    assert!(
+        (rd / hd - 0.6).abs() < 1e-4,
+        "drag per kilo {rd} against {hd}"
+    );
+}
+
+/// On the game's own physics the racer flies as her handling says (#1629
+/// Q-G): set down on her three wheels, full power alone lifts her within
+/// 38 m, inside the 40 m run the agent's pilot sweeps clear, and held at
+/// full power hands off she tops out over 3 m/s faster than the twin - the
+/// fastest of the four.
+#[test]
+fn a_racer_takes_off_on_power_alone_and_tops_out_over_the_twin() {
+    use crate::pds::AvatarRecord;
+    use crate::player::sim::FlightBench;
+    use bevy::prelude::KeyCode;
+    let record = |t: AirplaneType| {
+        AvatarRecord::default_for_seed(seeds_of(t, 3000).next().expect("a seed of the type"))
+    };
+    let racer = record(AirplaneType::Racer);
+    let mut bench = FlightBench::set_down(&racer, 0.0, 100.0);
+    bench.hold(&[KeyCode::Space]);
+    let mut lifted = None;
+    for _ in 0..8 * 64 {
+        bench.step();
+        if lifted.is_none() && bench.underside() > 1.0 {
+            lifted = Some(100.0 - bench.position().z);
+        }
+    }
+    let lifted = lifted.expect("she never left the ground");
+    assert!(lifted < 38.0, "a {lifted:.1} m take-off run");
+    let top = |record: &AvatarRecord| {
+        let mut bench = FlightBench::new(record, Vec3::new(0.0, 120.0, 400.0));
+        bench.set_velocity(Vec3::new(0.0, 0.0, -20.0));
+        bench.set_throttle(1.0);
+        bench.hold(&[]);
+        for _ in 0..30 * 64 {
+            bench.step();
+        }
+        bench.velocity().length()
+    };
+    let (r, w) = (top(&racer), top(&record(AirplaneType::Twin)));
+    assert!(
+        r - w > 3.0,
+        "she tops out at {r:.2} m/s, the twin at {w:.2}"
     );
 }

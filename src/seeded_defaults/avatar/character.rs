@@ -772,13 +772,13 @@ mod tests {
         // the other 13 refused. The autogyro (#1624) adds 24: her nine
         // homes enabled, the other 15 refused. The twin (#1625) adds 24: her
         // three homes enabled, the other 21 refused. The coaxial (#1628)
-        // adds 24: her five homes enabled, the other 19 refused. Pinned so
-        // that an affinity edit has to come here on purpose - the table is a
-        // taste call, and a silent change to it changes which pin sets an
-        // owner can even build.
+        // adds 24: her five homes enabled, the other 19 refused, and so does
+        // the air racer (#1629). Pinned so that an affinity edit has to come
+        // here on purpose - the table is a taste call, and a silent change to
+        // it changes which pin sets an owner can even build.
         assert_eq!(
             (refused, enabled),
-            (270, 186),
+            (289, 191),
             "the (type, style) census moved"
         );
     }
@@ -946,8 +946,9 @@ mod tests {
         // 128 until the trainer's six homes (#1621), 134 until the
         // airplanes' 35 (#1623) - the high-wing's 24 and the biplane's 11 -
         // 169 until the autogyro's nine (#1624), 178 until the twin's three
-        // (#1625), and 181 until the coaxial's five (#1628).
-        assert_eq!(enabled, 186);
+        // (#1625), 181 until the coaxial's five (#1628), and 186 until the
+        // air racer's five (#1629).
+        assert_eq!(enabled, 191);
     }
 
     #[test]

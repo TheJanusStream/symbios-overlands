@@ -58,7 +58,7 @@
 //! the coaxial, at home on the five speculative and alien themes that last
 //! reached a helicopter only through the utility's floor.
 //!
-//! # So has the airplane family (#1617, #1623, #1625)
+//! # So has the airplane family (#1617, #1623, #1625, #1629)
 //!
 //! [`AirplaneType`] opened the way the helicopter's did: its hero alone, the
 //! high-wing light monoplane taildragger the owner agreed on the phase-5
@@ -68,7 +68,9 @@
 //! before the modern one, as the wagon is the land craft of one before
 //! engines - where the high-wing keeps every home she had. Its second is
 //! the twin-engine transport, at home on the city, the works and the campus,
-//! which reached an airplane only through the high-wing's floor.
+//! which reached an airplane only through the high-wing's floor. Its third is
+//! the air racer, at home on the five speculative and alien themes, the last
+//! that reached an airplane only through it - the coaxial's five.
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
@@ -134,10 +136,11 @@ impl CraftType {
 
     /// Every airplane type as a craft type, in [`AirplaneType::ALL`]'s
     /// order.
-    pub const AIRPLANES: [Self; 3] = [
+    pub const AIRPLANES: [Self; 4] = [
         Self::Airplane(AirplaneType::HighWing),
         Self::Airplane(AirplaneType::Biplane),
         Self::Airplane(AirplaneType::Twin),
+        Self::Airplane(AirplaneType::Racer),
     ];
 
     /// The craft type for a seed, or `None` for a family without one (the
@@ -346,6 +349,11 @@ pub enum AirplaneType {
     /// windows, a low wing, a radial in a closed cowl on a nacelle either
     /// side and a twin-fin tail - the Beech 18's layout (#1625).
     Twin,
+    /// Single-seat air racer taildragger: a slim fuselage from a pointed
+    /// electric cowl to a swept fin, a bubble canopy, a short low wing and
+    /// spatted mains - the Formula One pylon racer's layout, drawn for the
+    /// near future (#1629).
+    Racer,
 }
 
 impl BoatType {
@@ -691,7 +699,7 @@ impl HelicopterType {
 }
 
 impl AirplaneType {
-    pub const ALL: [Self; 3] = [Self::HighWing, Self::Biplane, Self::Twin];
+    pub const ALL: [Self; 4] = [Self::HighWing, Self::Biplane, Self::Twin, Self::Racer];
 
     /// The type every airplane theme can reach - see [`FLOOR`].
     pub const UNIVERSAL: Self = Self::HighWing;
@@ -702,6 +710,7 @@ impl AirplaneType {
             Self::HighWing => "High-wing monoplane",
             Self::Biplane => "Biplane",
             Self::Twin => "Twin-engine transport",
+            Self::Racer => "Air racer",
         }
     }
 
@@ -711,6 +720,7 @@ impl AirplaneType {
             Self::HighWing => "high_wing",
             Self::Biplane => "biplane",
             Self::Twin => "twin",
+            Self::Racer => "racer",
         }
     }
 
@@ -748,6 +758,20 @@ impl AirplaneType {
                 ThemeArchetype::ModernCity
                     | ThemeArchetype::IndustrialPark
                     | ThemeArchetype::CivicCampus
+            ),
+            // The racer of the five speculative and alien themes (#1629
+            // Q-D): the neon city's, the solar town's, the outpost's and
+            // whatever the aliens race - the last themes that reached an
+            // airplane only through the high-wing's floor, as they were the
+            // last a helicopter reached only through the utility's. There, a
+            // racer is three seeds in four.
+            Self::Racer => matches!(
+                style,
+                ThemeArchetype::Cyberpunk
+                    | ThemeArchetype::Solarpunk
+                    | ThemeArchetype::SpaceOutpost
+                    | ThemeArchetype::AlienOrganic
+                    | ThemeArchetype::AlienMonolithic
             ),
         }
     }
@@ -1115,6 +1139,25 @@ mod tests {
                 assert!(!AirplaneType::HighWing.at_home(style), "{style:?}");
                 assert!(!AirplaneType::Biplane.at_home(style), "{style:?}");
             }
+        }
+        // And the racer's (#1629): the five speculative and alien themes,
+        // none of which any other airplane is at home on - and with hers
+        // every theme is some airplane's home.
+        for style in ThemeArchetype::ALL {
+            let speculative = matches!(
+                style,
+                Cyberpunk | Solarpunk | SpaceOutpost | AlienOrganic | AlienMonolithic
+            );
+            assert_eq!(AirplaneType::Racer.at_home(style), speculative, "{style:?}");
+            let others = [
+                AirplaneType::HighWing,
+                AirplaneType::Biplane,
+                AirplaneType::Twin,
+            ]
+            .into_iter()
+            .filter(|t| t.at_home(style))
+            .count();
+            assert_eq!(others == 0, speculative, "{style:?}");
         }
     }
 }

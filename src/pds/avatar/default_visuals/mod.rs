@@ -258,6 +258,14 @@ enum Propulsion {
     /// [`Turbine`](Self::Turbine), whose single slap is a two-blade rotor's
     /// 6 Hz. A turbine, as the utility's is, so a picked steam stands.
     CoaxialTurbine,
+    /// An electric motor turning a two-blade airscrew (#1629 Q-H): a racing
+    /// motor's whine, higher than the cyclecar's and swelling once a second
+    /// as hers does, over the airplane family's airscrew thrum at her blade
+    /// pass. The air racer's. NOT the cyclecar's
+    /// [`Electric`](Self::Electric), which turns no airscrew - but an
+    /// electric motor all the same, with neither a pipe nor a boiler: a
+    /// picked exhaust or steam is dropped (`fx::drawn_aura`).
+    ElectricProp,
 }
 
 impl Propulsion {
@@ -280,6 +288,7 @@ impl Propulsion {
             Self::Radial => "under power, radial",
             Self::TwinRadial => "under power, twin radials",
             Self::CoaxialTurbine => "under power, coaxial turbine",
+            Self::ElectricProp => "under power, electric airscrew",
         }
     }
 }
