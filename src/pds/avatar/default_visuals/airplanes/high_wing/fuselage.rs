@@ -7,7 +7,8 @@
 //! Every skin is a second sweep over the fuselage's OWN stations, a few
 //! millimetres proud, with its own section scale - trimmed fore and aft by
 //! arc length (`profile_cut`, [`FusePlan::along`]) and round the section by
-//! angle (`path_cut`), the helicopter's method (#1613). Each set of angular
+//! angle (`path_cut`), the helicopter's method (#1613), and the family's
+//! since the biplane (`super::super::skin`, #1623). Each set of angular
 //! bands is mirror-symmetric (`0` is `+X`, `0.25` the crown, `0.5` is `-X`,
 //! `0.75` the keel), so it is the same whichever way round a sweep's frame
 //! turns.
@@ -16,21 +17,13 @@ use std::f32::consts::{FRAC_PI_2, PI};
 
 use crate::pds::generator::Generator;
 use crate::pds::sanitize::limits::MAX_SPIN_RATE_DEG;
-use crate::pds::texture::SovereignMaterialSettings;
-use crate::pds::types::Fp3;
 use crate::pds::{Fp, Spin, SpinTerm};
 
 use super::super::super::common::{
-    cuboid, cylinder, id_quat, lathe, prim, quat_mul, quat_x, quat_xyzw, quat_y, quat_z, spine,
-    with_cut, with_shape,
+    cuboid, cylinder, lathe, prim, quat_mul, quat_x, quat_xyzw, quat_y, quat_z, with_shape,
 };
-use super::super::{AirplaneColours, FusePlan, dim};
+use super::super::{AirplaneColours, FUSE_RES, FusePlan, dim, over_fuselage, skin};
 use super::hub;
-
-/// The facets round the fuselage's section, and round a skin's - a skin's
-/// are finer, so its cut edges stay crisp against the fuselage.
-const FUSE_RES: u32 = 28;
-const SKIN_RES: u32 = 32;
 
 /// How far the airscrew's hub stands INTO the cowl's face, and the
 /// spinner's length ahead of it (prototype frame) - together, where her
@@ -61,47 +54,9 @@ const EXHAUST_RAKE_DEG: f32 = 30.0;
 const EXHAUST_LEN: f32 = 0.12;
 const EXHAUST_X: f32 = 0.07;
 
-/// A sweep over the fuselage's own stations, `proud` (prototype metres)
-/// over it, with the fuselage's section scale.
-fn over_fuselage(
-    plan: &FusePlan,
-    proud: f32,
-    res: u32,
-    material: SovereignMaterialSettings,
-) -> Generator {
-    let mut g = prim(
-        spine(&plan.fuse_sweep(proud), res, material),
-        [0.0; 3],
-        id_quat(),
-    );
-    g.transform.scale = Fp3([1.0, plan.section(), 1.0]);
-    g
-}
-
 /// The fuselage: one sweep, spinner to tail post.
 pub(super) fn fuselage(kids: &mut Vec<Generator>, plan: &FusePlan, c: &AirplaneColours) {
     kids.push(over_fuselage(plan, 0.0, FUSE_RES, c.body.clone()));
-}
-
-/// A skin laid on the fuselage between prototype stations `z0 < z1`, one
-/// sweep per angular band - or one all the way round for `None`.
-fn skin(
-    kids: &mut Vec<Generator>,
-    plan: &FusePlan,
-    (z0, z1): (f32, f32),
-    bands: &[Option<(f32, f32)>],
-    material: &SovereignMaterialSettings,
-    proud: f32,
-) {
-    // The sweep runs spinner first, so the forward station is the smaller
-    // fraction.
-    let (t0, t1) = (plan.along(z1), plan.along(z0));
-    for &band in bands {
-        let mut g = over_fuselage(plan, proud, SKIN_RES, material.clone());
-        let (a, b) = band.unwrap_or((0.0, 1.0));
-        g.kind = with_cut(g.kind, [a, b], [t0, t1], 0.0);
-        kids.push(g);
-    }
 }
 
 /// Every skin, in the prototype's order.

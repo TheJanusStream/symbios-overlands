@@ -719,6 +719,7 @@ mod tests {
             .into_iter()
             .chain(CraftType::SKIFFS)
             .chain(CraftType::HELICOPTERS)
+            .chain(CraftType::AIRPLANES)
             .flat_map(|c| ThemeArchetype::ALL.into_iter().map(move |t| (c, t)))
     }
 
@@ -764,13 +765,16 @@ mod tests {
         // Measured at b1b4648: 92 of 144 unreachable in EACH family - and
         // none of the utility helicopter's 24, whose type is every style's
         // floor (#1614). The trainer (#1621) adds 24 more: her six homes
-        // enabled, the other 18 refused, since she is no floor. Pinned so
-        // that an affinity edit has to come here on purpose - the table is a
-        // taste call, and a silent change to it changes which pin sets an
-        // owner can even build.
+        // enabled, the other 18 refused, since she is no floor. The
+        // airplanes came in with the biplane (#1623), the census having
+        // missed the high-wing's 24 (#1617) - all enabled, her type every
+        // style's floor - and the biplane's 24: her eleven homes enabled,
+        // the other 13 refused. Pinned so that an affinity edit has to come
+        // here on purpose - the table is a taste call, and a silent change
+        // to it changes which pin sets an owner can even build.
         assert_eq!(
             (refused, enabled),
-            (202, 134),
+            (215, 169),
             "the (type, style) census moved"
         );
     }
@@ -935,8 +939,9 @@ mod tests {
             assert!(pins.accepts(s));
             enabled += 1;
         }
-        // 128 until the trainer's six homes (#1621).
-        assert_eq!(enabled, 134);
+        // 128 until the trainer's six homes (#1621), 134 until the
+        // airplanes' 35 (#1623): the high-wing's 24 and the biplane's 11.
+        assert_eq!(enabled, 169);
     }
 
     #[test]

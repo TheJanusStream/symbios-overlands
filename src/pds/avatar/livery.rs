@@ -1426,6 +1426,169 @@ pub fn airplane_livery(
     pick(AIRPLANE_LIVERIES, |l| l.weight(style), seed, over)
 }
 
+/// A biplane's scheme (#1623 Q-E): her fuselage's hue, her wings' and her
+/// trim's. A biplane is two-tone as often as not - the trainer's blue
+/// fuselage over yellow wings is the type's icon - so her wings carry a hue
+/// of their own, where the high-wing's wing is her body's.
+///
+/// Weighted by THEME, as the airplane's list is, with the same at-home
+/// weight and floor; her two floors are the trainer's scheme and the
+/// barnstormer's. The seeded accent goes on the identity slot and nowhere
+/// else (the cheat line down each flank).
+#[derive(Clone, Copy, Debug)]
+pub struct BiplaneLivery {
+    /// See [`BoatLivery::name`].
+    pub name: &'static str,
+    /// The themes the scheme is at home on.
+    home: &'static [ThemeArchetype],
+    /// Whether every theme can roll it - see [`PLANE_FLOOR`].
+    floor: bool,
+    /// The fuselage and the fin, and an ornate machine's spats.
+    body: [f32; 3],
+    /// Both wings and the stabiliser.
+    wings: [f32; 3],
+    /// The cowl ring and the fin's top.
+    trim: [f32; 3],
+}
+
+impl BiplaneLivery {
+    /// This scheme's share of the draw on `style`.
+    fn weight(&self, style: ThemeArchetype) -> u32 {
+        let floor = if self.floor { PLANE_FLOOR } else { 0 };
+        floor
+            + if self.home.contains(&style) {
+                PLANE_AT_HOME
+            } else {
+                0
+            }
+    }
+}
+
+/// The biplane's nine schemes (#1623 Q-E), as the owner saw them on the
+/// phase-1 renders: two two-tone floors - the trainer's and the
+/// barnstormer's - and seven that the old worlds, the frontier and the
+/// boiler age fly. Each of her eleven themes is at home on at least two
+/// (`the_biplanes_list_covers_her_homes`).
+pub const BIPLANE_LIVERIES: &[BiplaneLivery] = &[
+    BiplaneLivery {
+        name: "Trainer blue and yellow",
+        home: &[
+            ThemeArchetype::Nordic,
+            ThemeArchetype::WildWest,
+            ThemeArchetype::Steampunk,
+        ],
+        floor: true,
+        body: [0.12, 0.22, 0.52],
+        wings: [0.93, 0.72, 0.10],
+        trim: [0.80, 0.10, 0.08],
+    },
+    BiplaneLivery {
+        name: "Barnstormer red and cream",
+        home: &[
+            ThemeArchetype::WildWest,
+            ThemeArchetype::Pirate,
+            ThemeArchetype::FeudalJapan,
+        ],
+        floor: true,
+        body: [0.62, 0.07, 0.05],
+        wings: [0.90, 0.86, 0.74],
+        trim: [0.06, 0.06, 0.06],
+    },
+    BiplaneLivery {
+        name: "Chrome yellow",
+        home: &[
+            ThemeArchetype::AncientClassical,
+            ThemeArchetype::Mesoamerican,
+            ThemeArchetype::Fantasy,
+        ],
+        floor: false,
+        body: [0.93, 0.72, 0.10],
+        wings: [0.93, 0.72, 0.10],
+        trim: [0.70, 0.08, 0.06],
+    },
+    BiplaneLivery {
+        name: "Olive drab",
+        home: &[
+            ThemeArchetype::PostApoc,
+            ThemeArchetype::WildWest,
+            ThemeArchetype::Medieval,
+            ThemeArchetype::Nordic,
+        ],
+        floor: false,
+        body: [0.30, 0.33, 0.20],
+        wings: [0.30, 0.33, 0.20],
+        trim: [0.85, 0.84, 0.78],
+    },
+    BiplaneLivery {
+        name: "Silver dope",
+        home: &[ThemeArchetype::Steampunk, ThemeArchetype::AncientClassical],
+        floor: false,
+        body: [0.72, 0.73, 0.75],
+        wings: [0.72, 0.73, 0.75],
+        trim: [0.10, 0.20, 0.50],
+    },
+    BiplaneLivery {
+        name: "Black and gold",
+        home: &[
+            ThemeArchetype::GothicHorror,
+            ThemeArchetype::FeudalJapan,
+            ThemeArchetype::Pirate,
+        ],
+        floor: false,
+        body: [0.05, 0.05, 0.06],
+        wings: [0.05, 0.05, 0.06],
+        trim: [0.80, 0.62, 0.20],
+    },
+    BiplaneLivery {
+        name: "Oxblood and linen",
+        home: &[
+            ThemeArchetype::Steampunk,
+            ThemeArchetype::Fantasy,
+            ThemeArchetype::Medieval,
+            ThemeArchetype::GothicHorror,
+        ],
+        floor: false,
+        body: [0.34, 0.07, 0.055],
+        wings: [0.86, 0.80, 0.62],
+        trim: [0.72, 0.55, 0.22],
+    },
+    BiplaneLivery {
+        name: "Forest green and cream",
+        home: &[
+            ThemeArchetype::Fantasy,
+            ThemeArchetype::Nordic,
+            ThemeArchetype::Medieval,
+        ],
+        floor: false,
+        body: [0.10, 0.24, 0.14],
+        wings: [0.86, 0.84, 0.78],
+        trim: [0.72, 0.55, 0.22],
+    },
+    BiplaneLivery {
+        name: "Desert sand",
+        home: &[
+            ThemeArchetype::Mesoamerican,
+            ThemeArchetype::AncientClassical,
+            ThemeArchetype::PostApoc,
+        ],
+        floor: false,
+        body: [0.62, 0.52, 0.34],
+        wings: [0.62, 0.52, 0.34],
+        trim: [0.30, 0.24, 0.16],
+    },
+];
+
+/// The scheme this biplane seed wears on `style`, a pick from
+/// [`BIPLANE_LIVERIES`]; `over` wraps inside it (`render --livery 0` is
+/// Trainer blue and yellow, `1` Barnstormer red and cream).
+pub fn biplane_livery(
+    seed: u64,
+    style: ThemeArchetype,
+    over: Option<usize>,
+) -> &'static BiplaneLivery {
+    pick(BIPLANE_LIVERIES, |l| l.weight(style), seed, over)
+}
+
 // ---------------------------------------------------------------------------
 // Turning a scheme into surfaces
 // ---------------------------------------------------------------------------
@@ -3213,6 +3376,11 @@ const PLANE_METAL: [f32; 3] = [0.55, 0.56, 0.58];
 const PLANE_DARK: [f32; 3] = [0.12, 0.12, 0.13];
 const LAMP_WHITE: [f32; 3] = [1.00, 0.97, 0.90];
 
+/// A biplane's wooden airscrew and the leather lip of each cockpit's
+/// coaming (#1623): what those two simply are, on every scheme.
+const PROP_WOOD: [f32; 3] = [0.42, 0.26, 0.12];
+const COAMING_LEATHER: [f32; 3] = [0.20, 0.11, 0.06];
+
 pub(crate) fn airplane_colours(ctx: &PartCtx) -> AirplaneColours {
     let p = &ctx.palette;
     let m = &ctx.materials;
@@ -3234,6 +3402,86 @@ pub(crate) fn airplane_colours(ctx: &PartCtx) -> AirplaneColours {
         lamp,
         metal: m.paint(PLANE_METAL),
         dark: m.paint(PLANE_DARK),
+        port: m.glow(NAV_RED),
+        starboard: m.glow(NAV_GREEN),
+        white: m.glow(LAMP_WHITE),
+        beacon: m.glow(BEACON_RED),
+    }
+}
+
+/// The surfaces a biplane is built in (#1623): her scheme's three hues on
+/// the big masses - fuselage, wings and trim - the seeded accent on the
+/// cheat line down each flank, and the colours the rest of her simply is:
+/// dark glass, bare metal, dark rubber and iron, a wooden airscrew and a
+/// leather coaming.
+///
+/// What is lit, as the owner agreed it (#1623 Q-A): her two cockpit wells,
+/// which are the fleet's lit window - the tertiary's light, held off her
+/// fuselage's own colour ([`standing_off`]), as the high-wing's cabin
+/// windows are; her nav lights, her tail light and her landing light, which
+/// are lamps and glow on every theme; and on an ornate seed the beacon on
+/// her fin. The cheat line goes through [`trim`], so it lights on a
+/// luminous kit and is paint on every other. Nothing else glows.
+pub(crate) struct BiplaneColours {
+    /// The fuselage, the fin and an ornate machine's spats: the scheme's
+    /// body hue, floored off mud on a battered kit.
+    pub(crate) body: SovereignMaterialSettings,
+    /// Both wings and the stabiliser: the scheme's wing hue.
+    pub(crate) wings: SovereignMaterialSettings,
+    /// The cowl ring and the fin's top.
+    pub(crate) trim: SovereignMaterialSettings,
+    /// **Identity.** The cheat line down each flank: the coachline's rule,
+    /// held clear of the body it lies on.
+    pub(crate) stripe: SovereignMaterialSettings,
+    /// The windscreens.
+    pub(crate) glass: SovereignMaterialSettings,
+    /// The two cockpit wells: the tertiary's light, standing off her body.
+    pub(crate) lamp: SovereignMaterialSettings,
+    /// The lip at the back of each cockpit.
+    pub(crate) leather: SovereignMaterialSettings,
+    /// The crankcase, the hubcap and its shaft, the struts, the wires, the
+    /// gear legs, the hubs, the leaf spring and the pitot.
+    pub(crate) metal: SovereignMaterialSettings,
+    /// The cylinders, the tyres, the exhaust stack, the wing walks and the
+    /// hidden hubs.
+    pub(crate) dark: SovereignMaterialSettings,
+    /// The airscrew's two blades.
+    pub(crate) wood: SovereignMaterialSettings,
+    /// The nav light on her left (port) upper wingtip: red.
+    pub(crate) port: SovereignMaterialSettings,
+    /// The nav light on her right (starboard) upper wingtip: green.
+    pub(crate) starboard: SovereignMaterialSettings,
+    /// The tail light on her rudder and the landing light in her lower port
+    /// wing.
+    pub(crate) white: SovereignMaterialSettings,
+    /// The anti-collision beacon an ornate machine carries on her fin.
+    pub(crate) beacon: SovereignMaterialSettings,
+}
+
+pub(crate) fn biplane_colours(ctx: &PartCtx) -> BiplaneColours {
+    let p = &ctx.palette;
+    let m = &ctx.materials;
+    let style = AvatarCharacter::for_seed(ctx.seed).style;
+    let l = biplane_livery(ctx.seed, style, ctx.livery);
+    let body = floor_finished(m, l.body, HELI_MASS_FLOOR);
+    let paint = m.paint(body);
+    // Off the fuselage as it is PAINTED, as the high-wing's windows are: the
+    // wells sit in her decking.
+    let lamp = window_material(standing_off(
+        window_light(p.tertiary_accent),
+        paint.base_color.0,
+    ));
+    BiplaneColours {
+        body: paint,
+        wings: m.paint(floor_finished(m, l.wings, HELI_MASS_FLOOR)),
+        trim: m.paint(floor_finished(m, l.trim, HELI_MASS_FLOOR)),
+        stripe: trim(m, clear_of(p.primary_accent, luma(body), COACHLINE_DELTA)),
+        glass: m.glass(PLANE_GLASS),
+        lamp,
+        leather: m.paint(COAMING_LEATHER),
+        metal: m.paint(PLANE_METAL),
+        dark: m.paint(PLANE_DARK),
+        wood: m.paint(PROP_WOOD),
         port: m.glow(NAV_RED),
         starboard: m.glow(NAV_GREEN),
         white: m.glow(LAMP_WHITE),
@@ -4840,5 +5088,176 @@ mod tests {
             let d = (luma(l.body) - luma(l.trim)).abs();
             assert!(d > 0.15, "{}: its two hues are only {d} apart", l.name);
         }
+    }
+
+    /// The biplane's list covers her homes (#1623 Q-E): every theme she is
+    /// at home on is at home on at least two of her schemes, her floors are
+    /// the trainer's and the barnstormer's, every scheme's trim and its
+    /// wings - where they are a hue of their own - stand off its fuselage,
+    /// and the draw over her own seeds reaches every scheme.
+    ///
+    /// Off its fuselage by COLOUR, as a window light is held
+    /// ([`WINDOW_STAND_OFF`]), not by value as the high-wing's two hues are:
+    /// the trainer's red cowl ring on her blue fuselage, the type's icon,
+    /// stands 0.08 off it in value and 0.82 in colour.
+    #[test]
+    fn the_biplanes_list_covers_her_homes() {
+        use crate::seeded_defaults::AirplaneType;
+        let homes: Vec<ThemeArchetype> = ThemeArchetype::ALL
+            .into_iter()
+            .filter(|&s| AirplaneType::Biplane.weight(s) > 0)
+            .collect();
+        assert_eq!(homes.len(), 11, "her homes: {homes:?}");
+        for style in homes {
+            let at_home = BIPLANE_LIVERIES
+                .iter()
+                .filter(|l| l.home.contains(&style))
+                .count();
+            assert!(at_home >= 2, "{style:?} is at home on {at_home} schemes");
+        }
+        let floors: Vec<&str> = BIPLANE_LIVERIES
+            .iter()
+            .filter(|l| l.floor)
+            .map(|l| l.name)
+            .collect();
+        assert_eq!(
+            floors,
+            ["Trainer blue and yellow", "Barnstormer red and cream"]
+        );
+        let apart = |a: [f32; 3], b: [f32; 3]| {
+            a.iter()
+                .zip(b)
+                .map(|(x, y)| (x - y).powi(2))
+                .sum::<f32>()
+                .sqrt()
+        };
+        for l in BIPLANE_LIVERIES {
+            let d = apart(l.trim, l.body);
+            assert!(
+                d >= WINDOW_STAND_OFF,
+                "{}: its trim is {d} off its fuselage",
+                l.name
+            );
+            if l.wings != l.body {
+                let d = apart(l.wings, l.body);
+                assert!(
+                    d >= WINDOW_STAND_OFF,
+                    "{}: its wings are {d} off its fuselage",
+                    l.name
+                );
+            }
+        }
+        let mut drawn = vec![0usize; BIPLANE_LIVERIES.len()];
+        for s in (0u64..8_000).filter(|&s| {
+            ChassisFamily::for_seed(s) == ChassisFamily::Airplane
+                && AirplaneType::for_seed(s) == AirplaneType::Biplane
+        }) {
+            let style = AvatarCharacter::for_seed(s).style;
+            let l = biplane_livery(s, style, None);
+            drawn[BIPLANE_LIVERIES
+                .iter()
+                .position(|x| x.name == l.name)
+                .expect("the pick came from the table")] += 1;
+        }
+        assert!(
+            drawn.iter().all(|&n| n > 0),
+            "a biplane scheme is never drawn: {drawn:?}"
+        );
+    }
+
+    /// A biplane's colours read on every scheme of her list, on every
+    /// airplane seed under 900 (#1623), BOTH directions: her cockpit wells
+    /// are lit and stand off her fuselage, as the high-wing's windows do;
+    /// her nav, tail and landing lights and her beacon are lamps; her cheat
+    /// line is the seed's accent through [`trim`], lit exactly when the kit
+    /// is luminous and off her fuselage otherwise; and everything else -
+    /// her wooden airscrew and leather coamings among it - is paint.
+    #[test]
+    fn a_biplanes_wells_lights_and_cheat_line_read_on_every_scheme() {
+        let (mut lit, mut dark) = (0, 0);
+        for s in (0u64..900).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Airplane) {
+            let mut ctx = PartCtx::for_seed(s);
+            let luminous = ctx.materials.emissive_accents();
+            for (i, scheme) in BIPLANE_LIVERIES.iter().enumerate() {
+                ctx.livery = Some(i);
+                let c = biplane_colours(&ctx);
+                for (what, m) in [
+                    ("fuselage", &c.body),
+                    ("wings", &c.wings),
+                    ("cowl ring and fin top", &c.trim),
+                    ("windscreens", &c.glass),
+                    ("coamings", &c.leather),
+                    ("struts and gear", &c.metal),
+                    ("cylinders and tyres", &c.dark),
+                    ("airscrew", &c.wood),
+                ] {
+                    assert_eq!(
+                        m.emission_strength.0, 0.0,
+                        "seed {s} in {}: the {what} is self-lit",
+                        scheme.name
+                    );
+                }
+                assert!(
+                    c.lamp.emission_strength.0 > 0.0,
+                    "seed {s} in {}: the cockpit wells are dark",
+                    scheme.name
+                );
+                let apart = c
+                    .lamp
+                    .base_color
+                    .0
+                    .iter()
+                    .zip(c.body.base_color.0)
+                    .map(|(a, b)| (a - b).powi(2))
+                    .sum::<f32>()
+                    .sqrt();
+                assert!(
+                    apart >= WINDOW_STAND_OFF * 0.8,
+                    "seed {s} in {}: the wells are {apart} from the fuselage",
+                    scheme.name
+                );
+                for (what, m) in [
+                    ("port light", &c.port),
+                    ("starboard light", &c.starboard),
+                    ("tail and landing lights", &c.white),
+                    ("beacon", &c.beacon),
+                ] {
+                    assert!(
+                        m.emission_strength.0 > 0.0,
+                        "seed {s} in {}: the {what} is dark",
+                        scheme.name
+                    );
+                }
+                assert!(
+                    c.port.base_color.0[0] > c.port.base_color.0[1]
+                        && c.starboard.base_color.0[1] > c.starboard.base_color.0[0],
+                    "red is to port and green to starboard"
+                );
+                let on = c.stripe.emission_strength.0 > 0.0;
+                assert_eq!(
+                    on, luminous,
+                    "seed {s} in {}: the cheat line is lit {on} on a kit luminous {luminous}",
+                    scheme.name
+                );
+                if !luminous {
+                    let l = |m: &SovereignMaterialSettings| luma(m.base_color.0);
+                    let d = (l(&c.stripe) - l(&c.body)).abs();
+                    assert!(
+                        d > COACHLINE_DELTA * 0.6,
+                        "seed {s} in {}: the cheat line is {d} from the fuselage",
+                        scheme.name
+                    );
+                }
+            }
+            if luminous {
+                lit += 1;
+            } else {
+                dark += 1;
+            }
+        }
+        assert!(
+            lit > 0 && dark > 0,
+            "the population saw only one kind: {lit} lit, {dark} dark"
+        );
     }
 }

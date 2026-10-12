@@ -1,4 +1,5 @@
-//! Craft-type pick for a seeded boat, land-skiff or helicopter avatar.
+//! Craft-type pick for a seeded boat, land-skiff, helicopter or airplane
+//! avatar.
 //!
 //! The discrete pick *inside* a vehicle family. It used to be an arrangement -
 //! monohull / catamaran / trimaran / barge, default / dune / trike / armoured -
@@ -53,12 +54,15 @@
 //! home on the farm, the roadside, the suburbs, the frontier, the coast and
 //! the north, where the utility keeps every home she had.
 //!
-//! # The airplane family has one so far (#1617)
+//! # So has the airplane family (#1617, #1623)
 //!
-//! [`AirplaneType`] opens the way the helicopter's did: its hero alone, the
+//! [`AirplaneType`] opened the way the helicopter's did: its hero alone, the
 //! high-wing light monoplane taildragger the owner agreed on the phase-5
-//! renders (#1616), the family's universal floor until the fan-out adds the
-//! rest.
+//! renders (#1616), the family's universal floor. The fan-out's first
+//! airplane (#1618) is the biplane, at home on the old worlds and the
+//! frontier (HISTORIC) and in Steampunk - the flying machine of a world
+//! before the modern one, as the wagon is the land craft of one before
+//! engines - where the high-wing keeps every home she had.
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
@@ -122,7 +126,10 @@ impl CraftType {
 
     /// Every airplane type as a craft type, in [`AirplaneType::ALL`]'s
     /// order.
-    pub const AIRPLANES: [Self; 1] = [Self::Airplane(AirplaneType::HighWing)];
+    pub const AIRPLANES: [Self; 2] = [
+        Self::Airplane(AirplaneType::HighWing),
+        Self::Airplane(AirplaneType::Biplane),
+    ];
 
     /// The craft type for a seed, or `None` for a family without one (the
     /// airship, whose envelope forms are its variety, and the humanoid).
@@ -302,16 +309,20 @@ pub enum HelicopterType {
 
 /// The recognisable kind of fixed-wing a seeded airplane avatar is (#1617).
 ///
-/// One so far, as the helicopter's: the hero the owner agreed on the
-/// phase-5 renders (#1616), which is the family's universal floor, so every
-/// style reaches her. The fan-out (#1618) adds the types a theme would
-/// rather fly.
+/// The hero the owner agreed on the phase-5 renders (#1616) is the family's
+/// universal floor, so every style reaches her; the fan-out (#1618) adds the
+/// types a theme would rather fly, weighed against her the way the
+/// helicopters are against theirs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AirplaneType {
     /// High-wing light monoplane taildragger: a round-cowled cabin under a
     /// strut-braced wing, on fat tyres and a tail wheel - the Cub's layout,
     /// and the family's universal floor.
     HighWing,
+    /// Radial-engined biplane taildragger: two staggered wings on N struts
+    /// and wires, two open cockpits under the upper wing, a radial in an
+    /// open cowl ring - the 1930s trainer's layout (#1623).
+    Biplane,
 }
 
 impl BoatType {
@@ -628,7 +639,7 @@ impl HelicopterType {
 }
 
 impl AirplaneType {
-    pub const ALL: [Self; 1] = [Self::HighWing];
+    pub const ALL: [Self; 2] = [Self::HighWing, Self::Biplane];
 
     /// The type every airplane theme can reach - see [`FLOOR`].
     pub const UNIVERSAL: Self = Self::HighWing;
@@ -637,6 +648,7 @@ impl AirplaneType {
     pub fn label(self) -> &'static str {
         match self {
             Self::HighWing => "High-wing monoplane",
+            Self::Biplane => "Biplane",
         }
     }
 
@@ -644,6 +656,7 @@ impl AirplaneType {
     pub fn slug(self) -> &'static str {
         match self {
             Self::HighWing => "high_wing",
+            Self::Biplane => "biplane",
         }
     }
 
@@ -664,6 +677,14 @@ impl AirplaneType {
                     | ThemeArchetype::Nordic
                     | ThemeArchetype::WildWest
             ),
+            // The flying machine of a world before the modern one (#1623
+            // Q-D): the old-world, ritual and frontier themes (HISTORIC) and
+            // the boiler age's. The high-wing keeps all seven of her homes,
+            // so in the north and on the frontier, where both are at home, a
+            // biplane is three seeds in seven, and on the nine themes that
+            // reached an airplane only through the high-wing's floor, three
+            // in four.
+            Self::Biplane => holds(HISTORIC, style) || style == ThemeArchetype::Steampunk,
         }
     }
 
@@ -952,6 +973,33 @@ mod tests {
         }
         for style in [ModernCity, IndustrialPark, CivicCampus, SportsRec] {
             assert!(!HelicopterType::Trainer.at_home(style), "{style:?}");
+        }
+        // And the biplane's (#1623): all ten of HISTORIC with Steampunk, and
+        // none of the town, coast, sport or speculative themes.
+        for style in [
+            Medieval,
+            Nordic,
+            WildWest,
+            PostApoc,
+            Fantasy,
+            AncientClassical,
+            FeudalJapan,
+            Mesoamerican,
+            GothicHorror,
+            Pirate,
+            Steampunk,
+        ] {
+            assert!(AirplaneType::Biplane.at_home(style), "{style:?}");
+        }
+        for style in [
+            ModernCity,
+            Suburban,
+            CoastalResort,
+            SportsRec,
+            Cyberpunk,
+            AlienOrganic,
+        ] {
+            assert!(!AirplaneType::Biplane.at_home(style), "{style:?}");
         }
     }
 }

@@ -6,22 +6,26 @@
 //! off ONE profile - here the [`FusePlan`], the fuselage a light airplane
 //! is built round - and the craft is authored at the size it is drawn at,
 //! with no parts, no outfit and no root scale. [`craft`] is the only match
-//! over [`AirplaneType`], so a second type (the fan-out, #1618) is a compile
+//! over [`AirplaneType`], so a type the fan-out (#1618) adds is a compile
 //! error here until it is built.
 //!
-//! ONE type is built: the high-wing light monoplane taildragger the owner
-//! agreed on the phase-5 renders (#1616) - a round-cowled cabin under a
-//! strut-braced wing, on fat tyres and a tail wheel - at the proportion
-//! they chose (C: a 3.19 m airframe, the fuselage 18 % fuller than a true
-//! one's) and with all eleven of that issue's recommendations taken.
+//! TWO types are built. The hero is the high-wing light monoplane
+//! taildragger the owner agreed on the phase-5 renders (#1616) - a
+//! round-cowled cabin under a strut-braced wing, on fat tyres and a tail
+//! wheel - at the proportion they chose (C: a 3.19 m airframe, the fuselage
+//! 18 % fuller than a true one's) and with all eleven of that issue's
+//! recommendations taken. The fan-out's first is the biplane (#1623): two
+//! staggered wings on N struts and wires, two open cockpits, a radial in an
+//! open cowl ring, with all eight of that issue's recommendations taken.
 //!
 //! # Where an airplane sits
 //!
-//! On her three wheels, tail-down at ten degrees as a taildragger stands,
-//! and level in the air (#1616 recommendation 3). Her box is her fuselage
-//! ([`FusePlan`]'s header): the wing, the tail surfaces, the gear and the
-//! airscrew stand outside it, the wing's 4.7 m span past the 2.6 m gateway
-//! mouth, which owner decision 3 of #1611 accepts. Her wheels are the
+//! On her three wheels, tail-down as a taildragger stands - the high-wing at
+//! ten degrees, the biplane at twelve - and level in the air (#1616
+//! recommendation 3). Her box is her fuselage ([`FusePlan`]'s header): the
+//! wings, the tail surfaces, the gear and the airscrew stand outside it, a
+//! span past the 2.6 m gateway mouth, which owner decision 3 of #1611
+//! accepts. Her wheels are the
 //! Airplane preset's raycast gear under the box (#1615), so the record
 //! carries where the drawn ones stand ([`AirplaneLayout`]): the mains'
 //! track and how far ahead they are, the tail wheel's shorter reach that
@@ -37,23 +41,31 @@
 //! gait (`GaitMode::for_locomotion`): she banks and pitches as she flies, so
 //! her seeded gait writes the airship's heave and nose wander to zero.
 
+mod biplane;
 mod high_wing;
 mod plan;
 
+/// The biplane's (Hz): what her radial voice thrums at (#1623 Q-H).
+pub(super) use biplane::BLADE_PASS_HZ as BIPLANE_BLADE_PASS_HZ;
 /// The hero's blade pass (Hz): what her propeller voice thrums at.
 pub(super) use high_wing::BLADE_PASS_HZ;
 pub(crate) use plan::{FusePlan, FuseProfile};
 
 use crate::pds::avatar::parts::PartCtx;
 use crate::pds::generator::Generator;
+use crate::pds::texture::SovereignMaterialSettings;
+use crate::pds::types::Fp3;
 use crate::seeded_defaults::{AirplaneBlueprint, AirplaneType, ParticleAura};
 
 /// The airplane family's colours, which live in the fleet's one livery
 /// home (#1365) rather than beside its geometry.
-pub(crate) use crate::pds::avatar::livery::{AirplaneColours, airplane_colours};
+pub(crate) use crate::pds::avatar::livery::{
+    AirplaneColours, BiplaneColours, airplane_colours, biplane_colours,
+};
 
 use super::Propulsion;
 use super::assemble::apply_travel_pose;
+use super::common::{id_quat, prim, spine, with_cut};
 
 /// The gate every seeded craft drives through - one home, in the module that
 /// owns them all (#1382).
@@ -70,10 +82,58 @@ fn dim(v: f32) -> f32 {
     v.max(MIN_DIM)
 }
 
+/// The facets round the fuselage's section, and round a skin's - a skin's
+/// are finer, so its cut edges stay crisp against the fuselage.
+const FUSE_RES: u32 = 28;
+const SKIN_RES: u32 = 32;
+
+/// A sweep over the fuselage's own stations, `proud` (prototype metres)
+/// over it, with the fuselage's section scale - every type's fuselage, and
+/// every skin laid on it.
+fn over_fuselage(
+    plan: &FusePlan,
+    proud: f32,
+    res: u32,
+    material: SovereignMaterialSettings,
+) -> Generator {
+    let mut g = prim(
+        spine(&plan.fuse_sweep(proud), res, material),
+        [0.0; 3],
+        id_quat(),
+    );
+    g.transform.scale = Fp3([1.0, plan.section(), 1.0]);
+    g
+}
+
+/// A skin laid on the fuselage between prototype stations `z0 < z1`, one
+/// sweep per angular band - or one all the way round for `None` - trimmed
+/// fore and aft by arc length (`profile_cut`, [`FusePlan::along`]) and round
+/// the section by angle (`path_cut`; `0` is `+X`, `0.25` the crown, `0.5`
+/// is `-X`, `0.75` the keel).
+fn skin(
+    kids: &mut Vec<Generator>,
+    plan: &FusePlan,
+    (z0, z1): (f32, f32),
+    bands: &[Option<(f32, f32)>],
+    material: &SovereignMaterialSettings,
+    proud: f32,
+) {
+    // The sweep runs spinner first, so the forward station is the smaller
+    // fraction.
+    let (t0, t1) = (plan.along(z1), plan.along(z0));
+    for &band in bands {
+        let mut g = over_fuselage(plan, proud, SKIN_RES, material.clone());
+        let (a, b) = band.unwrap_or((0.0, 1.0));
+        g.kind = with_cut(g.kind, [a, b], [t0, t1], 0.0);
+        kids.push(g);
+    }
+}
+
 /// How an airplane type flies: what
 /// [`airplane_locomotion`](super::airplane_locomotion) scales the Airplane
 /// preset's validated numbers by (#1616 recommendation 9: P4's model, its
-/// mass and thrust in proportion to her length).
+/// mass and thrust in proportion to her length) - and, for a type that
+/// handles otherwise, what it flies with instead.
 ///
 /// Build-time only, like the helicopter's: what it writes is
 /// `AirplaneParams`, which the record has always carried.
@@ -83,6 +143,28 @@ pub(super) struct AirplaneFeel {
     /// re-basing: thrust and drag scale with it, so her speeds are the
     /// preset's whatever she weighs.
     pub(super) mass_factor: f32,
+    /// Her own handling, or `None` to fly as the preset does - the hero's,
+    /// as the owner validated it (#1615).
+    pub(super) handling: Option<Handling>,
+}
+
+/// A type's own handling over the Airplane preset's (#1623 Q-G): every
+/// number written to her record as it stands, but the drag, which is a
+/// factor on the preset's, since her mass scales it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct Handling {
+    /// Her stall speed (m/s): `AirplaneParams::min_airspeed`.
+    pub(super) stall: f32,
+    /// The speed she flies level at with her nose on her path (m/s):
+    /// `AirplaneParams::cruise_speed`.
+    pub(super) cruise: f32,
+    /// Her drag over the preset's on the same thrust per kilo - what sets
+    /// her top speed.
+    pub(super) drag_factor: f32,
+    /// Her control rates (degrees a second): A and D, W and S, Q and E.
+    pub(super) roll_rate: f32,
+    pub(super) pitch_rate: f32,
+    pub(super) yaw_rate: f32,
 }
 
 /// Where a drawn airplane's wheels and centre of mass stand (#1617) - what
@@ -149,7 +231,18 @@ pub(super) trait AirplaneCraft {
 fn craft(t: AirplaneType) -> &'static dyn AirplaneCraft {
     match t {
         AirplaneType::HighWing => &high_wing::HighWing,
+        AirplaneType::Biplane => &biplane::Biplane,
     }
+}
+
+/// Every type's feel, labelled - what the family's "no two types share a
+/// feel" guard reads, as the helicopter's does.
+#[cfg(test)]
+pub(super) fn every_feel() -> Vec<(&'static str, AirplaneFeel)> {
+    AirplaneType::ALL
+        .into_iter()
+        .map(|t| (t.label(), craft(t).feel()))
+        .collect()
 }
 
 /// The builder a seed draws with - its own type's, always.

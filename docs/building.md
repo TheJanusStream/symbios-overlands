@@ -817,9 +817,9 @@ done
 The index is into that family's own table in `src/pds/avatar/livery.rs` and
 wraps, so a loop that runs past the end draws each scheme once rather than the
 last one twice. (A helicopter's list and an airplane's are the ones weighted
-by theme, #1614 and #1617 - each helicopter type its own, the trainer's since
-#1621: the index still names its scheme outright, whatever the subject's theme
-would have picked.) `--outfit <seed>` prints the scheme a seed picked for itself,
+by theme, #1614 and #1617 - each type its own, the trainer's since #1621 and
+the biplane's since #1623: the index still names its scheme outright, whatever
+the subject's theme would have picked.) `--outfit <seed>` prints the scheme a seed picked for itself,
 beside its craft type. A `--generator` file carries its own colours and is
 unaffected.
 

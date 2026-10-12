@@ -809,27 +809,39 @@ mod tests {
     /// A seeded airplane flies the same flights (#1617): tail-down on her
     /// own gear, her centre of mass forward over her wing, she takes off
     /// from three points, comes down the glide and stops at a point ahead -
-    /// and swings round on the spot first for one behind her.
+    /// and swings round on the spot first for one behind her. Every type
+    /// does, the first seed of each: the biplane (#1623) on her own handling,
+    /// her pilot's speeds read off her stall.
     #[test]
     fn a_seeded_airplane_takes_off_and_lands_on_her_point() {
-        use crate::seeded_defaults::ChassisFamily;
-        let seed = (0u64..600)
-            .find(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Airplane)
-            .expect("some seed is an airplane");
-        let record = AvatarRecord::default_for_seed(seed);
-        let LocomotionConfig::Airplane(params) = &record.locomotion else {
-            panic!("seed {seed}: an airplane flies the Airplane preset");
-        };
-        let wing = Wing::of(params);
-        for target in [Vec2::new(0.0, -150.0), Vec2::new(0.0, 150.0)] {
-            let mut bench = FlightBench::set_down(&record, 0.0, 0.0);
-            let (end, trace) = fly(&mut bench, &wing, target, 120.0);
-            assert_eq!(end, Some(Flown::Landed), "{target}: {:?}", trace.last());
-            let missed = landed_within(&bench, target);
-            assert!(
-                missed <= ARRIVE_WINGED_M,
-                "{target}: stopped {missed:.2} m from the point"
-            );
+        use crate::seeded_defaults::{AirplaneType, ChassisFamily};
+        for t in AirplaneType::ALL {
+            let seed = (0u64..2000)
+                .find(|&s| {
+                    ChassisFamily::for_seed(s) == ChassisFamily::Airplane
+                        && AirplaneType::for_seed(s) == t
+                })
+                .expect("some seed is each airplane type");
+            let record = AvatarRecord::default_for_seed(seed);
+            let LocomotionConfig::Airplane(params) = &record.locomotion else {
+                panic!("seed {seed}: an airplane flies the Airplane preset");
+            };
+            let wing = Wing::of(params);
+            for target in [Vec2::new(0.0, -150.0), Vec2::new(0.0, 150.0)] {
+                let mut bench = FlightBench::set_down(&record, 0.0, 0.0);
+                let (end, trace) = fly(&mut bench, &wing, target, 120.0);
+                assert_eq!(
+                    end,
+                    Some(Flown::Landed),
+                    "{t:?} seed {seed}, {target}: {:?}",
+                    trace.last()
+                );
+                let missed = landed_within(&bench, target);
+                assert!(
+                    missed <= ARRIVE_WINGED_M,
+                    "{t:?} seed {seed}, {target}: stopped {missed:.2} m from the point"
+                );
+            }
         }
     }
 

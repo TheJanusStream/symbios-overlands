@@ -185,12 +185,15 @@ pub(super) fn print_outfit(subject: &str) {
                 // A helicopter's list is weighted by her THEME (#1614), each
                 // type's its own - the trainer's arm before the wildcard, as
                 // the armoured car's is (#1621) - and so is an airplane's
-                // (#1617).
+                // (#1617), the biplane's before the wildcard (#1623).
                 CraftType::Helicopter(HelicopterType::Trainer) => {
                     livery::trainer_livery(seed, character.style, None).name
                 }
                 CraftType::Helicopter(_) =>
                     livery::helicopter_livery(seed, character.style, None).name,
+                CraftType::Airplane(AirplaneType::Biplane) => {
+                    livery::biplane_livery(seed, character.style, None).name
+                }
                 CraftType::Airplane(_) => livery::airplane_livery(seed, character.style, None).name,
             }
         );

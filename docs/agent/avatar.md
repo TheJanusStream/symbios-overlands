@@ -31,7 +31,11 @@ drawn wheels stand - `gear_track`, `gear_ahead`, `tail_wheel_aft`,
 `tail_gear_share` and `center_of_mass_ahead`, shares of her box. A
 `tail_gear_share` under 1 is what sits her tail-down on the ground and level
 in the air; move her wheels in the tree and these with them, or she stands
-on wheels nobody can see.
+on wheels nobody can see. A seeded high-wing flies the preset's handling, and
+a seeded biplane (#1623) her own - `min_airspeed` 9 against 11,
+`cruise_speed` 17 against 20, 1.4 times the drag, `roll_rate` 120 against 90
+and `pitch_rate` 50 against 45 - which a pilot reads off her record as it
+reads any airplane's.
 
 ## Shaping a generator body
 

@@ -435,7 +435,10 @@ pub(super) fn drawn_aura(aura: ParticleAura, drive: Propulsion) -> ParticleAura 
         (ParticleAura::Wake, Propulsion::Steam) => ParticleAura::Steam,
         (
             ParticleAura::Steam,
-            Propulsion::AirCooled | Propulsion::Propeller | Propulsion::PistonRotor,
+            Propulsion::AirCooled
+            | Propulsion::Propeller
+            | Propulsion::PistonRotor
+            | Propulsion::Radial,
         ) => ParticleAura::Exhaust,
         (aura, _) => aura,
     }
@@ -494,6 +497,7 @@ pub(super) fn voice_label(seed: u64) -> String {
         (Propulsion::Servo, _) => "gear whirr",
         (Propulsion::Turbine, _) => "rotor chop and turbine whine",
         (Propulsion::PistonRotor, _) => "flat-six drone and rotor slap",
+        (Propulsion::Radial, _) => "radial drone and airscrew thrum",
         // No seed puts an engine under an airplane - hers is a propeller -
         // but a fixed-wing's engine turns one, so that is what is heard.
         (Propulsion::Propeller, _) | (Propulsion::Engine, ChassisFamily::Airplane) => {
@@ -571,6 +575,7 @@ fn family_drive(
         (Propulsion::Servo, _) => gear_whirr(g, detune),
         (Propulsion::Turbine, _) => turbine_chop(g, detune),
         (Propulsion::PistonRotor, _) => piston_chop(g, detune),
+        (Propulsion::Radial, _) => radial_drone(g, detune),
         // As in `voice_label`: an engine under an airplane turns a
         // propeller, so the walk over every drive on every chassis hears one.
         (Propulsion::Propeller, _) | (Propulsion::Engine, ChassisFamily::Airplane) => {
@@ -974,8 +979,9 @@ fn motor_whine(g: &mut GraphBuilder, detune: f32) -> NodeId {
 /// An armoured car's heavy diesel (#1375, owner decision G, the owner's pick
 /// a4): a 33 Hz block note - a 0.42-duty square under a hard 200 Hz lowpass -
 /// with its second and its fourth over it, the three loped together twice a
-/// second through one VCA. The lowest voice in the fleet, and the only one
-/// built on a block note.
+/// second through one VCA. The lowest voice on the road - the biplane's
+/// 26 Hz radial sits under it in the air (#1623) - and the only one built
+/// on a block note.
 ///
 /// TONAL ONLY, with no noise layer, so it never steps at the loop seam (0 of
 /// 7 buckets; the noise that does is #1387's). RMS about 0.128, between the
@@ -1148,6 +1154,18 @@ fn propeller_drone(g: &mut GraphBuilder, detune: f32) -> NodeId {
         }),
         &[fire],
     );
+    let thrum = airscrew_thrum(g, detune, super::airplanes::BLADE_PASS_HZ);
+    let body = g.src(NodeKind::Sine(sine(hz(62.0, detune), 0.10)));
+    g.sink(NodeKind::Gain(Gain { gain: 0.9 }), &[fire, thrum, body])
+}
+
+/// A two-blade airscrew's THRUM, the airplane family's (#1617, #1623):
+/// brown noise banded low and gated at `blade_pass` by a decaying saw, each
+/// blade's swish starting firm and dying away to nothing before the next,
+/// and rounded by a lowpass after the gate. What [`propeller_drone`] and
+/// [`radial_drone`] carry under their engines, node for node as the
+/// propeller voice first built it.
+fn airscrew_thrum(g: &mut GraphBuilder, detune: f32, blade_pass: f32) -> NodeId {
     let noise = g.src(NodeKind::BrownNoise(BrownNoise { amplitude: 0.6 }));
     let swish = g.sink(
         NodeKind::BiquadBandpass(BiquadBandpass {
@@ -1157,7 +1175,7 @@ fn propeller_drone(g: &mut GraphBuilder, detune: f32) -> NodeId {
         &[noise],
     );
     let fall = g.src(NodeKind::Lfo(Lfo {
-        rate_hz: hz(super::airplanes::BLADE_PASS_HZ, detune),
+        rate_hz: hz(blade_pass, detune),
         shape: LfoShape::Saw,
         depth: -0.5,
         offset: 0.5,
@@ -1172,9 +1190,49 @@ fn propeller_drone(g: &mut GraphBuilder, detune: f32) -> NodeId {
         }),
         &[thrum],
     );
-    let thrum = g.sink(NodeKind::Gain(Gain { gain: 1.3 }), &[thrum]);
-    let body = g.src(NodeKind::Sine(sine(hz(62.0, detune), 0.10)));
-    g.sink(NodeKind::Gain(Gain { gain: 0.9 }), &[fire, thrum, body])
+    g.sink(NodeKind::Gain(Gain { gain: 1.3 }), &[thrum])
+}
+
+/// The biplane's seven-cylinder radial under her two-blade airscrew (#1623
+/// Q-H): the engine's DRONE - a 26 Hz sawtooth under a 300 Hz lowpass, lower
+/// and rounder than the high-wing's 31 Hz square, with its second harmonic
+/// for the radial's throat - LOPED twice a second, the uneven beat a radial
+/// runs with, as the armoured car's diesel is loped; under the high-wing's
+/// airscrew thrum at her own blade pass
+/// ([`BIPLANE_BLADE_PASS_HZ`](super::airplanes::BIPLANE_BLADE_PASS_HZ): her
+/// airscrew is the high-wing's, at the same ceiling, which she reaches at
+/// 16.4 m/s, under her level-flight speed), so what is heard flying level is
+/// what is seen.
+///
+/// Every rate is whole hertz after the detune - the lope's two is one
+/// already - and the thrum's envelope dies to nothing and restarts at the
+/// loop seam under a lowpass, so the noise under it cannot step there
+/// (#1385, #1387).
+fn radial_drone(g: &mut GraphBuilder, detune: f32) -> NodeId {
+    let fire = g.src(NodeKind::Sawtooth(SawtoothOsc {
+        freq_hz: hz(26.0, detune),
+        polarity: Default::default(),
+        amplitude: 0.30,
+        anti_alias: Default::default(),
+    }));
+    let fire = g.sink(
+        NodeKind::BiquadLowpass(BiquadLowpass {
+            cutoff_hz: 300.0,
+            q: 0.9,
+        }),
+        &[fire],
+    );
+    let throat = g.src(NodeKind::Sine(sine(hz(52.0, detune), 0.12)));
+    let engine = g.sink(NodeKind::Gain(Gain { gain: 1.0 }), &[fire, throat]);
+    let lope = g.src(NodeKind::Lfo(Lfo {
+        rate_hz: 2.0,
+        shape: LfoShape::Sine,
+        depth: 0.22,
+        offset: 0.78,
+    }));
+    let engine = g.vca(&[engine], lope);
+    let thrum = airscrew_thrum(g, detune, super::airplanes::BIPLANE_BLADE_PASS_HZ);
+    g.sink(NodeKind::Gain(Gain { gain: 0.9 }), &[engine, thrum])
 }
 
 /// The bubble-canopy trainer's flat six under her two-blade rotor (#1621
@@ -1398,7 +1456,7 @@ mod audio_tests {
         AvatarVoice::NeonBuzz,
         AvatarVoice::ArcaneShimmer,
     ];
-    const DRIVES: [Propulsion; 13] = [
+    const DRIVES: [Propulsion; 14] = [
         Propulsion::Sail,
         Propulsion::Engine,
         Propulsion::Rolling,
@@ -1412,6 +1470,7 @@ mod audio_tests {
         Propulsion::Turbine,
         Propulsion::Propeller,
         Propulsion::PistonRotor,
+        Propulsion::Radial,
     ];
 
     /// Every voice patch there is: each voice on each chassis under each
@@ -1529,7 +1588,7 @@ mod audio_tests {
     ///
     /// The TIGHTER of the two seam guards, and the narrower: it asks these
     /// ten for `seam <= inner` exactly, where
-    /// [`every_avatar_voice_meets_itself_at_the_loop_seam`] walks all 329
+    /// [`every_avatar_voice_meets_itself_at_the_loop_seam`] walks all 350
     /// distinct patches at 1.05x, the ceiling that yardstick has once a fade
     /// has made the seam an ordinary step. Keep both: this one is the guard
     /// on the WARM-UP, and it would still hold with the fade removed.
@@ -1542,9 +1601,10 @@ mod audio_tests {
         // but pitches (#1376), the armoured car's diesel is a block note
         // with nothing over it (#1375), the rover's gear whirr a banded
         // saw over a body note (#1378), the airplane's flat four a square
-        // and its octave under her airscrew's thrum (#1617) and the
-        // trainer's flat six a square and a thump under her rotor's slap
-        // (#1621).
+        // and its octave under her airscrew's thrum (#1617), the trainer's
+        // flat six a square and a thump under her rotor's slap (#1621) and
+        // the biplane's radial a loped saw and its second under the same
+        // thrum (#1623).
         for (family, drive) in [
             (ChassisFamily::Airship, Propulsion::Engine),
             (ChassisFamily::Skiff, Propulsion::Engine),
@@ -1556,6 +1616,7 @@ mod audio_tests {
             (ChassisFamily::Helicopter, Propulsion::Turbine),
             (ChassisFamily::Airplane, Propulsion::Propeller),
             (ChassisFamily::Helicopter, Propulsion::PistonRotor),
+            (ChassisFamily::Airplane, Propulsion::Radial),
         ] {
             let patch =
                 driven_voice_patch(AvatarVoice::Drive, family, drive, 0).expect("a drive voice");
@@ -1583,10 +1644,11 @@ mod audio_tests {
         }
     }
 
-    /// Every avatar voice meets itself at its loop seam (#1387) - all 329
+    /// Every avatar voice meets itself at its loop seam (#1387) - all 350
     /// distinct patches (266 until the helicopter's turbine added 21,
-    /// #1614, 287 until the airplane's propeller added 21 more, #1617, and
-    /// 308 until the trainer's piston rotor added 21 more, #1621),
+    /// #1614, 287 until the airplane's propeller added 21 more, #1617, 308
+    /// until the trainer's piston rotor added 21 more, #1621, and 329 until
+    /// the biplane's radial added 21 more, #1623),
     /// on every detune bucket, not the seven tonal ones
     /// [`a_tonal_voice_meets_itself_at_the_loop_seam`] names on bucket 0.
     ///
@@ -1611,7 +1673,7 @@ mod audio_tests {
     /// worst 1.008.
     #[test]
     fn every_avatar_voice_meets_itself_at_the_loop_seam() {
-        // One bake each over the DISTINCT patches - 329 of the 1638 labelled
+        // One bake each over the DISTINCT patches - 350 of the 1764 labelled
         // pairs, since a drive's voice is the same graph on every chassis
         // that carries it. Timed in one binary before it was written this
         // wide: 1.0 s at test-release, 7.9 s under the plain `cargo test`
@@ -1646,7 +1708,7 @@ mod audio_tests {
                 worst = (ratio, label);
             }
         }
-        assert_eq!(seen.len(), 329, "the census walked 329 distinct patches");
+        assert_eq!(seen.len(), 350, "the census walked 350 distinct patches");
         assert!(
             worst.0 <= 1.05,
             "{}: the seam steps {:.2}x the largest step inside its own loop",
@@ -1898,6 +1960,7 @@ mod audio_tests {
             (ChassisFamily::Helicopter, Propulsion::Turbine),
             (ChassisFamily::Airplane, Propulsion::Propeller),
             (ChassisFamily::Helicopter, Propulsion::PistonRotor),
+            (ChassisFamily::Airplane, Propulsion::Radial),
         ] {
             let patch = driven_voice_patch(AvatarVoice::Drive, family, drive, 3).expect("a drive");
             assert_audible(&patch, &format!("{family:?} {drive:?}"));
@@ -1923,10 +1986,10 @@ mod audio_tests {
 
     #[test]
     fn the_family_drives_are_distinct() {
-        // The fifteen drive voices - sail, motor boat, rotor, putter, wagon,
+        // The sixteen drive voices - sail, motor boat, rotor, putter, wagon,
         // scow, tug, buggy, cyclecar, junk, armoured car, rover, helicopter,
-        // airplane, trainer - are genuinely different voices, not one shared
-        // hum. It is what
+        // airplane, trainer, biplane - are genuinely different voices, not
+        // one shared hum. It is what
         // separates the buggy's square from the armoured car's, which a "has
         // a square" claim no longer can (#1375), and the rover's banded saw
         // from the putter's (#1378).
@@ -1946,6 +2009,7 @@ mod audio_tests {
             (ChassisFamily::Helicopter, Propulsion::Turbine),
             (ChassisFamily::Airplane, Propulsion::Propeller),
             (ChassisFamily::Helicopter, Propulsion::PistonRotor),
+            (ChassisFamily::Airplane, Propulsion::Radial),
         ]
         .iter()
         .map(|&(family, drive)| {
@@ -1976,9 +2040,9 @@ mod audio_tests {
     /// boat's 40 Hz still spreads over three pitches across the buckets, and
     /// the skiff's 78 Hz over five - the dune buggy's 29 Hz firing note
     /// (#1374) over three, the cyclecar's 330 Hz whine (#1376) over five, the
-    /// armoured car's 33 Hz block note (#1375), the lowest tonal drive in the
-    /// fleet, over three, and the airplane's 31 Hz flat four (#1617) over
-    /// three.
+    /// armoured car's 33 Hz block note (#1375), over three, the airplane's
+    /// 31 Hz flat four (#1617) over three, and the biplane's 26 Hz radial
+    /// (#1623), the lowest tonal drive in the fleet now, over three.
     ///
     /// And the rover's 150 Hz gear tone (#1378) over five - which is
     /// measured HERE, through [`hz`]'s own f32 arithmetic, rather than
@@ -1999,6 +2063,7 @@ mod audio_tests {
             (ChassisFamily::Skiff, 150.0, 5),
             (ChassisFamily::Helicopter, 620.0, 7),
             (ChassisFamily::Airplane, 31.0, 3),
+            (ChassisFamily::Airplane, 26.0, 3),
         ] {
             let mut pitches: Vec<i32> = (0..DETUNE_BUCKETS)
                 .map(|b| hz(base, detune_factor(b)) as i32)
@@ -2243,7 +2308,10 @@ mod audio_tests {
                 let promoted = drive == Propulsion::Steam && aura == A::Wake;
                 let folded = matches!(
                     drive,
-                    Propulsion::AirCooled | Propulsion::Propeller | Propulsion::PistonRotor
+                    Propulsion::AirCooled
+                        | Propulsion::Propeller
+                        | Propulsion::PistonRotor
+                        | Propulsion::Radial
                 ) && aura == A::Steam;
                 assert_eq!(
                     drawn,
@@ -2445,6 +2513,40 @@ mod audio_tests {
                 })
                 .collect();
             assert_eq!(rates, [BLADE_PASS_HZ], "bucket {bucket}");
+        }
+    }
+
+    /// The biplane's thrum is her drawn airscrew's blade pass flying (#1623
+    /// Q-H), and her lope is the radial's twice a second: the two LFOs in
+    /// her radial voice, on every detune bucket, run at those two rates - so
+    /// what is heard flying is what is seen, and her engine beats as a
+    /// radial does where the high-wing's flat four runs steady.
+    #[test]
+    fn a_biplanes_thrum_is_her_airscrews_blade_pass_under_a_radials_lope() {
+        use super::super::airplanes::{BIPLANE_BLADE_PASS_HZ, BLADE_PASS_HZ};
+        assert_eq!(BIPLANE_BLADE_PASS_HZ, 8.0);
+        assert_eq!(
+            BIPLANE_BLADE_PASS_HZ, BLADE_PASS_HZ,
+            "the high-wing's airscrew"
+        );
+        for bucket in 0..DETUNE_BUCKETS {
+            let patch = driven_voice_patch(
+                AvatarVoice::Drive,
+                ChassisFamily::Airplane,
+                Propulsion::Radial,
+                bucket,
+            )
+            .expect("a drive voice");
+            let rates: Vec<f32> = patch
+                .graph
+                .nodes
+                .iter()
+                .filter_map(|n| match &n.kind {
+                    NodeKind::Lfo(l) => Some(l.rate_hz),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(rates, [2.0, BIPLANE_BLADE_PASS_HZ], "bucket {bucket}");
         }
     }
 

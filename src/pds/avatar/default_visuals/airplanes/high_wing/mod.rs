@@ -88,6 +88,7 @@ pub(super) const PROFILE: FuseProfile = FuseProfile {
     tail: -1.575,
     box_station: 0.40,
     box_floor_rise: 0.08,
+    cowl_ring: 0.0,
 };
 
 /// The wing (prototype frame): its leading edge's station, chord, span,
@@ -146,7 +147,10 @@ impl AirplaneCraft for HighWing {
     fn feel(&self) -> AirplaneFeel {
         // #1616 recommendation 9: the preset's model as the owner validated
         // it (#1615), her mass and thrust in proportion to her length.
-        AirplaneFeel { mass_factor: 1.0 }
+        AirplaneFeel {
+            mass_factor: 1.0,
+            handling: None,
+        }
     }
 
     fn layout(&self, plan: &FusePlan) -> AirplaneLayout {

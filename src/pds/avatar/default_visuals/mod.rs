@@ -186,8 +186,8 @@ enum Propulsion {
     /// creak is what makes her a junk to the ear.
     Battened,
     /// A heavy diesel (#1375): a 33 Hz block note under a hard lowpass,
-    /// loped twice a second - the lowest voice in the fleet, where every
-    /// other car on the road putters, clatters or whines. The armoured car's.
+    /// loped twice a second - the lowest voice on the road, where every
+    /// other car putters, clatters or whines. The armoured car's.
     /// And a diesel has a radiator and a pipe, so unlike the buggy's
     /// air-cooled flat four she folds nothing away and trails whatever aura
     /// her theme picked, off her own drawn pipe (`fx::drawn_aura` needs no
@@ -233,6 +233,15 @@ enum Propulsion {
     /// air-cooled, as the buggy's and the airplane's are, so a picked steam
     /// is drawn as the wisp from the stack under it (`fx::drawn_aura`).
     PistonRotor,
+    /// A seven-cylinder radial turning a two-blade airscrew (#1623 Q-H): a
+    /// rounder, deeper drone than the high-wing's flat four, loped twice a
+    /// second - the radial's uneven beat - under the same airscrew thrum at
+    /// her blade pass, her airscrew being the high-wing's. The biplane's.
+    /// NOT the high-wing's [`Propeller`](Self::Propeller): her flat four is
+    /// steadier and higher. A radial is air-cooled, so a picked steam is
+    /// drawn as the wisp from the stack behind her cowl ring
+    /// (`fx::drawn_aura`).
+    Radial,
 }
 
 impl Propulsion {
@@ -252,6 +261,7 @@ impl Propulsion {
             Self::Turbine => "under power, turbine",
             Self::Propeller => "under power, propeller",
             Self::PistonRotor => "under power, piston rotor",
+            Self::Radial => "under power, radial",
         }
     }
 }
@@ -756,7 +766,10 @@ const AIRPLANE_REF_LEN: f32 = 3.0;
 /// (#1616 recommendation 9): her mass in proportion to her length, and her
 /// thrust and drag with it, so she climbs, cruises and tops out at the
 /// preset's speeds whatever she weighs; the control rates and her stall and
-/// cruise speeds as the preset's. Her box is her fuselage, and her gear
+/// cruise speeds as the preset's - unless her type handles otherwise
+/// ([`airplanes::Handling`], the biplane's since #1623), when they are her
+/// own and her drag is her type's factor on the scaled one. Her box is her
+/// fuselage, and her gear
 /// stands where she draws it ([`airplanes::AirplaneLayout`]) - the mains,
 /// the shorter tail wheel that sits her tail-down, her centre of mass over
 /// her wing.
@@ -769,6 +782,14 @@ fn airplane_locomotion(seed: u64) -> LocomotionConfig {
     p.mass = Fp(mass);
     p.thrust = Fp(p.thrust.0 * scale);
     p.drag_coefficient = Fp(p.drag_coefficient.0 * scale);
+    if let Some(h) = feel.handling {
+        p.min_airspeed = Fp(h.stall);
+        p.cruise_speed = Fp(h.cruise);
+        p.drag_coefficient = Fp(p.drag_coefficient.0 * h.drag_factor);
+        p.roll_rate = Fp(h.roll_rate);
+        p.pitch_rate = Fp(h.pitch_rate);
+        p.yaw_rate = Fp(h.yaw_rate);
+    }
     p.chassis_half_extents = fit_extents(layout.half_extents);
     p.gear_track = Fp(layout.gear_track);
     p.gear_ahead = Fp(layout.gear_ahead);
@@ -1626,6 +1647,18 @@ mod tests {
                 assert_ne!(a, b, "the {an} and the {bn} carry the same feel tuple");
             }
         }
+        // And the airplanes' (#1617, #1623): the biplane handles as her own.
+        let airplanes = airplanes::every_feel();
+        assert_eq!(
+            airplanes.len(),
+            crate::seeded_defaults::AirplaneType::ALL.len(),
+            "every airplane type is built"
+        );
+        for (i, (an, a)) in airplanes.iter().enumerate() {
+            for (bn, b) in airplanes.iter().skip(i + 1) {
+                assert_ne!(a, b, "the {an} and the {bn} carry the same feel tuple");
+            }
+        }
     }
 
     /// The helicopter weight-support invariant: `hover_thrust ≈ mass · 9.81`,
@@ -2152,6 +2185,7 @@ mod tests {
             .into_iter()
             .chain(CraftType::SKIFFS)
             .chain(CraftType::HELICOPTERS)
+            .chain(CraftType::AIRPLANES)
         {
             let mut pins = AvatarPins::default();
             // Through the coupling method, as the UI writes it: locking a

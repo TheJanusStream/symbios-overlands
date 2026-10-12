@@ -36,12 +36,14 @@
 //! # Her box
 //!
 //! Her fuselage, owner decision 3 of #1611 as #1616 recommendation 4 drew
-//! it: spinner to rudder, as wide as her widest section, and from
-//! [`FuseProfile::box_floor_rise`] over her belly to her cabin roof. The
-//! floor stands that far up so that, sitting tail-down on her three wheels
-//! (#1616 recommendation 3), the box's tail corner clears the ground: floored
-//! at her belly it stood 3 cm into it, ahead of her tail wheel. Her wing,
-//! tail surfaces, gear and airscrew stand outside it.
+//! it: spinner to rudder, as wide as her widest section - or as her cowl
+//! ring, where a radial's stands proud of it ([`FuseProfile::cowl_ring`],
+//! #1623) - and from [`FuseProfile::box_floor_rise`] over her belly to her
+//! cabin roof. The floor stands that far up so that, sitting tail-down on
+//! her three wheels (#1616 recommendation 3), the box's tail corner clears
+//! the ground: floored at her belly it stood 3 cm into it, ahead of her tail
+//! wheel. Her wings, tail surfaces, gear and airscrew stand outside it - a
+//! biplane's upper wing over it as the high-wing's wing stands on her roof.
 
 use crate::seeded_defaults::AirplaneBlueprint;
 
@@ -69,6 +71,11 @@ pub(crate) struct FuseProfile {
     /// frame).
     pub(crate) box_station: f32,
     pub(crate) box_floor_rise: f32,
+    /// The radius of a cowl ring standing proud of the fuselage at girth 1
+    /// (m, prototype frame) - a radial's, open at its middle so the
+    /// cylinders show - which her box's width holds; `0.0` where the cowl is
+    /// the fuselage's own nose.
+    pub(crate) cowl_ring: f32,
 }
 
 /// One airplane's fuselage at its seeded proportions.
@@ -126,6 +133,21 @@ impl FusePlan {
             front - (front - z) * self.cabin
         } else {
             z - (self.cabin - 1.0) * (front - rear)
+        }
+    }
+
+    /// The prototype station `z` whose stretch is `drawn` - [`Self::stretch`]
+    /// undone: what a part fixed RIGIDLY off a station reads the fuselage
+    /// at, where it is drawn rather than where its own station is.
+    pub(crate) fn unstretch(&self, drawn: f32) -> f32 {
+        let (front, rear) = (self.profile.firewall, self.profile.cabin_rear);
+        let rear_drawn = front - (front - rear) * self.cabin;
+        if drawn >= front {
+            drawn
+        } else if drawn >= rear_drawn {
+            front - (front - drawn) / self.cabin
+        } else {
+            drawn + (self.cabin - 1.0) * (front - rear)
         }
     }
 
@@ -261,11 +283,14 @@ impl FusePlan {
         self.crown(self.profile.box_station)
     }
 
-    /// Half-extents (m) of her collider: as wide as her widest section,
-    /// floor to cabin roof, spinner to rudder - centred on the drawn
-    /// origin by construction.
+    /// Half-extents (m) of her collider: as wide as her widest section or
+    /// her cowl ring, floor to cabin roof, spinner to rudder - centred on
+    /// the drawn origin by construction.
     pub(crate) fn half_extents(&self) -> [f32; 3] {
-        let widest = self.stations().map(|(_, _, r)| r).fold(0.0, f32::max);
+        let widest = self
+            .stations()
+            .map(|(_, _, r)| r)
+            .fold(self.profile.cowl_ring * self.girth, f32::max);
         let (nose, tail) = (
             self.stretch(self.profile.nose),
             self.stretch(self.profile.tail),
@@ -307,6 +332,7 @@ mod tests {
         tail: -1.55,
         box_station: 0.4,
         box_floor_rise: 0.08,
+        cowl_ring: 0.0,
     };
 
     fn plan(length: f32, girth: f32, cabin: f32) -> FusePlan {
@@ -371,6 +397,47 @@ mod tests {
         assert!((span(1.0, 0.0) - 1.1).abs() < 1e-6, "the cabin did not");
         let rigid = p.at_off(0.0, 1.0, 0.82, -0.35)[2] - p.at(0.0, 1.0, 0.82)[2];
         assert!((rigid + p.len(0.35)).abs() < 1e-6);
+    }
+
+    /// `unstretch` undoes `stretch` at every station, fore of the cabin, in
+    /// it and aft of it, at every cabin factor.
+    #[test]
+    fn unstretch_undoes_the_cabin_stretch() {
+        for cabin in [0.9, 1.0, 1.1] {
+            let p = plan(3.19, 1.18, cabin);
+            for z in [1.3, 1.0, 0.6, 0.0, -0.7, -1.5] {
+                let back = p.unstretch(p.stretch(z));
+                assert!(
+                    (back - z).abs() < 1e-5,
+                    "cabin {cabin}: {z} came back {back}"
+                );
+            }
+        }
+    }
+
+    /// A cowl ring wider than the fuselage widens the box to it, and only
+    /// the box: the fuselage's own stations are untouched.
+    #[test]
+    fn the_box_holds_a_cowl_ring_that_stands_proud() {
+        let plain = plan(3.19, 1.18, 1.0);
+        let ringed = FusePlan::new(
+            &AirplaneBlueprint::NOMINAL,
+            FuseProfile {
+                cowl_ring: 0.3,
+                ..PROFILE
+            },
+        );
+        assert!((ringed.half_extents()[0] - ringed.len(0.3 * 1.18)).abs() < 1e-6);
+        assert!(ringed.half_extents()[0] > plain.half_extents()[0]);
+        assert_eq!(ringed.half_extents()[1], plain.half_extents()[1]);
+        let narrow = FusePlan::new(
+            &AirplaneBlueprint::NOMINAL,
+            FuseProfile {
+                cowl_ring: 0.1,
+                ..PROFILE
+            },
+        );
+        assert_eq!(narrow.half_extents(), plain.half_extents());
     }
 
     /// `along` runs spinner 0 to tail 1, and strictly between in the middle.
