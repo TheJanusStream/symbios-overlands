@@ -9,16 +9,18 @@
 //! scale. [`craft`] is the only match over [`HelicopterType`], so a new type
 //! is a compile error here until it is built.
 //!
-//! THREE types are built. The light utility helicopter the owner agreed on
+//! FOUR types are built. The light utility helicopter the owner agreed on
 //! the phase-2 renders (#1613) - a glazed pod on skids, a two-blade main
 //! rotor and a tail rotor on a slim boom - at the proportion they chose (B: a
 //! 3.2 m fuselage, the cabin 22 % fuller than the first draft) and with all
-//! ten of that issue's recommendations taken. And two of the fan-out's
+//! ten of that issue's recommendations taken. And three of the fan-out's
 //! (#1618), each on a profile of her own read off the same [`PodPlan`]: the
 //! bubble-canopy trainer (#1621) - a glazed bubble over an open engine bay,
 //! saddle tanks, an open truss boom and tall skids - with all eight of her
-//! recommendations taken, and the autogyro (#1624) - a radial's airscrew at
-//! her nose, a free rotor on a pylon and three wheels - with all nine of
+//! recommendations taken; the autogyro (#1624) - a radial's airscrew at her
+//! nose, a free rotor on a pylon and three wheels - with all nine of hers;
+//! and the coaxial (#1628) - two rotors turning opposite ways on one mast,
+//! no tail rotor, and a shrouded pusher behind an H-tail - with all eight of
 //! hers.
 //!
 //! # Where a helicopter sits
@@ -39,34 +41,42 @@
 //! Sits still on her skids, rotors turning (#1613 recommendation 3: the
 //! rotors are always turning, a Constant spin, until a ground idle earns a
 //! Spin term of its own) - but for the autogyro's free rotor, which turns
-//! slowly at rest and faster with her speed, on a Speed spin (#1624). The
+//! slowly at rest and faster with her speed, on a Speed spin (#1624), and
+//! the coaxial's pusher, which does the same (#1628). The
 //! airship gait's heave and nose wander are what an envelope does on the
 //! air; a machine on skids or wheels does neither, so her seeded gait writes
 //! both to zero and leans her into her motion instead ([`HelicopterIdle`]).
 
 mod autogyro;
+mod coaxial;
 mod plan;
 mod trainer;
 mod utility;
 
+/// The coaxial's blade pass (Hz): what her double chop gallops at.
+pub(super) use coaxial::BLADE_PASS_HZ as COAXIAL_BLADE_PASS_HZ;
 pub(crate) use plan::{PodPlan, PodProfile};
 /// The trainer's blade pass (Hz): what her piston voice slaps at.
 pub(super) use trainer::BLADE_PASS_HZ as TRAINER_BLADE_PASS_HZ;
 /// The utility's blade pass (Hz): what her turbine voice chops at.
 pub(super) use utility::BLADE_PASS_HZ as UTILITY_BLADE_PASS_HZ;
 
+use bevy::math::{Affine3A, Quat, Vec3};
+
+use crate::catalogue::items::measure::Bounds;
 use crate::pds::avatar::parts::PartCtx;
-use crate::pds::generator::Generator;
+use crate::pds::generator::{Generator, GeneratorKind};
 use crate::seeded_defaults::{
     AvatarCharacter, HelicopterBlueprint, HelicopterType, OrnatenessTier, ParticleAura,
 };
+use crate::world_builder::primitive_outline;
 
 /// The helicopter family's colours, which live in the fleet's one livery
 /// home (#1365) rather than beside its geometry: the utility's, the
-/// trainer's (#1621) and the autogyro's (#1624).
+/// trainer's (#1621), the autogyro's (#1624) and the coaxial's (#1628).
 pub(crate) use crate::pds::avatar::livery::{
-    AutogyroColours, HelicopterColours, TrainerColours, autogyro_colours, helicopter_colours,
-    trainer_colours,
+    AutogyroColours, CoaxialColours, HelicopterColours, TrainerColours, autogyro_colours,
+    coaxial_colours, helicopter_colours, trainer_colours,
 };
 
 use super::Propulsion;
@@ -166,6 +176,7 @@ fn craft(t: HelicopterType) -> &'static dyn HelicopterCraft {
         HelicopterType::Utility => &utility::Utility,
         HelicopterType::Trainer => &trainer::Trainer,
         HelicopterType::Autogyro => &autogyro::Autogyro,
+        HelicopterType::Coaxial => &coaxial::Coaxial,
     }
 }
 
@@ -201,6 +212,50 @@ fn body_for(seed: u64) -> Option<(&'static dyn HelicopterCraft, PodPlan)> {
 // ---------------------------------------------------------------------------
 // Where the machine stands
 // ---------------------------------------------------------------------------
+
+/// The bounds of `parts` (drawn frame), what a type that measures her box
+/// reads it off: the mesher's own vertices ([`primitive_outline`], which
+/// reads a sweep's without building its mesh), through every part's
+/// transform and through a turning hub's to what it carries - but its
+/// blades, each a block it carries that does not turn of itself. Her box
+/// holds her airframe, and the blades stand outside it (owner decision 3 of
+/// #1611): a rotor's disc, an airscrew's, a pusher's. A hub a turning hub
+/// carries - a wheel steering and rolling - is in it. The autogyro's
+/// (#1624) and the coaxial's (#1628).
+fn airframe_bounds(parts: &[Generator]) -> Bounds {
+    fn reach_into(part: &Generator, parent: Affine3A, out: &mut Option<Bounds>) {
+        let t = &part.transform;
+        let world = parent
+            * Affine3A::from_scale_rotation_translation(
+                Vec3::from(t.scale.0),
+                Quat::from_array(t.rotation.0).normalize(),
+                Vec3::from(t.translation.0),
+            );
+        for p in primitive_outline(&part.kind) {
+            let at = world.transform_point3(p);
+            *out = Some(match *out {
+                None => Bounds { min: at, max: at },
+                Some(b) => Bounds {
+                    min: b.min.min(at),
+                    max: b.max.max(at),
+                },
+            });
+        }
+        let turning = part.spin.is_some();
+        for child in &part.children {
+            if turning && matches!(child.kind, GeneratorKind::Cuboid { .. }) && child.spin.is_none()
+            {
+                continue;
+            }
+            reach_into(child, world, out);
+        }
+    }
+    let mut out: Option<Bounds> = None;
+    for part in parts {
+        reach_into(part, Affine3A::IDENTITY, &mut out);
+    }
+    out.expect("she draws something")
+}
 
 /// Half-extents (m) of the chassis collider for this plan at `ornateness`:
 /// skid bottoms (or tyres) to rotor head, as wide as she is drawn, nose to

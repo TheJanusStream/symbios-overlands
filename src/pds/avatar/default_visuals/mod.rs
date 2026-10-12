@@ -250,6 +250,14 @@ enum Propulsion {
     /// Air-cooled, so a picked steam is drawn as the wisp from her stack
     /// (`fx::drawn_aura`).
     TwinRadial,
+    /// A turbine under two rotors turning opposite ways (#1628 Q-H): the
+    /// utility's whine under a DOUBLE chop - her rotors' blades crossing
+    /// eighteen times a second, every other crossing the heavier - so the
+    /// slap gallops in pairs at her blade pass, three blades at three turns
+    /// a second: 9 Hz. The coaxial's. NOT the utility's
+    /// [`Turbine`](Self::Turbine), whose single slap is a two-blade rotor's
+    /// 6 Hz. A turbine, as the utility's is, so a picked steam stands.
+    CoaxialTurbine,
 }
 
 impl Propulsion {
@@ -271,6 +279,7 @@ impl Propulsion {
             Self::PistonRotor => "under power, piston rotor",
             Self::Radial => "under power, radial",
             Self::TwinRadial => "under power, twin radials",
+            Self::CoaxialTurbine => "under power, coaxial turbine",
         }
     }
 }

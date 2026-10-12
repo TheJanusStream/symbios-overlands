@@ -247,6 +247,7 @@ struct Args {
     /// or an aircraft type's theme-weighted list
     /// ([`livery::HELICOPTER_LIVERIES`](crate::pds::avatar::livery::HELICOPTER_LIVERIES),
     /// [`livery::TRAINER_LIVERIES`](crate::pds::avatar::livery::TRAINER_LIVERIES),
+    /// [`livery::COAXIAL_LIVERIES`](crate::pds::avatar::livery::COAXIAL_LIVERIES),
     /// [`livery::AIRPLANE_LIVERIES`](crate::pds::avatar::livery::AIRPLANE_LIVERIES),
     /// [`livery::BIPLANE_LIVERIES`](crate::pds::avatar::livery::BIPLANE_LIVERIES),
     /// which the autogyro wears too,

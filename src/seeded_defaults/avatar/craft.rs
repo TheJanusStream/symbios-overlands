@@ -43,7 +43,7 @@
 //! never-saved seeded default is free to change look, and a saved avatar keeps
 //! its own generator tree).
 //!
-//! # The helicopter family has three types (#1614, #1621, #1624)
+//! # The helicopter family has four types (#1614, #1621, #1624, #1628)
 //!
 //! [`HelicopterType`] opened with its hero alone, the light utility
 //! helicopter, which is the family's universal floor and so every style's
@@ -54,7 +54,9 @@
 //! home on the farm, the roadside, the suburbs, the frontier, the coast and
 //! the north, where the utility keeps every home she had. Its second is the
 //! autogyro, at home on the old worlds the trainer does not fly and in the
-//! boiler age - the nine themes no rotorcraft was at home on.
+//! boiler age - the nine themes no rotorcraft was at home on. Its third is
+//! the coaxial, at home on the five speculative and alien themes that last
+//! reached a helicopter only through the utility's floor.
 //!
 //! # So has the airplane family (#1617, #1623, #1625)
 //!
@@ -123,10 +125,11 @@ impl CraftType {
 
     /// Every helicopter type as a craft type, in [`HelicopterType::ALL`]'s
     /// order.
-    pub const HELICOPTERS: [Self; 3] = [
+    pub const HELICOPTERS: [Self; 4] = [
         Self::Helicopter(HelicopterType::Utility),
         Self::Helicopter(HelicopterType::Trainer),
         Self::Helicopter(HelicopterType::Autogyro),
+        Self::Helicopter(HelicopterType::Coaxial),
     ];
 
     /// Every airplane type as a craft type, in [`AirplaneType::ALL`]'s
@@ -316,6 +319,11 @@ pub enum HelicopterType {
     /// and wide main gear and a tail wheel she stands tail-down on - the
     /// Cierva C.30's layout (#1624).
     Autogyro,
+    /// Coaxial compound: two rotors turning opposite ways on one mast and no
+    /// tail rotor, a sleek fuselage tapering to a shrouded pusher behind an
+    /// H-tail, on skids - the near-future machine of the Sikorsky X2 and
+    /// S-97 line (#1628).
+    Coaxial,
 }
 
 /// The recognisable kind of fixed-wing a seeded airplane avatar is (#1617).
@@ -580,7 +588,7 @@ impl SkiffType {
 }
 
 impl HelicopterType {
-    pub const ALL: [Self; 3] = [Self::Utility, Self::Trainer, Self::Autogyro];
+    pub const ALL: [Self; 4] = [Self::Utility, Self::Trainer, Self::Autogyro, Self::Coaxial];
 
     /// The type every helicopter theme can reach - see [`FLOOR`].
     pub const UNIVERSAL: Self = Self::Utility;
@@ -591,6 +599,7 @@ impl HelicopterType {
             Self::Utility => "Utility helicopter",
             Self::Trainer => "Bubble-canopy trainer",
             Self::Autogyro => "Autogyro",
+            Self::Coaxial => "Coaxial helicopter",
         }
     }
 
@@ -600,6 +609,7 @@ impl HelicopterType {
             Self::Utility => "utility",
             Self::Trainer => "trainer",
             Self::Autogyro => "autogyro",
+            Self::Coaxial => "coaxial",
         }
     }
 
@@ -645,6 +655,20 @@ impl HelicopterType {
                     && !matches!(style, ThemeArchetype::Nordic | ThemeArchetype::WildWest))
                     || style == ThemeArchetype::Steampunk
             }
+            // The machine of the worlds still to come (#1628 Q-D): the
+            // corporate tower's runabout, the solar town's air taxi, the
+            // outpost's shuttle and whatever the aliens fly - the five
+            // themes no rotorcraft was at home on. There, where only the
+            // utility's floor reached a helicopter, a coaxial is three seeds
+            // in four.
+            Self::Coaxial => matches!(
+                style,
+                ThemeArchetype::Cyberpunk
+                    | ThemeArchetype::Solarpunk
+                    | ThemeArchetype::SpaceOutpost
+                    | ThemeArchetype::AlienOrganic
+                    | ThemeArchetype::AlienMonolithic
+            ),
         }
     }
 
@@ -1034,6 +1058,25 @@ mod tests {
         }
         for style in [Nordic, WildWest, ModernCity, CoastalResort, Cyberpunk] {
             assert!(!HelicopterType::Autogyro.at_home(style), "{style:?}");
+        }
+        // And the coaxial's (#1628): the five speculative and alien themes,
+        // none of which another helicopter type is at home on - and nothing
+        // past them.
+        for style in ThemeArchetype::ALL {
+            let future = matches!(
+                style,
+                Cyberpunk | Solarpunk | SpaceOutpost | AlienOrganic | AlienMonolithic
+            );
+            assert_eq!(HelicopterType::Coaxial.at_home(style), future, "{style:?}");
+            if future {
+                for other in [
+                    HelicopterType::Utility,
+                    HelicopterType::Trainer,
+                    HelicopterType::Autogyro,
+                ] {
+                    assert!(!other.at_home(style), "{other:?} on {style:?}");
+                }
+            }
         }
         // And the biplane's (#1623): all ten of HISTORIC with Steampunk, and
         // none of the town, coast, sport or speculative themes.

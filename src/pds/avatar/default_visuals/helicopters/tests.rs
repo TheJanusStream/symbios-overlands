@@ -12,13 +12,20 @@
 //! her airscrew and her wheels turn as agreed, her airscrew's thrum is her
 //! voice's at her top speed, she stands tail-down on three wheels, her
 //! rotor clears her airframe, her airscrew clears her cowl ring, the root's
-//! hub hides in her fuselage, and her identity is on her cheat line.
+//! hub hides in her fuselage, and her identity is on her cheat line. The
+//! coaxial has eight (#1628): her rotors and her pusher turn as agreed, her
+//! pusher reaches the spin ceiling by her top speed, her two rotors clear
+//! each other and her airframe, her pusher clears its shroud and its
+//! stators hold it, her exhaust aura issues from her port exhaust, her
+//! identity is on her cheat line, her beacon stands proud of her fairing,
+//! and her box is set by the parts that should set it; and the autogyro's
+//! guard that her root's hub hides in her fuselage holds hers too.
 
 use bevy::math::{Affine3A, Quat, Vec3};
 
 use super::super::common::{first_difference, touch};
 use super::*;
-use super::{autogyro, trainer, utility};
+use super::{autogyro, coaxial, trainer, utility};
 use crate::catalogue::items::measure::tree_bounds;
 use crate::pds::generator::GeneratorKind;
 use crate::seeded_defaults::{ChassisFamily, OrnatenessTier, VehicleBlueprint, WearTier};
@@ -292,7 +299,8 @@ fn the_box_holds_the_drawn_fuselage() {
 /// each type's ceiling its own: the utility's 3.82 m at most, the
 /// trainer's 4.27 and the autogyro's 4.43 - at the longest blueprint on the
 /// shortest boom, whose scale draws everything else larger to keep her
-/// length.
+/// length. The coaxial's disc is shorter than her fuselage unless her boom
+/// is short, and 3.56 m at most.
 #[test]
 fn a_helicopter_stands_under_the_air_draft_and_inside_the_mouth() {
     for Drawn {
@@ -319,6 +327,7 @@ fn a_helicopter_stands_under_the_air_draft_and_inside_the_mouth() {
             HelicopterType::Utility => 4.0,
             HelicopterType::Trainer => 4.4,
             HelicopterType::Autogyro => 4.6,
+            HelicopterType::Coaxial => 3.6,
         };
         assert!(
             (GATEWAY_MOUTH..ceiling).contains(&span),
@@ -340,7 +349,7 @@ fn agreed_rates(t: HelicopterType) -> Option<(f32, f32, f32)> {
         HelicopterType::Utility => Some((1080.0, 1440.0, 6.0)),
         // #1621 Q-G: two and a half and four, and a 5 Hz slap.
         HelicopterType::Trainer => Some((900.0, 1440.0, 5.0)),
-        HelicopterType::Autogyro => None,
+        HelicopterType::Autogyro | HelicopterType::Coaxial => None,
     }
 }
 
@@ -583,7 +592,9 @@ fn her_two_rotors_never_cross() {
         let near = match t {
             HelicopterType::Utility => 0.2,
             HelicopterType::Trainer => 0.4,
-            HelicopterType::Autogyro => unreachable!("she has no tail rotor"),
+            HelicopterType::Autogyro | HelicopterType::Coaxial => {
+                unreachable!("she has no tail rotor")
+            }
         };
         assert!(tightest < near, "{t:?}: no corner came near: {tightest}");
     }
@@ -664,6 +675,7 @@ fn a_helicopters_aura_leaves_her_exhaust_stack() {
             HelicopterType::Utility => Propulsion::Turbine,
             HelicopterType::Trainer => Propulsion::PistonRotor,
             HelicopterType::Autogyro => Propulsion::Radial,
+            HelicopterType::Coaxial => Propulsion::CoaxialTurbine,
         };
         assert_eq!(propulsion(s), drive, "seed {s}");
         let aura = AvatarFx::for_seed(s).aura;
@@ -700,6 +712,8 @@ fn a_helicopters_aura_leaves_her_exhaust_stack() {
                 }),
                 -0.5,
             ),
+            // Her themes pick no aura that burns - see the count below.
+            HelicopterType::Coaxial => unreachable!("seed {s}: a coaxial's {aura:?}"),
         };
         let stack = stack.expect("she draws an exhaust stack");
         let GeneratorKind::Cylinder { height, .. } = &stack.kind else {
@@ -717,9 +731,12 @@ fn a_helicopters_aura_leaves_her_exhaust_stack() {
             .position(|&x| x == t)
             .expect("her type is a type")] += 1;
     }
+    // The coaxial's five themes pick none that burns - neon haze, arcane
+    // motes and a thruster's wash - so her exhaust's mouth is her own
+    // guard's (`the_coaxials_exhaust_issues_from_her_port_exhaust`).
     assert!(
-        burning[0] > 10 && burning[1] > 3 && burning[2] > 3,
-        "only {burning:?} burning auras sampled (utility, trainer, autogyro)"
+        burning[0] > 10 && burning[1] > 3 && burning[2] > 3 && burning[3] == 0,
+        "{burning:?} burning auras sampled (utility, trainer, autogyro, coaxial)"
     );
 }
 
@@ -728,7 +745,8 @@ fn a_helicopters_aura_leaves_her_exhaust_stack() {
 /// included, and the heaviest she can draw: every type at every blueprint
 /// extreme on her fullest ladder, Ornate and Battered, carrying the heaviest
 /// FX overhead a live seed carries. The prototypes put the utility at about
-/// 16 KB (#1613) and the trainer at 21 to 27 (#1621).
+/// 16 KB (#1613), the trainer at 21 to 27 (#1621) and the coaxial at 22 to 25
+/// (#1628).
 #[test]
 fn a_seeded_helicopters_record_stays_well_inside_the_budget() {
     use crate::pds::avatar::AvatarRecord;
@@ -773,7 +791,9 @@ fn a_seeded_helicopters_record_stays_well_inside_the_budget() {
 /// the trainer's adorned step adds a searchlight's housing and lens and two
 /// steps, her ornate one two litter pods on two struts each; the
 /// autogyro's adorned step adds a pitot and two steps, her ornate one two
-/// spats and a beacon.
+/// spats and a beacon; the coaxial's adorned step adds a sensor ball, its
+/// lens and two steps, her ornate one her stub wings, two lamp pods and
+/// their lamps, and a beacon.
 #[test]
 fn ornateness_adds_parts_and_wear_does_not() {
     let ctx = PartCtx::for_seed(a_helicopter_seed());
@@ -781,6 +801,7 @@ fn ornateness_adds_parts_and_wear_does_not() {
         (HelicopterType::Utility, (3, 4)),
         (HelicopterType::Trainer, (4, 6)),
         (HelicopterType::Autogyro, (3, 3)),
+        (HelicopterType::Coaxial, (4, 6)),
     ] {
         let plan = craft(t).plan(&HelicopterBlueprint::NOMINAL);
         let count = |o: OrnatenessTier, w: WearTier| {
@@ -1350,20 +1371,33 @@ fn the_autogyros_airscrew_turns_clear_of_her_cowl_ring() {
     }
 }
 
-/// The root's hidden hub hides inside her fuselage at every blueprint
-/// (#1624): PodPlan hangs the drawn frame's origin at her box's middle,
-/// which standing tail-down is about 1.2 m behind her mains, where her
-/// fuselage has dropped with the turn - drawn on the LEVEL centreline's
-/// height, the prototype's, it stood 2 cm under her crown. Every corner of
-/// the cube stands well inside the fuselage AS DRAWN: inside the flats of
-/// its section, round in the sweep's own frame, along the centreline its
-/// stations were turned to. And the hub is ON that centreline, within the
-/// 2.2 cm her profile's datum claims, where it crosses her box's middle.
+/// The root's hidden hub hides inside her fuselage at every blueprint, on
+/// every type whose box is measured off her: PodPlan hangs the drawn frame's
+/// origin at her box's middle. The autogyro's (#1624) is about 1.2 m behind
+/// her mains standing tail-down, where her fuselage has dropped with the
+/// turn - drawn on the LEVEL centreline's height, the prototype's, it stood
+/// 2 cm under her crown; the coaxial's (#1628) falls in her tail cone, a
+/// third of a metre aft of her cabin's rear. Every corner of the cube stands
+/// well inside the fuselage AS DRAWN: inside the flats of its section, round
+/// in the sweep's own frame, along the centreline its stations were turned
+/// to. And the hub is ON that centreline, within the reach each profile's
+/// datum claims - 2.2 cm, and 2 (1.5 at worst, a corner's girth and boom
+/// moving her centreline off the nominal machine's) - where it crosses her
+/// box's middle.
 #[test]
 fn her_root_hub_hides_in_her_fuselage() {
     use std::f32::consts::PI;
     let ctx = PartCtx::for_seed(a_helicopter_seed());
-    for (bp, _, built) in autogyros(&ctx) {
+    let measured = [
+        (HelicopterType::Autogyro, 0.022),
+        (HelicopterType::Coaxial, 0.02),
+    ];
+    for (t, near, bp, built) in measured.into_iter().flat_map(|(t, near)| {
+        blueprints().into_iter().map(move |bp| {
+            let plan = craft(t).plan(&bp);
+            (t, near, bp, craft(t).build(&ctx, &plan))
+        })
+    }) {
         let GeneratorKind::Cuboid { size, .. } = &built.kind else {
             panic!("the root is a hub cube");
         };
@@ -1390,10 +1424,11 @@ fn her_root_hub_hides_in_her_fuselage() {
             .map(|(a, b)| a.y + (b.y - a.y) * a.z / (a.z - b.z))
             .expect("her fuselage spans her box's middle");
         assert!(
-            centre.abs() < 0.022,
-            "a {} m autogyro (girth {}, boom {}): her standing centreline crosses her \
-             box's middle {centre:.4} m from the root's hub",
+            centre.abs() < near,
+            "a {} m {} (girth {}, boom {}): her centreline crosses her box's middle \
+             {centre:.4} m from the root's hub",
             bp.length,
+            t.label(),
             bp.girth,
             bp.boom
         );
@@ -1415,9 +1450,10 @@ fn her_root_hub_hides_in_her_fuselage() {
                 .expect("a fuselage has segments");
             assert!(
                 off < radius * flats * 0.5,
-                "a {} m autogyro (girth {}, boom {}): the root hub's corner {} stands \
+                "a {} m {} (girth {}, boom {}): the root hub's corner {} stands \
                  {off:.4} off her fuselage's line, half her {:.4} section is {:.4}",
                 bp.length,
+                t.label(),
                 bp.girth,
                 bp.boom,
                 corner * half,
@@ -1458,4 +1494,504 @@ fn the_autogyros_cheat_line_carries_her_identity() {
         n += 1;
     }
     assert!(n > 5, "only {n} autogyro seeds sampled");
+}
+
+/// The coaxial at every blueprint the guards sweep, on `ctx`'s tiers: her
+/// blueprint, her plan and her tree as built.
+fn coaxials(ctx: &PartCtx) -> Vec<(HelicopterBlueprint, PodPlan, Generator)> {
+    blueprints()
+        .into_iter()
+        .map(|bp| {
+            let plan = coaxial::Coaxial.plan(&bp);
+            (bp, plan, coaxial::build_dressed(ctx, &plan))
+        })
+        .collect()
+}
+
+/// A coaxial's label for a failure.
+fn coaxial_what(bp: &HelicopterBlueprint) -> String {
+    format!(
+        "a {} m coaxial, girth {}, boom {}",
+        bp.length, bp.girth, bp.boom
+    )
+}
+
+/// Her rotors and her pusher turn as agreed (#1628 Q-C, Q-G), at every
+/// blueprint extreme and on every tier: two rotors about her mast at the
+/// same rate the opposite ways - three turns a second, the utility's - each
+/// carrying its head and three blades, the upper over the lower and
+/// carrying her cap as well; and her pusher on a Speed spin about her tail's
+/// axis, idling at 540 and gaining 63 a metre a second, carrying its spinner
+/// and five blades. Three turning nodes: nothing else on her turns.
+#[test]
+fn the_coaxials_rotors_and_pusher_turn_as_agreed() {
+    use crate::pds::SpinTerm;
+    for Drawn {
+        craft: t,
+        built,
+        what,
+        ..
+    } in every_drawn()
+    {
+        if t != HelicopterType::Coaxial {
+            continue;
+        }
+        let turning = spinning(&built);
+        assert_eq!(turning.len(), 3, "{what}: {} turning nodes", turning.len());
+        let (mut rotors, mut pushers) = (Vec::new(), Vec::new());
+        for (node, path) in &turning {
+            let spin = node.spin.as_ref().expect("a turning node");
+            let blades = node
+                .children
+                .iter()
+                .filter(|c| matches!(c.kind, GeneratorKind::Cuboid { .. }))
+                .count();
+            match spin.terms.as_slice() {
+                [SpinTerm::Constant { rate }] => rotors.push((
+                    node.transform.translation.0[1],
+                    (spin.axis.0, rate.0, blades, node.children.len()),
+                )),
+                [SpinTerm::Speed { idle, gain }] => {
+                    pushers.push((spin.axis.0, idle.0, gain.0, blades, node.children.len()));
+                }
+                terms => panic!("{what}: {path} turns by {terms:?}"),
+            }
+        }
+        rotors.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let rotors: Vec<_> = rotors.into_iter().map(|(_, r)| r).collect();
+        assert_eq!(
+            rotors,
+            [
+                ([0.0, 1.0, 0.0], 1080.0, 3, 4),
+                ([0.0, 1.0, 0.0], -1080.0, 3, 5)
+            ],
+            "{what}: her lower rotor carries its head and three blades, her upper \
+             turns the other way and carries her cap too"
+        );
+        assert_eq!(
+            pushers,
+            [([0.0, 0.0, 1.0], 540.0, 63.0, 5, 6)],
+            "{what}: her pusher carries its spinner and five blades"
+        );
+    }
+    // Each constant is its agreed number, and three blades at her rotors'
+    // rate pass at the rate her voice gallops at.
+    assert_eq!(
+        (
+            coaxial::ROTOR_DEG_S,
+            coaxial::BLADES,
+            coaxial::PROP_IDLE_DEG_S,
+            coaxial::PROP_GAIN_DEG_PER_M
+        ),
+        (1080.0, 3, 540.0, 63.0)
+    );
+    assert_eq!(COAXIAL_BLADE_PASS_HZ, 9.0);
+}
+
+/// What her pusher does at her top speed (#1628 Q-G): it reaches the
+/// runtime's spin ceiling, four turns a second, within half a metre a second
+/// under the top speed her cyclic and her damping give her - so it turns
+/// fastest as she flies fastest, where the prototype's 60 left it short of
+/// the ceiling. Her rotors turn at the utility's three turns a second, under
+/// it.
+#[test]
+fn the_coaxials_pusher_spins_up_to_the_ceiling_by_her_top_speed() {
+    use crate::pds::sanitize::limits::MAX_SPIN_RATE_DEG;
+    let feel = craft(HelicopterType::Coaxial).feel();
+    let top = feel.cyclic_accel / feel.linear_damping;
+    let reached = (MAX_SPIN_RATE_DEG - coaxial::PROP_IDLE_DEG_S) / coaxial::PROP_GAIN_DEG_PER_M;
+    assert!(
+        reached <= top && top - reached < 0.5,
+        "her pusher reaches its ceiling at {reached} m/s, her top speed is {top}"
+    );
+    const { assert!(coaxial::ROTOR_DEG_S < MAX_SPIN_RATE_DEG) };
+}
+
+/// Her two rotors turn clear of each other and of her airframe at every
+/// blueprint extreme (#1628 Q-C): the slab the lower rotor's blades sweep
+/// stands wholly under the upper's, by more than 15 cm; and no vertex of
+/// any part that does not turn, as the mesher draws it, lies in the ring
+/// either rotor's blades sweep - inside its slab, between its blades' roots
+/// and their tips. Her mast stands inside the roots, her fairing under the
+/// lower rotor - the nearest thing to either - and her tail beyond their
+/// reach.
+#[test]
+fn the_coaxials_rotors_clear_each_other_and_her_airframe() {
+    let ctx = PartCtx::for_seed(a_helicopter_seed());
+    let mut nearest = f32::MAX;
+    for (bp, plan, built) in coaxials(&ctx) {
+        let what = coaxial_what(&bp);
+        let mut hubs: Vec<&Generator> = built
+            .children
+            .iter()
+            .filter(|c| c.spin.as_ref().is_some_and(|s| s.axis.0 == [0.0, 1.0, 0.0]))
+            .collect();
+        hubs.sort_by(|a, b| a.transform.translation.0[1].total_cmp(&b.transform.translation.0[1]));
+        let [lower, upper] = hubs.as_slice() else {
+            panic!("{what}: {} rotors", hubs.len());
+        };
+        let (lo, up) = (disc(lower), disc(upper));
+        let gap = (up.centre.y + up.slab.0) - (lo.centre.y + lo.slab.1);
+        assert!(
+            gap > plan.len(0.15),
+            "{what}: her rotors' blades pass {gap} m apart"
+        );
+        for (rotor, d) in [(lower, &lo), (upper, &up)] {
+            // How near her mast a blade comes: each blade's inner end, its
+            // middle drawn back half its length along its own span.
+            let root = rotor
+                .children
+                .iter()
+                .filter_map(|b| {
+                    let GeneratorKind::Cuboid { size, .. } = &b.kind else {
+                        return None;
+                    };
+                    let along = Quat::from_array(b.transform.rotation.0).normalize()
+                        * Vec3::X
+                        * (size.0[0] * 0.5);
+                    let end = Vec3::from(b.transform.translation.0) - along;
+                    Some((end.x * end.x + end.z * end.z).sqrt())
+                })
+                .fold(f32::MAX, f32::min);
+            for part in built.children.iter().filter(|c| c.spin.is_none()) {
+                for p in drawn_points(part) {
+                    let q = p - d.centre;
+                    let radial = (q.x * q.x + q.z * q.z).sqrt();
+                    if radial < root || radial > d.reach {
+                        continue;
+                    }
+                    assert!(
+                        !(d.slab.0..=d.slab.1).contains(&q.y),
+                        "{what}: a rotor sweeps through her at {p}"
+                    );
+                    let off = (d.slab.0 - q.y).max(q.y - d.slab.1);
+                    nearest = nearest.min(off / plan.len(1.0));
+                }
+            }
+        }
+    }
+    assert!(nearest < 0.1, "nothing came near her rotors: {nearest}");
+}
+
+/// Her pusher turns clear of its shroud and its stators at every blueprint
+/// extreme (#1628 Q-B): its blades' tips stand inside the shroud's bore by
+/// more than a centimetre, the slab they sweep inside the shroud's length,
+/// and the stators ahead of that slab by more than a centimetre. And the
+/// stators hold the shroud: each one's axis stands inside its length by more
+/// than 4 mm, so its outer end is held in the shroud's wall at every boom -
+/// on a stretched station of their own, the longest boom drew them onto its
+/// front lip, half of each rod ahead of it. (A third of each rod's width
+/// stands ahead of the lip at every boom: the agreed prototype's.)
+#[test]
+fn the_coaxials_pusher_turns_clear_of_her_shroud() {
+    let ctx = PartCtx::for_seed(a_helicopter_seed());
+    let colours = coaxial_colours(&ctx);
+    for (bp, plan, built) in coaxials(&ctx) {
+        let what = coaxial_what(&bp);
+        let pusher = built
+            .children
+            .iter()
+            .find(|c| c.spin.as_ref().is_some_and(|s| s.axis.0 == [0.0, 0.0, 1.0]))
+            .expect("she has a pusher");
+        let d = disc(pusher);
+        let shroud = built
+            .children
+            .iter()
+            .find(|c| {
+                matches!(&c.kind, GeneratorKind::Cylinder { common, .. } if common.torture.hollow.0 > 0.0)
+            })
+            .expect("she draws a shroud");
+        let GeneratorKind::Cylinder {
+            radius,
+            height,
+            common,
+            ..
+        } = &shroud.kind
+        else {
+            unreachable!()
+        };
+        let bore = radius.0 * common.torture.hollow.0;
+        assert!(
+            bore - d.reach > plan.len(0.01),
+            "{what}: her pusher's tips stand {} m inside her shroud's bore",
+            bore - d.reach
+        );
+        // Laid along her by a quarter turn about +X: its height is fore and
+        // aft.
+        let middle = shroud.transform.translation.0[2];
+        let (aft, fore) = (middle - height.0 * 0.5, middle + height.0 * 0.5);
+        let sweep = (d.centre.z + d.slab.0, d.centre.z + d.slab.1);
+        assert!(
+            sweep.0 > aft && sweep.1 < fore,
+            "{what}: her pusher sweeps {sweep:?}, her shroud runs {aft}..{fore}"
+        );
+        // The stators: the straight rods in her body's colour.
+        let stators: Vec<&Generator> = built
+            .children
+            .iter()
+            .filter(|c| {
+                c.kind.material() == Some(&colours.body)
+                    && matches!(&c.kind, GeneratorKind::Spine { points, .. } if points.len() == 2)
+            })
+            .collect();
+        assert_eq!(stators.len(), 3, "{what}: {} stators", stators.len());
+        for stator in &stators {
+            let GeneratorKind::Spine { points, .. } = &stator.kind else {
+                unreachable!()
+            };
+            let axis = (points[0].position.0[2] + points[1].position.0[2]) * 0.5;
+            assert!(
+                axis > aft && fore - axis > plan.len(0.004),
+                "{what}: a stator's axis stands at {axis}, her shroud runs {aft}..{fore}"
+            );
+        }
+        let behind = stators
+            .iter()
+            .flat_map(|s| drawn_points(s))
+            .map(|p| p.z)
+            .fold(f32::MAX, f32::min);
+        assert!(
+            behind - sweep.1 > plan.len(0.01),
+            "{what}: her stators stand {} m ahead of her pusher",
+            behind - sweep.1
+        );
+    }
+}
+
+/// Her exhaust aura issues from her port exhaust's mouth (#1628): what she
+/// trails an exhaust, steam or embers from is the upper end of the exhaust
+/// she draws on her fairing's port side - read off the drawn node, at every
+/// blueprint extreme, as no live seed of hers burns one. Her themes pick
+/// neon haze, arcane motes and a thruster's wash, and those issue on her
+/// centreline under her keel, between her skids.
+#[test]
+fn the_coaxials_exhaust_issues_from_her_port_exhaust() {
+    let ctx = PartCtx::for_seed(a_helicopter_seed());
+    let colours = coaxial_colours(&ctx);
+    for (bp, plan, built) in coaxials(&ctx) {
+        let what = coaxial_what(&bp);
+        let exhausts: Vec<&Generator> = built
+            .children
+            .iter()
+            .filter(|c| {
+                matches!(c.kind, GeneratorKind::Cylinder { .. })
+                    && c.kind.material() == Some(&colours.dark)
+            })
+            .collect();
+        assert_eq!(exhausts.len(), 2, "{what}: {} exhausts", exhausts.len());
+        let port = exhausts
+            .iter()
+            .find(|c| c.transform.translation.0[0] > 0.0)
+            .expect("an exhaust to port");
+        let GeneratorKind::Cylinder { height, .. } = &port.kind else {
+            unreachable!()
+        };
+        let mouth = Vec3::from(port.transform.translation.0)
+            + Quat::from_array(port.transform.rotation.0) * Vec3::new(0.0, height.0 * 0.5, 0.0);
+        let at = Vec3::from(coaxial::Coaxial.fx_mount(ParticleAura::Exhaust, &plan));
+        assert!(
+            at.distance(mouth) < 1e-4,
+            "{what}: her exhaust issues at {at}, her port exhaust's mouth is at {mouth}"
+        );
+        let keel = drawn_points(&built.children[0]);
+        for aura in [
+            ParticleAura::Thruster,
+            ParticleAura::NeonHaze,
+            ParticleAura::ArcaneMotes,
+        ] {
+            let at = Vec3::from(coaxial::Coaxial.fx_mount(aura, &plan));
+            let under = keel
+                .iter()
+                .filter(|p| (p.z - at.z).abs() < plan.len(0.05))
+                .map(|p| p.y)
+                .fold(f32::MAX, f32::min);
+            assert!(
+                at.x == 0.0 && at.y < under,
+                "{what}: her {aura:?} issues at {at}, her keel there is at {under}"
+            );
+        }
+    }
+}
+
+/// The coaxial carries her identity on her cheat line (#1628, the port's
+/// first change): one band of the seeded accent down EACH flank, nose to
+/// tail, and nowhere else.
+#[test]
+fn the_coaxials_cheat_line_carries_her_identity() {
+    let mut n = 0;
+    for s in
+        helicopter_seeds(900).filter(|&s| HelicopterType::for_seed(s) == HelicopterType::Coaxial)
+    {
+        let ctx = PartCtx::for_seed(s);
+        let colours = coaxial_colours(&ctx);
+        let (_, plan) = body_for(s).expect("a coaxial seed has a body");
+        let built = coaxial::build_dressed(&ctx, &plan);
+        let mut sides: Vec<f32> = built
+            .children
+            .iter()
+            .filter(|c| c.kind.material() == Some(&colours.stripe))
+            .map(|g| {
+                let pts = primitive_points(&g.kind);
+                pts.iter().map(|p| p.x).sum::<f32>() / pts.len() as f32
+            })
+            .collect();
+        sides.sort_by(f32::total_cmp);
+        assert!(
+            sides.len() == 2 && sides[0] < -0.05 && sides[1] > 0.05,
+            "seed {s}: her accent is drawn at mean x {sides:?}"
+        );
+        n += 1;
+    }
+    assert!(n > 5, "only {n} coaxial seeds sampled");
+}
+
+/// Her beacon stands on her fairing's top, more than half of it showing
+/// (#1628): stood on her fuselage's crown, as it was first drawn - in the
+/// prototype too - it was buried in the fairing, 2.2 to 4.2 cm under its
+/// skin. Read as the root's hub is: in the fairing's own frame, where its
+/// sections are round, the beacon's middle stands farther from the
+/// fairing's line than the fairing's radius there, by more than a quarter
+/// of its own radius, at every blueprint extreme. (Not off the fairing's
+/// vertices round its station: the fairing falls away aft there, so its
+/// rings tilt and the next one forward stands its top higher, beside the
+/// beacon.)
+#[test]
+fn the_coaxials_beacon_stands_proud_of_her_fairing() {
+    let mut ctx = PartCtx::for_seed(a_helicopter_seed());
+    ctx.ornateness = OrnatenessTier::Ornate;
+    let colours = coaxial_colours(&ctx);
+    for (bp, _, built) in coaxials(&ctx) {
+        let what = coaxial_what(&bp);
+        let beacon = built
+            .children
+            .iter()
+            .find(|c| c.kind.material() == Some(&colours.beacon))
+            .expect("an ornate coaxial carries a beacon");
+        let GeneratorKind::Sphere { radius, .. } = &beacon.kind else {
+            panic!("{what}: her beacon is not a sphere");
+        };
+        // The fairing: the sweep in her body's colour drawn squashed - her
+        // fuselage is drawn taller, her stub wings far flatter.
+        let fairing = built
+            .children
+            .iter()
+            .find(|c| {
+                matches!(c.kind, GeneratorKind::Spine { .. })
+                    && c.kind.material() == Some(&colours.body)
+                    && (0.5..1.0).contains(&c.transform.scale.0[1])
+            })
+            .expect("she draws a fairing");
+        let GeneratorKind::Spine { points, .. } = &fairing.kind else {
+            unreachable!()
+        };
+        // In the sweep's own frame its sections are round.
+        let at = Vec3::from(beacon.transform.translation.0) / Vec3::from(fairing.transform.scale.0);
+        let (off, round) = points
+            .windows(2)
+            .map(|w| {
+                let (a, ra) = (Vec3::from(w[0].position.0), w[0].radius.0);
+                let (b, rb) = (Vec3::from(w[1].position.0), w[1].radius.0);
+                let t = ((at - a).dot(b - a) / (b - a).length_squared()).clamp(0.0, 1.0);
+                (at.distance(a + (b - a) * t), ra + (rb - ra) * t)
+            })
+            .min_by(|x, y| x.0.total_cmp(&y.0))
+            .expect("a fairing has segments");
+        assert!(
+            off - round > radius.0 * 0.25,
+            "{what}: her beacon's middle stands {:.4} outside her fairing, in its own \
+             frame; its radius is {}",
+            off - round,
+            radius.0
+        );
+    }
+}
+
+/// Her box is set by the parts that should set it (#1628): the box guard
+/// reads her drawn tree back against a box MEASURED off the same tree, so
+/// on its own it cannot see a part grow past her ends or her sides. Here
+/// each is named, at every blueprint extreme and on every tier. Her nose is
+/// her fuselage's tip, under a centimetre ahead of its first station (its
+/// end cap's lean); her tail is her shroud's aft lip, 5 cm aft of her boom's
+/// end. Her sides are her nav lights' outer faces, or her skids' on a cabin
+/// fuller than girth 1.27; an adorned machine's steps come within half a
+/// millimetre of both there and are counted too, but never stand wider. An
+/// ornate machine's sides are her stub wings' lamp pods.
+#[test]
+fn the_coaxials_box_is_set_by_her_nose_her_shroud_and_her_widest_parts() {
+    let mut ctx = PartCtx::for_seed(a_helicopter_seed());
+    for ornateness in OrnatenessTier::ALL {
+        ctx.ornateness = ornateness;
+        let colours = coaxial_colours(&ctx);
+        for (bp, plan, built) in coaxials(&ctx) {
+            let what = format!("{}, {}", coaxial_what(&bp), ornateness.label());
+            let (nose, tail) = plan.nose_and_tail();
+            let tip = drawn_points(&built.children[0])
+                .into_iter()
+                .map(|p| p.z)
+                .fold(f32::MIN, f32::max);
+            let first = plan.at(0.0, 0.0, plan.nose())[2];
+            assert!(
+                (nose - tip).abs() < 1e-4 && tip > first && tip - first < plan.len(0.01),
+                "{what}: her box's nose is at {nose}, her fuselage's tip at {tip}, its \
+                 first station at {first}"
+            );
+            let shroud = built
+                .children
+                .iter()
+                .find(|c| {
+                    matches!(&c.kind, GeneratorKind::Cylinder { common, .. } if common.torture.hollow.0 > 0.0)
+                })
+                .expect("she draws a shroud");
+            let lip = drawn_points(shroud)
+                .into_iter()
+                .map(|p| p.z)
+                .fold(f32::MAX, f32::min);
+            let reach = (plan.at(0.0, 0.0, coaxial::PROFILE.boom_end)[2] - tail) / plan.len(1.0);
+            assert!(
+                (tail - lip).abs() < 1e-4 && (reach - 0.05).abs() < 0.003,
+                "{what}: her box's tail is at {tail}, {reach} m aft of her boom's end; \
+                 her shroud's aft lip at {lip}"
+            );
+            // The furthest the parts `pick` keeps stand off her centreline,
+            // as drawn.
+            let outer = |pick: &dyn Fn(&Generator) -> bool| {
+                built
+                    .children
+                    .iter()
+                    .filter(|c| pick(c))
+                    .flat_map(drawn_points)
+                    .map(|p| p.x.abs())
+                    .fold(0.0f32, f32::max)
+            };
+            let nav = outer(&|c| {
+                c.kind.material() == Some(&colours.port)
+                    || c.kind.material() == Some(&colours.starboard)
+            });
+            // The skids: the two metal sweeps each drawn at one x.
+            let skids = outer(&|c| {
+                c.kind.material() == Some(&colours.metal)
+                    && matches!(&c.kind, GeneratorKind::Spine { points, .. }
+                        if points.iter().all(|p| (p.position.0[0] - points[0].position.0[0]).abs() < 1e-6))
+            });
+            let steps = outer(&|c| {
+                c.kind.material() == Some(&colours.metal)
+                    && matches!(c.kind, GeneratorKind::Cuboid { .. })
+            });
+            let pods = outer(&|c| {
+                c.kind.material() == Some(&colours.trim)
+                    && matches!(c.kind, GeneratorKind::Spine { .. })
+            });
+            let named = match ornateness {
+                OrnatenessTier::Plain => nav.max(skids),
+                OrnatenessTier::Adorned => nav.max(skids).max(steps),
+                OrnatenessTier::Ornate => pods,
+            };
+            let half = coaxial::Coaxial.overall_width(&plan, ornateness) * 0.5;
+            assert!(
+                named > 0.0 && (half - named).abs() < 1e-3,
+                "{what}: her box is +-{half} wide; her nav lights reach {nav}, her skids \
+                 {skids}, her steps {steps}, her lamp pods {pods}"
+            );
+        }
+    }
 }

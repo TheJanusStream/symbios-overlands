@@ -59,7 +59,8 @@
 //! the roles it would fly, and two civil classics stay open to every theme.
 //! A theme still draws from several schemes, so its avatars do not all fly
 //! one machine; see [`HelicopterLivery`]. Each helicopter type has its own
-//! list (the trainer's since #1621), and so does the airplane.
+//! list (the trainer's since #1621, the coaxial's since #1628), and so does
+//! the airplane.
 //!
 //! **A boat's hull lines are the one exception, and it is a render result**
 //! (#1365 phase 2). The boot top and the cove line carry the accent as PAINT
@@ -1227,6 +1228,94 @@ pub fn trainer_livery(
     over: Option<usize>,
 ) -> &'static HelicopterLivery {
     pick(TRAINER_LIVERIES, |l| l.weight(style), seed, over)
+}
+
+/// The coaxial's nine schemes (#1628 Q-E): the paint of the five themes she
+/// flies in - the outpost's white and orange, the tower's silver, black and
+/// gold, the solar town's white and leaf, the organic worlds' teal and
+/// violet - weighted by theme as the utility's are. Outpost white and orange
+/// and Corporate silver are the floors every theme can roll; every theme she
+/// is at home on is at home on at least three
+/// (`the_coaxials_list_covers_her_homes`). The second hue is her trim: her
+/// shroud, her fins' tops and her upper rotor's cap.
+pub const COAXIAL_LIVERIES: &[HelicopterLivery] = &[
+    HelicopterLivery {
+        name: "Outpost white and orange",
+        home: &[ThemeArchetype::SpaceOutpost, ThemeArchetype::Solarpunk],
+        floor: true,
+        body: [0.92, 0.92, 0.90],
+        lower: [0.90, 0.40, 0.08],
+    },
+    HelicopterLivery {
+        name: "Corporate silver",
+        home: &[ThemeArchetype::Cyberpunk, ThemeArchetype::SpaceOutpost],
+        floor: true,
+        body: [0.70, 0.72, 0.75],
+        lower: [0.06, 0.06, 0.07],
+    },
+    HelicopterLivery {
+        name: "Hazard grey and cyan",
+        home: &[ThemeArchetype::SpaceOutpost, ThemeArchetype::Cyberpunk],
+        floor: false,
+        body: [0.42, 0.44, 0.46],
+        lower: [0.10, 0.62, 0.78],
+    },
+    HelicopterLivery {
+        name: "Neon black",
+        home: &[ThemeArchetype::Cyberpunk, ThemeArchetype::AlienMonolithic],
+        floor: false,
+        body: [0.040, 0.040, 0.050],
+        lower: [0.86, 0.10, 0.55],
+    },
+    HelicopterLivery {
+        name: "Obsidian and gold",
+        home: &[ThemeArchetype::AlienMonolithic, ThemeArchetype::Cyberpunk],
+        floor: false,
+        body: [0.050, 0.050, 0.070],
+        lower: [0.80, 0.62, 0.20],
+    },
+    HelicopterLivery {
+        name: "Solar white and leaf",
+        home: &[ThemeArchetype::Solarpunk],
+        floor: false,
+        body: [0.92, 0.93, 0.88],
+        lower: [0.30, 0.62, 0.25],
+    },
+    HelicopterLivery {
+        name: "Bamboo and moss",
+        home: &[ThemeArchetype::Solarpunk, ThemeArchetype::AlienOrganic],
+        floor: false,
+        body: [0.72, 0.60, 0.38],
+        lower: [0.20, 0.36, 0.18],
+    },
+    HelicopterLivery {
+        name: "Chitin teal",
+        home: &[ThemeArchetype::AlienOrganic],
+        floor: false,
+        body: [0.06, 0.28, 0.30],
+        lower: [0.86, 0.82, 0.70],
+    },
+    HelicopterLivery {
+        name: "Bioluminescent violet",
+        home: &[
+            ThemeArchetype::AlienOrganic,
+            ThemeArchetype::AlienMonolithic,
+        ],
+        floor: false,
+        body: [0.24, 0.08, 0.34],
+        lower: [0.40, 0.90, 0.70],
+    },
+];
+
+/// The scheme this coaxial seed wears on `style`, a pick from
+/// [`COAXIAL_LIVERIES`]; `over` wraps inside it (`render --livery 0` is
+/// Outpost white and orange, `1` Corporate silver).
+pub fn coaxial_livery(
+    seed: u64,
+    style: ThemeArchetype,
+    over: Option<usize>,
+) -> &'static HelicopterLivery {
+    pick(COAXIAL_LIVERIES, |l| l.weight(style), seed, over)
 }
 
 /// An airplane's scheme (#1617): the two hues of her airframe, as the owner
@@ -3748,6 +3837,84 @@ pub(crate) fn autogyro_colours(ctx: &PartCtx) -> AutogyroColours {
     }
 }
 
+/// The surfaces the coaxial is built in (#1628 Q-E): her scheme's body hue on
+/// her fuselage, her roof fairing, her stabiliser, her fins, the stators that
+/// hold her shroud and an ornate machine's stub wings; its trim on her shroud,
+/// her fins' tops, her upper rotor's cap and an ornate machine's lamp pods;
+/// the seeded accent on her cheat line; and what the rest of her simply is -
+/// dark glass, bare metal, dark blades.
+///
+/// What is lit, as the owner agreed it (#1628): the long pane down each side
+/// of her cabin, the fleet's lit window - the tertiary's light, held off her
+/// body's own colour ([`standing_off`]), as an airplane's cabin windows are;
+/// her nav lights on her fins, her white tail light, and an ornate machine's
+/// stub-wing lamps and beacon, which are lamps and glow on every theme. The
+/// cheat line goes through [`trim`], so it lights on a luminous kit and is
+/// paint on every other. Nothing else glows.
+///
+/// Its `Default` is every surface in the default material: her shape, which
+/// is the same in any paint - what her box is measured off.
+#[derive(Default)]
+pub(crate) struct CoaxialColours {
+    /// The fuselage, the roof fairing, the stabiliser, the fins, the
+    /// stators and an ornate machine's stub wings: the scheme's body hue,
+    /// floored off mud on a battered kit.
+    pub(crate) body: SovereignMaterialSettings,
+    /// The scheme's second hue: the shroud, the fins' tops, the upper
+    /// rotor's cap and an ornate machine's lamp pods.
+    pub(crate) trim: SovereignMaterialSettings,
+    /// **Identity.** The cheat line down each flank, nose to tail: the
+    /// coachline's rule, held clear of the body it lies on.
+    pub(crate) stripe: SovereignMaterialSettings,
+    /// The canopy, the chin windows and an adorned machine's sensor lens.
+    pub(crate) glass: SovereignMaterialSettings,
+    /// The cabin's two long panes: the tertiary's light, standing off her
+    /// body.
+    pub(crate) lamp: SovereignMaterialSettings,
+    /// The mast, the rotor heads, the pusher's spinner and driveshaft, the
+    /// skids, the steps and the sensor ball.
+    pub(crate) metal: SovereignMaterialSettings,
+    /// The blades, the pusher's blades, the exhausts and the hidden hubs.
+    pub(crate) dark: SovereignMaterialSettings,
+    /// The nav light on her left (port) fin: red, as on every aircraft.
+    pub(crate) port: SovereignMaterialSettings,
+    /// The nav light on her right (starboard) fin: green.
+    pub(crate) starboard: SovereignMaterialSettings,
+    /// The white light under her tail cone and an ornate machine's
+    /// stub-wing lamps.
+    pub(crate) white: SovereignMaterialSettings,
+    /// The anti-collision beacon an ornate machine carries on her fairing.
+    pub(crate) beacon: SovereignMaterialSettings,
+}
+
+pub(crate) fn coaxial_colours(ctx: &PartCtx) -> CoaxialColours {
+    let p = &ctx.palette;
+    let m = &ctx.materials;
+    let style = AvatarCharacter::for_seed(ctx.seed).style;
+    let l = coaxial_livery(ctx.seed, style, ctx.livery);
+    let body = floor_finished(m, l.body, HELI_MASS_FLOOR);
+    let paint = m.paint(body);
+    // Off the body as it is PAINTED, as an airplane's panes are: a kit's
+    // grime moves it.
+    let lamp = window_material(standing_off(
+        window_light(p.tertiary_accent),
+        paint.base_color.0,
+    ));
+    CoaxialColours {
+        body: paint,
+        trim: m.paint(floor_finished(m, l.lower, HELI_MASS_FLOOR)),
+        stripe: trim(m, clear_of(p.primary_accent, luma(body), COACHLINE_DELTA)),
+        glass: m.glass(HELI_GLASS),
+        lamp,
+        metal: m.paint(HELI_METAL),
+        dark: m.paint(HELI_DARK),
+        port: m.glow(NAV_RED),
+        starboard: m.glow(NAV_GREEN),
+        white: m.glow(LAMP_WHITE),
+        beacon: m.glow(BEACON_RED),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5530,6 +5697,156 @@ mod tests {
                 assert!(
                     apart >= WINDOW_STAND_OFF * 0.8,
                     "seed {s} in {}: the windows are {apart} from the body",
+                    scheme.name
+                );
+                for (what, m) in [
+                    ("port light", &c.port),
+                    ("starboard light", &c.starboard),
+                    ("tail light", &c.white),
+                    ("beacon", &c.beacon),
+                ] {
+                    assert!(
+                        m.emission_strength.0 > 0.0,
+                        "seed {s} in {}: the {what} is dark",
+                        scheme.name
+                    );
+                }
+                assert!(
+                    c.port.base_color.0[0] > c.port.base_color.0[1]
+                        && c.starboard.base_color.0[1] > c.starboard.base_color.0[0],
+                    "red is to port and green to starboard"
+                );
+                let on = c.stripe.emission_strength.0 > 0.0;
+                assert_eq!(
+                    on, luminous,
+                    "seed {s} in {}: the cheat line is lit {on} on a kit luminous {luminous}",
+                    scheme.name
+                );
+                if !luminous {
+                    let l = |m: &SovereignMaterialSettings| luma(m.base_color.0);
+                    let d = (l(&c.stripe) - l(&c.body)).abs();
+                    assert!(
+                        d > COACHLINE_DELTA * 0.6,
+                        "seed {s} in {}: the cheat line is {d} from the body",
+                        scheme.name
+                    );
+                }
+            }
+            if luminous {
+                lit += 1;
+            } else {
+                dark += 1;
+            }
+        }
+        assert!(
+            lit > 0 && dark > 0,
+            "the population saw only one kind: {lit} lit, {dark} dark"
+        );
+    }
+
+    /// The coaxial's list covers her homes (#1628 Q-E): every theme she is
+    /// at home on is at home on at least three of her schemes, her floors are
+    /// the outpost's white and orange and the corporate silver, every
+    /// scheme's trim stands off its body - by colour, as a window light is
+    /// held - and the draw over her own seeds reaches every scheme.
+    #[test]
+    fn the_coaxials_list_covers_her_homes() {
+        use crate::seeded_defaults::HelicopterType;
+        let homes: Vec<ThemeArchetype> = ThemeArchetype::ALL
+            .into_iter()
+            .filter(|&s| HelicopterType::Coaxial.weight(s) > 0)
+            .collect();
+        assert_eq!(homes.len(), 5, "her homes: {homes:?}");
+        for style in homes {
+            let at_home = COAXIAL_LIVERIES
+                .iter()
+                .filter(|l| l.home.contains(&style))
+                .count();
+            assert!(at_home >= 3, "{style:?} is at home on {at_home} schemes");
+        }
+        let floors: Vec<&str> = COAXIAL_LIVERIES
+            .iter()
+            .filter(|l| l.floor)
+            .map(|l| l.name)
+            .collect();
+        assert_eq!(floors, ["Outpost white and orange", "Corporate silver"]);
+        for l in COAXIAL_LIVERIES {
+            let d = l
+                .lower
+                .iter()
+                .zip(l.body)
+                .map(|(x, y)| (x - y).powi(2))
+                .sum::<f32>()
+                .sqrt();
+            assert!(
+                d >= WINDOW_STAND_OFF,
+                "{}: its trim is {d} off its body",
+                l.name
+            );
+        }
+        let mut drawn = vec![0usize; COAXIAL_LIVERIES.len()];
+        for s in (0u64..12_000).filter(|&s| {
+            ChassisFamily::for_seed(s) == ChassisFamily::Helicopter
+                && HelicopterType::for_seed(s) == HelicopterType::Coaxial
+        }) {
+            let style = AvatarCharacter::for_seed(s).style;
+            let l = coaxial_livery(s, style, None);
+            drawn[COAXIAL_LIVERIES
+                .iter()
+                .position(|x| x.name == l.name)
+                .expect("the pick came from the table")] += 1;
+        }
+        assert!(
+            drawn.iter().all(|&n| n > 0),
+            "a coaxial scheme is never drawn: {drawn:?}"
+        );
+    }
+
+    /// A coaxial's colours read on every scheme of her list, on every
+    /// helicopter seed under 900 (#1628), BOTH directions: her cabin's panes
+    /// are lit and stand off her body; her nav, tail and stub-wing lights and
+    /// her beacon are lamps; her cheat line is the seed's accent through
+    /// [`trim`], lit exactly when the kit is luminous and off her body
+    /// otherwise; and everything else is paint.
+    #[test]
+    fn a_coaxials_panes_lights_and_cheat_line_read_on_every_scheme() {
+        let (mut lit, mut dark) = (0, 0);
+        for s in (0u64..900).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Helicopter) {
+            let mut ctx = PartCtx::for_seed(s);
+            let luminous = ctx.materials.emissive_accents();
+            for (i, scheme) in COAXIAL_LIVERIES.iter().enumerate() {
+                ctx.livery = Some(i);
+                let c = coaxial_colours(&ctx);
+                for (what, m) in [
+                    ("body", &c.body),
+                    ("shroud and fins' tops", &c.trim),
+                    ("canopy", &c.glass),
+                    ("mast and skids", &c.metal),
+                    ("blades and exhausts", &c.dark),
+                ] {
+                    assert_eq!(
+                        m.emission_strength.0, 0.0,
+                        "seed {s} in {}: the {what} is self-lit",
+                        scheme.name
+                    );
+                }
+                assert!(
+                    c.lamp.emission_strength.0 > 0.0,
+                    "seed {s} in {}: the cabin's panes are dark",
+                    scheme.name
+                );
+                let apart = c
+                    .lamp
+                    .base_color
+                    .0
+                    .iter()
+                    .zip(c.body.base_color.0)
+                    .map(|(a, b)| (a - b).powi(2))
+                    .sum::<f32>()
+                    .sqrt();
+                assert!(
+                    apart >= WINDOW_STAND_OFF * 0.8,
+                    "seed {s} in {}: the panes are {apart} from the body",
                     scheme.name
                 );
                 for (what, m) in [

@@ -500,6 +500,7 @@ pub(super) fn voice_label(seed: u64) -> String {
         (Propulsion::PistonRotor, _) => "flat-six drone and rotor slap",
         (Propulsion::Radial, _) => "radial drone and airscrew thrum",
         (Propulsion::TwinRadial, _) => "twin radials beating and airscrews' thrum",
+        (Propulsion::CoaxialTurbine, _) => "two rotors' double chop and turbine whine",
         // No seed puts an engine under an airplane - hers is a propeller -
         // but a fixed-wing's engine turns one, so that is what is heard.
         (Propulsion::Propeller, _) | (Propulsion::Engine, ChassisFamily::Airplane) => {
@@ -579,6 +580,7 @@ fn family_drive(
         (Propulsion::PistonRotor, _) => piston_chop(g, detune),
         (Propulsion::Radial, _) => radial_drone(g, detune),
         (Propulsion::TwinRadial, _) => twin_radial_drone(g, detune),
+        (Propulsion::CoaxialTurbine, _) => coaxial_chop(g, detune),
         // As in `voice_label`: an engine under an airplane turns a
         // propeller, so the walk over every drive on every chassis hears one.
         (Propulsion::Propeller, _) | (Propulsion::Engine, ChassisFamily::Airplane) => {
@@ -1125,6 +1127,69 @@ fn turbine_chop(g: &mut GraphBuilder, detune: f32) -> NodeId {
     g.sink(NodeKind::Gain(Gain { gain: 1.0 }), &[chop, whine, octave])
 }
 
+/// The coaxial's two rotors over a turbine (#1628 Q-H): the utility's WHINE
+/// under a DOUBLE chop. Her two three-blade rotors turn opposite ways at
+/// three turns a second, so a blade of one crosses a blade of the other
+/// eighteen times a second, and each crossing is a slap - the utility's
+/// brown noise banded low under a thump, a little lower, gated by a decaying
+/// saw squared through a second in series. A saw at her blade pass rides the
+/// gate, so every other slap is the heavier and they gallop in pairs nine
+/// times a second: a sound no single rotor makes. The nine is read off her
+/// drawn rotors
+/// ([`COAXIAL_BLADE_PASS_HZ`](super::helicopters::COAXIAL_BLADE_PASS_HZ):
+/// three blades at three turns a second), so what is heard is what is seen.
+///
+/// Every rate is whole hertz after the detune - the crossing twice the
+/// rounded blade pass - and the chop's envelope dies to nothing and restarts
+/// at the loop seam under a lowpass, so the noise under it cannot step
+/// there (#1385, #1387).
+fn coaxial_chop(g: &mut GraphBuilder, detune: f32) -> NodeId {
+    let noise = g.src(NodeKind::BrownNoise(BrownNoise { amplitude: 0.7 }));
+    let slap = g.sink(
+        NodeKind::BiquadBandpass(BiquadBandpass {
+            center_hz: 150.0,
+            q: 0.9,
+        }),
+        &[noise],
+    );
+    let thump = g.src(NodeKind::Sine(sine(hz(36.0, detune), 0.22)));
+    let body = g.sink(NodeKind::Gain(Gain { gain: 1.0 }), &[slap, thump]);
+    let pass = hz(super::helicopters::COAXIAL_BLADE_PASS_HZ, detune);
+    let crossing = || {
+        NodeKind::Lfo(Lfo {
+            rate_hz: 2.0 * pass,
+            shape: LfoShape::Saw,
+            depth: -0.5,
+            offset: 0.5,
+        })
+    };
+    let fall = g.src(crossing());
+    let fall_again = g.src(crossing());
+    let chop = g.vca(&[body], fall);
+    let chop = g.vca(&[chop], fall_again);
+    // Every other crossing the heavier: full at the pair's first, three
+    // quarters at its second.
+    let pair = g.src(NodeKind::Lfo(Lfo {
+        rate_hz: pass,
+        shape: LfoShape::Saw,
+        depth: -0.25,
+        offset: 0.75,
+    }));
+    let chop = g.vca(&[chop], pair);
+    let chop = g.sink(
+        NodeKind::BiquadLowpass(BiquadLowpass {
+            cutoff_hz: 900.0,
+            q: 0.7,
+        }),
+        &[chop],
+    );
+    let chop = g.sink(NodeKind::Gain(Gain { gain: 1.6 }), &[chop]);
+    let pitch = hz(620.0, detune);
+    let whine = g.src(NodeKind::Sine(sine(pitch, 0.05)));
+    let octave = g.src(NodeKind::Sine(sine(2.0 * pitch, 0.02)));
+    g.sink(NodeKind::Gain(Gain { gain: 1.0 }), &[chop, whine, octave])
+}
+
 /// An airplane's air-cooled flat four under her two-blade airscrew (#1617,
 /// #1616 recommendation 10): the engine's DRONE - a 31 Hz firing note, a
 /// 0.36-duty square under a 380 Hz lowpass, steadier than the dune buggy's
@@ -1500,7 +1565,7 @@ mod audio_tests {
         AvatarVoice::NeonBuzz,
         AvatarVoice::ArcaneShimmer,
     ];
-    const DRIVES: [Propulsion; 15] = [
+    const DRIVES: [Propulsion; 16] = [
         Propulsion::Sail,
         Propulsion::Engine,
         Propulsion::Rolling,
@@ -1516,6 +1581,7 @@ mod audio_tests {
         Propulsion::PistonRotor,
         Propulsion::Radial,
         Propulsion::TwinRadial,
+        Propulsion::CoaxialTurbine,
     ];
 
     /// Every voice patch there is: each voice on each chassis under each
@@ -1649,7 +1715,8 @@ mod audio_tests {
         // and its octave under her airscrew's thrum (#1617), the trainer's
         // flat six a square and a thump under her rotor's slap (#1621), the
         // biplane's radial a loped saw and its second under the same thrum
-        // (#1623) and the twin's two radials a hertz apart under it (#1625).
+        // (#1623), the twin's two radials a hertz apart under it (#1625) and
+        // the coaxial's whine over her double chop (#1628).
         for (family, drive) in [
             (ChassisFamily::Airship, Propulsion::Engine),
             (ChassisFamily::Skiff, Propulsion::Engine),
@@ -1663,6 +1730,7 @@ mod audio_tests {
             (ChassisFamily::Helicopter, Propulsion::PistonRotor),
             (ChassisFamily::Airplane, Propulsion::Radial),
             (ChassisFamily::Airplane, Propulsion::TwinRadial),
+            (ChassisFamily::Helicopter, Propulsion::CoaxialTurbine),
         ] {
             let patch =
                 driven_voice_patch(AvatarVoice::Drive, family, drive, 0).expect("a drive voice");
@@ -1690,12 +1758,13 @@ mod audio_tests {
         }
     }
 
-    /// Every avatar voice meets itself at its loop seam (#1387) - all 371
+    /// Every avatar voice meets itself at its loop seam (#1387) - all 392
     /// distinct patches (266 until the helicopter's turbine added 21,
     /// #1614, 287 until the airplane's propeller added 21 more, #1617, 308
     /// until the trainer's piston rotor added 21 more, #1621, 329 until the
-    /// biplane's radial added 21 more, #1623, and 350 until the twin's two
-    /// radials added 21 more, #1625),
+    /// biplane's radial added 21 more, #1623, 350 until the twin's two
+    /// radials added 21 more, #1625, and 371 until the coaxial's double chop
+    /// added 21 more, #1628),
     /// on every detune bucket, not the seven tonal ones
     /// [`a_tonal_voice_meets_itself_at_the_loop_seam`] names on bucket 0.
     ///
@@ -1720,7 +1789,7 @@ mod audio_tests {
     /// worst 1.008.
     #[test]
     fn every_avatar_voice_meets_itself_at_the_loop_seam() {
-        // One bake each over the DISTINCT patches - 371 of the 1890 labelled
+        // One bake each over the DISTINCT patches - 392 of the 2016 labelled
         // pairs, since a drive's voice is the same graph on every chassis
         // that carries it. Timed in one binary before it was written this
         // wide: 1.0 s at test-release, 7.9 s under the plain `cargo test`
@@ -1755,7 +1824,7 @@ mod audio_tests {
                 worst = (ratio, label);
             }
         }
-        assert_eq!(seen.len(), 371, "the census walked 371 distinct patches");
+        assert_eq!(seen.len(), 392, "the census walked 392 distinct patches");
         assert!(
             worst.0 <= 1.05,
             "{}: the seam steps {:.2}x the largest step inside its own loop",
@@ -2009,6 +2078,7 @@ mod audio_tests {
             (ChassisFamily::Helicopter, Propulsion::PistonRotor),
             (ChassisFamily::Airplane, Propulsion::Radial),
             (ChassisFamily::Airplane, Propulsion::TwinRadial),
+            (ChassisFamily::Helicopter, Propulsion::CoaxialTurbine),
         ] {
             let patch = driven_voice_patch(AvatarVoice::Drive, family, drive, 3).expect("a drive");
             assert_audible(&patch, &format!("{family:?} {drive:?}"));
@@ -2034,9 +2104,9 @@ mod audio_tests {
 
     #[test]
     fn the_family_drives_are_distinct() {
-        // The seventeen drive voices - sail, motor boat, rotor, putter,
+        // The eighteen drive voices - sail, motor boat, rotor, putter,
         // wagon, scow, tug, buggy, cyclecar, junk, armoured car, rover,
-        // helicopter, airplane, trainer, biplane, twin - are genuinely
+        // helicopter, airplane, trainer, biplane, twin, coaxial - are genuinely
         // different voices, not one shared hum. It is what
         // separates the buggy's square from the armoured car's, which a "has
         // a square" claim no longer can (#1375), and the rover's banded saw
@@ -2059,6 +2129,7 @@ mod audio_tests {
             (ChassisFamily::Helicopter, Propulsion::PistonRotor),
             (ChassisFamily::Airplane, Propulsion::Radial),
             (ChassisFamily::Airplane, Propulsion::TwinRadial),
+            (ChassisFamily::Helicopter, Propulsion::CoaxialTurbine),
         ]
         .iter()
         .map(|&(family, drive)| {
@@ -2632,6 +2703,37 @@ mod audio_tests {
                 (1.0..=2.0).contains(&beat) && beat.fract() == 0.0,
                 "bucket {bucket}: her engines fire at {fires:?}"
             );
+        }
+    }
+
+    /// The coaxial's chop is her drawn rotors' (#1628 Q-H): on every detune
+    /// bucket her voice's two gating saws run at their blades' crossings,
+    /// twice her blade pass, and the saw that pairs them at the blade pass
+    /// itself - so the slaps gallop in pairs at the rate her rotors are seen
+    /// to turn.
+    #[test]
+    fn a_coaxials_chop_gallops_in_pairs_at_her_rotors_blade_pass() {
+        use super::super::helicopters::COAXIAL_BLADE_PASS_HZ;
+        assert_eq!(COAXIAL_BLADE_PASS_HZ, 9.0);
+        for bucket in 0..DETUNE_BUCKETS {
+            let patch = driven_voice_patch(
+                AvatarVoice::Drive,
+                ChassisFamily::Helicopter,
+                Propulsion::CoaxialTurbine,
+                bucket,
+            )
+            .expect("a drive voice");
+            let rates: Vec<f32> = patch
+                .graph
+                .nodes
+                .iter()
+                .filter_map(|n| match &n.kind {
+                    NodeKind::Lfo(l) => Some(l.rate_hz),
+                    _ => None,
+                })
+                .collect();
+            let pass = COAXIAL_BLADE_PASS_HZ;
+            assert_eq!(rates, [2.0 * pass, 2.0 * pass, pass], "bucket {bucket}");
         }
     }
 

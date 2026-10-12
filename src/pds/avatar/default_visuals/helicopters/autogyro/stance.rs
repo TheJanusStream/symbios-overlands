@@ -10,15 +10,14 @@
 //! box changes: the Helicopter preset rests it on its floor (#1612), which
 //! is her tyres, and her lean (twelve degrees) levels her flying forward.
 
-use bevy::math::{Affine3A, Quat, Vec3};
+use bevy::math::{Quat, Vec3};
 
 use crate::catalogue::items::measure::Bounds;
 use crate::pds::generator::{Generator, GeneratorKind};
 use crate::pds::types::{Fp3, Fp4};
 use crate::seeded_defaults::OrnatenessTier;
-use crate::world_builder::primitive_outline;
 
-use super::super::{AutogyroColours, PodPlan};
+use super::super::{AutogyroColours, PodPlan, airframe_bounds};
 use super::{MAIN_Z, PROFILE, WHEEL_R, draw};
 
 /// The attitude she stands at on her three wheels (degrees, nose up): a
@@ -93,51 +92,12 @@ pub(crate) fn draw_level(plan: &PodPlan, ornateness: OrnatenessTier) -> Vec<Gene
 }
 
 /// The bounds of the machine she draws at `ornateness`, standing (drawn
-/// frame): the mesher's own vertices ([`primitive_outline`], which reads a
-/// sweep's without building its mesh), through every part's transform and
-/// through a turning hub's to what it carries - but its blades, each a
-/// block it carries that does not turn of itself. Her box holds her
-/// airframe, and the blades stand outside it (owner decision 3 of #1611):
-/// the rotor's disc and the airscrew's. Her tail wheel is a turning hub
-/// carried by a turning hub, and in it.
+/// frame): her airframe's, blades pruned ([`airframe_bounds`]). Her tail
+/// wheel is a turning hub carried by a turning hub, and in it.
 pub(super) fn drawn(plan: &PodPlan, ornateness: OrnatenessTier) -> Bounds {
     let mut kids = draw_level(plan, ornateness);
     stand(&mut kids, plan);
-    let mut out: Option<Bounds> = None;
-    for part in &kids {
-        reach_into(part, Affine3A::IDENTITY, &mut out);
-    }
-    out.expect("she draws something")
-}
-
-/// `part`'s vertices under `parent`, and its children's - a turning hub's
-/// but its blades: the blocks it carries that do not turn of themselves -
-/// folded into `out`.
-fn reach_into(part: &Generator, parent: Affine3A, out: &mut Option<Bounds>) {
-    let t = &part.transform;
-    let world = parent
-        * Affine3A::from_scale_rotation_translation(
-            Vec3::from(t.scale.0),
-            Quat::from_array(t.rotation.0).normalize(),
-            Vec3::from(t.translation.0),
-        );
-    for p in primitive_outline(&part.kind) {
-        let at = world.transform_point3(p);
-        *out = Some(match *out {
-            None => Bounds { min: at, max: at },
-            Some(b) => Bounds {
-                min: b.min.min(at),
-                max: b.max.max(at),
-            },
-        });
-    }
-    let turning = part.spin.is_some();
-    for child in &part.children {
-        if turning && matches!(child.kind, GeneratorKind::Cuboid { .. }) && child.spin.is_none() {
-            continue;
-        }
-        reach_into(child, world, out);
-    }
+    airframe_bounds(&kids)
 }
 
 /// How far ahead of her first station and aft of her boom's end she is

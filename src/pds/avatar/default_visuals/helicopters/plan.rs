@@ -27,11 +27,13 @@
 //!   as far as the belly drops (the prototype's `set_fat`, kept as drawn:
 //!   the agreed proportion B was drawn with it). The skids' cross tubes
 //!   read the keel off the same sections, so they meet it at any girth;
-//! * the BOOM stretches everything aft of [`PodProfile::boom_root`] - the
-//!   boom, the fin, the stabiliser and the tail rotor ride its stations, and
-//!   so, by a centimetre at most, do the pod's tail cone, the skins, the
-//!   fairing and the skid tails that reach past it - and leaves the cabin
-//!   alone;
+//! * the BOOM stretches everything aft of [`PodProfile::boom_root`] and
+//!   leaves the cabin alone. On the utility the boom, the fin, the
+//!   stabiliser and the tail rotor ride its stations, and so, by a
+//!   centimetre at most, do the pod's tail cone, the skins, the fairing and
+//!   the skid tails that reach past it; on the coaxial it is her whole
+//!   tapering tail, nearly two metres of fuselage, and her skids are drawn
+//!   rigid off the cabin's rear instead (#1628);
 //! * the SCALE is whatever makes the drawn nose-to-boom-end exactly the
 //!   blueprint's length.
 //!
@@ -66,6 +68,10 @@
 //! [`PodPlan::with_nose_reach`] and [`PodPlan::with_tail_reach`]: her box
 //! and her centring are the standing machine's. The turn is rigid, so the
 //! two reaches it measures do not move with the centring they set.
+//!
+//! A level type whose tail is a part hung past her boom's end measures the
+//! same way: the coaxial's tail is her shroud's aft lip, and her nose her
+//! fuselage's tip, leaning a hair past its station (#1628).
 
 use crate::seeded_defaults::HelicopterBlueprint;
 
@@ -156,9 +162,9 @@ impl PodPlan {
     }
 
     /// This plan with its tail drawn `reach` (m, prototype frame) aft of its
-    /// boom's end - measured off the machine the type draws, standing - in
-    /// the box's tail and the craft's centring, in place of the profile's.
-    /// Her length, her scale and every station stay as they were.
+    /// boom's end - measured off the machine the type draws, as she stands -
+    /// in the box's tail and the craft's centring, in place of the
+    /// profile's. Her length, her scale and every station stay as they were.
     pub(crate) fn with_tail_reach(mut self, reach: f32) -> Self {
         self.tail_reach = reach.max(0.0);
         self.centre();
@@ -265,6 +271,15 @@ impl PodPlan {
     pub(crate) fn sill(&self, z: f32) -> f32 {
         let (y, _, h) = self.pod_at(z);
         y - h
+    }
+
+    /// Half the pod's width at prototype station `z`, at height `y`
+    /// (prototype frame): the flank a part standing at that height meets,
+    /// held off the very top and bottom of the section, where it closes.
+    pub(crate) fn flank(&self, z: f32, y: f32) -> f32 {
+        let (yc, r, h) = self.pod_at(z);
+        let t = ((y - yc).abs() / h.max(1e-4)).min(0.999);
+        r * (1.0 - t * t).max(0.04).sqrt()
     }
 
     /// The arc-length fraction along the pod's STORED centreline, nose

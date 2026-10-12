@@ -16,7 +16,7 @@ use crate::pds::{Fp, Spin, SpinTerm};
 use super::super::super::common::{cylinder, id_quat, prim, quat_xyzw, quat_z, rod, sweep, torus};
 use super::super::{AutogyroColours, MIN_DIM, PodPlan, dim};
 use super::stance::GROUND_DEG;
-use super::{MAIN_Z, SHOCK_TOP_Z, TAIL_R, TAIL_Z, TRACK, WHEEL_R, flank, hub};
+use super::{MAIN_Z, SHOCK_TOP_Z, TAIL_R, TAIL_Z, TRACK, WHEEL_R, hub};
 
 /// A main tyre's tube radius and its hub's radius and width (prototype
 /// frame).
@@ -127,7 +127,7 @@ pub(super) fn shock_leg(plan: &PodPlan, side: f32) -> ([f32; 3], [f32; 3]) {
     let z = SHOCK_TOP_Z;
     let y = plan.pod_at(z).0 + SHOCK_RISE;
     (
-        plan.at(side * (flank(plan, z, y) - SHOCK_IN), y, z),
+        plan.at(side * (plan.flank(z, y) - SHOCK_IN), y, z),
         leg_end(plan, side),
     )
 }

@@ -17,7 +17,7 @@ use super::super::super::common::{
     cuboid, cylinder, id_quat, prim, quat_mul, quat_x, quat_xyzw, quat_y, rod,
 };
 use super::super::{AutogyroColours, PodPlan, dim};
-use super::{PYLON_FOOT_Z, PYLON_Z, flank, hub, stance};
+use super::{PYLON_FOOT_Z, PYLON_Z, hub, stance};
 
 /// How far the housing's base stands over the crown at the pylon's station,
 /// and how far the rotor's axis leans aft of her up (degrees) - eighteen
@@ -111,7 +111,7 @@ pub(super) fn front_leg(plan: &PodPlan, side: f32) -> ([f32; 3], [f32; 3]) {
     let z = PYLON_FOOT_Z;
     let y = plan.crown(z) - LEG_SINK;
     (
-        plan.at(side * flank(plan, z, y) * LEG_SPREAD, y, z),
+        plan.at(side * plan.flank(z, y) * LEG_SPREAD, y, z),
         plan.at_off(
             side * LEG_TOP_X,
             head_base(plan) + LEG_TOP_RISE,

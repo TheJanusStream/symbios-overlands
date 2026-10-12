@@ -277,12 +277,3 @@ fn hub(plan: &PodPlan, at: [f32; 3], c: &AutogyroColours) -> Generator {
     let side = dim(plan.len(HUB_CUBE));
     prim(cuboid([side; 3], c.dark.clone()), at, id_quat())
 }
-
-/// Half the fuselage's width at prototype station `z`, at height `y`
-/// (prototype frame): the flank a part standing at that height meets,
-/// held off the very top and bottom of the section, where it closes.
-fn flank(plan: &PodPlan, z: f32, y: f32) -> f32 {
-    let (yc, r, h) = plan.pod_at(z);
-    let t = ((y - yc).abs() / h.max(1e-4)).min(0.999);
-    r * (1.0 - t * t).max(0.04).sqrt()
-}

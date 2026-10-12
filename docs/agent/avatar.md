@@ -23,8 +23,9 @@ so a shape that hangs below `-half_y` stands in the ground. A rotorcraft
 that should tip into its motion - nose down flying forward, banked into a
 turn - says how far in `/record/gait/lean_degrees` (0 to 45; absent is 0,
 level as an airship flies; a seeded utility helicopter leans 15, a
-bubble-canopy trainer 18 (#1621) and an autogyro 12, which levels her
-tail-down stance flying forward (#1624), and a seeded helicopter's gait zeroes
+bubble-canopy trainer 18 (#1621), an autogyro 12, which levels her
+tail-down stance flying forward (#1624), and a coaxial 10, her pusher
+shoving her along (#1628); and a seeded helicopter's gait zeroes
 the airship's heave and nose wander, so she sits still on her skids or her
 wheels). An autogyro is drawn standing tail-down in her level box, every part
 turned about her main axle, so her box's floor is her tyres.
