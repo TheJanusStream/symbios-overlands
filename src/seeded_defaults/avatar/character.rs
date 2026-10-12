@@ -762,13 +762,15 @@ mod tests {
             }
         }
         // Measured at b1b4648: 92 of 144 unreachable in EACH family - and
-        // none of the helicopter's 24, whose one type is every style's floor
-        // until the fan-out (#1614). Pinned so that an affinity edit has to
-        // come here on purpose - the table is a taste call, and a silent
-        // change to it changes which pin sets an owner can even build.
+        // none of the utility helicopter's 24, whose type is every style's
+        // floor (#1614). The trainer (#1621) adds 24 more: her six homes
+        // enabled, the other 18 refused, since she is no floor. Pinned so
+        // that an affinity edit has to come here on purpose - the table is a
+        // taste call, and a silent change to it changes which pin sets an
+        // owner can even build.
         assert_eq!(
             (refused, enabled),
-            (184, 128),
+            (202, 134),
             "the (type, style) census moved"
         );
     }
@@ -933,7 +935,8 @@ mod tests {
             assert!(pins.accepts(s));
             enabled += 1;
         }
-        assert_eq!(enabled, 128);
+        // 128 until the trainer's six homes (#1621).
+        assert_eq!(enabled, 134);
     }
 
     #[test]

@@ -46,12 +46,11 @@ mod wing;
 pub(crate) use fuselage::BLADE_PASS_HZ;
 
 use crate::pds::avatar::parts::PartCtx;
-use crate::pds::generator::{Generator, GeneratorKind};
-use crate::pds::texture::SovereignMaterialSettings;
+use crate::pds::generator::Generator;
 use crate::seeded_defaults::{AirplaneBlueprint, ParticleAura};
 
 use super::super::Propulsion;
-use super::super::common::{cuboid, id_quat, prim, spine};
+use super::super::common::{cuboid, id_quat, prim, rod, sweep};
 use super::{
     AirplaneColours, AirplaneCraft, AirplaneFeel, AirplaneLayout, FusePlan, FuseProfile,
     airplane_colours, dim,
@@ -237,34 +236,4 @@ pub(super) fn build_dressed(ctx: &PartCtx, plan: &FusePlan) -> Generator {
 fn hub(plan: &FusePlan, at: [f32; 3], c: &AirplaneColours) -> Generator {
     let side = dim(plan.len(HUB_CUBE));
     prim(cuboid([side; 3], c.dark.clone()), at, id_quat())
-}
-
-/// A sweep through `points` (drawn frame), `samples` facets to a segment -
-/// the fleet's sweep, sampled as the prototype sampled each part rather
-/// than at the fleet's eight, and never under the sanitiser's two.
-fn sweep(
-    points: &[([f32; 3], f32)],
-    res: u32,
-    samples: u32,
-    material: SovereignMaterialSettings,
-) -> GeneratorKind {
-    let mut kind = spine(points, res, material);
-    if let GeneratorKind::Spine {
-        samples_per_segment,
-        ..
-    } = &mut kind
-    {
-        *samples_per_segment = samples;
-    }
-    kind
-}
-
-/// A straight round rod from `a` to `b` (drawn frame): a two-station sweep,
-/// at the fewest samples a segment the sanitiser keeps.
-fn rod(a: [f32; 3], b: [f32; 3], radius: f32, material: SovereignMaterialSettings) -> Generator {
-    prim(
-        sweep(&[(a, radius), (b, radius)], 8, 2, material),
-        [0.0; 3],
-        id_quat(),
-    )
 }

@@ -53,12 +53,13 @@
 //! the schemes by theme would put every avatar of a theme in the same car,
 //! which is the variety problem this module is supposed to solve.
 //!
-//! **The helicopter's list is the one keyed to theme** (#1614, the owner's
-//! ask), and it keys WEIGHTS, not colours: a helicopter's paint says what she
-//! is for - rescue red, police navy, army olive - so each theme weighs the
-//! roles it would fly, and two civil classics stay open to every theme. A
-//! theme still draws from several schemes, so its avatars do not all fly one
-//! machine; see [`HelicopterLivery`].
+//! **The aircraft lists are the ones keyed to theme** (#1614, the owner's
+//! ask), and they key WEIGHTS, not colours: a helicopter's paint says what
+//! she is for - rescue red, police navy, army olive - so each theme weighs
+//! the roles it would fly, and two civil classics stay open to every theme.
+//! A theme still draws from several schemes, so its avatars do not all fly
+//! one machine; see [`HelicopterLivery`]. Each helicopter type has its own
+//! list (the trainer's since #1621), and so does the airplane.
 //!
 //! **A boat's hull lines are the one exception, and it is a render result**
 //! (#1365 phase 2). The boot top and the cove line carry the accent as PAINT
@@ -972,9 +973,11 @@ pub struct HelicopterLivery {
     home: &'static [ThemeArchetype],
     /// Whether every theme can roll it - see [`HELI_FLOOR`].
     floor: bool,
-    /// The pod, her fairing, boom, fins and stabiliser.
+    /// The big masses: the utility's pod, fairing, boom, fins and
+    /// stabiliser; the trainer's chin, tanks, truss, elevator and stirrup.
     body: [f32; 3],
-    /// The two-tone's lower band and the stabiliser's end plates.
+    /// The scheme's second hue: the utility's two-tone lower band and her
+    /// stabiliser's end plates; the straps round the trainer's tanks.
     lower: [f32; 3],
 }
 
@@ -1137,6 +1140,93 @@ pub fn helicopter_livery(
     over: Option<usize>,
 ) -> &'static HelicopterLivery {
     pick(HELICOPTER_LIVERIES, |l| l.weight(style), seed, over)
+}
+
+/// The bubble-canopy trainer's nine schemes (#1621 Q-E), the roles her type
+/// flew - the trainer's, the crop sprayer's, the police and the forestry
+/// service's, the army's scout and the hospital's - weighted by theme as the
+/// utility's are. Trainer yellow and Fire red are the floors every theme can
+/// roll; every theme she is at home on is at home on at least three
+/// (`the_trainers_list_covers_her_homes`).
+pub const TRAINER_LIVERIES: &[HelicopterLivery] = &[
+    HelicopterLivery {
+        name: "Trainer yellow",
+        home: &[ThemeArchetype::RuralFarmland, ThemeArchetype::Roadside],
+        floor: true,
+        body: [0.93, 0.72, 0.10],
+        lower: [0.90, 0.90, 0.88],
+    },
+    HelicopterLivery {
+        name: "Fire red",
+        home: &[
+            ThemeArchetype::Suburban,
+            ThemeArchetype::WildWest,
+            ThemeArchetype::CoastalResort,
+        ],
+        floor: true,
+        body: [0.70, 0.08, 0.06],
+        lower: [0.90, 0.90, 0.88],
+    },
+    HelicopterLivery {
+        name: "Olive drab",
+        home: &[ThemeArchetype::WildWest, ThemeArchetype::Nordic],
+        floor: false,
+        body: [0.30, 0.33, 0.20],
+        lower: [0.85, 0.84, 0.78],
+    },
+    HelicopterLivery {
+        name: "Police blue",
+        home: &[ThemeArchetype::Suburban, ThemeArchetype::Roadside],
+        floor: false,
+        body: [0.10, 0.18, 0.45],
+        lower: [0.90, 0.90, 0.88],
+    },
+    HelicopterLivery {
+        name: "Crop-duster orange",
+        home: &[ThemeArchetype::RuralFarmland, ThemeArchetype::WildWest],
+        floor: false,
+        body: [0.88, 0.36, 0.08],
+        lower: [0.90, 0.90, 0.88],
+    },
+    HelicopterLivery {
+        name: "Forestry green",
+        home: &[ThemeArchetype::Nordic, ThemeArchetype::RuralFarmland],
+        floor: false,
+        body: [0.16, 0.32, 0.20],
+        lower: [0.90, 0.86, 0.70],
+    },
+    HelicopterLivery {
+        name: "Polished silver",
+        home: &[ThemeArchetype::Roadside, ThemeArchetype::CoastalResort],
+        floor: false,
+        body: [0.72, 0.73, 0.75],
+        lower: [0.70, 0.08, 0.06],
+    },
+    HelicopterLivery {
+        name: "Sky blue",
+        home: &[ThemeArchetype::CoastalResort, ThemeArchetype::Suburban],
+        floor: false,
+        body: [0.45, 0.65, 0.85],
+        lower: [0.90, 0.90, 0.88],
+    },
+    HelicopterLivery {
+        name: "Ambulance white",
+        home: &[ThemeArchetype::Suburban, ThemeArchetype::Nordic],
+        floor: false,
+        body: [0.92, 0.92, 0.90],
+        lower: [0.70, 0.08, 0.06],
+    },
+];
+
+/// The scheme this trainer seed wears on `style`, a pick from
+/// [`TRAINER_LIVERIES`]; `over` wraps inside it (`render --livery 0` is
+/// Trainer yellow, `1` Fire red).
+pub fn trainer_livery(
+    seed: u64,
+    style: ThemeArchetype,
+    over: Option<usize>,
+) -> &'static HelicopterLivery {
+    pick(TRAINER_LIVERIES, |l| l.weight(style), seed, over)
 }
 
 /// An airplane's scheme (#1617): the two hues of her airframe, as the owner
@@ -2968,6 +3058,80 @@ pub(crate) fn helicopter_colours(ctx: &PartCtx) -> HelicopterColours {
     }
 }
 
+/// The surfaces the bubble-canopy trainer is built in (#1621): her scheme's
+/// body hue on everything painted, its second hue on the straps round her
+/// tanks, the seeded accent on the hoop round her bubble, and the colours the
+/// rest of her simply is - dark glass, bare metal, a dark engine and blades.
+///
+/// What is lit, as the owner agreed it (#1621 Q-B): the side panes of her
+/// bubble, which are the fleet's lit window (the tertiary's light); her nav
+/// lights on the elevator's tips, the white light at the boom's end and the
+/// beacon behind her mast, which are lamps and glow on every theme; and on
+/// an adorned seed her searchlight's lens, the window light again. The hoop
+/// goes through [`trim`], so it lights on a luminous kit and is paint on
+/// every other. Nothing else glows.
+pub(crate) struct TrainerColours {
+    /// The chin, the bulkhead, the saddle tanks, the truss and the engine
+    /// bay's frame, the elevator, the guard stirrup and the litter pods: the
+    /// scheme's body hue, floored off mud on a battered kit.
+    pub(crate) body: SovereignMaterialSettings,
+    /// The scheme's second hue: the straps round her saddle tanks.
+    pub(crate) straps: SovereignMaterialSettings,
+    /// **Identity.** The door hoop round her bubble: the coachline's rule,
+    /// held clear of the dark glass it frames rather than of the body - a
+    /// dark accent on a pale scheme would vanish into the bubble it lies on.
+    pub(crate) stripe: SovereignMaterialSettings,
+    /// The bubble.
+    pub(crate) glass: SovereignMaterialSettings,
+    /// The side panes and the searchlight's lens: the tertiary's light.
+    pub(crate) lamp: SovereignMaterialSettings,
+    /// The mast, the transmission, the cylinder banks, the cradles, the
+    /// skids, the steps, the gearbox and the rotor heads and shafts.
+    pub(crate) metal: SovereignMaterialSettings,
+    /// The engine block, the exhaust stack, the blades, the stabiliser
+    /// bar's weights, the searchlight's housing and the hidden hubs.
+    pub(crate) dark: SovereignMaterialSettings,
+    /// The nav light on her left (port) side: red, as on every aircraft.
+    pub(crate) port: SovereignMaterialSettings,
+    /// The nav light on her right (starboard) side: green.
+    pub(crate) starboard: SovereignMaterialSettings,
+    /// The white light at her boom's end.
+    pub(crate) white: SovereignMaterialSettings,
+    /// The anti-collision beacon behind her mast.
+    pub(crate) beacon: SovereignMaterialSettings,
+}
+
+pub(crate) fn trainer_colours(ctx: &PartCtx) -> TrainerColours {
+    let p = &ctx.palette;
+    let m = &ctx.materials;
+    let style = AvatarCharacter::for_seed(ctx.seed).style;
+    let l = trainer_livery(ctx.seed, style, ctx.livery);
+    TrainerColours {
+        body: m.paint(floor_finished(m, l.body, HELI_MASS_FLOOR)),
+        straps: m.paint(floor_finished(m, l.lower, HELI_MASS_FLOOR)),
+        // Floored before it is cleared, so the kit's grime cannot draw it
+        // back into the glass it frames (`clear_over_floor`).
+        stripe: trim(
+            m,
+            clear_over_floor(
+                m,
+                p.primary_accent,
+                luma(HELI_GLASS),
+                COACHLINE_DELTA,
+                luma(HELI_GLASS) + COACHLINE_DELTA,
+            ),
+        ),
+        glass: m.glass(HELI_GLASS),
+        lamp: window_material(window_light(p.tertiary_accent)),
+        metal: m.paint(HELI_METAL),
+        dark: m.paint(HELI_DARK),
+        port: m.glow(NAV_RED),
+        starboard: m.glow(NAV_GREEN),
+        white: m.glow(LAMP_WHITE),
+        beacon: m.glow(BEACON_RED),
+    }
+}
+
 /// The surfaces an airplane is built in (#1617): her scheme's two hues on
 /// the big masses, the seeded accent on the cheat line down each flank, and
 /// the colours the rest of her simply is - dark glass, bare metal, dark
@@ -4382,6 +4546,150 @@ mod tests {
             let d = (luma(l.body) - luma(l.lower)).abs();
             assert!(d > 0.15, "{}: its two hues are only {d} apart", l.name);
         }
+    }
+
+    /// The trainer's list covers her homes (#1621): every theme she is at
+    /// home on is at home on at least three of her schemes, her floors are
+    /// Trainer yellow and Fire red, every scheme's two hues read off each
+    /// other, and the draw over her own seeds reaches every scheme.
+    #[test]
+    fn the_trainers_list_covers_her_homes() {
+        use crate::seeded_defaults::HelicopterType;
+        let homes: Vec<ThemeArchetype> = ThemeArchetype::ALL
+            .into_iter()
+            .filter(|&s| HelicopterType::Trainer.weight(s) > 0)
+            .collect();
+        assert_eq!(homes.len(), 6, "her homes: {homes:?}");
+        for style in homes {
+            let at_home = TRAINER_LIVERIES
+                .iter()
+                .filter(|l| l.home.contains(&style))
+                .count();
+            assert!(at_home >= 3, "{style:?} is at home on {at_home} schemes");
+        }
+        let floors: Vec<&str> = TRAINER_LIVERIES
+            .iter()
+            .filter(|l| l.floor)
+            .map(|l| l.name)
+            .collect();
+        assert_eq!(floors, ["Trainer yellow", "Fire red"]);
+        for l in TRAINER_LIVERIES {
+            let d = (luma(l.body) - luma(l.lower)).abs();
+            assert!(d > 0.15, "{}: its two hues are only {d} apart", l.name);
+        }
+        let mut drawn = vec![0usize; TRAINER_LIVERIES.len()];
+        for s in (0u64..8_000).filter(|&s| {
+            ChassisFamily::for_seed(s) == ChassisFamily::Helicopter
+                && HelicopterType::for_seed(s) == HelicopterType::Trainer
+        }) {
+            let style = AvatarCharacter::for_seed(s).style;
+            let l = trainer_livery(s, style, None);
+            drawn[TRAINER_LIVERIES
+                .iter()
+                .position(|x| x.name == l.name)
+                .expect("the pick came from the table")] += 1;
+        }
+        assert!(
+            drawn.iter().all(|&n| n > 0),
+            "a trainer scheme is never drawn: {drawn:?}"
+        );
+    }
+
+    /// A trainer's colours read on every scheme of her list, on every seed
+    /// drawn as one under 3000 (#1621), BOTH directions: her side panes and
+    /// her searchlight's lens are the window light; her nav lights, her
+    /// tail light and her beacon are lamps on every kit; her door hoop is the
+    /// seed's accent through [`trim`], lit exactly when the kit is luminous
+    /// and, when it is not, held off the dark glass it frames; and
+    /// everything else is paint.
+    ///
+    /// None of her homes rolls a luminous kit, so the lit direction is
+    /// asked on her seeds wearing the kits of the first luminous seeds of
+    /// any family - the hoop is the one part of her a kit can light.
+    #[test]
+    fn a_trainers_hoop_panes_and_lights_read_on_every_scheme() {
+        use crate::seeded_defaults::HelicopterType;
+        let (mut lit, mut dark) = (0, 0);
+        let luminous_kits: Vec<_> = (0u64..)
+            .map(|s| PartCtx::for_seed(s).materials)
+            .filter(|m| m.emissive_accents())
+            .take(4)
+            .collect();
+        let trainers = (0u64..3_000).filter(|&s| {
+            ChassisFamily::for_seed(s) == ChassisFamily::Helicopter
+                && HelicopterType::for_seed(s) == HelicopterType::Trainer
+        });
+        let kits = std::iter::once(None).chain(luminous_kits.into_iter().map(Some));
+        for (s, kit) in trainers.flat_map(|s| kits.clone().map(move |k| (s, k))) {
+            let mut ctx = PartCtx::for_seed(s);
+            if let Some(kit) = kit {
+                ctx.materials = kit;
+            }
+            let luminous = ctx.materials.emissive_accents();
+            let window = window_material(window_light(ctx.palette.tertiary_accent));
+            for (i, scheme) in TRAINER_LIVERIES.iter().enumerate() {
+                ctx.livery = Some(i);
+                let c = trainer_colours(&ctx);
+                for (what, m) in [
+                    ("chin, tanks and truss", &c.body),
+                    ("straps", &c.straps),
+                    ("bubble", &c.glass),
+                    ("mast, skids and cradles", &c.metal),
+                    ("engine, blades and stack", &c.dark),
+                ] {
+                    assert_eq!(
+                        m.emission_strength.0, 0.0,
+                        "seed {s} in {}: the {what} is self-lit",
+                        scheme.name
+                    );
+                }
+                assert_eq!(
+                    c.lamp, window,
+                    "seed {s} in {}: the side panes are not the window light",
+                    scheme.name
+                );
+                for (what, m) in [
+                    ("port light", &c.port),
+                    ("starboard light", &c.starboard),
+                    ("tail light", &c.white),
+                    ("beacon", &c.beacon),
+                ] {
+                    assert!(
+                        m.emission_strength.0 > 0.0,
+                        "seed {s} in {}: the {what} is dark",
+                        scheme.name
+                    );
+                }
+                assert!(
+                    c.port.base_color.0[0] > c.port.base_color.0[1]
+                        && c.starboard.base_color.0[1] > c.starboard.base_color.0[0],
+                    "red is to port and green to starboard"
+                );
+                let on = c.stripe.emission_strength.0 > 0.0;
+                assert_eq!(
+                    on, luminous,
+                    "seed {s} in {}: the hoop is lit {on} on a kit luminous {luminous}",
+                    scheme.name
+                );
+                if !luminous {
+                    let d = (luma(c.stripe.base_color.0) - luma(c.glass.base_color.0)).abs();
+                    assert!(
+                        d > COACHLINE_DELTA * 0.6,
+                        "seed {s} in {}: the hoop is {d} from the glass",
+                        scheme.name
+                    );
+                }
+            }
+            if luminous {
+                lit += 1;
+            } else {
+                dark += 1;
+            }
+        }
+        assert!(
+            lit > 0 && dark > 0,
+            "the population saw only one kind: {lit} lit, {dark} dark"
+        );
     }
 
     /// The airplane's list keeps the helicopter's promises (#1617): every

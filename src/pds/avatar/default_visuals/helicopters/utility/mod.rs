@@ -55,7 +55,7 @@ pub(super) use rotor::{MAIN_ROTOR_DEG_S, TAIL_ROTOR_DEG_S};
 
 use crate::pds::avatar::parts::PartCtx;
 use crate::pds::generator::Generator;
-use crate::seeded_defaults::{HelicopterBlueprint, ParticleAura};
+use crate::seeded_defaults::{HelicopterBlueprint, OrnatenessTier, ParticleAura};
 
 use super::super::Propulsion;
 use super::super::common::{cuboid, id_quat, prim};
@@ -132,7 +132,7 @@ impl HelicopterCraft for Utility {
         HelicopterIdle { lean_degrees: 15.0 }
     }
 
-    fn overall_width(&self, plan: &PodPlan) -> f32 {
+    fn overall_width(&self, plan: &PodPlan, _ornateness: OrnatenessTier) -> f32 {
         // The skids, outboard faces: the stabiliser's end plates and their
         // nav lights reach 0.249 at the slimmest girth, the skid tubes 0.365.
         2.0 * plan.len(skids::track(plan) + skids::SKID_R)

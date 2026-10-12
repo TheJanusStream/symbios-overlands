@@ -182,8 +182,13 @@ pub(super) fn print_outfit(subject: &str) {
                 // for the same reason.
                 CraftType::Skiff(SkiffType::Rover) => livery::rover_livery(seed, None).name,
                 CraftType::Skiff(_) => livery::skiff_livery(seed, None).name,
-                // A helicopter's list is weighted by her THEME (#1614), and
-                // so is an airplane's (#1617).
+                // A helicopter's list is weighted by her THEME (#1614), each
+                // type's its own - the trainer's arm before the wildcard, as
+                // the armoured car's is (#1621) - and so is an airplane's
+                // (#1617).
+                CraftType::Helicopter(HelicopterType::Trainer) => {
+                    livery::trainer_livery(seed, character.style, None).name
+                }
                 CraftType::Helicopter(_) =>
                     livery::helicopter_livery(seed, character.style, None).name,
                 CraftType::Airplane(_) => livery::airplane_livery(seed, character.style, None).name,

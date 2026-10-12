@@ -42,27 +42,30 @@
 //! never-saved seeded default is free to change look, and a saved avatar keeps
 //! its own generator tree).
 //!
-//! # The helicopter family has one type so far (#1614)
+//! # The helicopter family has two types (#1614, #1621)
 //!
-//! [`HelicopterType`] opens with its hero alone, the light utility
+//! [`HelicopterType`] opened with its hero alone, the light utility
 //! helicopter, which is the family's universal floor and so every style's
-//! answer until the fan-out (#1618) adds the types a theme would rather fly.
-//! It is a type rather than nothing - the airship's answer - because the
-//! fan-out is coming and its seam should already be cut: the builder table,
-//! the pinned re-roll and the survey readouts all key on it today.
+//! answer. It was a type rather than nothing - the airship's answer -
+//! because the fan-out was coming and its seam was cut ahead of it: the
+//! builder table, the pinned re-roll and the survey readouts all keyed on
+//! it. The fan-out's first type (#1618) is the bubble-canopy trainer, at
+//! home on the farm, the roadside, the suburbs, the frontier, the coast and
+//! the north, where the utility keeps every home she had.
 //!
-//! # So has the airplane family (#1617)
+//! # The airplane family has one so far (#1617)
 //!
-//! [`AirplaneType`] opens the same way: its hero alone, the high-wing light
-//! monoplane taildragger the owner agreed on the phase-5 renders (#1616), the
-//! family's universal floor until the fan-out adds the rest.
+//! [`AirplaneType`] opens the way the helicopter's did: its hero alone, the
+//! high-wing light monoplane taildragger the owner agreed on the phase-5
+//! renders (#1616), the family's universal floor until the fan-out adds the
+//! rest.
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
 
 use super::character::AvatarCharacter;
 use super::chassis::ChassisFamily;
-use super::mood::{COASTAL, GRUBBY, HISTORIC, NEON, REGAL, STEAM, holds};
+use super::mood::{AGRARIAN, COASTAL, GRUBBY, HISTORIC, NEON, REGAL, STEAM, holds};
 use crate::seeded_defaults::hash::fnv1a_64;
 use crate::seeded_defaults::scene::{ThemeArchetype, pick_weighted};
 
@@ -112,7 +115,10 @@ impl CraftType {
 
     /// Every helicopter type as a craft type, in [`HelicopterType::ALL`]'s
     /// order.
-    pub const HELICOPTERS: [Self; 1] = [Self::Helicopter(HelicopterType::Utility)];
+    pub const HELICOPTERS: [Self; 2] = [
+        Self::Helicopter(HelicopterType::Utility),
+        Self::Helicopter(HelicopterType::Trainer),
+    ];
 
     /// Every airplane type as a craft type, in [`AirplaneType::ALL`]'s
     /// order.
@@ -278,16 +284,20 @@ pub enum SkiffType {
 
 /// The recognisable kind of rotorcraft a seeded helicopter avatar is (#1614).
 ///
-/// One so far: the hero the owner agreed on the phase-2 renders (#1613),
-/// which is the family's universal floor, so every style reaches her. The
-/// fan-out (#1618) adds the types a theme would rather fly, and they will be
-/// weighed against her the way the boats and skiffs are against theirs.
+/// The hero the owner agreed on the phase-2 renders (#1613) is the family's
+/// universal floor, so every style reaches her; the fan-out (#1618) adds the
+/// types a theme would rather fly, weighed against her the way the boats and
+/// skiffs are against theirs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HelicopterType {
     /// Light utility helicopter: a glazed pod on skids, a two-blade main
     /// rotor and a tail rotor on a slim boom - the JetRanger's layout, and
     /// the family's universal floor.
     Utility,
+    /// Bubble-canopy trainer: a glazed bubble over an open engine bay, twin
+    /// saddle tanks, an open truss boom and tall skids - the light
+    /// helicopter of the 1950s (#1621).
+    Trainer,
 }
 
 /// The recognisable kind of fixed-wing a seeded airplane avatar is (#1617).
@@ -544,7 +554,7 @@ impl SkiffType {
 }
 
 impl HelicopterType {
-    pub const ALL: [Self; 1] = [Self::Utility];
+    pub const ALL: [Self; 2] = [Self::Utility, Self::Trainer];
 
     /// The type every helicopter theme can reach - see [`FLOOR`].
     pub const UNIVERSAL: Self = Self::Utility;
@@ -553,6 +563,7 @@ impl HelicopterType {
     pub fn label(self) -> &'static str {
         match self {
             Self::Utility => "Utility helicopter",
+            Self::Trainer => "Bubble-canopy trainer",
         }
     }
 
@@ -560,6 +571,7 @@ impl HelicopterType {
     pub fn slug(self) -> &'static str {
         match self {
             Self::Utility => "utility",
+            Self::Trainer => "trainer",
         }
     }
 
@@ -581,6 +593,19 @@ impl HelicopterType {
                     | ThemeArchetype::CivicCampus
                     | ThemeArchetype::SportsRec
             ),
+            // The light machine of the farm strip, the roadside and the
+            // suburbs, and the frontier ranch's (AGRARIAN) - with the coast's
+            // sightseeing hop and the north's bush machine (#1621 Q-D). The
+            // utility keeps all eight of her homes, so where both are at
+            // home a trainer is three seeds in seven, and on the frontier
+            // and in the north, where only she is, three in four.
+            Self::Trainer => {
+                holds(AGRARIAN, style)
+                    || matches!(
+                        style,
+                        ThemeArchetype::CoastalResort | ThemeArchetype::Nordic
+                    )
+            }
         }
     }
 
@@ -912,6 +937,21 @@ mod tests {
         }
         for style in [Medieval, Nordic, Pirate] {
             assert!(!BoatType::SteamTug.at_home(style), "{style:?}");
+        }
+        // And the trainer's (#1621): AGRARIAN's four with the coast and the
+        // north, and none of the utility's town homes past them.
+        for style in [
+            RuralFarmland,
+            Roadside,
+            Suburban,
+            WildWest,
+            CoastalResort,
+            Nordic,
+        ] {
+            assert!(HelicopterType::Trainer.at_home(style), "{style:?}");
+        }
+        for style in [ModernCity, IndustrialPark, CivicCampus, SportsRec] {
+            assert!(!HelicopterType::Trainer.at_home(style), "{style:?}");
         }
     }
 }

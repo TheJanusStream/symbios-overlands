@@ -6,14 +6,18 @@
 //! builder, every line and every mount is read off ONE profile - here the
 //! [`PodPlan`], the cabin a light helicopter is built round - and the craft is
 //! authored at the size it is drawn at, with no parts, no outfit and no root
-//! scale. [`craft`] is the only match over [`HelicopterType`], so a second
-//! type (the fan-out, #1618) is a compile error here until it is built.
+//! scale. [`craft`] is the only match over [`HelicopterType`], so a new type
+//! is a compile error here until it is built.
 //!
-//! ONE type is built: the light utility helicopter the owner agreed on the
+//! TWO types are built. The light utility helicopter the owner agreed on the
 //! phase-2 renders (#1613) - a glazed pod on skids, a two-blade main rotor
 //! and a tail rotor on a slim boom - at the proportion they chose (B: a 3.2 m
 //! fuselage, the cabin 22 % fuller than the first draft) and with all ten of
-//! that issue's recommendations taken.
+//! that issue's recommendations taken. And the fan-out's first (#1618): the
+//! bubble-canopy trainer (#1621) - a glazed bubble over an open engine bay,
+//! saddle tanks, an open truss boom and tall skids - on a profile of her own
+//! read off the same [`PodPlan`], with all eight of her recommendations
+//! taken.
 //!
 //! # Where a helicopter sits
 //!
@@ -36,19 +40,27 @@
 //! ([`HelicopterIdle`]).
 
 mod plan;
+mod trainer;
 mod utility;
 
 pub(crate) use plan::{PodPlan, PodProfile};
-/// The hero's blade pass (Hz): what her turbine voice chops at.
-pub(super) use utility::BLADE_PASS_HZ;
+/// The trainer's blade pass (Hz): what her piston voice slaps at.
+pub(super) use trainer::BLADE_PASS_HZ as TRAINER_BLADE_PASS_HZ;
+/// The utility's blade pass (Hz): what her turbine voice chops at.
+pub(super) use utility::BLADE_PASS_HZ as UTILITY_BLADE_PASS_HZ;
 
 use crate::pds::avatar::parts::PartCtx;
 use crate::pds::generator::Generator;
-use crate::seeded_defaults::{HelicopterBlueprint, HelicopterType, ParticleAura};
+use crate::seeded_defaults::{
+    AvatarCharacter, HelicopterBlueprint, HelicopterType, OrnatenessTier, ParticleAura,
+};
 
 /// The helicopter family's colours, which live in the fleet's one livery
-/// home (#1365) rather than beside its geometry.
-pub(crate) use crate::pds::avatar::livery::{HelicopterColours, helicopter_colours};
+/// home (#1365) rather than beside its geometry: the utility's, and the
+/// trainer's (#1621).
+pub(crate) use crate::pds::avatar::livery::{
+    HelicopterColours, TrainerColours, helicopter_colours, trainer_colours,
+};
 
 use super::Propulsion;
 use super::assemble::apply_travel_pose;
@@ -118,10 +130,11 @@ pub(super) trait HelicopterCraft {
     /// is: a type that lands without saying how she leans does not compile.
     fn idle(&self) -> HelicopterIdle;
 
-    /// The widest the fuselage is drawn (m) - the skids, nearly always - and
-    /// what the box is as wide as. NOT the rotor's disc: see the module
-    /// header.
-    fn overall_width(&self, plan: &PodPlan) -> f32;
+    /// The widest the fuselage is drawn (m) at `ornateness` - the skids,
+    /// nearly always, or what a tier hangs past them (the trainer's litter
+    /// pods, #1621) - and what the box is as wide as. NOT the rotor's disc:
+    /// see the module header.
+    fn overall_width(&self, plan: &PodPlan, ornateness: OrnatenessTier) -> f32;
 
     /// How far the top of her rotor head stands over her skid bottoms (m) -
     /// what the box is as tall as.
@@ -143,6 +156,7 @@ pub(super) trait HelicopterCraft {
 fn craft(t: HelicopterType) -> &'static dyn HelicopterCraft {
     match t {
         HelicopterType::Utility => &utility::Utility,
+        HelicopterType::Trainer => &trainer::Trainer,
     }
 }
 
@@ -179,14 +193,18 @@ fn body_for(seed: u64) -> Option<(&'static dyn HelicopterCraft, PodPlan)> {
 // Where the machine stands
 // ---------------------------------------------------------------------------
 
-/// Half-extents (m) of the chassis collider for this plan: skid bottoms to
-/// rotor head, skid track wide, nose to fin long - the fuselage, owner
-/// decision 3. The drawn frame is centred fore and aft on the origin
-/// ([`PodPlan::at`]), so the box is symmetric.
-pub(super) fn chassis_half_extents(craft: &dyn HelicopterCraft, plan: &PodPlan) -> [f32; 3] {
+/// Half-extents (m) of the chassis collider for this plan at `ornateness`:
+/// skid bottoms to rotor head, as wide as she is drawn, nose to tail - the
+/// fuselage, owner decision 3. The drawn frame is centred fore and aft on
+/// the origin ([`PodPlan::at`]), so the box is symmetric.
+pub(super) fn chassis_half_extents(
+    craft: &dyn HelicopterCraft,
+    plan: &PodPlan,
+    ornateness: OrnatenessTier,
+) -> [f32; 3] {
     let (nose, tail) = plan.nose_and_tail();
     [
-        craft.overall_width(plan) * 0.5,
+        craft.overall_width(plan, ornateness) * 0.5,
         craft.height(plan) * 0.5,
         (nose - tail) * 0.5,
     ]
@@ -224,9 +242,12 @@ pub(super) fn feel_and_box(seed: u64) -> (HelicopterFeel, [f32; 3], f32) {
         let craft = craft(HelicopterType::UNIVERSAL);
         (craft, craft.plan(&HelicopterBlueprint::NOMINAL))
     });
+    // Her tier, as her build reads it (`PartCtx::for_seed`): what she hangs
+    // past her skids is in her box.
+    let ornateness = AvatarCharacter::for_seed(seed).ornateness_tier();
     (
         craft.feel(),
-        chassis_half_extents(craft, &plan),
+        chassis_half_extents(craft, &plan, ornateness),
         plan.fuselage_len(),
     )
 }

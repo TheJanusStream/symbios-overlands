@@ -244,8 +244,9 @@ struct Args {
     /// [`livery::RAIDER_LIVERIES`](crate::pds::avatar::livery::RAIDER_LIVERIES),
     /// [`livery::CYCLECAR_LIVERIES`](crate::pds::avatar::livery::CYCLECAR_LIVERIES),
     /// [`livery::JUNK_LIVERIES`](crate::pds::avatar::livery::JUNK_LIVERIES)),
-    /// or the helicopter's theme-weighted list
+    /// or a helicopter type's theme-weighted list
     /// ([`livery::HELICOPTER_LIVERIES`](crate::pds::avatar::livery::HELICOPTER_LIVERIES),
+    /// [`livery::TRAINER_LIVERIES`](crate::pds::avatar::livery::TRAINER_LIVERIES),
     /// whose index names a scheme outright, whatever the subject's theme).
     /// It WRAPS, so a survey loop that runs past the end draws each scheme
     /// once rather than the last one twice. `--outfit` prints the name a seed

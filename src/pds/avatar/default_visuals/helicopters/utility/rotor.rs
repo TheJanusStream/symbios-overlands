@@ -124,7 +124,7 @@ pub(super) fn main_rotor(kids: &mut Vec<Generator>, plan: &PodPlan, c: &Helicopt
 /// every half turn: the disc reaches forward to where the boom has widened
 /// to about `0.049`, and its stripe stands `0.003` proud of that, so the
 /// blades' inner face has to stand outboard of `0.052` - at `-0.065` it is
-/// `0.0595` (`her_tail_rotor_sweeps_clear_of_her_boom`). LOWER, because at
+/// `0.0595` (`her_tail_rotor_sweeps_clear_of_the_rest_of_her`). LOWER, because at
 /// the shortest boom the disc's top rose over the main rotor's plane and
 /// passed within 4 mm of its blade tips, and through them at the slimmest
 /// cabin; at `0.82` the two discs clear at every blueprint corner

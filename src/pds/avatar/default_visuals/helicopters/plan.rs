@@ -44,6 +44,18 @@
 //! And avian centres a collider on its body, so a box can only hold what is
 //! drawn round the body's origin: the craft is centred fore and aft on it,
 //! nose to fin, as a skiff is between her bumpers.
+//!
+//! # A blunt nose is measured
+//!
+//! The nose is the first station, and for the utility's pointed pod that is
+//! where she is drawn. A BLUNT nose is not: the girth raises each station by
+//! half its OWN growth, so the trainer's centreline climbs steeply off her
+//! small first station and the rings it tilts bulge forward of it - up to
+//! 7.5 cm on her fullest bubble (#1621). A type with such a nose reads how
+//! far its pod is drawn past its first station off the mesher's own
+//! vertices and hands it to [`PodPlan::with_nose_reach`], which carries it
+//! into the box's nose and the centring, so her collider holds her glass and
+//! her shape is the one the owner agreed.
 
 use crate::seeded_defaults::HelicopterBlueprint;
 
@@ -84,6 +96,10 @@ pub(crate) struct PodPlan {
     boom: f32,
     /// The craft's fore-and-aft centre (m, prototype frame, stretched).
     z_mid: f32,
+    /// How far ahead of its first station the pod is drawn (m, prototype
+    /// frame): nothing for a pointed nose, measured for a blunt one
+    /// ([`Self::with_nose_reach`]).
+    nose_reach: f32,
 }
 
 impl PodPlan {
@@ -96,11 +112,30 @@ impl PodPlan {
             girth: bp.girth,
             boom: bp.boom,
             z_mid: 0.0,
+            nose_reach: 0.0,
         };
         let boom_end = plan.stretch(profile.boom_end);
         plan.scale = bp.length / (nose - boom_end);
-        plan.z_mid = (nose + boom_end - profile.tail_reach) * 0.5;
+        plan.centre();
         plan
+    }
+
+    /// Centre the craft fore and aft: midway between her drawn nose and her
+    /// drawn tail.
+    fn centre(&mut self) {
+        let nose = self.profile.stations[0].0 + self.nose_reach;
+        let boom_end = self.stretch(self.profile.boom_end);
+        self.z_mid = (nose + boom_end - self.profile.tail_reach) * 0.5;
+    }
+
+    /// This plan with its pod drawn `reach` (m, prototype frame) ahead of its
+    /// first station - a blunt nose's bulge, measured off the drawn pod by
+    /// the type - in the box's nose and the craft's centring. Her length,
+    /// her scale and every station stay as they were.
+    pub(crate) fn with_nose_reach(mut self, reach: f32) -> Self {
+        self.nose_reach = reach.max(0.0);
+        self.centre();
+        self
     }
 
     /// The cabin's girth over the profile's - what the skid track grows by.
@@ -234,6 +269,12 @@ impl PodPlan {
             .collect()
     }
 
+    /// The pod's first station (prototype frame): her nose, unless it is
+    /// drawn past it ([`Self::with_nose_reach`]).
+    pub(crate) fn nose(&self) -> f32 {
+        self.profile.stations[0].0
+    }
+
     /// The fuselage's length, nose to boom end (m): the blueprint's own
     /// length, by construction of the scale.
     pub(crate) fn fuselage_len(&self) -> f32 {
@@ -247,7 +288,7 @@ impl PodPlan {
         let nose = self.profile.stations[0].0;
         let tail = self.profile.boom_end;
         (
-            self.at(0.0, 0.0, nose)[2],
+            self.at(0.0, 0.0, nose)[2] + self.len(self.nose_reach),
             self.at(0.0, 0.0, tail)[2] - self.len(self.profile.tail_reach),
         )
     }
@@ -317,6 +358,23 @@ mod tests {
             assert!((drop - 0.5 * growth).abs() < 1e-5, "z {z}: drop {drop}");
             assert!((rise - 1.5 * growth).abs() < 1e-5, "z {z}: rise {rise}");
         }
+    }
+
+    /// A measured nose reach moves the box's nose by exactly that much and
+    /// keeps the craft centred, nose to tail; with none the plan is the one
+    /// `new` makes - the utility's, unchanged.
+    #[test]
+    fn a_nose_reach_moves_the_nose_and_keeps_her_centred() {
+        let p = plan(3.2, 1.2, 1.0);
+        let reached = p.with_nose_reach(0.05);
+        let (nose, tail) = reached.nose_and_tail();
+        assert!((nose + tail).abs() < 1e-5, "off centre by {}", nose + tail);
+        let ((n0, t0), (n1, t1)) = (p.nose_and_tail(), reached.nose_and_tail());
+        assert!(((n1 - t1) - (n0 - t0) - p.len(0.05)).abs() < 1e-5);
+        assert!((reached.fuselage_len() - p.fuselage_len()).abs() < 1e-6);
+        let unreached = p.with_nose_reach(0.0);
+        assert_eq!(unreached.nose_and_tail(), p.nose_and_tail());
+        assert_eq!(unreached.at(0.1, 0.6, -0.4), p.at(0.1, 0.6, -0.4));
     }
 
     /// A rigid offset rides its station's stretch and is not stretched.

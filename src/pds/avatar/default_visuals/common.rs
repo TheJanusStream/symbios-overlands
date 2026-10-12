@@ -163,6 +163,42 @@ pub(crate) fn spine(
     }
 }
 
+/// A sweep through `points` (drawn frame), `samples` facets to a segment -
+/// the fleet's sweep, sampled as a prototype sampled each part rather than
+/// at the fleet's eight, and never under the sanitiser's two. The
+/// airplane's (#1617) and the trainer's (#1621).
+pub(crate) fn sweep(
+    points: &[([f32; 3], f32)],
+    res: u32,
+    samples: u32,
+    material: SovereignMaterialSettings,
+) -> GeneratorKind {
+    let mut kind = spine(points, res, material);
+    if let GeneratorKind::Spine {
+        samples_per_segment,
+        ..
+    } = &mut kind
+    {
+        *samples_per_segment = samples;
+    }
+    kind
+}
+
+/// A straight round rod from `a` to `b` (drawn frame): a two-station sweep,
+/// at the fewest samples a segment the sanitiser keeps.
+pub(crate) fn rod(
+    a: [f32; 3],
+    b: [f32; 3],
+    radius: f32,
+    material: SovereignMaterialSettings,
+) -> Generator {
+    prim(
+        sweep(&[(a, radius), (b, radius)], 8, 2, material),
+        [0.0; 3],
+        id_quat(),
+    )
+}
+
 /// Box with rounded **vertical** edges - a pressed panel. Its chamfer runs
 /// parallel to the Y extrusion axis, so `size` is `[width, depth, height]` and
 /// a radiator shell standing across the nose wants a quarter turn about X;
@@ -1534,6 +1570,20 @@ pub(crate) mod touch {
     /// What the touch graph of `root` looks like: the number of connected
     /// components, and the name of every node that meets nothing at all.
     pub(crate) fn report(root: &Generator) -> (usize, Vec<String>) {
+        let (piece, names, met) = pieces_of(root);
+        let mut roots = piece.clone();
+        roots.sort_unstable();
+        roots.dedup();
+        let loose = (0..names.len())
+            .filter(|&i| !met[i])
+            .map(|i| names[i].clone())
+            .collect();
+        (roots.len(), loose)
+    }
+
+    /// The pieces `root` is drawn in: each part's piece (a representative
+    /// part's index), each part's name, and whether it meets anything.
+    fn pieces_of(root: &Generator) -> (Vec<usize>, Vec<String>, Vec<bool>) {
         let parts = parts_of(root, true);
         let n = parts.len();
         let mut parent: Vec<usize> = (0..n).collect();
@@ -1574,14 +1624,9 @@ pub(crate) mod touch {
                 }
             }
         }
-        let mut roots: Vec<usize> = (0..n).map(|i| find(&mut parent, i)).collect();
-        roots.sort_unstable();
-        roots.dedup();
-        let loose = (0..n)
-            .filter(|&i| !met[i])
-            .map(|i| parts[i].name.clone())
-            .collect();
-        (roots.len(), loose)
+        let piece = (0..n).map(|i| find(&mut parent, i)).collect();
+        let names = parts.iter().map(|p| p.name.clone()).collect();
+        (piece, names, met)
     }
 
     /// The highest point `root` draws, in its own frame (m): the top of every
@@ -1634,11 +1679,30 @@ pub(crate) mod touch {
             "{what}: {} part(s) touch nothing at all: {loose:?}",
             loose.len()
         );
-        assert_eq!(
-            components, 1,
-            "{what}: the craft is in {components} pieces - every part meets \
-             something, but not all of them meet each other"
-        );
+        if components > 1 {
+            // Name every piece but the largest, which is the machine the
+            // others came off.
+            let (piece, names, _) = pieces_of(root);
+            let mut groups: Vec<Vec<&str>> = Vec::new();
+            let mut keys: Vec<usize> = piece.clone();
+            keys.sort_unstable();
+            keys.dedup();
+            for k in keys {
+                groups.push(
+                    (0..names.len())
+                        .filter(|&i| piece[i] == k)
+                        .map(|i| names[i].as_str())
+                        .collect(),
+                );
+            }
+            groups.sort_by_key(|g| std::cmp::Reverse(g.len()));
+            panic!(
+                "{what}: the craft is in {components} pieces - every part meets \
+                 something, but not all of them meet each other; off the main \
+                 one: {:?}",
+                &groups[1..]
+            );
+        }
     }
 
     /// What `report` answers on trees small enough to read, and on real

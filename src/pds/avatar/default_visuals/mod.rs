@@ -224,6 +224,15 @@ enum Propulsion {
     /// stack under her cowl (`fx::drawn_aura`), where every aura she
     /// trails leaves her.
     Propeller,
+    /// A piston engine under a two-blade rotor (#1621 Q-H): a flat six's
+    /// drone - the airplane's square under a lowpass, a few hertz up -
+    /// under the rotor's heavy slap at the blade pass, two blades at the
+    /// two and a half turns a second her drawn rotor turns at: 5 Hz. The
+    /// bubble-canopy trainer's. NOT the utility's [`Turbine`](Self::Turbine):
+    /// no whine over it, and a slower, heavier slap. Her engine is
+    /// air-cooled, as the buggy's and the airplane's are, so a picked steam
+    /// is drawn as the wisp from the stack under it (`fx::drawn_aura`).
+    PistonRotor,
 }
 
 impl Propulsion {
@@ -242,6 +251,7 @@ impl Propulsion {
             Self::Servo => "under power, servo",
             Self::Turbine => "under power, turbine",
             Self::Propeller => "under power, propeller",
+            Self::PistonRotor => "under power, piston rotor",
         }
     }
 }
@@ -1603,8 +1613,8 @@ mod tests {
                 assert_ne!(a, b, "the {an} and the {bn} carry the same feel tuple");
             }
         }
-        // One helicopter type so far (#1614); the fan-out's will be held to
-        // the same rule.
+        // Two helicopter types (#1614, #1621): the trainer's tuple is her
+        // own, and every type the fan-out adds is held to the same rule.
         let helicopters = helicopters::every_feel();
         assert_eq!(
             helicopters.len(),
@@ -1703,10 +1713,11 @@ mod tests {
                 (rights - righting).abs() < righting * 1e-3,
                 "helicopter seed {s} rights at {rights:.3} rad/s2 against {righting:.3}"
             );
-            // Her yaw: her type's 9 per kilogram on the default body, so a
-            // turn of 9 / d_yaw rad/s2 on her own, whatever her box.
+            // Her yaw: her OWN type's per kilogram on the default body - the
+            // utility's 9, the trainer's 10 - so a turn of that over d_yaw
+            // rad/s2 on her own, whatever her box.
             let turn = p.yaw_torque.0 / (p.mass.0 * yaw);
-            let want = helicopters::every_feel()[0].1.yaw_accel / d_yaw;
+            let want = helicopters::feel_and_box(s).0.yaw_accel / d_yaw;
             assert!(
                 (turn - want).abs() < want * 1e-3,
                 "helicopter seed {s} turns at {turn:.3} rad/s2 against {want:.3}"
