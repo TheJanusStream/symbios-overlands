@@ -9,47 +9,53 @@
 //! over [`AirplaneType`], so a type the fan-out (#1618) adds is a compile
 //! error here until it is built.
 //!
-//! TWO types are built. The hero is the high-wing light monoplane
+//! THREE types are built. The hero is the high-wing light monoplane
 //! taildragger the owner agreed on the phase-5 renders (#1616) - a
 //! round-cowled cabin under a strut-braced wing, on fat tyres and a tail
 //! wheel - at the proportion they chose (C: a 3.19 m airframe, the fuselage
 //! 18 % fuller than a true one's) and with all eleven of that issue's
 //! recommendations taken. The fan-out's first is the biplane (#1623): two
 //! staggered wings on N struts and wires, two open cockpits, a radial in an
-//! open cowl ring, with all eight of that issue's recommendations taken.
+//! open cowl ring, with all eight of that issue's recommendations taken. Its
+//! second is the twin-engine transport (#1625): a cabin with a row of lit
+//! windows, a low wing, a radial in a closed cowl on a nacelle either side
+//! and a twin-fin tail, with all eight of hers.
 //!
 //! # Where an airplane sits
 //!
 //! On her three wheels, tail-down as a taildragger stands - the high-wing at
-//! ten degrees, the biplane at twelve - and level in the air (#1616
-//! recommendation 3). Her box is her fuselage ([`FusePlan`]'s header): the
-//! wings, the tail surfaces, the gear and the airscrew stand outside it, a
-//! span past the 2.6 m gateway mouth, which owner decision 3 of #1611
-//! accepts. Her wheels are the
-//! Airplane preset's raycast gear under the box (#1615), so the record
-//! carries where the drawn ones stand ([`AirplaneLayout`]): the mains'
-//! track and how far ahead they are, the tail wheel's shorter reach that
-//! sits her tail-down, and her centre of mass forward over her wing. Her
-//! drawn origin is her box's middle, so the travel pose hangs her with no
-//! drop at all.
+//! ten degrees, the twin at eleven, the biplane at twelve - and level in the
+//! air (#1616 recommendation 3). Her box is her fuselage ([`FusePlan`]'s
+//! header): the wings, the tail surfaces, the gear and the airscrew stand
+//! outside it, a span past the 2.6 m gateway mouth, which owner decision 3
+//! of #1611 accepts. Her wheels are the Airplane preset's raycast gear
+//! under the box (#1615), so the record carries where the drawn ones stand
+//! ([`AirplaneLayout`]): the mains' track and how far ahead they are, the
+//! tail wheel's shorter reach that sits her tail-down, and her centre of
+//! mass forward over her wing. Her drawn origin is her box's middle, so the
+//! travel pose hangs her with no drop at all.
 //!
 //! # What she does at rest
 //!
-//! Sits on her wheels, her airscrew idling (a Speed spin, #1616
-//! recommendation 5) and turning up with her speed to the fastest a spin
-//! may strobe at, which it reaches at her cruise. The Airplane preset has no
-//! gait (`GaitMode::for_locomotion`): she banks and pitches as she flies, so
-//! her seeded gait writes the airship's heave and nose wander to zero.
+//! Sits on her wheels, her airscrew idling - the twin's two (#1625) - on a
+//! Speed spin (#1616 recommendation 5) and turning up with her speed to the
+//! fastest a spin may strobe at, which it reaches at or under her
+//! level-flight speed. The Airplane preset has no gait
+//! (`GaitMode::for_locomotion`): she banks and pitches as she flies, so her
+//! seeded gait writes the airship's heave and nose wander to zero.
 
 mod biplane;
 mod high_wing;
 mod plan;
+mod twin;
 
 /// The biplane's (Hz): what her radial voice thrums at (#1623 Q-H).
 pub(super) use biplane::BLADE_PASS_HZ as BIPLANE_BLADE_PASS_HZ;
 /// The hero's blade pass (Hz): what her propeller voice thrums at.
 pub(super) use high_wing::BLADE_PASS_HZ;
 pub(crate) use plan::{FusePlan, FuseProfile};
+/// The twin's (Hz): what her twin-radial voice thrums at (#1625 Q-H).
+pub(super) use twin::BLADE_PASS_HZ as TWIN_BLADE_PASS_HZ;
 
 use crate::pds::avatar::parts::PartCtx;
 use crate::pds::generator::Generator;
@@ -60,7 +66,7 @@ use crate::seeded_defaults::{AirplaneBlueprint, AirplaneType, ParticleAura};
 /// The airplane family's colours, which live in the fleet's one livery
 /// home (#1365) rather than beside its geometry.
 pub(crate) use crate::pds::avatar::livery::{
-    AirplaneColours, BiplaneColours, airplane_colours, biplane_colours,
+    AirplaneColours, BiplaneColours, TwinColours, airplane_colours, biplane_colours, twin_colours,
 };
 
 use super::Propulsion;
@@ -232,6 +238,7 @@ fn craft(t: AirplaneType) -> &'static dyn AirplaneCraft {
     match t {
         AirplaneType::HighWing => &high_wing::HighWing,
         AirplaneType::Biplane => &biplane::Biplane,
+        AirplaneType::Twin => &twin::Twin,
     }
 }
 

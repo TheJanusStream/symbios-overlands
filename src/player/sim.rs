@@ -276,6 +276,15 @@ impl FlightBench {
         }
     }
 
+    /// Set the body turning at `spin` (rad/s, world axes), as a gust or a
+    /// bump would.
+    pub(crate) fn set_angular_velocity(&mut self, spin: Vec3) {
+        let body = self.body;
+        if let Some(mut turning) = self.app.world_mut().get_mut::<AngularVelocity>(body) {
+            turning.0 = spin;
+        }
+    }
+
     /// Hold `keys` down, and let go of every other flight key.
     pub(crate) fn hold(&mut self, keys: &[KeyCode]) {
         hold_keys(&mut self.app, keys, &FLIGHT_KEYS);

@@ -1426,6 +1426,109 @@ pub fn airplane_livery(
     pick(AIRPLANE_LIVERIES, |l| l.weight(style), seed, over)
 }
 
+/// A twin's scheme (#1625 Q-E): her body's hue - her fuselage, her wing and
+/// her nacelles - and her trim's: her cowls and her rudders. Weighted by
+/// THEME, as every airplane's list is, with the same at-home weight and
+/// floor; her two floors are the airliner's white and blue and the polished
+/// metal and red. The seeded accent goes on the identity slot and nowhere
+/// else (the cheat line down each flank).
+#[derive(Clone, Copy, Debug)]
+pub struct TwinLivery {
+    /// See [`BoatLivery::name`].
+    pub name: &'static str,
+    /// The themes the scheme is at home on.
+    home: &'static [ThemeArchetype],
+    /// Whether every theme can roll it - see [`PLANE_FLOOR`].
+    floor: bool,
+    /// The fuselage, the wing, the nacelles, the stabiliser and the fins.
+    body: [f32; 3],
+    /// The cowls, the rudders and an ornate machine's tip tanks.
+    trim: [f32; 3],
+}
+
+impl TwinLivery {
+    /// This scheme's share of the draw on `style`.
+    fn weight(&self, style: ThemeArchetype) -> u32 {
+        let floor = if self.floor { PLANE_FLOOR } else { 0 };
+        floor
+            + if self.home.contains(&style) {
+                PLANE_AT_HOME
+            } else {
+                0
+            }
+    }
+}
+
+/// The twin's eight schemes (#1625 Q-E), as the owner saw them on the
+/// phase-1 renders: two floors - the airliner's and the polished metal -
+/// and six for the city, the works and the campus. Each of her three
+/// themes is at home on four or five (`the_twins_list_covers_her_homes`).
+pub const TWIN_LIVERIES: &[TwinLivery] = &[
+    TwinLivery {
+        name: "Airliner white and blue",
+        home: &[ThemeArchetype::ModernCity, ThemeArchetype::CivicCampus],
+        floor: true,
+        body: [0.92, 0.92, 0.90],
+        trim: [0.10, 0.22, 0.55],
+    },
+    TwinLivery {
+        name: "Polished metal and red",
+        home: &[ThemeArchetype::ModernCity, ThemeArchetype::IndustrialPark],
+        floor: true,
+        body: [0.72, 0.73, 0.75],
+        trim: [0.70, 0.06, 0.05],
+    },
+    TwinLivery {
+        name: "Executive black and gold",
+        home: &[ThemeArchetype::ModernCity],
+        floor: false,
+        body: [0.05, 0.05, 0.06],
+        trim: [0.80, 0.62, 0.20],
+    },
+    TwinLivery {
+        name: "Navy blue and yellow",
+        home: &[ThemeArchetype::CivicCampus, ThemeArchetype::ModernCity],
+        floor: false,
+        body: [0.10, 0.16, 0.36],
+        trim: [0.93, 0.72, 0.10],
+    },
+    TwinLivery {
+        name: "Freight yellow and black",
+        home: &[ThemeArchetype::IndustrialPark],
+        floor: false,
+        body: [0.93, 0.70, 0.08],
+        trim: [0.06, 0.06, 0.06],
+    },
+    TwinLivery {
+        name: "Olive drab",
+        home: &[ThemeArchetype::IndustrialPark],
+        floor: false,
+        body: [0.30, 0.33, 0.20],
+        trim: [0.85, 0.84, 0.78],
+    },
+    TwinLivery {
+        name: "Survey orange and white",
+        home: &[ThemeArchetype::IndustrialPark, ThemeArchetype::CivicCampus],
+        floor: false,
+        body: [0.85, 0.36, 0.08],
+        trim: [0.92, 0.91, 0.88],
+    },
+    TwinLivery {
+        name: "Corporate cream and maroon",
+        home: &[ThemeArchetype::CivicCampus, ThemeArchetype::ModernCity],
+        floor: false,
+        body: [0.88, 0.84, 0.72],
+        trim: [0.42, 0.08, 0.10],
+    },
+];
+
+/// The scheme this twin seed wears on `style`, a pick from
+/// [`TWIN_LIVERIES`]; `over` wraps inside it (`render --livery 0` is
+/// Airliner white and blue, `1` Polished metal and red).
+pub fn twin_livery(seed: u64, style: ThemeArchetype, over: Option<usize>) -> &'static TwinLivery {
+    pick(TWIN_LIVERIES, |l| l.weight(style), seed, over)
+}
+
 /// A biplane's scheme (#1623 Q-E): her fuselage's hue, her wings' and her
 /// trim's. A biplane is two-tone as often as not - the trainer's blue
 /// fuselage over yellow wings is the type's icon - so her wings carry a hue
@@ -3382,11 +3485,19 @@ const PROP_WOOD: [f32; 3] = [0.42, 0.26, 0.12];
 const COAMING_LEATHER: [f32; 3] = [0.20, 0.11, 0.06];
 
 pub(crate) fn airplane_colours(ctx: &PartCtx) -> AirplaneColours {
-    let p = &ctx.palette;
-    let m = &ctx.materials;
     let style = AvatarCharacter::for_seed(ctx.seed).style;
     let l = airplane_livery(ctx.seed, style, ctx.livery);
-    let body = floor_finished(m, l.body, HELI_MASS_FLOOR);
+    plane_colours(ctx, l.body, l.trim)
+}
+
+/// A two-hue airplane scheme's surfaces: its body and trim hues on her big
+/// masses, the seeded accent on her cheat line, her windows the fleet's lit
+/// window held off her painted body, and what the rest of her simply is -
+/// the high-wing's, and the twin's (#1625).
+fn plane_colours(ctx: &PartCtx, body: [f32; 3], trim_hue: [f32; 3]) -> AirplaneColours {
+    let p = &ctx.palette;
+    let m = &ctx.materials;
+    let body = floor_finished(m, body, HELI_MASS_FLOOR);
     let paint = m.paint(body);
     // Off the body as it is PAINTED: a kit's grime moves it, and a light
     // held off the scheme's own colour stood 0.20 off a battered silver.
@@ -3396,7 +3507,7 @@ pub(crate) fn airplane_colours(ctx: &PartCtx) -> AirplaneColours {
     ));
     AirplaneColours {
         body: paint,
-        trim: m.paint(floor_finished(m, l.trim, HELI_MASS_FLOOR)),
+        trim: m.paint(floor_finished(m, trim_hue, HELI_MASS_FLOOR)),
         stripe: trim(m, clear_of(p.primary_accent, luma(body), COACHLINE_DELTA)),
         glass: m.glass(PLANE_GLASS),
         lamp,
@@ -3406,6 +3517,72 @@ pub(crate) fn airplane_colours(ctx: &PartCtx) -> AirplaneColours {
         starboard: m.glow(NAV_GREEN),
         white: m.glow(LAMP_WHITE),
         beacon: m.glow(BEACON_RED),
+    }
+}
+
+/// The surfaces a twin is built in (#1625): her scheme's two hues - her
+/// fuselage, wing and nacelles in the body, her cowls and rudders in the
+/// trim - the seeded accent on her cheat line, her cabin windows the fleet's
+/// lit window held off her body, and what the rest of her simply is, the
+/// high-wing's way (#1625 Q-E).
+pub(crate) struct TwinColours {
+    /// The fuselage, the wing, the nacelles, the stabiliser and the fins:
+    /// the scheme's body hue, floored off mud on a battered kit.
+    pub(crate) body: SovereignMaterialSettings,
+    /// The cowls, the rudders and an ornate machine's tip tanks.
+    pub(crate) trim: SovereignMaterialSettings,
+    /// **Identity.** The cheat line down each flank: the coachline's rule,
+    /// held clear of the body it lies on.
+    pub(crate) stripe: SovereignMaterialSettings,
+    /// The windscreen and the cockpit's side windows.
+    pub(crate) glass: SovereignMaterialSettings,
+    /// The cabin windows: the tertiary's light, standing off her body.
+    pub(crate) lamp: SovereignMaterialSettings,
+    /// The airscrews and their spinners, the gear legs and hubs, the tail
+    /// wheel's fork, the pitot and the aerial.
+    pub(crate) metal: SovereignMaterialSettings,
+    /// The engines' faces, the exhaust stacks, the tyres and the hidden
+    /// hubs.
+    pub(crate) dark: SovereignMaterialSettings,
+    /// The nav light on her left (port) wingtip: red.
+    pub(crate) port: SovereignMaterialSettings,
+    /// The nav light on her right (starboard) wingtip: green.
+    pub(crate) starboard: SovereignMaterialSettings,
+    /// The tail light at her tail post.
+    pub(crate) white: SovereignMaterialSettings,
+    /// The anti-collision beacon an ornate machine carries on her roof.
+    pub(crate) beacon: SovereignMaterialSettings,
+}
+
+pub(crate) fn twin_colours(ctx: &PartCtx) -> TwinColours {
+    let style = AvatarCharacter::for_seed(ctx.seed).style;
+    let l = twin_livery(ctx.seed, style, ctx.livery);
+    // A two-hue scheme turned into surfaces the high-wing's way.
+    let AirplaneColours {
+        body,
+        trim,
+        stripe,
+        glass,
+        lamp,
+        metal,
+        dark,
+        port,
+        starboard,
+        white,
+        beacon,
+    } = plane_colours(ctx, l.body, l.trim);
+    TwinColours {
+        body,
+        trim,
+        stripe,
+        glass,
+        lamp,
+        metal,
+        dark,
+        port,
+        starboard,
+        white,
+        beacon,
     }
 }
 
@@ -5244,6 +5421,159 @@ mod tests {
         assert!(
             drawn.iter().all(|&n| n > 0),
             "a biplane scheme is never drawn: {drawn:?}"
+        );
+    }
+
+    /// The twin's list covers her homes (#1625 Q-E): every theme she is at
+    /// home on is at home on at least four of her schemes, her floors are
+    /// the airliner's and the polished metal, every scheme's trim stands off
+    /// its body - by colour, as a window light is held - and the draw over
+    /// her own seeds reaches every scheme.
+    #[test]
+    fn the_twins_list_covers_her_homes() {
+        use crate::seeded_defaults::AirplaneType;
+        let homes: Vec<ThemeArchetype> = ThemeArchetype::ALL
+            .into_iter()
+            .filter(|&s| AirplaneType::Twin.weight(s) > 0)
+            .collect();
+        assert_eq!(homes.len(), 3, "her homes: {homes:?}");
+        for style in homes {
+            let at_home = TWIN_LIVERIES
+                .iter()
+                .filter(|l| l.home.contains(&style))
+                .count();
+            assert!(at_home >= 4, "{style:?} is at home on {at_home} schemes");
+        }
+        let floors: Vec<&str> = TWIN_LIVERIES
+            .iter()
+            .filter(|l| l.floor)
+            .map(|l| l.name)
+            .collect();
+        assert_eq!(
+            floors,
+            ["Airliner white and blue", "Polished metal and red"]
+        );
+        for l in TWIN_LIVERIES {
+            let d = l
+                .trim
+                .iter()
+                .zip(l.body)
+                .map(|(x, y)| (x - y).powi(2))
+                .sum::<f32>()
+                .sqrt();
+            assert!(
+                d >= WINDOW_STAND_OFF,
+                "{}: its trim is {d} off its body",
+                l.name
+            );
+        }
+        let mut drawn = vec![0usize; TWIN_LIVERIES.len()];
+        for s in (0u64..12_000).filter(|&s| {
+            ChassisFamily::for_seed(s) == ChassisFamily::Airplane
+                && AirplaneType::for_seed(s) == AirplaneType::Twin
+        }) {
+            let style = AvatarCharacter::for_seed(s).style;
+            let l = twin_livery(s, style, None);
+            drawn[TWIN_LIVERIES
+                .iter()
+                .position(|x| x.name == l.name)
+                .expect("the pick came from the table")] += 1;
+        }
+        assert!(
+            drawn.iter().all(|&n| n > 0),
+            "a twin scheme is never drawn: {drawn:?}"
+        );
+    }
+
+    /// A twin's colours read on every scheme of her list, on every airplane
+    /// seed under 900 (#1625), BOTH directions: her cabin windows are lit
+    /// and stand off her body; her nav, tail and beacon lights are lamps;
+    /// her cheat line is the seed's accent through [`trim`], lit exactly
+    /// when the kit is luminous and off her body otherwise; and everything
+    /// else is paint.
+    #[test]
+    fn a_twins_windows_lights_and_cheat_line_read_on_every_scheme() {
+        let (mut lit, mut dark) = (0, 0);
+        for s in (0u64..900).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Airplane) {
+            let mut ctx = PartCtx::for_seed(s);
+            let luminous = ctx.materials.emissive_accents();
+            for (i, scheme) in TWIN_LIVERIES.iter().enumerate() {
+                ctx.livery = Some(i);
+                let c = twin_colours(&ctx);
+                for (what, m) in [
+                    ("body", &c.body),
+                    ("cowls and rudders", &c.trim),
+                    ("windscreen", &c.glass),
+                    ("airscrews and gear", &c.metal),
+                    ("engine faces and tyres", &c.dark),
+                ] {
+                    assert_eq!(
+                        m.emission_strength.0, 0.0,
+                        "seed {s} in {}: the {what} is self-lit",
+                        scheme.name
+                    );
+                }
+                assert!(
+                    c.lamp.emission_strength.0 > 0.0,
+                    "seed {s} in {}: the cabin windows are dark",
+                    scheme.name
+                );
+                let apart = c
+                    .lamp
+                    .base_color
+                    .0
+                    .iter()
+                    .zip(c.body.base_color.0)
+                    .map(|(a, b)| (a - b).powi(2))
+                    .sum::<f32>()
+                    .sqrt();
+                assert!(
+                    apart >= WINDOW_STAND_OFF * 0.8,
+                    "seed {s} in {}: the windows are {apart} from the body",
+                    scheme.name
+                );
+                for (what, m) in [
+                    ("port light", &c.port),
+                    ("starboard light", &c.starboard),
+                    ("tail light", &c.white),
+                    ("beacon", &c.beacon),
+                ] {
+                    assert!(
+                        m.emission_strength.0 > 0.0,
+                        "seed {s} in {}: the {what} is dark",
+                        scheme.name
+                    );
+                }
+                assert!(
+                    c.port.base_color.0[0] > c.port.base_color.0[1]
+                        && c.starboard.base_color.0[1] > c.starboard.base_color.0[0],
+                    "red is to port and green to starboard"
+                );
+                let on = c.stripe.emission_strength.0 > 0.0;
+                assert_eq!(
+                    on, luminous,
+                    "seed {s} in {}: the cheat line is lit {on} on a kit luminous {luminous}",
+                    scheme.name
+                );
+                if !luminous {
+                    let l = |m: &SovereignMaterialSettings| luma(m.base_color.0);
+                    let d = (l(&c.stripe) - l(&c.body)).abs();
+                    assert!(
+                        d > COACHLINE_DELTA * 0.6,
+                        "seed {s} in {}: the cheat line is {d} from the body",
+                        scheme.name
+                    );
+                }
+            }
+            if luminous {
+                lit += 1;
+            } else {
+                dark += 1;
+            }
+        }
+        assert!(
+            lit > 0 && dark > 0,
+            "the population saw only one kind: {lit} lit, {dark} dark"
         );
     }
 

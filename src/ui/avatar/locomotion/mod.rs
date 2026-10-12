@@ -323,10 +323,10 @@ mod inert_panel_tests {
     use bevy_egui::egui;
 
     /// One seed per craft type from the craft pin's own hunt (#1380), plus
-    /// an airship and a humanoid: nineteen records, every locomotion preset
-    /// a seed can produce - the airplanes' since #1623, the autogyro's since
-    /// #1624. The two non-craft families are found by pinning the chassis,
-    /// which is the only axis they have.
+    /// an airship and a humanoid: twenty records, every locomotion preset a
+    /// seed can produce - the airplanes' since #1623, the autogyro's since
+    /// #1624 and the twin's since #1625. The two non-craft families are
+    /// found by pinning the chassis, which is the only axis they have.
     fn seeded_fleet() -> Vec<(String, u64, AvatarRecord)> {
         let mut out = Vec::new();
         for craft in CraftType::BOATS
@@ -747,8 +747,8 @@ mod inert_panel_tests {
 
     /// THE GUARD. Drawing the Locomotion tab, every section open and
     /// nothing touched, leaves the record bit-identical and the editor
-    /// clean - on all nineteen seeded presets (#1390), the helicopters'
-    /// (#1614, #1621, #1624) and the airplanes' (#1617, #1623) among them.
+    /// clean - on all twenty seeded presets (#1390), the helicopters' (#1614,
+    /// #1621, #1624) and the airplanes' (#1617, #1623, #1625) among them.
     #[test]
     fn an_untouched_locomotion_tab_writes_nothing() {
         let mut complaints = Vec::new();

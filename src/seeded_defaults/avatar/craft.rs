@@ -56,7 +56,7 @@
 //! autogyro, at home on the old worlds the trainer does not fly and in the
 //! boiler age - the nine themes no rotorcraft was at home on.
 //!
-//! # So has the airplane family (#1617, #1623)
+//! # So has the airplane family (#1617, #1623, #1625)
 //!
 //! [`AirplaneType`] opened the way the helicopter's did: its hero alone, the
 //! high-wing light monoplane taildragger the owner agreed on the phase-5
@@ -64,7 +64,9 @@
 //! airplane (#1618) is the biplane, at home on the old worlds and the
 //! frontier (HISTORIC) and in Steampunk - the flying machine of a world
 //! before the modern one, as the wagon is the land craft of one before
-//! engines - where the high-wing keeps every home she had.
+//! engines - where the high-wing keeps every home she had. Its second is
+//! the twin-engine transport, at home on the city, the works and the campus,
+//! which reached an airplane only through the high-wing's floor.
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
@@ -129,9 +131,10 @@ impl CraftType {
 
     /// Every airplane type as a craft type, in [`AirplaneType::ALL`]'s
     /// order.
-    pub const AIRPLANES: [Self; 2] = [
+    pub const AIRPLANES: [Self; 3] = [
         Self::Airplane(AirplaneType::HighWing),
         Self::Airplane(AirplaneType::Biplane),
+        Self::Airplane(AirplaneType::Twin),
     ];
 
     /// The craft type for a seed, or `None` for a family without one (the
@@ -331,6 +334,10 @@ pub enum AirplaneType {
     /// and wires, two open cockpits under the upper wing, a radial in an
     /// open cowl ring - the 1930s trainer's layout (#1623).
     Biplane,
+    /// Twin-engine light transport taildragger: a cabin with a row of lit
+    /// windows, a low wing, a radial in a closed cowl on a nacelle either
+    /// side and a twin-fin tail - the Beech 18's layout (#1625).
+    Twin,
 }
 
 impl BoatType {
@@ -660,7 +667,7 @@ impl HelicopterType {
 }
 
 impl AirplaneType {
-    pub const ALL: [Self; 2] = [Self::HighWing, Self::Biplane];
+    pub const ALL: [Self; 3] = [Self::HighWing, Self::Biplane, Self::Twin];
 
     /// The type every airplane theme can reach - see [`FLOOR`].
     pub const UNIVERSAL: Self = Self::HighWing;
@@ -670,6 +677,7 @@ impl AirplaneType {
         match self {
             Self::HighWing => "High-wing monoplane",
             Self::Biplane => "Biplane",
+            Self::Twin => "Twin-engine transport",
         }
     }
 
@@ -678,6 +686,7 @@ impl AirplaneType {
         match self {
             Self::HighWing => "high_wing",
             Self::Biplane => "biplane",
+            Self::Twin => "twin",
         }
     }
 
@@ -706,6 +715,16 @@ impl AirplaneType {
             // reached an airplane only through the high-wing's floor, three
             // in four.
             Self::Biplane => holds(HISTORIC, style) || style == ThemeArchetype::Steampunk,
+            // The light transport of the city, the works and the campus
+            // (#1625 Q-D): the commuter, the freighter and the survey twin
+            // of the three themes that reached an airplane only through the
+            // high-wing's floor. There, a twin is three seeds in four.
+            Self::Twin => matches!(
+                style,
+                ThemeArchetype::ModernCity
+                    | ThemeArchetype::IndustrialPark
+                    | ThemeArchetype::CivicCampus
+            ),
         }
     }
 
@@ -1042,6 +1061,17 @@ mod tests {
             AlienOrganic,
         ] {
             assert!(!AirplaneType::Biplane.at_home(style), "{style:?}");
+        }
+        // And the twin's (#1625): the city, the works and the campus, none
+        // of which either other airplane is at home on - and nothing past
+        // them.
+        for style in ThemeArchetype::ALL {
+            let city = matches!(style, ModernCity | IndustrialPark | CivicCampus);
+            assert_eq!(AirplaneType::Twin.at_home(style), city, "{style:?}");
+            if city {
+                assert!(!AirplaneType::HighWing.at_home(style), "{style:?}");
+                assert!(!AirplaneType::Biplane.at_home(style), "{style:?}");
+            }
         }
     }
 }

@@ -243,6 +243,13 @@ enum Propulsion {
     /// drawn as the wisp from the stack behind her cowl ring
     /// (`fx::drawn_aura`).
     Radial,
+    /// Two radials, one on each wing, turning two-blade airscrews (#1625
+    /// Q-H): the radial's drone twice over, the second engine a hertz
+    /// higher, so the two beat once a second - a twin's sound - under the
+    /// airscrews' thrum at their blade pass. The twin-engine transport's.
+    /// Air-cooled, so a picked steam is drawn as the wisp from her stack
+    /// (`fx::drawn_aura`).
+    TwinRadial,
 }
 
 impl Propulsion {
@@ -263,6 +270,7 @@ impl Propulsion {
             Self::Propeller => "under power, propeller",
             Self::PistonRotor => "under power, piston rotor",
             Self::Radial => "under power, radial",
+            Self::TwinRadial => "under power, twin radials",
         }
     }
 }

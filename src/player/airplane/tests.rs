@@ -229,6 +229,39 @@ fn the_gear_sags_its_share_under_her_weight() {
     );
 }
 
+/// A main's damper keeps its own damping where one step can follow it, and
+/// far out from a narrow box is held so that the two mains take out all of
+/// her roll in a step and no more (#1625); the tail wheel, on her
+/// centreline, is never held.
+#[test]
+fn her_mains_damp_her_roll_no_harder_than_a_step_can_follow() {
+    let dt = 1.0 / 64.0;
+    let (damping, inertia) = (400.0, 1.8);
+    assert_eq!(roll_damping(damping, inertia, 0.2, dt), damping);
+    let lever = 0.7;
+    let held = roll_damping(damping, inertia, lever, dt);
+    assert!(held < damping, "{held}");
+    let taken = 2.0 * held * lever * lever * dt / inertia;
+    assert!((taken - GEAR_ROLL_STEP).abs() < 1e-5, "{taken}");
+    assert_eq!(roll_damping(damping, inertia, 0.0, dt), damping);
+}
+
+/// A main's last stop takes out all that is left of its roll along the
+/// ground where the two mains cannot turn her by more than half her yaw in
+/// a step, and far out from a narrow box only so much that they turn her by
+/// half (#1625); the tail wheel's, on her centreline, is always whole.
+#[test]
+fn her_mains_stop_without_turning_her_the_other_way() {
+    let (carries, grip, inertia) = (16.0, 1.0, 35.0);
+    assert_eq!(stop_share(carries, grip, inertia, 0.4), 1.0);
+    let lever = 1.2;
+    let share = stop_share(carries, grip, inertia, lever);
+    assert!(share < 1.0, "{share}");
+    let taken = 2.0 * carries * grip * share * lever * lever / inertia;
+    assert!((taken - GEAR_YAW_STEP).abs() < 1e-5, "{taken}");
+    assert_eq!(stop_share(carries, grip, inertia, 0.0), 1.0);
+}
+
 /// #1240 f162: an inverted airplane is righted and a banking one is not.
 #[test]
 fn an_inverted_airplane_is_righted_and_a_banking_one_is_not() {
@@ -504,6 +537,47 @@ fn a_taildragger_stands_where_her_reaches_were_worked_out_to_stand_her() {
     let at = bench.position();
     run(&mut bench, &[], 2.0);
     assert!(bench.position().distance(at) < 0.02, "she crept");
+}
+
+/// THE TWIN'S ROCK (#1625): mains far out to her sides - the seeded twin's
+/// under her nacelles, 2.6 of her box's half-width out, and the record's
+/// widest, 4 - damped her roll and stopped her yaw past what one step can
+/// follow, so a knock in roll on her wheels set her rocking, or shivering,
+/// without end. On a narrow box and on the default airplane's wide one,
+/// knocked, she comes to rest level, and stays there.
+#[test]
+fn mains_far_out_to_her_sides_let_her_come_to_rest() {
+    use crate::pds::types::Fp;
+    for (what, record) in [
+        ("a narrow box", taildragger()),
+        ("the default box", airplane()),
+    ] {
+        for track in [2.6, 4.0] {
+            let mut record = record.clone();
+            let LocomotionConfig::Airplane(p) = &mut record.locomotion else {
+                unreachable!("an airplane record")
+            };
+            p.gear_track = Fp(track);
+            let mut bench = FlightBench::set_down(&record, 0.0, 100.0);
+            run(&mut bench, &[], 3.0);
+            let forward = bench.rotation() * Vec3::NEG_Z;
+            bench.set_angular_velocity(forward * 0.5);
+            run(&mut bench, &[], 2.0);
+            let at = bench.position();
+            let mut fastest = 0.0f32;
+            for _ in 0..64 {
+                bench.step();
+                fastest = fastest.max(bench.angular_velocity().length());
+            }
+            let moved = bench.position().distance(at);
+            let (_, bank, _) = attitude(&bench);
+            assert!(
+                fastest < 0.01 && moved < 1e-3 && bank.abs() < 0.5,
+                "{what}, track {track}: turning at {fastest:.3} rad/s, {moved:.4} m \
+                 moved, {bank:.2} degrees over"
+            );
+        }
+    }
 }
 
 /// From her three wheels she takes off as a taildragger does, with no pull

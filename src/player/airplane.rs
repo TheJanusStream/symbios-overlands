@@ -37,9 +37,12 @@
 //! sideways at the mains, rolling with a little drag, and braking. Where
 //! they stand, how far the tail wheel reaches and where her centre of mass
 //! is are the record's (#1617), so a drawn taildragger stands tail-down on
-//! her own wheels ([`wheels`], [`gear_spring`]). How much of her weight
-//! they carry is how much of her control is the ground's: taking off, the
-//! air's fades in as her lift unloads them.
+//! her own wheels ([`wheels`], [`gear_spring`]); however far out her mains
+//! stand, they damp her roll no harder than one fixed step can follow, and
+//! stopping, never turn her the other way ([`roll_damping`],
+//! [`stop_share`], #1625). How much of her weight they carry is how much of
+//! her control is the ground's: taking off, the air's fades in as her lift
+//! unloads them.
 //!
 //! # What is passive
 //!
@@ -132,6 +135,26 @@ const GEAR_DAMPING_RATIO: f32 = 0.8;
 const GEAR_GRIP: f32 = 10.0;
 const ROLLING_DRAG: f32 = 0.4;
 const GEAR_TILT_LIMIT_DEG: f32 = 50.0;
+
+/// The most of her roll her mains' dampers may take out in one fixed step
+/// (#1625): all of it, and never more, which the step would turn round into
+/// a roll the other way. Each damper is sized for the load its spring
+/// carries ([`gear_spring`]), and far out from a narrow box - all her roll
+/// inertia, which avian reads off her collider - the two took out three
+/// times her roll in a step: the seeded twin, her mains under her nacelles,
+/// rocked on them without end, and so did any airplane whose mains were
+/// set far enough out. Her heave and pitch keep their damping whole.
+const GEAR_ROLL_STEP: f32 = 1.0;
+
+/// The most of her yaw her mains may take out in one fixed step as their
+/// rolling drag and brakes bring them to a stop (#1625): half of it. Each
+/// stops no more than its own wheel, the load its spring carries, and that
+/// is all of her that rolls straight ahead; but far out from a narrow box
+/// the two turn her about her middle as well, against a box's yaw inertia,
+/// and took out more than all of her yaw in a step - she shivered from side
+/// to side at rest, through her roll too, standing tail-down. Half leaves
+/// her roll's damping ([`GEAR_ROLL_STEP`]) the rest of the step.
+const GEAR_YAW_STEP: f32 = 0.5;
 
 /// The throttle she holds, from 0 (closed) to 1 (full) - on her chassis,
 /// moved only by Space and Shift and closed by every set-down
@@ -496,6 +519,35 @@ fn gear_spring(load_mass: f32, reach: f32) -> (f32, f32) {
     (stiffness, damping)
 }
 
+/// How much of a wheel's last step to a stop it may take - what is left of
+/// its roll along the ground, taken out at once: all of it, unless the two
+/// mains, `lever` metres out to her sides each carrying `carries` kg on
+/// `grip`, would take out more than [`GEAR_YAW_STEP`] of her yaw in that
+/// step against her `yaw_inertia` (kg m^2). The tail wheel, on her
+/// centreline, never would.
+fn stop_share(carries: f32, grip: f32, yaw_inertia: f32, lever: f32) -> f32 {
+    let arm = 2.0 * carries * grip * lever * lever;
+    if arm > 0.0 {
+        (GEAR_YAW_STEP * yaw_inertia / arm).min(1.0)
+    } else {
+        1.0
+    }
+}
+
+/// How hard a wheel's damper may resist her roll (N s/m), its leg `lever`
+/// metres out to her side: its own `damping`, unless the two mains together
+/// would take out more than [`GEAR_ROLL_STEP`] of her roll in one fixed
+/// step of `dt` seconds against her `roll_inertia` (kg m^2). The tail wheel,
+/// on her centreline, never would.
+fn roll_damping(damping: f32, roll_inertia: f32, lever: f32, dt: f32) -> f32 {
+    let arm = 2.0 * lever * lever * dt;
+    if arm > 0.0 {
+        damping.min(GEAR_ROLL_STEP * roll_inertia / arm)
+    } else {
+        damping
+    }
+}
+
 /// How far behind her bank her path's turn answers it (s), as a pilot
 /// reckons a roll-out ([`Handling::roll_out_turn`]): her lift is still the
 /// steeper bank's for a moment as her wings come level, and her nose leads
@@ -679,6 +731,7 @@ pub(super) fn fly_airplane(
     let mass = p.mass.0;
     let half = p.chassis_half_extents.0;
     let wings = Wings::of(p);
+    let inertia = box_inertia(mass, half);
 
     // The gear: three wheels, cast like the car's springs.
     let mut carried = 0.0;
@@ -687,6 +740,10 @@ pub(super) fn fly_airplane(
         let ahead = Vec3::new(forward.x, 0.0, forward.z).normalize_or_zero();
         let aside = Vec3::new(right.x, 0.0, right.z).normalize_or_zero();
         let local = pose.compute_transform();
+        // Her centre of mass, and her roll about it alone.
+        let centre =
+            local.transform_point(Vec3::new(0.0, 0.0, -p.center_of_mass_ahead.0 * half[2]));
+        let roll = forward * spin.dot(forward);
         for wheel in wheels(p) {
             let at = local.transform_point(wheel.at);
             let Some(hit) =
@@ -699,9 +756,18 @@ pub(super) fn fly_airplane(
             // About her centre of mass, which is not the box's middle when
             // the record moves it.
             let moving = forces.velocity_at_point(at);
+            // What her roll alone sinks the leg's top by is damped no harder
+            // than one step can follow ([`GEAR_ROLL_STEP`]).
+            let held = roll_damping(damping, inertia.z, wheel.at.x, dt);
+            let sinking = if held < damping {
+                let rocking = roll.cross(at - centre).y;
+                moving.y - rocking * (1.0 - held / damping)
+            } else {
+                moving.y
+            };
             let compression = (wheel.reach - hit.distance).max(0.0);
             let load = if compression > 0.0 {
-                (stiffness * compression - damping * moving.y).max(0.0)
+                (stiffness * compression - damping * sinking).max(0.0)
             } else {
                 0.0
             };
@@ -716,8 +782,11 @@ pub(super) fn fly_airplane(
                 } else {
                     0.0
                 };
-            // No more than stops the wheel, so a brake never backs her up.
-            let along = -rolling.signum() * slowing.min(rolling.abs() / dt);
+            // No more than stops the wheel, so a brake never backs her up -
+            // nor, far out to her side, turns her the other way
+            // ([`GEAR_YAW_STEP`]).
+            let stop = stop_share(carries, grip, inertia.y, wheel.at.x);
+            let along = -rolling.signum() * slowing.min(stop * rolling.abs() / dt);
             let mut push = Vec3::Y * load + ahead * (carries * grip * along);
             if wheel.main {
                 // Two mains share her sideways grip; the tail wheel castors.
@@ -746,7 +815,6 @@ pub(super) fn fly_airplane(
     }
 
     // The control.
-    let inertia = box_inertia(mass, half);
     let damping = p.angular_damping.0;
     let forward_speed = velocity.dot(forward).max(0.0);
     let slip = velocity.dot(right).atan2(forward_speed.max(1e-3));

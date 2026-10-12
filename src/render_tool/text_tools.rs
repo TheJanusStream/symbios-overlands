@@ -186,7 +186,8 @@ pub(super) fn print_outfit(subject: &str) {
                 // type's its own - the trainer's arm before the wildcard, as
                 // the armoured car's is (#1621), and the autogyro's, who
                 // wears the biplane's list (#1624) - and so is an airplane's
-                // (#1617), the biplane's before the wildcard (#1623).
+                // (#1617), the biplane's and the twin's before the wildcard
+                // (#1623, #1625).
                 CraftType::Helicopter(HelicopterType::Trainer) => {
                     livery::trainer_livery(seed, character.style, None).name
                 }
@@ -197,6 +198,9 @@ pub(super) fn print_outfit(subject: &str) {
                     livery::helicopter_livery(seed, character.style, None).name,
                 CraftType::Airplane(AirplaneType::Biplane) => {
                     livery::biplane_livery(seed, character.style, None).name
+                }
+                CraftType::Airplane(AirplaneType::Twin) => {
+                    livery::twin_livery(seed, character.style, None).name
                 }
                 CraftType::Airplane(_) => livery::airplane_livery(seed, character.style, None).name,
             }

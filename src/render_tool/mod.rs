@@ -249,8 +249,9 @@ struct Args {
     /// [`livery::TRAINER_LIVERIES`](crate::pds::avatar::livery::TRAINER_LIVERIES),
     /// [`livery::AIRPLANE_LIVERIES`](crate::pds::avatar::livery::AIRPLANE_LIVERIES),
     /// [`livery::BIPLANE_LIVERIES`](crate::pds::avatar::livery::BIPLANE_LIVERIES),
-    /// which the autogyro wears too, whose index names a scheme outright,
-    /// whatever the subject's theme).
+    /// which the autogyro wears too,
+    /// [`livery::TWIN_LIVERIES`](crate::pds::avatar::livery::TWIN_LIVERIES),
+    /// whose index names a scheme outright, whatever the subject's theme).
     /// It WRAPS, so a survey loop that runs past the end draws each scheme
     /// once rather than the last one twice. `--outfit` prints the name a seed
     /// picked for itself.

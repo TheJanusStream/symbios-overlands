@@ -37,8 +37,10 @@ in the air; move her wheels in the tree and these with them, or she stands
 on wheels nobody can see. A seeded high-wing flies the preset's handling, and
 a seeded biplane (#1623) her own - `min_airspeed` 9 against 11,
 `cruise_speed` 17 against 20, 1.4 times the drag, `roll_rate` 120 against 90
-and `pitch_rate` 50 against 45 - which a pilot reads off her record as it
-reads any airplane's.
+and `pitch_rate` 50 against 45 - and a seeded twin-engine transport (#1625)
+hers: `min_airspeed` 13, `cruise_speed` 24, 0.85 times the drag, `roll_rate`
+70, `pitch_rate` 40 and `yaw_rate` 22, which a pilot reads off her record as
+it reads any airplane's.
 
 ## Shaping a generator body
 
