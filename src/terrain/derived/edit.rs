@@ -16,8 +16,7 @@
 //!
 //! Either is undone by **Restore** ([`restore`]), from the Region source
 //! section's list: the item is drawn from Berlin again, and an adopted
-//! item's copy goes. The ring's lots carry no stable ids, and stay as
-//! drawn.
+//! item's copy goes.
 
 use std::collections::HashSet;
 
@@ -102,7 +101,6 @@ pub(crate) fn describe(level: Option<&StreetLevel>, id: &SourceId) -> String {
             .iter()
             .find(|f| &*f.id == key)
             .map(|f| format!("A {}", kind_word(f.kind))),
-        SourceLayer::RingLot => None,
     });
     found.unwrap_or_else(|| {
         format!(
@@ -188,7 +186,6 @@ fn layer_words(layer: SourceLayer) -> &'static str {
         SourceLayer::Building => "A building",
         SourceLayer::Tree => "A tree",
         SourceLayer::Furniture => "An item of street furniture",
-        SourceLayer::RingLot => "A building round the walkable ground",
     }
 }
 

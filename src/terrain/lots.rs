@@ -467,8 +467,8 @@ pub(crate) fn pool_for(
 /// entry's seed (#1514): it was stamped on the root only, and every grammar
 /// entry roots on a footing box, so the seed reached none of them.
 ///
-/// The middle ring of a geodata region grows its buildings with it too
-/// (#1587), so they are the lots' own.
+/// A geodata region's street level grows its buildings with it too
+/// (#1588), so they are the lots' own.
 pub(crate) fn grow_generator(
     entry: &dyn CatalogueEntry,
     did: &str,

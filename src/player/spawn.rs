@@ -23,9 +23,8 @@ pub(super) fn spawn_local_player(
     room: Option<Res<LiveRoomRecord>>,
     mut avatar_deps: visuals::AvatarSpawnDeps,
 ) {
-    // Where a body may be set down: a Berlin region's far field past the
-    // core included, which is walked (P4.1, #1596), clear of its walls.
-    let half = hm_res.set_down_half_extent();
+    // Where a body may be set down: the world's ground.
+    let half = hm_res.walkable_half_extent();
 
     // Spawn-pose precedence (#745): an explicit URL/CLI placement wins
     // wholesale; otherwise the room record's owner-configured default

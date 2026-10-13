@@ -12,9 +12,7 @@
 //! places it by - flush on the street line, free in a garden, a slab among
 //! lawns. An underground car
 //! park stands nothing. Whatever reaches past [`EDGE_MARGIN_M`] inside the
-//! core's edge is left out: the core's pages end there, and past it the far
-//! field and the ring are drawn coarser (P4.1, #1596, walks them; P4.2,
-//! #1597, brings the street level out to wherever a body walks).
+//! ground's edge is left out: the pages end there.
 //!
 //! Each building and item of furniture is turned to its street
 //! ([`Facing`]): across to the nearest carriageway the core draws, within
@@ -29,7 +27,7 @@
 //! Each layer stands or falls on its own page: a page that could not be had
 //! or read leaves its layer out, says why, and the rest still stand.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use geodata::berlin::{BuildingUse, Development, FurnitureKind, LandUse};
@@ -133,7 +131,6 @@ impl StreetLevel {
             SourceLayer::Building => self.buildings.iter().any(|b| &*b.id == key),
             SourceLayer::Tree => self.trees.iter().any(|t| &*t.id == key),
             SourceLayer::Furniture => self.furniture.iter().any(|f| &*f.id == key),
-            SourceLayer::RingLot => false,
         }
     }
 
@@ -155,30 +152,6 @@ impl StreetLevel {
             furniture,
             clearance: TreeClearance { cells },
         }
-    }
-
-    /// The same street level moved `(dx, dz)` metres: a detail patch's
-    /// (P4.2, #1597), read in its own frame round its centre and carried to
-    /// where it stands in the world.
-    pub(crate) fn moved(self, dx: f32, dz: f32) -> Self {
-        let StreetLevel {
-            mut buildings,
-            mut trees,
-            mut furniture,
-            ..
-        } = self;
-        for building in &mut buildings {
-            for point in &mut building.outline {
-                *point = (point.0 + dx, point.1 + dz);
-            }
-        }
-        for tree in &mut trees {
-            (tree.x, tree.z) = (tree.x + dx, tree.z + dz);
-        }
-        for item in &mut furniture {
-            (item.x, item.z) = (item.x + dx, item.z + dz);
-        }
-        StreetLevel::new(buildings, trees, furniture)
     }
 
     /// Where its inventory trees keep a seeded stand clear.
@@ -226,24 +199,26 @@ impl TreeClearance {
 /// One page as fetched, or why it could not be had, as a sentence.
 pub(crate) type Page = Result<Arc<[u8]>, String>;
 
-/// The street level's pages as fetched: the buildings', the blocks'
-/// (#1600), the two tree inventories', and each furniture kind's.
+/// The street level's pages as fetched, each layer's one a tile of the
+/// square (#1637): the buildings', the blocks' (#1600), the two tree
+/// inventories', and each furniture kind's.
 pub(crate) struct StreetLevelBodies {
-    pub buildings: Page,
-    pub blocks: Page,
-    pub street_trees: Page,
-    pub park_trees: Page,
-    pub furniture: Vec<(FurnitureKind, Page)>,
+    pub buildings: Vec<Page>,
+    pub blocks: Vec<Page>,
+    pub street_trees: Vec<Page>,
+    pub park_trees: Vec<Page>,
+    pub furniture: Vec<(FurnitureKind, Vec<Page>)>,
 }
 
 /// Read the street level's pages and carry them into the world frame round
-/// the core `frame` - or a detail patch's, round its centre (P4.2, #1597;
-/// [`StreetLevel::moved`] carries it on to where the patch stands) - its
-/// `streets` and land use `cover` turning each building and item to its
+/// the core `frame`, its `streets` and land use `cover` turning each
+/// building and item to its
 /// street (see the module docs). Answers what was read, and why each layer
 /// left out was: a page that could not be had or read, in the order the
-/// pages are asked for. A page the server cut short still draws what it
-/// holds.
+/// pages are asked for. A layer is read whole from its tiles' pages or
+/// left out whole, and a feature two tiles both hold is read once, by its
+/// id; one with no id is never taken for another. A page the server cut
+/// short still draws what it holds.
 pub(crate) fn decode_street_level(
     bodies: &StreetLevelBodies,
     frame: CoreFrame,
@@ -265,16 +240,23 @@ pub(crate) fn decode_street_level(
 
     // Buildings: whole ones stand, their parts raise their peaks.
     let mut whole: Vec<CoreBuilding> = Vec::new();
-    let page = read_page(
+    let pages = read_pages(
         &bodies.buildings,
         "buildings",
         geodata::berlin::parse_buildings,
         &mut lost,
     );
-    if let Some(page) = page {
-        warn_cut_short("buildings", page.features, page.matched);
+    if let Some(pages) = pages {
+        let mut seen = HashSet::new();
         let mut parts: Vec<((f32, f32), u8)> = Vec::new();
-        for building in &page.buildings {
+        for page in &pages {
+            warn_cut_short("buildings", page.features, page.matched);
+        }
+        let buildings = pages
+            .iter()
+            .flat_map(|page| &page.buildings)
+            .filter(|building| building.uuid.is_empty() || seen.insert(building.uuid.as_str()));
+        for building in buildings {
             let Some(ring) = building
                 .outlines
                 .iter()
@@ -327,17 +309,21 @@ pub(crate) fn decode_street_level(
 
     // Blocks (#1600): each building takes how the block that holds its
     // middle is built up.
-    let blocks = read_page(
+    let blocks = read_pages(
         &bodies.blocks,
         "block types",
         geodata::berlin::parse_blocks,
         &mut lost,
     );
-    if let Some(page) = blocks {
-        warn_cut_short("block types", page.features, page.matched);
-        let areas: Vec<BlockArea> = page
-            .blocks
+    if let Some(pages) = blocks {
+        let mut seen = HashSet::new();
+        for page in &pages {
+            warn_cut_short("block types", page.features, page.matched);
+        }
+        let areas: Vec<BlockArea> = pages
             .iter()
+            .flat_map(|page| &page.blocks)
+            .filter(|block| block.key.is_empty() || seen.insert(block.key.as_str()))
             .map(|block| BlockArea::new(block, &world))
             .collect();
         for building in &mut whole {
@@ -351,15 +337,19 @@ pub(crate) fn decode_street_level(
 
     // Trees, street and park.
     let mut trees = Vec::new();
-    for (what, body) in [
+    let mut seen_trees = HashSet::new();
+    for (what, pages) in [
         ("street trees", &bodies.street_trees),
         ("park trees", &bodies.park_trees),
     ] {
-        let Some(page) = read_page(body, what, geodata::berlin::parse_trees, &mut lost) else {
+        let Some(pages) = read_pages(pages, what, geodata::berlin::parse_trees, &mut lost) else {
             continue;
         };
-        warn_cut_short(what, page.features, page.matched);
-        for tree in page.trees {
+        for page in &pages {
+            warn_cut_short(what, page.features, page.matched);
+        }
+        let read = pages.into_iter().flat_map(|page| page.trees);
+        for tree in read.filter(|tree| tree.id.is_empty() || seen_trees.insert(tree.id.clone())) {
             let (x, z) = world(tree.at);
             if inside((x, z)) {
                 trees.push(CoreTree {
@@ -377,15 +367,19 @@ pub(crate) fn decode_street_level(
 
     // Furniture, each kind's page.
     let mut furniture = Vec::new();
-    for (kind, body) in &bodies.furniture {
+    for (kind, pages) in &bodies.furniture {
         let parse = |body: &[u8]| geodata::berlin::parse_furniture(*kind, body);
-        let Some(page) = read_page(body, kind.name(), parse, &mut lost) else {
+        let Some(pages) = read_pages(pages, kind.name(), parse, &mut lost) else {
             continue;
         };
-        warn_cut_short(kind.name(), page.features, page.matched);
-        let items = page
-            .items
+        for page in &pages {
+            warn_cut_short(kind.name(), page.features, page.matched);
+        }
+        let mut seen = HashSet::new();
+        let items = pages
             .into_iter()
+            .flat_map(|page| page.items)
+            .filter(|item| item.id.is_empty() || seen.insert(item.id.clone()))
             .filter_map(|item| {
                 let at = world(item.at);
                 inside(at).then(|| CoreFurniture {
@@ -471,6 +465,21 @@ fn read_page<T>(
         parse(body).map_err(|e| format!("Berlin's {what} could not be read: {e}."))
     });
     read.map_err(|reason| lost.push(reason)).ok()
+}
+
+/// A layer's pages, every tile's (#1637), each read by `parse` - or `None`,
+/// the first reason in `lost`, where any could not be had or read: a layer
+/// stands whole or is left out whole, never with a tile's hole in it.
+fn read_pages<T>(
+    pages: &[Page],
+    what: &str,
+    parse: impl Fn(&[u8]) -> Result<T, geodata::features::FeatureError>,
+    lost: &mut Vec<String>,
+) -> Option<Vec<T>> {
+    pages
+        .iter()
+        .map(|page| read_page(page, what, &parse, lost))
+        .collect()
 }
 
 /// Say so where a page of `what` held fewer features than the server
@@ -605,7 +614,7 @@ impl Facing {
             buckets,
             side,
             half,
-            to_street: super::ring::street_distance(cover, frame.grid as usize),
+            to_street: street_distance(cover, frame.grid as usize),
             grid: frame.grid as usize,
             cell: frame.cell,
         }
@@ -734,8 +743,58 @@ pub(crate) fn contains(outline: &[(f32, f32)], p: (f32, f32)) -> bool {
     inside
 }
 
+/// Four-neighbour steps from each pixel to the nearest street pixel: the
+/// street space, which the land use leaves empty. `u32::MAX` everywhere on
+/// a render with no street.
+fn street_distance(cover: &[Option<LandUse>], n: usize) -> Vec<u32> {
+    let mut steps = vec![u32::MAX; n * n];
+    let mut queue = std::collections::VecDeque::new();
+    for (i, c) in cover.iter().enumerate() {
+        if c.is_none() {
+            steps[i] = 0;
+            queue.push_back(i);
+        }
+    }
+    while let Some(i) = queue.pop_front() {
+        let (x, z) = (i % n, i / n);
+        let next = [
+            (x > 0).then(|| i - 1),
+            (x + 1 < n).then(|| i + 1),
+            (z > 0).then(|| i - n),
+            (z + 1 < n).then(|| i + n),
+        ];
+        for j in next.into_iter().flatten() {
+            if steps[j] == u32::MAX {
+                steps[j] = steps[i] + 1;
+                queue.push_back(j);
+            }
+        }
+    }
+    steps
+}
+
 #[cfg(test)]
 mod tests {
+    /// The steps to the street are a breadth-first count over four
+    /// neighbours from every street pixel (the land use's empty ones), and
+    /// a render with no street reads as unreachable everywhere.
+    #[test]
+    fn the_steps_to_the_street_count_four_neighbour_moves() {
+        let n = 4;
+        // A street down the west column; everything else housing.
+        let cover: Vec<Option<LandUse>> = (0..n * n)
+            .map(|i| (i % n != 0).then_some(LandUse::Housing))
+            .collect();
+        let steps = street_distance(&cover, n);
+        for z in 0..n {
+            for x in 0..n {
+                assert_eq!(steps[z * n + x], x as u32, "({x}, {z})");
+            }
+        }
+        let none = street_distance(&[Some(LandUse::Housing); 4], 2);
+        assert!(none.iter().all(|&s| s == u32::MAX));
+    }
+
     use super::*;
     use bevy::math::{Quat, Vec3};
     use geodata::request::Bbox;

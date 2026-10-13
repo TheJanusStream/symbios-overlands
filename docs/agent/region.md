@@ -1022,14 +1022,16 @@ built this way; its builder is `exports/eigen/b/city.py`.
 `/geo_source` is `{dataset: "berlin", min_e, min_n, size_m}`: a square of
 Berlin in whole metres of EPSG:25833 (ETRS89 / UTM 33N), its south-west
 corner and side. With it, the ground is the city's own terrain at real scale
-and real altitude: the heightmap keeps `base_terrain`'s `grid_size` and
-`cell_scale`, centred on the square, and the height fields are no longer
+and real altitude, the whole square at street level to its edge (a Kiez,
+#1637): the heightmap keeps `base_terrain`'s `grid_size`, its points spaced
+to span the square, and `cell_scale` and the height fields are no longer
 read. Heights are metres above sea level, 26-123 m. `room set /geo_source
 null` goes back to the generated ground.
 
 - **A seeded room may already be one.** One seeded room in four - a room
   whose owner never saved it - is drawn as a square of Berlin, its square
-  drawn from its seed with the rest of it. Such a room has no seeded
+  drawn from its seed with the rest of it - always a kilometre (#1637).
+  Such a room has no seeded
   settlement: Berlin's buildings, in the room's theme, are its settlement,
   with the gateway and the owner's monument near the square's middle and
   the landing in front of the gate. `room get /geo_source` says which
@@ -1041,9 +1043,9 @@ null` goes back to the generated ground.
   set there may set a body down a few metres from where you put it; the
   terrain report's landing says where.
 - **The square is checked.** Its side snaps to whole 10 m between 250 m and
-  19 km, and a square that is not wholly inside Berlin is moved to the
-  nearest place it fits. `room get /geo_source` after the set shows where
-  it landed.
+  2 km, and a square that is not wholly inside Berlin is moved to the
+  nearest place it fits; a wider side shrinks to 2 km round its middle.
+  `room get /geo_source` after the set shows where it landed.
 - **The ground is fetched when the world loads** from Berlin's map service
   (gdi.berlin.de) and kept on the device for 30 days. Everyone in the world
   fetches the same data. If the service cannot be reached, the world falls
@@ -1051,9 +1053,12 @@ null` goes back to the generated ground.
   terrain row while loading, a warning toast in game. If only the land use
   cannot be had, Berlin's terrain stays, coloured by the altitude rules
   and dry, and says that.
-- **A small square is a small world.** The ground spans `grid_size` points
-  `cell_scale` apart, but never more than the square's side: a 250 m square
-  gives a ground about 250 m across.
+- **The square is the world.** The ground spans the square's side, no
+  more and no less: a 250 m square gives a ground 250 m across, 2 km one
+  2 km across. Its points stand the side over `grid_size` apart, never
+  closer than a metre (Berlin's terrain model's own grid): 512 points span
+  a kilometre at 1.95 m and 2 km at 3.9 m. Nothing is drawn or walked past
+  the edge, as on a generated world.
 - **The land use paints the ground, by layer role.** Parks, woods,
   meadows, cemeteries, allotments and sport grounds take the first of
   `base_terrain`'s four material layers; built-up blocks, farmland, bare
@@ -1079,36 +1084,6 @@ null` goes back to the generated ground.
   carries one of Berlin's streets is a deck over the water; a footbridge or
   a rail bridge is a causeway at the waterline. The World Editor's Region
   source shows the level.
-- **A square wider than the walkable ground has a horizon, and it is
-  walked** (#1596). The rest of the square is drawn on to its edge,
-  coarse - about 17 to 74 m a pixel, its land use painted, no streets - and a
-  body walks and drives out to the square's edge, where invisible walls
-  end the world. A placement or a `default_landing` out there stands on
-  the ground as drawn, where it was put: the walks off water and streets
-  run on the core alone. Once the horizon has loaded the fog opens at
-  least as far as the square's side so it shows, whatever
-  `/environment/fog_visibility` says below that.
-- **Past the walkable ground, Berlin comes in at full detail round the
-  body** (#1597). Within 200 m of the core's edge, and out past it, a
-  patch as big as the core (narrower where the square leaves less room)
-  loads round the agent's own body: the street-level ground, streets,
-  buildings, trees and street furniture, as on the core, standing against
-  the core where the two meet. A new patch loads every 250 m or so of
-  travel, a second or so after it is asked for; one 300 m deep in the core
-  is let go. Each client loads its own round its own body, so what another
-  visitor sees out there depends on where they are. A placement on a patch
-  stands on its ground, and moves to it when the patch loads: `snap_to_terrain`
-  placements past the core are set down again whenever a patch arrives or
-  leaves under them. None of it is in the record.
-- **Berlin's buildings stand round the street-level ground** (#1587), out
-  to about a kilometre past its edge: the theme's own catalogue buildings,
-  one to each 30 m lot where Berlin has a building, the tallest Berlin
-  buildings taking the theme's landmarks and every other lot one of the
-  theme's three street buildings (#1598), its storeys by Berlin's height
-  there. They are solid (#1596), keep
-  clear of `default_landing` and of every absolute placement's reach as
-  the street level does, and are derived on every visit and not in the
-  record: nothing an agent can place, move or delete.
 - **The walkable ground has Berlin's street level** (P2.2): the theme's
   catalogue buildings on each of Berlin's building footprints (in rows down
   a long one, a landmark on a church or a large museum) - since #1598 the

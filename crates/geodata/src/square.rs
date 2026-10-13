@@ -1,18 +1,23 @@
-//! A square of the map, and the seeded draw of its size.
+//! A square of the map, and the sides a region's square may have.
 //!
-//! A geodata region is a square of real Berlin at real scale: the square's
-//! side is the region's extent. Where it lies is the coverage's business
-//! ([`crate::berlin::Coverage::place`]); how big it is, this module's.
+//! A geodata region is a square of real Berlin at real scale, walked at full
+//! detail to its edge (a Kiez, #1637): the square's side is the region's
+//! extent. Where it lies is the coverage's business
+//! ([`crate::berlin::Coverage::place`]); how big it may be, this module's.
 
 use serde::{Deserialize, Serialize};
 
-/// The smallest square a region is drawn from, metres.
+/// The smallest side a region's square may have, metres.
 pub const SIZE_MIN_M: u32 = 250;
 
-/// The largest, metres: the biggest square that fits wholly inside Berlin.
-/// The owner asked for 20 km; the state's shape allows 19
-/// (`berlin::coverage` tests hold that this one fits and the next does not).
-pub const SIZE_MAX_M: u32 = 19_000;
+/// The largest, metres: a region is walked at full detail to its edge, so
+/// its side is held to what that costs (#1637, the owner's choice). The
+/// World Editor may set any side up to it; Berlin's shape would allow 19 km.
+pub const SIZE_MAX_M: u32 = 2_000;
+
+/// The side of a seeded region's square, metres: a Kiez's kilometre (#1637,
+/// the owner's choice).
+pub const SEEDED_SIZE_M: u32 = 1_000;
 
 /// Every drawn size is a whole multiple of this many metres, so a square's
 /// centre is a whole metre and every request box is whole.
@@ -49,7 +54,8 @@ impl GeoSquare {
     }
 
     /// The square of side `size_m` sharing this one's centre - or this one,
-    /// if it is no larger. The walkable core of a large region is this.
+    /// if it is no larger. A square saved wider than [`SIZE_MAX_M`] shrinks
+    /// to this (#1637).
     ///
     /// When the two sides differ by an odd number of metres, the smaller
     /// square sits half a metre south-west of true centre: corners stay
@@ -78,24 +84,9 @@ impl GeoSquare {
     }
 }
 
-/// The size a uniform 64-bit `draw` picks: log-uniform over
-/// [`SIZE_MIN_M`]..=[`SIZE_MAX_M`], so each doubling of size is as likely as
-/// the next, rounded to a whole [`SIZE_STEP_M`].
-///
-/// The logarithm and exponential are `libm`'s, so the same draw gives the
-/// same size on every platform.
-pub fn size_from_draw(draw: u64) -> u32 {
-    // The top 53 bits as a [0, 1) fraction: exact in an f64.
-    let unit = (draw >> 11) as f64 / (1u64 << 53) as f64;
-    let span = libm::log(f64::from(SIZE_MAX_M) / f64::from(SIZE_MIN_M));
-    let size = f64::from(SIZE_MIN_M) * libm::exp(unit * span);
-    let steps = libm::round(size / f64::from(SIZE_STEP_M)) as u32;
-    (steps * SIZE_STEP_M).clamp(SIZE_MIN_M, SIZE_MAX_M)
-}
-
-/// `size_m` as a drawable side: the nearest whole [`SIZE_STEP_M`] (halves
-/// up), within [`SIZE_MIN_M`]..=[`SIZE_MAX_M`] - what a drawn size always is,
-/// and what a typed or stored one is made into (#1583).
+/// `size_m` as a side a square may have: the nearest whole [`SIZE_STEP_M`]
+/// (halves up), within [`SIZE_MIN_M`]..=[`SIZE_MAX_M`] - what a typed or
+/// stored side is made into (#1583).
 pub fn snap_size(size_m: u32) -> u32 {
     let steps = size_m.saturating_add(SIZE_STEP_M / 2) / SIZE_STEP_M;
     (steps * SIZE_STEP_M).clamp(SIZE_MIN_M, SIZE_MAX_M)
@@ -111,46 +102,11 @@ mod tests {
         assert_eq!(snap_size(1_005), 1_010);
         assert_eq!(snap_size(0), SIZE_MIN_M);
         assert_eq!(snap_size(u32::MAX), SIZE_MAX_M);
-        for draw in [0, 1 << 40, u64::MAX / 3, u64::MAX] {
-            let size = size_from_draw(draw);
-            assert_eq!(snap_size(size), size, "a drawn size is already snapped");
-        }
-    }
-
-    #[test]
-    fn size_draw_spans_the_range_on_the_step() {
-        assert_eq!(size_from_draw(0), SIZE_MIN_M);
-        assert_eq!(size_from_draw(u64::MAX), SIZE_MAX_M);
-        let mut last = 0;
-        for i in 0..=1000u64 {
-            let size = size_from_draw(i * (u64::MAX / 1000));
-            assert!((SIZE_MIN_M..=SIZE_MAX_M).contains(&size));
-            assert_eq!(size % SIZE_STEP_M, 0);
-            assert!(size >= last, "the draw is monotone");
-            last = size;
-        }
-    }
-
-    #[test]
-    fn size_draw_is_log_uniform() {
-        // Equal slices of the draw land in equal slices of log(size): the
-        // median is the geometric mean of the bounds, not their midpoint.
-        let median = size_from_draw(u64::MAX / 2);
-        let geometric = (f64::from(SIZE_MIN_M) * f64::from(SIZE_MAX_M)).sqrt();
-        assert!((f64::from(median) - geometric).abs() <= f64::from(SIZE_STEP_M));
-        let quarter = size_from_draw(u64::MAX / 4);
-        let expected = f64::from(SIZE_MIN_M) * (geometric / f64::from(SIZE_MIN_M)).sqrt();
-        assert!((f64::from(quarter) - expected).abs() <= f64::from(SIZE_STEP_M));
-    }
-
-    #[test]
-    fn size_draw_is_pinned() {
-        // A seeded region must keep its square across releases: these are
-        // the sizes today's draws give, and changing one moves every region
-        // drawn from it. `tools/place_check.py` reproduces them.
-        assert_eq!(size_from_draw(0x0123_4567_89AB_CDEF), 250);
-        assert_eq!(size_from_draw(0x8000_0000_0000_0000), 2180);
-        assert_eq!(size_from_draw(0xDEAD_BEEF_F00D_CAFE), 10_810);
+        assert_eq!(
+            snap_size(SEEDED_SIZE_M),
+            SEEDED_SIZE_M,
+            "a seeded side is one"
+        );
     }
 
     #[test]

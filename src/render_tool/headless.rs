@@ -1824,7 +1824,6 @@ pub(super) fn follow_rig_zoom(
     capture: Res<Capture>,
     cameras: Query<&Transform, IsWorldCamera>,
     record: Option<Res<LiveRoomRecord>>,
-    heightmap: Option<Res<crate::terrain::FinishedHeightMap>>,
     mut suns: crate::shadow_reach::SunCascades,
 ) {
     let (Some(look), Ok(camera)) = (capture.look, cameras.single()) else {
@@ -1833,7 +1832,6 @@ pub(super) fn follow_rig_zoom(
     crate::shadow_reach::follow(
         camera.translation.distance(look),
         record.as_deref(),
-        heightmap.as_deref(),
         &mut suns,
     );
 }

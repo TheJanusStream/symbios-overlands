@@ -143,37 +143,6 @@ pub fn settle(
     None
 }
 
-/// Shape `heights` to a `level` chosen elsewhere: a far field following the
-/// water of the core it surrounds. The bodies within [`LEVEL_GAP_M`] of the
-/// level are carved and the rest of the ground kept above it, as [`settle`]
-/// does, under the same two refusals - a level that sinks more than
-/// [`MAX_SUNK_PER_MILLE`] of this grid, or that leaves no water drawn in
-/// it, changes nothing and returns `None`.
-///
-/// # Panics
-///
-/// If either grid is not `width x height`.
-pub fn settle_to(
-    heights: &mut [f32],
-    water: &[bool],
-    width: u32,
-    height: u32,
-    pixel_m: f32,
-    level: f32,
-) -> Option<Water> {
-    let (w, h) = (width as usize, height as usize);
-    assert!(
-        heights.len() == w * h && water.len() == w * h,
-        "heights ({}) and water ({}) must both be {width} x {height}",
-        heights.len(),
-        water.len()
-    );
-    let (body, bodies) = label_bodies(heights, water, w, h);
-    let (shaped, settled) = try_level(heights, water, &body, &bodies, level, w, h, pixel_m)?;
-    heights.copy_from_slice(&shaped);
-    Some(settled)
-}
-
 /// `heights` shaped to `level`, and what was done, unless the level is
 /// refused: it sinks too much of the grid, or leaves no water drawn.
 #[allow(clippy::too_many_arguments)]
@@ -597,39 +566,6 @@ mod tests {
         let before = heights.clone();
         assert_eq!(settle(&mut heights, &water, w as u32, h as u32, 2.0), None);
         assert_eq!(heights, before);
-    }
-
-    /// A far field follows its core's level: its bodies within the gap of
-    /// that level are carved below it whatever their own level, a body
-    /// beyond the gap is left, and a level the far field's ground lies far
-    /// under is refused as `settle` refuses one.
-    #[test]
-    fn a_far_field_follows_the_level_it_is_given() {
-        let (w, h) = (30, 20);
-        let (mut heights, mut water) = plain(w, h, 34.0);
-        // The river's far reach, mapped 0.6 m higher than the core's level.
-        pool(&mut heights, &mut water, w, 0..6, 0..h, 31.1);
-        // A plateau lake: beyond the gap.
-        pool(&mut heights, &mut water, w, 20..26, 5..11, 46.0);
-        let before = heights.clone();
-        let settled = settle_to(&mut heights, &water, w as u32, h as u32, 2.0, 30.5).unwrap();
-        assert_eq!(settled.level, 30.5, "the level given, not the reach's own");
-        assert_eq!((settled.wet, settled.stranded), (6 * 20, 36));
-        assert_eq!(heights[22 + 7 * w], 46.0, "the lake is left as drawn");
-        // Ground well under a level is no ground for its plane.
-        let mut low = before.clone();
-        low.iter_mut().for_each(|v| *v -= 10.0);
-        assert_eq!(
-            settle_to(&mut low, &water, w as u32, h as u32, 2.0, 30.5),
-            None
-        );
-        // And neither is a level that leaves no water drawn.
-        let (mut dry, none) = plain(w, h, 34.0);
-        assert_eq!(
-            settle_to(&mut dry, &none, w as u32, h as u32, 2.0, 30.5),
-            None
-        );
-        assert!(dry.iter().all(|&v| v == 34.0));
     }
 
     #[test]

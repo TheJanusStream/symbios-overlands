@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 
 use geodata::GeoSquare;
 use geodata::berlin::Coverage;
-use geodata::square::snap_size;
+use geodata::square::{SIZE_MAX_M, snap_size};
 
 /// The dataset id of GDI Berlin.
 pub const BERLIN: &str = "berlin";
@@ -46,7 +46,7 @@ pub const MAX_SOURCE_ID_CHARS: usize = 96;
 /// before it is made.
 pub const MAX_EDITS: usize = 1_024;
 
-/// The most layer hashes a record may carry: a Berlin region draws nine.
+/// The most layer hashes a record may carry: a Berlin region draws seven.
 pub const MAX_LAYERS: usize = 32;
 
 /// The longest layer name.
@@ -241,12 +241,16 @@ impl GeoSource {
     /// means the caller drops it and the region draws procedurally.
     ///
     /// The dataset id must be 1 to [`MAX_DATASET_CHARS`] of `a-z`, `0-9`,
-    /// `-` and `_`. A Berlin square has its side made drawable
-    /// ([`snap_size`]: a whole 10 m within 250 m - 19 km) and is moved, if it
+    /// `-` and `_`. A Berlin square has its side made one a square may have
+    /// ([`snap_size`]: a whole 10 m within 250 m - 2 km) and is moved, if it
     /// has to be, to the nearest position wholly inside Berlin
     /// ([`Coverage::nearest`]) - so a hand-edited or hostile
     /// record still lands on the map, as close to what it asked for as it
-    /// can. Another dataset's square is kept as it is: this build cannot
+    /// can. A square wider than 2 km - one saved before #1637, when squares
+    /// ran to 19 km round a walkable core of about a kilometre - shrinks
+    /// round its middle, which holds that core. A square moved or shrunk
+    /// keeps its edits and drops its layer hashes, drawn for the square it
+    /// was. Another dataset's square is kept as it is: this build cannot
     /// judge it, and only a build that can will read it.
     ///
     /// The edits, whatever the dataset: an id that is not one
@@ -269,8 +273,20 @@ impl GeoSource {
             return true;
         }
         let size = snap_size(self.size_m);
-        match Coverage::berlin().nearest(size, i64::from(self.min_e), i64::from(self.min_n)) {
+        let stored = self.square();
+        let at = if self.size_m > SIZE_MAX_M {
+            stored.centred(size)
+        } else {
+            stored
+        };
+        match Coverage::berlin().nearest(size, i64::from(at.min_e), i64::from(at.min_n)) {
             Some(square) => {
+                // A square the rules moved or shrank keeps its edits and
+                // drops its layer hashes, as `moved_to` does: they were
+                // drawn for the square it was.
+                if square != stored {
+                    self.layers.clear();
+                }
                 self.min_e = square.min_e;
                 self.min_n = square.min_n;
                 self.size_m = square.size_m;
@@ -335,9 +351,35 @@ mod tests {
         assert_eq!(source.berlin_square(), Some(source.square()));
     }
 
+    /// #1637: a square saved when squares ran to 19 km shrinks to the
+    /// largest side round its middle, where its full-detail ground lay,
+    /// while a square of a side a square may have keeps its south-west
+    /// corner, as it always did.
+    #[test]
+    fn a_square_saved_wider_than_the_largest_side_shrinks_round_its_middle() {
+        // Seed 3's square before #1637: 17.32 km, drawn and saved with its
+        // layer hashes.
+        let mut wide = berlin(380_329, 5_812_271, 17_320);
+        wide.layers
+            .insert("terrain".into(), "00000000000000ab".into());
+        let centre = wide.square().centre();
+        assert!(wide.sanitize());
+        assert_eq!(wide.size_m, SIZE_MAX_M);
+        assert_eq!(wide.square().centre(), centre);
+        // Its hashes were the old square's renders: dropped, as a move drops
+        // them, so nothing reads as changed since the save.
+        assert!(wide.layers.is_empty());
+        // A square the rules leave alone keeps its hashes.
+        let mut kept = berlin(391_000, 5_819_500, 1_000);
+        kept.layers
+            .insert("terrain".into(), "00000000000000ab".into());
+        assert!(kept.sanitize());
+        assert_eq!(kept.layers.len(), 1);
+    }
+
     #[test]
     fn a_square_off_the_map_is_moved_onto_it_and_its_side_made_drawable() {
-        use geodata::square::{SIZE_MAX_M, SIZE_MIN_M};
+        use geodata::square::SIZE_MIN_M;
         let coverage = Coverage::berlin();
         // Potsdam: off the map, and far too small.
         let mut source = berlin(368_000, 5_806_000, 10);

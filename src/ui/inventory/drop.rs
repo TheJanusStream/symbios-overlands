@@ -62,7 +62,7 @@ pub(crate) fn handle_generator_drop(
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform), crate::camera::IsWorldCamera>,
     spatial: SpatialQuery,
-    terrain_q: Query<Entity, crate::terrain::GroundFilter>,
+    terrain_q: Query<Entity, With<crate::terrain::TerrainMesh>>,
     session: Option<Res<AtprotoSession>>,
     room_did: Option<Res<CurrentRoomDid>>,
     inventory: Option<Res<LiveInventoryRecord>>,
@@ -459,7 +459,7 @@ pub(crate) fn preview_generator_drop(
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform), crate::camera::IsWorldCamera>,
     spatial: SpatialQuery,
-    terrain_q: Query<Entity, crate::terrain::GroundFilter>,
+    terrain_q: Query<Entity, With<crate::terrain::TerrainMesh>>,
     session: Option<Res<AtprotoSession>>,
     room_did: Option<Res<CurrentRoomDid>>,
 ) {

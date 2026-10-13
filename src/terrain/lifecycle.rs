@@ -38,21 +38,14 @@ pub(super) fn cleanup_terrain(
     mut pending_cfg: ResMut<PendingTerrainConfigJson>,
     geo_job: Option<Res<super::geo::GeoTerrainJob>>,
     mut fetcher: Option<ResMut<crate::geodata::GeoFetcher>>,
-    patch: Option<ResMut<super::geo::patch::follow::RoamingPatch>>,
 ) {
     // A geodata terrain still fetching is forgotten with the world (#1584).
     if let Some(job) = geo_job {
         job.abandon(fetcher.as_deref_mut());
         commands.remove_resource::<super::geo::GeoTerrainJob>();
     }
-    // And a detail patch on its way (P4.2, #1597); the one standing goes
-    // with the terrain, and the compile forgets it.
-    if let Some(mut patch) = patch {
-        patch.abandon(fetcher.as_deref_mut(), None);
-    }
-    commands.insert_resource(super::geo::patch::follow::PatchStamp::default());
     commands.remove_resource::<super::geo::GeoTerrainFallback>();
-    // Derived content still spawning goes with its terrain (#1587, #1588).
+    // Derived content still spawning goes with its terrain (#1588).
     commands.remove_resource::<super::derived::DerivedBuilds>();
     // All `try_despawn` (#923): these flat sweeps overlap - a mid-swap
     // heightfield is in both `terrain` and `outgoing`, and the water
@@ -123,8 +116,6 @@ pub(super) fn maybe_regenerate_terrain(
     terrain_task: Option<Res<TerrainTask>>,
     geo_job: Option<Res<super::geo::GeoTerrainJob>>,
     mut fetcher: Option<ResMut<crate::geodata::GeoFetcher>>,
-    mut patch: Option<ResMut<super::geo::patch::follow::RoamingPatch>>,
-    mut patch_stamp: Option<ResMut<super::geo::patch::follow::PatchStamp>>,
 ) {
     // Capture the terrain *target* of any observed change *before* we
     // decide whether to act on it. `Res::is_changed` is a per-system tick
@@ -186,20 +177,6 @@ pub(super) fn maybe_regenerate_terrain(
                 commands.remove_resource::<super::geo::GeoTerrainJob>();
             }
         };
-    // And a detail patch on its way (P4.2, #1597): it was asked for on the
-    // ground going out, and would land on the next. The one standing goes
-    // with its terrain, and the compile forgets it.
-    let mut abandon_patch = |fetcher: &mut Option<ResMut<crate::geodata::GeoFetcher>>| {
-        if let Some(patch) = patch.as_deref_mut() {
-            patch.abandon(fetcher.as_deref_mut(), None);
-        }
-        if let Some(stamp) = patch_stamp.as_deref_mut()
-            && stamp.0.is_some()
-        {
-            stamp.0 = None;
-        }
-    };
-
     let Some(target) = pending_cfg.0.take() else {
         return;
     };
@@ -249,7 +226,6 @@ pub(super) fn maybe_regenerate_terrain(
             commands.remove_resource::<TextureTasksStarted>();
             commands.remove_resource::<TerrainTask>();
             abandon_geo(&mut commands, &mut fetcher);
-            abandon_patch(&mut fetcher);
             // A new config is a new job, so a previous job's failure is not
             // about it (#1230 f21) - leaving the marker would refuse to
             // start the replacement.
@@ -278,7 +254,6 @@ pub(super) fn maybe_regenerate_terrain(
             commands.remove_resource::<TextureTasksStarted>();
             commands.remove_resource::<TerrainTask>();
             abandon_geo(&mut commands, &mut fetcher);
-            abandon_patch(&mut fetcher);
             // A new config is a new job, so a previous job's failure is not
             // about it (#1230 f21) - leaving the marker would refuse to
             // start the replacement.

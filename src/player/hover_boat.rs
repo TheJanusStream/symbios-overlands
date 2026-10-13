@@ -152,8 +152,7 @@ pub(super) fn apply_hover_boat_buoyancy(
     // that keeps going is recovered before its lift is gone.
     let edge_scale = match hm_res.as_deref() {
         Some(hm_res) => {
-            // The walkable world's edge: a Berlin region's far field's
-            // (P4.1, #1596), where a hull may float now.
+            // The walkable world's edge.
             let half = hm_res.walkable_half_extent();
             let scale = super::respawn::edge_buoyancy_falloff(global_tf.translation(), half);
             if scale <= 0.0 {

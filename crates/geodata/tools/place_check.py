@@ -1,14 +1,12 @@
 """Reproduce the pinned squares of the geodata tests without the Rust code.
 
-`square::tests::size_draw_is_pinned` and
-`berlin::coverage::tests::squares_from_draws_are_pinned` pin what fixed draws
+`berlin::coverage::tests::seeded_squares_are_pinned` pins what fixed draws
 give, because a seeded region must keep its square across releases. This is
 an independent implementation of the same contract, read from the generated
 table, so a change to the Rust that moves a square shows up as a
 disagreement with a second reading rather than as a re-blessed pin:
 
-- the size: log-uniform over 250 m..19 km from the draw's top 53 bits,
-  rounded half away from zero to a whole 10 m;
+- the side: a seeded square is a kilometre (#1637);
 - the position: every whole-metre south-west corner at which the square
   lies on inside cells, counted per corner cell in two offset classes per
   axis, walked north class, east class, row, column; the draw scaled into
@@ -22,17 +20,18 @@ Run from the repository root (pure Python, no packages):
 It prints the squares and exits non-zero if any differs from the pins.
 """
 
-import math
 import re
 import sys
 
 CELL, ORIGIN_E, ORIGIN_N, COLS = 250, 368_000, 5_798_000, 200
-SIZE_MIN, SIZE_MAX, STEP = 250, 19_000, 10
+SEEDED, STEP = 1_000, 10
+# The largest square that fits wholly inside Berlin: the state's shape.
+LARGEST = 19_000
 
 PINS = [
-    ((0x0123_4567_89AB_CDEF, 0xFEDC_BA98_7654_3210), (396_482, 5_833_873, 250)),
-    ((0x8000_0000_0000_0000, 0x8000_0000_0000_0000), (402_454, 5_806_171, 2_180)),
-    ((0xDEAD_BEEF_F00D_CAFE, 0x0BAD_C0DE_1234_5678), (378_010, 5_809_802, 10_810)),
+    (0xFEDC_BA98_7654_3210, (394_562, 5_832_645, SEEDED)),
+    (0x8000_0000_0000_0000, (385_176, 5_817_043, SEEDED)),
+    (0x0BAD_C0DE_1234_5678, (401_077, 5_806_920, SEEDED)),
 ]
 
 
@@ -47,13 +46,6 @@ def load(path):
         assert len(cells) == COLS, "row width"
         inside.append(cells)
     return inside
-
-
-def size_from_draw(draw):
-    unit = (draw >> 11) / float(1 << 53)
-    size = SIZE_MIN * math.exp(unit * math.log(SIZE_MAX / SIZE_MIN))
-    steps = math.floor(size / STEP + 0.5)
-    return min(max(steps * STEP, SIZE_MIN), SIZE_MAX)
 
 
 def walker(inside):
@@ -105,13 +97,13 @@ def place(walk, size, draw):
 def main():
     walk = walker(load(sys.argv[1]))
     ok = True
-    for (size_draw, place_draw), pinned in PINS:
-        got = place(walk, size_from_draw(size_draw), place_draw)
+    for place_draw, pinned in PINS:
+        got = place(walk, SEEDED, place_draw)
         ok &= got == pinned
-        print(f"{size_draw:#018x} -> {got} {'ok' if got == pinned else f'PINNED {pinned}'}")
-    largest = sum(weight for *_, weight in walk(SIZE_MAX))
-    beyond = sum(weight for *_, weight in walk(SIZE_MAX + STEP))
-    print(f"placements: {SIZE_MAX} m {largest}, {SIZE_MAX + STEP} m {beyond}")
+        print(f"{place_draw:#018x} -> {got} {'ok' if got == pinned else f'PINNED {pinned}'}")
+    largest = sum(weight for *_, weight in walk(LARGEST))
+    beyond = sum(weight for *_, weight in walk(LARGEST + STEP))
+    print(f"placements: {LARGEST} m {largest}, {LARGEST + STEP} m {beyond}")
     ok &= largest > 0 and beyond == 0
     sys.exit(0 if ok else 1)
 

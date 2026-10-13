@@ -245,9 +245,8 @@ fn start_pose(spec: &DriverSpec, room: &RoomRecord, heightmap: &FinishedHeightMa
     // Where a body sets down: walked to open dry ground on Berlin's (#1589).
     let walked = crate::world_builder::compile::landing_on(room, heightmap);
     let landing = walked.as_ref();
-    // Where a body may be set down: a Berlin region's far field included
-    // (P4.1), clear of its walls.
-    let half = heightmap.set_down_half_extent();
+    // Where a body may be set down: the world's ground.
+    let half = heightmap.walkable_half_extent();
     let [x, z] = spec
         .from
         .or_else(|| landing.map(|l| l.pos.0))

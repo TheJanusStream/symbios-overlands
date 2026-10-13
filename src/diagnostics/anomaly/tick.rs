@@ -176,8 +176,7 @@ fn diagnostic_tick(
     let player_pos = player_q.iter().next().map(|t| t.translation);
     let player_y = player_pos.map(|p| p.y);
     // Terrain height under the player, for the fell-through-terrain rule -
-    // the same sample `respawn_if_fallen` reads (#672): the ground as
-    // drawn, a Berlin region's far field past the core (P4.1, #1596).
+    // the same sample `respawn_if_fallen` reads (#672).
     let ground_y = match (player_pos, hm_res.as_ref()) {
         (Some(p), Some(hm_res)) => Some(hm_res.world_height_at(p.x, p.z)),
         _ => None,

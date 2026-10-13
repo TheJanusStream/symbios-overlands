@@ -504,10 +504,10 @@ fn draw_region_source(
         ));
     if ui
         .button("Draw another square")
-        .on_hover_text("A random size, anywhere inside Berlin.")
+        .on_hover_text("Another square of this side, anywhere inside Berlin.")
         .clicked()
     {
-        *current = current.moved_to(drawn_square(fresh_seed()));
+        *current = current.moved_to(another_square(square.size_m, fresh_seed()));
         *dirty = true;
     }
 
@@ -779,6 +779,16 @@ fn drawn_square(seed: u64) -> GeoSquare {
     crate::seeded_defaults::RegionSource::for_seed(seed).square()
 }
 
+/// A square of side `side` (m) anywhere inside Berlin, where `draw` puts it,
+/// for "Draw another square": the owner's side kept, every position where
+/// it fits as likely as any other. A side that fits nowhere - none the
+/// editor writes - draws as a seeded region does.
+fn another_square(side: u32, draw: u64) -> GeoSquare {
+    Coverage::berlin()
+        .place(side, draw)
+        .unwrap_or_else(|| drawn_square(draw))
+}
+
 /// The grid point of `(lat, lon)` (degrees), brought within the band the
 /// projection holds in: `None` for a coordinate that is no number.
 fn grid_of(lat: f64, lon: f64) -> Option<(f64, f64)> {
@@ -835,11 +845,17 @@ mod tests {
     fn region_squares_drawn_resized_or_moved_lie_inside_berlin() {
         let coverage = Coverage::berlin();
         for seed in 0..32 {
+            // Turned on, a square is drawn as a seeded region's: a kilometre
+            // (#1637).
             let square = drawn_square(seed);
             assert!(coverage.contains(&square), "seed {seed}: {square:?}");
+            assert_eq!(square.size_m, geodata::square::SEEDED_SIZE_M);
             for side in [SIZE_MIN_M, 1_000, SIZE_MAX_M] {
                 let resized = resized_keeping_centre(square, side).unwrap();
                 assert!(coverage.contains(&resized) && resized.size_m == side);
+                // Drawn again, it keeps the side it was given.
+                let another = another_square(side, seed.wrapping_mul(0x9E37_79B9_7F4A_7C15));
+                assert!(coverage.contains(&another) && another.size_m == side);
             }
         }
         // Resizing in place keeps the centre when the new size fits there.

@@ -488,8 +488,7 @@ pub(super) fn road_surfaces(
 }
 
 /// One road surface built, before its assets are added: what
-/// [`road_surfaces`] does off the asset stores, so a detail patch's streets
-/// (P4.2, #1597) are built on the compute pool and only added on landing.
+/// [`road_surfaces`] does off the asset stores.
 pub(crate) struct BuiltSurface {
     mesh: Mesh,
     kind: RoadSurfaceKind,

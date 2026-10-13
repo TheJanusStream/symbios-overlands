@@ -10,7 +10,8 @@
 //! This crate is the half of that pipeline that does no I/O, so the app and
 //! the wasm worker can share it:
 //!
-//! - [`square`]: a [`GeoSquare`] of the map, and the log-uniform size draw;
+//! - [`square`]: a [`GeoSquare`] of the map, and the sides a region's
+//!   square may have;
 //! - [`latlon`]: latitude and longitude to and from the map's grid, for
 //!   anyone who reads a place off a web map;
 //! - [`berlin`]: the Berlin dataset - its host, its layer catalogue, its
@@ -39,7 +40,7 @@
 //! within a metre, and [`raster::decode_terrain`] smooths out the steps
 //! within each pixel's class: 0.26 m mean error against the raw 1 m model,
 //! for 9 KB per 256 x 256 render. That is the zoom-fitting loading the GDI
-//! viewer does, used as distance LOD.
+//! viewer does, each request sized to the pixels it needs.
 //!
 //! # Conventions
 //!

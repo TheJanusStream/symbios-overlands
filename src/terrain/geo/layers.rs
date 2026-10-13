@@ -39,14 +39,15 @@ pub(crate) enum Layer {
     Trees,
     /// Each furniture kind's page.
     Furniture,
-    /// The far field's terrain and land-use renders.
-    Horizon,
-    /// The middle ring's surface legend and its two renders.
-    Ring,
 }
 
+/// The layers a record may still name that no build draws any more: the
+/// far field's and the middle ring's, retired with them (#1637). A save
+/// drops their hashes rather than carry them on.
+const RETIRED: [&str; 2] = ["horizon", "ring"];
+
 impl Layer {
-    pub(crate) const ALL: [Layer; 9] = [
+    pub(crate) const ALL: [Layer; 7] = [
         Layer::Terrain,
         Layer::LandUse,
         Layer::Streets,
@@ -54,8 +55,6 @@ impl Layer {
         Layer::Blocks,
         Layer::Trees,
         Layer::Furniture,
-        Layer::Horizon,
-        Layer::Ring,
     ];
 
     /// Its name in a record's `layers`.
@@ -68,8 +67,6 @@ impl Layer {
             Layer::Blocks => "blocks",
             Layer::Trees => "trees",
             Layer::Furniture => "furniture",
-            Layer::Horizon => "horizon",
-            Layer::Ring => "ring",
         }
     }
 
@@ -83,8 +80,6 @@ impl Layer {
             Layer::Blocks => "block types",
             Layer::Trees => "trees",
             Layer::Furniture => "street furniture",
-            Layer::Horizon => "horizon",
-            Layer::Ring => "buildings round the walkable ground",
         }
     }
 
@@ -150,6 +145,9 @@ impl DrawnLayers {
         if source.berlin_square() != Some(self.square) {
             return;
         }
+        for retired in RETIRED {
+            source.layers.remove(retired);
+        }
         for (layer, hash) in &self.hashes {
             source
                 .layers
@@ -197,16 +195,24 @@ mod tests {
         let mut source = GeoSource::berlin(SQUARE);
         source
             .layers
-            .insert("ring".into(), "1111111111111111".into());
+            .insert("blocks".into(), "1111111111111111".into());
         source
             .layers
             .insert("terrain".into(), "2222222222222222".into());
+        // A retired layer's hash (#1637), and a name this build does not
+        // know.
+        source
+            .layers
+            .insert("horizon".into(), "3333333333333333".into());
+        source
+            .layers
+            .insert("later".into(), "4444444444444444".into());
         let saved = saved_hashes(Some(&source));
         assert_eq!(
             saved,
             BTreeMap::from([
                 (Layer::Terrain, 0x2222_2222_2222_2222),
-                (Layer::Ring, 0x1111_1111_1111_1111)
+                (Layer::Blocks, 0x1111_1111_1111_1111)
             ])
         );
         let drawn = DrawnLayers::new(
@@ -218,7 +224,9 @@ mod tests {
         drawn.stamp(&mut source);
         assert_eq!(source.layers["terrain"], "00000000000000ab");
         assert_eq!(source.layers["trees"], "00000000000000cd");
-        assert_eq!(source.layers["ring"], "1111111111111111", "not had, kept");
+        assert_eq!(source.layers["blocks"], "1111111111111111", "not had, kept");
+        assert!(!source.layers.contains_key("horizon"), "retired, dropped");
+        assert_eq!(source.layers["later"], "4444444444444444", "unknown, kept");
         // Another square's record is left alone.
         let mut moved = source.moved_to(GeoSquare {
             min_e: 391_010,

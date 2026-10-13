@@ -482,8 +482,7 @@ pub fn find_matching_seed(start: u64, accepts: impl Fn(u64) -> bool) -> Option<u
 ///
 /// The source axes (#1589) are a second draw off the seed, as the avatar's
 /// craft type is off its anchor ([`crate::seeded_defaults::RegionSource`]):
-/// a size or a borough pinned asks for Berlin, a procedural world having no
-/// square.
+/// a borough pinned asks for Berlin, a procedural world having no square.
 #[derive(Clone, Copy, Default, PartialEq, Debug)]
 pub struct ScenePins {
     pub landform: Option<LandformArchetype>,
@@ -497,8 +496,6 @@ pub struct ScenePins {
     pub escalation: Option<EscalationTier>,
     /// Where the ground comes from.
     pub source: Option<crate::seeded_defaults::SourceKind>,
-    /// How big a Berlin square is.
-    pub size: Option<crate::seeded_defaults::SizeClass>,
     /// The borough a Berlin square's middle lies in.
     pub borough: Option<geodata::berlin::Borough>,
 }
@@ -518,26 +515,24 @@ impl ScenePins {
     /// borough, which costs a walk of the map, asked last.
     pub fn source_matches(&self, seed: u64) -> bool {
         use crate::seeded_defaults::{RegionSource, SourceKind};
-        if self.source.is_none() && self.size.is_none() && self.borough.is_none() {
+        if self.source.is_none() && self.borough.is_none() {
             return true;
         }
         let drawn = RegionSource::for_seed(seed);
-        let berlin = self.size.is_some() || self.borough.is_some();
+        let berlin = self.borough.is_some();
         self.source.is_none_or(|kind| kind == drawn.kind)
             && (!berlin || drawn.kind == SourceKind::Berlin)
-            && self.size.is_none_or(|size| size == drawn.size_class())
             && self
                 .borough
                 .is_none_or(|borough| drawn.borough() == Some(borough))
     }
 
     /// Whether any seed can satisfy the pins: not where a procedural world
-    /// is pinned with a size or a borough, which only a Berlin square has.
-    /// Every size class reaches every borough (a test holds it).
+    /// is pinned with a borough, which only a Berlin square has. Every
+    /// borough is reached (a test holds it).
     pub fn is_reachable(&self) -> bool {
         use crate::seeded_defaults::SourceKind;
-        self.source != Some(SourceKind::Procedural)
-            || (self.size.is_none() && self.borough.is_none())
+        self.source != Some(SourceKind::Procedural) || self.borough.is_none()
     }
 
     /// The first seed at or after `start` whose [`SceneCharacter`] and
@@ -860,34 +855,32 @@ mod tests {
         assert!(pins.matches(&c), "hunt returned a non-matching seed");
     }
 
-    /// #1589: the source axes hunt like the scene's - a Berlin square of a
-    /// size, in a borough, under a theme - and the seed found draws them.
+    /// #1589: the source axes hunt like the scene's - a Berlin square in a
+    /// borough, under a theme - and the seed found draws them.
     #[test]
     fn a_pinned_source_hunts_a_berlin_square() {
-        use crate::seeded_defaults::{RegionSource, SizeClass, SourceKind};
+        use crate::seeded_defaults::{RegionSource, SourceKind};
         use geodata::berlin::Borough;
         let pins = ScenePins {
             theme: Some(ThemeArchetype::ModernCity),
             source: Some(SourceKind::Berlin),
-            size: Some(SizeClass::Medium),
             borough: Some(Borough::Mitte),
             ..Default::default()
         };
-        let seed = pins.find_seed(7).expect("a medium square in Mitte");
+        let seed = pins.find_seed(7).expect("a square in Mitte");
         let drawn = RegionSource::for_seed(seed);
         assert_eq!(
             SceneCharacter::for_seed(seed).theme,
             ThemeArchetype::ModernCity
         );
         assert_eq!(drawn.kind, SourceKind::Berlin);
-        assert_eq!(drawn.size_class(), SizeClass::Medium);
         assert_eq!(drawn.borough(), Some(Borough::Mitte));
-        // A size alone asks for Berlin: a procedural world has no square.
-        let small = ScenePins {
-            size: Some(SizeClass::Small),
+        // A borough alone asks for Berlin: a procedural world has no square.
+        let anywhere = ScenePins {
+            borough: Some(Borough::Neukoelln),
             ..Default::default()
         };
-        let seed = small.find_seed(7).expect("a small square");
+        let seed = anywhere.find_seed(7).expect("a square in Neukoelln");
         assert_eq!(RegionSource::for_seed(seed).kind, SourceKind::Berlin);
         // And a procedural world with a borough is answered at once.
         let nowhere = ScenePins {
@@ -907,28 +900,22 @@ mod tests {
         assert!(seed > 3, "seed 3 draws Berlin, so the hunt walks on");
     }
 
-    /// Every size class reaches every borough, which is why no pair is
-    /// refused: the rarest, a large square in Marzahn-Hellersdorf, is one
-    /// large square in about 100, one Berlin square in about 340.
+    /// Every borough is reached, which is why none is refused: a seeded
+    /// kilometre lands anywhere in Berlin, so a borough is about as likely
+    /// as its share of the map.
     #[test]
-    fn every_size_class_reaches_every_borough() {
-        use crate::seeded_defaults::{SizeClass, SourceKind};
+    fn every_borough_is_reached() {
+        use crate::seeded_defaults::SourceKind;
         use geodata::berlin::Borough;
-        for size in SizeClass::ALL {
-            for borough in Borough::ALL {
-                let pins = ScenePins {
-                    source: Some(SourceKind::Berlin),
-                    size: Some(size),
-                    borough: Some(borough),
-                    ..Default::default()
-                };
-                assert!(pins.is_reachable());
-                let seed = pins.find_seed(0);
-                assert!(
-                    seed.is_some_and(|s| s < 50_000),
-                    "{size:?} in {borough:?}: {seed:?}"
-                );
-            }
+        for borough in Borough::ALL {
+            let pins = ScenePins {
+                source: Some(SourceKind::Berlin),
+                borough: Some(borough),
+                ..Default::default()
+            };
+            assert!(pins.is_reachable());
+            let seed = pins.find_seed(0);
+            assert!(seed.is_some_and(|s| s < 50_000), "{borough:?}: {seed:?}");
         }
     }
 

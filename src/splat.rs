@@ -14,12 +14,6 @@ use bevy::{
 
 const SPLAT_SHADER_PATH: &str = "shaders/splat.wgsl";
 
-/// The depth prepass's fragment stage for a splat material that may
-/// discard: a far field with a detail patch's hole cut in it (P4.2, #1597).
-/// An opaque splat material's depth-only prepass runs no fragment stage at
-/// all, so this runs only where the hole is cut.
-const SPLAT_PREPASS_SHADER_PATH: &str = "shaders/splat_prepass.wgsl";
-
 /// GPU uniform block shared with `splat.wgsl`.
 #[derive(Debug, Clone, Default, ShaderType)]
 pub struct SplatUniforms {
@@ -51,33 +45,13 @@ pub struct SplatUniforms {
     pub albedo_fade_near: f32,
     /// View distance (m) where the albedo is fully each layer's mean colour.
     pub albedo_fade_far: f32,
-    /// The weight map's UV from the mesh's: `uv * scale + offset`, the
-    /// offset per axis (#1585, #1597). A far field's mesh carries the core's
-    /// UV mapping run on past the core's edges, so its layers tile as the
-    /// core's do, and this maps that onto its own weight map; so does a
-    /// detail patch's (P4.2), whose weight map covers the patch alone. Zero
-    /// reads as 1 in the shader, so a material that never sets it samples
-    /// with the mesh's UV.
-    pub weight_uv_scale: f32,
-    /// The weight map's U offset: see [`Self::weight_uv_scale`].
-    pub weight_uv_offset_u: f32,
-    /// The weight map's V offset: see [`Self::weight_uv_scale`].
-    pub weight_uv_offset_v: f32,
-    /// The hole cut in the ground drawn with this material, as world
-    /// `(min x, min z, max x, max z)` (P4.2, #1597): a fragment strictly
-    /// inside it is discarded, so a far field draws nothing under the
-    /// detail patch that stands in for it there. Only a material whose
-    /// alpha mode may discard compiles the cut (`SPLAT_HOLE`, see
-    /// [`SplatExtension::specialize`]) - the far field's, drawn as a mask
-    /// ([`HOLEABLE_ALPHA`]) - so the core's ground and a patch's keep their
-    /// early depth test; the zeroed `Default` is an empty hole besides.
-    pub hole_min_x: f32,
-    /// See [`Self::hole_min_x`].
-    pub hole_min_z: f32,
-    /// See [`Self::hole_min_x`].
-    pub hole_max_x: f32,
-    /// See [`Self::hole_min_x`].
-    pub hole_max_z: f32,
+    /// Pad to 48 bytes (with `_pad1`/`_pad2`). WebGL2 rejects uniform blocks
+    /// that are not a multiple of 16 (`BUFFER_BINDINGS_NOT_16_BYTE_ALIGNED`
+    /// unsupported), and the nine fields above take the block to 36. Mirror
+    /// all three in `SplatUniforms` in `splat.wgsl`.
+    pub _pad0: u32,
+    pub _pad1: u32,
+    pub _pad2: u32,
 }
 
 /// GPU uniform block for the avatar-interaction stains overlay
@@ -175,34 +149,20 @@ impl MaterialExtension for SplatExtension {
         SPLAT_SHADER_PATH.into()
     }
 
-    fn prepass_fragment_shader() -> ShaderRef {
-        SPLAT_PREPASS_SHADER_PATH.into()
-    }
-
+    // `descriptor` is only touched on native (the stains shader-def gate).
+    #[cfg_attr(target_arch = "wasm32", allow(unused_variables))]
     fn specialize(
         _pipeline: &bevy::pbr::MaterialExtensionPipeline,
         descriptor: &mut bevy::render::render_resource::RenderPipelineDescriptor,
         _layout: &bevy::mesh::MeshVertexBufferLayoutRef,
-        key: bevy::pbr::MaterialExtensionKey<Self>,
+        _key: bevy::pbr::MaterialExtensionKey<Self>,
     ) -> Result<(), bevy::render::render_resource::SpecializedMeshPipelineError> {
-        use bevy::shader::ShaderDefVal;
-        let mut defs: Vec<ShaderDefVal> = Vec::new();
         // Gate the stains bindings in `splat.wgsl` so they only exist
         // on targets that have the corresponding Rust-side fields.
         #[cfg(not(target_arch = "wasm32"))]
-        defs.push("STAINS_BINDING".into());
-        // The detail patch's hole (P4.2, #1597), compiled only into the
-        // pipelines of a material that may discard - the far field's, drawn
-        // as a mask (`HOLEABLE_ALPHA`) - so the core's ground and a patch's
-        // keep their early depth test: a shader that holds a `discard`
-        // loses it whatever the uniform says.
-        if key
-            .mesh_key
-            .contains(bevy::pbr::MeshPipelineKey::MAY_DISCARD)
         {
-            defs.push("SPLAT_HOLE".into());
-        }
-        for def in defs {
+            use bevy::shader::ShaderDefVal;
+            let def: ShaderDefVal = "STAINS_BINDING".into();
             descriptor.vertex.shader_defs.push(def.clone());
             if let Some(fragment) = descriptor.fragment.as_mut() {
                 fragment.shader_defs.push(def);
@@ -211,18 +171,6 @@ impl MaterialExtension for SplatExtension {
         Ok(())
     }
 }
-
-/// The alpha mode of a splat material a detail patch's hole may be cut in
-/// (P4.2, #1597): the far field's, from its spawn. A mask, so its pipelines
-/// compile the cut ([`SplatExtension::specialize`]) and its depth prepass
-/// runs the fragment stage that cuts it there too; and from its spawn, so
-/// no pipeline is compiled when a patch lands - a pipeline still compiling
-/// is not drawn, and the horizon would blink out round the first patch.
-/// The base colour's alpha is 1, so the mask's own cutoff discards nothing,
-/// and with no patch standing the hole is empty. What it costs is the far
-/// mesh's early depth test: its shader runs for its fragments hidden
-/// behind nearer ground too, a thin band at the horizon from the ground.
-pub(crate) const HOLEABLE_ALPHA: AlphaMode = AlphaMode::Mask(0.5);
 
 /// Convenience alias used throughout the terrain module.
 pub type SplatTerrainMaterial = ExtendedMaterial<StandardMaterial, SplatExtension>;
@@ -310,50 +258,6 @@ mod uniform_layout_tests {
                 rust_size as usize / 4
             );
         }
-    }
-
-    /// The field names of a `struct <name> { .. }` block in the shader
-    /// source, in order.
-    fn wgsl_field_names(src: &str, struct_name: &str) -> Vec<String> {
-        let head = format!("struct {struct_name} {{");
-        let start = src.find(&head).expect("struct not found in shader") + head.len();
-        let body = &src[start..start + src[start..].find('}').expect("unterminated struct")];
-        body.lines()
-            .map(str::trim)
-            .filter(|l| !l.is_empty() && !l.starts_with("//") && l.contains(':'))
-            .map(|l| l.split(':').next().unwrap_or_default().trim().to_owned())
-            .collect()
-    }
-
-    /// The prepass shader (P4.2, #1597) reads the hole from its own copy of
-    /// the block: a third hand-written copy, held to the main shader's
-    /// field for field, and so to the Rust block's size by the test above.
-    #[test]
-    fn the_prepass_shader_mirrors_the_splat_block() {
-        let read = |file: &str| {
-            std::fs::read_to_string(format!(
-                "{}/assets/shaders/{file}",
-                env!("CARGO_MANIFEST_DIR")
-            ))
-            .expect("a tracked shader asset")
-        };
-        let (main, prepass) = (read("splat.wgsl"), read("splat_prepass.wgsl"));
-        let names = wgsl_field_names(&main, "SplatUniforms");
-        assert_eq!(names, wgsl_field_names(&prepass, "SplatUniforms"));
-        assert_eq!(
-            names.len() * 4,
-            block_size::<SplatUniforms>() as usize,
-            "every field of the block is four bytes"
-        );
-        assert!(
-            names.ends_with(&[
-                "hole_min_x".to_owned(),
-                "hole_min_z".to_owned(),
-                "hole_max_x".to_owned(),
-                "hole_max_z".to_owned(),
-            ]),
-            "the hole closes the block: {names:?}"
-        );
     }
 
     /// The damp-ground effect (#913) must be inert by default, so a room

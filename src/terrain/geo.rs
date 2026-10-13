@@ -1,34 +1,33 @@
 //! Terrain from real Berlin (#1584, epic #1580; design in
-//! `docs/geodata.md`): a geodata region's walkable core, at real scale and
-//! real altitude, decoded from GDI Berlin's terrain layer, and coloured and
+//! `docs/geodata.md`): a geodata region's ground, at real scale and real
+//! altitude, decoded from GDI Berlin's terrain layer, and coloured and
 //! watered from its land-use layer (#1586).
 //!
 //! The procedural pipeline runs one offloaded heightmap job. A region whose
 //! record carries a Berlin [`crate::pds::GeoSource`] runs this instead. The
-//! core's answers are fetched through the [`GeoFetcher`] and its cache - the
-//! terrain layer's legend and one render of the core, the land-use layer's
-//! legend and one render of the same box, a page each of its street and
-//! carriageway axes ([`streets`], #1595), and a page each of its buildings,
-//! trees and kinds of street furniture ([`street_level`], #1588) - with,
-//! where the square is wider
-//! than the core, the far field's renders ([`far`], #1585) and the middle
-//! ring's ([`ring`], #1587). They are decoded on the compute pool, and
-//! handed to the procedural pipeline's own landing as a finished
-//! [`TerrainTask`]. So the world digest, the session log, the mesh, the
-//! collider and the swap of an outgoing terrain are the procedural ones.
+//! ground's answers are fetched through the [`GeoFetcher`] and its cache -
+//! the terrain layer's legend and one render of the square, the land-use
+//! layer's legend and one render of the same box, a page each of its street
+//! and carriageway axes ([`streets`], #1595), and a page each of its
+//! buildings, blocks, trees and kinds of street furniture ([`street_level`],
+//! #1588), over each tile of a square wider than a kilometre
+//! ([`street_tiles`], #1637) - decoded on the compute pool, and handed to the procedural
+//! pipeline's own landing as a finished [`TerrainTask`]. So the world
+//! digest, the session log, the mesh, the collider and the swap of an
+//! outgoing terrain are the procedural ones.
 //!
-//! The core is the terrain config's grid - `grid_size` points `cell_scale`
-//! apart - centred on the square, but never wider than the square
-//! ([`core_grid`]): a region is its square, and a small one is a small
-//! world. So the core always lies inside Berlin, where the data is.
+//! The ground is the whole square, walked at full detail to its edge (a
+//! Kiez, #1637): the terrain config's `grid_size` points, spaced to span the
+//! square's side and no closer than Berlin's terrain model resolves
+//! ([`core_grid`]). A region is its square, and a small one is a small
+//! world. So the ground always lies inside Berlin, where the data is.
 //!
 //! Heights are metres above sea level (DHHN2016), as the city measures
-//! them, with no datum shift; the far field meets the core at the same
-//! altitude. The land use rides with them as a [`GeoGround`] ([`ground`]):
-//! it paints the splat layers and settles the water - the core's water
-//! level is where the region draws its water plane, its beds are carved
-//! below it and the rest of the ground is kept above it - and carries the
-//! far field, the ring, the meshed streets and the street level with it.
+//! them, with no datum shift. The land use rides with them as a
+//! [`GeoGround`] ([`ground`]): it paints the splat layers and settles the
+//! water - the region's water level is where it draws its water plane, its
+//! beds are carved below it and the rest of the ground is kept above it -
+//! and carries the meshed streets and the street level with it.
 //!
 //! If Berlin's terrain cannot be had - the service is unreachable after the
 //! fetcher's retries, or answers something that does not decode - the
@@ -38,12 +37,8 @@
 //! loading screen, or on stale ground, waiting for a service that is down.
 //! If only the land use cannot be had, Berlin's terrain still lands, its
 //! colours following the record's altitude bands and with no water, and
-//! the fallback says that instead; so it does where only the horizon, the
-//! ring, the streets or the street level cannot be had.
-//!
-//! Past the core, a detail patch the size of the core follows the body
-//! ([`patch`], P4.2, #1597): fetched and decoded as a core is, set into the
-//! far field, and let go deep in the core.
+//! the fallback says that instead; so it does where only the streets or the
+//! street level cannot be had.
 //!
 //! Each layer's answers are hashed as they come ([`layers`], #1590). Where
 //! the record holds the hashes its owner's last save drew from, a layer
@@ -52,11 +47,8 @@
 //! is drawn from what the network says; the layers it drew ride with it,
 //! for the next save to record.
 
-pub(crate) mod far;
 mod ground;
 pub(crate) mod layers;
-pub(crate) mod patch;
-pub(crate) mod ring;
 pub(crate) mod street_level;
 pub(crate) mod streets;
 
@@ -79,11 +71,19 @@ use super::TerrainTask;
 /// The largest core grid a render may be: the decoders' pixel cap.
 const MAX_CORE_GRID: u32 = 2048;
 
-/// How long the walkable ground waits for its horizon once its own answers
-/// are in (s): long enough for one of the fetcher's retries, which comes
-/// after 2 s, and no longer - the far field is decoration, and the ground
-/// lands without it rather than hold a loading screen (#1585).
-const FAR_GRACE_S: f64 = 10.0;
+/// The closest the ground's points stand (m): Berlin's terrain model
+/// (`c_dgm1`) is a one-metre grid, so a closer spacing draws nothing more
+/// of it (#1637).
+const MIN_CORE_CELL_M: f32 = 1.0;
+
+/// The widest box a street-level page is asked over (m): a page's count
+/// holds the densest square kilometre of central Berlin measured - 1,281
+/// buildings, 2,695 park trees, 1,765 bollards - so a square wider than
+/// this is asked in tiles ([`street_tiles`], #1637), and one this wide or
+/// less in one box, as before. A page cut short draws an arbitrary part of
+/// its layer: at 2 km in one box, 3,000 of 6,418 buildings round
+/// Hermannplatz, holes beside the landing among them.
+const STREET_TILE_M: i64 = 1_024;
 
 /// How old a stored answer must be (s) before a hash it does not share
 /// with the record's save sends it back to the network (#1590): a day.
@@ -94,11 +94,9 @@ const FAR_GRACE_S: f64 = 10.0;
 pub(crate) const REFETCH_AGE_S: i64 = 86_400;
 
 /// The requests a core is built from: the terrain's and the land use's
-/// legend and render over the core's box, and its street and carriageway
-/// axes (#1595), and - where the square is wider than the core - one render
-/// of each over the whole square, for the far field (#1585), and the land
-/// use and the surface model over the middle ring (#1587).
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// legend and render over the core's box, its street and carriageway axes
+/// (#1595), and its street level's pages (#1588).
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct CoreRequests {
     /// The core's box, which the streets are read in.
     bbox: Bbox,
@@ -109,15 +107,73 @@ pub(crate) struct CoreRequests {
     street_axes: GeoRequestId,
     carriageway_axes: GeoRequestId,
     street_level: StreetLevelRequests,
-    far: Option<FarRequests>,
 }
 
-/// The street level's requests (#1588): a page of the core's buildings, of
-/// its blocks by urban-structure type (#1600), of each tree inventory, and
-/// of each furniture kind, in [`geodata::berlin::FurnitureKind::ALL`]'s
-/// order.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// The street level's requests (#1588): one set of pages a tile of the
+/// core's box ([`street_tiles`], #1637).
+#[derive(Clone, Debug, PartialEq)]
 struct StreetLevelRequests {
+    tiles: Vec<TilePages>,
+}
+
+impl StreetLevelRequests {
+    fn submit(fetcher: &mut GeoFetcher, bbox: Bbox) -> Self {
+        StreetLevelRequests {
+            tiles: street_tiles(bbox)
+                .into_iter()
+                .map(|tile| TilePages::submit(fetcher, tile))
+                .collect(),
+        }
+    }
+
+    fn ids(&self) -> impl Iterator<Item = GeoRequestId> + use<> {
+        self.tiles
+            .iter()
+            .flat_map(TilePages::ids)
+            .collect::<Vec<_>>()
+            .into_iter()
+    }
+
+    /// Every id through `f`.
+    fn map_ids(&mut self, f: &mut impl FnMut(GeoRequestId) -> GeoRequestId) {
+        for tile in &mut self.tiles {
+            tile.map_ids(f);
+        }
+    }
+
+    /// One page of every tile, `page` picking it.
+    fn each(&self, page: impl Fn(&TilePages) -> GeoRequestId) -> Vec<GeoRequestId> {
+        self.tiles.iter().map(page).collect()
+    }
+}
+
+/// The tiles a street level's pages are asked over: `bbox` cut into as few
+/// equal squares a side as keep each within [`STREET_TILE_M`], row by row
+/// from the south-west - one, `bbox` itself, for a square of a kilometre or
+/// so. Their edges are whole metres and meet exactly, so every point of the
+/// box lies in a tile.
+fn street_tiles(bbox: Bbox) -> Vec<Bbox> {
+    let (width, height) = (bbox.max_e - bbox.min_e, bbox.max_n - bbox.min_n);
+    let n = (width.max(height) + STREET_TILE_M - 1)
+        .div_euclid(STREET_TILE_M)
+        .max(1);
+    let cut = |from: i64, span: i64, i: i64| from + span * i / n;
+    (0..n)
+        .flat_map(|row| (0..n).map(move |col| (row, col)))
+        .map(|(row, col)| Bbox {
+            min_e: cut(bbox.min_e, width, col),
+            min_n: cut(bbox.min_n, height, row),
+            max_e: cut(bbox.min_e, width, col + 1),
+            max_n: cut(bbox.min_n, height, row + 1),
+        })
+        .collect()
+}
+
+/// One tile's street-level pages: its buildings, its blocks by
+/// urban-structure type (#1600), each tree inventory, and each furniture
+/// kind, in [`geodata::berlin::FurnitureKind::ALL`]'s order.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct TilePages {
     buildings: GeoRequestId,
     blocks: GeoRequestId,
     street_trees: GeoRequestId,
@@ -125,7 +181,7 @@ struct StreetLevelRequests {
     furniture: [GeoRequestId; 9],
 }
 
-impl StreetLevelRequests {
+impl TilePages {
     /// The street level's pages over `bbox`, in the order of the struct's
     /// fields: the buildings', the blocks', the street trees', the park
     /// trees', then each furniture kind's, every attribute.
@@ -168,7 +224,7 @@ impl StreetLevelRequests {
             .map(|request| fetcher.submit(request));
         let mut next = || ids.next().expect("a request per page");
         // A struct's fields are evaluated as written: in the requests' order.
-        StreetLevelRequests {
+        TilePages {
             buildings: next(),
             blocks: next(),
             street_trees: next(),
@@ -204,53 +260,10 @@ impl StreetLevelRequests {
     }
 }
 
-/// The far field's two renders, and the plan they were asked for, and the
-/// middle ring's.
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct FarRequests {
-    plan: far::FarPlan,
-    terrain: GeoRequestId,
-    land_use: GeoRequestId,
-    ring: RingRequests,
-}
-
-/// The middle ring's requests: the surface model's legend, and its and the
-/// land use's renders over the ring, and the plan they were asked for.
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct RingRequests {
-    plan: ring::RingPlan,
-    surface_legend: GeoRequestId,
-    land_use: GeoRequestId,
-    surface: GeoRequestId,
-}
-
-impl FarRequests {
-    /// The far field's own requests.
-    fn far_ids(&self) -> [GeoRequestId; 2] {
-        [self.terrain, self.land_use]
-    }
-
-    /// The ring's requests.
-    fn ring_ids(&self) -> [GeoRequestId; 3] {
-        [
-            self.ring.surface_legend,
-            self.ring.land_use,
-            self.ring.surface,
-        ]
-    }
-
-    /// The far field's and the ring's requests.
-    fn ids(&self) -> impl Iterator<Item = GeoRequestId> + use<> {
-        self.far_ids().into_iter().chain(self.ring_ids())
-    }
-}
-
 impl CoreRequests {
-    /// Submit the requests for a core of `grid` points over `bbox`, and the
-    /// far field `far` plans.
-    fn submit(fetcher: &mut GeoFetcher, bbox: Bbox, grid: u32, far: Option<far::FarPlan>) -> Self {
+    /// Submit the requests for a core of `grid` points over `bbox`.
+    fn submit(fetcher: &mut GeoFetcher, bbox: Bbox, grid: u32) -> Self {
         let (terrain, land_use) = (&geodata::berlin::TERRAIN, &geodata::berlin::LAND_USE);
-        let surface = &geodata::berlin::SURFACE;
         CoreRequests {
             bbox,
             terrain_legend: fetcher.submit(GeoRequest::legend(terrain, 0)),
@@ -261,31 +274,6 @@ impl CoreRequests {
             carriageway_axes: fetcher
                 .submit(axes_request(&geodata::berlin::CARRIAGEWAY_AXES, bbox)),
             street_level: StreetLevelRequests::submit(fetcher, bbox),
-            far: far.map(|plan| FarRequests {
-                plan,
-                terrain: fetcher.submit(GeoRequest::render(
-                    terrain,
-                    plan.bbox(),
-                    plan.grid,
-                    plan.grid,
-                )),
-                land_use: fetcher.submit(GeoRequest::render(
-                    land_use,
-                    plan.bbox(),
-                    plan.grid,
-                    plan.grid,
-                )),
-                ring: {
-                    let ring = ring::ring_plan(&plan);
-                    let render = |layer| GeoRequest::render(layer, ring.bbox, ring.grid, ring.grid);
-                    RingRequests {
-                        plan: ring,
-                        surface_legend: fetcher.submit(GeoRequest::legend(surface, 0)),
-                        land_use: fetcher.submit(render(land_use)),
-                        surface: fetcher.submit(render(surface)),
-                    }
-                },
-            }),
         }
     }
 
@@ -306,30 +294,34 @@ impl CoreRequests {
 
     /// Every request, for counting and forgetting.
     pub(crate) fn ids(&self) -> impl Iterator<Item = GeoRequestId> + use<> {
-        let far = self.far.map(|far| far.ids());
-        self.core_ids().into_iter().chain(far.into_iter().flatten())
+        self.core_ids().into_iter()
     }
 
     /// Each layer's requests, in the order its hash folds them (#1590).
     fn layers(&self) -> Vec<(Layer, Vec<GeoRequestId>)> {
         let level = &self.street_level;
-        let mut layers = vec![
+        vec![
             (Layer::Terrain, vec![self.terrain_legend, self.terrain]),
             (Layer::LandUse, vec![self.land_use_legend, self.land_use]),
             (
                 Layer::Streets,
                 vec![self.street_axes, self.carriageway_axes],
             ),
-            (Layer::Buildings, vec![level.buildings]),
-            (Layer::Blocks, vec![level.blocks]),
-            (Layer::Trees, vec![level.street_trees, level.park_trees]),
-            (Layer::Furniture, level.furniture.to_vec()),
-        ];
-        if let Some(far) = self.far {
-            layers.push((Layer::Horizon, far.far_ids().to_vec()));
-            layers.push((Layer::Ring, far.ring_ids().to_vec()));
-        }
-        layers
+            (Layer::Buildings, level.each(|tile| tile.buildings)),
+            (Layer::Blocks, level.each(|tile| tile.blocks)),
+            (
+                Layer::Trees,
+                level
+                    .tiles
+                    .iter()
+                    .flat_map(|tile| [tile.street_trees, tile.park_trees])
+                    .collect(),
+            ),
+            (
+                Layer::Furniture,
+                level.tiles.iter().flat_map(|tile| tile.furniture).collect(),
+            ),
+        ]
     }
 
     /// Every id through `f`: a refetch's new ids in place of the old.
@@ -345,17 +337,6 @@ impl CoreRequests {
             *id = f(*id);
         }
         self.street_level.map_ids(&mut f);
-        if let Some(far) = &mut self.far {
-            for id in [
-                &mut far.terrain,
-                &mut far.land_use,
-                &mut far.ring.surface_legend,
-                &mut far.ring.land_use,
-                &mut far.ring.surface,
-            ] {
-                *id = f(*id);
-            }
-        }
     }
 }
 
@@ -458,10 +439,6 @@ pub(crate) enum GeoTerrainJob {
     /// Waiting for the answers.
     Fetching {
         requests: Box<CoreRequests>,
-        /// Wall-clock seconds (`Time<Real>`) when the walkable ground's own
-        /// answers were all in: the horizon's grace runs from then
-        /// ([`FAR_GRACE_S`]).
-        core_in_at: Option<f64>,
         grid: u32,
         cell: f32,
         /// Session-relative seconds at the start, for the heightmap latency.
@@ -513,14 +490,8 @@ pub(crate) enum GeoLoss {
     /// Its terrain: the region shows its procedural ground.
     Terrain,
     /// Only its land use: Berlin's terrain, coloured by height, dry, with
-    /// nothing on it and no horizon round it.
+    /// nothing on it.
     LandUse,
-    /// Only the far field: the walkable ground is Berlin's, with no
-    /// horizon beyond it (#1585).
-    Horizon,
-    /// Only the middle ring: the horizon is Berlin's, with no buildings on
-    /// it (#1587).
-    Ring,
     /// Only the streets: the walkable ground is Berlin's, its streets
     /// painted on it but not built (#1595).
     Streets,
@@ -538,14 +509,8 @@ impl GeoLoss {
                 "The ground is drawn from the world's terrain settings until it can be fetched."
             }
             GeoLoss::LandUse => {
-                "Berlin's terrain stands alone, coloured by height - no water, streets, buildings \
-                 or horizon - until its land use can be fetched."
-            }
-            GeoLoss::Horizon => {
-                "The world ends at its walkable ground until Berlin's horizon can be fetched."
-            }
-            GeoLoss::Ring => {
-                "Berlin's horizon is drawn with no buildings on it until they can be fetched."
+                "Berlin's terrain stands alone, coloured by height - no water, streets or \
+                 buildings - until its land use can be fetched."
             }
             GeoLoss::Streets => {
                 "Berlin's streets are painted on the ground, not built, until they can be fetched."
@@ -560,10 +525,6 @@ impl GeoLoss {
 /// A layer's legend and render, as fetched.
 pub(crate) type LayerBodies = (Arc<[u8]>, Arc<[u8]>);
 
-/// The middle ring's answers, as fetched: the surface model's legend, and
-/// the land use's and the surface model's renders.
-pub(crate) type RingBodies = (Arc<[u8]>, Arc<[u8]>, Arc<[u8]>);
-
 /// The answers' bodies, as fetched.
 pub(crate) struct CoreBodies {
     /// The core's box.
@@ -572,12 +533,6 @@ pub(crate) struct CoreBodies {
     pub terrain: Arc<[u8]>,
     /// The land use's legend and render, or why they could not be had.
     pub land_use: Result<LayerBodies, String>,
-    /// The far field's plan, and its terrain and land-use renders or why
-    /// they could not be had; `None` where the square gets no far field.
-    pub far: Option<(far::FarPlan, Result<LayerBodies, String>)>,
-    /// The middle ring's plan and its answers, or why they could not be
-    /// had; `None` where the square gets no far field.
-    pub ring: Option<(ring::RingPlan, Result<RingBodies, String>)>,
     /// The street and carriageway axes over the core, or why they could not
     /// be had; `None` where they were not asked for.
     pub streets: Option<Result<LayerBodies, String>>,
@@ -588,25 +543,24 @@ pub(crate) struct CoreBodies {
 
 /// A decoded core: its heights, and what covers them - or why the land use
 /// could not be read, in which case the heights are the terrain's own,
-/// with no water settled on them - and, when the ground has no far field
-/// its square should have, why, when its far field has no middle ring, why,
-/// and when it has no streets, why.
+/// with no water settled on them - and, when it has no streets, or not all
+/// of its street level, why.
 pub(crate) struct GeoCore {
     pub heights: gen_jobs::HeightmapData,
     pub ground: Result<GeoGround, String>,
-    pub horizon: Option<String>,
-    pub ring: Option<String>,
     pub streets: Option<String>,
     pub street_level: Option<String>,
 }
 
-/// The core's grid for a square of side `size_m`: the terrain config's
-/// `grid_size` points `cell_scale` apart, but no more points than fit the
-/// square - the render spans `grid * cell` metres, so at most `size_m`.
+/// The ground's grid for a square of side `size_m`: the terrain config's
+/// `grid_size` points, spaced so the render - `grid * cell` metres - spans
+/// the square (#1637), but no closer than [`MIN_CORE_CELL_M`], where a
+/// small square takes fewer points instead. The config's `cell_scale` is
+/// not read: the square sets the spacing, as Berlin sets the heights.
 pub(crate) fn core_grid(size_m: u32, cfg: &SovereignTerrainConfig) -> (u32, f32) {
-    let cell = cfg.cell_scale.0.max(0.01);
-    let fits = (f64::from(size_m) / f64::from(cell)).floor() as u32;
-    let grid = cfg.grid_size.min(fits).clamp(2, MAX_CORE_GRID);
+    let points = cfg.grid_size.clamp(2, MAX_CORE_GRID);
+    let cell = (size_m as f32 / points as f32).max(MIN_CORE_CELL_M);
+    let grid = ((f64::from(size_m) / f64::from(cell)).round() as u32).clamp(2, MAX_CORE_GRID);
     (grid, cell)
 }
 
@@ -643,15 +597,12 @@ pub(crate) fn start(
     saved: BTreeMap<Layer, u64>,
 ) -> GeoTerrainJob {
     let (grid, cell) = core_grid(square.size_m, cfg);
-    let far = far::far_plan(square, cfg);
     GeoTerrainJob::Fetching {
         requests: Box::new(CoreRequests::submit(
             fetcher,
             core_bbox(square, grid, cell),
             grid,
-            far,
         )),
-        core_in_at: None,
         grid,
         cell,
         started: now,
@@ -667,12 +618,9 @@ pub(crate) fn start(
 
 /// Decode a core: `grid` x `grid` heights, metres above sea level, `cell`
 /// metres apart, row 0 north - and, where the land use was had, what covers
-/// them, with the core's water settled on the heights, and the far field
-/// round them (which follows the core's water, so is decoded after it, and
-/// rides in the ground, so is drawn only with it), and the middle ring on
-/// the far field (which measures its buildings from the far field's
-/// ground, so is decoded after that). An error is the terrain's: it is what
-/// the core cannot be built without.
+/// them, with the core's water settled on the heights, its streets and its
+/// street level. An error is the terrain's: it is what the core cannot be
+/// built without.
 pub(crate) fn decode_core(bodies: &CoreBodies, grid: u32, cell: f32) -> Result<GeoCore, String> {
     let mut heights = decode_heights(&bodies.terrain_legend, &bodies.terrain, grid, cell)?;
     // The streets are read first: the water runs on under the bridges they
@@ -704,7 +652,7 @@ pub(crate) fn decode_core(bodies: &CoreBodies, grid: u32, cell: f32) -> Result<G
         ),
         Err(reason) => Err(reason.clone()),
     };
-    let (mut horizon, mut ring, mut streets, mut street_level) = (None, None, None, None);
+    let (mut streets, mut street_level) = (None, None);
     if let (Ok(ground), Some(bodies)) = (ground.as_mut(), &bodies.street_level) {
         // Each layer stands on its own: one that could not be had leaves the
         // rest standing.
@@ -734,52 +682,9 @@ pub(crate) fn decode_core(bodies: &CoreBodies, grid: u32, cell: f32) -> Result<G
             _ => {}
         }
     }
-    if let (Ok(ground), Ok((land_use_legend, _)), Some((plan, far_bodies))) =
-        (ground.as_mut(), &bodies.land_use, &bodies.far)
-    {
-        let far = far_bodies
-            .as_ref()
-            .map_err(String::clone)
-            .and_then(|(terrain, land_use)| {
-                far::decode_far(
-                    plan,
-                    &bodies.terrain_legend,
-                    terrain,
-                    land_use_legend,
-                    land_use,
-                    ground.water_level(),
-                )
-            });
-        match far {
-            Ok(far) => {
-                if let Some((plan, ring_bodies)) = &bodies.ring {
-                    let decoded = ring_bodies.as_ref().map_err(String::clone).and_then(
-                        |(surface_legend, land_use, surface)| {
-                            ring::decode_ring(
-                                plan,
-                                land_use_legend,
-                                land_use,
-                                surface_legend,
-                                surface,
-                                &far,
-                            )
-                        },
-                    );
-                    match decoded {
-                        Ok(decoded) => ground.set_ring(decoded),
-                        Err(reason) => ring = Some(reason),
-                    }
-                }
-                ground.set_far(far);
-            }
-            Err(reason) => horizon = Some(reason),
-        }
-    }
     Ok(GeoCore {
         heights,
         ground,
-        horizon,
-        ring,
         streets,
         street_level,
     })
@@ -867,10 +772,8 @@ pub(crate) fn fetch_core_blocking(
             get("land use", GeoRequest::legend(land_use, 0))?,
             get("land use", GeoRequest::render(land_use, bbox, grid, grid))?,
         )),
-        // A tool reads the walkable ground; the far field, the ring, the
-        // streets and the street level are only drawn.
-        far: None,
-        ring: None,
+        // A tool reads the ground; the streets and the street level are only
+        // drawn.
         streets: None,
         street_level: None,
     };
@@ -908,12 +811,10 @@ fn taken(fetcher: &mut GeoFetcher, id: GeoRequestId, what: &str) -> Result<Arc<[
     }
 }
 
-/// The walkable ground's answers to `requests`, taken - the terrain's, the
-/// land use's, the streets' and the street level's, each or why it could
-/// not be had - as the bodies a decode reads, with no far field or ring;
-/// or why the terrain could not be had, which nothing is drawn without. A
-/// core's and a detail patch's (P4.2, #1597) alike. Every answer is taken,
-/// whatever failed.
+/// The ground's answers to `requests`, taken - the terrain's, the land
+/// use's, the streets' and the street level's, each or why it could not be
+/// had - as the bodies a decode reads; or why the terrain could not be had,
+/// which nothing is drawn without. Every answer is taken, whatever failed.
 fn take_walkable(fetcher: &mut GeoFetcher, requests: &CoreRequests) -> Result<CoreBodies, String> {
     let terrain = taken(fetcher, requests.terrain_legend, "terrain")
         .and_then(|legend| Ok((legend, taken(fetcher, requests.terrain, "terrain")?)));
@@ -921,19 +822,28 @@ fn take_walkable(fetcher: &mut GeoFetcher, requests: &CoreRequests) -> Result<Co
         .and_then(|legend| Ok((legend, taken(fetcher, requests.land_use, "land use")?)));
     let streets = taken(fetcher, requests.street_axes, "streets")
         .and_then(|axes| Ok((axes, taken(fetcher, requests.carriageway_axes, "streets")?)));
-    // Each street-level page, or why it could not be had.
+    // Each street-level page, every tile's, or why it could not be had.
     let street_level = {
-        let level = requests.street_level;
-        let mut take = |id, what| taken(fetcher, id, what);
+        let level = &requests.street_level;
+        let mut take = |ids: Vec<GeoRequestId>, what: &str| {
+            ids.into_iter()
+                .map(|id| taken(fetcher, id, what))
+                .collect::<Vec<_>>()
+        };
         street_level::StreetLevelBodies {
-            buildings: take(level.buildings, "buildings"),
-            blocks: take(level.blocks, "block types"),
-            street_trees: take(level.street_trees, "street trees"),
-            park_trees: take(level.park_trees, "park trees"),
+            buildings: take(level.each(|tile| tile.buildings), "buildings"),
+            blocks: take(level.each(|tile| tile.blocks), "block types"),
+            street_trees: take(level.each(|tile| tile.street_trees), "street trees"),
+            park_trees: take(level.each(|tile| tile.park_trees), "park trees"),
             furniture: geodata::berlin::FurnitureKind::ALL
                 .into_iter()
-                .zip(level.furniture)
-                .map(|(kind, id)| (kind, take(id, kind.name())))
+                .enumerate()
+                .map(|(k, kind)| {
+                    (
+                        kind,
+                        take(level.each(|tile| tile.furniture[k]), kind.name()),
+                    )
+                })
                 .collect(),
         }
     };
@@ -943,19 +853,16 @@ fn take_walkable(fetcher: &mut GeoFetcher, requests: &CoreRequests) -> Result<Co
         terrain_legend,
         terrain,
         land_use,
-        far: None,
-        ring: None,
         streets: Some(streets),
         street_level: Some(street_level),
     })
 }
 
-/// Drive a [`GeoTerrainJob`]: once the core's answers have settled, and the
-/// far field's and the ring's too or their grace has run out, decode them
-/// on the compute pool; once decoded, hand the heightmap and its ground on
-/// as a finished [`TerrainTask`]. A terrain failure falls back to the
-/// procedural ground; a land-use, horizon, ring, streets or street-level
-/// failure lands the terrain with what it has; each says so
+/// Drive a [`GeoTerrainJob`]: once the ground's answers have settled,
+/// decode them on the compute pool; once decoded, hand the heightmap and
+/// its ground on as a finished [`TerrainTask`]. A terrain failure falls back
+/// to the procedural ground; a land-use, streets or street-level failure
+/// lands the terrain with what it has; each says so
 /// ([`GeoTerrainFallback`]). The task is logged as the heightmap offload it
 /// is or stands in for, so the stall rule pairs it with its completion.
 ///
@@ -969,19 +876,13 @@ pub(super) fn poll_geo_terrain(
     mut job: ResMut<GeoTerrainJob>,
     mut fetcher: Option<ResMut<GeoFetcher>>,
     time: Res<Time>,
-    // The horizon's grace waits on the network, so it runs on the wall
-    // clock: a session clock run fast or paused - the render tool's - would
-    // end it before a real answer could come.
-    real: Res<Time<Real>>,
     mut session_log: ResMut<crate::diagnostics::SessionLog>,
 ) {
     let now = time.elapsed_secs_f64();
-    let wall = real.elapsed_secs_f64();
     let log = &mut *session_log;
     match &*job {
         GeoTerrainJob::Fetching {
             requests,
-            core_in_at,
             grid,
             cell,
             started,
@@ -989,8 +890,7 @@ pub(super) fn poll_geo_terrain(
             fallback,
             freshness,
         } => {
-            let (requests, core_in_at, grid, cell, started) =
-                (**requests, *core_in_at, *grid, *cell, *started);
+            let (grid, cell, started) = (*grid, *cell, *started);
             let Some(fetcher) = fetcher.as_mut() else {
                 let reason = "This build cannot fetch Berlin's terrain.".to_owned();
                 fall_back(
@@ -1009,32 +909,12 @@ pub(super) fn poll_geo_terrain(
             if !requests.core_ids().iter().all(|&id| fetcher.is_settled(id)) {
                 return;
             }
-            // The far field and the ring wait apart: a slow ring - its
-            // surface render is the largest - must not cost the horizon.
-            let (far_in, ring_in) = {
-                let settled = |ids: &[GeoRequestId]| ids.iter().all(|&id| fetcher.is_settled(id));
-                (
-                    requests.far.is_none_or(|far| settled(&far.far_ids())),
-                    requests.far.is_none_or(|far| settled(&far.ring_ids())),
-                )
-            };
-            if !(far_in && ring_in) {
-                // The walkable ground is in, and its horizon gets a grace
-                // period, not the loading screen held for a decoration.
-                match core_in_at {
-                    None => {
-                        if let GeoTerrainJob::Fetching { core_in_at, .. } = &mut *job {
-                            *core_in_at = Some(wall);
-                        }
-                        return;
-                    }
-                    Some(at) if wall - at < FAR_GRACE_S => return,
-                    Some(_) => {}
-                }
-            }
+            // Owned only once every answer is in, not on every frame of the
+            // wait: a 2 km square's tiles make it a few vectors.
+            let requests = (**requests).clone();
             // A stored answer older than the record's save is fetched once
             // more past the store (#1590), and the job waits for it as for
-            // any answer - the horizon's grace starting over.
+            // any answer.
             let stale = freshness.stale(&requests, fetcher, chrono::Utc::now().timestamp());
             if !stale.is_empty() {
                 info!(
@@ -1052,13 +932,11 @@ pub(super) fn poll_geo_terrain(
                 });
                 if let GeoTerrainJob::Fetching {
                     requests,
-                    core_in_at,
                     freshness,
                     ..
                 } = &mut *job
                 {
                     **requests = refetched;
-                    *core_in_at = None;
                     freshness.refetched = true;
                 }
                 return;
@@ -1068,51 +946,13 @@ pub(super) fn poll_geo_terrain(
                 info!("geodata: {changed}");
             }
             let walkable = take_walkable(fetcher, &requests);
-            let far = requests.far.map(|far| {
-                let bodies = if far_in {
-                    taken(fetcher, far.terrain, "horizon")
-                        .and_then(|terrain| Ok((terrain, taken(fetcher, far.land_use, "horizon")?)))
-                } else {
-                    Err("Berlin's horizon did not arrive in time.".to_owned())
-                };
-                (far.plan, bodies)
-            });
-            let ring = requests.far.map(|far| {
-                let RingRequests {
-                    plan,
-                    surface_legend,
-                    land_use,
-                    surface,
-                } = far.ring;
-                let what = "buildings round the walkable ground";
-                let bodies = if ring_in {
-                    taken(fetcher, surface_legend, what).and_then(|legend| {
-                        Ok((
-                            legend,
-                            taken(fetcher, land_use, what)?,
-                            taken(fetcher, surface, what)?,
-                        ))
-                    })
-                } else {
-                    Err(
-                        "Berlin's buildings round the walkable ground did not arrive in time."
-                            .to_owned(),
-                    )
-                };
-                (plan, bodies)
-            });
             // Whatever failed, nothing of the job stays behind.
             for id in requests.ids() {
                 fetcher.forget(id);
             }
             match walkable {
-                Ok(walkable) => {
+                Ok(bodies) => {
                     let (source, fallback) = (source.clone(), fallback.clone());
-                    let bodies = CoreBodies {
-                        far,
-                        ring,
-                        ..walkable
-                    };
                     let task = AsyncComputeTaskPool::get()
                         .spawn(async move { decode_core(&bodies, grid, cell) });
                     *job = GeoTerrainJob::Decoding {
@@ -1157,8 +997,6 @@ pub(super) fn poll_geo_terrain(
                 Ok(GeoCore {
                     heights,
                     ground,
-                    horizon,
-                    ring,
                     streets,
                     street_level,
                 }) => {
@@ -1167,13 +1005,11 @@ pub(super) fn poll_geo_terrain(
                             ground.set_layers(drawn.clone());
                             // Every loss is logged; the one said is the
                             // nearest the player: the streets they walk,
-                            // then the horizon, then its buildings.
+                            // then what stands along them.
                             let mut said = None;
                             for (reason, lost, instead) in [
                                 (streets, GeoLoss::Streets, "painting the streets only"),
                                 (street_level, GeoLoss::StreetLevel, "leaving that out"),
-                                (horizon, GeoLoss::Horizon, "drawing no far field"),
-                                (ring, GeoLoss::Ring, "drawing no buildings on the horizon"),
                             ] {
                                 if let Some(reason) = reason {
                                     warn!("geodata: {reason} - {instead}");
@@ -1325,7 +1161,7 @@ pub(crate) mod tests {
         ]
     }
     /// The street level's URLs over `bbox`, in the order
-    /// [`StreetLevelRequests::requests`] asks for them, each with the
+    /// [`TilePages::requests`] asks for them, each with the
     /// recorded page of the Museumsinsel square (#1588): whole, it holds
     /// everything a core inside it reads.
     fn street_level_answers(bbox: Bbox) -> Vec<(String, String)> {
@@ -1341,7 +1177,7 @@ pub(crate) mod tests {
             geodata::berlin::FurnitureKind::ALL
                 .map(|kind| kind.layer().type_name.replace(':', "_")),
         );
-        StreetLevelRequests::requests(bbox)
+        TilePages::requests(bbox)
             .into_iter()
             .zip(names)
             .map(|(request, name)| {
@@ -1359,7 +1195,8 @@ pub(crate) mod tests {
         let mut pages = street_level_answers(bbox)
             .into_iter()
             .map(|(_, name)| Ok(Arc::<[u8]>::from(fixture(&name))));
-        let mut page = || pages.next().expect("a page");
+        // The square is one tile: a page a layer.
+        let mut page = || vec![pages.next().expect("a page")];
         street_level::StreetLevelBodies {
             buildings: page(),
             blocks: page(),
@@ -1403,8 +1240,7 @@ pub(crate) mod tests {
         }
     }
 
-    /// The Museumsinsel's answers, as the job hands them to the decode -
-    /// and as a detail patch's (P4.2) of the same 300 points 2 m apart.
+    /// The Museumsinsel's answers, as the job hands them to the decode.
     pub(crate) fn museum_bodies() -> CoreBodies {
         CoreBodies {
             bbox: core_bbox(museum_square(), 300, 2.0),
@@ -1414,9 +1250,6 @@ pub(crate) mod tests {
                 fixture(LAND_USE_LEGEND).into(),
                 fixture(MUSEUM_LAND_USE).into(),
             )),
-            // The core all but fills the square: no far field.
-            far: None,
-            ring: None,
             streets: Some(Ok((
                 fixture(MUSEUM_STREETS).into(),
                 fixture(MUSEUM_CARRIAGEWAYS).into(),
@@ -1764,7 +1597,7 @@ pub(crate) mod tests {
     /// The Museumsinsel's buildings page as the job asks for it, and the
     /// layer hash its recorded answer has.
     fn museum_buildings() -> (GeoRequest, u64) {
-        let page = StreetLevelRequests::requests(core_bbox(museum_square(), 300, 2.0))
+        let page = TilePages::requests(core_bbox(museum_square(), 300, 2.0))
             .into_iter()
             .next()
             .expect("the buildings' page comes first");
@@ -2089,342 +1922,115 @@ pub(crate) mod tests {
         assert!(finished.ground().is_none());
     }
 
-    /// A 200 m core of 2 m cells in the middle of the Museumsinsel square,
-    /// which is then wider than its core and has a far field.
-    fn small_core_config() -> SovereignTerrainConfig {
-        SovereignTerrainConfig {
-            grid_size: 100,
-            cell_scale: Fp(2.0),
-            ..Default::default()
-        }
-    }
-
-    /// Serves the small-core square's recorded answers by their URLs: the
-    /// two legends, the core's two renders and - unless `far_status` says
-    /// otherwise, or `far_hangs` holds them back for good - the far
-    /// field's two, and - unless `ring_status` says otherwise, or
-    /// `ring_hangs` holds them back for good - the middle ring's three.
-    #[derive(Default)]
-    struct RecordedFar {
-        far_status: Option<u16>,
-        far_hangs: bool,
-        ring_status: Option<u16>,
-        ring_hangs: bool,
-    }
-
-    impl GeoTransport for RecordedFar {
-        fn get(&self, url: String, _cap: usize) -> GetFuture {
-            let (terrain, land_use) = (&geodata::berlin::TERRAIN, &geodata::berlin::LAND_USE);
-            let core = core_bbox(museum_square(), 100, 2.0);
-            let plan = far::far_plan(museum_square(), &small_core_config()).expect("a far field");
-            let far = plan.bbox();
-            let ring = ring::ring_plan(&plan);
-            let surface = &geodata::berlin::SURFACE;
-            let answers = [
-                (GeoRequest::legend(terrain, 0), TERRAIN_LEGEND),
-                (GeoRequest::legend(land_use, 0), LAND_USE_LEGEND),
-                (
-                    GeoRequest::render(terrain, core, 100, 100),
-                    "dgm1_391400_5819900_200m_100px.png",
-                ),
-                (
-                    GeoRequest::render(land_use, core, 100, 100),
-                    "landuse_391400_5819900_200m_100px.png",
-                ),
-                (
-                    GeoRequest::render(terrain, far, plan.grid, plan.grid),
-                    "dgm1_391200_5819700_600m_64px.png",
-                ),
-                (
-                    GeoRequest::render(land_use, far, plan.grid, plan.grid),
-                    "landuse_391200_5819700_600m_64px.png",
-                ),
-                (GeoRequest::legend(surface, 0), "dom_legend.json"),
-                (
-                    GeoRequest::render(land_use, ring.bbox, ring.grid, ring.grid),
-                    "landuse_391200_5819700_600m_150px.png",
-                ),
-                (
-                    GeoRequest::render(surface, ring.bbox, ring.grid, ring.grid),
-                    "dom_391200_5819700_600m_150px.png",
-                ),
-            ];
-            let asked = |range: std::ops::Range<usize>| {
-                answers[range]
-                    .iter()
-                    .any(|(request, _)| request.url() == url)
-            };
-            let (far_render, ring_answer) = (asked(4..6), asked(6..9));
-            if (far_render && self.far_hangs) || (ring_answer && self.ring_hangs) {
-                return Box::pin(std::future::pending());
+    /// #1637: a square past a kilometre asks its street level in tiles, so
+    /// no page is cut short and leaves an arbitrary hole; a kilometre or so
+    /// asks in one box, as before. The tiles cover the box exactly.
+    #[test]
+    fn a_square_past_a_kilometre_is_asked_in_tiles() {
+        let bbox = |side: i64| Bbox {
+            min_e: 391_000,
+            min_n: 5_819_000,
+            max_e: 391_000 + side,
+            max_n: 5_819_000 + side,
+        };
+        assert_eq!(street_tiles(bbox(1_000)), vec![bbox(1_000)]);
+        assert_eq!(street_tiles(bbox(STREET_TILE_M)), vec![bbox(STREET_TILE_M)]);
+        for side in [1_500, 2_000] {
+            let whole = bbox(side);
+            let tiles = street_tiles(whole);
+            assert_eq!(tiles.len(), 4, "{side} m");
+            let area: i64 = tiles
+                .iter()
+                .map(|t| (t.max_e - t.min_e) * (t.max_n - t.min_n))
+                .sum();
+            assert_eq!(area, side * side, "{side} m: the tiles cover it once");
+            for t in &tiles {
+                assert!(t.max_e - t.min_e <= STREET_TILE_M && t.max_n - t.min_n <= STREET_TILE_M);
+                assert!(t.min_e >= whole.min_e && t.max_e <= whole.max_e);
+                assert!(t.min_n >= whole.min_n && t.max_n <= whole.max_n);
             }
-            let failed = match (far_render, ring_answer) {
-                (true, _) => self.far_status,
-                (_, true) => self.ring_status,
-                _ => None,
-            };
-            let body = match failed {
-                Some(status) => Err(AssetFetchError::HttpStatus(status)),
-                None => answers
-                    .iter()
-                    .find(|(request, _)| request.url() == url)
-                    .map(|(_, name)| (*name).to_owned())
-                    .or_else(|| {
-                        street_answers(core)
-                            .into_iter()
-                            .find(|(u, _)| *u == url)
-                            .map(|(_, name)| name.to_owned())
-                    })
-                    .or_else(|| {
-                        street_level_answers(core)
-                            .into_iter()
-                            .find(|(u, _)| *u == url)
-                            .map(|(_, name)| name)
-                    })
-                    .map(|name| fixture(&name))
-                    .ok_or(AssetFetchError::HttpStatus(404)),
-            };
-            Box::pin(async move { body.map(|bytes| (bytes, url)) })
         }
     }
 
-    /// #1585: a square wider than its core lands a far field round it, from
-    /// the far renders, that takes the core's water - so the region's water
-    /// plane may span it - and meets the core along its edge.
-    /// The small-core square, landed through `transport`.
-    fn small_core_landed(transport: RecordedFar) -> App {
-        let mut record = museum_record();
-        record.generators.insert(
-            "base_terrain".to_owned(),
-            Generator::from_kind(GeneratorKind::Terrain(small_core_config())),
-        );
-        let mut app = berlin_app_with(record, transport);
-        run_until(&mut app, |w| {
-            w.contains_resource::<super::super::FinishedHeightMap>()
-                || w.contains_resource::<TerrainGenFailed>()
-        });
-        app
-    }
-
+    /// #1637: a feature two tiles both hold - a building across their edge -
+    /// is read once, by its id; and a layer one tile could not have is left
+    /// out whole, and said, rather than drawn with that tile's hole.
     #[test]
-    fn a_square_wider_than_its_core_lands_a_far_field_with_the_core_water() {
-        let app = small_core_landed(RecordedFar::default());
-        let world = app.world();
-        assert!(
-            !world.contains_resource::<GeoTerrainFallback>(),
-            "nothing lost"
-        );
-        assert!(world.resource::<GeoFetcher>().is_idle());
-        let finished = world.resource::<super::super::FinishedHeightMap>();
-        assert_eq!((finished.0.width(), finished.0.scale()), (100, 2.0));
-        let ground = finished.ground().expect("Berlin's ground");
-        let level = ground.water_level().expect("the Spree crosses the core");
-        assert!((30.0..31.0).contains(&level), "level {level}");
-        let far = ground.far().expect("the square is wider than its core");
-        assert!(far.wet(), "the far field takes the core's water");
-        assert_eq!(far.span_m(), 63.0 * 600.0 / 64.0);
-        // And its mesh builds round the core.
-        let mesh = far::build_far_mesh(far, &finished.0);
-        assert!(mesh.count_vertices() > 64 * 64 / 2);
-        // The buildings round the core land with it (#1587).
-        let ring = ground.ring().expect("the far field has its ring");
-        assert_eq!(ring.lots().len(), 145);
-    }
-
-    /// #1587: without its ring's answers a region keeps its far field, and
-    /// says its horizon has no buildings.
-    #[test]
-    fn a_ring_that_cannot_be_had_keeps_the_horizon_and_says_so() {
-        let app = small_core_landed(RecordedFar {
-            ring_status: Some(404),
-            ..RecordedFar::default()
-        });
-        let world = app.world();
-        assert!(world.resource::<GeoFetcher>().is_idle());
-        let fallback = world.resource::<GeoTerrainFallback>();
-        assert_eq!(fallback.lost, GeoLoss::Ring);
-        assert!(
-            fallback
-                .reason
-                .contains("buildings round the walkable ground could not be fetched")
-                && fallback.reason.contains("404"),
-            "{}",
-            fallback.reason
-        );
-        let ground = world
-            .resource::<super::super::FinishedHeightMap>()
-            .ground()
-            .expect("the core's ground is Berlin's");
-        assert!(ground.far().is_some(), "the horizon stays");
-        assert!(ground.ring().is_none());
-    }
-
-    /// Without its far renders a region keeps its walkable ground, Berlin's
-    /// with its land use and water, and says that its horizon is missing.
-    #[test]
-    fn a_far_field_that_cannot_be_had_leaves_the_core_and_says_so() {
-        let app = small_core_landed(RecordedFar {
-            far_status: Some(404),
-            ..RecordedFar::default()
-        });
-        let world = app.world();
-        assert!(world.resource::<GeoFetcher>().is_idle());
-        let fallback = world.resource::<GeoTerrainFallback>();
-        assert_eq!(fallback.lost, GeoLoss::Horizon);
-        assert!(
-            fallback.reason.contains("horizon could not be fetched")
-                && fallback.reason.contains("404"),
-            "{}",
-            fallback.reason
-        );
-        let ground = world
-            .resource::<super::super::FinishedHeightMap>()
-            .ground()
-            .expect("the core's ground is Berlin's");
-        assert!(ground.water_level().is_some() && ground.far().is_none());
-    }
-
-    /// The critic's finding (#1585): a horizon that does not answer holds
-    /// the walkable ground - and a loading screen - for its grace and no
-    /// longer.
-    #[test]
-    fn a_horizon_that_does_not_answer_holds_the_ground_only_for_its_grace() {
-        let mut record = museum_record();
-        record.generators.insert(
-            "base_terrain".to_owned(),
-            Generator::from_kind(GeneratorKind::Terrain(small_core_config())),
-        );
-        let mut app = berlin_app_with(
-            record,
-            RecordedFar {
-                far_hangs: true,
-                ..RecordedFar::default()
-            },
-        );
-        // The core's own answers come in, and the grace starts.
-        run_until(&mut app, |w| {
-            matches!(
-                w.get_resource::<GeoTerrainJob>(),
-                Some(GeoTerrainJob::Fetching {
-                    core_in_at: Some(_),
-                    ..
-                })
-            )
-        });
-        for _ in 0..20 {
-            app.update();
+    fn a_layer_is_read_once_from_its_tiles_or_left_out_whole() {
+        let one = decode_core(&museum_bodies(), 300, 2.0).expect("decodes");
+        let one = one.ground.expect("its ground");
+        let one = one.street_level().expect("its street level");
+        let mut bodies = museum_bodies();
+        let level = bodies.street_level.as_mut().expect("asked for");
+        // A second tile holding every feature the first does.
+        let twice = |pages: &mut Vec<street_level::Page>| {
+            let again = pages.clone();
+            pages.extend(again);
+        };
+        twice(&mut level.buildings);
+        twice(&mut level.blocks);
+        twice(&mut level.street_trees);
+        twice(&mut level.park_trees);
+        for (_, pages) in &mut level.furniture {
+            twice(pages);
         }
-        assert!(
-            !app.world()
-                .contains_resource::<super::super::FinishedHeightMap>(),
-            "inside the grace the ground waits for its horizon"
-        );
-        // The grace runs on the wall clock, which this app never ticks: its
-        // first update only starts it, the second moves it past the grace.
-        let mut real = app.world_mut().resource_mut::<Time<Real>>();
-        real.update_with_duration(std::time::Duration::ZERO);
-        real.update_with_duration(std::time::Duration::from_secs_f64(FAR_GRACE_S + 1.0));
-        run_until(&mut app, |w| {
-            w.contains_resource::<super::super::FinishedHeightMap>()
-        });
-        let world = app.world();
-        assert!(
-            world.resource::<GeoFetcher>().is_idle(),
-            "the horizon is let go"
-        );
-        let fallback = world.resource::<GeoTerrainFallback>();
-        assert_eq!(fallback.lost, GeoLoss::Horizon);
-        assert!(
-            fallback.reason.contains("did not arrive in time"),
-            "{}",
-            fallback.reason
-        );
-        let ground = world
-            .resource::<super::super::FinishedHeightMap>()
-            .ground()
-            .expect("the walkable ground is Berlin's");
-        assert!(ground.far().is_none());
+        let two = decode_core(&bodies, 300, 2.0).expect("decodes");
+        let two = two.ground.expect("its ground");
+        let two = two.street_level().expect("its street level");
+        assert!(one.buildings.len() > 30 && one.trees.len() > 400);
+        assert_eq!(two.buildings.len(), one.buildings.len());
+        assert_eq!(two.trees.len(), one.trees.len());
+        assert_eq!(two.furniture.len(), one.furniture.len());
+
+        let mut bodies = museum_bodies();
+        let level = bodies.street_level.as_mut().expect("asked for");
+        level.buildings.push(Err(
+            "Berlin's buildings could not be fetched: a tile.".into()
+        ));
+        let core = decode_core(&bodies, 300, 2.0).expect("decodes");
+        let lost = core.street_level.clone().expect("the loss is said");
+        assert!(lost.contains("a tile"), "{lost}");
+        let ground = core.ground.expect("its ground");
+        let level = ground.street_level().expect("the trees still stand");
+        assert!(level.buildings.is_empty(), "left out whole");
+        assert!(!level.trees.is_empty());
     }
 
-    /// The critic's finding (#1587): a ring that does not answer costs only
-    /// the ring. Its surface render is the largest the job asks for; while
-    /// it was gated with the far field's, a slow one threw the horizon away
-    /// too, and said the horizon was late.
+    /// #1637: the ground spans its whole square - the configured points
+    /// spaced to fit it, never closer than a metre - so a region is its
+    /// square, a small one a small world and a large one coarser ground.
     #[test]
-    fn a_ring_that_does_not_answer_keeps_the_horizon() {
-        let mut record = museum_record();
-        record.generators.insert(
-            "base_terrain".to_owned(),
-            Generator::from_kind(GeneratorKind::Terrain(small_core_config())),
-        );
-        let mut app = berlin_app_with(
-            record,
-            RecordedFar {
-                ring_hangs: true,
-                ..RecordedFar::default()
-            },
-        );
-        run_until(&mut app, |w| {
-            matches!(
-                w.get_resource::<GeoTerrainJob>(),
-                Some(GeoTerrainJob::Fetching {
-                    core_in_at: Some(_),
-                    ..
-                })
-            )
-        });
-        let mut real = app.world_mut().resource_mut::<Time<Real>>();
-        real.update_with_duration(std::time::Duration::ZERO);
-        real.update_with_duration(std::time::Duration::from_secs_f64(FAR_GRACE_S + 1.0));
-        run_until(&mut app, |w| {
-            w.contains_resource::<super::super::FinishedHeightMap>()
-        });
-        let world = app.world();
-        assert!(
-            world.resource::<GeoFetcher>().is_idle(),
-            "the ring is let go"
-        );
-        let fallback = world.resource::<GeoTerrainFallback>();
-        assert_eq!(fallback.lost, GeoLoss::Ring);
-        assert!(
-            fallback.reason.contains("did not arrive in time"),
-            "{}",
-            fallback.reason
-        );
-        let ground = world
-            .resource::<super::super::FinishedHeightMap>()
-            .ground()
-            .expect("the walkable ground is Berlin's");
-        assert!(ground.far().is_some(), "the horizon stays");
-        assert!(ground.ring().is_none());
-    }
-
-    #[test]
-    fn a_small_square_is_a_small_world() {
+    fn the_ground_spans_its_square() {
         let default = SovereignTerrainConfig::default();
         assert_eq!(default.grid_size, 512);
-        // 250 m of 2 m cells: 125 points, the render exactly the square.
-        assert_eq!(core_grid(250, &default), (125, 2.0));
+        // 250 m at a metre: 250 points, the render exactly the square.
+        assert_eq!(core_grid(250, &default), (250, 1.0));
         let square = GeoSquare {
             min_e: 391_000,
             min_n: 5_819_500,
             size_m: 250,
         };
-        let bbox = core_bbox(square, 125, 2.0);
+        let bbox = core_bbox(square, 250, 1.0);
         assert_eq!(
             (bbox.min_e, bbox.min_n, bbox.max_e, bbox.max_n),
             (391_000, 5_819_500, 391_250, 5_819_750)
         );
-        // A big square keeps the configured grid.
-        assert_eq!(core_grid(19_000, &default), (512, 2.0));
-        // A seeded 2.21 m cell: as many points as fit, never past the side.
+        // A seeded kilometre and the editor's two keep the configured
+        // points, spaced to the side.
+        for side in [1_000, 2_000] {
+            let (grid, cell) = core_grid(side, &default);
+            assert_eq!(grid, 512);
+            assert_eq!((f64::from(grid) * f64::from(cell)).round(), f64::from(side));
+        }
+        // The configured spacing is not read: a seeded 2.21 m cell spans the
+        // same kilometre.
         let seeded = SovereignTerrainConfig {
             cell_scale: Fp(2.21),
             ..Default::default()
         };
-        let (grid, cell) = core_grid(1_000, &seeded);
-        assert_eq!(grid, 452);
-        assert!(f64::from(grid) * f64::from(cell) <= 1_000.0);
+        assert_eq!(core_grid(1_000, &seeded), core_grid(1_000, &default));
+        // The recorded Museumsinsel: 300 points over 600 m, 2 m apart.
+        assert_eq!(core_grid(600, &museum_config()), (300, 2.0));
     }
 
     /// The race the critic found: a decode finishes in the frame the owner

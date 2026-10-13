@@ -344,7 +344,6 @@ pub(crate) fn clear_of_terrain(
         return translation;
     }
     let dir = offset / dist;
-    // The ground as drawn, a Berlin region's far field included (#1585).
     let ground = |x: f32, z: f32| hm.world_height_at(x, z);
     let clamped = match settings.camera_ground_avoidance {
         CameraGroundAvoidance::Off => dist,
@@ -427,7 +426,7 @@ pub fn egui_global_settings() -> EguiGlobalSettings {
 }
 
 /// The world camera's perspective lens: Bevy's default 45 degrees, its far
-/// plane past a Berlin region's horizon ([`cfg::FAR_PLANE_M`]).
+/// plane past anything a world draws ([`cfg::FAR_PLANE_M`]).
 pub(crate) fn perspective_lens() -> PerspectiveProjection {
     PerspectiveProjection {
         far: cfg::FAR_PLANE_M,
@@ -574,9 +573,8 @@ fn spawn_orbit_camera(mut commands: Commands) {
         Msaa::Off,
         // Bevy's default perspective far plane is 1000 m, which clips the
         // cloud-deck plane (at altitude ~250 m, half-extent 4 km) before
-        // the shader's horizon-fade has a chance to dissolve it, and a
-        // Berlin region's far field and sky reach far past that (#1585).
-        // The projection is infinite reverse-Z, so the far plane bounds
+        // the shader's horizon-fade has a chance to dissolve it. The
+        // projection is infinite reverse-Z, so the far plane bounds
         // frustum culling only and costs no depth precision; see
         // `FAR_PLANE_M`.
         Projection::from(perspective_lens()),

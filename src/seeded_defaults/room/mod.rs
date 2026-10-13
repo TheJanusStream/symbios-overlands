@@ -46,6 +46,6 @@ pub use settlement::{
     BUILD_SLOPE_LIMIT, Settlement, SettlementCluster, SettlementMember, SettlementPlan,
 };
 pub use siting::{BuildableRegion, TerrainProbe};
-pub use source::{BERLIN_SHARE, RegionSource, SizeClass, SourceKind};
+pub use source::{BERLIN_SHARE, RegionSource, SourceKind};
 pub use terrain::{SplatRule, TerrainShape};
 pub use textures::{BiomeTextures, GroundTextureParams, RockTextureParams};

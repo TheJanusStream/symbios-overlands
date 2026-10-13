@@ -31,9 +31,7 @@ use std::sync::Arc;
 use bevy_symbios_ground::WeightMap;
 use geodata::berlin::LandUse;
 
-use super::far::FarField;
 use super::layers::DrawnLayers;
-use super::ring::Ring;
 use super::street_level::StreetLevel;
 use crate::urban::RoadParts;
 
@@ -57,17 +55,11 @@ pub(crate) struct GeoGround {
     /// The level of the core's water, metres above sea level, where it has
     /// any.
     water_level: Option<f32>,
-    /// The square beyond the core, coarse, where the square is wider than
-    /// the core (#1585). Shared, so the clones the contact classifier keeps
-    /// do not copy it.
-    far: Option<Arc<FarField>>,
-    /// The buildings' lots round the core, where the far field has them
-    /// (#1587). Shared, as the far field is.
-    ring: Option<Arc<Ring>>,
     /// Berlin's streets on the core, meshed (#1595), where it has any.
     streets: Option<StreetMeshes>,
     /// Its buildings, trees and street furniture (#1588), where they were
-    /// had. Shared, as the far field is.
+    /// had. Shared, so the clones the contact classifier keeps do not copy
+    /// them.
     street_level: Option<Arc<StreetLevel>>,
     /// The layers it was drawn from, by content hash (#1590): what a save
     /// records.
@@ -122,26 +114,6 @@ impl GeoGround {
     /// region draws its water plane. `None` for a dry core.
     pub(crate) fn water_level(&self) -> Option<f32> {
         self.water_level
-    }
-
-    /// The far field: the square beyond the core, drawn as its horizon.
-    pub(crate) fn far(&self) -> Option<&Arc<FarField>> {
-        self.far.as_ref()
-    }
-
-    /// Give the ground its far field.
-    pub(super) fn set_far(&mut self, far: FarField) {
-        self.far = Some(Arc::new(far));
-    }
-
-    /// The middle ring: the lots of the buildings round the core.
-    pub(crate) fn ring(&self) -> Option<&Arc<Ring>> {
-        self.ring.as_ref()
-    }
-
-    /// Give the ground its middle ring.
-    pub(super) fn set_ring(&mut self, ring: Ring) {
-        self.ring = Some(Arc::new(ring));
     }
 
     /// Berlin's streets on the core, meshed.
@@ -201,11 +173,8 @@ impl GeoGround {
 
     /// The splat layer a scatter's biome filter sees at world `(x, z)`: the
     /// nearest cell's layer where it is natural ground, else [`NOT_NATURAL`].
-    /// Past the core it is the land use as drawn there
-    /// ([`Self::drawn_cover_at`]), so a scatter out there grows by the land
-    /// it stands on.
     pub(crate) fn scatter_layer_at(&self, world_x: f32, world_z: f32) -> u8 {
-        let cover = self.drawn_cover_at(world_x, world_z);
+        let cover = self.cover_at(world_x, world_z);
         if is_natural(cover) {
             layer(cover) as u8
         } else {
@@ -213,25 +182,9 @@ impl GeoGround {
         }
     }
 
-    /// The land use as drawn at world `(x, z)`: the core's nearest cell on
-    /// it ([`Self::cover_at`]), and past its edge, where the far field is
-    /// walked (P4.1, #1596), the detail patch's nearest point where one has
-    /// loaded (P4.2, #1597), else the far pixel's.
-    pub(crate) fn drawn_cover_at(&self, world_x: f32, world_z: f32) -> Option<LandUse> {
-        let half = self.grid.saturating_sub(1) as f32 * self.cell * 0.5;
-        match &self.far {
-            Some(far) if world_x.abs() > half || world_z.abs() > half => {
-                far.cover_at(world_x, world_z)
-            }
-            _ => self.cover_at(world_x, world_z),
-        }
-    }
-
-    /// The land use of the core's cell nearest world `(x, z)`, the world
-    /// centring the core on the origin as it does the heightmap - held at
-    /// the core's edge past it, as the walks off water and streets read it,
-    /// so they walk alike on every peer whether its far field landed or
-    /// not.
+    /// The land use of the ground's cell nearest world `(x, z)`, the world
+    /// centring the ground on the origin as it does the heightmap - held at
+    /// its edge past it.
     pub(crate) fn cover_at(&self, world_x: f32, world_z: f32) -> Option<LandUse> {
         let last = self.grid.saturating_sub(1) as usize;
         let half = last as f32 * self.cell * 0.5;
@@ -256,24 +209,10 @@ impl GeoGround {
             cell,
             cover,
             water_level,
-            far: None,
-            ring: None,
             streets: None,
             street_level: None,
             layers: None,
         }
-    }
-
-    /// This ground with `far` round it.
-    pub(crate) fn with_far(mut self, far: FarField) -> Self {
-        self.set_far(far);
-        self
-    }
-
-    /// This ground with `ring` round it.
-    pub(crate) fn with_ring(mut self, ring: Ring) -> Self {
-        self.set_ring(ring);
-        self
     }
 
     /// This ground with `parts` as its streets.
@@ -298,8 +237,7 @@ impl GeoGround {
 /// The four layers' weights at local `(lx, lz)` metres over `cover` - `grid`
 /// x `grid` points `cell` metres apart, row-major from the north-west - as
 /// the GPU samples a one-hot weight map of it: interpolated between the
-/// points round it, clamped to its edge. A core's and a detail patch's
-/// (P4.2) alike.
+/// points round it, clamped to its edge.
 pub(super) fn weights_between(
     cover: &[Option<LandUse>],
     grid: usize,
@@ -401,8 +339,6 @@ pub(crate) fn decode_ground(
         cell,
         cover,
         water_level: water.map(|w| w.level),
-        far: None,
-        ring: None,
         streets: None,
         street_level: None,
         layers: None,
@@ -447,9 +383,9 @@ const MAX_BRIDGE_M: f32 = 40.0;
 /// with water at both its ends and a street drawn over it - one of the
 /// `bridges` cells a drawn street axis crosses - is the water's: the river
 /// runs on under the bridge, and the street rides over it as a deck. With
-/// no `bridges` - the streets not fetched, or a far field too coarse for
-/// them - and on a footbridge or a rail bridge, which no street deck would
-/// cover, the strip stays the dam it was, and can be walked.
+/// no `bridges` - the streets not fetched - and on a footbridge or a rail
+/// bridge, which no street deck would cover, the strip stays the dam it
+/// was, and can be walked.
 pub(super) fn water_mask(
     cover: &[Option<LandUse>],
     side: usize,
@@ -651,35 +587,5 @@ mod tests {
         assert_eq!(g.scatter_layer_at(2.0, 0.0), NOT_NATURAL, "street");
         assert_eq!(g.scatter_layer_at(0.9, -0.9), 0, "the nearest cell");
         assert_eq!(g.scatter_layer_at(-90.0, -90.0), 1, "clamped to the edge");
-    }
-
-    /// P4.1 (#1596): past the core the land use is the far field's pixel
-    /// a point lies in, so a scatter out there grows by the land it stands
-    /// on, not by the core's nearest edge cell.
-    #[test]
-    fn past_the_core_the_land_use_is_the_far_fields() {
-        let core = ground(2, vec![Some(LandUse::Water); 4]);
-        let mut far = super::super::far::FarField::from_fn(10, 10.0, |_, _| 30.0);
-        far.set_cover(|x, _| (x > 0.0).then_some(LandUse::Park));
-        let walked = core.clone().with_far(far);
-        assert_eq!(
-            walked.drawn_cover_at(0.0, 0.0),
-            Some(LandUse::Water),
-            "the core's own"
-        );
-        assert_eq!(walked.drawn_cover_at(35.0, 0.0), Some(LandUse::Park));
-        assert_eq!(
-            walked.drawn_cover_at(-35.0, 0.0),
-            None,
-            "street space out west"
-        );
-        assert_eq!(
-            walked.scatter_layer_at(35.0, 0.0),
-            layer(Some(LandUse::Park)) as u8
-        );
-        // The walks' reading holds the core's edge, far field or not.
-        assert_eq!(walked.cover_at(35.0, 0.0), Some(LandUse::Water));
-        // Without a far field, the core's nearest cell, as it was.
-        assert_eq!(core.drawn_cover_at(35.0, 0.0), Some(LandUse::Water));
     }
 }

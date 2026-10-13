@@ -360,8 +360,7 @@ impl ScatterPreview {
 /// Terrain steepness at a world XZ, as `1 - normal.y` - the same measure
 /// [`dominant_biome`] scores the splat rules against, so a scatter's slope
 /// cutoff and its biome allow-list are talking about the same quantity.
-/// `0` is dead flat, `1` is a vertical face. Read from the ground as drawn,
-/// a Berlin region's walked far field past the core included (P4.1).
+/// `0` is dead flat, `1` is a vertical face.
 pub(crate) fn terrain_slope_at(
     heightmap: &crate::terrain::FinishedHeightMap,
     world_x: f32,

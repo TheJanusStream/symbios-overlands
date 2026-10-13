@@ -48,9 +48,8 @@ pub(crate) struct Kept {
 /// The places the record keeps for its own before a street level is known:
 /// the landing's disc, then each absolute placement's, with
 /// the derived item it is a copy of where it is one made the world's own
-/// (#1590). Drawn on the main thread, where the ground is; a detail
-/// patch's plans (P4.2, #1597) are drawn on the compute pool against the
-/// street level its decode reads there ([`Self::for_level`]).
+/// (#1590). Drawn on the main thread, where the ground is, and weighed
+/// against a street level by [`Self::for_level`].
 #[derive(Clone, Debug)]
 pub(crate) struct KeptPlaces {
     discs: Vec<((f32, f32, f32), Option<SourceId>)>,
@@ -112,8 +111,8 @@ impl KeptPlaces {
     /// made the world's own (#1590) keeps nothing while `level` - the
     /// street level the plans are drawn from - holds the item: it stands
     /// where Berlin's stood, among its neighbours as they did. Off the
-    /// ground its item was on (the square moved since, or the item is a
-    /// detail patch's that is not loaded), it is a placement like any other.
+    /// ground its item was on (the square moved since), it is a placement
+    /// like any other.
     pub(crate) fn for_level(&self, level: Option<&StreetLevel>) -> Kept {
         let discs = self
             .discs
@@ -174,7 +173,7 @@ impl Kept {
 /// [`KeptPlaces::for_level`]): its
 /// landing as a body sets down there, walked ashore, and its absolute
 /// placements where they stand. The walkable ground's plans keep clear of
-/// it, and - since the ring is walked (P4.1, #1596) - the ring's.
+/// it.
 pub(crate) fn kept_for(record: Option<&RoomRecord>, heightmap: &FinishedHeightMap) -> Kept {
     let level = heightmap
         .ground()
@@ -201,7 +200,7 @@ pub(crate) fn kept_places_for(
 
 /// The walkable ground's plans for `level`, for `room`, keeping clear of
 /// what the record keeps (`kept`), standing on `ground` - the height at
-/// world `(x, z)`: the core's, or a detail patch's (P4.2, #1597).
+/// world `(x, z)`.
 pub(crate) fn draw_core(
     level: &StreetLevel,
     room: &RoomScene,

@@ -253,11 +253,9 @@ pub(super) struct WorldReadiness<'w, 's> {
     job: Option<Res<'w, CompileJob>>,
     splat: Option<Res<'w, SplatApplied>>,
     roads: Option<Res<'w, RoadPanelStats>>,
-    /// A geodata region's derived content (#1587, #1588), spawning until
-    /// it is idle.
+    /// A geodata region's derived content (#1588), spawning until it is
+    /// idle.
     derived: Option<Res<'w, crate::terrain::derived::DerivedBuilds>>,
-    /// A detail patch on its way (P4.2, #1597), until it has landed.
-    patch: Option<Res<'w, crate::terrain::geo::patch::follow::RoamingPatch>>,
     bakes: BakesInFlight<'w, 's>,
 }
 
@@ -276,14 +274,13 @@ impl WorldReadiness<'_, '_> {
                 .derived
                 .as_ref()
                 .is_none_or(|derived| derived.is_idle())
-            && self.patch.as_ref().is_none_or(|patch| patch.is_settled())
             && self.bakes.count() == 0
     }
 
     /// One line for the progress log and the timeout panic.
     pub(super) fn status(&self) -> String {
         format!(
-            "compiled={} compile_progress={:?} splat={} roads_pending={:?} streets={:?} buildings={:?} derived_spawning={} patch_on_its_way={} bakes_in_flight={}",
+            "compiled={} compile_progress={:?} splat={} roads_pending={:?} streets={:?} buildings={:?} derived_spawning={} bakes_in_flight={}",
             self.compiled.is_some(),
             self.job.as_ref().and_then(|j| j.progress()),
             self.splat.is_some(),
@@ -293,7 +290,6 @@ impl WorldReadiness<'_, '_> {
             self.derived
                 .as_ref()
                 .is_some_and(|derived| !derived.is_idle()),
-            self.patch.as_ref().is_some_and(|patch| !patch.is_settled()),
             self.bakes.count(),
         )
     }
@@ -322,14 +318,6 @@ pub(super) fn register(app: &mut App, spec: &WorldSpec, walker: Option<WalkerSpe
     }
 }
 
-/// `--patch-at` (P4.2, #1597): a body standing at world `(x, z)` from the
-/// start - nothing drawn, no collider - for the detail patch to follow, as
-/// it follows the local player in game.
-pub(super) fn stand_in_for_patch(app: &mut App, [x, z]: [f32; 2]) {
-    app.world_mut()
-        .spawn((Transform::from_xyz(x, 0.0, z), crate::state::LocalPlayer));
-}
-
 /// The game camera, aimed at an off-screen target: the components
 /// `camera::spawn_orbit_camera` gives the player's view, minus the orbit
 /// controller and the audio listener, neither of which has a reader here.
@@ -349,8 +337,8 @@ pub(super) fn spawn_world_camera(
     fov: Option<f32>,
     ortho: bool,
 ) {
-    // The game's far plane: the cloud deck, the sky cuboid and a Berlin
-    // region's far field stay inside the frustum.
+    // The game's far plane: the cloud deck and the sky cuboid stay inside
+    // the frustum.
     let projection = if ortho {
         Projection::Orthographic(crate::camera::orthographic_lens(
             crate::config::camera::ORBIT_RADIUS,

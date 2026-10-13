@@ -398,50 +398,9 @@ pub(super) fn apply_splat_textures(
     let water_y = record
         .as_ref()
         .and_then(|r| crate::world_builder::compile::drawn_water_level(&r.0, Some(&hm_res)));
-    // One world-space texture scale for the core and its far field, so the
-    // layers run on across the seam (#1585).
+    // The rock layer's world-space texture scale, as dense as the top-down
+    // layers'.
     let triplanar_scale = tcfg::TILE_SCALE / world_extent.max(1.0);
-
-    // A geodata region's far field (#1585): the same layers, its own weight
-    // map from its own land use.
-    if let (Some(far_mat), Some(far)) = (
-        splat_mat.1.as_ref(),
-        hm_res.ground().and_then(|ground| ground.far()),
-    ) {
-        let far_weights = far.weight_map();
-        let bytes = far_weights.data.iter().flatten().copied().collect();
-        let far_wm = images.add(weight_image(
-            far_weights.width as u32,
-            far_weights.height as u32,
-            bytes,
-        ));
-        if let Some(mut mat) = materials.get_mut(far_mat) {
-            enable_splat(
-                &mut mat,
-                far_wm,
-                (albedo_array.clone(), normal_array.clone()),
-                triplanar_scale,
-                water_y,
-            );
-        }
-    }
-
-    // A detail patch's (P4.2, #1597), standing before the layers landed or
-    // as a late fetch rebuilds them: its own weight map, the shared layers.
-    if let Some(patch_mat) = splat_mat.2.as_ref()
-        && let Some(own) = materials
-            .get(patch_mat)
-            .map(|m| m.extension.weight_map.clone())
-        && let Some(mut mat) = materials.get_mut(patch_mat)
-    {
-        enable_splat(
-            &mut mat,
-            own,
-            (albedo_array.clone(), normal_array.clone()),
-            triplanar_scale,
-            water_y,
-        );
-    }
 
     if let Some(mut mat) = materials.get_mut(&splat_mat.0) {
         enable_splat(
@@ -605,24 +564,15 @@ pub(super) fn sync_moisture_water_level(
         // No water generator, no waterline to be damp around.
         None => (0.0, 0.0),
     };
-    // The far field's material too (#1585), and a detail patch's (P4.2),
-    // which share the water line.
-    for handle in std::iter::once(&splat_mat.0)
-        .chain(splat_mat.1.as_ref())
-        .chain(splat_mat.2.as_ref())
-    {
-        // Peek before taking the change-triggering mutable borrow.
-        let stale = materials.get(handle).is_some_and(|m| {
-            m.extension.uniforms.water_y != water_y
-                || m.extension.uniforms.moisture_strength != strength
-        });
-        if !stale {
-            continue;
-        }
-        if let Some(mut mat) = materials.get_mut(handle) {
-            mat.extension.uniforms.water_y = water_y;
-            mat.extension.uniforms.moisture_strength = strength;
-        }
+    let handle = &splat_mat.0;
+    // Peek before taking the change-triggering mutable borrow.
+    let stale = materials.get(handle).is_some_and(|m| {
+        m.extension.uniforms.water_y != water_y
+            || m.extension.uniforms.moisture_strength != strength
+    });
+    if stale && let Some(mut mat) = materials.get_mut(handle) {
+        mat.extension.uniforms.water_y = water_y;
+        mat.extension.uniforms.moisture_strength = strength;
     }
 }
 

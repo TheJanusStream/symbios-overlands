@@ -13,7 +13,7 @@ use std::sync::OnceLock;
 
 use super::Borough;
 use super::coverage_table::{CELL_M, COLS, ORIGIN_E, ORIGIN_N, ROWS};
-use crate::square::{GeoSquare, SIZE_MIN_M, SIZE_STEP_M, size_from_draw};
+use crate::square::{GeoSquare, SEEDED_SIZE_M};
 
 /// Berlin's coverage grid.
 #[derive(Debug)]
@@ -155,24 +155,13 @@ impl Coverage {
         })
     }
 
-    /// A region's square from two uniform draws of its seeded stream: the
-    /// size from the first ([`size_from_draw`]), the position from the
-    /// second ([`Self::place`]).
-    ///
-    /// Every drawn size fits somewhere (a test holds the largest one), so
-    /// this is `None` only for a broken table; it steps the size down rather
-    /// than give up if one ever does not.
-    pub fn square_from_draws(&self, size_draw: u64, place_draw: u64) -> Option<GeoSquare> {
-        let mut size = size_from_draw(size_draw);
-        loop {
-            if let Some(square) = self.place(size, place_draw) {
-                return Some(square);
-            }
-            if size <= SIZE_MIN_M {
-                return None;
-            }
-            size = size.saturating_sub(SIZE_STEP_M).max(SIZE_MIN_M);
-        }
+    /// A seeded region's square from a uniform draw of its seeded stream: a
+    /// [`SEEDED_SIZE_M`] side at the position the draw picks
+    /// ([`Self::place`]): every position it fits is as likely as any other,
+    /// whatever is built there (#1637). `None` only for a broken table: a
+    /// kilometre fits all over Berlin.
+    pub fn seeded_square(&self, place_draw: u64) -> Option<GeoSquare> {
+        self.place(SEEDED_SIZE_M, place_draw)
     }
 
     /// The square of side `size_m` lying wholly inside Berlin whose
@@ -280,7 +269,13 @@ type Span = ((i32, u64), (i32, u64));
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::square::SIZE_MAX_M;
+    use crate::square::SIZE_STEP_M;
+
+    /// The largest square that fits wholly inside Berlin (m): the state's
+    /// shape allows 19 km and no more. A region's own largest side is far
+    /// smaller ([`crate::square::SIZE_MAX_M`], #1637); this is the
+    /// coverage's limit, which these tests hold the table to.
+    const LARGEST_M: u32 = 19_000;
 
     #[test]
     fn the_table_decodes_to_berlin() {
@@ -370,9 +365,9 @@ mod tests {
     #[test]
     fn the_largest_size_fits_and_the_next_does_not() {
         let coverage = Coverage::berlin();
-        assert!(coverage.placements(SIZE_MAX_M) > 0);
-        assert_eq!(coverage.placements(SIZE_MAX_M + SIZE_STEP_M), 0);
-        assert_eq!(coverage.place(SIZE_MAX_M + SIZE_STEP_M, 0), None);
+        assert!(coverage.placements(LARGEST_M) > 0);
+        assert_eq!(coverage.placements(LARGEST_M + SIZE_STEP_M), 0);
+        assert_eq!(coverage.place(LARGEST_M + SIZE_STEP_M, 0), None);
         // Sizes past the grid, up to the top of u32, fit nowhere and say so.
         for size in [40_250, 4_294_967_100, 4_294_967_251, u32::MAX] {
             assert_eq!(coverage.placements(size), 0, "{size}");
@@ -408,7 +403,7 @@ mod tests {
     #[test]
     fn placed_squares_lie_inside_at_their_size() {
         let coverage = Coverage::berlin();
-        for size in [250, 260, 999, 4_000, 12_340, SIZE_MAX_M] {
+        for size in [250, 260, 999, 4_000, 12_340, LARGEST_M] {
             for k in 0..64u64 {
                 let draw = k.wrapping_mul(0x9E37_79B9_7F4A_7C15);
                 let square = coverage.place(size, draw).unwrap();
@@ -459,7 +454,7 @@ mod tests {
         // of them, from targets on and off the map.
         let mut fits = Vec::new();
         coverage.walk(
-            SIZE_MAX_M,
+            LARGEST_M,
             |col, row, ((base_e, count_e), (base_n, count_n)), _| {
                 for oe in 0..count_e as i32 {
                     for on in 0..count_n as i32 {
@@ -472,14 +467,14 @@ mod tests {
                 false
             },
         );
-        assert_eq!(fits.len() as u64, coverage.placements(SIZE_MAX_M));
+        assert_eq!(fits.len() as u64, coverage.placements(LARGEST_M));
         for (e, n) in [
             (368_000, 5_806_000),
             (391_000, 5_819_500),
             (0, 0),
             (i64::from(i32::MAX), i64::MIN),
         ] {
-            let got = coverage.nearest(SIZE_MAX_M, e, n).unwrap();
+            let got = coverage.nearest(LARGEST_M, e, n).unwrap();
             assert!(coverage.contains(&got));
             let d = |(fe, fn_): (i64, i64)| {
                 (i128::from(fe) - i128::from(e)).pow(2) + (i128::from(fn_) - i128::from(n)).pow(2)
@@ -497,39 +492,40 @@ mod tests {
         let moved = coverage.nearest(500, 368_000, 5_806_000).unwrap();
         assert!(coverage.contains(&moved) && moved.size_m == 500);
         assert_eq!(
-            coverage.nearest(SIZE_MAX_M + SIZE_STEP_M, 391_000, 5_819_500),
+            coverage.nearest(LARGEST_M + SIZE_STEP_M, 391_000, 5_819_500),
             None
         );
         assert_eq!(coverage.nearest(0, 391_000, 5_819_500), None);
     }
 
     #[test]
-    fn squares_from_draws_are_pinned() {
+    fn seeded_squares_are_pinned() {
         // A seeded region keeps its square across releases: these are the
         // squares today's draws give, and `tools/place_check.py` (an
-        // independent implementation of the draw and the walk, reading the
-        // table) gives the same. Changing one moves every region drawn from
-        // it - that needs a migration, not a re-bless.
+        // independent implementation of the walk, reading the table) gives
+        // the same. Changing one moves every region drawn from it - that
+        // needs a migration, not a re-bless. Every seeded square is a
+        // kilometre (#1637).
         let coverage = Coverage::berlin();
         let squares: Vec<GeoSquare> = [
-            (0x0123_4567_89AB_CDEF, 0xFEDC_BA98_7654_3210),
-            (0x8000_0000_0000_0000, 0x8000_0000_0000_0000),
-            (0xDEAD_BEEF_F00D_CAFE, 0x0BAD_C0DE_1234_5678),
+            0xFEDC_BA98_7654_3210,
+            0x8000_0000_0000_0000,
+            0x0BAD_C0DE_1234_5678,
         ]
         .into_iter()
-        .map(|(size, place)| coverage.square_from_draws(size, place).unwrap())
+        .map(|draw| coverage.seeded_square(draw).unwrap())
         .collect();
-        let square = |min_e, min_n, size_m| GeoSquare {
+        let square = |min_e, min_n| GeoSquare {
             min_e,
             min_n,
-            size_m,
+            size_m: SEEDED_SIZE_M,
         };
         assert_eq!(
             squares,
             vec![
-                square(396_482, 5_833_873, 250),
-                square(402_454, 5_806_171, 2_180),
-                square(378_010, 5_809_802, 10_810),
+                square(394_562, 5_832_645),
+                square(385_176, 5_817_043),
+                square(401_077, 5_806_920),
             ]
         );
     }

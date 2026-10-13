@@ -442,10 +442,9 @@ pub(crate) mod camera {
 
     /// The world camera's far plane (m). Bevy draws with an infinite
     /// reverse-Z projection, so this bounds frustum culling only, never depth
-    /// precision. The sky cuboid and a Berlin region's far field both hold
-    /// the camera and are never culled; the plane stands well past the far
-    /// field's reach - 14 km from the walkable ground (#1585) - for anything
-    /// else drawn out there.
+    /// precision. The sky cuboid holds the camera and is never culled; the
+    /// plane stands well past anything else a world draws, the orthographic
+    /// camera's stand-off included.
     pub const FAR_PLANE_M: f32 = 25_000.0;
 
     pub mod fog {

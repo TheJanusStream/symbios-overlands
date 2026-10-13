@@ -1,18 +1,19 @@
 //! The seed row's source axes (#1589): where a re-rolled room's ground comes
-//! from - its own terrain, or a square of real Berlin - and for Berlin how
-//! big a square, in which borough; and the square lock, which keeps the
-//! room's own ground across re-rolls.
+//! from - its own terrain, or a square of real Berlin - and for Berlin in
+//! which borough; and the square lock, which keeps the room's own ground
+//! across re-rolls. A seeded square is always a kilometre (#1637), so its
+//! size is no axis.
 //!
-//! The three axes are pins like the scene's ([`ScenePins`]): a re-roll hunts
+//! The two axes are pins like the scene's ([`ScenePins`]): a re-roll hunts
 //! the first seed that draws them, and the room is then built from that seed
-//! as any seeded room is. A size or a borough is a Berlin square's, so with
-//! the ground pinned procedural they are refused, and say why.
+//! as any seeded room is. A borough is a Berlin square's, so with the ground
+//! pinned procedural it is refused, and says why.
 //!
 //! The square lock is not a pin: nothing is hunted for it. A re-roll with it
 //! engaged builds the new seed's room on the ground the room has now - the
 //! exact square in its record, which the owner may have drawn, moved or
 //! resized in the Region source section, or its procedural terrain - and the
-//! three source axes, which it overrides, are released. The owner's edits
+//! two source axes, which it overrides, are released. The owner's edits
 //! over Berlin's items (#1590) are not kept: a re-roll replaces everything
 //! the world holds, the copies of the items made its own with it, and a
 //! removed item is drawn again.
@@ -21,24 +22,22 @@ use bevy_egui::egui;
 use geodata::berlin::{Borough, Coverage};
 
 use crate::pds::{GeoSource, RoomRecord};
-use crate::seeded_defaults::{RegionSource, ScenePins, SizeClass, SourceKind};
+use crate::seeded_defaults::{RegionSource, ScenePins, SourceKind};
 use crate::ui::editable::pin_axis_row_gated;
 
-/// Why a size or a borough cannot be pinned on procedural ground.
+/// Why a borough cannot be pinned on procedural ground.
 const NO_SQUARE: &str = "a procedural world has no square";
 
 /// Why a source axis cannot be pinned while the square is locked.
 const SQUARE_LOCKED: &str = "the square is locked";
 
-/// Why the ground cannot be pinned procedural under a pinned size or
-/// borough.
-const BERLIN_PINNED: &str = "a pinned size or borough is a Berlin square's";
+/// Why the ground cannot be pinned procedural under a pinned borough.
+const BERLIN_PINNED: &str = "a pinned borough is a Berlin square's";
 
 /// What a seed draws for the source axes.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Drawn {
     kind: SourceKind,
-    size: SizeClass,
     borough: Option<Borough>,
 }
 
@@ -61,7 +60,6 @@ impl SourceRow {
                 let source = RegionSource::for_seed(seed);
                 let drawn = Drawn {
                     kind: source.kind,
-                    size: source.size_class(),
                     borough: (source.kind == SourceKind::Berlin)
                         .then(|| source.borough())
                         .flatten(),
@@ -73,8 +71,8 @@ impl SourceRow {
     }
 
     /// Draw the source rows into the seed row's grid (three cells each): the
-    /// ground, size and borough pins `pins` holds, as `seed` rolls them, and
-    /// the square lock over `record`'s own ground.
+    /// ground and borough pins `pins` holds, as `seed` rolls them, and the
+    /// square lock over `record`'s own ground.
     pub(crate) fn rows(
         &mut self,
         ui: &mut egui::Ui,
@@ -85,7 +83,7 @@ impl SourceRow {
         let drawn = self.drawn(seed);
         let locked = self.keep_square;
         let procedural = pins.source == Some(SourceKind::Procedural);
-        let (pins_size, pins_borough) = (pins.size.is_some(), pins.borough.is_some());
+        let pins_borough = pins.borough.is_some();
         let berlin = drawn.kind == SourceKind::Berlin && !procedural;
         pin_axis_row_gated(
             ui,
@@ -98,21 +96,12 @@ impl SourceRow {
                 if locked {
                     Some(SQUARE_LOCKED.to_owned())
                 } else {
-                    // A pinned size or borough is a Berlin square's: on
-                    // procedural ground no seed could hold it.
-                    (kind == SourceKind::Procedural && (pins_size || pins_borough))
+                    // A pinned borough is a Berlin square's: on procedural
+                    // ground no seed could hold it.
+                    (kind == SourceKind::Procedural && pins_borough)
                         .then(|| BERLIN_PINNED.to_owned())
                 }
             },
-        );
-        pin_axis_row_gated(
-            ui,
-            "Size",
-            &SizeClass::ALL,
-            SizeClass::label,
-            &mut pins.size,
-            rolled(locked, berlin.then_some(drawn.size)),
-            refuse(locked, procedural),
         );
         pin_axis_row_gated(
             ui,
@@ -145,7 +134,6 @@ impl SourceRow {
             if self.keep_square {
                 // The lock decides the ground: the axes it overrides go.
                 pins.source = None;
-                pins.size = None;
                 pins.borough = None;
             }
         }

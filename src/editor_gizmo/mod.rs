@@ -1062,8 +1062,7 @@ pub(super) struct ScenePick<'w, 's> {
         Query<'w, 's, (&'static Camera, &'static GlobalTransform), crate::camera::IsWorldCamera>,
     raycast: MeshRayCast<'w, 's>,
     spatial: SpatialQuery<'w, 's>,
-    /// The ground: the core's terrain and the far field past it (P4.1).
-    terrain: Query<'w, 's, Entity, crate::terrain::GroundFilter>,
+    terrain: Query<'w, 's, Entity, With<crate::terrain::TerrainMesh>>,
     /// A Berlin region's derived items, for the colliders that name them
     /// (#1590).
     derived: Query<'w, 's, &'static crate::terrain::derived::DerivedItem>,
@@ -1127,11 +1126,7 @@ impl ScenePick<'_, '_> {
             SCENE_PICK_RANGE,
             false,
             &SpatialQueryFilter::default(),
-            &|e| {
-                derived
-                    .get(e)
-                    .is_ok_and(|item| item.0.is_editable() && keep(&item.0))
-            },
+            &|e| derived.get(e).is_ok_and(|item| keep(&item.0)),
         )?;
         Some((derived.get(hit.entity).ok()?.0.clone(), hit.distance))
     }

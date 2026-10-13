@@ -425,8 +425,6 @@ pub(super) fn snap_above_ground(
     lin_vel: &mut LinearVelocity,
     ang_vel: &mut AngularVelocity,
 ) -> bool {
-    // The ground as drawn: past the core, a Berlin region's far field,
-    // which is walked (P4.1, #1596).
     let ground_y = heightmap.world_height_at(pos.x, pos.z);
     let min_y = ground_y + clearance;
     if pos.y < min_y {
