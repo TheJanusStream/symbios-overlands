@@ -86,6 +86,24 @@ pub enum Request {
     },
     /// Take the placement `index` out of the world.
     Remove { index: usize },
+    /// Move copy `copy` of the instance set `index` as [`Request::Move`]
+    /// moves a placement (#1644). A command of its own, not a field on
+    /// `move`: a daemon built before it refuses it, where it would read
+    /// `move` with a copy as a move of the whole set.
+    MoveCopy {
+        index: usize,
+        copy: usize,
+        x: f32,
+        z: f32,
+        #[serde(default)]
+        yaw_deg: Option<f32>,
+    },
+    /// Take copy `copy` out of the instance set `index` (#1644), a command
+    /// of its own as [`Request::MoveCopy`] is.
+    RemoveCopy { index: usize, copy: usize },
+    /// Detach copy `copy` of the instance set `index` into a placement of
+    /// its own (#1644).
+    Detach { index: usize, copy: usize },
     /// The world's record as the JSON the World Editor's Raw JSON tab
     /// shows, or the part of it at `pointer` (RFC 6901; empty for all).
     RoomGet {
@@ -381,12 +399,18 @@ pub enum EditRequest {
     },
     Move {
         index: usize,
+        copy: Option<usize>,
         x: f32,
         z: f32,
         yaw_deg: Option<f32>,
     },
     Remove {
         index: usize,
+        copy: Option<usize>,
+    },
+    Detach {
+        index: usize,
+        copy: usize,
     },
     Get {
         record: EditRecord,
@@ -501,11 +525,30 @@ impl Request {
                 yaw_deg,
             } => edit(EditRequest::Move {
                 index,
+                copy: None,
                 x,
                 z,
                 yaw_deg,
             }),
-            Self::Remove { index } => edit(EditRequest::Remove { index }),
+            Self::Remove { index } => edit(EditRequest::Remove { index, copy: None }),
+            Self::MoveCopy {
+                index,
+                copy,
+                x,
+                z,
+                yaw_deg,
+            } => edit(EditRequest::Move {
+                index,
+                copy: Some(copy),
+                x,
+                z,
+                yaw_deg,
+            }),
+            Self::RemoveCopy { index, copy } => edit(EditRequest::Remove {
+                index,
+                copy: Some(copy),
+            }),
+            Self::Detach { index, copy } => edit(EditRequest::Detach { index, copy }),
             Self::RoomGet { pointer } => edit(EditRequest::Get {
                 record: EditRecord::Room,
                 pointer,
@@ -615,6 +658,36 @@ mod tests {
         assert!(serde_json::from_str::<Request>(r#"{"command":"teleport"}"#).is_err());
     }
 
+    /// #1644: a copy's move and removal are commands of their own, so a
+    /// daemon built before them refuses them as it refuses any it does not
+    /// know - a copy field on `move` or `remove` it would have ignored,
+    /// and moved or removed the whole set.
+    #[test]
+    fn a_copys_edits_are_commands_of_their_own() {
+        assert_eq!(
+            serde_json::from_str::<Request>(
+                r#"{"command":"move_copy","index":4,"copy":17,"x":1.5,"z":-2}"#
+            )
+            .unwrap(),
+            Request::MoveCopy {
+                index: 4,
+                copy: 17,
+                x: 1.5,
+                z: -2.0,
+                yaw_deg: None
+            }
+        );
+        assert_eq!(
+            serde_json::to_string(&Request::RemoveCopy { index: 4, copy: 17 }).unwrap(),
+            r#"{"command":"remove_copy","index":4,"copy":17}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&Request::Remove { index: 4 }).unwrap(),
+            r#"{"command":"remove","index":4}"#,
+            "remove is as it was"
+        );
+    }
+
     /// A look's spec sits beside its command, and everything in it is
     /// optional: a bare `look` is the game's view straight ahead.
     #[test]
@@ -718,6 +791,15 @@ mod tests {
                 yaw_deg: None,
             },
             Request::Remove { index: 0 },
+            Request::RemoveCopy { index: 0, copy: 3 },
+            Request::MoveCopy {
+                index: 0,
+                copy: 3,
+                x: 1.0,
+                z: 2.0,
+                yaw_deg: None,
+            },
+            Request::Detach { index: 0, copy: 3 },
             Request::RoomSet {
                 pointer: String::new(),
                 value: serde_json::json!({}),

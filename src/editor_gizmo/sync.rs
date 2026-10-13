@@ -39,7 +39,12 @@ pub(super) fn sync_gizmo_selection(
     blob_ctx: Res<BlobEditContext>,
     frame_pref: Res<GizmoFramePref>,
     mut gizmo_options: ResMut<GizmoOptions>,
-    placement_query: Query<(Entity, &PlacementMarker, Has<GizmoTarget>)>,
+    placement_query: Query<(
+        Entity,
+        &PlacementMarker,
+        Has<GizmoTarget>,
+        Has<super::copy::InstanceCopyProxy>,
+    )>,
     prim_query: Query<(
         Entity,
         &PrimMarker,
@@ -333,8 +338,13 @@ pub(super) fn sync_gizmo_selection(
         active == ActiveTarget::Room && room_state.selected_tab == EditorTab::Placements;
     let mut placement_selected = false;
 
-    for (entity, marker, has_gizmo) in placement_query.iter() {
-        let is_selected = want_placement_gizmo && room_state.selected_placement == Some(marker.0);
+    // A set with a copy picked (#1644) is moved through the copy's proxy,
+    // which carries the set's marker; otherwise through its anchor.
+    let copy_picked = room_state.picked_copy().is_some();
+    for (entity, marker, has_gizmo, is_copy_proxy) in placement_query.iter() {
+        let is_selected = want_placement_gizmo
+            && room_state.selected_placement == Some(marker.0)
+            && is_copy_proxy == copy_picked;
         if is_selected {
             placement_selected = true;
         }
@@ -360,6 +370,8 @@ pub(super) fn sync_gizmo_selection(
     // `element_modes`).
     if let Some((_, shape)) = target_proxy {
         gizmo_options.gizmo_modes = element_modes(shape);
+    } else if placement_selected && copy_picked {
+        gizmo_options.gizmo_modes = super::copy::copy_modes();
     } else if placement_selected {
         let placement = room_record.as_ref().and_then(|record| {
             room_state

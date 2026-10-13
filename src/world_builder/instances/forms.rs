@@ -34,6 +34,9 @@ pub(super) struct Form {
     pub base: Option<f32>,
     /// Its shell as a collider, where it has one.
     pub shell: Option<Collider>,
+    /// Why it draws nothing, where it does not: what its grammar said with
+    /// the variant's seed and values (#1644).
+    pub failure: Option<String>,
 }
 
 impl Form {
@@ -48,6 +51,7 @@ impl Form {
                 bounds: None,
                 base: None,
                 shell: None,
+                failure: None,
             };
         };
         let mut add = |mut mesh: Mesh| {
@@ -65,6 +69,7 @@ impl Form {
             bounds: baked.bounds,
             base: baked.base,
             shell,
+            failure: None,
         }
     }
 

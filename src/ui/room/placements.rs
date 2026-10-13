@@ -70,6 +70,11 @@ pub(super) struct PlacementList<'a> {
     /// The shared confirm the bulk delete parks behind, carrying the rows
     /// it will remove.
     pub bulk_delete: &'a mut crate::ui::confirm::ConfirmState<Vec<usize>>,
+    /// The copy of an instance set the gizmo moves (#1644), as
+    /// `(placement, copy)`.
+    pub picked_copy: &'a mut Option<(usize, usize)>,
+    /// What the grammars said, for why a set's variant draws nothing.
+    pub grammar_diag: Option<&'a crate::world_builder::grammar_diag::GrammarDiagnostics>,
 }
 
 /// The rows to draw, in display order (#1244 f414).
@@ -678,12 +683,23 @@ pub(super) fn draw_placements_tab(
                     .get(idx)
                     .map(|p| own_grammar_seeds(record, placement_target(p)))
                     .unwrap_or_default();
+                let picked = list
+                    .picked_copy
+                    .filter(|(placement, _)| *placement == idx)
+                    .map(|(_, copy)| copy);
+                let copies = super::instances::CopyContext {
+                    picked,
+                    detach_refusal: picked
+                        .and_then(|copy| crate::pds::instances::detach_refusal(record, idx, copy)),
+                    copy_refusal: crate::pds::instances::copy_refusal(record, idx),
+                    diagnostics: list.grammar_diag,
+                };
                 let Some(p) = record.placements.get_mut(idx) else {
                     return;
                 };
                 ui.heading(placement_label(idx, p));
                 ui.add_space(4.0);
-                draw_placement_detail(
+                let asked = draw_placement_detail(
                     ui,
                     idx,
                     p,
@@ -692,10 +708,55 @@ pub(super) fn draw_placements_tab(
                     heightmap,
                     room_water_y,
                     &own_seeds,
+                    copies,
                     dirty,
                 );
+                if let Some(asked) = asked {
+                    apply_copy_action(record, idx, asked, selected, list.picked_copy, label, dirty);
+                }
             });
     });
+}
+
+/// Do what a set's section asked of its copies (#1644): it holds neither
+/// the record nor the selection.
+fn apply_copy_action(
+    record: &mut RoomRecord,
+    item: usize,
+    asked: super::instances::CopyAction,
+    selected: &mut Option<usize>,
+    picked: &mut Option<(usize, usize)>,
+    label: &mut crate::ui::undo::LabelSlot,
+    dirty: &mut bool,
+) {
+    use super::instances::CopyAction;
+    match asked {
+        CopyAction::Pick(copy) => *picked = copy.map(|copy| (item, copy)),
+        CopyAction::Delete(copy) => {
+            if let Some(Placement::Instances { copies, .. }) = record.placements.get_mut(item)
+                && copy < copies.len()
+            {
+                copies.remove(copy);
+                // The picked copy keeps its own numbers: one after the
+                // deleted moves up a place, the deleted one is unpicked.
+                *picked = match *picked {
+                    Some((p, c)) if p == item && c == copy => None,
+                    Some((p, c)) if p == item && c > copy => Some((p, c - 1)),
+                    other => other,
+                };
+                label.set(format!("delete of copy {copy} of placement {item}"));
+                *dirty = true;
+            }
+        }
+        CopyAction::Detach(copy) => {
+            if let Ok(detached) = crate::pds::instances::detach_copy(record, item, copy) {
+                *selected = Some(detached);
+                *picked = None;
+                label.set(format!("detach of copy {copy} of placement {item}"));
+                *dirty = true;
+            }
+        }
+    }
 }
 
 /// The seed each shape grammar of the item named `target` derives with on
@@ -831,8 +892,10 @@ fn draw_placement_detail(
     // The seeds the placed item's shape grammars derive with on their own
     // (`own_grammar_seeds`), for the Grammar seed control (#1505).
     own_seeds: &[u64],
+    // An instance set's picked copy and the room a detached one has (#1644).
+    copies: super::instances::CopyContext<'_>,
     dirty: &mut bool,
-) {
+) -> Option<super::instances::CopyAction> {
     match placement {
         Placement::Absolute {
             generator_ref,
@@ -1066,7 +1129,7 @@ fn draw_placement_detail(
             snap_to_terrain,
             solid,
             variants,
-            copies,
+            copies: set_copies,
         } => {
             generator_combo(ui, "Item", generator_ref, eligible_names, dirty);
             if snap_toggle(
@@ -1083,7 +1146,7 @@ fn draw_placement_detail(
                 if let Some(hm) = heightmap {
                     super::instances::keep_copies_standing(
                         transform,
-                        copies,
+                        set_copies,
                         *snap_to_terrain,
                         &|x, z| hm.world_height_at(x, z),
                     );
@@ -1091,15 +1154,16 @@ fn draw_placement_detail(
                 *dirty = true;
             }
             draw_transform_no_scale(ui, transform, dirty);
-            super::instances::draw_instance_set(
+            return super::instances::draw_instance_set(
                 ui,
                 item,
                 super::instances::SetFields {
                     solid,
                     variants,
-                    copies,
+                    copies: set_copies,
                 },
                 own_seeds,
+                copies,
                 dirty,
             );
         }
@@ -1110,6 +1174,7 @@ fn draw_placement_detail(
             );
         }
     }
+    None
 }
 
 /// The "Snap to Terrain" checkbox, refused with a reason while there is no
@@ -1508,7 +1573,13 @@ mod tests {
                 |ui| {
                     for (item, placement) in placements.iter_mut().enumerate() {
                         ui.push_id(item, |ui| {
-                            draw_placement_detail(
+                            // The set with a copy picked (#1644), so its
+                            // picked copy's section is drawn too.
+                            let copies = super::super::instances::CopyContext {
+                                picked: Some(0),
+                                ..Default::default()
+                            };
+                            let asked = draw_placement_detail(
                                 ui,
                                 item,
                                 placement,
@@ -1517,8 +1588,10 @@ mod tests {
                                 None,
                                 None,
                                 &[5],
+                                copies,
                                 &mut dirty,
                             );
+                            assert_eq!(asked, None, "nothing was asked");
                         });
                     }
                 },
@@ -1529,6 +1602,51 @@ mod tests {
             serde_json::to_string(&placements).expect("serialises"),
             before
         );
+    }
+
+    /// #1644: deleting a copy keeps the pick on the copy it named - one
+    /// after the deleted moves up a place - and deleting the picked one
+    /// unpicks it.
+    #[test]
+    fn deleting_a_copy_keeps_the_pick_on_its_copy() {
+        use crate::pds::{InstanceCopy, InstanceSolid};
+        let mut record = RoomRecord {
+            placements: vec![Placement::Instances {
+                generator_ref: "tree".into(),
+                transform: TransformData::default(),
+                snap_to_terrain: true,
+                solid: InstanceSolid::Shell,
+                variants: Vec::new(),
+                copies: (0..4)
+                    .map(|i| InstanceCopy::at(i as f32, 0.0, 0.0))
+                    .collect(),
+            }],
+            ..RoomRecord::default()
+        };
+        let mut selected = Some(0);
+        let mut picked = Some((0, 2));
+        let mut labels = crate::ui::undo::PendingUndoLabels::default();
+        let mut dirty = false;
+        let mut delete = |record: &mut RoomRecord, picked: &mut Option<(usize, usize)>, copy| {
+            apply_copy_action(
+                record,
+                0,
+                super::super::instances::CopyAction::Delete(copy),
+                &mut selected,
+                picked,
+                &mut labels.slot(crate::ui::shortcuts::EditorKind::World),
+                &mut dirty,
+            );
+        };
+        delete(&mut record, &mut picked, 0);
+        assert_eq!(picked, Some((0, 1)), "the same copy, a place up");
+        delete(&mut record, &mut picked, 1);
+        assert_eq!(picked, None, "the picked copy deleted");
+        assert!(dirty);
+        let Placement::Instances { copies, .. } = &record.placements[0] else {
+            panic!("a set");
+        };
+        assert_eq!(copies.len(), 2);
     }
 
     #[test]
@@ -1708,6 +1826,8 @@ mod tests {
                         sort: &mut sort,
                         extra: &mut extra,
                         bulk_delete: &mut bulk,
+                        picked_copy: &mut None,
+                        grammar_diag: None,
                     },
                 );
             },
@@ -1857,6 +1977,7 @@ mod tests {
                     Some(hm),
                     room_water_y,
                     &[],
+                    Default::default(),
                     &mut dirty,
                 );
             });
@@ -1993,7 +2114,16 @@ mod tests {
             };
             let output = ctx.run_ui(input, |ui| {
                 draw_placement_detail(
-                    ui, 0, placement, &names, &names, None, None, own, &mut dirty,
+                    ui,
+                    0,
+                    placement,
+                    &names,
+                    &names,
+                    None,
+                    None,
+                    own,
+                    Default::default(),
+                    &mut dirty,
                 );
             });
             if frame == 0 {
@@ -2224,7 +2354,16 @@ mod tests {
         let output = ctx.run_ui(input, |ui| {
             let placement = &mut placement;
             draw_placement_detail(
-                ui, 0, placement, &names, &names, None, None, own, &mut dirty,
+                ui,
+                0,
+                placement,
+                &names,
+                &names,
+                None,
+                None,
+                own,
+                Default::default(),
+                &mut dirty,
             );
         });
         assert!(!dirty, "drawn, the panel writes nothing");

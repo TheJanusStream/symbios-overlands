@@ -141,10 +141,15 @@ pub enum Command {
     /// sees it at once; it stays only once saved.
     Place(PlaceArgs),
     /// Move something placed in the agent's own world to another point,
-    /// keeping its height above the ground.
+    /// keeping its height above the ground - or one copy of an instance set,
+    /// named `N.c`.
     Move(MoveArgs),
-    /// Take something placed out of the agent's own world.
+    /// Take something placed out of the agent's own world - or one copy of
+    /// an instance set, named `N.c`.
     Remove(RemoveArgs),
+    /// Take one copy of an instance set, named `N.c`, out of its set as a
+    /// placement of its own, drawn as it was.
+    Detach(DetachArgs),
     /// Read or write the agent's world record as JSON, as the World
     /// Editor's Raw JSON tab does.
     Room(RecordJsonArgs),
@@ -362,12 +367,40 @@ pub struct PlaceArgs {
     pub yaw: Option<f32>,
 }
 
+/// A placement by the index `placements` gives it, or one copy of an
+/// instance set as `N.c`: copy `c` of the set at index `N` (#1644).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlacementTarget {
+    pub index: usize,
+    pub copy: Option<usize>,
+}
+
+impl std::str::FromStr for PlacementTarget {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, String> {
+        let refused =
+            || format!("{text:?} names no placement: give its index, or N.c for copy c of set N");
+        let (index, copy) = match text.split_once('.') {
+            Some((index, copy)) => (index, Some(copy)),
+            None => (text, None),
+        };
+        Ok(PlacementTarget {
+            index: index.parse().map_err(|_| refused())?,
+            copy: copy
+                .map(|copy| copy.parse().map_err(|_| refused()))
+                .transpose()?,
+        })
+    }
+}
+
 #[derive(Args, Debug)]
 pub struct MoveArgs {
     #[command(flatten)]
     pub account: AccountArg,
-    /// Which placement, by the index `placements` gives it.
-    pub index: usize,
+    /// Which placement, by the index `placements` gives it - or `N.c`,
+    /// copy `c` of the set at `N`, which keeps its own lift.
+    pub index: PlacementTarget,
     /// The point's x, in world metres.
     #[arg(allow_negative_numbers = true)]
     pub x: f32,
@@ -384,9 +417,18 @@ pub struct MoveArgs {
 pub struct RemoveArgs {
     #[command(flatten)]
     pub account: AccountArg,
-    /// Which placement, by the index `placements` gives it. The ones after
-    /// it move down one.
-    pub index: usize,
+    /// Which placement, by the index `placements` gives it - or `N.c`,
+    /// copy `c` of the set at `N`. The ones after it move down one.
+    pub index: PlacementTarget,
+}
+
+#[derive(Args, Debug)]
+pub struct DetachArgs {
+    #[command(flatten)]
+    pub account: AccountArg,
+    /// Which copy, as `N.c`: copy `c` of the set at index `N`. The copies
+    /// after it move down one, and the new placement is the world's last.
+    pub copy: PlacementTarget,
 }
 
 #[derive(Args, Debug)]
@@ -1117,13 +1159,36 @@ mod tests {
             panic!("move");
         };
         assert_eq!(
-            (moved.index, moved.x, moved.z, moved.yaw),
-            (3, -1.0, -2.5, None)
+            (
+                moved.index.index,
+                moved.index.copy,
+                moved.x,
+                moved.z,
+                moved.yaw
+            ),
+            (3, None, -1.0, -2.5, None)
         );
         assert!(
             parse(&["remove", "-1"]).is_err(),
             "an index is never negative"
         );
+        // A copy of an instance set (#1644).
+        let Command::Remove(removed) = parse(&["remove", "4.17"]).unwrap() else {
+            panic!("remove");
+        };
+        assert_eq!(
+            removed.index,
+            PlacementTarget {
+                index: 4,
+                copy: Some(17)
+            }
+        );
+        let Command::Detach(detached) = parse(&["detach", "2.0"]).unwrap() else {
+            panic!("detach");
+        };
+        assert_eq!(detached.copy.copy, Some(0));
+        assert!(parse(&["remove", "4."]).is_err());
+        assert!(parse(&["move", "4.x", "1", "2"]).is_err());
 
         let Command::Undo(undo) = parse(&["undo"]).unwrap() else {
             panic!("undo");

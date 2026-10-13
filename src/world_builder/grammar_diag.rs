@@ -42,6 +42,10 @@ pub enum GrammarStatus {
 #[derive(Resource, Default)]
 pub struct GrammarDiagnostics {
     pub by_generator: HashMap<String, GrammarStatus>,
+    /// Why a variant of an instance set draws nothing, by `(placement,
+    /// variant)` (#1644): its templates are grown as no record generator's
+    /// node, so the forges cannot show it; the set's own section does.
+    by_variant: HashMap<(usize, usize), String>,
 }
 
 impl GrammarDiagnostics {
@@ -57,6 +61,37 @@ impl GrammarDiagnostics {
             Some(message) => GrammarStatus::Error { message },
         };
         self.by_generator.insert(key, status);
+    }
+
+    /// File why variant `variant` of the instance set `placement` draws
+    /// nothing - or that it draws, where `failure` is `None` (#1644).
+    pub(crate) fn record_variant(
+        &mut self,
+        (placement, variant): (usize, usize),
+        failure: Option<String>,
+    ) {
+        match failure {
+            Some(failure) => {
+                self.by_variant.insert((placement, variant), failure);
+            }
+            None => {
+                self.by_variant.remove(&(placement, variant));
+            }
+        }
+    }
+
+    /// Why variant `variant` of the instance set `placement` draws
+    /// nothing, where it does not draw.
+    pub(crate) fn variant_failure(&self, placement: usize, variant: usize) -> Option<&str> {
+        self.by_variant
+            .get(&(placement, variant))
+            .map(String::as_str)
+    }
+
+    /// Forget what is filed of the instance set `placement`'s variants: it
+    /// is being built anew.
+    pub(crate) fn forget_variants_of(&mut self, placement: usize) {
+        self.by_variant.retain(|(p, _), _| *p != placement);
     }
 
     /// Forget every status filed under the generators `roots` - each

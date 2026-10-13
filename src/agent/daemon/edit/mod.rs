@@ -91,11 +91,24 @@ pub(super) fn answer(world: &mut World, request: EditRequest) -> Result<Value, S
         EditRequest::Place { slug, at, yaw_deg } => placements::place(world, &slug, at, yaw_deg),
         EditRequest::Move {
             index,
+            copy: None,
             x,
             z,
             yaw_deg,
         } => placements::move_to(world, index, Vec2::new(x, z), yaw_deg),
-        EditRequest::Remove { index } => placements::remove(world, index),
+        EditRequest::Move {
+            index,
+            copy: Some(copy),
+            x,
+            z,
+            yaw_deg,
+        } => placements::move_copy(world, (index, copy), Vec2::new(x, z), yaw_deg),
+        EditRequest::Remove { index, copy: None } => placements::remove(world, index),
+        EditRequest::Remove {
+            index,
+            copy: Some(copy),
+        } => placements::remove_copy(world, (index, copy)),
+        EditRequest::Detach { index, copy } => placements::detach(world, (index, copy)),
         EditRequest::Get {
             record: EditRecord::Room,
             pointer,
@@ -789,11 +802,18 @@ mod tests {
 
         let writes = [
             place(world, [1.0, 1.0]),
-            answer(world, EditRequest::Remove { index: 0 }),
+            answer(
+                world,
+                EditRequest::Remove {
+                    index: 0,
+                    copy: None,
+                },
+            ),
             answer(
                 world,
                 EditRequest::Move {
                     index: 0,
+                    copy: None,
                     x: 1.0,
                     z: 1.0,
                     yaw_deg: None,

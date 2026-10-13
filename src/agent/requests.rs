@@ -6,9 +6,9 @@
 use std::process::ExitCode;
 
 use super::cli::{
-    CatalogueArgs, DriveArgs, EventsArgs, FaceArgs, FollowArgs, GiftAction, GiftArgs, JsonAction,
-    LookArgs, MoveArgs, PlaceArgs, PlacementsArgs, RecordJsonArgs, RemoveArgs, SaveArgs,
-    TravelArgs, UiAction, UiArgs, WalkToArgs,
+    CatalogueArgs, DetachArgs, DriveArgs, EventsArgs, FaceArgs, FollowArgs, GiftAction, GiftArgs,
+    JsonAction, LookArgs, MoveArgs, PlaceArgs, PlacementsArgs, RecordJsonArgs, RemoveArgs,
+    SaveArgs, TravelArgs, UiAction, UiArgs, WalkToArgs,
 };
 use super::control::protocol::{DriveSegment, LookSpec, Request, Response, UnsavedEdits};
 use super::{config, control, find_session, print_json, resolve_name, session_file};
@@ -416,21 +416,50 @@ pub(super) fn place(args: PlaceArgs) -> Result<ExitCode, String> {
 }
 
 pub(super) fn move_placement(args: MoveArgs) -> Result<ExitCode, String> {
+    let index = args.index.index;
+    let (x, z, yaw_deg) = (args.x, args.z, args.yaw);
     ask(
         args.account.name.as_deref(),
-        Request::Move {
-            index: args.index,
-            x: args.x,
-            z: args.z,
-            yaw_deg: args.yaw,
+        match args.index.copy {
+            None => Request::Move {
+                index,
+                x,
+                z,
+                yaw_deg,
+            },
+            Some(copy) => Request::MoveCopy {
+                index,
+                copy,
+                x,
+                z,
+                yaw_deg,
+            },
         },
     )
 }
 
 pub(super) fn remove(args: RemoveArgs) -> Result<ExitCode, String> {
+    let index = args.index.index;
     ask(
         args.account.name.as_deref(),
-        Request::Remove { index: args.index },
+        match args.index.copy {
+            None => Request::Remove { index },
+            Some(copy) => Request::RemoveCopy { index, copy },
+        },
+    )
+}
+
+pub(super) fn detach(args: DetachArgs) -> Result<ExitCode, String> {
+    let copy = args
+        .copy
+        .copy
+        .ok_or_else(|| "detach takes a copy, as N.c: copy c of the set at N".to_owned())?;
+    ask(
+        args.account.name.as_deref(),
+        Request::Detach {
+            index: args.copy.index,
+            copy,
+        },
     )
 }
 

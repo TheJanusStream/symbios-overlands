@@ -76,10 +76,14 @@
 //! * [`face_pick`] - click-to-pick face selection (#961): the same scene
 //!   click that selects a prim also names the face under the cursor for
 //!   the Faces panel, while the panel has picking armed.
+//! * [`copy`] - one copy of an instance set (#1644): picked by its collider
+//!   or baked box, moved through a proxy that carries its set's marker,
+//!   its drag written into the copy.
 
 mod blob;
 mod commit;
 mod context_menu;
+pub(crate) mod copy;
 mod drag;
 mod face_pick;
 mod highlight;
@@ -512,13 +516,20 @@ impl Plugin for EditorGizmoPlugin {
                     // proxies must exist before sync can target one.
                     blob::resolve_blob_edit.after(TransformSystems::Propagate),
                     blob::proxy::reconcile_blob_proxies,
+                    // A picked copy's proxy (#1644) must exist before sync
+                    // can target it, as a blob element's must - and a pick
+                    // the selection or the record left behind is gone first.
+                    copy::forget_stale_copy_pick,
+                    copy::sync_copy_proxy,
                     sync::sync_gizmo_selection,
                     // After the attach, so a gizmo inserted this frame is
                     // `Added`, and before transform-gizmo's `Last` update
                     // reads the press (#1396).
                     drag::withhold_the_selecting_press,
                     drag::manage_gizmo_drag,
+                    copy::follow_copy_proxy,
                     highlight::draw_selection_highlight,
+                    copy::draw_picked_copy,
                     face_pick::draw_face_pick_highlight,
                     blob::wireframe::swap_blob_wireframe,
                     blob::preview::blob_drag_preview,
@@ -632,13 +643,30 @@ fn pick_on_scene_click(
         Query<&crate::player::attachments::LocalAttachment>,
         Query<&AttachmentPrim>,
     ),
-    (mut face_pick, face_groups, meshes, time, derived, derived_views): (
+    (
+        mut face_pick,
+        face_groups,
+        meshes,
+        time,
+        derived,
+        derived_views,
+        sets,
+        copy_views,
+        copy_tags,
+    ): (
         ResMut<face_pick::FacePick>,
         Query<(&PrimFaceGroup, &Mesh3d)>,
         Res<Assets<Mesh>>,
         Res<Time>,
         Option<Res<crate::terrain::derived::DerivedBuilds>>,
         Query<(&crate::terrain::derived::DerivedItem, &ViewVisibility)>,
+        // Instance sets' copies (#1644), drawn merged as Berlin's items are.
+        Option<Res<crate::world_builder::instances::InstanceBuilds>>,
+        Query<(
+            &crate::world_builder::instances::InstanceCopyOf,
+            &ViewVisibility,
+        )>,
+        Query<&crate::world_builder::instances::InstanceCopyOf>,
     ),
 ) {
     // Left button only - the orbit/pan camera owns Right/Middle, so this
@@ -829,12 +857,21 @@ fn pick_on_scene_click(
     // actually clicked, not the camera-nearest one.
     let mut picked_prim: Option<(PrimMarker, Entity)> = None;
     let mut picked_placement: Option<usize> = None;
+    // A copy of a set drawn whole (#1644) - a part drawn with a material
+    // the bake cannot merge - keeps its meshes, so the mesh ray meets its
+    // parts under the copy's own root, below the set's anchor.
+    let mut hit_copy: Option<(usize, usize)> = None;
     let mut cursor_entity = hit_entity;
     while let Some(entity) = cursor_entity {
         if picked_prim.is_none()
             && let Ok(marker) = prim_markers.get(entity)
         {
             picked_prim = Some((marker.clone(), entity));
+        }
+        if hit_copy.is_none()
+            && let Ok(copy) = copy_tags.get(entity)
+        {
+            hit_copy = Some((copy.placement, copy.copy));
         }
         if let Ok(marker) = placement_markers.get(entity) {
             picked_placement = Some(marker.0);
@@ -843,35 +880,68 @@ fn pick_on_scene_click(
         cursor_entity = parents.get(entity).ok().map(ChildOf::parent);
     }
 
-    // One of the walkable ground's Berlin items (#1590), picked whichever
-    // tab is up: the editor names it, and offers to remove it or make it
-    // the world's own. Its meshes keep nothing on the CPU for the mesh ray
-    // to hit, so it is found by its collider - a building's shell, a prop's
-    // box, a tree's trunk - and by its copy's box, which takes a crown
-    // ([`derived_pick_of`] weighs the two against what the mesh ray hit).
-    // Only an item on screen is picked. The ring's lots are no one's to
-    // edit, and are never picked.
-    if let (Some(ray), Some(builds)) = (ray, derived.as_deref()) {
-        let on_screen: std::collections::HashSet<&crate::terrain::derived::SourceId> =
-            derived_views
-                .iter()
-                .filter(|(_, view)| view.get())
-                .map(|(item, _)| &item.0)
-                .collect();
-        let keep = |id: &crate::terrain::derived::SourceId| on_screen.contains(id);
+    // One of the walkable ground's Berlin items (#1590), or a copy of an
+    // instance set (#1644), picked whichever tab is up: the editor names
+    // a Berlin item and offers to remove it or make it the world's own,
+    // and a copy is picked for the gizmo to move. Their meshes keep nothing
+    // on the CPU for the mesh ray to hit, so each is found by its collider
+    // - a building's shell, a prop's box, a tree's trunk - and by its baked
+    // box, which takes a crown ([`merged_pick_of`] weighs the two against
+    // what the mesh ray hit); the nearer of the two kinds wins. Only what
+    // is on screen is picked.
+    if let Some(ray) = ray {
         let scene = hit.map(|hit| {
             (
                 hit.point().distance(ray.origin),
                 picked_prim.is_some() || picked_placement.is_some(),
             )
         });
-        if let Some(id) = derived_pick_of(
-            pick.derived_collider_along(ray, &keep),
-            builds.pick(ray, keep),
-            scene,
-        ) {
+        let berlin = derived.as_deref().and_then(|builds| {
+            let on_screen: std::collections::HashSet<&crate::terrain::derived::SourceId> =
+                derived_views
+                    .iter()
+                    .filter(|(_, view)| view.get())
+                    .map(|(item, _)| &item.0)
+                    .collect();
+            let keep = |id: &crate::terrain::derived::SourceId| on_screen.contains(id);
+            merged_pick_of(
+                pick.derived_collider_along(ray, &keep),
+                builds.pick(ray, keep),
+                scene,
+            )
+        });
+        let copy = sets.as_deref().and_then(|sets| {
+            let on_screen: std::collections::HashSet<(usize, usize)> = copy_views
+                .iter()
+                .filter(|(_, view)| view.get())
+                .map(|(copy, _)| (copy.placement, copy.copy))
+                .collect();
+            let keep = |copy: (usize, usize)| on_screen.contains(&copy);
+            merged_pick_of(
+                pick.copy_collider_along(ray, &keep),
+                sets.pick(ray, &keep),
+                scene,
+            )
+        });
+        // A copy drawn whole is the scene's own hit, unless a merged one's
+        // collider or box stands nearer.
+        let copy = match (copy, hit_copy.zip(scene)) {
+            (Some(merged), Some((_, (at, _)))) if merged.1 < at => Some(merged),
+            (_, Some((whole, (at, _)))) => Some((whole, at)),
+            (merged, None) => merged,
+        };
+        let berlin_nearer = match (&berlin, &copy) {
+            (Some((_, b)), Some((_, c))) => b <= c,
+            (berlin, _) => berlin.is_some(),
+        };
+        if berlin_nearer && let Some((id, _)) = berlin {
             room_state.clear_selection();
             room_state.derived_pick.pick(Some(id));
+            expand_window(ctx, UiWindow::WorldEditor);
+            return;
+        }
+        if let Some(((placement, copy), _)) = copy {
+            room_state.pick_copy(placement, Some(copy));
             expand_window(ctx, UiWindow::WorldEditor);
             return;
         }
@@ -1066,6 +1136,8 @@ pub(super) struct ScenePick<'w, 's> {
     /// A Berlin region's derived items, for the colliders that name them
     /// (#1590).
     derived: Query<'w, 's, &'static crate::terrain::derived::DerivedItem>,
+    /// Instance sets' copies, for the colliders that name them (#1644).
+    copies: Query<'w, 's, &'static crate::world_builder::instances::InstanceCopyOf>,
 }
 
 impl ScenePick<'_, '_> {
@@ -1130,25 +1202,53 @@ impl ScenePick<'_, '_> {
         )?;
         Some((derived.get(hit.entity).ok()?.0.clone(), hit.distance))
     }
+
+    /// The nearest copy of an instance set, as `(placement, copy)`, of those
+    /// `keep` keeps, whose collider `ray` meets, and how far along it
+    /// (#1644): what truly stands in the way, where its box only bounds it.
+    pub(super) fn copy_collider_along(
+        &self,
+        ray: Ray3d,
+        keep: &dyn Fn((usize, usize)) -> bool,
+    ) -> Option<((usize, usize), f32)> {
+        let copies = &self.copies;
+        let hit = self.spatial.cast_ray_predicate(
+            ray.origin,
+            ray.direction,
+            SCENE_PICK_RANGE,
+            false,
+            &SpatialQueryFilter::default(),
+            &|e| {
+                copies
+                    .get(e)
+                    .is_ok_and(|copy| keep((copy.placement, copy.copy)))
+            },
+        )?;
+        let copy = copies.get(hit.entity).ok()?;
+        Some(((copy.placement, copy.copy), hit.distance))
+    }
 }
 
-/// Which of the walkable ground's derived items a scene click picks
-/// (#1590), from the nearest whose `collider` the ray meets, the nearest
-/// whose copy's box it enters (`boxed`), and the `scene` the mesh and
-/// terrain rays hit - how far, and whether it is the owner's own content (a
-/// prim or a placement) - each `(item, distance)`.
+/// Which thing drawn merged a scene click picks - one of the walkable
+/// ground's Berlin items (#1590), or a copy of an instance set (#1644),
+/// whose meshes a mesh ray cannot see - from the nearest whose `collider`
+/// the ray meets, the nearest whose baked box it enters (`boxed`), and the
+/// `scene` the mesh and terrain rays hit - how far, and whether it is the
+/// owner's own placed content (a prim or a placement) - each `(thing,
+/// distance)`; with how far along the ray the pick stands, so two kinds of
+/// it can be weighed against each other.
 ///
-/// The owner's own content is what the editor is for: a derived item takes
-/// a click from it only where its collider truly stands in front, never by
-/// a box, which a bench under a crown would lose to. Otherwise the nearer
-/// of the two derived hits, where it is no farther than what the scene hit.
-pub(super) fn derived_pick_of(
-    collider: Option<(crate::terrain::derived::SourceId, f32)>,
-    boxed: Option<(crate::terrain::derived::SourceId, f32)>,
+/// The owner's placed content is what the editor is for: a merged thing
+/// takes a click from it only where its collider truly stands in front,
+/// never by a box, which a bench under a crown would lose to. Otherwise the
+/// nearer of the two hits, where it is no farther than what the scene hit.
+pub(super) fn merged_pick_of<T>(
+    collider: Option<(T, f32)>,
+    boxed: Option<(T, f32)>,
     scene: Option<(f32, bool)>,
-) -> Option<crate::terrain::derived::SourceId> {
+) -> Option<(T, f32)> {
     match scene {
-        Some((at, true)) => collider.filter(|(_, d)| *d < at).map(|(id, _)| id),
+        Some((at, true)) => collider.filter(|(_, d)| *d < at),
         _ => {
             let nearest = match (collider, boxed) {
                 (Some(c), Some(b)) => Some(if c.1 <= b.1 { c } else { b }),
@@ -1156,7 +1256,7 @@ pub(super) fn derived_pick_of(
             }?;
             scene
                 .is_none_or(|(at, _)| nearest.1 <= at)
-                .then_some(nearest.0)
+                .then_some(nearest)
         }
     }
 }
@@ -1225,6 +1325,9 @@ mod pick_tests {
     #[test]
     fn a_derived_item_takes_a_click_only_where_it_stands_in_front() {
         use crate::terrain::derived::{SourceId, SourceLayer};
+        let derived_pick_of = |collider, boxed, scene| {
+            merged_pick_of::<SourceId>(collider, boxed, scene).map(|(id, _)| id)
+        };
         let tree = || SourceId::new(SourceLayer::Tree, "t");
         let house = || SourceId::new(SourceLayer::Building, "h");
         // A bench under a crown: the crown's box is nearer, the bench wins.

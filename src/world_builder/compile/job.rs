@@ -323,8 +323,16 @@ pub(super) fn unit_fingerprint(
         _ => {}
     }
 
+    let mut placement_value = serde_json::to_value(placement).ok()?;
+    // An instance set's copies are followed by its build in place (#1644):
+    // what they are is no part of the unit the compile builds.
+    if matches!(placement, Placement::Instances { .. })
+        && let Some(fields) = placement_value.as_object_mut()
+    {
+        fields.remove("copies");
+    }
     let v = serde_json::json!({
-        "placement": serde_json::to_value(placement).ok()?,
+        "placement": placement_value,
         "generator": serde_json::to_value(generator).ok()?,
         "traits": serde_json::to_value(traits_entry).ok()?,
         "extras": extras,

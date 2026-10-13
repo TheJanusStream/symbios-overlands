@@ -56,6 +56,7 @@ use crate::state::{CurrentRoomDid, LiveRoomRecord};
 use crate::world_builder::draw_distance::DrawDistanceCuts;
 
 use super::{FinishedHeightMap, TerrainMesh};
+use crate::world_builder::instances::ray_box_distance;
 use plan::{Build, Stage};
 
 /// How long the stage may spend spawning in one frame (ms).
@@ -254,17 +255,6 @@ impl DerivedBuilds {
                 .map(move |(c, _)| (b, c))
         })
     }
-}
-
-/// How far along the ray from `origin` along `direction` it enters the box
-/// `(lo, hi)`, in steps of `direction`: `None` where it misses, the box lies
-/// behind it, or it starts inside the box and so enters it nowhere.
-fn ray_box_distance(origin: Vec3, direction: Vec3, (lo, hi): (Vec3, Vec3)) -> Option<f32> {
-    let step = direction.recip();
-    let (t0, t1) = ((lo - origin) * step, (hi - origin) * step);
-    let enter = t0.min(t1).max_element();
-    let leave = t0.max(t1).min_element();
-    (enter >= 0.0 && leave >= enter).then_some(enter)
 }
 
 /// When a terrain lands, draw its plans - where its ground has street-level

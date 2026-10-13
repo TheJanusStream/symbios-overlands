@@ -203,7 +203,10 @@ fn nearby(world: &mut World, pose: Option<&Pose>) -> Vec<Value> {
             _ => None,
         })
         .collect();
-    let mut query = world.query::<(&PlacementMarker, &GlobalTransform)>();
+    // Not a picked copy's stand-in, which carries its set's marker (#1644).
+    let mut query = world.query_filtered::<(&PlacementMarker, &GlobalTransform), Without<
+        crate::editor_gizmo::copy::InstanceCopyProxy,
+    >>();
     let mut things: Vec<(f32, Value)> = query
         .iter(world)
         .filter_map(|(marker, transform)| {

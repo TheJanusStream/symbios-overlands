@@ -179,6 +179,11 @@ pub(super) fn draw_selection_highlight(
                 let Some(index) = room_state.selected_placement else {
                     return;
                 };
+                // A picked copy of a set draws its own box (#1644): the
+                // whole set's would only cross the scene with lines.
+                if room_state.picked_copy().is_some() {
+                    return;
+                }
                 for (entity, marker) in placement_query.iter() {
                     if marker.0 == index {
                         draw_subtree_box(

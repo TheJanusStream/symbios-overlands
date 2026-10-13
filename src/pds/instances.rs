@@ -39,7 +39,10 @@ use std::collections::BTreeMap;
 use serde::de::IgnoredAny;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use super::types::{FP_SCALE, Fp, option_u64_as_string};
+use super::generator::{Generator, Placement};
+use super::room::RoomRecord;
+use super::sanitize::limits;
+use super::types::{FP_SCALE, Fp, Fp3, Fp4, option_u64_as_string};
 
 /// Named values a grammar reads (#1643): each set on every Shape node of a
 /// placed tree as a host attribute, over the grammar's own `attr` or
@@ -387,9 +390,408 @@ pub(crate) fn deserialize_variants<'de, D: Deserializer<'de>>(
         .collect())
 }
 
+/// How many copies the sets of `record` hold in all.
+pub fn room_copies(record: &RoomRecord) -> usize {
+    record
+        .placements
+        .iter()
+        .map(|placement| match placement {
+            Placement::Instances { copies, .. } => copies.len(),
+            _ => 0,
+        })
+        .sum()
+}
+
+/// Why no copy can be added to the set `placement` of `record`, or `None`
+/// where one can: the set holds all a set may, or the room's sets all a
+/// room's may - the sanitiser would drop a copy past either.
+pub fn copy_refusal(record: &RoomRecord, placement: usize) -> Option<&'static str> {
+    let Some(Placement::Instances { copies, .. }) = record.placements.get(placement) else {
+        return Some("That is no set.");
+    };
+    if copies.len() >= limits::MAX_INSTANCE_COPIES {
+        Some("A set holds no more copies.")
+    } else if room_copies(record) >= limits::MAX_ROOM_INSTANCE_COPIES {
+        Some("The world's sets hold no more copies.")
+    } else {
+        None
+    }
+}
+
+/// No placement can be added.
+const PLACEMENTS_FULL: &str = "The world holds no more placements.";
+/// No item can be added for a copy of another size.
+const ITEMS_FULL: &str =
+    "A copy of another size needs an item of its own, and the world holds no more items.";
+
+/// Why copy `copy` of the set `placement` cannot be detached
+/// ([`detach_copy`]), or `None` where it can: what the World Editor paints
+/// beside a greyed Detach.
+pub fn detach_refusal(record: &RoomRecord, placement: usize, copy: usize) -> Option<&'static str> {
+    detachable(record, placement, copy).err()
+}
+
+/// A copy as it will be detached.
+struct Detached {
+    numbers: InstanceCopy,
+    variant: InstanceVariant,
+    /// The item it is drawn from.
+    item: String,
+    /// The item to make under that name, where one must be ([`sized_item`]).
+    make: Option<Generator>,
+}
+
+/// Copy `copy` of the set `placement` as it will be detached, or why it
+/// cannot be.
+fn detachable(
+    record: &RoomRecord,
+    placement: usize,
+    copy: usize,
+) -> Result<Detached, &'static str> {
+    if record.placements.len() >= limits::MAX_PLACEMENTS {
+        return Err(PLACEMENTS_FULL);
+    }
+    let Some(Placement::Instances {
+        generator_ref,
+        variants,
+        copies,
+        ..
+    }) = record.placements.get(placement)
+    else {
+        return Err("That is no set.");
+    };
+    let Some(numbers) = copies.get(copy).copied() else {
+        return Err("The set holds no such copy.");
+    };
+    let variant = variants
+        .get(numbers.variant as usize)
+        .cloned()
+        .unwrap_or_default();
+    let (item, make) = if numbers.scale_pm == COPY_SCALE_ONE {
+        (generator_ref.clone(), None)
+    } else {
+        sized_item(record, generator_ref, numbers.scale_pm)?
+    };
+    Ok(Detached {
+        numbers,
+        variant,
+        item,
+        make,
+    })
+}
+
+/// Detach copy `copy` of the set `placement` into an absolute placement of
+/// its own (#1644), drawn as it was: where it stood - on the ground, raised
+/// by its own lift, where the set snaps - turned as it was, with its
+/// variant's seed and values. A copy of another size than its item's is
+/// drawn from an item of its own at that size ([`sized_item`]): an absolute
+/// placement draws its item at its own size (#1454). The new placement's
+/// index, or why it could not be made ([`detach_refusal`]).
+pub fn detach_copy(
+    record: &mut RoomRecord,
+    placement: usize,
+    copy: usize,
+) -> Result<usize, &'static str> {
+    let Detached {
+        numbers,
+        variant,
+        item,
+        make,
+    } = detachable(record, placement, copy)?;
+    let Some(Placement::Instances {
+        generator_ref,
+        transform,
+        snap_to_terrain,
+        copies,
+        ..
+    }) = record.placements.get_mut(placement)
+    else {
+        return Err("That is no set.");
+    };
+    let anchor = bevy::prelude::Transform::from(&*transform).with_scale(bevy::prelude::Vec3::ONE);
+    let [x, y, z] = numbers.position();
+    let mut at = anchor.translation + anchor.rotation * bevy::prelude::Vec3::new(x, y, z);
+    if *snap_to_terrain {
+        // Snapped, an absolute placement's height is its lift, as a copy's.
+        at = anchor.translation + anchor.rotation * bevy::prelude::Vec3::new(x, 0.0, z);
+        at.y = y;
+    }
+    let rotation = anchor.rotation * numbers.rotation();
+    let snap = *snap_to_terrain;
+    let base = generator_ref.clone();
+    copies.remove(copy);
+    if let Some(sized) = make {
+        // The traits its item has, and no others a name once held.
+        match record.traits.get(&base).cloned() {
+            Some(traits) => record.traits.insert(item.clone(), traits),
+            None => record.traits.remove(&item),
+        };
+        record.generators.insert(item.clone(), sized);
+    }
+    record.placements.push(Placement::Absolute {
+        generator_ref: item,
+        transform: super::types::TransformData {
+            translation: Fp3(at.to_array()),
+            rotation: Fp4(rotation.to_array()),
+            scale: Fp3([1.0; 3]),
+        },
+        snap_to_terrain: snap,
+        avoid_water: false,
+        avoid_water_clearance: Fp(0.0),
+        seed: variant.seed,
+        params: variant.params,
+    });
+    Ok(record.placements.len() - 1)
+}
+
+/// The item a copy of `item` at `scale_pm` thousandths of its size is
+/// drawn from once detached: `item` with its root's whole frame scaled
+/// about the copy's own origin. It is named `<item>_x<scale_pm>` - or that
+/// with `_2`, `_3`... where an item of the name holds something else - and
+/// an item of the name holding just that, with `item`'s traits, is shared,
+/// so every copy detached at one size draws from one item. Its name, and
+/// the item to make under it, `None` where the world holds it already.
+fn sized_item(
+    record: &RoomRecord,
+    item: &str,
+    scale_pm: u32,
+) -> Result<(String, Option<Generator>), &'static str> {
+    let Some(mut sized) = record.generators.get(item).cloned() else {
+        return Err("The set's item is missing.");
+    };
+    let s = scale_pm as f32 / COPY_SCALE_ONE as f32;
+    let t = &mut sized.transform;
+    t.translation = Fp3(t.translation.0.map(|v| v * s));
+    t.scale = Fp3(t.scale.0.map(|v| v * s));
+    let traits = record.traits.get(item);
+    // One name of these is free past every item the world holds.
+    for n in 1..=record.generators.len() + 1 {
+        let suffix = if n == 1 {
+            format!("_x{scale_pm}")
+        } else {
+            format!("_x{scale_pm}_{n}")
+        };
+        // Cut to the longest name an item may have, as the sanitiser would
+        // cut it, keeping the size.
+        let room = limits::MAX_GENERATOR_NAME_CHARS.saturating_sub(suffix.chars().count());
+        let name = format!("{}{suffix}", item.chars().take(room).collect::<String>());
+        match record.generators.get(&name) {
+            Some(held) if *held == sized && record.traits.get(&name) == traits => {
+                return Ok((name, None));
+            }
+            Some(_) => {}
+            None if record.generators.len() >= limits::MAX_GENERATORS => return Err(ITEMS_FULL),
+            None => return Ok((name, Some(sized))),
+        }
+    }
+    Err(ITEMS_FULL)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pds::{TransformData, sanitize::limits};
+    use bevy::prelude::{Quat, Transform, Vec3};
+
+    /// A room of one set of `post`, anchored at `anchor`, its copies
+    /// `copies`, with a variant giving a seed and a value.
+    fn room_with_set(snap: bool, anchor: TransformData, copies: Vec<InstanceCopy>) -> RoomRecord {
+        let mut record = RoomRecord::default();
+        record.generators.clear();
+        record.placements.clear();
+        record.traits.clear();
+        let mut post = crate::pds::Generator::default_cuboid();
+        post.transform.translation = Fp3([0.0, 0.5, 0.0]);
+        record.generators.insert("post".into(), post);
+        record.traits.insert("post".into(), vec!["sensor".into()]);
+        record.placements.push(Placement::Instances {
+            generator_ref: "post".into(),
+            transform: anchor,
+            snap_to_terrain: snap,
+            solid: InstanceSolid::Shell,
+            variants: vec![
+                InstanceVariant::default(),
+                InstanceVariant {
+                    seed: Some(42),
+                    params: GrammarParams(std::collections::BTreeMap::from([(
+                        "Storeys".to_string(),
+                        Fp(5.0),
+                    )])),
+                },
+            ],
+            copies,
+        });
+        record
+    }
+
+    /// #1644: a detached copy is a placement of its own where it stood - a
+    /// snapped one's height its lift - turned as it was, with its variant's
+    /// seed and values, and gone from its set.
+    #[test]
+    fn a_detached_copy_stands_where_it_stood_with_its_variant() {
+        let turned = TransformData {
+            translation: Fp3([10.0, 3.0, -2.0]),
+            rotation: crate::pds::Fp4(Quat::from_rotation_y(0.5).to_array()),
+            ..TransformData::default()
+        };
+        let copy = InstanceCopy {
+            variant: 1,
+            y_cm: -35,
+            ..InstanceCopy::at(4.0, 1.0, 90.0)
+        };
+        for snap in [true, false] {
+            let mut record = room_with_set(
+                snap,
+                turned.clone(),
+                vec![copy, InstanceCopy::at(0.0, 0.0, 0.0)],
+            );
+            let detached = detach_copy(&mut record, 0, 0).expect("detached");
+            assert_eq!(detached, 1);
+            let Placement::Instances { copies, .. } = &record.placements[0] else {
+                panic!("a set");
+            };
+            assert_eq!(copies.len(), 1, "the copy left its set");
+            let Placement::Absolute {
+                generator_ref,
+                transform,
+                snap_to_terrain,
+                seed,
+                params,
+                ..
+            } = &record.placements[1]
+            else {
+                panic!("an absolute placement");
+            };
+            assert_eq!(generator_ref, "post");
+            assert_eq!(*snap_to_terrain, snap);
+            assert_eq!(*seed, Some(42));
+            assert_eq!(params.0.get("Storeys"), Some(&Fp(5.0)));
+            let anchor = Transform::from(&turned);
+            let on_plan = anchor.translation + anchor.rotation * Vec3::new(4.0, 0.0, 1.0);
+            let [x, y, z] = transform.translation.0;
+            assert!((x - on_plan.x).abs() < 1e-4 && (z - on_plan.z).abs() < 1e-4);
+            let expected_y = if snap {
+                -0.35
+            } else {
+                (anchor.translation + anchor.rotation * Vec3::new(4.0, -0.35, 1.0)).y
+            };
+            assert!((y - expected_y).abs() < 1e-4, "{y} {expected_y}");
+            let rotation = Quat::from_array(transform.rotation.0);
+            assert!(rotation.abs_diff_eq(anchor.rotation * copy.rotation(), 1e-5));
+        }
+    }
+
+    /// A copy of another size is given an item of its own at that size -
+    /// its whole frame scaled, its traits with it - shared by every copy
+    /// detached at that size; with the world's items full, it is refused.
+    #[test]
+    fn a_copy_of_another_size_is_given_an_item_at_that_size() {
+        let big = InstanceCopy {
+            scale_pm: 2_000,
+            ..InstanceCopy::at(1.0, 1.0, 0.0)
+        };
+        let mut record = room_with_set(true, TransformData::default(), vec![big, big]);
+        detach_copy(&mut record, 0, 0).expect("detached");
+        detach_copy(&mut record, 0, 0).expect("detached");
+        let sized = record
+            .generators
+            .get("post_x2000")
+            .expect("an item at that size");
+        assert_eq!(sized.transform.translation.0, [0.0, 1.0, 0.0]);
+        assert_eq!(sized.transform.scale.0, [2.0, 2.0, 2.0]);
+        assert_eq!(
+            record.traits.get("post_x2000"),
+            Some(&vec!["sensor".to_string()])
+        );
+        assert_eq!(record.generators.len(), 2, "shared by both");
+
+        let mut full = room_with_set(true, TransformData::default(), vec![big]);
+        for i in full.generators.len()..limits::MAX_GENERATORS {
+            full.generators.insert(
+                format!("filler{i}"),
+                crate::pds::Generator::default_cuboid(),
+            );
+        }
+        assert_eq!(detach_refusal(&full, 0, 0), Some(ITEMS_FULL));
+        assert!(detach_copy(&mut full, 0, 0).is_err());
+        let Placement::Instances { copies, .. } = &full.placements[0] else {
+            panic!("a set");
+        };
+        assert_eq!(copies.len(), 1, "a refused detach leaves the copy");
+    }
+
+    /// An item of a copy's size is shared only while it holds just what the
+    /// copy is drawn from: once its set's item changed, the next copy
+    /// detached at that size gets an item of its own under the next name,
+    /// and a world full of items still detaches a copy whose item it holds.
+    #[test]
+    fn a_sized_item_is_shared_only_while_it_holds_the_same() {
+        let big = InstanceCopy {
+            scale_pm: 1_500,
+            ..InstanceCopy::at(1.0, 1.0, 0.0)
+        };
+        let mut record = room_with_set(true, TransformData::default(), vec![big; 4]);
+        detach_copy(&mut record, 0, 0).expect("detached");
+        // The set's item edited: the sized item made before no longer is
+        // the copies' item at that size.
+        if let Some(post) = record.generators.get_mut("post") {
+            post.transform.translation = Fp3([0.0, 2.0, 0.0]);
+        }
+        let second = detach_copy(&mut record, 0, 0).expect("detached");
+        assert_eq!(
+            record.placements[second].generator_ref(),
+            Some("post_x1500_2")
+        );
+        assert_eq!(
+            record.generators["post_x1500"].transform.translation.0,
+            [0.0, 0.75, 0.0],
+            "the first is left as it was"
+        );
+        assert_eq!(
+            record.generators["post_x1500_2"].transform.translation.0,
+            [0.0, 3.0, 0.0]
+        );
+        let third = detach_copy(&mut record, 0, 0).expect("detached");
+        assert_eq!(
+            record.placements[third].generator_ref(),
+            Some("post_x1500_2"),
+            "shared while it holds the same"
+        );
+        for i in record.generators.len()..limits::MAX_GENERATORS {
+            record.generators.insert(
+                format!("filler{i}"),
+                crate::pds::Generator::default_cuboid(),
+            );
+        }
+        assert_eq!(detach_refusal(&record, 0, 0), None, "its item is held");
+        detach_copy(&mut record, 0, 0).expect("detached into the held item");
+    }
+
+    /// No copy is added past a set's cap, nor past the room's across all
+    /// its sets (#1644): the sanitiser would drop it.
+    #[test]
+    fn a_copy_is_refused_past_the_set_or_the_room() {
+        let one = InstanceCopy::at(0.0, 0.0, 0.0);
+        let mut record = room_with_set(false, TransformData::default(), vec![one]);
+        assert_eq!(copy_refusal(&record, 0), None);
+        assert!(copy_refusal(&record, 1).is_some(), "no set there");
+        let full_set = room_with_set(
+            false,
+            TransformData::default(),
+            vec![one; limits::MAX_INSTANCE_COPIES],
+        );
+        assert!(copy_refusal(&full_set, 0).is_some());
+        // Two more sets bring the room to its cap, the first set far from
+        // its own.
+        let mut other = full_set.placements[0].clone();
+        record.placements.push(other.clone());
+        if let Placement::Instances { copies, .. } = &mut other {
+            copies.truncate(limits::MAX_ROOM_INSTANCE_COPIES - limits::MAX_INSTANCE_COPIES - 1);
+        }
+        record.placements.push(other);
+        assert_eq!(room_copies(&record), limits::MAX_ROOM_INSTANCE_COPIES);
+        assert!(copy_refusal(&record, 0).is_some());
+    }
 
     fn wire_of(copy: InstanceCopy) -> String {
         serde_json::to_string(&copy).expect("serialise")

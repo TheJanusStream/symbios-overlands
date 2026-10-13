@@ -484,13 +484,29 @@ manifest's budget.
   a world's manifest. `room set`'s `record_size` says how close a world is.
   The 8,192 copies a set and 16,384 a world are what a record is cut to,
   not what it saves.
-- **An edit to a set redraws the whole set** over a few frames (its baked
-  variants are kept, so it grows nothing again): add copies with `room set
-  /placements/N/copies/- '[...]'`, and keep a set to one kind of thing so a
-  change to one tree does not redraw every house.
-- In the World Editor the selected set shows a ring at each copy; its
-  section edits each copy's numbers. Clicking a copy in the world does not
-  select it yet (#1644).
+- **An edit to a set's copies redraws those copies alone** (#1644): each
+  copy whose numbers are unchanged keeps what it drew, renumbered where a
+  copy before it went, and the set's share of the room's drawing budget
+  follows how many copies it holds, so add copies with `room set
+  /placements/N/copies/- '[...]'` as you go. An edit to the set itself -
+  its item, anchor, snapping, solid or variants - draws the whole set again
+  (its baked variants are kept, so that grows nothing again).
+- **One copy by name, `N.c`** (copy `c` of the set at placement `N`):
+  `agent move N.c X Z [--yaw D]` stands it at world `(X, Z)`, read in its
+  set's anchor and keeping its lift; `agent remove N.c` takes it out (the
+  copies after it move down one); `agent detach N.c` makes it a placement of
+  its own, drawn as it was - its variant's seed and values with it - and a
+  copy of another size gets an item of its own at that size,
+  `<item>_x<thousandths>` (shared by every copy detached at that size, and
+  `_2`, `_3`... after it where an item of that name holds something else),
+  as an absolute placement draws its item at its own size (#1454).
+  `room get /placements/N/copies` lists them.
+- In the World Editor a click on a copy picks it (by its collider, or its
+  baked box, which takes a tree's crown): the set's section shows it, the
+  gizmo moves, turns and sizes it alone, Shift-drag adds another where it is
+  let go, and Delete copy and Detach into a placement act on it. The
+  selected set shows a ring at each copy, and a variant whose grammar draws
+  nothing with its values says why under it.
 
 ## Ambient sound
 

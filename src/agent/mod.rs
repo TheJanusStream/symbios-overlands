@@ -47,8 +47,8 @@ use cli::{Cli, Command};
 use control::protocol::Request;
 use lifecycle::{list_accounts, run_daemon, run_login, start_daemon};
 use requests::{
-    JsonRecord, ask, catalogue, drive, face, follow, gift, look, move_placement, place, placements,
-    record_json, remove, save, travel, ui, walk_to, watch_events,
+    JsonRecord, ask, catalogue, detach, drive, face, follow, gift, look, move_placement, place,
+    placements, record_json, remove, save, travel, ui, walk_to, watch_events,
 };
 
 use crate::config;
@@ -87,6 +87,7 @@ fn execute(command: Command) -> Result<ExitCode, String> {
         Command::Place(args) => place(args),
         Command::Move(args) => move_placement(args),
         Command::Remove(args) => remove(args),
+        Command::Detach(args) => detach(args),
         Command::Room(args) => record_json(JsonRecord::Room, args),
         Command::Avatar(args) => record_json(JsonRecord::Avatar, args),
         Command::Undo(args) => ask(

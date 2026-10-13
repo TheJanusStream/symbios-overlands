@@ -1921,6 +1921,45 @@ mod tests {
         );
     }
 
+    /// #1644: an edit of a set's copies alone keeps its unit - its anchor
+    /// stays, for the instance spawner to follow the copies in place - and
+    /// an edit of the set itself builds the unit anew.
+    #[test]
+    fn a_sets_copies_edited_keep_its_anchor() {
+        let mut record = test_record(0);
+        record.placements.push(Placement::Instances {
+            generator_ref: "box".into(),
+            transform: TransformData::default(),
+            snap_to_terrain: false,
+            solid: crate::pds::InstanceSolid::Shell,
+            variants: Vec::new(),
+            copies: vec![crate::pds::InstanceCopy::at(1.0, 1.0, 0.0)],
+        });
+        let mut app = compile_app(record);
+        settle(&mut app);
+        let first = unit_anchors(&app)[0];
+        let edit = |app: &mut App, f: &dyn Fn(&mut Placement)| {
+            f(&mut app
+                .world_mut()
+                .resource_mut::<LiveRoomRecord>()
+                .0
+                .placements[0]);
+            settle(app);
+        };
+        edit(&mut app, &|placement| {
+            if let Placement::Instances { copies, .. } = placement {
+                copies.push(crate::pds::InstanceCopy::at(3.0, 1.0, 90.0));
+            }
+        });
+        assert_eq!(unit_anchors(&app)[0], first, "copies alone keep the anchor");
+        edit(&mut app, &|placement| {
+            if let Placement::Instances { solid, .. } = placement {
+                *solid = crate::pds::InstanceSolid::Box;
+            }
+        });
+        assert_ne!(unit_anchors(&app)[0], first, "the set itself builds anew");
+    }
+
     /// #1505: the geometry cache keeps one entry per node and seed. Three
     /// seeds and the node's own each keep theirs across a second compile
     /// (a full one: a placement removed) - the same derivation, not a

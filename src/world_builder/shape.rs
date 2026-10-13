@@ -628,10 +628,9 @@ impl Underived {
     }
 
     /// Why the grammar drew nothing, as the editor's grammar forge shows
-    /// it, as the agent's `room set` answers it (#1507), and as a street
-    /// building's check reports it (#1598) - on the platforms those build
-    /// for.
-    #[cfg(not(target_arch = "wasm32"))]
+    /// it, as the agent's `room set` answers it (#1507), as a street
+    /// building's check reports it (#1598), and as an instance set's
+    /// section says of a variant that draws nothing (#1644).
     pub(crate) fn message(&self) -> &str {
         &self.message
     }

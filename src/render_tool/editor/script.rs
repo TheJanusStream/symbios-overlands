@@ -19,6 +19,8 @@
 //! press
 //! drag-gizmo x 6.0 over 20          # pull the held handle 6 m along X
 //! release
+//! shift down                        # Shift held from here (a Shift-drag copies)
+//! shift up
 //! move ground 118,-3 over 20        # onto the terrain at x,z
 //! move px 640,360                   # onto a frame pixel (default: one frame)
 //! ```
@@ -131,6 +133,9 @@ pub(crate) enum Step {
     },
     Press,
     Release,
+    /// Hold Shift down, or let it go: what a gizmo drag begun with it held
+    /// copies its target with.
+    Shift(bool),
     Click {
         on: Target,
         over: u32,
@@ -165,7 +170,7 @@ impl Step {
         match self {
             Self::Hold(n) => *n,
             Self::Move { over, .. } | Self::DragGizmo { over, .. } => *over,
-            Self::Press | Self::Release | Self::Type(_) | Self::Scroll(_) => 1,
+            Self::Press | Self::Release | Self::Shift(_) | Self::Type(_) | Self::Scroll(_) => 1,
             Self::Click { over, .. } | Self::RightClick { over, .. } => over + CLICK_TAIL,
         }
     }
@@ -283,6 +288,11 @@ fn step(words: &[Word]) -> Result<Step, String> {
         "press" if rest.is_empty() => Ok(Step::Press),
         "release" if rest.is_empty() => Ok(Step::Release),
         "press" | "release" => Err(format!("`{verb}` takes nothing")),
+        "shift" => match rest {
+            [word] if word.is_word("down") => Ok(Step::Shift(true)),
+            [word] if word.is_word("up") => Ok(Step::Shift(false)),
+            _ => Err("expected `shift down` or `shift up`".into()),
+        },
         "type" => match rest {
             [Word::Quoted(text)] => Ok(Step::Type(text.clone())),
             _ => Err("expected `type \"<text>\"`".into()),
@@ -408,6 +418,8 @@ pub(crate) struct FrameInput {
     pub(crate) typed: Option<String>,
     /// Points to wheel the surface under the pointer by, down-positive.
     pub(crate) scrolled: Option<f32>,
+    /// Shift held down (`true`) or let go of, this frame.
+    pub(crate) shift: Option<bool>,
 }
 
 /// What a lookup found, in frame pixels.
@@ -491,6 +503,7 @@ impl ScriptRunner {
             Step::Hold(_) => {}
             Step::Press => input.press = true,
             Step::Release => input.release = true,
+            Step::Shift(down) => input.shift = Some(*down),
             Step::Type(text) => input.typed = Some(text.clone()),
             Step::Scroll(by) => input.scrolled = Some(*by),
             Step::Move { to, over }
@@ -873,8 +886,11 @@ pub(crate) fn run_script(
     gizmo_options: Option<Res<GizmoOptions>>,
     heightmap: Option<Res<FinishedHeightMap>>,
     mut windows: Query<(Entity, &mut Window), With<PrimaryWindow>>,
-    mut buttons: MessageWriter<MouseButtonInput>,
-    mut pointer_inputs: MessageWriter<PointerInput>,
+    (mut buttons, mut pointer_inputs, mut keys): (
+        MessageWriter<MouseButtonInput>,
+        MessageWriter<PointerInput>,
+        Option<ResMut<ButtonInput<KeyCode>>>,
+    ),
 ) {
     if !plays_this_frame(
         clock.stepped,
@@ -989,6 +1005,17 @@ pub(crate) fn run_script(
             pressed,
             modifiers: egui::Modifiers::NONE,
         });
+    }
+    // Shift as the keyboard holds it: down until let go of, read by the
+    // gizmo's drag where it begins.
+    if let Some(down) = input.shift
+        && let Some(keys) = keys.as_deref_mut()
+    {
+        if down {
+            keys.press(KeyCode::ShiftLeft);
+        } else {
+            keys.release(KeyCode::ShiftLeft);
+        }
     }
     if let Some(text) = input.typed {
         // Select everything in the focused field first, so the text replaces
@@ -1142,9 +1169,11 @@ mod tests {
              move right-of \"Theme:\"\n\
              move px 640,360 over 2\n\
              move gizmo z\n\
+             shift down\n\
              press\n\
              drag-gizmo x -6.5 over 20\n\
              release\n\
+             shift up\n\
              move ground 118,-3 over 20\n\
              type \"253\"\n\
              right-click px 400,300 over 2\n",
@@ -1171,6 +1200,7 @@ mod tests {
                     to: Target::Gizmo(Axis::Z),
                     over: 1
                 },
+                Step::Shift(true),
                 Step::Press,
                 Step::DragGizmo {
                     axis: Axis::X,
@@ -1178,6 +1208,7 @@ mod tests {
                     over: 20
                 },
                 Step::Release,
+                Step::Shift(false),
                 Step::Move {
                     to: Target::Ground(Vec2::new(118.0, -3.0)),
                     over: 20

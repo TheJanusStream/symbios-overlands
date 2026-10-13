@@ -213,6 +213,11 @@ pub struct RoomEditorState {
     /// editor names and offers to remove or make the world's own. No gizmo
     /// selection - none of it is in the record.
     pub(crate) derived_pick: crate::terrain::derived::edit::DerivedPick,
+    /// The copy of an instance set a scene click, or its row in the set's
+    /// table, picked (#1644): `(placement, copy)`. It names a copy only
+    /// while that set is the selected placement ([`Self::picked_copy`]);
+    /// the gizmo then moves the copy, not the set.
+    picked_copy: Option<(usize, usize)>,
     /// The Raw JSON tab's text, and what it was seeded from (#1212).
     raw: raw::RawJsonBuffer,
     /// Seconds remaining before a pending widget change is flushed into
@@ -322,6 +327,47 @@ impl RoomEditorState {
         self.tree.view.set_selected(Vec::new());
         self.preferred_pick = None;
         self.derived_pick.pick(None);
+        self.picked_copy = None;
+    }
+
+    /// The copy the owner picked (#1644), as `(placement, copy)`: only
+    /// while its set is the selected placement - selecting anything else
+    /// leaves no copy picked, whoever selected it.
+    pub(crate) fn picked_copy(&self) -> Option<(usize, usize)> {
+        self.picked_copy
+            .filter(|(placement, _)| self.selected_placement == Some(*placement))
+    }
+
+    /// Pick copy `copy` of the set `placement` (#1644): the set becomes the
+    /// selected placement alone, on the Placements tab, and the gizmo moves
+    /// the copy. `None` keeps the set selected and picks no copy.
+    pub(crate) fn pick_copy(&mut self, placement: usize, copy: Option<usize>) {
+        self.selected_placement = Some(placement);
+        self.extra_placements.clear();
+        self.tree.selection.clear();
+        self.tree.view.set_selected(Vec::new());
+        self.preferred_pick = None;
+        self.derived_pick.pick(None);
+        self.picked_copy = copy.map(|copy| (placement, copy));
+        self.selected_tab = EditorTab::Placements;
+    }
+
+    /// Whether the picked copy is one the selection or `record` has left
+    /// behind (#1644): its set is no longer the selected placement, or no
+    /// longer holds it. Selecting the set again must not pick it again.
+    pub(crate) fn copy_pick_is_stale(&self, record: &crate::pds::RoomRecord) -> bool {
+        self.picked_copy.is_some_and(|(placement, copy)| {
+            self.selected_placement != Some(placement)
+                || !matches!(
+                    record.placements.get(placement),
+                    Some(crate::pds::Placement::Instances { copies, .. }) if copy < copies.len()
+                )
+        })
+    }
+
+    /// Pick no copy, leaving the selection as it is.
+    pub(crate) fn forget_copy_pick(&mut self) {
+        self.picked_copy = None;
     }
 
     /// Every selected placement index, anchor first (#1244 f415).
@@ -906,6 +952,7 @@ pub fn room_admin_ui(
         reroll,
         seed_source,
         derived_pick,
+        picked_copy,
         recovery_reset_confirm,
         placement_bulk_delete,
         publish_guard,
@@ -1629,6 +1676,8 @@ pub fn room_admin_ui(
                                     sort: placement_sort,
                                     extra: extra_placements,
                                     bulk_delete: placement_bulk_delete,
+                                    picked_copy,
+                                    grammar_diag: Some(&grammar_diag),
                                 },
                             );
                         });

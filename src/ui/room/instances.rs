@@ -23,9 +23,6 @@ const COPY_ROWS_SHOWN: f32 = 10.0;
 /// and on it (#1289).
 const VARIANT_STAYS: &str = "copies draw it, so it stays";
 
-/// Why no copy can be added, beside its greyed button and on it.
-const SET_FULL: &str = "A set holds no more copies.";
-
 /// A set's own fields, borrowed from its placement.
 pub(super) struct SetFields<'a> {
     pub solid: &'a mut InstanceSolid,
@@ -33,23 +30,132 @@ pub(super) struct SetFields<'a> {
     pub copies: &'a mut Vec<InstanceCopy>,
 }
 
+/// What a set's section knows beyond the set (#1644): the copy the gizmo
+/// moves, and whether the world has room for a detached copy.
+#[derive(Clone, Copy, Default)]
+pub(super) struct CopyContext<'a> {
+    /// The copy of this set the owner picked, if any.
+    pub picked: Option<usize>,
+    /// Why the picked copy cannot be detached, where it cannot
+    /// ([`crate::pds::instances::detach_refusal`]).
+    pub detach_refusal: Option<&'static str>,
+    /// Why no copy can be added to the set, where none can
+    /// ([`crate::pds::instances::copy_refusal`]).
+    pub copy_refusal: Option<&'static str>,
+    /// Why a variant draws nothing, where one does not.
+    pub diagnostics: Option<&'a crate::world_builder::grammar_diag::GrammarDiagnostics>,
+}
+
+/// What the owner asked of a set's copies (#1644), for the Placements tab
+/// to do: it holds the record and the selection, which the section does
+/// not.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum CopyAction {
+    /// Pick this copy for the gizmo to move, or none.
+    Pick(Option<usize>),
+    /// Delete this copy.
+    Delete(usize),
+    /// Detach this copy into an absolute placement of its own.
+    Detach(usize),
+}
+
 /// A set's solid, variants and copies, for the placement numbered `item`
-/// whose item's grammars draw with their own seeds `own` (#1505).
+/// whose item's grammars draw with their own seeds `own` (#1505): what the
+/// owner asked of its copies, if anything.
 pub(super) fn draw_instance_set(
     ui: &mut egui::Ui,
     item: usize,
     set: SetFields,
     own: &[u64],
+    cx: CopyContext,
     dirty: &mut bool,
-) {
+) -> Option<CopyAction> {
     let SetFields {
         solid,
         variants,
         copies,
     } = set;
+    let variant_count = variants.len().max(1);
+    let mut action = cx
+        .picked
+        .filter(|c| *c < copies.len())
+        .and_then(|c| draw_picked_copy(ui, copies, c, variant_count, cx, dirty));
     draw_solid(ui, item, solid, dirty);
-    draw_variants(ui, item, variants, copies, own, dirty);
-    draw_copies(ui, item, copies, variants.len().max(1), dirty);
+    let failure_of = |variant: usize| {
+        cx.diagnostics
+            .and_then(|diagnostics| diagnostics.variant_failure(item, variant))
+    };
+    draw_variants(ui, item, variants, copies, own, &failure_of, dirty);
+    if let Some(asked) = draw_copies(
+        ui,
+        item,
+        copies,
+        variant_count,
+        (cx.picked, cx.copy_refusal),
+        dirty,
+    ) {
+        action = Some(asked);
+    }
+    action
+}
+
+/// The picked copy (#1644): its numbers, and Delete, Detach and Unpick.
+fn draw_picked_copy(
+    ui: &mut egui::Ui,
+    copies: &mut [InstanceCopy],
+    picked: usize,
+    variants: usize,
+    cx: CopyContext,
+    dirty: &mut bool,
+) -> Option<CopyAction> {
+    let mut action = None;
+    let weak = crate::ui::theme::current(ui.ctx()).text_weak;
+    ui.group(|ui| {
+        let copy = &mut copies[picked];
+        ui.horizontal(|ui| {
+            ui.strong(format!("Copy #{picked}"));
+            if ui.small_button("Unpick").clicked() {
+                action = Some(CopyAction::Pick(None));
+            }
+        });
+        ui.label(
+            egui::RichText::new(
+                "The gizmo moves, turns and sizes this copy alone; Shift-drag leaves it and \
+                 adds another where you let go.",
+            )
+            .small()
+            .color(weak),
+        );
+        ui.horizontal(|ui| {
+            if draw_copy(ui, copy, variants) {
+                *dirty = true;
+            }
+        });
+        let refusal = cx.detach_refusal;
+        ui.horizontal(|ui| {
+            if ui.button("Delete copy").clicked() {
+                action = Some(CopyAction::Delete(picked));
+            }
+            if ui
+                .add_enabled(
+                    refusal.is_none(),
+                    egui::Button::new("Detach into a placement"),
+                )
+                .on_hover_text(
+                    "Take this copy out of the set as a placement of its own, drawn as it \
+                     is now - its variant's seed and values with it - to edit apart.",
+                )
+                .on_disabled_hover_text(refusal.unwrap_or_default())
+                .clicked()
+            {
+                action = Some(CopyAction::Detach(picked));
+            }
+        });
+        if let Some(why) = refusal {
+            ui.label(egui::RichText::new(why).small().color(weak));
+        }
+    });
+    action
 }
 
 /// The words a set's solid may be, with what each is for.
@@ -87,31 +193,40 @@ fn draw_solid(ui: &mut egui::Ui, item: usize, solid: &mut InstanceSolid, dirty: 
 /// The variants: none in the record is one, the item as it is, shown and
 /// edited as such and written back as none while it is still that. Their
 /// rows are built only while the section is open: a set may hold hundreds.
-fn draw_variants(
+fn draw_variants<'d>(
     ui: &mut egui::Ui,
     item: usize,
     variants: &mut Vec<InstanceVariant>,
     copies: &mut [InstanceCopy],
     own: &[u64],
+    failure_of: &dyn Fn(usize) -> Option<&'d str>,
     dirty: &mut bool,
 ) {
-    egui::CollapsingHeader::new(format!("Variants ({})", variants.len().max(1)))
+    let failing = (0..variants.len().max(1))
+        .filter(|v| failure_of(*v).is_some())
+        .count();
+    let title = match failing {
+        0 => format!("Variants ({})", variants.len().max(1)),
+        n => format!("Variants ({}, {n} drawing nothing)", variants.len().max(1)),
+    };
+    egui::CollapsingHeader::new(title)
         .id_salt(("instance_variants", item))
         .default_open(false)
         .show(ui, |ui| {
-            if edit_variants(ui, item, variants, copies, own) {
+            if edit_variants(ui, item, variants, copies, own, failure_of) {
                 *dirty = true;
             }
         });
 }
 
 /// The variants' rows. Whether any changed.
-fn edit_variants(
+fn edit_variants<'d>(
     ui: &mut egui::Ui,
     item: usize,
     variants: &mut Vec<InstanceVariant>,
     copies: &mut [InstanceCopy],
     own: &[u64],
+    failure_of: &dyn Fn(usize) -> Option<&'d str>,
 ) -> bool {
     let mut shown = if variants.is_empty() {
         vec![InstanceVariant::default()]
@@ -160,6 +275,13 @@ fn edit_variants(
             });
             if count > 1 && used > 0 {
                 ui.label(egui::RichText::new(VARIANT_STAYS).small().color(weak));
+            }
+            // What its grammar said with these values (#1644).
+            if let Some(failure) = failure_of(v) {
+                ui.colored_label(
+                    crate::ui::theme::current(ui.ctx()).status.warn,
+                    format!("Draws nothing: {failure}"),
+                );
             }
             changed |= draw_variant_seed(ui, variant, own);
             changed |= draw_grammar_params(ui, &mut variant.params);
@@ -305,8 +427,10 @@ fn draw_copies(
     item: usize,
     copies: &mut Vec<InstanceCopy>,
     variants: usize,
+    (picked, refusal): (Option<usize>, Option<&'static str>),
     dirty: &mut bool,
-) {
+) -> Option<CopyAction> {
+    let mut action = None;
     egui::CollapsingHeader::new(format!("Copies ({})", copies.len()))
         .id_salt(("instance_copies", item))
         .default_open(false)
@@ -321,42 +445,63 @@ fn draw_copies(
                 .color(weak),
             );
             let row_height = ui.spacing().interact_size.y;
-            let mut removed = None;
-            egui::ScrollArea::vertical()
+            let mut rows_area = egui::ScrollArea::vertical()
                 .id_salt(("instance_copy_rows", item))
-                .max_height(row_height * COPY_ROWS_SHOWN)
-                .show_rows(ui, row_height, copies.len(), |ui, rows| {
-                    for c in rows {
-                        ui.push_id(("instance_copy", c), |ui| {
-                            ui.horizontal(|ui| {
-                                ui.label(format!("#{c}"));
-                                if draw_copy(ui, &mut copies[c], variants) {
-                                    *dirty = true;
-                                }
-                                if ui.small_button("Remove").clicked() {
-                                    removed = Some(c);
-                                }
-                            });
-                        });
-                    }
-                });
-            if let Some(c) = removed {
-                copies.remove(c);
-                *dirty = true;
+                .max_height(row_height * COPY_ROWS_SHOWN);
+            // A copy newly picked out of sight - in the world - is scrolled
+            // to, once (#1644); one picked by its row is in sight already.
+            let shown_id = ui.make_persistent_id(("instance_copy_shown", item));
+            let (shown, (first, past)) = ui
+                .data(|data| data.get_temp::<(Option<usize>, (usize, usize))>(shown_id))
+                .unwrap_or_default();
+            if picked != shown
+                && let Some(c) = picked
+                && !(first..past).contains(&c)
+            {
+                rows_area = rows_area
+                    .vertical_scroll_offset(c as f32 * (row_height + ui.spacing().item_spacing.y));
             }
-            let room = copies.len() < limits::MAX_INSTANCE_COPIES;
+            let mut in_sight = (0, 0);
+            rows_area.show_rows(ui, row_height, copies.len(), |ui, rows| {
+                in_sight = (rows.start, rows.end);
+                for c in rows {
+                    ui.push_id(("instance_copy", c), |ui| {
+                        ui.horizontal(|ui| {
+                            let is_picked = picked == Some(c);
+                            if ui
+                                .selectable_label(is_picked, format!("#{c}"))
+                                .on_hover_text("Pick this copy for the gizmo to move.")
+                                .clicked()
+                            {
+                                action = Some(CopyAction::Pick((!is_picked).then_some(c)));
+                            }
+                            if draw_copy(ui, &mut copies[c], variants) {
+                                *dirty = true;
+                            }
+                            if ui.small_button("Remove").clicked() {
+                                action = Some(CopyAction::Delete(c));
+                            }
+                        });
+                    });
+                }
+            });
+            ui.data_mut(|data| data.insert_temp(shown_id, (picked, in_sight)));
             if ui
-                .add_enabled(room, egui::Button::new("Add a copy at the anchor"))
-                .on_disabled_hover_text(SET_FULL)
+                .add_enabled(
+                    refusal.is_none(),
+                    egui::Button::new("Add a copy at the anchor"),
+                )
+                .on_disabled_hover_text(refusal.unwrap_or_default())
                 .clicked()
             {
                 copies.push(InstanceCopy::at(0.0, 0.0, 0.0));
                 *dirty = true;
             }
-            if !room {
-                ui.label(egui::RichText::new(SET_FULL).small().color(weak));
+            if let Some(why) = refusal {
+                ui.label(egui::RichText::new(why).small().color(weak));
             }
         });
+    action
 }
 
 /// One copy's numbers. Whether any changed.

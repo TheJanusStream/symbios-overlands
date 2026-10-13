@@ -25,6 +25,13 @@
 //!    it is drawn. A small copy is cut at the player's draw distance, as a
 //!    scattered one is (#1480).
 //!
+//! A drawn set follows its record's copies in place (#1644): an edit of the
+//! copies alone leaves the compile's unit as it is, and the build redraws
+//! the copies that changed and no other ([`build`]); an edit of anything
+//! else about the set builds its unit anew. Each drawn copy's entities
+//! carry [`InstanceCopyOf`], and its pose and baked box are kept, so the
+//! World Editor can pick one ([`InstanceBuilds::pick`]) and move it.
+//!
 //! A set draws its generator's geometry and nothing else: its sounds,
 //! spins, particles, signs, portals and gateways are left out
 //! ([`strip_for_distance`]), as a merged part has no transform of its own
@@ -33,10 +40,12 @@
 //! The room's budget is the derived stage's summed - what a Kiez of
 //! Berlin's buildings, trees and street furniture was drawn with - and is
 //! shared among the room's sets by their copies, each set's share set when
-//! it is built: a set built before another grew keeps the share it had
-//! until it is built again, so for a while the room's sets together may
-//! draw past the budget, and a peer that loads the room fresh shares it
-//! anew.
+//! it is built and again when its copies are followed: a set not built or
+//! followed since another grew keeps the share it had, so for a while the
+//! room's sets together may draw past the budget, and a peer that loads
+//! the room fresh shares it anew. Copies a follow adds are drawn in the
+//! order they came, not nearest the landing first, so where a set's share
+//! runs out the editor's split of near and far can differ from that peer's.
 
 pub(crate) mod bake;
 mod build;
@@ -101,6 +110,85 @@ impl InstanceBuilds {
     pub(crate) fn is_idle(&self) -> bool {
         self.builds.iter().all(build::Build::is_done)
     }
+
+    /// The nearest drawn copy of any set, of those `keep` keeps, whose
+    /// baked box `ray` enters, as `(placement, copy)`, and how far along the
+    /// ray (#1644).
+    pub(crate) fn pick(
+        &self,
+        ray: Ray3d,
+        keep: &dyn Fn((usize, usize)) -> bool,
+    ) -> Option<((usize, usize), f32)> {
+        self.builds
+            .iter()
+            .filter_map(|build| {
+                let placement = build.placement();
+                build
+                    .pick(ray, &|copy| keep((placement, copy)))
+                    .map(|(copy, distance)| ((placement, copy), distance))
+            })
+            .min_by(|(_, a), (_, b)| a.total_cmp(b))
+    }
+
+    /// Where copy `copy` of the set `placement` stands as drawn, in the
+    /// world: for a test to read what was drawn.
+    #[cfg(test)]
+    pub(crate) fn copy_pose(&self, placement: usize, copy: usize) -> Option<Transform> {
+        let build = self.build_of(placement)?;
+        Some(build.anchor() * build.drawn(copy)?.pose)
+    }
+
+    /// Every entity copy `copy` of the set `placement` spawned.
+    pub(crate) fn copy_entities(&self, placement: usize, copy: usize) -> Option<&[Entity]> {
+        Some(&self.build_of(placement)?.drawn(copy)?.entities)
+    }
+
+    /// Where `copy`, a copy of the set `placement`, stands in the world as
+    /// the set would draw it on `ground`: drawn or not, as the record has
+    /// it now.
+    pub(crate) fn stand(
+        &self,
+        placement: usize,
+        copy: &crate::pds::InstanceCopy,
+        ground: Option<&bevy_symbios_ground::HeightMap>,
+    ) -> Option<Transform> {
+        Some(self.build_of(placement)?.stand_world(copy, ground))
+    }
+
+    /// The box variant `variant` of the set `placement` fills, in a copy's
+    /// frame, once it is baked.
+    pub(crate) fn variant_bounds(&self, placement: usize, variant: usize) -> Option<(Vec3, Vec3)> {
+        self.build_of(placement)?.variant_bounds(variant)
+    }
+
+    /// Where the set `placement`'s anchor stands, as the compile stood it.
+    pub(crate) fn anchor_of(&self, placement: usize) -> Option<Transform> {
+        Some(self.build_of(placement)?.anchor())
+    }
+
+    fn build_of(&self, placement: usize) -> Option<&build::Build> {
+        self.builds
+            .iter()
+            .find(|build| build.placement() == placement)
+    }
+}
+
+/// How far along the ray from `origin` along `direction` it enters the box
+/// `(lo, hi)`, in steps of `direction`: `None` where it misses, the box lies
+/// behind it, or it starts inside the box and so enters it nowhere. How a
+/// click finds a copy drawn merged (#1590, #1644): its meshes keep no copy
+/// on the CPU for a mesh ray to read, and a box takes a tree's crown as
+/// well as its trunk.
+pub(crate) fn ray_box_distance(
+    origin: Vec3,
+    direction: Vec3,
+    (lo, hi): (Vec3, Vec3),
+) -> Option<f32> {
+    let step = direction.recip();
+    let (t0, t1) = ((lo - origin) * step, (hi - origin) * step);
+    let enter = t0.min(t1).max_element();
+    let leave = t0.max(t1).min_element();
+    (enter >= 0.0 && leave >= enter).then_some(enter)
 }
 
 /// Strip from a tree drawn merged what it only costs: every sound, every
@@ -135,18 +223,23 @@ fn kept_afar(kind: &GeneratorKind) -> bool {
 /// Register the spawner: the game's world builder and the headless render
 /// tool's compile both draw sets.
 pub(crate) fn register(app: &mut App) {
-    app.init_resource::<InstanceBuilds>().add_systems(
-        Update,
-        (start_instance_builds, spawn_instances)
-            .chain()
-            .run_if(resource_exists::<LiveRoomRecord>),
-    );
+    app.init_resource::<InstanceBuilds>()
+        // Where a variant that draws nothing says why (#1644): the game's
+        // own, and the render tool's, which keeps none otherwise.
+        .init_resource::<crate::world_builder::grammar_diag::GrammarDiagnostics>()
+        .add_systems(
+            Update,
+            (start_instance_builds, spawn_instances)
+                .chain()
+                .run_if(resource_exists::<LiveRoomRecord>),
+        );
 }
 
 /// Turn each anchor the compile spawned since the last frame into a build,
 /// and drop the builds whose anchors are gone.
 fn start_instance_builds(
     mut builds: ResMut<InstanceBuilds>,
+    mut diagnostics: ResMut<crate::world_builder::grammar_diag::GrammarDiagnostics>,
     record: Res<LiveRoomRecord>,
     added: Query<(Entity, &PlacementUnit, &Transform), Added<InstanceSetRoot>>,
     roots: Query<(), With<InstanceSetRoot>>,
@@ -162,14 +255,7 @@ fn start_instance_builds(
         return;
     }
     let record = &record.0;
-    let copies_in_room: usize = record
-        .placements
-        .iter()
-        .map(|placement| match placement {
-            Placement::Instances { copies, .. } => copies.len(),
-            _ => 0,
-        })
-        .sum();
+    let copies_in_room = crate::pds::instances::room_copies(record);
     for (root, unit, anchor) in &added {
         let Some(placement) = record.placements.get(unit.0) else {
             continue;
@@ -183,15 +269,55 @@ fn start_instance_builds(
         ) else {
             continue;
         };
+        diagnostics.forget_variants_of(unit.0);
         builds.builds.push(build);
     }
 }
 
-/// Advance the builds, a slice a frame (see the module docs).
+/// Follow each drawn set's copies as the record changes them (#1644): in
+/// place where it can, else built anew under the same anchor. A set whose
+/// unit changed is left alone - the compile builds it anew, anchor and all.
+fn follow_copies(
+    builds: &mut [build::Build],
+    record: &crate::pds::RoomRecord,
+    commands: &mut Commands,
+    ground: Option<&bevy_symbios_ground::HeightMap>,
+    caches: &mut crate::world_builder::compile::GeneratorCaches,
+) {
+    let copies_in_room = crate::pds::instances::room_copies(record);
+    for build in builds.iter_mut() {
+        let Some(placement) = record.placements.get(build.placement()) else {
+            continue;
+        };
+        let Placement::Instances { copies, .. } = placement else {
+            continue;
+        };
+        if !build.draws_unit_of(record, placement) {
+            continue;
+        }
+        if let build::Followed::Rebuild = build.follow(copies, commands, ground, copies_in_room) {
+            build.take_down(commands, caches);
+            if let Some(fresh) = build::Build::new(
+                record,
+                (build.placement(), placement),
+                (build.root(), build.anchor()),
+                ground,
+                copies_in_room,
+            ) {
+                *build = fresh;
+            }
+        }
+    }
+}
+
+/// Advance the builds, a slice a frame (see the module docs), after
+/// following what the record's copies did.
 #[allow(clippy::too_many_arguments)]
 fn spawn_instances(
     mut commands: Commands,
     mut builds: ResMut<InstanceBuilds>,
+    mut diagnostics: ResMut<crate::world_builder::grammar_diag::GrammarDiagnostics>,
+    record: Res<LiveRoomRecord>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
@@ -201,6 +327,24 @@ fn spawn_instances(
     wind_materials: Option<Res<Assets<crate::wind::VegetationWindMaterial>>>,
 ) {
     let started = Instant::now();
+    if record.is_changed() {
+        let ground = deps.heightmap.as_deref().map(|heightmap| &heightmap.0);
+        follow_copies(
+            &mut builds.builds,
+            &record.0,
+            &mut commands,
+            ground,
+            &mut deps.caches,
+        );
+    }
+    // Each build done says once what its variants drew - or why not.
+    for build in &mut builds.builds {
+        if let Some(failures) = build.report_failures() {
+            for (variant, failure) in failures {
+                diagnostics.record_variant((build.placement(), variant), failure);
+            }
+        }
+    }
     if builds.is_idle() {
         return;
     }
@@ -248,16 +392,17 @@ pub(crate) fn far_material() -> StandardMaterial {
     }
 }
 
+/// The app the spawner's tests draw sets in, shared with the editor's
+/// copy tests (#1644).
 #[cfg(test)]
-mod tests {
+pub(crate) mod test_support {
     use super::*;
     use crate::pds::{InstanceCopy, InstanceSolid, RoomRecord, TransformData};
     use crate::water::{WaterMaterial, WaterSurfaces};
-    use avian3d::prelude::Collider;
 
     /// The resources the spawner reaches, as the compile's own test app has
     /// them, with no renderer; the record holding `sets` of a cuboid.
-    fn instances_app(sets: Vec<Vec<InstanceCopy>>) -> App {
+    pub(crate) fn instances_app(sets: Vec<Vec<InstanceCopy>>) -> App {
         let mut record = RoomRecord::default();
         record.generators.clear();
         record.placements.clear();
@@ -304,7 +449,7 @@ mod tests {
     }
 
     /// The anchor the compile spawns for the set `index`.
-    fn anchor(app: &mut App, index: usize) -> Entity {
+    pub(crate) fn anchor(app: &mut App, index: usize) -> Entity {
         app.world_mut()
             .spawn((
                 InstanceSetRoot,
@@ -315,7 +460,7 @@ mod tests {
             .id()
     }
 
-    fn run_to_idle(app: &mut App) {
+    pub(crate) fn run_to_idle(app: &mut App) {
         for _ in 0..200 {
             app.update();
             if app.world().resource::<InstanceBuilds>().is_idle() {
@@ -324,6 +469,14 @@ mod tests {
         }
         panic!("the sets are not drawn in 200 frames");
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::test_support::{anchor, instances_app, run_to_idle};
+    use super::*;
+    use crate::pds::{InstanceCopy, InstanceVariant};
+    use avian3d::prelude::Collider;
 
     /// Each copy of a set is drawn from its variant's merged parts where the
     /// record stands it, on its shell, every entity naming the copy; the
@@ -422,6 +575,222 @@ mod tests {
             .filter_map(|child| world.get::<crate::world_builder::draw_distance::SizeClass>(child))
             .count();
         assert_eq!(stamped, 1, "a metre post is ground cover's size");
+    }
+
+    /// The entities each copy of the set under `root` drew, by its number.
+    fn copies_drawn(app: &mut App, root: Entity) -> std::collections::BTreeMap<usize, Vec<Entity>> {
+        let world = app.world_mut();
+        let mut drawn: std::collections::BTreeMap<usize, Vec<Entity>> = Default::default();
+        for child in world.get::<Children>(root).expect("copies").iter() {
+            if let Some(copy) = world.get::<InstanceCopyOf>(child) {
+                drawn.entry(copy.copy).or_default().push(child);
+            }
+        }
+        drawn
+    }
+
+    fn set_copies(app: &mut App, index: usize, now: Vec<InstanceCopy>) {
+        let mut record = app.world_mut().resource_mut::<LiveRoomRecord>();
+        let Placement::Instances { copies, .. } = &mut record.0.placements[index] else {
+            panic!("a set");
+        };
+        *copies = now;
+    }
+
+    /// #1644: a drawn set follows its copies in place. Deleting the first
+    /// copy and moving the third keeps the second's entities - renumbered
+    /// first - takes the first's away, and draws the third anew where it
+    /// was moved to, nothing else.
+    #[test]
+    fn a_copy_moved_or_deleted_redraws_that_copy_alone() {
+        let copies = vec![
+            InstanceCopy::at(0.0, 0.0, 0.0),
+            InstanceCopy::at(5.0, 0.0, 0.0),
+            InstanceCopy::at(10.0, 0.0, 0.0),
+        ];
+        let mut app = instances_app(vec![copies.clone()]);
+        let root = anchor(&mut app, 0);
+        run_to_idle(&mut app);
+        let before = copies_drawn(&mut app, root);
+        assert_eq!(before.len(), 3);
+        set_copies(
+            &mut app,
+            0,
+            vec![copies[1], InstanceCopy::at(10.0, 0.0, 40.0)],
+        );
+        run_to_idle(&mut app);
+        let after = copies_drawn(&mut app, root);
+        assert_eq!(after.len(), 2, "{after:?}");
+        assert_eq!(after[&0], before[&1], "the second copy kept its entities");
+        assert!(
+            after[&1].iter().all(|e| !before[&2].contains(e)),
+            "the moved copy is drawn anew"
+        );
+        let world = app.world();
+        for gone in before[&0].iter().chain(&before[&2]) {
+            assert!(world.get_entity(*gone).is_err(), "{gone} was taken away");
+        }
+        let moved = after[&1]
+            .iter()
+            .find_map(|e| world.get::<Mesh3d>(*e).and(world.get::<Transform>(*e)))
+            .expect("a drawn part");
+        assert!(
+            moved
+                .translation
+                .abs_diff_eq(Vec3::new(10.0, 0.0, 0.0), 1e-5),
+            "{moved:?}"
+        );
+        let builds = app.world().resource::<InstanceBuilds>();
+        assert_eq!(
+            builds.copy_pose(0, 1).map(|p| p
+                .rotation
+                .abs_diff_eq(InstanceCopy::at(0.0, 0.0, 40.0).rotation(), 1e-6)),
+            Some(true)
+        );
+    }
+
+    /// A set grown in place takes its share of the room's budgets anew: one
+    /// copy beside a set of fifty grown to fifty draws on half the room's,
+    /// not the fifty-first part it was built with, and every copy it gained
+    /// is drawn.
+    #[test]
+    fn a_set_grown_in_place_takes_its_share_anew() {
+        let mut app = instances_app(vec![
+            vec![InstanceCopy::at(0.0, 0.0, 0.0)],
+            vec![InstanceCopy::at(0.0, 20.0, 0.0); 50],
+        ]);
+        let root = anchor(&mut app, 0);
+        anchor(&mut app, 1);
+        run_to_idle(&mut app);
+        let grown = (0..50)
+            .map(|i| InstanceCopy::at(i as f32, 0.0, 0.0))
+            .collect();
+        set_copies(&mut app, 0, grown);
+        run_to_idle(&mut app);
+        let builds = app.world().resource::<InstanceBuilds>();
+        let set = builds
+            .builds
+            .iter()
+            .find(|build| build.placement() == 0)
+            .expect("the grown set");
+        assert_eq!(set.budgets(), (ROOM_NEAR_ENTITIES / 2, ROOM_FAR_COPIES / 2));
+        assert_eq!(copies_drawn(&mut app, root).len(), 50);
+    }
+
+    /// A copy of a variant no copy drew before cannot be drawn in place -
+    /// its variant was never grown - so the set is built anew, all of it.
+    #[test]
+    fn a_new_copy_of_a_variant_never_grown_builds_the_set_anew() {
+        let mut app = instances_app(vec![vec![InstanceCopy::at(0.0, 0.0, 0.0)]]);
+        if let Placement::Instances { variants, .. } = &mut app
+            .world_mut()
+            .resource_mut::<LiveRoomRecord>()
+            .0
+            .placements[0]
+        {
+            *variants = vec![
+                InstanceVariant::default(),
+                InstanceVariant {
+                    seed: Some(9),
+                    params: Default::default(),
+                },
+            ];
+        }
+        let root = anchor(&mut app, 0);
+        run_to_idle(&mut app);
+        assert_eq!(app.world().resource::<InstanceBuilds>().forms.len(), 1);
+        set_copies(
+            &mut app,
+            0,
+            vec![
+                InstanceCopy::at(0.0, 0.0, 0.0),
+                InstanceCopy {
+                    variant: 1,
+                    ..InstanceCopy::at(4.0, 0.0, 0.0)
+                },
+            ],
+        );
+        run_to_idle(&mut app);
+        assert_eq!(copies_drawn(&mut app, root).len(), 2);
+        assert_eq!(app.world().resource::<InstanceBuilds>().forms.len(), 2);
+    }
+
+    /// #1644: a ray from above picks the copy whose baked box it enters
+    /// first, of those kept; one starting inside a box picks through it.
+    #[test]
+    fn a_ray_picks_the_copy_whose_box_it_enters() {
+        let mut app = instances_app(vec![vec![
+            InstanceCopy::at(0.0, 0.0, 0.0),
+            InstanceCopy::at(5.0, 0.0, 0.0),
+        ]]);
+        anchor(&mut app, 0);
+        run_to_idle(&mut app);
+        let builds = app.world().resource::<InstanceBuilds>();
+        let down_at = |x: f32, y: f32| Ray3d::new(Vec3::new(x, y, 0.0), Dir3::NEG_Y);
+        let all = |_: (usize, usize)| true;
+        let (picked, distance) = builds.pick(down_at(5.0, 10.0), &all).expect("a pick");
+        assert_eq!(picked, (0, 1));
+        assert!(distance > 8.0 && distance < 10.0, "{distance}");
+        assert!(
+            builds
+                .pick(down_at(5.0, 10.0), &|copy| copy != (0, 1))
+                .is_none()
+        );
+        assert!(
+            builds.pick(down_at(2.5, 10.0), &all).is_none(),
+            "between them"
+        );
+        assert!(
+            builds.pick(down_at(0.0, 0.0), &all).is_none(),
+            "a ray starting inside the box"
+        );
+    }
+
+    /// #1644: a variant whose values break its grammar draws nothing, and
+    /// says why where the set's section reads it; the variant beside it
+    /// draws.
+    #[test]
+    fn a_variant_that_draws_nothing_says_why() {
+        let mut app = instances_app(vec![vec![
+            InstanceCopy::at(0.0, 0.0, 0.0),
+            InstanceCopy {
+                variant: 1,
+                ..InstanceCopy::at(4.0, 0.0, 0.0)
+            },
+        ]]);
+        let wide: crate::pds::Generator = serde_json::from_value(serde_json::json!({
+            "$type": "network.symbios.gen.shape",
+            "grammar_source": "attr W = 1\nLot --> Size(W, 1, 1) I(\"Block\")",
+            "root_rule": "Lot",
+            "footprint": [10_000, 10_000, 10_000],
+            "seed": "5",
+        }))
+        .expect("a Shape node");
+        {
+            let mut record = app.world_mut().resource_mut::<LiveRoomRecord>();
+            record.0.generators.insert("post".into(), wide);
+            if let Placement::Instances { variants, .. } = &mut record.0.placements[0] {
+                *variants = vec![
+                    InstanceVariant::default(),
+                    InstanceVariant {
+                        seed: None,
+                        params: crate::pds::GrammarParams(std::collections::BTreeMap::from([(
+                            "W".to_string(),
+                            crate::pds::Fp(-1.0),
+                        )])),
+                    },
+                ];
+            }
+        }
+        anchor(&mut app, 0);
+        run_to_idle(&mut app);
+        app.update();
+        let diagnostics = app
+            .world()
+            .resource::<crate::world_builder::grammar_diag::GrammarDiagnostics>();
+        assert_eq!(diagnostics.variant_failure(0, 0), None);
+        let failure = diagnostics.variant_failure(0, 1).expect("it says why");
+        assert!(failure.contains("derivation"), "{failure}");
     }
 
     /// A second set of the same generator draws from the forms the first

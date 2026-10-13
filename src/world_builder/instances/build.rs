@@ -1,7 +1,14 @@
 //! One instance set being drawn (#1643): its copies stood where the record
 //! puts them and ordered nearest the landing first, its variants' templates
 //! grown and baked, and its copies spawned (see the module docs).
+//!
+//! A drawn set follows its record's copies without being drawn again
+//! (#1644): when they change, each copy is matched to one of the same
+//! numbers it drew before, which keeps its entities - renumbered where a
+//! copy before it went - and the rest are taken away or queued to be
+//! drawn, so moving or deleting one copy redraws that copy alone.
 
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use avian3d::prelude::Collider;
@@ -10,7 +17,7 @@ use bevy::ecs::system::EntityCommands;
 use bevy::platform::time::Instant;
 use bevy::prelude::*;
 
-use crate::pds::{Generator, InstanceSolid, InstanceVariant, Placement, RoomRecord};
+use crate::pds::{Generator, InstanceCopy, InstanceSolid, InstanceVariant, Placement, RoomRecord};
 use crate::player::visuals::AvatarSpawnDeps;
 use crate::world_builder::avatar_spawn::{detached_record, spawn_detached_tree};
 use crate::world_builder::draw_distance::{DrawDistanceCuts, SizeClass};
@@ -105,6 +112,111 @@ struct Stood {
     variant: usize,
 }
 
+/// What one drawn copy cost its set's budgets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Cost {
+    /// Near, this many entities.
+    Near(u32),
+    /// Far: one of the set's far copies.
+    Far,
+}
+
+/// One copy as drawn: where it stands under the anchor, its variant, every
+/// entity it spawned and what it cost.
+pub(super) struct DrawnCopy {
+    pub pose: Transform,
+    pub variant: usize,
+    pub entities: Vec<Entity>,
+    cost: Cost,
+}
+
+/// What a set's copies changing did to its build.
+pub(super) enum Followed {
+    /// The copies are the ones it draws, or it now draws them.
+    Done,
+    /// It cannot follow them in place - it is still being drawn, or a copy
+    /// draws a variant it never grew - and is to be built again.
+    Rebuild,
+}
+
+/// A copy stood where the record puts it: its pose under the anchor, and
+/// where it stands in the world. On the ground under it, where the set
+/// snaps, raised by its own `y`.
+fn stand(
+    anchor: &Transform,
+    snap: bool,
+    ground: Option<&bevy_symbios_ground::HeightMap>,
+    copy: &InstanceCopy,
+) -> (Transform, Vec3) {
+    let [x, y, z] = copy.position();
+    let on_plan = anchor.translation + anchor.rotation * Vec3::new(x, 0.0, z);
+    let world_y = match (snap, ground) {
+        (true, Some(ground)) => {
+            crate::world_builder::snapped_ground_y(ground, on_plan.x, on_plan.z, None) + y
+        }
+        (true, None) => y,
+        (false, _) => (anchor.translation + anchor.rotation * Vec3::new(x, y, z)).y,
+    };
+    let world = Vec3::new(on_plan.x, world_y, on_plan.z);
+    let pose = Transform {
+        translation: anchor.rotation.inverse() * (world - anchor.translation),
+        rotation: copy.rotation(),
+        scale: Vec3::splat(copy.scale()),
+    };
+    (pose, world)
+}
+
+/// Why a variant of `tree` draws nothing (#1644): the first of its Shape
+/// nodes whose grammar, with the variant's seed and values, refuses or
+/// derives nothing - or, with none, that it draws nothing.
+fn why_nothing(tree: &Generator, variant: &InstanceVariant) -> String {
+    let mut nodes = vec![tree];
+    while let Some(node) = nodes.pop() {
+        nodes.extend(node.children.iter().rev());
+        if let Some(def) = node.kind.shape_def()
+            && let Err(underived) = def.variant(variant.seed, Some(&variant.params)).derive()
+        {
+            return underived.message().to_owned();
+        }
+    }
+    "it draws nothing".to_owned()
+}
+
+/// What a set is drawn from, but its copies: a change here is a change the
+/// compile builds the set's unit anew for (its fingerprint), not one the
+/// build follows in place.
+fn unit_key(record: &RoomRecord, placement: &Placement) -> u64 {
+    let unit = match placement {
+        Placement::Instances {
+            generator_ref,
+            transform,
+            snap_to_terrain,
+            solid,
+            variants,
+            ..
+        } => serde_json::json!({
+            "generator": record.generators.get(generator_ref),
+            "generator_ref": generator_ref,
+            "transform": transform,
+            "snap": snap_to_terrain,
+            "solid": solid,
+            "variants": variants,
+        }),
+        _ => serde_json::Value::Null,
+    };
+    crate::seeded_defaults::fnv1a_64(&unit.to_string())
+}
+
+/// A set's share of the room's budgets, by its `copies` among
+/// `copies_in_room`: its near entities and its far copies.
+fn share_of(copies: usize, copies_in_room: usize) -> (u32, usize) {
+    let share = copies as f64 / copies_in_room.max(copies).max(1) as f64;
+    (
+        (f64::from(ROOM_NEAR_ENTITIES) * share) as u32,
+        (ROOM_FAR_COPIES as f64 * share) as usize,
+    )
+}
+
 /// One set being drawn, or drawn.
 pub(super) struct Build {
     /// The anchor the compile spawned, which every copy hangs under.
@@ -115,8 +227,17 @@ pub(super) struct Build {
     /// The set's generator, stripped for drawing merged.
     tree: Generator,
     slots: Vec<Slot>,
-    /// Nearest the landing first.
+    /// The copies still to be drawn, nearest the landing first.
     copies: Vec<Stood>,
+    /// The record's copies as drawn, and each one's entities by its index.
+    record_copies: Vec<InstanceCopy>,
+    drawn: Vec<Option<DrawnCopy>>,
+    /// Where the compile stood the anchor, and whether the set snaps: what
+    /// a copy it is given later is stood by.
+    anchor: Transform,
+    snap: bool,
+    /// What the set is drawn from but its copies ([`unit_key`]).
+    unit: u64,
     solid: InstanceSolid,
     /// Its share of the room's budgets.
     near_budget: u32,
@@ -124,6 +245,10 @@ pub(super) struct Build {
     near_spent: u32,
     far_spent: usize,
     stage: Stage,
+    /// Whether its first drawing has been told to the log.
+    announced: bool,
+    /// Whether its variants' failures have been reported.
+    reported: bool,
 }
 
 impl Build {
@@ -179,22 +304,7 @@ impl Build {
                 let variant = usize::try_from(copy.variant).ok()?;
                 let slot = slots.get_mut(variant)?;
                 slot.drawn = true;
-                let [x, y, z] = copy.position();
-                let on_plan = anchor.translation + anchor.rotation * Vec3::new(x, 0.0, z);
-                let world_y = match (snap_to_terrain, ground) {
-                    (true, Some(ground)) => {
-                        crate::world_builder::snapped_ground_y(ground, on_plan.x, on_plan.z, None)
-                            + y
-                    }
-                    (true, None) => y,
-                    (false, _) => (anchor.translation + anchor.rotation * Vec3::new(x, y, z)).y,
-                };
-                let world = Vec3::new(on_plan.x, world_y, on_plan.z);
-                let pose = Transform {
-                    translation: anchor.rotation.inverse() * (world - anchor.translation),
-                    rotation: copy.rotation(),
-                    scale: Vec3::splat(copy.scale()),
-                };
+                let (pose, world) = stand(&anchor, *snap_to_terrain, ground, copy);
                 let distance = (Vec2::new(world.x, world.z) - landing).length_squared();
                 Some((
                     distance,
@@ -209,7 +319,7 @@ impl Build {
         // Stable: copies as far from the landing keep the record's order,
         // so every peer draws the same ones near.
         stood.sort_by(|(a, _), (b, _)| a.total_cmp(b));
-        let share = copies.len() as f64 / copies_in_room.max(copies.len()).max(1) as f64;
+        let (near_budget, far_budget) = share_of(copies.len(), copies_in_room);
         Some(Build {
             root,
             placement: index,
@@ -217,9 +327,14 @@ impl Build {
             tree,
             slots,
             copies: stood.into_iter().map(|(_, stood)| stood).collect(),
+            record_copies: copies.clone(),
+            drawn: copies.iter().map(|_| None).collect(),
+            anchor,
+            snap: *snap_to_terrain,
+            unit: unit_key(record, placement),
             solid: solid.clone(),
-            near_budget: (f64::from(ROOM_NEAR_ENTITIES) * share) as u32,
-            far_budget: (ROOM_FAR_COPIES as f64 * share) as usize,
+            near_budget,
+            far_budget,
             near_spent: 0,
             far_spent: 0,
             stage: if copies.is_empty() {
@@ -227,6 +342,8 @@ impl Build {
             } else {
                 Stage::Templates(0)
             },
+            announced: false,
+            reported: false,
         })
     }
 
@@ -240,6 +357,12 @@ impl Build {
     pub(super) fn set_budgets(&mut self, near_entities: u32, far_copies: usize) {
         self.near_budget = near_entities;
         self.far_budget = far_copies;
+    }
+
+    /// Its budgets: near entities and far copies.
+    #[cfg(test)]
+    pub(super) fn budgets(&self) -> (u32, usize) {
+        (self.near_budget, self.far_budget)
     }
 
     /// Whether every copy it draws is drawn.
@@ -335,16 +458,19 @@ impl Build {
                         materials,
                         wind_materials,
                     );
-                    let form = Form::from_baked(baked, meshes);
+                    let mut form = Form::from_baked(baked, meshes);
+                    if !form.draws() {
+                        form.failure = Some(why_nothing(&self.tree, &self.slots[v].variant));
+                    }
                     let slot = &mut self.slots[v];
                     // Merged, its forms hold all it draws; drawn whole, its
                     // copies are grown from the caches each time.
                     if form.near.is_some() {
                         forget_template(&mut deps.caches, &template_key(slot.key));
                     }
-                    if !form.draws() {
+                    if let Some(failure) = &form.failure {
                         warn!(
-                            "instances #{} ({}): variant {v} draws nothing",
+                            "instances #{} ({}): variant {v} draws nothing: {failure}",
                             self.placement, self.generator_ref
                         );
                     }
@@ -359,26 +485,34 @@ impl Build {
                         return;
                     }
                     slice.copies -= 1;
-                    self.spawn_copy(
-                        c,
+                    let stood = self.copies[c];
+                    let drawn = self.spawn_copy(
+                        stood,
                         commands,
                         (&mut *meshes, &mut *materials, &mut *images),
                         deps,
                         far_material,
                         cuts,
                     );
+                    if let Some(slot) = self.drawn.get_mut(stood.index) {
+                        *slot = drawn;
+                    }
                     self.stage = Stage::Copies(c + 1);
                 }
                 Stage::Copies(_) => {
-                    info!(
-                        "instances #{} ({}): {} near entities, {} far copies, of {} copies from {} variants",
-                        self.placement,
-                        self.generator_ref,
-                        self.near_spent,
-                        self.far_spent,
-                        self.copies.len(),
-                        self.slots.iter().filter(|slot| slot.drawn).count()
-                    );
+                    if !self.announced {
+                        info!(
+                            "instances #{} ({}): {} near entities, {} far copies, of {} copies from {} variants",
+                            self.placement,
+                            self.generator_ref,
+                            self.near_spent,
+                            self.far_spent,
+                            self.record_copies.len(),
+                            self.slots.iter().filter(|slot| slot.drawn).count()
+                        );
+                        self.announced = true;
+                    }
+                    self.copies.clear();
                     self.stage = Stage::Done;
                 }
                 Stage::Done => return,
@@ -386,12 +520,12 @@ impl Build {
         }
     }
 
-    /// Spawn copy `c`: near while the set's budget lasts, else far where it
-    /// is big enough to be seen far and the far budget lasts, and its
-    /// collider where it drew anything.
+    /// Spawn the copy `stood`: near while the set's budget lasts, else far
+    /// where it is big enough to be seen far and the far budget lasts, and
+    /// its collider where it drew anything. What it drew, or `None`.
     fn spawn_copy(
         &mut self,
-        c: usize,
+        stood: Stood,
         commands: &mut Commands,
         (meshes, materials, images): (
             &mut Assets<Mesh>,
@@ -401,16 +535,15 @@ impl Build {
         deps: &mut AvatarSpawnDeps,
         far_material: &Handle<StandardMaterial>,
         cuts: Option<&DrawDistanceCuts>,
-    ) {
+    ) -> Option<DrawnCopy> {
         let Stood {
             index,
             pose,
             variant,
-        } = self.copies[c];
+        } = stood;
         let slot = &mut self.slots[variant];
-        let Some(form) = slot.form.clone().filter(|form| form.draws()) else {
-            return;
-        };
+        let form = slot.form.clone().filter(|form| form.draws())?;
+        let mut entities = Vec::new();
         let tag = InstanceCopyOf {
             placement: self.placement,
             copy: index,
@@ -431,7 +564,7 @@ impl Build {
             }),
         };
         let root = self.root;
-        let drawn = if self.near_spent.saturating_add(near_cost) <= self.near_budget {
+        let cost = if self.near_spent.saturating_add(near_cost) <= self.near_budget {
             let spent = match &form.near {
                 Some(parts) => {
                     for (mesh, material, sway) in parts {
@@ -446,6 +579,7 @@ impl Build {
                             part.insert(*sway);
                         }
                         stamp(&mut part, cut.clone());
+                        entities.push(part.id());
                     }
                     near_cost
                 }
@@ -478,33 +612,254 @@ impl Build {
                     );
                     if let Some(whole) = whole {
                         commands.entity(whole).insert(tag);
+                        entities.push(whole);
                     }
                     slot.whole_cost = Some(spent);
                     spent
                 }
             };
             self.near_spent += spent;
-            true
+            Cost::Near(spent)
         } else if class.is_none()
             && self.far_spent < self.far_budget
             && let Some(far) = form.far.clone()
         {
-            commands.spawn((
-                Mesh3d(far),
-                MeshMaterial3d(far_material.clone()),
-                pose,
-                bevy::light::NotShadowCaster,
-                tag,
-                ChildOf(root),
-            ));
+            entities.push(
+                commands
+                    .spawn((
+                        Mesh3d(far),
+                        MeshMaterial3d(far_material.clone()),
+                        pose,
+                        bevy::light::NotShadowCaster,
+                        tag,
+                        ChildOf(root),
+                    ))
+                    .id(),
+            );
             self.far_spent += 1;
-            true
+            Cost::Far
         } else {
-            false
+            return None;
         };
-        if drawn && let Some((collider, at)) = collider(&self.solid, &form, pose) {
-            commands.spawn((collider, at, tag, ChildOf(root)));
+        if let Some((collider, at)) = collider(&self.solid, &form, pose) {
+            entities.push(commands.spawn((collider, at, tag, ChildOf(root))).id());
         }
+        Some(DrawnCopy {
+            pose,
+            variant,
+            entities,
+            cost,
+        })
+    }
+
+    /// Despawn a drawn copy's entities and give back what it cost.
+    fn take_back(&mut self, drawn: DrawnCopy, commands: &mut Commands) {
+        for entity in drawn.entities {
+            commands.entity(entity).try_despawn();
+        }
+        match drawn.cost {
+            Cost::Near(spent) => self.near_spent = self.near_spent.saturating_sub(spent),
+            Cost::Far => self.far_spent = self.far_spent.saturating_sub(1),
+        }
+    }
+
+    /// Whether the set `placement` of `record` is still the one this build
+    /// draws, but for its copies: else the compile builds its unit anew.
+    pub(super) fn draws_unit_of(&self, record: &RoomRecord, placement: &Placement) -> bool {
+        self.unit == unit_key(record, placement)
+    }
+
+    /// Follow the record's copies `now` (see the module docs): each kept
+    /// where its numbers are unchanged, renumbered where it moved up the
+    /// list, taken away where it is gone, and queued to be drawn where it
+    /// is new or changed - each stood on `ground` as a copy is - with the
+    /// set's budgets its share again, by its copies among `copies_in_room`.
+    pub(super) fn follow(
+        &mut self,
+        now: &[InstanceCopy],
+        commands: &mut Commands,
+        ground: Option<&bevy_symbios_ground::HeightMap>,
+        copies_in_room: usize,
+    ) -> Followed {
+        if self.record_copies.as_slice() == now {
+            return Followed::Done;
+        }
+        if self.stage != Stage::Done {
+            return Followed::Rebuild;
+        }
+        // Each copy as drawn, by its numbers, earliest first: a copy keeps
+        // the entities of the first one of its numbers not yet taken.
+        let mut before: HashMap<InstanceCopy, VecDeque<usize>> = HashMap::new();
+        for (i, copy) in self.record_copies.iter().enumerate() {
+            before.entry(*copy).or_default().push_back(i);
+        }
+        let matched: Vec<Option<usize>> = now
+            .iter()
+            .map(|copy| before.get_mut(copy).and_then(VecDeque::pop_front))
+            .collect();
+        // A new copy of a variant never grown cannot be drawn in place.
+        let ungrown = now.iter().zip(&matched).any(|(copy, kept)| {
+            kept.is_none()
+                && usize::try_from(copy.variant)
+                    .ok()
+                    .and_then(|v| self.slots.get(v))
+                    .is_some_and(|slot| slot.form.is_none())
+        });
+        if ungrown {
+            return Followed::Rebuild;
+        }
+        let mut old = std::mem::take(&mut self.drawn);
+        let mut queue = Vec::new();
+        let drawn: Vec<Option<DrawnCopy>> = now
+            .iter()
+            .zip(matched)
+            .enumerate()
+            .map(|(j, (copy, kept))| match kept {
+                Some(i) => {
+                    let kept = old[i].take();
+                    if i != j
+                        && let Some(kept) = &kept
+                    {
+                        let tag = InstanceCopyOf {
+                            placement: self.placement,
+                            copy: j,
+                        };
+                        for entity in &kept.entities {
+                            commands.entity(*entity).try_insert(tag);
+                        }
+                    }
+                    kept
+                }
+                None => {
+                    if let Some(variant) = usize::try_from(copy.variant)
+                        .ok()
+                        .filter(|v| *v < self.slots.len())
+                    {
+                        let (pose, _) = stand(&self.anchor, self.snap, ground, copy);
+                        queue.push(Stood {
+                            index: j,
+                            pose,
+                            variant,
+                        });
+                    }
+                    None
+                }
+            })
+            .collect();
+        for gone in old.iter_mut().filter_map(Option::take) {
+            self.take_back(gone, commands);
+        }
+        self.drawn = drawn;
+        self.record_copies = now.to_vec();
+        (self.near_budget, self.far_budget) = share_of(now.len(), copies_in_room);
+        if !queue.is_empty() {
+            self.copies = queue;
+            self.stage = Stage::Copies(0);
+        }
+        Followed::Done
+    }
+
+    /// Despawn everything it drew and every template it grew, and drop what
+    /// a template not yet baked left in `caches`: before it is built anew
+    /// under the same anchor.
+    pub(super) fn take_down(
+        &mut self,
+        commands: &mut Commands,
+        caches: &mut crate::world_builder::compile::GeneratorCaches,
+    ) {
+        for drawn in self.drawn.iter_mut().filter_map(Option::take) {
+            for entity in drawn.entities {
+                commands.entity(entity).try_despawn();
+            }
+        }
+        for slot in &mut self.slots {
+            if let Some(template) = slot.template.take() {
+                commands.entity(template).try_despawn();
+                forget_template(caches, &template_key(slot.key));
+            }
+        }
+    }
+
+    /// Its placement's index.
+    pub(super) fn placement(&self) -> usize {
+        self.placement
+    }
+
+    /// Each grown variant with why it draws nothing, or `None` where it
+    /// draws - once, the first time its build is done (#1644): what the
+    /// set's section says of its variants.
+    pub(super) fn report_failures(&mut self) -> Option<Vec<(usize, Option<String>)>> {
+        if self.reported || self.stage != Stage::Done {
+            return None;
+        }
+        self.reported = true;
+        Some(
+            self.slots
+                .iter()
+                .enumerate()
+                .filter_map(|(v, slot)| Some((v, slot.form.as_ref()?.failure.clone())))
+                .collect(),
+        )
+    }
+
+    /// Where the anchor stands, as the compile stood it.
+    pub(super) fn anchor(&self) -> Transform {
+        self.anchor
+    }
+
+    /// Copy `copy` as drawn, if it is.
+    pub(super) fn drawn(&self, copy: usize) -> Option<&DrawnCopy> {
+        self.drawn.get(copy)?.as_ref()
+    }
+
+    /// Where `copy` stands in the world as this set would draw it.
+    pub(super) fn stand_world(
+        &self,
+        copy: &InstanceCopy,
+        ground: Option<&bevy_symbios_ground::HeightMap>,
+    ) -> Transform {
+        let (pose, _) = stand(&self.anchor, self.snap, ground, copy);
+        self.anchor * pose
+    }
+
+    /// The box variant `variant`'s parts fill, in a copy's frame, once it
+    /// is baked.
+    pub(super) fn variant_bounds(&self, variant: usize) -> Option<(Vec3, Vec3)> {
+        self.slots.get(variant)?.form.as_ref()?.bounds
+    }
+
+    /// The nearest drawn copy whose baked box `ray` enters, and how far
+    /// along it (#1644): what a click in the World Editor may pick. A box
+    /// the ray starts in is not one it enters: a camera under a crown picks
+    /// through it.
+    pub(super) fn pick(&self, ray: Ray3d, keep: &dyn Fn(usize) -> bool) -> Option<(usize, f32)> {
+        let mut nearest: Option<(usize, f32)> = None;
+        for (c, drawn) in self.drawn.iter().enumerate() {
+            let Some(drawn) = drawn.as_ref().filter(|_| keep(c)) else {
+                continue;
+            };
+            let Some((lo, hi)) = self.slots[drawn.variant]
+                .form
+                .as_ref()
+                .and_then(|form| form.bounds)
+            else {
+                continue;
+            };
+            // The ray in the copy's frame, where its box is: the same
+            // distance along it, the map being affine.
+            let to_copy = (self.anchor * drawn.pose).compute_affine().inverse();
+            let hit = super::ray_box_distance(
+                to_copy.transform_point3(ray.origin),
+                to_copy.transform_vector3(*ray.direction),
+                (lo, hi),
+            );
+            if let Some(distance) = hit
+                && nearest.is_none_or(|(_, d)| distance < d)
+            {
+                nearest = Some((c, distance));
+            }
+        }
+        nearest
     }
 }
 
@@ -674,6 +1029,7 @@ mod tests {
             bounds: Some(bounds),
             base,
             shell: None,
+            failure: None,
         }
     }
 

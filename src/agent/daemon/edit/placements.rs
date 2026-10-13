@@ -29,6 +29,7 @@ use bevy_symbios_multiuser::auth::AtprotoSession;
 use serde_json::{Value, json};
 
 use crate::catalogue::by_slug;
+use crate::editor_gizmo::copy::InstanceCopyProxy;
 use crate::pds::inventory::is_drop_placeable;
 use crate::pds::{Fp4, Generator, GeneratorKind, Placement, RoomRecord, ScatterBounds};
 use crate::state::{CurrentRoomDid, LiveRoomRecord};
@@ -172,10 +173,11 @@ fn generator_ref(placement: &Placement) -> Option<&str> {
 }
 
 /// The pose each placement is drawn at, by index: the anchor every drawn
-/// placement hangs from, as the gizmo finds it.
+/// placement hangs from, as the gizmo finds it - not a picked copy's
+/// stand-in, which carries its set's marker too (#1644).
 fn drawn_anchors(world: &mut World) -> HashMap<usize, Transform> {
     world
-        .query::<(&PlacementMarker, &Transform)>()
+        .query_filtered::<(&PlacementMarker, &Transform), Without<InstanceCopyProxy>>()
         .iter(world)
         .map(|(marker, anchor)| (marker.0, *anchor))
         .collect()
@@ -374,6 +376,127 @@ pub(super) fn remove(world: &mut World, index: usize) -> Result<Value, String> {
         "removed": { "index": index, "name": name },
         "still_placed_elsewhere": still_placed,
     }))
+}
+
+/// Move copy `copy` of the instance set `index` to (`to.x`, `to.y`) in the
+/// world (#1644): read in the set's anchor, keeping its own lift - above
+/// the ground under it, where the set snaps - and turned to `yaw_deg`
+/// clockwise when given.
+pub(super) fn move_copy(
+    world: &mut World,
+    (index, copy): (usize, usize),
+    to: Vec2,
+    yaw_deg: Option<f32>,
+) -> Result<Value, String> {
+    super::own_room(world)?;
+    if !to.is_finite() || yaw_deg.is_some_and(|yaw| !yaw.is_finite()) {
+        return Err("the point is not a number".to_owned());
+    }
+    let mut record = super::room_for_edit(world)?;
+    let (name, numbers) = copy_of(&mut record, index, copy)?;
+    let Some(Placement::Instances { transform, .. }) = record.placements.get(index) else {
+        return Err(format!("placement {index} is no instance set"));
+    };
+    let anchor = Transform::from(transform).with_scale(Vec3::ONE);
+    let local = anchor.rotation.inverse() * (Vec3::new(to.x, 0.0, to.y) - anchor.translation);
+    let mut moved = numbers;
+    // As far from the anchor as the sanitiser keeps a copy, and reported
+    // where it was written to.
+    let reach = crate::pds::sanitize::limits::MAX_INSTANCE_OFFSET_CM;
+    moved.x_cm = crate::pds::instances::centimetres(local.x).clamp(-reach, reach);
+    moved.z_cm = crate::pds::instances::centimetres(local.z).clamp(-reach, reach);
+    let [x, _, z] = moved.position();
+    let to = anchor.translation + anchor.rotation * Vec3::new(x, 0.0, z);
+    if let Some(yaw) = yaw_deg {
+        let front = anchor.rotation.inverse() * yaw_rotation(yaw) * Vec3::NEG_Z;
+        moved.yaw_ddeg =
+            crate::pds::instances::tenths_of_degree(front.x.atan2(-front.z).to_degrees());
+    }
+    if let Some(Placement::Instances { copies, .. }) = record.placements.get_mut(index) {
+        copies[copy] = moved;
+    }
+    let changed = super::write_room(world, record, format!("move of copy {copy} of {name}"))?;
+    Ok(json!({
+        "moved": {
+            "index": index,
+            "copy": copy,
+            "name": name,
+            "to": [hundredths(to.x), hundredths(to.z)],
+            "yaw_deg": yaw_deg.map(|yaw| hundredths(yaw.rem_euclid(360.0))),
+        },
+        "changed": changed,
+    }))
+}
+
+/// Take copy `copy` out of the instance set `index` (#1644): the copies
+/// after it move down one.
+pub(super) fn remove_copy(
+    world: &mut World,
+    (index, copy): (usize, usize),
+) -> Result<Value, String> {
+    let mut record = super::room_for_edit(world)?;
+    let (name, _) = copy_of(&mut record, index, copy)?;
+    let left = match record.placements.get_mut(index) {
+        Some(Placement::Instances { copies, .. }) => {
+            copies.remove(copy);
+            copies.len()
+        }
+        _ => 0,
+    };
+    super::write_room(world, record, format!("delete of copy {copy} of {name}"))?;
+    Ok(json!({
+        "removed": { "index": index, "copy": copy, "name": name },
+        "copies_left": left,
+    }))
+}
+
+/// Detach copy `copy` of the instance set `index` into an absolute
+/// placement of its own, drawn as it was (#1644,
+/// [`crate::pds::instances::detach_copy`]).
+pub(super) fn detach(world: &mut World, (index, copy): (usize, usize)) -> Result<Value, String> {
+    let mut record = super::room_for_edit(world)?;
+    let (name, _) = copy_of(&mut record, index, copy)?;
+    let placed = crate::pds::instances::detach_copy(&mut record, index, copy)?;
+    let item = record.placements[placed]
+        .generator_ref()
+        .unwrap_or_default()
+        .to_owned();
+    super::write_room(world, record, format!("detach of copy {copy} of {name}"))?;
+    Ok(json!({
+        "detached": { "index": index, "copy": copy, "name": name },
+        "placement": { "index": placed, "name": item },
+    }))
+}
+
+/// The item the instance set `index` places, and its copy `copy`'s
+/// numbers - or why there is no such copy.
+fn copy_of(
+    record: &mut crate::pds::RoomRecord,
+    index: usize,
+    copy: usize,
+) -> Result<(String, crate::pds::InstanceCopy), String> {
+    let count = record.placements.len();
+    match record.placements.get(index) {
+        None => Err(no_such(index, count)),
+        Some(Placement::Instances {
+            generator_ref,
+            copies,
+            ..
+        }) => copies
+            .get(copy)
+            .map(|numbers| (generator_ref.clone(), *numbers))
+            .ok_or_else(|| {
+                format!(
+                    "set {index} has no copy {copy}: it has {}, numbered from 0; `agent room get \
+                     /placements/{index}/copies` lists them",
+                    copies.len()
+                )
+            }),
+        Some(_) => Err(format!(
+            "placement {index} is no instance set, so it has no copies; `agent move {index}` \
+             moves it whole"
+        )),
+    }
 }
 
 fn no_such(index: usize, count: usize) -> String {
@@ -662,6 +785,76 @@ mod tests {
         assert_eq!(translation(record(&app).placements.last().unwrap())[0], 2.0);
         let why = remove(app.world_mut(), count).expect_err("refused");
         assert!(why.contains(&format!("has {}", count - 1)), "{why}");
+    }
+
+    /// #1644: a copy of an instance set is moved in the world's frame - read
+    /// in its set's turned anchor, its lift kept - removed, or detached into
+    /// a placement of its own; a copy the set lacks is refused, naming how
+    /// many it has.
+    #[test]
+    fn a_sets_copy_is_moved_removed_and_detached() {
+        use crate::pds::{InstanceCopy, InstanceSolid};
+        let (mut app, _) = app_in(AGENT);
+        let slug = placeable_slug();
+        place(app.world_mut(), slug, Some([1.0, 1.0]), None).expect("placed");
+        let index = record(&app).placements.len() - 1;
+        let name = generator_ref(&record(&app).placements[index])
+            .expect("an item")
+            .to_owned();
+        app.world_mut()
+            .resource_mut::<LiveRoomRecord>()
+            .0
+            .placements[index] = Placement::Instances {
+            generator_ref: name.clone(),
+            transform: TransformData {
+                translation: Fp3([10.0, 0.0, 0.0]),
+                rotation: Fp4(Quat::from_rotation_y(-std::f32::consts::FRAC_PI_2).to_array()),
+                ..TransformData::default()
+            },
+            snap_to_terrain: true,
+            solid: InstanceSolid::Shell,
+            variants: Vec::new(),
+            copies: vec![
+                InstanceCopy {
+                    y_cm: 20,
+                    ..InstanceCopy::at(0.0, 0.0, 0.0)
+                },
+                InstanceCopy::at(2.0, 0.0, 0.0),
+                InstanceCopy::at(4.0, 0.0, 0.0),
+            ],
+        };
+        let copies = |app: &App| match &record(app).placements[index] {
+            Placement::Instances { copies, .. } => copies.clone(),
+            other => panic!("a set, not {other:?}"),
+        };
+
+        move_copy(
+            app.world_mut(),
+            (index, 0),
+            Vec2::new(10.0, 3.0),
+            Some(90.0),
+        )
+        .expect("moved");
+        let moved = copies(&app)[0];
+        assert_eq!((moved.x_cm, moved.z_cm), (300, 0), "read in the anchor");
+        assert_eq!(moved.yaw_ddeg, 0, "the anchor's own turn");
+        assert_eq!(moved.y_cm, 20, "its lift kept");
+
+        let removed = remove_copy(app.world_mut(), (index, 1)).expect("removed");
+        assert_eq!(removed["copies_left"], 2);
+        let detached = detach(app.world_mut(), (index, 0)).expect("detached");
+        let placed = detached["placement"]["index"].as_u64().expect("an index") as usize;
+        assert_eq!(placed, record(&app).placements.len() - 1);
+        assert_eq!(copies(&app).len(), 1);
+        assert!(matches!(
+            &record(&app).placements[placed],
+            Placement::Absolute { generator_ref, .. } if *generator_ref == name
+        ));
+
+        let why = move_copy(app.world_mut(), (index, 9), Vec2::ZERO, None).expect_err("refused");
+        assert!(why.contains("has 1"), "{why}");
+        let why = remove_copy(app.world_mut(), (placed, 0)).expect_err("refused");
+        assert!(why.contains("no instance set"), "{why}");
     }
 
     /// The listing names each placement where it is drawn - and, where the

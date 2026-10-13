@@ -277,7 +277,7 @@ pub(super) fn manage_gizmo_drag(
     // Bundled with the parts-of-worn-props query (#1098) to stay under the
     // 16-parameter ceiling; that query's five `Without`s keep it disjoint
     // from every other `&mut Transform` query above.
-    (rigged_bodies, global_tf, mut part_query, mut toasts, time): (
+    (rigged_bodies, global_tf, mut part_query, mut toasts, time, copy_proxies): (
         Query<&bevy_symbios_avatar::AvatarBody>,
         Query<&GlobalTransform>,
         AttachmentParts,
@@ -286,6 +286,9 @@ pub(super) fn manage_gizmo_drag(
         // went on showing the move as having succeeded.
         ResMut<crate::notify::Toasts>,
         Res<Time>,
+        // A picked copy's proxy (#1644): a placement drag whose target is
+        // one writes the copy, not its set's anchor.
+        Query<&super::copy::InstanceCopyProxy>,
     ),
     room_record: Option<ResMut<LiveRoomRecord>>,
     avatar_record: Option<ResMut<LiveAvatarRecord>>,
@@ -580,6 +583,37 @@ pub(super) fn manage_gizmo_drag(
             let Some(mut record) = room_record else {
                 return;
             };
+            if let Ok(proxy) = copy_proxies.get(active_entity) {
+                let dragged = placement_query
+                    .get(active_entity)
+                    .map(|(_, transform, ..)| *transform);
+                let written = dragged.ok().and_then(|dragged| {
+                    super::copy::commit_copy_drag(
+                        &mut record.0,
+                        (proxy.placement, proxy.copy),
+                        &dragged,
+                        &state.original_world_tf,
+                        heightmap.as_deref(),
+                        is_copy,
+                    )
+                });
+                match written {
+                    Some(copy) => {
+                        let verb = if is_copy { "duplicate" } else { "move" };
+                        undo_labels.set_room(format!(
+                            "{verb} of copy {} of placement {}",
+                            proxy.copy, proxy.placement
+                        ));
+                        // A duplicate is picked where it was dropped.
+                        room_editor.pick_copy(proxy.placement, Some(copy));
+                    }
+                    None => report_drag(&mut toasts, &time, DragOutcome::Refused),
+                }
+                // Changed either way: refused, the copy is drawn again
+                // where the record still has it (#1237 f144's rule).
+                record.set_changed();
+                return;
+            }
             if commit_room_drag(
                 active_entity,
                 is_copy,
