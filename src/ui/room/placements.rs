@@ -43,6 +43,13 @@ fn placement_label(index: usize, placement: &Placement) -> String {
                 counts[0], counts[1], counts[2]
             )
         }
+        Placement::Instances {
+            generator_ref,
+            copies,
+            ..
+        } => {
+            format!("#{index} Instances × {} › {generator_ref}", copies.len())
+        }
         Placement::Unknown => format!("#{index} (unknown)"),
     }
 }
@@ -113,28 +120,26 @@ fn retarget_placement(placement: &mut Placement, target: &str) {
     match placement {
         Placement::Absolute { generator_ref, .. }
         | Placement::Scatter { generator_ref, .. }
-        | Placement::Grid { generator_ref, .. } => *generator_ref = target.to_string(),
+        | Placement::Grid { generator_ref, .. }
+        | Placement::Instances { generator_ref, .. } => *generator_ref = target.to_string(),
         Placement::Unknown => {}
     }
 }
 
 /// The generator a placement points at, or `""` for an unknown variant.
 fn placement_target(placement: &Placement) -> &str {
-    match placement {
-        Placement::Absolute { generator_ref, .. }
-        | Placement::Scatter { generator_ref, .. }
-        | Placement::Grid { generator_ref, .. } => generator_ref,
-        Placement::Unknown => "",
-    }
+    placement.generator_ref().unwrap_or("")
 }
 
-/// Stable rank for the Kind sort: Absolute, Scatter, Grid, Unknown.
+/// Stable rank for the Kind sort: Absolute, Scatter, Grid, Instances,
+/// Unknown.
 fn placement_kind_rank(placement: &Placement) -> u8 {
     match placement {
         Placement::Absolute { .. } => 0,
         Placement::Scatter { .. } => 1,
         Placement::Grid { .. } => 2,
-        Placement::Unknown => 3,
+        Placement::Instances { .. } => 3,
+        Placement::Unknown => 4,
     }
 }
 
@@ -224,6 +229,7 @@ pub(crate) fn new_absolute_placement(target: String, anchor: [f32; 2]) -> Placem
         avoid_water: false,
         avoid_water_clearance: Fp(0.0),
         seed: None,
+        params: Default::default(),
     }
 }
 
@@ -264,6 +270,22 @@ fn new_grid_placement(target: String, anchor: [f32; 2]) -> Placement {
         gaps: Fp3([2.0, 2.0, 2.0]),
         snap_to_terrain: true,
         random_yaw: false,
+    }
+}
+
+/// Fresh instance set (#1643) anchored at the player's feet, snapped, with
+/// one copy at its anchor: more are added in its Copies section.
+fn new_instances_placement(target: String, anchor: [f32; 2]) -> Placement {
+    Placement::Instances {
+        generator_ref: target,
+        transform: TransformData {
+            translation: Fp3([anchor[0], 0.0, anchor[1]]),
+            ..TransformData::default()
+        },
+        snap_to_terrain: true,
+        solid: crate::pds::InstanceSolid::default(),
+        variants: Vec::new(),
+        copies: vec![crate::pds::InstanceCopy::at(0.0, 0.0, 0.0)],
     }
 }
 
@@ -408,6 +430,26 @@ pub(super) fn draw_placements_tab(
                 {
                     label.set("add of grid placement");
                     record.placements.push(new_grid_placement(
+                        eligible_names.first().cloned().unwrap_or_default(),
+                        anchor,
+                    ));
+                    *selected = Some(record.placements.len() - 1);
+                    *dirty = true;
+                }
+                if ui
+                    .add_enabled(
+                        has_eligible && !full,
+                        egui::Button::new("+ Instances").small(),
+                    )
+                    .on_hover_text(
+                        "Add a set of copies of one item, drawn merged: each copy \
+                         placed by hand in its Copies section",
+                    )
+                    .on_disabled_hover_text(scatter_refusal)
+                    .clicked()
+                {
+                    label.set("add of instance set");
+                    record.placements.push(new_instances_placement(
                         eligible_names.first().cloned().unwrap_or_default(),
                         anchor,
                     ));
@@ -799,9 +841,22 @@ fn draw_placement_detail(
             avoid_water,
             avoid_water_clearance,
             seed,
+            params,
         } => {
             generator_combo(ui, "Item", generator_ref, all_names, dirty);
             draw_grammar_seed(ui, item, seed, own_seeds, dirty);
+            // An item's grammar values (#1643): shown where it has a shape
+            // grammar to read them, or holds some already.
+            if !own_seeds.is_empty() || !params.is_empty() {
+                egui::CollapsingHeader::new(format!("Grammar values ({})", params.0.len()))
+                    .id_salt(("placement_params", item))
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        if super::instances::draw_grammar_params(ui, params) {
+                            *dirty = true;
+                        }
+                    });
+            }
             if snap_toggle(
                 ui,
                 snap_to_terrain,
@@ -1004,6 +1059,49 @@ fn draw_placement_detail(
             });
 
             draw_transform_no_scale(ui, transform, dirty);
+        }
+        Placement::Instances {
+            generator_ref,
+            transform,
+            snap_to_terrain,
+            solid,
+            variants,
+            copies,
+        } => {
+            generator_combo(ui, "Item", generator_ref, eligible_names, dirty);
+            if snap_toggle(
+                ui,
+                snap_to_terrain,
+                heightmap,
+                "Snapped: each copy stands on the ground under it, raised by its \
+                 own Y, and the anchor on the ground under it. Off, each copy \
+                 stands at its Y above the anchor. Toggling keeps every copy \
+                 where it is.",
+            ) {
+                // #700's rule, as a grid keeps it: nothing moves when the
+                // flag flips.
+                if let Some(hm) = heightmap {
+                    super::instances::keep_copies_standing(
+                        transform,
+                        copies,
+                        *snap_to_terrain,
+                        &|x, z| hm.world_height_at(x, z),
+                    );
+                }
+                *dirty = true;
+            }
+            draw_transform_no_scale(ui, transform, dirty);
+            super::instances::draw_instance_set(
+                ui,
+                item,
+                super::instances::SetFields {
+                    solid,
+                    variants,
+                    copies,
+                },
+                own_seeds,
+                dirty,
+            );
         }
         Placement::Unknown => {
             ui.colored_label(
@@ -1344,6 +1442,95 @@ mod tests {
         }
     }
 
+    /// #1643, #1390's rule: drawing a set's editor and an absolute
+    /// placement's grammar values, every section open, with no input at
+    /// all, changes nothing - a copy's whole centimetres and tenths shown
+    /// as metres and degrees are not rounded back on sight.
+    #[test]
+    fn drawing_a_sets_editor_changes_nothing() {
+        use crate::pds::{GrammarParams, InstanceCopy, InstanceSolid, InstanceVariant};
+        let values = GrammarParams(std::collections::BTreeMap::from([
+            ("Storeys".to_string(), Fp(5.0)),
+            ("Lean".to_string(), Fp(0.123_4)),
+        ]));
+        let mut placements = vec![
+            Placement::Instances {
+                generator_ref: "tree".into(),
+                transform: TransformData {
+                    translation: Fp3([3.25, 1.0, -7.5]),
+                    ..TransformData::default()
+                },
+                snap_to_terrain: true,
+                solid: InstanceSolid::Other("hull".into()),
+                variants: vec![
+                    InstanceVariant::default(),
+                    InstanceVariant {
+                        seed: Some(u64::MAX),
+                        params: values.clone(),
+                    },
+                ],
+                copies: vec![
+                    InstanceCopy {
+                        x_cm: -123_457,
+                        z_cm: 99_999,
+                        yaw_ddeg: 3_599,
+                        variant: 1,
+                        scale_pm: 1_234,
+                        y_cm: -35,
+                    },
+                    InstanceCopy::at(0.01, -0.01, 0.1),
+                ],
+            },
+            Placement::Absolute {
+                generator_ref: "tree".into(),
+                transform: TransformData::default(),
+                snap_to_terrain: true,
+                avoid_water: false,
+                avoid_water_clearance: Fp(0.0),
+                seed: Some(3),
+                params: values,
+            },
+        ];
+        let before = serde_json::to_string(&placements).expect("serialises");
+        let names = vec!["tree".to_string()];
+        let ctx = egui::Context::default();
+        ctx.memory_mut(|m| m.set_everything_is_visible(true));
+        let mut dirty = false;
+        for _ in 0..3 {
+            let _ = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(900.0, 900.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| {
+                    for (item, placement) in placements.iter_mut().enumerate() {
+                        ui.push_id(item, |ui| {
+                            draw_placement_detail(
+                                ui,
+                                item,
+                                placement,
+                                &names,
+                                &names,
+                                None,
+                                None,
+                                &[5],
+                                &mut dirty,
+                            );
+                        });
+                    }
+                },
+            );
+        }
+        assert!(!dirty, "nothing was edited");
+        assert_eq!(
+            serde_json::to_string(&placements).expect("serialises"),
+            before
+        );
+    }
+
     #[test]
     fn new_grid_anchors_at_the_player() {
         let p = new_grid_placement("tree".into(), anchor_xz(Some(POSE)));
@@ -1481,6 +1668,7 @@ mod tests {
                 avoid_water: false,
                 avoid_water_clearance: 0.0.into(),
                 seed: None,
+                params: Default::default(),
             })
             .collect();
         let total = record.placements.len();
@@ -1720,6 +1908,7 @@ mod tests {
             avoid_water: true,
             avoid_water_clearance: Fp(3.0),
             seed: None,
+            params: Default::default(),
         };
         let snapped_off = |mut placement: Placement| {
             assert!(

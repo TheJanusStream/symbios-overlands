@@ -285,6 +285,7 @@ fn every_placement_variant_round_trips() {
         avoid_water: false,
         avoid_water_clearance: Fp(0.0),
         seed: None,
+        params: Default::default(),
     });
     record.placements.push(Placement::Scatter {
         generator_ref: "base_terrain".into(),

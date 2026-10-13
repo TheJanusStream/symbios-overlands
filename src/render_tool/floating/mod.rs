@@ -187,13 +187,8 @@ fn bodies_of(record: &RoomRecord) -> BTreeMap<BodyKey, Body> {
 }
 
 /// The generator a placement plants, if it plants one.
-fn generator_ref(placement: &Placement) -> Option<&String> {
-    match placement {
-        Placement::Absolute { generator_ref, .. }
-        | Placement::Scatter { generator_ref, .. }
-        | Placement::Grid { generator_ref, .. } => Some(generator_ref),
-        Placement::Unknown => None,
-    }
+fn generator_ref(placement: &Placement) -> Option<&str> {
+    placement.generator_ref()
 }
 
 /// Where a generator is placed.
@@ -257,6 +252,11 @@ fn uses_of<'a>(
                 ..
             }
             | Placement::Grid {
+                generator_ref,
+                snap_to_terrain,
+                ..
+            }
+            | Placement::Instances {
                 generator_ref,
                 snap_to_terrain,
                 ..

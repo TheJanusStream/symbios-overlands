@@ -62,6 +62,34 @@ pub const MAX_SHAPE_FOOTPRINT: f32 = 1_000.0;
 /// `Scatter.count` alone is not enough - a record with ten-thousand
 /// single-count scatter entries still weaponises `compile_room_record`.
 pub const MAX_PLACEMENTS: usize = 1_024;
+/// Copies one instance set may hold (#1643): a Kiez's commonest kind of
+/// building or tree is a few hundred to a few thousand. A bound on what a
+/// record is read as, not on what saves: until #1645 the copies ride in the
+/// manifest, which saves only under the 120 KiB one write carries - about
+/// 4,000 to 5,000 copies in all.
+pub const MAX_INSTANCE_COPIES: usize = 8_192;
+/// Copies all of a room's instance sets may hold together (#1643): about
+/// 350 KiB of them on the wire, a 2 km square seeded whole, once #1645
+/// gives them records of their own.
+pub const MAX_ROOM_INSTANCE_COPIES: usize = 16_384;
+/// Variants one instance set may hold (#1643): one street building kind
+/// stands at a few dozen fits, each in a few seeds.
+pub const MAX_INSTANCE_VARIANTS: usize = 512;
+/// How far a copy may stand from its set's anchor, each way (cm): a
+/// transform's 10 km.
+pub const MAX_INSTANCE_OFFSET_CM: i32 = 1_000_000;
+/// The largest a copy may be drawn (thousandths of its generator's size):
+/// a transform's 1000 times, and the smallest is a thousandth.
+pub const MAX_INSTANCE_SCALE_PM: u32 = 1_000_000;
+/// The longest word a set's `solid` may hold that this build does not
+/// know: a newer build's word, kept to be written back.
+pub const MAX_INSTANCE_SOLID_CHARS: usize = 32;
+/// Named grammar values one placement or variant may give (#1643).
+pub const MAX_GRAMMAR_PARAMS: usize = 16;
+/// The longest a grammar value's name may be (chars).
+pub const MAX_GRAMMAR_PARAM_NAME_CHARS: usize = 32;
+/// The largest a grammar value may be, either way.
+pub const MAX_GRAMMAR_PARAM_VALUE: f32 = 100_000.0;
 /// Maximum number of named generators per `RoomRecord`. Every generator
 /// also materialises per-peer state (L-system material cache, lookup
 /// work in hot loops) so a record with a million generator entries

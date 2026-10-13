@@ -47,6 +47,7 @@ pub(crate) mod construct;
 mod contact_effects;
 mod environment;
 pub(crate) mod generators;
+mod instances;
 mod lsystem;
 mod material;
 mod placements;

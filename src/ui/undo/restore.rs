@@ -147,6 +147,7 @@ mod tests {
                     avoid_water: false,
                     avoid_water_clearance: Fp(0.0),
                     seed: None,
+                    params: Default::default(),
                 })
                 .collect(),
             traits: HashMap::new(),

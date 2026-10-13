@@ -237,6 +237,7 @@ mod tests {
                 avoid_water: false,
                 avoid_water_clearance: Fp(0.0),
                 seed: None,
+                params: Default::default(),
             },
             Placement::Absolute {
                 generator_ref: "villa".to_owned(),
@@ -248,6 +249,7 @@ mod tests {
                 avoid_water: true,
                 avoid_water_clearance: Fp(15.0),
                 seed: None,
+                params: Default::default(),
             },
         ];
         // A copy of an item made the world's own keeps no disc of its own.
@@ -270,6 +272,7 @@ mod tests {
             avoid_water: false,
             avoid_water_clearance: Fp(0.0),
             seed: None,
+            params: Default::default(),
         });
         // While the walkable ground draws the item, its copy keeps nothing;
         // off the square, it is a placement like any other.

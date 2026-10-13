@@ -365,6 +365,17 @@ fn placements(
                 "grid_at": [round2(transform.translation.0[0]), round2(transform.translation.0[2])],
                 "counts": counts,
             })),
+            Placement::Instances {
+                generator_ref,
+                transform,
+                copies,
+                ..
+            } => Some(json!({
+                "index": index,
+                "name": generator_ref,
+                "instances_at": [round2(transform.translation.0[0]), round2(transform.translation.0[2])],
+                "copies": copies.len(),
+            })),
             _ => None,
         })
         .collect()

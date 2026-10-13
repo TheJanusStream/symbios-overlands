@@ -294,16 +294,24 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// see [`crate::world_builder::spin::copy_epoch`]. Zero outside a room
     /// placement.
     pub(crate) spin_epoch: f64,
+    /// The variant of an instance set a template is grown with (#1643):
+    /// its seed and values in place of any placement's. `None` outside a
+    /// template.
+    pub(crate) shape_variant: Option<&'a crate::pds::InstanceVariant>,
 }
 
-impl SpawnCtx<'_, '_, '_, '_, '_> {
+impl<'a> SpawnCtx<'a, '_, '_, '_, '_> {
     /// The seed every Shape node of the tree being spawned derives with in
     /// place of its own (#1505): the seed of the absolute placement the room
-    /// compile is building, when it names one. Read from the record at the
+    /// compile is building, when it names one, or of the instance set's
+    /// variant a template is grown with (#1643). Read from the record at the
     /// unit's index rather than carried beside it, so it cannot outlive the
     /// unit it belongs to: a scatter or grid unit, and an avatar (which no
     /// placement owns), have none.
     pub(crate) fn placement_shape_seed(&self) -> Option<u64> {
+        if let Some(variant) = self.shape_variant {
+            return variant.seed;
+        }
         if self.avatar_mode {
             return None;
         }
@@ -311,6 +319,24 @@ impl SpawnCtx<'_, '_, '_, '_, '_> {
             .placements
             .get(self.placement_index)
             .and_then(crate::pds::Placement::shape_seed)
+    }
+
+    /// The values every Shape node of the tree being spawned reads over its
+    /// grammar's own (#1643), from where [`Self::placement_shape_seed`]
+    /// reads the seed. Borrowed from the record or the variant, not from
+    /// `self`, so the spawner may go on writing through `self` while it
+    /// holds them.
+    pub(crate) fn placement_shape_params(&self) -> Option<&'a crate::pds::GrammarParams> {
+        if let Some(variant) = self.shape_variant {
+            return Some(&variant.params);
+        }
+        if self.avatar_mode {
+            return None;
+        }
+        self.record
+            .placements
+            .get(self.placement_index)
+            .and_then(crate::pds::Placement::shape_params)
     }
 
     /// Start spawning one copy of `generator_ref` at `cell_tf` in its

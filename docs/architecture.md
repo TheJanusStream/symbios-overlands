@@ -325,8 +325,11 @@ generation cores shared with the wasm Web Worker.
   The incremental, time-sliced executor ([`compile/`](../src/world_builder/compile/)),
   per-generator spawn arms (terrain, water, portal,
   [gateway](../src/world_builder/gateway.rs), sign, particles, L-system,
-  shape grammar, primitives including SDF blob groups), the cross-compile
-  geometry / material caches, the source-keyed
+  shape grammar, primitives including SDF blob groups), the
+  [instance spawner](../src/world_builder/instances/) that draws an instance
+  set's copies from forms baked once per variant - merged near, a voxel
+  shell far (#1643) - the cross-compile geometry / material caches, the
+  source-keyed
   [image cache](../src/world_builder/image_cache.rs) shared by
   signs / portals / particles, and [spin](../src/world_builder/spin.rs) - the
   turn each client gives a node whose record says it turns (a windmill's

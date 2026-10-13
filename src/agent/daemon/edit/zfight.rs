@@ -2777,6 +2777,7 @@ mod tests {
             avoid_water: false,
             avoid_water_clearance: Fp(0.0),
             seed,
+            params: Default::default(),
         }
     }
 

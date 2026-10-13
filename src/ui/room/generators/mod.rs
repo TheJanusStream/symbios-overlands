@@ -655,12 +655,7 @@ pub(crate) fn draw_generators_tab(
 /// [`retarget_root_refs`] moves them, and
 /// [`GeneratorTreeSource::placement_ref_count`] counts them.
 fn placement_root(placement: &Placement) -> Option<&str> {
-    match placement {
-        Placement::Absolute { generator_ref, .. }
-        | Placement::Scatter { generator_ref, .. }
-        | Placement::Grid { generator_ref, .. } => Some(generator_ref),
-        Placement::Unknown => None,
-    }
+    placement.generator_ref()
 }
 
 /// [`placement_root`] for the walks that rewrite the key.
@@ -668,7 +663,8 @@ fn placement_root_mut(placement: &mut Placement) -> Option<&mut String> {
     match placement {
         Placement::Absolute { generator_ref, .. }
         | Placement::Scatter { generator_ref, .. }
-        | Placement::Grid { generator_ref, .. } => Some(generator_ref),
+        | Placement::Grid { generator_ref, .. }
+        | Placement::Instances { generator_ref, .. } => Some(generator_ref),
         Placement::Unknown => None,
     }
 }

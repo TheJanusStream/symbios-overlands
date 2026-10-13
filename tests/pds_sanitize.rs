@@ -182,6 +182,7 @@ fn placements_over_cap_are_trimmed() {
             avoid_water: false,
             avoid_water_clearance: Fp(0.0),
             seed: None,
+            params: Default::default(),
         });
     }
     r.sanitize();
@@ -1211,6 +1212,7 @@ fn room_generator_keys_are_cut_and_placements_follow() {
         avoid_water: false,
         avoid_water_clearance: Fp(0.0),
         seed: None,
+        params: Default::default(),
     });
     r.traits.insert(long.clone(), vec!["sensor".to_owned()]);
     r.sanitize();

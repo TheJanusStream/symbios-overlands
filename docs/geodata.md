@@ -793,7 +793,7 @@ The Kiez overhaul, epic #1636 (research #1635), in build order:
 | Issue | Phase |
 | --- | --- |
 | #1637 | P1 Kiez squares: seeded 1 km, the editor to 2 km, the whole square walked at full detail; the far field, middle ring and detail patch removed |
-| #1638 | P2 instance sets: one generator at many poses, each copy's seed and parameters, drawn through the bake |
+| #1638 | P2 instance sets: one generator at many poses, each copy's seed and parameters, drawn through the bake: #1643 the set in the record and drawn merged (the bake moved to `world_builder::instances`), #1644 one copy picked, moved, deleted or detached in the World Editor, #1645 long copy lists in records of their own |
 | #1639 | P3 Berlin's buildings, trees and furniture seeded into the record as instance sets, adopted on save |
 | #1640 | P4 a Kiez agent to flesh out a seeded region (later) |
 

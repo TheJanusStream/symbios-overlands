@@ -266,12 +266,11 @@ fn zone(world: &mut World) -> Value {
     };
     let name = index.and_then(|index| {
         let record = &world.get_resource::<LiveRoomRecord>()?.0;
-        match record.placements.get(index)? {
-            Placement::Absolute { generator_ref, .. }
-            | Placement::Scatter { generator_ref, .. }
-            | Placement::Grid { generator_ref, .. } => Some(generator_ref.clone()),
-            Placement::Unknown => None,
-        }
+        record
+            .placements
+            .get(index)?
+            .generator_ref()
+            .map(str::to_owned)
     });
     let mut zone = json!({ "kind": kind, "name": name });
     if kind == "gateway" {

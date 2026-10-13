@@ -256,15 +256,18 @@ pub(super) struct WorldReadiness<'w, 's> {
     /// A geodata region's derived content (#1588), spawning until it is
     /// idle.
     derived: Option<Res<'w, crate::terrain::derived::DerivedBuilds>>,
+    /// The record's instance sets (#1643), drawn over the frames after the
+    /// compile until every copy is.
+    instances: Option<Res<'w, crate::world_builder::instances::InstanceBuilds>>,
     bakes: BakesInFlight<'w, 's>,
 }
 
 impl WorldReadiness<'_, '_> {
     /// At least one compile pass has landed, no pass is running, the
     /// ground shows its splat, no road re-mesh or lot re-derive is armed
-    /// or in flight, a geodata region's derived content is spawned, and every
-    /// procedural texture the compile dispatched has been baked and
-    /// patched into its material.
+    /// or in flight, a geodata region's derived content is spawned, every
+    /// instance set's copies are drawn, and every procedural texture the
+    /// compile dispatched has been baked and patched into its material.
     pub(super) fn settled(&self) -> bool {
         self.compiled.is_some()
             && self.job.as_ref().is_some_and(|j| j.progress().is_none())
@@ -274,13 +277,17 @@ impl WorldReadiness<'_, '_> {
                 .derived
                 .as_ref()
                 .is_none_or(|derived| derived.is_idle())
+            && self
+                .instances
+                .as_ref()
+                .is_none_or(|instances| instances.is_idle())
             && self.bakes.count() == 0
     }
 
     /// One line for the progress log and the timeout panic.
     pub(super) fn status(&self) -> String {
         format!(
-            "compiled={} compile_progress={:?} splat={} roads_pending={:?} streets={:?} buildings={:?} derived_spawning={} bakes_in_flight={}",
+            "compiled={} compile_progress={:?} splat={} roads_pending={:?} streets={:?} buildings={:?} derived_spawning={} instances_spawning={} bakes_in_flight={}",
             self.compiled.is_some(),
             self.job.as_ref().and_then(|j| j.progress()),
             self.splat.is_some(),
@@ -290,6 +297,9 @@ impl WorldReadiness<'_, '_> {
             self.derived
                 .as_ref()
                 .is_some_and(|derived| !derived.is_idle()),
+            self.instances
+                .as_ref()
+                .is_some_and(|instances| !instances.is_idle()),
             self.bakes.count(),
         )
     }

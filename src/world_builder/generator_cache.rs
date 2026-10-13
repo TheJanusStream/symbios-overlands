@@ -84,6 +84,12 @@ impl<K: Eq + Hash, V: Clone> GeneratorCache<K, V> {
         self.entries.clear();
     }
 
+    /// Drop the entries whose key `drop` names: what an instance set's
+    /// template left behind once its forms are baked (#1643).
+    pub(super) fn forget_where(&mut self, drop: impl Fn(&K) -> bool) {
+        self.entries.retain(|key, _| !drop(key));
+    }
+
     /// Number of cached entries. The content-addressed primitive caches
     /// (`prim_cache`) bound themselves on this, having no generator ref to
     /// GC against.

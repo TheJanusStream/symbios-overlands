@@ -186,7 +186,9 @@ pub(super) fn print_triangle_report(world: &str, record: &RoomRecord) {
 /// itself, `(name, None)`, and as each grammar seed an absolute placement of
 /// it names draws it (#1505), `(name, Some(seed))` - the tree with that seed
 /// written into its Shape nodes, as the compile draws that placement. Each
-/// once, in name order.
+/// once, in name order. Grammar values (#1643) are not grown here: a
+/// placement that gives some, and every copy of an instance set, is counted
+/// as its seed, or its generator, draws without them.
 fn copies_to_grow(record: &RoomRecord) -> Vec<((String, Option<u64>), Generator)> {
     let mut grown: BTreeSet<(&str, Option<u64>)> = BTreeSet::new();
     for placement in &record.placements {
@@ -216,12 +218,7 @@ fn copies_to_grow(record: &RoomRecord) -> Vec<((String, Option<u64>), Generator)
 
 /// The generator a placement plants, if it plants one.
 fn generator_ref(placement: &Placement) -> Option<&str> {
-    match placement {
-        Placement::Absolute { generator_ref, .. }
-        | Placement::Scatter { generator_ref, .. }
-        | Placement::Grid { generator_ref, .. } => Some(generator_ref),
-        Placement::Unknown => None,
-    }
+    placement.generator_ref()
 }
 
 /// What the world report leaves out, in its own words.
@@ -306,6 +303,13 @@ fn world_report(
             Placement::Scatter { generator_ref, .. } => {
                 (generator_ref, "scatter", u64::from(placed.unwrap_or(0)))
             }
+            // Each copy as the generator draws itself: a variant's own seed
+            // and values are not grown here (#1643).
+            Placement::Instances {
+                generator_ref,
+                copies,
+                ..
+            } => (generator_ref, "instances", copies.len() as u64),
             Placement::Unknown => continue,
         };
         let own = each.get(name.as_str()).copied();
@@ -496,6 +500,7 @@ mod tests {
             avoid_water: false,
             avoid_water_clearance: Fp(0.0),
             seed: None,
+            params: Default::default(),
         };
         RoomRecord {
             lex_type: "network.symbios.room".to_string(),
@@ -906,6 +911,7 @@ mod tests {
             avoid_water: false,
             avoid_water_clearance: Fp(0.0),
             seed,
+            params: Default::default(),
         };
         record.placements = vec![at(None), at(Some(two)), at(Some(two))];
         let copies = copies_to_grow(&record);

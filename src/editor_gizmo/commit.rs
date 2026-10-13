@@ -588,6 +588,11 @@ pub(crate) fn write_transform_into_placement(
             transform: rec_tf,
             snap_to_terrain,
             ..
+        }
+        | Placement::Instances {
+            transform: rec_tf,
+            snap_to_terrain,
+            ..
         } => {
             let mut translation = transform.translation.to_array();
             if *snap_to_terrain && let Some(hm) = heightmap {
@@ -595,7 +600,10 @@ pub(crate) fn write_transform_into_placement(
                 // that height at the NEW spot so the record mirrors what
                 // the recompile will render (same rule as the snap
                 // toggle, #700). Grid anchors are point-like, so `radius`
-                // is `None` and this is the plain centre sample.
+                // is `None` and this is the plain centre sample. An
+                // instance set's copies each stand on the ground under
+                // them (#1643), and its anchor on the ground under it, as
+                // a grid's does.
                 translation[1] = crate::world_builder::snapped_ground_y(
                     &hm.0,
                     translation[0],
@@ -730,6 +738,7 @@ mod tests {
             avoid_water: true,
             avoid_water_clearance: Fp(8.0),
             seed: None,
+            params: Default::default(),
         };
         let radius = snap_footprint_radius(&landmark());
         // The anchor the compile spawns at (x, z): its own ground reading
@@ -806,6 +815,7 @@ mod rotation_commit_tests {
             avoid_water: false,
             avoid_water_clearance: crate::pds::Fp(0.0),
             seed: None,
+            params: Default::default(),
         };
         let Placement::Absolute { transform, .. } = &placement else {
             unreachable!("built as Absolute")

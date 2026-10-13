@@ -26,6 +26,7 @@ mod audio;
 pub use audio::MAX_INSTRUMENT_ID_BYTES;
 mod common;
 mod contact_effects;
+pub(crate) mod instances;
 pub mod limits;
 mod material;
 pub mod names;

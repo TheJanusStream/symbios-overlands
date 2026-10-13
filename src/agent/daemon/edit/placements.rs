@@ -132,6 +132,19 @@ fn row(
             row["count"] = json!(counts.iter().product::<u32>());
             row["yaw_deg"] = json!(hundredths(yaw_of(quat(&transform.rotation))));
         }
+        Placement::Instances {
+            transform,
+            copies,
+            variants,
+            solid,
+            ..
+        } => {
+            row["layout"] = json!("instances");
+            row["count"] = json!(copies.len());
+            row["variants"] = json!(variants.len().max(1));
+            row["solid"] = json!(solid.word());
+            row["yaw_deg"] = json!(hundredths(yaw_of(quat(&transform.rotation))));
+        }
         Placement::Unknown => row["layout"] = json!("unknown"),
     }
     row
@@ -155,12 +168,7 @@ fn kind_word(generator: &Generator) -> &'static str {
 
 /// The generator a placement puts in the world, by its key.
 fn generator_ref(placement: &Placement) -> Option<&str> {
-    match placement {
-        Placement::Absolute { generator_ref, .. }
-        | Placement::Scatter { generator_ref, .. }
-        | Placement::Grid { generator_ref, .. } => Some(generator_ref),
-        Placement::Unknown => None,
-    }
+    placement.generator_ref()
 }
 
 /// The pose each placement is drawn at, by index: the anchor every drawn
@@ -573,6 +581,7 @@ mod tests {
             avoid_water: false,
             avoid_water_clearance: Fp(0.0),
             seed: None,
+            params: Default::default(),
         }
     }
 

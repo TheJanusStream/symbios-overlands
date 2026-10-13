@@ -42,7 +42,8 @@
 //!   children - so a single named entry can describe an entire fractal
 //!   blueprint.
 //! * `placements`  - open-union [`Placement`] list describing how and where
-//!   those named generators are instantiated (Absolute / Scatter / Grid).
+//!   those named generators are instantiated (Absolute / Scatter / Grid /
+//!   Instances, the last a set of copies drawn merged, #1643).
 //! * `traits`      - name → ECS-component-tag list attached to entities a
 //!   generator spawns (e.g. `"sensor"` to mark a portal collider as a
 //!   trigger).
@@ -174,6 +175,7 @@ pub mod avatar;
 pub mod contact_effects;
 pub mod generator;
 pub mod geo_source;
+pub mod instances;
 pub mod inventory;
 pub mod material_finish;
 pub mod prim;
@@ -212,6 +214,7 @@ pub use generator::{
     TextureFilter, TortureParams, WaterSurface,
 };
 pub use geo_source::GeoSource;
+pub use instances::{GrammarParams, InstanceCopy, InstanceSolid, InstanceVariant};
 pub use inventory::{
     InventoryItemRecord, InventoryRecord, fetch_inventory_record, publish_inventory_record,
 };

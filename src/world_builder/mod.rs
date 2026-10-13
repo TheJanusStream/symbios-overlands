@@ -54,6 +54,10 @@
 //! * [`particles`] - CPU + ECS particle emitter for `ParticleSystem`:
 //!   per-frame spawn / motion / age systems, optional sprite-sheet atlas
 //!   animation, and avian3d collisions.
+//! * [`instances`] - instance sets (#1643): each variant of a set's
+//!   generator grown once, baked into merged near and voxel far forms
+//!   ([`instances::bake`]), and every copy drawn from them over the frames
+//!   after the compile.
 //! * [`avatar_spawn`] - re-entry point that walks an avatar's `visuals`
 //!   tree through the same dispatch arms with `SpawnCtx::avatar_mode = true`
 //!   so room-only behaviours (RoomEntity tag, PrimMarker, per-prim
@@ -97,6 +101,7 @@ mod gateway;
 mod generator_cache;
 pub mod grammar_diag;
 pub mod image_cache;
+pub(crate) mod instances;
 // `pub(crate)` for the render tool's `--room-census` (#810), which calls the
 // pure `build_lsystem_geometry` to count spawn-time L-system expansion.
 pub(crate) mod lsystem;
@@ -245,6 +250,8 @@ pub(crate) fn register_headless_compile(app: &mut App) {
     // A `--world` render culls ground cover as a default-settings visitor's
     // game does (#1480): the tool's `LocalSettings` are the defaults.
     draw_distance::register(app);
+    // Instance sets (#1643), drawn as the game draws them.
+    instances::register(app);
 }
 
 /// Marks an in-scene portal cube and carries the destination coordinates the
@@ -609,6 +616,8 @@ impl Plugin for WorldBuilderPlugin {
         // The player's ground-cover draw distance (#1480), kept on every
         // scattered small copy the compile stamps.
         draw_distance::register(app);
+        // Instance sets' copies, drawn merged after the compile (#1643).
+        instances::register(app);
         // The looping-voice budget (#1557): every construct voice the pollers
         // above attach arrives held back, and only this gives it a player.
         voice_budget::register(app);
@@ -846,9 +855,40 @@ fn draw_placement_visualizers(
                 color,
             );
         }
+        // An instance set (#1643): its anchor, and each copy where the
+        // spawner stands it, a ring with a stroke along its front - copies
+        // are drawn merged, so the editor cannot pick them yet (#1644).
+        Placement::Instances {
+            transform,
+            snap_to_terrain,
+            copies,
+            ..
+        } => {
+            let anchor = Transform::from(transform).with_scale(Vec3::ONE);
+            let mut at = anchor.translation;
+            if *snap_to_terrain {
+                at.y = get_y(at.x, at.z);
+            }
+            gizmos.sphere(at, 1.0, color);
+            let flat = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+            for copy in copies.iter().take(MAX_COPIES_MARKED) {
+                let [x, y, z] = copy.position();
+                let mut pos = anchor.translation + anchor.rotation * Vec3::new(x, y, z);
+                if *snap_to_terrain {
+                    pos.y = get_y(pos.x, pos.z) + y;
+                }
+                let front = anchor.rotation * copy.rotation() * Vec3::NEG_Z;
+                gizmos.circle(Isometry3d::new(pos, flat), 0.6, color);
+                gizmos.line(pos, pos + front * 1.2, color);
+            }
+        }
         _ => {}
     }
 }
+
+/// The most copies of an instance set the editor marks: past it the ring
+/// per copy costs more than it tells.
+const MAX_COPIES_MARKED: usize = 4_096;
 
 #[cfg(test)]
 mod rect_outline_tests {

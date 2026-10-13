@@ -455,7 +455,8 @@ impl RoomRecord {
                 match p {
                     Placement::Absolute { generator_ref, .. }
                     | Placement::Scatter { generator_ref, .. }
-                    | Placement::Grid { generator_ref, .. } => {
+                    | Placement::Grid { generator_ref, .. }
+                    | Placement::Instances { generator_ref, .. } => {
                         if generator_ref == old {
                             *generator_ref = new.clone();
                         }
@@ -504,14 +505,17 @@ impl RoomRecord {
         for generator in self.generators.values_mut() {
             sanitize_generator(generator);
         }
-        // Drop offending Scatter/Grid placements before applying the
+        // Drop offending Scatter/Grid placements - and instance sets
+        // (#1643), which draw many copies as they do - before applying the
         // count cap, so 1024 ineligible entries can't push valid ones
         // past `MAX_PLACEMENTS`. Absolute is left alone - pointing it
         // at a Terrain root is the canonical home-world placement, and
         // a hostile Water-rooted Absolute is already neutralised by
         // the generator-level overwrite above.
         self.placements.retain(|p| match p {
-            Placement::Scatter { generator_ref, .. } | Placement::Grid { generator_ref, .. } => {
+            Placement::Scatter { generator_ref, .. }
+            | Placement::Grid { generator_ref, .. }
+            | Placement::Instances { generator_ref, .. } => {
                 !ineligible_targets.contains(generator_ref)
             }
             _ => true,
@@ -551,6 +555,9 @@ impl RoomRecord {
                 _ => {}
             }
         }
+        // Instance sets and grammar values (#1643): each set bounded, and
+        // the copies of all of them together.
+        crate::pds::sanitize::instances::sanitize_placements(&mut self.placements);
     }
 }
 

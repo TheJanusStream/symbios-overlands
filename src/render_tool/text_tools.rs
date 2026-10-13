@@ -523,6 +523,11 @@ pub(super) fn room_census(seeds: u64) {
                     generator_ref,
                     counts.iter().map(|&c| u64::from(c)).product::<u64>(),
                 ),
+                Placement::Instances {
+                    generator_ref,
+                    copies,
+                    ..
+                } => (generator_ref, copies.len() as u64),
                 Placement::Unknown => continue,
             };
             let Some(g) = record.generators.get(generator_ref) else {

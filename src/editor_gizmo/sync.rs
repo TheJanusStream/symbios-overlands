@@ -534,7 +534,10 @@ fn placement_modes(placement: Option<&Placement>) -> EnumSet<GizmoMode> {
             modes.insert(GizmoMode::TranslateXZ);
         }
         Some(Placement::Unknown) => {}
-        Some(Placement::Absolute { .. }) | Some(Placement::Grid { .. }) | None => {
+        Some(Placement::Absolute { .. })
+        | Some(Placement::Grid { .. })
+        | Some(Placement::Instances { .. })
+        | None => {
             modes.insert_all(GizmoMode::all_translate());
             modes.insert_all(GizmoMode::all_rotate());
         }
@@ -1111,6 +1114,7 @@ mod mode_tests {
             avoid_water: false,
             avoid_water_clearance: Fp(0.0),
             seed: None,
+            params: Default::default(),
         }
     }
 

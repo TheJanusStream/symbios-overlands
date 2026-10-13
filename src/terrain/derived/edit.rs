@@ -221,11 +221,10 @@ pub(crate) fn restore(record: &mut RoomRecord, id: &str) -> Result<(), String> {
     if copies.is_empty() {
         return Ok(());
     }
-    record.placements.retain(|placement| match placement {
-        Placement::Absolute { generator_ref, .. }
-        | Placement::Scatter { generator_ref, .. }
-        | Placement::Grid { generator_ref, .. } => !copies.contains(generator_ref),
-        Placement::Unknown => true,
+    record.placements.retain(|placement| {
+        placement
+            .generator_ref()
+            .is_none_or(|generator_ref| !copies.iter().any(|copy| copy == generator_ref))
     });
     for name in &copies {
         record.generators.remove(name);
@@ -297,6 +296,7 @@ pub(crate) fn adopt(
             avoid_water: false,
             avoid_water_clearance: Fp(0.0),
             seed: None,
+            params: Default::default(),
         });
     }
     if placements.is_empty() {

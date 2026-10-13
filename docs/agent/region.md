@@ -428,6 +428,70 @@ A forest is a few generators and a scatter placement each:
   gateway) the game stands the gate on the highest ground within its
   footprint, and on a 14-degree slope the zone floated 0.8 m up.
 
+## Many copies: instance sets
+
+An instance set (#1643) stands ONE generator many times: a row of houses,
+an avenue of trees, lamps along a street. Each variant of it is grown once
+and merged into a few meshes, one per material, so a copy costs a handful
+of entities however many parts its generator has, and a copy is about
+twenty bytes of manifest where a placement of its own is about 200. Reach
+for one where a placement per copy would pass the 1,024 placements or the
+manifest's budget.
+
+```json
+{"$type": "network.symbios.place.instances", "generator_ref": "street_house",
+ "solid": "shell",
+ "variants": [{"seed": "11", "params": {"Storeys": 40000}},
+              {"seed": "12", "params": {"Storeys": 60000, "Trade": 10000}}],
+ "copies": [[-2400, 4500, 0], [0, 4500, 0, 1], [2400, 4500, 0, 0, 1000, -35]]}
+```
+
+- **A copy is `[x, z, yaw, variant, scale, y]`, all whole numbers**:
+  centimetres along the set's anchor (its `transform`, left out at the
+  origin; its scale is not drawn, and is written back as 1: size copies
+  with their own), the turn in TENTHS of a degree clockwise seen from above (as
+  `placements`' `yaw_deg`: 0 faces -Z, 900 faces +X), the variant's index,
+  the size in THOUSANDTHS, and centimetres above the ground under it.
+  Leave trailing defaults out: variant 0, scale 1000, y 0.
+- **Each copy snaps by itself** (`snap_to_terrain`, true by default): it
+  stands on the ground under its own centre, raised by its y, so a row
+  follows a slope. Off, y is above the anchor.
+- **A variant is a grammar seed and grammar values** (`params`, the record's
+  scaled ints: 40000 is 4). Every Shape node of the generator reads the
+  values in place of its own `attr` or `const` of that name, so one grammar
+  serves every size of building it is written for. No `variants` is one:
+  the generator as it is. A `seed` is a quoted decimal, as every seed is,
+  and a value a whole number: a variant written otherwise is read as the
+  generator as it is. An absolute placement takes `params` too, beside its
+  `seed`.
+- **`solid` is what a walker meets**: `shell` (a 1 m voxel shell, the
+  default: buildings), `box` (the box the parts fill: props), `trunk` (a
+  cylinder as wide as the base, up to 3 m tall: trees), `none`. Parts carry
+  no colliders of their own in a set.
+- **A set draws geometry only.** Sounds, spins, particles, signs, portals
+  and gateways are left off its copies, and an L-system plant keeps its own
+  seed: place those as ordinary placements.
+- **Its budget is the world's, shared by copies**: 22,000 near entities and
+  5,000 far copies across all sets, each set's share fixed when it is
+  drawn (a set drawn before another grew keeps the share it had until it is
+  redrawn). Copies nearest the landing are drawn as their merged parts;
+  past the set's share a copy big enough to be seen far is drawn as its
+  shell in its colours, and a small one not at all. Small copies are cut at
+  the player's draw distance as scattered ones are.
+- **The copies are saved in the manifest** until #1645 gives them records
+  of their own, and one save may write at most 120 KiB in one record (the
+  100 KiB budget warns first): about 4,000 to 5,000 copies with the rest of
+  a world's manifest. `room set`'s `record_size` says how close a world is.
+  The 8,192 copies a set and 16,384 a world are what a record is cut to,
+  not what it saves.
+- **An edit to a set redraws the whole set** over a few frames (its baked
+  variants are kept, so it grows nothing again): add copies with `room set
+  /placements/N/copies/- '[...]'`, and keep a set to one kind of thing so a
+  change to one tree does not redraw every house.
+- In the World Editor the selected set shows a ring at each copy; its
+  section edits each copy's numbers. Clicking a copy in the world does not
+  select it yet (#1644).
+
 ## Ambient sound
 
 `/environment/ambient_audio` is a sequence: `recipe` holds `instruments`

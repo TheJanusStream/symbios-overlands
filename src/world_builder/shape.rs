@@ -19,7 +19,7 @@
 //!
 //! An absolute placement may carry a seed of its own (#1505), and then every
 //! Shape node of the tree it plants derives with that seed instead of its
-//! own ([`ShapeDef::seeded`]), so one generator stands in a street many
+//! own ([`ShapeDef::variant`]), so one generator stands in a street many
 //! times with each copy drawing its own variety. The geometry cache keeps
 //! one entry per node AND seed, so two copies drawn with different seeds
 //! do not evict each other on every compile, and forgets a node's seeds no
@@ -28,6 +28,13 @@
 //! [`MAX_REMEMBERED_FAILURES`] of them in all - so that the node's grammar
 //! status shows that error while the world draws the node with it,
 //! whichever copy compiled last.
+//!
+//! A placement may also give named values every Shape node's grammar reads
+//! (#1643): an absolute placement's `params`, or the variant an instance
+//! set's copy draws. They are set on the interpreter as host attributes,
+//! over the grammar's own `attr` or `const` of each name, and join the seed
+//! in the cache's key ([`shape_variant_key`]): a seed with no values keys
+//! as itself, so nothing that sets none moves.
 //!
 //! A node may list mesh ids as solid (#1506): each terminal with one of
 //! them collides as the box of its scope, all of a node's in one compound
@@ -47,7 +54,10 @@ use symbios_shape::{
     FaceProfile, Interpreter, Quat as SQuat, Scope, ShapeModel, Terminal, Vec3 as SVec3,
 };
 
-use crate::pds::{Fp3, Generator, GeneratorKind, Placement, RoomRecord, SovereignMaterialSettings};
+use crate::pds::instances::shape_variant_key;
+use crate::pds::{
+    Fp3, Generator, GeneratorKind, GrammarParams, Placement, RoomRecord, SovereignMaterialSettings,
+};
 
 use super::RoomEntity;
 use super::compile::{SpawnCtx, budget_exceeded};
@@ -180,15 +190,19 @@ pub(super) type Built = CachedBuild<Arc<ShapeBuild>>;
 /// compiled last.
 pub(crate) const MAX_REMEMBERED_FAILURES: usize = crate::pds::sanitize::limits::MAX_PLACEMENTS;
 
-/// The seeds a room draws one generator's Shape nodes with (#1505).
+/// The seeds a room draws one generator's Shape nodes with (#1505), and
+/// the values it draws them with (#1643).
 #[derive(Default)]
 struct RootSeeds {
-    /// Every seed an absolute placement of the generator gives it.
+    /// Every key an absolute placement of the generator gives it a seed and
+    /// no values for.
     given: HashSet<u64>,
-    /// Whether a placement of it gives none - a scatter, a grid, or an
+    /// Whether a placement of it gives neither - a scatter, a grid, or an
     /// absolute placement with no seed - and so draws each node with its
     /// own.
     unseeded: bool,
+    /// Each absolute placement's seed, if any, with the values it gives.
+    valued: Vec<(Option<u64>, GrammarParams)>,
 }
 
 impl RootSeeds {
@@ -199,20 +213,26 @@ impl RootSeeds {
             if placed_generator(placement) != Some(root) {
                 continue;
             }
-            match placement.shape_seed() {
-                Some(seed) => {
+            match (placement.shape_seed(), placement.shape_params()) {
+                (seed, Some(params)) => seeds.valued.push((seed, params.clone())),
+                (Some(seed), None) => {
                     seeds.given.insert(seed);
                 }
-                None => seeds.unseeded = true,
+                (None, None) => seeds.unseeded = true,
             }
         }
         seeds
     }
 
     /// Whether a node of the generator whose own seed is `own` is drawn
-    /// with `seed`.
-    fn draws(&self, own: u64, seed: u64) -> bool {
-        self.given.contains(&seed) || (self.unseeded && seed == own)
+    /// with the variant keyed `key` ([`shape_variant_key`]).
+    fn draws(&self, own: u64, key: u64) -> bool {
+        self.given.contains(&key)
+            || (self.unseeded && key == own)
+            || self
+                .valued
+                .iter()
+                .any(|(seed, params)| shape_variant_key(seed.unwrap_or(own), params) == key)
     }
 }
 
@@ -241,6 +261,27 @@ impl ShapeMeshCache {
         });
         self.remembered_failures = self.failures.values().map(HashMap::len).sum();
         self.failing.clear();
+    }
+
+    /// Drop every variant of every node under `root` - the node itself and
+    /// those keyed below it - and what is remembered of their failures: an
+    /// instance set's template once its forms are baked (#1643).
+    pub(crate) fn forget_under(&mut self, root: &str) {
+        let under = |node: &str| {
+            node.strip_prefix(root)
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+        };
+        self.builds.retain(|node, _| !under(node));
+        let mut forgotten = 0;
+        self.failures.retain(|node, seeds| {
+            let kept = !under(node);
+            if !kept {
+                forgotten += seeds.len();
+            }
+            kept
+        });
+        self.remembered_failures -= forgotten;
+        self.failing.retain(|node, _| !under(node));
     }
 
     /// The room's placements are planned anew: the seeds each generator is
@@ -338,7 +379,7 @@ impl ShapeMeshCache {
             self.failures_in_view += failing.len();
         }
         let own_hash = match drawn {
-            (seed, hash) if seed == own.seed => hash,
+            (key, hash) if key == own.seed => hash,
             _ => shape_geometry_fingerprint(&own),
         };
         if let Some(known) = self.failing.get(node)
@@ -362,9 +403,10 @@ impl ShapeMeshCache {
                     return None;
                 }
                 let seed = placement.shape_seed();
-                let def = own.seeded(seed);
-                let (hash, message) = failing.get(&def.seed)?;
-                let drew_from = if def.seed == own.seed {
+                let params = placement.shape_params();
+                let def = own.variant(seed, params);
+                let (hash, message) = failing.get(&def.key())?;
+                let drew_from = if def.key() == own.seed {
                     own_hash
                 } else {
                     shape_geometry_fingerprint(&def)
@@ -372,9 +414,9 @@ impl ShapeMeshCache {
                 if *hash != drew_from {
                     return None;
                 }
-                Some(match seed {
-                    Some(seed) => format!("{}: {message}", seeded_by(index, seed)),
-                    None => message.clone(),
+                Some(match (seed, params) {
+                    (None, None) => message.clone(),
+                    _ => format!("{}: {message}", drawn_by(index, seed, params)),
                 })
             });
         #[cfg(test)]
@@ -518,6 +560,8 @@ pub(crate) struct ShapeDef<'a> {
     root_rule: &'a str,
     footprint: Fp3,
     seed: u64,
+    /// The values a placement gives the grammar (#1643); `None` for none.
+    params: Option<&'a GrammarParams>,
     materials: &'a HashMap<String, SovereignMaterialSettings>,
     round_meshes: &'a [String],
     solid_meshes: &'a [String],
@@ -549,6 +593,7 @@ impl GeneratorKind {
             root_rule,
             footprint: *footprint,
             seed: *seed,
+            params: None,
             materials,
             round_meshes,
             solid_meshes,
@@ -592,17 +637,26 @@ impl Underived {
     }
 }
 
-impl ShapeDef<'_> {
+impl<'a> ShapeDef<'a> {
     /// This grammar as a placement with `seed` of its own draws it (#1505):
     /// `seed` in place of the node's own when there is one - REPLACED, not
     /// mixed in, so a placement whose seed is the node's own draws exactly
     /// what an unseeded placement draws - and the node's own when there is
-    /// none.
-    fn seeded(self, seed: Option<u64>) -> Self {
+    /// none. `params`, when there are any, are the values the grammar reads
+    /// over its own (#1643).
+    pub(crate) fn variant(self, seed: Option<u64>, params: Option<&'a GrammarParams>) -> Self {
         Self {
             seed: seed.unwrap_or(self.seed),
+            params: params.filter(|params| !params.is_empty()),
             ..self
         }
+    }
+
+    /// The key this variant's derivation is cached under: its seed, or its
+    /// seed and values hashed together where it has values (#1643).
+    fn key(&self) -> u64 {
+        self.params
+            .map_or(self.seed, |params| shape_variant_key(self.seed, params))
     }
 
     /// Parse the multi-line grammar source line by line, populate the
@@ -646,6 +700,10 @@ impl ShapeDef<'_> {
 
         if rule_count == 0 {
             return Err(Underived::quiet("grammar has no rules"));
+        }
+        // A placement's values, over the grammar's own (#1643).
+        for (name, value) in self.params.into_iter().flat_map(GrammarParams::attrs) {
+            interpreter.set_attr(name, value);
         }
         if !interpreter.has_rule(self.root_rule) {
             return Err(Underived::fault(format!(
@@ -841,6 +899,17 @@ fn shape_geometry_fingerprint(def: &ShapeDef<'_>) -> u64 {
             h.field(name);
         }
     }
+    // A placement's values draw other geometry (#1643): tagged and counted
+    // as the solid ids are, and left out when there are none, so every node
+    // drawn without them keeps the key it had.
+    if let Some(params) = def.params {
+        h.field("params");
+        h.field(params.0.len() as u64);
+        for (name, value) in params.wire() {
+            h.field(name);
+            h.field(value);
+        }
+    }
     h.finish()
 }
 
@@ -950,16 +1019,17 @@ pub(super) fn spawn_shape_entity(
 ) -> Option<Entity> {
     let own = kind.shape_def()?;
     // The seed of the absolute placement being compiled, when it names one,
-    // replaces the node's own (#1505).
+    // replaces the node's own (#1505); its values, or those of the instance
+    // set's variant being grown, are read over the grammar's own (#1643).
     let placement_seed = ctx.placement_shape_seed();
-    let def = own.seeded(placement_seed);
+    let def = own.variant(placement_seed, ctx.placement_shape_params());
 
     // Reuse cached geometry when the geometry-affecting settings are
     // unchanged. A scatter placement with count=1000 would otherwise
     // re-derive the grammar and re-bake every terminal mesh on every spawn.
-    // One entry per node and seed, so each placement's variant keeps its
+    // One entry per node and variant, so each placement's variant keeps its
     // own (#1505).
-    let key = (generator_ref.to_string(), def.seed);
+    let key = (generator_ref.to_string(), def.key());
     let geometry_hash = shape_geometry_fingerprint(&def);
     let (drawn, held) = match ctx.shape_mesh_cache.drawn(&key, geometry_hash) {
         // Drawn from these very settings before: derived cleanly then, or
@@ -970,14 +1040,17 @@ pub(super) fn spawn_shape_entity(
             // seed changed through many values leaves none of them behind
             // until a full compile (#1505).
             if ctx.shape_mesh_cache.holds_another(&key.0, key.1) {
-                forget_undrawn(ctx, &key.0, own.seed);
+                forget_undrawn(ctx, &key.0, own.seed, key.1);
             }
             // A variant's failure names the placement and the seed it was
             // drawn with, or a grammar that derives with its own seed would
             // show an error nothing in it explains.
-            let label = match placement_seed {
-                Some(seed) => format!("{generator_ref} ({})", seeded_by(ctx.placement_index, seed)),
-                None => generator_ref.to_string(),
+            let label = match (placement_seed, def.params) {
+                (None, None) => generator_ref.to_string(),
+                (seed, params) => format!(
+                    "{generator_ref} ({})",
+                    drawn_by(ctx.placement_index, seed, params)
+                ),
             };
             let drawn: Drawn =
                 build_shape_geometry(&def, &label, ctx.meshes, ctx.upstream_shape_mesh_cache).map(
@@ -1011,11 +1084,11 @@ pub(super) fn spawn_shape_entity(
     // fails, whose error it records instead: whichever copy compiled last,
     // the status shows a failure as long as the world draws it.
     let error = match &drawn {
-        Err(message) => Some(match placement_seed {
-            Some(seed) => format!("{}: {message}", seeded_by(ctx.placement_index, seed)),
-            None => message.clone(),
+        Err(message) => Some(match (placement_seed, def.params) {
+            (None, None) => message.clone(),
+            (seed, params) => format!("{}: {message}", drawn_by(ctx.placement_index, seed, params)),
         }),
-        Ok(_) => failing_variant(ctx, generator_ref, own, (def.seed, geometry_hash)),
+        Ok(_) => failing_variant(ctx, generator_ref, own, (def.key(), geometry_hash)),
     };
     ctx.record_grammar_status(generator_ref, path, error);
     let build = drawn.ok()?;
@@ -1189,19 +1262,30 @@ pub(crate) fn solid_collider(instances: &[ShapeInstance]) -> Option<Collider> {
 }
 
 /// How a grammar error names the copy that drew it (#1505): by its
-/// placement's index and the seed that placement gave it.
-fn seeded_by(placement: usize, seed: u64) -> String {
-    format!("with placement #{placement}'s seed {seed}")
+/// placement's index and the seed that placement gave it, or the values
+/// (#1643).
+fn drawn_by(placement: usize, seed: Option<u64>, params: Option<&GrammarParams>) -> String {
+    match (seed, params.is_some()) {
+        (Some(seed), false) => format!("with placement #{placement}'s seed {seed}"),
+        (Some(seed), true) => format!("with placement #{placement}'s seed {seed} and values"),
+        (None, _) => format!("with placement #{placement}'s values"),
+    }
 }
 
 /// Forget the variants of the Shape node `node`, whose own seed is `own`,
 /// that the world no longer draws (#1505): an avatar draws the node with
-/// its own seed alone, and a room with the seed each placement of the
-/// node's root gives it, or its own where a placement gives none.
-fn forget_undrawn(ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>, node: &str, own: u64) {
+/// its own seed alone, a template of an instance set with its variant's
+/// alone (#1643) - `drawing`, the key of the variant being drawn - and a
+/// room with the seed each placement of the node's root gives it, or its
+/// own where a placement gives none.
+fn forget_undrawn(ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>, node: &str, own: u64, drawing: u64) {
     if ctx.avatar_mode {
-        ctx.shape_mesh_cache
-            .forget_undrawn(node, |seed| seed == own);
+        let kept = if ctx.shape_variant.is_some() {
+            drawing
+        } else {
+            own
+        };
+        ctx.shape_mesh_cache.forget_undrawn(node, |key| key == kept);
         return;
     }
     let Some(root) = ctx
@@ -1214,17 +1298,12 @@ fn forget_undrawn(ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>, node: &str, own: u64) 
     };
     let seeds = ctx.shape_mesh_cache.seeds_of(ctx.record, root);
     ctx.shape_mesh_cache
-        .forget_undrawn(node, |seed| seeds.draws(own, seed));
+        .forget_undrawn(node, |key| seeds.draws(own, key));
 }
 
 /// The generator `placement` places.
 fn placed_generator(placement: &Placement) -> Option<&str> {
-    match placement {
-        Placement::Absolute { generator_ref, .. }
-        | Placement::Scatter { generator_ref, .. }
-        | Placement::Grid { generator_ref, .. } => Some(generator_ref),
-        Placement::Unknown => None,
-    }
+    placement.generator_ref()
 }
 
 /// [`ShapeMeshCache::failing_variant`] for a copy of the Shape node `node`
@@ -1270,6 +1349,7 @@ mod grammar_error_tests {
                 root_rule: "Root",
                 footprint: Fp3([8.0, 8.0, 8.0]),
                 seed: 1,
+                params: None,
                 materials: &HashMap::new(),
                 round_meshes: &[],
                 solid_meshes: &[],
@@ -1287,6 +1367,7 @@ mod grammar_error_tests {
                 root_rule: "Root",
                 footprint: Fp3([8.0, 8.0, 8.0]),
                 seed: 1,
+                params: None,
                 materials: &HashMap::new(),
                 round_meshes: &[],
                 solid_meshes: &[],
@@ -1304,6 +1385,7 @@ mod grammar_error_tests {
                 root_rule: "Root",
                 footprint: Fp3([8.0, 8.0, 8.0]),
                 seed: 1,
+                params: None,
                 materials: &HashMap::new(),
                 round_meshes: &[],
                 solid_meshes: &[],
@@ -1385,6 +1467,7 @@ mod failure_memo_tests {
             avoid_water: false,
             avoid_water_clearance: crate::pds::Fp(0.0),
             seed: Some(5),
+            params: Default::default(),
         };
         let record = RoomRecord {
             lex_type: "network.symbios.room".to_owned(),
@@ -1402,7 +1485,7 @@ mod failure_memo_tests {
         let mut cache = ShapeMeshCache::default();
         let failed: Drawn = Err("grammar produced no geometry (no terminal shapes)".to_owned());
         let def = failing.kind.shape_def().expect("a Shape node");
-        let hash = shape_geometry_fingerprint(&def.seeded(Some(5)));
+        let hash = shape_geometry_fingerprint(&def.variant(Some(5), None));
         assert!(cache.remember(("n".to_owned(), 5), hash, &failed));
         let mut ask = |root: &str, node: &Generator| {
             let own = node.kind.shape_def().expect("a Shape node");
@@ -1447,6 +1530,7 @@ mod round_mesh_tests {
                 root_rule: "Lot",
                 footprint: Fp3([4.0, 0.0, 2.0]),
                 seed: 1,
+                params: None,
                 materials: &HashMap::new(),
                 round_meshes: &round,
                 solid_meshes: &[],
@@ -1495,6 +1579,7 @@ mod round_mesh_tests {
                 root_rule: "Lot",
                 footprint: fp,
                 seed: 1,
+                params: None,
                 materials: &HashMap::new(),
                 round_meshes: round,
                 solid_meshes: &[],
@@ -1506,6 +1591,64 @@ mod round_mesh_tests {
             h(&reordered),
             h(&same_set),
             "the same set in a different order should reuse the bake"
+        );
+    }
+
+    /// #1643: a placement's grammar values are read over the grammar's own
+    /// `attr` and `const` of those names, and key the cache apart, while a
+    /// node drawn with none keeps the key and hash it had.
+    #[test]
+    fn grammar_values_are_read_over_the_grammars_own() {
+        let no_materials = HashMap::new();
+        let width = |declaration: &str, params: Option<&GrammarParams>| {
+            let source = format!("{declaration}\nLot --> Size(W, 1, 1) I(\"Box\")");
+            let def = ShapeDef {
+                grammar_source: &source,
+                root_rule: "Lot",
+                footprint: Fp3([1.0, 1.0, 1.0]),
+                seed: 5,
+                params: None,
+                materials: &no_materials,
+                round_meshes: &[],
+                solid_meshes: &[],
+            }
+            .variant(None, params);
+            let model = def.derive().ok().expect("derives");
+            model.terminals[0].scope.size.x
+        };
+        let three = GrammarParams(std::collections::BTreeMap::from([(
+            "W".to_string(),
+            crate::pds::Fp(3.0),
+        )]));
+        assert_eq!(width("attr W = 1", None), 1.0);
+        assert_eq!(width("attr W = 1", Some(&three)), 3.0);
+        assert_eq!(width("const W = 1", Some(&three)), 3.0, "over a const too");
+        // An empty map is no values at all.
+        assert_eq!(width("attr W = 1", Some(&GrammarParams::default())), 1.0);
+
+        let own = ShapeDef {
+            grammar_source: "Lot --> I(\"Box\")",
+            root_rule: "Lot",
+            footprint: Fp3([1.0, 1.0, 1.0]),
+            seed: 5,
+            params: None,
+            materials: &no_materials,
+            round_meshes: &[],
+            solid_meshes: &[],
+        };
+        let seeded = own.variant(Some(9), None);
+        let valued = own.variant(Some(9), Some(&three));
+        assert_eq!(own.key(), 5);
+        assert_eq!(seeded.key(), 9, "a seed alone keys as itself");
+        assert_ne!(valued.key(), 9);
+        assert_eq!(
+            shape_geometry_fingerprint(&own.variant(None, Some(&GrammarParams::default()))),
+            shape_geometry_fingerprint(&own),
+            "no values keep the hash a node had"
+        );
+        assert_ne!(
+            shape_geometry_fingerprint(&valued),
+            shape_geometry_fingerprint(&seeded)
         );
     }
 }
@@ -1574,6 +1717,7 @@ mod card_uv_tests {
                 root_rule: "Lot",
                 footprint: Fp3([8.0, 0.0, 4.0]),
                 seed: 1,
+                params: None,
                 materials: &materials,
                 round_meshes: &[],
                 solid_meshes: &[],
@@ -1640,6 +1784,7 @@ mod card_uv_tests {
                 root_rule: "Lot",
                 footprint: fp,
                 seed: 1,
+                params: None,
                 materials: m,
                 round_meshes: &[],
                 solid_meshes: &[],
@@ -1761,6 +1906,7 @@ mod solid_collider_tests {
                 root_rule: "Lot",
                 footprint: Fp3([1.0, 0.0, 1.0]),
                 seed: 1,
+                params: None,
                 materials: &HashMap::new(),
                 round_meshes: round,
                 solid_meshes: solid,

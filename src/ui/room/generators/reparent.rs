@@ -1080,6 +1080,7 @@ mod tests {
             avoid_water: false,
             avoid_water_clearance: crate::pds::Fp(0.0),
             seed: None,
+            params: Default::default(),
         }
     }
 
@@ -1137,14 +1138,7 @@ mod tests {
 
         assert_eq!(record.placements.len(), 2, "victim refs should be gone");
         for p in &record.placements {
-            match p {
-                Placement::Absolute { generator_ref, .. }
-                | Placement::Scatter { generator_ref, .. }
-                | Placement::Grid { generator_ref, .. } => {
-                    assert_ne!(generator_ref, "victim");
-                }
-                Placement::Unknown => {}
-            }
+            assert_ne!(p.generator_ref(), Some("victim"));
         }
         assert!(!record.traits.contains_key("victim"));
         assert!(record.traits.contains_key("survivor"));

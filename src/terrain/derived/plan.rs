@@ -1,7 +1,7 @@
 //! A derived plan and its spawning (#1587, #1588): the distinct buildings,
 //! trees and props a plan draws, each grown once, spawned hidden as a
-//! template and baked ([`super::bake`]), and the copies of them its
-//! footprints and inventory points stand.
+//! template and baked ([`crate::world_builder::instances::bake`]), and the
+//! copies of them its footprints and inventory points stand.
 //!
 //! A copy is drawn near - its building's parts merged per material, a few
 //! entities - while its plan's near copies stay inside the plan's entity
@@ -18,15 +18,15 @@ use bevy::camera::visibility::VisibilityRange;
 use bevy::prelude::*;
 
 use crate::catalogue::CatalogueEntry;
-use crate::pds::audio::SovereignAudioConfig;
 use crate::pds::{Generator, GeneratorKind};
 use crate::player::visuals::AvatarSpawnDeps;
 use crate::seeded_defaults::fnv1a_64;
 use crate::world_builder::avatar_spawn::{detached_record, spawn_detached_tree};
 use crate::world_builder::draw_distance::{DrawDistanceCuts, SizeClass};
 
-use super::bake::NearPart;
 use super::{DerivedItem, SourceId};
+use crate::world_builder::instances::bake::NearPart;
+use crate::world_builder::instances::strip_for_distance;
 
 /// The smallest and largest a copy's height may scale its template (a
 /// tree's, to the inventory's height): past these the species is the wrong
@@ -267,36 +267,6 @@ fn grow_plant(entry: &dyn CatalogueEntry, did: &str, variant: Option<&'static st
     tree
 }
 
-/// Strip from a derived tree what it only costs: every sound, every spin
-/// (#1604 - most copies are drawn merged from a baked template, where a
-/// part has no transform of its own to turn, so a copy drawn whole would
-/// turn where its neighbours stand still), and every node that is no
-/// geometry to see - particles, signs, portals, gateways, and any water,
-/// terrain or road a tree should not carry.
-pub(crate) fn strip_for_distance(tree: &mut Generator) {
-    tree.audio = SovereignAudioConfig::None;
-    tree.spin = None;
-    tree.children.retain(|child| kept_afar(&child.kind));
-    for child in &mut tree.children {
-        strip_for_distance(child);
-    }
-}
-
-/// Whether a node of this kind stays on a derived building.
-fn kept_afar(kind: &GeneratorKind) -> bool {
-    !matches!(
-        kind,
-        GeneratorKind::Terrain(_)
-            | GeneratorKind::Water { .. }
-            | GeneratorKind::RoadNetwork(_)
-            | GeneratorKind::Portal { .. }
-            | GeneratorKind::Gateway { .. }
-            | GeneratorKind::ParticleSystem(_)
-            | GeneratorKind::Sign { .. }
-            | GeneratorKind::Unknown
-    )
-}
-
 /// Where a [`Build`] has got to, each with the next index it works on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Stage {
@@ -383,7 +353,7 @@ impl Build {
         &mut self,
         b: usize,
         commands: &mut Commands,
-        parts: &super::bake::PartQuery,
+        parts: &crate::world_builder::instances::bake::PartQuery,
         meshes: &mut Assets<Mesh>,
         (materials, wind_materials): (
             &Assets<StandardMaterial>,
@@ -392,8 +362,15 @@ impl Build {
     ) {
         let building = &mut self.plan.buildings[b];
         let template = building.template.take();
-        let baked = template
-            .and_then(|t| super::bake::merge_template(t, parts, meshes, materials, wind_materials));
+        let baked = template.and_then(|t| {
+            crate::world_builder::instances::bake::merge_template(
+                t,
+                parts,
+                meshes,
+                materials,
+                wind_materials,
+            )
+        });
         let (near, far, bounds) = baked.map_or((None, None, None), |baked| {
             (baked.near, baked.far, baked.bounds)
         });
@@ -559,17 +536,6 @@ fn stamp(part: &mut EntityCommands, cut: Option<(SizeClass, Option<VisibilityRan
     }
 }
 
-/// The material every far form is drawn with: white, so each part shows
-/// its vertex colour, and matte, as a city a kilometre off is.
-pub(super) fn far_material() -> StandardMaterial {
-    StandardMaterial {
-        base_color: Color::WHITE,
-        perceptual_roughness: 0.9,
-        reflectance: 0.3,
-        ..default()
-    }
-}
-
 /// Spawn building `b` of `plan` whole from its tree, under `parent` at
 /// `pose`: its template, or a copy that could not be merged. Answers the
 /// tree's root and how many entities it spawned.
@@ -608,46 +574,13 @@ pub(super) fn spawn_whole(
         deps.current_room.as_deref(),
         false,
         None,
+        None,
     )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_derived_building_loses_its_sounds_spins_and_what_is_not_seen() {
-        let hum = || SovereignAudioConfig::Patch {
-            patch: Default::default(),
-        };
-        let turning = || {
-            Some(crate::pds::Spin::about(
-                [0.0, 0.0, 1.0],
-                crate::pds::SpinTerm::Constant {
-                    rate: crate::pds::Fp(30.0),
-                },
-            ))
-        };
-        let mut tree = Generator::default_cuboid();
-        tree.audio = hum();
-        tree.spin = turning();
-        let mut wall = Generator::default_cuboid();
-        wall.children
-            .push(Generator::from_kind(GeneratorKind::default_particles()));
-        wall.audio = hum();
-        wall.spin = turning();
-        tree.children.push(wall);
-        tree.children
-            .push(Generator::from_kind(GeneratorKind::default_particles()));
-        strip_for_distance(&mut tree);
-        assert!(tree.audio.is_none() && tree.spin.is_none());
-        assert_eq!(tree.children.len(), 1, "the wall stays, the sparks go");
-        assert!(tree.children[0].children.is_empty() && tree.children[0].audio.is_none());
-        assert!(
-            tree.children[0].spin.is_none(),
-            "#1604: no part of a copy turns"
-        );
-    }
 
     /// A street building is ruined in place (#1598): a fought-over room
     /// sinks and weathers it, but neither leans nor shrinks it, so it

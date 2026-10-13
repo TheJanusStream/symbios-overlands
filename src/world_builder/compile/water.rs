@@ -465,6 +465,7 @@ mod water_avoidance_tests {
             avoid_water: true,
             avoid_water_clearance: crate::pds::Fp(3.0),
             seed: None,
+            params: Default::default(),
         });
         let walked = landing_on(&landed, &berlin).expect("a landing");
         let at = bevy::math::Vec3::new(walked.pos.0[0], 0.0, walked.pos.0[1]);

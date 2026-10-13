@@ -806,6 +806,7 @@ mod ecs_tests {
                     avoid_water: false,
                     avoid_water_clearance: Fp(0.0),
                     seed: None,
+                    params: Default::default(),
                 },
                 Placement::Grid {
                     generator_ref: "tuft".to_string(),

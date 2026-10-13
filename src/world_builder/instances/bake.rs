@@ -1,5 +1,8 @@
-//! Baking a derived building's template (#1587, #1588): its parts, spawned
-//! once and hidden, merged into the two forms its copies are drawn in.
+//! Baking a template (#1587, #1588; moved here for instance sets, #1643):
+//! one variant of a generator, spawned once and hidden, its parts merged
+//! into the two forms its copies are drawn in. Instance sets draw through
+//! it ([`super`]), and so does a geodata region's derived stage until P3 of
+//! #1636 seeds Berlin into the record.
 //!
 //! - **Near**: the parts merged into one mesh per material (and per sway:
 //!   a tree's foliage keeps its [`WindSway`]), carried into the template's
@@ -12,7 +15,8 @@
 //!
 //! The box the parts fill comes with them: a tree's height scales its
 //! copies to the inventory's, and a prop's size picks its draw distance and
-//! its collider.
+//! its collider. So does the width of what stands in its lowest metre, a
+//! tree's trunk, which a trunk collider is as wide as.
 
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::primitives::MeshAabb;
@@ -74,7 +78,15 @@ pub(crate) struct Baked {
     /// scales its copies to theirs, and a prop's size picks its draw
     /// distance and its collider. `None` where nothing was drawn.
     pub bounds: Option<(Vec3, Vec3)>,
+    /// Half the narrower side of the box the parts fill in the template's
+    /// lowest [`BASE_M`]: a tree's trunk, what a trunk collider is as wide
+    /// as. `None` where nothing was drawn.
+    pub base: Option<f32>,
 }
+
+/// How much of a template, from its lowest point up, is its base (m): a
+/// tree's trunk below its crown.
+pub(crate) const BASE_M: f32 = 1.0;
 
 /// Bake the parts under `template`, in the template's frame: each part's
 /// mesh carried there by the affine product of the transforms down to it,
@@ -123,11 +135,31 @@ pub(crate) fn merge_template(
             stack.extend(children.iter().map(|child| (child, affine)));
         }
     }
+    let bounds = bounds(&placed_parts);
     Some(Baked {
         near: near_form(&placed_parts),
         far: far_form(&placed_parts, materials),
-        bounds: bounds(&placed_parts),
+        base: bounds.and_then(|(lo, _)| base(&placed_parts, lo.y + BASE_M)),
+        bounds,
     })
+}
+
+/// Half the narrower horizontal side of the box the parts' vertices up to
+/// height `top` fill: the width of a template's base ([`Baked::base`]).
+fn base(parts: &[Placed], top: f32) -> Option<f32> {
+    let (mut lo, mut hi) = (Vec2::splat(f32::MAX), Vec2::splat(f32::MIN));
+    for (mesh, ..) in parts {
+        let Ok(Some(VertexAttributeValues::Float32x3(positions))) =
+            mesh.try_attribute_option(Mesh::ATTRIBUTE_POSITION)
+        else {
+            continue;
+        };
+        for p in positions.iter().filter(|p| p[1] <= top) {
+            lo = lo.min(Vec2::new(p[0], p[2]));
+            hi = hi.max(Vec2::new(p[0], p[2]));
+        }
+    }
+    (lo.cmple(hi).all()).then(|| (hi - lo).min_element() / 2.0)
 }
 
 /// A part carried into its template's frame: its mesh, its material where

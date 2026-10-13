@@ -23,7 +23,8 @@
 //!    is grown once and spawned whole, hidden, as a remote avatar's
 //!    visuals are: no collider, no editor marker, no room entity.
 //! 2. **Baking**: each template's parts are merged into its near and far
-//!    forms ([`bake`]) and the template despawned. A building whose parts
+//!    forms ([`crate::world_builder::instances::bake`], which instance
+//!    sets draw through too, #1643) and the template despawned. A building whose parts
 //!    cannot all be merged per material keeps its tree for its near copies.
 //! 3. **Copies**: each copy, near while its plan's entity budget lasts and
 //!    far past it, on its collider.
@@ -38,7 +39,6 @@
 //! suppressed item's entities are despawned, and a restored one drawn again
 //! from its plan, which stays resident for its terrain's life for that.
 
-pub(crate) mod bake;
 pub(crate) mod core;
 pub(crate) mod edit;
 pub(crate) mod fit;
@@ -350,7 +350,7 @@ pub(super) fn spawn_derived(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut deps: AvatarSpawnDeps,
-    parts: bake::PartQuery,
+    parts: crate::world_builder::instances::bake::PartQuery,
     cuts: Option<Res<DrawDistanceCuts>>,
     wind_materials: Option<Res<Assets<crate::wind::VegetationWindMaterial>>>,
 ) {
@@ -372,7 +372,7 @@ pub(super) fn spawn_derived(
         }
         let far_material = builds
             .far_material
-            .get_or_insert_with(|| materials.add(plan::far_material()))
+            .get_or_insert_with(|| materials.add(crate::world_builder::instances::far_material()))
             .clone();
         build.spawn_copy(
             c,
@@ -443,7 +443,9 @@ pub(super) fn spawn_derived(
                 steps += 1;
                 let far_material = builds
                     .far_material
-                    .get_or_insert_with(|| materials.add(plan::far_material()))
+                    .get_or_insert_with(|| {
+                        materials.add(crate::world_builder::instances::far_material())
+                    })
                     .clone();
                 build.spawn_copy(
                     c,

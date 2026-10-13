@@ -207,6 +207,7 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
         avoid_water: false,
         avoid_water_clearance: Fp(0.0),
         seed: None,
+        params: Default::default(),
     }];
 
     // Seeded tree scatters: one named generator per scatter (so
@@ -532,6 +533,7 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
         avoid_water: false,
         avoid_water_clearance: Fp(0.0),
         seed: None,
+        params: Default::default(),
     });
 
     // Seeded settlement, sited on the terrain (#905): the plan places
@@ -668,6 +670,7 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
             avoid_water: true,
             avoid_water_clearance: Fp(gate_clearance),
             seed: None,
+            params: Default::default(),
         });
         default_landing = Some(DefaultLanding {
             pos: Fp2(spot.landing),
@@ -722,6 +725,7 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
                 avoid_water: true,
                 avoid_water_clearance: Fp(clearance),
                 seed: None,
+                params: Default::default(),
             });
         }
     }
@@ -890,6 +894,7 @@ fn member_placement(
         avoid_water: true,
         avoid_water_clearance: Fp(member_ground_radius(member)),
         seed: grammar.then_some(member.grammar_seed),
+        params: Default::default(),
     }
 }
 

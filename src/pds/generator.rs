@@ -15,6 +15,7 @@
 //! and leaf-only** (it needs an ancestor's transform to anchor its volume,
 //! and its own `children` list is cleared at sanitisation time).
 
+use super::instances::{GrammarParams, InstanceCopy, InstanceSolid, InstanceVariant};
 use super::prim::PropMeshType;
 use super::terrain::SovereignTerrainConfig;
 use super::texture::SovereignMaterialSettings;
@@ -3001,6 +3002,14 @@ pub enum Placement {
             with = "option_u64_as_string"
         )]
         seed: Option<u64>,
+        /// Named values every [`GeneratorKind::Shape`] node in the placed
+        /// tree reads, over its grammar's own of those names (#1643): a
+        /// copy of an instance set detached into a placement of its own
+        /// keeps the values it was drawn with. Like `seed`, Shape nodes
+        /// only, and left out when empty, so a record that never set any
+        /// keeps its bytes.
+        #[serde(default, skip_serializing_if = "GrammarParams::is_empty")]
+        params: GrammarParams,
     },
 
     #[serde(rename = "network.symbios.place.scatter")]
@@ -3066,6 +3075,33 @@ pub enum Placement {
         random_yaw: bool,
     },
 
+    /// One generator at many poses, each copy drawn with its variant's seed
+    /// and values, and all of them drawn merged (#1643; see
+    /// [`crate::pds::instances`] for the copy's wire form).
+    #[serde(rename = "network.symbios.place.instances")]
+    Instances {
+        generator_ref: String,
+        /// The frame the copies stand in, so a whole set moves as one.
+        #[serde(default, skip_serializing_if = "TransformData::is_identity")]
+        transform: TransformData,
+        /// Each copy stands on the ground under it, raised by its own `y`.
+        #[serde(default = "default_true", skip_serializing_if = "is_true")]
+        snap_to_terrain: bool,
+        /// What a walker meets at each copy.
+        #[serde(default, skip_serializing_if = "InstanceSolid::is_shell")]
+        solid: InstanceSolid,
+        /// What each copy's grammars draw with, by its index; none means
+        /// one, the generator as it is.
+        #[serde(
+            default,
+            skip_serializing_if = "Vec::is_empty",
+            deserialize_with = "super::instances::deserialize_variants"
+        )]
+        variants: Vec<InstanceVariant>,
+        #[serde(default, deserialize_with = "super::instances::deserialize_copies")]
+        copies: Vec<InstanceCopy>,
+    },
+
     #[serde(other, skip_serializing)]
     Unknown,
 }
@@ -3074,11 +3110,33 @@ impl Placement {
     /// The seed every [`GeneratorKind::Shape`] node of the tree this
     /// placement plants derives with in place of its own (#1505): an
     /// absolute placement's `seed`, when it names one. Scatter and grid
-    /// placements have none, and draw each Shape node with its own.
+    /// placements have none, and draw each Shape node with its own; an
+    /// instance set's copies take theirs from their variants.
     pub fn shape_seed(&self) -> Option<u64> {
         match self {
             Placement::Absolute { seed, .. } => *seed,
             _ => None,
+        }
+    }
+
+    /// The values every Shape node of the tree this placement plants reads
+    /// (#1643): an absolute placement's `params`, empty for every other.
+    pub fn shape_params(&self) -> Option<&GrammarParams> {
+        match self {
+            Placement::Absolute { params, .. } if !params.is_empty() => Some(params),
+            _ => None,
+        }
+    }
+
+    /// The generator this placement plants, or `None` for a kind this build
+    /// does not know.
+    pub fn generator_ref(&self) -> Option<&str> {
+        match self {
+            Placement::Absolute { generator_ref, .. }
+            | Placement::Scatter { generator_ref, .. }
+            | Placement::Grid { generator_ref, .. }
+            | Placement::Instances { generator_ref, .. } => Some(generator_ref),
+            Placement::Unknown => None,
         }
     }
 }
@@ -3195,6 +3253,7 @@ mod placement_seed_wire_tests {
             avoid_water: false,
             avoid_water_clearance: Fp(0.0),
             seed,
+            params: Default::default(),
         }
     }
 
@@ -3208,6 +3267,7 @@ mod placement_seed_wire_tests {
             avoid_water,
             avoid_water_clearance,
             seed: _,
+            params: _,
         } = placement.clone()
         else {
             return None;

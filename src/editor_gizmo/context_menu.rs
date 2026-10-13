@@ -1066,6 +1066,7 @@ fn create_at_point(
         avoid_water_clearance: Fp(0.0),
         snap_to_terrain: false,
         seed: None,
+        params: Default::default(),
     });
     // Land on the new region asset. It has exactly one instance, so the
     // proximity gizmo attaches to the fresh placement automatically.
@@ -1322,6 +1323,7 @@ mod tests {
             avoid_water_clearance: Fp(0.0),
             snap_to_terrain: false,
             seed: None,
+            params: Default::default(),
         });
 
         assert!(
@@ -1379,6 +1381,7 @@ mod tests {
                 avoid_water_clearance: Fp(0.0),
                 snap_to_terrain: false,
                 seed: None,
+                params: Default::default(),
             });
         }
         let refused = create_at_point(

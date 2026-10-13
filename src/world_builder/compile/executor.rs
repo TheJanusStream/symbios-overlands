@@ -164,6 +164,7 @@ pub(crate) fn compile_room_record(
             // Set per node and per copy by the dispatch (#1604).
             spinning: false,
             spin_epoch: 0.0,
+            shape_variant: None,
         };
 
         loop {
@@ -619,7 +620,15 @@ fn start_unit(
             *snap_to_terrain,
             None,
         ),
+        // An instance set's anchor stands as a grid's does; its copies are
+        // stood by the instance spawner, each on the ground under it
+        // (#1643).
         Placement::Grid {
+            transform,
+            snap_to_terrain,
+            ..
+        }
+        | Placement::Instances {
             transform,
             snap_to_terrain,
             ..
@@ -714,6 +723,21 @@ fn start_unit(
             // One dispatch - atomic; a single blueprint stays the
             // smallest unit of work the slicer can schedule.
             dispatch_top_level(ctx, generator_ref, Transform::IDENTITY, anchor);
+            UnitStart::Committed(
+                index,
+                CompiledUnit {
+                    fingerprint: queued.fingerprint,
+                    anchor: Some(anchor),
+                },
+            )
+        }
+        // Its copies are drawn merged, over the frames after this one, by
+        // the instance spawner (#1643): the unit is the anchor they hang
+        // under, done here.
+        Placement::Instances { .. } => {
+            ctx.commands
+                .entity(anchor)
+                .insert(super::super::instances::InstanceSetRoot);
             UnitStart::Committed(
                 index,
                 CompiledUnit {
@@ -996,6 +1020,7 @@ mod tests {
             avoid_water: false,
             avoid_water_clearance: Fp(0.0),
             seed: None,
+            params: Default::default(),
         }
     }
 
@@ -1276,6 +1301,7 @@ mod tests {
                 avoid_water: false,
                 avoid_water_clearance: Fp(0.0),
                 seed: None,
+                params: Default::default(),
             }];
             let mut app = compile_app(record);
             let mut map = super::super::pad::wet_ramp();
@@ -1314,6 +1340,7 @@ mod tests {
             avoid_water,
             avoid_water_clearance: Fp(3.0),
             seed: None,
+            params: Default::default(),
         };
         let mut record = test_record(0);
         // The seeded layout: the room's water is a child of its terrain,
@@ -1459,6 +1486,7 @@ mod tests {
             avoid_water: false,
             avoid_water_clearance: Fp(0.0),
             seed: None,
+            params: Default::default(),
         });
         let mut app = compile_app_with_physics(record);
         settle(&mut app);
@@ -1614,6 +1642,7 @@ mod tests {
             avoid_water: false,
             avoid_water_clearance: Fp(0.0),
             seed: None,
+            params: Default::default(),
         });
         // The middle of each 2 x 2 x 1 m terminal, from the node's frame
         // (wall at x 0..2, door at x 2..4, 0.5 m up the root) to the world.
@@ -1740,6 +1769,7 @@ mod tests {
             avoid_water: false,
             avoid_water_clearance: Fp(0.0),
             seed,
+            params: Default::default(),
         }
     }
 
@@ -1817,6 +1847,77 @@ mod tests {
         assert_eq!(
             drawn[4], drawn[2],
             "the tree with 7 written into it draws what the placement's 7 draws"
+        );
+    }
+
+    /// #1643: an absolute placement's grammar values are read over its
+    /// grammar's own, each set of values its own variant in the cache, and
+    /// a placement with none draws the grammar as it is.
+    #[test]
+    fn a_placement_s_values_are_read_over_its_grammars_own() {
+        let mut record = test_record(0);
+        let wide: Generator = serde_json::from_value(serde_json::json!({
+            "$type": "network.symbios.gen.shape",
+            "grammar_source": "attr W = 1\nLot --> Size(W, 1, 1) I(\"Block\")",
+            "root_rule": "Lot",
+            "footprint": [10_000, 10_000, 10_000],
+            "seed": "5",
+        }))
+        .expect("a Shape node");
+        record.generators.insert("wide".to_string(), wide);
+        let valued = |slot: usize, w: Option<f32>| {
+            let mut placement = placed("wide", slot, None);
+            if let (Placement::Absolute { params, .. }, Some(w)) = (&mut placement, w) {
+                params.0.insert("W".to_string(), Fp(w));
+            }
+            placement
+        };
+        record.placements = vec![valued(0, None), valued(1, Some(2.0)), valued(2, Some(3.0))];
+        let mut app = compile_app(record);
+        settle(&mut app);
+        let widths: Vec<f32> = drawn(&app)
+            .iter()
+            .map(|parts| f32::from_bits(parts[0].0[3]))
+            .collect();
+        assert_eq!(widths, [1.0, 2.0, 3.0]);
+        let held: usize = shape_cache(&app).builds.values().map(HashMap::len).sum();
+        assert_eq!(held, 3, "each set of values keeps its own derivation");
+    }
+
+    /// #1643: an instance set's unit is its anchor, stood as a grid's is and
+    /// marked for the instance spawner, which draws its copies under it
+    /// over the frames after; the compile spawns none of them.
+    #[test]
+    fn an_instance_set_is_its_anchor_marked_for_the_spawner() {
+        let mut record = test_record(0);
+        record.placements.push(Placement::Instances {
+            generator_ref: "box".into(),
+            transform: TransformData {
+                translation: Fp3([4.0, 9.0, -2.0]),
+                ..TransformData::default()
+            },
+            snap_to_terrain: false,
+            solid: crate::pds::InstanceSolid::Shell,
+            variants: Vec::new(),
+            copies: vec![crate::pds::InstanceCopy::at(1.0, 1.0, 0.0); 3],
+        });
+        let mut app = compile_app(record);
+        settle(&mut app);
+        let anchor = unit_anchors(&app)[0].expect("an anchor");
+        let world = app.world();
+        assert!(
+            world
+                .get::<crate::world_builder::instances::InstanceSetRoot>(anchor)
+                .is_some()
+        );
+        assert_eq!(world.get::<PlacementMarker>(anchor).map(|m| m.0), Some(0));
+        assert_eq!(
+            world.get::<Transform>(anchor).map(|t| t.translation),
+            Some(Vec3::new(4.0, 9.0, -2.0))
+        );
+        assert!(
+            world.get::<Children>(anchor).is_none(),
+            "the copies are the spawner's"
         );
     }
 

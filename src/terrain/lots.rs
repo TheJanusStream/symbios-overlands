@@ -300,12 +300,7 @@ fn refs_street_prop(p: &Placement) -> bool {
 }
 
 fn placement_ref(p: &Placement) -> Option<&str> {
-    match p {
-        Placement::Absolute { generator_ref, .. }
-        | Placement::Scatter { generator_ref, .. }
-        | Placement::Grid { generator_ref, .. } => Some(generator_ref),
-        Placement::Unknown => None,
-    }
+    p.generator_ref()
 }
 
 /// Remove every injected lot building (and its placement) from `record`.
@@ -733,6 +728,7 @@ fn inject_lots(
             // instead (#1559); every other carries its clearance.
             avoid_water_clearance: Fp(entry.ground_radius().unwrap_or(fp.clearance) * drawn),
             seed: None,
+            params: Default::default(),
         });
         placed += 1;
     }
@@ -878,6 +874,7 @@ fn inject_street_furniture(
             avoid_water: true,
             avoid_water_clearance: Fp(entry.footprint().clearance),
             seed: None,
+            params: Default::default(),
         });
         placed += 1;
     }
@@ -1564,6 +1561,7 @@ mod tests {
                 avoid_water: false,
                 avoid_water_clearance: Fp(0.0),
                 seed: None,
+                params: Default::default(),
             });
         }
         let lots: Vec<BuildingLot> = (0..20)
@@ -2177,6 +2175,7 @@ mod tests {
             avoid_water: true,
             avoid_water_clearance: Fp(1.0),
             seed: None,
+            params: Default::default(),
         });
         let config = RoadConfig {
             seed: 4242,
@@ -2558,6 +2557,7 @@ mod tests {
             avoid_water: true,
             avoid_water_clearance: Fp(16.0),
             seed: None,
+            params: Default::default(),
         });
         let before = record.clone();
 
@@ -2719,6 +2719,7 @@ mod tests {
                 // path writes it; every other entry's clearance, as before.
                 avoid_water_clearance: Fp(entry.ground_radius().unwrap_or(fp.clearance)),
                 seed: None,
+                params: Default::default(),
             });
             placed += 1;
         }
@@ -2853,6 +2854,7 @@ mod tests {
                 avoid_water: true,
                 avoid_water_clearance: Fp(16.0),
                 seed: None,
+                params: Default::default(),
             });
         }
         record
@@ -3345,6 +3347,7 @@ mod tests {
                 avoid_water: false,
                 avoid_water_clearance: Fp(0.0),
                 seed: None,
+                params: Default::default(),
             });
         }
         let saved = grown_and_saved(room, did);

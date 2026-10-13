@@ -108,6 +108,7 @@ pub fn spawn_avatar_visuals_subtree(
         current_room,
         is_local,
         attachment,
+        None,
     );
     if let Some(root) = root {
         commands.entity(root).insert(super::AvatarVisualRoot {
@@ -124,9 +125,10 @@ pub fn spawn_avatar_visuals_subtree(
 ///
 /// Every tree spawned under one `cache_key` shares its derived grammar and
 /// meshes, so a key per distinct tree, not per copy, is what lets copies
-/// instance one another: the middle ring of a geodata region (#1587)
-/// spawns each of its shared buildings under one key, and every avatar
-/// under its own.
+/// instance one another: a geodata region's derived stage (#1588) spawns
+/// each of its shared buildings under one key, every avatar under its own,
+/// and an instance set each variant's template under its own (#1643), its
+/// Shape nodes drawn with `variant`'s seed and values.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn spawn_detached_tree(
     commands: &mut Commands,
@@ -149,6 +151,7 @@ pub(crate) fn spawn_detached_tree(
     current_room: Option<&CurrentRoomDid>,
     is_local: bool,
     attachment: Option<&str>,
+    variant: Option<&crate::pds::InstanceVariant>,
 ) -> (Option<Entity>, u32) {
     // Touch-sets are scratch state for the room compiler's GC pass at
     // the end of compile_room_record. Avatar spawning doesn't run
@@ -218,6 +221,7 @@ pub(crate) fn spawn_detached_tree(
         // placement's copy, so its spinners share the clock unshifted.
         spinning: false,
         spin_epoch: 0.0,
+        shape_variant: variant,
     };
     let root = spawn_generator(&mut ctx, tree, cache_key, &[], transform, Some(parent));
     (root, entities_spawned)

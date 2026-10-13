@@ -237,12 +237,7 @@ pub(super) enum StepOutcome {
 
 /// `generator_ref` of a placement, if it has one.
 pub(super) fn placement_generator_ref(placement: &Placement) -> Option<&str> {
-    match placement {
-        Placement::Absolute { generator_ref, .. }
-        | Placement::Grid { generator_ref, .. }
-        | Placement::Scatter { generator_ref, .. } => Some(generator_ref),
-        Placement::Unknown => None,
-    }
+    placement.generator_ref()
 }
 
 /// Serialise everything that determines one placement's compiled
