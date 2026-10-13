@@ -818,12 +818,12 @@ The index is into that family's own table in `src/pds/avatar/livery.rs` and
 wraps, so a loop that runs past the end draws each scheme once rather than the
 last one twice. (A helicopter's list and an airplane's are the ones weighted
 by theme, #1614 and #1617 - each type its own, the trainer's since #1621, the
-biplane's since #1623, the twin's since #1625, the coaxial's since #1628 and
-the racer's since #1629, and the autogyro wears the biplane's, #1624: the
-index still names its scheme outright, whatever the subject's theme would
-have picked.) `--outfit <seed>` prints the scheme a seed picked for itself,
-beside its craft type. A `--generator` file carries its own colours and is
-unaffected.
+biplane's since #1623, the twin's since #1625, the coaxial's since #1628, the
+racer's since #1629 and the tandem's since #1630, and the autogyro wears the
+biplane's, #1624: the index still names its scheme outright, whatever the
+subject's theme would have picked.) `--outfit <seed>` prints the scheme a seed
+picked for itself, beside its craft type. A `--generator` file carries its own
+colours and is unaffected.
 
 `--play-view` is a preset, not a straitjacket: `--yaw` (default 135, the
 sheet's three-quarter angle), `--dist`, `--elev`, `--zoom`, `--lift`,

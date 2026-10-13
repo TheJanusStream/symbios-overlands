@@ -71,7 +71,10 @@
 //!
 //! A level type whose tail is a part hung past her boom's end measures the
 //! same way: the coaxial's tail is her shroud's aft lip, and her nose her
-//! fuselage's tip, leaning a hair past its station (#1628).
+//! fuselage's tip, leaning a hair past its station (#1628). So does one
+//! drawn SHORT of it, whose tail reach is negative: the tandem's length runs
+//! to the prototype's ramp's end, and her tail light stands 5 to 13 cm short
+//! of it (#1630).
 
 use crate::seeded_defaults::HelicopterBlueprint;
 
@@ -119,8 +122,8 @@ pub(crate) struct PodPlan {
     /// ([`Self::with_nose_reach`]).
     nose_reach: f32,
     /// How far aft of the boom's end the craft is drawn (m, prototype
-    /// frame): the profile's, or measured off a craft drawn standing
-    /// ([`Self::with_tail_reach`]).
+    /// frame): the profile's, or measured off the craft she draws
+    /// ([`Self::with_tail_reach`]) - negative when she is drawn short of it.
     tail_reach: f32,
 }
 
@@ -165,8 +168,12 @@ impl PodPlan {
     /// boom's end - measured off the machine the type draws, as she stands -
     /// in the box's tail and the craft's centring, in place of the
     /// profile's. Her length, her scale and every station stay as they were.
+    ///
+    /// A negative reach is a tail drawn short of the boom's end, and is kept:
+    /// the tandem's (#1630). The nose's is floored at zero, because a nose
+    /// is drawn at least to its first station.
     pub(crate) fn with_tail_reach(mut self, reach: f32) -> Self {
-        self.tail_reach = reach.max(0.0);
+        self.tail_reach = reach;
         self.centre();
         self
     }
@@ -445,6 +452,21 @@ mod tests {
         assert!((reached.fuselage_len() - p.fuselage_len()).abs() < 1e-6);
         let kept = p.with_tail_reach(PROFILE.tail_reach);
         assert_eq!(kept.nose_and_tail(), p.nose_and_tail());
+    }
+
+    /// A tail drawn short of the boom's end keeps its negative reach: the
+    /// box's tail stands that far AHEAD of the boom's end, and the craft is
+    /// still centred (#1630).
+    #[test]
+    fn a_short_tail_keeps_its_negative_reach() {
+        let p = plan(3.2, 1.2, 1.0).with_tail_reach(-0.09);
+        let (nose, tail) = p.nose_and_tail();
+        assert!((nose + tail).abs() < 1e-5, "off centre by {}", nose + tail);
+        let end = p.at(0.0, 0.0, PROFILE.boom_end)[2];
+        assert!(
+            (tail - end - p.len(0.09)).abs() < 1e-5,
+            "{tail} against {end}"
+        );
     }
 
     /// A rigid offset rides its station's stretch and is not stretched.

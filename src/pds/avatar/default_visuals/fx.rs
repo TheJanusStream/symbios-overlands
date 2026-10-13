@@ -1147,6 +1147,8 @@ fn turbine_chop(g: &mut GraphBuilder, detune: f32) -> NodeId {
 /// drawn rotors
 /// ([`COAXIAL_BLADE_PASS_HZ`](super::helicopters::COAXIAL_BLADE_PASS_HZ):
 /// three blades at three turns a second), so what is heard is what is seen.
+/// The tandem's two rotors turn as hers do, so she is heard by it too
+/// (#1630 Q-H): the Chinook's wokka.
 ///
 /// Every rate is whole hertz after the detune - the crossing twice the
 /// rounded blade pass - and the chop's envelope dies to nothing and restarts

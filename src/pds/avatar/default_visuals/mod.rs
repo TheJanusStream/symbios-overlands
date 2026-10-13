@@ -254,7 +254,8 @@ enum Propulsion {
     /// utility's whine under a DOUBLE chop - her rotors' blades crossing
     /// eighteen times a second, every other crossing the heavier - so the
     /// slap gallops in pairs at her blade pass, three blades at three turns
-    /// a second: 9 Hz. The coaxial's. NOT the utility's
+    /// a second: 9 Hz. The coaxial's, and the tandem's, whose two rotors
+    /// turn as hers do (#1630 Q-H). NOT the utility's
     /// [`Turbine`](Self::Turbine), whose single slap is a two-blade rotor's
     /// 6 Hz. A turbine, as the utility's is, so a picked steam stands.
     CoaxialTurbine,
@@ -2485,8 +2486,9 @@ mod tests {
     /// A seeded helicopter sits STILL on her skids and leans into her
     /// motion (#1614): the airship gait's heave and nose wander are both
     /// zero in her published gait - an envelope does both on the air, a
-    /// machine on skids neither - and her lean is her type's. Every seed,
-    /// because the amplitude zeroed is the seed's own.
+    /// machine on skids neither - and her lean is her type's, from the
+    /// tandem's six degrees, flying flat (#1630), to the trainer's 18. Every
+    /// seed, because the amplitude zeroed is the seed's own.
     #[test]
     fn a_seeded_helicopter_sits_still_and_leans_into_her_motion() {
         let mut seen = 0;
@@ -2500,7 +2502,7 @@ mod tests {
             assert_eq!(gait.idle_sway_amplitude, Fp::ZERO, "seed {s}");
             assert_eq!(gait.head_turn_variance_degrees, Fp::ZERO, "seed {s}");
             assert_eq!(gait.lean_degrees, Fp(helicopters::idle_for(s).lean_degrees));
-            assert!((10.0..=20.0).contains(&gait.lean_degrees.0), "seed {s}");
+            assert!((6.0..=18.0).contains(&gait.lean_degrees.0), "seed {s}");
             seen += 1;
         }
         assert!(seen > 50, "only {seen} helicopters under 600");

@@ -183,11 +183,12 @@ pub(super) fn print_outfit(subject: &str) {
                 CraftType::Skiff(SkiffType::Rover) => livery::rover_livery(seed, None).name,
                 CraftType::Skiff(_) => livery::skiff_livery(seed, None).name,
                 // A helicopter's list is weighted by her THEME (#1614), each
-                // type's its own - the trainer's and the coaxial's arms before
-                // the wildcard, as the armoured car's is (#1621, #1628), and
-                // the autogyro's, who wears the biplane's list (#1624) - and
-                // so is an airplane's (#1617), the biplane's, the twin's and
-                // the racer's before the wildcard (#1623, #1625, #1629).
+                // type's its own - the trainer's, the coaxial's and the
+                // tandem's arms before the wildcard, as the armoured car's is
+                // (#1621, #1628, #1630), and the autogyro's, who wears the
+                // biplane's list (#1624) - and so is an airplane's (#1617),
+                // the biplane's, the twin's and the racer's before the
+                // wildcard (#1623, #1625, #1629).
                 CraftType::Helicopter(HelicopterType::Trainer) => {
                     livery::trainer_livery(seed, character.style, None).name
                 }
@@ -196,6 +197,9 @@ pub(super) fn print_outfit(subject: &str) {
                 }
                 CraftType::Helicopter(HelicopterType::Coaxial) => {
                     livery::coaxial_livery(seed, character.style, None).name
+                }
+                CraftType::Helicopter(HelicopterType::Tandem) => {
+                    livery::tandem_livery(seed, character.style, None).name
                 }
                 CraftType::Helicopter(_) =>
                     livery::helicopter_livery(seed, character.style, None).name,

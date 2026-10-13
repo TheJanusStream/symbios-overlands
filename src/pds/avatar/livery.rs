@@ -59,7 +59,8 @@
 //! the roles it would fly, and two civil classics stay open to every theme.
 //! A theme still draws from several schemes, so its avatars do not all fly
 //! one machine; see [`HelicopterLivery`]. Each helicopter type has its own
-//! list (the trainer's since #1621, the coaxial's since #1628), and so does
+//! list (the trainer's since #1621, the coaxial's since #1628, the tandem's
+//! since #1630), and so does
 //! each airplane type (the biplane's since #1623, the twin's since #1625,
 //! the air racer's since #1629).
 //!
@@ -1317,6 +1318,84 @@ pub fn coaxial_livery(
     over: Option<usize>,
 ) -> &'static HelicopterLivery {
     pick(COAXIAL_LIVERIES, |l| l.weight(style), seed, over)
+}
+
+/// The tandem-rotor transport's eight schemes (#1630 Q-E): the heavy
+/// lifter's working paint on her three themes - the army's olive drab and
+/// the logger's white and orange, the floors every theme can roll; the
+/// desert's sand and the wasteland's rust, the north's Arctic red and forest
+/// green, the works' freight yellow, and the navy's grey on the north and the
+/// works - weighted by theme as the utility's are. Each of her homes is at
+/// home on three or four (`the_tandems_list_covers_her_homes`). The second
+/// hue is her trim: her engine pods and her rear rotor's cap.
+pub const TANDEM_LIVERIES: &[HelicopterLivery] = &[
+    HelicopterLivery {
+        name: "Army olive drab",
+        home: &[ThemeArchetype::PostApoc, ThemeArchetype::IndustrialPark],
+        floor: true,
+        body: [0.30, 0.33, 0.20],
+        lower: [0.10, 0.10, 0.09],
+    },
+    HelicopterLivery {
+        name: "Logging white and orange",
+        home: &[ThemeArchetype::Nordic, ThemeArchetype::IndustrialPark],
+        floor: true,
+        body: [0.90, 0.90, 0.87],
+        lower: [0.88, 0.40, 0.08],
+    },
+    HelicopterLivery {
+        name: "Desert sand",
+        home: &[ThemeArchetype::PostApoc],
+        floor: false,
+        body: [0.70, 0.60, 0.42],
+        lower: [0.35, 0.28, 0.18],
+    },
+    HelicopterLivery {
+        name: "Arctic red and white",
+        home: &[ThemeArchetype::Nordic],
+        floor: false,
+        body: [0.75, 0.10, 0.08],
+        lower: [0.92, 0.92, 0.90],
+    },
+    HelicopterLivery {
+        name: "Freight yellow and black",
+        home: &[ThemeArchetype::IndustrialPark],
+        floor: false,
+        body: [0.92, 0.70, 0.08],
+        lower: [0.06, 0.06, 0.06],
+    },
+    HelicopterLivery {
+        name: "Navy grey",
+        home: &[ThemeArchetype::Nordic, ThemeArchetype::IndustrialPark],
+        floor: false,
+        body: [0.48, 0.51, 0.54],
+        lower: [0.15, 0.16, 0.18],
+    },
+    HelicopterLivery {
+        name: "Rust and gunmetal",
+        home: &[ThemeArchetype::PostApoc],
+        floor: false,
+        body: [0.45, 0.24, 0.12],
+        lower: [0.22, 0.23, 0.25],
+    },
+    HelicopterLivery {
+        name: "Forest green and cream",
+        home: &[ThemeArchetype::Nordic],
+        floor: false,
+        body: [0.16, 0.30, 0.20],
+        lower: [0.88, 0.85, 0.74],
+    },
+];
+
+/// The scheme this tandem seed wears on `style`, a pick from
+/// [`TANDEM_LIVERIES`]; `over` wraps inside it (`render --livery 0` is Army
+/// olive drab, `1` Logging white and orange).
+pub fn tandem_livery(
+    seed: u64,
+    style: ThemeArchetype,
+    over: Option<usize>,
+) -> &'static HelicopterLivery {
+    pick(TANDEM_LIVERIES, |l| l.weight(style), seed, over)
 }
 
 /// An airplane's scheme (#1617): the two hues of her airframe, as the owner
@@ -4119,6 +4198,80 @@ pub(crate) fn coaxial_colours(ctx: &PartCtx) -> CoaxialColours {
     }
 }
 
+/// The surfaces the tandem-rotor transport is built in (#1630 Q-E): her
+/// scheme's body hue on her cabin, her nose, her sponsons, the hump over her
+/// cockpit and her aft pylon; its trim on her engine pods and her rear
+/// rotor's cap; the seeded accent on her cheat line; and what the rest of
+/// her simply is - dark glass, bare metal, dark blades and tyres.
+///
+/// What is lit, as the owner agreed it (#1630): the row of windows down each
+/// flank of her cabin, the fleet's lit window - the tertiary's light, held
+/// off her body's own colour ([`standing_off`]), as the coaxial's panes are;
+/// her nav lights on her sponsons' noses, her white tail light on her aft
+/// pylon, and an ornate machine's beacon, which are lamps and glow on every
+/// theme. The cheat line goes through [`trim`], so it lights on a luminous
+/// kit and is paint on every other. Nothing else glows.
+///
+/// Its `Default` is every surface in the default material: her shape, which
+/// is the same in any paint - what her box is measured off.
+#[derive(Default)]
+pub(crate) struct TandemColours {
+    /// The cabin, the nose, the sponsons, the hump over the cockpit and the
+    /// aft pylon: the scheme's body hue, floored off mud on a battered kit.
+    pub(crate) body: SovereignMaterialSettings,
+    /// The scheme's second hue: the engine pods and the rear rotor's cap.
+    pub(crate) trim: SovereignMaterialSettings,
+    /// **Identity.** The cheat line down each flank, the cabin's front to
+    /// its rear: the coachline's rule, held clear of the body it lies on.
+    pub(crate) stripe: SovereignMaterialSettings,
+    /// The windscreen and the chin windows.
+    pub(crate) glass: SovereignMaterialSettings,
+    /// The cabin's windows: the tertiary's light, standing off her body.
+    pub(crate) lamp: SovereignMaterialSettings,
+    /// The masts, the rotor heads, the wheels' legs and hubs, and an adorned
+    /// machine's step, hoist, cable and hook and an ornate one's probe.
+    pub(crate) metal: SovereignMaterialSettings,
+    /// The blades, the tyres, the hoist's winch and the hidden hubs.
+    pub(crate) dark: SovereignMaterialSettings,
+    /// The nav light on her left (port) sponson: red, as on every aircraft.
+    pub(crate) port: SovereignMaterialSettings,
+    /// The nav light on her right (starboard) sponson: green.
+    pub(crate) starboard: SovereignMaterialSettings,
+    /// The white light on her aft pylon's tail.
+    pub(crate) white: SovereignMaterialSettings,
+    /// The anti-collision beacon an ornate machine carries on her aft
+    /// pylon's back.
+    pub(crate) beacon: SovereignMaterialSettings,
+}
+
+pub(crate) fn tandem_colours(ctx: &PartCtx) -> TandemColours {
+    let p = &ctx.palette;
+    let m = &ctx.materials;
+    let style = AvatarCharacter::for_seed(ctx.seed).style;
+    let l = tandem_livery(ctx.seed, style, ctx.livery);
+    let body = floor_finished(m, l.body, HELI_MASS_FLOOR);
+    let paint = m.paint(body);
+    // Off the body as it is PAINTED, as the coaxial's panes are: a kit's
+    // grime moves it.
+    let lamp = window_material(standing_off(
+        window_light(p.tertiary_accent),
+        paint.base_color.0,
+    ));
+    TandemColours {
+        body: paint,
+        trim: m.paint(floor_finished(m, l.lower, HELI_MASS_FLOOR)),
+        stripe: trim(m, clear_of(p.primary_accent, luma(body), COACHLINE_DELTA)),
+        glass: m.glass(HELI_GLASS),
+        lamp,
+        metal: m.paint(HELI_METAL),
+        dark: m.paint(HELI_DARK),
+        port: m.glow(NAV_RED),
+        starboard: m.glow(NAV_GREEN),
+        white: m.glow(LAMP_WHITE),
+        beacon: m.glow(BEACON_RED),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -6201,6 +6354,158 @@ mod tests {
                 assert!(
                     apart >= WINDOW_STAND_OFF * 0.8,
                     "seed {s} in {}: the panes are {apart} from the body",
+                    scheme.name
+                );
+                for (what, m) in [
+                    ("port light", &c.port),
+                    ("starboard light", &c.starboard),
+                    ("tail light", &c.white),
+                    ("beacon", &c.beacon),
+                ] {
+                    assert!(
+                        m.emission_strength.0 > 0.0,
+                        "seed {s} in {}: the {what} is dark",
+                        scheme.name
+                    );
+                }
+                assert!(
+                    c.port.base_color.0[0] > c.port.base_color.0[1]
+                        && c.starboard.base_color.0[1] > c.starboard.base_color.0[0],
+                    "red is to port and green to starboard"
+                );
+                let on = c.stripe.emission_strength.0 > 0.0;
+                assert_eq!(
+                    on, luminous,
+                    "seed {s} in {}: the cheat line is lit {on} on a kit luminous {luminous}",
+                    scheme.name
+                );
+                if !luminous {
+                    let l = |m: &SovereignMaterialSettings| luma(m.base_color.0);
+                    let d = (l(&c.stripe) - l(&c.body)).abs();
+                    assert!(
+                        d > COACHLINE_DELTA * 0.6,
+                        "seed {s} in {}: the cheat line is {d} from the body",
+                        scheme.name
+                    );
+                }
+            }
+            if luminous {
+                lit += 1;
+            } else {
+                dark += 1;
+            }
+        }
+        assert!(
+            lit > 0 && dark > 0,
+            "the population saw only one kind: {lit} lit, {dark} dark"
+        );
+    }
+
+    /// The tandem's list covers her homes (#1630 Q-E): every theme she is at
+    /// home on is at home on at least three of her schemes, her floors are
+    /// the army's olive drab and the logger's white and orange, every
+    /// scheme's trim stands off its body by colour, and the draw over her
+    /// own seeds reaches every scheme.
+    ///
+    /// By colour, as the coaxial's are, but held at a quarter rather than at
+    /// [`WINDOW_STAND_OFF`]: two of the schemes the owner agreed on the
+    /// sheets hold their trim closer - Army olive drab's black engines at
+    /// 0.32, and Rust and gunmetal's at 0.26, a cool grey on a warm brown
+    /// that stands off it by hue far more than by value.
+    #[test]
+    fn the_tandems_list_covers_her_homes() {
+        use crate::seeded_defaults::HelicopterType;
+        let homes: Vec<ThemeArchetype> = ThemeArchetype::ALL
+            .into_iter()
+            .filter(|&s| HelicopterType::Tandem.weight(s) > 0)
+            .collect();
+        assert_eq!(homes.len(), 3, "her homes: {homes:?}");
+        for style in homes {
+            let at_home = TANDEM_LIVERIES
+                .iter()
+                .filter(|l| l.home.contains(&style))
+                .count();
+            assert!(at_home >= 3, "{style:?} is at home on {at_home} schemes");
+        }
+        let floors: Vec<&str> = TANDEM_LIVERIES
+            .iter()
+            .filter(|l| l.floor)
+            .map(|l| l.name)
+            .collect();
+        assert_eq!(floors, ["Army olive drab", "Logging white and orange"]);
+        for l in TANDEM_LIVERIES {
+            let d = l
+                .lower
+                .iter()
+                .zip(l.body)
+                .map(|(x, y)| (x - y).powi(2))
+                .sum::<f32>()
+                .sqrt();
+            assert!(d >= 0.25, "{}: its trim is {d} off its body", l.name);
+        }
+        let mut drawn = vec![0usize; TANDEM_LIVERIES.len()];
+        for s in (0u64..20_000).filter(|&s| {
+            ChassisFamily::for_seed(s) == ChassisFamily::Helicopter
+                && HelicopterType::for_seed(s) == HelicopterType::Tandem
+        }) {
+            let style = AvatarCharacter::for_seed(s).style;
+            let l = tandem_livery(s, style, None);
+            drawn[TANDEM_LIVERIES
+                .iter()
+                .position(|x| x.name == l.name)
+                .expect("the pick came from the table")] += 1;
+        }
+        assert!(
+            drawn.iter().all(|&n| n > 0),
+            "a tandem scheme is never drawn: {drawn:?}"
+        );
+    }
+
+    /// A tandem's colours read on every scheme of her list, on every
+    /// helicopter seed under 900 (#1630), BOTH directions: her cabin's
+    /// windows are lit and stand off her body; her nav and tail lights and
+    /// her beacon are lamps; her cheat line is the seed's accent through
+    /// [`trim`], lit exactly when the kit is luminous and off her body
+    /// otherwise; and everything else is paint.
+    #[test]
+    fn a_tandems_windows_lights_and_cheat_line_read_on_every_scheme() {
+        let (mut lit, mut dark) = (0, 0);
+        for s in (0u64..900).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Helicopter) {
+            let mut ctx = PartCtx::for_seed(s);
+            let luminous = ctx.materials.emissive_accents();
+            for (i, scheme) in TANDEM_LIVERIES.iter().enumerate() {
+                ctx.livery = Some(i);
+                let c = tandem_colours(&ctx);
+                for (what, m) in [
+                    ("body", &c.body),
+                    ("engine pods and cap", &c.trim),
+                    ("windscreen", &c.glass),
+                    ("masts and wheels' legs", &c.metal),
+                    ("blades and tyres", &c.dark),
+                ] {
+                    assert_eq!(
+                        m.emission_strength.0, 0.0,
+                        "seed {s} in {}: the {what} is self-lit",
+                        scheme.name
+                    );
+                }
+                assert!(
+                    c.lamp.emission_strength.0 > 0.0,
+                    "seed {s} in {}: the cabin's windows are dark",
+                    scheme.name
+                );
+                let apart = c
+                    .lamp
+                    .base_color
+                    .0
+                    .iter()
+                    .zip(c.body.base_color.0)
+                    .map(|(a, b)| (a - b).powi(2))
+                    .sum::<f32>()
+                    .sqrt();
+                assert!(
+                    apart >= WINDOW_STAND_OFF * 0.8,
+                    "seed {s} in {}: the windows are {apart} from the body",
                     scheme.name
                 );
                 for (what, m) in [

@@ -43,7 +43,7 @@
 //! never-saved seeded default is free to change look, and a saved avatar keeps
 //! its own generator tree).
 //!
-//! # The helicopter family has four types (#1614, #1621, #1624, #1628)
+//! # The helicopter family has five types (#1614, #1621, #1624, #1628, #1630)
 //!
 //! [`HelicopterType`] opened with its hero alone, the light utility
 //! helicopter, which is the family's universal floor and so every style's
@@ -56,7 +56,10 @@
 //! autogyro, at home on the old worlds the trainer does not fly and in the
 //! boiler age - the nine themes no rotorcraft was at home on. Its third is
 //! the coaxial, at home on the five speculative and alien themes that last
-//! reached a helicopter only through the utility's floor.
+//! reached a helicopter only through the utility's floor. Its fourth is the
+//! tandem-rotor transport, the heavy lifter, at home on the works, the north
+//! and the wasteland, where the utility, the trainer and the autogyro are:
+//! the first fan-out type to share every home she has.
 //!
 //! # So has the airplane family (#1617, #1623, #1625, #1629)
 //!
@@ -127,11 +130,12 @@ impl CraftType {
 
     /// Every helicopter type as a craft type, in [`HelicopterType::ALL`]'s
     /// order.
-    pub const HELICOPTERS: [Self; 4] = [
+    pub const HELICOPTERS: [Self; 5] = [
         Self::Helicopter(HelicopterType::Utility),
         Self::Helicopter(HelicopterType::Trainer),
         Self::Helicopter(HelicopterType::Autogyro),
         Self::Helicopter(HelicopterType::Coaxial),
+        Self::Helicopter(HelicopterType::Tandem),
     ];
 
     /// Every airplane type as a craft type, in [`AirplaneType::ALL`]'s
@@ -204,8 +208,9 @@ impl CraftType {
     /// [`BoatType::weight`].
     ///
     /// Zero means the draw can *never* pick this type on that style, and
-    /// that is exactly the pinned re-roll's gate (#1380): 184 of the 288
-    /// (type, style) pairs are unreachable, so an ungated combo would offer
+    /// that is exactly the pinned re-roll's gate (#1380): 310 of the 504
+    /// (type, style) pairs are unreachable (the census
+    /// `character::tests` pins, #1630), so an ungated combo would offer
     /// mostly pin sets no seed will ever satisfy.
     pub fn weight(self, style: ThemeArchetype) -> u32 {
         match self {
@@ -327,6 +332,11 @@ pub enum HelicopterType {
     /// H-tail, on skids - the near-future machine of the Sikorsky X2 and
     /// S-97 line (#1628).
     Coaxial,
+    /// Tandem-rotor transport: a long box cabin under two big rotors turning
+    /// opposite ways, one over her cockpit and one on a tall aft pylon with
+    /// her engines on its flanks, on four wheels in low sponsons - the heavy
+    /// lifter's layout of the CH-47 Chinook (#1630).
+    Tandem,
 }
 
 /// The recognisable kind of fixed-wing a seeded airplane avatar is (#1617).
@@ -596,7 +606,13 @@ impl SkiffType {
 }
 
 impl HelicopterType {
-    pub const ALL: [Self; 4] = [Self::Utility, Self::Trainer, Self::Autogyro, Self::Coaxial];
+    pub const ALL: [Self; 5] = [
+        Self::Utility,
+        Self::Trainer,
+        Self::Autogyro,
+        Self::Coaxial,
+        Self::Tandem,
+    ];
 
     /// The type every helicopter theme can reach - see [`FLOOR`].
     pub const UNIVERSAL: Self = Self::Utility;
@@ -608,6 +624,7 @@ impl HelicopterType {
             Self::Trainer => "Bubble-canopy trainer",
             Self::Autogyro => "Autogyro",
             Self::Coaxial => "Coaxial helicopter",
+            Self::Tandem => "Tandem-rotor transport",
         }
     }
 
@@ -618,6 +635,7 @@ impl HelicopterType {
             Self::Trainer => "trainer",
             Self::Autogyro => "autogyro",
             Self::Coaxial => "coaxial",
+            Self::Tandem => "tandem",
         }
     }
 
@@ -676,6 +694,16 @@ impl HelicopterType {
                     | ThemeArchetype::SpaceOutpost
                     | ThemeArchetype::AlienOrganic
                     | ThemeArchetype::AlienMonolithic
+            ),
+            // The heavy lifter (#1630 Q-D): the works' crane in the sky, the
+            // north's logging and Arctic supply machine, and the wasteland's
+            // salvaged army transport. She shares every home she has - the
+            // utility's works, the trainer's north and the autogyro's
+            // wasteland - so there she is three seeds in seven, and the
+            // types already at home there share the other four.
+            Self::Tandem => matches!(
+                style,
+                ThemeArchetype::IndustrialPark | ThemeArchetype::Nordic | ThemeArchetype::PostApoc
             ),
         }
     }
@@ -1100,6 +1128,25 @@ mod tests {
                 ] {
                     assert!(!other.at_home(style), "{other:?} on {style:?}");
                 }
+            }
+        }
+        // And the tandem's (#1630): the works, the north and the wasteland,
+        // each already another helicopter type's home - and nothing past
+        // them.
+        for style in ThemeArchetype::ALL {
+            let home = matches!(style, IndustrialPark | Nordic | PostApoc);
+            assert_eq!(HelicopterType::Tandem.at_home(style), home, "{style:?}");
+            if home {
+                assert!(
+                    [
+                        HelicopterType::Utility,
+                        HelicopterType::Trainer,
+                        HelicopterType::Autogyro,
+                    ]
+                    .iter()
+                    .any(|t| t.at_home(style)),
+                    "{style:?} is hers alone"
+                );
             }
         }
         // And the biplane's (#1623): all ten of HISTORIC with Steampunk, and

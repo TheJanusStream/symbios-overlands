@@ -19,13 +19,19 @@
 //! stators hold it, her exhaust aura issues from her port exhaust, her
 //! identity is on her cheat line, her beacon stands proud of her fairing,
 //! and her box is set by the parts that should set it; and the autogyro's
-//! guard that her root's hub hides in her fuselage holds hers too.
+//! guard that her root's hub hides in her fuselage holds hers too. The
+//! tandem has eight (#1630): her rotors turn as agreed and as her voice
+//! says, her two rotors clear each other and her airframe, her four wheels
+//! stand on the ground, her root's hub hides in her cabin, her exhaust aura
+//! issues from her port engine, her identity is on her cheat line, her
+//! beacon stands proud of her aft pylon, and her box is set by the parts
+//! that should set it.
 
 use bevy::math::{Affine3A, Quat, Vec3};
 
 use super::super::common::{first_difference, touch};
 use super::*;
-use super::{autogyro, coaxial, trainer, utility};
+use super::{autogyro, coaxial, tandem, trainer, utility};
 use crate::catalogue::items::measure::tree_bounds;
 use crate::pds::generator::GeneratorKind;
 use crate::seeded_defaults::{ChassisFamily, OrnatenessTier, VehicleBlueprint, WearTier};
@@ -232,12 +238,15 @@ fn a_seeded_helicopter_builds_deterministically() {
 /// past the nose station. (The trainer's blunt nose leans out far further,
 /// 3.7 to 7.5 cm, and her box's nose is MEASURED off her drawn bubble -
 /// `PodPlan::with_nose_reach` - so she is held to the same centimetre.)
-/// Past that, the utility pokes ONE part out of it on purpose: her pitot,
-/// from her nose when she is adorned. The trainer's ornate litter pods are
-/// in her box, which is as wide as her ornateness draws her. And the
-/// autogyro's box is read off her as she stands, tail-down (#1624): her
+/// Past that, two types poke ONE part out of it on purpose: the utility her
+/// pitot, from her nose when she is adorned, and the tandem her refuelling
+/// probe, 35 cm past hers when she is ornate (#1630). The trainer's ornate
+/// litter pods are in her box, which is as wide as her ornateness draws her.
+/// The autogyro's box is read off her as she stands, tail-down (#1624): her
 /// nose and tail off her plain machine, her width off her tier's - so here
-/// it is held across every tier, and her floor is her mains' tyres.
+/// it is held across every tier, and her floor is her mains' tyres. And an
+/// adorned tandem's hoist stands out over her starboard door alone, so her
+/// box, which is symmetric, reaches her on that side only.
 #[test]
 fn the_box_holds_the_drawn_fuselage() {
     for Drawn {
@@ -267,7 +276,14 @@ fn the_box_holds_the_drawn_fuselage() {
             -hy
         );
         let pitot = t == HelicopterType::Utility && ornateness != OrnatenessTier::Plain;
-        let nose_out = if pitot { plan.len(0.10) } else { 1e-2 };
+        let probe = t == HelicopterType::Tandem && ornateness == OrnatenessTier::Ornate;
+        let nose_out = if pitot {
+            plan.len(0.10)
+        } else if probe {
+            plan.len(0.36)
+        } else {
+            1e-2
+        };
         assert!(
             drawn.min.z >= -hz - nose_out && drawn.min.z <= -hz + 1e-3,
             "{what}: her nose reaches {:.4}, her box {:.4}",
@@ -279,8 +295,16 @@ fn the_box_holds_the_drawn_fuselage() {
             "{what}: her tail reaches {:.4}, her box {hz:.4}",
             drawn.max.z
         );
+        // Yawed, her starboard side - where a tandem's hoist stands - is at
+        // +X.
+        let hoisted = t == HelicopterType::Tandem && ornateness != OrnatenessTier::Plain;
+        let port_side = if hoisted {
+            drawn.min.x >= -hx - 1e-3
+        } else {
+            close(drawn.min.x, -hx, 1e-3)
+        };
         assert!(
-            close(drawn.max.x, hx, 1e-3) && close(drawn.min.x, -hx, 1e-3),
+            close(drawn.max.x, hx, 1e-3) && port_side,
             "{what}: she is drawn {:.4}..{:.4} wide, her box +-{hx:.4}",
             drawn.min.x,
             drawn.max.x
@@ -300,7 +324,10 @@ fn the_box_holds_the_drawn_fuselage() {
 /// trainer's 4.27 and the autogyro's 4.43 - at the longest blueprint on the
 /// shortest boom, whose scale draws everything else larger to keep her
 /// length. The coaxial's disc is shorter than her fuselage unless her boom
-/// is short, and 3.56 m at most.
+/// is short, and 3.56 m at most. The tandem's two discs are each shorter
+/// still (#1630): 3.37 m at most, and on her smallest machine, 2.49 m, they
+/// pass inside the mouth - which decision 3 never forbade - so hers is the
+/// one floor under it.
 #[test]
 fn a_helicopter_stands_under_the_air_draft_and_inside_the_mouth() {
     for Drawn {
@@ -323,14 +350,15 @@ fn a_helicopter_stands_under_the_air_draft_and_inside_the_mouth() {
             "{what}: her fuselage is {wide} m wide, past the {GATEWAY_MOUTH} m mouth"
         );
         let span = 2.0 * disc(main_rotor(&built)).reach;
-        let ceiling = match t {
-            HelicopterType::Utility => 4.0,
-            HelicopterType::Trainer => 4.4,
-            HelicopterType::Autogyro => 4.6,
-            HelicopterType::Coaxial => 3.6,
+        let (floor, ceiling) = match t {
+            HelicopterType::Utility => (GATEWAY_MOUTH, 4.0),
+            HelicopterType::Trainer => (GATEWAY_MOUTH, 4.4),
+            HelicopterType::Autogyro => (GATEWAY_MOUTH, 4.6),
+            HelicopterType::Coaxial => (GATEWAY_MOUTH, 3.6),
+            HelicopterType::Tandem => (2.45, 3.4),
         };
         assert!(
-            (GATEWAY_MOUTH..ceiling).contains(&span),
+            (floor..ceiling).contains(&span),
             "{what}: her rotor spans {span} m - decision 3 accepts a disc past \
              the mouth, and no more than a light helicopter's"
         );
@@ -349,7 +377,7 @@ fn agreed_rates(t: HelicopterType) -> Option<(f32, f32, f32)> {
         HelicopterType::Utility => Some((1080.0, 1440.0, 6.0)),
         // #1621 Q-G: two and a half and four, and a 5 Hz slap.
         HelicopterType::Trainer => Some((900.0, 1440.0, 5.0)),
-        HelicopterType::Autogyro | HelicopterType::Coaxial => None,
+        HelicopterType::Autogyro | HelicopterType::Coaxial | HelicopterType::Tandem => None,
     }
 }
 
@@ -592,7 +620,7 @@ fn her_two_rotors_never_cross() {
         let near = match t {
             HelicopterType::Utility => 0.2,
             HelicopterType::Trainer => 0.4,
-            HelicopterType::Autogyro | HelicopterType::Coaxial => {
+            HelicopterType::Autogyro | HelicopterType::Coaxial | HelicopterType::Tandem => {
                 unreachable!("she has no tail rotor")
             }
         };
@@ -657,14 +685,16 @@ fn the_trainers_door_hoop_carries_her_identity() {
 
 /// Every seed drawn as a helicopter is driven as her type is - the utility
 /// by her turbine, the trainer by her piston engine, the autogyro by her
-/// radial - and her aura LEAVES HER STACK when it is one that burns: the
+/// radial, the coaxial and the tandem by their turbines under two rotors -
+/// and her aura LEAVES HER STACK when it is one that burns: the
 /// emitter in her saved record stands at the mouth of the stack she draws,
 /// read off the stack's own node - not off the function that placed the
 /// emitter, which would compare one call with itself (#1382 gap 2's
 /// lesson). The utility's stack stands on her roof and the trainer's under
 /// her engine, each raked aft, its mouth its upper end; the autogyro's
 /// hangs under her cowl raked 30 degrees forward - 18 as she stands
-/// tail-down - its mouth its lower end.
+/// tail-down - its mouth its lower end; and the tandem's is her port engine
+/// pod, its mouth its tail (#1630).
 #[test]
 fn a_helicopters_aura_leaves_her_exhaust_stack() {
     use crate::seeded_defaults::AvatarFx;
@@ -675,7 +705,7 @@ fn a_helicopters_aura_leaves_her_exhaust_stack() {
             HelicopterType::Utility => Propulsion::Turbine,
             HelicopterType::Trainer => Propulsion::PistonRotor,
             HelicopterType::Autogyro => Propulsion::Radial,
-            HelicopterType::Coaxial => Propulsion::CoaxialTurbine,
+            HelicopterType::Coaxial | HelicopterType::Tandem => Propulsion::CoaxialTurbine,
         };
         assert_eq!(propulsion(s), drive, "seed {s}");
         let aura = AvatarFx::for_seed(s).aura;
@@ -695,6 +725,31 @@ fn a_helicopters_aura_leaves_her_exhaust_stack() {
         // The stack, and which end of it is its mouth.
         let cylinder = |c: &&Generator| matches!(c.kind, GeneratorKind::Cylinder { .. });
         let (stack, end) = match t {
+            // Her port engine pod, the trim-coloured sweep to port: its last
+            // station is its mouth.
+            HelicopterType::Tandem => {
+                let trim = tandem_colours(&PartCtx::for_seed(s)).trim;
+                let pod = root
+                    .children
+                    .iter()
+                    .find(|c| {
+                        c.kind.material() == Some(&trim)
+                            && matches!(&c.kind, GeneratorKind::Spine { points, .. }
+                                if points[0].position.0[0] > 0.0)
+                    })
+                    .expect("she draws a port engine pod");
+                let GeneratorKind::Spine { points, .. } = &pod.kind else {
+                    unreachable!()
+                };
+                let mouth = Vec3::from(points[points.len() - 1].position.0);
+                let at = Vec3::from(emitter.transform.translation.0);
+                assert!(
+                    at.distance(mouth) < 2e-3,
+                    "seed {s} ({t:?}): her {aura:?} issues at {at}, her engine's tail is at {mouth}"
+                );
+                burning[4] += 1;
+                continue;
+            }
             // The one cylinder on the root raked backward about X.
             HelicopterType::Utility | HelicopterType::Trainer => (
                 root.children.iter().filter(cylinder).find(|c| {
@@ -735,8 +790,8 @@ fn a_helicopters_aura_leaves_her_exhaust_stack() {
     // motes and a thruster's wash - so her exhaust's mouth is her own
     // guard's (`the_coaxials_exhaust_issues_from_her_port_exhaust`).
     assert!(
-        burning[0] > 10 && burning[1] > 3 && burning[2] > 3 && burning[3] == 0,
-        "{burning:?} burning auras sampled (utility, trainer, autogyro, coaxial)"
+        burning[0] > 10 && burning[1] > 3 && burning[2] > 3 && burning[3] == 0 && burning[4] > 0,
+        "{burning:?} burning auras sampled (utility, trainer, autogyro, coaxial, tandem)"
     );
 }
 
@@ -745,8 +800,8 @@ fn a_helicopters_aura_leaves_her_exhaust_stack() {
 /// included, and the heaviest she can draw: every type at every blueprint
 /// extreme on her fullest ladder, Ornate and Battered, carrying the heaviest
 /// FX overhead a live seed carries. The prototypes put the utility at about
-/// 16 KB (#1613), the trainer at 21 to 27 (#1621) and the coaxial at 22 to 25
-/// (#1628).
+/// 16 KB (#1613), the trainer at 21 to 27 (#1621), the coaxial at 22 to 25
+/// (#1628) and the tandem at 18 to 21 (#1630).
 #[test]
 fn a_seeded_helicopters_record_stays_well_inside_the_budget() {
     use crate::pds::avatar::AvatarRecord;
@@ -793,7 +848,9 @@ fn a_seeded_helicopters_record_stays_well_inside_the_budget() {
 /// autogyro's adorned step adds a pitot and two steps, her ornate one two
 /// spats and a beacon; the coaxial's adorned step adds a sensor ball, its
 /// lens and two steps, her ornate one her stub wings, two lamp pods and
-/// their lamps, and a beacon.
+/// their lamps, and a beacon; the tandem's adorned step adds a step and a
+/// hoist's boom, winch, cable and hook, her ornate one a refuelling probe
+/// and a beacon.
 #[test]
 fn ornateness_adds_parts_and_wear_does_not() {
     let ctx = PartCtx::for_seed(a_helicopter_seed());
@@ -802,6 +859,7 @@ fn ornateness_adds_parts_and_wear_does_not() {
         (HelicopterType::Trainer, (4, 6)),
         (HelicopterType::Autogyro, (3, 3)),
         (HelicopterType::Coaxial, (4, 6)),
+        (HelicopterType::Tandem, (5, 2)),
     ] {
         let plan = craft(t).plan(&HelicopterBlueprint::NOMINAL);
         let count = |o: OrnatenessTier, w: WearTier| {
@@ -1991,6 +2049,525 @@ fn the_coaxials_box_is_set_by_her_nose_her_shroud_and_her_widest_parts() {
                 named > 0.0 && (half - named).abs() < 1e-3,
                 "{what}: her box is +-{half} wide; her nav lights reach {nav}, her skids \
                  {skids}, her steps {steps}, her lamp pods {pods}"
+            );
+        }
+    }
+}
+
+/// The tandem at every blueprint the guards sweep, on `ctx`'s tiers: her
+/// blueprint, her plan and her tree as built.
+fn tandems(ctx: &PartCtx) -> Vec<(HelicopterBlueprint, PodPlan, Generator)> {
+    blueprints()
+        .into_iter()
+        .map(|bp| {
+            let plan = tandem::Tandem.plan(&bp);
+            (bp, plan, tandem::build_dressed(ctx, &plan))
+        })
+        .collect()
+}
+
+/// A tandem's label for a failure.
+fn tandem_what(bp: &HelicopterBlueprint) -> String {
+    format!(
+        "a {} m tandem, girth {}, boom {}",
+        bp.length, bp.girth, bp.boom
+    )
+}
+
+/// A tandem's two rotors' hubs, the front one first: the root's children
+/// turning about her up axis.
+fn tandem_rotors(built: &Generator) -> [&Generator; 2] {
+    let mut hubs: Vec<&Generator> = built
+        .children
+        .iter()
+        .filter(|c| c.spin.as_ref().is_some_and(|s| s.axis.0 == [0.0, 1.0, 0.0]))
+        .collect();
+    hubs.sort_by(|a, b| b.transform.translation.0[2].total_cmp(&a.transform.translation.0[2]));
+    let [front, rear] = hubs.as_slice() else {
+        panic!("{} rotors", hubs.len());
+    };
+    [front, rear]
+}
+
+/// Where `p` (the parent's frame) stands against the superellipsoid `node`
+/// draws: its implicit function, read in its own frame - under one inside
+/// its skin, one on it, over one outside. Barr's, as the mesher lays it:
+/// `Y` is its north-south axis, `X` and `Z` its section.
+fn superellipsoid_level(node: &Generator, p: Vec3) -> f32 {
+    let GeneratorKind::Superellipsoid {
+        half_extents,
+        exponent_ns,
+        exponent_ew,
+        ..
+    } = &node.kind
+    else {
+        panic!("not a superellipsoid: {:?}", node.kind);
+    };
+    let t = &node.transform;
+    let local = Quat::from_array(t.rotation.0).normalize().inverse()
+        * (p - Vec3::from(t.translation.0))
+        / Vec3::from(t.scale.0);
+    let q = local / Vec3::from(half_extents.0);
+    let (ns, ew) = (exponent_ns.0, exponent_ew.0);
+    (q.x.abs().powf(2.0 / ew) + q.z.abs().powf(2.0 / ew)).powf(ew / ns) + q.y.abs().powf(2.0 / ns)
+}
+
+/// Her rotors turn as agreed (#1630 Q-B, Q-C, Q-H), at every blueprint
+/// extreme and on every tier: two rotors about her up axis at the same rate
+/// the opposite ways - three turns a second, the coaxial's - each carrying
+/// its head and three blades, the rear one higher and aft of the front and
+/// carrying her cap as well. Two turning nodes: nothing else on her turns.
+/// And her blades pass as often as the coaxial's, whose double chop is her
+/// voice: what is heard is what is seen.
+#[test]
+fn the_tandems_rotors_turn_as_agreed() {
+    use crate::pds::SpinTerm;
+    let mut ctx = PartCtx::for_seed(a_helicopter_seed());
+    for ornateness in OrnatenessTier::ALL {
+        ctx.ornateness = ornateness;
+        for (bp, _, built) in tandems(&ctx) {
+            let what = format!("{}, {}", tandem_what(&bp), ornateness.label());
+            let turning = spinning(&built);
+            assert_eq!(turning.len(), 2, "{what}: {} turning nodes", turning.len());
+            let read = |hub: &Generator| {
+                let spin = hub.spin.as_ref().expect("a rotor turns");
+                let [SpinTerm::Constant { rate }] = spin.terms.as_slice() else {
+                    panic!("{what}: a rotor turns by {:?}", spin.terms);
+                };
+                let blades = hub
+                    .children
+                    .iter()
+                    .filter(|c| matches!(c.kind, GeneratorKind::Cuboid { .. }))
+                    .count();
+                (rate.0, blades, hub.children.len())
+            };
+            let [front, rear] = tandem_rotors(&built);
+            assert_eq!(
+                [read(front), read(rear)],
+                [(1080.0, 3, 4), (-1080.0, 3, 5)],
+                "{what}: her front rotor carries its head and three blades, her rear \
+                 turns the other way and carries her cap too"
+            );
+            let (f, r) = (front.transform.translation.0, rear.transform.translation.0);
+            assert!(
+                r[1] > f[1] && r[2] < f[2],
+                "{what}: her rear rotor stands at {r:?}, her front at {f:?}"
+            );
+        }
+    }
+    assert_eq!((tandem::ROTOR_DEG_S, tandem::BLADES), (1080.0, 3));
+    assert_eq!(tandem::BLADE_PASS_HZ, COAXIAL_BLADE_PASS_HZ);
+    assert_eq!(
+        craft(HelicopterType::Tandem).propulsion(),
+        Propulsion::CoaxialTurbine
+    );
+}
+
+/// Her two rotors turn clear of each other and of her airframe at every
+/// blueprint extreme and on every tier (#1630 Q-C): their discs overlap over
+/// her cabin - the Chinook's silhouette - and the slab the front rotor's
+/// blades sweep stands wholly under the rear's, by more than 18 cm; and no
+/// vertex of any part that does not turn, as the mesher draws it, lies in
+/// the ring either rotor's blades sweep - inside its slab, between its
+/// blades' roots and their tips. Her masts stand inside the roots; the
+/// nearest thing to either is her aft pylon's top, 3 cm under the rear
+/// rotor's blades.
+#[test]
+fn the_tandems_rotors_clear_each_other_and_her_airframe() {
+    let mut ctx = PartCtx::for_seed(a_helicopter_seed());
+    let mut nearest = f32::MAX;
+    for ornateness in OrnatenessTier::ALL {
+        ctx.ornateness = ornateness;
+        for (bp, plan, built) in tandems(&ctx) {
+            let what = format!("{}, {}", tandem_what(&bp), ornateness.label());
+            let [front, rear] = tandem_rotors(&built);
+            let (fd, rd) = (disc(front), disc(rear));
+            let apart = fd.centre.z - rd.centre.z;
+            assert!(
+                apart < fd.reach + rd.reach,
+                "{what}: her discs stand {apart} m apart and do not overlap"
+            );
+            let gap = (rd.centre.y + rd.slab.0) - (fd.centre.y + fd.slab.1);
+            assert!(
+                gap > plan.len(0.18),
+                "{what}: her rotors' blades pass {gap} m apart"
+            );
+            for (rotor, d) in [(front, &fd), (rear, &rd)] {
+                // How near its mast a blade comes: each blade's inner end,
+                // its middle drawn back half its length along its own span.
+                let root = rotor
+                    .children
+                    .iter()
+                    .filter_map(|b| {
+                        let GeneratorKind::Cuboid { size, .. } = &b.kind else {
+                            return None;
+                        };
+                        let along = Quat::from_array(b.transform.rotation.0).normalize()
+                            * Vec3::X
+                            * (size.0[0] * 0.5);
+                        let end = Vec3::from(b.transform.translation.0) - along;
+                        Some((end.x * end.x + end.z * end.z).sqrt())
+                    })
+                    .fold(f32::MAX, f32::min);
+                for part in built.children.iter().filter(|c| c.spin.is_none()) {
+                    for p in drawn_points(part) {
+                        let q = p - d.centre;
+                        let radial = (q.x * q.x + q.z * q.z).sqrt();
+                        if radial < root || radial > d.reach {
+                            continue;
+                        }
+                        assert!(
+                            !(d.slab.0..=d.slab.1).contains(&q.y),
+                            "{what}: a rotor sweeps through her at {p}"
+                        );
+                        let off = (d.slab.0 - q.y).max(q.y - d.slab.1);
+                        nearest = nearest.min(off / plan.len(1.0));
+                    }
+                }
+            }
+        }
+    }
+    assert!(nearest < 0.05, "nothing came near her rotors: {nearest}");
+}
+
+/// She stands on her four wheels (#1630 Q-A), at every blueprint extreme:
+/// each tyre's lowest vertex, as the mesher draws it, is on the ground -
+/// half a millimetre either way - so she stands level on all four; and the
+/// lowest thing else on her, her wheels' hubs, stands more than 5 cm over
+/// it.
+#[test]
+fn the_tandem_stands_on_her_four_wheels() {
+    let ctx = PartCtx::for_seed(a_helicopter_seed());
+    for (bp, plan, built) in tandems(&ctx) {
+        let what = tandem_what(&bp);
+        let ground = -plan.datum_height();
+        let lowest = |g: &Generator| {
+            drawn_points(g)
+                .into_iter()
+                .map(|p| p.y)
+                .fold(f32::MAX, f32::min)
+        };
+        let tyre = |c: &&Generator| matches!(c.kind, GeneratorKind::Torus { .. });
+        let tyres: Vec<f32> = built.children.iter().filter(tyre).map(lowest).collect();
+        assert_eq!(tyres.len(), 4, "{what}: {} tyres", tyres.len());
+        for low in &tyres {
+            assert!(
+                (low - ground).abs() < 5e-4,
+                "{what}: a tyre's lowest point stands {} m over the ground",
+                low - ground
+            );
+        }
+        let rest = built
+            .children
+            .iter()
+            .filter(|c| !tyre(c))
+            .map(lowest)
+            .fold(f32::MAX, f32::min);
+        assert!(
+            rest - ground > plan.len(0.05),
+            "{what}: something else of her stands {} m over the ground",
+            rest - ground
+        );
+    }
+}
+
+/// The root's hidden hub hides deep in her cabin at every blueprint
+/// (#1630): PodPlan hangs the drawn frame's origin at her box's middle, a
+/// little ahead of her cabin's, on her datum, which her girth moves about a
+/// centimetre and a half off the cabin's centreline. Every corner of the
+/// cube stands well inside the cabin's own skin - its superellipsoid's
+/// implicit function under a tenth there, where the skin is one.
+#[test]
+fn the_tandems_root_hub_hides_in_her_cabin() {
+    let ctx = PartCtx::for_seed(a_helicopter_seed());
+    for (bp, _, built) in tandems(&ctx) {
+        let what = tandem_what(&bp);
+        let GeneratorKind::Cuboid { size, .. } = &built.kind else {
+            panic!("the root is a hub cube");
+        };
+        let half = Vec3::from(size.0) * 0.5;
+        let cabin = &built.children[0];
+        let worst = [-1.0f32, 1.0]
+            .iter()
+            .flat_map(|&x| {
+                [-1.0f32, 1.0]
+                    .iter()
+                    .flat_map(move |&y| [-1.0f32, 1.0].map(|z| Vec3::new(x, y, z)))
+            })
+            .map(|corner| superellipsoid_level(cabin, corner * half))
+            .fold(0.0f32, f32::max);
+        assert!(
+            worst < 0.1,
+            "{what}: the root hub's corners stand at {worst} of her cabin's skin"
+        );
+    }
+}
+
+/// Her exhaust aura issues from her port engine pod's tail (#1630): what she
+/// trails an exhaust, steam or embers from is the last station of the
+/// trim-coloured pod on her aft pylon's port flank, read off the drawn node
+/// at every blueprint extreme. Every other aura issues on her centreline
+/// under her belly, between her sponsons.
+#[test]
+fn the_tandems_exhaust_issues_from_her_port_engine() {
+    let ctx = PartCtx::for_seed(a_helicopter_seed());
+    let colours = tandem_colours(&ctx);
+    for (bp, plan, built) in tandems(&ctx) {
+        let what = tandem_what(&bp);
+        let pods: Vec<&[crate::pds::generator::SpinePoint]> = built
+            .children
+            .iter()
+            .filter(|c| c.kind.material() == Some(&colours.trim))
+            .filter_map(|c| match &c.kind {
+                GeneratorKind::Spine { points, .. } => Some(points.as_slice()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(pods.len(), 2, "{what}: {} engine pods", pods.len());
+        let port = pods
+            .iter()
+            .find(|p| p[0].position.0[0] > 0.0)
+            .expect("an engine to port");
+        let mouth = Vec3::from(port[port.len() - 1].position.0);
+        for aura in [
+            ParticleAura::Exhaust,
+            ParticleAura::Steam,
+            ParticleAura::Embers,
+        ] {
+            let at = Vec3::from(tandem::Tandem.fx_mount(aura, &plan));
+            assert!(
+                at.distance(mouth) < 1e-5,
+                "{what}: her {aura:?} issues at {at}, her engine's tail is at {mouth}"
+            );
+        }
+        let belly = drawn_points(&built.children[0])
+            .into_iter()
+            .map(|p| p.y)
+            .fold(f32::MAX, f32::min);
+        for aura in [
+            ParticleAura::Thruster,
+            ParticleAura::NeonHaze,
+            ParticleAura::ArcaneMotes,
+            ParticleAura::Wake,
+            ParticleAura::Vent,
+        ] {
+            let at = Vec3::from(tandem::Tandem.fx_mount(aura, &plan));
+            assert!(
+                at.x == 0.0 && at.y < belly,
+                "{what}: her {aura:?} issues at {at}, her belly is at {belly}"
+            );
+        }
+    }
+}
+
+/// The tandem carries her identity on her cheat line (#1630, the port's
+/// first change): one line of the seeded accent down EACH flank, and
+/// nowhere else.
+#[test]
+fn the_tandems_cheat_line_carries_her_identity() {
+    let mut n = 0;
+    for s in
+        helicopter_seeds(3000).filter(|&s| HelicopterType::for_seed(s) == HelicopterType::Tandem)
+    {
+        let ctx = PartCtx::for_seed(s);
+        let colours = tandem_colours(&ctx);
+        let (_, plan) = body_for(s).expect("a tandem seed has a body");
+        let built = tandem::build_dressed(&ctx, &plan);
+        let mut sides: Vec<f32> = built
+            .children
+            .iter()
+            .filter(|c| c.kind.material() == Some(&colours.stripe))
+            .map(|g| {
+                let pts = drawn_points(g);
+                pts.iter().map(|p| p.x).sum::<f32>() / pts.len() as f32
+            })
+            .collect();
+        sides.sort_by(f32::total_cmp);
+        assert!(
+            sides.len() == 2 && sides[0] < -0.1 && sides[1] > 0.1,
+            "seed {s}: her accent is drawn at mean x {sides:?}"
+        );
+        n += 1;
+    }
+    assert!(n > 5, "only {n} tandem seeds sampled");
+}
+
+/// Her beacon stands on her aft pylon's back, more than half of it showing
+/// (#1630): drawn where the prototype first had it, 0.55 of the pylon's
+/// half-length aft of its middle, it stood 10 cm inside the pylon, and none
+/// of it showed on the agreed sheet. Read in the pylon's own frame, the
+/// beacon's middle stands outside the pylon's skin, and still would a
+/// quarter of its radius further in - at every blueprint extreme. And its
+/// back stands ahead of her tail light's, so it never sets her box's tail.
+#[test]
+fn the_tandems_beacon_stands_proud_of_her_pylon() {
+    let mut ctx = PartCtx::for_seed(a_helicopter_seed());
+    ctx.ornateness = OrnatenessTier::Ornate;
+    let colours = tandem_colours(&ctx);
+    for (bp, _, built) in tandems(&ctx) {
+        let what = tandem_what(&bp);
+        let find = |m: &crate::pds::texture::SovereignMaterialSettings| {
+            built
+                .children
+                .iter()
+                .find(|c| c.kind.material() == Some(m))
+                .expect("she draws it")
+        };
+        let beacon = find(&colours.beacon);
+        let GeneratorKind::Sphere { radius, .. } = &beacon.kind else {
+            panic!("{what}: her beacon is not a sphere");
+        };
+        // The aft pylon: the tallest of the upright rounded boxes on her
+        // centreline - the hump over her cockpit is the other.
+        let pylon = built
+            .children
+            .iter()
+            .filter(|c| {
+                matches!(c.kind, GeneratorKind::Superellipsoid { .. })
+                    && c.transform.rotation.0 == [0.0, 0.0, 0.0, 1.0]
+                    && c.transform.translation.0[0] == 0.0
+            })
+            .max_by(|a, b| {
+                let tall = |g: &Generator| match &g.kind {
+                    GeneratorKind::Superellipsoid { half_extents, .. } => half_extents.0[1],
+                    _ => 0.0,
+                };
+                tall(a).total_cmp(&tall(b))
+            })
+            .expect("she draws an aft pylon");
+        let at = Vec3::from(beacon.transform.translation.0);
+        let level = superellipsoid_level(pylon, at + Vec3::Z * (radius.0 * 0.25));
+        assert!(
+            level > 1.0,
+            "{what}: a quarter of its radius further in, her beacon's middle stands at \
+             {level} of her pylon's skin"
+        );
+        let back = |g: &Generator| {
+            drawn_points(g)
+                .into_iter()
+                .map(|p| p.z)
+                .fold(f32::MAX, f32::min)
+        };
+        let light = find(&colours.white);
+        assert!(
+            back(beacon) > back(light),
+            "{what}: her beacon's back at {} stands aft of her tail light's at {}",
+            back(beacon),
+            back(light)
+        );
+    }
+}
+
+/// Her box is set by the parts that should set it (#1630): the box guard
+/// reads her drawn tree back against a box MEASURED off the same tree, so
+/// on its own it cannot see a part grow past her ends or her sides. Here
+/// each is named, at every blueprint extreme and on every tier. Her nose is
+/// her nose's tip, under 2 cm ahead of its first station: its end cap's
+/// lean, 0.5 cm on her slimmest cabin and 1.7 on her fullest, whose girth
+/// lifts the station behind the tip nearly five times as far as the tip.
+/// Her tail is her tail light's back, a centimetre aft of her aft pylon and
+/// 5 to 13 cm short of the station her length runs to. Her sides are her
+/// sponsons' outer faces, and an adorned machine's her hoist's winch, on
+/// her starboard side alone. An ornate machine's refuelling probe reaches
+/// 35 cm past her nose's first station, outside her box on purpose, and
+/// nothing else of her does.
+#[test]
+fn the_tandems_box_is_set_by_her_nose_her_tail_light_and_her_widest_parts() {
+    let mut ctx = PartCtx::for_seed(a_helicopter_seed());
+    for ornateness in OrnatenessTier::ALL {
+        ctx.ornateness = ornateness;
+        let colours = tandem_colours(&ctx);
+        for (bp, plan, built) in tandems(&ctx) {
+            let what = format!("{}, {}", tandem_what(&bp), ornateness.label());
+            let (nose, tail) = plan.nose_and_tail();
+            let fore = |g: &Generator| {
+                drawn_points(g)
+                    .into_iter()
+                    .map(|p| p.z)
+                    .fold(f32::MIN, f32::max)
+            };
+            let tip = fore(&built.children[1]);
+            let first = plan.at(0.0, 0.0, plan.nose())[2];
+            assert!(
+                (nose - tip).abs() < 1e-4 && tip >= first && tip - first < plan.len(0.02),
+                "{what}: her box's nose is at {nose}, her nose's tip at {tip}, its \
+                 first station at {first}"
+            );
+            let light = built
+                .children
+                .iter()
+                .find(|c| c.kind.material() == Some(&colours.white))
+                .expect("she draws a tail light");
+            let back = drawn_points(light)
+                .into_iter()
+                .map(|p| p.z)
+                .fold(f32::MAX, f32::min);
+            let reach = (plan.at(0.0, 0.0, tandem::PROFILE.boom_end)[2] - tail) / plan.len(1.0);
+            assert!(
+                (tail - back).abs() < 1e-4 && (-0.14..-0.04).contains(&reach),
+                "{what}: her box's tail is at {tail}, {reach} m aft of her boom's end; \
+                 her tail light's back at {back}"
+            );
+            // The one part past her nose: an ornate machine's probe.
+            let past: Vec<f32> = built
+                .children
+                .iter()
+                .filter(|c| c.spin.is_none())
+                .map(fore)
+                .filter(|&z| z > nose + 1e-4)
+                .collect();
+            if ornateness == OrnatenessTier::Ornate {
+                let out = past.first().map(|z| (z - first) / plan.len(1.0));
+                assert!(
+                    past.len() == 1 && out.is_some_and(|o| (o - 0.35).abs() < 0.01),
+                    "{what}: {} parts stand past her nose, by {out:?} m",
+                    past.len()
+                );
+            } else {
+                assert!(past.is_empty(), "{what}: {past:?} stand past her nose");
+            }
+            // The furthest the parts `pick` keeps stand off her centreline,
+            // as drawn.
+            let outer = |pick: &dyn Fn(&Generator) -> bool| {
+                built
+                    .children
+                    .iter()
+                    .filter(|c| pick(c))
+                    .flat_map(drawn_points)
+                    .map(|p| p.x.abs())
+                    .fold(0.0f32, f32::max)
+            };
+            // The sponsons: the rounded boxes in her body's colour off her
+            // centreline.
+            let sponsons = outer(&|c| {
+                c.kind.material() == Some(&colours.body)
+                    && matches!(c.kind, GeneratorKind::Superellipsoid { .. })
+                    && c.transform.translation.0[0] != 0.0
+            });
+            // The winch: the one dark block on her that does not turn.
+            let winch = |c: &Generator| {
+                c.spin.is_none()
+                    && c.kind.material() == Some(&colours.dark)
+                    && matches!(c.kind, GeneratorKind::Cuboid { .. })
+            };
+            let named = match ornateness {
+                OrnatenessTier::Plain => sponsons,
+                OrnatenessTier::Adorned | OrnatenessTier::Ornate => {
+                    let starboard = built
+                        .children
+                        .iter()
+                        .filter(|c| winch(c))
+                        .all(|c| c.transform.translation.0[0] < 0.0);
+                    assert!(starboard, "{what}: her hoist stands to port");
+                    outer(&winch)
+                }
+            };
+            let half = tandem::Tandem.overall_width(&plan, ornateness) * 0.5;
+            assert!(
+                named > 0.0 && (half - named).abs() < 1e-3,
+                "{what}: her box is +-{half} wide; her sponsons reach {sponsons}, \
+                 her winch {}",
+                outer(&winch)
             );
         }
     }

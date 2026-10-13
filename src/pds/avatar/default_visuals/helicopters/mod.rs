@@ -9,19 +9,21 @@
 //! scale. [`craft`] is the only match over [`HelicopterType`], so a new type
 //! is a compile error here until it is built.
 //!
-//! FOUR types are built. The light utility helicopter the owner agreed on
+//! FIVE types are built. The light utility helicopter the owner agreed on
 //! the phase-2 renders (#1613) - a glazed pod on skids, a two-blade main
 //! rotor and a tail rotor on a slim boom - at the proportion they chose (B: a
 //! 3.2 m fuselage, the cabin 22 % fuller than the first draft) and with all
-//! ten of that issue's recommendations taken. And three of the fan-out's
+//! ten of that issue's recommendations taken. And four of the fan-out's
 //! (#1618), each on a profile of her own read off the same [`PodPlan`]: the
 //! bubble-canopy trainer (#1621) - a glazed bubble over an open engine bay,
 //! saddle tanks, an open truss boom and tall skids - with all eight of her
 //! recommendations taken; the autogyro (#1624) - a radial's airscrew at her
 //! nose, a free rotor on a pylon and three wheels - with all nine of hers;
-//! and the coaxial (#1628) - two rotors turning opposite ways on one mast,
-//! no tail rotor, and a shrouded pusher behind an H-tail - with all eight of
-//! hers.
+//! the coaxial (#1628) - two rotors turning opposite ways on one mast, no
+//! tail rotor, and a shrouded pusher behind an H-tail - with all eight of
+//! hers; and the tandem-rotor transport (#1630) - a box cabin under two
+//! rotors turning opposite ways, one on a tall aft pylon, on four wheels in
+//! sponsons - with all eight of hers.
 //!
 //! # Where a helicopter sits
 //!
@@ -34,7 +36,8 @@
 //! the travel pose ([`travel_drop`]) hangs the drawn frame so that the skid
 //! bottoms are exactly that floor. The autogyro stands on wheels instead,
 //! tail-down, drawn turned in the same level box: her box is measured off
-//! her as she stands, and its floor is her tyres (#1624).
+//! her as she stands, and its floor is her tyres (#1624). The tandem stands
+//! level on four wheels, and her box's floor is her tyres too (#1630).
 //!
 //! # What she does at rest
 //!
@@ -50,6 +53,7 @@
 mod autogyro;
 mod coaxial;
 mod plan;
+mod tandem;
 mod trainer;
 mod utility;
 
@@ -73,10 +77,11 @@ use crate::world_builder::primitive_outline;
 
 /// The helicopter family's colours, which live in the fleet's one livery
 /// home (#1365) rather than beside its geometry: the utility's, the
-/// trainer's (#1621), the autogyro's (#1624) and the coaxial's (#1628).
+/// trainer's (#1621), the autogyro's (#1624), the coaxial's (#1628) and the
+/// tandem's (#1630).
 pub(crate) use crate::pds::avatar::livery::{
-    AutogyroColours, CoaxialColours, HelicopterColours, TrainerColours, autogyro_colours,
-    coaxial_colours, helicopter_colours, trainer_colours,
+    AutogyroColours, CoaxialColours, HelicopterColours, TandemColours, TrainerColours,
+    autogyro_colours, coaxial_colours, helicopter_colours, tandem_colours, trainer_colours,
 };
 
 use super::Propulsion;
@@ -149,9 +154,11 @@ pub(super) trait HelicopterCraft {
 
     /// The widest the fuselage is drawn (m) at `ornateness` - the skids,
     /// nearly always, or what a tier hangs past them (the trainer's litter
-    /// pods, #1621), or what the autogyro is drawn as, measured (#1624) -
-    /// and what the box is as wide as. NOT the rotor's disc: see the module
-    /// header.
+    /// pods, #1621), or what the autogyro is drawn as, measured (#1624), or
+    /// twice the reach of her wider side where a tier hangs something out
+    /// on one side alone (the tandem's hoist, #1630) - and what the box,
+    /// which is symmetric, is as wide as. NOT the rotor's disc: see the
+    /// module header.
     fn overall_width(&self, plan: &PodPlan, ornateness: OrnatenessTier) -> f32;
 
     /// How far the top of her rotor head stands over what she stands on -
@@ -177,6 +184,7 @@ fn craft(t: HelicopterType) -> &'static dyn HelicopterCraft {
         HelicopterType::Trainer => &trainer::Trainer,
         HelicopterType::Autogyro => &autogyro::Autogyro,
         HelicopterType::Coaxial => &coaxial::Coaxial,
+        HelicopterType::Tandem => &tandem::Tandem,
     }
 }
 
@@ -221,7 +229,7 @@ fn body_for(seed: u64) -> Option<(&'static dyn HelicopterCraft, PodPlan)> {
 /// holds her airframe, and the blades stand outside it (owner decision 3 of
 /// #1611): a rotor's disc, an airscrew's, a pusher's. A hub a turning hub
 /// carries - a wheel steering and rolling - is in it. The autogyro's
-/// (#1624) and the coaxial's (#1628).
+/// (#1624), the coaxial's (#1628) and the tandem's (#1630).
 fn airframe_bounds(parts: &[Generator]) -> Bounds {
     fn reach_into(part: &Generator, parent: Affine3A, out: &mut Option<Bounds>) {
         let t = &part.transform;
