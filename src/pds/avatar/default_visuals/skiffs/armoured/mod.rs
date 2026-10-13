@@ -254,14 +254,16 @@ impl ArmouredPlan {
     }
 
     /// A part lying ON the upper flank facet is turned to its tilt, on
-    /// whichever side it sits.
+    /// whichever side `s` it sits: the near side's turn about `+Z`, and on
+    /// the far side the same turn the other way - its mirror.
+    ///
+    /// Not the near side's turn and a half turn more, as it first was
+    /// (#1631): a half turn about `+Z` leaves a box as it found it, so the
+    /// far bins, slits and flash lay parallel to the near ones, leaning
+    /// across her instead of mirroring them.
     fn on_flank(&self, s: f32) -> [f32; 4] {
         let tilt = FRAC_PI_2 - self.flank_tilt();
-        if s > 0.0 {
-            quat_z(-tilt)
-        } else {
-            quat_z(-tilt + std::f32::consts::PI)
-        }
+        quat_z(-side(s) * tilt)
     }
 
     /// The DRAWN top at station `z` (m over the datum).

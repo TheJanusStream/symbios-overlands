@@ -1232,6 +1232,127 @@ mod tests {
         }
     }
 
+    /// Her far flank is the mirror of her near one (#1631), on every variant
+    /// and tier at every blueprint corner: every part standing off her
+    /// centreline that has a partner of its own kind at the mirrored place
+    /// draws the mirror image of it, vertex for vertex - her lit flank slits,
+    /// her unit flash and an adorned machine's stowage bins among them, with
+    /// her arches, her wheels, her turret's vision blocks, her headlamps and
+    /// the hoops over them, and her tail lamps.
+    ///
+    /// The far side's turn onto the upper flank facet was the near side's
+    /// plus a half turn, which leaves a box exactly as the near side lays it:
+    /// her far bins, slits and flash lay parallel to the near ones, leaning
+    /// across her instead of mirroring them. No other guard could see it -
+    /// both still touched the hull.
+    #[test]
+    fn an_armoured_cars_far_flank_mirrors_her_near_one() {
+        use crate::world_builder::primitive_points;
+        use bevy::math::{Affine3A, Quat, Vec3};
+        fn points(g: &Generator, parent: Affine3A, out: &mut Vec<Vec3>) {
+            let t = &g.transform;
+            let world = parent
+                * Affine3A::from_scale_rotation_translation(
+                    Vec3::from(t.scale.0),
+                    Quat::from_array(t.rotation.0).normalize(),
+                    Vec3::from(t.translation.0),
+                );
+            out.extend(
+                primitive_points(&g.kind)
+                    .into_iter()
+                    .map(|p| world.transform_point3(p)),
+            );
+            for c in &g.children {
+                points(c, world, out);
+            }
+        }
+        for (built, _, what) in every_armoured() {
+            let drawn: Vec<Vec<Vec3>> = built
+                .children
+                .iter()
+                .map(|part| {
+                    let mut out = Vec::new();
+                    points(part, Affine3A::IDENTITY, &mut out);
+                    out
+                })
+                .collect();
+            // Where a part stands: its node's place - or, for a sweep, whose
+            // stations are written in her own frame, the middle of what it
+            // draws. Not the middle of every part's points: a turned shape's
+            // seam weights it to one side, the same side on both flanks, and
+            // her lamps went unpaired.
+            let anchors: Vec<Vec3> = built
+                .children
+                .iter()
+                .zip(&drawn)
+                .map(|(part, pts)| {
+                    let t = Vec3::from(part.transform.translation.0);
+                    if t != Vec3::ZERO {
+                        t
+                    } else {
+                        pts.iter().copied().sum::<Vec3>() / pts.len().max(1) as f32
+                    }
+                })
+                .collect();
+            let mirror = |p: Vec3| Vec3::new(-p.x, p.y, p.z);
+            // A part's partner is of its own kind at the mirrored place:
+            // exactly its kind, within 2 mm, for a part placed by its node;
+            // for a sweep, whose stations are part of its kind and so never
+            // equal its mirror's, the same shape in the same material within
+            // a centimetre - what its seam can move the middle of its points.
+            let partners = |i: usize, j: usize| {
+                let (near, far) = (&built.children[i], &built.children[j]);
+                let to = anchors[j].distance(mirror(anchors[i]));
+                if near.transform.translation.0 != [0.0; 3] {
+                    far.kind == near.kind && to < 0.002
+                } else {
+                    far.transform.translation.0 == [0.0; 3]
+                        && far.kind.kind_tag() == near.kind.kind_tag()
+                        && far.kind.material() == near.kind.material()
+                        && to < 0.01
+                }
+            };
+            let (mut pairs, mut turned) = (0, 0);
+            for (i, near) in built.children.iter().enumerate() {
+                // Off her centreline by more than 2 cm.
+                if anchors[i].x < 0.02 {
+                    continue;
+                }
+                let Some(j) = (0..built.children.len()).find(|&j| j != i && partners(i, j)) else {
+                    continue;
+                };
+                for p in &drawn[i] {
+                    let want = mirror(*p);
+                    let off = drawn[j]
+                        .iter()
+                        .map(|q| q.distance(want))
+                        .fold(f32::MAX, f32::min);
+                    assert!(
+                        off < 1e-4,
+                        "{what}: part {j} is not the mirror of part {i}: a point of it stands \
+                         {off:.4} m off the mirror of {p}"
+                    );
+                }
+                pairs += 1;
+                turned += usize::from(near.transform.rotation.0 != [0.0, 0.0, 0.0, 1.0]);
+            }
+            // Every pair she draws is checked, and a part that went unpaired
+            // - moved off its mirrored place - would drop the count: eleven
+            // on a plain machine, six of them turned, and the stowage bins
+            // the twelfth and seventh.
+            let want = if what.contains(", Plain /") {
+                (11, 6)
+            } else {
+                (12, 7)
+            };
+            assert_eq!(
+                (pairs, turned),
+                want,
+                "{what}: mirrored pairs (all, turned) - one was added or lost"
+            );
+        }
+    }
+
     /// Every armoured-car seed is drawn as an armoured car, on the variant her
     /// theme picks, a diesel (#1375) - and no other skiff seed is: a skiff is
     /// a diesel exactly when she is drawn as one. And the aura her record
