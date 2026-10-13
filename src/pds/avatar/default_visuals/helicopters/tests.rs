@@ -1,35 +1,37 @@
 //! The helicopter family's guards (#1614): the boats' and the skiffs' set
 //! for a rotorcraft - one machine at every blueprint extreme, the sanitiser
-//! round trip, a third of the record budget, determinism, the gate - and
-//! the ones a rotorcraft adds: the box holds her fuselage and rests on her
+//! round trip, a third of the record budget, determinism, the gate - and the
+//! ones a rotorcraft adds: the box holds her fuselage and rests on her
 //! skids, her rotors turn at the agreed rates and sweep clear of her and of
-//! each other, and her aura leaves her stack. Every one sweeps EVERY type
-//! (the trainer's since #1621, the autogyro's since #1624), each held to
-//! its own numbers - the two with a tail rotor, its own; and the trainer
-//! has four of her own - her truss's struts drawn straight, the root's hub
-//! hidden in her upper longeron, her stabiliser bar clear of her bubble,
-//! and her identity on her door hoop. The autogyro has seven: her rotor,
-//! her airscrew and her wheels turn as agreed, her airscrew's thrum is her
-//! voice's at her top speed, she stands tail-down on three wheels, her
-//! rotor clears her airframe, her airscrew clears her cowl ring, the root's
-//! hub hides in her fuselage, and her identity is on her cheat line. The
-//! coaxial has eight (#1628): her rotors and her pusher turn as agreed, her
-//! pusher reaches the spin ceiling by her top speed, her two rotors clear
-//! each other and her airframe, her pusher clears its shroud and its
+//! each other, her aura leaves her stack, and every lit part she draws shows
+//! (#1619). Every one sweeps EVERY type (the trainer's since #1621, the
+//! autogyro's since #1624), each held to its own numbers - the two with a
+//! tail rotor, its own; and the trainer has four of her own - her truss's
+//! struts drawn straight, the root's hub hidden in her upper longeron, her
+//! stabiliser bar clear of her bubble, and her identity on her door hoop.
+//! The autogyro has seven: her rotor, her airscrew and her wheels turn as
+//! agreed, her airscrew's thrum is her voice's at her top speed, she stands
+//! tail-down on three wheels, her rotor clears her airframe, her airscrew
+//! clears her cowl ring, the root's hub hides in her fuselage, and her
+//! identity is on her cheat line - and since #1619 an eighth, her box is set
+//! by the parts that should set it, as the coaxial's and the tandem's are.
+//! The coaxial has eight (#1628): her rotors and her pusher turn as agreed,
+//! her pusher reaches the spin ceiling by her top speed, her two rotors
+//! clear each other and her airframe, her pusher clears its shroud and its
 //! stators hold it, her exhaust aura issues from her port exhaust, her
 //! identity is on her cheat line, her beacon stands proud of her fairing,
 //! and her box is set by the parts that should set it; and the autogyro's
-//! guard that her root's hub hides in her fuselage holds hers too. The
-//! tandem has eight (#1630): her rotors turn as agreed and as her voice
-//! says, her two rotors clear each other and her airframe, her four wheels
-//! stand on the ground, her root's hub hides in her cabin, her exhaust aura
-//! issues from her port engine, her identity is on her cheat line, her
-//! beacon stands proud of her aft pylon, and her box is set by the parts
-//! that should set it.
+//! guard that her root's hub hides in her fuselage holds hers too, and the
+//! utility's (#1619). The tandem has eight (#1630): her rotors turn as
+//! agreed and as her voice says, her two rotors clear each other and her
+//! airframe, her four wheels stand on the ground, her root's hub hides in
+//! her cabin, her exhaust aura issues from her port engine, her identity is
+//! on her cheat line, her beacon stands proud of her aft pylon, and her box
+//! is set by the parts that should set it.
 
 use bevy::math::{Affine3A, Quat, Vec3};
 
-use super::super::common::{first_difference, touch};
+use super::super::common::{first_difference, sight, touch};
 use super::*;
 use super::{autogyro, coaxial, tandem, trainer, utility};
 use crate::catalogue::items::measure::tree_bounds;
@@ -1430,23 +1432,29 @@ fn the_autogyros_airscrew_turns_clear_of_her_cowl_ring() {
 }
 
 /// The root's hidden hub hides inside her fuselage at every blueprint, on
-/// every type whose box is measured off her: PodPlan hangs the drawn frame's
-/// origin at her box's middle. The autogyro's (#1624) is about 1.2 m behind
-/// her mains standing tail-down, where her fuselage has dropped with the
-/// turn - drawn on the LEVEL centreline's height, the prototype's, it stood
-/// 2 cm under her crown; the coaxial's (#1628) falls in her tail cone, a
-/// third of a metre aft of her cabin's rear. Every corner of the cube stands
-/// well inside the fuselage AS DRAWN: inside the flats of its section, round
-/// in the sweep's own frame, along the centreline its stations were turned
-/// to. And the hub is ON that centreline, within the reach each profile's
-/// datum claims - 2.2 cm, and 2 (1.5 at worst, a corner's girth and boom
-/// moving her centreline off the nominal machine's) - where it crosses her
-/// box's middle.
+/// every type whose first part is her fuselage's sweep: PodPlan hangs the
+/// drawn frame's origin at her box's middle. The autogyro's (#1624) is
+/// about 1.2 m behind her mains standing tail-down, where her fuselage has
+/// dropped with the turn - drawn on the LEVEL centreline's height, the
+/// prototype's, it stood 2 cm under her crown; the coaxial's (#1628) falls
+/// in her tail cone, a third of a metre aft of her cabin's rear; and the
+/// utility's (#1613, guarded since #1619) in her pod's tail. Every corner of
+/// the cube stands well inside the fuselage AS DRAWN: inside the flats of
+/// its section, round in the sweep's own frame, along the centreline its
+/// stations were turned to. And the hub is near that centreline, within the
+/// reach each profile's datum claims, where it crosses her box's middle:
+/// 2.2 cm for the autogyro, 2 for the coaxial (1.5 at worst, a corner's
+/// girth and boom moving her centreline off the nominal machine's), and
+/// 9.5 for the utility, whose datum is her CABIN's centreline height - her
+/// pod's centreline has climbed 4.2 to 8.9 cm over it by her box's middle.
+/// The trainer's hub is her upper longeron's guard's, and the tandem's her
+/// cabin's.
 #[test]
 fn her_root_hub_hides_in_her_fuselage() {
     use std::f32::consts::PI;
     let ctx = PartCtx::for_seed(a_helicopter_seed());
     let measured = [
+        (HelicopterType::Utility, 0.095),
         (HelicopterType::Autogyro, 0.022),
         (HelicopterType::Coaxial, 0.02),
     ];
@@ -2568,6 +2576,147 @@ fn the_tandems_box_is_set_by_her_nose_her_tail_light_and_her_widest_parts() {
                 "{what}: her box is +-{half} wide; her sponsons reach {sponsons}, \
                  her winch {}",
                 outer(&winch)
+            );
+        }
+    }
+}
+
+/// Every lit part she draws shows past the rest of her (#1619), on every
+/// type at every blueprint extreme, on her fullest ladder: at least one
+/// vertex in thirty of each sees out ([`sight::lit_shares`]). A lamp drawn
+/// inside its host shows none - the coaxial's beacon in her fairing as her
+/// prototype first stood it, and the tandem's in her aft pylon. The least
+/// that show are the tandem's nav lights, a 2 mm cap at her sponsons'
+/// noses: one vertex in sixteen at her fullest girth. Read on a kit that
+/// lights nothing but her lamps.
+#[test]
+fn every_lit_part_she_draws_shows() {
+    let seed = helicopter_seeds(600)
+        .find(|&s| !PartCtx::for_seed(s).materials.emissive_accents())
+        .expect("some helicopter seed wears an unlit kit");
+    let mut ctx = PartCtx::for_seed(seed);
+    ctx.ornateness = OrnatenessTier::Ornate;
+    for t in HelicopterType::ALL {
+        for bp in blueprints() {
+            let plan = craft(t).plan(&bp);
+            let shares = sight::lit_shares(&craft(t).build(&ctx, &plan));
+            let what = format!(
+                "a {} m {}, girth {}, boom {}",
+                bp.length,
+                t.label(),
+                bp.girth,
+                bp.boom
+            );
+            assert!(shares.len() >= 3, "{what}: {} lit parts", shares.len());
+            for (i, share) in shares {
+                assert!(
+                    share > 1.0 / 30.0,
+                    "{what}: her lit part {i} shows {:.1} % of its vertices",
+                    share * 100.0
+                );
+            }
+        }
+    }
+}
+
+/// The autogyro's box is set by the parts that should set it (#1619, the
+/// coaxial's guard for the type whose box was first measured, #1624): the
+/// box guard reads her standing tree back against a box MEASURED off the
+/// same tree, so on its own it cannot see a part grow past her ends or her
+/// sides. Here each is named, at every blueprint extreme and on every
+/// tier. Her nose is her hubcap's tip, raised with her nose as she stands;
+/// her tail is her fuselage's tail post or, on her shorter booms, her fin's
+/// trailing edge, whichever her stance carries further aft; her sides are
+/// her tailplane's nav lights, outboard of her tyres - and on an ornate
+/// machine her spats, outboard of both.
+#[test]
+fn the_autogyros_box_is_set_by_her_hubcap_her_tail_and_her_widest_parts() {
+    let mut ctx = PartCtx::for_seed(a_helicopter_seed());
+    for ornateness in OrnatenessTier::ALL {
+        ctx.ornateness = ornateness;
+        let colours = autogyro_colours(&ctx);
+        for (bp, plan, built) in autogyros(&ctx) {
+            let what = format!(
+                "a {} m autogyro, girth {}, boom {}, {}",
+                bp.length,
+                bp.girth,
+                bp.boom,
+                ornateness.label()
+            );
+            let (nose, tail) = plan.nose_and_tail();
+            // The airscrew: the hub turning about her fore-and-aft axis on
+            // her speed. Its hubcap is what is left of it, blades pruned.
+            let airscrew = built
+                .children
+                .iter()
+                .find(|c| {
+                    c.spin.as_ref().is_some_and(|s| {
+                        s.axis.0 == [0.0, 0.0, 1.0]
+                            && matches!(s.terms.as_slice(), [crate::pds::SpinTerm::Speed { .. }])
+                    })
+                })
+                .expect("she draws an airscrew");
+            let mut cap = Vec::new();
+            points_under(&without_blades(airscrew), Affine3A::IDENTITY, &mut cap);
+            let tip = cap.iter().map(|p| p.z).fold(f32::MIN, f32::max);
+            assert!(
+                (nose - tip).abs() < 1e-4,
+                "{what}: her box's nose is at {nose}, her hubcap's tip at {tip}"
+            );
+            // Her tail: the fuselage, and her fin - the body-coloured sweep
+            // and its trim cap drawn flat across her.
+            let aft = |g: &Generator| {
+                drawn_points(g)
+                    .into_iter()
+                    .map(|p| p.z)
+                    .fold(f32::MAX, f32::min)
+            };
+            let post = aft(&built.children[0]);
+            let fin = built
+                .children
+                .iter()
+                .filter(|c| {
+                    (c.kind.material() == Some(&colours.body)
+                        || c.kind.material() == Some(&colours.trim))
+                        && matches!(c.kind, GeneratorKind::Spine { .. })
+                        && c.transform.scale.0[0] < 0.5
+                })
+                .map(aft)
+                .fold(f32::MAX, f32::min);
+            assert!(
+                fin < f32::MAX && (tail - post.min(fin)).abs() < 1e-4,
+                "{what}: her box's tail is at {tail}, her tail post's end at {post}, her \
+                 fin's trailing edge at {fin}"
+            );
+            // Her sides.
+            let outer = |pick: &dyn Fn(&Generator) -> bool| {
+                built
+                    .children
+                    .iter()
+                    .filter(|c| pick(c))
+                    .flat_map(drawn_points)
+                    .map(|p| p.x.abs())
+                    .fold(0.0f32, f32::max)
+            };
+            let nav = outer(&|c| {
+                c.kind.material() == Some(&colours.port)
+                    || c.kind.material() == Some(&colours.starboard)
+            });
+            // The spats: her body's sweeps off her centreline.
+            let spats = outer(&|c| {
+                c.kind.material() == Some(&colours.body)
+                    && matches!(&c.kind, GeneratorKind::Spine { points, .. }
+                        if points.iter().all(|p| p.position.0[0].abs() > 0.1))
+            });
+            let named = match ornateness {
+                OrnatenessTier::Ornate => spats,
+                OrnatenessTier::Plain | OrnatenessTier::Adorned => nav,
+            };
+            let half = autogyro::Autogyro.overall_width(&plan, ornateness) * 0.5;
+            assert!(
+                named > 0.0 && (half - named).abs() < 1e-3,
+                "{what}: her box is +-{half} wide; her nav lights reach {nav}, her spats \
+                 {spats}"
             );
         }
     }

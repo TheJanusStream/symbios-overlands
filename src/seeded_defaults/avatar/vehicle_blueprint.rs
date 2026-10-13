@@ -390,22 +390,29 @@ pub const NOMINAL_BODY_LEN: f32 = 2.65;
 /// (#1613) is ONE pod profile that every mount is read off: the length sets
 /// the scale it is drawn at, and the girth and the boom are the two ways the
 /// owner asked a seed to move it - "stance shapes the cabin and boom". The
-/// nominal blueprint is the prototype's proportion B exactly: a 3.2 m
-/// fuselage, its cabin 22 % fuller than the first draft, its boom as drawn.
+/// nominal blueprint is the utility prototype's proportion B exactly: a
+/// 3.2 m fuselage, its cabin 22 % fuller than the first draft, its boom as
+/// drawn - and every later type's prototype was drawn at it too, so each is
+/// true metres there.
 #[derive(Clone, Copy, Debug)]
 pub struct HelicopterBlueprint {
     pub stance: VehicleStance,
-    /// Nose to the end of the tail boom, where the fin stands (m) - the
-    /// nominal every other dimension is a fraction of. The fin, the beacon
-    /// and the tail rotor stand a little aft of it, and the main rotor's
-    /// disc reaches past both ends.
+    /// Nose to the station her type's length runs to (m) - the nominal
+    /// every other dimension is a fraction of: the utility's tail boom's
+    /// end, where her fin stands, and each later type's own (the coaxial's
+    /// in her shroud, the tandem's ramp's end under her aft pylon). What she
+    /// draws past it, or short of it, is her type's - the utility's fin,
+    /// beacon and tail rotor a little aft, the tandem's tail light short of
+    /// it - and a rotor's disc reaches past both ends.
     pub length: f32,
-    /// How much fuller her cabin is than the prototype's first draft: each
-    /// pod section's radius, the cabin swelling mostly upward (1.22 is
-    /// proportion B).
+    /// How much fuller her cabin is than her type's profile: each pod
+    /// section's radius, the cabin swelling mostly upward (1.22 is
+    /// proportion B, every prototype's).
     pub girth: f32,
-    /// The tail boom's reach over the prototype's, the pod unchanged: a
-    /// Sleek machine's runs longer and a Compact one's shorter.
+    /// How far her type stretches aft of her boom's root, over the
+    /// prototype's, what stands forward of it unchanged: the utility's tail
+    /// boom, the coaxial's tapering tail, the tandem's cabin between her
+    /// rotors. A Sleek machine's runs longer and a Compact one's shorter.
     pub boom: f32,
 }
 
@@ -494,8 +501,9 @@ const MAX_BOOM: f32 = 1.08;
 pub struct AirplaneBlueprint {
     pub stance: VehicleStance,
     /// Spinner to rudder (m) - the nominal every other dimension is a
-    /// fraction of, and her box's length. The wing spans half as far again
-    /// either side.
+    /// fraction of, and her box's length. Her wings span further, each
+    /// type's her own: the high-wing's half as far again, the racer's about
+    /// as far.
     pub length: f32,
     /// How much fuller her fuselage is than a true light monoplane's: each
     /// section's radius, the fuselage swelling upward off its belly (1.18

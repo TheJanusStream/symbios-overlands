@@ -5,10 +5,10 @@
 //! where her record's raycast wheels do, she sits tail-down with the box's
 //! tail corner clear of the ground - drawn, and set down on the game's own
 //! physics with every drawn tyre on it - her airscrew and wheels turn as
-//! agreed, her aura leaves her stack, and no sweep of hers loops past its
-//! stations. Every one sweeps EVERY type (the biplane's since #1623, the
-//! twin's since #1625, the racer's since #1629), each held to its own
-//! numbers; and the biplane has
+//! agreed, her aura leaves her stack, no sweep of hers loops past its
+//! stations, and every lit part she draws shows (#1619). Every one sweeps
+//! EVERY type (the biplane's since #1623, the twin's since #1625, the
+//! racer's since #1629), each held to its own numbers; and the biplane has
 //! her own - her struts and wires end inside her wings and her cabane's feet
 //! in her fuselage, her airscrew turns clear of her cowl ring, her record
 //! carries the handling the owner agreed, and she takes off and tops out as
@@ -22,7 +22,7 @@
 
 use bevy::math::{Quat, Vec3};
 
-use super::super::common::{first_difference, touch};
+use super::super::common::{first_difference, sight, touch};
 use super::*;
 use super::{biplane, high_wing, racer, twin};
 use crate::catalogue::items::measure::tree_bounds;
@@ -1747,4 +1747,40 @@ fn a_racer_takes_off_on_power_alone_and_tops_out_over_the_twin() {
         r - w > 3.0,
         "she tops out at {r:.2} m/s, the twin at {w:.2}"
     );
+}
+
+/// Every lit part she draws shows past the rest of her (#1619), on every
+/// type at every blueprint extreme, on her fullest ladder: at least one
+/// vertex in thirty of each sees out ([`sight::lit_shares`]) - the
+/// helicopters' guard, which caught nothing buried on an airplane. The
+/// least that show are the high-wing's lit cabin panes, under her wing. Read
+/// on a kit that lights nothing but her lamps.
+#[test]
+fn every_lit_part_she_draws_shows() {
+    let seed = airplane_seeds(600)
+        .find(|&s| !PartCtx::for_seed(s).materials.emissive_accents())
+        .expect("some airplane seed wears an unlit kit");
+    let mut ctx = PartCtx::for_seed(seed);
+    ctx.ornateness = OrnatenessTier::Ornate;
+    for t in AirplaneType::ALL {
+        for bp in blueprints() {
+            let plan = craft(t).plan(&bp);
+            let shares = sight::lit_shares(&craft(t).build(&ctx, &plan));
+            let what = format!(
+                "a {} m {}, girth {}, cabin {}",
+                bp.length,
+                t.label(),
+                bp.girth,
+                bp.cabin
+            );
+            assert!(shares.len() >= 3, "{what}: {} lit parts", shares.len());
+            for (i, share) in shares {
+                assert!(
+                    share > 1.0 / 30.0,
+                    "{what}: her lit part {i} shows {:.1} % of its vertices",
+                    share * 100.0
+                );
+            }
+        }
+    }
 }

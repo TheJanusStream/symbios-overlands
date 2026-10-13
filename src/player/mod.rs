@@ -74,6 +74,8 @@
 //!   flight systems (#1430) or car systems (#1524) and avian, stepped by
 //!   hand.
 
+#[cfg(test)]
+mod air_fleet;
 mod airplane;
 pub(crate) mod attachments;
 mod car;

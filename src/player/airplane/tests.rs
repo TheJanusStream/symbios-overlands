@@ -713,6 +713,87 @@ fn a_big_airplane_banks_as_fast_as_a_small_one() {
     );
 }
 
+/// The time a bank takes follows her roll rate (#1619): the bank law pulls
+/// toward the bank asked for in proportion to the record's `roll_rate` -
+/// bit for bit the old fixed pull at the preset's 90 - so a record rolling
+/// at 150 reaches a 40 degree bank over a third sooner than the preset and
+/// one rolling at 70 a fifth later. At one pull for every record, the law
+/// asked for at most 135 degrees a second, and 150 never bound.
+#[test]
+fn the_time_a_bank_takes_follows_her_roll_rate() {
+    let preset = params();
+    assert_eq!(
+        bank_gain(
+            preset.roll_rate.0.to_radians(),
+            RESPONSE + preset.angular_damping.0
+        ),
+        BANK_GAIN
+    );
+    let to_forty = |roll_rate: f32| {
+        let mut record = airplane();
+        if let LocomotionConfig::Airplane(p) = &mut record.locomotion {
+            p.roll_rate = crate::pds::Fp(roll_rate);
+        }
+        let mut bench = flying(&record, 60.0, 20.0, 0.55);
+        bench.hold(&[KeyCode::KeyA]);
+        for _ in 0..3 * 64 {
+            bench.step();
+            if attitude(&bench).1.abs() >= 40.0 {
+                return bench.elapsed() as f32;
+            }
+        }
+        panic!("rolling at {roll_rate}, she never banked 40 degrees");
+    };
+    let (preset, quick, slow) = (to_forty(90.0), to_forty(150.0), to_forty(70.0));
+    assert!(
+        quick < preset * 0.66,
+        "rolling at 150 she banks in {quick:.3} s, at 90 in {preset:.3}"
+    );
+    assert!(
+        slow > preset * 1.2,
+        "rolling at 70 she banks in {slow:.3} s, at 90 in {preset:.3}"
+    );
+}
+
+/// No roll rate the sanitiser lets a record carry rocks her wings (#1619):
+/// A held for four seconds banks her no more than two and a half degrees
+/// past [`MAX_BANK_DEG`], and let go she rolls no more than two and a half
+/// past level. The bank law's pull is capped at half her roll's response,
+/// where the loop is damped at 0.71 of critical; uncapped, a roll rate of
+/// 300 swung her 7 degrees past level and the sanitiser's 720 sixteen, its
+/// bank past 60 on the way in.
+#[test]
+fn no_roll_rate_rocks_her_wings() {
+    for roll_rate in [10.0, 30.0, 90.0, 120.0, 150.0, 200.0, 300.0, 360.0, 720.0] {
+        let mut record = airplane();
+        if let LocomotionConfig::Airplane(p) = &mut record.locomotion {
+            p.roll_rate = crate::pds::Fp(roll_rate);
+        }
+        let mut bench = flying(&record, 80.0, 20.0, 0.55);
+        bench.hold(&[KeyCode::KeyA]);
+        let mut deepest = 0.0f32;
+        for _ in 0..4 * 64 {
+            bench.step();
+            deepest = deepest.max(attitude(&bench).1.abs());
+        }
+        bench.hold(&[]);
+        let mut past_level = 0.0f32;
+        for _ in 0..8 * 64 {
+            bench.step();
+            // A bank to the left is negative: past level is positive.
+            past_level = past_level.max(attitude(&bench).1);
+        }
+        assert!(
+            deepest < MAX_BANK_DEG + 2.5,
+            "rolling at {roll_rate}, she banks {deepest:.2} degrees"
+        );
+        assert!(
+            past_level < 2.5,
+            "rolling at {roll_rate}, let go she rolls {past_level:.2} degrees past level"
+        );
+    }
+}
+
 /// A rolls left and D rolls right (#1529), on the bench: held for a few
 /// steps in level flight, A takes the left wing down - the right wing's end
 /// rises - and D the right.

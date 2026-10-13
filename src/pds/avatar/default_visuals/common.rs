@@ -2185,3 +2185,214 @@ pub(crate) mod touch {
         }
     }
 }
+
+/// What of a vehicle can be SEEN, read off its generator tree (#1619): how
+/// much of each lit part shows past the rest of her - a ray out of each of
+/// its vertices along the mesher's own normal, blocked by any other part's
+/// drawn triangle ([`lit_shares`]).
+///
+/// A lamp drawn inside its host shows nothing, and no other guard can see
+/// it: [`touch`] reads a part inside another as one that meets it. Twice an
+/// agreed prototype buried one - the coaxial's beacon in her fairing
+/// (#1628) and the tandem's in her aft pylon (#1630) - where the owner's
+/// sheets showed no beacon and nothing asked why.
+///
+/// The blades a turning hub carries are not in the way: they sweep, and a
+/// lamp under a disc shows between them. Every other part is, its triangles
+/// culled by its own box so a ray is tested only against what it could
+/// meet.
+#[cfg(test)]
+pub(crate) mod sight {
+    use bevy::math::{Affine3A, Quat, Vec3};
+    use bevy::mesh::{Indices, Mesh, VertexAttributeValues};
+
+    use crate::pds::generator::{Generator, GeneratorKind};
+    use crate::world_builder::build_primitive_mesh;
+
+    /// How far off its surface a ray starts (m), so it does not meet the
+    /// face it leaves.
+    const LIFT: f32 = 1e-4;
+
+    /// One part's drawn triangles in the root's frame, and their box.
+    struct Drawn {
+        lo: Vec3,
+        hi: Vec3,
+        triangles: Vec<[Vec3; 3]>,
+    }
+
+    /// `part`'s transform under `parent`.
+    fn placed(part: &Generator, parent: Affine3A) -> Affine3A {
+        let t = &part.transform;
+        parent
+            * Affine3A::from_scale_rotation_translation(
+                Vec3::from(t.scale.0),
+                Quat::from_array(t.rotation.0).normalize(),
+                Vec3::from(t.translation.0),
+            )
+    }
+
+    /// Every triangle `part` and what it carries draw, under `parent` - but
+    /// a turning hub's blades.
+    fn triangles(part: &Generator, parent: Affine3A, out: &mut Vec<[Vec3; 3]>) {
+        if matches!(part.kind, GeneratorKind::ParticleSystem(_)) {
+            return;
+        }
+        let world = placed(part, parent);
+        let mesh = build_primitive_mesh(&part.kind).mesh;
+        if let (Some(VertexAttributeValues::Float32x3(at)), Some(indices)) =
+            (mesh.attribute(Mesh::ATTRIBUTE_POSITION), mesh.indices())
+        {
+            let at: Vec<Vec3> = at
+                .iter()
+                .map(|p| world.transform_point3(Vec3::from(*p)))
+                .collect();
+            let corner: Vec<usize> = match indices {
+                Indices::U16(i) => i.iter().map(|&i| usize::from(i)).collect(),
+                Indices::U32(i) => i.iter().map(|&i| i as usize).collect(),
+            };
+            out.extend(corner.chunks(3).map(|c| [at[c[0]], at[c[1]], at[c[2]]]));
+        }
+        let turning = part.spin.is_some();
+        for child in &part.children {
+            if turning && matches!(child.kind, GeneratorKind::Cuboid { .. }) && child.spin.is_none()
+            {
+                continue;
+            }
+            triangles(child, world, out);
+        }
+    }
+
+    /// Whether the ray from `o` along `d` passes through the box `lo..hi`
+    /// ahead of it - the slab test.
+    fn crosses(o: Vec3, d: Vec3, lo: Vec3, hi: Vec3) -> bool {
+        let (mut near, mut far) = (0.0f32, f32::MAX);
+        for axis in 0..3 {
+            if d[axis].abs() < 1e-12 {
+                if o[axis] < lo[axis] || o[axis] > hi[axis] {
+                    return false;
+                }
+                continue;
+            }
+            let (a, b) = (
+                (lo[axis] - o[axis]) / d[axis],
+                (hi[axis] - o[axis]) / d[axis],
+            );
+            near = near.max(a.min(b));
+            far = far.min(a.max(b));
+            if near > far {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Whether the ray from `o` along `d` meets the triangle ahead of it -
+    /// Moller and Trumbore's test.
+    fn meets(o: Vec3, d: Vec3, [a, b, c]: &[Vec3; 3]) -> bool {
+        let (e1, e2) = (*b - *a, *c - *a);
+        let p = d.cross(e2);
+        let det = e1.dot(p);
+        if det.abs() < 1e-12 {
+            return false;
+        }
+        let inv = 1.0 / det;
+        let s = o - *a;
+        let u = s.dot(p) * inv;
+        if !(0.0..=1.0).contains(&u) {
+            return false;
+        }
+        let q = s.cross(e1);
+        let v = d.dot(q) * inv;
+        v >= 0.0 && u + v <= 1.0 && e2.dot(q) * inv > 0.0
+    }
+
+    /// Whether `g` glows.
+    fn lit(g: &Generator) -> bool {
+        g.kind
+            .material()
+            .is_some_and(|m| m.emission_strength.0 > 0.0)
+    }
+
+    /// Every lit part among `root`'s children - each one whose material
+    /// glows - with the share of its vertices that see out past the rest of
+    /// her: a ray along the vertex's own normal that meets no other part.
+    ///
+    /// A lamp is measured where the root hangs it, so a lit part hung under
+    /// another would go unread: it panics on one rather than pass it, and
+    /// on a lamp whose mesh carries no normals to cast along.
+    pub(crate) fn lit_shares(root: &Generator) -> Vec<(usize, f32)> {
+        fn no_lamp_under(g: &Generator, path: &str) {
+            for (i, child) in g.children.iter().enumerate() {
+                assert!(
+                    !lit(child),
+                    "a lit part hangs under another at {path}/{i}: hang it on the root"
+                );
+                no_lamp_under(child, &format!("{path}/{i}"));
+            }
+        }
+        for (i, part) in root.children.iter().enumerate() {
+            no_lamp_under(part, &format!("0/{i}"));
+        }
+        let parts: Vec<Drawn> = root
+            .children
+            .iter()
+            .map(|part| {
+                let mut tris = Vec::new();
+                triangles(part, Affine3A::IDENTITY, &mut tris);
+                let (lo, hi) = tris.iter().flatten().fold(
+                    (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)),
+                    |(lo, hi), p| (lo.min(*p), hi.max(*p)),
+                );
+                Drawn {
+                    lo,
+                    hi,
+                    triangles: tris,
+                }
+            })
+            .collect();
+        let mut out = Vec::new();
+        for (i, lamp) in root.children.iter().enumerate() {
+            if !lit(lamp) {
+                continue;
+            }
+            let world = placed(lamp, Affine3A::IDENTITY);
+            let scale = Vec3::from(lamp.transform.scale.0);
+            let mesh = build_primitive_mesh(&lamp.kind).mesh;
+            let (
+                Some(VertexAttributeValues::Float32x3(at)),
+                Some(VertexAttributeValues::Float32x3(normals)),
+            ) = (
+                mesh.attribute(Mesh::ATTRIBUTE_POSITION),
+                mesh.attribute(Mesh::ATTRIBUTE_NORMAL),
+            )
+            else {
+                panic!("lit part {i} is drawn with no normals to look out along");
+            };
+            let (mut out_of_sight, mut all) = (0usize, 0usize);
+            for (p, n) in at.iter().zip(normals) {
+                // A normal goes by the inverse of the scale its surface was
+                // stretched by: the node's linear part is R S, and
+                // R S (n / S^2) is R (n / S).
+                let n = world
+                    .transform_vector3(Vec3::from(*n) / (scale * scale))
+                    .normalize_or_zero();
+                if n == Vec3::ZERO {
+                    continue;
+                }
+                all += 1;
+                let o = world.transform_point3(Vec3::from(*p)) + n * LIFT;
+                let blocked = parts.iter().enumerate().any(|(j, part)| {
+                    j != i
+                        && crosses(o, n, part.lo, part.hi)
+                        && part.triangles.iter().any(|t| meets(o, n, t))
+                });
+                if blocked {
+                    out_of_sight += 1;
+                }
+            }
+            let shows = (all - out_of_sight) as f32 / all.max(1) as f32;
+            out.push((i, shows));
+        }
+        out
+    }
+}

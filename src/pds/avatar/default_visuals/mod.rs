@@ -1645,7 +1645,9 @@ mod tests {
     /// junk yawed 80.6 deg/s to the sloop's 112.0 on identical numbers).
     /// The claim about what the fleet actually DOES is
     /// `player::spawn::tests::the_fleet_drives_in_the_agreed_order`, which
-    /// runs the real drive systems.
+    /// runs the real drive systems - and for the aircraft
+    /// `player::air_fleet::the_air_fleet_flies_in_the_agreed_order`, which
+    /// runs the real flight systems (#1619).
     #[test]
     fn no_two_craft_types_in_a_family_share_a_feel() {
         let boats = boats::every_feel();
@@ -1662,8 +1664,10 @@ mod tests {
                 assert_ne!(a, b, "the {an} and the {bn} carry the same feel tuple");
             }
         }
-        // Two helicopter types (#1614, #1621): the trainer's tuple is her
-        // own, and every type the fan-out adds is held to the same rule.
+        // The five helicopter types (#1614, #1621, #1624, #1628, #1630), each
+        // her own tuple. What they DO with it is the air fleet's measured
+        // half (`player::air_fleet::the_air_fleet_flies_in_the_agreed_order`,
+        // #1619).
         let helicopters = helicopters::every_feel();
         assert_eq!(
             helicopters.len(),
@@ -1675,7 +1679,8 @@ mod tests {
                 assert_ne!(a, b, "the {an} and the {bn} carry the same feel tuple");
             }
         }
-        // And the airplanes' (#1617, #1623): the biplane handles as her own.
+        // And the four airplane types' (#1617, #1623, #1625, #1629), each
+        // handling as her own - measured in the same guard.
         let airplanes = airplanes::every_feel();
         assert_eq!(
             airplanes.len(),

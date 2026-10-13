@@ -44,7 +44,11 @@ hers: `min_airspeed` 13, `cruise_speed` 24, 0.85 times the drag, `roll_rate`
 70, `pitch_rate` 40 and `yaw_rate` 22 - and a seeded air racer (#1629) hers:
 `min_airspeed` 13, `cruise_speed` 26, 0.6 times the drag, `roll_rate` 150,
 `pitch_rate` 60 and `yaw_rate` 30, the fastest of the four, which a pilot
-reads off her record as it reads any airplane's.
+reads off her record as it reads any airplane's. Her `roll_rate` sets how
+soon she reaches her bank, not only how fast she may roll (#1619): the racer
+banks to 40 degrees in 0.41 s, the high-wing in 0.67, the twin in 0.88; past
+the racer's 150, on the default `angular_damping`, a rate banks her no
+sooner.
 
 ## Shaping a generator body
 

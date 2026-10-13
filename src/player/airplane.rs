@@ -75,8 +75,38 @@ const RESPONSE: f32 = 8.0;
 pub(crate) const MAX_BANK_DEG: f32 = 45.0;
 
 /// How hard the controller pulls toward the bank asked for, per radian
-/// short of it (1/s), before the record's `roll_rate` caps it.
+/// short of it (1/s), at the preset's roll rate ([`REF_ROLL_DEG`]), before
+/// the record's `roll_rate` caps it. A record rolling faster or slower
+/// pulls in proportion ([`bank_gain`]), so the time a bank takes follows her
+/// roll rate: at one pull for every record the law asked for at most 135
+/// degrees a second at level, and less as she banked, so an air racer's 150
+/// never bound and she banked barely quicker than a biplane rolling at 120
+/// (#1619).
 const BANK_GAIN: f32 = 3.0;
+
+/// The roll rate (degrees a second) at which the bank law pulls
+/// [`BANK_GAIN`]: the preset's own, so the default airplane banks as she
+/// always has.
+const REF_ROLL_DEG: f32 = 90.0;
+
+/// The bank law's pull (1/s) for a record rolling at `roll_rate` (rad/s),
+/// whose roll answers at `response` (1/s: the controller's and her angular
+/// damping's together, [`rate_torque`]): [`BANK_GAIN`] at [`REF_ROLL_DEG`]
+/// and in proportion to it either side - bit for bit [`BANK_GAIN`] at the
+/// preset's own rate, the ratio being exactly one there - but never past
+/// half the response.
+///
+/// The bank is a second-order loop, the pull over the response, damped at
+/// half the square root of response over pull of critical: 0.91 at the
+/// preset's, 0.71 at the cap. Past the cap her wings rock - pulled at a roll
+/// rate of 300 they swung 7 degrees past level when let go, and at the
+/// sanitiser's 720 sixteen, banking first past the 60 degrees
+/// [`MAX_BANK_DEG`] keeps her from (#1619). On the preset's damping the cap
+/// is the air racer's own pull, at 150: a quicker rate set in the editor
+/// banks her no sooner, the rate's clip binding later.
+fn bank_gain(roll_rate: f32, response: f32) -> f32 {
+    (BANK_GAIN * (roll_rate / REF_ROLL_DEG.to_radians())).min(response * 0.5)
+}
 
 /// How hard, with no pitch key, it levels her flight path, per radian of
 /// climb or descent (1/s), before `pitch_rate` caps it.
@@ -367,7 +397,8 @@ fn air_rates(stick: Stick, p: &AirplaneParams, flying: Attitude, wings: Wings) -
     let pitch_rate = p.pitch_rate.0.to_radians();
     let yaw_rate = p.yaw_rate.0.to_radians();
     let want_bank = f32::from(stick.roll) * MAX_BANK_DEG.to_radians();
-    let roll = (BANK_GAIN * (want_bank - bank)).clamp(-roll_rate, roll_rate);
+    let pull = bank_gain(roll_rate, RESPONSE + p.angular_damping.0);
+    let roll = (pull * (want_bank - bank)).clamp(-roll_rate, roll_rate);
     let speed = forward_speed.max(wings.stall);
     // A banked turn's own pitch rate - her nose comes round the turn as
     // her path does - so a level turn needs no climb or sink to ask for it.
@@ -601,9 +632,9 @@ impl Handling {
     /// once A and D are let go: banked `bank` (radians, right wing down),
     /// rolling at `rolling` (rad/s, the same way) and flying at `speed`
     /// (m/s). Her wings level as [`air_rates`] levels them - at the roll
-    /// rate's cap, then easing in - and her path turns as a bank
-    /// [`PATH_LAG_SECS`] behind hers does, so it is run at the physics' own
-    /// step rather than solved.
+    /// rate's cap, then easing in at her own pull ([`bank_gain`]) - and her
+    /// path turns as a bank [`PATH_LAG_SECS`] behind hers does, so it is run
+    /// at the physics' own step rather than solved.
     pub(crate) fn roll_out_turn(self, bank: f32, rolling: f32, speed: f32) -> f32 {
         const STEP: f32 = 1.0 / 64.0;
         let most = MAX_BANK_DEG.to_radians();
@@ -611,10 +642,15 @@ impl Handling {
         // A lag of a roll is that roll's rate times the lag behind it.
         let mut lagged = bank - PATH_LAG_SECS * rolling;
         let (mut bank, mut rolling, mut turned) = (bank, rolling, 0.0);
-        // Ten seconds is the roll-out from the steepest bank at 5 degrees
-        // a second; a record that rolls slower than that is close enough.
-        for _ in 0..640 {
-            let want = (-BANK_GAIN * bank).clamp(-self.roll_rate, self.roll_rate);
+        // The roll-out eases in at her own pull, and comes within 1e-4 of
+        // level from her steepest bank in about nine of its time constants
+        // (one over the pull): ten seconds covers the preset and every
+        // quicker roller, and a slower one runs longer - to two minutes, a
+        // roll rate of about two degrees a second.
+        let pull = bank_gain(self.roll_rate, self.response);
+        let secs = (9.0 / pull).clamp(10.0, 120.0);
+        for _ in 0..(secs / STEP).round() as usize {
+            let want = (-pull * bank).clamp(-self.roll_rate, self.roll_rate);
             rolling += self.response * (want - rolling) * STEP;
             bank += rolling * STEP;
             lagged += (bank - lagged) * STEP / PATH_LAG_SECS;

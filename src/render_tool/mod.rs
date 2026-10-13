@@ -286,7 +286,8 @@ struct Args {
     ride_height: Option<String>,
     /// List the first `--family-count` seeds whose
     /// [`ChassisFamily`](crate::seeded_defaults::ChassisFamily) matches
-    /// (`humanoid` | `boat` | `airship` | `skiff`) and exit - a survey aid for
+    /// (`humanoid` | `boat` | `airship` | `skiff` | `helicopter` |
+    /// `airplane`) and exit - a survey aid for
     /// the avatar overhaul: pick seeds from the printed list, then render each
     /// with `--avatar <seed>`. Highest precedence (prints, never renders).
     #[arg(long)]
@@ -298,9 +299,11 @@ struct Args {
     /// Narrow `--family-seeds` to one seeded craft type (#1362) - `sloop`,
     /// `longship`, `steamtug`, `junk`, `runabout`, `scow` for boats;
     /// `roadster`, `dunebuggy`, `armouredcar`, `cyclecar`, `wagon`, `rover`
-    /// for skiffs. The survey aid each craft-type slice opens with: find the
-    /// seeds its type was picked for, then render them. Craft types are a
-    /// property of the seed, so this answers for a type before anything
+    /// for skiffs; `utility`, `trainer`, `autogyro`, `coaxial`, `tandem` for
+    /// helicopters (#1614); `high_wing`, `biplane`, `twin`, `racer` for
+    /// airplanes (#1617). The survey aid each craft-type slice opens with:
+    /// find the seeds its type was picked for, then render them. Craft types
+    /// are a property of the seed, so this answers for a type before anything
     /// builds it.
     #[arg(long)]
     craft: Option<String>,

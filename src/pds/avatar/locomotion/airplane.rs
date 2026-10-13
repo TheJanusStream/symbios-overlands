@@ -64,7 +64,10 @@ pub struct AirplaneParams {
     #[serde(default = "default_cruise_speed")]
     pub cruise_speed: Fp,
     /// How fast A and D roll her toward her bank, and back level when let
-    /// go (degrees per second).
+    /// go (degrees per second) - and so how long a bank takes: the bank law
+    /// pulls toward it in proportion to this rate, up to the racer's 150 on
+    /// the default angular damping, past which a quicker pull would rock
+    /// her wings (#1619).
     #[serde(default = "default_roll_rate")]
     pub roll_rate: Fp,
     /// How fast W and S pitch her nose (degrees per second).
