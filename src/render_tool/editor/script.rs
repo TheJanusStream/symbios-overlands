@@ -9,6 +9,7 @@
 //!
 //! ```text
 //! click widget "Placements" over 8  # glide onto a widget, rest, press, release
+//! click widget "Seed & re-roll"     # open a folded section first
 //! click right-of "Theme:"           # the control beside a label
 //! right-click ground 118,-3         # the same, with the right button
 //! type "253"                        # select all in the focused field, then type

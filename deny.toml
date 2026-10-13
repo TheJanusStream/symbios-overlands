@@ -28,10 +28,10 @@ yanked = "deny"
 # unmaintained IS actionable, and this still catches that.
 unmaintained = "workspace"
 # Recorded exceptions, not suppressions: each is an advisory this repo
-# cannot resolve from inside itself, with the tracking issue that can. Every
-# one of these was found by this gate's FIRST run - the point of adding it.
-# Review this list whenever bevy_symbios_multiuser or matchbox is bumped;
-# if an entry stops appearing, delete it rather than leaving it to rot.
+# cannot resolve from inside itself, with the tracking issue that can. The
+# first four were found by this gate's FIRST run - the point of adding it.
+# Review this list whenever bevy, bevy_symbios_multiuser or matchbox is
+# bumped; if an entry stops appearing, delete it rather than leaving it to rot.
 ignore = [
     # Three VULNERABILITIES in rustls-webpki 0.101.7, all reached the same way:
     #   rustls-webpki 0.101.7 <- rustls 0.21.12 <- async-tls 0.13
@@ -53,6 +53,17 @@ ignore = [
     # reaches us as the multiuser/matchbox wire codec, where replacing it
     # would be a wire-format change, not an upgrade.
     "RUSTSEC-2025-0141",
+    # A decompression bomb in ruzstd 0.8.3: a block's decompressed size is
+    # never bounded, so a tiny zstd input can grow to gigabytes. Fixed in
+    # 0.9.1, but bevy_image 0.19.1 asks for ruzstd 0.8, so no update from
+    # here reaches it. Its one caller is bevy_image's KTX2 loader (Zstandard
+    # supercompression), and nothing untrusted feeds that: this repo ships no
+    # .ktx2 file and registers no network asset source, so the only KTX2 it
+    # can load are bevy's own embedded tonemapping and SMAA tables, and every
+    # fetched image decodes through the `image` crate on a PNG, JPEG and WebP
+    # allowlist (world_builder/blob_fetch.rs), never through bevy_image.
+    # Delete this once bevy asks for ruzstd 0.9.1 or later. Tracked in #1633.
+    "RUSTSEC-2026-0344",
 ]
 
 [licenses]

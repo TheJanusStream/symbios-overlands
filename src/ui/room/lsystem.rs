@@ -31,7 +31,7 @@ pub(super) fn draw_lsystem_forge(
     assets: &mut super::assets::AssetPanel<'_>,
 ) {
     egui::CollapsingHeader::new("Source code")
-        .default_open(true)
+        .default_open(false)
         .show(ui, |ui| {
             if crate::ui::affordances::text_edit(
                 ui,
@@ -69,7 +69,7 @@ pub(super) fn draw_lsystem_forge(
     grammar_status_line(ui, grammar_status);
 
     egui::CollapsingHeader::new("Turtle")
-        .default_open(true)
+        .default_open(false)
         .show(ui, |ui| {
             drag_u32(ui, "Iterations", iterations, 0, 12, dirty);
             u64_row(ui, "Seed", salt, seed, dirty);

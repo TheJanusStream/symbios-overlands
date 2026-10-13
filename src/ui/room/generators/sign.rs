@@ -29,7 +29,9 @@ pub(super) fn draw_generator_sign(
     assets: &mut super::super::assets::AssetPanel<'_>,
 ) {
     let filter = crate::world_builder::image_cache::SamplerFilter::from_record(texture_filter);
-    draw_sign_source(ui, source, salt, dirty, filter, assets);
+    // Its image's status is not drawn here: the panel draws it under the
+    // Sign's folded section, where a broken picture is seen at once (#1632).
+    draw_sign_source(ui, source, salt, dirty, filter, false, assets);
     // Sampler filter for the fetched image (#663): Nearest keeps
     // pixel-art signage crisp; Linear (default) smooths photos.
     super::particles::draw_texture_filter(ui, texture_filter, salt, dirty);
@@ -127,6 +129,10 @@ pub(super) fn draw_sign_source(
     // at Nearest are two GPU images and two cache entries, so a panel must
     // ask about the one it is actually showing (#1246 f342).
     filter: crate::world_builder::image_cache::SamplerFilter,
+    // Whether to draw the image's status under the source ([`draw_sign_status`]):
+    // a particle texture's does; a Sign's is drawn by the node panel, out of
+    // its folded section (#1632).
+    status: bool,
     assets: &mut super::super::assets::AssetPanel<'_>,
 ) {
     let current = match source {
@@ -242,12 +248,23 @@ pub(super) fn draw_sign_source(
         }
     }
 
-    // Whether the image arrived, and if not, why (#1246 f342). A pending,
-    // a failed and a never-configured Sign used to be the same brown
-    // plane: `spawn_sign_entity` builds the material with no texture and
-    // only a tint, so there was nothing on the panel OR in the editor to
-    // tell them apart, and the only record of a failure was a console line
-    // the deployed web user never opens.
+    if status {
+        draw_sign_status(ui, source, filter, assets);
+    }
+}
+
+/// Whether a sign source's image arrived, and if not, why, with its Retry
+/// (#1246 f342). A pending, a failed and a never-configured Sign used to be
+/// the same brown plane: `spawn_sign_entity` builds the material with no
+/// texture and only a tint, so there was nothing on the panel OR in the
+/// editor to tell them apart, and the only record of a failure was a
+/// console line the deployed web user never opens.
+pub(super) fn draw_sign_status(
+    ui: &mut egui::Ui,
+    source: &SignSource,
+    filter: crate::world_builder::image_cache::SamplerFilter,
+    assets: &mut super::super::assets::AssetPanel<'_>,
+) {
     if super::super::assets::asset_status_row(ui, assets.sign_image(source, filter), assets.now)
         && let Some(retry) = super::super::assets::AssetPanel::sign_retry(source, filter)
     {

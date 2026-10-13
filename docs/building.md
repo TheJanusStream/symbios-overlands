@@ -1027,6 +1027,7 @@ $A gift accept 3                     # the admin's offer, by the id its event gi
 $A ui                                # what is open, what can be, what is not its to read
 $A ui open Avatar                    # as the toolbar button does; lists the window
 $A ui show "World Editor"            # each control by its path, as it is drawn
+$A ui click "Seed & re-roll"         # a folded section opens before what it holds shows
 $A ui click "Seed & re-roll > Re-roll"   # a button, a checkbox, a tab, a section, a row
 $A ui type "Catalogue > Search: > name / theme" lantern   # --enter presses Enter after
 $A ui set "Lighting & sky > Sun illuminance" 12000

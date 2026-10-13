@@ -64,12 +64,12 @@ pub(super) fn draw_generator_particles(
     } = p;
     egui::CollapsingHeader::new("Emitter shape")
         .id_salt(format!("{}_pe_shape", salt))
-        .default_open(true)
+        .default_open(false)
         .show(ui, |ui| draw_emitter_shape(ui, emitter_shape, salt, dirty));
 
     egui::CollapsingHeader::new("Spawn")
         .id_salt(format!("{}_pe_spawn", salt))
-        .default_open(true)
+        .default_open(false)
         .show(ui, |ui| {
             fp_slider(ui, "Rate (per s)", rate_per_second, 0.0, 256.0, dirty);
             drag_u32(ui, "Burst count", burst_count, 0, 512, dirty);
@@ -312,6 +312,7 @@ fn draw_particle_texture(
             &format!("{}_pe_texsrc", salt),
             dirty,
             crate::world_builder::image_cache::SamplerFilter::from_record(texture_filter),
+            true,
             assets,
         );
         ui.add_space(4.0);

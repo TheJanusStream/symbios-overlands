@@ -70,7 +70,7 @@ pub(super) fn draw_shape_forge(
     assets: &mut super::assets::AssetPanel<'_>,
 ) {
     egui::CollapsingHeader::new("Grammar")
-        .default_open(true)
+        .default_open(false)
         .show(ui, |ui| {
             ui.label(
                 egui::RichText::new(
@@ -102,7 +102,7 @@ pub(super) fn draw_shape_forge(
     grammar_status_line(ui, grammar_status);
 
     egui::CollapsingHeader::new("Lot")
-        .default_open(true)
+        .default_open(false)
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Root rule");

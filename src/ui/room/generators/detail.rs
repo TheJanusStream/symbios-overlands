@@ -1,10 +1,11 @@
-//! Right-side detail panel: a header naming the selected node + its
-//! kind picker + transform editor, followed by the per-kind detail
-//! editor (delegated to [`primitive`](super::primitive),
+//! Right-side detail panel: a header naming the selected node, a "Kind &
+//! transform" section holding its kind picker and transform editor, then
+//! the per-kind detail editor (delegated to [`primitive`](super::primitive),
 //! [`sign`](super::sign), [`particles`](super::particles),
 //! [`water`](super::water), or the Terrain / LSystem / Shape forges in
 //! sibling modules of the room editor), then the node's own audio slot and
-//! its [`spin`](super::spin).
+//! its [`spin`](super::spin). Every section the kind picker, the transform
+//! and the per-kind editors draw is collapsed until it is opened (#1632).
 
 use bevy_egui::egui;
 
@@ -182,24 +183,51 @@ pub(super) fn draw_detail_panel(
 
     if let Some(node) = find_node_mut(source, &id) {
         let child_count = node.children.len();
-        ui.horizontal(|ui| {
-            ui.label("Kind:");
-            generator_kind_picker(
-                ui,
-                &mut node.kind,
-                allowed_kinds,
-                &salt,
-                dirty,
-                &id,
-                child_count,
-                kind_confirm,
-            );
-        });
+        // Collapsed until it is opened (#1632): the kind is named in the
+        // header above, and the in-world gizmo edits the transform as well.
+        // Each node keeps its own open state, as its other sections do.
+        egui::CollapsingHeader::new("Kind & transform")
+            .id_salt((salt.as_str(), "kind_transform"))
+            .default_open(false)
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Kind:");
+                    generator_kind_picker(
+                        ui,
+                        &mut node.kind,
+                        allowed_kinds,
+                        &salt,
+                        dirty,
+                        &id,
+                        child_count,
+                        kind_confirm,
+                    );
+                });
+                ui.add_space(4.0);
+                // #1243 f152: a ROOT's in-world gizmo has no translate
+                // handles (`prim_modes`), and the panel drew the Translation
+                // boxes anyway - handles silently disappearing, contradicted
+                // three inches away by a numeric field that does the
+                // forbidden thing. Say which is which, the way the
+                // neighbouring restrictions already do.
+                if id.path.is_empty() {
+                    ui.label(
+                        egui::RichText::new(
+                            "This is a root: set its position here or on its Placement. \
+                             The in-world gizmo rotates and scales it.",
+                        )
+                        .small()
+                        .color(crate::ui::theme::current(ui.ctx()).text_weak),
+                    );
+                }
+                draw_transform(ui, &mut node.transform, dirty);
+            });
 
         // Placement warning (#886): only the first RoadNetwork directly
         // under the deterministically-chosen Terrain root is ever read
         // (`find_road_config`); anywhere else the node is silently inert
-        // - say so instead of letting a dead panel look live.
+        // - say so instead of letting a dead panel look live. Outside the
+        // section above, so a collapsed one does not hide it.
         if matches!(node.kind, GeneratorKind::RoadNetwork(_)) && !active_road_nodes.contains(&id) {
             ui.colored_label(
                 crate::ui::theme::current(ui.ctx()).status.warn,
@@ -211,24 +239,6 @@ pub(super) fn draw_detail_panel(
                 ),
             );
         }
-
-        ui.add_space(4.0);
-        // #1243 f152: a ROOT's in-world gizmo has no translate handles
-        // (`prim_modes`), and the panel drew the Translation boxes anyway
-        // - handles silently disappearing, contradicted three inches away
-        // by a numeric field that does the forbidden thing. Say which is
-        // which, the way the neighbouring restrictions already do.
-        if id.path.is_empty() {
-            ui.label(
-                egui::RichText::new(
-                    "This is a root: set its position here or on its Placement. \
-                     The in-world gizmo rotates and scales it.",
-                )
-                .small()
-                .color(crate::ui::theme::current(ui.ctx()).text_weak),
-            );
-        }
-        draw_transform(ui, &mut node.transform, dirty);
         ui.add_space(4.0);
         ui.separator();
 
@@ -236,22 +246,29 @@ pub(super) fn draw_detail_panel(
             .id_salt(("gen_detail_scroll", &salt))
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                draw_generator_detail(
-                    ui,
-                    &salt,
-                    &mut node.kind,
-                    grammar_status,
-                    dirty,
-                    blob_selected_element,
-                    undo_label,
-                    road_stats,
-                    FacePickUi {
-                        picked: picked_face,
-                        resolvable: source_resolves_face_picks,
-                        pick: face_pick,
-                    },
-                    assets,
-                );
+                // Under the node's own salt (#1632), so every section the
+                // per-kind editors draw - the forges', terrain's, water's and
+                // the roads', which are keyed by their titles alone - keeps
+                // its open state per node: a scroll area's content `Ui` is
+                // not salted by the scroll area's own id.
+                ui.push_id(salt.as_str(), |ui| {
+                    draw_generator_detail(
+                        ui,
+                        &salt,
+                        &mut node.kind,
+                        grammar_status,
+                        dirty,
+                        blob_selected_element,
+                        undo_label,
+                        road_stats,
+                        FacePickUi {
+                            picked: picked_face,
+                            resolvable: source_resolves_face_picks,
+                            pick: face_pick,
+                        },
+                        assets,
+                    );
+                });
 
                 // Per-construct audio slot (#314). The bridge writes back
                 // any committed pop-out edit and offers the variant picker
@@ -1054,7 +1071,7 @@ fn draw_road_editor(
     // #887: three sections - the street PLAN (what moves lots too), the
     // ribbon cross-SECTION (mesh-only), and the building layer.
     egui::CollapsingHeader::new("Layout")
-        .default_open(true)
+        .default_open(false)
         .show(ui, |ui| {
             seed_row(ui, config, dirty, undo_label);
             ui.add_space(4.0);
@@ -1363,7 +1380,7 @@ fn draw_road_editor(
         });
 
     egui::CollapsingHeader::new("Lots")
-        .default_open(true)
+        .default_open(false)
         .show(ui, |ui| {
             if ui
                 .checkbox(&mut config.populate_lots, "Grow buildings on lots")
@@ -1717,12 +1734,33 @@ fn draw_gateway_editor(ui: &mut egui::Ui, size: &mut crate::pds::Fp3, dirty: &mu
     });
 }
 
+/// A kind's own editor folded into one section, collapsed until it is
+/// opened (#1632) - for the kinds that draw theirs flat: the portal, the
+/// gateway, the sign and every primitive. The forges, the particle system,
+/// water and roads draw sections of their own, and every one of those is
+/// collapsed until opened too. `opened` forces it open for the frame a
+/// scene pick lands in it; egui keeps it open after. Each node keeps its
+/// own open state, under `salt`.
+fn kind_section(
+    ui: &mut egui::Ui,
+    salt: &str,
+    title: &str,
+    opened: bool,
+    body: impl FnOnce(&mut egui::Ui),
+) {
+    egui::CollapsingHeader::new(title)
+        .id_salt((salt, "kind_section"))
+        .default_open(false)
+        .open(opened.then_some(true))
+        .show(ui, body);
+}
+
 /// Per-kind variant detail editor - a thin dispatch: every arm is a
 /// single delegation into a per-kind editor fn (the Terrain / LSystem /
 /// Shape forges, the shared primitive editors, or the inline-widget
 /// helpers above).
-/// Does NOT render the local transform - that's drawn separately in the detail
-/// panel header.
+/// Does NOT render the local transform - that's drawn separately, in the
+/// panel's "Kind & transform" section above it.
 ///
 /// `salt` uniquely identifies this node in egui's ID stack - it's passed
 /// through to nested material widgets so collapsing one node never
@@ -1762,6 +1800,23 @@ fn draw_generator_detail(
         resolvable,
         picked: just_picked,
     } = pick;
+    // The flat kinds' editors fold into one section (#1632), which a scene
+    // pick opens: a picked face is added inside it (#961), and a blob
+    // element picked in the scene is selected in it (#705) - the frame a
+    // selection first shows here, as the Faces section opens on its pick.
+    // Its human name, as the kind picker shows it (#1267) - and named as
+    // its settings, so the section and the picker are not two controls of
+    // one name to a script that clicks by name.
+    let title = format!("{} settings", GeneratorKind::display_name(kind.kind_tag()));
+    let title = title.as_str();
+    let face_opened = just_picked.is_some();
+    let blob_opened = {
+        let seen_id = egui::Id::new((salt, "blob_selection_seen"));
+        let now = *blob_selected_element;
+        let seen = ui.ctx().data(|d| d.get_temp::<Option<usize>>(seen_id));
+        ui.ctx().data_mut(|d| d.insert_temp(seen_id, now));
+        now.is_some() && seen != Some(now)
+    };
     macro_rules! edit {
         ($common:expr) => {
             PrimEdit {
@@ -1849,24 +1904,34 @@ fn draw_generator_detail(
         GeneratorKind::Portal {
             target_did,
             target_pos,
-        } => draw_portal_editor(ui, target_did, target_pos, dirty, undo_label),
-        GeneratorKind::Gateway { size } => draw_gateway_editor(ui, size, dirty),
+        } => kind_section(ui, salt, title, false, |ui| {
+            draw_portal_editor(ui, target_did, target_pos, dirty, undo_label)
+        }),
+        GeneratorKind::Gateway { size } => kind_section(ui, salt, title, false, |ui| {
+            draw_gateway_editor(ui, size, dirty)
+        }),
         GeneratorKind::Cuboid { size, common, .. } => {
-            draw_primitive_cuboid(ui, size, edit!(common))
+            kind_section(ui, salt, title, face_opened, |ui| {
+                draw_primitive_cuboid(ui, size, edit!(common))
+            })
         }
         GeneratorKind::Sphere {
             radius,
             resolution,
             common,
             ..
-        } => draw_primitive_sphere(ui, radius, resolution, edit!(common)),
+        } => kind_section(ui, salt, title, face_opened, |ui| {
+            draw_primitive_sphere(ui, radius, resolution, edit!(common))
+        }),
         GeneratorKind::Cylinder {
             radius,
             height,
             resolution,
             common,
             ..
-        } => draw_primitive_cylinder(ui, radius, height, resolution, edit!(common)),
+        } => kind_section(ui, salt, title, face_opened, |ui| {
+            draw_primitive_cylinder(ui, radius, height, resolution, edit!(common))
+        }),
         GeneratorKind::Capsule {
             radius,
             length,
@@ -1874,14 +1939,18 @@ fn draw_generator_detail(
             longitudes,
             common,
             ..
-        } => draw_primitive_capsule(ui, radius, length, latitudes, longitudes, edit!(common)),
+        } => kind_section(ui, salt, title, face_opened, |ui| {
+            draw_primitive_capsule(ui, radius, length, latitudes, longitudes, edit!(common))
+        }),
         GeneratorKind::Cone {
             radius,
             height,
             resolution,
             common,
             ..
-        } => draw_primitive_cone(ui, radius, height, resolution, edit!(common)),
+        } => kind_section(ui, salt, title, face_opened, |ui| {
+            draw_primitive_cone(ui, radius, height, resolution, edit!(common))
+        }),
         GeneratorKind::Torus {
             minor_radius,
             major_radius,
@@ -1889,22 +1958,28 @@ fn draw_generator_detail(
             major_resolution,
             common,
             ..
-        } => draw_primitive_torus(
-            ui,
-            minor_radius,
-            major_radius,
-            minor_resolution,
-            major_resolution,
-            edit!(common),
-        ),
+        } => kind_section(ui, salt, title, face_opened, |ui| {
+            draw_primitive_torus(
+                ui,
+                minor_radius,
+                major_radius,
+                minor_resolution,
+                major_resolution,
+                edit!(common),
+            )
+        }),
         GeneratorKind::Plane {
             size,
             subdivisions,
             common,
             ..
-        } => draw_primitive_plane(ui, size, subdivisions, edit!(common)),
+        } => kind_section(ui, salt, title, face_opened, |ui| {
+            draw_primitive_plane(ui, size, subdivisions, edit!(common))
+        }),
         GeneratorKind::Tetrahedron { size, common, .. } => {
-            draw_primitive_tetrahedron(ui, size, edit!(common))
+            kind_section(ui, salt, title, face_opened, |ui| {
+                draw_primitive_tetrahedron(ui, size, edit!(common))
+            })
         }
         GeneratorKind::Tube {
             radius,
@@ -1913,17 +1988,25 @@ fn draw_generator_detail(
             resolution,
             common,
             ..
-        } => draw_primitive_tube(ui, radius, inner_radius, height, resolution, edit!(common)),
+        } => kind_section(ui, salt, title, face_opened, |ui| {
+            draw_primitive_tube(ui, radius, inner_radius, height, resolution, edit!(common))
+        }),
         GeneratorKind::Bevel {
             size,
             bevel,
             bevel_segments,
             common,
             ..
-        } => draw_primitive_bevel(ui, size, bevel, bevel_segments, edit!(common)),
+        } => kind_section(ui, salt, title, face_opened, |ui| {
+            draw_primitive_bevel(ui, size, bevel, bevel_segments, edit!(common))
+        }),
         // A wedge carries the same fields as a cuboid (a bounding box); reuse
         // the cuboid editor.
-        GeneratorKind::Wedge { size, common, .. } => draw_primitive_cuboid(ui, size, edit!(common)),
+        GeneratorKind::Wedge { size, common, .. } => {
+            kind_section(ui, salt, title, face_opened, |ui| {
+                draw_primitive_cuboid(ui, size, edit!(common))
+            })
+        }
         GeneratorKind::Helix {
             radius,
             tube_radius,
@@ -1932,15 +2015,17 @@ fn draw_generator_detail(
             resolution,
             common,
             ..
-        } => draw_primitive_helix(
-            ui,
-            radius,
-            tube_radius,
-            pitch,
-            turns,
-            resolution,
-            edit!(common),
-        ),
+        } => kind_section(ui, salt, title, face_opened, |ui| {
+            draw_primitive_helix(
+                ui,
+                radius,
+                tube_radius,
+                pitch,
+                turns,
+                resolution,
+                edit!(common),
+            )
+        }),
         GeneratorKind::Superellipsoid {
             half_extents,
             exponent_ns,
@@ -1949,41 +2034,49 @@ fn draw_generator_detail(
             longitudes,
             common,
             ..
-        } => draw_primitive_superellipsoid(
-            ui,
-            half_extents,
-            exponent_ns,
-            exponent_ew,
-            latitudes,
-            longitudes,
-            edit!(common),
-        ),
+        } => kind_section(ui, salt, title, face_opened, |ui| {
+            draw_primitive_superellipsoid(
+                ui,
+                half_extents,
+                exponent_ns,
+                exponent_ew,
+                latitudes,
+                longitudes,
+                edit!(common),
+            )
+        }),
         GeneratorKind::Spine {
             points,
             resolution,
             samples_per_segment,
             common,
             ..
-        } => draw_primitive_spine(ui, points, resolution, samples_per_segment, edit!(common)),
+        } => kind_section(ui, salt, title, face_opened, |ui| {
+            draw_primitive_spine(ui, points, resolution, samples_per_segment, edit!(common))
+        }),
         GeneratorKind::Lathe {
             points,
             resolution,
             smooth,
             common,
             ..
-        } => draw_primitive_lathe(ui, points, resolution, smooth, edit!(common)),
+        } => kind_section(ui, salt, title, face_opened, |ui| {
+            draw_primitive_lathe(ui, points, resolution, smooth, edit!(common))
+        }),
         GeneratorKind::BlobGroup {
             elements,
             resolution,
             common,
             ..
-        } => draw_primitive_blob_group(
-            ui,
-            elements,
-            resolution,
-            edit!(common),
-            blob_selected_element,
-        ),
+        } => kind_section(ui, salt, title, face_opened || blob_opened, |ui| {
+            draw_primitive_blob_group(
+                ui,
+                elements,
+                resolution,
+                edit!(common),
+                blob_selected_element,
+            )
+        }),
         // The legacy `uv_repeat` / `uv_offset` have no editor: the sanitizer
         // folds them into the material's UV transform (#964), which the
         // material section below edits.
@@ -1996,19 +2089,32 @@ fn draw_generator_detail(
             unlit,
             texture_filter,
             ..
-        } => draw_generator_sign(
-            ui,
-            source,
-            size,
-            material,
-            double_sided,
-            alpha_mode,
-            unlit,
-            texture_filter,
-            salt,
-            dirty,
-            assets,
-        ),
+        } => {
+            kind_section(ui, salt, title, false, |ui| {
+                draw_generator_sign(
+                    ui,
+                    source,
+                    size,
+                    material,
+                    double_sided,
+                    alpha_mode,
+                    unlit,
+                    texture_filter,
+                    salt,
+                    dirty,
+                    assets,
+                )
+            });
+            // Whether its picture arrived, under the folded section rather
+            // than in it: a broken picture is seen as soon as the sign is
+            // selected, as it was before the section folded (#1632).
+            super::sign::draw_sign_status(
+                ui,
+                source,
+                crate::world_builder::image_cache::SamplerFilter::from_record(texture_filter),
+                assets,
+            );
+        }
         GeneratorKind::ParticleSystem(params) => {
             draw_generator_particles(ui, params, salt, dirty, assets)
         }
@@ -2774,6 +2880,11 @@ mod seed_field_tests {
     fn a_twenty_digit_layout_seed_is_shown_whole() {
         let widest = u64::MAX;
         let (field, text) = drawn(&widest.to_string(), |ui| {
+            // The seed sits in the Layout section, collapsed until it is
+            // opened (#1632). egui's own flag for showing everything at once
+            // draws every section's body, which is all this probe needs:
+            // where a body is drawn, not how a section was opened.
+            ui.ctx().memory_mut(|m| m.set_everything_is_visible(true));
             let mut config = crate::pds::generator::RoadConfig {
                 seed: widest,
                 ..Default::default()
@@ -2790,6 +2901,230 @@ mod seed_field_tests {
         assert!(
             shown_whole(field, text),
             "the text {text:?} runs past its field {field:?}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod collapsed_by_default_tests {
+    use bevy_egui::egui;
+    use egui::accesskit::{NodeId, Role};
+
+    use super::draw_detail_panel;
+    use super::lots_section_tests::click;
+    use crate::pds::{Generator, GeneratorKind, WaterSurface};
+    use crate::ui::room::generators::{AvatarVisualsTreeSource, TreeSelection};
+
+    /// One widget a pass drew, as AccessKit reads it.
+    #[derive(Debug)]
+    struct Shown {
+        id: NodeId,
+        role: Role,
+        label: String,
+        value: String,
+    }
+
+    fn has(shown: &[Shown], role: Role, text: &str) -> bool {
+        shown
+            .iter()
+            .any(|s| s.role == role && (s.label == text || s.value == text))
+    }
+
+    /// The Avatar editor's node panel over one visuals tree, drawn pass
+    /// after pass on one egui context, so a section a click opens is still
+    /// open on the next pass, and on the next node's.
+    struct Panel {
+        ctx: egui::Context,
+        visuals: Generator,
+        selection: TreeSelection,
+        audio: crate::ui::room::audio::AudioEditorState,
+        grammar: crate::world_builder::grammar_diag::GrammarDiagnostics,
+        confirm: crate::ui::confirm::ConfirmState<(super::GenNodeId, &'static str)>,
+        labels: crate::ui::undo::PendingUndoLabels,
+        face_pick: crate::editor_gizmo::FacePick,
+        images: crate::world_builder::image_cache::BlobImageCache,
+        blobs: crate::world_builder::audio_resolver::BlobAudioCache,
+        clips: crate::interaction::audio::AudioClipCache,
+        layers: crate::terrain::referenced::ReferencedLayerStatus,
+        retries: crate::world_builder::asset_failure::AssetRetryRequests,
+    }
+
+    impl Panel {
+        fn new(visuals: Generator) -> Self {
+            let ctx = egui::Context::default();
+            ctx.enable_accesskit();
+            Self {
+                ctx,
+                visuals,
+                selection: TreeSelection::default(),
+                audio: Default::default(),
+                grammar: Default::default(),
+                confirm: Default::default(),
+                labels: Default::default(),
+                face_pick: Default::default(),
+                images: Default::default(),
+                blobs: Default::default(),
+                clips: Default::default(),
+                layers: Default::default(),
+                retries: Default::default(),
+            }
+        }
+
+        /// Selects the node at `path` under the tree's root.
+        fn select(&mut self, path: Vec<usize>) {
+            self.selection = TreeSelection {
+                root: Some(AvatarVisualsTreeSource::ROOT_NAME.to_string()),
+                path: Some(path),
+            };
+        }
+
+        /// One pass with `events` in its input, then passes enough for a
+        /// header's opening to finish (egui animates it over a twelfth of a
+        /// second, and a pass is a sixtieth); what the last one drew.
+        fn settle(&mut self, events: Vec<egui::Event>, everything_visible: bool) -> Vec<Shown> {
+            let mut events = Some(events);
+            let mut shown = Vec::new();
+            for _ in 0..10 {
+                let input = egui::RawInput {
+                    events: events.take().unwrap_or_default(),
+                    ..Default::default()
+                };
+                let output = self.ctx.clone().run_ui(input, |ui| {
+                    use crate::ui::room::assets::AssetPanel;
+                    ui.ctx()
+                        .memory_mut(|m| m.set_everything_is_visible(everything_visible));
+                    let mut source = AvatarVisualsTreeSource::new(&mut self.visuals);
+                    draw_detail_panel(
+                        ui,
+                        &mut source,
+                        &mut self.selection,
+                        &mut self.audio,
+                        &self.grammar,
+                        &mut false,
+                        &mut None,
+                        &mut self.confirm,
+                        &mut self.labels.slot(crate::ui::shortcuts::EditorKind::Avatar),
+                        None,
+                        &mut self.face_pick,
+                        &mut AssetPanel {
+                            images: &self.images,
+                            audio: &self.blobs,
+                            clips: &self.clips,
+                            layers: &self.layers,
+                            retries: &mut self.retries,
+                            now: 0.0,
+                            allow_external: true,
+                        },
+                    );
+                });
+                let update = output
+                    .platform_output
+                    .accesskit_update
+                    .expect("AccessKit is on");
+                shown = update
+                    .nodes
+                    .iter()
+                    .map(|(id, node)| Shown {
+                        id: *id,
+                        role: node.role(),
+                        label: node.label().unwrap_or_default().to_string(),
+                        value: node.value().unwrap_or_default().to_string(),
+                    })
+                    .collect();
+            }
+            shown
+        }
+    }
+
+    /// #1632: a node's panel opens folded. Its "Kind & transform" section
+    /// and its kind's own section are drawn as headers, and what they hold,
+    /// the kind picker and the box's "Solid (collider)" box, is not drawn
+    /// until one is opened. The control: with egui's flag for showing
+    /// everything at once, the same panel draws both.
+    #[test]
+    fn a_nodes_sections_are_collapsed_until_opened() {
+        let box_name = GeneratorKind::display_name("Cuboid");
+        let box_settings = format!("{box_name} settings");
+        let drawn = |everything_visible| {
+            let mut panel = Panel::new(Generator::default_cuboid());
+            panel.select(Vec::new());
+            panel.settle(Vec::new(), everything_visible)
+        };
+        let folded = drawn(false);
+        for header in ["Kind & transform", box_settings.as_str()] {
+            assert!(
+                has(&folded, Role::Button, header),
+                "no {header:?} header in {folded:?}"
+            );
+        }
+        assert!(
+            !has(&folded, Role::ComboBox, box_name),
+            "the kind picker is drawn in a folded panel"
+        );
+        assert!(
+            !has(&folded, Role::CheckBox, "Solid (collider)"),
+            "the box's own fields are drawn in a folded panel"
+        );
+        let open = drawn(true);
+        assert!(
+            has(&open, Role::ComboBox, box_name),
+            "control: the kind picker shows once its section is open"
+        );
+        assert!(
+            has(&open, Role::CheckBox, "Solid (collider)"),
+            "control: the box's fields show once its section is open"
+        );
+    }
+
+    /// #1632: each node keeps its own sections' state. Water's "Waves" is
+    /// keyed by its title alone, and every node's editor is drawn in the
+    /// panel's one scroll area, so until the panel drew the kind's editor
+    /// under the node's salt, "Waves" opened on one water node stood open
+    /// on every other.
+    #[test]
+    fn a_section_opened_on_one_node_stays_folded_on_another() {
+        let water = || {
+            Generator::from_kind(GeneratorKind::Water {
+                surface: WaterSurface::default(),
+            })
+        };
+        let mut tree = Generator::default_cuboid();
+        tree.children = vec![water(), water()];
+        let mut panel = Panel::new(tree);
+        // A slider in the Waves section, drawn only while it is open.
+        let foam = |shown: &[Shown]| shown.iter().any(|s| s.label == "Foam amount");
+
+        panel.select(vec![0]);
+        let first = panel.settle(Vec::new(), false);
+        assert!(
+            !foam(&first),
+            "control: the first water's Waves starts folded"
+        );
+        let waves = first
+            .iter()
+            .find(|s| s.role == Role::Button && s.label == "Waves")
+            .unwrap_or_else(|| panic!("no Waves header in {first:?}"))
+            .id;
+        assert!(
+            foam(&panel.settle(click(waves), false)),
+            "control: a click opens the first water's Waves"
+        );
+
+        panel.select(vec![1]);
+        let second = panel.settle(Vec::new(), false);
+        assert!(
+            has(&second, Role::Button, "Waves"),
+            "no Waves header on the second water in {second:?}"
+        );
+        assert!(
+            !foam(&second),
+            "Waves opened on the first water node stands open on the second"
+        );
+
+        panel.select(vec![0]);
+        assert!(
+            foam(&panel.settle(Vec::new(), false)),
+            "the first water node forgot its open Waves"
         );
     }
 }

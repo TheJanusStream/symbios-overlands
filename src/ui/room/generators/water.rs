@@ -11,7 +11,7 @@ use super::super::widgets::{color_picker_rgba, fp_slider};
 
 pub(super) fn draw_water_editor(ui: &mut egui::Ui, surface: &mut WaterSurface, dirty: &mut bool) {
     egui::CollapsingHeader::new("Colour")
-        .default_open(true)
+        .default_open(false)
         .show(ui, |ui| {
             color_picker_rgba(ui, "Shallow (head-on)", &mut surface.shallow_color, dirty);
             color_picker_rgba(ui, "Deep (grazing)", &mut surface.deep_color, dirty);
@@ -26,7 +26,7 @@ pub(super) fn draw_water_editor(ui: &mut egui::Ui, surface: &mut WaterSurface, d
         });
 
     egui::CollapsingHeader::new("Waves")
-        .default_open(true)
+        .default_open(false)
         .show(ui, |ui| {
             fp_slider(
                 ui,

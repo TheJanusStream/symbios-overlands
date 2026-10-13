@@ -1171,10 +1171,11 @@ impl<P: crate::seeded_defaults::SeedPins> ReRollState<P> {
 /// The block is the tallest thing in either editor's footer (a seed
 /// field over five or six pin rows), and an owner who has settled on a
 /// world or an avatar rarely re-rolls it again; collapsed it costs one
-/// header row and hands the rest back to the tab body above. Open by
-/// default - the pinned readout is only discoverable if it starts
-/// expanded - and the open/closed state lives in egui memory under
-/// `id_salt`, so it survives closing and reopening the editor window.
+/// header row and hands the rest back to the tab body above. Collapsed by
+/// default (#1632, the owner's call: it first opened, so its pinned
+/// readout would be found, and then stood in the way of every edit after
+/// it) - and the open/closed state lives in egui memory under `id_salt`,
+/// so it survives closing and reopening the editor window.
 ///
 /// Returns the closure's value, or `None` while the section is
 /// collapsed and the body did not run. Callers fold that to their
@@ -1194,7 +1195,7 @@ pub fn reroll_section<R>(
 ) -> Option<R> {
     egui::CollapsingHeader::new(title)
         .id_salt(id_salt)
-        .default_open(true)
+        .default_open(false)
         .show(ui, body)
         .body_returned
 }
@@ -2301,5 +2302,31 @@ mod audience_tests {
         let shown = toasts.shown();
         assert_eq!(shown.len(), 2);
         assert!(shown[1].1.contains("avatar"), "{:?}", shown[1].1);
+    }
+}
+
+#[cfg(test)]
+mod reroll_section_tests {
+    use bevy_egui::egui;
+
+    use super::reroll_section;
+
+    /// #1632: the re-roll section starts collapsed in both editors - its
+    /// body, the seed field and the pin rows, does not run until the owner
+    /// opens it, so it can report no action - and runs its body once shown.
+    #[test]
+    fn the_reroll_section_starts_collapsed() {
+        let body_ran = |everything_visible: bool| {
+            let ctx = egui::Context::default();
+            let mut ran = false;
+            let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+                ui.ctx()
+                    .memory_mut(|m| m.set_everything_is_visible(everything_visible));
+                ran = reroll_section(ui, "test_reroll", "Seed & re-roll", |_| ()).is_some();
+            });
+            ran
+        };
+        assert!(!body_ran(false), "the section opened on its own");
+        assert!(body_ran(true), "control: an open section runs its body");
     }
 }

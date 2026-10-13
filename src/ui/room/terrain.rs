@@ -32,7 +32,7 @@ pub(super) fn draw_terrain_forge(
     ui.add_space(4.0);
 
     egui::CollapsingHeader::new("Grid")
-        .default_open(true)
+        .default_open(false)
         .show(ui, |ui| {
             drag_u32(ui, "Grid size", &mut cfg.grid_size, 32, 2048, dirty).on_hover_text(
                 "How many points the landscape is sampled at. Higher is more detailed and slower to build.",
@@ -45,7 +45,7 @@ pub(super) fn draw_terrain_forge(
         });
 
     egui::CollapsingHeader::new("Algorithm")
-        .default_open(true)
+        .default_open(false)
         .show(ui, |ui| {
             if kind_combo(ui, &mut cfg.generator_kind) {
                 *dirty = true;
