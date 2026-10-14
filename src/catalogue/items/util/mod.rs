@@ -17,9 +17,10 @@ pub(super) use build::blob_cell_size;
 pub(super) use build::{
     BALUSTER_PITCH, aim_y, assemble, attach, blob_box, blob_capsule, blob_cone, blob_ellipsoid,
     blob_group, carved, cone, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing,
-    footing_disc, foundation_block, foundation_disc, helix, id_quat, nest, pfp_panel, plane, prim,
-    prim_scaled, quat_mul, quat_x, quat_y, quat_z, railing, solid, sphere, steady, strut,
-    superellipsoid, torus, tube, turning, vane, wedge, windblown, with_cut, with_face, wobbling,
+    footing_disc, footing_rule, foundation_block, foundation_disc, helix, id_quat, nest, pfp_panel,
+    plane, prim, prim_scaled, quat_mul, quat_x, quat_y, quat_z, railing, solid, sphere, steady,
+    strut, superellipsoid, torus, tube, turning, vane, wedge, windblown, with_cut, with_face,
+    wobbling,
 };
 #[cfg(test)]
 pub(super) use checks::{

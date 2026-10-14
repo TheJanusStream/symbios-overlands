@@ -56,8 +56,9 @@ pub(crate) enum Grow {
     /// As the lot layer grows its buildings and props: finished and ruined
     /// by the room's prosperity and escalation, drawn at its scale.
     Built,
-    /// A street building (#1598) built to `fit`, the fit its footprint
-    /// gives it, and drawn with its `variant`th seed
+    /// A street building (#1598) at `fit`, the fit its footprint gives it:
+    /// its kind's one generator drawn at the fit's grammar values (#1646,
+    /// [`Plan::values`]), with its `variant`th seed
     /// ([`super::streets::variant_seed`]); then as [`Self::Built`], but
     /// ruined in place: it stands flush in a row
     /// ([`crate::terrain::lots::grow_flush`]).
@@ -175,9 +176,24 @@ pub(crate) struct Plan {
 
 impl Plan {
     /// The generator of building `b`, once grown: what a copy of it made
-    /// the world's own carries (#1590).
+    /// the world's own carries (#1590), drawn at the grammar values
+    /// [`Self::values`] gives it.
     pub(crate) fn grown(&self, b: usize) -> Option<&Generator> {
         self.buildings[b].tree.as_ref()
+    }
+
+    /// The grammar values building `b`'s tree is drawn with: a street
+    /// building's fit (#1646), which its kind's one generator reads; none
+    /// for any other.
+    pub(super) fn values(&self, b: usize) -> Option<crate::pds::InstanceVariant> {
+        let building = &self.buildings[b];
+        let Grow::Street { fit, .. } = building.grow else {
+            return None;
+        };
+        Some(crate::pds::InstanceVariant {
+            seed: None,
+            params: building.entry.street()?.fit_values(fit),
+        })
     }
 
     /// The box building `b`'s template filled, once baked.
@@ -200,13 +216,15 @@ impl Plan {
                     character,
                     building.scale,
                 ),
-                Grow::Street { fit, variant } => crate::terrain::lots::grow_flush(
+                // Its kind's one generator, drawn at its fit by the fit's
+                // values (#1646, [`Self::values`]).
+                Grow::Street { variant, .. } => crate::terrain::lots::grow_flush(
                     building.entry,
                     building
                         .entry
                         .street()
                         .expect("a street template is a street building's")
-                        .build(fit),
+                        .generator(),
                     super::streets::variant_seed(seed ^ fnv1a_64(slug), variant),
                     character,
                     building.scale,
@@ -552,6 +570,7 @@ pub(super) fn spawn_whole(
     deps: &mut AvatarSpawnDeps,
 ) -> (Option<Entity>, u32) {
     let key = plan.buildings[b].key.clone();
+    let values = plan.values(b);
     let tree = plan.tree(b);
     spawn_detached_tree(
         commands,
@@ -574,7 +593,7 @@ pub(super) fn spawn_whole(
         deps.current_room.as_deref(),
         false,
         None,
-        None,
+        values.as_ref(),
     )
 }
 
@@ -584,12 +603,13 @@ mod tests {
 
     /// A street building is ruined in place (#1598): a fought-over room
     /// sinks and weathers it, but neither leans nor shrinks it, so it
-    /// stands flush against its neighbours as it was drawn to.
+    /// stands flush against its neighbours as it was drawn to - nor drops
+    /// rubble in its ground storey (#1646).
     #[test]
     fn a_street_copy_is_ruined_in_place() {
         let entry = crate::catalogue::by_slug("city_street_house").expect("registered");
         let spec = entry.street().expect("a street building");
-        let built = spec.build(spec.kind.default_fit());
+        let built = spec.generator();
         for seed in 0..8u64 {
             let tree =
                 crate::terrain::lots::grow_flush(entry, built.clone(), seed, (0.5, 0.95), 1.0);
@@ -601,6 +621,11 @@ mod tests {
             assert!(
                 tree.transform.translation.0[1] < built.transform.translation.0[1],
                 "seed {seed}: sunk"
+            );
+            assert_eq!(
+                tree.children.len(),
+                built.children.len(),
+                "seed {seed}: no rubble"
             );
         }
     }

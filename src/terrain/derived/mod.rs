@@ -1000,6 +1000,26 @@ mod tests {
             Ok(copies)
         );
         assert_eq!(record.placements.len(), before + copies);
+        // Each drawn at its copy's fit (#1646): a street building's tree is
+        // its kind's one generator, and the fit rides in the placement's
+        // grammar values, as the derived copy was spawned with them.
+        let drawn = builds
+            .copies_of(&building)
+            .filter(|&(b, c)| builds.builds[b].drawn[c] != plan::Drawn::No);
+        let mut by_values = 0;
+        for (placement, (b, c)) in record.placements[before..].iter().zip(drawn) {
+            let Some(crate::pds::Placement::Absolute { params, .. }) = Some(placement) else {
+                panic!("an absolute placement");
+            };
+            let plan = &builds.builds[b].plan;
+            let expected = plan
+                .values(plan.copies[c].building)
+                .map(|values| values.params)
+                .unwrap_or_default();
+            assert_eq!(params, &expected);
+            by_values += usize::from(!params.is_empty());
+        }
+        assert!(by_values > 0, "the building is a street building's row");
         let generators = record
             .generators
             .keys()

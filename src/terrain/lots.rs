@@ -489,8 +489,15 @@ pub(crate) fn grow_flush(
     let mut tree = built.with_shape_seed(entry_seed);
     material_finish::apply_socio_finish(&mut tree, prosperity, escalation);
     let size = tree.transform.scale;
+    let parts = tree.children.len();
     ruin::apply_ruin_bounded(&mut tree, escalation, entry_seed, entry.ruin_max_lean());
     tree.transform.scale = size;
+    // Nor rubble, which a fought-over room scatters at the root: a street
+    // building's root is its footing's grammar at the ground (#1646), no
+    // longer a buried block that hid it, and the rubble would stand inside
+    // its ground storey. Its one part, its body, is never collapsed, so the
+    // rubble is what lies past it.
+    tree.children.truncate(parts);
     crate::seeded_defaults::room::build::scale_about_ground(&mut tree, scale);
     tree
 }

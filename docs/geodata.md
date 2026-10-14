@@ -727,6 +727,24 @@ distinct buildings, landmarks included, all of them near.
   dropped. The fit's declarations (`Storeys`, `Trade`, `Frontage`,
   `Depth`, `GroundH`, `FloorH`) go ahead of it and the shared openings
   (`Glazing`, `ShopGlazing`, `Wall`) after it.
+- **One generator per kind** (#1646, P3.1 of #1639): a street building's
+  `StreetSpec::generator()` is built at its kind's own fit and drawn at any
+  other by the fit's grammar values (`fit_values`: `Frontage`, `Depth`,
+  `Storeys`, `Trade`), which override the declarations - an instance set's
+  variants, so a seeded Kiez needs one generator a kind however many fits
+  its copies stand at. Its `Lot` rule sizes and centres the lot by the
+  values at the head of its body, or of each `when` case: in the rule, not a
+  rule ahead of it, because symbios-shape forks a shape's random stream for
+  every rule it hands on to, and a rule ahead would re-roll every copy's
+  cladding and picks. Its footing is a grammar of its own reading the same
+  values. The derived stage grows its street buildings from it; a copy made
+  the world's own carries its fit's values on its placement, and a
+  fought-over room drops no rubble in a street building's ground storey. The
+  catalogue's own entry (the inventory, a road network's lots, the render
+  tool) is still built at its fit, and tests hold the two bodies part for
+  part the same at the sample fits and four seeds, and the footing to the
+  box the primitive fills; an ignored sweep holds every fit (about 9,500,
+  15 s under `test-release`).
 - **Drafting without a rebuild.** `render --catalogue <slug> --street-fit
   F,D,S[,trade]` draws one at a fit, `--street-rules <file>` draws it with
   a rules file read at run time, `--street-seed N` at another seed, and

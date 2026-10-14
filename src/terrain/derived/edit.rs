@@ -283,6 +283,13 @@ pub(crate) fn adopt(
             }
         };
         let [x, y, z] = pose.translation.to_array();
+        // A street building's fit rides in its placement's grammar values
+        // (#1646): its tree is its kind's one generator, built at the kind's
+        // own fit, and drawn at its copy's by the values.
+        let params = plan
+            .values(copy.building)
+            .map(|values| values.params)
+            .unwrap_or_default();
         placements.push(Placement::Absolute {
             generator_ref: adopted_generator_name(&key, n + 1),
             transform: TransformData {
@@ -296,7 +303,7 @@ pub(crate) fn adopt(
             avoid_water: false,
             avoid_water_clearance: Fp(0.0),
             seed: None,
-            params: Default::default(),
+            params,
         });
     }
     if placements.is_empty() {

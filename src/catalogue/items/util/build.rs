@@ -737,6 +737,28 @@ pub(in crate::catalogue::items) fn footing(
     )
 }
 
+/// [`footing`] as a shape-grammar rule named `name` (#1646): the block
+/// under a lot whose frontage and depth are the grammar expressions
+/// `frontage` and `depth`, centred on the rule's origin, its depth from
+/// `clearance`, an expression too, as [`footing`]'s is. Its terminal is
+/// `I("Footing")` in the `Footing` slot.
+pub(in crate::catalogue::items) fn footing_rule(
+    name: &str,
+    (frontage, depth): (&str, &str),
+    clearance: &str,
+) -> String {
+    let height = format!(
+        "{} + {FOUNDATION_REVEAL}",
+        crate::catalogue::items::foundation::required_depth_expr(clearance)
+    );
+    let corner = FOUNDATION_INSET / 2.0;
+    format!(
+        "{name} --> Translate({corner} - ({frontage}) / 2, 0, {corner} - ({depth}) / 2) \
+         Size({frontage} - {FOUNDATION_INSET}, {height}, {depth} - {FOUNDATION_INSET}) \
+         Translate(0, {FOUNDATION_REVEAL} - scope.y, 0) Mat(\"Footing\") I(\"Footing\")"
+    )
+}
+
 /// Round sibling of [`footing`] for drum / tower / dome entries.
 pub(in crate::catalogue::items) fn footing_disc(radius: f32, clearance: f32) -> Generator {
     foundation_disc(

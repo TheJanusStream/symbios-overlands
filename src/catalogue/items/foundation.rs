@@ -70,6 +70,16 @@ pub fn required_depth(clearance: f32) -> f32 {
     (drop - PLACEMENT_SINK + MARGIN).clamp(MIN_DEPTH, MAX_DEPTH)
 }
 
+/// [`required_depth`] written as a shape-grammar expression of
+/// `clearance`, itself one (#1646): a footing drawn from grammar values
+/// follows its lot as one built at the lot's size does.
+pub(in crate::catalogue::items) fn required_depth_expr(clearance: &str) -> String {
+    format!(
+        "clamp({FOOTPRINT_DROP_RATIO} * ({clearance}) - {PLACEMENT_SINK} + {MARGIN}, \
+         {MIN_DEPTH}, {MAX_DEPTH})"
+    )
+}
+
 /// How far below its own origin a built entry's solid geometry actually
 /// reaches. `0.0` for an entry that sits entirely at or above grade.
 pub fn buried_depth(built: &Generator) -> f32 {

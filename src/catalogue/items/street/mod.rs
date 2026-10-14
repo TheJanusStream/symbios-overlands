@@ -27,6 +27,12 @@
 //! - **The spec** ([`StreetSpec`]): one building's slug, name, theme, kind,
 //!   storey heights, palette and rules; [`StreetEntry`] makes it a
 //!   catalogue entry, and [`StreetSpec::build`] builds it at a fit.
+//! - **One generator per kind** (#1646): [`StreetSpec::generator`] is built
+//!   at its kind's own fit and drawn at any other by the fit's grammar
+//!   values ([`StreetSpec::fit_values`]), as an instance set's variants
+//!   are; the tests hold its body part for part to [`StreetSpec::build`]'s
+//!   at the sample fits and four seeds (at every fit in an ignored sweep),
+//!   and its footing to the box the primitive fills.
 //!
 //! # The rules file
 //!
@@ -89,9 +95,9 @@
 
 use std::collections::HashMap;
 
-use crate::catalogue::items::util::{attach, footing};
+use crate::catalogue::items::util::{attach, footing, footing_rule, foundation_mat};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
-use crate::pds::{Fp3, Generator, GeneratorKind, SovereignMaterialSettings};
+use crate::pds::{Fp, Fp3, Generator, GeneratorKind, GrammarParams, SovereignMaterialSettings};
 use crate::seeded_defaults::{ProsperityBand, ThemeArchetype};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -311,6 +317,12 @@ impl StreetSpec {
     /// [`Self::grammar`] with `rules` in place of its own: a draft read at
     /// run time (`--street-rules`).
     pub(crate) fn grammar_with(&self, fit: StreetFit, rules: &str) -> GeneratorKind {
+        self.shaped(fit, rules, false)
+    }
+
+    /// Its Shape declared at `fit`, its `Lot` rule sizing and centring its
+    /// lot by the fit's grammar values where `by_values` ([`sized_by_values`]).
+    fn shaped(&self, fit: StreetFit, rules: &str, by_values: bool) -> GeneratorKind {
         let fit = fit.snapped(self.kind);
         let declarations = [
             format!("const Storeys = {}", fit.storeys),
@@ -322,7 +334,13 @@ impl StreetSpec {
         ];
         let grammar_source = declarations
             .into_iter()
-            .chain(statements(rules))
+            .chain(statements(rules).into_iter().map(|statement| {
+                if by_values {
+                    sized_by_values(&statement)
+                } else {
+                    statement
+                }
+            }))
             .chain(OPENINGS.iter().map(|s| s.to_string()))
             .collect::<Vec<_>>()
             .join("\n");
@@ -360,6 +378,109 @@ impl StreetSpec {
         body.transform.translation = Fp3([-frontage / 2.0, 0.0, -depth / 2.0]);
         attach(&mut root, body);
         root
+    }
+
+    /// The one generator every copy of it is drawn from (#1646, P3.1 of
+    /// #1639): built at its kind's default fit, and at any other fit by
+    /// that fit's grammar values ([`Self::fit_values`]) - an instance set's
+    /// variants, so a kind needs one generator however many fits its copies
+    /// stand at. Its `Lot` rule sizes and centres the lot by the values
+    /// ([`sized_by_values`]), and its footing is a grammar of its own that
+    /// reads them too ([`footing_by_values`]), so a copy at a fit draws what
+    /// [`Self::build`] at that fit draws - a footing drawn by grammar rather
+    /// than a primitive, and nothing else apart (held to by the tests). A
+    /// copy made the world's own (#1590) carries the values on its
+    /// placement.
+    pub fn generator(&self) -> Generator {
+        let fit = self.kind.default_fit();
+        let mut root = Generator::from_kind(footing_by_values(fit));
+        root.children
+            .push(Generator::from_kind(self.shaped(fit, self.rules, true)));
+        root
+    }
+
+    /// The grammar values [`Self::generator`] is drawn at `fit` with,
+    /// snapped to its kind's steps: the fit's own declarations, by name.
+    pub fn fit_values(&self, fit: StreetFit) -> GrammarParams {
+        let fit = fit.snapped(self.kind);
+        GrammarParams(std::collections::BTreeMap::from([
+            ("Depth".to_string(), Fp(fit.depth_m())),
+            ("Frontage".to_string(), Fp(fit.frontage_m())),
+            ("Storeys".to_string(), Fp(f32::from(fit.storeys))),
+            ("Trade".to_string(), Fp(f32::from(u8::from(fit.trade)))),
+        ]))
+    }
+}
+
+/// What sizes and centres a lot by the fit's grammar values (#1646): its
+/// corner to minus half the frontage and the depth, and its size to them,
+/// where the fit's own generator has its root scope the lot and its node
+/// set back by half the lot.
+const LOT_BY_VALUES: &str = "Translate(-Frontage / 2, 0, -Depth / 2) Size(Frontage, 0, Depth)";
+
+/// `statement` with its lot sized and centred by the fit's values
+/// ([`LOT_BY_VALUES`]) where it is the grammar's `Lot` rule: at the head of
+/// its body, or of each case of a `when` rule - in the rule, not a rule
+/// ahead of it, as symbios-shape forks a shape's random stream for every
+/// rule it hands on to, so a rule ahead would re-roll every choice a copy
+/// makes. Any other statement as it is.
+fn sized_by_values(statement: &str) -> String {
+    let Some(body) = statement.strip_prefix("Lot -->") else {
+        return statement.to_string();
+    };
+    let body = body.trim_start();
+    if !body.starts_with("when(") {
+        return format!("Lot --> {LOT_BY_VALUES} {body}");
+    }
+    let mut sized = String::from("Lot --> ");
+    let mut rest = body;
+    while let Some(head) = case_head(rest) {
+        sized.push_str(&rest[..head]);
+        sized.push(' ');
+        sized.push_str(LOT_BY_VALUES);
+        rest = &rest[head..];
+    }
+    sized.push_str(rest);
+    sized
+}
+
+/// Where the next case of a `when` rule's body starts in `cases`: just past
+/// the `:` of its `when(guard):` - a guard holds no parentheses of its own
+/// (#1598), so its first `)` closes it - or of its `else:`.
+fn case_head(cases: &str) -> Option<usize> {
+    let guarded = cases.find("when(").and_then(|at| {
+        let close = at + cases[at..].find(')')?;
+        Some(close + cases[close..].find(':')? + 1)
+    });
+    let otherwise = cases.find("else:").map(|at| at + "else:".len());
+    match (guarded, otherwise) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (head, other) => head.or(other),
+    }
+}
+
+/// The footing every copy of a street building stands on, drawn from the
+/// fit's grammar values (#1646): [`footing`]'s block under the lot, its
+/// depth from the lot's reach as [`StreetFit::reach_m`] measures it,
+/// declared at `fit`.
+fn footing_by_values(fit: StreetFit) -> GeneratorKind {
+    let reach = format!(
+        "sqrt(Frontage * Frontage + (Depth + {span}) * (Depth + {span})) / 2",
+        span = 2.0 * MAX_REACH_M
+    );
+    GeneratorKind::Shape {
+        grammar_source: [
+            format!("const Frontage = {}", fit.frontage),
+            format!("const Depth = {}", fit.depth),
+            footing_rule("Footing", ("Frontage", "Depth"), &reach),
+        ]
+        .join("\n"),
+        root_rule: "Footing".to_string(),
+        footprint: Fp3([fit.frontage_m(), 0.0, fit.depth_m()]),
+        seed: 0,
+        materials: HashMap::from([("Footing".to_string(), foundation_mat())]),
+        round_meshes: Vec::new(),
+        solid_meshes: vec!["Footing".to_string()],
     }
 }
 
@@ -512,6 +633,7 @@ pub(crate) fn street_entries() -> impl Iterator<Item = &'static dyn CatalogueEnt
 mod tests {
     use super::check::{SEEDS, conventions, sample_fits, whole};
     use super::*;
+    use crate::pds::sanitize::limits::MAX_SHAPE_SOURCE_BYTES;
 
     /// The spec of every street building in the catalogue.
     fn specs() -> Vec<&'static StreetSpec> {
@@ -721,5 +843,241 @@ mod tests {
             slugs.push(spec.slug);
         }
         assert!(!slugs.is_empty(), "no street buildings");
+    }
+
+    /// A street building's body drawn at `fit` and grammar seed `seed` both
+    /// ways (#1646): by the fit's own grammar, set back by half its lot as
+    /// [`StreetSpec::build`] sets it, and by its kind's one generator at the
+    /// fit's values - `None` for no values at all, the generator as it is.
+    fn both_ways(
+        spec: &StreetSpec,
+        fit: StreetFit,
+        seed: u64,
+        values: Option<&GrammarParams>,
+    ) -> (Vec<symbios_shape::Terminal>, Vec<symbios_shape::Terminal>) {
+        let fit = fit.snapped(spec.kind);
+        let own = spec.grammar(fit);
+        let mut by_fit = own
+            .shape_def()
+            .expect("a Shape")
+            .variant(Some(seed), None)
+            .derive()
+            .unwrap_or_else(|why| panic!("the fit's own grammar: {}", why.message()))
+            .terminals;
+        for part in &mut by_fit {
+            part.scope.position.x -= f64::from(fit.frontage_m()) / 2.0;
+            part.scope.position.z -= f64::from(fit.depth_m()) / 2.0;
+        }
+        let one = spec.generator();
+        let by_values = one.children[0]
+            .kind
+            .shape_def()
+            .expect("a Shape")
+            .variant(Some(seed), values)
+            .derive()
+            .unwrap_or_else(|why| panic!("the one generator: {}", why.message()))
+            .terminals;
+        (by_fit, by_values)
+    }
+
+    /// Whether two drawings are one: every part the same mesh, material,
+    /// profile and label, in the same order, and in the same place, turn
+    /// and size within float noise. The first difference, where not.
+    fn first_difference(
+        by_fit: &[symbios_shape::Terminal],
+        by_values: &[symbios_shape::Terminal],
+    ) -> Option<String> {
+        if by_fit.len() != by_values.len() {
+            return Some(format!(
+                "{} parts against {}",
+                by_fit.len(),
+                by_values.len()
+            ));
+        }
+        by_fit
+            .iter()
+            .zip(by_values)
+            .enumerate()
+            .find_map(|(i, (a, b))| {
+                let same = a.mesh_id == b.mesh_id
+                    && a.material == b.material
+                    && a.face_profile == b.face_profile
+                    && a.label == b.label
+                    && a.scope.position.abs_diff_eq(b.scope.position, 1e-6)
+                    && a.scope.rotation.abs_diff_eq(b.scope.rotation, 1e-9)
+                    && a.scope.size.abs_diff_eq(b.scope.size, 1e-6);
+                (!same).then(|| format!("part {i}: {a:?} against {b:?}"))
+            })
+    }
+
+    /// #1646: every street building of `kind`, at its sample fits and four
+    /// grammar seeds, is drawn by its kind's one generator at the fit's
+    /// values exactly as by the fit's own grammar - its lot sized in its
+    /// `Lot` rule, so every choice rolls as it did - and with no values at
+    /// all as at its kind's default fit; and the generator's grammar fits a
+    /// record.
+    fn one_generator_draws_every_fit(kind: StreetKind) {
+        let mut faults = Vec::new();
+        for spec in specs().into_iter().filter(|spec| spec.kind == kind) {
+            let GeneratorKind::Shape { grammar_source, .. } = &spec.generator().children[0].kind
+            else {
+                panic!("{}: a Shape body", spec.slug);
+            };
+            assert!(
+                grammar_source.len() <= MAX_SHAPE_SOURCE_BYTES,
+                "{}: {} bytes",
+                spec.slug,
+                grammar_source.len()
+            );
+            for seed in std::iter::once(spec.seed).chain(SEEDS) {
+                for fit in sample_fits(kind) {
+                    let values = spec.fit_values(fit);
+                    let (by_fit, by_values) = both_ways(spec, fit, seed, Some(&values));
+                    if let Some(why) = first_difference(&by_fit, &by_values) {
+                        faults.push(format!("{} at {fit:?}, seed {seed}: {why}", spec.slug));
+                    }
+                }
+                let (by_fit, as_is) = both_ways(spec, kind.default_fit(), seed, None);
+                if let Some(why) = first_difference(&by_fit, &as_is) {
+                    faults.push(format!("{} with no values, seed {seed}: {why}", spec.slug));
+                }
+            }
+        }
+        assert!(faults.is_empty(), "{}", faults.join("\n"));
+    }
+
+    #[test]
+    fn one_generator_draws_every_street_house_fit() {
+        one_generator_draws_every_fit(StreetKind::House);
+    }
+
+    #[test]
+    fn one_generator_draws_every_long_block_fit() {
+        one_generator_draws_every_fit(StreetKind::Block);
+    }
+
+    #[test]
+    fn one_generator_draws_every_low_building_fit() {
+        one_generator_draws_every_fit(StreetKind::Low);
+    }
+
+    #[test]
+    fn one_generator_draws_every_detached_house_fit() {
+        one_generator_draws_every_fit(StreetKind::Detached);
+    }
+
+    #[test]
+    fn one_generator_draws_every_hall_fit() {
+        one_generator_draws_every_fit(StreetKind::Hall);
+    }
+
+    /// The same at every fit every street building's kind builds, at its
+    /// own grammar seed: fire by hand, as the conventions sweep above.
+    #[test]
+    #[ignore = "a sweep of every fit: fire by hand after a street grammar changes"]
+    fn one_generator_draws_every_fit_of_every_street_building() {
+        let mut faults = Vec::new();
+        for spec in specs() {
+            let kind = spec.kind;
+            let trades: &[bool] = if kind.trades() {
+                &[false, true]
+            } else {
+                &[false]
+            };
+            for &frontage in kind.frontages() {
+                for &depth in kind.depths() {
+                    for &storeys in kind.storeys() {
+                        for &trade in trades {
+                            let fit = StreetFit::new(frontage, depth, storeys, trade);
+                            let values = spec.fit_values(fit);
+                            let (by_fit, by_values) =
+                                both_ways(spec, fit, spec.seed, Some(&values));
+                            if let Some(why) = first_difference(&by_fit, &by_values) {
+                                faults.push(format!("{} at {fit:?}: {why}", spec.slug));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            faults.is_empty(),
+            "{} fits differ:\n{}",
+            faults.len(),
+            faults.join("\n")
+        );
+    }
+
+    /// #1646: the footing the one generator draws at a fit's values is the
+    /// block [`StreetSpec::build`] stands the fit's building on - inset from
+    /// the lot, its top just above the ground, as deep as the lot's reach
+    /// asks - at each kind's sample fits.
+    #[test]
+    fn a_footing_drawn_by_values_is_the_fits_own_footing() {
+        for kind in StreetKind::ALL {
+            let spec = specs()
+                .into_iter()
+                .find(|spec| spec.kind == kind)
+                .expect("a street building of each kind");
+            for fit in sample_fits(kind) {
+                let built = spec.build(fit);
+                let GeneratorKind::Cuboid { size, .. } = &built.kind else {
+                    panic!("{}: a footing block at the root", spec.slug);
+                };
+                let centre = built.transform.translation.0;
+                let values = spec.fit_values(fit);
+                let drawn = spec
+                    .generator()
+                    .kind
+                    .shape_def()
+                    .expect("a Shape")
+                    .variant(None, Some(&values))
+                    .derive()
+                    .unwrap_or_else(|why| panic!("the footing: {}", why.message()))
+                    .terminals;
+                assert_eq!(drawn.len(), 1, "{}: one footing", spec.slug);
+                assert_eq!(drawn[0].mesh_id, "Footing");
+                let (lo, hi) = check::bounds(&drawn[0]);
+                for axis in 0..3 {
+                    let half = f64::from(size.0[axis]) / 2.0;
+                    let mid = f64::from(centre[axis]);
+                    assert!(
+                        (lo[axis] - (mid - half)).abs() < 1e-4
+                            && (hi[axis] - (mid + half)).abs() < 1e-4,
+                        "{} at {fit:?}, axis {axis}: {lo:?}..{hi:?} against {}..{}",
+                        spec.slug,
+                        mid - half,
+                        mid + half
+                    );
+                }
+            }
+        }
+    }
+
+    /// A `Lot` rule is sized by the values at the head of its body, or of
+    /// each of its cases, and no other statement is touched.
+    #[test]
+    fn a_lot_rule_is_sized_at_the_head_of_each_case() {
+        assert_eq!(
+            sized_by_values("Lot --> Extrude(9) Brick"),
+            format!("Lot --> {LOT_BY_VALUES} Extrude(9) Brick")
+        );
+        assert_eq!(
+            sized_by_values("Lot --> Split(X) { 2: NIL | ~1: Row | 2: NIL }"),
+            format!("Lot --> {LOT_BY_VALUES} Split(X) {{ 2: NIL | ~1: Row | 2: NIL }}")
+        );
+        assert_eq!(
+            sized_by_values(
+                "Lot --> when(Trade == 1): Split(X) { 3: Shop | ~1: Wall } | else: Homes"
+            ),
+            format!(
+                "Lot --> when(Trade == 1): {LOT_BY_VALUES} Split(X) {{ 3: Shop | ~1: Wall }} \
+                 | else: {LOT_BY_VALUES} Homes"
+            )
+        );
+        assert_eq!(
+            sized_by_values("Wall --> Extrude(1)"),
+            "Wall --> Extrude(1)"
+        );
     }
 }
