@@ -5,6 +5,7 @@
 //! | ------------------ | ---------------------------------------- | ------ |
 //! | [`RoomRecord`] (manifest) | `network.symbios.overlands.room`  | `self` |
 //! | [`room::RoomGeneratorRecord`] | `network.symbios.overlands.room.generator` | `hex(fnv1a_64(child json))` |
+//! | [`room::RoomCopiesRecord`] | `network.symbios.overlands.room.copies` | `hex(fnv1a_64(part json))` |
 //! | [`AvatarRecord`]   | `network.symbios.overlands.avatar`       | `self` |
 //! | [`inventory::InventoryItemRecord`] | `network.symbios.overlands.inventory.item` | `hex(fnv1a_64(name))` |
 //! | [`avatar::EngineAvatarRecord`] | `network.symbios.avatar.avatar` | TID |
@@ -26,9 +27,11 @@
 //!
 //! The room publishes as a slim **manifest** at `room/self` (environment,
 //! placements, traits, `generator_refs` name → rkey) plus one
-//! content-addressed child record per generator (#697); pre-#697 monoliths
-//! with inline `generators` still decode (version by shape). Writes commit
-//! via `applyWrites` in read-safe order: children → manifest → orphan GC.
+//! content-addressed child record per generator (#697), and a long instance
+//! set's copies in content-addressed parts of their own (#1645); pre-#697
+//! monoliths with inline `generators` still decode (version by shape).
+//! Writes commit via `applyWrites` in read-safe order: children → manifest
+//! → orphan GC.
 //!
 //! A `RoomRecord` is composed of three top-level collections:
 //!
@@ -128,6 +131,10 @@ pub const INVENTORY_ITEM_COLLECTION: &str = "network.symbios.overlands.inventory
 /// `rkey = hex(fnv1a_64(child record json))`, referenced by name from the
 /// manifest's `generator_refs`.
 pub const ROOM_GENERATOR_COLLECTION: &str = "network.symbios.overlands.room.generator";
+/// Content-addressed parts of a long instance set's copies (#1645):
+/// `rkey = hex(fnv1a_64(part record json))`, referenced in order by the
+/// set's `parts` in the manifest.
+pub const ROOM_COPIES_COLLECTION: &str = "network.symbios.overlands.room.copies";
 /// The cross-app wardrobe (#1056): one `symbios-avatar` engine record per
 /// entry, tid-keyed, under the SIBLING project's lexicon - deliberately not
 /// an overlands NSID, so every symbios app reads the same bodies.
@@ -158,6 +165,7 @@ pub const AVATAR_ATTACHMENT_COLLECTION: &str = "network.symbios.overlands.avatar
 pub const WRITTEN_COLLECTIONS: &[&str] = &[
     COLLECTION,
     ROOM_GENERATOR_COLLECTION,
+    ROOM_COPIES_COLLECTION,
     AVATAR_COLLECTION,
     INVENTORY_COLLECTION,
     INVENTORY_ITEM_COLLECTION,

@@ -312,53 +312,71 @@ impl Serialize for InstanceCopy {
     }
 }
 
-/// A set's copies as the record reads them: each list of at least three
-/// whole numbers a copy, anything else dropped (see the module docs).
-pub(crate) fn deserialize_copies<'de, D: Deserializer<'de>>(
-    d: D,
-) -> Result<Vec<InstanceCopy>, D::Error> {
-    /// One number of a copy's list, or anything else.
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum Number {
-        Whole(i64),
-        /// Past `i64`: saturated, as every number past its field is.
-        Huge(u64),
-        Other(IgnoredAny),
-    }
-    /// One copy as written: a list, or anything else.
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum Wire {
-        List(Vec<Number>),
-        Other(IgnoredAny),
-    }
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum Copies {
-        List(Vec<Wire>),
-        Other(IgnoredAny),
-    }
-    let Copies::List(copies) = Copies::deserialize(d)? else {
-        return Ok(Vec::new());
-    };
-    Ok(copies
+/// One number of a copy's list, or anything else.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum CopyNumber {
+    Whole(i64),
+    /// Past `i64`: saturated, as every number past its field is.
+    Huge(u64),
+    Other(IgnoredAny),
+}
+
+/// One copy as written: a list, or anything else.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum CopyWire {
+    List(Vec<CopyNumber>),
+    Other(IgnoredAny),
+}
+
+/// The copies `copies` reads as: each list of at least three whole numbers
+/// a copy, anything else dropped (see the module docs).
+fn read_copies(copies: Vec<CopyWire>) -> Vec<InstanceCopy> {
+    copies
         .into_iter()
         .filter_map(|copy| {
-            let Wire::List(numbers) = copy else {
+            let CopyWire::List(numbers) = copy else {
                 return None;
             };
             let whole: Option<Vec<i64>> = numbers
                 .into_iter()
                 .map(|n| match n {
-                    Number::Whole(v) => Some(v),
-                    Number::Huge(v) => Some(i64::try_from(v).unwrap_or(i64::MAX)),
-                    Number::Other(_) => None,
+                    CopyNumber::Whole(v) => Some(v),
+                    CopyNumber::Huge(v) => Some(i64::try_from(v).unwrap_or(i64::MAX)),
+                    CopyNumber::Other(_) => None,
                 })
                 .collect();
             InstanceCopy::from_wire(&whole?)
         })
-        .collect())
+        .collect()
+}
+
+/// A set's copies as the record reads them: each list of at least three
+/// whole numbers a copy, anything else dropped (see the module docs).
+pub(crate) fn deserialize_copies<'de, D: Deserializer<'de>>(
+    d: D,
+) -> Result<Vec<InstanceCopy>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Copies {
+        List(Vec<CopyWire>),
+        Other(IgnoredAny),
+    }
+    let Copies::List(copies) = Copies::deserialize(d)? else {
+        return Ok(Vec::new());
+    };
+    Ok(read_copies(copies))
+}
+
+/// The copies of one part of a long set (#1645), as a set's are read - but
+/// they must be a list: a part whose copies are anything else is one this
+/// build cannot read, and the set it belongs to is not read either, so a
+/// save cannot write it back without them.
+pub(crate) fn deserialize_part_copies<'de, D: Deserializer<'de>>(
+    d: D,
+) -> Result<Vec<InstanceCopy>, D::Error> {
+    Ok(read_copies(Vec::<CopyWire>::deserialize(d)?))
 }
 
 /// A set's variants as the record reads them: each it cannot read is read
@@ -781,14 +799,18 @@ mod tests {
             vec![one; limits::MAX_INSTANCE_COPIES],
         );
         assert!(copy_refusal(&full_set, 0).is_some());
-        // Two more sets bring the room to its cap, the first set far from
-        // its own.
-        let mut other = full_set.placements[0].clone();
-        record.placements.push(other.clone());
-        if let Placement::Instances { copies, .. } = &mut other {
-            copies.truncate(limits::MAX_ROOM_INSTANCE_COPIES - limits::MAX_INSTANCE_COPIES - 1);
+        // More sets bring the room to its cap, the first set far from its
+        // own: full ones, and one holding what is left.
+        let full = full_set.placements[0].clone();
+        while room_copies(&record) + limits::MAX_INSTANCE_COPIES <= limits::MAX_ROOM_INSTANCE_COPIES
+        {
+            record.placements.push(full.clone());
         }
-        record.placements.push(other);
+        let mut rest = full;
+        if let Placement::Instances { copies, .. } = &mut rest {
+            copies.truncate(limits::MAX_ROOM_INSTANCE_COPIES - room_copies(&record));
+        }
+        record.placements.push(rest);
         assert_eq!(room_copies(&record), limits::MAX_ROOM_INSTANCE_COPIES);
         assert!(copy_refusal(&record, 0).is_some());
     }

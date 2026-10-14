@@ -536,13 +536,21 @@ pub struct FailureSinks<'a, R: 'static + Send + Sync> {
 /// stage - so the table lives here, beside its one consumer, rather than
 /// on the login screen.
 ///
-/// The three needles are the three strings that can reach a toast:
-/// `xrpc::apply_writes`' HTTP failure, `xrpc::preflight_wire_ints`' wire
-/// -integer refusal, and `record_size::unserializable_reason`'s serde
-/// fallback. `preflight`'s ceiling message is deliberately absent - it
+/// The needles are the strings that can reach a toast:
+/// `xrpc::apply_writes`' HTTP failure (with its missing-grant hint first),
+/// `xrpc::preflight_wire_ints`' wire-integer refusal, and
+/// `record_size::unserializable_reason`'s serde fallback. `preflight`'s ceiling message is deliberately absent - it
 /// already names the size, the limit and the remedy, so it passes through
 /// as its own friendly half.
 const PUBLISH_ERROR_MAP: &[(&str, &str)] = &[
+    // A write refused for a grant the sign-in predates (#1645): the one
+    // refusal the owner can fix, so above every needle that would say
+    // "try again" instead.
+    (
+        crate::pds::xrpc::MISSING_GRANT_HINT,
+        "This sign-in predates a permission saving needs. Sign out and in \
+         again, then save.",
+    ),
     // A 5xx from the reference PDS is the common case and carries a JSON
     // body plus the batch shape. Above the bare `applyWrites` needle it
     // would otherwise shadow.
@@ -2085,6 +2093,19 @@ mod friendly_publish_error_tests {
         let (friendly, details) = friendly_publish_error(&raw);
         assert!(friendly.contains("bug report"), "{friendly}");
         assert!(details.is_some());
+    }
+
+    /// A write refused for a grant the sign-in predates (#1645) says to sign
+    /// in again, not to try again, and keeps the raw refusal as details.
+    #[test]
+    fn a_save_refused_for_a_missing_grant_says_to_sign_in_again() {
+        let raw = format!(
+            "applyWrites failed: 403 Forbidden - {{\"error\":\"ScopeMissingError\"}} (batch: x){}",
+            crate::pds::xrpc::MISSING_GRANT_HINT
+        );
+        let (friendly, details) = friendly_publish_error(&raw);
+        assert!(friendly.contains("Sign out and in again"), "{friendly}");
+        assert_eq!(details.as_deref(), Some(raw.as_str()));
     }
 
     /// The transport failure cannot be produced without a server, so its

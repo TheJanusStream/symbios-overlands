@@ -1535,6 +1535,13 @@ pub mod state {
     /// while a hostile PDS handing out endless cursors cannot keep the
     /// client paging forever.
     pub const MAX_ROOM_GENERATOR_PAGES: usize = 4;
+
+    /// Maximum `listRecords` pages (100 records each) the room's copy-part
+    /// walk reads (#1645). A room at its copy cap keeps at most one part per
+    /// [`crate::pds::room::parts::PART_MIN`] copies and one more per set kept
+    /// in parts - about 630 - and sixteen pages hold that twice over, for
+    /// the orphans a torn publish can leave beside them.
+    pub const MAX_ROOM_COPY_PAGES: usize = 16;
 }
 
 // ---------------------------------------------------------------------------
@@ -2821,6 +2828,16 @@ const _: () = assert!(
 // once already.
 const _: () =
     assert!(state::MAX_ROOM_GENERATOR_PAGES * 100 >= crate::pds::sanitize::limits::MAX_GENERATORS);
+
+// "Sixteen pages hold that twice over" - the parts a room at its copy cap
+// keeps, counted from limits in two other files.
+const _: () = {
+    use crate::pds::room::parts::{INLINE_COPIES, PART_MIN};
+    use crate::pds::sanitize::limits::MAX_ROOM_INSTANCE_COPIES;
+    let most_parts =
+        MAX_ROOM_INSTANCE_COPIES / PART_MIN + MAX_ROOM_INSTANCE_COPIES / (INLINE_COPIES + 1);
+    assert!(state::MAX_ROOM_COPY_PAGES * 100 >= 2 * most_parts);
+};
 
 // The far detail-normal tile is "much coarser than the near tile so the two
 // scales blend": equal or inverted scales are the distance-repetition

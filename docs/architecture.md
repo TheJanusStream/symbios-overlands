@@ -306,8 +306,10 @@ generation cores shared with the wasm Web Worker.
 
 - [`src/pds/`](../src/pds/) - the record schemas and their PDS mapping:
   `RoomRecord` publishes as a slim manifest plus one content-addressed child
-  record per generator (lexicons `network.symbios.overlands.room` /
-  `room.generator`, committed atomically via `applyWrites`), `AvatarRecord` as
+  record per generator and a long instance set's copies in content-addressed
+  parts (lexicons `network.symbios.overlands.room` / `room.generator` /
+  `room.copies`, written via `applyWrites` in an order a reader never sees
+  half-done), `AvatarRecord` as
   `…overlands.avatar`, and the inventory as one record per stashed item
   (`…overlands.inventory.item`); the rigged body's own three collections
   ([`avatar/wardrobe.rs`](../src/pds/avatar/wardrobe.rs), two of them under the

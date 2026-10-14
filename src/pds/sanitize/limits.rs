@@ -63,15 +63,15 @@ pub const MAX_SHAPE_FOOTPRINT: f32 = 1_000.0;
 /// single-count scatter entries still weaponises `compile_room_record`.
 pub const MAX_PLACEMENTS: usize = 1_024;
 /// Copies one instance set may hold (#1643): a Kiez's commonest kind of
-/// building or tree is a few hundred to a few thousand. A bound on what a
-/// record is read as, not on what saves: until #1645 the copies ride in the
-/// manifest, which saves only under the 120 KiB one write carries - about
-/// 4,000 to 5,000 copies in all.
+/// building or tree is a few hundred to a few thousand - a 2 km square's
+/// commonest tree about 4,500. A long set's copies are saved in parts of
+/// their own beside the manifest (#1645, [`crate::pds::room::parts`]).
 pub const MAX_INSTANCE_COPIES: usize = 8_192;
-/// Copies all of a room's instance sets may hold together (#1643): about
-/// 350 KiB of them on the wire, a 2 km square seeded whole, once #1645
-/// gives them records of their own.
-pub const MAX_ROOM_INSTANCE_COPIES: usize = 16_384;
+/// Copies all of a room's instance sets may hold together (#1643), raised
+/// for 2 km squares seeded whole (owner decision 7 on #1636): Hermannplatz
+/// at 2 km is 16,367 copies, about 410 KiB of parts, and a square with more
+/// trees holds more.
+pub const MAX_ROOM_INSTANCE_COPIES: usize = 32_768;
 /// Variants one instance set may hold (#1643): one street building kind
 /// stands at a few dozen fits, each in a few seeds.
 pub const MAX_INSTANCE_VARIANTS: usize = 512;

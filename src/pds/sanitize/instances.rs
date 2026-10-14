@@ -219,21 +219,23 @@ mod tests {
                 ],
             )
         };
-        let mut placements = vec![
-            many(limits::MAX_INSTANCE_COPIES + 10),
-            many(limits::MAX_INSTANCE_COPIES),
-            many(10),
-        ];
+        let (set_cap, room_cap) = (
+            limits::MAX_INSTANCE_COPIES,
+            limits::MAX_ROOM_INSTANCE_COPIES,
+        );
+        // Sets at their own bound the room holds whole, but for the last,
+        // which a small set ahead of it leaves short.
+        let whole = room_cap / set_cap;
+        let mut placements = vec![many(set_cap + 10)];
+        placements.extend((1..whole - 1).map(|_| many(set_cap)));
+        placements.push(many(100));
+        placements.push(many(set_cap));
+        placements.push(many(10));
         sanitize_placements(&mut placements);
         let kept: Vec<usize> = placements.iter().map(|p| copies_of(p).len()).collect();
-        assert_eq!(
-            kept,
-            [
-                limits::MAX_INSTANCE_COPIES,
-                limits::MAX_ROOM_INSTANCE_COPIES - limits::MAX_INSTANCE_COPIES,
-                0
-            ]
-        );
+        let mut expected = vec![set_cap; whole - 1];
+        expected.extend([100, room_cap - set_cap * (whole - 1) - 100, 0]);
+        assert_eq!(kept, expected);
     }
 
     #[test]

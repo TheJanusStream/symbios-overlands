@@ -19,6 +19,12 @@
 //! The manifest is the source of truth for what a room references - a
 //! reference set recomputed from `generators` would miss the opaque refs a
 //! newer client wrote and this one cannot decode.
+//!
+//! A long instance set's copies ride beside the manifest the same way
+//! (#1645): in content-addressed parts in
+//! [`crate::pds::ROOM_COPIES_COLLECTION`], named in order by the set, which
+//! the manifest writes as a placement type of its own ([`super::parts`]).
+//! The read side joins them back too.
 
 use std::collections::HashMap;
 
@@ -26,11 +32,13 @@ use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use serde::{Deserialize, Serialize};
 
+use super::parts::{self, ManifestPlacement, RoomCopiesRecord};
 use super::{DefaultLanding, Environment, RoomRecord};
 use crate::pds::COLLECTION;
 use crate::pds::GeoSource;
 use crate::pds::contact_effects::ContactEffects;
 use crate::pds::generator::{Generator, Placement};
+use crate::pds::instances::InstanceCopy;
 use crate::pds::xrpc::{
     FetchError, RepoWrite, XrpcError, decode_record_json, resolve_pds, resolve_pds_outcome,
 };
@@ -129,7 +137,9 @@ struct RoomSelfWire {
     environment: Environment,
     generators: HashMap<String, Generator>,
     generator_refs: HashMap<String, String>,
-    placements: Vec<Placement>,
+    /// Read as they are written, so a set whose copies are kept in parts
+    /// can be joined before it is read as a placement ([`parts::join`]).
+    placements: Vec<serde_json::Value>,
     traits: HashMap<String, Vec<String>>,
     contact_effects: ContactEffects,
     default_landing: Option<DefaultLanding>,
@@ -147,7 +157,7 @@ struct RoomManifestOut {
     lex_type: String,
     environment: Environment,
     generator_refs: std::collections::BTreeMap<String, String>,
-    placements: Vec<Placement>,
+    placements: Vec<ManifestPlacement>,
     traits: std::collections::BTreeMap<String, Vec<String>>,
     #[serde(skip_serializing_if = "ContactEffects::is_default")]
     contact_effects: ContactEffects,
@@ -155,6 +165,11 @@ struct RoomManifestOut {
     default_landing: Option<DefaultLanding>,
     #[serde(skip_serializing_if = "Option::is_none")]
     geo_source: Option<GeoSource>,
+    /// The parts a long set's copies are kept in (#1645), each with its
+    /// set's index and its record key: written beside the manifest, never
+    /// in it.
+    #[serde(skip)]
+    parts: Vec<(usize, String, RoomCopiesRecord)>,
 }
 
 impl RoomManifestOut {
@@ -171,11 +186,22 @@ impl RoomManifestOut {
         for (name, generator) in &record.generators {
             generator_refs.insert(name.clone(), child_rkey(name, generator)?);
         }
+        let mut placements = Vec::with_capacity(record.placements.len());
+        let mut kept_apart = Vec::new();
+        let in_parts = parts::kept_in_parts(&record.placements);
+        for (index, (placement, in_parts)) in record.placements.iter().zip(in_parts).enumerate() {
+            if matches!(placement, Placement::Unknown) {
+                return Err(unreadable_placement(index));
+            }
+            let (written, its_parts) = parts::split(placement, in_parts)?;
+            placements.push(written);
+            kept_apart.extend(its_parts.into_iter().map(|(key, part)| (index, key, part)));
+        }
         Ok(Self {
             lex_type: COLLECTION.into(),
             environment: record.environment.clone(),
             generator_refs,
-            placements: record.placements.clone(),
+            placements,
             traits: record
                 .traits
                 .iter()
@@ -184,8 +210,20 @@ impl RoomManifestOut {
             contact_effects: record.contact_effects.clone(),
             default_landing: record.default_landing,
             geo_source: record.geo_source.clone(),
+            parts: kept_apart,
         })
     }
+}
+
+/// Why a room holding placement `index`, which this build could not read in
+/// full, is not saved (#1111): it would be written back without what this
+/// build could not read - for a set kept in parts (#1645), its copies.
+fn unreadable_placement(index: usize) -> String {
+    format!(
+        "placement #{index} could not be read in full: it was saved by a newer version of \
+         Overlands, or a record holding its copies is damaged. Update, or remove placement \
+         #{index}, and try again."
+    )
 }
 
 /// Join a decoded `room/self` with the child-generator listing (rkey →
@@ -205,7 +243,19 @@ impl RoomManifestOut {
 /// * **absent from the listing** - skipped with a warning, as before. A ref
 ///   pointing at nothing is a torn historical write (or a hostile PDS
 ///   dropping records); preserving it would carry a dangling ref forever.
-fn assemble_room(wire: RoomSelfWire, children: &HashMap<String, Option<Generator>>) -> RoomRecord {
+///
+/// A set whose copies are kept in parts is joined from `copy_parts` (rkey →
+/// its copies, `None` where this build cannot read the record) the same
+/// three ways ([`parts::join`]), except that a part it cannot read leaves
+/// the whole set unread rather than preserved: it is written back whole or
+/// not at all. No set is joined past what the sanitiser keeps of it and of
+/// the room. A placement that will not read fails the whole room, as it
+/// always has.
+fn assemble_room(
+    wire: RoomSelfWire,
+    children: &HashMap<String, Option<Generator>>,
+    copy_parts: &HashMap<String, Option<Vec<InstanceCopy>>>,
+) -> Result<RoomRecord, serde_json::Error> {
     let RoomSelfWire {
         environment,
         mut generators,
@@ -235,7 +285,17 @@ fn assemble_room(wire: RoomSelfWire, children: &HashMap<String, Option<Generator
             ),
         }
     }
-    RoomRecord {
+    let mut room_left = crate::pds::sanitize::limits::MAX_ROOM_INSTANCE_COPIES;
+    let mut joined = Vec::with_capacity(placements.len());
+    for placement in placements {
+        let placement = parts::join(placement, copy_parts, room_left)?;
+        if let Placement::Instances { copies, .. } = &placement {
+            room_left = room_left.saturating_sub(copies.len());
+        }
+        joined.push(placement);
+    }
+    let placements = joined;
+    Ok(RoomRecord {
         lex_type: COLLECTION.into(),
         environment,
         generators,
@@ -245,7 +305,7 @@ fn assemble_room(wire: RoomSelfWire, children: &HashMap<String, Option<Generator
         default_landing,
         geo_source,
         opaque_refs,
-    }
+    })
 }
 
 /// `com.atproto.repo.listRecords` envelope for the child walk. Values stay
@@ -278,14 +338,49 @@ struct ListedChild {
 /// to count as PRESENT, or the publish planner will try to create over it
 /// and the orphan sweep will delete it.
 fn fold_listed_children(records: Vec<ListedChild>, out: &mut HashMap<String, Option<Generator>>) {
+    fold_listed(records, out, |value| {
+        serde_json::from_value::<RoomGeneratorRecord>(value)
+            .ok()
+            .map(|child| child.generator)
+    });
+}
+
+/// Fold one page of listed copy parts (#1645) as the children are folded -
+/// a part this build cannot read kept as present, `None` - keeping only the
+/// parts in `named`: a fetch reads what the manifest's sets name, and
+/// nothing a repo lists beside them.
+fn fold_listed_parts(
+    records: Vec<ListedChild>,
+    out: &mut HashMap<String, Option<Vec<InstanceCopy>>>,
+    named: &std::collections::HashSet<String>,
+) {
+    fold_listed(
+        records.into_iter().filter(|rec| {
+            rec.uri
+                .rsplit('/')
+                .next()
+                .is_some_and(|rkey| named.contains(rkey))
+        }),
+        out,
+        |value| {
+            serde_json::from_value::<RoomCopiesRecord>(value)
+                .ok()
+                .map(|part| part.copies)
+        },
+    );
+}
+
+/// Fold one page of listed records into rkey → `decode`'s outcome.
+fn fold_listed<T>(
+    records: impl IntoIterator<Item = ListedChild>,
+    out: &mut HashMap<String, Option<T>>,
+    decode: impl Fn(serde_json::Value) -> Option<T>,
+) {
     for rec in records {
         let Some(rkey) = rec.uri.rsplit('/').next() else {
             continue;
         };
-        let decoded = serde_json::from_value::<RoomGeneratorRecord>(rec.value)
-            .ok()
-            .map(|child| child.generator);
-        out.insert(rkey.to_string(), decoded);
+        out.insert(rkey.to_string(), decode(rec.value));
     }
 }
 
@@ -311,16 +406,77 @@ async fn list_room_children(
     pds: &str,
     did: &str,
 ) -> Result<HashMap<String, Option<Generator>>, FetchError> {
-    let mut children: HashMap<String, Option<Generator>> = HashMap::new();
+    list_records(
+        client,
+        (pds, did),
+        crate::pds::ROOM_GENERATOR_COLLECTION,
+        crate::config::state::MAX_ROOM_GENERATOR_PAGES,
+        fold_listed_children,
+    )
+    .await
+}
+
+/// Walk the copy-part collection for `did` (#1645) as the children are
+/// walked, reading the parts in `named` alone ([`fold_listed_parts`]).
+/// Bounded by [`crate::config::state::MAX_ROOM_COPY_PAGES`], which covers
+/// the parts of a room at its copy cap twice over: once for its own and
+/// once for a torn publish's orphans.
+///
+/// A walk cut short at that bound is warned of. As the generator walk's
+/// (see [`list_room_children`]), a save planned from a short walk could
+/// create a part the repo already holds, which fails the save (#1186); it
+/// would take a repo already holding more than twice the parts a room at
+/// its copy cap keeps - publishes that failed partway, more than once.
+async fn list_room_parts(
+    client: &reqwest::Client,
+    pds: &str,
+    did: &str,
+    named: &std::collections::HashSet<String>,
+) -> Result<HashMap<String, Option<Vec<InstanceCopy>>>, FetchError> {
+    list_records(
+        client,
+        (pds, did),
+        crate::pds::ROOM_COPIES_COLLECTION,
+        crate::config::state::MAX_ROOM_COPY_PAGES,
+        |records, out| fold_listed_parts(records, out, named),
+    )
+    .await
+}
+
+/// The keys of every copy part in `did`'s repo (#1645), read and nothing
+/// more: what a save sweeps and a delete removes.
+async fn list_room_part_keys(
+    client: &reqwest::Client,
+    pds: &str,
+    did: &str,
+) -> Result<std::collections::HashSet<String>, FetchError> {
+    let listed = list_records(
+        client,
+        (pds, did),
+        crate::pds::ROOM_COPIES_COLLECTION,
+        crate::config::state::MAX_ROOM_COPY_PAGES,
+        |records, out| fold_listed(records, out, |_| Some(())),
+    )
+    .await?;
+    Ok(listed.into_keys().collect())
+}
+
+/// Walk `collection` in `did`'s repo, at most `max_pages` pages of 100,
+/// folding each page into rkey → decode outcome with `fold`.
+async fn list_records<T>(
+    client: &reqwest::Client,
+    (pds, did): (&str, &str),
+    collection: &str,
+    max_pages: usize,
+    fold: impl Fn(Vec<ListedChild>, &mut HashMap<String, Option<T>>),
+) -> Result<HashMap<String, Option<T>>, FetchError> {
+    let mut children: HashMap<String, Option<T>> = HashMap::new();
     let mut cursor: Option<String> = None;
-    for _ in 0..crate::config::state::MAX_ROOM_GENERATOR_PAGES {
+    for _ in 0..max_pages {
         let url = format!("{}/xrpc/com.atproto.repo.listRecords", pds);
         let mut query: Vec<(&str, String)> = vec![
             ("repo", did.to_string()),
-            (
-                "collection",
-                crate::pds::ROOM_GENERATOR_COLLECTION.to_string(),
-            ),
+            ("collection", collection.to_string()),
             ("limit", "100".to_string()),
         ];
         if let Some(c) = cursor.take() {
@@ -338,12 +494,13 @@ async fn list_room_children(
         }
         let page: ListChildrenResponse = decode_record_json(resp).await?;
         let empty_page = page.records.is_empty();
-        fold_listed_children(page.records, &mut children);
+        fold(page.records, &mut children);
         cursor = page.cursor;
         if cursor.is_none() || empty_page {
-            break;
+            return Ok(children);
         }
     }
+    warn!("listing {collection} stopped after {max_pages} pages with more to read");
     Ok(children)
 }
 
@@ -358,7 +515,8 @@ async fn list_room_children(
 ///
 /// Shape-agnostic since #697: a legacy monolith is returned as-is, while a
 /// manifest triggers one additional `listRecords` walk over the
-/// child-generator collection before assembly.
+/// child-generator collection before assembly - and one over the copy
+/// parts, when a set keeps its copies in them (#1645).
 ///
 /// Note: ATProto's `com.atproto.repo.getRecord` returns `400 RecordNotFound` -
 /// NOT `404` - when the record does not exist. We detect that payload
@@ -406,7 +564,14 @@ pub async fn fetch_room_record(
     } else {
         list_room_children(client, &pds, did).await?
     };
-    let mut record = assemble_room(wire, &children);
+    let named = parts::named_parts(&wire.placements);
+    let copy_parts = if named.is_empty() {
+        HashMap::new()
+    } else {
+        list_room_parts(client, &pds, did, &named).await?
+    };
+    let mut record = assemble_room(wire, &children, &copy_parts)
+        .map_err(|e| FetchError::Decode(e.to_string()))?;
     record.sanitize();
     Ok(Some(record))
 }
@@ -416,9 +581,9 @@ pub async fn fetch_room_record(
 // ---------------------------------------------------------------------------
 
 /// Serialized size of the largest single record a publish of `record`
-/// would write - the manifest or the biggest child generator. This is the
-/// per-record figure the #694 size budget applies to now that the room is
-/// split across records (#697).
+/// would write - the manifest, the biggest child generator or the biggest
+/// part of a long set's copies. This is the per-record figure the #694 size
+/// budget applies to now that the room is split across records (#697).
 pub fn max_publish_record_bytes(record: &RoomRecord) -> Option<usize> {
     measure_publish(record).bytes
 }
@@ -436,7 +601,12 @@ pub fn measure_publish(record: &RoomRecord) -> crate::pds::record_size::SizeRead
     // `SizeReadout::refuse` is the seam for exactly that (a refusal decided
     // without serializing), and the per-child loop below names the offender.
     match RoomManifestOut::from_record(record) {
-        Ok(manifest) => readout.consider(&manifest, "room manifest"),
+        Ok(manifest) => {
+            readout.consider(&manifest, "room manifest");
+            for (index, _, part) in &manifest.parts {
+                readout.consider(part, &part_label(*index));
+            }
+        }
         Err(reason) => readout.refuse(reason),
     }
     for (name, generator) in &record.generators {
@@ -448,9 +618,16 @@ pub fn measure_publish(record: &RoomRecord) -> crate::pds::record_size::SizeRead
     readout
 }
 
+/// How the size readout and the preflight name a part of placement
+/// `index`'s copies.
+fn part_label(index: usize) -> String {
+    format!("copies of placement #{index}")
+}
+
 /// Build the ordered `applyWrites` batches that publish `record` as a
-/// manifest + content-addressed children (#697), given the child rkeys
-/// currently on the PDS and whether `room/self` already exists.
+/// manifest + content-addressed children (#697) and copy parts (#1645),
+/// given the child and part rkeys currently on the PDS and whether
+/// `room/self` already exists.
 ///
 /// The plan is: child creates, then the manifest put, then orphan deletes -
 /// chunked by [`crate::pds::xrpc::chunk_writes`] to both the write-count
@@ -462,7 +639,10 @@ pub fn measure_publish(record: &RoomRecord) -> crate::pds::record_size::SizeRead
 /// Every record written is size-checked against the hard ceiling first.
 fn plan_room_writes(
     record: &RoomRecord,
-    existing_children: &std::collections::HashSet<String>,
+    (existing_children, existing_parts): (
+        &std::collections::HashSet<String>,
+        &std::collections::HashSet<String>,
+    ),
     manifest_exists: bool,
 ) -> Result<Vec<Vec<RepoWrite>>, String> {
     let manifest = RoomManifestOut::from_record(record)?;
@@ -489,7 +669,28 @@ fn plan_room_writes(
             },
         );
     }
-    let creates: Vec<RepoWrite> = desired.into_values().collect();
+    // A long set's parts (#1645) the same way: each new key once, sorted.
+    let mut desired_parts: std::collections::BTreeMap<String, RepoWrite> =
+        std::collections::BTreeMap::new();
+    for (index, rkey, part) in &manifest.parts {
+        if existing_parts.contains(rkey) || desired_parts.contains_key(rkey) {
+            continue;
+        }
+        crate::pds::record_size::preflight(part, &part_label(*index))?;
+        let value = serde_json::to_value(part).map_err(|e| format!("serialize: {e}"))?;
+        desired_parts.insert(
+            rkey.clone(),
+            RepoWrite::Create {
+                collection: crate::pds::ROOM_COPIES_COLLECTION.into(),
+                rkey: rkey.clone(),
+                value,
+            },
+        );
+    }
+    let creates: Vec<RepoWrite> = desired
+        .into_values()
+        .chain(desired_parts.into_values())
+        .collect();
 
     // Orphaned means "the manifest we are about to write does not point at
     // it" - read off `manifest.generator_refs`, not recomputed from
@@ -510,12 +711,25 @@ fn plan_room_writes(
         .filter(|rkey| !referenced.contains(*rkey))
         .collect();
     orphans.sort();
+    // A part no set names any more goes the same way, read off the parts
+    // the manifest being written names.
+    let named: std::collections::HashSet<&String> =
+        manifest.parts.iter().map(|(_, rkey, _)| rkey).collect();
+    let mut orphan_parts: Vec<&String> = existing_parts
+        .iter()
+        .filter(|rkey| !named.contains(*rkey))
+        .collect();
+    orphan_parts.sort();
     let deletes: Vec<RepoWrite> = orphans
         .into_iter()
         .map(|rkey| RepoWrite::Delete {
             collection: crate::pds::ROOM_GENERATOR_COLLECTION.into(),
             rkey: rkey.clone(),
         })
+        .chain(orphan_parts.into_iter().map(|rkey| RepoWrite::Delete {
+            collection: crate::pds::ROOM_COPIES_COLLECTION.into(),
+            rkey: rkey.clone(),
+        }))
         .collect();
 
     let manifest_value = serde_json::to_value(&manifest).map_err(|e| format!("serialize: {e}"))?;
@@ -597,7 +811,15 @@ pub async fn publish_room_record(
     // it could not write (#1111): a generator, placement or material this
     // build decoded as `Unknown` cannot be re-serialized, and saving anyway
     // would replace the owner's newer content with a husk - the split-wire
-    // publish would even GC the original child as an orphan.
+    // publish would even GC the original child as an orphan. A placement
+    // is named, as a set read without its copies (#1645) can be one.
+    if let Some(index) = record
+        .placements
+        .iter()
+        .position(|placement| matches!(placement, Placement::Unknown))
+    {
+        return Err(unreadable_placement(index));
+    }
     crate::pds::record_size::wire_ready(record, "world")?;
     let pds = resolve_pds(client, &session.did)
         .await
@@ -611,26 +833,77 @@ pub async fn publish_room_record(
             .map_err(|e| format!("child listing failed: {e}"))?
             .into_keys()
             .collect();
+    // Listed whether or not a set keeps its copies in parts now: a set that
+    // shrank or went leaves parts to sweep (#1645).
+    let existing_parts = list_room_part_keys(client, &pds, &session.did)
+        .await
+        .map_err(|e| format!("copies listing failed: {e}"))?;
     let manifest_exists = room_self_exists(client, &pds, &session.did).await?;
 
     // Plan construction runs every per-record size preflight BEFORE any
     // write lands, so an oversized generator can never leave the room
     // half-published.
-    let batches = plan_room_writes(record, &existing, manifest_exists)?;
+    let batches = plan_room_writes(record, (&existing, &existing_parts), manifest_exists)?;
+    // And a plan that writes copy parts a sign-in may not write is refused
+    // before its first batch, not halfway through.
+    let writes_parts = batches.iter().flatten().any(|write| {
+        matches!(write,
+            RepoWrite::Create { collection, .. }
+            | RepoWrite::Update { collection, .. }
+            | RepoWrite::Delete { collection, .. }
+                if collection == crate::pds::ROOM_COPIES_COLLECTION)
+    });
+    if writes_parts && !may_write_parts(session) {
+        return Err(SIGN_IN_AGAIN.into());
+    }
     for batch in batches {
         crate::pds::xrpc::apply_writes(&pds, session, refresh, batch).await?;
     }
     Ok(())
 }
 
+/// What a save or a delete that must write copy parts (#1645) says to a
+/// sign-in whose grant predates them.
+const SIGN_IN_AGAIN: &str = "This sign-in predates a permission saving this world needs - a long \
+     set's copies are kept in records of their own: sign out and in again, then try again.";
+
+/// Whether `session` may write copy parts, as far as its grant says
+/// ([`grant_covers`]).
+fn may_write_parts(session: &AtprotoSession) -> bool {
+    grant_covers(
+        &session.session.token_set().scope,
+        crate::pds::ROOM_COPIES_COLLECTION,
+    )
+}
+
+/// Whether the grant `scope` covers writing `collection`, as far as it
+/// says: a scope that names the collections it may write one by one (#736)
+/// must name this one, or every one; a scope naming none - an older broad
+/// grant, or a form this build does not read - is left for the PDS to
+/// judge, with [`crate::pds::xrpc`]'s hint if it refuses.
+fn grant_covers(scope: &str, collection: &str) -> bool {
+    let mut named = scope
+        .split_whitespace()
+        .filter_map(|grant| grant.strip_prefix("repo:"))
+        .map(|grant| grant.split('?').next().unwrap_or(grant))
+        .peekable();
+    if named.peek().is_none() {
+        return true;
+    }
+    named.any(|nsid| nsid == collection || nsid == "*")
+}
+
 /// Delete the room from the authenticated user's PDS - the `room/self`
 /// manifest (whichever shape it holds) **and** every record in the
-/// child-generator collection, so a reset cannot strand orphaned children
-/// (#697). Deletes only what a `listRecords` walk + existence check say is
-/// actually there (an `applyWrites#delete` on a missing record fails the
-/// whole batch), and deletes the manifest FIRST so an interrupted wipe
-/// never leaves a manifest pointing at removed children. A repo with
-/// nothing to delete is a clean no-op.
+/// child-generator and copy-part collections, so a reset cannot strand
+/// orphaned children (#697) or parts (#1645). Deletes only what a
+/// `listRecords` walk + existence check say is actually there (an
+/// `applyWrites#delete` on a missing record fails the whole batch), and
+/// deletes the manifest FIRST so an interrupted wipe never leaves a
+/// manifest pointing at removed children. A repo with nothing to delete is
+/// a clean no-op. A repo holding parts a sign-in may not delete is refused
+/// before anything is deleted, so a reset never wipes a room it cannot then
+/// finish wiping.
 pub async fn delete_room_record(
     client: &reqwest::Client,
     session: &AtprotoSession,
@@ -655,6 +928,19 @@ pub async fn delete_room_record(
     children.sort();
     deletes.extend(children.into_iter().map(|rkey| RepoWrite::Delete {
         collection: crate::pds::ROOM_GENERATOR_COLLECTION.into(),
+        rkey,
+    }));
+    let mut copy_parts: Vec<String> = list_room_part_keys(client, &pds, &session.did)
+        .await
+        .map_err(|e| format!("copies listing failed: {e}"))?
+        .into_iter()
+        .collect();
+    if !copy_parts.is_empty() && !may_write_parts(session) {
+        return Err(SIGN_IN_AGAIN.into());
+    }
+    copy_parts.sort();
+    deletes.extend(copy_parts.into_iter().map(|rkey| RepoWrite::Delete {
+        collection: crate::pds::ROOM_COPIES_COLLECTION.into(),
         rkey,
     }));
 
@@ -806,7 +1092,7 @@ mod split_wire_tests {
         // The plan refuses for the same reason, at the manifest, before any
         // child is written - so a caller that skipped `wire_ready` still
         // cannot half-publish the room.
-        let planned = plan_room_writes(&record, &HashSet::new(), false)
+        let planned = plan_room_writes(&record, (&HashSet::new(), &HashSet::new()), false)
             .expect_err("the plan cannot address the child");
         assert!(planned.contains("newer version of Overlands"), "{planned}");
         // A writable sibling is unaffected.
@@ -1031,7 +1317,7 @@ mod split_wire_tests {
         // request cap and chunk into two (#1347: this DID's room had 245 B of
         // headroom), and chunking must keep children before the manifest
         // before the deletes across the batch boundary too.
-        let writes: Vec<RepoWrite> = plan_room_writes(&record, &existing, true)
+        let writes: Vec<RepoWrite> = plan_room_writes(&record, (&existing, &HashSet::new()), true)
             .unwrap()
             .into_iter()
             .flatten()
@@ -1073,7 +1359,7 @@ mod split_wire_tests {
         );
 
         // Fresh repo → the manifest write is a create instead.
-        let batches = plan_room_writes(&record, &HashSet::new(), false).unwrap();
+        let batches = plan_room_writes(&record, (&HashSet::new(), &HashSet::new()), false).unwrap();
         assert!(batches.iter().flatten().any(|w| matches!(
             w,
             RepoWrite::Create { collection, rkey, .. } if collection == COLLECTION && rkey == "self"
@@ -1092,7 +1378,7 @@ mod split_wire_tests {
         // still covers every generator.
         record.generators.insert("a".into(), cuboid_at(1.0));
         record.generators.insert("b".into(), cuboid_at(1.0));
-        let batches = plan_room_writes(&record, &HashSet::new(), false).unwrap();
+        let batches = plan_room_writes(&record, (&HashSet::new(), &HashSet::new()), false).unwrap();
         let creates = batches[0]
             .iter()
             .filter(|w| matches!(w, RepoWrite::Create { collection, .. } if collection == crate::pds::ROOM_GENERATOR_COLLECTION))
@@ -1115,7 +1401,7 @@ mod split_wire_tests {
             .map(|i| format!("{i:016x}"))
             .collect();
 
-        let batches = plan_room_writes(&record, &existing, true).unwrap();
+        let batches = plan_room_writes(&record, (&existing, &HashSet::new()), true).unwrap();
         assert!(
             batches
                 .iter()
@@ -1164,7 +1450,7 @@ mod split_wire_tests {
                 serde_json::from_value(serde_json::to_value(&manifest).unwrap()).unwrap();
             assert!(wire.generators.is_empty(), "manifest carries no bodies");
             assert_eq!(wire.generator_refs.len(), record.generators.len());
-            let assembled = assemble_room(wire, &children);
+            let assembled = assemble_room(wire, &children, &HashMap::new()).expect("assembles");
             assert_eq!(
                 serde_json::to_value(&assembled).unwrap(),
                 serde_json::to_value(&record).unwrap(),
@@ -1191,12 +1477,19 @@ mod split_wire_tests {
             .collect();
         let wire: RoomSelfWire =
             serde_json::from_value(serde_json::to_value(&manifest).unwrap()).unwrap();
-        assert_eq!(assemble_room(wire, &children).geo_source, record.geo_source);
+        assert_eq!(
+            assemble_room(wire, &children, &HashMap::new())
+                .expect("assembles")
+                .geo_source,
+            record.geo_source
+        );
 
         let wire: RoomSelfWire =
             serde_json::from_value(serde_json::to_value(&record).unwrap()).unwrap();
         assert_eq!(
-            assemble_room(wire, &HashMap::new()).geo_source,
+            assemble_room(wire, &HashMap::new(), &HashMap::new())
+                .expect("assembles")
+                .geo_source,
             record.geo_source
         );
     }
@@ -1209,7 +1502,7 @@ mod split_wire_tests {
         let wire: RoomSelfWire =
             serde_json::from_value(serde_json::to_value(&record).unwrap()).unwrap();
         assert!(wire.generator_refs.is_empty());
-        let assembled = assemble_room(wire, &HashMap::new());
+        let assembled = assemble_room(wire, &HashMap::new(), &HashMap::new()).expect("assembles");
         assert_eq!(
             serde_json::to_value(&assembled).unwrap(),
             serde_json::to_value(&record).unwrap(),
@@ -1232,7 +1525,7 @@ mod split_wire_tests {
         .collect();
         let wire: RoomSelfWire =
             serde_json::from_value(serde_json::to_value(&manifest).unwrap()).unwrap();
-        let assembled = assemble_room(wire, &children);
+        let assembled = assemble_room(wire, &children, &HashMap::new()).expect("assembles");
         assert_eq!(assembled.generators.len(), 1);
         assert!(assembled.generators.contains_key("kept"));
         assert_eq!(assembled.placements.len(), record.placements.len());
@@ -1295,7 +1588,7 @@ mod split_wire_tests {
             .insert("theirs".into(), theirs.clone());
         let wire: RoomSelfWire =
             serde_json::from_value(serde_json::to_value(&manifest).unwrap()).unwrap();
-        let assembled = assemble_room(wire, &children);
+        let assembled = assemble_room(wire, &children, &HashMap::new()).expect("assembles");
 
         // The room loads with one renderable generator and still REFERENCES
         // the other. Losing it from `generators` is unavoidable; losing it
@@ -1314,7 +1607,7 @@ mod split_wire_tests {
         // Now publish it back. `existing_children` is every LISTED rkey,
         // opaque ones included - that is what the fix keys on.
         let existing: HashSet<String> = children.keys().cloned().collect();
-        let batches = plan_room_writes(&assembled, &existing, true).unwrap();
+        let batches = plan_room_writes(&assembled, (&existing, &HashSet::new()), true).unwrap();
         let writes: Vec<&RepoWrite> = batches.iter().flatten().collect();
         assert!(
             !writes.iter().any(|w| matches!(
@@ -1363,7 +1656,7 @@ mod split_wire_tests {
             "the live generator's rkey, not the opaque one"
         );
         let existing: HashSet<String> = ["deadbeefdeadbeef".to_string()].into_iter().collect();
-        let batches = plan_room_writes(&record, &existing, true).unwrap();
+        let batches = plan_room_writes(&record, (&existing, &HashSet::new()), true).unwrap();
         assert!(batches.iter().flatten().any(|w| matches!(
             w,
             RepoWrite::Delete { rkey, .. } if rkey == "deadbeefdeadbeef"
@@ -1386,5 +1679,247 @@ mod split_wire_tests {
             .unwrap();
             assert!(max >= child);
         }
+    }
+
+    /// A room of nothing but a set of `n` copies of `post`, each its own
+    /// (#1645).
+    fn room_with_set(n: usize) -> RoomRecord {
+        let mut record = RoomRecord::default_for_did("did:plc:parts");
+        record.generators.clear();
+        record.placements.clear();
+        record.generators.insert("post".into(), cuboid_at(0.0));
+        record
+            .placements
+            .push(crate::pds::generator::Placement::Instances {
+                generator_ref: "post".into(),
+                transform: crate::pds::TransformData::default(),
+                snap_to_terrain: true,
+                solid: crate::pds::InstanceSolid::Shell,
+                variants: Vec::new(),
+                copies: (0..n as i32)
+                    .map(|i| InstanceCopy {
+                        x_cm: i * 53,
+                        z_cm: -i * 17,
+                        yaw_ddeg: (i * 11) % 3_600,
+                        variant: 0,
+                        scale_pm: 1_000,
+                        y_cm: 0,
+                    })
+                    .collect(),
+            });
+        record
+    }
+
+    /// The copies of the set `record` holds last.
+    fn last_copies(record: &mut RoomRecord) -> &mut Vec<InstanceCopy> {
+        match record.placements.last_mut() {
+            Some(crate::pds::generator::Placement::Instances { copies, .. }) => copies,
+            _ => panic!("a set"),
+        }
+    }
+
+    /// The parts a plan creates, by record key, read as the listing reads
+    /// them.
+    fn created_parts(batches: &[Vec<RepoWrite>]) -> HashMap<String, Option<Vec<InstanceCopy>>> {
+        batches
+            .iter()
+            .flatten()
+            .filter_map(|write| match write {
+                RepoWrite::Create {
+                    collection,
+                    rkey,
+                    value,
+                } if collection == crate::pds::ROOM_COPIES_COLLECTION => {
+                    let part: RoomCopiesRecord =
+                        serde_json::from_value(value.clone()).expect("a part");
+                    Some((rkey.clone(), Some(part.copies)))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The parts a plan sweeps, by record key.
+    fn swept_parts(batches: &[Vec<RepoWrite>]) -> Vec<String> {
+        batches
+            .iter()
+            .flatten()
+            .filter_map(|write| match write {
+                RepoWrite::Delete { collection, rkey }
+                    if collection == crate::pds::ROOM_COPIES_COLLECTION =>
+                {
+                    Some(rkey.clone())
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn children_of(record: &RoomRecord) -> HashMap<String, Option<Generator>> {
+        record
+            .generators
+            .iter()
+            .map(|(name, g)| (child_rkey(name, g).expect("addressable"), Some(g.clone())))
+            .collect()
+    }
+
+    /// #1645: a long set is published as parts created before the manifest
+    /// that names them, and the manifest and its parts read back to the
+    /// record; a room with no long set writes its placements as it did.
+    #[test]
+    fn a_long_set_publishes_in_parts_and_reads_back_whole() {
+        let plain = RoomRecord::default_for_did("did:plc:parts");
+        let manifest = RoomManifestOut::from_record(&plain).expect("addressable");
+        assert!(manifest.parts.is_empty());
+        assert_eq!(
+            serde_json::to_value(&manifest.placements).unwrap(),
+            serde_json::to_value(&plain.placements).unwrap(),
+            "no long set, no change"
+        );
+
+        let record = room_with_set(5_000);
+        let batches = plan_room_writes(&record, (&HashSet::new(), &HashSet::new()), false).unwrap();
+        let flat: Vec<&RepoWrite> = batches.iter().flatten().collect();
+        let manifest_at = flat
+            .iter()
+            .position(|w| matches!(w, RepoWrite::Create { rkey, .. } if rkey == "self"))
+            .expect("the manifest");
+        let last_part = flat
+            .iter()
+            .rposition(|w| matches!(w, RepoWrite::Create { collection, .. } if collection == crate::pds::ROOM_COPIES_COLLECTION))
+            .expect("parts");
+        assert!(
+            last_part < manifest_at,
+            "parts land before the manifest names them"
+        );
+        let parts_written = created_parts(&batches);
+        assert!(parts_written.len() >= 2, "{}", parts_written.len());
+
+        let manifest = RoomManifestOut::from_record(&record).expect("addressable");
+        let wire: RoomSelfWire =
+            serde_json::from_value(serde_json::to_value(&manifest).unwrap()).unwrap();
+        assert!(parts::is_in_parts(wire.placements.last().expect("the set")));
+        let assembled =
+            assemble_room(wire, &children_of(&record), &parts_written).expect("assembles");
+        assert_eq!(
+            serde_json::to_value(&assembled).unwrap(),
+            serde_json::to_value(&record).unwrap()
+        );
+    }
+
+    /// An edit to one copy of a long set writes the part holding it and
+    /// sweeps the part it replaces; the set's other parts are not written
+    /// again. A set cut short again keeps its copies inline, and all its
+    /// parts are swept.
+    #[test]
+    fn an_edited_long_set_rewrites_the_part_it_touched() {
+        let record = room_with_set(10_000);
+        let before: HashSet<String> = RoomManifestOut::from_record(&record)
+            .expect("addressable")
+            .parts
+            .into_iter()
+            .map(|(_, rkey, _)| rkey)
+            .collect();
+        assert!(before.len() >= 4, "{}", before.len());
+
+        let mut edited = record.clone();
+        last_copies(&mut edited)[4_000].x_cm += 250;
+        let batches = plan_room_writes(&edited, (&HashSet::new(), &before), true).unwrap();
+        let created = created_parts(&batches);
+        assert!((1..=2).contains(&created.len()), "{}", created.len());
+        let swept = swept_parts(&batches);
+        assert!((1..=2).contains(&swept.len()), "{}", swept.len());
+        assert!(swept.iter().all(|rkey| before.contains(rkey)));
+
+        let mut short = record.clone();
+        last_copies(&mut short).truncate(10);
+        let batches = plan_room_writes(&short, (&HashSet::new(), &before), true).unwrap();
+        assert!(created_parts(&batches).is_empty());
+        assert_eq!(swept_parts(&batches).len(), before.len());
+    }
+
+    /// A part this build cannot read is present in the listing but unread,
+    /// it leaves its set unread, and a room holding a set it cannot read is
+    /// not saved: the set is never written back without its copies (#1111).
+    #[test]
+    fn a_part_this_build_cannot_read_keeps_the_room_from_saving() {
+        let record = room_with_set(3_000);
+        let manifest = RoomManifestOut::from_record(&record).expect("addressable");
+        let unreadable = manifest.parts[0].1.clone();
+        let (did, coll) = ("did:plc:parts", crate::pds::ROOM_COPIES_COLLECTION);
+        let mut listed: Vec<ListedChild> = manifest
+            .parts
+            .iter()
+            .map(|(_, rkey, part)| ListedChild {
+                uri: format!("at://{did}/{coll}/{rkey}"),
+                value: if *rkey == unreadable {
+                    serde_json::json!({ "$type": coll, "packed": "AAEC" })
+                } else {
+                    serde_json::to_value(part).unwrap()
+                },
+            })
+            .collect();
+        // A part no set names is not read at all.
+        listed.push(ListedChild {
+            uri: format!("at://{did}/{coll}/feedfacefeedface"),
+            value: serde_json::to_value(&manifest.parts[1].2).unwrap(),
+        });
+        let named: HashSet<String> = manifest
+            .parts
+            .iter()
+            .map(|(_, rkey, _)| rkey.clone())
+            .collect();
+        let mut listed_parts = HashMap::new();
+        fold_listed_parts(listed, &mut listed_parts, &named);
+        assert_eq!(
+            listed_parts.get(&unreadable),
+            Some(&None),
+            "present, unread"
+        );
+        assert!(!listed_parts.contains_key("feedfacefeedface"));
+
+        let wire: RoomSelfWire =
+            serde_json::from_value(serde_json::to_value(&manifest).unwrap()).unwrap();
+        let assembled =
+            assemble_room(wire, &children_of(&record), &listed_parts).expect("assembles");
+        assert!(matches!(
+            assembled.placements.last(),
+            Some(crate::pds::generator::Placement::Unknown)
+        ));
+        assert!(crate::pds::record_size::wire_ready(&assembled, "world").is_err());
+        // The refusal names the placement.
+        let why = RoomManifestOut::from_record(&assembled)
+            .err()
+            .expect("refused");
+        assert!(why.contains("placement #0"), "{why}");
+    }
+
+    /// A grant that names the collections it may write one by one must name
+    /// the copy parts' (or every one); a grant naming none is left for the
+    /// PDS to judge.
+    #[test]
+    fn a_grant_covers_copy_parts_only_where_it_says_so() {
+        let copies = crate::pds::ROOM_COPIES_COLLECTION;
+        let before = "atproto repo:network.symbios.overlands.room \
+                      repo:network.symbios.overlands.room.generator rpc:x?aud=*";
+        assert!(!grant_covers(before, copies));
+        assert!(grant_covers(&format!("{before} repo:{copies}"), copies));
+        assert!(grant_covers(
+            &format!("atproto repo:{copies}?action=create"),
+            copies
+        ));
+        assert!(grant_covers("atproto repo:*", copies));
+        assert!(grant_covers("atproto transition:generic", copies));
+        assert!(grant_covers("", copies));
+    }
+
+    /// The size readout weighs each part and names the set whose part is
+    /// the largest record.
+    #[test]
+    fn the_size_readout_names_a_sets_part_when_it_is_the_largest() {
+        let record = room_with_set(8_000);
+        let readout = measure_publish(&record);
+        assert_eq!(readout.largest.as_deref(), Some("copies of placement #0"));
+        assert_eq!(readout.bytes, max_publish_record_bytes(&record));
     }
 }

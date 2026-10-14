@@ -472,18 +472,23 @@ manifest's budget.
   and gateways are left off its copies, and an L-system plant keeps its own
   seed: place those as ordinary placements.
 - **Its budget is the world's, shared by copies**: 22,000 near entities and
-  5,000 far copies across all sets, each set's share fixed when it is
-  drawn (a set drawn before another grew keeps the share it had until it is
-  redrawn). Copies nearest the landing are drawn as their merged parts;
-  past the set's share a copy big enough to be seen far is drawn as its
-  shell in its colours, and a small one not at all. Small copies are cut at
-  the player's draw distance as scattered ones are.
-- **The copies are saved in the manifest** until #1645 gives them records
-  of their own, and one save may write at most 120 KiB in one record (the
-  100 KiB budget warns first): about 4,000 to 5,000 copies with the rest of
-  a world's manifest. `room set`'s `record_size` says how close a world is.
-  The 8,192 copies a set and 16,384 a world are what a record is cut to,
-  not what it saves.
+  5,000 far copies across all sets, each set's share worked out when it is
+  drawn and again when its copies change (a set untouched since another
+  grew keeps the share it had). Copies nearest the landing are drawn as
+  their merged parts; past the set's share a copy big enough to be seen far
+  is drawn as its shell in its colours, and a small one not at all. Small
+  copies are cut at the player's draw distance as scattered ones are.
+- **A long set's copies are saved in parts of their own** (#1645): a set
+  of more than 64 copies is saved naming its parts, each a record of up to
+  2,048 copies beside the world's manifest, and small sets go the same way
+  once together they would hold more than 1,024 copies inline - so copies
+  never fill the manifest, and a world saves as many as it may hold (8,192
+  a set, 32,768 a world, past which a record is cut). An edit to one copy
+  rewrites the part that holds it, and sometimes the one beside it. `room
+  set`'s `record_size` names the largest record a save writes, parts
+  included. Saving parts needs a write grant sign-ins made before #1645
+  lack: such a save is refused before it writes anything, saying to sign in
+  again.
 - **An edit to a set's copies redraws those copies alone** (#1644): each
   copy whose numbers are unchanged keeps what it drew, renumbered where a
   copy before it went, and the set's share of the room's drawing budget

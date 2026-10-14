@@ -995,15 +995,41 @@ pub(crate) async fn apply_writes(
         // The batch's shape rides the error. A 500 from the reference PDS
         // carries no indication of which write it choked on, so without this
         // the only evidence a bug report can offer is that a save failed.
-        Err(format!(
-            "applyWrites failed: {status} - {body} (batch: {shape})"
-        ))
+        let failed = format!("applyWrites failed: {status} - {body} (batch: {shape})");
+        Err(format!("{failed}{}", scope_hint(status.as_u16(), &body)))
+    }
+}
+
+/// Appended to a write refused for want of a grant ([`scope_hint`]); the
+/// World Editor's friendly error map keys on it, so it says what to do.
+pub(crate) const MISSING_GRANT_HINT: &str =
+    " - this sign-in predates a permission saving now needs: sign out and in again";
+
+/// What to do about a write refused for want of a grant: a collection this
+/// build writes that the session's sign-in predates (#1645 added one), which
+/// a token refresh cannot add. Empty for any other refusal.
+fn scope_hint(status: u16, body: &str) -> &'static str {
+    if matches!(status, 401 | 403) && body.to_ascii_lowercase().contains("scope") {
+        MISSING_GRANT_HINT
+    } else {
+        ""
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A write refused for a grant the sign-in lacks says what to do about
+    /// it; any other refusal says nothing more.
+    #[test]
+    fn a_write_refused_for_a_missing_grant_says_to_sign_in_again() {
+        let missing = r#"{"error":"InsufficientScope","message":"Missing required scope \"repo:network.symbios.overlands.room.copies?action=create\""}"#;
+        assert!(scope_hint(403, missing).contains("sign out and in again"));
+        assert!(scope_hint(401, "ScopeMissingError").contains("sign out and in again"));
+        assert_eq!(scope_hint(500, missing), "");
+        assert_eq!(scope_hint(403, r#"{"error":"RepoTakendown"}"#), "");
+    }
 
     /// **A contradictory batch is refused here, not by the PDS** (#1185).
     ///
