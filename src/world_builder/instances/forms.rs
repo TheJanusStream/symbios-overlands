@@ -6,6 +6,11 @@
 //! Forms are kept for the room they were baked in: a visit to another room
 //! drops them all. Within a room the least recently drawn go once more than
 //! [`MAX_FORMS`] are held; a build still drawing from one keeps it alive.
+//! And once the room's sets are all drawn and the compile is done, every
+//! form none of them draws from is let go ([`Forms::forget_unused`],
+//! #1649): a re-roll replaces every item of a seeded Kiez, so the forms of
+//! the one before - their merged meshes, and their materials with the
+//! textures those hold - would otherwise stay, a hundred or so a re-roll.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -144,6 +149,17 @@ impl Forms {
             self.held.remove(&oldest);
         }
         form
+    }
+
+    /// Let go every form no set draws from (#1649), and say how many: a
+    /// form only this keeps is one a re-roll, an edit or a set taken away
+    /// left behind. Its meshes go with it, and its materials, with the
+    /// textures they hold, once no cache keeps them: a prim's material is
+    /// the prim cache's, which the next full compile sweeps.
+    pub(super) fn forget_unused(&mut self) -> usize {
+        let before = self.held.len();
+        self.held.retain(|_, (form, _)| Arc::strong_count(form) > 1);
+        before - self.held.len()
     }
 
     /// How many forms are held.

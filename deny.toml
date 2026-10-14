@@ -48,6 +48,17 @@ ignore = [
     "RUSTSEC-2026-0098",
     "RUSTSEC-2026-0099",
     "RUSTSEC-2026-0104",
+    # Two in rustls itself on the same 0.21.12 path, fixed only in 0.23.46
+    # (the copy reqwest and webrtc use takes that fix; this one cannot).
+    # Neither reaches this client. 0346: the client session values' derived
+    # Debug prints the resumption secret, but only a custom session store
+    # formats them, and nothing on the path - nor this repo - implements one.
+    # 0349: a forged ServerHello can steer later handshakes off a
+    # post-quantum group, and rustls 0.21 has none to lose (X25519, P-256
+    # and P-384 only). Native only: rustls 0.21 is not in the wasm graph.
+    # Found by #1650; delete them with the three above when #1178 reopens.
+    "RUSTSEC-2026-0346",
+    "RUSTSEC-2026-0349",
     # bincode 1.3.3 is unmaintained by the authors' explicit decision rather
     # than through neglect - they consider 1.3.3 complete and finished. It
     # reaches us as the multiuser/matchbox wire codec, where replacing it

@@ -120,7 +120,10 @@ pub const RUNTIME_TEXTURE_CACHE_MISS_COUNT: &str = "runtime.texture_cache.miss_c
 /// *across* full rebuilds, since that is the boundary where everything
 /// unreferenced should have been released (#921).
 pub const RUNTIME_FULL_REBUILD_COUNT: &str = "runtime.full_rebuild.count";
-/// `Assets<Image>` handle count sampled once per completed full rebuild.
+/// `Assets<Image>` handle count sampled once per completed full rebuild -
+/// once the instance builder has drawn the room's sets and let go of the
+/// forms none of them draws from (#1649), as a re-roll's new Kiez bakes for
+/// seconds after the compile ends and the last one's forms go only then.
 ///
 /// The #919 lesson, made a signal: a leak is distinguished from legitimate
 /// load not by any threshold on the value but by the count **never falling

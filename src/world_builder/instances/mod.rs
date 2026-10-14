@@ -17,7 +17,9 @@
 //!    near form, one mesh per material, and a far form, a 1 m voxel shell
 //!    ([`bake`]), and the template despawned. The forms are kept by the
 //!    generator's content and the variant, so an edit that respawns a set
-//!    grows nothing again.
+//!    grows nothing again; once the room's sets are all drawn, and the
+//!    compile is done, every form none of them draws from is let go
+//!    (#1649), so a re-roll's new Kiez does not keep the last one's.
 //! 3. **Copies**: once every set the room is drawing is baked, the room's
 //!    budgets are shared among them by what their copies need, each copy
 //!    tiered (#1648, below); then each copy as its tier says - near, as its
@@ -120,6 +122,26 @@ impl Default for RoomBudget {
     }
 }
 
+/// When the forms no set draws from are let go (#1649): due once the
+/// room's sets change, and done once the room is drawn, no compile runs, and
+/// both have stayed so a frame - the compile spawns a set's anchor a frame
+/// before its build sees it, and a form let go then would be baked again.
+#[derive(Clone, Copy, Debug, Default)]
+struct Sweep {
+    due: bool,
+    armed: bool,
+}
+
+impl Sweep {
+    /// The room's sets changed: their forms are to be looked over.
+    fn owe(&mut self) {
+        *self = Sweep {
+            due: true,
+            armed: false,
+        };
+    }
+}
+
 /// The sets being drawn, and the forms their variants were baked into.
 #[derive(Resource, Default)]
 pub(crate) struct InstanceBuilds {
@@ -127,6 +149,7 @@ pub(crate) struct InstanceBuilds {
     forms: forms::Forms,
     far_material: Option<Handle<StandardMaterial>>,
     budget: RoomBudget,
+    sweep: Sweep,
 }
 
 impl InstanceBuilds {
@@ -160,6 +183,12 @@ impl InstanceBuilds {
     /// waits for before it takes its picture.
     pub(crate) fn is_idle(&self) -> bool {
         self.builds.iter().all(build::Build::is_done)
+    }
+
+    /// Whether every set is drawn and the forms none of them draws from are
+    /// let go (#1649): what a rebuild's asset marks wait for.
+    pub(crate) fn is_settled(&self) -> bool {
+        self.is_idle() && !self.sweep.due
     }
 
     /// The nearest drawn copy of any set, of those `keep` keeps, whose
@@ -301,7 +330,11 @@ fn start_instance_builds(
     builds
         .forms
         .keep_for_room(room.as_deref().map(|room| room.0.as_str()));
+    let before = builds.builds.len();
     builds.builds.retain(|build| roots.contains(build.root()));
+    if builds.builds.len() != before || !added.is_empty() {
+        builds.sweep.owe();
+    }
     if added.is_empty() {
         return;
     }
@@ -408,14 +441,28 @@ fn spawn_instances(
             }
         }
     }
+    let compiling = deps.caches.job.progress().is_some();
     if builds.is_idle() {
+        // Drawn, and drawn still a frame later: the forms no set draws
+        // from are let go (#1649).
+        if !compiling && builds.sweep.due {
+            if builds.sweep.armed {
+                let gone = builds.forms.forget_unused();
+                builds.sweep = Sweep::default();
+                if gone > 0 {
+                    info!("instances: let go of {gone} forms no set draws from");
+                }
+            } else {
+                builds.sweep.armed = true;
+            }
+        }
         return;
     }
+    builds.sweep.armed = false;
     // The sets baked wait until the room's last is - and the compile has
     // spawned every set's anchor, so no set is still to come: then the
     // room is shared by what they all need, and every waiting set draws
     // (#1648).
-    let compiling = deps.caches.job.progress().is_some();
     if !compiling
         && builds.builds.iter().any(build::Build::is_ready)
         && !builds.builds.iter().any(build::Build::is_growing)
@@ -1020,6 +1067,84 @@ mod tests {
         assert_eq!(diagnostics.variant_failure(0, 0), None);
         let failure = diagnostics.variant_failure(0, 1).expect("it says why");
         assert!(failure.contains("derivation"), "{failure}");
+    }
+
+    /// #1649: a re-roll leaves nothing of the sets it replaced. Each re-roll
+    /// gives the set an item drawn otherwise (as a new Kiez's every item
+    /// is) and the compile a new anchor; once the room is drawn again, the
+    /// forms of the item before - its merged meshes and their materials -
+    /// are let go, so the room's meshes and materials stay where one item's
+    /// put them, however many re-rolls.
+    #[test]
+    fn a_re_roll_leaves_no_forms_of_the_sets_it_replaced() {
+        let mut app = instances_app(vec![vec![
+            InstanceCopy::at(0.0, 0.0, 0.0),
+            InstanceCopy::at(5.0, 0.0, 0.0),
+        ]]);
+        let mut root = anchor(&mut app, 0);
+        run_to_idle(&mut app);
+        let held = |app: &mut App| {
+            for _ in 0..3 {
+                app.update();
+            }
+            let world = app.world();
+            (
+                world.resource::<InstanceBuilds>().forms.len(),
+                world.resource::<Assets<Mesh>>().len(),
+                world.resource::<Assets<StandardMaterial>>().len(),
+            )
+        };
+        let first = held(&mut app);
+        assert_eq!(first.0, 1, "one item, one form");
+        for roll in 1..=3 {
+            {
+                let mut record = app.world_mut().resource_mut::<LiveRoomRecord>();
+                let post = record.0.generators.get_mut("post").expect("the item");
+                post.transform.translation = crate::pds::Fp3([0.0, roll as f32, 0.0]);
+            }
+            app.world_mut().entity_mut(root).despawn();
+            root = anchor(&mut app, 0);
+            run_to_idle(&mut app);
+            assert_eq!(held(&mut app), first, "after re-roll {roll}");
+        }
+    }
+
+    /// #1649: a set the compile takes down and spawns again, as an edit to
+    /// it does, draws from the forms it was drawn from: none is let go while
+    /// the compile runs, though no set is drawn in between, so no template
+    /// is grown again.
+    #[test]
+    fn a_set_respawned_while_the_compile_runs_bakes_nothing_again() {
+        let mut app = instances_app(vec![vec![InstanceCopy::at(0.0, 0.0, 0.0)]]);
+        let first = anchor(&mut app, 0);
+        run_to_idle(&mut app);
+        app.insert_resource(crate::world_builder::compile::CompileJob::running());
+        app.world_mut().entity_mut(first).despawn();
+        for _ in 0..5 {
+            app.update();
+        }
+        assert_eq!(
+            app.world().resource::<InstanceBuilds>().forms.len(),
+            1,
+            "kept while the compile runs"
+        );
+        // The compile done the frame before the new anchor shows: the room
+        // idle and nothing compiling for one frame, which only arms the
+        // sweep.
+        app.insert_resource(crate::world_builder::compile::CompileJob::default());
+        app.update();
+        let second = anchor(&mut app, 0);
+        app.update();
+        let world = app.world_mut();
+        let hidden = world.get::<Children>(second).map_or(0, |children| {
+            children
+                .iter()
+                .filter(|child| world.get::<Visibility>(*child) == Some(&Visibility::Hidden))
+                .count()
+        });
+        assert_eq!(hidden, 0, "no template grown again");
+        run_to_idle(&mut app);
+        assert_eq!(app.world().resource::<InstanceBuilds>().forms.len(), 1);
     }
 
     /// A second set of the same generator draws from the forms the first

@@ -118,7 +118,16 @@ struct CacheGauges<'w> {
     prim_mesh: Option<Res<'w, crate::world_builder::prim_cache::PrimMeshCache>>,
     prim_material: Option<Res<'w, crate::world_builder::prim_cache::PrimMaterialCache>>,
     texture: Option<Res<'w, bevy_symbios_texture::TextureCache>>,
+    /// The instance builder, whose baked forms hold handles until the
+    /// room's sets are drawn and it lets go of the rest (#1649): a
+    /// rebuild's marks wait for that.
+    instances: Option<Res<'w, crate::world_builder::instances::InstanceBuilds>>,
 }
+
+/// The most scrapes a rebuild's marks wait for the instance builder to
+/// settle (#1649): about half a minute, past which a world whose sets do
+/// not finish still leaves its marks.
+const MARK_PATIENCE_SCRAPES: u32 = 30;
 
 /// The asset registries whose handle counts the scraper gauges - bundled to
 /// keep `scrape_bevy_diagnostics` under clippy's parameter ceiling.
@@ -187,8 +196,9 @@ fn scrape_bevy_diagnostics(
     caches: CacheGauges<'_>,
     mut reg: ResMut<MetricsRegistry>,
     mut hitches: ResMut<FrameHitches>,
-    // Last-seen full-rebuild counter, for the per-rebuild asset marks below.
-    mut last_rebuild_seen: Local<u64>,
+    // Last-seen full-rebuild counter, for the per-rebuild asset marks
+    // below, and how many scrapes the marks have waited on it.
+    mut rebuild_seen: Local<(u64, u32)>,
 ) {
     let read = |p: &DiagnosticPath| {
         store
@@ -271,15 +281,26 @@ fn scrape_bevy_diagnostics(
     // Per-rebuild asset marks (#921): when the executor's full-rebuild
     // counter has advanced since the last scrape, snapshot the handle
     // counts and process memory into the rebuild-anchored mark gauges the
-    // asset-growth rules read. Taken here (≤1 s after completion, after the
-    // spawn commands have applied) rather than inside the executor, which
-    // would sample the asset registries mid-churn. One mark per scrape even
+    // asset-growth rules read. Taken here (after the spawn commands have
+    // applied) rather than inside the executor, which would sample the asset
+    // registries mid-churn - and only once the instance builder has drawn the
+    // room's sets and let go of the forms none of them draws from (#1649): a
+    // re-roll's new Kiez takes seconds to bake, and the last Kiez's forms go
+    // only then, so a mark taken sooner reads both. One mark per scrape even
     // if two rebuilds landed inside the second - the rules compare
     // rebuild-boundary states, and the latest boundary is the one that
     // reflects what was actually released.
     let rebuilds = reg.counter_value(names::RUNTIME_FULL_REBUILD_COUNT);
-    if rebuilds > *last_rebuild_seen {
+    let settled = caches
+        .instances
+        .as_deref()
+        .is_none_or(crate::world_builder::instances::InstanceBuilds::is_settled);
+    let (last_rebuild_seen, waited) = &mut *rebuild_seen;
+    if rebuilds > *last_rebuild_seen && !settled && *waited < MARK_PATIENCE_SCRAPES {
+        *waited += 1;
+    } else if rebuilds > *last_rebuild_seen {
         *last_rebuild_seen = rebuilds;
+        *waited = 0;
         reg.observe_gauge(
             names::RUNTIME_REBUILD_IMAGE_HANDLES,
             assets.images.len() as f64,
@@ -749,6 +770,40 @@ mod tests {
             reg.gauge_latest(names::AUDIO_SPATIAL_HELD_BACK_VOICES),
             Some(3.0)
         );
+    }
+
+    /// #1649: a rebuild's asset marks wait until the instance builder has
+    /// drawn the room's sets and let go of the forms none of them draws
+    /// from: taken while a set is still being drawn, they would read the
+    /// last world's forms beside the new one's.
+    #[test]
+    fn a_rebuilds_marks_wait_for_the_instance_sets_to_settle() {
+        use crate::world_builder::instances::test_support::{anchor, instances_app, run_to_idle};
+        let mut app = instances_app(vec![vec![crate::pds::InstanceCopy::at(0.0, 0.0, 0.0)]]);
+        app.init_resource::<MetricsRegistry>()
+            .init_resource::<FrameHitches>()
+            .init_resource::<bevy::diagnostic::DiagnosticsStore>()
+            .add_systems(Update, scrape_bevy_diagnostics);
+        // The set's anchor spawned, as a full rebuild spawns it, and the
+        // rebuild counted while the set is still being drawn.
+        anchor(&mut app, 0);
+        app.update();
+        app.world_mut()
+            .resource_mut::<MetricsRegistry>()
+            .incr(names::RUNTIME_FULL_REBUILD_COUNT);
+        app.update();
+        let mark = |app: &App| {
+            app.world()
+                .resource::<MetricsRegistry>()
+                .gauge_latest(names::RUNTIME_REBUILD_MESH_HANDLES)
+        };
+        assert_eq!(mark(&app), None, "the set is still being drawn");
+        run_to_idle(&mut app);
+        for _ in 0..3 {
+            app.update();
+        }
+        let meshes = app.world().resource::<Assets<Mesh>>().len() as f64;
+        assert_eq!(mark(&app), Some(meshes), "taken once the room settled");
     }
 
     #[test]
