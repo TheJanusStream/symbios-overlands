@@ -49,8 +49,7 @@ pub(super) fn start_terrain_generation(
         .and_then(crate::pds::GeoSource::berlin_square)
     {
         if let Some(fetcher) = fetcher.as_deref_mut() {
-            let saved = super::geo::layers::saved_hashes(record.0.geo_source.as_ref());
-            commands.insert_resource(super::geo::start(fetcher, square, &cfg, now, source, saved));
+            commands.insert_resource(super::geo::start(fetcher, square, &cfg, now, source));
             return;
         }
         warn!("no geodata fetcher in this app - drawing the region's terrain from its seed");

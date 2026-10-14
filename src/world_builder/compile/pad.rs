@@ -210,7 +210,7 @@ pub(super) fn relocate_snapped_anchor(
 /// and Berlin's ground where there is one (#1589).
 ///
 /// The editor's reading of the anchor, for the sites in the module docs'
-/// "Where it stands" (#1399) - and the derived stage's, which keeps
+/// "Where it stands" (#1399) - and the Berlin seeder's (#1647), which keeps
 /// Berlin's buildings clear of where a seeded gate stands, not of where its
 /// record put it.
 pub(crate) fn snapped_absolute_anchor(

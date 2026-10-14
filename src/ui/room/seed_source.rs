@@ -13,10 +13,9 @@
 //! engaged builds the new seed's room on the ground the room has now - the
 //! exact square in its record, which the owner may have drawn, moved or
 //! resized in the Region source section, or its procedural terrain - and the
-//! two source axes, which it overrides, are released. The owner's edits
-//! over Berlin's items (#1590) are not kept: a re-roll replaces everything
-//! the world holds, the copies of the items made its own with it, and a
-//! removed item is drawn again.
+//! two source axes, which it overrides, are released. What the square
+//! seeded is not kept (#1647): a re-roll replaces everything the world
+//! holds, and the square is seeded anew for the new room.
 
 use bevy_egui::egui;
 use geodata::berlin::{Borough, Coverage};
@@ -144,7 +143,7 @@ impl SourceRow {
 
     /// The ground a re-roll from `seed` builds on: the room's own while the
     /// square is locked, else the seed's draw. The record's source is kept
-    /// under the lock without its edits, another dataset's square included;
+    /// under the lock unseeded (#1647), another dataset's square included;
     /// this build draws only Berlin's.
     pub(crate) fn reroll_source(&self, seed: u64, record: &RoomRecord) -> RerollSource {
         if self.keep_square {
@@ -153,7 +152,7 @@ impl SourceRow {
                     .geo_source
                     .as_ref()
                     .and_then(GeoSource::berlin_square),
-                kept: Some(record.geo_source.as_ref().map(GeoSource::without_edits)),
+                kept: Some(record.geo_source.as_ref().map(GeoSource::unseeded)),
             }
         } else {
             RerollSource {
@@ -235,20 +234,18 @@ mod tests {
         assert_eq!(three.berlin, RegionSource::for_seed(3).berlin_square());
         assert!(three.berlin.is_some() && three.kept.is_none());
         assert_eq!(row.reroll_source(0, &record).berlin, None);
-        // Locked: the room's own square, whatever the seed draws - without
-        // the owner's edits, which the re-roll replaces.
+        // Locked: the room's own square, whatever the seed draws - unseeded,
+        // as the re-roll replaces what was seeded (#1647).
         row.keep_square = true;
         let kept = row.reroll_source(0, &record);
         assert_eq!(kept.berlin, Some(square));
         assert_eq!(kept.kept, Some(record.geo_source.clone()));
-        let mut edited = record.clone();
-        if let Some(source) = edited.geo_source.as_mut() {
-            source
-                .set_edit("tree:1", crate::pds::geo_source::Edit::Removed)
-                .unwrap();
+        let mut seeded = record.clone();
+        if let Some(source) = seeded.geo_source.as_mut() {
+            source.seeded = Some(7);
         }
         assert_eq!(
-            row.reroll_source(0, &edited).kept,
+            row.reroll_source(0, &seeded).kept,
             Some(record.geo_source.clone())
         );
         // Another dataset's square is kept as it is, and drawn procedurally.

@@ -13,13 +13,13 @@
 //! racks. Each item takes one of its kind's matches by its own survey id,
 //! so it is the same prop on every visit.
 //!
-//! The [`MAX_FURNITURE`] nearest the landing are drawn, each turned to its
-//! street as
-//! the street level reads it, cut at the player's draw distance as ground
-//! cover is. A prop whose working side is not its front is turned to suit
-//! ([`ARM_ON_X`]): a street lamp reaches its arm over the carriageway. A
-//! pole - a lamp, a sign, a bollard - stands on a post of its own; the rest
-//! on their boxes.
+//! Every item is seeded (#1636, decision 9), each turned to its street as
+//! the street level reads it, the nearest the landing first, so a cap on
+//! the copies a room holds keeps those. A prop whose working side is not
+//! its front is turned to suit ([`ARM_ON_X`]): a street lamp reaches its
+//! arm over the carriageway. A walker meets a pole - a lamp, a sign, a
+//! bollard - as its post ([`crate::pds::InstanceSolid::Trunk`]), the rest
+//! as their boxes.
 
 use std::collections::HashMap;
 
@@ -31,16 +31,9 @@ use crate::seeded_defaults::fnv1a_64;
 use crate::terrain::geo::street_level::CoreFurniture;
 use crate::terrain::lots::scale_e4;
 
-use super::super::fit::{RoomScene, cache_key, fitted, footing, radius, sized_pool};
-use super::super::plan::{Grow, Plan, PlannedBuilding, PlannedCopy, Policy, Solid};
-use super::super::{SourceId, SourceLayer};
+use super::super::fit::{RoomScene, fitted, footing, radius, sized_pool};
+use super::super::plan::{Grow, Plan, PlannedBuilding, PlannedCopy, Solid};
 use super::Kept;
-
-/// The most items drawn, nearest first.
-pub(crate) const MAX_FURNITURE: usize = 1_500;
-
-/// The most entities the items may be: a merged prop is a few.
-pub(crate) const FURNITURE_ENTITY_BUDGET: u32 = 4_000;
 
 /// The salt of the furniture's own picks.
 const STREAM_SALT: u64 = 0xF0A7_5EA7_B011_D1E5;
@@ -98,13 +91,11 @@ pub(crate) const fn reach_of(kind: FurnitureKind) -> f32 {
     }
 }
 
-/// What an item of `kind` stands on: a pole on a post its own width, the
-/// rest on their boxes.
+/// What a walker meets of an item of `kind`: a pole's post, the rest's
+/// boxes.
 const fn solid_of(kind: FurnitureKind) -> Solid {
     match kind {
-        FurnitureKind::Lamp => Solid::Trunk(0.12),
-        FurnitureKind::Sign => Solid::Trunk(0.06),
-        FurnitureKind::Bollard => Solid::Trunk(0.1),
+        FurnitureKind::Lamp | FurnitureKind::Sign | FurnitureKind::Bollard => Solid::Trunk,
         _ => Solid::Box,
     }
 }
@@ -145,29 +136,22 @@ pub(crate) fn plan(
     let (_, character) = room.theme();
     let found = matches_for(room);
     let mut plan = Plan {
-        label: "core furniture",
-        policy: Policy {
-            near_entities: FURNITURE_ENTITY_BUDGET,
-            far_copies: 0,
-            cut: true,
-        },
         buildings: Vec::new(),
         copies: Vec::new(),
         did: room.did.clone(),
         character,
         seed: room.seed ^ STREAM_SALT,
     };
-    let mut by_key: HashMap<(&'static str, i64), usize> = HashMap::new();
-    // Nearest the landing first: the cap keeps those.
+    // A prop's copies of one size and one solid share a building: a set
+    // has one solid.
+    let mut by_key: HashMap<(&'static str, i64, Solid), usize> = HashMap::new();
+    // Nearest the landing first: a cap keeps those.
     let mut nearest: Vec<&CoreFurniture> = furniture.iter().collect();
     nearest.sort_by(|a, b| {
         kept.landing_distance2(a.x, a.z)
             .total_cmp(&kept.landing_distance2(b.x, b.z))
     });
     for item in nearest {
-        if plan.copies.len() == MAX_FURNITURE {
-            break;
-        }
         let Some(choices) = found.get(&item.kind).filter(|choices| !choices.is_empty()) else {
             continue;
         };
@@ -176,14 +160,11 @@ pub(crate) fn plan(
         if !kept.clear(item.x, item.z, reach) {
             continue;
         }
-        let key = (entry.slug(), scale_e4(scale));
+        let solid = solid_of(item.kind);
+        let key = (entry.slug(), scale_e4(scale), solid);
         let building = *by_key.entry(key).or_insert_with(|| {
-            plan.buildings.push(PlannedBuilding::new(
-                entry,
-                scale,
-                Grow::Built,
-                cache_key("core/furniture", key.0, key.1),
-            ));
+            plan.buildings
+                .push(PlannedBuilding::new(entry, scale, Grow::Built, solid));
             plan.buildings.len() - 1
         });
         let y = footing(item.x, item.z, reach.min(1.0), ground);
@@ -194,12 +175,9 @@ pub(crate) fn plan(
         };
         plan.copies.push(PlannedCopy {
             building,
-            pose: Transform::from_xyz(item.x, y, item.z)
-                .with_rotation(Quat::from_rotation_y(item.yaw + turn)),
-            near: true,
-            source: SourceId::new(SourceLayer::Furniture, item.id.clone()),
+            at: Vec3::new(item.x, y, item.z),
+            yaw: item.yaw + turn,
             height: None,
-            solid: solid_of(item.kind),
         });
     }
     plan
@@ -279,21 +257,23 @@ mod tests {
             &kept,
             &|_, _| 30.0,
         );
-        assert!(plan.policy.cut && plan.policy.far_copies == 0);
-        // Nearest the landing first, which the cap keeps.
-        let from_landing =
-            |c: &PlannedCopy| kept.landing_distance2(c.pose.translation.x, c.pose.translation.z);
+        // Nearest the landing first, which a cap keeps.
+        let from_landing = |c: &PlannedCopy| kept.landing_distance2(c.at.x, c.at.z);
         assert!(
             plan.copies
                 .windows(2)
                 .all(|w| from_landing(&w[0]) <= from_landing(&w[1]))
         );
-        assert!(!plan.copies.is_empty() && plan.copies.len() <= MAX_FURNITURE);
-        let by_id: HashMap<&str, &CoreFurniture> =
-            level.furniture.iter().map(|f| (&*f.id, f)).collect();
+        assert!(!plan.copies.is_empty());
+        // Each item by where it stands: none shares its point with another.
+        let at = |x: f32, z: f32| (x.to_bits(), z.to_bits());
+        let by_at: HashMap<(u32, u32), &CoreFurniture> =
+            level.furniture.iter().map(|f| (at(f.x, f.z), f)).collect();
+        assert_eq!(by_at.len(), level.furniture.len(), "an item to a point");
+        let item_of = |copy: &PlannedCopy| by_at[&at(copy.at.x, copy.at.z)];
         let mut lamps = 0;
         for copy in &plan.copies {
-            let item = by_id[&*copy.source.key];
+            let item = item_of(copy);
             let planned = &plan.buildings[copy.building];
             assert!(
                 matches(item.kind, planned.entry.slug()),
@@ -301,16 +281,16 @@ mod tests {
                 planned.entry.slug()
             );
             assert!(radius(planned.entry) * planned.scale <= reach_of(item.kind) + 1e-4);
-            assert_eq!(copy.solid, solid_of(item.kind));
+            assert_eq!(planned.solid, solid_of(item.kind));
             let front = Quat::from_rotation_y(item.yaw) * Vec3::NEG_Z;
             if planned.entry.slug() == "street_lamp" {
                 lamps += 1;
                 // Its arm (+X) over the carriageway, where its front would
                 // have looked.
-                let arm = copy.pose.rotation * Vec3::X;
+                let arm = copy.pose().rotation * Vec3::X;
                 assert!(arm.distance(front) < 1e-4, "{arm} vs {front}");
             } else {
-                let looks = copy.pose.rotation * Vec3::NEG_Z;
+                let looks = copy.pose().rotation * Vec3::NEG_Z;
                 assert!(
                     looks.distance(front) < 1e-4,
                     "{}: {looks} vs {front}",
@@ -319,11 +299,16 @@ mod tests {
             }
         }
         assert!(lamps > 100, "{lamps} street lamps");
-        // A kind the theme has no prop for is left out, not drawn as another.
+        // A kind the theme has no prop for is left out, not drawn as another;
+        // every other item clear of the landing is drawn, however many
+        // (decision 9 on #1636).
         let found = matches_for(&RoomScene::for_did(&did));
+        let drawn: Vec<&str> = plan.copies.iter().map(|c| &*item_of(c).id).collect();
         for item in &level.furniture {
             if found[&item.kind].is_empty() {
-                assert!(plan.copies.iter().all(|c| *c.source.key != *item.id));
+                assert!(!drawn.contains(&&*item.id), "{}", item.id);
+            } else if kept.clear(item.x, item.z, reach_of(FurnitureKind::Shelter)) {
+                assert!(drawn.contains(&&*item.id), "{} left out", item.id);
             }
         }
     }

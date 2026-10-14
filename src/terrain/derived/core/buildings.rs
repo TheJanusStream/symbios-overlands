@@ -49,9 +49,9 @@
 //! an estate's run along the footprint's longest edge, as its slabs turn
 //! their long sides to their lawns, not along its street front.
 //!
-//! Every copy stands on its building's voxel shell as a collider, and the
-//! nearest the landing are drawn near: past the plan's entity budget a copy
-//! is drawn as that shell.
+//! A walker meets every copy as its building's voxel shell
+//! ([`crate::pds::InstanceSolid::Shell`]). The copies nearest the landing
+//! come first, so a cap on the copies a room holds keeps those.
 
 use std::collections::HashMap;
 
@@ -67,14 +67,12 @@ use crate::terrain::geo::street_level::{CoreBuilding, centroid, contains, yaw_to
 use crate::terrain::lots::{FOUNDATION_SINK_M, fitted_scale, scale_e4};
 
 use super::super::fit::{
-    RoomScene, SCALE_MIN, cache_key, footing, pick_landmark, pick_ranked, radius, sized_pool,
-    street_cache_key,
+    RoomScene, SCALE_MIN, footing, pick_landmark, pick_ranked, radius, sized_pool,
 };
-use super::super::plan::{Grow, Plan, PlannedBuilding, PlannedCopy, Policy, Solid};
+use super::super::plan::{Grow, Plan, PlannedBuilding, PlannedCopy, Solid};
 use super::super::streets::{
     self, STREET_VARIANTS, StreetKey, Streets, depth_for, frontage_for, kind_of, smaller,
 };
-use super::super::{SourceId, SourceLayer};
 use super::Kept;
 
 /// The most landmarks the walkable ground draws.
@@ -126,17 +124,10 @@ const COVER_SHARE: f32 = 0.5;
 /// of it lies on its footprint.
 const LAND_SAMPLES: usize = 8;
 
-/// The most street templates the plan grows (#1598,
-/// [`streets::template`]): each a tree, its merged meshes and its shell,
-/// grown and baked before its first copy stands.
+/// The most street templates the plan draws (#1598,
+/// [`streets::template`]): each a variant of its kind's set, which the
+/// instance builder grows, merges and shells on its own (#1643).
 pub(crate) const MAX_STREET_TEMPLATES: usize = 96;
-
-/// The most entities the near copies may be; a near copy past it is drawn
-/// as its shell.
-pub(crate) const CORE_ENTITY_BUDGET: u32 = 12_000;
-
-/// The most shells the plan draws.
-pub(crate) const CORE_FAR_COPIES: usize = 3_000;
 
 /// The salt of the buildings' own random stream.
 const STREAM_SALT: u64 = 0xA1C1_5B01_D1E5_0002;
@@ -297,7 +288,8 @@ pub(crate) struct OrientedBox {
 
 /// The box along `outline`'s longest edge.
 pub(crate) fn oriented_box(outline: &[(f32, f32)]) -> Option<OrientedBox> {
-    let edge = edges(outline).max_by(|a, b| a.0.hypot(a.1).total_cmp(&b.0.hypot(b.1)))?;
+    let edge =
+        edges(outline).max_by(|a, b| libm::hypotf(a.0, a.1).total_cmp(&libm::hypotf(b.0, b.1)))?;
     box_along(outline, edge)
 }
 
@@ -314,11 +306,11 @@ pub(crate) fn street_box(outline: &[(f32, f32)], street_yaw: f32) -> Option<Orie
     let to_street = (-libm::sinf(street_yaw), -libm::cosf(street_yaw));
     edges(outline)
         .filter(|e| {
-            let length = e.0.hypot(e.1);
+            let length = libm::hypotf(e.0, e.1);
             length > 1e-3
                 && (e.0 * to_street.0 + e.1 * to_street.1).abs() <= FRONT_SKEW_SIN * length
         })
-        .max_by(|a, b| a.0.hypot(a.1).total_cmp(&b.0.hypot(b.1)))
+        .max_by(|a, b| libm::hypotf(a.0, a.1).total_cmp(&libm::hypotf(b.0, b.1)))
         .map_or_else(|| oriented_box(outline), |edge| box_along(outline, edge))
 }
 
@@ -331,7 +323,7 @@ fn edges(outline: &[(f32, f32)]) -> impl Iterator<Item = (f32, f32)> + '_ {
 
 /// The box of `outline` along `edge`'s direction.
 fn box_along(outline: &[(f32, f32)], edge: (f32, f32)) -> Option<OrientedBox> {
-    let length = edge.0.hypot(edge.1);
+    let length = libm::hypotf(edge.0, edge.1);
     if length < 1e-3 {
         return None;
     }
@@ -565,16 +557,17 @@ fn landed_area(building: &CoreBuilding, slot: &Slot) -> (f32, f32) {
         return (0.0, 0.0);
     };
     let (width, depth) = (fit.frontage_m() * slot.scale, fit.depth_m() * slot.scale);
-    let turn = Quat::from_rotation_y(slot.yaw);
-    let along = turn * Vec3::X;
-    let back = turn * Vec3::Z;
+    // Its local +X and +Z turned by its yaw, through libm (#1132): what
+    // lands decides what is seeded into the record.
+    let (sin, cos) = (libm::sinf(slot.yaw), libm::cosf(slot.yaw));
+    let (along, back) = ((cos, -sin), (sin, cos));
     let n = LAND_SAMPLES;
     let step = |i: usize| (i as f32 + 0.5) / n as f32 - 0.5;
     let on = (0..n)
         .flat_map(|i| (0..n).map(move |j| (step(i), step(j))))
         .filter(|&(u, v)| {
-            let x = slot.at.0 + along.x * u * width + back.x * v * depth;
-            let z = slot.at.1 + along.z * u * width + back.z * v * depth;
+            let x = slot.at.0 + along.0 * u * width + back.0 * v * depth;
+            let z = slot.at.1 + along.1 * u * width + back.1 * v * depth;
             contains(&building.outline, (x, z))
         })
         .count();
@@ -797,7 +790,7 @@ pub(crate) fn plan(
         let c = centroid(&building.outline);
         let apart = landmark_at
             .iter()
-            .all(|&(x, z)| (x - c.0).hypot(z - c.1) >= LANDMARK_SPACING_M);
+            .all(|&(x, z)| libm::hypotf(x - c.0, z - c.1) >= LANDMARK_SPACING_M);
         if !apart {
             continue;
         }
@@ -818,12 +811,6 @@ pub(crate) fn plan(
     }
 
     let mut plan = Plan {
-        label: "core buildings",
-        policy: Policy {
-            near_entities: CORE_ENTITY_BUDGET,
-            far_copies: CORE_FAR_COPIES,
-            cut: false,
-        },
         buildings: Vec::new(),
         copies: Vec::new(),
         did: room.did.clone(),
@@ -873,7 +860,7 @@ pub(crate) fn plan(
                             slot.entry,
                             slot.scale,
                             Grow::Built,
-                            cache_key("core", key.0, key.1),
+                            Solid::Shell,
                         ));
                         plan.buildings.len() - 1
                     })
@@ -887,8 +874,8 @@ pub(crate) fn plan(
                     // A shallower template keeps its front on the street
                     // line: it stands back from where the wanted one would.
                     let back = (fit.depth_m() - key.1.depth_m()) * slot.scale / 2.0;
-                    let front = Quat::from_rotation_y(slot.yaw) * Vec3::NEG_Z;
-                    (x, z) = (x + front.x * back, z + front.z * back);
+                    let front = (-libm::sinf(slot.yaw), -libm::cosf(slot.yaw));
+                    (x, z) = (x + front.0 * back, z + front.1 * back);
                     *by_street.entry(key).or_insert_with(|| {
                         street_keys.push(key);
                         let (_, fit, variant, _) = key;
@@ -896,7 +883,7 @@ pub(crate) fn plan(
                             slot.entry,
                             slot.scale,
                             Grow::Street { fit, variant },
-                            street_cache_key("core", key),
+                            Solid::Shell,
                         ));
                         plan.buildings.len() - 1
                     })
@@ -906,17 +893,14 @@ pub(crate) fn plan(
             let y = footing(x, z, reach, ground) - FOUNDATION_SINK_M;
             plan.copies.push(PlannedCopy {
                 building: index,
-                pose: Transform::from_xyz(x, y, z).with_rotation(Quat::from_rotation_y(slot.yaw)),
-                near: true,
-                source: SourceId::new(SourceLayer::Building, building.id.clone()),
+                at: Vec3::new(x, y, z),
+                yaw: slot.yaw,
                 height: None,
-                solid: Solid::Shell,
             });
         }
     }
-    // Nearest the landing first: the near budget keeps those.
-    let from_landing =
-        |c: &PlannedCopy| kept.landing_distance2(c.pose.translation.x, c.pose.translation.z);
+    // Nearest the landing first: a cap keeps those.
+    let from_landing = |c: &PlannedCopy| kept.landing_distance2(c.at.x, c.at.z);
     plan.copies
         .sort_by(|a, b| from_landing(a).total_cmp(&from_landing(b)));
     plan
@@ -973,6 +957,15 @@ mod tests {
             street_yaw: yaw_towards(street),
             development: None,
         }
+    }
+
+    /// The footprint among `buildings` that `copy` stands on.
+    fn footprint_of<'a>(
+        buildings: &'a [CoreBuilding],
+        copy: &PlannedCopy,
+    ) -> Option<&'a CoreBuilding> {
+        let at = (copy.at.x, copy.at.z);
+        buildings.iter().find(|b| contains(&b.outline, at))
     }
 
     #[test]
@@ -1512,30 +1505,20 @@ mod tests {
             &kept,
             &|_, _| 30.0,
         );
-        let by_id: HashMap<&str, &CoreBuilding> =
-            level.buildings.iter().map(|b| (&*b.id, b)).collect();
         assert!(plan.copies.len() > level.buildings.len(), "rows of several");
         let mut landmarks: Vec<&CoreBuilding> = Vec::new();
         for copy in &plan.copies {
-            let building = by_id[&*copy.source.key];
+            let (x, z) = (copy.at.x, copy.at.z);
+            let building = footprint_of(&level.buildings, copy)
+                .unwrap_or_else(|| panic!("({x}, {z}) off every footprint"));
             let planned = &plan.buildings[copy.building];
-            let (x, z) = (copy.pose.translation.x, copy.pose.translation.z);
-            assert!(
-                contains(&building.outline, (x, z)),
-                "{} off its footprint",
-                copy.source
-            );
             let reach = planned.reach();
             assert!(
                 (x - landing.0).hypot(z - landing.1) >= super::super::LANDING_CLEAR_M + reach,
                 "{} at the landing",
-                copy.source
+                building.id
             );
-            assert_eq!(copy.source.layer, SourceLayer::Building);
-            assert_eq!(
-                (copy.solid, copy.height, copy.near),
-                (Solid::Shell, None, true)
-            );
+            assert_eq!((planned.solid, copy.height), (Solid::Shell, None));
             if planned.entry.role() == StructureRole::Landmark
                 && !landmarks.iter().any(|b| b.id == building.id)
             {
@@ -1547,7 +1530,7 @@ mod tests {
                 assert!(
                     matches!(planned.grow, Grow::Street { .. }),
                     "{} is no street building",
-                    planned.key
+                    planned.entry.slug()
                 );
             }
         }
@@ -1575,9 +1558,8 @@ mod tests {
                 assert!((ca.0 - cb.0).hypot(ca.1 - cb.1) >= LANDMARK_SPACING_M);
             }
         }
-        // Nearest the landing first, which the near budget keeps.
-        let from_landing =
-            |c: &PlannedCopy| kept.landing_distance2(c.pose.translation.x, c.pose.translation.z);
+        // Nearest the landing first, which a cap keeps.
+        let from_landing = |c: &PlannedCopy| kept.landing_distance2(c.at.x, c.at.z);
         assert!(
             plan.copies
                 .windows(2)
@@ -1590,10 +1572,13 @@ mod tests {
             &kept,
             &|_, _| 30.0,
         );
-        let picks = |p: &Plan| -> Vec<(String, PlannedCopy)> {
+        let picks = |p: &Plan| -> Vec<(&str, f32, Grow, PlannedCopy)> {
             p.copies
                 .iter()
-                .map(|c| (p.buildings[c.building].key.clone(), c.clone()))
+                .map(|c| {
+                    let b = &p.buildings[c.building];
+                    (b.entry.slug(), b.scale, b.grow, c.clone())
+                })
                 .collect()
         };
         assert_eq!(picks(&plan), picks(&again));
@@ -1613,21 +1598,21 @@ mod tests {
                 (0.0, 1.0),
             )
         };
-        let (blocked, open) = (church("first", 0.0, 1.1), church("second", 100.0, 1.0));
+        let churches = [church("first", 0.0, 1.1), church("second", 100.0, 1.0)];
         assert!(
-            landmark_rank(&blocked) < landmark_rank(&open),
+            landmark_rank(&churches[0]) < landmark_rank(&churches[1]),
             "the blocked one comes first"
         );
         let plan = plan(
-            &[blocked, open],
+            &churches,
             &RoomScene::for_did(&did),
-            &Kept::of(None, (0.0, 0.0), None, None),
+            &Kept::of(None, (0.0, 0.0), None),
             &|_, _| 30.0,
         );
         let roles = |id: &str| -> Vec<StructureRole> {
             plan.copies
                 .iter()
-                .filter(|c| &*c.source.key == id)
+                .filter(|c| footprint_of(&churches, c).is_some_and(|b| &*b.id == id))
                 .map(|c| plan.buildings[c.building].entry.role())
                 .collect()
         };
@@ -1658,13 +1643,13 @@ mod tests {
         let plan = plan(
             &level.buildings,
             &RoomScene::for_did(&did),
-            &Kept::of(None, (0.0, 0.0), None, None),
+            &Kept::of(None, (0.0, 0.0), None),
             &|_, _| 30.0,
         );
         let on_it: Vec<&PlannedCopy> = plan
             .copies
             .iter()
-            .filter(|c| c.source.key == cathedral.id)
+            .filter(|c| footprint_of(&level.buildings, c).is_some_and(|b| b.id == cathedral.id))
             .collect();
         assert!(
             !on_it.is_empty(),
@@ -1673,7 +1658,7 @@ mod tests {
         for copy in on_it {
             let planned = &plan.buildings[copy.building];
             assert_eq!(planned.entry.role(), StructureRole::Secondary);
-            let (x, z) = (copy.pose.translation.x, copy.pose.translation.z);
+            let (x, z) = (copy.at.x, copy.at.z);
             assert!(x.hypot(z) >= super::super::LANDING_CLEAR_M + planned.reach());
         }
     }

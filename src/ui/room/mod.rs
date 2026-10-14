@@ -41,7 +41,6 @@
 pub(crate) mod assets;
 pub mod audio;
 pub(crate) mod audio_slots;
-mod berlin_item;
 pub(crate) mod caps;
 pub(crate) mod construct;
 mod contact_effects;
@@ -161,6 +160,11 @@ impl PlacementSort {
     }
 }
 
+/// What the World Editor's cached default is keyed by (#637, #1647): the
+/// room's DID, and the tick its seeded default landed at, where a Berlin
+/// square seeded it.
+type DefaultKey = (String, Option<bevy::ecs::change_detection::Tick>);
+
 /// Persistent editor state kept across frames. Promoted to a `Resource` so
 /// the 3D gizmo controller in `editor_gizmo` can observe which placement the
 /// owner has selected in the UI panel.
@@ -208,11 +212,6 @@ pub struct RoomEditorState {
     /// a GUI-originated selection (tree row click) naturally falls back
     /// to camera proximity without anyone having to clear this.
     pub preferred_pick: Option<PreferredPick>,
-    /// The Berlin item a scene click picked (#1590): one of the walkable
-    /// ground's buildings, trees or items of street furniture, which the
-    /// editor names and offers to remove or make the world's own. No gizmo
-    /// selection - none of it is in the record.
-    pub(crate) derived_pick: crate::terrain::derived::edit::DerivedPick,
     /// The copy of an instance set a scene click, or its row in the set's
     /// table, picked (#1644): `(placement, copy)`. It names a copy only
     /// while that set is the selected placement ([`Self::picked_copy`]);
@@ -253,14 +252,16 @@ pub struct RoomEditorState {
     /// record - the Avatar editor asked first since #840; the room did
     /// not.
     publish_guard: crate::ui::confirm::ConfirmState<()>,
-    /// Cached seeded-default record, keyed by the DID it was built for (#637).
-    /// `RoomRecord::default_for_did` runs the whole procedural pipeline (9
-    /// derivers, catalogue builds, a mini-settlement, an ambient-audio recipe),
-    /// so build it once per room instead of every frame the editor is open;
-    /// invalidated when the keyed DID changes (portal / logout). The third
-    /// element is the record's serialized form, pre-baked for the per-frame
-    /// `can_reset` comparison (#674).
-    default_cache: Option<(String, pds::RoomRecord, Option<serde_json::Value>)>,
+    /// Cached seeded-default record, keyed by the DID it was built for (#637)
+    /// and, where a Berlin square seeded it (#1647), the tick its seeding
+    /// landed at. `RoomRecord::default_for_did` runs the whole procedural
+    /// pipeline (9 derivers, catalogue builds, a mini-settlement, an
+    /// ambient-audio recipe), so build it once per room instead of every
+    /// frame the editor is open; invalidated when the keyed DID changes
+    /// (portal / logout) or a seeding lands. The third element is the
+    /// record's serialized form, pre-baked for the per-frame `can_reset`
+    /// comparison (#674).
+    default_cache: Option<(DefaultKey, pds::RoomRecord, Option<serde_json::Value>)>,
     /// Serialized form of [`StoredRoomRecord`] for the per-frame dirty check
     /// (#674). Recomputed only when the stored resource changes (fresh fetch,
     /// publish success, room transition), so an open panel serializes just
@@ -326,7 +327,6 @@ impl RoomEditorState {
         self.tree.selection.clear();
         self.tree.view.set_selected(Vec::new());
         self.preferred_pick = None;
-        self.derived_pick.pick(None);
         self.picked_copy = None;
     }
 
@@ -347,7 +347,6 @@ impl RoomEditorState {
         self.tree.selection.clear();
         self.tree.view.set_selected(Vec::new());
         self.preferred_pick = None;
-        self.derived_pick.pick(None);
         self.picked_copy = copy.map(|copy| (placement, copy));
         self.selected_tab = EditorTab::Placements;
     }
@@ -529,9 +528,9 @@ pub struct RoomEditorExtras<'w, 's> {
     /// is several seconds during which the World Editor said nothing at
     /// all and the old mesh stayed on screen.
     terrain_task: Option<Res<'w, crate::terrain::TerrainTask>>,
-    /// A Berlin region's derived plans (#1590): what a picked item's copy
-    /// is made from when the owner makes it the world's own.
-    derived: Option<Res<'w, crate::terrain::derived::DerivedBuilds>>,
+    /// The room's default as a Berlin square seeds it (#1647): what Reset
+    /// to default restores, where it is this room's.
+    seeded_default: Option<Res<'w, crate::terrain::derived::SeededDefault>>,
 }
 
 /// The footer line while a terrain rebuild is in flight (#1249 f63).
@@ -890,7 +889,7 @@ pub fn room_admin_ui(
         players,
         gizmo_focus,
         terrain_task,
-        derived,
+        seeded_default,
         peers,
         mut player_move,
         grammar_diag,
@@ -951,7 +950,6 @@ pub fn room_admin_ui(
         audio_editor,
         reroll,
         seed_source,
-        derived_pick,
         picked_copy,
         recovery_reset_confirm,
         placement_bulk_delete,
@@ -986,18 +984,15 @@ pub fn room_admin_ui(
     // its request here, because it is this level that holds the record's
     // placements, the player's pose and the tab/selection state.
     let mut place_root: Option<String> = None;
-    // The Berlin item panel's request, and the Region source list's
-    // Restore (#1590): performed after the window, where the record is
-    // whole.
-    let mut item_action: Option<berlin_item::ItemAction> = None;
-    let mut restore: Option<String> = None;
-    // The walkable ground's buildings, trees and street furniture, as
-    // Berlin records them: what the panel and the list name items by.
-    let street_level = heightmap
+    // The room's default as a Berlin square seeds it (#1647), where it is
+    // this room's: what Reset to default restores.
+    let default_tick = seeded_default
+        .as_ref()
+        .map(|default| default.last_changed())
+        .unwrap_or_default();
+    let seeded_default = seeded_default
         .as_deref()
-        .and_then(crate::terrain::FinishedHeightMap::ground)
-        .and_then(crate::terrain::geo::GeoGround::street_level)
-        .cloned();
+        .filter(|default| default.did == room_did.0);
 
     {
         // Taken before the bypassing reborrow below, which is what makes
@@ -1120,7 +1115,10 @@ pub fn room_admin_ui(
                             .show(ui.ctx(), "room-recovery-reset")
                             .is_some()
                         {
-                            let default_record = pds::RoomRecord::default_for_did(&room_did.0);
+                            let default_record = seeded_default.map_or_else(
+                                || pds::RoomRecord::default_for_did(&room_did.0),
+                                |default| default.record.clone(),
+                            );
                             *record_mut = default_record.clone();
                             raw.sync_to(&default_record);
                             needs_broadcast = true;
@@ -1150,19 +1148,6 @@ pub fn room_admin_ui(
                             );
                         }
                     });
-                    ui.add_space(6.0);
-                }
-
-                // A Berlin item picked in the world (#1590), whichever tab
-                // is up: none of it belongs to a tab, being no record
-                // content.
-                if let Some(id) = &derived_pick.picked {
-                    item_action = berlin_item::draw_berlin_item(
-                        ui,
-                        id,
-                        street_level.as_deref(),
-                        derived_pick.refused.as_deref(),
-                    );
                     ui.add_space(6.0);
                 }
 
@@ -1449,12 +1434,17 @@ pub fn room_admin_ui(
                         // (the 3D gizmo, an inventory drop) lights the row
                         // up with no explicit `mark_dirty` call. Rebuild the
                         // seeded default only when the room DID changes, not
-                        // every frame (#637) - it's a full procedural build.
+                        // every frame (#637) - it's a full procedural build -
+                        // or when a Berlin square seeds it (#1647).
                         let did = &room_did.0;
-                        if default_cache.as_ref().is_none_or(|(d, _, _)| d != did) {
-                            let default_record = pds::RoomRecord::default_for_did(did);
+                        let key = (did.clone(), seeded_default.map(|_| default_tick));
+                        if default_cache.as_ref().is_none_or(|(k, _, _)| *k != key) {
+                            let default_record = seeded_default.map_or_else(
+                                || pds::RoomRecord::default_for_did(did),
+                                |default| default.record.clone(),
+                            );
                             let default_value = serde_json::to_value(&default_record).ok();
-                            *default_cache = Some((did.clone(), default_record, default_value));
+                            *default_cache = Some((key, default_record, default_value));
                         }
                         let (_, default_record, default_value) =
                             default_cache.as_ref().expect("just populated");
@@ -1608,10 +1598,6 @@ pub fn room_admin_ui(
                                 record_mut.clone(),
                                 room_did.0.clone(),
                                 now,
-                                heightmap
-                                    .as_deref()
-                                    .and_then(crate::terrain::FinishedHeightMap::ground)
-                                    .and_then(crate::terrain::geo::GeoGround::layers),
                             );
                         }
 
@@ -1740,6 +1726,17 @@ pub fn room_admin_ui(
                                     let has_water =
                                         crate::world_builder::compile::room_water_level(record_mut)
                                             .is_some();
+                                    // Whether its square is seeded into it
+                                    // (#1647).
+                                    let seeded = crate::terrain::derived::seed::wanted_mark(
+                                        record_mut,
+                                        &room_did.0,
+                                    )
+                                    .is_none();
+                                    let was_berlin =
+                                        record_mut.geo_source.as_ref().is_some_and(|source| {
+                                            source.dataset == pds::geo_source::BERLIN
+                                        });
                                     environment::draw_environment_tab(
                                         ui,
                                         &mut record_mut.environment,
@@ -1750,13 +1747,20 @@ pub fn room_admin_ui(
                                                 crate::terrain::FinishedHeightMap::ground,
                                             ),
                                             has_water,
+                                            seeded,
                                         },
                                         player_pose,
                                         &mut widget_change,
-                                        &mut restore,
                                         audio_editor,
                                         &mut asset_panel,
                                     );
+                                    // Real Berlin unchecked: what its square
+                                    // seeded goes with it, in the same edit
+                                    // (#1647), rather than stand on the
+                                    // procedural ground that replaces it.
+                                    if was_berlin && record_mut.geo_source.is_none() {
+                                        crate::terrain::derived::seed::unplant(record_mut);
+                                    }
                                 }
                                 EditorTab::Raw => {
                                     raw::draw_raw_tab(
@@ -1776,76 +1780,6 @@ pub fn room_admin_ui(
                     }
                 }
             });
-
-        // The Berlin item panel's edit, and a Restore (#1590). Each is one
-        // whole edit, applied and broadcast at once, as a Load is.
-        if let Some(action) = item_action
-            && let Some(id) = derived_pick.picked.clone()
-        {
-            let now = time.elapsed_secs_f64();
-            let done = match action {
-                berlin_item::ItemAction::Close => {
-                    derived_pick.pick(None);
-                    None
-                }
-                berlin_item::ItemAction::Remove => Some(
-                    crate::terrain::derived::edit::remove(record_mut, &id)
-                        .map(|()| format!("removal of {id}")),
-                ),
-                berlin_item::ItemAction::Adopt => {
-                    Some(match (derived.as_deref(), heightmap.as_deref()) {
-                        (Some(builds), Some(heightmap)) => {
-                            crate::terrain::derived::edit::adopt(
-                                record_mut,
-                                &id,
-                                builds,
-                                &|x, z| heightmap.world_height_at(x, z),
-                            )
-                            .map(|copies| {
-                                toasts.success(
-                            match copies {
-                                1 => "It is this world's own now: its copy is under Placements."
-                                    .to_owned(),
-                                n => format!(
-                                    "It is this world's own now: its copy, {n} placements, is \
-                                     under Placements."
-                                ),
-                            },
-                            now,
-                        );
-                                format!("adoption of {id}")
-                            })
-                        }
-                        _ => Err("Berlin's items are not drawn in this world now.".to_owned()),
-                    })
-                }
-            };
-            match done {
-                Some(Ok(label)) => {
-                    undo_labels
-                        .slot(crate::ui::shortcuts::EditorKind::World)
-                        .set(label);
-                    derived_pick.pick(None);
-                    needs_broadcast = true;
-                }
-                Some(Err(why)) => derived_pick.refused = Some(why),
-                None => {}
-            }
-        }
-        if let Some(id) = restore {
-            match crate::terrain::derived::edit::restore(record_mut, &id) {
-                Ok(()) => {
-                    undo_labels
-                        .slot(crate::ui::shortcuts::EditorKind::World)
-                        .set(format!("restore of {id}"));
-                    // A placement row may have gone with an adopted copy.
-                    *selected_placement = None;
-                    extra_placements.clear();
-                    needs_broadcast = true;
-                }
-                Err(why) => toasts.warn(why, time.elapsed_secs_f64()),
-            }
-        }
 
         // #1239 f81: perform the requested placement. Appending here - not
         // in the tree panel - is what lets it also switch the tab and land

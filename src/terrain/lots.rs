@@ -72,7 +72,7 @@ use crate::seeded_defaults::{
 };
 use crate::state::{CurrentRoomDid, LiveRoomRecord};
 
-use super::{FinishedHeightMap, HeightMapSource};
+use super::{FinishedHeightMap, HeightMapSource, heightmap_is_current};
 
 /// Name prefix for every injected lot building (any layout seed).
 const LOT_PREFIX: &str = "lot_building_";
@@ -1033,13 +1033,6 @@ pub(crate) fn grow_missing_districts(
         }
     }
     planted
-}
-
-/// Whether the heightmap present is the one `record`'s terrain builds: its
-/// [`HeightMapSource`] names the same terrain, or there is none to read (a
-/// heightmap inserted directly, by the render tool or a test).
-fn heightmap_is_current(record: &RoomRecord, source: Option<&HeightMapSource>) -> bool {
-    source.is_none_or(|s| s.0 == super::terrain_source_key(record))
 }
 
 /// Populate the road network's lots with buildings when the heightmap or record

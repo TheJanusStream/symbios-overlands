@@ -6,12 +6,13 @@
 //! block, a depth by its row, a frontage by what is left of the row - rather
 //! than an entry scaled to fit.
 //!
-//! Copies of one street building at one fit, seed and scale share a
-//! template: one tree grown, one set of merged meshes, one shell. A row of
-//! one fit would repeat one house, so each fit is drawn with
-//! [`STREET_VARIANTS`] seeds, neighbours rolled apart - their claddings,
-//! their `Pick`s, their lit windows. The templates a plan grows are held
-//! to a budget ([`template`]): past half of it a copy takes its fit's
+//! Copies of one street building at one fit and seed are one variant of
+//! its kind's instance set (#1646, #1647), which the instance builder
+//! grows, merges and shells once. A row of one fit would repeat one house,
+//! so each fit is drawn with [`STREET_VARIANTS`] seeds, neighbours rolled
+//! apart - their claddings, their `Pick`s, their lit windows. The templates
+//! a plan draws, a fit, a seed and a scale each, are held to a budget
+//! ([`template`]): past half of it a copy takes its fit's
 //! first seed, and past all of it, the template of the same building that
 //! comes nearest without outgrowing its slot - or, where none fits, it is
 //! left out. A plan takes its buildings nearest the landing first, so the

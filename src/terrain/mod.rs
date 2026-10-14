@@ -120,6 +120,16 @@ pub struct FinishedHeightMap(
 #[derive(Resource, Clone, Debug)]
 pub(crate) struct HeightMapSource(pub(crate) Option<String>);
 
+/// Whether the heightmap present is the one `record`'s terrain builds: its
+/// [`HeightMapSource`] names the same terrain, or there is none to read (a
+/// heightmap inserted directly, by the render tool or a test).
+pub(crate) fn heightmap_is_current(
+    record: &crate::pds::RoomRecord,
+    source: Option<&HeightMapSource>,
+) -> bool {
+    source.is_none_or(|s| s.0 == terrain_source_key(record))
+}
+
 /// The key a record's terrain is generated from: its terrain config (the
 /// default one where it has none, as the terrain task falls back to) and its
 /// geodata source's square, as JSON. Equal keys build the same heightmap.
@@ -136,9 +146,8 @@ pub(crate) fn terrain_source_key(record: &crate::pds::RoomRecord) -> Option<Stri
 /// the terrain config and the square of the record's geodata source
 /// (#1584), so switching a region to real Berlin, or moving its square,
 /// builds a new heightmap exactly as a terrain edit does. The rest of the
-/// source is the owner's edits over what stands on the ground and the layer
-/// hashes a save writes (#1590), neither of which moves the ground: an item
-/// removed must not rebuild the city under it.
+/// source is the mark of what was seeded into the record (#1647), which
+/// moves no ground: a seeding must not rebuild the city under it.
 pub(crate) fn terrain_fingerprint(
     cfg: &crate::pds::SovereignTerrainConfig,
     record: &crate::pds::RoomRecord,
@@ -488,16 +497,16 @@ pub(crate) fn register_headless_terrain(app: &mut App) {
 /// Register the street half of [`TerrainPlugin`] that
 /// [`register_headless_terrain`] leaves out: the road re-mesh, its appearance
 /// re-tint, the lot layer that grows buildings along the streets by
-/// writing them into the live record, and a geodata region's derived
-/// content (#1588). The headless render tool's `--world` mode adds this on
-/// top of the terrain chain so a seeded settlement is sheeted with its
-/// streets and its grown district, and a Berlin square with its buildings,
-/// as the game shows them.
+/// writing them into the live record, and the Berlin seeder that writes a
+/// square's buildings, trees and furniture into it (#1647). The headless
+/// render tool's `--world` mode adds this on top of the terrain chain so a
+/// seeded settlement is sheeted with its streets and its grown district,
+/// and a Berlin square with its buildings, as the game shows them.
 ///
 /// The systems are ordered after the heightmap steps exactly as the
 /// plugin orders them, and gated on the record alone - no `AppState` in a
-/// headless app. The derived content spawns through the world builder's
-/// spawn resources, which the `--world` mode registers. Their resources
+/// headless app. What they write into the record is drawn by the world
+/// builder, which the `--world` mode registers. Their resources
 /// are plain defaults: the road pipeline state, the editor's road readout,
 /// the undo signal the lot layer raises and the toast queue it reports
 /// clamps to; nothing reads the last two here, they exist so the systems
@@ -525,16 +534,11 @@ pub(crate) fn register_headless_roads(app: &mut App) {
                     .run_if(resource_exists::<LiveRoomRecord>)
                     .after(heightmap::poll_terrain_task)
                     .after(heightmap::spawn_terrain_mesh),
-                derived::start_derived.after(heightmap::spawn_terrain_mesh),
-                derived::apply_derived_edits
-                    .run_if(
-                        resource_exists::<derived::DerivedBuilds>
-                            .and_then(resource_exists_and_changed::<LiveRoomRecord>),
-                    )
-                    .after(derived::start_derived),
-                derived::spawn_derived
-                    .run_if(derived::derived_spawning)
-                    .after(derived::apply_derived_edits),
+                derived::seed_berlin
+                    .run_if(derived::seeding_due)
+                    .after(heightmap::poll_terrain_task)
+                    .after(heightmap::spawn_terrain_mesh)
+                    .after(lots::maybe_populate_lots),
             ),
         );
 }
@@ -621,26 +625,18 @@ impl Plugin for TerrainPlugin {
                         .run_if(resource_exists::<LiveRoomRecord>)
                         .after(heightmap::poll_terrain_task)
                         .after(heightmap::spawn_terrain_mesh),
-                    // A geodata region's derived content (#1588):
-                    // drawn when its terrain lands, then spawned a slice a
-                    // frame. After the systems that retire a terrain, with
-                    // the sync points the ordering inserts, so a slice never
-                    // hangs an item on a terrain already gone.
-                    derived::start_derived.after(heightmap::spawn_terrain_mesh),
-                    // The owner's edits over it (#1590), as the record
-                    // changes: before the slice, which draws a restored
-                    // copy the frame it is restored.
-                    derived::apply_derived_edits
-                        .run_if(
-                            resource_exists::<derived::DerivedBuilds>
-                                .and_then(resource_exists_and_changed::<LiveRoomRecord>),
-                        )
-                        .after(derived::start_derived)
-                        .after(lifecycle::maybe_regenerate_terrain)
-                        .after(TerrainTeardown),
-                    derived::spawn_derived
-                        .run_if(derived::derived_spawning)
-                        .after(derived::apply_derived_edits)
+                    // A Berlin square seeded into the record (#1647) once
+                    // its street level lands with its heightmap, and again
+                    // when a record changes. After the systems that retire
+                    // a terrain, with the sync points the ordering inserts,
+                    // so a heightmap on its way out seeds nothing; and after
+                    // the lot layer, so lot buildings it grows the same frame
+                    // are kept clear on every client alike.
+                    derived::seed_berlin
+                        .run_if(derived::seeding_due)
+                        .after(heightmap::poll_terrain_task)
+                        .after(heightmap::spawn_terrain_mesh)
+                        .after(lots::maybe_populate_lots)
                         .after(lifecycle::maybe_regenerate_terrain)
                         .after(TerrainTeardown),
                 )
@@ -848,7 +844,6 @@ mod terrain_failure_tests {
             &Default::default(),
             0.0,
             None,
-            Default::default(),
         ));
         assert!(
             !should_start(&mut world),
@@ -859,14 +854,12 @@ mod terrain_failure_tests {
 
 #[cfg(test)]
 mod fingerprint_tests {
-    use crate::pds::geo_source::Edit;
     use crate::pds::{GeoSource, RoomRecord};
 
-    /// The owner's edits over Berlin's items and the save's layer hashes
-    /// (#1590) leave the ground standing; a moved square, or another
-    /// dataset, rebuilds it.
+    /// A seeding's mark (#1647) leaves the ground standing; a moved square,
+    /// or another dataset, rebuilds it.
     #[test]
-    fn edits_and_hashes_keep_the_terrain_and_a_moved_square_rebuilds_it() {
+    fn a_seeding_keeps_the_terrain_and_a_moved_square_rebuilds_it() {
         let square = geodata::GeoSquare {
             min_e: 391_000,
             min_n: 5_819_500,
@@ -875,12 +868,7 @@ mod fingerprint_tests {
         let mut record = RoomRecord::default_for_did("did:plc:print");
         record.geo_source = Some(GeoSource::berlin(square));
         let key = super::terrain_source_key(&record);
-        let source = record.geo_source.as_mut().unwrap();
-        source.set_edit("alkis:A", Edit::Removed).unwrap();
-        source.set_edit("tree:1", Edit::Adopted).unwrap();
-        source
-            .layers
-            .insert("terrain".into(), "0123456789abcdef".into());
+        record.geo_source.as_mut().unwrap().seeded = Some(42);
         assert_eq!(super::terrain_source_key(&record), key);
         let moved = record
             .geo_source

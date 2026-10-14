@@ -30,8 +30,8 @@ use super::{InstanceCopyOf, ROOM_FAR_COPIES, ROOM_NEAR_ENTITIES, strip_for_dista
 /// the crown.
 const TRUNK_M: f32 = 3.0;
 
-/// The narrowest and widest a trunk collider is (m), as the derived stage
-/// bounds a tree's.
+/// The narrowest and widest a trunk collider is (m): a street lamp's post
+/// to an old oak's trunk.
 const TRUNK_RANGE_M: (f32, f32) = (0.08, 0.8);
 
 /// The key the caches file a template's nodes under: no record generator's

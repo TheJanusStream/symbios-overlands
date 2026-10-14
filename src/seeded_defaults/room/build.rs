@@ -98,8 +98,8 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
 /// the procedural.
 ///
 /// On a Berlin square the city is the settlement (owner, 2026-10-09):
-/// Berlin's buildings, drawn in the room's theme by the derived stage,
-/// stand where the seeded settlement would have, its churches and museums
+/// Berlin's buildings, seeded in the room's theme (#1647), stand where the
+/// seeded settlement would have, its churches and museums
 /// the landmarks. The gateway and the owner's monument stand near the
 /// square's middle ([`crate::seeded_defaults::GatewaySpot::at_centre`]),
 /// the landing in front of them; the seeded stands of trees and rocks and

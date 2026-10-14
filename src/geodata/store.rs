@@ -76,24 +76,17 @@ impl GeoStore {
     /// The body kept for `url`, if one is, is younger than [`TTL_SECS`] at
     /// `now` (Unix seconds), and is at most `cap` bytes.
     pub async fn get(&self, url: &str, cap: usize, now: i64) -> Option<Vec<u8>> {
-        self.get_stamped(url, cap, now).await.map(|(body, _)| body)
-    }
-
-    /// [`Self::get`], with when the body was kept (Unix seconds): how old
-    /// the answer is, for a caller that must tell an answer older than a
-    /// save from one fetched since (#1590).
-    pub async fn get_stamped(&self, url: &str, cap: usize, now: i64) -> Option<(Vec<u8>, i64)> {
         match self {
             GeoStore::Off => None,
             #[cfg(not(target_arch = "wasm32"))]
-            GeoStore::Disk(disk) => disk.get(url, cap, now),
+            GeoStore::Disk(disk) => disk.get(url, cap, now).map(|(body, _)| body),
             #[cfg(target_arch = "wasm32")]
             GeoStore::Browser => {
                 let name = browser_cache_name();
                 sweep_browser_epochs_once(&name).await;
                 let (stored, body) = super::store_browser::read(&name, url).await?;
                 if fresh(stored, now) && body.len() <= cap {
-                    Some((body, stored))
+                    Some(body)
                 } else {
                     super::store_browser::remove(&name, url).await;
                     None
@@ -103,7 +96,7 @@ impl GeoStore {
             GeoStore::Memory(map) => {
                 let map = map.lock().unwrap();
                 let (stored, body) = map.get(url)?;
-                (fresh(*stored, now) && body.len() <= cap).then(|| (body.clone(), *stored))
+                (fresh(*stored, now) && body.len() <= cap).then(|| body.clone())
             }
         }
     }
@@ -456,11 +449,6 @@ mod tests {
         assert_eq!(block(store.get(url, 100, NOW)), None);
         block(store.put(url, b"body", NOW));
         assert_eq!(block(store.get(url, 100, NOW + 10)), Some(b"body".to_vec()));
-        // And when it was kept (#1590).
-        assert_eq!(
-            block(store.get_stamped(url, 100, NOW + 10)),
-            Some((b"body".to_vec(), NOW))
-        );
         assert_eq!(block(store.get(url, 3, NOW)), None, "over the cap");
         assert_eq!(
             block(store.get("https://gdi.berlin.de/other", 100, NOW)),

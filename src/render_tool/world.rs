@@ -42,7 +42,7 @@ use crate::pds::RoomRecord;
 use crate::pds::avatar::wardrobe::engine_default_for_seed;
 use crate::pds::avatar::{AttachmentRecord, ResolvedAttachment};
 use crate::state::{CurrentRoomDid, LiveRoomRecord, LocalSettings};
-use crate::terrain::{FinishedHeightMap, RoadPanelStats, SplatApplied};
+use crate::terrain::{FinishedHeightMap, HeightMapSource, RoadPanelStats, SplatApplied};
 use crate::world_builder::WorldCompiled;
 use crate::world_builder::compile::CompileJob;
 
@@ -253,9 +253,12 @@ pub(super) struct WorldReadiness<'w, 's> {
     job: Option<Res<'w, CompileJob>>,
     splat: Option<Res<'w, SplatApplied>>,
     roads: Option<Res<'w, RoadPanelStats>>,
-    /// A geodata region's derived content (#1588), spawning until it is
-    /// idle.
-    derived: Option<Res<'w, crate::terrain::derived::DerivedBuilds>>,
+    /// What a Berlin square's seeding reads (#1647): the record is seeded
+    /// in the frame its heightmap lands, and drawn by the compile after.
+    record: Option<Res<'w, LiveRoomRecord>>,
+    room: Option<Res<'w, CurrentRoomDid>>,
+    heightmap: Option<Res<'w, FinishedHeightMap>>,
+    source: Option<Res<'w, HeightMapSource>>,
     /// The record's instance sets (#1643), drawn over the frames after the
     /// compile until every copy is.
     instances: Option<Res<'w, crate::world_builder::instances::InstanceBuilds>>,
@@ -265,7 +268,7 @@ pub(super) struct WorldReadiness<'w, 's> {
 impl WorldReadiness<'_, '_> {
     /// At least one compile pass has landed, no pass is running, the
     /// ground shows its splat, no road re-mesh or lot re-derive is armed
-    /// or in flight, a geodata region's derived content is spawned, every
+    /// or in flight, a Berlin square is seeded into the record, every
     /// instance set's copies are drawn, and every procedural texture the
     /// compile dispatched has been baked and patched into its material.
     pub(super) fn settled(&self) -> bool {
@@ -273,10 +276,7 @@ impl WorldReadiness<'_, '_> {
             && self.job.as_ref().is_some_and(|j| j.progress().is_none())
             && self.splat.is_some()
             && self.roads.as_ref().is_some_and(|r| !r.pending)
-            && self
-                .derived
-                .as_ref()
-                .is_none_or(|derived| derived.is_idle())
+            && !self.unseeded()
             && self
                 .instances
                 .as_ref()
@@ -284,19 +284,37 @@ impl WorldReadiness<'_, '_> {
             && self.bakes.count() == 0
     }
 
+    /// Whether the record is a Berlin square still to be seeded (#1647):
+    /// one not seeded for its square, its heightmap still to land or about
+    /// to seed it. A heightmap whose street level left a layer out never
+    /// seeds it, so that waits on nothing.
+    fn unseeded(&self) -> bool {
+        let (Some(record), Some(room)) = (&self.record, &self.room) else {
+            return false;
+        };
+        if crate::terrain::derived::seed::wanted_mark(&record.0, &room.0).is_none() {
+            return false;
+        }
+        self.heightmap.as_ref().is_none_or(|heightmap| {
+            !crate::terrain::heightmap_is_current(&record.0, self.source.as_deref())
+                || heightmap
+                    .ground()
+                    .and_then(|ground| ground.street_level())
+                    .is_some_and(|level| level.is_complete())
+        })
+    }
+
     /// One line for the progress log and the timeout panic.
     pub(super) fn status(&self) -> String {
         format!(
-            "compiled={} compile_progress={:?} splat={} roads_pending={:?} streets={:?} buildings={:?} derived_spawning={} instances_spawning={} bakes_in_flight={}",
+            "compiled={} compile_progress={:?} splat={} roads_pending={:?} streets={:?} buildings={:?} unseeded={} instances_spawning={} bakes_in_flight={}",
             self.compiled.is_some(),
             self.job.as_ref().and_then(|j| j.progress()),
             self.splat.is_some(),
             self.roads.as_ref().map(|r| r.pending),
             self.roads.as_ref().map(|r| r.streets),
             self.roads.as_ref().map(|r| r.buildings),
-            self.derived
-                .as_ref()
-                .is_some_and(|derived| !derived.is_idle()),
+            self.unseeded(),
             self.instances
                 .as_ref()
                 .is_some_and(|instances| !instances.is_idle()),

@@ -1,54 +1,13 @@
-//! A derived plan and its spawning (#1587, #1588): the distinct buildings,
-//! trees and props a plan draws, each grown once, spawned hidden as a
-//! template and baked ([`crate::world_builder::instances::bake`]), and the
-//! copies of them its footprints and inventory points stand.
-//!
-//! A copy is drawn near - its building's parts merged per material, a few
-//! entities - while its plan's near copies stay inside the plan's entity
-//! budget, and far - one entity, its building's voxel shell - past that,
-//! where the plan draws far copies at all. Every copy drawn stands on a
-//! collider: its building's shell, its box, or a tree's trunk.
-//! Every entity a copy spawns at its top carries its [`DerivedItem`], the
-//! stable id of the Berlin feature it was drawn from: each merged part, a
-//! far form, a collider - and the root of a copy drawn whole, its parts
-//! hanging under it.
+//! A plan of Berlin's walkable ground (#1587, #1588): the distinct
+//! buildings, trees and props the planner ([`super::core`]) draws a square
+//! with, each a catalogue entry at a drawn scale and grown one way, and the
+//! copies of them its footprints and inventory points stand. The seeder
+//! writes a plan into the record as instance sets (#1647, [`super::seed`]).
 
-use avian3d::prelude::Collider;
-use bevy::camera::visibility::VisibilityRange;
 use bevy::prelude::*;
 
 use crate::catalogue::CatalogueEntry;
 use crate::pds::{Generator, GeneratorKind};
-use crate::player::visuals::AvatarSpawnDeps;
-use crate::seeded_defaults::fnv1a_64;
-use crate::world_builder::avatar_spawn::{detached_record, spawn_detached_tree};
-use crate::world_builder::draw_distance::{DrawDistanceCuts, SizeClass};
-
-use super::{DerivedItem, SourceId};
-use crate::world_builder::instances::bake::NearPart;
-use crate::world_builder::instances::strip_for_distance;
-
-/// The smallest and largest a copy's height may scale its template (a
-/// tree's, to the inventory's height): past these the species is the wrong
-/// one, not merely a big or small example of it.
-const HEIGHT_SCALE_RANGE: (f32, f32) = (0.3, 3.0);
-
-/// The tallest a tree's trunk collider stands (m): the trunk a walker meets,
-/// not the crown.
-const TRUNK_M: f32 = 3.0;
-
-/// How a plan's copies are drawn.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct Policy {
-    /// The most entities the near copies may be: a near copy past it takes
-    /// the far form, or is left out where the plan draws no far copies.
-    pub near_entities: u32,
-    /// The most far copies, one entity each; zero draws none.
-    pub far_copies: usize,
-    /// Whether a small copy is cut at the player's draw distance, as ground
-    /// cover is (#1480): street furniture.
-    pub cut: bool,
-}
 
 /// How one distinct building is grown from its catalogue entry.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -58,7 +17,8 @@ pub(crate) enum Grow {
     Built,
     /// A street building (#1598) at `fit`, the fit its footprint gives it:
     /// its kind's one generator drawn at the fit's grammar values (#1646,
-    /// [`Plan::values`]), with its `variant`th seed
+    /// [`crate::catalogue::items::street::StreetSpec::fit_values`]), with
+    /// its `variant`th seed
     /// ([`super::streets::variant_seed`]); then as [`Self::Built`], but
     /// ruined in place: it stands flush in a row
     /// ([`crate::terrain::lots::grow_flush`]).
@@ -71,15 +31,16 @@ pub(crate) enum Grow {
     Plant { variant: Option<&'static str> },
 }
 
-/// What a copy stands on: every derived copy is walked to.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// What a walker meets of a building's copies: its set's solid
+/// ([`crate::pds::InstanceSolid`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Solid {
     /// Its building's voxel shell: a building's.
     Shell,
     /// The box its building fills: a prop's.
     Box,
-    /// A trunk of this radius (m): a tree's.
-    Trunk(f32),
+    /// Its trunk, under a crown a walker passes through: a tree's.
+    Trunk,
 }
 
 /// One distinct building of a plan: a catalogue entry at a drawn scale.
@@ -87,20 +48,7 @@ pub(crate) struct PlannedBuilding {
     pub entry: &'static dyn CatalogueEntry,
     pub scale: f32,
     pub grow: Grow,
-    /// The cache key its tree's caches file under.
-    pub key: String,
-    /// Its generator, grown for its template.
-    tree: Option<Generator>,
-    /// Its template, spawned hidden to be baked, until it is.
-    pub(super) template: Option<Entity>,
-    /// How its near copies are drawn, once its template is baked.
-    form: Option<Form>,
-    /// Its far form, once baked; `None` where it has none.
-    far: Option<Handle<Mesh>>,
-    /// The box its template filled, once baked.
-    bounds: Option<(Vec3, Vec3)>,
-    /// Its shell as a collider, once baked, where it has a far form.
-    shell: Option<Collider>,
+    pub solid: Solid,
 }
 
 impl PlannedBuilding {
@@ -118,29 +66,15 @@ impl PlannedBuilding {
         entry: &'static dyn CatalogueEntry,
         scale: f32,
         grow: Grow,
-        key: String,
+        solid: Solid,
     ) -> Self {
         PlannedBuilding {
             entry,
             scale,
             grow,
-            key,
-            tree: None,
-            template: None,
-            form: None,
-            far: None,
-            bounds: None,
-            shell: None,
+            solid,
         }
     }
-}
-
-/// How a building's near copies are drawn.
-pub(super) enum Form {
-    /// One mesh per material and sway, in the copy's frame.
-    Merged(Vec<NearPart<Handle<Mesh>>>),
-    /// Spawned whole from its tree, each copy costing what its first did.
-    Whole(Option<u32>),
 }
 
 /// One copy of a plan's building.
@@ -148,23 +82,28 @@ pub(super) enum Form {
 pub(crate) struct PlannedCopy {
     /// Which of the plan's buildings.
     pub building: usize,
-    /// Where it stands on the ground, and how it is turned.
-    pub pose: Transform,
-    /// Whether it is drawn near while the plan's budget lasts.
-    pub near: bool,
-    /// The Berlin feature it is drawn from.
-    pub source: SourceId,
+    /// Where it stands on the ground.
+    pub at: Vec3,
+    /// Its turn about +Y (radians, as [`Quat::from_rotation_y`] takes it):
+    /// written into the record as the planner worked it out, never read
+    /// back off a rotation's sines, so every client writes the same turn
+    /// (#1132).
+    pub yaw: f32,
     /// The height it is drawn at (m), its building scaled to it; `None`
     /// draws it as grown.
     pub height: Option<f32>,
-    pub solid: Solid,
 }
 
-/// What a plan draws, nearest first.
+impl PlannedCopy {
+    /// Where it stands, turned.
+    #[cfg(test)]
+    pub(crate) fn pose(&self) -> Transform {
+        Transform::from_translation(self.at).with_rotation(Quat::from_rotation_y(self.yaw))
+    }
+}
+
+/// What a plan draws, nearest the landing first.
 pub(crate) struct Plan {
-    /// What it is, for the log and its root's name.
-    pub label: &'static str,
-    pub policy: Policy,
     pub buildings: Vec<PlannedBuilding>,
     pub copies: Vec<PlannedCopy>,
     /// What the buildings are grown for: the room's DID, its prosperity and
@@ -174,73 +113,14 @@ pub(crate) struct Plan {
     pub seed: u64,
 }
 
-impl Plan {
-    /// The generator of building `b`, once grown: what a copy of it made
-    /// the world's own carries (#1590), drawn at the grammar values
-    /// [`Self::values`] gives it.
-    pub(crate) fn grown(&self, b: usize) -> Option<&Generator> {
-        self.buildings[b].tree.as_ref()
-    }
-
-    /// The grammar values building `b`'s tree is drawn with: a street
-    /// building's fit (#1646), which its kind's one generator reads; none
-    /// for any other.
-    pub(super) fn values(&self, b: usize) -> Option<crate::pds::InstanceVariant> {
-        let building = &self.buildings[b];
-        let Grow::Street { fit, .. } = building.grow else {
-            return None;
-        };
-        Some(crate::pds::InstanceVariant {
-            seed: None,
-            params: building.entry.street()?.fit_values(fit),
-        })
-    }
-
-    /// The box building `b`'s template filled, once baked.
-    pub(crate) fn bounds(&self, b: usize) -> Option<(Vec3, Vec3)> {
-        self.buildings[b].bounds
-    }
-
-    /// The generator of building `b`, grown on first asking, stripped for
-    /// distance.
-    pub(super) fn tree(&mut self, b: usize) -> &Generator {
-        let (did, character, seed) = (&self.did, self.character, self.seed);
-        let building = &mut self.buildings[b];
-        building.tree.get_or_insert_with(|| {
-            let slug = building.entry.slug();
-            let mut tree = match building.grow {
-                Grow::Built => crate::terrain::lots::grow_generator(
-                    building.entry,
-                    did,
-                    seed ^ fnv1a_64(slug),
-                    character,
-                    building.scale,
-                ),
-                // Its kind's one generator, drawn at its fit by the fit's
-                // values (#1646, [`Self::values`]).
-                Grow::Street { variant, .. } => crate::terrain::lots::grow_flush(
-                    building.entry,
-                    building
-                        .entry
-                        .street()
-                        .expect("a street template is a street building's")
-                        .generator(),
-                    super::streets::variant_seed(seed ^ fnv1a_64(slug), variant),
-                    character,
-                    building.scale,
-                ),
-                Grow::Plant { variant } => grow_plant(building.entry, did, variant),
-            };
-            strip_for_distance(&mut tree);
-            tree
-        })
-    }
-}
-
 /// A plant as the seeded stands grow one: its catalogue tree, re-skinned by
 /// `variant`, its L-system's growth stepped down until its expansion fits
 /// the stands' per-tree budget.
-fn grow_plant(entry: &dyn CatalogueEntry, did: &str, variant: Option<&'static str>) -> Generator {
+pub(crate) fn grow_plant(
+    entry: &dyn CatalogueEntry,
+    did: &str,
+    variant: Option<&'static str>,
+) -> Generator {
     let mut tree = entry.build(did);
     if let GeneratorKind::LSystem {
         materials,
@@ -283,318 +163,6 @@ fn grow_plant(entry: &dyn CatalogueEntry, did: &str, variant: Option<&'static st
         }
     }
     tree
-}
-
-/// Where a [`Build`] has got to, each with the next index it works on.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Stage {
-    Templates(usize),
-    Merging(usize),
-    Copies(usize),
-}
-
-/// How a copy is drawn now.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Drawn {
-    /// Not at all: not reached yet, past its plan's budgets, or suppressed
-    /// by the record's edits (#1590).
-    No,
-    /// Near, costing this many of its plan's entities.
-    Near(u32),
-    /// Far: one of its plan's far copies.
-    Far,
-}
-
-/// A plan being spawned, or spawned: kept for its terrain's life, so a copy
-/// the owner removed and then restored (#1590) is drawn again from the
-/// forms its plan baked.
-pub(crate) struct Build {
-    pub(super) plan: Plan,
-    /// The root its copies hang under, a child of the terrain.
-    pub(super) root: Entity,
-    pub(super) stage: Stage,
-    /// The entities its near copies have spawned so far.
-    pub(super) spawned: u32,
-    /// The far copies it has spawned so far.
-    pub(super) far_spawned: usize,
-    /// How each copy is drawn now.
-    pub(super) drawn: Vec<Drawn>,
-}
-
-impl Build {
-    pub(super) fn new(plan: Plan, root: Entity) -> Self {
-        Build {
-            drawn: vec![Drawn::No; plan.copies.len()],
-            plan,
-            root,
-            stage: Stage::Templates(0),
-            spawned: 0,
-            far_spawned: 0,
-        }
-    }
-
-    /// The plan.
-    pub(crate) fn plan(&self) -> &Plan {
-        &self.plan
-    }
-
-    /// Whether the spawn has passed copy `c`: it was drawn then, or left
-    /// out, and is drawn again only when restored.
-    pub(super) fn reached(&self, c: usize) -> bool {
-        matches!(self.stage, Stage::Copies(next) if next > c)
-    }
-
-    /// Give back what copy `c` cost its plan's budgets, its entities gone.
-    pub(super) fn take_back(&mut self, c: usize) {
-        match std::mem::replace(&mut self.drawn[c], Drawn::No) {
-            Drawn::Near(cost) => self.spawned = self.spawned.saturating_sub(cost),
-            Drawn::Far => self.far_spawned = self.far_spawned.saturating_sub(1),
-            Drawn::No => {}
-        }
-    }
-
-    /// Where copy `c` stands, turned, and scaled to its height: once its
-    /// building is baked, the pose its entities are drawn at.
-    pub(crate) fn copy_pose(&self, c: usize) -> Transform {
-        let copy = &self.plan.copies[c];
-        let scale = copy
-            .height
-            .zip(self.plan.buildings[copy.building].bounds)
-            .map_or(1.0, |(height, (lo, hi))| {
-                (height / (hi.y - lo.y).max(0.1)).clamp(HEIGHT_SCALE_RANGE.0, HEIGHT_SCALE_RANGE.1)
-            });
-        copy.pose.with_scale(Vec3::splat(scale))
-    }
-
-    /// Bake building `b` from its template, and despawn the template.
-    pub(super) fn bake(
-        &mut self,
-        b: usize,
-        commands: &mut Commands,
-        parts: &crate::world_builder::instances::bake::PartQuery,
-        meshes: &mut Assets<Mesh>,
-        (materials, wind_materials): (
-            &Assets<StandardMaterial>,
-            Option<&Assets<crate::wind::VegetationWindMaterial>>,
-        ),
-    ) {
-        let building = &mut self.plan.buildings[b];
-        let template = building.template.take();
-        let baked = template.and_then(|t| {
-            crate::world_builder::instances::bake::merge_template(
-                t,
-                parts,
-                meshes,
-                materials,
-                wind_materials,
-            )
-        });
-        let (near, far, bounds) = baked.map_or((None, None, None), |baked| {
-            (baked.near, baked.far, baked.bounds)
-        });
-        // Drawn, never read again: no CPU copy.
-        let mut add = |mut mesh: Mesh| {
-            mesh.asset_usage = bevy::asset::RenderAssetUsages::RENDER_WORLD;
-            meshes.add(mesh)
-        };
-        building.form = Some(match near {
-            Some(near) => Form::Merged(
-                near.into_iter()
-                    .map(|(mesh, material, sway)| (add(mesh), material, sway))
-                    .collect(),
-            ),
-            None => {
-                warn!(
-                    "derived {}: {} is drawn whole near, its parts not merged",
-                    self.plan.label, building.key
-                );
-                Form::Whole(None)
-            }
-        });
-        building.shell = far.as_ref().and_then(Collider::trimesh_from_mesh);
-        building.far = far.map(&mut add);
-        building.bounds = bounds;
-        if let Some(template) = template {
-            commands.entity(template).despawn();
-        }
-    }
-
-    /// Spawn copy `c`: near while the budget lasts, else far where the plan
-    /// draws far copies, and its collider where it drew anything. Answers
-    /// whether the copy was drawn.
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn spawn_copy(
-        &mut self,
-        c: usize,
-        commands: &mut Commands,
-        assets: (
-            &mut Assets<Mesh>,
-            &mut Assets<StandardMaterial>,
-            &mut Assets<Image>,
-        ),
-        deps: &mut AvatarSpawnDeps,
-        far_material: &Handle<StandardMaterial>,
-        cuts: Option<&DrawDistanceCuts>,
-    ) -> bool {
-        let copy = self.plan.copies[c].clone();
-        let (root, policy) = (self.root, self.plan.policy);
-        let pose = self.copy_pose(c);
-        let scale = pose.scale.x;
-        let building = &self.plan.buildings[copy.building];
-        let tag = DerivedItem(copy.source.clone());
-        // The draw distance a small copy is cut at, where its plan cuts.
-        let cut = building
-            .bounds
-            .filter(|_| policy.cut)
-            .and_then(|(lo, hi)| SizeClass::of((hi - lo).max_element() * scale))
-            .map(|class| (class, cuts.and_then(|cuts| cuts.range(class))));
-        let near_cost = match &building.form {
-            Some(Form::Merged(merged)) => merged.len() as u32,
-            Some(Form::Whole(cost)) => cost.unwrap_or(0),
-            None => u32::MAX,
-        };
-        let drawn = if copy.near && self.spawned.saturating_add(near_cost) <= policy.near_entities {
-            let spent = match &building.form {
-                Some(Form::Merged(merged)) => {
-                    for (mesh, material, sway) in merged {
-                        let mut part = commands.spawn((
-                            Mesh3d(mesh.clone()),
-                            MeshMaterial3d(material.clone()),
-                            pose,
-                            tag.clone(),
-                            ChildOf(root),
-                        ));
-                        if let Some(sway) = sway {
-                            part.insert(*sway);
-                        }
-                        stamp(&mut part, cut.clone());
-                    }
-                    near_cost
-                }
-                _ => {
-                    let (spawned_root, spent) = spawn_whole(
-                        commands,
-                        &mut self.plan,
-                        copy.building,
-                        (root, pose),
-                        assets,
-                        deps,
-                    );
-                    if let Some(spawned_root) = spawned_root {
-                        commands.entity(spawned_root).insert(tag.clone());
-                    }
-                    self.plan.buildings[copy.building].form = Some(Form::Whole(Some(spent)));
-                    spent
-                }
-            };
-            self.spawned += spent;
-            self.drawn[c] = Drawn::Near(spent);
-            true
-        } else if self.far_spawned < policy.far_copies
-            && let Some(far) = self.plan.buildings[copy.building].far.clone()
-        {
-            let mut part = commands.spawn((
-                Mesh3d(far),
-                MeshMaterial3d(far_material.clone()),
-                pose,
-                bevy::light::NotShadowCaster,
-                tag.clone(),
-                ChildOf(root),
-            ));
-            stamp(&mut part, cut);
-            self.far_spawned += 1;
-            self.drawn[c] = Drawn::Far;
-            true
-        } else {
-            false
-        };
-        if drawn && let Some((collider, at)) = self.collider(&copy, pose) {
-            commands.spawn((collider, at, tag, ChildOf(root)));
-        }
-        drawn
-    }
-
-    /// The collider `copy` stands on, and where, at `pose`.
-    fn collider(&self, copy: &PlannedCopy, pose: Transform) -> Option<(Collider, Transform)> {
-        let building = &self.plan.buildings[copy.building];
-        match copy.solid {
-            Solid::Shell => building.shell.clone().map(|shell| (shell, pose)),
-            Solid::Box => {
-                let (lo, hi) = building.bounds?;
-                let size = (hi - lo).max(Vec3::splat(0.05));
-                let centre = pose.transform_point((lo + hi) / 2.0);
-                Some((
-                    Collider::cuboid(size.x, size.y, size.z),
-                    Transform::from_translation(centre)
-                        .with_rotation(pose.rotation)
-                        .with_scale(pose.scale),
-                ))
-            }
-            Solid::Trunk(radius) => {
-                let tall = building
-                    .bounds
-                    .map_or(TRUNK_M, |(lo, hi)| (hi.y - lo.y) * pose.scale.y)
-                    .min(TRUNK_M);
-                Some((
-                    Collider::cylinder(radius, tall),
-                    Transform::from_translation(pose.translation + Vec3::Y * (tall / 2.0)),
-                ))
-            }
-        }
-    }
-}
-
-/// Stamp a part with the draw distance it is cut at, where it is.
-fn stamp(part: &mut EntityCommands, cut: Option<(SizeClass, Option<VisibilityRange>)>) {
-    if let Some((class, range)) = cut {
-        part.insert(class);
-        if let Some(range) = range {
-            part.insert(range);
-        }
-    }
-}
-
-/// Spawn building `b` of `plan` whole from its tree, under `parent` at
-/// `pose`: its template, or a copy that could not be merged. Answers the
-/// tree's root and how many entities it spawned.
-pub(super) fn spawn_whole(
-    commands: &mut Commands,
-    plan: &mut Plan,
-    b: usize,
-    (parent, pose): (Entity, Transform),
-    (meshes, materials, images): (
-        &mut Assets<Mesh>,
-        &mut Assets<StandardMaterial>,
-        &mut Assets<Image>,
-    ),
-    deps: &mut AvatarSpawnDeps,
-) -> (Option<Entity>, u32) {
-    let key = plan.buildings[b].key.clone();
-    let values = plan.values(b);
-    let tree = plan.tree(b);
-    spawn_detached_tree(
-        commands,
-        parent,
-        tree,
-        &key,
-        pose * Transform::from(&tree.transform),
-        meshes,
-        materials,
-        deps.water_materials.as_mut(),
-        images,
-        deps.palette.as_deref(),
-        deps.heightmap.as_deref(),
-        &deps.terrain_meshes,
-        &mut deps.caches,
-        deps.blob_image_cache.as_mut(),
-        deps.blob_audio_cache.as_mut(),
-        deps.water_surfaces.as_mut(),
-        detached_record(),
-        deps.current_room.as_deref(),
-        false,
-        None,
-        values.as_ref(),
-    )
 }
 
 #[cfg(test)]

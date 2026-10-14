@@ -388,9 +388,7 @@ impl StreetSpec {
     /// ([`sized_by_values`]), and its footing is a grammar of its own that
     /// reads them too ([`footing_by_values`]), so a copy at a fit draws what
     /// [`Self::build`] at that fit draws - a footing drawn by grammar rather
-    /// than a primitive, and nothing else apart (held to by the tests). A
-    /// copy made the world's own (#1590) carries the values on its
-    /// placement.
+    /// than a primitive, and nothing else apart (held to by the tests).
     pub fn generator(&self) -> Generator {
         let fit = self.kind.default_fit();
         let mut root = Generator::from_kind(footing_by_values(fit));

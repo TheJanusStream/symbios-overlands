@@ -14,7 +14,10 @@ A new account's world is seeded: trees, ground cover, a settlement, a
 landmark, the gateway, the owner's monument. To start over, two edits:
 `room set /placements` with only the terrain's placement, and `room set
 /generators` with only `base_terrain` - the water rides along as its child.
-Take a copy of `room get` first; `revert` undoes it all until a save.
+Take a copy of `room get` first; `revert` undoes it all until a save. On a
+square of real Berlin this clears its seeded buildings, trees and street
+furniture too, for good: a square is seeded once, and again only when it
+moves (see "Real Berlin ground").
 
 ## The land is a recipe, not a sculpt
 
@@ -504,8 +507,10 @@ manifest's budget.
   copy of another size gets an item of its own at that size,
   `<item>_x<thousandths>` (shared by every copy detached at that size, and
   `_2`, `_3`... after it where an item of that name holds something else),
-  as an absolute placement draws its item at its own size (#1454).
-  `room get /placements/N/copies` lists them.
+  as an absolute placement draws its item at its own size (#1454). A copy
+  of a seeded Berlin set always gets an item of its own, its name without
+  the `kiez_` (`city_street_house_x1000`), so it is yours: a new seeding of
+  the square leaves it. `room get /placements/N/copies` lists them.
 - In the World Editor a click on a copy picks it (by its collider, or its
   baked box, which takes a tree's crown): the set's section shows it, the
   gizmo moves, turns and sizes it alone, Shift-drag adds another where it is
@@ -1111,7 +1116,8 @@ and real altitude, the whole square at street level to its edge (a Kiez,
 #1637): the heightmap keeps `base_terrain`'s `grid_size`, its points spaced
 to span the square, and `cell_scale` and the height fields are no longer
 read. Heights are metres above sea level, 26-123 m. `room set /geo_source
-null` goes back to the generated ground.
+null` goes back to the generated ground; the square's seeded `kiez_` sets
+and generators stay until you take them out.
 
 - **A seeded room may already be one.** One seeded room in four - a room
   whose owner never saved it - is drawn as a square of Berlin, its square
@@ -1180,31 +1186,33 @@ null` goes back to the generated ground.
   measured height, and the street furniture (lamps, benches, bins,
   bollards, shelters, signs, fountains, advertising columns, bike racks) as
   the theme's matching props, where the theme has one. All of it stands on
-  colliders and blocks a body. It is derived on every visit and not in the
-  record, so an agent cannot move it. The record's own content comes
-  first: nothing derived stands within 12 m of `default_landing`, nor within
-  2 m of an absolute placement's reach (its `avoid_water_clearance`, else
-  4 m). To keep a spot open, build there.
-- **What the owner changed of it is in the record** (#1590), under
-  `/geo_source`, each item named by its Berlin id: `alkis:<uuid>` for a
-  building, `tree:<gisid>` for a tree, `furniture:<id>` for an item of
-  street furniture. `removed` lists the items not drawn; `adopted` those
-  made the world's own, whose copies are ordinary placements of the
-  generators named `<id>#1`, `<id>#2` ... (while its item is on the
-  walkable ground, a copy keeps no 2 m disc clear round it, as other
-  placements do). Owners make both edits by clicking an
-  item with the World Editor open, and Restore them from its Region source
-  section. An agent that knows an item's id can remove it with `room set
-  /geo_source/removed`, the whole list with the id in it (at most 1,024;
-  the write sorts it); making one the world's own copies its drawn geometry,
-  which only the World Editor can.
-  `/geo_source/layers` holds the content hashes a save writes, by which a
-  visitor tells that its cached Berlin data is older than the owner's: never
-  set it by hand.
+  colliders and blocks a body. The record's own content comes first:
+  nothing seeded stands within 12 m of `default_landing`, nor within 2 m of
+  an absolute placement's reach (its `avoid_water_clearance`, else 4 m). To
+  keep a spot open, build there before the square is seeded, or take out
+  the copies that stand there.
+- **It is in the record, seeded** (#1647): once the square's street level
+  lands, its buildings, trees and furniture are written into the world as
+  instance sets (see "Many copies: instance sets"), one per catalogue item,
+  named `kiez_` and the item (`kiez_city_street_house`, a street kind's
+  fits its variants; `kiez_lsys_oak`; `kiez_lsys_monopodial_tree_pine`, a
+  re-skin; `kiez_street_lamp`), and saved with the world. Edit them as any
+  set's copies: `agent move N.c`, `agent remove N.c`, `agent detach N.c`,
+  or `room set` on the copies. Every client seeds an unsaved square alike.
+- **The seeding is marked**: `/geo_source/seeded`, a quoted decimal, names
+  the square and the scene it was seeded for; never set it by hand. A world
+  whose mark is its own is never seeded again, whatever was done to its
+  sets. Moving the square, a re-roll, or changing `base_terrain`'s `seed`
+  (it picks the scene) seeds it anew, replacing every `kiez_` generator
+  with its traits and placements - keep your own work out of those names;
+  the World Editor refuses them, and `agent detach N.c` takes a seeded
+  copy out of them. A square whose street
+  level could not all be fetched is not seeded until it can be (a warning
+  toast says so).
 - **Berlin's streets are built on the walkable ground** (#1595): its real
   street network, each street as wide as its carriageway, with curbs and
-  junctions, bridges where it crosses water. Like the buildings round it
-  they are Berlin's, derived on every visit and not in the record; a
+  junctions, bridges where it crosses water. Unlike the buildings round
+  them they are derived on every visit and not in the record; a
   `RoadNetwork` child still grows its own streets beside them.
 
 ## Arrivals

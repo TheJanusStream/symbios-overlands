@@ -18,7 +18,7 @@ use crate::pds::RoomRecord;
 use crate::seeded_defaults::{SceneCharacter, ThemeArchetype, fnv1a_64};
 use crate::terrain::lots::{FALLBACK_THEME, fitted_scale, pool_for};
 
-/// The smallest a derived building is drawn, as a share of its catalogue
+/// The smallest a planned building is drawn, as a share of its catalogue
 /// size.
 pub(crate) const SCALE_MIN: f32 = 0.5;
 
@@ -167,28 +167,4 @@ pub(crate) fn did_of(theme: ThemeArchetype) -> String {
         .map(|i| format!("did:plc:derived{i}"))
         .find(|did| RoomScene::for_did(did).theme().0 == theme)
         .expect("a DID of the theme")
-}
-
-/// The cache key the tree of `slug` drawn at `scale_e4` files under, for a
-/// plan whose keys start `prefix`. A record's generator key holds no `/`,
-/// so no record generator files there.
-pub(crate) fn cache_key(prefix: &str, slug: &str, scale_e4: i64) -> String {
-    format!("{prefix}/{slug}@{scale_e4}")
-}
-
-/// The cache key the tree of a street building (#1598) drawn at `scale_e4`
-/// files under, built to `fit` and drawn with its `variant`th seed: the
-/// key [`cache_key`] gives it, its fit and seed after.
-pub(crate) fn street_cache_key(
-    prefix: &str,
-    (slug, fit, variant, scale_e4): super::streets::StreetKey,
-) -> String {
-    format!(
-        "{}~{}x{}x{}{}~{variant}",
-        cache_key(prefix, slug, scale_e4),
-        fit.frontage,
-        fit.depth,
-        fit.storeys,
-        if fit.trade { "t" } else { "h" }
-    )
 }

@@ -31,7 +31,6 @@ use std::sync::Arc;
 use bevy_symbios_ground::WeightMap;
 use geodata::berlin::LandUse;
 
-use super::layers::DrawnLayers;
 use super::street_level::StreetLevel;
 use crate::urban::RoadParts;
 
@@ -61,9 +60,6 @@ pub(crate) struct GeoGround {
     /// had. Shared, so the clones the contact classifier keeps do not copy
     /// them.
     street_level: Option<Arc<StreetLevel>>,
-    /// The layers it was drawn from, by content hash (#1590): what a save
-    /// records.
-    layers: Option<Arc<DrawnLayers>>,
 }
 
 /// Berlin's streets meshed on a core (#1595), shared: the clones the
@@ -136,16 +132,6 @@ impl GeoGround {
         self.street_level = Some(Arc::new(level));
     }
 
-    /// The layers the ground was drawn from, by content hash (#1590).
-    pub(crate) fn layers(&self) -> Option<&DrawnLayers> {
-        self.layers.as_deref()
-    }
-
-    /// Say what layers the ground was drawn from.
-    pub(super) fn set_layers(&mut self, layers: DrawnLayers) {
-        self.layers = Some(Arc::new(layers));
-    }
-
     /// The land use of every cell, row-major from the north-west corner.
     pub(super) fn cover(&self) -> &[Option<LandUse>] {
         &self.cover
@@ -211,7 +197,6 @@ impl GeoGround {
             water_level,
             streets: None,
             street_level: None,
-            layers: None,
         }
     }
 
@@ -224,12 +209,6 @@ impl GeoGround {
     /// This ground with `level` as its street level.
     pub(crate) fn with_street_level(mut self, level: StreetLevel) -> Self {
         self.set_street_level(level);
-        self
-    }
-
-    /// This ground drawn from `layers`.
-    pub(crate) fn with_layers(mut self, layers: DrawnLayers) -> Self {
-        self.set_layers(layers);
         self
     }
 }
@@ -341,7 +320,6 @@ pub(crate) fn decode_ground(
         water_level: water.map(|w| w.level),
         streets: None,
         street_level: None,
-        layers: None,
     })
 }
 

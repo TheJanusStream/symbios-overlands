@@ -2,7 +2,8 @@
 //! trees and street furniture, read from the WFS pages the core fetches
 //! ([`geodata::berlin::BUILDINGS`], the two tree inventories, the street
 //! survey's common kinds) and carried into the world frame round the core,
-//! where the derived stage draws them ([`crate::terrain::derived::core`]).
+//! where the Berlin seeder plans them into the record
+//! ([`crate::terrain::derived::core`], #1647).
 //!
 //! A building's parts - a high-rise section, a lower wing - only raise the
 //! building's peak storeys: the building alone stands. Each building takes
@@ -119,19 +120,21 @@ pub(crate) struct StreetLevel {
     pub furniture: Vec<CoreFurniture>,
     /// Where its trees keep a seeded stand clear, built once with them.
     clearance: TreeClearance,
+    /// Whether every layer was read (#1647): a level that left one out is
+    /// drawn, but never seeded into the record, where the hole would stay.
+    complete: bool,
 }
 
 impl StreetLevel {
-    /// Whether it holds the item `id` (#1590): one of its buildings, trees
-    /// or items of street furniture.
-    pub(crate) fn holds(&self, id: &crate::terrain::derived::SourceId) -> bool {
-        use crate::terrain::derived::SourceLayer;
-        let key = &*id.key;
-        match id.layer {
-            SourceLayer::Building => self.buildings.iter().any(|b| &*b.id == key),
-            SourceLayer::Tree => self.trees.iter().any(|t| &*t.id == key),
-            SourceLayer::Furniture => self.furniture.iter().any(|f| &*f.id == key),
-        }
+    /// Whether every layer was read (#1647): only a complete level is
+    /// seeded into a record.
+    pub(crate) fn is_complete(&self) -> bool {
+        self.complete
+    }
+
+    /// Say a layer was left out.
+    pub(crate) fn mark_incomplete(&mut self) {
+        self.complete = false;
     }
 
     pub(crate) fn new(
@@ -147,6 +150,7 @@ impl StreetLevel {
                 .push((tree.x, tree.z));
         }
         StreetLevel {
+            complete: true,
             buildings,
             trees,
             furniture,
@@ -189,7 +193,7 @@ impl TreeClearance {
                 self.cells.get(&(col, row)).is_some_and(|trees| {
                     trees
                         .iter()
-                        .any(|&(tx, tz)| (tx - x).hypot(tz - z) < STAND_CLEAR_M)
+                        .any(|&(tx, tz)| libm::hypotf(tx - x, tz - z) < STAND_CLEAR_M)
                 })
             })
         })
@@ -514,7 +518,7 @@ pub(crate) fn dedupe(mut items: Vec<CoreFurniture>) -> Vec<CoreFurniture> {
                     kept.get(&(col, row)).is_some_and(|spots| {
                         spots
                             .iter()
-                            .any(|&(x, z)| (x - item.x).hypot(z - item.z) < DUPLICATE_M)
+                            .any(|&(x, z)| libm::hypotf(x - item.x, z - item.z) < DUPLICATE_M)
                     })
                 })
             });
@@ -627,7 +631,7 @@ impl Facing {
     pub(crate) fn toward(&self, p: (f32, f32)) -> Option<(f32, f32)> {
         if let Some(q) = self.nearest(p) {
             let (dx, dz) = (q.0 - p.0, q.1 - p.1);
-            let d = dx.hypot(dz);
+            let d = libm::hypotf(dx, dz);
             if d > ON_AXIS_M {
                 return Some((dx / d, dz / d));
             }
@@ -647,7 +651,7 @@ impl Facing {
             .iter()
             .map(|&i| {
                 let q = foot(self.carriageways[i as usize], p);
-                (q, (q.0 - p.0).hypot(q.1 - p.1))
+                (q, libm::hypotf(q.0 - p.0, q.1 - p.1))
             })
             .filter(|&(_, d)| d <= FACING_REACH_M)
             .min_by(|a, b| a.1.total_cmp(&b.1))
@@ -668,7 +672,7 @@ impl Facing {
             d(px + 1, pz) - d(px.saturating_sub(1), pz),
             d(px, pz + 1) - d(px, pz.saturating_sub(1)),
         );
-        let g = gx.hypot(gz);
+        let g = libm::hypotf(gx, gz);
         (g > 0.0 && g.is_finite()).then(|| (-gx / g, -gz / g))
     }
 }

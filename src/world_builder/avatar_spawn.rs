@@ -125,10 +125,9 @@ pub fn spawn_avatar_visuals_subtree(
 ///
 /// Every tree spawned under one `cache_key` shares its derived grammar and
 /// meshes, so a key per distinct tree, not per copy, is what lets copies
-/// instance one another: a geodata region's derived stage (#1588) spawns
-/// each of its shared buildings under one key, every avatar under its own,
-/// and an instance set each variant's template under its own (#1643), its
-/// Shape nodes drawn with `variant`'s seed and values.
+/// instance one another: every avatar spawns under its own key, and an
+/// instance set each variant's template under its own (#1643), its Shape
+/// nodes drawn with `variant`'s seed and values.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn spawn_detached_tree(
     commands: &mut Commands,

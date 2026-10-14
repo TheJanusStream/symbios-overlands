@@ -9,10 +9,10 @@
 //!
 //! Each species is grown once, at its catalogue size, its growth held to the
 //! seeded stands' per-tree budget, and every copy scaled to its tree's
-//! height ([`super::super::plan`]). A tree stands on a trunk as thick as its
-//! measured girth. The trees nearest the landing are drawn first: past the
-//! plan's entity budget a tree is drawn as its voxel shell; past
-//! [`MAX_FAR_TREES`] of those, not at all.
+//! height ([`super::super::plan`]). A walker meets a tree's trunk and passes
+//! through its crown ([`crate::pds::InstanceSolid::Trunk`]). The trees
+//! nearest the landing come first, so a cap on the copies a room holds
+//! keeps those.
 
 use std::collections::HashMap;
 
@@ -22,24 +22,11 @@ use crate::seeded_defaults::fnv1a_64;
 use crate::terrain::geo::street_level::CoreTree;
 
 use super::super::fit::RoomScene;
-use super::super::plan::{Grow, Plan, PlannedBuilding, PlannedCopy, Policy, Solid};
-use super::super::{SourceId, SourceLayer};
+use super::super::plan::{Grow, Plan, PlannedBuilding, PlannedCopy, Solid};
 use super::Kept;
-
-/// The most entities the near trees may be: a merged tree is a few, its
-/// bark and its foliage.
-pub(crate) const TREE_ENTITY_BUDGET: u32 = 6_000;
-
-/// The most trees drawn as their shell.
-pub(crate) const MAX_FAR_TREES: usize = 2_000;
 
 /// The height a tree the inventory does not measure is drawn at (m).
 const DEFAULT_HEIGHT_M: f32 = 10.0;
-
-/// The trunk radius a tree the inventory does not measure stands on (m),
-/// and the narrowest and widest any stands on.
-const DEFAULT_TRUNK_M: f32 = 0.2;
-const TRUNK_RANGE_M: (f32, f32) = (0.08, 0.8);
 
 /// How far round a tree's trunk the record's own places keep clear (m).
 const TREE_REACH_M: f32 = 1.0;
@@ -85,6 +72,35 @@ const SPECIES: &[(&str, &str, Option<&str>)] = &[
     ("Populus", "lsys_monopodial_tree", None),
 ];
 
+/// Each species' grown height (m), by its catalogue slug (#1647): its tree
+/// grown as the seeded stands grow it ([`super::super::plan::grow_plant`];
+/// a re-skin changes its materials alone) and measured in a copy's frame
+/// as the spawner meshes it - what a seeded copy's scale is its tree's
+/// height over. Pinned rather than measured at run time: a seeded record
+/// must come out the same on every client, and an L-system's turtle turns
+/// through sines and cosines that are not. The test
+/// `the_grown_heights_are_what_the_trees_grow_to` holds it to the trees.
+pub(crate) const GROWN_HEIGHT_M: &[(&str, f32)] = &[
+    ("lsys_acacia", 6.12),
+    ("lsys_birch", 9.21),
+    ("lsys_flowering_tree", 5.18),
+    ("lsys_hazel", 3.44),
+    ("lsys_monopodial_tree", 6.48),
+    ("lsys_oak", 17.05),
+    ("lsys_sympodial_tree", 8.18),
+    ("lsys_ternary_gravity", 7.18),
+    ("lsys_ternary_props", 13.71),
+    ("lsys_yew", 9.50),
+];
+
+/// The height `slug`'s tree grows to ([`GROWN_HEIGHT_M`]), where pinned.
+pub(crate) fn grown_height(slug: &str) -> Option<f32> {
+    GROWN_HEIGHT_M
+        .iter()
+        .find(|(name, _)| *name == slug)
+        .map(|&(_, height)| height)
+}
+
 /// The catalogue species and variant nearest `genus` (see the module docs).
 pub(crate) fn species_for(genus: Option<&str>) -> (&'static str, Option<&'static str>) {
     genus
@@ -107,12 +123,6 @@ pub(crate) fn plan(
 ) -> Plan {
     let (_, character) = room.theme();
     let mut plan = Plan {
-        label: "core trees",
-        policy: Policy {
-            near_entities: TREE_ENTITY_BUDGET,
-            far_copies: MAX_FAR_TREES,
-            cut: false,
-        },
         buildings: Vec::new(),
         copies: Vec::new(),
         did: room.did.clone(),
@@ -129,39 +139,28 @@ pub(crate) fn plan(
         let species = species_for(tree.genus.as_deref());
         let found = *by_species.entry(species).or_insert_with(|| {
             let entry = crate::catalogue::by_slug(species.0)?;
-            let key = match species.1 {
-                Some(variant) => format!("core/tree/{}#{variant}", species.0),
-                None => format!("core/tree/{}", species.0),
-            };
             plan.buildings.push(PlannedBuilding::new(
                 entry,
                 1.0,
                 Grow::Plant { variant: species.1 },
-                key,
+                Solid::Trunk,
             ));
             Some(plan.buildings.len() - 1)
         });
         let Some(building) = found else {
             continue;
         };
-        let trunk = tree.girth.map_or(DEFAULT_TRUNK_M, |girth_cm| {
-            (girth_cm / 100.0 / std::f32::consts::TAU).clamp(TRUNK_RANGE_M.0, TRUNK_RANGE_M.1)
-        });
         // Each tree turned its own way, the same way on every visit.
         let yaw = (fnv1a_64(&tree.id) % 3600) as f32 / 3600.0 * std::f32::consts::TAU;
         plan.copies.push(PlannedCopy {
             building,
-            pose: Transform::from_xyz(tree.x, ground(tree.x, tree.z), tree.z)
-                .with_rotation(Quat::from_rotation_y(yaw)),
-            near: true,
-            source: SourceId::new(SourceLayer::Tree, tree.id.clone()),
+            at: Vec3::new(tree.x, ground(tree.x, tree.z), tree.z),
+            yaw,
             height: Some(tree.height.unwrap_or(DEFAULT_HEIGHT_M)),
-            solid: Solid::Trunk(trunk),
         });
     }
-    // Nearest the landing first: the near budget keeps those.
-    let from_landing =
-        |c: &PlannedCopy| kept.landing_distance2(c.pose.translation.x, c.pose.translation.z);
+    // Nearest the landing first: a cap keeps those.
+    let from_landing = |c: &PlannedCopy| kept.landing_distance2(c.at.x, c.at.z);
     plan.copies
         .sort_by(|a, b| from_landing(a).total_cmp(&from_landing(b)));
     plan
@@ -198,7 +197,7 @@ mod tests {
     }
 
     #[test]
-    fn the_museumsinsel_trees_stand_as_tall_as_measured_on_their_trunks() {
+    fn the_museumsinsel_trees_stand_as_tall_as_measured() {
         let level = crate::terrain::geo::tests::museum_level();
         // A landing off the core's middle, so its order is not the decode's.
         let kept = Kept {
@@ -223,27 +222,109 @@ mod tests {
         assert_eq!(plan.copies.len(), standing.len());
         assert!(plan.buildings.len() <= SPECIES.len() + 1, "one per species");
         for (copy, tree) in plan.copies.iter().zip(standing) {
-            assert_eq!(
-                copy.source,
-                SourceId::new(SourceLayer::Tree, tree.id.clone())
-            );
             assert_eq!(copy.height, Some(tree.height.unwrap_or(DEFAULT_HEIGHT_M)));
-            assert_eq!(
-                (copy.pose.translation.x, copy.pose.translation.z),
-                (tree.x, tree.z)
-            );
-            let Solid::Trunk(r) = copy.solid else {
-                panic!("a trunk");
-            };
-            assert!((TRUNK_RANGE_M.0..=TRUNK_RANGE_M.1).contains(&r));
-            if let Some(girth) = tree.girth.filter(|g| (60.0..400.0).contains(g)) {
-                let measured = girth / 100.0 / std::f32::consts::TAU;
-                assert!((r - measured).abs() < 1e-4, "{r} for {girth} cm");
-            }
+            assert_eq!((copy.at.x, copy.at.z), (tree.x, tree.z));
             let species = species_for(tree.genus.as_deref());
             let building = &plan.buildings[copy.building];
             assert_eq!(building.entry.slug(), species.0);
             assert_eq!(building.grow, Grow::Plant { variant: species.1 });
+            assert_eq!(building.solid, Solid::Trunk);
         }
+    }
+
+    /// The height `tree` grows to (m): the box of the meshes its L-system
+    /// nodes grow, as the spawner meshes them, through their nodes' frames
+    /// from the copy's.
+    fn grown_height_of(tree: &crate::pds::Generator) -> f32 {
+        use bevy::math::Affine3A;
+        use bevy::mesh::VertexAttributeValues;
+        fn walk(node: &crate::pds::Generator, frame: Affine3A, span: &mut (f32, f32)) {
+            let frame = frame * Transform::from(&node.transform).compute_affine();
+            if let crate::pds::GeneratorKind::LSystem {
+                source_code,
+                finalization_code,
+                iterations,
+                seed,
+                angle,
+                step,
+                width,
+                elasticity,
+                tropism,
+                mesh_resolution,
+                prop_mappings,
+                prop_scale,
+                ..
+            } = &node.kind
+            {
+                let meshes = crate::world_builder::lsystem::build_lsystem_geometry(
+                    source_code,
+                    finalization_code,
+                    *iterations,
+                    *seed,
+                    *angle,
+                    *step,
+                    *width,
+                    *elasticity,
+                    *tropism,
+                    *mesh_resolution,
+                    prop_mappings,
+                    *prop_scale,
+                    "grown_height",
+                )
+                .expect("the tree grows");
+                for (_, mesh) in meshes {
+                    if let Some(VertexAttributeValues::Float32x3(points)) =
+                        mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                    {
+                        for point in points {
+                            let y = frame.transform_point3(Vec3::from(*point)).y;
+                            span.0 = span.0.min(y);
+                            span.1 = span.1.max(y);
+                        }
+                    }
+                }
+            }
+            for child in &node.children {
+                walk(child, frame, span);
+            }
+        }
+        let mut span = (f32::INFINITY, f32::NEG_INFINITY);
+        walk(tree, Affine3A::IDENTITY, &mut span);
+        span.1 - span.0
+    }
+
+    /// #1647: every species Berlin's trees are drawn as has its grown height
+    /// pinned, within 1 % of what its tree grows to - grown the same for any
+    /// room, as a seeded record must be.
+    #[test]
+    fn the_grown_heights_are_what_the_trees_grow_to() {
+        let mut slugs: Vec<&str> = SPECIES.iter().map(|&(_, slug, _)| slug).collect();
+        slugs.push(BROADLEAF.0);
+        slugs.sort_unstable();
+        slugs.dedup();
+        let mut faults = Vec::new();
+        let mut measured = Vec::new();
+        for slug in slugs {
+            let entry = crate::catalogue::by_slug(slug).expect("a catalogue species");
+            let tree = super::super::super::plan::grow_plant(entry, "did:plc:one", None);
+            let other = super::super::super::plan::grow_plant(entry, "did:plc:two", None);
+            assert_eq!(
+                serde_json::to_value(&tree).ok(),
+                serde_json::to_value(&other).ok(),
+                "{slug} grows the same for any room"
+            );
+            let height = grown_height_of(&tree);
+            measured.push(format!("(\"{slug}\", {height:.2}),"));
+            match grown_height(slug) {
+                Some(pinned) if ((pinned - height) / height).abs() <= 0.01 => {}
+                pinned => faults.push(format!("{slug}: pinned {pinned:?}, grows to {height:.3}")),
+            }
+        }
+        assert!(
+            faults.is_empty(),
+            "{}\nmeasured:\n{}",
+            faults.join("\n"),
+            measured.join("\n")
+        );
     }
 }

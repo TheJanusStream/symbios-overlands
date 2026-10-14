@@ -299,6 +299,20 @@ pub fn validate_new_key(
     if trimmed != old && is_taken(trimmed) {
         return Err(format!("\"{trimmed}\" is already taken."));
     }
+    Ok(())
+}
+
+/// [`validate_new_key`] for an item's name - a generator's, or an
+/// inventory item's, which becomes one - which may not take a layer's
+/// reserved namespace either. A material slot's name is no item's and
+/// takes any.
+pub fn validate_new_item_key(
+    draft: &str,
+    old: &str,
+    is_taken: impl Fn(&str) -> bool,
+) -> Result<(), String> {
+    validate_new_key(draft, old, is_taken)?;
+    let trimmed = draft.trim();
     // The road layer's derived namespace is reserved (#1245 f382). Its
     // prefix is an idempotency key, not a name: anything wearing it is
     // deleted and regrown by the next layout edit, so a generator the owner
@@ -310,11 +324,21 @@ pub fn validate_new_key(
                 .to_owned(),
         );
     }
+    // So is the Berlin seeder's (#1647): a new seeding of the square
+    // replaces whatever wears its prefix.
+    if crate::pds::geo_source::is_seeded_generator(trimmed) {
+        return Err(format!(
+            "Names starting with \"{}\" belong to the Berlin seeder - a new seeding \
+             of the square replaces whatever wears them.",
+            crate::pds::geo_source::SEEDED_PREFIX
+        ));
+    }
     Ok(())
 }
 
-/// The shared rename modal (#838): edits `draft` in place and reports
-/// the frame's outcome. Stays open on invalid input with the reason
+/// The shared rename modal (#838) for an item's name: edits `draft` in
+/// place and reports the frame's outcome, checked by
+/// [`validate_new_item_key`]. Stays open on invalid input with the reason
 /// inline; Enter applies (when valid), Esc / backdrop / Cancel dismiss.
 /// The text field grabs focus only on the dialog's first frame - the
 /// old copies called `request_focus()` every frame, which made Tab
@@ -332,7 +356,7 @@ pub fn rename_dialog(
     let first_frame = ctx.memory(|m| m.area_rect(modal_id).is_none());
 
     let mut outcome = RenameOutcome::Open;
-    let validation = validate_new_key(draft, old_name, &is_taken);
+    let validation = validate_new_item_key(draft, old_name, &is_taken);
 
     let modal = egui::Modal::new(modal_id).show(ctx, |ui| {
         ui.heading(title);
@@ -417,6 +441,33 @@ mod tests {
         );
         // Trimming applies before the taken check.
         assert!(validate_new_key("  existing  ", "old", taken).is_err());
+    }
+
+    /// The layers' namespaces are refused an item (#1245 f382, #1647): a
+    /// name written into one is deleted by the next regrowth or seeding. A
+    /// material slot, no item, may take them.
+    #[test]
+    fn an_items_name_is_refused_the_layers_namespaces() {
+        let taken = |_: &str| false;
+        assert!(
+            validate_new_item_key("lot_building_mine", "old", taken)
+                .unwrap_err()
+                .contains("road layer")
+        );
+        assert!(
+            validate_new_item_key("kiez_my_house", "old", taken)
+                .unwrap_err()
+                .contains("Berlin seeder")
+        );
+        assert!(validate_new_item_key("my_kiez_house", "old", taken).is_ok());
+        assert!(
+            validate_new_item_key("", "old", taken)
+                .unwrap_err()
+                .contains("empty"),
+            "and every rule a slot's name keeps"
+        );
+        assert!(validate_new_key("kiez_wall", "Slot0", taken).is_ok());
+        assert!(validate_new_key("lot_building_trim", "Slot0", taken).is_ok());
     }
 
     /// #1205: a name the record sanitiser would cut or strip is refused

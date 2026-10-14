@@ -37,13 +37,13 @@
 //! ([`strip_for_distance`]), as a merged part has no transform of its own
 //! to turn or emit from. Those are placed as placements of their own.
 //!
-//! The room's budget is the derived stage's summed - what a Kiez of
-//! Berlin's buildings, trees and street furniture was drawn with - and is
-//! shared among the room's sets by their copies, each set's share set when
-//! it is built and again when its copies are followed: a set not built or
-//! followed since another grew keeps the share it had, so for a while the
-//! room's sets together may draw past the budget, and a peer that loads
-//! the room fresh shares it anew. Copies a follow adds are drawn in the
+//! The room's budget is what a Kiez of Berlin's buildings, trees and street
+//! furniture was drawn with before it was seeded into the record (#1588,
+//! #1647), and is shared among the room's sets by their copies, each set's
+//! share set when it is built and again when its copies are followed: a set
+//! not built or followed since another grew keeps the share it had, so for
+//! a while the room's sets together may draw past the budget, and a peer
+//! that loads the room fresh shares it anew. Copies a follow adds are drawn in the
 //! order they came, not nearest the landing first, so where a set's share
 //! runs out the editor's split of near and far can differ from that peer's.
 
@@ -63,13 +63,13 @@ use crate::world_builder::draw_distance::DrawDistanceCuts;
 use super::PlacementUnit;
 
 /// The most entities the near copies of all a room's sets may be: the
-/// derived stage's buildings, trees and furniture budgets summed (12,000,
-/// 6,000 and 4,000).
+/// budgets Berlin's buildings, trees and furniture were drawn with before
+/// #1647 seeded them, summed (12,000, 6,000 and 4,000).
 pub(crate) const ROOM_NEAR_ENTITIES: u32 = 22_000;
 
 /// The most far copies, one entity each, all a room's sets may draw: the
-/// derived stage's buildings and trees far budgets summed (3,000 and 2,000;
-/// its furniture drew none far).
+/// far budgets Berlin's buildings and trees were drawn with before #1647,
+/// summed (3,000 and 2,000; its furniture drew none far).
 pub(crate) const ROOM_FAR_COPIES: usize = 5_000;
 
 /// How long the spawner may spend in one frame (ms).

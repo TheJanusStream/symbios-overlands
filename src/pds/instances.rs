@@ -485,7 +485,11 @@ fn detachable(
         .get(numbers.variant as usize)
         .cloned()
         .unwrap_or_default();
-    let (item, make) = if numbers.scale_pm == COPY_SCALE_ONE {
+    // A seeded copy (#1647) always takes an item of its own: drawn from
+    // the seeded item, a new seeding of the square would take it away.
+    let (item, make) = if numbers.scale_pm == COPY_SCALE_ONE
+        && !super::geo_source::is_seeded_generator(generator_ref)
+    {
         (generator_ref.clone(), None)
     } else {
         sized_item(record, generator_ref, numbers.scale_pm)?
@@ -503,8 +507,10 @@ fn detachable(
 /// by its own lift, where the set snaps - turned as it was, with its
 /// variant's seed and values. A copy of another size than its item's is
 /// drawn from an item of its own at that size ([`sized_item`]): an absolute
-/// placement draws its item at its own size (#1454). The new placement's
-/// index, or why it could not be made ([`detach_refusal`]).
+/// placement draws its item at its own size (#1454). So is a copy of a
+/// seeded set, whatever its size, its name without the seeding's prefix,
+/// so it is the owner's own and a new seeding leaves it (#1647). The new
+/// placement's index, or why it could not be made ([`detach_refusal`]).
 pub fn detach_copy(
     record: &mut RoomRecord,
     placement: usize,
@@ -564,7 +570,8 @@ pub fn detach_copy(
 
 /// The item a copy of `item` at `scale_pm` thousandths of its size is
 /// drawn from once detached: `item` with its root's whole frame scaled
-/// about the copy's own origin. It is named `<item>_x<scale_pm>` - or that
+/// about the copy's own origin. It is named `<item>_x<scale_pm>` - `item`
+/// without the seeding's prefix where a seeding wrote it (#1647), or that
 /// with `_2`, `_3`... where an item of the name holds something else - and
 /// an item of the name holding just that, with `item`'s traits, is shared,
 /// so every copy detached at one size draws from one item. Its name, and
@@ -582,6 +589,9 @@ fn sized_item(
     t.translation = Fp3(t.translation.0.map(|v| v * s));
     t.scale = Fp3(t.scale.0.map(|v| v * s));
     let traits = record.traits.get(item);
+    let base = item
+        .strip_prefix(super::geo_source::SEEDED_PREFIX)
+        .unwrap_or(item);
     // One name of these is free past every item the world holds.
     for n in 1..=record.generators.len() + 1 {
         let suffix = if n == 1 {
@@ -592,7 +602,7 @@ fn sized_item(
         // Cut to the longest name an item may have, as the sanitiser would
         // cut it, keeping the size.
         let room = limits::MAX_GENERATOR_NAME_CHARS.saturating_sub(suffix.chars().count());
-        let name = format!("{}{suffix}", item.chars().take(room).collect::<String>());
+        let name = format!("{}{suffix}", base.chars().take(room).collect::<String>());
         match record.generators.get(&name) {
             Some(held) if *held == sized && record.traits.get(&name) == traits => {
                 return Ok((name, None));
@@ -736,6 +746,31 @@ mod tests {
             panic!("a set");
         };
         assert_eq!(copies.len(), 1, "a refused detach leaves the copy");
+    }
+
+    /// #1647: a copy of a seeded set detaches into an item of the owner's
+    /// own, whatever its size - the seeding's prefix left off - so a new
+    /// seeding of the square, which takes every seeded item and placement
+    /// away, leaves it.
+    #[test]
+    fn a_seeded_copy_detaches_into_an_item_of_the_owners_own() {
+        let mut record = room_with_set(
+            true,
+            TransformData::default(),
+            vec![InstanceCopy::at(1.0, 1.0, 0.0)],
+        );
+        let post = record.generators.remove("post").expect("the set's item");
+        record.generators.insert("kiez_post".into(), post.clone());
+        if let Placement::Instances { generator_ref, .. } = &mut record.placements[0] {
+            *generator_ref = "kiez_post".into();
+        }
+        let detached = detach_copy(&mut record, 0, 0).expect("detached");
+        let name = record.placements[detached]
+            .generator_ref()
+            .expect("an item");
+        assert_eq!(name, "post_x1000");
+        assert!(!super::super::geo_source::is_seeded_generator(name));
+        assert_eq!(record.generators.get(name), Some(&post));
     }
 
     /// An item of a copy's size is shared only while it holds just what the

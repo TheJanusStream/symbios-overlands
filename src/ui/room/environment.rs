@@ -11,8 +11,8 @@
 //!
 //! And the **region source** (#1583): whether the region is built from a
 //! square of real Berlin ([`crate::pds::GeoSource`]) or from its seed alone,
-//! and the owner's edits over Berlin's items there (#1590), each with
-//! Restore.
+//! and whether the square's buildings, trees and street furniture are
+//! seeded into the record yet (#1647).
 
 use bevy::prelude::*;
 use bevy_egui::egui;
@@ -64,6 +64,9 @@ pub(super) struct BuiltGround<'a> {
     pub berlin: Option<&'a crate::terrain::geo::GeoGround>,
     /// Whether the world has water to draw at Berlin's level.
     pub has_water: bool,
+    /// Whether the record holds its square's buildings, trees and street
+    /// furniture: seeded for the square and scene it has (#1647).
+    pub seeded: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -75,7 +78,6 @@ pub(super) fn draw_environment_tab(
     ground: BuiltGround<'_>,
     player_pose: Option<PlayerPose>,
     dirty: &mut bool,
-    restore: &mut Option<String>,
     audio_editor: &mut super::audio::AudioEditorState,
     assets: &mut super::assets::AssetPanel<'_>,
 ) {
@@ -84,9 +86,7 @@ pub(super) fn draw_environment_tab(
 
     egui::CollapsingHeader::new("Region source")
         .default_open(false)
-        .show(ui, |ui| {
-            draw_region_source(ui, geo_source, ground, dirty, restore)
-        });
+        .show(ui, |ui| draw_region_source(ui, geo_source, ground, dirty));
     draw_arrival_point(ui, landing, player_pose, dirty);
 
     egui::CollapsingHeader::new("Lighting & sky")
@@ -445,18 +445,13 @@ fn draw_arrival_point(
 /// construction, an edited one moved by [`Coverage::nearest`] to the
 /// closest place it fits - the same rule the record sanitiser applies, so
 /// an edit is never rewritten under the owner on the next round trip. A
-/// moved square keeps the owner's edits over Berlin's items (#1590), which
-/// name their items wherever the square lies.
-///
-/// The edits are listed, each with Restore, which it asks for through
-/// `restore`: an adopted item's copy is record content beyond the source,
-/// for the caller to take away with it.
+/// moved square is seeded anew once its data lands (#1647): the old
+/// square's buildings, trees and street furniture leave the record then.
 fn draw_region_source(
     ui: &mut egui::Ui,
     source: &mut Option<GeoSource>,
     ground: BuiltGround<'_>,
     dirty: &mut bool,
-    restore: &mut Option<String>,
 ) {
     let weak = crate::ui::theme::current(ui.ctx()).text_weak;
     // A dataset a newer version wrote: shown, kept, and never edited here.
@@ -554,8 +549,7 @@ fn draw_region_source(
         *dirty = true;
     }
 
-    // What Berlin makes of the world's water (#1586), and its data moving
-    // on since the last save (#1590).
+    // What Berlin makes of the world's water (#1586).
     if let Some(berlin) = ground.berlin {
         ui.label(match (berlin.water_level(), ground.has_water) {
             (Some(level), true) => format!("Water at {level:.1} m above sea level"),
@@ -564,22 +558,19 @@ fn draw_region_source(
             }
             (None, _) => "No water in this square".to_owned(),
         });
-        if let Some(changed) = berlin
-            .layers()
-            .and_then(crate::terrain::geo::layers::DrawnLayers::changed_sentence)
-        {
-            ui.label(egui::RichText::new(changed).small().color(weak));
-        }
     }
 
-    draw_berlin_edits(
-        ui,
-        current,
-        ground
-            .berlin
-            .and_then(crate::terrain::geo::GeoGround::street_level)
-            .map(|level| &**level),
-        restore,
+    // Berlin's buildings, trees and street furniture, seeded into the
+    // record (#1647).
+    ui.add_space(4.0);
+    ui.label(
+        egui::RichText::new(seeding_text(ground))
+            .small()
+            .color(weak),
+    )
+    .on_hover_text(
+        "Seeded once, from Berlin's data for this square, and saved with the world. \
+             Drawing another square, or re-rolling the world, seeds them anew.",
     );
 
     ui.label(
@@ -703,66 +694,23 @@ fn moved_middle(
     ))
 }
 
-/// The owner's edits over Berlin's items (#1590): how many, then every item
-/// removed or made the world's own, by what Berlin records of it on the
-/// walkable ground `level`, each with Restore - asked for through
-/// `restore`.
-fn draw_berlin_edits(
-    ui: &mut egui::Ui,
-    source: &GeoSource,
-    level: Option<&crate::terrain::geo::street_level::StreetLevel>,
-    restore: &mut Option<String>,
-) {
-    let weak = crate::ui::theme::current(ui.ctx()).text_weak;
-    let edits = source.removed.len() + source.adopted.len();
-    ui.add_space(4.0);
-    let count = if edits == 0 {
-        "Changes to Berlin's items: none".to_owned()
+/// What the Region source says of Berlin's buildings, trees and street
+/// furniture (#1647): in the record, waiting on the square's data, or left
+/// out for a street level that did not all land.
+fn seeding_text(ground: BuiltGround<'_>) -> &'static str {
+    let level = ground
+        .berlin
+        .and_then(crate::terrain::geo::GeoGround::street_level);
+    if ground.seeded {
+        "Berlin's buildings, trees and street furniture are this world's own: edit them \
+         under Placements."
+    } else if level.is_some_and(|level| !level.is_complete()) {
+        "Berlin's buildings, trees and street furniture are not seeded: part of this \
+         square's data could not be fetched. They are seeded once all of it can be."
     } else {
-        format!("Changes to Berlin's items: {edits}")
-    };
-    ui.label(egui::RichText::new(count).small().color(weak))
-        .on_hover_text(
-            "Click a building, tree or street item in the world to remove it or make it \
-             this world's own.",
-        );
-    if edits == 0 {
-        return;
+        "Berlin's buildings, trees and street furniture are seeded when this square's data \
+         lands."
     }
-    let rows = source
-        .adopted
-        .iter()
-        .map(|id| (id, true))
-        .chain(source.removed.iter().map(|id| (id, false)));
-    egui::ScrollArea::vertical()
-        .id_salt("berlin-edits")
-        .max_height(180.0)
-        .auto_shrink([false, true])
-        .show(ui, |ui| {
-            for (id, adopted) in rows {
-                ui.horizontal_wrapped(|ui| {
-                    let hover = if adopted {
-                        "Draw it from Berlin again, and take this world's copy of it away."
-                    } else {
-                        "Draw it from Berlin again."
-                    };
-                    if ui.small_button("Restore").on_hover_text(hover).clicked() {
-                        *restore = Some(id.clone());
-                    }
-                    let named = crate::terrain::derived::SourceId::parse(id).map_or_else(
-                        || "An item this version does not draw".to_owned(),
-                        |id| crate::terrain::derived::edit::describe(level, &id),
-                    );
-                    let state = if adopted {
-                        "made this world's own"
-                    } else {
-                        "removed"
-                    };
-                    ui.label(format!("{named}: {state}"))
-                        .on_hover_text(id.as_str());
-                });
-            }
-        });
 }
 
 /// "250 m", "1.25 km".
@@ -1052,46 +1000,41 @@ mod tests {
             size_m: 3,
             ..Default::default()
         });
-        // Berlin's ground as built (#1586) is read, never written.
+        // Berlin's ground as built (#1586) is read, never written: with a
+        // whole street level and with one that left a layer out (#1647).
         let wet = crate::terrain::geo::GeoGround::from_cover(2, 2.0, vec![None; 4], Some(30.5));
         let dry = crate::terrain::geo::GeoGround::from_cover(2, 2.0, vec![None; 4], None);
-        // Drawn from layers Berlin has changed since the save (#1590).
-        let changed = {
-            use crate::terrain::geo::layers::{DrawnLayers, Layer};
-            let square = GeoSquare {
-                min_e: 391_000,
-                min_n: 5_819_500,
-                size_m: 1_000,
-            };
-            let hashes = std::collections::BTreeMap::from([(Layer::Trees, 2)]);
-            let saved = std::collections::BTreeMap::from([(Layer::Trees, 1)]);
-            dry.clone()
-                .with_layers(DrawnLayers::new(square, hashes, &saved))
-        };
-        let grounds = [None, Some(&wet), Some(&dry), Some(&changed)]
+        let level =
+            crate::terrain::geo::street_level::StreetLevel::new(Vec::new(), Vec::new(), Vec::new());
+        let whole = dry.clone().with_street_level(level.clone());
+        let mut partial = level;
+        partial.mark_incomplete();
+        let partial = dry.clone().with_street_level(partial);
+        let grounds = [None, Some(&wet), Some(&dry), Some(&whole), Some(&partial)]
             .into_iter()
-            .flat_map(|berlin| [true, false].map(|has_water| BuiltGround { berlin, has_water }));
-        let mut edited = berlin.clone();
-        if let Some(source) = edited.as_mut() {
-            source
-                .set_edit("tree:1", crate::pds::geo_source::Edit::Removed)
-                .unwrap();
-            source
-                .set_edit("alkis:A", crate::pds::geo_source::Edit::Adopted)
-                .unwrap();
+            .flat_map(|berlin| {
+                [(true, true), (false, false), (true, false)].map(|(has_water, seeded)| {
+                    BuiltGround {
+                        berlin,
+                        has_water,
+                        seeded,
+                    }
+                })
+            });
+        let mut seeded = berlin.clone();
+        if let Some(source) = seeded.as_mut() {
+            source.seeded = Some(7);
         }
-        for start in [None, berlin, other, edited] {
+        for start in [None, berlin, other, seeded] {
             for ground in grounds.clone() {
                 let ctx = egui::Context::default();
                 let mut source = start.clone();
                 let mut dirty = false;
-                let mut restore = None;
                 let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
-                    draw_region_source(ui, &mut source, ground, &mut dirty, &mut restore);
+                    draw_region_source(ui, &mut source, ground, &mut dirty);
                 });
                 assert_eq!(source, start);
                 assert!(!dirty);
-                assert_eq!(restore, None);
             }
         }
     }

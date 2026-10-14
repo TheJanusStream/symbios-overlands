@@ -69,8 +69,8 @@ pub const MAX_PLACEMENTS: usize = 1_024;
 pub const MAX_INSTANCE_COPIES: usize = 8_192;
 /// Copies all of a room's instance sets may hold together (#1643), raised
 /// for 2 km squares seeded whole (owner decision 7 on #1636): Hermannplatz
-/// at 2 km is 16,367 copies, about 410 KiB of parts, and a square with more
-/// trees holds more.
+/// at 2 km seeds 17,386 copies (#1647), and a square with more trees holds
+/// more.
 pub const MAX_ROOM_INSTANCE_COPIES: usize = 32_768;
 /// Variants one instance set may hold (#1643): one street building kind
 /// stands at a few dozen fits, each in a few seeds.

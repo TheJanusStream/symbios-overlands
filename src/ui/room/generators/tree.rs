@@ -585,13 +585,21 @@ fn build_tree_node(
             // `net_populated` report false, and a second identical district
             // grow on top of the first. The affordance was offered on
             // exactly the rows it corrupts.
+            // So is the Berlin seeder's (#1647): a renamed seeded generator
+            // would stand on beside the next seeding of its square.
             let derived = crate::terrain::is_derived_generator_key(&menu_root);
-            let button = ui.add_enabled(!derived, egui::Button::new("Rename"));
+            let seeded = crate::pds::geo_source::is_seeded_generator(&menu_root);
+            let button = ui.add_enabled(!derived && !seeded, egui::Button::new("Rename"));
             if derived {
                 button.on_disabled_hover_text(
                     "Grown by the road layer. Its name is how the layer finds it \
                      again - renaming it would grow a second district on top of \
                      this one.",
+                );
+            } else if seeded {
+                button.on_disabled_hover_text(
+                    "Seeded from Berlin. Its name is how a new seeding of the square \
+                     replaces it - renamed, it would stand on beside the new one.",
                 );
             } else if button.clicked() {
                 *pending.borrow_mut() = Some(PendingAction::Rename(menu_root.clone()));

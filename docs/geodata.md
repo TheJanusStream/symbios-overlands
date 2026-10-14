@@ -38,11 +38,15 @@ DE).
 - **Fetched at visit**, with the app's own cache, not baked into packs.
   Requests are sized to the pixels needed, as the GDI viewer's
   zoom-fitting loading is.
-- **Saves keep seed + edits**, adopted per item (copy-on-write). Untouched
-  content is derived again on every load. An item the owner moved or
-  restyled becomes ordinary record content with a back-reference to its
-  stable source id, and its original is suppressed. Content hashes of the
-  fetched layers are stored at save, so a stale cache can be detected.
+- **Seeded into the record** (owner, 2026-10-13 and 2026-10-14, #1636;
+  #1647): what stands on a square - its buildings, trees and street
+  furniture - is written into the room's record as instance sets once its
+  street level lands, the same on every client, adopted on save and never
+  derived again. The owner edits a seeded copy as any other. Every copy is
+  seeded; what is drawn near, far or not at all is the instance builder's
+  budgets'. Until #1647 it was derived again on every load, with the
+  owner's edits over it and the layers' content hashes in the record
+  (#1588, #1590).
 
 ## How the data is read
 
@@ -184,18 +188,20 @@ and the wasm worker share it:
     changed.
 
 The room record (P1.1, #1583) carries the source as an optional top-level
-`geo_source`: `{dataset, min_e, min_n, size_m}`, in whole metres. When it is
-absent, the field is elided, so every older record and every seeded room
-stays byte-identical. The bytes are pinned in
+`geo_source`: `{dataset, min_e, min_n, size_m}`, in whole metres, and once
+the square is seeded into the record its mark, `seeded`, a quoted decimal
+(#1647). When it is absent, the field is elided, so every older record and
+every seeded room stays byte-identical. The bytes are pinned in
 `tests/fixtures/geo_source_wire.jsonl`.
 
 - **Sanitiser.** A Berlin square has its side snapped to a whole 10 m
   within 250 m - 2 km (`snap_size`) and is moved, if it must be, to the
   nearest position wholly inside Berlin (`Coverage::nearest`, exact). A
   square saved wider than 2 km, before #1637, shrinks round its middle,
-  where its full-detail ground lay, and drops its layer hashes; anything
-  placed more than a kilometre from the middle now stands past the world's
-  edge. A dataset id that is not a plain name drops the source. Another dataset's
+  where its full-detail ground lay; anything placed more than a kilometre
+  from the middle now stands past the world's edge. A square moved or
+  shrunk keeps its mark, which then names another square: it is seeded
+  anew. A dataset id that is not a plain name drops the source. Another dataset's
   square is kept for the build that can draw it, though keys this build does
   not know are dropped on save, as from every record field.
 - **Editor.** The World Editor's Environment tab has a Region source
@@ -243,8 +249,8 @@ heightmap job.
   plane stays under it.
 - **Rebuilds.** The terrain fingerprint covers `geo_source`'s square, so
   switching to Berlin or moving the square rebuilds the ground in place, as
-  a terrain edit does. The owner's edits and the layer hashes (P3.2) do not
-  move the ground, and rebuild nothing.
+  a terrain edit does. The seeding mark (#1647) does not move the ground,
+  and rebuilds nothing.
 - **Failure.** If Berlin's terrain cannot be had - the service is
   unreachable after the fetcher's retries, or the answer does not decode -
   the region falls back to the procedural ground its terrain config
@@ -257,9 +263,12 @@ heightmap job.
   frame the owner moves the square is dropped, never landed.
 - **Known divergence.** Each peer fetches for itself and keeps a 30-day
   cache. If Berlin re-renders its data within that window, two peers can
-  hold different heightmaps; the world digest reports it. P3.2's layer
-  hashes in the record (#1590) are the cure: a peer whose stored answers
-  hash otherwise than the owner's save fetches them again.
+  hold different heightmaps; the world digest reports it. A saved Kiez's
+  buildings, trees and furniture are the record's (#1647), so peers differ
+  only in the ground under them; before a save each client seeds from its
+  own street level, and the owner's live broadcast carries the owner's.
+  The layer hashes #1590 kept in the record for this went with the derived
+  stage.
 - **Tools.** The native tools' `rebuild_heightmap_for_record` fetches and
   decodes the same way, blocking. The render tool takes
   `--world N --geo-square E,N,SIZE` to render a region from real Berlin.
@@ -434,14 +443,12 @@ furniture, each Berlin's own place and the region's own catalogue item.
   step count, only knows eight directions). A sign faces the traffic coming
   at it, which keeps to the right; a bench or a rack keeps its own line,
   fronting the street side.
-- **The derived stage.** None of it is in the record. Each item is named by
-  where it comes from, a `SourceId` (`alkis:<uuid>`, `tree:<gisid>`,
-  `furniture:<id>`), and every entity drawn from it carries it as a
-  `DerivedItem`: what P3.2's edits name (#1590). The record's own content
-  comes first: nothing derived stands within 12 m of the landing, nor
-  within 2 m of an absolute placement's ground reach. Each part is a plan:
-  templates, bakes, then copies, 4 ms a frame, and each plan's copies
-  nearest the landing first, so its budget keeps those.
+- **The plans.** Buildings, trees and furniture are each a plan of the
+  catalogue items they grow and the copies of them, nearest the landing
+  first, which the seeder writes into the record (#1647, below). The
+  record's own content comes first: nothing planned stands within 12 m of
+  the landing, nor within 2 m of an absolute placement's ground reach (a
+  placement of a seeded generator, which a seeding replaces, excepted).
 - **Buildings.** A church, a cultural or public building of 1,200 m2 or
   more, or a building of 12 storeys takes one of the theme's landmarks - at
   most 6, no two within 150 m, places of worship first, each counted only
@@ -475,18 +482,20 @@ furniture, each Berlin's own place and the region's own catalogue item.
   taller. A landmark stands at the middle of the box along the longest edge,
   with rows either side of it; one that fits nowhere, whose box's middle is
   off the footprint (a courtyard), or that would reach the landing gives way
-  to rows. A building's picks are seeded by its uuid. Every copy stands on
-  its voxel shell as its collider; past 12,000 near entities a copy is its
-  shell, at most 3,000.
+  to rows. A building's picks are seeded by its uuid. A walker meets every
+  copy as its voxel shell.
 - **Trees.** The owner chose Berlin's species over the region's biome: each
   genus is the catalogue species nearest it (a linden, a maple or an ash a
   dense oval crown, a plane or a chestnut a spreading one, an oak an oak, a
   pine a pine), and a genus the table does not name is a broadleaf crown.
   Each species is grown once, its growth held to the seeded stands'
   per-tree budget, and each copy scaled to its tree's measured height (10 m
-  where none is measured). It stands on a trunk as thick as its girth, up
-  to 3 m of it. Its foliage keeps its wind sway: the bake reads a swaying
-  part through the wind material the wind system swapped onto it.
+  where none is measured) over the height its species grows to, from a
+  pinned table: a seeded record must come out the same on every client,
+  and an L-system's turtle turns through sines and cosines that do not. A
+  walker meets its trunk, as wide as its tree's base, up to 3 m of it. Its
+  foliage keeps its wind sway: the bake reads a swaying part through the
+  wind material the wind system swapped onto it.
 - **Furniture.** A prop is one of a kind by the words of its slug (a street
   lamp, a gas lamp and a stone lantern are lamps), searched among the
   room's props and secondaries by its prosperity and escalation, each drawn
@@ -494,16 +503,22 @@ furniture, each Berlin's own place and the region's own catalogue item.
   out; most themes have a few. A Modern City room at prosperity 0.71 and
   escalation 0.14 draws lamps, benches, bins (its dumpster), shelters (its
   transit stop) and fountains, a medieval one lanterns and benches. An item
-  takes one of its kind's matches by its own id. The 1,500 nearest the
-  landing are drawn, cut at the player's draw distance as ground cover is; a street
-  lamp is turned so its arm reaches over the carriageway. A pole stands on
-  a post of its own, the rest on their boxes.
-- **Seen.** The Museumsinsel's square kilometre in that Modern City room:
-  451 building copies (6,193 entities), 1,081 trees (2,206) and 855 items
-  of furniture (3,042), all near.
+  takes one of its kind's matches by its own id. Every item is seeded
+  (decision 9 on #1636); a street lamp is turned so its arm reaches over
+  the carriageway. A walker meets a pole as its post, the rest as their
+  boxes.
+- **Seen** (#1647). Hermannplatz's kilometre, seed 518's Modern City room,
+  seeds 4,086 copies in 22 sets: 1,054 building copies, 2,423 trees and
+  609 items of furniture, exactly what the derived stage drew; Frohnau,
+  Siemensstadt and Herzbergstrasse likewise (3,458, 1,946 and 4,642),
+  each in 11 to 16 ms natively. Its 2 km square seeds 17,386 copies in 22
+  sets, in about 25 ms.
 - **Failure.** Each layer stands on its own page: one that cannot be had or
-  read is left out alone, and said, and the rest stand. The walkable ground
-  waits for these pages as it does for its terrain.
+  read is said, and the square is not seeded until a visit has them all -
+  the streets too, as they face its buildings and street furniture. A page
+  the server cut short is drawn as it came, the same on every visit, and
+  logged. The walkable ground waits for these pages as it does for its
+  terrain.
 - **Limits.** An L-shaped or courtyard building is filled from its box, so
   its slots fall only where their middles are on it. An item stands where
   the survey placed it, even where a drawn carriageway, wider than the real
@@ -539,15 +554,15 @@ a seeded room comes to be a Berlin region, and how an owner keeps one.
   landing mostly keeps to the gate's forecourt; and where that finds none -
   a square centred far out on a lake - to the nearest, the landing turned
   to face its gate wherever that came to stand. The compile, the
-  editor's outline, the terrain report and the derived stage all read
-  where a structure stands through one resolver (`AnchorGround`), and the
+  editor's outline, the terrain report and the seeder all read where a
+  structure stands through one resolver (`AnchorGround`), and the
   spawn, a return to spawn, a fall and a portal arrival through one landing
   walk (`landing_ashore`). Berlin's buildings keep clear of where the gate
   stands, not of where its record put it. On procedural ground nothing of
   this changes: the water walk is the one it was, and a landing stays where
   its owner or its seed put it.
-- **The theme.** The derived stage dresses Berlin in the theme of the seed
-  the room was built from - the seed its base terrain carries, which on
+- **The theme.** The seeder dresses Berlin in the theme of the seed the
+  room was built from - the seed its base terrain carries, which on
   Berlin's ground shapes nothing else - not of the owner's DID. A room
   re-rolled to a theme is that theme's Berlin; `--world <seed>` renders the
   seed's own.
@@ -565,80 +580,65 @@ a seeded room comes to be a Berlin region, and how an owner keeps one.
   landing is where a body sets down, with its record's spot beside it
   where the two differ.
 
-The owner's edits (P3.2, #1590; `src/terrain/derived/edit.rs`) keep what
-the owner changed of what is drawn, and the layer hashes keep what it was
-drawn from.
+The seeder (P3.2 of #1639, #1647; `src/terrain/derived/seed.rs`,
+`seed_berlin`) writes a square's buildings, trees and street furniture into
+the record. It retired the derived stage that drew them on every load, the
+owner's edits over it (Remove, Make it this world's own, Restore; #1590)
+and the layers' content hashes with their refetch of a stale cache. No
+record was migrated: no saved Berlin region existed (decision 8 on #1636).
 
-- **Picking.** With the World Editor open, a click on one of the walkable
-  ground's buildings, trees or items of street furniture picks it (owner,
-  2026-10-09), whichever tab is up: the editor names it as Berlin records
-  it - "A residential building, of 5 storeys, 720 m2", "A linden (Tilia),
-  12 m tall", "A street lamp" - with its id, and offers Remove and Make it
-  this world's own. A copy's merged meshes keep nothing on the CPU for the
-  mesh ray to read, so the click is tested against its collider - a
-  building's shell, a prop's box, a tree's trunk - and its copy's box,
-  which takes a tree by its crown. The owner's own content wins a click
-  unless a derived collider truly stands in front of it, never to a box (a
-  bench under a crown stays the bench's); over anything else the nearer
-  derived hit wins where it is nearer than what the editor's own rays hit.
-  Only an item on screen is picked - not one past its draw distance - and
-  a box the camera stands in is not one the click enters.
-- **Remove.** The item's id goes into `geo_source.removed`, and it is drawn
-  no more.
-- **Make it this world's own.** A copy as drawn (owner, 2026-10-09): the
-  same catalogue items at the same place, turn and size - those drawn, near
-  or far, not those the plan's budgets left out - as ordinary record
-  content - snapped absolute placements, their height an offset
-  from the ground, so a building's sunk foundations stay sunk - of
-  generators named `<id>#<n>`, one to each catalogue building and size its
-  copies are, which the copies share. A footprint's row comes over whole.
-  The size rides in the generator's root, as a placement drops its own.
-  The id goes into `geo_source.adopted`, and the original is drawn no
-  more. Past the record's counts (256 items, 1,024 placements) or its
-  100 KiB size budget the copy is refused, and the panel says why; before
-  its plan has grown and baked the item, too. A copy keeps no clear disc
-  round it, as a placement does, so its neighbours stand as they stood -
-  while the walkable ground draws its item; once the square has moved off
-  it, the copy is a placement like any other.
-- **Restore.** The Region source section lists every item removed or made
-  the world's own, by what Berlin records of it, each with Restore: the
-  item is drawn from Berlin again, and an adopted item's copy - every
-  placement of its generators, and the generators - goes. Each edit is one
-  undo step.
-- **Live.** The edits apply as the record changes, with no rebuild: the
-  terrain fingerprint covers only the square. A suppressed item's entities
-  are despawned and what they cost their plan's budgets given back; a
-  restored one is drawn again from its plan, which stays resident for its
-  terrain's life for that, or when the spawn reaches it. A visitor's world
-  follows the owner's as any live edit does.
-- **Ids.** A list holds at most 1,024 ids, each 1 to 96 of ASCII letters,
-  digits and `.`, `_`, `:`, `-`, sorted and deduplicated by the sanitiser;
-  an id in both lists is kept as adopted, which has content. An id the
-  square's data no longer holds is kept and ignored, and listed as not on
-  the walkable ground. Moving the square keeps the edits - an id names its
-  item wherever the square lies - and a re-roll, which replaces everything
-  the world holds, drops them, the square lock or not.
-- **Layer hashes.** Each answer is hashed as it settles, on the I/O pool:
-  64-bit FNV-1a over its bytes, a page of features' own `"timeStamp"` left
-  out, the one thing that changes between two fetches of the same data. A
-  layer's hash folds its answers' in the order the job asks for them:
-  terrain, land use, streets, buildings, blocks, trees and furniture, each
-  only where all of its answers were had. A record saved
-  before a layer existed holds no hash for it, so says nothing changed. A save writes the
-  drawn layers' hashes into `geo_source.layers` (16 hex digits each) on
-  the way out, where the record names the square they were drawn for - and
-  only there: the editor's record never holds them, or every save would
-  leave behind a difference no edit made.
-- **Stale caches.** A load whose record holds hashes weighs its answers
-  against them: a layer whose stored answers hash otherwise, and were kept
-  more than a day ago, is fetched once more past the store, and the ground
-  drawn from what the network says - or, should the network fail, from
-  what was kept. If the fresh answer still differs, Berlin has changed
-  since the save: it is drawn as Berlin has it now, the Region source
-  section says which layers changed, and the owner's next save records
-  them. An answer kept within the day is Berlin as it stands, so a
-  difference there is not fetched again on every visit, and a layer is
-  never fetched twice over in one load.
+- **Sets.** One instance set per generator the plans grow: a street kind's
+  one generator (#1646), its fits the set's variants, each with the seed
+  the planner rolled for it; a landmark's or a prop's catalogue generator,
+  grown as the lot layer grows one; a tree species, re-skin and all. Each
+  is named `kiez_<slug>` (a re-skin's `kiez_<slug>_<re-skin>`), anchored at
+  the origin, snapped, its solid as its plan says (shell, box, trunk). A
+  copy is its pose: centimetres along X and Z, its turn clockwise in tenths
+  of a degree, its lift above the ground under it, and its size. The sets
+  are written buildings, trees, furniture, and no further than the record
+  may hold - its copies, placements and items, its own counted first - so
+  a cap cuts furniture first, the owner's record holds just what every
+  peer keeps of it, and no item of the owner's makes way; a set past 8,192
+  copies goes on in another of its generator, and a long set is saved in
+  parts (#1645).
+- **The mark.** `geo_source.seeded` is a fingerprint of the dataset, the
+  square and the scene's seed. A record whose mark is its own is never
+  seeded again, whatever its owner did to its sets since; any other - the
+  square moved, a re-roll, or any edit of the seed the record's terrain
+  carries, which picks the scene - has its seeded content, every `kiez_`
+  generator with its traits and the placements of it, replaced (one undo
+  step brings the old back). A re-roll under the square lock keeps the
+  source unseeded, as it replaces everything else.
+- **When.** Once a heightmap of the record's own terrain lands with a whole
+  street level, the live record is seeded, and the stored one wherever it
+  is a Berlin record without its mark: a fresh room, or one saved before its
+  street level landed, reads saved, both seeded alike; a seeding the
+  owner's square move or re-roll caused reads unsaved until a save. The
+  room's default is seeded the same way, once a heightmap of its own
+  terrain lands, so Reset to default is not offered to an untouched Kiez.
+  The seeding folds into the undo step that caused it. A street level that
+  left a layer out seeds nothing - the hole would be saved - and the
+  fallback toast says so.
+- **Visitors** seed the live record too: the seeding is a pure function of
+  the record and the street level, the same on every client - everything
+  it writes goes through `libm` (#1132), never a platform's maths. The
+  stored record and the default are the owner's editor's baselines, and
+  only the signed-in owner's client seeds or builds them.
+- **Editing.** A seeded copy is edited as any set's copy (#1644): picked in
+  the world, moved, duplicated, removed or detached. A detached one becomes
+  an item of the owner's own whatever its size, its name the seeded item's
+  without the prefix (`city_street_house_x1000`), so a new seeding leaves
+  it. The World Editor will not rename a `kiez_` generator, nor any item
+  into the prefix (a material slot's name may take it). Unchecking real
+  Berlin takes the seeded content out with the square. The Region source
+  section says whether the square's items are seeded yet.
+- **Drawn.** The instance builder draws the sets (#1643). Its budgets -
+  22,000 near entities and 5,000 far copies a room, the derived stage's
+  summed - are shared among a room's sets by their copies, not by layer
+  as the derived stage's were: a Kiez whose trees take most of the copies
+  draws fewer of its buildings near. Hermannplatz's kilometre draws 454 of
+  its 1,054 building copies as their shells, where the derived stage drew
+  every one near, and uses 13,319 of its 22,000 near entities.
 
 The ignored test `live_gdi_berlin_round_trip_decodes_and_is_kept` exercises
 the live path end to end: the real client, the disk store, and the decoders.
@@ -737,8 +737,7 @@ distinct buildings, landmarks included, all of them near.
   rule ahead of it, because symbios-shape forks a shape's random stream for
   every rule it hands on to, and a rule ahead would re-roll every copy's
   cladding and picks. Its footing is a grammar of its own reading the same
-  values. The derived stage grows its street buildings from it; a copy made
-  the world's own carries its fit's values on its placement, and a
+  values. A seeded Kiez's street buildings are drawn from it (#1647), and a
   fought-over room drops no rubble in a street building's ground storey. The
   catalogue's own entry (the inventory, a road network's lots, the render
   tool) is still built at its fit, and tests hold the two bodies part for
@@ -778,8 +777,8 @@ now its square, walked at full detail to its edge:
   followed a body past the core, cut into the far field by a shader hole
   (`SPLAT_HOLE`, `splat_prepass.wgsl`).
 
-Their layer hashes (`horizon`, `ring`) are dropped from a record on its next
-save. Their history and the lessons from them are in git and on the issues;
+Their layer hashes (`horizon`, `ring`) went with every other layer hash in
+#1647. Their history and the lessons from them are in git and on the issues;
 the surface model stays in `crates/geodata`'s catalogue, unused.
 
 ## Phases
@@ -798,7 +797,7 @@ Each phase is a sub-issue of #1580, in build order:
 | #1595 | Berlin's streets on the core, meshed by the road networks' mesher |
 | #1588 | P2.2 derived-content stage with stable ids (moved from P2.1); street-level core: footprints, trees, street furniture |
 | #1589 | P3.1 the DID draws the source; seed-row locks; exact-square lock |
-| #1590 | P3.2 owner edits over derived content; layer hashes |
+| #1590 | P3.2 owner edits over derived content; layer hashes (retired by #1647) |
 | #1591 | P4 walkable area past the core: P4.1 walkable horizon (#1596), P4.2 detail patch (#1597) (retired by #1637) |
 | #1598 | Street buildings: three per theme, shaped to Berlin's footprints |
 | #1600 | Block types: a detached house and a hall per theme, placed by how each block is built up |
@@ -812,7 +811,7 @@ The Kiez overhaul, epic #1636 (research #1635), in build order:
 | --- | --- |
 | #1637 | P1 Kiez squares: seeded 1 km, the editor to 2 km, the whole square walked at full detail; the far field, middle ring and detail patch removed |
 | #1638 | P2 instance sets: one generator at many poses, each copy's seed and parameters, drawn through the bake: #1643 the set in the record and drawn merged (the bake moved to `world_builder::instances`), #1644 one copy picked, moved, deleted or detached in the World Editor, #1645 long copy lists in records of their own |
-| #1639 | P3 Berlin's buildings, trees and furniture seeded into the record as instance sets, adopted on save |
+| #1639 | P3 Berlin's buildings, trees and furniture seeded into the record as instance sets, adopted on save: #1646 one generator per street kind, its fit passed in as grammar values, #1647 the seeder, the derived stage retired |
 | #1640 | P4 a Kiez agent to flesh out a seeded region (later) |
 
 Storing a region's ground with it waits for baked grounds (#1641).

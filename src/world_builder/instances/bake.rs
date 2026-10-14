@@ -1,8 +1,8 @@
 //! Baking a template (#1587, #1588; moved here for instance sets, #1643):
 //! one variant of a generator, spawned once and hidden, its parts merged
 //! into the two forms its copies are drawn in. Instance sets draw through
-//! it ([`super`]), and so does a geodata region's derived stage until P3 of
-//! #1636 seeds Berlin into the record.
+//! it ([`super`]), a seeded Kiez's buildings, trees and street furniture
+//! among them (#1647).
 //!
 //! - **Near**: the parts merged into one mesh per material (and per sway:
 //!   a tree's foliage keeps its [`WindSway`]), carried into the template's
