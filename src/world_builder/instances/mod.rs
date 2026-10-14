@@ -18,12 +18,13 @@
 //!    ([`bake`]), and the template despawned. The forms are kept by the
 //!    generator's content and the variant, so an edit that respawns a set
 //!    grows nothing again.
-//! 3. **Copies**: each copy near, as its variant's merged parts (a few
-//!    entities), while the set's share of the room's near budget lasts;
-//!    past it far, as one entity, its shell, where it is big enough to be
-//!    seen far; and on its collider ([`crate::pds::InstanceSolid`]) where
-//!    it is drawn. A small copy is cut at the player's draw distance, as a
-//!    scattered one is (#1480).
+//! 3. **Copies**: once every set the room is drawing is baked, the room's
+//!    budgets are shared among them by what their copies need, each copy
+//!    tiered (#1648, below); then each copy as its tier says - near, as its
+//!    variant's merged parts (a few entities), or far, as one entity, its
+//!    shell, where it is big enough to be seen far - and on its collider
+//!    ([`crate::pds::InstanceSolid`]) where it is drawn. A small copy is cut
+//!    at the player's draw distance, as a scattered one is (#1480).
 //!
 //! A drawn set follows its record's copies in place (#1644): an edit of the
 //! copies alone leaves the compile's unit as it is, and the build redraws
@@ -39,13 +40,19 @@
 //!
 //! The room's budget is what a Kiez of Berlin's buildings, trees and street
 //! furniture was drawn with before it was seeded into the record (#1588,
-//! #1647), and is shared among the room's sets by their copies, each set's
-//! share set when it is built and again when its copies are followed: a set
-//! not built or followed since another grew keeps the share it had, so for
-//! a while the room's sets together may draw past the budget, and a peer
-//! that loads the room fresh shares it anew. Copies a follow adds are drawn in the
-//! order they came, not nearest the landing first, so where a set's share
-//! runs out the editor's split of near and far can differ from that peer's.
+//! #1647), and is shared by need ([`build::share_by_need`], #1648): every
+//! copy of every set, nearest the landing first, is tiered near while the
+//! near budget lasts, whatever it costs and whatever set it is in, then far
+//! while the far budget does - one radius of detail round the landing, the
+//! same on every client. A set baked waits until the room's last is, and
+//! until the compile has spawned every set, so the first baked does not
+//! take it all; the price is that a room shows none of its copies until
+//! all its variants are baked. Copies a follow queues are tiered by the
+//! room shared anew, with the sets baked so far, and drawn as tiered: a
+//! copy added by the landing is drawn near however full the room is, while
+//! a copy drawn before keeps what it drew - so for a while the room's sets
+//! together may draw past the budget, and a peer that loads the room fresh
+//! shares it anew.
 
 pub(crate) mod bake;
 mod build;
@@ -96,15 +103,59 @@ pub(crate) struct InstanceCopyOf {
     pub copy: usize,
 }
 
+/// A room's drawing budgets (#1648): the near entities and far copies its
+/// sets share by need.
+#[derive(Clone, Copy, Debug)]
+struct RoomBudget {
+    near: u32,
+    far: usize,
+}
+
+impl Default for RoomBudget {
+    fn default() -> Self {
+        RoomBudget {
+            near: ROOM_NEAR_ENTITIES,
+            far: ROOM_FAR_COPIES,
+        }
+    }
+}
+
 /// The sets being drawn, and the forms their variants were baked into.
 #[derive(Resource, Default)]
 pub(crate) struct InstanceBuilds {
     builds: Vec<build::Build>,
     forms: forms::Forms,
     far_material: Option<Handle<StandardMaterial>>,
+    budget: RoomBudget,
 }
 
 impl InstanceBuilds {
+    /// Set the room's budgets, for a test of what lies past them.
+    #[cfg(test)]
+    pub(crate) fn set_room_budget(&mut self, near: u32, far: usize) {
+        self.budget = RoomBudget { near, far };
+    }
+
+    /// Share the room's budgets among its sets by what they need (#1648,
+    /// see the module docs), `landing` the landing on the plan: every set
+    /// baked so far, as its copies stand now - a set still growing asks
+    /// nothing yet. What the sets were given in all, and how far from the
+    /// landing the near budget reached, where it did not reach every copy.
+    fn share(&mut self, landing: Vec2) -> (u32, usize, Option<f32>) {
+        let baked: Vec<usize> = (0..self.builds.len())
+            .filter(|&i| !self.builds[i].is_growing())
+            .collect();
+        let demands: Vec<Vec<build::Demand>> = baked
+            .iter()
+            .map(|&i| self.builds[i].demands(landing))
+            .collect();
+        let shared = build::share_by_need(&demands, (self.budget.near, self.budget.far));
+        for ((&i, asks), tiers) in baked.iter().zip(&demands).zip(&shared.tiers) {
+            self.builds[i].set_share(asks, tiers);
+        }
+        (shared.given.0, shared.given.1, shared.cut)
+    }
+
     /// Whether every set the room has spawned is drawn: what a renderer
     /// waits for before it takes its picture.
     pub(crate) fn is_idle(&self) -> bool {
@@ -255,7 +306,6 @@ fn start_instance_builds(
         return;
     }
     let record = &record.0;
-    let copies_in_room = crate::pds::instances::room_copies(record);
     for (root, unit, anchor) in &added {
         let Some(placement) = record.placements.get(unit.0) else {
             continue;
@@ -265,7 +315,6 @@ fn start_instance_builds(
             (unit.0, placement),
             (root, *anchor),
             heightmap.as_deref().map(|heightmap| &heightmap.0),
-            copies_in_room,
         ) else {
             continue;
         };
@@ -277,14 +326,16 @@ fn start_instance_builds(
 /// Follow each drawn set's copies as the record changes them (#1644): in
 /// place where it can, else built anew under the same anchor. A set whose
 /// unit changed is left alone - the compile builds it anew, anchor and all.
+/// Whether any set queued copies to draw, which the room's share is then to
+/// tier; a set built anew is shared when it is baked.
 fn follow_copies(
     builds: &mut [build::Build],
     record: &crate::pds::RoomRecord,
     commands: &mut Commands,
     ground: Option<&bevy_symbios_ground::HeightMap>,
     caches: &mut crate::world_builder::compile::GeneratorCaches,
-) {
-    let copies_in_room = crate::pds::instances::room_copies(record);
+) -> bool {
+    let mut queued = false;
     for build in builds.iter_mut() {
         let Some(placement) = record.placements.get(build.placement()) else {
             continue;
@@ -295,19 +346,23 @@ fn follow_copies(
         if !build.draws_unit_of(record, placement) {
             continue;
         }
-        if let build::Followed::Rebuild = build.follow(copies, commands, ground, copies_in_room) {
-            build.take_down(commands, caches);
-            if let Some(fresh) = build::Build::new(
-                record,
-                (build.placement(), placement),
-                (build.root(), build.anchor()),
-                ground,
-                copies_in_room,
-            ) {
-                *build = fresh;
+        match build.follow(copies, commands, ground) {
+            build::Followed::Unchanged | build::Followed::Done => {}
+            build::Followed::Queued => queued = true,
+            build::Followed::Rebuild => {
+                build.take_down(commands, caches);
+                if let Some(fresh) = build::Build::new(
+                    record,
+                    (build.placement(), placement),
+                    (build.root(), build.anchor()),
+                    ground,
+                ) {
+                    *build = fresh;
+                }
             }
         }
     }
+    queued
 }
 
 /// Advance the builds, a slice a frame (see the module docs), after
@@ -327,15 +382,23 @@ fn spawn_instances(
     wind_materials: Option<Res<Assets<crate::wind::VegetationWindMaterial>>>,
 ) {
     let started = Instant::now();
+    let landing = record
+        .0
+        .default_landing
+        .map_or(Vec2::ZERO, |landing| Vec2::from_array(landing.pos.0));
     if record.is_changed() {
         let ground = deps.heightmap.as_deref().map(|heightmap| &heightmap.0);
-        follow_copies(
+        // Copies a set queued are tiered before they are drawn: the room
+        // shared anew, with the sets baked so far.
+        if follow_copies(
             &mut builds.builds,
             &record.0,
             &mut commands,
             ground,
             &mut deps.caches,
-        );
+        ) {
+            builds.share(landing);
+        }
     }
     // Each build done says once what its variants drew - or why not.
     for build in &mut builds.builds {
@@ -347,6 +410,33 @@ fn spawn_instances(
     }
     if builds.is_idle() {
         return;
+    }
+    // The sets baked wait until the room's last is - and the compile has
+    // spawned every set's anchor, so no set is still to come: then the
+    // room is shared by what they all need, and every waiting set draws
+    // (#1648).
+    let compiling = deps.caches.job.progress().is_some();
+    if !compiling
+        && builds.builds.iter().any(build::Build::is_ready)
+        && !builds.builds.iter().any(build::Build::is_growing)
+    {
+        let (near, far, cut) = builds.share(landing);
+        let mut released = 0;
+        for build in builds.builds.iter_mut().filter(|build| build.is_ready()) {
+            build.release();
+            released += 1;
+        }
+        let reach = cut.map_or_else(
+            || "every copy near".to_owned(),
+            |cut| format!("near within {cut:.0} m of the landing"),
+        );
+        info!(
+            "instances: the room's budgets shared by need among {} sets ({released} new): \
+             {near} of {} near entities, {far} of {} far copies, {reach}",
+            builds.builds.len(),
+            builds.budget.near,
+            builds.budget.far
+        );
     }
     let builds = &mut *builds;
     let far_material = builds
@@ -526,10 +616,10 @@ mod tests {
         assert_eq!(world.resource::<InstanceBuilds>().forms.len(), 1);
     }
 
-    /// Past its near budget a copy big enough to be seen far is its shell,
-    /// one entity drawn in the far material and casting no shadow, while
-    /// the far budget lasts, and past that nothing; a small copy is stamped
-    /// with its draw distance.
+    /// Past the room's near budget a copy big enough to be seen far is its
+    /// shell, one entity drawn in the far material and casting no shadow,
+    /// while the far budget lasts, and past that nothing; a small copy is
+    /// stamped with its draw distance.
     #[test]
     fn past_its_near_budget_a_big_copy_is_its_shell_and_then_nothing() {
         let big = |x: f32| InstanceCopy {
@@ -537,13 +627,10 @@ mod tests {
             ..InstanceCopy::at(x, 0.0, 0.0)
         };
         let mut app = instances_app(vec![vec![big(0.0), big(30.0), big(60.0)]]);
-        let root = anchor(&mut app, 0);
-        app.update();
         app.world_mut()
             .resource_mut::<InstanceBuilds>()
-            .builds
-            .iter_mut()
-            .for_each(|build| build.set_budgets(1, 1));
+            .set_room_budget(1, 1);
+        let root = anchor(&mut app, 0);
         run_to_idle(&mut app);
         let world = app.world_mut();
         let mut near = Vec::new();
@@ -649,12 +736,28 @@ mod tests {
         );
     }
 
-    /// A set grown in place takes its share of the room's budgets anew: one
-    /// copy beside a set of fifty grown to fifty draws on half the room's,
-    /// not the fifty-first part it was built with, and every copy it gained
-    /// is drawn.
+    /// The set `placement` of `app`'s room.
+    fn build_of(app: &App, placement: usize) -> &build::Build {
+        app.world()
+            .resource::<InstanceBuilds>()
+            .builds
+            .iter()
+            .find(|build| build.placement() == placement)
+            .expect("the set")
+    }
+
+    /// What the room's share gave the set `placement`'s copies: near
+    /// entities and far copies.
+    fn budgets_of(app: &App, placement: usize) -> (u32, usize) {
+        build_of(app, placement).given()
+    }
+
+    /// #1648: a set grown in place is given its share anew, by what its
+    /// copies need: one copy beside a set of fifty, grown to fifty, is given
+    /// what its fifty one-part copies cost, and every copy it gained is
+    /// drawn; the set beside it keeps its own.
     #[test]
-    fn a_set_grown_in_place_takes_its_share_anew() {
+    fn a_set_grown_in_place_is_given_its_share_anew_by_need() {
         let mut app = instances_app(vec![
             vec![InstanceCopy::at(0.0, 0.0, 0.0)],
             vec![InstanceCopy::at(0.0, 20.0, 0.0); 50],
@@ -662,19 +765,145 @@ mod tests {
         let root = anchor(&mut app, 0);
         anchor(&mut app, 1);
         run_to_idle(&mut app);
+        assert_eq!(budgets_of(&app, 0), (1, 0));
+        assert_eq!(budgets_of(&app, 1), (50, 0));
         let grown = (0..50)
             .map(|i| InstanceCopy::at(i as f32, 0.0, 0.0))
             .collect();
         set_copies(&mut app, 0, grown);
         run_to_idle(&mut app);
-        let builds = app.world().resource::<InstanceBuilds>();
-        let set = builds
-            .builds
-            .iter()
-            .find(|build| build.placement() == 0)
-            .expect("the grown set");
-        assert_eq!(set.budgets(), (ROOM_NEAR_ENTITIES / 2, ROOM_FAR_COPIES / 2));
+        assert_eq!(budgets_of(&app, 0), (50, 0));
+        assert_eq!(budgets_of(&app, 1), (50, 0));
         assert_eq!(copies_drawn(&mut app, root).len(), 50);
+    }
+
+    /// #1648: a set baked first waits for the room's others before it draws.
+    /// A set far from the landing, its one variant baked at once, and a set
+    /// by the landing still growing three: shared once both are baked, the
+    /// room's near budget goes to the copies by the landing, and none to the
+    /// far set, whose small copies are never drawn far, however much of the
+    /// far budget is left. Each set draws just what it was given.
+    #[test]
+    fn a_set_baked_first_waits_for_the_rooms_others() {
+        let mut app = instances_app(vec![
+            (0..3)
+                .map(|i| InstanceCopy::at(100.0 + i as f32, 0.0, 0.0))
+                .collect(),
+            (0..3u32)
+                .map(|v| InstanceCopy {
+                    variant: v,
+                    ..InstanceCopy::at(2.0 + v as f32, 0.0, 0.0)
+                })
+                .collect(),
+        ]);
+        if let Placement::Instances { variants, .. } = &mut app
+            .world_mut()
+            .resource_mut::<LiveRoomRecord>()
+            .0
+            .placements[1]
+        {
+            *variants = (1..=3)
+                .map(|seed| InstanceVariant {
+                    seed: Some(seed),
+                    params: Default::default(),
+                })
+                .collect();
+        }
+        app.world_mut()
+            .resource_mut::<InstanceBuilds>()
+            .set_room_budget(3, 3);
+        let far = anchor(&mut app, 0);
+        let near = anchor(&mut app, 1);
+        // The far set is baked before the near one is.
+        let mut waited = false;
+        for _ in 0..200 {
+            app.update();
+            let builds = &app.world().resource::<InstanceBuilds>().builds;
+            if builds.iter().any(|build| build.is_ready())
+                && builds.iter().any(|build| build.is_growing())
+            {
+                waited = true;
+                assert!(
+                    copies_drawn_or_none(&mut app, far).is_empty(),
+                    "a waiting set draws nothing"
+                );
+            }
+            if app.world().resource::<InstanceBuilds>().is_idle() {
+                break;
+            }
+        }
+        assert!(waited, "the far set was baked first, and waited");
+        assert_eq!(budgets_of(&app, 1), (3, 0));
+        assert_eq!(budgets_of(&app, 0), (0, 0));
+        for placement in [0, 1] {
+            let set = build_of(&app, placement);
+            assert_eq!(set.spent(), set.given(), "set {placement} drew its share");
+        }
+        assert_eq!(copies_drawn_or_none(&mut app, near).len(), 3);
+        assert!(copies_drawn_or_none(&mut app, far).is_empty());
+    }
+
+    /// #1648: while the compile is still spawning the room's sets, a set
+    /// baked waits too - a set still to come may stand nearer the landing.
+    #[test]
+    fn a_set_baked_waits_while_the_compile_runs() {
+        let mut app = instances_app(vec![vec![InstanceCopy::at(0.0, 0.0, 0.0)]]);
+        app.insert_resource(crate::world_builder::compile::CompileJob::running());
+        let root = anchor(&mut app, 0);
+        for _ in 0..20 {
+            app.update();
+        }
+        assert!(build_of(&app, 0).is_ready(), "baked, and waiting");
+        assert!(copies_drawn_or_none(&mut app, root).is_empty());
+        app.insert_resource(crate::world_builder::compile::CompileJob::default());
+        run_to_idle(&mut app);
+        assert_eq!(copies_drawn_or_none(&mut app, root).len(), 1);
+    }
+
+    /// #1648: in a room whose near budget is spent, a copy added by the
+    /// landing is drawn near, as the share tiers it, though the copies
+    /// drawn before keep what they drew and the room draws past its budget
+    /// until it is loaded again.
+    #[test]
+    fn a_copy_added_by_the_landing_in_a_full_room_is_drawn_near() {
+        let mut app = instances_app(vec![
+            (1..=3)
+                .map(|i| InstanceCopy::at(10.0 * i as f32, 0.0, 0.0))
+                .collect(),
+        ]);
+        app.world_mut()
+            .resource_mut::<InstanceBuilds>()
+            .set_room_budget(3, 0);
+        let root = anchor(&mut app, 0);
+        run_to_idle(&mut app);
+        assert_eq!(copies_drawn(&mut app, root).len(), 3, "the room is full");
+        let mut grown: Vec<InstanceCopy> = (1..=3)
+            .map(|i| InstanceCopy::at(10.0 * i as f32, 0.0, 0.0))
+            .collect();
+        grown.push(InstanceCopy::at(1.0, 0.0, 0.0));
+        set_copies(&mut app, 0, grown);
+        run_to_idle(&mut app);
+        let drawn = copies_drawn(&mut app, root);
+        assert!(drawn.contains_key(&3), "the copy by the landing: {drawn:?}");
+        let world = app.world();
+        assert!(
+            drawn[&3].iter().any(|e| world.get::<Mesh3d>(*e).is_some()
+                && world.get::<bevy::light::NotShadowCaster>(*e).is_none()),
+            "drawn near"
+        );
+        assert_eq!(drawn.len(), 4, "and the three before keep what they drew");
+    }
+
+    /// The entities each copy of the set under `root` drew, by its number:
+    /// none where it has drawn nothing yet.
+    fn copies_drawn_or_none(
+        app: &mut App,
+        root: Entity,
+    ) -> std::collections::BTreeMap<usize, Vec<Entity>> {
+        if app.world().get::<Children>(root).is_none() {
+            return Default::default();
+        }
+        copies_drawn(app, root)
     }
 
     /// A copy of a variant no copy drew before cannot be drawn in place -

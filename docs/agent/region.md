@@ -474,13 +474,19 @@ manifest's budget.
 - **A set draws geometry only.** Sounds, spins, particles, signs, portals
   and gateways are left off its copies, and an L-system plant keeps its own
   seed: place those as ordinary placements.
-- **Its budget is the world's, shared by copies**: 22,000 near entities and
-  5,000 far copies across all sets, each set's share worked out when it is
-  drawn and again when its copies change (a set untouched since another
-  grew keeps the share it had). Copies nearest the landing are drawn as
-  their merged parts; past the set's share a copy big enough to be seen far
-  is drawn as its shell in its colours, and a small one not at all. Small
-  copies are cut at the player's draw distance as scattered ones are.
+- **Its budget is the world's, shared by need** (#1648): 22,000 near
+  entities and 5,000 far copies across all sets. Every copy of every set,
+  nearest the landing first, is drawn as its merged parts while the near
+  budget lasts - a 9-part house costs 9, a 2-part tree 2 - then as its
+  shell in its colours while the far budget does, where it is big enough
+  to be seen far; past both, and a small copy past the near budget, it is
+  not drawn. So one radius of detail stands round the landing whatever
+  set a copy is in. Shares are worked out once every set of the world is
+  baked, so a world shows none of its copies until all its variants are;
+  and again when a set's copies change: a copy you add is drawn as its
+  distance from the landing says, even in a full world, while a copy drawn
+  before keeps what it drew until the world is loaded again. Small copies
+  are cut at the player's draw distance as scattered ones are.
 - **A long set's copies are saved in parts of their own** (#1645): a set
   of more than 64 copies is saved naming its parts, each a record of up to
   2,048 copies beside the world's manifest, and small sets go the same way
@@ -494,9 +500,9 @@ manifest's budget.
   again.
 - **An edit to a set's copies redraws those copies alone** (#1644): each
   copy whose numbers are unchanged keeps what it drew, renumbered where a
-  copy before it went, and the set's share of the room's drawing budget
-  follows how many copies it holds, so add copies with `room set
-  /placements/N/copies/- '[...]'` as you go. An edit to the set itself -
+  copy before it went, and the set is given its share of the room's
+  drawing budget anew by what its copies need, so add copies with `room
+  set /placements/N/copies/- '[...]'` as you go. An edit to the set itself -
   its item, anchor, snapping, solid or variants - draws the whole set again
   (its baked variants are kept, so that grows nothing again).
 - **One copy by name, `N.c`** (copy `c` of the set at placement `N`):

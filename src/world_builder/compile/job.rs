@@ -98,6 +98,13 @@ impl CompileJob {
         let remaining = job.queue.len() as u32 + job.cursor.is_some() as u32;
         Some((job.units_built, job.units_built + remaining))
     }
+
+    /// A job running, with nothing left to build: for a test of what waits
+    /// on a compile.
+    #[cfg(test)]
+    pub(crate) fn running() -> Self {
+        CompileJob(Some(ActiveJob::new(VecDeque::new(), true, None)))
+    }
 }
 
 /// One placement waiting to be (re)built, with the fingerprint the

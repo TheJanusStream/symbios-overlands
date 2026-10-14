@@ -634,11 +634,16 @@ record was migrated: no saved Berlin region existed (decision 8 on #1636).
   section says whether the square's items are seeded yet.
 - **Drawn.** The instance builder draws the sets (#1643). Its budgets -
   22,000 near entities and 5,000 far copies a room, the derived stage's
-  summed - are shared among a room's sets by their copies, not by layer
-  as the derived stage's were: a Kiez whose trees take most of the copies
-  draws fewer of its buildings near. Hermannplatz's kilometre draws 454 of
-  its 1,054 building copies as their shells, where the derived stage drew
-  every one near, and uses 13,319 of its 22,000 near entities.
+  summed - are shared by need (#1648): every copy of the room, nearest the
+  landing first, is drawn near while the near budget lasts, then far while
+  the far budget does, whatever set it is in. Each of the four measured
+  kilometres draws every copy near - Hermannplatz in 17,609 near entities,
+  the derived stage's own count - and the 2 km Hermannplatz everything
+  within 623 m of the landing (1,355 of its 3,748 buildings, 2,949 of its
+  11,119 trees), then its 5,000 nearest copies big enough to be seen far
+  as their shells (1,065 of them buildings). A split by copies, as #1647
+  first drew it, gave a Kiez's trees shares they never used: Hermannplatz
+  drew 454 of its 1,054 buildings as shells.
 
 The ignored test `live_gdi_berlin_round_trip_decodes_and_is_kept` exercises
 the live path end to end: the real client, the disk store, and the decoders.

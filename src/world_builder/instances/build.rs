@@ -24,7 +24,7 @@ use crate::world_builder::draw_distance::{DrawDistanceCuts, SizeClass};
 
 use super::bake::PartQuery;
 use super::forms::{Form, Forms, form_key};
-use super::{InstanceCopyOf, ROOM_FAR_COPIES, ROOM_NEAR_ENTITIES, strip_for_distance};
+use super::{InstanceCopyOf, strip_for_distance};
 
 /// The tallest a trunk collider stands (m): the trunk a walker meets, not
 /// the crown.
@@ -86,6 +86,9 @@ pub(super) struct Stores<'a> {
 enum Stage {
     Templates(usize),
     Baking(usize),
+    /// Baked, waiting for its share of the room's budgets: given once no
+    /// set of the room is still growing or baking (#1648).
+    Ready,
     Copies(usize),
     Done,
 }
@@ -103,13 +106,27 @@ struct Slot {
     whole_cost: Option<u32>,
 }
 
+/// How a copy is to be drawn, as the room's share tiered it (#1648).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum Tier {
+    /// Given none of the room's budgets, or not given a share yet: not
+    /// drawn.
+    #[default]
+    Unseen,
+    /// As its merged parts.
+    Near,
+    /// As its shell.
+    Far,
+}
+
 /// One copy as it is drawn: its index among the record's copies, its pose
-/// under the anchor, and its variant.
+/// under the anchor, its variant, and how it is to be drawn.
 #[derive(Clone, Copy)]
 struct Stood {
     index: usize,
     pose: Transform,
     variant: usize,
+    tier: Tier,
 }
 
 /// What one drawn copy cost its set's budgets.
@@ -132,11 +149,30 @@ pub(super) struct DrawnCopy {
 
 /// What a set's copies changing did to its build.
 pub(super) enum Followed {
-    /// The copies are the ones it draws, or it now draws them.
+    /// The copies are the ones it draws already.
+    Unchanged,
+    /// It now draws them: none was new or changed.
     Done,
+    /// It is to draw the copies new or changed, once they are tiered.
+    Queued,
     /// It cannot follow them in place - it is still being drawn, or a copy
     /// draws a variant it never grew - and is to be built again.
     Rebuild,
+}
+
+/// Where `copy` stands on the plan, under `anchor`: where a copy is drawn,
+/// its height aside.
+fn on_plan(anchor: &Transform, copy: &InstanceCopy) -> Vec3 {
+    let [x, _, z] = copy.position();
+    anchor.translation + anchor.rotation * Vec3::new(x, 0.0, z)
+}
+
+/// How far `copy` stands from `landing` on the plan, under `anchor`,
+/// squared (m2): what a set's copies are drawn, and the room's budgets
+/// shared, nearest first by.
+fn plan_distance2(anchor: &Transform, copy: &InstanceCopy, landing: Vec2) -> f32 {
+    let at = on_plan(anchor, copy);
+    (Vec2::new(at.x, at.z) - landing).length_squared()
 }
 
 /// A copy stood where the record puts it: its pose under the anchor, and
@@ -149,7 +185,7 @@ fn stand(
     copy: &InstanceCopy,
 ) -> (Transform, Vec3) {
     let [x, y, z] = copy.position();
-    let on_plan = anchor.translation + anchor.rotation * Vec3::new(x, 0.0, z);
+    let on_plan = on_plan(anchor, copy);
     let world_y = match (snap, ground) {
         (true, Some(ground)) => {
             crate::world_builder::snapped_ground_y(ground, on_plan.x, on_plan.z, None) + y
@@ -207,14 +243,98 @@ fn unit_key(record: &RoomRecord, placement: &Placement) -> u64 {
     crate::seeded_defaults::fnv1a_64(&unit.to_string())
 }
 
-/// A set's share of the room's budgets, by its `copies` among
-/// `copies_in_room`: its near entities and its far copies.
-fn share_of(copies: usize, copies_in_room: usize) -> (u32, usize) {
-    let share = copies as f64 / copies_in_room.max(copies).max(1) as f64;
-    (
-        (f64::from(ROOM_NEAR_ENTITIES) * share) as u32,
-        (ROOM_FAR_COPIES as f64 * share) as usize,
-    )
+/// What one copy of a set asks of the room's budgets (#1648).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct Demand {
+    /// How far it stands from the landing on the plan, squared (m2).
+    pub distance2: f32,
+    /// Its set's placement, and its index among the set's copies: what two
+    /// copies as far from the landing are weighed by.
+    pub placement: usize,
+    pub copy: usize,
+    /// What it costs drawn near (entities).
+    pub near: u32,
+    /// Whether it may be drawn far: big enough to be seen far, with a shell
+    /// to draw.
+    pub far: bool,
+}
+
+/// The room's budgets shared among its sets ([`share_by_need`]).
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct Shared {
+    /// Each copy's tier, set by set and copy by copy as asked.
+    pub tiers: Vec<Vec<Tier>>,
+    /// What the copies were given in all: near entities and far copies.
+    pub given: (u32, usize),
+    /// How far from the landing the first copy stands that was not drawn
+    /// near (m): the reach of the near budget, `None` where every copy fit.
+    pub cut: Option<f32>,
+}
+
+/// The room's budgets `(near, far)` shared among the sets whose copies ask
+/// `demands` (#1648): every copy of every set, nearest the landing first -
+/// two as far by placement, then by copy, so every client shares alike -
+/// near while the near budget lasts, a dear copy as a cheap one; from the
+/// first that does not fit, none is near, and those that may be drawn far
+/// take the far budget, nearest first. A copy is drawn as its tier says,
+/// whatever its set drew before: what it costs is its variant's merged
+/// parts, or, drawn whole, at least a node a part until its first copy is
+/// drawn - which no kind a set keeps is.
+pub(super) fn share_by_need(demands: &[Vec<Demand>], (near, far): (u32, usize)) -> Shared {
+    let mut asks: Vec<(usize, usize, &Demand)> = demands
+        .iter()
+        .enumerate()
+        .flat_map(|(set, asks)| asks.iter().enumerate().map(move |(i, ask)| (set, i, ask)))
+        .collect();
+    // Placement and copy make the order total: unstable is as good.
+    asks.sort_unstable_by(|(_, _, a), (_, _, b)| {
+        a.distance2
+            .total_cmp(&b.distance2)
+            .then(a.placement.cmp(&b.placement))
+            .then(a.copy.cmp(&b.copy))
+    });
+    let mut tiers: Vec<Vec<Tier>> = demands
+        .iter()
+        .map(|asks| vec![Tier::Unseen; asks.len()])
+        .collect();
+    let (mut near_left, mut far_left) = (near, far);
+    let mut cut = None;
+    for (set, i, ask) in asks {
+        if cut.is_none() && ask.near <= near_left {
+            near_left -= ask.near;
+            tiers[set][i] = Tier::Near;
+            continue;
+        }
+        cut.get_or_insert(ask.distance2.sqrt());
+        if ask.far && far_left > 0 {
+            far_left -= 1;
+            tiers[set][i] = Tier::Far;
+        }
+    }
+    Shared {
+        tiers,
+        given: (near - near_left, far - far_left),
+        cut,
+    }
+}
+
+/// What a copy of the variant in `slot`, baked into `form`, costs drawn
+/// near: its merged parts, or - drawn whole - what its first copy cost,
+/// and before one has been, at least a node of `tree` a part.
+fn near_cost(tree: &Generator, slot: &Slot, form: &Form) -> u32 {
+    match &form.near {
+        Some(parts) => parts.len() as u32,
+        None => slot.whole_cost.unwrap_or_else(|| {
+            u32::try_from(crate::pds::room::generator_entity_count(tree)).unwrap_or(u32::MAX)
+        }),
+    }
+}
+
+/// The draw distance a copy of `form` at `scale` is cut at, where it is
+/// small enough to be: a small copy is drawn near or not at all.
+fn size_class(form: &Form, scale: f32) -> Option<SizeClass> {
+    form.bounds
+        .and_then(|(lo, hi)| SizeClass::of((hi - lo).max_element() * scale))
 }
 
 /// One set being drawn, or drawn.
@@ -239,9 +359,9 @@ pub(super) struct Build {
     /// What the set is drawn from but its copies ([`unit_key`]).
     unit: u64,
     solid: InstanceSolid,
-    /// Its share of the room's budgets.
-    near_budget: u32,
-    far_budget: usize,
+    /// What the room's share gave its copies (#1648): near entities and far
+    /// copies, for the log.
+    given: (u32, usize),
     near_spent: u32,
     far_spent: usize,
     stage: Stage,
@@ -255,14 +375,13 @@ impl Build {
     /// The build of the set `placement`, the `index`th of `record`'s, under
     /// the anchor `root` the compile stood at `anchor`: `None` where it is
     /// not a set, or its generator is missing or cannot be written. Each
-    /// copy is stood on `ground` where the set snaps, and the set's budgets
-    /// are its share of the room's by its copies among `copies_in_room`.
+    /// copy is stood on `ground` where the set snaps. Its share of the
+    /// room's budgets is given once it is baked (#1648).
     pub(super) fn new(
         record: &RoomRecord,
         (index, placement): (usize, &Placement),
         (root, anchor): (Entity, Transform),
         ground: Option<&bevy_symbios_ground::HeightMap>,
-        copies_in_room: usize,
     ) -> Option<Self> {
         let Placement::Instances {
             generator_ref,
@@ -304,14 +423,15 @@ impl Build {
                 let variant = usize::try_from(copy.variant).ok()?;
                 let slot = slots.get_mut(variant)?;
                 slot.drawn = true;
-                let (pose, world) = stand(&anchor, *snap_to_terrain, ground, copy);
-                let distance = (Vec2::new(world.x, world.z) - landing).length_squared();
+                let (pose, _) = stand(&anchor, *snap_to_terrain, ground, copy);
+                let distance = plan_distance2(&anchor, copy, landing);
                 Some((
                     distance,
                     Stood {
                         index,
                         pose,
                         variant,
+                        tier: Tier::Unseen,
                     },
                 ))
             })
@@ -319,7 +439,6 @@ impl Build {
         // Stable: copies as far from the landing keep the record's order,
         // so every peer draws the same ones near.
         stood.sort_by(|(a, _), (b, _)| a.total_cmp(b));
-        let (near_budget, far_budget) = share_of(copies.len(), copies_in_room);
         Some(Build {
             root,
             placement: index,
@@ -333,8 +452,7 @@ impl Build {
             snap: *snap_to_terrain,
             unit: unit_key(record, placement),
             solid: solid.clone(),
-            near_budget,
-            far_budget,
+            given: (0, 0),
             near_spent: 0,
             far_spent: 0,
             stage: if copies.is_empty() {
@@ -352,22 +470,82 @@ impl Build {
         self.root
     }
 
-    /// Set its budgets, for a test of what lies past them.
-    #[cfg(test)]
-    pub(super) fn set_budgets(&mut self, near_entities: u32, far_copies: usize) {
-        self.near_budget = near_entities;
-        self.far_budget = far_copies;
+    /// Take its share of the room's budgets (#1648): `tiers`, given to the
+    /// copies `demands` named. Each copy still to be drawn is drawn as its
+    /// tier says; one drawn already keeps what it drew.
+    pub(super) fn set_share(&mut self, demands: &[Demand], tiers: &[Tier]) {
+        let mut by_copy = vec![Tier::Unseen; self.record_copies.len()];
+        let mut given = (0, 0);
+        for (demand, &tier) in demands.iter().zip(tiers) {
+            if let Some(slot) = by_copy.get_mut(demand.copy) {
+                *slot = tier;
+            }
+            match tier {
+                Tier::Near => given.0 += demand.near,
+                Tier::Far => given.1 += 1,
+                Tier::Unseen => {}
+            }
+        }
+        for stood in &mut self.copies {
+            stood.tier = by_copy.get(stood.index).copied().unwrap_or_default();
+        }
+        self.given = given;
     }
 
-    /// Its budgets: near entities and far copies.
+    /// What the room's share gave its copies: near entities and far copies.
     #[cfg(test)]
-    pub(super) fn budgets(&self) -> (u32, usize) {
-        (self.near_budget, self.far_budget)
+    pub(super) fn given(&self) -> (u32, usize) {
+        self.given
+    }
+
+    /// What it has drawn: near entities and far copies.
+    #[cfg(test)]
+    pub(super) fn spent(&self) -> (u32, usize) {
+        (self.near_spent, self.far_spent)
     }
 
     /// Whether every copy it draws is drawn.
     pub(super) fn is_done(&self) -> bool {
         self.stage == Stage::Done
+    }
+
+    /// Whether it is still growing or baking its variants: what its copies
+    /// would cost is not known yet.
+    pub(super) fn is_growing(&self) -> bool {
+        matches!(self.stage, Stage::Templates(_) | Stage::Baking(_))
+    }
+
+    /// Whether it is baked and waits for its share of the room's budgets.
+    pub(super) fn is_ready(&self) -> bool {
+        self.stage == Stage::Ready
+    }
+
+    /// Let it draw its copies, on the share it was given.
+    pub(super) fn release(&mut self) {
+        if self.stage == Stage::Ready {
+            self.stage = Stage::Copies(0);
+        }
+    }
+
+    /// What each of its copies asks of the room's budgets (#1648), standing
+    /// as the record has them, `landing` the landing on the plan: a copy of
+    /// a variant not baked, or that draws nothing, asks nothing.
+    pub(super) fn demands(&self, landing: Vec2) -> Vec<Demand> {
+        self.record_copies
+            .iter()
+            .enumerate()
+            .filter_map(|(index, copy)| {
+                let slot = self.slots.get(usize::try_from(copy.variant).ok()?)?;
+                let form = slot.form.as_ref().filter(|form| form.draws())?;
+                Some(Demand {
+                    distance2: plan_distance2(&self.anchor, copy, landing),
+                    placement: self.placement,
+                    copy: index,
+                    near: near_cost(&self.tree, slot, form),
+                    far: form.far.is_some() && size_class(form, copy.scale()).is_none(),
+                })
+            })
+            .collect()
     }
 
     /// Take this frame's steps, as far as `slice` allows.
@@ -479,7 +657,9 @@ impl Build {
                     commands.entity(template).despawn();
                     self.stage = Stage::Baking(v + 1);
                 }
-                Stage::Baking(_) => self.stage = Stage::Copies(0),
+                Stage::Baking(_) => self.stage = Stage::Ready,
+                // Its share comes once the room's sets are all baked.
+                Stage::Ready => return,
                 Stage::Copies(c) if c < self.copies.len() => {
                     if slice.out_of_time() || slice.copies == 0 {
                         return;
@@ -501,8 +681,14 @@ impl Build {
                 }
                 Stage::Copies(_) => {
                     if !self.announced {
+                        let near = self
+                            .drawn
+                            .iter()
+                            .flatten()
+                            .filter(|drawn| matches!(drawn.cost, Cost::Near(_)))
+                            .count();
                         info!(
-                            "instances #{} ({}): {} near entities, {} far copies, of {} copies from {} variants",
+                            "instances #{} ({}): {near} copies near in {} entities, {} far copies, of {} copies from {} variants",
                             self.placement,
                             self.generator_ref,
                             self.near_spent,
@@ -520,9 +706,9 @@ impl Build {
         }
     }
 
-    /// Spawn the copy `stood`: near while the set's budget lasts, else far
-    /// where it is big enough to be seen far and the far budget lasts, and
-    /// its collider where it drew anything. What it drew, or `None`.
+    /// Spawn the copy `stood` as its tier says (#1648): near, or far where
+    /// it is big enough to be seen far, and its collider where it drew
+    /// anything. What it drew, or `None`.
     fn spawn_copy(
         &mut self,
         stood: Stood,
@@ -540,6 +726,7 @@ impl Build {
             index,
             pose,
             variant,
+            tier,
         } = stood;
         let slot = &mut self.slots[variant];
         let form = slot.form.clone().filter(|form| form.draws())?;
@@ -550,21 +737,10 @@ impl Build {
         };
         // Small copies are cut at the draw distance, and drawn near or not
         // at all: a few pixels far off are not worth a far form.
-        let class = form
-            .bounds
-            .and_then(|(lo, hi)| SizeClass::of((hi - lo).max_element() * pose.scale.x));
+        let class = size_class(&form, pose.scale.x);
         let cut = class.map(|class| (class, cuts.and_then(|cuts| cuts.range(class))));
-        // A copy drawn whole costs what its first did; before one has been,
-        // at least a node a part.
-        let near_cost = match &form.near {
-            Some(parts) => parts.len() as u32,
-            None => slot.whole_cost.unwrap_or_else(|| {
-                u32::try_from(crate::pds::room::generator_entity_count(&self.tree))
-                    .unwrap_or(u32::MAX)
-            }),
-        };
         let root = self.root;
-        let cost = if self.near_spent.saturating_add(near_cost) <= self.near_budget {
+        let cost = if tier == Tier::Near {
             let spent = match &form.near {
                 Some(parts) => {
                     for (mesh, material, sway) in parts {
@@ -581,7 +757,7 @@ impl Build {
                         stamp(&mut part, cut.clone());
                         entities.push(part.id());
                     }
-                    near_cost
+                    parts.len() as u32
                 }
                 // Drawn whole, where a part is drawn with a material the
                 // bake cannot merge: not cut at the draw distance, which
@@ -620,8 +796,8 @@ impl Build {
             };
             self.near_spent += spent;
             Cost::Near(spent)
-        } else if class.is_none()
-            && self.far_spent < self.far_budget
+        } else if tier == Tier::Far
+            && class.is_none()
             && let Some(far) = form.far.clone()
         {
             entities.push(
@@ -672,17 +848,16 @@ impl Build {
     /// Follow the record's copies `now` (see the module docs): each kept
     /// where its numbers are unchanged, renumbered where it moved up the
     /// list, taken away where it is gone, and queued to be drawn where it
-    /// is new or changed - each stood on `ground` as a copy is - with the
-    /// set's budgets its share again, by its copies among `copies_in_room`.
+    /// is new or changed - each stood on `ground` as a copy is. Its share of
+    /// the room's budgets is given anew before the queue is drawn (#1648).
     pub(super) fn follow(
         &mut self,
         now: &[InstanceCopy],
         commands: &mut Commands,
         ground: Option<&bevy_symbios_ground::HeightMap>,
-        copies_in_room: usize,
     ) -> Followed {
         if self.record_copies.as_slice() == now {
-            return Followed::Done;
+            return Followed::Unchanged;
         }
         if self.stage != Stage::Done {
             return Followed::Rebuild;
@@ -740,6 +915,7 @@ impl Build {
                             index: j,
                             pose,
                             variant,
+                            tier: Tier::Unseen,
                         });
                     }
                     None
@@ -751,12 +927,12 @@ impl Build {
         }
         self.drawn = drawn;
         self.record_copies = now.to_vec();
-        (self.near_budget, self.far_budget) = share_of(now.len(), copies_in_room);
-        if !queue.is_empty() {
-            self.copies = queue;
-            self.stage = Stage::Copies(0);
+        if queue.is_empty() {
+            return Followed::Done;
         }
-        Followed::Done
+        self.copies = queue;
+        self.stage = Stage::Copies(0);
+        Followed::Queued
     }
 
     /// Despawn everything it drew and every template it grew, and drop what
@@ -940,14 +1116,6 @@ mod tests {
             (0, &record.placements[0]),
             (Entity::PLACEHOLDER, anchor),
             ground,
-            record
-                .placements
-                .iter()
-                .map(|p| match p {
-                    Placement::Instances { copies, .. } => copies.len(),
-                    _ => 0,
-                })
-                .sum(),
         )
         .expect("a set")
     }
@@ -1009,17 +1177,79 @@ mod tests {
         assert_eq!(build.slots.len(), 1);
     }
 
-    /// A set's budgets are its share of the room's by its copies.
+    /// What a copy at `distance` from the landing, the `copy`th of the set
+    /// `placement`, asks: `near` entities, and far where it `far` may be.
+    fn ask(distance: f32, placement: usize, copy: usize, near: u32, far: bool) -> Demand {
+        Demand {
+            distance2: distance * distance,
+            placement,
+            copy,
+            near,
+            far,
+        }
+    }
+
+    /// #1648: the room is shared nearest the landing first, whatever set a
+    /// copy is in - a tree at two entities as a house at nine - near while
+    /// the near budget lasts, none near from the first that does not fit,
+    /// though a cheaper one past it would; then far, nearest first, for
+    /// those that may be, while the far budget lasts.
     #[test]
-    fn a_sets_budget_is_its_share_of_the_rooms_by_its_copies() {
-        let mut record = room_of(vec![InstanceCopy::at(0.0, 0.0, 0.0); 25], Vec::new());
-        let other = record.placements[0].clone();
-        record.placements.push(other.clone());
-        record.placements.push(other.clone());
-        record.placements.push(other);
-        let build = built(&record, Transform::IDENTITY, None);
-        assert_eq!(build.near_budget, ROOM_NEAR_ENTITIES / 4);
-        assert_eq!(build.far_budget, ROOM_FAR_COPIES / 4);
+    fn the_room_is_shared_nearest_the_landing_first_by_need() {
+        use Tier::{Far, Near, Unseen};
+        let trees = vec![
+            ask(1.0, 0, 0, 2, false),
+            ask(3.0, 0, 1, 2, false),
+            ask(5.0, 0, 2, 2, true),
+            ask(7.0, 0, 3, 2, true),
+        ];
+        let houses = vec![
+            ask(2.0, 1, 0, 9, true),
+            ask(4.0, 1, 1, 9, true),
+            ask(6.0, 1, 2, 9, true),
+        ];
+        // Near: tree, house, tree, house, tree - 24 of 30; the third house
+        // (9) does not fit, and the last tree (2), which would, is past it.
+        // Far: the third house; the last tree finds the far budget spent.
+        let shared = share_by_need(&[trees.clone(), houses.clone()], (30, 1));
+        assert_eq!(
+            shared,
+            Shared {
+                tiers: vec![vec![Near, Near, Near, Unseen], vec![Near, Near, Far]],
+                given: (24, 1),
+                cut: Some(6.0),
+            }
+        );
+        // Nothing near: only those that may be drawn far are, nearest first:
+        // the first two houses and the third tree.
+        assert_eq!(
+            share_by_need(&[trees.clone(), houses.clone()], (0, 3)).tiers,
+            [vec![Unseen, Unseen, Far, Unseen], vec![Far, Far, Unseen]]
+        );
+        // Room for all: every copy near, nothing cut.
+        let all = share_by_need(&[trees, houses], (100, 0));
+        assert_eq!((all.given, all.cut), ((35, 0), None));
+        assert!(all.tiers.iter().flatten().all(|tier| *tier == Near));
+        // Two as far from the landing: the earlier placement first, then
+        // the earlier copy - whatever order the sets and copies come in.
+        assert_eq!(
+            share_by_need(
+                &[vec![ask(4.0, 3, 0, 5, true)], vec![ask(4.0, 1, 0, 5, true)]],
+                (5, 0)
+            )
+            .tiers,
+            [vec![Unseen], vec![Near]]
+        );
+        // The earlier copy (5) first: the later (3) would have fitted too.
+        assert_eq!(
+            share_by_need(
+                &[vec![ask(4.0, 1, 1, 3, true), ask(4.0, 1, 0, 5, true)]],
+                (5, 0)
+            )
+            .tiers,
+            [vec![Unseen, Near]]
+        );
+        assert!(share_by_need(&[], (5, 5)).tiers.is_empty());
     }
 
     fn form(bounds: (Vec3, Vec3), base: Option<f32>) -> Form {
