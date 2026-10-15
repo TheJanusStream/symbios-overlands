@@ -16,8 +16,8 @@ use super::super::RunaboutColours;
 use super::super::profile::{FinlessForm, HullProfile};
 use super::dressing::{Hatch, wear_ladder};
 use super::hull::{
-    CHINE, DECK_CROWN, HULL_HOLLOW, UPRIGHT, bench, bench_half_width, cockpit_sole, deck_run, line,
-    panel, skin, sweep, turned, underbody, windscreen,
+    CHINE, DECK_CROWN, HULL_HOLLOW, UPRIGHT, bench, cockpit_sole, deck_run, line, panel, skin,
+    sweep, turned, underbody, windscreen,
 };
 use super::{FALLING, Launch, LaunchForm};
 
@@ -125,7 +125,6 @@ impl Launch for Skimmer {
         kids.push(deck_run(hull, zf, hull.stem_z() - l * 0.004, &c.deck, 0.0));
         kids.push(deck_run(hull, hull.transom_z(), za, &c.deck, 0.0));
         let sole_y = cockpit_sole(kids, hull, c, cockpit);
-        let half = bench_half_width(hull, cockpit, sole_y);
         bench(
             kids,
             hull,
@@ -133,7 +132,6 @@ impl Launch for Skimmer {
             zf - l * 0.080,
             l * 0.070,
             sole_y,
-            half,
             l * 0.045,
             l * 0.080,
             0.45,

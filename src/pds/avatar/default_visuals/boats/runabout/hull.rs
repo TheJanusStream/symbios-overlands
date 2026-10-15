@@ -14,6 +14,7 @@
 //! polygon, which is why [`CHINE`] is `cos 45` rather than a tuned fraction.
 
 use crate::pds::generator::Generator;
+use crate::pds::types::Fp2;
 
 use super::super::super::common::quat_x;
 use super::super::RunaboutColours;
@@ -192,6 +193,13 @@ pub(super) fn windscreen(
 /// A bench across the cockpit: a cushion on the sole and a back leaning aft
 /// by `lean` radians, bedded into the cushion's after edge. The cockpit's one
 /// pale mass at 12 m.
+///
+/// Each part spans the cockpit as wide as the shell lets it AT ITS OWN
+/// stations and heights ([`span_half_width`]), and the cushion's sides
+/// follow the topsides' flare - its foot narrowed to the floor's width, its
+/// top the full width a hand higher (#1655). One width for both, read a hand
+/// above the floor at the cockpit's middle, stood the cushion's lower ends
+/// out through the skin, worst toward the bow where the hull narrows.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn bench(
     kids: &mut Vec<Generator>,
@@ -200,25 +208,39 @@ pub(super) fn bench(
     z: f32,
     depth: f32,
     sole_y: f32,
-    x_half: f32,
     seat_h: f32,
     back_h: f32,
     lean: f32,
 ) {
     let l = hull.loa;
     let cushion = l * 0.028;
-    kids.push(panel(
-        [x_half * 2.0, seat_h, depth],
+    let span = (z - depth * 0.5, z + depth * 0.5);
+    let top = span_half_width(hull, span, sole_y + seat_h);
+    let foot = span_half_width(hull, span, sole_y);
+    let mut seat = panel(
+        [top * 2.0, seat_h, depth],
         &c.upholstery,
         [0.0, sole_y + seat_h * 0.5, z],
         UPRIGHT,
         l * 0.010,
-    ));
+    );
+    if let Some(t) = seat.kind.torture_mut() {
+        t.taper_bottom = Fp2([1.0 - foot / top, 0.0]);
+    }
+    kids.push(seat);
     let thick = l * 0.024;
     let by = sole_y + seat_h + back_h * 0.5 * lean.cos() - cushion * 0.3;
     let bz = z - depth * 0.5 + thick * 0.5 - back_h * 0.5 * lean.sin();
+    // The back leans aft, so its foot is its lowest and its forward-most
+    // edge and its head its aftmost: it spans the stations between.
+    let reach = 0.5 * (back_h * lean.sin() + thick * lean.cos());
+    let back_foot = by - 0.5 * back_h * lean.cos() - 0.5 * thick * lean.sin();
     kids.push(panel(
-        [x_half * 2.0, back_h, thick],
+        [
+            span_half_width(hull, (bz - reach, bz + reach), back_foot) * 2.0,
+            back_h,
+            thick,
+        ],
         &c.upholstery,
         [0.0, by, bz],
         quat_x(-lean),
@@ -226,8 +248,28 @@ pub(super) fn bench(
     ));
 }
 
-/// A wheel rim - a Lathe band bored open - raked aft, on a column running
-/// forward and down into the dash.
+/// The half-width a part spanning the cockpit may have at height `y` between
+/// stations `za` and `zf` (#1655): the bored shell's inner face there, at the
+/// narrower station, let half way into the wall - so the part meets the wall
+/// and never stands out through the skin. The topsides flare, so the lower a
+/// part reaches the narrower it must be.
+fn span_half_width(hull: &HullProfile, (za, zf): (f32, f32), y: f32) -> f32 {
+    let at = |z: f32| {
+        let depth = hull.sheer_z(z) - y;
+        let inner = inner_half_width(hull, z, depth, HULL_HOLLOW);
+        let outer = inner_half_width(hull, z, depth, 1.0);
+        (inner + outer) * 0.5
+    };
+    at(za).min(at(zf))
+}
+
+/// A wheel rim - a Lathe band bored open - on a column running forward and
+/// down into the dash, SQUARE TO THE COLUMN (#1655): the rim's axis is the
+/// column's own direction, read off its two points, so the wheel faces the
+/// helm up the column and its top leans forward, as a real one's does. It
+/// was turned by the roadster's old hand-set angle, which tipped it 76
+/// degrees off square to this column, its top leaning back at the helm
+/// (#1651 fixed the roadster's).
 pub(super) fn steering_wheel(
     kids: &mut Vec<Generator>,
     hull: &HullProfile,
@@ -237,20 +279,21 @@ pub(super) fn steering_wheel(
 ) {
     let l = hull.loa;
     let [x, y, z] = at;
+    let foot = [x, y - r * 0.9, z + r * 0.9];
+    // One turn about x carries the rim's axis - the lathe's +Y - up the
+    // column, which stands in one x-plane.
+    let up_the_column = (z - foot[2]).atan2(y - foot[1]);
     kids.push(turned(
         &[(r, -l * 0.004), (r, l * 0.004)],
         16,
         false,
         &c.wheel,
         at,
-        quat_x(std::f32::consts::FRAC_PI_2 - 0.55),
+        quat_x(up_the_column),
         0.80,
     ));
     kids.push(line(
-        &[
-            ([x, y - r * 0.9, z + r * 0.9], l * 0.006),
-            ([x, y, z], l * 0.0045),
-        ],
+        &[(foot, l * 0.006), ([x, y, z], l * 0.0045)],
         6,
         &c.chrome,
     ));
@@ -291,17 +334,6 @@ pub(super) fn cockpit_sole(
     sole_y
 }
 
-/// The half-width a bench spans across the cockpit at the sole: the shell's
-/// inner face a little above it, let into the wall.
-pub(super) fn bench_half_width(hull: &HullProfile, (za, zf): (f32, f32), sole_y: f32) -> f32 {
-    inner_half_width(
-        hull,
-        (za + zf) * 0.5,
-        hull.sheer_z(0.0) - sole_y - hull.loa * 0.05,
-        HULL_HOLLOW,
-    ) + hull.half_beam * 0.03
-}
-
 /// A chrome stem band down the cutwater, from the forefoot to the stemhead:
 /// the bow's one bright line.
 pub(super) fn stem_band(kids: &mut Vec<Generator>, hull: &HullProfile, c: &RunaboutColours) {
@@ -321,4 +353,62 @@ pub(super) fn stem_band(kids: &mut Vec<Generator>, hull: &HullProfile, c: &Runab
         l * 0.0055,
     ));
     kids.push(line(&pts, 6, &c.chrome));
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::math::{Quat, Vec3};
+
+    use super::super::profile_of;
+    use super::*;
+    use crate::pds::avatar::livery::runabout_colours;
+    use crate::pds::avatar::parts::PartCtx;
+    use crate::pds::generator::GeneratorKind;
+    use crate::seeded_defaults::{BoatBlueprint, RunaboutVariant, VehicleStance};
+
+    /// The wheel is square to its column (#1655): the rim's axis - the
+    /// lathe's +Y through every turn on it - runs along the column's own two
+    /// points, toward the helm, and its top leans forward toward the bow.
+    /// It was turned 76 degrees off square to this column, its top leaning
+    /// back at the helm - the roadster's mistake (#1651).
+    #[test]
+    fn the_wheel_is_square_to_its_column_and_leans_its_top_forward() {
+        let loa = 2.8;
+        let bp = BoatBlueprint {
+            stance: VehicleStance::Sleek,
+            hull_len: loa,
+            beam: loa / 3.5,
+            freeboard: loa * 0.11,
+            sheer_bow: loa * 0.060,
+            sheer_stern: loa * 0.025,
+            draft: loa * 0.100,
+        };
+        for v in RunaboutVariant::ALL {
+            let hull = profile_of(&bp, v);
+            let c = runabout_colours(&PartCtx::for_seed(0), v);
+            let mut kids = Vec::new();
+            let at = [-hull.half_beam * 0.38, hull.sheer_z(0.0) + loa * 0.018, 0.0];
+            steering_wheel(&mut kids, &hull, &c, at, loa * 0.028);
+            let [rim, column] = kids.as_slice() else {
+                panic!("{v:?}: a wheel is a rim and a column");
+            };
+            let GeneratorKind::Spine { points, .. } = &column.kind else {
+                panic!("{v:?}: the column is a swept line");
+            };
+            let along = (Vec3::from(points[points.len() - 1].position.0)
+                - Vec3::from(points[0].position.0))
+            .normalize();
+            let axis = (Quat::from_array(rim.transform.rotation.0) * Vec3::Y).normalize();
+            assert!(
+                axis.dot(along) > 0.1f32.to_radians().cos(),
+                "{v:?}: the rim's axis {axis} is {:.1} degrees off its column's {along}",
+                axis.angle_between(along).to_degrees()
+            );
+            let top = (Vec3::Y - axis * axis.dot(Vec3::Y)).normalize();
+            assert!(
+                top.z > 0.0,
+                "{v:?}: the wheel's top leans back at the helm ({top})"
+            );
+        }
+    }
 }

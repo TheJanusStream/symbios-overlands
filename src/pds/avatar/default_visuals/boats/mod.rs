@@ -747,6 +747,90 @@ mod tests {
         out
     }
 
+    /// No runabout's upholstery stands out through her hull (#1655): every
+    /// vertex the mesher draws for a bench - its cushion and its back - that
+    /// lies under the sheer lies inside the shell's outer skin, at its own
+    /// station and depth, on the two variants with a cockpit inside one hull
+    /// at every blueprint corner and tier. One width for the whole cushion,
+    /// read a hand above the floor at the cockpit's middle, stood its lower
+    /// ends out through the topsides. The catamaran's helm seat stands on her
+    /// bridge deck between two hulls, which a centred shell does not describe.
+    #[test]
+    fn no_runabouts_upholstery_stands_out_through_her_hull() {
+        use crate::pds::texture::SovereignMaterialSettings;
+        use crate::seeded_defaults::{OrnatenessTier, WearTier};
+        use crate::world_builder::build_primitive_mesh;
+        use bevy::math::{Affine3A, Quat, Vec3};
+        use bevy::mesh::{Mesh, VertexAttributeValues};
+        fn drawn(
+            g: &Generator,
+            parent: Affine3A,
+            want: &SovereignMaterialSettings,
+            out: &mut Vec<Vec3>,
+        ) {
+            let t = &g.transform;
+            let at = parent
+                * Affine3A::from_scale_rotation_translation(
+                    Vec3::from(t.scale.0),
+                    Quat::from_array(t.rotation.0).normalize(),
+                    Vec3::from(t.translation.0),
+                );
+            if g.kind.material() == Some(want)
+                && let Some(VertexAttributeValues::Float32x3(p)) = build_primitive_mesh(&g.kind)
+                    .mesh
+                    .attribute(Mesh::ATTRIBUTE_POSITION)
+            {
+                out.extend(p.iter().map(|&v| at.transform_point3(Vec3::from(v))));
+            }
+            for c in &g.children {
+                drawn(c, at, want, out);
+            }
+        }
+        let mut ctx = PartCtx::for_seed(
+            (0u64..600)
+                .find(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat)
+                .expect("some seed is a boat"),
+        );
+        let mut measured = 0;
+        for bp in corners() {
+            for v in [RunaboutVariant::Coastal, RunaboutVariant::Skimmer] {
+                let hull = runabout::profile_of(&bp, v);
+                for o in OrnatenessTier::ALL {
+                    for w in WearTier::ALL {
+                        (ctx.ornateness, ctx.wear) = (o, w);
+                        let c = runabout_colours(&ctx, v);
+                        let mut points = Vec::new();
+                        drawn(
+                            &runabout::build_variant(&ctx, &hull, v),
+                            Affine3A::IDENTITY,
+                            &c.upholstery,
+                            &mut points,
+                        );
+                        for p in points {
+                            let sheer = hull.sheer_z(p.z);
+                            if p.y >= sheer {
+                                continue;
+                            }
+                            let skin = runabout::skin_half_width(&hull, p.z, sheer - p.y);
+                            assert!(
+                                p.x.abs() <= skin + 1e-4,
+                                "a {} m {}, {} / {}: upholstery drawn at {p}, {} m out \
+                                 through her skin",
+                                hull.loa,
+                                v.label(),
+                                o.label(),
+                                w.label(),
+                                p.x.abs() - skin
+                            );
+                            measured += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(measured > 0, "no upholstery under a sheer was measured");
+    }
+
     /// Every scow load at every blueprint corner on every ornateness-by-wear
     /// pair, with its hull and a label (#1373).
     fn every_scow() -> Vec<(Generator, HullProfile, String)> {

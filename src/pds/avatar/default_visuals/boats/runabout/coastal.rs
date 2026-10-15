@@ -11,8 +11,8 @@ use super::super::RunaboutColours;
 use super::super::profile::{FinlessForm, HullProfile};
 use super::dressing::{Hatch, flagstaff, surrey_top, wear_ladder};
 use super::hull::{
-    DECK_CROWN, HULL_HOLLOW, UPRIGHT, bench, bench_half_width, cockpit_sole, deck_run, panel, skin,
-    steering_wheel, stem_band, underbody, windscreen,
+    DECK_CROWN, HULL_HOLLOW, UPRIGHT, bench, cockpit_sole, deck_run, panel, skin, steering_wheel,
+    stem_band, underbody, windscreen,
 };
 use super::{FALLING, Launch, LaunchForm};
 
@@ -72,7 +72,6 @@ impl Launch for Coastal {
         kids.push(deck_run(hull, zf, hull.stem_z() - l * 0.004, &c.deck, 0.0));
         kids.push(deck_run(hull, hull.transom_z(), za, &c.deck, 0.0));
         let sole_y = cockpit_sole(kids, hull, c, cockpit);
-        let half = bench_half_width(hull, cockpit, sole_y);
         // The driver's bench just abaft the dash, the rear bench against the
         // after deck.
         bench(
@@ -82,7 +81,6 @@ impl Launch for Coastal {
             zf - l * 0.085,
             l * 0.065,
             sole_y,
-            half,
             l * 0.050,
             l * 0.070,
             0.30,
@@ -94,7 +92,6 @@ impl Launch for Coastal {
             za + l * 0.050,
             l * 0.060,
             sole_y,
-            half,
             l * 0.050,
             l * 0.060,
             0.30,

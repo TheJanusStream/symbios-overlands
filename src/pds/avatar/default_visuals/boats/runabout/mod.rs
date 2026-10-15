@@ -190,3 +190,10 @@ pub(super) fn build_variant(ctx: &PartCtx, hull: &HullProfile, v: RunaboutVarian
 pub(super) fn overall_beam_of(hull: &HullProfile, v: RunaboutVariant) -> f32 {
     launch(v).overall_beam(hull)
 }
+
+/// Half-width of a single hull's OUTER skin at `depth` under the sheer at
+/// `z` - what nothing inside her may stand out past (#1655).
+#[cfg(test)]
+pub(super) fn skin_half_width(hull: &HullProfile, z: f32, depth: f32) -> f32 {
+    hull::inner_half_width(hull, z, depth, 1.0)
+}
