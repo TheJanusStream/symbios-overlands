@@ -545,6 +545,107 @@ fn line(points: &[([f32; 3], f32)], resolution: u32, m: SovereignMaterialSetting
     prim(spine(&pts, resolution, m), [0.0; 3], id_quat())
 }
 
+/// What the cockpit's and the hardtop's guards read (#1651, #1652): every
+/// body over the blueprints a cabin is read off, and what the mesher draws.
+#[cfg(test)]
+pub(super) mod guard {
+    use bevy::math::{Affine3A, Quat, Vec3};
+    use bevy::mesh::{Indices, Mesh, VertexAttributeValues};
+
+    use super::{RoadsterPlan, plan_of};
+    use crate::pds::generator::Generator;
+    use crate::seeded_defaults::{RoadsterBody, RoadsterWheels, SkiffBlueprint, VehicleStance};
+    use crate::world_builder::build_primitive_mesh;
+
+    /// The three lengths at every crossing of the clamp bounds of the three
+    /// proportions a cockpit and a cabin are read off - the body's width, its
+    /// beltline and its height - so the widest body under the lowest screen is
+    /// among them, whether or not one stance rolls both.
+    fn blueprints() -> Vec<SkiffBlueprint> {
+        let mut out = Vec::new();
+        for length in [1.90f32, 2.65, 3.60] {
+            for body in [0.250f32, 0.300] {
+                for belt in [0.285f32, 0.315] {
+                    for height in [0.360f32, 0.420] {
+                        out.push(SkiffBlueprint {
+                            stance: VehicleStance::Sleek,
+                            length,
+                            body_w: length * body,
+                            wheelbase: length * 0.64,
+                            track: length * 0.42,
+                            wheel_r: length * 0.115,
+                            beltline: length * belt,
+                            height: length * height,
+                        });
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Each body on each blueprint, with a label for the failure.
+    pub(super) fn plans() -> Vec<(RoadsterPlan, String)> {
+        let mut out = Vec::new();
+        for bp in blueprints() {
+            for body in RoadsterBody::ALL {
+                out.push((
+                    plan_of(&bp, body, RoadsterWheels::Disc),
+                    format!(
+                        "a {} m {} (body {:.3} L, beltline {:.3} L, height {:.3} L)",
+                        bp.length,
+                        body.label(),
+                        bp.body_w / bp.length,
+                        bp.beltline / bp.length,
+                        bp.height / bp.length
+                    ),
+                ));
+            }
+        }
+        out
+    }
+
+    /// `g`'s own frame, hung under `parent`.
+    pub(super) fn placed(g: &Generator, parent: Affine3A) -> Affine3A {
+        let t = &g.transform;
+        parent
+            * Affine3A::from_scale_rotation_translation(
+                Vec3::from(t.scale.0),
+                Quat::from_array(t.rotation.0).normalize(),
+                Vec3::from(t.translation.0),
+            )
+    }
+
+    /// Every vertex the mesher draws for `g` alone, in the frame `at`.
+    pub(super) fn vertices(g: &Generator, at: Affine3A) -> Vec<Vec3> {
+        match build_primitive_mesh(&g.kind)
+            .mesh
+            .attribute(Mesh::ATTRIBUTE_POSITION)
+        {
+            Some(VertexAttributeValues::Float32x3(p)) => p
+                .iter()
+                .map(|&v| at.transform_point3(Vec3::from(v)))
+                .collect(),
+            _ => panic!("a {} draws no positions", g.kind.kind_tag()),
+        }
+    }
+
+    /// Every triangle the mesher draws for `g` alone, in the frame `at`.
+    pub(super) fn triangles(g: &Generator, at: Affine3A) -> Vec<[Vec3; 3]> {
+        let p = vertices(g, at);
+        let mesh = build_primitive_mesh(&g.kind).mesh;
+        let corners: Vec<usize> = match mesh.indices() {
+            Some(Indices::U16(i)) => i.iter().map(|&i| usize::from(i)).collect(),
+            Some(Indices::U32(i)) => i.iter().map(|&i| i as usize).collect(),
+            None => (0..p.len()).collect(),
+        };
+        corners
+            .chunks(3)
+            .map(|c| [p[c[0]], p[c[1]], p[c[2]]])
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

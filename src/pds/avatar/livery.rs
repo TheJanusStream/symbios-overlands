@@ -2699,7 +2699,9 @@ pub(crate) struct SkiffColours {
     /// black car a black hood is simply not there.
     pub(crate) hood: SovereignMaterialSettings,
     /// The trunk an Ornate car carries on its tail mount: a dark hide, held
-    /// clear of the coachwork it rides over (#1367).
+    /// clear of the coachwork it rides over (#1367). An open car's steering
+    /// wheel is bound in it too (#1651): its rim is seen against the scuttle,
+    /// which is that same coachwork.
     pub(crate) trunk: SovereignMaterialSettings,
     /// The mismatched wing a worn car wears: a replacement guard in grey
     /// primer, held clear of the guards it failed to match - that is the whole
