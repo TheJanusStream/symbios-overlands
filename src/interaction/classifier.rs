@@ -35,7 +35,9 @@ use crate::state::{LiveAvatarRecord, LocalPlayer, RemotePeer};
 use crate::water::WaterSurfaces;
 
 use super::contact::{AvatarContacts, ContactPhase, ContactSample, SurfaceContact};
-use super::locomotion::{locomotion_footprint, locomotion_ground_reach, locomotion_total_height};
+use super::locomotion::{
+    locomotion_footprint, locomotion_ground_reach, locomotion_total_height, locomotion_water_slack,
+};
 
 /// Last-frame position/time cache for remote peers (whose entities do
 /// not carry `LinearVelocity`). Pruned each frame to avoid leaking
@@ -140,11 +142,21 @@ pub(crate) struct Transition {
 /// `humanoid_water_state` feet-vs-surface test and makes emission
 /// depend on the avatar's vertical extent.
 ///
+/// **Above the surface** a body is in contact while its bottom is within
+/// `slack` of it - [`locomotion_water_slack`]: a person's feet must touch
+/// the water, a vehicle or an aircraft need only skim it, so a floating
+/// hover-boat, whose box rides clear of the surface on its buoyancy, and an
+/// airframe flying low over a lake both disturb it (#1654). And only over
+/// OPEN water: where the ground at that spot (`ground_y`, while the terrain
+/// mirror is resident) stands above the water's surface it is a shore, and a
+/// body there is in the water only once it is under the surface. Otherwise
+/// the band would read a walk or a drive along a beach inside a water
+/// plane's rectangle as wading, and water wins over ground.
+///
 /// The waterline test is a **Schmitt trigger**: `was_in_contact`
-/// selects the threshold. Entering uses the tight
-/// [`wcfg::CONTACT_SLACK`]; once in contact the avatar stays in
-/// contact until its body bottom rises past the much wider
-/// [`wcfg::CONTACT_EXIT_SLACK`]. The hysteresis band absorbs the
+/// selects the threshold. Entering uses `slack`; once in contact the
+/// avatar stays in contact until its body bottom rises past `slack` plus
+/// [`wcfg::EXIT_HYSTERESIS`]. The hysteresis band absorbs the
 /// settling bob of a decelerating hull - without it the body bottom
 /// chatters across a single threshold every frame, flipping
 /// Exit→Enter and spawning a burst of splash rings as the boat halts.
@@ -156,30 +168,34 @@ pub(crate) struct Transition {
 pub(crate) fn probe_water(
     world_pos: Vec3,
     total_height: f32,
+    slack: f32,
     was_in_contact: bool,
     water: &WaterSurfaces,
+    ground_y: Option<f32>,
 ) -> Option<SurfaceContact> {
     let body_bottom = Vec3::new(world_pos.x, world_pos.y - 0.5 * total_height, world_pos.z);
     let q = water.query_signed(body_bottom)?;
-    // `q.depth` is positive when the body bottom is submerged. The
-    // reject threshold widens once already in contact (hysteresis):
-    // tight to enter, generous to leave.
-    let slack = if was_in_contact {
-        wcfg::CONTACT_EXIT_SLACK
-    } else {
-        wcfg::CONTACT_SLACK
+    // The waterline, from the only point that has it: the probe was taken
+    // at the body bottom, so the surface is that Y plus the signed depth
+    // (#1254 f320).
+    let surface_y = body_bottom.y + q.depth;
+    // `q.depth` is positive when the body bottom is submerged. Above the
+    // surface the tolerance is the body's own, widened once already in
+    // contact (hysteresis) - and none at all over a shore.
+    let open = ground_y.is_none_or(|ground| ground < surface_y);
+    let above = match (open, was_in_contact) {
+        (false, _) => 0.0,
+        (true, false) => slack,
+        (true, true) => slack + wcfg::EXIT_HYSTERESIS,
     };
-    if q.depth < -slack {
+    if q.depth < -above {
         return None;
     }
     Some(SurfaceContact::Water {
         plane_idx: q.surface_idx,
         depth: q.depth.max(0.0),
         flow_dir: Vec2::new(q.flow_dir.x, q.flow_dir.z),
-        // The waterline, from the only point that has it: the probe was
-        // taken at the body bottom, so the surface is that Y plus the
-        // signed depth (#1254 f320).
-        surface_y: body_bottom.y + q.depth,
+        surface_y,
     })
 }
 
@@ -478,10 +494,14 @@ fn emit_for_avatar(
     let was_water = matches!(last, Some(SurfaceContact::Water { .. }));
     let was_terrain = matches!(last, Some(SurfaceContact::Terrain { .. }));
     // Water wins when both hit: an avatar wading in a shallow pond is
-    // "in water", not "on ground".
-    let curr = probe_water(world_pos, total_height, was_water, water).or_else(|| {
-        terrain.and_then(|t| probe_terrain(world_pos, total_height, reach, was_terrain, t))
-    });
+    // "in water", not "on ground". The ground under the avatar tells open
+    // water from a shore for a body skimming over it.
+    let ground_y = terrain.map(|t| t.sample(world_pos.x, world_pos.z).0);
+    let slack = locomotion_water_slack(locomotion);
+    let curr =
+        probe_water(world_pos, total_height, slack, was_water, water, ground_y).or_else(|| {
+            terrain.and_then(|t| probe_terrain(world_pos, total_height, reach, was_terrain, t))
+        });
     let (transitions, new_state) = compute_transitions(last, curr);
 
     for t in transitions {
@@ -546,23 +566,94 @@ mod tests {
         let water = flat_water();
         let h = 2.0;
 
+        // A person's tolerance throughout: their feet must touch.
+        let person = |pos: Vec3, was: bool| {
+            probe_water(pos, h, wcfg::CONTACT_SLACK, was, &water, None).is_some()
+        };
         // Body bottom 0.3 m above the surface - beyond the tight
         // enter slack (0.15) but inside the wide exit slack (0.6).
         let just_above = pos_for_body_bottom(0.3, h);
         // Not yet in contact → tight threshold rejects it.
-        assert!(probe_water(just_above, h, false, &water).is_none());
+        assert!(!person(just_above, false));
         // Already in contact → hysteresis holds it (no Exit chatter).
-        assert!(probe_water(just_above, h, true, &water).is_some());
+        assert!(person(just_above, true));
 
         // Clearly clear of the water (1.0 m > exit slack) → Exit even
         // with hysteresis: a genuine departure still ends contact.
         let clear = pos_for_body_bottom(1.0, h);
-        assert!(probe_water(clear, h, true, &water).is_none());
+        assert!(!person(clear, true));
 
         // Submerged → in contact regardless of prior state.
         let under = pos_for_body_bottom(-0.1, h);
-        assert!(probe_water(under, h, false, &water).is_some());
-        assert!(probe_water(under, h, true, &water).is_some());
+        assert!(person(under, false));
+        assert!(person(under, true));
+    }
+
+    /// A vehicle or an aircraft disturbs the water from the skim band over
+    /// it, where a person has to touch it (#1654) - and holds contact until
+    /// it rises the hysteresis past its own band.
+    #[test]
+    fn a_vehicle_skims_the_water_and_a_person_must_touch_it() {
+        let water = flat_water();
+        let h = 1.0;
+        let probe = |above: f32, slack: f32, was: bool| {
+            probe_water(pos_for_body_bottom(above, h), h, slack, was, &water, None).is_some()
+        };
+        assert!(probe(0.4, wcfg::SKIM_SLACK, false), "skimming at 0.4 m");
+        assert!(!probe(0.4, wcfg::CONTACT_SLACK, false), "a person at 0.4 m");
+        assert!(
+            !probe(0.9, wcfg::SKIM_SLACK, false),
+            "0.9 m is clear of the band"
+        );
+        assert!(probe(0.9, wcfg::SKIM_SLACK, true), "but held once in it");
+        assert!(!probe(1.2, wcfg::SKIM_SLACK, true), "and let go past it");
+    }
+
+    /// Above the surface only open water counts (#1654): where the ground
+    /// stands above the water's level - a shore inside a water plane's
+    /// rectangle - a body skimming over it is on land, in contact or not.
+    #[test]
+    fn a_body_over_a_shore_is_not_in_the_water() {
+        let water = flat_water();
+        let h = 1.0;
+        let over = pos_for_body_bottom(0.1, h);
+        let probe = |ground: f32, was: bool| {
+            probe_water(over, h, wcfg::SKIM_SLACK, was, &water, Some(ground)).is_some()
+        };
+        assert!(probe(-1.0, false), "open water a metre deep");
+        assert!(probe(-0.05, false), "flooded shallows");
+        assert!(!probe(0.05, false), "a beach standing proud of the water");
+        assert!(!probe(0.05, true), "even straight out of the water");
+    }
+
+    /// The reported bug (#1654): every seeded boat floating at rest is in
+    /// the water. Buoyancy holds her origin her water rest length over the
+    /// surface, and since #1363 that stands her box's bottom 0.23-0.38 m
+    /// clear of it - outside a person's tolerance, where no boat ever
+    /// touched the water or left a wake. Through the slack her own
+    /// locomotion reports, over open water.
+    #[test]
+    fn every_seeded_boat_floating_at_rest_is_in_the_water() {
+        use crate::pds::avatar::AvatarRecord;
+        use crate::seeded_defaults::ChassisFamily;
+        let water = flat_water();
+        let mut checked = 0;
+        for s in (0u64..400).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Boat) {
+            let loco = AvatarRecord::default_for_seed(s).locomotion;
+            let LocomotionConfig::HoverBoat(p) = &loco else {
+                panic!("seed {s}: a boat floats on a hover-boat preset");
+            };
+            let at_rest = Vec3::new(0.0, p.water_rest_length.0, 0.0);
+            let h = locomotion_total_height(&loco);
+            let slack = locomotion_water_slack(&loco);
+            assert!(
+                probe_water(at_rest, h, slack, false, &water, Some(-2.0)).is_some(),
+                "seed {s}: her box's bottom floats {} m over the water, clear of a {slack} m band",
+                p.water_rest_length.0 - 0.5 * h
+            );
+            checked += 1;
+        }
+        assert!(checked > 20, "too few boats sampled: {checked}");
     }
 
     #[test]

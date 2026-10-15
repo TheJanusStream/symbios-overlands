@@ -645,26 +645,32 @@ pub(crate) mod terrain {
             /// busy multiplayer lake; the per-plane uniform cap
             /// (`WAKE_SAMPLES_MAX`) bounds what actually reaches the GPU.
             pub const POOL_MAX: usize = 512;
-            /// Waterline tolerance (m) for *entering* water contact.
-            /// The classifier probes the avatar's *body bottom*
+            /// Waterline tolerance (m) for a person *entering* water
+            /// contact. The classifier probes the avatar's *body bottom*
             /// (`origin.y − total_height/2`); contact begins when that
-            /// point is within `CONTACT_SLACK` above the surface or
-            /// anywhere below it. The slack catches a hull resting
-            /// exactly at the waterline (e.g. a buoyant hover-boat that
-            /// hovers a hair above the surface) without making an
-            /// avatar flying well clear of the water emit ripples.
+            /// point is within its tolerance above the surface or
+            /// anywhere below it. A person's is this tight one: their
+            /// feet must touch the water, so walking a low jetty over a
+            /// lake leaves it still.
             pub const CONTACT_SLACK: f32 = 0.15;
-            /// Waterline tolerance (m) for *leaving* water contact -
-            /// the wide arm of a Schmitt trigger. Once an avatar is in
-            /// contact it stays in contact until its body bottom rises
-            /// more than `CONTACT_EXIT_SLACK` above the surface. Must
-            /// exceed the settling-bob amplitude of a decelerating
-            /// hull: without it, a boat coming to rest bobs across the
-            /// tight enter threshold every frame, flipping
-            /// Exit→Enter→Exit and spawning a burst of splash rings.
-            /// The asymmetry (0.15 in, 0.6 out) is the hysteresis band
-            /// that absorbs that chatter.
-            pub const CONTACT_EXIT_SLACK: f32 = 0.6;
+            /// Waterline tolerance (m) for a vehicle or an aircraft
+            /// *entering* water contact (#1654): close enough over the
+            /// water to disturb it. A hover-boat floats on its buoyancy
+            /// with its box clear of the surface - `water_rest_length`
+            /// (0.5) less its half-height, 0.23-0.38 m on the seeded
+            /// fleet - so the tight [`CONTACT_SLACK`] never saw a boat
+            /// and no boat left a wake; and an aircraft skimming the
+            /// water should score it as well.
+            pub const SKIM_SLACK: f32 = 0.6;
+            /// How much further than its entering tolerance a body must
+            /// rise to *leave* water contact - the wide arm of a Schmitt
+            /// trigger. Must exceed the settling-bob amplitude of a
+            /// decelerating hull: without it, a boat coming to rest bobs
+            /// across the enter threshold every frame, flipping
+            /// Exit→Enter→Exit and spawning a burst of splash rings. A
+            /// person leaves at 0.6 m, as before #1654; a vehicle at
+            /// 1.05 m.
+            pub const EXIT_HYSTERESIS: f32 = 0.45;
         }
     }
 

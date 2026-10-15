@@ -13,6 +13,7 @@
 //! gameplay-effect concerns. PDS describes "what the avatar is";
 //! interaction describes "how it looks to the world."
 
+use crate::config::terrain::water::wake as wcfg;
 use crate::pds::{
     AirplaneParams, CarParams, HelicopterParams, HoverBoatParams, HumanoidParams, LocomotionConfig,
 };
@@ -40,6 +41,15 @@ pub trait LocomotionFootprint {
     /// wheels or skirt. 0 for a body that stands on its own bottom.
     fn ground_reach(&self) -> f32 {
         0.0
+    }
+
+    /// How far above the water its body's bottom may be and still disturb it
+    /// on entering (#1654). A person's feet must touch the water
+    /// ([`wcfg::CONTACT_SLACK`]); a vehicle or an aircraft need only skim it
+    /// ([`wcfg::SKIM_SLACK`]) - a hover-boat floats with its box clear of the
+    /// surface, and an airframe flying low over a lake scores it.
+    fn water_slack(&self) -> f32 {
+        wcfg::CONTACT_SLACK
     }
 }
 
@@ -83,6 +93,9 @@ impl LocomotionFootprint for HoverBoatParams {
     fn ground_reach(&self) -> f32 {
         self.suspension_rest_length.0.max(0.0)
     }
+    fn water_slack(&self) -> f32 {
+        wcfg::SKIM_SLACK
+    }
 }
 
 impl LocomotionFootprint for CarParams {
@@ -95,6 +108,9 @@ impl LocomotionFootprint for CarParams {
     fn ground_reach(&self) -> f32 {
         self.suspension_rest_length.0.max(0.0)
     }
+    fn water_slack(&self) -> f32 {
+        wcfg::SKIM_SLACK
+    }
 }
 
 impl LocomotionFootprint for HelicopterParams {
@@ -104,6 +120,9 @@ impl LocomotionFootprint for HelicopterParams {
     fn total_height(&self) -> f32 {
         cuboid_height(self.chassis_half_extents.0)
     }
+    fn water_slack(&self) -> f32 {
+        wcfg::SKIM_SLACK
+    }
 }
 
 impl LocomotionFootprint for AirplaneParams {
@@ -112,6 +131,9 @@ impl LocomotionFootprint for AirplaneParams {
     }
     fn total_height(&self) -> f32 {
         cuboid_height(self.chassis_half_extents.0)
+    }
+    fn water_slack(&self) -> f32 {
+        wcfg::SKIM_SLACK
     }
 }
 
@@ -168,6 +190,20 @@ pub fn locomotion_ground_reach(cfg: &LocomotionConfig) -> f32 {
     }
 }
 
+/// How far above the water any locomotion config's body bottom may be and
+/// still disturb it on entering ([`LocomotionFootprint::water_slack`]); the
+/// tight person's tolerance for `Unknown`.
+pub fn locomotion_water_slack(cfg: &LocomotionConfig) -> f32 {
+    match cfg {
+        LocomotionConfig::Humanoid(p) => LocomotionFootprint::water_slack(p.as_ref()),
+        LocomotionConfig::HoverBoat(p) => p.water_slack(),
+        LocomotionConfig::Car(p) => p.water_slack(),
+        LocomotionConfig::Helicopter(p) => p.water_slack(),
+        LocomotionConfig::Airplane(p) => p.water_slack(),
+        LocomotionConfig::Unknown => wcfg::CONTACT_SLACK,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,6 +226,26 @@ mod tests {
         assert!((hb.footprint_radius() - 3.0).abs() < 1e-5);
         hb.chassis_half_extents = Fp3([4.0, 0.4, 0.5]);
         assert!((hb.footprint_radius() - 4.0).abs() < 1e-5);
+    }
+
+    /// A vehicle or an aircraft skims the water and a person must touch it
+    /// (#1654), whatever their tuning.
+    #[test]
+    fn vehicles_and_aircraft_skim_the_water_and_a_person_must_touch_it() {
+        let slack = |cfg: LocomotionConfig| locomotion_water_slack(&cfg);
+        assert_eq!(
+            slack(LocomotionConfig::Humanoid(Box::default())),
+            wcfg::CONTACT_SLACK
+        );
+        assert_eq!(slack(LocomotionConfig::Unknown), wcfg::CONTACT_SLACK);
+        for cfg in [
+            LocomotionConfig::HoverBoat(Box::default()),
+            LocomotionConfig::Car(Box::default()),
+            LocomotionConfig::Helicopter(Box::default()),
+            LocomotionConfig::Airplane(Box::default()),
+        ] {
+            assert_eq!(slack(cfg.clone()), wcfg::SKIM_SLACK, "{cfg:?}");
+        }
     }
 
     #[test]
