@@ -227,7 +227,11 @@ fn draw_term(ui: &mut egui::Ui, term: &mut SpinTerm, dirty: &mut bool) {
                 .color(crate::ui::theme::current(ui.ctx()).text_weak),
             );
         }
-        SpinTerm::Steer { gain, limit } => {
+        SpinTerm::Steer {
+            gain,
+            limit,
+            follow_yaw,
+        } => {
             let g = limits::MAX_STEER_GAIN;
             number(ui, "Gain", gain, -g..=g, 0.01, " s", dirty).on_hover_text(
                 "Degrees of turn for each degree per second the part above \
@@ -242,6 +246,18 @@ fn draw_term(ui: &mut egui::Ui, term: &mut SpinTerm, dirty: &mut bool) {
                 "°",
                 dirty,
             );
+            if ui
+                .checkbox(follow_yaw, "Follow the yaw")
+                .on_hover_text(
+                    "Read the part above's turning about its own up - its yaw - \
+                     rather than about this part's axis. A steering wheel on a \
+                     raked column then turns with the front wheels, and not \
+                     with the vehicle's lean into a bend.",
+                )
+                .changed()
+            {
+                *dirty = true;
+            }
         }
         SpinTerm::Speed { idle, gain } => {
             let rate = limits::MAX_SPIN_RATE_DEG;
@@ -397,7 +413,10 @@ fn term_help(kind: &str) -> &'static str {
         "Constant" => "Turn at a steady rate: a windmill's sails, a fan, a turntable.",
         "Swing" => "Swing to and fro: a pendulum, a hanging sign.",
         "Roll" => "Roll with the part's own travel, like a wheel.",
-        "Steer" => "Turn with the turning of the part above: front wheels into a bend.",
+        "Steer" => {
+            "Turn with the turning of the part above: front wheels into a bend, and \
+             the steering wheel with them."
+        }
         "Speed" => "Turn faster as the part travels: a propeller, a fan.",
         "Lean" => "Lean against speeding up and slowing down: a hanging lantern.",
         "Wind" => "Sway in the world's wind: a hanging sign, a banner.",

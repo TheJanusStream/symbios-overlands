@@ -144,6 +144,7 @@ fn road_wheel(
         SpinTerm::Steer {
             gain: Fp(STEER_GAIN),
             limit: Fp(STEER_LIMIT_DEG),
+            follow_yaw: false,
         },
     ));
     kingpin
@@ -2178,10 +2179,12 @@ mod tests {
     /// wheel her plan publishes, at that wheel's own radius, about her X
     /// axis - and the front axle of a machine with more than one steers, from
     /// a kingpin over its rolling hub. Spares, which are bolted on, do not
-    /// turn.
+    /// turn. Nor does anything else, but an open roadster's steering wheel,
+    /// which turns with the front wheels (#1653).
     #[test]
     fn every_road_wheel_rolls_and_the_front_axle_steers() {
         use crate::pds::SpinTerm;
+        use crate::seeded_defaults::{RoadsterTop, SkiffType};
         fn spins(g: &Generator, out: &mut Vec<(SpinTerm, [f32; 3])>) {
             if let Some(spin) = &g.spin {
                 for term in &spin.terms {
@@ -2211,10 +2214,19 @@ mod tests {
             rolled.sort_by(f32::total_cmp);
             want.sort_by(f32::total_cmp);
             assert_eq!(rolled, want, "seed {s}: one rolling hub per road wheel");
-            let steered = found
+            // A kingpin reads the turning about its own axis, which is the
+            // car's up; the steering wheel turns about its column and reads
+            // the car's up instead (#1653).
+            let kingpins = found
                 .iter()
                 .filter(|(term, axis)| {
-                    matches!(term, SpinTerm::Steer { .. }) && *axis == [0.0, 1.0, 0.0]
+                    matches!(
+                        term,
+                        SpinTerm::Steer {
+                            follow_yaw: false,
+                            ..
+                        }
+                    ) && *axis == [0.0, 1.0, 0.0]
                 })
                 .count();
             let fronts = plan
@@ -2222,10 +2234,29 @@ mod tests {
                 .iter()
                 .filter(|&&(at, _)| plan.steers(at))
                 .count();
-            assert_eq!(steered, fronts, "seed {s}: the front axle steers");
+            assert_eq!(kingpins, fronts, "seed {s}: the front axle steers");
+            let helms = found
+                .iter()
+                .filter(|(term, _)| {
+                    matches!(
+                        term,
+                        SpinTerm::Steer {
+                            follow_yaw: true,
+                            ..
+                        }
+                    )
+                })
+                .count();
+            let open = SkiffType::for_seed(s) == SkiffType::Roadster
+                && RoadsterTop::for_seed(s) == RoadsterTop::Open;
+            assert_eq!(
+                helms,
+                usize::from(open),
+                "seed {s}: the steering wheel turns, on the one car it can be seen in"
+            );
             assert_eq!(
                 found.len(),
-                want.len() + fronts,
+                want.len() + fronts + helms,
                 "seed {s}: nothing else turns"
             );
             checked += 1;

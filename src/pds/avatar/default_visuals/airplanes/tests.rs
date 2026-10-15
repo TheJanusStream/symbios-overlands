@@ -673,7 +673,7 @@ fn her_airscrew_and_wheels_turn_as_agreed() {
                     );
                     rolls += 1;
                 }
-                SpinTerm::Steer { gain, limit } => {
+                SpinTerm::Steer { gain, limit, .. } => {
                     assert_eq!(spin.axis.0, [0.0, 1.0, 0.0], "{what}");
                     assert_eq!((gain.0, limit.0), (0.4, 25.0), "{what}");
                     steers += 1;

@@ -1165,7 +1165,7 @@ fn the_autogyros_rotor_airscrew_and_wheels_turn_as_agreed() {
                     speeds.push((spin.axis.0, idle.0, gain.0, blades, node.children.len()));
                 }
                 [SpinTerm::Roll { radius }] => rolls.push(radius.0),
-                [SpinTerm::Steer { gain, limit }] => {
+                [SpinTerm::Steer { gain, limit, .. }] => {
                     assert_eq!((gain.0, limit.0), (0.4, 25.0), "{what}: {path}");
                     steers += 1;
                 }

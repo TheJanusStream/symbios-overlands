@@ -64,7 +64,7 @@ impl Sanitize for SpinTerm {
                     0.5,
                 );
             }
-            SpinTerm::Steer { gain, limit } => {
+            SpinTerm::Steer { gain, limit, .. } => {
                 clamp(gain, -limits::MAX_STEER_GAIN, limits::MAX_STEER_GAIN, 0.0);
                 clamp(limit, 0.0, limits::MAX_STEER_LIMIT_DEG, 30.0);
             }
@@ -131,6 +131,7 @@ mod tests {
                 SpinTerm::Steer {
                     gain: Fp(f32::NAN),
                     limit: Fp(400.0),
+                    follow_yaw: true,
                 },
             ],
         });
@@ -190,6 +191,7 @@ mod tests {
                 SpinTerm::Steer {
                     gain: Fp::ZERO,
                     limit: Fp(limits::MAX_STEER_LIMIT_DEG),
+                    follow_yaw: true,
                 },
             ]
         );

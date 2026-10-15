@@ -203,6 +203,7 @@ pub(super) fn tail_wheel(kids: &mut Vec<Generator>, plan: &PodPlan, c: &Autogyro
         SpinTerm::Steer {
             gain: Fp(TAIL_STEER_GAIN),
             limit: Fp(TAIL_STEER_LIMIT),
+            follow_yaw: false,
         },
     ));
     kids.push(steering);

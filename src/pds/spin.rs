@@ -118,12 +118,23 @@ pub enum SpinTerm {
     /// backwards - toward its parent's -Z, since every vehicle in Overlands
     /// is drawn facing +Z - it steers the other way, as front wheels do when
     /// a vehicle reverses through a bend.
+    ///
+    /// With `follow_yaw` it reads its parent's turning about the PARENT's own
+    /// up (+Y) instead - the vehicle's yaw - while it still turns about this
+    /// node's axis (#1653). A steering wheel on a raked column turns about
+    /// the column, and read about the column it would follow the vehicle's
+    /// bank and its roll over rough ground as well; read about the vehicle's
+    /// up it turns in step with the front wheels, whose kingpins stand on
+    /// that up and see the yaw alone. Left out on the wire when false, so a
+    /// steer written before it reads and writes exactly as it did.
     #[serde(rename = "network.symbios.spin.steer")]
     Steer {
         #[serde(default)]
         gain: Fp,
         #[serde(default = "default_steer_limit")]
         limit: Fp,
+        #[serde(default, skip_serializing_if = "crate::pds::types::is_false")]
+        follow_yaw: bool,
     },
     /// Turn at a rate that follows the part's speed: `idle` degrees per
     /// second standing still, and `gain` degrees more for each metre it
@@ -213,6 +224,7 @@ impl SpinTerm {
             "Steer" => Self::Steer {
                 gain: Fp(0.5),
                 limit: default_steer_limit(),
+                follow_yaw: false,
             },
             "Speed" => Self::Speed {
                 idle: Fp(120.0),
@@ -261,7 +273,7 @@ impl SpinTerm {
                 amplitude, period, ..
             } => amplitude.0 != 0.0 && period.0 > 0.0,
             Self::Roll { radius } => radius.0 > 0.0,
-            Self::Steer { gain, limit } => gain.0 != 0.0 && limit.0 > 0.0,
+            Self::Steer { gain, limit, .. } => gain.0 != 0.0 && limit.0 > 0.0,
             Self::Speed { idle, gain } => idle.0 != 0.0 || gain.0 != 0.0,
             Self::Lean { gain, period } => gain.0 != 0.0 && period.0 > 0.0,
             Self::Wind { amplitude } => amplitude.0 != 0.0,
@@ -381,6 +393,36 @@ mod tests {
             assert_eq!(term.label(), kind);
             assert!(term.moves(), "a fresh {kind} shows itself working");
         }
+    }
+
+    /// A steer that follows the yaw says so on the wire and one that does not
+    /// leaves the flag out (#1653), so a record written before the flag reads
+    /// back as it was and writes back byte for byte.
+    #[test]
+    fn a_steer_writes_follow_yaw_only_when_it_follows_the_yaw() {
+        let old: Spin = serde_json::from_str(
+            r#"{"terms":[{"$type":"network.symbios.spin.steer","gain":3000,"limit":150000}]}"#,
+        )
+        .expect("decodes");
+        let plain = SpinTerm::Steer {
+            gain: Fp(0.3),
+            limit: Fp(15.0),
+            follow_yaw: false,
+        };
+        assert_eq!(old.terms, vec![plain.clone()]);
+        assert!(!wire(&old).contains("follow_yaw"), "{}", wire(&old));
+        let yaw = Spin::about(
+            [0.0, 1.0, 0.0],
+            SpinTerm::Steer {
+                gain: Fp(0.3),
+                limit: Fp(15.0),
+                follow_yaw: true,
+            },
+        );
+        let text = wire(&yaw);
+        assert!(text.contains(r#""follow_yaw":true"#), "{text}");
+        let back: Spin = serde_json::from_str(&text).expect("decodes");
+        assert_eq!(back, yaw);
     }
 
     #[test]

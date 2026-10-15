@@ -103,7 +103,10 @@ The record's wire form, as the World Editor's Raw JSON tab shows it:
   full swing every `period` s, starting `phase` deg in), `.wobble`
   (`amplitude`, `period`: a wander that never repeats a beat), `.roll`
   (`radius` m: turns with the part's own travel, as a wheel does), `.steer`
-  (`gain`, `limit` deg: follows its parent's turning, as front wheels do),
+  (`gain`, `limit` deg: follows its parent's turning, as front wheels do;
+  `"follow_yaw": true` reads that turning about the parent's own up - its
+  yaw - so a part turning about a raked axis, a steering wheel on its
+  column, follows the turn and not the vehicle's lean),
   `.speed` (`idle` deg/s plus `gain` deg per metre travelled forward: a
   propeller), `.lean` (`gain` deg per m/s^2, `period` s: leans against its
   carrier's speeding up and slowing down - 58400 is a real pendulum),

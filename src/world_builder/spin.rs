@@ -209,9 +209,14 @@ enum Turn {
     },
     /// One over the radius (1/m).
     Roll { per_metre: f32 },
-    /// Radians of turn per radian per second of the parent's turning, and
-    /// the radians it is held within.
-    Steer { gain: f32, limit: f32 },
+    /// Radians of turn per radian per second of the parent's turning, the
+    /// radians it is held within, and whether that turning is read about the
+    /// parent's own up rather than the node's axis (#1653).
+    Steer {
+        gain: f32,
+        limit: f32,
+        follow_yaw: bool,
+    },
     /// Radians per second standing still, and radians per metre travelled
     /// forward.
     Speed { idle: f32, per_metre: f32 },
@@ -250,9 +255,14 @@ impl Turn {
             SpinTerm::Roll { radius } => Self::Roll {
                 per_metre: radius.0.recip(),
             },
-            SpinTerm::Steer { gain, limit } => Self::Steer {
+            SpinTerm::Steer {
+                gain,
+                limit,
+                follow_yaw,
+            } => Self::Steer {
                 gain: gain.0,
                 limit: limit.0.to_radians(),
+                follow_yaw: *follow_yaw,
             },
             SpinTerm::Speed { idle, gain } => Self::Speed {
                 idle: idle.0.to_radians(),
@@ -363,6 +373,9 @@ struct Motion {
     turning: Vec3,
     /// The spin axis in world space, at the last sample.
     axis_world: Vec3,
+    /// The parent's up (+Y) in world space, at the last sample - what a
+    /// steer term that follows the yaw reads the turning about (#1653).
+    parent_up: Vec3,
     /// The velocity along the parent's +Z - forward, for every vehicle in
     /// Overlands is drawn facing +Z - at the last sample (m/s).
     forward_speed: f32,
@@ -524,6 +537,7 @@ impl Spinner {
             acceleration,
             turning,
             axis_world,
+            parent_up,
             forward_speed,
             frame,
             ..
@@ -548,8 +562,16 @@ impl Spinner {
                 Turn::Roll { per_metre } => {
                     rate += Vec3::Y.cross(velocity).dot(axis_world) * *per_metre;
                 }
-                Turn::Steer { gain, limit } => {
-                    steer += (heading * *gain * turning.dot(axis_world)).clamp(-*limit, *limit);
+                // Read about the node's own axis, or - following the yaw -
+                // about the parent's up, which the parent's bank and roll
+                // never turn about.
+                Turn::Steer {
+                    gain,
+                    limit,
+                    follow_yaw,
+                } => {
+                    let about = if *follow_yaw { parent_up } else { axis_world };
+                    steer += (heading * *gain * turning.dot(about)).clamp(-*limit, *limit);
                 }
                 Turn::Speed { idle, per_metre } => {
                     rate += *idle + *per_metre * forward_speed;
@@ -752,6 +774,7 @@ pub(crate) fn sample_spinner_motion(
         }
         motion.last = Some((at, parent));
         motion.axis_world = axis_world;
+        motion.parent_up = parent * Vec3::Y;
         motion.forward_speed = motion.velocity.dot(parent * Vec3::Z);
     }
 }
@@ -893,6 +916,7 @@ mod tests {
             vec![SpinTerm::Steer {
                 gain: Fp(0.5),
                 limit: Fp(20.0),
+                follow_yaw: false,
             }],
         );
         front.motion.axis_world = Vec3::Y;
@@ -922,6 +946,46 @@ mod tests {
             front.follow_motion(1.0 / 60.0);
         }
         assert!((front.steered + 15f32.to_radians()).abs() < 1e-3);
+    }
+
+    /// A steer that follows the yaw reads its parent's turning about the
+    /// parent's own up, whatever axis it turns about (#1653): a steering
+    /// wheel on a raked column follows its vehicle's yaw and not its bank.
+    /// Read about the column instead, the same bank turns it most of the way
+    /// to its limit.
+    #[test]
+    fn a_steer_that_follows_the_yaw_ignores_its_parents_bank() {
+        let column = Vec3::new(0.0, 0.69, -0.72).normalize();
+        let wheel = |follow_yaw| {
+            let mut wheel = spinner(
+                [0.0, 1.0, 0.0],
+                vec![SpinTerm::Steer {
+                    gain: Fp(1.8),
+                    limit: Fp(90.0),
+                    follow_yaw,
+                }],
+            );
+            wheel.motion.axis_world = column;
+            wheel.motion.parent_up = Vec3::Y;
+            wheel
+        };
+        let settled = |mut wheel: Spinner, turning: Vec3| {
+            wheel.motion.turning = turning;
+            for _ in 0..120 {
+                wheel.follow_motion(1.0 / 60.0);
+            }
+            wheel.steered
+        };
+        // Banking into a bend at 60 deg/s, about the fore-and-aft axis.
+        let bank = Vec3::new(0.0, 0.0, -60f32.to_radians());
+        assert!(settled(wheel(true), bank).abs() < 1e-4);
+        assert!(
+            settled(wheel(false), bank).abs() > 30f32.to_radians(),
+            "read about the column, the bank turns the wheel"
+        );
+        // Turning left at 20 deg/s: 1.8 times it, 36 degrees.
+        let yaw = Vec3::new(0.0, 20f32.to_radians(), 0.0);
+        assert!((settled(wheel(true), yaw) - 36f32.to_radians()).abs() < 1e-3);
     }
 
     #[test]
@@ -1021,6 +1085,62 @@ mod tests {
         assert_eq!(turned.translation, dragged.translation);
         assert!(turned.rotation.angle_between(dragged.rotation) > 0.01);
         assert!(!settled(&app));
+    }
+
+    /// The same through the real schedule (#1653): a wheel drawn along a
+    /// raked column, under a vehicle that banks and then yaws. The sampler
+    /// reads the vehicle's up off its propagated pose, so the bank leaves the
+    /// wheel where it was drawn and the yaw turns it.
+    #[test]
+    fn a_wheel_that_follows_the_yaw_holds_still_through_its_vehicles_bank() {
+        let mut app = spin_app();
+        let base = Transform::from_rotation(Quat::from_rotation_x(-0.82));
+        let (vehicle, wheel) = spawn_spinner(
+            &mut app,
+            &Spin::about(
+                [0.0, 1.0, 0.0],
+                SpinTerm::Steer {
+                    gain: Fp(1.8),
+                    limit: Fp(90.0),
+                    follow_yaw: true,
+                },
+            ),
+            base,
+        );
+        let bank = 7f32.to_radians();
+        let set = |app: &mut App, rotation: Quat| {
+            app.world_mut()
+                .get_mut::<Transform>(vehicle)
+                .expect("the vehicle")
+                .rotation = rotation;
+            app.update();
+        };
+        // Bank seven degrees into a bend over five frames, and hold it.
+        for k in 1..=24u8 {
+            set(
+                &mut app,
+                Quat::from_rotation_z(-bank * f32::from(k.min(5)) / 5.0),
+            );
+            let turned = pose(&app, wheel).rotation.angle_between(base.rotation);
+            assert!(
+                turned < 1e-3,
+                "frame {k}: the bank turned the wheel {turned} rad"
+            );
+        }
+        // Yaw left at 20 deg/s for a second, still banked.
+        for k in 1..=64u8 {
+            let heading = 20f32.to_radians() * f32::from(k) / 64.0;
+            set(
+                &mut app,
+                Quat::from_rotation_y(heading) * Quat::from_rotation_z(-bank),
+            );
+        }
+        let turned = pose(&app, wheel).rotation.angle_between(base.rotation);
+        assert!(
+            (turned - 36f32.to_radians()).abs() < 2f32.to_radians(),
+            "the yaw turned the wheel {} deg, not 1.8 x 20",
+            turned.to_degrees()
+        );
     }
 
     #[test]

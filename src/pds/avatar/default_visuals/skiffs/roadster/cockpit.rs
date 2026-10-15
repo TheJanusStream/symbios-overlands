@@ -9,9 +9,10 @@ use std::f32::consts::FRAC_PI_2;
 use bevy::math::Vec3;
 
 use crate::pds::generator::Generator;
+use crate::pds::{Fp, Spin, SpinTerm};
 
 use super::super::super::common::{bevel, id_quat, prim, quat_x, quat_xyzw, sphere, torus};
-use super::super::{SkiffColours, dim};
+use super::super::{STEER_GAIN, STEER_LIMIT_DEG, SkiffColours, dim};
 use super::RoadsterPlan;
 use super::{TUB_HOLLOW, line};
 
@@ -45,6 +46,12 @@ const WHEEL_DISH: f32 = 0.012;
 /// rim, likewise.
 const BOSS_R: f32 = 0.012;
 const SPOKE_R: f32 = 0.0035;
+/// How many degrees the steering wheel turns for each degree the front
+/// wheels steer (#1653): a quarter turn at their full lock, which is as far
+/// as the sanitiser lets a steer term turn anything. A real car's ratio is
+/// twice this and more, and a wheel turned half as far barely reads from the
+/// chase camera.
+const STEERING_RATIO: f32 = 6.0;
 
 /// The screen frame, the seat, the column and the wheel, and a bench where the
 /// body has a second row.
@@ -107,6 +114,13 @@ fn screen(plan: &RoadsterPlan, c: &SkiffColours) -> Generator {
 /// the column on the hero, its top leaning back over the seat, and the chase
 /// camera - which looks down the column from behind - saw it tipped away
 /// from it, a flat ellipse.
+///
+/// And it TURNS WITH THE STEERING (#1653). The boss carries a steer spin
+/// about its own +Y - the column - that reads the car's turning about the
+/// car's own up, as the front wheels' kingpins do, so it turns
+/// [`STEERING_RATIO`] times as far as they do and saturates as they do. Read
+/// about the column instead it would follow the car's lean into a bend too,
+/// which the gait snaps in within a tenth of a second.
 fn steering(plan: &RoadsterPlan, c: &SkiffColours, sz: f32) -> [Generator; 2] {
     let l = plan.length;
     let cushion = plan.half_width_at(sz + 0.062 * l);
@@ -131,6 +145,14 @@ fn steering(plan: &RoadsterPlan, c: &SkiffColours, sz: f32) -> [Generator; 2] {
         quat_xyzw(quat_x(up_the_column.z.atan2(up_the_column.y))),
     );
     boss.children = wheel(l, cushion * WHEEL_R, c);
+    boss.spin = Some(Spin::about(
+        [0.0, 1.0, 0.0],
+        SpinTerm::Steer {
+            gain: Fp(STEER_GAIN * STEERING_RATIO),
+            limit: Fp(STEER_LIMIT_DEG * STEERING_RATIO),
+            follow_yaw: true,
+        },
+    ));
     [column, boss]
 }
 
@@ -315,6 +337,58 @@ mod tests {
             assert!(
                 up.z > 0.0,
                 "{what}: the wheel's top leans back, toward the seat ({up})"
+            );
+        }
+    }
+
+    /// The wheel turns with the steering (#1653): the part that carries the
+    /// rim spins about the column - the axis the rim rings - reading the
+    /// car's turning about the car's up, as the front wheels do, the same way
+    /// round as they do and [`STEERING_RATIO`] times as far, saturating at the
+    /// same rate of turn. Before #1653 it stood still.
+    #[test]
+    fn the_wheel_turns_with_the_steering() {
+        let c = skiff_colours(&PartCtx::for_seed(0));
+        for (plan, what) in plans() {
+            let parts = steering(&plan, &c, plan.seat_z());
+            let (_, rim) = rim(&parts);
+            let ring = rim.transform_vector3(Vec3::Y).normalize();
+            let hub = parts
+                .iter()
+                .find(|g| g.spin.is_some())
+                .expect("a part of the steering turns");
+            let spin = hub.spin.as_ref().expect("checked");
+            let turns = placed(hub, Affine3A::IDENTITY)
+                .transform_vector3(Vec3::from(spin.axis.0))
+                .normalize();
+            assert!(
+                turns.dot(ring) > 0.1f32.to_radians().cos(),
+                "{what}: it turns about {turns}, not the axis the rim rings, {ring}"
+            );
+            let [
+                SpinTerm::Steer {
+                    gain,
+                    limit,
+                    follow_yaw,
+                },
+            ] = spin.terms.as_slice()
+            else {
+                panic!(
+                    "{what}: the wheel's spin is one steer term: {:?}",
+                    spin.terms
+                );
+            };
+            assert!(*follow_yaw, "{what}: a raked wheel must read the yaw");
+            assert!(
+                (gain.0 - STEERING_RATIO * STEER_GAIN).abs() < 1e-6 && gain.0 > 0.0,
+                "{what}: gain {}",
+                gain.0
+            );
+            assert!(
+                (limit.0 / gain.0 - STEER_LIMIT_DEG / STEER_GAIN).abs() < 1e-4,
+                "{what}: it saturates at {} deg/s, the front wheels at {}",
+                limit.0 / gain.0,
+                STEER_LIMIT_DEG / STEER_GAIN
             );
         }
     }
