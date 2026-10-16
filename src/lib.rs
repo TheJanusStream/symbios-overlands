@@ -93,6 +93,7 @@ pub mod prefs;
 pub mod protocol;
 pub mod seeded_defaults;
 pub mod shadow_reach;
+pub mod sky;
 pub mod social;
 pub mod splat;
 pub mod state;
@@ -119,37 +120,8 @@ pub mod render_tool;
 #[cfg(unix)]
 pub mod agent;
 
-/// Marker for the unlit sky cuboid spawned in `setup_lighting`. The world
-/// compiler uses this to retint the sky material when a room record's
-/// `environment.sky_color` changes.
-#[derive(Component)]
-pub struct SkyBox;
-
-/// Pin the sky cuboid to the active camera each frame so its faces are
-/// always equidistant from the viewer.
-///
-/// The cuboid is sized for a "looks-far-enough" backdrop (4 km × 2 km × 4 km
-/// at the default `SKY_SCALE`), but it is fixed-size, not infinite. Without
-/// this follow it stays anchored at world origin, so once the player moves
-/// off-centre the closest face approaches the camera and its edges show up
-/// as hard seams against the more-distant adjacent faces. Pinning the
-/// cuboid's centre to the camera keeps every face at a constant distance
-/// (half the cuboid's side on that axis) regardless of where the player
-/// roams, which is what a backdrop should do anyway.
-fn track_skybox_to_camera(
-    camera: Query<&GlobalTransform, (camera::IsWorldCamera, Without<SkyBox>)>,
-    mut skybox: Query<&mut Transform, With<SkyBox>>,
-) {
-    let Ok(cam_tx) = camera.single() else {
-        return;
-    };
-    let cam = cam_tx.translation();
-    for mut transform in skybox.iter_mut() {
-        transform.translation = cam;
-    }
-}
-
 pub use clouds::CloudLayer;
+pub use sky::SkyBox;
 
 /// Format session-elapsed seconds as `+MM:SS` (or `+H:MM:SS`).
 ///
@@ -417,6 +389,7 @@ pub(crate) fn build_client_app(app: &mut App, boot: boot_params::BootParams, she
         .add_plugins(diagnostics::MetricsPlugin)
         .add_plugins(transform_gizmo_bevy::TransformGizmoPlugin)
         .add_plugins(MaterialPlugin::<clouds::CloudMaterial>::default())
+        .add_plugins(MaterialPlugin::<sky::SkyMaterial>::default())
         .add_plugins(wind::VegetationWindPlugin)
         .add_plugins(terrain::TerrainPlugin)
         .add_plugins(world_builder::WorldBuilderPlugin)
@@ -929,7 +902,7 @@ pub(crate) fn build_client_app(app: &mut App, boot: boot_params::BootParams, she
             (
                 clouds::track_cloud_layer_to_camera,
                 clouds::hide_cloud_deck,
-                track_skybox_to_camera,
+                sky::track_skybox_to_camera,
             ),
         );
     // The sun's shadow cascades follow the orbit zoom (#1475).
@@ -956,13 +929,14 @@ pub(crate) fn build_client_app(app: &mut App, boot: boot_params::BootParams, she
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn register_headless_atmosphere(app: &mut App) {
     app.add_plugins(MaterialPlugin::<clouds::CloudMaterial>::default())
+        .add_plugins(MaterialPlugin::<sky::SkyMaterial>::default())
         .add_systems(Startup, setup_lighting)
         .add_systems(
             Update,
             (
                 clouds::track_cloud_layer_to_camera,
                 clouds::hide_cloud_deck,
-                track_skybox_to_camera,
+                sky::track_skybox_to_camera,
             ),
         );
 }
@@ -970,7 +944,7 @@ pub(crate) fn register_headless_atmosphere(app: &mut App) {
 fn setup_lighting(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut sky_materials: ResMut<Assets<sky::SkyMaterial>>,
     mut cloud_materials: ResMut<Assets<clouds::CloudMaterial>>,
 ) {
     let lp = config::lighting::LIGHT_POS;
@@ -1000,15 +974,13 @@ fn setup_lighting(
         ..default()
     });
 
-    // Sky - large unlit cuboid tinted by the distance fog.
-    let sky_c = config::lighting::SKY_COLOR;
+    // Sky (#1671) - a cuboid around the camera whose shader draws the sky
+    // from the view direction; `apply_environment_state` gives it the
+    // room's colours as soon as a record is compiled.
     commands.spawn((
         Mesh3d(meshes.add(Cuboid::new(2.0, 1.0, 2.0))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(sky_c[0], sky_c[1], sky_c[2]),
-            unlit: true,
-            cull_mode: None,
-            ..default()
+        MeshMaterial3d(sky_materials.add(sky::SkyMaterial {
+            uniforms: sky::sky_uniforms(&pds::Environment::default()),
         })),
         Transform::from_scale(Vec3::splat(config::lighting::SKY_SCALE)),
         NotShadowCaster,

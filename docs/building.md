@@ -918,9 +918,10 @@ cargo run --bin render -- --room-census 32
 cargo run --bin render -- --scatter-census 8
 # Plan-view plot of one room's scatters (PNG to --out, else ./scatter-plot.png):
 cargo run --bin render -- --scatter-plot 3 --out /tmp/scatter.png
-# What seeded rooms ARE, before a render: scene roll, fog visibility, sun height,
-# cloud cover, water line, landing and placement counts - one line per seed
-# for a range, a labelled block for one seed or DID:
+# What seeded rooms ARE, before a render: scene roll, fog visibility, sun height
+# and illuminance, cloud cover, water line, landing and placement counts - one
+# line per seed for a range, a labelled block for one seed or DID, which also
+# gives the --yaw that faces the sun (a sky shot: --yaw it, --elev=-15):
 cargo run --bin render -- --describe 0..32
 cargo run --bin render -- --describe 11
 # A world's ground as numbers, no render (#1449): percentiles, the water line

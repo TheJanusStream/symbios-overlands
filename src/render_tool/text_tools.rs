@@ -1149,7 +1149,7 @@ pub(super) fn describe_rooms(what: &str) {
             .parse()
             .unwrap_or_else(|e| panic!("--describe {what:?}: {e}"));
         println!(
-            "{:>5}  {:<10} {:<10} {:<14} {:>5} {:>5}  {:>6} {:>5} {:>5}  {:>5} {:>5}  ground",
+            "{:>5}  {:<10} {:<10} {:<14} {:>5} {:>5}  {:>6} {:>5} {:>6} {:>5}  {:>5} {:>5}  ground",
             "seed",
             "landform",
             "biome",
@@ -1158,6 +1158,7 @@ pub(super) fn describe_rooms(what: &str) {
             "escal",
             "fog_m",
             "sun_y",
+            "sun_lx",
             "cloud",
             "abs",
             "scat",
@@ -1165,7 +1166,7 @@ pub(super) fn describe_rooms(what: &str) {
         for seed in a..b {
             let d = RoomDescription::for_seed(seed);
             println!(
-                "{:>5}  {:<10} {:<10} {:<14} {:>5.2} {:>5.2}  {:>6.0} {:>5.2} {:>5.2}  {:>5} {:>5}  {}",
+                "{:>5}  {:<10} {:<10} {:<14} {:>5.2} {:>5.2}  {:>6.0} {:>5.2} {:>6.0} {:>5.2}  {:>5} {:>5}  {}",
                 seed,
                 d.landform,
                 d.biome,
@@ -1174,6 +1175,7 @@ pub(super) fn describe_rooms(what: &str) {
                 d.escalation,
                 d.fog_visibility,
                 d.sun_height,
+                d.sun_lux,
                 d.cloud_cover,
                 d.absolute,
                 d.scattered,
@@ -1193,8 +1195,12 @@ pub(super) fn describe_rooms(what: &str) {
         d.prosperity, d.escalation, d.hue_deg, d.temperature, d.time_of_day_bias
     );
     println!(
-        "  air        fog visibility {:.0} m  sun height {:.2} (of unit)  cloud cover {:.2}  sky {}",
-        d.fog_visibility, d.sun_height, d.cloud_cover, d.sky
+        "  air        fog visibility {:.0} m  sun height {:.2} (of unit)  sun {:.0} lx  cloud cover {:.2}  sky {}",
+        d.fog_visibility, d.sun_height, d.sun_lux, d.cloud_cover, d.sky
+    );
+    println!(
+        "  sun yaw    {:.0}° - the --yaw that faces the sun",
+        d.sun_yaw
     );
     println!("  ground     {}", d.ground);
     println!("  water      level {}", d.water);
@@ -1223,6 +1229,13 @@ struct RoomDescription {
     fog_visibility: f32,
     /// The sun direction's unit-vector Y: 1 is noon, 0 the horizon.
     sun_height: f32,
+    /// The sun's illuminance in lux - a night theme's dim moonlight key
+    /// (#1671) is this, not its height.
+    sun_lux: f32,
+    /// The rig's `--yaw` that looks toward the sun (#1671): the camera
+    /// stands on the far side of the focus from it, so `atan2` of the
+    /// sun's negated ground direction, in the rig's convention.
+    sun_yaw: f32,
     cloud_cover: f32,
     sky: String,
     /// Its own terrain, or the Berlin square it is built on (#1589).
@@ -1321,6 +1334,8 @@ impl RoomDescription {
             time_of_day_bias: scene.time_of_day_bias,
             fog_visibility: env.fog_visibility.0,
             sun_height: sun.y,
+            sun_lux: env.sun_illuminance.0,
+            sun_yaw: (-sun.x).atan2(-sun.z).to_degrees().rem_euclid(360.0),
             cloud_cover: env.cloud_cover.0,
             sky: format!("({:.2}, {:.2}, {:.2})", sky[0], sky[1], sky[2]),
             ground,

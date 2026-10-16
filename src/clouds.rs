@@ -89,7 +89,7 @@ pub type CloudMaterial = ExtendedMaterial<StandardMaterial, CloudExtension>;
 /// `setup_lighting`. The world compiler's `apply_environment_state` system
 /// uses this to find the plane each change tick and update its uniform
 /// block plus altitude in place, mirroring how the `SkyBox` marker is used
-/// to retint the unlit sky cuboid.
+/// to repaint the sky's uniforms.
 #[derive(Component)]
 pub struct CloudLayer;
 

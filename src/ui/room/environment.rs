@@ -176,7 +176,10 @@ pub(super) fn draw_environment_tab(
         .show(ui, |ui| {
             color_picker(ui, "Sun colour", &mut env.sun_color, dirty);
             sun_direction(ui, &mut env.sun_position, dirty);
-            color_picker(ui, "Sky colour", &mut env.sky_color, dirty);
+            color_picker(ui, "Sky colour", &mut env.sky_color, dirty).on_hover_text(
+                "The sky overhead. Toward the horizon it hazes into the fog colour, \
+                 and a dark sky shows the stars.",
+            );
             fp_slider(
                 ui,
                 "Sun illuminance",
@@ -184,7 +187,14 @@ pub(super) fn draw_environment_tab(
                 0.0,
                 50_000.0,
                 dirty,
-            );
+            )
+            .on_hover_text(format!(
+                "How bright the sun is, in lux. A dim one under a dark sky is the \
+                 moon: under {} lux the sun's disc turns pale, and under {} lux it \
+                 is the moon's.",
+                crate::config::lighting::sky::SUN_LUX,
+                crate::config::lighting::sky::MOON_LUX,
+            ));
             fp_slider(
                 ui,
                 "Ambient brightness",
@@ -301,8 +311,8 @@ pub(super) fn draw_environment_tab(
                  hazier; the cloud deck dissolves at this distance too.",
             );
             color_picker_rgba(ui, "Fog colour", &mut env.fog_color, dirty).on_hover_text(
-                "The colour distant things fade towards. Alpha is how strongly the \
-                 fog takes over at full distance.",
+                "The colour distant things fade towards, and the sky's at the \
+                 horizon. Alpha is how strongly the fog takes over at full distance.",
             );
             color_picker(ui, "Extinction", &mut env.fog_extinction, dirty).on_hover_text(
                 "Which colours the air SWALLOWS with distance, per channel. Lower a \

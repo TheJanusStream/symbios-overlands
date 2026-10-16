@@ -191,14 +191,19 @@ and grass tufts on the open tops broke up the rest.
 - **The haze's tint is its `fog_extinction` and `fog_inscattering` colours**,
   not only `fog_color`: a seeded world's green pair kept Ashmere's sky and
   distance teal after `fog_color` was set blue-grey. Set all three.
-- Mood is mostly fog: `fog_visibility` in metres, `fog_color`,
-  `fog_sun_color` (the glow toward the sun) and `fog_sun_exponent`; a
-  saturated fog colour turns the whole sky one flat tint. `sun_position` is
-  where the light comes from (its angle above the horizon is its height;
-  the Environment panel turns it as an azimuth and an elevation since
-  #1669). The shade takes the sky's hue: the ambient light leans from white
-  toward the mean of `sky_color` and `fog_color` (#1669), so a blue sky
-  cools the shadows and a dusty one warms them.
+- Mood is mostly fog and sky: `fog_visibility` in metres, `fog_color`,
+  `fog_sun_color` (the glow toward the sun) and `fog_sun_exponent`. Since
+  #1671 the sky is `sky_color` overhead, hazing into the fog toward the
+  horizon, which keeps the colour the fog gave it - a hazier room has a
+  milkier sky - with the sun's disc and halo where `sun_position` points.
+  `sun_position` is where the light comes from (its angle above the horizon
+  is its height; the Environment panel turns it as an azimuth and an
+  elevation since #1669). A dim key light under a dark sky is the moon:
+  under 6,000 lux the disc turns pale and under 4,000 it is the moon's; the
+  stars come out as `sky_color` darkens, fewer under heavy `cloud_cover`.
+  The shade takes the sky's hue: the ambient light leans from white toward
+  the mean of `sky_color` and `fog_color` (#1669), so a blue sky cools the
+  shadows and a dusty one warms them.
 - **The camera's colour grade** is three fields (#1669): `grade_temperature`
   (warmer `+`, cooler `-`, within 0.06; 0.03 is already clear), `grade_tint`
   (magenta `+`, green `-`, within 0.02; 0.005 is already strong) and

@@ -31,8 +31,8 @@ use crate::state::LiveRoomRecord;
 pub struct EnvironmentPreview;
 
 /// Apply the active `RoomRecord`'s `Environment` to every atmospheric
-/// resource in the scene - sun, ambient, sky cuboid, clear colour, and
-/// distance fog. Runs on every `RoomRecord` change so an editor slider
+/// resource in the scene - sun, ambient, the sky's shader, clear colour,
+/// and distance fog. Runs on every `RoomRecord` change so an editor slider
 /// (or peer broadcast) retints the world without restarting the session.
 ///
 /// Kept separate from `compile_room_record` because the combined
@@ -56,8 +56,8 @@ pub(crate) fn apply_environment_state(
     // (#1669): the game's, the render tool's world camera and the agent's
     // look camera - not an item preview's, which has no fog.
     mut grading: Query<&mut ColorGrading, With<DistanceFog>>,
-    skybox: Query<&MeshMaterial3d<StandardMaterial>, With<crate::SkyBox>>,
-    mut std_materials: ResMut<Assets<StandardMaterial>>,
+    skybox: Query<&MeshMaterial3d<crate::sky::SkyMaterial>, With<crate::SkyBox>>,
+    mut sky_materials: ResMut<Assets<crate::sky::SkyMaterial>>,
     mut cloud_layer: Query<(&MeshMaterial3d<CloudMaterial>, &mut Transform), With<CloudLayer>>,
     mut cloud_materials: ResMut<Assets<CloudMaterial>>,
     mut water_materials: ResMut<Assets<crate::water::WaterMaterial>>,
@@ -121,9 +121,12 @@ pub(crate) fn apply_environment_state(
     }
 
     clear_color.0 = Color::srgb(sky_c[0], sky_c[1], sky_c[2]);
+    // The sky (#1671): its colour overhead, the haze's depth and whether
+    // the night shows its moon and stars, all from this environment.
+    let sky = crate::sky::sky_uniforms(env);
     for material_handle in skybox.iter() {
-        if let Some(mut mat) = std_materials.get_mut(&material_handle.0) {
-            mat.base_color = Color::srgb(sky_c[0], sky_c[1], sky_c[2]);
+        if let Some(mut mat) = sky_materials.get_mut(&material_handle.0) {
+            mat.uniforms = sky;
         }
     }
 

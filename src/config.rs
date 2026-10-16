@@ -53,10 +53,51 @@ pub(crate) mod lighting {
     /// panic.
     pub const CASCADE_FIRST_SHARE_MAX: f32 = 0.5;
 
-    /// Sky-box colour (unlit grey, tinted by fog). sRGB hex ≈ #888888.
+    /// The sky overhead before a room record says otherwise. sRGB hex ≈
+    /// #888888.
     pub const SKY_COLOR: [f32; 3] = [0.533, 0.533, 0.533];
     /// Uniform scale of the sky cuboid (must exceed max view distance).
     pub const SKY_SCALE: f32 = 2000.0;
+
+    /// The sky (#1671): what `sky::sky_uniforms` reads from a room's
+    /// environment. The record stores no night, so the moon and the stars
+    /// are read off what a night room does store - a dim key light under a
+    /// dark sky. The bounds come from 200 seeded rooms (`render --describe
+    /// 0..200`, 2026-10-16): the daylight themes' suns ran 6,199 lx and up,
+    /// Cyberpunk's 958-1,900 and Gothic Horror's 1,686-3,891, while the
+    /// dusk themes straddle the moon's band; the daylight skies' linear
+    /// luminance ran 0.19-0.60, the dusk themes' 0.13-0.16 and the night
+    /// themes' 0.028-0.075. The generator can dim a daylight sun to about
+    /// 5,000 lx (a low sun under heavy cloud), which is why the moon also
+    /// asks for a dark sky.
+    pub mod sky {
+        /// How deep the haze a ray straight up crosses, in metres of the
+        /// room's own fog: the sky's colour overhead shows through
+        /// `exp(-beta * HAZE_M)` of it, `beta` the fog's extinction at its
+        /// visibility - 87 % at the default 350 m, 79 % in a 200 m volcanic
+        /// haze - and the air mass thickens it to the horizon the fog made
+        /// of the old sky's walls.
+        pub const HAZE_M: f32 = 16.0;
+        /// At or under this sun illuminance the disc is the moon - if the
+        /// sky is dark as well.
+        pub const MOON_LUX: f32 = 4_000.0;
+        /// At or over this one it is the sun; between, it blends.
+        pub const SUN_LUX: f32 = 6_000.0;
+        /// The moon's sky: at or under this luminance (linear, overhead) a
+        /// dim light is the moon; at or over the next none is.
+        pub const MOON_SKY_LUMINANCE: f32 = 0.08;
+        pub const NO_MOON_SKY_LUMINANCE: f32 = 0.14;
+        /// At or under this sky luminance (linear, overhead) the stars
+        /// are at full strength.
+        pub const STARS_FULL_LUMINANCE: f32 = 0.04;
+        /// At or over this one there are none.
+        pub const STARS_NONE_LUMINANCE: f32 = 0.12;
+        /// How much of the stars a fully clouded sky (`cloud_cover` 1)
+        /// takes away: the cloud deck is blended over the sky, not in front
+        /// of it as cloud would be, and a star is brighter than the deck at
+        /// night - so the cover dims them all, gaps included.
+        pub const STARS_CLOUD_DIMMING: f32 = 0.8;
+    }
 
     /// How far the ambient light leans from white toward the sky's own hue
     /// (#1669): `0` keeps it white, `1` takes the sky's colour whole. See
