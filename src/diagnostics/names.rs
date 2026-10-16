@@ -78,7 +78,8 @@ pub const RUNTIME_CPU_USAGE_PCT: &str = "runtime.cpu.usage_pct";
 /// Times the player fell through terrain and was respawned.
 pub const RUNTIME_RESPAWN_COUNT: &str = "runtime.respawn.count";
 /// Terrain splat material's texture bind-slot footprint - the WebGL2 16-slot
-/// ceiling watch (one higher on native, which keeps the stains overlay).
+/// ceiling watch (one higher natively and on WebGPU, which keep the stains
+/// overlay).
 pub const RUNTIME_TEXTURE_BIND_SLOTS: &str = "runtime.texture_bind_slots";
 /// Synchronous main-thread wall time (ms) of one avatar visuals rebuild -
 /// the re-roll / hot-swap / remote-update spawn path (#807). With texture

@@ -77,7 +77,7 @@
 //! whenever no open window holds a selection it can picture - so a session
 //! that never selects anything pays the target's memory and no passes at
 //! all. `Msaa` is
-//! off on every build, for the reason the web build's main camera draws
+//! off on every build, for the reason the WebGL2 build's main camera draws
 //! FXAA in its place ([`crate::camera::EdgeSmoothing`]): Bevy's default
 //! `Sample4` panics on the WebGL2 entry point.
 //!
@@ -318,9 +318,9 @@ pub(crate) fn setup_preview(
                 ..default()
             },
             RenderTarget::Image(image.clone().into()),
-            // The web build's `WebGL2` path panics on Bevy's default
-            // `Msaa::Sample4`, the reason the web build's main camera draws
-            // FXAA in its place (see `crate::camera::EdgeSmoothing`).
+            // The WebGL2 build panics on Bevy's default `Msaa::Sample4`,
+            // the reason its main camera draws FXAA in its place (see
+            // `crate::camera::EdgeSmoothing`).
             Msaa::Off,
             Projection::from(PerspectiveProjection {
                 fov: VIEW_FOV,

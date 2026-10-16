@@ -1,9 +1,10 @@
 //! Wireframe presentation of the blob under edit.
 //!
-//! WebGL2 (the wasm deploy target) has no line polygon mode, so Bevy's
-//! `WireframePlugin` is off the table. Instead the blob entity's triangle
-//! mesh is swapped for a real `LineList` mesh built from its unique
-//! triangle edges, and its themed material for a flat unlit line colour.
+//! A browser has no line polygon mode, under WebGL2 or WebGPU alike (the
+//! two web builds), so Bevy's `WireframePlugin` is off the table. Instead
+//! the blob entity's triangle mesh is swapped for a real `LineList` mesh
+//! built from its unique triangle edges, and its themed material for a
+//! flat unlit line colour.
 //! The original handles are stashed in [`BlobWireframeSwap`] and restored
 //! on deselect; a record-driven rebuild simply respawns the prim with its
 //! solid mesh and the fresh entity gets a fresh swap next frame.

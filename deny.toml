@@ -17,6 +17,9 @@ targets = [
     { triple = "x86_64-unknown-linux-gnu" },
     { triple = "wasm32-unknown-unknown" },
 ]
+# And both browser bundles (#1670): the WebGPU one is the same crate with
+# its `webgpu` feature, whose dependencies the default graph leaves out.
+features = ["webgpu"]
 
 [advisories]
 yanked = "deny"

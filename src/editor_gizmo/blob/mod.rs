@@ -17,8 +17,9 @@
 //!   the per-frame reconcile that keeps proxies matching the record.
 //! * [`wireframe`] - triangle-edge extraction and the mesh/material swap
 //!   that turns the selected blob instance into a line-list wireframe.
-//!   (WebGL2 - the wasm deploy target - has no line *polygon* mode, so
-//!   wireframe is modelled as real `LineList` geometry instead.)
+//!   (A browser - WebGL2 or WebGPU, the two web builds - has no line
+//!   *polygon* mode, so wireframe is modelled as real `LineList` geometry
+//!   instead.)
 //! * [`preview`] - throttled in-drag SDF re-mesh feeding fresh edge lines
 //!   into the swapped wireframe handle.
 //! * [`write`](mod@write) - element ⇄ transform mapping and the drag-end

@@ -20,6 +20,12 @@
 //! Rust panic, `pagehide` means the tab was closed, and no marker at all
 //! means neither hook got to run - an OOM trap or a browser kill.
 //!
+//! Since #1670 a renderer that fails without a panic takes the same road.
+//! Bevy answers a wgpu error by quitting, which left a dead canvas;
+//! `on_render_error` replaces its handler on the web with one that writes
+//! the marker, raises the card and, on the WebGPU bundle, notes the failure
+//! under [`WEBGPU_FAILED_KEY`] so the next load takes WebGL2.
+//!
 //! Native has a real file sink (`session-latest.jsonl`), so everything here
 //! except the pure tail-truncation helper is wasm-gated.
 
@@ -202,22 +208,48 @@ fn tail_at_line_boundary(nd: &str, max: usize) -> &str {
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 const SHOW_ERROR_FN: &str = "__overlandsShowError";
 
-/// Lead sentence and hint for index.html's "couldn't start" card, chosen
-/// from a panic reason (#1228 f4).
-///
-/// Pure and target-independent so the wording is testable: the card itself
-/// is DOM, which only `show_fatal_card` can reach (wasm-only, so an
-/// intra-doc link to it does not resolve on native), and the copy is
-/// the whole point of showing it. The graphics arm is separate because it
-/// is the one fatal panic an ordinary visitor can actually do something
-/// about - "reload and hope" is wrong advice for a machine that will fail
-/// the same way every time.
+/// The `localStorage` key the WebGPU bundle notes a graphics failure under
+/// (#1670): when, in milliseconds since the epoch. index.html reads it before
+/// it picks a bundle and takes the WebGL2 one while the note is fresh, so the
+/// card's Reload is the way out - a machine whose WebGPU cannot draw the world
+/// would otherwise fail the same way on every load. Named once, and asserted
+/// against the page by `the_page_reads_the_webgpu_failure_the_app_notes`.
+#[cfg_attr(any(webgl2, not(target_arch = "wasm32")), allow(dead_code))]
+const WEBGPU_FAILED_KEY: &str = "overlands.webgpu-failed";
+
+/// The card's lead sentence and hint when a session stops for anything but
+/// its graphics.
+const STOPPED: (&str, &str) = (
+    "Symbios Overlands stopped unexpectedly.",
+    "Reloading fixes most cases. The technical details below are worth \
+     including if you report it.",
+);
+
+/// The card's words when the WebGL2 bundle finds no graphics adapter it can
+/// use: nothing else on the page can draw, so the advice is about the
+/// browser.
+const NO_WEBGL2: (&str, &str) = (
+    "This browser has no usable graphics adapter.",
+    "Symbios Overlands needs WebGL 2. Try a different browser, or turn on \
+     hardware acceleration in this one's settings.",
+);
+
+/// The card's words when the WebGPU bundle's graphics fail, at the adapter or
+/// after (#1670). It has the way out the WebGL2 bundle lacks: the failure is
+/// noted under [`WEBGPU_FAILED_KEY`], so a reload comes back on WebGL2.
+const WEBGPU_FAILED: (&str, &str) = (
+    "WebGPU failed in this browser.",
+    "Reload to continue with WebGL 2 instead. The technical details below \
+     are worth including if you report it.",
+);
+
+/// Whether a panic reason is the graphics adapter failing, matched on
+/// needles in the lowercased reason. The reason carries
+/// `panic at <file>:<line>: <msg>`, so a panic raised *inside* wgpu's adapter
+/// code matches on its path as well as its message - which is the right
+/// answer either way.
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-fn fatal_card_copy(reason: &str) -> (&'static str, &'static str) {
-    /// Needles matched against the lowercased panic reason. The reason
-    /// carries `panic at <file>:<line>: <msg>`, so a panic raised *inside*
-    /// wgpu's adapter code matches on its path as well as its message -
-    /// which is the right answer either way.
+fn is_graphics_failure(reason: &str) -> bool {
     const GRAPHICS: &[&str] = &[
         "adapter",
         "webgl",
@@ -226,18 +258,38 @@ fn fatal_card_copy(reason: &str) -> (&'static str, &'static str) {
         "no suitable",
     ];
     let lower = reason.to_ascii_lowercase();
-    if GRAPHICS.iter().any(|n| lower.contains(n)) {
-        return (
-            "This browser has no usable graphics adapter.",
-            "Symbios Overlands needs WebGL 2. Try a different browser, or turn on \
-             hardware acceleration in this one's settings.",
-        );
+    GRAPHICS.iter().any(|n| lower.contains(n))
+}
+
+/// Lead sentence and hint for index.html's "couldn't start" card, chosen
+/// from a panic reason (#1228 f4).
+///
+/// Pure and target-independent so the wording is testable: the card itself
+/// is DOM, which only `show_card` can reach (wasm-only, so an
+/// intra-doc link to it does not resolve on native), and the copy is
+/// the whole point of showing it. The graphics arm is separate because it
+/// is the one fatal panic an ordinary visitor can actually do something
+/// about - "reload and hope" is wrong advice for a machine that will fail
+/// the same way every time - and it differs per bundle (#1670).
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+fn fatal_card_copy(reason: &str) -> (&'static str, &'static str) {
+    if !is_graphics_failure(reason) {
+        STOPPED
+    } else if cfg!(webgl2) {
+        NO_WEBGL2
+    } else {
+        WEBGPU_FAILED
     }
-    (
-        "Symbios Overlands stopped unexpectedly.",
-        "Reloading fixes most cases. The technical details below are worth \
-         including if you report it.",
-    )
+}
+
+/// The card's words for a renderer that fails after it started (#1670): a
+/// wgpu validation error, an out-of-memory or a lost device, which Bevy
+/// reports without a panic. On the WebGPU bundle that is WebGPU failing, with
+/// the same way out as an adapter that would not start; the WebGL2 bundle has
+/// nothing to fall back to.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+fn render_error_copy() -> (&'static str, &'static str) {
+    if cfg!(webgl2) { STOPPED } else { WEBGPU_FAILED }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -342,7 +394,11 @@ mod wasm {
                 info.location().map(|l| (l.file(), l.line())),
             );
             write_terminal_record(crate::diagnostics::event::CRASH_MARKER_SEQ, reason.clone());
-            show_fatal_card(&reason);
+            #[cfg(not(webgl2))]
+            if super::is_graphics_failure(&reason) {
+                note_webgpu_failure();
+            }
+            show_card(super::fatal_card_copy(&reason), &reason);
             prev(info);
         }));
 
@@ -365,7 +421,9 @@ mod wasm {
         closure.forget();
     }
 
-    /// Raise index.html's "couldn't start" card from a Rust panic (#1228 f4).
+    /// Raise index.html's "couldn't start" card from a Rust panic (#1228 f4)
+    /// or a failed renderer (#1670), with the card's lead and hint and what
+    /// its Technical details fold shows.
     ///
     /// Bevy returns from `init()` as soon as the app is spawned, so the
     /// page's promise-rejection path has already resolved by the time a
@@ -378,7 +436,7 @@ mod wasm {
     /// Best effort in every direction, like the rest of this hook: a page
     /// that does not define the function (an embedder's own host page) is
     /// simply left alone.
-    fn show_fatal_card(reason: &str) {
+    fn show_card((lead, hint): (&str, &str), detail: &str) {
         use wasm_bindgen::{JsCast, JsValue};
 
         let Some(window) = web_sys::window() else {
@@ -390,13 +448,58 @@ mod wasm {
         let Ok(f) = f.dyn_into::<js_sys::Function>() else {
             return;
         };
-        let (lead, hint) = super::fatal_card_copy(reason);
         let _ = f.call3(
             &JsValue::NULL,
             &JsValue::from_str(lead),
             &JsValue::from_str(hint),
-            &JsValue::from_str(reason),
+            &JsValue::from_str(detail),
         );
+    }
+
+    /// Note that WebGPU failed in this browser, for index.html to read before
+    /// it picks a bundle (#1670): the time, under `WEBGPU_FAILED_KEY`. The
+    /// WebGL2 bundle has nothing to fall back to, so it notes nothing.
+    #[cfg(not(webgl2))]
+    fn note_webgpu_failure() {
+        if let Some(store) = storage() {
+            let _ = store.set_item(
+                super::WEBGPU_FAILED_KEY,
+                &format!("{:.0}", js_sys::Date::now()),
+            );
+        }
+    }
+
+    thread_local! {
+        /// Whether this session's renderer failure has been answered. Bevy
+        /// calls the handler on every frame the error stands, and the record,
+        /// the note and the card are each once.
+        static RENDER_FAILED: Cell<bool> = const { Cell::new(false) };
+    }
+
+    /// The renderer's error handler on the web (#1670), in place of Bevy's.
+    ///
+    /// Bevy answers a wgpu error - a validation error, an out-of-memory, a
+    /// lost device - by quitting, without a panic: the panic hook never ran,
+    /// so the tab kept a dead canvas and no card, the silence #1228 f4 ended
+    /// for panics. The WebGPU bundle meets more of them than the WebGL2 one:
+    /// the browser validates every call itself, and its own shader compiler
+    /// judges the WGSL. This handler writes the terminal record, notes a
+    /// WebGPU failure for the next load, raises the card, and then quits as
+    /// Bevy's did.
+    pub fn on_render_error(
+        error: &bevy::render::error_handler::RenderError,
+        main_world: &mut World,
+        _render_world: &mut World,
+    ) -> bevy::render::error_handler::RenderErrorPolicy {
+        if !RENDER_FAILED.with(|answered| answered.replace(true)) {
+            let reason = format!("render error ({:?}): {}", error.ty, error.description);
+            write_terminal_record(crate::diagnostics::event::CRASH_MARKER_SEQ, reason.clone());
+            #[cfg(not(webgl2))]
+            note_webgpu_failure();
+            show_card(super::render_error_copy(), &reason);
+        }
+        main_world.write_message(AppExit::error());
+        bevy::render::error_handler::RenderErrorPolicy::StopRendering
     }
 
     /// Startup: park the last session's persisted tail under [`PREVIOUS_KEY`]
@@ -447,8 +550,8 @@ mod wasm {
 
 #[cfg(target_arch = "wasm32")]
 pub use wasm::{
-    install_terminal_hooks, persist_session_tail, previous_session_log, previous_session_log_bytes,
-    push_tail_line, push_tail_snapshot, recover_previous_session_log,
+    install_terminal_hooks, on_render_error, persist_session_tail, previous_session_log,
+    previous_session_log_bytes, push_tail_line, push_tail_snapshot, recover_previous_session_log,
 };
 
 #[cfg(test)]
@@ -653,18 +756,25 @@ mod tests {
     /// every time.
     #[test]
     fn a_graphics_panic_gets_the_adapter_card_and_everything_else_the_generic_one() {
-        let (lead, hint) = fatal_card_copy(
-            "panic at src/render.rs:12: Unable to find a GPU! Make sure you have \
-             installed required drivers!",
+        // The host build is no WebGL2 bundle, so it shows the WebGPU card;
+        // the WebGL2 card's words are read below, where every build has
+        // them.
+        assert_eq!(
+            fatal_card_copy(
+                "panic at src/render.rs:12: Unable to find a GPU! Make sure you have \
+                 installed required drivers!",
+            ),
+            WEBGPU_FAILED
         );
-        assert!(lead.contains("graphics adapter"), "{lead}");
-        assert!(hint.contains("WebGL 2"), "{hint}");
-
         // Matched on the panic's location too: a panic raised inside wgpu's
         // adapter code is a graphics failure whatever its message says.
-        let (lead, _) =
-            fatal_card_copy("panic at wgpu-hal-0.1/src/gles/adapter.rs:88: assertion failed");
+        assert!(is_graphics_failure(
+            "panic at wgpu-hal-0.1/src/gles/adapter.rs:88: assertion failed"
+        ));
+
+        let (lead, hint) = NO_WEBGL2;
         assert!(lead.contains("graphics adapter"), "{lead}");
+        assert!(hint.contains("needs WebGL 2"), "{hint}");
 
         let (lead, hint) = fatal_card_copy(
             "panic at src/pds/record.rs:401: called `Option::unwrap()` on a `None`",
@@ -674,6 +784,42 @@ mod tests {
         assert!(
             !hint.contains("WebGL"),
             "an ordinary panic must not blame the user's browser: {hint}"
+        );
+    }
+
+    /// THE SEQUENCE (#1670): Chrome's shader compiler rejects a WGSL file
+    /// Firefox's accepted. wgpu reports it as an error, not a panic, and
+    /// Bevy's handler quit without a card, so the visitor saw a frozen page
+    /// and the next load picked WebGPU again. The WebGPU bundle's card for
+    /// it promises the reload that index.html then keeps (it reads the note
+    /// `the_page_reads_the_webgpu_failure_the_app_notes` pins); the WebGL2
+    /// bundle, with nothing to fall back to, says what it says for any stop.
+    #[test]
+    fn a_failed_renderer_on_the_webgpu_bundle_offers_webgl2() {
+        assert_eq!(render_error_copy(), WEBGPU_FAILED);
+        let (lead, hint) = WEBGPU_FAILED;
+        assert!(lead.contains("WebGPU"), "{lead}");
+        assert!(
+            hint.contains("Reload") && hint.contains("WebGL 2"),
+            "{hint}"
+        );
+        assert!(
+            !STOPPED.1.contains("WebGL"),
+            "the WebGL2 bundle's card must not offer itself: {}",
+            STOPPED.1
+        );
+    }
+
+    /// The WebGPU failure note is written here and read by index.html, which
+    /// this crate does not compile: a key renamed on one side only would
+    /// leave the note unread, and a machine whose WebGPU fails back on
+    /// WebGPU after every reload.
+    #[test]
+    fn the_page_reads_the_webgpu_failure_the_app_notes() {
+        let page = include_str!("../../index.html");
+        assert!(
+            page.contains(&format!("const WEBGPU_FAILED_KEY = '{WEBGPU_FAILED_KEY}';")),
+            "index.html no longer reads the {WEBGPU_FAILED_KEY} note"
         );
     }
 
@@ -689,7 +835,7 @@ mod tests {
             page.contains(&format!("window.{SHOW_ERROR_FN} =")),
             "index.html no longer defines window.{SHOW_ERROR_FN}"
         );
-        // The three arguments `show_fatal_card` passes, in the order it
+        // The three arguments `show_card` passes, in the order it
         // passes them: lead, hint, detail.
         for id in ["load-error-lead", "load-error-hint", "load-error-detail"] {
             assert!(page.contains(&format!("id=\"{id}\"")), "missing #{id}");

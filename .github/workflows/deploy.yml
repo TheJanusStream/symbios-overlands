@@ -15,12 +15,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-and-deploy:
+  # Two browser bundles, built side by side on two runners (#1670): the
+  # WebGL2 one every browser can run, and the WebGPU one `index.html` hands a
+  # browser that offers a WebGPU adapter. One wasm binary is one or the other
+  # - Bevy's `webgpu` feature overrides its default `webgl2` - so the app is
+  # built twice; the gen-worker draws nothing and is built once, on the
+  # WebGL2 leg. The deploy job below merges the two `dist` halves.
+  build:
     # Pinned rather than `ubuntu-latest` (#1665): that label moves to Ubuntu 26
     # from 2026-10-19, and a new image landing while the build's memory was
     # being brought back under the runner's would confound the two. Move it on
     # purpose.
     runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        include:
+          - renderer: webgl2
+            features: ""
+            out_name: symbios-overlands
+          - renderer: webgpu
+            features: "--features webgpu"
+            out_name: symbios-overlands-webgpu
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -74,18 +89,19 @@ jobs:
             echo "::warning::could not add swap at /mnt/build-swap; building without it"
           fi
 
-      - name: Build WASM (app + gen-worker)
-        # Two commands, two profiles (#1665): the gen-worker - the slim,
-        # no-Bevy off-thread generation Web Worker - under `release`'s fat
-        # LTO, and the app under `deploy`'s thin LTO, because a profile's LTO
-        # cannot be set per package. Cargo.toml's [profile.deploy] has why.
+      - name: Build WASM
+        # Two profiles (#1665): the gen-worker - the slim, no-Bevy off-thread
+        # generation Web Worker - under `release`'s fat LTO, and the app under
+        # `deploy`'s thin LTO, because a profile's LTO cannot be set per
+        # package. Cargo.toml's [profile.deploy] has why. The worker is built
+        # on the WebGL2 leg only: it draws nothing, so both bundles share it.
         #
         # The runner's memory is sampled while it builds: a line a minute, so
         # a run the runner kills still shows the climb in its log, and the
         # peak at the end, warned past 12 GB - three quarters of the runner's
-        # 16 GB - the way the size report below catches growth before it
-        # fails. Measured locally on 2026-10-16, the dependencies peak under
-        # 8 GB across six parallel compiles and the app's thin link at 7.3 GB.
+        # 16 GB - the way the size report catches growth before it fails.
+        # Measured locally on 2026-10-16, the dependencies peak under 8 GB
+        # across six parallel compiles and the app's thin link at 7.3 GB.
         run: |
           set -euo pipefail
           mem() {
@@ -117,22 +133,53 @@ jobs:
             fi
           }
           trap report EXIT
-          cargo build -p gen-worker --release --target wasm32-unknown-unknown
+          if [ "${{ matrix.renderer }}" = webgl2 ]; then
+            cargo build -p gen-worker --release --target wasm32-unknown-unknown
+          fi
           cargo build -p symbios-overlands --bin symbios-overlands --profile deploy \
-            --target wasm32-unknown-unknown
+            --target wasm32-unknown-unknown ${{ matrix.features }}
 
       - name: Generate JS Bindings
         run: |
           wasm-bindgen --out-dir ./dist --target web \
-            --out-name symbios-overlands \
+            --out-name ${{ matrix.out_name }} \
             --no-typescript \
             target/wasm32-unknown-unknown/deploy/symbios-overlands.wasm
           # The off-thread generation worker the app spawns via gloo-worker as
           # "./gen-worker.js" (sits beside the app JS in ./dist).
-          wasm-bindgen --out-dir ./dist --target web \
-            --out-name gen-worker \
-            --no-typescript \
-            target/wasm32-unknown-unknown/release/gen-worker.wasm
+          if [ "${{ matrix.renderer }}" = webgl2 ]; then
+            wasm-bindgen --out-dir ./dist --target web \
+              --out-name gen-worker \
+              --no-typescript \
+              target/wasm32-unknown-unknown/release/gen-worker.wasm
+          fi
+
+      - name: Upload the bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.renderer }}
+          path: ./dist
+          retention-days: 1
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Both legs' halves into one site. A half is its JS glue and wasm under
+      # its own out-name and nothing else: no crate in the build carries a
+      # wasm-bindgen snippet (checked 2026-10-16). Should one arrive, its
+      # `snippets/` directory is named by crate name and version, not by
+      # content, so a snippet that differs by renderer would collide here
+      # and merge-multiple would keep one half's copy for both.
+      - name: Download the bundles
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bundle-*
+          merge-multiple: true
+          path: ./dist
 
       # No wasm-opt step, and no Binaryen download to feed one (#1149).
       #
@@ -196,7 +243,7 @@ jobs:
             # Bash integer arithmetic rather than `bc`: this step is the
             # deploy's own gate, so it must not be able to fail on a tool the
             # runner image might not carry. Hundredths of a MB by hand.
-            printf '%-30s raw %10d B (%d.%02d MB)  gzip %10d B (%d.%02d MB)\n' \
+            printf '%-34s raw %10d B (%d.%02d MB)  gzip %10d B (%d.%02d MB)\n' \
               "$(basename "$file")" \
               "$raw" "$((raw / 1048576))" "$(((raw % 1048576) * 100 / 1048576))" \
               "$gz" "$((gz / 1048576))" "$(((gz % 1048576) * 100 / 1048576))"
@@ -224,6 +271,13 @@ jobs:
           # fat-LTO 65,495,625 / 18,409,375 B of the same commit. The raw
           # budget raised to about 5 % above; the gzip one already was.
           check ./dist/symbios-overlands_bg.wasm 77500000 19000000
+          # app, WebGPU (#1670): 73,899,365 B raw / 18,156,125 B gzip on
+          # 2026-10-16, measured locally with this file's own build: Bevy's
+          # `webgpu` feature in place of `webgl2` costs 95,280 B raw /
+          # 40,122 B gzip over the WebGL2 bundle of the same commit
+          # (73,804,085 / 18,116,003 B). The raw budget about 5 % above; the
+          # gzip one is the WebGL2 app's, which already was.
+          check ./dist/symbios-overlands-webgpu_bg.wasm 77600000 19000000
           # gen-worker:  3.25 MB raw /  0.68 MB gzip on 2026-08-29
           #              3.57 MB raw /  0.80 MB gzip on 2026-09-22, after the
           # outfit textures (#1403). Measured locally, that commit added
@@ -270,7 +324,7 @@ jobs:
       - name: Upload Pages artifact
         id: deployment
         uses: actions/upload-pages-artifact@v3
-        with: 
+        with:
           path: ./dist
 
       - name: Deploy to GitHub Pages

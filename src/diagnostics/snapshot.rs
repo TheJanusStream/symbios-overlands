@@ -49,13 +49,27 @@ pub fn build_info() -> BuildInfo {
     BuildInfo {
         version: env!("CARGO_PKG_VERSION").to_string(),
         git_sha: git_sha(),
-        target_arch: std::env::consts::ARCH.to_string(),
+        target_arch: target_arch(),
         profile: if cfg!(debug_assertions) {
             "debug"
         } else {
             "release"
         }
         .to_string(),
+    }
+}
+
+/// The arch the binary was compiled for and, on the web, the renderer its
+/// bundle draws through (#1670) - `wasm32 webgl2` or `wasm32 webgpu` - so a
+/// session log says which of the two bundles a browser loaded.
+fn target_arch() -> String {
+    let arch = std::env::consts::ARCH;
+    if cfg!(webgl2) {
+        format!("{arch} webgl2")
+    } else if cfg!(target_arch = "wasm32") {
+        format!("{arch} webgpu")
+    } else {
+        arch.to_string()
     }
 }
 

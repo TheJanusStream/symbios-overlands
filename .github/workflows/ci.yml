@@ -104,6 +104,13 @@ jobs:
       - name: Check wasm32
         run: cargo check --workspace --target wasm32-unknown-unknown
 
+      # The WebGPU bundle (#1670) is the same crate with Bevy's `webgpu`
+      # feature, which moves code between the arms of the `webgl2` cfg
+      # `build.rs` sets: check it too, or a break in that half would first
+      # show as a failed deploy.
+      - name: Check wasm32 (WebGPU)
+        run: cargo check -p symbios-overlands --target wasm32-unknown-unknown --features webgpu
+
   # Advisories, licences, banned duplicates and source registries (#1152).
   #
   # There was no supply-chain gate at all before this, over a ~985-package

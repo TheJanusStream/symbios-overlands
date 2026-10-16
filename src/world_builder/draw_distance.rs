@@ -71,7 +71,7 @@
 //!
 //! Every range here is `VisibilityRange::abrupt(0, cut)`: zero margins. Any
 //! margin compiles Bevy's dither shader, which fails WebGL2 pipeline
-//! validation and quits every web client (#1358). Bevy also keeps every
+//! validation and quits every WebGL2 client (#1358). Bevy also keeps every
 //! distinct range the app has ever used in a table that is a 64-entry
 //! uniform on WebGL2 ([`cfg::WEBGL2_RANGE_SLOTS`]); the setting is snapped
 //! to [`cfg::STEP_M`] and so is the fog cap, so every cut is a multiple of

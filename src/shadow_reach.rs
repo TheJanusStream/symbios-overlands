@@ -18,8 +18,8 @@
 //!
 //! There is no fade at the far edge, and there must not be one made from a
 //! `VisibilityRange` margin: any non-zero margin compiles Bevy's dither
-//! shader, which fails WebGL2 pipeline validation and quits every web client
-//! (#1358). The fog is the fade - see [`reach`].
+//! shader, which fails WebGL2 pipeline validation and quits every WebGL2
+//! client (#1358). The fog is the fade - see [`reach`].
 
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::ScheduleSystem;
@@ -102,9 +102,10 @@ const RETUNE_SHARE: f32 = 1.0e-3;
 /// and 350 m, where it used to cut at 15, 36, 84 and 200 m: the player sits
 /// in the second cascade, about 1.2 pixels a texel, and the ground runs
 /// shaded 150 m past them into the fog. WebGL2 splits no cascades at all -
-/// Bevy builds one there, out to `max` - so the web client gets the longer
+/// Bevy builds one there, out to `max` - so the WebGL2 build gets the longer
 /// reach, with one texel for 1.9 pixels at the player at full zoom, never
-/// coarser than the 18 it has at rest.
+/// coarser than the 18 it has at rest. The WebGPU build (#1670) splits four,
+/// as native does.
 ///
 /// A distance that is not a finite number is a fault upstream; it gets the
 /// rest cuts rather than bounds Bevy cannot split.
@@ -124,7 +125,7 @@ pub(crate) fn reach(view_dist: f32, fog_visibility: f32) -> Reach {
 }
 
 /// The sun's cascade config for `reach`, on Bevy's defaults for everything
-/// else - four cascades natively, one on WebGL2, 20% overlap, 0.1 m near.
+/// else - four cascades, one in the WebGL2 build, 20% overlap, 0.1 m near.
 pub(crate) fn cascades(reach: Reach) -> CascadeShadowConfig {
     CascadeShadowConfigBuilder {
         first_cascade_far_bound: reach.first_far,

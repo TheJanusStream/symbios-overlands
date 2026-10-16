@@ -96,8 +96,21 @@ wasm-bindgen --out-dir ./dist --target web --no-typescript \
     --out-name gen-worker \
     target/wasm32-unknown-unknown/release/gen-worker.wasm
 
-# index.html imports ./symbios-overlands.js relative to itself, so
-# assemble a flat site directory (mirrors .github/workflows/deploy.yml):
+# The WebGPU bundle (#1670): the app again with Bevy's `webgpu` feature, which
+# overrides its default `webgl2` - one binary is one or the other. index.html
+# loads it where the browser offers a WebGPU adapter; `?renderer=webgl2` or
+# `?renderer=webgpu` picks one and the page remembers it, `?renderer=auto`
+# forgets it, and a WebGPU start that fails sends the next week's loads to
+# WebGL2. Build it second: it writes the same target/.../deploy path the
+# WebGL2 app did, so bind that one first.
+cargo build -p symbios-overlands --bin symbios-overlands --profile deploy \
+    --target wasm32-unknown-unknown --features webgpu
+wasm-bindgen --out-dir ./dist --target web --no-typescript \
+    --out-name symbios-overlands-webgpu \
+    target/wasm32-unknown-unknown/deploy/symbios-overlands.wasm
+
+# index.html imports its bundle's JS relative to itself, so assemble a flat
+# site directory (mirrors .github/workflows/deploy.yml):
 cp index.html dist/
 cp -r assets dist/
 cp assets/client-metadata.json dist/   # OAuth client metadata sits at the site root
@@ -169,6 +182,9 @@ cargo doc --no-deps --document-private-items           # docs (kept warning-free
 # RUSTFLAGS, so a warning there is an error; the env replaces
 # .cargo/config.toml's per-target rustflags, exactly as it does on CI (#1321)
 RUSTFLAGS='-D warnings' cargo check --workspace --target wasm32-unknown-unknown
+# and the WebGPU bundle (#1670), whose `webgpu` feature moves code between the
+# arms of the `webgl2` cfg build.rs sets
+RUSTFLAGS='-D warnings' cargo check -p symbios-overlands --target wasm32-unknown-unknown --features webgpu
 ```
 
 **`cargo test --lib` is a separate gate, not a subset of the nextest run.**
@@ -254,7 +270,7 @@ lockfile to honour.
 
 ### The dependency-bump checklist
 
-Two things the seven-command gate does not cover.
+Two things the eight-command gate does not cover.
 
 **Fire the avian canary.** One test is `#[ignore]`d on purpose:
 `plain_rigid_body_disabled_cycle` in
@@ -474,11 +490,13 @@ applied, no road re-mesh or lot re-derive pending, no procedural texture
 bake still in flight, and that answer held for forty frames) before
 shooting. The camera is the game's: fog, bloom, the room's colour grade
 (#1669), the depth prepass shore foam reads, cascaded shadows, MSAA - or,
-with `--edge-smoothing fxaa`, the web build's FXAA in its place, and with
+with `--edge-smoothing fxaa`, the WebGL2 build's FXAA in its place, and with
 `--edge-smoothing off` the web build as it was before #1669, no smoothing at
-all. Its settings are a default visitor's, so small scattered copies past
-the Settings window's ground-cover draw distance (150 m from the camera,
-#1480) are not drawn, and every `--world` shot prints the parts it drew.
+all. Only the edges change: the prepass and the four shadow cascades, which
+the WebGL2 build goes without, stay. Its settings are a default visitor's,
+so small scattered copies past the Settings window's ground-cover draw
+distance (150 m from the camera, #1480) are not drawn, and every `--world`
+shot prints the parts it drew.
 Framing is a rig rather than a tile set:
 
 ```bash

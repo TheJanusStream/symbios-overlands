@@ -39,7 +39,7 @@
 use bevy::anti_alias::fxaa::Fxaa;
 use bevy::audio::SpatialListener;
 use bevy::camera::ScalingMode;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(webgl2))]
 use bevy::core_pipeline::prepass::DepthPrepass;
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::{post_process::bloom::Bloom, prelude::*};
@@ -555,15 +555,15 @@ pub(crate) fn default_distance_fog() -> DistanceFog {
 
 /// How a world camera smooths its edges (#1669).
 ///
-/// Native draws Bevy's 4x MSAA. The web build cannot: WebGL2's `glow`
-/// backend has no `tex_storage_2d_multisample` entrypoint, so
-/// `Msaa::Sample4` panics during render-target allocation on the first frame
-/// (glow-0.16.0/.../web_sys.rs: "Tex storage 2D multisample is not
-/// supported"). Until #1669 it drew with no smoothing at all, every edge
-/// stair-stepped; it runs FXAA now, one post-process pass after tonemapping
-/// that WebGL2 can run. bevy_egui draws after the 3D post-process set, so
-/// FXAA never softens the interface. [`Self::Off`] is the old web look,
-/// kept so the render tool can show what changed.
+/// Native and the WebGPU build (#1670) draw Bevy's 4x MSAA. The WebGL2
+/// build cannot: WebGL2's `glow` backend has no `tex_storage_2d_multisample`
+/// entrypoint, so `Msaa::Sample4` panics during render-target allocation on
+/// the first frame (glow-0.16.0/.../web_sys.rs: "Tex storage 2D multisample
+/// is not supported"). Until #1669 it drew with no smoothing at all, every
+/// edge stair-stepped; it runs FXAA now, one post-process pass after
+/// tonemapping that WebGL2 can run. bevy_egui draws after the 3D
+/// post-process set, so FXAA never softens the interface. [`Self::Off`] is
+/// the old web look, kept so the render tool can show what changed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum EdgeSmoothing {
     /// 4x multisampling.
@@ -577,12 +577,9 @@ pub(crate) enum EdgeSmoothing {
 }
 
 impl EdgeSmoothing {
-    /// What this build's world camera uses: MSAA natively, FXAA on wasm.
-    pub(crate) const BUILD: Self = if cfg!(target_arch = "wasm32") {
-        Self::Fxaa
-    } else {
-        Self::Msaa
-    };
+    /// What this build's world camera uses: FXAA on the WebGL2 build, MSAA
+    /// everywhere else.
+    pub(crate) const BUILD: Self = if cfg!(webgl2) { Self::Fxaa } else { Self::Msaa };
 
     /// The camera components that select it.
     pub(crate) fn components(self) -> (Msaa, Fxaa) {
@@ -607,7 +604,7 @@ fn spawn_orbit_camera(mut commands: Commands) {
         // #1317: the primary egui context lives HERE, by name. See
         // `egui_global_settings` for why it must not be left to bevy_egui.
         PrimaryEguiContext,
-        // MSAA on native, FXAA on the web build - see [`EdgeSmoothing`].
+        // MSAA, or FXAA on the WebGL2 build - see [`EdgeSmoothing`].
         EdgeSmoothing::BUILD.components(),
         // Bevy's default perspective far plane is 1000 m, which clips the
         // cloud-deck plane (at altitude ~250 m, half-extent 4 km) before
@@ -633,10 +630,11 @@ fn spawn_orbit_camera(mut commands: Commands) {
         // alpha-blend PBR material (cloud, water). The shoreline-foam
         // block in water.wgsl is the only consumer in this codebase and
         // is already `#ifdef DEPTH_PREPASS`-guarded, so omitting the
-        // component on wasm32 cleanly disables the feature - shore foam
-        // is the only visual loss on WebGL2, and only on water bodies
-        // whose room record sets `shore_foam_width > 0`.
-        #[cfg(not(target_arch = "wasm32"))]
+        // component on the WebGL2 build cleanly disables the feature -
+        // shore foam is the only visual loss there, and only on water
+        // bodies whose room record sets `shore_foam_width > 0`. The WebGPU
+        // build compiles WGSL as WGSL and keeps it (#1670).
+        #[cfg(not(webgl2))]
         DepthPrepass,
         GizmoCamera,
         PanOrbitCamera {
@@ -751,9 +749,10 @@ mod tests {
     use super::*;
     use bevy::MinimalPlugins;
 
-    /// Native draws 4x MSAA and the web build FXAA (#1669): every build
-    /// smooths its edges one way or the other, and `Off` is only the render
-    /// tool's picture of the web build before it did.
+    /// Native and the WebGPU build draw 4x MSAA and the WebGL2 build FXAA
+    /// (#1669, #1670): every build smooths its edges one way or the other,
+    /// and `Off` is only the render tool's picture of the web build before
+    /// it did.
     #[test]
     fn every_build_smooths_its_edges() {
         #[cfg(not(target_arch = "wasm32"))]

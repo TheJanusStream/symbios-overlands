@@ -12,7 +12,7 @@ use bevy_symbios_ground::{SplatMapper, SplatRule, TerrainQuery};
 use bevy_symbios_texture::{TextureMap, map_to_images_with_usages};
 
 use crate::config::terrain as tcfg;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(webgl2))]
 use crate::config::terrain::stains as scfg;
 use crate::interaction::{StainsImage, TerrainSurfaceQuery};
 use crate::offload::{GenJob, GenResult};
@@ -420,19 +420,17 @@ pub(super) fn apply_splat_textures(
         // is allocated zeroed at startup, so enabling it now is inert
         // until the stamper writes contacts - backward-compatible.
         //
-        // wasm32 skips this binding entirely, on WebGPU as well as WebGL2 -
-        // see the note on `SplatExtension::stains_tex` in `crate::splat`:
-        // the GLES backend caps fragment shaders at 16 texture slots and the
-        // splat material already sits at that ceiling, so the stains overlay
-        // is gated off by TARGET (#1131) and the consumer assignments below
-        // are unreachable on wasm.
-        #[cfg(not(target_arch = "wasm32"))]
+        // The WebGL2 build skips this binding entirely - see the note on
+        // `SplatExtension::stains_tex` in `crate::splat`: the GLES backend
+        // caps fragment shaders at 16 texture slots and the splat material
+        // already sits at that ceiling. The WebGPU build binds it (#1670).
+        #[cfg(not(webgl2))]
         if let Some(stains) = stains.as_ref() {
             mat.extension.stains_tex = stains.handle.clone();
             mat.extension.stains.world_period = scfg::WORLD_PERIOD;
             mat.extension.stains.enabled = 1;
         }
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(webgl2)]
         let _ = stains;
     }
 

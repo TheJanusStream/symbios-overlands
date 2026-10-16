@@ -128,7 +128,8 @@ pub struct StartupInfo {
     pub version: String,
     /// Short git sha (or `"unknown"` when built outside a git checkout).
     pub git_sha: String,
-    /// `target_arch` the binary was compiled for.
+    /// `target_arch` the binary was compiled for, and on the web the
+    /// renderer its bundle draws through (`wasm32 webgpu`, #1670).
     pub target_arch: String,
     /// `"debug"` or `"release"`.
     pub profile: String,

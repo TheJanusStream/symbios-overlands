@@ -17,7 +17,7 @@
 //! The Session tab (#837 - the honest remainder after
 //! the toolbar's account chip took identity / logout / Copy Landmark
 //! Link) holds the session-debug tools: a native-only wireframe-mode
-//! checkbox (skipped on WebGL2 where `POLYGON_MODE_LINE` is
+//! checkbox (skipped on the web, where `POLYGON_MODE_LINE` is
 //! unavailable), the session-log export controls, a demoted debug peer
 //! roster (DIDs + copy buttons - People owns presence and mutes), and
 //! the scrolling event log. This module also hosts
@@ -807,13 +807,18 @@ const SLOT_ROW_LABEL: &str = "Texture slots";
 /// row ends up with no explanation because adding one was tedious.
 /// `row_notes_describe_rendered_rows` pins each entry to a row that exists.
 fn row_note(metric: &str) -> Option<&'static str> {
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(webgl2)]
     const SLOTS: &str = "Of the 16 texture slots WebGL2 gives a shader. Past that \
                          the ground stops drawing its layers.";
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(target_arch = "wasm32", not(webgl2)))]
     const SLOTS: &str = "How many texture slots the ground material uses. WebGPU \
-                         has no fixed ceiling, so this is a size, not a budget - \
-                         it is the browser build that has 16.";
+                         counts textures and samplers apart, at least 16 of each \
+                         a shader, so this is a size, not a budget - it is the \
+                         WebGL2 browser build whose 16 slots count both.";
+    #[cfg(not(target_arch = "wasm32"))]
+    const SLOTS: &str = "How many texture slots the ground material uses. This \
+                         backend has room past 16, so this is a size, not a \
+                         budget - it is the WebGL2 browser build that has 16.";
     #[cfg(target_arch = "wasm32")]
     const MEMORY: &str = "How much memory this browser tab holds. It never goes \
                           back down, so a climb only ends when you reload.";
@@ -1272,8 +1277,9 @@ fn health_cards(tab: DiagTab, metrics: &MetricsRegistry) -> Vec<Card> {
                 ],
             ),
             // Render / WebGL2 texture-slot budget (C-5): the splat material's
-            // bind-slot footprint against the 16-slot GLES ceiling on wasm (on
-            // native the stains overlay adds one and there is no fixed ceiling).
+            // bind-slot footprint against the 16-slot GLES ceiling on the
+            // WebGL2 build (natively and on WebGPU the stains overlay adds one
+            // and the cell shows the size alone, #1670).
             // The worker-spawn / msgpack-codec rows from the C-5 brief are not
             // shown: those failures live inside the off-ECS gloo-worker future
             // and never surface to the registry - see the issue for the blocker.
@@ -1285,11 +1291,11 @@ fn health_cards(tab: DiagTab, metrics: &MetricsRegistry) -> Vec<Card> {
                         let n = g(names::RUNTIME_TEXTURE_BIND_SLOTS);
                         // The ceiling is short enough to keep in the cell; the
                         // sentence explaining it is on the hover (#1273 f189).
-                        #[cfg(target_arch = "wasm32")]
+                        #[cfg(webgl2)]
                         {
                             if n == "-" { n } else { format!("{n} / 16") }
                         }
-                        #[cfg(not(target_arch = "wasm32"))]
+                        #[cfg(not(webgl2))]
                         {
                             n
                         }
@@ -1618,8 +1624,9 @@ fn render_session_tab(
     render_session_identity(ui, identity, export.clipboard);
 
     // Render-debug toggles. Wireframe is native-only because the
-    // wgpu POLYGON_MODE_LINE feature isn't available on WebGL2;
-    // the plugin is registered with the same cfg in lib.rs.
+    // wgpu POLYGON_MODE_LINE feature is native-only - neither WebGL2
+    // nor a browser's WebGPU has it; the plugin is registered with the
+    // same cfg in lib.rs.
     #[cfg(not(target_arch = "wasm32"))]
     {
         ui.label("Render");

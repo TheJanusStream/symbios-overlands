@@ -271,8 +271,9 @@ fn scrape_bevy_diagnostics(
     }
 
     // The splat material's texture-slot footprint is a compile-time constant
-    // (cfg-split for the native-only stains overlay); surface it as a gauge so
-    // the GUI can show headroom against the WebGL2 16-slot ceiling (C-5).
+    // (cfg-split for the stains overlay, which the WebGL2 build drops); surface
+    // it as a gauge so the GUI can show headroom against the WebGL2 16-slot
+    // ceiling (C-5).
     reg.observe_gauge(
         names::RUNTIME_TEXTURE_BIND_SLOTS,
         crate::splat::SPLAT_TEXTURE_BIND_SLOTS as f64,

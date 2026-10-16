@@ -50,6 +50,12 @@ default-members = [".", "crates/gen-jobs", "crates/geodata"]
 # `cargo run --release --features alloc-trace`, play for a minute, read
 # stderr. Off by default: zero cost in normal builds.
 alloc-trace = []
+# The WebGPU web build (#1670): Bevy's `webgpu` feature, which overrides its
+# default `webgl2` - one wasm binary is one or the other, so the deploy
+# builds both and `index.html` picks one per browser. Code gates the limits
+# that are WebGL2's rather than the web's on the `webgl2` cfg `build.rs`
+# sets (wasm32 without this feature). Native builds ignore it.
+webgpu = ["bevy/webgpu"]
 
 [dependencies]
 bevy = "0.19"

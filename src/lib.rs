@@ -340,11 +340,11 @@ pub(crate) fn build_client_app(app: &mut App, boot: boot_params::BootParams, she
     if let ClientShell::Headless { frame, .. } = shell {
         app.add_plugins(bevy::app::ScheduleRunnerPlugin::run_loop(frame));
     }
-    // Native-only: WebGL2 lacks the POLYGON_MODE_LINE wgpu feature the
-    // wireframe plugin depends on, and Overlands' WASM build can land on
-    // either WebGPU or WebGL2 depending on the browser, so the safer
-    // default is to omit the plugin entirely on web. The diagnostics
-    // wireframe checkbox is gated under the same cfg.
+    // Native-only: the wireframe plugin depends on wgpu's
+    // POLYGON_MODE_LINE, a native-only feature - a browser has no line
+    // polygon mode under WebGL2 or WebGPU - so both web builds (#1670)
+    // omit the plugin entirely. The diagnostics wireframe checkbox is
+    // gated under the same cfg.
     #[cfg(not(target_arch = "wasm32"))]
     app.add_plugins(WireframePlugin::default());
     // wasm-only: preventDefault the browser's Ctrl+S/Cmd+S save dialog so

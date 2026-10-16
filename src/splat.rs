@@ -74,13 +74,13 @@ pub struct StainsUniforms {
 }
 
 /// Texture bind slots the splat material's extension consumes: the weight map
-/// plus the albedo + normal `2d_array`s (3), and on native the extra stains
-/// overlay (4; dropped on wasm - see [`SplatExtension`] for the WebGL2
-/// ceiling rationale). Surfaced as the `runtime.texture_bind_slots` gauge
-/// (C-5) so the GUI can show headroom against the 16-slot ceiling.
-#[cfg(not(target_arch = "wasm32"))]
+/// plus the albedo + normal `2d_array`s (3), and off WebGL2 the extra stains
+/// overlay (4; dropped on the WebGL2 build - see [`SplatExtension`] for the
+/// ceiling). Surfaced as the `runtime.texture_bind_slots` gauge (C-5) so the
+/// GUI can show headroom against the 16-slot ceiling.
+#[cfg(not(webgl2))]
 pub const SPLAT_TEXTURE_BIND_SLOTS: u32 = 4;
-#[cfg(target_arch = "wasm32")]
+#[cfg(webgl2)]
 pub const SPLAT_TEXTURE_BIND_SLOTS: u32 = 3;
 
 /// [`MaterialExtension`] that drives `splat.wgsl`.
@@ -90,26 +90,29 @@ pub const SPLAT_TEXTURE_BIND_SLOTS: u32 = 3;
 /// - 102/103  albedo `texture_2d_array` (4 layers) + sampler
 /// - 104/105  normal `texture_2d_array` (4 layers) + sampler
 /// - 106      [`SplatUniforms`] uniform
-/// - 107/108  stains overlay (RGBA: wet/dust/footprint) + sampler (native only - see below)
-/// - 109      [`StainsUniforms`] uniform (native only - see below)
+/// - 107/108  stains overlay (RGBA: wet/dust/footprint) + sampler (not on WebGL2 - see below)
+/// - 109      [`StainsUniforms`] uniform (not on WebGL2 - see below)
 ///
-/// The stains overlay (bindings 107/108/109) is disabled on `wasm32`
-/// because wgpu-hal's GLES backend caps each fragment shader at
+/// The stains overlay (bindings 107/108/109) is disabled on the WebGL2
+/// build because wgpu-hal's GLES backend caps each fragment shader at
 /// `MAX_TEXTURE_SLOTS = 16` (matches WebGL2's `MAX_TEXTURE_IMAGE_UNITS`).
 /// Counting Bevy's view-group shadow + IBL textures plus `StandardMaterial`'s
 /// PBR textures, the splat material already sits right at that ceiling; the
 /// stains overlay was the +1 that pushed pipeline creation into a panic at
 /// wgpu-hal-27.0.4/src/gles/device.rs:87 (`self.sampler_map[16]` overflow).
-/// Native keeps the feature; **every wasm build skips it** (terrain renders
-/// as it did before #245 landed). The gate is on the target, not the adapter:
-/// a browser session that lands on WebGPU has no 16-slot ceiling and still
-/// loses the overlay, because the `cfg` cannot know which backend wgpu will
-/// pick at startup. Gating at runtime on the adapter's limits is #1131; until
-/// then a native peer leaves footprints a web peer beside them cannot see.
+/// Native and the WebGPU build keep it (#1670): WebGPU counts sampled
+/// textures and samplers apart, and a world with the overlay and the depth
+/// prepass drew whole under WebGPU's minimum limits
+/// (`WGPU_SETTINGS_PRIO=webgpu`, 16 of each a stage). So the gate is the
+/// backend each build is made for, which a build knows. #1131 asked for a
+/// runtime check on the adapter instead, on the premise that the one web
+/// binary could land on either backend; it never could - without Bevy's
+/// `webgpu` feature wgpu is asked for `Backends::GL` alone - and each
+/// backend now has a binary of its own.
 ///
 /// The corresponding bindings in `assets/shaders/splat.wgsl` are guarded
 /// by `#ifdef STAINS_BINDING`, and [`SplatExtension::specialize`] emits
-/// that shader-def only on non-wasm targets.
+/// that shader-def everywhere but the WebGL2 build.
 #[derive(Asset, TypePath, AsBindGroup, Clone, Default)]
 pub struct SplatExtension {
     #[texture(100)]
@@ -130,12 +133,12 @@ pub struct SplatExtension {
     /// Avatar-interaction stains overlay (#245). Defaults to Bevy's
     /// 1×1 white image; `stains.enabled` stays 0 until the stamper
     /// binds the real texture, so terrain renders unchanged meanwhile.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(webgl2))]
     #[texture(107)]
     #[sampler(108)]
     pub stains_tex: Handle<Image>,
 
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(webgl2))]
     #[uniform(109)]
     pub stains: StainsUniforms,
 }
@@ -149,8 +152,8 @@ impl MaterialExtension for SplatExtension {
         SPLAT_SHADER_PATH.into()
     }
 
-    // `descriptor` is only touched on native (the stains shader-def gate).
-    #[cfg_attr(target_arch = "wasm32", allow(unused_variables))]
+    // `descriptor` is only touched off WebGL2 (the stains shader-def gate).
+    #[cfg_attr(webgl2, allow(unused_variables))]
     fn specialize(
         _pipeline: &bevy::pbr::MaterialExtensionPipeline,
         descriptor: &mut bevy::render::render_resource::RenderPipelineDescriptor,
@@ -158,8 +161,8 @@ impl MaterialExtension for SplatExtension {
         _key: bevy::pbr::MaterialExtensionKey<Self>,
     ) -> Result<(), bevy::render::render_resource::SpecializedMeshPipelineError> {
         // Gate the stains bindings in `splat.wgsl` so they only exist
-        // on targets that have the corresponding Rust-side fields.
-        #[cfg(not(target_arch = "wasm32"))]
+        // on builds that have the corresponding Rust-side fields.
+        #[cfg(not(webgl2))]
         {
             use bevy::shader::ShaderDefVal;
             let def: ShaderDefVal = "STAINS_BINDING".into();

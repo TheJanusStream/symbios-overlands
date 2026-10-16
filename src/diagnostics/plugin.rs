@@ -61,6 +61,14 @@ impl Plugin for DiagnosticsPlugin {
         // here so both targets arm their crash path in the same place.
         #[cfg(target_arch = "wasm32")]
         crate::diagnostics::panic::install_hook();
+        // And the renderer's errors take the same path (#1670): Bevy's own
+        // handler quits without a panic, which left a dead canvas and no
+        // card. `RenderPlugin` only inits its default, so this one stands
+        // whichever plugin is added first.
+        #[cfg(target_arch = "wasm32")]
+        app.insert_resource(bevy::render::error_handler::RenderErrorHandler(
+            crate::diagnostics::crash_log::on_render_error,
+        ));
 
         // The boot snapshot is always seq 0 - the self-describing header.
         if let Some(payload) = boot_payload {

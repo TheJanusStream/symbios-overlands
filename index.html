@@ -175,7 +175,77 @@
         </details>
     </div>
     <script type="module">
-        import init from './symbios-overlands.js';
+        // Which bundle this browser gets (#1670): the WebGPU one where the
+        // browser hands out a WebGPU adapter, the WebGL2 one otherwise - one
+        // wasm binary is one or the other, so the deploy builds both.
+        //
+        // `?renderer=webgl2` or `?renderer=webgpu` picks one and the page
+        // remembers it; `?renderer=auto` forgets it. The parameter comes off
+        // the address as it is read: sign-in and landmark links rewrite the
+        // address, so a choice kept only there would not survive them.
+        //
+        // A WebGPU bundle whose graphics fail notes when, under
+        // WEBGPU_FAILED_KEY (diagnostics::crash_log), and raises the card,
+        // whose Reload then lands here and takes WebGL2 - for a week, after
+        // which WebGPU gets another try. A machine whose WebGPU cannot draw
+        // the world is well again after one reload, where it would otherwise
+        // fail the same way on every one.
+        const BUNDLES = {
+            webgl2: { js: './symbios-overlands.js', wasm: './symbios-overlands_bg.wasm' },
+            webgpu: { js: './symbios-overlands-webgpu.js', wasm: './symbios-overlands-webgpu_bg.wasm' },
+        };
+        const RENDERER_KEY = 'overlands.renderer';
+        const WEBGPU_FAILED_KEY = 'overlands.webgpu-failed';
+        const WEBGPU_RETRY_MS = 7 * 24 * 60 * 60 * 1000;
+        // Storage can be switched off or full: a choice that cannot be kept
+        // still decides this load.
+        function recall(key) {
+            try { return localStorage.getItem(key); } catch { return null; }
+        }
+        function remember(key, value) {
+            try {
+                if (value === null) localStorage.removeItem(key);
+                else localStorage.setItem(key, value);
+            } catch { /* see recall */ }
+        }
+        // The bundle, and why - the console line is what a bug report about
+        // the renderer needs first.
+        async function pickRenderer() {
+            const url = new URL(location.href);
+            const asked = url.searchParams.get('renderer');
+            if (asked !== null) {
+                url.searchParams.delete('renderer');
+                history.replaceState(history.state, '', url.href);
+                // Any ask starts afresh: asking for WebGPU is how to retry
+                // it inside the week.
+                remember(WEBGPU_FAILED_KEY, null);
+                if (asked === 'webgl2' || asked === 'webgpu') {
+                    remember(RENDERER_KEY, asked);
+                    return [asked, 'asked for'];
+                }
+                remember(RENDERER_KEY, null);
+            }
+            const kept = recall(RENDERER_KEY);
+            if (kept === 'webgl2') return ['webgl2', 'asked for earlier'];
+            const failedAt = Number(recall(WEBGPU_FAILED_KEY)) || 0;
+            if (Date.now() - failedAt < WEBGPU_RETRY_MS) {
+                return ['webgl2', 'WebGPU failed here at ' + new Date(failedAt).toISOString()];
+            }
+            if (kept === 'webgpu') return ['webgpu', 'asked for earlier'];
+            if (!navigator.gpu) return ['webgl2', 'no WebGPU in this browser'];
+            try {
+                // An adapter request can hang on a broken driver stack; a
+                // working one answers well inside two seconds.
+                const adapter = await Promise.race([
+                    navigator.gpu.requestAdapter(),
+                    new Promise(resolve => setTimeout(() => resolve(null), 2000)),
+                ]);
+                return adapter ? ['webgpu', 'a WebGPU adapter'] : ['webgl2', 'no WebGPU adapter'];
+            } catch {
+                return ['webgl2', 'the WebGPU adapter request failed'];
+            }
+        }
+
         // Right-drag orbits the camera in-game; without this the browser
         // context menu opens on every release. Load-bearing - keep.
         document.addEventListener('contextmenu', event => event.preventDefault());
@@ -296,8 +366,12 @@
 
         async function run() {
             try {
+                const [renderer, why] = await pickRenderer();
+                console.info('renderer: ' + renderer + ' (' + why + ')');
+                const bundle = BUNDLES[renderer];
+                const { default: init } = await import(bundle.js);
                 try {
-                    await init({ module_or_path: fetchWasmWithProgress('./symbios-overlands_bg.wasm') });
+                    await init({ module_or_path: fetchWasmWithProgress(bundle.wasm) });
                 } catch (e) {
                     // winit's wasm backend historically unwinds init() with a
                     // "using exceptions for control flow" throw that is NOT a

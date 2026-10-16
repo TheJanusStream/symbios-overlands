@@ -852,8 +852,10 @@ struct Args {
     #[arg(long, requires = "world", conflicts_with = "fov")]
     ortho: bool,
     /// `--world`: how the world camera smooths its edges (#1669) - `msaa`,
-    /// native's 4x and the default; `fxaa`, the web build's since #1669; or
-    /// `off`, the web build before it. A web-look shot is `fxaa`.
+    /// native's 4x, the WebGPU build's and the default; `fxaa`, the WebGL2
+    /// build's since #1669; or `off`, the web build before it. Only the edges
+    /// change: an `fxaa` shot keeps the depth prepass, the four shadow
+    /// cascades and the stains overlay the WebGL2 build goes without.
     #[arg(long, requires = "world", value_parser = parse_edge_smoothing)]
     edge_smoothing: Option<crate::camera::EdgeSmoothing>,
     /// Clips: seconds of the world's time a second of the clip shows - 0.25

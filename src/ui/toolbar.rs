@@ -361,7 +361,8 @@ pub fn toolbar_ui(
     link: Res<crate::network::LinkState>,
     mut chip: AccountChip,
     // Native-only: the wireframe plugin (and the resource it inserts) is
-    // skipped on WASM, where WebGL2 has no `POLYGON_MODE_LINE`.
+    // skipped on WASM, where neither WebGL2 nor a browser's WebGPU has
+    // `POLYGON_MODE_LINE`.
     #[cfg(not(target_arch = "wasm32"))] mut wireframe: ResMut<
         bevy::pbr::wireframe::WireframeConfig,
     >,
