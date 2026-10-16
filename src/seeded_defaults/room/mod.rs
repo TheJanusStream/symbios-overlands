@@ -32,7 +32,7 @@ pub mod source;
 pub mod terrain;
 pub mod textures;
 
-pub use accent::{ThemeAccent, theme_luminosity};
+pub use accent::{ThemeAccent, ThemeGrade, theme_grading, theme_luminosity};
 pub use atmosphere::{Atmosphere, WaterDynamics};
 pub use audio::AmbientRecipe;
 pub use gateway::GatewaySpot;

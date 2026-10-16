@@ -363,9 +363,146 @@ pub fn theme_luminosity(theme: ThemeArchetype) -> f32 {
     }
 }
 
+/// A theme's colour grading (#1669): the camera's look, seeded into the
+/// room's `grade_*` environment fields as its light and haze are, so an
+/// owner who restyles the room restyles this too - and a room published
+/// before it, which stores none, keeps Bevy's neutral grade.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ThemeGrade {
+    /// White balance: an offset to the white point's CIE *x*; `+` warmer.
+    pub temperature: f32,
+    /// The white point's CIE *y* offset; `+` magenta, `-` green.
+    pub tint: f32,
+    /// Saturation after tonemapping; `1` neutral.
+    pub saturation: f32,
+}
+
+impl ThemeGrade {
+    /// Bevy's neutral grade: what every room had before #1669.
+    pub const NEUTRAL: Self = Self {
+        temperature: 0.0,
+        tint: 0.0,
+        saturation: 1.0,
+    };
+
+    const fn new(temperature: f32, tint: f32, saturation: f32) -> Self {
+        Self {
+            temperature,
+            tint,
+            saturation,
+        }
+    }
+}
+
+/// The colour grade a theme's rooms are seeded with (#1669). Subtle by
+/// design, as the #1669 sheets taught: the theme's palette, accent and
+/// nightfall already set its colours, and the grade only leans the whole
+/// picture - cool and drained for the gothic night, sun-warm for the
+/// frontier, sepia for the boiler age, bleached for the wasteland. A tint
+/// of 0.006 turned the alien world's water radioactive green, so tints stay
+/// within 0.002. Exhaustive, so a new theme must say how it looks.
+pub fn theme_grading(theme: ThemeArchetype) -> ThemeGrade {
+    use ThemeArchetype::*;
+    match theme {
+        // Sun-bleached stone and terracotta.
+        AncientClassical => ThemeGrade::new(0.008, 0.0, 0.95),
+        // Earth, timber and wool.
+        Medieval => ThemeGrade::new(0.005, 0.0, 0.93),
+        // The cold north.
+        Nordic => ThemeGrade::new(-0.012, 0.0, 0.9),
+        // Soft and muted, a breath of plum.
+        FeudalJapan => ThemeGrade::new(0.003, 0.001, 0.94),
+        // Warm and lush.
+        Mesoamerican => ThemeGrade::new(0.008, 0.0, 1.05),
+        // Crisp and a little cool.
+        ModernCity => ThemeGrade::new(-0.003, 0.0, 0.96),
+        Suburban => ThemeGrade::new(0.003, 0.0, 1.0),
+        // Golden fields.
+        RuralFarmland => ThemeGrade::new(0.006, 0.0, 1.03),
+        // Grime under sodium light, a green cast.
+        IndustrialPark => ThemeGrade::new(0.004, -0.002, 0.88),
+        // Holiday-bright.
+        CoastalResort => ThemeGrade::new(0.003, 0.0, 1.05),
+        // Dusty and warm.
+        Roadside => ThemeGrade::new(0.007, 0.0, 0.95),
+        CivicCampus => ThemeGrade::NEUTRAL,
+        // Team colours.
+        SportsRec => ThemeGrade::new(0.0, 0.0, 1.04),
+        // Neon night: cool, a magenta cast.
+        Cyberpunk => ThemeGrade::new(-0.008, 0.002, 1.08),
+        // Sepia.
+        Steampunk => ThemeGrade::new(0.012, 0.0, 0.85),
+        // Lush and soft, a green cast.
+        Solarpunk => ThemeGrade::new(0.003, -0.001, 1.05),
+        // Clinical and cold.
+        SpaceOutpost => ThemeGrade::new(-0.01, 0.0, 0.92),
+        // Saturated and dreamy.
+        Fantasy => ThemeGrade::new(0.003, 0.002, 1.06),
+        // Cool and drained.
+        GothicHorror => ThemeGrade::new(-0.012, 0.0, 0.8),
+        // Otherworldly, a green cast.
+        AlienOrganic => ThemeGrade::new(0.0, -0.002, 1.05),
+        // Cold and stark.
+        AlienMonolithic => ThemeGrade::new(-0.008, 0.0, 0.85),
+        // Bleached and dusty.
+        PostApoc => ThemeGrade::new(0.008, 0.0, 0.78),
+        // Hot sun.
+        WildWest => ThemeGrade::new(0.015, 0.0, 1.0),
+        // Tropical and warm.
+        Pirate => ThemeGrade::new(0.006, 0.0, 1.04),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every theme's grade is one the sanitiser keeps as it is, so a seeded
+    /// room's grade survives a publish unchanged (#1669); and the grades
+    /// stay subtle - the palette sets a theme's colours, the grade only
+    /// leans them.
+    #[test]
+    fn every_themes_grade_is_kept_by_the_sanitiser_and_stays_subtle() {
+        for theme in ThemeArchetype::ALL {
+            let g = theme_grading(theme);
+            let mut env = crate::pds::Environment {
+                grade_temperature: crate::pds::Fp(g.temperature),
+                grade_tint: crate::pds::Fp(g.tint),
+                grade_saturation: crate::pds::Fp(g.saturation),
+                ..Default::default()
+            };
+            let before = (
+                env.grade_temperature.0,
+                env.grade_tint.0,
+                env.grade_saturation.0,
+            );
+            env.sanitize();
+            let after = (
+                env.grade_temperature.0,
+                env.grade_tint.0,
+                env.grade_saturation.0,
+            );
+            assert_eq!(before, after, "{theme:?}");
+            // As subtle as the #1669 sheets judged them: a tint past 0.002
+            // turned the alien water green.
+            assert!(g.temperature.abs() <= 0.015, "{theme:?}: {g:?}");
+            assert!(g.tint.abs() <= 0.002, "{theme:?}: {g:?}");
+            assert!((0.75..=1.1).contains(&g.saturation), "{theme:?}: {g:?}");
+        }
+    }
+
+    /// A seeded room carries its theme's grade (#1669).
+    #[test]
+    fn a_seeded_room_carries_its_themes_grade() {
+        for seed in [2u64, 24, 17] {
+            let theme = SceneCharacter::for_seed(seed).theme;
+            let g = theme_grading(theme);
+            let env = crate::pds::RoomRecord::default_for_seed(seed, "did:test:grade").environment;
+            assert_eq!(env.grade_temperature.0, g.temperature, "{theme:?}");
+            assert_eq!(env.grade_tint.0, g.tint, "{theme:?}");
+            assert_eq!(env.grade_saturation.0, g.saturation, "{theme:?}");
+        }
+    }
 
     #[test]
     fn zero_accent_is_noop_and_identity() {

@@ -92,6 +92,16 @@ pub struct Environment {
     /// [`Self::cloud_color`] by the dot of the sun direction with world Y.
     pub cloud_shadow_color: Fp3,
 
+    // ---- Colour grading (#1669; see `crate::config::lighting::grading`) ----
+    /// White balance, warmer (`+`) or cooler (`-`): an offset to the CIE
+    /// 1931 *x* of the white point, Bevy's `ColorGradingGlobal::temperature`.
+    /// `0` is neutral and `0.03` already a clear shift.
+    pub grade_temperature: Fp,
+    /// Green (`-`) to magenta (`+`): the white point's CIE *y* offset.
+    pub grade_tint: Fp,
+    /// Colour saturation after tonemapping: `1` is neutral, `0` grey.
+    pub grade_saturation: Fp,
+
     /// Ambient audio for the room - a procedurally-baked
     /// [`AudioPatch`] / [`SequenceRecipe`] or a URL/DID-referenced
     /// clip. `None` (the default) plays no ambient track. Forward-
@@ -134,13 +144,17 @@ crate::pds::serde_util::impl_default_eliding_serialize!(Environment {
     cloud_wind_dir,
     cloud_color,
     cloud_shadow_color,
+    grade_temperature,
+    grade_tint,
+    grade_saturation,
     ambient_audio,
 });
 
 impl Default for Environment {
     fn default() -> Self {
         use crate::config::{
-            camera::fog as f, lighting as l, lighting::clouds as c, terrain::water as w,
+            camera::fog as f, lighting as l, lighting::clouds as c, lighting::grading as g,
+            terrain::water as w,
         };
         Self {
             sun_color: Fp3(l::SUN_COLOR),
@@ -172,9 +186,44 @@ impl Default for Environment {
             cloud_color: Fp3(c::COLOR),
             cloud_shadow_color: Fp3(c::SHADOW_COLOR),
 
+            grade_temperature: Fp(g::TEMPERATURE),
+            grade_tint: Fp(g::TINT),
+            grade_saturation: Fp(g::SATURATION),
+
             ambient_audio: crate::pds::audio::SovereignAudioConfig::None,
         }
     }
+}
+
+/// How far from the origin a seeded room's sun stands (m) - and where the
+/// Environment panel's sun sliders put one whose record left no distance
+/// to keep (#1669). Only the direction is read.
+pub(crate) const SEEDED_SUN_DISTANCE: f32 = 75.0;
+
+/// The sun's position `altitude_deg` above the horizon and `azimuth_deg`
+/// round +Y (0 degrees at +X, 90 at +Z), `radius` from the origin - the
+/// form [`Environment::sun_position`] stores. The seeding and the
+/// Environment panel's sun sliders share it (#1669), so the two agree on
+/// which way is which.
+pub(crate) fn sun_position_at(altitude_deg: f32, azimuth_deg: f32, radius: f32) -> [f32; 3] {
+    let alt = altitude_deg.to_radians();
+    let az = azimuth_deg.to_radians();
+    let horiz = radius * alt.cos();
+    [horiz * az.cos(), radius * alt.sin(), horiz * az.sin()]
+}
+
+/// [`sun_position_at`]'s inverse: the altitude above the horizon and the
+/// azimuth in `[0, 360)` (degrees), and the distance from the origin. A
+/// sun straight overhead has no azimuth of its own and answers 0.
+pub(crate) fn sun_angles(position: [f32; 3]) -> (f32, f32, f32) {
+    let [x, y, z] = position;
+    let radius = (x * x + y * y + z * z).sqrt();
+    if radius <= f32::EPSILON {
+        return (90.0, 0.0, 0.0);
+    }
+    let altitude = (y / radius).clamp(-1.0, 1.0).asin().to_degrees();
+    let azimuth = z.atan2(x).to_degrees().rem_euclid(360.0);
+    (altitude, azimuth, radius)
 }
 
 impl Environment {
@@ -290,6 +339,29 @@ impl Environment {
         };
         self.cloud_color = clamp3(self.cloud_color);
         self.cloud_shadow_color = clamp3(self.cloud_shadow_color);
+
+        // Colour grading: a NaN would poison every pixel the camera draws.
+        {
+            use crate::config::lighting::grading as g;
+            self.grade_temperature = Fp(clamp_finite_pos(
+                self.grade_temperature.0,
+                -g::TEMPERATURE_LIMIT,
+                g::TEMPERATURE_LIMIT,
+                g::TEMPERATURE,
+            ));
+            self.grade_tint = Fp(clamp_finite_pos(
+                self.grade_tint.0,
+                -g::TINT_LIMIT,
+                g::TINT_LIMIT,
+                g::TINT,
+            ));
+            self.grade_saturation = Fp(clamp_finite_pos(
+                self.grade_saturation.0,
+                0.0,
+                g::SATURATION_MAX,
+                g::SATURATION,
+            ));
+        }
 
         // Forward to the asset-class sanitiser - caps the embedded
         // patch / sequence JSON length and Referenced URL / DID / CID
@@ -652,3 +724,94 @@ pub use wire::{
     RoomGeneratorRecord, child_rkey, delete_room_record, fetch_room_record,
     max_publish_record_bytes, measure_publish, publish_room_record, reset_room_record,
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The sun's position and its angles are each other's inverse (#1669):
+    /// the Environment panel reads a seeded room's sun and writes back the
+    /// one the seeding would have placed at the same angles.
+    #[test]
+    fn a_suns_angles_and_its_position_round_trip() {
+        for (altitude, azimuth) in [(10.0, 0.0), (45.0, 90.0), (68.0, 200.0), (30.0, 359.0)] {
+            let p = sun_position_at(altitude, azimuth, 75.0);
+            let (alt, az, r) = sun_angles(p);
+            assert!((alt - altitude).abs() < 1e-3, "{altitude} came back {alt}");
+            assert!((az - azimuth).abs() < 1e-3, "{azimuth} came back {az}");
+            assert!((r - 75.0).abs() < 1e-3, "75 m came back {r}");
+        }
+        // 0 degrees of azimuth is +X, 90 is +Z.
+        let east = sun_position_at(0.0, 0.0, 1.0);
+        let south = sun_position_at(0.0, 90.0, 1.0);
+        assert!(east[0] > 0.999 && south[2] > 0.999, "{east:?} {south:?}");
+        // Overhead has no azimuth of its own, and a sun at the origin none
+        // at all; neither panics or answers NaN.
+        let (alt, az, _) = sun_angles([0.0, 5.0, 0.0]);
+        assert!((alt - 90.0).abs() < 1e-3 && az.is_finite());
+        let (alt, az, r) = sun_angles([0.0, 0.0, 0.0]);
+        assert!(alt.is_finite() && az.is_finite() && r == 0.0);
+    }
+
+    /// The sun's position is the seeding's formula to the bit (#1669): the
+    /// seeding and the Environment panel share [`sun_position_at`], so an
+    /// edit to it would move the sun of every room still on its seed.
+    #[test]
+    fn a_suns_position_is_the_seeding_formula_to_the_bit() {
+        for (altitude, azimuth) in [
+            (18.0f32, 0.0f32),
+            (40.5, 133.3),
+            (60.0, 359.9),
+            (68.0, 271.0),
+        ] {
+            let (alt, az) = (altitude.to_radians(), azimuth.to_radians());
+            let horiz = SEEDED_SUN_DISTANCE * alt.cos();
+            let want = [
+                horiz * az.cos(),
+                SEEDED_SUN_DISTANCE * alt.sin(),
+                horiz * az.sin(),
+            ];
+            let got = sun_position_at(altitude, azimuth, SEEDED_SUN_DISTANCE);
+            assert_eq!(
+                got.map(f32::to_bits),
+                want.map(f32::to_bits),
+                "{altitude} {azimuth}"
+            );
+        }
+    }
+
+    /// A room that stores no grade keeps Bevy's neutral one, and a neutral
+    /// grade stays off the wire (#1669): every room published before the
+    /// grade existed reads, renders and re-serialises as it did.
+    #[test]
+    fn a_neutral_grade_is_the_default_and_stays_off_the_wire() {
+        let env = Environment::default();
+        assert_eq!(env.grade_temperature.0, 0.0);
+        assert_eq!(env.grade_tint.0, 0.0);
+        assert_eq!(env.grade_saturation.0, 1.0);
+        let wire = serde_json::to_string(&env).expect("serialises");
+        assert!(!wire.contains("grade_"), "{wire}");
+        let mut graded = env.clone();
+        graded.grade_temperature = Fp(0.02);
+        let wire = serde_json::to_string(&graded).expect("serialises");
+        assert!(wire.contains("grade_temperature"), "{wire}");
+        assert!(!wire.contains("grade_tint"), "{wire}");
+    }
+
+    /// The sanitiser keeps a grade inside what the camera can show and puts
+    /// a NaN back to neutral (#1669).
+    #[test]
+    fn the_sanitiser_holds_the_grade_in_range() {
+        use crate::config::lighting::grading as g;
+        let mut env = Environment {
+            grade_temperature: Fp(9.0),
+            grade_tint: Fp(-9.0),
+            grade_saturation: Fp(f32::NAN),
+            ..Environment::default()
+        };
+        env.sanitize();
+        assert_eq!(env.grade_temperature.0, g::TEMPERATURE_LIMIT);
+        assert_eq!(env.grade_tint.0, -g::TINT_LIMIT);
+        assert_eq!(env.grade_saturation.0, g::SATURATION);
+    }
+}

@@ -35,12 +35,14 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Instant;
 
+use bevy::anti_alias::fxaa::Fxaa;
 use bevy::camera::RenderTarget;
 use bevy::core_pipeline::prepass::DepthPrepass;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
 use bevy::render::gpu_readback::{Readback, ReadbackComplete};
+use bevy::render::view::ColorGrading;
 use bevy_panorbit_camera::PanOrbitCamera;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use serde_json::{Value, json};
@@ -266,6 +268,10 @@ struct Lens {
     tonemapping: Option<Tonemapping>,
     msaa: Option<Msaa>,
     depth_prepass: bool,
+    /// The room's colour grade (#1669) and the edge smoothing beside the
+    /// MSAA, so a picture is graded and smoothed as the player's view is.
+    grading: Option<ColorGrading>,
+    fxaa: Option<Fxaa>,
 }
 
 fn world_camera_lens(world: &mut World) -> Option<Lens> {
@@ -277,17 +283,21 @@ fn world_camera_lens(world: &mut World) -> Option<Lens> {
             Option<&Tonemapping>,
             Option<&Msaa>,
             Has<DepthPrepass>,
+            Option<&ColorGrading>,
+            Option<&Fxaa>,
         ), IsWorldCamera>()
         .iter(world)
         .next()
         .map(
-            |(projection, fog, bloom, tonemapping, msaa, depth_prepass)| Lens {
+            |(projection, fog, bloom, tonemapping, msaa, depth_prepass, grading, fxaa)| Lens {
                 projection: projection.cloned(),
                 fog: fog.cloned(),
                 bloom: bloom.cloned(),
                 tonemapping: tonemapping.copied(),
                 msaa: msaa.copied(),
                 depth_prepass,
+                grading: grading.cloned(),
+                fxaa: fxaa.cloned(),
             },
         )
 }
@@ -336,6 +346,12 @@ fn start(world: &mut World, shot: Shot, spec: LookSpec, reply: mpsc::Sender<Resp
         }
         if lens.depth_prepass {
             camera.insert(DepthPrepass);
+        }
+        if let Some(grading) = lens.grading {
+            camera.insert(grading);
+        }
+        if let Some(fxaa) = lens.fxaa {
+            camera.insert(fxaa);
         }
     }
     let camera = camera.id();

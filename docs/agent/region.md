@@ -194,7 +194,18 @@ and grass tufts on the open tops broke up the rest.
 - Mood is mostly fog: `fog_visibility` in metres, `fog_color`,
   `fog_sun_color` (the glow toward the sun) and `fog_sun_exponent`; a
   saturated fog colour turns the whole sky one flat tint. `sun_position` is
-  where the light comes from (its angle above the horizon is its height).
+  where the light comes from (its angle above the horizon is its height;
+  the Environment panel turns it as an azimuth and an elevation since
+  #1669). The shade takes the sky's hue: the ambient light leans from white
+  toward the mean of `sky_color` and `fog_color` (#1669), so a blue sky
+  cools the shadows and a dusty one warms them.
+- **The camera's colour grade** is three fields (#1669): `grade_temperature`
+  (warmer `+`, cooler `-`, within 0.06; 0.03 is already clear), `grade_tint`
+  (magenta `+`, green `-`, within 0.02; 0.005 is already strong) and
+  `grade_saturation` (1 neutral). A seeded room carries its theme's grade -
+  cool and drained for the gothic night, sun-warm for the frontier, sepia
+  for steampunk - and a room that stores none stays neutral. There is no
+  contrast: Bevy's pivots in linear light and blacked out the night themes.
 - **Mood is the admin's.** Dimming the Understory toward dusk (sun 9,000 ->
   2,500 then 4,000 lux, darker fog and sky) made the glowing threads read a
   little stronger and the woods much darker; the admin judged both steps

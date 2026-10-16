@@ -154,8 +154,8 @@ use headless::{Capture, Clock, PlayView, RenderJob, Ride, Subject, drive, setup}
 use rig::{CameraRig, Focus};
 use text_tools::{
     analyze_session, describe_rooms, diff_sessions, dump_road_graph, print_family_seeds,
-    print_foundation_audit, print_gateway_fit, print_outfit, print_settlement_drop, room_census,
-    scatter_census, scatter_plot,
+    print_foundation_audit, print_gateway_fit, print_outfit, print_settlement_drop,
+    print_theme_seeds, room_census, scatter_census, scatter_plot,
 };
 use world::{WalkerSpec, WorldSpec};
 
@@ -310,13 +310,23 @@ struct Args {
     /// helicopters (#1614); `high_wing`, `biplane`, `twin`, `racer` for
     /// airplanes (#1617); `zeppelin`, `blimp`, `steam_dirigible`,
     /// `sky_galleon`, `balloon`, `hybrid`, `floater` for airships (#1657,
-    /// #1658-#1663). The survey aid
-    /// each craft-type slice opens with:
-    /// find the seeds its type was picked for, then render them. Craft types
-    /// are a property of the seed, so this answers for a type before anything
+    /// #1658-#1663). The survey aid each craft-type slice opens with: find
+    /// the seeds its type was picked for, then render them. Craft types are
+    /// a property of the seed, so this answers for a type before anything
     /// builds it.
     #[arg(long)]
     craft: Option<String>,
+    /// List the first `--theme-count` room seeds whose scene theme is this
+    /// one and exit (#1669) - a theme's label, case, spaces and punctuation
+    /// aside (`gothic_horror`, `GothicHorror` and `"Gothic Horror"` are the
+    /// same theme), or `all` for every theme. The survey each look slice of
+    /// the visual-fidelity epic (#1668) opens with: pick a world per theme,
+    /// then render it with `--world <seed>`. Prints, never renders.
+    #[arg(long)]
+    theme_seeds: Option<String>,
+    /// How many seeds `--theme-seeds` prints for each theme.
+    #[arg(long, default_value_t = 4)]
+    theme_count: usize,
     /// Print what one avatar resolves to (chassis / style / socio tiers /
     /// craft type / livery / palette / voice) and exit - a `u64` seed or a
     /// DID. A no-render survey aid: the built geometry carries no names, so
@@ -841,6 +851,11 @@ struct Args {
     /// the game's lens frames from where the camera stands.
     #[arg(long, requires = "world", conflicts_with = "fov")]
     ortho: bool,
+    /// `--world`: how the world camera smooths its edges (#1669) - `msaa`,
+    /// native's 4x and the default; `fxaa`, the web build's since #1669; or
+    /// `off`, the web build before it. A web-look shot is `fxaa`.
+    #[arg(long, requires = "world", value_parser = parse_edge_smoothing)]
+    edge_smoothing: Option<crate::camera::EdgeSmoothing>,
     /// Clips: seconds of the world's time a second of the clip shows - 0.25
     /// is four times slower than life (#1546). The warm-up runs at full
     /// speed; wind, water, particles and a driven car all slow together.
@@ -965,6 +980,17 @@ struct Args {
     out: Option<String>,
 }
 
+/// `--edge-smoothing`'s three words.
+fn parse_edge_smoothing(word: &str) -> Result<crate::camera::EdgeSmoothing, String> {
+    use crate::camera::EdgeSmoothing;
+    match word.to_lowercase().as_str() {
+        "msaa" => Ok(EdgeSmoothing::Msaa),
+        "fxaa" => Ok(EdgeSmoothing::Fxaa),
+        "off" => Ok(EdgeSmoothing::Off),
+        other => Err(format!("{other:?} is not msaa, fxaa or off")),
+    }
+}
+
 /// CLI entry point (called by the `render` bin).
 pub fn run() {
     let args = Args::parse();
@@ -973,6 +999,12 @@ pub fn run() {
     // family and exit - a survey aid, never renders.
     if let Some(fam) = &args.family_seeds {
         print_family_seeds(fam, args.family_count, args.craft.as_deref());
+        return;
+    }
+
+    // `--theme-seeds <theme|all>`: print room seeds by scene theme and exit.
+    if let Some(theme) = &args.theme_seeds {
+        print_theme_seeds(theme, args.theme_count);
         return;
     }
 
@@ -1447,6 +1479,9 @@ pub fn run() {
             clip_step: args.time_scale / args.fps,
             fov: args.fov,
             ortho: args.ortho,
+            edge_smoothing: args
+                .edge_smoothing
+                .unwrap_or(crate::camera::EdgeSmoothing::Msaa),
         })
         .insert_resource(Clock {
             step: 1.0 / args.fps,

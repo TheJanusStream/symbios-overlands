@@ -65,6 +65,47 @@ pub(super) fn print_family_seeds(fam: &str, count: usize, craft: Option<&str>) {
     }
 }
 
+/// Print the first `count` room seeds whose scene theme is `theme`, or the
+/// first `count` of every theme for `all` (#1669). A theme is named by its
+/// label with case, spaces and punctuation ignored, so `gothic_horror` and
+/// `"Gothic Horror"` are the same theme. `--world <seed>` builds the room
+/// from [`SceneCharacter::for_seed`](crate::seeded_defaults::SceneCharacter::for_seed),
+/// the same derivation this filters on.
+pub(super) fn print_theme_seeds(theme: &str, count: usize) {
+    use crate::seeded_defaults::SceneCharacter;
+    let themes = themes_named(theme).unwrap_or_else(|e| panic!("{e}"));
+    for t in themes {
+        let seeds: Vec<u64> = (0u64..1_000_000)
+            .filter(|&s| SceneCharacter::for_seed(s).theme == t)
+            .take(count)
+            .collect();
+        println!("{}: {seeds:?}", t.label());
+    }
+}
+
+/// The themes `--theme-seeds` names: one theme by its label, case, spaces
+/// and punctuation aside, or every theme for `all`.
+fn themes_named(name: &str) -> Result<Vec<crate::seeded_defaults::ThemeArchetype>, String> {
+    use crate::seeded_defaults::ThemeArchetype;
+    let key = |s: &str| -> String {
+        s.chars()
+            .filter(char::is_ascii_alphanumeric)
+            .collect::<String>()
+            .to_lowercase()
+    };
+    if key(name) == "all" {
+        return Ok(ThemeArchetype::ALL.to_vec());
+    }
+    ThemeArchetype::ALL
+        .into_iter()
+        .find(|t| key(t.label()) == key(name))
+        .map(|t| vec![t])
+        .ok_or_else(|| {
+            let names: Vec<&str> = ThemeArchetype::ALL.iter().map(|t| t.label()).collect();
+            format!("unknown theme {name:?} (one of {names:?}, or all)")
+        })
+}
+
 /// Resolve a `--craft` filter name to the craft type it selects, checked
 /// against the family being surveyed so `--family-seeds boat --craft rover`
 /// fails loudly instead of quietly printing nothing.
@@ -1292,5 +1333,34 @@ impl RoomDescription {
             generators: record.generators.len(),
             structures,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `--theme-seeds` names a theme however it is written, or all of them,
+    /// and refuses a theme that does not exist (#1669).
+    #[test]
+    fn a_theme_is_named_however_it_is_written() {
+        use crate::seeded_defaults::ThemeArchetype;
+        for name in [
+            "gothic_horror",
+            "GothicHorror",
+            "Gothic Horror",
+            "gothic-horror",
+        ] {
+            assert_eq!(
+                themes_named(name),
+                Ok(vec![ThemeArchetype::GothicHorror]),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            themes_named("ALL").map(|t| t.len()),
+            Ok(ThemeArchetype::ALL.len())
+        );
+        assert!(themes_named("steampunkish").is_err());
     }
 }

@@ -408,6 +408,8 @@ pub(super) struct RenderJob {
     /// lens (#1603), its scale following the rig's distance
     /// ([`follow_rig_lens`]).
     pub(super) ortho: bool,
+    /// `--edge-smoothing`: how the world camera smooths its edges (#1669).
+    pub(super) edge_smoothing: crate::camera::EdgeSmoothing,
 }
 
 impl RenderJob {
@@ -677,7 +679,14 @@ pub(super) fn setup(
         let target = images.add(new_target(job.tile));
         targets.push(target.clone());
         if matches!(job.subject, Subject::World(_)) {
-            spawn_world_camera(&mut commands, target, editor.is_some(), job.fov, job.ortho);
+            spawn_world_camera(
+                &mut commands,
+                target,
+                editor.is_some(),
+                job.fov,
+                job.ortho,
+                job.edge_smoothing,
+            );
             continue;
         }
         commands.spawn((
@@ -2449,6 +2458,7 @@ mod tests {
             clip_step: 0.1,
             fov: None,
             ortho: false,
+            edge_smoothing: crate::camera::EdgeSmoothing::Msaa,
         });
         let cam = world
             .spawn((

@@ -58,6 +58,34 @@ pub(crate) mod lighting {
     /// Uniform scale of the sky cuboid (must exceed max view distance).
     pub const SKY_SCALE: f32 = 2000.0;
 
+    /// How far the ambient light leans from white toward the sky's own hue
+    /// (#1669): `0` keeps it white, `1` takes the sky's colour whole. See
+    /// `world_builder::compile::environment::sky_ambient_color`.
+    pub const AMBIENT_SKY_TINT: f32 = 0.4;
+    /// The ambient light's channels stay within these multiples of its
+    /// luminance, so a saturated sky tints the shade instead of flooding it
+    /// with one primary.
+    pub const AMBIENT_CHANNEL_RANGE: (f32, f32) = (0.35, 2.0);
+
+    /// Colour grading on the world camera (#1669): the defaults, which are
+    /// Bevy's neutral, and the sanitiser's limits. The temperature and tint
+    /// move the white point in CIE 1931 *xy*, where D65 sits at
+    /// (0.3127, 0.3290): `0.03` is already a clear shift.
+    ///
+    /// There is deliberately no contrast. Bevy's pivots at 0.5 in linear
+    /// light (`0.5 + (c - 0.5) * contrast`, before tonemapping), and a night
+    /// theme's whole picture sits near 0.01-0.05: a contrast of 1.1 took
+    /// 0.045 off every value and drew the Cyberpunk night black (measured on
+    /// the #1669 sheets).
+    pub mod grading {
+        pub const TEMPERATURE: f32 = 0.0;
+        pub const TINT: f32 = 0.0;
+        pub const SATURATION: f32 = 1.0;
+        pub const TEMPERATURE_LIMIT: f32 = 0.06;
+        pub const TINT_LIMIT: f32 = 0.02;
+        pub const SATURATION_MAX: f32 = 2.0;
+    }
+
     /// Defaults for the procedural cloud-deck layer authored on
     /// `pds::Environment`. The deck is a single horizontal plane at altitude
     /// `HEIGHT` rendered with a WGSL fragment shader that synthesises

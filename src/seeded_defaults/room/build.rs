@@ -766,6 +766,14 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
         &mut environment,
     );
 
+    // Colour grading (#1669): the theme's camera look, seeded into the
+    // record like its light, so an owner who restyles the room restyles
+    // this too.
+    let grade = crate::seeded_defaults::theme_grading(scene.theme);
+    environment.grade_temperature = Fp(grade.temperature);
+    environment.grade_tint = Fp(grade.tint);
+    environment.grade_saturation = Fp(grade.saturation);
+
     // Seed the room's ambient track from the same scene anchor that
     // drives palette / terrain / atmosphere. The deriver returns a
     // native `bevy_symbios_audio::SequenceRecipe`; we mirror it

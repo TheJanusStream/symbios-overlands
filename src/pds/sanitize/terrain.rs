@@ -80,10 +80,43 @@ impl Sanitize for SovereignTerrainConfig {
             .material
             .texture_size
             .clamp(16, limits::MAX_TEXTURE_SIZE);
+        // Read by the splat shader since #1669: a zero tiles nothing and a
+        // NaN poisons every texel's UV.
+        self.material.tile_scale = Fp(clamp_finite(
+            self.material.tile_scale.0,
+            limits::MIN_TILE_SCALE,
+            limits::MAX_TILE_SCALE,
+            crate::config::terrain::TILE_SCALE,
+        ));
         // Cap per-variant octave-like fields so a forward-compat peer cannot
         // weaponise texture-size × octave blowups.
         for layer in self.material.layers.iter_mut() {
             layer.sanitize();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The terrain's tiling is read by the splat shader since #1669, so the
+    /// sanitiser keeps it a tiling: a NaN back to the default, a zero up to
+    /// one tile across the terrain, and the seeded default unchanged.
+    #[test]
+    fn the_sanitiser_keeps_the_tile_scale_a_tiling() {
+        let mut cfg = SovereignTerrainConfig::default();
+        let default = cfg.material.tile_scale.0;
+        cfg.sanitize();
+        assert_eq!(cfg.material.tile_scale.0, default);
+        cfg.material.tile_scale = Fp(f32::NAN);
+        cfg.sanitize();
+        assert_eq!(
+            cfg.material.tile_scale.0,
+            crate::config::terrain::TILE_SCALE
+        );
+        cfg.material.tile_scale = Fp(0.0);
+        cfg.sanitize();
+        assert_eq!(cfg.material.tile_scale.0, limits::MIN_TILE_SCALE);
     }
 }

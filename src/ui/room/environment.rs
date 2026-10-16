@@ -56,6 +56,88 @@ impl PlayerPose {
     }
 }
 
+/// Where the sun stands, as an azimuth and an elevation (#1669). The record
+/// keeps a position ([`Environment::sun_position`], read as a direction);
+/// these turn it about the origin and keep its distance. Until #1669 the sun
+/// could only be moved through the Raw JSON tab or the agent.
+fn sun_direction(ui: &mut egui::Ui, position: &mut crate::pds::Fp3, dirty: &mut bool) {
+    let (mut elevation, mut azimuth, distance) = crate::pds::room::sun_angles(position.0);
+    let turned = ui
+        .add(crate::ui::num::slider(&mut azimuth, 0.0..=360.0).text("Sun azimuth (°)"))
+        .on_hover_text("Round the horizon: 0° is +X, 90° is +Z.")
+        .changed();
+    let raised = ui
+        .add(
+            crate::ui::num::slider(&mut elevation, 1.0..=MAX_SUN_ELEVATION)
+                .text("Sun elevation (°)"),
+        )
+        .on_hover_text("Above the horizon: low for long dawn shadows, high for a midday sun.")
+        .changed();
+    if turned || raised {
+        let distance = if distance > 1.0 {
+            distance
+        } else {
+            crate::pds::room::SEEDED_SUN_DISTANCE
+        };
+        position.0 = crate::pds::room::sun_position_at(elevation, azimuth, distance);
+        *dirty = true;
+    }
+}
+
+/// The sun slider's top, a tenth short of overhead. At exactly 90 degrees,
+/// `90f32.to_radians()` lands a hair past a right angle and its cosine is
+/// -4e-8: the sun's horizontal reach turns negative, it reads back with
+/// its azimuth swung 180 degrees, and dragging it down again raised it on
+/// the far side of the sky (found by #1669's review).
+const MAX_SUN_ELEVATION: f32 = 89.9;
+
+/// The camera's colour grade (#1669): three sliders over the record's
+/// `grade_*` fields, whose ranges are the sanitiser's.
+fn draw_grading(ui: &mut egui::Ui, env: &mut Environment, dirty: &mut bool) {
+    use crate::config::lighting::grading as g;
+    fp_slider(
+        ui,
+        "Warmth",
+        &mut env.grade_temperature,
+        -g::TEMPERATURE_LIMIT,
+        g::TEMPERATURE_LIMIT,
+        dirty,
+    )
+    .on_hover_text(
+        "Cooler to the left, warmer to the right. 0 is neutral; ±0.03 is already clear.",
+    );
+    fp_slider(
+        ui,
+        "Tint",
+        &mut env.grade_tint,
+        -g::TINT_LIMIT,
+        g::TINT_LIMIT,
+        dirty,
+    )
+    .on_hover_text(
+        "Greener to the left, more magenta to the right. 0 is neutral; ±0.005 is already strong.",
+    );
+    fp_slider(
+        ui,
+        "Saturation",
+        &mut env.grade_saturation,
+        0.0,
+        g::SATURATION_MAX,
+        dirty,
+    )
+    .on_hover_text("1 is neutral, 0 grey, above 1 more vivid.");
+    if ui
+        .button("Neutral")
+        .on_hover_text("Back to no grading at all.")
+        .clicked()
+    {
+        env.grade_temperature = Fp(g::TEMPERATURE);
+        env.grade_tint = Fp(g::TINT);
+        env.grade_saturation = Fp(g::SATURATION);
+        *dirty = true;
+    }
+}
+
 /// What the world as built makes of a Berlin square, for the Region source
 /// section to show (#1586).
 #[derive(Clone, Copy)]
@@ -93,6 +175,7 @@ pub(super) fn draw_environment_tab(
         .default_open(true)
         .show(ui, |ui| {
             color_picker(ui, "Sun colour", &mut env.sun_color, dirty);
+            sun_direction(ui, &mut env.sun_position, dirty);
             color_picker(ui, "Sky colour", &mut env.sky_color, dirty);
             fp_slider(
                 ui,
@@ -111,6 +194,10 @@ pub(super) fn draw_environment_tab(
                 dirty,
             );
         });
+
+    egui::CollapsingHeader::new("Colour grading")
+        .default_open(false)
+        .show(ui, |ui| draw_grading(ui, env, dirty));
 
     egui::CollapsingHeader::new("Clouds")
         .default_open(false)

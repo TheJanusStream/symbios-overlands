@@ -6,6 +6,7 @@
 use bevy::light::GlobalAmbientLight;
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
+use bevy::render::view::ColorGrading;
 
 use crate::clouds::{CloudLayer, CloudMaterial};
 use crate::pds::{Fp3, Fp4};
@@ -51,6 +52,10 @@ pub(crate) fn apply_environment_state(
     mut clear_color: ResMut<ClearColor>,
     mut ambient_light: ResMut<GlobalAmbientLight>,
     mut fog: Query<&mut DistanceFog>,
+    // Every camera that carries the room's fog carries its grade too
+    // (#1669): the game's, the render tool's world camera and the agent's
+    // look camera - not an item preview's, which has no fog.
+    mut grading: Query<&mut ColorGrading, With<DistanceFog>>,
     skybox: Query<&MeshMaterial3d<StandardMaterial>, With<crate::SkyBox>>,
     mut std_materials: ResMut<Assets<StandardMaterial>>,
     mut cloud_layer: Query<(&MeshMaterial3d<CloudMaterial>, &mut Transform), With<CloudLayer>>,
@@ -109,6 +114,12 @@ pub(crate) fn apply_environment_state(
     ambient_light.brightness = env.ambient_brightness.0;
 
     let Fp3(sky_c) = env.sky_color;
+    let Fp4(fog_c) = env.fog_color;
+    ambient_light.color = sky_ambient_color(sky_c, [fog_c[0], fog_c[1], fog_c[2]]);
+    for mut grade in grading.iter_mut() {
+        apply_grade(env, &mut grade);
+    }
+
     clear_color.0 = Color::srgb(sky_c[0], sky_c[1], sky_c[2]);
     for material_handle in skybox.iter() {
         if let Some(mut mat) = std_materials.get_mut(&material_handle.0) {
@@ -116,7 +127,6 @@ pub(crate) fn apply_environment_state(
         }
     }
 
-    let Fp4(fog_c) = env.fog_color;
     let Fp4(fog_sun_c) = env.fog_sun_color;
     let Fp3(ext_c) = env.fog_extinction;
     let Fp3(in_c) = env.fog_inscattering;
@@ -182,5 +192,179 @@ pub(crate) fn apply_environment_state(
     // water volumes - every live water material shares the one global sun.
     for (_, mat) in water_materials.iter_mut() {
         mat.extension.uniforms.sun_dir = Vec4::new(sun_dir.x, sun_dir.y, sun_dir.z, 0.0);
+    }
+}
+
+/// The colour of the room's ambient light (#1669): the sky's own hue, so
+/// shade under a blue sky reads cool and under a dusty one warm, where a
+/// white ambient left every shadow the same neutral grey.
+///
+/// The hue is the mean of the sky's zenith (`sky_color`) and its horizon
+/// (`fog_color`) in linear light, at unit luminance, and the light leans
+/// [`AMBIENT_SKY_TINT`] of the way from white toward it - less where that
+/// would carry a channel outside [`AMBIENT_CHANNEL_RANGE`] times the
+/// luminance, so a saturated sky tints the shade rather than flooding it
+/// with one primary. Leaning between two colours of unit luminance keeps
+/// unit luminance, so `ambient_brightness` keeps meaning the light's
+/// strength and only its colour moves. A sky with no colour to give, black
+/// or grey, leaves it white.
+///
+/// [`AMBIENT_SKY_TINT`]: crate::config::lighting::AMBIENT_SKY_TINT
+/// [`AMBIENT_CHANNEL_RANGE`]: crate::config::lighting::AMBIENT_CHANNEL_RANGE
+pub(crate) fn sky_ambient_color(sky: [f32; 3], horizon: [f32; 3]) -> Color {
+    use crate::config::lighting::{AMBIENT_CHANNEL_RANGE, AMBIENT_SKY_TINT};
+    let linear = |c: [f32; 3]| {
+        let l = Color::srgb(c[0], c[1], c[2]).to_linear();
+        [l.red, l.green, l.blue]
+    };
+    let luminance = |c: [f32; 3]| 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    let (zenith, edge) = (linear(sky), linear(horizon));
+    let mean = [
+        (zenith[0] + edge[0]) * 0.5,
+        (zenith[1] + edge[1]) * 0.5,
+        (zenith[2] + edge[2]) * 0.5,
+    ];
+    let lum = luminance(mean);
+    if lum <= 1.0e-5 {
+        return Color::WHITE;
+    }
+    let c = lean_toward(
+        mean.map(|c| c / lum),
+        AMBIENT_SKY_TINT,
+        AMBIENT_CHANNEL_RANGE,
+    );
+    Color::linear_rgb(c[0], c[1], c[2])
+}
+
+/// White leant `lean` of the way toward `hue`, a colour of unit luminance.
+/// Leaning between two colours of unit luminance keeps unit luminance, so
+/// the lean is cut short only where it would carry a channel outside
+/// `(lo, hi)` - and the result is never renormalised, which is what let a
+/// clamped channel overshoot the range again (#1669).
+fn lean_toward(hue: [f32; 3], lean: f32, (lo, hi): (f32, f32)) -> [f32; 3] {
+    let lean = hue.iter().fold(lean, |lean, &h| {
+        if h > 1.0 {
+            lean.min((hi - 1.0) / (h - 1.0))
+        } else if h < 1.0 {
+            lean.min((1.0 - lo) / (1.0 - h))
+        } else {
+            lean
+        }
+    });
+    hue.map(|h| 1.0 + lean * (h - 1.0))
+}
+
+/// The world camera's grade from the record's three `grade_*` fields
+/// (#1669); everything else on the camera's grade is left as Bevy's
+/// neutral (see `config::lighting::grading` for why there is no contrast).
+pub(crate) fn apply_grade(env: &crate::pds::Environment, grade: &mut ColorGrading) {
+    grade.global.temperature = env.grade_temperature.0;
+    grade.global.tint = env.grade_tint.0;
+    grade.global.post_saturation = env.grade_saturation.0;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn linear(c: Color) -> [f32; 3] {
+        let l = c.to_linear();
+        [l.red, l.green, l.blue]
+    }
+
+    fn luminance(c: [f32; 3]) -> f32 {
+        0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+    }
+
+    /// The ambient light takes the sky's hue and keeps unit luminance, so
+    /// `ambient_brightness` still means its strength (#1669).
+    #[test]
+    fn the_ambient_light_takes_the_skys_hue_at_unit_luminance() {
+        let blue = linear(sky_ambient_color([0.35, 0.48, 0.66], [0.55, 0.62, 0.72]));
+        assert!(blue[2] > blue[1] && blue[1] > blue[0], "{blue:?}");
+        assert!((luminance(blue) - 1.0).abs() < 1e-4, "{blue:?}");
+        let dusk = linear(sky_ambient_color([0.75, 0.5, 0.3], [0.8, 0.6, 0.4]));
+        assert!(dusk[0] > dusk[2], "{dusk:?}");
+        assert!((luminance(dusk) - 1.0).abs() < 1e-4, "{dusk:?}");
+    }
+
+    /// A grey sky has no hue to give and a black one no light: both leave
+    /// the ambient white, as it was before #1669.
+    #[test]
+    fn a_grey_or_black_sky_leaves_the_ambient_white() {
+        for (sky, horizon) in [([0.533; 3], [0.533; 3]), ([0.0; 3], [0.0; 3])] {
+            let c = linear(sky_ambient_color(sky, horizon));
+            for channel in c {
+                assert!((channel - 1.0).abs() < 1e-3, "{sky:?}: {c:?}");
+            }
+        }
+    }
+
+    /// A saturated sky tints the shade without flooding it with one
+    /// primary: every channel stays within the configured multiples of the
+    /// luminance.
+    #[test]
+    fn a_saturated_sky_cannot_flood_the_shade() {
+        let (lo, hi) = crate::config::lighting::AMBIENT_CHANNEL_RANGE;
+        for sky in [[0.0, 0.0, 1.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]] {
+            let c = linear(sky_ambient_color(sky, sky));
+            let l = luminance(c);
+            for channel in c {
+                assert!(
+                    channel >= lo * l * 0.999 && channel <= hi * l * 1.001,
+                    "{sky:?}: {c:?}"
+                );
+            }
+        }
+    }
+
+    /// The lean holds every channel inside its range at either end, at unit
+    /// luminance - the low end too, which the shipped tint never reaches.
+    #[test]
+    fn the_lean_holds_both_ends_of_the_range_at_unit_luminance() {
+        let range = (0.35, 2.0);
+        // Pure blue and pure green at unit luminance. Blue's one channel
+        // sits far above 1, so its lean stops at the high end; green's sits
+        // a little above 1 with the other two at 0, so its stops at the low.
+        let blue = [0.0, 0.0, 1.0 / 0.0722];
+        let green = [0.0, 1.0 / 0.7152, 0.0];
+        for (hue, binds) in [(blue, 2usize), (green, 0)] {
+            for lean in [0.4, 1.0] {
+                let c = lean_toward(hue, lean, range);
+                assert!((luminance(c) - 1.0).abs() < 1e-4, "{lean}: {c:?}");
+                for channel in c {
+                    assert!(
+                        (range.0 - 1e-4..=range.1 + 1e-4).contains(&channel),
+                        "{lean}: {c:?}"
+                    );
+                }
+            }
+            let c = lean_toward(hue, 1.0, range);
+            let end = if binds == 0 { range.0 } else { range.1 };
+            assert!(
+                (c[binds] - end).abs() < 1e-4,
+                "{hue:?} at a full lean: {c:?}"
+            );
+        }
+    }
+
+    /// The camera's grade follows the record's three fields (#1669), and
+    /// leaves the sections' contrast neutral.
+    #[test]
+    fn the_cameras_grade_follows_the_record() {
+        let env = crate::pds::Environment {
+            grade_temperature: crate::pds::Fp(0.02),
+            grade_tint: crate::pds::Fp(-0.004),
+            grade_saturation: crate::pds::Fp(0.7),
+            ..default()
+        };
+        let mut grade = ColorGrading::default();
+        apply_grade(&env, &mut grade);
+        assert_eq!(grade.global.temperature, 0.02);
+        assert_eq!(grade.global.tint, -0.004);
+        assert_eq!(grade.global.post_saturation, 0.7);
+        for section in [grade.shadows, grade.midtones, grade.highlights] {
+            assert_eq!(section.contrast, 1.0);
+        }
     }
 }

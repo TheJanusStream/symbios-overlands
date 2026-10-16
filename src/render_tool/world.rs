@@ -364,6 +364,7 @@ pub(super) fn spawn_world_camera(
     editor: bool,
     fov: Option<f32>,
     ortho: bool,
+    edge_smoothing: crate::camera::EdgeSmoothing,
 ) {
     // The game's far plane: the cloud deck and the sky cuboid stay inside
     // the frustum.
@@ -382,7 +383,7 @@ pub(super) fn spawn_world_camera(
         Camera3d::default(),
         WorldCamera,
         RenderTarget::Image(target.into()),
-        Msaa::Sample4,
+        edge_smoothing.components(),
         projection,
         // Shore foam reads the opaque prepass depth (see `camera.rs`).
         DepthPrepass,

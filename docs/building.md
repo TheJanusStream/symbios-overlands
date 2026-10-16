@@ -472,12 +472,14 @@ re-tints - exactly as the login backdrop compiles its demo world, then waits
 for all of it to *settle* (a compile pass landed, none running, the splat
 applied, no road re-mesh or lot re-derive pending, no procedural texture
 bake still in flight, and that answer held for forty frames) before
-shooting. The camera is the game's: fog, bloom, the
-depth prepass shore foam reads, cascaded shadows, MSAA. Its settings are a
-default visitor's, so small scattered copies past the Settings window's
-ground-cover draw distance (150 m from the camera, #1480) are not drawn, and
-every `--world` shot prints the parts it drew. Framing is a rig
-rather than a tile set:
+shooting. The camera is the game's: fog, bloom, the room's colour grade
+(#1669), the depth prepass shore foam reads, cascaded shadows, MSAA - or,
+with `--edge-smoothing fxaa`, the web build's FXAA in its place, and with
+`--edge-smoothing off` the web build as it was before #1669, no smoothing at
+all. Its settings are a default visitor's, so small scattered copies past
+the Settings window's ground-cover draw distance (150 m from the camera,
+#1480) are not drawn, and every `--world` shot prints the parts it drew.
+Framing is a rig rather than a tile set:
 
 ```bash
 # A still of seed 3 from 130 m, 28° up, centred on the built-up band:
@@ -877,6 +879,9 @@ cargo run --bin render -- --family-seeds skiff --family-count 8
 # slice opens with. A craft type is a property of the SEED, so this answers
 # for a type before anything builds it:
 cargo run --bin render -- --family-seeds boat --craft longship --family-count 6
+# Room seeds by scene theme (#1669) - a theme's label, or `all` - the survey
+# each look slice of the visual-fidelity epic (#1668) opens with:
+cargo run --bin render -- --theme-seeds gothic_horror --theme-count 4
 # Dump a catalogue entry's generator JSON (edit + re-render via --generator):
 cargo run --bin render -- --dump --catalogue neon_kiosk
 # Print what one avatar resolves to (chassis / style / socio tiers / craft

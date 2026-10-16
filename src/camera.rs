@@ -36,6 +36,7 @@
 //! detail tier judged for the perspective lens - the hair's far tier - turns
 //! with distance as before, though nothing on screen shrinks.
 
+use bevy::anti_alias::fxaa::Fxaa;
 use bevy::audio::SpatialListener;
 use bevy::camera::ScalingMode;
 #[cfg(not(target_arch = "wasm32"))]
@@ -552,6 +553,52 @@ pub(crate) fn default_distance_fog() -> DistanceFog {
     }
 }
 
+/// How a world camera smooths its edges (#1669).
+///
+/// Native draws Bevy's 4x MSAA. The web build cannot: WebGL2's `glow`
+/// backend has no `tex_storage_2d_multisample` entrypoint, so
+/// `Msaa::Sample4` panics during render-target allocation on the first frame
+/// (glow-0.16.0/.../web_sys.rs: "Tex storage 2D multisample is not
+/// supported"). Until #1669 it drew with no smoothing at all, every edge
+/// stair-stepped; it runs FXAA now, one post-process pass after tonemapping
+/// that WebGL2 can run. bevy_egui draws after the 3D post-process set, so
+/// FXAA never softens the interface. [`Self::Off`] is the old web look,
+/// kept so the render tool can show what changed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EdgeSmoothing {
+    /// 4x multisampling.
+    Msaa,
+    /// Fast approximate anti-aliasing, a post-process pass.
+    Fxaa,
+    /// None: the render tool's picture of the web build before #1669, so
+    /// it exists only where the render tool does.
+    #[cfg(not(target_arch = "wasm32"))]
+    Off,
+}
+
+impl EdgeSmoothing {
+    /// What this build's world camera uses: MSAA natively, FXAA on wasm.
+    pub(crate) const BUILD: Self = if cfg!(target_arch = "wasm32") {
+        Self::Fxaa
+    } else {
+        Self::Msaa
+    };
+
+    /// The camera components that select it.
+    pub(crate) fn components(self) -> (Msaa, Fxaa) {
+        let fxaa = |enabled| Fxaa {
+            enabled,
+            ..default()
+        };
+        match self {
+            Self::Msaa => (Msaa::Sample4, fxaa(false)),
+            Self::Fxaa => (Msaa::Off, fxaa(true)),
+            #[cfg(not(target_arch = "wasm32"))]
+            Self::Off => (Msaa::Off, fxaa(false)),
+        }
+    }
+}
+
 fn spawn_orbit_camera(mut commands: Commands) {
     let pos = cfg::INITIAL_POS;
     commands.spawn((
@@ -560,17 +607,8 @@ fn spawn_orbit_camera(mut commands: Commands) {
         // #1317: the primary egui context lives HERE, by name. See
         // `egui_global_settings` for why it must not be left to bevy_egui.
         PrimaryEguiContext,
-        // WebGL2's `glow` backend has no `tex_storage_2d_multisample`
-        // entrypoint, so Bevy's default `Msaa::Sample4` panics during
-        // render-target allocation as soon as the first frame renders
-        // (panicked at glow-0.16.0/.../web_sys.rs: "Tex storage 2D
-        // multisample is not supported"). Native and WebGPU paths handle
-        // MSAA fine; only WebGL2 needs the opt-out. Disabling on every
-        // wasm build is the safe superset - modern browsers exposing
-        // WebGPU still work with MSAA off, and we don't depend on
-        // anti-aliased edges anywhere visually critical.
-        #[cfg(target_arch = "wasm32")]
-        Msaa::Off,
+        // MSAA on native, FXAA on the web build - see [`EdgeSmoothing`].
+        EdgeSmoothing::BUILD.components(),
         // Bevy's default perspective far plane is 1000 m, which clips the
         // cloud-deck plane (at altitude ~250 m, half-extent 4 km) before
         // the shader's horizon-fade has a chance to dissolve it. The
@@ -712,6 +750,21 @@ fn follow_local_player(
 mod tests {
     use super::*;
     use bevy::MinimalPlugins;
+
+    /// Native draws 4x MSAA and the web build FXAA (#1669): every build
+    /// smooths its edges one way or the other, and `Off` is only the render
+    /// tool's picture of the web build before it did.
+    #[test]
+    fn every_build_smooths_its_edges() {
+        #[cfg(not(target_arch = "wasm32"))]
+        assert_eq!(EdgeSmoothing::BUILD, EdgeSmoothing::Msaa);
+        let (msaa, fxaa) = EdgeSmoothing::Msaa.components();
+        assert!(msaa == Msaa::Sample4 && !fxaa.enabled);
+        let (msaa, fxaa) = EdgeSmoothing::Fxaa.components();
+        assert!(msaa == Msaa::Off && fxaa.enabled);
+        let (msaa, fxaa) = EdgeSmoothing::Off.components();
+        assert!(msaa == Msaa::Off && !fxaa.enabled);
+    }
 
     /// The orthographic lens frames, at its focus, what the perspective
     /// lens frames from its scale away (#1603): a point half the framed

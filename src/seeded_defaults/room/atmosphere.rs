@@ -163,7 +163,11 @@ fn derive_atmosphere(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> Atmosphere
     let tod = scene.time_of_day_bias.abs(); // proximity to horizon, 0..1
     let altitude_deg = lerp(60.0, 18.0, tod) + range_f32(rng, -8.0, 8.0);
     let azimuth_deg = range_f32(rng, 0.0, 360.0);
-    let sun_position = spherical_to_world(altitude_deg, azimuth_deg, 75.0);
+    let sun_position = spherical_to_world(
+        altitude_deg,
+        azimuth_deg,
+        crate::pds::room::SEEDED_SUN_DISTANCE,
+    );
 
     // -- Clouds -------------------------------------------------------------
     // Sampled before the illuminance block because cover feeds it: an
@@ -265,12 +269,11 @@ fn lerp(a: f32, b: f32, t: f32) -> f32 {
 /// horizon (0° at horizon, 90° at zenith); `azimuth_deg` rotates
 /// around the Y axis (0° → +X). Returns a point at `radius` distance
 /// from the origin, suitable as the eye for a `looking_at(origin)`
-/// directional light transform.
+/// directional light transform. The record's own convention
+/// ([`crate::pds::room::sun_position_at`]), which the Environment panel's
+/// sun sliders read back (#1669).
 fn spherical_to_world(altitude_deg: f32, azimuth_deg: f32, radius: f32) -> [f32; 3] {
-    let alt = altitude_deg.to_radians();
-    let az = azimuth_deg.to_radians();
-    let horiz = radius * alt.cos();
-    [horiz * az.cos(), radius * alt.sin(), horiz * az.sin()]
+    crate::pds::room::sun_position_at(altitude_deg, azimuth_deg, radius)
 }
 
 #[cfg(test)]

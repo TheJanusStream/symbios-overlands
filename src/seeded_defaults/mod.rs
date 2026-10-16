@@ -118,8 +118,8 @@ pub use room::{
     AmbientParticles, AmbientRecipe, Atmosphere, BERLIN_SHARE, BUILD_SLOPE_LIMIT, BiomeTextures,
     BuildableRegion, GatewaySpot, GroundTextureParams, MonumentSpot, ParticleMood, RegionSource,
     RockScatters, RockTextureParams, RoomPalette, Settlement, SettlementCluster, SettlementMember,
-    SettlementPlan, SourceKind, SplatRule, TerrainProbe, TerrainShape, ThemeAccent, TreeScatter,
-    TreeScatters, TreeSpecies, WaterDynamics, theme_luminosity,
+    SettlementPlan, SourceKind, SplatRule, TerrainProbe, TerrainShape, ThemeAccent, ThemeGrade,
+    TreeScatter, TreeScatters, TreeSpecies, WaterDynamics, theme_grading, theme_luminosity,
 };
 pub use scene::{
     BiomeArchetype, EscalationBand, EscalationTier, LandformArchetype, ProsperityBand,

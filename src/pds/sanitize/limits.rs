@@ -18,6 +18,10 @@ pub const MAX_EROSION_DROPS: u32 = 500_000;
 pub const MAX_THERMAL_ITERATIONS: u32 = 500;
 /// Splat texture resolution per side (pixels).
 pub const MAX_TEXTURE_SIZE: u32 = 4096;
+/// The terrain's texture tiling across its width (#1669), the Tile scale
+/// slider's range: one tile across the whole terrain to five hundred.
+pub const MIN_TILE_SCALE: f32 = 1.0;
+pub const MAX_TILE_SCALE: f32 = 500.0;
 
 /// Scatter placement count.
 pub const MAX_SCATTER_COUNT: u32 = 100_000;

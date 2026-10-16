@@ -398,16 +398,21 @@ pub(super) fn apply_splat_textures(
     let water_y = record
         .as_ref()
         .and_then(|r| crate::world_builder::compile::drawn_water_level(&r.0, Some(&hm_res)));
-    // The rock layer's world-space texture scale, as dense as the top-down
-    // layers'.
-    let triplanar_scale = tcfg::TILE_SCALE / world_extent.max(1.0);
+    // The record's texture tiling (#1669: the Tile scale slider wrote it for
+    // months while the shader read the constant), and the rock layer's
+    // world-space scale, as dense as the top-down layers'.
+    let tile_scale = record
+        .as_ref()
+        .and_then(|r| crate::pds::find_terrain_config(&r.0))
+        .map_or(tcfg::TILE_SCALE, |c| c.material.tile_scale.0);
+    let triplanar_scale = tile_scale / world_extent.max(1.0);
 
     if let Some(mut mat) = materials.get_mut(&splat_mat.0) {
         enable_splat(
             &mut mat,
             wm_handle,
             (albedo_array, normal_array),
-            triplanar_scale,
+            (tile_scale, triplanar_scale),
             water_y,
         );
 
@@ -486,7 +491,7 @@ fn enable_splat(
     mat: &mut SplatTerrainMaterial,
     weight_map: Handle<Image>,
     (albedo_array, normal_array): (Handle<Image>, Handle<Image>),
-    triplanar_scale: f32,
+    (tile_scale, triplanar_scale): (f32, f32),
     water_y: Option<f32>,
 ) {
     textured_surface(&mut mat.base);
@@ -494,6 +499,7 @@ fn enable_splat(
     mat.extension.albedo_array = albedo_array;
     mat.extension.normal_array = normal_array;
     mat.extension.uniforms.enabled = 1;
+    mat.extension.uniforms.tile_scale = tile_scale;
     mat.extension.uniforms.triplanar_scale = triplanar_scale;
     match water_y {
         Some(water_y) => {
