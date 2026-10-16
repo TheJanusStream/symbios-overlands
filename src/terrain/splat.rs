@@ -421,9 +421,10 @@ pub(super) fn apply_splat_textures(
         // until the stamper writes contacts - backward-compatible.
         //
         // The WebGL2 build skips this binding entirely - see the note on
-        // `SplatExtension::stains_tex` in `crate::splat`: the GLES backend
-        // caps fragment shaders at 16 texture slots and the splat material
-        // already sits at that ceiling. The WebGPU build binds it (#1670).
+        // `SplatExtension` in `crate::splat`: the GLES backend caps fragment
+        // shaders at 16 texture slots, and when the overlay came the splat
+        // material sat at that ceiling (re-counted at 12 on Bevy 0.19,
+        // #1672). The WebGPU build binds it (#1670).
         #[cfg(not(webgl2))]
         if let Some(stains) = stains.as_ref() {
             mat.extension.stains_tex = stains.handle.clone();

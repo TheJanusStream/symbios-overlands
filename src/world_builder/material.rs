@@ -30,6 +30,7 @@ use super::compile::SpawnCtx;
 /// through this function so the egui widgets, raw JSON edits, and peer
 /// broadcasts all converge on the same GPU state.
 fn build_water_uniforms(surface: &WaterSurface, env: &Environment) -> WaterUniforms {
+    let sky = crate::sky::sky_uniforms(env);
     WaterUniforms {
         shallow_color: Vec4::from_array(surface.shallow_color.0),
         deep_color: Vec4::from_array(surface.deep_color.0),
@@ -47,6 +48,9 @@ fn build_water_uniforms(surface: &WaterSurface, env: &Environment) -> WaterUnifo
         sun_dir: Vec3::from_array(env.sun_position.0)
             .normalize_or(Vec3::Y)
             .extend(0.0),
+        // The sky it reflects (#1672), as the sky shader is given it.
+        sky_zenith: sky.zenith,
+        sky_look: sky.look,
         wave_direction: Vec2::from_array(surface.wave_direction.0),
         wave_scale: surface.wave_scale.0,
         wave_speed: surface.wave_speed.0,

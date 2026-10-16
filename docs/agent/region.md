@@ -166,7 +166,9 @@ and grass tufts on the open tops broke up the rest.
 
 - The water's look is in the water child's `surface` (`deep_color`,
   `shallow_color` with alpha, `roughness`, `reflectance` - 0.3 by default,
-  stylised glossy - waves, wakes) and in `/environment`
+  stylised glossy, and since #1672 how much sky the water shows even
+  looking straight down; real water is about 0.02, so lower it for clear
+  water - waves, wakes) and in `/environment`
   (`water_normal_scale_near/far`, `water_sun_glitter`,
   `water_shore_foam_width`, `water_scatter_color`).
 - **Shallows read as mud.** The shallow colour's alpha lets the lake bed
@@ -178,10 +180,13 @@ and grass tufts on the open tops broke up the rest.
   2,800 reeds at 4 triangles each, `clumping` 0.55) turned the flats into a
   reed margin. The pool's first reed scatter, banded -0.6..+3.5 m, had
   spread its 120 reeds up the whole bank instead.
-- **The water mirrors no trees.** Its shader reflects the sky's light and
-  the fog, never the scene (no screen-space reflections), so still water
-  under a grey sky is a grey sheet whatever its settings. Do not tune it
-  hoping for reflections; dress its margin.
+- **The water mirrors no trees.** Its shader reflects the sky - since
+  #1672 the sky's colours, overhead hazing into the fog at the horizon,
+  though not its sun, moon, stars or clouds - more of it the flatter you
+  look; never the scene (no screen-space reflections). Still water under a
+  grey sky is a grey sheet whatever its settings: the sky's own colour in
+  the near water, its hazy horizon toward the far shore. Do not tune it
+  hoping for reflections of things; dress its margin.
 - **The normal scales are tiling FREQUENCIES (per metre), not strengths**:
   the ripple's strength is fixed in the shader. The Understory's pool at
   `near` 0.35 drew 3 m ripples and read as a choppy grey sea; `near` 12,

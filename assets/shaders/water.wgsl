@@ -25,7 +25,9 @@
 //      magnitude (`sin(tilt_angle)` of the gravity tangent).
 //   5. Fresnel (Schlick) drives both the reflection strength and the
 //      final alpha, mixing a shallow/transparent tint at head-on view
-//      with a deep/opaque tint at grazing angles.
+//      with a deep/opaque tint at grazing angles. What it reflects is the
+//      sky (#1672): the same colour the sky shader draws toward the
+//      reflected ray, through `sky_common::sky_toward` - never the scene.
 //   6. Subsurface scatter, wave-crest foam, and a sharp sun-glitter
 //      specular highlight all ride on top of the PBR lighting pass.
 //
@@ -35,7 +37,8 @@
 
 #import bevy_pbr::{
     pbr_fragment::pbr_input_from_standard_material,
-    pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing},
+    pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing, calculate_F0},
+    ambient::ambient_light,
     mesh_view_bindings::{globals, view},
     forward_io::{VertexOutput, FragmentOutput},
     // Shoreline foam reads the opaque DEPTH prepass (camera-side
@@ -45,6 +48,7 @@
     prepass_utils,
     view_transformations,
 }
+#import "shaders/sky_common.wgsl"::sky_toward
 
 // Must match `WAKE_SAMPLES_MAX` in `src/water.rs` exactly. The shader
 // reads `wake_active_count` for the live extent; capacity is fixed at
@@ -56,6 +60,11 @@ struct WaterUniforms {
     deep_color: vec4<f32>,
     scatter_color: vec4<f32>,  // rgb used, a unused
     sun_dir: vec4<f32>,        // unit toward-sun, CPU-patched; xyz used
+    // The sky the water reflects (#1672), as the sky shader is given it:
+    // the colour overhead (linear rgb) and its `look` (x the haze's depth
+    // straight up, w the horizon's distance), CPU-patched with `sun_dir`.
+    sky_zenith: vec4<f32>,
+    sky_look: vec4<f32>,
     wave_direction: vec2<f32>,
     wave_scale: f32,
     wave_speed: f32,
@@ -777,12 +786,56 @@ fn fragment(
     // alias into visible grid patterns.
     let base_roughness = clamp(water_uniforms.roughness, 0.02, 1.0);
     let distance_rough = mix(base_roughness, 0.45, clamp(smoothstep(40.0, 250.0, dist), 0.0, 1.0));
-    pbr_input.material.base_color = vec4<f32>(tint + scatter, final_alpha);
+    // Only the share Fresnel does not reflect comes up out of the water:
+    // the body's own colour is the transmitted (1 - F), the sky below takes
+    // the rest (#1672).
+    pbr_input.material.base_color = vec4<f32>((tint + scatter) * (1.0 - fresnel), final_alpha);
     pbr_input.material.perceptual_roughness = distance_rough;
     pbr_input.material.metallic = clamp(water_uniforms.metallic, 0.0, 1.0);
 
     var out: FragmentOutput;
     out.color = apply_pbr_lighting(pbr_input);
+
+    // Bevy's ambient sheen off (#1672). Its ambient light reflects too, a
+    // flat specular in the ambient light's one colour: a second, cruder sky
+    // under the real one added next, which made far water brighter than the
+    // sky over it. Taken out by Bevy's own function, run with this F0 and
+    // with none - the diffuse halves are the same and cancel, so the
+    // difference is the sheen it added, whatever it does inside. Its sun
+    // highlight is direct light, the path of light on the water, and stays.
+    let n_dot_v_lit = max(dot(pbr_input.N, pbr_input.V), 0.0001);
+    let lit_f0 = calculate_F0(
+        pbr_input.material.base_color.rgb,
+        pbr_input.material.metallic,
+        pbr_input.material.reflectance,
+    );
+    let sheen = ambient_light(
+        pbr_input.world_position, pbr_input.N, pbr_input.V, n_dot_v_lit, vec3<f32>(0.0), lit_f0,
+        pbr_input.material.perceptual_roughness, pbr_input.diffuse_occlusion,
+    ) - ambient_light(
+        pbr_input.world_position, pbr_input.N, pbr_input.V, n_dot_v_lit, vec3<f32>(0.0),
+        vec3<f32>(0.0), pbr_input.material.perceptual_roughness, pbr_input.diffuse_occlusion,
+    );
+    out.color = vec4<f32>(max(out.color.rgb - sheen * view.exposure, vec3<f32>(0.0)), out.color.a);
+
+    // The sky in the water (#1672): what the sky shows toward the
+    // reflected ray, by the same Fresnel that makes grazing water opaque -
+    // a mirror of the sky at the far shore, the water's own colour at the
+    // near one. The sky's own colour there is its body; the sun and the
+    // moon are left to Bevy's highlight and the glitter below, which draw
+    // their path, and the stars to a calm the waves never have.
+    //
+    // Added, over the body the line above already dimmed, and divided by
+    // the alpha: Bevy's blend multiplies the whole colour by it, and the
+    // reflected light is not the water's to let through - it lands whole
+    // (the alpha is never below the Fresnel, so the share stays <= 1).
+    // Before Bevy's fog, so far water fades as far land does.
+    let reflected = normalize(reflect(-v, n));
+    let sky = sky_toward(reflected, water_uniforms.sky_zenith.rgb, water_uniforms.sky_look);
+    out.color = vec4<f32>(
+        out.color.rgb + sky * (fresnel / max(out.color.a, 1.0e-3)),
+        out.color.a,
+    );
 
     // Sun-glitter specular - a sharp highlight layered on top of the PBR
     // result. The sun direction comes from the `sun_dir` uniform, which the

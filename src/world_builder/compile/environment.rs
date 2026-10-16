@@ -190,11 +190,14 @@ pub(crate) fn apply_environment_state(
     }
 
     // Water sun-glitter tracks the same runtime sun as the cloud deck
-    // (#662). Patched here rather than at water spawn only, because a
-    // sun-position slider drag retints the world without recompiling the
-    // water volumes - every live water material shares the one global sun.
+    // (#662), and its reflection the same sky (#1672). Patched here rather
+    // than at water spawn only, because a sun-position slider drag or a sky
+    // colour pick retints the world without recompiling the water volumes -
+    // every live water material shares the one global sun and sky.
     for (_, mat) in water_materials.iter_mut() {
         mat.extension.uniforms.sun_dir = Vec4::new(sun_dir.x, sun_dir.y, sun_dir.z, 0.0);
+        mat.extension.uniforms.sky_zenith = sky.zenith;
+        mat.extension.uniforms.sky_look = sky.look;
     }
 }
 

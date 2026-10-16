@@ -808,8 +808,9 @@ const SLOT_ROW_LABEL: &str = "Texture slots";
 /// `row_notes_describe_rendered_rows` pins each entry to a row that exists.
 fn row_note(metric: &str) -> Option<&'static str> {
     #[cfg(webgl2)]
-    const SLOTS: &str = "Of the 16 texture slots WebGL2 gives a shader. Past that \
-                         the ground stops drawing its layers.";
+    const SLOTS: &str = "The ground material's own texture slots. Bevy's view and base \
+                         material take nine more, of the 16 WebGL2 gives a shader; \
+                         past 16 the ground stops drawing its layers.";
     #[cfg(all(target_arch = "wasm32", not(webgl2)))]
     const SLOTS: &str = "How many texture slots the ground material uses. WebGPU \
                          counts textures and samplers apart, at least 16 of each \

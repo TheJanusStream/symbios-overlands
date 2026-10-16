@@ -53,6 +53,14 @@ pub struct WaterUniforms {
     /// [`crate::clouds::CloudUniforms::sun_dir`]. A zero vector makes the
     /// shader fall back to its legacy up-biased approximation.
     pub sun_dir: Vec4,
+    /// Global: the sky the water reflects (#1672) - the sky shader's own
+    /// uniforms, [`crate::sky::SkyUniforms`]: the colour overhead, linear
+    /// RGB (`w` unused)...
+    pub sky_zenith: Vec4,
+    /// ...and the haze's depth, the moon's and the stars' shares and the
+    /// horizon's distance. Set with `sun_dir`, at spawn and on every
+    /// environment change.
+    pub sky_look: Vec4,
     /// Per-volume: prevailing wave direction in world XZ.
     pub wave_direction: Vec2,
     /// Per-volume: global amplitude multiplier on the Gerstner waves.
@@ -386,6 +394,84 @@ impl WaterSurfaces {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// WebGL2 rejects a uniform block that is not a multiple of 16 bytes, and
+    /// only a browser would otherwise say so - after the sky's two `Vec4`s
+    /// joined the block (#1672) as after any field to come.
+    #[test]
+    fn the_uniform_block_is_16_byte_aligned() {
+        let size = WaterUniforms::min_size().get();
+        assert_eq!(
+            size % 16,
+            0,
+            "WaterUniforms is {size} bytes - WebGL2 needs a multiple of 16"
+        );
+    }
+
+    /// The Rust and WGSL declarations of the block are two hand-written
+    /// copies of one layout, and nothing in the build compiles the shader:
+    /// a field added to one and not the other (as the sky's were, #1672)
+    /// reads every later field at the wrong offset, and the water draws
+    /// wrongly or not at all with no error anywhere. The list is
+    /// [`WaterUniforms`]'s fields in order.
+    #[test]
+    fn the_wgsl_block_mirrors_the_rust_one() {
+        let src = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/shaders/water.wgsl"
+        ))
+        .expect("water.wgsl is a tracked asset");
+        let head = "struct WaterUniforms {";
+        let start = src.find(head).expect("struct not found in water.wgsl") + head.len();
+        let body = &src[start..start + src[start..].find("};").expect("unterminated struct")];
+        let fields: Vec<(String, String)> = body
+            .lines()
+            .map(|l| l.split("//").next().unwrap_or("").trim())
+            .filter(|l| l.contains(':'))
+            .map(|l| {
+                let (name, ty) = l.split_once(':').expect("filtered on ':'");
+                (
+                    name.trim().to_string(),
+                    ty.trim().trim_end_matches(',').to_string(),
+                )
+            })
+            .collect();
+        let expected = [
+            ("shallow_color", "vec4<f32>"),
+            ("deep_color", "vec4<f32>"),
+            ("scatter_color", "vec4<f32>"),
+            ("sun_dir", "vec4<f32>"),
+            ("sky_zenith", "vec4<f32>"),
+            ("sky_look", "vec4<f32>"),
+            ("wave_direction", "vec2<f32>"),
+            ("wave_scale", "f32"),
+            ("wave_speed", "f32"),
+            ("wave_choppiness", "f32"),
+            ("roughness", "f32"),
+            ("metallic", "f32"),
+            ("reflectance", "f32"),
+            ("foam_amount", "f32"),
+            ("normal_scale_near", "f32"),
+            ("normal_scale_far", "f32"),
+            ("sun_glitter", "f32"),
+            ("shore_foam_width", "f32"),
+            ("flow_amount", "f32"),
+            ("wake_samples_a", "array<vec4<f32>, WAKE_SAMPLES_MAX>"),
+            ("wake_samples_b", "array<vec4<f32>, WAKE_SAMPLES_MAX>"),
+            ("wake_active_count", "u32"),
+            ("wake_strength", "f32"),
+            ("wake_ripple_wavelength", "f32"),
+            ("wake_decay_radius", "f32"),
+        ];
+        let got: Vec<(&str, &str)> = fields
+            .iter()
+            .map(|(n, t)| (n.as_str(), t.as_str()))
+            .collect();
+        assert_eq!(
+            got, expected,
+            "water.wgsl's WaterUniforms drifted from the Rust block"
+        );
+    }
 
     fn flat_plane(y: f32, half: Vec2) -> WaterPlane {
         WaterPlane {
