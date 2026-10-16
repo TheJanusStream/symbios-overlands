@@ -16,7 +16,11 @@ concurrency:
 
 jobs:
   build-and-deploy:
-    runs-on: ubuntu-latest
+    # Pinned rather than `ubuntu-latest` (#1665): that label moves to Ubuntu 26
+    # from 2026-10-19, and a new image landing while the build's memory was
+    # being brought back under the runner's would confound the two. Move it on
+    # purpose.
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -50,17 +54,79 @@ jobs:
         # a schema it does not recognise.
         run: cargo tree -i wasm-bindgen --target wasm32-unknown-unknown --depth 0
 
+      # Swap as headroom for the build (#1665). The app's fat-LTO link peaked
+      # at 19.4 GB in one process on this 16 GB runner, and the deploy died
+      # with exit code 143 on every attempt. The app now links thin (7.3 GB,
+      # see Cargo.toml's [profile.deploy]), so this is margin, not the fix:
+      # it is added BESIDE whatever swap the image carries, and failing to add
+      # it only warns. The first lines log what the runner has.
+      - name: Add swap
+        run: |
+          free -h
+          swapon --show || true
+          df -h / /mnt || true
+          if sudo fallocate -l 16G /mnt/build-swap \
+              && sudo chmod 600 /mnt/build-swap \
+              && sudo mkswap /mnt/build-swap > /dev/null \
+              && sudo swapon /mnt/build-swap; then
+            free -h
+          else
+            echo "::warning::could not add swap at /mnt/build-swap; building without it"
+          fi
+
       - name: Build WASM (app + gen-worker)
-        # --workspace builds both the app and the gen-worker binary (the slim,
-        # no-Bevy off-thread generation Web Worker) for wasm in one pass.
-        run: cargo build --workspace --release --target wasm32-unknown-unknown
+        # Two commands, two profiles (#1665): the gen-worker - the slim,
+        # no-Bevy off-thread generation Web Worker - under `release`'s fat
+        # LTO, and the app under `deploy`'s thin LTO, because a profile's LTO
+        # cannot be set per package. Cargo.toml's [profile.deploy] has why.
+        #
+        # The runner's memory is sampled while it builds: a line a minute, so
+        # a run the runner kills still shows the climb in its log, and the
+        # peak at the end, warned past 12 GB - three quarters of the runner's
+        # 16 GB - the way the size report below catches growth before it
+        # fails. Measured locally on 2026-10-16, the dependencies peak under
+        # 8 GB across six parallel compiles and the app's thin link at 7.3 GB.
+        run: |
+          set -euo pipefail
+          mem() {
+            awk '/^MemTotal:/ {t = $2} /^MemAvailable:/ {a = $2}
+                 /^SwapTotal:/ {st = $2} /^SwapFree:/ {sf = $2}
+                 END {printf "%d %d\n", (t - a) / 1024, (st - sf) / 1024}' /proc/meminfo
+          }
+          log="$RUNNER_TEMP/build-mem.log"
+          : > "$log"
+          (
+            n=0
+            while sleep 5; do
+              read -r ram swap < <(mem)
+              echo "$ram $swap" >> "$log"
+              n=$((n + 1))
+              if [ $((n % 12)) -eq 0 ]; then
+                echo "memory: ${ram} MB used, ${swap} MB swap"
+              fi
+            done
+          ) &
+          sampler=$!
+          report() {
+            kill "$sampler" 2> /dev/null || true
+            peak_ram=$(sort -n -k1,1 "$log" | tail -1 | cut -d' ' -f1)
+            peak_swap=$(sort -n -k2,2 "$log" | tail -1 | cut -d' ' -f2)
+            echo "peak memory: ${peak_ram:-0} MB used, ${peak_swap:-0} MB swap"
+            if [ "${peak_ram:-0}" -gt 12000 ]; then
+              echo "::warning::the build peaked at ${peak_ram} MB of the runner's 16 GB"
+            fi
+          }
+          trap report EXIT
+          cargo build -p gen-worker --release --target wasm32-unknown-unknown
+          cargo build -p symbios-overlands --bin symbios-overlands --profile deploy \
+            --target wasm32-unknown-unknown
 
       - name: Generate JS Bindings
         run: |
           wasm-bindgen --out-dir ./dist --target web \
             --out-name symbios-overlands \
             --no-typescript \
-            target/wasm32-unknown-unknown/release/symbios-overlands.wasm
+            target/wasm32-unknown-unknown/deploy/symbios-overlands.wasm
           # The off-thread generation worker the app spawns via gloo-worker as
           # "./gen-worker.js" (sits beside the app JS in ./dist).
           wasm-bindgen --out-dir ./dist --target web \
@@ -152,7 +218,12 @@ jobs:
           # text) took it past 18,000,000 gzip. Raised to about 5 % above.
           # The Bevy feature trim (#1576) measured -12 % gzip, should the
           # room be wanted back.
-          check ./dist/symbios-overlands_bg.wasm 68000000 19000000
+          #             73,792,874 B raw / 18,114,793 B gzip on 2026-10-16,
+          # when the app moved to thin LTO (#1665, Cargo.toml's
+          # [profile.deploy]): 12.7 % more raw and 1.6 % less gzip than the
+          # fat-LTO 65,495,625 / 18,409,375 B of the same commit. The raw
+          # budget raised to about 5 % above; the gzip one already was.
+          check ./dist/symbios-overlands_bg.wasm 77500000 19000000
           # gen-worker:  3.25 MB raw /  0.68 MB gzip on 2026-08-29
           #              3.57 MB raw /  0.80 MB gzip on 2026-09-22, after the
           # outfit textures (#1403). Measured locally, that commit added
@@ -161,6 +232,10 @@ jobs:
           # boundary inside the avatar record (#1406).
           #              3,916,966 B raw / 870,443 B gzip on 2026-10-10
           # (98 % / 97 % of the budget, left as it was: nothing needed it).
+          #              3,916,966 B raw / 870,443 B gzip on 2026-10-16, built
+          # alone under fat LTO when the app moved to thin (#1665): the same
+          # bytes as 10-10. Built with `--workspace` it had been 3,935,400 /
+          # 879,688 B, the app's dependency features unified into its own.
           check ./dist/gen-worker_bg.wasm 4000000 900000
           exit $fail
 

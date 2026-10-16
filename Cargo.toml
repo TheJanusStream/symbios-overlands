@@ -257,6 +257,26 @@ codegen-units = 1 # Reduce parallelism to improve optimization quality
 strip = true      # Strip symbols to clean up the binary tables
 panic = "abort"   # Reduce binary size by removing stack unwinding
 
+# The profile the shipped app's wasm is built under (#1665): `release` with
+# THIN LTO.
+#
+# Fat LTO merges the whole program into one LLVM module, and for the app that
+# one rustc process peaked at 19.4 GB (measured 2026-10-16 with deploy.yml's
+# own command) - past the 16 GB of the GitHub-hosted runner, where the deploy
+# died with exit code 143, every attempt. Thin LTO peaked at 7.3 GB, and the
+# deploy's two builds took 10 min against 14m41s. What it costs, after
+# wasm-bindgen: the app's module is 12.7 % bigger raw (73.8 MB against
+# 65.5 MB) and 1.6 % SMALLER gzipped (18.11 MB against 18.41 MB) - more for
+# the browser to hold, less for it to download. The owner took that trade.
+#
+# Only the app. The gen-worker stays on `release`'s fat LTO, which is cheap
+# without Bevy, and which thin would grow by 19.5 % raw and 5 % gzip. A
+# profile's `lto` cannot be overridden per package, hence a profile of its own
+# and two build commands in deploy.yml.
+[profile.deploy]
+inherits = "release"
+lto = "thin"
+
 # The profile the standing pre-commit gate runs under (#1064).
 #
 # `[profile.release]` above is tuned for ONE artifact: the wasm bundle

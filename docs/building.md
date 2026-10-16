@@ -79,15 +79,19 @@ rustup target add wasm32-unknown-unknown
 # skew between the two breaks the deploy. Bump both together.
 cargo install wasm-bindgen-cli --version 0.2.128
 
-# `--workspace` builds the app *and* the off-thread generation Web Worker
-# (the slim, no-Bevy `gen-worker`) for wasm in one pass.
-cargo build --workspace --release --target wasm32-unknown-unknown
+# Two builds, two profiles, as deploy.yml (#1665): the off-thread generation
+# Web Worker (the slim, no-Bevy `gen-worker`) under `release`'s fat LTO, and
+# the app under `deploy`'s thin LTO - its fat link needs 19.4 GB of RAM, more
+# than the 16 GB CI runner has (Cargo.toml's [profile.deploy] has the numbers).
+cargo build -p gen-worker --release --target wasm32-unknown-unknown
+cargo build -p symbios-overlands --bin symbios-overlands --profile deploy \
+    --target wasm32-unknown-unknown
 
 # Two wasm-bindgen passes: the app, then the worker the app spawns as
 # `./gen-worker.js` (both land beside each other in ./dist).
 wasm-bindgen --out-dir ./dist --target web --no-typescript \
     --out-name symbios-overlands \
-    target/wasm32-unknown-unknown/release/symbios-overlands.wasm
+    target/wasm32-unknown-unknown/deploy/symbios-overlands.wasm
 wasm-bindgen --out-dir ./dist --target web --no-typescript \
     --out-name gen-worker \
     target/wasm32-unknown-unknown/release/gen-worker.wasm
