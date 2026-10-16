@@ -59,6 +59,9 @@ webgpu = ["bevy/webgpu"]
 
 [dependencies]
 bevy = "0.19"
+# The sky light's environment maps are half floats (#1680); already in the
+# graph through bevy_image, so this adds no crate.
+half = "2"
 bevy_egui = "0.41"
 egui_ltreeview = "0.8"
 # No "bevy_egui" feature: its focus gate is all-or-nothing and privately

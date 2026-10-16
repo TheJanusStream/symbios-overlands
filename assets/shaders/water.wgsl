@@ -792,6 +792,11 @@ fn fragment(
     pbr_input.material.base_color = vec4<f32>((tint + scatter) * (1.0 - fresnel), final_alpha);
     pbr_input.material.perceptual_roughness = distance_rough;
     pbr_input.material.metallic = clamp(water_uniforms.metallic, 0.0, 1.0);
+    // The sky light's reflection off (#1680): the water reflects the sky
+    // itself, sharper, after lighting - the environment map would add the
+    // same sky a second time. Bevy multiplies the map's specular, and only
+    // that, by this.
+    pbr_input.specular_occlusion = 0.0;
 
     var out: FragmentOutput;
     out.color = apply_pbr_lighting(pbr_input);
@@ -803,6 +808,8 @@ fn fragment(
     // with none - the diffuse halves are the same and cancel, so the
     // difference is the sheen it added, whatever it does inside. Its sun
     // highlight is direct light, the path of light on the water, and stays.
+    // Under a sky-lit camera (#1680) its own ambient is off and this takes
+    // nothing away; it keeps the water right under any other camera.
     let n_dot_v_lit = max(dot(pbr_input.N, pbr_input.V), 0.0001);
     let lit_f0 = calculate_F0(
         pbr_input.material.base_color.rgb,

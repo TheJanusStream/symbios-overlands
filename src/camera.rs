@@ -661,6 +661,8 @@ fn spawn_orbit_camera(mut commands: Commands) {
         },
         Transform::from_xyz(pos[0], pos[1], pos[2]).looking_at(Vec3::ZERO, Vec3::Y),
         default_distance_fog(),
+        // The room's sky lights the world through this camera (#1680).
+        crate::sky_light::SkyLit,
         Bloom::NATURAL, // Enable Bloom
         // Spatial-audio listener for every positional voice (#262); inert
         // for non-spatial audio, so this is purely additive.

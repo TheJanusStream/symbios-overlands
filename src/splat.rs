@@ -116,7 +116,10 @@ pub const SPLAT_TEXTURE_BIND_SLOTS: u32 = 3;
 /// Native and the WebGPU build keep it (#1670): WebGPU counts sampled
 /// textures and samplers apart, and a world with the overlay and the depth
 /// prepass drew whole under WebGPU's minimum limits
-/// (`WGPU_SETTINGS_PRIO=webgpu`, 16 of each a stage). So the gate is the
+/// (`WGPU_SETTINGS_PRIO=webgpu`, 16 of each a stage) - and again with the
+/// sky light's two maps (#1680), at exactly 16 sampled textures: the view's
+/// six, `StandardMaterial`'s six and these four. Another texture on the
+/// terrain must come out of these, not be added beside them. So the gate is the
 /// backend each build is made for, which a build knows. #1131 asked for a
 /// runtime check on the adapter instead, on the premise that the one web
 /// binary could land on either backend; it never could - without Bevy's

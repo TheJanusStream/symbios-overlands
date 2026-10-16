@@ -272,6 +272,10 @@ struct Lens {
     /// MSAA, so a picture is graded and smoothed as the player's view is.
     grading: Option<ColorGrading>,
     fxaa: Option<Fxaa>,
+    /// The sky's light and the camera's own ambient turned off (#1680), so
+    /// a picture is lit as the player's view is.
+    sky_light: Option<bevy::light::EnvironmentMapLight>,
+    ambient: Option<bevy::light::AmbientLight>,
 }
 
 fn world_camera_lens(world: &mut World) -> Option<Lens> {
@@ -285,11 +289,24 @@ fn world_camera_lens(world: &mut World) -> Option<Lens> {
             Has<DepthPrepass>,
             Option<&ColorGrading>,
             Option<&Fxaa>,
+            Option<&bevy::light::EnvironmentMapLight>,
+            Option<&bevy::light::AmbientLight>,
         ), IsWorldCamera>()
         .iter(world)
         .next()
         .map(
-            |(projection, fog, bloom, tonemapping, msaa, depth_prepass, grading, fxaa)| Lens {
+            |(
+                projection,
+                fog,
+                bloom,
+                tonemapping,
+                msaa,
+                depth_prepass,
+                grading,
+                fxaa,
+                sky_light,
+                ambient,
+            )| Lens {
                 projection: projection.cloned(),
                 fog: fog.cloned(),
                 bloom: bloom.cloned(),
@@ -298,6 +315,8 @@ fn world_camera_lens(world: &mut World) -> Option<Lens> {
                 depth_prepass,
                 grading: grading.cloned(),
                 fxaa: fxaa.cloned(),
+                sky_light: sky_light.cloned(),
+                ambient: ambient.cloned(),
             },
         )
 }
@@ -352,6 +371,12 @@ fn start(world: &mut World, shot: Shot, spec: LookSpec, reply: mpsc::Sender<Resp
         }
         if let Some(fxaa) = lens.fxaa {
             camera.insert(fxaa);
+        }
+        if let Some(sky_light) = lens.sky_light {
+            camera.insert(sky_light);
+        }
+        if let Some(ambient) = lens.ambient {
+            camera.insert(ambient);
         }
     }
     let camera = camera.id();

@@ -1882,10 +1882,11 @@ pub fn room_admin_ui(
         // debounce, so a slider being dragged showed nothing until the
         // hand stopped - a hard binary of nothing, then everything, on the
         // one tab whose whole job is to be tuned by eye. Stamping this
-        // marks only `apply_environment_state`, which re-paints light, fog,
-        // sky and cloud uniforms and is safe at frame rate; the peer
-        // broadcast, the world compile and the terrain rebuild all still
-        // wait for the pause.
+        // marks only the cheap atmosphere consumers - `apply_environment_state`,
+        // which re-paints light, fog, sky and cloud uniforms, and the sky
+        // light's maps (#1680), rebuilt only when the sky itself changed -
+        // all safe at frame rate; the peer broadcast, the world compile and
+        // the terrain rebuild still wait for the pause.
         commands.insert_resource(crate::world_builder::compile::EnvironmentPreview);
         // Coarse per-tab undo label (#865) - only when no site named the
         // edit specifically this burst (latest-wins would otherwise let

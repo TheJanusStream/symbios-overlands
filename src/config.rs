@@ -99,9 +99,58 @@ pub(crate) mod lighting {
         pub const STARS_CLOUD_DIMMING: f32 = 0.8;
     }
 
+    /// Sky light (#1680): the environment map `sky_light` builds from the
+    /// sky every sky-lit camera carries.
+    pub mod sky_light {
+        /// Texels on a side of each face of the diffuse map. The light a
+        /// matte face receives changes slowly with its facing; 16 holds it.
+        pub const DIFFUSE_SIZE: u32 = 16;
+        /// Texels on a side of each face of the specular map's finest
+        /// level; its mips halve down to one. The sky has no sharper edge
+        /// than its haze at the horizon, which 32 holds to about 3 degrees.
+        pub const SPECULAR_SIZE: u32 = 32;
+        /// Directions sampled for the sky's spherical harmonics.
+        pub const SH_SAMPLES: usize = 2048;
+        /// The ground below the horizon, as a share of the horizon's light:
+        /// what an eave or the underside of a branch is lit by.
+        pub const GROUND_SHARE: f32 = 0.4;
+        /// How far below the horizon (sine of the angle) the light fades
+        /// from the horizon's to the ground's.
+        pub const GROUND_FADE: f32 = 0.08;
+        /// The air mass just above the horizon - the sky shader's own cap
+        /// (`MAX_AIR_MASS` in `assets/shaders/sky_common.wgsl`), so the map
+        /// hazes the sky as the sky is drawn.
+        pub const MAX_AIR_MASS: f32 = 1000.0;
+        /// How much of the sky's hue the diffuse light keeps, `0` grey and
+        /// `1` the sky's own: a saturated alien fog would otherwise flood
+        /// every wall with it, as #1669 found for the ambient light.
+        pub const DIFFUSE_SATURATION: f32 = 0.6;
+        /// Below this luminance overhead (display units) the sky has no
+        /// light to shape a room with, and the ambient level falls on every
+        /// face alike.
+        pub const MIN_UP_LUMINANCE: f32 = 1.0e-4;
+        /// What Bevy's ambient light gave a matte surface of its level:
+        /// `EnvBRDFApprox(colour, F_AB(1, NdotV))`, whose scale at
+        /// roughness 1 is 0.4524 at any view angle (bevy_pbr 0.19's
+        /// `pbr_lighting.wgsl`, its polynomial `F_AB` - Bevy's `dfg_lut`
+        /// feature, off here, would read a table instead).
+        pub const BEVY_AMBIENT_DIFFUSE: f32 = 0.4524;
+        /// What the environment map gives the same surface of its light:
+        /// what the specular lobe leaves of it (`Edss`), 0.95-0.98 for a
+        /// rough dielectric (perceptual roughness 0.8 and up) and about 0.91
+        /// at 0.5, where a mid-gloss face comes out a few percent under
+        /// the old ambient. With the line above it is what keeps a room's
+        /// `ambient_brightness` meaning what it meant - the map's diffuse
+        /// would otherwise be twice as bright. Both are Bevy's formulas:
+        /// re-check them when Bevy moves.
+        pub const ENV_MAP_DIFFUSE: f32 = 0.97;
+    }
+
     /// How far the ambient light leans from white toward the sky's own hue
     /// (#1669): `0` keeps it white, `1` takes the sky's colour whole. See
-    /// `world_builder::compile::environment::sky_ambient_color`.
+    /// `world_builder::compile::environment::sky_ambient_color`. Since #1680
+    /// it colours only the global ambient light - the item previews and the
+    /// render tool's tiles; a sky-lit camera takes the sky's light instead.
     pub const AMBIENT_SKY_TINT: f32 = 0.4;
     /// The ambient light's channels stay within these multiples of its
     /// luminance, so a saturated sky tints the shade instead of flooding it

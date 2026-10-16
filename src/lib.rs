@@ -94,6 +94,7 @@ pub mod protocol;
 pub mod seeded_defaults;
 pub mod shadow_reach;
 pub mod sky;
+pub mod sky_light;
 pub mod social;
 pub mod splat;
 pub mod state;
@@ -896,13 +897,14 @@ pub(crate) fn build_client_app(app: &mut App, boot: boot_params::BootParams, she
                 .after(prefs::PrefsSystems)
                 .before(ui::theme::sync_theme_from_settings),
         )
-        .add_systems(Startup, setup_lighting)
+        .add_systems(Startup, (setup_lighting, sky_light::setup_sky_light))
         .add_systems(
             Update,
             (
                 clouds::track_cloud_layer_to_camera,
                 clouds::hide_cloud_deck,
                 sky::track_skybox_to_camera,
+                sky_light::update_sky_light,
             ),
         );
     // The sun's shadow cascades follow the orbit zoom (#1475).
@@ -930,13 +932,14 @@ pub(crate) fn build_client_app(app: &mut App, boot: boot_params::BootParams, she
 pub(crate) fn register_headless_atmosphere(app: &mut App) {
     app.add_plugins(MaterialPlugin::<clouds::CloudMaterial>::default())
         .add_plugins(MaterialPlugin::<sky::SkyMaterial>::default())
-        .add_systems(Startup, setup_lighting)
+        .add_systems(Startup, (setup_lighting, sky_light::setup_sky_light))
         .add_systems(
             Update,
             (
                 clouds::track_cloud_layer_to_camera,
                 clouds::hide_cloud_deck,
                 sky::track_skybox_to_camera,
+                sky_light::update_sky_light,
             ),
         );
 }

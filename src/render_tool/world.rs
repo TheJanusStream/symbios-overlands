@@ -388,6 +388,8 @@ pub(super) fn spawn_world_camera(
         // Shore foam reads the opaque prepass depth (see `camera.rs`).
         DepthPrepass,
         crate::camera::default_distance_fog(),
+        // Lit by the room's sky, as the game's camera is (#1680).
+        crate::sky_light::SkyLit,
         Bloom::NATURAL,
         TileCam(0),
         Transform::from_xyz(0.0, 100.0, 150.0).looking_at(Vec3::ZERO, Vec3::Y),

@@ -21,8 +21,9 @@ use crate::state::LiveRoomRecord;
 /// atmosphere sliders, which are tuned by eye, showed nothing at all until
 /// the hand stopped. The debounce is right for the two expensive consumers
 /// (the peer broadcast and the world compile / terrain rebuild) and wrong
-/// for this one, which patches light, fog, sky and cloud uniforms and is
-/// safe at frame rate.
+/// for the cheap ones: this system, which patches light, fog, sky and cloud
+/// uniforms, and `sky_light::update_sky_light`, which rebuilds the sky
+/// light's maps when the sky changed (#1680) - both safe at frame rate.
 ///
 /// A resource rather than a flag on the record because the record's change
 /// tick IS the debounce signal; a second signal is the only way to say
@@ -111,6 +112,9 @@ pub(crate) fn apply_environment_state(
         sun_dir = (-transform.forward().as_vec3()).normalize_or(Vec3::Y);
     }
 
+    // The global ambient light: what lights a camera the sky does not - the
+    // item previews. A sky-lit camera turns its own off and takes the
+    // room's sky in its place, at this same level (`sky_light`, #1680).
     ambient_light.brightness = env.ambient_brightness.0;
 
     let Fp3(sky_c) = env.sky_color;

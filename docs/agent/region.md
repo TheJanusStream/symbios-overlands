@@ -206,9 +206,12 @@ and grass tufts on the open tops broke up the rest.
   elevation since #1669). A dim key light under a dark sky is the moon:
   under 6,000 lux the disc turns pale and under 4,000 it is the moon's; the
   stars come out as `sky_color` darkens, fewer under heavy `cloud_cover`.
-  The shade takes the sky's hue: the ambient light leans from white toward
-  the mean of `sky_color` and `fog_color` (#1669), so a blue sky cools the
-  shadows and a dusty one warms them.
+  Since #1680 the sky also lights the world, in place of a flat ambient
+  light: a roof takes the sky's colour from above, a wall the horizon's
+  from the side and an eave the ground's from below, and anything glossy
+  reflects the sky. `ambient_brightness` is still the level - what an
+  upward face receives - so a blue sky cools the shade and a dusty one
+  warms it, and walls and undersides are a little darker than the ground.
 - **The camera's colour grade** is three fields (#1669): `grade_temperature`
   (warmer `+`, cooler `-`, within 0.06; 0.03 is already clear), `grade_tint`
   (magenta `+`, green `-`, within 0.02; 0.005 is already strong) and
@@ -409,8 +412,9 @@ A forest is a few generators and a scatter placement each:
   touch it (one call takes them all) and add `ground - ground at the
   origin` to its height - or sink it by the drop, or split the piece into
   placements that each snap.
-- **A face turned from the sun is lit by ambient light alone**, so its
-  colour hardly shows: a root plate's soil lightened five times in linear
+- **A face turned from the sun is lit by the sky's light alone** (since
+  #1680 the sky above, the horizon around and the ground below - a wall
+  gets about 0.6 of what the ground does), so its colour hardly shows: a root plate's soil lightened five times in linear
   colour still read nearly black from the shaded side (the Windthrow, seen
   from the pool, faces away from the low WSW sun). Glow is what reads
   there - its violet veins did.
