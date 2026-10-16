@@ -29,14 +29,12 @@
 //! which every stand-in the tests, the docs and the agents lean on keeps its
 //! family - see `the_stand_ins_keep_their_families`.
 //!
-//! Diversity inside a family is NOT one mechanism. A boat, a skiff, a
-//! helicopter or an airplane rolls a [`CraftType`](super::CraftType) and is
-//! drawn by that type's own builder over one profile (#1363, #1364, #1614,
-//! #1617); an airship is
-//! composed by the seeded [`AvatarOutfit`](super::AvatarOutfit) filling slots
-//! from the tagged part catalogue ([`crate::pds::avatar::parts`]) - the last
-//! family that is; a humanoid is a seeded `symbios-avatar` engine record
-//! (#1060). See [`super`]'s header for the three routes.
+//! Diversity inside a family is NOT one mechanism. A vehicle - a boat, a
+//! skiff, a helicopter, an airplane or an airship - rolls a
+//! [`CraftType`](super::CraftType) and is drawn by that type's own builder
+//! over one profile (#1363, #1364, #1614, #1617, #1657); a humanoid is a
+//! seeded `symbios-avatar` engine record (#1060). See [`super`]'s header for
+//! the two routes.
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
@@ -80,7 +78,8 @@ pub enum ChassisFamily {
     /// Hover-boat - one of six seeded craft types, from a sloop to a scow
     /// ([`BoatType`](super::BoatType)).
     Boat,
-    /// Lighter-than-air - envelope + gondola, composed from parts.
+    /// Lighter-than-air - one of the seeded airship types, the rigid
+    /// Zeppelin first ([`AirshipType`](super::AirshipType), #1657).
     Airship,
     /// Rigged figure from the `symbios-avatar` engine, consuming skin / hair
     /// / eye / gait (#1060).

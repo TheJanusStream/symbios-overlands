@@ -9,10 +9,9 @@
 //! and rougher).
 //!
 //! The kit produces ready-to-use [`SovereignMaterialSettings`] for a small
-//! set of named surface roles. Builders and - once the part catalogue
-//! lands - part constructors pass a palette colour to a role method and get
-//! back a fully-finished material, so the style/wear logic lives in exactly
-//! one place instead of being re-derived per builder.
+//! set of named surface roles. Builders pass a palette colour to a role
+//! method and get back a fully-finished material, so the style/wear logic
+//! lives in exactly one place instead of being re-derived per builder.
 
 use bevy_symbios_texture::{fabric::WeaveKind, metal::MetalStyle};
 
@@ -332,14 +331,16 @@ impl MaterialKit {
     // Vehicle finishes (#1363, #1364)
     // -----------------------------------------------------------------------
     //
-    // The seven surfaces a seeded craft is actually made of, as a named
-    // vocabulary rather than a per-type guess. Which COLOUR each one takes is
-    // the fleet's livery list ([`crate::pds::avatar::livery`]); this is only
-    // how each reads. Six of the seven are
-    // deliberately UNTEXTURED, and that is the lesson rather than a shortcut:
-    // a normal-mapped finish on a curved skin renders as scales (#784, the
-    // airship's belly cloth), and at the chase camera's 109 pixels a metre a
-    // sail's weave arrives as rivet dots rather than canvas. Only [`timber`]
+    // The eight surfaces a seeded craft is actually made of, as a named
+    // vocabulary rather than a per-type guess - the airship's doped fabric
+    // the eighth (#1657). Which COLOUR each one takes is the fleet's livery
+    // list ([`crate::pds::avatar::livery`]); this is only how each reads.
+    // Seven of the eight are deliberately UNTEXTURED, and that is the lesson
+    // rather than a shortcut: a normal-mapped finish on a curved skin renders
+    // as scales (#784, the airship's belly cloth), and at the chase camera's
+    // 109 pixels a metre a sail's weave arrives as rivet dots rather than
+    // canvas - and a standing-seam sheet laid on a hull sweep for its
+    // girders ran round it or, turned, spiralled (#1656). Only [`timber`]
     // carries a texture, because a deck is flat enough to take one and plank
     // seams are the one boat surface whose pattern reads at play distance.
 
@@ -347,6 +348,18 @@ impl MaterialKit {
     /// Smooth, faintly waxed, and flat: see the note above.
     pub fn paint(&self, color: [f32; 3]) -> SovereignMaterialSettings {
         self.finish(color, 0.05, 0.42)
+    }
+
+    /// An airship's doped fabric (#1657): the lacquer that tautens and seals
+    /// her hull's cloth, untextured as every vehicle finish is. ALUMINIUM
+    /// dope, the national carriers' silver, carries a soft metallic sheen; a
+    /// coloured dope is a matte coat a little rougher than paint.
+    pub fn dope(&self, color: [f32; 3], aluminium: bool) -> SovereignMaterialSettings {
+        if aluminium {
+            self.finish(color, 0.45, 0.40)
+        } else {
+            self.finish(color, 0.05, 0.58)
+        }
     }
 
     /// Sailcloth and awnings. Matte and untextured - [`Self::cloth`] weaves

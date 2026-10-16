@@ -118,9 +118,10 @@ const SET_DOWN_CLEARANCE_M: f32 = 0.1;
 ///
 /// The spawn's metre ([`cfg::SPAWN_HEIGHT_OFFSET`]) - unless the body is
 /// taller than that, when it is its own half-height and a hand's breadth:
-/// an airship's box reaches its gondola since #1612, up to 1.34 m below its
-/// origin, and set down a metre up its keel started in the ground and was
-/// shoved out of it. An airplane reaches below her box by her gear (#1615):
+/// an airship published between #1612 and #1657 has a box reaching its
+/// slung gondola, up to 1.34 m below its origin, and set down a metre up its
+/// keel started in the ground and was shoved out of it (the seeded Zeppelin
+/// that replaced it stands about a metre tall in all). An airplane reaches below her box by her gear (#1615):
 /// set down on gear taller than the metre leaves, she started with her
 /// wheels pressed into the ground and sprang up off them.
 pub(crate) fn set_down_height(locomotion: &LocomotionConfig) -> f32 {
@@ -685,9 +686,11 @@ mod tests {
     /// Every seeded body is set down clear of the ground by its own box or
     /// capsule (#1612), and never lower than the spawn's metre. The bodies
     /// that ride a suspension - boats and skiffs - keep exactly that metre,
-    /// which their ride heights are measured from; what rises is an airship,
-    /// whose box reaches its gondola, and a person tall enough that the
-    /// metre left their capsule a few millimetres off the ground.
+    /// which their ride heights are measured from; what rises is a long
+    /// airplane on her tall legs and a person tall enough that the metre left
+    /// their capsule a few millimetres off the ground - and an airship
+    /// published before #1657, whose box reaches its slung gondola (the
+    /// seeded Zeppelin stands about a metre tall in all).
     #[test]
     fn every_seeded_body_is_set_down_clear_of_the_ground() {
         let mut raised = 0;
@@ -706,19 +709,26 @@ mod tests {
                 // A helicopter's box is her fuselage, at most 1.5 m tall at
                 // the blueprint's largest corner: half of it and the set-down
                 // clearance is under the stock metre, so she sets down from
-                // the stock height too.
-                ChassisFamily::Boat | ChassisFamily::Skiff | ChassisFamily::Helicopter => {
+                // the stock height too. So does an airship since #1657: the
+                // Zeppelin stands about a metre tall in all, where the old
+                // envelope over its slung gondola stood two.
+                ChassisFamily::Boat
+                | ChassisFamily::Skiff
+                | ChassisFamily::Helicopter
+                | ChassisFamily::Airship => {
                     assert_eq!(height, cfg::SPAWN_HEIGHT_OFFSET, "seed {seed}");
                 }
                 // An airplane stands on her gear (#1617): a long one on her
                 // tall legs reaches past the metre, and is set down higher.
-                ChassisFamily::Airship | ChassisFamily::Humanoid | ChassisFamily::Airplane => {
+                ChassisFamily::Humanoid | ChassisFamily::Airplane => {
                     raised += usize::from(height > cfg::SPAWN_HEIGHT_OFFSET);
                 }
             }
         }
+        // 47 under 400 since #1657 took the airships out of the raised set:
+        // the tall humanoids and the long airplanes are what is left of it.
         assert!(
-            raised > 50,
+            raised > 40,
             "only {raised} bodies under 400 are set down higher"
         );
     }

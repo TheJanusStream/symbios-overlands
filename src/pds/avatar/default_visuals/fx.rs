@@ -263,8 +263,8 @@ fn aura_emitter(
                 ..Default::default()
             }),
         },
-        // Airship chassis floor: a soft pale vapour puff venting under the
-        // gondola, drifting gently down and thinning.
+        // Airship chassis floor: a soft pale vapour puff venting under her
+        // keel, drifting gently down and thinning.
         ParticleAura::Vent => Emitter {
             shape: EmitterShape::Cone {
                 half_angle: Fp(0.45),
@@ -372,16 +372,18 @@ fn voice_patch(voice: AvatarVoice, family: ChassisFamily, seed: u64) -> Option<A
     driven_voice_patch(voice, family, drive_of(family, seed), detune_bucket(seed))
 }
 
-/// How the avatar for `seed` on `family` is driven. A boat, a skiff and a
-/// helicopter each answer for the craft they are DRAWN as (#1383, #1377,
-/// #1614); the airship's rotors are an engine.
+/// How the avatar for `seed` on `family` is driven. Every vehicle answers
+/// for the craft it is DRAWN as (#1383, #1377, #1614, #1617, #1657) - the
+/// Zeppelin's engine cars are an engine, as every old airship's rotors were;
+/// a humanoid has none.
 pub(super) fn drive_of(family: ChassisFamily, seed: u64) -> Propulsion {
     match family {
         ChassisFamily::Boat => super::boats::propulsion(seed),
         ChassisFamily::Skiff => super::skiffs::propulsion(seed),
         ChassisFamily::Helicopter => super::helicopters::propulsion(seed),
         ChassisFamily::Airplane => super::airplanes::propulsion(seed),
-        ChassisFamily::Airship | ChassisFamily::Humanoid => Propulsion::Engine,
+        ChassisFamily::Airship => super::airships::propulsion(seed),
+        ChassisFamily::Humanoid => Propulsion::Engine,
     }
 }
 

@@ -2313,9 +2313,10 @@ pub(crate) mod agent {
     /// published"). Its seeded body walks. `--stand-in` names another, and
     /// with it another body: `did:plc:agentofflinecar22222222e` is a
     /// roadster (a car), `did:plc:agentofflineboat2222222d` a steam tug (a
-    /// hover-boat) and `did:plc:agentofflineair222222222` a twin-envelope
-    /// airship (a helicopter, and the slowest of them to turn) - found with
-    /// the render tool's `--outfit` (#1421, #1430).
+    /// hover-boat) and `did:plc:agentofflineair222222222` an airship (a
+    /// helicopter: a twin envelope, the slowest of them to turn, until #1657
+    /// made every seeded airship a Zeppelin) - found with the render tool's
+    /// `--outfit` (#1421, #1430).
     pub const OFFLINE_DID: &str = "did:plc:agentofflinestandin22222";
     /// The offline agent's handle, on a name that can never resolve.
     pub const OFFLINE_HANDLE: &str = "agent.offline.invalid";

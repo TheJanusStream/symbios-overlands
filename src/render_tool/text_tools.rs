@@ -7,9 +7,10 @@ use crate::pds::avatar::livery;
 use crate::pds::{Generator, GeneratorKind, Placement, RoomRecord};
 use crate::seeded_defaults::hash::fnv1a_64;
 use crate::seeded_defaults::{
-    AirplaneType, ArmouredVariant, AvatarPalette, BoatType, BuggyVariant, ChassisFamily, CraftType,
-    HelicopterType, LongshipVariant, RoadsterBody, RoadsterTop, RoadsterWheels, RoverVariant,
-    RunaboutVariant, ScowLoad, SkiffType, SloopHull, SloopRig, TugVariant, WagonBody,
+    AirplaneType, AirshipType, ArmouredVariant, AvatarPalette, BoatType, BuggyVariant,
+    ChassisFamily, CraftType, HelicopterType, LongshipVariant, RoadsterBody, RoadsterTop,
+    RoadsterWheels, RoverVariant, RunaboutVariant, ScowLoad, SkiffType, SloopHull, SloopRig,
+    TugVariant, WagonBody,
 };
 
 use super::Args;
@@ -73,47 +74,38 @@ fn resolve_craft(name: &str, fam: ChassisFamily) -> CraftType {
     let skiff = SkiffType::ALL.iter().find(|t| t.slug() == name);
     let helicopter = HelicopterType::ALL.iter().find(|t| t.slug() == name);
     let airplane = AirplaneType::ALL.iter().find(|t| t.slug() == name);
-    match (fam, boat, skiff, helicopter, airplane) {
-        (ChassisFamily::Boat, Some(&t), _, _, _) => CraftType::Boat(t),
-        (ChassisFamily::Skiff, _, Some(&t), _, _) => CraftType::Skiff(t),
-        (ChassisFamily::Helicopter, _, _, Some(&t), _) => CraftType::Helicopter(t),
-        (ChassisFamily::Airplane, _, _, _, Some(&t)) => CraftType::Airplane(t),
-        (_, None, None, None, None) => panic!(
+    let airship = AirshipType::ALL.iter().find(|t| t.slug() == name);
+    match (fam, boat, skiff, helicopter, airplane, airship) {
+        (ChassisFamily::Boat, Some(&t), _, _, _, _) => CraftType::Boat(t),
+        (ChassisFamily::Skiff, _, Some(&t), _, _, _) => CraftType::Skiff(t),
+        (ChassisFamily::Helicopter, _, _, Some(&t), _, _) => CraftType::Helicopter(t),
+        (ChassisFamily::Airplane, _, _, _, Some(&t), _) => CraftType::Airplane(t),
+        (ChassisFamily::Airship, _, _, _, _, Some(&t)) => CraftType::Airship(t),
+        (_, None, None, None, None, None) => panic!(
             "unknown craft type {name:?} - boats are {:?}, skiffs are {:?}, helicopters are \
-             {:?}, airplanes are {:?}",
+             {:?}, airplanes are {:?}, airships are {:?}",
             BoatType::ALL.map(BoatType::slug),
             SkiffType::ALL.map(SkiffType::slug),
             HelicopterType::ALL.map(HelicopterType::slug),
-            AirplaneType::ALL.map(AirplaneType::slug)
+            AirplaneType::ALL.map(AirplaneType::slug),
+            AirshipType::ALL.map(AirshipType::slug)
         ),
         _ => panic!("craft type {name:?} is not a {fam:?} - it belongs to another family"),
     }
 }
 
 /// Resolve an avatar `subject` (a `u64` seed or a DID string) to its
-/// [`AvatarOutfit`](crate::seeded_defaults::AvatarOutfit) and character anchor,
-/// matching the derivation the built avatar uses.
-fn outfit_for(
-    subject: &str,
-) -> (
-    crate::seeded_defaults::AvatarCharacter,
-    crate::seeded_defaults::AvatarOutfit,
-) {
-    use crate::seeded_defaults::{AvatarCharacter, AvatarOutfit};
+/// character anchor, matching the derivation the built avatar uses.
+fn character_for(subject: &str) -> crate::seeded_defaults::AvatarCharacter {
+    use crate::seeded_defaults::AvatarCharacter;
     match subject.parse::<u64>() {
-        Ok(seed) => (
-            AvatarCharacter::for_seed(seed),
-            AvatarOutfit::for_seed(seed),
-        ),
-        Err(_) => (
-            AvatarCharacter::for_did(subject),
-            AvatarOutfit::for_did(subject),
-        ),
+        Ok(seed) => AvatarCharacter::for_seed(seed),
+        Err(_) => AvatarCharacter::for_did(subject),
     }
 }
 
-/// The seeded craft type of an avatar `subject`, or `None` for a family
-/// without one (airship, humanoid).
+/// The seeded craft type of an avatar `subject`, or `None` for the one
+/// family without one (the rigged humanoid).
 fn craft_for(subject: &str) -> Option<CraftType> {
     match subject.parse::<u64>() {
         Ok(seed) => CraftType::for_seed(seed),
@@ -121,18 +113,17 @@ fn craft_for(subject: &str) -> Option<CraftType> {
     }
 }
 
-/// Print the resolved outfit for one avatar `subject` (a `u64` seed or a DID):
-/// chassis, style, socio tiers, and each filled slot → part slug. A no-render
-/// survey aid for the avatar overhaul - the built [`Generator`] carries only
-/// geometry (no slugs), so this is the way to see which optional parts an
-/// avatar rolled.
-///
-/// [`Generator`]: crate::pds::generator::Generator
+/// Print what one avatar `subject` (a `u64` seed or a DID) resolves to:
+/// chassis, style, socio tiers, craft type and livery, palette and voice. A
+/// no-render survey aid - the built generator tree carries only geometry, so
+/// this is the way to see what a seed picked. It printed each filled part
+/// slot too until #1657 retired the airship's part catalogue, the last thing
+/// that filled one.
 pub(super) fn print_outfit(subject: &str) {
-    let (character, outfit) = outfit_for(subject);
+    let character = character_for(subject);
     println!(
         "outfit {subject:?}: {:?} / {:?} / ornateness {:?} / wear {:?}",
-        outfit.chassis,
+        character.chassis,
         character.style,
         character.ornateness_tier(),
         character.wear_tier(),
@@ -213,6 +204,10 @@ pub(super) fn print_outfit(subject: &str) {
                     livery::racer_livery(seed, character.style, None).name
                 }
                 CraftType::Airplane(_) => livery::airplane_livery(seed, character.style, None).name,
+                // An airship's is weighted by her theme too (#1657).
+                CraftType::Airship(AirshipType::Zeppelin) => {
+                    livery::zeppelin_livery(seed, character.style, None).name
+                }
             }
         );
         // And the sloop's own two picks (#1366), for every boat drawn as one
@@ -306,39 +301,6 @@ pub(super) fn print_outfit(subject: &str) {
         "  voice: {}",
         crate::pds::avatar::default_visuals::voice_label(seed)
     );
-    for part in &outfit.parts {
-        println!("  {:?} -> {}", part.slot, part.slug);
-    }
-}
-
-/// Scan seeds and print the first `count` whose outfit fills any slot with the
-/// part `slug`, each with its style + socio tiers - answers "which seed rolls
-/// this styled part?" for render-verification. Optional parts are rare (theme +
-/// ornateness gated), so the scan runs to a high seed ceiling before giving up.
-pub(super) fn find_part(slug: &str, count: usize) {
-    use crate::seeded_defaults::{AvatarCharacter, AvatarOutfit};
-    let mut hits = 0usize;
-    println!("seeds rolling part {slug:?}:");
-    for s in 0u64..2_000_000 {
-        let outfit = AvatarOutfit::for_seed(s);
-        if outfit.parts.iter().any(|p| p.slug == slug) {
-            let c = AvatarCharacter::for_seed(s);
-            println!(
-                "  seed {s}: {:?} / {:?} / ornateness {:?} / wear {:?}",
-                outfit.chassis,
-                c.style,
-                c.ornateness_tier(),
-                c.wear_tier()
-            );
-            hits += 1;
-            if hits >= count {
-                return;
-            }
-        }
-    }
-    if hits == 0 {
-        println!("  (none found below seed 2_000_000 - is the slug spelled right?)");
-    }
 }
 
 /// Reproduce a room's heightmap + road configs and print each network's

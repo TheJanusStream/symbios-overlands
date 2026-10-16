@@ -751,7 +751,7 @@ refused beside `--rigged` before the file is read. Sheets are labelled
 `rigged-<file stem>`.
 
 `--avatar` draws `Generator` trees, so it covers the *vehicle* seeds only -
-boat, airship and skiff. A humanoid seed rolls a rigged
+boat, skiff, helicopter, airplane and airship. A humanoid seed rolls a rigged
 `symbios-avatar` body with no tree to walk, and the tool refuses it by name
 rather than rendering an empty sheet; a rigged body is drawn from its record
 with `--rigged` instead, and the sibling `bevy_symbios_avatar` viewer's own
@@ -875,13 +875,9 @@ cargo run --bin render -- --family-seeds skiff --family-count 8
 cargo run --bin render -- --family-seeds boat --craft longship --family-count 6
 # Dump a catalogue entry's generator JSON (edit + re-render via --generator):
 cargo run --bin render -- --dump --catalogue neon_kiosk
-# Print one avatar's resolved outfit (chassis / style / socio tiers / slot→slug):
+# Print what one avatar resolves to (chassis / style / socio tiers / craft
+# type / livery / palette / voice):
 cargo run --bin render -- --outfit 7
-# Scan seeds for one that rolls a styled part (capped by --family-count):
-# The AIRSHIP is the last family with parts, so its slugs are the only ones
-# this can find (#1363, #1364): an ornament is the selective case, rolled on
-# the ornate tiers alone.
-cargo run --bin render -- --find-part airship_orn_lanterns
 # Gateway veil-vs-frame fit report - one slug, or `all`:
 cargo run --bin render -- --gateway-fit all
 # Plinth-depth audit of every settlement-placeable entry (`all` lists the
@@ -963,7 +959,7 @@ cargo run --bin render -- --world <did> --world-record room.json --ambient-wav b
 cargo run --bin render -- --stitch /tmp/a-frames,/tmp/b-frames --out /tmp/ab.gif
 ```
 
-`--outfit`, `--find-part`, `--describe`, `--room-census`, `--foundation-audit`
+`--outfit`, `--describe`, `--room-census`, `--foundation-audit`
 and `--gateway-fit` only roll records or build catalogue trees, so they return
 quickly, and `--terrain-report` builds one heightmap (about half a second;
 `--triangle-report` builds one before its no-renderer app - a road network's
@@ -1142,7 +1138,8 @@ the agent knows it works (#1452).
 `--stand-in` (offline only) takes another identity's seeded world and body -
 `did:plc:agentofflinecar22222222e` is a roadster,
 `did:plc:agentofflineboat2222222d` a steam tug,
-`did:plc:agentofflineair222222222` a twin-envelope airship - and the other
+`did:plc:agentofflineair222222222` an airship (a twin envelope until #1657,
+a Zeppelin since) - and the other
 commands reach it with `--account <DID>`; `--room <DID>` puts it in another
 seeded world. Either DID has to be well formed (`did:plc:` and 24 of `a-z`
 and `2-7`): the directory refuses a malformed one, which the loading screen

@@ -323,12 +323,12 @@ mod inert_panel_tests {
     use bevy_egui::egui;
 
     /// One seed per craft type from the craft pin's own hunt (#1380), plus
-    /// an airship and a humanoid: twenty-three records, every locomotion
-    /// preset a seed can produce - the airplanes' since #1623, the
-    /// autogyro's since #1624, the twin's since #1625, the coaxial's since
-    /// #1628, the racer's since #1629 and the tandem's since #1630. The two
-    /// non-craft families are found by pinning the chassis, which is the
-    /// only axis they have.
+    /// a humanoid: twenty-three records, every locomotion preset a seed can
+    /// produce - the airplanes' since #1623, the autogyro's since #1624, the
+    /// twin's since #1625, the coaxial's since #1628, the racer's since
+    /// #1629, the tandem's since #1630 and the Zeppelin's since #1657, when
+    /// the airship stopped being a non-craft family. The humanoid is found by
+    /// pinning the chassis, which is the only axis it has.
     fn seeded_fleet() -> Vec<(String, u64, AvatarRecord)> {
         let mut out = Vec::new();
         for craft in CraftType::BOATS
@@ -336,6 +336,7 @@ mod inert_panel_tests {
             .chain(CraftType::SKIFFS)
             .chain(CraftType::HELICOPTERS)
             .chain(CraftType::AIRPLANES)
+            .chain(CraftType::AIRSHIPS)
         {
             let mut pins = AvatarPins::default();
             pins.lock_craft(Some(craft));
@@ -348,18 +349,14 @@ mod inert_panel_tests {
                 AvatarRecord::default_for_seed(seed),
             ));
         }
-        for family in [ChassisFamily::Airship, ChassisFamily::Humanoid] {
-            let mut pins = AvatarPins::default();
-            pins.set_chassis(Some(family));
-            let seed = pins
-                .find_seed(0)
-                .unwrap_or_else(|| panic!("{} is reachable", family.label()));
-            out.push((
-                family.label().to_string(),
-                seed,
-                AvatarRecord::default_for_seed(seed),
-            ));
-        }
+        let mut pins = AvatarPins::default();
+        pins.set_chassis(Some(ChassisFamily::Humanoid));
+        let seed = pins.find_seed(0).expect("the humanoid is reachable");
+        out.push((
+            ChassisFamily::Humanoid.label().to_string(),
+            seed,
+            AvatarRecord::default_for_seed(seed),
+        ));
         out
     }
 

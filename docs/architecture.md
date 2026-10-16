@@ -204,10 +204,10 @@ almost everything downstream:
 - **`#generator`** - the classic `Generator` tree, spawned by the avatar-side
   spawner back through the world compiler's own primitive / L-system /
   shape-grammar machinery. This is the vehicle families: boat, airship,
-  skiff, helicopter and airplane - whether the tree came from the part
-  catalogue (the airship) or from a craft type's own builder (the boat since
-  #1363, the skiff since #1364, the helicopter since #1614, the airplane
-  since #1617).
+  skiff, helicopter and airplane - each tree from a craft type's own builder
+  (the boat since #1363, the skiff since #1364, the helicopter since #1614,
+  the airplane since #1617 and the airship since #1657, when the last part
+  catalogue retired).
 - **Neither** - two marker variants that never appear on the wire. A record
   published *before* the union has no `body` field at all, and is treated as
   *no record*: the seeded default is synthesised, matching the record layer's
@@ -459,15 +459,15 @@ generation cores shared with the wasm Web Worker.
   families (boat / airship / humanoid / skiff / helicopter / airplane) plus
   its palette, body proportions and gait. The family is a two-stage pick
   (#1614): a sixth of seeds are helicopters, a sixth airplanes (#1617), and
-  the rest keep the four-way pick they always had. The airship alone
-  assembles its geometry from a tagged outfit the part catalogue fills. The
-  boat, the land-skiff, the helicopter and the airplane do not: since #1363,
-  #1364, #1614 and #1617 each is drawn by one builder per seeded craft type,
-  reading every line and mount off a single profile - `HullProfile` for the
-  boat, `BodyPlan` for the skiff, `PodPlan` for the helicopter, `FusePlan`
-  for the airplane, whose record also carries where her drawn wheels stand
-  so the physics sits her tail-down on them - which is what
-  stopped their trim floating and their mounts needing embed fudge factors. The humanoid family short-circuits both
+  the rest keep the four-way pick they always had. Every vehicle family is
+  drawn by one builder per seeded craft type, reading every line and mount
+  off a single profile - `HullProfile` for the boat (#1363), `BodyPlan` for
+  the skiff (#1364), `PodPlan` for the helicopter (#1614), `FusePlan` for
+  the airplane (#1617), whose record also carries where her drawn wheels
+  stand so the physics sits her tail-down on them, and `HullPlan` for the
+  airship (#1657), the last family to leave the tagged part catalogue and
+  the outfit that filled its slots - which is what stopped their trim
+  floating and their mounts needing embed fudge factors. The humanoid family short-circuits both
   pipelines and rolls a seeded `symbios-avatar` engine record instead, whose
   stature the locomotion capsule is then cut to.
 - [`src/catalogue/`](../src/catalogue/) - code-shipped read-only library of
@@ -550,7 +550,7 @@ generation cores shared with the wasm Web Worker.
   drags on the same clock),
   plus the no-render text modes - offline diagnostics (`--analyze-session`,
   `--diff-sessions`, `--road-dump`), the survey/dump tools (`--family-seeds`,
-  `--outfit`, `--find-part`, `--dump`, `--describe`) and the content
+  `--outfit`, `--dump`, `--describe`) and the content
   audits the overhaul loop runs on (`--room-census`, `--scatter-census`,
   `--settlement-drop`, `--foundation-audit`, `--gateway-fit`, plus
   `--scatter-plot`, which prints nothing and instead writes a plan-view PNG of

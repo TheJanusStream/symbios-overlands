@@ -48,7 +48,7 @@ pub enum ParticleAura {
     Embers,
     /// Boat chassis floor: a low whitewater wake-mist off the stern.
     Wake,
-    /// Airship chassis floor: a soft vapour puff venting under the gondola.
+    /// Airship chassis floor: a soft vapour puff venting under her keel.
     Vent,
     /// Skiff, helicopter and airplane chassis floor: a thin exhaust wisp
     /// off the tailpipe, a turbine's stack, or the stack under a cowl.

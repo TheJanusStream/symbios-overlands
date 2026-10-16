@@ -67,8 +67,8 @@ pub(super) fn spawn_local_player(
     // form (`pos=x,z`) keeps the heightmap-resolved height.
     let oy = match pose_pos.and_then(|p| p.y) {
         Some(y) => y,
-        // As high as the body needs: an airship's box reaches its gondola
-        // (#1612).
+        // As high as the body needs: an airship published before #1657 has
+        // a box reaching its slung gondola (#1612).
         None => ground_y + super::preset::set_down_height(&live.0.locomotion),
     };
     let (ox, oz) = (rx, rz);

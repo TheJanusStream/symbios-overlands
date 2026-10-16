@@ -1,9 +1,11 @@
 //! One hull profile per boat, and every line and mount read off it.
 //!
-//! The boat's counterpart of the airship's
-//! [`EnvProfile`](crate::pds::avatar::parts::defaults::airship), and for the
-//! same reason. The airship works because a single profile function feeds the
-//! envelope, every trim line and every mount, so nothing it carries can float;
+//! The boat's counterpart of the old airship's envelope profile (the
+//! `EnvProfile` #1657 retired with the airship's part catalogue; her craft
+//! types read [`HullPlan`](super::super::airships::HullPlan) now), and for
+//! the same reason. The airship worked because a single profile function fed
+//! the envelope, every trim line and every mount, so nothing it carried could
+//! float;
 //! the boat did not, because its hull was a blob iso-surface nobody could
 //! predict, and the rails, the bow fitting and the funnel were seated on
 //! guessed fractions with hand-tuned embed constants to stop them hanging in

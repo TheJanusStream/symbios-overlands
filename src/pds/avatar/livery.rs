@@ -1398,6 +1398,233 @@ pub fn tandem_livery(
     pick(TANDEM_LIVERIES, |l| l.weight(style), seed, over)
 }
 
+/// An airship's scheme (#1657): the doped hull, the fins, the rudders and
+/// the car, as the owner agreed the form on the phase-1 renders (#1656) -
+/// doped silver with red rudders, cream and maroon, navy silver and yellow,
+/// charcoal and crimson were the sketches they saw.
+///
+/// Weighted by THEME, as the aircraft lists are: a ship's paint says what
+/// line she flies for - the national carrier's silver, the luxury liner's
+/// cream, the navy's grey and yellow, the raider's charcoal - so each theme
+/// weighs the lines it would fly, and the two civil classics stay open to
+/// every theme. The seeded accent goes on the identity slot and nowhere
+/// else: the cheat line down each flank of her hull.
+#[derive(Clone, Copy, Debug)]
+pub struct AirshipLivery {
+    /// See [`BoatLivery::name`].
+    pub name: &'static str,
+    /// The themes the scheme is at home on.
+    home: &'static [ThemeArchetype],
+    /// Whether every theme can roll it - see [`AIRSHIP_FLOOR`].
+    floor: bool,
+    /// The hull, its nose cap and its gas-valve hoods.
+    hull: [f32; 3],
+    /// Whether the hull is ALUMINIUM dope - a metallic sheen - rather than a
+    /// coloured one ([`MaterialKit::dope`]).
+    aluminium: bool,
+    /// The four fins.
+    fins: [f32; 3],
+    /// The rudders and elevators, the car's cheat line and the engine
+    /// cars' noses.
+    trim: [f32; 3],
+    /// The control car and the engine cars.
+    car: [f32; 3],
+}
+
+impl AirshipLivery {
+    /// This scheme's share of the draw on `style`.
+    fn weight(&self, style: ThemeArchetype) -> u32 {
+        let floor = if self.floor { AIRSHIP_FLOOR } else { 0 };
+        floor
+            + if self.home.contains(&style) {
+                AIRSHIP_AT_HOME
+            } else {
+                0
+            }
+    }
+}
+
+/// An airship scheme's weight on a theme it is at home on, and the floor the
+/// two civil classics carry on every theme - the craft-type pick's own six
+/// and two, as the helicopter's are.
+const AIRSHIP_AT_HOME: u32 = 6;
+const AIRSHIP_FLOOR: u32 = 2;
+
+const DOPED_SILVER: [f32; 3] = [0.72, 0.73, 0.74];
+const LINER_CREAM: [f32; 3] = [0.86, 0.82, 0.70];
+const LINER_MAROON: [f32; 3] = [0.40, 0.08, 0.10];
+
+/// The Zeppelin's ten schemes (#1657). The first four are the phase-1
+/// sketches (#1656); every theme is at home on at least one
+/// (`every_theme_is_at_home_on_a_zeppelin_scheme`).
+pub const ZEPPELIN_LIVERIES: &[AirshipLivery] = &[
+    AirshipLivery {
+        name: "Doped silver",
+        home: &[
+            ThemeArchetype::ModernCity,
+            ThemeArchetype::CivicCampus,
+            ThemeArchetype::IndustrialPark,
+            ThemeArchetype::Nordic,
+            ThemeArchetype::Roadside,
+        ],
+        floor: true,
+        hull: DOPED_SILVER,
+        aluminium: true,
+        fins: DOPED_SILVER,
+        trim: [0.62, 0.09, 0.07],
+        car: [0.80, 0.80, 0.78],
+    },
+    AirshipLivery {
+        name: "Cream and maroon",
+        home: &[
+            ThemeArchetype::AncientClassical,
+            ThemeArchetype::CoastalResort,
+            ThemeArchetype::Suburban,
+            ThemeArchetype::Fantasy,
+        ],
+        floor: true,
+        hull: LINER_CREAM,
+        aluminium: false,
+        fins: LINER_MAROON,
+        trim: LINER_MAROON,
+        car: LINER_MAROON,
+    },
+    AirshipLivery {
+        name: "Navy silver and yellow",
+        home: &[
+            ThemeArchetype::SportsRec,
+            ThemeArchetype::CoastalResort,
+            ThemeArchetype::Nordic,
+            ThemeArchetype::SpaceOutpost,
+            ThemeArchetype::Roadside,
+        ],
+        floor: false,
+        hull: [0.62, 0.66, 0.70],
+        aluminium: true,
+        fins: [0.62, 0.66, 0.70],
+        trim: [0.92, 0.70, 0.10],
+        car: [0.10, 0.16, 0.30],
+    },
+    AirshipLivery {
+        name: "Charcoal and crimson",
+        home: &[
+            ThemeArchetype::GothicHorror,
+            ThemeArchetype::Cyberpunk,
+            ThemeArchetype::AlienMonolithic,
+            ThemeArchetype::Pirate,
+        ],
+        floor: false,
+        hull: [0.22, 0.23, 0.25],
+        aluminium: false,
+        fins: [0.22, 0.23, 0.25],
+        trim: [0.66, 0.08, 0.10],
+        car: [0.10, 0.10, 0.11],
+    },
+    AirshipLivery {
+        name: "Olive drab",
+        home: &[
+            ThemeArchetype::PostApoc,
+            ThemeArchetype::WildWest,
+            ThemeArchetype::Medieval,
+            ThemeArchetype::IndustrialPark,
+        ],
+        floor: false,
+        hull: [0.33, 0.36, 0.24],
+        aluminium: false,
+        fins: [0.33, 0.36, 0.24],
+        trim: [0.10, 0.10, 0.09],
+        car: [0.28, 0.30, 0.20],
+    },
+    AirshipLivery {
+        name: "Ivory and gold",
+        home: &[
+            ThemeArchetype::AncientClassical,
+            ThemeArchetype::CivicCampus,
+            ThemeArchetype::Fantasy,
+            ThemeArchetype::Mesoamerican,
+            ThemeArchetype::FeudalJapan,
+        ],
+        floor: false,
+        hull: [0.90, 0.88, 0.80],
+        aluminium: false,
+        fins: [0.90, 0.88, 0.80],
+        trim: [0.78, 0.60, 0.22],
+        car: [0.92, 0.90, 0.84],
+    },
+    AirshipLivery {
+        name: "Oxblood and brass",
+        home: &[
+            ThemeArchetype::Steampunk,
+            ThemeArchetype::GothicHorror,
+            ThemeArchetype::WildWest,
+            ThemeArchetype::Pirate,
+        ],
+        floor: false,
+        hull: [0.36, 0.09, 0.07],
+        aluminium: false,
+        fins: [0.36, 0.09, 0.07],
+        trim: [0.72, 0.55, 0.22],
+        car: [0.28, 0.18, 0.10],
+    },
+    AirshipLivery {
+        name: "Sky blue and white",
+        home: &[
+            ThemeArchetype::Solarpunk,
+            ThemeArchetype::SportsRec,
+            ThemeArchetype::Suburban,
+            ThemeArchetype::RuralFarmland,
+            ThemeArchetype::SpaceOutpost,
+        ],
+        floor: false,
+        hull: [0.62, 0.76, 0.88],
+        aluminium: false,
+        fins: [0.92, 0.92, 0.90],
+        trim: [0.92, 0.92, 0.90],
+        car: [0.92, 0.92, 0.90],
+    },
+    AirshipLivery {
+        name: "Forest green and cream",
+        home: &[
+            ThemeArchetype::Solarpunk,
+            ThemeArchetype::AlienOrganic,
+            ThemeArchetype::RuralFarmland,
+            ThemeArchetype::Medieval,
+            ThemeArchetype::Nordic,
+        ],
+        floor: false,
+        hull: [0.16, 0.30, 0.20],
+        aluminium: false,
+        fins: [0.16, 0.30, 0.20],
+        trim: [0.88, 0.85, 0.74],
+        car: [0.88, 0.85, 0.74],
+    },
+    AirshipLivery {
+        name: "Lacquer red and black",
+        home: &[
+            ThemeArchetype::FeudalJapan,
+            ThemeArchetype::Mesoamerican,
+            ThemeArchetype::Cyberpunk,
+        ],
+        floor: false,
+        hull: [0.62, 0.10, 0.07],
+        aluminium: false,
+        fins: [0.06, 0.06, 0.06],
+        trim: [0.06, 0.06, 0.06],
+        car: [0.06, 0.06, 0.06],
+    },
+];
+
+/// The scheme this Zeppelin seed wears on `style`, a pick from
+/// [`ZEPPELIN_LIVERIES`]; `over` wraps inside it (`render --livery 0` is
+/// Doped silver, `1` Cream and maroon).
+pub fn zeppelin_livery(
+    seed: u64,
+    style: ThemeArchetype,
+    over: Option<usize>,
+) -> &'static AirshipLivery {
+    pick(ZEPPELIN_LIVERIES, |l| l.weight(style), seed, over)
+}
+
 /// An airplane's scheme (#1617): the two hues of her airframe, as the owner
 /// agreed the form on the phase-5 renders - "two hues plus dark glass and a
 /// contrasting jewel window light", with "the scheme list per theme, as the
@@ -2031,12 +2258,13 @@ fn floor_finished(m: &MaterialKit, c: [f32; 3], min_l: f32) -> [f32; 3] {
 /// Hold `c` at least `delta` clear of `ref_l` in value, moving it to the side
 /// that has room: UP off a dark mass, DOWN off a pale one.
 ///
-/// [`super::colour::ensure_delta`] is the general helper and it keeps whichever
-/// side the colour already sits on, which is right for two surfaces of one
-/// garment. It is wrong for a trim line on a livery, and the failure is
-/// specific: on a MID-dark mass - a mahogany hull at 0.20, a maroon car at
-/// 0.11 - a dark accent is pushed further down, hits `ensure_delta`'s own 0.04
-/// floor, and the boot stripe paints itself black on a dark hull. Choosing the
+/// The general helper this replaced, `ensure_delta` (retired with the part
+/// catalogue that last called it, #1657), kept whichever side the colour
+/// already sat on, which was right for two surfaces of one garment. It is
+/// wrong for a trim line on a livery, and the failure is specific: on a
+/// MID-dark mass - a mahogany hull at 0.20, a maroon car at 0.11 - a dark
+/// accent is pushed further down, hits that helper's own 0.04 floor, and the
+/// boot stripe paints itself black on a dark hull. Choosing the
 /// side by the mass rather than by the accent is what makes the trim legible
 /// on every scheme in the list rather than on most of them (#1365).
 fn clear_of(c: [f32; 3], ref_l: f32, delta: f32) -> [f32; 3] {
@@ -4274,6 +4502,85 @@ pub(crate) fn tandem_colours(ctx: &PartCtx) -> TandemColours {
     }
 }
 
+/// The surfaces the Zeppelin is built in (#1657): her scheme's hull, fins,
+/// rudders and car, the seeded accent on the cheat line down each flank of
+/// her hull, and the colours the rest of her simply is - bare metal, dark
+/// struts, varnished airscrews.
+///
+/// What is lit, as the owner saw it on the phase-1 renders (#1656): the
+/// passenger deck low on each flank of her hull and the window band round
+/// her control car, which are the fleet's lit window (the tertiary's
+/// light, standing off the hull it lies on); and her nav lights on the
+/// horizontal fins and the white light at her tail, which are lamps and
+/// glow on every theme. The cheat line goes through [`trim`], so it lights
+/// on a luminous kit and is paint on every other.
+pub(crate) struct AirshipColours {
+    /// The hull and its battened nose cap: the scheme's dope, floored off mud
+    /// on a battered kit.
+    pub(crate) hull: SovereignMaterialSettings,
+    /// The gas-valve hoods along her crown and the nose cap's battens: the
+    /// hull's dope a shade down.
+    pub(crate) hood: SovereignMaterialSettings,
+    /// The four fins.
+    pub(crate) fins: SovereignMaterialSettings,
+    /// The rudders and elevators, the car's cheat line and the engine cars'
+    /// noses: the scheme's trim.
+    pub(crate) trim: SovereignMaterialSettings,
+    /// **Identity.** The cheat line down each flank of her hull: the
+    /// coachline's rule, held clear of the hull it lies on.
+    pub(crate) stripe: SovereignMaterialSettings,
+    /// The control car and the engine cars' nacelles.
+    pub(crate) car: SovereignMaterialSettings,
+    /// The passenger deck and the car's window band: the tertiary's light,
+    /// standing off her hull.
+    pub(crate) lamp: SovereignMaterialSettings,
+    /// The mooring cone, the tail cap and the airscrews' bosses.
+    pub(crate) metal: SovereignMaterialSettings,
+    /// The engine cars' struts, the car's bumper and the hidden hubs.
+    pub(crate) dark: SovereignMaterialSettings,
+    /// The airscrews' blades: varnished wood.
+    pub(crate) wood: SovereignMaterialSettings,
+    /// The nav light on her left (port) fin: red, as on every aircraft.
+    pub(crate) port: SovereignMaterialSettings,
+    /// The nav light on her right (starboard) fin: green.
+    pub(crate) starboard: SovereignMaterialSettings,
+    /// The white light at her tail.
+    pub(crate) white: SovereignMaterialSettings,
+}
+
+/// The airscrews' varnished wood.
+const AIRSCREW_WOOD: [f32; 3] = [0.42, 0.26, 0.13];
+
+pub(crate) fn airship_colours(ctx: &PartCtx) -> AirshipColours {
+    let p = &ctx.palette;
+    let m = &ctx.materials;
+    let style = AvatarCharacter::for_seed(ctx.seed).style;
+    let l = zeppelin_livery(ctx.seed, style, ctx.livery);
+    let hull = floor_finished(m, l.hull, HELI_MASS_FLOOR);
+    let dope = m.dope(hull, l.aluminium);
+    // Off the hull as it is DOPED, as the tandem's panes are off her paint:
+    // a kit's grime moves it, and amber on a cream hull reads as paint.
+    let lamp = window_material(standing_off(
+        window_light(p.tertiary_accent),
+        dope.base_color.0,
+    ));
+    AirshipColours {
+        hood: m.dope(shade(hull, 0.82), l.aluminium),
+        hull: dope,
+        fins: m.dope(floor_finished(m, l.fins, HELI_MASS_FLOOR), l.aluminium),
+        trim: m.paint(floor_finished(m, l.trim, HELI_MASS_FLOOR)),
+        stripe: trim(m, clear_of(p.primary_accent, luma(hull), COACHLINE_DELTA)),
+        car: m.paint(floor_finished(m, l.car, HELI_MASS_FLOOR)),
+        lamp,
+        metal: m.paint(HELI_METAL),
+        dark: m.paint(HELI_DARK),
+        wood: m.brightwork(AIRSCREW_WOOD),
+        port: m.glow(NAV_RED),
+        starboard: m.glow(NAV_GREEN),
+        white: m.glow(LAMP_WHITE),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5492,6 +5799,93 @@ mod tests {
             drawn.iter().all(|&n| n > 0),
             "a helicopter scheme is never drawn: {drawn:?}"
         );
+    }
+
+    /// Every theme is at home on at least one of the Zeppelin's schemes and
+    /// reaches at least two, the two civil classics are the floors, and
+    /// every scheme is drawn by some seed (#1657) - her list's three
+    /// promises, as the helicopter's are kept.
+    #[test]
+    fn every_theme_is_at_home_on_a_zeppelin_scheme() {
+        for l in ZEPPELIN_LIVERIES {
+            assert!(
+                ThemeArchetype::ALL.iter().any(|s| l.home.contains(s)),
+                "{} is at home on no theme",
+                l.name
+            );
+        }
+        for style in ThemeArchetype::ALL {
+            let home = ZEPPELIN_LIVERIES
+                .iter()
+                .filter(|l| l.home.contains(&style))
+                .count();
+            assert!(home >= 1, "{style:?} is at home on no Zeppelin scheme");
+            let reachable = ZEPPELIN_LIVERIES
+                .iter()
+                .filter(|l| l.weight(style) > 0)
+                .count();
+            assert!(reachable >= 2, "{style:?} reaches {reachable} scheme(s)");
+        }
+        let floors: Vec<&str> = ZEPPELIN_LIVERIES
+            .iter()
+            .filter(|l| l.floor)
+            .map(|l| l.name)
+            .collect();
+        assert_eq!(floors, ["Doped silver", "Cream and maroon"]);
+        let mut drawn = vec![0usize; ZEPPELIN_LIVERIES.len()];
+        for s in 0u64..4_000 {
+            let style = AvatarCharacter::for_seed(s).style;
+            let l = zeppelin_livery(s, style, None);
+            drawn[ZEPPELIN_LIVERIES
+                .iter()
+                .position(|x| x.name == l.name)
+                .expect("the pick came from the table")] += 1;
+        }
+        assert!(
+            drawn.iter().all(|&n| n > 0),
+            "a Zeppelin scheme is never drawn: {drawn:?}"
+        );
+    }
+
+    /// The Zeppelin's colours read on every scheme of her list (#1657): her
+    /// cheat line - the seed's accent - stands off the hull it lies on, her
+    /// lit windows stand off it too, and her nav lights and tail light glow
+    /// on every kit.
+    #[test]
+    fn a_zeppelins_cheat_line_and_lights_read_on_every_scheme() {
+        for s in (0u64..900).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Airship) {
+            for (i, scheme) in ZEPPELIN_LIVERIES.iter().enumerate() {
+                let mut ctx = PartCtx::for_seed(s);
+                ctx.livery = Some(i);
+                let c = airship_colours(&ctx);
+                let hull = luma(c.hull.base_color.0);
+                if !ctx.materials.emissive_accents() {
+                    let stripe = luma(c.stripe.base_color.0);
+                    // On the FINISHED surfaces, grime and all, as the
+                    // helicopter's stripes are held.
+                    assert!(
+                        (stripe - hull).abs() > COACHLINE_DELTA * 0.6,
+                        "seed {s} on {}: the cheat line ({stripe:.2}) is lost on the hull \
+                         ({hull:.2})",
+                        scheme.name
+                    );
+                }
+                for (what, lamp) in [
+                    ("port", &c.port),
+                    ("starboard", &c.starboard),
+                    ("tail", &c.white),
+                ] {
+                    assert!(
+                        lamp.emission_strength.0 > 0.0,
+                        "seed {s}: her {what} light is dark"
+                    );
+                }
+                assert!(
+                    c.lamp.emission_strength.0 > 0.0,
+                    "seed {s}: her windows are dark"
+                );
+            }
+        }
     }
 
     /// A helicopter's colours read on every scheme of her list, on every

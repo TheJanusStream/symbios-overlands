@@ -9,9 +9,9 @@
 //!
 //! **The humanoid family is rigged now** (#1060, epic #1054). The five
 //! vehicle families build a [`crate::pds::Generator`] tree, one module each -
-//! the [`airship`] out of the tagged part catalogue, [`boats`], [`skiffs`],
-//! [`helicopters`] and [`airplanes`] from their own craft-type builders (see
-//! the next paragraph); a humanoid
+//! [`boats`], [`skiffs`], [`helicopters`], [`airplanes`] and [`airships`],
+//! each from its own craft-type builders (see the next paragraphs); a
+//! humanoid
 //! instead resolves to a
 //! parametric `symbios-avatar` body rolled from the same seed. That body
 //! is filled in **locally** rather than fetched: the engine's roll is
@@ -39,10 +39,16 @@
 //! [`AirplaneType`](crate::seeded_defaults::AirplaneType) over one fuselage
 //! plan, her record carrying where her drawn wheels stand.
 //!
+//! **And the airship, last** (#1657, epic #1656): the one family that was
+//! still assembled from a tagged part catalogue is one builder per
+//! [`AirshipType`](crate::seeded_defaults::AirshipType) over one hull plan,
+//! and the catalogue, the outfit that filled its slots and the assembler
+//! that hung them together are gone.
+//!
 //! Shared primitive/material vocabulary lives in [`common`].
 
 mod airplanes;
-mod airship;
+mod airships;
 mod assemble;
 mod boats;
 pub(crate) mod common;
@@ -50,14 +56,14 @@ mod fx;
 mod helicopters;
 mod skiffs;
 
-use crate::pds::avatar::parts::PartSlot;
 // Aliased: `crate::seeded_defaults::AvatarBody` (imported below) is the
 // seeded *proportions* anchor, a different thing with the same name.
 use crate::pds::avatar::body::AvatarBody as RecordBody;
 use crate::pds::types::{Fp, Fp3};
 use crate::seeded_defaults::{
-    AvatarFx, AvatarGait, AvatarOutfit, AvatarPalette, ChassisFamily, NOMINAL_BODY_LEN,
-    NOMINAL_FUSELAGE_LEN, NOMINAL_HULL_LEN, ParticleAura, VehicleBlueprint, fnv1a_64,
+    AirshipBlueprint, AvatarFx, AvatarGait, AvatarPalette, ChassisFamily, NOMINAL_AIRSHIP_LEN,
+    NOMINAL_BODY_LEN, NOMINAL_FUSELAGE_LEN, NOMINAL_HULL_LEN, ParticleAura, VehicleBlueprint,
+    fnv1a_64,
 };
 
 use super::gait::GaitParams;
@@ -348,10 +354,7 @@ fn build_seeded(seed: u64, livery: Option<usize>) -> (RecordBody, LocomotionConf
     // `apply_travel_pose`'s signature.
     let (mut visuals, loco) = match family {
         ChassisFamily::Boat => (boats::build(seed, livery), boat_locomotion(seed)),
-        ChassisFamily::Airship => {
-            let (visuals, half_height) = airship::build(seed);
-            (visuals, airship_locomotion(seed, half_height))
-        }
+        ChassisFamily::Airship => (airships::build(seed, livery), airship_locomotion(seed)),
         ChassisFamily::Skiff => (skiffs::build(seed, livery), skiff_locomotion(seed)),
         ChassisFamily::Helicopter => (
             helicopters::build(seed, livery),
@@ -421,10 +424,8 @@ fn engine_stature(seed: u64) -> f32 {
 /// to a per-family constant if the blueprint is unavailable (never for a real
 /// vehicle).
 ///
-/// The two families still assembled from parts author in a frame their
-/// assembler scales at the root, so their stations are authoring-frame metres
-/// and grow with the craft; a boat is drawn at the size she is authored at and
-/// has no such factor.
+/// Every family is drawn at the size it is authored at (#1657 retired the
+/// last assembled from parts), so a mount is in true metres.
 ///
 /// Vehicles author their stern at local `-Z`, so an aft mount rides behind the
 /// craft once the 180° travel-facing yaw is applied.
@@ -436,9 +437,9 @@ fn fx_mount(aura: ParticleAura, family: ChassisFamily, seed: u64) -> [f32; 3] {
         // drew it (#1363) - a wake leaves the transom of the boat that is
         // actually there, not a fraction of a nominal one.
         ChassisFamily::Boat => boats::fx_mount(seed, aura).unwrap_or([0.0, 0.1, -0.8]),
-        // Vents / thruster wash / motes all issue from beneath the slung
-        // gondola - the assembler's belly line, tracking the chosen envelope.
-        ChassisFamily::Airship => airship::fx_belly_anchor(seed),
+        // An airship's, likewise off her own hull (#1657): from under her
+        // keel amidships, as the old one's issued from under her gondola.
+        ChassisFamily::Airship => airships::fx_mount(seed, aura).unwrap_or([0.0, -0.5, 0.0]),
         // A skiff's aura is read off its own body by the craft type that drew
         // it (#1364) - an exhaust wisp leaves the pipe mouth of the machine
         // that is actually there, not a fraction of a nominal one.
@@ -452,19 +453,6 @@ fn fx_mount(aura: ParticleAura, family: ChassisFamily, seed: u64) -> [f32; 3] {
         // her cabin.
         ChassisFamily::Airplane => airplanes::fx_mount(seed, aura).unwrap_or([0.0, -0.3, 0.0]),
     }
-}
-
-/// The slug of the part filling `slot` in this seed's outfit (the discrete
-/// envelope / chassis *class* - twin vs zeppelin, armored vs dune - which is a
-/// part slug, not an enum), or `""` if unfilled. Boats have no parts and no
-/// class since #1363: their discrete pick is a [`BoatType`](crate::seeded_defaults::BoatType), and the type
-/// carries the feel.
-fn structural_slug(outfit: &AvatarOutfit, slot: PartSlot) -> &'static str {
-    outfit
-        .parts
-        .iter()
-        .find(|p| p.slot == slot)
-        .map_or("", |p| p.slug)
 }
 
 /// The gait cadence, in steps a second, at which a seeded humanoid travels
@@ -512,9 +500,8 @@ fn humanoid_locomotion(seed: u64) -> LocomotionConfig {
 // baselines inverted the visual story: `HoverBoatParams::default` was the
 // legacy 50 kg rover tuning (drive 1800 N → 36 m/s²), so the barge
 // out-accelerated the 900 kg skiff four-to-one. These derive mass + forces
-// from the craft's discrete pick - a boat's [`BoatType`] since #1363, an
-// envelope or chassis class for the two families still assembled from parts -
-// and the seeded blueprint dimensions, keeping the drive **acceleration**
+// from the craft's discrete pick - its craft type, every family's since the
+// airship's in #1657 - and the seeded blueprint dimensions, keeping the drive **acceleration**
 // inside a tuned feel band by construction (`force = mass · target_accel`), so
 // a heavy craft is genuinely ponderous and a light one genuinely nimble but
 // nothing is undriveable. The
@@ -704,40 +691,44 @@ fn rotor_torques(mass: f32, half: [f32; 3], yaw_accel: f32) -> (f32, f32) {
     (yaw_torque.min(50_000.0), stabilize_torque.min(50_000.0))
 }
 
-/// Airship (helicopter) locomotion from the seeded envelope class + girth.
-/// A twin-hull envelope carries more mass and angular damping (harder to spin
-/// up); a fat blimp is more ponderous than a slim zeppelin. `hover_thrust` is
-/// re-derived as `mass · 9.81` so a fresh airship still floats at idle.
-///
-/// `half_height` is how far the drawn craft reaches above and below its
-/// origin ([`airship::build`]): the box holds everything it draws, so a
-/// landed airship rests on its gondola rather than on air under it (#1612).
-fn airship_locomotion(seed: u64, half_height: f32) -> LocomotionConfig {
-    let outfit = AvatarOutfit::for_seed(seed);
-    let a = VehicleBlueprint::from_seed(seed).and_then(|b| b.airship().copied());
-    // (mass factor over the 60 kg baseline, drive accel, yaw accel, angular
-    // damping) per envelope class.
-    let (mass_f, drive_accel, yaw_accel, ang_damp) =
-        match structural_slug(&outfit, PartSlot::Envelope) {
-            "default_envelope_twin" => (1.6, 6.0, 5.0, 6.0),
-            "default_envelope_blimp" => (1.3, 6.5, 7.0, 4.5),
-            "default_envelope_lobed" => (1.1, 8.0, 7.0, 4.0),
-            _ => (1.0, 8.0, 7.0, 4.0), // zeppelin / teardrop / fallback
-        };
-    let (len_mult, radius_mult) = a.map_or((1.0, 1.0), |a| (a.len_mult, a.radius_mult));
+/// Reference mass (kg) of a nominal seeded airship (#1657): the Helicopter
+/// preset's default body, the lift-gas mass every old airship was reckoned
+/// against, at the nominal hull - 3.6 m at fineness 5.0.
+const AIRSHIP_REF_MASS: f32 = 60.0;
 
+/// The nominal hull's greatest radius (m): 3.6 m at fineness 5.0.
+const AIRSHIP_REF_GIRTH: f32 =
+    AirshipBlueprint::NOMINAL.length / (2.0 * AirshipBlueprint::NOMINAL.fineness);
+
+/// Airship locomotion from the seeded craft type and her drawn hull
+/// (#1657), on the same preset the helicopters fly.
+///
+/// Her mass is lift-gas displacement: the reference's, scaled by her length
+/// and the square of her girth over the nominal hull's, so a fuller ship is
+/// heavier. `hover_thrust` is re-derived as `mass x g` so a fresh airship
+/// still floats at idle, and every force and torque is per kilogram, so she
+/// flies as her type's feel says whatever she weighs. Her box holds
+/// everything she draws, her airscrews' discs swept whole
+/// (`airships::build`): a landed airship rests on her lowest point rather
+/// than on air under it (#1612).
+fn airship_locomotion(seed: u64) -> LocomotionConfig {
+    let (feel, half_extents, (length, girth)) = airships::feel_and_box(seed);
     let mut p = HelicopterParams::default();
-    // Envelope displacement ≈ length × girth²; that sets the lift-gas mass.
-    let mass = (60.0 * mass_f * len_mult * radius_mult * radius_mult).clamp(60.0, 300.0);
+    let mass = AIRSHIP_REF_MASS
+        * feel.mass_factor
+        * (length / NOMINAL_AIRSHIP_LEN)
+        * (girth / AIRSHIP_REF_GIRTH).powi(2);
     p.mass = Fp(mass);
     // The weight-support invariant (helicopter.rs): hover_thrust cancels
     // gravity at idle. It MUST track the seeded mass or the craft sinks/climbs.
-    p.hover_thrust = Fp(mass * 9.81);
-    p.cyclic_force = Fp((mass * drive_accel).min(50_000.0));
-    p.strafe_force = Fp((mass * drive_accel * 0.9).min(50_000.0));
-    p.angular_damping = Fp(ang_damp);
-    p.chassis_half_extents = fit_extents([0.7 * radius_mult, half_height, 1.4 * len_mult]);
-    let (yaw_torque, stabilize_torque) = rotor_torques(mass, p.chassis_half_extents.0, yaw_accel);
+    p.hover_thrust = Fp(mass * GRAVITY);
+    p.cyclic_force = Fp((mass * feel.drive_accel).min(50_000.0));
+    p.strafe_force = Fp((mass * feel.drive_accel * 0.9).min(50_000.0));
+    p.linear_damping = Fp(feel.linear_damping);
+    p.angular_damping = Fp(feel.angular_damping);
+    p.chassis_half_extents = fit_extents(half_extents);
+    let (yaw_torque, stabilize_torque) =
+        rotor_torques(mass, p.chassis_half_extents.0, feel.yaw_accel);
     p.yaw_torque = Fp(yaw_torque);
     p.stabilize_torque = Fp(stabilize_torque);
     p.into_config()
@@ -914,8 +905,10 @@ fn skiff_locomotion(seed: u64) -> LocomotionConfig {
 ///   angular field - the airship gait's heave and nose wander - both go to
 ///   ZERO, because a machine on skids does neither, and `lean_degrees`
 ///   takes the type's lean into her motion (#1614).
-/// * AIRSHIPS AND HUMANOIDS pass through untouched. Neither has a craft
-///   type, and the angular field keeps its old meaning for both.
+/// * AIRSHIPS AND HUMANOIDS pass through untouched. A humanoid has no craft
+///   type; an airship has had one since #1657, and every type keeps the
+///   heave, nose wander and lean every airship always had (#1656 decision
+///   5). The angular field keeps its old meaning for both.
 ///
 /// An avatar PUBLISHED before this landed keeps the gait it was published
 /// with - the standing no-migration rule - so an old wagon buzzes until
@@ -965,7 +958,9 @@ pub fn seeded_gait(seed: u64) -> GaitParams {
             g.head_turn_variance_degrees = Fp::ZERO;
             g.lean_degrees = Fp::ZERO;
         }
-        // No craft type, and the angular field keeps its old meaning.
+        // The airship's heave and nose wander are what her types keep
+        // (#1656 decision 5); a humanoid has no craft type. The angular
+        // field keeps its old meaning for both.
         ChassisFamily::Airship | ChassisFamily::Humanoid => {}
     }
     g
@@ -1714,35 +1709,6 @@ mod tests {
         assert!(checked > 0, "no airship seed exercised the invariant");
     }
 
-    /// Every seeded airship's box holds everything it draws, top to keel,
-    /// and is no taller (#1612). It stopped 0.33-1.04 m short of the gondola
-    /// and under the crown, which a craft that never landed did not show;
-    /// one that lands on its weight rested its gondola in the ground.
-    #[test]
-    fn every_seeded_airships_box_holds_what_it_draws() {
-        let mut checked = 0;
-        for s in (0u64..400).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Airship) {
-            let (body, loco) = build_for_seed(s);
-            let LocomotionConfig::Helicopter(p) = &loco else {
-                panic!("airship seed {s} is not on the helicopter preset");
-            };
-            let half = p.chassis_half_extents.0[1];
-            let drawn = crate::catalogue::items::measure::tree_bounds(
-                body.visuals().expect("an airship draws a tree"),
-            )
-            .expect("an airship draws something");
-            // A ten-thousandth: the wire's grid, which the box is written on.
-            assert!(
-                (drawn.min.y + half).abs() < 2e-4 && (drawn.max.y - half).abs() < 2e-4,
-                "airship seed {s}: draws {:.4}..{:.4} in a box of +-{half:.4}",
-                drawn.min.y,
-                drawn.max.y
-            );
-            checked += 1;
-        }
-        assert!(checked > 50, "only {checked} airship seeds under 400");
-    }
-
     /// The default rotorcraft keeps the torques the preset's defaults give
     /// it - the reference the scaling is cut against (#1612).
     #[test]
@@ -1802,8 +1768,8 @@ mod tests {
             );
             turns.push(p.yaw_torque.0 / (p.mass.0 * yaw));
         }
-        // The turn is the envelope class's own (a twin is the slowest), so
-        // it is a handful of values, not one per seed.
+        // The turn is the craft type's own (#1657), so it is a handful of
+        // values - one a type - not one per seed.
         turns.sort_by(f32::total_cmp);
         turns.dedup_by(|a, b| (*a - *b).abs() < 1e-3);
         assert!(
@@ -2219,6 +2185,7 @@ mod tests {
             .chain(CraftType::SKIFFS)
             .chain(CraftType::HELICOPTERS)
             .chain(CraftType::AIRPLANES)
+            .chain(CraftType::AIRSHIPS)
         {
             let mut pins = AvatarPins::default();
             // Through the coupling method, as the UI writes it: locking a

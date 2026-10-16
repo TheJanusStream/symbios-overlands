@@ -15,12 +15,10 @@
 //!     → palette    (skin/hair/eye + style/temperature/wear-aware accents)
 //!     → materials  (MaterialKit: style + wear finish per surface role)
 //!     → fx         (style-gated particle aura + spatial-audio voice)
-//!     → craft      (the craft TYPE a boat, a skiff or a helicopter is,
-//!                  weighted by style)
-//!     → outfit     (slot → part choice, querying the part catalogue - the
-//!                  AIRSHIP's path only, since #1363 and #1364)
+//!     → craft      (the craft TYPE a vehicle is drawn as, weighted by
+//!                  style)
 //!     → body/gait  (proportions + locomotion tuning)
-//!     → vehicle_blueprint (the vehicle counterpart: hull / cabin / envelope
+//!     → vehicle_blueprint (the vehicle counterpart: hull / cabin / fuselage
 //!                  proportions from a seeded stance register)
 //! ```
 //!
@@ -38,18 +36,15 @@
 //! How that pick becomes a silhouette depends on the family, and the two
 //! routes are not the same one:
 //!
-//! * A BOAT, a SKIFF or a HELICOPTER is drawn by ITS OWN TYPE'S BUILDER, one
-//!   per [`CraftType`], each reading every line and every mount off one
-//!   profile derived from [`VehicleBlueprint`] - a `HullProfile` for the boat
+//! * Every VEHICLE is drawn by ITS OWN TYPE'S BUILDER, one per
+//!   [`CraftType`], each reading every line and every mount off one profile
+//!   derived from [`VehicleBlueprint`] - a `HullProfile` for the boat
 //!   (#1363), a `BodyPlan` for the skiff (#1364), a `PodPlan` for the
-//!   helicopter (#1614). None fills a slot and none rolls an outfit. Variety inside a type comes from the type's own
-//!   seeded variants (a sloop's rig and hull form, a roadster's body, top and
-//!   wheels) and from the livery.
-//! * The AIRSHIP is the one family still *composed* from the tagged part
-//!   catalogue ([`crate::pds::avatar::parts`]): [`AvatarOutfit`] fills each of
-//!   its slots by querying parts for the avatar's style + tiers, and the
-//!   assembler ([`crate::pds::avatar::default_visuals`]) builds + positions
-//!   them.
+//!   helicopter (#1614), a `FusePlan` for the airplane (#1617) and a
+//!   `HullPlan` for the airship (#1657), the last family to leave the tagged
+//!   part catalogue and the outfit that filled its slots. Variety inside a
+//!   type comes from the type's own seeded variants (a sloop's rig and hull
+//!   form, a roadster's body, top and wheels) and from the livery.
 //! * The HUMANOID short-circuits both: it rolls a `symbios-avatar` engine
 //!   record and is skinned at spawn (#1060).
 //!
@@ -68,7 +63,6 @@ pub mod gait;
 pub mod longship;
 pub mod materials;
 pub mod mood;
-pub mod outfit;
 pub mod palette;
 pub mod roadster;
 pub mod rover;
@@ -82,16 +76,15 @@ pub mod wagon;
 pub use armoured::ArmouredVariant;
 pub use body::{AvatarBody, BodyArchetype, StylizationTier};
 pub use buggy::BuggyVariant;
-pub use character::{
-    AvatarCharacter, AvatarPins, FinishRegister, OrnatenessBand, OrnatenessTier, WearBand, WearTier,
-};
+pub use character::{AvatarCharacter, AvatarPins, FinishRegister, OrnatenessTier, WearTier};
 pub use chassis::ChassisFamily;
-pub use craft::{AirplaneType, BoatType, CraftType, HelicopterType, SkiffType, craft_axis};
+pub use craft::{
+    AirplaneType, AirshipType, BoatType, CraftType, HelicopterType, SkiffType, craft_axis,
+};
 pub use fx::{AvatarFx, AvatarVoice, ParticleAura};
 pub use gait::AvatarGait;
 pub use longship::LongshipVariant;
 pub use materials::MaterialKit;
-pub use outfit::{AvatarOutfit, OutfitPart};
 pub use palette::AvatarPalette;
 pub use roadster::{RoadsterBody, RoadsterTop, RoadsterWheels};
 pub use rover::RoverVariant;
@@ -101,7 +94,7 @@ pub use sloop::{SloopHull, SloopRig};
 pub use tug::TugVariant;
 pub use vehicle_blueprint::{
     AirplaneBlueprint, AirshipBlueprint, BoatBlueprint, HelicopterBlueprint, NOMINAL_AIRFRAME_LEN,
-    NOMINAL_BODY_LEN, NOMINAL_FUSELAGE_LEN, NOMINAL_HULL_LEN, SkiffBlueprint, VehicleBlueprint,
-    VehicleStance,
+    NOMINAL_AIRSHIP_LEN, NOMINAL_BODY_LEN, NOMINAL_FUSELAGE_LEN, NOMINAL_HULL_LEN, SkiffBlueprint,
+    VehicleBlueprint, VehicleStance,
 };
 pub use wagon::WagonBody;

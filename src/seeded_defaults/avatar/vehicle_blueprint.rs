@@ -5,7 +5,7 @@
 //! [`StylizationTier`](super::body::StylizationTier)) into concrete
 //! world-space DIMENSIONS for one vehicle chassis: a boat's seven numbers
 //! (length, beam, freeboard, two sheer rises, draft, and the stance that
-//! banded them), a skiff's eight, an airship's four, a helicopter's four.
+//! banded them), a skiff's eight, an airship's three, a helicopter's four.
 //!
 //! # Dimensions here, landmarks downstream
 //!
@@ -16,10 +16,9 @@
 //! `BodyPlan` in [`crate::pds::avatar::default_visuals`]), which is what
 //! stopped stacks and bows floating off mis-sized hulls (#782/#783) more
 //! completely than a shared landmark ever did: there is now one surface to
-//! read rather than two tables to keep in step. The AIRSHIP is the family
-//! that still works the old way, and its parts
-//! ([`crate::pds::avatar::parts`]) size themselves from
-//! [`AirshipBlueprint`] directly.
+//! read rather than two tables to keep in step. The AIRSHIP was the last
+//! family to work the old way, its parts sizing themselves from a blueprint
+//! of multipliers; since #1657 her craft type reads ONE hull profile too.
 //!
 //! Per-family structs behind the [`VehicleBlueprint`] enum, because the four
 //! families share no dimension: a hull has a draft and a skiff has a
@@ -86,25 +85,16 @@ impl VehicleStance {
         }
     }
 
-    /// Gondola-size multiplier for this stance - a Heavy airship carries a
-    /// roomier car, a Sleek one a trimmer pod.
-    fn airship_gondola_factor(self) -> f32 {
+    /// `(length, fineness)` multipliers for an airship of this stance
+    /// (#1657): moves her inside the agreed form, never out of it - a Compact
+    /// ship is a little shorter and fuller, a Sleek one longer and slimmer, a
+    /// Heavy one the fullest. Fineness is length over girth, so a factor
+    /// under one is a FULLER hull.
+    fn airship_factors(self) -> (f32, f32) {
         match self {
-            Self::Compact => 0.95,
-            Self::Sleek => 0.92,
-            Self::Heavy => 1.10,
-        }
-    }
-
-    /// `(length, radius)` multipliers the stance applies to the Lathe envelope
-    /// profile (#791): a Sleek ship is long and slim, a Heavy one short and
-    /// fat, a Compact one stubby. Centred so the population average stays near
-    /// each form's hand-tuned nominal.
-    fn airship_env_factors(self) -> (f32, f32) {
-        match self {
-            Self::Compact => (0.92, 1.02),
-            Self::Sleek => (1.13, 0.9),
-            Self::Heavy => (0.93, 1.14),
+            Self::Compact => (0.96, 0.94),
+            Self::Sleek => (1.04, 1.07),
+            Self::Heavy => (1.00, 0.91),
         }
     }
 
@@ -230,8 +220,9 @@ impl BoatBlueprint {
 
 /// Overall hull length (m) a nominal seeded boat is drawn at: airship class,
 /// per owner decision 1 of the redesign (boats about 2.8 m against the
-/// airship's 3.15 m and a 1.7 m person). Still a scale model of a bigger craft
-/// - lit ports, no pilot - like the airship's 0.9 m gondola.
+/// airship's 3.15 m then, and a 1.7 m person). Still a scale model of a
+/// bigger craft - lit ports, no pilot - like the old airship's 0.9 m
+/// gondola.
 ///
 /// Since #1363 this is the length the parts are **authored** at as well, so
 /// there is no scale bridge between the two any more: the boat assembler's
@@ -254,51 +245,87 @@ pub const NOMINAL_HULL_LEN: f32 = 2.8;
 /// car, the skiff can take the knob raw for the cost of that 6 %.
 const BODY_SIZE_DAMPING: f32 = 0.45;
 
-/// Airship proportions. Each envelope **form** is a seeded Lathe body of
-/// revolution whose length + girth the `len_mult` / `radius_mult` here perturb
-/// (#791); its mount *landmarks* (belly line, tail station, fin ring radius,
-/// pod line) are read straight off that same profile by the assembler (see the
-/// vehicle assembler's `airship_mounts` + `airship_profile`) - so a fat blimp
-/// and a slim zeppelin each seat their slung gondola / cruciform fins / engine
-/// pods on *their own* body, and they stay seated as the profile stretches (the
-/// envelope-invariant-anchor bug that floated the twin's rigging clear of its
-/// belly is gone by construction).
+/// Concrete airship proportions in **true metres**, nose at `+Z` (#1657).
+///
+/// The helicopter's numbers for a hull: the agreed form (#1656) is ONE hull
+/// profile every mount is read off, the length sets the scale it is drawn at
+/// and the fineness - length over the greatest diameter - how full it is.
+/// The nominal blueprint is the phase-1 prototype's proportion B exactly
+/// (owner decision 3 of #1656): a 3.6 m hull at fineness 5.0, which a true
+/// rigid airship's 6 to 8 would draw thin at play distance.
 #[derive(Clone, Copy, Debug)]
 pub struct AirshipBlueprint {
-    /// Overall build register - read by the locomotion tuning (#794); today it
-    /// biases the gondola size.
     pub stance: VehicleStance,
-    /// Gondola size multiplier.
-    pub gondola_scale: f32,
-    /// Lathe-envelope length multiplier (#791) - scales each form's profile
-    /// length so the population spans a continuum of silhouettes, not a few
-    /// fixed sizes. The assembler scales the belly / tail / fin / pod mounts by
-    /// the same factors so the slung parts stay seated.
-    pub len_mult: f32,
-    /// Lathe-envelope girth (max-radius) multiplier (#791).
-    pub radius_mult: f32,
+    /// The hull's nose tip to its tail tip (m) - the nominal every part's
+    /// own size is a fraction of. Her mooring cone stands a little ahead of
+    /// it and her rudders a little aft.
+    pub length: f32,
+    /// The hull's length over its greatest diameter: 5.0 is proportion B,
+    /// and a smaller number is a FULLER hull.
+    pub fineness: f32,
 }
 
 impl AirshipBlueprint {
     fn derive(body: &AvatarBody, rng: &mut ChaCha8Rng) -> Self {
         let stance = VehicleStance::sample(rng);
-        let gondola_scale = (body.height_scale * body.head_scale * stance.airship_gondola_factor())
-            .clamp(0.85, 1.2);
-        // Envelope size rides the body height (length) + shoulder-width (girth)
-        // knobs and the stance, with a small per-seed jitter - the #791
-        // continuum. Clamped so a Lathe profile never degenerates.
-        let (len_f, rad_f) = stance.airship_env_factors();
-        let len_mult = (body.height_scale * len_f * range_f32(rng, 0.95, 1.06)).clamp(0.85, 1.28);
-        let radius_mult =
-            (body.shoulder_width_scale * rad_f * range_f32(rng, 0.95, 1.05)).clamp(0.85, 1.2);
+        let (len_f, fine_f) = stance.airship_factors();
+        // Overall size rides the body height knob, damped as every other
+        // craft's is, and is clamped to the band: 3.4-3.8 m, so a clamp
+        // corner is still the ship the owner agreed.
+        let size = 1.0 + (body.height_scale - 1.0) * BODY_SIZE_DAMPING;
+        let length = (NOMINAL_AIRSHIP_LEN * size * len_f * range_f32(rng, 0.97, 1.03))
+            .clamp(MIN_AIRSHIP_LEN, MAX_AIRSHIP_LEN);
+        // A broad-shouldered avatar flies a fuller hull: a lower fineness.
+        let fineness = (NOMINAL_AIRSHIP_FINENESS * fine_f
+            / body.shoulder_width_scale.clamp(0.94, 1.06))
+        .clamp(MIN_AIRSHIP_FINENESS, MAX_AIRSHIP_FINENESS);
         Self {
             stance,
-            gondola_scale,
-            len_mult,
-            radius_mult,
+            length,
+            fineness,
         }
     }
+
+    /// The prototype's proportion B, which the nominal seed draws - the
+    /// blueprint a guard or a survey reaches for when it wants THE ship. Its
+    /// stance is a placeholder: nothing past the derive reads one.
+    pub const NOMINAL: Self = Self {
+        stance: VehicleStance::Sleek,
+        length: NOMINAL_AIRSHIP_LEN,
+        fineness: NOMINAL_AIRSHIP_FINENESS,
+    };
+
+    /// The blueprint corners a seeded airship can reach: every clamp bound
+    /// of the two numbers, crossed - what the family's guards sweep.
+    pub fn corners() -> Vec<Self> {
+        let mut out = Vec::new();
+        for length in [MIN_AIRSHIP_LEN, MAX_AIRSHIP_LEN] {
+            for fineness in [MIN_AIRSHIP_FINENESS, MAX_AIRSHIP_FINENESS] {
+                out.push(Self {
+                    stance: VehicleStance::Sleek,
+                    length,
+                    fineness,
+                });
+            }
+        }
+        out
+    }
 }
+
+/// Hull length (m) a nominal seeded airship is drawn at, nose tip to tail
+/// tip: proportion B of the phase-1 prototype (#1656 decision 3). Airship
+/// class, like the rest of the fleet - a scale model of a far bigger ship,
+/// lit windows and no crew.
+pub const NOMINAL_AIRSHIP_LEN: f32 = 3.6;
+
+/// The band a seed may move the hull's length in (m).
+const MIN_AIRSHIP_LEN: f32 = 3.4;
+const MAX_AIRSHIP_LEN: f32 = 3.8;
+
+/// Proportion B's fineness, and the band a seed may move it in.
+const NOMINAL_AIRSHIP_FINENESS: f32 = 5.0;
+const MIN_AIRSHIP_FINENESS: f32 = 4.6;
+const MAX_AIRSHIP_FINENESS: f32 = 5.4;
 
 /// Concrete skiff proportions in **true metres**, with the bow at `+Z`
 /// (#1364).
@@ -374,8 +401,8 @@ impl SkiffBlueprint {
 
 /// Overall length (m) a nominal seeded skiff is drawn at: airship class, per
 /// owner decision 1 of the redesign (skiffs about 2.65 m against the airship's
-/// 3.15 m and a 1.7 m person). Still a scale model of a bigger machine - lit
-/// lamps, no driver - like the airship's 0.9 m gondola.
+/// 3.15 m then, and a 1.7 m person). Still a scale model of a bigger machine -
+/// lit lamps, no driver - like the old airship's 0.9 m gondola.
 ///
 /// Since #1364 this is the length the craft is **authored** at as well, so
 /// there is no scale bridge between the two any more: the skiff assembler's

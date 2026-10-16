@@ -1,9 +1,10 @@
 //! Generic inclusive tier-affinity band (#654) - the one definition
-//! behind `ProsperityBand` / `EscalationBand` (scene axes) and
-//! `OrnatenessBand` / `WearBand` (avatar axes), which were four
-//! byte-identical structs. Each tier axis implements [`BandTier`] to
-//! supply its `ANY` endpoints and labels; the concrete band names live
-//! on as type aliases so call sites are unchanged.
+//! behind `ProsperityBand` / `EscalationBand` (scene axes), which with the
+//! avatar axes' `OrnatenessBand` / `WearBand` were four byte-identical
+//! structs. Each tier axis implements [`BandTier`] to supply its `ANY`
+//! endpoints and labels; the concrete band names live on as type aliases
+//! so call sites are unchanged. The avatar's two retired with the airship's
+//! part catalogue, the one thing they gated (#1657).
 
 /// A tier axis usable inside a [`Band`]: an ordered `Copy` enum with
 /// fixed lowest/highest endpoints and a display label per tier.
@@ -16,7 +17,7 @@ pub trait BandTier: Copy + Ord {
     fn label(self) -> &'static str;
 }
 
-/// Inclusive tier affinity band an entry (catalogue item, avatar part)
+/// Inclusive tier affinity band an entry (a catalogue item)
 /// advertises: the contiguous span of tiers a room / avatar may have for
 /// the entry to be eligible. [`Self::ANY`] (the default) spans every
 /// tier, so untagged entries are always eligible. Relies on the tier

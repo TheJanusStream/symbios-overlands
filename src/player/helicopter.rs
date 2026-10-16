@@ -501,7 +501,7 @@ mod tests {
     use crate::player::sim::FlightBench;
 
     /// The agent's airship stand-in: a twin envelope, the heaviest of the
-    /// seeded airships.
+    /// old airships, until #1657, and a Zeppelin since.
     fn airship() -> AvatarRecord {
         AvatarRecord::default_for_did("did:plc:agentofflineair222222222")
     }
@@ -598,25 +598,32 @@ mod tests {
         );
     }
 
-    /// The tallest seeded airship, set down where the game sets a body down,
-    /// starts clear of the ground and comes down onto it (#1612). Its box
-    /// reaches further below its origin than the spawn's metre, and set
-    /// down a metre up its keel started in the ground and was shoved out.
+    /// An airship taller than the spawn's metre, set down where the game
+    /// sets a body down, starts clear of the ground and comes down onto it
+    /// (#1612). Its box reaches further below its origin than the metre, and
+    /// set down a metre up its keel started in the ground and was shoved out.
+    ///
+    /// Every seeded airship was that tall until #1657 - an envelope over a
+    /// gondola hung on cables - and every one PUBLISHED between #1612 and
+    /// #1657 still is, keeping its box (no migration). The Zeppelin that
+    /// replaced them stands about a metre tall in all, so the tall ship is
+    /// one of them: a seeded airship's record with its box stood up to 1.2 m
+    /// below and above its origin.
     #[test]
-    fn the_tallest_airship_is_set_down_clear_and_comes_down() {
+    fn a_tall_airship_is_set_down_clear_and_comes_down() {
         use crate::seeded_defaults::ChassisFamily;
-        let (record, half) = (0u64..400)
-            .filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Airship)
+        let mut record = (0u64..400)
+            .find(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Airship)
             .map(AvatarRecord::default_for_seed)
-            .filter_map(|r| match &r.locomotion {
-                LocomotionConfig::Helicopter(p) => Some((r.clone(), p.chassis_half_extents.0[1])),
-                _ => None,
-            })
-            .max_by(|a, b| a.1.total_cmp(&b.1))
-            .expect("airship seeds under 400");
+            .expect("an airship seed under 400");
+        let LocomotionConfig::Helicopter(p) = &mut record.locomotion else {
+            panic!("an airship flies the helicopter preset");
+        };
+        p.chassis_half_extents.0[1] = 1.2;
+        let half = p.chassis_half_extents.0[1];
         assert!(
             half > crate::config::rover::SPAWN_HEIGHT_OFFSET,
-            "no seeded airship is taller than the spawn's metre any more: {half}"
+            "the ship is no taller than the spawn's metre: {half}"
         );
         let up = super::super::preset::set_down_height(&record.locomotion);
         let mut bench = FlightBench::new(&record, Vec3::new(0.0, up, 0.0));
@@ -634,10 +641,10 @@ mod tests {
     /// body down, she comes down onto her skids - her box's floor - and
     /// rests there; Space lifts her off; and held forward she tops out at her
     /// type's 12.5 m/s (cyclic 10 over damping 0.8), where the airship
-    /// stand-in, a twin envelope, makes 7.5 and the fastest airship 10 - the
-    /// "nimbler than an airship" of #1613 recommendation 8, measured on the
-    /// systems rather than read off the table (12.49 against 7.50 when it
-    /// was written).
+    /// stand-in makes 10 - the "nimbler than an airship" of #1613
+    /// recommendation 8, measured on the systems rather than read off the
+    /// table (12.49 against 7.50 when it was written, the stand-in then a
+    /// twin envelope; a Zeppelin since #1657, every seeded airship's 10).
     #[test]
     fn a_seeded_helicopter_rests_on_her_skids_lifts_off_and_outflies_the_airship() {
         use crate::seeded_defaults::ChassisFamily;

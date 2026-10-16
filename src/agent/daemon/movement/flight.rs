@@ -680,8 +680,10 @@ mod tests {
     use crate::player::sim::FlightBench;
     use crate::water::{WaterPlane, WaterSurfaces};
 
-    /// The offline airship stand-in: a twin envelope, the heaviest and
-    /// slowest-turning of the seeded airships.
+    /// The offline airship stand-in: a twin envelope until #1657, the
+    /// heaviest and slowest-turning of the old airships, and a Zeppelin since.
+    /// The tests read her turn and her coast off her own [`Rotor`], so a
+    /// later airship type that draws her keeps them honest.
     const AIRSHIP: &str = "did:plc:agentofflineair222222222";
 
     /// The daemon's frame, which is how often a flight is steered.
@@ -736,6 +738,7 @@ mod tests {
     struct Sample {
         t: f64,
         position: Vec3,
+        forward: Vec3,
         underside: f32,
         height: f32,
         phase: Phase,
@@ -746,6 +749,7 @@ mod tests {
         Sample {
             t,
             position: craft.position,
+            forward: craft.forward,
             underside: craft.underside,
             height: craft.height(),
             phase: flight.phase,
@@ -864,12 +868,27 @@ mod tests {
 
         assert_eq!(end, Some(Flown::Landed), "{:?}", trace.last());
         assert_eq!(trace[1].phase, Phase::Cruising, "up already");
-        let set_off = trace
+        let first = trace
             .iter()
-            .find(|s| s.keys.contains(&KeyCode::KeyW))
-            .map(|s| s.t)
+            .position(|s| s.keys.contains(&KeyCode::KeyW))
             .expect("it set off");
-        assert!(set_off > 2.0, "it swung round first, for {set_off:.2} s");
+        let set_off = trace[first].t;
+        // It swung before it set off - a yaw key held while nothing pushed
+        // it along - and set off with its nose on the way: inside the
+        // controller's own swing-first threshold of the bearing to the
+        // point, whatever the body's turn rate.
+        assert!(
+            trace[..first]
+                .iter()
+                .any(|s| s.keys.contains(&KeyCode::KeyA) || s.keys.contains(&KeyCode::KeyD)),
+            "it set off at {set_off:.2} s without swinging"
+        );
+        let course = (target - horizontal(&trace[first])).normalize();
+        let off = heading_off(trace[first].forward, course);
+        assert!(
+            off.abs() <= SWING_FIRST_DEG,
+            "it set off at {set_off:.2} s with its nose {off:.1} degrees off the way"
+        );
         let wandered = trace
             .iter()
             .filter(|s| s.t < set_off)
@@ -1261,11 +1280,21 @@ mod tests {
         let (_, rotor) = airship();
         assert_eq!(yaw_key(40.0, 0.0, &rotor), Some(KeyCode::KeyD), "right");
         assert_eq!(yaw_key(-40.0, 0.0, &rotor), Some(KeyCode::KeyA), "left");
-        // Turning clockwise (about -Y) at 0.77 rad/s coasts 7.4 degrees at
-        // this body's damping.
-        assert_eq!(yaw_key(7.0, -0.77, &rotor), None, "let go: it coasts there");
+        // Turning clockwise (about -Y) at 0.77 rad/s coasts rate / damping
+        // at this body's angular damping - 7.4 degrees on the old twin
+        // envelope's 6, 11 on the Zeppelin's 4 (#1657).
+        let coast = (0.77 / rotor.angular_damping).to_degrees();
+        assert!(
+            coast > 6.0 + YAW_DEAD_ZONE_DEG,
+            "a coast of {coast:.1} degrees"
+        );
         assert_eq!(
-            yaw_key(1.0, -0.77, &rotor),
+            yaw_key(coast, -0.77, &rotor),
+            None,
+            "let go: it coasts there"
+        );
+        assert_eq!(
+            yaw_key(coast - 6.0, -0.77, &rotor),
             Some(KeyCode::KeyA),
             "it would coast 6 degrees past: turn back"
         );

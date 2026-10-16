@@ -15,9 +15,10 @@
 //! uses, so a cyberpunk avatar and a cyberpunk room speak one style
 //! vocabulary). Two continuous socio-style axes follow - `ornateness`
 //! (plain ↔ ornate) and `wear` (pristine ↔ battered) - read via
-//! [`OrnatenessTier`] / [`WearTier`] and the catalogue-eligibility bands
-//! [`OrnatenessBand`] / [`WearBand`], exactly as the room reads prosperity
-//! and escalation.
+//! [`OrnatenessTier`] / [`WearTier`], as the room reads prosperity and
+//! escalation. The tiers had eligibility bands too, which the airship's part
+//! catalogue gated its parts by; they retired with it (#1657), and every
+//! craft type now reads the tier itself.
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
@@ -36,11 +37,11 @@ const AVATAR_CHARACTER_SALT: u64 = 0xA7A7_C4A7_C4A7_A7A7;
 
 /// Ornamentation tier - the discrete reading of the continuous
 /// [`AvatarCharacter::ornateness`] axis (plain → ornate). Thresholded into
-/// thirds. Drives ornament-slot density (hats, finials, pauldrons, trim)
-/// and which cross-style ornament pool a part draws from.
+/// thirds. Drives each craft type's ladder of secondary masses - a pitot and
+/// steps, a searchlight, a fifth engine.
 ///
 /// Variants are declared plainest-first so the derived [`Ord`] matches the
-/// axis direction - [`OrnatenessBand`] relies on that ordering.
+/// axis direction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OrnatenessTier {
     /// Bottom third - bare, functional, no extra trim.
@@ -76,10 +77,10 @@ impl OrnatenessTier {
 /// Wear tier - the discrete reading of the continuous
 /// [`AvatarCharacter::wear`] axis (pristine → battered). Thresholded into
 /// thirds. Drives material finish (gloss ↔ grime), surface darkening /
-/// oxidation, and battle-damage / patina part variants.
+/// oxidation, and a boat's wear masses (a tarp, fuel cans, #1366).
 ///
 /// Variants are declared cleanest-first so the derived [`Ord`] matches the
-/// axis direction - [`WearBand`] relies on that ordering.
+/// axis direction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum WearTier {
     /// Bottom third - clean, polished, factory-fresh.
@@ -127,37 +128,8 @@ pub enum FinishRegister {
     Naturalistic,
 }
 
-/// Inclusive ornateness-tier affinity band a body part advertises: the
-/// contiguous span of [`OrnatenessTier`]s an avatar may have for the part
-/// to be eligible. `ANY` (the default) spans every tier, so untagged
-/// parts are always eligible. Relies on [`OrnatenessTier`]'s
-/// plainest-first [`Ord`]. One instantiation of the shared
-/// [`Band`](crate::seeded_defaults::band::Band) (#654), like the scene
-/// axes' `ProsperityBand`.
-pub type OrnatenessBand = crate::seeded_defaults::band::Band<OrnatenessTier>;
-
-impl crate::seeded_defaults::band::BandTier for OrnatenessTier {
-    const MIN: Self = OrnatenessTier::Plain;
-    const MAX: Self = OrnatenessTier::Ornate;
-    fn label(self) -> &'static str {
-        OrnatenessTier::label(self)
-    }
-}
-
-/// Inclusive wear-tier affinity band - the [`WearTier`] analogue of
-/// [`OrnatenessBand`]. `ANY` is the default.
-pub type WearBand = crate::seeded_defaults::band::Band<WearTier>;
-
-impl crate::seeded_defaults::band::BandTier for WearTier {
-    const MIN: Self = WearTier::Pristine;
-    const MAX: Self = WearTier::Battered;
-    fn label(self) -> &'static str {
-        WearTier::label(self)
-    }
-}
-
 /// Per-avatar anchor read by every downstream deriver (palette, material
-/// kit, proportions, FX, part selection). Cheap to recompute from the DID;
+/// kit, proportions, FX, craft type). Cheap to recompute from the DID;
 /// typically derived once when an avatar loads and threaded through the
 /// deriver call graph.
 ///
@@ -275,11 +247,11 @@ impl AvatarCharacter {
 /// unreachable.
 ///
 /// [`Self::craft`] breaks that. It depends on the chassis absolutely (there
-/// are no craft types under Airship or Humanoid) and on the style by
-/// weight: a type that is neither its family's floor nor at home on a theme
-/// scores zero there and can never be rolled. 184 of the 312 (type, style)
-/// pairs are unreachable, so a naive combo would offer mostly pin sets no
-/// seed satisfies - and each one would walk the *whole* two-million-trial
+/// are no craft types under Humanoid) and on the style by weight: a type
+/// that is neither its family's floor nor at home on a theme scores zero
+/// there and can never be rolled. 310 of the 528 (type, style) pairs are
+/// unreachable, so a naive combo would offer mostly pin sets no seed
+/// satisfies - and each one would walk the *whole* two-million-trial
 /// cap before failing, 0.38 s native and several times that on wasm, on the
 /// UI thread. Three things keep the cap a safety net rather than a code
 /// path: [`Self::craft_gate`] and [`Self::style_gate`] stop the UI offering
@@ -543,48 +515,6 @@ mod tests {
     }
 
     #[test]
-    fn band_any_accepts_every_tier() {
-        for t in OrnatenessTier::ALL {
-            assert!(OrnatenessBand::ANY.accepts(t));
-        }
-        for t in WearTier::ALL {
-            assert!(WearBand::ANY.accepts(t));
-        }
-    }
-
-    #[test]
-    fn band_only_and_range_gate_correctly() {
-        let ornate = OrnatenessBand::only(OrnatenessTier::Ornate);
-        assert!(ornate.accepts(OrnatenessTier::Ornate));
-        assert!(!ornate.accepts(OrnatenessTier::Plain));
-        assert!(!ornate.accepts(OrnatenessTier::Adorned));
-
-        // Plain..=Adorned excludes only the top tier.
-        let low = OrnatenessBand::range(OrnatenessTier::Plain, OrnatenessTier::Adorned);
-        assert!(low.accepts(OrnatenessTier::Plain));
-        assert!(low.accepts(OrnatenessTier::Adorned));
-        assert!(!low.accepts(OrnatenessTier::Ornate));
-
-        let battered = WearBand::only(WearTier::Battered);
-        assert!(battered.accepts(WearTier::Battered));
-        assert!(!battered.accepts(WearTier::Pristine));
-    }
-
-    #[test]
-    fn band_labels_read_naturally() {
-        assert_eq!(OrnatenessBand::ANY.label(), "Any");
-        assert_eq!(
-            OrnatenessBand::only(OrnatenessTier::Ornate).label(),
-            "Ornate"
-        );
-        assert_eq!(
-            OrnatenessBand::range(OrnatenessTier::Plain, OrnatenessTier::Adorned).label(),
-            "Plain–Adorned"
-        );
-        assert_eq!(WearBand::ANY.label(), "Any");
-    }
-
-    #[test]
     fn distinct_dids_vary() {
         let a = AvatarCharacter::for_did("did:plc:abc");
         let b = AvatarCharacter::for_did("did:plc:def");
@@ -720,6 +650,7 @@ mod tests {
             .chain(CraftType::SKIFFS)
             .chain(CraftType::HELICOPTERS)
             .chain(CraftType::AIRPLANES)
+            .chain(CraftType::AIRSHIPS)
             .flat_map(|c| ThemeArchetype::ALL.into_iter().map(move |t| (c, t)))
     }
 
@@ -774,13 +705,14 @@ mod tests {
         // three homes enabled, the other 21 refused. The coaxial (#1628)
         // adds 24: her five homes enabled, the other 19 refused, and so does
         // the air racer (#1629). The tandem-rotor transport (#1630) adds 24:
-        // her three homes enabled, the other 21 refused. Pinned so that an
-        // affinity edit has to come here on purpose - the table is a taste
-        // call, and a silent change to it changes which pin sets an owner can
-        // even build.
+        // her three homes enabled, the other 21 refused. The Zeppelin
+        // (#1657) adds 24, all enabled: the airship family's hero is every
+        // style's floor. Pinned so that an affinity edit has to come here on
+        // purpose - the table is a taste call, and a silent change to it
+        // changes which pin sets an owner can even build.
         assert_eq!(
             (refused, enabled),
-            (310, 194),
+            (310, 218),
             "the (type, style) census moved"
         );
     }
@@ -853,25 +785,22 @@ mod tests {
         assert_eq!(pins.craft, Some(CraftType::Boat(BoatType::Junk)));
     }
 
+    /// The one family without a type pick - the rigged humanoid, since the
+    /// airship gained hers in #1657 - has no craft and says so.
     #[test]
-    fn the_two_families_without_a_type_pick_have_no_craft_and_say_so() {
-        for (family, seed_of) in [
-            (ChassisFamily::Airship, "an airship"),
-            (ChassisFamily::Humanoid, "a rigged avatar"),
-        ] {
-            let pins = AvatarPins {
-                chassis: Some(family),
-                ..Default::default()
-            };
-            let s = pins.find_seed(0).expect("chassis unreachable");
-            let c = AvatarCharacter::for_seed(s);
-            assert_eq!(CraftType::for_character(&c), None);
-            let why = super::super::craft::craft_axis(&c).expect_err("a type where there is none");
-            assert!(
-                why.starts_with(seed_of),
-                "{family:?} explains itself as {why:?}"
-            );
-        }
+    fn the_family_without_a_type_pick_has_no_craft_and_says_so() {
+        let pins = AvatarPins {
+            chassis: Some(ChassisFamily::Humanoid),
+            ..Default::default()
+        };
+        let s = pins.find_seed(0).expect("chassis unreachable");
+        let c = AvatarCharacter::for_seed(s);
+        assert_eq!(CraftType::for_character(&c), None);
+        let why = super::super::craft::craft_axis(&c).expect_err("a type where there is none");
+        assert!(
+            why.starts_with("a rigged avatar"),
+            "the humanoid explains itself as {why:?}"
+        );
     }
 
     #[test]
@@ -949,8 +878,9 @@ mod tests {
         // airplanes' 35 (#1623) - the high-wing's 24 and the biplane's 11 -
         // 169 until the autogyro's nine (#1624), 178 until the twin's three
         // (#1625), 181 until the coaxial's five (#1628), 186 until the air
-        // racer's five (#1629), and 191 until the tandem's three (#1630).
-        assert_eq!(enabled, 194);
+        // racer's five (#1629), 191 until the tandem's three (#1630), and
+        // 194 until the Zeppelin's 24 (#1657), every style her family's floor.
+        assert_eq!(enabled, 218);
     }
 
     #[test]

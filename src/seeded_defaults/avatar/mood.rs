@@ -8,11 +8,12 @@
 //! are finer than the broad groups, for flavour whose read only fits a couple
 //! of themes (#793).
 //!
-//! Two consumers today, which is why this lives here beside
-//! [`ThemeArchetype`] rather than inside either of them: the styled vehicle
-//! part catalogue ([`crate::pds::avatar::parts::vehicle`]) tags each part with
-//! the groups it belongs on, and the craft-type affinities ([`super::craft`])
-//! weight which real-world craft a theme's avatar is likely to be (#1362).
+//! It lives here beside [`ThemeArchetype`] rather than inside a consumer:
+//! the craft-type affinities ([`super::craft`]) weight which real-world craft
+//! a theme's avatar is likely to be (#1362). It had a second consumer until
+//! #1657 - the airship's styled part catalogue, which tagged each part with
+//! the groups it belonged on - and the vehicle kits and liveries still reach
+//! for a named group where one fits.
 
 use crate::seeded_defaults::scene::ThemeArchetype::{
     self, AlienMonolithic, AlienOrganic, AncientClassical, CivicCampus, CoastalResort, Cyberpunk,

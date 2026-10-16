@@ -89,9 +89,9 @@
 //! `--prim` > `--wear` > `--catalogue` > `--avatar`, with the no-render modes
 //! ahead of all of them.
 //!
-//! The same binary also hosts fifteen no-render modes that short-circuit
+//! The same binary also hosts fourteen no-render modes that short-circuit
 //! before any render app stands up: the avatar surveys (`--family-seeds`,
-//! `--outfit`, `--find-part`), the fit audits (`--settlement-drop`,
+//! `--outfit`), the fit audits (`--settlement-drop`,
 //! `--foundation-audit`, `--gateway-fit`), the census / plot tooling
 //! (`--room-census`, `--scatter-census`, `--scatter-plot`), `--dump` (print a
 //! subject's `Generator` JSON), `--road-dump` (road-graph topology stats),
@@ -153,7 +153,7 @@ pub(crate) use headless::new_target;
 use headless::{Capture, Clock, PlayView, RenderJob, Ride, Subject, drive, setup};
 use rig::{CameraRig, Focus};
 use text_tools::{
-    analyze_session, describe_rooms, diff_sessions, dump_road_graph, find_part, print_family_seeds,
+    analyze_session, describe_rooms, diff_sessions, dump_road_graph, print_family_seeds,
     print_foundation_audit, print_gateway_fit, print_outfit, print_settlement_drop, room_census,
     scatter_census, scatter_plot,
 };
@@ -244,7 +244,7 @@ struct Args {
     /// [`livery::RAIDER_LIVERIES`](crate::pds::avatar::livery::RAIDER_LIVERIES),
     /// [`livery::CYCLECAR_LIVERIES`](crate::pds::avatar::livery::CYCLECAR_LIVERIES),
     /// [`livery::JUNK_LIVERIES`](crate::pds::avatar::livery::JUNK_LIVERIES)),
-    /// or an aircraft type's theme-weighted list
+    /// or an aircraft or airship type's theme-weighted list
     /// ([`livery::HELICOPTER_LIVERIES`](crate::pds::avatar::livery::HELICOPTER_LIVERIES),
     /// [`livery::TRAINER_LIVERIES`](crate::pds::avatar::livery::TRAINER_LIVERIES),
     /// [`livery::COAXIAL_LIVERIES`](crate::pds::avatar::livery::COAXIAL_LIVERIES),
@@ -254,6 +254,7 @@ struct Args {
     /// which the autogyro wears too,
     /// [`livery::TWIN_LIVERIES`](crate::pds::avatar::livery::TWIN_LIVERIES),
     /// [`livery::RACER_LIVERIES`](crate::pds::avatar::livery::RACER_LIVERIES),
+    /// [`livery::ZEPPELIN_LIVERIES`](crate::pds::avatar::livery::ZEPPELIN_LIVERIES),
     /// whose index names a scheme outright, whatever the subject's theme).
     /// It WRAPS, so a survey loop that runs past the end draws each scheme
     /// once rather than the last one twice. `--outfit` prints the name a seed
@@ -292,8 +293,7 @@ struct Args {
     /// with `--avatar <seed>`. Highest precedence (prints, never renders).
     #[arg(long)]
     family_seeds: Option<String>,
-    /// How many seeds `--family-seeds` prints (also the cap for
-    /// `--find-part`).
+    /// How many seeds `--family-seeds` prints.
     #[arg(long, default_value_t = 8)]
     family_count: usize,
     /// Narrow `--family-seeds` to one seeded craft type (#1362) - `sloop`,
@@ -301,23 +301,19 @@ struct Args {
     /// `roadster`, `dunebuggy`, `armouredcar`, `cyclecar`, `wagon`, `rover`
     /// for skiffs; `utility`, `trainer`, `autogyro`, `coaxial`, `tandem` for
     /// helicopters (#1614); `high_wing`, `biplane`, `twin`, `racer` for
-    /// airplanes (#1617). The survey aid each craft-type slice opens with:
+    /// airplanes (#1617); `zeppelin` for airships (#1657). The survey aid
+    /// each craft-type slice opens with:
     /// find the seeds its type was picked for, then render them. Craft types
     /// are a property of the seed, so this answers for a type before anything
     /// builds it.
     #[arg(long)]
     craft: Option<String>,
-    /// Print one avatar's resolved outfit (chassis / style / socio tiers /
-    /// slot→slug) and exit - a `u64` seed or a DID. A no-render survey aid for
-    /// the avatar overhaul: the built geometry carries no slugs, so this is how
-    /// to see which optional parts an avatar rolled.
+    /// Print what one avatar resolves to (chassis / style / socio tiers /
+    /// craft type / livery / palette / voice) and exit - a `u64` seed or a
+    /// DID. A no-render survey aid: the built geometry carries no names, so
+    /// this is how to see what a seed picked.
     #[arg(long)]
     outfit: Option<String>,
-    /// Scan seeds and print the first `--family-count` whose outfit rolls the
-    /// given part slug (e.g. `boat_bow_ram`), with each one's style + tiers,
-    /// then exit - finds render-verification seeds for a styled part.
-    #[arg(long)]
-    find_part: Option<String>,
     /// Measure the terrain drop real seeded settlements span (#1009) over
     /// this many seeds and exit - the empirical basis for the plinth rule.
     #[arg(long)]
@@ -974,12 +970,6 @@ pub fn run() {
     // `--outfit <seed|did>`: print one avatar's resolved outfit and exit.
     if let Some(subject) = &args.outfit {
         print_outfit(subject);
-        return;
-    }
-
-    // `--find-part <slug>`: scan for seeds that roll a styled part and exit.
-    if let Some(slug) = &args.find_part {
-        find_part(slug, args.family_count);
         return;
     }
 

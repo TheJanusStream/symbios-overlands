@@ -1,134 +1,36 @@
-//! Avatar part-composition catalogue - the avatar analogue of the
-//! structure catalogue ([`crate::catalogue`]) and its
-//! [`Settlement`](crate::seeded_defaults::Settlement) slot-filler.
+//! The build context every seeded craft type reads.
 //!
-//! **The AIRSHIP is the one family composed this way**, and the rest of this
-//! header is about her. She is built from tagged [`BodyPart`] blueprints
-//! rather than hardcoded geometry: each part declares which [`PartSlot`] it
-//! fills, which [`ChassisFamily`] families and [`ThemeArchetype`] styles it
-//! suits, and (optionally) the ornateness / wear bands it's appropriate
-//! for. The seeded [`AvatarOutfit`](crate::seeded_defaults) deriver fills
-//! each of her slots by querying [`parts_for_avatar`], exactly the
-//! way the room settlement queries
-//! [`entries_for_room`](crate::catalogue::entries_for_room) - so authoring a
-//! new part grows her variety automatically.
+//! This module used to be the avatar's part-composition catalogue - the
+//! avatar analogue of the structure catalogue ([`crate::catalogue`]): tagged
+//! `BodyPart` blueprints, each declaring the slot it filled and the families,
+//! styles and tiers it suited, which a seeded outfit deriver queried slot by
+//! slot. The boat left that pipeline in #1363, the land-skiff in #1364, the
+//! rigged humanoid never used it (#1060), and the airship - the last family
+//! composed this way - became a craft-type family in #1657, which deleted
+//! the catalogue, its slots and the outfit that filled them. Every seeded
+//! vehicle is now drawn by one builder per craft type over one profile.
 //!
-//! The boat left this pipeline in #1363 and the land-skiff in #1364, and the
-//! rigged humanoid never used it (#1060) - see the "Only the airship" section
-//! below, which is the whole of what changed.
-//!
-//! ## Slot frame convention
-//!
-//! Each part builds its geometry in a **local frame whose origin is the
-//! part's attachment point**; the assembler
-//! ([`super::default_visuals`]) positions the part root into the avatar. By
-//! slot: a body slot ([`PartSlot::Envelope`]) is centred on the origin, and
-//! [`PartSlot::Fin`] and [`PartSlot::Pod`] hang from their mount pivot at the
-//! origin.
-//!
-//! ## Only the airship is composed this way now
-//!
-//! The boat left in #1363 and the land-skiff in #1364: each redesigned family
-//! draws its geometry from one craft-type builder over one profile
-//! (`HullProfile`, `BodyPlan`), so neither fills a slot and neither has an
-//! outfit to roll. The rigged humanoid never did (#1060). What that leaves
-//! here is the airship's five slots ([`PartSlot`]) and the cross-family
-//! [`PartSlot::Ornament`] her ornate tiers hang off.
-//!
-//! ## Style coverage
-//!
-//! A part with an empty [`BodyPart::styles`] list is **universal** - eligible
-//! for every style. Shipping a universal part per required slot guarantees
-//! every (chassis, slot, style) query is non-empty during content build-out,
-//! so the outfit deriver never has an unfillable required slot (the avatar
-//! analogue of the settlement's `FALLBACK_THEME`, but per-slot).
+//! What is left is the context those builders share, [`PartCtx`]: the seed's
+//! palette, its finish kit, its body proportions, its vehicle blueprint, its
+//! tiers and an optional livery override.
 
-pub(crate) mod defaults;
-pub(crate) mod vehicle;
-
-use crate::pds::generator::Generator;
 use crate::seeded_defaults::{
-    AirshipBlueprint, AvatarBody, AvatarCharacter, AvatarPalette, BoatBlueprint, ChassisFamily,
-    MaterialKit, OrnatenessBand, OrnatenessTier, SkiffBlueprint, ThemeArchetype, VehicleBlueprint,
-    WearBand, WearTier,
+    AvatarBody, AvatarCharacter, AvatarPalette, BoatBlueprint, ChassisFamily, MaterialKit,
+    OrnatenessTier, SkiffBlueprint, VehicleBlueprint, WearTier,
 };
 
-/// One composable slot of an avatar. Flat across every chassis (a part
-/// declares which families it serves via [`BodyPart::chassis`]); the
-/// per-chassis required / optional split lives in [`required_slots`] /
-/// [`optional_slots`].
-///
-/// The AIRSHIP's four slots plus the cross-family [`Ornament`](Self::Ornament)
-/// are all of it. A boat's five (hull, deck, mast, bow, stack) and a skiff's
-/// four (chassis, canopy, wheel, exhaust) went vestigial when #1363 and #1364
-/// retired those catalogues, and #1382 deleted them: nothing named one, an
-/// [`AvatarOutfit`](crate::seeded_defaults::AvatarOutfit) is not `Serialize`
-/// so no saved outfit ever carried one, and no exhaustive match over this
-/// enum exists outside this module. Rustc could not say so - a dead `pub`
-/// item in a lib crate raises no warning - so it was measured by grep.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum PartSlot {
-    // --- Airship ---
-    /// The gas-bag envelope.
-    Envelope,
-    /// The slung gondola / basket.
-    Gondola,
-    /// A stabiliser fin.
-    Fin,
-    /// An engine nacelle / propulsion pod (the assembler mirrors it into an
-    /// amidships pair) - the airship's visible propulsion.
-    Pod,
-    // --- Shared ---
-    /// A small cross-family decorative accent.
-    Ornament,
-}
-
-/// The slots a chassis *must* fill for a complete avatar.
-pub fn required_slots(chassis: ChassisFamily) -> &'static [PartSlot] {
-    use PartSlot::*;
-    match chassis {
-        // A rigged family assembles no parts (#1060), and since #1363 / #1364
-        // neither does a boat or a skiff, nor a helicopter (#1614) or an
-        // airplane (#1617): the craft types draw their own geometry off one
-        // profile, so there is nothing for an outfit to fill. The airship is
-        // the last family with parts.
-        ChassisFamily::Humanoid
-        | ChassisFamily::Boat
-        | ChassisFamily::Skiff
-        | ChassisFamily::Helicopter
-        | ChassisFamily::Airplane => &[],
-        ChassisFamily::Airship => &[Envelope, Gondola, Fin, Pod],
-    }
-}
-
-/// The slots a chassis *may* fill (gated by ornateness / wear in the outfit
-/// deriver). Order is the deriver's roll order.
-pub fn optional_slots(chassis: ChassisFamily) -> &'static [PartSlot] {
-    use PartSlot::*;
-    match chassis {
-        ChassisFamily::Humanoid
-        | ChassisFamily::Boat
-        | ChassisFamily::Skiff
-        | ChassisFamily::Helicopter
-        | ChassisFamily::Airplane => &[],
-        ChassisFamily::Airship => &[Ornament],
-    }
-}
-
-/// Everything a [`BodyPart::build`] needs: the seeded colours, finishes,
-/// and proportions for the avatar being assembled. Cheap to derive from a
-/// seed via [`Self::for_seed`].
+/// Everything a craft type's builder needs: the seeded colours, finishes,
+/// and proportions for the avatar being built. Cheap to derive from a seed
+/// via [`Self::for_seed`].
 #[derive(Clone, Copy, Debug)]
 pub struct PartCtx {
     pub palette: AvatarPalette,
     pub materials: MaterialKit,
     pub body: AvatarBody,
-    /// Concrete vehicle proportions + mount landmarks for the seed's chassis -
-    /// the shared contract between the vehicle parts and the assembler
-    /// (`None` for the rigged family, or a vehicle family not yet wired). Read
-    /// through the family accessors ([`Self::boat`]).
+    /// Concrete vehicle proportions for the seed's chassis (`None` for the
+    /// rigged family). Read through the family accessors ([`Self::boat`]).
     pub vehicle: Option<VehicleBlueprint>,
-    /// The avatar seed - parts open their own sub-stream for stochastic
+    /// The avatar seed - a builder opens its own sub-stream for stochastic
     /// detail without re-deriving the anchor.
     pub seed: u64,
     /// Which heritage livery to draw, overriding the seed's own pick
@@ -142,9 +44,8 @@ pub struct PartCtx {
     /// nextest run that forks a process per test and would be a lie in every
     /// other caller.
     pub livery: Option<usize>,
-    /// Seeded ornateness tier - lets a part scale its *visible* detail density
-    /// (gondola dressing, engine-pod richness) so the tier finally reads on the
-    /// geometry, not just the optional-slot roll.
+    /// Seeded ornateness tier - what each craft type's ladder of secondary
+    /// masses dresses by, so the tier reads on the geometry.
     pub ornateness: OrnatenessTier,
     /// Seeded wear tier - the discrete reading of the wear axis the
     /// [`MaterialKit`] already grimes every surface by. A finish can only
@@ -175,385 +76,15 @@ impl PartCtx {
         }
     }
 
-    /// The boat proportion blueprint, if this avatar is a boat. Nothing in
-    /// this catalogue reads it any more - a boat has no parts since #1363 -
-    /// but the accessor is the vehicle families' shared shape and the boat
-    /// builders reach it through their own `PartCtx`.
+    /// The boat proportion blueprint, if this avatar is a boat. A boat has no
+    /// parts since #1363, but the accessor is the vehicle families' shared
+    /// shape and the boat builders reach it through their own `PartCtx`.
     pub fn boat(&self) -> Option<&BoatBlueprint> {
         self.vehicle.as_ref().and_then(VehicleBlueprint::boat)
     }
 
-    /// The airship proportion blueprint, if this avatar is an airship - the
-    /// envelope / gondola parts and the airship assembler both size from it.
-    pub fn airship(&self) -> Option<&AirshipBlueprint> {
-        self.vehicle.as_ref().and_then(VehicleBlueprint::airship)
-    }
-
-    /// The skiff proportion blueprint, if this avatar is a skiff - the chassis
-    /// / wheel parts and the skiff assembler share its wheel/fender landmarks.
+    /// The skiff proportion blueprint, if this avatar is a skiff.
     pub fn skiff(&self) -> Option<&SkiffBlueprint> {
         self.vehicle.as_ref().and_then(VehicleBlueprint::skiff)
-    }
-}
-
-/// One composable avatar part blueprint. Implementors are aggregated into
-/// the [`entries`] registry; the outfit deriver selects among them by
-/// querying [`parts_for_avatar`].
-pub trait BodyPart: Sync {
-    /// Stable identifier - written into the outfit so a re-derivation
-    /// resolves the same part. Must stay stable across builds.
-    fn slug(&self) -> &'static str;
-
-    /// Which slot this part fills.
-    fn slot(&self) -> PartSlot;
-
-    /// Which chassis families this part serves. A part may serve several
-    /// (a cross-family ornament).
-    fn chassis(&self) -> &'static [ChassisFamily];
-
-    /// Which styles this part suits. **Empty means universal** - eligible
-    /// for every style (see the module docstring).
-    fn styles(&self) -> &'static [ThemeArchetype] {
-        &[]
-    }
-
-    /// Ornateness-tier span this part suits. Defaults to
-    /// [`OrnatenessBand::ANY`].
-    fn ornateness_band(&self) -> OrnatenessBand {
-        OrnatenessBand::ANY
-    }
-
-    /// Wear-tier span this part suits. Defaults to [`WearBand::ANY`].
-    fn wear_band(&self) -> WearBand {
-        WearBand::ANY
-    }
-
-    /// Build the part's geometry in its local attachment frame (see the
-    /// module docstring's frame convention).
-    fn build(&self, ctx: &PartCtx) -> Generator;
-}
-
-/// A data-driven [`BodyPart`] for styled kits - metadata (slot, chassis,
-/// styles, ornateness / wear bands) plus a build function pointer. The
-/// styled humanoid / vehicle kits express their parts as a table of these
-/// rather than a struct apiece.
-pub(crate) struct PartDef {
-    pub slug: &'static str,
-    pub slot: PartSlot,
-    pub chassis: &'static [ChassisFamily],
-    pub styles: &'static [ThemeArchetype],
-    pub ornateness: OrnatenessBand,
-    pub wear: WearBand,
-    pub build: fn(&PartCtx) -> Generator,
-}
-
-impl BodyPart for PartDef {
-    fn slug(&self) -> &'static str {
-        self.slug
-    }
-    fn slot(&self) -> PartSlot {
-        self.slot
-    }
-    fn chassis(&self) -> &'static [ChassisFamily] {
-        self.chassis
-    }
-    fn styles(&self) -> &'static [ThemeArchetype] {
-        self.styles
-    }
-    fn ornateness_band(&self) -> OrnatenessBand {
-        self.ornateness
-    }
-    fn wear_band(&self) -> WearBand {
-        self.wear
-    }
-    fn build(&self, ctx: &PartCtx) -> Generator {
-        (self.build)(ctx)
-    }
-}
-
-/// Every part of `slot` serving `chassis` and eligible for `style`
-/// (universal parts always qualify), in registry order. The avatar
-/// analogue of [`crate::catalogue::entries_for`].
-pub fn parts_for(
-    chassis: ChassisFamily,
-    slot: PartSlot,
-    style: ThemeArchetype,
-) -> impl Iterator<Item = &'static dyn BodyPart> {
-    entries().filter(move |p| {
-        p.slot() == slot
-            && p.chassis().contains(&chassis)
-            && (p.styles().is_empty() || p.styles().contains(&style))
-    })
-}
-
-/// [`parts_for`] further gated by the avatar's ornateness / escalation
-/// tiers - the avatar analogue of [`crate::catalogue::entries_for_room`].
-/// Since both bands default to `ANY`, this matches [`parts_for`] until a
-/// part opts into a band.
-pub fn parts_for_avatar(
-    chassis: ChassisFamily,
-    slot: PartSlot,
-    style: ThemeArchetype,
-    ornateness: OrnatenessTier,
-    wear: WearTier,
-) -> impl Iterator<Item = &'static dyn BodyPart> {
-    parts_for(chassis, slot, style)
-        .filter(move |p| p.ornateness_band().accepts(ornateness) && p.wear_band().accepts(wear))
-}
-
-/// Every part that ships in the build, across all content modules. The
-/// universal default parts come first so they're the stable fallback pick;
-/// styled kits follow. Iterating a chain (rather than one `static` array)
-/// lets each kit own its own registry slice in its own file.
-pub fn entries() -> impl Iterator<Item = &'static dyn BodyPart> {
-    defaults::ENTRIES
-        .iter()
-        .chain(vehicle::ENTRIES.iter())
-        .copied()
-}
-
-/// Resolve a part by its stable [`BodyPart::slug`]. The contract the outfit
-/// deriver and assembler share: the seeded
-/// [`AvatarOutfit`](crate::seeded_defaults) records a slug per slot, and the
-/// assembler resolves it back to the blueprint here.
-pub fn by_slug(slug: &str) -> Option<&'static dyn BodyPart> {
-    entries().find(|p| p.slug() == slug)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// #1608 and #1604: every engine pod stands in its own frame - +Z
-    /// forward, +Y up - and its airscrew turns about the travel axis ahead of
-    /// the nacelle. Composed through the real transforms: the pods' root was
-    /// the quarter-turned barrel until #1608, which put every airscrew under
-    /// the nacelle and the pylon out in front, while every offset in the
-    /// builders read as if it were not.
-    #[test]
-    fn every_engine_pod_screws_forward_and_hangs_from_a_pylon_above() {
-        use bevy::prelude::{Transform, Vec3};
-        fn walk(g: &Generator, parent: Transform, out: &mut Vec<(Transform, Generator)>) {
-            let here = parent * Transform::from(&g.transform);
-            out.push((here, g.clone()));
-            for c in &g.children {
-                walk(c, here, out);
-            }
-        }
-        let seed = (0u64..400)
-            .find(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Airship)
-            .expect("an airship seed");
-        let ctx = PartCtx::for_seed(seed);
-        let pods: Vec<&dyn BodyPart> = entries().filter(|p| p.slot() == PartSlot::Pod).collect();
-        assert_eq!(pods.len(), 3, "the default, ducted and screw pods");
-        for pod in pods {
-            let mut nodes = Vec::new();
-            walk(&pod.build(&ctx), Transform::IDENTITY, &mut nodes);
-            let turning: Vec<&(Transform, Generator)> =
-                nodes.iter().filter(|(_, g)| g.spin.is_some()).collect();
-            assert_eq!(turning.len(), 1, "{}: one airscrew", pod.slug());
-            let (at, screw) = turning[0];
-            let spin = screw.spin.as_ref().expect("turns");
-            let axis = at.rotation * Vec3::from_array(spin.axis.0);
-            assert!(
-                axis.distance(Vec3::Z) < 1e-4,
-                "{}: turns about {axis}",
-                pod.slug()
-            );
-            let c = at.translation;
-            assert!(
-                c.z > 0.1 && c.x.abs() < 1e-4 && c.y.abs() < 1e-4,
-                "{}: the airscrew stands at {c}, not ahead on the travel axis",
-                pod.slug()
-            );
-            assert!(
-                nodes
-                    .iter()
-                    .any(|(t, _)| t.translation.y > 0.25 && t.translation.z.abs() < 1e-4),
-                "{}: no pylon reaches up into the flank",
-                pod.slug()
-            );
-        }
-    }
-
-    /// #1604: each festival lantern swings on its own pin on the line - a
-    /// lean and a wind sway about the line's X - and hangs exactly where it
-    /// was drawn before it could: at `(x, dip)` under the line, its x one of
-    /// the five stations, its dip the swag's.
-    #[test]
-    fn every_festival_lantern_swings_on_its_own_pin_where_it_hung() {
-        use crate::pds::generator::GeneratorKind;
-        use bevy::prelude::{Transform, Vec3};
-        let part = entries()
-            .find(|p| p.slug() == "airship_orn_lanterns")
-            .expect("the lantern string is a part");
-        let seed = (0u64..400)
-            .find(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Airship)
-            .expect("an airship seed");
-        let root = part.build(&PartCtx::for_seed(seed));
-        let mut lanterns = Vec::new();
-        let mut pins = 0;
-        for pin in &root.children {
-            let Some(spin) = &pin.spin else { continue };
-            pins += 1;
-            assert_eq!(spin.axis.0, [1.0, 0.0, 0.0], "about the line");
-            let kinds: Vec<&str> = spin.terms.iter().map(|t| t.label()).collect();
-            assert_eq!(kinds, ["Lean", "Wind"]);
-            let at = Transform::from(&pin.transform);
-            for part in &pin.children {
-                if matches!(part.kind, GeneratorKind::Sphere { .. }) {
-                    lanterns
-                        .push(at.transform_point(Vec3::from_array(part.transform.translation.0)));
-                }
-            }
-        }
-        assert_eq!(pins, 5, "one pin a lantern");
-        for (got, x) in lanterns.iter().zip([-0.3f32, -0.15, 0.0, 0.15, 0.3]) {
-            let dip = -0.08 - 0.05 * (1.0 - x.abs() / 0.3);
-            assert!(
-                got.distance(Vec3::new(x, dip, 0.0)) < 1e-6,
-                "{got} vs ({x}, {dip})"
-            );
-        }
-    }
-
-    #[test]
-    fn slugs_are_unique() {
-        let all: Vec<&'static dyn BodyPart> = entries().collect();
-        for (i, a) in all.iter().enumerate() {
-            let dupes = all.iter().filter(|b| b.slug() == a.slug()).count();
-            assert_eq!(dupes, 1, "slug {:?} repeats (index {i})", a.slug());
-        }
-    }
-
-    #[test]
-    fn every_required_slot_is_fillable_for_every_style() {
-        // The universal defaults guarantee a non-empty pool for every
-        // (chassis, required slot, style) - the contract the outfit deriver
-        // relies on so no required slot is ever unfillable.
-        for chassis in ChassisFamily::ALL {
-            for &slot in required_slots(chassis) {
-                for style in ThemeArchetype::ALL {
-                    assert!(
-                        parts_for(chassis, slot, style).next().is_some(),
-                        "{chassis:?}/{slot:?}/{style:?} has no part"
-                    );
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn required_slots_fillable_across_every_style_and_tier() {
-        // The band-gated query must stay non-empty for required slots at every
-        // style AND every ornateness/wear tier (the universal defaults carry ANY
-        // bands and so floor it). Iterating all styles - not just one - rather
-        // than trusting the universal floor is what catches a regression that
-        // band-gated or dropped a default at the styles a bespoke part targets.
-        // The two band-gated parts on required slots that made the case for it
-        // (#793) were a boat's and a skiff's, and went with those catalogues in
-        // #1363 / #1364; the airship's required slots are all universal today,
-        // so this sweep is a standing guard rather than a live constraint.
-        for chassis in ChassisFamily::ALL {
-            for &slot in required_slots(chassis) {
-                for style in ThemeArchetype::ALL {
-                    for o in OrnatenessTier::ALL {
-                        for w in WearTier::ALL {
-                            assert!(
-                                parts_for_avatar(chassis, slot, style, o, w)
-                                    .next()
-                                    .is_some(),
-                                "{chassis:?}/{slot:?}/{style:?} empty at {o:?}/{w:?}"
-                            );
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn avatar_query_is_the_band_filtered_style_query() {
-        // parts_for_avatar is exactly parts_for with the band predicate.
-        for chassis in ChassisFamily::ALL {
-            let slots: Vec<PartSlot> = required_slots(chassis)
-                .iter()
-                .chain(optional_slots(chassis))
-                .copied()
-                .collect();
-            for slot in slots {
-                for style in ThemeArchetype::ALL {
-                    let base: Vec<&str> =
-                        parts_for(chassis, slot, style).map(|p| p.slug()).collect();
-                    for o in OrnatenessTier::ALL {
-                        for w in WearTier::ALL {
-                            for p in parts_for(chassis, slot, style) {
-                                let accepted =
-                                    p.ornateness_band().accepts(o) && p.wear_band().accepts(w);
-                                let in_gated = parts_for_avatar(chassis, slot, style, o, w)
-                                    .any(|q| q.slug() == p.slug());
-                                assert_eq!(accepted, in_gated, "{} band mismatch", p.slug());
-                            }
-                            for q in parts_for_avatar(chassis, slot, style, o, w) {
-                                assert!(base.contains(&q.slug()), "gated introduced {}", q.slug());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn every_part_survives_sanitize_unchanged() {
-        // A part must emit geometry already inside every sanitiser bound, or
-        // a peer would render different geometry than the owner built.
-        use crate::pds::sanitize_avatar_visuals;
-        fn assert_tree_eq(a: &Generator, b: &Generator, slug: &str) {
-            assert_eq!(a.kind, b.kind, "{slug}: kind rewritten by sanitiser");
-            assert_eq!(
-                a.transform.translation, b.transform.translation,
-                "{slug}: translation rewritten"
-            );
-            assert_eq!(
-                a.transform.scale, b.transform.scale,
-                "{slug}: scale rewritten"
-            );
-            assert_eq!(a.children.len(), b.children.len(), "{slug}: child dropped");
-            for (ca, cb) in a.children.iter().zip(b.children.iter()) {
-                assert_tree_eq(ca, cb, slug);
-            }
-        }
-        // Span several seeds so every part builds against a range of contexts
-        // - crucially, the vehicle parts must survive sanitize at the extremes
-        // of their seeded blueprint dimensions, not just at the nominal
-        // fallback. Seeds chosen to cover boat / airship / skiff chassis so a
-        // family part meets a real blueprint of its own family. (68 has been a
-        // helicopter since #1614, which has no parts; the other six still
-        // cover all three.)
-        for seed in [11u64, 13, 68, 2, 5, 0, 42] {
-            let ctx = PartCtx::for_seed(seed);
-            for part in entries() {
-                let built = part.build(&ctx);
-                let mut sanitized = built.clone();
-                sanitize_avatar_visuals(&mut sanitized);
-                assert_tree_eq(&built, &sanitized, part.slug());
-            }
-        }
-    }
-
-    #[test]
-    fn parts_serve_only_their_declared_chassis_and_build_deterministically() {
-        let ctx = PartCtx::for_seed(42);
-        for part in entries() {
-            assert!(
-                !part.chassis().is_empty(),
-                "{} serves no chassis",
-                part.slug()
-            );
-            let a = part.build(&ctx);
-            let b = part.build(&ctx);
-            assert_eq!(a, b, "{} build is non-deterministic", part.slug());
-        }
     }
 }

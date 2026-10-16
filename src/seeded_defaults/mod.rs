@@ -37,15 +37,16 @@
 //!         · avatar::palette  (skin/hair + style/temperature/wear accents)
 //!         · avatar::materials (MaterialKit: per-surface style/wear finish)
 //!         · avatar::fx       (style-gated particle aura + audio voice)
-//!         · avatar::outfit   (slot → part choice from the part catalogue)
+//!         · avatar::craft    (the craft type a vehicle is drawn as)
 //!         · avatar::body     (proportions)
 //!         · avatar::vehicle_blueprint (the vehicle counterpart: hull /
-//!                             cabin / envelope proportions)
+//!                             cabin / fuselage proportions)
 //!         · avatar::gait     (cadence/bounce/sway)
 //! ```
 //!
-//! Avatar silhouettes are composed from the tagged part catalogue
-//! ([`crate::pds::avatar::parts`]) rather than per-family design derivers.
+//! A vehicle's silhouette is drawn by its craft type's own builder over one
+//! profile (`crate::pds::avatar::default_visuals`); the tagged part catalogue
+//! that composed the airship until #1657 is gone.
 //!
 //! Resolution rule: record-authored values always win. The derivers fill
 //! in fields that aren't explicitly set on the PDS record, so a brand-new
@@ -99,18 +100,18 @@ impl SeedPins for scene::ScenePins {
 }
 
 pub use avatar::{
-    AirplaneBlueprint, AirplaneType, AirshipBlueprint, ArmouredVariant, AvatarBody,
-    AvatarCharacter, AvatarFx, AvatarGait, AvatarOutfit, AvatarPalette, AvatarPins, AvatarVoice,
-    BoatBlueprint, BoatType, BodyArchetype, BuggyVariant, ChassisFamily, CraftType, FinishRegister,
+    AirplaneBlueprint, AirplaneType, AirshipBlueprint, AirshipType, ArmouredVariant, AvatarBody,
+    AvatarCharacter, AvatarFx, AvatarGait, AvatarPalette, AvatarPins, AvatarVoice, BoatBlueprint,
+    BoatType, BodyArchetype, BuggyVariant, ChassisFamily, CraftType, FinishRegister,
     HelicopterBlueprint, HelicopterType, LongshipVariant, MaterialKit, NOMINAL_AIRFRAME_LEN,
-    NOMINAL_BODY_LEN, NOMINAL_FUSELAGE_LEN, NOMINAL_HULL_LEN, OrnatenessBand, OrnatenessTier,
-    OutfitPart, ParticleAura, RoadsterBody, RoadsterTop, RoadsterWheels, RoverVariant,
-    RunaboutVariant, ScowLoad, SkiffBlueprint, SkiffType, SloopHull, SloopRig, StylizationTier,
-    TugVariant, VehicleBlueprint, VehicleStance, WagonBody, WearBand, WearTier, craft_axis,
+    NOMINAL_AIRSHIP_LEN, NOMINAL_BODY_LEN, NOMINAL_FUSELAGE_LEN, NOMINAL_HULL_LEN, OrnatenessTier,
+    ParticleAura, RoadsterBody, RoadsterTop, RoadsterWheels, RoverVariant, RunaboutVariant,
+    ScowLoad, SkiffBlueprint, SkiffType, SloopHull, SloopRig, StylizationTier, TugVariant,
+    VehicleBlueprint, VehicleStance, WagonBody, WearTier, craft_axis,
 };
 // Re-exported as a module, not item by item: the mood groups are read as a
-// named set (`mood::NEON`), and the vehicle part catalogue reaches them from
-// outside this module.
+// named set (`mood::NEON`), and the boat builders reach them from outside
+// this module.
 pub use avatar::mood;
 pub use hash::fnv1a_64;
 pub use room::{

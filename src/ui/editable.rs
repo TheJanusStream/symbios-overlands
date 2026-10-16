@@ -1365,7 +1365,7 @@ pub fn pin_axis_row<T: Copy + PartialEq>(
 /// the craft type - the first dependent axis the re-roll has (#1380).
 ///
 /// `rolled` is `Err(why)` when the axis does not apply to the record at all
-/// ("an airship has no craft types"): the value cell then reads
+/// ("a rigged avatar has no craft types"): the value cell then reads
 /// `none - {why}` in weak text and the lock toggle is disabled, because
 /// locking captures the ROLLED value and there is none to capture. The
 /// toggle stays live while something *is* pinned, so a pin can always be

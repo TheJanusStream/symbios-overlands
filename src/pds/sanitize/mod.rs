@@ -796,8 +796,10 @@ mod road_field_tests {
 mod avatar_extent_tests {
     use super::*;
 
-    /// Every generator body and part this build can produce, for the guard
-    /// below and for anyone re-tuning the caps.
+    /// Every generator body this build can produce, for the guard below and
+    /// for anyone re-tuning the caps. The airship's part catalogue, which
+    /// this also swept part by part, retired in #1657: every vehicle is a
+    /// whole seeded tree now.
     fn shipped_avatar_trees() -> Vec<Generator> {
         let mut out = Vec::new();
         for seed in 0..400u64 {
@@ -805,10 +807,6 @@ mod avatar_extent_tests {
             if let Some(visuals) = body.visuals() {
                 out.push(visuals.clone());
             }
-        }
-        for seed in [0u64, 1, 7, 42, 1337] {
-            let ctx = crate::pds::avatar::parts::PartCtx::for_seed(seed);
-            out.extend(crate::pds::avatar::parts::entries().map(|part| part.build(&ctx)));
         }
         out
     }

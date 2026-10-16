@@ -1,5 +1,5 @@
-//! Craft-type pick for a seeded boat, land-skiff, helicopter or airplane
-//! avatar.
+//! Craft-type pick for a seeded boat, land-skiff, helicopter, airplane or
+//! airship avatar.
 //!
 //! The discrete pick *inside* a vehicle family. It used to be an arrangement -
 //! monohull / catamaran / trimaran / barge, default / dune / trike / armoured -
@@ -74,6 +74,16 @@
 //! which reached an airplane only through the high-wing's floor. Its third is
 //! the air racer, at home on the five speculative and alien themes, the last
 //! that reached an airplane only through it - the coaxial's five.
+//!
+//! # And the airship family, last (#1657)
+//!
+//! [`AirshipType`] opened the same way, when the airship - the one family
+//! still assembled from a tagged part catalogue, five envelopes, three
+//! gondolas and three engine pods drawn with no regard for the avatar's
+//! theme - became a craft-type family (epic #1656): its hero alone, the
+//! rigid Zeppelin the owner agreed on the phase-1 renders, every style's
+//! floor. The fan-out (#1658-#1663) adds a blimp, a steam dirigible, a sky
+//! galleon, a hot-air balloon, a modern hybrid and an organic floater.
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
@@ -96,14 +106,16 @@ pub(super) const AT_HOME: u32 = 6;
 /// at home in the theme scores this on top of [`AT_HOME`].
 pub(super) const FLOOR: u32 = 2;
 
-/// The craft type of a seeded vehicle avatar, for the four families that
-/// have one. Airships and the rigged humanoid family have no type pick.
+/// The craft type of a seeded vehicle avatar, for the five families that
+/// have one. The rigged humanoid family has no type pick; the airship has had
+/// one since #1657.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CraftType {
     Boat(BoatType),
     Skiff(SkiffType),
     Helicopter(HelicopterType),
     Airplane(AirplaneType),
+    Airship(AirshipType),
 }
 
 impl CraftType {
@@ -147,8 +159,12 @@ impl CraftType {
         Self::Airplane(AirplaneType::Racer),
     ];
 
-    /// The craft type for a seed, or `None` for a family without one (the
-    /// airship, whose envelope forms are its variety, and the humanoid).
+    /// Every airship type as a craft type, in [`AirshipType::ALL`]'s order
+    /// (#1657).
+    pub const AIRSHIPS: [Self; 1] = [Self::Airship(AirshipType::Zeppelin)];
+
+    /// The craft type for a seed, or `None` for the one family without one,
+    /// the rigged humanoid (the airship has had one since #1657).
     pub fn for_seed(seed: u64) -> Option<Self> {
         Self::for_character(&AvatarCharacter::for_seed(seed))
     }
@@ -189,6 +205,7 @@ impl CraftType {
             Self::Skiff(_) => ChassisFamily::Skiff,
             Self::Helicopter(_) => ChassisFamily::Helicopter,
             Self::Airplane(_) => ChassisFamily::Airplane,
+            Self::Airship(_) => ChassisFamily::Airship,
         }
     }
 
@@ -200,7 +217,8 @@ impl CraftType {
             ChassisFamily::Skiff => &Self::SKIFFS,
             ChassisFamily::Helicopter => &Self::HELICOPTERS,
             ChassisFamily::Airplane => &Self::AIRPLANES,
-            ChassisFamily::Airship | ChassisFamily::Humanoid => &[],
+            ChassisFamily::Airship => &Self::AIRSHIPS,
+            ChassisFamily::Humanoid => &[],
         }
     }
 
@@ -218,6 +236,7 @@ impl CraftType {
             Self::Skiff(t) => t.weight(style),
             Self::Helicopter(t) => t.weight(style),
             Self::Airplane(t) => t.weight(style),
+            Self::Airship(t) => t.weight(style),
         }
     }
 
@@ -228,6 +247,7 @@ impl CraftType {
             Self::Skiff(t) => t.label(),
             Self::Helicopter(t) => t.label(),
             Self::Airplane(t) => t.label(),
+            Self::Airship(t) => t.label(),
         }
     }
 }
@@ -251,7 +271,7 @@ pub fn craft_axis(c: &AvatarCharacter) -> Result<CraftType, &'static str> {
         ChassisFamily::Airplane => Ok(CraftType::Airplane(AirplaneType::for_style(
             c.style, c.seed,
         ))),
-        ChassisFamily::Airship => Err("an airship has no craft types"),
+        ChassisFamily::Airship => Ok(CraftType::Airship(AirshipType::for_style(c.style, c.seed))),
         ChassisFamily::Humanoid => Err("a rigged avatar has no craft types"),
     }
 }
@@ -337,6 +357,21 @@ pub enum HelicopterType {
     /// her engines on its flanks, on four wheels in low sponsons - the heavy
     /// lifter's layout of the CH-47 Chinook (#1630).
     Tandem,
+}
+
+/// The recognisable kind of lighter-than-air craft a seeded airship avatar is
+/// (#1657, epic #1656).
+///
+/// The hero the owner agreed on the phase-1 renders is the family's universal
+/// floor, so every style reaches her; the fan-out (#1658-#1663) adds the types
+/// a theme would rather fly, weighed against her the way the helicopters are
+/// against theirs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AirshipType {
+    /// Rigid airship: one long doped hull with a cruciform tail, a control
+    /// car under the bow and four engine cars on struts - the 1930s liner of
+    /// the air, in the line of LZ 127 Graf Zeppelin and LZ 129.
+    Zeppelin,
 }
 
 /// The recognisable kind of fixed-wing a seeded airplane avatar is (#1617).
@@ -822,6 +857,62 @@ impl AirplaneType {
     }
 }
 
+impl AirshipType {
+    pub const ALL: [Self; 1] = [Self::Zeppelin];
+
+    /// The type every airship theme can reach - see [`FLOOR`].
+    pub const UNIVERSAL: Self = Self::Zeppelin;
+
+    /// Human-readable name, for survey readouts.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Zeppelin => "Zeppelin",
+        }
+    }
+
+    /// Stable lower-case name, for `render --craft`.
+    pub fn slug(self) -> &'static str {
+        match self {
+            Self::Zeppelin => "zeppelin",
+        }
+    }
+
+    /// Whether this type is at home in `style`.
+    fn at_home(self, style: ThemeArchetype) -> bool {
+        match self {
+            // The universal hero (#1656 decision 4's sketch). Strongest
+            // where the great liner of the air belongs: the stately classical
+            // and civic worlds, the city she moored over, the gothic night
+            // she raided through, and the north the Norge flew to the Pole.
+            Self::Zeppelin => matches!(
+                style,
+                ThemeArchetype::AncientClassical
+                    | ThemeArchetype::CivicCampus
+                    | ThemeArchetype::ModernCity
+                    | ThemeArchetype::GothicHorror
+                    | ThemeArchetype::Nordic
+            ),
+        }
+    }
+
+    /// Sampling weight of this type for an avatar of `style`.
+    pub fn weight(self, style: ThemeArchetype) -> u32 {
+        let floor = if self == Self::UNIVERSAL { FLOOR } else { 0 };
+        floor + if self.at_home(style) { AT_HOME } else { 0 }
+    }
+
+    /// The type for a seed, weighted by the avatar's style.
+    pub fn for_seed(seed: u64) -> Self {
+        Self::for_style(AvatarCharacter::for_seed(seed).style, seed)
+    }
+
+    /// The type for an already-resolved style.
+    pub fn for_style(style: ThemeArchetype, seed: u64) -> Self {
+        let mut rng = ChaCha8Rng::seed_from_u64(seed ^ AVATAR_CRAFT_SALT);
+        pick_weighted(&Self::ALL, |t| t.weight(style), &mut rng).unwrap_or(Self::UNIVERSAL)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -968,8 +1059,8 @@ mod tests {
         );
     }
 
-    /// Only the four craft-type vehicle families carry a type - the airship
-    /// is composed from parts instead, and the humanoid is rigged.
+    /// Every vehicle family carries a type - the airship too, since #1657 -
+    /// and the rigged humanoid does not.
     #[test]
     fn the_type_follows_the_family() {
         let mut families = 0;
@@ -978,8 +1069,9 @@ mod tests {
                 (ChassisFamily::Boat, Some(CraftType::Boat(_)))
                 | (ChassisFamily::Skiff, Some(CraftType::Skiff(_)))
                 | (ChassisFamily::Helicopter, Some(CraftType::Helicopter(_)))
-                | (ChassisFamily::Airplane, Some(CraftType::Airplane(_))) => families += 1,
-                (ChassisFamily::Airship | ChassisFamily::Humanoid, None) => families += 1,
+                | (ChassisFamily::Airplane, Some(CraftType::Airplane(_)))
+                | (ChassisFamily::Airship, Some(CraftType::Airship(_))) => families += 1,
+                (ChassisFamily::Humanoid, None) => families += 1,
                 (fam, craft) => panic!("seed {s}: {fam:?} got craft {craft:?}"),
             }
         }

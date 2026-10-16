@@ -1,12 +1,11 @@
-//! Shared primitive vocabulary for the avatar assemblers and parts.
+//! Shared primitive vocabulary for the seeded craft types.
 //!
-//! Pure geometry plumbing: axis-rotation quaternion helpers, primitive-kind
-//! constructors (torture triple zeroed), and the assembler placement
-//! helpers ([`offset`] / [`offset_rot`]). Material
-//! *finish* lives in [`crate::seeded_defaults::MaterialKit`]; both the
-//! assemblers ([`super`]) and the part catalogue
-//! ([`crate::pds::avatar::parts`]) build from this bin so geometry plumbing
-//! lives in exactly one place.
+//! Pure geometry plumbing: axis-rotation quaternion helpers and
+//! primitive-kind constructors (torture triple zeroed). Material *finish*
+//! lives in [`crate::seeded_defaults::MaterialKit`]; every family's builders
+//! ([`super`]) build from this bin so geometry plumbing lives in exactly one
+//! place. The part catalogue that built from it too, and the placement
+//! helpers its assembler mounted slots with, retired in #1657.
 
 use crate::pds::PrimCommon;
 use crate::pds::generator::{Generator, GeneratorKind, LathePoint, SpinePoint};
@@ -264,6 +263,7 @@ pub(crate) fn superellipsoid(
     }
 }
 
+#[cfg(test)]
 pub(crate) fn cone(
     radius: f32,
     height: f32,
@@ -292,52 +292,7 @@ pub(crate) fn torus(
     }
 }
 
-/// A helical tube - spring / screw / spiral (`Helix` prim, #527). `radius` is
-/// the helix radius, `tube` the wire thickness, `pitch` the vertical rise per
-/// full turn, `turns` the revolution count. Laid along +Y; rotate to lay it
-/// along the travel axis for a screw propeller.
-pub(crate) fn helix(
-    radius: f32,
-    tube: f32,
-    pitch: f32,
-    turns: f32,
-    resolution: u32,
-    material: SovereignMaterialSettings,
-) -> GeneratorKind {
-    GeneratorKind::Helix {
-        radius: Fp(radius),
-        tube_radius: Fp(tube),
-        pitch: Fp(pitch),
-        turns: Fp(turns),
-        resolution,
-        common: PrimCommon::with_material(material),
-    }
-}
-
-/// Stamp a torture triple onto a parametric primitive kind for organic
-/// shaping. Semantics live in `crate::world_builder::prim`: `twist` is
-/// radians of Y-rotation across the height, `taper` scales X/Z toward the
-/// top (`0.5` → half-width crown, negative flares outward), `bend` displaces
-/// the top quadratically on world X/Z. The scalar `new_taper` sets a uniform
-/// (X == Z) taper; author per-axis taper or an S-bend by building
-/// [`TortureParams`](crate::pds::TortureParams) directly. Non-primitive
-/// kinds pass through.
-pub(crate) fn with_torture(
-    mut kind: GeneratorKind,
-    new_twist: f32,
-    new_taper: f32,
-    new_bend: [f32; 3],
-) -> GeneratorKind {
-    if let Some(t) = kind.torture_mut() {
-        t.twist = Fp(new_twist);
-        t.taper = Fp2([new_taper, new_taper]);
-        t.bend = Fp3(new_bend);
-    }
-    kind
-}
-
-/// Per-axis shaping for box bodies - [`with_torture`]'s sibling for when the
-/// X and Z taper differ (a cabin greenhouse that narrows more across than
+/// Per-axis shaping for box bodies, for when the X and Z taper differ (a cabin greenhouse that narrows more across than
 /// fore-aft) or a top-shear lean is wanted. `taper` scales `[x, z]` toward the
 /// top (`1 - taper·t`, so `0.0` = straight, positive draws the top in,
 /// negative flares it); `bend` is the quadratic top displacement; `shear`
@@ -402,29 +357,6 @@ pub(crate) fn with_cut(
         t.hollow = Fp(hollow);
     }
     kind
-}
-
-// ---------------------------------------------------------------------------
-// Assembler placement
-// ---------------------------------------------------------------------------
-
-/// Offset a built part to a joint anchor by adding the anchor to the part
-/// root's intrinsic translation (which carries the part's own offset from its
-/// attachment pivot - e.g. an arm hanging below the shoulder). Rotation and
-/// scale on the part root are preserved.
-pub(crate) fn offset(mut part: Generator, anchor: [f32; 3]) -> Generator {
-    let t = part.transform.translation.0;
-    part.transform.translation = Fp3([anchor[0] + t[0], anchor[1] + t[1], anchor[2] + t[2]]);
-    part
-}
-
-/// [`offset`] plus a rotation set on the part root - for slots the assembler
-/// orients (a wheel laid on its axle, an airship fin). Parts build at identity
-/// rotation in their local frame, so setting it here is safe.
-pub(crate) fn offset_rot(part: Generator, anchor: [f32; 3], rotation: Fp4) -> Generator {
-    let mut p = offset(part, anchor);
-    p.transform.rotation = rotation;
-    p
 }
 
 // ---------------------------------------------------------------------------
