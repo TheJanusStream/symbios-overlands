@@ -718,8 +718,10 @@ mod tests {
     /// keeps the same chassis through a travel, and one still aloft from
     /// the flight in hung over the landing, the complaint the landed state
     /// was for. It starts landed, and clear of the ground by its own box -
-    /// the spawn's metre for a seeded Zeppelin, and further for an airship
-    /// published before #1657, whose box reaches its slung gondola.
+    /// the spawn's metre for a seeded Zeppelin, and further for a taller
+    /// airship: a hot-air balloon, a floater or a long steam dirigible
+    /// (#1658-#1663), or one published before #1657, whose box reaches its
+    /// slung gondola.
     #[test]
     fn a_rotorcraft_arrives_set_down_at_its_own_height() {
         let record =

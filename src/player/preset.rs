@@ -120,8 +120,11 @@ const SET_DOWN_CLEARANCE_M: f32 = 0.1;
 /// taller than that, when it is its own half-height and a hand's breadth:
 /// an airship published between #1612 and #1657 has a box reaching its
 /// slung gondola, up to 1.34 m below its origin, and set down a metre up its
-/// keel started in the ground and was shoved out of it (the seeded Zeppelin
-/// that replaced it stands about a metre tall in all). An airplane reaches below her box by her gear (#1615):
+/// keel started in the ground and was shoved out of it. The seeded Zeppelin
+/// that replaced it stands about a metre tall in all, as the blimp, the sky
+/// galleon and the hybrid do; a hot-air balloon, a floater and a long steam
+/// dirigible stand taller, and are set down by their own boxes
+/// (#1658-#1663). An airplane reaches below her box by her gear (#1615):
 /// set down on gear taller than the metre leaves, she started with her
 /// wheels pressed into the ground and sprang up off them.
 pub(crate) fn set_down_height(locomotion: &LocomotionConfig) -> f32 {
@@ -688,9 +691,11 @@ mod tests {
     /// that ride a suspension - boats and skiffs - keep exactly that metre,
     /// which their ride heights are measured from; what rises is a long
     /// airplane on her tall legs and a person tall enough that the metre left
-    /// their capsule a few millimetres off the ground - and an airship
-    /// published before #1657, whose box reaches its slung gondola (the
-    /// seeded Zeppelin stands about a metre tall in all).
+    /// their capsule a few millimetres off the ground - and an airship that
+    /// stands taller than the metre leaves: every hot-air balloon and
+    /// floater and a long steam dirigible (#1658-#1663), as one published
+    /// before #1657 did, whose box reaches its slung gondola. The Zeppelin,
+    /// the blimp, the sky galleon and the hybrid keep the metre.
     #[test]
     fn every_seeded_body_is_set_down_clear_of_the_ground() {
         let mut raised = 0;
@@ -709,14 +714,27 @@ mod tests {
                 // A helicopter's box is her fuselage, at most 1.5 m tall at
                 // the blueprint's largest corner: half of it and the set-down
                 // clearance is under the stock metre, so she sets down from
-                // the stock height too. So does an airship since #1657: the
-                // Zeppelin stands about a metre tall in all, where the old
-                // envelope over its slung gondola stood two.
-                ChassisFamily::Boat
-                | ChassisFamily::Skiff
-                | ChassisFamily::Helicopter
-                | ChassisFamily::Airship => {
+                // the stock height too.
+                ChassisFamily::Boat | ChassisFamily::Skiff | ChassisFamily::Helicopter => {
                     assert_eq!(height, cfg::SPAWN_HEIGHT_OFFSET, "seed {seed}");
+                }
+                // The Zeppelin, the blimp, the sky galleon and the hybrid
+                // reach less than the metre leaves and set down from it. A
+                // hot-air balloon's box reaches past it to her basket's floor
+                // (#1661), a floater's to her tentacles' tips (#1663) and a
+                // long steam dirigible's to her pusher's disc (#1659): set
+                // down 1.24 to 1.38 m, 1.09 to 1.15 and up to 1.08 under 400.
+                ChassisFamily::Airship => {
+                    let t = crate::seeded_defaults::AirshipType::for_seed(seed);
+                    use crate::seeded_defaults::AirshipType::*;
+                    match t {
+                        HotAirBalloon | Floater | SteamDirigible => {
+                            raised += usize::from(height > cfg::SPAWN_HEIGHT_OFFSET);
+                        }
+                        Zeppelin | Blimp | SkyGalleon | Hybrid => {
+                            assert_eq!(height, cfg::SPAWN_HEIGHT_OFFSET, "seed {seed}: a {t:?}");
+                        }
+                    }
                 }
                 // An airplane stands on her gear (#1617): a long one on her
                 // tall legs reaches past the metre, and is set down higher.
@@ -725,8 +743,10 @@ mod tests {
                 }
             }
         }
-        // 47 under 400 since #1657 took the airships out of the raised set:
-        // the tall humanoids and the long airplanes are what is left of it.
+        // 47 under 400 when #1657 took the airships out of the raised set -
+        // the tall humanoids and the long airplanes - before the fan-out's
+        // balloons, floaters and long steam dirigibles came back into it
+        // (#1658-#1663).
         assert!(
             raised > 40,
             "only {raised} bodies under 400 are set down higher"
@@ -834,9 +854,17 @@ mod tests {
     /// heavier climbed 54, still gathering speed. Now it settles and holds.
     ///
     /// Not to the millimetre: on the step of the swap the new thrust meets
-    /// the mass avian computed the step before, a one-step kick of under
-    /// 0.2 m/s that its damping takes out over a few seconds - 10 to 20 cm
-    /// in all, where the defect was metres a second and growing.
+    /// the mass avian computed the step before - `apply_force` divides by
+    /// the mass the body holds when it is called, and avian takes up the
+    /// one [`sync_chassis`] writes only in its own step - a one-step kick
+    /// of g/64 times the mass ratio less one, which her damping takes out
+    /// over a few seconds. The Zeppelin's seeds alone spanned 1.6 times, a
+    /// kick under 0.2 m/s and 10 to 20 cm in all; since the airship fan-out
+    /// (#1658-#1663) the seeded airships span 4.4 times, a 46 kg floater to
+    /// a 200 kg steam dirigible, and the kick from the one to the other is
+    /// 0.52 m/s: 0.67 m in all, 1.8 cm of it in the fifth second. The
+    /// bounds leave a feel tweak room and sit far under the defect's metres
+    /// a second and growing.
     #[test]
     fn an_airship_re_rolled_in_place_holds_its_height() {
         let mut ships: Vec<(f32, AvatarRecord)> = (0u64..600)
@@ -853,7 +881,11 @@ mod tests {
             ships[ships.len() - 1].0 > ships[0].0 * 1.5,
             "the seeded airships no longer span a mass range worth testing"
         );
-        for (was, now) in [(heavy, light), (light, heavy)] {
+        let (m_light, m_heavy) = (ships[0].0, ships[ships.len() - 1].0);
+        for ((was, now), (m_was, m_now)) in [
+            ((heavy, light), (m_heavy, m_light)),
+            ((light, heavy), (m_light, m_heavy)),
+        ] {
             let mut bench = FlightBench::new(was, Vec3::new(0.0, 30.0, 0.0)).aloft();
             for _ in 0..64 {
                 bench.step();
@@ -871,9 +903,10 @@ mod tests {
             }
             let (fifth, all) = (bench.position().y - fourth, bench.position().y - swapped);
             assert!(
-                fifth.abs() < 0.02 && all.abs() < 0.5,
-                "an airship re-rolled in place moved {all:+.2} m in five seconds, \
-                 {fifth:+.3} m of it in the fifth: it is not holding its height"
+                fifth.abs() < 0.04 && all.abs() < 1.0,
+                "an airship re-rolled in place from {m_was:.1} kg to {m_now:.1} kg moved \
+                 {all:+.2} m in five seconds, {fifth:+.3} m of it in the fifth: it is not \
+                 holding its height"
             );
         }
     }

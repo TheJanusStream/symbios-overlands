@@ -15,8 +15,9 @@
 //! fineness 5.0, and a fitting's own size - a car's girth, a nacelle's, a
 //! lamp's - is authored in that prototype's metres and drawn
 //! [`HullPlan::len`] times larger: the length over the nominal's. The hull's
-//! radius is not a fitting: it is the blueprint's own, so a fuller hull
-//! carries the same car on a deeper belly.
+//! radius is not a fitting: it is the blueprint's own, times the type's
+//! shares of its length and fineness, so a fuller hull carries the same car
+//! on a deeper belly.
 
 use crate::seeded_defaults::{AirshipBlueprint, NOMINAL_AIRSHIP_LEN};
 
@@ -29,6 +30,10 @@ use super::MIN_DIM;
 /// girth at `nose` (exponent 2 is an ellipse, higher a fuller, blunter
 /// nose), the full girth held for `parallel`, and a power-law taper to a
 /// point at the tail (2 is a parabola, under it a straighter cone).
+///
+/// A hull stood on end - the hot-air balloon's envelope, the floater's
+/// bell - reads the same shape from its crown (`x = 0`) down, and its
+/// builder lays the stations up its height ([`HullPlan::upright`]).
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct HullProfile {
     /// Share of the length from the nose's tip to the full girth.
@@ -44,6 +49,12 @@ pub(crate) struct HullProfile {
     /// radius climbs fastest, and no adjacent gap more than twice its
     /// neighbour (a uniform Catmull-Rom loops past a station otherwise).
     pub(crate) stations: &'static [f32],
+    /// The type's hull length over the blueprint's (the Zeppelin's 1): a
+    /// blimp is shorter, a balloon's envelope stands half as tall.
+    pub(crate) len_scale: f32,
+    /// The type's fineness over the blueprint's (the Zeppelin's 1): under
+    /// one is a fuller hull - a blimp's 0.8, a balloon's quarter.
+    pub(crate) fine_scale: f32,
 }
 
 /// A seeded hull: a type's [`HullProfile`] at a blueprint's size.
@@ -54,15 +65,23 @@ pub(crate) struct HullPlan {
     length: f32,
     /// The greatest radius (m).
     girth: f32,
+    /// The blueprint's length over the nominal's: what a fitting authored
+    /// in the prototype's metres is drawn [`Self::len`] times larger by -
+    /// the blueprint's, not the hull's, so a type's shorter hull keeps
+    /// full-size fittings.
+    scale: f32,
 }
 
 impl HullPlan {
-    /// The hull `profile` draws at `bp`'s length and fineness.
+    /// The hull `profile` draws at `bp`'s length and fineness, each at the
+    /// type's own scale on them.
     pub(crate) fn new(bp: &AirshipBlueprint, profile: HullProfile) -> Self {
+        let length = bp.length * profile.len_scale;
         Self {
             profile,
-            length: bp.length,
-            girth: bp.length / (2.0 * bp.fineness),
+            length,
+            girth: length / (2.0 * bp.fineness * profile.fine_scale),
+            scale: bp.length / NOMINAL_AIRSHIP_LEN,
         }
     }
 
@@ -79,7 +98,7 @@ impl HullPlan {
     /// A fitting's size `v`, authored in the prototype's metres, as this
     /// hull draws it: grown with the length over the nominal's.
     pub(crate) fn len(&self, v: f32) -> f32 {
-        v * self.length / NOMINAL_AIRSHIP_LEN
+        v * self.scale
     }
 
     /// The radius at share `x` from the nose, as a share of the greatest -
@@ -128,27 +147,52 @@ impl HullPlan {
             .map(|&x| ([0.0, 0.0, self.z(x)], self.radius(x) + proud))
             .collect()
     }
+
+    /// The stations of a hull stood on end - crown up, at `+length / 2` -
+    /// each `proud` (m) off the skin.
+    pub(crate) fn upright(&self, proud: f32) -> Vec<([f32; 3], f32)> {
+        self.profile
+            .stations
+            .iter()
+            .map(|&x| ([0.0, self.z(x), 0.0], self.radius(x) + proud))
+            .collect()
+    }
 }
 
-/// Two `path_cut` wedges, one each flank, from `lo` to `hi` degrees above
-/// her widest line (negative is under it), for a sweep drawn NOSE TO TAIL.
+/// `n` equal wedges round a sweep, every other one from `phase` turns: the
+/// stripes of a two-colour gored envelope, as `path_cut` ranges. `n` is even,
+/// and a wedge never crosses the `0`/`1` seam for a `phase` under `1 / n`.
+pub(crate) fn gores(n: usize, phase: f32) -> Vec<[f32; 2]> {
+    let w = 1.0 / n as f32;
+    (0..n / 2)
+        .map(|k| {
+            let a = phase + 2.0 * k as f32 * w;
+            [a, a + w]
+        })
+        .collect()
+}
+
+/// The `path_cut` wedges of a band down each flank, from `lo` to `hi`
+/// degrees above her widest line (negative is under it), for a sweep drawn
+/// NOSE TO TAIL.
 ///
 /// A sweep transports its ring's frame along its path, and one drawn toward
 /// `-Z` comes out mirrored: in `path_cut` turns `0.5` is `+X`, `0.25` the
-/// crown, `0.75` the keel and `0` (`1`) `-X`. A band is two wedges, one
-/// either side of the crown and the keel, mirrored so the flanks match; a
-/// wedge may not cross the `0`/`1` seam, so `lo` and `hi` share a sign.
-pub(crate) fn flank_bands(lo_deg: f32, hi_deg: f32) -> [[f32; 2]; 2] {
-    debug_assert!(
-        lo_deg < hi_deg && lo_deg * hi_deg >= 0.0,
-        "a flank band may not cross her widest line: {lo_deg}..{hi_deg}"
-    );
+/// crown, `0.75` the keel and `0` (`1`) `-X`. A band is a wedge either side,
+/// mirrored about the crown and the keel so the flanks match - and a wedge
+/// may not cross the `0`/`1` seam, so a band that crosses her widest line
+/// is drawn on the `-X` flank as two, one either side of the seam.
+pub(crate) fn flank_bands(lo_deg: f32, hi_deg: f32) -> Vec<[f32; 2]> {
+    debug_assert!(lo_deg < hi_deg, "a flank band runs {lo_deg}..{hi_deg}");
     let (lo, hi) = (lo_deg / 360.0, hi_deg / 360.0);
-    let plus_x = [0.5 - hi, 0.5 - lo];
-    let minus_x = if hi <= 0.0 {
-        [1.0 + lo, 1.0 + hi]
+    let mut out = vec![[0.5 - hi, 0.5 - lo]];
+    if hi <= 0.0 {
+        out.push([1.0 + lo, 1.0 + hi]);
+    } else if lo >= 0.0 {
+        out.push([lo, hi]);
     } else {
-        [lo, hi]
-    };
-    [plus_x, minus_x]
+        out.push([1.0 + lo, 1.0]);
+        out.push([0.0, hi]);
+    }
+    out
 }

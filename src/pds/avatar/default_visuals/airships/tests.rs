@@ -34,6 +34,7 @@ fn blueprints() -> Vec<AirshipBlueprint> {
 /// One airship a guard sweeps: her type, the built tree (her own frame), its
 /// plan, its ornateness and a label for the failure.
 struct Drawn {
+    craft: AirshipType,
     built: Generator,
     plan: HullPlan,
     ornateness: OrnatenessTier,
@@ -52,6 +53,7 @@ fn every_drawn() -> Vec<Drawn> {
                 for w in WearTier::ALL {
                     (ctx.ornateness, ctx.wear) = (o, w);
                     out.push(Drawn {
+                        craft: t,
                         built: craft(t).build(&ctx, &plan),
                         plan,
                         ornateness: o,
@@ -113,7 +115,7 @@ fn every_airship_seed_draws_her_own_type() {
             "seed {s}: the craft axis disagrees with the type pick"
         );
         let (_, plan, _) = drawn_for(s, None).expect("an airship seed draws a ship");
-        assert!(plan.length() > 3.0, "seed {s}: degenerate hull");
+        assert!(plan.length() > 0.5, "seed {s}: degenerate hull");
         total += 1;
     }
     assert!(total > 50, "too few airships sampled: {total}");
@@ -205,20 +207,31 @@ fn her_box_holds_her_and_she_is_centred_in_it() {
     assert!(checked > 50, "only {checked} airship seeds under 400");
 }
 
-/// Her airscrews turn opposite ways in pairs - a ship's engines are handed,
-/// so she does not yaw on her own torque: each one off her centreline has a
-/// twin at its mirror image turning the other way, and one ON it (an ornate
-/// Zeppelin's keel engine) has none to answer - and each one's whole disc
-/// turns clear of her hull, at every blueprint extreme and on every tier.
+/// Her airscrews and fans turn opposite ways in pairs - a ship's engines are
+/// handed, so she does not yaw on her own torque: each one off her
+/// centreline has a twin at its mirror image turning the other way, and one
+/// ON it (an ornate Zeppelin's keel engine, the steam dirigible's pusher) has
+/// none to answer - and each one's whole disc turns clear of her hull,
+/// measured from the axis of whichever of her lobes it is nearest (the
+/// hybrid has two), at every blueprint extreme and on every tier. A hub that
+/// only swings - a floater's tentacle - is no airscrew. And every tier turns
+/// at least her type's engines (`engines`).
 #[test]
 fn her_airscrews_counter_rotate_and_turn_clear_of_her_hull() {
     for Drawn {
-        built, plan, what, ..
+        craft: t,
+        built,
+        plan,
+        what,
+        ..
     } in every_drawn()
     {
         let mut turns: Vec<(Vec3, f32)> = Vec::new();
         for (hub, world) in spinning(&built) {
             let spin = hub.spin.as_ref().expect("a spinning hub");
+            if !spin.terms.iter().any(turns_all_the_way_round) {
+                continue;
+            }
             let rate = spin
                 .terms
                 .iter()
@@ -254,13 +267,24 @@ fn her_airscrews_counter_rotate_and_turn_clear_of_her_hull() {
                 .map(|p| p.truncate().length())
                 .fold(0.0f32, f32::max);
             let skin = plan.radius(plan.x(centre.z));
-            let clearance = centre.truncate().length() - reach - skin;
+            let clearance = craft(t)
+                .lobes(&plan, plan.x(centre.z))
+                .into_iter()
+                .map(|[x, y]| (centre.truncate() - bevy::math::Vec2::new(x, y)).length())
+                .fold(f32::MAX, f32::min)
+                - reach
+                - skin;
             assert!(
                 clearance > 0.01,
                 "{what}: an airscrew at {centre:?} turns {clearance:.3} m off her hull"
             );
         }
-        assert!(turns.len() >= 4, "{what}: {} airscrews", turns.len());
+        assert!(
+            turns.len() >= engines(t),
+            "{what}: {} airscrews, where her type turns at least {}",
+            turns.len(),
+            engines(t)
+        );
         for &(at, turn) in &turns {
             if at.x.abs() < 1e-3 {
                 continue;
@@ -279,33 +303,52 @@ fn her_airscrews_counter_rotate_and_turn_clear_of_her_hull() {
     }
 }
 
+/// How many airscrews and fans a type turns on every tier: her engines,
+/// which no tier takes away. An ornate Zeppelin adds a fifth on her keel;
+/// the three that go with the wind turn none.
+fn engines(t: AirshipType) -> usize {
+    match t {
+        AirshipType::Zeppelin | AirshipType::Hybrid => 4,
+        AirshipType::Blimp => 2,
+        AirshipType::SteamDirigible => 1,
+        AirshipType::SkyGalleon | AirshipType::HotAirBalloon | AirshipType::Floater => 0,
+    }
+}
+
 /// Her hull's sweep never loops past its own stations: a uniform
 /// Catmull-Rom through stations bunched at one end overshoots and loops back
-/// (#1617's square wing tips), so the drawn hull is read back - it stays
-/// within her length and never swells a hundredth past her girth. (Between
-/// two stations of the same radius the spline bulges a fifth of a per cent
-/// toward its neighbours' mean - a loop is tens of per cent.)
+/// (#1617's square wing tips), so the drawn hull is read back against the
+/// box its stations draw - every station's centre a radius out each way -
+/// with a millimetre along her axis and a hundredth of her girth across it.
+/// (Between two stations of the same radius the spline bulges a fifth of a
+/// per cent toward its neighbours' mean - a loop is tens of per cent.) The
+/// hull is the first part every type draws, along her or stood on end.
 #[test]
 fn her_hull_never_loops_past_its_stations() {
     for Drawn {
         built, plan, what, ..
     } in every_drawn()
     {
-        // The hull is the first part her builder draws.
         let hull = &built.children[0];
-        let points = crate::world_builder::primitive_outline(&hull.kind);
-        let half = plan.length() * 0.5;
-        for p in &points {
+        let crate::pds::generator::GeneratorKind::Spine {
+            points: stations, ..
+        } = &hull.kind
+        else {
+            panic!("{what}: her first part is no hull sweep");
+        };
+        let slack = Vec3::splat(plan.girth() * 0.01 + 1e-3);
+        let (lo, hi) = stations.iter().fold(
+            (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)),
+            |(lo, hi), s| {
+                let c = Vec3::from(s.position.0);
+                let r = Vec3::splat(s.radius.0);
+                (lo.min(c - r), hi.max(c + r))
+            },
+        );
+        for p in crate::world_builder::primitive_outline(&hull.kind) {
             assert!(
-                p.z.abs() <= half + 1e-3,
-                "{what}: her hull reaches z {:.4} past her {half:.4} m half-length",
-                p.z
-            );
-            assert!(
-                p.truncate().length() <= plan.girth() * 1.01,
-                "{what}: her hull swells to {:.4} past her girth {:.4}",
-                p.truncate().length(),
-                plan.girth()
+                p.cmpge(lo - slack).all() && p.cmple(hi + slack).all(),
+                "{what}: her hull reaches {p:?}, outside its stations' {lo:?}..{hi:?}"
             );
         }
     }

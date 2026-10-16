@@ -13,11 +13,13 @@
 //! catalogue - five envelopes, three gondolas and three engine pods drawn at
 //! random with no link to the avatar's theme - and the owner asked for a
 //! complete overhaul: "compared to all the other vehicles they look clumsy
-//! by now". ONE type is built so far: the rigid Zeppelin the owner agreed on
-//! the phase-1 renders (#1656), the family's hero and universal floor. The
-//! fan-out (#1658-#1663) adds a blimp, a steam dirigible, a sky galleon, a
-//! hot-air balloon, a modern hybrid and an organic floater, each on a
-//! profile of her own.
+//! by now". The rigid Zeppelin the owner agreed on the phase-1 renders
+//! (#1656) is the family's hero and universal floor; the fan-out
+//! (#1658-#1663) built the rest in one pass - a blimp, a steam dirigible, a
+//! sky galleon, a hot-air balloon, a modern hybrid and an organic floater -
+//! each on a profile of her own, prototyped beside the hero
+//! (`target/dump/airships-1656/`) and ported number for number. The balloon
+//! and the floater stand their hulls on end ([`HullPlan::upright`]).
 //!
 //! # Where an airship sits
 //!
@@ -37,14 +39,21 @@
 //! heave and nose wander, and the lean into her motion; her seeded gait
 //! passes through untouched (`super::seeded_gait`).
 
+mod balloon;
+mod blimp;
+mod floater;
+mod galleon;
+mod hybrid;
 mod plan;
+mod steam;
 mod zeppelin;
 
-pub(crate) use plan::{HullPlan, HullProfile, flank_bands};
+pub(crate) use plan::{HullPlan, HullProfile, flank_bands, gores};
 
 use bevy::math::{Affine3A, Quat, Vec3};
 
 use crate::catalogue::items::measure::Bounds;
+use crate::pds::SpinTerm;
 use crate::pds::avatar::parts::PartCtx;
 use crate::pds::generator::{Generator, GeneratorKind};
 use crate::pds::texture::SovereignMaterialSettings;
@@ -54,7 +63,11 @@ use crate::world_builder::primitive_outline;
 
 /// The airship family's colours, which live in the fleet's one livery home
 /// (#1365) rather than beside its geometry.
-pub(crate) use crate::pds::avatar::livery::{AirshipColours, airship_colours};
+pub(crate) use crate::pds::avatar::livery::{
+    AirshipColours, BalloonColours, BlimpColours, FloaterColours, GalleonColours, HybridColours,
+    SteamColours, airship_colours, balloon_colours, blimp_colours, floater_colours,
+    galleon_colours, hybrid_colours, steam_colours,
+};
 
 use super::Propulsion;
 use super::assemble::apply_travel_pose;
@@ -154,6 +167,14 @@ pub(super) trait AirshipCraft {
     /// How she is driven, and so what she sounds like. Required, with no
     /// default - the boats' rule (#1383).
     fn propulsion(&self) -> Propulsion;
+
+    /// Where each of her hull's lobes runs, `(x, y)` of its axis at share
+    /// `x` of her length - one, on her centreline, but for the hybrid's two:
+    /// what the airscrew clearance guard measures her skin from.
+    #[cfg(test)]
+    fn lobes(&self, _plan: &HullPlan, _x: f32) -> Vec<[f32; 2]> {
+        vec![[0.0, 0.0]]
+    }
 }
 
 /// The builder for an airship type - the one match over [`AirshipType`]. A
@@ -162,6 +183,12 @@ pub(super) trait AirshipCraft {
 fn craft(t: AirshipType) -> &'static dyn AirshipCraft {
     match t {
         AirshipType::Zeppelin => &zeppelin::Zeppelin,
+        AirshipType::Blimp => &blimp::Blimp,
+        AirshipType::SteamDirigible => &steam::SteamDirigible,
+        AirshipType::SkyGalleon => &galleon::SkyGalleon,
+        AirshipType::HotAirBalloon => &balloon::HotAirBalloon,
+        AirshipType::Hybrid => &hybrid::Hybrid,
+        AirshipType::Floater => &floater::Floater,
     }
 }
 
@@ -183,6 +210,19 @@ pub(super) fn every_feel() -> Vec<(&'static str, AirshipFeel)> {
 // Where the ship sits
 // ---------------------------------------------------------------------------
 
+/// Whether a spin term turns its part all the way round - a steady turn, a
+/// speed-driven one, a rolling wheel or a vane hunting the wind - rather
+/// than swinging it near its drawn pose.
+fn turns_all_the_way_round(term: &SpinTerm) -> bool {
+    matches!(
+        term,
+        SpinTerm::Constant { .. }
+            | SpinTerm::Speed { .. }
+            | SpinTerm::Roll { .. }
+            | SpinTerm::Vane { .. }
+    )
+}
+
 /// How many points a turning part's every vertex is swept through, round
 /// its hub's axis: a 32-gon, whose bounding box falls short of the circle's
 /// by at most `1 - cos(pi / 32)` of its radius - under 0.5 %.
@@ -190,9 +230,9 @@ const SWEEP_STEPS: usize = 32;
 
 /// The bounds of `root` (her own frame): the mesher's own vertices
 /// ([`primitive_outline`], which reads a sweep's without building its
-/// mesh) through every part's transform - and what a turning hub carries
-/// SWEPT round its axis, so her airscrews' whole discs are in it, not the
-/// blades where they happen to stand.
+/// mesh) through every part's transform - and what a hub that turns all the
+/// way round carries SWEPT round its axis, so her airscrews' whole discs are
+/// in it, not the blades where they happen to stand.
 ///
 /// Unlike an aircraft's box, which leaves its blades out (owner decision 3
 /// of #1611: a rotor's disc is metres across), an airship's holds them: her
@@ -245,9 +285,13 @@ fn swept_bounds(root: &Generator) -> Bounds {
         for child in &part.children {
             points_of(child, scaled, &mut drawn);
         }
+        // Only a part that turns all the way round sweeps a disc: a swing, a
+        // lean, a sway in the wind or a wander holds near its drawn pose - a
+        // floater's tentacles - and a steer within its limit.
         let axis = part
             .spin
             .as_ref()
+            .filter(|s| s.terms.iter().any(turns_all_the_way_round))
             .map_or(Vec3::ZERO, |s| Vec3::from(s.axis.0).normalize_or_zero());
         if axis == Vec3::ZERO {
             out.extend(drawn.into_iter().map(|p| placed.transform_point3(p)));

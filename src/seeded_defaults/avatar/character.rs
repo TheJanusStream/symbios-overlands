@@ -707,12 +707,16 @@ mod tests {
         // the air racer (#1629). The tandem-rotor transport (#1630) adds 24:
         // her three homes enabled, the other 21 refused. The Zeppelin
         // (#1657) adds 24, all enabled: the airship family's hero is every
-        // style's floor. Pinned so that an affinity edit has to come here on
-        // purpose - the table is a taste call, and a silent change to it
-        // changes which pin sets an owner can even build.
+        // style's floor. The airship fan-out (#1658-#1663) adds six times 24:
+        // the blimp's six homes, the steam dirigible's four, the sky
+        // galleon's five, the balloon's four, the hybrid's five and the
+        // floater's one enabled - 25 - and the other 119 refused. Pinned so
+        // that an affinity edit has to come here on purpose - the table is a
+        // taste call, and a silent change to it changes which pin sets an
+        // owner can even build.
         assert_eq!(
             (refused, enabled),
-            (310, 218),
+            (429, 243),
             "the (type, style) census moved"
         );
     }
@@ -878,9 +882,10 @@ mod tests {
         // airplanes' 35 (#1623) - the high-wing's 24 and the biplane's 11 -
         // 169 until the autogyro's nine (#1624), 178 until the twin's three
         // (#1625), 181 until the coaxial's five (#1628), 186 until the air
-        // racer's five (#1629), 191 until the tandem's three (#1630), and
-        // 194 until the Zeppelin's 24 (#1657), every style her family's floor.
-        assert_eq!(enabled, 218);
+        // racer's five (#1629), 191 until the tandem's three (#1630), 194
+        // until the Zeppelin's 24 (#1657), every style her family's floor,
+        // and 218 until the airship fan-out's 25 homes (#1658-#1663).
+        assert_eq!(enabled, 243);
     }
 
     #[test]

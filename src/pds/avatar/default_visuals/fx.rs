@@ -400,7 +400,10 @@ pub(super) fn drive_of(family: ChassisFamily, seed: u64) -> Propulsion {
 /// A boiler always smokes (#1370, owner decision 2): a craft under steam
 /// trails steam from her funnel where her style only picked the family's
 /// wake floor - a ModernCity tug - and the steam and embers the boiler
-/// themes pick stand, since both leave the same funnel mouth.
+/// themes pick stand, since both leave the same funnel mouth. A steam
+/// dirigible's boiler smokes over her own family's floor the same way
+/// (#1659): a GothicHorror one trails steam from her funnel, not the vent
+/// puff under her keel.
 ///
 /// An air-cooled engine has no radiator to steam (#1374, owner decision 5):
 /// a Roadside dune buggy's picked steam is drawn as the exhaust wisp from
@@ -440,7 +443,7 @@ pub(super) fn drawn_aura(aura: ParticleAura, drive: Propulsion) -> ParticleAura 
             | Propulsion::Servo
             | Propulsion::ElectricProp,
         ) => ParticleAura::None,
-        (ParticleAura::Wake, Propulsion::Steam) => ParticleAura::Steam,
+        (ParticleAura::Wake | ParticleAura::Vent, Propulsion::Steam) => ParticleAura::Steam,
         (
             ParticleAura::Steam,
             Propulsion::AirCooled
@@ -492,6 +495,7 @@ pub(super) fn voice_label(seed: u64) -> String {
     let voice = AvatarFx::for_seed(seed).voice;
     let drive = drive_of(family, seed);
     let under = match (drive, family) {
+        (Propulsion::Sail, ChassisFamily::Airship) => "air rush and wind",
         (Propulsion::Sail, _) => "wash and rig wind",
         (Propulsion::Engine, ChassisFamily::Boat) => "boat engine hum",
         (Propulsion::Engine, ChassisFamily::Airship | ChassisFamily::Helicopter) => "rotor thump",
@@ -2475,7 +2479,9 @@ mod audio_tests {
                         | Propulsion::Servo
                         | Propulsion::ElectricProp
                 ) && matches!(aura, A::Exhaust | A::Steam);
-                let promoted = drive == Propulsion::Steam && aura == A::Wake;
+                // A boiler smokes over a family floor: a tug's wake, a
+                // steam dirigible's vent (#1659).
+                let promoted = drive == Propulsion::Steam && matches!(aura, A::Wake | A::Vent);
                 let folded = matches!(
                     drive,
                     Propulsion::AirCooled

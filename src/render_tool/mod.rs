@@ -254,7 +254,14 @@ struct Args {
     /// which the autogyro wears too,
     /// [`livery::TWIN_LIVERIES`](crate::pds::avatar::livery::TWIN_LIVERIES),
     /// [`livery::RACER_LIVERIES`](crate::pds::avatar::livery::RACER_LIVERIES),
-    /// [`livery::ZEPPELIN_LIVERIES`](crate::pds::avatar::livery::ZEPPELIN_LIVERIES),
+    /// [`livery::ZEPPELIN_LIVERIES`](crate::pds::avatar::livery::ZEPPELIN_LIVERIES)
+    /// and the airship fan-out's
+    /// [`livery::BLIMP_LIVERIES`](crate::pds::avatar::livery::BLIMP_LIVERIES),
+    /// [`livery::STEAM_LIVERIES`](crate::pds::avatar::livery::STEAM_LIVERIES),
+    /// [`livery::GALLEON_LIVERIES`](crate::pds::avatar::livery::GALLEON_LIVERIES),
+    /// [`livery::BALLOON_LIVERIES`](crate::pds::avatar::livery::BALLOON_LIVERIES),
+    /// [`livery::HYBRID_LIVERIES`](crate::pds::avatar::livery::HYBRID_LIVERIES) and
+    /// [`livery::FLOATER_LIVERIES`](crate::pds::avatar::livery::FLOATER_LIVERIES),
     /// whose index names a scheme outright, whatever the subject's theme).
     /// It WRAPS, so a survey loop that runs past the end draws each scheme
     /// once rather than the last one twice. `--outfit` prints the name a seed

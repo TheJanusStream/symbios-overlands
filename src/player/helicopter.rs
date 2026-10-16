@@ -644,7 +644,8 @@ mod tests {
     /// stand-in makes 10 - the "nimbler than an airship" of #1613
     /// recommendation 8, measured on the systems rather than read off the
     /// table (12.49 against 7.50 when it was written, the stand-in then a
-    /// twin envelope; a Zeppelin since #1657, every seeded airship's 10).
+    /// twin envelope; a Zeppelin since #1657, whose 10 only the hybrid
+    /// airship's 10.6 tops among the airship types since #1658-#1663).
     #[test]
     fn a_seeded_helicopter_rests_on_her_skids_lifts_off_and_outflies_the_airship() {
         use crate::seeded_defaults::ChassisFamily;

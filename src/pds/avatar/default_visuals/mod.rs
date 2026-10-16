@@ -156,11 +156,17 @@ pub(crate) const GATEWAY_MOUTH: f32 = 2.6;
 /// (#1377). A third variant rather than a flag beside the enum, so no skiff
 /// can be under sail and no wagon can putter; a scow's pole, a tug's boiler,
 /// a dune buggy's air-cooled four, a cyclecar's electric motor and a junk's
-/// battened sails are variants for the same reason. The airship's rotors are
-/// an engine by construction.
+/// battened sails are variants for the same reason. An airship's drive is
+/// her type's (#1657, #1658-#1663): the Zeppelin's engine cars are an
+/// engine, the blimp's outrigger engines a propeller, the steam dirigible's
+/// boiler steam and the hybrid's ducted fans electric, and the sky galleon,
+/// the balloon and the floater go with the wind, under sail.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Propulsion {
-    /// Sails: no engine note at all.
+    /// Sails: no engine note at all. A boat's, and an airship's that goes
+    /// with the wind - the sky galleon on her wing sails, the balloon and
+    /// the floater (#1660, #1661, #1663) - where the wash is the air
+    /// rushing past her.
     Sail,
     /// An engine, whose note is the family's.
     Engine,
@@ -173,7 +179,8 @@ enum Propulsion {
     /// A boiler (#1370): the chuff of the exhaust and the thump of a slow
     /// steam engine over the wash. The steam tug's - and a boiler is the one
     /// drive that makes smoke, so it is also what promotes her picked wake
-    /// to steam from her funnel (`fx::drawn_aura`).
+    /// to steam from her funnel (`fx::drawn_aura`). And the steam
+    /// dirigible's (#1659), whose vent floor it promotes the same way.
     Steam,
     /// An air-cooled flat four on an open stinger (#1374): a raspy low
     /// firing note under a valve-train clatter, where every other car on the
@@ -184,7 +191,8 @@ enum Propulsion {
     /// An electric motor (#1376): a clean tonal whine where every other car
     /// on the road putters or clatters. The cyclecar's - and a motor has no
     /// pipe and no boiler, so she trails neither exhaust nor steam
-    /// (`fx::drawn_aura`), as a rolling wagon does not.
+    /// (`fx::drawn_aura`), as a rolling wagon does not. And the hybrid
+    /// airship's four ducted fans (#1662).
     Electric,
     /// Battened lug sails (#1371): the sail's wash and rig wind, and a dry
     /// creak of bamboo battens working over them. The junk's - she sails, so
@@ -228,7 +236,8 @@ enum Propulsion {
     /// engine heard without a propeller. Her engine is air-cooled as the
     /// buggy's is, so a picked steam is drawn as the exhaust wisp from the
     /// stack under her cowl (`fx::drawn_aura`), where every aura she
-    /// trails leaves her.
+    /// trails leaves her. And the blimp's (#1658): an engine on each
+    /// outrigger, turning a three-blade airscrew.
     Propeller,
     /// A piston engine under a two-blade rotor (#1621 Q-H): a flat six's
     /// drone - the airplane's square under a lowpass, a few hertz up -
@@ -1726,14 +1735,13 @@ mod tests {
     /// default body does, whatever its size (#1612): torque over INERTIA is
     /// the same for each, where a torque the same for each stood a light
     /// craft up three times as fast as a heavy one. The helicopters too
-    /// (#1614), on their own type's turn.
+    /// (#1614), and the airships (#1657), each on its own type's turn.
     #[test]
     fn every_seeded_rotorcraft_rights_and_turns_as_the_default_does() {
         let d = HelicopterParams::default();
         let per_kg = |half: [f32; 3]| box_inertia_per_kg(half);
         let [d_pitch, d_yaw, _] = per_kg(d.chassis_half_extents.0);
         let righting = d.stabilize_torque.0 / (d.mass.0 * d_pitch);
-        let mut turns = Vec::new();
         for s in (0u64..400).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Helicopter) {
             let (_, loco) = build_for_seed(s);
             let LocomotionConfig::Helicopter(p) = &loco else {
@@ -1766,17 +1774,16 @@ mod tests {
                 (rights - righting).abs() < righting * 1e-3,
                 "airship seed {s} rights at {rights:.3} rad/s2 against {righting:.3}"
             );
-            turns.push(p.yaw_torque.0 / (p.mass.0 * yaw));
+            // Her yaw, as a helicopter's: her own type's per kilogram on the
+            // default body (#1657, #1658-#1663) - the balloon's 3.5 to the
+            // blimp's 8 - whatever her box.
+            let turn = p.yaw_torque.0 / (p.mass.0 * yaw);
+            let want = airships::feel_and_box(s).0.yaw_accel / d_yaw;
+            assert!(
+                (turn - want).abs() < want * 1e-3,
+                "airship seed {s} turns at {turn:.3} rad/s2 against {want:.3}"
+            );
         }
-        // The turn is the craft type's own (#1657), so it is a handful of
-        // values - one a type - not one per seed.
-        turns.sort_by(f32::total_cmp);
-        turns.dedup_by(|a, b| (*a - *b).abs() < 1e-3);
-        assert!(
-            turns.len() <= 4,
-            "{} distinct turn rates across the seeded airships: {turns:?}",
-            turns.len()
-        );
     }
 
     /// Every seeded vehicle locomotion must already sit inside the sanitiser's

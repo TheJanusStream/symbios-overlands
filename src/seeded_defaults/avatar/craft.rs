@@ -82,8 +82,9 @@
 //! gondolas and three engine pods drawn with no regard for the avatar's
 //! theme - became a craft-type family (epic #1656): its hero alone, the
 //! rigid Zeppelin the owner agreed on the phase-1 renders, every style's
-//! floor. The fan-out (#1658-#1663) adds a blimp, a steam dirigible, a sky
-//! galleon, a hot-air balloon, a modern hybrid and an organic floater.
+//! floor. The fan-out (#1658-#1663) added a blimp, a steam dirigible, a sky
+//! galleon, a hot-air balloon, a modern hybrid and an organic floater, each
+//! at home in the themes that would rather fly her.
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
@@ -160,8 +161,16 @@ impl CraftType {
     ];
 
     /// Every airship type as a craft type, in [`AirshipType::ALL`]'s order
-    /// (#1657).
-    pub const AIRSHIPS: [Self; 1] = [Self::Airship(AirshipType::Zeppelin)];
+    /// (#1657, the fan-out's six since #1658-#1663).
+    pub const AIRSHIPS: [Self; 7] = [
+        Self::Airship(AirshipType::Zeppelin),
+        Self::Airship(AirshipType::Blimp),
+        Self::Airship(AirshipType::SteamDirigible),
+        Self::Airship(AirshipType::SkyGalleon),
+        Self::Airship(AirshipType::HotAirBalloon),
+        Self::Airship(AirshipType::Hybrid),
+        Self::Airship(AirshipType::Floater),
+    ];
 
     /// The craft type for a seed, or `None` for the one family without one,
     /// the rigged humanoid (the airship has had one since #1657).
@@ -372,6 +381,31 @@ pub enum AirshipType {
     /// car under the bow and four engine cars on struts - the 1930s liner of
     /// the air, in the line of LZ 127 Graf Zeppelin and LZ 129.
     Zeppelin,
+    /// Non-rigid blimp: a short fat envelope, a broad band down each flank
+    /// and the night sign in it, a glazed car snug under the belly with an
+    /// outrigger engine either side, and an X tail - the Goodyear GZ-20's
+    /// line (#1658).
+    Blimp,
+    /// Steam dirigible: a striped spindle envelope over a long wooden spar
+    /// slung on fans of rope, an open boat gondola hung from the spar with
+    /// its boiler and funnel, a big wooden pusher and a sail rudder - the
+    /// line of Giffard's 1852 airship and La France (#1659).
+    SteamDirigible,
+    /// Sky galleon: a wooden ship's hull with a sterncastle, slung on
+    /// rigging under a long gasbag, a wing sail spread from each gunwale -
+    /// the fantasy ship of the air (#1660).
+    SkyGalleon,
+    /// Hot-air balloon: a gored envelope stood on end over a wicker basket,
+    /// its burner on a frame over the basket and its flame lit (#1661).
+    HotAirBalloon,
+    /// Modern hybrid: a wide twin-lobed hull, a glass-nosed cabin, four
+    /// ducted fans and canted twin tails - the Airlander's line, solar film
+    /// on her crown on her two solar schemes (#1662).
+    Hybrid,
+    /// Organic floater: a living gasbag of the alien worlds - a jellyfish
+    /// bell with glowing canals and spots, a scalloped margin and long
+    /// tentacles that ripple and trail (#1663).
+    Floater,
 }
 
 /// The recognisable kind of fixed-wing a seeded airplane avatar is (#1617).
@@ -858,7 +892,15 @@ impl AirplaneType {
 }
 
 impl AirshipType {
-    pub const ALL: [Self; 1] = [Self::Zeppelin];
+    pub const ALL: [Self; 7] = [
+        Self::Zeppelin,
+        Self::Blimp,
+        Self::SteamDirigible,
+        Self::SkyGalleon,
+        Self::HotAirBalloon,
+        Self::Hybrid,
+        Self::Floater,
+    ];
 
     /// The type every airship theme can reach - see [`FLOOR`].
     pub const UNIVERSAL: Self = Self::Zeppelin;
@@ -867,6 +909,12 @@ impl AirshipType {
     pub fn label(self) -> &'static str {
         match self {
             Self::Zeppelin => "Zeppelin",
+            Self::Blimp => "Blimp",
+            Self::SteamDirigible => "Steam dirigible",
+            Self::SkyGalleon => "Sky galleon",
+            Self::HotAirBalloon => "Hot-air balloon",
+            Self::Hybrid => "Hybrid airship",
+            Self::Floater => "Organic floater",
         }
     }
 
@@ -874,6 +922,12 @@ impl AirshipType {
     pub fn slug(self) -> &'static str {
         match self {
             Self::Zeppelin => "zeppelin",
+            Self::Blimp => "blimp",
+            Self::SteamDirigible => "steam_dirigible",
+            Self::SkyGalleon => "sky_galleon",
+            Self::HotAirBalloon => "balloon",
+            Self::Hybrid => "hybrid",
+            Self::Floater => "floater",
         }
     }
 
@@ -892,6 +946,61 @@ impl AirshipType {
                     | ThemeArchetype::GothicHorror
                     | ThemeArchetype::Nordic
             ),
+            // The stadium's and the seaside's advertising blimp, the
+            // suburb's and the roadside's, the neon city's lit ad blimp and
+            // the wasteland's patched one (#1658).
+            Self::Blimp => matches!(
+                style,
+                ThemeArchetype::SportsRec
+                    | ThemeArchetype::CoastalResort
+                    | ThemeArchetype::Suburban
+                    | ThemeArchetype::Roadside
+                    | ThemeArchetype::Cyberpunk
+                    | ThemeArchetype::PostApoc
+            ),
+            // The boiler age's airship and the frontier's (#1659): Verne's
+            // and Giffard's, over the works and the gothic night too.
+            Self::SteamDirigible => matches!(
+                style,
+                ThemeArchetype::Steampunk
+                    | ThemeArchetype::WildWest
+                    | ThemeArchetype::IndustrialPark
+                    | ThemeArchetype::GothicHorror
+            ),
+            // The worlds of sailing ships and legend (#1660): the pirate's
+            // and the fantasy realm's, the castle's, the north's and the
+            // shogunate's.
+            Self::SkyGalleon => matches!(
+                style,
+                ThemeArchetype::Pirate
+                    | ThemeArchetype::Fantasy
+                    | ThemeArchetype::Medieval
+                    | ThemeArchetype::Nordic
+                    | ThemeArchetype::FeudalJapan
+            ),
+            // The country fair's, the roadside's and the suburb's balloon,
+            // and the festival balloon of the old Americas (#1661).
+            Self::HotAirBalloon => matches!(
+                style,
+                ThemeArchetype::RuralFarmland
+                    | ThemeArchetype::Roadside
+                    | ThemeArchetype::Suburban
+                    | ThemeArchetype::Mesoamerican
+            ),
+            // The worlds still to come (#1662): the outpost's and the solar
+            // town's airship, the works' heavy lifter, the neon city's and
+            // the monolith's.
+            Self::Hybrid => matches!(
+                style,
+                ThemeArchetype::SpaceOutpost
+                    | ThemeArchetype::Solarpunk
+                    | ThemeArchetype::IndustrialPark
+                    | ThemeArchetype::Cyberpunk
+                    | ThemeArchetype::AlienMonolithic
+            ),
+            // The living gasbag of the organic alien world (#1663) - the
+            // airships' biggest theme, which reached nothing of its own.
+            Self::Floater => style == ThemeArchetype::AlienOrganic,
         }
     }
 
@@ -926,6 +1035,7 @@ mod tests {
             SkiffType::ALL.map(SkiffType::slug).to_vec(),
             HelicopterType::ALL.map(HelicopterType::slug).to_vec(),
             AirplaneType::ALL.map(AirplaneType::slug).to_vec(),
+            AirshipType::ALL.map(AirshipType::slug).to_vec(),
         ] {
             let mut sorted = slugs.clone();
             sorted.sort_unstable();
@@ -942,6 +1052,7 @@ mod tests {
             .chain(SkiffType::ALL.iter().map(|t| t.label()))
             .chain(HelicopterType::ALL.iter().map(|t| t.label()))
             .chain(AirplaneType::ALL.iter().map(|t| t.label()))
+            .chain(AirshipType::ALL.iter().map(|t| t.label()))
             .collect();
         labels.sort_unstable();
         let before = labels.len();

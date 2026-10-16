@@ -204,9 +204,19 @@ pub(super) fn print_outfit(subject: &str) {
                     livery::racer_livery(seed, character.style, None).name
                 }
                 CraftType::Airplane(_) => livery::airplane_livery(seed, character.style, None).name,
-                // An airship's is weighted by her theme too (#1657).
-                CraftType::Airship(AirshipType::Zeppelin) => {
-                    livery::zeppelin_livery(seed, character.style, None).name
+                // An airship's is weighted by her theme too (#1657), each
+                // type's its own (#1658-#1663).
+                CraftType::Airship(t) => {
+                    let pick = match t {
+                        AirshipType::Zeppelin => livery::zeppelin_livery,
+                        AirshipType::Blimp => livery::blimp_livery,
+                        AirshipType::SteamDirigible => livery::steam_livery,
+                        AirshipType::SkyGalleon => livery::galleon_livery,
+                        AirshipType::HotAirBalloon => livery::balloon_livery,
+                        AirshipType::Hybrid => livery::hybrid_livery,
+                        AirshipType::Floater => livery::floater_livery,
+                    };
+                    pick(seed, character.style, None).name
                 }
             }
         );

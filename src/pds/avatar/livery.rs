@@ -1417,17 +1417,19 @@ pub struct AirshipLivery {
     home: &'static [ThemeArchetype],
     /// Whether every theme can roll it - see [`AIRSHIP_FLOOR`].
     floor: bool,
-    /// The hull, its nose cap and its gas-valve hoods.
+    /// The Zeppelin's hull, its nose cap and its gas-valve hoods - and each
+    /// fan-out type's biggest mass, as its list's doc names it.
     hull: [f32; 3],
     /// Whether the hull is ALUMINIUM dope - a metallic sheen - rather than a
     /// coloured one ([`MaterialKit::dope`]).
     aluminium: bool,
-    /// The four fins.
+    /// The Zeppelin's four fins - and each fan-out type's second hue.
     fins: [f32; 3],
-    /// The rudders and elevators, the car's cheat line and the engine
-    /// cars' noses.
+    /// The Zeppelin's rudders and elevators, her car's cheat line and her
+    /// engine cars' noses - and each fan-out type's third hue.
     trim: [f32; 3],
-    /// The control car and the engine cars.
+    /// The Zeppelin's control car and engine cars - and each fan-out type's
+    /// fourth hue.
     car: [f32; 3],
 }
 
@@ -1623,6 +1625,539 @@ pub fn zeppelin_livery(
     over: Option<usize>,
 ) -> &'static AirshipLivery {
     pick(ZEPPELIN_LIVERIES, |l| l.weight(style), seed, over)
+}
+
+/// A scheme for each of the airship fan-out's types (#1658-#1663), on the
+/// Zeppelin's [`AirshipLivery`]: its five hues paint what each list's own doc
+/// says, and every list is weighted by theme as the Zeppelin's is, with two
+/// floors.
+macro_rules! airship_scheme {
+    ($name:literal, $floor:literal, [$($home:ident),*], $hull:expr, $alu:literal, $fins:expr,
+     $trim:expr, $car:expr) => {
+        AirshipLivery {
+            name: $name,
+            home: &[$(ThemeArchetype::$home),*],
+            floor: $floor,
+            hull: $hull,
+            aluminium: $alu,
+            fins: $fins,
+            trim: $trim,
+            car: $car,
+        }
+    };
+}
+
+const NAVY: [f32; 3] = [0.08, 0.12, 0.30];
+const SIGN_WHITE: [f32; 3] = [0.92, 0.92, 0.90];
+const DEEP_BLACK: [f32; 3] = [0.06, 0.06, 0.06];
+
+/// The blimp's eight schemes (#1658): `hull` her envelope (aluminium-doped
+/// or coloured), `trim` the broad band down each flank that carries her night
+/// sign, `fins` her X tail, `car` her car and engines. Her own pinstripe along
+/// the band's top edge is the seeded accent.
+pub const BLIMP_LIVERIES: &[AirshipLivery] = &[
+    airship_scheme!(
+        "Silver and navy",
+        true,
+        [SportsRec, Suburban, Roadside],
+        [0.74, 0.75, 0.77],
+        true,
+        NAVY,
+        NAVY,
+        [0.85, 0.86, 0.88]
+    ),
+    airship_scheme!(
+        "White and blue",
+        true,
+        [CoastalResort, SportsRec, Suburban],
+        SIGN_WHITE,
+        false,
+        [0.10, 0.30, 0.70],
+        [0.10, 0.30, 0.70],
+        SIGN_WHITE
+    ),
+    airship_scheme!(
+        "Yellow and black",
+        false,
+        [Roadside, SportsRec],
+        [0.92, 0.74, 0.12],
+        false,
+        DEEP_BLACK,
+        DEEP_BLACK,
+        [0.10, 0.10, 0.10]
+    ),
+    airship_scheme!(
+        "Night black",
+        false,
+        [Cyberpunk],
+        [0.06, 0.06, 0.07],
+        false,
+        [0.10, 0.10, 0.11],
+        [0.14, 0.14, 0.16],
+        [0.10, 0.10, 0.11]
+    ),
+    airship_scheme!(
+        "Patched olive",
+        false,
+        [PostApoc],
+        [0.36, 0.38, 0.26],
+        false,
+        [0.40, 0.22, 0.12],
+        [0.42, 0.32, 0.20],
+        [0.45, 0.46, 0.44]
+    ),
+    airship_scheme!(
+        "Red and white",
+        false,
+        [CoastalResort, Roadside],
+        [0.80, 0.10, 0.08],
+        false,
+        SIGN_WHITE,
+        SIGN_WHITE,
+        SIGN_WHITE
+    ),
+    airship_scheme!(
+        "Violet and lime",
+        false,
+        [Cyberpunk, PostApoc],
+        [0.30, 0.10, 0.45],
+        false,
+        [0.55, 0.85, 0.15],
+        [0.55, 0.85, 0.15],
+        [0.10, 0.10, 0.11]
+    ),
+    airship_scheme!(
+        "Sky and orange",
+        false,
+        [Suburban, CoastalResort],
+        [0.55, 0.75, 0.92],
+        false,
+        [0.92, 0.45, 0.10],
+        [0.92, 0.45, 0.10],
+        SIGN_WHITE
+    ),
+];
+
+/// The scheme this blimp seed wears on `style`, a pick from
+/// [`BLIMP_LIVERIES`]; `over` wraps inside it.
+pub fn blimp_livery(
+    seed: u64,
+    style: ThemeArchetype,
+    over: Option<usize>,
+) -> &'static AirshipLivery {
+    pick(BLIMP_LIVERIES, |l| l.weight(style), seed, over)
+}
+
+const STEAM_BRASS: [f32; 3] = [0.78, 0.60, 0.26];
+const TIMBER: [f32; 3] = [0.45, 0.28, 0.14];
+const CANVAS_CREAM: [f32; 3] = [0.86, 0.80, 0.66];
+
+/// The steam dirigible's six schemes (#1659): `hull` and `fins` her
+/// envelope's two gore colours, `trim` her spar's and gondola's timber, `car`
+/// the metal of her boiler and fittings. Her sail rudder is the seeded accent.
+pub const STEAM_LIVERIES: &[AirshipLivery] = &[
+    airship_scheme!(
+        "Cream and oxblood",
+        true,
+        [Steampunk, WildWest],
+        CANVAS_CREAM,
+        false,
+        [0.42, 0.09, 0.08],
+        TIMBER,
+        STEAM_BRASS
+    ),
+    airship_scheme!(
+        "Ochre and black",
+        true,
+        [IndustrialPark, WildWest],
+        [0.80, 0.58, 0.18],
+        false,
+        [0.12, 0.11, 0.10],
+        [0.40, 0.26, 0.13],
+        STEAM_BRASS
+    ),
+    airship_scheme!(
+        "Cream and navy",
+        false,
+        [Steampunk],
+        [0.88, 0.85, 0.76],
+        false,
+        [0.12, 0.17, 0.34],
+        TIMBER,
+        STEAM_BRASS
+    ),
+    airship_scheme!(
+        "Racing green and gold",
+        false,
+        [Steampunk, GothicHorror],
+        [0.20, 0.32, 0.20],
+        false,
+        [0.76, 0.62, 0.26],
+        [0.36, 0.22, 0.11],
+        STEAM_BRASS
+    ),
+    airship_scheme!(
+        "Soot and crimson",
+        false,
+        [GothicHorror, IndustrialPark],
+        [0.20, 0.19, 0.19],
+        false,
+        [0.55, 0.08, 0.08],
+        [0.22, 0.15, 0.10],
+        [0.30, 0.30, 0.32]
+    ),
+    airship_scheme!(
+        "Copper and tan",
+        false,
+        [Steampunk, WildWest],
+        [0.72, 0.42, 0.24],
+        false,
+        [0.86, 0.74, 0.54],
+        TIMBER,
+        [0.72, 0.42, 0.24]
+    ),
+];
+
+/// The scheme this steam dirigible seed wears on `style`, a pick from
+/// [`STEAM_LIVERIES`]; `over` wraps inside it.
+pub fn steam_livery(
+    seed: u64,
+    style: ThemeArchetype,
+    over: Option<usize>,
+) -> &'static AirshipLivery {
+    pick(STEAM_LIVERIES, |l| l.weight(style), seed, over)
+}
+
+const GALLEON_GILT: [f32; 3] = [0.78, 0.60, 0.22];
+const SAILCLOTH: [f32; 3] = [0.90, 0.86, 0.74];
+
+/// The sky galleon's six schemes (#1660): `hull` her gasbag, `fins` her wing
+/// sails, `trim` the gilt of her wales and her sterncastle's roof, `car` her
+/// hull's wood. The band round her gasbag's girth is the seeded accent.
+pub const GALLEON_LIVERIES: &[AirshipLivery] = &[
+    airship_scheme!(
+        "Oak and cream",
+        true,
+        [Fantasy, Medieval],
+        [0.86, 0.82, 0.70],
+        false,
+        SAILCLOTH,
+        GALLEON_GILT,
+        [0.40, 0.25, 0.13]
+    ),
+    airship_scheme!(
+        "Royal blue and gold",
+        true,
+        [Fantasy, Medieval],
+        [0.16, 0.24, 0.48],
+        false,
+        [0.90, 0.88, 0.80],
+        GALLEON_GILT,
+        [0.30, 0.18, 0.10]
+    ),
+    airship_scheme!(
+        "Pirate black",
+        false,
+        [Pirate],
+        [0.12, 0.11, 0.11],
+        false,
+        [0.20, 0.18, 0.17],
+        [0.70, 0.10, 0.08],
+        [0.16, 0.12, 0.10]
+    ),
+    airship_scheme!(
+        "Lacquer red",
+        false,
+        [FeudalJapan],
+        [0.10, 0.09, 0.09],
+        false,
+        [0.88, 0.80, 0.64],
+        [0.80, 0.62, 0.24],
+        [0.56, 0.10, 0.07]
+    ),
+    airship_scheme!(
+        "Norse red and white",
+        false,
+        [Nordic],
+        [0.70, 0.10, 0.08],
+        false,
+        [0.90, 0.88, 0.82],
+        [0.20, 0.16, 0.12],
+        [0.36, 0.24, 0.14]
+    ),
+    airship_scheme!(
+        "Sea green and brass",
+        false,
+        [Pirate, Fantasy],
+        [0.22, 0.42, 0.36],
+        false,
+        [0.86, 0.84, 0.74],
+        [0.72, 0.55, 0.22],
+        [0.34, 0.22, 0.12]
+    ),
+];
+
+/// The scheme this sky galleon seed wears on `style`, a pick from
+/// [`GALLEON_LIVERIES`]; `over` wraps inside it.
+pub fn galleon_livery(
+    seed: u64,
+    style: ThemeArchetype,
+    over: Option<usize>,
+) -> &'static AirshipLivery {
+    pick(GALLEON_LIVERIES, |l| l.weight(style), seed, over)
+}
+
+const GORE_RED: [f32; 3] = [0.80, 0.12, 0.10];
+const GORE_YELLOW: [f32; 3] = [0.95, 0.75, 0.12];
+const GORE_GREEN: [f32; 3] = [0.18, 0.55, 0.22];
+const GORE_BLUE: [f32; 3] = [0.15, 0.32, 0.70];
+const TURQUOISE: [f32; 3] = [0.10, 0.55, 0.55];
+const TERRACOTTA: [f32; 3] = [0.72, 0.30, 0.16];
+const MAIZE: [f32; 3] = [0.86, 0.68, 0.20];
+
+/// The hot-air balloon's seven schemes (#1661): `hull`, `fins`, `trim` and
+/// `car` her four gore colours round the envelope in turn (a two-colour
+/// scheme names each twice). Her crown cap is the seeded accent.
+pub const BALLOON_LIVERIES: &[AirshipLivery] = &[
+    airship_scheme!(
+        "Rainbow",
+        true,
+        [RuralFarmland, Suburban, Roadside],
+        GORE_RED,
+        false,
+        GORE_YELLOW,
+        GORE_GREEN,
+        GORE_BLUE
+    ),
+    airship_scheme!(
+        "Red and yellow",
+        true,
+        [Roadside, RuralFarmland],
+        GORE_RED,
+        false,
+        GORE_YELLOW,
+        GORE_RED,
+        GORE_YELLOW
+    ),
+    airship_scheme!(
+        "Blue and white",
+        false,
+        [Suburban],
+        GORE_BLUE,
+        false,
+        SIGN_WHITE,
+        GORE_BLUE,
+        SIGN_WHITE
+    ),
+    airship_scheme!(
+        "Purple and orange",
+        false,
+        [Roadside, Suburban],
+        [0.38, 0.14, 0.52],
+        false,
+        [0.95, 0.50, 0.10],
+        [0.38, 0.14, 0.52],
+        [0.95, 0.50, 0.10]
+    ),
+    airship_scheme!(
+        "Green and cream",
+        false,
+        [RuralFarmland],
+        GORE_GREEN,
+        false,
+        [0.90, 0.86, 0.72],
+        GORE_GREEN,
+        [0.90, 0.86, 0.72]
+    ),
+    airship_scheme!(
+        "Turquoise and terracotta",
+        false,
+        [Mesoamerican],
+        TURQUOISE,
+        false,
+        TERRACOTTA,
+        MAIZE,
+        [0.10, 0.09, 0.08]
+    ),
+    airship_scheme!(
+        "Sun and earth",
+        false,
+        [Mesoamerican],
+        MAIZE,
+        false,
+        TERRACOTTA,
+        MAIZE,
+        [0.50, 0.10, 0.08]
+    ),
+];
+
+/// The scheme this hot-air balloon seed wears on `style`, a pick from
+/// [`BALLOON_LIVERIES`]; `over` wraps inside it.
+pub fn balloon_livery(
+    seed: u64,
+    style: ThemeArchetype,
+    over: Option<usize>,
+) -> &'static AirshipLivery {
+    pick(BALLOON_LIVERIES, |l| l.weight(style), seed, over)
+}
+
+const ARCTIC: [f32; 3] = [0.92, 0.93, 0.94];
+const SOLAR_FILM: [f32; 3] = [0.06, 0.12, 0.30];
+
+/// The hybrid's six schemes (#1662): `hull` her two lobes (aluminium-doped
+/// or coloured), `fins` her tails, `trim` the panels over each lobe's
+/// crown - solar film on the solar schemes - and `car` her cabin. The stripe
+/// low on each lobe's outer flank is the seeded accent.
+pub const HYBRID_LIVERIES: &[AirshipLivery] = &[
+    airship_scheme!(
+        "Arctic white",
+        true,
+        [SpaceOutpost, IndustrialPark],
+        ARCTIC,
+        true,
+        ARCTIC,
+        [0.80, 0.82, 0.86],
+        ARCTIC
+    ),
+    airship_scheme!(
+        "Solar film",
+        true,
+        [Solarpunk],
+        [0.90, 0.92, 0.92],
+        true,
+        [0.20, 0.50, 0.32],
+        SOLAR_FILM,
+        [0.90, 0.92, 0.92]
+    ),
+    airship_scheme!(
+        "Survey orange",
+        false,
+        [SpaceOutpost, IndustrialPark],
+        [0.92, 0.92, 0.90],
+        false,
+        [0.88, 0.40, 0.08],
+        [0.88, 0.40, 0.08],
+        [0.88, 0.40, 0.08]
+    ),
+    airship_scheme!(
+        "Graphite",
+        false,
+        [Cyberpunk],
+        [0.20, 0.21, 0.23],
+        false,
+        [0.12, 0.12, 0.14],
+        [0.12, 0.12, 0.14],
+        [0.08, 0.08, 0.09]
+    ),
+    airship_scheme!(
+        "Monolith black",
+        false,
+        [AlienMonolithic, Cyberpunk],
+        [0.04, 0.04, 0.05],
+        false,
+        [0.04, 0.04, 0.05],
+        [0.10, 0.10, 0.12],
+        [0.04, 0.04, 0.05]
+    ),
+    airship_scheme!(
+        "Leaf green",
+        false,
+        [Solarpunk],
+        [0.82, 0.88, 0.80],
+        false,
+        [0.24, 0.48, 0.24],
+        SOLAR_FILM,
+        [0.82, 0.88, 0.80]
+    ),
+];
+
+/// The scheme this hybrid seed wears on `style`, a pick from
+/// [`HYBRID_LIVERIES`]; `over` wraps inside it.
+pub fn hybrid_livery(
+    seed: u64,
+    style: ThemeArchetype,
+    over: Option<usize>,
+) -> &'static AirshipLivery {
+    pick(HYBRID_LIVERIES, |l| l.weight(style), seed, over)
+}
+
+/// The organic floater's six schemes (#1663): `hull` her bell, `fins` her
+/// tentacles, `car` the shadowed underside of her bell, `trim` the scallops
+/// round her margin and her tentacles' beads - her bell's own colour on
+/// every scheme so far, the lever for one that rims her otherwise. Her glow - spots, canals, oral arms and nodules - is
+/// the seeded accent's own light: a living thing wears its owner's colour as
+/// its light.
+pub const FLOATER_LIVERIES: &[AirshipLivery] = &[
+    airship_scheme!(
+        "Pale violet",
+        true,
+        [AlienOrganic],
+        [0.72, 0.62, 0.86],
+        false,
+        [0.80, 0.72, 0.90],
+        [0.72, 0.62, 0.86],
+        [0.43, 0.37, 0.52]
+    ),
+    airship_scheme!(
+        "Rose",
+        true,
+        [AlienOrganic],
+        [0.90, 0.62, 0.72],
+        false,
+        [0.92, 0.74, 0.80],
+        [0.90, 0.62, 0.72],
+        [0.54, 0.37, 0.43]
+    ),
+    airship_scheme!(
+        "Abyssal blue",
+        false,
+        [AlienOrganic],
+        [0.14, 0.18, 0.42],
+        false,
+        [0.30, 0.34, 0.60],
+        [0.14, 0.18, 0.42],
+        [0.08, 0.10, 0.25]
+    ),
+    airship_scheme!(
+        "Amber",
+        false,
+        [AlienOrganic],
+        [0.86, 0.70, 0.40],
+        false,
+        [0.90, 0.78, 0.55],
+        [0.86, 0.70, 0.40],
+        [0.52, 0.42, 0.24]
+    ),
+    airship_scheme!(
+        "Sea glass",
+        false,
+        [AlienOrganic],
+        [0.55, 0.80, 0.74],
+        false,
+        [0.70, 0.88, 0.82],
+        [0.55, 0.80, 0.74],
+        [0.33, 0.48, 0.44]
+    ),
+    airship_scheme!(
+        "Ghost white",
+        false,
+        [AlienOrganic],
+        [0.88, 0.88, 0.92],
+        false,
+        [0.92, 0.92, 0.96],
+        [0.88, 0.88, 0.92],
+        [0.53, 0.53, 0.55]
+    ),
+];
+
+/// The scheme this floater seed wears on `style`, a pick from
+/// [`FLOATER_LIVERIES`]; `over` wraps inside it.
+pub fn floater_livery(
+    seed: u64,
+    style: ThemeArchetype,
+    over: Option<usize>,
+) -> &'static AirshipLivery {
+    pick(FLOATER_LIVERIES, |l| l.weight(style), seed, over)
 }
 
 /// An airplane's scheme (#1617): the two hues of her airframe, as the owner
@@ -4581,6 +5116,308 @@ pub(crate) fn airship_colours(ctx: &PartCtx) -> AirshipColours {
     }
 }
 
+/// The style and the scheme a fan-out airship's colours read: her seed's
+/// theme, and the scheme `pick` draws from her type's list.
+fn airship_scheme(
+    ctx: &PartCtx,
+    pick_from: fn(u64, ThemeArchetype, Option<usize>) -> &'static AirshipLivery,
+) -> &'static AirshipLivery {
+    pick_from(
+        ctx.seed,
+        AvatarCharacter::for_seed(ctx.seed).style,
+        ctx.livery,
+    )
+}
+
+/// A scheme's hue as a big mass's dope, floored off mud on a battered kit.
+fn doped(m: &MaterialKit, c: [f32; 3], aluminium: bool) -> SovereignMaterialSettings {
+    m.dope(floor_finished(m, c, HELI_MASS_FLOOR), aluminium)
+}
+
+/// A scheme's hue as paint, floored off mud on a battered kit.
+fn painted(m: &MaterialKit, c: [f32; 3]) -> SovereignMaterialSettings {
+    m.paint(floor_finished(m, c, HELI_MASS_FLOOR))
+}
+
+/// The surfaces the blimp is built in (#1658): her scheme's envelope, band,
+/// fins and car, the seeded accent on the pinstripe along her band, and her
+/// lit parts - the night sign in her band (an adorned ship's) and her cabin's
+/// windows, the fleet's window light standing off her envelope; her nav
+/// lights, tail light and beacon, which glow on every theme.
+pub(crate) struct BlimpColours {
+    pub(crate) envelope: SovereignMaterialSettings,
+    /// The battened nose cap: the envelope a shade down.
+    pub(crate) nose: SovereignMaterialSettings,
+    pub(crate) band: SovereignMaterialSettings,
+    /// **Identity.** The pinstripe along the band's top edge.
+    pub(crate) stripe: SovereignMaterialSettings,
+    pub(crate) fins: SovereignMaterialSettings,
+    /// The car, its outriggers and the engines.
+    pub(crate) car: SovereignMaterialSettings,
+    /// The windscreen and the camera pod's lens.
+    pub(crate) glass: SovereignMaterialSettings,
+    /// The cabin's windows and the night sign.
+    pub(crate) lamp: SovereignMaterialSettings,
+    /// The mooring cone and the airscrews' bosses.
+    pub(crate) metal: SovereignMaterialSettings,
+    /// The airscrews' blades, the camera pod and the hidden hubs.
+    pub(crate) dark: SovereignMaterialSettings,
+    pub(crate) port: SovereignMaterialSettings,
+    pub(crate) starboard: SovereignMaterialSettings,
+    pub(crate) white: SovereignMaterialSettings,
+    pub(crate) beacon: SovereignMaterialSettings,
+}
+
+pub(crate) fn blimp_colours(ctx: &PartCtx) -> BlimpColours {
+    let (p, m) = (&ctx.palette, &ctx.materials);
+    let l = airship_scheme(ctx, blimp_livery);
+    let band = floor_finished(m, l.trim, HELI_MASS_FLOOR);
+    let envelope = doped(m, l.hull, l.aluminium);
+    BlimpColours {
+        nose: m.dope(
+            shade(floor_finished(m, l.hull, HELI_MASS_FLOOR), 0.75),
+            l.aluminium,
+        ),
+        lamp: window_material(standing_off(
+            window_light(p.tertiary_accent),
+            envelope.base_color.0,
+        )),
+        envelope,
+        band: m.dope(band, false),
+        stripe: trim(m, clear_of(p.primary_accent, luma(band), COACHLINE_DELTA)),
+        fins: doped(m, l.fins, false),
+        car: painted(m, l.car),
+        glass: m.glass(HELI_GLASS),
+        metal: m.paint(HELI_METAL),
+        dark: m.paint(HELI_DARK),
+        port: m.glow(NAV_RED),
+        starboard: m.glow(NAV_GREEN),
+        white: m.glow(LAMP_WHITE),
+        beacon: m.glow(BEACON_RED),
+    }
+}
+
+/// The surfaces the steam dirigible is built in (#1659): her scheme's two
+/// gore colours, timber and fittings, ropes the colour of hemp, the seeded
+/// accent on her sail rudder, and her lit parts - her firebox's glow and an
+/// adorned ship's lanterns.
+pub(crate) struct SteamColours {
+    pub(crate) gore_a: SovereignMaterialSettings,
+    pub(crate) gore_b: SovereignMaterialSettings,
+    /// The spar, the gondola, its rail and the airscrew's blades.
+    pub(crate) timber: SovereignMaterialSettings,
+    /// The boiler, the tip caps, the funnel's crown and the airscrew's boss.
+    pub(crate) fittings: SovereignMaterialSettings,
+    pub(crate) rope: SovereignMaterialSettings,
+    /// **Identity.** The sail rudder on the spar's tail.
+    pub(crate) rudder: SovereignMaterialSettings,
+    /// The funnel, the shaft and the hidden hubs.
+    pub(crate) dark: SovereignMaterialSettings,
+    pub(crate) fire: SovereignMaterialSettings,
+    pub(crate) lamp: SovereignMaterialSettings,
+    /// An ornate ship's pennant: the second gore colour.
+    pub(crate) pennant: SovereignMaterialSettings,
+}
+
+const HEMP: [f32; 3] = [0.55, 0.48, 0.36];
+const FIREBOX: [f32; 3] = [1.0, 0.45, 0.12];
+
+pub(crate) fn steam_colours(ctx: &PartCtx) -> SteamColours {
+    let (p, m) = (&ctx.palette, &ctx.materials);
+    let l = airship_scheme(ctx, steam_livery);
+    SteamColours {
+        gore_a: doped(m, l.hull, false),
+        gore_b: doped(m, l.fins, false),
+        timber: m.brightwork(l.trim),
+        fittings: m.brightwork(l.car),
+        rope: m.canvas(HEMP),
+        rudder: m.canvas(p.primary_accent),
+        dark: m.paint(HELI_DARK),
+        fire: window_material(FIREBOX),
+        lamp: window_material(window_light(p.tertiary_accent)),
+        pennant: m.canvas(l.fins),
+    }
+}
+
+/// The surfaces the sky galleon is built in (#1660): her scheme's gasbag,
+/// sails, gilt and hull wood, the seeded accent on the band round her
+/// gasbag, and her lit parts - her stern windows and an adorned ship's
+/// lanterns.
+pub(crate) struct GalleonColours {
+    pub(crate) bag: SovereignMaterialSettings,
+    /// **Identity.** The band round her gasbag's girth, and an ornate
+    /// ship's pennant.
+    pub(crate) band: SovereignMaterialSettings,
+    pub(crate) hull: SovereignMaterialSettings,
+    /// Her wales, her sterncastle's roof, her gasbag's tip caps and an
+    /// ornate ship's figurehead.
+    pub(crate) gilt: SovereignMaterialSettings,
+    pub(crate) sail: SovereignMaterialSettings,
+    pub(crate) rope: SovereignMaterialSettings,
+    /// Her bowsprit, rudder and the wing sails' yards.
+    pub(crate) spars: SovereignMaterialSettings,
+    pub(crate) lamp: SovereignMaterialSettings,
+    pub(crate) dark: SovereignMaterialSettings,
+}
+
+const SPAR_WOOD: [f32; 3] = [0.36, 0.22, 0.11];
+
+pub(crate) fn galleon_colours(ctx: &PartCtx) -> GalleonColours {
+    let (p, m) = (&ctx.palette, &ctx.materials);
+    let l = airship_scheme(ctx, galleon_livery);
+    let bag = floor_finished(m, l.hull, HELI_MASS_FLOOR);
+    GalleonColours {
+        bag: m.dope(bag, false),
+        band: trim(m, clear_of(p.primary_accent, luma(bag), COACHLINE_DELTA)),
+        hull: m.brightwork(floor_finished(m, l.car, HELI_MASS_FLOOR)),
+        gilt: m.trim(l.trim),
+        sail: m.canvas(l.fins),
+        rope: m.canvas(HEMP),
+        spars: m.brightwork(SPAR_WOOD),
+        lamp: window_material(window_light(p.tertiary_accent)),
+        dark: m.paint(HELI_DARK),
+    }
+}
+
+/// The surfaces the hot-air balloon is built in (#1661): her scheme's four
+/// gore colours, the seeded accent on her crown cap, wicker, leather and
+/// metal, and her lit parts - her burner's flame and an adorned ship's
+/// lantern.
+pub(crate) struct BalloonColours {
+    pub(crate) gores: [SovereignMaterialSettings; 4],
+    /// **Identity.** The cap over her crown.
+    pub(crate) crown: SovereignMaterialSettings,
+    pub(crate) wicker: SovereignMaterialSettings,
+    /// The basket's padded rim and the scoop ring round her throat.
+    pub(crate) leather: SovereignMaterialSettings,
+    pub(crate) sand: SovereignMaterialSettings,
+    /// The burner, its frame and an ornate ship's flagstaff.
+    pub(crate) metal: SovereignMaterialSettings,
+    /// The cables and the hidden root.
+    pub(crate) dark: SovereignMaterialSettings,
+    pub(crate) flame: SovereignMaterialSettings,
+    pub(crate) lamp: SovereignMaterialSettings,
+    /// An ornate ship's pennant: her first gore colour.
+    pub(crate) flag: SovereignMaterialSettings,
+}
+
+const WICKER: [f32; 3] = [0.62, 0.46, 0.26];
+const BASKET_LEATHER: [f32; 3] = [0.30, 0.18, 0.10];
+const SANDBAG: [f32; 3] = [0.60, 0.52, 0.36];
+const BURNER_FLAME: [f32; 3] = [1.0, 0.50, 0.10];
+
+pub(crate) fn balloon_colours(ctx: &PartCtx) -> BalloonColours {
+    let (p, m) = (&ctx.palette, &ctx.materials);
+    let l = airship_scheme(ctx, balloon_livery);
+    let first = floor_finished(m, l.hull, HELI_MASS_FLOOR);
+    BalloonColours {
+        gores: [l.hull, l.fins, l.trim, l.car].map(|g| doped(m, g, false)),
+        crown: m.dope(
+            clear_of(p.primary_accent, luma(first), COACHLINE_DELTA),
+            false,
+        ),
+        wicker: m.canvas(WICKER),
+        leather: m.leather(BASKET_LEATHER),
+        sand: m.canvas(SANDBAG),
+        metal: m.paint(HELI_METAL),
+        dark: m.paint(HELI_DARK),
+        flame: m.glow(BURNER_FLAME),
+        lamp: window_material(window_light(p.tertiary_accent)),
+        flag: m.canvas(l.hull),
+    }
+}
+
+/// The surfaces the hybrid is built in (#1662): her scheme's lobes, fins,
+/// crown panels and cabin, the seeded accent on the stripe low on each
+/// lobe, and her lit parts - her cabin's windows, the fleet's window light
+/// standing off her cabin; her nav lights and strobes.
+pub(crate) struct HybridColours {
+    pub(crate) hull: SovereignMaterialSettings,
+    /// The panels over each lobe's crown: solar film on the solar schemes.
+    pub(crate) top: SovereignMaterialSettings,
+    pub(crate) fins: SovereignMaterialSettings,
+    /// The cabin and the fans' pylons.
+    pub(crate) cabin: SovereignMaterialSettings,
+    /// **Identity.** The stripe low on each lobe's outer flank.
+    pub(crate) stripe: SovereignMaterialSettings,
+    /// Her glass nose and an adorned ship's sensor dome.
+    pub(crate) glass: SovereignMaterialSettings,
+    pub(crate) lamp: SovereignMaterialSettings,
+    /// The fans' ducts and an ornate ship's landing pads.
+    pub(crate) duct: SovereignMaterialSettings,
+    pub(crate) metal: SovereignMaterialSettings,
+    pub(crate) dark: SovereignMaterialSettings,
+    pub(crate) port: SovereignMaterialSettings,
+    pub(crate) starboard: SovereignMaterialSettings,
+    pub(crate) white: SovereignMaterialSettings,
+}
+
+const DUCT_GREY: [f32; 3] = [0.30, 0.31, 0.33];
+
+pub(crate) fn hybrid_colours(ctx: &PartCtx) -> HybridColours {
+    let (p, m) = (&ctx.palette, &ctx.materials);
+    let l = airship_scheme(ctx, hybrid_livery);
+    let hull = floor_finished(m, l.hull, HELI_MASS_FLOOR);
+    let cabin = painted(m, l.car);
+    HybridColours {
+        hull: m.dope(hull, l.aluminium),
+        top: m.brightwork(floor_finished(m, l.trim, HELI_MASS_FLOOR)),
+        fins: doped(m, l.fins, l.aluminium),
+        lamp: window_material(standing_off(
+            window_light(p.tertiary_accent),
+            cabin.base_color.0,
+        )),
+        cabin,
+        stripe: trim(m, clear_of(p.primary_accent, luma(hull), COACHLINE_DELTA)),
+        glass: m.glass(HELI_GLASS),
+        duct: m.paint(DUCT_GREY),
+        metal: m.paint(HELI_METAL),
+        dark: m.paint(HELI_DARK),
+        port: m.glow(NAV_RED),
+        starboard: m.glow(NAV_GREEN),
+        white: m.glow(LAMP_WHITE),
+    }
+}
+
+/// The surfaces the organic floater is built in (#1663): her scheme's bell,
+/// tentacles and the shadowed underside of her bell, and her glow - the
+/// seeded accent's own jewel light, faint in her canals and oral arms and
+/// full in her spots and nodules. A living thing wears its owner's colour as
+/// its light; it glows on every theme.
+pub(crate) struct FloaterColours {
+    pub(crate) bell: SovereignMaterialSettings,
+    pub(crate) under: SovereignMaterialSettings,
+    pub(crate) tentacles: SovereignMaterialSettings,
+    /// The scallops round her margin and her tentacles' beads: the scheme's
+    /// trim.
+    pub(crate) margin: SovereignMaterialSettings,
+    /// **Identity.** Her canals' faint glow and her oral arms.
+    pub(crate) canal: SovereignMaterialSettings,
+    /// **Identity.** Her spots and nodules.
+    pub(crate) glow: SovereignMaterialSettings,
+    pub(crate) dark: SovereignMaterialSettings,
+}
+
+/// How brightly a floater's canals glow, under her spots' full lamp light.
+const CANAL_GLOW: f32 = 2.0;
+
+pub(crate) fn floater_colours(ctx: &PartCtx) -> FloaterColours {
+    let (p, m) = (&ctx.palette, &ctx.materials);
+    let l = airship_scheme(ctx, floater_livery);
+    let light = window_light(p.primary_accent);
+    let mut canal = m.glow(light);
+    canal.emission_strength = Fp(CANAL_GLOW);
+    FloaterColours {
+        bell: m.dope(floor_finished(m, l.hull, HELI_MASS_FLOOR), true),
+        margin: m.dope(floor_finished(m, l.trim, HELI_MASS_FLOOR), true),
+        under: m.paint(floor_finished(m, l.car, HELI_MASS_FLOOR)),
+        tentacles: doped(m, l.fins, false),
+        canal,
+        glow: m.glow(light),
+        dark: m.paint(HELI_DARK),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5886,6 +6723,115 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The fan-out's six lists keep the Zeppelin's promises (#1658-#1663):
+    /// each scheme is at home only where its type flies, every theme the
+    /// type flies in is at home on one of them, two of them are floors, and
+    /// every scheme is drawn by some seed that rolls the type.
+    #[test]
+    fn every_fan_out_airship_scheme_is_at_home_where_her_type_flies() {
+        use crate::seeded_defaults::AirshipType;
+        type Pick = fn(u64, ThemeArchetype, Option<usize>) -> &'static AirshipLivery;
+        let lists: [(AirshipType, &[AirshipLivery], Pick); 6] = [
+            (AirshipType::Blimp, BLIMP_LIVERIES, blimp_livery),
+            (AirshipType::SteamDirigible, STEAM_LIVERIES, steam_livery),
+            (AirshipType::SkyGalleon, GALLEON_LIVERIES, galleon_livery),
+            (AirshipType::HotAirBalloon, BALLOON_LIVERIES, balloon_livery),
+            (AirshipType::Hybrid, HYBRID_LIVERIES, hybrid_livery),
+            (AirshipType::Floater, FLOATER_LIVERIES, floater_livery),
+        ];
+        let mut drawn: Vec<Vec<usize>> = lists.iter().map(|(_, l, _)| vec![0; l.len()]).collect();
+        for s in 0u64..20_000 {
+            if ChassisFamily::for_seed(s) != ChassisFamily::Airship {
+                continue;
+            }
+            let style = AvatarCharacter::for_seed(s).style;
+            let t = AirshipType::for_style(style, s);
+            if let Some(k) = lists.iter().position(|(u, _, _)| *u == t) {
+                let (_, list, pick) = lists[k];
+                let l = pick(s, style, None);
+                drawn[k][list
+                    .iter()
+                    .position(|x| x.name == l.name)
+                    .expect("the pick came from the table")] += 1;
+            }
+        }
+        for ((t, list, _), drawn) in lists.iter().zip(&drawn) {
+            let label = t.label();
+            for l in *list {
+                assert!(
+                    l.home.iter().all(|&s| t.weight(s) > 0),
+                    "{} on the {label}: at home where she never flies",
+                    l.name
+                );
+            }
+            for style in ThemeArchetype::ALL.into_iter().filter(|&s| t.weight(s) > 0) {
+                assert!(
+                    list.iter().any(|l| l.home.contains(&style)),
+                    "the {label} flies in {style:?}, where no scheme of hers is at home"
+                );
+            }
+            assert_eq!(
+                list.iter().filter(|l| l.floor).count(),
+                2,
+                "the {label}'s floors"
+            );
+            assert!(
+                drawn.iter().all(|&n| n > 0),
+                "a {label} scheme is never drawn: {drawn:?}"
+            );
+        }
+    }
+
+    /// The fan-out's identity marks read on every scheme of their lists
+    /// (#1658-#1663), on the finished surfaces, as the Zeppelin's cheat line
+    /// is held: the blimp's pinstripe off her band, the galleon's band off
+    /// her gasbag, the balloon's crown cap off her first gore and the
+    /// hybrid's stripe off her hull. The steam dirigible's rudder is a sail
+    /// of the accent's own canvas against the sky, and the floater's glow is
+    /// light of its own.
+    #[test]
+    fn the_fan_out_identity_marks_read_on_every_scheme() {
+        type Mark = fn(&PartCtx) -> (f32, f32);
+        let marks: [(&str, usize, Mark); 4] = [
+            ("blimp's pinstripe", BLIMP_LIVERIES.len(), |ctx| {
+                let c = blimp_colours(ctx);
+                (luma(c.stripe.base_color.0), luma(c.band.base_color.0))
+            }),
+            ("galleon's band", GALLEON_LIVERIES.len(), |ctx| {
+                let c = galleon_colours(ctx);
+                (luma(c.band.base_color.0), luma(c.bag.base_color.0))
+            }),
+            ("balloon's crown cap", BALLOON_LIVERIES.len(), |ctx| {
+                let c = balloon_colours(ctx);
+                (luma(c.crown.base_color.0), luma(c.gores[0].base_color.0))
+            }),
+            ("hybrid's stripe", HYBRID_LIVERIES.len(), |ctx| {
+                let c = hybrid_colours(ctx);
+                (luma(c.stripe.base_color.0), luma(c.hull.base_color.0))
+            }),
+        ];
+        let mut checked = 0;
+        for s in (0u64..900).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Airship) {
+            let mut ctx = PartCtx::for_seed(s);
+            if ctx.materials.emissive_accents() {
+                continue;
+            }
+            for (what, schemes, mark) in marks {
+                for i in 0..schemes {
+                    ctx.livery = Some(i);
+                    let (on, under) = mark(&ctx);
+                    assert!(
+                        (on - under).abs() > COACHLINE_DELTA * 0.6,
+                        "seed {s}, scheme {i}: the {what} ({on:.2}) is lost on what it lies on \
+                         ({under:.2})"
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 0, "no airship seed under 900 was checked");
     }
 
     /// A helicopter's colours read on every scheme of her list, on every

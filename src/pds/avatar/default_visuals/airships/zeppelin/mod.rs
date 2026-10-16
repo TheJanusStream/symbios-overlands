@@ -61,6 +61,8 @@ pub(super) const PROFILE: HullProfile = HullProfile {
         0.0, 0.008, 0.024, 0.05, 0.088, 0.14, 0.21, 0.30, 0.40, 0.50, 0.60, 0.70, 0.79, 0.87, 0.94,
         1.0,
     ],
+    len_scale: 1.0,
+    fine_scale: 1.0,
 };
 
 /// The side of the hidden root cube on her axis (m, prototype frame).
