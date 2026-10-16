@@ -498,3 +498,204 @@ fn every_airship_type_has_a_feel_of_her_own() {
         }
     }
 }
+
+/// How a box setter is known among her root's children.
+type Is = Box<dyn Fn(&Generator) -> bool>;
+
+/// A box setter: its name for the failure, and how it is known.
+type Setter = (&'static str, Is);
+
+/// One face of her box: its name, the setter that should set it, the box's
+/// value there, and how a part's bounds are read on it.
+type Face<'a> = (&'static str, &'a Setter, f32, fn(&Bounds) -> f32);
+
+/// A part drawn in `m`.
+fn made_of(m: &SovereignMaterialSettings) -> Is {
+    let m = m.clone();
+    Box::new(move |g| g.kind.common().is_some_and(|k| k.material == m))
+}
+
+/// A hub that turns or swings.
+fn turning() -> Is {
+    Box::new(|g| g.spin.is_some())
+}
+
+/// A lathe drawn in `m`: a cap or a cone.
+fn lathe_of(m: &SovereignMaterialSettings) -> Is {
+    let made = made_of(m);
+    Box::new(move |g| matches!(g.kind, GeneratorKind::Lathe { .. }) && made(g))
+}
+
+/// A sphere drawn in `m`: a lamp, a dome or a pod.
+fn sphere_of(m: &SovereignMaterialSettings) -> Is {
+    let made = made_of(m);
+    Box::new(move |g| matches!(g.kind, GeneratorKind::Sphere { .. }) && made(g))
+}
+
+/// A part either rule knows.
+fn either(a: Is, b: Is) -> Is {
+    Box::new(move |g| a(g) || b(g))
+}
+
+/// The parts that should set each face of a fan-out type's box, named for
+/// the failure: her sides (one rule, since she is mirrored), her crown, her
+/// keel, her nose and her tail. The Zeppelin's are pinned beside her, in
+/// `zeppelin`.
+fn box_setters(t: AirshipType, ctx: &PartCtx) -> Option<[Setter; 5]> {
+    let adorned = ctx.ornateness != OrnatenessTier::Plain;
+    let ornate = ctx.ornateness == OrnatenessTier::Ornate;
+    Some(match t {
+        AirshipType::Zeppelin => return None,
+        AirshipType::Blimp => {
+            let c = blimp_colours(ctx);
+            [
+                (
+                    "her airscrews, or her band or its sign where her envelope is fuller than \
+                     they reach",
+                    either(turning(), either(made_of(&c.band), made_of(&c.lamp))),
+                ),
+                if adorned {
+                    ("her beacon", sphere_of(&c.beacon))
+                } else {
+                    ("her envelope", made_of(&c.envelope))
+                },
+                if ornate {
+                    ("her camera pod", sphere_of(&c.dark))
+                } else {
+                    ("her car", made_of(&c.car))
+                },
+                ("her mooring cone", lathe_of(&c.metal)),
+                ("her tail light", sphere_of(&c.white)),
+            ]
+        }
+        AirshipType::SteamDirigible => {
+            let c = steam_colours(ctx);
+            let gores = || either(made_of(&c.gore_a), made_of(&c.gore_b));
+            [
+                ("her envelope", gores()),
+                ("her envelope", gores()),
+                ("her pusher's disc", turning()),
+                ("her nose cap", lathe_of(&c.fittings)),
+                ("her tail cap", lathe_of(&c.fittings)),
+            ]
+        }
+        AirshipType::SkyGalleon => {
+            let c = galleon_colours(ctx);
+            [
+                ("her wing sails", made_of(&c.sail)),
+                ("the band round her gasbag", made_of(&c.band)),
+                ("her hull", made_of(&c.hull)),
+                ("her nose cap", lathe_of(&c.gilt)),
+                if ornate {
+                    ("her pennant", made_of(&c.band))
+                } else {
+                    ("her tail cap", lathe_of(&c.gilt))
+                },
+            ]
+        }
+        AirshipType::HotAirBalloon => {
+            let c = balloon_colours(ctx);
+            let gores = || {
+                let g = c.gores.clone();
+                Box::new(move |n: &Generator| g.iter().any(|m| made_of(m)(n))) as Is
+            };
+            [
+                ("her gores", gores()),
+                (
+                    "her gores or her crown cap",
+                    either(gores(), made_of(&c.crown)),
+                ),
+                ("her basket", made_of(&c.wicker)),
+                ("her gores", gores()),
+                ("her gores", gores()),
+            ]
+        }
+        AirshipType::Hybrid => {
+            let c = hybrid_colours(ctx);
+            [
+                (
+                    "her lobes, or her aft fans' ducts",
+                    either(made_of(&c.hull), made_of(&c.duct)),
+                ),
+                if adorned {
+                    (
+                        "her upper tails, or her strobes",
+                        either(made_of(&c.fins), sphere_of(&c.white)),
+                    )
+                } else {
+                    ("her upper tails", made_of(&c.fins))
+                },
+                if adorned {
+                    ("her sensor dome", sphere_of(&c.glass))
+                } else {
+                    ("her fore fans' ducts", made_of(&c.duct))
+                },
+                ("her lobes", made_of(&c.hull)),
+                ("her lobes", made_of(&c.hull)),
+            ]
+        }
+        AirshipType::Floater => {
+            let c = floater_colours(ctx);
+            [
+                ("her margin", made_of(&c.margin)),
+                ("her bell", made_of(&c.bell)),
+                ("her tentacles", turning()),
+                ("her margin", made_of(&c.margin)),
+                ("her margin", made_of(&c.margin)),
+            ]
+        }
+    })
+}
+
+/// Every fan-out type's box is set by the parts that should set it, at
+/// every blueprint extreme and on every tier, as the Zeppelin's is
+/// (`zeppelin`) - because her box is MEASURED off her, the family's box
+/// guard reads her tree back against itself and cannot see a part grow past
+/// her ends or her sides (#1628's lesson). Audited for the closing sweep
+/// (#1664): no face of any type is set by a part that should not set it.
+/// The galleon's ornate pennant streams past her tail cap, and on a full
+/// blueprint the blimp's band - or the sign in it, 5 mm proud of her - stands
+/// wider than her airscrews reach.
+#[test]
+fn every_type_has_her_box_set_by_the_parts_that_should_set_it() {
+    let mut ctx = PartCtx::for_seed(an_airship_seed());
+    for t in AirshipType::ALL {
+        for bp in blueprints() {
+            let plan = craft(t).plan(&bp);
+            for o in OrnatenessTier::ALL {
+                ctx.ornateness = o;
+                let Some(setters) = box_setters(t, &ctx) else {
+                    continue;
+                };
+                let built = craft(t).build(&ctx, &plan);
+                let b = swept_bounds(&built);
+                let what = format!(
+                    "a {} m {}, fineness {}, {}",
+                    bp.length,
+                    t.label(),
+                    bp.fineness,
+                    o.label()
+                );
+                let [side, crown, keel, nose, tail] = &setters;
+                let faces: [Face; 6] = [
+                    ("side", side, b.max.x, |p| p.max.x),
+                    ("other side", side, b.min.x, |p| p.min.x),
+                    ("crown", crown, b.max.y, |p| p.max.y),
+                    ("keel", keel, b.min.y, |p| p.min.y),
+                    ("nose", nose, b.max.z, |p| p.max.z),
+                    ("tail", tail, b.min.z, |p| p.min.z),
+                ];
+                for (face, (name, is), want, of) in faces {
+                    let parts: Vec<&Generator> = built.children.iter().filter(|g| is(g)).collect();
+                    assert!(!parts.is_empty(), "{what}: she draws no {name}");
+                    assert!(
+                        parts
+                            .iter()
+                            .any(|g| (of(&swept_bounds(g)) - want).abs() < 1e-4),
+                        "{what}: her box's {face} ({want:.4}) is not set by {name}"
+                    );
+                }
+            }
+        }
+    }
+}

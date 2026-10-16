@@ -308,7 +308,9 @@ struct Args {
     /// `roadster`, `dunebuggy`, `armouredcar`, `cyclecar`, `wagon`, `rover`
     /// for skiffs; `utility`, `trainer`, `autogyro`, `coaxial`, `tandem` for
     /// helicopters (#1614); `high_wing`, `biplane`, `twin`, `racer` for
-    /// airplanes (#1617); `zeppelin` for airships (#1657). The survey aid
+    /// airplanes (#1617); `zeppelin`, `blimp`, `steam_dirigible`,
+    /// `sky_galleon`, `balloon`, `hybrid`, `floater` for airships (#1657,
+    /// #1658-#1663). The survey aid
     /// each craft-type slice opens with:
     /// find the seeds its type was picked for, then render them. Craft types
     /// are a property of the seed, so this answers for a type before anything

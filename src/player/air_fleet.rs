@@ -1,15 +1,17 @@
 //! The air fleet's flight cards (#1619, epic #1611's closing sweep): every
-//! helicopter and airplane type flown on the game's own flight systems over
-//! avian, gravity on, through [`FlightBench`] - one card a type, read off
-//! the record the craft pin's own hunt finds for her (#1380), as the
-//! surface fleet's drive cards are (`spawn`'s tests, #1381).
+//! helicopter, airplane and airship type flown on the game's own flight
+//! systems over avian, gravity on, through [`FlightBench`] - one card a
+//! type, read off the record the craft pin's own hunt finds for her (#1380),
+//! as the surface fleet's drive cards are (`spawn`'s tests, #1381).
 //!
 //! A helicopter's card is what her cyclic, her yaw and her collective do
 //! from a hover: her top speed with W held, her yaw rate with A held and
-//! her climb with Space held. An airplane's is her take-off run on power
-//! alone from her three wheels, her top speed at full power hands off, and
-//! in level flight her roll, pitch and rudder rates with A, S and Q held,
-//! and how long A takes her to a 40 degree bank.
+//! her climb with Space held - and every airship's, since they fly the same
+//! preset (the seven types since #1664, epic #1656's closing sweep). An
+//! airplane's is her take-off run on power alone from her three wheels, her
+//! top speed at full power hands off, and in level flight her roll, pitch
+//! and rudder rates with A, S and Q held, and how long A takes her to a 40
+//! degree bank.
 
 use std::collections::BTreeMap;
 
@@ -79,9 +81,17 @@ fn steps(secs: f32) -> usize {
 
 /// The record the craft pin's hunt finds for each aircraft type, by label.
 fn seed_per_aircraft() -> Vec<(CraftType, u64)> {
-    CraftType::HELICOPTERS
+    seed_per(
+        CraftType::HELICOPTERS
+            .into_iter()
+            .chain(CraftType::AIRPLANES),
+    )
+}
+
+/// The record the craft pin's hunt finds for each of `crafts`.
+fn seed_per(crafts: impl IntoIterator<Item = CraftType>) -> Vec<(CraftType, u64)> {
+    crafts
         .into_iter()
-        .chain(CraftType::AIRPLANES)
         .map(|craft| {
             let mut pins = AvatarPins::default();
             pins.lock_craft(Some(craft));
@@ -240,6 +250,35 @@ fn air_fleet_cards() -> (
         }
     }
     (rotors, wings)
+}
+
+/// Every airship type's card, by label: a rotor card, since every airship
+/// flies the helicopter preset (#1612).
+fn airship_cards() -> BTreeMap<&'static str, RotorCard> {
+    seed_per(CraftType::AIRSHIPS)
+        .into_iter()
+        .map(|(craft, seed)| {
+            (
+                craft.label(),
+                rotor_card(&AvatarRecord::default_for_seed(seed)),
+            )
+        })
+        .collect()
+}
+
+/// PROBE (#1664): print the airships' cards.
+#[test]
+#[ignore]
+fn probe_the_airship_cards() {
+    for (craft, seed) in seed_per(CraftType::AIRSHIPS) {
+        println!("SEED {} = {seed}", craft.label());
+    }
+    for (name, c) in &airship_cards() {
+        println!(
+            "SHIP {name:<18} top {:6.3} m/s (drift {:.5})  yaw {:7.2} deg/s (drift {:.5})  climb {:5.2} m/s",
+            c.top_speed, c.speed_drift, c.yaw_rate, c.yaw_drift, c.climb
+        );
+    }
 }
 
 /// PROBE (#1619): print the air fleet's cards.
@@ -489,4 +528,93 @@ fn the_air_fleet_flies_in_the_agreed_order() {
         (b / h - 1.0).abs() < 0.01,
         "the biplane yaws as the high-wing does: {b:.2} against {h:.2}"
     );
+}
+
+/// THE PER-TYPE FEEL GUARD for the airships (#1664, epic #1656's closing
+/// sweep): the seven types fly in the order the fan-out built them to
+/// (#1658-#1663), which the owner approved with the types, and the Zeppelin
+/// keeps the flight every airship had before the overhaul (#1656 decision
+/// 5) - asked of the real flight systems over avian, as the aircraft's are
+/// above.
+///
+/// Margins by the aircraft guard's rule - each the measured gap rounded
+/// down to a tenth, or to a twentieth under a tenth - taken one step
+/// further, to a hundredth under a twentieth: the airships' feel table runs
+/// closer than the aircraft's, and at a twentieth six of their twelve pairs
+/// would be held at no margin at all.
+#[test]
+fn the_airships_fly_in_the_agreed_order() {
+    let ships = airship_cards();
+    let ship = |name: &str| -> RotorCard {
+        *ships
+            .get(name)
+            .unwrap_or_else(|| panic!("{name} is in the seeded fleet"))
+    };
+
+    // THE CONTROL FOR THE WINDOWS, as the helicopters' above.
+    for (name, c) in &ships {
+        assert!(
+            c.speed_drift < 0.001 && c.yaw_drift < 0.001,
+            "{name}: her speed or her yaw rate had not settled ({:.5}, {:.5})",
+            c.speed_drift,
+            c.yaw_drift
+        );
+    }
+
+    // The hero keeps today's flight: 8 of drive over the preset's 0.8 of
+    // damping, 10 m/s, as every airship flew before #1657.
+    let zeppelin = ship("Zeppelin").top_speed;
+    assert!(
+        (zeppelin / 10.0 - 1.0).abs() < 0.01,
+        "the Zeppelin tops out at {zeppelin:.3} m/s, not the 10 every airship had"
+    );
+
+    // Top speed: the hybrid's four ducted fans the fastest (#1662), the
+    // Zeppelin next, then the blimp and the galleon close together, then the
+    // drifters - the balloon, the steam dirigible's one wooden pusher and,
+    // slowest, the floater pulsing along (#1663).
+    let fastest = [
+        ("Hybrid airship", 0.05),
+        ("Zeppelin", 0.1),
+        ("Blimp", 0.01),
+        ("Sky galleon", 0.1),
+        ("Hot-air balloon", 0.02),
+        ("Steam dirigible", 0.02),
+        ("Organic floater", 0.0),
+    ];
+    for pair in fastest.windows(2) {
+        let ((a, margin), (b, _)) = (pair[0], pair[1]);
+        clears(
+            "the airships' top speeds run as agreed",
+            a,
+            ship(a).top_speed,
+            b,
+            ship(b).top_speed,
+            margin,
+        );
+    }
+    // Yaw: the blimp the quickest on her X tail (#1658), the Zeppelin next
+    // to her, then the hybrid, the balloon and the floater, the galleon
+    // slower, and the ponderous steam dirigible the slowest of them all
+    // (#1659).
+    let quickest = [
+        ("Blimp", 0.01),
+        ("Zeppelin", 0.3),
+        ("Hybrid airship", 0.1),
+        ("Hot-air balloon", 0.01),
+        ("Organic floater", 0.03),
+        ("Sky galleon", 0.3),
+        ("Steam dirigible", 0.0),
+    ];
+    for pair in quickest.windows(2) {
+        let ((a, margin), (b, _)) = (pair[0], pair[1]);
+        clears(
+            "the airships' yaw rates run as agreed",
+            a,
+            ship(a).yaw_rate,
+            b,
+            ship(b).yaw_rate,
+            margin,
+        );
+    }
 }

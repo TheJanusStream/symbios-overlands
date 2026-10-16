@@ -30,6 +30,13 @@ under her two rotors (#1630); and a seeded helicopter's gait zeroes
 the airship's heave and nose wander, so she sits still on her skids or her
 wheels). An autogyro is drawn standing tail-down in her level box, every part
 turned about her main axle, so her box's floor is her tyres.
+A seeded airship is one of seven types (#1657, #1658-#1663): a Zeppelin, a
+blimp, a steam dirigible, a sky galleon, a hot-air balloon, a hybrid airship
+or an organic floater, each flying her own feel on the same preset - flat
+out from the floater's 7.2 m/s to the hybrid's 10.6, turning from the steam
+dirigible's 58 degrees a second to the blimp's 126 (#1664). Landed, she
+rests on her lowest drawn part: a balloon on her basket, a floater on her
+tentacles' tips, a steam dirigible on her pusher's disc.
 A seeded airplane flies the `airplane` preset (#1617): she banks and pitches
 as she flies, so her gait does nothing, and her record carries where her
 drawn wheels stand - `gear_track`, `gear_ahead`, `tail_wheel_aft`,

@@ -465,7 +465,8 @@ generation cores shared with the wasm Web Worker.
   the skiff (#1364), `PodPlan` for the helicopter (#1614), `FusePlan` for
   the airplane (#1617), whose record also carries where her drawn wheels
   stand so the physics sits her tail-down on them, and `HullPlan` for the
-  airship (#1657), the last family to leave the tagged part catalogue and
+  airship (#1657; each of its seven types reads a hull profile of its own,
+  #1658-#1663), the last family to leave the tagged part catalogue and
   the outfit that filled its slots - which is what stopped their trim
   floating and their mounts needing embed fudge factors. The humanoid family short-circuits both
   pipelines and rolls a seeded `symbios-avatar` engine record instead, whose
