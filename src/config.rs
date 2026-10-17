@@ -176,15 +176,17 @@ pub(crate) mod lighting {
         pub const SATURATION_MAX: f32 = 2.0;
     }
 
-    /// Defaults for the procedural cloud-deck layer authored on
-    /// `pds::Environment`. The deck is a single horizontal plane at altitude
-    /// `HEIGHT` rendered with a WGSL fragment shader that synthesises
-    /// domain-warped FBM clouds, threshold-shaped by `COVER` and softened by
-    /// `SOFTNESS`, drifting in `wind_dir` at `SPEED` m/s, and fading into the
-    /// distance-fog colour at the horizon. Picked to look correct in WebGL2
-    /// without compute shaders or volumetric passes.
+    /// The cloud deck (`crate::clouds`, #1673): the defaults of the cloud
+    /// fields on `pds::Environment`, and what the deck derives from them. The
+    /// deck is a single horizontal plane at altitude `HEIGHT`, drawn by a
+    /// WGSL shader that synthesises domain-warped FBM clouds covering `COVER`
+    /// of the sky, softened by `SOFTNESS`, drifting along `wind_dir` at
+    /// `SPEED` m/s, lit by the scene's sun and sky, hazed into the horizon as
+    /// the sky is, and casting its shade into the sun's shadow cascades.
+    /// Picked to look correct in WebGL2 without compute shaders or
+    /// volumetric passes.
     pub mod clouds {
-        /// Fraction of sky covered by clouds. `0` is empty blue, `1` is
+        /// Share of the sky the clouds cover. `0` is empty blue, `1` is
         /// totally overcast.
         pub const COVER: f32 = 0.45;
         /// Opacity multiplier for the clouds that survive the cover
@@ -202,19 +204,71 @@ pub(crate) mod lighting {
         pub const SCALE: f32 = 320.0;
         /// Altitude (m) of the cloud-deck plane in world space.
         pub const HEIGHT: f32 = 250.0;
-        /// Sunlit-top tint (sRGB), warm-white by default.
+        /// The colour of cloud the sun lights through (sRGB), warm-white by
+        /// default.
         pub const COLOR: [f32; 3] = [1.0, 0.98, 0.94];
-        /// Underside / shadowed tint (sRGB), cool-grey by default. Mixed
-        /// with `COLOR` by the dot of the sun direction with world Y so a
-        /// low sun produces moody undersides without a real lighting pass.
+        /// The colour of a cloud's base in the shade of the cloud between it
+        /// and the sun (sRGB), cool-grey by default.
         pub const SHADOW_COLOR: [f32; 3] = [0.55, 0.62, 0.72];
         /// 2D drift direction in world XZ (will be normalised by the
         /// shader). Need not be unit length here.
         pub const WIND_DIR: [f32; 2] = [1.0, 0.3];
-        /// Half-extent (m) of the cloud-deck plane mesh. Chosen well past
-        /// any reasonable `fog_visibility` so the plane edge is never
-        /// inside the visible fog band at any pitch.
+        /// Half-extent (m) of the cloud-deck plane mesh at least; it widens
+        /// for a deck high over the camera (`EDGE_ZENITH_TAN`).
         pub const PLANE_HALF_EXTENT: f32 = 4_000.0;
+        /// How low toward the horizon the deck plane's edge is held, seen
+        /// from the camera: the tangent of its angle from the zenith, 12.7
+        /// for 4.5 degrees above the horizon, where the sky's haze has taken
+        /// most of a cloud. `clouds::track_cloud_layer_to_camera` widens the
+        /// plane past `PLANE_HALF_EXTENT` to keep it there.
+        pub const EDGE_ZENITH_TAN: f32 = 12.7;
+
+        /// The field value a cloud's edge sits on for each twentieth of
+        /// `cloud_cover` from 0.05 to 0.95: the field's `(1 - cover)`
+        /// quantile, so the clouds cover that share of the sky (#1673).
+        /// Measured on a float32 numpy port of `cloud_common.wgsl` over
+        /// 4,000,000 points 160 km across;
+        /// `clouds::tests::a_cover_covers_its_share_of_the_sky` re-measures
+        /// it on a Rust port. `clouds::threshold` adds the two ends, a
+        /// softness clear of the field's range (`FIELD_MAX`, `FIELD_MIN`),
+        /// so no cover is a clear sky and a full one a whole one.
+        ///
+        /// Before #1673 the cut was `1 - cover`, and the field's values
+        /// bunch around one half (its standard deviation is 0.128), so a
+        /// cover of 0.3 drew clouds over 6% of the sky, 0.6 over 77% and
+        /// 0.75 over 98% - while the deck was a pale veil, nobody saw it.
+        pub const FIELD_THRESHOLDS: [f32; 19] = [
+            0.7096, 0.6680, 0.6382, 0.6134, 0.5916, 0.5714, 0.5525, 0.5344, 0.5167, 0.4992, 0.4818,
+            0.4642, 0.4461, 0.4272, 0.4072, 0.3854, 0.3607, 0.3311, 0.2897,
+        ];
+        /// Bounds on the field: the highest and lowest it was measured to
+        /// reach, 0.9355 and 0.0688 over the 4,000,000 points, rounded out.
+        /// A deck whose clouds begin above the one has none, and casts no
+        /// shadow; one whose clouds begin below the other is cloud whole.
+        pub const FIELD_MAX: f32 = 0.94;
+        pub const FIELD_MIN: f32 = 0.06;
+
+        /// The share of the direct sun a cloud of full density takes off
+        /// the ground below it (#1673): all of it, as a real cloud's
+        /// shadow does, so a cloud's shade is its density - what the eye
+        /// sees through it is what the sun gets through. Anything less
+        /// hardly reads once the sky's light and the tonemapper have had
+        /// it: taking half the sun off sunlit paving darkened it on screen
+        /// by 15% (measured on the #1673 sheets).
+        pub const SHADOW_STRENGTH: f32 = 1.0;
+        /// From this cover up the clouds' shade weakens, to none under a
+        /// whole overcast. An overcast lets no sun through anywhere, so its
+        /// shade has no edges to drift: it would only darken everything
+        /// near the camera, where the shadow cascades reach, against the
+        /// sunlit ground past them - and a seeded room's key light is
+        /// already dimmed for its cover (`sun_illuminance` falls 45% from
+        /// clear to overcast), so the overcast's dimness is in it already.
+        pub const OVERCAST_FROM: f32 = 0.6;
+        /// A shadow reach within this share of the one the deck was given
+        /// is not a change (`clouds::follow_shadow_reach`): the shade's
+        /// fade spans nearly half the reach, so a 5% lag never shows, and
+        /// a zoom does not rebuild the material every frame.
+        pub const REACH_RETUNE_SHARE: f32 = 0.05;
     }
 }
 

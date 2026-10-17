@@ -607,8 +607,9 @@ fn spawn_orbit_camera(mut commands: Commands) {
         // MSAA, or FXAA on the WebGL2 build - see [`EdgeSmoothing`].
         EdgeSmoothing::BUILD.components(),
         // Bevy's default perspective far plane is 1000 m, which clips the
-        // cloud-deck plane (at altitude ~250 m, half-extent 4 km) before
-        // the shader's horizon-fade has a chance to dissolve it. The
+        // cloud-deck plane (at altitude ~250 m, half-extent 4 km and more,
+        // #1673) before the shader's horizon-fade has a chance to dissolve
+        // it. The
         // projection is infinite reverse-Z, so the far plane bounds
         // frustum culling only and costs no depth precision; see
         // `FAR_PLANE_M`.

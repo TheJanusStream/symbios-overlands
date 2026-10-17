@@ -79,11 +79,11 @@ pub(crate) fn apply_environment_state(
     let env = &record.environment;
 
     let Fp3(sun_c) = env.sun_color;
-    // Snapshot the runtime sun direction (unit vector *toward* the sun) so
-    // the cloud shader can shade the underside without a real lighting
-    // pass. The directional light's forward axis points from the light
-    // toward its target, so the unit toward-sun vector is `-forward()`.
-    // Falls back to world Y when the light's transform is degenerate.
+    // Snapshot the runtime sun direction (unit vector *toward* the sun) for
+    // the water's sun glitter. The directional light's forward axis points
+    // from the light toward its target, so the unit toward-sun vector is
+    // `-forward()`. Falls back to world Y when the light's transform is
+    // degenerate. (The cloud deck reads the light itself since #1673.)
     let mut sun_dir = Vec3::Y;
     let Fp3(sp) = env.sun_position;
     let sun_pos = Vec3::new(sp[0], sp[1], sp[2]);
@@ -151,24 +151,19 @@ pub(crate) fn apply_environment_state(
 
     // Cloud-deck. Both the plane's altitude and the shader uniforms are
     // patched together so a slider drag in the editor's "Clouds" tab
-    // re-positions and re-lights the deck in the same change tick.
+    // re-positions and re-lights the deck in the same change tick. The
+    // shade's reach is the sun's cascades', which the record does not hold
+    // (`clouds::follow_shadow_reach` keeps it), so it is carried over.
     let Fp3(cloud_c) = env.cloud_color;
-    let Fp3(cloud_sh) = env.cloud_shadow_color;
     let crate::pds::Fp2(wind) = env.cloud_wind_dir;
+    let clouds = crate::clouds::cloud_uniforms(env, &sky);
     for (material_handle, mut transform) in cloud_layer.iter_mut() {
         transform.translation.y = env.cloud_height.0;
         if let Some(mut mat) = cloud_materials.get_mut(&material_handle.0) {
-            mat.extension.uniforms.color = Vec4::new(cloud_c[0], cloud_c[1], cloud_c[2], 1.0);
-            mat.extension.uniforms.shadow_color =
-                Vec4::new(cloud_sh[0], cloud_sh[1], cloud_sh[2], 1.0);
-            mat.extension.uniforms.fog_color = Vec4::new(fog_c[0], fog_c[1], fog_c[2], fog_c[3]);
-            mat.extension.uniforms.sun_dir = Vec4::new(sun_dir.x, sun_dir.y, sun_dir.z, 0.0);
-            mat.extension.uniforms.wind_dir = Vec2::new(wind[0], wind[1]);
-            mat.extension.uniforms.cover = env.cloud_cover.0;
-            mat.extension.uniforms.density = env.cloud_density.0;
-            mat.extension.uniforms.softness = env.cloud_softness.0;
-            mat.extension.uniforms.speed = env.cloud_speed.0;
-            mat.extension.uniforms.scale = env.cloud_scale.0;
+            mat.extension.uniforms = crate::clouds::CloudUniforms {
+                shadow_reach: mat.extension.uniforms.shadow_reach,
+                ..clouds
+            };
             // Mirror the underlying StandardMaterial's base colour to the
             // sunlit tint so any non-shader fallback path (e.g. an asset
             // inspector) still shows a recognisable cloud colour.

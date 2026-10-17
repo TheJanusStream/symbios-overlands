@@ -903,6 +903,8 @@ pub(crate) fn build_client_app(app: &mut App, boot: boot_params::BootParams, she
             (
                 clouds::track_cloud_layer_to_camera,
                 clouds::hide_cloud_deck,
+                clouds::follow_shadow_reach,
+                clouds::cast_cloud_shadows,
                 sky::track_skybox_to_camera,
                 sky_light::update_sky_light,
             ),
@@ -912,8 +914,9 @@ pub(crate) fn build_client_app(app: &mut App, boot: boot_params::BootParams, she
 }
 
 /// Register the game's atmosphere - sun + cascaded shadows, global ambient,
-/// the [`SkyBox`] cuboid and the [`CloudLayer`] deck, and the two systems
-/// that keep sky and deck pinned to the world camera - outside the full app.
+/// the [`SkyBox`] cuboid and the [`CloudLayer`] deck, the systems that keep
+/// sky and deck on the world camera, the deck's shade in step with the
+/// sun's cascades (#1673) and the sky light - outside the full app.
 ///
 /// The headless render tool's `--world` mode calls this so a world sheet
 /// shows the room's sky the way the game does; `apply_environment_state`
@@ -938,6 +941,8 @@ pub(crate) fn register_headless_atmosphere(app: &mut App) {
             (
                 clouds::track_cloud_layer_to_camera,
                 clouds::hide_cloud_deck,
+                clouds::follow_shadow_reach,
+                clouds::cast_cloud_shadows,
                 sky::track_skybox_to_camera,
                 sky_light::update_sky_light,
             ),
@@ -990,28 +995,22 @@ fn setup_lighting(
         SkyBox,
     ));
 
-    // Cloud-deck - single horizontal `Plane3d` rendered through a custom
-    // `MaterialExtension` over `StandardMaterial`. The mesh is large enough
-    // (PLANE_HALF_EXTENT, default 4 km) that the plane edge sits well past
-    // any reasonable `fog_visibility`, so the shader's horizon fade is the
-    // only thing the camera ever sees at the plane boundary. Uniforms are
-    // initialised from `Environment::default()` and re-patched by
-    // `world_builder::compile::apply_environment_state` whenever the active
-    // `RoomRecord` changes - same retint pattern as the `SkyBox` cuboid.
-    let cc = config::lighting::clouds::COLOR;
-    let csh = config::lighting::clouds::SHADOW_COLOR;
-    let fc = config::camera::fog::COLOR;
-    // Initial sun direction matches the directional light spawned above:
-    // the light looks from `LIGHT_POS` toward the origin, so the unit
-    // vector *toward* the sun is `normalize(LIGHT_POS)`. The world
-    // compiler will refresh this each change tick from the live transform.
-    let sun_v = Vec3::from_array(config::lighting::LIGHT_POS).normalize_or(Vec3::Y);
+    // The cloud deck (#1673) - one horizontal plane drawn through
+    // `clouds::CloudMaterial`, which `clouds::track_cloud_layer_to_camera`
+    // keeps centred on the camera and wide enough that its edge stays down
+    // at the horizon. Its uniforms start from `Environment::default()` and
+    // are re-patched by `world_builder::compile::apply_environment_state`
+    // whenever the active `RoomRecord` changes - the retint the `SkyBox`
+    // gets. It casts its shade into the sun's cascades, and
+    // `clouds::cast_cloud_shadows` takes it out of that pass whenever it has
+    // no shade to cast.
+    let env = pds::Environment::default();
+    let [r, g, b] = env.cloud_color.0;
     let cloud_mat = cloud_materials.add(clouds::CloudMaterial {
         base: StandardMaterial {
-            // The fragment shader replaces all colour math, so the base
-            // colour is only used by fallback paths (e.g. shadow caster,
-            // never wired here because shadows + prepass are disabled).
-            base_color: Color::srgba(cc[0], cc[1], cc[2], 1.0),
+            // The fragment shaders replace all colour math, so the base
+            // colour only shows to tools that read the material.
+            base_color: Color::srgb(r, g, b),
             unlit: true,
             // Cull neither side - the underside is what the player sees
             // from below the deck, the topside is what they'd see if they
@@ -1021,26 +1020,16 @@ fn setup_lighting(
             ..default()
         },
         extension: clouds::CloudExtension {
-            uniforms: clouds::CloudUniforms {
-                color: Vec4::new(cc[0], cc[1], cc[2], 1.0),
-                shadow_color: Vec4::new(csh[0], csh[1], csh[2], 1.0),
-                fog_color: Vec4::new(fc[0], fc[1], fc[2], fc[3]),
-                sun_dir: Vec4::new(sun_v.x, sun_v.y, sun_v.z, 0.0),
-                wind_dir: Vec2::from_array(config::lighting::clouds::WIND_DIR),
-                cover: config::lighting::clouds::COVER,
-                density: config::lighting::clouds::DENSITY,
-                softness: config::lighting::clouds::SOFTNESS,
-                speed: config::lighting::clouds::SPEED,
-                scale: config::lighting::clouds::SCALE,
-            },
+            uniforms: clouds::cloud_uniforms(&env, &sky::sky_uniforms(&env)),
         },
     });
     let half = config::lighting::clouds::PLANE_HALF_EXTENT;
     commands.spawn((
         Mesh3d(meshes.add(Plane3d::default().mesh().size(half * 2.0, half * 2.0))),
         MeshMaterial3d(cloud_mat),
-        Transform::from_xyz(0.0, config::lighting::clouds::HEIGHT, 0.0),
-        NotShadowCaster,
+        Transform::from_xyz(0.0, env.cloud_height.0, 0.0),
+        // The ground's height under the camera, for the shadow pass.
+        bevy::mesh::MeshTag(0),
         CloudLayer,
     ));
 }

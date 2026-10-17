@@ -21,7 +21,9 @@
 
 #import bevy_pbr::{
     mesh_view_bindings::{view, lights, globals},
-    forward_io::VertexOutput,
+    forward_io::{Vertex, VertexOutput},
+    mesh_functions::{get_world_from_local, mesh_position_local_to_world},
+    view_transformations::position_world_to_clip,
 }
 #import "shaders/sky_common.wgsl"::sky_toward
 
@@ -107,6 +109,26 @@ fn stars(dir: vec3<f32>, px: f32) -> vec3<f32> {
     let twinkle = 0.75 + 0.25 * sin(globals.time * (1.3 + 2.7 * h.z) + 40.0 * h.y);
     let tint = mix(vec3<f32>(0.78, 0.85, 1.0), vec3<f32>(1.0, 0.90, 0.76), h.z);
     return tint * (present * bright * twinkle * STAR_GAIN * exp(-(d * d) / (size * size)));
+}
+
+// The cuboid's vertices as Bevy's own mesh shader places them, but at the
+// far plane: the sky is the backdrop, infinitely far, while its faces stand
+// 2 km out. At their own depth they hid everything past them - the cloud
+// deck reaches kilometres further (#1673). Reverse-Z puts the far plane at
+// depth 0, which the depth buffer is cleared to, so the sky draws only where
+// nothing else does, whichever is drawn first; Bevy's own skybox does the
+// same. Only `world_position` reaches the fragment shader.
+@vertex
+fn vertex(vertex: Vertex) -> VertexOutput {
+    var out: VertexOutput;
+    let world_from_local = get_world_from_local(vertex.instance_index);
+    out.world_position = mesh_position_local_to_world(world_from_local, vec4<f32>(vertex.position, 1.0));
+    out.position = position_world_to_clip(out.world_position.xyz);
+    out.position.z = 0.0;
+#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
+    out.instance_index = vertex.instance_index;
+#endif
+    return out;
 }
 
 // The disc's mask: 1 inside the angular radius, 0 outside, anti-aliased

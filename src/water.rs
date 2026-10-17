@@ -49,9 +49,8 @@ pub struct WaterUniforms {
     /// specular sun-glitter lobe. Initialised from the room's
     /// `Environment::sun_position` at spawn and CPU-patched by
     /// `world_builder::compile::apply_environment_state` on every
-    /// environment change - the same pattern as
-    /// [`crate::clouds::CloudUniforms::sun_dir`]. A zero vector makes the
-    /// shader fall back to its legacy up-biased approximation.
+    /// environment change. A zero vector makes the shader fall back to its
+    /// legacy up-biased approximation.
     pub sun_dir: Vec4,
     /// Global: the sky the water reflects (#1672) - the sky shader's own
     /// uniforms, [`crate::sky::SkyUniforms`]: the colour overhead, linear

@@ -71,9 +71,11 @@ pub struct Environment {
 
     // ---- Cloud-deck (procedural FBM layer; see `crate::clouds`) -----------
     /// Fraction of sky covered by clouds. `0` = empty blue, `1` = totally
-    /// overcast.
+    /// overcast (since #1673 the share of the sky drawn; before it the cut
+    /// covered far less at low covers and all of it from about 0.75).
     pub cloud_cover: Fp,
-    /// Opacity multiplier for the clouds that survive the cover threshold.
+    /// Opacity of the clouds that survive the cover threshold, and how much
+    /// of the sun their shade takes off the ground (#1673).
     pub cloud_density: Fp,
     /// Edge-softness band around the cover threshold. Larger ⇒ wispier.
     pub cloud_softness: Fp,
@@ -86,10 +88,12 @@ pub struct Environment {
     /// 2D wind direction in world XZ. Need not be unit length - the shader
     /// normalises a small epsilon-padded copy.
     pub cloud_wind_dir: Fp2,
-    /// sRGB tint for the sunlit top of the cloud layer.
+    /// sRGB colour of cloud the sun lights through.
     pub cloud_color: Fp3,
-    /// sRGB tint for the underside / shadowed regions, mixed with
-    /// [`Self::cloud_color`] by the dot of the sun direction with world Y.
+    /// sRGB colour of a cloud's thick underside, in the shade of the cloud
+    /// between it and the sun; a cloud leans from [`Self::cloud_color`]
+    /// toward it the thicker the cloud the light crossed, and the lower the
+    /// sun (#1673).
     pub cloud_shadow_color: Fp3,
 
     // ---- Colour grading (#1669; see `crate::config::lighting::grading`) ----

@@ -212,8 +212,15 @@ pub(super) fn draw_environment_tab(
     egui::CollapsingHeader::new("Clouds")
         .default_open(false)
         .show(ui, |ui| {
-            fp_slider(ui, "Cover", &mut env.cloud_cover, 0.0, 1.0, dirty);
-            fp_slider(ui, "Density", &mut env.cloud_density, 0.0, 1.0, dirty);
+            fp_slider(ui, "Cover", &mut env.cloud_cover, 0.0, 1.0, dirty).on_hover_text(
+                "The share of the sky the clouds cover: 0.3 is scattered cloud, 0.75 \
+                 broken cloud with sunny gaps, 1 a whole overcast. The heavier the \
+                 overcast, the fainter the shade it casts - none at all at 1.",
+            );
+            fp_slider(ui, "Density", &mut env.cloud_density, 0.0, 1.0, dirty).on_hover_text(
+                "How opaque each cloud is, and so how much of the sun its shade \
+                 takes off the ground below it.",
+            );
             fp_slider(
                 ui,
                 "Edge softness",
@@ -246,8 +253,12 @@ pub(super) fn draw_environment_tab(
                 2_000.0,
                 dirty,
             );
-            color_picker(ui, "Sunlit colour", &mut env.cloud_color, dirty);
-            color_picker(ui, "Shadow colour", &mut env.cloud_shadow_color, dirty);
+            color_picker(ui, "Sunlit colour", &mut env.cloud_color, dirty)
+                .on_hover_text("The colour of cloud the sun lights through.");
+            color_picker(ui, "Shadow colour", &mut env.cloud_shadow_color, dirty).on_hover_text(
+                "The colour of a cloud's thick underside, in the shade of the \
+                     cloud above it - more of it under a low sun.",
+            );
 
             ui.label(
                 egui::RichText::new("Wind direction (XZ)")
@@ -281,8 +292,9 @@ pub(super) fn draw_environment_tab(
 
             ui.label(
                 egui::RichText::new(
-                    "Cloud-deck dissolves into the distance-fog colour at the horizon, \
-                     so adjust Distance Fog › Visibility for a tighter or wider band.",
+                    "The clouds take the sun's light and colour and haze into the \
+                     horizon with the sky. Their shade drifts over the ground out to \
+                     where the sun's shadows reach.",
                 )
                 .small()
                 .color(crate::ui::theme::current(ui.ctx()).text_weak),
@@ -308,7 +320,7 @@ pub(super) fn draw_environment_tab(
             )
             .on_hover_text(
                 "Roughly how far you can see before the fog closes in. Lower is \
-                 hazier; the cloud deck dissolves at this distance too.",
+                 hazier, and the sky and its clouds haze into the horizon sooner.",
             );
             color_picker_rgba(ui, "Fog colour", &mut env.fog_color, dirty).on_hover_text(
                 "The colour distant things fade towards, and the sky's at the \

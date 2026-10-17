@@ -341,11 +341,12 @@ generation cores shared with the wasm Web Worker.
   [`src/splat.rs`](../src/splat.rs), [`src/water.rs`](../src/water.rs),
   [`src/clouds.rs`](../src/clouds.rs), [`src/wind.rs`](../src/wind.rs) -
   heightmap + Avian heightfield collider, four-layer splat material extension,
-  Gerstner-wave water shader, FBM cloud-deck shader, the vegetation wind-sway
-  material extension (leaf buckets and ground-cover cards only, attached a
-  frame after spawn so it inherits the asynchronously-baked procedural
-  textures, and batched per source material so a 500-card scatter costs one
-  wind material), and the road layer: [`src/urban/`](../src/urban/)
+  Gerstner-wave water shader, the lit cloud deck and the shade it casts, the
+  vegetation wind-sway material extension (leaf buckets and ground-cover
+  cards only, attached a frame after spawn so it inherits the
+  asynchronously-baked procedural textures, and batched per source material
+  so a 500-card scatter costs one wind material), and the road layer:
+  [`src/urban/`](../src/urban/)
   meshes a `symbios-tensor` road topology into a ribbon draped over the terrain
   (graph sanitation → chain extraction → junction truncation → sharp bends
   rounded into arcs → network levelling → ribbon extrusion, any fold collapsed,

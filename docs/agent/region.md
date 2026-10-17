@@ -212,6 +212,21 @@ and grass tufts on the open tops broke up the rest.
   reflects the sky. `ambient_brightness` is still the level - what an
   upward face receives - so a blue sky cools the shade and a dusty one
   warms it, and walls and undersides are a little darker than the ground.
+- **The clouds are lit and cast shade** (#1673): one layer at
+  `cloud_height`. `cloud_cover` is the share of the sky they cover - 0.3
+  scattered, 0.75 broken with sunny gaps, 1 a whole overcast (before #1673
+  the same numbers drew an almost empty sky at 0.3 and a solid one from
+  about 0.75) - `cloud_density` how opaque each cloud is, `cloud_softness`
+  how feathered its edge. They take the room's own light: the sun lights
+  them through in `cloud_color`, their thick undersides fall to
+  `cloud_shadow_color` (more so under a low sun), thin cloud toward the sun
+  glows, a warm sun warms them and a night leaves them dark. Their shade
+  drifts on `cloud_wind_dir` at `cloud_speed` over everything under them, as
+  dark as they are dense, inside the sun's shadow reach: at the play zoom
+  whole out to about 70 m from the camera and gone by 160 m (the reach is
+  200 m there, and grows with the zoom), the ground past it in sun. An
+  overcast casts less, none at full cover. A shot that must read the land
+  wants `cloud_cover` 0, or the camera in a gap.
 - **The camera's colour grade** is three fields (#1669): `grade_temperature`
   (warmer `+`, cooler `-`, within 0.06; 0.03 is already clear), `grade_tint`
   (magenta `+`, green `-`, within 0.02; 0.005 is already strong) and

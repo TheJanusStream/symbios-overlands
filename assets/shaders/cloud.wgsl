@@ -1,189 +1,149 @@
-// Fragment shader for the procedural cloud deck.
+// Fragment shader for the cloud deck (#1673).
 //
-// What this does:
-//   1. Treats every fragment of the cloud-deck plane as a sample point on a
-//      flat sheet of clouds at altitude `cloud_height`. The mesh IS the
-//      sampling surface, so the shader doesn't have to ray-march anything;
-//      `in.world_position.xz` is already the cloud-plane intersection.
-//   2. Builds a domain-warped 5-octave FBM noise field over `world_xz / scale`
-//      with a `time * speed * wind_dir / scale` scroll term. Domain-warping
-//      one FBM by another produces the bulgy, non-grid-aligned silhouettes
-//      that distinguish cumulus shapes from a plain blobby noise.
-//   3. Threshold-shapes the noise by `cover` and feathers the edge by
-//      `softness` to produce the cloud `mass`. Multiplied by `density` for
-//      the final alpha.
-//   4. Mixes `shadow_color` toward `color` by `clamp(sun_dir.y, 0, 1)` -
-//      sun directly overhead lights the underside; sun near horizon leaves
-//      the underside shadowed. Cheap directional fake-lighting suitable for
-//      a daytime sky without a real lighting pass.
-//   5. Fades final RGB toward `fog_color` and final alpha toward zero as
-//      horizontal distance from the camera grows past the room's
-//      `fog_visibility`. This is what dissolves the cloud-deck plane edge
-//      into the existing fog band at the horizon - without it the plane's
-//      circular boundary would show as a hard ring.
+// What this does, per fragment of the deck plane:
+//   1. Reads how much cloud stands over the fragment's world XZ - the
+//      shared field (`cloud_common::cloud_mass`), the same one the deck's
+//      shadow reads - times the room's density: the cloud's thickness, and
+//      its opacity seen from straight below. Seen at a slant the eye looks
+//      through more of the layer, so a cloud near the horizon is more
+//      opaque than one overhead, as a real layer is.
+//   2. Lights it with the scene's own sun and sky. The sunlight reaching a
+//      cloud's base has crossed the cloud on its way down, so the field is
+//      read a second time a little toward the sun: where that is thin the
+//      cloud is lit through and takes the room's cloud colour, where it is
+//      thick the cloud is in its own shade and takes the shadow colour -
+//      bright sunward edges, dark undersides, and long shading under a low
+//      sun. Thin cloud toward the sun glows with the light it scatters
+//      forward, the silver lining. The light's colour and strength are the
+//      record's, so a warm sun warms the clouds and a night's dim key light
+//      leaves them dark. From above the deck the tops are lit.
+//   3. Hazes it toward the horizon exactly as the sky behind it is hazed
+//      (`sky_common::sky_toward`), so clouds sink into the horizon with the
+//      sky and leave no seam against it.
+//   4. Fades it out near the plane's edge, which `track_cloud_layer_to_camera`
+//      keeps low toward the horizon, deep in that haze.
 //
-// All tunable values flow through the `CloudUniforms` block bound at slot
-// 100. Authored on `pds::Environment` and patched by the world compiler.
+// The colours arrive linear (`clouds::cloud_uniforms`). WebGL2-safe:
+// uniforms and arithmetic only.
 
 #import bevy_pbr::{
-    mesh_view_bindings::{globals, view},
+    mesh_view_bindings::{globals, view, lights},
     forward_io::{VertexOutput, FragmentOutput},
 }
+#import "shaders/sky_common.wgsl"::sky_toward
+#import "shaders/cloud_common.wgsl"::{CloudUniforms, cloud_mass, FULL_OCTAVES}
 
-struct CloudUniforms {
-    color: vec4<f32>,
-    shadow_color: vec4<f32>,
-    fog_color: vec4<f32>,
-    sun_dir: vec4<f32>,
-    wind_dir: vec2<f32>,
-    cover: f32,
-    density: f32,
-    softness: f32,
-    speed: f32,
-    scale: f32,
-};
+@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> cloud: CloudUniforms;
 
-@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> cloud_uniforms: CloudUniforms;
-
-// David Hoskins' sine-free hash. Same construction as the water shader -
-// stays numerically well-conditioned at the high integer-coordinate
-// magnitudes the cloud sampler reaches when `world_xz / scale` is sampled
-// over a 4 km plane (`floor(p)` can run into the hundreds).
-fn hash21(p: vec2<f32>) -> f32 {
-    var p3 = fract(vec3<f32>(p.x, p.y, p.x) * 0.1031);
-    p3 = p3 + dot(p3, p3.yzx + 33.33);
-    return fract((p3.x + p3.y) * p3.z);
-}
-
-fn value_noise(p: vec2<f32>) -> f32 {
-    let i = floor(p);
-    let f = fract(p);
-    let u = f * f * (3.0 - 2.0 * f);
-    let a = hash21(i);
-    let b = hash21(i + vec2<f32>(1.0, 0.0));
-    let c = hash21(i + vec2<f32>(0.0, 1.0));
-    let d = hash21(i + vec2<f32>(1.0, 1.0));
-    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
-}
-
-// 5-octave FBM with a small per-octave rotation to break the axis-aligned
-// grid that an unrotated 2× lacunarity FBM otherwise leaves visible at low
-// cover values. Total weight is normalised so the output stays in `[0, 1]`
-// regardless of octave count.
-fn fbm(p_in: vec2<f32>) -> f32 {
-    var p = p_in;
-    var amp = 0.5;
-    var sum = 0.0;
-    var norm = 0.0;
-    // Rotation matrix for ~30° per octave - irrational angle to avoid the
-    // octaves locking into a common grid alignment after a few iterations.
-    let rc = 0.866025;
-    let rs = 0.5;
-    let rot = mat2x2<f32>(rc, -rs, rs, rc);
-    for (var i = 0; i < 5; i = i + 1) {
-        sum = sum + amp * value_noise(p);
-        norm = norm + amp;
-        p = rot * (p * 2.03) + vec2<f32>(13.7, 7.3);
-        amp = amp * 0.5;
-    }
-    return sum / max(norm, 1.0e-5);
-}
+// The second read toward the sun - how far, in noise units per unit of the
+// sun's horizontal run over its height (capped as the sun nears the
+// horizon), and how deep: its detail never shows, only whether a cloud
+// stands there.
+const SUNWARD_REACH: f32 = 0.18;
+const SUNWARD_MAX_RUN: f32 = 3.0;
+const SUNWARD_WARP_OCTAVES: i32 = 2;
+const SUNWARD_OCTAVES: i32 = 3;
+// The optical depth of a full cloud along the sunlight's path, by which
+// thickness the base falls into its shadow colour; and the lowest sun the
+// path length is taken at.
+const SHADE_DEPTH: f32 = 1.0;
+const MIN_SUN_HEIGHT: f32 = 0.15;
+// Light a cloud gets through the thickest shade - scattered through it
+// many times - as a share of the lit colour's lean, so a deck under a low
+// sun stays a dim grey rather than going to its shadow colour whole.
+const LIT_FLOOR: f32 = 0.2;
+// Moonlight is white whatever the key light's tint, as the sky's moon disc
+// is (`sky.wgsl`'s MOON_TINT): under the moon (`sky_look.y`) the clouds take
+// the light's brightness in this colour.
+const MOON_TINT: vec3<f32> = vec3<f32>(0.86, 0.90, 1.0);
+// The share of the sun's light (its colour times illuminance times the
+// exposure) a lit cloud returns per unit of the sun's height, and the share
+// of the sky's light overhead every cloud takes.
+const SUN_DIFFUSE: f32 = 0.20;
+const SKY_DIFFUSE: f32 = 1.0;
+// The tops, seen from above the deck, take the sun whole.
+const TOP_DIFFUSE: f32 = 0.25;
+// The silver lining: the forward scatter's strength and how tightly it
+// hugs the sun.
+const SILVER_GAIN: f32 = 0.35;
+const SILVER_POWER: f32 = 8.0;
+// The steepest view the layer's slant is taken at (sine of the elevation).
+const MIN_VIEW_HEIGHT: f32 = 0.03;
+// Where the fade at the plane's edge runs, as shares of its half-width.
+const EDGE_FADE_FROM: f32 = 0.6;
+const EDGE_FADE_TO: f32 = 0.95;
 
 @fragment
 fn fragment(in: VertexOutput) -> FragmentOutput {
     var out: FragmentOutput;
 
-    let scale = max(cloud_uniforms.scale, 1.0e-3);
-    let world_xz = in.world_position.xz;
-    let cam_xz = view.world_position.xz;
-
-    // Wind drift. Normalise an epsilon-padded copy so a user-zeroed wind
-    // direction (sanitiser already guards the record, but defence in depth)
-    // can never propagate NaN through the scroll term.
-    let wind_in = cloud_uniforms.wind_dir + vec2<f32>(1.0e-4, 0.0);
-    let wind = normalize(wind_in);
-    let scroll = wind * (cloud_uniforms.speed * globals.time / scale);
-
-    let uv = world_xz / scale + scroll;
-
-    // Domain-warp the sampling field by a low-frequency FBM so the cloud
-    // outlines bulge instead of forming the smooth puffballs a plain FBM
-    // produces. The warp amplitude is in UV units; ~0.7 gives noticeable
-    // distortion without losing the original FBM's large-scale coherence.
-    let warp = vec2<f32>(
-        fbm(uv * 0.6),
-        fbm(uv * 0.6 + vec2<f32>(31.0, 17.0)),
-    );
-    let n = fbm(uv + warp * 0.7);
-
-    // Threshold by cover. cover = 0 → empty sky (high threshold passes
-    // nothing); cover = 1 → solid overcast (low threshold passes everything).
-    // softness widens the smoothstep band so cloud edges feather instead of
-    // popping in/out as the noise field crosses the threshold.
-    let thresh = mix(1.0, 0.0, clamp(cloud_uniforms.cover, 0.0, 1.0));
-    let soft = max(cloud_uniforms.softness, 1.0e-3);
-    let mass = smoothstep(thresh - soft, thresh + soft, n);
-    let alpha_raw = clamp(mass * cloud_uniforms.density, 0.0, 1.0);
-
-    // Early out for fragments that wouldn't contribute anything visible -
-    // the alpha-blend pipeline still rasterises and blends them, but
-    // returning a fully transparent black saves any further math and keeps
-    // the resulting framebuffer composition clean.
-    if alpha_raw < 1.0e-3 {
-        out.color = vec4<f32>(0.0, 0.0, 0.0, 0.0);
-        return out;
-    }
-
-    // Cheap directional shading: when the sun is high (sun_dir.y near 1)
-    // the underside of the deck reads bright; when low (near horizon) the
-    // underside falls toward `shadow_color`, suggesting a low-angle sunset
-    // mood without a real lighting pass.
-    let sun_lit = clamp(cloud_uniforms.sun_dir.y, 0.0, 1.0);
-    let lit_tint = mix(
-        cloud_uniforms.shadow_color.rgb,
-        cloud_uniforms.color.rgb,
-        sun_lit,
-    );
-
-    // Horizon fade - angle-based, not distance-based.
-    //
-    // Earlier draft tied the fade band to `fog_visibility`, which produced
-    // two bugs: (a) any user who raised the visibility slider past the
-    // camera's far plane saw the cloud-deck plane clipped at the slant
-    // distance corresponding to far-clip, leaving a sharp ring; (b) the
-    // band size was decoupled from the cloud altitude, so high decks fed
-    // a too-tight band and low decks a too-wide one.
-    //
-    // Switching to `tan(angle_from_zenith) = horiz / vertical` makes the
-    // fade band a function of the deck's altitude relative to the
-    // camera. Same band is "30°–80° from zenith" for every altitude:
-    // clouds directly overhead are crisp, clouds near the horizon dissolve
-    // smoothly into `fog_color`. Independent of `fog_visibility`, so the
-    // distance-fog slider can vary without ever introducing a ring.
-    // `abs()` rather than a one-sided clamp: above the deck the camera looks
-    // *down* at the clouds, so `world.y - view.y` is negative - clamping the
-    // signed difference at 1.0 would force `zenith_tan` to skyrocket with even
-    // small horizontal distances and dissolve the deck into fog directly
-    // beneath an airship. Using the magnitude makes the fade band symmetric
-    // for above- and below-deck observers; the floor of 1.0 still avoids a
-    // divide-by-zero when the camera is exactly co-planar with the deck.
-    let horiz = distance(world_xz, cam_xz);
-    let vertical = max(abs(in.world_position.y - view.world_position.y), 1.0);
-    let zenith_tan = horiz / vertical;
-    // tan(30°) ≈ 0.577, tan(80°) ≈ 5.671. The band width is asymmetric on
-    // purpose - the eye reads "near-horizontal" cloud as the entire fade
-    // region, so most of the smoothstep budget lives in the upper portion.
-    let fog_blend = clamp(
-        (zenith_tan - 0.577) / (5.671 - 0.577),
+    let p = in.world_position.xyz;
+    let thickness = clamp(
+        cloud_mass(p.xz, cloud, globals.time, FULL_OCTAVES, FULL_OCTAVES) * cloud.density,
         0.0,
         1.0,
     );
-    let final_rgb = mix(lit_tint, cloud_uniforms.fog_color.rgb, fog_blend);
-    let final_alpha = alpha_raw * (1.0 - fog_blend);
+    // A fragment with no cloud adds nothing: the blend leaves the sky.
+    if thickness < 1.0e-3 {
+        out.color = vec4<f32>(0.0);
+        return out;
+    }
 
-    // Straight (non-premultiplied) alpha - Bevy's `AlphaMode::Blend` uses
-    // `src.rgb * src.a + dst.rgb * (1 - src.a)` which expects un-premultiplied
-    // colours.
-    out.color = vec4<f32>(final_rgb, final_alpha);
+    let v = normalize(p - view.world_position);
+    let below = view.world_position.y < p.y;
+
+    // Seen at a slant, the eye crosses the layer `1 / sin` times as deep.
+    let slant = 1.0 / max(abs(v.y), MIN_VIEW_HEIGHT);
+    let opacity = 1.0 - pow(1.0 - min(thickness, 0.999), slant);
+
+    // The sky's light overhead, hazed as the sky shows it.
+    let sky = sky_toward(vec3<f32>(0.0, 1.0, 0.0), cloud.sky_zenith.rgb, cloud.sky_look);
+    var body = cloud.shadow_color.rgb * sky * SKY_DIFFUSE;
+
+    if lights.n_directional_lights > 0u {
+        let light = lights.directional_lights[0];
+        let to_sun = light.direction_to_light;
+        // The light's colour already carries its illuminance; times the
+        // exposure it is in step with everything else the sun lights.
+        let key = light.color.rgb * view.exposure;
+        let moon_light = MOON_TINT * dot(key, vec3<f32>(0.2126, 0.7152, 0.0722));
+        let sun = mix(key, moon_light, cloud.sky_look.y);
+        // No light from a sun below the horizon.
+        let up = smoothstep(-0.05, 0.05, to_sun.y);
+        let height = max(to_sun.y, MIN_SUN_HEIGHT);
+
+        if below {
+            // The cloud the sunlight crossed on its way to this one's base.
+            let run = min(length(to_sun.xz) / height, SUNWARD_MAX_RUN);
+            let sunward_xz = p.xz + normalize(to_sun.xz + vec2<f32>(1.0e-5, 0.0))
+                * (run * SUNWARD_REACH * cloud.scale);
+            let sunward = clamp(
+                cloud_mass(sunward_xz, cloud, globals.time, SUNWARD_WARP_OCTAVES, SUNWARD_OCTAVES)
+                    * cloud.density,
+                0.0,
+                1.0,
+            );
+            let lit = mix(LIT_FLOOR, 1.0, exp(-SHADE_DEPTH * 0.5 * (thickness + sunward) / height));
+            let tint = mix(cloud.shadow_color.rgb, cloud.color.rgb, lit);
+            let toward = pow(max(dot(v, to_sun), 0.0), SILVER_POWER);
+            body = tint * (sun * (SUN_DIFFUSE * max(to_sun.y, 0.0) * up) + sky * SKY_DIFFUSE)
+                + cloud.color.rgb * sun * (SILVER_GAIN * toward * lit * (1.0 - thickness) * up);
+        } else {
+            body = cloud.color.rgb
+                * (sun * (TOP_DIFFUSE * max(to_sun.y, 0.0) * up) + sky * SKY_DIFFUSE);
+        }
+    }
+
+    // Hazed as the sky behind it is. From above, the haze is taken as for
+    // the same angle upward: `sky_toward` would read any downward view as
+    // the horizon whole.
+    let hazed = sky_toward(vec3<f32>(v.x, abs(v.y), v.z), body, cloud.sky_look);
+
+    // The plane's edge: its UVs run 0 to 1 across it.
+    let edge = length(in.uv - vec2<f32>(0.5)) * 2.0;
+    let fade = 1.0 - smoothstep(EDGE_FADE_FROM, EDGE_FADE_TO, edge);
+
+    // Straight (non-premultiplied) alpha: `AlphaMode::Blend`.
+    out.color = vec4<f32>(hazed, opacity * fade);
     return out;
 }

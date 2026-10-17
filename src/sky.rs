@@ -66,6 +66,11 @@ pub struct SkyMaterial {
 }
 
 impl Material for SkyMaterial {
+    /// Draws the cuboid at the far plane (#1673): see `sky.wgsl`'s `vertex`.
+    fn vertex_shader() -> ShaderRef {
+        SKY_SHADER_PATH.into()
+    }
+
     fn fragment_shader() -> ShaderRef {
         SKY_SHADER_PATH.into()
     }
@@ -80,7 +85,10 @@ impl Material for SkyMaterial {
         false
     }
 
-    /// The camera is inside the cuboid, looking at its inner faces.
+    /// The camera is inside the cuboid, looking at its inner faces. The sky
+    /// stands at the far plane (`sky.wgsl`'s `vertex`, #1673), where the
+    /// depth buffer starts, so a depth it wrote would change nothing: it
+    /// writes none.
     fn specialize(
         _pipeline: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
@@ -88,6 +96,9 @@ impl Material for SkyMaterial {
         _key: MaterialPipelineKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
         descriptor.primitive.cull_mode = None;
+        if let Some(depth) = descriptor.depth_stencil.as_mut() {
+            depth.depth_write_enabled = Some(false);
+        }
         Ok(())
     }
 }
