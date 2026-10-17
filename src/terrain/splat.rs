@@ -384,13 +384,21 @@ pub(super) fn apply_splat_textures(
             &wm_bytes,
         ));
     }
+    // Before the bytes go to the GPU for good: their most, grass tile by
+    // grass tile, which the grass bounds what can grow in a tile by (#1693).
+    let maxima = std::sync::Arc::new(crate::ground_cover::WeightMaxima::of(
+        &weight_map.data,
+        weight_map.width,
+        weight_map.height,
+        world_extent,
+    ));
     let wm_handle = images.add(weight_image(
         weight_map.width as u32,
         weight_map.height as u32,
         wm_bytes,
     ));
     // Whatever grows on the ground reads the same weights (#1674).
-    commands.insert_resource(crate::ground_cover::SplatWeights(wm_handle.clone()));
+    commands.insert_resource(crate::ground_cover::SplatWeights(wm_handle.clone(), maxima));
 
     // Damp ground near the water line (#913, WS5 step 3). Read from the
     // same drawn water line the scatter sampler's riparian band uses -

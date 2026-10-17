@@ -1354,6 +1354,25 @@ pub(crate) mod grass {
     pub const FAR_AT: f32 = 2.5;
     /// The field fades out from this share of its reach to its reach.
     pub const FADE_FROM: f32 = 0.75;
+    /// Thin ground grows its grass in clumps (`grass.wgsl`'s `clump`): up
+    /// to this many times its own density in a clump, by this share of how
+    /// thin the ground is. The tiles' CPU bound of what can grow
+    /// (`tiles::most_density`, #1693) reads them; a test pins the shader's
+    /// literals to them.
+    pub const CLUMP_PEAK: f32 = 2.2;
+    pub const CLUMP_SHARE: f32 = 0.85;
+    /// The ground hides a tile behind it (#1693, `grass::horizon`): never
+    /// one nearer than this (m), and the ground between is looked at in
+    /// this many places along the way.
+    pub const HORIZON_NEAR: f32 = 16.0;
+    pub const HORIZON_SAMPLES: u32 = 16;
+    /// A tile found seen is looked at again once the camera has moved this
+    /// far (m); one found hidden, every frame.
+    pub const HORIZON_RETEST: f32 = 1.0;
+    /// A tile drawing a share switches to a smaller one only once what it
+    /// needs falls this far under the smaller (a share it lacks, at once):
+    /// a tile on the line does not swap its mesh every frame.
+    pub const SHARE_HYSTERESIS: f32 = 0.9;
     /// A blade's height (m) and its width at the root (m).
     pub const BLADE_HEIGHT: f32 = 0.42;
     pub const BLADE_WIDTH: f32 = 0.06;

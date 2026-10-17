@@ -490,6 +490,7 @@ pub(super) struct Bench {
     last: HashMap<String, Instant>,
     grass_vertices: u64,
     grass_tiles: [u64; 3],
+    grass_hidden: u64,
 }
 
 impl Bench {
@@ -503,6 +504,7 @@ impl Bench {
             last: HashMap::new(),
             grass_vertices: 0,
             grass_tiles: [0; 3],
+            grass_hidden: 0,
         }
     }
 
@@ -555,8 +557,9 @@ impl Bench {
         let [near, mid, far] = self.grass_tiles.map(|tiles| tiles / frames);
         out.push_str(&format!(
             "  grass: {} vertices a frame from {near} near, {mid} middle and {far} far tiles in \
-             view",
-            self.grass_vertices / frames
+             view; {} tiles hidden behind the ground",
+            self.grass_vertices / frames,
+            self.grass_hidden / frames
         ));
         out
     }
@@ -601,6 +604,7 @@ pub(super) fn bench_sample(
         for (sum, tiles) in bench.grass_tiles.iter_mut().zip(grass.tiles) {
             *sum += u64::from(tiles);
         }
+        bench.grass_hidden += u64::from(grass.hidden);
     }
 }
 

@@ -174,12 +174,36 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     // between, not as stalks spaced evenly over it.
     let clump = 2.2 * smoothstep(0.25, 0.75, value_noise(at * 0.6 + vec2<f32>(3.0, 29.0)));
     let density = ground_density * mix(1.0, clump, 0.85 * (1.0 - ground_density));
-    let ground_colour = (grass.ground[0].rgb * weights.x + grass.ground[1].rgb * weights.y
-        + grass.ground[2].rgb * weights.z + grass.ground[3].rgb * weights.w) / weight_sum;
 
     let keep = density * thinning(distance);
     let grow = saturate((keep - rank) / max(0.15 * keep, 1.0e-4));
     let fade = 1.0 - smoothstep(grass.shares.z, grass.reach.w, distance);
+
+    // A blade the field does not grow here - thinned out by distance or by
+    // thin ground, or past the field's reach - draws nothing: every vertex
+    // of it lands on one point outside the view, and none of the work below
+    // is done for it (#1693). A tile's mesh holds its blades in rank order,
+    // so on thin ground whole runs of them leave here together.
+    if grow <= 0.0 || fade <= 0.0 {
+        out.world_position = vec4<f32>(root, 1.0);
+        // Right of the view on every backend's clip space (x > w).
+        out.position = vec4<f32>(2.0, 2.0, 0.5, 1.0);
+        out.world_normal = vec3<f32>(0.0, 1.0, 0.0);
+#ifdef VERTEX_COLORS
+        out.color = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+#endif
+#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
+        out.instance_index = vertex.instance_index;
+#endif
+#ifdef VISIBILITY_RANGE_DITHER
+        out.visibility_range_dither = mesh_functions::get_visibility_range_dither_level(
+            vertex.instance_index, world_from_local[3]);
+#endif
+        return out;
+    }
+
+    let ground_colour = (grass.ground[0].rgb * weights.x + grass.ground[1].rgb * weights.y
+        + grass.ground[2].rgb * weights.z + grass.ground[3].rgb * weights.w) / weight_sum;
 
     // The blade's own numbers: from where it stands, so the repeats of a
     // tile differ, and its seed, so two blades of a tile differ.

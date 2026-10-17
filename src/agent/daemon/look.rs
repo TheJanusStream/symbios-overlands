@@ -337,6 +337,9 @@ fn start(world: &mut World, shot: Shot, spec: LookSpec, reply: mpsc::Sender<Resp
     let mut camera = world.spawn((
         Camera3d::default(),
         LookCamera,
+        // The grass is laid for this camera too: as thick as it needs where
+        // it stands, and never hidden behind a hill the camera sees over.
+        crate::grass::GrassViewer,
         RenderTarget::Image(target.clone().into()),
         shot.pose,
     ));

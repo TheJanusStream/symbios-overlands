@@ -66,6 +66,30 @@ impl CoverMask {
         self.origin + (Vec2::new(i as f32, j as f32) + 0.5) * self.texel
     }
 
+    /// The most open the GPU samples the mask anywhere in the rectangle
+    /// `lo..hi` (#1693), 0 to 1: the most of the texels whose centres lie
+    /// within two texels of it - the one its linear sampling blends there,
+    /// and one more, as a GPU places a sample between texels to a few bits
+    /// only. 0 for a rectangle off the grid, where nothing grows.
+    pub fn most_open_in(&self, lo: Vec2, hi: Vec2) -> f32 {
+        let pad = 2.0 * self.texel;
+        let (Some((i0, i1)), Some((j0, j1))) = (
+            self.span(lo.x - pad, hi.x + pad, self.origin.x),
+            self.span(lo.y - pad, hi.y + pad, self.origin.y),
+        ) else {
+            return 0.0;
+        };
+        let mut most = BLOCKED;
+        for j in j0..=j1 {
+            let row = &self.data[j * self.size..(j + 1) * self.size];
+            most = most.max(row[i0..=i1].iter().copied().max().unwrap_or(BLOCKED));
+            if most == OPEN {
+                break;
+            }
+        }
+        f32::from(most) / f32::from(OPEN)
+    }
+
     /// The columns or rows whose centres can lie in `[lo, hi]` along one
     /// axis whose grid starts at `start`, clamped to the grid; `None` when
     /// the span misses it.
@@ -207,6 +231,44 @@ pub fn convex_hull(mut points: Vec<Vec2>) -> Vec<Vec2> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The most open a rectangle reads is the most of the texels a linear
+    /// sample in it can blend, and one more (#1693): blocked ground reads 0
+    /// only when it stands two texels clear of open ground, and off the grid
+    /// nothing grows.
+    #[test]
+    fn a_rectangle_reads_the_most_open_texel_it_can_sample() {
+        let mut m = mask();
+        m.block_convex(&[
+            Vec2::new(0.0, 0.0),
+            Vec2::new(6.0, 0.0),
+            Vec2::new(6.0, 10.0),
+            Vec2::new(0.0, 10.0),
+        ]);
+        // Columns 0..=5 are blocked, 6..=9 open.
+        assert_eq!(
+            m.most_open_in(Vec2::new(1.0, 1.0), Vec2::new(4.0, 4.0)),
+            0.0
+        );
+        // Two texels short of the first open centre (6.5) a rectangle reads
+        // blocked only; nearer, it takes the open one in.
+        assert_eq!(
+            m.most_open_in(Vec2::new(1.0, 1.0), Vec2::new(4.4, 4.0)),
+            0.0
+        );
+        assert_eq!(
+            m.most_open_in(Vec2::new(1.0, 1.0), Vec2::new(4.6, 4.0)),
+            1.0
+        );
+        assert_eq!(
+            m.most_open_in(Vec2::new(7.0, 1.0), Vec2::new(8.0, 2.0)),
+            1.0
+        );
+        assert_eq!(
+            m.most_open_in(Vec2::new(20.0, 1.0), Vec2::new(30.0, 2.0)),
+            0.0
+        );
+    }
 
     /// A 10 x 10 mask of 1 m texels from (0, 0).
     fn mask() -> CoverMask {

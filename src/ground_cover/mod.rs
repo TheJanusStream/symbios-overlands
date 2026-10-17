@@ -47,6 +47,9 @@
 pub(crate) mod footprint;
 pub(crate) mod height;
 pub(crate) mod mask;
+pub(crate) mod weight_maxima;
+
+use std::sync::Arc;
 
 use avian3d::prelude::{Collider, RigidBody, Sensor};
 use bevy::asset::RenderAssetUsages;
@@ -56,6 +59,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
 pub(crate) use height::mesh_height;
 pub use mask::CoverMask;
+pub use weight_maxima::WeightMaxima;
 
 use crate::config::terrain::ground_cover as cfg;
 use crate::state::LiveRoomRecord;
@@ -71,6 +75,8 @@ pub struct GroundCover {
     pub height: Handle<Image>,
     /// The splat weight map the ground is painted with, once it has baked.
     pub weights: Option<Handle<Image>>,
+    /// The weight map's most, grass tile by grass tile (#1693), with it.
+    pub maxima: Option<Arc<WeightMaxima>>,
     /// Where something may grow, `R8Unorm`, GPU only: 1 open, 0 blocked.
     pub cover: Handle<Image>,
     /// The cover on the CPU, as last uploaded.
@@ -123,9 +129,11 @@ impl GroundFrame {
 }
 
 /// The splat weight map the ground's material was given, published by the
-/// terrain when it bakes (#1674): the handle [`GroundCover::weights`] takes.
+/// terrain when it bakes (#1674): the handle [`GroundCover::weights`] takes,
+/// and its most per grass tile, which [`GroundCover::maxima`] takes with it
+/// (#1693).
 #[derive(Resource, Clone)]
-pub(crate) struct SplatWeights(pub(crate) Handle<Image>);
+pub(crate) struct SplatWeights(pub(crate) Handle<Image>, pub(crate) Arc<WeightMaxima>);
 
 /// Whether the cover waits to be redrawn, and what can make it.
 #[derive(Resource, Default)]
@@ -200,11 +208,13 @@ fn sync_ground_height(
             cover.mask = mask;
             cover.revision = 0;
             cover.weights = None;
+            cover.maxima = None;
         }
         None => commands.insert_resource(GroundCover {
             frame,
             height: images.add(height::height_image(hm)),
             weights: None,
+            maxima: None,
             cover: images.add(cover_image(&mask)),
             mask,
             revision: 0,
@@ -230,6 +240,7 @@ fn sync_weights(
         .is_newer_than(heightmap.last_changed(), ticks.this_run());
     if current && cover.weights.as_ref() != Some(&weights.0) {
         cover.weights = Some(weights.0.clone());
+        cover.maxima = Some(weights.1.clone());
     }
 }
 
@@ -626,24 +637,30 @@ mod tests {
         let mut app = app(flat_ground(0.0));
         app.update();
         let weights = |app: &App| app.world().resource::<GroundCover>().weights.clone();
+        let maxima = |app: &App| app.world().resource::<GroundCover>().maxima.clone();
+        // Each ground's maxima tell it apart: one tile of grass, or of dirt.
+        let of = |texel: [u8; 4]| Arc::new(WeightMaxima::of(&[texel; 4], 2, 2, 8.0));
         let first = app
             .world_mut()
             .resource_mut::<Assets<Image>>()
             .add(Image::default());
-        app.insert_resource(SplatWeights(first.clone()));
+        app.insert_resource(SplatWeights(first.clone(), of([255, 0, 0, 0])));
         app.update();
         assert_eq!(weights(&app), Some(first));
+        assert_eq!(maxima(&app), Some(of([255, 0, 0, 0])));
         app.insert_resource(flat_ground(1.0));
         app.update();
         app.update();
         assert_eq!(weights(&app), None, "the last ground's weights");
+        assert_eq!(maxima(&app), None, "the last ground's maxima");
         let second = app
             .world_mut()
             .resource_mut::<Assets<Image>>()
             .add(Image::default());
-        app.insert_resource(SplatWeights(second.clone()));
+        app.insert_resource(SplatWeights(second.clone(), of([0, 255, 0, 0])));
         app.update();
         assert_eq!(weights(&app), Some(second));
+        assert_eq!(maxima(&app), Some(of([0, 255, 0, 0])));
         app.world_mut().remove_resource::<FinishedHeightMap>();
         app.update();
         app.update();

@@ -136,6 +136,7 @@ fn field_app(quality: GrassQuality, eye: Vec3) -> App {
         frame,
         height,
         weights: Some(weights),
+        maxima: None,
         cover,
         mask: CoverMask::open(frame.cover_texels as usize, texel, Vec2::splat(-frame.half)),
         revision: 1,
@@ -191,8 +192,8 @@ fn the_field_is_laid_around_the_camera() {
 }
 
 /// The field counts what it draws (#1692): the tiles a view sees, by
-/// detail, and the vertices their meshes hold - a tile at a detail holds the
-/// blades ranked below its share, and a blade of `n` segments is `2n + 1`
+/// detail, and the vertices their meshes hold - a mesh holds the blades
+/// ranked below its share, and a blade of `n` segments is `2n + 1`
 /// vertices.
 #[test]
 fn the_field_counts_what_it_draws() {
@@ -204,14 +205,18 @@ fn the_field_counts_what_it_draws() {
         .add_systems(Update, count_grass_drawn.after(lay_grass_tiles));
     app.update();
     let blades = tiles::blade_count(cfg::HIGH.density);
-    let vertices = app.world().resource::<GrassField>().vertices;
-    for (detail, segments) in Detail::ALL.into_iter().zip([3, 2, 1]) {
-        let kept = ((blades as f32 * detail.share() - 0.5).ceil() as usize).min(blades);
-        assert_eq!(
-            vertices[detail.index()],
-            kept * (2 * segments + 1),
-            "{detail:?}"
-        );
+    let vertices: HashMap<(Detail, usize), usize> = app
+        .world()
+        .resource::<GrassField>()
+        .meshes
+        .iter()
+        .map(|(&key, &(_, vertices))| (key, vertices))
+        .collect();
+    assert!(!vertices.is_empty());
+    for (&(detail, share), &count) in &vertices {
+        let kept = tiles::blades_below(blades, tiles::SHARES[share]);
+        let segments = detail.segments() as usize;
+        assert_eq!(count, kept * (2 * segments + 1), "{detail:?} {share}");
     }
     // No view has seen a tile yet.
     assert_eq!(*app.world().resource::<GrassDrawn>(), GrassDrawn::default());
@@ -223,12 +228,148 @@ fn the_field_counts_what_it_draws() {
         if i % 2 == 0 {
             *seen = ViewVisibility::VISIBLE;
             expected.tiles[tile.detail.index()] += 1;
-            expected.vertices += vertices[tile.detail.index()] as u64;
+            expected.vertices += vertices[&(tile.detail, tile.share)] as u64;
         }
     }
     assert!(expected.tiles.iter().all(|&n| n > 0), "{expected:?}");
     app.update();
     assert_eq!(*app.world().resource::<GrassDrawn>(), expected);
+}
+
+/// A tile holds the fewest blades that hold every blade the shader can grow
+/// in it (#1693): all of them under the camera, fewer the further it is as
+/// the field thins, never fewer than the thinning at its nearest point
+/// keeps, and never more than its detail's whole share.
+#[test]
+fn a_tile_holds_the_fewest_blades_that_grow_in_it() {
+    let eye = Vec3::new(0.0, 1.7, 0.0);
+    let mut app = field_app(GrassQuality::High, eye);
+    app.update();
+    let grown = cfg::HIGH;
+    let mut query = app.world_mut().query::<&GrassTile>();
+    let laid: Vec<(IVec2, Detail, usize)> = query
+        .iter(app.world())
+        .map(|t| (t.coord, t.detail, t.share))
+        .collect();
+    assert!(!laid.is_empty());
+    let world = app.world();
+    let ground = world.resource::<GroundCover>();
+    let profile = world.resource::<GrassField>().profile.as_ref();
+    let mut thinned = false;
+    for (coord, detail, share) in laid {
+        let nearest = tiles::nearest(eye, coord, 0.0);
+        // The ground is open: the most is its layers' and their clumps',
+        // and the share follows it by the thinning, held to the detail's.
+        let most = tile_density(ground, profile, coord);
+        assert!(most > 0.0, "{coord}");
+        let need = (most * tiles::thinning(nearest, &grown)).min(detail.share());
+        let held = tiles::SHARES[share];
+        assert!(held >= need - 1e-6, "{coord}: {held} under {need}");
+        assert!(
+            held <= detail.share() + 1e-6,
+            "{coord}: {held} over {detail:?}"
+        );
+        if share + 1 < tiles::SHARES.len() {
+            assert!(
+                tiles::SHARES[share + 1] < need,
+                "{coord}: {held} is not the fewest for {need}"
+            );
+        }
+        thinned |= held < detail.share();
+    }
+    assert!(thinned, "no tile drew fewer than its detail's whole share");
+}
+
+/// The tiles behind a ridge are laid hidden and those before it shown
+/// (#1693): a ridge 12 m thick and 10 m high stands between the camera and
+/// the field's far side.
+#[test]
+fn a_ridge_hides_the_tiles_behind_it() {
+    let eye = Vec3::new(-60.0, 1.7, 0.0);
+    let mut app = field_app(GrassQuality::High, eye);
+    app.init_resource::<GrassDrawn>()
+        .add_systems(Update, count_grass_drawn.after(lay_grass_tiles));
+    let mut hm = HeightMap::new(129, 129, 1.0);
+    for z in 0..129 {
+        for x in 0..129 {
+            if (-20.0..=-8.0).contains(&(x as f32 - 64.0)) {
+                hm.set(x, z, 10.0);
+            }
+        }
+    }
+    app.insert_resource(FinishedHeightMap(hm, None));
+    app.update();
+    let mut query = app.world_mut().query::<(&GrassTile, &Visibility)>();
+    let (mut hidden, mut shown, mut laid_hidden) = (0, 0, 0);
+    for (tile, seen) in query.iter(app.world()) {
+        let west = tile.coord.x as f32 * cfg::TILE_M;
+        if west >= 0.0 {
+            assert_eq!(*seen, Visibility::Hidden, "{} behind the ridge", tile.coord);
+            hidden += 1;
+        }
+        if west + cfg::TILE_M <= -40.0 {
+            assert_eq!(*seen, Visibility::Inherited, "{} before it", tile.coord);
+            shown += 1;
+        }
+        laid_hidden += u32::from(*seen == Visibility::Hidden);
+    }
+    assert!(hidden > 0 && shown > 0, "{hidden} hidden, {shown} shown");
+    // The count says as much.
+    assert_eq!(app.world().resource::<GrassDrawn>().hidden, laid_hidden);
+}
+
+/// Ground the weights give no layer lays no tile (#1693): the ground's
+/// maxima, read from a weight map that weighs the west and leaves the east
+/// bare, keep the field to the west - a tile a texel or two past the edge
+/// of the weighted ground still laid, for what the sampling there blends.
+#[test]
+fn no_tile_is_laid_where_no_layer_lies() {
+    let eye = Vec3::new(0.0, 1.7, 0.0);
+    let mut app = field_app(GrassQuality::High, eye);
+    // 129 x 129 weight texels over the 128 m ground: weighted west of
+    // x = 16 m, nothing from it east.
+    let texels: Vec<[u8; 4]> = (0..129 * 129)
+        .map(|i| {
+            let x = (i % 129) as f32 - 64.0;
+            if x < 16.0 { [255, 0, 0, 0] } else { [0; 4] }
+        })
+        .collect();
+    let maxima = std::sync::Arc::new(crate::ground_cover::WeightMaxima::of(
+        &texels, 129, 129, 128.0,
+    ));
+    app.world_mut().resource_mut::<GroundCover>().maxima = Some(maxima);
+    app.update();
+    let laid = tiles_of(&mut app);
+    // Tile 2 (16..24 m) samples bare ground, but its padding reaches the
+    // last weighted texel (x = 15 m); tile 3 reads nothing.
+    assert!(laid.iter().any(|(c, _)| c.x == 2), "{laid:?}");
+    assert!(laid.iter().all(|(c, _)| c.x <= 2), "{laid:?}");
+    assert!(laid.iter().any(|(c, _)| c.x < -2));
+}
+
+/// Ground where nothing can grow lays no tile (#1693): a road's or a
+/// building's cover blocks it, and a tile it blocks wholly - a texel clear
+/// of open ground - is not laid; the rest of the field is.
+#[test]
+fn no_tile_is_laid_where_nothing_grows() {
+    let eye = Vec3::new(0.0, 1.7, 0.0);
+    let mut app = field_app(GrassQuality::High, eye);
+    // Block the ground from 16 m east on: tiles 2.. on X.
+    let mut ground = app.world_mut().resource_mut::<GroundCover>();
+    ground.mask.block_convex(&[
+        Vec2::new(16.0, -64.0),
+        Vec2::new(64.0, -64.0),
+        Vec2::new(64.0, 64.0),
+        Vec2::new(16.0, 64.0),
+    ]);
+    ground.revision += 1;
+    app.update();
+    let laid = tiles_of(&mut app);
+    assert!(!laid.is_empty());
+    // A tile whose square ends a texel short of the open ground is gone.
+    assert!(laid.iter().all(|(c, _)| c.x <= 2), "{laid:?}");
+    assert!(laid.iter().any(|(c, _)| c.x == 1));
+    assert!(laid.iter().any(|(c, _)| c.x < -2));
 }
 
 /// Near the ground's edge the field stops at it; turned off it is gone;

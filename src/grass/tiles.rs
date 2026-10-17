@@ -1,23 +1,27 @@
 //! The grass field's tiles (#1675): square patches of blades laid on a
-//! world grid around the camera, and the three meshes every tile draws one
-//! of.
+//! world grid around the camera, and the meshes every tile draws one of.
 //!
 //! **Every tile is the same mesh.** A blade's vertices carry where it
 //! stands in its tile, how far up the blade they are and which edge, and
 //! two numbers of its own: its *rank* and its *seed*. The vertex shader
 //! (`assets/shaders/grass.wgsl`) does the rest - it stands the blade on the
 //! ground under it, lets it grow as thickly as the ground there grows
-//! grass, and shapes, bends and colours it - so three meshes serve every
+//! grass, and shapes, bends and colours it - so a few meshes serve every
 //! tile of every room, and the tiles batch into a draw a mesh.
 //!
 //! **Rank is what makes density cheap.** The blades are laid in an order
 //! whose every prefix is spread evenly over the tile ([`roots`]), and a
 //! blade's rank is its place in that order. Ground that grows grass at half
 //! density keeps the blades ranked below a half, and those are an even
-//! half of the tile, not a clump of it. A far tile needs only the first
-//! blades, so its mesh is a prefix of the near one's, with fewer segments a
-//! blade: [`Detail`]. The shader thins the field with distance by the same
-//! test, smoothly, so a tile changing detail draws no different blades.
+//! half of the tile, not a clump of it. The shader thins the field with
+//! distance by the same test, smoothly. So a tile needs only the blades
+//! ranked below the most the shader can keep anywhere in it (#1693): the
+//! thickest its ground grows ([`most_density`]) times the thinning at its
+//! nearest point ([`thinning`]). Its mesh is the prefix of the near one's
+//! that holds them - one of [`SHARES`] - with fewer segments a blade the
+//! further it is ([`Detail`]), and a tile where nothing can grow is not
+//! laid at all. A blade the shader does not grow still costs its vertices
+//! a run through the shader, so this is where the field's cost is cut.
 //!
 //! **Tiles repeat**, eight metres apart, so the shader turns and mirrors
 //! each tile's layout by a hash of where it lies, and draws each blade's
@@ -34,14 +38,16 @@ use bevy_symbios_ground::HeightMap;
 
 use crate::config::grass as cfg;
 
-/// How much of a near tile a tile draws.
+/// How finely a tile's blades are drawn, by how far it is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Detail {
-    /// Every blade, three segments each.
+    /// Three segments a blade.
     Near,
-    /// The first [`cfg::MID_SHARE`] of them, two segments each.
+    /// Two segments a blade: the tile lies past where the field is thinned
+    /// to [`cfg::MID_SHARE`].
     Mid,
-    /// The first [`cfg::FAR_SHARE`] of them, one triangle each.
+    /// One triangle a blade: past where it is thinned to
+    /// [`cfg::FAR_SHARE`].
     Far,
 }
 
@@ -49,7 +55,8 @@ impl Detail {
     /// Near to far, as [`Self::index`] numbers them.
     pub const ALL: [Self; 3] = [Self::Near, Self::Mid, Self::Far];
 
-    /// The share of a near tile's blades this detail draws.
+    /// The most of a near tile's blades a tile at this detail needs: the
+    /// share the field is thinned to where the detail begins.
     pub fn share(self) -> f32 {
         match self {
             Self::Near => 1.0,
@@ -59,7 +66,7 @@ impl Detail {
     }
 
     /// Segments a blade has at this detail.
-    fn segments(self) -> u32 {
+    pub fn segments(self) -> u32 {
         match self {
             Self::Near => 3,
             Self::Mid => 2,
@@ -86,6 +93,69 @@ impl Detail {
             Self::Far
         }
     }
+}
+
+/// The shares of a near tile's blades a tile's mesh can hold, most to
+/// fewest (#1693): a tile draws the fewest that holds every blade the shader
+/// can grow in it ([`share_for`]). Each is two thirds to four fifths of the
+/// one before, and the middle and far details' own shares are among them, so
+/// a tile at either never draws more than the detail's whole share did.
+pub const SHARES: [f32; 11] = [1.0, 0.7, 0.5, 0.4, 0.3, 0.22, 0.15, 0.1, 0.065, 0.04, 0.025];
+
+/// The index in [`SHARES`] a tile needs whose blades the shader keeps up to
+/// rank `need`: the fewest that holds them all, the last for fewer still,
+/// and `None` when it keeps none.
+pub fn share_for(need: f32) -> Option<usize> {
+    if need.is_nan() || need <= 0.0 {
+        return None;
+    }
+    Some(SHARES.iter().rposition(|&share| share >= need).unwrap_or(0))
+}
+
+/// The share of a near tile's blades the shader keeps `distance` metres
+/// from the camera, in field `field`: `grass.wgsl`'s `thinning`, which
+/// keeps them all out to the field's full distance, eases to
+/// [`cfg::MID_SHARE`] by [`cfg::MID_AT`] times it and to
+/// [`cfg::FAR_SHARE`] by [`cfg::FAR_AT`] times it.
+pub fn thinning(distance: f32, field: &cfg::Field) -> f32 {
+    let smooth = |from: f32, to: f32, x: f32| {
+        let t = ((x - from) / (to - from)).clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    };
+    let (full, mid, far) = (
+        field.full,
+        cfg::MID_AT * field.full,
+        cfg::FAR_AT * field.full,
+    );
+    if distance < mid {
+        1.0 + (cfg::MID_SHARE - 1.0) * smooth(full, mid, distance)
+    } else {
+        cfg::MID_SHARE + (cfg::FAR_SHARE - cfg::MID_SHARE) * smooth(mid, far, distance)
+    }
+}
+
+/// The most the shader's density reaches on ground whose layers' shares
+/// reach at most `shares`, the layers growing grass as thickly as
+/// `layer_density`, under cover at most `cover` (`grass.wgsl`'s
+/// `ground_density` and its clumps): the layers' density, and on thin
+/// ground a clump at its thickest - [`cfg::CLUMP_PEAK`] times the ground's
+/// own density by [`cfg::CLUMP_SHARE`] of how thin it is. The clump's gain
+/// shrinks as the ground thickens, so past the thickness where the two
+/// balance the most is taken there.
+pub fn most_density(shares: [f32; 4], layer_density: [f32; 4], cover: f32) -> f32 {
+    let ground: f32 = shares
+        .iter()
+        .zip(layer_density)
+        .map(|(share, density)| share.max(0.0) * density.clamp(0.0, 1.0))
+        .sum();
+    let ground = ground.min(1.0) * cover.clamp(0.0, 1.0);
+    let gain = (cfg::CLUMP_PEAK - 1.0) * cfg::CLUMP_SHARE;
+    let ground = if gain > 0.0 {
+        ground.min((1.0 + gain) / (2.0 * gain))
+    } else {
+        ground
+    };
+    ground * (1.0 + gain * (1.0 - ground))
 }
 
 /// Blades in a near tile at a quality whose density is `density`, a share
@@ -185,8 +255,15 @@ fn seed(i: usize) -> f32 {
     hash(i, 0)
 }
 
-/// The mesh of a tile at `detail`, from a near tile whose blades stand at
-/// `roots` ([`roots`]).
+/// How many of a tile's `blades` rank below `share`: blade `i`'s rank is
+/// `(i + 0.5) / blades`.
+pub fn blades_below(blades: usize, share: f32) -> usize {
+    ((blades as f32 * share - 0.5).ceil().max(0.0) as usize).min(blades)
+}
+
+/// The mesh of a tile at `detail` holding the blades ranked below `share`
+/// (one of [`SHARES`]), from a near tile whose blades stand at `roots`
+/// ([`roots`]).
 ///
 /// A blade of `n` segments is `n` pairs of vertices, at `0`, `1/n`, ...
 /// of its height, and a tip: `n - 1` quads and a triangle. Each vertex
@@ -198,10 +275,9 @@ fn seed(i: usize) -> f32 {
 ///   in `[0, 1)`, its seed, and 0. The shader writes the colour itself;
 ///   the attribute is there for its data, and so that Bevy's PBR fragment
 ///   reads the colour the shader writes.
-pub fn tile_mesh(roots: &[Vec2], detail: Detail) -> Mesh {
+pub fn tile_mesh(roots: &[Vec2], detail: Detail, share: f32) -> Mesh {
     let blades = roots.len();
-    // The blades ranked below the share: rank `(i + 0.5) / blades`.
-    let count = ((blades as f32 * detail.share() - 0.5).ceil().max(0.0) as usize).min(blades);
+    let count = blades_below(blades, share);
     let segments = detail.segments();
     let per_blade = (2 * segments + 1) as usize;
     let mut positions: Vec<[f32; 3]> = Vec::with_capacity(count * per_blade);
@@ -349,9 +425,9 @@ mod tests {
             ranks
         };
         let roots = roots(blades);
-        let near = tile_mesh(&roots, Detail::Near);
-        let mid = tile_mesh(&roots, Detail::Mid);
-        let far = tile_mesh(&roots, Detail::Far);
+        let near = tile_mesh(&roots, Detail::Near, 1.0);
+        let mid = tile_mesh(&roots, Detail::Mid, Detail::Mid.share());
+        let far = tile_mesh(&roots, Detail::Far, Detail::Far.share());
         assert_eq!(near.count_vertices(), 100 * 7);
         assert_eq!(mid.count_vertices(), 40 * 5);
         assert_eq!(far.count_vertices(), 15 * 3);
@@ -396,5 +472,107 @@ mod tests {
         assert_eq!(tile_heights(&hm, IVec2::ZERO), (16.0, 24.0));
         // Past the edge, the edge.
         assert_eq!(tile_heights(&hm, IVec2::new(5, 0)), (32.0, 32.0));
+    }
+
+    /// The shares a tile's mesh can hold fall from all of them, and hold the
+    /// middle and far details' own (#1693): a tile at either draws no more
+    /// than the detail's whole share did. A tile needs the fewest that
+    /// holds what the shader keeps, and none when it keeps none.
+    #[test]
+    fn a_tile_draws_the_fewest_blades_that_hold_what_grows() {
+        assert_eq!(SHARES[0], 1.0);
+        assert!(SHARES.windows(2).all(|w| w[1] < w[0]), "{SHARES:?}");
+        for detail in Detail::ALL {
+            assert!(SHARES.contains(&detail.share()), "{detail:?}");
+        }
+        assert_eq!(share_for(0.0), None);
+        assert_eq!(share_for(-1.0), None);
+        assert_eq!(share_for(f32::NAN), None);
+        assert_eq!(share_for(1.0), Some(0));
+        assert_eq!(share_for(1.5), Some(0));
+        let mid = SHARES.iter().position(|&s| s == cfg::MID_SHARE).unwrap();
+        assert_eq!(share_for(cfg::MID_SHARE), Some(mid));
+        assert_eq!(share_for(0.45), Some(mid - 1));
+        assert_eq!(share_for(0.001), Some(SHARES.len() - 1));
+        // A mesh at a share holds every blade ranked below it, and no more.
+        assert_eq!(blades_below(100, 1.0), 100);
+        assert_eq!(blades_below(100, 0.4), 40);
+        assert_eq!(blades_below(100, 0.0), 0);
+    }
+
+    /// The thinning is the shader's, which reads the same shares and
+    /// distances from the field's uniforms (`grass::uniforms`): the
+    /// function's two lines are pinned here.
+    #[test]
+    fn the_thinning_is_the_shaders() {
+        let wgsl = include_str!("../../assets/shaders/grass.wgsl");
+        for line in [
+            "return mix(1.0, grass.shares.x, smoothstep(grass.reach.x, grass.reach.y, distance));",
+            "return mix(grass.shares.x, grass.shares.y, smoothstep(grass.reach.y, grass.reach.z, distance));",
+        ] {
+            assert!(wgsl.contains(line), "grass.wgsl's thinning moved: {line}");
+        }
+        let field = cfg::HIGH;
+        assert_eq!(thinning(0.0, &field), 1.0);
+        assert_eq!(thinning(field.full, &field), 1.0);
+        assert!((thinning(cfg::MID_AT * field.full, &field) - cfg::MID_SHARE).abs() < 1e-6);
+        assert!((thinning(cfg::FAR_AT * field.full, &field) - cfg::FAR_SHARE).abs() < 1e-6);
+        assert!((thinning(field.reach, &field) - cfg::FAR_SHARE).abs() < 1e-6);
+        let mut last = 1.0;
+        for step in 0..=200 {
+            let at = thinning(step as f32 * 0.5, &field);
+            assert!(at <= last + 1e-6, "{step}");
+            last = at;
+        }
+    }
+
+    /// The most a tile's ground can grow is never under what the shader
+    /// grows there, clumps included: over every ground density up to the
+    /// most and every clump the noise can make, the shader's density
+    /// (`grass.wgsl`, whose clump literals are pinned here) stays at or
+    /// under the bound - and the bound is reached.
+    #[test]
+    fn the_most_density_bounds_the_shaders() {
+        let wgsl = include_str!("../../assets/shaders/grass.wgsl");
+        assert!(wgsl.contains(&format!(
+            "let clump = {} * smoothstep(0.25, 0.75,",
+            cfg::CLUMP_PEAK
+        )));
+        assert!(wgsl.contains(&format!(
+            "mix(1.0, clump, {} * (1.0 - ground_density))",
+            cfg::CLUMP_SHARE
+        )));
+        let shader = |ground: f32, clump: f32| {
+            ground * (1.0 + (clump - 1.0) * cfg::CLUMP_SHARE * (1.0 - ground))
+        };
+        for most in 0..=50 {
+            let most = most as f32 / 50.0;
+            let bound = most_density([most, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0], 1.0);
+            let mut reached = 0.0f32;
+            for ground in 0..=50 {
+                let ground = most * ground as f32 / 50.0;
+                for clump in 0..=22 {
+                    let grown = shader(ground, clump as f32 / 10.0);
+                    assert!(
+                        grown <= bound + 1e-6,
+                        "{most} {ground} {clump}: {grown} > {bound}"
+                    );
+                    reached = reached.max(grown);
+                }
+            }
+            assert!(
+                bound - reached < 0.02,
+                "{most}: {bound} is loose by {}",
+                bound - reached
+            );
+        }
+        // The layers' shares weigh by their densities, and the cover caps it.
+        assert_eq!(most_density([0.0; 4], [1.0; 4], 1.0), 0.0);
+        assert_eq!(most_density([1.0; 4], [1.0; 4], 0.0), 0.0);
+        let half = most_density([0.5, 0.5, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0], 1.0);
+        assert_eq!(
+            half,
+            most_density([1.0, 0.0, 0.0, 0.0], [0.5, 0.0, 0.0, 0.0], 1.0)
+        );
     }
 }
