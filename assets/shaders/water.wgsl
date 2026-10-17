@@ -39,7 +39,7 @@
     pbr_fragment::pbr_input_from_standard_material,
     pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing, calculate_F0},
     ambient::ambient_light,
-    mesh_view_bindings::{globals, view},
+    mesh_view_bindings::{globals, view, lights},
     forward_io::{VertexOutput, FragmentOutput},
     // Shoreline foam reads the opaque DEPTH prepass (camera-side
     // `DepthPrepass`) to find how far the bottom sits behind the water.
@@ -49,6 +49,17 @@
     view_transformations,
 }
 #import "shaders/sky_common.wgsl"::sky_toward
+
+// The key light at which the glitter and the foam, drawn over the lit
+// colour, are at their full strength: the luminance of a white light of
+// 4,000 lux - the sky's moon threshold - at the camera's exposure (Bevy's
+// default, 9.7 EV100: 4,000 lx times about 0.001). A light under it - a
+// low sun, the moon (#1677), a night room's light, and a daylight sun
+// that is dim and deeply tinted at once - gives them that share of their
+// strength.
+const DAYLIGHT_KEY: f32 = 4.0;
+// The least of that share: a white crest is never wholly black.
+const NIGHT_KEY_SHARE: f32 = 0.06;
 
 // Must match `WAKE_SAMPLES_MAX` in `src/water.rs` exactly. The shader
 // reads `wake_active_count` for the live extent; capacity is fixed at
@@ -864,13 +875,24 @@ fn fragment(
     let half_vec = normalize(sun_dir + v);
     let n_dot_h = max(dot(n, half_vec), 0.0);
     let glitter_fade = clamp(1.0 - smoothstep(60.0, 260.0, dist), 0.0, 1.0);
-    let glitter = pow(n_dot_h, 160.0) * water_uniforms.sun_glitter * fresnel * glitter_fade;
+    // The glitter and the foam are drawn over the lit colour, so they take
+    // the key light's level themselves: under a dim one they would glow.
+    var key = vec3<f32>(0.0);
+    if lights.n_directional_lights > 0u {
+        key = lights.directional_lights[0].color.rgb * view.exposure;
+    }
+    let key_share = clamp(
+        dot(key, vec3<f32>(0.2126, 0.7152, 0.0722)) / DAYLIGHT_KEY,
+        NIGHT_KEY_SHARE,
+        1.0,
+    );
+    let glitter = pow(n_dot_h, 160.0) * water_uniforms.sun_glitter * fresnel * glitter_fade * key_share;
     out.color = vec4<f32>(out.color.rgb + vec3<f32>(glitter), out.color.a);
 
     // Foam overlay - mix near-white on top of the lit colour. Keep the
     // alpha driven by Fresnel so foam is still visible at grazing view but
     // doesn't make the centre of the pond look like cream soup.
-    let foam_color = vec3<f32>(0.94, 0.97, 1.0);
+    let foam_color = vec3<f32>(0.94, 0.97, 1.0) * key_share;
     out.color = vec4<f32>(mix(out.color.rgb, foam_color, foam), out.color.a);
 
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);

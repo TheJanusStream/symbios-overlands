@@ -497,6 +497,13 @@ struct Args {
     /// browser visitor does.
     #[arg(long, requires = "world", value_name = "QUALITY", value_parser = parse_grass)]
     grass: Option<crate::grass::GrassQuality>,
+    /// With `--world`: draw the room at this hour of its day, 0 to 24
+    /// (#1677) - its fields as its noon, the sun along its arc, and night's
+    /// moon and stars - whatever time of day its record holds. 12 is the
+    /// room as its fields set it. Without it a room whose day turns is
+    /// drawn at the hour it is now, by this machine's clock.
+    #[arg(long, requires = "world", value_name = "HOUR", value_parser = parse_hour)]
+    hour: Option<f32>,
     /// With `--world`: build the region from this square of real Berlin
     /// (#1584) - `E,N,SIZE`, the south-west corner and the side in whole
     /// metres of EPSG:25833 (the World Editor's Region source shows them
@@ -1007,6 +1014,14 @@ fn parse_edge_smoothing(word: &str) -> Result<crate::camera::EdgeSmoothing, Stri
     }
 }
 
+/// `--hour`'s value: a number of hours (#1677).
+fn parse_hour(word: &str) -> Result<f32, String> {
+    word.parse::<f32>()
+        .ok()
+        .filter(|hour| hour.is_finite())
+        .ok_or_else(|| format!("{word:?} is not an hour, a number from 0 to 24"))
+}
+
 /// `--grass`'s four words.
 fn parse_grass(word: &str) -> Result<crate::grass::GrassQuality, String> {
     crate::grass::GrassQuality::ALL
@@ -1426,6 +1441,16 @@ pub fn run() {
             app.world_mut()
                 .resource_mut::<crate::state::LocalSettings>()
                 .grass_quality = Some(quality);
+        }
+        if let Some(hour) = args.hour {
+            app.world_mut()
+                .resource_mut::<crate::state::LiveRoomRecord>()
+                .0
+                .environment
+                .time_of_day = Some(crate::pds::TimeOfDay {
+                hour: crate::pds::TimeOfDay::clock_hour(hour),
+                day_minutes: crate::pds::Fp(0.0),
+            });
         }
         if let Some(path) = &args.cover_map {
             app.insert_resource(cover::CoverMapOut(path.into()))

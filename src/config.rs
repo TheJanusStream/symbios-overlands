@@ -99,6 +99,62 @@ pub(crate) mod lighting {
         pub const STARS_CLOUD_DIMMING: f32 = 0.8;
     }
 
+    /// Time of day (#1677): how a room's noon light becomes the light of
+    /// its other hours (`crate::time_of_day`). Angles are the sun's
+    /// altitude above the horizon, in degrees.
+    pub mod time_of_day {
+        /// The air's extinction per unit of air mass, red, green and blue:
+        /// blue scatters most, so the sun reddens as it sinks and its light
+        /// crosses more air.
+        pub const EXTINCTION: [f32; 3] = [0.08, 0.14, 0.30];
+        /// The sun's light fades in over these altitudes, from none to all.
+        pub const SUN_FADE_DEG: (f32, f32) = (-4.0, 6.0);
+        /// The moon's fades out over these sun altitudes, from all to none:
+        /// clear of the sun's, so the key light passes from one to the other
+        /// where neither gives any, and the moon's disc brightens in rather
+        /// than appearing.
+        pub const MOON_FADE_DEG: (f32, f32) = (-12.0, -5.0);
+        /// The moon's light: this share of the room's noon sun, kept within
+        /// these bounds (lux) and never above the noon sun's own. An eye
+        /// adapts to the night; the compressed range is that adaptation, at
+        /// the camera's one exposure.
+        pub const MOON_SHARE: f32 = 0.07;
+        pub const MOON_LUX: (f32, f32) = (400.0, 2_000.0);
+        /// The moon's colour (sRGB): a cool silver.
+        pub const MOON_COLOR: [f32; 3] = [0.78, 0.86, 1.0];
+        /// The sky's light goes from night's to day's over these altitudes.
+        pub const SKY_FADE_DEG: (f32, f32) = (-10.0, 8.0);
+        /// A low sun's sky, overhead and at the horizon: this share of the
+        /// noon sky's light with the sun on the horizon, all of it from this
+        /// altitude up. The horizon dims with the rest: it is what the water
+        /// reflects at a glance and what far land hazes into, and a horizon
+        /// kept at noon's brightness over a dimmed land paints both pale.
+        pub const LOW_SKY_SHARE: f32 = 0.45;
+        pub const LOW_SKY_FULL_DEG: f32 = 40.0;
+        /// Night's sky and horizon: this share of noon's (linear), with this
+        /// dark blue (linear) beneath - dark enough that the stars come out.
+        pub const NIGHT_SHARE: f32 = 0.05;
+        pub const NIGHT_SKY: [f32; 3] = [0.003, 0.006, 0.022];
+        /// The horizon's glow round sunrise and sunset: it rises over the
+        /// first pair of altitudes and fades over the second.
+        pub const GLOW_RISE_DEG: (f32, f32) = (-8.0, -1.0);
+        pub const GLOW_FADE_DEG: (f32, f32) = (3.0, 18.0);
+        /// How far the glow warms the horizon toward the low sun's colour.
+        pub const GLOW_SHARE: f32 = 0.55;
+        /// The ambient light: this share of noon's at night, all of noon's
+        /// from the second altitude, rising over the pair.
+        pub const NIGHT_AMBIENT_SHARE: f32 = 0.25;
+        pub const AMBIENT_FADE_DEG: (f32, f32) = (-10.0, 20.0);
+        /// How far a turning day's hour moves before the room's light is
+        /// drawn anew: a minute of its day, a quarter degree of the sun's
+        /// arc. Each new drawing rebuilds the sky light's maps. The shortest
+        /// day, a minute, draws about 24 times a second: in Chromium's
+        /// WebGL2 that cost no frame rate against a standing hour, with the
+        /// processor slowed four times too, and the memory its rebuilds
+        /// leave was collected over ten minutes of it (#1677).
+        pub const HOUR_STEP: f32 = 1.0 / 60.0;
+    }
+
     /// Sky light (#1680): the environment map `sky_light` builds from the
     /// sky every sky-lit camera carries.
     pub mod sky_light {

@@ -351,6 +351,14 @@ generation cores shared with the wasm Web Worker.
   metres and a mottle over a few (`assets/shaders/ground_common.wgsl`,
   #1676): the splat's tone follows them, and the grass is drier where the
   ground drifts lighter and taller where it is darker.
+- [`src/time_of_day.rs`](../src/time_of_day.rs) - a room's time of day
+  (#1677): its `Environment` taken as its noon and drawn at the hour its
+  record sets or the clock (UTC) turns it to - the sun along its arc,
+  dimmed and reddened by the air, the moon by night, the sky, the horizon
+  and the ambient light with it - as the `DrawnEnvironment` the sky, the
+  sun, the fog, the clouds, the water and the sky light read in place of the
+  record's own; it also tells the sky whether the key light is the sun or
+  the moon.
 - [`src/terrain/`](../src/terrain/), [`src/urban/`](../src/urban/),
   [`src/splat.rs`](../src/splat.rs), [`src/water.rs`](../src/water.rs),
   [`src/clouds.rs`](../src/clouds.rs), [`src/wind.rs`](../src/wind.rs) -

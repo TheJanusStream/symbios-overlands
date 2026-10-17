@@ -55,8 +55,6 @@ use bevy::{
 
 use crate::config::lighting::sky_light as cfg;
 use crate::pds::Environment;
-use crate::state::LiveRoomRecord;
-use crate::world_builder::compile::EnvironmentPreview;
 
 /// Marker for a camera the sky lights. [`update_sky_light`] gives every one
 /// the sky's `EnvironmentMapLight` and turns its own ambient light off.
@@ -383,16 +381,17 @@ pub(crate) fn setup_sky_light(mut commands: Commands, mut images: ResMut<Assets<
     });
 }
 
-/// Rewrite the maps when the room's sky or ambient level changes - on the
-/// editor's preview lane too, frame by frame through a drag - and give every
-/// new [`SkyLit`] camera the sky's light in place of its own ambient.
+/// Rewrite the maps when the room's drawn sky or ambient level changes -
+/// the drawn environment (`crate::time_of_day`) follows the record, the
+/// editor's preview lane frame by frame through a drag, and a turning
+/// day's hour (#1677) - and give every new [`SkyLit`] camera the sky's light
+/// in place of its own ambient.
 ///
 /// Only when they change: the record changes for a moved tree too, and the
 /// preview lane fires for a drag on any editor tab, and each rewrite makes
 /// two new textures ([`cube_image`] says why).
 pub(crate) fn update_sky_light(
-    record: Option<Res<LiveRoomRecord>>,
-    preview: Option<Res<EnvironmentPreview>>,
+    drawn: Option<Res<crate::time_of_day::DrawnEnvironment>>,
     sky_light: Option<Res<SkyLight>>,
     mut images: ResMut<Assets<Image>>,
     cameras: Query<Entity, (With<SkyLit>, Without<EnvironmentMapLight>)>,
@@ -402,10 +401,10 @@ pub(crate) fn update_sky_light(
     let Some(sky_light) = sky_light else {
         return;
     };
-    if let Some(record) = record
-        && (record.is_changed() || preview.is_some_and(|p| p.is_changed()))
+    if let Some(drawn) = drawn
+        && drawn.is_changed()
     {
-        let env = &record.0.environment;
+        let env = &drawn.env;
         let wanted = (SkyModel::from_environment(env), env.ambient_brightness.0);
         if built.as_ref() == Some(&wanted) {
             return;

@@ -31,10 +31,13 @@ use crate::state::LiveRoomRecord;
 #[derive(Resource, Default)]
 pub struct EnvironmentPreview;
 
-/// Apply the active `RoomRecord`'s `Environment` to every atmospheric
-/// resource in the scene - sun, ambient, the sky's shader, clear colour,
-/// and distance fog. Runs on every `RoomRecord` change so an editor slider
-/// (or peer broadcast) retints the world without restarting the session.
+/// Apply the room's drawn `Environment` to every atmospheric resource in
+/// the scene - sun, ambient, the sky's shader, clear colour, and distance
+/// fog. The drawn environment is the record's at the room's time of day
+/// (`crate::time_of_day`, #1677) and is drawn anew on every record change,
+/// the editor's preview lane and a turning day's hour, so an editor slider,
+/// a peer broadcast or the clock retints the world without restarting the
+/// session.
 ///
 /// Kept separate from `compile_room_record` because the combined
 /// signature would exceed Bevy's 16-param `IntoSystem` limit; splitting
@@ -43,6 +46,7 @@ pub struct EnvironmentPreview;
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_environment_state(
     record: Option<Res<LiveRoomRecord>>,
+    drawn: Res<crate::time_of_day::DrawnEnvironment>,
     // `Without<CloudLayer>` keeps this query disjoint from the
     // `cloud_layer` query below (which holds `&mut Transform`). Bevy's
     // borrow checker conservatively assumes any pair of queries that
@@ -63,20 +67,25 @@ pub(crate) fn apply_environment_state(
     mut cloud_materials: ResMut<Assets<CloudMaterial>>,
     mut water_materials: ResMut<Assets<crate::water::WaterMaterial>>,
     vegetation_wind: Option<ResMut<crate::wind::VegetationWind>>,
-    // The cheap lane (#1249 f59): the editor stamps this every frame a
-    // widget changes, so a drag repaints continuously while the broadcast
-    // and the recompile still wait for the pause.
-    preview: Option<Res<EnvironmentPreview>>,
+    // Water a compile has just spawned: it is built with its record's own
+    // sun and sky (`world_builder::material`), frames after an edit's
+    // redrawing, and takes the hour's here (#1677).
+    new_water: Query<(), Added<MeshMaterial3d<crate::water::WaterMaterial>>>,
 ) {
     let Some(record) = record else {
         return;
     };
-    let previewing = preview.is_some_and(|p| p.is_changed());
-    if !record.is_changed() && !previewing {
+    // The cheap lane (#1249 f59) reaches here through the drawn
+    // environment, which the editor's preview stamp redraws frame by frame
+    // through a drag while the broadcast and the recompile still wait.
+    if !drawn.is_changed() && new_water.is_empty() {
         return;
     }
-    let record = &record.0;
-    let env = &record.environment;
+    let env = &drawn.env;
+    // The room's own, not the hour's: the global ambient light lights only
+    // what the sky does not - the item previews - which keep their light
+    // whatever the hour.
+    let authored = &record.0.environment;
 
     let Fp3(sun_c) = env.sun_color;
     // Snapshot the runtime sun direction (unit vector *toward* the sun) for
@@ -114,20 +123,28 @@ pub(crate) fn apply_environment_state(
 
     // The global ambient light: what lights a camera the sky does not - the
     // item previews. A sky-lit camera turns its own off and takes the
-    // room's sky in its place, at this same level (`sky_light`, #1680).
-    ambient_light.brightness = env.ambient_brightness.0;
+    // room's sky in its place (`sky_light`, #1680), at the hour's level.
+    ambient_light.brightness = authored.ambient_brightness.0;
+    let Fp3(own_sky) = authored.sky_color;
+    let Fp4(own_fog) = authored.fog_color;
+    ambient_light.color = sky_ambient_color(own_sky, [own_fog[0], own_fog[1], own_fog[2]]);
 
     let Fp3(sky_c) = env.sky_color;
     let Fp4(fog_c) = env.fog_color;
-    ambient_light.color = sky_ambient_color(sky_c, [fog_c[0], fog_c[1], fog_c[2]]);
     for mut grade in grading.iter_mut() {
         apply_grade(env, &mut grade);
     }
 
     clear_color.0 = Color::srgb(sky_c[0], sky_c[1], sky_c[2]);
     // The sky (#1671): its colour overhead, the haze's depth and whether
-    // the night shows its moon and stars, all from this environment.
-    let sky = crate::sky::sky_uniforms(env);
+    // the night shows its moon and stars, all from this environment - and
+    // the clouds and the water take the same. A time of day knows which
+    // light is the key (#1677): a low sun is a dim light under a darkening
+    // sky, which the sky alone reads as the moon.
+    let mut sky = crate::sky::sky_uniforms(env);
+    if let Some(moon) = drawn.moon {
+        sky.look.y = moon;
+    }
     for material_handle in skybox.iter() {
         if let Some(mut mat) = sky_materials.get_mut(&material_handle.0) {
             mat.uniforms = sky;

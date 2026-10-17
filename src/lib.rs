@@ -102,6 +102,7 @@ pub mod splat;
 pub mod state;
 pub mod terrain;
 pub mod text;
+pub mod time_of_day;
 pub mod ui;
 pub mod urban;
 pub mod water;
@@ -910,9 +911,12 @@ pub(crate) fn build_client_app(app: &mut App, boot: boot_params::BootParams, she
                 clouds::follow_shadow_reach,
                 clouds::cast_cloud_shadows,
                 sky::track_skybox_to_camera,
-                sky_light::update_sky_light,
+                sky_light::update_sky_light.after(time_of_day::DrawEnvironmentSet),
             ),
         );
+    // The room at its hour (#1677), which the sky, the sun and the sky
+    // light all read.
+    time_of_day::register(app);
     // The sun's shadow cascades follow the orbit zoom (#1475).
     shadow_reach::register(app, shadow_reach::follow_orbit_zoom);
 }
@@ -948,9 +952,10 @@ pub(crate) fn register_headless_atmosphere(app: &mut App) {
                 clouds::follow_shadow_reach,
                 clouds::cast_cloud_shadows,
                 sky::track_skybox_to_camera,
-                sky_light::update_sky_light,
+                sky_light::update_sky_light.after(time_of_day::DrawEnvironmentSet),
             ),
         );
+    time_of_day::register(app);
 }
 
 fn setup_lighting(

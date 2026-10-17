@@ -84,6 +84,97 @@ fn sun_direction(ui: &mut egui::Ui, position: &mut crate::pds::Fp3, dirty: &mut 
     }
 }
 
+/// The room's time of day (#1677): off - the light as the fields set it -
+/// or the hour it stands at, which turns with the clock when its day has a
+/// length. With a turning day the slider shows and sets the hour now; the
+/// record keeps the hour at the turn of the clock's day, so every visitor's
+/// clock gives every other visitor's hour.
+fn time_of_day(ui: &mut egui::Ui, time: &mut Option<crate::pds::TimeOfDay>, dirty: &mut bool) {
+    let mut on = time.is_some();
+    if ui
+        .checkbox(&mut on, "Time of day")
+        .on_hover_text(
+            "Off: the world's light is exactly as the fields above set it. On: \
+             those fields are the world at noon, and it is drawn at the hour \
+             below - the sun along its day's arc, low and red at dawn and \
+             dusk, and at night the moon and the stars.",
+        )
+        .changed()
+    {
+        *time = on.then(crate::pds::TimeOfDay::default);
+        *dirty = true;
+    }
+    let Some(time) = time.as_mut() else {
+        return;
+    };
+    let now = crate::time_of_day::unix_now();
+    let shown = crate::time_of_day::hour_at(time, now);
+    let mut hour = shown;
+    let moved = ui
+        .add(
+            crate::ui::num::slider(&mut hour, 0.0..=24.0)
+                .text("Hour")
+                .custom_formatter(|v, _| clock_text(v))
+                .custom_parser(clock_hours),
+        )
+        .on_hover_text(
+            "12:00 is noon, the world as the fields above set it; 6:00 sunrise \
+             and 18:00 sunset. With a day length, the hour it is now - and it \
+             moves on.",
+        )
+        .changed();
+    // The shown hour moves with the clock: only a hand moves the record.
+    if moved && (hour - shown).abs() > 1.0e-4 {
+        time.hour = crate::time_of_day::anchored(hour, time.day_minutes, now);
+        *dirty = true;
+    }
+    // A log slider from a minute up, 0 below it: a shorter day would flash
+    // the room between day and night (`limits::MIN_DAY_MINUTES`).
+    ui.horizontal(|ui| {
+        ui.label("Day length (min)");
+        let mut minutes = time.day_minutes.0;
+        let response = ui.add(
+            crate::ui::num::slider(&mut minutes, 0.0..=crate::pds::limits::MAX_DAY_MINUTES)
+                .logarithmic(true)
+                .smallest_positive(f64::from(crate::pds::limits::MIN_DAY_MINUTES)),
+        );
+        let length = crate::pds::TimeOfDay::day_length(Fp(minutes));
+        if response.changed() && length != time.day_minutes {
+            // The hour stays the one shown: a new length alone would move
+            // it anywhere at all, every frame of a drag.
+            let hour_now = crate::time_of_day::hour_at(time, now);
+            time.hour = crate::time_of_day::anchored(hour_now, length, now);
+            time.day_minutes = length;
+            *dirty = true;
+        }
+        response
+    })
+    .inner
+    .on_hover_text(
+        "0: the hour stands still. Otherwise a whole day takes this many real \
+         minutes, from 1 - 1440 is a real day - and the hour turns with the \
+         clock, the same for everyone in the world without anything sent \
+         between them.",
+    );
+}
+
+/// `hours` (0 to 24) as a clock face shows it: `14:30`.
+fn clock_text(hours: f64) -> String {
+    let minutes = (hours.rem_euclid(24.0) * 60.0).round() as i64 % (24 * 60);
+    format!("{:02}:{:02}", minutes / 60, minutes % 60)
+}
+
+/// An hour typed as `14:30` or as `14.5`.
+fn clock_hours(text: &str) -> Option<f64> {
+    match text.trim().split_once(':') {
+        Some((h, m)) => {
+            let (h, m) = (h.trim().parse::<f64>().ok()?, m.trim().parse::<f64>().ok()?);
+            ((0.0..=24.0).contains(&h) && (0.0..60.0).contains(&m)).then_some(h + m / 60.0)
+        }
+        None => crate::ui::num::locale_number(text),
+    }
+}
+
 /// The sun slider's top, a tenth short of overhead. At exactly 90 degrees,
 /// `90f32.to_radians()` lands a hair past a right angle and its cosine is
 /// -4e-8: the sun's horizontal reach turns negative, it reads back with
@@ -176,6 +267,16 @@ pub(super) fn draw_environment_tab(
         .show(ui, |ui| {
             color_picker(ui, "Sun colour", &mut env.sun_color, dirty);
             sun_direction(ui, &mut env.sun_position, dirty);
+            if env.time_of_day.is_some() {
+                ui.label(
+                    egui::RichText::new(
+                        "With a time of day, the sun, the sky and the light here \
+                         are the world at noon.",
+                    )
+                    .small()
+                    .color(crate::ui::theme::current(ui.ctx()).text_weak),
+                );
+            }
             color_picker(ui, "Sky colour", &mut env.sky_color, dirty).on_hover_text(
                 "The sky overhead. Toward the horizon it hazes into the fog colour, \
                  and a dark sky shows the stars.",
@@ -204,6 +305,10 @@ pub(super) fn draw_environment_tab(
                 dirty,
             );
         });
+
+    egui::CollapsingHeader::new("Time of day")
+        .default_open(false)
+        .show(ui, |ui| time_of_day(ui, &mut env.time_of_day, dirty));
 
     egui::CollapsingHeader::new("Colour grading")
         .default_open(false)
@@ -897,6 +1002,23 @@ fn centred_at(square: GeoSquare, lat: f64, lon: f64) -> Option<GeoSquare> {
 mod tests {
     use super::*;
     use std::f32::consts::FRAC_1_SQRT_2;
+
+    /// The hour slider's clock face (#1677): shown as hours and minutes,
+    /// midnight as 00:00 however it is reached, and typed as `14:30`, as
+    /// `14,5` or as `14.5` - nothing off the clock face.
+    #[test]
+    fn the_hour_reads_and_types_as_a_clock_face() {
+        assert_eq!(clock_text(14.5), "14:30");
+        assert_eq!(clock_text(24.0), "00:00");
+        assert_eq!(clock_text(23.999), "00:00");
+        assert_eq!(clock_hours("14:30"), Some(14.5));
+        assert_eq!(clock_hours(" 7 : 15 "), Some(7.25));
+        assert_eq!(clock_hours("14,5"), Some(14.5));
+        assert_eq!(clock_hours("14.5"), Some(14.5));
+        for off in ["-1:30", "25:00", "12:60", "noon"] {
+            assert_eq!(clock_hours(off), None, "{off}");
+        }
+    }
 
     #[test]
     fn region_squares_drawn_resized_or_moved_lie_inside_berlin() {

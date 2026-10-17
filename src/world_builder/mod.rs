@@ -240,7 +240,9 @@ pub(crate) fn register_headless_compile(app: &mut App) {
                     any_with_component::<crate::terrain::TerrainMesh>
                         .and_then(resource_exists::<crate::state::LiveRoomRecord>),
                 ),
-                compile::apply_environment_state,
+                compile::apply_environment_state
+                    .after(crate::time_of_day::DrawEnvironmentSet)
+                    .after(compile::compile_room_record),
                 image_cache::poll_blob_image_tasks,
                 audio_resolver::poll_blob_audio_tasks,
                 spatial_audio::poll_spatial_audio_tasks,
@@ -574,7 +576,9 @@ impl Plugin for WorldBuilderPlugin {
                                 .or_else(resource_exists::<crate::attract::AttractScene>),
                         ),
                     ),
-                    compile::apply_environment_state,
+                    compile::apply_environment_state
+                        .after(crate::time_of_day::DrawEnvironmentSet)
+                        .after(compile::compile_room_record),
                     compile::apply_contact_recipes,
                     image_cache::poll_blob_image_tasks,
                     // Say when a re-roll's world has finished rebuilding

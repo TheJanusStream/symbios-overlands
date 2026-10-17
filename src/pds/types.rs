@@ -117,6 +117,14 @@ impl Fp {
         (self.0 * FP_SCALE).round() as i32 == 0
     }
 
+    /// `self` as a peer reads it back: rounded onto the wire's 1/10 000
+    /// grid as it is written, and read back as it is read. A value every
+    /// peer must agree on to the bit - a turning day's length (#1677) - is
+    /// kept as this.
+    pub(crate) fn on_wire(self) -> Fp {
+        Fp((self.0 * FP_SCALE).round() as i32 as f32 / FP_SCALE)
+    }
+
     /// `self` clamped into `[lo, hi]`, with any non-finite value collapsed
     /// to `lo`. `f32::clamp` propagates NaN, so a hostile record could
     /// otherwise carry a NaN straight through a sanitiser into a transform.

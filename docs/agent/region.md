@@ -216,7 +216,11 @@ it: it is read from what the record already stores, so these are its levers.
   looking straight down; real water is about 0.02, so lower it for clear
   water - waves, wakes) and in `/environment`
   (`water_normal_scale_near/far`, `water_sun_glitter`,
-  `water_shore_foam_width`, `water_scatter_color`).
+  `water_shore_foam_width`, `water_scatter_color`). The glitter and the
+  foam are at full strength under a key light as bright as a white one of
+  4,000 lux (a tinted light needs more lux for the same brightness) and
+  take its share under a dimmer one - a low sun, the moon, a night room's
+  light (#1677) - where they used to glow.
 - **Shallows read as mud.** The shallow colour's alpha lets the lake bed
   show through where the water is under a metre deep, so a brown
   `shallow_color` draws every shallow margin as a mud flat - the Understory's
@@ -258,6 +262,26 @@ it: it is read from what the record already stores, so these are its levers.
   reflects the sky. `ambient_brightness` is still the level - what an
   upward face receives - so a blue sky cools the shade and a dusty one
   warms it, and walls and undersides are a little darker than the ground.
+- **A time of day** (#1677): `/environment/time_of_day`, `{"hour": 180000,
+  "day_minutes": 0}` (scaled ints: 180000 is 18:00), draws the room at that
+  hour, its other fields as its noon. The sun turns along its day's arc
+  through where `sun_position` puts it at noon - rising at 6:00 a quarter
+  turn round the horizon from noon's bearing, setting at 18:00 opposite,
+  under the horizon by night - its light dimmer and redder the lower it
+  stands, the sky and the horizon darker and warmer round sunrise and
+  sunset, and by night the moon and the stars. The moon stands opposite the
+  sun and gives 7% of the noon sun's light, kept within 400 to 2,000 lux
+  and never above noon's; the hour says whether the disc is the sun or the
+  moon, so a low red sun is drawn as the sun however dim it is. With
+  `day_minutes` above 0 the day turns with the clock: a whole day takes
+  that many real minutes (1440 is a real day; a minute at least, as a
+  shorter day would flash the room between day and night, and a week at
+  most), every visitor sees the same hour as nearly as their clocks agree,
+  and `hour` is the hour at the turn of the clock's day (UTC, from 1970).
+  Without the key - the default - the room is drawn as its fields set it,
+  whatever the time. Render an hour with `render --world <did> --hour 18`
+  (without `--hour`, a turning day renders at the hour it is now); noon's
+  fields stay the lever for every hour, so judge a colour change at 12.
 - **The clouds are lit and cast shade** (#1673): one layer at
   `cloud_height`. `cloud_cover` is the share of the sky they cover - 0.3
   scattered, 0.75 broken with sunny gaps, 1 a whole overcast (before #1673

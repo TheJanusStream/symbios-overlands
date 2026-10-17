@@ -116,6 +116,76 @@ pub struct Environment {
     /// [`AudioPatch`]: bevy_symbios_audio::AudioPatch
     /// [`SequenceRecipe`]: bevy_symbios_audio::SequenceRecipe
     pub ambient_audio: crate::pds::audio::SovereignAudioConfig,
+
+    /// The room's time of day (#1677). `None`, the default and every room
+    /// made before it, keeps the light exactly as the fields above set it.
+    /// `Some` makes those fields the room at noon - its sun where
+    /// [`Self::sun_position`] stands, its sky and fog as they are - and
+    /// draws it at the hour [`TimeOfDay`] gives: the sun turned along its
+    /// day's arc, low and red at dawn and dusk, set at night under the moon
+    /// and the stars (see `crate::time_of_day`). Older clients ignore the
+    /// key and draw the room at its noon.
+    pub time_of_day: Option<TimeOfDay>,
+}
+
+/// When a room stands in its day (#1677): an hour the owner sets, which
+/// stands still, or, with [`Self::day_minutes`], a day that turns with the
+/// clock - the same hour for every visitor, read off UTC, with no message
+/// between them.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[serde(default)]
+pub struct TimeOfDay {
+    /// The hour, 0 to 24: 12 is noon, the room as its other fields set it.
+    /// With a turning day, the hour the day stands at when the clock's
+    /// count of days (UTC, from 1970) begins a new one.
+    pub hour: Fp,
+    /// Real minutes a whole day takes, or 0 for an hour that stands still.
+    pub day_minutes: Fp,
+}
+
+impl Default for TimeOfDay {
+    fn default() -> Self {
+        Self {
+            hour: Fp(12.0),
+            day_minutes: Fp(0.0),
+        }
+    }
+}
+
+impl TimeOfDay {
+    /// `hours` as the record holds an hour: wrapped round the clock face
+    /// into `0..24` - 25 is 1 - on the wire's grid, and a NaN or an
+    /// infinity noon, the room as its other fields set it. What the
+    /// sanitiser keeps and the editor and the render tool write.
+    pub fn clock_hour(hours: f32) -> Fp {
+        if !hours.is_finite() {
+            return Fp(12.0);
+        }
+        let hour = Fp(hours.rem_euclid(24.0)).on_wire();
+        // A hair under 24 rounds onto 24 itself, which is 0.
+        if hour.0 >= 24.0 { Fp(0.0) } else { hour }
+    }
+
+    /// `minutes` as the record holds a day length: 0, an hour that stands
+    /// still - as is a NaN, a negative length or one the wire writes as 0 -
+    /// or a day of [`limits::MIN_DAY_MINUTES`] to [`limits::MAX_DAY_MINUTES`]
+    /// on the wire's grid. What the sanitiser keeps and the editor writes.
+    ///
+    /// On the grid because a turning day's hour is its share of every day
+    /// since 1970 - four million of them, for a seven-minute day - so a
+    /// length a ten-thousandth of a minute off its wire value puts the hour
+    /// anywhere at all: the owner must hold the very length every visitor
+    /// reads back.
+    pub fn day_length(minutes: Fp) -> Fp {
+        if !minutes.0.is_finite() || minutes.0 <= 0.0 || minutes.is_wire_zero() {
+            Fp(0.0)
+        } else {
+            Fp(minutes
+                .0
+                .clamp(limits::MIN_DAY_MINUTES, limits::MAX_DAY_MINUTES))
+            .on_wire()
+        }
+    }
 }
 
 // Default-eliding wire format (#695): a freshly-seeded room overrides only
@@ -152,6 +222,7 @@ crate::pds::serde_util::impl_default_eliding_serialize!(Environment {
     grade_tint,
     grade_saturation,
     ambient_audio,
+    time_of_day,
 });
 
 impl Default for Environment {
@@ -195,6 +266,8 @@ impl Default for Environment {
             grade_saturation: Fp(g::SATURATION),
 
             ambient_audio: crate::pds::audio::SovereignAudioConfig::None,
+
+            time_of_day: None,
         }
     }
 }
@@ -279,6 +352,15 @@ impl Environment {
         // the falloff remains well-defined even under an adversarial record.
         self.fog_visibility = Fp(self.fog_visibility.0.clamp(10.0, 10_000.0));
         self.fog_sun_exponent = Fp(self.fog_sun_exponent.0.clamp(0.0, 200.0));
+
+        // Time of day (#1677): an hour on the clock face, wrapped rather
+        // than clamped so 25 reads as 1 (`TimeOfDay::clock_hour`), and a
+        // day of a minute to a week or none (`TimeOfDay::day_length`), both
+        // as the wire holds them.
+        if let Some(time) = self.time_of_day.as_mut() {
+            time.hour = TimeOfDay::clock_hour(time.hour.0);
+            time.day_minutes = TimeOfDay::day_length(time.day_minutes);
+        }
 
         // Water-environment fields. Keep every channel in a finite,
         // physically-sane range - a NaN or negative normal-tiling scale

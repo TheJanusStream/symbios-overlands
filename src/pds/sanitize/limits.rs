@@ -23,6 +23,14 @@ pub const MAX_TEXTURE_SIZE: u32 = 4096;
 pub const MIN_TILE_SCALE: f32 = 1.0;
 pub const MAX_TILE_SCALE: f32 = 500.0;
 
+/// The shortest and the longest day a room's time of day may turn through
+/// (#1677), in real minutes: a minute and a week. A shorter day would flash
+/// the room between day and night faster than is safe to watch - one a few
+/// frames long changes its light every frame - so a shorter one is raised to
+/// a minute; at a minute night falls once in half a minute.
+pub const MIN_DAY_MINUTES: f32 = 1.0;
+pub const MAX_DAY_MINUTES: f32 = 10_080.0;
+
 /// Scatter placement count.
 pub const MAX_SCATTER_COUNT: u32 = 100_000;
 /// Generator-name length (chars) shared by the room recipe and the
