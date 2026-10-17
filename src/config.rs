@@ -704,6 +704,29 @@ pub(crate) mod terrain {
     /// How many times the tiling textures repeat across the terrain.
     pub const TILE_SCALE: f32 = 90.0;
 
+    /// What the ground offers whatever grows on it (`crate::ground_cover`,
+    /// #1674): the cover mask's resolution and what blocks it.
+    pub mod ground_cover {
+        /// Cover texels per heightmap cell along each side: at the default
+        /// 2 m cell a texel is 1 m, finer than any road or wall worth
+        /// keeping grass off, coarse enough to redraw in milliseconds.
+        pub const TEXELS_PER_CELL: usize = 2;
+        /// A solid shape whose lowest point stands more than this above the
+        /// ground under its middle stands clear of it: grass grows under a
+        /// bridge, a raised deck or a roof's overhang, not under a wall.
+        pub const GROUNDED_REACH: f32 = 1.0;
+        /// Ground lower than this above the water line, or under it, grows
+        /// nothing.
+        pub const WATER_MARGIN: f32 = 0.1;
+        /// How long the world must hold still before the mask is redrawn
+        /// (s): an editor drag or a compile settling redraws it once.
+        pub const REBUILD_DEBOUNCE: f32 = 0.5;
+        /// Horizontal directions a convex shape's outline is taken in: 16
+        /// finds a box's four corners exactly and rounds a ball to a
+        /// hexadecagon.
+        pub const OUTLINE_DIRECTIONS: usize = 16;
+    }
+
     // --- Water volume (visual) -----------------------------------------------
     pub mod water {
         // --- Environment-global water defaults (Room `Environment` fields) ---

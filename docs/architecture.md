@@ -337,6 +337,11 @@ generation cores shared with the wasm Web Worker.
   turn each client gives a node whose record says it turns (a windmill's
   sails, a wheel rolling with its vehicle, a flag streaming in the room's
   wind), held at the authored pose while an editor has a selection.
+- [`src/ground_cover/`](../src/ground_cover/) - what the ground offers
+  whatever grows on it (#1674): the terrain's height as a GPU texture, the
+  splat weight map shared with the ground's material, and a cover mask of
+  where something may grow, redrawn on the CPU from every static collider's
+  outline on the ground and from the water line once the world settles.
 - [`src/terrain/`](../src/terrain/), [`src/urban/`](../src/urban/),
   [`src/splat.rs`](../src/splat.rs), [`src/water.rs`](../src/water.rs),
   [`src/clouds.rs`](../src/clouds.rs), [`src/wind.rs`](../src/wind.rs) -

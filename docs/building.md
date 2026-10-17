@@ -977,6 +977,13 @@ cargo run --bin render -- --world <did> --world-record room.json --triangle-repo
 # its rows say the `seed`; L-systems and signs are not meshed and their
 # generators are listed as `unmeshed`; ~1 s:
 cargo run --bin render -- --world <did> --world-record room.json --floating-report
+# A world's ground as whatever grows on it reads it (#1674): with any --world
+# shot, also a PNG from above, one pixel a cover texel (a metre), north up -
+# the ground hill-shaded and tinted by its splat layers (first green, second
+# brown, third grey, fourth white), blue where it lies under water, red
+# under roads, buildings and anything else solid standing on it. The log's
+# "ground cover drawn" line says how many outlines it took and how long:
+cargo run --profile test-release --bin render -- --world 3 --cover-map /tmp/cover.png
 # A world's ambient bed as a WAV file, no render (#1519): the game's own bake of
 # the room's ambient_audio recipe (mono 16-bit PCM), and one JSON line with its
 # rate, its length and loop_start_s - the game plays every pass from there to

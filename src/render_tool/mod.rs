@@ -129,6 +129,7 @@ use crate::pds::types::{Fp, Fp2};
 use crate::pds::{Generator, GeneratorKind, RoomRecord};
 
 mod ambient_wav;
+mod cover;
 mod driver;
 mod editor;
 mod figure;
@@ -483,6 +484,13 @@ struct Args {
     /// it.
     #[arg(long, requires = "world", value_name = "PATH")]
     world_record: Option<String>,
+    /// With `--world`: also write the ground as whatever grows on it reads
+    /// it (#1674) - a PNG from above, one pixel a cover texel, north up:
+    /// the ground hill-shaded and tinted by its splat layers, blue where
+    /// it lies under water, red under roads, buildings and anything else
+    /// solid standing on it.
+    #[arg(long, requires = "world", value_name = "PATH")]
+    cover_map: Option<String>,
     /// With `--world`: build the region from this square of real Berlin
     /// (#1584) - `E,N,SIZE`, the south-west corner and the side in whole
     /// metres of EPSG:25833 (the World Editor's Region source shows them
@@ -1400,6 +1408,16 @@ pub fn run() {
     );
     if let Subject::World(spec) = &subject {
         world::register(&mut app, spec, walker);
+        if let Some(path) = &args.cover_map {
+            app.insert_resource(cover::CoverMapOut(path.into()))
+                .add_systems(
+                    Update,
+                    cover::write_cover_map.run_if(
+                        resource_exists::<cover::CoverMapOut>
+                            .and_then(resource_exists::<crate::ground_cover::GroundCover>),
+                    ),
+                );
+        }
         if let Some(driver) = &driver {
             driver::register(&mut app, driver.clone());
         }

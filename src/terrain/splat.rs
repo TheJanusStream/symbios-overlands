@@ -388,6 +388,8 @@ pub(super) fn apply_splat_textures(
         weight_map.height as u32,
         wm_bytes,
     ));
+    // Whatever grows on the ground reads the same weights (#1674).
+    commands.insert_resource(crate::ground_cover::SplatWeights(wm_handle.clone()));
 
     // Damp ground near the water line (#913, WS5 step 3). Read from the
     // same drawn water line the scatter sampler's riparian band uses -

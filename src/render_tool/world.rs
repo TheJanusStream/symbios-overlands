@@ -262,6 +262,9 @@ pub(super) struct WorldReadiness<'w, 's> {
     /// The record's instance sets (#1643), drawn over the frames after the
     /// compile until every copy is.
     instances: Option<Res<'w, crate::world_builder::instances::InstanceBuilds>>,
+    /// The ground's cover (#1674), drawn once the rest has held still.
+    ground: Option<Res<'w, crate::ground_cover::GroundCover>>,
+    cover: Option<Res<'w, crate::ground_cover::CoverDirty>>,
     bakes: BakesInFlight<'w, 's>,
 }
 
@@ -269,8 +272,9 @@ impl WorldReadiness<'_, '_> {
     /// At least one compile pass has landed, no pass is running, the
     /// ground shows its splat, no road re-mesh or lot re-derive is armed
     /// or in flight, a Berlin square is seeded into the record, every
-    /// instance set's copies are drawn, and every procedural texture the
-    /// compile dispatched has been baked and patched into its material.
+    /// instance set's copies are drawn, the ground's cover is drawn over
+    /// them, and every procedural texture the compile dispatched has been
+    /// baked and patched into its material.
     pub(super) fn settled(&self) -> bool {
         self.compiled.is_some()
             && self.job.as_ref().is_some_and(|j| j.progress().is_none())
@@ -281,7 +285,14 @@ impl WorldReadiness<'_, '_> {
                 .instances
                 .as_ref()
                 .is_none_or(|instances| instances.is_idle())
+            && self.cover_drawn()
             && self.bakes.count() == 0
+    }
+
+    /// The ground's cover has been drawn and nothing has moved since.
+    fn cover_drawn(&self) -> bool {
+        self.ground.as_ref().is_some_and(|g| g.revision > 0)
+            && self.cover.as_ref().is_some_and(|c| !c.pending())
     }
 
     /// Whether the record is a Berlin square still to be seeded (#1647):
@@ -307,7 +318,7 @@ impl WorldReadiness<'_, '_> {
     /// One line for the progress log and the timeout panic.
     pub(super) fn status(&self) -> String {
         format!(
-            "compiled={} compile_progress={:?} splat={} roads_pending={:?} streets={:?} buildings={:?} unseeded={} instances_spawning={} bakes_in_flight={}",
+            "compiled={} compile_progress={:?} splat={} roads_pending={:?} streets={:?} buildings={:?} unseeded={} instances_spawning={} cover_drawn={} bakes_in_flight={}",
             self.compiled.is_some(),
             self.job.as_ref().and_then(|j| j.progress()),
             self.splat.is_some(),
@@ -318,6 +329,7 @@ impl WorldReadiness<'_, '_> {
             self.instances
                 .as_ref()
                 .is_some_and(|instances| !instances.is_idle()),
+            self.cover_drawn(),
             self.bakes.count(),
         )
     }
@@ -330,6 +342,8 @@ pub(super) fn register(app: &mut App, spec: &WorldSpec, walker: Option<WalkerSpe
     crate::terrain::register_headless_roads(app);
     crate::world_builder::register_headless_compile(app);
     crate::register_headless_atmosphere(app);
+    // What the ground offers whatever grows on it (#1674): the game's own.
+    app.add_plugins(crate::ground_cover::GroundCoverPlugin);
     // The game's zoom-following shadow reach, fed from the rig (#1475).
     crate::shadow_reach::register(app, super::headless::follow_rig_zoom);
     // An orthographic rig's scale, before the camera's matrices (#1603).

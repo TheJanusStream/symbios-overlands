@@ -101,6 +101,14 @@ impl TerrainSurfaceQuery {
         self
     }
 
+    /// The ground's normalised splat weights at a world XZ, in its four
+    /// layers' order - the rules' or, on ground built from real Berlin, its
+    /// land use's (#1674's `--cover-map` paints them).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn weights_at(&self, world_x: f32, world_z: f32) -> [f32; 4] {
+        self.sample(world_x, world_z).1
+    }
+
     /// Ground height, normalised `[Grass, Dirt, Rock, Snow]` splat
     /// weights and unit surface normal at a world XZ.
     fn sample(&self, world_x: f32, world_z: f32) -> (f32, [f32; 4], Vec3) {
