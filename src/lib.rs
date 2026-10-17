@@ -80,6 +80,7 @@ pub mod config;
 pub mod diagnostics;
 pub mod editor_gizmo;
 pub mod geodata;
+pub mod grass;
 pub mod ground_cover;
 pub mod interaction;
 pub mod item_preview;
@@ -395,6 +396,7 @@ pub(crate) fn build_client_app(app: &mut App, boot: boot_params::BootParams, she
         .add_plugins(wind::VegetationWindPlugin)
         .add_plugins(terrain::TerrainPlugin)
         .add_plugins(ground_cover::GroundCoverPlugin)
+        .add_plugins(grass::GrassPlugin)
         .add_plugins(world_builder::WorldBuilderPlugin)
         // Fetches and keeps GDI Berlin's geodata for geodata regions (#1582).
         .add_plugins(geodata::GeodataPlugin)

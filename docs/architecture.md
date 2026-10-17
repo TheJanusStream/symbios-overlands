@@ -342,6 +342,11 @@ generation cores shared with the wasm Web Worker.
   splat weight map shared with the ground's material, and a cover mask of
   where something may grow, redrawn on the CPU from every static collider's
   outline on the ground and from the water line once the world settles.
+- [`src/grass/`](../src/grass/) - the GPU grass (#1675): tiles of blades
+  laid around the camera, every tile one of three meshes, each blade stood
+  on the ground, grown and coloured by `assets/shaders/grass.wgsl` from the
+  ground cover's textures and a profile read from the record's own ground
+  layers, grass tufts and flowers; a per-account quality setting.
 - [`src/terrain/`](../src/terrain/), [`src/urban/`](../src/urban/),
   [`src/splat.rs`](../src/splat.rs), [`src/water.rs`](../src/water.rs),
   [`src/clouds.rs`](../src/clouds.rs), [`src/wind.rs`](../src/wind.rs) -

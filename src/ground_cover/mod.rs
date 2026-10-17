@@ -1,7 +1,7 @@
 //! What the ground offers whatever grows on it (#1674): the terrain's
 //! height as a GPU texture, the splat weights the ground is painted with,
 //! and a cover mask of where something may grow at all. The GPU grass
-//! (#1675) is meant to read all three; nothing draws them yet.
+//! ([`crate::grass`], #1675) reads all three.
 //!
 //! [`GroundCover`] holds them, for the room whose heightmap is up:
 //!
@@ -409,11 +409,14 @@ fn is_static(entity: Entity, bodies: &Query<&RigidBody>, parents: &Query<&ChildO
 }
 
 /// Put `image` in `handle`'s place, so whatever binds the handle reads the
-/// new one. A handle held strongly cannot outlive its slot; were it ever to,
-/// the old texture would stay, and the log says so.
-fn replace(images: &mut Assets<Image>, handle: &Handle<Image>, image: Image) {
+/// new one - and one of the same size and format is copied into the GPU
+/// texture already bound, so a material binding it is not rebuilt (the
+/// grass's bodies, #1675, rely on it). A handle held strongly cannot
+/// outlive its slot; were it ever to, the old texture would stay, and the
+/// log says so.
+pub(crate) fn replace(images: &mut Assets<Image>, handle: &Handle<Image>, image: Image) {
     if let Err(error) = images.insert(handle, image) {
-        warn!("ground cover: could not replace a texture: {error}");
+        warn!("could not replace a texture in place: {error}");
     }
 }
 

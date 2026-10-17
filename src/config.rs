@@ -1095,6 +1095,79 @@ pub(crate) mod vegetation_wind {
     }
 }
 
+/// The GPU grass (`crate::grass`, #1675): a field of blades laid in tiles
+/// around the camera, each blade stood on the ground by the vertex shader.
+pub(crate) mod grass {
+    /// Side of a grass tile (m): the unit the field is laid and moved in.
+    pub const TILE_M: f32 = 8.0;
+    /// Blades per square metre in a near tile at the High setting.
+    pub const BLADES_PER_M2: f32 = 90.0;
+    /// The share of a near tile's blades a middle and a far tile carry:
+    /// a blade there is a pixel or two, and a few of them read as many.
+    pub const MID_SHARE: f32 = 0.4;
+    pub const FAR_SHARE: f32 = 0.15;
+    /// The field keeps every blade out to its `full` distance, and is
+    /// thinned to the middle share by this many times that distance and to
+    /// the far share by this many.
+    pub const MID_AT: f32 = 1.6;
+    pub const FAR_AT: f32 = 2.5;
+    /// The field fades out from this share of its reach to its reach.
+    pub const FADE_FROM: f32 = 0.75;
+    /// A blade's height (m) and its width at the root (m).
+    pub const BLADE_HEIGHT: f32 = 0.42;
+    pub const BLADE_WIDTH: f32 = 0.06;
+    /// How far a blade's tip leans in the room's wind at its default speed
+    /// (m); a stronger wind leans it further, to two and a half times this.
+    pub const WIND_LEAN: f32 = 0.12;
+    /// The bodies the grass parts around, at most: the nearest to the
+    /// camera.
+    pub const MAX_BENDERS: usize = 8;
+    /// How far (m) from a body's middle the blades lean away, at least; a
+    /// body with collider bounds parts as far as its footprint's longer
+    /// half-side and this margin beyond it.
+    pub const BEND_REACH: f32 = 0.9;
+    pub const BEND_MARGIN: f32 = 0.4;
+    /// How high above its feet (m) a body without collider bounds is taken
+    /// to stand at most: a person's middle.
+    pub const BODY_DROP: f32 = 1.0;
+    /// A ground cover scatter of this many grass tufts makes the room's
+    /// grass layers as lush as they come; fewer, less so.
+    pub const LUSH_TUFTS: f32 = 1_500.0;
+    /// A flower card stands among a dozen blades or so: the share of the
+    /// blades that are flowers is this share of the room's ground cover
+    /// cards that are, and at most [`MAX_FLOWER_SHARE`] - a lush room's
+    /// wildflower clumps are a third of its grass cards, and a flower in
+    /// fifty blades is a meadow in flower.
+    pub const FLOWERS_PER_CARD: f32 = 0.06;
+    pub const MAX_FLOWER_SHARE: f32 = 0.02;
+
+    /// One quality setting's field: how far it reaches (m), the share of
+    /// [`BLADES_PER_M2`] its tiles carry, and how far (m) it keeps every
+    /// blade before it thins - past the player at the game camera's 12 m,
+    /// except at Low.
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Field {
+        pub reach: f32,
+        pub density: f32,
+        pub full: f32,
+    }
+    pub const LOW: Field = Field {
+        reach: 24.0,
+        density: 0.45,
+        full: 8.0,
+    };
+    pub const MEDIUM: Field = Field {
+        reach: 40.0,
+        density: 0.7,
+        full: 14.0,
+    };
+    pub const HIGH: Field = Field {
+        reach: 64.0,
+        density: 1.0,
+        full: 16.0,
+    };
+}
+
 // ---------------------------------------------------------------------------
 // Avatar-world interaction framework (interaction/)
 // ---------------------------------------------------------------------------

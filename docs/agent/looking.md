@@ -70,7 +70,11 @@ experiments:
 - It draws what a visitor with default settings sees, and that includes
   the ground-cover draw distance (#1480): ferns, grass, moss and reeds more
   than 150 m from the camera are not drawn. Judge ground cover from where
-  people stand (views.py), never from a far aerial shot.
+  people stand (views.py), never from a far aerial shot. The grass field
+  (#1675) is drawn at the desktop setting, 64 m around the camera;
+  `--grass low` draws it as a WebGL2 browser visitor sees it by default
+  (24 m, thinner), `--grass medium` as a WebGPU one does, `--grass off` not
+  at all.
 - `--focus=X,Y,Z` takes a WORLD height: the ground here is 8-14 m up, and a
   focus at `y = 3` meant "3 m up" put the camera under the terrain. Read
   the ground from `--terrain-report --at=X,Z` and add to it.

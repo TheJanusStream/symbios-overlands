@@ -162,6 +162,38 @@ them as dunes; `normal_strength` 0.8 -> 0.5 (the sanitiser's floor) with
 `leaf_thickness` 0.15 halved the ripple (a Laplacian spread 35 -> 17 live),
 and grass tufts on the open tops broke up the rest.
 
+## Grass
+
+Since #1675 every world grows a field of grass blades on its own ground,
+drawn by the graphics card around each visitor's camera (64 m on a desktop,
+less in a browser - Settings > Draw distance > Grass). No record field holds
+it: it is read from what the record already stores, so these are its levers.
+
+- **Where it grows** is each layer's texture: a green `Ground` grows it
+  thickest, a brown one a little, `Moss` and `ForestFloor` some, `Sand` and
+  `Gravel` a few stalks, `Rock`, `Snow`, `Ice`, `Lava` and paving none. A
+  white `Ground` (snow painted as soil) grows none, and neither does a
+  layer drawn from an uploaded image, whose colours cannot be read. Thin
+  ground grows it in clumps, bare between.
+- **A world that scatters grass tufts grows grass where they may**: every
+  layer a `GrassTuft` scatter's `biome_filter` names (none named: the first
+  two), up to full thickness at 1,500 tufts on the first layer and half on
+  the others - a savanna's sand layer under dry tufts is grass country, and
+  so is an uploaded-image layer under them.
+- **Its colours are your tufts'**: the `GrassTuft` texture your scatters
+  place most of (a crossed card counts once), its `color_base`,
+  `color_tip` and `color_dry`, and the tufts' `dry_fraction` as the share
+  of dry blades. No tufts, the catalogue's default tuft.
+- **Its flowers are your flower cards'**: up to four `Flower` petal
+  `color_base`s, one blade in fifty at most.
+- **Nothing grows** under anything solid standing on the ground (a
+  building, a road, a placed piece with a collider), under water, or on
+  ground less than 10 cm above the water line. A body standing in it -
+  a visitor, a car - parts it under its footprint.
+- Further out the blades take the colour of the ground they stand on, so the
+  field's edge does not show; a `--world` render draws it as a desktop
+  visitor sees it.
+
 ## Water, sky and light
 
 - The water's look is in the water child's `surface` (`deep_color`,

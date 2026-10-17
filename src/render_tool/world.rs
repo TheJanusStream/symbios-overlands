@@ -344,6 +344,8 @@ pub(super) fn register(app: &mut App, spec: &WorldSpec, walker: Option<WalkerSpe
     crate::register_headless_atmosphere(app);
     // What the ground offers whatever grows on it (#1674): the game's own.
     app.add_plugins(crate::ground_cover::GroundCoverPlugin);
+    // The grass that grows on it (#1675), at the desktop's setting.
+    app.add_plugins(crate::grass::GrassPlugin);
     // The game's zoom-following shadow reach, fed from the rig (#1475).
     crate::shadow_reach::register(app, super::headless::follow_rig_zoom);
     // An orthographic rig's scale, before the camera's matrices (#1603).
@@ -699,6 +701,8 @@ fn spawn_one_walker(
         images,
         bindposes,
     );
+    // The grass parts around a walker as around a player (#1675).
+    commands.entity(chassis).insert(crate::grass::PartsGrass);
     commands.entity(chassis).insert(Walker {
         from,
         dir,

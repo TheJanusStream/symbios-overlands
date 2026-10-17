@@ -984,6 +984,9 @@ cargo run --bin render -- --world <did> --world-record room.json --floating-repo
 # under roads, buildings and anything else solid standing on it. The log's
 # "ground cover drawn" line says how many outlines it took and how long:
 cargo run --profile test-release --bin render -- --world 3 --cover-map /tmp/cover.png
+# A world's grass (#1675) is drawn at the desktop's High setting; --grass draws
+# it as a browser visitor's default does (low: WebGL2, medium: WebGPU) or off:
+cargo run --profile test-release --bin render -- --world 34 --grass low --out /tmp/low.png
 # A world's ambient bed as a WAV file, no render (#1519): the game's own bake of
 # the room's ambient_audio recipe (mono 16-bit PCM), and one JSON line with its
 # rate, its length and loop_start_s - the game plays every pass from there to

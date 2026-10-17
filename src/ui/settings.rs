@@ -206,6 +206,41 @@ pub fn settings_ui(
                         )
                         .changed();
                 });
+                // #1675: the GPU grass's reach and thickness. Its cost is the
+                // graphics card's, not the browser CPU's the slider above
+                // spares, so it is a setting of its own.
+                ui.horizontal(|ui| {
+                    ui.label("Grass:");
+                    // Shown at the build's default until one is picked, and
+                    // kept only once it is (see `LocalSettings::grass_quality`).
+                    let shown = crate::grass::GrassQuality::of(s);
+                    for quality in crate::grass::GrassQuality::ALL {
+                        let picked = ui
+                            .selectable_label(shown == quality, quality.label())
+                            .on_hover_text(match quality {
+                                crate::grass::GrassQuality::Off => {
+                                    "No grass on the ground. The grass tufts and flowers \
+                                 a world places are still drawn."
+                                }
+                                crate::grass::GrassQuality::Low => {
+                                    "Thin grass close around you: the lightest on the \
+                                 graphics card, for a web browser or an older machine."
+                                }
+                                crate::grass::GrassQuality::Medium => {
+                                    "Thicker grass reaching further out."
+                                }
+                                crate::grass::GrassQuality::High => {
+                                    "The thickest grass, reaching furthest: for a \
+                                 desktop graphics card."
+                                }
+                            })
+                            .clicked();
+                        if picked && s.grass_quality != Some(quality) {
+                            s.grass_quality = Some(quality);
+                            dirty = true;
+                        }
+                    }
+                });
 
                 ui.add_space(8.0);
                 ui.separator();

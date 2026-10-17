@@ -491,6 +491,12 @@ struct Args {
     /// solid standing on it.
     #[arg(long, requires = "world", value_name = "PATH")]
     cover_map: Option<String>,
+    /// With `--world`: draw the grass (#1675) at this setting - `off`,
+    /// `low` (a WebGL2 browser's default), `medium` (a WebGPU browser's) or
+    /// `high` (the desktop's, and the default here) - to see a world as a
+    /// browser visitor does.
+    #[arg(long, requires = "world", value_name = "QUALITY", value_parser = parse_grass)]
+    grass: Option<crate::grass::GrassQuality>,
     /// With `--world`: build the region from this square of real Berlin
     /// (#1584) - `E,N,SIZE`, the south-west corner and the side in whole
     /// metres of EPSG:25833 (the World Editor's Region source shows them
@@ -1001,6 +1007,14 @@ fn parse_edge_smoothing(word: &str) -> Result<crate::camera::EdgeSmoothing, Stri
     }
 }
 
+/// `--grass`'s four words.
+fn parse_grass(word: &str) -> Result<crate::grass::GrassQuality, String> {
+    crate::grass::GrassQuality::ALL
+        .into_iter()
+        .find(|quality| quality.label().eq_ignore_ascii_case(word))
+        .ok_or_else(|| format!("{word:?} is not off, low, medium or high"))
+}
+
 /// CLI entry point (called by the `render` bin).
 pub fn run() {
     let args = Args::parse();
@@ -1408,6 +1422,11 @@ pub fn run() {
     );
     if let Subject::World(spec) = &subject {
         world::register(&mut app, spec, walker);
+        if let Some(quality) = args.grass {
+            app.world_mut()
+                .resource_mut::<crate::state::LocalSettings>()
+                .grass_quality = Some(quality);
+        }
         if let Some(path) = &args.cover_map {
             app.insert_resource(cover::CoverMapOut(path.into()))
                 .add_systems(

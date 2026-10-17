@@ -718,6 +718,13 @@ pub struct LocalSettings {
     /// ends on the way in, by `world_builder::draw_distance`, so a hand-edited
     /// file can neither cut at the player's feet nor mint a range per value.
     pub ground_cover_draw_distance_m: f32,
+    /// How much GPU grass is drawn (#1675): how far around the camera it
+    /// reaches and how thick. `None` until it is picked, which draws the
+    /// build's default - High on the desktop, Medium in a WebGPU browser,
+    /// Low in a WebGL2 one ([`crate::grass::GrassQuality::of`]) - so a
+    /// default saved by one browser build is not another's; old prefs files
+    /// take `None` through the struct-level `serde(default)`.
+    pub grass_quality: Option<crate::grass::GrassQuality>,
 }
 
 /// How much of a room's authored contact effects a visitor accepts
@@ -795,6 +802,7 @@ impl Default for LocalSettings {
             ui_scale: 1.0,
             load_external_assets: true,
             ground_cover_draw_distance_m: crate::config::draw_distance::DEFAULT_M,
+            grass_quality: None,
         }
     }
 }
