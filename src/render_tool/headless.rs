@@ -22,9 +22,12 @@
 //! parts that turn (#1604, on `SpinClock::Scene` rather than the game's UTC)
 //! all read the shader globals or `Time`, so a clip's frame `k` is the scene at
 //! exactly `k / fps` seconds no matter how many app frames the readback of
-//! frame `k - 1` took, and no matter how fast the machine is.
+//! frame `k - 1` took, and no matter how fast the machine is. A `--bench`
+//! (#1692) holds the clock still between the warm-up and the still: its
+//! frames draw the scene the warm-up left, over and over, so the still after
+//! them is the one a run without it shoots.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::time::Duration;
 
 use bevy::asset::RenderAssetUsages;
@@ -387,6 +390,9 @@ pub(super) struct RenderJob {
     pub(super) rig: CameraRig,
     /// Frames in the clip; 1 is a still.
     pub(super) frames: u32,
+    /// `--bench`: frames measured after the warm-up, before the still
+    /// (#1692); 0 measures none.
+    pub(super) bench: u32,
     pub(super) fps: f32,
     /// Also dump a clip's frames as PNGs beside the GIF.
     pub(super) keep_frames: bool,
@@ -465,6 +471,149 @@ pub(super) struct ClipTiming {
 #[derive(Resource)]
 pub(super) struct ClipStarted;
 
+/// `--bench` (#1692): what Bevy's render diagnostics measured over the
+/// benched frames - per diagnostic path the sum of its measurements, how
+/// many were taken and their unit, each taken once - with the frames whose
+/// measurements landed, and what the grass drew, summed a frame at a time.
+/// GPU timings and pipeline statistics are read back from the GPU a frame
+/// or two late, so the window lags the benched frames by as much; the
+/// scene holds still through them, so they are the same frame.
+#[derive(Resource)]
+pub(super) struct Bench {
+    since: Instant,
+    frames: u32,
+    /// Frames whose diagnostics landed. Each frame's land together, every
+    /// measurement stamped with one time.
+    batches: u32,
+    newest: Option<Instant>,
+    sums: BTreeMap<String, (f64, u32, String)>,
+    last: HashMap<String, Instant>,
+    grass_vertices: u64,
+    grass_tiles: [u64; 3],
+}
+
+impl Bench {
+    fn new(since: Instant) -> Self {
+        Self {
+            since,
+            frames: 0,
+            batches: 0,
+            newest: None,
+            sums: BTreeMap::new(),
+            last: HashMap::new(),
+            grass_vertices: 0,
+            grass_tiles: [0; 3],
+        }
+    }
+
+    /// Take what `store` holds that is new: each `render/` path's newest
+    /// measurement, once, if it was taken in the window.
+    fn take(&mut self, store: &bevy::diagnostic::DiagnosticsStore) {
+        for diagnostic in store.iter() {
+            let path = diagnostic.path().as_str();
+            let Some(taken) = diagnostic.measurement() else {
+                continue;
+            };
+            if !path.starts_with("render/")
+                || taken.time < self.since
+                || self.last.get(path).is_some_and(|&last| taken.time <= last)
+            {
+                continue;
+            }
+            self.last.insert(path.to_owned(), taken.time);
+            if self.newest.is_none_or(|newest| taken.time > newest) {
+                self.newest = Some(taken.time);
+                self.batches += 1;
+            }
+            let sum = self
+                .sums
+                .entry(path.to_owned())
+                .or_insert_with(|| (0.0, 0, diagnostic.suffix.to_string()));
+            sum.0 += taken.value;
+            sum.1 += 1;
+        }
+    }
+
+    /// Each path's mean a frame, over the frames whose diagnostics landed
+    /// (a pass that ran in only some of them counts as nothing in the rest),
+    /// with how many it ran in, and the grass's.
+    fn report(&self, (width, height): (u32, u32)) -> String {
+        let mut out = format!(
+            "bench: {} frames at {width}x{height}, the diagnostics of {} landed (a nested path \
+             is part of its parent's)\n",
+            self.frames, self.batches
+        );
+        let batches = f64::from(self.batches.max(1));
+        for (path, (sum, taken, unit)) in &self.sums {
+            out.push_str(&format!(
+                "  {path:<64} {:>14.3} {unit} a frame ({taken} of {} frames)\n",
+                sum / batches,
+                self.batches
+            ));
+        }
+        let frames = u64::from(self.frames.max(1));
+        let [near, mid, far] = self.grass_tiles.map(|tiles| tiles / frames);
+        out.push_str(&format!(
+            "  grass: {} vertices a frame from {near} near, {mid} middle and {far} far tiles in \
+             view",
+            self.grass_vertices / frames
+        ));
+        out
+    }
+}
+
+/// Inserted on the last benched frame: report, and stop measuring.
+#[derive(Resource)]
+pub(super) struct BenchDone;
+
+/// Sum this frame's render diagnostics into [`Bench`], or, once the last
+/// frame is measured, print the report and shoot the still. Bevy's
+/// `RenderDiagnosticsPlugin` (added for `--bench`) times each pass on the
+/// GPU and counts its shader runs, on Vulkan and DX12; elsewhere only CPU
+/// times are measured.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn bench_sample(
+    mut commands: Commands,
+    store: Option<Res<bevy::diagnostic::DiagnosticsStore>>,
+    bench: Option<ResMut<Bench>>,
+    done: Option<Res<BenchDone>>,
+    grass: Option<Res<crate::grass::GrassDrawn>>,
+    job: Res<RenderJob>,
+    mut capture: ResMut<Capture>,
+    targets: Res<Targets>,
+) {
+    let Some(mut bench) = bench else {
+        return;
+    };
+    if done.is_some() {
+        println!("{}", bench.report(job.tile));
+        commands.remove_resource::<Bench>();
+        commands.remove_resource::<BenchDone>();
+        shoot_still(&mut capture, &targets, &mut commands);
+        return;
+    }
+    bench.frames += 1;
+    if let Some(store) = store {
+        bench.take(&store);
+    }
+    if let Some(grass) = grass {
+        bench.grass_vertices += grass.vertices;
+        for (sum, tiles) in bench.grass_tiles.iter_mut().zip(grass.tiles) {
+            *sum += u64::from(tiles);
+        }
+    }
+}
+
+/// Read every tile camera back once: the still, or the sheet, is shot.
+fn shoot_still(capture: &mut Capture, targets: &Targets, commands: &mut Commands) {
+    capture.results = vec![None; targets.0.len()];
+    for (i, target) in targets.0.iter().enumerate() {
+        let e = commands.spawn(Readback::texture(target.clone())).id();
+        capture.tile_of.insert(e, i);
+    }
+    capture.phase = Phase::Sheet;
+}
+
 /// Stop the virtual clock so only [`tick_clock`] moves it.
 pub(super) fn pause_virtual_time(mut time: ResMut<Time<Virtual>>) {
     time.pause();
@@ -494,6 +643,9 @@ pub(super) enum Phase {
     Framing,
     /// Letting textures bake and FX reach steady state; the clock runs.
     Warmup { left: u32 },
+    /// `--bench` (#1692): the scene is ready and these frames are measured
+    /// ([`Bench`]) before the still is shot; the clock runs.
+    Bench { left: u32 },
     /// Every tile camera read back once.
     Sheet,
     /// One frame at a time: `next` is the frame to shoot, `pending` the
@@ -1184,13 +1336,40 @@ pub(super) fn drive(
                     pending: Some(e),
                     armed: false,
                 };
+            } else if job.bench > 0 {
+                // The scene holds still through the bench, so the still
+                // after it is the one a run without `--bench` shoots.
+                clock.run = false;
+                commands.insert_resource(Bench::new(Instant::now()));
+                capture.phase = Phase::Bench { left: job.bench };
             } else {
-                capture.results = vec![None; targets.0.len()];
-                for (i, target) in targets.0.iter().enumerate() {
-                    let e = commands.spawn(Readback::texture(target.clone())).id();
-                    capture.tile_of.insert(e, i);
-                }
-                capture.phase = Phase::Sheet;
+                shoot_still(&mut capture, &targets, &mut commands);
+            }
+        }
+        Phase::Bench { left } => {
+            // The rig holds its shot pose, as through the warm-up, and the
+            // clock stands still: the frames measured are the frame shot.
+            if job.single_camera() {
+                let walker = followed.body(job.rig.focus);
+                aim_rig(
+                    &mut capture,
+                    &job,
+                    &mut cams,
+                    walker,
+                    record.as_deref(),
+                    heightmap.as_deref(),
+                    0,
+                    clock.elapsed,
+                );
+            }
+            // At none left the report is due, and `bench_sample` shoots the
+            // still once it is printed: a still shot now could land, and the
+            // tool exit, before the report.
+            if left > 1 {
+                capture.phase = Phase::Bench { left: left - 1 };
+            } else if left == 1 {
+                commands.insert_resource(BenchDone);
+                capture.phase = Phase::Bench { left: 0 };
             }
         }
         Phase::Sheet => {}
@@ -2234,6 +2413,66 @@ mod tests {
     use super::super::WARMUP;
     use super::*;
 
+    /// A bench (#1692) takes each `render/` measurement once and only from
+    /// its window, counts the frames whose diagnostics landed, and means each
+    /// pass over all of them: a pass that ran in fewer counts as nothing in
+    /// the rest.
+    #[test]
+    fn a_bench_takes_each_measurement_once_and_means_it_over_the_frames() {
+        use bevy::diagnostic::{
+            Diagnostic, DiagnosticMeasurement, DiagnosticPath, DiagnosticsStore,
+        };
+        let t0 = Instant::now();
+        let at = |ms: u64| t0 + Duration::from_millis(ms);
+        let pass = DiagnosticPath::new("render/main_opaque_pass_3d/elapsed_gpu");
+        let rare = DiagnosticPath::new("render/lightprobe_copy/elapsed_gpu");
+        let other = DiagnosticPath::new("frame_time");
+        let mut store = DiagnosticsStore::default();
+        for path in [&pass, &rare, &other] {
+            store.add(Diagnostic::new(path.clone()).with_suffix("ms"));
+        }
+        let measure = |store: &mut DiagnosticsStore, path: &DiagnosticPath, ms: u64, value: f64| {
+            store
+                .get_mut(path)
+                .expect("added")
+                .add_measurement(DiagnosticMeasurement {
+                    time: at(ms),
+                    value,
+                });
+        };
+        let mut bench = Bench::new(at(10));
+        // From before the window: left out.
+        measure(&mut store, &pass, 5, 100.0);
+        bench.take(&store);
+        assert_eq!(bench.batches, 0);
+        // Three frames land, the rare pass in one of them; a frame taken
+        // twice is taken once.
+        measure(&mut store, &pass, 20, 2.0);
+        measure(&mut store, &rare, 20, 3.0);
+        measure(&mut store, &other, 20, 50.0);
+        bench.take(&store);
+        bench.take(&store);
+        measure(&mut store, &pass, 30, 4.0);
+        bench.take(&store);
+        measure(&mut store, &pass, 40, 6.0);
+        bench.take(&store);
+        assert_eq!(bench.batches, 3);
+        assert_eq!(bench.sums[pass.as_str()].0, 12.0);
+        assert_eq!(bench.sums[pass.as_str()].1, 3);
+        assert_eq!(bench.sums[rare.as_str()].1, 1);
+        assert!(!bench.sums.contains_key(other.as_str()));
+        bench.frames = 3;
+        let report = bench.report((64, 64));
+        assert!(
+            report.contains("4.000 ms a frame (3 of 3 frames)"),
+            "{report}"
+        );
+        assert!(
+            report.contains("1.000 ms a frame (1 of 3 frames)"),
+            "{report}"
+        );
+    }
+
     /// #1482: a rigged body's two hair tiers are never drawn together, so
     /// what the body costs up close leaves the far one out - and nothing
     /// else.
@@ -2450,6 +2689,7 @@ mod tests {
                 follow_lag: 0.0,
             },
             frames: 12,
+            bench: 0,
             fps: 10.0,
             keep_frames: false,
             dither: 0.0,

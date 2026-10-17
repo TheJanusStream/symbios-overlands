@@ -827,6 +827,10 @@ fn row_note(metric: &str) -> Option<&'static str> {
     const MEMORY: &str = "How much memory this app holds.";
     match metric {
         names::RUNTIME_TEXTURE_BIND_SLOTS => Some(SLOTS),
+        names::RUNTIME_GRASS_VERTICES => Some(
+            "How many corners of grass blades are sent to be drawn - what the \
+             grass costs. The Grass setting in Settings changes it.",
+        ),
         MEMORY_ROW_METRIC => Some(MEMORY),
         names::NET_SIGNAL_AWAITING_PEERS => Some(
             "People the relay says are here that you have not managed to \
@@ -972,6 +976,11 @@ fn health_cards(tab: DiagTab, metrics: &MetricsRegistry) -> Vec<Card> {
                         "Entities",
                         g(names::RUNTIME_ENTITY_COUNT),
                         names::RUNTIME_ENTITY_COUNT,
+                    ),
+                    (
+                        "Grass vertices",
+                        g(names::RUNTIME_GRASS_VERTICES),
+                        names::RUNTIME_GRASS_VERTICES,
                     ),
                     (
                         "Mesh handles",
@@ -2307,6 +2316,8 @@ mod tests {
             names::RUNTIME_FRAME_TIME_MAX_MS,
             // #1557: the voice budget's count sits under the looping one.
             names::AUDIO_SPATIAL_HELD_BACK_VOICES,
+            // #1692: what the grass costs.
+            names::RUNTIME_GRASS_VERTICES,
         ] {
             assert!(row_note(metric).is_some(), "{metric} lost its note");
             assert!(

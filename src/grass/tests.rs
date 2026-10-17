@@ -190,6 +190,47 @@ fn the_field_is_laid_around_the_camera() {
     assert_eq!(all.filter(|&c| within(c)).count(), tiles.len());
 }
 
+/// The field counts what it draws (#1692): the tiles a view sees, by
+/// detail, and the vertices their meshes hold - a tile at a detail holds the
+/// blades ranked below its share, and a blade of `n` segments is `2n + 1`
+/// vertices.
+#[test]
+fn the_field_counts_what_it_draws() {
+    let mut app = field_app(GrassQuality::High, Vec3::new(0.0, 1.7, 0.0));
+    // What the renderer's plugins give every mesh in the game: its
+    // visibility, and so a `ViewVisibility` to count by.
+    app.register_required_components::<Mesh3d, Visibility>();
+    app.init_resource::<GrassDrawn>()
+        .add_systems(Update, count_grass_drawn.after(lay_grass_tiles));
+    app.update();
+    let blades = tiles::blade_count(cfg::HIGH.density);
+    let vertices = app.world().resource::<GrassField>().vertices;
+    for (detail, segments) in Detail::ALL.into_iter().zip([3, 2, 1]) {
+        let kept = ((blades as f32 * detail.share() - 0.5).ceil() as usize).min(blades);
+        assert_eq!(
+            vertices[detail.index()],
+            kept * (2 * segments + 1),
+            "{detail:?}"
+        );
+    }
+    // No view has seen a tile yet.
+    assert_eq!(*app.world().resource::<GrassDrawn>(), GrassDrawn::default());
+
+    // A view sees every other tile.
+    let mut expected = GrassDrawn::default();
+    let mut query = app.world_mut().query::<(&GrassTile, &mut ViewVisibility)>();
+    for (i, (tile, mut seen)) in query.iter_mut(app.world_mut()).enumerate() {
+        if i % 2 == 0 {
+            *seen = ViewVisibility::VISIBLE;
+            expected.tiles[tile.detail.index()] += 1;
+            expected.vertices += vertices[tile.detail.index()] as u64;
+        }
+    }
+    assert!(expected.tiles.iter().all(|&n| n > 0), "{expected:?}");
+    app.update();
+    assert_eq!(*app.world().resource::<GrassDrawn>(), expected);
+}
+
 /// Near the ground's edge the field stops at it; turned off it is gone;
 /// a camera high above the ground draws none.
 #[test]

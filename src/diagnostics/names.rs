@@ -161,6 +161,13 @@ pub const RUNTIME_REBUILD_TEXTURE_CACHE_LEN: &str = "runtime.rebuild.texture_cac
 /// steps tracking visible-count peaks confirms the GPU-stall staging-pileup
 /// diagnosis; steps WITHOUT a visible-count peak refute it.
 pub const RUNTIME_VISIBLE_ENTITY_COUNT: &str = "runtime.visible_entity.count";
+/// Vertices the grass tiles in view submit (#1692), each run through the
+/// grass's vertex shader at least once whether its blade grows or not - the
+/// field's cost, which the grass reach and density epic (#1691) is measured
+/// by.
+pub const RUNTIME_GRASS_VERTICES: &str = "runtime.grass.vertices";
+/// Grass tiles in view (#1692), every detail together.
+pub const RUNTIME_GRASS_TILES: &str = "runtime.grass.tiles";
 /// Live wasm-heap bytes in small allocations (< 64 KiB) - see
 /// [`crate::alloc_track`] (#811). The four `runtime.alloc.*` gauges shape a
 /// heap runaway: growth in `giant_bytes` is one huge buffer; growth in
@@ -375,6 +382,8 @@ pub const ALL: &[(&str, MetricKind)] = &[
     (RUNTIME_REBUILD_MEMORY_BYTES, MetricKind::Gauge),
     (RUNTIME_REBUILD_TEXTURE_CACHE_LEN, MetricKind::Gauge),
     (RUNTIME_VISIBLE_ENTITY_COUNT, MetricKind::Gauge),
+    (RUNTIME_GRASS_VERTICES, MetricKind::Gauge),
+    (RUNTIME_GRASS_TILES, MetricKind::Gauge),
     (RUNTIME_ALLOC_SMALL_BYTES, MetricKind::Gauge),
     (RUNTIME_ALLOC_MEDIUM_BYTES, MetricKind::Gauge),
     (RUNTIME_ALLOC_LARGE_BYTES, MetricKind::Gauge),

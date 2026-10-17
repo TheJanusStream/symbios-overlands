@@ -44,6 +44,7 @@ use std::collections::HashMap;
 use avian3d::prelude::ColliderAabb;
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::{NoAutoAabb, VisibilitySystems};
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::transform::TransformSystems;
@@ -130,8 +131,10 @@ pub struct GrassField {
     /// ([`bender_image`]), and what it was last written with.
     benders: Option<Handle<Image>>,
     bodies: [Vec4; cfg::MAX_BENDERS],
-    /// The three meshes, near to far, and the blades a near tile has.
+    /// The three meshes, near to far, the vertices each has, and the blades
+    /// a near tile has.
     meshes: Vec<Handle<Mesh>>,
+    vertices: [usize; 3],
     blades: usize,
     /// The tiles standing, by grid coordinate.
     tiles: HashMap<IVec2, Entity>,
@@ -153,20 +156,59 @@ pub struct GrassTile {
     pub detail: Detail,
 }
 
+/// What the field drew this frame (#1692): the tiles in view at each
+/// detail and the vertices they submit, each of which the vertex shader
+/// runs at least once whether its blade grows or not - the measure the
+/// field's cost is taken by, as the `runtime.grass.*` gauges and in
+/// `render --bench`.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GrassDrawn {
+    /// Tiles in view, near to far ([`Detail::ALL`]'s order).
+    pub tiles: [u32; 3],
+    /// The vertices those tiles submit.
+    pub vertices: u64,
+}
+
 pub struct GrassPlugin;
 
 impl Plugin for GrassPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(MaterialPlugin::<GrassMaterial>::default())
             .init_resource::<GrassField>()
+            .init_resource::<GrassDrawn>()
             .add_systems(
                 PostUpdate,
-                (sync_grass_material, lay_grass_tiles)
-                    .chain()
-                    .after(TransformSystems::Propagate)
-                    .before(VisibilitySystems::CheckVisibility),
+                (
+                    (sync_grass_material, lay_grass_tiles)
+                        .chain()
+                        .after(TransformSystems::Propagate)
+                        .before(VisibilitySystems::CheckVisibility),
+                    // After the lights' visibility too, which also writes
+                    // `ViewVisibility`: the frame's final value.
+                    count_grass_drawn.after(VisibilitySystems::MarkNewlyHiddenEntitiesInvisible),
+                ),
             );
     }
+}
+
+/// Count what the field draws this frame ([`GrassDrawn`]): once visibility
+/// is decided, the tiles any view sees, each once however many views see
+/// it. The tiles cast no shadow (`NotShadowCaster`), so no light's view
+/// marks one seen.
+fn count_grass_drawn(
+    field: Res<GrassField>,
+    tiles: Query<(&GrassTile, &ViewVisibility)>,
+    mut drawn: ResMut<GrassDrawn>,
+) {
+    let mut now = GrassDrawn::default();
+    for (tile, seen) in &tiles {
+        if seen.get() {
+            let i = tile.detail.index();
+            now.tiles[i] += 1;
+            now.vertices += field.vertices[i] as u64;
+        }
+    }
+    drawn.set_if_neq(now);
 }
 
 /// The bodies the grass parts around, with their collider bounds if they
@@ -431,10 +473,12 @@ fn lay_grass_tiles(
         clear(&mut commands, field);
         field.blades = blades;
         let roots = tiles::roots(blades);
-        field.meshes = Detail::ALL
+        let built: Vec<Mesh> = Detail::ALL
             .iter()
-            .map(|&detail| meshes.add(tiles::tile_mesh(&roots, detail)))
+            .map(|&detail| tiles::tile_mesh(&roots, detail))
             .collect();
+        field.vertices = std::array::from_fn(|i| built[i].count_vertices());
+        field.meshes = built.into_iter().map(|mesh| meshes.add(mesh)).collect();
     }
     // A new heightmap: the tiles' bounds and the heights cached for them
     // were the last ground's.
@@ -506,6 +550,9 @@ fn lay_grass_tiles(
                 GlobalTransform::from(corner),
                 tiles::tile_aabb(heights),
                 NoAutoAabb,
+                // The material draws into no shadow map (`material.rs`):
+                // this keeps the lights' culling from testing the tiles too.
+                NotShadowCaster,
             ))
             .id();
         field.tiles.insert(coord, entity);

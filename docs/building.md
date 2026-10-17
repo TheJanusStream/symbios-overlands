@@ -1021,6 +1021,15 @@ cargo run --profile test-release --bin render -- --world 3 --cover-map /tmp/cove
 # A world's grass (#1675) is drawn at the desktop's High setting; --grass draws
 # it as a browser visitor's default does (low: WebGL2, medium: WebGPU) or off:
 cargo run --profile test-release --bin render -- --world 34 --grass low --out /tmp/low.png
+# What a view costs the GPU (#1692): --bench draws that many frames after the
+# warm-up, the scene held still and as fast as they draw, and prints a frame's
+# GPU time and vertex and fragment shader runs for each pass Bevy's render
+# diagnostics time (Vulkan and DX12 only; the shadow maps are not timed in
+# Bevy 0.19; a nested path is part of its parent's), with the grass tiles and
+# vertices in view; then the still. The same view with --grass off is the
+# grass's share:
+cargo run --profile test-release --bin render -- --world 34 --focus landing --dist 12 \
+  --elev 4 --fov 45 --width 1920 --height 1080 --grass high --bench 120
 # A world at an hour of its day (#1677), whatever time of day its record holds:
 # its fields are its noon, so 12 is the room as set, 6 and 18 sunrise and
 # sunset, 0 the moon at the noon sun's place. Without --hour a room whose day

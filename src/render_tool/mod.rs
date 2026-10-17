@@ -497,6 +497,17 @@ struct Args {
     /// browser visitor does.
     #[arg(long, requires = "world", value_name = "QUALITY", value_parser = parse_grass)]
     grass: Option<crate::grass::GrassQuality>,
+    /// With `--world`: measure before the still (#1692) - draw this many
+    /// frames once the world has warmed up, the scene held still and the
+    /// frames as fast as the GPU draws them, timing on the GPU each pass
+    /// Bevy's render diagnostics time (on Vulkan and DX12; the shadow maps
+    /// are not timed in Bevy 0.19) and counting its vertex and fragment
+    /// shader runs, then print the means a frame with the grass's tiles and
+    /// vertices in view, and shoot the still as usual. A nested path is part
+    /// of its parent's.
+    #[arg(long, requires = "world", value_name = "FRAMES",
+          value_parser = clap::value_parser!(u32).range(1..))]
+    bench: Option<u32>,
     /// With `--world`: draw the room at this hour of its day, 0 to 24
     /// (#1677) - its fields as its noon, the sun along its arc, and night's
     /// moon and stars - whatever time of day its record holds. 12 is the
@@ -1476,6 +1487,13 @@ pub fn run() {
         tile.0,
         tile.1
     );
+    assert!(
+        args.bench.is_none() || frames == 1,
+        "--bench measures before a still: leave --frames at 1"
+    );
+    if args.bench.is_some() {
+        app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
+    }
     if let Subject::World(spec) = &subject {
         world::register(&mut app, spec, walker);
         if let Some(quality) = args.grass {
@@ -1584,6 +1602,7 @@ pub fn run() {
             elev: args.elev,
             rig,
             frames,
+            bench: args.bench.unwrap_or(0),
             fps: args.fps,
             keep_frames: args.keep_frames,
             dither: args.dither,
@@ -1648,6 +1667,7 @@ pub fn run() {
             )
                 .chain(),
         )
+        .add_systems(Update, headless::bench_sample.after(drive))
         .add_observer(headless::on_capture)
         .run();
 }

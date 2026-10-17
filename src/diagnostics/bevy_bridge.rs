@@ -53,6 +53,7 @@ impl Plugin for MetricsPlugin {
                 scrape_signal_diagnostics,
                 scrape_audio_diagnostics,
                 scrape_visible_entities,
+                scrape_grass_drawn,
                 // After every scrape and BEFORE the snapshot: the counter
                 // history ring is what makes "rose recently" answerable
                 // (#1271 f179), and it has to be laid down at a fixed
@@ -394,6 +395,20 @@ fn scrape_visible_entities(
         .map(Vec::len)
         .sum();
     reg.observe_gauge(names::RUNTIME_VISIBLE_ENTITY_COUNT, visible as f64);
+}
+
+/// What the grass field drew in the last frame (#1692): its tiles in view
+/// and the vertices they submit. Absent where no grass is registered.
+fn scrape_grass_drawn(
+    drawn: Option<Res<crate::grass::GrassDrawn>>,
+    mut reg: ResMut<MetricsRegistry>,
+) {
+    let Some(drawn) = drawn else {
+        return;
+    };
+    reg.observe_gauge(names::RUNTIME_GRASS_VERTICES, drawn.vertices as f64);
+    let tiles: u32 = drawn.tiles.iter().sum();
+    reg.observe_gauge(names::RUNTIME_GRASS_TILES, f64::from(tiles));
 }
 
 /// Does the `awaiting_peers` glare flag hold this tick?
