@@ -143,6 +143,18 @@ meant as dark brown sRGB `(0.36, 0.25, 0.13)` is written
 `((c + 0.055) / 1.055) ^ 2.4` each: `(0.107, 0.051, 0.015)`. Written as sRGB
 it bakes out light tan, and a hillside reads as sand.
 
+**The ground varies in tone on its own** (#1676): every layer is drawn up
+to 12% lighter and 3% warmer, or as much darker and cooler, as its tone
+drifts over tens of metres, and up to 5% lighter or darker patch by patch a
+few metres across - about 0.81 to 1.21 of its colour per channel, 1 on
+average, from the world position alone and the same for every visitor. It
+is a tone field, not the terrain's height: a hilltop is no lighter than a
+valley for being high. Near-white layers (snow, ice) take less of it, and
+none from 0.9. The patches average out over twenty metres; the drift does
+not, so two stretches of one layer tens of metres apart can differ by a
+quarter. Judge a colour change by two renders from the same spot, never by
+two places. The grass varies with it.
+
 **Sunlit ground seen toward a low sun is partly sheen, not texture** (#1467).
 The terrain's roughness (0.85) and reflectance are fixed in code. At the
 default reflectance of 0.5, looking toward the Understory's 20-degree sun,
@@ -186,6 +198,8 @@ it: it is read from what the record already stores, so these are its levers.
   of dry blades. No tufts, the catalogue's default tuft.
 - **Its flowers are your flower cards'**: up to four `Flower` petal
   `color_base`s, one blade in fifty at most.
+- **It varies with the ground under it**: drier where the ground's tone
+  drifts lighter, a little taller where it is darker patch by patch.
 - **Nothing grows** under anything solid standing on the ground (a
   building, a road, a placed piece with a collider), under water, or on
   ground less than 10 cm above the water line. A body standing in it -

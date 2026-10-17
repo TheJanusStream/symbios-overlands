@@ -18,8 +18,10 @@
 //      just below it grows short, so a blade crossing the line shrinks
 //      away rather than popping.
 //   4. Shapes it - height, width, its own droop, the wind's lean, a body's
-//      push - and colours it: root to tip, a dry share, patches, a flower
-//      share whose heads take the room's flower colours.
+//      push - and colours it: root to tip, a dry share, a flower share whose
+//      heads take the room's flower colours, and the ground's own tone
+//      fields (`ground_common.wgsl`): drier where the ground drifts
+//      lighter, a little taller or shorter patch by patch.
 //
 // The fragment is Bevy's PBR one, which reads the colour written here as
 // the base colour (`VERTEX_COLORS`, set because the mesh carries COLOR),
@@ -38,6 +40,7 @@
     mesh_view_bindings::{globals, view},
     view_transformations::position_world_to_clip,
 }
+#import "shaders/ground_common.wgsl"::{hash21, value_noise, ground_drift, ground_mottle, ground_vary}
 
 struct GrassUniforms {
     base: vec4<f32>,
@@ -78,26 +81,6 @@ struct Vertex {
     // The mesh's COLOR attribute: edge, rank, seed, 0.
     @location(5) blade: vec4<f32>,
 };
-
-// David Hoskins' sine-free hash, as `wind.wgsl` and `cloud.wgsl` use: well
-// conditioned at the large coordinates a Berlin square reaches.
-fn hash21(p: vec2<f32>) -> f32 {
-    var p3 = fract(vec3<f32>(p.x, p.y, p.x) * 0.1031);
-    p3 = p3 + dot(p3, p3.yzx + 33.33);
-    return fract((p3.x + p3.y) * p3.z);
-}
-
-// Smooth value noise, for patches of drier grass metres across.
-fn value_noise(p: vec2<f32>) -> f32 {
-    let i = floor(p);
-    let f = fract(p);
-    let u = f * f * (3.0 - 2.0 * f);
-    let a = hash21(i);
-    let b = hash21(i + vec2<f32>(1.0, 0.0));
-    let c = hash21(i + vec2<f32>(0.0, 1.0));
-    let d = hash21(i + vec2<f32>(1.0, 1.0));
-    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
-}
 
 // The drawn ground's height at world `xz`: the cell's corners, over the
 // mesher's two triangles, split from the (x + 1, z) corner to the
@@ -195,8 +178,13 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     let flower = r3 < grass.frame.w && flower_count > 0.0;
     let head = flower && up > 0.45;
 
-    // Patches a few metres across grow taller or shorter, as a meadow does.
-    let stand = value_noise(at * 0.35 + vec2<f32>(41.0, 9.0));
+    // The ground's tone fields (`ground_common.wgsl`, #1676): the grass
+    // stands taller where the ground is darker - mostly patch by patch (the
+    // mottle), a little stretch by stretch (the drift) - and is drier where
+    // it drifts lighter (below).
+    let drift = ground_drift(at);
+    let mottle = ground_mottle(at);
+    let stand = (1.0 - drift) * 0.4 + (1.0 - mottle) * 0.6;
     var height = grass.base.w * (0.55 + 0.9 * r1) * mix(0.7, 1.25, stand) * mix(0.55, 1.0, density)
         * grow * fade;
     if flower {
@@ -274,19 +262,19 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     if r4 < grass.dry.w {
         colour = mix(grass.base.rgb, grass.dry.rgb, smoothstep(0.0, 0.6, up));
     }
-    let drier = value_noise(at * 0.09 + vec2<f32>(17.0, 3.0));
-    colour = mix(colour, grass.dry.rgb, 0.4 * smoothstep(0.55, 0.85, drier) * up);
+    colour = mix(colour, grass.dry.rgb, 0.4 * smoothstep(0.55, 0.9, drift) * up);
     colour = colour * (0.82 + 0.36 * r1);
     colour = colour * mix(1.0 - 0.6 * density, 1.0, up);
     if head {
         let pick = min(u32(r2 * flower_count), 3u);
         colour = grass.flowers[pick].rgb;
     }
-    // Further out the blades take the colour of the ground they stand on,
-    // and its normal, all of both by the field's reach: a far blade is
-    // shaded as the ground beside it is, and the field has no edge to see.
+    // Further out the blades take the colour of the ground they stand on -
+    // as the ground draws it, its drift and mottle included - and its
+    // normal, all of both by the field's reach: a far blade is shaded as the
+    // ground beside it is, and the field has no edge to see.
     let merge = smoothstep(grass.reach.x, grass.reach.w, distance);
-    colour = mix(colour, ground_colour, merge);
+    colour = mix(colour, ground_vary(ground_colour, drift, mottle), merge);
     normal = normalize(mix(normal, vec3<f32>(0.0, 1.0, 0.0), merge));
 
     out.world_position = vec4<f32>(position, 1.0);

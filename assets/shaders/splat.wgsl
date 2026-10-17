@@ -19,6 +19,11 @@
 //   - Past `albedo_fade_near` the albedo cross-fades to each layer's mean
 //     colour, fully by `albedo_fade_far`, so the tile repeat does not read as
 //     a regular cross-hatch on far ground (#1320; see the fade block below).
+//   - The blend then varies with the ground's drift and mottle from
+//     `ground_common.wgsl` (#1676): tone drifting over tens of metres and
+//     patches a few metres across, near and far, so no two stretches of one
+//     layer are the same colour - and the grass growing there varies with
+//     them.
 //
 // When `splat_uniforms.enabled == 0` the splat logic is bypassed and the base
 // StandardMaterial colour is passed through unchanged (useful for the disabled
@@ -39,6 +44,8 @@
     pbr_types::STANDARD_MATERIAL_FLAGS_FLIP_NORMAL_MAP_Y,
     mesh_view_bindings::view,
 }
+
+#import "shaders/ground_common.wgsl"::{ground_drift, ground_mottle, ground_vary}
 
 #ifdef PREPASS_PIPELINE
 #import bevy_pbr::{
@@ -310,6 +317,19 @@ fn fragment(
                     mix(pbr_input.material.base_color, layer_means, albedo_fade);
             }
         }
+
+        // --- Large-scale variation (#1676) ----------------------------------
+        // After the far fade, so the far ground's flat layer means vary too:
+        // there, sameness is all the fade leaves. 1 on average, so a room's
+        // ground keeps its tone overall.
+        pbr_input.material.base_color = vec4<f32>(
+            ground_vary(
+                pbr_input.material.base_color.rgb,
+                ground_drift(world_pos.xz),
+                ground_mottle(world_pos.xz),
+            ),
+            pbr_input.material.base_color.a,
+        );
 
         // --- Normal-map blend -----------------------------------------------
         // All normals are converted to world space per-layer before blending.

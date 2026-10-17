@@ -346,7 +346,11 @@ generation cores shared with the wasm Web Worker.
   laid around the camera, every tile one of three meshes, each blade stood
   on the ground, grown and coloured by `assets/shaders/grass.wgsl` from the
   ground cover's textures and a profile read from the record's own ground
-  layers, grass tufts and flowers; a per-account quality setting.
+  layers, grass tufts and flowers; a per-account quality setting. The ground
+  and the grass share their large-scale variation, a tone drift over tens of
+  metres and a mottle over a few (`assets/shaders/ground_common.wgsl`,
+  #1676): the splat's tone follows them, and the grass is drier where the
+  ground drifts lighter and taller where it is darker.
 - [`src/terrain/`](../src/terrain/), [`src/urban/`](../src/urban/),
   [`src/splat.rs`](../src/splat.rs), [`src/water.rs`](../src/water.rs),
   [`src/clouds.rs`](../src/clouds.rs), [`src/wind.rs`](../src/wind.rs) -

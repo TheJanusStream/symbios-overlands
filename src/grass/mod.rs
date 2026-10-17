@@ -5,7 +5,10 @@
 //! * **What it looks like** is the room's own ground cover: its grass
 //!   tufts' colours, its flowers, how its layers' ground grows grass
 //!   ([`profile`]). No record carries a grass field; a room made before the
-//!   grass came has grass all the same.
+//!   grass came has grass all the same. It varies as the ground under it
+//!   does (#1676): drier where the ground's tone drifts lighter, taller
+//!   where it is darker patch by patch - one pair of fields, in
+//!   `assets/shaders/ground_common.wgsl`, read by both shaders.
 //! * **Where it grows** is the ground under it, read on the GPU from
 //!   [`GroundCover`]: blades stand on the drawn ground, grow as thickly as
 //!   the splat layers there allow, and not at all under a building, a road

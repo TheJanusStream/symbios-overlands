@@ -331,3 +331,51 @@ fn the_grass_follows_a_record_that_lands_before_its_ground() {
     assert_ne!(after, before);
     assert_eq!(after.tip, [0.9, 0.1, 0.1]);
 }
+
+/// The grass varies with the ground under it (#1676): both shaders take the
+/// drift, the mottle and the variation from `ground_common.wgsl`, call them
+/// in their own code - an import alone compiles to nothing - and keep no
+/// copy of their own that could drift from the other's: the drier grass
+/// would no longer stand on the lighter ground, and the far blades would
+/// fade into a ground of another tone.
+#[test]
+fn the_grass_and_the_ground_read_one_field() {
+    let read = |name: &str| {
+        std::fs::read_to_string(format!(
+            "{}/assets/shaders/{name}",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap_or_else(|_| panic!("{name} is a tracked asset"))
+    };
+    let common = read("ground_common.wgsl");
+    let fields = ["ground_drift", "ground_mottle", "ground_vary"];
+    for field in fields.iter().chain(&["ground_tint"]) {
+        let definition = format!("fn {field}(");
+        assert_eq!(
+            common.matches(&definition).count(),
+            1,
+            "ground_common.wgsl defines {field}"
+        );
+    }
+    for shader in ["grass.wgsl", "splat.wgsl"] {
+        let src = read(shader);
+        let import = src
+            .lines()
+            .find(|l| l.starts_with("#import \"shaders/ground_common.wgsl\""))
+            .unwrap_or_else(|| panic!("{shader} imports ground_common.wgsl"));
+        for field in fields {
+            assert!(import.contains(field), "{shader} takes {field} from it");
+            let call = format!("{field}(");
+            assert!(
+                src.lines()
+                    .filter(|l| !l.starts_with("#import") && !l.trim_start().starts_with("//"))
+                    .any(|l| l.contains(&call)),
+                "{shader} calls {field}"
+            );
+            assert!(
+                !src.contains(&format!("fn {field}(")),
+                "{shader} keeps no copy of {field}"
+            );
+        }
+    }
+}
