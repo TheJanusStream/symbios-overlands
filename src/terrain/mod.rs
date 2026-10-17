@@ -54,6 +54,7 @@ mod lots;
 pub mod referenced;
 mod roads;
 mod splat;
+pub use splat::{GroundWeather, GroundWeatherNow};
 // The render tool's terrain report reads the ground's weights with it (#1461);
 // the web build has no render tool.
 #[cfg(not(target_arch = "wasm32"))]
@@ -491,6 +492,13 @@ pub(crate) fn register_headless_terrain(app: &mut App) {
                 mark_splat_applied,
             )
                 .chain(),
+        )
+        .init_resource::<splat::GroundWeatherNow>()
+        .add_systems(
+            Update,
+            splat::weather_the_ground
+                .after(crate::drawn_environment::DrawEnvironmentSet)
+                .after(splat::apply_splat_textures),
         );
 }
 
@@ -678,6 +686,14 @@ impl Plugin for TerrainPlugin {
                     // Widened for the attract backdrop, like the group
                     // above (#897).
                     .run_if(crate::attract::world_pipeline_active),
+            )
+            // The drawn weather on the ground (#1683).
+            .init_resource::<splat::GroundWeatherNow>()
+            .add_systems(
+                Update,
+                splat::weather_the_ground
+                    .after(crate::drawn_environment::DrawEnvironmentSet)
+                    .after(splat::apply_splat_textures),
             )
             .add_systems(OnExit(AppState::InGame), lifecycle::cleanup_terrain)
             // The attract demo world (#897) never passes through `InGame`

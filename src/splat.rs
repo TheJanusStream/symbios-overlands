@@ -45,10 +45,21 @@ pub struct SplatUniforms {
     pub albedo_fade_near: f32,
     /// View distance (m) where the albedo is fully each layer's mean colour.
     pub albedo_fade_far: f32,
-    /// Pad to 48 bytes (with `_pad1`/`_pad2`). WebGL2 rejects uniform blocks
+    /// The weather on the ground (#1683): how wet it is, 0 dry to 1 soaked
+    /// (darker, glossy, puddled on the flat).
+    pub wetness: f32,
+    /// How much snow lies where it has settled, 0 to 1.
+    pub snow: f32,
+    /// The snow line (world Y): the snow lies over it, its line falling
+    /// from over the highest ground to under the lowest as the snow
+    /// settles (`terrain::splat::ground_weather`).
+    pub snow_line: f32,
+    /// The snow line's edge (m), either side of it.
+    pub snow_feather: f32,
+    /// Pad to 64 bytes (with `_pad1`/`_pad2`). WebGL2 rejects uniform blocks
     /// that are not a multiple of 16 (`BUFFER_BINDINGS_NOT_16_BYTE_ALIGNED`
-    /// unsupported), and the nine fields above take the block to 36. Mirror
-    /// all three in `SplatUniforms` in `splat.wgsl`.
+    /// unsupported), and the thirteen fields above take the block to 52.
+    /// Mirror all three in `SplatUniforms` in `splat.wgsl`.
     pub _pad0: u32,
     pub _pad1: u32,
     pub _pad2: u32,

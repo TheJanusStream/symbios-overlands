@@ -9,16 +9,23 @@
 //!
 //! * **Overcast.** The cloud deck closes to a whole cover, denser; the sun's
 //!   direct light dims far more than the sky's light does (overcast light is
-//!   dim but flat, as seeding relates a room's cover to its light); the sky
-//!   and the horizon grey toward their own brightness, and the sun's glow in
-//!   the fog and its glitter on the water go behind the cloud.
+//!   dim but flat, as seeding relates a room's cover to its light); the sky,
+//!   the horizon and the fog's own tints grey toward their own brightness,
+//!   and the sun's glow in the fog and its glitter on the water go behind
+//!   the cloud.
 //! * **Rain and a storm** darken the sky, the clouds and the sky's light
-//!   besides; snow brightens the sky and the clouds a little.
+//!   besides; snow brightens the sky and the clouds a little and greys them
+//!   further, and settled snow sends back more of the sky's light (#1683).
 //! * **Rain, snow and fog** close in the visibility, fog the most, and
 //!   [`precipitation`] draws what falls.
 //!
-//! A storm's gusts, lightning and thunder are #1684's; the ground, the
-//! water and the grass answering the weather are #1683's.
+//! The ground keeps what fell (#1683): how wet it is and how far the snow
+//! has settled ([`WeatherNow::wet`], [`WeatherNow::cover`]) build up with
+//! the rain and the snow and, after a weather that comes and goes, dry and
+//! melt over its next spells, read off the same timeline. The ground's and
+//! the grass's shaders draw them (`terrain::splat`, `grass`), and the
+//! water's rings its rain (`water.wgsl`). A storm's gusts, lightning and
+//! thunder are #1684's.
 //!
 //! A weather that comes and goes reads its spells off UTC ([`severity_at`]),
 //! as a turning day reads its hour: every visitor's clock gives every other
@@ -44,6 +51,12 @@ pub struct WeatherNow {
     pub fog: f32,
     /// How stormy (#1684 draws the gusts, lightning and thunder).
     pub storm: f32,
+    /// How wet the ground is, 0 dry to 1 soaked: wetted by the rain and,
+    /// after a weather that comes and goes, drying once it stops (#1683).
+    pub wet: f32,
+    /// How far the snow has settled, from the top of the ground down: 0
+    /// none, 1 the whole ground under it; melting once it stops (#1683).
+    pub cover: f32,
 }
 
 impl WeatherNow {
@@ -65,20 +78,26 @@ impl WeatherNow {
             self.snow - other.snow,
             self.fog - other.fog,
             self.storm - other.storm,
+            self.wet - other.wet,
+            self.cover - other.cover,
         ]
         .into_iter()
         .fold(0.0, |most, d| most.max(d.abs()))
     }
 
     /// The overcast times `clouds`, and what falls or hangs in the air
-    /// times `falls`.
+    /// times `falls`; the ground as it lies under that alone.
     fn times(&self, clouds: f32, falls: f32) -> WeatherNow {
+        let rain = self.rain * falls;
+        let snow = self.snow * falls;
         WeatherNow {
             overcast: self.overcast * clouds,
-            rain: self.rain * falls,
-            snow: self.snow * falls,
+            rain,
+            snow,
             fog: self.fog * falls,
             storm: self.storm * falls,
+            wet: wet_under(rain),
+            cover: cover_under(snow),
         }
     }
 }
@@ -100,13 +119,28 @@ pub fn amounts(kind: WeatherKind, intensity: f32) -> WeatherNow {
         0.0
     };
     let at = |(none, full): (f32, f32)| none + (full - none) * a;
+    let (rain, snow) = (at(table.rain), at(table.snow));
     WeatherNow {
         overcast: at(table.overcast),
-        rain: at(table.rain),
-        snow: at(table.snow),
+        rain,
+        snow,
         fog: at(table.fog),
         storm: at(table.storm),
+        wet: wet_under(rain),
+        cover: cover_under(snow),
     }
+}
+
+/// How wet the ground lies under rain of `rain` for long: soaked from
+/// [`cfg::WET_FULL`].
+fn wet_under(rain: f32) -> f32 {
+    smoothstep(0.0, cfg::WET_FULL, rain)
+}
+
+/// How far snow of `snow` settles for long: all of the ground from
+/// [`cfg::COVER_FULL`].
+fn cover_under(snow: f32) -> f32 {
+    smoothstep(0.0, cfg::COVER_FULL, snow)
 }
 
 /// The weather `weather` brings at `unix_secs` seconds after 1970 began,
@@ -120,10 +154,36 @@ pub fn weather_now(weather: &Weather, unix_secs: f64) -> WeatherNow {
         return full;
     }
     let severity = severity_at(weather, unix_secs);
-    full.times(
+    let mut now = full.times(
         smoothstep(cfg::CLOUDS_GATHER.0, cfg::CLOUDS_GATHER.1, severity),
         smoothstep(cfg::FALLS.0, cfg::FALLS.1, severity),
-    )
+    );
+    // The ground keeps what fell: wet from the rain of the spells before,
+    // drying since, and the snow settled, melting since - the most any
+    // instant of the past leaves, as it has dried or melted by now.
+    let spell_secs = f64::from(spell) * 60.0;
+    for k in 1..cfg::HISTORY_SAMPLES {
+        let ago_spells = f64::from(k) * cfg::HISTORY_STEP_SPELLS;
+        let then = severity_at(weather, unix_secs - ago_spells * spell_secs);
+        let fell = smoothstep(cfg::FALLS.0, cfg::FALLS.1, then);
+        let ago = ago_spells as f32;
+        now.wet = now
+            .wet
+            .max(wet_under(full.rain * fell) * (-ago / cfg::DRY_SPELLS).exp());
+        now.cover = now
+            .cover
+            .max(cover_under(full.snow * fell) * (-ago / cfg::MELT_SPELLS).exp());
+    }
+    // The last trace of a long-gone fall is none: below this the ground
+    // shows nothing, and a ground left at a ten-thousandth would keep every
+    // shader's weather branch running for it.
+    if now.wet < cfg::GROUND_TRACE {
+        now.wet = 0.0;
+    }
+    if now.cover < cfg::GROUND_TRACE {
+        now.cover = 0.0;
+    }
+    now
 }
 
 /// How far into its weather a weather that comes and goes stands at
@@ -222,27 +282,42 @@ pub fn environment_in(env: &Environment, now: &WeatherNow) -> Environment {
     let storm = now.storm;
     let dark = (now.rain * cfg::RAIN_DARK).max(storm * cfg::STORM_DARK);
     let sun = lerp(1.0, cfg::OVERCAST_SUN, o) * lerp(1.0, cfg::STORM_SUN, storm);
-    let ambient = lerp(1.0, cfg::OVERCAST_AMBIENT, o) * (1.0 - dark);
+    let ambient =
+        lerp(1.0, cfg::OVERCAST_AMBIENT, o) * (1.0 - dark) * (1.0 + now.cover * cfg::SNOW_GLARE);
     out.sun_illuminance = Fp(env.sun_illuminance.0 * sun);
     out.ambient_brightness = Fp(env.ambient_brightness.0 * ambient);
 
     // The sky, the horizon and the clouds: greyer, and darker in rain and
     // a storm, lighter in snow.
     let light = now.snow * cfg::SNOW_LIGHT;
-    out.sky_color = Fp3(weathered(env.sky_color.0, o * cfg::SKY_GREY, dark, light));
+    let grey = |share: f32| (o * share + now.snow * cfg::SNOW_GREY).min(1.0);
+    out.sky_color = Fp3(weathered(env.sky_color.0, grey(cfg::SKY_GREY), dark, light));
     let rgb = |c: Fp4| [c.0[0], c.0[1], c.0[2]];
     let with_alpha = |c: [f32; 3], a: f32| Fp4([c[0], c[1], c[2], a]);
     out.fog_color = with_alpha(
-        weathered(rgb(env.fog_color), o * cfg::HORIZON_GREY, dark, light),
+        weathered(rgb(env.fog_color), grey(cfg::HORIZON_GREY), dark, light),
         env.fog_color.0[3],
     );
-    out.cloud_color = Fp3(weathered(env.cloud_color.0, o * cfg::SKY_GREY, dark, light));
-    out.cloud_shadow_color = Fp3(weathered(
-        env.cloud_shadow_color.0,
-        o * cfg::SKY_GREY,
+    out.cloud_color = Fp3(weathered(
+        env.cloud_color.0,
+        grey(cfg::SKY_GREY),
         dark,
         light,
     ));
+    out.cloud_shadow_color = Fp3(weathered(
+        env.cloud_shadow_color.0,
+        grey(cfg::SKY_GREY),
+        dark,
+        light,
+    ));
+
+    // The haze of a weather is water and ice, which take no colour from
+    // the light: the fog's own tints - what it takes from what lies behind
+    // it and what it adds (Bevy's atmospheric fog) - grey with the sky's,
+    // and wholly in a thick fog.
+    let haze = grey(cfg::HORIZON_GREY).max(now.fog);
+    out.fog_extinction = Fp3(weathered(env.fog_extinction.0, haze, 0.0, 0.0));
+    out.fog_inscattering = Fp3(weathered(env.fog_inscattering.0, haze, 0.0, 0.0));
 
     // The sun goes behind the cloud: its glow in the fog and its glitter on
     // the water with it.

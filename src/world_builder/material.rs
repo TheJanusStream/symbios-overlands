@@ -76,6 +76,8 @@ fn build_water_uniforms(surface: &WaterSurface, env: &Environment) -> WaterUnifo
         wake_strength: surface.wake_strength.0,
         wake_ripple_wavelength: surface.wake_ripple_wavelength.0,
         wake_decay_radius: surface.wake_decay_radius.0,
+        // The drawn weather's, written by `apply_environment_state`.
+        rain: 0.0,
     }
 }
 

@@ -68,6 +68,10 @@ pub struct GrassUniforms {
     /// The middle and far shares, and where the field starts to fade out
     /// (m); `w` is unused.
     pub shares: Vec4,
+    /// The weather on the ground (#1683), as the ground's shader has it: how
+    /// wet, how much snow lies where it has settled, the snow line (world
+    /// Y) and its edge (m).
+    pub weather: Vec4,
 }
 
 /// [`MaterialExtension`] that drives `grass.wgsl`.

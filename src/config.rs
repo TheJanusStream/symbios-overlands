@@ -240,6 +240,12 @@ pub(crate) mod lighting {
         pub const RAIN_DARK: f32 = 0.3;
         pub const STORM_DARK: f32 = 0.5;
         pub const SNOW_LIGHT: f32 = 0.2;
+        /// Snow (#1683): how much further full snowfall greys the sky and
+        /// the horizon toward neutral - a snowy sky has no colour of its
+        /// own - and the share of the sky's light settled snow adds, the
+        /// light the snow and the cloud send back and forth.
+        pub const SNOW_GREY: f32 = 0.3;
+        pub const SNOW_GLARE: f32 = 0.35;
         /// The visibility (m) full fog, rain and snow close the air to.
         pub const FOG_VISIBILITY: f32 = 60.0;
         pub const RAIN_VISIBILITY: f32 = 220.0;
@@ -247,6 +253,28 @@ pub(crate) mod lighting {
         /// How far a weather that comes and goes moves before the room is
         /// drawn anew: the most any of its amounts has changed.
         pub const WEATHER_STEP: f32 = 0.01;
+
+        /// The ground under a weather (#1683): soaked at this much rain and
+        /// snowed over at this much snow, easing in from none; and after a
+        /// weather that comes and goes, drying and melting over this many
+        /// of its spells (to a third: an exponential's time constant).
+        pub const WET_FULL: f32 = 0.5;
+        pub const COVER_FULL: f32 = 0.6;
+        pub const DRY_SPELLS: f32 = 0.7;
+        pub const MELT_SPELLS: f32 = 1.5;
+        /// How far back a weather that comes and goes reads its ground's
+        /// past: this many instants an eighth of a spell apart - nearly six
+        /// spells, by when melting snow has all but gone (2%); and the
+        /// wetness or cover under which the ground holds nothing.
+        pub const HISTORY_SAMPLES: u32 = 48;
+        pub const HISTORY_STEP_SPELLS: f64 = 0.125;
+        pub const GROUND_TRACE: f32 = 0.005;
+        /// The snow line's edge (`terrain::splat::ground_weather`): this
+        /// share of the ground's rise plus this many metres; and the cover
+        /// at which settled snow shows whole, easing in from none.
+        pub const SNOW_FEATHER_SHARE: f32 = 0.12;
+        pub const SNOW_FEATHER_M: f32 = 1.5;
+        pub const SNOW_SHOWS: f32 = 0.15;
 
         /// What falls (`crate::weather::precipitation`); the look of a
         /// streak and a flake is `precipitation.wgsl`'s.
@@ -1256,6 +1284,10 @@ pub(crate) mod vegetation_wind {
 /// The GPU grass (`crate::grass`, #1675): a field of blades laid in tiles
 /// around the camera, each blade stood on the ground by the vertex shader.
 pub(crate) mod grass {
+    /// A blade's roughness on soaked ground (#1683), from its dry 0.8: wet
+    /// grass shines.
+    pub const WET_ROUGHNESS: f32 = 0.4;
+
     /// Side of a grass tile (m): the unit the field is laid and moved in.
     pub const TILE_M: f32 = 8.0;
     /// Blades per square metre in a near tile at the High setting.

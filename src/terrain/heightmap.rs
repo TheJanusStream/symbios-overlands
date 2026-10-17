@@ -275,6 +275,12 @@ pub(super) fn spawn_terrain_mesh(
                 // unaffected.
                 albedo_fade_near: tcfg::splat::ALBEDO_FADE_NEAR,
                 albedo_fade_far: tcfg::splat::ALBEDO_FADE_FAR,
+                // No weather on the ground until `splat::weather_the_ground`
+                // lays the drawn one on it (#1683).
+                wetness: 0.0,
+                snow: 0.0,
+                snow_line: 0.0,
+                snow_feather: 1.0,
                 _pad0: 0,
                 _pad1: 0,
                 _pad2: 0,

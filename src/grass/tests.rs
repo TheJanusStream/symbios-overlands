@@ -50,6 +50,7 @@ fn wgsl_block_mirrors_the_rust_one() {
         ("wind", "vec4<f32>"),
         ("reach", "vec4<f32>"),
         ("shares", "vec4<f32>"),
+        ("weather", "vec4<f32>"),
     ];
     let actual = wgsl_fields(&src, "GrassUniforms");
     let actual: Vec<(&str, &str)> = actual
@@ -60,7 +61,7 @@ fn wgsl_block_mirrors_the_rust_one() {
         actual, expected,
         "grass.wgsl's GrassUniforms drifted from the Rust block"
     );
-    assert_eq!(GrassUniforms::min_size().get(), 256);
+    assert_eq!(GrassUniforms::min_size().get(), 272);
     assert!(
         src.contains(&format!("const TILE_M: f32 = {:.1};", cfg::TILE_M)),
         "grass.wgsl's TILE_M is config::grass::TILE_M"

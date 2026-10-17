@@ -49,6 +49,7 @@ use crate::config::grass as cfg;
 use crate::ground_cover::GroundCover;
 use crate::state::{LiveRoomRecord, LocalPlayer, LocalSettings, RemotePeer};
 use crate::terrain::FinishedHeightMap;
+use crate::terrain::{GroundWeather, GroundWeatherNow};
 use crate::wind::VegetationWind;
 
 use material::{GrassExtension, GrassMaterial, GrassUniforms};
@@ -187,6 +188,7 @@ fn sync_grass_material(
     record: Option<Res<LiveRoomRecord>>,
     settings: Res<LocalSettings>,
     wind: Res<VegetationWind>,
+    weather: Option<Res<GroundWeatherNow>>,
     camera: Query<&GlobalTransform, With<WorldCamera>>,
     bodies: Bodies,
 ) {
@@ -216,7 +218,9 @@ fn sync_grass_material(
         field.material = None;
         return;
     };
-    let uniforms = uniforms(profile, &ground, &wind, &grown);
+    let weather = weather.map_or_else(GroundWeather::default, |w| w.0);
+    let uniforms = uniforms(profile, &ground, &wind, &grown, &weather);
+    let shine = roughness(weather.wetness);
 
     // The bodies, in a texture written in place: a write of the same size
     // goes into the texture the material already binds, where a material
@@ -246,10 +250,12 @@ fn sync_grass_material(
             && extension.weights == weights
             && extension.cover == ground.cover
             && extension.benders == bender_texture
+            && current.base.perceptual_roughness == shine
         {
             return;
         }
         if let Some(mut material) = materials.get_mut(handle) {
+            material.base.perceptual_roughness = shine;
             let extension = &mut material.extension;
             extension.uniforms = uniforms;
             extension.height = ground.height.clone();
@@ -260,7 +266,10 @@ fn sync_grass_material(
         return;
     }
     field.material = Some(materials.add(GrassMaterial {
-        base: material::grass_base(),
+        base: StandardMaterial {
+            perceptual_roughness: shine,
+            ..material::grass_base()
+        },
         extension: GrassExtension {
             uniforms,
             height: ground.height.clone(),
@@ -278,6 +287,7 @@ fn uniforms(
     ground: &GroundCover,
     wind: &VegetationWind,
     field: &cfg::Field,
+    weather: &GroundWeather,
 ) -> GrassUniforms {
     let mut flowers = [Vec4::ZERO; 4];
     for (slot, colour) in flowers.iter_mut().zip(&profile.flowers) {
@@ -309,7 +319,20 @@ fn uniforms(
             cfg::FADE_FROM * field.reach,
             0.0,
         ),
+        weather: Vec4::new(
+            weather.wetness,
+            weather.snow,
+            weather.snow_line,
+            weather.snow_feather,
+        ),
     }
+}
+
+/// The blades' roughness on ground as wet as `wetness` (#1683): wet grass
+/// shines.
+fn roughness(wetness: f32) -> f32 {
+    let dry = material::grass_base().perceptual_roughness;
+    dry + (cfg::WET_ROUGHNESS - dry) * wetness.clamp(0.0, 1.0)
 }
 
 /// Where a body stands, as the grass parts around it: the middle of its

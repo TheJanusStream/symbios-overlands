@@ -127,6 +127,9 @@ pub struct WaterUniforms {
     /// Per-volume: radial distance at which a single perturbation's
     /// contribution falls to ~37% (1/e). Larger = broader wakes.
     pub wake_decay_radius: f32,
+    /// Global: how hard it rains on the water (#1683), 0 to 1: as many
+    /// drops ring it. `0` (no weather) leaves it exactly as it was.
+    pub rain: f32,
 }
 
 /// [`MaterialExtension`] that drives `water.wgsl`.
@@ -461,6 +464,7 @@ mod tests {
             ("wake_strength", "f32"),
             ("wake_ripple_wavelength", "f32"),
             ("wake_decay_radius", "f32"),
+            ("rain", "f32"),
         ];
         let got: Vec<(&str, &str)> = fields
             .iter()

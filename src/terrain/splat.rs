@@ -19,6 +19,7 @@ use crate::offload::{GenJob, GenResult};
 use crate::pds::{SovereignTerrainConfig, SovereignTextureConfig};
 use crate::splat::SplatTerrainMaterial;
 use crate::state::LiveRoomRecord;
+use crate::weather::WeatherNow;
 
 use super::referenced::{ReferencedLayerStatus, spawn_splat_layer_fetch};
 use super::{
@@ -583,6 +584,116 @@ pub(super) fn sync_moisture_water_level(
     }
 }
 
+/// The weather on the ground (#1683) for the drawn weather `now` over ground
+/// standing from `low` to `high` (world Y): how wet it is, how much snow
+/// lies where it has settled, and the snow line and its edge - the line
+/// falling from over the highest ground (none settled) to under the lowest
+/// (all of it) as the snow settles, so it creeps down the slopes.
+pub(crate) fn ground_weather(now: &WeatherNow, low: f32, high: f32) -> GroundWeather {
+    use crate::config::lighting::weather as wcfg;
+    let span = (high - low).max(1.0);
+    let feather = span * wcfg::SNOW_FEATHER_SHARE + wcfg::SNOW_FEATHER_M;
+    // The line's edge reaches this many feathers from it: half a feather
+    // of the shader's blend, and its patches' jitter
+    // (`ground_common::snow_settled`).
+    let reach = feather * SNOW_EDGE_FEATHERS;
+    GroundWeather {
+        wetness: now.wet,
+        // Eased in, so the first snow lands as a dusting on the heights,
+        // not at once at full white.
+        snow: smoothstep(0.0, wcfg::SNOW_SHOWS, now.cover),
+        snow_line: high + reach - (span + 2.0 * reach) * now.cover,
+        snow_feather: feather,
+    }
+}
+
+/// How many feathers from the snow line its edge reaches: the shader's
+/// blend spans half a feather either side, and the patches move the line
+/// up to 0.6 of one (`SNOW_PATCHINESS` 1.2 times a jitter of at most 0.5,
+/// in `ground_common.wgsl`).
+const SNOW_EDGE_FEATHERS: f32 = 1.1;
+
+/// What [`ground_weather`] gives the ground's shader (and the grass's).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct GroundWeather {
+    pub wetness: f32,
+    pub snow: f32,
+    pub snow_line: f32,
+    pub snow_feather: f32,
+}
+
+/// The weather on the ground now, as [`weather_the_ground`] gave it to the
+/// ground's shader: the grass takes the same, so its far blades fade into
+/// ground weathered as it is (#1683).
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq)]
+pub struct GroundWeatherNow(pub GroundWeather);
+
+fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
+    let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// The lowest and highest ground (world Y) of heightmap `hm`.
+pub(crate) fn ground_range(hm: &bevy_symbios_ground::HeightMap) -> (f32, f32) {
+    hm.data()
+        .iter()
+        .fold((f32::MAX, f32::MIN), |(lo, hi), &h| (lo.min(h), hi.max(h)))
+}
+
+/// Lay the drawn weather on the ground (#1683): written into the splat
+/// material whenever the drawn environment, the ground or the material
+/// changes, and only when it moved - a material write rebuilds its bind
+/// group (#1675) - and published as [`GroundWeatherNow`] for the grass.
+pub(crate) fn weather_the_ground(
+    drawn: Option<Res<crate::drawn_environment::DrawnEnvironment>>,
+    splat_mat: Option<Res<SplatMaterialHandle>>,
+    heightmap: Option<Res<FinishedHeightMap>>,
+    mut materials: ResMut<Assets<SplatTerrainMaterial>>,
+    mut published: ResMut<GroundWeatherNow>,
+    mut range: Local<Option<(f32, f32)>>,
+) {
+    let (Some(splat_mat), Some(heightmap)) = (splat_mat, heightmap) else {
+        return;
+    };
+    // A new material comes with new ground: a heightmap that landed while
+    // there was no material was seen by a run that returned above.
+    if heightmap.is_changed() || splat_mat.is_changed() || range.is_none() {
+        *range = Some(ground_range(&heightmap.0));
+    }
+    let drawn_changed = drawn.as_ref().is_some_and(|d| d.is_changed());
+    if !drawn_changed && !heightmap.is_changed() && !splat_mat.is_changed() {
+        return;
+    }
+    // The render tool's `--terrain` draws the ground with no drawn
+    // environment: no weather.
+    let weather = drawn.map_or_else(WeatherNow::default, |d| d.weather);
+    let (low, high) = range.unwrap_or((0.0, 0.0));
+    let wanted = ground_weather(&weather, low, high);
+    if published.0 != wanted {
+        published.0 = wanted;
+    }
+    let held = |m: &SplatTerrainMaterial| {
+        let u = &m.extension.uniforms;
+        GroundWeather {
+            wetness: u.wetness,
+            snow: u.snow,
+            snow_line: u.snow_line,
+            snow_feather: u.snow_feather,
+        }
+    };
+    if materials
+        .get(&splat_mat.0)
+        .is_some_and(|m| held(m) != wanted)
+        && let Some(mut m) = materials.get_mut(&splat_mat.0)
+    {
+        let u = &mut m.extension.uniforms;
+        u.wetness = wanted.wetness;
+        u.snow = wanted.snow;
+        u.snow_line = wanted.snow_line;
+        u.snow_feather = wanted.snow_feather;
+    }
+}
+
 /// Free the four per-layer source images of a *Referenced* room once every layer
 /// fetch has resolved (#642). `apply_splat_textures` drops them the same frame
 /// for procedural rooms, but deliberately skips the free while any Referenced
@@ -693,6 +804,45 @@ fn build_texture_array(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The snow creeps down the slopes (#1683): with none settled its line
+    /// stands over the highest ground, and it falls as the snow settles
+    /// until, all settled, it is under the lowest; the snow eases in, a
+    /// dusting first; and a dry ground stays dry.
+    #[test]
+    fn the_snow_line_falls_as_the_snow_settles() {
+        let (low, high) = (10.0, 70.0);
+        let at = |cover: f32| {
+            ground_weather(
+                &WeatherNow {
+                    cover,
+                    ..WeatherNow::default()
+                },
+                low,
+                high,
+            )
+        };
+        let none = at(0.0);
+        assert_eq!(none.snow, 0.0);
+        assert!(none.snow_line - none.snow_feather >= high, "{none:?}");
+        let all = at(1.0);
+        assert_eq!(all.snow, 1.0);
+        assert!(all.snow_line + all.snow_feather <= low, "{all:?}");
+        let mut last = none.snow_line;
+        for k in 1..=20 {
+            let line = at(k as f32 / 20.0).snow_line;
+            assert!(line < last, "the line falls: {line} after {last}");
+            last = line;
+        }
+        let dusting = at(0.05);
+        assert!(dusting.snow > 0.0 && dusting.snow < 0.5, "{dusting:?}");
+        assert_eq!(
+            ground_weather(&WeatherNow::default(), low, high).wetness,
+            0.0
+        );
+        // A flat ground still has an edge to its line.
+        assert!(ground_weather(&WeatherNow::default(), 5.0, 5.0).snow_feather > 0.0);
+    }
 
     /// #1467: seen toward a low sun, the ground's default reflectance put a
     /// sheen on every hill that read as tan sand, whatever its texture.

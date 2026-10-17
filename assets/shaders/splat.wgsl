@@ -45,7 +45,7 @@
     mesh_view_bindings::view,
 }
 
-#import "shaders/ground_common.wgsl"::{ground_drift, ground_mottle, ground_vary}
+#import "shaders/ground_common.wgsl"::{ground_drift, ground_mottle, ground_vary, snow_settled, puddle_at, SNOW_ALBEDO, WET_DARKEN}
 
 #ifdef PREPASS_PIPELINE
 #import bevy_pbr::{
@@ -97,7 +97,14 @@ struct SplatUniforms {
     albedo_fade_near: f32,
     /// View distance (m) where the albedo is fully each layer's mean colour.
     albedo_fade_far: f32,
-    /// Pad to 48 bytes - WebGL2 requires uniform blocks be a multiple of
+    /// The weather on the ground (#1683): how wet, 0 to 1.
+    wetness: f32,
+    /// How much snow lies where it has settled, 0 to 1.
+    snow: f32,
+    /// The snow line (world Y) and its edge (m) either side.
+    snow_line: f32,
+    snow_feather: f32,
+    /// Pad to 64 bytes - WebGL2 requires uniform blocks be a multiple of
     /// 16. Mirrors `_pad0`/`_pad1`/`_pad2` on the Rust `SplatUniforms`.
     _pad0: u32,
     _pad1: u32,
@@ -105,6 +112,18 @@ struct SplatUniforms {
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(106) var<uniform> splat_uniforms: SplatUniforms;
+
+// Wet ground (#1683): the share of its roughness it keeps (of its albedo:
+// `ground_common::WET_DARKEN`); a puddle's, darker still and nearly a
+// mirror; settled snow's roughness.
+const WET_ROUGHNESS: f32 = 0.45;
+const PUDDLE_DARKEN: f32 = 0.4;
+const PUDDLE_ROUGHNESS: f32 = 0.04;
+// Water's reflectance (about 4% straight on, a mirror at a glance), which a
+// puddle takes and wet ground a share of: the terrain's own is low (#1467).
+const WATER_REFLECTANCE: f32 = 0.5;
+const WET_REFLECTANCE_SHARE: f32 = 0.4;
+const SNOW_ROUGHNESS: f32 = 0.85;
 
 // Avatar-interaction stains overlay (Phase 3, #245). RGBA:
 //   R = wetness, G = kicked-up dust, B = footprint indent, A = reserved.
@@ -436,6 +455,52 @@ fn fragment(
             pbr_input.material.base_color.rgb * f,
             pbr_input.material.base_color.a,
         );
+    }
+
+    // --- The weather on the ground (#1683) -----------------------------
+    // Wet ground is darker and glossier, as the stains' wet patches are;
+    // puddles gather on the flat (`ground_common::puddle_at`), a near-mirror
+    // of the sky; and snow settles from the top of the ground down
+    // (`ground_common::snow_settled`), but not under the water. The grass
+    // reads the same fields, so its far blades fade into ground weathered
+    // as it is. Both amounts 0 - no weather - leave the ground exactly as
+    // it was.
+    if splat_uniforms.wetness > 0.0 || splat_uniforms.snow > 0.0 {
+        let up = normalize(in.world_normal).y;
+        let xz = in.world_position.xz;
+        let wet = splat_uniforms.wetness;
+        var albedo = pbr_input.material.base_color.rgb * mix(1.0, WET_DARKEN, wet);
+        var rough = pbr_input.material.perceptual_roughness * mix(1.0, WET_ROUGHNESS, wet);
+        let puddle = puddle_at(xz, up, wet);
+        albedo = albedo * mix(1.0, PUDDLE_DARKEN, puddle);
+        rough = mix(rough, PUDDLE_ROUGHNESS, puddle);
+        pbr_input.material.reflectance = mix(
+            pbr_input.material.reflectance,
+            vec3<f32>(WATER_REFLECTANCE),
+            max(puddle, WET_REFLECTANCE_SHARE * wet),
+        );
+        // None settles under the water, where the grass, which reads the
+        // same snow, does not grow: the shore above it is snowed on both.
+        // A room has water exactly when its damp-ground margin is on (#913).
+        let land = select(
+            1.0,
+            smoothstep(splat_uniforms.water_y - 0.3, splat_uniforms.water_y, in.world_position.y),
+            splat_uniforms.moisture_strength > 0.0,
+        );
+        let settled = land * snow_settled(
+            xz,
+            in.world_position.y,
+            up,
+            splat_uniforms.snow,
+            splat_uniforms.snow_line,
+            splat_uniforms.snow_feather,
+        );
+        albedo = mix(albedo, SNOW_ALBEDO, settled);
+        rough = mix(rough, SNOW_ROUGHNESS, settled);
+        // A puddle and a snowfield lie flat: the ground's own detail goes.
+        pbr_input.N = normalize(mix(pbr_input.N, normalize(in.world_normal), max(puddle, 0.7 * settled)));
+        pbr_input.material.base_color = vec4<f32>(albedo, pbr_input.material.base_color.a);
+        pbr_input.material.perceptual_roughness = rough;
     }
 
 #ifdef PREPASS_PIPELINE

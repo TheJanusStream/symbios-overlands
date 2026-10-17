@@ -183,6 +183,50 @@ fn the_weather_lays_over_the_light_and_the_air() {
     assert!((visibility(&fog) - cfg::FOG_VISIBILITY).abs() < 1.0);
 }
 
+/// The ground keeps what fell (#1683): under a weather that stands it is as
+/// wet as its rain makes it and snowed over as far as its snow; under one
+/// that comes and goes it is never drier than the rain now falling makes it,
+/// it stays wet a while after the rain stops, and it dries in the end.
+#[test]
+fn the_ground_keeps_what_fell() {
+    let soaked = weather_now(&standing(WeatherKind::Rain, 1.0), 0.0);
+    assert_eq!((soaked.wet, soaked.cover), (1.0, 0.0));
+    let damp = weather_now(&standing(WeatherKind::Rain, 0.2), 0.0);
+    assert!(damp.wet > 0.0 && damp.wet < 1.0, "{damp:?}");
+    let snowed = weather_now(&standing(WeatherKind::Snow, 1.0), 0.0);
+    assert_eq!((snowed.cover, snowed.wet), (1.0, 0.0));
+    assert_eq!(weather_now(&standing(WeatherKind::Fog, 1.0), 0.0).wet, 0.0);
+
+    let turning = Weather {
+        kind: WeatherKind::Rain,
+        intensity: Fp(1.0),
+        spell_minutes: Fp(10.0),
+    };
+    let t0 = 1_760_000_000.0;
+    let (mut wet_after, mut dried) = (false, false);
+    let mut last_rain = f64::NEG_INFINITY;
+    // Every fifteen seconds through some five hundred spells.
+    for step in 0..20_000 {
+        let t = t0 + f64::from(step) * 15.0;
+        let now = weather_now(&turning, t);
+        // Never drier than the rain now falling makes it, but for the trace
+        // under which the ground holds nothing.
+        assert!(
+            now.wet + cfg::GROUND_TRACE >= wet_under(now.rain),
+            "{t}: {now:?}"
+        );
+        if now.rain > 0.0 {
+            last_rain = t;
+        } else if t - last_rain < 60.0 && now.wet > 0.3 {
+            wet_after = true;
+        } else if now.wet < 0.02 {
+            dried = true;
+        }
+    }
+    assert!(wet_after, "never wet after the rain");
+    assert!(dried, "never dried");
+}
+
 /// What falls: the volume's uniforms carry the rain, the snow and the wind,
 /// and a dry room's volume falls nothing; the block is 16-byte aligned, as
 /// WebGL2 needs; the mesh holds a quad a drop, their ranks spread evenly so

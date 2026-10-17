@@ -364,7 +364,10 @@ generation cores shared with the wasm Web Worker.
   light is the sun or the moon.
 - [`src/weather.rs`](../src/weather.rs) - a room's weather (#1678): overcast,
   rain, a storm, snow or fog at an intensity, standing or coming and going
-  with the clock (UTC), laid over the room's light and air;
+  with the clock (UTC), laid over the room's light and air, and the ground
+  keeping what fell - its wetness and snow cover, which the ground's and
+  the grass's shaders draw from the shared fields in
+  `assets/shaders/ground_common.wgsl`, the water's rings its rain (#1683);
   [`src/weather/precipitation.rs`](../src/weather/precipitation.rs) draws
   what falls as one volume round the camera, placed by its vertex shader
   (`assets/shaders/precipitation.wgsl`).

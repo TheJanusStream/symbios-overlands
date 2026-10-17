@@ -40,7 +40,7 @@
     mesh_view_bindings::{globals, view},
     view_transformations::position_world_to_clip,
 }
-#import "shaders/ground_common.wgsl"::{hash21, value_noise, ground_drift, ground_mottle, ground_vary}
+#import "shaders/ground_common.wgsl"::{hash21, value_noise, ground_drift, ground_mottle, ground_vary, snow_settled, puddle_at, SNOW_ALBEDO, WET_DARKEN}
 
 struct GrassUniforms {
     base: vec4<f32>,
@@ -53,6 +53,9 @@ struct GrassUniforms {
     wind: vec4<f32>,
     reach: vec4<f32>,
     shares: vec4<f32>,
+    // The weather on the ground (#1683): how wet, how much snow lies where
+    // it has settled, the snow line (world Y) and its edge (m).
+    weather: vec4<f32>,
 };
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> grass: GrassUniforms;
@@ -67,6 +70,12 @@ struct GrassUniforms {
 
 // A tile's side (m): `config::grass::TILE_M`.
 const TILE_M: f32 = 8.0;
+// Under settled snow (#1683): the share of a blade's height the snow buries,
+// and how white the snow leaves its tip.
+const BURIED: f32 = 0.75;
+const SNOWY_TIPS: f32 = 0.85;
+// The snow on what stands out of it at the blade's foot, under its tip's.
+const SNOWY_FOOT: f32 = 0.6;
 // The least width (m) of a blade a metre away, and in step further: about
 // a pixel and a half on a 1080-pixel-tall screen at Bevy's default 45
 // degree field of view. A blade narrower than a pixel shimmers as it sways.
@@ -185,8 +194,31 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     let drift = ground_drift(at);
     let mottle = ground_mottle(at);
     let stand = (1.0 - drift) * 0.4 + (1.0 - mottle) * 0.6;
+
+    // The weather on the ground (#1683), as the ground's shader reads it:
+    // snow settled here buries the blades by as much and whitens what
+    // stands out of it; a puddle drowns them; wet blades darken (and
+    // shine: the material).
+    let wet = grass.weather.x;
+    var settled = 0.0;
+    var puddle = 0.0;
+    if grass.weather.y > 0.0 || wet > 0.0 {
+        // The ground's slope a cell either side, as smooth across the
+        // mesh's triangles as the ground's own normals, which its shader
+        // reads: one triangle's slope alone would drown or keep the blades
+        // in triangles.
+        let cell = grass.frame.y;
+        let dx = vec2<f32>(cell, 0.0);
+        let dz = vec2<f32>(0.0, cell);
+        let rise_x = (ground_height(at + dx) - ground_height(at - dx)) / (2.0 * cell);
+        let rise_z = (ground_height(at + dz) - ground_height(at - dz)) / (2.0 * cell);
+        let ground_up = inverseSqrt(1.0 + rise_x * rise_x + rise_z * rise_z);
+        settled = snow_settled(at, ground, ground_up, grass.weather.y, grass.weather.z, grass.weather.w);
+        puddle = puddle_at(at, ground_up, wet);
+    }
+
     var height = grass.base.w * (0.55 + 0.9 * r1) * mix(0.7, 1.25, stand) * mix(0.55, 1.0, density)
-        * grow * fade;
+        * grow * fade * (1.0 - BURIED * settled) * (1.0 - puddle);
     if flower {
         height = height * 1.15;
     }
@@ -269,12 +301,22 @@ fn vertex(vertex: Vertex) -> VertexOutput {
         let pick = min(u32(r2 * flower_count), 3u);
         colour = grass.flowers[pick].rgb;
     }
+    colour = mix(
+        colour * mix(1.0, WET_DARKEN, wet),
+        SNOW_ALBEDO,
+        settled * mix(SNOWY_FOOT, SNOWY_TIPS, up),
+    );
     // Further out the blades take the colour of the ground they stand on -
     // as the ground draws it, its drift and mottle included - and its
     // normal, all of both by the field's reach: a far blade is shaded as the
     // ground beside it is, and the field has no edge to see.
     let merge = smoothstep(grass.reach.x, grass.reach.w, distance);
-    colour = mix(colour, ground_vary(ground_colour, drift, mottle), merge);
+    let far_ground = mix(
+        ground_vary(ground_colour, drift, mottle) * mix(1.0, WET_DARKEN, wet),
+        SNOW_ALBEDO,
+        settled,
+    );
+    colour = mix(colour, far_ground, merge);
     normal = normalize(mix(normal, vec3<f32>(0.0, 1.0, 0.0), merge));
 
     out.world_position = vec4<f32>(position, 1.0);

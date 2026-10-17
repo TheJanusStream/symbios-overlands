@@ -214,8 +214,10 @@ pub(crate) fn apply_environment_state(
         mat.extension.uniforms.sun_dir = Vec4::new(sun_dir.x, sun_dir.y, sun_dir.z, 0.0);
         mat.extension.uniforms.sky_zenith = sky.zenith;
         mat.extension.uniforms.sky_look = sky.look;
-        // The glitter goes behind a weather's cloud (#1678).
+        // The glitter goes behind a weather's cloud (#1678), and its rain
+        // rings the water (#1683).
         mat.extension.uniforms.sun_glitter = env.water_sun_glitter.0;
+        mat.extension.uniforms.rain = drawn.weather.rain;
     }
 }
 

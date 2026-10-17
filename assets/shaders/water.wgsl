@@ -104,6 +104,8 @@ struct WaterUniforms {
     wake_strength: f32,
     wake_ripple_wavelength: f32,
     wake_decay_radius: f32,
+    // How hard it rains on the water (#1683), 0 to 1.
+    rain: f32,
 };
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> water_uniforms: WaterUniforms;
@@ -254,6 +256,53 @@ fn hash21(p: vec2<f32>) -> f32 {
     v = v ^ (v >> vec2<u32>(16u));
     v.x = v.x + v.y * 1664525u;
     return f32(v.x) * (1.0 / 4294967296.0);
+}
+
+// Rain on the water (#1683): drops land in cells RING_CELL apart, each cell
+// struck once every RING_PERIOD at a moment of its own - and each strike
+// where it falls and whether it falls drawn anew, as many strikes as the
+// rain is heavy - and each drop sends out a ring that widens to RING_REACH
+// and fades as it goes. Drawn larger than a real drop's, which is finer
+// than a pixel at the distances the world is seen from; out to the first
+// distance (m) from the eye, gone by the second.
+const RING_CELL: f32 = 1.1;
+const RING_PERIOD: f32 = 1.1;
+const RING_REACH: f32 = 0.45;
+const RING_WAVELENGTH: f32 = 0.12;
+const RING_WIDTH: f32 = 0.07;
+const RING_SLOPE: f32 = 1.2;
+const RING_NEAR: vec2<f32> = vec2<f32>(15.0, 40.0);
+
+// The rings' slope at world `xz` (local surface frame), time `t`, rain
+// `rain`: the rise of the water along x and along z.
+fn rain_rings(xz: vec2<f32>, t: f32, rain: f32) -> vec2<f32> {
+    let cell = floor(xz / RING_CELL);
+    let inside = xz / RING_CELL - cell;
+    // A ring's centre lies in its cell's middle and it reaches RING_REACH
+    // and its width past that: the cell and the three nearest the point
+    // are all that can reach it.
+    let toward = vec2<f32>(select(-1.0, 1.0, inside.x > 0.5), select(-1.0, 1.0, inside.y > 0.5));
+    var slope = vec2<f32>(0.0);
+    for (var k = 0u; k < 4u; k = k + 1u) {
+        let c = cell + vec2<f32>(f32(k & 1u), f32(k >> 1u)) * toward;
+        let beat = t / RING_PERIOD + hash21(c + vec2<f32>(23.0, 7.0));
+        let age = fract(beat);
+        // This strike's own draws: whether it falls, and where.
+        let strike = c + floor(beat) * vec2<f32>(7.0, 13.0) + vec2<f32>(101.0, 37.0);
+        if hash21(strike) >= rain {
+            continue;
+        }
+        let centre = (c + vec2<f32>(0.2)
+            + 0.6 * vec2<f32>(hash21(strike + vec2<f32>(5.0, 11.0)), hash21(strike + vec2<f32>(19.0, 3.0))))
+            * RING_CELL;
+        let away = xz - centre;
+        let r = max(length(away), 1.0e-4);
+        let off = r - age * RING_REACH;
+        let u = off / RING_WIDTH;
+        let rise = cos(6.2831853 * off / RING_WAVELENGTH) * exp(-u * u) * (1.0 - age);
+        slope = slope + away / r * rise;
+    }
+    return slope * RING_SLOPE;
 }
 
 // Hash a 2D integer lattice point to a unit-length 2D gradient. Polar
@@ -691,7 +740,20 @@ fn fragment(
     // accumulated normal can drift away from the surface basis on tilted
     // water, producing a subtle but visible "sheen drift" at grazing.
     let detail_planar = detail - n_surface * dot(detail, n_surface);
-    let n = normalize(n_gerstner + detail_mix * detail_planar);
+    // Rain rings the water (#1683): near the eye only, and gone before
+    // its rings are finer than a pixel. No weather, no rain: no rings.
+    var rings = vec3<f32>(0.0);
+    if water_uniforms.rain > 0.0 {
+        let shown = (1.0 - smoothstep(RING_NEAR.x, RING_NEAR.y, dist))
+            * (1.0 - smoothstep(0.25 * RING_WAVELENGTH, 0.6 * RING_WAVELENGTH, world_footprint));
+        if shown > 0.0 {
+            // The plain clock: the room's wave speed scales `t`, and a
+            // drop's rhythm is the rain's, not the waves'.
+            let slope = rain_rings(xz, globals.time, water_uniforms.rain) * shown;
+            rings = basis * vec3<f32>(-slope.x, 0.0, -slope.y);
+        }
+    }
+    let n = normalize(n_gerstner + detail_mix * detail_planar + rings);
     pbr_input.N = n;
     pbr_input.world_normal = n;
 

@@ -84,3 +84,53 @@ fn ground_vary(colour: vec3<f32>, drift: f32, mottle: f32) -> vec3<f32> {
     let tint = mix(ground_tint(drift, mottle), vec3<f32>(1.0), smoothstep(0.55, 0.9, brightest));
     return colour * tint;
 }
+
+// Weather on the ground (#1683): what the ground and the grass on it share,
+// so a far blade fades into ground snowed as it is.
+//
+//   * the snow settles from the top of the ground down: covered where the
+//     ground stands over the snow line, which falls as the snow settles
+//     (`terrain::splat::ground_weather` sets it), patchy at its edge, and
+//     on all but steep ground.
+//   * puddles gather where the ground is flat and lies low in a field of
+//     its own, the more of it the wetter the ground.
+
+// The share of its colour wet ground keeps.
+const WET_DARKEN: f32 = 0.72;
+// Settled snow's colour: a little blue, a little under white, so it keeps
+// its shading in sunlight.
+const SNOW_ALBEDO: vec3<f32> = vec3<f32>(0.86, 0.88, 0.92);
+// The snow line's edge: patches of this size (m) move it up or down, by at
+// most half this many of its feathers (a jitter of -0.5 to 0.5 times it).
+const SNOW_PATCH_M: f32 = 9.0;
+const SNOW_PATCHINESS: f32 = 1.2;
+// Snow holds on ground facing up more than the first (its upward normal)
+// and wholly from the second.
+const SNOW_STEEP: f32 = 0.55;
+const SNOW_FLAT: f32 = 0.8;
+
+// How much snow lies at world `xz`, height `y`, on ground whose upward
+// normal is `up`, under snow `snow` (0 to 1) with its line at `line` and
+// its edge `feather` metres either side.
+fn snow_settled(xz: vec2<f32>, y: f32, up: f32, snow: f32, line: f32, feather: f32) -> f32 {
+    let jitter = value_noise(xz / SNOW_PATCH_M + vec2<f32>(13.1, -4.7)) - 0.5;
+    let level = (y - line) / max(feather, 0.01) + jitter * SNOW_PATCHINESS;
+    return snow * smoothstep(-0.5, 0.5, level) * smoothstep(SNOW_STEEP, SNOW_FLAT, up);
+}
+
+// Puddles: on ground facing up more than the first and wholly flat from the
+// second; in patches of this size (m), at most this share of the ground,
+// with an edge this soft.
+const PUDDLE_FLAT: vec2<f32> = vec2<f32>(0.97, 0.995);
+const PUDDLE_M: f32 = 3.3;
+const PUDDLE_SHARE: f32 = 0.3;
+const PUDDLE_EDGE: f32 = 0.06;
+
+// How much of a puddle stands at world `xz` on ground whose upward normal
+// is `up`, the ground `wet` (0 to 1).
+fn puddle_at(xz: vec2<f32>, up: f32, wet: f32) -> f32 {
+    let low = value_noise(xz / PUDDLE_M + vec2<f32>(-21.3, 8.9));
+    let reach = wet * PUDDLE_SHARE;
+    return (1.0 - smoothstep(reach - PUDDLE_EDGE, reach, low))
+        * smoothstep(PUDDLE_FLAT.x, PUDDLE_FLAT.y, up) * step(0.001, wet);
+}
