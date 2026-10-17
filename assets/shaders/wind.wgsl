@@ -30,7 +30,7 @@
 //
 // Designed to run on WebGL2: arithmetic only - no new vertex attributes, no
 // textures, no storage buffers, and no dependency on the depth prepass (which
-// `camera.rs` omits on wasm).
+// `camera.rs` omits on the WebGL2 build).
 //
 // This file is used for BOTH the forward vertex shader and the prepass one.
 // Bevy renders shadow maps through the prepass pipeline, so a displacement

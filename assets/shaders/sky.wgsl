@@ -9,8 +9,8 @@
 //      the sun's disc and halo - or the moon's, by `sky.look.y` - and the
 //      stars, by `sky.look.z`, all above the horizon only. The disc and
 //      halo are lit by the scene's own directional light, so they follow
-//      the record's sun colour, illuminance and position without a uniform
-//      of their own.
+//      the drawn sun's colour, illuminance and position (at the room's
+//      hour, under its weather) without a uniform of their own.
 //   3. Hazes the result toward its horizon by the air mass, with the
 //      fog's sun glow - `sky_common::sky_toward`, which the water's
 //      reflection shares (#1672) and whose header says how.

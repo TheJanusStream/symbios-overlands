@@ -2,11 +2,13 @@
 //!
 //! Extends Bevy's `StandardMaterial` with a custom WGSL fragment shader
 //! (`assets/shaders/water.wgsl`) that computes Gerstner-wave displacement,
-//! Fresnel-driven alpha / reflection, scrolling detail normals, foam, and
-//! sun-glitter. Every knob that drives the shader flows through the
-//! `WaterUniforms` block on this extension - a mix of per-volume parameters
-//! (authored on [`crate::pds::WaterSurface`]) and room-wide parameters
-//! (authored on [`crate::pds::Environment`]).
+//! Fresnel-driven alpha and the sky's reflection (#1672), scrolling detail
+//! normals, foam, sun-glitter and rain rings (#1683). Every knob that drives
+//! the shader flows through the `WaterUniforms` block on this extension - a
+//! mix of per-volume parameters (authored on [`crate::pds::WaterSurface`])
+//! and room-wide ones: the sun, the sky, the glitter and the rain, from the
+//! room's [`crate::pds::Environment`] as drawn at its hour and under its
+//! weather (`crate::drawn_environment`).
 
 use bevy::{
     math::{Vec2, Vec4},
@@ -54,7 +56,7 @@ pub struct WaterUniforms {
     pub sun_dir: Vec4,
     /// Global: the sky the water reflects (#1672) - the sky shader's own
     /// uniforms, [`crate::sky::SkyUniforms`]: the colour overhead, linear
-    /// RGB (`w` unused)...
+    /// RGB, and in `w` a lightning flash's light (#1684), as the sky's...
     pub sky_zenith: Vec4,
     /// ...and the haze's depth, the moon's and the stars' shares and the
     /// horizon's distance. Set with `sun_dir`, at spawn and on every

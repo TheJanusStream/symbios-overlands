@@ -60,9 +60,10 @@ pub(crate) mod lighting {
     pub const SKY_SCALE: f32 = 2000.0;
 
     /// The sky (#1671): what `sky::sky_uniforms` reads from a room's
-    /// environment. The record stores no night, so the moon and the stars
-    /// are read off what a night room does store - a dim key light under a
-    /// dark sky. The bounds come from 200 seeded rooms (`render --describe
+    /// environment. A room with neither a time of day nor a weather stores
+    /// no night, so the moon and the stars are read off what a night room
+    /// does store - a dim key light under a dark sky (a time of day says
+    /// outright which light is the moon, #1677). The bounds come from 200 seeded rooms (`render --describe
     /// 0..200`, 2026-10-16): the daylight themes' suns ran 6,199 lx and up,
     /// Cyberpunk's 958-1,900 and Gothic Horror's 1,686-3,891, while the
     /// dusk themes straddle the moon's band; the daylight skies' linear
@@ -995,8 +996,8 @@ pub(crate) mod terrain {
         // wavelength / decay knobs live on `pds::WaterSurface`. Lifetimes
         // are seconds; rates are spawns-per-second.
         pub mod wake {
-            /// Lifetime of a `SplashRing` spawned on water Enter/Exit. Short
-            /// - an entry splash is a brief event, not a lingering swell.
+            /// Lifetime of a `SplashRing` spawned on water Enter/Exit. Short:
+            /// an entry splash is a brief event, not a lingering swell.
             pub const SPLASH_LIFETIME: f32 = 0.9;
             /// Lifetime of a `RadialRipple` shed during slow Dwell.
             ///
@@ -1105,7 +1106,7 @@ pub(crate) mod terrain {
         }
     }
 
-    // --- Avatar–terrain contact (interaction Phase 3, #245) ------------------
+    // --- Avatar-terrain contact (interaction Phase 3, #245) ------------------
     /// Engine-tuning constants for the terrain side of the
     /// avatar-world interaction framework
     /// ([`crate::interaction::classifier`]). These are behaviour
@@ -1357,7 +1358,9 @@ pub(crate) mod grass {
     pub const BLADE_HEIGHT: f32 = 0.42;
     pub const BLADE_WIDTH: f32 = 0.06;
     /// How far a blade's tip leans in the room's wind at its default speed
-    /// (m); a stronger wind leans it further, to two and a half times this.
+    /// (m); a stronger wind leans it further, to two and a half times this,
+    /// and a storm's gust front up to two and a half times that again
+    /// (`grass.wgsl`'s `STORM_LEAN`, #1684).
     pub const WIND_LEAN: f32 = 0.12;
     /// The bodies the grass parts around, at most: the nearest to the
     /// camera.

@@ -217,8 +217,9 @@ analyzer). Adding one is a three-step recipe (define a `Rule` with a
 `const RuleHeader`; add a `LiveCtx` field only if a new reading is needed; one
 `register()` line), with a fully-worked example, in the module docs for
 [`src/diagnostics/anomaly/`](../src/diagnostics/anomaly/mod.rs) - run
-`cargo doc --no-deps --document-private-items --open` and open the `anomaly`
-module.
+`cargo clean --doc && cargo doc --no-deps --document-private-items --open`
+(from an empty `target/doc`: [building.md](building.md), "Tests and quality
+gates") and open the `anomaly` module.
 
 Two things the header owes, both enforced by tests:
 

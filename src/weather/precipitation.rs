@@ -14,7 +14,14 @@
 //! drift on the room's wind (`cloud_wind_dir`, `cloud_speed`): the material
 //! is written only when the drawn environment is (`crate::drawn_environment`)
 //! and the volume is hidden while nothing falls, so a dry room pays nothing.
-//! WebGL2-safe: one uniform block, no texture.
+//! In a storm the streaks slant harder in its gust fronts
+//! (`storm_common.wgsl`, the storm carried in the light's `w`), and a
+//! lightning flash lights them (`lightning`, #1684).
+//!
+//! An orthographic view (#1603) folds every quad away: its eye stands far
+//! off, and the volume round it would be a square of rain in the middle of
+//! the frame. The volume knows nothing of shelter, so it falls through
+//! roofs (#1685). WebGL2-safe: one uniform block, no texture.
 
 use bevy::{
     asset::RenderAssetUsages,

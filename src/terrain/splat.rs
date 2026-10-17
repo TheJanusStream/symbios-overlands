@@ -109,7 +109,7 @@ pub(super) fn start_texture_tasks(
 }
 
 /// In-flight procedural bake of one splat layer's texture, dispatched through
-/// [`crate::offload`]. `index` is the layer slot (0–3) the resolved images are
+/// [`crate::offload`]. `index` is the layer slot (0-3) the resolved images are
 /// stored into; the entity also carries a [`TextureLayerIndex`] marker that the
 /// terrain lifecycle systems use to sweep pending bakes on logout / regen.
 #[derive(Component)]

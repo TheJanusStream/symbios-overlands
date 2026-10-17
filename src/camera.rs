@@ -1,7 +1,7 @@
 //! Third-person orbit camera driven by `bevy_panorbit_camera`.
 //!
-//! Configures distance fog (which also tints the sky cuboid and clear
-//! colour) and a follow system that tracks the local player's chassis:
+//! Configures distance fog (the sky draws its own haze to match it,
+//! `crate::sky`) and a follow system that tracks the local player's chassis:
 //! the camera's `target_focus` is kept on the chassis each frame, and
 //! its `target_yaw` is rotated by the delta of the chassis yaw so
 //! steering rotates the world around the player instead of whipping
@@ -32,7 +32,8 @@
 //! and the cloud deck is hidden under it (`clouds::hide_cloud_deck`):
 //! looking down, an orthographic view never shows the sky the deck hangs
 //! in, and a box that tall would hold the deck between the camera and the
-//! ground. Distances are still taken from where the camera stands, so a
+//! ground. What falls is folded away under it too
+//! (`weather::precipitation`). Distances are still taken from where the camera stands, so a
 //! detail tier judged for the perspective lens - the hair's far tier - turns
 //! with distance as before, though nothing on screen shrinks.
 

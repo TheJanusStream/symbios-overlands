@@ -39,7 +39,7 @@ pub type GrassMaterial = ExtendedMaterial<StandardMaterial, GrassExtension>;
 
 /// The uniform block `grass.wgsl` reads, mirrored there as
 /// `GrassUniforms`: every member a `vec4`, so the two layouts cannot
-/// disagree about padding, and 256 bytes, a multiple of 16 as WebGL2
+/// disagree about padding, and 272 bytes, a multiple of 16 as WebGL2
 /// requires. Colours are linear.
 #[derive(Clone, Debug, Default, PartialEq, ShaderType)]
 pub struct GrassUniforms {

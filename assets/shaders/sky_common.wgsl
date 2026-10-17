@@ -1,6 +1,7 @@
 // The sky's colour toward a direction (#1671, #1672), shared by the sky
-// itself (`sky.wgsl`) and everything that reflects it (`water.wgsl`), so a
-// pond shows the sky that is over it.
+// itself (`sky.wgsl`), the cloud deck that hazes into it (`cloud.wgsl`,
+// #1673) and the water that reflects it (`water.wgsl`), so a pond shows the
+// sky that is over it.
 //
 // `sky_toward` takes the sky's own colour toward the direction - its
 // `body`: the room's sky colour, plus whatever shines there - and hazes it

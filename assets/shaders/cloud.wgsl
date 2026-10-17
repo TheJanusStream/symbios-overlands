@@ -15,8 +15,10 @@
 //      bright sunward edges, dark undersides, and long shading under a low
 //      sun. Thin cloud toward the sun glows with the light it scatters
 //      forward, the silver lining. The light's colour and strength are the
-//      record's, so a warm sun warms the clouds and a night's dim key light
-//      leaves them dark. From above the deck the tops are lit.
+//      room's as drawn (at its hour, under its weather), so a warm sun warms
+//      the clouds and a night's dim key light leaves them dark. From above
+//      the deck the tops are lit. A lightning flash (#1684, the sky colour's
+//      `w`) lights the deck from within, in the cloud's own colour.
 //   3. Hazes it toward the horizon exactly as the sky behind it is hazed
 //      (`sky_common::sky_toward`), so clouds sink into the horizon with the
 //      sky and leave no seam against it.

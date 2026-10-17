@@ -177,7 +177,7 @@ cargo clippy --all-targets -- -D warnings              # lint, exactly as CI run
 cargo test --lib                                       # unit tests (fast path)
 cargo nextest run --cargo-profile test-release         # the full suite (see below)
 cargo test --profile test-release --doc                # doctests: nextest cannot run them
-cargo doc --no-deps --document-private-items           # docs (kept warning-free)
+cargo clean --doc && cargo doc --no-deps --document-private-items  # docs (kept warning-free; see below)
 # app + worker still build for web. CI's toolchain action exports this
 # RUSTFLAGS, so a warning there is an error; the env replaces
 # .cargo/config.toml's per-target rustflags, exactly as it does on CI (#1321)
@@ -245,6 +245,28 @@ drops only the whole-program link. Note that `[profile.bench]` does **not** work
 as an override here: despite the folklore, cargo builds `--release` test targets
 with `profile.release`.
 
+**The doc gate starts from an empty `target/doc`.** rustdoc does not write a
+crate's documentation in isolation: it merges each run into the cross-crate
+files in `target/doc` - `trait.impl/` (every trait's implementors, the auto
+traits' among them), `type.impl/` and `search.index/` - reading back what
+earlier runs wrote. When the crate's items have changed since the last run it
+keeps the crate's old entry beside the new one (a rerun with nothing changed
+adds none), so during active work every gate run leaves one more copy for every
+later run to read, merge and write out again. Measured on 2026-10-17 (#1689),
+same machine, same code:
+
+| `target/doc` | wall | peak RSS |
+| --- | --- | --- |
+| 77 copies of the crate's entries, 1.4 GB on disk | killed at 183 s | > 49 GB |
+| empty | 44 s | 4.4 GB |
+
+The killed run took the desktop's free memory with it, and the slow passes
+before it (300 s and more) were the same growth, swapping. `cargo clean --doc`
+removes `target/doc` and nothing else - unlike a plain `cargo clean`, or one
+with only `--target`, which both remove the whole target directory. CI never
+accumulates: `Swatinem/rust-cache` deletes every file outside the build
+artifacts before it saves the cache.
+
 `cargo nextest run` does not run doctests - that is a known upstream limitation,
 not a configuration gap - so the separate `--doc` line above is part of the gate,
 not optional. Without it the single live doctest in `src/diagnostics/anomaly/`
@@ -267,6 +289,18 @@ a break there surfaces only when the Pages deploy runs `wasm-bindgen` over a
 CI does **not** pass `--locked`, and should not: `Cargo.lock` is untracked by
 decision (see `.gitignore`), so `--locked` would fail outright for want of a
 lockfile to honour.
+
+**No cargo step compiles a shader.** The WGSL under `assets/shaders/` is
+composed by naga_oil when a pipeline is first made, at run time, so a shader
+the build accepts can still fail on screen.
+[`tests/shader_guards.rs`](../tests/shader_guards.rs) catches the two
+failures that cost the visual fidelity epic (#1668) the most time: a WGSL
+reserved word used as a name (`patch`, twice), and the terrain or the grass
+binding more textures than the WebGL2 build's 16 GLES slots or WebGPU's 16
+a stage allow - the WebGPU terrain uses all 16. Anything else shows only
+when the shader draws: render the change (a `failed to process shader` line
+in the render tool's log is the composer's error) and open both web
+bundles.
 
 ### The dependency-bump checklist
 
@@ -914,7 +948,7 @@ cargo run --bin render -- --foundation-audit all
 cargo run --bin render -- --settlement-drop 200
 # Analytic entity census over seeds 0..N - what a room will actually spawn:
 cargo run --bin render -- --room-census 32
-# Placement census - yield, what the slope cutoff costs, Clark–Evans clustering:
+# Placement census - yield, what the slope cutoff costs, Clark-Evans clustering:
 cargo run --bin render -- --scatter-census 8
 # Plan-view plot of one room's scatters (PNG to --out, else ./scatter-plot.png):
 cargo run --bin render -- --scatter-plot 3 --out /tmp/scatter.png

@@ -1,7 +1,10 @@
-//! Atmospheric `Environment` projection: sun, ambient, sky, fog, and the
-//! cloud-deck shader uniforms. Reads the active
-//! [`RoomRecord::environment`](crate::pds::RoomRecord::environment)
-//! and re-paints every renderer-side resource the editor sliders touch.
+//! Atmospheric `Environment` projection: sun, ambient, sky, fog, the colour
+//! grade, the cloud deck, the water and the vegetation wind. Reads the
+//! room's drawn environment (`crate::drawn_environment`: the record's
+//! [`RoomRecord::environment`](crate::pds::RoomRecord::environment) at its
+//! hour and under its weather) - the global ambient light alone keeps the
+//! record's own - and re-paints every renderer-side resource the editor
+//! sliders touch.
 
 use bevy::light::GlobalAmbientLight;
 use bevy::pbr::{DistanceFog, FogFalloff};
@@ -32,12 +35,15 @@ use crate::state::LiveRoomRecord;
 pub struct EnvironmentPreview;
 
 /// Apply the room's drawn `Environment` to every atmospheric resource in
-/// the scene - sun, ambient, the sky's shader, clear colour, and distance
-/// fog. The drawn environment is the record's at the room's time of day
-/// and under its weather (`crate::drawn_environment`, #1677, #1678), drawn
-/// anew on every record change, the editor's preview lane, a turning day's
-/// hour and a changing weather, so an editor slider, a peer broadcast or the
-/// clock retints the world without restarting the session.
+/// the scene - the sun, the ambient light, the colour grade, the clear
+/// colour, the sky's shader, the distance fog, the cloud deck, every water
+/// material (its sun, its sky, its glitter and its rain) and the vegetation
+/// wind (its storm too). The drawn environment is the record's at the
+/// room's time of day and under its weather (#1677, #1678;
+/// `crate::drawn_environment`), drawn anew on every record change, the
+/// editor's preview lane, a turning day's hour and a changing weather, so
+/// an editor slider, a peer broadcast or the clock retints the world
+/// without restarting the session.
 ///
 /// Kept separate from `compile_room_record` because the combined
 /// signature would exceed Bevy's 16-param `IntoSystem` limit; splitting

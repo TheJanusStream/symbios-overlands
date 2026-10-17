@@ -18,9 +18,12 @@
 //!   under a dark sky;
 //! * the stars, read off a dark sky overhead and dimmed by `cloud_cover`.
 //!
-//! The record stores no night, so the last two are thresholds measured on
-//! the seeded rooms; `config::lighting::sky` has them and where they come
-//! from. WebGL2-safe: one uniform block, no textures.
+//! A room with neither a time of day nor a weather stores no night, so the
+//! last two are thresholds measured on the seeded rooms;
+//! `config::lighting::sky` has them and where they come from. A time of day
+//! (#1677) tells the sky outright whether the key light is the moon, and a
+//! weather (#1678) has it read off the room before the weather dims it
+//! (`DrawnEnvironment::moon`). WebGL2-safe: one uniform block, no textures.
 
 use bevy::{
     math::Vec4,

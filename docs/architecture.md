@@ -13,7 +13,7 @@ direct WebRTC mesh.
 
 ## Engine stack
 
-- **Engine:** Bevy 0.18 + Avian3D 0.6 (physics) +
+- **Engine:** Bevy 0.19 + Avian3D 0.7 (physics) +
   [`bevy_egui`](https://github.com/vladbat00/bevy_egui) + `egui_ltreeview`
   (UI, and the generator tree every editor is built around) +
   [`bevy_panorbit_camera`](https://github.com/Plonq/bevy_panorbit_camera)
@@ -21,6 +21,13 @@ direct WebRTC mesh.
   [`transform-gizmo-bevy`](https://github.com/urholaukkarinen/transform-gizmo)
   (in-world editor handles) + `fast-surface-nets` (the isosurface mesher
   behind `BlobGroup`).
+- **Web renderer:** two bundles of the one crate (#1670): WebGL2, which
+  every browser runs, and WebGPU (Bevy's `webgpu` feature) where the
+  browser offers it; `index.html` picks. The WebGL2 bundle (`cfg(webgl2)`,
+  set by `build.rs`) does without MSAA (FXAA smooths its edges instead),
+  more than one shadow cascade and the depth prepass. Every visual effect
+  draws on both, so every peer sees the same world: WebGPU raises quality,
+  not the look ([building.md](building.md), "WebAssembly").
 - **Procedural ecosystem:** the sovereign `symbios` family -
   [`symbios-ground`](https://github.com/TheJanusStream/symbios-ground) (Voronoi
   terracing + hydraulic and thermal erosion),
@@ -102,7 +109,7 @@ CPU-heavy generation runs off the render frame through one platform-routed
 `AsyncComputeTaskPool`, on wasm via a bounded pool of warm Web Workers (Bevy's
 task pools collapse to a single cooperative thread there, so an inline job would
 stall the frame). At most four workers are live at once and three are kept warm
-between jobs - spawning one per job cost 130 ms–1 s in worker creation, module
+between jobs - spawning one per job cost 130 ms to 1 s in worker creation, module
 fetch and wasm instantiation - and the wait queue has two lanes, so a
 latency-sensitive job never sits behind a flood of bulk texture bakes. Four job
 kinds route through it - the **heightmap**, the **audio bakes** (the room's
@@ -351,11 +358,20 @@ generation cores shared with the wasm Web Worker.
   metres and a mottle over a few (`assets/shaders/ground_common.wgsl`,
   #1676): the splat's tone follows them, and the grass is drier where the
   ground drifts lighter and taller where it is darker.
+- [`src/sky.rs`](../src/sky.rs), [`src/sky_light.rs`](../src/sky_light.rs) -
+  the sky (#1671): a shader on the sky cuboid drawing the room's sky colour
+  overhead, hazed toward its horizon as the fog hazes the world
+  (`assets/shaders/sky_common.wgsl`, shared with the cloud deck and the
+  water's reflection), with the sun's or the moon's disc and the stars by
+  night; and the sky light (#1680), an environment map built on the CPU
+  from that same sky, which lights every PBR surface on a sky-lit camera in
+  place of a flat ambient light.
 - [`src/drawn_environment.rs`](../src/drawn_environment.rs) - the room's
   `Environment` as it is drawn now (#1677, #1678): the record's, at the
   hour of its time of day and under its weather, as the `DrawnEnvironment`
-  the sky, the sun, the fog, the clouds, the water, the sky light and what
-  falls read in place of the record's own.
+  the sky, the sun, the fog, the clouds, the water, the sky light, the
+  ground's weather, what falls and the lightning read in place of the
+  record's own.
 - [`src/time_of_day.rs`](../src/time_of_day.rs) - a room's time of day
   (#1677): its `Environment` taken as its noon and drawn at the hour its
   record sets or the clock (UTC) turns it to - the sun along its arc,

@@ -67,6 +67,7 @@ mod pds_records;
 mod pds_sanitize;
 mod prim_wire;
 mod publish_snapshot;
+mod shader_guards;
 mod sign_generator;
 mod texture_referenced;
 mod texture_wire;

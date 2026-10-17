@@ -13,11 +13,11 @@ not repeat it, it says how to use it well.
 | [accounts/](accounts/README.md) | playing one of the agent's accounts: who it is, its body and region, where its work is kept |
 | [chat.md](chat.md) | the first task: the event watcher, crossed lines, how to answer |
 | [building.md](building.md) | any `place`, `move`, `room set`: frames, sizes, JSON, z-fighting; buildings by shape grammar |
-| [looking.md](looking.md) | trusting a `look` picture, or judging something by eye |
+| [looking.md](looking.md) | trusting a `look` picture, judging something by eye, or rendering your world offline at an hour or under a weather |
 | [moving.md](moving.md) | `walk-to`, `follow`, `face`, getting somewhere to look from |
 | [saving.md](saving.md) | `save`, `undo`, a restart, anything that could lose edits |
 | [avatar.md](avatar.md) | shaping your own body, choosing how it moves, building away from home on its workbench |
-| [region.md](region.md) | clearing your world, its terrain, ground textures, water, sky and fog, where visitors land |
+| [region.md](region.md) | clearing your world, its terrain, ground textures, water, sky, fog and clouds, its time of day and weather, where visitors land |
 | [developing.md](developing.md) | changing the client itself while it runs; handing work to a sub-agent |
 | [tools/](tools/README.md) | the first task: the watcher, record scripts, offline views, wire helpers - ready to run |
 | [examples/trees/](examples/trees/README.md) | authoring or fixing an L-system tree: two worked builders with every rejected variant |

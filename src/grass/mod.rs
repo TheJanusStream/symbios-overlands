@@ -18,9 +18,13 @@
 //!   one of three meshes - every tile the same blades, the far ones fewer
 //!   ([`tiles`]). The vertex shader does the rest ([`material`]).
 //! * **What moves it**: the room's wind (the vegetation wind the cards
-//!   sway in), and the bodies nearest the camera, which part it - each
-//!   over its own collider's footprint, so a parked car stands on flattened
-//!   grass rather than in blades poking through its floor.
+//!   sway in) and a storm's gust fronts over it (#1684,
+//!   `storm_common.wgsl`), and the bodies nearest the camera, which part
+//!   it, each over its own collider's footprint - so a parked car stands
+//!   on flattened grass rather than in blades poking through its floor.
+//! * **The weather** on the ground weathers it too (#1683), from the
+//!   terrain's [`GroundWeatherNow`] and the same shared fields: snow buries
+//!   most of a blade, a puddle drowns it, wet blades darken and shine.
 //!
 //! The field waits for the ground's cover, so it never grows through a
 //! building for the half second before the cover is drawn, and is gone
@@ -175,10 +179,10 @@ type Bodies<'w, 's> = Query<
 >;
 
 /// Keep the field's material in step with the room: its record's grass,
-/// its ground's textures, the wind and the quality setting; and the bodies
-/// standing in the grass in their texture. Writes the material only when
-/// something in it changed, since a write rebuilds its bind group and
-/// re-specializes every tile.
+/// its ground's textures and weather, the wind and the quality setting;
+/// and the bodies standing in the grass in their texture. Writes the
+/// material only when something in it changed, since a write rebuilds its
+/// bind group and re-specializes every tile.
 #[allow(clippy::too_many_arguments)]
 fn sync_grass_material(
     mut field: ResMut<GrassField>,
@@ -281,7 +285,7 @@ fn sync_grass_material(
 }
 
 /// The uniform block for room grass `profile` on ground `ground`, in wind
-/// `wind`, for field `field`.
+/// `wind`, for field `field`, under the ground's weather `weather`.
 fn uniforms(
     profile: &GrassProfile,
     ground: &GroundCover,

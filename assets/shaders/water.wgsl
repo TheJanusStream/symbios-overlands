@@ -30,10 +30,14 @@
 //      reflected ray, through `sky_common::sky_toward` - never the scene.
 //   6. Subsurface scatter, wave-crest foam, and a sharp sun-glitter
 //      specular highlight all ride on top of the PBR lighting pass.
+//   7. Rain rings the water near the eye (#1683): a ring for each drop,
+//      as many as the rain is heavy (`rain_rings`), out to 15 m and gone
+//      by 40 m.
 //
 // All tunable values flow through the `WaterUniforms` block bound at slot
 // 100 - authored on `pds::WaterSurface` (per water body) and
-// `pds::Environment` (room-wide).
+// `pds::Environment` (room-wide, as drawn at the room's hour and under its
+// weather: `drawn_environment`).
 
 #import bevy_pbr::{
     pbr_fragment::pbr_input_from_standard_material,
@@ -627,7 +631,7 @@ fn fragment(
     //   * Angles span ~260° of the circle in irrational steps - clustered
     //     angles on one hemisphere let the crest lines overlap into visible
     //     grid diagonals at grazing view.
-    //   * Wavelengths are a non-harmonic ~1.5–1.6× progression from
+    //   * Wavelengths are a non-harmonic ~1.5-1.6× progression from
     //     1.50m to 14.0m so no two waves beat into a low-frequency envelope.
     //   * Amplitudes fall off faster than linearly so the largest wave
     //     dominates the silhouette; smaller waves just add surface texture.

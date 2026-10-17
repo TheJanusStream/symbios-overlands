@@ -39,7 +39,10 @@ name tags, no chat) - `A ui show <window> --picture` draws that.
   `room set`'s `z_fighting` list ([building.md](building.md)), not on the
   picture.
 - Before and after: take the same view from the same spot (same `--at`,
-  same body position) and crop both the same way.
+  same body position) and crop both the same way. A world whose day turns
+  or whose weather comes and goes ([region.md](region.md)) changes its
+  light between two looks: render both with the hour and the weather held
+  (below).
 
 ## Getting a view
 
@@ -65,7 +68,7 @@ experiments:
   room.json --focus=X,Z --dist D --elev DEG --yaw DEG --out view.png` -
   `room.json` is `room get`'s `value`, or your script's output before you
   send it. It is compiled as the game compiles it: terrain, textures,
-  scatters, water, sky and fog.
+  scatters, grass, water, sky, clouds and fog.
 - Always pass `BEVY_ASSET_ROOT=<repo>`, as for the agent.
 - It draws what a visitor with default settings sees, and that includes
   the ground-cover draw distance (#1480): ferns, grass, moss and reeds more
@@ -75,6 +78,12 @@ experiments:
   `--grass low` draws it as a WebGL2 browser visitor sees it by default
   (24 m, thinner), `--grass medium` as a WebGPU one does, `--grass off` not
   at all.
+- A world whose day turns is drawn at the hour it is now, and a weather
+  that comes and goes as it is now, so two renders minutes apart differ in
+  light. Hold both for a before and after: `--hour H` (12 is the world as
+  its fields set it) and `--weather KIND:INTENSITY` (`--weather
+  overcast:0` is a clear sky). A storm's still shows no lightning unless
+  `--flash 1` (0 to 1) holds one.
 - `--focus=X,Y,Z` takes a WORLD height: the ground here is 8-14 m up, and a
   focus at `y = 3` meant "3 m up" put the camera under the terrain. Read
   the ground from `--terrain-report --at=X,Z` and add to it.

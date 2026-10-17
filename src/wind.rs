@@ -171,8 +171,9 @@ pub struct WindUniforms {
 /// Uniform-only by design. `StandardMaterial`'s own PBR textures plus Bevy's
 /// view-group shadow and IBL textures already put this material close to the
 /// 16-slot ceiling wgpu-hal's GLES backend imposes (see
-/// [`crate::splat::SplatExtension`], which sits *at* it), and a vertex-stage
-/// wind effect needs no textures of its own.
+/// [`crate::splat::SplatExtension`]: the terrain takes 14 of WebGL2's 16,
+/// and WebGPU's 16 exactly), and a vertex-stage wind effect needs no
+/// textures of its own.
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
 pub struct WindExtension {
     #[uniform(100)]
@@ -216,10 +217,11 @@ pub type VegetationWindMaterial = ExtendedMaterial<StandardMaterial, WindExtensi
 
 /// The room's live wind, as the vegetation shader sees it.
 ///
-/// Written by the world compiler's `apply_environment_state` from
-/// `Environment::cloud_wind_dir` / `cloud_speed` - the same values that drive
-/// the cloud deck, so a wind-direction drag in the editor turns the clouds
-/// and the foliage together rather than leaving them disagreeing.
+/// Written by the world compiler's `apply_environment_state` from the drawn
+/// environment's `cloud_wind_dir` / `cloud_speed` (a storm's raised wind,
+/// and the storm itself, #1684) - the same values that drive the cloud
+/// deck, so a wind-direction drag in the editor turns the clouds and the
+/// foliage together rather than leaving them disagreeing.
 #[derive(Resource, Debug, Clone, Copy)]
 pub struct VegetationWind {
     pub dir: Vec2,

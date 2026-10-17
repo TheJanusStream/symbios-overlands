@@ -2,12 +2,13 @@
 //!
 //! Strikes fall at instants every visitor reads off the clock (UTC): the
 //! clock is cut into slots of [`cfg::SLOT_SECS`], and a slot strikes by a
-//! chance of the storm's amount at the slot's own start, at an instant
-//! drawn from its count and the weather's own salt (`weather::salt`) - so
-//! two rooms set alike storm alike, and every visitor sees each flash at
-//! once, as nearly as their clocks agree ([`strike_of`]). A strike falls
-//! somewhere round the room's middle, the nearer the rarer and the
-//! brighter, and flashes: a pulse, and for most a second, dimmer one.
+//! chance of [`cfg::STRIKE_SHARE`] of the storm's amount at the slot's own
+//! start, at an instant drawn from its count and the weather's own salt
+//! (`weather::salt`) - so two rooms set alike storm alike, and every visitor
+//! sees each flash at once, as nearly as their clocks agree ([`strike_of`]).
+//! A strike falls somewhere round the room's middle, the nearer the rarer
+//! and the brighter, and flashes: a pulse, and for most a second, dimmer
+//! one.
 //!
 //! Never more than two flashes in any second, under the three a second at
 //! which flashing light can set off a seizure: two pulses a strike, and no

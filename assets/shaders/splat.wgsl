@@ -24,6 +24,10 @@
 //     patches a few metres across, near and far, so no two stretches of one
 //     layer are the same colour - and the grass growing there varies with
 //     them.
+//   - Under a weather (#1683) the ground wets, gathers puddles on the flat
+//     and takes snow from its highest ground down, from the fields in
+//     `ground_common.wgsl` that the grass reads too (the weather block
+//     below).
 //
 // When `splat_uniforms.enabled == 0` the splat logic is bypassed and the base
 // StandardMaterial colour is passed through unchanged (useful for the disabled
@@ -130,12 +134,12 @@ const SNOW_ROUGHNESS: f32 = 0.85;
 // Sampled toroidally at `fract(world.xz / world_period)` with a Repeat
 // sampler - no camera recenter, so no origin pop.
 //
-// `STAINS_BINDING` is emitted by `SplatExtension::specialize` only on
-// non-wasm targets - on wasm32 (WebGL2) the GLES backend caps fragment
-// shaders at 16 texture slots and the rest of the splat material plus
-// Bevy's view-group / StandardMaterial textures already occupy it.
-// Skipping bindings 107/108/109 and the consuming code path keeps the
-// pipeline under the cap; terrain renders without the overlay there.
+// `STAINS_BINDING` is emitted by `SplatExtension::specialize` everywhere
+// but the WebGL2 build, which leaves the overlay out (bindings 107/108/109
+// and the code that reads them). On an older Bevy it was cut there as a
+// 17th texture against the GLES backend's 16 slots; on Bevy 0.19 the
+// WebGL2 terrain takes 14 and has room for it, and it stays out by choice
+// until it is turned back on (#1681).
 #ifdef STAINS_BINDING
 @group(#{MATERIAL_BIND_GROUP}) @binding(107) var stains_tex: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(108) var stains_sampler: sampler;
@@ -392,9 +396,9 @@ fn fragment(
     // is the default 1×1 image and this whole block is skipped, so the
     // terrain renders exactly as before (backward-compat).
     //
-    // Gated by `STAINS_BINDING` because bindings 107/108/109 are only
-    // declared on non-wasm targets - see the explanation at the binding
-    // site above.
+    // Gated by `STAINS_BINDING` because bindings 107/108/109 are declared
+    // on every build but the WebGL2 one - see the explanation at the
+    // binding site above.
 #ifdef STAINS_BINDING
     if stains_uniforms.enabled != 0u {
         let stains_uv = fract(in.world_position.xz / stains_uniforms.world_period);
@@ -441,7 +445,8 @@ fn fragment(
     // gets, since there is then no waterline to be damp around.
     //
     // Applied outside the splat branch so it holds whether or not splat
-    // blending is enabled, and outside STAINS_BINDING so wasm gets it too.
+    // blending is enabled, and outside STAINS_BINDING so the WebGL2 build
+    // gets it too.
     if splat_uniforms.moisture_strength > 0.0 {
         let above_water = in.world_position.y - splat_uniforms.water_y;
         // 1 at (and below) the waterline, easing to 0 by `moisture_depth`.

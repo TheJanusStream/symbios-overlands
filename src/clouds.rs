@@ -18,7 +18,11 @@
 //!   cascades, so the ground, the water, the buildings and the player all
 //!   pass in and out of it as the clouds drift.
 //!
-//! What a room record stores becomes [`CloudUniforms`] in
+//! A lightning flash (#1684) lights the deck from within, carried in the
+//! sky's own uniforms (`sky_zenith.w`).
+//!
+//! The room's drawn environment (`crate::drawn_environment`: its record's
+//! at its hour and under its weather) becomes [`CloudUniforms`] in
 //! [`cloud_uniforms`]. One of its fields is read differently from before:
 //! `cloud_cover` is now the share of the sky the clouds cover
 //! ([`threshold`]), as the field always said, where it used to cut the noise

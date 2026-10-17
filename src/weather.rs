@@ -24,7 +24,11 @@
 //! the rain and the snow and, after a weather that comes and goes, dry and
 //! melt over its next spells, read off the same timeline. The ground's and
 //! the grass's shaders draw them (`terrain::splat`, `grass`), and the
-//! water's rings its rain (`water.wgsl`).
+//! water's rings its rain (`water.wgsl`). Only those: roads, buildings and
+//! placed pieces stay dry and bare (#1686), and what falls knows nothing of
+//! shelter, so it falls through roofs (#1685). The visibility it closes in
+//! is the drawn fog's alone; the sun's shadow reach and the ground cover's
+//! draw distance keep the room's own (#1688).
 //!
 //! A storm (#1684) blows: its wind is the room's, raised by the storm, which
 //! the clouds, the grass, the foliage and the rain all follow; gust fronts

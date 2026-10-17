@@ -89,8 +89,8 @@ pub struct StainsUniforms {
 /// overlay (4; dropped on the WebGL2 build - see [`SplatExtension`] for the
 /// ceiling). Surfaced as the `runtime.texture_bind_slots` gauge (C-5). It is
 /// the extension's own share: on the WebGL2 build Bevy's view and
-/// `StandardMaterial` put nine more in the same pipeline (#1672), ten off it
-/// with the depth prepass's.
+/// `StandardMaterial` put eleven more in the same pipeline (#1672, #1680),
+/// twelve off it with the depth prepass's.
 #[cfg(not(webgl2))]
 pub const SPLAT_TEXTURE_BIND_SLOTS: u32 = 4;
 #[cfg(webgl2)]
@@ -115,14 +115,15 @@ pub const SPLAT_TEXTURE_BIND_SLOTS: u32 = 3;
 ///
 /// Measured again on Bevy 0.19 (#1672), the ceiling is no longer that close.
 /// The GLES backend gives every texture in a pipeline's layout a slot, used
-/// or not, and the WebGL2 terrain now takes 12: the view's three (two shadow
-/// maps and the transmission texture - the camera is HDR, for its bloom;
-/// without HDR Bevy tonemaps in the shader and binds its LUT, a fourth),
+/// or not, and the WebGL2 terrain took 12: the view's three (two shadow maps
+/// and the transmission texture - the camera is HDR, for its bloom; without
+/// HDR Bevy tonemaps in the shader and binds its LUT, a fourth),
 /// `StandardMaterial`'s six (none of Bevy's optional PBR texture features is
-/// on) and the extension's three. A WebGL2 build with an environment map
-/// (+2) and this overlay (+1) ran with the terrain lit by the map
-/// (2026-10-16). The overlay stays off there until it is turned back on
-/// deliberately (#1681).
+/// on) and the extension's three. The sky light's environment map (#1680)
+/// has since added its two, for 14; a WebGL2 build with the map and this
+/// overlay (+1, 15) ran with the terrain lit by the map (2026-10-16). The
+/// overlay stays off there until it is turned back on deliberately (#1681).
+/// `tests/shader_guards.rs` holds these counts to their budgets.
 ///
 /// Native and the WebGPU build keep it (#1670): WebGPU counts sampled
 /// textures and samplers apart, and a world with the overlay and the depth

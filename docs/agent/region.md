@@ -2,7 +2,8 @@
 
 A world's own settings live in its record beside the things placed in it:
 `/generators/base_terrain` (the ground, with the water as its child),
-`/environment` (sun, sky, fog, clouds, the water's look, the ambient sound),
+`/environment` (sun, sky, fog, clouds, the water's look, the ambient sound,
+the time of day and the weather),
 `/default_landing` (where and which way visitors arrive) and `/geo_source`
 (a square of real Berlin the ground is built from - see "Real Berlin
 ground" below). All of it is edited with `room set` and kept with `save`,
@@ -314,7 +315,10 @@ it: it is read from what the record already stores, so these are its levers.
   the same for two rooms set alike. Without the key the room is drawn as
   its fields set it. Render one with `render --world <did> --weather
   rain:0.6` (a weather that comes and goes renders as it is now). Rain
-  falls through roofs: the volume knows nothing of shelter yet.
+  falls through roofs: the volume knows nothing of shelter yet. And only
+  the ground, the grass and the water answer the weather: roads, buildings
+  and placed pieces stay dry and bare, so a road is a dark strip through a
+  snowfield.
 - **The clouds are lit and cast shade** (#1673): one layer at
   `cloud_height`. `cloud_cover` is the share of the sky they cover - 0.3
   scattered, 0.75 broken with sunny gaps, 1 a whole overcast (before #1673

@@ -333,12 +333,13 @@ fn the_grass_follows_a_record_that_lands_before_its_ground() {
     assert_eq!(after.tip, [0.9, 0.1, 0.1]);
 }
 
-/// The grass varies with the ground under it (#1676): both shaders take the
-/// drift, the mottle and the variation from `ground_common.wgsl`, call them
-/// in their own code - an import alone compiles to nothing - and keep no
-/// copy of their own that could drift from the other's: the drier grass
-/// would no longer stand on the lighter ground, and the far blades would
-/// fade into a ground of another tone.
+/// The grass varies with the ground under it (#1676) and weathers with it
+/// (#1683): both shaders take the drift, the mottle, the variation, the
+/// settled snow and the puddles from `ground_common.wgsl`, call them in
+/// their own code - an import alone compiles to nothing - and keep no copy
+/// of their own that could drift from the other's: the drier grass would
+/// no longer stand on the lighter ground, a puddle would keep its blades,
+/// and the far blades would fade into a ground of another tone or snow.
 #[test]
 fn the_grass_and_the_ground_read_one_field() {
     let read = |name: &str| {
@@ -349,7 +350,13 @@ fn the_grass_and_the_ground_read_one_field() {
         .unwrap_or_else(|_| panic!("{name} is a tracked asset"))
     };
     let common = read("ground_common.wgsl");
-    let fields = ["ground_drift", "ground_mottle", "ground_vary"];
+    let fields = [
+        "ground_drift",
+        "ground_mottle",
+        "ground_vary",
+        "snow_settled",
+        "puddle_at",
+    ];
     for field in fields.iter().chain(&["ground_tint"]) {
         let definition = format!("fn {field}(");
         assert_eq!(

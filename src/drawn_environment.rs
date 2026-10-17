@@ -2,7 +2,12 @@
 //! at the hour of its time of day (`crate::time_of_day`) and under its
 //! weather (`crate::weather`), in that order - a rainy night is a night that
 //! rains. What the sun, the sky, the fog, the clouds, the water, the sky
-//! light and what falls read in place of the record's own.
+//! light, the ground's weather (`terrain::splat::weather_the_ground`), what
+//! falls and the lightning read in place of the record's own. Two readers
+//! keep the record's `fog_visibility`: the sun's shadow reach and the
+//! ground cover's draw distance. Nothing is drawn wrong by it - a weather's
+//! fog hides what lies past it - but they spend their work out to the
+//! room's own visibility (#1688).
 //!
 //! It is drawn anew when the record changes (the editor's preview lane
 //! included, frame by frame through a drag), when a turning day's hour has
@@ -199,6 +204,52 @@ mod tests {
             weathered > 0.5,
             "told nothing, the sky reads a moon: {weathered}"
         );
+    }
+
+    /// A room whose light stands still is drawn once (#1679): with no time
+    /// of day and no weather, or with a standing hour and a standing
+    /// weather, the drawn environment does not change frame to frame - and
+    /// so nothing that follows it (the sky, the sky light, the ground's
+    /// weather, the rain, the materials the environment writes) is written
+    /// again.
+    #[test]
+    fn a_room_whose_light_stands_still_is_drawn_once() {
+        let standing = {
+            let mut record = RoomRecord::default();
+            record.environment.time_of_day = Some(TimeOfDay {
+                hour: Fp(18.0),
+                day_minutes: Fp(0.0),
+            });
+            record.environment.weather = Some(Weather {
+                kind: WeatherKind::Rain,
+                intensity: Fp(0.5),
+                spell_minutes: Fp(0.0),
+            });
+            record
+        };
+        let mut calm = RoomRecord::default();
+        calm.environment.time_of_day = None;
+        calm.environment.weather = None;
+        let tick = |app: &App| {
+            app.world()
+                .resource_ref::<DrawnEnvironment>()
+                .last_changed()
+        };
+        for record in [calm, standing] {
+            let mut app = App::new();
+            app.insert_resource(LiveRoomRecord(record));
+            register(&mut app);
+            let made = tick(&app);
+            app.update();
+            let drawn = tick(&app);
+            // The first frame draws the room: this is not watching a system
+            // that never runs.
+            assert_ne!(drawn, made);
+            for _ in 0..5 {
+                app.update();
+            }
+            assert_eq!(tick(&app), drawn);
+        }
     }
 
     /// The weather is drawn anew at each step of it, and when its last trace

@@ -17,11 +17,15 @@
 //      distance. A blade is kept while its rank is below that; one ranked
 //      just below it grows short, so a blade crossing the line shrinks
 //      away rather than popping.
-//   4. Shapes it - height, width, its own droop, the wind's lean, a body's
-//      push - and colours it: root to tip, a dry share, a flower share whose
-//      heads take the room's flower colours, and the ground's own tone
-//      fields (`ground_common.wgsl`): drier where the ground drifts
-//      lighter, a little taller or shorter patch by patch.
+//   4. Shapes it - height, width, its own droop, the wind's lean (harder in
+//      a storm's gust front, `storm_common.wgsl`, #1684), a body's push -
+//      and colours it: root to tip, a dry share, a flower share whose heads
+//      take the room's flower colours, and the ground's own tone fields
+//      (`ground_common.wgsl`): drier where the ground drifts lighter, a
+//      little taller or shorter patch by patch.
+//   5. Weathers it as the ground under it is weathered (#1683), from the
+//      same fields: snow buries most of a blade and whitens what stands
+//      out, a puddle drowns it, and wet blades darken.
 //
 // The fragment is Bevy's PBR one, which reads the colour written here as
 // the base colour (`VERTEX_COLORS`, set because the mesh carries COLOR),
