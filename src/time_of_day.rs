@@ -19,9 +19,9 @@
 //!   and then, opposite it, the moon's fades in: by night the key light is
 //!   the moon, at a small share of the noon sun ([`MOON_SHARE`]), the
 //!   adaptation of an eye to the night. The sky draws the key light's disc
-//!   as the moon's or the sun's as [`DrawnEnvironment::moon`] says: left to
-//!   itself it reads any dim light under a dark sky as the moon
-//!   (`crate::sky`), a low red sun among them.
+//!   as the moon's or the sun's as [`AtHour::moon`] says: left to itself it
+//!   reads any dim light under a dark sky as the moon (`crate::sky`), a low
+//!   red sun among them.
 //! * **The sky.** Overhead and at the horizon it darkens as the sun sinks
 //!   and goes to night's deep blue, dark enough for the stars; the horizon
 //!   takes a warm glow round sunrise and sunset; and the ambient light
@@ -32,10 +32,10 @@
 //!
 //! A turning day reads its hour off UTC ([`hour_at`]): every visitor's
 //! clock gives every other visitor's hour, as nearly as their clocks agree,
-//! with no message between them.
-//! The room is drawn anew whenever its hour moves a minute of its day
-//! ([`HOUR_STEP`]) - a quarter degree of the sun's arc, each drawing a
-//! rebuild of the sky light's maps.
+//! with no message between them. `crate::drawn_environment` draws the room
+//! at its hour (and its weather over that) anew whenever the hour moves a
+//! minute of its day ([`HOUR_STEP`]) - a quarter degree of the sun's arc,
+//! each drawing a rebuild of the sky light's maps.
 //!
 //! [`EXTINCTION`]: crate::config::lighting::time_of_day::EXTINCTION
 //! [`HOUR_STEP`]: crate::config::lighting::time_of_day::HOUR_STEP
@@ -47,77 +47,6 @@ use bevy::prelude::*;
 
 use crate::config::lighting::time_of_day as cfg;
 use crate::pds::{Environment, Fp, Fp3, Fp4, TimeOfDay};
-use crate::state::LiveRoomRecord;
-use crate::world_builder::compile::EnvironmentPreview;
-
-/// The room's environment as it is drawn now: its record's, at the hour of
-/// its time of day when it has one. What the sky, the sun, the fog, the
-/// clouds, the water and the sky light read in place of the record's own.
-#[derive(Resource, Default)]
-pub struct DrawnEnvironment {
-    /// The environment drawn.
-    pub env: Environment,
-    /// The hour it was drawn at; `None` for a room with no time of day.
-    pub hour: Option<f32>,
-    /// Whether the key light is the moon (1) or the sun (0), where the hour
-    /// says; `None` for a room with no time of day, whose sky reads it off
-    /// the light and the sky ([`AtHour::moon`]).
-    pub moon: Option<f32>,
-}
-
-/// The system that keeps [`DrawnEnvironment`] up: what reads it runs after.
-#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct DrawEnvironmentSet;
-
-/// Register the drawn environment and the system that keeps it - in the
-/// game and in the render tool's world, which draw a room alike.
-pub(crate) fn register(app: &mut App) {
-    app.init_resource::<DrawnEnvironment>()
-        .add_systems(Update, draw_environment.in_set(DrawEnvironmentSet));
-}
-
-/// Keep the drawn environment in step with the room: anew when its record
-/// changes (the editor's preview lane included, frame by frame through a
-/// drag) and, for a turning day, whenever its hour has moved a minute.
-fn draw_environment(
-    record: Option<Res<LiveRoomRecord>>,
-    preview: Option<Res<EnvironmentPreview>>,
-    mut drawn: ResMut<DrawnEnvironment>,
-) {
-    let Some(record) = record else {
-        return;
-    };
-    let env = &record.0.environment;
-    let hour = env
-        .time_of_day
-        .as_ref()
-        .map(|time| hour_at(time, unix_now()));
-    let edited = record.is_changed() || preview.is_some_and(|p| p.is_changed());
-    let moved = match (hour, drawn.hour) {
-        (Some(now), Some(then)) => hours_apart(now, then) >= cfg::HOUR_STEP,
-        (now, then) => now.is_some() != then.is_some(),
-    };
-    if !edited && !moved {
-        return;
-    }
-    match hour {
-        Some(hour) => {
-            let at = environment_at(env, hour);
-            drawn.env = at.env;
-            drawn.moon = Some(at.moon);
-        }
-        None => {
-            drawn.env = env.clone();
-            drawn.moon = None;
-        }
-    }
-    drawn.hour = hour;
-}
-
-/// Seconds since 1970 began, UTC, as this machine's clock tells it.
-pub(crate) fn unix_now() -> f64 {
-    chrono::Utc::now().timestamp_millis() as f64 / 1_000.0
-}
 
 /// The hour (0 to 24) room time `time` stands at `unix_secs` seconds after
 /// 1970 began, UTC: its own hour if it stands still, and if its day turns,
@@ -126,7 +55,7 @@ pub(crate) fn unix_now() -> f64 {
 pub fn hour_at(time: &TimeOfDay, unix_secs: f64) -> f32 {
     let hour = f64::from(time.hour.0);
     let day_secs = f64::from(time.day_minutes.0) * 60.0;
-    if day_secs <= 0.0 {
+    if day_secs.is_nan() || day_secs <= 0.0 {
         return hour.rem_euclid(24.0) as f32;
     }
     let turned = unix_secs.rem_euclid(day_secs) / day_secs * 24.0;
@@ -150,7 +79,7 @@ pub fn anchored(hour_now: f32, day_minutes: Fp, unix_secs: f64) -> Fp {
 }
 
 /// How far apart two hours are round the clock face.
-fn hours_apart(a: f32, b: f32) -> f32 {
+pub(crate) fn hours_apart(a: f32, b: f32) -> f32 {
     let gap = (a - b).rem_euclid(24.0);
     gap.min(24.0 - gap)
 }

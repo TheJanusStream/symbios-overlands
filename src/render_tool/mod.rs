@@ -504,6 +504,12 @@ struct Args {
     /// drawn at the hour it is now, by this machine's clock.
     #[arg(long, requires = "world", value_name = "HOUR", value_parser = parse_hour)]
     hour: Option<f32>,
+    /// With `--world`: draw the room under this weather (#1678), standing
+    /// still - `overcast`, `rain`, `storm`, `snow` or `fog`, with an
+    /// intensity from 0 to 1 after a colon (`rain:0.4`; 1 without one) -
+    /// whatever weather its record holds.
+    #[arg(long, requires = "world", value_name = "KIND[:INTENSITY]", value_parser = parse_weather)]
+    weather: Option<crate::pds::Weather>,
     /// With `--world`: build the region from this square of real Berlin
     /// (#1584) - `E,N,SIZE`, the south-west corner and the side in whole
     /// metres of EPSG:25833 (the World Editor's Region source shows them
@@ -1022,6 +1028,26 @@ fn parse_hour(word: &str) -> Result<f32, String> {
         .ok_or_else(|| format!("{word:?} is not an hour, a number from 0 to 24"))
 }
 
+/// `--weather`'s value: a kind, and an intensity after a colon (#1678).
+fn parse_weather(word: &str) -> Result<crate::pds::Weather, String> {
+    let (kind, intensity) = word.split_once(':').unwrap_or((word, "1"));
+    let kind = crate::pds::WeatherKind::ALL
+        .into_iter()
+        .find(|k| k.label().eq_ignore_ascii_case(kind.trim()))
+        .ok_or_else(|| format!("{kind:?} is not overcast, rain, storm, snow or fog"))?;
+    let intensity = intensity
+        .trim()
+        .parse::<f32>()
+        .ok()
+        .filter(|i| (0.0..=1.0).contains(i))
+        .ok_or_else(|| format!("{intensity:?} is not an intensity from 0 to 1"))?;
+    Ok(crate::pds::Weather {
+        kind,
+        intensity: crate::pds::Weather::intensity_of(crate::pds::Fp(intensity)),
+        spell_minutes: crate::pds::Fp(0.0),
+    })
+}
+
 /// `--grass`'s four words.
 fn parse_grass(word: &str) -> Result<crate::grass::GrassQuality, String> {
     crate::grass::GrassQuality::ALL
@@ -1451,6 +1477,13 @@ pub fn run() {
                 hour: crate::pds::TimeOfDay::clock_hour(hour),
                 day_minutes: crate::pds::Fp(0.0),
             });
+        }
+        if let Some(weather) = args.weather {
+            app.world_mut()
+                .resource_mut::<crate::state::LiveRoomRecord>()
+                .0
+                .environment
+                .weather = Some(weather);
         }
         if let Some(path) = &args.cover_map {
             app.insert_resource(cover::CoverMapOut(path.into()))

@@ -155,6 +155,108 @@ pub(crate) mod lighting {
         pub const HOUR_STEP: f32 = 1.0 / 60.0;
     }
 
+    /// Weather (#1678): what each kind of weather brings at its intensity
+    /// and how it lays over a room's light (`crate::weather`).
+    pub mod weather {
+        /// What a kind of weather brings: each amount 0 to 1, given at
+        /// intensity 0 and at intensity 1, straight between.
+        pub struct Amounts {
+            pub overcast: (f32, f32),
+            pub rain: (f32, f32),
+            pub snow: (f32, f32),
+            pub fog: (f32, f32),
+            pub storm: (f32, f32),
+        }
+
+        const NONE: (f32, f32) = (0.0, 0.0);
+
+        /// A grey sky.
+        pub const OVERCAST: Amounts = Amounts {
+            overcast: (0.0, 1.0),
+            rain: NONE,
+            snow: NONE,
+            fog: NONE,
+            storm: NONE,
+        };
+        /// Rain, under a sky already mostly grey, the air hazing with it.
+        pub const RAIN: Amounts = Amounts {
+            overcast: (0.6, 1.0),
+            rain: (0.0, 1.0),
+            snow: NONE,
+            fog: (0.0, 0.3),
+            storm: NONE,
+        };
+        /// A storm: heavy rain under a whole, dark overcast.
+        pub const STORM: Amounts = Amounts {
+            overcast: (0.9, 1.0),
+            rain: (0.5, 1.0),
+            snow: NONE,
+            fog: (0.1, 0.3),
+            storm: (0.3, 1.0),
+        };
+        /// Snow from a pale grey sky, the air thick with it.
+        pub const SNOW: Amounts = Amounts {
+            overcast: (0.5, 0.9),
+            rain: NONE,
+            snow: (0.0, 1.0),
+            fog: (0.0, 0.4),
+            storm: NONE,
+        };
+        /// Fog, under a sky it greys a little.
+        pub const FOG: Amounts = Amounts {
+            overcast: (0.0, 0.3),
+            rain: NONE,
+            snow: NONE,
+            fog: (0.0, 1.0),
+            storm: NONE,
+        };
+
+        /// A weather that comes and goes, by how far into its weather the
+        /// clock stands (its severity, 0 clear to 1 the kind at its
+        /// intensity): the clouds gather over the first pair, from none to
+        /// all, and anything falls over the second - the clouds first.
+        pub const CLOUDS_GATHER: (f32, f32) = (0.25, 0.6);
+        pub const FALLS: (f32, f32) = (0.5, 0.9);
+
+        /// The cloud deck under a whole overcast: at least this dense.
+        pub const OVERCAST_DENSITY: f32 = 0.9;
+        /// The sun's direct light left under a whole overcast, and the share
+        /// of that a full storm leaves; and the sky's light (the ambient
+        /// level) under a whole overcast. The cloud takes the sun and gives
+        /// its light back from the whole sky: shadows all but go, the sky's
+        /// light grows a little, and the world is dimmer for it. (Seeding's
+        /// partly clouded rooms keep more sun: `sun_illuminance` falls 45%
+        /// from clear to their overcast.)
+        pub const OVERCAST_SUN: f32 = 0.07;
+        pub const STORM_SUN: f32 = 0.5;
+        pub const OVERCAST_AMBIENT: f32 = 1.15;
+        /// How far a whole overcast greys the sky overhead and at the
+        /// horizon, toward a grey of the same brightness.
+        pub const SKY_GREY: f32 = 0.85;
+        pub const HORIZON_GREY: f32 = 0.7;
+        /// The share of the sky's light - its colour, the clouds' and the
+        /// ambient level - full rain and a full storm take away, and the
+        /// share full snow adds to the sky's and the clouds' colour.
+        pub const RAIN_DARK: f32 = 0.3;
+        pub const STORM_DARK: f32 = 0.5;
+        pub const SNOW_LIGHT: f32 = 0.2;
+        /// The visibility (m) full fog, rain and snow close the air to.
+        pub const FOG_VISIBILITY: f32 = 60.0;
+        pub const RAIN_VISIBILITY: f32 = 220.0;
+        pub const SNOW_VISIBILITY: f32 = 140.0;
+        /// How far a weather that comes and goes moves before the room is
+        /// drawn anew: the most any of its amounts has changed.
+        pub const WEATHER_STEP: f32 = 0.01;
+
+        /// What falls (`crate::weather::precipitation`); the look of a
+        /// streak and a flake is `precipitation.wgsl`'s.
+        pub mod precipitation {
+            /// Quads in the volume round the camera: all of them fall in the
+            /// heaviest rain or snow, a share of them in lighter.
+            pub const DROPS: u32 = 12_000;
+        }
+    }
+
     /// Sky light (#1680): the environment map `sky_light` builds from the
     /// sky every sky-lit camera carries.
     pub mod sky_light {

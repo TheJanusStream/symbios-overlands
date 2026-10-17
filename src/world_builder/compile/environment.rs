@@ -34,10 +34,10 @@ pub struct EnvironmentPreview;
 /// Apply the room's drawn `Environment` to every atmospheric resource in
 /// the scene - sun, ambient, the sky's shader, clear colour, and distance
 /// fog. The drawn environment is the record's at the room's time of day
-/// (`crate::time_of_day`, #1677) and is drawn anew on every record change,
-/// the editor's preview lane and a turning day's hour, so an editor slider,
-/// a peer broadcast or the clock retints the world without restarting the
-/// session.
+/// and under its weather (`crate::drawn_environment`, #1677, #1678), drawn
+/// anew on every record change, the editor's preview lane, a turning day's
+/// hour and a changing weather, so an editor slider, a peer broadcast or the
+/// clock retints the world without restarting the session.
 ///
 /// Kept separate from `compile_room_record` because the combined
 /// signature would exceed Bevy's 16-param `IntoSystem` limit; splitting
@@ -46,7 +46,7 @@ pub struct EnvironmentPreview;
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_environment_state(
     record: Option<Res<LiveRoomRecord>>,
-    drawn: Res<crate::time_of_day::DrawnEnvironment>,
+    drawn: Res<crate::drawn_environment::DrawnEnvironment>,
     // `Without<CloudLayer>` keeps this query disjoint from the
     // `cloud_layer` query below (which holds `&mut Transform`). Bevy's
     // borrow checker conservatively assumes any pair of queries that
@@ -68,8 +68,8 @@ pub(crate) fn apply_environment_state(
     mut water_materials: ResMut<Assets<crate::water::WaterMaterial>>,
     vegetation_wind: Option<ResMut<crate::wind::VegetationWind>>,
     // Water a compile has just spawned: it is built with its record's own
-    // sun and sky (`world_builder::material`), frames after an edit's
-    // redrawing, and takes the hour's here (#1677).
+    // sun, sky and glitter (`world_builder::material`), frames after an
+    // edit's redrawing, and takes the drawn environment's here (#1677).
     new_water: Query<(), Added<MeshMaterial3d<crate::water::WaterMaterial>>>,
 ) {
     let Some(record) = record else {
@@ -123,7 +123,7 @@ pub(crate) fn apply_environment_state(
 
     // The global ambient light: what lights a camera the sky does not - the
     // item previews. A sky-lit camera turns its own off and takes the
-    // room's sky in its place (`sky_light`, #1680), at the hour's level.
+    // room's sky in its place (`sky_light`, #1680), at the drawn level.
     ambient_light.brightness = authored.ambient_brightness.0;
     let Fp3(own_sky) = authored.sky_color;
     let Fp4(own_fog) = authored.fog_color;
@@ -214,6 +214,8 @@ pub(crate) fn apply_environment_state(
         mat.extension.uniforms.sun_dir = Vec4::new(sun_dir.x, sun_dir.y, sun_dir.z, 0.0);
         mat.extension.uniforms.sky_zenith = sky.zenith;
         mat.extension.uniforms.sky_look = sky.look;
+        // The glitter goes behind a weather's cloud (#1678).
+        mat.extension.uniforms.sun_glitter = env.water_sun_glitter.0;
     }
 }
 

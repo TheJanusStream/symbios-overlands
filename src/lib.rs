@@ -78,6 +78,7 @@ pub mod catalogue;
 pub mod clouds;
 pub mod config;
 pub mod diagnostics;
+pub mod drawn_environment;
 pub mod editor_gizmo;
 pub mod geodata;
 pub mod grass;
@@ -106,6 +107,7 @@ pub mod time_of_day;
 pub mod ui;
 pub mod urban;
 pub mod water;
+pub mod weather;
 pub mod wind;
 pub mod world_builder;
 pub mod world_digest;
@@ -911,12 +913,13 @@ pub(crate) fn build_client_app(app: &mut App, boot: boot_params::BootParams, she
                 clouds::follow_shadow_reach,
                 clouds::cast_cloud_shadows,
                 sky::track_skybox_to_camera,
-                sky_light::update_sky_light.after(time_of_day::DrawEnvironmentSet),
+                sky_light::update_sky_light.after(drawn_environment::DrawEnvironmentSet),
             ),
         );
-    // The room at its hour (#1677), which the sky, the sun and the sky
-    // light all read.
-    time_of_day::register(app);
+    // The room at its hour (#1677) and under its weather (#1678), which the
+    // sky, the sun, the sky light and what falls all read.
+    drawn_environment::register(app);
+    weather::precipitation::register(app);
     // The sun's shadow cascades follow the orbit zoom (#1475).
     shadow_reach::register(app, shadow_reach::follow_orbit_zoom);
 }
@@ -952,10 +955,11 @@ pub(crate) fn register_headless_atmosphere(app: &mut App) {
                 clouds::follow_shadow_reach,
                 clouds::cast_cloud_shadows,
                 sky::track_skybox_to_camera,
-                sky_light::update_sky_light.after(time_of_day::DrawEnvironmentSet),
+                sky_light::update_sky_light.after(drawn_environment::DrawEnvironmentSet),
             ),
         );
-    time_of_day::register(app);
+    drawn_environment::register(app);
+    weather::precipitation::register(app);
 }
 
 fn setup_lighting(

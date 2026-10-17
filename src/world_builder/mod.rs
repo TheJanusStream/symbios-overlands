@@ -241,7 +241,7 @@ pub(crate) fn register_headless_compile(app: &mut App) {
                         .and_then(resource_exists::<crate::state::LiveRoomRecord>),
                 ),
                 compile::apply_environment_state
-                    .after(crate::time_of_day::DrawEnvironmentSet)
+                    .after(crate::drawn_environment::DrawEnvironmentSet)
                     .after(compile::compile_room_record),
                 image_cache::poll_blob_image_tasks,
                 audio_resolver::poll_blob_audio_tasks,
@@ -577,7 +577,7 @@ impl Plugin for WorldBuilderPlugin {
                         ),
                     ),
                     compile::apply_environment_state
-                        .after(crate::time_of_day::DrawEnvironmentSet)
+                        .after(crate::drawn_environment::DrawEnvironmentSet)
                         .after(compile::compile_room_record),
                     compile::apply_contact_recipes,
                     image_cache::poll_blob_image_tasks,

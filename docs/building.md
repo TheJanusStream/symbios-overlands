@@ -992,6 +992,10 @@ cargo run --profile test-release --bin render -- --world 34 --grass low --out /t
 # sunset, 0 the moon at the noon sun's place. Without --hour a room whose day
 # turns renders at the hour it is now, so two runs differ:
 cargo run --profile test-release --bin render -- --world 16 --hour 17.8 --out /tmp/dusk.png
+# A world under a weather (#1678), standing still, whatever its record holds:
+# overcast, rain, storm, snow or fog, an intensity after a colon (1 without);
+# with --hour too, the weather lays over that hour:
+cargo run --profile test-release --bin render -- --world 16 --weather rain:0.6 --out /tmp/rain.png
 # A world's ambient bed as a WAV file, no render (#1519): the game's own bake of
 # the room's ambient_audio recipe (mono 16-bit PCM), and one JSON line with its
 # rate, its length and loop_start_s - the game plays every pass from there to

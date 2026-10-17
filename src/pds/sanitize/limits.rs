@@ -31,6 +31,12 @@ pub const MAX_TILE_SCALE: f32 = 500.0;
 pub const MIN_DAY_MINUTES: f32 = 1.0;
 pub const MAX_DAY_MINUTES: f32 = 10_080.0;
 
+/// The shortest and the longest spell a room's weather may come and go in
+/// (#1678), in real minutes: two minutes - long enough for the clouds to
+/// gather before the rain - and a week.
+pub const MIN_SPELL_MINUTES: f32 = 2.0;
+pub const MAX_SPELL_MINUTES: f32 = 10_080.0;
+
 /// Scatter placement count.
 pub const MAX_SCATTER_COUNT: u32 = 100_000;
 /// Generator-name length (chars) shared by the room recipe and the

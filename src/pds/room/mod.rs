@@ -126,6 +126,14 @@ pub struct Environment {
     /// and the stars (see `crate::time_of_day`). Older clients ignore the
     /// key and draw the room at its noon.
     pub time_of_day: Option<TimeOfDay>,
+
+    /// The room's weather (#1678). `None`, the default and every room made
+    /// before it, keeps the sky, the light and the air as the fields above
+    /// and the time of day set them. `Some` lays a weather over them - a
+    /// grey sky, rain, a storm, snow or fog, at an intensity - that stands,
+    /// or comes and goes with the clock, the same for every visitor (see
+    /// `crate::weather`). Older clients ignore the key.
+    pub weather: Option<Weather>,
 }
 
 /// When a room stands in its day (#1677): an hour the owner sets, which
@@ -188,6 +196,106 @@ impl TimeOfDay {
     }
 }
 
+/// A room's weather (#1678): what it brings, how heavily, and whether it
+/// stands or comes and goes with the clock.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[serde(default)]
+pub struct Weather {
+    /// What the weather brings.
+    pub kind: WeatherKind,
+    /// How heavily, 0 to 1: for a weather that comes and goes, at its
+    /// heaviest.
+    pub intensity: Fp,
+    /// Real minutes a spell of weather lasts as it comes and goes with the
+    /// clock (UTC) - clear spells and spells of [`Self::kind`], the clouds
+    /// gathering before anything falls - or 0 for a weather that stands.
+    pub spell_minutes: Fp,
+}
+
+impl Default for Weather {
+    fn default() -> Self {
+        Self {
+            kind: WeatherKind::Rain,
+            intensity: Fp(0.5),
+            spell_minutes: Fp(0.0),
+        }
+    }
+}
+
+impl Weather {
+    /// `intensity` as the record holds it: within `0..=1` on the wire's
+    /// grid, a NaN none at all.
+    pub fn intensity_of(intensity: Fp) -> Fp {
+        intensity.clamped(0.0, 1.0).on_wire()
+    }
+
+    /// `minutes` as the record holds a spell's length: 0, a weather that
+    /// stands - as is a NaN, a negative length or one the wire writes as
+    /// 0 - or [`limits::MIN_SPELL_MINUTES`] to [`limits::MAX_SPELL_MINUTES`]
+    /// on the wire's grid, as [`TimeOfDay::day_length`] holds a day: the
+    /// weather's timeline counts its spells since 1970, so every visitor
+    /// must read the very length the owner holds.
+    pub fn spell_length(minutes: Fp) -> Fp {
+        if !minutes.0.is_finite() || minutes.0 <= 0.0 || minutes.is_wire_zero() {
+            Fp(0.0)
+        } else {
+            Fp(minutes
+                .0
+                .clamp(limits::MIN_SPELL_MINUTES, limits::MAX_SPELL_MINUTES))
+            .on_wire()
+        }
+    }
+}
+
+/// What a room's weather brings (#1678). An open union: a kind a newer
+/// client adds reads here as [`WeatherKind::Unknown`], drawn as no weather.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(tag = "$type")]
+pub enum WeatherKind {
+    /// A grey sky, the sun behind it.
+    #[serde(rename = "network.symbios.weather.overcast")]
+    Overcast,
+    /// Rain under a grey sky.
+    #[serde(rename = "network.symbios.weather.rain")]
+    #[default]
+    Rain,
+    /// Heavy rain under a dark sky (gusts, lightning and thunder: #1684).
+    #[serde(rename = "network.symbios.weather.storm")]
+    Storm,
+    /// Snow falling from a pale sky.
+    #[serde(rename = "network.symbios.weather.snow")]
+    Snow,
+    /// Fog closing in.
+    #[serde(rename = "network.symbios.weather.fog")]
+    Fog,
+
+    #[serde(other, skip_serializing)]
+    Unknown,
+}
+
+impl WeatherKind {
+    /// Every kind an owner can choose, in the editor's order.
+    pub const ALL: [WeatherKind; 5] = [
+        WeatherKind::Overcast,
+        WeatherKind::Rain,
+        WeatherKind::Storm,
+        WeatherKind::Snow,
+        WeatherKind::Fog,
+    ];
+
+    /// The kind's name as the editor and the render tool write it.
+    pub fn label(self) -> &'static str {
+        match self {
+            WeatherKind::Overcast => "overcast",
+            WeatherKind::Rain => "rain",
+            WeatherKind::Storm => "storm",
+            WeatherKind::Snow => "snow",
+            WeatherKind::Fog => "fog",
+            WeatherKind::Unknown => "unknown",
+        }
+    }
+}
+
 // Default-eliding wire format (#695): a freshly-seeded room overrides only
 // the palette-driven subset of these knobs, so the untouched remainder
 // (fog shape, water detail tiling, cloud geometry) drops off the wire. The
@@ -223,6 +331,7 @@ crate::pds::serde_util::impl_default_eliding_serialize!(Environment {
     grade_saturation,
     ambient_audio,
     time_of_day,
+    weather,
 });
 
 impl Default for Environment {
@@ -268,6 +377,7 @@ impl Default for Environment {
             ambient_audio: crate::pds::audio::SovereignAudioConfig::None,
 
             time_of_day: None,
+            weather: None,
         }
     }
 }
@@ -360,6 +470,13 @@ impl Environment {
         if let Some(time) = self.time_of_day.as_mut() {
             time.hour = TimeOfDay::clock_hour(time.hour.0);
             time.day_minutes = TimeOfDay::day_length(time.day_minutes);
+        }
+        // Weather (#1678): an intensity of 0 to 1 and a spell of two minutes
+        // to a week or none, as the wire holds them. An unknown kind stays
+        // as it came, for a newer client, and is drawn as no weather.
+        if let Some(weather) = self.weather.as_mut() {
+            weather.intensity = Weather::intensity_of(weather.intensity);
+            weather.spell_minutes = Weather::spell_length(weather.spell_minutes);
         }
 
         // Water-environment fields. Keep every channel in a finite,

@@ -107,7 +107,7 @@ fn time_of_day(ui: &mut egui::Ui, time: &mut Option<crate::pds::TimeOfDay>, dirt
     let Some(time) = time.as_mut() else {
         return;
     };
-    let now = crate::time_of_day::unix_now();
+    let now = crate::drawn_environment::unix_now();
     let shown = crate::time_of_day::hour_at(time, now);
     let mut hour = shown;
     let moved = ui
@@ -156,6 +156,98 @@ fn time_of_day(ui: &mut egui::Ui, time: &mut Option<crate::pds::TimeOfDay>, dirt
          clock, the same for everyone in the world without anything sent \
          between them.",
     );
+}
+
+/// The world's weather (#1678): off - the sky and the air as the fields
+/// set them - or a kind of weather at an intensity, which stands still or,
+/// with a spell length, comes and goes with the clock, the same for every
+/// visitor.
+fn weather(ui: &mut egui::Ui, weather: &mut Option<crate::pds::Weather>, dirty: &mut bool) {
+    use crate::pds::{Weather, WeatherKind};
+    let mut on = weather.is_some();
+    if ui
+        .checkbox(&mut on, "Weather")
+        .on_hover_text(
+            "Off: the sky and the air are as the fields above set them. On: \
+             a weather over them - a grey sky, rain, a storm, snow or fog.",
+        )
+        .changed()
+    {
+        *weather = on.then(Weather::default);
+        *dirty = true;
+    }
+    let Some(weather) = weather.as_mut() else {
+        return;
+    };
+    egui::ComboBox::from_id_salt("weather_kind")
+        .selected_text(weather_kind_text(weather.kind))
+        .show_ui(ui, |ui| {
+            for kind in WeatherKind::ALL {
+                if ui
+                    .selectable_label(weather.kind == kind, weather_kind_text(kind))
+                    .clicked()
+                    && weather.kind != kind
+                {
+                    weather.kind = kind;
+                    *dirty = true;
+                }
+            }
+        })
+        .response
+        .on_hover_text(
+            "What the weather brings. A storm is heavy rain under a dark sky. \
+             \"A newer kind\" is one a newer version of the game set: chosen \
+             here, it is replaced.",
+        );
+    ui.horizontal(|ui| {
+        ui.label("Intensity");
+        let mut intensity = weather.intensity.0;
+        let response = ui.add(crate::ui::num::slider(&mut intensity, 0.0..=1.0));
+        let held = Weather::intensity_of(Fp(intensity));
+        if response.changed() && held != weather.intensity {
+            weather.intensity = held;
+            *dirty = true;
+        }
+        response
+    })
+    .inner
+    .on_hover_text("How heavy: for a weather that comes and goes, at its heaviest.");
+    // A log slider from two minutes up, 0 below it.
+    ui.horizontal(|ui| {
+        ui.label("Spell (min)");
+        let mut minutes = weather.spell_minutes.0;
+        let response = ui.add(
+            crate::ui::num::slider(&mut minutes, 0.0..=crate::pds::limits::MAX_SPELL_MINUTES)
+                .logarithmic(true)
+                .smallest_positive(f64::from(crate::pds::limits::MIN_SPELL_MINUTES)),
+        );
+        let length = Weather::spell_length(Fp(minutes));
+        if response.changed() && length != weather.spell_minutes {
+            weather.spell_minutes = length;
+            *dirty = true;
+        }
+        response
+    })
+    .inner
+    .on_hover_text(
+        "0: the weather stands. Otherwise it comes and goes with the clock, \
+         in spells of about this many real minutes - clear ones and ones of \
+         this weather, the clouds gathering before anything falls - the same \
+         for everyone in the world without anything sent between them.",
+    );
+}
+
+/// A kind of weather as the editor names it.
+fn weather_kind_text(kind: crate::pds::WeatherKind) -> &'static str {
+    use crate::pds::WeatherKind;
+    match kind {
+        WeatherKind::Overcast => "Overcast",
+        WeatherKind::Rain => "Rain",
+        WeatherKind::Storm => "Storm",
+        WeatherKind::Snow => "Snow",
+        WeatherKind::Fog => "Fog",
+        WeatherKind::Unknown => "A newer kind",
+    }
 }
 
 /// `hours` (0 to 24) as a clock face shows it: `14:30`.
@@ -309,6 +401,10 @@ pub(super) fn draw_environment_tab(
     egui::CollapsingHeader::new("Time of day")
         .default_open(false)
         .show(ui, |ui| time_of_day(ui, &mut env.time_of_day, dirty));
+
+    egui::CollapsingHeader::new("Weather")
+        .default_open(false)
+        .show(ui, |ui| weather(ui, &mut env.weather, dirty));
 
     egui::CollapsingHeader::new("Colour grading")
         .default_open(false)

@@ -282,6 +282,27 @@ it: it is read from what the record already stores, so these are its levers.
   whatever the time. Render an hour with `render --world <did> --hour 18`
   (without `--hour`, a turning day renders at the hour it is now); noon's
   fields stay the lever for every hour, so judge a colour change at 12.
+- **A weather** (#1678): `/environment/weather`, `{"kind": {"$type":
+  "network.symbios.weather.rain"}, "intensity": 6000, "spell_minutes": 0}`
+  (`overcast`, `rain`, `storm`, `snow` or `fog`; intensity 0 to 1 as a
+  scaled int), lays a weather over the room's light - after its hour, so a
+  rainy night is a night. Overcast closes the cloud deck to a whole cover
+  and takes almost all the sun's direct light (the shadows go), giving a
+  little more of the sky's; rain and a storm darken the sky and its light
+  besides, snow brightens the sky a little; rain, snow and fog close in the
+  visibility (at full, fog to 60 m, snow to 140 m and rain to about 200 m in
+  a room that sees 350 m); and rain and snow fall round the camera, slanting
+  on `cloud_wind_dir` at `cloud_speed`, denser the heavier they are - not
+  in an orthographic view, where nothing falls. The wet ground, snow cover and water rings
+  are #1683's, a storm's gusts, lightning and thunder #1684's. With
+  `spell_minutes` above 0 the weather comes and goes with the clock in
+  spells of about that many real minutes (two at least, a week at most):
+  clear spells and spells of the kind, up to its intensity, the clouds
+  gathering before anything falls - the same for every visitor, and the
+  same for two rooms set alike. Without the key the room is drawn as its
+  fields set it. Render one with `render --world <did> --weather rain:0.6`
+  (a weather that comes and goes renders as it is now). Rain falls through
+  roofs: the volume knows nothing of shelter yet.
 - **The clouds are lit and cast shade** (#1673): one layer at
   `cloud_height`. `cloud_cover` is the share of the sky they cover - 0.3
   scattered, 0.75 broken with sunny gaps, 1 a whole overcast (before #1673

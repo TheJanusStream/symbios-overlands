@@ -382,16 +382,16 @@ pub(crate) fn setup_sky_light(mut commands: Commands, mut images: ResMut<Assets<
 }
 
 /// Rewrite the maps when the room's drawn sky or ambient level changes -
-/// the drawn environment (`crate::time_of_day`) follows the record, the
-/// editor's preview lane frame by frame through a drag, and a turning
-/// day's hour (#1677) - and give every new [`SkyLit`] camera the sky's light
-/// in place of its own ambient.
+/// the drawn environment (`crate::drawn_environment`) follows the record,
+/// the editor's preview lane frame by frame through a drag, a turning day's
+/// hour (#1677) and a changing weather (#1678) - and give every new
+/// [`SkyLit`] camera the sky's light in place of its own ambient.
 ///
 /// Only when they change: the record changes for a moved tree too, and the
 /// preview lane fires for a drag on any editor tab, and each rewrite makes
 /// two new textures ([`cube_image`] says why).
 pub(crate) fn update_sky_light(
-    drawn: Option<Res<crate::time_of_day::DrawnEnvironment>>,
+    drawn: Option<Res<crate::drawn_environment::DrawnEnvironment>>,
     sky_light: Option<Res<SkyLight>>,
     mut images: ResMut<Assets<Image>>,
     cameras: Query<Entity, (With<SkyLit>, Without<EnvironmentMapLight>)>,

@@ -1,8 +1,7 @@
 //! Time of day's tests (#1677): the sun's arc, the light of each hour, the
-//! clock's hour, the record field and the drawn environment.
+//! clock's hour and the record field.
 
 use super::*;
-use crate::pds::RoomRecord;
 use crate::pds::room::sun_position_at;
 
 /// A room whose noon sun stands at `altitude` degrees.
@@ -278,32 +277,4 @@ fn a_time_of_day_is_sanitised_and_absent_from_the_wire_without_one() {
     let wire = serde_json::to_value(&set).expect("serialises");
     let back: Environment = serde_json::from_value(wire).expect("reads back");
     assert_eq!(back.time_of_day, Some(TimeOfDay::default()));
-}
-
-/// The drawn environment is the record's for a room with no time of day,
-/// the sky left to read the moon for itself, and its hour's for one with a
-/// time of day, the sky told.
-#[test]
-fn the_drawn_environment_follows_the_record() {
-    let mut app = App::new();
-    let mut record = RoomRecord::default();
-    record.environment.time_of_day = None;
-    app.insert_resource(LiveRoomRecord(record.clone()));
-    register(&mut app);
-    app.update();
-    let drawn = app.world().resource::<DrawnEnvironment>();
-    assert_eq!((drawn.hour, drawn.moon), (None, None));
-    assert_eq!(
-        drawn.env.sun_illuminance,
-        record.environment.sun_illuminance
-    );
-    record.environment.time_of_day = Some(TimeOfDay {
-        hour: Fp(0.0),
-        day_minutes: Fp(0.0),
-    });
-    app.insert_resource(LiveRoomRecord(record));
-    app.update();
-    let drawn = app.world().resource::<DrawnEnvironment>();
-    assert_eq!((drawn.hour, drawn.moon), (Some(0.0), Some(1.0)));
-    assert!(drawn.env.sun_illuminance.0 <= cfg::MOON_LUX.1);
 }
