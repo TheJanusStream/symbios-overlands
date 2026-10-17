@@ -25,12 +25,14 @@
     mesh_view_bindings::{view, globals, lights},
     view_transformations::position_world_to_clip,
 }
+#import "shaders/storm_common.wgsl"::storm_gust
 
 struct PrecipitationUniforms {
     // x: how hard it rains, y: how hard it snows (0 to 1); z, w: the wind
     // (m/s) along world x and z.
     fall: vec4<f32>,
-    // The sky's light on what falls, linear RGB as the sky is drawn.
+    // The sky's light on what falls, linear RGB as the sky is drawn; w how
+    // stormy (#1684).
     light: vec4<f32>,
 };
 
@@ -61,6 +63,9 @@ const SNOW_DRIFT: f32 = 0.9;
 const SNOW_SWAY: f32 = 0.35;
 const FLAKE_SIZE: f32 = 0.045;
 const SNOW_ALPHA: f32 = 0.9;
+// In a storm's gust front (#1684): how much more a streak slants, as a
+// share of its drift.
+const STORM_SLANT: f32 = 1.5;
 // How much of the sky's light and of the key light each gives back: rain
 // a little brighter than the sky behind it, glinting faintly; snow white,
 // lit on its sunny side.
@@ -136,8 +141,13 @@ fn vertex(v: Vertex) -> Out {
     let pixel = dist * 2.0 / (view.clip_from_view[1][1] * view.viewport.w);
 
     // A streak along the fall, turned about it to face the eye; looking
-    // straight along the fall, the screen's own across will do.
-    let fall = normalize(velocity);
+    // straight along the fall, the screen's own across will do. A storm's
+    // gust front (#1684) slants it harder as it passes - its slant only: the
+    // drop's place follows the steady fall, and a fall that changed with
+    // the gust would move every drop by the change times the clock.
+    let wind_dir = normalize(weather.fall.zw + vec2<f32>(1.0e-5, 0.0));
+    let front = weather.light.w * storm_gust(centre.xz, wind_dir, t);
+    let fall = normalize(velocity + vec3<f32>(drift.x, 0.0, drift.y) * (STORM_SLANT * front));
     var across = cross(fall, to_eye / dist);
     if length(across) < 1.0e-3 {
         across = view.world_from_view[0].xyz;

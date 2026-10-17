@@ -62,7 +62,7 @@ pub(crate) use dispatch::{is_node_of, synthetic_cache_key};
 /// every frame a widget changes, so the atmosphere follows a drag while the
 /// broadcast and the recompile keep waiting for the pause.
 pub(crate) use environment::EnvironmentPreview;
-pub(super) use environment::apply_environment_state;
+pub(crate) use environment::apply_environment_state;
 pub(super) use executor::compile_room_record;
 pub use job::{CompileJob, CompiledWorld};
 #[cfg(not(target_arch = "wasm32"))]

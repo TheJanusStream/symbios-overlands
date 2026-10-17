@@ -28,7 +28,8 @@
 #import "shaders/sky_common.wgsl"::sky_toward
 
 struct SkyUniforms {
-    // The sky overhead, linear RGB; w unused.
+    // The sky overhead, linear RGB; w a lightning flash's light (#1684),
+    // which the clouds glow with.
     zenith: vec4<f32>,
     // x: the haze's optical depth straight up; y: the moon's share of the
     // disc (0 the sun, 1 the moon); z: the stars' brightness (0 none, 1 a

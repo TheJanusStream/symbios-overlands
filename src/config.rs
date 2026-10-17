@@ -276,6 +276,56 @@ pub(crate) mod lighting {
         pub const SNOW_FEATHER_M: f32 = 1.5;
         pub const SNOW_SHOWS: f32 = 0.15;
 
+        /// Storms (#1684): the wind, the lightning and the thunder
+        /// (`crate::weather::lightning`; the gust fronts are
+        /// `storm_common.wgsl`'s).
+        pub mod storm {
+            /// How much a full storm adds to the wind (`cloud_speed`), as a
+            /// share of its own: the clouds, the grass, the foliage and the
+            /// rain all follow it.
+            pub const WIND_GAIN: f32 = 1.5;
+            /// Lightning: the clock is cut into slots this long (s); a slot
+            /// strikes by a chance of this share of the storm, at an
+            /// instant no later than this before the slot ends - so two
+            /// strikes stand at least that far apart.
+            pub const SLOT_SECS: f64 = 4.0;
+            pub const STRIKE_SHARE: f32 = 0.6;
+            pub const SLOT_TAIL_SECS: f64 = 1.5;
+            /// A strike's flash: a pulse fading over this long (s, to 37%:
+            /// an exponential's time constant), and for this share of
+            /// strikes a second, dimmer pulse
+            /// this long after the first (s) at this share of its light.
+            /// Two pulses a strike and strikes 1.5 s apart: never more than
+            /// two flashes in any second, under the three a second at which
+            /// flashing light can set off a seizure.
+            pub const PULSE_FADE: f64 = 0.07;
+            pub const SECOND_SHARE: f32 = 0.6;
+            pub const SECOND_AFTER: (f64, f64) = (0.15, 0.3);
+            pub const SECOND_LIGHT: (f32, f32) = (0.4, 0.7);
+            /// How far a strike falls from the room's middle (m): the nearer,
+            /// the rarer, and the brighter - a strike at the far end gives
+            /// this share of a near one's flash.
+            pub const DISTANCE: (f32, f32) = (300.0, 3_000.0);
+            pub const FAR_FLASH: f32 = 0.3;
+            /// The flash at its brightest - lightning adds light, so a flash
+            /// is the same light by day and by night, and the night's is
+            /// the more dazzling: the light it adds to the sky (linear, a
+            /// cold white, as the sky is drawn), and the light (lux) it adds
+            /// to the key light's, which opens the camera's exposure by as
+            /// much as it multiplies the light - at most this many stops,
+            /// against a key light of at least this many lux.
+            pub const FLASH_SKY: [f32; 3] = [0.5, 0.52, 0.62];
+            pub const FLASH_LUX: f32 = 6_000.0;
+            pub const FLASH_MAX_STOPS: f32 = 4.0;
+            pub const FLASH_FLOOR_LUX: f32 = 50.0;
+            /// Thunder: how fast sound crosses the air (m/s); its volume from
+            /// the nearest strike to the farthest; and nearer than this (m)
+            /// it cracks before it rumbles.
+            pub const SOUND_SPEED: f32 = 343.0;
+            pub const THUNDER_VOLUME: (f32, f32) = (0.9, 0.25);
+            pub const CRACK_WITHIN: f32 = 1_000.0;
+        }
+
         /// What falls (`crate::weather::precipitation`); the look of a
         /// streak and a flake is `precipitation.wgsl`'s.
         pub mod precipitation {

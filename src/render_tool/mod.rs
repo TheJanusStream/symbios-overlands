@@ -510,6 +510,12 @@ struct Args {
     /// whatever weather its record holds.
     #[arg(long, requires = "world", value_name = "KIND[:INTENSITY]", value_parser = parse_weather)]
     weather: Option<crate::pds::Weather>,
+    /// With `--world`: hold a lightning flash at this light, 0 to 1 (#1684).
+    /// Without it a still holds none: the clock's strikes are left out, so a
+    /// storm's sheet does not depend on when it was taken. 1 is a strike
+    /// 300 m off at its brightest.
+    #[arg(long, requires = "world", value_name = "LIGHT", value_parser = parse_flash)]
+    flash: Option<f32>,
     /// With `--world`: build the region from this square of real Berlin
     /// (#1584) - `E,N,SIZE`, the south-west corner and the side in whole
     /// metres of EPSG:25833 (the World Editor's Region source shows them
@@ -1048,6 +1054,14 @@ fn parse_weather(word: &str) -> Result<crate::pds::Weather, String> {
     })
 }
 
+/// `--flash`'s value: a light from 0 to 1 (#1684).
+fn parse_flash(word: &str) -> Result<f32, String> {
+    word.parse::<f32>()
+        .ok()
+        .filter(|light| (0.0..=1.0).contains(light))
+        .ok_or_else(|| format!("{word:?} is not a flash's light, a number from 0 to 1"))
+}
+
 /// `--grass`'s four words.
 fn parse_grass(word: &str) -> Result<crate::grass::GrassQuality, String> {
     crate::grass::GrassQuality::ALL
@@ -1414,6 +1428,7 @@ pub fn run() {
         app.insert_resource(crate::wind::VegetationWind {
             dir: Vec2::ZERO,
             speed: 0.0,
+            storm: 0.0,
         });
     }
     // `--terrain` (#994) drives the game's own terrain pipeline; everything it
@@ -1485,6 +1500,11 @@ pub fn run() {
                 .environment
                 .weather = Some(weather);
         }
+        // A still's flash is held, 0 unless asked: the clock's strikes
+        // would make a storm's sheet a matter of when it was taken.
+        app.insert_resource(crate::weather::lightning::FlashOverride(
+            args.flash.unwrap_or(0.0),
+        ));
         if let Some(path) = &args.cover_map {
             app.insert_resource(cover::CoverMapOut(path.into()))
                 .add_systems(

@@ -195,7 +195,8 @@ fn weather(ui: &mut egui::Ui, weather: &mut Option<crate::pds::Weather>, dirty: 
         })
         .response
         .on_hover_text(
-            "What the weather brings. A storm is heavy rain under a dark sky. \
+            "What the weather brings. A storm is heavy rain under a dark sky, \
+             gusting wind, lightning and thunder. \
              \"A newer kind\" is one a newer version of the game set: chosen \
              here, it is replaced.",
         );

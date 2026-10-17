@@ -299,9 +299,16 @@ it: it is read from what the record already stores, so these are its levers.
   the water near you; snow settles from the highest ground down as it
   builds, whitening the grass and burying most of it; after a weather that
   comes and goes the ground dries and the snow melts over its next spells
-  (the snow slower). A storm's gusts, lightning and thunder are #1684's.
-  With `spell_minutes` above 0 the weather comes and goes with the clock
-  in spells of about that many real minutes (two at least, a week at
+  (the snow slower). A storm (#1684) blows harder - its wind,
+  `cloud_speed` raised up to 2.5 times, moves the clouds, the grass, the
+  foliage and the rain together - with gust fronts crossing the ground
+  downwind; and lightning strikes on the clock, every visitor seeing a
+  flash at once: the sky and the world flash (never more than two flashes
+  in any second), and thunder follows a strike as far behind as its
+  distance (300 m to 3 km) takes sound to cross, a crack first when it is
+  near. Render a flash with `render --world <did> --weather storm --flash
+  1`. With `spell_minutes` above 0 the weather comes and goes with the
+  clock in spells of about that many real minutes (two at least, a week at
   most): clear spells and spells of the kind, up to its intensity, the
   clouds gathering before anything falls - the same for every visitor, and
   the same for two rooms set alike. Without the key the room is drawn as

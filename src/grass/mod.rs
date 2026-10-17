@@ -317,7 +317,7 @@ fn uniforms(
             cfg::MID_SHARE,
             cfg::FAR_SHARE,
             cfg::FADE_FROM * field.reach,
-            0.0,
+            wind.storm,
         ),
         weather: Vec4::new(
             weather.wetness,

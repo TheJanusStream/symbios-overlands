@@ -24,13 +24,18 @@
 //! the rain and the snow and, after a weather that comes and goes, dry and
 //! melt over its next spells, read off the same timeline. The ground's and
 //! the grass's shaders draw them (`terrain::splat`, `grass`), and the
-//! water's rings its rain (`water.wgsl`). A storm's gusts, lightning and
-//! thunder are #1684's.
+//! water's rings its rain (`water.wgsl`).
+//!
+//! A storm (#1684) blows: its wind is the room's, raised by the storm, which
+//! the clouds, the grass, the foliage and the rain all follow; gust fronts
+//! cross the world over it (`storm_common.wgsl`); and [`lightning`] strikes
+//! on the clock, flashing the sky and the world, its thunder after it.
 //!
 //! A weather that comes and goes reads its spells off UTC ([`severity_at`]),
 //! as a turning day reads its hour: every visitor's clock gives every other
 //! visitor's weather, as nearly as their clocks agree.
 
+pub mod lightning;
 pub mod precipitation;
 
 use bevy::prelude::*;
@@ -186,6 +191,18 @@ pub fn weather_now(weather: &Weather, unix_secs: f64) -> WeatherNow {
     now
 }
 
+/// How stormy `weather` is at `unix_secs`, as [`weather_now`] has it but
+/// without reading the ground's past: what a slot's lightning strikes by
+/// (`lightning::strike_of`).
+pub fn storm_at(weather: &Weather, unix_secs: f64) -> f32 {
+    let full = amounts(weather.kind, weather.intensity.0).storm;
+    let spell = weather.spell_minutes.0;
+    if full == 0.0 || spell.is_nan() || spell <= 0.0 {
+        return full;
+    }
+    full * smoothstep(cfg::FALLS.0, cfg::FALLS.1, severity_at(weather, unix_secs))
+}
+
 /// How far into its weather a weather that comes and goes stands at
 /// `unix_secs`: 0 clear, 1 its kind at its intensity. A smooth value noise
 /// over the spells counted since 1970, each spell's value drawn from its
@@ -208,7 +225,7 @@ pub fn severity_at(weather: &Weather, unix_secs: f64) -> f32 {
 
 /// What sets a weather's timeline apart from another's: its kind and its
 /// spell length, as the wire holds them.
-fn salt(weather: &Weather) -> u64 {
+pub(crate) fn salt(weather: &Weather) -> u64 {
     let kind = WeatherKind::ALL
         .iter()
         .position(|k| *k == weather.kind)
@@ -224,7 +241,7 @@ fn spell_value(count: i64, salt: u64) -> f32 {
 
 /// Sebastiano Vigna's SplitMix64 finaliser: every bit of `x` stirs every
 /// bit of the result, the same on every machine.
-fn splitmix64(x: u64) -> u64 {
+pub(crate) fn splitmix64(x: u64) -> u64 {
     let mut z = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
     z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
     z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
@@ -269,8 +286,11 @@ pub fn environment_in(env: &Environment, now: &WeatherNow) -> Environment {
     let o = now.overcast;
     let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
 
-    // The deck closes.
+    // The deck closes; and a storm's wind blows harder, for everything that
+    // follows the room's wind - the clouds, the grass, the foliage, the rain
+    // (#1684).
     out.cloud_cover = Fp(lerp(env.cloud_cover.0, 1.0, o));
+    out.cloud_speed = Fp(env.cloud_speed.0 * (1.0 + now.storm * cfg::storm::WIND_GAIN));
     out.cloud_density = Fp(lerp(
         env.cloud_density.0,
         env.cloud_density.0.max(cfg::OVERCAST_DENSITY),

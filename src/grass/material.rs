@@ -66,7 +66,7 @@ pub struct GrassUniforms {
     /// middle share by `y` and the far share by `z`; `w` is its reach.
     pub reach: Vec4,
     /// The middle and far shares, and where the field starts to fade out
-    /// (m); `w` is unused.
+    /// (m); `w` how stormy (#1684), for the gust fronts.
     pub shares: Vec4,
     /// The weather on the ground (#1683), as the ground's shader has it: how
     /// wet, how much snow lies where it has settled, the snow line (world

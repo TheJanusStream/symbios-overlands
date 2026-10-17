@@ -41,6 +41,7 @@
     view_transformations::position_world_to_clip,
 }
 #import "shaders/ground_common.wgsl"::{hash21, value_noise, ground_drift, ground_mottle, ground_vary, snow_settled, puddle_at, SNOW_ALBEDO, WET_DARKEN}
+#import "shaders/storm_common.wgsl"::storm_gust
 
 struct GrassUniforms {
     base: vec4<f32>,
@@ -70,6 +71,8 @@ struct GrassUniforms {
 
 // A tile's side (m): `config::grass::TILE_M`.
 const TILE_M: f32 = 8.0;
+// In a storm's gust front (#1684): how much harder the blades lean.
+const STORM_LEAN: f32 = 1.5;
 // Under settled snow (#1683): the share of a blade's height the snow buries,
 // and how white the snow leaves its tip.
 const BURIED: f32 = 0.75;
@@ -246,7 +249,11 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     let wave = dot(at, wind_dir) * 0.21 - t * (0.8 + 0.12 * min(grass.wind.z, 20.0));
     let gust = 0.55 + 0.45 * sin(wave) * sin(wave * 0.43 + 1.3);
     let flutter = 0.25 * sin(t * (2.3 + 2.0 * r1) + r2 * 6.2831853);
-    let lean = grass.wind.w * clamp(grass.wind.z / REFERENCE_WIND, 0.0, 2.5) * (gust + flutter);
+    // A storm's gust front (#1684) leans the blades harder as it passes,
+    // the foliage and the rain with them (`storm_common.wgsl`).
+    let front = grass.shares.w * storm_gust(at, wind_dir, t);
+    let lean = grass.wind.w * clamp(grass.wind.z / REFERENCE_WIND, 0.0, 2.5) * (gust + flutter)
+        * (1.0 + STORM_LEAN * front);
     bend = bend + vec3<f32>(wind_dir.x, 0.0, wind_dir.y) * lean * (height / grass.base.w);
     var flatten = 0.0;
     for (var i = 0; i < i32(textureDimensions(bender_map).x); i = i + 1) {

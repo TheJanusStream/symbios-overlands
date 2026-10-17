@@ -35,6 +35,9 @@
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> cloud: CloudUniforms;
 
+// How bright a lightning flash lights the deck from within, at its peak
+// (#1684): this many times the cloud's own colour.
+const CLOUD_FLASH: f32 = 1.5;
 // The second read toward the sun - how far, in noise units per unit of the
 // sun's horizontal run over its height (capped as the sun nears the
 // horizon), and how deep: its detail never shows, only whether a cloud
@@ -133,6 +136,11 @@ fn fragment(in: VertexOutput) -> FragmentOutput {
                 * (sun * (TOP_DIFFUSE * max(to_sun.y, 0.0) * up) + sky * SKY_DIFFUSE);
         }
     }
+
+    // Lightning (#1684) lights the deck from within: its flash, carried in
+    // the sky's colour's last channel (`weather::lightning`), as the cloud's
+    // own colour.
+    body = body + cloud.color.rgb * (cloud.sky_zenith.w * CLOUD_FLASH);
 
     // Hazed as the sky behind it is. From above, the haze is taken as for
     // the same angle upward: `sky_toward` would read any downward view as

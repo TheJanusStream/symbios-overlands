@@ -920,6 +920,7 @@ pub(crate) fn build_client_app(app: &mut App, boot: boot_params::BootParams, she
     // sky, the sun, the sky light and what falls all read.
     drawn_environment::register(app);
     weather::precipitation::register(app);
+    weather::lightning::register(app);
     // The sun's shadow cascades follow the orbit zoom (#1475).
     shadow_reach::register(app, shadow_reach::follow_orbit_zoom);
 }
@@ -960,6 +961,7 @@ pub(crate) fn register_headless_atmosphere(app: &mut App) {
         );
     drawn_environment::register(app);
     weather::precipitation::register(app);
+    weather::lightning::register(app);
 }
 
 fn setup_lighting(

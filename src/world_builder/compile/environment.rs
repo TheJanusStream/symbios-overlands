@@ -199,9 +199,12 @@ pub(crate) fn apply_environment_state(
     if let Some(mut veg_wind) = vegetation_wind {
         let dir = Vec2::new(wind[0], wind[1]);
         let speed = env.cloud_speed.0;
-        if veg_wind.dir != dir || veg_wind.speed != speed {
+        // A storm's gust fronts (#1684) ride the same wind.
+        let storm = drawn.weather.storm;
+        if veg_wind.dir != dir || veg_wind.speed != speed || veg_wind.storm != storm {
             veg_wind.dir = dir;
             veg_wind.speed = speed;
+            veg_wind.storm = storm;
         }
     }
 

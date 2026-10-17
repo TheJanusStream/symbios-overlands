@@ -65,6 +65,7 @@
     view_transformations::position_world_to_clip,
 }
 #endif
+#import "shaders/storm_common.wgsl"::storm_gust
 
 // Mirror of `WindUniforms` in `src/wind.rs`. The two are hand-written copies
 // of one layout and nothing in the build compiles this file, so a field added
@@ -78,10 +79,16 @@ struct WindUniforms {
     height_scale: f32,
     height_bias: f32,
     flutter: f32,
-    _pad0: f32,
+    // How stormy, 0 to 1 (#1684).
+    storm: f32,
 };
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> wind: WindUniforms;
+
+// In a storm's gust front (#1684): how much more the foliage sways, and how
+// far it leans downwind, as shares of its calm sway.
+const STORM_SWAY: f32 = 1.2;
+const STORM_PUSH: f32 = 1.5;
 
 // David Hoskins' sine-free hash, as used by `cloud.wgsl` and `water.wgsl`.
 // Stays well-conditioned at the large world coordinates a region reaches,
@@ -117,14 +124,19 @@ fn wind_offset(world_pos: vec3<f32>, origin: vec3<f32>) -> vec3<f32> {
 
     let bend = sin(t * 0.35 - gust + phase);
     let flutter = sin(t * 1.7 + phase * 2.3 + (world_pos.y - origin.y) * 3.0);
-    let amp = wind.strength * weight;
+    // A storm's gust front (#1684): the sway grows, and the plant leans
+    // downwind, as it passes - one front for the foliage, the grass and the
+    // rain (`storm_common.wgsl`).
+    let front = wind.storm * storm_gust(origin.xz, dir2, globals.time);
+    let amp = wind.strength * weight * (1.0 + STORM_SWAY * front);
+    let push = wind.strength * weight * STORM_PUSH * front;
 
     // The vertical term is a cheap stand-in for arc-length preservation: a
     // leaning frond's tip descends, and without this the silhouette stretches
     // as it swings.
-    return dir * (bend * amp)
+    return dir * (bend * amp + push)
         + side * (flutter * amp * wind.flutter)
-        - vec3<f32>(0.0, abs(bend) * amp * 0.25, 0.0);
+        - vec3<f32>(0.0, (abs(bend) * amp + push) * 0.25, 0.0);
 }
 
 #ifdef PREPASS_PIPELINE

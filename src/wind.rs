@@ -132,7 +132,7 @@ pub fn sways(texture: &SovereignTextureConfig) -> bool {
 /// GPU uniform block shared with `wind.wgsl`.
 ///
 /// 32 bytes, which WebGL2 requires to be a multiple of 16 - the trailing
-/// `_pad0` is what makes it so, and `wgsl_block_mirrors_the_rust_one` below
+/// `storm` is what makes it so, and `wgsl_block_mirrors_the_rust_one` below
 /// keeps this declaration and the shader's copy from drifting apart.
 #[derive(Debug, Clone, Default, ShaderType)]
 pub struct WindUniforms {
@@ -155,12 +155,12 @@ pub struct WindUniforms {
     pub height_bias: f32,
     /// Cross-wind flutter as a fraction of [`Self::strength`].
     pub flutter: f32,
-    /// Pad to 32 bytes: WebGL2 rejects a uniform block whose size is not a
-    /// multiple of 16, and the device-side validator is the only thing that
-    /// catches it - native and the test suite both pass, and the wasm deploy
-    /// fails at pipeline creation naming neither struct nor field. Mirror
-    /// this in `WindUniforms` in `wind.wgsl`.
-    pub _pad0: f32,
+    /// How stormy, 0 to 1 (#1684): gust fronts push the foliage downwind as
+    /// they pass (`storm_common.wgsl`). Also what keeps the block at 32
+    /// bytes, as the pad it replaced did: WebGL2 rejects a uniform block
+    /// whose size is not a multiple of 16, and only the device-side
+    /// validator catches it. Mirror this in `WindUniforms` in `wind.wgsl`.
+    pub storm: f32,
 }
 
 /// [`MaterialExtension`] that drives `wind.wgsl`.
@@ -224,6 +224,9 @@ pub type VegetationWindMaterial = ExtendedMaterial<StandardMaterial, WindExtensi
 pub struct VegetationWind {
     pub dir: Vec2,
     pub speed: f32,
+    /// How stormy, 0 to 1 (#1684): the drawn weather's, for the gust fronts
+    /// the foliage and the grass take (`storm_common.wgsl`).
+    pub storm: f32,
 }
 
 impl Default for VegetationWind {
@@ -231,6 +234,7 @@ impl Default for VegetationWind {
         Self {
             dir: Vec2::from_array(crate::config::lighting::clouds::WIND_DIR),
             speed: crate::config::lighting::clouds::SPEED,
+            storm: 0.0,
         }
     }
 }
@@ -308,6 +312,7 @@ pub fn attach_wind_materials(
                 let mut uniforms = profile.uniforms();
                 uniforms.wind_dir = wind.dir;
                 uniforms.speed = wind.speed;
+                uniforms.storm = wind.storm;
                 let handle = wind_materials.add(VegetationWindMaterial {
                     base: base.clone(),
                     extension: WindExtension {
@@ -403,6 +408,7 @@ pub fn apply_wind_state(
     for (_, mat) in wind_materials.iter_mut() {
         mat.extension.uniforms.wind_dir = wind.dir;
         mat.extension.uniforms.speed = wind.speed;
+        mat.extension.uniforms.storm = wind.storm;
     }
 }
 
@@ -499,7 +505,7 @@ mod tests {
             ("height_scale", "f32"),
             ("height_bias", "f32"),
             ("flutter", "f32"),
-            ("_pad0", "f32"),
+            ("storm", "f32"),
         ];
         let actual = wgsl_fields(&src, "WindUniforms");
         assert_eq!(

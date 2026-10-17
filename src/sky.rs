@@ -47,7 +47,9 @@ const FOGGED_THROUGH: f32 = 50.0;
 /// (`the_uniform_block_is_16_byte_aligned`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, ShaderType)]
 pub struct SkyUniforms {
-    /// The sky overhead, linear RGB; `w` unused.
+    /// The sky overhead, linear RGB; `w` a lightning flash's light, 0 to 1
+    /// (#1684), which the clouds glow with (the sky's own flash is in the
+    /// colour).
     pub zenith: Vec4,
     /// `x` the haze's optical depth straight up; `y` the moon's share of the
     /// disc (0 the sun, 1 the moon); `z` the stars' brightness (0 none, 1 a
@@ -148,7 +150,8 @@ pub(crate) fn sky_uniforms(env: &Environment) -> SkyUniforms {
             luminance,
         )) * clear;
     SkyUniforms {
-        zenith: Vec4::new(zenith.red, zenith.green, zenith.blue, 1.0),
+        // No lightning: `weather::lightning` sets `w` while a flash lasts.
+        zenith: Vec4::new(zenith.red, zenith.green, zenith.blue, 0.0),
         look: Vec4::new(haze, moon, stars, crate::config::lighting::SKY_SCALE),
     }
 }
@@ -254,7 +257,8 @@ mod tests {
         e.fog_visibility = Fp(350.0);
         let u = sky_uniforms(&e);
         let lin = Color::srgb(1.0, 0.5, 0.0).to_linear();
-        assert_eq!(u.zenith, Vec4::new(lin.red, lin.green, lin.blue, 1.0));
+        // `w` 0: no lightning flash (#1684).
+        assert_eq!(u.zenith, Vec4::new(lin.red, lin.green, lin.blue, 0.0));
         let overhead = (-u.look.x).exp();
         // exp(-16 * 2.996 / 350) = 0.872.
         assert!((0.86..0.88).contains(&overhead), "{overhead}");

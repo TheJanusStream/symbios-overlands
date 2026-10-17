@@ -996,6 +996,10 @@ cargo run --profile test-release --bin render -- --world 16 --hour 17.8 --out /t
 # overcast, rain, storm, snow or fog, an intensity after a colon (1 without);
 # with --hour too, the weather lays over that hour:
 cargo run --profile test-release --bin render -- --world 16 --weather rain:0.6 --out /tmp/rain.png
+# A still of a storm holds no lightning (#1684): the clock's strikes are left
+# out, so it does not depend on when it was taken. --flash holds one, 0 to 1
+# (1 a strike 300 m off at its peak):
+cargo run --profile test-release --bin render -- --world 16 --weather storm --flash 1 --out /tmp/flash.png
 # A world's ambient bed as a WAV file, no render (#1519): the game's own bake of
 # the room's ambient_audio recipe (mono 16-bit PCM), and one JSON line with its
 # rate, its length and loop_start_s - the game plays every pass from there to

@@ -370,7 +370,11 @@ generation cores shared with the wasm Web Worker.
   `assets/shaders/ground_common.wgsl`, the water's rings its rain (#1683);
   [`src/weather/precipitation.rs`](../src/weather/precipitation.rs) draws
   what falls as one volume round the camera, placed by its vertex shader
-  (`assets/shaders/precipitation.wgsl`).
+  (`assets/shaders/precipitation.wgsl`);
+  [`src/weather/lightning.rs`](../src/weather/lightning.rs) a storm's
+  lightning, struck on the clock, and its thunder; and
+  `assets/shaders/storm_common.wgsl` the gust fronts the grass, the foliage
+  and the rain bend to together (#1684).
 - [`src/terrain/`](../src/terrain/), [`src/urban/`](../src/urban/),
   [`src/splat.rs`](../src/splat.rs), [`src/water.rs`](../src/water.rs),
   [`src/clouds.rs`](../src/clouds.rs), [`src/wind.rs`](../src/wind.rs) -

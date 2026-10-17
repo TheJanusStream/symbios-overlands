@@ -48,7 +48,7 @@ pub struct PrecipitationUniforms {
     /// the wind (m/s) along world x and z.
     pub fall: Vec4,
     /// The sky's light on what falls, linear RGB as the sky is drawn; `w`
-    /// unused.
+    /// how stormy (#1684), for the gust fronts.
     pub light: Vec4,
 }
 
@@ -123,7 +123,7 @@ pub(crate) fn uniforms(env: &Environment, now: &WeatherNow) -> PrecipitationUnif
     let light = (linear(env.sky_color.0) + linear([fog[0], fog[1], fog[2]])) * 0.5;
     PrecipitationUniforms {
         fall: Vec4::new(now.rain, now.snow, wind.x, wind.y),
-        light: light.extend(0.0),
+        light: light.extend(now.storm),
     }
 }
 
@@ -209,7 +209,7 @@ fn follow_camera(
 
 /// Give the volume the drawn weather whenever it is drawn anew, and hide it
 /// while nothing falls.
-fn weather_the_volume(
+pub(crate) fn weather_the_volume(
     drawn: Res<DrawnEnvironment>,
     mut materials: ResMut<Assets<PrecipitationMaterial>>,
     mut volume: Query<

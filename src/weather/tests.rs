@@ -258,3 +258,136 @@ fn what_falls_is_the_weather_on_the_wind() {
     let below_half = data.iter().step_by(4).filter(|d| d[0] < 0.5).count();
     assert!((below_half as i32 - 500).abs() <= 1, "{below_half}");
 }
+
+/// Lightning (#1684): no strike without a storm; at a full storm each slot
+/// strikes alike for every visitor, about its share of the slots, within
+/// its slot's span, from a distance in range; a flash peaks at its strike
+/// and is out a second later; and never more than two flashes fall in any
+/// second - the pulses' onsets counted over two thousand slots of storm.
+#[test]
+fn lightning_strikes_on_the_clock_and_never_flashes_too_fast() {
+    use super::lightning::{flash_at, strike_of};
+    let storm = standing(WeatherKind::Storm, 1.0);
+    let rain = standing(WeatherKind::Rain, 1.0);
+    for slot in 0..1_000 {
+        assert!(strike_of(&rain, slot).is_none());
+    }
+    let first = 440_000_000_i64;
+    let (mut strikes, mut onsets) = (0, Vec::new());
+    for slot in first..first + 2_000 {
+        let Some(strike) = strike_of(&storm, slot) else {
+            continue;
+        };
+        strikes += 1;
+        assert_eq!(strike_of(&storm, slot), Some(strike));
+        let range = cfg::storm::DISTANCE;
+        assert!((range.0..=range.1).contains(&strike.distance));
+        let start = slot as f64 * cfg::storm::SLOT_SECS;
+        assert!(strike.at >= start);
+        assert!(strike.at <= start + cfg::storm::SLOT_SECS - cfg::storm::SLOT_TAIL_SECS);
+        assert!((flash_at(strike.at, &storm) - strike.light).abs() < 1e-3);
+        assert_eq!(flash_at(strike.at + 1.0, &storm), 0.0, "out a second later");
+        onsets.push(strike.at);
+        if let Some((after, share)) = strike.second {
+            assert!(share < 1.0);
+            onsets.push(strike.at + after);
+        }
+    }
+    let share = strikes as f32 / 2_000.0;
+    assert!((share - cfg::storm::STRIKE_SHARE).abs() < 0.05, "{share}");
+    onsets.sort_by(f64::total_cmp);
+    for three in onsets.windows(3) {
+        assert!(
+            three[2] - three[0] > 1.0,
+            "three flashes in a second: {three:?}"
+        );
+    }
+}
+
+/// The drawing holds the spacing whatever the schedule does (#1684): an
+/// owner dragging the weather's sliders through a storm gives it a new
+/// schedule every frame, and still no second holds three flashes - every
+/// frame of ten minutes at 60 a second, each with a schedule of its own.
+#[test]
+fn a_storm_dragged_through_its_settings_never_flashes_too_fast() {
+    use super::lightning::{may_draw, strike_of};
+    let mut last = None;
+    let mut onsets: Vec<f64> = Vec::new();
+    let t0 = 1_760_000_000.0;
+    for frame in 0..36_000_u32 {
+        let now = t0 + f64::from(frame) / 60.0;
+        // A new spell length each frame: a new salt, a new schedule.
+        let weather = Weather {
+            kind: WeatherKind::Storm,
+            intensity: Fp(1.0),
+            spell_minutes: Weather::spell_length(Fp(2.0 + frame as f32 * 0.37)),
+        };
+        let slot = (now / cfg::storm::SLOT_SECS).floor() as i64;
+        for s in [slot - 1, slot] {
+            let Some(strike) = strike_of(&weather, s).filter(|strike| strike.at <= now) else {
+                continue;
+            };
+            if !may_draw(last.as_ref(), &strike) {
+                continue;
+            }
+            if last != Some(strike) {
+                last = Some(strike);
+                onsets.push(strike.at);
+                if let Some((after, _)) = strike.second {
+                    onsets.push(strike.at + after);
+                }
+            }
+        }
+    }
+    assert!(onsets.len() > 100, "the storm flashes: {}", onsets.len());
+    onsets.sort_by(f64::total_cmp);
+    for three in onsets.windows(3) {
+        assert!(
+            three[2] - three[0] > 1.0,
+            "three flashes in a second: {three:?}"
+        );
+    }
+}
+
+/// Thunder (#1684): synthesised alike every time, finite, its loudest at
+/// 0.9; a near one cracks in its first tenth of a second, and is shorter
+/// than a far one's long roll.
+#[test]
+fn thunder_cracks_near_and_rolls_far() {
+    use super::lightning::thunder_samples;
+    let near = thunder_samples(true);
+    let far = thunder_samples(false);
+    assert_eq!(near, thunder_samples(true));
+    assert!(far.len() > near.len());
+    for clip in [&near, &far] {
+        assert!(clip.iter().all(|s| s.is_finite()));
+        let peak = clip.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
+        assert!((peak - 0.9).abs() < 1e-4, "{peak}");
+    }
+    let energy = |clip: &[f32], secs: f32| {
+        let n = (secs * super::lightning::THUNDER_RATE as f32) as usize;
+        clip[..n].iter().map(|s| s * s).sum::<f32>() / n as f32
+    };
+    assert!(
+        energy(&near, 0.1) > 4.0 * energy(&far, 0.1),
+        "a near one cracks"
+    );
+}
+
+/// A flash adds light (#1684): no flash opens nothing; the same flash opens
+/// the exposure the more the dimmer the light it falls on - a night's the
+/// most, at most the cap.
+#[test]
+fn a_flash_adds_light_the_more_by_night() {
+    use super::lightning::flash_stops;
+    assert_eq!(flash_stops(0.0, 20_000.0), 0.0);
+    let day = flash_stops(1.0, 20_000.0);
+    let storm_day = flash_stops(1.0, 700.0);
+    let night = flash_stops(1.0, 10.0);
+    assert!(
+        0.0 < day && day < storm_day && storm_day < night,
+        "{day} {storm_day} {night}"
+    );
+    assert_eq!(night, cfg::storm::FLASH_MAX_STOPS);
+    assert!(flash_stops(0.5, 700.0) < storm_day);
+}
