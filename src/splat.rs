@@ -404,10 +404,9 @@ mod uniform_layout_tests {
                 });
             }
         }
-        let words: Vec<u32> = bytes
-            .chunks_exact(4)
-            .map(|w| u32::from_le_bytes(w.try_into().expect("four bytes")))
-            .collect();
+        let (whole, rest) = bytes.as_chunks::<4>();
+        assert!(rest.is_empty(), "the block is whole words");
+        let words: Vec<u32> = whole.iter().map(|&w| u32::from_le_bytes(w)).collect();
         assert_eq!(words, expected);
     }
 
