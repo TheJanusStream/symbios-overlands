@@ -245,6 +245,8 @@ pub(super) fn draw_tab(
                 &mut ctx.labels.slot(crate::ui::shortcuts::EditorKind::Avatar),
                 // Avatars can't grow roads - no stats readout.
                 None,
+                // Nor grass: an avatar carries no terrain.
+                None,
                 ctx.face_pick,
                 // #1239 f78: the same owner every other catalogue path
                 // stamps with.

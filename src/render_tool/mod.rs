@@ -446,7 +446,10 @@ struct Args {
     /// With `--catalogue <slug>`, `--prim <tag>` (overrides applied), or
     /// `--avatar <seed|did>`: print that subject's built [`Generator`] as
     /// pretty JSON to stdout and exit (a valid seed file for `--generator`,
-    /// enabling a no-recompile geometry-iteration loop).
+    /// enabling a no-recompile geometry-iteration loop). With `--world`:
+    /// print the world's record instead (#1700) - seeded, or its
+    /// `--world-record` sanitised - in its wire form, a valid
+    /// `--world-record` to edit and render (its terrain's grass, say).
     #[arg(long, default_value_t = false)]
     dump: bool,
     /// Age-progression sweep for an L-system subject (#908): comma-separated
@@ -1275,10 +1278,16 @@ pub fn run() {
                 Err(_) => build_for_did_in_livery(avatar, args.livery).0,
             };
             generator_body(body, avatar)
+        } else if args.world.is_some() {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&report_record(&args)).expect("a record serialises")
+            );
+            return;
         } else {
             panic!(
-                "--dump requires --catalogue <slug>, --prim <tag>, or --avatar <seed|did> \
-                 (--room/--world/--generator subjects are file/derived records - dump not supported)"
+                "--dump requires --catalogue <slug>, --prim <tag>, --avatar <seed|did> or \
+                 --world (--room/--generator subjects are file records - dump not supported)"
             );
         };
         println!(

@@ -203,6 +203,12 @@ impl Fp3 {
     pub fn wire(&self) -> [i32; 3] {
         self.0.map(|v| (v * FP_SCALE).round() as i32)
     }
+
+    /// `self` as a peer reads it back: each component rounded onto the
+    /// wire's 1/10 000 grid, as [`Fp::on_wire`] rounds one.
+    pub(crate) fn on_wire(self) -> Fp3 {
+        Fp3(self.0.map(|v| Fp(v).on_wire().0))
+    }
 }
 
 impl Serialize for Fp3 {
@@ -256,6 +262,14 @@ pub struct Fp64(pub f64);
 impl From<f64> for Fp64 {
     fn from(v: f64) -> Self {
         Fp64(v)
+    }
+}
+
+impl Fp64 {
+    /// `self` as a peer reads it back: rounded onto the wire's 1/10 000
+    /// grid, as [`Fp::on_wire`] rounds an `Fp`.
+    pub(crate) fn on_wire(self) -> Fp64 {
+        Fp64((self.0 * f64::from(FP_SCALE)).round() / f64::from(FP_SCALE))
     }
 }
 
@@ -556,7 +570,7 @@ pub struct ScatterNaturalness {
     pub edge_falloff: Fp,
     /// Per-instance uniform scale spread, as a half-width in log space:
     /// the scale factor lands in `[e^-j, e^+j]`. `0.18` gives roughly
-    /// 0.84×–1.20×, which is what kills the pixel-identical-clone read
+    /// 0.84× to 1.20×, which is what kills the pixel-identical-clone read
     /// without any instance looking mis-sized.
     #[serde(default, skip_serializing_if = "Fp::is_zero")]
     pub scale_jitter: Fp,

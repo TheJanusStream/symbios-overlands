@@ -157,7 +157,8 @@ pub(crate) fn terrain_fingerprint(
         .geo_source
         .as_ref()
         .map(|source| (source.dataset.as_str(), source.square()));
-    serde_json::to_string(&(cfg, square)).ok()
+    // Its land only: a grass edit (#1700) builds no new heightmap.
+    serde_json::to_string(&(cfg.land(), square)).ok()
 }
 
 /// The terrain generation gave an answer that is not a heightmap (#1230
@@ -918,6 +919,36 @@ mod fingerprint_tests {
         });
         assert_ne!(super::terrain_source_key(&record), key);
         record.geo_source = None;
+        assert_ne!(super::terrain_source_key(&record), key);
+    }
+
+    /// A grass edit (#1700) leaves the ground standing - the heightmap is
+    /// its land's alone - and a land edit still rebuilds it.
+    #[test]
+    fn a_grass_edit_keeps_the_terrain() {
+        use crate::pds::{Fp, Fp3, GeneratorKind};
+        let mut record = RoomRecord::default_for_did("did:plc:print");
+        let key = super::terrain_source_key(&record);
+        let terrain = record
+            .generators
+            .values_mut()
+            .find_map(|generator| match &mut generator.kind {
+                GeneratorKind::Terrain(terrain) => Some(terrain),
+                _ => None,
+            })
+            .expect("the seeded world has a terrain");
+        terrain.grass.color_tip = Some(Fp3([0.6, 0.4, 0.1]));
+        terrain.grass.sway = Some(Fp(2.0));
+        assert_eq!(super::terrain_source_key(&record), key);
+        let terrain = record
+            .generators
+            .values_mut()
+            .find_map(|generator| match &mut generator.kind {
+                GeneratorKind::Terrain(terrain) => Some(terrain),
+                _ => None,
+            })
+            .expect("the seeded world has a terrain");
+        terrain.height_scale = Fp(terrain.height_scale.0 + 1.0);
         assert_ne!(super::terrain_source_key(&record), key);
     }
 }

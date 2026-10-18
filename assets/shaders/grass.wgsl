@@ -95,6 +95,11 @@ struct GrassUniforms {
 const TILE_M: f32 = 8.0;
 const CELLS_A_ROW: u32 = 4u;
 const CELLS: u32 = 16u;
+// How far the wind leans a blade's tip at its default speed (m) in a world
+// whose grass sways as it does unset: `config::grass::WIND_LEAN`. The
+// world's own lean, `grass.wind.w`, is this times its sway (#1700), which
+// the ground's gusts take as a share.
+const WIND_LEAN: f32 = 0.12;
 // A blade takes the shape of the fewer segments it is about to be drawn with
 // from this share of the way to where its tile turns to them (#1694), so a
 // tile turning changes no blade's look; a near or a middle blade's upper
@@ -457,6 +462,14 @@ fn vertex(vertex: Vertex) -> VertexOutput {
         grass.flowers[0].w, grass.flowers[1].w, grass.flowers[2].w, grass.flowers[3].w
     ), vec4<f32>(1.0));
     let flower = r3 < grass.frame.w && flower_count > 0.0;
+    // What the flowers show from afar (#1700): their colours' mean, at the
+    // share that flower - none without a colour to flower in. The ground
+    // takes the same (`grass::flower_mean`).
+    let flower_mean = (grass.flowers[0].rgb * grass.flowers[0].w
+        + grass.flowers[1].rgb * grass.flowers[1].w
+        + grass.flowers[2].rgb * grass.flowers[2].w
+        + grass.flowers[3].rgb * grass.flowers[3].w) / max(flower_count, 1.0);
+    let flowering = select(0.0, grass.frame.w, flower_count > 0.0);
 
     // The ground's tone fields (`ground_common.wgsl`, #1676): the grass
     // stands taller where the ground is darker - mostly patch by patch (the
@@ -563,10 +576,12 @@ fn vertex(vertex: Vertex) -> VertexOutput {
         grass.tip.rgb,
         grass.dry.rgb,
         grass.dry.w,
+        flower_mean,
+        flowering,
         drift,
         density_seen,
         view_facing,
-    ) * carpet_shade(gust, front, grass.wind.z, gust_fineness(distance, view_facing));
+    ) * carpet_shade(gust, front, grass.wind.z, grass.wind.w / WIND_LEAN, gust_fineness(distance, view_facing));
     let carpet = carpet_cover(density_seen, view_facing) * (1.0 - puddle);
     let far_ground = mix(
         mix(ground_vary(ground_colour, drift, mottle), ground_vary(shown, drift, mottle), carpet)

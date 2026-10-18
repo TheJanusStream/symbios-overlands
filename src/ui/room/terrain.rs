@@ -1,5 +1,6 @@
 //! Terrain tab (sub-tab of Generators) - `SovereignTerrainConfig` widgets for
-//! algorithm choice, noise octaves, erosion, and texture-size.
+//! algorithm choice, noise octaves, erosion, texture-size, and the grass the
+//! ground grows (#1700, `super::grass`).
 
 use bevy_egui::egui;
 
@@ -13,6 +14,9 @@ pub(super) fn draw_terrain_forge(
     // The node's salt, which names its seed field (#1513).
     salt: &str,
     cfg: &mut SovereignTerrainConfig,
+    // What the Grass section shows of the world beyond this node (#1700);
+    // `None` where there is no world to read it from.
+    grass: Option<&mut super::grass::GrassPanel<'_>>,
     dirty: &mut bool,
     assets: &mut super::assets::AssetPanel<'_>,
 ) {
@@ -211,6 +215,15 @@ pub(super) fn draw_terrain_forge(
         .default_open(false)
         .show(ui, |ui| {
             draw_material_forge(ui, &mut cfg.material, dirty, assets);
+        });
+
+    egui::CollapsingHeader::new("Grass")
+        .default_open(false)
+        .show(ui, |ui| match grass {
+            Some(panel) => super::grass::draw_grass_section(ui, &mut cfg.grass, panel, dirty),
+            None => {
+                ui.label("The grass is set in the World Editor's own terrain.");
+            }
         });
 }
 

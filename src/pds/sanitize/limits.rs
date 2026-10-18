@@ -22,6 +22,12 @@ pub const MAX_TEXTURE_SIZE: u32 = 4096;
 /// slider's range: one tile across the whole terrain to five hundred.
 pub const MIN_TILE_SCALE: f32 = 1.0;
 pub const MAX_TILE_SCALE: f32 = 500.0;
+/// The most a world's grass may sway (#1700), as a share of how far the
+/// wind leans it unset: twice as far.
+pub const MAX_GRASS_SWAY: f32 = 2.0;
+/// The most flower colours a world's grass may set (#1700): the grass
+/// shader holds four.
+pub const MAX_GRASS_FLOWER_COLORS: usize = 4;
 
 /// The shortest and the longest day a room's time of day may turn through
 /// (#1677), in real minutes: a minute and a week. A shorter day would flash

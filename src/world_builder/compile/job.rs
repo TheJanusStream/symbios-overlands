@@ -287,7 +287,11 @@ impl FingerprintPass {
     pub(super) fn new(record: &RoomRecord, room_water_y: Option<f32>) -> Self {
         Self {
             water_level: serde_json::to_value(room_water_y).ok(),
-            terrain: serde_json::to_value(crate::pds::find_terrain_config(record)).ok(),
+            // The land a scatter samples, not its grass (#1700).
+            terrain: serde_json::to_value(
+                crate::pds::find_terrain_config(record).map(|terrain| terrain.land()),
+            )
+            .ok(),
         }
     }
 }
@@ -338,9 +342,25 @@ pub(super) fn unit_fingerprint(
     {
         fields.remove("copies");
     }
+    // A terrain's grass (#1700) is drawn by the grass's and the ground's
+    // shaders from the live record: no unit builds it, so the terrain's own
+    // unit - its anchor and everything riding on it - is keyed on its land.
+    let generator_value = match generator {
+        Some(
+            generator @ crate::pds::Generator {
+                kind: crate::pds::GeneratorKind::Terrain(terrain),
+                ..
+            },
+        ) => {
+            let mut land = generator.clone();
+            land.kind = crate::pds::GeneratorKind::Terrain(terrain.land());
+            serde_json::to_value(&land).ok()?
+        }
+        _ => serde_json::to_value(generator).ok()?,
+    };
     let v = serde_json::json!({
         "placement": placement_value,
-        "generator": serde_json::to_value(generator).ok()?,
+        "generator": generator_value,
         "traits": serde_json::to_value(traits_entry).ok()?,
         "extras": extras,
     });
@@ -421,6 +441,35 @@ mod tests {
         let b = fingerprints(&record);
         assert_eq!(a, b);
         assert!(a.iter().all(|fp| fp.is_some()));
+    }
+
+    /// A grass edit (#1700) - every setting of the terrain's grass group -
+    /// recompiles no unit: not the terrain's own, its water and props
+    /// riding on its anchor, nor a scatter laid on its land. The grass's
+    /// and the ground's shaders draw it from the live record.
+    #[test]
+    fn grass_edits_change_no_unit() {
+        use crate::pds::{Fp3, GeneratorKind, SovereignGrassConfig};
+        let mut record = RoomRecord::default_for_did("did:plc:fp_test");
+        let before = fingerprints(&record);
+        let terrain = record
+            .generators
+            .values_mut()
+            .find_map(|generator| match &mut generator.kind {
+                GeneratorKind::Terrain(terrain) => Some(terrain),
+                _ => None,
+            })
+            .expect("the seeded world has a terrain");
+        terrain.grass = SovereignGrassConfig {
+            color_base: Some(Fp3([0.2, 0.15, 0.05])),
+            dry_share: Some(Fp(0.7)),
+            flower_share: Some(Fp(0.4)),
+            layer_density: Some([Fp(1.0); 4]),
+            thickness: Some(Fp(0.5)),
+            sway: Some(Fp(1.5)),
+            ..SovereignGrassConfig::default()
+        };
+        assert_eq!(fingerprints(&record), before);
     }
 
     #[test]

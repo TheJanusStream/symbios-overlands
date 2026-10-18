@@ -1,7 +1,9 @@
-//! What a room's grass looks like (#1675), read from what its record
-//! already stores - there is no grass field to read, and every room, the
-//! ones made before the grass came included, gets its grass from what it
-//! has.
+//! What a world's grass looks like (#1675): what its owner sets in its
+//! terrain's grass group (#1700, `pds::grass`), and for every setting left
+//! unset - Auto - what its record already stores, as every world's grass was
+//! read before the group existed ([`derived_profile`]). A world that sets
+//! nothing, the ones made before the grass came included, gets its grass
+//! from what it has:
 //!
 //! * **Its colours** are the room's own ground-cover grass: the grass tuft
 //!   texture its ground-cover scatters place most of (a meadow's green
@@ -21,14 +23,19 @@
 //!   texture - a savanna's sand layer is grass country. The first layer
 //!   takes the full thickness, the others half, so a dirt band under the
 //!   same tufts still reads as worn ground.
+//! * **It sways** as far as the wind leans any grass ([`cfg::WIND_LEAN`]).
+//!
+//! A world with no flower cards holds [`cfg::DEFAULT_FLOWERS`] at a share
+//! of none, so its owner can set a flower share alone. And the owner can
+//! recolour its tufts to the grass they set ([`match_tufts`]).
 //!
 //! The texture configs hold linear colours (the texture crate encodes them
 //! to sRGB when it bakes), which is what the grass's vertex colours are.
 
 use crate::config::grass as cfg;
 use crate::pds::{
-    Generator, Placement, RoomRecord, SovereignFlowerConfig, SovereignGrassTuftConfig,
-    SovereignTextureConfig,
+    Fp64, Generator, Placement, RoomRecord, SovereignFlowerConfig, SovereignGrassConfig,
+    SovereignGrassTuftConfig, SovereignTextureConfig,
 };
 
 /// A room's grass: its palette, its flowers and where it grows.
@@ -53,6 +60,54 @@ pub struct GrassProfile {
     pub ground: [[f32; 3]; 4],
     /// A blade's height (m) before its own variation.
     pub height: f32,
+    /// How far the wind leans it, as a share of [`cfg::WIND_LEAN`].
+    pub sway: f32,
+}
+
+impl GrassProfile {
+    /// This grass with world settings `own` over it (#1700): each one set
+    /// in place of what the world's ground cover gives, and each unset one
+    /// left as it is.
+    pub fn with_settings(mut self, own: &SovereignGrassConfig) -> Self {
+        if let Some(colour) = own.color_base {
+            self.base = colour.0;
+        }
+        if let Some(colour) = own.color_tip {
+            self.tip = colour.0;
+        }
+        if let Some(colour) = own.color_dry {
+            self.dry = colour.0;
+        }
+        if let Some(share) = own.dry_share {
+            self.dry_share = share.0.clamp(0.0, 1.0);
+            self.height = height_for(self.dry_share);
+        }
+        if let Some(colours) = &own.flower_colors {
+            self.flowers = colours
+                .iter()
+                .take(crate::pds::sanitize::limits::MAX_GRASS_FLOWER_COLORS)
+                .map(|colour| colour.0)
+                .collect();
+        }
+        if let Some(share) = own.flower_share {
+            self.flower_share = share.0.clamp(0.0, 1.0);
+        }
+        if let Some(layers) = own.layer_density {
+            self.layer_density = layers.map(|density| density.0.clamp(0.0, 1.0));
+        }
+        if let Some(thickness) = own.thickness {
+            let thickness = thickness.0.clamp(0.0, 1.0);
+            for density in &mut self.layer_density {
+                *density *= thickness;
+            }
+        }
+        if let Some(sway) = own.sway {
+            self.sway = sway
+                .0
+                .clamp(0.0, crate::pds::sanitize::limits::MAX_GRASS_SWAY);
+        }
+        self
+    }
 }
 
 /// What one ground-cover texture is worth: its config, and how many
@@ -62,8 +117,21 @@ struct Weighed<'a, T> {
     count: f32,
 }
 
-/// The grass of room `record`.
+/// The grass of world `record`: what it grows with its terrain's grass
+/// settings over it.
 pub fn grass_profile(record: &RoomRecord) -> GrassProfile {
+    let derived = derived_profile(record);
+    match crate::pds::find_terrain_config(record) {
+        Some(terrain) => derived.with_settings(&terrain.grass),
+        None => derived,
+    }
+}
+
+/// The grass world `record` grows with every grass setting Auto: what its
+/// record stores of ground cover and ground, read as the module header
+/// says. What an Auto row of the World Editor shows, and where a setting
+/// starts from once its owner sets it.
+pub fn derived_profile(record: &RoomRecord) -> GrassProfile {
     let mut tufts: Vec<Weighed<SovereignGrassTuftConfig>> = Vec::new();
     let mut flowers: Vec<Weighed<SovereignFlowerConfig>> = Vec::new();
     // Tufts per splat layer, by the scatters' biome allow-lists.
@@ -142,6 +210,8 @@ pub fn grass_profile(record: &RoomRecord) -> GrassProfile {
         }
     }
     let flower_share = if flower_colours.is_empty() {
+        // No flower cards: none flower, in the colours a share would show.
+        flower_colours = cfg::DEFAULT_FLOWERS.to_vec();
         0.0
     } else {
         (cfg::FLOWERS_PER_CARD * flower_count / (tuft_count + flower_count))
@@ -173,8 +243,114 @@ pub fn grass_profile(record: &RoomRecord) -> GrassProfile {
         flower_share,
         layer_density,
         ground,
-        height: cfg::BLADE_HEIGHT * (1.0 + 0.4 * dry_share.clamp(0.0, 1.0)),
+        height: height_for(dry_share.clamp(0.0, 1.0)),
+        sway: 1.0,
     }
+}
+
+/// A blade's height (m) in grass `dry_share` of whose blades are dry: dry
+/// grass stands taller.
+fn height_for(dry_share: f32) -> f32 {
+    cfg::BLADE_HEIGHT * (1.0 + 0.4 * dry_share)
+}
+
+/// What a grass tuft holds once it is matched to grass `grass` (#1700): its
+/// root, tip and dry colours, and its dry share as the record holds a
+/// tuft's - on the wire's grid, so a tuft matched before a save is still
+/// matched after it.
+struct TuftMatch {
+    base: [f32; 3],
+    tip: [f32; 3],
+    dry: [f32; 3],
+    dry_fraction: Fp64,
+}
+
+impl TuftMatch {
+    fn of(grass: &GrassProfile) -> Self {
+        Self {
+            base: grass.base,
+            tip: grass.tip,
+            dry: grass.dry,
+            dry_fraction: Fp64(f64::from(grass.dry_share)).on_wire(),
+        }
+    }
+
+    fn holds(&self, tuft: &SovereignGrassTuftConfig) -> bool {
+        tuft.color_base.0 == self.base
+            && tuft.color_tip.0 == self.tip
+            && tuft.color_dry.0 == self.dry
+            && tuft.dry_fraction == self.dry_fraction
+    }
+}
+
+/// The scatter generators of world `record`: what its tufts are found in.
+fn scattered(record: &RoomRecord) -> Vec<String> {
+    record
+        .placements
+        .iter()
+        .filter_map(|placement| match placement {
+            Placement::Scatter { generator_ref, .. } => Some(generator_ref.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Recolour the grass tufts world `record`'s grass follows (#1700, the
+/// World Editor's Match the tufts): every grass-tuft texture its scatters
+/// place takes the grass's root, tip and dry colours and its dry share, so
+/// the tufts stand among the blades as part of the field. How many tuft
+/// textures changed (see [`Tufts`]); a second match changes none.
+pub fn match_tufts(record: &mut RoomRecord) -> usize {
+    let target = TuftMatch::of(&grass_profile(record));
+    let mut changed = 0;
+    for name in scattered(record) {
+        let Some(generator) = record.generators.get_mut(&name) else {
+            continue;
+        };
+        visit_mut(generator, &mut |texture| {
+            if let SovereignTextureConfig::GrassTuft(tuft) = texture
+                && !target.holds(tuft)
+            {
+                tuft.color_base.0 = target.base;
+                tuft.color_tip.0 = target.tip;
+                tuft.color_dry.0 = target.dry;
+                tuft.dry_fraction = target.dry_fraction;
+                changed += 1;
+            }
+        });
+    }
+    changed
+}
+
+/// The grass tufts a world's scatters place, counted by texture - each
+/// textured part of a card, and a generator once for each scatter of it -
+/// as [`match_tufts`] counts what it changes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Tufts {
+    /// How many there are.
+    pub scattered: usize,
+    /// How many of them do not yet hold the world's grass colours: what
+    /// [`match_tufts`] would change.
+    pub unmatched: usize,
+}
+
+/// The grass tufts world `record`'s scatters place (see [`Tufts`]).
+pub fn tufts(record: &RoomRecord) -> Tufts {
+    let target = TuftMatch::of(&grass_profile(record));
+    let mut tufts = Tufts::default();
+    for name in scattered(record) {
+        if let Some(generator) = record.generators.get(&name) {
+            visit(generator, &mut |texture| {
+                if let SovereignTextureConfig::GrassTuft(tuft) = texture {
+                    tufts.scattered += 1;
+                    if !target.holds(tuft) {
+                        tufts.unmatched += 1;
+                    }
+                }
+            });
+        }
+    }
+    tufts
 }
 
 /// Visit every texture `generator` and its children draw with.
@@ -184,6 +360,16 @@ fn visit<'a>(generator: &'a Generator, found: &mut impl FnMut(&'a SovereignTextu
     }
     for child in &generator.children {
         visit(child, found);
+    }
+}
+
+/// [`visit`], to change what it finds.
+fn visit_mut(generator: &mut Generator, found: &mut impl FnMut(&mut SovereignTextureConfig)) {
+    if let Some(material) = generator.kind.material_mut() {
+        found(&mut material.texture);
+    }
+    for child in &mut generator.children {
+        visit_mut(child, found);
     }
 }
 
@@ -313,7 +499,10 @@ mod tests {
         );
         assert_eq!(profile.layer_density[2], 0.0);
         assert_eq!(profile.layer_density[3], 0.0);
-        assert!(profile.flowers.is_empty());
+        // No flower cards: none flower, though the default colours wait for
+        // a share (#1700).
+        assert_eq!(profile.flower_share, 0.0);
+        assert_eq!(profile.flowers, cfg::DEFAULT_FLOWERS.to_vec());
     }
 
     /// The colours are the most-placed tuft's, the dry share the tufts'
@@ -344,6 +533,146 @@ mod tests {
         );
         assert!(profile.layer_density[0] >= 0.8 - 1e-6);
         assert!(profile.layer_density[1] >= 0.4 - 1e-6);
+    }
+
+    /// The terrain's grass group of world `record`.
+    fn settings(record: &mut RoomRecord) -> &mut SovereignGrassConfig {
+        record
+            .generators
+            .values_mut()
+            .find_map(|generator| match &mut generator.kind {
+                GeneratorKind::Terrain(terrain) => Some(&mut terrain.grass),
+                _ => None,
+            })
+            .expect("the default world has a terrain")
+    }
+
+    /// A world that sets nothing grows the grass its ground cover gives
+    /// (#1700): the group is a lever only once its owner pulls it.
+    #[test]
+    fn a_world_that_sets_nothing_grows_what_its_ground_cover_gives() {
+        let record = RoomRecord::default();
+        assert_eq!(grass_profile(&record), derived_profile(&record));
+        assert_eq!(grass_profile(&record).sway, 1.0);
+    }
+
+    /// Each setting a world sets takes the place of what its ground cover
+    /// gives, and the rest stay as they were: a dry share raises the blades
+    /// with it, and the thickness thins every layer it grows on.
+    #[test]
+    fn each_set_setting_takes_the_place_of_the_derived_one() {
+        use crate::pds::Fp;
+        let mut record = RoomRecord::default();
+        let derived = derived_profile(&record);
+        *settings(&mut record) = SovereignGrassConfig {
+            color_tip: Some(Fp3([0.6, 0.45, 0.1])),
+            dry_share: Some(Fp(1.0)),
+            flower_share: Some(Fp(0.3)),
+            flower_colors: Some(vec![Fp3([0.3, 0.1, 0.6])]),
+            layer_density: Some([Fp(1.0), Fp(0.8), Fp(0.4), Fp(0.0)]),
+            thickness: Some(Fp(0.5)),
+            sway: Some(Fp(1.5)),
+            ..SovereignGrassConfig::default()
+        };
+        let grass = grass_profile(&record);
+        assert_eq!(grass.tip, [0.6, 0.45, 0.1]);
+        assert_eq!(
+            grass.base, derived.base,
+            "an unset colour follows the tufts"
+        );
+        assert_eq!(grass.dry, derived.dry);
+        assert_eq!(grass.dry_share, 1.0);
+        assert_eq!(grass.height, height_for(1.0));
+        assert!(grass.height > derived.height, "dry grass stands taller");
+        assert_eq!(grass.flowers, vec![[0.3, 0.1, 0.6]]);
+        assert_eq!(grass.flower_share, 0.3);
+        assert_eq!(grass.layer_density, [0.5, 0.4, 0.2, 0.0]);
+        assert_eq!(grass.sway, 1.5);
+        assert_eq!(grass.ground, derived.ground, "the ground is the ground's");
+    }
+
+    /// A flower share set alone flowers in the default colours of a world
+    /// with no flower cards, and a thickness alone thins what the ground
+    /// grows; a thickness of none grows no grass.
+    #[test]
+    fn a_share_or_a_thickness_set_alone_works_on_what_is_derived() {
+        use crate::pds::Fp;
+        let mut record = RoomRecord::default();
+        record.placements.clear();
+        let derived = derived_profile(&record);
+        *settings(&mut record) = SovereignGrassConfig {
+            flower_share: Some(Fp(0.5)),
+            thickness: Some(Fp(0.0)),
+            ..SovereignGrassConfig::default()
+        };
+        let grass = grass_profile(&record);
+        assert_eq!(grass.flowers, cfg::DEFAULT_FLOWERS.to_vec());
+        assert_eq!(grass.flower_share, 0.5);
+        assert_eq!(grass.layer_density, [0.0; 4], "{:?}", derived.layer_density);
+    }
+
+    /// Match the tufts recolours every tuft the world scatters to the grass
+    /// it grows - set colours and derived ones alike - so afterwards the
+    /// tufts and the grass agree with every colour Auto; a second match
+    /// changes nothing.
+    #[test]
+    fn matching_the_tufts_gives_them_the_grass_colours() {
+        let mut record = RoomRecord::default();
+        record.placements.clear();
+        let green = SovereignGrassTuftConfig {
+            color_tip: Fp3([0.2, 0.6, 0.1]),
+            dry_fraction: Fp64(0.0),
+            ..Default::default()
+        };
+        let dry = SovereignGrassTuftConfig {
+            color_tip: Fp3([0.6, 0.5, 0.2]),
+            dry_fraction: Fp64(1.0),
+            ..Default::default()
+        };
+        tuft_scatter(&mut record, "gc_green", 900, green);
+        tuft_scatter(&mut record, "gc_dry", 300, dry);
+        assert_eq!(
+            tufts(&record),
+            Tufts {
+                scattered: 2,
+                unmatched: 2
+            }
+        );
+        settings(&mut record).color_tip = Some(Fp3([0.7, 0.3, 0.6]));
+        let grass = grass_profile(&record);
+
+        assert_eq!(match_tufts(&mut record), 2);
+        let derived = derived_profile(&record);
+        assert_eq!(derived.tip, [0.7, 0.3, 0.6]);
+        assert_eq!(derived.base, grass.base);
+        assert_eq!(derived.dry, grass.dry);
+        assert!((derived.dry_share - grass.dry_share).abs() < 1e-6);
+        assert_eq!(match_tufts(&mut record), 0);
+        assert_eq!(tufts(&record).unmatched, 0);
+    }
+
+    /// A match outlives a save: the tufts as a peer reads them back - every
+    /// value on the wire's grid - still hold the grass, whose dry share an
+    /// f32 holds a hair off the grid, so a second match changes nothing.
+    #[test]
+    fn a_match_survives_the_wire() {
+        use crate::pds::Fp;
+        let mut record = RoomRecord::default();
+        record.placements.clear();
+        tuft_scatter(
+            &mut record,
+            "gc_tufts",
+            600,
+            SovereignGrassTuftConfig::default(),
+        );
+        settings(&mut record).dry_share = Some(Fp(0.3));
+        settings(&mut record).color_tip = Some(Fp3([0.61, 0.47, 0.13]));
+        assert!(match_tufts(&mut record) > 0);
+
+        let wire = serde_json::to_string(&record).expect("the world writes");
+        let mut read: RoomRecord = serde_json::from_str(&wire).expect("it reads back");
+        assert_eq!(tufts(&read).unmatched, 0, "the tufts still match");
+        assert_eq!(match_tufts(&mut read), 0);
     }
 
     /// Soil colours: green grows, brown a little, white not at all.

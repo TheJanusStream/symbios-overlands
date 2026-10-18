@@ -85,6 +85,8 @@
 //!   [`SovereignMaterialSettings`].
 //! * [`terrain`] - [`SovereignTerrainConfig`] + splat rules + four-layer
 //!   [`SovereignMaterialConfig`].
+//! * [`grass`] - [`SovereignGrassConfig`], the terrain's grass as its owner
+//!   sets it (#1700), each setting unset following the world's ground cover.
 //! * [`prim`] - [`PropMeshType`] (the hierarchical primitive tree was
 //!   retired; every primitive is now a first-class [`Generator`] variant).
 //! * [`generator`] - the [`Generator`] hierarchical wrapper, its
@@ -183,6 +185,7 @@ pub mod avatar;
 pub mod contact_effects;
 pub mod generator;
 pub mod geo_source;
+pub mod grass;
 pub mod instances;
 pub mod inventory;
 pub mod material_finish;
@@ -222,6 +225,7 @@ pub use generator::{
     TextureFilter, TortureParams, WaterSurface,
 };
 pub use geo_source::GeoSource;
+pub use grass::SovereignGrassConfig;
 pub use instances::{GrammarParams, InstanceCopy, InstanceSolid, InstanceVariant};
 pub use inventory::{
     InventoryItemRecord, InventoryRecord, fetch_inventory_record, publish_inventory_record,

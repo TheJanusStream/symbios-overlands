@@ -703,10 +703,11 @@ pub(crate) fn weather_the_ground(
 }
 
 /// The grass the ground shows (#1695), as `crate::grass` lays it: the room's
-/// grass colours and how thickly it grows on each layer, the wind it leans
-/// in, and how strongly the ground shows it - 1 while the grass grows, 0
-/// while it is off. [`show_the_grass`] writes it into the splat material;
-/// the zeroed default shows none.
+/// grass colours, its flowers and how thickly it grows on each layer, the
+/// wind it leans in and how far it sways (#1700), and how strongly the
+/// ground shows it - 1 while the grass grows, 0 while it is off.
+/// [`show_the_grass`] writes it into the splat material; the zeroed default
+/// shows none.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq)]
 pub struct GroundGrass {
     pub carpet: f32,
@@ -716,12 +717,19 @@ pub struct GroundGrass {
     pub tip: Vec3,
     pub dry: Vec3,
     pub dry_share: f32,
+    /// Its flowers' mean colour, linear RGB, and the share of its blades
+    /// that are flowers (#1700).
+    pub flower: Vec3,
+    pub flower_share: f32,
     /// How thickly it grows on each splat layer, 0 to 1.
     pub layer_density: Vec4,
     /// The wind: the way it blows, its speed (m/s) and how stormy it is.
     pub wind_dir: Vec2,
     pub wind_speed: f32,
     pub storm: f32,
+    /// How far the wind leans it, as a share of `config::grass::WIND_LEAN`
+    /// (#1700).
+    pub sway: f32,
 }
 
 impl GroundGrass {
@@ -733,10 +741,13 @@ impl GroundGrass {
             tip: u.grass_tip.truncate(),
             dry: u.grass_dry.truncate(),
             dry_share: u.grass_dry_share,
+            flower: u.grass_flower.truncate(),
+            flower_share: u.grass_flower.w,
             layer_density: u.grass_layer_density,
             wind_dir: u.wind.truncate().truncate(),
             wind_speed: u.wind.z,
             storm: u.storm,
+            sway: u.wind.w,
         }
     }
 
@@ -747,8 +758,9 @@ impl GroundGrass {
         u.grass_tip = self.tip.extend(0.0);
         u.grass_dry = self.dry.extend(0.0);
         u.grass_dry_share = self.dry_share;
+        u.grass_flower = self.flower.extend(self.flower_share);
         u.grass_layer_density = self.layer_density;
-        u.wind = self.wind_dir.extend(self.wind_speed).extend(0.0);
+        u.wind = self.wind_dir.extend(self.wind_speed).extend(self.sway);
         u.storm = self.storm;
     }
 }
@@ -964,10 +976,13 @@ mod tests {
             tip: Vec3::new(0.4, 0.6, 0.2),
             dry: Vec3::new(0.6, 0.5, 0.3),
             dry_share: 0.25,
+            flower: Vec3::new(0.5, 0.2, 0.6),
+            flower_share: 0.1,
             layer_density: Vec4::new(1.0, 0.5, 0.0, 0.1),
             wind_dir: Vec2::new(0.6, 0.8),
             wind_speed: 5.0,
             storm: 0.3,
+            sway: 1.5,
         }
     }
 

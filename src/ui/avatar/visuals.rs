@@ -70,6 +70,8 @@ pub(super) fn draw_tab(ui: &mut egui::Ui, ctx: &mut TabCtx, aim: &mut AimCtx, he
             &mut ctx.labels.slot(crate::ui::shortcuts::EditorKind::Avatar),
             // Avatars can't grow roads - no stats readout.
             None,
+            // Nor grass: an avatar carries no terrain.
+            None,
             ctx.face_pick,
             owner_did,
             &mut None,

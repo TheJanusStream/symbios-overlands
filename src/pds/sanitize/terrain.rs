@@ -93,6 +93,7 @@ impl Sanitize for SovereignTerrainConfig {
         for layer in self.material.layers.iter_mut() {
             layer.sanitize();
         }
+        self.grass.sanitize();
     }
 }
 

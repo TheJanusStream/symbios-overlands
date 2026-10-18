@@ -15,7 +15,8 @@
 //! the expensive consumers keep the debounce, and
 //! [`crate::world_builder::compile::EnvironmentPreview`] is stamped every
 //! frame a widget changes so the atmosphere - light, fog, sky, cloud
-//! uniforms - follows the drag. Three explicit buttons drive persistence
+//! uniforms - and the grass's look (#1700) follow the drag. Three explicit
+//! buttons drive persistence
 //! and discard flows:
 //!
 //! - **Save** publishes the current `RoomRecord` to the owner's PDS
@@ -46,6 +47,7 @@ pub(crate) mod construct;
 mod contact_effects;
 mod environment;
 pub(crate) mod generators;
+mod grass;
 mod instances;
 mod lsystem;
 mod material;
@@ -1688,6 +1690,15 @@ pub fn room_admin_ui(
                     }
                     EditorTab::Generators => {
                         ui.allocate_ui(egui::vec2(ui.available_width(), body_height), |ui| {
+                            // What the terrain's Grass section shows of the
+                            // world (#1700), read before the tree borrows it.
+                            let derived_grass = crate::grass::profile::derived_profile(record_mut);
+                            let mut match_tufts = false;
+                            let mut grass_panel = grass::GrassPanel {
+                                derived: &derived_grass,
+                                tufts: crate::grass::profile::tufts(record_mut),
+                                match_tufts: &mut match_tufts,
+                            };
                             let mut tree_source = generators::RoomTreeSource::new(record_mut);
                             generators::draw_generators_tab(
                                 ui,
@@ -1706,6 +1717,7 @@ pub fn room_admin_ui(
                                 time.elapsed_secs_f64(),
                                 &mut undo_labels.slot(crate::ui::shortcuts::EditorKind::World),
                                 Some(&road_stats),
+                                Some(&mut grass_panel),
                                 &mut face_pick,
                                 &session.did,
                                 &mut place_root,
@@ -1713,6 +1725,16 @@ pub fn room_admin_ui(
                                 node_clipboard,
                                 &mut asset_panel,
                             );
+                            // Match the tufts (#1700) recolours the scatters'
+                            // nodes, beyond the terrain's own: done here, with
+                            // the whole record in hand again once the tree's
+                            // borrow of it has ended.
+                            if match_tufts && crate::grass::profile::match_tufts(record_mut) > 0 {
+                                widget_change = true;
+                                undo_labels
+                                    .slot(crate::ui::shortcuts::EditorKind::World)
+                                    .set("match the tufts");
+                            }
                         });
                     }
                     other => {
@@ -1883,10 +1905,11 @@ pub fn room_admin_ui(
         // hand stopped - a hard binary of nothing, then everything, on the
         // one tab whose whole job is to be tuned by eye. Stamping this
         // marks only the cheap atmosphere consumers - `apply_environment_state`,
-        // which re-paints light, fog, sky and cloud uniforms, and the sky
-        // light's maps (#1680), rebuilt only when the sky itself changed -
-        // all safe at frame rate; the peer broadcast, the world compile and
-        // the terrain rebuild still wait for the pause.
+        // which re-paints light, fog, sky and cloud uniforms, the sky
+        // light's maps (#1680), rebuilt only when the sky itself changed,
+        // and the grass's material, its look read anew (#1700) - all safe
+        // at frame rate; the peer broadcast, the world compile and the
+        // terrain rebuild still wait for the pause.
         commands.insert_resource(crate::world_builder::compile::EnvironmentPreview);
         // Coarse per-tab undo label (#865) - only when no site named the
         // edit specifically this burst (latest-wins would otherwise let

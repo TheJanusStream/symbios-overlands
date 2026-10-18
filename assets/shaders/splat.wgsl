@@ -127,13 +127,17 @@ struct SplatUniforms {
     grass_dry_share: f32,
     storm: f32,
     /// Its blades' colours at the root, the tip and dry (linear RGB in xyz),
-    /// how thickly it grows on each layer, and the wind: its direction (xy)
-    /// and speed (z, m/s).
+    /// how thickly it grows on each layer, and the wind: its direction (xy),
+    /// speed (z, m/s) and how far it leans the grass (w, a share of
+    /// `config::grass::WIND_LEAN`, #1700).
     grass_base: vec4<f32>,
     grass_tip: vec4<f32>,
     grass_dry: vec4<f32>,
     grass_layer_density: vec4<f32>,
     wind: vec4<f32>,
+    /// Its flowers (#1700): their mean colour (linear RGB in xyz) and the
+    /// share of its blades that are flowers (w).
+    grass_flower: vec4<f32>,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(106) var<uniform> splat_uniforms: SplatUniforms;
@@ -480,6 +484,8 @@ fn fragment(
                 splat_uniforms.grass_tip.rgb,
                 splat_uniforms.grass_dry.rgb,
                 splat_uniforms.grass_dry_share,
+                splat_uniforms.grass_flower.rgb,
+                splat_uniforms.grass_flower.w,
                 drift,
                 density,
                 facing,
@@ -487,6 +493,7 @@ fn fragment(
                 grass_gust(world_pos.xz, wind_dir, speed, t),
                 front,
                 speed,
+                splat_uniforms.wind.w,
                 gust_fineness(distance, facing),
             );
             pbr_input.material.base_color = vec4<f32>(

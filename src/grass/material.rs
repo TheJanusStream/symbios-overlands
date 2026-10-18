@@ -61,7 +61,8 @@ pub struct GrassUniforms {
     /// side, and in `w` the share of blades that are flowers.
     pub frame: Vec4,
     /// The wind on XZ, its speed (m/s), and in `w` how far a tip leans at
-    /// the reference speed (m).
+    /// the reference speed (m): `config::grass::WIND_LEAN` times the
+    /// world's sway (#1700).
     pub wind: Vec4,
     /// Where the field thins (m): it keeps every blade out to `x`, the
     /// middle share by `y` and the far share by `z`; `w` is its reach.

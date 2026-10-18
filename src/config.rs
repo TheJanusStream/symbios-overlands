@@ -1413,6 +1413,16 @@ pub(crate) mod grass {
     /// fifty blades is a meadow in flower.
     pub const FLOWERS_PER_CARD: f32 = 0.06;
     pub const MAX_FLOWER_SHARE: f32 = 0.02;
+    /// The flowers' colours in a world with no flower cards to take them
+    /// from (#1700), linear RGB: daisy white, buttercup yellow, cornflower
+    /// violet and clover pink. They show only once its owner sets a flower
+    /// share.
+    pub const DEFAULT_FLOWERS: [[f32; 3]; 4] = [
+        [0.87, 0.87, 0.79],
+        [0.87, 0.58, 0.02],
+        [0.16, 0.08, 0.46],
+        [0.64, 0.16, 0.31],
+    ];
 
     /// One quality setting's field: how far it reaches (m), the share of
     /// [`BLADES_PER_M2`] its tiles carry, and how far (m) it keeps every

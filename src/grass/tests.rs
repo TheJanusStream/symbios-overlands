@@ -66,6 +66,11 @@ fn wgsl_block_mirrors_the_rust_one() {
         src.contains(&format!("const TILE_M: f32 = {:.1};", cfg::TILE_M)),
         "grass.wgsl's TILE_M is config::grass::TILE_M"
     );
+    // The world's sway (#1700) scales the shader's own lean.
+    assert!(
+        src.contains(&format!("const WIND_LEAN: f32 = {};", cfg::WIND_LEAN)),
+        "grass.wgsl's WIND_LEAN is config::grass::WIND_LEAN"
+    );
 }
 
 /// The benders are the bodies nearest the camera, at most eight, nearest
@@ -714,6 +719,86 @@ fn the_ground_shows_the_grass_as_its_blades_are() {
     );
     // A steady wind at its strongest leans a swell no further.
     assert!(lean_most >= 2.5, "{lean_most}");
+    // The world's sway (#1700) reaches the ground's gust light from both
+    // shaders as the same share: the ground's block holds it, the grass's
+    // holds the lean it makes.
+    assert!(
+        splat.contains("                splat_uniforms.wind.w,\n                gust_fineness(distance, facing),"),
+        "splat.wgsl's carpet_shade takes the sway in wind.w"
+    );
+    assert!(
+        read("grass.wgsl").contains("grass.wind.z, grass.wind.w / WIND_LEAN, gust_fineness("),
+        "grass.wgsl's carpet_shade takes its lean as a share of WIND_LEAN"
+    );
+}
+
+/// The world's own grass settings (#1700) reach the blades and the ground
+/// under them: the sway as the blades' lean and the ground's gust share,
+/// the flowers' mean colour and share on the ground - and on the editor's
+/// preview lane, with no tick of the record, as a slider is dragged.
+#[test]
+fn the_world_s_grass_settings_reach_the_blades_and_the_ground() {
+    use crate::pds::{Fp, Fp3, GeneratorKind};
+    use crate::world_builder::compile::EnvironmentPreview;
+    let mut app = field_app(GrassQuality::Low, Vec3::new(0.0, 1.7, 0.0));
+    app.init_resource::<crate::terrain::GroundGrass>()
+        .add_systems(Update, show_grass_on_the_ground.after(sync_grass_material));
+    app.update();
+    let lean = |app: &App| {
+        let field = app.world().resource::<GrassField>();
+        let material = field.material.clone().expect("growing");
+        app.world()
+            .resource::<Assets<GrassMaterial>>()
+            .get(&material)
+            .map(|m| m.extension.uniforms.wind.w)
+    };
+    assert_eq!(
+        lean(&app),
+        Some(cfg::WIND_LEAN),
+        "Auto leans as grass always has"
+    );
+    let laid = *app.world().resource::<crate::terrain::GroundGrass>();
+    assert_eq!(laid.sway, 1.0);
+
+    // The editor's edit: through the record's bypass, the preview stamped.
+    let set = |app: &mut App| {
+        let mut record = app.world_mut().resource_mut::<LiveRoomRecord>();
+        let record = &mut record.bypass_change_detection().0;
+        for generator in record.generators.values_mut() {
+            if let GeneratorKind::Terrain(terrain) = &mut generator.kind {
+                terrain.grass.sway = Some(Fp(1.5));
+                terrain.grass.flower_share = Some(Fp(0.4));
+                terrain.grass.flower_colors =
+                    Some(vec![Fp3([0.2, 0.1, 0.6]), Fp3([0.6, 0.1, 0.2])]);
+            }
+        }
+    };
+    set(&mut app);
+    app.update();
+    assert_eq!(
+        lean(&app),
+        Some(cfg::WIND_LEAN),
+        "no tick, no preview: unchanged"
+    );
+    app.insert_resource(EnvironmentPreview);
+    app.update();
+    assert_eq!(lean(&app), Some(cfg::WIND_LEAN * 1.5));
+    let laid = *app.world().resource::<crate::terrain::GroundGrass>();
+    assert_eq!(laid.sway, 1.5);
+    assert_eq!(laid.flower_share, 0.4);
+    assert_eq!(laid.flower, Vec3::new(0.4, 0.1, 0.4));
+}
+
+/// The ground shows flowers only as the blades grow them: a share with no
+/// colour to flower in - the owner took every colour out - flowers neither.
+#[test]
+fn a_share_without_colours_flowers_nowhere() {
+    let mut profile = crate::grass::profile::derived_profile(&RoomRecord::default());
+    profile.flowers.clear();
+    profile.flower_share = 0.5;
+    let laid = ground_grass(&profile, &VegetationWind::default());
+    assert_eq!(laid.flower_share, 0.0);
+    assert_eq!(laid.flower, Vec3::ZERO);
 }
 
 /// The room's grass is laid on the ground (#1695) - its colours, where it

@@ -1,11 +1,13 @@
 //! The GPU grass (#1675): a field of blades around the camera, grown on
-//! whatever ground grows grass, in every room, from what its record already
-//! stores.
+//! whatever ground grows grass, in every room, as its owner sets it and
+//! otherwise from what its record already stores.
 //!
-//! * **What it looks like** is the room's own ground cover: its grass
-//!   tufts' colours, its flowers, how its layers' ground grows grass
-//!   ([`profile`]). No record carries a grass field; a room made before the
-//!   grass came has grass all the same. It varies as the ground under it
+//! * **What it looks like** is its terrain's grass settings (#1700,
+//!   `pds::grass`) and, for every one left on Auto, the room's own ground
+//!   cover: its grass tufts' colours, its flowers, how its layers' ground
+//!   grows grass, and the wind's usual lean ([`profile`]). A room that sets
+//!   none, as every room made before the grass came, has grass all the
+//!   same. It varies as the ground under it
 //!   does (#1676): drier where the ground's tone drifts lighter, taller
 //!   where it is darker patch by patch - one pair of fields, in
 //!   `assets/shaders/ground_common.wgsl`, read by both shaders.
@@ -330,6 +332,7 @@ fn sync_grass_material(
     settings: Res<LocalSettings>,
     wind: Res<VegetationWind>,
     weather: Option<Res<GroundWeatherNow>>,
+    preview: Option<Res<crate::world_builder::compile::EnvironmentPreview>>,
     camera: Query<&GlobalTransform, With<WorldCamera>>,
     bodies: Bodies,
 ) {
@@ -337,13 +340,18 @@ fn sync_grass_material(
     // The room's grass, read whenever its record changes - before any gate
     // below, which would otherwise swallow the change for good: a record
     // that lands before its ground (every room after the login backdrop's)
-    // would keep the last room's grass.
+    // would keep the last room's grass. And on the editor's preview lane
+    // (#1700): its grass settings are tuned by eye, and the record's own
+    // tick waits for the hand to stop.
     let Some(record) = record else {
         field.material = None;
         field.profile = None;
         return;
     };
-    if record.is_changed() || field.profile.is_none() {
+    if record.is_changed()
+        || field.profile.is_none()
+        || preview.is_some_and(|preview| preview.is_changed())
+    {
         let profile = grass_profile(&record.0);
         if field.profile.as_ref() != Some(&profile) {
             field.profile = Some(profile);
@@ -450,11 +458,30 @@ fn ground_grass(profile: &GrassProfile, wind: &VegetationWind) -> crate::terrain
         tip: Vec3::from_array(profile.tip),
         dry: Vec3::from_array(profile.dry),
         dry_share: profile.dry_share,
+        flower: flower_mean(&profile.flowers),
+        // As the blades flower: none without a colour to flower in.
+        flower_share: if profile.flowers.is_empty() {
+            0.0
+        } else {
+            profile.flower_share
+        },
         layer_density: Vec4::from_array(profile.layer_density),
         wind_dir: wind.dir,
         wind_speed: wind.speed,
         storm: wind.storm,
+        sway: profile.sway,
     }
+}
+
+/// The mean of flower colours `flowers` (#1700), each flower taking one of
+/// them alike: what a field of them shows from afar - black, of none.
+/// `grass.wgsl` takes the same mean of its own flower colours, so the far
+/// blades and the ground under them agree.
+fn flower_mean(flowers: &[[f32; 3]]) -> Vec3 {
+    if flowers.is_empty() {
+        return Vec3::ZERO;
+    }
+    flowers.iter().map(|c| Vec3::from_array(*c)).sum::<Vec3>() / flowers.len() as f32
 }
 
 /// The uniform block for room grass `profile` on ground `ground`, in wind
@@ -483,7 +510,12 @@ fn uniforms(
             ground.frame.vertices as f32,
             profile.flower_share,
         ),
-        wind: Vec4::new(wind.dir.x, wind.dir.y, wind.speed, cfg::WIND_LEAN),
+        wind: Vec4::new(
+            wind.dir.x,
+            wind.dir.y,
+            wind.speed,
+            cfg::WIND_LEAN * profile.sway,
+        ),
         reach: Vec4::new(
             field.full,
             cfg::MID_AT * field.full,

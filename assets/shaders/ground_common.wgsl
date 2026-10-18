@@ -147,9 +147,11 @@ fn puddle_at(xz: vec2<f32>, up: f32, wet: f32) -> f32 {
 //     with bare ground between, which a glance sees too;
 //   * what of the blades shows: their tips at a glance, more of their height
 //     from higher up, the dry ones' share, drier where the ground drifts
-//     lighter, as `grass.wgsl` colours a blade;
+//     lighter, as `grass.wgsl` colours a blade - and its flowers' heads, by
+//     the share of the blades that flower (#1700);
 //   * the wind: the blades' gust wave, and a storm's fronts, lighten it where
-//     they lean the blades over - the sheen of grass bending in the wind;
+//     they lean the blades over, the further the more the grass sways - the
+//     sheen of grass bending in the wind;
 //   * its light: the ground shows it lit as the far blades are, their
 //     normal leaning toward the eye as well as up (`carpet_normal`);
 //   * the weather: a puddle drowns it, as it drowns the blades.
@@ -164,14 +166,26 @@ const BLADE_SKYWARD: f32 = 0.6;
 // How much lighter grass leaning over in a gust is, by how far it leans:
 // in the room's default wind, a swell about a fifth lighter than a lull.
 const CARPET_GUST: f32 = 0.2;
-// The most the wind leans a blade over, as a share of the room's lean: its
+// The most the wind leans a blade over, as a share of
+// `config::grass::WIND_LEAN` (a world's sway scales the lean, not this): its
 // tip at most nine tenths of its height over (`grass.wgsl`'s bend), about
-// three times `config::grass::WIND_LEAN` on a blade `BLADE_HEIGHT` tall.
+// three times `WIND_LEAN` on a blade `BLADE_HEIGHT` tall.
 const LEAN_MOST: f32 = 3.0;
 // The wind speed (m/s) at which the blades lean as far as the room says
-// (`grass.wind.w`), and how much harder a storm's gust front leans them.
+// (`config::grass::WIND_LEAN` times its sway, #1700), and how much harder a
+// storm's gust front leans them.
 const REFERENCE_WIND: f32 = 4.0;
 const STORM_LEAN: f32 = 1.5;
+// How much of a field's colour its flowers take, as a share of the share of
+// its blades that flower (#1700): a flower's head is a cup at its top,
+// standing above the grass where a blade narrows to its tip, so a field
+// shows its flowers at nearly twice their share. Measured at flower shares
+// of 0.15, 0.45 and 0.9, seen from 8 to 70 degrees: the ground under a far
+// field shows 0.8 to 1.2 of the tint the near blades show at the same view
+// angle. Past a share of 0.56 the ground is all flower colour; at 0.9 the
+// near blades read nearly all of it too, so that opens no seam - where a
+// curve saturating smoothly from the same slope fell to 0.7 at mid shares.
+const FLOWER_SHOWS: f32 = 1.8;
 
 // How thickly grass grows at world `xz` on ground growing it
 // `ground_density` thick (0 to 1): thin ground grows it in clumps a metre
@@ -230,13 +244,17 @@ fn carpet_normal(toward: vec3<f32>, ground: vec3<f32>, wet: f32) -> vec3<f32> {
 
 // The colour grass shows to a view whose cosine with the ground's normal is
 // `facing`, its blades from `base` at the root to `tip`, the `dry_share` of
-// them dry ones going to `dry`, on ground drifting by `drift` and growing it
-// `density` thick: a blade's colour at the share of its height in view.
+// them dry ones going to `dry` and the `flower_share` of them flowers whose
+// heads are `flower` on average, on ground drifting by `drift` and growing it
+// `density` thick: a blade's colour at the share of its height in view, and
+// the flowers' heads over them, in the light.
 fn carpet_colour(
     base: vec3<f32>,
     tip: vec3<f32>,
     dry: vec3<f32>,
     dry_share: f32,
+    flower: vec3<f32>,
+    flower_share: f32,
     drift: f32,
     density: f32,
     facing: f32,
@@ -246,7 +264,8 @@ fn carpet_colour(
     let dried = mix(base, dry, smoothstep(0.0, 0.6, seen));
     var colour = mix(green, dried, dry_share);
     colour = mix(colour, dry, 0.4 * smoothstep(0.55, 0.9, drift) * seen);
-    return colour * mix(1.0 - 0.6 * density, 1.0, seen);
+    colour = colour * mix(1.0 - 0.6 * density, 1.0, seen);
+    return mix(colour, flower, min(clamp(flower_share, 0.0, 1.0) * FLOWER_SHOWS, 1.0));
 }
 
 // The grass's gust wave at world `xz` at time `t`, in a wind blowing toward
@@ -268,10 +287,11 @@ fn grass_lean(gust: f32, front: f32, speed: f32) -> f32 {
 // over further than the wind's mean lean, darker where less, 1 on average
 // outside a storm - no further over than a blade can lean - and none where
 // the swells are too fine to see, `fine` being 1 there (they would
-// shimmer).
-fn carpet_shade(gust: f32, front: f32, speed: f32, fine: f32) -> f32 {
-    let mean = min(clamp(speed / REFERENCE_WIND, 0.0, 2.5) * 0.55, LEAN_MOST);
-    let lean = min(grass_lean(gust, front, speed), LEAN_MOST);
+// shimmer). Grass that sways `sway` as far as it does unset (#1700) leans
+// that much further at each.
+fn carpet_shade(gust: f32, front: f32, speed: f32, sway: f32, fine: f32) -> f32 {
+    let mean = min(sway * clamp(speed / REFERENCE_WIND, 0.0, 2.5) * 0.55, LEAN_MOST);
+    let lean = min(sway * grass_lean(gust, front, speed), LEAN_MOST);
     return 1.0 + CARPET_GUST * (lean - mean) * (1.0 - fine);
 }
 

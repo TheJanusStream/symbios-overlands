@@ -25,8 +25,10 @@ use crate::state::LiveRoomRecord;
 /// the hand stopped. The debounce is right for the two expensive consumers
 /// (the peer broadcast and the world compile / terrain rebuild) and wrong
 /// for the cheap ones: this system, which patches light, fog, sky and cloud
-/// uniforms, and `sky_light::update_sky_light`, which rebuilds the sky
-/// light's maps when the sky changed (#1680) - both safe at frame rate.
+/// uniforms, `sky_light::update_sky_light`, which rebuilds the sky light's
+/// maps when the sky changed (#1680), and the grass's material, its look
+/// read anew from the record's grass settings and ground cover (#1700) -
+/// all safe at frame rate.
 ///
 /// A resource rather than a flag on the record because the record's change
 /// tick IS the debounce signal; a second signal is the only way to say

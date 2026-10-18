@@ -523,6 +523,9 @@ pub(crate) fn draw_generators_tab(
     // Live road-network stats for the RoadNetwork detail readout (#888).
     // `None` for tree sources that can't grow roads (the avatar editor).
     road_stats: Option<&crate::terrain::RoadPanelStats>,
+    // What the terrain's Grass section shows of the world, and its Match
+    // the tufts out-channel (#1700). `None` for sources with no world.
+    grass: Option<&mut super::grass::GrassPanel<'_>>,
     // Click-to-pick face selection (#961), shared with the scene click
     // handler that arms it - the Faces panel's other way in.
     face_pick: &mut crate::editor_gizmo::FacePick,
@@ -603,6 +606,7 @@ pub(crate) fn draw_generators_tab(
             &mut panel.confirms.kind,
             label,
             road_stats,
+            grass,
             face_pick,
             assets,
         );

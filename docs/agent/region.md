@@ -178,9 +178,48 @@ and grass tufts on the open tops broke up the rest.
 ## Grass
 
 Since #1675 every world grows a field of grass blades on its own ground,
-drawn by the graphics card around each visitor's camera (64 m on a desktop,
-less in a browser - Settings > Draw distance > Grass). No record field holds
-it: it is read from what the record already stores, so these are its levers.
+drawn by the graphics card around each visitor's camera (128 m on a
+desktop, 80 m in a WebGPU browser, 48 m in a WebGL2 one - each visitor's
+Settings > Draw distance > Grass), and past the last blade the ground
+shows the grass growing on it (#1695), so grassland reads as grass out to
+the fog. How it looks is your terrain's `grass` group (#1700); every
+setting you leave out follows what the record already stores, as the next
+list says, so a world that sets none grows the grass it always grew.
+
+**The terrain's `grass` group** sits in the `network.symbios.gen.terrain`
+generator beside `material` (the World Editor: Generators, the terrain,
+Grass, each row with an Auto box). Every field is optional:
+
+- `color_base`, `color_tip`, `color_dry`: a blade's colour at its root, at
+  its tip, and a dry blade's. LINEAR RGB, as the texture configs hold
+  colours, `[r, g, b]` times 10 000 on the wire.
+- `dry_share`: the share of the blades that are dry, 0 to 1. Dry grass
+  stands taller, up to 1.4 times at all dry.
+- `flower_share`: the share of the blades that are flowers, 0 to 1 - one
+  in fifty is a meadow in flower, 0.4 a lavender field - and
+  `flower_colors`: up to four linear colours, each flower taking one. A
+  share set with no colours of yours and no flower cards flowers in daisy
+  white, buttercup yellow, cornflower violet and clover pink; colours set
+  to none grow no flowers.
+- `layer_density`: how thickly it grows on each of the four ground
+  layers, in the material's order, 0 to 1 each - `[10000, 10000, 3000, 0]`
+  grows it on the dirt and a little on the rock.
+- `thickness`: 0 to 1, each layer's density times it; 0 grows no grass in
+  the world at all.
+- `sway`: how far the wind leans it, 0 (still in any wind) to 2 (twice as
+  far); 1 is as far as grass leans unset.
+- The ground past the blades follows all of these, flowers and sway
+  included, so a field keeps its colour out to the fog.
+- **Match the tufts**, under the editor's rows, recolours every `GrassTuft`
+  your scatters place to the grass's root, tip and dry colours and its dry
+  share, so the tuft cards stand in the field as part of it.
+- **Try it offline**: start from your world's record - `room get`'s
+  `value`, or for a world never published `render --world <your DID>
+  --dump > room.json`, the world that DID is seeded with (it fetches
+  nothing) - set the group in its `base_terrain`, and `render --world
+  <your DID> --world-record room.json --hour 12` draws it.
+
+**What each setting on Auto reads:**
 
 - **Where it grows** is each layer's texture: a green `Ground` grows it
   thickest, a brown one a little, `Moss` and `ForestFloor` some, `Sand` and
@@ -205,7 +244,8 @@ it: it is read from what the record already stores, so these are its levers.
   building, a road, a placed piece with a collider), under water, or on
   ground less than 10 cm above the water line. A body standing in it -
   a visitor, a car - parts it under its footprint.
-- Further out the blades take the colour of the ground they stand on, so the
+- **It sways** as far as the wind leans any grass.
+- Further out the blades fade into the ground showing the grass, so the
   field's edge does not show; a `--world` render draws it as a desktop
   visitor sees it.
 

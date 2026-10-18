@@ -1,7 +1,8 @@
 //! Terrain generator payload (ported from `symbios-ground-lab`): algorithm
-//! selection, erosion tuning, and the four-layer splat/material configuration
-//! used by the ground compiler.
+//! selection, erosion tuning, the four-layer splat/material configuration
+//! used by the ground compiler, and the grass the ground grows (#1700).
 
+use super::grass::SovereignGrassConfig;
 use super::texture::{SovereignGroundConfig, SovereignRockConfig, SovereignTextureConfig};
 use super::types::{Fp, Fp3, Fp64, u64_as_string};
 use serde::{Deserialize, Serialize};
@@ -130,6 +131,11 @@ pub struct SovereignTerrainConfig {
 
     // Material (splat) config
     pub material: SovereignMaterialConfig,
+
+    /// The grass the ground grows, as the world's owner sets it (#1700):
+    /// each setting left unset follows the world's ground cover, as the
+    /// grass did before the group existed.
+    pub grass: SovereignGrassConfig,
 }
 
 crate::pds::serde_util::impl_default_eliding_serialize!(SovereignTerrainConfig {
@@ -156,7 +162,23 @@ crate::pds::serde_util::impl_default_eliding_serialize!(SovereignTerrainConfig {
     thermal_iterations,
     thermal_talus_angle,
     material,
+    grass,
 });
+
+impl SovereignTerrainConfig {
+    /// This terrain as its land is built from it (#1700): all of it but its
+    /// grass, which only the grass's and the ground's shaders draw, from
+    /// the live record. The key for everything a grass edit must not
+    /// rebuild - the heightmap (`terrain::terrain_fingerprint`), and the
+    /// compile units laid on the land or riding on its anchor - so an owner
+    /// dragging a grass slider recolours the grass and nothing else.
+    pub fn land(&self) -> SovereignTerrainConfig {
+        SovereignTerrainConfig {
+            grass: SovereignGrassConfig::default(),
+            ..self.clone()
+        }
+    }
+}
 
 impl Default for SovereignTerrainConfig {
     fn default() -> Self {
@@ -191,6 +213,8 @@ impl Default for SovereignTerrainConfig {
             thermal_talus_angle: Fp(0.05),
 
             material: SovereignMaterialConfig::default(),
+
+            grass: SovereignGrassConfig::default(),
         }
     }
 }

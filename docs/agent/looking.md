@@ -67,8 +67,11 @@ experiments:
 - **Your world as edited:** `render --world <your DID> --world-record
   room.json --focus=X,Z --dist D --elev DEG --yaw DEG --out view.png` -
   `room.json` is `room get`'s `value`, or your script's output before you
-  send it. It is compiled as the game compiles it: terrain, textures,
-  scatters, grass, water, sky, clouds and fog.
+  send it - or, offline, `render --world <a DID> --dump > room.json`, the
+  world that DID is seeded with (#1700; it fetches nothing, so start from
+  `room get` to edit a world you have published). It is compiled as the
+  game compiles it: terrain, textures, scatters, grass, water, sky, clouds
+  and fog.
 - Always pass `BEVY_ASSET_ROOT=<repo>`, as for the agent.
 - It draws what a visitor with default settings sees, and that includes
   the ground-cover draw distance (#1480): ferns, grass, moss and reeds more

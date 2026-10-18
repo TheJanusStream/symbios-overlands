@@ -54,6 +54,9 @@ pub(super) fn draw_detail_panel(
     // Live road stats for the RoadNetwork readout (#888); `None` when the
     // source can't grow roads.
     road_stats: Option<&crate::terrain::RoadPanelStats>,
+    // What the terrain's Grass section shows of the world (#1700); `None`
+    // for sources with no world (the avatar editors).
+    grass: Option<&mut super::super::grass::GrassPanel<'_>>,
     // Click-to-pick face selection (#961): the shared arm flag plus the
     // pick channel, resolved against THIS node's id below.
     face_pick: &mut crate::editor_gizmo::FacePick,
@@ -261,6 +264,7 @@ pub(super) fn draw_detail_panel(
                         blob_selected_element,
                         undo_label,
                         road_stats,
+                        grass,
                         FacePickUi {
                             picked: picked_face,
                             resolvable: source_resolves_face_picks,
@@ -1064,7 +1068,7 @@ fn draw_road_editor(
     // Slider ranges follow the `sanitize_road` clamps (#883) except
     // where a deliberately tighter max keeps the slider usable: half-widths
     // stop well short of the sanitizer's 20 m ceiling (a 20 m-wide lane is
-    // a plaza, and the full range would make the useful 1–4 m band a
+    // a plaza, and the full range would make the useful 1 to 4 m band a
     // couple of pixels), and curb/chamfer stop at 1 m for the same reason.
     // The sanitizer still accepts hand-edited records up to its bounds.
 
@@ -1778,6 +1782,8 @@ fn draw_generator_detail(
     blob_selected_element: &mut Option<usize>,
     undo_label: &mut crate::ui::undo::LabelSlot,
     road_stats: Option<&crate::terrain::RoadPanelStats>,
+    // What the terrain's Grass section shows of the world (#1700).
+    grass: Option<&mut super::super::grass::GrassPanel<'_>>,
     // Click-to-pick channel (#961), already narrowed to this node by the
     // caller: the arm flag plus any face a scene click resolved here.
     pick: FacePickUi<'_>,
@@ -1837,7 +1843,7 @@ fn draw_generator_detail(
         };
     }
     match kind {
-        GeneratorKind::Terrain(cfg) => draw_terrain_forge(ui, salt, cfg, dirty, assets),
+        GeneratorKind::Terrain(cfg) => draw_terrain_forge(ui, salt, cfg, grass, dirty, assets),
         GeneratorKind::Water { surface } => {
             draw_water_editor(ui, surface, dirty);
         }
@@ -3004,6 +3010,7 @@ mod collapsed_by_default_tests {
                         &mut None,
                         &mut self.confirm,
                         &mut self.labels.slot(crate::ui::shortcuts::EditorKind::Avatar),
+                        None,
                         None,
                         &mut self.face_pick,
                         &mut AssetPanel {

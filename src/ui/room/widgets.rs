@@ -460,11 +460,30 @@ pub(super) fn color_picker(
     .inner
 }
 
+/// A colour stored LINEAR, as the texture configs and the grass hold theirs
+/// (#1700), edited through egui's picker, which is linear-space: the value
+/// goes to it as it is, so its swatch agrees with the texture editors'
+/// (`bevy_symbios_texture::ui`) for the same colour - a grass tuft's tip
+/// and the grass's Tip colour read alike. [`color_picker`] is for the sRGB
+/// colours everything else stores.
+///
+/// egui's button writes its HSV round trip back every frame it is drawn,
+/// edited or not, which moves a colour by a float's last bits with no input
+/// at all; so it is given a copy, written back only on a change.
+pub(super) fn linear_color_button(ui: &mut egui::Ui, value: &mut Fp3) -> egui::Response {
+    let mut linear = value.0;
+    let response = ui.color_edit_button_rgb(&mut linear);
+    if response.changed() {
+        value.0 = linear;
+    }
+    response
+}
+
 /// The stored sRGB triple, edited through egui's linear-space picker.
 /// Returns whether it changed. Shared by [`color_picker`], the RGBA picker
-/// and the road-appearance override rows, which is the whole set - a
-/// twenty-fifth picker that called egui directly would be a twenty-fifth
-/// swatch telling a different story.
+/// and the road-appearance override rows, which is the whole set of sRGB
+/// pickers - a twenty-fifth picker that called egui directly would be a
+/// twenty-fifth swatch telling a different story.
 pub(super) fn edit_srgb_rgb(ui: &mut egui::Ui, value: &mut [f32; 3]) -> egui::Response {
     let mut linear = value.map(egui::ecolor::linear_from_gamma);
     let response = ui.color_edit_button_rgb(&mut linear);
