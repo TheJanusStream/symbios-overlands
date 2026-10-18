@@ -222,6 +222,19 @@ Grass, each row with an Auto box). Every field is optional:
 - **Match the tufts**, under the editor's rows, recolours every `GrassTuft`
   your scatters place to the grass's root, tip and dry colours and its dry
   share, so the tuft cards stand in the field as part of it.
+- **A seeded world sets it** (#1703): a world never saved - the one a DID
+  is seeded with, as `render --world <DID> --dump` writes it - sets every
+  field but `layer_density`, each seed its own within its biome. Its
+  colours follow its grass layer as the palette drew it, the blades a
+  little more vivid than the ground: an arid world's straw, a jungle's
+  green. How dry, tall, wide, clumpy, thick and windblown they grow, and
+  the colours their flowers come in (up to three), come from the biome's
+  ranges: a meadow's daisies and buttercups, a savanna's tall dry
+  bunchgrass, an alpine slope's short turf and gentians. Its grass and
+  wildflower tufts hold the grass's colours and dry share, as Match the
+  tufts sets them, and each wildflower scatter's blossoms one of its
+  flower colours; the shore's marram grass and the lilies keep their own.
+  Take a field out to put it back on Auto.
 - **Try it offline**: start from your world's record - `room get`'s
   `value`, or for a world never published `render --world <your DID>
   --dump > room.json`, the world that DID is seeded with (it fetches

@@ -54,9 +54,9 @@ const PALETTE_STREAM_SALT: u64 = 0xC010_C010_C010_C010;
 /// channel leaves its realism band by more than this.
 const HARMONY_CAST_DEG: f32 = 10.0;
 
-/// Fully-derived room palette. Every field is sRGB in `[0, 1]`, ready
+/// Fully-derived room palette. Every colour is sRGB in `[0, 1]`, ready
 /// to drop into a `Color::srgb*` constructor or an `Fp3`/`Fp4` PDS
-/// record field.
+/// record field; [`Self::grass_dry_lch`] is the one OkLCH triple.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RoomPalette {
     // -- Lighting / sky / fog --
@@ -79,6 +79,12 @@ pub struct RoomPalette {
 
     // -- Terrain splat layers --
     pub grass_dry: [f32; 3],
+    /// [`Self::grass_dry`] as sampled, OkLCH `[lightness, chroma, hue in
+    /// degrees]`, before the sRGB gamut clips it: what the seeded grass's
+    /// blades are coloured from (#1703) - the band's own chroma, not the
+    /// greyer clipped one, and no libm round trip back from sRGB to move
+    /// them in the last bit.
+    pub grass_dry_lch: [f32; 3],
     pub grass_moist: [f32; 3],
     pub dirt_dry: [f32; 3],
     pub dirt_moist: [f32; 3],
@@ -336,8 +342,9 @@ fn lerp(a: f32, b: f32, t: f32) -> f32 {
 
 /// Move `from` toward `to` along the shortest arc of the hue circle by
 /// fraction `t` (`0` = unchanged, `1` = exactly `to`); result wrapped to
-/// `[0, 360)`. Used to mix the fog hue between the sky and sun hues.
-fn nudge_hue(from: f32, to: f32, t: f32) -> f32 {
+/// `[0, 360)`. Used to mix the fog hue between the sky and sun hues, and
+/// to turn a seeded grass's dry blades toward straw (`super::grass`).
+pub(super) fn nudge_hue(from: f32, to: f32, t: f32) -> f32 {
     let from = wrap_hue_deg(from);
     let mut delta = wrap_hue_deg(to) - from;
     if delta > 180.0 {
@@ -466,7 +473,9 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
     let grass_h = sample(rng, profile.grass.hue) + cast - veg_warm_shift;
     let grass_c = chroma_span(rng, profile.grass.chroma) + temp.max(0.0) * 0.015;
     let grass_l = sample(rng, profile.grass.l);
-    let grass_dry = col(grass_l, grass_c, grass_h + jitter(rng, 6.0));
+    let grass_dry_h = grass_h + jitter(rng, 6.0);
+    let grass_dry = col(grass_l, grass_c, grass_dry_h);
+    let grass_dry_lch = [grass_l, grass_c, wrap_hue_deg(grass_dry_h)];
     let grass_moist = col(
         (grass_l - range_f32(rng, 0.08, 0.14)).max(0.05),
         grass_c + 0.01,
@@ -516,6 +525,7 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> RoomPalette {
         water_deep,
         water_scatter,
         grass_dry,
+        grass_dry_lch,
         grass_moist,
         dirt_dry,
         dirt_moist,
@@ -600,6 +610,26 @@ mod tests {
                 p.sun_color,
                 [p.fog_sun_color[0], p.fog_sun_color[1], p.fog_sun_color[2]],
                 "sun colour diverged from fog sun-glow at seed {s}"
+            );
+        }
+    }
+
+    /// `grass_dry_lch` is `grass_dry` as drawn (#1703): under a realistic
+    /// theme the very colour, before the gamut clips it; under an exotic one
+    /// with the vegetation's chroma lift taken too.
+    #[test]
+    fn grass_dry_lch_is_grass_dry_as_drawn() {
+        use crate::seeded_defaults::scene::ThemeArchetype;
+        for seed in 0..64u64 {
+            let mut scene = SceneCharacter::for_seed(seed);
+            scene.theme = ThemeArchetype::Medieval;
+            let p = RoomPalette::from_scene(&scene, seed);
+            assert_eq!(oklch_to_srgb(p.grass_dry_lch), p.grass_dry, "seed {seed}");
+            scene.theme = ThemeArchetype::AlienOrganic;
+            let alien = RoomPalette::from_scene(&scene, seed);
+            assert!(
+                alien.grass_dry_lch[1] > p.grass_dry_lch[1],
+                "seed {seed}: the lift is taken"
             );
         }
     }

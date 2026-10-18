@@ -166,6 +166,7 @@ pub(super) fn apply_exotic_theme(
 
     if x.grass_chroma > 0.0 {
         p.grass_dry = lean(p.grass_dry, 0.0, 0.0, x.grass_chroma);
+        p.grass_dry_lch[1] += x.grass_chroma;
         p.grass_moist = lean(p.grass_moist, 0.0, 0.0, x.grass_chroma);
     }
     p

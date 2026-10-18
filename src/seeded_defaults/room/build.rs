@@ -140,6 +140,13 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
     apply_shape_to_material(&shape, &mut terrain_cfg.material);
     apply_textures_to_material(&textures, &mut terrain_cfg.material);
     apply_biome_signature_surface(scene.biome, did_seed, &palette, &mut terrain_cfg.material);
+    // The world's grass (#1703): its colours its own grass layer's, how it
+    // grows - dryness, height, width, clumps, flowers - its biome's, all
+    // varied per seed; and its ground cover's grass and wildflower cards
+    // tinted to it below.
+    let seeded_grass =
+        crate::seeded_defaults::room::SeededGrass::from_scene(&scene, &palette, did_seed);
+    terrain_cfg.grass = seeded_grass.config.clone();
 
     // Terrain-aware settlement siting (#905): a low-resolution proxy
     // of the exact heightmap this config will generate, segmented
@@ -307,13 +314,15 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
     // These are primitive trees, not grammars, so their per-instance cost
     // is just the node count - exact, and no iteration stepping needed.
     let mut pending_ground_cover = Vec::with_capacity(ground_cover.scatters.len());
+    let mut tint = seeded_grass.tint();
     for scatter in ground_cover.scatters.iter() {
         let Some(entry) = crate::catalogue::by_slug(scatter.species.slug()) else {
             // Pool slugs are compile-time constants guarded by the
             // deriver's catalogue-resolution test.
             continue;
         };
-        let built = entry.build(did);
+        let mut built = entry.build(did);
+        tint.apply(scatter.species, &mut built);
         let per_instance = generator_entity_count(&built);
         pending_ground_cover.push((scatter, built, per_instance));
     }

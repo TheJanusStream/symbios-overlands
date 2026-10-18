@@ -4,6 +4,7 @@
 use bevy::render::render_resource::ShaderType;
 use bevy_symbios_ground::HeightMap;
 
+use super::profile::auto_world;
 use super::*;
 use crate::ground_cover::{CoverMask, GroundFrame};
 use crate::pds::RoomRecord;
@@ -134,7 +135,7 @@ fn field_app_on(vertices: usize, quality: GrassQuality, eye: Vec3) -> App {
             ..default()
         })
         .insert_resource(VegetationWind::default())
-        .insert_resource(LiveRoomRecord(RoomRecord::default()))
+        .insert_resource(LiveRoomRecord(auto_world()))
         .add_systems(Update, (sync_grass_material, lay_grass_tiles).chain());
     let mut images = app.world_mut().resource_mut::<Assets<Image>>();
     let (height, weights, cover) = (
@@ -579,7 +580,7 @@ fn the_grass_follows_a_record_that_lands_before_its_ground() {
     app.world_mut().resource_mut::<GroundCover>().revision = 0;
     app.update();
     // The next room: a scatter of red-tipped tufts.
-    let mut record = RoomRecord::default();
+    let mut record = auto_world();
     let mut kind = GeneratorKind::default_cuboid();
     if let Some(material) = kind.material_mut() {
         material.texture = SovereignTextureConfig::GrassTuft(SovereignGrassTuftConfig {

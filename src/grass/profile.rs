@@ -332,6 +332,40 @@ impl TuftMatch {
             && tuft.color_dry.0 == self.dry
             && tuft.dry_fraction == self.dry_fraction
     }
+
+    /// Give tuft `tuft` this match; whether it changed.
+    fn apply(&self, tuft: &mut SovereignGrassTuftConfig) -> bool {
+        if self.holds(tuft) {
+            return false;
+        }
+        tuft.color_base.0 = self.base;
+        tuft.color_tip.0 = self.tip;
+        tuft.color_dry.0 = self.dry;
+        tuft.dry_fraction = self.dry_fraction;
+        true
+    }
+}
+
+/// Match grass tuft `tuft` to grass settings `own` as [`match_tufts`]
+/// matches a world's tufts to its grass, where `own` sets all a match
+/// holds - the root, tip and dry colours and the dry share - so [`tufts`]
+/// counts it matched: a seeded world's tint (#1703). Left as it is where
+/// `own` leaves any of them Auto.
+pub fn match_tuft_to(tuft: &mut SovereignGrassTuftConfig, own: &SovereignGrassConfig) {
+    let (Some(base), Some(tip), Some(dry), Some(share)) =
+        (own.color_base, own.color_tip, own.color_dry, own.dry_share)
+    else {
+        return;
+    };
+    // As `GrassProfile::with_settings` takes them, so the match is the one
+    // `TuftMatch::of` makes of the world's grass.
+    let grass = TuftMatch {
+        base: base.0,
+        tip: tip.0,
+        dry: dry.0,
+        dry_fraction: Fp64(f64::from(share.0.clamp(0.0, 1.0))).on_wire(),
+    };
+    grass.apply(tuft);
 }
 
 /// The scatter generators of world `record`: what its tufts are found in.
@@ -360,12 +394,8 @@ pub fn match_tufts(record: &mut RoomRecord) -> usize {
         };
         visit_mut(generator, &mut |texture| {
             if let SovereignTextureConfig::GrassTuft(tuft) = texture
-                && !target.holds(tuft)
+                && target.apply(tuft)
             {
-                tuft.color_base.0 = target.base;
-                tuft.color_tip.0 = target.tip;
-                tuft.color_dry.0 = target.dry;
-                tuft.dry_fraction = target.dry_fraction;
                 changed += 1;
             }
         });
@@ -489,6 +519,19 @@ fn soil_density(dry: [f32; 3], moist: [f32; 3]) -> f32 {
     0.2 + 0.8 * t * t * (3.0 - 2.0 * t)
 }
 
+/// The default world with every grass setting Auto, so what it grows is
+/// what its ground cover gives - the seeded worlds set theirs (#1703).
+#[cfg(test)]
+pub(crate) fn auto_world() -> RoomRecord {
+    let mut record = RoomRecord::default();
+    for generator in record.generators.values_mut() {
+        if let crate::pds::GeneratorKind::Terrain(terrain) = &mut generator.kind {
+            terrain.grass = SovereignGrassConfig::default();
+        }
+    }
+    record
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -530,7 +573,7 @@ mod tests {
     /// the dirt, none on the rock or the snow.
     #[test]
     fn green_soil_grows_grass_and_snow_none() {
-        let mut record = RoomRecord::default();
+        let mut record = auto_world();
         record.placements.clear();
         for generator in record.generators.values_mut() {
             if let GeneratorKind::Terrain(terrain) = &mut generator.kind {
@@ -561,7 +604,7 @@ mod tests {
     /// whatever their texture.
     #[test]
     fn the_room_s_own_tufts_colour_its_grass() {
-        let mut record = RoomRecord::default();
+        let mut record = auto_world();
         record.placements.clear();
         let green = SovereignGrassTuftConfig {
             color_tip: Fp3([0.2, 0.6, 0.1]),
@@ -602,7 +645,7 @@ mod tests {
     /// (#1700): the group is a lever only once its owner pulls it.
     #[test]
     fn a_world_that_sets_nothing_grows_what_its_ground_cover_gives() {
-        let record = RoomRecord::default();
+        let record = auto_world();
         assert_eq!(grass_profile(&record), derived_profile(&record));
         assert_eq!(grass_profile(&record).sway, 1.0);
     }
@@ -613,7 +656,7 @@ mod tests {
     #[test]
     fn each_set_setting_takes_the_place_of_the_derived_one() {
         use crate::pds::Fp;
-        let mut record = RoomRecord::default();
+        let mut record = auto_world();
         let derived = derived_profile(&record);
         *settings(&mut record) = SovereignGrassConfig {
             color_tip: Some(Fp3([0.6, 0.45, 0.1])),
@@ -649,7 +692,7 @@ mod tests {
     #[test]
     fn the_shape_settings_reach_the_grass_and_the_ground() {
         use crate::pds::Fp;
-        let mut record = RoomRecord::default();
+        let mut record = auto_world();
         let derived = derived_profile(&record);
         assert_eq!(grass_profile(&record).carpet_depth, cfg::CARPET_DEPTH);
         assert_eq!(derived.width, cfg::BLADE_WIDTH);
@@ -674,7 +717,7 @@ mod tests {
     #[test]
     fn a_share_or_a_thickness_set_alone_works_on_what_is_derived() {
         use crate::pds::Fp;
-        let mut record = RoomRecord::default();
+        let mut record = auto_world();
         record.placements.clear();
         let derived = derived_profile(&record);
         *settings(&mut record) = SovereignGrassConfig {
@@ -694,7 +737,7 @@ mod tests {
     /// changes nothing.
     #[test]
     fn matching_the_tufts_gives_them_the_grass_colours() {
-        let mut record = RoomRecord::default();
+        let mut record = auto_world();
         record.placements.clear();
         let green = SovereignGrassTuftConfig {
             color_tip: Fp3([0.2, 0.6, 0.1]),
@@ -734,7 +777,7 @@ mod tests {
     #[test]
     fn a_match_survives_the_wire() {
         use crate::pds::Fp;
-        let mut record = RoomRecord::default();
+        let mut record = auto_world();
         record.placements.clear();
         tuft_scatter(
             &mut record,

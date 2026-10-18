@@ -277,8 +277,8 @@ its solver could not reach, and orphaned worn props swept. See
 
 **Cold start (a fresh account):** DID → `fnv1a_64(did)` seeds a
 `SceneCharacter` (landform × biome × theme + prosperity/escalation axes) →
-per-domain derivers in `src/seeded_defaults/` fill in terrain, palette,
-textures, atmosphere, scatters, a themed mini-settlement drawn from the
+per-domain derivers in `src/seeded_defaults/` fill in terrain and its grass,
+palette, textures, atmosphere, scatters, a themed mini-settlement drawn from the
 catalogue, and a layered ambient soundtrack → the result *is* a `RoomRecord`,
 identical on every peer that derives it. Authored values always win; the
 derivers only fill what's unset.
@@ -509,7 +509,8 @@ generation cores shared with the wasm Web Worker.
   defaults, derived along two orthogonal axes: a natural *biome* and an
   artificial *theme*, plus continuous prosperity/escalation dials. Room side:
   terrain, a realistic-first palette (with a bounded exotic lean reserved for
-  the fantastical themes), biome textures, atmosphere, tree / rock /
+  the fantastical themes), biome textures, the biome's grass (#1703, its
+  ground-cover cards tinted to match), atmosphere, tree / rock /
   ground-cover / particle scatters, a themed mini-settlement near spawn (a
   landmark plus secondary buildings and scatter props, drawn from the catalogue
   by theme and sited inside buildable regions segmented from a derive-time
