@@ -54,7 +54,7 @@ mod lots;
 pub mod referenced;
 mod roads;
 mod splat;
-pub use splat::{GroundWeather, GroundWeatherNow};
+pub use splat::{GroundGrass, GroundGrassSet, GroundWeather, GroundWeatherNow};
 // The render tool's terrain report reads the ground's weights with it (#1461);
 // the web build has no render tool.
 #[cfg(not(target_arch = "wasm32"))]
@@ -499,6 +499,14 @@ pub(crate) fn register_headless_terrain(app: &mut App) {
             splat::weather_the_ground
                 .after(crate::drawn_environment::DrawEnvironmentSet)
                 .after(splat::apply_splat_textures),
+        )
+        // The grass on the ground (#1695).
+        .init_resource::<splat::GroundGrass>()
+        .add_systems(
+            PostUpdate,
+            splat::show_the_grass
+                .in_set(splat::GroundGrassSet)
+                .before(bevy::asset::AssetEventSystems),
         );
 }
 
@@ -694,6 +702,14 @@ impl Plugin for TerrainPlugin {
                 splat::weather_the_ground
                     .after(crate::drawn_environment::DrawEnvironmentSet)
                     .after(splat::apply_splat_textures),
+            )
+            // The grass on the ground (#1695).
+            .init_resource::<splat::GroundGrass>()
+            .add_systems(
+                PostUpdate,
+                splat::show_the_grass
+                    .in_set(splat::GroundGrassSet)
+                    .before(bevy::asset::AssetEventSystems),
             )
             .add_systems(OnExit(AppState::InGame), lifecycle::cleanup_terrain)
             // The attract demo world (#897) never passes through `InGame`

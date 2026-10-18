@@ -1,13 +1,19 @@
 //! The terrain's height as a GPU texture (#1674), and the height the drawn
 //! ground has between the texels.
 //!
-//! One `R32Float` texel per heightmap vertex, row-major with rows along +Z,
-//! holding the vertex's world height. Full precision rather than half: a
-//! Berlin square stands on ground 30-60 m up, where a half float steps 3-6
-//! cm. A 32-bit float cannot be filtered on WebGL2, and need not be: the
-//! drawn ground is not bilinear between vertices but two flat triangles a
-//! cell, so a shader that wants what is drawn loads the cell's corners
-//! (`textureLoad`) and interpolates as [`mesh_height`] does.
+//! One `Rg32Uint` texel per heightmap vertex, row-major with rows along +Z:
+//! the vertex's world height, its `f32` bits in `r`, and the normal the
+//! terrain's mesh gives the vertex (#1695) - the mesher's area-weighted
+//! one, [`vertex_normals`] - its X and Z as two 16-bit snorms in `g`, X in
+//! the low half (WGSL's `unpack2x16snorm`), Y the rest of a unit vector, as
+//! a heightfield's normal always points up. The height at full precision
+//! rather than half: a Berlin square stands on ground 30-60 m up, where a
+//! half float steps 3-6 cm. An integer texture cannot be filtered, and need
+//! not be: the drawn ground is not bilinear between vertices but two flat
+//! triangles a cell, so a shader that wants what is drawn loads the cell's
+//! corners (`textureLoad`) and interpolates as [`mesh_height`] does - the
+//! normals too, as the rasterizer interpolates them across the terrain's
+//! triangles, which gives the ground's own smooth light.
 
 use bevy::asset::RenderAssetUsages;
 use bevy::image::{ImageSampler, ImageSamplerDescriptor};
@@ -16,14 +22,17 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy_symbios_ground::HeightMap;
 
-/// The heightmap as the texture the GPU reads: its vertices' heights, one
-/// `R32Float` texel each, held only on the GPU.
+/// The heightmap as the texture the GPU reads: its vertices' heights and
+/// normals, one `Rg32Uint` texel each, held only on the GPU.
 pub(super) fn height_image(hm: &HeightMap) -> Image {
     let (w, h) = (hm.width(), hm.height());
-    let mut bytes = Vec::with_capacity(w * h * 4);
+    let normals = vertex_normals(hm);
+    let mut bytes = Vec::with_capacity(w * h * 8);
     for z in 0..h {
         for x in 0..w {
-            bytes.extend_from_slice(&hm.get(x, z).to_le_bytes());
+            let normal = normals[z * w + x];
+            bytes.extend_from_slice(&hm.get(x, z).to_bits().to_le_bytes());
+            bytes.extend_from_slice(&pack_snorm(normal.x, normal.z).to_le_bytes());
         }
     }
     let mut image = Image::new(
@@ -34,13 +43,53 @@ pub(super) fn height_image(hm: &HeightMap) -> Image {
         },
         TextureDimension::D2,
         bytes,
-        TextureFormat::R32Float,
+        TextureFormat::Rg32Uint,
         RenderAssetUsages::RENDER_WORLD,
     );
     // Read by `textureLoad`, which takes no sampler; the nearest one keeps
-    // any sampled read honest about what a float texel is.
+    // any sampled read honest about what an integer texel is.
     image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor::nearest());
     image
+}
+
+/// Two numbers in `[-1, 1]` as WGSL's `unpack2x16snorm` reads them: each to
+/// the nearest of 32767 steps a side, `low` in the low 16 bits.
+fn pack_snorm(low: f32, high: f32) -> u32 {
+    let half = |v: f32| u32::from((v.clamp(-1.0, 1.0) * 32767.0).round() as i16 as u16);
+    half(low) | (half(high) << 16)
+}
+
+/// The normal at each of heightmap `hm`'s vertices, row by row, as the
+/// terrain's mesh carries it: `bevy_symbios_ground`'s mesher with its
+/// area-weighted normals (`terrain::heightmap`), the unnormalised normals
+/// of the triangles meeting at a vertex summed and made unit - its two
+/// triangles a cell, split from the (x + 1, z) corner to the (x, z + 1)
+/// one, wound counter-clockwise from above.
+fn vertex_normals(hm: &HeightMap) -> Vec<Vec3> {
+    let (w, h, s) = (hm.width(), hm.height(), hm.scale());
+    let at = |(x, z): (usize, usize)| Vec3::new(x as f32 * s, hm.get(x, z), z as f32 * s);
+    let mut sums = vec![Vec3::ZERO; w * h];
+    for z in 0..h.saturating_sub(1) {
+        for x in 0..w.saturating_sub(1) {
+            let (tl, tr, bl, br) = ((x, z), (x + 1, z), (x, z + 1), (x + 1, z + 1));
+            for [a, b, c] in [[tl, bl, tr], [tr, bl, br]] {
+                let face = (at(b) - at(a)).cross(at(c) - at(a));
+                for (vx, vz) in [a, b, c] {
+                    sums[vz * w + vx] += face;
+                }
+            }
+        }
+    }
+    sums.into_iter()
+        .map(|sum| {
+            let length = sum.length();
+            if length > f32::EPSILON {
+                sum / length
+            } else {
+                Vec3::Y
+            }
+        })
+        .collect()
 }
 
 /// The drawn ground's height at world `xz` on heightmap `hm`, centred on
@@ -100,17 +149,64 @@ mod tests {
         assert_eq!(mesh_height(&hm, Vec2::new(-50.0, 0.0)), 0.0);
     }
 
-    /// The texture holds every vertex's height, row by row along +Z.
+    /// The texture holds every vertex's height and normal, row by row
+    /// along +Z: the height's bits, and the normal's X and Z as snorms to
+    /// within a step, its Y what is left of a unit vector.
     #[test]
     fn the_texture_holds_each_vertex() {
         let hm = map([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]]);
         let image = height_image(&hm);
-        assert_eq!(image.texture_descriptor.format, TextureFormat::R32Float);
+        assert_eq!(image.texture_descriptor.format, TextureFormat::Rg32Uint);
         let data = image.data.as_ref().expect("the bytes before upload");
-        let texel = |i: usize| f32::from_le_bytes(data[i * 4..i * 4 + 4].try_into().unwrap());
-        assert_eq!(texel(0), 1.0);
-        assert_eq!(texel(2), 3.0);
-        assert_eq!(texel(3), 4.0);
-        assert_eq!(texel(8), 9.0);
+        let word = |i: usize| u32::from_le_bytes(data[i * 4..i * 4 + 4].try_into().unwrap());
+        let height = |i: usize| f32::from_bits(word(2 * i));
+        assert_eq!(height(0), 1.0);
+        assert_eq!(height(2), 3.0);
+        assert_eq!(height(3), 4.0);
+        assert_eq!(height(8), 9.0);
+        let snorm = |bits: u32| f32::from(bits as u16 as i16).max(-32767.0) / 32767.0;
+        let normals = vertex_normals(&hm);
+        for (i, normal) in normals.iter().enumerate() {
+            let packed = word(2 * i + 1);
+            let (x, z) = (snorm(packed & 0xFFFF), snorm(packed >> 16));
+            let y = (1.0 - x * x - z * z).max(0.0).sqrt();
+            assert!(
+                (Vec3::new(x, y, z) - *normal).length() < 1e-4,
+                "{i}: {normal}"
+            );
+        }
+    }
+
+    /// The normals are the terrain mesh's own: the mesher's, with the
+    /// area-weighted normals the terrain asks it for - on rough ground,
+    /// vertex for vertex.
+    #[test]
+    fn the_normals_are_the_terrain_meshs() {
+        let mut hm = HeightMap::new(9, 7, 2.0);
+        let mut state = 0x9E37_79B9_u32;
+        for z in 0..7 {
+            for x in 0..9 {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                hm.set(x, z, (state >> 8) as f32 / (1u32 << 24) as f32 * 12.0);
+            }
+        }
+        let mesh = bevy_symbios_ground::HeightMapMeshBuilder::new()
+            .with_normal_method(bevy_symbios_ground::NormalMethod::AreaWeighted)
+            .build(&hm);
+        let Some(bevy::mesh::VertexAttributeValues::Float32x3(meshed)) =
+            mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
+        else {
+            panic!("the mesh's normals");
+        };
+        let ours = vertex_normals(&hm);
+        assert_eq!(ours.len(), meshed.len());
+        for (i, (ours, meshed)) in ours.iter().zip(meshed).enumerate() {
+            assert!(
+                (*ours - Vec3::from_array(*meshed)).length() < 1e-6,
+                "{i}: {ours} against {meshed:?}"
+            );
+        }
     }
 }

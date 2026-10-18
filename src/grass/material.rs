@@ -4,8 +4,9 @@
 //! `assets/shaders/grass.wgsl`.
 //!
 //! The shader reads the ground through [`GroundCover`]'s three textures,
-//! all in the vertex stage: the height texture by `textureLoad` (a 32-bit
-//! float cannot be filtered on WebGL2), the splat weights and the cover
+//! all in the vertex stage: the height texture by `textureLoad` (its
+//! heights and normals, packed in two 32-bit words a texel, cannot be
+//! filtered), the splat weights and the cover
 //! linearly; and the bodies that part the grass from a fourth, a row of
 //! 32-bit float texels, by `textureLoad` too. On the WebGL2 build every
 //! texture in a pipeline's layout takes one of the GLES backend's 16 slots
@@ -78,7 +79,8 @@ pub struct GrassUniforms {
 ///
 /// Bind-group slots (group `MATERIAL_BIND_GROUP`, 100 +):
 /// - 100 [`GrassUniforms`]
-/// - 101 the ground's height texture (`R32Float`, unfilterable)
+/// - 101 the ground's height texture (`Rg32Uint`: each vertex's height and
+///   normal, `ground_cover::height`)
 /// - 102/103 the splat weight map + sampler
 /// - 104/105 the cover + sampler
 /// - 106 the bodies (`Rgba32Float`, unfilterable): each one's middle on XZ,
@@ -88,7 +90,7 @@ pub struct GrassUniforms {
 pub struct GrassExtension {
     #[uniform(100)]
     pub uniforms: GrassUniforms,
-    #[texture(101, visibility(vertex), sample_type = "float", filterable = false)]
+    #[texture(101, visibility(vertex), sample_type = "u_int")]
     pub height: Handle<Image>,
     #[texture(102, visibility(vertex))]
     #[sampler(103, visibility(vertex))]

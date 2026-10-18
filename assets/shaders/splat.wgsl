@@ -28,6 +28,11 @@
 //     and takes snow from its highest ground down, from the fields in
 //     `ground_common.wgsl` that the grass reads too (the weather block
 //     below).
+//   - Where grass grows the ground shows it (#1695), as much as the blades
+//     standing there hide it from the view - their colour, lit by the
+//     wind's gusts, over the ground's own - so grassland reads as grass out
+//     to the fog, and the grass's far blades fade into ground that shows
+//     them (the grass block below).
 //
 // When `splat_uniforms.enabled == 0` the splat logic is bypassed and the base
 // StandardMaterial colour is passed through unchanged (useful for the disabled
@@ -49,16 +54,23 @@
     mesh_view_bindings::view,
 }
 
-#import "shaders/ground_common.wgsl"::{ground_drift, ground_mottle, ground_vary, snow_settled, puddle_at, SNOW_ALBEDO, WET_DARKEN}
+#import "shaders/ground_common.wgsl"::{ground_drift, ground_mottle, ground_vary, snow_settled, puddle_at, grass_density_seen, carpet_cover, carpet_colour, carpet_normal, carpet_shade, gust_fineness, grass_gust, SNOW_ALBEDO, WET_DARKEN}
+#import "shaders/storm_common.wgsl"::storm_gust
 
 #ifdef PREPASS_PIPELINE
 #import bevy_pbr::{
     prepass_io::{VertexOutput, FragmentOutput},
     pbr_deferred_functions::deferred_output,
 }
+#import bevy_render::globals::Globals
+// The prepass view layout holds `Globals` at binding 1, not the main pass's
+// 11, and declares none of its own: see `wind.wgsl`, where importing
+// `mesh_view_bindings::globals` here panicked at pipeline creation.
+@group(0) @binding(1) var<uniform> globals: Globals;
 #else
 #import bevy_pbr::{
     forward_io::{VertexOutput, FragmentOutput},
+    mesh_view_bindings::globals,
 }
 #endif
 
@@ -108,11 +120,20 @@ struct SplatUniforms {
     /// The snow line (world Y) and its edge (m) either side.
     snow_line: f32,
     snow_feather: f32,
-    /// Pad to 64 bytes - WebGL2 requires uniform blocks be a multiple of
-    /// 16. Mirrors `_pad0`/`_pad1`/`_pad2` on the Rust `SplatUniforms`.
-    _pad0: u32,
-    _pad1: u32,
-    _pad2: u32,
+    /// The grass on the ground (#1695): how strongly the ground shows it (1
+    /// while the grass grows, 0 off), the share of its blades that are dry,
+    /// and how stormy the wind is (#1684).
+    grass_carpet: f32,
+    grass_dry_share: f32,
+    storm: f32,
+    /// Its blades' colours at the root, the tip and dry (linear RGB in xyz),
+    /// how thickly it grows on each layer, and the wind: its direction (xy)
+    /// and speed (z, m/s).
+    grass_base: vec4<f32>,
+    grass_tip: vec4<f32>,
+    grass_dry: vec4<f32>,
+    grass_layer_density: vec4<f32>,
+    wind: vec4<f32>,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(106) var<uniform> splat_uniforms: SplatUniforms;
@@ -128,6 +149,13 @@ const PUDDLE_ROUGHNESS: f32 = 0.04;
 const WATER_REFLECTANCE: f32 = 0.5;
 const WET_REFLECTANCE_SHARE: f32 = 0.4;
 const SNOW_ROUGHNESS: f32 = 0.85;
+// The grass's roughness, dry and soaked (`grass::material::grass_base`,
+// `config::grass::WET_ROUGHNESS`): the ground showing grass takes it.
+const GRASS_ROUGHNESS: f32 = 0.8;
+const GRASS_WET_ROUGHNESS: f32 = 0.4;
+// Ground lower than this (m) over the water line grows no grass
+// (`config::terrain::ground_cover::WATER_MARGIN`): nor does it show any.
+const GRASS_WATER_MARGIN: f32 = 0.1;
 
 // Avatar-interaction stains overlay (Phase 3, #245). RGBA:
 //   R = wetness, G = kicked-up dust, B = footprint indent, A = reserved.
@@ -267,6 +295,34 @@ fn fragment(
     // the interpolated vertex normal and base_color is the uniform value).
     var pbr_input = pbr_input_from_standard_material(in, is_front);
 
+    // The weather here (#1683): how much of a puddle stands and how much
+    // snow has settled, which the grass on the ground gives way to (the
+    // grass block) and the ground takes (the weather block). None settles
+    // under the water, where the grass, which reads the same snow, does not
+    // grow: the shore above it is snowed on both. A room has water exactly
+    // when its damp-ground margin is on (#913).
+    let ground_up = normalize(in.world_normal).y;
+    var puddle = 0.0;
+    var settled = 0.0;
+    if splat_uniforms.wetness > 0.0 || splat_uniforms.snow > 0.0 {
+        puddle = puddle_at(in.world_position.xz, ground_up, splat_uniforms.wetness);
+        let land = select(
+            1.0,
+            smoothstep(splat_uniforms.water_y - 0.3, splat_uniforms.water_y, in.world_position.y),
+            splat_uniforms.moisture_strength > 0.0,
+        );
+        settled = land * snow_settled(
+            in.world_position.xz,
+            in.world_position.y,
+            ground_up,
+            splat_uniforms.snow,
+            splat_uniforms.snow_line,
+            splat_uniforms.snow_feather,
+        );
+    }
+    // How much of the ground the grass on it hides (#1695; the grass block).
+    var carpet = 0.0;
+
     if splat_uniforms.enabled != 0u {
         // Sample splat weights from the terrain-space UV ([0, 1] → full mesh).
         let raw_weights = textureSample(splat_weight_map, splat_weight_sampler, in.uv);
@@ -345,12 +401,10 @@ fn fragment(
         // After the far fade, so the far ground's flat layer means vary too:
         // there, sameness is all the fade leaves. 1 on average, so a room's
         // ground keeps its tone overall.
+        let drift = ground_drift(world_pos.xz);
+        let mottle = ground_mottle(world_pos.xz);
         pbr_input.material.base_color = vec4<f32>(
-            ground_vary(
-                pbr_input.material.base_color.rgb,
-                ground_drift(world_pos.xz),
-                ground_mottle(world_pos.xz),
-            ),
+            ground_vary(pbr_input.material.base_color.rgb, drift, mottle),
             pbr_input.material.base_color.a,
         );
 
@@ -388,6 +442,73 @@ fn fragment(
             wn0 * weights.r + wn1 * weights.g + wn2 * weights.b + wn3 * weights.a
         );
 #endif // VERTEX_TANGENTS
+
+        // --- The grass on the ground (#1695) --------------------------------
+        // Where grass grows - as thickly as the grass's shader grows it, by
+        // the layers' densities and its clumps on thin ground - the ground
+        // shows it, as much as the blades standing there hide it from this
+        // view (`ground_common::carpet_cover`): the colour they show, lit by
+        // the wind's gusts, varied as the ground is; their light, as the far
+        // blades are lit, in place of the ground's own bumps; and their
+        // roughness. The grass's far blades fade into ground shown so. None
+        // while the grass is off, nor under the water, where the grass does
+        // not grow (#913: a room has water exactly when its damp margin is
+        // on), nor in a puddle, which drowns it.
+        if splat_uniforms.grass_carpet > 0.0 {
+            let land = select(
+                1.0,
+                smoothstep(splat_uniforms.water_y, splat_uniforms.water_y + GRASS_WATER_MARGIN, world_pos.y),
+                splat_uniforms.moisture_strength > 0.0,
+            );
+            let up = normalize(in.world_normal);
+            let to_eye = view.world_position - world_pos;
+            let distance = length(to_eye);
+            let facing = abs(dot(to_eye / max(distance, 1.0e-3), up));
+            let density = grass_density_seen(
+                dot(weights, splat_uniforms.grass_layer_density) * land,
+                world_pos.xz,
+                distance,
+                facing,
+            );
+            carpet = splat_uniforms.grass_carpet * carpet_cover(density, facing) * (1.0 - puddle);
+            let wind_dir = normalize(splat_uniforms.wind.xy + vec2<f32>(1.0e-5, 0.0));
+            let speed = splat_uniforms.wind.z;
+            let t = globals.time;
+            let front = splat_uniforms.storm * storm_gust(world_pos.xz, wind_dir, t);
+            let shown = carpet_colour(
+                splat_uniforms.grass_base.rgb,
+                splat_uniforms.grass_tip.rgb,
+                splat_uniforms.grass_dry.rgb,
+                splat_uniforms.grass_dry_share,
+                drift,
+                density,
+                facing,
+            ) * carpet_shade(
+                grass_gust(world_pos.xz, wind_dir, speed, t),
+                front,
+                speed,
+                gust_fineness(distance, facing),
+            );
+            pbr_input.material.base_color = vec4<f32>(
+                mix(pbr_input.material.base_color.rgb, ground_vary(shown, drift, mottle), carpet),
+                pbr_input.material.base_color.a,
+            );
+            let level = vec3<f32>(to_eye.x, 0.0, to_eye.z);
+            let toward = level / max(length(level), 1.0e-3);
+            // Settled snow takes the light back, as it does from the
+            // ground's own bumps (the weather block).
+            pbr_input.N = normalize(
+                mix(pbr_input.N, carpet_normal(toward, up, splat_uniforms.wetness), carpet * (1.0 - settled)),
+            );
+            // The grass's roughness, wet as its blades are (`grass::roughness`)
+            // once the weather block has wetted it as it wets the ground.
+            let wet = splat_uniforms.wetness;
+            pbr_input.material.perceptual_roughness = mix(
+                pbr_input.material.perceptual_roughness,
+                mix(GRASS_ROUGHNESS, GRASS_WET_ROUGHNESS, wet) / mix(1.0, WET_ROUGHNESS, wet),
+                carpet,
+            );
+        }
     }
 
     // --- Avatar-interaction stains overlay (#245) ----------------------
@@ -471,34 +592,17 @@ fn fragment(
     // as it is. Both amounts 0 - no weather - leave the ground exactly as
     // it was.
     if splat_uniforms.wetness > 0.0 || splat_uniforms.snow > 0.0 {
-        let up = normalize(in.world_normal).y;
-        let xz = in.world_position.xz;
         let wet = splat_uniforms.wetness;
         var albedo = pbr_input.material.base_color.rgb * mix(1.0, WET_DARKEN, wet);
         var rough = pbr_input.material.perceptual_roughness * mix(1.0, WET_ROUGHNESS, wet);
-        let puddle = puddle_at(xz, up, wet);
         albedo = albedo * mix(1.0, PUDDLE_DARKEN, puddle);
         rough = mix(rough, PUDDLE_ROUGHNESS, puddle);
+        // Wet ground takes a share of water's reflectance; the grass on it
+        // keeps its blades' (`grass::material::grass_base`).
         pbr_input.material.reflectance = mix(
             pbr_input.material.reflectance,
             vec3<f32>(WATER_REFLECTANCE),
-            max(puddle, WET_REFLECTANCE_SHARE * wet),
-        );
-        // None settles under the water, where the grass, which reads the
-        // same snow, does not grow: the shore above it is snowed on both.
-        // A room has water exactly when its damp-ground margin is on (#913).
-        let land = select(
-            1.0,
-            smoothstep(splat_uniforms.water_y - 0.3, splat_uniforms.water_y, in.world_position.y),
-            splat_uniforms.moisture_strength > 0.0,
-        );
-        let settled = land * snow_settled(
-            xz,
-            in.world_position.y,
-            up,
-            splat_uniforms.snow,
-            splat_uniforms.snow_line,
-            splat_uniforms.snow_feather,
+            max(puddle, WET_REFLECTANCE_SHARE * wet * (1.0 - carpet)),
         );
         albedo = mix(albedo, SNOW_ALBEDO, settled);
         rough = mix(rough, SNOW_ROUGHNESS, settled);

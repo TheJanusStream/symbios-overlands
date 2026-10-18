@@ -56,13 +56,28 @@ pub struct SplatUniforms {
     pub snow_line: f32,
     /// The snow line's edge (m), either side of it.
     pub snow_feather: f32,
-    /// Pad to 64 bytes (with `_pad1`/`_pad2`). WebGL2 rejects uniform blocks
-    /// that are not a multiple of 16 (`BUFFER_BINDINGS_NOT_16_BYTE_ALIGNED`
-    /// unsupported), and the thirteen fields above take the block to 52.
-    /// Mirror all three in `SplatUniforms` in `splat.wgsl`.
-    pub _pad0: u32,
-    pub _pad1: u32,
-    pub _pad2: u32,
+    /// How strongly the ground shows the grass growing on it (#1695): 1
+    /// while the grass grows, 0 while it is off - and in the zeroed
+    /// `Default`, so a ground without grass renders as before.
+    pub grass_carpet: f32,
+    /// The share of the room's blades that are dry.
+    pub grass_dry_share: f32,
+    /// How stormy the wind is, 0 to 1 (#1684): a storm's gust fronts lean
+    /// the grass harder, and the ground shows them.
+    pub storm: f32,
+    /// The room's blades' colour at the root, linear RGB in `xyz`
+    /// (`grass::profile::GrassProfile`). The three scalars above bring the
+    /// block to 64 bytes, where this one starts on its 16-byte boundary.
+    pub grass_base: Vec4,
+    /// Their colour at the tip, linear RGB in `xyz`.
+    pub grass_tip: Vec4,
+    /// A dry blade's colour, linear RGB in `xyz`.
+    pub grass_dry: Vec4,
+    /// How thickly the grass grows on each splat layer, 0 to 1.
+    pub grass_layer_density: Vec4,
+    /// The wind the grass leans in: its direction in `xy`, its speed (m/s)
+    /// in `z`.
+    pub wind: Vec4,
 }
 
 /// GPU uniform block for the avatar-interaction stains overlay
@@ -215,9 +230,11 @@ mod uniform_layout_tests {
     //! deploy fails at pipeline creation with a message that names neither
     //! the struct nor the field that broke it.
     //!
-    //! Both blocks carry explicit `_pad` fields for that reason. These
-    //! tests are what keeps the padding honest when a field is added: they
-    //! fail on the machine doing the adding rather than in a browser later.
+    //! The stains block carries explicit `_pad` fields for that reason, and
+    //! the splat block fills its sixteenth scalar before its vectors start.
+    //! These tests are what keeps the padding honest when a field is added:
+    //! they fail on the machine doing the adding rather than in a browser
+    //! later.
     use super::*;
     use bevy::render::render_resource::ShaderType;
 
@@ -243,29 +260,32 @@ mod uniform_layout_tests {
         assert_eq!(size % 16, 0, "StainsUniforms is {size} bytes");
     }
 
-    /// Field count of a `struct <name> { .. }` block in the shader source,
-    /// ignoring comments and blank lines.
-    fn wgsl_field_count(src: &str, struct_name: &str) -> usize {
+    /// Ordered `(name, type)` pairs of a `struct <name> { .. }` block in
+    /// the shader source, ignoring comments and blank lines.
+    fn wgsl_fields(src: &str, struct_name: &str) -> Vec<(String, String)> {
         let head = format!("struct {struct_name} {{");
         let start = src.find(&head).expect("struct not found in shader") + head.len();
         let body = &src[start..start + src[start..].find('}').expect("unterminated struct")];
         body.lines()
             .map(str::trim)
             .filter(|l| !l.is_empty() && !l.starts_with("//") && l.contains(':'))
-            .count()
+            .map(|l| {
+                let (name, ty) = l.split_once(':').expect("filtered on ':'");
+                (
+                    name.trim().to_string(),
+                    ty.trim().trim_end_matches(',').to_string(),
+                )
+            })
+            .collect()
     }
 
     /// The Rust and WGSL declarations of a uniform block are two hand-written
     /// copies of one layout, and nothing in the build compiles the shader -
     /// WGSL is loaded at runtime. So adding a field to one and forgetting the
     /// other produces no error anywhere: the GPU simply reads the block at the
-    /// wrong offsets and the terrain renders subtly wrong.
-    ///
-    /// Every field in both blocks is 4 bytes (`f32` / `u32`), so the Rust
-    /// block's size divided by four must equal the shader's field count. That
-    /// is a cheap tie between the two copies. If a non-4-byte field is ever
-    /// added this assertion needs revisiting rather than deleting - the drift
-    /// it guards against is the same either way.
+    /// wrong offsets and the terrain renders subtly wrong. Each block's
+    /// fields are pinned here in order, with their types, and its size to
+    /// what those fields lay out to.
     #[test]
     fn wgsl_uniform_blocks_mirror_the_rust_ones() {
         let src = std::fs::read_to_string(concat!(
@@ -273,22 +293,122 @@ mod uniform_layout_tests {
             "/assets/shaders/splat.wgsl"
         ))
         .expect("splat.wgsl is a tracked asset");
-
-        for (name, rust_size) in [
-            ("SplatUniforms", block_size::<SplatUniforms>()),
-            ("StainsUniforms", block_size::<StainsUniforms>()),
+        let field = |name: &'static str, ty: &'static str| (name, ty);
+        let splat = [
+            field("tile_scale", "f32"),
+            field("enabled", "u32"),
+            field("triplanar_scale", "f32"),
+            field("triplanar_sharpness", "f32"),
+            field("water_y", "f32"),
+            field("moisture_depth", "f32"),
+            field("moisture_strength", "f32"),
+            field("albedo_fade_near", "f32"),
+            field("albedo_fade_far", "f32"),
+            field("wetness", "f32"),
+            field("snow", "f32"),
+            field("snow_line", "f32"),
+            field("snow_feather", "f32"),
+            field("grass_carpet", "f32"),
+            field("grass_dry_share", "f32"),
+            field("storm", "f32"),
+            field("grass_base", "vec4<f32>"),
+            field("grass_tip", "vec4<f32>"),
+            field("grass_dry", "vec4<f32>"),
+            field("grass_layer_density", "vec4<f32>"),
+            field("wind", "vec4<f32>"),
+        ];
+        let stains = [
+            field("world_period", "f32"),
+            field("enabled", "u32"),
+            field("_pad0", "u32"),
+            field("_pad1", "u32"),
+        ];
+        for (name, expected, size) in [
+            ("SplatUniforms", &splat[..], block_size::<SplatUniforms>()),
+            (
+                "StainsUniforms",
+                &stains[..],
+                block_size::<StainsUniforms>(),
+            ),
         ] {
-            let wgsl = wgsl_field_count(&src, name);
+            let actual = wgsl_fields(&src, name);
+            let actual: Vec<(&str, &str)> = actual
+                .iter()
+                .map(|(n, t)| (n.as_str(), t.as_str()))
+                .collect();
             assert_eq!(
-                rust_size as usize / 4,
-                wgsl,
-                "{name}: Rust block is {rust_size} bytes ({} four-byte fields) but \
-                 splat.wgsl declares {wgsl}. The two are hand-mirrored and the \
-                 shader is not compiled by the build, so this mismatch would \
-                 otherwise only show as wrongly-offset uniforms at runtime.",
-                rust_size as usize / 4
+                actual, expected,
+                "splat.wgsl's {name} drifted from the Rust block"
             );
+            // Four-byte scalars first, sixteen of them in the splat block,
+            // then the vectors.
+            let laid_out: u64 = expected
+                .iter()
+                .map(|(_, ty)| if ty.starts_with("vec4") { 16 } else { 4 })
+                .sum();
+            assert_eq!(size, laid_out, "{name}");
         }
+    }
+
+    /// The Rust block's bytes lie as the WGSL block reads them: a block
+    /// whose every field holds its place in the WGSL order (counting a
+    /// vector's components one each) writes, as the GPU is given it, its
+    /// four-byte words in that order. Swapping two fields of one type in the
+    /// Rust struct - a size the WGSL mirror test cannot tell from right -
+    /// puts their numbers in each other's places.
+    #[test]
+    fn the_rust_block_lays_out_as_the_wgsl_one() {
+        use bevy::render::render_resource::encase::UniformBuffer;
+        let v = |first: f32| Vec4::new(first, first + 1.0, first + 2.0, first + 3.0);
+        let block = SplatUniforms {
+            tile_scale: 1.0,
+            enabled: 2,
+            triplanar_scale: 3.0,
+            triplanar_sharpness: 4.0,
+            water_y: 5.0,
+            moisture_depth: 6.0,
+            moisture_strength: 7.0,
+            albedo_fade_near: 8.0,
+            albedo_fade_far: 9.0,
+            wetness: 10.0,
+            snow: 11.0,
+            snow_line: 12.0,
+            snow_feather: 13.0,
+            grass_carpet: 14.0,
+            grass_dry_share: 15.0,
+            storm: 16.0,
+            grass_base: v(17.0),
+            grass_tip: v(21.0),
+            grass_dry: v(25.0),
+            grass_layer_density: v(29.0),
+            wind: v(33.0),
+        };
+        let mut buffer = UniformBuffer::new(Vec::<u8>::new());
+        buffer.write(&block).expect("the block writes");
+        let bytes = buffer.into_inner();
+        let src = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/shaders/splat.wgsl"
+        ))
+        .expect("splat.wgsl is a tracked asset");
+        let mut place = 0u32;
+        let mut expected: Vec<u32> = Vec::new();
+        for (_, ty) in wgsl_fields(&src, "SplatUniforms") {
+            let words = if ty.starts_with("vec4") { 4 } else { 1 };
+            for _ in 0..words {
+                place += 1;
+                expected.push(if ty == "u32" {
+                    place
+                } else {
+                    (place as f32).to_bits()
+                });
+            }
+        }
+        let words: Vec<u32> = bytes
+            .chunks_exact(4)
+            .map(|w| u32::from_le_bytes(w.try_into().expect("four bytes")))
+            .collect();
+        assert_eq!(words, expected);
     }
 
     /// The damp-ground effect (#913) must be inert by default, so a room

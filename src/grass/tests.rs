@@ -609,12 +609,14 @@ fn the_grass_follows_a_record_that_lands_before_its_ground() {
 }
 
 /// The grass varies with the ground under it (#1676) and weathers with it
-/// (#1683): both shaders take the drift, the mottle, the variation, the
-/// settled snow and the puddles from `ground_common.wgsl`, call them in
-/// their own code - an import alone compiles to nothing - and keep no copy
-/// of their own that could drift from the other's: the drier grass would
-/// no longer stand on the lighter ground, a puddle would keep its blades,
-/// and the far blades would fade into a ground of another tone or snow.
+/// (#1683), and the ground shows it (#1695): both shaders take the drift,
+/// the mottle, the variation, the settled snow, the puddles, the grass's
+/// clumps, what the ground shows of it and its gusts from
+/// `ground_common.wgsl`, call them in their own code - an import alone
+/// compiles to nothing - and keep no copy of their own that could drift
+/// from the other's: the drier grass would no longer stand on the lighter
+/// ground, a puddle would keep its blades, and the far blades would fade
+/// into a ground of another tone, snow or grass.
 #[test]
 fn the_grass_and_the_ground_read_one_field() {
     let read = |name: &str| {
@@ -631,6 +633,15 @@ fn the_grass_and_the_ground_read_one_field() {
         "ground_vary",
         "snow_settled",
         "puddle_at",
+        // The grass on the ground (#1695): what the ground shows of it is
+        // what the far blades fade into.
+        "grass_density_seen",
+        "carpet_cover",
+        "carpet_colour",
+        "carpet_normal",
+        "carpet_shade",
+        "gust_fineness",
+        "grass_gust",
     ];
     for field in fields.iter().chain(&["ground_tint"]) {
         let definition = format!("fn {field}(");
@@ -661,4 +672,77 @@ fn the_grass_and_the_ground_read_one_field() {
             );
         }
     }
+}
+
+/// The ground shows its grass as the blades are (#1695): the terrain's
+/// shader holds the blades' roughness, dry and soaked, and the water margin
+/// the cover grows no grass within - which a test can only pin here, the
+/// shader being read at runtime. And the ground's gust light leans no
+/// further than a blade can: its tip nine tenths of its height over.
+#[test]
+fn the_ground_shows_the_grass_as_its_blades_are() {
+    let read = |name: &str| {
+        std::fs::read_to_string(format!(
+            "{}/assets/shaders/{name}",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap_or_else(|_| panic!("{name} is a tracked asset"))
+    };
+    let splat = read("splat.wgsl");
+    for line in [
+        format!(
+            "const GRASS_ROUGHNESS: f32 = {:?};",
+            material::grass_base().perceptual_roughness
+        ),
+        format!("const GRASS_WET_ROUGHNESS: f32 = {:?};", cfg::WET_ROUGHNESS),
+        format!(
+            "const GRASS_WATER_MARGIN: f32 = {:?};",
+            crate::config::terrain::ground_cover::WATER_MARGIN
+        ),
+    ] {
+        assert!(splat.contains(&line), "splat.wgsl: {line}");
+    }
+    let common = read("ground_common.wgsl");
+    let lean_most: f32 = common
+        .lines()
+        .find_map(|l| l.strip_prefix("const LEAN_MOST: f32 = "))
+        .and_then(|v| v.trim_end_matches(';').parse().ok())
+        .expect("ground_common.wgsl's LEAN_MOST");
+    assert!(
+        lean_most <= 0.9 * cfg::BLADE_HEIGHT / cfg::WIND_LEAN,
+        "{lean_most}"
+    );
+    // A steady wind at its strongest leans a swell no further.
+    assert!(lean_most >= 2.5, "{lean_most}");
+}
+
+/// The room's grass is laid on the ground (#1695) - its colours, where it
+/// grows and the wind it leans in, as the blades read them - and taken off
+/// it when the grass is turned off.
+#[test]
+fn the_grass_is_laid_on_the_ground_while_it_grows() {
+    let mut app = field_app(GrassQuality::Low, Vec3::new(0.0, 1.7, 0.0));
+    app.init_resource::<crate::terrain::GroundGrass>()
+        .add_systems(Update, show_grass_on_the_ground.after(sync_grass_material));
+    app.update();
+    let profile = app
+        .world()
+        .resource::<GrassField>()
+        .profile
+        .clone()
+        .expect("read");
+    let wind = *app.world().resource::<VegetationWind>();
+    let laid = *app.world().resource::<crate::terrain::GroundGrass>();
+    assert_eq!(laid, ground_grass(&profile, &wind));
+    assert_eq!(laid.carpet, 1.0);
+    assert_eq!(laid.tip, Vec3::from_array(profile.tip));
+    assert_eq!(laid.layer_density, Vec4::from_array(profile.layer_density));
+    app.world_mut()
+        .resource_mut::<LocalSettings>()
+        .grass_quality = Some(GrassQuality::Off);
+    app.update();
+    assert_eq!(
+        *app.world().resource::<crate::terrain::GroundGrass>(),
+        crate::terrain::GroundGrass::default()
+    );
 }

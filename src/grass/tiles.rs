@@ -798,11 +798,12 @@ mod tests {
     /// The most a tile's ground can grow is never under what the shader
     /// grows there, clumps included: over every ground density up to the
     /// most and every clump the noise can make, the shader's density
-    /// (`grass.wgsl`, whose clump literals are pinned here) stays at or
-    /// under the bound - and the bound is reached.
+    /// (`ground_common.wgsl`'s `grass_density`, whose clump literals are
+    /// pinned here, and which the grass and the ground both read) stays at
+    /// or under the bound - and the bound is reached.
     #[test]
     fn the_most_density_bounds_the_shaders() {
-        let wgsl = include_str!("../../assets/shaders/grass.wgsl");
+        let wgsl = include_str!("../../assets/shaders/ground_common.wgsl");
         assert!(wgsl.contains(&format!(
             "let clump = {} * smoothstep(0.25, 0.75,",
             cfg::CLUMP_PEAK
@@ -811,6 +812,25 @@ mod tests {
             "mix(1.0, clump, {} * (1.0 - ground_density))",
             cfg::CLUMP_SHARE
         )));
+        // The clumps' mean, which the ground's grass reads far off: half
+        // the peak, the noise even about 0.5 and the smoothstep odd there.
+        assert!(wgsl.contains(&format!(
+            "const CLUMP_MEAN: f32 = {:?};",
+            cfg::CLUMP_PEAK * 0.5
+        )));
+        for shader in [
+            include_str!("../../assets/shaders/grass.wgsl"),
+            include_str!("../../assets/shaders/splat.wgsl"),
+        ] {
+            assert!(
+                shader.contains("grass_density"),
+                "a shader grows its own clumps"
+            );
+            assert!(
+                !shader.contains("let clump"),
+                "a shader grows its own clumps"
+            );
+        }
         let shader = |ground: f32, clump: f32| {
             ground * (1.0 + (clump - 1.0) * cfg::CLUMP_SHARE * (1.0 - ground))
         };

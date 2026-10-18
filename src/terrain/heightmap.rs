@@ -281,9 +281,16 @@ pub(super) fn spawn_terrain_mesh(
                 snow: 0.0,
                 snow_line: 0.0,
                 snow_feather: 1.0,
-                _pad0: 0,
-                _pad1: 0,
-                _pad2: 0,
+                // No grass on the ground until the grass lays the room's on
+                // it (`grass::show_grass_on_the_ground`, #1695).
+                grass_carpet: 0.0,
+                grass_dry_share: 0.0,
+                storm: 0.0,
+                grass_base: Vec4::ZERO,
+                grass_tip: Vec4::ZERO,
+                grass_dry: Vec4::ZERO,
+                grass_layer_density: Vec4::ZERO,
+                wind: Vec4::ZERO,
             },
             ..default() // weight_map defaults to 1x1 D2, which is fine for the weight sampler
         },

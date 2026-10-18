@@ -31,6 +31,9 @@
 //   5. Weathers it as the ground under it is weathered (#1683), from the
 //      same fields: snow buries most of a blade and whitens what stands
 //      out, a puddle drowns it, and wet blades darken.
+//   6. Fades it, further out, into the ground under it as the ground's
+//      shader draws it (#1695): the ground's colour under the grass it
+//      shows, lit as the ground there is - so the field has no edge to see.
 //
 // The fragment is Bevy's PBR one, which reads the colour written here as
 // the base colour (`VERTEX_COLORS`, set because the mesh carries COLOR),
@@ -51,7 +54,7 @@
     mesh_view_bindings::{globals, view},
     view_transformations::position_world_to_clip,
 }
-#import "shaders/ground_common.wgsl"::{hash21, value_noise, ground_drift, ground_mottle, ground_vary, snow_settled, puddle_at, SNOW_ALBEDO, WET_DARKEN}
+#import "shaders/ground_common.wgsl"::{hash21, ground_drift, ground_mottle, ground_vary, snow_settled, puddle_at, grass_density, grass_density_seen, carpet_cover, carpet_colour, carpet_normal, carpet_shade, gust_fineness, grass_gust, grass_lean, BLADE_SKYWARD, SNOW_ALBEDO, WET_DARKEN}
 #import "shaders/storm_common.wgsl"::storm_gust
 
 struct GrassUniforms {
@@ -71,7 +74,9 @@ struct GrassUniforms {
 };
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> grass: GrassUniforms;
-@group(#{MATERIAL_BIND_GROUP}) @binding(101) var height_map: texture_2d<f32>;
+// Each heightmap vertex's height (its bits in r) and the terrain mesh's
+// normal there (x and z as snorms in g): `ground_cover::height`.
+@group(#{MATERIAL_BIND_GROUP}) @binding(101) var height_map: texture_2d<u32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(102) var weight_map: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(103) var weight_sampler: sampler;
 @group(#{MATERIAL_BIND_GROUP}) @binding(104) var cover_map: texture_2d<f32>;
@@ -94,8 +99,6 @@ const UPPER_RUNG: f32 = 2.0 / 3.0;
 // share further off than it does (#1694): the edge is a ragged band inside
 // the reach, not a circle every blade shrinks at alike.
 const EDGE_FEATHER: f32 = 0.12;
-// In a storm's gust front (#1684): how much harder the blades lean.
-const STORM_LEAN: f32 = 1.5;
 // Under settled snow (#1683): the share of a blade's height the snow buries,
 // and how white the snow leaves its tip.
 const BURIED: f32 = 0.75;
@@ -106,9 +109,6 @@ const SNOWY_FOOT: f32 = 0.6;
 // a pixel and a half on a 1080-pixel-tall screen at Bevy's default 45
 // degree field of view. A blade narrower than a pixel shimmers as it sways.
 const MIN_WIDTH_PER_M: f32 = 0.0012;
-// The wind speed (m/s) at which a tip leans `grass.wind.w`: the room
-// default.
-const REFERENCE_WIND: f32 = 4.0;
 
 struct Vertex {
     @builtin(instance_index) instance_index: u32,
@@ -121,7 +121,8 @@ struct Vertex {
 // A blade, as every vertex of it is drawn from (`blade_point`): its root,
 // its bend and how high its tip stands, the way across it, its width, and
 // whether it is a flower (1 or 0); the eye; how far it has merged into the
-// ground it stands on, and that ground's colour; and what colours it -
+// ground it stands on, and the colour and normal that ground shows
+// (`ground_common::carpet_normal`); and what colours it -
 // whether it is a dry one, the ground's tone drift where it stands, its own
 // shade, the density of the grass there, a flower's head colour, and the
 // weather: how wet, how much snow settled.
@@ -135,6 +136,7 @@ struct Blade {
     eye: vec3<f32>,
     merge: f32,
     far_ground: vec3<f32>,
+    far_normal: vec3<f32>,
     dry: f32,
     drift: f32,
     shade: f32,
@@ -151,23 +153,35 @@ struct BladePoint {
     colour: vec3<f32>,
 };
 
-// The drawn ground's height at world `xz`: the cell's corners, over the
-// mesher's two triangles, split from the (x + 1, z) corner to the
-// (x, z + 1) one. Past the edge, the edge's.
-fn ground_height(xz: vec2<f32>) -> f32 {
+// A heightmap vertex's height and normal from its texel.
+fn ground_vertex(texel: vec4<u32>) -> vec4<f32> {
+    let xz = unpack2x16snorm(texel.g);
+    return vec4<f32>(bitcast<f32>(texel.r), xz.x, sqrt(max(1.0 - dot(xz, xz), 0.0)), xz.y);
+}
+
+// The drawn ground at world `xz`: its height (x) and normal (yzw). The
+// cell's corners, over the mesher's two triangles, split from the (x + 1,
+// z) corner to the (x, z + 1) one - the corners' normals too, as the
+// rasterizer interpolates the terrain mesh's across its triangles, so a
+// blade reads the light the ground beside it has. Past the edge, the
+// edge's.
+fn ground_point(xz: vec2<f32>) -> vec4<f32> {
     let last = grass.frame.z - 1.0;
     let g = clamp((xz + vec2<f32>(grass.frame.x)) / grass.frame.y, vec2<f32>(0.0), vec2<f32>(last));
     let c = min(floor(g), vec2<f32>(last - 1.0));
     let f = g - c;
     let i = vec2<i32>(c);
-    let tl = textureLoad(height_map, i, 0).r;
-    let tr = textureLoad(height_map, i + vec2<i32>(1, 0), 0).r;
-    let bl = textureLoad(height_map, i + vec2<i32>(0, 1), 0).r;
-    let br = textureLoad(height_map, i + vec2<i32>(1, 1), 0).r;
+    let tl = ground_vertex(textureLoad(height_map, i, 0));
+    let tr = ground_vertex(textureLoad(height_map, i + vec2<i32>(1, 0), 0));
+    let bl = ground_vertex(textureLoad(height_map, i + vec2<i32>(0, 1), 0));
+    let br = ground_vertex(textureLoad(height_map, i + vec2<i32>(1, 1), 0));
+    var point: vec4<f32>;
     if f.x + f.y <= 1.0 {
-        return tl + (tr - tl) * f.x + (bl - tl) * f.y;
+        point = tl + (tr - tl) * f.x + (bl - tl) * f.y;
+    } else {
+        point = br + (bl - br) * (1.0 - f.x) + (tr - br) * (1.0 - f.y);
     }
-    return br + (bl - br) * (1.0 - f.x) + (tr - br) * (1.0 - f.y);
+    return vec4<f32>(point.x, normalize(point.yzw));
 }
 
 // The share of a near tile's blades kept `distance` metres away: all of
@@ -209,7 +223,7 @@ fn blade_point(blade: Blade, up: f32, side: f32) -> BladePoint {
     let tangent = normalize(2.0 * along * blade.bend + vec3<f32>(0.0, max(blade.tip_y, 1.0e-3), 0.0));
     var normal = normalize(cross(blade.across, tangent) + vec3<f32>(0.0, 1.0e-4, 0.0));
     normal = normal * select(1.0, -1.0, dot(normal, blade.eye - position) < 0.0);
-    normal = normalize(mix(normal, vec3<f32>(0.0, 1.0, 0.0), 0.6) + blade.across * side * 0.2);
+    normal = normalize(mix(normal, vec3<f32>(0.0, 1.0, 0.0), BLADE_SKYWARD) + blade.across * side * 0.2);
 
     // Root to tip, a dry share, patches of drier grass, a little of each
     // blade's own, shade at the root deepest where the grass is thickest, a
@@ -233,7 +247,7 @@ fn blade_point(blade: Blade, up: f32, side: f32) -> BladePoint {
     // and its normal (`Blade::merge`).
     return BladePoint(
         position,
-        normalize(mix(normal, vec3<f32>(0.0, 1.0, 0.0), blade.merge)),
+        normalize(mix(normal, blade.far_normal, blade.merge)),
         mix(colour, blade.far_ground, blade.merge),
     );
 }
@@ -307,7 +321,9 @@ fn vertex(vertex: Vertex) -> VertexOutput {
         return nothing(vertex.instance_index, world_from_local, vec3<f32>(at.x, eye.y, at.y));
     }
 
-    let ground = ground_height(at);
+    let drawn = ground_point(at);
+    let ground = drawn.x;
+    let ground_normal = drawn.yzw;
     let root = vec3<f32>(at.x, ground, at.y);
     let distance = length(eye - root);
 
@@ -319,10 +335,8 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     let cover = textureSampleLevel(cover_map, cover_sampler, uv, 0.0).r;
     let weight_sum = max(dot(weights, vec4<f32>(1.0)), 1.0e-3);
     let ground_density = dot(weights, grass.layer_density) / weight_sum * cover * inside;
-    // Thin ground grows its grass in clumps a metre or two across, bare
-    // between, not as stalks spaced evenly over it.
-    let clump = 2.2 * smoothstep(0.25, 0.75, value_noise(at * 0.6 + vec2<f32>(3.0, 29.0)));
-    let density = ground_density * mix(1.0, clump, 0.85 * (1.0 - ground_density));
+    // Thin ground grows its grass in clumps (`ground_common::grass_density`).
+    let density = grass_density(ground_density, at);
 
     let keep = density * thinning(distance);
     let grow = saturate((keep - rank) / max(0.15 * keep, 1.0e-4));
@@ -371,18 +385,9 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     var settled = 0.0;
     var puddle = 0.0;
     if grass.weather.y > 0.0 || wet > 0.0 {
-        // The ground's slope a cell either side, as smooth across the
-        // mesh's triangles as the ground's own normals, which its shader
-        // reads: one triangle's slope alone would drown or keep the blades
-        // in triangles.
-        let cell = grass.frame.y;
-        let dx = vec2<f32>(cell, 0.0);
-        let dz = vec2<f32>(0.0, cell);
-        let rise_x = (ground_height(at + dx) - ground_height(at - dx)) / (2.0 * cell);
-        let rise_z = (ground_height(at + dz) - ground_height(at - dz)) / (2.0 * cell);
-        let ground_up = inverseSqrt(1.0 + rise_x * rise_x + rise_z * rise_z);
-        settled = snow_settled(at, ground, ground_up, grass.weather.y, grass.weather.z, grass.weather.w);
-        puddle = puddle_at(at, ground_up, wet);
+        // On the ground's own normal, as its shader reads it.
+        settled = snow_settled(at, ground, ground_normal.y, grass.weather.y, grass.weather.z, grass.weather.w);
+        puddle = puddle_at(at, ground_normal.y, wet);
     }
 
     var height = grass.base.w * (0.55 + 0.9 * r1) * mix(0.7, 1.25, stand) * mix(0.55, 1.0, density)
@@ -411,14 +416,12 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     var bend = facing * (0.15 + 0.4 * r3) * height * select(1.0, -1.0, r2 > 0.5);
     let wind_dir = normalize(grass.wind.xy + vec2<f32>(1.0e-5, 0.0));
     let t = globals.time;
-    let wave = dot(at, wind_dir) * 0.21 - t * (0.8 + 0.12 * min(grass.wind.z, 20.0));
-    let gust = 0.55 + 0.45 * sin(wave) * sin(wave * 0.43 + 1.3);
+    let gust = grass_gust(at, wind_dir, grass.wind.z, t);
     let flutter = 0.25 * sin(t * (2.3 + 2.0 * r1) + r2 * 6.2831853);
     // A storm's gust front (#1684) leans the blades harder as it passes,
     // the foliage and the rain with them (`storm_common.wgsl`).
     let front = grass.shares.w * storm_gust(at, wind_dir, t);
-    let lean = grass.wind.w * clamp(grass.wind.z / REFERENCE_WIND, 0.0, 2.5) * (gust + flutter)
-        * (1.0 + STORM_LEAN * front);
+    let lean = grass.wind.w * grass_lean(gust + flutter, front, grass.wind.z);
     bend = bend + vec3<f32>(wind_dir.x, 0.0, wind_dir.y) * lean * (height / grass.base.w);
     var flatten = 0.0;
     for (var i = 0; i < i32(textureDimensions(bender_map).x); i = i + 1) {
@@ -442,11 +445,26 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     let tip_y = sqrt(max(height * height - dot(bend, bend), 0.0)) * (1.0 - 0.5 * flatten);
 
     // Further out the blades take the colour of the ground they stand on -
-    // as the ground draws it, its drift and mottle included - and its
-    // normal, all of both by the field's reach: a far blade is shaded as the
-    // ground beside it is, and the field has no edge to see.
+    // as the ground's shader draws it: its layers' colour under the grass it
+    // shows this view (#1695), lit by the gusts as it is, its drift and
+    // mottle and weather included - and its normal, all of both by the
+    // field's reach: a far blade is shaded as the ground beside it is, and
+    // the field has no edge to see.
+    let view_facing = abs(dot(normalize(eye - root), ground_normal));
+    let density_seen = grass_density_seen(ground_density, at, distance, view_facing);
+    let shown = carpet_colour(
+        grass.base.rgb,
+        grass.tip.rgb,
+        grass.dry.rgb,
+        grass.dry.w,
+        drift,
+        density_seen,
+        view_facing,
+    ) * carpet_shade(gust, front, grass.wind.z, gust_fineness(distance, view_facing));
+    let carpet = carpet_cover(density_seen, view_facing) * (1.0 - puddle);
     let far_ground = mix(
-        ground_vary(ground_colour, drift, mottle) * mix(1.0, WET_DARKEN, wet),
+        mix(ground_vary(ground_colour, drift, mottle), ground_vary(shown, drift, mottle), carpet)
+            * mix(1.0, WET_DARKEN, wet),
         SNOW_ALBEDO,
         settled,
     );
@@ -460,6 +478,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
         eye,
         smoothstep(grass.reach.x, grass.reach.w, distance),
         far_ground,
+        normalize(mix(ground_normal, carpet_normal(to_eye, ground_normal, wet), carpet * (1.0 - settled))),
         select(0.0, 1.0, r4 < grass.dry.w),
         drift,
         0.82 + 0.36 * r1,

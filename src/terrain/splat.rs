@@ -702,6 +702,86 @@ pub(crate) fn weather_the_ground(
     }
 }
 
+/// The grass the ground shows (#1695), as `crate::grass` lays it: the room's
+/// grass colours and how thickly it grows on each layer, the wind it leans
+/// in, and how strongly the ground shows it - 1 while the grass grows, 0
+/// while it is off. [`show_the_grass`] writes it into the splat material;
+/// the zeroed default shows none.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq)]
+pub struct GroundGrass {
+    pub carpet: f32,
+    /// Its blades' colours at the root, the tip and dry, linear RGB, and
+    /// the share of them that are dry.
+    pub base: Vec3,
+    pub tip: Vec3,
+    pub dry: Vec3,
+    pub dry_share: f32,
+    /// How thickly it grows on each splat layer, 0 to 1.
+    pub layer_density: Vec4,
+    /// The wind: the way it blows, its speed (m/s) and how stormy it is.
+    pub wind_dir: Vec2,
+    pub wind_speed: f32,
+    pub storm: f32,
+}
+
+impl GroundGrass {
+    /// What splat uniforms `u` hold of it.
+    fn held(u: &crate::splat::SplatUniforms) -> Self {
+        Self {
+            carpet: u.grass_carpet,
+            base: u.grass_base.truncate(),
+            tip: u.grass_tip.truncate(),
+            dry: u.grass_dry.truncate(),
+            dry_share: u.grass_dry_share,
+            layer_density: u.grass_layer_density,
+            wind_dir: u.wind.truncate().truncate(),
+            wind_speed: u.wind.z,
+            storm: u.storm,
+        }
+    }
+
+    /// Write it into splat uniforms `u`.
+    fn write(&self, u: &mut crate::splat::SplatUniforms) {
+        u.grass_carpet = self.carpet;
+        u.grass_base = self.base.extend(0.0);
+        u.grass_tip = self.tip.extend(0.0);
+        u.grass_dry = self.dry.extend(0.0);
+        u.grass_dry_share = self.dry_share;
+        u.grass_layer_density = self.layer_density;
+        u.wind = self.wind_dir.extend(self.wind_speed).extend(0.0);
+        u.storm = self.storm;
+    }
+}
+
+/// Where [`show_the_grass`] runs: before the frame's asset events, so the
+/// grass laid this frame is drawn this frame. Whatever lays [`GroundGrass`]
+/// orders itself before it.
+#[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct GroundGrassSet;
+
+/// Lay the grass on the ground (#1695): [`GroundGrass`] into the splat
+/// material whenever it, or the material, changes - and only when it
+/// moved, as a material write rebuilds its bind group (#1675).
+pub(crate) fn show_the_grass(
+    grass: Res<GroundGrass>,
+    splat_mat: Option<Res<SplatMaterialHandle>>,
+    mut materials: ResMut<Assets<SplatTerrainMaterial>>,
+) {
+    let Some(splat_mat) = splat_mat else {
+        return;
+    };
+    if !grass.is_changed() && !splat_mat.is_changed() {
+        return;
+    }
+    if materials
+        .get(&splat_mat.0)
+        .is_some_and(|m| GroundGrass::held(&m.extension.uniforms) != *grass)
+        && let Some(mut m) = materials.get_mut(&splat_mat.0)
+    {
+        grass.write(&mut m.extension.uniforms);
+    }
+}
+
 /// Free the four per-layer source images of a *Referenced* room once every layer
 /// fetch has resolved (#642). `apply_splat_textures` drops them the same frame
 /// for procedural rooms, but deliberately skips the free while any Referenced
@@ -874,5 +954,101 @@ mod tests {
             placeholder_surface().reflectance,
             tcfg::splat::MATERIAL_REFLECTANCE
         );
+    }
+
+    /// The room's grass as the grass lays it on the ground (#1695).
+    fn some_grass() -> GroundGrass {
+        GroundGrass {
+            carpet: 1.0,
+            base: Vec3::new(0.1, 0.2, 0.05),
+            tip: Vec3::new(0.4, 0.6, 0.2),
+            dry: Vec3::new(0.6, 0.5, 0.3),
+            dry_share: 0.25,
+            layer_density: Vec4::new(1.0, 0.5, 0.0, 0.1),
+            wind_dir: Vec2::new(0.6, 0.8),
+            wind_speed: 5.0,
+            storm: 0.3,
+        }
+    }
+
+    /// What the uniforms hold of the grass is what was written into them,
+    /// field for field, and a ground made without grass shows none.
+    #[test]
+    fn the_ground_holds_the_grass_laid_on_it() {
+        let mut u = crate::splat::SplatUniforms::default();
+        assert_eq!(GroundGrass::held(&u), GroundGrass::default());
+        assert_eq!(GroundGrass::held(&u).carpet, 0.0);
+        some_grass().write(&mut u);
+        assert_eq!(GroundGrass::held(&u), some_grass());
+    }
+
+    /// The grass is written into the ground's material when it changes, and
+    /// not again while it holds - a write rebuilds the material - nor while
+    /// no ground stands.
+    #[test]
+    fn the_grass_is_laid_on_the_ground_only_when_it_moves() {
+        #[derive(Resource, Default)]
+        struct Writes(usize);
+        fn count(materials: Res<Assets<SplatTerrainMaterial>>, mut writes: ResMut<Writes>) {
+            if materials.is_changed() {
+                writes.0 += 1;
+            }
+        }
+        let mut app = App::new();
+        app.init_resource::<Assets<SplatTerrainMaterial>>()
+            .init_resource::<GroundGrass>()
+            .init_resource::<Writes>()
+            .add_systems(Update, (show_the_grass, count).chain());
+        // No ground yet: nothing to lay it on, and none made for it.
+        app.insert_resource(some_grass());
+        app.update();
+        assert!(
+            app.world()
+                .resource::<Assets<SplatTerrainMaterial>>()
+                .is_empty()
+        );
+        let handle = app
+            .world_mut()
+            .resource_mut::<Assets<SplatTerrainMaterial>>()
+            .add(SplatTerrainMaterial {
+                base: StandardMaterial::default(),
+                extension: crate::splat::SplatExtension::default(),
+            });
+        app.insert_resource(super::super::SplatMaterialHandle(handle.clone()));
+        app.update();
+        let held = |app: &App| {
+            let materials = app.world().resource::<Assets<SplatTerrainMaterial>>();
+            GroundGrass::held(
+                &materials
+                    .get(&handle)
+                    .expect("the ground")
+                    .extension
+                    .uniforms,
+            )
+        };
+        assert_eq!(held(&app), some_grass());
+        let writes = app.world().resource::<Writes>().0;
+        for _ in 0..3 {
+            app.update();
+        }
+        assert_eq!(
+            app.world().resource::<Writes>().0,
+            writes,
+            "rewritten unchanged"
+        );
+        // Told it changed when it did not - laid again as it was, or the
+        // ground's handle given again - the material is not written.
+        app.world_mut().resource_mut::<GroundGrass>().set_changed();
+        app.insert_resource(super::super::SplatMaterialHandle(handle.clone()));
+        app.update();
+        assert_eq!(
+            app.world().resource::<Writes>().0,
+            writes,
+            "rewritten as it was"
+        );
+        app.world_mut().resource_mut::<GroundGrass>().carpet = 0.0;
+        app.update();
+        assert_eq!(held(&app).carpet, 0.0);
+        assert_eq!(app.world().resource::<Writes>().0, writes + 1);
     }
 }

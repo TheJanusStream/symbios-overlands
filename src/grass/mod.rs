@@ -34,6 +34,12 @@
 //! * **The weather** on the ground weathers it too (#1683), from the
 //!   terrain's [`GroundWeatherNow`] and the same shared fields: snow buries
 //!   most of a blade, a puddle drowns it, wet blades darken and shine.
+//! * **Past the last blade** the ground shows it (#1695): the room's grass
+//!   goes to the terrain ([`crate::terrain::GroundGrass`]), whose shader
+//!   shows it where it grows - as much of the ground as the blades standing
+//!   there would hide from the view, in their colour and light, the wind's
+//!   swells running over it - so grassland reads as grass out to the fog,
+//!   and the far blades fade into ground that shows them.
 //!
 //! The field waits for the ground's cover, so it never grows through a
 //! building for the half second before the cover is drawn, and is gone
@@ -258,6 +264,11 @@ impl Plugin for GrassPlugin {
                     // After the lights' visibility too, which also writes
                     // `ViewVisibility`: the frame's final value.
                     count_grass_drawn.after(VisibilitySystems::MarkNewlyHiddenEntitiesInvisible),
+                    // The room's grass, read above, before the ground's
+                    // shader is given it.
+                    show_grass_on_the_ground
+                        .after(sync_grass_material)
+                        .before(crate::terrain::GroundGrassSet),
                 ),
             );
     }
@@ -403,6 +414,42 @@ fn sync_grass_material(
     }));
 }
 
+/// Lay the room's grass on the ground (#1695): what the terrain's shader
+/// shows of it ([`crate::terrain::GroundGrass`]) - its colours and where it
+/// grows, from the room's grass as the blades read it, and the wind they
+/// lean in - so grassland reads as grass past the last blade, and the
+/// blades fade into ground that shows them. None while the grass is off.
+fn show_grass_on_the_ground(
+    field: Res<GrassField>,
+    settings: Res<LocalSettings>,
+    wind: Res<VegetationWind>,
+    ground: Option<ResMut<crate::terrain::GroundGrass>>,
+) {
+    let Some(mut ground) = ground else {
+        return;
+    };
+    let wanted = match (GrassQuality::of(&settings).field(), field.profile.as_ref()) {
+        (Some(_), Some(profile)) => ground_grass(profile, &wind),
+        _ => crate::terrain::GroundGrass::default(),
+    };
+    ground.set_if_neq(wanted);
+}
+
+/// What the ground shows of room grass `profile` in wind `wind`.
+fn ground_grass(profile: &GrassProfile, wind: &VegetationWind) -> crate::terrain::GroundGrass {
+    crate::terrain::GroundGrass {
+        carpet: 1.0,
+        base: Vec3::from_array(profile.base),
+        tip: Vec3::from_array(profile.tip),
+        dry: Vec3::from_array(profile.dry),
+        dry_share: profile.dry_share,
+        layer_density: Vec4::from_array(profile.layer_density),
+        wind_dir: wind.dir,
+        wind_speed: wind.speed,
+        storm: wind.storm,
+    }
+}
+
 /// The uniform block for room grass `profile` on ground `ground`, in wind
 /// `wind`, for field `field`, under the ground's weather `weather`.
 fn uniforms(
@@ -499,7 +546,7 @@ fn benders(eye: Vec3, bodies: impl Iterator<Item = (Vec3, f32, f32)>) -> [Vec4; 
 
 /// The bodies as the texture the shader reads: one `Rgba32Float` texel a
 /// body, a row of [`cfg::MAX_BENDERS`], GPU only. A 32-bit float texture is
-/// read by `textureLoad`, as the height texture is.
+/// read by `textureLoad`, as the height texture is, unfilterable.
 fn bender_image(texels: &[Vec4; cfg::MAX_BENDERS]) -> Image {
     let bytes = texels
         .iter()

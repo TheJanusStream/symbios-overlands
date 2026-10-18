@@ -5,11 +5,11 @@
 //!
 //! [`GroundCover`] holds them, for the room whose heightmap is up:
 //!
-//! * **`height`** - one `R32Float` texel per heightmap vertex, its world
-//!   height. A 32-bit float texture cannot be filtered on WebGL2: bind it
-//!   unfilterable, read it with `textureLoad` and interpolate as
-//!   [`mesh_height`] does, and a blade stands on the triangles the ground
-//!   is drawn with.
+//! * **`height`** - one `Rg32Uint` texel per heightmap vertex: its world
+//!   height and the normal the terrain's mesh gives it (#1695). An integer
+//!   texture cannot be filtered: read it with `textureLoad` and interpolate
+//!   as [`mesh_height`] does, and a blade stands on the triangles the ground
+//!   is drawn with, lit as the ground there is.
 //! * **`weights`** - the splat material's own weight map: one RGBA8 texel
 //!   per heightmap vertex, each channel a layer's share, the record's four
 //!   layers in order (by default grass, dirt, rock, snow). The ground's
@@ -71,7 +71,8 @@ use crate::terrain::FinishedHeightMap;
 pub struct GroundCover {
     /// How world XZ lands on the three textures.
     pub frame: GroundFrame,
-    /// The heightmap's vertices' heights, `R32Float`, GPU only.
+    /// The heightmap's vertices' heights and normals, `Rg32Uint`, GPU only
+    /// (`height::height_image`).
     pub height: Handle<Image>,
     /// The splat weight map the ground is painted with, once it has baked.
     pub weights: Option<Handle<Image>>,
