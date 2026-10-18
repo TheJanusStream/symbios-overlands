@@ -237,9 +237,10 @@ pub struct GrassTile {
 
 /// What the field drew this frame (#1692): the tiles in view at each
 /// detail and the vertices they submit, each of which the vertex shader
-/// runs at least once whether its blade grows or not - the measure the
-/// field's cost is taken by, as the `runtime.grass.*` gauges and in
-/// `render --bench`.
+/// runs at least once whether its blade grows or not - the field's vertex
+/// work, as the `runtime.grass.*` gauges and `render --bench` report it.
+/// The rest of its cost is its fragments, which follow how much of the
+/// screen its blades cover (#1697).
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct GrassDrawn {
     /// Tiles in view, near to far ([`Detail::ALL`]'s order).

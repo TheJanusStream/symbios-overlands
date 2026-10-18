@@ -1,8 +1,9 @@
 // Vertex shader for the GPU grass (#1675).
 //
-// Every tile is the same mesh (see `src/grass/tiles.rs`): a vertex carries
-// where its blade stands in the tile and how far up the blade it is
-// (POSITION), which edge it is on, the blade's rank and its seed (COLOR).
+// Every tile draws one of a few shared meshes (see `src/grass/tiles.rs`): a
+// vertex carries where its blade stands in its 8 m cell and how far up the
+// blade it is (POSITION), and which edge it is on, the blade's rank, its
+// seed, its cell and its mesh's detail (COLOR).
 // This shader does the rest, per vertex:
 //
 //   1. Turns and mirrors the tile's layout by a hash of where the tile
@@ -42,10 +43,10 @@
 // so the blades are lit and fogged as every other surface is.
 //
 // WebGL2-safe: vertex-stage texture reads (16 vertex texture units in
-// every WebGL2), the 32-bit float height and bodies read by `textureLoad`
-// (they cannot be filtered there), no storage buffers. Mirrors of the Rust
-// side, which nothing checks at build time: `GrassUniforms`
-// (`src/grass/material.rs`, pinned by
+// every WebGL2), the height (an integer texture, #1695) and the 32-bit
+// float bodies read by `textureLoad` (WebGL2 filters neither), no storage
+// buffers. Mirrors of the Rust side, which nothing checks at build time:
+// `GrassUniforms` (`src/grass/material.rs`, pinned by
 // `grass::tests::wgsl_block_mirrors_the_rust_one`) and the constants below
 // that name their Rust source (pinned by the same test, and by
 // `grass::tiles`'s).
@@ -150,7 +151,7 @@ struct Vertex {
     @builtin(instance_index) instance_index: u32,
     @location(0) position: vec3<f32>,
     // The mesh's COLOR attribute: edge, rank, seed, and the blade's 8 m
-    // cell in its tile.
+    // cell in its tile with its mesh's detail (see `CELLS`).
     @location(5) blade: vec4<f32>,
 };
 

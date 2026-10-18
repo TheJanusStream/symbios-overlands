@@ -12,7 +12,7 @@
 // WebGL 2 minimum guarantee of 16 texture image units.
 //
 // UVs on the terrain mesh span [0, 1] across the full terrain, so:
-//   - The weight map is sampled at those UVs (one texel per heightmap cell).
+//   - The weight map is sampled at those UVs (one texel per heightmap vertex).
 //   - The layer textures are sampled at `uv * tile_scale`; the Repeat address
 //     mode handles wrapping and preserves hardware derivatives for correct
 //     mipmap selection (fract() would destroy derivatives at tile boundaries).
@@ -38,7 +38,7 @@
 // StandardMaterial colour is passed through unchanged (useful for the disabled
 // state and while textures are still loading).
 //
-// NOTE: Bevy 0.18 places the material bind group at group 3 (MATERIAL_BIND_GROUP = 3).
+// NOTE: Bevy 0.19 places the material bind group at group 3 (MATERIAL_BIND_GROUP = 3).
 // All bindings use @group(#{MATERIAL_BIND_GROUP}) so this is correct regardless
 // of the Bevy version.
 
@@ -78,7 +78,7 @@
 // Extension bindings (slots 100+ are reserved for material extensions).
 // ---------------------------------------------------------------------------
 
-/// RGBA weight map - one texel per heightmap cell, full-terrain coverage.
+/// RGBA weight map - one texel per heightmap vertex, full-terrain coverage.
 /// Channels: R = Grass, G = Dirt, B = Rock, A = Snow.
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var splat_weight_map: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(101) var splat_weight_sampler: sampler;

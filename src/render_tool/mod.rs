@@ -734,7 +734,7 @@ struct Args {
     /// Placement census over seeded rooms (#912): for seeds `0..N`, replay the
     /// real scatter sampling loop against a heightmap rebuilt from each record
     /// and print what it actually places - yield vs. requested count, what the
-    /// slope cutoff costs, the per-instance scale spread, and a Clark–Evans
+    /// slope cutoff costs, the per-instance scale spread, and a Clark-Evans
     /// nearest-neighbour index measuring how clustered the survivors are
     /// against the same scatter with its naturalness zeroed. Where
     /// `--room-census` answers "how many entities", this answers "how are they

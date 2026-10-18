@@ -223,8 +223,8 @@ pub fn settings_ui(
                                  a world places are still drawn."
                                 }
                                 crate::grass::GrassQuality::Low => {
-                                    "Thin grass close around you: the lightest on the \
-                                 graphics card, for a web browser or an older machine."
+                                    "Thinner grass, not reaching as far: the lightest on \
+                                 the graphics card, for a web browser or an older machine."
                                 }
                                 crate::grass::GrassQuality::Medium => {
                                     "Thicker grass reaching further out."

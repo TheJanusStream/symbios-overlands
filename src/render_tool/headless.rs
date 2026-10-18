@@ -1530,8 +1530,8 @@ fn frame_world(
 /// `--terrain` (#994) frames itself rather than auto-framing. Two reasons,
 /// and both are about the render being an instrument: the subject's AABB is
 /// the whole kilometre-wide heightmap, so auto-framing would answer a
-/// question nobody asked, and a fixed camera is what makes two renders
-/// - before a change and after it - comparable at all.
+/// question nobody asked, and a fixed camera is what makes two renders,
+/// one before a change and one after it, comparable at all.
 fn frame_terrain(
     capture: &mut Capture,
     job: &RenderJob,

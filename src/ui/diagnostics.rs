@@ -517,7 +517,7 @@ const FRAME_BUDGET_MS: f64 = 1000.0 / 60.0;
 /// with a gridline at each (#1273 f182).
 ///
 /// A FIXED band, which is the whole point. The plot used to scale itself to
-/// its own min and max, so a flawless session holding 16.0–16.3 ms drew the
+/// its own min and max, so a flawless session holding 16.0-16.3 ms drew the
 /// same full-height sawtooth as one stuttering between 16 and 300 - the shape
 /// carried no information about milliseconds at all, and it read alarmingly by
 /// default because noise is always drawn as drama. Against a fixed band a
@@ -828,8 +828,9 @@ fn row_note(metric: &str) -> Option<&'static str> {
     match metric {
         names::RUNTIME_TEXTURE_BIND_SLOTS => Some(SLOTS),
         names::RUNTIME_GRASS_VERTICES => Some(
-            "How many corners of grass blades are sent to be drawn - what the \
-             grass costs. The Grass setting in Settings changes it.",
+            "How many corners of grass blades are sent to be drawn: part of \
+             what the grass costs, the rest being how much of the screen it \
+             covers. The Grass setting in Settings changes both.",
         ),
         MEMORY_ROW_METRIC => Some(MEMORY),
         names::NET_SIGNAL_AWAITING_PEERS => Some(
@@ -2316,7 +2317,7 @@ mod tests {
             names::RUNTIME_FRAME_TIME_MAX_MS,
             // #1557: the voice budget's count sits under the looping one.
             names::AUDIO_SPATIAL_HELD_BACK_VOICES,
-            // #1692: what the grass costs.
+            // #1692: the grass's vertex work.
             names::RUNTIME_GRASS_VERTICES,
         ] {
             assert!(row_note(metric).is_some(), "{metric} lost its note");

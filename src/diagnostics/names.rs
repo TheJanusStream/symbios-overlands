@@ -162,9 +162,10 @@ pub const RUNTIME_REBUILD_TEXTURE_CACHE_LEN: &str = "runtime.rebuild.texture_cac
 /// diagnosis; steps WITHOUT a visible-count peak refute it.
 pub const RUNTIME_VISIBLE_ENTITY_COUNT: &str = "runtime.visible_entity.count";
 /// Vertices the grass tiles in view submit (#1692), each run through the
-/// grass's vertex shader at least once whether its blade grows or not - the
-/// field's cost, which the grass reach and density epic (#1691) is measured
-/// by.
+/// grass's vertex shader at least once whether its blade grows or not: the
+/// field's vertex work, the yardstick the grass reach and density epic
+/// (#1691) was measured by. The rest of its cost is its fragments, which
+/// follow how much of the screen its blades cover (#1697).
 pub const RUNTIME_GRASS_VERTICES: &str = "runtime.grass.vertices";
 /// Grass tiles in view (#1692), every detail and size (#1694) together.
 pub const RUNTIME_GRASS_TILES: &str = "runtime.grass.tiles";

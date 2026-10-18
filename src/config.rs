@@ -1339,12 +1339,15 @@ pub(crate) mod grass {
     /// grass shines.
     pub const WET_ROUGHNESS: f32 = 0.4;
 
-    /// Side of a grass tile (m): the unit the field is laid and moved in.
+    /// Side of the smallest grass tile (m), and of the cells a larger one is
+    /// made of (#1694): the unit the field is laid and moved in.
     pub const TILE_M: f32 = 8.0;
     /// Blades per square metre in a near tile at the High setting.
     pub const BLADES_PER_M2: f32 = 90.0;
-    /// The share of a near tile's blades a middle and a far tile carry:
-    /// a blade there is a pixel or two, and a few of them read as many.
+    /// The share of a near tile's blades the field is thinned to where the
+    /// middle and the far details begin, and so the most a tile at either
+    /// carries (`tiles::Detail::share`): a blade there is a pixel or two,
+    /// and a few of them read as many.
     pub const MID_SHARE: f32 = 0.4;
     pub const FAR_SHARE: f32 = 0.15;
     /// The field keeps every blade out to its `full` distance, and is
@@ -1361,11 +1364,12 @@ pub(crate) mod grass {
     /// blades: at High about a third as many tiles, for up to a tenth more
     /// vertices (a large tile holds what its nearest point needs).
     pub const LARGE_AT: [f32; 2] = [1.25, 2.5];
-    /// Thin ground grows its grass in clumps (`grass.wgsl`'s `clump`): up
-    /// to this many times its own density in a clump, by this share of how
-    /// thin the ground is. The tiles' CPU bound of what can grow
-    /// (`tiles::most_density`, #1693) reads them; a test pins the shader's
-    /// literals to them.
+    /// Thin ground grows its grass in clumps (`ground_common.wgsl`'s
+    /// `grass_density`, which the blades and the ground under them both
+    /// read, #1695): up to this many times its own density in a clump, by
+    /// this share of how thin the ground is. The tiles' CPU bound of what
+    /// can grow (`tiles::most_density`, #1693) reads them; a test pins the
+    /// shader's literals to them.
     pub const CLUMP_PEAK: f32 = 2.2;
     pub const CLUMP_SHARE: f32 = 0.85;
     /// The ground hides a tile behind it (#1693, `grass::horizon`): never
@@ -1386,7 +1390,7 @@ pub(crate) mod grass {
     /// How far a blade's tip leans in the room's wind at its default speed
     /// (m); a stronger wind leans it further, to two and a half times this,
     /// and a storm's gust front up to two and a half times that again
-    /// (`grass.wgsl`'s `STORM_LEAN`, #1684).
+    /// (`ground_common.wgsl`'s `STORM_LEAN`, #1684).
     pub const WIND_LEAN: f32 = 0.12;
     /// The bodies the grass parts around, at most: the nearest to the
     /// camera.

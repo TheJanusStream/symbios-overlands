@@ -1,13 +1,14 @@
 //! The grass field's tiles (#1675): square patches of blades laid on a
 //! world grid around the camera, and the meshes every tile draws one of.
 //!
-//! **Every tile is the same mesh.** A blade's vertices carry where it
-//! stands in its tile, how far up the blade they are and which edge, and
-//! two numbers of its own: its *rank* and its *seed*. The vertex shader
-//! (`assets/shaders/grass.wgsl`) does the rest - it stands the blade on the
-//! ground under it, lets it grow as thickly as the ground there grows
-//! grass, and shapes, bends and colours it - so a few meshes serve every
-//! tile of every room, and the tiles batch into a draw a mesh.
+//! **Every tile draws one of a few shared meshes.** A blade's vertices
+//! carry where it stands in its 8 m cell, how far up the blade they are
+//! and which edge, and two numbers of its own: its *rank* and its *seed*.
+//! The vertex shader (`assets/shaders/grass.wgsl`) does the rest - it
+//! stands the blade on the ground under it, lets it grow as thickly as the
+//! ground there grows grass, and shapes, bends and colours it - so a few
+//! meshes serve every tile of every room, and the tiles batch into a draw
+//! a mesh.
 //!
 //! **Rank is what makes density cheap.** The blades are laid in an order
 //! whose every prefix is spread evenly over the tile ([`roots`]), and a
@@ -169,11 +170,12 @@ pub fn thinning(distance: f32, field: &cfg::Field) -> f32 {
 /// The most the shader's density reaches on ground whose layers' shares
 /// reach at most `shares`, the layers growing grass as thickly as
 /// `layer_density`, under cover at most `cover` (`grass.wgsl`'s
-/// `ground_density` and its clumps): the layers' density, and on thin
-/// ground a clump at its thickest - [`cfg::CLUMP_PEAK`] times the ground's
-/// own density by [`cfg::CLUMP_SHARE`] of how thin it is. The clump's gain
-/// shrinks as the ground thickens, so past the thickness where the two
-/// balance the most is taken there.
+/// `ground_density`, clumped by `ground_common.wgsl`'s `grass_density`):
+/// the layers' density, and on thin ground a clump at its thickest -
+/// [`cfg::CLUMP_PEAK`] times the ground's own density by
+/// [`cfg::CLUMP_SHARE`] of how thin it is. The clump's gain shrinks as the
+/// ground thickens, so past the thickness where the two balance the most
+/// is taken there.
 pub fn most_density(shares: [f32; 4], layer_density: [f32; 4], cover: f32) -> f32 {
     let ground: f32 = shares
         .iter()
