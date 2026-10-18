@@ -1367,9 +1367,10 @@ pub(crate) mod grass {
     /// Thin ground grows its grass in clumps (`ground_common.wgsl`'s
     /// `grass_density`, which the blades and the ground under them both
     /// read, #1695): up to this many times its own density in a clump, by
-    /// this share of how thin the ground is. The tiles' CPU bound of what
-    /// can grow (`tiles::most_density`, #1693) reads them; a test pins the
-    /// shader's literals to them.
+    /// this share of how thin the ground is - times the world's clumpiness
+    /// (#1702), at most all of it (`tiles::clump_share`). The tiles' CPU
+    /// bound of what can grow (`tiles::most_density`, #1693) reads them; a
+    /// test pins the shader's literals to them.
     pub const CLUMP_PEAK: f32 = 2.2;
     pub const CLUMP_SHARE: f32 = 0.85;
     /// The ground hides a tile behind it (#1693, `grass::horizon`): never
@@ -1387,6 +1388,14 @@ pub(crate) mod grass {
     /// A blade's height (m) and its width at the root (m).
     pub const BLADE_HEIGHT: f32 = 0.42;
     pub const BLADE_WIDTH: f32 = 0.06;
+    /// How much of the ground grass hides seen 45 degrees from straight
+    /// above, as `1 - exp(-CARPET_DEPTH)`, for blades [`BLADE_HEIGHT`] tall
+    /// and [`BLADE_WIDTH`] wide, ninety a square metre, facing every way
+    /// (#1695) - and for a world's grass as it grows unset, at any dry
+    /// share: dry grass stands taller but its blades are as much thinner. A
+    /// world's taller or wider blades hide as much more (#1702,
+    /// `grass::profile::GrassProfile::carpet_depth`).
+    pub const CARPET_DEPTH: f32 = 1.5;
     /// How far a blade's tip leans in the room's wind at its default speed
     /// (m); a stronger wind leans it further, to two and a half times this,
     /// and a storm's gust front up to two and a half times that again
@@ -1436,12 +1445,13 @@ pub(crate) mod grass {
         pub full: f32,
     }
     impl Field {
-        /// Its blades' width at the root (m): [`BLADE_WIDTH`], wider by the
-        /// inverse square root of the field's share (#1696), so a thinner
-        /// field covers the ground as the square root of its share - as a
-        /// far field's blades widen by its thinning (`grass.wgsl`).
-        pub fn blade_width(&self) -> f32 {
-            BLADE_WIDTH / self.density.sqrt()
+        /// Its blades' width at the root (m) in a world whose blades are
+        /// `width` wide ([`BLADE_WIDTH`] unset; #1702): wider by the inverse
+        /// square root of the field's share (#1696), so a thinner field
+        /// covers the ground as the square root of its share - as a far
+        /// field's blades widen by its thinning (`grass.wgsl`).
+        pub fn blade_width(&self, width: f32) -> f32 {
+            width / self.density.sqrt()
         }
     }
 

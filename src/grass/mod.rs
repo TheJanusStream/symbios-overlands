@@ -3,9 +3,11 @@
 //! otherwise from what its record already stores.
 //!
 //! * **What it looks like** is its terrain's grass settings (#1700,
-//!   `pds::grass`) and, for every one left on Auto, the room's own ground
-//!   cover: its grass tufts' colours, its flowers, how its layers' ground
-//!   grows grass, and the wind's usual lean ([`profile`]). A room that sets
+//!   `pds::grass`: its colours, flowers, layers, thickness, sway, and since
+//!   #1702 its height, width and clumpiness) and, for every one left on
+//!   Auto, the room's own ground cover: its grass tufts' colours, its
+//!   flowers, how its layers' ground grows grass, and the grass's usual
+//!   lean, width and clumps ([`profile`]). A room that sets
 //!   none, as every room made before the grass came, has grass all the
 //!   same. It varies as the ground under it
 //!   does (#1676): drier where the ground's tone drifts lighter, taller
@@ -17,6 +19,9 @@
 //!   a short blade close by is drawn folded into a V, two blades for the
 //!   same vertices (`grass.wgsl`). A lower quality grows fewer blades, each
 //!   wider by the inverse square root of its share, as a far field's are.
+//!   How far a world's blades reach - taller, wider, clumpier - bounds its
+//!   tiles and the horizon test ([`tiles::BladeBounds`], #1702); an edit
+//!   that changes it gives the standing tiles their new bounds.
 //! * **Where it grows** is the ground under it, read on the GPU from
 //!   [`GroundCover`]: blades stand on the drawn ground, grow as thickly as
 //!   the splat layers there allow, and not at all under a building, a road
@@ -181,15 +186,21 @@ pub struct GrassField {
     /// moved [`cfg::HORIZON_RETEST`] (a tile left drawn a moment longer than
     /// it is seen costs only that), a hidden one every frame (#1693).
     seen_from: HashMap<TileKey, Vec3>,
+    /// How far the world's blades reach at the quality drawn (#1702): the
+    /// standing tiles' bounds, and the horizon test's.
+    bounds: Option<tiles::BladeBounds>,
 }
 
 /// What a tile's most density was read from: the cover's redraw, the
-/// weights' maxima and the room's grass layers. Any change reads them anew.
+/// weights' maxima, the room's grass layers and its clumpiness. Any change
+/// reads them anew.
 #[derive(Clone, Debug)]
 struct DensitiesOf {
     cover: u32,
     maxima: Option<std::sync::Arc<crate::ground_cover::WeightMaxima>>,
     layers: [u32; 4],
+    /// The world's clumpiness (#1702), which thin ground's clumps rise by.
+    clumpiness: u32,
 }
 
 impl DensitiesOf {
@@ -200,6 +211,7 @@ impl DensitiesOf {
             layers: profile
                 .map_or([1.0; 4], |p| p.layer_density)
                 .map(f32::to_bits),
+            clumpiness: profile.map_or(1.0, |p| p.clumpiness).to_bits(),
         }
     }
 
@@ -211,7 +223,10 @@ impl DensitiesOf {
             (None, None) => true,
             _ => false,
         };
-        self.cover == other.cover && maxima && self.layers == other.layers
+        self.cover == other.cover
+            && maxima
+            && self.layers == other.layers
+            && self.clumpiness == other.clumpiness
     }
 }
 
@@ -470,6 +485,8 @@ fn ground_grass(profile: &GrassProfile, wind: &VegetationWind) -> crate::terrain
         wind_speed: wind.speed,
         storm: wind.storm,
         sway: profile.sway,
+        clumpiness: profile.clumpiness,
+        carpet_depth: profile.carpet_depth,
     }
 }
 
@@ -499,7 +516,7 @@ fn uniforms(
     }
     GrassUniforms {
         base: Vec3::from_array(profile.base).extend(profile.height),
-        tip: Vec3::from_array(profile.tip).extend(field.blade_width()),
+        tip: Vec3::from_array(profile.tip).extend(field.blade_width(profile.width)),
         dry: Vec3::from_array(profile.dry).extend(profile.dry_share),
         flowers,
         layer_density: Vec4::from_array(profile.layer_density),
@@ -534,6 +551,7 @@ fn uniforms(
             weather.snow_line,
             weather.snow_feather,
         ),
+        shape: Vec4::new(profile.clumpiness, profile.carpet_depth, 0.0, 0.0),
     }
 }
 
@@ -686,6 +704,29 @@ fn lay_grass_tiles(
     let Some((_, floor)) = field.floor.as_ref() else {
         return;
     };
+    // How far the world's blades reach at this quality (#1702): the tiles'
+    // bounds and the horizon test's. An edit that grows or shrinks the
+    // grass gives every standing tile its new bounds, and has the horizon
+    // test look at every tile again.
+    let Some(bounds) = field
+        .profile
+        .as_ref()
+        .map(|grass| tiles::BladeBounds::of(grass, &grown))
+    else {
+        clear(&mut commands, field);
+        return;
+    };
+    if field.bounds != Some(bounds) {
+        for (key, entity) in &field.tiles {
+            if let Some(&heights) = field.heights.get(key) {
+                commands
+                    .entity(*entity)
+                    .try_insert(tiles::tile_aabb(heights, key.side(), &bounds));
+            }
+        }
+        field.seen_from.clear();
+        field.bounds = Some(bounds);
+    }
     // The densities follow the cover, the weights and the room's grass.
     let densities_of = DensitiesOf::of(&ground, field.profile.as_ref());
     if !field
@@ -755,7 +796,8 @@ fn lay_grass_tiles(
                     .or_insert_with(|| tile_density(&ground, field.profile.as_ref(), key));
                 // Never more than the detail's whole share, as its mesh held
                 // before: thin ground's clumps can lift the most a hair over
-                // it, by blades that would grow to nothing.
+                // it (under 1% at the clumpiest, #1702), by blades that would
+                // grow to a stub.
                 let detail = Detail::at(nearest, &grown);
                 let need = (most * tiles::thinning(nearest, &grown)).min(detail.share());
                 let Some(fewest) = tiles::share_for(need) else {
@@ -791,7 +833,7 @@ fn lay_grass_tiles(
                             .is_some_and(|from| from.distance(at) < cfg::HORIZON_RETEST)
                     {
                         false
-                    } else if floor.hides(hm, at, key, heights) {
+                    } else if floor.hides(hm, at, key, heights, &bounds) {
                         field.seen_from.remove(&key);
                         true
                     } else {
@@ -799,8 +841,9 @@ fn lay_grass_tiles(
                         false
                     }
                 } else {
-                    eyes.iter()
-                        .all(|&(at, perspective)| perspective && floor.hides(hm, at, key, heights))
+                    eyes.iter().all(|&(at, perspective)| {
+                        perspective && floor.hides(hm, at, key, heights, &bounds)
+                    })
                 };
                 wanted.insert(
                     key,
@@ -872,7 +915,7 @@ fn lay_grass_tiles(
                 corner,
                 GlobalTransform::from(corner),
                 visibility,
-                tiles::tile_aabb(heights, key.side()),
+                tiles::tile_aabb(heights, key.side(), &bounds),
                 NoAutoAabb,
                 // The material draws into no shadow map (`material.rs`):
                 // this keeps the lights' culling from testing the tiles too.
@@ -898,7 +941,8 @@ fn tile_density(ground: &GroundCover, profile: Option<&GrassProfile>, key: TileK
         })
     });
     let layers = profile.map_or([1.0; 4], |p| p.layer_density);
-    tiles::most_density(shares, layers, cover)
+    let clumpiness = profile.map_or(1.0, |p| p.clumpiness);
+    tiles::most_density(shares, layers, cover, clumpiness)
 }
 
 /// Take every tile down, and forget the ground under them - all but the

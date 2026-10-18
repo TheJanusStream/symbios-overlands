@@ -138,6 +138,9 @@ struct SplatUniforms {
     /// Its flowers (#1700): their mean colour (linear RGB in xyz) and the
     /// share of its blades that are flowers (w).
     grass_flower: vec4<f32>,
+    /// Its shape (#1702): how much it grows in tussocks and clumps (x) and
+    /// how much of the ground it hides (y, the `carpet_depth`).
+    grass_shape: vec4<f32>,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(106) var<uniform> splat_uniforms: SplatUniforms;
@@ -473,8 +476,11 @@ fn fragment(
                 world_pos.xz,
                 distance,
                 facing,
+                splat_uniforms.grass_shape.x,
             );
-            carpet = splat_uniforms.grass_carpet * carpet_cover(density, facing) * (1.0 - puddle);
+            carpet = splat_uniforms.grass_carpet
+                * carpet_cover(density, facing, splat_uniforms.grass_shape.y)
+                * (1.0 - puddle);
             let wind_dir = normalize(splat_uniforms.wind.xy + vec2<f32>(1.0e-5, 0.0));
             let speed = splat_uniforms.wind.z;
             let t = globals.time;

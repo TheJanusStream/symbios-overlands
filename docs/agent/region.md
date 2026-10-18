@@ -208,6 +208,15 @@ Grass, each row with an Auto box). Every field is optional:
   the world at all.
 - `sway`: how far the wind leans it, 0 (still in any wind) to 2 (twice as
   far); 1 is as far as grass leans unset.
+- `height`: a blade's height in metres before its own variation (#1702),
+  0.1 to 1.0; unset, 0.42 and up to 1.4 times that as the tufts - or the
+  world's own `dry_share` - are dry.
+  `width`: its width at the root in metres, 0.02 to 0.08; unset 0.06.
+  Taller and wider grass hides more of the ground and costs every visitor's
+  graphics card more: at the tallest and widest together, a weak device's
+  default grass costs about what High costs it unset.
+- `clumpiness`: 0 an even lawn, 1 as grass grows unset, 2 bunchgrass -
+  tussocks twice as varied and thin ground growing in tighter clumps.
 - The ground past the blades follows all of these, flowers and sway
   included, so a field keeps its colour out to the fog.
 - **Match the tufts**, under the editor's rows, recolours every `GrassTuft`

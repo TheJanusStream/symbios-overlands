@@ -292,6 +292,7 @@ pub(super) fn spawn_terrain_mesh(
                 grass_layer_density: Vec4::ZERO,
                 wind: Vec4::ZERO,
                 grass_flower: Vec4::ZERO,
+                grass_shape: Vec4::ZERO,
             },
             ..default() // weight_map defaults to 1x1 D2, which is fine for the weight sampler
         },

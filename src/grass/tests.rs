@@ -51,6 +51,7 @@ fn wgsl_block_mirrors_the_rust_one() {
         ("reach", "vec4<f32>"),
         ("shares", "vec4<f32>"),
         ("weather", "vec4<f32>"),
+        ("shape", "vec4<f32>"),
     ];
     let actual = wgsl_fields(&src, "GrassUniforms");
     let actual: Vec<(&str, &str)> = actual
@@ -61,7 +62,7 @@ fn wgsl_block_mirrors_the_rust_one() {
         actual, expected,
         "grass.wgsl's GrassUniforms drifted from the Rust block"
     );
-    assert_eq!(GrassUniforms::min_size().get(), 272);
+    assert_eq!(GrassUniforms::min_size().get(), 288);
     assert!(
         src.contains(&format!("const TILE_M: f32 = {:.1};", cfg::TILE_M)),
         "grass.wgsl's TILE_M is config::grass::TILE_M"
@@ -730,6 +731,22 @@ fn the_ground_shows_the_grass_as_its_blades_are() {
         read("grass.wgsl").contains("grass.wind.z, grass.wind.w / WIND_LEAN, gust_fineness("),
         "grass.wgsl's carpet_shade takes its lean as a share of WIND_LEAN"
     );
+    // The world's clumpiness and the ground's depth (#1702): both shaders
+    // take each from its own component of their shape.
+    let grass = read("grass.wgsl");
+    for line in [
+        "let density = grass_density(ground_density, at, grass.shape.x);",
+        "grass_density_seen(ground_density, at, distance, view_facing, grass.shape.x);",
+        "carpet_cover(density_seen, view_facing, grass.shape.y)",
+    ] {
+        assert!(grass.contains(line), "grass.wgsl: {line}");
+    }
+    for line in [
+        "                splat_uniforms.grass_shape.x,\n            );",
+        "carpet_cover(density, facing, splat_uniforms.grass_shape.y)",
+    ] {
+        assert!(splat.contains(line), "splat.wgsl: {line}");
+    }
 }
 
 /// The world's own grass settings (#1700) reach the blades and the ground
@@ -785,8 +802,134 @@ fn the_world_s_grass_settings_reach_the_blades_and_the_ground() {
     assert_eq!(lean(&app), Some(cfg::WIND_LEAN * 1.5));
     let laid = *app.world().resource::<crate::terrain::GroundGrass>();
     assert_eq!(laid.sway, 1.5);
+    assert_eq!(laid.clumpiness, 1.0);
+    assert_eq!(laid.carpet_depth, cfg::CARPET_DEPTH);
     assert_eq!(laid.flower_share, 0.4);
     assert_eq!(laid.flower, Vec3::new(0.4, 0.1, 0.4));
+}
+
+/// A grass edit that grows the blades (#1702) gives the tiles standing its
+/// new bounds - taller by as much as the world's tallest blade - and the
+/// blades their width and shape, on the editor's preview lane as a slider
+/// is dragged.
+#[test]
+fn a_taller_grass_gives_the_standing_tiles_its_bounds() {
+    use crate::pds::{Fp, GeneratorKind};
+    use crate::world_builder::compile::EnvironmentPreview;
+    let mut app = field_app(GrassQuality::High, Vec3::new(0.0, 1.7, 0.0));
+    app.init_resource::<crate::terrain::GroundGrass>()
+        .add_systems(Update, show_grass_on_the_ground.after(sync_grass_material));
+    app.update();
+    app.update();
+    let top = |app: &mut App| {
+        let mut tiles = app
+            .world_mut()
+            .query::<(&GrassTile, &bevy::camera::primitives::Aabb)>();
+        tiles
+            .iter(app.world())
+            .map(|(_, aabb)| aabb.center.y + aabb.half_extents.y)
+            .fold(f32::NEG_INFINITY, f32::max)
+    };
+    let before = top(&mut app);
+    let bounds = |app: &App| app.world().resource::<GrassField>().bounds.expect("laid");
+    let tallest = bounds(&app).tallest;
+    {
+        let mut record = app.world_mut().resource_mut::<LiveRoomRecord>();
+        let record = &mut record.bypass_change_detection().0;
+        for generator in record.generators.values_mut() {
+            if let GeneratorKind::Terrain(terrain) = &mut generator.kind {
+                terrain.grass.height = Some(Fp(1.0));
+                terrain.grass.width = Some(Fp(0.08));
+                terrain.grass.clumpiness = Some(Fp(2.0));
+            }
+        }
+    }
+    app.insert_resource(EnvironmentPreview);
+    app.update();
+    app.update();
+    let grown = bounds(&app);
+    assert!(
+        grown.tallest > tallest + 1.0,
+        "{} -> {}",
+        tallest,
+        grown.tallest
+    );
+    let after = top(&mut app);
+    assert!(
+        (after - before - (grown.tallest - tallest)).abs() < 1e-3,
+        "the tiles rose {} for {}",
+        after - before,
+        grown.tallest - tallest
+    );
+    let field = app.world().resource::<GrassField>();
+    let material = field.material.clone().expect("growing");
+    let uniforms = app
+        .world()
+        .resource::<Assets<GrassMaterial>>()
+        .get(&material)
+        .map(|m| m.extension.uniforms.clone())
+        .expect("the material");
+    assert_eq!(uniforms.base.w, 1.0);
+    assert_eq!(uniforms.tip.w, cfg::HIGH.blade_width(0.08));
+    assert_eq!(uniforms.shape.x, 2.0);
+    assert!(uniforms.shape.y > cfg::CARPET_DEPTH);
+    // The ground under them reads the same shape.
+    let laid = *app.world().resource::<crate::terrain::GroundGrass>();
+    assert_eq!(laid.clumpiness, uniforms.shape.x);
+    assert_eq!(laid.carpet_depth, uniforms.shape.y);
+    // And every standing tile, not only the highest, took the new bounds.
+    let heights = app.world().resource::<GrassField>().heights.clone();
+    let mut tiles = app
+        .world_mut()
+        .query::<(&GrassTile, &bevy::camera::primitives::Aabb)>();
+    let mut checked = 0;
+    for (tile, aabb) in tiles.iter(app.world()) {
+        let top = aabb.center.y + aabb.half_extents.y;
+        let west = aabb.center.x - aabb.half_extents.x;
+        assert!(
+            (top - (heights[&tile.key].1 + grown.tallest)).abs() < 1e-4,
+            "{tile:?}"
+        );
+        assert!((west + grown.lean).abs() < 1e-4, "{tile:?}");
+        checked += 1;
+    }
+    assert!(checked > 10, "only {checked} tiles");
+}
+
+/// A grass edit that clumps the grass harder (#1702) reads every tile's most
+/// density anew: on thin ground the clumps rise further, and a tile laid
+/// for the old clumpiness would hold too few blades.
+#[test]
+fn a_clumpier_grass_reads_the_tiles_density_anew() {
+    use crate::pds::{Fp, GeneratorKind};
+    use crate::world_builder::compile::EnvironmentPreview;
+    let mut app = field_app(GrassQuality::High, Vec3::new(0.0, 1.7, 0.0));
+    let set = |app: &mut App, clumpiness: f32| {
+        let mut record = app.world_mut().resource_mut::<LiveRoomRecord>();
+        let record = &mut record.bypass_change_detection().0;
+        for generator in record.generators.values_mut() {
+            if let GeneratorKind::Terrain(terrain) = &mut generator.kind {
+                // Thin ground: one layer's, as its weights have not baked
+                // and every layer counts as covering the tiles.
+                terrain.grass.layer_density = Some([Fp(0.3), Fp(0.0), Fp(0.0), Fp(0.0)]);
+                terrain.grass.clumpiness = Some(Fp(clumpiness));
+            }
+        }
+        app.insert_resource(EnvironmentPreview);
+        app.update();
+        app.update();
+    };
+    set(&mut app, 1.0);
+    let before = app.world().resource::<GrassField>().densities.clone();
+    set(&mut app, 2.0);
+    let after = &app.world().resource::<GrassField>().densities;
+    let key = *before.keys().next().expect("tiles laid");
+    assert!(
+        after[&key] > before[&key] + 0.02,
+        "{} -> {}",
+        before[&key],
+        after[&key]
+    );
 }
 
 /// The ground shows flowers only as the blades grow them: a share with no

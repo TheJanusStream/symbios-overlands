@@ -82,6 +82,10 @@ pub struct SplatUniforms {
     /// The grass's flowers (#1700): their mean colour, linear RGB in `xyz`,
     /// and in `w` the share of the blades that are flowers.
     pub grass_flower: Vec4,
+    /// The grass's shape (#1702): how much it grows in tussocks and clumps
+    /// in `x`, how much of the ground it hides in `y` (its
+    /// `carpet_depth`).
+    pub grass_shape: Vec4,
 }
 
 /// GPU uniform block for the avatar-interaction stains overlay
@@ -321,6 +325,7 @@ mod uniform_layout_tests {
             field("grass_layer_density", "vec4<f32>"),
             field("wind", "vec4<f32>"),
             field("grass_flower", "vec4<f32>"),
+            field("grass_shape", "vec4<f32>"),
         ];
         let stains = [
             field("world_period", "f32"),
@@ -388,6 +393,7 @@ mod uniform_layout_tests {
             grass_layer_density: v(29.0),
             wind: v(33.0),
             grass_flower: v(37.0),
+            grass_shape: v(41.0),
         };
         let mut buffer = UniformBuffer::new(Vec::<u8>::new());
         buffer.write(&block).expect("the block writes");

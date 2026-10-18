@@ -28,6 +28,20 @@ pub const MAX_GRASS_SWAY: f32 = 2.0;
 /// The most flower colours a world's grass may set (#1700): the grass
 /// shader holds four.
 pub const MAX_GRASS_FLOWER_COLORS: usize = 4;
+/// The shortest and the tallest a world's grass may grow (#1702): a blade's
+/// height (m) before its own variation. And the narrowest and the widest
+/// its blades may be at the root (m). Measured on a weak device's stand-in
+/// (SwiftShader, the WebGL2 bundle at Low, its default): a blade's cost
+/// grows with the log of its area, about a sixth more of the frame for
+/// every doubling, so the tallest and the widest together - three times
+/// the unset blade's area - cost Low no more than High's grass cost there
+/// unset (+30% of the frame over no grass).
+pub const MIN_GRASS_HEIGHT: f32 = 0.1;
+pub const MAX_GRASS_HEIGHT: f32 = 1.0;
+pub const MIN_GRASS_WIDTH: f32 = 0.02;
+pub const MAX_GRASS_WIDTH: f32 = 0.08;
+/// The most a world's grass may clump (#1702): twice its unset tussocks.
+pub const MAX_GRASS_CLUMPINESS: f32 = 2.0;
 
 /// The shortest and the longest day a room's time of day may turn through
 /// (#1677), in real minutes: a minute and a week. A shorter day would flash

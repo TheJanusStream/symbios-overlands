@@ -18,7 +18,7 @@
 use bevy::prelude::*;
 use bevy_symbios_ground::HeightMap;
 
-use super::tiles::{TALLEST_BLADE, TileKey, WIDEST_LEAN};
+use super::tiles::{BladeBounds, TileKey};
 use crate::config::grass as cfg;
 
 /// The most heights one look at the ground reads: past it the look reads a
@@ -151,19 +151,26 @@ impl GroundFloor {
     }
 
     /// Whether the ground of heightmap `hm` hides every blade of grass tile
-    /// `key` - its ground from `heights.0` to `heights.1`, blades up to
-    /// [`TALLEST_BLADE`] tall and leaning up to [`WIDEST_LEAN`] - from
-    /// `eye`: the tile as a whole ([`Self::hides_square`]), or else a
+    /// `key` - its ground from `heights.0` to `heights.1`, its world's
+    /// blades as tall and leaning as far as `bounds` (#1702) - from `eye`:
+    /// the tile as a whole ([`Self::hides_square`]), or else a
     /// larger tile (#1694) quarter by quarter, each standing on ground no
     /// higher than the tile's. The test over a whole large tile spreads
     /// over ground as wide as the tile, and misses a ridge any narrower
     /// that its quarters' sight lines all meet.
-    pub fn hides(&self, hm: &HeightMap, eye: Vec3, key: TileKey, heights: (f32, f32)) -> bool {
-        self.hides_square(hm, eye, key, heights)
+    pub fn hides(
+        &self,
+        hm: &HeightMap,
+        eye: Vec3,
+        key: TileKey,
+        heights: (f32, f32),
+        bounds: &BladeBounds,
+    ) -> bool {
+        self.hides_square(hm, eye, key, heights, bounds)
             || (key.level > 0
                 && key
                     .quarters()
-                    .all(|quarter| self.hides(hm, eye, quarter, heights)))
+                    .all(|quarter| self.hides(hm, eye, quarter, heights, bounds)))
     }
 
     /// Whether the ground hides tile `key` as [`Self::hides`] asks, over
@@ -172,7 +179,14 @@ impl GroundFloor {
     /// tile's sight lines spread to there stands above the highest of them.
     /// A tile nearer than [`cfg::HORIZON_NEAR`] is never hidden, nor any
     /// from an eye under the ground, which sees the grass from below.
-    fn hides_square(&self, hm: &HeightMap, eye: Vec3, key: TileKey, heights: (f32, f32)) -> bool {
+    fn hides_square(
+        &self,
+        hm: &HeightMap,
+        eye: Vec3,
+        key: TileKey,
+        heights: (f32, f32),
+        bounds: &BladeBounds,
+    ) -> bool {
         let centre = key.lo() + Vec2::splat(key.side() * 0.5);
         let from = Vec2::new(eye.x, eye.z);
         let below = Vec2::splat(self.cell);
@@ -185,7 +199,7 @@ impl GroundFloor {
         let toward = centre - from;
         let distance = toward.length();
         // Every blade of the tile stands within this of its centre.
-        let spread = key.side() * std::f32::consts::FRAC_1_SQRT_2 + WIDEST_LEAN;
+        let spread = key.side() * std::f32::consts::FRAC_1_SQRT_2 + bounds.lean;
         if distance < cfg::HORIZON_NEAR.max(2.0 * spread) {
             return false;
         }
@@ -194,7 +208,7 @@ impl GroundFloor {
         // The sight lines run from the eye to the tips, at most `top` high:
         // the highest of them at `s` metres out is the one to the nearest
         // tips when they stand above the eye, the farthest when below.
-        let top = heights.1 + TALLEST_BLADE;
+        let top = heights.1 + bounds.tallest;
         let rise = top - eye.y;
         let run = if rise >= 0.0 { near } else { far };
         // Seen from the eye the tile spans this angle each way. At `s`
@@ -223,6 +237,15 @@ impl GroundFloor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The bounds of the tallest grass a world grows unset - all of it dry -
+    /// at High: as far as any blade reached before a world could set its
+    /// own height (#1702).
+    fn bounds() -> BladeBounds {
+        let mut grass = crate::grass::profile::derived_profile(&crate::pds::RoomRecord::default());
+        grass.height = crate::config::grass::BLADE_HEIGHT * 1.4;
+        BladeBounds::of(&grass, &crate::config::grass::HIGH)
+    }
 
     /// A 1 m heightmap 257 vertices across (-128..128 m), flat at 0, with
     /// a wall `height` high along X from `x0` to `x1` wherever `gap` does
@@ -260,28 +283,28 @@ mod tests {
         let flat = (0.0, 0.0);
         let ridge = ground(10.0, 16.0, 28.0, None);
         let floor = GroundFloor::of(&ridge);
-        assert!(floor.hides(&ridge, eye, tile, flat));
-        assert!(floor.hides(&ridge, eye, large, flat));
+        assert!(floor.hides(&ridge, eye, tile, flat, &bounds()));
+        assert!(floor.hides(&ridge, eye, large, flat, &bounds()));
         // Seen at a slant across it, from down the Z axis.
-        assert!(floor.hides(&ridge, Vec3::new(-40.0, 1.7, -60.0), tile, flat));
+        assert!(floor.hides(&ridge, Vec3::new(-40.0, 1.7, -60.0), tile, flat, &bounds()));
         // Over the ridge the tile is seen.
-        assert!(!floor.hides(&ridge, Vec3::new(-60.0, 30.0, 4.0), tile, flat));
+        assert!(!floor.hides(&ridge, Vec3::new(-60.0, 30.0, 4.0), tile, flat, &bounds()));
         // A low ridge the tips stand clear of hides nothing.
         let low = ground(0.3, 16.0, 28.0, None);
-        assert!(!GroundFloor::of(&low).hides(&low, eye, tile, flat));
+        assert!(!GroundFloor::of(&low).hides(&low, eye, tile, flat, &bounds()));
         // Flat ground hides nothing.
         let none = ground(0.0, 0.0, 0.0, None);
-        assert!(!GroundFloor::of(&none).hides(&none, eye, tile, flat));
+        assert!(!GroundFloor::of(&none).hides(&none, eye, tile, flat, &bounds()));
         // A gap in the ridge in line with the tile shows it.
         let gapped = ground(10.0, 16.0, 28.0, Some((2.0, 6.0)));
         let gapped_floor = GroundFloor::of(&gapped);
-        assert!(!gapped_floor.hides(&gapped, eye, tile, flat));
-        assert!(!gapped_floor.hides(&gapped, eye, large, flat));
+        assert!(!gapped_floor.hides(&gapped, eye, tile, flat, &bounds()));
+        assert!(!gapped_floor.hides(&gapped, eye, large, flat, &bounds()));
         // A near tile is never hidden, even behind a wall: tile (-7, 0)'s
         // centre is 8 m from the eye, the wall between them.
         let near = ground(10.0, -57.0, -56.0, None);
         let near_tile = TileKey::small(IVec2::new(-7, 0));
-        assert!(!GroundFloor::of(&near).hides(&near, eye, near_tile, flat));
+        assert!(!GroundFloor::of(&near).hides(&near, eye, near_tile, flat, &bounds()));
     }
 
     /// A generator of numbers in [0, 1), the same every run.
@@ -349,6 +372,30 @@ mod tests {
             }
         }
         let floor = GroundFloor::of(&hm);
+        // The tallest grass a world grows unset, and the most any world can
+        // set (#1702): its tallest, widest, clumpiest blades.
+        let mut most = crate::grass::profile::derived_profile(&crate::pds::RoomRecord::default());
+        most.height = crate::pds::sanitize::limits::MAX_GRASS_HEIGHT;
+        most.width = crate::pds::sanitize::limits::MAX_GRASS_WIDTH;
+        most.clumpiness = crate::pds::sanitize::limits::MAX_GRASS_CLUMPINESS;
+        for (bounds, proves) in [
+            (bounds(), true),
+            (BladeBounds::of(&most, &crate::config::grass::HIGH), false),
+        ] {
+            sight_lines_meet_the_ground(&hm, &floor, &bounds, proves);
+        }
+    }
+
+    /// [`a_hidden_tile_has_no_open_sight_line`] over heightmap `hm` for
+    /// grass reaching as far as `bounds`; with `proves`, that the hills hid
+    /// enough for that to mean something.
+    fn sight_lines_meet_the_ground(
+        hm: &HeightMap,
+        floor: &GroundFloor,
+        bounds: &BladeBounds,
+        proves: bool,
+    ) {
+        let hm = hm.clone();
         let mut next = numbers(0x00C0_FFEE);
         let mut hidden = [0; 3];
         // Hidden only quarter by quarter, the whole tile's test missing it.
@@ -368,14 +415,15 @@ mod tests {
                             coord: IVec2::new(tx, tz),
                         };
                         let heights = super::super::tiles::tile_heights(&hm, key);
-                        if !floor.hides(&hm, eye, key, heights) {
+                        if !floor.hides(&hm, eye, key, heights, bounds) {
                             continue;
                         }
                         levels[level as usize] += 1;
-                        by_quarters += usize::from(!floor.hides_square(&hm, eye, key, heights));
-                        let top = heights.1 + TALLEST_BLADE;
-                        let lo = key.lo() - WIDEST_LEAN;
-                        let span = key.side() + 2.0 * WIDEST_LEAN;
+                        by_quarters +=
+                            usize::from(!floor.hides_square(&hm, eye, key, heights, bounds));
+                        let top = heights.1 + bounds.tallest;
+                        let lo = key.lo() - bounds.lean;
+                        let span = key.side() + 2.0 * bounds.lean;
                         let tips = 4 << level;
                         for j in 0..=tips {
                             for i in 0..=tips {
@@ -400,7 +448,7 @@ mod tests {
             }
         }
         assert!(
-            hidden.iter().all(|&n| n > 0) && hidden[0] > 50 && by_quarters > 0,
+            !proves || (hidden.iter().all(|&n| n > 0) && hidden[0] > 50 && by_quarters > 0),
             "only {hidden:?} tiles hidden, {by_quarters} by quarters: the test proves little"
         );
     }

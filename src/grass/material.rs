@@ -40,7 +40,7 @@ pub type GrassMaterial = ExtendedMaterial<StandardMaterial, GrassExtension>;
 
 /// The uniform block `grass.wgsl` reads, mirrored there as
 /// `GrassUniforms`: every member a `vec4`, so the two layouts cannot
-/// disagree about padding, and 272 bytes, a multiple of 16 as WebGL2
+/// disagree about padding, and 288 bytes, a multiple of 16 as WebGL2
 /// requires. Colours are linear.
 #[derive(Clone, Debug, Default, PartialEq, ShaderType)]
 pub struct GrassUniforms {
@@ -74,6 +74,10 @@ pub struct GrassUniforms {
     /// wet, how much snow lies where it has settled, the snow line (world
     /// Y) and its edge (m).
     pub weather: Vec4,
+    /// The world's grass's shape (#1702): how much it grows in tussocks and
+    /// clumps in `x` (1 unset), how much of the ground it hides in `y`
+    /// (`GrassProfile::carpet_depth`).
+    pub shape: Vec4,
 }
 
 /// [`MaterialExtension`] that drives `grass.wgsl`.

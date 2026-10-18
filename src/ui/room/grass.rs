@@ -149,6 +149,60 @@ pub(super) fn draw_grass_section(
         dirty,
         |ui, value, dirty| fp_slider(ui, "", value, 0.0, limits::MAX_GRASS_SWAY, dirty),
     );
+    // On Auto as tall as the dry share in effect makes it: the Dry blades
+    // row's own, if set.
+    let unset_height = crate::grass::profile::unset_height(derived, grass);
+    setting(
+        ui,
+        "Height",
+        "How tall the blades grow (m), before each one's own variation. Taller grass \
+         hides more and costs a visitor's graphics card more.",
+        "follows Dry blades: dry grass stands taller",
+        &mut grass.height,
+        &Fp(unset_height),
+        dirty,
+        |ui, value, dirty| {
+            fp_slider(
+                ui,
+                "",
+                value,
+                limits::MIN_GRASS_HEIGHT,
+                limits::MAX_GRASS_HEIGHT,
+                dirty,
+            )
+        },
+    );
+    setting(
+        ui,
+        "Width",
+        "How wide the blades are at the root (m). Wider grass covers more ground and \
+         costs a visitor's graphics card more.",
+        "is 0.06, the width grass grows unset",
+        &mut grass.width,
+        &Fp(derived.width),
+        dirty,
+        |ui, value, dirty| {
+            fp_slider(
+                ui,
+                "",
+                value,
+                limits::MIN_GRASS_WIDTH,
+                limits::MAX_GRASS_WIDTH,
+                dirty,
+            )
+        },
+    );
+    setting(
+        ui,
+        "Clumpiness",
+        "How much the grass grows in tussocks and clumps: at 0 an even lawn, at 1 as \
+         grass grows unset, at 2 bunchgrass.",
+        "is 1, as grass grows unset",
+        &mut grass.clumpiness,
+        &Fp(derived.clumpiness),
+        dirty,
+        |ui, value, dirty| fp_slider(ui, "", value, 0.0, limits::MAX_GRASS_CLUMPINESS, dirty),
+    );
 
     ui.add_space(4.0);
     let why = if panel.tufts.scattered == 0 {
@@ -284,11 +338,20 @@ mod tests {
         crate::grass::profile::derived_profile(&crate::pds::RoomRecord::default())
     }
 
+    /// [`click_nth`] the topmost.
+    fn click_on(target: impl Fn(&Node) -> bool, draw: impl FnMut(&mut egui::Ui)) -> bool {
+        click_nth(target, 0, draw)
+    }
+
     /// Draw `draw` for four frames, pressing the primary button on the
-    /// topmost node `target` picks in the second and letting it go in the
-    /// third - found on the first through AccessKit, as a person finds it by
-    /// eye. Whether there was such a node.
-    fn click_on(target: impl Fn(&Node) -> bool, mut draw: impl FnMut(&mut egui::Ui)) -> bool {
+    /// `nth` node from the top that `target` picks in the second and letting
+    /// it go in the third - found on the first through AccessKit, as a
+    /// person finds it by eye. Whether there was such a node.
+    fn click_nth(
+        target: impl Fn(&Node) -> bool,
+        nth: usize,
+        mut draw: impl FnMut(&mut egui::Ui),
+    ) -> bool {
         let ctx = egui::Context::default();
         ctx.enable_accesskit();
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 1400.0));
@@ -312,15 +375,16 @@ mod tests {
                     .platform_output
                     .accesskit_update
                     .expect("AccessKit is on");
-                at = update
+                let mut found: Vec<_> = update
                     .nodes
                     .iter()
                     .filter(|(_, node)| target(node))
                     .filter_map(|(_, node)| node.bounds())
-                    .min_by(|a, b| a.y0.total_cmp(&b.y0))
-                    .map(|b| {
-                        egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32)
-                    });
+                    .collect();
+                found.sort_by(|a, b| a.y0.total_cmp(&b.y0));
+                at = found.get(nth).map(|b| {
+                    egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32)
+                });
             }
         }
         at.is_some()
@@ -389,6 +453,36 @@ mod tests {
         assert!(dirty);
     }
 
+    /// The Height row on Auto shows - and once unticked starts from - the
+    /// height the dry share in effect makes the blades (#1702): the world's
+    /// own Dry blades where set, not its tufts', so unticking it moves no
+    /// blade. Height is the tenth row.
+    #[test]
+    fn the_height_on_auto_follows_the_dry_blades_set() {
+        let derived = derived();
+        let mut grass = SovereignGrassConfig {
+            dry_share: Some(Fp(1.0)),
+            ..SovereignGrassConfig::default()
+        };
+        let drawn = crate::grass::profile::unset_height(&derived, &grass);
+        assert!(
+            drawn > derived.height,
+            "all dry stands taller than the tufts"
+        );
+        let (mut dirty, mut matched) = (false, false);
+        let auto = |node: &Node| node.role() == Role::CheckBox && node.label() == Some("Auto");
+        assert!(click_nth(auto, 9, |ui| {
+            let mut panel = GrassPanel {
+                derived: &derived,
+                tufts: Tufts::default(),
+                match_tufts: &mut matched,
+            };
+            draw_grass_section(ui, &mut grass, &mut panel, &mut dirty);
+        }));
+        assert_eq!(grass.height, Some(Fp(drawn)));
+        assert!(dirty);
+    }
+
     /// A world that sets every setting, drawn frame after frame with no
     /// input, keeps every value it set - its sliders, colour buttons and
     /// flower list write nothing on sight - and stays clean.
@@ -405,6 +499,9 @@ mod tests {
             layer_density: Some([Fp(1.0), Fp(0.71), Fp(0.3), Fp(0.0)]),
             thickness: Some(Fp(0.6)),
             sway: Some(Fp(1.5)),
+            height: Some(Fp(0.733)),
+            width: Some(Fp(0.081)),
+            clumpiness: Some(Fp(1.37)),
         };
         let mut grass = set.clone();
         let (mut dirty, mut matched) = (false, false);

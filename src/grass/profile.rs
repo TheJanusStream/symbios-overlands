@@ -23,7 +23,10 @@
 //!   texture - a savanna's sand layer is grass country. The first layer
 //!   takes the full thickness, the others half, so a dirt band under the
 //!   same tufts still reads as worn ground.
-//! * **It sways** as far as the wind leans any grass ([`cfg::WIND_LEAN`]).
+//! * **It sways** as far as the wind leans any grass ([`cfg::WIND_LEAN`]),
+//!   is [`cfg::BLADE_WIDTH`] wide at the root and clumps as grass does
+//!   unset (#1702), and the ground under it hides
+//!   [`cfg::CARPET_DEPTH`].
 //!
 //! A world with no flower cards holds [`cfg::DEFAULT_FLOWERS`] at a share
 //! of none, so its owner can set a flower share alone. And the owner can
@@ -62,6 +65,19 @@ pub struct GrassProfile {
     pub height: f32,
     /// How far the wind leans it, as a share of [`cfg::WIND_LEAN`].
     pub sway: f32,
+    /// A blade's width at its root (m), before the quality widens a thinner
+    /// field's (`config::grass::Field::blade_width`).
+    pub width: f32,
+    /// How much it grows in tussocks and clumps: 1 as grass grows unset.
+    pub clumpiness: f32,
+    /// How much of the ground it hides seen 45 degrees from straight above,
+    /// as `1 - exp(-carpet_depth)` (`ground_common.wgsl`'s `carpet_cover`):
+    /// [`cfg::CARPET_DEPTH`] for grass of the height its dry share makes it
+    /// and [`cfg::BLADE_WIDTH`] wide - every world's grass on Auto - and as
+    /// much more as its blades are taller or wider than that. Dry grass
+    /// stands taller but hides no more for it: its blades are as much
+    /// thinner, so a drier field of one height hides less of the ground.
+    pub carpet_depth: f32,
 }
 
 impl GrassProfile {
@@ -106,6 +122,25 @@ impl GrassProfile {
                 .0
                 .clamp(0.0, crate::pds::sanitize::limits::MAX_GRASS_SWAY);
         }
+        use crate::pds::sanitize::limits;
+        if let Some(height) = own.height {
+            self.height = height
+                .0
+                .clamp(limits::MIN_GRASS_HEIGHT, limits::MAX_GRASS_HEIGHT);
+        }
+        if let Some(width) = own.width {
+            self.width = width
+                .0
+                .clamp(limits::MIN_GRASS_WIDTH, limits::MAX_GRASS_WIDTH);
+        }
+        if let Some(clumpiness) = own.clumpiness {
+            self.clumpiness = clumpiness.0.clamp(0.0, limits::MAX_GRASS_CLUMPINESS);
+        }
+        // The ground hides as much more as the blades on it are taller or
+        // wider than the grass would grow unset - none at all on Auto.
+        self.carpet_depth = cfg::CARPET_DEPTH
+            * (self.height / height_for(self.dry_share))
+            * (self.width / cfg::BLADE_WIDTH);
         self
     }
 }
@@ -245,6 +280,9 @@ pub fn derived_profile(record: &RoomRecord) -> GrassProfile {
         ground,
         height: height_for(dry_share.clamp(0.0, 1.0)),
         sway: 1.0,
+        width: cfg::BLADE_WIDTH,
+        clumpiness: 1.0,
+        carpet_depth: cfg::CARPET_DEPTH,
     }
 }
 
@@ -252,6 +290,19 @@ pub fn derived_profile(record: &RoomRecord) -> GrassProfile {
 /// grass stands taller.
 fn height_for(dry_share: f32) -> f32 {
     cfg::BLADE_HEIGHT * (1.0 + 0.4 * dry_share)
+}
+
+/// The height (m) a world's blades stand at with its Height on Auto
+/// (#1702), its ground cover giving grass `derived` and its own settings
+/// `own`: as tall as its dry share makes them - the world's own Dry blades
+/// where set, its tufts' otherwise - as [`GrassProfile::with_settings`]
+/// grows them. What the World Editor's Height row shows on Auto, and starts
+/// from once unticked.
+pub fn unset_height(derived: &GrassProfile, own: &SovereignGrassConfig) -> f32 {
+    height_for(
+        own.dry_share
+            .map_or(derived.dry_share, |share| share.0.clamp(0.0, 1.0)),
+    )
 }
 
 /// What a grass tuft holds once it is matched to grass `grass` (#1700): its
@@ -589,6 +640,32 @@ mod tests {
         assert_eq!(grass.layer_density, [0.5, 0.4, 0.2, 0.0]);
         assert_eq!(grass.sway, 1.5);
         assert_eq!(grass.ground, derived.ground, "the ground is the ground's");
+    }
+
+    /// The grass's shape (#1702): a height, a width and a clumpiness set
+    /// take the place of what the world gives, and the ground hides as much
+    /// more as the blades are taller and wider than the grass would grow
+    /// unset - on Auto exactly [`cfg::CARPET_DEPTH`].
+    #[test]
+    fn the_shape_settings_reach_the_grass_and_the_ground() {
+        use crate::pds::Fp;
+        let mut record = RoomRecord::default();
+        let derived = derived_profile(&record);
+        assert_eq!(grass_profile(&record).carpet_depth, cfg::CARPET_DEPTH);
+        assert_eq!(derived.width, cfg::BLADE_WIDTH);
+        assert_eq!(derived.clumpiness, 1.0);
+        *settings(&mut record) = SovereignGrassConfig {
+            height: Some(Fp(0.8)),
+            width: Some(Fp(0.07)),
+            clumpiness: Some(Fp(1.5)),
+            ..SovereignGrassConfig::default()
+        };
+        let grass = grass_profile(&record);
+        assert_eq!(grass.height, 0.8);
+        assert_eq!(grass.width, 0.07);
+        assert_eq!(grass.clumpiness, 1.5);
+        let deeper = (0.8 / height_for(derived.dry_share)) * (0.07 / cfg::BLADE_WIDTH);
+        assert!((grass.carpet_depth - cfg::CARPET_DEPTH * deeper).abs() < 1e-5);
     }
 
     /// A flower share set alone flowers in the default colours of a world

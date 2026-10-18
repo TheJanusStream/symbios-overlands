@@ -50,6 +50,14 @@ pub struct SovereignGrassConfig {
     /// How far the wind leans the grass, as a share of how far it leans
     /// unset: 0 stands still in any wind, 2 leans twice as far.
     pub sway: Option<Fp>,
+    /// A blade's height (m) before its own variation (#1702). Unset, the
+    /// tufts' dry share sets it: dry grass stands taller.
+    pub height: Option<Fp>,
+    /// A blade's width at its root (m) (#1702).
+    pub width: Option<Fp>,
+    /// How much the grass grows in tussocks and clumps (#1702): 0 an even
+    /// lawn, 1 as it grows unset, 2 bunchgrass.
+    pub clumpiness: Option<Fp>,
 }
 
 crate::pds::serde_util::impl_default_eliding_serialize!(SovereignGrassConfig {
@@ -62,6 +70,9 @@ crate::pds::serde_util::impl_default_eliding_serialize!(SovereignGrassConfig {
     layer_density,
     thickness,
     sway,
+    height,
+    width,
+    clumpiness,
 });
 
 impl SovereignGrassConfig {
@@ -110,6 +121,9 @@ mod tests {
                 flower_colors: Some(vec![Fp3([0.3, 0.1, 0.6]), Fp3([0.9, 0.9, 0.8])]),
                 layer_density: Some([Fp(1.0), Fp(0.5), Fp(0.0), Fp(0.0)]),
                 sway: Some(Fp(1.5)),
+                height: Some(Fp(0.8)),
+                width: Some(Fp(0.09)),
+                clumpiness: Some(Fp(1.25)),
                 ..SovereignGrassConfig::default()
             },
             ..SovereignTerrainConfig::default()
@@ -126,15 +140,21 @@ mod tests {
         assert_eq!(
             keys,
             [
+                "clumpiness",
                 "color_tip",
                 "flower_colors",
                 "flower_share",
+                "height",
                 "layer_density",
-                "sway"
+                "sway",
+                "width"
             ]
         );
         assert_eq!(grass["color_tip"], serde_json::json!([5000, 4000, 1000]));
         assert_eq!(grass["sway"], serde_json::json!(15000));
+        assert_eq!(grass["height"], serde_json::json!(8000));
+        assert_eq!(grass["width"], serde_json::json!(900));
+        assert_eq!(grass["clumpiness"], serde_json::json!(12500));
         let back: SovereignTerrainConfig =
             serde_json::from_value(json).expect("the terrain reads back");
         assert_eq!(back.grass, terrain.grass);

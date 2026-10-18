@@ -74,6 +74,10 @@ struct GrassUniforms {
     // The weather on the ground (#1683): how wet, how much snow lies where
     // it has settled, the snow line (world Y) and its edge (m).
     weather: vec4<f32>,
+    // The world's grass's shape (#1702): how much it grows in tussocks and
+    // clumps (x, 1 unset) and how much of the ground it hides (y, the
+    // ground's `carpet_depth`).
+    shape: vec4<f32>,
 };
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> grass: GrassUniforms;
@@ -124,9 +128,12 @@ const SNOWY_FOOT: f32 = 0.6;
 // its rim, the mean kept at `TUSSOCK_RIM_MEAN`, how far out the average
 // blade stands from its tussock's middle), facing mostly as their tussock
 // faces (`TUSSOCK_FACING` of the way) and leaning out from its middle at
-// the rim (`TUSSOCK_SPLAY` of their height). Past twice the field's full distance they fade, by three
-// times it gone - their blades too small there to tell - and none is
-// looked for. `tiles::TALLEST_BLADE` holds the tallest blade they make.
+// the rim (`TUSSOCK_SPLAY` of their height). All of it as much as the
+// world's grass clumps (`grass.shape.x`, #1702: 0 none, 2 twice - the facing
+// at most all the way, past which it would turn the blades back). Past twice
+// the field's full distance they fade, by three times it gone - their
+// blades too small there to tell - and none is looked for.
+// `tiles::BladeBounds::tallest` holds the tallest blade they make.
 const TUSSOCK_M: f32 = 1.6;
 const TUSSOCK_HEIGHT: f32 = 0.15;
 const TUSSOCK_TINT: f32 = 0.1;
@@ -346,7 +353,9 @@ struct Tussock {
 };
 
 fn grass_tussock(xz: vec2<f32>, distance: f32) -> Tussock {
-    let shows = 1.0 - smoothstep(2.0 * grass.reach.x, 3.0 * grass.reach.x, distance);
+    // As much as the world's grass clumps (#1702): none in an even lawn,
+    // which looks for no tussock at all.
+    let shows = (1.0 - smoothstep(2.0 * grass.reach.x, 3.0 * grass.reach.x, distance)) * grass.shape.x;
     if shows <= 0.0 {
         return Tussock(vec2<f32>(1.0, 0.0), TUSSOCK_RIM_MEAN, vec2<f32>(0.5), 0.5, 0.0);
     }
@@ -430,7 +439,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     let weight_sum = max(dot(weights, vec4<f32>(1.0)), 1.0e-3);
     let ground_density = dot(weights, grass.layer_density) / weight_sum * cover * inside;
     // Thin ground grows its grass in clumps (`ground_common::grass_density`).
-    let density = grass_density(ground_density, at);
+    let density = grass_density(ground_density, at, grass.shape.x);
 
     let keep = density * thinning(distance);
     let grow = saturate((keep - rank) / max(0.15 * keep, 1.0e-4));
@@ -519,7 +528,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     var tussock_across = vec3<f32>(cos(tussock_angle), 0.0, sin(tussock_angle));
     tussock_across = tussock_across * select(1.0, -1.0, dot(tussock_across, across) < 0.0);
     across = normalize(
-        mix(across, tussock_across, TUSSOCK_FACING * tussock.shows) + vec3<f32>(1.0e-4, 0.0, 0.0),
+        mix(across, tussock_across, min(TUSSOCK_FACING * tussock.shows, 1.0)) + vec3<f32>(1.0e-4, 0.0, 0.0),
     );
     let to_eye = normalize(vec3<f32>(eye.x - root.x, 0.0, eye.z - root.z) + vec3<f32>(1.0e-4, 0.0, 0.0));
     let facing_eye = vec3<f32>(-to_eye.z, 0.0, to_eye.x);
@@ -570,7 +579,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     // field's reach: a far blade is shaded as the ground beside it is, and
     // the field has no edge to see.
     let view_facing = abs(dot(normalize(eye - root), ground_normal));
-    let density_seen = grass_density_seen(ground_density, at, distance, view_facing);
+    let density_seen = grass_density_seen(ground_density, at, distance, view_facing, grass.shape.x);
     let shown = carpet_colour(
         grass.base.rgb,
         grass.tip.rgb,
@@ -582,7 +591,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
         density_seen,
         view_facing,
     ) * carpet_shade(gust, front, grass.wind.z, grass.wind.w / WIND_LEAN, gust_fineness(distance, view_facing));
-    let carpet = carpet_cover(density_seen, view_facing) * (1.0 - puddle);
+    let carpet = carpet_cover(density_seen, view_facing, grass.shape.y) * (1.0 - puddle);
     let far_ground = mix(
         mix(ground_vary(ground_colour, drift, mottle), ground_vary(shown, drift, mottle), carpet)
             * mix(1.0, WET_DARKEN, wet),

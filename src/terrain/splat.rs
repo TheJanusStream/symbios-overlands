@@ -730,6 +730,10 @@ pub struct GroundGrass {
     /// How far the wind leans it, as a share of `config::grass::WIND_LEAN`
     /// (#1700).
     pub sway: f32,
+    /// How much it grows in tussocks and clumps, and how much of the ground
+    /// it hides (#1702, `grass::profile::GrassProfile`).
+    pub clumpiness: f32,
+    pub carpet_depth: f32,
 }
 
 impl GroundGrass {
@@ -748,6 +752,8 @@ impl GroundGrass {
             wind_speed: u.wind.z,
             storm: u.storm,
             sway: u.wind.w,
+            clumpiness: u.grass_shape.x,
+            carpet_depth: u.grass_shape.y,
         }
     }
 
@@ -762,6 +768,7 @@ impl GroundGrass {
         u.grass_layer_density = self.layer_density;
         u.wind = self.wind_dir.extend(self.wind_speed).extend(self.sway);
         u.storm = self.storm;
+        u.grass_shape = Vec4::new(self.clumpiness, self.carpet_depth, 0.0, 0.0);
     }
 }
 
@@ -983,6 +990,8 @@ mod tests {
             wind_speed: 5.0,
             storm: 0.3,
             sway: 1.5,
+            clumpiness: 1.2,
+            carpet_depth: 2.1,
         }
     }
 

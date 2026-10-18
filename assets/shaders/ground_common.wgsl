@@ -156,10 +156,6 @@ fn puddle_at(xz: vec2<f32>, up: f32, wet: f32) -> f32 {
 //     normal leaning toward the eye as well as up (`carpet_normal`);
 //   * the weather: a puddle drowns it, as it drowns the blades.
 
-// How much of the ground the thickest grass hides seen 45 degrees from
-// straight above, as `1 - exp(-CARPET_DEPTH)`: blades 0.42 m tall and
-// 0.06 m wide, ninety a square metre, facing every way.
-const CARPET_DEPTH: f32 = 1.5;
 // How far a blade's normal leans to the sky from facing the eye
 // (`grass.wgsl`'s `blade_point`).
 const BLADE_SKYWARD: f32 = 0.6;
@@ -191,16 +187,18 @@ const FLOWER_SHOWS: f32 = 1.8;
 // `ground_density` thick (0 to 1): thin ground grows it in clumps a metre
 // or two across, bare between, not as stalks spaced evenly over it - up to
 // 2.2 times its own density in a clump, by 0.85 of how thin the ground is
-// (`config::grass::CLUMP_PEAK` and `CLUMP_SHARE`, which the grass's tiles
+// times the world's `clumpiness` (#1702: 0 none, 1 unset), at most all of
+// it (`config::grass::CLUMP_PEAK` and `CLUMP_SHARE`, which the grass's tiles
 // bound what grows by: a test pins these literals to them).
-fn grass_density(ground_density: f32, xz: vec2<f32>) -> f32 {
+fn grass_density(ground_density: f32, xz: vec2<f32>, clumpiness: f32) -> f32 {
     let clump = 2.2 * smoothstep(0.25, 0.75, value_noise(xz * 0.6 + vec2<f32>(3.0, 29.0)));
-    return clumped(ground_density, clump);
+    return clumped(ground_density, clump, clumpiness);
 }
 
-// Grass `ground_density` thick in a clump `clump` times as thick.
-fn clumped(ground_density: f32, clump: f32) -> f32 {
-    return ground_density * mix(1.0, clump, 0.85 * (1.0 - ground_density));
+// Grass `ground_density` thick in a clump `clump` times as thick, in a world
+// `clumpiness` clumpy.
+fn clumped(ground_density: f32, clump: f32, clumpiness: f32) -> f32 {
+    return ground_density * mix(1.0, clump, min(0.85 * clumpiness, 1.0) * (1.0 - ground_density));
 }
 
 // The clumps' mean: half their peak, as the noise is even about 0.5 and the
@@ -214,22 +212,31 @@ const CLUMP_M: f32 = 1.7;
 // `facing`: its clumps while they span a few pixels, their mean once they
 // would shimmer, sub-pixel - what the ground shows of the grass reads it so,
 // and the far blades fade into ground read so.
-fn grass_density_seen(ground_density: f32, xz: vec2<f32>, distance: f32, facing: f32) -> f32 {
+fn grass_density_seen(
+    ground_density: f32,
+    xz: vec2<f32>,
+    distance: f32,
+    facing: f32,
+    clumpiness: f32,
+) -> f32 {
     let fine = fineness(CLUMP_M, distance, facing);
     var clump = CLUMP_MEAN;
     if fine < 1.0 {
         clump = mix(2.2 * smoothstep(0.25, 0.75, value_noise(xz * 0.6 + vec2<f32>(3.0, 29.0))), CLUMP_MEAN, fine);
     }
-    return clumped(ground_density, clump);
+    return clumped(ground_density, clump, clumpiness);
 }
 
 // How much of the ground grass `density` thick (0 to 1) hides from a view
 // whose cosine with the ground's normal is `facing`: at a glance its
-// density, from straight above none.
-fn carpet_cover(density: f32, facing: f32) -> f32 {
+// density, from straight above none - seen 45 degrees from straight above,
+// `1 - exp(-depth)` of it: the world's grass's `carpet_depth`
+// (`config::grass::CARPET_DEPTH` for grass as it grows unset, deeper for
+// taller or wider blades, #1702).
+fn carpet_cover(density: f32, facing: f32, depth: f32) -> f32 {
     let f = clamp(facing, 1.0e-3, 1.0);
     let slant = sqrt(1.0 - f * f) / f;
-    return density * (1.0 - exp(-CARPET_DEPTH * slant));
+    return density * (1.0 - exp(-depth * slant));
 }
 
 // The normal grass on ground of normal `ground` shows a view coming from

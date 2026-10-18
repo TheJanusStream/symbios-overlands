@@ -47,6 +47,28 @@ impl Sanitize for SovereignGrassConfig {
         self.sway = self
             .sway
             .map(|v| Fp(clamp_finite(v.0, 0.0, limits::MAX_GRASS_SWAY, 1.0)).on_wire());
+        let unset = |v: Fp, lo: f32, hi: f32, default: f32| {
+            Fp(clamp_finite(v.0, lo, hi, default)).on_wire()
+        };
+        self.height = self.height.map(|v| {
+            unset(
+                v,
+                limits::MIN_GRASS_HEIGHT,
+                limits::MAX_GRASS_HEIGHT,
+                crate::config::grass::BLADE_HEIGHT,
+            )
+        });
+        self.width = self.width.map(|v| {
+            unset(
+                v,
+                limits::MIN_GRASS_WIDTH,
+                limits::MAX_GRASS_WIDTH,
+                crate::config::grass::BLADE_WIDTH,
+            )
+        });
+        self.clumpiness = self
+            .clumpiness
+            .map(|v| unset(v, 0.0, limits::MAX_GRASS_CLUMPINESS, 1.0));
     }
 }
 
@@ -70,6 +92,9 @@ mod tests {
             layer_density: Some([Fp(-1.0), Fp(0.5), Fp(2.0), Fp(f32::INFINITY)]),
             thickness: Some(Fp(f32::NAN)),
             sway: Some(Fp(9.0)),
+            height: Some(Fp(5.0)),
+            width: Some(Fp(-1.0)),
+            clumpiness: Some(Fp(f32::NAN)),
         };
         grass.sanitize();
         assert_eq!(grass.color_base, Some(Fp3([0.0, 0.3, 0.0])));
@@ -88,6 +113,9 @@ mod tests {
             "a NaN thickness grows the grass"
         );
         assert_eq!(grass.sway, Some(Fp(limits::MAX_GRASS_SWAY)));
+        assert_eq!(grass.height, Some(Fp(limits::MAX_GRASS_HEIGHT)));
+        assert_eq!(grass.width, Some(Fp(limits::MIN_GRASS_WIDTH)));
+        assert_eq!(grass.clumpiness, Some(Fp(1.0)), "a NaN clumps as unset");
 
         let json = serde_json::to_string(&grass).expect("the group writes");
         let back: SovereignGrassConfig = serde_json::from_str(&json).expect("it reads back");
