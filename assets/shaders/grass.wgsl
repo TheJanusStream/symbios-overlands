@@ -20,8 +20,10 @@
 //      just below it grows short, so a blade crossing the line shrinks
 //      away rather than popping.
 //   4. Shapes it - height, width, its own droop, the wind's lean (harder in
-//      a storm's gust front, `storm_common.wgsl`, #1684), a body's push -
-//      and colours it: root to tip, a dry share, a flower share whose heads
+//      a storm's gust front, `storm_common.wgsl`, #1684), a body's push, its
+//      tussock's height, facing and lean (#1696), and a short near blade
+//      folded into a V, two for one (#1696) - and colours it: root to tip,
+//      a dry share, its tussock's shade, a flower share whose heads
 //      take the room's flower colours, and the ground's own tone fields
 //      (`ground_common.wgsl`): drier where the ground drifts lighter, a
 //      little taller or shorter patch by patch. Before its tile turns to
@@ -86,9 +88,12 @@ struct GrassUniforms {
 @group(#{MATERIAL_BIND_GROUP}) @binding(106) var bender_map: texture_2d<f32>;
 
 // A tile's side (m): `config::grass::TILE_M`. A larger tile's 8 m cells are
-// numbered `i + CELLS_A_ROW * j` along X and Z (`tiles::CELLS_A_ROW`).
+// numbered `i + CELLS_A_ROW * j` along X and Z (`tiles::CELLS_A_ROW`), and a
+// blade carries its cell's number plus `CELLS` times its mesh's detail
+// (`tiles::Detail::index`: 0 near).
 const TILE_M: f32 = 8.0;
 const CELLS_A_ROW: u32 = 4u;
+const CELLS: u32 = 16u;
 // A blade takes the shape of the fewer segments it is about to be drawn with
 // from this share of the way to where its tile turns to them (#1694), so a
 // tile turning changes no blade's look; a near or a middle blade's upper
@@ -105,6 +110,37 @@ const BURIED: f32 = 0.75;
 const SNOWY_TIPS: f32 = 0.85;
 // The snow on what stands out of it at the blade's foot, under its tip's.
 const SNOWY_FOOT: f32 = 0.6;
+// Tussocks (#1696, Ghost of Tsushima's clumps): blades grow in tussocks about
+// `TUSSOCK_M` across - each blade in the tussock of the nearest of points
+// jittered about a grid that far apart - each up to `TUSSOCK_HEIGHT` taller
+// or shorter than the next and a shade (`TUSSOCK_TINT`) lighter or darker,
+// its blades shorter toward its rim (by `TUSSOCK_RIM` from its middle to
+// its rim, the mean kept at `TUSSOCK_RIM_MEAN`, how far out the average
+// blade stands from its tussock's middle), facing mostly as their tussock
+// faces (`TUSSOCK_FACING` of the way) and leaning out from its middle at
+// the rim (`TUSSOCK_SPLAY` of their height). Past twice the field's full distance they fade, by three
+// times it gone - their blades too small there to tell - and none is
+// looked for. `tiles::TALLEST_BLADE` holds the tallest blade they make.
+const TUSSOCK_M: f32 = 1.6;
+const TUSSOCK_HEIGHT: f32 = 0.15;
+const TUSSOCK_TINT: f32 = 0.1;
+const TUSSOCK_RIM: f32 = 0.25;
+const TUSSOCK_RIM_MEAN: f32 = 0.43;
+const TUSSOCK_FACING: f32 = 0.65;
+const TUSSOCK_SPLAY: f32 = 0.3;
+// A short near blade folds into a V (#1696, Outerra): its strip of three
+// segments drawn as two blades from one foot - the third-way pair down at
+// the root, the first segment one arm and the other two the other, each
+// arm `FOLD_ARM` of the blade's height and leaning `FOLD_SPLAY` of the
+// arm's out to its side - so short grass, which covers the ground the
+// least, shows twice the blades for the same vertices. A blade under
+// `FOLD_SHORT` of the room's height folds - its height before the field
+// thins it never changes, so a blade is folded or not - and unfolds before
+// its tile turns to fewer segments, which no folded strip can be drawn
+// with: only a near mesh's blades fold.
+const FOLD_SHORT: f32 = 0.7;
+const FOLD_ARM: f32 = 0.8;
+const FOLD_SPLAY: f32 = 0.5;
 // The least width (m) of a blade a metre away, and in step further: about
 // a pixel and a half on a 1080-pixel-tall screen at Bevy's default 45
 // degree field of view. A blade narrower than a pixel shimmers as it sways.
@@ -282,6 +318,56 @@ fn nothing(instance_index: u32, world_from_local: mat4x4<f32>, root: vec3<f32>) 
     return out;
 }
 
+// Two numbers in [0, 1) for `p`: David Hoskins' sine-free hash.
+fn hash22(p: vec2<f32>) -> vec2<f32> {
+    var p3 = fract(vec3<f32>(p.x, p.y, p.x) * vec3<f32>(0.1031, 0.1030, 0.0973));
+    p3 = p3 + dot(p3, p3.yzx + 33.33);
+    return fract((p3.xx + p3.yz) * p3.zy);
+}
+
+// The tussock a blade at world `xz` grows in, seen from `distance` metres:
+// the way from its middle out to the blade (level, unit), how far out
+// (`TUSSOCK_M`s, 0 in the middle), its own numbers in [0, 1) - two for its
+// height and facing, one for its shade - and how much of it shows: none
+// past three times the field's full distance, where nothing is looked for
+// and the blade grows plain.
+struct Tussock {
+    outward: vec2<f32>,
+    rim: f32,
+    own: vec2<f32>,
+    shade: f32,
+    shows: f32,
+};
+
+fn grass_tussock(xz: vec2<f32>, distance: f32) -> Tussock {
+    let shows = 1.0 - smoothstep(2.0 * grass.reach.x, 3.0 * grass.reach.x, distance);
+    if shows <= 0.0 {
+        return Tussock(vec2<f32>(1.0, 0.0), TUSSOCK_RIM_MEAN, vec2<f32>(0.5), 0.5, 0.0);
+    }
+    let cell = floor(xz / TUSSOCK_M);
+    var nearest = 1.0e9;
+    var middle = xz;
+    for (var j = -1; j <= 1; j = j + 1) {
+        for (var i = -1; i <= 1; i = i + 1) {
+            let c = cell + vec2<f32>(f32(i), f32(j));
+            let point = (c + hash22(c)) * TUSSOCK_M;
+            let d = dot(xz - point, xz - point);
+            if d < nearest {
+                nearest = d;
+                middle = point;
+            }
+        }
+    }
+    let far = sqrt(nearest);
+    return Tussock(
+        (xz - middle) / max(far, 1.0e-3),
+        far / TUSSOCK_M,
+        hash22(middle * 0.731 + vec2<f32>(17.0, 3.0)),
+        hash21(middle * 1.37 + vec2<f32>(5.1, 11.7)),
+        shows,
+    );
+}
+
 // A tile's layout turned and mirrored one of eight ways.
 fn tile_layout(at: vec2<f32>, which: u32) -> vec2<f32> {
     var p = at;
@@ -304,7 +390,9 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     let world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
     // The blade's 8 m cell, whose corner turns its layout as an 8 m tile's
     // would: a larger tile is its cells side by side (#1694).
-    let in_tile = u32(vertex.blade.w + 0.5);
+    let packed = u32(vertex.blade.w + 0.5);
+    let in_tile = packed % CELLS;
+    let near_mesh = packed / CELLS == 0u;
     let corner = world_from_local[3].xz
         + vec2<f32>(f32(in_tile % CELLS_A_ROW), f32(in_tile / CELLS_A_ROW)) * TILE_M;
     let which = u32(hash21(floor(corner / TILE_M + 0.5) + 0.37) * 8.0) & 7u;
@@ -390,8 +478,15 @@ fn vertex(vertex: Vertex) -> VertexOutput {
         puddle = puddle_at(at, ground_normal.y, wet);
     }
 
-    var height = grass.base.w * (0.55 + 0.9 * r1) * mix(0.7, 1.25, stand) * mix(0.55, 1.0, density)
-        * grow * fade * (1.0 - BURIED * settled) * (1.0 - puddle);
+    // Its tussock (#1696): a little taller or shorter than the next, its
+    // blades shorter toward its rim.
+    let tussock = grass_tussock(at, distance);
+    let tussock_height = 1.0 + tussock.shows
+        * ((1.0 + TUSSOCK_HEIGHT * (2.0 * tussock.own.x - 1.0))
+            * (1.0 + TUSSOCK_RIM * (TUSSOCK_RIM_MEAN - tussock.rim)) - 1.0);
+    // How tall it grows before the field thins it or the weather buries it.
+    let natural = (0.55 + 0.9 * r1) * mix(0.7, 1.25, stand) * mix(0.55, 1.0, density) * tussock_height;
+    var height = grass.base.w * natural * grow * fade * (1.0 - BURIED * settled) * (1.0 - puddle);
     if flower {
         height = height * 1.15;
     }
@@ -405,6 +500,13 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     // camera further out, so no distant blade is seen edge-on as a line.
     let angle = r1 * 6.2831853 + r4 * 2.0;
     var across = vec3<f32>(cos(angle), 0.0, sin(angle));
+    // Mostly as its tussock faces (a blade faces either way alike).
+    let tussock_angle = tussock.own.y * 6.2831853;
+    var tussock_across = vec3<f32>(cos(tussock_angle), 0.0, sin(tussock_angle));
+    tussock_across = tussock_across * select(1.0, -1.0, dot(tussock_across, across) < 0.0);
+    across = normalize(
+        mix(across, tussock_across, TUSSOCK_FACING * tussock.shows) + vec3<f32>(1.0e-4, 0.0, 0.0),
+    );
     let to_eye = normalize(vec3<f32>(eye.x - root.x, 0.0, eye.z - root.z) + vec3<f32>(1.0e-4, 0.0, 0.0));
     let facing_eye = vec3<f32>(-to_eye.z, 0.0, to_eye.x);
     across = across * select(1.0, -1.0, dot(across, facing_eye) < 0.0);
@@ -423,6 +525,9 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     let front = grass.shares.w * storm_gust(at, wind_dir, t);
     let lean = grass.wind.w * grass_lean(gust + flutter, front, grass.wind.z);
     bend = bend + vec3<f32>(wind_dir.x, 0.0, wind_dir.y) * lean * (height / grass.base.w);
+    // Out from its tussock's middle, the more the nearer its rim.
+    bend = bend + vec3<f32>(tussock.outward.x, 0.0, tussock.outward.y)
+        * (TUSSOCK_SPLAY * tussock.shows * smoothstep(0.0, 0.7, tussock.rim) * height);
     var flatten = 0.0;
     for (var i = 0; i < i32(textureDimensions(bender_map).x); i = i + 1) {
         let body = textureLoad(bender_map, vec2<i32>(i, 0), 0);
@@ -481,7 +586,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
         normalize(mix(ground_normal, carpet_normal(to_eye, ground_normal, wet), carpet * (1.0 - settled))),
         select(0.0, 1.0, r4 < grass.dry.w),
         drift,
-        0.82 + 0.36 * r1,
+        (0.82 + 0.36 * r1) * (1.0 + TUSSOCK_TINT * tussock.shows * (2.0 * tussock.shade - 1.0)),
         density,
         grass.flowers[min(u32(r2 * flower_count), 3u)].rgb,
         wet,
@@ -511,6 +616,30 @@ fn vertex(vertex: Vertex) -> VertexOutput {
                 point = upper;
             }
         }
+    }
+
+    // A short near blade folds into a V (`FOLD_SHORT`): two arms from its
+    // root, each a blade of its own - the first segment one arm (its root
+    // pair the arm's tip), the rest the other - and unfolds over the way its
+    // tile turns to fewer segments. It folds in two halves, so a rung always
+    // stands on the ground: first the third-way pair comes down to the root
+    // as the rest takes the second arm's shape, the first segment shrinking
+    // to nothing at the root; then the root pair rises into the first arm's
+    // tip. No flower folds.
+    let fold = select(0.0, 1.0, near_mesh && natural < FOLD_SHORT && !flower)
+        * (1.0 - smoothstep(MORPH_FROM * grass.reach.y, grass.reach.y, distance));
+    if fold > 0.0 {
+        let second = up > 0.3;
+        let along = select(1.0 - 3.0 * up, (up - 1.0 / 3.0) * 1.5, second);
+        var arm = blade;
+        let arm_height = height * FOLD_ARM;
+        let splay = blade.across * select(-1.0, 1.0, second) * FOLD_SPLAY * arm_height;
+        let arm_bend = blade.bend * FOLD_ARM + splay;
+        arm.bend = arm_bend * min(1.0, 0.9 * arm_height / max(length(arm_bend), 1.0e-5));
+        arm.tip_y = sqrt(max(arm_height * arm_height - dot(arm.bend, arm.bend), 0.0)) * (1.0 - 0.5 * flatten);
+        let lowered = saturate(2.0 * fold);
+        let raised = saturate(2.0 * fold - 1.0);
+        point = between(point, blade_point(arm, along, side), select(lowered, raised, up < 0.1));
     }
 
     out.world_position = vec4<f32>(point.position, 1.0);

@@ -205,8 +205,10 @@ pub struct TileKey {
 pub const MAX_LEVEL: u32 = 2;
 
 /// The 8 m cells along a side of the largest tile, by which `grass.wgsl`
-/// numbers a tile's cells ([`tile_mesh`]).
+/// numbers a tile's cells ([`tile_mesh`]), and the cells it holds: a
+/// blade's number is its cell's plus `CELLS` times its mesh's detail.
 pub const CELLS_A_ROW: u32 = 1 << MAX_LEVEL;
+pub const CELLS: u32 = CELLS_A_ROW * CELLS_A_ROW;
 
 impl TileKey {
     /// The 8 m tile at `coord`.
@@ -357,11 +359,12 @@ pub fn blades_below(blades: usize, share: f32) -> usize {
 /// * `POSITION`: where the blade stands in its 8 m cell (m) on X and Z, and
 ///   how far up the blade the vertex is on Y, 0 to 1.
 /// * `COLOR`: which edge (-1 left, 1 right, 0 the tip), the blade's rank
-///   in `[0, 1)`, its seed, and which of the tile's 8 m cells it stands in:
+///   in `[0, 1)`, its seed, and which of the tile's 8 m cells it stands in,
 ///   `i + CELLS_A_ROW * j` for the cell `i` along X and `j` along Z
-///   ([`CELLS_A_ROW`]). The shader writes the colour itself; the attribute
-///   is there for its data, and so that Bevy's PBR fragment reads the
-///   colour the shader writes.
+///   ([`CELLS_A_ROW`]), plus [`CELLS`] times the detail's [`Detail::index`],
+///   as only a near blade folds (`grass.wgsl`, #1696). The shader writes the
+///   colour itself; the attribute is there for its data, and so that Bevy's
+///   PBR fragment reads the colour the shader writes.
 pub fn tile_mesh(roots: &[Vec2], detail: Detail, share: f32, level: u32) -> Mesh {
     let blades = roots.len();
     let count = blades_below(blades, share);
@@ -375,7 +378,7 @@ pub fn tile_mesh(roots: &[Vec2], detail: Detail, share: f32, level: u32) -> Mesh
     // A larger tile's 8 m cells one after another, each in rank order.
     for j in 0..n {
         for i in 0..n {
-            let cell = (i + CELLS_A_ROW * j) as f32;
+            let cell = (i + CELLS_A_ROW * j + CELLS * detail.index() as u32) as f32;
             for (b, root) in roots.iter().take(count).enumerate() {
                 let at = *root * cfg::TILE_M;
                 let rank = (b as f32 + 0.5) / blades as f32;
@@ -431,15 +434,24 @@ pub fn tile_heights(hm: &HeightMap, key: TileKey) -> (f32, f32) {
 }
 
 /// How tall a blade can stand (m), in any room: the shader's tallest -
-/// its own variation (1.45), a tall patch (1.25) and a flower's stalk
-/// (1.15) on a dry room's blades, [`cfg::BLADE_HEIGHT`] and four tenths
-/// more - and a little over. Mirrors `grass.wgsl`'s `height`.
-pub const TALLEST_BLADE: f32 = cfg::BLADE_HEIGHT * 1.4 * 1.45 * 1.25 * 1.15 + 0.05;
+/// its own variation (1.45), a tall patch (1.25), the tallest middle of a
+/// tussock ([`TUSSOCK_TALLEST`]) and a flower's stalk (1.15) on a dry
+/// room's blades, [`cfg::BLADE_HEIGHT`] and four tenths more - and a little
+/// over. Mirrors `grass.wgsl`'s `height`.
+pub const TALLEST_BLADE: f32 =
+    cfg::BLADE_HEIGHT * 1.4 * 1.45 * 1.25 * TUSSOCK_TALLEST * 1.15 + 0.05;
+
+/// The most a tussock lifts a blade (#1696): `grass.wgsl`'s
+/// `(1 + TUSSOCK_HEIGHT) (1 + TUSSOCK_RIM TUSSOCK_RIM_MEAN)` at its middle,
+/// rounded up - a test reads the shader's constants.
+pub const TUSSOCK_TALLEST: f32 = 1.28;
 
 /// The widest a blade's `width` is (m), at any quality: the shader widens a
 /// blade as the field thins, by the inverse square root of the share it
-/// keeps, and the field is thinnest at its reach - at High, a blade there
-/// up to `1.3 * BLADE_WIDTH / sqrt(thinning(128 m))`, 0.64 m (#1694). A
+/// keeps, from the field's own blade width ([`cfg::Field::blade_width`],
+/// wider for a thinner quality, #1696), and the field is thinnest at its
+/// reach - at High, a blade there up to
+/// `1.3 * BLADE_WIDTH / sqrt(thinning(128 m))`, 0.64 m (#1694). A
 /// flower's head is drawn 1.3 times it across ([`WIDEST_LEAN`] holds it).
 /// A test holds it over every quality's widest. Mirrors `grass.wgsl`'s
 /// width.
@@ -559,8 +571,11 @@ mod tests {
         assert_eq!(ups(&far, 3), [0.0, 0.0, 1.0]);
         assert_eq!(Detail::Mid.rungs()[1], Detail::Near.rungs()[2]);
         // An 8 m tile is all cell 0; a 16 m one four cells of the 8 m one's
-        // blades, numbered across rows of `CELLS_A_ROW`.
-        assert!(column(&far, 3).iter().all(|&c| c == 0.0));
+        // blades, numbered across rows of `CELLS_A_ROW` - each number plus
+        // `CELLS` times the mesh's detail.
+        let far_detail = (CELLS * Detail::Far.index() as u32) as f32;
+        assert!(column(&far, 3).iter().all(|&c| c == far_detail));
+        assert!(column(&near, 3).iter().all(|&c| c == 0.0));
         let large = tile_mesh(&roots, Detail::Far, Detail::Far.share(), 1);
         assert_eq!(large.count_vertices(), 4 * far.count_vertices());
         assert_eq!(large.indices().map(|i| i.len()), Some(4 * 15 * 3));
@@ -569,6 +584,7 @@ mod tests {
         let at = positions(&far);
         let large_at = positions(&large);
         for (k, cell) in [0.0, 1.0, CELLS_A_ROW as f32, CELLS_A_ROW as f32 + 1.0]
+            .map(|cell| cell + far_detail)
             .into_iter()
             .enumerate()
         {
@@ -757,9 +773,43 @@ mod tests {
             assert!(wgsl.contains(line), "grass.wgsl's width moved: {line}");
         }
         for field in [cfg::LOW, cfg::MEDIUM, cfg::HIGH] {
+            // A thinner field's blades start wider (`grass::uniforms`).
+            let width = field.blade_width();
             let thinnest = thinning(field.reach, &field).max(1.0e-3);
-            let widest = (1.3 * cfg::BLADE_WIDTH / thinnest.sqrt()).max(field.reach * 0.0012);
+            let widest = (1.3 * width / thinnest.sqrt()).max(field.reach * 0.0012);
             assert!(widest <= WIDEST_BLADE, "{field:?}: {widest} m");
+        }
+    }
+
+    /// The tallest blade bounds what tussocks make (#1696): the shader's
+    /// tussock constants, read here, lift a blade at a tussock's middle no
+    /// more than [`TUSSOCK_TALLEST`], which is not loose; a folded blade's
+    /// arms are shorter than it; and only a near mesh's blades fold (its
+    /// detail in the blade's number, `tile_mesh`), unfolding over the band
+    /// before a tile turns to fewer segments.
+    #[test]
+    fn tussocks_and_folds_stay_inside_the_bounds() {
+        let wgsl = include_str!("../../assets/shaders/grass.wgsl");
+        let constant = |name: &str| -> f32 {
+            let head = format!("const {name}: f32 = ");
+            wgsl.lines()
+                .find_map(|l| l.strip_prefix(head.as_str()))
+                .and_then(|v| v.trim_end_matches(';').parse().ok())
+                .unwrap_or_else(|| panic!("grass.wgsl's {name}"))
+        };
+        let tallest = (1.0 + constant("TUSSOCK_HEIGHT"))
+            * (1.0 + constant("TUSSOCK_RIM") * constant("TUSSOCK_RIM_MEAN"));
+        assert!(tallest <= TUSSOCK_TALLEST, "{tallest}");
+        assert!(TUSSOCK_TALLEST - tallest < 0.01, "{tallest} is loose");
+        assert!(constant("FOLD_ARM") <= 1.0);
+        for line in [
+            "* ((1.0 + TUSSOCK_HEIGHT * (2.0 * tussock.own.x - 1.0))",
+            "* (1.0 + TUSSOCK_RIM * (TUSSOCK_RIM_MEAN - tussock.rim)) - 1.0);",
+            "* (1.0 - smoothstep(MORPH_FROM * grass.reach.y, grass.reach.y, distance));",
+            "let arm_height = height * FOLD_ARM;",
+            "select(0.0, 1.0, near_mesh && natural < FOLD_SHORT && !flower)",
+        ] {
+            assert!(wgsl.contains(line), "grass.wgsl moved: {line}");
         }
     }
 
@@ -779,6 +829,9 @@ mod tests {
         for line in [
             "const UPPER_RUNG: f32 = 2.0 / 3.0;".to_string(),
             format!("const CELLS_A_ROW: u32 = {CELLS_A_ROW}u;"),
+            format!("const CELLS: u32 = {CELLS}u;"),
+            "let in_tile = packed % CELLS;".to_string(),
+            "let near_mesh = packed / CELLS == 0u;".to_string(),
             "vec2<f32>(f32(in_tile % CELLS_A_ROW), f32(in_tile / CELLS_A_ROW)) * TILE_M;"
                 .to_string(),
             "point = between(point, between(foot, upper, 0.5), to_mid);".to_string(),

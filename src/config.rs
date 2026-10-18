@@ -1413,17 +1413,28 @@ pub(crate) mod grass {
     /// One quality setting's field: how far it reaches (m), the share of
     /// [`BLADES_PER_M2`] its tiles carry, and how far (m) it keeps every
     /// blade before it thins - past the player at the game camera's 12 m,
-    /// except at Low.
+    /// except at Low, which keeps five in six of them there (#1696). A
+    /// thinner field's blades are wider ([`Field::blade_width`]).
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Field {
         pub reach: f32,
         pub density: f32,
         pub full: f32,
     }
+    impl Field {
+        /// Its blades' width at the root (m): [`BLADE_WIDTH`], wider by the
+        /// inverse square root of the field's share (#1696), so a thinner
+        /// field covers the ground as the square root of its share - as a
+        /// far field's blades widen by its thinning (`grass.wgsl`).
+        pub fn blade_width(&self) -> f32 {
+            BLADE_WIDTH / self.density.sqrt()
+        }
+    }
+
     pub const LOW: Field = Field {
         reach: 48.0,
-        density: 0.45,
-        full: 8.0,
+        density: 0.5,
+        full: 10.0,
     };
     pub const MEDIUM: Field = Field {
         reach: 80.0,

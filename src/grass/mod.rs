@@ -9,6 +9,12 @@
 //!   does (#1676): drier where the ground's tone drifts lighter, taller
 //!   where it is darker patch by patch - one pair of fields, in
 //!   `assets/shaders/ground_common.wgsl`, read by both shaders.
+//! * **How it grows**: in tussocks a pace or two across (#1696) - each a
+//!   little taller or shorter and a shade lighter or darker than the next,
+//!   its blades facing mostly one way and leaning out from its middle - and
+//!   a short blade close by is drawn folded into a V, two blades for the
+//!   same vertices (`grass.wgsl`). A lower quality grows fewer blades, each
+//!   wider by the inverse square root of its share, as a far field's are.
 //! * **Where it grows** is the ground under it, read on the GPU from
 //!   [`GroundCover`]: blades stand on the drawn ground, grow as thickly as
 //!   the splat layers there allow, and not at all under a building, a road
@@ -465,7 +471,7 @@ fn uniforms(
     }
     GrassUniforms {
         base: Vec3::from_array(profile.base).extend(profile.height),
-        tip: Vec3::from_array(profile.tip).extend(cfg::BLADE_WIDTH),
+        tip: Vec3::from_array(profile.tip).extend(field.blade_width()),
         dry: Vec3::from_array(profile.dry).extend(profile.dry_share),
         flowers,
         layer_density: Vec4::from_array(profile.layer_density),
