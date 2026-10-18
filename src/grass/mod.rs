@@ -18,9 +18,14 @@
 //!   prefix of the same blades - the fewest that hold what can grow in it,
 //!   so a far tile or one on thin ground draws few, and none is laid where
 //!   nothing can grow (#1693) - with fewer segments a blade the further it
-//!   is ([`tiles`]). A tile the ground hides from the camera, behind a
-//!   hill, is laid hidden ([`horizon`]). The vertex shader does the rest
-//!   ([`material`]), and a blade it does not grow leaves it at once.
+//!   is ([`tiles`]). Past a few tens of metres the field thins as the
+//!   square of the distance, as many blades a patch of screen however far
+//!   it lies, which is what lets it reach 128 m; out there it is laid in
+//!   16 and 32 m tiles, and each blade takes the shape of fewer segments
+//!   before its tile draws them (#1694). A tile the ground hides from the
+//!   camera, behind a hill, is laid hidden ([`horizon`]). The vertex shader
+//!   does the rest ([`material`]), and a blade it does not grow leaves it at
+//!   once.
 //! * **What moves it**: the room's wind (the vegetation wind the cards
 //!   sway in) and a storm's gust fronts over it (#1684,
 //!   `storm_common.wgsl`), and the bodies nearest the camera, which part
@@ -65,7 +70,7 @@ use crate::wind::VegetationWind;
 
 use material::{GrassExtension, GrassMaterial, GrassUniforms};
 use profile::{GrassProfile, grass_profile};
-use tiles::Detail;
+use tiles::{Detail, TileKey};
 
 /// How much grass is drawn (#1675): a per-account setting,
 /// [`LocalSettings::grass_quality`], which holds one only once it is
@@ -141,17 +146,17 @@ pub struct GrassField {
     /// which every mesh is cut from, and how many.
     roots: Vec<Vec2>,
     blades: usize,
-    /// The meshes made so far, by detail and step of [`tiles::SHARES`], and
-    /// the vertices each holds (#1693).
-    meshes: HashMap<(Detail, usize), (Handle<Mesh>, usize)>,
-    /// The tiles standing, by grid coordinate.
-    tiles: HashMap<IVec2, Entity>,
+    /// The meshes made so far, by detail, step of [`tiles::SHARES`] and
+    /// tile size, and the vertices each holds (#1693, #1694).
+    meshes: HashMap<(Detail, usize, u32), (Handle<Mesh>, usize)>,
+    /// The tiles standing, by where they lie.
+    tiles: HashMap<TileKey, Entity>,
     /// Each tile's lowest and highest ground, read from the heightmap the
     /// tiles stand on.
-    heights: HashMap<IVec2, (f32, f32)>,
+    heights: HashMap<TileKey, (f32, f32)>,
     /// The most the shader can grow in each tile ([`tiles::most_density`]),
     /// for the ground and grass `densities_of` names (#1693).
-    densities: HashMap<IVec2, f32>,
+    densities: HashMap<TileKey, f32>,
     densities_of: Option<DensitiesOf>,
     /// The ground's lowest heights, for the horizon test, and the change of
     /// the heightmap they were read from (#1693): kept while the field is
@@ -161,7 +166,7 @@ pub struct GrassField {
     /// stood then: a seen tile is looked at again only once the camera has
     /// moved [`cfg::HORIZON_RETEST`] (a tile left drawn a moment longer than
     /// it is seen costs only that), a hidden one every frame (#1693).
-    seen_from: HashMap<IVec2, Vec3>,
+    seen_from: HashMap<TileKey, Vec3>,
 }
 
 /// What a tile's most density was read from: the cover's redraw, the
@@ -208,11 +213,12 @@ pub struct GrassViewer;
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct PartsGrass;
 
-/// A tile of the field, at `coord` on the grid, drawing its mesh at
-/// `detail` holding the blades ranked below `tiles::SHARES[share]`.
+/// A tile of the field, where `key` lays it, drawing its mesh at `detail`
+/// holding the blades ranked below `tiles::SHARES[share]` in each of its
+/// 8 m cells.
 #[derive(Component, Debug)]
 pub struct GrassTile {
-    pub coord: IVec2,
+    pub key: TileKey,
     pub detail: Detail,
     pub share: usize,
 }
@@ -275,7 +281,7 @@ fn count_grass_drawn(
             now.tiles[tile.detail.index()] += 1;
             now.vertices += field
                 .meshes
-                .get(&(tile.detail, tile.share))
+                .get(&(tile.detail, tile.share, tile.key.level))
                 .map_or(0, |&(_, vertices)| vertices as u64);
         }
     }
@@ -539,12 +545,15 @@ fn through_perspective(projection: Option<&Projection>) -> bool {
     matches!(projection, None | Some(Projection::Perspective(_)))
 }
 
-/// Lay the field's tiles around the camera: every grid square within the
-/// quality setting's reach that lies on the ground and can grow grass, each
-/// at the detail its distance needs, holding the fewest blades that hold
-/// what the shader can grow in it, and hidden while the ground stands
-/// between it and the camera (#1693) - and none while the field has no
-/// material. A [`GrassViewer`] is laid for too: each tile holds what the
+/// Lay the field's tiles around the camera: every stretch of ground within
+/// the quality setting's reach that can grow grass, each at the detail its
+/// distance needs, holding the fewest blades that hold what the shader can
+/// grow in it, and hidden while the ground stands between it and the camera
+/// (#1693) - and none while the field has no material. Far off, in larger
+/// tiles (#1694): a 32 m block wholly on the ground and wholly past
+/// [`cfg::LARGE_AT`]'s second distance is one tile, a 16 m quarter past
+/// its first another, and the rest 8 m ones, so each 8 m cell is laid
+/// once. A [`GrassViewer`] is laid for too: each tile holds what the
 /// nearest camera needs, and is hidden only from them all.
 #[allow(clippy::too_many_arguments)]
 fn lay_grass_tiles(
@@ -611,112 +620,133 @@ fn lay_grass_tiles(
             .iter()
             .map(|(at, projection)| (at.translation(), through_perspective(projection))),
     );
-    let span = (grown.reach / cfg::TILE_M).ceil() as i32 + 1;
-    let centre = tiles::tile_of(Vec2::new(eye.x, eye.z));
+    // Where the larger tiles begin, by size.
+    let far = cfg::FAR_AT * grown.full;
+    let large_from = cfg::LARGE_AT.map(|at| at * far);
+    let block = cfg::TILE_M * tiles::CELLS_A_ROW as f32;
+    let span = (grown.reach / block).ceil() as i32 + 1;
+    let centre = (Vec2::new(eye.x, eye.z) / block).floor().as_ivec2();
     let edge = ground.frame.half;
-    let mut wanted: HashMap<IVec2, Laid> = HashMap::new();
+    let mut wanted: HashMap<TileKey, Laid> = HashMap::new();
+    let mut quarters: Vec<TileKey> = Vec::new();
     for dz in -span..=span {
         for dx in -span..=span {
-            let coord = centre + IVec2::new(dx, dz);
-            let lo = coord.as_vec2() * cfg::TILE_M;
-            if lo.x >= edge
-                || lo.y >= edge
-                || lo.x + cfg::TILE_M <= -edge
-                || lo.y + cfg::TILE_M <= -edge
-            {
-                continue;
-            }
-            let heights = *field
-                .heights
-                .entry(coord)
-                .or_insert_with(|| tiles::tile_heights(hm, coord));
-            let nearest = eyes
-                .iter()
-                .map(|&(at, _)| tiles::nearest(at, coord, heights.1))
-                .fold(f32::INFINITY, f32::min);
-            if nearest >= grown.reach {
-                continue;
-            }
-            let most = *field
-                .densities
-                .entry(coord)
-                .or_insert_with(|| tile_density(&ground, field.profile.as_ref(), coord));
-            // Never more than the detail's whole share, as its mesh held
-            // before: thin ground's clumps can lift the most a hair over it,
-            // by blades that would grow to nothing.
-            let detail = Detail::at(nearest, &grown);
-            let need = (most * tiles::thinning(nearest, &grown)).min(detail.share());
-            let Some(fewest) = tiles::share_for(need) else {
-                continue;
-            };
-            // A tile whose share still holds what it needs keeps it until it
-            // needs well under the next one down: one standing on the line
-            // does not swap its mesh every frame. One that needs more takes
-            // it at once.
-            let held = field
-                .tiles
-                .get(&coord)
-                .and_then(|&entity| tiles.get(entity).ok())
-                .map(|(tile, _, _)| (tile.detail, tile.share));
-            let share = match held {
-                Some((held_detail, held))
-                    if held_detail == detail
-                        && held < fewest
-                        && need > cfg::SHARE_HYSTERESIS * tiles::SHARES[held + 1] =>
-                {
-                    held
+            quarters.push(TileKey {
+                level: tiles::MAX_LEVEL,
+                coord: centre + IVec2::new(dx, dz),
+            });
+            while let Some(key) = quarters.pop() {
+                let (lo, side) = (key.lo(), key.side());
+                if lo.x >= edge || lo.y >= edge || lo.x + side <= -edge || lo.y + side <= -edge {
+                    continue;
                 }
-                _ => fewest,
-            };
-            // Hidden only from every eye, and only from one the test can
-            // hide grass from. With the world camera alone, a tile found seen
-            // is looked at again once it has moved.
-            let hidden = if let &[(at, perspective)] = eyes.as_slice() {
-                if !perspective
-                    || field
-                        .seen_from
-                        .get(&coord)
-                        .is_some_and(|from| from.distance(at) < cfg::HORIZON_RETEST)
-                {
-                    false
-                } else if floor.hides(hm, at, coord, heights) {
-                    field.seen_from.remove(&coord);
-                    true
+                let heights = *field
+                    .heights
+                    .entry(key)
+                    .or_insert_with(|| tiles::tile_heights(hm, key));
+                let nearest = eyes
+                    .iter()
+                    .map(|&(at, _)| tiles::nearest(at, key, heights.1))
+                    .fold(f32::INFINITY, f32::min);
+                if nearest >= grown.reach {
+                    continue;
+                }
+                // A larger tile only wholly on the ground and wholly past
+                // where its size begins; otherwise its quarters.
+                if key.level > 0 {
+                    let on_ground = lo.x >= -edge
+                        && lo.y >= -edge
+                        && lo.x + side <= edge
+                        && lo.y + side <= edge;
+                    if !on_ground || nearest < large_from[key.level as usize - 1] {
+                        quarters.extend(key.quarters());
+                        continue;
+                    }
+                }
+                let most = *field
+                    .densities
+                    .entry(key)
+                    .or_insert_with(|| tile_density(&ground, field.profile.as_ref(), key));
+                // Never more than the detail's whole share, as its mesh held
+                // before: thin ground's clumps can lift the most a hair over
+                // it, by blades that would grow to nothing.
+                let detail = Detail::at(nearest, &grown);
+                let need = (most * tiles::thinning(nearest, &grown)).min(detail.share());
+                let Some(fewest) = tiles::share_for(need) else {
+                    continue;
+                };
+                // A tile whose share still holds what it needs keeps it until
+                // it needs well under the next one down: one standing on the
+                // line does not swap its mesh every frame. One that needs more
+                // takes it at once.
+                let held = field
+                    .tiles
+                    .get(&key)
+                    .and_then(|&entity| tiles.get(entity).ok())
+                    .map(|(tile, _, _)| (tile.detail, tile.share));
+                let share = match held {
+                    Some((held_detail, held))
+                        if held_detail == detail
+                            && held < fewest
+                            && need > cfg::SHARE_HYSTERESIS * tiles::SHARES[held + 1] =>
+                    {
+                        held
+                    }
+                    _ => fewest,
+                };
+                // Hidden only from every eye, and only from one the test can
+                // hide grass from. With the world camera alone, a tile found
+                // seen is looked at again once it has moved.
+                let hidden = if let &[(at, perspective)] = eyes.as_slice() {
+                    if !perspective
+                        || field
+                            .seen_from
+                            .get(&key)
+                            .is_some_and(|from| from.distance(at) < cfg::HORIZON_RETEST)
+                    {
+                        false
+                    } else if floor.hides(hm, at, key, heights) {
+                        field.seen_from.remove(&key);
+                        true
+                    } else {
+                        field.seen_from.insert(key, at);
+                        false
+                    }
                 } else {
-                    field.seen_from.insert(coord, at);
-                    false
-                }
-            } else {
-                eyes.iter()
-                    .all(|&(at, perspective)| perspective && floor.hides(hm, at, coord, heights))
-            };
-            wanted.insert(
-                coord,
-                Laid {
-                    detail,
-                    share,
-                    hidden,
-                },
-            );
+                    eyes.iter()
+                        .all(|&(at, perspective)| perspective && floor.hides(hm, at, key, heights))
+                };
+                wanted.insert(
+                    key,
+                    Laid {
+                        detail,
+                        share,
+                        hidden,
+                    },
+                );
+            }
         }
     }
 
-    field
-        .seen_from
-        .retain(|coord, _| wanted.contains_key(coord));
-    field.tiles.retain(|coord, entity| {
-        let keep = wanted.contains_key(coord);
+    field.seen_from.retain(|key, _| wanted.contains_key(key));
+    field.tiles.retain(|key, entity| {
+        let keep = wanted.contains_key(key);
         if !keep {
             commands.entity(*entity).try_despawn();
         }
         keep
     });
-    for (coord, laid) in wanted {
+    for (key, laid) in wanted {
         let mesh = field
             .meshes
-            .entry((laid.detail, laid.share))
+            .entry((laid.detail, laid.share, key.level))
             .or_insert_with(|| {
-                let mesh = tiles::tile_mesh(&field.roots, laid.detail, tiles::SHARES[laid.share]);
+                let mesh = tiles::tile_mesh(
+                    &field.roots,
+                    laid.detail,
+                    tiles::SHARES[laid.share],
+                    key.level,
+                );
                 let vertices = mesh.count_vertices();
                 (meshes.add(mesh), vertices)
             })
@@ -727,7 +757,7 @@ fn lay_grass_tiles(
         } else {
             Visibility::Inherited
         };
-        if let Some(&entity) = field.tiles.get(&coord) {
+        if let Some(&entity) = field.tiles.get(&key) {
             if let Ok((mut tile, mut drawn, mut seen)) = tiles.get_mut(entity) {
                 if tile.detail != laid.detail || tile.share != laid.share {
                     tile.detail = laid.detail;
@@ -738,12 +768,8 @@ fn lay_grass_tiles(
             }
             continue;
         }
-        let heights = field.heights[&coord];
-        let corner = Transform::from_translation(Vec3::new(
-            coord.x as f32 * cfg::TILE_M,
-            0.0,
-            coord.y as f32 * cfg::TILE_M,
-        ));
+        let heights = field.heights[&key];
+        let corner = Transform::from_translation(key.lo().extend(0.0).xzy());
         // Its `GlobalTransform` too: this runs after transforms propagate,
         // and a tile left at the default would draw at the origin for its
         // first frame.
@@ -751,7 +777,7 @@ fn lay_grass_tiles(
             .spawn((
                 Name::new("Grass tile"),
                 GrassTile {
-                    coord,
+                    key,
                     detail: laid.detail,
                     share: laid.share,
                 },
@@ -760,28 +786,31 @@ fn lay_grass_tiles(
                 corner,
                 GlobalTransform::from(corner),
                 visibility,
-                tiles::tile_aabb(heights),
+                tiles::tile_aabb(heights, key.side()),
                 NoAutoAabb,
                 // The material draws into no shadow map (`material.rs`):
                 // this keeps the lights' culling from testing the tiles too.
                 NotShadowCaster,
             ))
             .id();
-        field.tiles.insert(coord, entity);
+        field.tiles.insert(key, entity);
     }
 }
 
-/// The most the shader can grow anywhere in tile `coord` (#1693): the most
-/// share of each layer its ground's weights reach, by how thickly the room's
-/// grass grows on each, under its most open cover. Before the ground's
-/// weights have baked, as though every layer covered it all.
-fn tile_density(ground: &GroundCover, profile: Option<&GrassProfile>, coord: IVec2) -> f32 {
-    let lo = coord.as_vec2() * cfg::TILE_M;
-    let cover = ground.mask.most_open_in(lo, lo + Vec2::splat(cfg::TILE_M));
-    let shares = ground
-        .maxima
-        .as_ref()
-        .map_or([1.0; 4], |maxima| maxima.in_tile(coord));
+/// The most the shader can grow anywhere in tile `key` (#1693): the most
+/// share of each layer its ground's weights reach in any of its 8 m cells,
+/// by how thickly the room's grass grows on each, under its most open
+/// cover. Before the ground's weights have baked, as though every layer
+/// covered it all.
+fn tile_density(ground: &GroundCover, profile: Option<&GrassProfile>, key: TileKey) -> f32 {
+    let lo = key.lo();
+    let cover = ground.mask.most_open_in(lo, lo + Vec2::splat(key.side()));
+    let shares = ground.maxima.as_ref().map_or([1.0; 4], |maxima| {
+        key.cells().fold([0.0f32; 4], |most, cell| {
+            let shares = maxima.in_tile(cell);
+            std::array::from_fn(|layer| most[layer].max(shares[layer]))
+        })
+    });
     let layers = profile.map_or([1.0; 4], |p| p.layer_density);
     tiles::most_density(shares, layers, cover)
 }

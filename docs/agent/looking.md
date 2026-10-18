@@ -74,10 +74,10 @@ experiments:
   the ground-cover draw distance (#1480): ferns, grass, moss and reeds more
   than 150 m from the camera are not drawn. Judge ground cover from where
   people stand (views.py), never from a far aerial shot. The grass field
-  (#1675) is drawn at the desktop setting, 64 m around the camera;
-  `--grass low` draws it as a WebGL2 browser visitor sees it by default
-  (24 m, thinner), `--grass medium` as a WebGPU one does, `--grass off` not
-  at all.
+  (#1675) is drawn at the desktop setting, 128 m around the camera
+  (#1694); `--grass low` draws it as a WebGL2 browser visitor sees it by
+  default (48 m, thinner), `--grass medium` as a WebGPU one does (80 m),
+  `--grass off` not at all.
 - A world whose day turns is drawn at the hour it is now, and a weather
   that comes and goes as it is now, so two renders minutes apart differ in
   light. Hold both for a before and after: `--hour H` (12 is the world as

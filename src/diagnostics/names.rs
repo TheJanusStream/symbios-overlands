@@ -166,16 +166,16 @@ pub const RUNTIME_VISIBLE_ENTITY_COUNT: &str = "runtime.visible_entity.count";
 /// field's cost, which the grass reach and density epic (#1691) is measured
 /// by.
 pub const RUNTIME_GRASS_VERTICES: &str = "runtime.grass.vertices";
-/// Grass tiles in view (#1692), every detail together.
+/// Grass tiles in view (#1692), every detail and size (#1694) together.
 pub const RUNTIME_GRASS_TILES: &str = "runtime.grass.tiles";
 /// Live wasm-heap bytes in small allocations (< 64 KiB) - see
 /// [`crate::alloc_track`] (#811). The four `runtime.alloc.*` gauges shape a
 /// heap runaway: growth in `giant_bytes` is one huge buffer; growth in
 /// `small_bytes` is a million-object leak.
 pub const RUNTIME_ALLOC_SMALL_BYTES: &str = "runtime.alloc.small_bytes";
-/// Live wasm-heap bytes in medium allocations (64 KiB – 1 MiB).
+/// Live wasm-heap bytes in medium allocations (64 KiB to 1 MiB).
 pub const RUNTIME_ALLOC_MEDIUM_BYTES: &str = "runtime.alloc.medium_bytes";
-/// Live wasm-heap bytes in large allocations (1 – 16 MiB).
+/// Live wasm-heap bytes in large allocations (1 to 16 MiB).
 pub const RUNTIME_ALLOC_LARGE_BYTES: &str = "runtime.alloc.large_bytes";
 /// Live wasm-heap bytes in giant allocations (≥ 16 MiB). Each giant
 /// allocation additionally logs a `GiantAllocation` event with its exact

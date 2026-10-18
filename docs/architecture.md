@@ -352,7 +352,9 @@ generation cores shared with the wasm Web Worker.
 - [`src/grass/`](../src/grass/) - the GPU grass (#1675): tiles of blades
   laid around the camera, each drawing a prefix of the same blades - the
   fewest that hold what can grow in it, none where nothing can, hidden
-  behind a hill (#1693) - each blade stood
+  behind a hill (#1693) - thinned far off as the square of the distance
+  and laid there in 16 and 32 m tiles, out to 128 m at the High setting
+  (#1694); each blade stood
   on the ground, grown and coloured by `assets/shaders/grass.wgsl` from the
   ground cover's textures and a profile read from the record's own ground
   layers, grass tufts and flowers; a per-account quality setting. The ground

@@ -111,7 +111,12 @@ fn a_body_parts_the_grass_over_its_footprint() {
 /// A flat 129 x 129 ground of 1 m cells (128 m across, -64..64 m), its
 /// cover drawn, a camera standing at `eye`, and the grass at `quality`.
 fn field_app(quality: GrassQuality, eye: Vec3) -> App {
-    let hm = HeightMap::new(129, 129, 1.0);
+    field_app_on(129, quality, eye)
+}
+
+/// [`field_app`] on a flat ground `vertices` a side of 1 m cells.
+fn field_app_on(vertices: usize, quality: GrassQuality, eye: Vec3) -> App {
+    let hm = HeightMap::new(vertices, vertices, 1.0);
     let frame = GroundFrame::of(&hm);
     let mut app = App::new();
     app.init_resource::<Assets<Image>>()
@@ -147,18 +152,27 @@ fn field_app(quality: GrassQuality, eye: Vec3) -> App {
     app
 }
 
-fn tiles_of(app: &mut App) -> Vec<(IVec2, Detail)> {
+/// The tiles laid, by where they lie, and their details.
+fn tiles_of(app: &mut App) -> Vec<(TileKey, Detail)> {
     let mut query = app.world_mut().query::<&GrassTile>();
-    let mut tiles: Vec<(IVec2, Detail)> = query
-        .iter(app.world())
-        .map(|t| (t.coord, t.detail))
-        .collect();
-    tiles.sort_by_key(|(c, _)| (c.y, c.x));
+    let mut tiles: Vec<(TileKey, Detail)> =
+        query.iter(app.world()).map(|t| (t.key, t.detail)).collect();
+    tiles.sort_by_key(|(k, _)| (k.level, k.coord.y, k.coord.x));
     tiles
 }
 
+/// The 8 m cells the laid tiles hold, each with its tile's detail.
+fn cells_of(app: &mut App) -> Vec<(IVec2, Detail)> {
+    tiles_of(app)
+        .into_iter()
+        .flat_map(|(key, detail)| key.cells().map(move |cell| (cell, detail)))
+        .collect()
+}
+
 /// The field lays its tiles around the camera out to its reach, near ones
-/// at near detail and far ones at far, and only on the ground.
+/// at near detail and far ones at far, and only on the ground; far off in
+/// 16 m tiles, each wholly past where that size begins and wholly on the
+/// ground (#1694) - and every 8 m cell within the reach in one tile.
 #[test]
 fn the_field_is_laid_around_the_camera() {
     let mut app = field_app(GrassQuality::Medium, Vec3::new(0.0, 1.7, 0.0));
@@ -168,27 +182,97 @@ fn the_field_is_laid_around_the_camera() {
     let tiles = tiles_of(&mut app);
     let grown = GrassQuality::Medium.field().expect("medium grows");
     let reach = grown.reach;
+    let far = cfg::FAR_AT * grown.full;
     let eye = Vec3::new(0.0, 1.7, 0.0);
     assert!(!tiles.is_empty());
-    for &(coord, detail) in &tiles {
-        let nearest = tiles::nearest(eye, coord, 0.0);
-        assert!(nearest < reach, "{coord} at {nearest} m");
-        assert_eq!(detail, Detail::at(nearest, &grown), "{coord}");
+    let mut laid: HashMap<IVec2, usize> = HashMap::new();
+    for &(key, detail) in &tiles {
+        let nearest = tiles::nearest(eye, key, 0.0);
+        assert!(nearest < reach, "{key:?} at {nearest} m");
+        assert_eq!(detail, Detail::at(nearest, &grown), "{key:?}");
+        if key.level > 0 {
+            let from = cfg::LARGE_AT[key.level as usize - 1] * far;
+            assert!(nearest >= from, "{key:?} at {nearest} m");
+            let (lo, hi) = (key.lo(), key.lo() + key.side());
+            assert!(
+                lo.min_element() >= -64.0 && hi.max_element() <= 64.0,
+                "{key:?}"
+            );
+        }
+        for cell in key.cells() {
+            *laid.entry(cell).or_default() += 1;
+        }
     }
-    // The four tiles meeting under the camera are near, and the field
-    // reaches every tile within its reach.
+    assert!(laid.values().all(|&n| n == 1), "a cell laid twice");
+    // The four tiles meeting under the camera are near, and the far ground
+    // is laid in larger tiles.
     for coord in [
         IVec2::new(-1, -1),
         IVec2::new(0, -1),
         IVec2::new(-1, 0),
         IVec2::ZERO,
     ] {
-        assert!(tiles.contains(&(coord, Detail::Near)), "{coord}");
+        assert!(
+            tiles.contains(&(TileKey::small(coord), Detail::Near)),
+            "{coord}"
+        );
     }
     assert!(tiles.iter().any(|&(_, d)| d == Detail::Far));
-    let within = |c: IVec2| tiles::nearest(eye, c, 0.0) < reach;
+    assert!(tiles.iter().any(|(k, _)| k.level == 1));
+    // The field reaches every cell within its reach.
+    let within = |c: IVec2| tiles::nearest(eye, TileKey::small(c), 0.0) < reach;
     let all = (-8..8).flat_map(|z| (-8..8).map(move |x| IVec2::new(x, z)));
-    assert_eq!(all.filter(|&c| within(c)).count(), tiles.len());
+    for cell in all.filter(|&c| within(c)) {
+        assert!(laid.contains_key(&cell), "{cell} within the reach");
+    }
+}
+
+/// A larger tile is laid only wholly on the ground (#1694): on a ground whose
+/// edge cuts through the larger tiles' grid - 120 m across, -60..60 m - no
+/// 16 or 32 m tile crosses it, the 8 m cells across it are laid as 8 m
+/// tiles, and every cell on the ground within the reach is laid once.
+#[test]
+fn a_large_tile_is_laid_only_wholly_on_the_ground() {
+    let eye = Vec3::new(40.0, 1.7, 0.0);
+    let mut app = field_app_on(121, GrassQuality::High, eye);
+    app.update();
+    let tiles = tiles_of(&mut app);
+    assert!(tiles.iter().any(|(k, _)| k.level > 0), "{tiles:?}");
+    let mut laid: HashMap<IVec2, usize> = HashMap::new();
+    for &(key, _) in &tiles {
+        if key.level > 0 {
+            let (lo, hi) = (key.lo(), key.lo() + key.side());
+            assert!(
+                lo.min_element() >= -60.0 && hi.max_element() <= 60.0,
+                "{key:?}"
+            );
+        }
+        for cell in key.cells() {
+            *laid.entry(cell).or_default() += 1;
+        }
+    }
+    assert!(laid.values().all(|&n| n == 1), "a cell laid twice");
+    let mut across = 0;
+    for z in -8..8 {
+        for x in -8..8 {
+            let cell = IVec2::new(x, z);
+            let (lo, hi) = (
+                cell.as_vec2() * cfg::TILE_M,
+                (cell + 1).as_vec2() * cfg::TILE_M,
+            );
+            let on_ground = lo.max_element() < 60.0 && hi.min_element() > -60.0;
+            let within = tiles::nearest(eye, TileKey::small(cell), 0.0) < cfg::HIGH.reach;
+            assert_eq!(laid.contains_key(&cell), on_ground && within, "{cell}");
+            if on_ground && (lo.min_element() < -60.0 || hi.max_element() > 60.0) {
+                assert!(
+                    tiles.iter().any(|(k, _)| *k == TileKey::small(cell)),
+                    "{cell} across the edge"
+                );
+                across += 1;
+            }
+        }
+    }
+    assert!(across > 0);
 }
 
 /// The field counts what it draws (#1692): the tiles a view sees, by
@@ -205,7 +289,7 @@ fn the_field_counts_what_it_draws() {
         .add_systems(Update, count_grass_drawn.after(lay_grass_tiles));
     app.update();
     let blades = tiles::blade_count(cfg::HIGH.density);
-    let vertices: HashMap<(Detail, usize), usize> = app
+    let vertices: HashMap<(Detail, usize, u32), usize> = app
         .world()
         .resource::<GrassField>()
         .meshes
@@ -213,10 +297,16 @@ fn the_field_counts_what_it_draws() {
         .map(|(&key, &(_, vertices))| (key, vertices))
         .collect();
     assert!(!vertices.is_empty());
-    for (&(detail, share), &count) in &vertices {
+    assert!(vertices.keys().any(|&(_, _, level)| level > 0));
+    for (&(detail, share, level), &count) in &vertices {
         let kept = tiles::blades_below(blades, tiles::SHARES[share]);
         let segments = detail.segments() as usize;
-        assert_eq!(count, kept * (2 * segments + 1), "{detail:?} {share}");
+        let cells = 1 << (2 * level);
+        assert_eq!(
+            count,
+            cells * kept * (2 * segments + 1),
+            "{detail:?} {share} {level}"
+        );
     }
     // No view has seen a tile yet.
     assert_eq!(*app.world().resource::<GrassDrawn>(), GrassDrawn::default());
@@ -228,7 +318,7 @@ fn the_field_counts_what_it_draws() {
         if i % 2 == 0 {
             *seen = ViewVisibility::VISIBLE;
             expected.tiles[tile.detail.index()] += 1;
-            expected.vertices += vertices[&(tile.detail, tile.share)] as u64;
+            expected.vertices += vertices[&(tile.detail, tile.share, tile.key.level)] as u64;
         }
     }
     assert!(expected.tiles.iter().all(|&n| n > 0), "{expected:?}");
@@ -247,32 +337,32 @@ fn a_tile_holds_the_fewest_blades_that_grow_in_it() {
     app.update();
     let grown = cfg::HIGH;
     let mut query = app.world_mut().query::<&GrassTile>();
-    let laid: Vec<(IVec2, Detail, usize)> = query
+    let laid: Vec<(TileKey, Detail, usize)> = query
         .iter(app.world())
-        .map(|t| (t.coord, t.detail, t.share))
+        .map(|t| (t.key, t.detail, t.share))
         .collect();
     assert!(!laid.is_empty());
     let world = app.world();
     let ground = world.resource::<GroundCover>();
     let profile = world.resource::<GrassField>().profile.as_ref();
     let mut thinned = false;
-    for (coord, detail, share) in laid {
-        let nearest = tiles::nearest(eye, coord, 0.0);
+    for (key, detail, share) in laid {
+        let nearest = tiles::nearest(eye, key, 0.0);
         // The ground is open: the most is its layers' and their clumps',
         // and the share follows it by the thinning, held to the detail's.
-        let most = tile_density(ground, profile, coord);
-        assert!(most > 0.0, "{coord}");
+        let most = tile_density(ground, profile, key);
+        assert!(most > 0.0, "{key:?}");
         let need = (most * tiles::thinning(nearest, &grown)).min(detail.share());
         let held = tiles::SHARES[share];
-        assert!(held >= need - 1e-6, "{coord}: {held} under {need}");
+        assert!(held >= need - 1e-6, "{key:?}: {held} under {need}");
         assert!(
             held <= detail.share() + 1e-6,
-            "{coord}: {held} over {detail:?}"
+            "{key:?}: {held} over {detail:?}"
         );
         if share + 1 < tiles::SHARES.len() {
             assert!(
                 tiles::SHARES[share + 1] < need,
-                "{coord}: {held} is not the fewest for {need}"
+                "{key:?}: {held} is not the fewest for {need}"
             );
         }
         thinned |= held < detail.share();
@@ -302,13 +392,13 @@ fn a_ridge_hides_the_tiles_behind_it() {
     let mut query = app.world_mut().query::<(&GrassTile, &Visibility)>();
     let (mut hidden, mut shown, mut laid_hidden) = (0, 0, 0);
     for (tile, seen) in query.iter(app.world()) {
-        let west = tile.coord.x as f32 * cfg::TILE_M;
+        let west = tile.key.lo().x;
         if west >= 0.0 {
-            assert_eq!(*seen, Visibility::Hidden, "{} behind the ridge", tile.coord);
+            assert_eq!(*seen, Visibility::Hidden, "{:?} behind the ridge", tile.key);
             hidden += 1;
         }
-        if west + cfg::TILE_M <= -40.0 {
-            assert_eq!(*seen, Visibility::Inherited, "{} before it", tile.coord);
+        if west + tile.key.side() <= -40.0 {
+            assert_eq!(*seen, Visibility::Inherited, "{:?} before it", tile.key);
             shown += 1;
         }
         laid_hidden += u32::from(*seen == Visibility::Hidden);
@@ -339,12 +429,14 @@ fn no_tile_is_laid_where_no_layer_lies() {
     ));
     app.world_mut().resource_mut::<GroundCover>().maxima = Some(maxima);
     app.update();
-    let laid = tiles_of(&mut app);
-    // Tile 2 (16..24 m) samples bare ground, but its padding reaches the
-    // last weighted texel (x = 15 m); tile 3 reads nothing.
+    // Cell 2 (16..24 m) samples bare ground, but its padding reaches the
+    // last weighted texel (x = 15 m); cell 3 reads nothing, so no tile
+    // starts past cell 2 - a 16 m one holding cells 2 and 3 grows in 2.
+    let laid = cells_of(&mut app);
     assert!(laid.iter().any(|(c, _)| c.x == 2), "{laid:?}");
-    assert!(laid.iter().all(|(c, _)| c.x <= 2), "{laid:?}");
     assert!(laid.iter().any(|(c, _)| c.x < -2));
+    let tiles = tiles_of(&mut app);
+    assert!(tiles.iter().all(|(k, _)| k.lo().x <= 16.0), "{tiles:?}");
 }
 
 /// Ground where nothing can grow lays no tile (#1693): a road's or a
@@ -364,12 +456,13 @@ fn no_tile_is_laid_where_nothing_grows() {
     ]);
     ground.revision += 1;
     app.update();
-    let laid = tiles_of(&mut app);
+    let laid = cells_of(&mut app);
     assert!(!laid.is_empty());
-    // A tile whose square ends a texel short of the open ground is gone.
-    assert!(laid.iter().all(|(c, _)| c.x <= 2), "{laid:?}");
     assert!(laid.iter().any(|(c, _)| c.x == 1));
     assert!(laid.iter().any(|(c, _)| c.x < -2));
+    // A tile whose square starts a texel past the open ground is gone.
+    let tiles = tiles_of(&mut app);
+    assert!(tiles.iter().all(|(k, _)| k.lo().x <= 16.0), "{tiles:?}");
 }
 
 /// Near the ground's edge the field stops at it; turned off it is gone;
@@ -378,9 +471,9 @@ fn no_tile_is_laid_where_nothing_grows() {
 fn the_field_stays_on_the_ground_and_goes_when_off() {
     let mut app = field_app(GrassQuality::High, Vec3::new(60.0, 1.7, 0.0));
     app.update();
-    let tiles = tiles_of(&mut app);
-    assert!(!tiles.is_empty());
-    assert!(tiles.iter().all(|(c, _)| c.x < 8), "{tiles:?}");
+    let cells = cells_of(&mut app);
+    assert!(!cells.is_empty());
+    assert!(cells.iter().all(|(c, _)| c.x < 8), "{cells:?}");
 
     app.world_mut()
         .resource_mut::<LocalSettings>()

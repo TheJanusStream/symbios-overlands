@@ -6,7 +6,9 @@
 // This shader does the rest, per vertex:
 //
 //   1. Turns and mirrors the tile's layout by a hash of where the tile
-//      lies, so the 8 m tiles do not read as a grid.
+//      lies, so the 8 m tiles do not read as a grid. A 16 or 32 m tile
+//      (#1694) is its 8 m cells side by side, each laid out as an 8 m tile
+//      there would be, so the field draws the same in tiles of any size.
 //   2. Stands the blade on the drawn ground: the height texture's cell
 //      corners, interpolated over the mesher's two triangles a cell, as
 //      `ground_cover::mesh_height` does - not bilinearly, which would
@@ -22,7 +24,10 @@
 //      and colours it: root to tip, a dry share, a flower share whose heads
 //      take the room's flower colours, and the ground's own tone fields
 //      (`ground_common.wgsl`): drier where the ground drifts lighter, a
-//      little taller or shorter patch by patch.
+//      little taller or shorter patch by patch. Before its tile turns to
+//      fewer segments a blade, it takes their shape (#1694), so the turn
+//      changes nothing drawn; and each blade fades out at the field's edge
+//      at a distance of its own, so the edge is no circle.
 //   5. Weathers it as the ground under it is weathered (#1683), from the
 //      same fields: snow buries most of a blade and whitens what stands
 //      out, a puddle drowns it, and wet blades darken.
@@ -33,10 +38,12 @@
 //
 // WebGL2-safe: vertex-stage texture reads (16 vertex texture units in
 // every WebGL2), the 32-bit float height and bodies read by `textureLoad`
-// (they cannot be filtered there), no storage buffers. Mirrors of the Rust side, which
-// nothing checks at build time: `GrassUniforms` (`src/grass/material.rs`,
-// pinned by `grass::tests::wgsl_block_mirrors_the_rust_one`) and
-// `TILE_M` (`config::grass::TILE_M`, pinned by the same test).
+// (they cannot be filtered there), no storage buffers. Mirrors of the Rust
+// side, which nothing checks at build time: `GrassUniforms`
+// (`src/grass/material.rs`, pinned by
+// `grass::tests::wgsl_block_mirrors_the_rust_one`) and the constants below
+// that name their Rust source (pinned by the same test, and by
+// `grass::tiles`'s).
 
 #import bevy_pbr::{
     forward_io::VertexOutput,
@@ -73,8 +80,20 @@ struct GrassUniforms {
 // middle on XZ, underside on Y, reach in W; 0 past the last.
 @group(#{MATERIAL_BIND_GROUP}) @binding(106) var bender_map: texture_2d<f32>;
 
-// A tile's side (m): `config::grass::TILE_M`.
+// A tile's side (m): `config::grass::TILE_M`. A larger tile's 8 m cells are
+// numbered `i + CELLS_A_ROW * j` along X and Z (`tiles::CELLS_A_ROW`).
 const TILE_M: f32 = 8.0;
+const CELLS_A_ROW: u32 = 4u;
+// A blade takes the shape of the fewer segments it is about to be drawn with
+// from this share of the way to where its tile turns to them (#1694), so a
+// tile turning changes no blade's look; a near or a middle blade's upper
+// pair stands this far up it (`tiles::Detail::rungs`).
+const MORPH_FROM: f32 = 0.85;
+const UPPER_RUNG: f32 = 2.0 / 3.0;
+// Each blade fades out at the field's edge as though it stood up to this
+// share further off than it does (#1694): the edge is a ragged band inside
+// the reach, not a circle every blade shrinks at alike.
+const EDGE_FEATHER: f32 = 0.12;
 // In a storm's gust front (#1684): how much harder the blades lean.
 const STORM_LEAN: f32 = 1.5;
 // Under settled snow (#1683): the share of a blade's height the snow buries,
@@ -94,8 +113,42 @@ const REFERENCE_WIND: f32 = 4.0;
 struct Vertex {
     @builtin(instance_index) instance_index: u32,
     @location(0) position: vec3<f32>,
-    // The mesh's COLOR attribute: edge, rank, seed, 0.
+    // The mesh's COLOR attribute: edge, rank, seed, and the blade's 8 m
+    // cell in its tile.
     @location(5) blade: vec4<f32>,
+};
+
+// A blade, as every vertex of it is drawn from (`blade_point`): its root,
+// its bend and how high its tip stands, the way across it, its width, and
+// whether it is a flower (1 or 0); the eye; how far it has merged into the
+// ground it stands on, and that ground's colour; and what colours it -
+// whether it is a dry one, the ground's tone drift where it stands, its own
+// shade, the density of the grass there, a flower's head colour, and the
+// weather: how wet, how much snow settled.
+struct Blade {
+    root: vec3<f32>,
+    bend: vec3<f32>,
+    tip_y: f32,
+    across: vec3<f32>,
+    width: f32,
+    flower: f32,
+    eye: vec3<f32>,
+    merge: f32,
+    far_ground: vec3<f32>,
+    dry: f32,
+    drift: f32,
+    shade: f32,
+    density: f32,
+    head_colour: vec3<f32>,
+    wet: f32,
+    settled: f32,
+};
+
+// A point of a blade: where it stands, its normal and its colour.
+struct BladePoint {
+    position: vec3<f32>,
+    normal: vec3<f32>,
+    colour: vec3<f32>,
 };
 
 // The drawn ground's height at world `xz`: the cell's corners, over the
@@ -119,14 +172,100 @@ fn ground_height(xz: vec2<f32>) -> f32 {
 
 // The share of a near tile's blades kept `distance` metres away: all of
 // them out to `reach.x`, the middle share by `reach.y`, the far share by
-// `reach.z`. A tile drawn at middle or far detail lies wholly past the
-// distance where this reaches its share (`tiles::Detail::at`), so it
-// misses no blade this keeps.
+// `reach.z`, and past that falling as the square of the distance. A tile
+// drawn at middle or far detail lies wholly past the distance where this
+// reaches its share (`tiles::Detail::at`), so it misses no blade this
+// keeps.
 fn thinning(distance: f32) -> f32 {
     if distance < grass.reach.y {
         return mix(1.0, grass.shares.x, smoothstep(grass.reach.x, grass.reach.y, distance));
     }
-    return mix(grass.shares.x, grass.shares.y, smoothstep(grass.reach.y, grass.reach.z, distance));
+    if distance < grass.reach.z {
+        return mix(grass.shares.x, grass.shares.y, smoothstep(grass.reach.y, grass.reach.z, distance));
+    }
+    // Past it, as the square of the distance (#1694): as many blades a
+    // patch of screen however far it lies (`tiles::thinning`).
+    let past = grass.reach.z / distance;
+    return grass.shares.y * past * past;
+}
+
+// The point of `blade` `up` of the way up it, on edge `side` (0 the tip).
+fn blade_point(blade: Blade, up: f32, side: f32) -> BladePoint {
+    // A flower's head is its top: the last pair of its stalk raised and
+    // widened into a small cup, under the tip.
+    let head = blade.flower > 0.5 && up > 0.45;
+    var along = up;
+    var half_width = 0.5 * blade.width * pow(1.0 - up, 0.8);
+    if head && side != 0.0 {
+        along = mix(up, 1.0, 0.6);
+        half_width = 0.65 * blade.width;
+    }
+    let centre = blade.root + blade.bend * (along * along) + vec3<f32>(0.0, blade.tip_y * along, 0.0);
+    let position = centre + blade.across * side * half_width;
+
+    // A normal across the blade, toward the camera, leaning to the sky: a
+    // field reads as one surface lit from above, with each blade's own
+    // turn showing through.
+    let tangent = normalize(2.0 * along * blade.bend + vec3<f32>(0.0, max(blade.tip_y, 1.0e-3), 0.0));
+    var normal = normalize(cross(blade.across, tangent) + vec3<f32>(0.0, 1.0e-4, 0.0));
+    normal = normal * select(1.0, -1.0, dot(normal, blade.eye - position) < 0.0);
+    normal = normalize(mix(normal, vec3<f32>(0.0, 1.0, 0.0), 0.6) + blade.across * side * 0.2);
+
+    // Root to tip, a dry share, patches of drier grass, a little of each
+    // blade's own, shade at the root deepest where the grass is thickest, a
+    // flower's head, and the weather.
+    var colour = mix(grass.base.rgb, grass.tip.rgb, pow(up, 0.8));
+    if blade.dry > 0.5 {
+        colour = mix(grass.base.rgb, grass.dry.rgb, smoothstep(0.0, 0.6, up));
+    }
+    colour = mix(colour, grass.dry.rgb, 0.4 * smoothstep(0.55, 0.9, blade.drift) * up);
+    colour = colour * blade.shade * mix(1.0 - 0.6 * blade.density, 1.0, up);
+    if head {
+        colour = blade.head_colour;
+    }
+    colour = mix(
+        colour * mix(1.0, WET_DARKEN, blade.wet),
+        SNOW_ALBEDO,
+        blade.settled * mix(SNOWY_FOOT, SNOWY_TIPS, up),
+    );
+
+    // Further out the blade takes the colour of the ground it stands on,
+    // and its normal (`Blade::merge`).
+    return BladePoint(
+        position,
+        normalize(mix(normal, vec3<f32>(0.0, 1.0, 0.0), blade.merge)),
+        mix(colour, blade.far_ground, blade.merge),
+    );
+}
+
+// The point `t` of the way from `a` to `b`, as a triangle between them
+// interpolates it: normals too, unnormalised.
+fn between(a: BladePoint, b: BladePoint, t: f32) -> BladePoint {
+    return BladePoint(
+        mix(a.position, b.position, t),
+        mix(a.normal, b.normal, t),
+        mix(a.colour, b.colour, t),
+    );
+}
+
+// A vertex that draws nothing: on one point outside the view - right of it
+// on every backend's clip space (x > w) - with none of a blade's work done.
+fn nothing(instance_index: u32, world_from_local: mat4x4<f32>, root: vec3<f32>) -> VertexOutput {
+    var out: VertexOutput;
+    out.world_position = vec4<f32>(root, 1.0);
+    out.position = vec4<f32>(2.0, 2.0, 0.5, 1.0);
+    out.world_normal = vec3<f32>(0.0, 1.0, 0.0);
+#ifdef VERTEX_COLORS
+    out.color = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+#endif
+#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
+    out.instance_index = instance_index;
+#endif
+#ifdef VISIBILITY_RANGE_DITHER
+    out.visibility_range_dither = mesh_functions::get_visibility_range_dither_level(
+        instance_index, world_from_local[3]);
+#endif
+    return out;
 }
 
 // A tile's layout turned and mirrored one of eight ways.
@@ -149,17 +288,27 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     var out: VertexOutput;
 
     let world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
-    let corner = world_from_local[3].xz;
+    // The blade's 8 m cell, whose corner turns its layout as an 8 m tile's
+    // would: a larger tile is its cells side by side (#1694).
+    let in_tile = u32(vertex.blade.w + 0.5);
+    let corner = world_from_local[3].xz
+        + vec2<f32>(f32(in_tile % CELLS_A_ROW), f32(in_tile / CELLS_A_ROW)) * TILE_M;
     let which = u32(hash21(floor(corner / TILE_M + 0.5) + 0.37) * 8.0) & 7u;
     let at = corner + tile_layout(vertex.position.xz, which);
     let up = vertex.position.y;
     let side = vertex.blade.x;
     let rank = vertex.blade.y;
     let seed = vertex.blade.z;
+    let eye = view.world_position;
+
+    // Past the field's reach across the ground alone - a large tile's far
+    // cells - a blade draws nothing, before a texture is read for it.
+    if length(eye.xz - at) >= grass.reach.w {
+        return nothing(vertex.instance_index, world_from_local, vec3<f32>(at.x, eye.y, at.y));
+    }
 
     let ground = ground_height(at);
     let root = vec3<f32>(at.x, ground, at.y);
-    let eye = view.world_position;
     let distance = length(eye - root);
 
     // How thickly the ground here grows grass: the layers' densities by
@@ -177,29 +326,18 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 
     let keep = density * thinning(distance);
     let grow = saturate((keep - rank) / max(0.15 * keep, 1.0e-4));
-    let fade = 1.0 - smoothstep(grass.shares.z, grass.reach.w, distance);
+    // Each blade fades out at the edge a little nearer than the next one
+    // over (`EDGE_FEATHER`).
+    let feather = 1.0 + EDGE_FEATHER * hash21(at * 0.61 + vec2<f32>(seed * 23.0, 11.0));
+    let fade = 1.0 - smoothstep(grass.shares.z, grass.reach.w, distance * feather);
 
     // A blade the field does not grow here - thinned out by distance or by
-    // thin ground, or past the field's reach - draws nothing: every vertex
-    // of it lands on one point outside the view, and none of the work below
-    // is done for it (#1693). A tile's mesh holds its blades in rank order,
-    // so on thin ground whole runs of them leave here together.
+    // thin ground, or past the field's reach - draws nothing, and none of
+    // the work below is done for it (#1693). A tile's mesh holds its blades
+    // in rank order, so on thin ground whole runs of them leave here
+    // together.
     if grow <= 0.0 || fade <= 0.0 {
-        out.world_position = vec4<f32>(root, 1.0);
-        // Right of the view on every backend's clip space (x > w).
-        out.position = vec4<f32>(2.0, 2.0, 0.5, 1.0);
-        out.world_normal = vec3<f32>(0.0, 1.0, 0.0);
-#ifdef VERTEX_COLORS
-        out.color = vec4<f32>(0.0, 0.0, 0.0, 1.0);
-#endif
-#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
-        out.instance_index = vertex.instance_index;
-#endif
-#ifdef VISIBILITY_RANGE_DITHER
-        out.visibility_range_dither = mesh_functions::get_visibility_range_dither_level(
-            vertex.instance_index, world_from_local[3]);
-#endif
-        return out;
+        return nothing(vertex.instance_index, world_from_local, root);
     }
 
     let ground_colour = (grass.ground[0].rgb * weights.x + grass.ground[1].rgb * weights.y
@@ -216,7 +354,6 @@ fn vertex(vertex: Vertex) -> VertexOutput {
         grass.flowers[0].w, grass.flowers[1].w, grass.flowers[2].w, grass.flowers[3].w
     ), vec4<f32>(1.0));
     let flower = r3 < grass.frame.w && flower_count > 0.0;
-    let head = flower && up > 0.45;
 
     // The ground's tone fields (`ground_common.wgsl`, #1676): the grass
     // stands taller where the ground is darker - mostly patch by patch (the
@@ -304,61 +441,64 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     bend = bend * min(1.0, reach / max(sway, 1.0e-5));
     let tip_y = sqrt(max(height * height - dot(bend, bend), 0.0)) * (1.0 - 0.5 * flatten);
 
-    // A flower's head is its top: the last pair of its stalk raised and
-    // widened into a small cup, under the tip.
-    var along = up;
-    var half_width = 0.5 * width * pow(1.0 - up, 0.8);
-    if head && side != 0.0 {
-        along = mix(up, 1.0, 0.6);
-        half_width = 0.65 * width;
-    }
-    let centre = root + bend * (along * along) + vec3<f32>(0.0, tip_y * along, 0.0);
-    let position = centre + across * side * half_width;
-
-    // A normal across the blade, toward the camera, leaning to the sky: a
-    // field reads as one surface lit from above, with each blade's own
-    // turn showing through.
-    let tangent = normalize(2.0 * along * bend + vec3<f32>(0.0, max(tip_y, 1.0e-3), 0.0));
-    var normal = normalize(cross(across, tangent) + vec3<f32>(0.0, 1.0e-4, 0.0));
-    normal = normal * select(1.0, -1.0, dot(normal, eye - position) < 0.0);
-    normal = normalize(mix(normal, vec3<f32>(0.0, 1.0, 0.0), 0.6) + across * side * 0.2);
-
-    // Root to tip, a dry share, patches of drier grass, a little of each
-    // blade's own, shade at the root deepest where the grass is thickest.
-    var colour = mix(grass.base.rgb, grass.tip.rgb, pow(up, 0.8));
-    if r4 < grass.dry.w {
-        colour = mix(grass.base.rgb, grass.dry.rgb, smoothstep(0.0, 0.6, up));
-    }
-    colour = mix(colour, grass.dry.rgb, 0.4 * smoothstep(0.55, 0.9, drift) * up);
-    colour = colour * (0.82 + 0.36 * r1);
-    colour = colour * mix(1.0 - 0.6 * density, 1.0, up);
-    if head {
-        let pick = min(u32(r2 * flower_count), 3u);
-        colour = grass.flowers[pick].rgb;
-    }
-    colour = mix(
-        colour * mix(1.0, WET_DARKEN, wet),
-        SNOW_ALBEDO,
-        settled * mix(SNOWY_FOOT, SNOWY_TIPS, up),
-    );
     // Further out the blades take the colour of the ground they stand on -
     // as the ground draws it, its drift and mottle included - and its
     // normal, all of both by the field's reach: a far blade is shaded as the
     // ground beside it is, and the field has no edge to see.
-    let merge = smoothstep(grass.reach.x, grass.reach.w, distance);
     let far_ground = mix(
         ground_vary(ground_colour, drift, mottle) * mix(1.0, WET_DARKEN, wet),
         SNOW_ALBEDO,
         settled,
     );
-    colour = mix(colour, far_ground, merge);
-    normal = normalize(mix(normal, vec3<f32>(0.0, 1.0, 0.0), merge));
+    let blade = Blade(
+        root,
+        bend,
+        tip_y,
+        across,
+        width,
+        select(0.0, 1.0, flower),
+        eye,
+        smoothstep(grass.reach.x, grass.reach.w, distance),
+        far_ground,
+        select(0.0, 1.0, r4 < grass.dry.w),
+        drift,
+        0.82 + 0.36 * r1,
+        density,
+        grass.flowers[min(u32(r2 * flower_count), 3u)].rgb,
+        wet,
+        settled,
+    );
+    var point = blade_point(blade, up, side);
+    // The pairs between the root and the tip take the place, the normal and
+    // the colour of the fewer segments the blade is about to be drawn with
+    // (#1694), from `MORPH_FROM` of the way to where its tile turns to them
+    // (`tiles::Detail::at`): the upper pair onto the line from the root to
+    // the tip, which a far blade draws, and a near blade's third-way pair
+    // onto the line from the root to the upper pair, which a middle blade
+    // draws. Every blade of a tile that turns lies past where it turns, so
+    // the turn changes nothing drawn.
+    if up > 0.0 && up < 1.0 {
+        let to_far = smoothstep(MORPH_FROM * grass.reach.z, grass.reach.z, distance);
+        let to_mid = select(0.0, smoothstep(MORPH_FROM * grass.reach.y, grass.reach.y, distance), up < 0.5);
+        if to_far > 0.0 || to_mid > 0.0 {
+            let foot = blade_point(blade, 0.0, side);
+            var upper = blade_point(blade, UPPER_RUNG, side);
+            if to_far > 0.0 {
+                upper = between(upper, between(foot, blade_point(blade, 1.0, 0.0), UPPER_RUNG), to_far);
+            }
+            if up < 0.5 {
+                point = between(point, between(foot, upper, 0.5), to_mid);
+            } else {
+                point = upper;
+            }
+        }
+    }
 
-    out.world_position = vec4<f32>(position, 1.0);
-    out.position = position_world_to_clip(position);
-    out.world_normal = normal;
+    out.world_position = vec4<f32>(point.position, 1.0);
+    out.position = position_world_to_clip(point.position);
+    out.world_normal = point.normal;
 #ifdef VERTEX_COLORS
-    out.color = vec4<f32>(colour, 1.0);
+    out.color = vec4<f32>(point.colour, 1.0);
 #endif
 #ifdef VERTEX_OUTPUT_INSTANCE_INDEX
     out.instance_index = vertex.instance_index;

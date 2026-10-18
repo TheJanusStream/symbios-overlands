@@ -1349,11 +1349,18 @@ pub(crate) mod grass {
     pub const FAR_SHARE: f32 = 0.15;
     /// The field keeps every blade out to its `full` distance, and is
     /// thinned to the middle share by this many times that distance and to
-    /// the far share by this many.
+    /// the far share by this many; past that, as the square of the distance
+    /// (#1694).
     pub const MID_AT: f32 = 1.6;
     pub const FAR_AT: f32 = 2.5;
     /// The field fades out from this share of its reach to its reach.
     pub const FADE_FROM: f32 = 0.75;
+    /// Past [`FAR_AT`] times the full distance the field is laid in larger
+    /// tiles (#1694) - 16 m ones from this many times that distance, 32 m
+    /// ones from this many - each four or sixteen copies of an 8 m tile's
+    /// blades: at High about a third as many tiles, for up to a tenth more
+    /// vertices (a large tile holds what its nearest point needs).
+    pub const LARGE_AT: [f32; 2] = [1.25, 2.5];
     /// Thin ground grows its grass in clumps (`grass.wgsl`'s `clump`): up
     /// to this many times its own density in a clump, by this share of how
     /// thin the ground is. The tiles' CPU bound of what can grow
@@ -1414,17 +1421,17 @@ pub(crate) mod grass {
         pub full: f32,
     }
     pub const LOW: Field = Field {
-        reach: 24.0,
+        reach: 48.0,
         density: 0.45,
         full: 8.0,
     };
     pub const MEDIUM: Field = Field {
-        reach: 40.0,
+        reach: 80.0,
         density: 0.7,
         full: 14.0,
     };
     pub const HIGH: Field = Field {
-        reach: 64.0,
+        reach: 128.0,
         density: 1.0,
         full: 16.0,
     };
