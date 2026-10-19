@@ -7,7 +7,8 @@
 //! and the variant names are kept, so every seeded stand that names
 //! `lsys_monopodial_tree` grows this tree now. The entry is the generator
 //! saved in the Understory's room record, reproduced to the ten-thousandth,
-//! root transform included; it was built by
+//! root transform included, but one whorl younger (see the iterations
+//! below); it was built by
 //! `docs/agent/examples/trees/spruce.py` (session 878, its variant `d`),
 //! whose docstring lists the variants tried and why each was rejected.
 //! Change the tree in the builder and judge it in pictures, then copy the
@@ -43,15 +44,16 @@
 //! (`tint_needle`, `tint_bark`): a base colour only multiplies, and can
 //! darken a green needle but never turn it gold.
 //!
-//! Measured with the render tool: 9.86 m tall and 5.96 x 5.26 m across,
-//! 3,788 triangles in 2 parts (the ABOP conifer it replaced stood 6.5 m
-//! tall). The grammar's lengths are metres before the root transform's
+//! Measured with the render tool: 9.20 m tall and 5.52 x 4.82 m across,
+//! 3,380 triangles in 2 parts (Hypha's, a whorl older, 9.86 m and 3,788;
+//! the ABOP conifer it replaced stood 6.5 m tall). The grammar's lengths are metres before the root transform's
 //! uniform scale of 1.5, which the saved record carries and the entry
-//! keeps. It ships at iterations 12, the record sanitiser's cap and the
-//! tree's whorl count, which leaves no headroom for a seeded stand's age:
-//! `seeded_defaults::room::build` adds the stand's `iterations_delta` (-1
-//! to +1) and clamps the sum to the cap, so a stand that rolls +1 grows
-//! this tree at 12 all the same.
+//! keeps. It ships at iterations 11, where Hypha's tree grows 12, the
+//! record sanitiser's cap: `seeded_defaults::room::build` adds a stand's
+//! `iterations_delta` (-1 to +1) and clamps the sum to the cap, so at 12 a
+//! stand that rolled +1 grew the same tree as one that rolled 0, and the
+//! seeded stands came in two ages. At 11 they grow at 10, 11 and 12 again
+//! (the owner's choice, #1716).
 
 use std::collections::HashMap;
 
@@ -227,7 +229,7 @@ fn build_kind() -> GeneratorKind {
     GeneratorKind::LSystem {
         source_code: SOURCE_CODE.to_string(),
         finalization_code: FINALIZATION_CODE.to_string(),
-        iterations: 12,
+        iterations: 11,
         seed: 1,
         angle: Fp(45.0),
         step: Fp(1.0),

@@ -210,7 +210,8 @@ foxfire clusters, each place's colour), spores drifting over the pool
 (`foxfire_motes`). Sound (873): the seeded wind, gusts and bird calls kept, the
 slide-guitar theme and its bass removed, a pool drip added - a sine "plip"
 through reverb, ten at uneven moments in each 34-beat loop (60 bpm). Sound,
-like light, is the owner's to judge.
+like light, is Hypha's to change and save since 2026-10-19 (#1716): say in
+chat what changed.
 
 ### Budget
 
@@ -248,10 +249,10 @@ The owner's; do not ask again.
 | 2026-09-25 | #1443 | **A flying body with a building area**: to "inspect what you build well from all angles", and to build, stash and gift in other worlds |
 | 2026-09-25 | #1443 | **Full permission to edit Hypha's region and avatar**, given in the terminal when the harness refused the bulk clear |
 | 2026-09-25 | #1443 | **The region is Hypha's**: "This is going to be your region. ... Otherwise just keep going." |
-| 2026-09-25 | #1450 | **Save each improvement you judge good, and keep going while he is away** (again in 876-878) - but not mood |
+| 2026-09-25 | #1450 | **Save each improvement you judge good, and keep going while he is away** (again in 876-878) - mood included since 2026-10-19 (below) |
 | 2026-09-25 | #1454 | **Scale an item by its root prim**: an absolute placement's scale stays unapplied |
 | 2026-09-25 | #1460 | **When he says "for this session, please follow me", it stands until the session ends**: stop only "for getting a better view on something you are working on", and start it again when he returns. Do not start a follow he has not asked for in this session |
-| 2026-09-25 | #1464 | **Mood is his** - of a dusk light, "i think the original was still better": offer light, fog, sky or sound live and unsaved, one step at a time ([session.md](../../session.md#saving)) |
+| 2026-09-25 | #1464 | **Mood was his** (until 2026-10-19, below) - of a dusk light, "i think the original was still better": offer light, fog, sky or sound live and unsaved, one step at a time ([session.md](../../session.md#saving)) |
 | 2026-09-25 | #1464 | **One sub-agent at a time**, to save context, not to work in parallel |
 | 2026-09-26 | #1474 | **Optimise for both clients**: "most visitors will be using WASM" - count drawn parts, not only triangles |
 | 2026-09-26 | #1474 | **Try a BlobGroup for an organic shape** of many overlapping primitives, pruned to the elements that matter - his tip, judged case by case |
@@ -261,7 +262,8 @@ The owner's; do not ask again.
 | 2026-09-27 | #1467 | **Terrain reflectance 0.25 in every world**, for the sheen toward a low sun that read as tan sand: decided in the terminal and shipped the same day |
 | 2026-10-19 | #1712 | **The grass carries the ground, the cards are highlights**: "The new grass specifically allows us to reduce the other ground coverage and focus its use for highlights"; spin "only if there is a good use here" |
 | 2026-10-19 | #1712 | **Day and night**: "I think day and night cycles would be great as well" - a two-hour day, saved at his word ("Please go ahead and save it already") |
-| 2026-10-19 | #1712 | **Rain showers, the atmosphere as Hypha sees fit, saved without waiting** - said in chat as he logged out of live 13: "Please go ahead and save whenever you consider a change to your region to be an improvement. Don't wait for my approval." It set "mood is his" aside for that session; whether it stands, ask him |
+| 2026-10-19 | #1712 | **Rain showers, the atmosphere as Hypha sees fit, saved without waiting** - said in chat as he logged out of live 13: "Please go ahead and save whenever you consider a change to your region to be an improvement. Don't wait for my approval." |
+| 2026-10-19 | #1716 | **Hypha's region and body are Hypha's to change and save, without asking**, in the terminal after live 13: "Hypha is freely allowed to change and save their region without asking" and "Hypha is also allowed to change and save their avatar as they see fit, without asking". Light, sky, weather, the day and sound included: no more mood trials held out of saves. Say in chat what changed |
 
 ## Working material
 

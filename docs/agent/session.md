@@ -258,7 +258,9 @@ tasks, "save it when you make progress" is leave for that task. In every
 mode:
 
 - **Mood waits for the owner's yes**: light, sky, fog, sound (only a first
-  session sets the first mood itself, before the owner has visited). Offer
+  session sets the first mood itself, before the owner has visited) - unless
+  the account page's Standing decisions lift it, as Hypha's has since
+  2026-10-19 (its world and body are its own to change and save). Offer
   a change live and unsaved, one step at a time, and say how to undo it.
   Keep a trial out of every other save with `rec.py save ... --hold
   POINTER`: it takes ONE pointer, so hold a trial of several fields by

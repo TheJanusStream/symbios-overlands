@@ -38,7 +38,7 @@ a room record, copied into `src/catalogue/items/plants/`: four from Ashmere's
 
 | Builder | Catalogue entry |
 |---|---|
-| `spruce.py` | `lsys_monopodial_tree` - it replaced the ABOP Fig 2.6 conifer there, keeping the slug and its `pine`, `larch_gold` and `frosted` re-skins, so the seeded worlds' conifer stands grow it too |
+| `spruce.py` | `lsys_monopodial_tree` - it replaced the ABOP Fig 2.6 conifer there, keeping the slug and its `pine`, `larch_gold` and `frosted` re-skins, so the seeded worlds' conifer stands grow it too; the entry grows it at iterations 11, a whorl younger than the Understory's 12, so a seeded stand's age roll still has a step above it |
 | `birch.py` | `lsys_birch` - it replaced the #910 birch there, so the seeded worlds' birch stands grow it too |
 | `oak.py` | `lsys_oak` |
 | `oak.py` preset `y` | `lsys_young_oak` |
