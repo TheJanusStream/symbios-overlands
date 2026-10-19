@@ -287,6 +287,20 @@ impl<'de> Deserialize<'de> for Fp64 {
     }
 }
 
+/// `value` as a peer reads it back (#1704): written as the wire writes it
+/// and read back, so every fixed-point field in it sits on the 1/10 000
+/// grid exactly where [`Fp::on_wire`] puts one. What a deriver hands on,
+/// so the world its owner draws is the one every peer draws from the
+/// published record: a hair's difference in a terrain's floats is a
+/// different shoreline once erosion has run. `None` where `value` cannot
+/// be written (a variant this build only carries opaquely, #1111). Through
+/// the written bytes, not a JSON value tree, so a seeded world's few hundred
+/// kilobytes cost about their own size at the peak - wasm's memory never
+/// gives back what it once grew to.
+pub(crate) fn read_back<T: Serialize + serde::de::DeserializeOwned>(value: &T) -> Option<T> {
+    serde_json::from_slice(&serde_json::to_vec(value).ok()?).ok()
+}
+
 /// Rigid-body transform encoded as fixed-point arrays on the wire.
 ///
 /// Default-eliding wire format (#695): identity components (zero

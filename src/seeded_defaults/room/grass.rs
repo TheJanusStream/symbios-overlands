@@ -633,7 +633,10 @@ mod tests {
             let did = format!("did:seed:{seed}");
             let record = build_room_with_source(seed, &did, None);
             let palette = RoomPalette::from_scene(&scene, seed);
-            let grass = SeededGrass::from_scene(&scene, &palette, seed).config;
+            // As the world is handed on, read back from the wire (#1704).
+            let grass =
+                crate::pds::read_back(&SeededGrass::from_scene(&scene, &palette, seed).config)
+                    .expect("a grass writes");
             let terrain = crate::pds::find_terrain_config(&record).expect("a terrain");
             assert_eq!(terrain.grass, grass, "seed {seed}: the terrain sets it");
             let flowers = grass.flower_colors.clone().unwrap_or_default();
@@ -657,7 +660,9 @@ mod tests {
                         }
                     }
                     other => {
-                        let own = catalogued(*other);
+                        // Its own, as the wire holds it (#1704).
+                        let own =
+                            crate::pds::read_back(&catalogued(*other)).expect("a card writes");
                         assert_eq!(generator, &own, "seed {seed}: {other:?} keeps its own");
                         marram += textures(&own)
                             .iter()

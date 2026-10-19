@@ -261,6 +261,7 @@ pub use texture::{
     SovereignTextureConfig, SovereignThatchConfig, SovereignTruchetConfig, SovereignTwigConfig,
     SovereignWainscotingConfig, SovereignWeatheringConfig, SovereignWindowConfig,
 };
+pub(crate) use types::read_back;
 pub use types::{
     BiomeFilter, FP_SCALE, Fp, Fp2, Fp3, Fp4, Fp64, ScatterBounds, ScatterNaturalness,
     TransformData, WaterRelation, map_u8_as_string, map_u16_as_string, sorted_string_map,

@@ -149,15 +149,18 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
     terrain_cfg.grass = seeded_grass.config.clone();
 
     // Terrain-aware settlement siting (#905): a low-resolution proxy
-    // of the exact heightmap this config will generate, segmented
-    // into buildable flat regions. Deterministic from the config, so
-    // peers derive identical rooms. The water level uses the same
-    // fraction × height-scale product the Water child below places
-    // its surface at.
+    // of the heightmap this config generates, segmented into buildable
+    // flat regions - and the ground the scatters' bands are relaxed
+    // against below. Deterministic from the config, so peers derive
+    // identical rooms. Read as derived, before the wire's grid (#1704):
+    // every seeded layout was cut against this ground, and what the probe
+    // decides is kept in the record. The water level uses the same
+    // fraction × height-scale product the Water child below places its
+    // surface at.
     let seeded_water_y = shape.water_level_fraction * shape.height_scale;
     let terrain_probe = TerrainProbe::new(
         &gen_jobs::run_heightmap_proxy(
-            &crate::terrain::heightmap_params(&terrain_cfg),
+            &crate::terrain::heightmap_params_as_derived(&terrain_cfg),
             SETTLEMENT_PROXY_GRID,
         ),
         seeded_water_y,
@@ -793,7 +796,7 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
     environment.ambient_audio =
         crate::pds::audio::SovereignAudioConfig::from_sequence(&ambient.recipe);
 
-    RoomRecord {
+    let record = RoomRecord {
         lex_type: COLLECTION.into(),
         environment,
         generators,
@@ -803,7 +806,16 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
         default_landing,
         geo_source: berlin.map(crate::pds::GeoSource::berlin),
         opaque_refs: std::collections::BTreeMap::new(),
-    }
+    };
+    // The world as every peer reads it back once it is saved (#1704):
+    // every float on the wire's 1/10 000 grid. Built off it, the seed's
+    // last places were a different shoreline once erosion had run, and
+    // other trees, flowers and tufts standing on it - so a world changed
+    // the moment its owner saved it.
+    crate::pds::read_back(&record).unwrap_or_else(|| {
+        bevy::log::warn!("seed {seed}: the seeded world would not write; kept as derived");
+        record
+    })
 }
 
 /// Wire one seeded [`crate::seeded_defaults::SettlementMember`] into the
@@ -2036,6 +2048,66 @@ mod tests {
         let a = RoomRecord::default_for_seed(0xABCD_1234, "did:test:reroll");
         let b = RoomRecord::default_for_seed(0xABCD_1234, "did:test:reroll");
         assert!(!crate::state::records_differ(&a, &b));
+    }
+
+    /// #1704: a seeded world is the record every peer reads back once it is
+    /// saved - every float on the wire's 1/10 000 grid - so saving it moves
+    /// nothing anyone draws. Its ground had moved: world 34's terrain read
+    /// back differed by up to 9 cm in height, and its shoreline and the
+    /// trees, flowers and tufts standing on it moved with that. Compared to
+    /// the last bit, over procedural worlds and Berlin squares alike, since
+    /// `records_differ` compares the written form, which cannot see a value
+    /// between two steps of the grid.
+    #[test]
+    fn a_seeded_world_is_the_record_its_peers_read_back() {
+        let number = |line: &str| line.trim().trim_end_matches(',').parse::<f32>().ok();
+        // Two Debug forms of one part of a world, which holds no map, so
+        // each is in order and prints every float to its last bit: equal,
+        // but for a value of 512 or more, which may still move one step of
+        // the grid on a second write (#1705) - a tenth of a millimetre of a
+        // far position, a ten-thousandth of a hertz of the ambient track.
+        let alike = |seed: u64, part: &str, ours: String, theirs: String| {
+            assert_eq!(
+                ours.lines().count(),
+                theirs.lines().count(),
+                "seed {seed}: {part}"
+            );
+            for (a, b) in ours.lines().zip(theirs.lines()).filter(|(a, b)| a != b) {
+                let one_step_out = number(a)
+                    .zip(number(b))
+                    .is_some_and(|(x, y)| x.abs() >= 512.0 && (x - y).abs() < 1.5e-4);
+                assert!(
+                    one_step_out,
+                    "seed {seed}: its {part} moved on the wire: {a} / {b}"
+                );
+            }
+        };
+        let mut berlin = 0;
+        for seed in 1..=40u64 {
+            let record = RoomRecord::default_for_seed(seed, "did:test:wire");
+            berlin += usize::from(record.geo_source.is_some());
+            let saved: RoomRecord = serde_json::from_str(
+                &serde_json::to_string(&record).expect("a seeded world writes"),
+            )
+            .expect("and reads back");
+            assert_eq!(record.generators, saved.generators, "seed {seed}");
+            assert_eq!(record.traits, saved.traits, "seed {seed}");
+            assert_eq!(record.default_landing, saved.default_landing, "seed {seed}");
+            assert_eq!(record.geo_source, saved.geo_source, "seed {seed}");
+            alike(
+                seed,
+                "placements",
+                format!("{:#?}", record.placements),
+                format!("{:#?}", saved.placements),
+            );
+            alike(
+                seed,
+                "environment",
+                format!("{:#?}", record.environment),
+                format!("{:#?}", saved.environment),
+            );
+        }
+        assert!(berlin > 0, "the seeds cover a Berlin square");
     }
 
     /// #810 acceptance: the seeded tree scatters respect both entity

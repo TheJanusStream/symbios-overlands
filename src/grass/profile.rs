@@ -95,7 +95,12 @@ impl GrassProfile {
             self.dry = colour.0;
         }
         if let Some(share) = own.dry_share {
-            self.dry_share = share.0.clamp(0.0, 1.0);
+            // As the wire holds it (#1704): the share a peer reads, and the
+            // one a tuft matched to it holds as its `Fp64` dry fraction -
+            // the two round apart in the last place, an `Fp` written with
+            // an f32 product and an `Fp64` with an f64 one, unless both
+            // start from the wire's value.
+            self.dry_share = share.on_wire().0.clamp(0.0, 1.0);
             self.height = height_for(self.dry_share);
         }
         if let Some(colours) = &own.flower_colors {
@@ -301,7 +306,7 @@ fn height_for(dry_share: f32) -> f32 {
 pub fn unset_height(derived: &GrassProfile, own: &SovereignGrassConfig) -> f32 {
     height_for(
         own.dry_share
-            .map_or(derived.dry_share, |share| share.0.clamp(0.0, 1.0)),
+            .map_or(derived.dry_share, |share| share.on_wire().0.clamp(0.0, 1.0)),
     )
 }
 
@@ -357,13 +362,14 @@ pub fn match_tuft_to(tuft: &mut SovereignGrassTuftConfig, own: &SovereignGrassCo
     else {
         return;
     };
-    // As `GrassProfile::with_settings` takes them, so the match is the one
-    // `TuftMatch::of` makes of the world's grass.
+    // As `GrassProfile::with_settings` takes them - the share as the wire
+    // holds it (#1704) - so the match is the one `TuftMatch::of` makes of
+    // the world's grass.
     let grass = TuftMatch {
         base: base.0,
         tip: tip.0,
         dry: dry.0,
-        dry_fraction: Fp64(f64::from(share.0.clamp(0.0, 1.0))).on_wire(),
+        dry_fraction: Fp64(f64::from(share.on_wire().0.clamp(0.0, 1.0))).on_wire(),
     };
     grass.apply(tuft);
 }
@@ -774,25 +780,37 @@ mod tests {
     /// A match outlives a save: the tufts as a peer reads them back - every
     /// value on the wire's grid - still hold the grass, whose dry share an
     /// f32 holds a hair off the grid, so a second match changes nothing.
+    /// Also for a share a slider can stop at whose f32 and f64 products
+    /// round apart (#1704): written as an `Fp` and as a tuft's `Fp64`, it
+    /// lands a step apart unless both start from the wire's value.
     #[test]
     fn a_match_survives_the_wire() {
-        use crate::pds::Fp;
-        let mut record = auto_world();
-        record.placements.clear();
-        tuft_scatter(
-            &mut record,
-            "gc_tufts",
-            600,
-            SovereignGrassTuftConfig::default(),
-        );
-        settings(&mut record).dry_share = Some(Fp(0.3));
-        settings(&mut record).color_tip = Some(Fp3([0.61, 0.47, 0.13]));
-        assert!(match_tufts(&mut record) > 0);
+        use crate::pds::{FP_SCALE, Fp};
+        let apart = (0.1f32.to_bits()..)
+            .map(f32::from_bits)
+            .find(|s| {
+                (s * FP_SCALE).round() as i64
+                    != (f64::from(*s) * f64::from(FP_SCALE)).round() as i64
+            })
+            .expect("a share whose products round apart");
+        for share in [0.3, apart] {
+            let mut record = auto_world();
+            record.placements.clear();
+            tuft_scatter(
+                &mut record,
+                "gc_tufts",
+                600,
+                SovereignGrassTuftConfig::default(),
+            );
+            settings(&mut record).dry_share = Some(Fp(share));
+            settings(&mut record).color_tip = Some(Fp3([0.61, 0.47, 0.13]));
+            assert!(match_tufts(&mut record) > 0);
 
-        let wire = serde_json::to_string(&record).expect("the world writes");
-        let mut read: RoomRecord = serde_json::from_str(&wire).expect("it reads back");
-        assert_eq!(tufts(&read).unmatched, 0, "the tufts still match");
-        assert_eq!(match_tufts(&mut read), 0);
+            let wire = serde_json::to_string(&record).expect("the world writes");
+            let mut read: RoomRecord = serde_json::from_str(&wire).expect("it reads back");
+            assert_eq!(tufts(&read).unmatched, 0, "{share}: the tufts still match");
+            assert_eq!(match_tufts(&mut read), 0, "{share}");
+        }
     }
 
     /// Soil colours: green grows, brown a little, white not at all.

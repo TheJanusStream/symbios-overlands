@@ -48,7 +48,9 @@
 pub(crate) mod derived;
 pub(crate) mod geo;
 mod heightmap;
+#[cfg(test)]
 pub(crate) use heightmap::heightmap_params;
+pub(crate) use heightmap::heightmap_params_as_derived;
 mod lifecycle;
 mod lots;
 pub mod referenced;

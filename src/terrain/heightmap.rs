@@ -10,7 +10,7 @@ use bevy_symbios_ground::{
 
 use crate::config::terrain as tcfg;
 use crate::offload::{GenJob, GenResult};
-use crate::pds::SovereignTerrainConfig;
+use crate::pds::{Fp, SovereignTerrainConfig};
 use crate::splat::{SplatExtension, SplatTerrainMaterial, SplatUniforms};
 use crate::state::LiveRoomRecord;
 
@@ -358,30 +358,68 @@ pub(super) fn spawn_terrain_mesh(
 /// [`gen_jobs::HeightmapParams`] the offload layer runs. The generation itself
 /// lives in the Bevy-free [`gen_jobs`] crate so native and the wasm Web Worker
 /// share one (deterministic) implementation.
+///
+/// Every float as the wire holds it (#1704). Erosion carries a difference in
+/// the last place of one out to the shoreline, so the ground is built from
+/// what every peer reads back of the record, whoever wrote the value - an
+/// owner's slider stopped between two steps of the 1/10 000 grid draws the
+/// ground its peers draw - and is the ground its key, the land's JSON
+/// ([`super::terrain_fingerprint`]), names. A value read from a record
+/// passes through unchanged: below 512 it is the grid's own, and a value
+/// that large - only a height scale an owner's slider cannot reach - is read
+/// as it is held, since rounding it again can move it a step (#1705).
 pub(crate) fn heightmap_params(cfg: &SovereignTerrainConfig) -> gen_jobs::HeightmapParams {
+    params_reading(cfg, |value| {
+        if value.0.abs() < 512.0 {
+            value.on_wire().0
+        } else {
+            value.0
+        }
+    })
+}
+
+/// [`heightmap_params`] from the floats as `cfg` holds them, off the wire's
+/// grid where a deriver left them: for the seeder's terrain probe alone
+/// (#1704) - where its settlement is sited, and which of its scatters' bands
+/// are kept. Every seeded layout - where a settlement stands and on what
+/// plinths, where a Berlin square's gate and landing are - was cut against
+/// this ground, and moving one moves that unsaved world on every peer, a
+/// migration by the seeded fixtures' rule. What the probe decides is kept
+/// in the record, so every peer draws it alike all the same.
+pub(crate) fn heightmap_params_as_derived(
+    cfg: &SovereignTerrainConfig,
+) -> gen_jobs::HeightmapParams {
+    params_reading(cfg, |value| value.0)
+}
+
+/// The heightmap job for `cfg`, each of its floats read through `read`.
+fn params_reading(
+    cfg: &SovereignTerrainConfig,
+    read: impl Fn(Fp) -> f32,
+) -> gen_jobs::HeightmapParams {
     gen_jobs::HeightmapParams {
         grid_size: cfg.grid_size,
-        cell_scale: cfg.cell_scale.0,
-        height_scale: cfg.height_scale.0,
+        cell_scale: read(cfg.cell_scale),
+        height_scale: read(cfg.height_scale),
         generator_kind: cfg.generator_kind.to_gen_job(),
         seed: cfg.seed,
         octaves: cfg.octaves,
-        persistence: cfg.persistence.0,
-        lacunarity: cfg.lacunarity.0,
-        base_frequency: cfg.base_frequency.0,
-        ds_roughness: cfg.ds_roughness.0,
+        persistence: read(cfg.persistence),
+        lacunarity: read(cfg.lacunarity),
+        base_frequency: read(cfg.base_frequency),
+        ds_roughness: read(cfg.ds_roughness),
         voronoi_num_seeds: cfg.voronoi_num_seeds,
         voronoi_num_terraces: cfg.voronoi_num_terraces,
         erosion_enabled: cfg.erosion_enabled,
         erosion_drops: cfg.erosion_drops,
-        inertia: cfg.inertia.0,
-        erosion_rate: cfg.erosion_rate.0,
-        deposition_rate: cfg.deposition_rate.0,
-        evaporation_rate: cfg.evaporation_rate.0,
-        capacity_factor: cfg.capacity_factor.0,
+        inertia: read(cfg.inertia),
+        erosion_rate: read(cfg.erosion_rate),
+        deposition_rate: read(cfg.deposition_rate),
+        evaporation_rate: read(cfg.evaporation_rate),
+        capacity_factor: read(cfg.capacity_factor),
         thermal_enabled: cfg.thermal_enabled,
         thermal_iterations: cfg.thermal_iterations,
-        thermal_talus_angle: cfg.thermal_talus_angle.0,
+        thermal_talus_angle: read(cfg.thermal_talus_angle),
     }
 }
 
@@ -395,6 +433,86 @@ pub(super) fn heightmap_from_data(d: gen_jobs::HeightmapData) -> HeightMap {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #1704: the ground is built from the terrain's floats as the wire
+    /// holds them, so an owner's slider stopped between two steps of the
+    /// 1/10 000 grid draws the ground its peers draw from the record - and a
+    /// terrain already on the grid, every saved world's, is built from its
+    /// floats exactly as they are. Every float `heightmap_params` reads is
+    /// set off the grid here, so one it read past the grid fails the first
+    /// check.
+    #[test]
+    fn the_ground_is_built_from_the_floats_the_wire_holds() {
+        let off = SovereignTerrainConfig {
+            cell_scale: Fp(2.000_03),
+            height_scale: Fp(41.234_57),
+            persistence: Fp(0.512_345),
+            lacunarity: Fp(2.012_345),
+            base_frequency: Fp(4.123_456),
+            ds_roughness: Fp(0.567_891),
+            inertia: Fp(0.051_234),
+            erosion_rate: Fp(0.312_345),
+            deposition_rate: Fp(0.298_765),
+            evaporation_rate: Fp(0.020_123),
+            capacity_factor: Fp(8.012_345),
+            thermal_talus_angle: Fp(0.051_234),
+            ..SovereignTerrainConfig::default()
+        };
+        let saved: SovereignTerrainConfig = crate::pds::read_back(&off).expect("a terrain writes");
+        let floats = |c: &SovereignTerrainConfig| {
+            [
+                c.cell_scale,
+                c.height_scale,
+                c.persistence,
+                c.lacunarity,
+                c.base_frequency,
+                c.ds_roughness,
+                c.inertia,
+                c.erosion_rate,
+                c.deposition_rate,
+                c.evaporation_rate,
+                c.capacity_factor,
+                c.thermal_talus_angle,
+            ]
+        };
+        for (set, read) in floats(&off).into_iter().zip(floats(&saved)) {
+            assert_ne!(set, read, "{set:?} is set off the grid");
+        }
+        assert_eq!(heightmap_params(&off), heightmap_params(&saved));
+        // On the grid, every float is read exactly as it is held.
+        let params = heightmap_params(&saved);
+        let read = [
+            params.cell_scale,
+            params.height_scale,
+            params.persistence,
+            params.lacunarity,
+            params.base_frequency,
+            params.ds_roughness,
+            params.inertia,
+            params.erosion_rate,
+            params.deposition_rate,
+            params.evaporation_rate,
+            params.capacity_factor,
+            params.thermal_talus_angle,
+        ];
+        for (read, held) in read.into_iter().zip(floats(&saved)) {
+            assert_eq!(read.to_bits(), held.0.to_bits());
+        }
+        // A height scale of 512 or more, as the wire reads one, is built as
+        // it is held, though rounding it again would move it a step (#1705).
+        let past_the_grid = (5_120_000i64..)
+            .map(|k| Fp(k as f32 / crate::pds::FP_SCALE))
+            .find(|v| v.on_wire() != *v)
+            .expect("a value past 512 that rounding moves");
+        let tall = SovereignTerrainConfig {
+            height_scale: past_the_grid,
+            ..SovereignTerrainConfig::default()
+        };
+        assert_eq!(
+            heightmap_params(&tall).height_scale.to_bits(),
+            past_the_grid.0.to_bits()
+        );
+    }
 
     /// #1595: a geodata region's streets spawn with its terrain - children
     /// of its root, at the road offset, the deck and the structure with
