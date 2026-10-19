@@ -6,9 +6,11 @@
 //! standard and one trailing edge - this bed is mixed and loose (#972): a
 //! shrub off-centre at the back, two coneflowers in two colours, and two
 //! ferns low at the front, each a real L-system species nested in the prop
-//! rather than a sphere. The shrub and ferns are the catalogue's own
-//! [`bush`](crate::catalogue::items::plants::lsys_bush) and
-//! [`fern`](crate::catalogue::items::plants::lsys_fern), each at a uniform
+//! rather than a sphere. The shrub is the catalogue's own
+//! [`bush`](crate::catalogue::items::plants::lsys_bush) and the ferns the
+//! L-system rosette the catalogue's
+//! [`fern`](crate::catalogue::items::plants::lsys_fern) was until #1711,
+//! kept here as the bed's own grammar (`bed_fern`), each at a uniform
 //! scale (a nested plant's cards scale with its node, so one number
 //! instances the whole species) and at a YOUNGER age: in these grammars the
 //! iteration count is the plant's age, so a bed-sized specimen is grown
@@ -25,12 +27,17 @@
 //! it shows. It is the tree's root; the stones and all five plants are its
 //! children, so one drag moves the bed and everything growing in it.
 
-use crate::catalogue::items::plants::{lsys_bush, lsys_coneflower, lsys_fern};
+use std::collections::HashMap;
+
+use crate::catalogue::items::plants::{lsys_bush, lsys_coneflower};
 use crate::catalogue::items::util::{
     cuboid_tapered, id_quat, nest, prim, prim_scaled, quat_y, soil, solid,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
-use crate::pds::{Generator, GeneratorKind};
+use crate::pds::{
+    Fp, Fp3, Fp64, Generator, GeneratorKind, PropMeshType, SovereignFrondConfig,
+    SovereignMaterialSettings, SovereignTextureConfig,
+};
 use crate::seeded_defaults::{EscalationBand, EscalationTier, ThemeArchetype};
 
 use super::{STONE, stone};
@@ -164,11 +171,95 @@ impl Layout {
     };
 }
 
+/// The bed's fern: the #910 L-system rosette the catalogue's `lsys_fern`
+/// was until #1711, kept here because the bed is planted with grammars -
+/// its age, its seed and the planting guards below (`nested_plants` and
+/// the rest) all read an L-system - and its ferns are nested younger, at
+/// age 5, which a turned card has no way to be. The catalogue's fern is
+/// now one turned card ([`lsys_fern`](crate::catalogue::items::plants::lsys_fern)).
+///
+/// The crown emits one frond per iteration at a stochastic launch pitch,
+/// rolled near the golden angle so the rosette fills evenly; each frond
+/// extends one decaying segment per iteration with leaflet pairs at every
+/// node, its residual coil relaxing as it ages (circinate vernation, #917).
+fn bed_fern() -> GeneratorKind {
+    let mut materials = HashMap::new();
+    // 0 - green rachis stem (leaf-toned so the thin stalk blends).
+    materials.insert(
+        0,
+        SovereignMaterialSettings {
+            base_color: Fp3([0.16, 0.30, 0.10]),
+            roughness: Fp(0.8),
+            ..Default::default()
+        },
+    );
+    // 1 - deep forest-floor green leaflet. A fine pinnatifid pinna: narrow,
+    // with a lobed (crenate) margin so each leaflet reads as a fern pinnule
+    // rather than a smooth broadleaf.
+    materials.insert(
+        1,
+        SovereignMaterialSettings {
+            base_color: Fp3([0.15, 0.34, 0.11]),
+            roughness: Fp(0.65),
+            texture: SovereignTextureConfig::Frond(SovereignFrondConfig {
+                color_base: Fp3([0.10, 0.28, 0.08]),
+                color_edge: Fp3([0.20, 0.40, 0.13]),
+                width: Fp64(0.11),
+                tip_taper: Fp64(1.6),
+                vein_count: Fp64(7.0),
+                lobe_count: Fp64(5.0),
+                lobe_depth: Fp64(0.4),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+    );
+
+    let mut prop_mappings = HashMap::new();
+    prop_mappings.insert(0, PropMeshType::Leaf);
+
+    GeneratorKind::LSystem {
+        // C emits one frond per iteration at a stochastic launch pitch,
+        // rolled near the golden angle so the rosette fills evenly. Each
+        // frond D(s,u) extends one decaying segment per iteration (s*0.82,
+        // bounding total length) with leaflet pairs P at every node.
+        //
+        // CIRCINATE VERNATION (#917): `u` is the frond's residual coil
+        // angle, applied as the per-segment pitch and decaying 0.62× per
+        // step. A freshly emitted frond still carries ~55° of curl per
+        // segment - the tight crozier/fiddlehead of a young fern - while
+        // the oldest frond has relaxed to a few degrees and lies open.
+        // Because the rosette emits one frond per iteration, every age of
+        // frond coexists on one plant, which is exactly how a real fern
+        // reads. Finalization tips every rachis and expresses fresh P.
+        source_code: "omega: !(0.03)C\n\
+                      c1: 0.6 : C -> [&(40)D(0.18,55)]/(137.5)C\n\
+                      c2: 0.4 : C -> [&(55)D(0.16,62)]/(138.2)C\n\
+                      d1: D(s,u) -> !(0.022)F(s)P&(u)D(s*0.82,u*0.62)\n\
+                      p1: P -> ,(1)[+(48)~(0,14)][-(48)~(0,14)]"
+            .to_string(),
+        finalization_code: "D(s,u) : * -> ,(1)~(0,12)\n\
+             P -> ,(1)[+(48)~(0,14)][-(48)~(0,14)]"
+            .to_string(),
+        iterations: 7,
+        seed: 1,
+        angle: Fp(30.0),
+        step: Fp(1.0),
+        width: Fp(0.03),
+        elasticity: Fp(0.30),
+        tropism: Some(Fp3([0.0, -1.0, 0.0])),
+        materials,
+        prop_mappings,
+        prop_scale: Fp(0.04),
+        mesh_resolution: 6,
+    }
+}
+
 /// A planting's nested L-system node, its crown at `crown_y`.
 fn plant(p: &Planting, crown_y: f32) -> Generator {
     let mut kind = match p.species {
         Species::Bush => lsys_bush::Bush.build("").kind,
-        Species::Fern => lsys_fern::Fern.build("").kind,
+        Species::Fern => bed_fern(),
         Species::Coneflower(variant) => {
             let mut kind = lsys_coneflower::build_kind();
             if let GeneratorKind::LSystem { materials, .. } = &mut kind {

@@ -64,7 +64,10 @@ fn build_kind() -> GeneratorKind {
         },
     );
 
-    grammar(materials, 0.045, 8)
+    // Five sides a stem, as the Understory's `understory_bush` grows it
+    // (#1710): 3,070 triangles where eight made 3,958, and no difference to
+    // the eye at any distance a bush is seen from.
+    grammar(materials, 0.045, 5)
 }
 
 /// The bush's growth rules. Four stems splay from the base; each stem `S`

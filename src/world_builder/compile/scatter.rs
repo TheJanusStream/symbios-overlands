@@ -409,10 +409,12 @@ pub(crate) struct SampleFilters<'a> {
 }
 
 /// The inventory trees a scatter of `generator_ref` keeps clear of (#1588):
-/// where its generator grows a tree - an L-system, as every seeded stand
-/// is, and no ground cover - and the ground's street level has trees,
-/// which stand where Berlin's do. `None` everywhere else. The clearance is
-/// the street level's own, built once when it was decoded.
+/// where its generator grows a tree - an L-system, as every seeded tree
+/// stand is - and the ground's street level has trees, which stand where
+/// Berlin's do. `None` everywhere else. Ground cover grows under a crown,
+/// and so does a seeded fern stand, a lathe since #1711: the clearance is
+/// a crown's width and a fern has none. The clearance is the street
+/// level's own, built once when it was decoded.
 pub(crate) fn tree_clearance<'a>(
     record: &crate::pds::RoomRecord,
     generator_ref: &str,

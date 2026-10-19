@@ -566,8 +566,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &plants::lsys_topiary_standard::TopiaryStandard,
     &plants::lsys_trailing_ivy::TrailingIvy,
     &plants::lsys_coneflower::Coneflower,
-    // Ground-cover tier (#911) - crossed cards and flat decals, placed by
-    // the hundred, so each is a handful of entities rather than a grammar.
+    // Ground-cover tier (#911) - turned cards, crossed cards and cushions,
+    // placed by the hundred, so each is one to four parts rather than a
+    // grammar.
     &plants::groundcover::GrassTuft,
     &plants::groundcover::DryGrassTuft,
     &plants::groundcover::Wildflower,

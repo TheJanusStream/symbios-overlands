@@ -7,7 +7,10 @@ Understory, is a misty hollow round a still, peat-dark pool in an old forest,
 where the network glows along the ground and fruits in nine outer places. It
 played live sessions 2-6 (chainlink 873, 874, 876, 877 and 878); at the end of
 878 (2026-09-26) all was saved, and the owner's cleanup of 2026-09-27
-closed its five session parents (#1492).
+closed its five session parents (#1492). In live session 13 (chainlink 948,
+2026-10-19, #1712) it set its terrain's own grass, thinned the ground cover
+to highlights, set the spore plume and the Spore Spires rocking slowly, and
+gave the hollow passing rain showers and a turning day, all saved.
 
 ## Start here
 
@@ -20,13 +23,20 @@ session.
 | Commands | every agent command takes `--account hypha-ai.bsky.social`; every tool call starts `AGENT_ACCOUNT=hypha-ai.bsky.social` ([session.md](../../session.md#starting)) |
 | Admin | `@codewright.bsky.social`, the owner: `start --admin @codewright.bsky.social --allow-save` |
 | Region | the Understory, Hypha's own world: the world of its DID, which `render --world` takes |
-| Working folder | `exports/hypha/` (gitignored, on this machine only), kept across sessions: `src/room.json` and `src/avatar.json` are the last saves (copied from `878/src/`: room 2026-09-26 17:48 local, avatar 08:37), `log.md` the save log. The numbered subfolders `873/`, `874/`, `876/`, `877/` and `878/` are those sessions' scratchpads: read them, build nothing in them |
-| Last session | chainlink session 878 (live session 6), parent #1474 - read its comments (the ranked review, the progress notes, the summary) (`chainlink show 1474`); `chainlink session last-handoff` is the latest session of any kind (879 was Reeve's, 880 docs work) |
-| Default mode | [self-guided](../../session.md#self-guided), as in 878; 873-877 took tasks in chat |
+| Working folder | `exports/hypha/` (gitignored, on this machine only), kept across sessions: `src/room.json` and `src/avatar.json` are the last saves (room copied from `948/src/`, saved 2026-10-19 10:23 local, seq 13 of that run; avatar from `878/src/`, 2026-09-26 08:37), `log.md` the save log. The numbered subfolders `873/`, `874/`, `876/`, `877/`, `878/` and `948/` are those sessions' scratchpads: read them, build nothing in them |
+| Last session | chainlink session 948 (live session 13), parent #1712 - read its comments (`chainlink show 1712`); the one before, 878 (live 6, #1474), holds the last ranked review; `chainlink session last-handoff` is the latest session of any kind |
+| Default mode | [self-guided](../../session.md#self-guided), as in 878; 873-877 and 948 took tasks in chat |
 | Never | touch Reeve's world (Ashmere) or his avatar ([his page](../reeve/README.md)), Jink's world (Parabola Flats) or avatar ([its page](../jink/README.md)), or Eigen's world (Isoline) or avatar ([eigen/](../eigen/README.md)); close a live session's parent - the owner does that |
 
 - No live retry of Hypha's own is pending. What waits on the owner (browser
   tests) is in [Open threads](#open-threads): not yours to close.
+- The day turns since 948 (two real hours) and showers come and go: a render
+  without `--hour` and `--weather` draws whatever the clock says - night, or
+  rain. Judge a change with `--hour 12` and, for the ground, a dry render;
+  and before telling the owner when it rains, work the weather's timeline out
+  (`src/weather.rs` `severity_at`), as 948 did when he had seen none.
+- The grass is the terrain's own group since 948: thin or move a tuft scatter
+  freely, it no longer changes the grass ([Grass](#land-water-and-sky)).
 - The old builders are stale and name scratchpads that are gone: diff before
   re-running one ([Working material](#working-material)).
 - New since 878 ([tools/](../../tools/README.md)): `hedge.py`, `fence.py`,
@@ -129,6 +139,25 @@ since 877 take that colour for their last 25 m.
   `reflectance` 0.08); it mirrors no trees, only sky and fog.
 - **Sky** (873): a low, warm sun about 20 degrees up in the west-south-west,
   9,000 lux; grey-green haze, `fog_visibility` 300 m. Kept over a dusk trial.
+- **Rain showers** (948, the owner's wish): `/environment/weather` rain that
+  comes and goes in 8-minute spells, at most 0.6 - the heaviest greys the
+  hollow and rings the pool while the threads and foxfire glow through it;
+  1.0 turned everything grey. On the game's own clock it rains half the
+  time (over half strength a quarter) and clouds gather in four fifths of
+  it; that is the weather model, not the setting. `948/e/weather/`.
+- **A turning day** (948, the owner's wish: "day and night cycles would be
+  great"): `/environment/time_of_day`, `day_minutes` 120. The room's fields
+  stay its noon, so the sun never climbs past their 20 degrees - golden all
+  day, redder toward six and eighteen - and by night the moon, the threads,
+  the foxfire and every place's glow carry the hollow. The owner on its first
+  evening: "It looks lovely so far." `948/e/day/build.py` sets the phase so
+  the room stands at a chosen hour when applied.
+- **Grass** (948): the terrain's own `grass` group, so it no longer follows
+  the heath tufts - their colours held (the default tuft's),
+  `layer_density` 0.5 / 0.45 / 0 / 0.75 (moss hollow, litter, rock, ridge
+  tops), `clumpiness` 1.3, `flower_share` 0.0009 (what the 160 lily cards
+  gave on Auto among 10,800 tufts). It carries the ground; the cards are
+  highlights. `948/e/ground/build.py`.
 - **Forest**: `old_broadleaf`, `dark_conifer` and `pale_birch` (the last two
   re-authored in 878, [examples/trees/](../../examples/trees/README.md)),
   `understory_bush`, `fungus_snag` (the dead tree); ground cover `fern_clump`,
@@ -163,10 +192,10 @@ middle of a place of several parts; "Built" is the chainlink session.
 | Mother Tree | 80, 70 | the east shore: a hand-built trunk with buttress roots, glowing threads and bracket fungi in tiers; its crown a copy of the forest's own broadleaf L-system with older limbs | 874; brackets 876 |
 | Old Snag | 12, 152 | the pool's south end: a hollow dead giant; shelf fungi spiral up to a lookout at 15.7 m, glowing green beneath | 874; glow 878 |
 | Mossy logs | -45, 30; 30, 145; 10, -10; -20, -5 | fallen logs with honey caps, bootlaces and a glow in their broken ends; foxfire clusters beside three of them | 873 |
-| Spore Spires | -222, 55 | the west plateau, green: giant glowing Mycena over the treeline | 876 |
+| Spore Spires | -222, 55 | the west plateau, green: giant glowing Mycena over the treeline; the five giants (28-58 m) rock in the wind's plane, each under a degree at its own pace (a `.wobble`, 9.5-13 s), each stem cut at its second point so its foot keeps a collider | 876; rocking 948 |
 | Ghost Grove | 130, -165 | a rise to the north, pale mint: a 34 m bleached tree with glowing tiers of ghost fungus and a halo of motes, six ghost snags | 876 |
 | Drowned Wood | about 180, -440 | the north lake's shallows: ten ghost snags standing in 0.3-3.5 m of water, reeds, lilies, motes | 876 |
-| Puffball Meadow | 268, 125 | the east ridge, gold: a burst giant puffball smoking a spore plume (one BlobGroup of 16), young and cracked puffballs, earthstars, heath | 876; plume 877, 878 |
+| Puffball Meadow | 268, 125 | the east ridge, gold: a burst giant puffball smoking a spore plume (one BlobGroup of 16, its origin at the mouth since 948, rocking 3 degrees every 9 s in the wind's plane), young and cracked puffballs, earthstars, heath | 876; plume 877, 878; rocking 948 |
 | Great Ring | 50, 315 | the south hill, amber: 13 giant honey clumps round a mother clump, a glowing rhizomorph circle; its fan fills the centre | 876 |
 | Windthrow | -217, 192 | a south-west hilltop, violet: a blown-down giant, its root plate torn up 10 m tall, the web in it glowing | 877 |
 | Lichen Tors | -160, -232 | the north-west crest, the highest ground, scarlet: three granite tors crusted with lichen, crowned with glowing scarlet lichen; solid | 877 |
@@ -185,11 +214,10 @@ like light, is the owner's to judge.
 
 ### Budget
 
-`render --triangle-report` on the saved record, 11:38 on 2026-09-26
-(`878/tri4.txt`): 15.95M triangles (the ground 0.52M), 38,579 drawn parts. The
-birch (17:39) and a coarser moss (17:48) came after: with their per-copy counts
-the world is about 15.51M, as #1474's last progress note says (19.19M at the
-session's start). The largest by triangles or parts, with those two counts:
+`render --triangle-report` on the saved record, 09:29 on 2026-10-19
+(`948/b/tri-saved.txt`): 14.36M triangles (the ground 0.52M), 21,812 drawn
+parts - 38,579 before 948 thinned the ground cover (15.51M triangles). The
+largest by triangles or parts:
 
 | Generator | Copies | Triangles each | Parts each |
 |---|---|---|---|
@@ -197,17 +225,18 @@ session's start). The largest by triangles or parts, with those two counts:
 | `dark_conifer` | 900 | 3,788 | 2 |
 | `understory_bush` | 531 | 3,070 | 2 |
 | `pale_birch` | 269 | 4,316 | 2 |
-| `moss_cushion` | 3,083 | 348 | 1 |
-| `fern_clump` | 10,700 | 80 | 1 |
+| `moss_cushion` | 2,333 | 348 | 1 |
+| `fern_clump` | 3,878 | 80 | 1 |
 | `coral_small` | 40 | 20,320 | 2 |
-| `heath_grass` | 10,800 | 36 | 1 |
 | `pool_reeds` | 3,064 | 36 | 1 |
-| `fern_rosette` | 2,140 | 80 | 1 |
+| `fern_rosette` | 1,940 | 80 | 1 |
+| `heath_grass` | 1,800 | 36 | 1 |
 
-Ground cover is about 78% of the parts, and a browser pays per part; past the
-Ground cover draw distance (#1480) small copies are not drawn, so cover where
-people stand costs the most. An older client keeps #1472's ceiling: keep
-copies x cards of one swaying generator under 65,535
+Ground cover is 60% of the parts (78% before 948), and a browser pays per
+part; past the Ground cover draw distance (#1480) small copies are not drawn,
+so cover where people stand costs the most. The grass blades cost no parts:
+they are drawn by the graphics card round each visitor. An older client keeps
+#1472's ceiling: keep copies x cards of one swaying generator under 65,535
 ([region.md](../../region.md#planting-scatters)). Measure before you compare.
 
 ## Standing decisions
@@ -230,6 +259,9 @@ The owner's; do not ask again.
 | 2026-09-26 | #1474 | **Measure a number before you state it**, in chat or in docs |
 | 2026-09-26 | #1481 | **Agents keep to their own**: the owner told Reeve never to touch Hypha's world or avatar; session.md holds every account to it, so never touch Reeve's |
 | 2026-09-27 | #1467 | **Terrain reflectance 0.25 in every world**, for the sheen toward a low sun that read as tan sand: decided in the terminal and shipped the same day |
+| 2026-10-19 | #1712 | **The grass carries the ground, the cards are highlights**: "The new grass specifically allows us to reduce the other ground coverage and focus its use for highlights"; spin "only if there is a good use here" |
+| 2026-10-19 | #1712 | **Day and night**: "I think day and night cycles would be great as well" - a two-hour day, saved at his word ("Please go ahead and save it already") |
+| 2026-10-19 | #1712 | **Rain showers, the atmosphere as Hypha sees fit, saved without waiting** - said in chat as he logged out of live 13: "Please go ahead and save whenever you consider a change to your region to be an improvement. Don't wait for my approval." It set "mood is his" aside for that session; whether it stands, ask him |
 
 ## Working material
 
@@ -245,7 +277,8 @@ generator JSON, records, save logs, edit files, renders.
 | `874/` | `body/body.py` (body v2); `mother/mother_tree.py`, `snag/old_snag.py`, `ring/ring.py`, `web/web.py`, `cover/groundcover.py`; `build/` (edits files, `apply.sh`); `welcome_back.txt` |
 | `876/` | `builders/` (`spires.py`, `outer_forest.py`, `ghost.py`, `puffballs.py`, `great_ring.py`, `outbound.py`, `grove_to_lake.py`, `mother_brackets.py`); `gen/` (JSON and sheets); `src/`; `ground/` (texture measurements); `summary.txt` |
 | `877/` | `log.md` (22 saves); `builders/` (`windthrow.py`, `tors.py`, `indigo.py`, `coral.py`, `plume.py`, ...); `gen/`; `av/` (the green threads); `src/`; `lessons.md` |
-| `878/` | `log.md` (the save log, with the save events' times); `src/room.json`, `src/avatar.json` - the LAST saves; `e/` (a folder per change: edits files, JSON, often a `build.py`; `e/avatar/roots.py` is the root fan); `gens/`; `tri*.txt`, `terr.txt` (reports) |
+| `878/` | `log.md` (the save log, with the save events' times); `src/room.json`, `src/avatar.json` - the avatar is the LAST save; `e/` (a folder per change: edits files, JSON, often a `build.py`; `e/avatar/roots.py` is the root fan); `gens/`; `tri*.txt`, `terr.txt` (reports) |
+| `948/` | `src/room.json` - the room's LAST save - and `src/room-before.json` (878's); `e/ground/build.py` (the grass group, the thinned scatters, the fern stands), `e/spin/build.py` (the plume and the spires cut and rocking), `e/weather/build.py` (the showers); `b/` (composed trials, `tri-*.txt` reports, `tri.py`); `v/` (renders, `g0-before.png` against `g1.png`) |
 
 - **The pulled records are the truth**, not the builders. 873's
   `understory.py` still writes the open-ended rock band and the choppy pool;
@@ -263,6 +296,20 @@ generator JSON, records, save logs, edit files, renders.
 ## History
 
 Newest first. "Live" is the owner's series across all accounts.
+
+**948 - 2026-10-19, live 13, #1712, chat tasks.** Logged in again (the
+saved token predated the sign-in's newer collections) to survey its plants
+for the catalogue (#1708, which chose the replacements of epic #1709: its
+spruce, bark snag and ground-cover lathes), then followed the owner. His task: use the new
+grass, weather and spin, the grass carrying the ground and the cards kept
+for highlights. Saved: the terrain's grass group, the fern carpets 10,700 ->
+3,878 and the heath tufts 10,800 -> 1,800, five fern stands by the logs and
+the Mother Tree (drawn parts 38,579 -> 21,812); the plume and the giant
+Spires rocking slowly; rain showers. He logged out early, leaving the
+atmosphere to Hypha and saves without waiting; back, he asked for day and
+night, and a two-hour turning day went in ("It looks lovely so far"). Failed at first: a fern stand
+by the Old Snag placed 2 of 20 (marsh 0.1-0.7 m above the water); thinning
+the tufts would have raised the Auto flower share 5.6 times.
 
 **878 - 2026-09-26, live 6, #1474, self-guided.** A ranked review, then about
 30 saves: branches at 5 sides (19.19M -> 15.10M triangles), reed beds, the Old
@@ -339,6 +386,11 @@ Shipped #1442 and #1444-#1447; filed #1448 and #1449.
   4. Short scatters (report of 11:38): `fern_rosette` (placement 149) placed
      170 of 500, `understory_bush` (placement 43) 7 of 16, and the waterline
      `moss_cushion` (placement 192) 238 of 500.
-- **Also open**: bare outer ground - a heath over all of it would need about
-  50,000 tufts (878): weigh it against the parts first. Known and left: the 52
-  rows `--floating-report` still names are gill plates inside the Spires' caps.
+- **Also open**: the outer ground is no longer bare - the terrain's grass
+  grows on every layer but the rock (948), where 878 reckoned a heath of
+  cards would need 50,000 tufts. Known and left: the 52 rows
+  `--floating-report` still names are gill plates inside the Spires' caps.
+- **Night is new** (948): every glow was tuned by day. Walk the places
+  after dark - the Ghost Grove's mint, the Lichen Tors' scarlet, the Indigo
+  Shallows' blue - and look for a glow that drowns its place or one that
+  goes missing.

@@ -770,9 +770,15 @@ mod ecs_tests {
     /// by material, grown by a grammar; a medium copy, whole and nested; a
     /// tree-sized one; and the same small cuboid placed absolutely.
     fn record() -> RoomRecord {
-        let fern = crate::catalogue::by_slug("lsys_fern")
-            .expect("the catalogue fern")
+        // A small plant the catalogue grows from a grammar: the fern was one
+        // until #1711 made it a turned card.
+        let fern = crate::catalogue::by_slug("lsys_coneflower")
+            .expect("the catalogue coneflower")
             .build("did:plc:test");
+        assert!(
+            matches!(fern.kind, GeneratorKind::LSystem { .. }),
+            "the grammar-grown case needs a grammar"
+        );
         let generators = HashMap::from([
             ("tuft".to_string(), cuboid([0.3, 1.0, 0.3])),
             ("painted".to_string(), painted()),
@@ -958,7 +964,7 @@ mod ecs_tests {
             assert_eq!(end(p), Some(cfg::DEFAULT_M));
         }
 
-        // Grammar-grown: every material bucket of an L-system fern, every
+        // Grammar-grown: every material bucket of an L-system flower, every
         // terminal of a shape-grammar box; and a sign's panel.
         for generator in ["fern", "crate", "sign"] {
             let grown = of(&parts, generator);

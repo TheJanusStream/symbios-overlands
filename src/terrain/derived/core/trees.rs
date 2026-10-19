@@ -85,7 +85,7 @@ pub(crate) const GROWN_HEIGHT_M: &[(&str, f32)] = &[
     ("lsys_birch", 9.21),
     ("lsys_flowering_tree", 5.18),
     ("lsys_hazel", 3.44),
-    ("lsys_monopodial_tree", 6.48),
+    ("lsys_monopodial_tree", 9.86),
     ("lsys_oak", 17.05),
     ("lsys_sympodial_tree", 8.18),
     ("lsys_ternary_gravity", 7.18),

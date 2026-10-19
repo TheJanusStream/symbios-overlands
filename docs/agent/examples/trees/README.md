@@ -32,11 +32,13 @@ field into its envelope: compare after a `room set`, not before.
 
 ## In the catalogue
 
-Four of these trees are catalogue entries now (#1496), each the generator
-saved in Ashmere's room record, copied into `src/catalogue/items/plants/`:
+Five of these trees are catalogue entries now, each the generator saved in
+a room record, copied into `src/catalogue/items/plants/`: four from Ashmere's
+(#1496) and the spruce from the Understory's (#1708):
 
 | Builder | Catalogue entry |
 |---|---|
+| `spruce.py` | `lsys_monopodial_tree` - it replaced the ABOP Fig 2.6 conifer there, keeping the slug and its `pine`, `larch_gold` and `frosted` re-skins, so the seeded worlds' conifer stands grow it too |
 | `birch.py` | `lsys_birch` - it replaced the #910 birch there, so the seeded worlds' birch stands grow it too |
 | `oak.py` | `lsys_oak` |
 | `oak.py` preset `y` | `lsys_young_oak` |

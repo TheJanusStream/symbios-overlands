@@ -413,7 +413,7 @@ mod tests {
 
     /// THE CASE (#1466): entries grown together, each under its own root at
     /// the origin, get the box the turntable gives each one alone - a tree
-    /// grown from its grammar, a ground-cover card, and a fire whose flame
+    /// grown from its grammar, a ground-cover tuft, and a fire whose flame
     /// sits clear of its meshes, whose box must reach the flame - and the
     /// triangles and parts it counts for each alone (#1471, #1479).
     #[test]

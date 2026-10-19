@@ -603,6 +603,41 @@ mod tests {
         }
     }
 
+    /// The grass tuft is one turned card since #1711, its texture wrapped
+    /// round a lathe rather than drawn on two crossed planes: the tint
+    /// still reaches it - its one `GrassTuft` texture takes the grass's
+    /// colours and dry share and keeps its atlas - while the turned fern
+    /// and reeds and the moss keep their own.
+    #[test]
+    fn a_tint_reaches_the_turned_grass_tuft() {
+        let scene = SceneCharacter::for_seed(11);
+        let palette = RoomPalette::from_scene(&scene, 11);
+        let seeded = SeededGrass::from_scene(&scene, &palette, 11);
+        let mut tint = seeded.tint();
+        let mut tuft = catalogued(GroundCoverSpecies::GrassTuft);
+        assert!(matches!(tuft.kind, crate::pds::GeneratorKind::Lathe { .. }));
+        tint.apply(GroundCoverSpecies::GrassTuft, &mut tuft);
+        let tufts: Vec<_> = textures(&tuft)
+            .into_iter()
+            .filter_map(|t| match t {
+                SovereignTextureConfig::GrassTuft(tuft) => Some(tuft),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tufts.len(), 1, "one texture, one tuft");
+        assert!(matched(tufts[0], &seeded.config), "{:?}", tufts[0]);
+        assert_eq!(tufts[0].variant_cols, 3, "the atlas is kept");
+        for species in [
+            GroundCoverSpecies::FernClump,
+            GroundCoverSpecies::ReedClump,
+            GroundCoverSpecies::MossPatch,
+        ] {
+            let mut own = catalogued(species);
+            tint.apply(species, &mut own);
+            assert_eq!(own, catalogued(species), "{species:?} keeps its own");
+        }
+    }
+
     /// A seeded world as the builder makes it (#1703): its terrain sets its
     /// grass; every grass and wildflower tuft it scatters holds the grass's
     /// colours and dry share, so Match the tufts finds only the shore's

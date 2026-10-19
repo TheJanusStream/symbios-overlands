@@ -218,13 +218,15 @@ segment counts, tiny widths. **Negative gravitropism** (`T = (0,+1,0)`) makes
 `T = ±Y`. Two workarounds: cancel the droop with a small per-segment up-pitch
 (`^(3)` cancels `e≈0.05`), or use **`$`**, which rolls the turtle so its left
 vector is horizontal - preserving heading, flattening the branch *plane*. `$` is
-the ABOP idiom for flat crowns and is why the monopodial tree's `p2a`/`p2b` and
-`p3a`/`p3b` rules - the `B`/`C` lateral pair - use it. It is the only `$` left
-in the catalogue; the sympodial tree's old planar `$`-flattened zigzag was
-retired in favour of a genuinely three-dimensional crown. Note that `$` has the
-*same* fixpoint as tropism, for the same reason: it builds its left vector from
-`Y × H`, so on a vertical heading it silently does nothing. It flattens
-laterals, never the leader.
+the ABOP idiom for flat crowns. The spruce (`lsys_monopodial_tree`, #1708)
+opens its branch rule `b1` with it, rolling each new whorl branch level before
+its needle nodes are placed, so a node's side-up and side-down cards stay on
+their sides; the birch, the oak and the apple (#1496) use it too. The
+sympodial tree's old planar `$`-flattened zigzag was retired in favour of a
+genuinely three-dimensional crown. Note that `$` has the *same* fixpoint as
+tropism, for the same reason: it builds its left vector from `Y × H`, so on a
+vertical heading it silently does nothing. It flattens laterals, never the
+leader.
 
 ---
 
@@ -362,7 +364,8 @@ re-skin lever anyway.
 **Material slot convention.** Slot `0` is always the woody surface - bark, or
 whatever stands in for it (bamboo cane, fern rachis, the cactus's succulent
 skin). Above that the catalogue runs two families: **0 bark / 1 foliage**
-(birch, acacia, bamboo, bush, hazel, gorse, fern, palm, monopodial, and the
+(birch, acacia, bamboo, bush, hazel, gorse, the garden bed's fern - the
+catalogue's `lsys_fern` is one turned card since #1711 - palm, monopodial, and the
 flowering tree's leaf ring) and **0 bark / 2 foliage** (mangrove, sympodial,
 ternary-gravity). Only `lsys_ternary_props` uses the full **0 bark / 1
 twig-cluster / 2 leaf** split; `lsys_flowering_tree` puts blossom on `2`, and

@@ -3,8 +3,9 @@
 //! The tier below the trees: grass tufts, wildflowers, ferns, reeds, dwarf
 //! shrubs and the encrusting moss / lichen cushions. Where a tree scatter
 //! places tens of instances of an expensive grammar, a ground-cover scatter
-//! places hundreds of a two-entity card prop - so the biome reads as *covered*
-//! rather than as bare splat colour with trees standing on it.
+//! places hundreds of a one- or two-part prop (a turned or crossed card, a
+//! cushion) - so the biome reads as *covered* rather than as bare splat
+//! colour with trees standing on it.
 //!
 //! Species come from a biome-weighted pool, exactly as
 //! [`scatters`](super::scatters) does for trees, and the per-scatter instance
@@ -63,13 +64,13 @@ pub const DENSITY_NONE: (u32, u32) = (0, 0);
 /// card / cushion props.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GroundCoverSpecies {
-    /// Crossed-card grass clump - the workhorse.
+    /// Flared grass clump, one turned card (#1711) - the workhorse.
     GrassTuft,
     /// Sun-bleached grass for arid and savanna ground.
     DryGrassTuft,
     /// Grass tuft carrying a blossom.
     Wildflower,
-    /// Low frond rosette for shaded floors.
+    /// Arching fern clump, one turned card (#1711), for shaded floors.
     FernClump,
     /// Tall cattail reeds for wetland margins - wades into the shallows.
     ReedClump,
@@ -79,7 +80,7 @@ pub enum GroundCoverSpecies {
     LilyPad,
     /// Low woody cushion for tundra and alpine.
     DwarfShrub,
-    /// Velvet moss cushion.
+    /// Velvet moss cushion of melted domes.
     MossPatch,
     /// Crustose lichen cushion - the tundra ground cover.
     LichenPatch,
@@ -247,7 +248,7 @@ impl GroundCoverSpecies {
             // The flagship riparian band: reeds stand at the water's edge -
             // and as of #914 they wade past it, the stand straddling the
             // waterline into the shallows (ground to 0.6 m below the
-            // surface; the 1.5 m card keeps its head dry). Held to a few
+            // surface; the 1.5 m clump keeps its head dry). Held to a few
             // metres rather than a fraction - a reed bed is a reed bed
             // whatever the surrounding relief.
             Self::ReedClump => Some(Fp2([-0.6, 3.5])),
@@ -400,8 +401,8 @@ fn species_pool(biome: BiomeArchetype) -> &'static [GroundCoverSpecies] {
 }
 
 /// How many ground-cover scatters a room rolls, inclusive. Higher than the
-/// tree ranges - the props are two entities apiece, so several overlapping
-/// patches are what "everywhere" costs.
+/// tree ranges - the props are one to four parts apiece, so several
+/// overlapping patches are what "everywhere" costs.
 fn count_range(biome: BiomeArchetype) -> (u32, u32) {
     match biome {
         BiomeArchetype::Glacial => (0, 0),

@@ -195,7 +195,10 @@ fn build_kind() -> GeneratorKind {
         materials,
         prop_mappings,
         prop_scale: Fp(0.04),
-        mesh_resolution: 8,
+        // Five sides a branch, as the Understory's `old_broadleaf` grows it
+        // (#1710): 6,176 triangles where eight made 9,578 - over a seeded
+        // forest of hundreds, millions - and no difference to the eye.
+        mesh_resolution: 5,
     }
 }
 

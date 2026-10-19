@@ -270,6 +270,14 @@ Grass, each row with an Auto box). Every field is optional:
 - Further out the blades fade into the ground showing the grass, so the
   field's edge does not show; a `--world` render draws it as a desktop
   visitor sees it.
+- **Thinning your tufts moves the grass on Auto**: the layers they name
+  lose thickness below 1,500 tufts, the colours follow whichever tuft
+  texture is then placed most, and the flower share climbs, being the
+  flower cards' share of the cards - the Understory's 160 lily cards made
+  one blade in 1,100 among 10,800 heath tufts and would have made one in
+  200 among the 1,800 left (#1712). Set the group first (the colours,
+  `layer_density`, `flower_share`) and the grass stays as it was while you
+  thin the cards down to highlights.
 
 ## Water, sky and light
 
@@ -374,7 +382,12 @@ Grass, each row with an Auto box). Every field is optional:
   clock in spells of about that many real minutes (two at least, a week at
   most): clear spells and spells of the kind, up to its intensity, the
   clouds gathering before anything falls - the same for every visitor, and
-  the same for two rooms set alike. Without the key the room is drawn as
+  the same for two rooms set alike. Something falls in about half of the
+  time and the clouds gather in about four fifths of it, whatever the
+  intensity, which sets how much and never how often (the Understory's
+  rain, measured over 20,000 spells of its timeline, #1712): a "shower" of
+  8-minute spells came about once an hour and lasted 10-20 minutes, but
+  over a day it rains as often as not. Without the key the room is drawn as
   its fields set it. Render one with `render --world <did> --weather
   rain:0.6` (a weather that comes and goes renders as it is now). Rain
   falls through roofs: the volume knows nothing of shelter yet. And only
@@ -439,7 +452,8 @@ A forest is a few generators and a scatter placement each:
   the ground (session 878). Re-authored offline by a designer, an
   independent critic and a refiner (one sub-agent at a time), it became a
   conical tiered spruce at 3,788 triangles and the admin's verdict was
-  "much better". What made the difference, for the next tree: grow whorls
+  "much better" - and the catalogue's own `lsys_monopodial_tree` is that
+  spruce now (#1708). What made the difference, for the next tree: grow whorls
   by AGE (each step adds a trunk section and a whorl; older branches
   lengthen and sink toward level, so the cone comes free); ROLL every
   needle card at least 45 degrees off level (level cards flare white toward
@@ -530,7 +544,10 @@ A forest is a few generators and a scatter placement each:
   3,350 tufts) - the card's own texture with `variant_rows` 1 and
   `variant_cols` 3 added, `uv_scale` 15915, `torture.taper` [-0.6, -0.6],
   and `transform.scale` [width / 0.2, height / 0.628, width / 0.2]; a reed
-  ring wider than about half the card's width falls apart into sub-clumps. The Understory went from about 48,700 parts
+  ring wider than about half the card's width falls apart into sub-clumps.
+  The catalogue's grass tuft, reed clump, fern clump and fern are these
+  lathes now, and its moss patch your BlobGroup cushion (#1711): an
+  unsaved seeded world that grows them grows these. The Understory went from about 48,700 parts
   (estimated from the record's structure at the session's start) to 38,579
   measured (`--triangle-report` counts `parts` since #1479) while gaining
   reed beds, heath and fans - and ground cover is still about 78% of them:

@@ -253,8 +253,12 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
                 materials,
             );
         }
-        // Non-L-system fallback: a plain generator spawns its own node.
-        let mut per_tree_entities = 1u64;
+        // A species that is not an L-system - the fern, one turned card
+        // since #1711 - has no iterations to step or expansion to measure:
+        // it costs its node count, exactly as a ground-cover prop does, and
+        // the stand's `iterations_delta` and re-skin pass it by (no pool
+        // names a variant for one; `scatters` guards that).
+        let mut per_tree_entities = generator_entity_count(&tree_gen);
         if let GeneratorKind::LSystem {
             source_code,
             finalization_code,
@@ -2163,6 +2167,10 @@ mod tests {
                     ..
                 } = &generator.kind
                 else {
+                    // A stand of a species that is not a grammar (the
+                    // fern, #1711) costs its node count, as the build
+                    // charges it.
+                    projected += generator_entity_count(generator) * u64::from(*count);
                     continue;
                 };
                 let per_tree = crate::world_builder::lsystem::lsystem_entity_estimate(

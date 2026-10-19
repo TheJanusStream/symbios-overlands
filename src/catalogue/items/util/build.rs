@@ -4,7 +4,7 @@
 //! from them. Materials live in [`super::material`].
 
 use crate::pds::PrimCommon;
-use crate::pds::generator::{FaceKey, FaceOverride};
+use crate::pds::generator::{FaceKey, FaceOverride, LathePoint, SpinePoint};
 use crate::pds::sanitize::limits::MAX_FACE_OVERRIDES;
 use crate::pds::{
     Fp, Fp2, Fp3, Fp4, Generator, GeneratorKind, SovereignMaterialSettings, SovereignTextureConfig,
@@ -423,6 +423,59 @@ pub(in crate::catalogue::items) fn helix(
     }
 }
 
+/// A turned solid (#689) - a trunk, a vase, a baluster: `points` are
+/// `(radius, height)` silhouette stations from bottom to top, revolved round
+/// the Y axis at `resolution` segments. `smooth` passes a Catmull-Rom
+/// spline through them (organic curves from few stations); `false` joins
+/// them straight (sharp ridges). A station at radius 0 closes that end.
+pub(in crate::catalogue::items) fn lathe(
+    points: &[(f32, f32)],
+    resolution: u32,
+    smooth: bool,
+    material: SovereignMaterialSettings,
+) -> GeneratorKind {
+    GeneratorKind::Lathe {
+        points: points
+            .iter()
+            .map(|&(radius, height)| LathePoint {
+                radius: Fp(radius),
+                height: Fp(height),
+            })
+            .collect(),
+        resolution,
+        smooth,
+        common: PrimCommon::with_material(material),
+    }
+}
+
+/// A tube swept through `points` - `(position, radius)` stations in the
+/// prim's own frame, so a limb, a root or a splinter is placed by its
+/// stations rather than by a transform - `resolution` sides round and
+/// `samples` rings to a segment (the sanitiser keeps at least 2, a straight
+/// segment). A station's radius is at least 0.01 m: the sanitiser raises a
+/// thinner one, a point included. Made solid, a spine collides as the
+/// convex hull of its stations, which over a bent limb is a slab of air:
+/// leave limbs as they come, non-solid.
+pub(in crate::catalogue::items) fn spine(
+    points: &[([f32; 3], f32)],
+    resolution: u32,
+    samples: u32,
+    material: SovereignMaterialSettings,
+) -> GeneratorKind {
+    GeneratorKind::Spine {
+        points: points
+            .iter()
+            .map(|&(position, radius)| SpinePoint {
+                position: Fp3(position),
+                radius: Fp(radius),
+            })
+            .collect(),
+        resolution,
+        samples_per_segment: samples,
+        common: PrimCommon::with_material(material),
+    }
+}
+
 /// A metaball group meshed by surface nets - the catalogue's route to forms
 /// the primitive vocabulary cannot state.
 ///
@@ -645,7 +698,9 @@ pub(in crate::catalogue::items) fn solid(mut kind: GeneratorKind) -> GeneratorKi
         // Superellipsoid carries an analytical collider too (a coarse
         // sampled convex hull), so marking it solid is as cheap here as it
         // is for the box it replaces.
-        | GeneratorKind::Superellipsoid { common: PrimCommon { solid, .. }, .. } => *solid = true,
+        | GeneratorKind::Superellipsoid { common: PrimCommon { solid, .. }, .. }
+        // A lathe's collider is the convex hull of its turned profile.
+        | GeneratorKind::Lathe { common: PrimCommon { solid, .. }, .. } => *solid = true,
         _ => {}
     }
     kind

@@ -56,7 +56,8 @@ pub enum TreeSpecies {
     Birch,
     /// Rounded leafy shrub (`lsys_bush`) - woody understory filler.
     Bush,
-    /// Ground rosette of arching fronds (`lsys_fern`) - shade floors.
+    /// Low fern rosette (`lsys_fern`) - shade floors. One turned card, not
+    /// an L-system, since #1711: its stand's age delta passes it by.
     Fern,
     /// Clump of green canes (`lsys_bamboo`) - jungle groves.
     Bamboo,
@@ -521,6 +522,19 @@ mod tests {
                 // so guard them (#910).
                 if !pick.variant.is_empty() {
                     let entry = crate::catalogue::by_slug(sp.slug()).expect("checked above");
+                    // The build re-skins an L-system's material slots
+                    // only, so a skin named for a species that is not a
+                    // grammar (the fern, #1711) would silently paint
+                    // nothing.
+                    assert!(
+                        matches!(
+                            entry.build("").kind,
+                            crate::pds::GeneratorKind::LSystem { .. }
+                        ),
+                        "{biome:?} pool names variant {:?} for {sp:?}, which is not an \
+                         L-system: the stand's re-skin would find no slot",
+                        pick.variant
+                    );
                     assert!(
                         entry.variants().iter().any(|v| v.name == pick.variant),
                         "{biome:?} pool names variant {:?} for {sp:?}, which the catalogue \

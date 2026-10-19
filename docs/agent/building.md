@@ -121,6 +121,17 @@ The record's wire form, as the World Editor's Raw JSON tab shows it:
   hub, an axle - stood unturned, and nest the blades under it. A turning part
   and everything under it has no solid collider. Everything stands still while
   the World Editor has a selection; deselect to watch it.
+- **`.wind` bends at the foliage's pace**, the room's `cloud_speed` times
+  0.35 radians a second: a 2.4 s sway in the Understory's 7.6 m/s wind,
+  right for a sign or a banner and a wag on anything tens of metres tall.
+  A long `.wobble` rocks a big thing instead - the Understory's 40 m spore
+  plume 3 degrees every 9 s, its 28-58 m Mycena under a degree every 10-13 s
+  (#1712). To keep a collider under a turning part, cut the part: each
+  Mycena stem split at its second point keeps a solid foot standing, and the
+  rest - its points rebased to the cut, the cap nested under it, the spin on
+  it - turns about the cut. Rebasing by translation alone draws the same
+  shape while the spin stands still: check the `subject size` line of
+  `render --generator` before and after.
 
 Write buildings as a script that prints the JSON (every number derived from
 a few named dimensions) and keep it: the same script rebuilds after a
