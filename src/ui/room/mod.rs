@@ -1944,10 +1944,81 @@ pub fn room_admin_ui(
         // before the world compiler sees the tick - egui's DragValue
         // parses typed `NaN`/`inf` and its range clamp passes NaN
         // through, so a widget edit can otherwise carry NaN into mesh /
-        // collider construction. The raw-JSON tab already sanitizes on
-        // parse; this covers the visual-tab widgets.
-        record.bypass_change_detection().0.sanitize();
+        // collider construction - and hold the record as every peer holds
+        // it once the burst has paused (`settle_edit`, #1707).
+        settle_edit(&mut record.bypass_change_detection().0);
         record.set_changed();
+    }
+}
+
+/// What an edit gesture leaves in the live room when it ends (#1707):
+/// clamped as the network ingress clamps, then held as every peer holds it
+/// ([`RoomRecord::as_peers_hold`]). A widget writes raw floats, and until a
+/// reload the owner used to draw values every visitor only ever sees
+/// rounded onto the wire's 1/10 000 grid - harmless for most, but the
+/// streets, the lots traced along them and the scatters' exclusions, the
+/// water line, a shape grammar's Repeat floor and a scatter's bands each
+/// flip at a boundary, and a value a hair either side of one draws a
+/// different world. Run where a gesture ends - the editor's debounce
+/// flush, a gizmo drag's commit - never every frame (#1599). It lands in
+/// the same change tick as the edit, so it is that edit's one undo step.
+pub(crate) fn settle_edit(record: &mut RoomRecord) {
+    record.sanitize();
+    if let Some(held) = record.as_peers_hold() {
+        *record = held;
+    }
+}
+
+#[cfg(test)]
+mod settle_edit_tests {
+    use super::*;
+    use crate::pds::{Fp, Placement};
+
+    /// Off the grid in, the peers' room out: every float on the wire's
+    /// 1/10 000 grid, and settling again changes nothing, so what the
+    /// owner holds is what a peer decodes from the owner's broadcast.
+    /// Compared float for float (Debug prints each `f32` exactly), with the
+    /// generators in key order - a `HashMap` iterates in an order of its
+    /// own.
+    #[test]
+    fn a_settled_edit_is_the_room_its_peers_hold() {
+        let exact = |room: &RoomRecord| {
+            let generators: std::collections::BTreeMap<_, _> = room.generators.iter().collect();
+            let mut bare = room.clone();
+            bare.generators.clear();
+            format!("{bare:?} {generators:?}")
+        };
+        let mut room = RoomRecord::default_for_seed(7, "did:plc:settle");
+        room.environment.fog_visibility = Fp(123.456_78);
+        room.environment.sun_illuminance = Fp(81_234.57);
+        if let Some(Placement::Absolute { transform, .. }) = room
+            .placements
+            .iter_mut()
+            .find(|p| matches!(p, Placement::Absolute { .. }))
+        {
+            transform.translation.0 = [12.345_67, 0.000_04, -600.1234];
+        }
+        let mut settled = room.clone();
+        settle_edit(&mut settled);
+        assert_eq!(settled.environment.fog_visibility, Fp(123.4568));
+        let peer = {
+            let mut p: RoomRecord = crate::pds::read_back(&settled).expect("the room writes");
+            p.sanitize();
+            p
+        };
+        assert_eq!(
+            exact(&peer),
+            exact(&settled),
+            "a peer reads it back as held"
+        );
+        let mut again = settled.clone();
+        settle_edit(&mut again);
+        assert_eq!(
+            exact(&again),
+            exact(&settled),
+            "settling twice moves nothing"
+        );
+        assert_ne!(exact(&room), exact(&settled), "the edit was off the grid");
     }
 }
 

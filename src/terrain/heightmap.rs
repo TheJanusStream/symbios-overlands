@@ -365,17 +365,9 @@ pub(super) fn spawn_terrain_mesh(
 /// owner's slider stopped between two steps of the 1/10 000 grid draws the
 /// ground its peers draw - and is the ground its key, the land's JSON
 /// ([`super::terrain_fingerprint`]), names. A value read from a record
-/// passes through unchanged: below 512 it is the grid's own, and a value
-/// that large - only a height scale an owner's slider cannot reach - is read
-/// as it is held, since rounding it again can move it a step (#1705).
+/// passes through unchanged, at any size (#1705).
 pub(crate) fn heightmap_params(cfg: &SovereignTerrainConfig) -> gen_jobs::HeightmapParams {
-    params_reading(cfg, |value| {
-        if value.0.abs() < 512.0 {
-            value.on_wire().0
-        } else {
-            value.0
-        }
-    })
+    params_reading(cfg, |value| value.on_wire().0)
 }
 
 /// [`heightmap_params`] from the floats as `cfg` holds them, off the wire's
@@ -499,19 +491,19 @@ mod tests {
             assert_eq!(read.to_bits(), held.0.to_bits());
         }
         // A height scale of 512 or more, as the wire reads one, is built as
-        // it is held, though rounding it again would move it a step (#1705).
-        let past_the_grid = (5_120_000i64..)
-            .map(|k| Fp(k as f32 / crate::pds::FP_SCALE))
-            .find(|v| v.on_wire() != *v)
-            .expect("a value past 512 that rounding moves");
-        let tall = SovereignTerrainConfig {
-            height_scale: past_the_grid,
-            ..SovereignTerrainConfig::default()
-        };
-        assert_eq!(
-            heightmap_params(&tall).height_scale.to_bits(),
-            past_the_grid.0.to_bits()
-        );
+        // it is held too (#1705): 756.0842 is one the old f32 rounding moved
+        // a step, and 16 777 217 the first integer an f32 cannot hold whole.
+        for n in [7_560_842_i64, 16_777_217] {
+            let held: Fp = serde_json::from_str(&n.to_string()).expect("a height scale reads");
+            let tall = SovereignTerrainConfig {
+                height_scale: held,
+                ..SovereignTerrainConfig::default()
+            };
+            assert_eq!(
+                heightmap_params(&tall).height_scale.to_bits(),
+                held.0.to_bits()
+            );
+        }
     }
 
     /// #1595: a geodata region's streets spawn with its terrain - children

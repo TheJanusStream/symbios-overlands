@@ -536,18 +536,30 @@ impl PrefsStore {
 /// The app's own directory under the platform's config base:
 /// `$XDG_CONFIG_HOME/symbios-overlands/`, falling back to `%APPDATA%`
 /// (Windows) then `~/.config`. `None` with no base directory at all
-/// (headless CI without HOME).
+/// (headless CI without HOME). A base that is set but empty or relative is
+/// ignored, as the XDG spec says (#1592): it would put the prefs, and the
+/// agent client's saved sessions, wherever the app was started.
 ///
 /// The prefs live directly in it; the agent client keeps its saved sessions
 /// and its own settings in a subdirectory (#1414).
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn config_dir() -> Option<std::path::PathBuf> {
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .map(std::path::PathBuf::from)
-        .or_else(|| std::env::var_os("APPDATA").map(std::path::PathBuf::from))
-        .or_else(|| {
-            std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".config"))
-        })?;
+    config_dir_from(|var| std::env::var_os(var))
+}
+
+/// [`config_dir`] over any environment, so tests need not edit the
+/// process's own (`set_var` is unsafe in edition 2024, and the crate denies
+/// unsafe code).
+#[cfg(not(target_arch = "wasm32"))]
+fn config_dir_from(env: impl Fn(&str) -> Option<std::ffi::OsString>) -> Option<std::path::PathBuf> {
+    let absolute = |var: &str| {
+        env(var)
+            .map(std::path::PathBuf::from)
+            .filter(|path| path.is_absolute())
+    };
+    let base = absolute("XDG_CONFIG_HOME")
+        .or_else(|| absolute("APPDATA"))
+        .or_else(|| absolute("HOME").map(|home| home.join(".config")))?;
     Some(base.join("symbios-overlands"))
 }
 
@@ -924,6 +936,44 @@ pub fn save_prefs_when_changed(
 mod tests {
     use super::*;
     use crate::ui::theme::UserTheme;
+
+    /// The config base is the first of XDG_CONFIG_HOME, APPDATA and HOME
+    /// that is set to an absolute path (#1592): one set but empty, or
+    /// relative, is passed over, and with none the prefs have no directory.
+    /// Unix only: its paths have no drive, so Windows reads none as absolute.
+    #[cfg(unix)]
+    #[test]
+    fn the_config_dir_takes_only_an_absolute_base() {
+        use std::ffi::OsString;
+        use std::path::PathBuf;
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |var: &str| {
+                pairs
+                    .iter()
+                    .find(|(k, _)| *k == var)
+                    .map(|(_, v)| OsString::from(v))
+            }
+        };
+        let dir = |pairs| config_dir_from(env(pairs));
+        assert_eq!(
+            dir(&[("XDG_CONFIG_HOME", "/etc/xdg/u"), ("HOME", "/home/u")]),
+            Some(PathBuf::from("/etc/xdg/u/symbios-overlands"))
+        );
+        assert_eq!(
+            dir(&[("XDG_CONFIG_HOME", ""), ("HOME", "/home/u")]),
+            Some(PathBuf::from("/home/u/.config/symbios-overlands"))
+        );
+        assert_eq!(
+            dir(&[
+                ("XDG_CONFIG_HOME", "conf"),
+                ("APPDATA", "appdata"),
+                ("HOME", "/home/u")
+            ]),
+            Some(PathBuf::from("/home/u/.config/symbios-overlands"))
+        );
+        assert_eq!(dir(&[("HOME", "relative")]), None);
+        assert_eq!(dir(&[]), None);
+    }
 
     const ALICE: &str = "did:plc:alice";
     const BOB: &str = "did:plc:bob";

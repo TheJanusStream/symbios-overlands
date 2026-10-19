@@ -517,7 +517,22 @@ impl AudioEditorState {
 
     /// Stage a committed edit for the bound slot.
     fn commit(&mut self, audio: SovereignAudioConfig) {
-        self.pending.insert(self.salt.clone(), audio);
+        let salt = self.salt.clone();
+        self.stage(salt, audio);
+    }
+
+    /// Stage `audio` for `salt` as every peer will read it (#1707), so all
+    /// that reads a pending commit - its landing, the unsaved guard asking
+    /// whether it would change the slot, a reopened window seeding from it -
+    /// sees the value the record will hold. A room settles its own copy onto
+    /// the wire's grid when the edit's gesture ends (`super::settle_edit`):
+    /// an agreed value off the grid would read as the record moving under
+    /// the window, a reseed and its banner after every edit, and a commit
+    /// that settles to what the record already says would still count as
+    /// unsaved work.
+    fn stage(&mut self, salt: String, audio: SovereignAudioConfig) {
+        let held = settled_audio(&audio).unwrap_or(audio);
+        self.pending.insert(salt, held);
     }
 
     /// Take `salt`'s pending commit **and record that it has landed**.
@@ -551,10 +566,10 @@ impl AudioEditorState {
     }
 
     /// Stage a commit for `salt` from a test, standing in for the drag end
-    /// that would have staged it.
+    /// that would have staged it, and staged as that one is.
     #[cfg(test)]
     pub(crate) fn stage_for_test(&mut self, salt: &str, audio: SovereignAudioConfig) {
-        self.pending.insert(salt.to_string(), audio);
+        self.stage(salt.to_string(), audio);
     }
 
     /// Forget a pending commit for `salt` - the slot changed variant
@@ -812,6 +827,22 @@ pub(crate) enum Reseed {
     /// undo or redo, a revert, "Load from PDS", a re-rolled seed. Take the
     /// new value.
     Take,
+}
+
+/// `audio` as the room's settle leaves it in the record (#1707): sanitised
+/// and read back through the wire twice, exactly as
+/// [`crate::pds::RoomRecord::as_peers_hold`] settles every slot of a room.
+/// `None` where it cannot be written (a variant this build only carries
+/// opaquely, #1111).
+fn settled_audio(audio: &SovereignAudioConfig) -> Option<SovereignAudioConfig> {
+    use crate::pds::sanitize::Sanitize;
+    let mut held = audio.clone();
+    held.sanitize();
+    for _ in 0..2 {
+        held = crate::pds::read_back(&held)?;
+        held.sanitize();
+    }
+    Some(held)
 }
 
 /// Decide it from what the bridge can see: the value the editor last agreed
@@ -2876,6 +2907,32 @@ mod tests {
         let delivered = sine_slot(440.0);
         assert_eq!(
             reseed_decision(Some(&delivered), &delivered, false),
+            Reseed::Keep
+        );
+    }
+
+    /// An edit off the wire's grid lands and the room settles around it
+    /// when the gesture ends (#1707): the commit was staged as the settle
+    /// leaves it, so the record has not moved under the window - no reseed,
+    /// no banner, and the window's own undo still steps back past the edit.
+    #[test]
+    fn a_settled_edit_does_not_reseed_the_window() {
+        let mut editor = AudioEditorState {
+            open: true,
+            salt: "ambient".to_string(),
+            ..Default::default()
+        };
+        editor.stage_for_test("ambient", sine_slot(441.234_56));
+        let landed = editor.land("ambient").expect("the commit lands");
+        let mut room = crate::pds::RoomRecord::default_for_seed(3, "did:plc:settle");
+        room.environment.ambient_audio = landed;
+        crate::ui::room::settle_edit(&mut room);
+        assert_eq!(
+            reseed_decision(
+                editor.agreed.as_ref(),
+                &room.environment.ambient_audio,
+                false
+            ),
             Reseed::Keep
         );
     }

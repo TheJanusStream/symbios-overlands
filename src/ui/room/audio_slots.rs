@@ -402,6 +402,38 @@ mod tests {
         assert!(!room_pending_would_change(&editor, &record));
     }
 
+    /// Nor is one off the wire's grid that settles to what the record holds
+    /// (#1707): the record took the settled value when the edit landed, and
+    /// an undo and a redo in the window stage the raw one again. A guard
+    /// that compared the raw value would offer a save that writes nothing.
+    #[test]
+    fn a_commit_that_settles_to_the_record_is_not_unsaved_work() {
+        let sine = |freq_hz: f32| {
+            let mut patch = bevy_symbios_audio::AudioPatch::default();
+            patch.graph.nodes.push(bevy_symbios_audio::GraphNode {
+                id: bevy_symbios_audio::NodeId(0),
+                kind: bevy_symbios_audio::NodeKind::Sine(bevy_symbios_audio::SineOsc {
+                    freq_hz,
+                    ..Default::default()
+                }),
+                inputs: Default::default(),
+            });
+            SovereignAudioConfig::Patch {
+                patch: SovereignAudioPatch::from_native(&patch),
+            }
+        };
+        let mut record = room_with(&[("oak", node(Vec::new()))]);
+        let mut editor = AudioEditorState::default();
+        editor.stage_for_test("gen_oak", sine(441.234_56));
+        assert_eq!(land_room(&mut editor, &mut record), 1);
+        // The World Editor's flush, as the landing's gesture ends.
+        crate::ui::room::settle_edit(&mut record);
+
+        editor.stage_for_test("gen_oak", sine(441.234_56));
+        assert!(!room_pending_would_change(&editor, &record));
+        assert_eq!(land_room(&mut editor, &mut record), 0);
+    }
+
     /// And one that says something else is - for a node and for the bed.
     #[test]
     fn a_commit_that_moves_a_value_is_unsaved_work() {

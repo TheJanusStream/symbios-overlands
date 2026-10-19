@@ -302,8 +302,25 @@ pub(crate) fn handle_generator_drop(
         }
     };
 
+    place_drop(record, &gen_key, hit_point);
+    undo_labels.set_room(format!("drop of {gen_key}"));
+    info!(
+        "Placed generator '{}' (as '{}') from {:?} at ({:.2}, {:.2}, {:.2})",
+        name, gen_key, source, hit_point.x, hit_point.y, hit_point.z
+    );
+    // No dirty flag to set - the World Editor derives "dirty" from
+    // `records_differ(stored, live)`, and the push above mutated the
+    // live record (the `room.as_mut()` borrow already set its change
+    // tick, driving the recompile + peer broadcast).
+}
+
+/// Stand the generator `gen_key` where the drop's ray hit the ground, and
+/// settle the room: the drop is the gesture's end, so the raycast point -
+/// and a fresh catalogue tree - land on the values every peer holds
+/// (#1707).
+fn place_drop(record: &mut crate::pds::RoomRecord, gen_key: &str, hit_point: Vec3) {
     record.placements.push(Placement::Absolute {
-        generator_ref: gen_key.clone(),
+        generator_ref: gen_key.to_string(),
         transform: TransformData {
             translation: Fp3([hit_point.x, hit_point.y, hit_point.z]),
             rotation: Fp4([0.0, 0.0, 0.0, 1.0]),
@@ -315,15 +332,7 @@ pub(crate) fn handle_generator_drop(
         seed: None,
         params: Default::default(),
     });
-    undo_labels.set_room(format!("drop of {gen_key}"));
-    info!(
-        "Placed generator '{}' (as '{}') from {:?} at ({:.2}, {:.2}, {:.2})",
-        name, gen_key, source, hit_point.x, hit_point.y, hit_point.z
-    );
-    // No dirty flag to set - the World Editor derives "dirty" from
-    // `records_differ(stored, live)`, and the push above mutated the
-    // live record (the `room.as_mut()` borrow already set its change
-    // tick, driving the recompile + peer broadcast).
+    crate::ui::room::settle_edit(record);
 }
 
 /// What a gift of `name` from `source` carries: the tree, and the wear
@@ -715,5 +724,36 @@ mod gift_outcome_tests {
         let (offers, _, toasts) = book(SendOutcome::NotSerialized);
         assert!(offers.by_id.is_empty());
         assert_eq!(toasts.shown()[0].0, ToastKind::Error);
+    }
+}
+
+#[cfg(test)]
+mod place_drop_tests {
+    use super::*;
+
+    /// A drop lands where every peer will read it (#1707): the raycast
+    /// point is off the wire's grid, and the placement stands on the grid.
+    #[test]
+    fn a_drop_lands_on_the_values_its_peers_hold() {
+        let mut record = crate::pds::RoomRecord::default();
+        record.generators.insert(
+            "crate".to_string(),
+            Generator::from_kind(crate::ui::room::construct::make_default_for_kind("Cuboid")),
+        );
+        let hit = Vec3::new(12.345_67, 0.000_04, -3.000_06);
+        place_drop(&mut record, "crate", hit);
+
+        let Some(Placement::Absolute {
+            generator_ref,
+            transform,
+            ..
+        }) = record.placements.last()
+        else {
+            panic!("the drop placed nothing");
+        };
+        assert_eq!(generator_ref, "crate");
+        let held = Fp3(hit.to_array()).on_wire();
+        assert_ne!(held.0, hit.to_array(), "the hit is off the grid");
+        assert_eq!(transform.translation, held);
     }
 }

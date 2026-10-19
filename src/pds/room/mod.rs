@@ -676,6 +676,22 @@ impl RoomRecord {
         crate::seeded_defaults::room::build::build_room(seed, did)
     }
 
+    /// `self` as every peer holds it (#1707): written, read back and
+    /// sanitised, as `network::inbound` takes in an owner's broadcast and a
+    /// fetch takes in a save. Twice: a value the sanitiser clamps to a
+    /// bound off the wire's 1/10 000 grid reads back rounded, and sanitised
+    /// again it is that bound once more or stays the rounded value inside
+    /// it - either way the second pass is the fixed point a peer reaches
+    /// from the first. `None` where the room cannot be written (a variant
+    /// this build only carries opaquely, #1111).
+    pub(crate) fn as_peers_hold(&self) -> Option<RoomRecord> {
+        let mut held: RoomRecord = crate::pds::read_back(self)?;
+        held.sanitize();
+        let mut again: RoomRecord = crate::pds::read_back(&held)?;
+        again.sanitize();
+        Some(again)
+    }
+
     /// Clamp every numeric field to a safe upper bound. Every path that
     /// accepts a `RoomRecord` from the network (PDS fetch and peer-broadcast
     /// `RoomStateUpdate`) calls this before handing the record to the world

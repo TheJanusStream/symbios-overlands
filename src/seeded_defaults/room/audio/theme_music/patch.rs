@@ -78,7 +78,8 @@ pub(super) fn build_patch(
     let mut nodes = vec![gate, adsr, osc(OSC1_ID, voice.wave, root_hz, osc_amp)];
     let mut vca_in = vec![Connection::from_node(OSC1_ID)];
     if stacked {
-        let detuned = root_hz * 2.0_f32.powf(voice.detune_cents / 1200.0);
+        let detuned =
+            root_hz * crate::seeded_defaults::room::audio::exp2(voice.detune_cents / 1200.0);
         nodes.push(osc(OSC2_ID, voice.wave, detuned, osc_amp));
         vca_in.push(Connection::from_node(OSC2_ID));
     }

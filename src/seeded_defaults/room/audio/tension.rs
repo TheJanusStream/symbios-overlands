@@ -116,7 +116,7 @@ pub(super) fn build(
     }
     // A low-mid, ominous root from the room's hue, an octave below the
     // theme voice's 220 Hz anchor.
-    let root_hz = 110.0 * 2.0_f32.powf(scene.base_hue_deg / 360.0);
+    let root_hz = 110.0 * crate::seeded_defaults::room::audio::exp2(scene.base_hue_deg / 360.0);
     let lfo_rate_hz = loop_synced_rate(rng, 5, 8);
     let patch = build_patch(root_hz, lfo_rate_hz, params, seed);
     Some((

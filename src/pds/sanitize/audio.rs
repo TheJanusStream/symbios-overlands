@@ -189,7 +189,8 @@ impl Sanitize for SovereignNodeKind {
 /// carries, and the drift guard below asserts the two agree.
 ///
 /// It was `1_000_000.0` until #1316, which is 4.6x more than [`Fp`] can
-/// represent: the wire form is `(v * FP_SCALE).round() as i32`, a cast that
+/// represent: the wire form is an `i32` - for a value that large still
+/// `(v * FP_SCALE).round() as i32` (#1705) - and the cast
 /// **saturates**, so a value the sanitiser accepted at 500_000 came back from
 /// the wire as 214_748.3647 - silently, and leaving `sanitize` non-idempotent
 /// across a round trip for this one field. It was also the only bound in the

@@ -1068,6 +1068,9 @@ fn create_at_point(
         seed: None,
         params: Default::default(),
     });
+    // The create is the gesture's end: land the ray hit (and the new tree)
+    // on the values every peer holds (#1707).
+    crate::ui::room::settle_edit(record);
     // Land on the new region asset. It has exactly one instance, so the
     // proximity gizmo attaches to the fresh placement automatically.
     panels.world_editor = true;
@@ -1434,6 +1437,32 @@ mod tests {
         assert_eq!(editor.tree.selection.path, Some(Vec::new()));
         assert_eq!(editor.selected_placement, None);
         assert!(editor.tree.pending_focus);
+    }
+
+    /// A create lands where every peer will read it (#1707): the ray hit is
+    /// off the wire's grid, and the placement stands on the grid.
+    #[test]
+    fn a_create_lands_on_the_values_its_peers_hold() {
+        let mut record = empty_record();
+        let mut editor = RoomEditorState::default();
+        let mut panels = UiPanels::default();
+        let hit = Vec3::new(12.345_67, 0.000_04, -3.000_06);
+        create_at_point(
+            "cuboid",
+            Generator::from_kind(make_default_for_kind("Cuboid")),
+            hit,
+            &mut panels,
+            &mut editor,
+            &mut record,
+        )
+        .expect("the create lands");
+
+        let Some(Placement::Absolute { transform, .. }) = record.placements.first() else {
+            panic!("the create placed nothing");
+        };
+        let held = crate::pds::Fp3(hit.to_array()).on_wire();
+        assert_ne!(held.0, hit.to_array(), "the hit is off the grid");
+        assert_eq!(transform.translation, held);
     }
 
     #[test]

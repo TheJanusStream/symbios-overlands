@@ -42,7 +42,7 @@ pub(super) fn build(
     let mut voice = voice_for(scene, seed);
     apply_socio(&mut voice, scene);
     let root_hz = 220.0
-        * 2.0_f32.powf(scene.base_hue_deg / 360.0)
+        * crate::seeded_defaults::room::audio::exp2(scene.base_hue_deg / 360.0)
         * voice.octave
         * biome_register(scene.biome);
     let patch = build_patch(&voice, root_hz, params, seed);

@@ -1,11 +1,11 @@
 seed 1	5a086a23182ceadd	13 generators
-seed 2	22b6427f3ca80fe8	22 generators
+seed 2	bc6bd0885096a434	22 generators
 seed 3	f5dbb02710ad0973	16 generators
-seed 4	7240e4df88435aff	22 generators
+seed 4	6dd385f93ee99565	22 generators
 seed 5	0a41502c2e6820da	19 generators
 seed 6	cca4344887d645ef	16 generators
 seed 7	10e89d5c7890826a	11 generators
-seed 8	b5458f3d07bc65cd	17 generators
+seed 8	264b121077618a04	17 generators
 seed 9	900438cc123b7bb4	10 generators
 seed 10	d7483506ea0c4e94	14 generators
 seed 11	cb053c0e665fcddf	23 generators

@@ -3,7 +3,7 @@
 
 use super::limits;
 use crate::pds::TortureParams;
-use crate::pds::types::FP_SCALE;
+use crate::pds::types::Fp;
 
 /// Clamp a single numeric value to a finite range, replacing NaN/Inf with
 /// `default`.
@@ -32,7 +32,7 @@ pub(crate) const UNIT_QUAT_TOLERANCE: f32 = 2.5e-4;
 /// `q` as the wire will hold it: each component rounded onto the 1/10 000
 /// grid the way `Fp4` writes it, and read back the way `Fp4` reads it.
 fn wire_value(q: [f32; 4]) -> [f32; 4] {
-    q.map(|v| ((v * FP_SCALE).round() as i32) as f32 / FP_SCALE)
+    q.map(|v| Fp(v).on_wire().0)
 }
 
 fn length_squared(q: [f32; 4]) -> f32 {
@@ -214,17 +214,21 @@ pub(super) mod tests {
         );
     }
 
-    /// Unit length to the last bit, and every component rounds outward on
-    /// the wire: 5001, 5001, 5000, 5000.
-    const OUTWARD_CORNER: [f32; 4] = [0.50005, 0.50005, 0.49995, 0.49995];
+    /// Unit length to the last ulp, and every component rounds outward on
+    /// the wire: 5001, 5001, 5000, 5000. Since #1705 a write rounds the
+    /// exact product, and the `f32` nearest 0.49995 lies just under the half
+    /// step - it rounds in, to 4999 - so the corner's second pair is the
+    /// `f32` just over it.
+    const OUTWARD_CORNER: [f32; 4] = [0.50005, 0.50005, 0.499_950_02, 0.499_950_02];
 
     /// Why the tolerance is wider than glam's 2e-4: a unit rotation's wire
     /// value can land past it, and renormalising that one on reload would
     /// move it a grid step.
     #[test]
     fn a_unit_rotation_the_wire_rounds_past_glams_tolerance_is_kept() {
-        assert_eq!(length_squared(OUTWARD_CORNER), 1.0);
+        assert!((length_squared(OUTWARD_CORNER) - 1.0).abs() <= f32::EPSILON);
         let wire = wire_value(OUTWARD_CORNER);
+        assert_eq!(Fp4(OUTWARD_CORNER).wire(), [5001, 5001, 5000, 5000]);
         assert!(
             length_squared(wire) - 1.0 > 2e-4,
             "no longer the corner: {wire:?}"

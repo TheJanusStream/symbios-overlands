@@ -536,6 +536,8 @@ pub(super) fn manage_gizmo_drag(
                 if landed.is_some() {
                     info!("Blob element drag committed (room). Rebuilding world.");
                     undo_labels.set_room("blob element edit");
+                    // The room as its peers will hold it (#1707).
+                    crate::ui::room::settle_edit(&mut record.0);
                     record.set_changed();
                 }
                 landed
@@ -606,6 +608,8 @@ pub(super) fn manage_gizmo_drag(
                         ));
                         // A duplicate is picked where it was dropped.
                         room_editor.pick_copy(proxy.placement, Some(copy));
+                        // The room as its peers will hold it (#1707).
+                        crate::ui::room::settle_edit(&mut record.0);
                     }
                     None => report_drag(&mut toasts, &time, DragOutcome::Refused),
                 }
@@ -637,6 +641,8 @@ pub(super) fn manage_gizmo_drag(
                     })
                     .unwrap_or_else(|_| "selection".to_string());
                 undo_labels.set_room(format!("{verb} of {target}"));
+                // The room as its peers will hold it (#1707).
+                crate::ui::room::settle_edit(&mut record.0);
                 // No dirty flag to set: the World Editor derives "dirty"
                 // from `records_differ(stored, live)`, and this commit
                 // just mutated the live record. `set_changed()` still

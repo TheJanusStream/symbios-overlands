@@ -218,7 +218,7 @@ pub(crate) fn build_bass(
     // One octave below the melody for clean separation; the Hz floor keeps a
     // register-lowering biome from pushing the drop sub-sonic.
     let root_hz = (220.0
-        * 2.0_f32.powf(scene.base_hue_deg / 360.0)
+        * crate::seeded_defaults::room::audio::exp2(scene.base_hue_deg / 360.0)
         * biome_register(scene.biome)
         * bass.octave)
         .max(BASS_FLOOR_HZ);

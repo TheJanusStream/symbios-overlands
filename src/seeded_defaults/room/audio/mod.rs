@@ -63,6 +63,15 @@ pub(super) fn loop_synced_rate(rng: &mut rand_chacha::ChaCha8Rng, lo: u32, hi: u
     cycles as f32 / LOOP_BEATS
 }
 
+/// Two to the power `x`, the same on every platform (#1706): through the
+/// `libm` crate, the same code on every target. Every pitch the track
+/// derives goes through here, so a native client - whose platform maths can
+/// differ from a browser's in the last bit of an `f32` - writes a seeded
+/// room's ambient track bit for bit as a browser does.
+pub(super) fn exp2(x: f32) -> f32 {
+    libm::powf(2.0, x)
+}
+
 /// Tail-crossfade window blending the timeline end into the loop start.
 pub(super) const CROSSFADE_BEATS: f32 = 2.0;
 
@@ -144,6 +153,45 @@ mod tests {
     use super::*;
     use crate::seeded_defaults::scene::BiomeArchetype;
     use bevy_symbios_audio::{AudioPatch, NodeKind};
+
+    /// A seeded room's ambient track is the same on every platform (#1706):
+    /// its pitches go through the `libm` crate ([`exp2`]), so a native client
+    /// and a browser write the same record. Pinned as each seed's wire bytes,
+    /// hashed - CI's glibc differs from a newer one in the last bit of some
+    /// `f32` functions, so a pitch worked out with the platform's own `powf`
+    /// moves a hash there. When the deriver is meant to change, put the
+    /// hashes this prints in place of these.
+    #[test]
+    fn a_seeded_ambient_track_is_the_same_on_every_platform() {
+        const PINNED: [u64; 16] = [
+            0xefe7_3228_4c98_ca00,
+            0xada7_0910_1d55_381a,
+            0x3b7d_380e_c4f8_3eea,
+            0x0254_6e62_110a_cb60,
+            0x898d_baa6_072b_dbb4,
+            0x8604_33bb_42d2_52b9,
+            0x410e_6541_3058_20d5,
+            0x7c21_c626_2047_46b7,
+            0xab42_a6ad_91e2_a5f6,
+            0x626a_b775_2ef0_0888,
+            0xe93c_faf4_d430_2039,
+            0xc1d9_6603_77d0_ae0d,
+            0x695b_df4e_f64b_5614,
+            0x9554_75cc_6983_14c8,
+            0xd1bb_b410_166d_aae6,
+            0xdce6_7c80_d47c_2d08,
+        ];
+        let got: Vec<u64> = (1..=16u64)
+            .map(|seed| {
+                let scene = SceneCharacter::for_seed(seed);
+                let recipe = AmbientRecipe::from_scene(&scene, seed).recipe;
+                let track = crate::pds::audio::SovereignAudioConfig::from_sequence(&recipe);
+                let wire = serde_json::to_string(&track).expect("a track writes");
+                crate::seeded_defaults::fnv1a_64(&wire)
+            })
+            .collect();
+        assert_eq!(got, PINNED, "the seeded tracks moved: {got:#018x?}");
+    }
 
     #[test]
     fn recipe_layers_biome_texture_and_theme_music() {

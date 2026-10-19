@@ -228,12 +228,15 @@ pub fn severity_at(weather: &Weather, unix_secs: f64) -> f32 {
 }
 
 /// What sets a weather's timeline apart from another's: its kind and its
-/// spell length, as the wire holds them.
+/// spell length, hashed as every release has hashed them.
 pub(crate) fn salt(weather: &Weather) -> u64 {
     let kind = WeatherKind::ALL
         .iter()
         .position(|k| *k == weather.kind)
         .unwrap_or(WeatherKind::ALL.len()) as u64;
+    // The `f32` product, frozen (#1705): a hash every client version must
+    // agree on, not a write. It is the integer the wire holds but for one
+    // length in eleven between 512 and 838.8608 minutes, a tick apart.
     let spell = (weather.spell_minutes.0 * crate::pds::types::FP_SCALE).round() as i64 as u64;
     splitmix64(kind.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ spell)
 }

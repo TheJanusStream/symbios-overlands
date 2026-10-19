@@ -399,7 +399,7 @@ fn fit_clamp(settings: &LotSettings, role: StructureRole) -> (f32, f32) {
 /// as the wire writes an [`Fp`]. The key one shared generator is grown and
 /// named under.
 pub(crate) fn scale_e4(scale: f32) -> i64 {
-    (scale * FP_SCALE).round() as i64
+    i64::from(crate::pds::types::to_wire(scale))
 }
 
 /// The shared generator one catalogue entry at one drawn scale grows as

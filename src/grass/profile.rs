@@ -781,8 +781,9 @@ mod tests {
     /// value on the wire's grid - still hold the grass, whose dry share an
     /// f32 holds a hair off the grid, so a second match changes nothing.
     /// Also for a share a slider can stop at whose f32 and f64 products
-    /// round apart (#1704): written as an `Fp` and as a tuft's `Fp64`, it
-    /// lands a step apart unless both start from the wire's value.
+    /// round apart: #1704 met one, when an `Fp` wrote its f32 product and a
+    /// tuft's `Fp64` its f64 one, a step apart unless both started from the
+    /// wire's value; since #1705 both write a share's exact product.
     #[test]
     fn a_match_survives_the_wire() {
         use crate::pds::{FP_SCALE, Fp};

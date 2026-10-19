@@ -10,6 +10,41 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// DAG-CBOR float scale. Every `f32` goes to the wire as `i32` scaled by this.
 pub const FP_SCALE: f32 = 10_000.0;
 
+/// 1677.7216, where a value's product with [`FP_SCALE`] reaches 2^24: under
+/// it [`from_wire`] reads every integer exactly, from it up only the
+/// integers an `f32` holds.
+const EXACT_PRODUCT_BELOW: f32 = 16_777_216.0 / FP_SCALE;
+
+/// The integer the wire holds for `value` (#1705). Under 1677.7216 it is
+/// `value` times [`FP_SCALE`] worked out exactly in `f64` and rounded once:
+/// the `f32` product is rounded twice, and from 512 up its own rounding
+/// could carry a value read from a record past a half step, so a record
+/// saved unchanged wrote back an integer it never read (a seeded track's
+/// 756.0842 Hz came back 756.0843). From 1677.7216 up the `f32` product
+/// stays: there [`from_wire`] reads only the integers an `f32` holds, the
+/// `f32` product is always one of them, and an exact product could write
+/// one the reader rounds to its neighbour. Saturating, as an `as` cast is:
+/// a non-finite or out-of-range value is bad data for the sanitiser to
+/// bound, never a write that fails.
+pub(crate) fn to_wire(value: f32) -> i32 {
+    if value.abs() < EXACT_PRODUCT_BELOW {
+        (f64::from(value) * f64::from(FP_SCALE)).round() as i32
+    } else {
+        (value * FP_SCALE).round() as i32
+    }
+}
+
+/// The `f32` a wire integer `n` reads as: `n` over [`FP_SCALE`], as every
+/// release has read it. It stays so (#1705): a reader that read an integer
+/// differently would draw one stored record two ways, one per client
+/// version. With [`to_wire`], measured over every `i32`: a value read under
+/// 1024 writes its own integer back, and a value of any size reads back the
+/// same after one write and read (from 1024 up an `f32` cannot hold four
+/// decimals, so not every integer there is one of its own).
+pub(crate) fn from_wire(n: i64) -> f32 {
+    n as f32 / FP_SCALE
+}
+
 /// Read one wire scalar the way the whole fixed-point layer must read them:
 /// **wide, then saturating** (#1119).
 ///
@@ -35,7 +70,7 @@ pub const FP_SCALE: f32 = 10_000.0;
 /// through `i64` bit-for-bit, so no stored record decodes differently than
 /// it did before.
 fn unscale_wide<'de, D: Deserializer<'de>>(d: D) -> Result<f32, D::Error> {
-    Ok(i64::deserialize(d)? as f32 / FP_SCALE)
+    Ok(from_wire(i64::deserialize(d)?))
 }
 
 /// [`unscale_wide`] for a fixed-length array of wire scalars.
@@ -48,7 +83,7 @@ where
     [i64; N]: Deserialize<'de>,
 {
     let ints = <[i64; N]>::deserialize(d)?;
-    Ok(ints.map(|v| v as f32 / FP_SCALE))
+    Ok(ints.map(from_wire))
 }
 
 /// Serialize a `u64` as a JSON **string** rather than a number.
@@ -114,15 +149,16 @@ impl Fp {
     /// scalar, compared as the wire holds it (#1565), so a value a hair off
     /// zero is left out as zero is rather than written out as a zero.
     pub(crate) fn is_wire_zero(&self) -> bool {
-        (self.0 * FP_SCALE).round() as i32 == 0
+        to_wire(self.0) == 0
     }
 
     /// `self` as a peer reads it back: rounded onto the wire's 1/10 000
     /// grid as it is written, and read back as it is read. A value every
     /// peer must agree on to the bit - a turning day's length (#1677) - is
-    /// kept as this.
+    /// kept as this. A value read from a record comes back unchanged, at
+    /// any size (#1705).
     pub(crate) fn on_wire(self) -> Fp {
-        Fp((self.0 * FP_SCALE).round() as i32 as f32 / FP_SCALE)
+        Fp(from_wire(i64::from(to_wire(self.0))))
     }
 
     /// `self` clamped into `[lo, hi]`, with any non-finite value collapsed
@@ -151,7 +187,7 @@ impl From<Fp> for f32 {
 
 impl Serialize for Fp {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_i32((self.0 * FP_SCALE).round() as i32)
+        s.serialize_i32(to_wire(self.0))
     }
 }
 
@@ -173,11 +209,7 @@ impl From<[f32; 2]> for Fp2 {
 
 impl Serialize for Fp2 {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        let ints = [
-            (self.0[0] * FP_SCALE).round() as i32,
-            (self.0[1] * FP_SCALE).round() as i32,
-        ];
-        ints.serialize(s)
+        self.0.map(to_wire).serialize(s)
     }
 }
 
@@ -201,7 +233,7 @@ impl Fp3 {
     /// The integers the wire holds for this: each component scaled by
     /// [`FP_SCALE`] and rounded, as it is written.
     pub fn wire(&self) -> [i32; 3] {
-        self.0.map(|v| (v * FP_SCALE).round() as i32)
+        self.0.map(to_wire)
     }
 
     /// `self` as a peer reads it back: each component rounded onto the
@@ -237,7 +269,7 @@ impl Fp4 {
     /// The integers the wire holds for this: each component scaled by
     /// [`FP_SCALE`] and rounded, as it is written.
     pub fn wire(&self) -> [i32; 4] {
-        self.0.map(|v| (v * FP_SCALE).round() as i32)
+        self.0.map(to_wire)
     }
 }
 
@@ -907,56 +939,92 @@ mod fp_wire_tests {
         assert!(d.0.is_finite());
     }
 
-    /// The half that must NOT move. Widening the read is only safe if every
-    /// value an `i32` writer can emit still quantises to exactly what it
-    /// quantised to before - otherwise the fix silently re-grids every
-    /// stored record. Checked in all three directions (#211/#212): the
-    /// integer a float writes, the float that integer reads back, and the
-    /// fact that reading again is a fixed point.
+    /// What a record already holds must not move (#211/#212, #1705): every
+    /// integer the wire can carry reads back as it always did, the value
+    /// read writes back the very integer it was read from below 1024, and at
+    /// any size it reads back as itself after one more write and read - so
+    /// a record saved unchanged is byte-stable from its second save on and
+    /// its values are stable from the first. The old `f32` product wrote
+    /// 7 560 843 for the 7 560 842 it read, and so did one integer in eleven
+    /// between 512 and 838.8608; an exact product at every size would have
+    /// left one integer in fifty-seven between 1677.7216 and 8192 never settling,
+    /// as it wrote odd integers the reader rounds to an even neighbour. The
+    /// sweep and the band round 2^24, where the writer changes rule, cover
+    /// both.
     #[test]
-    fn normal_range_values_quantise_exactly_as_before() {
-        for raw in [
-            0.0_f32,
-            1.0,
-            -1.0,
-            0.0001,
-            -0.0001,
-            0.00005, // rounds to 1 tick, not 0
-            2.5,
-            -37.125,
-            // Grid points written as tick-over-scale rather than as decimal
-            // literals: the decimals `f32` cannot hold exactly are the
-            // interesting ones, and spelling them this way says which tick
-            // is meant instead of leaving the reader to guess how the
-            // literal rounded.
-            12_345_678.0 / FP_SCALE,
-            -999_999_999.0 / FP_SCALE,
-            // The old narrow decoder's ceiling, exactly.
-            i32::MAX as f32 / FP_SCALE,
-            i32::MIN as f32 / FP_SCALE,
-        ] {
-            // Direction 1: the float writes the integer it always did.
-            let wire = serde_json::to_string(&Fp(raw)).expect("writes");
-            let expected = (raw * FP_SCALE).round() as i32;
-            assert_eq!(wire, expected.to_string(), "wire form moved for {raw}");
-
-            // Direction 2: that integer reads back to the same float the
-            // narrow decoder produced.
-            let back: Fp = serde_json::from_str(&wire).expect("reads");
+    fn values_on_the_grid_do_not_move() {
+        let mut ints: Vec<i64> = vec![
+            0,
+            1,
+            -1,
+            9_999,
+            -371_250,
+            5_119_999,
+            5_120_000,
+            7_560_842,
+            10_239_999,
+            10_240_000,
+            16_777_215,
+            16_777_216,
+            16_777_217,
+            -999_999_999,
+            i64::from(i32::MAX),
+            i64::from(i32::MIN),
+        ];
+        ints.extend(
+            (0..i64::from(i32::MAX))
+                .step_by(7_919)
+                .flat_map(|n| [n, -n]),
+        );
+        ints.extend((16_727_216..16_827_216).flat_map(|n| [n, -n]));
+        for n in ints {
+            let read = from_wire(n);
             assert_eq!(
-                back.0,
-                expected as f32 / FP_SCALE,
-                "quantised value moved for {raw}"
+                read.to_bits(),
+                (n as f32 / FP_SCALE).to_bits(),
+                "{n} reads as it always did"
             );
-
-            // Direction 3: re-writing the decoded value is a fixed point,
-            // so a record that round-trips through this build is byte-stable.
-            assert_eq!(
-                serde_json::to_string(&back).expect("rewrites"),
-                wire,
-                "round trip is not a fixed point for {raw}"
-            );
+            let wrote = to_wire(read);
+            if read.abs() < 1024.0 {
+                assert_eq!(i64::from(wrote), n, "{n} read and written moved");
+            }
+            let again = from_wire(i64::from(wrote));
+            assert_eq!(again.to_bits(), read.to_bits(), "{n} did not settle");
+            assert_eq!(Fp(read).on_wire().0.to_bits(), read.to_bits());
         }
+        // The same through the serialisers themselves.
+        for n in [7_560_842_i64, 16_777_217, -999_999_999] {
+            let read: Fp = serde_json::from_str(&n.to_string()).expect("reads");
+            let wire = serde_json::to_string(&read).expect("writes");
+            let back: Fp = serde_json::from_str(&wire).expect("reads again");
+            assert_eq!(back, read, "{n} moved through serde");
+        }
+    }
+
+    /// A value worked out afresh under 1677.7216 writes the integer nearest
+    /// its exact product (#1705): the `f32` nearest 0.00005 lies just under
+    /// half a tick, so it writes 0 where the old `f32` product rounded it up
+    /// to 1. From 1677.7216 up it writes the `f32` product, as it always
+    /// did: 2000 and one `f32` step is 20 000 001.22 ticks, and it writes
+    /// 20 000 002 rather than the 20 000 001 the reader would round down to
+    /// 2000. Past the `i32` range a value saturates rather than failing.
+    #[test]
+    fn a_fresh_value_writes_its_nearest_integer_under_the_cut() {
+        assert_eq!(serde_json::to_string(&Fp(0.000_05)).expect("writes"), "0");
+        assert_eq!(serde_json::to_string(&Fp(2.5)).expect("writes"), "25000");
+        assert_eq!(
+            serde_json::to_string(&Fp(-37.125)).expect("writes"),
+            "-371250"
+        );
+        let past_the_cut = 2000.0_f32 + 1.0 / 8192.0;
+        assert_eq!(to_wire(past_the_cut), 20_000_002);
+        assert_eq!(to_wire(-past_the_cut), -20_000_002);
+        assert_eq!(from_wire(20_000_001), 2000.0);
+        assert_eq!(to_wire(f32::MAX), i32::MAX);
+        assert_eq!(to_wire(f32::MIN), i32::MIN);
+        assert_eq!(to_wire(f32::INFINITY), i32::MAX);
+        assert_eq!(to_wire(f32::NAN), 0);
+        assert!(from_wire(i64::MAX).is_finite() && from_wire(i64::MIN).is_finite());
     }
 
     /// The grid is shared by the array wrappers, and a wrapper that read its

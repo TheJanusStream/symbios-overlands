@@ -42,7 +42,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use super::generator::{Generator, Placement};
 use super::room::RoomRecord;
 use super::sanitize::limits;
-use super::types::{FP_SCALE, Fp, Fp3, Fp4, option_u64_as_string};
+use super::types::{Fp, Fp3, Fp4, option_u64_as_string, to_wire};
 
 /// Named values a grammar reads (#1643): each set on every Shape node of a
 /// placed tree as a host attribute, over the grammar's own `attr` or
@@ -66,7 +66,7 @@ impl GrammarParams {
     pub fn wire(&self) -> impl Iterator<Item = (&str, i32)> + '_ {
         self.0
             .iter()
-            .map(|(name, value)| (name.as_str(), (value.0 * FP_SCALE).round() as i32))
+            .map(|(name, value)| (name.as_str(), to_wire(value.0)))
     }
 
     /// The values as a grammar reads them.
