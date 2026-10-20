@@ -40,9 +40,11 @@
 //! her own wheels ([`wheels`], [`gear_spring`]); however far out her mains
 //! stand, they damp her roll no harder than one fixed step can follow, and
 //! stopping, never turn her the other way ([`roll_damping`],
-//! [`stop_share`], #1625). How much of her weight they carry is how much of
-//! her control is the ground's: taking off, the air's fades in as her lift
-//! unloads them.
+//! [`stop_share`], #1625); nor do their springs meet her roll stiffer than
+//! one step can follow ([`hold_roll_spring`], #1627). How much of her weight
+//! they carry is how much of her control is the ground's: taking off, the
+//! air's fades in as her lift unloads them. Lying over on her box, she
+//! stands on none of them ([`lying_over`], #1626).
 //!
 //! # What is passive
 //!
@@ -51,7 +53,8 @@
 //! drag, the gear, the levelling - is [`fly_airplane`]'s, which does not.
 //! So a chat message typed in flight leaves her flying level at her power.
 //! A flipped airplane on the ground rights itself
-//! ([`apply_airplane_uprighting`], #1240 f162).
+//! ([`apply_airplane_uprighting`], #1240 f162), and so does one tipped onto
+//! a wing or her side (#1626).
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
@@ -166,6 +169,16 @@ const GEAR_GRIP: f32 = 10.0;
 const ROLLING_DRAG: f32 = 0.4;
 const GEAR_TILT_LIMIT_DEG: f32 = 50.0;
 
+/// Bank past which the righting assist takes a plane whose BOX rests on the
+/// ground (degrees, #1626). Her box down and over on a wing, she is not on
+/// her wheels - they hold it clear when they carry her - so it rolls her
+/// until they take her weight and lift it, however far over she lies: let
+/// go at [`GEAR_TILT_LIMIT_DEG`], she stayed there on her wingtip. Her
+/// bank, not her tilt: a taildragger sits ten degrees tail-down on her
+/// wheels, pitched without being over, and a box that rests there is not
+/// to be pushed onto its nose.
+const GROUNDED_UPRIGHT_ENGAGE_DEG: f32 = 10.0;
+
 /// The most of her roll her mains' dampers may take out in one fixed step
 /// (#1625): all of it, and never more, which the step would turn round into
 /// a roll the other way. Each damper is sized for the load its spring
@@ -175,6 +188,18 @@ const GEAR_TILT_LIMIT_DEG: f32 = 50.0;
 /// rocked on them without end, and so did any airplane whose mains were
 /// set far enough out. Her heave and pitch keep their damping whole.
 const GEAR_ROLL_STEP: f32 = 1.0;
+
+/// How stiffly the mains' springs may meet her roll, as the step sees it
+/// (#1627): their roll stiffness against her roll inertia, times the fixed
+/// step squared. Avian holds a force through all six of its substeps, and
+/// a spring read once a step pushes on past where it should, so its roll
+/// grows a step unless her roll dampers take out more than 5/12 of this -
+/// and they take out at most all of her roll in a step
+/// ([`GEAR_ROLL_STEP`]): past 2.4 they cannot. Each spring sinks
+/// [`GEAR_SAG`] of its reach under her, so on the record's shortest legs
+/// and widest track the two reached 9 and rocked her at up to 11 rad/s.
+/// Held at 2, where every seeded airplane's own stands well inside it.
+const GEAR_ROLL_SPRING_STEP: f32 = 2.0;
 
 /// The most of her yaw her mains may take out in one fixed step as their
 /// rolling drag and brakes bring them to a stop (#1625): half of it. Each
@@ -340,7 +365,13 @@ fn air_force(
 /// Her bank (radians): positive with her right wing down, past a quarter
 /// turn when she is past her side.
 fn bank_of(right: Vec3, up: Vec3) -> f32 {
-    (-right.y).atan2(up.y)
+    bank_against(right, up, Vec3::Y)
+}
+
+/// Her bank against ground whose normal is `normal` (radians), as
+/// [`bank_of`] reads it against world up (#1626).
+fn bank_against(right: Vec3, up: Vec3, normal: Vec3) -> f32 {
+    (-right.dot(normal)).atan2(up.dot(normal))
 }
 
 /// Her flight path's climb (radians) - or, under half her stall speed
@@ -565,6 +596,47 @@ fn stop_share(carries: f32, grip: f32, yaw_inertia: f32, lever: f32) -> f32 {
     }
 }
 
+/// The three wheels' compressions, `[main, main, tail]`, with what her roll
+/// alone presses one main in by and lets the other out by held to what one
+/// step can follow (#1627) - their mean, which carries her, whole, so she
+/// stands where she stood, and their difference, which turns her, kept at
+/// [`roll_spring_share`] of it. Only with both mains pressed in: a main in
+/// its slack, the ground under it but not pressing it, carries nothing, and
+/// averaged with the other it pushed on ground it did not reach (the #1627
+/// review). A lone main is left whole - she is touching down on it or
+/// tipping off it, never standing on it.
+fn hold_roll_spring(
+    pressed: [Option<f32>; 3],
+    main: Wheel,
+    mass: f32,
+    roll_inertia: f32,
+    dt: f32,
+) -> [Option<f32>; 3] {
+    let [Some(one), Some(other), tail] = pressed else {
+        return pressed;
+    };
+    if one <= 0.0 || other <= 0.0 {
+        return pressed;
+    }
+    let (stiffness, _) = gear_spring(main.share * mass, main.reach);
+    let share = roll_spring_share(stiffness, roll_inertia, main.at.x, dt);
+    let (mean, half) = (0.5 * (one + other), 0.5 * (one - other));
+    [Some(mean + half * share), Some(mean - half * share), tail]
+}
+
+/// How much of the two mains' springs her roll may meet (#1627): all of
+/// them, unless at `stiffness` (N/m), `lever` metres out to her sides, they
+/// would turn her against her `roll_inertia` (kg m^2) past what one fixed
+/// step of `dt` seconds can follow ([`GEAR_ROLL_SPRING_STEP`]).
+fn roll_spring_share(stiffness: f32, roll_inertia: f32, lever: f32, dt: f32) -> f32 {
+    let arm = 2.0 * stiffness * lever * lever * dt * dt;
+    if arm > 0.0 {
+        (GEAR_ROLL_SPRING_STEP * roll_inertia / arm).min(1.0)
+    } else {
+        1.0
+    }
+}
+
 /// How hard a wheel's damper may resist her roll (N s/m), its leg `lever`
 /// metres out to her side: its own `damping`, unless the two mains together
 /// would take out more than [`GEAR_ROLL_STEP`] of her roll in one fixed
@@ -707,6 +779,7 @@ pub(super) fn fly_airplane(
     live: Res<LiveAvatarRecord>,
     time: Res<Time>,
     traveling: Option<Res<TravelingTo>>,
+    contacts: Option<Res<ContactGraph>>,
     sensors: Query<Entity, With<Sensor>>,
     spatial: SpatialQuery,
     mut query: Query<
@@ -769,22 +842,37 @@ pub(super) fn fly_airplane(
     let wings = Wings::of(p);
     let inertia = box_inertia(mass, half);
 
-    // The gear: three wheels, cast like the car's springs.
+    // The gear: three wheels, cast like the car's springs - none while she
+    // lies over on her box (#1626), where the main on her high side, still
+    // reaching the ground, only propped her over against her righting.
     let mut carried = 0.0;
-    if up.y >= GEAR_TILT_LIMIT_DEG.to_radians().cos() {
-        let filter = super::ground_ray_filter(body, sensors.iter());
+    let under = box_ground(contacts.as_deref(), &sensors, body);
+    let filter = super::ground_ray_filter(body, sensors.iter());
+    let local = pose.compute_transform();
+    let gear = wheels(p);
+    let tops = gear.map(|wheel| local.transform_point(wheel.at));
+    let found = gear_found(&spatial, &filter, tops, gear);
+    let lying =
+        velocity.length() < wings.stall && !on_her_mains(found, up) && lying_over(under, right, up);
+    if up.y >= GEAR_TILT_LIMIT_DEG.to_radians().cos() && !lying {
         let ahead = Vec3::new(forward.x, 0.0, forward.z).normalize_or_zero();
         let aside = Vec3::new(right.x, 0.0, right.z).normalize_or_zero();
-        let local = pose.compute_transform();
         // Her centre of mass, and her roll about it alone.
         let centre =
             local.transform_point(Vec3::new(0.0, 0.0, -p.center_of_mass_ahead.0 * half[2]));
         let roll = forward * spin.dot(forward);
-        for wheel in wheels(p) {
-            let at = local.transform_point(wheel.at);
-            let Some(hit) =
-                spatial.cast_ray(at, Dir3::NEG_Y, wheel.reach + GEAR_SLACK_M, true, &filter)
-            else {
+        let on_the_ground = under.is_some() || found.iter().any(Option::is_some);
+        // A top driven under the ground she is on is bottomed out, not off
+        // the ground (#1626).
+        let pressed: [Option<f32>; 3] = std::array::from_fn(|i| {
+            found[i].or_else(|| {
+                (on_the_ground && top_under_ground(&spatial, &filter, tops[i], gear[i].reach))
+                    .then_some(gear[i].reach)
+            })
+        });
+        let pressed = hold_roll_spring(pressed, gear[0], mass, inertia.z, dt);
+        for ((wheel, at), pressed) in gear.into_iter().zip(tops).zip(pressed) {
+            let Some(compression) = pressed else {
                 continue;
             };
             let carries = wheel.share * mass;
@@ -801,7 +889,6 @@ pub(super) fn fly_airplane(
             } else {
                 moving.y
             };
-            let compression = (wheel.reach - hit.distance).max(0.0);
             let load = if compression > 0.0 {
                 (stiffness * compression - damping * sinking).max(0.0)
             } else {
@@ -899,21 +986,116 @@ pub(super) fn fly_airplane(
 /// `None` while the tilt is inside
 /// [`cfg::AIRPLANE_UPRIGHT_ENGAGE_TILT_DEGREES`] - a plane banks and rolls
 /// as ordinary flight, and an assist that fought that would be flying the
-/// aircraft. Past it, rotate `up` toward world-up, falling back to the
-/// roll axis when the chassis is DEAD inverted (where `up × world-up`
-/// degenerates and the plane could otherwise perch on its back forever),
-/// minus a spin-damping term so it settles level rather than oscillating.
-fn upright_assist_torque(up: Vec3, right: Vec3, ang_vel: Vec3, mass: f32) -> Option<Vec3> {
-    if up.dot(Vec3::Y) >= cfg::AIRPLANE_UPRIGHT_ENGAGE_TILT_DEGREES.to_radians().cos() {
-        return None;
-    }
-    let mut axis = up.cross(Vec3::Y);
+/// aircraft - or, her box resting on `ground` (by its normal), unless she
+/// lies over on it ([`lying_over`], #1626): on her side she is not banking,
+/// and her wheels carry her only within [`GEAR_TILT_LIMIT_DEG`], so nothing
+/// else rights her. An assist that let go at the flying bound rolled her
+/// off her back onto her side and left her there. Past the bound, rotate
+/// `up` toward world-up - her box down, toward her ground's normal, where
+/// her wheels stand on it - falling back to the roll axis when the chassis
+/// is DEAD inverted (where `up × world-up` degenerates and the plane could
+/// otherwise perch on its back forever), minus a spin-damping term so it
+/// settles level rather than oscillating.
+fn upright_assist_torque(
+    up: Vec3,
+    right: Vec3,
+    ang_vel: Vec3,
+    mass: f32,
+    ground: Option<Vec3>,
+) -> Option<Vec3> {
+    let toward = match ground {
+        Some(normal) if lying_over(ground, right, up) => normal,
+        None if up.y < cfg::AIRPLANE_UPRIGHT_ENGAGE_TILT_DEGREES.to_radians().cos() => Vec3::Y,
+        _ => return None,
+    };
+    let mut axis = up.cross(toward);
     if axis.length_squared() < cfg::CAR_UPRIGHT_DEGENERATE_SQ {
         axis = right;
     }
     let restoring = axis.normalize_or_zero() * (mass * cfg::AIRPLANE_UPRIGHT_ASSIST_ACCEL);
     let damping = -ang_vel * (mass * cfg::AIRPLANE_UPRIGHT_ASSIST_DAMPING);
     Some(restoring + damping)
+}
+
+/// What her BOX rests on, by its normal - not her wheels, which hold it
+/// clear while they carry her (#1626).
+fn box_ground(
+    contacts: Option<&ContactGraph>,
+    sensors: &Query<Entity, With<Sensor>>,
+    body: Entity,
+) -> Option<Vec3> {
+    contacts
+        .and_then(|contacts| super::ground_under(contacts, sensors, body, super::UNDER_NORMAL_Y))
+}
+
+/// Whether she lies over on her box (#1626): it rests on `ground` (by its
+/// normal), and she is over on a wing past [`GROUNDED_UPRIGHT_ENGAGE_DEG`]
+/// against it. The righting assist rolls her then, and her gear stands
+/// down - both only under her stall speed ([`apply_airplane_uprighting`])
+/// and off her mains ([`on_her_mains`]).
+/// Against that ground, not world up: standing on her wheels across a
+/// slope, her box resting on it, her bank against world up is the slope's
+/// (the #1626 review).
+fn lying_over(ground: Option<Vec3>, right: Vec3, up: Vec3) -> bool {
+    ground.is_some_and(|normal| {
+        bank_against(right, up, normal).abs() > GROUNDED_UPRIGHT_ENGAGE_DEG.to_radians()
+    })
+}
+
+/// Whether she stands on her mains (the #1626 review): upright enough for
+/// her gear to carry her ([`GEAR_TILT_LIMIT_DEG`]), and both of them
+/// finding the ground by their own rays (`found`, [`gear_found`]'s),
+/// whatever her box touches. Her box resting on a bank beside her wheels
+/// is not her lying over on it: read off the box's contact alone, her gear
+/// stood down beside a 15 degree ramp, and she rocked on and off her wheels
+/// for good.
+fn on_her_mains(found: [Option<f32>; 3], up: Vec3) -> bool {
+    up.y >= GEAR_TILT_LIMIT_DEG.to_radians().cos() && found[0].is_some() && found[1].is_some()
+}
+
+/// What each wheel's own ray finds under it, `[main, main, tail]`, its top
+/// at `tops` ([`wheel_compression`]).
+fn gear_found(
+    spatial: &SpatialQuery,
+    filter: &SpatialQueryFilter,
+    tops: [Vec3; 3],
+    gear: [Wheel; 3],
+) -> [Option<f32>; 3] {
+    std::array::from_fn(|i| wheel_compression(spatial, filter, tops[i], gear[i].reach))
+}
+
+/// How far the wheel whose top is at `at` is pressed in by the ground its
+/// own ray finds (m), or `None` with nothing under it within its reach and
+/// slack.
+fn wheel_compression(
+    spatial: &SpatialQuery,
+    filter: &SpatialQueryFilter,
+    at: Vec3,
+    reach: f32,
+) -> Option<f32> {
+    spatial
+        .cast_ray(at, Dir3::NEG_Y, reach + GEAR_SLACK_M, true, filter)
+        .map(|hit| (reach - hit.distance).max(0.0))
+}
+
+/// Whether the ground lies over the wheel top at `at`, within its `reach`:
+/// a top driven under it, which is bottomed out, not off the ground
+/// (#1626). Its own ray, cast from under the ground, finds nothing, and a
+/// main far out on her wing, her box down and her over on that wing, used
+/// to carry nothing while the one on her high side still reached the
+/// ground and propped her over - the twin rested on her wing at 27
+/// degrees, the racer rocked there for good. Asked only while she is on
+/// the ground - her box down, or another wheel on it - so no wheel in the
+/// air is stood on the top of a deck over it.
+fn top_under_ground(
+    spatial: &SpatialQuery,
+    filter: &SpatialQueryFilter,
+    at: Vec3,
+    reach: f32,
+) -> bool {
+    spatial
+        .cast_ray(at + Vec3::Y * reach, Dir3::NEG_Y, reach, true, filter)
+        .is_some()
 }
 
 /// Whether her engine pushes at this attitude and speed (#1240 f162).
@@ -929,21 +1111,25 @@ fn thrust_applies(up: Vec3, speed: f32, wings: Wings) -> bool {
         || up.dot(Vec3::Y) > cfg::AIRPLANE_THRUST_CUT_TILT_DEGREES.to_radians().cos()
 }
 
-/// Right an airplane that has flipped onto its back. Registered ungated
-/// beside the other three presets' assists (#1240 f162) - the airplane was
-/// simply missed, and a crashed plane is exactly the state where the owner
-/// is least able to do anything about it. It stands down while she flies
-/// (#1615): inverted over the top of a loop is flying, and her own
-/// levelling is what rights her in the air.
+/// Right an airplane that has flipped onto its back, or tipped onto her
+/// side on the ground (#1626). Registered ungated beside the other three
+/// presets' assists (#1240 f162) - the airplane was simply missed, and a
+/// crashed plane is exactly the state where the owner is least able to do
+/// anything about it. It stands down while she flies (#1615): inverted
+/// over the top of a loop is flying, and her own levelling is what rights
+/// her in the air.
 #[allow(clippy::type_complexity)]
 pub(super) fn apply_airplane_uprighting(
     live: Res<LiveAvatarRecord>,
-    mut query: Query<Forces, (With<LocalPlayer>, With<AirplanePreset>)>,
+    contacts: Option<Res<ContactGraph>>,
+    spatial: SpatialQuery,
+    sensors: Query<Entity, With<Sensor>>,
+    mut query: Query<(Entity, Forces), (With<LocalPlayer>, With<AirplanePreset>)>,
 ) {
     let LocomotionConfig::Airplane(p) = &live.0.locomotion else {
         return;
     };
-    let Ok(mut forces) = query.single_mut() else {
+    let Ok((body, mut forces)) = query.single_mut() else {
         return;
     };
     if forces.linear_velocity().length() >= Wings::of(p).stall {
@@ -953,7 +1139,20 @@ pub(super) fn apply_airplane_uprighting(
     let up = global_tf.up().as_vec3();
     let right = global_tf.right().as_vec3();
     let ang_vel = forces.angular_velocity();
-    if let Some(torque) = upright_assist_torque(up, right, ang_vel, p.mass.0) {
+    // Standing on her mains, her box resting on whatever is beside them, she
+    // does not lie over (the #1626 review).
+    let local = global_tf.compute_transform();
+    let gear = wheels(p);
+    let filter = super::ground_ray_filter(body, sensors.iter());
+    let found = gear_found(
+        &spatial,
+        &filter,
+        gear.map(|wheel| local.transform_point(wheel.at)),
+        gear,
+    );
+    let ground =
+        box_ground(contacts.as_deref(), &sensors, body).filter(|_| !on_her_mains(found, up));
+    if let Some(torque) = upright_assist_torque(up, right, ang_vel, p.mass.0, ground) {
         forces.apply_torque(torque);
     }
 }

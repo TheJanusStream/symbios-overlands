@@ -209,8 +209,54 @@ fn lathe_outline(
 #[cfg(test)]
 pub(crate) mod for_touch {
     pub(crate) use super::shapes::DEFORM_ROWS;
+    #[cfg(test)]
+    pub(crate) use super::sweeps::trim_profile_stations;
     pub(crate) use super::sweeps::{SpineStation, kept_stations, lathe_stations, spine_stations};
     pub(crate) use super::torture::{Torture, deform_vertex, torture_of, undeform_vertex};
+
+    /// `kind`'s base mesh as its mesher draws it before any deform: its
+    /// vertices, and its triangles as three indices into them - what the
+    /// vehicle guards' touch helper reads a prim by when it has no simpler
+    /// solid of its own (#1577). Empty for a kind that is not a primitive.
+    #[cfg(test)]
+    pub(crate) fn base_mesh(
+        kind: &crate::pds::GeneratorKind,
+    ) -> (Vec<bevy::math::Vec3>, Vec<[usize; 3]>) {
+        use bevy::mesh::{Indices, Mesh, VertexAttributeValues};
+        let Some(parts) = super::shapes::prim_parts(kind) else {
+            return (Vec::new(), Vec::new());
+        };
+        let mesh = parts.shape.base_mesh().mesh;
+        let points = match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
+            Some(VertexAttributeValues::Float32x3(pos)) => {
+                pos.iter().map(|&p| bevy::math::Vec3::from(p)).collect()
+            }
+            _ => Vec::new(),
+        };
+        let indices: Vec<usize> = match mesh.indices() {
+            Some(Indices::U32(v)) => v.iter().map(|&i| i as usize).collect(),
+            Some(Indices::U16(v)) => v.iter().map(|&i| usize::from(i)).collect(),
+            None => (0..points.len()).collect(),
+        };
+        let (triangles, _) = indices.as_chunks::<3>();
+        (points, triangles.to_vec())
+    }
+
+    /// A Bevel's footprint as its mesher draws it, `(x, z)` round its middle
+    /// counter-clockwise: the rounded rectangle of half-extents `hx` by `hz`
+    /// whose upright corners `bevel` rounds in `segments` (#1577).
+    #[cfg(test)]
+    pub(crate) fn bevel_outline(
+        hx: f32,
+        hz: f32,
+        bevel: f32,
+        segments: u32,
+    ) -> Vec<bevy::math::Vec2> {
+        super::cuts::rounded_rect_profile(hx, hz, bevel, segments)
+            .into_iter()
+            .map(|point| bevy::math::Vec2::new(point.x, point.z))
+            .collect()
+    }
 }
 
 /// Build the parametric mesh for a primitive [`GeneratorKind`] variant and

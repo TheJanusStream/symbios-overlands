@@ -386,6 +386,15 @@ pub(super) fn build_preset_components(
 /// so a person standing still - asleep - kept standing on the capsule it
 /// fell asleep on, half a metre into the ground under one re-rolled taller.
 ///
+/// And brings the mass properties avian holds up to date at once (#1666).
+/// `Forces::apply_force` divides by the mass the body holds when it is
+/// called, and avian took up a new mass, collider or centre of mass only
+/// in its own step, after this one's forces: sized for the new chassis,
+/// they met the old body once - an airship re-rolled from the 200 kg
+/// steam dirigible to the 46 kg floater lost 0.12 m/s of climb in the
+/// step, the other way round gained 0.52. Avian's own update, run here;
+/// its step repeats it to the same numbers.
+///
 /// DEFERRED while the visuals-edit freeze parks the chassis, as the
 /// rebuild is (`hotswap::apply_local_locomotion_rebuild`, #867): a grown
 /// collider on a parked, fully locked body cannot be pushed out of the
@@ -397,31 +406,38 @@ pub(super) fn build_preset_components(
 pub(super) fn sync_chassis(
     mut commands: Commands,
     live: Res<crate::state::LiveAvatarRecord>,
-    mut player: Query<
-        (
-            Entity,
-            &mut ChassisBuilt,
-            &mut Collider,
-            &mut Mass,
-            &mut LinearDamping,
-            &mut AngularDamping,
-            Option<&mut CenterOfMass>,
-        ),
-        (
-            With<crate::state::LocalPlayer>,
-            Without<super::VisualsEditFreeze>,
-        ),
-    >,
+    // The body, then avian's mass-property update over it: both read its
+    // `Mass`, so they take turns.
+    mut bodies: ParamSet<(
+        Query<
+            (
+                Entity,
+                &mut ChassisBuilt,
+                (&mut Collider, &ColliderDensity, &mut ColliderMassProperties),
+                &mut Mass,
+                &mut LinearDamping,
+                &mut AngularDamping,
+                Option<&mut CenterOfMass>,
+            ),
+            (
+                With<crate::state::LocalPlayer>,
+                Without<super::VisualsEditFreeze>,
+            ),
+        >,
+        MassPropertyHelper,
+    )>,
 ) {
     let locomotion = &live.0.locomotion;
     let Some(spec) = chassis_spec(locomotion) else {
         return;
     };
-    let Ok((body, mut built, mut collider, mut mass, mut linear, mut angular, center)) =
+    let mut player = bodies.p0();
+    let Ok((body, mut built, shape, mut mass, mut linear, mut angular, center)) =
         player.single_mut()
     else {
         return;
     };
+    let (mut collider, density, mut collider_mass) = shape;
     if built.kind != locomotion.kind_tag() || built.spec == spec {
         return;
     }
@@ -431,6 +447,8 @@ pub(super) fn sync_chassis(
     let was = built.spec;
     if spec.shape != was.shape {
         *collider = spec.shape.collider();
+        // As avian's own collider update computes them in its step.
+        *collider_mass = ColliderMassProperties::from_shape(&*collider, density.0);
     }
     if spec.mass != was.mass {
         mass.0 = spec.mass;
@@ -449,6 +467,7 @@ pub(super) fn sync_chassis(
         center.0 = want;
     }
     built.spec = spec;
+    bodies.p1().update_mass_properties(body);
 }
 
 /// Remove every preset-specific component + marker from `entity`.
@@ -851,20 +870,19 @@ mod tests {
     /// The same defect in the air: an airship's hover thrust is its
     /// record's, sized for the record's mass, so on the old body's mass a
     /// re-roll to a lighter airship fell 25 m in five seconds and one to a
-    /// heavier climbed 54, still gathering speed. Now it settles and holds.
+    /// heavier climbed 54, still gathering speed. Now it holds.
     ///
-    /// Not to the millimetre: on the step of the swap the new thrust meets
-    /// the mass avian computed the step before - `apply_force` divides by
-    /// the mass the body holds when it is called, and avian takes up the
-    /// one [`sync_chassis`] writes only in its own step - a one-step kick
-    /// of g/64 times the mass ratio less one, which her damping takes out
-    /// over a few seconds. The Zeppelin's seeds alone spanned 1.6 times, a
-    /// kick under 0.2 m/s and 10 to 20 cm in all; since the airship fan-out
-    /// (#1658-#1663) the seeded airships span 4.4 times, a 46 kg floater to
-    /// a 200 kg steam dirigible, and the kick from the one to the other is
-    /// 0.52 m/s: 0.67 m in all, 1.8 cm of it in the fifth second. The
-    /// bounds leave a feel tweak room and sit far under the defect's metres
-    /// a second and growing.
+    /// And from the step of the swap (#1666): `apply_force` divides by the
+    /// mass the body holds when it is called, and avian took up the one
+    /// [`sync_chassis`] writes only in its own step, so the new thrust met
+    /// the old mass once - a kick of g/64 times the mass ratio less one. The
+    /// seeded airships span 4.4 times since the fan-out (#1658-#1663), a
+    /// 46 kg floater to a 200 kg steam dirigible, and the kick from the one
+    /// to the other was 0.52 m/s: 0.67 m in all. The swap step's change of
+    /// speed is read on its own here, so a kick cannot hide in the drift;
+    /// with the mass avian holds brought up to date in the swap step, the
+    /// swap moves her climb by under 5 mm/s either way, and five seconds on
+    /// she is within 2 cm of where she was.
     #[test]
     fn an_airship_re_rolled_in_place_holds_its_height() {
         let mut ships: Vec<(f32, AvatarRecord)> = (0u64..600)
@@ -891,10 +909,18 @@ mod tests {
                 bench.step();
             }
             let swapped = bench.position().y;
+            let held = bench.velocity().y;
             bench
                 .world_mut()
                 .insert_resource(LiveAvatarRecord(now.clone()));
-            for _ in 0..(64 * 4) {
+            bench.step();
+            let kick = bench.velocity().y - held;
+            assert!(
+                kick.abs() < 0.005,
+                "re-rolled in place from {m_was:.1} kg to {m_now:.1} kg, the swap step \
+                 changed her climb by {kick:+.3} m/s: the new chassis's forces met the old mass"
+            );
+            for _ in 0..(64 * 4 - 1) {
                 bench.step();
             }
             let fourth = bench.position().y;
@@ -903,10 +929,58 @@ mod tests {
             }
             let (fifth, all) = (bench.position().y - fourth, bench.position().y - swapped);
             assert!(
-                fifth.abs() < 0.04 && all.abs() < 1.0,
+                fifth.abs() < 0.002 && all.abs() < 0.02,
                 "an airship re-rolled in place from {m_was:.1} kg to {m_now:.1} kg moved \
                  {all:+.2} m in five seconds, {fifth:+.3} m of it in the fifth: it is not \
                  holding its height"
+            );
+        }
+    }
+
+    /// What [`sync_chassis`] leaves avian in the swap step is what avian's
+    /// own update makes of the new body (#1666): its mass, its inertia and
+    /// its centre of mass, read between the flight systems and avian's step
+    /// and again after it, both ways between the lightest and the heaviest
+    /// seeded airship. A difference would be a second kick, in the step
+    /// after the swap's.
+    #[test]
+    fn a_re_rolled_chassis_holds_the_mass_avian_gives_it() {
+        let mut ships: Vec<(f32, AvatarRecord)> = (0u64..600)
+            .filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Airship)
+            .map(AvatarRecord::default_for_seed)
+            .filter_map(|r| match &r.locomotion {
+                LocomotionConfig::Helicopter(p) => Some((p.mass.0, r.clone())),
+                _ => None,
+            })
+            .collect();
+        ships.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let (light, heavy) = (&ships[0].1, &ships[ships.len() - 1].1);
+        let held = |world: &mut World| {
+            let mut bodies = world.query_filtered::<(
+                &ComputedMass,
+                &ComputedAngularInertia,
+                &ComputedCenterOfMass,
+            ), With<LocalPlayer>>();
+            let (mass, inertia, centre) = bodies.single(world).expect("one body on the bench");
+            (*mass, *inertia, *centre)
+        };
+        for (was, now) in [(heavy, light), (light, heavy)] {
+            let mut bench = FlightBench::new(was, Vec3::new(0.0, 30.0, 0.0)).aloft();
+            for _ in 0..64 {
+                bench.step();
+            }
+            let before = held(bench.world_mut());
+            bench
+                .world_mut()
+                .insert_resource(LiveAvatarRecord(now.clone()));
+            let mut left = None;
+            bench.step_reading(|world| left = Some(held(world)));
+            let left = left.expect("read between the systems and avian's step");
+            let avians = held(bench.world_mut());
+            assert_ne!(left.0, before.0, "the swap left avian the old body's mass");
+            assert_eq!(
+                left, avians,
+                "the swap left avian one body and avian made another of it"
             );
         }
     }

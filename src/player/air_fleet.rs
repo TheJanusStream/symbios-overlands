@@ -618,3 +618,50 @@ fn the_airships_fly_in_the_agreed_order() {
         );
     }
 }
+
+/// #1626: an airplane tipped over on the ground comes back onto her wheels.
+/// Every seeded airplane type, set down and then rolled onto a wing, her
+/// side or her back, lay where the assist left her: it engaged only past
+/// 120 degrees, so it rolled her off her back onto her side and let go
+/// there, where her wheels no longer reach the ground (they count within 50
+/// degrees) and her engine is cut. Fifteen seconds on, hands off, she
+/// stands as she parks - each type against herself set down untouched,
+/// since a taildragger parks tail-down and her box short of the ground.
+#[test]
+fn an_airplane_tipped_over_on_the_ground_comes_back_onto_her_wheels() {
+    let rest = |record: &AvatarRecord, tilt: f32| {
+        let mut bench = FlightBench::set_down(record, 0.0, 0.0);
+        bench.set_rotation(Quat::from_rotation_z(tilt.to_radians()));
+        bench.hold(&[]);
+        for _ in 0..steps(15.0) {
+            bench.step();
+        }
+        let rot = bench.rotation();
+        let (right, up) = (rot * Vec3::X, rot * Vec3::Y);
+        let bank = (-right.y).atan2(up.y).to_degrees();
+        (
+            up.y.clamp(-1.0, 1.0).acos().to_degrees(),
+            bank,
+            bench.underside(),
+        )
+    };
+    for (craft, seed) in seed_per(CraftType::AIRPLANES) {
+        let record = AvatarRecord::default_for_seed(seed);
+        let (parked_tilt, _, parked_clear) = rest(&record, 0.0);
+        for tipped in [60.0_f32, 90.0, 135.0, 150.0, 180.0] {
+            let (tilt, bank, clear) = rest(&record, tipped);
+            assert!(
+                bank.abs() < 1.0 && (tilt - parked_tilt).abs() < 1.0,
+                "the {} tipped {tipped} degrees ends banked {bank:.1} and {tilt:.1} degrees off \
+                 upright; she parks {parked_tilt:.1}",
+                craft.label()
+            );
+            assert!(
+                (clear - parked_clear).abs() < 0.005,
+                "the {} tipped {tipped} degrees stands her box {clear:.3} m over the ground; she \
+                 parks it {parked_clear:.3} m over",
+                craft.label()
+            );
+        }
+    }
+}

@@ -59,6 +59,47 @@ pub(super) fn cabin(kids: &mut Vec<Generator>, plan: &PodPlan, c: &TandemColours
     ));
 }
 
+/// The cabin's drawn section at station `z` (prototype frame): its
+/// centreline height, its half-width and half-height, and how much of
+/// either its superellipsoid keeps there - 1 amidships, falling toward her
+/// ends, 0 past them. The superellipsoid's own axes, as the quarter turn
+/// lays them: north and south along her, the section across her and
+/// upright.
+fn drawn_section(plan: &PodPlan, z: f32) -> (f32, f32, f32, f32) {
+    let (cy, w, h) = cabin_section(plan);
+    let rear = plan.stretch(CABIN_REAR);
+    let (mid, half) = ((CABIN_FRONT + rear) * 0.5, (CABIN_FRONT - rear) * 0.5);
+    let along = 1.0 - term((plan.stretch(z) - mid) / half, CABIN_NS);
+    (cy, w, h, along.max(0.0).powf(CABIN_NS / CABIN_EW))
+}
+
+/// A superellipsoid's implicit term: `v`, a share of its half-extent, raised
+/// to `2 / e`.
+fn term(v: f32, e: f32) -> f32 {
+    v.abs().powf(2.0 / e)
+}
+
+/// How far out from her centreline the cabin is drawn at height `y` and
+/// station `z` (prototype frame), its own superellipsoid solved for its
+/// half-width there: under the section's `w` wherever it rounds in, toward
+/// her belly and her ends - where a part set off `w` stood clear of it
+/// (#1577). 0 where the cabin does not reach.
+pub(super) fn cabin_flank(plan: &PodPlan, y: f32, z: f32) -> f32 {
+    let (cy, w, h, kept) = drawn_section(plan, z);
+    w * (kept - term((y - cy) / h, CABIN_EW))
+        .max(0.0)
+        .powf(CABIN_EW * 0.5)
+}
+
+/// How high the cabin is drawn at `x` out from her centreline and station
+/// `z` (prototype frame), its own superellipsoid solved for its top there:
+/// under the section's roof wherever it rounds in, toward her flanks and
+/// her ends (#1577). Her centreline height where the cabin does not reach.
+pub(super) fn cabin_roof(plan: &PodPlan, x: f32, z: f32) -> f32 {
+    let (cy, w, h, kept) = drawn_section(plan, z);
+    cy + h * (kept - term(x / w, CABIN_EW)).max(0.0).powf(CABIN_EW * 0.5)
+}
+
 /// A sweep over the nose's own stations, `proud` (prototype metres) over
 /// it, with the nose's section scale.
 fn over_nose(

@@ -347,7 +347,7 @@ pub(super) fn spine_hull_points(points: &[(Vec3, f32)]) -> Vec<Vec3> {
 /// interpolated in, so the cut lands where the slider says instead of
 /// snapping to the nearest authored station. The identity band returns the
 /// stations untouched.
-pub(super) fn trim_profile_stations(stations: Vec<Vec2>, t0: f32, t1: f32) -> Vec<Vec2> {
+pub(crate) fn trim_profile_stations(stations: Vec<Vec2>, t0: f32, t1: f32) -> Vec<Vec2> {
     let (t0, t1) = (t0.clamp(0.0, 1.0), t1.clamp(0.0, 1.0));
     if t0 <= 1e-4 && t1 >= 1.0 - 1e-4 {
         return stations;

@@ -12,6 +12,7 @@ use crate::seeded_defaults::OrnatenessTier;
 
 use super::super::super::common::{cuboid, id_quat, prim, rod, sphere, sweep};
 use super::super::{MIN_DIM, PodPlan, TandemColours, dim};
+use super::cabin::{cabin_flank, cabin_roof};
 use super::cabin_section;
 use super::pylons::{PYLON, PYLON_NS, PYLON_Z, pylon_y};
 
@@ -39,21 +40,27 @@ const STEP_OUT: f32 = 0.03;
 const STEP_RISE: f32 = 0.02;
 const STEP_Z: f32 = 0.80;
 
-/// A step plate under her starboard (`-X`) door, behind the cockpit.
+/// A step plate under her starboard (`-X`) door, behind the cockpit - out
+/// from her flank as the cabin is drawn at the plate's own height and
+/// station, where it rounds in toward her belly: set off the section's
+/// half-width, the plate stood 1.4 to 5 cm clear of her at every
+/// blueprint, and at the shortest, slimmest one touched nothing (#1577).
 fn step(kids: &mut Vec<Generator>, plan: &PodPlan, c: &TandemColours) {
-    let (cy, w, h) = cabin_section(plan);
+    let (cy, _, h) = cabin_section(plan);
+    let y = cy - h + STEP_RISE;
     kids.push(prim(
         cuboid(
             [plan.len(STEP[0]), dim(plan.len(STEP[1])), plan.len(STEP[2])],
             c.metal.clone(),
         ),
-        plan.at(-(w + STEP_OUT), cy - h + STEP_RISE, STEP_Z),
+        plan.at(-(cabin_flank(plan, y, STEP_Z) + STEP_OUT), y, STEP_Z),
         id_quat(),
     ));
 }
 
 /// The rescue hoist over her starboard door (prototype frame): its station;
-/// its boom's foot, inside the flank and under the roof, and its head,
+/// its boom's foot, inside the flank and under the roof as it is drawn
+/// there, and its head,
 /// outside the flank and over the roof, and the boom's radius; the winch's
 /// size at the head; how far over her centreline the cable ends, and the
 /// hook's size and height there.
@@ -76,10 +83,14 @@ pub(super) fn hoist_head(plan: &PodPlan) -> [f32; 3] {
 /// The hoist: its boom out from her roof, the winch at its head, and the
 /// cable down to the hook.
 fn hoist(kids: &mut Vec<Generator>, plan: &PodPlan, c: &TandemColours) {
-    let (cy, w, h) = cabin_section(plan);
+    let (cy, w, _) = cabin_section(plan);
     let [x, y, z] = hoist_head(plan);
+    // Under the roof as the cabin is drawn over the foot, which rounds down
+    // toward her flank: under the section's roof, the foot stood clear of
+    // her at her widest girth and the hoist was a piece of its own (#1577).
+    let foot = -(w + HOIST_FOOT[0]);
     kids.push(rod(
-        plan.at(-(w + HOIST_FOOT[0]), cy + h + HOIST_FOOT[1], z),
+        plan.at(foot, cabin_roof(plan, foot, z) + HOIST_FOOT[1], z),
         plan.at(x, y, z),
         dim(plan.len(HOIST_R)),
         c.metal.clone(),

@@ -830,22 +830,19 @@ pub(super) fn default_lsystem_kind() -> GeneratorKind {
         .kind
 }
 
-/// Default starter preset for a freshly added Shape generator. A detailed
-/// modern villa adapted from `bevy_symbios_shape`'s `detailed_villa` example -
-/// a two-storey brick / stucco main house with a gable shingle roof, attached
-/// metal-roofed garage, paver driveway, and wood deck. The full material
-/// palette (brick / stucco / concrete / shingle / metal / glass / wood /
-/// pavers / grass) is wired up so the fallback render shows something
-/// architecturally legible out of the box. Used by the per-node kind picker
-/// and by the "+ New" menu in the Generators tab via
+/// Default starter preset for a freshly added Shape generator: the
+/// catalogue's Roman Villa grammar - a pedimented temple-front portico and
+/// colonnaded wings round a rear peristyle garden - with its marble, ashlar
+/// and terracotta material slots filled, so the fallback render shows
+/// something architecturally legible out of the box. Used by the per-node
+/// kind picker and by the "+ New" menu in the Generators tab via
 /// [`super::construct::make_default_for_kind`].
+///
+/// The grammar, not the catalogue entry's tree: that roots on a foundation
+/// plinth with the grammar beneath it, and its ROOT's kind made "Shape
+/// grammar" in the kind picker a Box (#1721).
 pub(super) fn default_shape_kind() -> GeneratorKind {
-    use crate::catalogue::CatalogueEntry;
-    // Only the kind discriminant is consumed here; Villa has no DID
-    // slot, so the local-DID parameter is irrelevant.
-    crate::catalogue::items::ancient::villa::Villa
-        .build("")
-        .kind
+    crate::catalogue::items::ancient::villa::build_kind()
 }
 
 #[cfg(test)]

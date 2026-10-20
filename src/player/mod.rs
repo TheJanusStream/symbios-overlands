@@ -215,12 +215,8 @@ pub(super) fn ground_ray_filter(
 
 /// The least a contact's normal may lean from straight up for what it
 /// touches to be UNDER a body (the cosine of 60 degrees): a wall beside it or
-/// a roof over it is not what it rests on.
-///
-/// Native-only, with [`resting_on_something`]: the agent is its one reader,
-/// and a `pub(crate)` item with no caller on wasm is dead code under CI's
-/// `-D warnings` (#1351).
-#[cfg(not(target_arch = "wasm32"))]
+/// a roof over it is not what it rests on. Read by [`resting_on_something`]
+/// for the agent, and by the airplane's gear and righting assist (#1626).
 pub(crate) const UNDER_NORMAL_Y: f32 = 0.5;
 
 /// Whether the physics has `body` resting on something under it: a contact
@@ -251,26 +247,42 @@ pub(crate) fn resting_on(
     body: Entity,
     min_normal_y: f32,
 ) -> bool {
+    ground_under(contacts, sensors, body, min_normal_y).is_some()
+}
+
+/// What [`resting_on`] finds `body` resting on, by its normal turned to
+/// point out of it - up out of the ground under the body: the first such
+/// contact's.
+pub(crate) fn ground_under(
+    contacts: &ContactGraph,
+    sensors: &Query<Entity, With<Sensor>>,
+    body: Entity,
+    min_normal_y: f32,
+) -> Option<Vec3> {
     contacts
         .contact_pairs_with(body)
         .filter(|pair| pair.is_touching())
-        .any(|pair| {
+        .find_map(|pair| {
             let (other, out_of_other) = if pair.collider1 == body {
                 (pair.collider2, -1.0)
             } else {
                 (pair.collider1, 1.0)
             };
+            if sensors.contains(other) {
+                return None;
+            }
             // A manifold's normal points from the first collider to the
             // second: turned to point out of the other, it points up out of
             // a thing under the body.
-            !sensors.contains(other)
-                && pair.manifolds.iter().any(|manifold| {
-                    out_of_other * manifold.normal.y >= min_normal_y
-                        && manifold
-                            .points
-                            .iter()
-                            .any(|point| point.penetration > -cfg::BODY_TOUCH_M)
-                })
+            pair.manifolds.iter().find_map(|manifold| {
+                let normal = manifold.normal * out_of_other;
+                (normal.y >= min_normal_y
+                    && manifold
+                        .points
+                        .iter()
+                        .any(|point| point.penetration > -cfg::BODY_TOUCH_M))
+                .then_some(normal)
+            })
         })
 }
 

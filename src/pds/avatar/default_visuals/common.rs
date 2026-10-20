@@ -363,32 +363,6 @@ pub(crate) fn with_cut(
 // Connectedness (test-only)
 // ---------------------------------------------------------------------------
 
-/// Does every part of an assembled craft actually meet another one?
-///
-/// The owner's complaint on the roadster prototype was that "the parts are not
-/// all properly connected. Some kind of axles are missing" - and the reason
-/// that could be true of a design already judged by render is that **the chase
-/// camera looks DOWN**, at `ORBIT_PITCH` (0.4 rad). Nothing under a craft is
-/// ever in frame at play distance, so a part floating there is invisible
-/// exactly where it matters most, and a zoomed sheet only catches it from the
-/// elevations somebody thought to render. This answers it by arithmetic
-/// instead (#1364).
-///
-/// It resolves every node of a tree into the root's frame, samples each one's
-/// surface, and asks whether that sample is inside another node's solid. Two
-/// nodes touch when either holds one of the other's samples; a craft is sound
-/// when the touch graph is a **single connected component**, because a machine
-/// in two halves passes a per-node check and is still not one machine.
-///
-/// It is deliberately approximate in one direction only: `path_cut` and
-/// `hollow` are ignored when testing containment, so a half-pipe counts as the
-/// whole tube. That over-counts contact for cut-away bodywork, which is the
-/// safe way round here - the bodywork is what everything else is supposed to
-/// touch, and the parts this exists to catch are the small ones hanging off
-/// it. Spines and lathes are resampled with the same Catmull-Rom the mesher
-/// uses, so a curved tube is tested where it is actually drawn.
-///
-/// Test-only: it exists to guard the geometry, not to ship with it.
 #[cfg(test)]
 /// Where two trees first disagree, as a path plus what moved - so a
 /// sanitiser rewrite names the part it touched instead of printing two
@@ -443,28 +417,38 @@ pub(crate) fn first_difference(a: &Generator, b: &Generator, path: &str) -> Opti
 /// a part placed by a formula is exactly what the formula cannot check -
 /// and it cannot be judged by eye either: a 2 cm gap between a strut and a
 /// plate is invisible at the chase camera's distance and still a part that
-/// floats.
+/// floats. Least of all under a craft: the chase camera looks DOWN, at
+/// `ORBIT_PITCH`, so nothing there is in frame at play distance - which is
+/// how the owner found the roadster prototype's parts "not all properly
+/// connected" after it had been judged by render (#1364). And a craft is
+/// sound only as ONE connected component: a machine in two halves passes a
+/// per-node check and is still not one machine.
 ///
 /// Each node is read as the solid its mesher draws, from the mesher's own
-/// code where that matters (#1393). Exact: a box; a tube's flat end caps and
-/// its rings' own planes; the polygon every round prim is drawn as - a
-/// cylinder, cone, torus, sweep and lathe of resolution `n` is an `n`-gon,
-/// its faces as far in as `cos(pi / n)` of its radius, and a path cut is the
-/// open wedge it draws - with a sweep's rings in the mesher's own stations
-/// and frames; a cone tapering to its apex; and a vertex deform (taper,
-/// bend, shear, twist, bulge, s-bend) through the mesher's own map and its
-/// inverse - exact for a taper alone or a shear, whose faces stay flat, and
-/// within a row's sag for a curving one (a bend, a bulge, a taper at both
-/// ends), which the mesher draws in straight rows.
+/// code where that matters (#1393, #1577). Exact: a box; a Bevel's
+/// rounded footprint, only its upright edges rounded; a Wedge under its
+/// slope; a tube's flat end caps and its rings' own planes; the polygon
+/// every round prim is drawn as - a cylinder, cone, torus, sweep and lathe
+/// of resolution `n` is an `n`-gon, its faces as far in as `cos(pi / n)` of
+/// its radius - with a sweep's rings in the mesher's own stations and
+/// frames; a cone tapering to its apex; every cut, a path cut as the open
+/// wedge it draws and a profile cut as the band or arc it keeps; and a
+/// vertex deform (taper, bend, shear, twist, bulge, s-bend) through the
+/// mesher's own map and its inverse - exact for a taper alone or a shear,
+/// whose faces stay flat, and within a row's sag for a curving one (a bend,
+/// a bulge, a taper at both ends), which the mesher draws in straight rows.
+///
+/// Within a facet's sag: a ball, read round - a whole one's icosphere is
+/// round within half a percent, a cut one's UV sphere within its facets'
+/// sag; and a Superellipsoid, read as its own surface - a hair generous
+/// where its faces are chords inside it, a hair short past exponent 2,
+/// where they bow out past it.
 ///
 /// Read GENEROUSLY, so a part can seem to meet what it misses: a hollow's
-/// bore is read as solid; a profile cut as the whole prim, except on a
-/// sweep, whose trimmed band is read as the band it is; a torus's path cut
-/// as the whole ring; a cut sphere as the whole ball; a Bevel as its box,
-/// chamfer and all; a Superellipsoid as its box; a Wedge as its box, slope
-/// and all; an icosphere as the round ball it is within half a percent of.
-/// A bend that LIFTS a prim's top (`bend.y`) is refused outright - its
-/// inverse is a root solve no craft has needed (#1393).
+/// bore, read solid. It is the one generous reading #1577 left, and #1723
+/// holds it: reading it turns parts loose on four craft, each a design call
+/// of its own. A bend that LIFTS a prim's top (`bend.y`) is refused
+/// outright - its inverse is a root solve no craft has needed (#1393).
 ///
 /// Two parts meet when a sample of one - a point of its drawn surface - lies
 /// inside the other, or when a witness does: where two of its sweeps,
@@ -474,14 +458,14 @@ pub(crate) fn first_difference(a: &Generator, b: &Generator, path: &str) -> Opti
 /// `build_primitive_mesh` itself.
 #[cfg(test)]
 pub(crate) mod touch {
-    use std::f32::consts::{FRAC_PI_2, TAU};
+    use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
     use bevy::math::{Quat, Vec2, Vec3};
 
     use crate::pds::generator::{Generator, GeneratorKind};
     use crate::world_builder::for_touch::{
-        DEFORM_ROWS, SpineStation, Torture, deform_vertex, kept_stations, lathe_stations,
-        spine_stations, torture_of, undeform_vertex,
+        DEFORM_ROWS, SpineStation, Torture, base_mesh, bevel_outline, deform_vertex, kept_stations,
+        lathe_stations, spine_stations, torture_of, trim_profile_stations, undeform_vertex,
     };
 
     /// Stride through a resampled centreline, a profile or a ring of rings
@@ -498,30 +482,65 @@ pub(crate) mod touch {
 
     /// The solid of one node, in its own local frame.
     enum Shape {
-        /// Half-extents. Also stands in for a Bevel, a Superellipsoid and a
-        /// Wedge, none of which is ever fatter than its box.
+        /// Half-extents.
         Block(Vec3),
-        Ball(f32),
-        /// Axis along local Y: Bevy's cylinder, a prism on its [`Section`].
+        /// A Bevel: its mesher's own rounded-rectangle footprint
+        /// ([`bevel_outline`], convex, counter-clockwise in x and z), upright
+        /// through `half_h` either side of its middle - only its upright
+        /// edges are rounded (#1577).
+        Prism { half_h: f32, outline: Vec<Vec2> },
+        /// A Wedge: its box, by half-extents, under its slope - the plane
+        /// through its bottom-front and top-back edges, `y / h + z / d = 0`
+        /// (`prisms.rs`, #1577).
+        Wedge(Vec3),
+        /// A Superellipsoid: the solid its mesher's parametric surface
+        /// bounds, `(|x/a|^(2/ew) + |z/c|^(2/ew))^(ew/ns) + |y/b|^(2/ns) <= 1`
+        /// (`superellipsoid.rs`, #1577) - read within its chord sag, as the
+        /// round ball is, and past exponent 2, where its faces bow out past
+        /// its surface, a hair short of them. `points` are the vertices it
+        /// is drawn through and the centre of every face it draws.
+        Lobe {
+            half: Vec3,
+            ns: f32,
+            ew: f32,
+            points: Vec<Vec3>,
+        },
+        /// A ball, read round - the icosphere a whole one is drawn as is
+        /// round within half a percent, a cut one's UV sphere within its
+        /// facets' sag - over `band`, the heights of the flat caps a profile
+        /// cut closes it with, in its [`Section`]'s longitude wedge
+        /// (`cuts::build_uv_sphere`, #1577).
+        Ball {
+            radius: f32,
+            band: [f32; 2],
+            section: Section,
+        },
+        /// Axis along local Y: Bevy's cylinder, a prism on its [`Section`],
+        /// over `band`, the heights of its ends - those a profile cut keeps
+        /// (#1577).
         Cylinder {
             radius: f32,
-            half_h: f32,
+            band: [f32; 2],
             section: Section,
         },
         /// Bevy's cone: its [`Section`] of `radius` at `-half_h`, its apex at
-        /// `+half_h`. It was read as a cylinder before #1393 - a whole base
-        /// radius of phantom solid round its tip.
+        /// `+half_h`, over `band`, the heights a profile cut keeps (#1577).
+        /// It was read as a cylinder before #1393 - a whole base radius of
+        /// phantom solid round its tip.
         Cone {
             radius: f32,
             half_h: f32,
+            band: [f32; 2],
             section: Section,
         },
-        /// Bevy's torus: a `minor_sides`-gon swept round a `major_sides`-gon.
+        /// Bevy's torus: its minor [`Section`] swept round its major one - a
+        /// cut torus's (`cuts::build_torus`) over the arcs its path and
+        /// profile cuts keep (#1577).
         Ring {
             minor: f32,
             major: f32,
-            minor_sides: u32,
-            major_sides: u32,
+            major_section: Section,
+            minor_section: Section,
         },
         /// The mesher's own stations (`sweeps::spine_stations`), each drawn
         /// as its [`Section`] in its parallel-transported frame, and each
@@ -613,35 +632,74 @@ pub(crate) mod touch {
                 Shape::Block(h) => {
                     q.x.abs() <= h.x + EPS && q.y.abs() <= h.y + EPS && q.z.abs() <= h.z + EPS
                 }
-                Shape::Ball(r) => q.length() <= r + EPS,
+                Shape::Prism { half_h, outline } => {
+                    let p = Vec2::new(q.x, q.z);
+                    q.y.abs() <= half_h + EPS
+                        && outline
+                            .iter()
+                            .zip(outline.iter().cycle().skip(1))
+                            .all(|(&a, &b)| (b - a).perp_dot(p - a) >= -EPS * a.distance(b))
+                }
+                Shape::Wedge(h) => {
+                    q.x.abs() <= h.x + EPS
+                        && q.y.abs() <= h.y + EPS
+                        && q.z.abs() <= h.z + EPS
+                        && q.y * h.z + q.z * h.y <= EPS * h.y.hypot(h.z)
+                }
+                Shape::Lobe { half, ns, ew, .. } => {
+                    // Asked a tolerance in toward its middle, as every other
+                    // shape takes a point that near its surface.
+                    let r = q.length();
+                    let q = if r > EPS {
+                        q * (1.0 - EPS / r)
+                    } else {
+                        Vec3::ZERO
+                    };
+                    lobe(q, *half, *ns, *ew) <= 1.0
+                }
+                Shape::Ball {
+                    radius,
+                    band,
+                    section,
+                } => {
+                    let r = q.length();
+                    r <= radius + EPS
+                        && (band[0] - EPS..=band[1] + EPS).contains(&q.y)
+                        && section.in_wedge(q.x, q.z, EPS)
+                }
                 Shape::Cylinder {
                     radius,
-                    half_h,
+                    band,
                     section,
-                } => q.y.abs() <= half_h + EPS && section.reach(q.x, q.z, EPS) <= radius + EPS,
+                } => {
+                    (band[0] - EPS..=band[1] + EPS).contains(&q.y)
+                        && section.reach(q.x, q.z, EPS) <= radius + EPS
+                }
                 Shape::Cone {
                     radius,
                     half_h,
+                    band,
                     section,
                 } => {
                     // Its section at any height is the base ring shrunk toward
                     // the apex: every lateral face runs from the tip to a base
                     // edge.
                     let k = ((half_h - q.y) / (2.0 * half_h)).clamp(0.0, 1.0);
-                    q.y.abs() <= half_h + EPS && section.reach(q.x, q.z, EPS) <= radius * k + EPS
+                    (band[0] - EPS..=band[1] + EPS).contains(&q.y)
+                        && section.reach(q.x, q.z, EPS) <= radius * k + EPS
                 }
                 Shape::Ring {
                     minor,
                     major,
-                    minor_sides,
-                    major_sides,
+                    major_section,
+                    minor_section,
                 } => {
                     // Between two vertices of the major ring every minor
                     // vertex runs along a chord, so in that face's own
                     // measure - its reach against the major ring - the
                     // section is the minor ring laid at the major radius.
-                    let u = Section::whole(*major_sides).reach(q.x, q.z, EPS);
-                    Section::whole(*minor_sides).reach(u - major, q.y, EPS) <= minor + EPS
+                    let u = major_section.reach(q.x, q.z, EPS);
+                    minor_section.reach(u - major, q.y, EPS) <= minor + EPS
                 }
                 Shape::Tube {
                     stations,
@@ -799,6 +857,18 @@ pub(crate) mod touch {
             }
         }
 
+        /// Whether `(x, y)` lies in the arc the ring keeps, or within `eps`
+        /// of either cut face - as [`Self::reach`] reads it, without the
+        /// polygon: what a ball, read round, is cut by.
+        fn in_wedge(&self, x: f32, y: f32, eps: f32) -> bool {
+            if self.is_whole() {
+                return true;
+            }
+            let phi = (y.atan2(x) - self.a0).rem_euclid(TAU);
+            let (past, back) = (phi - self.span, TAU - phi);
+            phi <= self.span || x.hypot(y) * past.min(back).min(FRAC_PI_2).sin() <= eps
+        }
+
         fn is_whole(&self) -> bool {
             self.span >= TAU - 1e-3
         }
@@ -844,6 +914,14 @@ pub(crate) mod touch {
         }
     }
 
+    /// The band of its height a profile cut keeps, `0..1` from its bottom
+    /// up, as the meshers clamp it (#1577).
+    fn kept_band(kind: &GeneratorKind) -> [f32; 2] {
+        let [t0, t1] = kind.torture().map_or([0.0, 1.0], |t| t.profile_cut.0);
+        let t0 = t0.clamp(0.0, 1.0);
+        [t0, t1.clamp(0.0, 1.0).max(t0 + 1e-3)]
+    }
+
     /// The ring a window draws at `u` between two rings, each given as its
     /// frame's normal and binormal and its radius: the images of the unit
     /// ring's two axes. The mesher joins two rings vertex to vertex, so the
@@ -872,9 +950,12 @@ pub(crate) mod touch {
     /// The points a shape is drawn through, in its local frame: every ring
     /// vertex of every `stride`-th station, profile station or major vertex
     /// (and the last station, so a tube's far cap is always read); a block's
-    /// corners at `rows + 1` heights, its side faces' centres between them
-    /// and its end faces' centres; a cylinder's or a cone's rings at `rows +
-    /// 1` heights; a ball's six poles.
+    /// or a Bevel's corners at `rows + 1` heights, its side faces' centres
+    /// between them and its end faces' centres; a Wedge's corners at `rows +
+    /// 1` heights and its faces' centres; every `stride`-th of a
+    /// Superellipsoid's points; a cylinder's or a cone's rings at `rows + 1`
+    /// heights; a whole ball's six poles, and a cut one's rims and equator at
+    /// its axes' and cut faces' bearings and whichever poles it keeps.
     fn vertices(shape: &Shape, stride: usize, rows: u32) -> Vec<Vec3> {
         let ring =
             |c: Vec3, u: Vec3, v: Vec3, r: f32, corners: &[(f32, f32)], out: &mut Vec<Vec3>| {
@@ -901,58 +982,130 @@ pub(crate) mod touch {
                 out.push(Vec3::Y * h.y);
                 out.push(-Vec3::Y * h.y);
             }
-            Shape::Ball(r) => {
-                for a in [Vec3::X, Vec3::Y, Vec3::Z] {
-                    out.push(a * *r);
-                    out.push(-a * *r);
+            Shape::Ball {
+                radius,
+                band,
+                section,
+            } => {
+                if section.is_whole() && band[0] <= -radius && band[1] >= *radius {
+                    for a in [Vec3::X, Vec3::Y, Vec3::Z] {
+                        out.push(a * *radius);
+                        out.push(-a * *radius);
+                    }
+                } else {
+                    // Cut: its caps' rims and its equator where it keeps it,
+                    // at its axes' bearings and its cut faces' within its
+                    // wedge; its poles where it keeps them; its caps'
+                    // middles.
+                    let mut ys = vec![band[0], band[1]];
+                    if band[0] < 0.0 && band[1] > 0.0 {
+                        ys.push(0.0);
+                    }
+                    let bearings: Vec<(f32, f32)> = [0.0, FRAC_PI_2, PI, 3.0 * FRAC_PI_2]
+                        .into_iter()
+                        .chain([section.a0, section.a0 + section.span])
+                        .map(|a| (a.cos(), a.sin()))
+                        .filter(|&(c, sn)| section.in_wedge(c, sn, 1e-6))
+                        .collect();
+                    for &y in &ys {
+                        let rim = (radius * radius - y * y).max(0.0).sqrt();
+                        if rim > 0.0 {
+                            ring(Vec3::Y * y, Vec3::X, Vec3::Z, rim, &bearings, &mut out);
+                        }
+                    }
+                    for y in [-*radius, *radius] {
+                        if (band[0] - 1e-6..=band[1] + 1e-6).contains(&y) {
+                            out.push(Vec3::Y * y);
+                        }
+                    }
+                    out.push(Vec3::Y * band[0]);
+                    out.push(Vec3::Y * band[1]);
                 }
             }
+            // In `rows` bands, as a block is, with its sides' centres.
+            Shape::Prism { half_h, outline } => {
+                let at = |k: f32| -half_h + 2.0 * half_h * k / rows as f32;
+                let sides = || outline.iter().zip(outline.iter().cycle().skip(1));
+                for k in 0..=rows {
+                    let y = at(k as f32);
+                    out.extend(outline.iter().map(|p| Vec3::new(p.x, y, p.y)));
+                }
+                for k in 0..rows {
+                    let y = at(k as f32 + 0.5);
+                    out.extend(sides().map(|(a, b)| {
+                        let mid = (*a + *b) * 0.5;
+                        Vec3::new(mid.x, y, mid.y)
+                    }));
+                }
+                out.push(Vec3::Y * *half_h);
+                out.push(-Vec3::Y * *half_h);
+            }
+            Shape::Wedge(h) => {
+                for k in 0..=rows {
+                    let y = -h.y + 2.0 * h.y * k as f32 / rows as f32;
+                    for x in [-h.x, h.x] {
+                        out.push(Vec3::new(x, y, -h.z));
+                        out.push(Vec3::new(x, y, -h.z * y / h.y));
+                    }
+                }
+                // Its five faces' centres: floor, back, slope and two ends.
+                out.extend([
+                    Vec3::new(0.0, -h.y, 0.0),
+                    Vec3::new(0.0, 0.0, -h.z),
+                    Vec3::ZERO,
+                    Vec3::new(-h.x, -h.y / 3.0, -h.z / 3.0),
+                    Vec3::new(h.x, -h.y / 3.0, -h.z / 3.0),
+                ]);
+            }
+            // Its base mesh is drawn in the rows a deform wants already.
+            Shape::Lobe { points, .. } => out.extend(points.iter().step_by(stride).copied()),
             // In `rows` bands when deformed, as their meshers draw them, so a
             // bulge or an s-bend reaches the extents.
             Shape::Cylinder {
                 radius,
-                half_h,
+                band,
                 section,
             } => {
                 let corners = section.corners();
                 for k in 0..=rows {
-                    let y = -half_h + 2.0 * half_h * k as f32 / rows as f32;
+                    let y = band[0] + (band[1] - band[0]) * k as f32 / rows as f32;
                     ring(Vec3::Y * y, Vec3::X, Vec3::Z, *radius, &corners, &mut out);
                 }
             }
             Shape::Cone {
                 radius,
                 half_h,
+                band,
                 section,
             } => {
                 let corners = section.corners();
-                for k in 0..rows {
-                    let f = k as f32 / rows as f32;
-                    let y = -half_h + 2.0 * half_h * f;
-                    ring(
-                        Vec3::Y * y,
-                        Vec3::X,
-                        Vec3::Z,
-                        radius * (1.0 - f),
-                        &corners,
-                        &mut out,
-                    );
+                for k in 0..=rows {
+                    let y = band[0] + (band[1] - band[0]) * k as f32 / rows as f32;
+                    let at = radius * ((half_h - y) / (2.0 * half_h)).clamp(0.0, 1.0);
+                    if at <= 1e-6 {
+                        // Its apex.
+                        out.push(Vec3::Y * y);
+                        continue;
+                    }
+                    ring(Vec3::Y * y, Vec3::X, Vec3::Z, at, &corners, &mut out);
                 }
-                out.push(Vec3::Y * *half_h);
             }
             Shape::Ring {
                 minor,
                 major,
-                minor_sides,
-                major_sides,
+                major_section,
+                minor_section,
             } => {
-                let minor_ring = Section::whole(*minor_sides).corners();
-                for (j, (k, s)) in Section::whole(*major_sides)
+                let minor_ring = minor_section.corners();
+                // A cut major arc ends in caps across the tube, never at the
+                // ring's axis.
+                let majors: Vec<(f32, f32)> = major_section
                     .corners()
                     .into_iter()
-                    .enumerate()
-                {
-                    if taken(j, *major_sides as usize) {
+                    .filter(|&corner| corner != (0.0, 0.0))
+                    .collect();
+                for (j, &(k, s)) in majors.iter().enumerate() {
+                    if taken(j, majors.len()) {
                         let dir = Vec3::new(k, 0.0, s);
                         ring(dir * *major, dir, Vec3::Y, *minor, &minor_ring, &mut out);
                     }
@@ -993,14 +1146,52 @@ pub(crate) mod touch {
 
     fn shape_of(kind: &GeneratorKind) -> Shape {
         match kind {
-            GeneratorKind::Cuboid { size, .. } | GeneratorKind::Bevel { size, .. } => {
-                Shape::Block(Vec3::from(size.0) * 0.5)
+            GeneratorKind::Cuboid { size, .. } => Shape::Block(Vec3::from(size.0) * 0.5),
+            GeneratorKind::Bevel {
+                size,
+                bevel,
+                bevel_segments,
+                ..
+            } => {
+                let half = Vec3::from(size.0) * 0.5;
+                Shape::Prism {
+                    half_h: half.y,
+                    outline: bevel_outline(half.x, half.z, bevel.0, *bevel_segments),
+                }
             }
-            GeneratorKind::Wedge { size, .. } => Shape::Block(Vec3::from(size.0) * 0.5),
-            GeneratorKind::Superellipsoid { half_extents, .. } => {
-                Shape::Block(Vec3::from(half_extents.0))
+            GeneratorKind::Wedge { size, .. } => Shape::Wedge(Vec3::from(size.0) * 0.5),
+            GeneratorKind::Superellipsoid {
+                half_extents,
+                exponent_ns,
+                exponent_ew,
+                ..
+            } => {
+                let (drawn, faces) = base_mesh(kind);
+                let mut points: Vec<Vec3> = faces
+                    .iter()
+                    .map(|&[a, b, c]| (drawn[a] + drawn[b] + drawn[c]) / 3.0)
+                    .collect();
+                points.extend(drawn);
+                points.sort_unstable_by(|a, b| a.to_array().partial_cmp(&b.to_array()).unwrap());
+                points.dedup();
+                Shape::Lobe {
+                    half: Vec3::from(half_extents.0),
+                    ns: exponent_ns.0,
+                    ew: exponent_ew.0,
+                    points,
+                }
             }
-            GeneratorKind::Sphere { radius, .. } => Shape::Ball(radius.0),
+            GeneratorKind::Sphere { radius, .. } => {
+                // A profile cut keeps a band of latitudes, from the south
+                // pole at 0 to the north at 1.
+                let [t0, t1] = kept_band(kind);
+                let at = |t: f32| radius.0 * (-FRAC_PI_2 + t * PI).sin();
+                Shape::Ball {
+                    radius: radius.0,
+                    band: [at(t0), at(t1)],
+                    section: Section::of(4, kind),
+                }
+            }
             GeneratorKind::Cylinder {
                 radius,
                 height,
@@ -1008,7 +1199,7 @@ pub(crate) mod touch {
                 ..
             } => Shape::Cylinder {
                 radius: radius.0,
-                half_h: height.0 * 0.5,
+                band: kept_band(kind).map(|t| height.0 * (t - 0.5)),
                 section: Section::of((*resolution).max(3), kind),
             },
             GeneratorKind::Cone {
@@ -1019,6 +1210,7 @@ pub(crate) mod touch {
             } => Shape::Cone {
                 radius: radius.0,
                 half_h: height.0 * 0.5,
+                band: kept_band(kind).map(|t| height.0 * (t - 0.5)),
                 section: Section::of((*resolution).max(3), kind),
             },
             GeneratorKind::Torus {
@@ -1027,12 +1219,30 @@ pub(crate) mod touch {
                 minor_resolution,
                 major_resolution,
                 ..
-            } => Shape::Ring {
-                minor: minor_radius.0,
-                major: major_radius.0,
-                minor_sides: (*minor_resolution).max(3),
-                major_sides: (*major_resolution).max(3),
-            },
+            } => {
+                let (minor_sides, major_sides) =
+                    ((*minor_resolution).max(3), (*major_resolution).max(3));
+                let cut = kind.torture().is_some_and(|t| !t.cuts_are_identity());
+                // Cut, the torus is `build_torus`'s, its minor arc kept from
+                // the tube's top pole round - a quarter turn on from the
+                // outer equator Bevy's whole ring starts its minor ring at.
+                let minor_section = if cut {
+                    let [t0, t1] = kind.torture().map_or([0.0, 1.0], |t| t.profile_cut.0);
+                    Section {
+                        a0: t0 * TAU + FRAC_PI_2,
+                        span: ((t1 - t0) * TAU).min(TAU),
+                        sides: minor_sides,
+                    }
+                } else {
+                    Section::whole(minor_sides)
+                };
+                Shape::Ring {
+                    minor: minor_radius.0,
+                    major: major_radius.0,
+                    major_section: Section::of(major_sides, kind),
+                    minor_section,
+                }
+            }
             GeneratorKind::Spine {
                 points,
                 resolution,
@@ -1086,17 +1296,25 @@ pub(crate) mod touch {
                 resolution,
                 smooth,
                 ..
-            } => Shape::Revolve {
-                profile: lathe_stations(
-                    &points
-                        .iter()
-                        .map(|p| (p.radius.0, p.height.0))
-                        .collect::<Vec<_>>(),
-                    *smooth,
-                ),
-                section: Section::of((*resolution).clamp(3, 128), kind),
-                dense: *smooth,
-            },
+            } => {
+                // As much of the profile as its profile cut keeps (#1577).
+                let [t0, t1] = kind.torture().map_or([0.0, 1.0], |t| t.profile_cut.0);
+                Shape::Revolve {
+                    profile: trim_profile_stations(
+                        lathe_stations(
+                            &points
+                                .iter()
+                                .map(|p| (p.radius.0, p.height.0))
+                                .collect::<Vec<_>>(),
+                            *smooth,
+                        ),
+                        t0,
+                        t1,
+                    ),
+                    section: Section::of((*resolution).clamp(3, 128), kind),
+                    dense: *smooth,
+                }
+            }
             other => panic!(
                 "touch: no solid for {} - teach this helper the prim before \
                  a craft uses it",
@@ -1146,7 +1364,7 @@ pub(crate) mod touch {
                  (bend.y) - teach it the root solve before a craft authors one"
             );
             assert!(
-                !matches!(shape, Shape::Ball(_)),
+                !matches!(shape, Shape::Ball { .. }),
                 "{path}: touch reads a ball by its six poles, which a deform \
                  does not carry to its extents - teach it the icosphere first"
             );
@@ -1212,10 +1430,11 @@ pub(crate) mod touch {
                 let m = section.corners().len();
                 let rings: Vec<&[Vec3]> = outline.chunks(m).collect();
                 debug_assert_eq!(rings.len(), stations.len(), "{path}: a ring per station");
-                let samples = rings
+                let taken = |i: usize| i.is_multiple_of(STRIDE) || i + 1 == rings.len();
+                let samples: Vec<Vec3> = rings
                     .iter()
                     .enumerate()
-                    .filter(|&(i, _)| i.is_multiple_of(STRIDE) || i + 1 == rings.len())
+                    .filter(|&(i, _)| taken(i))
                     .flat_map(|(_, r)| r.iter().copied())
                     .collect();
                 let chunks = (0..rings.len() - 1)
@@ -1285,10 +1504,10 @@ pub(crate) mod touch {
         match shape {
             Shape::Cylinder {
                 radius,
-                half_h,
+                band,
                 section,
             } => vec![axis(
-                [to_root(-Vec3::Y * *half_h), to_root(Vec3::Y * *half_h)],
+                [to_root(Vec3::Y * band[0]), to_root(Vec3::Y * band[1])],
                 [radius * s, radius * s],
                 [upright, upright],
                 *section,
@@ -1296,13 +1515,17 @@ pub(crate) mod touch {
             Shape::Cone {
                 radius,
                 half_h,
+                band,
                 section,
-            } => vec![axis(
-                [to_root(-Vec3::Y * *half_h), to_root(Vec3::Y * *half_h)],
-                [radius * s, 0.0],
-                [upright, upright],
-                *section,
-            )],
+            } => {
+                let at = |y: f32| radius * s * ((half_h - y) / (2.0 * half_h)).clamp(0.0, 1.0);
+                vec![axis(
+                    [to_root(Vec3::Y * band[0]), to_root(Vec3::Y * band[1])],
+                    [at(band[0]), at(band[1])],
+                    [upright, upright],
+                    *section,
+                )]
+            }
             Shape::Tube {
                 stations, section, ..
             } => stations
@@ -1459,11 +1682,23 @@ pub(crate) mod touch {
     /// [`meet`]'s block witness: at the point of each of `other`'s windows
     /// nearest `block`'s centre, the block's own point nearest it - found in
     /// the block as authored, so a deformed block is asked at a point on its
-    /// drawn surface - and the window's surface facing that point.
+    /// drawn surface - and the window's surface facing that point. A Bevel's
+    /// prism, a Wedge and a Superellipsoid are asked the same (#1577), each
+    /// at a point of its own solid near the window's.
     fn block_meets_axes(block: &Part, other: &Part) -> bool {
-        let Shape::Block(h) = block.shape else {
-            return false;
+        let nearest = |q: Vec3| match &block.shape {
+            Shape::Block(h) => q.clamp(-*h, *h),
+            Shape::Prism { half_h, outline } => prism_nearest(q, *half_h, outline),
+            Shape::Wedge(h) => wedge_nearest(q, *h),
+            Shape::Lobe { half, ns, ew, .. } => lobe_nearest(q, *half, *ns, *ew),
+            _ => unreachable!("only a block's kin is asked"),
         };
+        if !matches!(
+            block.shape,
+            Shape::Block(_) | Shape::Prism { .. } | Shape::Wedge(_) | Shape::Lobe { .. }
+        ) {
+            return false;
+        }
         other.axes.iter().any(|w| {
             if apart(w.lo, w.hi, block.lo, block.hi) {
                 return false;
@@ -1474,13 +1709,63 @@ pub(crate) mod touch {
                 Some((torture, y_min, y_range)) => {
                     let q = undeform_vertex(block.local(c), y_min, y_range, torture)
                         .expect("walk refuses a deform it cannot undo");
-                    deform_vertex(q.clamp(-h, h), y_min, y_range, torture)
+                    deform_vertex(nearest(q), y_min, y_range, torture)
                 }
-                None => block.local(c).clamp(-h, h),
+                None => nearest(block.local(c)),
             };
             let p = block.world(near);
             holds(other, p) || facing(w, s, p - c).is_some_and(|f| holds(block, f))
         })
+    }
+
+    /// A superellipsoid's implicit value at `q`: 1 on the surface its mesher
+    /// draws its vertices on, under 1 inside it (#1577).
+    fn lobe(q: Vec3, half: Vec3, ns: f32, ew: f32) -> f32 {
+        let term = |v: f32, h: f32, e: f32| (v / h).abs().powf(2.0 / e);
+        (term(q.x, half.x, ew) + term(q.z, half.z, ew)).powf(ew / ns) + term(q.y, half.y, ns)
+    }
+
+    /// `q`, or where the line from a superellipsoid's middle to it crosses
+    /// the surface: its implicit value grows as the `2 / ns`th power of
+    /// distance along that line.
+    fn lobe_nearest(q: Vec3, half: Vec3, ns: f32, ew: f32) -> Vec3 {
+        let f = lobe(q, half, ns, ew);
+        if f <= 1.0 { q } else { q * f.powf(-0.5 * ns) }
+    }
+
+    /// The point of a prism `half_h` either side of its middle, on the
+    /// convex `outline`, nearest `q`.
+    fn prism_nearest(q: Vec3, half_h: f32, outline: &[Vec2]) -> Vec3 {
+        let p = Vec2::new(q.x, q.z);
+        let sides = || outline.iter().zip(outline.iter().cycle().skip(1));
+        let flat = if sides().all(|(&a, &b)| (b - a).perp_dot(p - a) >= 0.0) {
+            p
+        } else {
+            sides()
+                .map(|(&a, &b)| {
+                    let edge = b - a;
+                    a + edge
+                        * ((p - a).dot(edge) / edge.length_squared().max(1e-12)).clamp(0.0, 1.0)
+                })
+                .min_by(|x, y| x.distance_squared(p).total_cmp(&y.distance_squared(p)))
+                .unwrap_or(p)
+        };
+        Vec3::new(flat.x, q.y.clamp(-half_h, half_h), flat.y)
+    }
+
+    /// A point of the wedge of half-extents `h` near `q`: in its box, and
+    /// from over its slope straight down onto it, held to the slope's own
+    /// width - from its bottom-front edge to its top-back one.
+    fn wedge_nearest(q: Vec3, h: Vec3) -> Vec3 {
+        let p = q.clamp(-h, h);
+        let n = Vec3::new(0.0, h.z, h.y).normalize();
+        let over = p.dot(n);
+        if over <= 0.0 {
+            return p;
+        }
+        let on = p - n * over;
+        let t = (0.5 + 0.5 * on.y / h.y).clamp(0.0, 1.0);
+        Vec3::new(on.x, -h.y + 2.0 * h.y * t, h.z - 2.0 * h.z * t)
     }
 
     /// Every node of `root`, resolved into its frame - ready for [`meet`]
@@ -1543,9 +1828,13 @@ pub(crate) mod touch {
                 if met[i] && met[j] && find(&mut parent, i) == find(&mut parent, j) {
                     continue;
                 }
-                // Cheap reject first: nothing can touch across disjoint boxes.
+                // Cheap reject first: nothing can touch across disjoint boxes
+                // - grown, as [`holds`]' are, past the contains test's own
+                // tolerance. A fitting set exactly on a deck plank, its floor
+                // the plank's top, has a box apart from the plank's by a
+                // rounding (#1577), and was never asked.
                 let (a, b) = (&parts[i], &parts[j]);
-                if apart(a.lo, a.hi, b.lo, b.hi) {
+                if apart(a.reach.0, a.reach.1, b.reach.0, b.reach.1) {
                     continue;
                 }
                 if meet(a, b) {
@@ -1566,10 +1855,10 @@ pub(crate) mod touch {
     ///
     /// What an air-draft guard checks a DRAWN rig against, rather than the
     /// arithmetic that placed it - a spar standing over the height its rig
-    /// was resolved to is exactly what a derivation cannot see (#1366). What
-    /// is still read whole - a hollow, a lathe's, a cylinder's or a sphere's
-    /// profile cut, a torus's or a sphere's path cut - only over-reads a
-    /// height; a deform is read through the mesher's own map (#1393 T1).
+    /// was resolved to is exactly what a derivation cannot see (#1366). Every
+    /// cut is read as drawn (#1577) and a deform through the mesher's own map
+    /// (#1393 T1); a ball, read round, can only over-read a height, by its
+    /// facets' sag at most.
     pub(crate) fn highest(root: &Generator) -> f32 {
         parts_of(root, false)
             .iter()
@@ -1591,9 +1880,8 @@ pub(crate) mod touch {
     /// How wide `root` draws, in its own frame (m): the full `x` extent of
     /// every vertex its nodes are drawn through.
     ///
-    /// [`highest`]'s sideways twin. What it still reads generously - the cuts
-    /// [`highest`] names, a Bevel's chamfer, a Superellipsoid's or a Wedge's
-    /// box - reads WIDER than the craft is drawn, so a gateway-mouth guard
+    /// [`highest`]'s sideways twin, and as exact: a ball, read round, can
+    /// only read WIDER than the craft is drawn, so a gateway-mouth guard
     /// written against this can only be pessimistic.
     pub(crate) fn widest(root: &Generator) -> f32 {
         let parts = parts_of(root, false);
@@ -1817,6 +2105,52 @@ pub(crate) mod touch {
             );
         }
 
+        /// A dome is read to its cut (#1577): a ball's profile cut keeps its
+        /// latitudes from its equator up, flat across, and a path cut half of
+        /// its longitudes, where it was read as the whole ball - a part under
+        /// the dome's floor, or behind its cut face, met a solid nobody drew.
+        #[test]
+        fn a_dome_is_read_to_its_cuts() {
+            use super::super::{sphere, with_cut};
+            use bevy::math::{Quat, Vec3};
+            let read = |path: [f32; 2]| {
+                let dome = prim(
+                    with_cut(
+                        sphere(0.5, 3, SovereignMaterialSettings::default()),
+                        path,
+                        [0.5, 1.0],
+                        0.0,
+                    ),
+                    [0.0; 3],
+                    id_quat(),
+                );
+                let mut parts = Vec::new();
+                super::walk(
+                    &dome,
+                    Vec3::ZERO,
+                    Quat::IDENTITY,
+                    Vec3::ONE,
+                    "0".into(),
+                    &mut parts,
+                    true,
+                );
+                parts.remove(0)
+            };
+            let dome = read([0.0, 1.0]);
+            assert!(dome.contains(Vec3::new(0.3, 0.1, 0.0)), "under its roof");
+            assert!(dome.contains(Vec3::new(0.0, 0.0, 0.2)), "on its floor");
+            assert!(
+                !dome.contains(Vec3::new(0.0, -0.02, 0.2)),
+                "under its floor"
+            );
+            let half = read([0.0, 0.5]);
+            assert!(half.contains(Vec3::new(0.1, 0.2, 0.1)), "in its kept half");
+            assert!(
+                !half.contains(Vec3::new(0.1, 0.2, -0.1)),
+                "behind its cut face"
+            );
+        }
+
         /// Touch reads each prim the way the real mesher draws it - the
         /// control #1393 asks for, against `build_primitive_mesh` itself.
         /// Every vertex the mesher draws is inside touch's solid; touch's
@@ -1824,12 +2158,15 @@ pub(crate) mod touch {
         /// stood 2 mm out along the face's outward normal is OUTSIDE - which
         /// the round reading failed on every low-resolution face, the chord
         /// windows on a bend's rings, and the undeformed one on every face a
-        /// deform moved. Only the Bevel is spared the last two: its chamfer
-        /// is read as its box, as the module says.
+        /// deform moved. A Bevel, a Wedge, a Superellipsoid and the cuts
+        /// among them since #1577; only a Superellipsoid and a ball are
+        /// spared the faces, read within their facets' sag as the module
+        /// says.
         #[test]
         fn touch_reads_each_prim_as_the_mesher_draws_it() {
             use super::super::{
-                bevel, cone, cylinder, lathe, torus, with_cut, with_shape, with_taper,
+                bevel, cone, cylinder, lathe, sphere, superellipsoid, torus, wedge, with_cut,
+                with_shape, with_taper,
             };
             use crate::pds::generator::GeneratorKind;
             use crate::pds::types::Fp2;
@@ -1928,6 +2265,59 @@ pub(crate) mod touch {
                     "a plate tapered at both ends",
                     with_taper(bevel([0.6, 0.4, 0.2], 0.03, 1, m()), [0.5, 0.0], [0.5, 0.0]),
                 ),
+                ("a chamfered bevel", bevel([0.6, 0.4, 0.5], 0.12, 1, m())),
+                ("a rounded bevel", bevel([0.3, 0.8, 0.5], 0.1, 4, m())),
+                ("a wedge", wedge([0.5, 0.3, 0.8], m())),
+                (
+                    "a sliced smooth lathe",
+                    with_cut(
+                        lathe(
+                            &[(0.2, -0.4), (0.35, -0.1), (0.3, 0.2), (0.1, 0.4)],
+                            12,
+                            true,
+                            m(),
+                        ),
+                        [0.0, 1.0],
+                        [0.2, 0.8],
+                        0.0,
+                    ),
+                ),
+                (
+                    "a sliced cylinder",
+                    with_cut(cylinder(0.3, 0.8, 6, m()), [0.0, 1.0], [0.25, 0.75], 0.0),
+                ),
+                (
+                    "a sliced cone",
+                    with_cut(cone(0.4, 0.9, 8, m()), [0.0, 1.0], [0.0, 0.6], 0.0),
+                ),
+                (
+                    "a cut torus",
+                    with_cut(torus(0.08, 0.4, m()), [0.0, 0.6], [0.0, 1.0], 0.0),
+                ),
+                (
+                    "a channel torus",
+                    with_cut(torus(0.08, 0.4, m()), [0.0, 1.0], [0.25, 0.75], 0.0),
+                ),
+                (
+                    "a dome",
+                    with_cut(sphere(0.5, 3, m()), [0.0, 1.0], [0.5, 1.0], 0.0),
+                ),
+                (
+                    "a half dome",
+                    with_cut(sphere(0.5, 3, m()), [0.0, 0.5], [0.5, 1.0], 0.0),
+                ),
+                (
+                    "a tapered wedge",
+                    with_taper(wedge([0.5, 0.3, 0.8], m()), [0.4, 0.2], [0.0, 0.0]),
+                ),
+                (
+                    "a superellipsoid",
+                    superellipsoid([0.3, 0.4, 0.5], 0.6, 1.2, 12, 16, m()),
+                ),
+                (
+                    "a pinched superellipsoid",
+                    superellipsoid([0.3, 0.4, 0.5], 2.5, 2.5, 12, 16, m()),
+                ),
             ];
             for (what, kind) in cases {
                 let node = prim(kind.clone(), [0.0; 3], id_quat());
@@ -1961,8 +2351,15 @@ pub(crate) mod touch {
                     lo = lo.min(*p);
                     hi = hi.max(*p);
                 }
-                if matches!(kind, GeneratorKind::Bevel { .. }) {
-                    assert!(part.lo.cmple(lo + 1e-4).all() && part.hi.cmpge(hi - 1e-4).all());
+                // A ball is read round, so it reaches past its facets: its
+                // extents hold the mesh's rather than meet them.
+                if matches!(kind, GeneratorKind::Sphere { .. }) {
+                    assert!(
+                        part.lo.cmple(lo + 1e-4).all() && part.hi.cmpge(hi - 1e-4).all(),
+                        "{what}: touch spans {}..{}, short of the mesh's {lo}..{hi}",
+                        part.lo,
+                        part.hi
+                    );
                     continue;
                 }
                 assert!(
@@ -1971,6 +2368,9 @@ pub(crate) mod touch {
                     part.lo,
                     part.hi
                 );
+                if matches!(kind, GeneratorKind::Superellipsoid { .. }) {
+                    continue;
+                }
                 let idx: Vec<usize> = match mesh.indices().expect("indexed") {
                     Indices::U32(v) => v.iter().map(|&i| i as usize).collect(),
                     Indices::U16(v) => v.iter().map(|&i| i as usize).collect(),

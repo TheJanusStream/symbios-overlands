@@ -7,8 +7,9 @@
 //! Was the hard-coded default Shape generator under
 //! `crate::ui::room::widgets` before the catalogue existed; relocated
 //! here so all multi-material "complete building" entries live in one
-//! place. The widgets' `default_shape_kind` now delegates to this
-//! entry via [`crate::catalogue::by_slug`].
+//! place. The widgets' `default_shape_kind` takes its grammar from here,
+//! [`build_kind`]: the villa alone, without the plinth this entry has stood
+//! it on since 8e8ba94, which made the World Editor's Shape a Box (#1721).
 //!
 //! The classical reading comes from turned shafts, shadowed
 //! intercolumniations, a `Roof(Gable)` pediment (oriented front-facing by
@@ -80,7 +81,9 @@ impl CatalogueEntry for Villa {
     }
 }
 
-fn build_kind() -> GeneratorKind {
+/// The villa's grammar alone, without the plinth [`Villa`]'s tree stands
+/// it on: also the World Editor's starting Shape grammar (#1721).
+pub(crate) fn build_kind() -> GeneratorKind {
     let mut materials = HashMap::new();
 
     // Veined white marble - columns, entablature, pediment tympanum.

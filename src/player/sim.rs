@@ -153,12 +153,19 @@ fn hold_keys(app: &mut App, keys: &[KeyCode], every: &[KeyCode]) {
 /// with the generic `Time` set to the fixed clock as Bevy's `FixedMain`
 /// sets it - which is where avian reads its timestep from.
 fn fixed_step(app: &mut App) {
+    fixed_step_reading(app, |_| {});
+}
+
+/// [`fixed_step`], with `between` run on the world after the systems and
+/// before avian's step: what the systems leave avian to read.
+fn fixed_step_reading(app: &mut App, between: impl FnOnce(&mut World)) {
     let dt = std::time::Duration::from_secs_f64(1.0 / BENCH_HZ);
     let world = app.world_mut();
     world.resource_mut::<Time<Fixed>>().advance_by(dt);
     let fixed = *world.resource::<Time<Fixed>>();
     *world.resource_mut::<Time>() = fixed.as_generic();
     world.run_schedule(FixedUpdate);
+    between(world);
     world.run_schedule(FixedPostUpdate);
 }
 
@@ -285,6 +292,19 @@ impl FlightBench {
         }
     }
 
+    /// Turn the body to `rotation` where it stands, as a crash would leave
+    /// it.
+    pub(crate) fn set_rotation(&mut self, rotation: Quat) {
+        let body = self.body;
+        let world = self.app.world_mut();
+        if let Some(mut turned) = world.get_mut::<Rotation>(body) {
+            turned.0 = rotation;
+        }
+        if let Some(mut transform) = world.get_mut::<Transform>(body) {
+            transform.rotation = rotation;
+        }
+    }
+
     /// Hold `keys` down, and let go of every other flight key.
     pub(crate) fn hold(&mut self, keys: &[KeyCode]) {
         hold_keys(&mut self.app, keys, &FLIGHT_KEYS);
@@ -294,6 +314,13 @@ impl FlightBench {
     /// step.
     pub(crate) fn step(&mut self) {
         fixed_step(&mut self.app);
+        self.steps += 1;
+    }
+
+    /// [`Self::step`], with `between` run on the world after the flight
+    /// systems and before avian's step.
+    pub(crate) fn step_reading(&mut self, between: impl FnOnce(&mut World)) {
+        fixed_step_reading(&mut self.app, between);
         self.steps += 1;
     }
 

@@ -246,6 +246,88 @@ fn her_mains_damp_her_roll_no_harder_than_a_step_can_follow() {
     assert_eq!(roll_damping(damping, inertia, 0.0, dt), damping);
 }
 
+/// The mains' springs meet her roll whole where one step can follow it, and
+/// on short legs far out from her box are held to the bound and no further
+/// (#1627); a body with no lever has no roll for them to meet.
+#[test]
+fn her_mains_springs_meet_her_roll_no_stiffer_than_a_step_can_follow() {
+    let dt = 1.0 / 64.0;
+    // A short leg's spring: stiff.
+    let (stiffness, inertia) = (20_000.0, 1.8);
+    assert_eq!(roll_spring_share(stiffness, inertia, 0.2, dt), 1.0);
+    let lever = 1.1;
+    let share = roll_spring_share(stiffness, inertia, lever, dt);
+    assert!(share < 1.0, "{share}");
+    let met = 2.0 * stiffness * share * lever * lever * dt * dt / inertia;
+    assert!((met - GEAR_ROLL_SPRING_STEP).abs() < 1e-4, "{met}");
+    assert_eq!(roll_spring_share(stiffness, inertia, 0.0, dt), 1.0);
+}
+
+/// Held, the mains still carry her as much as they did - their mean is
+/// whole - and only what turns her, their difference, is scaled, by
+/// [`roll_spring_share`]; with a main off the ground, or in its slack and
+/// pressed by nothing (the #1627 review), nothing is held.
+#[test]
+fn holding_her_roll_leaves_her_weight_where_it_was() {
+    use crate::pds::types::Fp;
+    let mut p = params();
+    p.gear_height = Fp(0.05);
+    p.gear_track = Fp(4.0);
+    let [main, _, _] = wheels(&p);
+    let mass = p.mass.0;
+    let roll = box_inertia(mass, p.chassis_half_extents.0).z;
+    let dt = 1.0 / 64.0;
+    let (stiffness, _) = gear_spring(main.share * mass, main.reach);
+    let share = roll_spring_share(stiffness, roll, main.at.x, dt);
+    assert!(
+        share < 1.0,
+        "{share}: this corner of the record is not held"
+    );
+    let [Some(a), Some(b), tail] =
+        hold_roll_spring([Some(0.03), Some(0.01), Some(0.02)], main, mass, roll, dt)
+    else {
+        panic!("both mains down stay down");
+    };
+    assert!((a + b - 0.04).abs() < 1e-6, "{a} + {b}");
+    assert!(
+        (a - b - 0.02 * share).abs() < 1e-6,
+        "{a} - {b}, held to {share}"
+    );
+    assert_eq!(tail, Some(0.02));
+    for lifted in [
+        [Some(0.03), None, Some(0.02)],
+        [Some(0.03), Some(0.0), Some(0.02)],
+        [Some(0.0), Some(0.03), None],
+    ] {
+        assert_eq!(hold_roll_spring(lifted, main, mass, roll, dt), lifted);
+    }
+}
+
+/// Every seeded airplane's mains meet her roll whole: the hold is for the
+/// record's corners, and moves nothing of the fleet's - its stance, its
+/// rest, its take-off.
+#[test]
+fn no_seeded_airplanes_roll_is_held() {
+    use crate::seeded_defaults::ChassisFamily;
+    let mut seen = 0;
+    for seed in 0u64..3_000 {
+        if ChassisFamily::for_seed(seed) != ChassisFamily::Airplane {
+            continue;
+        }
+        let record = AvatarRecord::default_for_seed(seed);
+        let LocomotionConfig::Airplane(p) = &record.locomotion else {
+            continue;
+        };
+        let [main, _, _] = wheels(p);
+        let (stiffness, _) = gear_spring(main.share * p.mass.0, main.reach);
+        let roll = box_inertia(p.mass.0, p.chassis_half_extents.0).z;
+        let share = roll_spring_share(stiffness, roll, main.at.x, 1.0 / 64.0);
+        assert_eq!(share, 1.0, "seed {seed}'s roll is held to {share:.3}");
+        seen += 1;
+    }
+    assert!(seen > 100, "only {seen} seeded airplanes");
+}
+
 /// A main's last stop takes out all that is left of its roll along the
 /// ground where the two mains cannot turn her by more than half her yaw in
 /// a step, and far out from a narrow box only so much that they turn her by
@@ -263,22 +345,86 @@ fn her_mains_stop_without_turning_her_the_other_way() {
 }
 
 /// #1240 f162: an inverted airplane is righted and a banking one is not.
+///
+/// And #1626: on the ground, her box down, the same 60 degrees is a plane
+/// on her wingtip, and the assist takes her from there; a plane standing
+/// on her wheels is never pushed - across a slope either, her bank read
+/// against the ground her box rests on (the #1626 review).
 #[test]
 fn an_inverted_airplane_is_righted_and_a_banking_one_is_not() {
     let mass = 40.0;
-    assert!(upright_assist_torque(Vec3::Y, Vec3::X, Vec3::ZERO, mass).is_none());
+    for ground in [None, Some(Vec3::Y)] {
+        assert!(upright_assist_torque(Vec3::Y, Vec3::X, Vec3::ZERO, mass, ground).is_none());
+    }
     let banked = Quat::from_rotation_z(60_f32.to_radians()) * Vec3::Y;
     assert!(
-        upright_assist_torque(banked, Vec3::X, Vec3::ZERO, mass).is_none(),
+        upright_assist_torque(banked, Vec3::X, Vec3::ZERO, mass, None).is_none(),
         "a 60 degree bank is flying, not a crash"
     );
+    let wing_down = Quat::from_rotation_z(60_f32.to_radians()) * Vec3::X;
+    assert!(
+        upright_assist_torque(banked, wing_down, Vec3::ZERO, mass, Some(Vec3::Y)).is_some(),
+        "60 degrees over on the ground is past her wheels"
+    );
+    let settled = Quat::from_rotation_z((GROUNDED_UPRIGHT_ENGAGE_DEG - 2.0).to_radians());
+    assert!(
+        upright_assist_torque(
+            settled * Vec3::Y,
+            settled * Vec3::X,
+            Vec3::ZERO,
+            mass,
+            Some(Vec3::Y)
+        )
+        .is_none(),
+        "a box set down all but level is left to settle"
+    );
+    let slope = Quat::from_rotation_z(15_f32.to_radians());
+    let normal = slope * Vec3::Y;
+    assert!(
+        upright_assist_torque(
+            slope * Vec3::Y,
+            slope * Vec3::X,
+            Vec3::ZERO,
+            mass,
+            Some(normal)
+        )
+        .is_none(),
+        "a plane standing across a slope is not over"
+    );
+    let side = slope * Quat::from_rotation_z(90_f32.to_radians());
+    let torque = upright_assist_torque(
+        side * Vec3::Y,
+        side * Vec3::X,
+        Vec3::ZERO,
+        mass,
+        Some(normal),
+    )
+    .expect("on her side on a slope she is over");
+    let toward = (side * Vec3::Y).cross(normal).normalize();
+    assert!(
+        torque.normalize().dot(toward) > 0.99,
+        "on her side on a slope she is rolled toward its normal, not world up: {torque:?}"
+    );
+    // A taildragger's box resting tail-down is pitched, not over.
+    let tail_down = Quat::from_rotation_x(15_f32.to_radians());
+    assert!(
+        upright_assist_torque(
+            tail_down * Vec3::Y,
+            tail_down * Vec3::X,
+            Vec3::ZERO,
+            mass,
+            Some(Vec3::Y)
+        )
+        .is_none(),
+        "a plane sitting tail-down is not pushed onto her nose"
+    );
     let inverted = Quat::from_rotation_z(170_f32.to_radians()) * Vec3::Y;
-    let torque = upright_assist_torque(inverted, Vec3::X, Vec3::ZERO, mass)
+    let torque = upright_assist_torque(inverted, Vec3::X, Vec3::ZERO, mass, None)
         .expect("an inverted plane must right itself");
     assert!(torque.length() > 0.0);
     // DEAD inverted: `up x world-up` degenerates and the assist must fall
     // back to the roll axis, or the plane perches on its back.
-    let fallback = upright_assist_torque(-Vec3::Y, Vec3::X, Vec3::ZERO, mass)
+    let fallback = upright_assist_torque(-Vec3::Y, Vec3::X, Vec3::ZERO, mass, None)
         .expect("dead-inverted must still right");
     assert!(fallback.normalize().dot(Vec3::X) > 0.99, "{fallback:?}");
 }
@@ -577,6 +723,184 @@ fn mains_far_out_to_her_sides_let_her_come_to_rest() {
                  moved, {bank:.2} degrees over"
             );
         }
+    }
+}
+
+/// THE SHORT GEAR'S ROCK (#1627): every corner of the gear the record
+/// allows - legs 5 cm, 10 cm and 25 cm long, a tail wheel a tenth, half and
+/// all of a main's, mains 0.75, 2 and 4 half-widths out - on the narrow box
+/// and the default one, knocked in roll on her wheels, comes to rest and
+/// stays. At
+/// the shortest legs and the widest track each main's spring, sized to sink
+/// [`GEAR_SAG`] of its reach under her, was past what one step can follow
+/// in roll: she rocked at 2.5 to 3.7 rad/s, or crept a few millimetres a
+/// second, bank and all.
+#[test]
+fn every_corner_of_her_gear_comes_to_rest() {
+    use crate::pds::types::Fp;
+    let mut restless = Vec::new();
+    for (what, record) in [
+        ("the narrow box", taildragger()),
+        ("the default box", airplane()),
+    ] {
+        for height in [0.05, 0.1, 0.25] {
+            for tail in [0.1, 0.5, 1.0] {
+                for track in [0.75, 2.0, 4.0] {
+                    let mut record = record.clone();
+                    let LocomotionConfig::Airplane(p) = &mut record.locomotion else {
+                        unreachable!("an airplane record")
+                    };
+                    p.gear_height = Fp(height);
+                    p.tail_gear_share = Fp(tail);
+                    p.gear_track = Fp(track);
+                    let mut bench = FlightBench::set_down(&record, 0.0, 100.0);
+                    run(&mut bench, &[], 3.0);
+                    let forward = bench.rotation() * Vec3::NEG_Z;
+                    bench.set_angular_velocity(forward * 0.5);
+                    run(&mut bench, &[], 2.0);
+                    let at = bench.position();
+                    let mut fastest = 0.0f32;
+                    for _ in 0..64 {
+                        bench.step();
+                        fastest = fastest.max(bench.angular_velocity().length());
+                    }
+                    let moved = bench.position().distance(at);
+                    let (_, bank, _) = attitude(&bench);
+                    if !(fastest < 0.01 && moved < 1e-3 && bank.abs() < 0.5) {
+                        restless.push(format!(
+                            "{what}, legs {height} m, tail {tail}, track {track}: turning at \
+                             {fastest:.3} rad/s, {moved:.4} m moved, {bank:.2} degrees over"
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    assert!(restless.is_empty(), "{}", restless.join("\n"));
+}
+
+/// Whether her box rests on what is under her on the bench, as her gear and
+/// her righting assist read it.
+fn box_rests(bench: &mut FlightBench) -> bool {
+    use bevy::ecs::system::SystemState;
+    let world = bench.world_mut();
+    let mut state = SystemState::<(
+        Option<Res<ContactGraph>>,
+        Query<Entity, With<Sensor>>,
+        Query<Entity, With<LocalPlayer>>,
+    )>::new(world);
+    let (contacts, sensors, bodies) = state.get(world).expect("the bench's world");
+    let body = bodies.single().expect("one body on the bench");
+    box_ground(contacts.as_deref(), &sensors, body).is_some()
+}
+
+/// ACROSS A SLOPE (#1626 review): a plane standing on her wheels across a
+/// slope steeper than [`GROUNDED_UPRIGHT_ENGAGE_DEG`], her box resting on
+/// it, is not lying over, though her bank against world up is the slope's:
+/// read so, her gear stood down and she lay on her box, 3 cm lower. On the
+/// shortest legs, whose box rests where she parks, set down across 15
+/// degrees of slope either way, she stands on it as she stands on the flat,
+/// and stays - but for a creep downhill of about a millimetre a second, her
+/// box's contact pressing her against mains that grip sideways as a damper
+/// (#1615).
+#[test]
+fn an_airplane_parked_across_a_slope_on_her_box_stands_on_her_wheels() {
+    use crate::pds::types::Fp;
+    let mut record = airplane();
+    let LocomotionConfig::Airplane(p) = &mut record.locomotion else {
+        unreachable!("an airplane record")
+    };
+    p.gear_height = Fp(0.05);
+    p.tail_gear_share = Fp(0.1);
+    let stands = p.chassis_half_extents.0[1] + p.gear_height.0;
+    let mut flat = FlightBench::set_down(&record, 0.0, 100.0);
+    run(&mut flat, &[], 3.0);
+    let parked = flat.position().y;
+    for slope in [15.0_f32, -15.0] {
+        let tilt = Quat::from_rotation_z(slope.to_radians());
+        let normal = tilt * Vec3::Y;
+        // A slab whose top runs through `on`, rising to one side.
+        let on = Vec3::new(0.0, 8.0, 100.0);
+        let mut bench = FlightBench::new(&record, on + normal * (stands + 0.02));
+        bench.block(
+            Transform::from_translation(on - normal).with_rotation(tilt),
+            Vec3::new(20.0, 1.0, 20.0),
+        );
+        bench.set_rotation(tilt);
+        run(&mut bench, &[], 3.0);
+        assert!(
+            box_rests(&mut bench),
+            "across {slope} degrees her box stands clear of the slope: nothing here is tested"
+        );
+        let at = bench.position();
+        let mut fastest = 0.0f32;
+        for _ in 0..128 {
+            bench.step();
+            fastest = fastest.max(bench.angular_velocity().length());
+        }
+        let moved = bench.position().distance(at);
+        let rot = bench.rotation();
+        let over = (-(rot * Vec3::X).dot(normal))
+            .atan2((rot * Vec3::Y).dot(normal))
+            .to_degrees();
+        let height = (bench.position() - on).dot(normal);
+        assert!(
+            fastest < 0.01 && moved < 5e-3 && over.abs() < 1.0 && (height - parked).abs() < 0.01,
+            "parked across {slope} degrees of slope: turning at {fastest:.3} rad/s, \
+             {moved:.4} m moved, {over:.2} degrees over against it, standing {height:.3} m \
+             over it; on the flat she stands {parked:.3} m over it"
+        );
+    }
+}
+
+/// BESIDE A BANK (the #1626 review): her box resting on a ramp just
+/// outboard of her right main is not her lying over on it, though her bank
+/// against the ramp is past [`GROUNDED_UPRIGHT_ENGAGE_DEG`] - both her mains
+/// stand on the ground. Read off her box's contact alone, her gear stood
+/// down: across 15 degrees she rocked on and off her wheels for good, and
+/// across 25 she lay on her belly against it, banked 11 degrees. Set down
+/// beside it, her box's lower edge on its face or 3 cm under it, she rests
+/// on her wheels.
+#[test]
+fn an_airplane_beside_a_bank_her_box_on_it_stays_on_her_wheels() {
+    let record = airplane();
+    let LocomotionConfig::Airplane(p) = &record.locomotion else {
+        unreachable!("an airplane record")
+    };
+    let [hx, hy, _] = p.chassis_half_extents.0;
+    let [main, _, _] = wheels(p);
+    let mut flat = FlightBench::set_down(&record, 0.0, 100.0);
+    run(&mut flat, &[], 3.0);
+    let parked = flat.underside();
+    for (slope, over) in [(15.0_f32, 0.0_f32), (15.0, 0.03), (25.0, 0.03)] {
+        let tilt = Quat::from_rotation_z(slope.to_radians());
+        // The ramp's face rises to her right through `over` above her box's
+        // lower right edge as she parks; its inner edge stands between that
+        // edge and her right main, whose ray falls clear of it.
+        let edge = Vec3::new(hx, parked + over, 100.0);
+        let inner = (main.at.x.abs() + hx) * 0.5;
+        let start = edge + Vec3::new(inner - hx, (inner - hx) * slope.to_radians().tan(), 0.0);
+        let half = Vec3::new(2.0, 0.5, 3.0);
+        let mut bench = FlightBench::set_down(&record, 0.0, 100.0);
+        bench.block(
+            Transform::from_translation(start - tilt * Vec3::new(-half.x, half.y, 0.0))
+                .with_rotation(tilt),
+            half,
+        );
+        run(&mut bench, &[], 10.0);
+        let mut fastest = 0.0f32;
+        for _ in 0..128 {
+            bench.step();
+            fastest = fastest.max(bench.angular_velocity().length());
+        }
+        let (_, bank, _) = attitude(&bench);
+        let underside = bench.underside();
+        assert!(
+            fastest < 0.01 && underside > parked - 0.02 && bank.abs() < 3.0,
+            "beside a {slope} degree bank, her box {over} m under its face: turning at \
+             {fastest:.3} rad/s, banked {bank:.1} degrees, her box {underside:.3} m up; \
+             she parks it {parked:.3} m up (her box half-height {hy})"
+        );
     }
 }
 

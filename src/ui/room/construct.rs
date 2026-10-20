@@ -507,6 +507,31 @@ mod kind_change_tests {
         assert_eq!(saved.layout_revision, 0, "on the original street plan");
     }
 
+    /// #1721. THE SEQUENCE: open a Box's Kind picker, choose "Shape grammar",
+    /// confirm the change - and it is still a Box, its own settings replaced
+    /// by a plinth's. The Shape default was the catalogue Villa's ROOT kind,
+    /// and since the Villa stands on a footing that root is a box. Every
+    /// kind a picker offers starts as that kind, and the grammar as one.
+    #[test]
+    fn every_offered_kind_starts_as_that_kind() {
+        for tag in ROOM_ROOT_KINDS
+            .iter()
+            .chain(ROOM_CHILD_KINDS)
+            .chain(AVATAR_KINDS)
+        {
+            assert_eq!(make_default_for_kind(tag).kind_tag(), *tag);
+        }
+        let GeneratorKind::Shape {
+            grammar_source,
+            materials,
+            ..
+        } = make_default_for_kind("Shape")
+        else {
+            panic!("Shape makes a grammar");
+        };
+        assert!(!grammar_source.trim().is_empty() && !materials.is_empty());
+    }
+
     /// The one genuinely lossy switch used to strand the children in the
     /// record until the next 0.25 s sanitize flush deleted them - outside
     /// the undo entry, with no message. They go at apply time now.
