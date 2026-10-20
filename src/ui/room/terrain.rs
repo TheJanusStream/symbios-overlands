@@ -19,6 +19,10 @@ pub(super) fn draw_terrain_forge(
     grass: Option<&mut super::grass::GrassPanel<'_>>,
     dirty: &mut bool,
     assets: &mut super::assets::AssetPanel<'_>,
+    // Whether the ground is Berlin's own (#1642), which reads only some of
+    // these fields: the rest shape the stand-in drawn when it cannot be
+    // fetched (`crate::terrain::geo`), so they stay editable and say so.
+    berlin: bool,
 ) {
     // README's second sentence tells a new user to edit the terrain
     // (#1233 f264). The path from that promise to a visible change ran
@@ -26,18 +30,31 @@ pub(super) fn draw_terrain_forge(
     // Persistence and Lacunarity - fractal-noise vocabulary, with no
     // hover text on any of it - while the friendlier control that already
     // exists sits above and was never pointed at.
-    ui.label(
-        egui::RichText::new(
-            "These shape the landform in detail. For a different landscape entirely, use this window's Random seed row.",
-        )
-        .small()
-        .color(crate::ui::theme::current(ui.ctx()).text_weak),
+    note(
+        ui,
+        if berlin {
+            "This world's ground is Berlin's own: of these it reads Grid size, the Material's \
+             Texture size, Tile scale and textures, and the Grass. The rest shape the stand-in \
+             ground drawn while Berlin's cannot be fetched, and each section says what else its \
+             fields do here. For other ground, use the Environment tab's Region source."
+        } else {
+            "These shape the landform in detail. For a different landscape entirely, use this window's Random seed row."
+        },
     );
     ui.add_space(4.0);
 
     egui::CollapsingHeader::new("Grid")
         .default_open(false)
         .show(ui, |ui| {
+            if berlin {
+                note(
+                    ui,
+                    "Berlin's ground spreads its Grid size points over its square and takes its \
+                     heights from Berlin. Cell scale shapes only the stand-in ground. Height \
+                     scale shapes it too, and while Berlin's land use cannot be fetched it sets \
+                     the heights the Material's rules read.",
+                );
+            }
             drag_u32(ui, "Grid size", &mut cfg.grid_size, 32, 2048, dirty).on_hover_text(
                 "How many points the landscape is sampled at. Higher is more detailed and slower to build.",
             );
@@ -51,6 +68,18 @@ pub(super) fn draw_terrain_forge(
     egui::CollapsingHeader::new("Algorithm")
         .default_open(false)
         .show(ui, |ui| {
+            if berlin {
+                // The Seed is the scene's too (`RoomScene::of`): the theme a
+                // Berlin world is dressed in, which a new one re-seeds
+                // (`crate::terrain::derived::seed::wanted_mark`).
+                note(
+                    ui,
+                    "Berlin's heights are measured, not generated: this section shapes the \
+                     stand-in ground. Its Seed also picks the theme Berlin's buildings, trees \
+                     and street furniture are drawn in: a new Seed plants another theme's in \
+                     their place, and any edits made to them go with them.",
+                );
+            }
             if kind_combo(ui, &mut cfg.generator_kind) {
                 *dirty = true;
             }
@@ -129,6 +158,9 @@ pub(super) fn draw_terrain_forge(
     egui::CollapsingHeader::new("Hydraulic erosion")
         .default_open(false)
         .show(ui, |ui| {
+            if berlin {
+                note(ui, MEASURED);
+            }
             if ui.checkbox(&mut cfg.erosion_enabled, "Enabled").changed() {
                 *dirty = true;
             }
@@ -188,6 +220,9 @@ pub(super) fn draw_terrain_forge(
     egui::CollapsingHeader::new("Thermal erosion")
         .default_open(false)
         .show(ui, |ui| {
+            if berlin {
+                note(ui, MEASURED);
+            }
             if ui.checkbox(&mut cfg.thermal_enabled, "Enabled").changed() {
                 *dirty = true;
             }
@@ -214,6 +249,14 @@ pub(super) fn draw_terrain_forge(
     egui::CollapsingHeader::new("Material")
         .default_open(false)
         .show(ui, |ui| {
+            if berlin {
+                note(
+                    ui,
+                    "Berlin's land use chooses where each layer shows: the four rules, read \
+                     against Height scale, choose it only while the land use cannot be fetched. \
+                     Texture size, Tile scale and the textures apply.",
+                );
+            }
             draw_material_forge(ui, &mut cfg.material, dirty, assets);
         });
 
@@ -225,6 +268,22 @@ pub(super) fn draw_terrain_forge(
                 ui.label("The grass is set in the World Editor's own terrain.");
             }
         });
+}
+
+/// What a Berlin world's erosion sections say (#1642): its heights are
+/// Berlin's measured ground, never generated or eroded here.
+const MEASURED: &str =
+    "Berlin's heights are measured, not generated: these shape only the stand-in ground.";
+
+/// A small line in the theme's weak text: the forge's lead-in and, on a
+/// Berlin world, what each section's fields do there (#1642). Painted, as a
+/// hover is no answer to a field that seems to do nothing (#1289).
+fn note(ui: &mut egui::Ui, text: &str) {
+    ui.label(
+        egui::RichText::new(text)
+            .small()
+            .color(crate::ui::theme::current(ui.ctx()).text_weak),
+    );
 }
 
 #[cfg(test)]

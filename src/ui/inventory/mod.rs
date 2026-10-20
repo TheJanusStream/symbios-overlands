@@ -1364,8 +1364,8 @@ pub const UNREADABLE_ITEM_HOVER: &str = "This item was made by a newer version o
      is in your inventory, the inventory cannot be saved at all. Update Overlands, or delete the item.";
 
 /// Pick an inventory key for a gift arriving via [`crate::protocol::OverlandsMessage::ItemOffer`].
-/// Policy: if the incoming name is free, use it verbatim; otherwise
-/// append `_2`, `_3`, … until we find an unused slot. This matches the
+/// Policy: if the incoming name, as the sanitiser keeps it, is free, use
+/// it; otherwise append `_2`, `_3`, … until we find an unused slot. This matches the
 /// user-approved design ("auto-rename with _2 suffix"). Equality of
 /// existing entries is not consulted - a gift always lands as a new item,
 /// because two players may each have tweaked the same base blueprint and
@@ -1382,16 +1382,26 @@ pub fn choose_inventory_gift_key(
 /// only because the owner deleted that item locally would, published
 /// from `stored`, overwrite the stored item with the gift.
 fn choose_gift_key(is_taken: impl Fn(&str) -> bool, incoming_name: &str) -> String {
-    if !is_taken(incoming_name) {
-        return incoming_name.to_string();
+    use crate::pds::sanitize::names::with_suffix;
+    let cap = crate::config::state::MAX_INVENTORY_NAME_CHARS;
+    // The name as the inventory's sanitiser keeps it (#1717): an offer's
+    // name is cut at 64 characters, which can leave a trailing space, and
+    // a raw name free here can be cleaned onto a taken one after this
+    // check, and the gift dropped.
+    let name = with_suffix(incoming_name, "", cap);
+    if !is_taken(&name) {
+        return name;
     }
     for i in 2u32..u32::MAX {
-        let candidate = format!("{incoming_name}_{i}");
+        // Cut to leave the suffix room under the cap, or the inventory's
+        // sanitiser cuts it back onto the name it was made unique from,
+        // and drops the gift (#1717).
+        let candidate = with_suffix(&name, &format!("_{i}"), cap);
         if !is_taken(&candidate) {
             return candidate;
         }
     }
-    incoming_name.to_string()
+    name
 }
 
 /// Accept a gift (#1200): land it in `live` and return the record the
@@ -1575,6 +1585,38 @@ mod gift_arrival_tests {
             None,
         );
         assert_eq!(key, "lantern");
+    }
+
+    /// A colliding gift (#1717): its key is one the sanitiser keeps, so the
+    /// published stash, sanitised as any stash is on its way in, keeps it
+    /// beside the item it collided with - a name at the cap, whose suffix
+    /// must leave it room, and a name the offer's 64-character cut left
+    /// ending in a space, which the sanitiser trims onto the item it met.
+    #[test]
+    fn a_colliding_gift_named_at_the_cap_survives_the_sanitiser() {
+        let at_cap = "g".repeat(crate::config::state::MAX_INVENTORY_NAME_CHARS);
+        for (held, offered) in [
+            (at_cap.clone(), at_cap.clone()),
+            ("lamp".to_owned(), "lamp ".to_owned()),
+        ] {
+            let mut live = crate::pds::InventoryRecord::default();
+            live.put_item(held.clone(), crate::pds::Generator::default(), None);
+            let stored = live.clone();
+            let (key, mut payload) = accept_gift(
+                &mut live,
+                &stored,
+                &offered,
+                crate::pds::Generator::default(),
+                None,
+            );
+            assert_ne!(key, held, "{offered:?}");
+            payload.sanitize();
+            assert!(payload.generators.contains_key(&held), "the item it met");
+            assert!(
+                payload.generators.contains_key(&key),
+                "and the gift, {key:?}"
+            );
+        }
     }
 }
 

@@ -436,20 +436,27 @@ pub(crate) fn choose_room_generator_key(
     inventory_name: &str,
     new_gen: &Generator,
 ) -> String {
-    if let Some(existing_gen) = existing.get(inventory_name) {
+    use crate::pds::{limits::MAX_GENERATOR_NAME_CHARS, sanitize::names::with_suffix};
+    // The name as the sanitiser keeps it (#1717): a raw name free here can
+    // be cleaned onto a part's after this check, and the drop lost.
+    let name = with_suffix(inventory_name, "", MAX_GENERATOR_NAME_CHARS);
+    if let Some(existing_gen) = existing.get(&name) {
         if serde_json::to_value(existing_gen).ok() == serde_json::to_value(new_gen).ok() {
-            return inventory_name.to_string();
+            return name;
         }
     } else {
-        return inventory_name.to_string();
+        return name;
     }
     for i in 2u32..u32::MAX {
-        let candidate = format!("{inventory_name}_{i}");
+        // Cut to leave the suffix room under the cap, or the sanitiser cuts
+        // it back onto the name it was made unique from, and drops it
+        // (#1717).
+        let candidate = with_suffix(&name, &format!("_{i}"), MAX_GENERATOR_NAME_CHARS);
         if !existing.contains_key(&candidate) {
             return candidate;
         }
     }
-    inventory_name.to_string()
+    name
 }
 
 /// Live ground preview for an armed drag (#831): a footprint ring + post
@@ -755,5 +762,39 @@ mod place_drop_tests {
         let held = Fp3(hit.to_array()).on_wire();
         assert_ne!(held.0, hit.to_array(), "the hit is off the grid");
         assert_eq!(transform.translation, held);
+    }
+
+    /// THE SEQUENCE (#1717): a stash item whose name is at the 256-character
+    /// cap, dropped into a world already holding another part of that name,
+    /// took the key NAME_2 - past the cap - and the drop's settle cut it back
+    /// onto NAME and dropped it, leaving its placement pointing at nothing.
+    #[test]
+    fn a_drop_named_at_the_cap_lands_beside_its_namesake() {
+        let name = "w".repeat(crate::pds::limits::MAX_GENERATOR_NAME_CHARS);
+        let mut record = crate::pds::RoomRecord::default();
+        record.generators.clear();
+        record.placements.clear();
+        let kind = crate::ui::room::construct::make_default_for_kind;
+        record
+            .generators
+            .insert(name.clone(), Generator::from_kind(kind("Cuboid")));
+        let dropped = Generator::from_kind(kind("Sphere"));
+        let key = choose_room_generator_key(&record.generators, &name, &dropped);
+        assert_ne!(
+            key, name,
+            "the namesake differs, so the drop needs a key of its own"
+        );
+        record.generators.insert(key.clone(), dropped.clone());
+        place_drop(&mut record, &key, Vec3::ZERO);
+
+        assert_eq!(
+            record.generators.get(&name).map(|g| g.kind.clone()),
+            Some(kind("Cuboid"))
+        );
+        assert_eq!(record.generators.get(&key), Some(&dropped), "the drop kept");
+        let Some(Placement::Absolute { generator_ref, .. }) = record.placements.last() else {
+            panic!("the drop placed nothing");
+        };
+        assert_eq!(generator_ref, &key, "and its placement finds it");
     }
 }

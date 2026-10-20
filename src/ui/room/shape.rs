@@ -63,6 +63,8 @@ pub(super) fn draw_shape_forge(
     root_rule: &mut String,
     footprint: &mut Fp3,
     seed: &mut u64,
+    // Why this seed draws nothing in the world, where it does not (#1573).
+    seed_note: Option<&str>,
     materials: &mut std::collections::HashMap<String, SovereignMaterialSettings>,
     round_meshes: &mut Vec<String>,
     solid_meshes: &mut Vec<String>,
@@ -118,6 +120,15 @@ pub(super) fn draw_shape_forge(
                 }
             });
             u64_row(ui, "Seed", salt, seed, dirty);
+            // Painted, not hovered (#1289): a seed every placement of the
+            // item replaces with its own reads as a broken field.
+            if let Some(note) = seed_note {
+                ui.label(
+                    egui::RichText::new(note)
+                        .small()
+                        .color(crate::ui::theme::current(ui.ctx()).text_weak),
+                );
+            }
             ui.label("Footprint (X / Y / Z, world units)");
             ui.horizontal(|ui| {
                 let mut v = footprint.0;

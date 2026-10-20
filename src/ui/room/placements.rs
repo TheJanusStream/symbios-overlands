@@ -239,7 +239,7 @@ pub(crate) fn new_absolute_placement(target: String, anchor: [f32; 2]) -> Placem
 }
 
 /// Fresh `Scatter` whose bounds circle is centred on the anchor.
-fn new_scatter_placement(target: String, anchor: [f32; 2]) -> Placement {
+pub(super) fn new_scatter_placement(target: String, anchor: [f32; 2]) -> Placement {
     let mut bounds = ScatterBounds::default();
     match &mut bounds {
         ScatterBounds::Circle { center, .. } | ScatterBounds::Rect { center, .. } => {
@@ -280,7 +280,7 @@ fn new_grid_placement(target: String, anchor: [f32; 2]) -> Placement {
 
 /// Fresh instance set (#1643) anchored at the player's feet, snapped, with
 /// one copy at its anchor: more are added in its Copies section.
-fn new_instances_placement(target: String, anchor: [f32; 2]) -> Placement {
+pub(super) fn new_instances_placement(target: String, anchor: [f32; 2]) -> Placement {
     Placement::Instances {
         generator_ref: target,
         transform: TransformData {

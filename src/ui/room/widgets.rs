@@ -792,13 +792,19 @@ pub(super) enum ReferenceClass {
     Audio,
 }
 
+/// A key of `map` - a world's parts or an inventory's items, which share
+/// one name cap - that no entry holds: `prefix` as the sanitiser keeps it,
+/// or `prefix_1`, `prefix_2`, ... with the prefix cut to leave the suffix
+/// room under the cap (#1717), so the sanitiser never cuts a new key back
+/// onto the one it was made unique from and drops it.
 pub(crate) fn unique_key<T>(map: &std::collections::HashMap<String, T>, prefix: &str) -> String {
+    use crate::pds::{limits::MAX_GENERATOR_NAME_CHARS, sanitize::names::with_suffix};
     let mut n = 0;
     loop {
         let key = if n == 0 {
-            prefix.to_string()
+            with_suffix(prefix, "", MAX_GENERATOR_NAME_CHARS)
         } else {
-            format!("{prefix}_{n}")
+            with_suffix(prefix, &format!("_{n}"), MAX_GENERATOR_NAME_CHARS)
         };
         if !map.contains_key(&key) {
             return key;
@@ -1565,5 +1571,28 @@ mod range_tests {
             // …and the same from the other side.
             assert!(max_lo >= min.min(hi));
         }
+    }
+
+    /// A new part or item named at the cap (#1717): each key the helper
+    /// gives it is one the sanitiser keeps, so a world or a stash holding
+    /// the name, then `_1`, takes `_2` - none cut back onto another.
+    #[test]
+    fn a_unique_key_at_the_cap_leaves_its_suffix_room() {
+        let cap = crate::pds::limits::MAX_GENERATOR_NAME_CHARS;
+        let name = "k".repeat(cap);
+        let mut map = std::collections::HashMap::from([(name.clone(), 0)]);
+        for n in 1..=2 {
+            let key = super::unique_key(&map, &name);
+            assert_eq!(key.chars().count(), cap);
+            assert!(key.ends_with(&format!("_{n}")));
+            map.insert(key, n);
+        }
+        assert!(crate::pds::sanitize::names::sanitize_keys(&mut map, cap).is_empty());
+        assert_eq!(map.len(), 3, "three keys, three entries");
+        assert_eq!(
+            super::unique_key(&map, "lamp"),
+            "lamp",
+            "a free short name is itself"
+        );
     }
 }

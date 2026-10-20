@@ -183,6 +183,10 @@ pub(super) fn draw_detail_panel(
     } else {
         None
     };
+    // Why a grammar's seed in this tree draws nothing (#1573), and whether
+    // the terrain shapes Berlin's ground (#1642).
+    let seed_note = source.grammar_seed_note(&id.root);
+    let berlin_ground = source.ground_is_berlin();
 
     if let Some(node) = find_node_mut(source, &id) {
         let child_count = node.children.len();
@@ -271,6 +275,10 @@ pub(super) fn draw_detail_panel(
                             pick: face_pick,
                         },
                         assets,
+                        SourceFacts {
+                            seed_note: seed_note.as_deref(),
+                            berlin_ground,
+                        },
                     );
                 });
 
@@ -1759,6 +1767,14 @@ fn kind_section(
         .show(ui, body);
 }
 
+/// What the tree's source says about the node being drawn, resolved before
+/// the node is borrowed: why a grammar's seed draws nothing in this tree
+/// (#1573), and whether its terrain shapes Berlin's ground (#1642).
+struct SourceFacts<'a> {
+    seed_note: Option<&'a str>,
+    berlin_ground: bool,
+}
+
 /// Per-kind variant detail editor - a thin dispatch: every arm is a
 /// single delegation into a per-kind editor fn (the Terrain / LSystem /
 /// Shape forges, the shared primitive editors, or the inline-widget
@@ -1790,6 +1806,7 @@ fn draw_generator_detail(
     // The asset caches, for every field that names a fetched image, sound
     // or terrain layer (#1246).
     assets: &mut super::super::assets::AssetPanel<'_>,
+    facts: SourceFacts<'_>,
 ) {
     // Snapshot taken before the match's mutable borrow: the per-face panel
     // (#960) needs the WHOLE kind - which faces the current cut state emits,
@@ -1843,7 +1860,9 @@ fn draw_generator_detail(
         };
     }
     match kind {
-        GeneratorKind::Terrain(cfg) => draw_terrain_forge(ui, salt, cfg, grass, dirty, assets),
+        GeneratorKind::Terrain(cfg) => {
+            draw_terrain_forge(ui, salt, cfg, grass, dirty, assets, facts.berlin_ground)
+        }
         GeneratorKind::Water { surface } => {
             draw_water_editor(ui, surface, dirty);
         }
@@ -1901,6 +1920,7 @@ fn draw_generator_detail(
             root_rule,
             footprint,
             seed,
+            facts.seed_note,
             materials,
             round_meshes,
             solid_meshes,
@@ -3133,5 +3153,204 @@ mod collapsed_by_default_tests {
             foam(&panel.settle(Vec::new(), false)),
             "the first water node forgot its open Waves"
         );
+    }
+}
+
+#[cfg(test)]
+mod source_facts_tests {
+    use bevy_egui::egui;
+    use egui::accesskit::Role;
+
+    use super::{GenNodeId, draw_detail_panel};
+    use crate::pds::{Generator, GeneratorKind, GeoSource, Placement, RoomRecord};
+    use crate::ui::room::generators::{RoomTreeSource, TreeSelection};
+
+    /// Every text the World Editor's node panel paints for the root `root`
+    /// of `record` - each label, each control's name and what each field
+    /// shows - with every section open. Whether the pass writes is not
+    /// asked: egui's flag that opens every section opens every popup too,
+    /// and a colour picker drawn open from its swatch's first frame reports
+    /// a change it was never given - one a person opens does not.
+    fn painted(record: &mut RoomRecord, root: &str) -> Vec<String> {
+        use crate::ui::room::assets::AssetPanel;
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        ctx.memory_mut(|m| m.set_everything_is_visible(true));
+        let mut selection = TreeSelection {
+            root: Some(root.to_owned()),
+            path: Some(Vec::new()),
+        };
+        let mut audio = crate::ui::room::audio::AudioEditorState::default();
+        let grammar = crate::world_builder::grammar_diag::GrammarDiagnostics::default();
+        let mut confirm = crate::ui::confirm::ConfirmState::<(GenNodeId, &'static str)>::default();
+        let mut labels = crate::ui::undo::PendingUndoLabels::default();
+        let mut face_pick = crate::editor_gizmo::FacePick::default();
+        let images = crate::world_builder::image_cache::BlobImageCache::default();
+        let blobs = crate::world_builder::audio_resolver::BlobAudioCache::default();
+        let clips = crate::interaction::audio::AudioClipCache::default();
+        let layers = crate::terrain::referenced::ReferencedLayerStatus::default();
+        let mut retries = crate::world_builder::asset_failure::AssetRetryRequests::default();
+        let mut dirty = false;
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1280.0, 8000.0),
+            )),
+            ..Default::default()
+        };
+        let output = ctx.run_ui(input, |ui| {
+            let mut source = RoomTreeSource::new(record);
+            draw_detail_panel(
+                ui,
+                &mut source,
+                &mut selection,
+                &mut audio,
+                &grammar,
+                &mut dirty,
+                &mut None,
+                &mut confirm,
+                &mut labels.slot(crate::ui::shortcuts::EditorKind::World),
+                None,
+                None,
+                &mut face_pick,
+                &mut AssetPanel {
+                    images: &images,
+                    audio: &blobs,
+                    clips: &clips,
+                    layers: &layers,
+                    retries: &mut retries,
+                    now: 0.0,
+                    allow_external: true,
+                },
+            );
+        });
+        output
+            .platform_output
+            .accesskit_update
+            .iter()
+            .flat_map(|update| &update.nodes)
+            // The rows a label is laid out in are its children, each with
+            // its own run of the text: the label says it whole.
+            .filter(|(_, node)| node.role() != Role::TextRun)
+            // A label can carry its text as its name and as its value: once.
+            .flat_map(|(_, node)| {
+                let label = node.label();
+                label
+                    .into_iter()
+                    .chain(node.value().filter(|value| Some(*value) != label))
+            })
+            .map(str::to_owned)
+            .collect()
+    }
+
+    /// #1573: a grammar item whose one placement draws it with that
+    /// placement's Grammar seed says so under its Seed row. The control:
+    /// the same item placed without one draws the row and no note.
+    #[test]
+    fn a_shape_drawn_only_with_placement_seeds_says_so_under_its_seed() {
+        const SEED: u64 = 4_242_424_242;
+        let mut record = RoomRecord::default();
+        record.generators.insert(
+            "house".into(),
+            Generator::from_kind(GeneratorKind::Shape {
+                grammar_source: "Lot --> I(\"Box\")".into(),
+                root_rule: "Lot".into(),
+                footprint: crate::pds::Fp3([4.0, 0.0, 4.0]),
+                seed: SEED,
+                materials: Default::default(),
+                round_meshes: Vec::new(),
+                solid_meshes: Vec::new(),
+            }),
+        );
+        let mut placement =
+            crate::ui::room::placements::new_absolute_placement("house".into(), [0.0, 0.0]);
+        record.placements = vec![placement.clone()];
+        let plain = painted(&mut record, "house");
+        assert!(
+            plain.iter().any(|text| text == &SEED.to_string()),
+            "control: the grammar's Seed row is drawn in {plain:?}"
+        );
+        assert!(
+            !plain.iter().any(|label| label.starts_with("Drawn with")),
+            "the node's own seed draws the placement, so no note: {plain:?}"
+        );
+        if let Placement::Absolute { seed, .. } = &mut placement {
+            *seed = Some(7);
+        }
+        record.placements = vec![placement];
+        let seeded = painted(&mut record, "house");
+        assert!(
+            seeded
+                .iter()
+                .any(|label| label.starts_with("Drawn with placement #0's Grammar seed")),
+            "no note in {seeded:?}"
+        );
+    }
+
+    /// #1642: a Berlin world's terrain says, above its sections, what
+    /// Berlin's ground reads of them, and in each section what its fields
+    /// do there. Every field stays editable: the stand-in ground drawn
+    /// while Berlin's cannot be fetched reads them. The control: a world of
+    /// its own terrain says what it always said and none of that.
+    #[test]
+    fn a_berlin_worlds_terrain_says_what_berlins_ground_reads() {
+        let mut record = RoomRecord::default();
+        record.generators.insert(
+            "terrain".into(),
+            Generator::from_kind(GeneratorKind::Terrain(Default::default())),
+        );
+        let own = painted(&mut record, "terrain");
+        assert!(
+            own.iter()
+                .any(|label| label.starts_with("These shape the landform in detail.")),
+            "control: the lead-in in {own:?}"
+        );
+        assert!(
+            !own.iter().any(|label| label.contains("Berlin")),
+            "a world of its own terrain names no Berlin: {own:?}"
+        );
+        record.geo_source = Some(GeoSource::berlin(geodata::GeoSquare {
+            min_e: 391_000,
+            min_n: 5_819_500,
+            size_m: 1_000,
+        }));
+        let berlin = painted(&mut record, "terrain");
+        assert!(
+            berlin.iter().any(|label| label.starts_with(
+                "This world's ground is Berlin's own: of these it reads Grid size, the Material's"
+            )),
+            "no Berlin lead-in in {berlin:?}"
+        );
+        assert!(
+            !berlin
+                .iter()
+                .any(|label| label.starts_with("These shape the landform")),
+            "the procedural lead-in is false on Berlin's ground"
+        );
+        let measured = berlin
+            .iter()
+            .filter(|label| {
+                label.starts_with("Berlin's heights are measured, not generated: these")
+            })
+            .count();
+        assert_eq!(measured, 2, "both erosions: {berlin:?}");
+        for note in [
+            "Berlin's ground spreads its Grid size points over its square",
+            // The Seed is the scene's: a new one re-seeds the Kiez.
+            "Berlin's heights are measured, not generated: this section shapes the stand-in \
+             ground. Its Seed also picks the theme",
+            "Berlin's land use chooses where each layer shows",
+        ] {
+            assert!(
+                berlin.iter().any(|label| label.starts_with(note)),
+                "no {note:?} in {berlin:?}"
+            );
+        }
+        for field in ["Cell scale", "Height scale", "Octaves", "Drops"] {
+            assert!(
+                berlin.iter().any(|label| label == field),
+                "{field} is still drawn, to edit: {berlin:?}"
+            );
+        }
     }
 }

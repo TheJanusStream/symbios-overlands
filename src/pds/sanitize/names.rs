@@ -96,6 +96,19 @@ pub fn clean_name(raw: &str, max_chars: usize) -> Option<String> {
     (!trimmed.is_empty()).then_some(trimmed)
 }
 
+/// `base` with `suffix` after it, as one name [`clean_name`] keeps as it is
+/// at `max_chars`: the base cut, on a character, so the suffix always fits
+/// (#1717). A name made unique by a suffix such as `_2` used to run past
+/// the cap, be cut by [`sanitize_keys`] back onto the very name it was
+/// made unique from, and be dropped - an item the owner had just placed,
+/// lost. With an empty `suffix`, the name the sanitiser keeps `base` as.
+pub fn with_suffix(base: &str, suffix: &str, max_chars: usize) -> String {
+    let base = clean_name(base, max_chars).unwrap_or_default();
+    let room = max_chars.saturating_sub(suffix.chars().count());
+    let name = format!("{}{suffix}", base.chars().take(room).collect::<String>());
+    clean_name(&name, max_chars).unwrap_or(name)
+}
+
 /// Rewrite every key of `map` through [`clean_name`] in lexicographic key
 /// order, returning the `(old, new)` pairs that changed so the caller can
 /// move whatever else is keyed by the old name.
@@ -211,6 +224,35 @@ mod tests {
                 ("Rock\u{200B}".to_owned(), "Rock".to_owned()),
                 ("b".repeat(300), "b".repeat(256)),
             ]
+        );
+    }
+
+    /// THE SEQUENCE (#1717): a name at the cap made unique by `_2` ran 258
+    /// characters, the sanitiser cut it back onto the name it was made
+    /// unique from, and dropped it. Cut first, it fits the cap - in
+    /// characters, a two-byte one too - and the sanitiser leaves it be,
+    /// so the two keys stay two items.
+    #[test]
+    fn a_suffixed_name_fits_the_cap_and_survives_the_sanitiser() {
+        for ch in ['a', 'あ'] {
+            let base: String = std::iter::repeat_n(ch, 256).collect();
+            let named = with_suffix(&base, "_2", 256);
+            assert_eq!(named.chars().count(), 256, "{ch:?}");
+            assert!(named.ends_with("_2"));
+            assert_eq!(clean_name(&named, 256).as_deref(), Some(named.as_str()));
+            let mut map: HashMap<String, u32> = HashMap::from([(base.clone(), 1), (named, 2)]);
+            assert!(sanitize_keys(&mut map, 256).is_empty(), "{ch:?}");
+            assert_eq!(map.len(), 2, "both items kept");
+        }
+        // A short name keeps all of itself; an empty suffix is the name
+        // the sanitiser keeps; a name padded with invisibles spends its
+        // room on what shows.
+        assert_eq!(with_suffix("tree", "_2", 256), "tree_2");
+        assert_eq!(with_suffix(" tree\u{200B}", "", 256), "tree");
+        let padded = format!("{}{}", "\u{200B}".repeat(300), "c".repeat(300));
+        assert_eq!(
+            with_suffix(&padded, "_3", 256),
+            format!("{}_3", "c".repeat(254))
         );
     }
 }

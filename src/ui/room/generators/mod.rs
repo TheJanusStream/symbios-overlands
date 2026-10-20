@@ -239,6 +239,73 @@ pub(crate) trait GeneratorTreeSource {
     fn root_spin_refusal(&self) -> Option<&'static str> {
         None
     }
+    /// Why the Seed of a shape grammar in `root`'s tree draws nothing
+    /// (#1573), or `None` when it draws: where every placement drawing the
+    /// tree derives its grammars with a seed of its own - an absolute
+    /// placement's Grammar seed (#1505), an instance set's variants' -
+    /// editing the node's seed visibly does nothing. Painted under the row,
+    /// a hover being no answer (#1289). Only the room's placements carry
+    /// such seeds.
+    fn grammar_seed_note(&self, _root: &str) -> Option<String> {
+        None
+    }
+    /// Whether the ground this tree's terrain shapes is Berlin's own
+    /// (#1642), which reads only some of the terrain's fields: the room's,
+    /// when its record draws a square of Berlin; an avatar's, never.
+    fn ground_is_berlin(&self) -> bool {
+        false
+    }
+}
+
+/// The note [`GeneratorTreeSource::grammar_seed_note`] paints for a tree
+/// that `own` drawings derive with its grammars' own seeds and the
+/// placements `seeded` with seeds of their own - each as its index, as the
+/// Placements tab numbers it, and how many Grammar seeds it carries, an
+/// instance set one per variant: none while any drawing reads the node's
+/// seed, or nothing draws the tree.
+fn grammar_seed_note_text(own: usize, seeded: &[(usize, usize)]) -> Option<String> {
+    /// The most placements named before the rest are counted.
+    const NAMED: usize = 4;
+    if own > 0 || seeded.is_empty() {
+        return None;
+    }
+    let names: Vec<String> = seeded
+        .iter()
+        .take(NAMED)
+        .map(|(i, _)| format!("#{i}"))
+        .collect();
+    let rest = seeded.len().saturating_sub(NAMED);
+    let (which, those, them) = match (names.as_slice(), rest, seeded) {
+        ([one], _, [(_, 1)]) => (format!("placement {one}'s Grammar seed"), "that seed", "it"),
+        ([one], _, _) => (
+            format!("the Grammar seeds of placement {one}'s variants"),
+            "those seeds",
+            "them",
+        ),
+        (named, 0, _) => {
+            let (last, first) = named.split_last().expect("two or more");
+            (
+                format!(
+                    "the Grammar seeds of placements {} and {last}",
+                    first.join(", ")
+                ),
+                "those seeds",
+                "them",
+            )
+        }
+        (named, rest, _) => (
+            format!(
+                "the Grammar seeds of placements {} and {rest} more",
+                named.join(", ")
+            ),
+            "those seeds",
+            "them",
+        ),
+    };
+    Some(format!(
+        "Drawn with {which}, so this seed changes nothing in the world. Change {those} in \
+         Placements, or switch {them} off there to draw with this one."
+    ))
 }
 
 /// Pending destructive tree operations awaiting confirmation (#838):
@@ -358,6 +425,37 @@ impl GeneratorTreeSource for RoomTreeSource<'_> {
             .iter()
             .filter(|p| placement_root(p) == Some(root))
             .count()
+    }
+    fn grammar_seed_note(&self, root: &str) -> Option<String> {
+        // How each placement of the tree derives its grammars, as the world
+        // compiler does (`SpawnCtx::placement_shape_seed`): an absolute
+        // placement with its Grammar seed or with the grammars' own; a
+        // scatter or a grid with their own; an instance set with each
+        // variant's seed - none set, a variantless set's one plain variant
+        // included, being the grammars' own.
+        let mut own = 0;
+        let mut seeded = Vec::new();
+        for (i, placement) in self.record.placements.iter().enumerate() {
+            if placement_root(placement) != Some(root) {
+                continue;
+            }
+            match placement {
+                Placement::Absolute { seed: Some(_), .. } => seeded.push((i, 1)),
+                Placement::Instances { variants, .. }
+                    if !variants.is_empty() && variants.iter().all(|v| v.seed.is_some()) =>
+                {
+                    seeded.push((i, variants.len()))
+                }
+                _ => own += 1,
+            }
+        }
+        grammar_seed_note_text(own, &seeded)
+    }
+    fn ground_is_berlin(&self) -> bool {
+        self.record
+            .geo_source
+            .as_ref()
+            .is_some_and(|source| source.berlin_square().is_some())
     }
 }
 
@@ -705,6 +803,154 @@ fn retarget_root_refs(record: &mut RoomRecord, from: &str, to: &str) {
     }
     if let Some(traits) = record.traits.remove(from) {
         record.traits.insert(to.to_string(), traits);
+    }
+}
+
+#[cfg(test)]
+mod source_facts_tests {
+    use super::*;
+    use crate::pds::{GeoSource, InstanceVariant};
+    use crate::ui::room::placements::{
+        new_absolute_placement, new_instances_placement, new_scatter_placement,
+    };
+
+    /// #1573: what the note says, for one placement with a seed of its
+    /// own, a few, and more than it names; and that it says nothing while
+    /// any drawing reads the node's seed, or nothing draws the tree.
+    #[test]
+    fn the_seed_note_names_the_placements_that_draw_the_tree() {
+        assert_eq!(grammar_seed_note_text(0, &[]), None, "nothing draws it");
+        assert_eq!(
+            grammar_seed_note_text(1, &[(0, 1)]),
+            None,
+            "one draws with it"
+        );
+        let one = grammar_seed_note_text(0, &[(3, 1)]).expect("one placement");
+        assert_eq!(
+            one,
+            "Drawn with placement #3's Grammar seed, so this seed changes nothing in the \
+             world. Change that seed in Placements, or switch it off there to draw with \
+             this one."
+        );
+        // An instance set of one variant has one Grammar seed; of several,
+        // one per variant, each switched off on its own.
+        assert_eq!(grammar_seed_note_text(0, &[(3, 1)]), Some(one));
+        let set = grammar_seed_note_text(0, &[(3, 2)]).expect("a set of two variants");
+        assert_eq!(
+            set,
+            "Drawn with the Grammar seeds of placement #3's variants, so this seed changes \
+             nothing in the world. Change those seeds in Placements, or switch them off \
+             there to draw with this one."
+        );
+        let few = grammar_seed_note_text(0, &[(0, 1), (2, 3), (5, 1)]).expect("three placements");
+        assert!(
+            few.starts_with("Drawn with the Grammar seeds of placements #0, #2 and #5, "),
+            "{few}"
+        );
+        assert!(few.contains("Change those seeds in Placements, or switch them off"));
+        let six: Vec<(usize, usize)> = (0..6).map(|i| (i, 1)).collect();
+        let many = grammar_seed_note_text(0, &six).expect("six placements");
+        assert!(
+            many.starts_with(
+                "Drawn with the Grammar seeds of placements #0, #1, #2, #3 and 2 more, "
+            ),
+            "{many}"
+        );
+    }
+
+    /// THE SEQUENCE (#1573): an owner places a grammar building, gives the
+    /// placement a Grammar seed of its own so it draws apart from its
+    /// namesakes, and later opens the item to try another Seed - which
+    /// moves nothing, because the placement's seed is the one drawn. The
+    /// note is there exactly while no drawing of the tree reads the node's
+    /// seed: an absolute placement with a seed, an instance set whose every
+    /// variant carries one. A scatter, an unseeded placement, and a set
+    /// with no variants, which draws one plain copy of the item, read it.
+    #[test]
+    fn the_seed_note_shows_only_where_no_drawing_reads_the_nodes_seed() {
+        let absolute = |root: &str, seed: Option<u64>| {
+            let mut placement = new_absolute_placement(root.into(), [0.0, 0.0]);
+            if let Placement::Absolute { seed: slot, .. } = &mut placement {
+                *slot = seed;
+            }
+            placement
+        };
+        let set = |seeds: &[Option<u64>]| {
+            let mut placement = new_instances_placement("house".into(), [0.0, 0.0]);
+            if let Placement::Instances { variants, .. } = &mut placement {
+                *variants = seeds
+                    .iter()
+                    .map(|&seed| InstanceVariant {
+                        seed,
+                        ..Default::default()
+                    })
+                    .collect();
+            }
+            placement
+        };
+        let note = |placements: Vec<Placement>| {
+            let mut record = RoomRecord {
+                placements,
+                ..Default::default()
+            };
+            RoomTreeSource::new(&mut record).grammar_seed_note("house")
+        };
+        assert_eq!(note(Vec::new()), None, "an item placed nowhere");
+        assert_eq!(note(vec![absolute("house", None)]), None);
+        let seeded = note(vec![absolute("house", Some(7))]).expect("seeded");
+        assert!(seeded.starts_with("Drawn with placement #0's Grammar seed"));
+        assert_eq!(
+            note(vec![absolute("house", Some(7)), absolute("house", None)]),
+            None,
+            "one placement draws with the node's seed"
+        );
+        assert_eq!(
+            note(vec![
+                absolute("house", Some(7)),
+                new_scatter_placement("house".into(), [0.0, 0.0]),
+            ]),
+            None,
+            "a scatter draws with the node's seed"
+        );
+        let beside = note(vec![
+            new_scatter_placement("shed".into(), [0.0, 0.0]),
+            absolute("house", Some(7)),
+        ])
+        .expect("another item's placements do not count");
+        assert!(beside.starts_with("Drawn with placement #1's Grammar seed"));
+        assert_eq!(note(vec![set(&[])]), None, "a variantless set");
+        assert_eq!(note(vec![set(&[Some(1), None])]), None, "a plain variant");
+        let variants = note(vec![set(&[Some(1), Some(2)])]).expect("every variant seeded");
+        assert!(variants.starts_with("Drawn with the Grammar seeds of placement #0's variants, "));
+        let both = note(vec![absolute("house", Some(7)), set(&[Some(1), Some(2)])])
+            .expect("every drawing seeded");
+        assert!(both.starts_with("Drawn with the Grammar seeds of placements #0 and #1, "));
+    }
+
+    /// #1642: the ground is Berlin's where the record draws a square of
+    /// Berlin, not another dataset's square or none.
+    #[test]
+    fn the_ground_is_berlin_where_the_record_draws_a_berlin_square() {
+        let square = geodata::GeoSquare {
+            min_e: 391_000,
+            min_n: 5_819_500,
+            size_m: 1_000,
+        };
+        let berlin = |geo_source| {
+            let mut record = RoomRecord {
+                geo_source,
+                ..Default::default()
+            };
+            RoomTreeSource::new(&mut record).ground_is_berlin()
+        };
+        assert!(berlin(Some(GeoSource::berlin(square))));
+        assert!(!berlin(None));
+        assert!(!berlin(Some(GeoSource {
+            dataset: "hamburg".into(),
+            ..GeoSource::berlin(square)
+        })));
+        let mut visuals = Generator::default_cuboid();
+        assert!(!AvatarVisualsTreeSource::new(&mut visuals).ground_is_berlin());
     }
 }
 
