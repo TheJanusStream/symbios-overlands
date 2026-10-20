@@ -251,10 +251,22 @@ pub(super) fn spawn_terrain_mesh(
         RenderAssetUsages::RENDER_WORLD,
     ));
 
+    // The weight map is a two-layer array (the weights, then the shelter,
+    // #1685): its stand-in must be one too, all zero - no weight, open sky.
+    let weight_placeholder = images.add(crate::ground_cover::weight_image(
+        &crate::ground_cover::WeightLayer {
+            width: 1,
+            height: 1,
+            bytes: vec![0; 4],
+        },
+        None,
+    ));
+
     // Material starts disabled (flat colour) until the texture tasks finish.
     let placeholder = bevy::pbr::ExtendedMaterial {
         base: super::splat::placeholder_surface(),
         extension: SplatExtension {
+            weight_map: weight_placeholder,
             albedo_array: albedo_placeholder.clone(),
             normal_array: normal_placeholder.clone(),
             uniforms: SplatUniforms {
@@ -294,7 +306,7 @@ pub(super) fn spawn_terrain_mesh(
                 grass_flower: Vec4::ZERO,
                 grass_shape: Vec4::ZERO,
             },
-            ..default() // weight_map defaults to 1x1 D2, which is fine for the weight sampler
+            ..default()
         },
     };
     let mat_handle = materials.add(placeholder);

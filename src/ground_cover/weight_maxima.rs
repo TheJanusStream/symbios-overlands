@@ -1,7 +1,8 @@
 //! The splat weights' most, grass tile by grass tile (#1693).
 //!
-//! The weight map lives on the GPU only (its CPU bytes are dropped after
-//! upload), but the grass decides on the CPU how many of a tile's blades to
+//! The weight map's image lives on the GPU only (the ground cover keeps the
+//! weights' own bytes, but only to write the shelter beside them, #1685),
+//! while the grass decides on the CPU how many of a tile's blades to
 //! draw, and needs to know how thickly the tile's ground can grow grass.
 //! What it needs is small: for each of its tiles, the most each splat
 //! layer's share reaches anywhere in the tile's square. The terrain folds

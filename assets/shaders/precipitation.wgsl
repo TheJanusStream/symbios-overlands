@@ -16,10 +16,12 @@
 // ranked just under it fade, so a step of the amount brings no crowd of
 // them in at once. An orthographic view (#1603) folds every quad away: its
 // eye stands far off, and the volume round it would be a square of rain in
-// the middle of the frame.
+// the middle of the frame. Under a roof a quad folds away too (#1685): below
+// the top of the highest static shape over where it falls.
 //
-// WebGL2-safe: one uniform block, no texture. `globals.time` wraps every
-// hour, when every quad jumps at once - in falling rain, unseen.
+// WebGL2-safe: two small uniform blocks and one texture, read texel by texel
+// here in the vertex shader. `globals.time` wraps every hour, when every
+// quad jumps at once - in falling rain, unseen.
 
 #import bevy_pbr::{
     mesh_view_bindings::{view, globals, lights},
@@ -37,6 +39,26 @@ struct PrecipitationUniforms {
 };
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> weather: PrecipitationUniforms;
+
+// The shelter from what falls (#1685): the top of the highest static shape
+// over each texel of the ground cover's grid, minus infinity under the open
+// sky (`ground_cover::shelter`). `shelter_frame`: xy the grid's low corner in
+// world XZ, z a texel's side (m), w its texels a side - 0 before it is drawn.
+@group(#{MATERIAL_BIND_GROUP}) @binding(1) var shelter: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(2) var<uniform> shelter_frame: vec4<f32>;
+
+// Whether `p` lies under something: below the highest top over its texel.
+fn sheltered(p: vec3<f32>) -> bool {
+    let size = shelter_frame.w;
+    if size < 1.0 {
+        return false;
+    }
+    let texel = floor((p.xz - shelter_frame.xy) / shelter_frame.z);
+    if any(texel < vec2<f32>(0.0)) || any(texel >= vec2<f32>(size)) {
+        return false;
+    }
+    return p.y < textureLoad(shelter, vec2<i32>(texel), 0).r;
+}
 
 // The volume round the camera (m): across, and top to bottom - its middle
 // this far under the eye, where the ground is.
@@ -127,6 +149,12 @@ fn vertex(v: Vertex) -> Out {
     let rel = p - middle + size * 0.5;
     let wrapped = rel - size * floor(rel / size) - size * 0.5;
     let centre = middle + wrapped;
+    // Under a roof, or inside a wall (#1685): folded away, as one ranked
+    // out is.
+    if sheltered(centre) {
+        out.position = vec4<f32>(0.0, 0.0, 2.0, 1.0);
+        return out;
+    }
 
     let to_eye = eye - centre;
     let dist = max(length(to_eye), 1.0e-4);

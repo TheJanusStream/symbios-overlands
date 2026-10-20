@@ -2010,12 +2010,15 @@ fn aim_rig(
 /// The game measures its orbit camera's distance to the orbit's focus
 /// (`shadow_reach::follow_orbit_zoom`); the rig camera has no orbit
 /// controller, so this measures from where the camera stands to the point
-/// [`aim_rig`] aimed it at - the same distance, fed to the same rule, so a
-/// far `--world` shot carries the shadows the game would draw there.
+/// [`aim_rig`] aimed it at - the same distance and the same fog, a
+/// weather's in it (#1688), fed to the same rule, so a far `--world` shot
+/// carries the shadows the game would draw there.
 pub(super) fn follow_rig_zoom(
     capture: Res<Capture>,
     cameras: Query<&Transform, IsWorldCamera>,
     record: Option<Res<LiveRoomRecord>>,
+    drawn: Option<Res<crate::drawn_environment::DrawnEnvironment>>,
+    mut held: Local<crate::drawn_environment::HeldFog>,
     mut suns: crate::shadow_reach::SunCascades,
 ) {
     let (Some(look), Ok(camera)) = (capture.look, cameras.single()) else {
@@ -2023,7 +2026,7 @@ pub(super) fn follow_rig_zoom(
     };
     crate::shadow_reach::follow(
         camera.translation.distance(look),
-        record.as_deref(),
+        crate::shadow_reach::fog_for(record.as_deref(), drawn.as_deref(), &mut held),
         &mut suns,
     );
 }

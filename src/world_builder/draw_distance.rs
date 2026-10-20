@@ -29,11 +29,14 @@
 //!   on screen as the largest ground cover at its own cut.
 //! * **Anything bigger** - trees, boulders, buildings - is never cut, and
 //!   carries nothing: it is drawn exactly as before.
-//! * **No cut lies past the fog.** A cut is capped at the room's fog
-//!   visibility, where the fog has already taken 95% of the contrast. The
-//!   cap never draws anything LESS than the fog shows; it keeps a foggy room
-//!   from drawing its ground cover all the way to the far plane when the
-//!   fog is nearer than the setting.
+//! * **No cut lies past the fog.** A cut is capped at the fog's
+//!   visibility, where the fog has already taken 95% of the contrast: the
+//!   room's fog as it is drawn, a weather's in it, held so a weather that
+//!   comes and goes moves the cap a few times a transition rather than at
+//!   every step (`drawn_environment::HeldFog`, #1688). The cap never draws
+//!   anything LESS than the fog shows; it keeps a foggy room, or a foggy
+//!   spell, from drawing its ground cover all the way to the far plane when
+//!   the fog is nearer than the setting.
 //! * **Unlimited** (the slider's far end) cuts nothing.
 //!
 //! Scattered and gridded copies only: an absolute placement is one thing the
@@ -61,7 +64,8 @@
 //! # Idle-free
 //!
 //! [`follow_draw_distance`] runs every frame and resolves the cuts from the
-//! setting, the fog and the login marker - three reads and a comparison. Only when the resolved
+//! setting, the fog (the room's and the drawn environment's) and the login
+//! marker - four reads and a comparison. Only when the resolved
 //! cuts differ from the ones in force ([`DrawDistanceCuts`], the resource
 //! the compile also stamps new copies from) does it walk the stamped parts,
 //! and then it writes only a range that differs: a slider nudge that lands
@@ -86,6 +90,7 @@ use bevy::math::Affine3A;
 use bevy::prelude::*;
 
 use crate::config::draw_distance as cfg;
+use crate::drawn_environment::{DrawnEnvironment, HeldFog, fog_now};
 use crate::state::{LiveRoomRecord, LocalSettings};
 
 /// How big a scattered copy draws, as far as its cut is concerned (#1480).
@@ -180,21 +185,14 @@ impl DrawDistanceCuts {
         }
     }
 
-    /// The cuts the live settings and room ask for: the setting's default
-    /// without settings, the config fog without a room, and none at all
-    /// behind the login screen (`attract`; see the module doc).
-    fn wanted(
-        settings: Option<&LocalSettings>,
-        record: Option<&LiveRoomRecord>,
-        attract: bool,
-    ) -> Self {
+    /// The cuts the live settings and the fog ask for: the setting's
+    /// default without settings, and none at all behind the login screen
+    /// (`attract`; see the module doc).
+    fn wanted(settings: Option<&LocalSettings>, fog: f32, attract: bool) -> Self {
         if attract {
             return Self::default();
         }
         let setting = settings.map_or(cfg::DEFAULT_M, |s| s.ground_cover_draw_distance_m);
-        let fog = record.map_or(crate::config::camera::fog::VISIBILITY, |r| {
-            r.0.environment.fog_visibility.0
-        });
         Self::resolve(setting, fog)
     }
 
@@ -376,24 +374,28 @@ impl CopyRecorder {
     }
 }
 
-/// Keep every stamped part on the cuts the settings and the room ask for
-/// (#1480). See the module doc's "Idle-free": a frame where the resolved
-/// cuts have not moved reads three resources and returns.
+/// Keep every stamped part on the cuts the settings and the fog ask for
+/// (#1480): the room's fog as it is drawn, a weather's in it, held against
+/// it (#1688). See the module doc's "Idle-free": a frame where the resolved
+/// cuts have not moved reads four resources and returns.
 ///
 /// Runs in `PostUpdate`, after the compile's `Update` commands have landed,
 /// so a copy stamped from the cuts in force is always in the walk that
 /// replaces them. Ordered before Bevy's visibility pass, so a new range culls
 /// on the frame it is set.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn follow_draw_distance(
     settings: Option<Res<LocalSettings>>,
     record: Option<Res<LiveRoomRecord>>,
+    drawn: Option<Res<DrawnEnvironment>>,
     attract: Option<Res<crate::attract::AttractScene>>,
+    mut held: Local<HeldFog>,
     mut in_force: ResMut<DrawDistanceCuts>,
     mut parts: Query<(Entity, &SizeClass, Option<&mut VisibilityRange>)>,
     mut commands: Commands,
 ) {
-    let wanted =
-        DrawDistanceCuts::wanted(settings.as_deref(), record.as_deref(), attract.is_some());
+    let fog = held.follow(fog_now(record.as_deref(), drawn.as_deref()));
+    let wanted = DrawDistanceCuts::wanted(settings.as_deref(), fog, attract.is_some());
     // Read through `Deref`, which stamps nothing.
     if *in_force == wanted {
         return;
@@ -1125,6 +1127,51 @@ mod ecs_tests {
                 None => assert!(a.range.is_none()),
             }
         }
+    }
+
+    /// A weather's fog caps the cuts as the room's own does (#1688), held:
+    /// under a 60 m fog the ground cover is drawn to 75 m, not the
+    /// setting's 150 m; a fog that lifts past the cut moves it at once; one
+    /// a little thicker again leaves it where it is, restamping nothing;
+    /// one a fifth thicker moves it in.
+    #[test]
+    fn a_weathers_fog_caps_the_ground_cover_held() {
+        let mut app = app();
+        settle(&mut app);
+        let env = app
+            .world()
+            .resource::<LiveRoomRecord>()
+            .0
+            .environment
+            .clone();
+        app.insert_resource(DrawnEnvironment {
+            env,
+            ..Default::default()
+        });
+        let fog_to = |app: &mut App, metres: f32| {
+            app.world_mut()
+                .resource_mut::<DrawnEnvironment>()
+                .env
+                .fog_visibility = Fp(metres);
+            app.update();
+            parts(app)
+                .into_iter()
+                .filter(|p| p.class == Some(SizeClass::Small))
+                .collect::<Vec<_>>()
+        };
+        let all_end = |small: &[Part], at: f32| small.iter().all(|p| end(p) == Some(at));
+        let small = fog_to(&mut app, 60.0);
+        assert!(!small.is_empty(), "the record plants ground cover");
+        assert!(all_end(&small, 75.0));
+        let lifted = fog_to(&mut app, 100.0);
+        assert!(all_end(&lifted, 100.0));
+        let thicker = fog_to(&mut app, 90.0);
+        assert!(all_end(&thicker, 100.0), "held");
+        for (a, b) in thicker.iter().zip(&lifted) {
+            assert_eq!(a.stamped, b.stamped, "{} restamped", a.generator);
+        }
+        let closed = fog_to(&mut app, 70.0);
+        assert!(all_end(&closed, 75.0));
     }
 
     /// A scatter with `scale_jitter` on the real compile: every copy is

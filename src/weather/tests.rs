@@ -391,3 +391,71 @@ fn a_flash_adds_light_the_more_by_night() {
     assert_eq!(night, cfg::storm::FLASH_MAX_STOPS);
     assert!(flash_stops(0.5, 700.0) < storm_day);
 }
+
+/// The Effects setting turns lightning down for anyone for whom flashing
+/// is a problem (#1687): at night, where a flash of any size opens the
+/// exposure by the full four stops, a held flash opens all four under Full,
+/// a third of them under Reduced, and none under Off - and the light it
+/// adds to the sky (whose zenith carries the flash to the clouds as well)
+/// is all of it, a third and none. A share of the light alone would have
+/// left Reduced opening four.
+#[test]
+fn the_effects_setting_softens_or_stops_the_flash() {
+    use super::lightning::{FlashOverride, flash_stops};
+    use crate::sky::{SkyBox, SkyMaterial};
+    use crate::state::{EffectsIntensity, LocalSettings};
+    use bevy::camera::Exposure;
+    let night = 10.0;
+    let drawn_under = |level: EffectsIntensity| {
+        let mut app = App::new();
+        let mut drawn = crate::drawn_environment::DrawnEnvironment::default();
+        drawn.env.sun_illuminance = Fp(night);
+        app.insert_resource(drawn)
+            .init_resource::<Assets<SkyMaterial>>()
+            .init_resource::<Assets<crate::clouds::CloudMaterial>>()
+            .init_resource::<Assets<super::precipitation::PrecipitationMaterial>>()
+            .insert_resource(FlashOverride(1.0))
+            .insert_resource(LocalSettings {
+                effects_intensity: level,
+                ..Default::default()
+            });
+        super::lightning::register(&mut app);
+        let sky = app
+            .world_mut()
+            .resource_mut::<Assets<SkyMaterial>>()
+            .add(SkyMaterial::default());
+        app.world_mut().spawn((MeshMaterial3d(sky.clone()), SkyBox));
+        let camera = app
+            .world_mut()
+            .spawn((Camera3d::default(), crate::camera::WorldCamera))
+            .id();
+        app.update();
+        let stops = app
+            .world()
+            .get::<Exposure>(camera)
+            .map(|e| Exposure::default().ev100 - e.ev100);
+        let lit = app
+            .world()
+            .resource::<Assets<SkyMaterial>>()
+            .get(&sky)
+            .map(|m| m.uniforms.zenith.w);
+        (stops, lit)
+    };
+    let near = |got: Option<f32>, want: f32| got.is_some_and(|got| (got - want).abs() < 1e-4);
+    let four = flash_stops(1.0, night);
+    assert_eq!(
+        four,
+        cfg::storm::FLASH_MAX_STOPS,
+        "a night flash opens them all"
+    );
+    let (stops, lit) = drawn_under(EffectsIntensity::Full);
+    assert!(near(stops, four), "{stops:?}");
+    assert!(near(lit, 1.0), "{lit:?}");
+    let (stops, lit) = drawn_under(EffectsIntensity::Reduced);
+    let share = cfg::storm::REDUCED_FLASH;
+    assert!(near(stops, four * share), "{stops:?}");
+    assert!(near(lit, share), "{lit:?}");
+    let (stops, lit) = drawn_under(EffectsIntensity::Off);
+    assert_eq!(stops, None);
+    assert_eq!(lit, Some(0.0), "the sky is never lit");
+}

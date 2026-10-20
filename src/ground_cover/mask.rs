@@ -94,60 +94,16 @@ impl CoverMask {
     /// axis whose grid starts at `start`, clamped to the grid; `None` when
     /// the span misses it.
     fn span(&self, lo: f32, hi: f32, start: f32) -> Option<(usize, usize)> {
-        if !(lo.is_finite() && hi.is_finite()) || hi < lo {
-            return None;
-        }
-        // Centre k sits at start + (k + 0.5) texel.
-        let first = ((lo - start) / self.texel - 0.5).ceil().max(0.0);
-        let last = ((hi - start) / self.texel - 0.5).floor();
-        if last < 0.0 || first > (self.size - 1) as f32 {
-            return None;
-        }
-        Some((first as usize, (last as usize).min(self.size - 1)))
+        span(self.size, self.texel, lo, hi, start)
     }
 
     /// Block every texel whose centre lies inside the convex polygon `hull`,
-    /// wound either way. A polygon of under three points, or of no area,
-    /// blocks nothing. Row by row: each row of centres crosses a convex
-    /// polygon in one span, found from its edges, so a long diagonal road
-    /// triangle costs its rows, not its bounding box.
+    /// wound either way ([`convex_spans`]).
     pub fn block_convex(&mut self, hull: &[Vec2]) {
-        if hull.len() < 3 {
-            return;
-        }
-        let area = signed_area(hull);
-        if area.abs() <= f32::EPSILON || !area.is_finite() {
-            return;
-        }
-        let (low, high) = hull.iter().fold((f32::MAX, f32::MIN), |(lo, hi), p| {
-            (lo.min(p.y), hi.max(p.y))
+        let size = self.size;
+        convex_spans(size, self.texel, self.origin, hull, |j, i0, i1| {
+            self.data[j * size + i0..=j * size + i1].fill(BLOCKED);
         });
-        let Some((j0, j1)) = self.span(low, high, self.origin.y) else {
-            return;
-        };
-        for j in j0..=j1 {
-            let y = self.origin.y + (j as f32 + 0.5) * self.texel;
-            let mut left = f32::MAX;
-            let mut right = f32::MIN;
-            for (a, b) in hull.iter().zip(hull.iter().cycle().skip(1)) {
-                let (lo, hi) = (a.y.min(b.y), a.y.max(b.y));
-                if y < lo || y > hi {
-                    continue;
-                }
-                let x = if (b.y - a.y).abs() <= f32::EPSILON {
-                    // An edge along the row: both its ends are in.
-                    left = left.min(a.x.min(b.x));
-                    a.x.max(b.x)
-                } else {
-                    a.x + (y - a.y) * (b.x - a.x) / (b.y - a.y)
-                };
-                left = left.min(x);
-                right = right.max(x);
-            }
-            if let Some((i0, i1)) = self.span(left, right, self.origin.x) {
-                self.data[j * self.size + i0..=j * self.size + i1].fill(BLOCKED);
-            }
-        }
     }
 
     /// Block every texel whose centre `blocked` says yes to: the water's
@@ -182,6 +138,75 @@ impl CoverMask {
     pub fn open_share(&self) -> f32 {
         let open = self.data.iter().filter(|&&t| t == OPEN).count();
         open as f32 / self.data.len().max(1) as f32
+    }
+}
+
+/// The columns or rows of a grid `size` texels long, each `texel` metres,
+/// starting at `start`, whose centres can lie in `[lo, hi]` along one axis,
+/// clamped to the grid; `None` when the span misses it.
+fn span(size: usize, texel: f32, lo: f32, hi: f32, start: f32) -> Option<(usize, usize)> {
+    if !(lo.is_finite() && hi.is_finite()) || hi < lo {
+        return None;
+    }
+    // Centre k sits at start + (k + 0.5) texel.
+    let first = ((lo - start) / texel - 0.5).ceil().max(0.0);
+    let last = ((hi - start) / texel - 0.5).floor();
+    if last < 0.0 || first > (size - 1) as f32 {
+        return None;
+    }
+    Some((first as usize, (last as usize).min(size - 1)))
+}
+
+/// The texels of a grid `size` texels square, each `texel` metres, its low
+/// corner at world `origin`, whose centres lie inside the convex polygon
+/// `hull`, wound either way: handed to `fill` row by row as (row, first
+/// column, last column). A polygon of under three points, or of no area,
+/// covers nothing. Each row of centres crosses a convex polygon in one
+/// span, found from its edges, so a long diagonal road triangle costs its
+/// rows, not its bounding box. The cover mask blocks these texels, the
+/// shelter map raises them (`super::shelter`).
+pub(crate) fn convex_spans(
+    size: usize,
+    texel: f32,
+    origin: Vec2,
+    hull: &[Vec2],
+    mut fill: impl FnMut(usize, usize, usize),
+) {
+    if hull.len() < 3 {
+        return;
+    }
+    let area = signed_area(hull);
+    if area.abs() <= f32::EPSILON || !area.is_finite() {
+        return;
+    }
+    let (low, high) = hull.iter().fold((f32::MAX, f32::MIN), |(lo, hi), p| {
+        (lo.min(p.y), hi.max(p.y))
+    });
+    let Some((j0, j1)) = span(size, texel, low, high, origin.y) else {
+        return;
+    };
+    for j in j0..=j1 {
+        let y = origin.y + (j as f32 + 0.5) * texel;
+        let mut left = f32::MAX;
+        let mut right = f32::MIN;
+        for (a, b) in hull.iter().zip(hull.iter().cycle().skip(1)) {
+            let (lo, hi) = (a.y.min(b.y), a.y.max(b.y));
+            if y < lo || y > hi {
+                continue;
+            }
+            let x = if (b.y - a.y).abs() <= f32::EPSILON {
+                // An edge along the row: both its ends are in.
+                left = left.min(a.x.min(b.x));
+                a.x.max(b.x)
+            } else {
+                a.x + (y - a.y) * (b.x - a.x) / (b.y - a.y)
+            };
+            left = left.min(x);
+            right = right.max(x);
+        }
+        if let Some((i0, i1)) = span(size, texel, left, right, origin.x) {
+            fill(j, i0, i1);
+        }
     }
 }
 

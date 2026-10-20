@@ -25,11 +25,18 @@
 //! * **A heightfield** is the ground itself, and **a half-space** has no
 //!   outline; they cast nothing. Anything else is outlined by its box.
 //!
+//! The same pieces, at whatever height they stand, are what shelters the
+//! ground from what falls ([`tops`], #1685): each piece's outline with its
+//! upper surface over it - a triangle's plane, a convex shape's surface
+//! where a ray straight down first meets it, anything else its highest
+//! point.
+//!
 //! [`OUTLINE_DIRECTIONS`]: crate::config::terrain::ground_cover::OUTLINE_DIRECTIONS
 //! [`Collider::shape`]: avian3d::prelude::Collider::shape
 
 use avian3d::parry::math::{Pose, Vector};
-use avian3d::parry::shape::{SharedShape, TypedShape};
+use avian3d::parry::query::Ray;
+use avian3d::parry::shape::{Shape, SharedShape, TypedShape};
 use bevy::math::{Affine3A, Vec2, Vec3};
 
 use super::mask::convex_hull;
@@ -46,18 +53,73 @@ pub(super) fn outlines(
     ground: &impl Fn(Vec2) -> f32,
     out: &mut impl FnMut(&[Vec2]),
 ) {
+    pieces(shape, pose, false, &mut |piece| {
+        push_grounded(piece.points(), ground, out)
+    });
+}
+
+/// What `shape`, posed by `pose`, shelters from what falls (#1685): the
+/// outline each piece casts straight down at whatever height it stands,
+/// handed to `out` with the height of the piece's upper surface over each
+/// point of that outline - a triangle's own plane, and a convex piece's
+/// surface where a ray straight down first meets it, so a pitched roof, a
+/// wedge or a dome shelters what lies under its slope and not everything
+/// under its highest point. A wall standing edge-on to the sky casts
+/// nothing, and nor does a piece lying on the `ground` - a road's deck, a
+/// curb, a floor - whose highest point stands within
+/// [`cfg::SHELTER_CLEARANCE`] of the ground under its middle: it keeps no
+/// ground dry and no rain off above the ground, and most of a Berlin
+/// square's triangles are such.
+pub(super) fn tops(
+    shape: &SharedShape,
+    pose: Affine3A,
+    ground: &impl Fn(Vec2) -> f32,
+    out: &mut impl FnMut(&[Vec2], &dyn Fn(Vec2) -> f32),
+) {
+    pieces(shape, pose, true, &mut |piece| push_top(piece, ground, out));
+}
+
+/// One piece of a shape as [`pieces`] hands it over, posed in the world.
+enum Piece<'a> {
+    /// A triangle of a mesh: its corners.
+    Triangle([Vec3; 3]),
+    /// A convex shape: its support points, and the shape and its pose, to
+    /// read its surface from.
+    Convex(&'a [Vec3], &'a dyn Shape, Affine3A),
+    /// Anything else: its box's corners.
+    Corners(&'a [Vec3]),
+}
+
+impl Piece<'_> {
+    /// The points that outline the piece from above.
+    fn points(&self) -> &[Vec3] {
+        match self {
+            Piece::Triangle(corners) => corners,
+            Piece::Convex(points, ..) | Piece::Corners(points) => points,
+        }
+    }
+}
+
+/// Every convex piece of `shape`, posed by `pose`, handed to `piece`: a
+/// compound piece by piece (a grammar building's walls and roofs apart), a
+/// triangle mesh triangle by triangle, a convex shape by its support points
+/// in [`cfg::OUTLINE_DIRECTIONS`] horizontal directions and its lowest
+/// point - and its highest too when `up` - and anything else by its box's
+/// corners. A heightfield (the ground itself) and a half-space give
+/// nothing.
+fn pieces(shape: &SharedShape, pose: Affine3A, up: bool, piece: &mut impl FnMut(Piece)) {
     match shape.as_typed_shape() {
         TypedShape::HeightField(_) | TypedShape::HalfSpace(_) => {}
         TypedShape::Compound(compound) => {
             for (part_pose, part) in compound.shapes() {
-                outlines(part, pose * affine(part_pose), ground, out);
+                pieces(part, pose * affine(part_pose), up, piece);
             }
         }
         TypedShape::TriMesh(mesh) => {
             let vertices = mesh.vertices();
             for [a, b, c] in mesh.indices() {
                 let corners = [a, b, c].map(|&i| pose.transform_point3(vertices[i as usize]));
-                push_grounded(&corners, ground, out);
+                piece(Piece::Triangle(corners));
             }
         }
         _ => match shape.as_support_map() {
@@ -77,7 +139,10 @@ pub(super) fn outlines(
                     })
                     .collect();
                 points.push(local(Vec3::NEG_Y));
-                push_grounded(&points, ground, out);
+                if up {
+                    points.push(local(Vec3::Y));
+                }
+                piece(Piece::Convex(&points, &**shape, pose));
             }
             None => {
                 let aabb = shape.compute_local_aabb();
@@ -92,9 +157,76 @@ pub(super) fn outlines(
                         ))
                     })
                     .collect();
-                push_grounded(&corners, ground, out);
+                piece(Piece::Corners(&corners));
             }
         },
+    }
+}
+
+/// Hand over a piece's outline seen from above, with the height of its
+/// upper surface over it: a triangle's plane; a convex shape's surface
+/// where a ray straight down first meets it, minus infinity where it meets
+/// none (a texel centre a rounding past the outline); anything else its
+/// highest point. Nothing for a piece lying on the ground (see [`tops`]).
+fn push_top(
+    piece: Piece,
+    ground: &impl Fn(Vec2) -> f32,
+    out: &mut impl FnMut(&[Vec2], &dyn Fn(Vec2) -> f32),
+) {
+    let points = piece.points();
+    if points.is_empty() || points.iter().any(|p| !p.is_finite()) {
+        return;
+    }
+    let flat = |p: &Vec3| Vec2::new(p.x, p.z);
+    let highest = points.iter().map(|p| p.y).fold(f32::NEG_INFINITY, f32::max);
+    let middle = points.iter().map(flat).sum::<Vec2>() / points.len() as f32;
+    if highest < ground(middle) + cfg::SHELTER_CLEARANCE {
+        return;
+    }
+    match piece {
+        Piece::Triangle([a, b, c]) => {
+            let t = [flat(&a), flat(&b), flat(&c)];
+            let area = (t[1] - t[0]).perp_dot(t[2] - t[0]);
+            if area.abs() <= f32::EPSILON {
+                return;
+            }
+            // The triangle's plane over its outline, from the point's
+            // barycentric weights; held within the corners' heights, as a
+            // texel centre a rounding outside the triangle still reads it.
+            let (low, high) = (a.y.min(b.y).min(c.y), a.y.max(b.y).max(c.y));
+            let plane = |xz: Vec2| {
+                let u = (xz - t[0]).perp_dot(t[2] - t[0]) / area;
+                let v = (t[1] - t[0]).perp_dot(xz - t[0]) / area;
+                (a.y + u * (b.y - a.y) + v * (c.y - a.y)).clamp(low, high)
+            };
+            out(&t, &plane);
+        }
+        Piece::Convex(points, shape, pose) => {
+            let hull = convex_hull(points.iter().map(flat).collect());
+            if hull.len() < 3 {
+                return;
+            }
+            // Cast in the shape's own frame: the pose carries its scale, a
+            // ray's parameter is the same either side of a linear map, and
+            // the world ray falls straight down from over the highest point.
+            let inverse = pose.inverse();
+            let down = inverse.transform_vector3(Vec3::NEG_Y);
+            let ceiling = highest + 1.0;
+            let surface = |xz: Vec2| {
+                let from = Vec3::new(xz.x, ceiling, xz.y);
+                let ray = Ray::new(inverse.transform_point3(from), down);
+                shape
+                    .cast_local_ray(&ray, f32::MAX, true)
+                    .map_or(f32::NEG_INFINITY, |t| ceiling - t)
+            };
+            out(&hull, &surface);
+        }
+        Piece::Corners(points) => {
+            let hull = convex_hull(points.iter().map(flat).collect());
+            if hull.len() >= 3 {
+                out(&hull, &|_| highest);
+            }
+        }
     }
 }
 
@@ -335,5 +467,139 @@ mod tests {
     fn the_heightfield_casts_nothing() {
         let field = Collider::heightfield(vec![vec![0.0; 4]; 4], Vec3::new(10.0, 1.0, 10.0));
         assert!(outline(&field, Affine3A::IDENTITY).is_empty());
+        let mut sheltered = 0;
+        tops(field.shape(), Affine3A::IDENTITY, &flat, &mut |_, _| {
+            sheltered += 1
+        });
+        assert_eq!(sheltered, 0, "the ground shelters nothing");
+    }
+
+    /// Each outline `tops` casts, with the height of its top at the
+    /// outline's middle.
+    fn shelter(collider: &Collider, pose: Affine3A) -> Vec<(Vec<Vec2>, f32)> {
+        let mut out = Vec::new();
+        tops(collider.shape(), pose, &flat, &mut |o: &[Vec2],
+                                                  top: &dyn Fn(
+            Vec2,
+        )
+            -> f32| {
+            let middle = o.iter().sum::<Vec2>() / o.len() as f32;
+            out.push((o.to_vec(), top(middle)));
+        });
+        out
+    }
+
+    /// A roof slab on posts stands well clear of the ground, so it casts no
+    /// cover outline, but it shelters the ground under it up to its top
+    /// (#1685); a box on the ground shelters up to its top as well.
+    #[test]
+    fn a_roof_shelters_what_it_stands_over() {
+        let slab = Collider::cuboid(4.0, 0.2, 4.0);
+        let raised = Affine3A::from_translation(Vec3::new(0.0, 3.0, 0.0));
+        assert!(outline(&slab, raised).is_empty(), "no cover outline");
+        let roof = shelter(&slab, raised);
+        assert_eq!(roof.len(), 1);
+        assert!((area(&roof[0].0) - 16.0).abs() < 1e-3, "{roof:?}");
+        assert!((roof[0].1 - 3.1).abs() < 1e-4, "{roof:?}");
+        let crate_box = shelter(
+            &Collider::cuboid(1.0, 1.0, 1.0),
+            Affine3A::from_translation(Vec3::new(5.0, 0.5, 0.0)),
+        );
+        assert!((crate_box[0].1 - 1.0).abs() < 1e-4, "{crate_box:?}");
+    }
+
+    /// A pitched roof's triangle shelters up to its own slope: under the
+    /// low eave it stands at the eave's height, under the middle halfway to
+    /// the ridge - not at the ridge's height all over. A wall, edge-on to
+    /// the sky, shelters nothing.
+    #[test]
+    fn a_pitched_roof_shelters_up_to_its_slope() {
+        let pitch = Collider::trimesh(
+            vec![
+                Vec3::new(-2.0, 2.0, -2.0),
+                Vec3::new(2.0, 2.0, -2.0),
+                Vec3::new(0.0, 4.0, 2.0),
+            ],
+            vec![[0, 1, 2]],
+        );
+        let mut at = Vec::new();
+        tops(pitch.shape(), Affine3A::IDENTITY, &flat, &mut |_, top| {
+            at.push((top(Vec2::new(0.0, -2.0)), top(Vec2::new(0.0, 0.0))))
+        });
+        assert_eq!(at.len(), 1);
+        assert!((at[0].0 - 2.0).abs() < 1e-4, "{at:?}");
+        assert!((at[0].1 - 3.0).abs() < 1e-4, "{at:?}");
+        let wall = Collider::trimesh(
+            vec![
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(10.0, 0.0, 0.0),
+                Vec3::new(10.0, 3.0, 0.0),
+            ],
+            vec![[0, 1, 2]],
+        );
+        assert!(shelter(&wall, Affine3A::IDENTITY).is_empty());
+    }
+
+    /// A convex piece shelters up to its own upper surface, not its highest
+    /// point all over: a roof slab tipped 30 degrees - a grammar building's
+    /// pitch, a wedge, a ramp - is read where a ray straight down meets it,
+    /// lower down its slope and higher up it, scale and all; past its edge
+    /// it shelters nothing.
+    #[test]
+    fn a_sloped_piece_shelters_up_to_its_surface() {
+        let slab = Collider::cuboid(4.0, 0.2, 4.0);
+        let pitch = 30f32.to_radians();
+        let tipped = Affine3A::from_rotation_translation(
+            Quat::from_rotation_x(pitch),
+            Vec3::new(0.0, 3.0, 0.0),
+        );
+        let mut at = Vec::new();
+        tops(slab.shape(), tipped, &flat, &mut |_, top| {
+            at.push([1.0, -1.0, 5.0].map(|z| top(Vec2::new(0.0, z))))
+        });
+        assert_eq!(at.len(), 1);
+        // The top face of the slab, half 0.1 thick, over world z.
+        let surface = |z: f32| 3.0 + 0.1 / pitch.cos() - z * pitch.tan();
+        assert!((at[0][0] - surface(1.0)).abs() < 1e-3, "{at:?}");
+        assert!((at[0][1] - surface(-1.0)).abs() < 1e-3, "{at:?}");
+        assert_eq!(at[0][2], f32::NEG_INFINITY, "past its edge");
+
+        // Scaled twice as wide, level: read over twice the reach.
+        let wide = Affine3A::from_scale_rotation_translation(
+            Vec3::new(2.0, 1.0, 2.0),
+            Quat::IDENTITY,
+            Vec3::new(0.0, 3.0, 0.0),
+        );
+        let mut level = Vec::new();
+        tops(slab.shape(), wide, &flat, &mut |_, top| {
+            level.push(top(Vec2::new(3.5, 3.5)))
+        });
+        assert!((level[0] - 3.1).abs() < 1e-4, "{level:?}");
+    }
+
+    /// A piece lying on the ground - a road's deck, a curb - shelters
+    /// nothing (#1685): it keeps no ground dry and no rain off above it. A
+    /// table top standing clear of the ground does.
+    #[test]
+    fn a_piece_lying_on_the_ground_shelters_nothing() {
+        let deck = Collider::trimesh(
+            vec![
+                Vec3::new(0.0, 0.1, 0.0),
+                Vec3::new(10.0, 0.1, 0.0),
+                Vec3::new(10.0, 0.1, 4.0),
+            ],
+            vec![[0, 1, 2]],
+        );
+        assert!(shelter(&deck, Affine3A::IDENTITY).is_empty(), "the deck");
+        let curb = shelter(
+            &Collider::cuboid(4.0, 0.2, 0.3),
+            Affine3A::from_translation(Vec3::new(0.0, 0.1, 0.0)),
+        );
+        assert!(curb.is_empty(), "the curb");
+        let table = shelter(
+            &Collider::cuboid(1.0, 0.05, 1.0),
+            Affine3A::from_translation(Vec3::new(0.0, 0.9, 0.0)),
+        );
+        assert_eq!(table.len(), 1, "the table");
     }
 }

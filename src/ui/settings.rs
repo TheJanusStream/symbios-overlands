@@ -350,7 +350,7 @@ pub fn settings_ui(
                 ui.add_space(8.0);
                 ui.separator();
                 ui.strong("Effects");
-                ui.label("Contact effects from the world you're in:");
+                ui.label("Contact effects and lightning in the world you're in:");
                 ui.horizontal(|ui| {
                     for level in [
                         crate::state::EffectsIntensity::Full,
@@ -362,15 +362,18 @@ pub fn settings_ui(
                             .on_hover_text(match level {
                                 crate::state::EffectsIntensity::Full => {
                                     "Play the splashes, dust, scorch marks and footstep \
-                                 sounds this world's owner authored."
+                                 sounds this world's owner authored, and its storms' \
+                                 lightning at full brightness."
                                 }
                                 crate::state::EffectsIntensity::Reduced => {
                                     "Keep them, smaller and quieter, and never more than \
-                                 one of each per second."
+                                 one of each per second. Lightning flashes far more \
+                                 softly."
                                 }
                                 crate::state::EffectsIntensity::Off => {
-                                    "None at all, and the world's turning parts - \
-                                 windmills, wheels, pendulums - stand still. Rooms you \
+                                    "None at all, and no lightning flashes, though you \
+                                 still hear the thunder. The world's turning parts - \
+                                 windmills, wheels, pendulums - stand still. Worlds you \
                                  visit are authored by other people, and this is the \
                                  only control over what they can put on your screen."
                                 }

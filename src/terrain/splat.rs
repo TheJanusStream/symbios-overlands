@@ -7,12 +7,11 @@
 use bevy::asset::RenderAssetUsages;
 use bevy::image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::prelude::*;
-use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy::render::render_resource::{Extent3d, TextureDimension};
 use bevy_symbios_ground::{SplatMapper, SplatRule, TerrainQuery};
 use bevy_symbios_texture::{TextureMap, map_to_images_with_usages};
 
 use crate::config::terrain as tcfg;
-#[cfg(not(webgl2))]
 use crate::config::terrain::stains as scfg;
 use crate::interaction::{StainsImage, TerrainSurfaceQuery};
 use crate::offload::{GenJob, GenResult};
@@ -361,7 +360,8 @@ pub(super) fn apply_splat_textures(
     );
 
     // Build the weight-map image manually so we can use RENDER_WORLD-only
-    // storage - the CPU bytes are never needed again after upload.
+    // storage. The weights' bytes are kept once more on the CPU, in the
+    // `SplatWeights` the ground cover writes the shelter beside (#1685).
     let wm_bytes: Vec<u8> = weight_map
         .data
         .iter()
@@ -392,13 +392,20 @@ pub(super) fn apply_splat_textures(
         weight_map.height,
         world_extent,
     ));
-    let wm_handle = images.add(weight_image(
-        weight_map.width as u32,
-        weight_map.height as u32,
-        wm_bytes,
-    ));
+    // Kept on the CPU this once: the ground cover writes the shelter beside
+    // these weights whenever it redraws it (#1685).
+    let layer = std::sync::Arc::new(crate::ground_cover::WeightLayer {
+        width: weight_map.width as u32,
+        height: weight_map.height as u32,
+        bytes: wm_bytes,
+    });
+    let wm_handle = images.add(crate::ground_cover::weight_image(&layer, None));
     // Whatever grows on the ground reads the same weights (#1674).
-    commands.insert_resource(crate::ground_cover::SplatWeights(wm_handle.clone(), maxima));
+    commands.insert_resource(crate::ground_cover::SplatWeights(
+        wm_handle.clone(),
+        maxima,
+        layer,
+    ));
 
     // Damp ground near the water line (#913, WS5 step 3). Read from the
     // same drawn water line the scatter sampler's riparian band uses -
@@ -429,21 +436,14 @@ pub(super) fn apply_splat_textures(
 
         // Bind the avatar-interaction stains overlay (#245). The image
         // is allocated zeroed at startup, so enabling it now is inert
-        // until the stamper writes contacts - backward-compatible.
-        //
-        // The WebGL2 build skips this binding entirely - see the note on
-        // `SplatExtension` in `crate::splat`: the GLES backend caps fragment
-        // shaders at 16 texture slots, and when the overlay came the splat
-        // material sat at that ceiling (re-counted at 12 on Bevy 0.19,
-        // #1672). The WebGPU build binds it (#1670).
-        #[cfg(not(webgl2))]
+        // until the stamper writes contacts - backward-compatible. Every
+        // build binds it, the WebGL2 one too since #1681: see the note on
+        // `SplatExtension` in `crate::splat` for its texture slots.
         if let Some(stains) = stains.as_ref() {
             mat.extension.stains_tex = stains.handle.clone();
             mat.extension.stains.world_period = scfg::WORLD_PERIOD;
             mat.extension.stains.enabled = 1;
         }
-        #[cfg(webgl2)]
-        let _ = stains;
     }
 
     // The four per-layer source images have now been concatenated into the two
@@ -467,31 +467,6 @@ pub(super) fn apply_splat_textures(
     }
 
     state.applied = true;
-}
-
-/// A weight map's bytes as the image the splat shader samples: one texel
-/// per heightmap cell, linear between them, clamped at the edges, and
-/// RENDER_WORLD only - the CPU bytes are never needed again after upload.
-pub(super) fn weight_image(width: u32, height: u32, bytes: Vec<u8>) -> Image {
-    let mut image = Image::new(
-        Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D2,
-        bytes,
-        TextureFormat::Rgba8Unorm,
-        RenderAssetUsages::RENDER_WORLD,
-    );
-    image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
-        address_mode_u: ImageAddressMode::ClampToEdge,
-        address_mode_v: ImageAddressMode::ClampToEdge,
-        mag_filter: ImageFilterMode::Linear,
-        min_filter: ImageFilterMode::Linear,
-        ..Default::default()
-    });
-    image
 }
 
 /// Flip a ground material from its placeholder to splat blending: its

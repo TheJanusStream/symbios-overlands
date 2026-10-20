@@ -78,9 +78,10 @@
 // Extension bindings (slots 100+ are reserved for material extensions).
 // ---------------------------------------------------------------------------
 
-/// RGBA weight map - one texel per heightmap vertex, full-terrain coverage.
-/// Channels: R = Grass, G = Dirt, B = Rock, A = Snow.
-@group(#{MATERIAL_BIND_GROUP}) @binding(100) var splat_weight_map: texture_2d<f32>;
+/// RGBA weight map - one texel per heightmap vertex, full-terrain coverage,
+/// two layers. Layer 0: R = Grass, G = Dirt, B = Rock, A = Snow. Layer 1:
+/// R = how sheltered from what falls (#1685), 1 under a roof.
+@group(#{MATERIAL_BIND_GROUP}) @binding(100) var splat_weight_map: texture_2d_array<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(101) var splat_weight_sampler: sampler;
 
 /// Albedo texture array - 4 layers (Grass=0, Dirt=1, Rock=2, Snow=3), sRGB.
@@ -169,13 +170,10 @@ const GRASS_WATER_MARGIN: f32 = 0.1;
 // Sampled toroidally at `fract(world.xz / world_period)` with a Repeat
 // sampler - no camera recenter, so no origin pop.
 //
-// `STAINS_BINDING` is emitted by `SplatExtension::specialize` everywhere
-// but the WebGL2 build, which leaves the overlay out (bindings 107/108/109
-// and the code that reads them). On an older Bevy it was cut there as a
-// 17th texture against the GLES backend's 16 slots; on Bevy 0.19 the
-// WebGL2 terrain takes 14 and has room for it, and it stays out by choice
-// until it is turned back on (#1681).
-#ifdef STAINS_BINDING
+// Every build binds it since #1681. On an older Bevy the WebGL2 build cut
+// it as a 17th texture against the GLES backend's 16 slots; on Bevy 0.19
+// the WebGL2 terrain takes 15 with it (`SplatExtension`'s doc,
+// `tests/shader_guards.rs`).
 @group(#{MATERIAL_BIND_GROUP}) @binding(107) var stains_tex: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(108) var stains_sampler: sampler;
 
@@ -192,7 +190,6 @@ struct StainsUniforms {
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(109) var<uniform> stains_uniforms: StainsUniforms;
-#endif // STAINS_BINDING
 
 // ---------------------------------------------------------------------------
 // Triplanar helpers (used for the Rock layer only)
@@ -308,11 +305,16 @@ fn fragment(
     // under the water, where the grass, which reads the same snow, does not
     // grow: the shore above it is snowed on both. A room has water exactly
     // when its damp-ground margin is on (#913).
+    // Ground under a roof stays dry and bare (#1685): what falls reaches
+    // only the open share of it, from the weight map's second layer.
+    let open = 1.0 - textureSample(splat_weight_map, splat_weight_sampler, in.uv, 1).r;
+    let wetness = splat_uniforms.wetness * open;
+    let snow = splat_uniforms.snow * open;
     let ground_up = normalize(in.world_normal).y;
     var puddle = 0.0;
     var settled = 0.0;
     if splat_uniforms.wetness > 0.0 || splat_uniforms.snow > 0.0 {
-        puddle = puddle_at(in.world_position.xz, ground_up, splat_uniforms.wetness);
+        puddle = puddle_at(in.world_position.xz, ground_up, wetness);
         let land = select(
             1.0,
             smoothstep(splat_uniforms.water_y - 0.3, splat_uniforms.water_y, in.world_position.y),
@@ -322,7 +324,7 @@ fn fragment(
             in.world_position.xz,
             in.world_position.y,
             ground_up,
-            splat_uniforms.snow,
+            snow,
             splat_uniforms.snow_line,
             splat_uniforms.snow_feather,
         );
@@ -332,7 +334,7 @@ fn fragment(
 
     if splat_uniforms.enabled != 0u {
         // Sample splat weights from the terrain-space UV ([0, 1] → full mesh).
-        let raw_weights = textureSample(splat_weight_map, splat_weight_sampler, in.uv);
+        let raw_weights = textureSample(splat_weight_map, splat_weight_sampler, in.uv, 0);
 
         // Normalise weights so they always sum to exactly 1.  SplatMapper rules
         // can overlap or leave gaps, causing the raw sum to differ from 1.  A
@@ -511,11 +513,11 @@ fn fragment(
             // Settled snow takes the light back, as it does from the
             // ground's own bumps (the weather block).
             pbr_input.N = normalize(
-                mix(pbr_input.N, carpet_normal(toward, up, splat_uniforms.wetness), carpet * (1.0 - settled)),
+                mix(pbr_input.N, carpet_normal(toward, up, wetness), carpet * (1.0 - settled)),
             );
             // The grass's roughness, wet as its blades are (`grass::roughness`)
             // once the weather block has wetted it as it wets the ground.
-            let wet = splat_uniforms.wetness;
+            let wet = wetness;
             pbr_input.material.perceptual_roughness = mix(
                 pbr_input.material.perceptual_roughness,
                 mix(GRASS_ROUGHNESS, GRASS_WET_ROUGHNESS, wet) / mix(1.0, WET_ROUGHNESS, wet),
@@ -529,11 +531,6 @@ fn fragment(
     // Repeat sampler handles the seam. When `enabled == 0` the binding
     // is the default 1×1 image and this whole block is skipped, so the
     // terrain renders exactly as before (backward-compat).
-    //
-    // Gated by `STAINS_BINDING` because bindings 107/108/109 are declared
-    // on every build but the WebGL2 one - see the explanation at the
-    // binding site above.
-#ifdef STAINS_BINDING
     if stains_uniforms.enabled != 0u {
         let stains_uv = fract(in.world_position.xz / stains_uniforms.world_period);
         let st = textureSample(stains_tex, stains_sampler, stains_uv);
@@ -562,7 +559,6 @@ fn fragment(
         let n = pbr_input.N;
         pbr_input.N = normalize(vec3<f32>(n.x, n.y * (1.0 - 0.2 * foot), n.z));
     }
-#endif // STAINS_BINDING
 
     // --- Damp ground near the water line (#913, WS5 step 3) -------------
     // The visible half of the microbiome work: ground at and below the
@@ -605,7 +601,7 @@ fn fragment(
     // as it is. Both amounts 0 - no weather - leave the ground exactly as
     // it was.
     if splat_uniforms.wetness > 0.0 || splat_uniforms.snow > 0.0 {
-        let wet = splat_uniforms.wetness;
+        let wet = wetness;
         var albedo = pbr_input.material.base_color.rgb * mix(1.0, WET_DARKEN, wet);
         var rough = pbr_input.material.perceptual_roughness * mix(1.0, WET_ROUGHNESS, wet);
         albedo = albedo * mix(1.0, PUDDLE_DARKEN, puddle);

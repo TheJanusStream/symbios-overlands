@@ -743,12 +743,15 @@ pub enum EffectsIntensity {
     /// Play what the room authored.
     #[default]
     Full,
-    /// Bound the worst of it: decals shrink and fade, and a zero cooldown
-    /// gets a floor so a Dwell recipe cannot stamp once per frame.
+    /// Bound the worst of it: decals shrink and fade, a zero cooldown
+    /// gets a floor so a Dwell recipe cannot stamp once per frame, and a
+    /// storm's lightning flashes at a third of its light and of the stops
+    /// it opens the exposure by (#1687).
     Reduced,
     /// None at all - the same early-return the empty-registry path already
-    /// takes - and every turning part stands at its authored pose (#1604,
-    /// `world_builder::spin`).
+    /// takes - every turning part stands at its authored pose (#1604,
+    /// `world_builder::spin`), and lightning does not flash, though its
+    /// thunder sounds (#1687).
     Off,
 }
 
@@ -777,6 +780,17 @@ impl EffectsIntensity {
             Self::Full => 0.0,
             Self::Reduced => crate::config::interaction::REDUCED_EFFECT_COOLDOWN_SECS,
             Self::Off => f32::INFINITY,
+        }
+    }
+
+    /// The share of a lightning flash drawn (#1687) - of the light it adds
+    /// and of the stops it opens the exposure by: the setting the Settings
+    /// window offers to anyone for whom flashing is a problem.
+    pub fn flash_scale(self) -> f32 {
+        match self {
+            Self::Full => 1.0,
+            Self::Reduced => crate::config::lighting::weather::storm::REDUCED_FLASH,
+            Self::Off => 0.0,
         }
     }
 

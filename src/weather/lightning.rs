@@ -16,14 +16,19 @@
 //! schedule keeps that spacing by itself; the drawing holds it whatever
 //! the schedule does - an owner dragging the weather's sliders through a
 //! storm redraws the schedule every frame, and the strike drawn is then
-//! the last one that was, or one far enough after it.
+//! the last one that was, or one far enough after it. A visitor for whom
+//! flashing is a problem turns it down with the Effects setting (#1687):
+//! Reduced draws a third of each flash's light and of the stops it opens
+//! the exposure by, Off none, and the thunder sounds either way
+//! ([`crate::state::EffectsIntensity::flash_scale`]).
 //!
 //! Lightning adds light: the flash adds a cold white to the sky's colour -
 //! and so to the clouds', the water's and the rain's light from the sky,
 //! which read it too, the clouds glowing with it - and to the fog's, which
 //! a storm's haze is mostly made of; and it opens the camera's exposure by
-//! as much as its light multiplies the key light's, so all the world
-//! flashes, the more so by night. The colours are material writes, made
+//! as much as its light multiplies the key light's (under the Effects
+//! setting's Full; its share of those stops under Reduced), so all the
+//! world flashes, the more so by night. The colours are material writes, made
 //! only while a pulse is lit and only where a colour differs: a few frames
 //! a strike. Thunder follows each strike drawn as far behind it as sound
 //! takes to cross its distance, quieter the farther off, with a crack
@@ -288,7 +293,10 @@ pub(crate) fn register(app: &mut App) {
 fn flash_lightning(
     drawn: Res<DrawnEnvironment>,
     record: Option<Res<LiveRoomRecord>>,
-    held: Option<Res<FlashOverride>>,
+    (held, settings): (
+        Option<Res<FlashOverride>>,
+        Option<Res<crate::state::LocalSettings>>,
+    ),
     mut lightning: ResMut<Lightning>,
     mut skies: ResMut<Assets<SkyMaterial>>,
     sky_box: Query<&MeshMaterial3d<SkyMaterial>, With<SkyBox>>,
@@ -344,6 +352,16 @@ fn flash_lightning(
         }
         _ => {}
     }
+    // As much of it as this visitor's Effects setting draws (#1687): that
+    // share of the light it adds, and of the stops it opens the exposure by
+    // - at night a flash of any size opens the full four, so a share of the
+    // light alone would soften nothing there. The strikes, and so the
+    // thunder, fall all the same.
+    let share = settings
+        .as_ref()
+        .map_or(1.0, |s| s.effects_intensity.flash_scale());
+    let whole = flash;
+    flash *= share;
     if !stormy && held.is_none() && !lightning.coming.is_empty() {
         lightning.coming.clear();
     }
@@ -444,7 +462,12 @@ fn flash_lightning(
             falls.uniforms.light = lit;
         }
     }
-    let stops = flash_stops(flash, drawn.env.sun_illuminance.0);
+    // Out with the colours: a flash floored to none opens nothing either.
+    let stops = if flash > 0.0 {
+        flash_stops(whole, drawn.env.sun_illuminance.0) * share
+    } else {
+        0.0
+    };
     let [r, g, b, a] = drawn.env.fog_color.0;
     let fog = Color::srgba(r, g, b, a).to_linear();
     let fog = Color::LinearRgba(LinearRgba::new(

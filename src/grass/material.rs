@@ -97,7 +97,7 @@ pub struct GrassExtension {
     pub uniforms: GrassUniforms,
     #[texture(101, visibility(vertex), sample_type = "u_int")]
     pub height: Handle<Image>,
-    #[texture(102, visibility(vertex))]
+    #[texture(102, visibility(vertex), dimension = "2d_array")]
     #[sampler(103, visibility(vertex))]
     pub weights: Handle<Image>,
     #[texture(104, visibility(vertex))]

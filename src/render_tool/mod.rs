@@ -500,6 +500,12 @@ struct Args {
     /// browser visitor does.
     #[arg(long, requires = "world", value_name = "QUALITY", value_parser = parse_grass)]
     grass: Option<crate::grass::GrassQuality>,
+    /// With `--world`: draw under this Effects setting (#1687) - `full` (the
+    /// default), `reduced` or `off` - to see a world as a visitor who picked
+    /// it does: its contact effects, its turning parts, and how much of a
+    /// held `--flash` the lightning draws.
+    #[arg(long, requires = "world", value_name = "LEVEL", value_parser = parse_effects)]
+    effects: Option<crate::state::EffectsIntensity>,
     /// With `--world`: measure before the still (#1692) - draw this many
     /// frames once the world has warmed up, the scene held still and the
     /// frames as fast as the GPU draws them, timing on the GPU each pass
@@ -901,8 +907,8 @@ struct Args {
     /// `--world`: how the world camera smooths its edges (#1669) - `msaa`,
     /// native's 4x, the WebGPU build's and the default; `fxaa`, the WebGL2
     /// build's since #1669; or `off`, the web build before it. Only the edges
-    /// change: an `fxaa` shot keeps the depth prepass, the four shadow
-    /// cascades and the stains overlay the WebGL2 build goes without.
+    /// change: an `fxaa` shot keeps the depth prepass and the four shadow
+    /// cascades the WebGL2 build goes without.
     #[arg(long, requires = "world", value_parser = parse_edge_smoothing)]
     edge_smoothing: Option<crate::camera::EdgeSmoothing>,
     /// Clips: seconds of the world's time a second of the clip shows - 0.25
@@ -1074,6 +1080,19 @@ fn parse_flash(word: &str) -> Result<f32, String> {
         .ok()
         .filter(|light| (0.0..=1.0).contains(light))
         .ok_or_else(|| format!("{word:?} is not a flash's light, a number from 0 to 1"))
+}
+
+/// `--effects`'s three words, the Settings window's own.
+fn parse_effects(word: &str) -> Result<crate::state::EffectsIntensity, String> {
+    use crate::state::EffectsIntensity;
+    [
+        EffectsIntensity::Full,
+        EffectsIntensity::Reduced,
+        EffectsIntensity::Off,
+    ]
+    .into_iter()
+    .find(|level| level.label().eq_ignore_ascii_case(word))
+    .ok_or_else(|| format!("{word:?} is not full, reduced or off"))
 }
 
 /// `--grass`'s four words.
@@ -1509,6 +1528,11 @@ pub fn run() {
             app.world_mut()
                 .resource_mut::<crate::state::LocalSettings>()
                 .grass_quality = Some(quality);
+        }
+        if let Some(level) = args.effects {
+            app.world_mut()
+                .resource_mut::<crate::state::LocalSettings>()
+                .effects_intensity = level;
         }
         if let Some(hour) = args.hour {
             app.world_mut()

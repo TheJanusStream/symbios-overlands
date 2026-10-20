@@ -219,25 +219,12 @@ fn no_shader_names_a_reserved_word() {
     assert!(code_words("// a patch of ground").is_empty());
 }
 
-/// A material's own texture bindings in `src`, counting those inside an
-/// `#ifdef` block of `gate` (if any) only when `gated` is true.
-fn material_textures(src: &str, gate: Option<&str>, gated: bool) -> usize {
-    let mut inside = false;
-    let mut count = 0;
-    for line in src.lines() {
-        let t = line.trim_start();
-        if t.starts_with("#ifdef") && gate.is_some_and(|g| t.contains(g)) {
-            inside = true;
-        } else if t.starts_with("#endif") && inside {
-            inside = false;
-        } else if t.contains("MATERIAL_BIND_GROUP")
-            && t.contains(": texture_")
-            && (!inside || gated)
-        {
-            count += 1;
-        }
-    }
-    count
+/// A material's own texture bindings in `src`.
+fn material_textures(src: &str) -> usize {
+    src.lines()
+        .map(str::trim_start)
+        .filter(|t| t.contains("MATERIAL_BIND_GROUP") && t.contains(": texture_"))
+        .count()
 }
 
 /// What a lit pipeline's layout takes besides the material's own textures,
@@ -260,29 +247,22 @@ const STANDARD_MATERIAL: usize = 6;
 /// terrain stands at exactly its 16: another texture there must replace one.
 #[test]
 fn the_terrain_and_the_grass_keep_within_their_texture_slots() {
-    let splat = shader("splat.wgsl");
-    let without_stains = material_textures(&splat, Some("STAINS_BINDING"), false);
-    let terrain = material_textures(&splat, Some("STAINS_BINDING"), true);
-    assert_eq!(
-        (without_stains, terrain),
-        (3, 4),
-        "splat.wgsl's textures moved"
-    );
-    // The WebGL2 build leaves the stains out (`SplatExtension::specialize`)
-    // but has room for them (#1681): both builds are counted with them.
+    // The weight map, the two layer arrays and the stains overlay, which
+    // every build binds since #1681: the WebGL2 terrain at 15 of its 16.
+    let terrain = material_textures(&shader("splat.wgsl"));
+    assert_eq!(terrain, 4, "splat.wgsl's textures moved");
     assert!(WEBGL2_VIEW + STANDARD_MATERIAL + terrain <= GLES_SLOTS);
     assert!(WEBGPU_VIEW + STANDARD_MATERIAL + terrain <= WEBGPU_STAGE_TEXTURES);
-    let grass = material_textures(&shader("grass.wgsl"), None, false);
+    let grass = material_textures(&shader("grass.wgsl"));
     assert_eq!(grass, 4, "grass.wgsl's textures moved");
     assert!(WEBGL2_VIEW + STANDARD_MATERIAL + grass <= GLES_SLOTS);
+    // What falls reads the shelter map (#1685): a plain `Material`, so the
+    // view's textures and its one.
+    let falls = material_textures(&shader("precipitation.wgsl"));
+    assert_eq!(falls, 1, "precipitation.wgsl's textures moved");
+    assert!(WEBGL2_VIEW + falls <= GLES_SLOTS);
     // The epic's other materials bind none of their own.
-    for name in [
-        "sky.wgsl",
-        "cloud.wgsl",
-        "water.wgsl",
-        "precipitation.wgsl",
-        "wind.wgsl",
-    ] {
-        assert_eq!(material_textures(&shader(name), None, false), 0, "{name}");
+    for name in ["sky.wgsl", "cloud.wgsl", "water.wgsl", "wind.wgsl"] {
+        assert_eq!(material_textures(&shader(name)), 0, "{name}");
     }
 }

@@ -389,9 +389,11 @@ Grass, each row with an Auto box). Every field is optional:
   8-minute spells came about once an hour and lasted 10-20 minutes, but
   over a day it rains as often as not. Without the key the room is drawn as
   its fields set it. Render one with `render --world <did> --weather
-  rain:0.6` (a weather that comes and goes renders as it is now). Rain
-  falls through roofs: the volume knows nothing of shelter yet. And only
-  the ground, the grass and the water answer the weather: roads, buildings
+  rain:0.6` (a weather that comes and goes renders as it is now). Rain and
+  snow stop under a roof, and the ground and the grass under it stay dry
+  and bare (#1685) - under a solid one: a part made with `solid: false`
+  carries no collider and shelters nothing, and nor does a tree's crown.
+  And only the ground, the grass and the water answer the weather: roads, buildings
   and placed pieces stay dry and bare, so a road is a dark strip through a
   snowfield.
 - **The clouds are lit and cast shade** (#1673): one layer at

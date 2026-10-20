@@ -319,6 +319,13 @@ pub(crate) mod lighting {
             pub const FLASH_LUX: f32 = 6_000.0;
             pub const FLASH_MAX_STOPS: f32 = 4.0;
             pub const FLASH_FLOOR_LUX: f32 = 50.0;
+            /// The share of a flash drawn under the Effects setting's
+            /// Reduced (#1687): of the light it adds and of the stops it
+            /// opens the exposure by, so a night's four stops (sixteen
+            /// times the light) become one and a third (two and a half):
+            /// the storm still lights up, no longer a white-out. Off draws
+            /// none; the thunder sounds either way.
+            pub const REDUCED_FLASH: f32 = 1.0 / 3.0;
             /// Thunder: how fast sound crosses the air (m/s); its volume from
             /// the nearest strike to the farthest; and nearer than this (m)
             /// it cracks before it rumbles.
@@ -861,6 +868,16 @@ pub(crate) mod camera {
         pub const COLOR: [f32; 4] = [0.35, 0.48, 0.66, 1.0];
         /// Visibility distance (m) at which objects retain ≥ 5 % contrast.
         pub const VISIBILITY: f32 = 350.0;
+        /// The fog the sun's shadow reach and the ground cover's cut are
+        /// set for is the drawn one - a weather's fog in it - held on the
+        /// cover's grid of this many metres, rounded up
+        /// (`drawn_environment::HeldFog`, #1688).
+        pub const HOLD_STEP_M: f32 = crate::config::draw_distance::STEP_M;
+        /// A held fog that closes in is taken only once it is this share
+        /// nearer than the one held (#1688): a weather that comes and goes
+        /// retunes the reach and the cut a few times a transition, not at
+        /// every step.
+        pub const HOLD_SHARE: f32 = 0.2;
         /// Atmospheric extinction colour (light lost to absorption), sRGB.
         pub const EXTINCTION_COLOR: [f32; 3] = [0.35, 0.5, 0.66];
         /// Atmospheric inscattering colour (light gained from the sun), sRGB.
@@ -962,6 +979,11 @@ pub(crate) mod terrain {
         /// finds a box's four corners exactly and rounds a ball to a
         /// hexadecagon.
         pub const OUTLINE_DIRECTIONS: usize = 16;
+        /// Ground with a static shape standing at least this high over it
+        /// (m) is sheltered from what falls (#1685): dry under a roof or a
+        /// table, wet under a road's deck, a curb or a bench seat lower
+        /// than this.
+        pub const SHELTER_CLEARANCE: f32 = 0.5;
     }
 
     // --- Water volume (visual) -----------------------------------------------

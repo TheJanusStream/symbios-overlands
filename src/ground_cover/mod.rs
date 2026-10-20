@@ -10,11 +10,15 @@
 //!   texture cannot be filtered: read it with `textureLoad` and interpolate
 //!   as [`mesh_height`] does, and a blade stands on the triangles the ground
 //!   is drawn with, lit as the ground there is.
-//! * **`weights`** - the splat material's own weight map: one RGBA8 texel
-//!   per heightmap vertex, each channel a layer's share, the record's four
-//!   layers in order (by default grass, dirt, rock, snow). The ground's
-//!   shader samples it linearly at its mesh UV, `(world_xz + half) /
-//!   (2 half)` - which puts vertex k at `k / (n - 1)`, not at its texel's
+//! * **`weights`** - the splat material's own weight map, a two-layer
+//!   array of one RGBA8 texel per heightmap vertex. Layer 0 holds each
+//!   ground layer's share, the record's four layers in order (by default
+//!   grass, dirt, rock, snow); layer 1's red holds how sheltered the vertex
+//!   is from what falls (#1685): the share of the four shelter texels
+//!   round it with something standing at least [`SHELTER_CLEARANCE`] over
+//!   its ground, so the ground and the grass stay dry under a roof. The
+//!   ground's shader samples it linearly at its mesh UV, `(world_xz + half)
+//!   / (2 half)` - which puts vertex k at `k / (n - 1)`, not at its texel's
 //!   centre, half a texel off at the edges - and whatever grows must sample
 //!   it the same way to follow the ground's look. `None` until the ground's
 //!   textures have baked.
@@ -23,6 +27,11 @@
 //!   standing on the ground, and wherever the ground lies under water or
 //!   within [`WATER_MARGIN`] of it. Sample it linearly, and its edges fade
 //!   across a metre. [`GroundCover::mask`] is the same on the CPU.
+//! * **`shelter`** - on the cover's grid, one `R16Float` texel each: the
+//!   top of the highest static shape over it, minus infinity under the open
+//!   sky ([`shelter`], #1685). What falls folds away below it
+//!   (`crate::weather::precipitation`). [`GroundCover::shelter_map`] is the
+//!   same on the CPU.
 //!
 //! **What blocks the cover.** Every static collider the world stands up -
 //! a placement's parts (lot buildings among them), a road's deck and curbs,
@@ -33,20 +42,28 @@
 //! below the room's drawn water line. The heightmap is square, as the
 //! terrain mesh and every other ground query take it.
 //!
+//! **What shelters the ground.** The same static colliders, every piece of
+//! them at whatever height it stands - a roof on posts as much as a wall -
+//! each raising the shelter under its outline to its top
+//! ([`footprint::tops`]).
+//!
 //! **When it is redrawn.** The height texture when a heightmap lands; the
-//! cover when the world has held still for [`REBUILD_DEBOUNCE`] after a
-//! change - a record edit, a static collider spawned or despawned, a new
-//! heightmap - and no compile, road re-mesh or instance build is still
-//! under way. A redraw rereads every collider and costs a few
-//! milliseconds; it happens when a room settles and after an edit, never
-//! while one is dragged.
+//! cover and the shelter when the world has held still for
+//! [`REBUILD_DEBOUNCE`] after a change - a record edit, a static collider
+//! spawned or despawned, a new heightmap - and no compile, road re-mesh or
+//! instance build is still under way, the weights' shelter layer with them
+//! and whenever the ground's weights bake anew. A redraw rereads every
+//! collider and costs a few milliseconds; it happens when a room settles
+//! and after an edit, never while one is dragged.
 //!
 //! [`WATER_MARGIN`]: crate::config::terrain::ground_cover::WATER_MARGIN
 //! [`REBUILD_DEBOUNCE`]: crate::config::terrain::ground_cover::REBUILD_DEBOUNCE
+//! [`SHELTER_CLEARANCE`]: crate::config::terrain::ground_cover::SHELTER_CLEARANCE
 
 pub(crate) mod footprint;
 pub(crate) mod height;
 pub(crate) mod mask;
+pub(crate) mod shelter;
 pub(crate) mod weight_maxima;
 
 use std::sync::Arc;
@@ -59,6 +76,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
 pub(crate) use height::mesh_height;
 pub use mask::CoverMask;
+pub use shelter::ShelterMap;
 pub use weight_maxima::WeightMaxima;
 
 use crate::config::terrain::ground_cover as cfg;
@@ -82,6 +100,14 @@ pub struct GroundCover {
     pub cover: Handle<Image>,
     /// The cover on the CPU, as last uploaded.
     pub mask: CoverMask,
+    /// What shelters the ground from what falls (#1685), `R16Float`, GPU
+    /// only: the highest static shape's top over each cover texel.
+    pub shelter: Handle<Image>,
+    /// The shelter on the CPU, as last uploaded.
+    pub shelter_map: ShelterMap,
+    /// The weight map's own layer, kept on the CPU to write the shelter
+    /// beside it ([`weight_image`]), with the weights.
+    pub(crate) weight_layer: Option<Arc<WeightLayer>>,
     /// How many times the cover has been drawn for this heightmap; 0 while
     /// it is still the all-open stand-in.
     pub revision: u32,
@@ -127,14 +153,119 @@ impl GroundFrame {
             Vec2::splat(-self.half),
         )
     }
+
+    /// An open shelter map over this frame: the cover's grid.
+    fn open_shelter(&self) -> ShelterMap {
+        ShelterMap::open(
+            self.cover_texels as usize,
+            self.cover_texel(),
+            Vec2::splat(-self.half),
+        )
+    }
 }
 
 /// The splat weight map the ground's material was given, published by the
 /// terrain when it bakes (#1674): the handle [`GroundCover::weights`] takes,
-/// and its most per grass tile, which [`GroundCover::maxima`] takes with it
-/// (#1693).
+/// its most per grass tile, which [`GroundCover::maxima`] takes with it
+/// (#1693), and its own layer's bytes, which the shelter is written beside
+/// (#1685).
 #[derive(Resource, Clone)]
-pub(crate) struct SplatWeights(pub(crate) Handle<Image>, pub(crate) Arc<WeightMaxima>);
+pub(crate) struct SplatWeights(
+    pub(crate) Handle<Image>,
+    pub(crate) Arc<WeightMaxima>,
+    pub(crate) Arc<WeightLayer>,
+);
+
+/// A splat weight map's own layer on the CPU (#1685): RGBA8, `width` by
+/// `height` texels, one per heightmap vertex.
+#[derive(Debug, PartialEq)]
+pub(crate) struct WeightLayer {
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) bytes: Vec<u8>,
+}
+
+/// The splat weight map as the image the ground and the grass sample: a
+/// two-layer array, `layer` the weights and the second layer's red
+/// `sheltered` (one byte a texel, 0 open to 255 sheltered; open everywhere
+/// when `None`) - linear between texels, clamped at the edges, GPU only.
+/// The same size each time, so a rewrite is copied into the texture already
+/// bound ([`replace`]).
+pub(crate) fn weight_image(layer: &WeightLayer, sheltered: Option<&[u8]>) -> Image {
+    use bevy::render::render_resource::{TextureViewDescriptor, TextureViewDimension};
+    let texels = (layer.width * layer.height) as usize;
+    let mut bytes = Vec::with_capacity(texels * 8);
+    bytes.extend_from_slice(&layer.bytes);
+    match sheltered {
+        Some(sheltered) => bytes.extend(sheltered.iter().flat_map(|&s| [s, 0, 0, 0])),
+        None => bytes.resize(texels * 8, 0),
+    }
+    let mut image = Image::new(
+        Extent3d {
+            width: layer.width,
+            height: layer.height,
+            depth_or_array_layers: 2,
+        },
+        TextureDimension::D2,
+        bytes,
+        TextureFormat::Rgba8Unorm,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    image.texture_view_descriptor = Some(TextureViewDescriptor {
+        dimension: Some(TextureViewDimension::D2Array),
+        ..default()
+    });
+    image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+        address_mode_u: ImageAddressMode::ClampToEdge,
+        address_mode_v: ImageAddressMode::ClampToEdge,
+        mag_filter: ImageFilterMode::Linear,
+        min_filter: ImageFilterMode::Linear,
+        ..Default::default()
+    });
+    image
+}
+
+/// How sheltered each heightmap vertex of `hm` is from what falls (#1685),
+/// one byte each in the weight map's order: the share of the four
+/// `shelter` texels round the vertex whose top stands at least
+/// [`cfg::SHELTER_CLEARANCE`] over the ground under that texel - not the
+/// vertex's, which on a steep slope lies a hand's breadth off. A roof's
+/// edge comes out half way, and the GPU's linear sampling eases the dry
+/// ground in under it. The ground samples this layer at its mesh UV, which
+/// puts vertex k half a texel off its texel's centre at the map's edges
+/// (see the module's `weights`): there the dry ground shifts by up to half
+/// a cell toward the middle.
+///
+/// Read from the covered texels alone, as most of a world is open sky: at
+/// two texels a cell each texel's centre is one of exactly one vertex's
+/// four, half a texel from it on both axes, so it counts for the vertex
+/// nearest it.
+fn sheltered_layer(
+    frame: &GroundFrame,
+    hm: &bevy_symbios_ground::HeightMap,
+    shelter: &ShelterMap,
+) -> Vec<u8> {
+    const _: () = assert!(
+        cfg::TEXELS_PER_CELL == 2,
+        "a shelter texel's centre must be one vertex's sample"
+    );
+    let n = frame.vertices as usize;
+    let mut counts = vec![0u8; n * n];
+    for (centre, top) in shelter.covered() {
+        if top < mesh_height(hm, centre) + cfg::SHELTER_CLEARANCE {
+            continue;
+        }
+        let vertex = ((centre + Vec2::splat(frame.half)) / frame.cell).round();
+        let (col, row) = (vertex.x as usize, vertex.y as usize);
+        if vertex.min_element() >= 0.0 && col < n && row < n {
+            counts[row * n + col] += 1;
+        }
+    }
+    counts
+        .into_iter()
+        .map(|c| (usize::from(c) * 255 / 4) as u8)
+        .collect()
+}
 
 /// Whether the cover waits to be redrawn, and what can make it.
 #[derive(Resource, Default)]
@@ -201,15 +332,19 @@ fn sync_ground_height(
     let hm = &heightmap.0;
     let frame = GroundFrame::of(hm);
     let mask = frame.open_mask();
+    let shelter_map = frame.open_shelter();
     match cover {
         Some(mut cover) => {
             replace(&mut images, &cover.height, height::height_image(hm));
             replace(&mut images, &cover.cover, cover_image(&mask));
+            replace(&mut images, &cover.shelter, shelter_map.image());
             cover.frame = frame;
             cover.mask = mask;
+            cover.shelter_map = shelter_map;
             cover.revision = 0;
             cover.weights = None;
             cover.maxima = None;
+            cover.weight_layer = None;
         }
         None => commands.insert_resource(GroundCover {
             frame,
@@ -218,6 +353,9 @@ fn sync_ground_height(
             maxima: None,
             cover: images.add(cover_image(&mask)),
             mask,
+            shelter: images.add(shelter_map.image()),
+            shelter_map,
+            weight_layer: None,
             revision: 0,
         }),
     }
@@ -226,11 +364,13 @@ fn sync_ground_height(
 /// The ground's textures have baked: take its weight map - but only one
 /// published after this heightmap landed. Weights published before belong
 /// to the last ground, whose heightmap this one replaced in place. Writes
-/// only a change.
+/// only a change. A bake after the shelter was drawn has it written beside
+/// the new weights at once (#1685).
 fn sync_weights(
     weights: Option<Res<SplatWeights>>,
     heightmap: Res<FinishedHeightMap>,
     mut cover: ResMut<GroundCover>,
+    mut images: ResMut<Assets<Image>>,
     ticks: bevy::ecs::system::SystemChangeTick,
 ) {
     let Some(weights) = weights else {
@@ -242,7 +382,29 @@ fn sync_weights(
     if current && cover.weights.as_ref() != Some(&weights.0) {
         cover.weights = Some(weights.0.clone());
         cover.maxima = Some(weights.1.clone());
+        cover.weight_layer = Some(weights.2.clone());
+        if cover.revision > 0 {
+            write_shelter_layer(&mut images, &cover, &heightmap.0);
+        }
     }
+}
+
+/// Write the shelter beside the weights (#1685): the weight map rebuilt in
+/// place with its second layer from [`GroundCover::shelter_map`]. Nothing
+/// without weights yet, or with weights of another heightmap's size.
+fn write_shelter_layer(
+    images: &mut Assets<Image>,
+    cover: &GroundCover,
+    hm: &bevy_symbios_ground::HeightMap,
+) {
+    let (Some(handle), Some(layer)) = (&cover.weights, &cover.weight_layer) else {
+        return;
+    };
+    if layer.width != cover.frame.vertices || layer.height != cover.frame.vertices {
+        return;
+    }
+    let sheltered = sheltered_layer(&cover.frame, hm, &cover.shelter_map);
+    replace(images, handle, weight_image(layer, Some(&sheltered)));
 }
 
 /// Note when the world changed in a way that can move the cover: a new
@@ -329,6 +491,8 @@ fn rebuild_cover(
     }
 
     let mut outlines = 0usize;
+    let mut shelter = cover.frame.open_shelter();
+    let mut sheltering = std::time::Duration::ZERO;
     dirty.statics.clear();
     for (entity, collider, transform) in &colliders {
         if !is_static(entity, &bodies, &parents) {
@@ -344,16 +508,36 @@ fn rebuild_cover(
                 mask.block_convex(outline);
             },
         );
+        let began = bevy::platform::time::Instant::now();
+        footprint::tops(
+            collider.shape(),
+            transform.affine(),
+            &ground,
+            &mut |outline, top| shelter.raise(outline, top),
+        );
+        sheltering += began.elapsed();
     }
 
-    info!(
-        "ground cover drawn: {} outlines, {:.1}% open, {:.1} ms",
-        outlines,
-        mask.open_share() * 100.0,
-        started.elapsed().as_secs_f64() * 1000.0
-    );
     replace(&mut images, &cover.cover, cover_image(&mask));
+    let (open, covered) = (mask.open_share(), shelter.covered_share());
     cover.mask = mask;
+    // Most redraws - an edit that moves no static shape - leave the shelter
+    // as it was: its upload and the weights' rewrite are skipped then.
+    let began = bevy::platform::time::Instant::now();
+    if shelter != cover.shelter_map {
+        replace(&mut images, &cover.shelter, shelter.image());
+        cover.shelter_map = shelter;
+        write_shelter_layer(&mut images, &cover, hm);
+    }
+    sheltering += began.elapsed();
+    info!(
+        "ground cover drawn: {} outlines, {:.1}% open, {:.1}% covered, {:.1} ms ({:.1} ms of it the shelter)",
+        outlines,
+        open * 100.0,
+        covered * 100.0,
+        started.elapsed().as_secs_f64() * 1000.0,
+        sheltering.as_secs_f64() * 1000.0
+    );
     cover.revision += 1;
     dirty.since = None;
 }
@@ -544,6 +728,86 @@ mod tests {
         assert_eq!(open_at(&app, 0.0, 0.0), 1.0, "open ground");
     }
 
+    /// The shelter (#1685): a roof held clear of the ground blocks no cover
+    /// but shelters the ground under it up to its top, and a moving body
+    /// and a sensor shelter nothing. With the ground's weights in, the
+    /// weight map's second layer marks the vertices under the roof
+    /// sheltered, those on its edge half, and the open ones not, its first
+    /// layer untouched; and what falls is given the shelter once it is drawn.
+    #[test]
+    fn a_roof_shelters_the_ground_under_it() {
+        let mut app = app(flat_ground(1.0));
+        let at = |x: f32, y: f32, z: f32| GlobalTransform::from_translation(Vec3::new(x, y, z));
+        // Longer along X than along Z (x -16..-4, z -13..-7), so a layer
+        // written with X and Z swapped reads wrong below.
+        app.world_mut().spawn((
+            RigidBody::Static,
+            Collider::cuboid(12.0, 0.4, 6.0),
+            at(-10.0, 5.0, -10.0),
+        ));
+        app.world_mut().spawn((
+            RigidBody::Dynamic,
+            Collider::cuboid(6.0, 4.0, 6.0),
+            at(10.0, 3.0, 10.0),
+        ));
+        app.world_mut().spawn((
+            Sensor,
+            Collider::cuboid(6.0, 4.0, 6.0),
+            at(-10.0, 3.0, 10.0),
+        ));
+        app.update();
+        let layer = Arc::new(WeightLayer {
+            width: 33,
+            height: 33,
+            bytes: [255, 0, 0, 0].repeat(33 * 33),
+        });
+        let weights = app
+            .world_mut()
+            .resource_mut::<Assets<Image>>()
+            .add(weight_image(&layer, None));
+        let maxima = Arc::new(WeightMaxima::of(&[[255, 0, 0, 0]; 4], 2, 2, 8.0));
+        app.insert_resource(SplatWeights(weights.clone(), maxima, layer.clone()));
+        app.update();
+        let (_, frame) =
+            crate::weather::precipitation::shelter_of(app.world().get_resource::<GroundCover>());
+        assert_eq!(frame, Vec4::ZERO, "no shelter before it is drawn");
+        settle(&mut app);
+
+        let cover = app.world().resource::<GroundCover>();
+        let top = |x: f32, z: f32| cover.shelter_map.top_at(Vec2::new(x, z));
+        assert!((top(-10.0, -10.0) - 5.2).abs() < 1e-4, "under the roof");
+        assert_eq!(top(-10.0, -14.0), f32::NEG_INFINITY, "past its short side");
+        assert_eq!(top(10.0, 10.0), f32::NEG_INFINITY, "under the moving body");
+        assert_eq!(top(-10.0, 10.0), f32::NEG_INFINITY, "under the sensor");
+        assert_eq!(open_at(&app, -10.0, -10.0), 1.0, "the roof blocks no cover");
+        let (shelter, frame) = crate::weather::precipitation::shelter_of(Some(cover));
+        assert_eq!(shelter, cover.shelter);
+        assert_eq!(frame, Vec4::new(-32.0, -32.0, 1.0, 64.0));
+
+        let images = app.world().resource::<Assets<Image>>();
+        let data = images
+            .get(&weights)
+            .and_then(|i| i.data.as_ref())
+            .expect("the weight map's texels");
+        assert_eq!(data.len(), 33 * 33 * 8, "two layers");
+        assert_eq!(
+            &data[..33 * 33 * 4],
+            &layer.bytes[..],
+            "the weights as they were"
+        );
+        // Vertex (k, l) stands at (-32 + 2k, -32 + 2l).
+        let sheltered = |x: f32, z: f32| {
+            let (k, l) = (((x + 32.0) / 2.0) as usize, ((z + 32.0) / 2.0) as usize);
+            data[33 * 33 * 4 + (l * 33 + k) * 4]
+        };
+        assert_eq!(sheltered(-10.0, -10.0), 255);
+        assert_eq!(sheltered(-14.0, -10.0), 255, "along its long side");
+        assert_eq!(sheltered(-10.0, -14.0), 0, "past its short side");
+        assert_eq!(sheltered(-4.0, -10.0), 127, "half on the roof's edge");
+        assert_eq!(sheltered(0.0, 0.0), 0);
+        assert_eq!(sheltered(10.0, 10.0), 0, "under the moving body");
+    }
+
     /// A collider under a static body's anchor counts as the body's, and a
     /// despawned one stops blocking once the cover is redrawn.
     #[test]
@@ -641,11 +905,18 @@ mod tests {
         let maxima = |app: &App| app.world().resource::<GroundCover>().maxima.clone();
         // Each ground's maxima tell it apart: one tile of grass, or of dirt.
         let of = |texel: [u8; 4]| Arc::new(WeightMaxima::of(&[texel; 4], 2, 2, 8.0));
+        let layer = || {
+            Arc::new(WeightLayer {
+                width: 33,
+                height: 33,
+                bytes: vec![0; 33 * 33 * 4],
+            })
+        };
         let first = app
             .world_mut()
             .resource_mut::<Assets<Image>>()
             .add(Image::default());
-        app.insert_resource(SplatWeights(first.clone(), of([255, 0, 0, 0])));
+        app.insert_resource(SplatWeights(first.clone(), of([255, 0, 0, 0]), layer()));
         app.update();
         assert_eq!(weights(&app), Some(first));
         assert_eq!(maxima(&app), Some(of([255, 0, 0, 0])));
@@ -658,7 +929,7 @@ mod tests {
             .world_mut()
             .resource_mut::<Assets<Image>>()
             .add(Image::default());
-        app.insert_resource(SplatWeights(second.clone(), of([0, 255, 0, 0])));
+        app.insert_resource(SplatWeights(second.clone(), of([0, 255, 0, 0]), layer()));
         app.update();
         assert_eq!(weights(&app), Some(second));
         assert_eq!(maxima(&app), Some(of([0, 255, 0, 0])));

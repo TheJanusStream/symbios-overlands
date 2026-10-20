@@ -84,7 +84,9 @@ struct GrassUniforms {
 // Each heightmap vertex's height (its bits in r) and the terrain mesh's
 // normal there (x and z as snorms in g): `ground_cover::height`.
 @group(#{MATERIAL_BIND_GROUP}) @binding(101) var height_map: texture_2d<u32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(102) var weight_map: texture_2d<f32>;
+// The ground's weight map, two layers: the weights, then how sheltered the
+// ground is from what falls in the second's red (#1685).
+@group(#{MATERIAL_BIND_GROUP}) @binding(102) var weight_map: texture_2d_array<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(103) var weight_sampler: sampler;
 @group(#{MATERIAL_BIND_GROUP}) @binding(104) var cover_map: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(105) var cover_sampler: sampler;
@@ -434,7 +436,9 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     // their weights, sampled where the ground's shader samples them.
     let uv = (at + vec2<f32>(grass.frame.x)) / (2.0 * grass.frame.x);
     let inside = select(0.0, 1.0, all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0)));
-    let weights = textureSampleLevel(weight_map, weight_sampler, uv, 0.0);
+    let weights = textureSampleLevel(weight_map, weight_sampler, uv, 0, 0.0);
+    // Under a roof what falls does not reach it (#1685), as on the ground.
+    let open = 1.0 - textureSampleLevel(weight_map, weight_sampler, uv, 1, 0.0).r;
     let cover = textureSampleLevel(cover_map, cover_sampler, uv, 0.0).r;
     let weight_sum = max(dot(weights, vec4<f32>(1.0)), 1.0e-3);
     let ground_density = dot(weights, grass.layer_density) / weight_sum * cover * inside;
@@ -492,12 +496,13 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     // snow settled here buries the blades by as much and whitens what
     // stands out of it; a puddle drowns them; wet blades darken (and
     // shine: the material).
-    let wet = grass.weather.x;
+    let wet = grass.weather.x * open;
+    let snow = grass.weather.y * open;
     var settled = 0.0;
     var puddle = 0.0;
-    if grass.weather.y > 0.0 || wet > 0.0 {
+    if snow > 0.0 || wet > 0.0 {
         // On the ground's own normal, as its shader reads it.
-        settled = snow_settled(at, ground, ground_normal.y, grass.weather.y, grass.weather.z, grass.weather.w);
+        settled = snow_settled(at, ground, ground_normal.y, snow, grass.weather.z, grass.weather.w);
         puddle = puddle_at(at, ground_normal.y, wet);
     }
 

@@ -10,7 +10,9 @@
 //! between the camera and the ground.
 //!
 //! [`reach`] is the rule, a pure function of the camera's distance to its
-//! focus and the room's fog. [`follow`] writes it to the sun when a bound
+//! focus and the fog: the room's as it is drawn, a weather's fog in it, held
+//! so a weather that comes and goes does not re-cut the sun at every step
+//! ([`fog_for`], #1688). [`follow`] writes it to the sun when a bound
 //! really moves, and never otherwise. [`follow_orbit_zoom`] feeds it the
 //! world camera every frame; the render tool's rig camera, which has no orbit
 //! controller, feeds it through `render_tool::headless::follow_rig_zoom`, so
@@ -30,6 +32,7 @@ use bevy_panorbit_camera::PanOrbitCamera;
 
 use crate::camera::IsWorldCamera;
 use crate::config::{camera, lighting};
+use crate::drawn_environment::{DrawnEnvironment, HeldFog, fog_now};
 use crate::state::LiveRoomRecord;
 
 /// Where a cascade set is cut, in metres from the camera along its view axis.
@@ -153,19 +156,29 @@ pub(crate) type SunCascades<'w, 's> =
     Query<'w, 's, &'static mut CascadeShadowConfig, With<DirectionalLight>>;
 
 /// Cut the sun's cascades for a camera `view_dist` metres from its focus,
-/// under the active room's fog (the config default before a room is
-/// entered). Writes only a config that [`moved`]: reading through the `Mut`
-/// stamps nothing, and a write stamps whether or not the value changed.
-pub(crate) fn follow(view_dist: f32, record: Option<&LiveRoomRecord>, suns: &mut SunCascades) {
-    let fog = record.map_or(camera::fog::VISIBILITY, |r| {
-        r.0.environment.fog_visibility.0
-    });
+/// under a fog leaving `fog` metres visible: the room's as it is drawn, a
+/// weather's in it, held against it ([`fog_for`], #1688). Writes only a
+/// config that [`moved`]: reading through the `Mut` stamps nothing, and a
+/// write stamps whether or not the value changed.
+pub(crate) fn follow(view_dist: f32, fog: f32, suns: &mut SunCascades) {
     let wanted = cascades(reach(view_dist, fog));
     for mut config in suns.iter_mut() {
         if moved(&config, &wanted) {
             *config = wanted.clone();
         }
     }
+}
+
+/// The fog a feeder of [`follow`] cuts the sun for (#1688): the room's as
+/// it is drawn - its weather's fog in it, or the config's before a room is
+/// entered - held by the feeder's own `held`, so a weather that comes and
+/// goes does not re-cut the sun at every step.
+pub(crate) fn fog_for(
+    record: Option<&LiveRoomRecord>,
+    drawn: Option<&DrawnEnvironment>,
+    held: &mut HeldFog,
+) -> f32 {
+    held.follow(fog_now(record, drawn))
 }
 
 /// The world camera's distance to its orbit focus, where it is DRAWN this
@@ -175,6 +188,8 @@ pub(crate) fn follow(view_dist: f32, record: Option<&LiveRoomRecord>, suns: &mut
 pub(crate) fn follow_orbit_zoom(
     cameras: Query<(&Transform, &PanOrbitCamera), IsWorldCamera>,
     record: Option<Res<LiveRoomRecord>>,
+    drawn: Option<Res<DrawnEnvironment>>,
+    mut held: Local<HeldFog>,
     mut suns: SunCascades,
 ) {
     let Ok((transform, orbit)) = cameras.single() else {
@@ -182,7 +197,7 @@ pub(crate) fn follow_orbit_zoom(
     };
     follow(
         transform.translation.distance(orbit.focus),
-        record.as_deref(),
+        fog_for(record.as_deref(), drawn.as_deref(), &mut held),
         &mut suns,
     );
 }
@@ -524,6 +539,34 @@ mod tests {
         assert_ne!(s.tick(), settled, "ten metres is");
     }
 
+    /// A weather's fog cuts the sun as the room's own does (#1688): at the
+    /// full zoom under a 60 m fog the shadows end at the rest reach, not out
+    /// at the room's 350 m that the fog hides; the weather clearing sends
+    /// them back out.
+    #[test]
+    fn a_weathers_fog_pulls_the_reach_in() {
+        let mut s = scene();
+        let record = RoomRecord::default();
+        let mut env = record.environment.clone();
+        env.fog_visibility = Fp(60.0);
+        s.app.insert_resource(LiveRoomRecord(record));
+        s.app.insert_resource(DrawnEnvironment {
+            env,
+            ..Default::default()
+        });
+        s.zoom(camera::ZOOM_UPPER_LIMIT);
+        s.app.update();
+        let last = |s: &Scene| *s.config().bounds.last().unwrap();
+        assert!(near(last(&s), REST.max), "{:?}", s.config());
+        s.app
+            .world_mut()
+            .resource_mut::<DrawnEnvironment>()
+            .env
+            .fog_visibility = Fp(VISIBILITY);
+        s.app.update();
+        assert!(near(last(&s), VISIBILITY), "{:?}", s.config());
+    }
+
     /// The terrain clamp pulls the camera in along its ray without touching
     /// the orbit's radius; the cascades follow the camera that is drawn.
     #[test]
@@ -565,6 +608,9 @@ mod tests {
         );
     }
 
+    /// The room's fog caps the reach, on the held fog's grid rounded up
+    /// (#1688): a 260 m fog ends the shadows at 275 m, never short of what
+    /// the fog shows.
     #[test]
     fn the_room_s_fog_caps_the_reach() {
         let mut s = scene();
@@ -574,7 +620,7 @@ mod tests {
         s.zoom(camera::ZOOM_UPPER_LIMIT);
         s.app.update();
         assert!(
-            near(*s.config().bounds.last().unwrap(), 260.0),
+            near(*s.config().bounds.last().unwrap(), 275.0),
             "{:?}",
             s.config()
         );

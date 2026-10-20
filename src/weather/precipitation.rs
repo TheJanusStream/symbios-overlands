@@ -20,8 +20,11 @@
 //!
 //! An orthographic view (#1603) folds every quad away: its eye stands far
 //! off, and the volume round it would be a square of rain in the middle of
-//! the frame. The volume knows nothing of shelter, so it falls through
-//! roofs (#1685). WebGL2-safe: one uniform block, no texture.
+//! the frame. Under a roof a quad folds away too (#1685): below the top of
+//! the highest static shape over where it falls, read from the ground
+//! cover's shelter map (`crate::ground_cover::shelter`). WebGL2-safe: two
+//! small uniform blocks and one texture, read texel by texel in the vertex
+//! shader.
 
 use bevy::{
     asset::RenderAssetUsages,
@@ -65,6 +68,16 @@ pub struct PrecipitationUniforms {
 pub struct PrecipitationMaterial {
     #[uniform(0)]
     pub uniforms: PrecipitationUniforms,
+    /// What shelters the ground from what falls (#1685): the ground cover's
+    /// shelter map, the highest static shape's top over each texel, read
+    /// texel by texel in the vertex shader.
+    #[texture(1, visibility(vertex), sample_type = "float", filterable = false)]
+    pub shelter: Handle<Image>,
+    /// How world XZ lands on [`Self::shelter`]: `xy` the map's low corner,
+    /// `z` a texel's side (m), `w` its texels a side - 0 while no shelter is
+    /// drawn, when nothing is folded away.
+    #[uniform(2)]
+    pub shelter_frame: Vec4,
 }
 
 impl Material for PrecipitationMaterial {
@@ -114,8 +127,53 @@ pub(crate) fn register(app: &mut App) {
         .add_systems(Startup, spawn_precipitation)
         .add_systems(
             Update,
-            (follow_camera, weather_the_volume.after(DrawEnvironmentSet)),
+            (
+                follow_camera,
+                weather_the_volume.after(DrawEnvironmentSet),
+                shelter_the_volume,
+            ),
         );
+}
+
+/// The shelter the volume reads, and how world XZ lands on it (#1685): the
+/// ground cover's once it is drawn for the ground that is up, none before
+/// (`shelter_frame.w` 0).
+pub(crate) fn shelter_of(
+    cover: Option<&crate::ground_cover::GroundCover>,
+) -> (Handle<Image>, Vec4) {
+    match cover {
+        Some(cover) if cover.revision > 0 => {
+            let map = &cover.shelter_map;
+            let corner = map.origin();
+            (
+                cover.shelter.clone(),
+                Vec4::new(corner.x, corner.y, map.texel(), map.size() as f32),
+            )
+        }
+        _ => (Handle::default(), Vec4::ZERO),
+    }
+}
+
+/// Give the volume the ground's shelter (#1685): what falls folds away
+/// under a roof. Written only when the shelter's handle or frame moves - a
+/// redraw of it is copied into the texture already bound - so a room that
+/// settles once writes the material once.
+fn shelter_the_volume(
+    cover: Option<Res<crate::ground_cover::GroundCover>>,
+    mut materials: ResMut<Assets<PrecipitationMaterial>>,
+    volume: Query<&MeshMaterial3d<PrecipitationMaterial>, With<Precipitation>>,
+) {
+    let (shelter, frame) = shelter_of(cover.as_deref());
+    for material in &volume {
+        if materials
+            .get(&material.0)
+            .is_some_and(|m| m.shelter != shelter || m.shelter_frame != frame)
+            && let Some(mut m) = materials.get_mut(&material.0)
+        {
+            m.shelter = shelter.clone();
+            m.shelter_frame = frame;
+        }
+    }
 }
 
 /// The uniforms for what falls in environment `env` under weather `now`.

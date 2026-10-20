@@ -3,11 +3,12 @@
 //! weather (`crate::weather`), in that order - a rainy night is a night that
 //! rains. What the sun, the sky, the fog, the clouds, the water, the sky
 //! light, the ground's weather (`terrain::splat::weather_the_ground`), what
-//! falls and the lightning read in place of the record's own. Two readers
-//! keep the record's `fog_visibility`: the sun's shadow reach and the
-//! ground cover's draw distance. Nothing is drawn wrong by it - a weather's
-//! fog hides what lies past it - but they spend their work out to the
-//! room's own visibility (#1688).
+//! falls and the lightning read in place of the record's own. The sun's
+//! shadow reach and the ground cover's draw distance read its fog too
+//! (#1688), held against it ([`HeldFog`]) so a weather that comes and goes
+//! does not retune them at every step: under a weather's fog they spend
+//! their work no further than about a fifth and a grid step past what
+//! anyone can see.
 //!
 //! It is drawn anew when the record changes (the editor's preview lane
 //! included, frame by frame through a drag), when a turning day's hour has
@@ -119,6 +120,48 @@ fn weather_moved(now: &WeatherNow, then: &WeatherNow) -> bool {
 /// Seconds since 1970 began, UTC, as this machine's clock tells it.
 pub(crate) fn unix_now() -> f64 {
     chrono::Utc::now().timestamp_millis() as f64 / 1_000.0
+}
+
+/// The fog's visibility (m) as it is drawn now (#1688): the room's under
+/// its hour and its weather, the record's own in an app that does not draw
+/// the environment, and the config's while no room is in.
+pub(crate) fn fog_now(record: Option<&LiveRoomRecord>, drawn: Option<&DrawnEnvironment>) -> f32 {
+    match (record, drawn) {
+        (None, _) => crate::config::camera::fog::VISIBILITY,
+        (Some(_), Some(drawn)) => drawn.env.fog_visibility.0,
+        (Some(record), None) => record.0.environment.fog_visibility.0,
+    }
+}
+
+/// A fog a reach or a cut is set for, held against the drawn one (#1688):
+/// on a grid of [`HOLD_STEP_M`] rounded up, so never short of what the fog
+/// shows; taken at once when the fog lifts past it, so nothing ends in
+/// sight; and when the fog closes in, taken only once it is [`HOLD_SHARE`]
+/// nearer than the one held, so a weather that comes and goes retunes a
+/// reach or a cut a few times a transition rather than at every step.
+///
+/// [`HOLD_STEP_M`]: crate::config::camera::fog::HOLD_STEP_M
+/// [`HOLD_SHARE`]: crate::config::camera::fog::HOLD_SHARE
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct HeldFog(Option<f32>);
+
+impl HeldFog {
+    /// The fog to set for, `fog` being the one drawn now. A fog that is not
+    /// a finite number passes through, holding nothing.
+    pub(crate) fn follow(&mut self, fog: f32) -> f32 {
+        use crate::config::camera::fog::{HOLD_SHARE, HOLD_STEP_M};
+        if !fog.is_finite() {
+            self.0 = None;
+            return fog;
+        }
+        let gridded = (fog.max(HOLD_STEP_M) / HOLD_STEP_M).ceil() * HOLD_STEP_M;
+        let held = match self.0 {
+            Some(held) if gridded <= held && fog > held * (1.0 - HOLD_SHARE) => held,
+            _ => gridded,
+        };
+        self.0 = Some(held);
+        held
+    }
 }
 
 #[cfg(test)]
@@ -270,5 +313,62 @@ mod tests {
         assert!(!weather_moved(&drizzle, &then), "under a step");
         let more = WeatherNow { rain: 0.02, ..then };
         assert!(weather_moved(&more, &then));
+    }
+
+    /// A held fog is never short of the drawn one, takes a lifting fog at
+    /// once, and holds a thickening one until it is a fifth nearer (#1688):
+    /// a weather's fog closing from 350 m to 60 m and lifting again retunes
+    /// a reach or a cut a handful of times, not at every step.
+    #[test]
+    fn a_held_fog_is_never_short_of_the_drawn_one_and_holds_a_thickening_one() {
+        let mut held = HeldFog::default();
+        assert_eq!(held.follow(350.0), 350.0);
+        assert_eq!(held.follow(300.0), 350.0, "a sixth nearer: held");
+        assert_eq!(
+            held.follow(270.0),
+            275.0,
+            "past a fifth: taken, on the grid"
+        );
+        assert_eq!(held.follow(281.0), 300.0, "lifting past it: taken at once");
+        assert_eq!(held.follow(9.0), 25.0, "never under one grid step");
+        assert!(held.follow(f32::NAN).is_nan(), "a fault passes through");
+        assert_eq!(held.follow(60.0), 75.0, "and holds nothing after it");
+
+        let mut held = HeldFog::default();
+        let mut retunes = 0;
+        let mut last = held.follow(350.0);
+        let mut step = |fog: f32, retunes: &mut i32, last: &mut f32| {
+            let now = held.follow(fog);
+            assert!(now >= fog, "{now} short of {fog}");
+            if now != *last {
+                *retunes += 1;
+                *last = now;
+            }
+        };
+        for i in 0..=290 {
+            step(350.0 - i as f32, &mut retunes, &mut last);
+        }
+        for i in 0..=290 {
+            step(60.0 + i as f32, &mut retunes, &mut last);
+        }
+        assert!(retunes <= 20, "{retunes} retunes for 580 steps of fog");
+    }
+
+    /// The fog a reach or a cut reads is the drawn one, a weather's in it,
+    /// where the environment is drawn; the record's where it is not; and
+    /// the config's with no room in.
+    #[test]
+    fn the_fog_now_is_the_drawn_one() {
+        let mut record = RoomRecord::default();
+        record.environment.fog_visibility = Fp(350.0);
+        let record = LiveRoomRecord(record);
+        let mut drawn = DrawnEnvironment::default();
+        drawn.env.fog_visibility = Fp(60.0);
+        assert_eq!(fog_now(Some(&record), Some(&drawn)), 60.0);
+        assert_eq!(fog_now(Some(&record), None), 350.0);
+        assert_eq!(
+            fog_now(None, Some(&drawn)),
+            crate::config::camera::fog::VISIBILITY
+        );
     }
 }

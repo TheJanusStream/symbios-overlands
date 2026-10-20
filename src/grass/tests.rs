@@ -138,7 +138,8 @@ fn field_app_on(vertices: usize, quality: GrassQuality, eye: Vec3) -> App {
         .insert_resource(LiveRoomRecord(auto_world()))
         .add_systems(Update, (sync_grass_material, lay_grass_tiles).chain());
     let mut images = app.world_mut().resource_mut::<Assets<Image>>();
-    let (height, weights, cover) = (
+    let (height, weights, cover, shelter) = (
+        images.add(Image::default()),
         images.add(Image::default()),
         images.add(Image::default()),
         images.add(Image::default()),
@@ -151,6 +152,13 @@ fn field_app_on(vertices: usize, quality: GrassQuality, eye: Vec3) -> App {
         maxima: None,
         cover,
         mask: CoverMask::open(frame.cover_texels as usize, texel, Vec2::splat(-frame.half)),
+        shelter,
+        shelter_map: crate::ground_cover::ShelterMap::open(
+            frame.cover_texels as usize,
+            texel,
+            Vec2::splat(-frame.half),
+        ),
+        weight_layer: None,
         revision: 1,
     })
     .insert_resource(FinishedHeightMap(hm, None));

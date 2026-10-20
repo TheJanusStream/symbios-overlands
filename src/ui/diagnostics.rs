@@ -809,7 +809,7 @@ const SLOT_ROW_LABEL: &str = "Texture slots";
 fn row_note(metric: &str) -> Option<&'static str> {
     #[cfg(webgl2)]
     const SLOTS: &str = "The ground material's own texture slots. Bevy's view and base \
-                         material take nine more, of the 16 WebGL2 gives a shader; \
+                         material take eleven more, of the 16 WebGL2 gives a shader; \
                          past 16 the ground stops drawing its layers.";
     #[cfg(all(target_arch = "wasm32", not(webgl2)))]
     const SLOTS: &str = "How many texture slots the ground material uses. WebGPU \
@@ -1289,8 +1289,8 @@ fn health_cards(tab: DiagTab, metrics: &MetricsRegistry) -> Vec<Card> {
             ),
             // Render / WebGL2 texture-slot budget (C-5): the splat material's
             // bind-slot footprint against the 16-slot GLES ceiling on the
-            // WebGL2 build (natively and on WebGPU the stains overlay adds one
-            // and the cell shows the size alone, #1670).
+            // WebGL2 build (natively and on WebGPU the cell shows the size
+            // alone, #1670).
             // The worker-spawn / msgpack-codec rows from the C-5 brief are not
             // shown: those failures live inside the off-ECS gloo-worker future
             // and never surface to the registry - see the issue for the blocker.
