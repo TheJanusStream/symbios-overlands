@@ -19,8 +19,9 @@
 //! * Mesh - [`prim_geometry_fingerprint`], the primitive's serialised form
 //!   with the `material` field removed, so a colour change reuses the mesh.
 //! * Material - the shared
-//!   [`settings_fingerprint`](super::generator_cache::settings_fingerprint),
-//!   the same hash the L-system and Shape material caches use.
+//!   [`part_material_fingerprint`](super::generator_cache::part_material_fingerprint),
+//!   the settings' hash and whether the material weathers (#1686), the same
+//!   key the L-system and Shape material caches use.
 //!
 //! Because the key *is* the fingerprint, a lookup is self-validating: a
 //! matching key can only have been built from identical content.
@@ -85,7 +86,7 @@ pub struct CachedGroup {
 pub type PrimMeshCache = GeneratorCache<u64, Arc<[CachedGroup]>>;
 
 /// Content-addressed primitive material dedup - see the [module docs](self).
-pub type PrimMaterialCache = GeneratorCache<u64, Handle<StandardMaterial>>;
+pub type PrimMaterialCache = GeneratorCache<u64, Handle<crate::weathered::WeatheredMaterial>>;
 
 /// Mesh-cache key for a primitive: its geometry fingerprint, extended by the
 /// *structure* of its face split when it has one.

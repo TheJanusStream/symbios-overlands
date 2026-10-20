@@ -122,6 +122,21 @@ pub(super) fn settings_fingerprint(settings: &SovereignMaterialSettings) -> u64 
     hasher.finish()
 }
 
+/// [`settings_fingerprint`] for a part's material, told apart by whether it
+/// is drawn under the weather (#1686): an avatar's prop and a world's
+/// identical one are two materials, and a cache shared by both - the prim
+/// cache is content-addressed across every tree - must not hand one the
+/// other's.
+pub(super) fn part_material_fingerprint(
+    settings: &SovereignMaterialSettings,
+    weathers: bool,
+) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    settings_fingerprint(settings).hash(&mut hasher);
+    weathers.hash(&mut hasher);
+    hasher.finish()
+}
+
 /// Quantizing content hasher for geometry fingerprints. Float fields are
 /// hashed through [`Self::fp`]'s fixed-point form so NaN / denormal floats
 /// can't destabilise the key across compile passes; discrete fields hash
@@ -150,5 +165,28 @@ impl GeometryHasher {
 
     pub(super) fn finish(self) -> u64 {
         self.0.finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An avatar's prop and a world's identical one are two materials
+    /// (#1686): the weather is drawn on one of them only, so the caches -
+    /// the prim cache shares one key space across every tree - must never
+    /// hand one the other's handle.
+    #[test]
+    fn whether_it_weathers_tells_two_materials_apart() {
+        let settings = SovereignMaterialSettings::default();
+        assert_ne!(
+            part_material_fingerprint(&settings, true),
+            part_material_fingerprint(&settings, false)
+        );
+        assert_eq!(
+            part_material_fingerprint(&settings, true),
+            part_material_fingerprint(&settings.clone(), true),
+            "and is a fingerprint still: the same settings, the same key"
+        );
     }
 }

@@ -1514,6 +1514,7 @@ mod tests {
         ))
         .init_asset::<Mesh>()
         .init_asset::<StandardMaterial>()
+        .init_asset::<crate::weathered::WeatheredMaterial>()
         .add_systems(Update, (dress_peer_placeholders, retire_peer_placeholders));
         app
     }

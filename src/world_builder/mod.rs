@@ -178,6 +178,9 @@ pub fn register_headless_spawn(app: &mut App) {
         // actually creates the foliage render pipeline. Without it, a broken
         // `wind.wgsl` would first surface in a browser.
         .add_plugins(crate::wind::VegetationWindPlugin)
+        // The world's parts (#1686): registered here for the same reason,
+        // and because every part the spawn path makes is one.
+        .add_plugins(crate::weathered::WeatheredMaterialPlugin)
         .add_plugins(bevy_symbios_texture::SymbiosTexturePlugin::default())
         .insert_resource(fresh_texture_cache())
         .init_resource::<LSystemMaterialCache>()
@@ -516,7 +519,8 @@ impl Plugin for WorldBuilderPlugin {
         app.add_plugins(MaterialPlugin::<WaterMaterial>::default())
             // Content-fingerprinted procedural-texture dedup, consulted by
             // `build_procedural_material` before dispatching a bake and
-            // populated by the upstream `patch_procedural_material_textures`
+            // populated by the upstream `patch_material_textures` (for the
+            // parts' weathered material, #1686)
             // system (which takes it as an optional resource - inserting it
             // here is what switches caching on). Survives room *changes* by
             // design (keys are pure content hashes, so a revisited room re-uses

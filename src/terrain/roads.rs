@@ -20,6 +20,7 @@ use bevy_symbios_ground::HeightMap;
 
 use crate::seeded_defaults::{SceneCharacter, ThemeArchetype};
 use crate::state::{CurrentRoomDid, LiveRoomRecord};
+use crate::weathered::{WeatheredMaterial, weathered};
 
 use super::FinishedHeightMap;
 
@@ -226,7 +227,7 @@ pub(super) fn maybe_rebuild_roads(
     mut stats: ResMut<super::RoadPanelStats>,
     time: Res<Time>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<WeatheredMaterial>>,
     existing: Query<Entity, With<RoadMeshEntity>>,
 ) {
     // No terrain (not yet generated, or torn down) → no roads. Sweep any
@@ -399,11 +400,11 @@ fn resolved_road_materials(
 pub(super) fn sync_road_appearance(
     record: Res<LiveRoomRecord>,
     did: Option<Res<CurrentRoomDid>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<WeatheredMaterial>>,
     surfaces: Query<(
         &RoadNetworkIndex,
         &RoadSurfaceKind,
-        &MeshMaterial3d<StandardMaterial>,
+        &MeshMaterial3d<WeatheredMaterial>,
     )>,
     mut last: Local<Option<String>>,
 ) {
@@ -435,7 +436,7 @@ pub(super) fn sync_road_appearance(
             continue;
         };
         if let Some(mut mat) = materials.get_mut(&handle.0) {
-            *mat = match kind {
+            mat.base = match kind {
                 RoadSurfaceKind::Deck => set[0].clone(),
                 RoadSurfaceKind::Structure => set[1].clone(),
                 RoadSurfaceKind::Neon => set[2].clone(),
@@ -455,7 +456,9 @@ pub(super) fn road_theme(did: Option<&CurrentRoomDid>) -> ThemeArchetype {
 /// One road surface, ready to spawn.
 pub(super) struct RoadSurface {
     pub mesh: Handle<Mesh>,
-    pub material: Handle<StandardMaterial>,
+    /// Drawn under the weather (#1686): a road wets, gathers puddles and
+    /// whitens with the ground it runs through.
+    pub material: Handle<WeatheredMaterial>,
     pub kind: RoadSurfaceKind,
     /// The static trimesh it stands on: the deck's and the structure's.
     pub collider: Option<Collider>,
@@ -476,7 +479,7 @@ pub(super) fn road_surfaces(
     theme: ThemeArchetype,
     appearance: &crate::pds::generator::RoadAppearance,
     meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
+    materials: &mut Assets<WeatheredMaterial>,
 ) -> Vec<RoadSurface> {
     add_road_surfaces(
         build_road_surfaces(parts),
@@ -533,18 +536,21 @@ pub(super) fn add_road_surfaces(
     theme: ThemeArchetype,
     appearance: &crate::pds::generator::RoadAppearance,
     meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
+    materials: &mut Assets<WeatheredMaterial>,
 ) -> Vec<RoadSurface> {
     let [deck, structure, neon] = resolved_road_materials(theme, appearance);
     built
         .into_iter()
         .map(|surface| RoadSurface {
             mesh: meshes.add(surface.mesh),
-            material: materials.add(match surface.kind {
-                RoadSurfaceKind::Deck => deck.clone(),
-                RoadSurfaceKind::Structure => structure.clone(),
-                RoadSurfaceKind::Neon => neon.clone(),
-            }),
+            material: materials.add(weathered(
+                match surface.kind {
+                    RoadSurfaceKind::Deck => deck.clone(),
+                    RoadSurfaceKind::Structure => structure.clone(),
+                    RoadSurfaceKind::Neon => neon.clone(),
+                },
+                true,
+            )),
             kind: surface.kind,
             collider: surface.collider,
         })
@@ -567,7 +573,7 @@ pub(super) fn road_offset(heightmap: &HeightMap) -> Transform {
 fn spawn_road_meshes(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
+    materials: &mut Assets<WeatheredMaterial>,
     did: Option<&CurrentRoomDid>,
     heightmap: &HeightMap,
     parts: &crate::urban::RoadParts,

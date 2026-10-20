@@ -393,9 +393,15 @@ Grass, each row with an Auto box). Every field is optional:
   snow stop under a roof, and the ground and the grass under it stay dry
   and bare (#1685) - under a solid one: a part made with `solid: false`
   carries no collider and shelters nothing, and nor does a tree's crown.
-  And only the ground, the grass and the water answer the weather: roads, buildings
-  and placed pieces stay dry and bare, so a road is a dark strip through a
-  snowfield.
+  Roads, buildings and placed pieces answer the weather as the ground does
+  (#1686): wet, darker and glossier, puddled where they are flat, and
+  white from the snow line up wherever they face the sky - so a roof
+  whitens with the hills - and dry and bare under a solid part, a floor
+  under a roof included. An instance set's copies shelter no piece (they
+  collide as a voxel shell standing over their own roof), and a chimney
+  keeps the roof dry in its own half-cell. A piece drawn unlit (a neon
+  line), a ceiling and swaying foliage take none, and nor do avatars, what
+  they wear or ride.
 - **The clouds are lit and cast shade** (#1673): one layer at
   `cloud_height`. `cloud_cover` is the share of the sky they cover - 0.3
   scattered, 0.75 broken with sunny gaps, 1 a whole overcast (before #1673

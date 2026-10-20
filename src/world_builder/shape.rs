@@ -58,22 +58,26 @@ use crate::pds::instances::shape_variant_key;
 use crate::pds::{
     Fp3, Generator, GeneratorKind, GrammarParams, Placement, RoomRecord, SovereignMaterialSettings,
 };
+use crate::weathered::{WeatheredMaterial, weathered};
 
 use super::RoomEntity;
 use super::compile::{SpawnCtx, budget_exceeded};
-use super::generator_cache::{CachedBuild, GeneratorCache, GeometryHasher, settings_fingerprint};
+use super::generator_cache::{
+    CachedBuild, GeneratorCache, GeometryHasher, part_material_fingerprint,
+};
 use super::material::spawn_procedural_material;
 
-/// Persistent cross-compile cache for shape generator `StandardMaterial` handles.
+/// Persistent cross-compile cache for shape generator material handles.
 ///
 /// Mirrors [`super::lsystem::LSystemMaterialCache`] - a `Placement::Scatter`
 /// with `count=100` over a Shape generator would otherwise allocate 100 fresh
-/// `StandardMaterial`s and enqueue 100 identical foliage texture tasks for
+/// materials and enqueue 100 identical foliage texture tasks for
 /// each `Mat("...")` slot. The cache keys on `(generator_ref, slot_name)` and
-/// reuses the handle whenever [`settings_fingerprint`] of the
-/// `SovereignMaterialSettings` is identical. GC + logout semantics come with
+/// reuses the handle whenever the fingerprint of the
+/// `SovereignMaterialSettings` - and whether it weathers (#1686,
+/// [`part_material_fingerprint`]) - is identical. GC + logout semantics come with
 /// [`GeneratorCache`].
-pub type ShapeMaterialCache = GeneratorCache<(String, String), Handle<StandardMaterial>>;
+pub type ShapeMaterialCache = GeneratorCache<(String, String), Handle<WeatheredMaterial>>;
 
 /// One pre-baked terminal: the world-relative transform produced by
 /// `scope_to_transform`, the unit-sized procedural mesh handle (shared across
@@ -958,7 +962,7 @@ fn build_shape_geometry(
     Ok(instances)
 }
 
-/// Resolve (and cache) a [`StandardMaterial`] handle for a given material
+/// Resolve (and cache) a part's material handle for a given material
 /// slot name. A `None` slot or a slot that has no entry in the generator's
 /// `materials` map both fall through to a shared default handle keyed by
 /// the sentinel `""` slot name, so 1000 unmapped terminals share one
@@ -968,13 +972,13 @@ fn resolve_material_handle(
     generator_ref: &str,
     materials: &HashMap<String, SovereignMaterialSettings>,
     slot_name: Option<&str>,
-) -> Handle<StandardMaterial> {
+) -> Handle<WeatheredMaterial> {
     const FALLBACK_SENTINEL_HASH: u64 = u64::MAX;
     let lookup = slot_name.and_then(|n| materials.get(n).map(|s| (n.to_string(), s)));
     match lookup {
         Some((name, settings)) => {
             let key = (generator_ref.to_string(), name);
-            let hash = settings_fingerprint(settings);
+            let hash = part_material_fingerprint(settings, ctx.weathers);
             ctx.shape_material_touched.insert(key.clone());
             match ctx.shape_material_cache.get_if(&key, hash) {
                 Some(handle) => handle,
@@ -988,7 +992,7 @@ fn resolve_material_handle(
         None => {
             // Use the empty slot name as a stable cache key for the shared
             // fallback. Without this, every unmapped terminal in a 100k
-            // scatter allocates its own `StandardMaterial::default()`.
+            // scatter allocates its own default material.
             let key = (generator_ref.to_string(), String::new());
             ctx.shape_material_touched.insert(key.clone());
             match ctx
@@ -997,7 +1001,9 @@ fn resolve_material_handle(
             {
                 Some(handle) => handle,
                 None => {
-                    let h = ctx.std_materials.add(StandardMaterial::default());
+                    let h = ctx
+                        .materials
+                        .add(weathered(StandardMaterial::default(), ctx.weathers));
                     ctx.shape_material_cache
                         .insert(key, FALLBACK_SENTINEL_HASH, h.clone());
                     h

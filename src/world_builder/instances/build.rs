@@ -19,6 +19,7 @@ use bevy::prelude::*;
 
 use crate::pds::{Generator, InstanceCopy, InstanceSolid, InstanceVariant, Placement, RoomRecord};
 use crate::player::visuals::AvatarSpawnDeps;
+use crate::weathered::WeatheredMaterial;
 use crate::world_builder::avatar_spawn::{detached_record, spawn_detached_tree};
 use crate::world_builder::draw_distance::{DrawDistanceCuts, SizeClass};
 
@@ -76,7 +77,9 @@ impl Slice {
 /// The asset stores a build draws into.
 pub(super) struct Stores<'a> {
     pub meshes: &'a mut Assets<Mesh>,
-    pub materials: &'a mut Assets<StandardMaterial>,
+    /// A template's plain materials (a sign's, a portal's); its parts'
+    /// (#1686), which the bake merges, are `AvatarSpawnDeps::materials`.
+    pub std_materials: &'a mut Assets<StandardMaterial>,
     pub images: &'a mut Assets<Image>,
     pub wind_materials: Option<&'a Assets<crate::wind::VegetationWindMaterial>>,
 }
@@ -558,11 +561,11 @@ impl Build {
         stores: Stores,
         deps: &mut AvatarSpawnDeps,
         parts: &PartQuery,
-        (far_material, cuts): (&Handle<StandardMaterial>, Option<&DrawDistanceCuts>),
+        (far_material, cuts): (&Handle<WeatheredMaterial>, Option<&DrawDistanceCuts>),
     ) {
         let Stores {
             meshes,
-            materials,
+            std_materials,
             images,
             wind_materials,
         } = stores;
@@ -593,7 +596,8 @@ impl Build {
                         &template_key(slot.key),
                         Transform::from(&self.tree.transform),
                         meshes,
-                        materials,
+                        std_materials,
+                        deps.materials.as_mut(),
                         deps.water_materials.as_mut(),
                         images,
                         deps.palette.as_deref(),
@@ -608,6 +612,8 @@ impl Build {
                         false,
                         None,
                         Some(&slot.variant),
+                        // An instance set's copies are the world's parts.
+                        true,
                     );
                     slot.template = Some(template);
                     self.stage = Stage::Templates(v + 1);
@@ -633,7 +639,7 @@ impl Build {
                         template,
                         parts,
                         meshes,
-                        materials,
+                        &deps.materials,
                         wind_materials,
                     );
                     let mut form = Form::from_baked(baked, meshes);
@@ -669,7 +675,7 @@ impl Build {
                     let drawn = self.spawn_copy(
                         stood,
                         commands,
-                        (&mut *meshes, &mut *materials, &mut *images),
+                        (&mut *meshes, &mut *std_materials, &mut *images),
                         deps,
                         far_material,
                         cuts,
@@ -713,13 +719,13 @@ impl Build {
         &mut self,
         stood: Stood,
         commands: &mut Commands,
-        (meshes, materials, images): (
+        (meshes, std_materials, images): (
             &mut Assets<Mesh>,
             &mut Assets<StandardMaterial>,
             &mut Assets<Image>,
         ),
         deps: &mut AvatarSpawnDeps,
-        far_material: &Handle<StandardMaterial>,
+        far_material: &Handle<WeatheredMaterial>,
         cuts: Option<&DrawDistanceCuts>,
     ) -> Option<DrawnCopy> {
         let Stood {
@@ -770,7 +776,8 @@ impl Build {
                         &template_key(slot.key),
                         pose * Transform::from(&self.tree.transform),
                         meshes,
-                        materials,
+                        std_materials,
+                        deps.materials.as_mut(),
                         deps.water_materials.as_mut(),
                         images,
                         deps.palette.as_deref(),
@@ -785,6 +792,8 @@ impl Build {
                         false,
                         None,
                         Some(&slot.variant),
+                        // An instance set's copies are the world's parts.
+                        true,
                     );
                     if let Some(whole) = whole {
                         commands.entity(whole).insert(tag);
@@ -818,7 +827,11 @@ impl Build {
             return None;
         };
         if let Some((collider, at)) = collider(&self.solid, &form, pose) {
-            entities.push(commands.spawn((collider, at, tag, ChildOf(root))).id());
+            let mut solid = commands.spawn((collider, at, tag, ChildOf(root)));
+            if matches!(self.solid, InstanceSolid::Shell | InstanceSolid::Other(_)) {
+                solid.insert(super::VoxelShell);
+            }
+            entities.push(solid.id());
         }
         Some(DrawnCopy {
             pose,

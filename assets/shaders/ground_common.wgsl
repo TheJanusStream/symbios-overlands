@@ -98,6 +98,19 @@ fn ground_vary(colour: vec3<f32>, drift: f32, mottle: f32) -> vec3<f32> {
 
 // The share of its colour wet ground keeps.
 const WET_DARKEN: f32 = 0.72;
+// Wet ground's share of its roughness; a puddle's colour share, darker
+// still, and its roughness, nearly a mirror; settled snow's roughness. The
+// world's parts take the same (`weathered.wgsl`, #1686), so a wet road and
+// the wet verge beside it shine alike.
+const WET_ROUGHNESS: f32 = 0.45;
+const PUDDLE_DARKEN: f32 = 0.4;
+const PUDDLE_ROUGHNESS: f32 = 0.04;
+const SNOW_ROUGHNESS: f32 = 0.85;
+// Water's reflectance (about 4% straight on, a mirror at a glance), which a
+// puddle takes and a wet surface a share of: the terrain's own is low
+// (#1467).
+const WATER_REFLECTANCE: f32 = 0.5;
+const WET_REFLECTANCE_SHARE: f32 = 0.4;
 // Settled snow's colour: a little blue, a little under white, so it keeps
 // its shading in sunlight.
 const SNOW_ALBEDO: vec3<f32> = vec3<f32>(0.86, 0.88, 0.92);

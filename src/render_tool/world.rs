@@ -183,7 +183,7 @@ impl Walker {
 ///
 /// A material is spawned wearing a flat fallback colour and gets its maps
 /// patched in whenever its bake lands: the upstream `PendingTexture` task
-/// entity, consumed by `patch_procedural_material_textures`. That is not a
+/// entity, consumed by the upstream `patch_material_textures`. That is not a
 /// frame count - the bake runs on the texture crate's own rayon pool and
 /// lands when it lands - so a shutter that waits a fixed number of frames
 /// catches the fallback whenever the bake outlasts them, and the picture
@@ -907,7 +907,7 @@ mod tests {
         .expect("a bark config bakes");
         let task = world.spawn(pending).id();
         assert_eq!(count(&mut world), 1, "an airborne bake holds the shutter");
-        // What `patch_procedural_material_textures` does once the map lands.
+        // What the upstream `patch_material_textures` does once the map lands.
         world.despawn(task);
         assert_eq!(count(&mut world), 0);
     }

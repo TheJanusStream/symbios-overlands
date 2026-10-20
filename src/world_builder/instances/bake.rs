@@ -24,6 +24,7 @@ use bevy::math::{Affine3A, Mat3};
 use bevy::mesh::{Indices, MeshVertexAttributeId, PrimitiveTopology, VertexAttributeValues};
 use bevy::prelude::*;
 
+use crate::weathered::WeatheredMaterial;
 use crate::wind::{VegetationWindMaterial, WindSway};
 
 /// The edge of a far form's voxel (m): a storey's height is three.
@@ -53,7 +54,7 @@ pub(crate) type PartQuery<'w, 's> = Query<
         &'static Transform,
         Option<&'static Visibility>,
         Option<&'static Mesh3d>,
-        Option<&'static MeshMaterial3d<StandardMaterial>>,
+        Option<&'static MeshMaterial3d<WeatheredMaterial>>,
         Option<&'static MeshMaterial3d<VegetationWindMaterial>>,
         Option<&'static WindSway>,
         Option<&'static Children>,
@@ -63,13 +64,13 @@ pub(crate) type PartQuery<'w, 's> = Query<
 /// One merged part of a near form: its mesh, its material, and how it
 /// sways in the wind, where it does - the foliage of a tree (#916), which
 /// the wind's own material swaps in once it spawns.
-pub(crate) type NearPart<M> = (M, Handle<StandardMaterial>, Option<WindSway>);
+pub(crate) type NearPart<M> = (M, Handle<WeatheredMaterial>, Option<WindSway>);
 
 /// A template baked into the two forms its copies are drawn in (see the
 /// module docs), and how much room it takes.
 pub(crate) struct Baked {
     /// One mesh per material and sway; `None` where a part is drawn with a
-    /// material that is not a [`StandardMaterial`].
+    /// material that is not a part's ([`WeatheredMaterial`]) or the wind's.
     pub near: Option<Vec<NearPart<Mesh>>>,
     /// The far form: one vertex-coloured mesh; `None` where no part has
     /// the positions and normals one needs.
@@ -99,7 +100,7 @@ pub(crate) const BASE_M: f32 = 1.0;
 ///
 /// A swaying part has had its material swapped for the wind's by the time
 /// the bake reads it ([`crate::wind::attach_wind_materials`]); it is read as
-/// the standard material the wind's wraps, which a merged part spawned
+/// the part's material the wind's wraps, which a merged part spawned
 /// with its sway is swapped back from in turn.
 ///
 /// `None` where the template cannot be baked: a mesh that is not a
@@ -108,7 +109,7 @@ pub(crate) fn merge_template(
     template: Entity,
     parts: &PartQuery,
     meshes: &Assets<Mesh>,
-    materials: &Assets<StandardMaterial>,
+    materials: &Assets<WeatheredMaterial>,
     wind_materials: Option<&Assets<VegetationWindMaterial>>,
 ) -> Option<Baked> {
     let mut placed_parts: Vec<Placed> = Vec::new();
@@ -163,8 +164,8 @@ fn base(parts: &[Placed], top: f32) -> Option<f32> {
 }
 
 /// A part carried into its template's frame: its mesh, its material where
-/// that is a standard one, and its sway.
-type Placed = (Mesh, Option<Handle<StandardMaterial>>, Option<WindSway>);
+/// that is a part's, and its sway.
+type Placed = (Mesh, Option<Handle<WeatheredMaterial>>, Option<WindSway>);
 
 /// The box the parts fill, or `None` where none has a position.
 fn bounds(parts: &[Placed]) -> Option<(Vec3, Vec3)> {
@@ -179,7 +180,7 @@ fn bounds(parts: &[Placed]) -> Option<(Vec3, Vec3)> {
 }
 
 /// The parts grouped into one mesh per material and sway, or `None` where
-/// one is not a [`StandardMaterial`] or two of a group do not merge.
+/// one is not a part's material or two of a group do not merge.
 fn near_form(parts: &[Placed]) -> Option<Vec<NearPart<Mesh>>> {
     let mut groups: Vec<(Vec<AttributeKind>, NearPart<Mesh>)> = Vec::new();
     for (part, material, sway) in parts {
@@ -206,13 +207,13 @@ fn near_form(parts: &[Placed]) -> Option<Vec<NearPart<Mesh>>> {
 ///
 /// Past [`FAR_MAX_QUADS`] rectangles the colours are dropped for the most
 /// common one, which merges the faces to the building's shape alone.
-fn far_form(parts: &[Placed], materials: &Assets<StandardMaterial>) -> Option<Mesh> {
-    let colour_of = |material: &Option<Handle<StandardMaterial>>| {
+fn far_form(parts: &[Placed], materials: &Assets<WeatheredMaterial>) -> Option<Mesh> {
+    let colour_of = |material: &Option<Handle<WeatheredMaterial>>| {
         material
             .as_ref()
             .and_then(|m| materials.get(m))
             .map_or(FAR_FALLBACK_COLOUR, |m| {
-                let [r, g, b, _] = m.base_color.to_linear().to_f32_array();
+                let [r, g, b, _] = m.base.base_color.to_linear().to_f32_array();
                 [r, g, b, 1.0]
             })
     };
@@ -606,6 +607,7 @@ fn placed(source: &Mesh, affine: Affine3A) -> Option<Mesh> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::weathered::weathered;
     use bevy::ecs::system::RunSystemOnce;
 
     /// The positions of `mesh`.
@@ -625,7 +627,7 @@ mod tests {
             .run_system_once(
                 move |parts: PartQuery,
                       meshes: Res<Assets<Mesh>>,
-                      materials: Res<Assets<StandardMaterial>>,
+                      materials: Res<Assets<WeatheredMaterial>>,
                       wind: Option<Res<Assets<VegetationWindMaterial>>>| {
                     merge_template(template, &parts, &meshes, &materials, wind.as_deref())
                 },
@@ -636,7 +638,7 @@ mod tests {
     fn asset_world() -> World {
         let mut world = World::new();
         world.init_resource::<Assets<Mesh>>();
-        world.init_resource::<Assets<StandardMaterial>>();
+        world.init_resource::<Assets<WeatheredMaterial>>();
         world
     }
 
@@ -649,10 +651,10 @@ mod tests {
             .resource_mut::<Assets<Mesh>>()
             .add(Mesh::from(Cuboid::new(1.0, 2.0, 3.0)));
         let (stone, glass) = {
-            let mut materials = world.resource_mut::<Assets<StandardMaterial>>();
+            let mut materials = world.resource_mut::<Assets<WeatheredMaterial>>();
             (
-                materials.add(StandardMaterial::default()),
-                materials.add(StandardMaterial::default()),
+                materials.add(weathered(StandardMaterial::default(), true)),
+                materials.add(weathered(StandardMaterial::default(), true)),
             )
         };
         // A non-uniform scale under a turn, then a turn under that: the
@@ -773,8 +775,8 @@ mod tests {
             )
         };
         let leaf = world
-            .resource_mut::<Assets<StandardMaterial>>()
-            .add(StandardMaterial::default());
+            .resource_mut::<Assets<WeatheredMaterial>>()
+            .add(weathered(StandardMaterial::default(), true));
         let template = world.spawn((Transform::IDENTITY, Visibility::Hidden)).id();
         world.spawn((
             Mesh3d(trunk),
@@ -814,9 +816,10 @@ mod tests {
         // time a bake reads it: read as the leaf it wraps, as before.
         world.init_resource::<Assets<VegetationWindMaterial>>();
         let base = world
-            .resource::<Assets<StandardMaterial>>()
+            .resource::<Assets<WeatheredMaterial>>()
             .get(&leaf)
             .unwrap()
+            .base
             .clone();
         let wind =
             world
@@ -830,7 +833,7 @@ mod tests {
                 });
         world
             .entity_mut(foliage)
-            .remove::<MeshMaterial3d<StandardMaterial>>()
+            .remove::<MeshMaterial3d<WeatheredMaterial>>()
             .insert(MeshMaterial3d(wind));
         let baked = bake(&mut world, template).expect("bakes");
         let Some(VertexAttributeValues::Float32x4(colours)) = baked
@@ -861,10 +864,10 @@ mod tests {
         let red = Color::linear_rgb(0.8, 0.1, 0.1);
         let blue = Color::linear_rgb(0.1, 0.1, 0.8);
         let (brick, trim) = {
-            let mut materials = world.resource_mut::<Assets<StandardMaterial>>();
+            let mut materials = world.resource_mut::<Assets<WeatheredMaterial>>();
             (
-                materials.add(StandardMaterial::from_color(red)),
-                materials.add(StandardMaterial::from_color(blue)),
+                materials.add(weathered(StandardMaterial::from_color(red), true)),
+                materials.add(weathered(StandardMaterial::from_color(blue), true)),
             )
         };
         let template = world.spawn((Transform::IDENTITY, Visibility::Hidden)).id();

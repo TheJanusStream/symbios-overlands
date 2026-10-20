@@ -2,9 +2,10 @@
 //!
 //! On **native**, [`super::material::build_procedural_material`] dispatches
 //! texture generation through the upstream `TextureConfig::spawn` path - a
-//! private rayon pool plus the upstream `patch_procedural_material_textures`
-//! system. On **wasm** that "pool" degrades to Bevy's single-threaded task
-//! executor: every avatar / construct / primitive texture bakes **on the main
+//! private rayon pool plus the upstream `patch_material_textures` system,
+//! registered for the [`WeatheredMaterial`] every part is (#1686). On
+//! **wasm** that "pool" degrades to Bevy's single-threaded task executor:
+//! every avatar / construct / primitive texture bakes **on the main
 //! thread**, which is the dominant half of the avatar re-roll freeze (#807 -
 //! a reseed rebuilds ~130 image handles synchronously).
 //!
@@ -14,7 +15,7 @@
 //! ([`store_generated_texture_map`] + [`apply_generated_handles`], both public
 //! since 0.10.3 for exactly this - #1170 finding 39) rather than re-deriving
 //! it: the worker's finished pixels go in, handles come out, and every waiting
-//! material takes them. In-flight bakes are **coalesced** by
+//! material takes them in its `StandardMaterial` base. In-flight bakes are **coalesced** by
 //! [`TextureCacheKey`]: mirrored parts (wheels, lamps) that request the same
 //! fingerprint while a bake is airborne just join its target list instead of
 //! dispatching a duplicate job.
@@ -33,6 +34,7 @@ use bevy_symbios_texture::{
 };
 
 use crate::offload::{GenJob, GenResult};
+use crate::weathered::WeatheredMaterial;
 
 /// In-flight offloaded surface bakes, keyed by the same content fingerprint
 /// the [`TextureCache`] uses - the coalescing map described in the module doc.
@@ -50,7 +52,7 @@ struct PendingBake {
     is_card: bool,
     /// Materials whose texture slots receive the generated images. Grows when
     /// an identical config is requested while this bake is in flight.
-    targets: Vec<Handle<StandardMaterial>>,
+    targets: Vec<Handle<WeatheredMaterial>>,
     /// Session-relative dispatch time for the completion-latency metric.
     spawned_at: f64,
     /// Stable job name pairing the `OffloadJobStarted`/`Completed` log events.
@@ -94,7 +96,7 @@ pub(super) fn dispatch_surface_bake(
     key: TextureCacheKey,
     job: gen_jobs::TextureBakeJob,
     size: u32,
-    target: Handle<StandardMaterial>,
+    target: Handle<WeatheredMaterial>,
     is_card: bool,
 ) {
     let mut pending = world.resource_mut::<PendingSurfaceBakes>();
@@ -142,13 +144,13 @@ pub(super) fn dispatch_surface_bake(
 /// [`store_generated_texture_map`] (persist for a disk store, upload - a pure
 /// buffer move, since the worker mip-chained them - then cache), and give the
 /// resulting handles to every waiting material via
-/// [`apply_generated_handles`]. Same two calls the upstream
-/// `patch_procedural_material_textures` system makes; a no-op wherever nothing
+/// [`apply_generated_handles`] on its base. Same two calls the upstream
+/// `patch_material_textures` system makes; a no-op wherever nothing
 /// dispatches (native, headless).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn poll_surface_bakes(
     mut pending: ResMut<PendingSurfaceBakes>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<WeatheredMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut cache: Option<ResMut<TextureCache>>,
     time: Option<Res<Time>>,
@@ -224,7 +226,7 @@ pub(super) fn poll_surface_bakes(
 
         for target in &bake.targets {
             if let Some(mut mat) = materials.get_mut(target) {
-                apply_generated_handles(&mut mat, &handles);
+                apply_generated_handles(&mut mat.base, &handles);
             }
             // A despawned target (rapid re-roll / editor drag) has simply
             // dropped its material; skipping it here lets the handle die.

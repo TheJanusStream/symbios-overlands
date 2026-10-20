@@ -199,7 +199,7 @@ pub(super) fn spawn_terrain_mesh(
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<SplatTerrainMaterial>>,
-    mut road_materials: ResMut<Assets<StandardMaterial>>,
+    mut road_materials: ResMut<Assets<crate::weathered::WeatheredMaterial>>,
     hm_res: Res<FinishedHeightMap>,
     did: Option<Res<crate::state::CurrentRoomDid>>,
     outgoing: Query<Entity, With<OutgoingTerrain>>,
@@ -570,6 +570,7 @@ mod tests {
         world.init_resource::<Assets<Mesh>>();
         world.init_resource::<Assets<Image>>();
         world.init_resource::<Assets<StandardMaterial>>();
+        world.init_resource::<Assets<crate::weathered::WeatheredMaterial>>();
         world.init_resource::<Assets<SplatTerrainMaterial>>();
         world.insert_resource(FinishedHeightMap(hm, Some(ground)));
         world

@@ -108,6 +108,7 @@ pub mod ui;
 pub mod urban;
 pub mod water;
 pub mod weather;
+pub mod weathered;
 pub mod wind;
 pub mod world_builder;
 pub mod world_digest;
@@ -397,6 +398,7 @@ pub(crate) fn build_client_app(app: &mut App, boot: boot_params::BootParams, she
         .add_plugins(MaterialPlugin::<clouds::CloudMaterial>::default())
         .add_plugins(MaterialPlugin::<sky::SkyMaterial>::default())
         .add_plugins(wind::VegetationWindPlugin)
+        .add_plugins(weathered::WeatheredMaterialPlugin)
         .add_plugins(terrain::TerrainPlugin)
         .add_plugins(ground_cover::GroundCoverPlugin)
         .add_plugins(grass::GrassPlugin)

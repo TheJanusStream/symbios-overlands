@@ -136,6 +136,9 @@ const MARK_PATIENCE_SCRAPES: u32 = 30;
 struct AssetStores<'w> {
     meshes: Res<'w, Assets<Mesh>>,
     materials: Res<'w, Assets<StandardMaterial>>,
+    /// The world's parts' (#1686); absent where the weathered material is
+    /// not registered.
+    weathered: Option<Res<'w, Assets<crate::weathered::WeatheredMaterial>>>,
     images: Res<'w, Assets<Image>>,
 }
 
@@ -239,7 +242,7 @@ fn scrape_bevy_diagnostics(
     reg.observe_gauge(names::RUNTIME_MESH_HANDLE_COUNT, assets.meshes.len() as f64);
     reg.observe_gauge(
         names::RUNTIME_MATERIAL_HANDLE_COUNT,
-        assets.materials.len() as f64,
+        (assets.materials.len() + assets.weathered.as_ref().map_or(0, |w| w.len())) as f64,
     );
     // Image-asset registry: the dominant memory consumer across a region re-seed
     // and the one the mesh/material counts miss (caches retain `Handle<Image>`) -

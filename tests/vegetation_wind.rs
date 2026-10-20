@@ -12,6 +12,7 @@
 use std::collections::HashSet;
 
 use bevy::prelude::*;
+use symbios_overlands::weathered::{WeatheredMaterial, weathered};
 use symbios_overlands::wind::{
     VegetationWind, VegetationWindMaterial, WindMaterialLinks, WindSway, apply_wind_state,
     attach_wind_materials, mirror_wind_material_bases,
@@ -23,7 +24,7 @@ use symbios_overlands::wind::{
 fn wind_app() -> App {
     let mut app = App::new();
     app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()));
-    app.init_asset::<StandardMaterial>();
+    app.init_asset::<WeatheredMaterial>();
     app.init_asset::<VegetationWindMaterial>();
     app.init_resource::<VegetationWind>();
     app.init_resource::<WindMaterialLinks>();
@@ -38,19 +39,22 @@ fn wind_app() -> App {
     app
 }
 
-/// Spawn `count` entities sharing one `StandardMaterial`, as a scatter does.
+/// Spawn `count` entities sharing one part's material, as a scatter does.
 fn spawn_marked(
     app: &mut App,
     profile: WindSway,
     count: usize,
-) -> (Handle<StandardMaterial>, Vec<Entity>) {
+) -> (Handle<WeatheredMaterial>, Vec<Entity>) {
     let source = app
         .world_mut()
-        .resource_mut::<Assets<StandardMaterial>>()
-        .add(StandardMaterial {
-            base_color: Color::srgb(0.3, 0.6, 0.2),
-            ..default()
-        });
+        .resource_mut::<Assets<WeatheredMaterial>>()
+        .add(weathered(
+            StandardMaterial {
+                base_color: Color::srgb(0.3, 0.6, 0.2),
+                ..default()
+            },
+            true,
+        ));
     let entities = (0..count)
         .map(|_| {
             app.world_mut()
@@ -61,8 +65,8 @@ fn spawn_marked(
     (source, entities)
 }
 
-/// The core swap: a marked entity loses its `StandardMaterial` component and
-/// gains the extended one, whose base is a copy of the source.
+/// The core swap: a marked entity loses its part's material component and
+/// gains the wind's, whose base is a copy of the source's.
 #[test]
 fn a_marked_entity_swaps_to_the_wind_material() {
     let mut app = wind_app();
@@ -74,7 +78,7 @@ fn a_marked_entity_swaps_to_the_wind_material() {
     let world = app.world();
     assert!(
         world
-            .get::<MeshMaterial3d<StandardMaterial>>(entity)
+            .get::<MeshMaterial3d<WeatheredMaterial>>(entity)
             .is_none(),
         "the plain material component must be removed, or the entity would \
          be drawn twice"
@@ -97,7 +101,7 @@ fn a_marked_entity_swaps_to_the_wind_material() {
 }
 
 /// The batching contract the whole scatter tier rests on. Every instance of a
-/// ground-cover prop shares one `StandardMaterial` handle (the prim cache is
+/// ground-cover prop shares one part material handle (the prim cache is
 /// content-addressed), and they must therefore share one wind material too -
 /// a per-instance material would fork the handle per instance and undo the
 /// batching that makes hundreds of cards affordable.
@@ -173,7 +177,7 @@ fn the_two_profiles_do_not_share_a_material() {
 
 /// The reason the material is attached by a system instead of at spawn time.
 /// A procedural material's textures are still baking when the entity is
-/// spawned; the bake lands in `Assets<StandardMaterial>` frames later. An
+/// spawned; the bake lands in the part's material frames later. An
 /// `ExtendedMaterial` embeds its base *by value*, so without the mirror the
 /// foliage would keep the untextured copy forever - alpha-masked cards with
 /// no alpha, which render as opaque squares.
@@ -188,10 +192,10 @@ fn a_later_texture_bake_reaches_the_wind_material() {
     // image handles into the source material by handle, exactly like this.
     let baked: Handle<Image> = Handle::default();
     {
-        let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+        let mut materials = app.world_mut().resource_mut::<Assets<WeatheredMaterial>>();
         let mut mat = materials.get_mut(&source).expect("source still live");
-        mat.base_color_texture = Some(baked.clone());
-        mat.alpha_mode = AlphaMode::Mask(0.5);
+        mat.base.base_color_texture = Some(baked.clone());
+        mat.base.alpha_mode = AlphaMode::Mask(0.5);
     }
 
     // Two frames, not one: `AssetEvent`s are emitted by bevy_asset in `Last`,
@@ -283,7 +287,7 @@ fn a_material_built_after_a_wind_change_uses_it() {
 }
 
 /// Retention (#919's shape): once the foliage using a wind material is gone,
-/// nothing may keep the material - and through it a `StandardMaterial` and
+/// nothing may keep the material - and through it a part's material and
 /// its images - alive. The links map holds an `AssetId`, not a `Handle`,
 /// precisely so a re-roll does not accumulate a session's worth of dead
 /// foliage.
@@ -315,7 +319,7 @@ fn despawned_foliage_releases_its_wind_material() {
         "the links map must not pin the wind material"
     );
     assert_eq!(
-        world.resource::<Assets<StandardMaterial>>().len(),
+        world.resource::<Assets<WeatheredMaterial>>().len(),
         0,
         "nor, through the extension's source handle, the material it wrapped"
     );
@@ -355,7 +359,7 @@ fn foliage_despawned_before_the_swap_lands_does_not_abort_the_client() {
 
     let mut app = App::new();
     app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()));
-    app.init_asset::<StandardMaterial>();
+    app.init_asset::<WeatheredMaterial>();
     app.init_asset::<VegetationWindMaterial>();
     app.init_resource::<VegetationWind>();
     app.init_resource::<WindMaterialLinks>();
@@ -385,7 +389,7 @@ fn foliage_despawned_before_the_swap_lands_does_not_abort_the_client() {
     );
     assert!(
         world
-            .get::<MeshMaterial3d<StandardMaterial>>(survivor)
+            .get::<MeshMaterial3d<WeatheredMaterial>>(survivor)
             .is_none(),
         "and must have given up its plain material"
     );

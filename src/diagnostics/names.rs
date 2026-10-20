@@ -40,7 +40,8 @@ pub const RUNTIME_FPS: &str = "runtime.fps";
 pub const RUNTIME_ENTITY_COUNT: &str = "runtime.entity.count";
 /// `Assets<Mesh>` handle count - the asset-leak watch.
 pub const RUNTIME_MESH_HANDLE_COUNT: &str = "runtime.mesh_handle.count";
-/// `Assets<StandardMaterial>` handle count.
+/// Material handle count: `Assets<StandardMaterial>` and the world's parts'
+/// `Assets<WeatheredMaterial>` together (#1686).
 pub const RUNTIME_MATERIAL_HANDLE_COUNT: &str = "runtime.material_handle.count";
 /// `Assets<Image>` handle count - the texture-asset registry. The dominant
 /// memory consumer across a region re-seed (512² splat/procedural textures), and

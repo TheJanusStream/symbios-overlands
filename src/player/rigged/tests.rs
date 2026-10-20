@@ -21,6 +21,7 @@ fn test_app() -> App {
     app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()));
     app.init_asset::<Mesh>();
     app.init_asset::<StandardMaterial>();
+    app.init_asset::<crate::weathered::WeatheredMaterial>();
     app.init_asset::<Image>();
     app.init_asset::<SkinnedMeshInverseBindposes>();
     app.add_message::<crate::player::emote::EmoteRequest>();

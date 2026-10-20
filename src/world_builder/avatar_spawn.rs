@@ -32,6 +32,7 @@ use crate::pds::{Generator, RoomRecord};
 use crate::state::CurrentRoomDid;
 use crate::terrain::{FinishedHeightMap, OutgoingTerrain, TerrainMesh};
 use crate::water::{WaterMaterial, WaterSurfaces};
+use crate::weathered::WeatheredMaterial;
 
 /// Compile an avatar's `visuals` Generator tree into Bevy entities,
 /// parented under `chassis`. The visuals root's transform composes
@@ -57,6 +58,7 @@ pub fn spawn_avatar_visuals_subtree(
     visuals: &Generator,
     meshes: &mut Assets<Mesh>,
     std_materials: &mut Assets<StandardMaterial>,
+    materials: &mut Assets<WeatheredMaterial>,
     water_materials: &mut Assets<WaterMaterial>,
     images: &mut Assets<Image>,
     palette: Option<&MaterialPalette>,
@@ -95,6 +97,7 @@ pub fn spawn_avatar_visuals_subtree(
         local_tf,
         meshes,
         std_materials,
+        materials,
         water_materials,
         images,
         palette,
@@ -109,6 +112,8 @@ pub fn spawn_avatar_visuals_subtree(
         is_local,
         attachment,
         None,
+        // An avatar, what it wears and rides, and an item preview draw dry.
+        false,
     );
     if let Some(root) = root {
         commands.entity(root).insert(super::AvatarVisualRoot {
@@ -127,7 +132,9 @@ pub fn spawn_avatar_visuals_subtree(
 /// meshes, so a key per distinct tree, not per copy, is what lets copies
 /// instance one another: every avatar spawns under its own key, and an
 /// instance set each variant's template under its own (#1643), its Shape
-/// nodes drawn with `variant`'s seed and values.
+/// nodes drawn with `variant`'s seed and values. Its parts are drawn under
+/// the weather when `weathers` (#1686): an instance set's are, an
+/// avatar's are not.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn spawn_detached_tree(
     commands: &mut Commands,
@@ -137,6 +144,7 @@ pub(crate) fn spawn_detached_tree(
     transform: Transform,
     meshes: &mut Assets<Mesh>,
     std_materials: &mut Assets<StandardMaterial>,
+    materials: &mut Assets<WeatheredMaterial>,
     water_materials: &mut Assets<WaterMaterial>,
     images: &mut Assets<Image>,
     palette: Option<&MaterialPalette>,
@@ -151,6 +159,7 @@ pub(crate) fn spawn_detached_tree(
     is_local: bool,
     attachment: Option<&str>,
     variant: Option<&crate::pds::InstanceVariant>,
+    weathers: bool,
 ) -> (Option<Entity>, u32) {
     // Touch-sets are scratch state for the room compiler's GC pass at
     // the end of compile_room_record. Avatar spawning doesn't run
@@ -179,6 +188,7 @@ pub(crate) fn spawn_detached_tree(
         record,
         meshes,
         std_materials,
+        materials,
         water_materials,
         images,
         palette,
@@ -210,6 +220,7 @@ pub(crate) fn spawn_detached_tree(
         // to a full-pass registry clear.
         placement_index: crate::water::WaterPlane::NO_OWNER,
         avatar_mode: true,
+        weathers,
         local_avatar_mode: is_local,
         attachment_rkey: attachment.map(str::to_string),
         // An avatar is no scattered copy: nothing here is cut by distance

@@ -32,6 +32,9 @@ use crate::world_builder::image_cache::BlobImageCache;
 /// `SystemParam` keeps callers under the budget.
 #[derive(bevy::ecs::system::SystemParam)]
 pub struct AvatarSpawnDeps<'w, 's> {
+    /// The parts' materials (#1686): an avatar's draw dry, an instance
+    /// set's (which spawns through here too) under the weather.
+    pub materials: ResMut<'w, Assets<crate::weathered::WeatheredMaterial>>,
     pub water_materials: ResMut<'w, Assets<WaterMaterial>>,
     pub palette: Option<Res<'w, MaterialPalette>>,
     pub heightmap: Option<Res<'w, FinishedHeightMap>>,
@@ -146,6 +149,7 @@ pub fn spawn_attachment_tree(
         visuals,
         meshes,
         materials,
+        deps.materials.as_mut(),
         deps.water_materials.as_mut(),
         images,
         deps.palette.as_deref(),
@@ -248,6 +252,7 @@ pub(crate) fn spawn_path_app() -> bevy::app::App {
     ));
     app.init_asset::<Mesh>();
     app.init_asset::<StandardMaterial>();
+    app.init_asset::<crate::weathered::WeatheredMaterial>();
     app.init_asset::<Image>();
     app.init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>();
     app.init_asset::<WaterMaterial>();
@@ -350,5 +355,57 @@ mod spin_tests {
             world.get::<Spinner>(prop_root).is_some(),
             "a prop's root turns"
         );
+    }
+
+    /// #1686: an avatar and what it wears draw dry - their parts are the
+    /// world's material type, so they share every spawn path and cache, but
+    /// none of them weathers.
+    #[test]
+    fn an_avatar_and_what_it_wears_take_no_weather() {
+        let tree = Generator::default_cuboid();
+        let body = AvatarBody::generator(tree.clone());
+        let mut app = spawn_path_app();
+        let chassis = app.world_mut().spawn(Transform::default()).id();
+        let socket = app.world_mut().spawn(Transform::default()).id();
+        app.world_mut()
+            .run_system_once(
+                move |mut commands: Commands,
+                      mut meshes: ResMut<Assets<Mesh>>,
+                      mut materials: ResMut<Assets<StandardMaterial>>,
+                      mut images: ResMut<Assets<Image>>,
+                      mut deps: AvatarSpawnDeps| {
+                    spawn_avatar_visuals(
+                        &mut commands,
+                        chassis,
+                        &body,
+                        None,
+                        &mut meshes,
+                        &mut materials,
+                        &mut images,
+                        &mut deps,
+                        false,
+                    );
+                    spawn_attachment_tree(
+                        &mut commands,
+                        socket,
+                        &tree,
+                        &mut meshes,
+                        &mut materials,
+                        &mut images,
+                        &mut deps,
+                        false,
+                        None,
+                    );
+                },
+            )
+            .expect("spawns");
+        let world = app.world_mut();
+        let mut parts = world.query::<&MeshMaterial3d<crate::weathered::WeatheredMaterial>>();
+        let handles: Vec<_> = parts.iter(world).map(|m| m.0.clone()).collect();
+        assert_eq!(handles.len(), 2, "a body's part and a worn prop's");
+        let materials = world.resource::<Assets<crate::weathered::WeatheredMaterial>>();
+        for handle in &handles {
+            assert!(!materials.get(handle).expect("live").extension.weathers);
+        }
     }
 }

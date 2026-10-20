@@ -54,7 +54,7 @@
     mesh_view_bindings::view,
 }
 
-#import "shaders/ground_common.wgsl"::{ground_drift, ground_mottle, ground_vary, snow_settled, puddle_at, grass_density_seen, carpet_cover, carpet_colour, carpet_normal, carpet_shade, gust_fineness, grass_gust, SNOW_ALBEDO, WET_DARKEN}
+#import "shaders/ground_common.wgsl"::{ground_drift, ground_mottle, ground_vary, snow_settled, puddle_at, grass_density_seen, carpet_cover, carpet_colour, carpet_normal, carpet_shade, gust_fineness, grass_gust, SNOW_ALBEDO, WET_DARKEN, WET_ROUGHNESS, PUDDLE_DARKEN, PUDDLE_ROUGHNESS, SNOW_ROUGHNESS, WATER_REFLECTANCE, WET_REFLECTANCE_SHARE}
 #import "shaders/storm_common.wgsl"::storm_gust
 
 #ifdef PREPASS_PIPELINE
@@ -146,17 +146,8 @@ struct SplatUniforms {
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(106) var<uniform> splat_uniforms: SplatUniforms;
 
-// Wet ground (#1683): the share of its roughness it keeps (of its albedo:
-// `ground_common::WET_DARKEN`); a puddle's, darker still and nearly a
-// mirror; settled snow's roughness.
-const WET_ROUGHNESS: f32 = 0.45;
-const PUDDLE_DARKEN: f32 = 0.4;
-const PUDDLE_ROUGHNESS: f32 = 0.04;
-// Water's reflectance (about 4% straight on, a mirror at a glance), which a
-// puddle takes and wet ground a share of: the terrain's own is low (#1467).
-const WATER_REFLECTANCE: f32 = 0.5;
-const WET_REFLECTANCE_SHARE: f32 = 0.4;
-const SNOW_ROUGHNESS: f32 = 0.85;
+// Wet ground, puddles and snow (#1683) take `ground_common`'s roughness,
+// darkening and reflectance, which the world's parts share (#1686).
 // The grass's roughness, dry and soaked (`grass::material::grass_base`,
 // `config::grass::WET_ROUGHNESS`): the ground showing grass takes it.
 const GRASS_ROUGHNESS: f32 = 0.8;

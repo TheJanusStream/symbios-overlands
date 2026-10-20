@@ -154,8 +154,7 @@ pub(super) fn build_emitter_ramp(
             request_blob_image_filtered(
                 commands,
                 blob_image_cache,
-                materials,
-                &handle,
+                super::super::image_cache::PaintInto::Standard(materials, &handle),
                 source,
                 SamplerFilter::from_record(&emitter.texture_filter),
             );

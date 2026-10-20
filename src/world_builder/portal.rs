@@ -74,8 +74,7 @@ pub(super) fn spawn_portal_entity(
         request_blob_image(
             ctx.commands,
             ctx.blob_image_cache,
-            ctx.std_materials,
-            &top_mat,
+            super::image_cache::PaintInto::Standard(ctx.std_materials, &top_mat),
             &SignSource::DidPfp {
                 did: target_did.to_string(),
             },

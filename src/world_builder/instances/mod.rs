@@ -105,6 +105,15 @@ pub(crate) struct InstanceCopyOf {
     pub copy: usize,
 }
 
+/// On a copy's collider when it is the copy's voxel shell (its far form,
+/// [`forms::Form::shell`]): a shell stands up to a voxel
+/// over the parts it encloses, stepped where they slope, so its top is not
+/// the top of anything drawn. The shelter map keeps it from the height the
+/// world's parts stand under (#1686), or a roof would shelter itself in
+/// steps; rain and the ground still stop at it (#1685).
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct VoxelShell;
+
 /// A room's drawing budgets (#1648): the near entities and far copies its
 /// sets share by need.
 #[derive(Clone, Copy, Debug)]
@@ -147,7 +156,7 @@ impl Sweep {
 pub(crate) struct InstanceBuilds {
     builds: Vec<build::Build>,
     forms: forms::Forms,
-    far_material: Option<Handle<StandardMaterial>>,
+    far_material: Option<Handle<crate::weathered::WeatheredMaterial>>,
     budget: RoomBudget,
     sweep: Sweep,
 }
@@ -407,7 +416,7 @@ fn spawn_instances(
     mut diagnostics: ResMut<crate::world_builder::grammar_diag::GrammarDiagnostics>,
     record: Res<LiveRoomRecord>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut std_materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut deps: AvatarSpawnDeps,
     parts: bake::PartQuery,
@@ -488,7 +497,10 @@ fn spawn_instances(
     let builds = &mut *builds;
     let far_material = builds
         .far_material
-        .get_or_insert_with(|| materials.add(far_material()))
+        .get_or_insert_with(|| {
+            deps.materials
+                .add(crate::weathered::weathered(far_material(), true))
+        })
         .clone();
     let mut slice = build::Slice {
         started,
@@ -507,7 +519,7 @@ fn spawn_instances(
             &mut builds.forms,
             build::Stores {
                 meshes: &mut meshes,
-                materials: &mut materials,
+                std_materials: &mut std_materials,
                 images: &mut images,
                 wind_materials: wind_materials.as_deref(),
             },
@@ -519,7 +531,9 @@ fn spawn_instances(
 }
 
 /// The material every far form is drawn with: white, so each part shows
-/// its vertex colour, and matte, as a building a kilometre off is.
+/// its vertex colour, and matte, as a building a kilometre off is. It is
+/// drawn under the weather, so a far roof whitens with the near ones
+/// (#1686).
 pub(crate) fn far_material() -> StandardMaterial {
     StandardMaterial {
         base_color: Color::WHITE,
@@ -563,6 +577,7 @@ pub(crate) mod test_support {
         app.init_asset::<Mesh>();
         app.init_asset::<Image>();
         app.init_asset::<StandardMaterial>();
+        app.init_asset::<crate::weathered::WeatheredMaterial>();
         app.init_asset::<WaterMaterial>();
         app.init_resource::<crate::world_builder::LSystemMaterialCache>();
         app.init_resource::<crate::world_builder::LSystemMeshCache>();
@@ -1091,7 +1106,13 @@ mod tests {
             (
                 world.resource::<InstanceBuilds>().forms.len(),
                 world.resource::<Assets<Mesh>>().len(),
-                world.resource::<Assets<StandardMaterial>>().len(),
+                // The parts' and the far form's materials are weathered
+                // (#1686), the rest plain: both stores, or half the leak
+                // goes unwatched.
+                world.resource::<Assets<StandardMaterial>>().len()
+                    + world
+                        .resource::<Assets<crate::weathered::WeatheredMaterial>>()
+                        .len(),
             )
         };
         let first = held(&mut app);

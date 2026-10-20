@@ -27,11 +27,13 @@
 //!   standing on the ground, and wherever the ground lies under water or
 //!   within [`WATER_MARGIN`] of it. Sample it linearly, and its edges fade
 //!   across a metre. [`GroundCover::mask`] is the same on the CPU.
-//! * **`shelter`** - on the cover's grid, one `R16Float` texel each: the
-//!   top of the highest static shape over it, minus infinity under the open
-//!   sky ([`shelter`], #1685). What falls folds away below it
-//!   (`crate::weather::precipitation`). [`GroundCover::shelter_map`] is the
-//!   same on the CPU.
+//! * **`shelter`** - on the cover's grid, one `Rg16Float` texel each: red
+//!   the top of the highest static shape over it, minus infinity under the
+//!   open sky ([`shelter`], #1685), which what falls folds away below
+//!   (`crate::weather::precipitation`); green the same but for instance
+//!   sets' voxel shells, which the world's parts stand dry under (#1686,
+//!   `crate::weathered`). [`GroundCover::shelter_map`] is the same on the
+//!   CPU.
 //!
 //! **What blocks the cover.** Every static collider the world stands up -
 //! a placement's parts (lot buildings among them), a road's deck and curbs,
@@ -100,8 +102,9 @@ pub struct GroundCover {
     pub cover: Handle<Image>,
     /// The cover on the CPU, as last uploaded.
     pub mask: CoverMask,
-    /// What shelters the ground from what falls (#1685), `R16Float`, GPU
-    /// only: the highest static shape's top over each cover texel.
+    /// What shelters the ground from what falls (#1685), `Rg16Float`, GPU
+    /// only: the highest static shape's top over each cover texel, and the
+    /// highest but a voxel shell's (#1686).
     pub shelter: Handle<Image>,
     /// The shelter on the CPU, as last uploaded.
     pub shelter_map: ShelterMap,
@@ -462,7 +465,15 @@ fn rebuild_cover(
     job: Option<Res<crate::world_builder::compile::CompileJob>>,
     roads: Option<Res<crate::terrain::RoadPanelStats>>,
     instances: Option<Res<crate::world_builder::instances::InstanceBuilds>>,
-    colliders: Query<(Entity, &Collider, &GlobalTransform), Without<Sensor>>,
+    colliders: Query<
+        (
+            Entity,
+            &Collider,
+            &GlobalTransform,
+            Has<crate::world_builder::instances::VoxelShell>,
+        ),
+        Without<Sensor>,
+    >,
     bodies: Query<&RigidBody>,
     parents: Query<&ChildOf>,
     mut images: ResMut<Assets<Image>>,
@@ -494,7 +505,7 @@ fn rebuild_cover(
     let mut shelter = cover.frame.open_shelter();
     let mut sheltering = std::time::Duration::ZERO;
     dirty.statics.clear();
-    for (entity, collider, transform) in &colliders {
+    for (entity, collider, transform, shell) in &colliders {
         if !is_static(entity, &bodies, &parents) {
             continue;
         }
@@ -513,7 +524,7 @@ fn rebuild_cover(
             collider.shape(),
             transform.affine(),
             &ground,
-            &mut |outline, top| shelter.raise(outline, top),
+            &mut |outline, top| shelter.raise(outline, top, shell),
         );
         sheltering += began.elapsed();
     }

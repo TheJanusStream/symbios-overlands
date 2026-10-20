@@ -9,6 +9,13 @@
 //! outline, as the cover mask is blocked; its height there is the shape's
 //! top - a triangle's plane, so the rain falls on a pitched roof up to its
 //! slope, and everywhere else the highest point of the piece.
+//!
+//! Each texel holds two heights. What falls and the ground stop at the
+//! highest shape of all; the world's parts (#1686, `weathered.wgsl`) stand
+//! dry under the highest shape that is not an instance set's voxel shell
+//! (`world_builder::instances::VoxelShell`), which stands up to a voxel
+//! over the roof it encloses - stepped where the roof slopes, so the roof
+//! would shelter itself in steps.
 
 use bevy::asset::RenderAssetUsages;
 use bevy::math::Vec2;
@@ -28,7 +35,10 @@ pub struct ShelterMap {
     texel: f32,
     /// World XZ of the grid's low corner.
     origin: Vec2,
+    /// The highest shape's top: what falls and the ground stop at.
     top: Vec<f32>,
+    /// The highest top but a voxel shell's: what a part stands under.
+    part_top: Vec<f32>,
 }
 
 impl ShelterMap {
@@ -40,6 +50,7 @@ impl ShelterMap {
             texel,
             origin,
             top: vec![f32::NEG_INFINITY; size * size],
+            part_top: vec![f32::NEG_INFINITY; size * size],
         }
     }
 
@@ -60,16 +71,18 @@ impl ShelterMap {
 
     /// Raise each texel whose centre lies inside the convex polygon
     /// `outline` to `top` at its centre, where that is higher than what the
-    /// texel holds.
-    pub fn raise(&mut self, outline: &[Vec2], top: &dyn Fn(Vec2) -> f32) {
+    /// texel holds - the parts' height too, unless the shape is a voxel
+    /// `shell`.
+    pub fn raise(&mut self, outline: &[Vec2], top: &dyn Fn(Vec2) -> f32, shell: bool) {
         let (size, texel, origin) = (self.size, self.texel, self.origin);
-        let tops = &mut self.top;
+        let (tops, part_tops) = (&mut self.top, &mut self.part_top);
         convex_spans(size, texel, origin, outline, |j, i0, i1| {
             for i in i0..=i1 {
                 let at = top(origin + (Vec2::new(i as f32, j as f32) + 0.5) * texel);
-                let held = &mut tops[j * size + i];
-                if at > *held {
-                    *held = at;
+                let k = j * size + i;
+                tops[k] = tops[k].max(at);
+                if !shell {
+                    part_tops[k] = part_tops[k].max(at);
                 }
             }
         });
@@ -78,12 +91,25 @@ impl ShelterMap {
     /// The highest top over world `xz`, its texel's: minus infinity under
     /// the open sky and off the grid.
     pub fn top_at(&self, xz: Vec2) -> f32 {
+        self.texel_at(xz).map_or(f32::NEG_INFINITY, |k| self.top[k])
+    }
+
+    /// What a part at world `xz` stands under: [`Self::top_at`] but for
+    /// voxel shells. The GPU's green; read here by the tests.
+    #[cfg(test)]
+    pub fn part_top_at(&self, xz: Vec2) -> f32 {
+        self.texel_at(xz)
+            .map_or(f32::NEG_INFINITY, |k| self.part_top[k])
+    }
+
+    /// The index of the texel over world `xz`, or `None` off the grid.
+    fn texel_at(&self, xz: Vec2) -> Option<usize> {
         let g = ((xz - self.origin) / self.texel).floor();
         let last = self.size as f32;
         if !(0.0..last).contains(&g.x) || !(0.0..last).contains(&g.y) {
-            return f32::NEG_INFINITY;
+            return None;
         }
-        self.top[g.y as usize * self.size + g.x as usize]
+        Some(g.y as usize * self.size + g.x as usize)
     }
 
     /// The texels something stands over: each one's centre in world XZ and
@@ -109,15 +135,21 @@ impl ShelterMap {
         covered as f32 / self.top.len().max(1) as f32
     }
 
-    /// The map as the GPU reads it: one `R16Float` texel each, read texel by
-    /// texel (`textureLoad`), minus infinity under the open sky, GPU only.
-    /// Half a float keeps a height to a quarter metre at 500 m.
+    /// The map as the GPU reads it: one `Rg16Float` texel each, read texel
+    /// by texel (`textureLoad`) - red the top, green the parts' - minus
+    /// infinity under the open sky, GPU only. Half a float keeps a height to
+    /// a quarter metre at 500 m.
     pub fn image(&self) -> Image {
         let size = self.size as u32;
         let bytes = self
             .top
             .iter()
-            .flat_map(|&t| half::f16::from_f32(t).to_le_bytes())
+            .zip(&self.part_top)
+            .flat_map(|(&t, &p)| {
+                let [t0, t1] = half::f16::from_f32(t).to_le_bytes();
+                let [p0, p1] = half::f16::from_f32(p).to_le_bytes();
+                [t0, t1, p0, p1]
+            })
             .collect();
         Image::new(
             Extent3d {
@@ -127,7 +159,7 @@ impl ShelterMap {
             },
             TextureDimension::D2,
             bytes,
-            TextureFormat::R16Float,
+            TextureFormat::Rg16Float,
             RenderAssetUsages::RENDER_WORLD,
         )
     }
@@ -157,11 +189,11 @@ mod tests {
     fn the_highest_shape_over_a_texel_is_its_top() {
         let mut m = map();
         assert_eq!(m.covered_share(), 0.0);
-        m.raise(&square(-2.0, 2.0), &|_| 3.0);
+        m.raise(&square(-2.0, 2.0), &|_| 3.0, false);
         assert_eq!(m.top_at(Vec2::new(0.5, 0.5)), 3.0);
         assert_eq!(m.top_at(Vec2::new(3.5, 3.5)), f32::NEG_INFINITY, "open sky");
-        m.raise(&square(0.0, 2.0), &|_| 5.0);
-        m.raise(&square(-2.0, 2.0), &|_| 1.0);
+        m.raise(&square(0.0, 2.0), &|_| 5.0, false);
+        m.raise(&square(-2.0, 2.0), &|_| 1.0, false);
         assert_eq!(m.top_at(Vec2::new(0.5, 0.5)), 5.0, "the higher one");
         assert_eq!(
             m.top_at(Vec2::new(-1.5, -1.5)),
@@ -180,25 +212,48 @@ mod tests {
     #[test]
     fn a_slope_is_read_at_each_centre() {
         let mut m = map();
-        m.raise(&square(-4.0, 4.0), &|xz| 10.0 + xz.x);
+        m.raise(&square(-4.0, 4.0), &|xz| 10.0 + xz.x, false);
         assert_eq!(m.top_at(Vec2::new(-3.9, 0.0)), 10.0 - 3.5);
         assert_eq!(m.top_at(Vec2::new(3.9, 0.0)), 10.0 + 3.5);
     }
 
-    /// The GPU's texels: two bytes each, the sky's minus infinity kept.
+    /// A voxel shell raises what falls stops at, and not what a part
+    /// stands under: a roof's own shell stands over it in steps.
+    #[test]
+    fn a_shell_shelters_what_falls_and_not_a_part() {
+        let mut m = map();
+        m.raise(&square(-2.0, 2.0), &|_| 3.0, false);
+        m.raise(&square(-2.0, 2.0), &|_| 4.0, true);
+        let at = Vec2::new(0.5, 0.5);
+        assert_eq!(m.top_at(at), 4.0);
+        assert_eq!(m.part_top_at(at), 3.0, "the roof under the shell");
+        m.raise(&square(2.0, 4.0), &|_| 6.0, true);
+        assert_eq!(m.top_at(Vec2::new(3.5, 3.5)), 6.0);
+        assert_eq!(
+            m.part_top_at(Vec2::new(3.5, 3.5)),
+            f32::NEG_INFINITY,
+            "a shell alone shelters no part"
+        );
+    }
+
+    /// The GPU's texels: four bytes each, the top and the parts' in half a
+    /// float apiece, the sky's minus infinity kept.
     #[test]
     fn the_image_holds_each_top_in_half_a_float() {
         let mut m = map();
-        m.raise(&square(-2.0, 2.0), &|_| 3.25);
+        m.raise(&square(-2.0, 2.0), &|_| 3.25, false);
+        m.raise(&square(-2.0, 2.0), &|_| 4.5, true);
         let image = m.image();
-        assert_eq!(image.texture_descriptor.format, TextureFormat::R16Float);
+        assert_eq!(image.texture_descriptor.format, TextureFormat::Rg16Float);
         let bytes = image.data.expect("the texels");
-        assert_eq!(bytes.len(), 64 * 2);
-        let at = |i: usize, j: usize| {
-            let k = (j * 8 + i) * 2;
+        assert_eq!(bytes.len(), 64 * 4);
+        let at = |i: usize, j: usize, channel: usize| {
+            let k = (j * 8 + i) * 4 + channel * 2;
             half::f16::from_le_bytes([bytes[k], bytes[k + 1]]).to_f32()
         };
-        assert_eq!(at(4, 4), 3.25);
-        assert_eq!(at(0, 0), f32::NEG_INFINITY);
+        assert_eq!(at(4, 4, 0), 4.5, "red: the shell's top");
+        assert_eq!(at(4, 4, 1), 3.25, "green: the part's");
+        assert_eq!(at(0, 0, 0), f32::NEG_INFINITY);
+        assert_eq!(at(0, 0, 1), f32::NEG_INFINITY);
     }
 }

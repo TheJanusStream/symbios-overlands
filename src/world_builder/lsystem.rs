@@ -14,18 +14,19 @@ use crate::pds::{Fp, Fp3, GeneratorKind, PropMeshType};
 
 use super::RoomEntity;
 use super::compile::{SpawnCtx, budget_exceeded};
-use super::generator_cache::{GeneratorCache, GeometryHasher, settings_fingerprint};
+use super::generator_cache::{GeneratorCache, GeometryHasher, part_material_fingerprint};
 use super::material::spawn_procedural_material;
+use crate::weathered::{WeatheredMaterial, weathered};
 
-/// Persistent cross-compile cache for L-system `StandardMaterial` handles.
+/// Persistent cross-compile cache for L-system material handles.
 ///
 /// Without this, every `RoomRecord` change rebuilds every generator's
 /// material - enqueuing fresh foliage texture tasks for configs that haven't
 /// moved. Keyed by `(generator_ref, slot_id)` and invalidated by
-/// [`settings_fingerprint`], so a record edit that touches *only* (say) the
+/// [`part_material_fingerprint`], so a record edit that touches *only* (say) the
 /// scatter count re-uses last pass's baked textures instead of re-baking
 /// them. GC + logout semantics come with [`GeneratorCache`].
-pub type LSystemMaterialCache = GeneratorCache<(String, u16), Handle<StandardMaterial>>;
+pub type LSystemMaterialCache = GeneratorCache<(String, u16), Handle<WeatheredMaterial>>;
 
 /// Cached geometry build for a single L-system generator: the shared
 /// per-material mesh handles. Every prop (leaf / fruit / …) is baked into the
@@ -580,7 +581,7 @@ pub(super) fn spawn_lsystem_entity(
     // still wins when `bevy_symbios::materials::sync_*` has already
     // resolved a shared palette slot for us - in that case we skip the
     // task, because the palette owns texture sync.
-    let mut slot_handles: HashMap<u16, Handle<StandardMaterial>> = HashMap::new();
+    let mut slot_handles: HashMap<u16, Handle<WeatheredMaterial>> = HashMap::new();
     // Slots whose material is foliage rather than bark (#916). Read off the
     // authored settings, not off the resolved handle, so the decision is the
     // same on the palette path - a palette supplies the *handle*, not the
@@ -595,10 +596,26 @@ pub(super) fn spawn_lsystem_entity(
         let handle = if let Some(palette) = ctx.palette
             && let Some(h) = palette.materials.get(&slot)
         {
-            h.clone()
+            // A palette's materials are plain: its slot's is drawn as a
+            // part, cached as the slot's own would be.
+            let key = (generator_ref.to_string(), slot);
+            ctx.lsystem_cache_touched.insert(key.clone());
+            match ctx
+                .lsystem_material_cache
+                .get_if(&key, PALETTE_SENTINEL_HASH)
+            {
+                Some(handle) => handle,
+                None => {
+                    let base = ctx.std_materials.get(h).cloned().unwrap_or_default();
+                    let handle = ctx.materials.add(weathered(base, ctx.weathers));
+                    ctx.lsystem_material_cache
+                        .insert(key, PALETTE_SENTINEL_HASH, handle.clone());
+                    handle
+                }
+            }
         } else {
             let key = (generator_ref.to_string(), slot);
-            let hash = settings_fingerprint(settings);
+            let hash = part_material_fingerprint(settings, ctx.weathers);
             ctx.lsystem_cache_touched.insert(key.clone());
             match ctx.lsystem_material_cache.get_if(&key, hash) {
                 Some(handle) => handle,
@@ -615,16 +632,18 @@ pub(super) fn spawn_lsystem_entity(
     // Backfill a shared fallback for any material id produced by the geometry
     // (branch buckets or baked-in prop buckets) that the generator's
     // `materials` map doesn't define. Without this, the per-use
-    // `std_materials.add(..)` fallback below would allocate a fresh
-    // `StandardMaterial` for every scatter instance - attacker-crafted
+    // `materials.add(..)` fallback below would allocate a fresh
+    // material for every scatter instance - attacker-crafted
     // geometry with unmapped ids + a scatter of 100k would otherwise push
     // millions of unique materials into the asset registry in a single frame.
     // We route through `lsystem_material_cache` so every scatter instance of
     // this generator shares one handle. `FALLBACK_SENTINEL_HASH` is
-    // intentionally a value `settings_fingerprint` cannot return, so a later
+    // intentionally a value `part_material_fingerprint` cannot return, so a later
     // record edit that *adds* a real `SovereignMaterialSettings` for the slot
     // triggers a rebuild instead of reusing the bare default.
     const FALLBACK_SENTINEL_HASH: u64 = u64::MAX;
+    // A palette slot's (above): another value the fingerprint cannot be.
+    const PALETTE_SENTINEL_HASH: u64 = u64::MAX - 1;
     let referenced_ids: std::collections::HashSet<u16> =
         mesh_bucket_handles.iter().map(|(id, _)| *id).collect();
     for id in referenced_ids {
@@ -639,7 +658,9 @@ pub(super) fn spawn_lsystem_entity(
         {
             Some(handle) => handle,
             None => {
-                let h = ctx.std_materials.add(StandardMaterial::default());
+                let h = ctx
+                    .materials
+                    .add(weathered(StandardMaterial::default(), ctx.weathers));
                 ctx.lsystem_material_cache
                     .insert(key, FALLBACK_SENTINEL_HASH, h.clone());
                 h
@@ -658,10 +679,10 @@ pub(super) fn spawn_lsystem_entity(
         if budget_exceeded(*ctx.entities_spawned, ctx.budget_warned) {
             break;
         }
-        let material = slot_handles
-            .get(material_id)
-            .cloned()
-            .unwrap_or_else(|| ctx.std_materials.add(StandardMaterial::default()));
+        let material = slot_handles.get(material_id).cloned().unwrap_or_else(|| {
+            ctx.materials
+                .add(weathered(StandardMaterial::default(), ctx.weathers))
+        });
 
         // NB: no `RoomEntity` marker on child meshes. The parent below
         // carries it, and Bevy 0.18's recursive `despawn` tears down

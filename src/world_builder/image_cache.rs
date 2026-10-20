@@ -43,6 +43,7 @@ use bevy::tasks::{IoTaskPool, Task};
 use std::collections::{HashMap, VecDeque};
 
 use crate::pds::SignSource;
+use crate::weathered::WeatheredMaterial;
 
 use super::asset_failure::{AssetFailure, AssetFetchError, AssetStatus};
 
@@ -196,14 +197,85 @@ impl SignSourceKey {
     }
 }
 
+/// A material a fetched image is painted onto: a plain one (a sign, a
+/// portal's top, a particle) or a world part's, drawn under the weather
+/// (#1686). Either way the image lands in its `base_color_texture`.
+#[derive(Clone, Debug)]
+pub enum PaintTarget {
+    Standard(Handle<StandardMaterial>),
+    Weathered(Handle<WeatheredMaterial>),
+}
+
+impl PaintTarget {
+    /// Paint `image` onto this material, wherever it is kept.
+    fn paint(
+        &self,
+        standard: &mut Assets<StandardMaterial>,
+        weathered: &mut Assets<WeatheredMaterial>,
+        image: &Handle<Image>,
+    ) {
+        match self {
+            Self::Standard(handle) => {
+                if let Some(mut mat) = standard.get_mut(handle) {
+                    mat.base_color_texture = Some(image.clone());
+                }
+            }
+            Self::Weathered(handle) => {
+                if let Some(mut mat) = weathered.get_mut(handle) {
+                    mat.base.base_color_texture = Some(image.clone());
+                }
+            }
+        }
+    }
+}
+
+/// The material a request paints, with the store it is kept in, for a
+/// cache hit's paint there and then.
+pub enum PaintInto<'a> {
+    Standard(
+        &'a mut Assets<StandardMaterial>,
+        &'a Handle<StandardMaterial>,
+    ),
+    Weathered(
+        &'a mut Assets<WeatheredMaterial>,
+        &'a Handle<WeatheredMaterial>,
+    ),
+}
+
+impl PaintInto<'_> {
+    /// The material, to wait on a fetch.
+    fn target(&self) -> PaintTarget {
+        match self {
+            Self::Standard(_, handle) => PaintTarget::Standard((*handle).clone()),
+            Self::Weathered(_, handle) => PaintTarget::Weathered((*handle).clone()),
+        }
+    }
+
+    /// Paint `image` onto the material now.
+    fn paint(self, image: Handle<Image>) {
+        match self {
+            Self::Standard(materials, handle) => {
+                if let Some(mut mat) = materials.get_mut(handle) {
+                    mat.base_color_texture = Some(image);
+                }
+            }
+            Self::Weathered(materials, handle) => {
+                if let Some(mut mat) = materials.get_mut(handle) {
+                    mat.base.base_color_texture = Some(image);
+                }
+            }
+        }
+    }
+}
+
 /// Cache entry per [`SignSourceKey`]: either a list of materials waiting
 /// on the in-flight fetch, or a finished `Handle<Image>` ready to paint
 /// synchronously.
 pub enum BlobImageEntry {
     /// HTTPS / blob fetch is in flight. Each subsequent caller for this
-    /// source pushes its material handle here so the poll system can
-    /// drain them all on completion.
-    Pending(Vec<Handle<StandardMaterial>>),
+    /// source pushes its material here so the poll system can drain them
+    /// all on completion.
+    Pending(Vec<PaintTarget>),
     /// Image is GPU-resident. Subsequent callers paint synchronously by
     /// cloning the handle into their own material. `decoded_bytes` is what
     /// this entry contributes to [`MAX_CACHE_BYTES`] - carried on the entry
@@ -452,26 +524,18 @@ pub struct BlobImageTask {
     pub previous: Option<AssetFailure>,
 }
 
-/// Resolve a [`SignSource`] to a `Handle<Image>` painting on
-/// `material`, using the default (`Linear`) sampler filter. Sign
-/// generators and the Portal top-face pfp use this path. For
-/// particles that need pixel-art `Nearest` filtering, see
-/// [`request_blob_image_filtered`].
+/// Resolve a [`SignSource`] to a `Handle<Image>` painting on the
+/// material `into` names, using the default (`Linear`) sampler filter.
+/// Sign generators, the Portal top-face pfp and a world part's referenced
+/// texture use this path. For particles that need pixel-art `Nearest`
+/// filtering, see [`request_blob_image_filtered`].
 pub fn request_blob_image(
     commands: &mut Commands,
     cache: &mut BlobImageCache,
-    materials: &mut Assets<StandardMaterial>,
-    material: &Handle<StandardMaterial>,
+    into: PaintInto<'_>,
     source: &SignSource,
 ) {
-    request_blob_image_filtered(
-        commands,
-        cache,
-        materials,
-        material,
-        source,
-        SamplerFilter::Linear,
-    );
+    request_blob_image_filtered(commands, cache, into, source, SamplerFilter::Linear);
 }
 
 /// Resolve a [`SignSource`] + sampler-filter pair to a
@@ -483,8 +547,7 @@ pub fn request_blob_image(
 pub fn request_blob_image_filtered(
     commands: &mut Commands,
     cache: &mut BlobImageCache,
-    materials: &mut Assets<StandardMaterial>,
-    material: &Handle<StandardMaterial>,
+    into: PaintInto<'_>,
     source: &SignSource,
     filter: SamplerFilter,
 ) {
@@ -509,15 +572,12 @@ pub fn request_blob_image_filtered(
     let previous = match cache.by_source.get_mut(&key) {
         // Cache hit - paint synchronously.
         Some(BlobImageEntry::Ready { image, .. }) => {
-            let img = image.clone();
-            if let Some(mut mat) = materials.get_mut(material) {
-                mat.base_color_texture = Some(img);
-            }
+            into.paint(image.clone());
             return;
         }
         // Fetch already in flight - enqueue.
         Some(BlobImageEntry::Pending(list)) => {
-            list.push(material.clone());
+            list.push(into.target());
             return;
         }
         Some(BlobImageEntry::Failed(failure)) => {
@@ -530,7 +590,7 @@ pub fn request_blob_image_filtered(
         None => None,
     };
 
-    cache.insert_bounded(key.clone(), BlobImageEntry::Pending(vec![material.clone()]));
+    cache.insert_bounded(key.clone(), BlobImageEntry::Pending(vec![into.target()]));
     spawn_image_fetch(commands, key, previous);
 }
 
@@ -561,7 +621,10 @@ pub fn poll_blob_image_tasks(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut BlobImageTask)>,
     mut images: ResMut<Assets<Image>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    (mut materials, mut weathered): (
+        ResMut<Assets<StandardMaterial>>,
+        ResMut<Assets<WeatheredMaterial>>,
+    ),
     mut cache: ResMut<BlobImageCache>,
     time: Res<Time>,
     mut report: super::asset_failure::AssetReport,
@@ -674,10 +737,8 @@ pub fn poll_blob_image_tasks(
             ..default()
         });
         let img_handle = images.add(img);
-        for mat_handle in pending {
-            if let Some(mut mat) = materials.get_mut(&mat_handle) {
-                mat.base_color_texture = Some(img_handle.clone());
-            }
+        for target in pending {
+            target.paint(&mut materials, &mut weathered, &img_handle);
         }
         cache.insert_bounded(
             task.key.clone(),
@@ -1025,7 +1086,10 @@ mod budget_tests {
             .add(StandardMaterial::default());
         app.world_mut()
             .resource_mut::<BlobImageCache>()
-            .insert_bounded(key.clone(), BlobImageEntry::Pending(vec![material]));
+            .insert_bounded(
+                key.clone(),
+                BlobImageEntry::Pending(vec![PaintTarget::Standard(material)]),
+            );
         // The task itself is never polled on this path - `fetched` short-
         // circuits it - but the component owns one, so it gets a resolved
         // stub rather than a fabricated variant.
@@ -1049,6 +1113,7 @@ mod budget_tests {
         ))
         .init_asset::<Image>()
         .init_asset::<StandardMaterial>()
+        .init_asset::<crate::weathered::WeatheredMaterial>()
         .init_resource::<BlobImageCache>()
         // The poll stamps the cache's clock and timestamps failures from it
         // (#1247), so the harness needs a real one.
@@ -1109,8 +1174,7 @@ mod budget_tests {
                     request_blob_image_filtered(
                         &mut commands,
                         &mut cache,
-                        &mut materials,
-                        &handle,
+                        PaintInto::Standard(&mut materials, &handle),
                         &source,
                         SamplerFilter::Linear,
                     );

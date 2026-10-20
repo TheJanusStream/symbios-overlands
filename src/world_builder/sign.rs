@@ -55,8 +55,7 @@ pub(super) fn spawn_sign_entity(
     request_blob_image_filtered(
         ctx.commands,
         ctx.blob_image_cache,
-        ctx.std_materials,
-        &material_handle,
+        super::image_cache::PaintInto::Standard(ctx.std_materials, &material_handle),
         source,
         SamplerFilter::from_record(texture_filter),
     );

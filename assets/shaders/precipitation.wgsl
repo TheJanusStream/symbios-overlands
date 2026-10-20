@@ -40,9 +40,10 @@ struct PrecipitationUniforms {
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> weather: PrecipitationUniforms;
 
-// The shelter from what falls (#1685): the top of the highest static shape
-// over each texel of the ground cover's grid, minus infinity under the open
-// sky (`ground_cover::shelter`). `shelter_frame`: xy the grid's low corner in
+// The shelter from what falls (#1685): its red, the top of the highest
+// static shape over each texel of the ground cover's grid, minus infinity
+// under the open sky (`ground_cover::shelter`; green is the world's parts',
+// #1686). `shelter_frame`: xy the grid's low corner in
 // world XZ, z a texel's side (m), w its texels a side - 0 before it is drawn.
 @group(#{MATERIAL_BIND_GROUP}) @binding(1) var shelter: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(2) var<uniform> shelter_frame: vec4<f32>;

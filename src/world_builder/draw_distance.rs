@@ -843,6 +843,7 @@ mod ecs_tests {
         app.init_asset::<Mesh>();
         app.init_asset::<Image>();
         app.init_asset::<StandardMaterial>();
+        app.init_asset::<crate::weathered::WeatheredMaterial>();
         app.init_asset::<crate::water::WaterMaterial>();
         app.init_resource::<crate::world_builder::lsystem::LSystemMaterialCache>();
         app.init_resource::<crate::world_builder::lsystem::LSystemMeshCache>();

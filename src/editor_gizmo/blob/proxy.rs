@@ -90,8 +90,9 @@ pub(crate) struct BlobEditAssets {
     carve_mat_selected: Handle<StandardMaterial>,
     /// Unlit line colour for the swapped-in wireframe mesh (used by
     /// [`super::wireframe`]; lives here so all edit-affordance assets are
-    /// built in one place).
-    pub(crate) line_material: Handle<StandardMaterial>,
+    /// built in one place). A part's material type, since it stands in a
+    /// part's place, but never weathered (#1686).
+    pub(crate) line_material: Handle<crate::weathered::WeatheredMaterial>,
 }
 
 impl FromWorld for BlobEditAssets {
@@ -140,11 +141,16 @@ impl FromWorld for BlobEditAssets {
                 cfg::PROXY_CARVE_COLOR,
                 Some(cfg::PROXY_SELECTED_ALPHA),
             )),
-            line_material: materials.add(StandardMaterial {
-                base_color: Color::srgb(wr, wg, wb),
-                unlit: true,
-                ..default()
-            }),
+            line_material: world
+                .resource_mut::<Assets<crate::weathered::WeatheredMaterial>>()
+                .add(crate::weathered::weathered(
+                    StandardMaterial {
+                        base_color: Color::srgb(wr, wg, wb),
+                        unlit: true,
+                        ..default()
+                    },
+                    false,
+                )),
         }
     }
 }
@@ -315,6 +321,7 @@ mod tests {
             .add_plugins(AssetPlugin::default())
             .init_asset::<Mesh>()
             .init_asset::<StandardMaterial>()
+            .init_asset::<crate::weathered::WeatheredMaterial>()
             .init_resource::<BlobEditContext>()
             .init_resource::<BlobEditAssets>()
             .add_systems(Update, reconcile_blob_proxies);

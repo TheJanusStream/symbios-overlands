@@ -74,7 +74,9 @@ bevy_symbios_ground = { version = "0.7", features = ["physics"] }
 # proto-blue-oauth's default features, without which our own line below
 # cannot keep OpenSSL out of the graph (#1178).
 bevy_symbios_multiuser = "0.7.4"
-bevy_symbios_texture = { version = "0.13", features = ["egui"] }
+# 0.13.1: its patch writes into any material over a StandardMaterial, the
+# world's weathered parts among them (#1686).
+bevy_symbios_texture = { version = "0.13.1", features = ["egui"] }
 # The Bevy-free core, for its per-field texture registry: the mirrors in
 # `pds::texture` are generated from it (#1304). `bevy_symbios_texture`
 # re-exports the types, but a `$crate` path inside an exported macro

@@ -140,7 +140,12 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     pub(crate) commands: &'a mut Commands<'wc, 'sc>,
     pub(crate) record: &'a RoomRecord,
     pub(crate) meshes: &'a mut Assets<Mesh>,
+    /// Plain materials: a sign's panel, a portal's faces, a gateway's veil,
+    /// a particle's - what the weather is not drawn on.
     pub(crate) std_materials: &'a mut Assets<StandardMaterial>,
+    /// The parts' materials (#1686): every procedural and fallback material
+    /// a part is drawn with, weathering when [`Self::weathers`] says.
+    pub(crate) materials: &'a mut Assets<crate::weathered::WeatheredMaterial>,
     pub(crate) water_materials: &'a mut Assets<WaterMaterial>,
     /// Image asset store. Threaded through so every procedural material
     /// helper can hand it to
@@ -263,6 +268,11 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// preset's chassis collider is the only physics body on an
     /// avatar).
     pub(crate) avatar_mode: bool,
+    /// Whether the parts this tree spawns are drawn under the weather
+    /// (#1686): a room's, and an instance set's (whose templates spawn in
+    /// `avatar_mode`), but not an avatar's, what it wears or rides, or an
+    /// item preview's.
+    pub(crate) weathers: bool,
     /// `true` only when the avatar being spawned is the **local** player's
     /// own avatar - implies `avatar_mode` is also `true`. Drives
     /// `AvatarVisualPrim` insertion so the editor gizmo can target the

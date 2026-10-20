@@ -24,9 +24,10 @@
 //! the rain and the snow and, after a weather that comes and goes, dry and
 //! melt over its next spells, read off the same timeline. The ground's and
 //! the grass's shaders draw them (`terrain::splat`, `grass`), and the
-//! water's rings its rain (`water.wgsl`). Only those: roads, buildings and
-//! placed pieces stay dry and bare (#1686). Under a roof what falls folds
-//! away, and the ground and the grass under it stay dry and bare (#1685,
+//! water's rings its rain (`water.wgsl`), and the world's parts - roads,
+//! buildings, placed pieces - wet and take snow as the ground does
+//! (#1686, `crate::weathered`). Under a roof what falls folds away, and
+//! the ground, the grass and the parts under it stay dry and bare (#1685,
 //! `ground_cover::shelter`). The visibility it closes in is the drawn
 //! fog's, which the sun's shadow reach and the ground cover's draw distance
 //! follow too, held so a passing weather retunes them only now and then

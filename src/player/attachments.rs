@@ -1291,6 +1291,7 @@ pub(super) mod tests {
         app.add_plugins((MinimalPlugins, AssetPlugin::default(), TransformPlugin));
         app.init_asset::<Mesh>();
         app.init_asset::<StandardMaterial>();
+        app.init_asset::<crate::weathered::WeatheredMaterial>();
         app.init_asset::<Image>();
         app.init_asset::<SkinnedMeshInverseBindposes>();
 

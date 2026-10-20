@@ -12,7 +12,7 @@ use bevy::prelude::*;
 use crate::config::terrain as tcfg;
 use crate::pds::{Generator, GeneratorKind};
 
-use super::super::generator_cache::settings_fingerprint;
+use super::super::generator_cache::part_material_fingerprint;
 use super::super::lsystem::spawn_lsystem_entity;
 use super::super::material::{spawn_procedural_material, spawn_water_volume};
 use super::super::particles::{snapshot_from_record, spawn_particle_emitter_entity};
@@ -515,8 +515,11 @@ fn spawn_primitive_entity(
     // Resolve each group's material handle through the shared cache. The
     // trailing flag is #916's: `true` when this group's material is foliage
     // and the entity drawing it should sway.
-    let mut drawn: Vec<(CachedGroup, Handle<StandardMaterial>, bool)> =
-        Vec::with_capacity(groups.len());
+    let mut drawn: Vec<(
+        CachedGroup,
+        Handle<crate::weathered::WeatheredMaterial>,
+        bool,
+    )> = Vec::with_capacity(groups.len());
     for group in groups.iter() {
         let settings = plan
             .groups
@@ -524,7 +527,7 @@ fn spawn_primitive_entity(
             .and_then(|g| group_material(kind, g))
             .unwrap_or(parts.material);
         let sways = crate::wind::sways(&settings.texture);
-        let material_key = settings_fingerprint(settings);
+        let material_key = part_material_fingerprint(settings, ctx.weathers);
         let handle = match get_and_touch(
             ctx.prim_material_cache,
             ctx.prim_material_touched,

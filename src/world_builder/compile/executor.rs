@@ -60,7 +60,12 @@ pub(crate) fn compile_room_record(
     terrain_meshes: Query<Entity, (With<TerrainMesh>, Without<OutgoingTerrain>)>,
     heightmap: Option<Res<FinishedHeightMap>>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut std_materials: ResMut<Assets<StandardMaterial>>,
+    // Plain (signs, portals, particles) and the parts' weathered ones
+    // (#1686), one parameter for Bevy's sixteen.
+    (mut std_materials, mut materials): (
+        ResMut<Assets<StandardMaterial>>,
+        ResMut<Assets<crate::weathered::WeatheredMaterial>>,
+    ),
     mut water_materials: ResMut<Assets<WaterMaterial>>,
     mut images: ResMut<Assets<Image>>,
     palette: Option<Res<MaterialPalette>>,
@@ -125,6 +130,7 @@ pub(crate) fn compile_room_record(
             record,
             meshes: &mut meshes,
             std_materials: &mut std_materials,
+            materials: &mut materials,
             water_materials: &mut water_materials,
             images: &mut images,
             palette: palette.as_deref(),
@@ -153,6 +159,7 @@ pub(crate) fn compile_room_record(
             water_surfaces: &mut water_surfaces,
             placement_index: WaterPlane::NO_OWNER,
             avatar_mode: false,
+            weathers: true,
             local_avatar_mode: false,
             attachment_rkey: None,
             copy: &mut job.copy,
@@ -1053,6 +1060,7 @@ mod tests {
         app.init_asset::<Mesh>();
         app.init_asset::<Image>();
         app.init_asset::<StandardMaterial>();
+        app.init_asset::<crate::weathered::WeatheredMaterial>();
         app.init_asset::<WaterMaterial>();
         app.init_resource::<crate::world_builder::lsystem::LSystemMaterialCache>();
         app.init_resource::<crate::world_builder::lsystem::LSystemMeshCache>();
@@ -1112,6 +1120,25 @@ mod tests {
             .iter(app.world())
             .map(|(e, u)| (e, u.0))
             .collect()
+    }
+
+    /// #1686: a room's parts are drawn under the weather - every mesh the
+    /// compile spawns is a part's material that weathers, none a plain one.
+    #[test]
+    fn a_room_s_parts_weather() {
+        let mut app = compile_app(test_record(2));
+        settle(&mut app);
+        let world = app.world_mut();
+        let mut parts = world.query::<&MeshMaterial3d<crate::weathered::WeatheredMaterial>>();
+        let handles: Vec<_> = parts.iter(world).map(|m| m.0.clone()).collect();
+        assert!(!handles.is_empty(), "the room draws parts");
+        let materials = world.resource::<Assets<crate::weathered::WeatheredMaterial>>();
+        for handle in &handles {
+            let material = materials.get(handle).expect("a live material");
+            assert!(material.extension.weathers, "a room's part weathers");
+        }
+        let mut plain = world.query::<&MeshMaterial3d<StandardMaterial>>();
+        assert_eq!(plain.iter(world).count(), 0, "no part is left plain");
     }
 
     /// #1512: a turned rect scatter's anchor - the frame its copies hang

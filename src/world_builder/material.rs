@@ -1,8 +1,9 @@
 //! Water volume spawning and procedural material building. Texture
 //! generation is dispatched per target: on **native** through the upstream
 //! [`bevy_symbios_texture::PatchMaterialTextures`] task entity (baked on the
-//! upstream's private rayon pool, patched by its
-//! `patch_procedural_material_textures` system); on **wasm** through the
+//! upstream's private rayon pool, patched by its `patch_material_textures`
+//! system for the [`WeatheredMaterial`] every part is, #1686); on **wasm**
+//! through the
 //! pooled gen-worker via [`super::surface_bake`] (#807), because Bevy's task
 //! pools collapse onto the main thread there and every bake would stall a
 //! frame. The material itself comes from
@@ -14,6 +15,8 @@
 use bevy::math::Affine2;
 use bevy::prelude::*;
 use bevy_symbios_texture::{TextureCache, apply_generated_handles};
+
+use crate::weathered::{WeatheredMaterial, weathered};
 
 use crate::pds::{Environment, SovereignMaterialSettings, SovereignTextureConfig, WaterSurface};
 use crate::terrain::WaterVolume;
@@ -178,13 +181,14 @@ pub(super) fn spawn_water_volume(
 pub(super) fn spawn_procedural_material(
     ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
     settings: &SovereignMaterialSettings,
-) -> Handle<StandardMaterial> {
+) -> Handle<WeatheredMaterial> {
     let handle = build_procedural_material(
         ctx.commands,
-        ctx.std_materials,
+        ctx.materials,
         ctx.images,
         ctx.texture_cache,
         settings,
+        ctx.weathers,
     );
 
     // Referenced textures leave `base_color_texture` empty (see
@@ -200,8 +204,7 @@ pub(super) fn spawn_procedural_material(
         super::image_cache::request_blob_image(
             ctx.commands,
             ctx.blob_image_cache,
-            ctx.std_materials,
-            &handle,
+            super::image_cache::PaintInto::Weathered(ctx.materials, &handle),
             source,
         );
     }
@@ -216,20 +219,22 @@ pub(super) fn spawn_procedural_material(
 /// world-builder context. Today that split is only an internal seam:
 /// [`spawn_procedural_material`] is its sole caller.
 ///
-/// Returns a [`StandardMaterial`] handle whose texture slots are populated
-/// asynchronously once the texture-generator task finishes - or
-/// synchronously when `texture_cache` already holds the config's
-/// fingerprint, in which case no task is spawned at all. The async-path
-/// patching is performed by `patch_procedural_material_textures`
-/// (auto-registered by [`bevy_symbios_texture::SymbiosTexturePlugin`]),
-/// which also writes completed bakes back into the cache.
+/// Returns a [`WeatheredMaterial`] handle - drawn under the weather when
+/// `weathers` (#1686) - whose texture slots are populated asynchronously
+/// once the texture-generator task finishes - or synchronously when
+/// `texture_cache` already holds the config's fingerprint, in which case no
+/// task is spawned at all. The async-path patching is performed by the
+/// texture crate's `patch_material_textures` for this material (registered
+/// by [`crate::weathered::WeatheredMaterialPlugin`]), which also writes
+/// completed bakes back into the cache.
 pub fn build_procedural_material(
     commands: &mut Commands,
-    std_materials: &mut Assets<StandardMaterial>,
+    materials: &mut Assets<WeatheredMaterial>,
     images: &mut Assets<Image>,
     texture_cache: &mut TextureCache,
     settings: &SovereignMaterialSettings,
-) -> Handle<StandardMaterial> {
+    weathers: bool,
+) -> Handle<WeatheredMaterial> {
     let native = settings.to_native();
     // Every procedural material - catalogue constructs, primitives, foliage
     // cards, avatars - bakes at the shared surface/card resolution
@@ -261,21 +266,21 @@ pub fn build_procedural_material(
     {
         apply_generated_handles(&mut material, &handles);
         bump_texture_cache_counter(commands, true);
-        return std_materials.add(material);
+        return materials.add(weathered(material, weathers));
     }
     if cache_key.is_some() {
         bump_texture_cache_counter(commands, false);
     }
 
-    let handle = std_materials.add(material);
+    let handle = materials.add(weathered(material, weathers));
 
     // Cache miss: dispatch generation if a generator is selected.
     //
     // Native - the upstream path, byte-for-byte: `TextureConfig::spawn` bakes
     // on the upstream's private rayon pool (deliberately NOT Bevy's
     // `AsyncComputeTaskPool`, which its monolithic generate() loop would
-    // starve) and the upstream `patch_procedural_material_textures` system
-    // patches the slots + writes the cache.
+    // starve) and the upstream `patch_material_textures` system, registered
+    // for this material, patches the base's slots + writes the cache.
     #[cfg(not(target_arch = "wasm32"))]
     if let Some(pending) = native.texture.spawn(size, size) {
         commands.spawn((

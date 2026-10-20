@@ -22,7 +22,7 @@ use super::proxy::BlobEditAssets;
 #[derive(Component)]
 pub(crate) struct BlobWireframeSwap {
     original_mesh: Handle<Mesh>,
-    original_material: Handle<StandardMaterial>,
+    original_material: Handle<crate::weathered::WeatheredMaterial>,
     /// The live line mesh. The in-drag preview writes fresh edge geometry
     /// into this same handle so the swap never has to be re-applied.
     pub(crate) line_mesh: Handle<Mesh>,
@@ -84,11 +84,14 @@ pub(in crate::editor_gizmo) fn swap_blob_wireframe(
     mut swapped: Query<(
         Entity,
         &mut Mesh3d,
-        &mut MeshMaterial3d<StandardMaterial>,
+        &mut MeshMaterial3d<crate::weathered::WeatheredMaterial>,
         &BlobWireframeSwap,
     )>,
     mut fresh: Query<
-        (&mut Mesh3d, &mut MeshMaterial3d<StandardMaterial>),
+        (
+            &mut Mesh3d,
+            &mut MeshMaterial3d<crate::weathered::WeatheredMaterial>,
+        ),
         Without<BlobWireframeSwap>,
     >,
 ) {

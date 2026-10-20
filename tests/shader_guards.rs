@@ -240,13 +240,13 @@ const WEBGL2_VIEW: usize = 5;
 const WEBGPU_VIEW: usize = 6;
 const STANDARD_MATERIAL: usize = 6;
 
-/// The terrain and the grass keep within the texture budgets the epic
+/// The terrain, the grass and the parts keep within the texture budgets the epic
 /// measured them against (#1672, #1675, #1680): a 17th texture panics the
 /// WebGL2 build at pipeline creation and fails the WebGPU build at its
 /// minimum limits, and only a browser would otherwise say so. The WebGPU
 /// terrain stands at exactly its 16: another texture there must replace one.
 #[test]
-fn the_terrain_and_the_grass_keep_within_their_texture_slots() {
+fn the_terrain_the_grass_and_the_parts_keep_within_their_texture_slots() {
     // The weight map, the two layer arrays and the stains overlay, which
     // every build binds since #1681: the WebGL2 terrain at 15 of its 16.
     let terrain = material_textures(&shader("splat.wgsl"));
@@ -261,6 +261,13 @@ fn the_terrain_and_the_grass_keep_within_their_texture_slots() {
     let falls = material_textures(&shader("precipitation.wgsl"));
     assert_eq!(falls, 1, "precipitation.wgsl's textures moved");
     assert!(WEBGL2_VIEW + falls <= GLES_SLOTS);
+    // Every part of the world reads the same shelter map (#1686): its one
+    // texture beside `StandardMaterial`'s, 12 of WebGL2's 16 and 13 of a
+    // WebGPU stage's.
+    let parts = material_textures(&shader("weathered.wgsl"));
+    assert_eq!(parts, 1, "weathered.wgsl's textures moved");
+    assert!(WEBGL2_VIEW + STANDARD_MATERIAL + parts <= GLES_SLOTS);
+    assert!(WEBGPU_VIEW + STANDARD_MATERIAL + parts <= WEBGPU_STAGE_TEXTURES);
     // The epic's other materials bind none of their own.
     for name in ["sky.wgsl", "cloud.wgsl", "water.wgsl", "wind.wgsl"] {
         assert_eq!(material_textures(&shader(name)), 0, "{name}");

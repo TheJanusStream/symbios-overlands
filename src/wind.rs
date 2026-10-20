@@ -4,9 +4,9 @@
 //! # What sways
 //!
 //! Foliage only: L-system leaf buckets and ground-cover cards. Trunks,
-//! branches and every other surface keep a plain [`StandardMaterial`] and
-//! stay rigid, so the cost of this feature is confined to the geometry it
-//! actually moves. [`sways`] is the predicate that decides, keyed on the
+//! branches and every other surface keep the part's material
+//! ([`WeatheredMaterial`], #1686) and stay rigid, so the cost of this
+//! feature is confined to the geometry it actually moves. [`sways`] is the predicate that decides, keyed on the
 //! material's procedural texture - leaves and blades sway, moss and lichen
 //! (which are encrusting *surfaces*, not cards) do not, and neither do the
 //! non-vegetation card textures like glass and grilles.
@@ -16,12 +16,12 @@
 //! The spawn paths cannot build this material directly. A procedural
 //! material's textures arrive *asynchronously* - the bake completes some
 //! frames later and the upstream patch system writes the image handles into
-//! `Assets<StandardMaterial>` by handle. An [`ExtendedMaterial`] embeds its
+//! the part's material by handle. An [`ExtendedMaterial`] embeds its
 //! base by value, so a copy taken at spawn time would never see those
 //! textures and every leaf would render as an opaque untextured card.
 //!
 //! So the spawn paths only mark: they insert a [`WindSway`] component
-//! alongside the ordinary `MeshMaterial3d<StandardMaterial>`, and
+//! alongside the part's ordinary `MeshMaterial3d<WeatheredMaterial>`, and
 //! [`attach_wind_materials`] swaps the component type on a later frame.
 //! [`mirror_wind_material_bases`] then keeps the embedded base in step with
 //! the source material for the rest of the session, which is what lets the
@@ -35,7 +35,7 @@
 //! # Batching
 //!
 //! [`WindMaterialLinks`] keys on the *source* material's [`AssetId`], so a
-//! scatter of 500 cards sharing one `StandardMaterial` handle (which the
+//! scatter of 500 cards sharing one part's material handle (which the
 //! content-addressed prim cache guarantees) collapses onto one wind material
 //! too. Per-instance variation is derived in the shader from the instance
 //! origin instead of from a uniform, because a per-instance uniform would
@@ -43,7 +43,7 @@
 //!
 //! The links map deliberately stores an [`AssetId`] rather than a
 //! [`Handle`]: holding a strong handle would pin every wind material - and
-//! through it a `StandardMaterial` and its four images - for the life of the
+//! through it a part's material and its four images - for the life of the
 //! session, which is exactly the retention shape #919 was raised to fix.
 //! Entries whose material has been dropped simply fail to resolve and are
 //! rebuilt on demand.
@@ -57,6 +57,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::config::vegetation_wind as cfg;
 use crate::pds::SovereignTextureConfig;
+use crate::weathered::WeatheredMaterial;
 
 const WIND_SHADER_PATH: &str = "shaders/wind.wgsl";
 
@@ -183,7 +184,9 @@ pub struct WindUniforms {
 pub struct WindExtension {
     #[uniform(100)]
     pub uniforms: WindUniforms,
-    /// The `StandardMaterial` this extension's base was cloned from.
+    /// The part's material this extension's base was cloned from: its
+    /// `StandardMaterial` base, which is all of it a swaying card draws -
+    /// foliage takes no weather (#1686).
     ///
     /// Not a binding - it is a strong handle held so the source asset
     /// outlives the wind material that mirrors it, and so
@@ -191,7 +194,7 @@ pub struct WindExtension {
     /// material follows. Without it the source would be dropped as soon as
     /// the compile caches released it, and the pending texture bake would
     /// then patch an asset nobody holds.
-    pub source: Handle<StandardMaterial>,
+    pub source: Handle<WeatheredMaterial>,
 }
 
 impl MaterialExtension for WindExtension {
@@ -246,13 +249,13 @@ impl Default for VegetationWind {
     }
 }
 
-/// Source `StandardMaterial` → the wind material that wraps it, per profile.
+/// Source part material → the wind material that wraps it, per profile.
 ///
 /// See the [module docs](self) for why the value is an [`AssetId`] and not a
 /// [`Handle`].
 #[derive(Resource, Default)]
 pub struct WindMaterialLinks {
-    links: HashMap<(AssetId<StandardMaterial>, WindSway), AssetId<VegetationWindMaterial>>,
+    links: HashMap<(AssetId<WeatheredMaterial>, WindSway), AssetId<VegetationWindMaterial>>,
 }
 
 impl WindMaterialLinks {
@@ -266,16 +269,16 @@ impl WindMaterialLinks {
     }
 }
 
-/// Swap the marked entities' `MeshMaterial3d<StandardMaterial>` for the wind
-/// material wrapping the same source.
+/// Swap the marked entities' `MeshMaterial3d<WeatheredMaterial>` for the
+/// wind material wrapping the same source.
 ///
 /// Entities drop out of this query the moment they are converted (the
-/// `StandardMaterial` component is removed), so it costs one archetype probe
+/// part's material component is removed), so it costs one archetype probe
 /// per frame once a room has settled.
 pub fn attach_wind_materials(
     mut commands: Commands,
-    pending: Query<(Entity, &MeshMaterial3d<StandardMaterial>, &WindSway)>,
-    std_materials: Res<Assets<StandardMaterial>>,
+    pending: Query<(Entity, &MeshMaterial3d<WeatheredMaterial>, &WindSway)>,
+    materials: Res<Assets<WeatheredMaterial>>,
     mut wind_materials: ResMut<Assets<VegetationWindMaterial>>,
     mut links: ResMut<WindMaterialLinks>,
     wind: Res<VegetationWind>,
@@ -289,7 +292,7 @@ pub fn attach_wind_materials(
     // a silently wrapped count in a release build. A `Handle` clone is an
     // `Arc` clone and counts nothing.
     let mut this_run: HashMap<
-        (AssetId<StandardMaterial>, WindSway),
+        (AssetId<WeatheredMaterial>, WindSway),
         Handle<VegetationWindMaterial>,
     > = HashMap::new();
     for (entity, source, &profile) in pending.iter() {
@@ -313,7 +316,7 @@ pub fn attach_wind_materials(
                 // miss here means the asset was dropped between spawn and
                 // now. Leave the entity marked and retry next frame rather
                 // than substituting a default material.
-                let Some(base) = std_materials.get(&source.0) else {
+                let Some(source_material) = materials.get(&source.0) else {
                     continue;
                 };
                 let mut uniforms = profile.uniforms();
@@ -321,7 +324,7 @@ pub fn attach_wind_materials(
                 uniforms.speed = wind.speed;
                 uniforms.storm = wind.storm;
                 let handle = wind_materials.add(VegetationWindMaterial {
-                    base: base.clone(),
+                    base: source_material.base.clone(),
                     extension: WindExtension {
                         uniforms,
                         source: source.0.clone(),
@@ -345,7 +348,7 @@ pub fn attach_wind_materials(
         // attach their baked voices this way.
         commands
             .entity(entity)
-            .try_remove::<MeshMaterial3d<StandardMaterial>>()
+            .try_remove::<MeshMaterial3d<WeatheredMaterial>>()
             .try_insert(MeshMaterial3d(handle));
     }
 
@@ -354,20 +357,20 @@ pub fn attach_wind_materials(
     }
 }
 
-/// Keep each wind material's embedded base in step with the
-/// `StandardMaterial` it was cloned from.
+/// Keep each wind material's embedded base in step with the base of the
+/// part's material it was cloned from.
 ///
 /// This is what makes the async texture pipeline work through an
-/// [`ExtendedMaterial`]: the bake lands in `Assets<StandardMaterial>` some
+/// [`ExtendedMaterial`]: the bake lands in the part's material some
 /// frames after the material was built, and without this mirror the foliage
 /// would keep the untextured copy taken at attach time - alpha-masked cards
 /// with no alpha, i.e. opaque squares.
 pub fn mirror_wind_material_bases(
-    mut events: MessageReader<AssetEvent<StandardMaterial>>,
-    std_materials: Res<Assets<StandardMaterial>>,
+    mut events: MessageReader<AssetEvent<WeatheredMaterial>>,
+    materials: Res<Assets<WeatheredMaterial>>,
     mut wind_materials: ResMut<Assets<VegetationWindMaterial>>,
 ) {
-    let modified: HashSet<AssetId<StandardMaterial>> = events
+    let modified: HashSet<AssetId<WeatheredMaterial>> = events
         .read()
         .filter_map(|event| match event {
             AssetEvent::Modified { id } => Some(*id),
@@ -390,8 +393,8 @@ pub fn mirror_wind_material_bases(
     for wind_id in targets {
         let Some(base) = wind_materials
             .get(wind_id)
-            .and_then(|mat| std_materials.get(&mat.extension.source))
-            .cloned()
+            .and_then(|mat| materials.get(&mat.extension.source))
+            .map(|source| source.base.clone())
         else {
             continue;
         };
