@@ -168,7 +168,7 @@
         <p id="load-error-lead">Symbios Overlands couldn't start.</p>
         <p id="load-error-hint" style="font-size: 14px; color: #aaa;">This is usually a download
             hiccup or a stale cached version - reloading fixes most cases.</p>
-        <button onclick="location.reload()">Reload</button>
+        <button id="load-error-button" onclick="location.reload()">Reload</button>
         <details>
             <summary>Technical details</summary>
             <pre id="load-error-detail"></pre>
@@ -189,7 +189,9 @@
         // whose Reload then lands here and takes WebGL2 - for a week, after
         // which WebGPU gets another try. A machine whose WebGPU cannot draw
         // the world is well again after one reload, where it would otherwise
-        // fail the same way on every one.
+        // fail the same way on every one. A lost device's card (#1720,
+        // watchDeviceLoss below) opens a new tab instead, which lands here
+        // the same way: the tab that lost it may draw nothing again.
         const BUNDLES = {
             webgl2: { js: './symbios-overlands.js', wasm: './symbios-overlands_bg.wasm' },
             webgpu: { js: './symbios-overlands-webgpu.js', wasm: './symbios-overlands-webgpu_bg.wasm' },
@@ -287,15 +289,67 @@
         // One card for every way this page can fail to become an app, so the
         // Rust side can use it too (#1228 f4). A panic after init() returns
         // leaves a dead canvas that no JS promise ever hears about, and the
-        // panic hook in diagnostics::crash_log calls this by name.
+        // panic hook in diagnostics::crash_log calls this by name. The first
+        // card stands: the first failure is the one to report, and a later
+        // call - the renderer's handler after the page's own answer to a
+        // lost device (#1720) - must not pair its words with that card's
+        // button. The canvas goes: a dead app's keeps its last frame, which
+        // the card's words would sit over.
         window.__overlandsShowError = function (lead, hint, detail) {
+            const card = document.getElementById('load-error');
+            if (!card.hidden) return false;
             disarmStallWatch();
             document.getElementById('loading').style.display = 'none';
+            for (const canvas of document.querySelectorAll('canvas')) {
+                canvas.style.visibility = 'hidden';
+            }
             if (lead) document.getElementById('load-error-lead').textContent = lead;
             if (hint) document.getElementById('load-error-hint').textContent = hint;
             document.getElementById('load-error-detail').textContent = detail || '';
-            document.getElementById('load-error').hidden = false;
+            card.hidden = false;
+            return true;
         };
+
+        // A lost WebGPU device raises the card from here too (#1720). The
+        // renderer's own error handler (diagnostics::crash_log) answers a
+        // lost device on the next frame, but Firefox 158 loses its device to
+        // an out-of-memory at startup and then gives the tab no more
+        // animation frames: the app never sees another one, and the tab sat
+        // on its last - the sign-in over an empty sky - with no card and no
+        // way to WebGL 2. The device's `lost` promise settles all the same,
+        // so the page answers it: raises the handler's card and notes the
+        // failure under WEBGPU_FAILED_KEY as the handler does - only where
+        // this card is the one raised, since a card already up has answered
+        // for its own failure. Not the card's Reload: the tab stays frozen
+        // through a reload, WebGL 2 or not, where a new tab - which reads
+        // the note and takes WebGL 2 - draws; and a new tab opened by the
+        // button, in the same Firefox, drew as well. A device destroyed on
+        // purpose is no failure (nothing here destroys one), and nor is one
+        // lost once the page is going away - a reload, a sign-in's redirect -
+        // which must not send a healthy machine to WebGL 2 for a week.
+        const WEBGPU_FAILED_LEAD = 'WebGPU failed in this browser.';
+        const DEVICE_LOST_HINT = 'This tab can no longer draw. Open Symbios Overlands in a new tab to continue with WebGL 2 instead. The technical details below are worth including if you report it.';
+        let leaving = false;
+        addEventListener('pagehide', () => { leaving = true; });
+        function watchDeviceLoss() {
+            if (typeof GPUAdapter === 'undefined') return;
+            const requestDevice = GPUAdapter.prototype.requestDevice;
+            GPUAdapter.prototype.requestDevice = async function (...args) {
+                const device = await requestDevice.apply(this, args);
+                device.lost.then(info => {
+                    if (leaving || info.reason === 'destroyed') return;
+                    const raised = window.__overlandsShowError(WEBGPU_FAILED_LEAD, DEVICE_LOST_HINT,
+                        'The WebGPU device was lost (' + info.reason + '): ' + info.message);
+                    if (!raised) return;
+                    remember(WEBGPU_FAILED_KEY, String(Date.now()));
+                    const button = document.getElementById('load-error-button');
+                    button.textContent = 'Open in a new tab';
+                    // A blocked pop-up opens nothing: a reload is still a try.
+                    button.onclick = () => window.open(location.href, '_blank') || location.reload();
+                });
+                return device;
+            };
+        }
 
         // Fetch the .wasm ourselves so the multi-MB download shows live
         // byte progress instead of a static "Loading..." (#850). The
@@ -368,6 +422,7 @@
             try {
                 const [renderer, why] = await pickRenderer();
                 console.info('renderer: ' + renderer + ' (' + why + ')');
+                if (renderer === 'webgpu') watchDeviceLoss();
                 const bundle = BUNDLES[renderer];
                 const { default: init } = await import(bundle.js);
                 try {

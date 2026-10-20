@@ -212,8 +212,10 @@ const SHOW_ERROR_FN: &str = "__overlandsShowError";
 /// (#1670): when, in milliseconds since the epoch. index.html reads it before
 /// it picks a bundle and takes the WebGL2 one while the note is fresh, so the
 /// card's Reload is the way out - a machine whose WebGPU cannot draw the world
-/// would otherwise fail the same way on every load. Named once, and asserted
-/// against the page by `the_page_reads_the_webgpu_failure_the_app_notes`.
+/// would otherwise fail the same way on every load. The page writes it too,
+/// for a device lost while the tab draws no more frames (#1720), and its card
+/// opens a new tab, which lands on WebGL2 the same way. Named once, and
+/// asserted against the page by `the_page_reads_the_webgpu_failure_the_app_notes`.
 #[cfg_attr(any(webgl2, not(target_arch = "wasm32")), allow(dead_code))]
 const WEBGPU_FAILED_KEY: &str = "overlands.webgpu-failed";
 
@@ -820,6 +822,32 @@ mod tests {
         assert!(
             page.contains(&format!("const WEBGPU_FAILED_KEY = '{WEBGPU_FAILED_KEY}';")),
             "index.html no longer reads the {WEBGPU_FAILED_KEY} note"
+        );
+    }
+
+    /// The page raises the WebGPU card itself when the device is lost
+    /// (#1720): Firefox 158 gives the tab no more frames after the loss, so
+    /// the renderer's error handler (`on_render_error`, wasm only) never
+    /// runs. Its lead is [`WEBGPU_FAILED`]'s, copied into a page this crate
+    /// does not compile: a rewording on one side only would name one
+    /// failure two ways. Its way out is its own - a new tab, since the tab
+    /// stays frozen through a reload - on the card's one button.
+    #[test]
+    fn the_page_raises_the_webgpu_card_when_the_device_is_lost() {
+        let page = include_str!("../../index.html");
+        let (lead, _) = WEBGPU_FAILED;
+        assert!(
+            page.contains(&format!("const WEBGPU_FAILED_LEAD = '{lead}';")),
+            "index.html's lost-device card no longer leads `{lead}`"
+        );
+        assert!(
+            page.contains("function watchDeviceLoss() {")
+                && page.contains("if (renderer === 'webgpu') watchDeviceLoss();"),
+            "index.html no longer watches the WebGPU bundle's device"
+        );
+        assert!(
+            page.contains("<button id=\"load-error-button\""),
+            "the card's button lost the id the lost-device card relabels it by"
         );
     }
 
