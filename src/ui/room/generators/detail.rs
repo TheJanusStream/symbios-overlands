@@ -945,6 +945,9 @@ fn draw_road_editor(
             if stats.pending {
                 text.push_str(" · rebuilding…");
             }
+            if stats.waiting {
+                text.push_str(" · waiting for Berlin's ground");
+            }
             let heavy = stats.vertices > ROAD_HEAVY_VERTS;
             let color = if heavy {
                 theme.status.warn

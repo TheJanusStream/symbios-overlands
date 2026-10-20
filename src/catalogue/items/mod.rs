@@ -566,6 +566,8 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &plants::lsys_topiary_standard::TopiaryStandard,
     &plants::lsys_trailing_ivy::TrailingIvy,
     &plants::lsys_coneflower::Coneflower,
+    // Plants - Berlin's street poplars (#1713), the columnar broadleaf.
+    &plants::lsys_poplar::Poplar,
     // Ground-cover tier (#911) - turned cards, crossed cards and cushions,
     // placed by the hundred, so each is one to four parts rather than a
     // grammar.

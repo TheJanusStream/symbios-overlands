@@ -201,6 +201,10 @@ pub struct RoadPanelStats {
     /// window, which is long enough for an owner to read the old number,
     /// believe it and tune against it.
     pub pending: bool,
+    /// A Berlin region's ground stands in for Berlin's, and an edit since
+    /// the district was decided waits for Berlin's own ground to regrow it
+    /// (#1593): the counts above are the district as it was carried.
+    pub waiting: bool,
     /// How many grown objects the last strip removed (#1245 f378) - what
     /// "re-growing the district" actually costs, in the panel and in the
     /// toast that says it happened.

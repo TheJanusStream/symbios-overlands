@@ -63,13 +63,15 @@ const SPECIES: &[(&str, &str, Option<&str>)] = &[
     ("Corylus", "lsys_hazel", None),
     ("Salix", "lsys_ternary_gravity", None),
     ("Taxus", "lsys_yew", None),
-    // Conifers, and the columnar poplars.
+    // Columnar poplars: Lombardy and Berlin poplars, the street's poplars
+    // (#1713). They drew as the spruce, a dark cone twice as wide.
+    ("Populus", "lsys_poplar", None),
+    // Conifers.
     ("Pinus", "lsys_monopodial_tree", Some("pine")),
     ("Larix", "lsys_monopodial_tree", Some("larch_gold")),
     ("Picea", "lsys_monopodial_tree", None),
     ("Abies", "lsys_monopodial_tree", None),
     ("Pseudotsuga", "lsys_monopodial_tree", None),
-    ("Populus", "lsys_monopodial_tree", None),
 ];
 
 /// Each species' grown height (m), by its catalogue slug (#1647): its tree
@@ -87,6 +89,7 @@ pub(crate) const GROWN_HEIGHT_M: &[(&str, f32)] = &[
     ("lsys_hazel", 3.44),
     ("lsys_monopodial_tree", 9.20),
     ("lsys_oak", 17.05),
+    ("lsys_poplar", 14.56),
     ("lsys_sympodial_tree", 8.18),
     ("lsys_ternary_gravity", 7.18),
     ("lsys_ternary_props", 13.71),
@@ -179,6 +182,7 @@ mod tests {
             species_for(Some("Pinus")),
             ("lsys_monopodial_tree", Some("pine"))
         );
+        assert_eq!(species_for(Some("Populus")), ("lsys_poplar", None));
         assert_eq!(species_for(Some("Ginkgo")), BROADLEAF);
         assert_eq!(species_for(None), BROADLEAF);
         // Every species is a plant the catalogue has, in every variant
@@ -232,13 +236,18 @@ mod tests {
         }
     }
 
-    /// The height `tree` grows to (m): the box of the meshes its L-system
-    /// nodes grow, as the spawner meshes them, through their nodes' frames
-    /// from the copy's.
+    /// The height `tree` grows to (m): its box's ([`grown_box_of`]).
     fn grown_height_of(tree: &crate::pds::Generator) -> f32 {
+        let (lo, hi) = grown_box_of(tree);
+        hi.y - lo.y
+    }
+
+    /// The box of the meshes `tree`'s L-system nodes grow, as the spawner
+    /// meshes them, through their nodes' frames from the copy's.
+    fn grown_box_of(tree: &crate::pds::Generator) -> (Vec3, Vec3) {
         use bevy::math::Affine3A;
         use bevy::mesh::VertexAttributeValues;
-        fn walk(node: &crate::pds::Generator, frame: Affine3A, span: &mut (f32, f32)) {
+        fn walk(node: &crate::pds::Generator, frame: Affine3A, span: &mut (Vec3, Vec3)) {
             let frame = frame * Transform::from(&node.transform).compute_affine();
             if let crate::pds::GeneratorKind::LSystem {
                 source_code,
@@ -277,9 +286,9 @@ mod tests {
                         mesh.attribute(Mesh::ATTRIBUTE_POSITION)
                     {
                         for point in points {
-                            let y = frame.transform_point3(Vec3::from(*point)).y;
-                            span.0 = span.0.min(y);
-                            span.1 = span.1.max(y);
+                            let p = frame.transform_point3(Vec3::from(*point));
+                            span.0 = span.0.min(p);
+                            span.1 = span.1.max(p);
                         }
                     }
                 }
@@ -288,9 +297,32 @@ mod tests {
                 walk(child, frame, span);
             }
         }
-        let mut span = (f32::INFINITY, f32::NEG_INFINITY);
+        let mut span = (Vec3::INFINITY, Vec3::NEG_INFINITY);
         walk(tree, Affine3A::IDENTITY, &mut span);
-        span.1 - span.0
+        span
+    }
+
+    /// #1713: a poplar in a Berlin street is a column, as the street's
+    /// Lombardy and Berlin poplars are - not the spruce it drew as, a cone
+    /// 9.2 m tall and 5.5 m across. Grown as a seeded copy grows it, it
+    /// stands more than four times as tall as it is wide either way.
+    #[test]
+    fn berlins_poplars_stand_as_columns() {
+        let (slug, variant) = species_for(Some("Populus"));
+        let entry = crate::catalogue::by_slug(slug).expect("a catalogue species");
+        let (lo, hi) = grown_box_of(&super::super::super::plan::grow_plant(
+            entry,
+            "did:plc:poplar",
+            variant,
+        ));
+        let size = hi - lo;
+        assert!(
+            size.y > 4.0 * size.x.max(size.z),
+            "{slug} grows {:.2} m tall and {:.2} x {:.2} m across",
+            size.y,
+            size.x,
+            size.z
+        );
     }
 
     /// #1647: every species Berlin's trees are drawn as has its grown height

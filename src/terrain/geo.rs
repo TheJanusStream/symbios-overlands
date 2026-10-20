@@ -346,6 +346,14 @@ pub(crate) enum GeoLoss {
 }
 
 impl GeoLoss {
+    /// Whether the region's ground itself stands in for Berlin's (#1593):
+    /// its procedural heights, or Berlin's heights uncarved at the record's
+    /// own water line - not the ground a saved road district was grown on.
+    /// Losing the streets or the street level leaves Berlin's ground.
+    pub(crate) fn stands_in_for_the_ground(self) -> bool {
+        matches!(self, GeoLoss::Terrain | GeoLoss::LandUse)
+    }
+
     /// What the region shows instead, as a sentence.
     pub(crate) fn instead(self) -> &'static str {
         match self {

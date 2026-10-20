@@ -365,9 +365,9 @@ re-skin lever anyway.
 whatever stands in for it (bamboo cane, fern rachis, the cactus's succulent
 skin). Above that the catalogue runs two families: **0 bark / 1 foliage**
 (birch, acacia, bamboo, bush, hazel, gorse, the garden bed's fern - the
-catalogue's `lsys_fern` is one turned card since #1711 - palm, monopodial, and the
-flowering tree's leaf ring) and **0 bark / 2 foliage** (mangrove, sympodial,
-ternary-gravity). Only `lsys_ternary_props` uses the full **0 bark / 1
+catalogue's `lsys_fern` is one turned card since #1711 - palm, monopodial,
+poplar, and the flowering tree's leaf ring) and **0 bark / 2 foliage**
+(mangrove, sympodial, ternary-gravity). Only `lsys_ternary_props` uses the full **0 bark / 1
 twig-cluster / 2 leaf** split; `lsys_flowering_tree` puts blossom on `2`, and
 Ashmere's species (#1496) use `2` beside a foliage `1` - `lsys_oak` and
 `lsys_young_oak` for their bronzing leaf cards, `lsys_yew` for a second copy of

@@ -247,6 +247,31 @@ fn lot_action(populated: bool, session_fp: Option<&str>, current_fp: &str) -> Lo
     }
 }
 
+/// The road layers' content `record` carries - its lot buildings and its
+/// street props - as the panel counts them (#888).
+fn carried_counts(record: &RoomRecord) -> (usize, usize) {
+    (
+        record
+            .placements
+            .iter()
+            .filter(|p| refs_lot_building(p))
+            .count(),
+        record
+            .placements
+            .iter()
+            .filter(|p| refs_street_prop(p))
+            .count(),
+    )
+}
+
+/// Whether `record` carries any road layer's generators to strip.
+fn carries_road_layers(record: &RoomRecord) -> bool {
+    record
+        .generators
+        .keys()
+        .any(|k| k.starts_with(LOT_PREFIX) || k.starts_with(FURNITURE_PREFIX))
+}
+
 /// Whether a placement was planted by either road-derived layer (#1211).
 pub(super) fn is_road_grown(p: &Placement) -> bool {
     refs_lot_building(p) || refs_street_prop(p)
@@ -1038,6 +1063,7 @@ pub(crate) fn grow_missing_districts(
 /// Populate the road network's lots with buildings when the heightmap or record
 /// changes, writing them into the live record (which recompiles + flags dirty).
 /// Idempotent per layout seed; sweeps stale buildings on re-roll / toggle-off.
+/// Grows nothing on a stand-in for Berlin's ground (#1593).
 #[allow(clippy::too_many_arguments)] // Bevy system: each arg is a distinct resource.
 pub(super) fn maybe_populate_lots(
     mut record: ResMut<LiveRoomRecord>,
@@ -1054,12 +1080,15 @@ pub(super) fn maybe_populate_lots(
     // re-derive on release, not one per tick - the same cadence as the
     // road re-mesh.
     mut due: Local<Option<f64>>,
-    // Whether the armed re-derive was driven by the ground moving rather
-    // than by a layout edit (#1245 f381). The deadline re-asks the pure
-    // question against the current record, and a terrain-driven repopulate
-    // has an unchanged fingerprint by construction, so it would answer
-    // "Skip" and the buildings would stay on the old street plan.
-    mut armed_by_terrain: Local<bool>,
+    // Whether the armed re-derive must survive the deadline's re-ask of
+    // the pure question. A repopulate driven by the ground moving rather
+    // than by a layout edit (#1245 f381) has an unchanged fingerprint by
+    // construction, so the re-ask would answer "Skip" and the buildings
+    // would stay on the old street plan; one driven by an edit made while a
+    // stand-in for Berlin's ground held the session's decisions (#1593) has
+    // no session fingerprint, so the re-ask would adopt the district the
+    // edit left behind.
+    mut forced: Local<bool>,
     // The room the session state above belongs to (#1553, the critic's
     // first finding). A portal swaps the record in place, so without it the
     // last room's fingerprint met the new room's record, called it a layout
@@ -1073,6 +1102,13 @@ pub(super) fn maybe_populate_lots(
     mut session_terrain: Local<Option<String>>,
     source: Option<Res<HeightMapSource>>,
     mut toasts: ResMut<crate::notify::Toasts>,
+    // Why a Berlin region shows less of Berlin than its record asks for
+    // (#1593): a lost terrain or land use stands other ground in for it.
+    geo_fallback: Option<Res<super::geo::GeoTerrainFallback>>,
+    // The layout's key without the water line, set beside `session_fp`
+    // (#1593): what tells an edit on a stand-in ground, whose water line is
+    // the stand-in's.
+    mut session_layout: Local<Option<String>>,
 ) {
     let Some(heightmap) = heightmap else {
         return;
@@ -1085,12 +1121,14 @@ pub(super) fn maybe_populate_lots(
     if session_did.as_deref() != Some(did_str) {
         *session_did = Some(did_str.to_owned());
         *session_fp = None;
+        *session_layout = None;
         *due = None;
-        *armed_by_terrain = false;
+        *forced = false;
         *session_terrain = None;
         stats.scene = None;
         // A re-derive armed in the room left behind is not this room's.
         stats.pending = false;
+        stats.waiting = false;
     }
     // The room's own character, for the editor to arm an override at
     // (#1555). Written only when missing, so an unchanged value never
@@ -1126,13 +1164,10 @@ pub(super) fn maybe_populate_lots(
         let configs = active_configs(&record.0);
         if configs.is_empty() {
             *session_fp = None;
+            *session_layout = None;
             *due = None;
-            if record
-                .0
-                .generators
-                .keys()
-                .any(|k| k.starts_with(LOT_PREFIX) || k.starts_with(FURNITURE_PREFIX))
-            {
+            stats.waiting = false;
+            if carries_road_layers(&record.0) {
                 // Derived write (#862): fold the sweep into the edit that
                 // disabled the network, not a phantom undo entry of its own.
                 undo_signals.derived = true;
@@ -1149,18 +1184,50 @@ pub(super) fn maybe_populate_lots(
         if !heightmap_is_current(&record.0, source.as_deref()) {
             return;
         }
+        let networks = configs.iter().map(|(_, c)| c.clone()).collect::<Vec<_>>();
+        let layout = combined_fingerprint(did_str, &networks, None);
+        // A stand-in for Berlin's ground (#1593): a visit that landed only
+        // part of Berlin draws other heights, or Berlin's uncarved at the
+        // record's own water line, and the carried district was grown on
+        // neither. A layer that grew nothing on Berlin's own could read
+        // missing on them, to be stripped and regrown over a fetch that
+        // failed. So the layer decides nothing on such ground: it adopts
+        // what the record carries, edits and undos included, and grows and
+        // strips nothing. The session's decisions keep the layout and the
+        // terrain they were made on - a load's own, set here, are the ones
+        // the carried district goes with - so Berlin's own ground, when it
+        // comes, regrows the district for any edit made meanwhile.
+        if geo_fallback
+            .as_deref()
+            .is_some_and(|f| f.lost.stands_in_for_the_ground())
+        {
+            if session_layout.is_none() {
+                *session_layout = Some(layout.clone());
+            }
+            if session_terrain.is_none() {
+                *session_terrain = terrain.clone();
+            }
+            *due = None;
+            stats.pending = false;
+            stats.waiting =
+                session_layout.as_deref() != Some(layout.as_str()) || *session_terrain != terrain;
+            (stats.buildings, stats.props) = carried_counts(&record.0);
+            return;
+        }
+        stats.waiting = false;
+        // An edit made on a stand-in in a session that adopted there: its
+        // fingerprint was never set, so a load's question would adopt the
+        // district the edit left behind.
+        let edited_meanwhile =
+            session_fp.is_none() && session_layout.as_deref().is_some_and(|k| k != layout);
         let water = crate::world_builder::compile::drawn_water_level(&record.0, Some(&heightmap));
-        let fp = combined_fingerprint(
-            did_str,
-            &configs.iter().map(|(_, c)| c.clone()).collect::<Vec<_>>(),
-            water,
-        );
+        let fp = combined_fingerprint(did_str, &networks, water);
         // Only a fresh session asks whether the record is complete (the
         // pure `lot_action` reads it for nothing else); a layer that grows
         // nothing is as complete as one whose buildings are saved.
         let populated = session_fp.is_some()
             || districts_complete(&record.0, &heightmap.0, did_str, &configs, water);
-        let action = if terrain_moved {
+        let action = if terrain_moved || edited_meanwhile {
             LotAction::Repopulate
         } else {
             lot_action(populated, session_fp.as_deref(), &fp)
@@ -1174,26 +1241,16 @@ pub(super) fn maybe_populate_lots(
             }
             LotAction::Adopt => {
                 *session_fp = Some(fp);
+                *session_layout = Some(layout);
                 *session_terrain = terrain.clone();
                 *due = None;
                 // Readout (#888): count the adopted (saved) content
                 // so a loaded room doesn't report zero.
-                stats.buildings = record
-                    .0
-                    .placements
-                    .iter()
-                    .filter(|p| refs_lot_building(p))
-                    .count();
-                stats.props = record
-                    .0
-                    .placements
-                    .iter()
-                    .filter(|p| refs_street_prop(p))
-                    .count();
+                (stats.buildings, stats.props) = carried_counts(&record.0);
             }
             LotAction::Repopulate => {
                 *due = Some(now + super::roads::ROAD_EDIT_DEBOUNCE_SECS);
-                *armed_by_terrain = terrain_moved;
+                *forced = terrain_moved || edited_meanwhile;
                 // The readout stops asserting the previous layout's numbers
                 // as settled fact from the moment the re-derive is armed
                 // (#1245 f385).
@@ -1213,27 +1270,29 @@ pub(super) fn maybe_populate_lots(
         return;
     }
     *due = None;
-    let armed_by_terrain_now = std::mem::take(&mut *armed_by_terrain);
+    // Nor on a stand-in for Berlin's (#1593): its arrival decides again.
+    if geo_fallback
+        .as_deref()
+        .is_some_and(|f| f.lost.stands_in_for_the_ground())
+    {
+        stats.pending = false;
+        return;
+    }
+    let forced_now = std::mem::take(&mut *forced);
     let configs = active_configs(&record.0);
     if configs.is_empty() {
         stats.pending = false;
         return; // the change branch above already swept
     }
     let water = crate::world_builder::compile::drawn_water_level(&record.0, Some(&heightmap));
-    let fp = combined_fingerprint(
-        did_str,
-        &configs.iter().map(|(_, c)| c.clone()).collect::<Vec<_>>(),
-        water,
-    );
+    let networks = configs.iter().map(|(_, c)| c.clone()).collect::<Vec<_>>();
+    let fp = combined_fingerprint(did_str, &networks, water);
     let populated = session_fp.is_some()
         || districts_complete(&record.0, &heightmap.0, did_str, &configs, water);
     // The deadline re-evaluates against the CURRENT record, so it asks the
     // pure question again rather than trusting the arming decision - but a
-    // terrain-driven repopulate has to survive that re-ask, and its
-    // fingerprint is by construction unchanged.
-    if !armed_by_terrain_now
-        && lot_action(populated, session_fp.as_deref(), &fp) != LotAction::Repopulate
-    {
+    // forced repopulate has to survive that re-ask (see `forced`).
+    if !forced_now && lot_action(populated, session_fp.as_deref(), &fp) != LotAction::Repopulate {
         stats.pending = false;
         return;
     }
@@ -1252,6 +1311,7 @@ pub(super) fn maybe_populate_lots(
     let stripped = strip_lot_buildings(&mut record_mut.0);
     stats.last_replaced = stripped;
     *session_fp = Some(fp);
+    *session_layout = Some(combined_fingerprint(did_str, &networks, None));
     stats.buildings = 0;
     stats.props = 0;
     stats.clamps = super::LotClamps::default();
@@ -3455,6 +3515,225 @@ mod tests {
                 .last_replaced
                 > 0,
             "the district was not grown again on the new ground"
+        );
+    }
+
+    /// Lose part of Berlin on this visit: `lost` stands in for the ground
+    /// the record asks for, as `geo::GeoTerrainFallback` says.
+    fn lose(app: &mut App, lost: super::super::geo::GeoLoss) {
+        app.world_mut()
+            .insert_resource(super::super::geo::GeoTerrainFallback {
+                reason: "the test's fetch failed".into(),
+                lost,
+            });
+    }
+
+    /// Berlin's own ground lands: the stand-in's word goes and the same
+    /// terrain's heightmap arrives again, as a later build brings it.
+    fn berlin_lands(app: &mut App) {
+        app.world_mut()
+            .remove_resource::<super::super::geo::GeoTerrainFallback>();
+        app.world_mut().insert_resource(FinishedHeightMap(
+            crate::urban::test_support::pilot_heightmap(),
+            None,
+        ));
+    }
+
+    fn carries_lots(app: &App) -> bool {
+        layer_content(
+            &app.world().resource::<LiveRoomRecord>().0,
+            0,
+            &pilot_network(),
+        )
+        .0
+    }
+
+    /// #1593: a visit that lands only part of Berlin - its terrain, or its
+    /// land use, which carries its water line - stands other ground in for
+    /// the ground a district is grown on, and nothing grows on it. A network
+    /// with nothing saved grows its district when Berlin's own ground comes.
+    #[test]
+    fn a_stand_in_ground_grows_no_district() {
+        use super::super::geo::GeoLoss;
+        for lost in [GeoLoss::Terrain, GeoLoss::LandUse] {
+            let did = "did:test:standin";
+            let unsaved = road_room(did, &[pilot_network()]);
+            let mut app = lot_app_on(
+                unsaved.clone(),
+                did,
+                crate::urban::test_support::pilot_heightmap(),
+            );
+            lose(&mut app, lost);
+            run_frames(&mut app, 6);
+            assert!(
+                !crate::state::records_differ(
+                    &unsaved,
+                    &app.world().resource::<LiveRoomRecord>().0
+                ),
+                "{lost:?}: a district was grown on the stand-in ground"
+            );
+            berlin_lands(&mut app);
+            run_frames(&mut app, 6);
+            assert!(
+                carries_lots(&app),
+                "{lost:?}: Berlin's own ground grew no district"
+            );
+        }
+    }
+
+    /// An owner's edit to every network: the streets set wider apart.
+    fn widen_the_streets(app: &mut App) {
+        let mut record = app.world().resource::<LiveRoomRecord>().0.clone();
+        for g in record.generators.values_mut() {
+            for child in &mut g.children {
+                if let GeneratorKind::RoadNetwork(c) = &mut child.kind {
+                    c.major_spacing.0 += 20.0;
+                }
+            }
+        }
+        app.world_mut().resource_mut::<LiveRoomRecord>().0 = record;
+    }
+
+    fn stats(app: &App) -> &super::super::RoadPanelStats {
+        app.world().resource::<super::super::RoadPanelStats>()
+    }
+
+    fn live(app: &App) -> &RoomRecord {
+        &app.world().resource::<LiveRoomRecord>().0
+    }
+
+    /// #1593: a saved district is adopted on a stand-in ground, whatever its
+    /// layers read there, and an owner's edit leaves it standing - the panel
+    /// saying it waits - until Berlin's own ground regrows it. Losing only
+    /// the streets or the street level stands nothing in for the ground: an
+    /// edit regrows at once.
+    #[test]
+    fn an_edit_on_a_stand_in_ground_waits_for_berlins_own() {
+        use super::super::geo::GeoLoss;
+        let did = "did:test:standin:edit";
+        let saved = grown_and_saved(road_room(did, &[pilot_network()]), did);
+        assert!(layer_content(&saved, 0, &pilot_network()).0);
+        for lost in [GeoLoss::Terrain, GeoLoss::LandUse] {
+            let mut app = lot_app_on(
+                saved.clone(),
+                did,
+                crate::urban::test_support::pilot_heightmap(),
+            );
+            lose(&mut app, lost);
+            run_frames(&mut app, 6);
+            assert!(
+                !crate::state::records_differ(&saved, live(&app)) && !stats(&app).waiting,
+                "{lost:?}: the saved district was not adopted on the stand-in ground"
+            );
+            widen_the_streets(&mut app);
+            let edited = live(&app).clone();
+            run_frames(&mut app, 6);
+            assert!(
+                !crate::state::records_differ(&edited, live(&app)) && stats(&app).waiting,
+                "{lost:?}: the edited district did not wait for Berlin's ground"
+            );
+            berlin_lands(&mut app);
+            run_frames(&mut app, 6);
+            assert!(
+                carries_lots(&app) && stats(&app).last_replaced > 0 && !stats(&app).waiting,
+                "{lost:?}: Berlin's own ground did not regrow the edited district"
+            );
+        }
+        for lost in [GeoLoss::Streets, GeoLoss::StreetLevel] {
+            let mut app = lot_app_on(
+                saved.clone(),
+                did,
+                crate::urban::test_support::pilot_heightmap(),
+            );
+            lose(&mut app, lost);
+            run_frames(&mut app, 6);
+            widen_the_streets(&mut app);
+            run_frames(&mut app, 6);
+            assert!(
+                carries_lots(&app) && stats(&app).last_replaced > 0,
+                "{lost:?}: an edit did not regrow the district on Berlin's own ground"
+            );
+        }
+    }
+
+    /// The #1593 critic's first finding: a session that adopted its district
+    /// on Berlin's own ground and then met a stand-in, its terrain edited and
+    /// the edited terrain's fetch failed, stripped the district there and
+    /// kept its fingerprint - and Berlin's ground for the edited terrain,
+    /// when it came, answered Skip. Nothing is stripped on the stand-in, and
+    /// Berlin's ground for the new terrain regrows the district on it.
+    #[test]
+    fn a_terrain_edit_on_a_stand_in_is_regrown_on_berlins_own() {
+        use super::super::geo::GeoLoss;
+        let did = "did:test:standin:terrain";
+        let saved = grown_and_saved(road_room(did, &[pilot_network()]), did);
+        let mut app = lot_app_on(
+            saved.clone(),
+            did,
+            crate::urban::test_support::pilot_heightmap(),
+        );
+        run_frames(&mut app, 4);
+        let mut edited = saved.clone();
+        for g in edited.generators.values_mut() {
+            if let GeneratorKind::Terrain(cfg) = &mut g.kind {
+                cfg.seed ^= 0xBEEF;
+            }
+        }
+        app.world_mut().resource_mut::<LiveRoomRecord>().0 = edited.clone();
+        run_frames(&mut app, 2);
+        // The edited terrain's fetch fails: a stand-in lands for it.
+        lose(&mut app, GeoLoss::Terrain);
+        let source = super::super::terrain_source_key(&edited);
+        app.world_mut().insert_resource(FinishedHeightMap(
+            crate::urban::test_support::sloped_heightmap(),
+            None,
+        ));
+        app.world_mut().insert_resource(HeightMapSource(source));
+        run_frames(&mut app, 4);
+        assert!(
+            !crate::state::records_differ(&edited, live(&app)) && stats(&app).waiting,
+            "the district was touched on the stand-in"
+        );
+        berlin_lands(&mut app);
+        run_frames(&mut app, 6);
+        assert!(
+            carries_lots(&app) && stats(&app).last_replaced > 0,
+            "Berlin's ground for the edited terrain did not regrow the district"
+        );
+    }
+
+    /// The #1593 critic's second finding: on a stand-in, an edit undone
+    /// brought the saved district back to be stripped again, for good. An
+    /// edit and its undo on a stand-in leave the district as saved, and
+    /// Berlin's own ground keeps it.
+    #[test]
+    fn an_edit_undone_on_a_stand_in_keeps_the_saved_district() {
+        use super::super::geo::GeoLoss;
+        let did = "did:test:standin:undo";
+        let saved = grown_and_saved(road_room(did, &[pilot_network()]), did);
+        let mut app = lot_app_on(
+            saved.clone(),
+            did,
+            crate::urban::test_support::pilot_heightmap(),
+        );
+        run_frames(&mut app, 4);
+        // A visit later in the session lands a stand-in for the same terrain.
+        lose(&mut app, GeoLoss::Terrain);
+        app.world_mut().insert_resource(FinishedHeightMap(
+            crate::urban::test_support::pilot_heightmap(),
+            None,
+        ));
+        run_frames(&mut app, 4);
+        widen_the_streets(&mut app);
+        run_frames(&mut app, 4);
+        app.world_mut().resource_mut::<LiveRoomRecord>().0 = saved.clone();
+        run_frames(&mut app, 4);
+        assert!(!stats(&app).waiting, "an undone edit still waits");
+        berlin_lands(&mut app);
+        run_frames(&mut app, 6);
+        assert!(
+            !crate::state::records_differ(&saved, live(&app)) && stats(&app).last_replaced == 0,
+            "the saved district did not come through an edit undone on the stand-in"
         );
     }
 

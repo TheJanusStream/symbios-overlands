@@ -39,3 +39,6 @@ pub mod lsys_yew;
 pub mod lsys_coneflower;
 pub mod lsys_topiary_standard;
 pub mod lsys_trailing_ivy;
+// Berlin's street poplars (#1713) - a columnar broadleaf, where the
+// inventory's Populus drew as the spruce.
+pub mod lsys_poplar;
