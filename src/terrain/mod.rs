@@ -145,6 +145,21 @@ pub(crate) fn terrain_source_key(record: &crate::pds::RoomRecord) -> Option<Stri
     )
 }
 
+/// The key of a record's ground (#1741): [`terrain_source_key`] without
+/// the splat material. A recolour builds a new heightmap all the same - the
+/// terrain's fingerprint holds the material, so the terrain is torn down,
+/// heightmap and splat together - but of the same ground, so what was cut
+/// from that ground, a district's lots, stays where it stands.
+pub(crate) fn ground_source_key(record: &crate::pds::RoomRecord) -> Option<String> {
+    terrain_fingerprint(
+        &crate::pds::find_terrain_config(record)
+            .cloned()
+            .unwrap_or_default()
+            .ground(),
+        record,
+    )
+}
+
 /// What a heightmap built from `cfg` for `record` depends on, as one string:
 /// the terrain config and the square of the record's geodata source
 /// (#1584), so switching a region to real Berlin, or moving its square,

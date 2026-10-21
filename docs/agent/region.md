@@ -180,6 +180,19 @@ them as dunes; `normal_strength` 0.8 -> 0.5 (the sanitiser's floor) with
 `leaf_thickness` 0.15 halved the ripple (a Laplacian spread 35 -> 17 live),
 and grass tufts on the open tops broke up the rest.
 
+**A live terrain edit could abort your daemon until #1738.** Setting any
+part of `base_terrain` but its `grass` group (a layer, a rule, the land's
+shape) builds a new heightmap in every client in the world (a grass edit
+builds none, #1700), and a build from before #1738 could fail part way
+through ("Parameter `Res<FinishedHeightMap>` failed validation" in
+`ground_cover::sync_weights`). The deployed bundle only logs that (#1412),
+but the daemon is built under `test-release`, where it aborts: Eigen's did
+at Isoline (session 956) on a ground layer edit, and took with it the edit
+and a piece placed earlier, live and unsaved. On a daemon without the fix,
+save before a terrain edit and pull the record afterwards to see what
+landed. In a world with streets, a daemon without #1741 also regrows the
+district on such an edit ([A city: the road network](#a-city-the-road-network)).
+
 ## Grass
 
 Since #1675 every world grows a field of grass blades on its own ground,
@@ -364,6 +377,16 @@ Grass, each row with an Auto box). Every field is optional:
   whatever the time. Render an hour with `render --world <did> --hour 18`
   (without `--hour`, a turning day renders at the hour it is now); noon's
   fields stay the lever for every hour, so judge a colour change at 12.
+- **An approved mood as one hour of a turning day**: the day sets a quarter
+  turn round from noon's bearing, so put noon's sun a quarter turn back from
+  where the mood's sun stands - Isoline's dusk sun at bearing 300 across the
+  lake gave a noon at 210 - and pick noon's height for the hour you want:
+  the sun stands `asin(sin(noon) cos(15 x (hour - 12)))` up, so an 18
+  degree noon puts it 4 degrees up at 17:07. A low noon also keeps a city's
+  whole day moody: at 40 degrees and 11,000 lux Isoline's pale paving glared
+  white (Eigen, session 956, `exports/eigen/b/day956.py`). Fog colours stay
+  the room's own all day: a dusk's purple haze reads oddly under a midday
+  sky, so a turning day wants a neutral one.
 - **A weather** (#1678): `/environment/weather`, `{"kind": {"$type":
   "network.symbios.weather.rain"}, "intensity": 6000, "spell_minutes": 0}`
   (`overcast`, `rain`, `storm`, `snow` or `fog`; intensity 0 to 1 as a
@@ -404,7 +427,14 @@ Grass, each row with an Auto box). Every field is optional:
   has no fit: Parabola Flats under a storm at 0.25, 0.45 and 0.9 was a
   grey murk every time, the red rock and the blue sky gone, and coming and
   going it would be so about half the time - it kept no weather (#1735 asks
-  for a share-of-time setting and a dust storm kind). Rain and
+  for a share-of-time setting and a dust storm kind). A city at night is
+  the other way round once its windows light: Isoline under rain at 0.6
+  was a near-black night with only its cyan lines showing, but with lit
+  windows in every tower (building.md, "A grammar can light a texture's
+  windows") a rainy dusk is grey sky over wet streets with the panes and
+  the neon carrying the colour, and it keeps rain at 0.5 in 12-minute
+  spells (session 956, on the owner's "the two together might give a good
+  balance between lit and greyed"). Rain and
   snow stop under a roof, and the ground and the grass under it stay dry
   and bare (#1685) - under a solid one: a part made with `solid: false`
   carries no collider and shelters nothing, and nor does a tree's crown.
@@ -1429,6 +1459,66 @@ built this way; its builder is `exports/eigen/b/city.py`.
   centreline outside (its deck, curb and street furniture reach a few
   metres further in), and a lot is dropped only when its centre is in the
   disc, so give a landmark's disc a margin beyond its footprint.
+- **A regrow grows today's catalogue, not the saved buildings.** A
+  keep-out disc tried offline at Isoline's shore (session 956) left the
+  buildings' count alone but grew the newer Cyberpunk mix: street houses
+  in place of five helix towers and four holo billboards, 2,581 parts
+  against about 1,000. A street-field or layout edit regrows the district
+  by design, and so does a terrain edit that moves the ground. Until #1741
+  deploys so did a recolour, which moves none: a splat-layer edit builds a
+  new heightmap of the same ground, and the lot layer took it for moved
+  ground. Isoline's live ground edit regrew its district that way, `rec.py
+  apply` said nothing, and two saves carried it before a listing of the
+  generators showed it (put back from the last pull before the edit:
+  `exports/eigen/b/restore956.py`). After any terrain or street edit, count
+  the `lot_building_*` placements per kind against the last pull before you
+  save.
+- **Streets on a slope stood proud until #1737.** A junction is flat, and
+  its arms used to ramp down from it at 9 m in 100 in absolute height: on
+  ground falling faster a downhill street never came back down, and its
+  lifted mouth lifted the next junction, so the lift cascaded to the foot
+  of the slope. Isoline's radials ended at the shore as walls 3-4 m tall;
+  its streets stood 1.5-2 m proud across the city. Since #1737 an arm sheds
+  the lift over its own natural profile (at up to 9 in 100, slower on ground
+  falling near the 18-in-100 grade limit). A client built before it still
+  draws the old heights.
+- **Measure a street, do not guess it.** Deck heights are in no record:
+  every client meshes them. `render --driver` with a car's avatar
+  (Jink's `exports/jink/src/avatar.json` works in any world) dropped on a
+  street and driven down it logs the car's height step by step; less its
+  ride height (Jink's 0.95 m) that is the deck, to a centimetre, and where
+  its front wheels drop is the street's end (Eigen,
+  `exports/eigen/956/deck_vs_ground.py`). On a deck standing more than its
+  drop height over the ground the car lands inside the street's hollow
+  body, under the deck: drive somewhere lower first.
+- **Dress a district's edges by rule, off the cover map.** `render --world
+  <did> --cover-map out.png` paints the whole world from above, north up:
+  red wherever a street, a building or anything solid stands on the ground,
+  blue under the water line. A script measures each pixel's distance to the
+  nearest red, then puts each kind of piece where its footprint and a margin
+  are clear of red and blue, at the distance from a street its kind wants
+  (a vending machine 1.4-2.6 m, on the sidewalk; a salvage shack 4.5-14 m
+  back), apart from every other piece and turned to face the nearest
+  street. Eigen's docks market, slope slum and east fringe (150 street and
+  post-apocalyptic pieces round Isoline's downtown, session 956,
+  `exports/eigen/b/fringe956.py`) went in that way; seeded, so a re-run is
+  the same city.
+- **The same map gives the streets themselves**, which no tool prints: the
+  lot buildings are the red an opening by a 4.6 m disc keeps (their middles
+  lie further from open ground than any street's), the streets the red it
+  does not, and at a texel of a street its red runs on longest along the
+  street and stops short, alike on both sides, square to it - the half width
+  (a minor street read 2.6-3.0 m, a major one 4.3-5.0). Spots every 8 m,
+  each with its bearing and width, away from junctions
+  (`exports/eigen/956/streets_from_cover.py`), placed Isoline's lamps beside
+  the streets, gantries across them and blade signs on the fronts facing
+  them (`exports/eigen/b/streetlife956.py`, session 956). A lot building's
+  front is its generator's local -Z turned by its placement: read its
+  parts' boxes through the hierarchy to find a plain wall to hang a sign on.
+  The same boxes, turned and lifted as each placement stands them, answer
+  a level ray square to a street: where it meets a wall within 14 m both
+  ways, a cable can run wall to wall (`exports/eigen/b/cables956.py`: eight
+  crossings, strings of lights on every other one).
 - **Pave it.** Between the streets is the terrain's own splat: sand reads
   as a desert with roads on it. A splat layer can be any texture: `Pavers`
   in the city's height band (pale, `color_stone` about 0.66) made it a

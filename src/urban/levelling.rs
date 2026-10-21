@@ -5,8 +5,9 @@
 //! between them and the mouths leave no seam.
 //! Heights resolve upward-only - the deck rises to clear the terrain under it,
 //! never sinks: a longitudinal grade limit that bridges dips (#573), then ramp
-//! cones down from each junction's pinned height. Junctions are flat and lifting
-//! one can lift the next, so the network relaxes to a monotone-upward fixed point.
+//! cones down from each junction's pinned height that shed its lift over the
+//! road's own natural profile (#1737). Junctions are flat and lifting one can
+//! lift the next, so the network relaxes to a monotone-upward fixed point.
 
 use bevy_symbios_ground::HeightMap;
 
@@ -27,8 +28,11 @@ pub(crate) const MAX_LONGITUDINAL_GRADE: f32 = 0.18;
 /// Gentler grade (rise/run) for a junction APPROACH ramp (#584): when a road is
 /// pinned up to meet a flat junction, it ramps back to its natural draped height
 /// over `rise / this` metres - long enough to read as a smooth transition, not a
-/// short kick right at the intersection. Separate from (and below) the global
-/// drainage grade so the rest of the road is unaffected.
+/// short kick right at the intersection - the rise shed over the road's own
+/// profile, so a road falling away downhill comes back down too, as fast as the
+/// longitudinal grade lets it (#1737, [`level_chain`]).
+/// Separate from (and below) the global drainage grade so the rest of the road
+/// is unaffected.
 pub(crate) const JUNCTION_APPROACH_GRADE: f32 = 0.09;
 /// Safety cap on the junction-levelling relaxation passes (#584). Each pass raises
 /// junction heights to the max incident mouth and re-ramps; heights only ever rise
@@ -116,41 +120,78 @@ pub(crate) fn sample_chain(
 /// Resolve the deck base height per frame from the terrain `floor` (#573/#584).
 /// Two parts, each an upward-only lower bound (the deck only ever rises - it never
 /// buries): first the longitudinal grade-limit at [`MAX_LONGITUDINAL_GRADE`] (a
-/// gentle drainage grade that bridges dips), then - for each junction end carrying
-/// a height `pin` - a ramp cone down from that pinned height at the gentler
-/// [`JUNCTION_APPROACH_GRADE`], so a road pinned up to a flat junction ramps back
-/// to its natural height over enough of its length to read smooth. With both pins
-/// `None` this is exactly the #573 two-pass levelling (a strict refactor).
+/// gentle drainage grade that bridges dips), which is the road's natural
+/// profile; then - for each junction end carrying a height `pin` - a ramp cone
+/// down from that pinned height ([`approach_cone`]) that sheds the junction's
+/// lift over the natural profile at up to the gentler
+/// [`JUNCTION_APPROACH_GRADE`], so a road pinned up to a flat junction ramps
+/// back to its natural height over enough of its length to read smooth, on a
+/// slope as on the flat (#1737). A road falling away downhill would then descend
+/// faster than the floor pass lets it, so the result is held to the
+/// longitudinal grade once more: where the natural road falls at `s` the lift
+/// sheds at `min(JUNCTION_APPROACH_GRADE, MAX_LONGITUDINAL_GRADE - s)` a metre -
+/// slower as `s` nears the longitudinal grade, and not at all where the natural
+/// road falls at it, so a lift there runs on undiminished (though, unlike
+/// #584's ramp, it never grows). With both pins `None` this is exactly the #573
+/// two-pass levelling (a strict refactor), and from each pinned end a road that
+/// is flat or climbs comes out as #584 levelled it, to the bit.
 pub(crate) fn level_chain(floor: &[f32], seg: &[f32], pin: [Option<f32>; 2]) -> Vec<f32> {
-    let mut base_y = floor.to_vec();
-    for i in 1..base_y.len() {
-        base_y[i] = base_y[i].max(base_y[i - 1] - MAX_LONGITUDINAL_GRADE * seg[i - 1]);
+    let mut natural = floor.to_vec();
+    limit_grade(&mut natural, seg);
+    if natural.is_empty() || pin.iter().all(Option::is_none) {
+        return natural;
     }
-    for i in (0..base_y.len().saturating_sub(1)).rev() {
-        base_y[i] = base_y[i].max(base_y[i + 1] - MAX_LONGITUDINAL_GRADE * seg[i]);
-    }
-    // Junction-approach ramp cones: base_y[i] >= H - grade * arc-distance-to-the-
-    // pinned end. Cones only RAISE the deck and ramp at a gentler grade than the
-    // floor pass, so they never violate the longitudinal limit.
+    let n = natural.len();
+    let mut base_y = natural.clone();
     if let Some(h) = pin[0] {
         let mut dist = 0.0;
-        for i in 0..base_y.len() {
-            base_y[i] = base_y[i].max(h - JUNCTION_APPROACH_GRADE * dist);
-            if i + 1 < base_y.len() {
+        for i in 0..n {
+            base_y[i] = base_y[i].max(approach_cone(h, natural[0], natural[i], dist));
+            if i + 1 < n {
                 dist += seg[i];
             }
         }
     }
     if let Some(h) = pin[1] {
         let mut dist = 0.0;
-        for i in (0..base_y.len()).rev() {
-            base_y[i] = base_y[i].max(h - JUNCTION_APPROACH_GRADE * dist);
+        for i in (0..n).rev() {
+            base_y[i] = base_y[i].max(approach_cone(h, natural[n - 1], natural[i], dist));
             if i > 0 {
                 dist += seg[i - 1];
             }
         }
     }
+    limit_grade(&mut base_y, seg);
     base_y
+}
+
+/// The least height a deck may stand `dist` metres along its road from a
+/// junction end pinned at `pin`, where the road's natural profile stands at
+/// `mouth` at that end and at `natural` here: the junction's lift over the
+/// natural road (`pin - mouth`) shed at [`JUNCTION_APPROACH_GRADE`], never above
+/// the pin's own ramp (`pin - grade * dist`, #584), which a flat or an uphill
+/// road keeps exactly. That ramp alone held a downhill road at `pin - grade *
+/// dist` all its length, so on ground falling faster than the grade it never
+/// came back down, and its lifted mouth pinned the next junction downhill up
+/// to it: the lift cascaded to the foot of a slope, and Isoline's streets ended
+/// 3-4 m up at its shore (#1737). Written as the ramp less the natural road's
+/// drop since the mouth, which is exactly zero on the flat; once the lift is
+/// shed that falls under the natural road, which the caller keeps the deck on.
+fn approach_cone(pin: f32, mouth: f32, natural: f32, dist: f32) -> f32 {
+    let ramp = pin - JUNCTION_APPROACH_GRADE * dist;
+    ramp.min(ramp - (mouth - natural))
+}
+
+/// The two-pass longitudinal grade limit (#573), in place: no frame stands more
+/// than [`MAX_LONGITUDINAL_GRADE`] times its distance below either neighbour,
+/// so a dip is bridged UPWARD and never buried.
+fn limit_grade(y: &mut [f32], seg: &[f32]) {
+    for i in 1..y.len() {
+        y[i] = y[i].max(y[i - 1] - MAX_LONGITUDINAL_GRADE * seg[i - 1]);
+    }
+    for i in (0..y.len().saturating_sub(1)).rev() {
+        y[i] = y[i].max(y[i + 1] - MAX_LONGITUDINAL_GRADE * seg[i]);
+    }
 }
 
 /// Resolve a FLAT height per hub and the final deck height per chain across

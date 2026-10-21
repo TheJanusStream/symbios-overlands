@@ -368,15 +368,19 @@ fn sync_ground_height(
 /// published after this heightmap landed. Weights published before belong
 /// to the last ground, whose heightmap this one replaced in place. Writes
 /// only a change. A bake after the shelter was drawn has it written beside
-/// the new weights at once (#1685).
+/// the new weights at once (#1685). The heightmap can go at a sync point
+/// inside this chain - the terrain regenerating under a live edit - after
+/// [`drop_ground_cover`] has passed on the frame; this one then waits, and
+/// the next frame drops the cover (#1738: a hard `Res` there panicked the
+/// client on a live splat-layer edit).
 fn sync_weights(
     weights: Option<Res<SplatWeights>>,
-    heightmap: Res<FinishedHeightMap>,
+    heightmap: Option<Res<FinishedHeightMap>>,
     mut cover: ResMut<GroundCover>,
     mut images: ResMut<Assets<Image>>,
     ticks: bevy::ecs::system::SystemChangeTick,
 ) {
-    let Some(weights) = weights else {
+    let (Some(weights), Some(heightmap)) = (weights, heightmap) else {
         return;
     };
     let current = weights
@@ -949,6 +953,40 @@ mod tests {
         app.update();
         assert!(!app.world().contains_resource::<GroundCover>());
         assert!(!app.world().contains_resource::<SplatWeights>());
+    }
+
+    /// #1738: a heightmap that goes between the chain's first step and the
+    /// weights' sync - as the terrain regenerating under a live edit takes
+    /// it at a sync point inside the chain - leaves the cover alone for that
+    /// frame and drops it the next. A hard `Res` there panicked the client.
+    #[test]
+    fn a_heightmap_gone_inside_the_chain_waits_a_frame() {
+        let mut app = app(flat_ground(0.0));
+        app.update();
+        assert!(app.world().contains_resource::<GroundCover>());
+        let weights = app
+            .world_mut()
+            .resource_mut::<Assets<Image>>()
+            .add(Image::default());
+        let maxima = Arc::new(WeightMaxima::of(&[[255, 0, 0, 0]; 4], 2, 2, 8.0));
+        let layer = Arc::new(WeightLayer {
+            width: 33,
+            height: 33,
+            bytes: vec![0; 33 * 33 * 4],
+        });
+        app.insert_resource(SplatWeights(weights, maxima, layer));
+        app.add_systems(
+            Update,
+            (|world: &mut World| {
+                world.remove_resource::<FinishedHeightMap>();
+            })
+            .after(drop_ground_cover)
+            .before(sync_weights),
+        );
+        app.update();
+        assert!(app.world().contains_resource::<GroundCover>());
+        app.update();
+        assert!(!app.world().contains_resource::<GroundCover>());
     }
 
     /// Without its heightmap the ground's cover goes too.

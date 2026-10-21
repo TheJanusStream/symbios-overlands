@@ -1094,11 +1094,14 @@ pub(super) fn maybe_populate_lots(
     // last room's fingerprint met the new room's record, called it a layout
     // edit and regrew the saved district.
     mut session_did: Local<Option<String>>,
-    // The terrain the session's last decision was made on (#1553, the end
+    // The ground the session's last decision was made on (#1553, the end
     // review's third finding): a heightmap ARRIVING is a terrain edit only
-    // when it builds another terrain. Logging out and back into the same
+    // when it builds other ground. Logging out and back into the same
     // room brought the same ground back, and the old rule - any heightmap
-    // change once a decision stood - regrew the saved district.
+    // change once a decision stood - regrew the saved district. Keyed by
+    // the ground alone (#1741): a recolour of a splat layer builds a new
+    // heightmap of the same ground, and taken for a terrain edit it grew
+    // the saved district again from today's catalogue.
     mut session_terrain: Local<Option<String>>,
     source: Option<Res<HeightMapSource>>,
     mut toasts: ResMut<crate::notify::Toasts>,
@@ -1155,7 +1158,10 @@ pub(super) fn maybe_populate_lots(
     // heightmap of a session there is nothing stale to replace, and forcing
     // a repopulate there would destroy the buildings a loaded record
     // carries - which is the whole of the `Adopt` arm.
-    let terrain = super::terrain_source_key(&record.0);
+    //
+    // The ground, not the whole terrain source (#1741): the source carries
+    // the splat material, and a recolour moves no lot.
+    let terrain = super::ground_source_key(&record.0);
     let terrain_moved = heightmap.is_changed()
         && session_terrain.is_some()
         && *session_terrain != terrain
@@ -3515,6 +3521,56 @@ mod tests {
                 .last_replaced
                 > 0,
             "the district was not grown again on the new ground"
+        );
+    }
+
+    /// #1741: a recolour is no terrain edit. Re-texturing a splat layer
+    /// builds a new heightmap - the terrain's fingerprint holds the
+    /// material - but of the same ground, so the saved district stands.
+    /// Taken for moved ground it was grown again from today's catalogue:
+    /// Isoline's five helix towers came back as street houses.
+    #[test]
+    fn a_ground_colour_edit_keeps_the_saved_district() {
+        let did = "did:test:recolour";
+        let saved = grown_and_saved(road_room(did, &[pilot_network()]), did);
+        let mut app = lot_app_on(
+            saved.clone(),
+            did,
+            crate::urban::test_support::pilot_heightmap(),
+        );
+        run_frames(&mut app, 4);
+        let mut edited = saved.clone();
+        for g in edited.generators.values_mut() {
+            if let GeneratorKind::Terrain(cfg) = &mut g.kind {
+                cfg.material.layers.swap(0, 2);
+            }
+        }
+        let source = super::super::terrain_source_key(&edited);
+        assert_ne!(
+            source,
+            super::super::terrain_source_key(&saved),
+            "the recolour builds a new heightmap, as a live client does"
+        );
+        app.world_mut().resource_mut::<LiveRoomRecord>().0 = edited.clone();
+        run_frames(&mut app, 3);
+        app.world_mut().insert_resource(FinishedHeightMap(
+            crate::urban::test_support::pilot_heightmap(),
+            None,
+        ));
+        app.world_mut().insert_resource(HeightMapSource(source));
+        run_frames(&mut app, 4);
+        // A regrow of a deterministic district puts back the same bytes, so
+        // the count of what was replaced is the witness.
+        assert_eq!(
+            app.world()
+                .resource::<super::super::RoadPanelStats>()
+                .last_replaced,
+            0,
+            "a recolour stripped the saved district and grew it again"
+        );
+        assert!(
+            !crate::state::records_differ(&edited, &app.world().resource::<LiveRoomRecord>().0),
+            "the recoloured record's buildings were replaced"
         );
     }
 

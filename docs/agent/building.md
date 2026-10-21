@@ -16,6 +16,14 @@ kept only once saved ([saving.md](saving.md)).
   Every placement of one generator shares it: editing the generator changes
   every copy, and a catalogue entry placed twice is one generator.
 
+Many catalogue pieces at once are a script's job: `render --catalogue <slug>
+--dump` prints exactly the generator `A place` writes, so a script can set
+it in `/generators` once and write an absolute placement per piece (a yaw
+of b degrees is the rotation `[0, sin(-b/2), 0, cos(-b/2)]`, scaled) into
+one edits file for `rec.py apply`. Eigen's 150-piece fringe went in that
+way (session 956, `exports/eigen/b/fringe956.py`; [region.md](region.md),
+"A city: the road network", has the rule that chose the spots).
+
 An unplaced generator is kept but drawn nowhere: a safe place to try JSON.
 
 A `sign` generator shows an IMAGE (a URL, an uploaded blob or a profile
@@ -59,6 +67,10 @@ The record's wire form, as the World Editor's Raw JSON tab shows it:
   soil bed. Work in absolute positions in a script and subtract the root's
   position last; a root with no transform (a tiny part hidden inside
   another) keeps every child's offset a plain world-frame one.
+- **A part's scale is its `transform.scale`.** A `scale` key on the node
+  itself is no field: the record drops it and `ignored_at` names it. Eigen's
+  forecourt (session 956) drew four car canopies and four planter shrubs as
+  round 1 m spheres until its helper put the scale in the transform.
 - **A child does not follow its parent's `torture`**: taper, bend and bulge
   reshape the parent's own mesh only. The Understory's dead tree (40 copies)
   tapered its trunk to half width at the top and placed its limbs for the
@@ -483,6 +495,24 @@ main eave cut) is quicker and better by hand.
   the hearth glow session 883 had dimmed in the record, and every grammar
   house's windows glowed orange - diff a helper's output against the record
   before building on it.
+- **A grammar can light a texture's windows.** The Cyberpunk towers'
+  glass is a stack-bond `Brick` (cells the panes, mortar the frames,
+  `src/catalogue/items/cyberpunk/facade.rs`), and neither the texture nor
+  `emission_strength` - which lights frames and panes alike - can light one
+  pane and not the next. A Shape node laid over the glass prim, its
+  footprint the prim's plus 1.5 cm a side, `Extrude` to its height and
+  `Comp(Faces)`, can: `Repeat(Y, floor)` and `Repeat(X, panel)` on each side
+  face, then a lit 1 mm card inside the frame on some cells (`40% Pane |
+  60% NIL`). Read the grid off the prim's material - the tile is `1 /
+  uv_scale` metres, `scale` rows and `scale x aspect_ratio` columns to a
+  tile, the frame `mortar_size` of a cell each way (texture defaults 4, 2,
+  0.05) - and give each `Repeat` its size less half a millimetre: the
+  stored `uv_scale` is rounded, so 96 m of 3.2 m floors reads 30.01 and a
+  `Repeat` floors its count. Leave dark a face whose middle stands inside
+  another part (probe a few mid-storey points, never at a floor edge where
+  a balcony slab stands). Eigen's Isoline lit 1,155 panes on 20 towers this
+  way, each tower's placement seeded so copies differ
+  (`exports/eigen/b/windows956.py`, session 956).
 
 The loop: a survey sheet of seeds or footprints first (`render --lineup
 a.json,b.json,...` - a row a building, four sides each), then the village
@@ -522,6 +552,17 @@ composed into a copy of the record and seen from where visitors stand
   `unmeshed`). It cannot see a part whose own mesh splits into islands (a
   BlobGroup whose elements do not overlap), and a stacked stone's overhang
   reads as class b: judge those by eye.
+- **Seat a piece placed many times by its own ground, not by the report's
+  gaps.** Class b takes a part for one that rests on the ground when it
+  touches the ground at ANY of its generator's placements. Eigen's fringe
+  (session 956) had 65 catalogue pieces over falling ground; sinking each
+  by its reported gap put a raised part of some copies on the ground - a
+  wreck's bumper 0.41 m up, a shanty's sheet hung 0.65 m up - and the next
+  report named those floating at every other copy. Read the ground at each
+  placement's origin and round its footprint instead (one
+  `--terrain-report` takes them all) and sink it by the drop to the lowest
+  point: 99 of 151 pieces went down 0.13-0.53 m, seated by eye
+  (`exports/eigen/b/seat956.py`).
 - Building around a person: an interior of 5.2 x 7 m held a 2 x 3 m buggy
   with room to drive out. `status.peers[].facing` says which way they face -
   do not guess it from a picture (the live guess was wrong).
@@ -619,6 +660,14 @@ translation - to find the part. Defects seen live and fixed that way (#1439):
 above its open lattice, and its dish was pierced by the legs with the feed
 horn floating beside it. Look at props from close up and from below before
 calling them done.
+
+Some z-fight as shipped (#1739: seven of the post-apocalyptic and street
+pieces), and `rec.py apply` names each pair as a `zf` line when the entry is
+first set. Eigen's fringe (session 956) fixed the two that show in its copy:
+`fortified_ruin`'s side walls ended flush with the front wall's ends
+(children 2 and 3 moved 2 cm in), and `neon_kiosk` had a strip under its
+awning and its window frames' corners flush (`exports/eigen/edits_catfix956.txt`
+and `edits_catfix956b.txt`).
 
 ## A build, start to finish
 

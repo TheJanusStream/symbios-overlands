@@ -178,6 +178,19 @@ impl SovereignTerrainConfig {
             ..self.clone()
         }
     }
+
+    /// This terrain's ground alone (#1741): its land without the splat
+    /// material, which paints the ground and shapes none of it - the
+    /// heightmap job reads neither the material nor the grass. The key for
+    /// what was cut from the ground's shape (`terrain::ground_source_key`):
+    /// a recolour tears the terrain down and builds its heightmap again, but
+    /// of the same ground, so a saved district on it must stand.
+    pub fn ground(&self) -> SovereignTerrainConfig {
+        SovereignTerrainConfig {
+            material: SovereignMaterialConfig::default(),
+            ..self.land()
+        }
+    }
 }
 
 impl Default for SovereignTerrainConfig {
