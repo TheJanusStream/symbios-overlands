@@ -36,6 +36,13 @@ The record's wire form, as the World Editor's Raw JSON tab shows it:
   "material": {...}, "transform": {"translation": [...], "rotation": [...]},
   "children": [...]}`. `solid` is required; it means "has a collider" -
   everything is drawn either way.
+- **A solid lathe's collider is a hull**: the convex hull of its profile
+  turned to 8 angles (`lathe_hull_points` in
+  `src/world_builder/prim/sweeps.rs`), so a waist fills in. A convex lathe
+  drawn at `resolution` 8 with `smooth` false has its mesh's vertices at
+  those same angles, so it is exactly its own collider. That is how Jink's
+  Mound (an octagonal frustum of earth) gives a car what it shows; a
+  rounder lathe is drawn up to 8% of its radius outside what the car rides.
 - Kinds used so far: `cuboid` (`size`), `cylinder` (`radius`, `height`,
   `resolution` 3..128, axis along +Y), `sphere` (`radius`, `resolution` =
   icosphere subdivisions 0..6: 20 x (n+1)^2 triangles - 80 at 1, 720 at 5; `render --generator` prints the count), `torus`
@@ -121,6 +128,22 @@ The record's wire form, as the World Editor's Raw JSON tab shows it:
   hub, an axle - stood unturned, and nest the blades under it. A turning part
   and everything under it has no solid collider. Everything stands still while
   the World Editor has a selection; deselect to watch it.
+- **A spin on a body, and proving it** (Jink, session 955): `.steer` counts
+  forward along its parent's +Z, as seeded vehicles are drawn, so a body
+  drawn nose at -Z reads driving forward as reversing - give it a NEGATIVE
+  gain, and check from above mid-turn (`render --driver ... --drive-keys
+  "W@1.6 W+A@1.2" --drive-lead 2.2 --elev=80`) that the wheels point into the
+  bend. A `.roll` on a round tyre and a round hubcap shows nothing: put a
+  feature across the hub (a knock-off spinner bar). The sanitiser raises a
+  spin's `period` under 0.5 s to 0.5 and a radius or a thickness under 1 cm
+  to 1 cm. A still render cannot show a turn: film it (`render --world ...
+  --frames 7 --fps 12.5 --keep-frames`, the clock advancing a frame a
+  frame) and measure the part's change between frames against a still
+  neighbour - a windmill's rotor changed 11 grey levels a frame where its
+  tower changed 0.1. Restructure a placed piece for a spin from the record
+  as it was before any spin (a re-run over a copy that already turns nests
+  a second stub), and check `render --generator` draws the same box before
+  and after.
 - **`.wind` bends at the foliage's pace**, the room's `cloud_speed` times
   0.35 radians a second: a 2.4 s sway in the Understory's 7.6 m/s wind,
   right for a sign or a banner and a wag on anything tens of metres tall.

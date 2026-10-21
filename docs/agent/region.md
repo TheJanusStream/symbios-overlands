@@ -258,7 +258,11 @@ Grass, each row with an Auto box). Every field is optional:
   layer a `GrassTuft` scatter's `biome_filter` names (none named: the first
   two), up to full thickness at 1,500 tufts on the first layer and half on
   the others - a savanna's sand layer under dry tufts is grass country, and
-  so is an uploaded-image layer under them.
+  so is an uploaded-image layer under them. It can be wrong: Parabola
+  Flats' few dry tufts on its mesa aprons made its first layer - the
+  cracked playa of a dry lake - grass country, and the pan grew tufts (seen
+  in session 955, after #1675); a `layer_density` with 0 on the playa set
+  it right.
 - **Its colours are your tufts'**: the `GrassTuft` texture your scatters
   place most of (a crossed card counts once), its `color_base`,
   `color_tip` and `color_dry`, and the tufts' `dry_fraction` as the share
@@ -396,7 +400,11 @@ Grass, each row with an Auto box). Every field is optional:
   8-minute spells came about once an hour and lasted 10-20 minutes, but
   over a day it rains as often as not. Without the key the room is drawn as
   its fields set it. Render one with `render --world <did> --weather
-  rain:0.6` (a weather that comes and goes renders as it is now). Rain and
+  rain:0.6` (a weather that comes and goes renders as it is now). A desert
+  has no fit: Parabola Flats under a storm at 0.25, 0.45 and 0.9 was a
+  grey murk every time, the red rock and the blue sky gone, and coming and
+  going it would be so about half the time - it kept no weather (#1735 asks
+  for a share-of-time setting and a dust storm kind). Rain and
   snow stop under a roof, and the ground and the grass under it stay dry
   and bare (#1685) - under a solid one: a part made with `solid: false`
   carries no collider and shelters nothing, and nor does a tree's crown.
@@ -983,6 +991,53 @@ ramp is solid.
   steeper than the slope where the car comes down, which on a slope means a
   tabletop: a ramp's top standing above the ground is a wall to a car that
   falls short.
+- **A kicker launches well under its own angle.** The suspension pushes
+  along world +Y, so a car gains its rise through its springs following
+  the deck up, and leaves lower than the deck points: at 14 m/s Jink's
+  Cyclecar left a 30 degree kicker at about 22 degrees, a 36 degree one at
+  about 27, and a 42 degree one at 31-34 (session 955, the Freestyle Pit).
+  The first Step-Up, a 30 degree kicker onto a deck 2.8 m up, cased the
+  deck's face at full speed. Test-fly a ramp before laying its landing:
+  `render --driver AVATAR.json --world DID --world-record TRY.json
+  --drive-from X,Z --drive-bearing B --drive-keys "W@6 none@4"
+  --drive-lead 10 --drive-log RUN.jsonl` runs the game's own car physics
+  offline in seconds, and a lead long enough to cover the run lets the
+  log reach its end. Jink's `exports/jink/955/flight.py` reads a log
+  against a lip: each air, its apex, and how the car came down.
+- **A quarter pipe throws a car over its top**: with the springs pushing
+  straight up, the car climbed a 4 m radius curve to 74 degrees of pitch
+  and left it still moving forward, 4.4 m over its top and down the back
+  (Jink, session 955). Nothing on wheels rides a wall, a loop or a pipe's
+  vert here; a curve that turns past about 45 degrees is a launcher.
+- **A curved kicker as an arc of chord wedges**: a circular arc from flat
+  to the lip's angle in N chords. Each chord is a wedge from the ground up
+  to the chord's upper end, at the chord's slope, 1 cm narrower a side than
+  the one before. An arc is convex, so each chord's line runs under the
+  curve outside its own span, and the wedges together are the whole
+  profile, solid to the ground with a vertical back at the lip (Jink's
+  `b/pit955.py`, `arc_kicker`). Ten chords to a 42 degree, 2.8 m lip flew
+  2 s.
+- **A step-up wants its deck well under the car's apex**: off a 36 degree,
+  1.8 m kicker at 14 m/s the wheels peak about 4.7 m up. A deck 3 m up, its
+  edge 11.4 m out, caught the car 18.5 m out. At 13.6 m/s the car came down
+  on the top of the deck's face: make that face a slope (25 degrees), so a
+  short car drives up it. A 12 degree landing off the deck's far edge is
+  only a 0.2 s float, since the springs keep reaching the slope.
+- **A hip is a landing hill turned to the run.** The car flies straight on
+  and crosses the crest at a slant, drifting tan(turn) along the crest for
+  every metre down its fall line, so centre the hill on that stretch.
+  Landed straight, the car keeps its heading across the slope. Yawed in
+  the air, the landing's grip swings its path onto the new heading: 0.25 s
+  of D turned it 48 degrees, and the landing took its path from 270 to 325,
+  shedding 30% of its speed.
+- **A mound to hop from any side**: a solid lathe is its own collider
+  when it is convex, drawn at resolution 8 and unsmoothed
+  ([building.md](building.md)). An octagonal frustum 3.5 m high, 36 m
+  across with 13 degree faces hopped a car 0.6 s at 14 m/s, landing on the
+  far face at about 2 m/s into it. Faces of 19 degrees, 4 m high, threw it
+  past the far face onto the flat (down at 9.4 m/s). A dome never left the
+  ground at all: over a curve whose v squared over r stays under g, the car
+  follows the surface.
 
 ## Working fast
 

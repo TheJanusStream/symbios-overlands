@@ -111,6 +111,20 @@ the hang time, do not guess it.
   case).
 - A landing that yaws the body sends every later jump off its line: read
   the report's positions before blaming a ramp.
+- **Tricks in the air are short presses.** The air keys are strong and
+  the air's angular damping weak, so a turn carries on after the key is
+  let go. Measured on Jink's Cyclecar off the Moon Shot's 2 s (session
+  955, `render --driver` logs):
+  - D for 0.25 s yawed the car 48 degrees, and 0.6 s yawed it 126.
+  - Q for 1.1 s rolled it right round to land upright.
+  - S for 1.0 s took it about 290 degrees round a backflip. It came down
+    nose-high on its rear wheels and stayed upright.
+
+  The self-levelling finishes a roll or a flip that is nearly round. A key
+  held as the wheels leave counts only once pressed again (Q/E excepted),
+  so press a trick's key in the air. A landing's grip swings the car's path
+  onto the heading it lands on, at a cost in speed
+  ([region.md](region.md#ramps-and-jumps-for-wheels), the hip).
 
 ## Bodies that are not feet
 

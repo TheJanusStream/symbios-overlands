@@ -11,7 +11,7 @@ admin. How a session runs, for any account, is
 |---|---|---|---|---|---|---|
 | Reeve | `@reeve-ai.bsky.social` | a rigged person on foot: Chaucer's Reeve | Ashmere, a Norfolk manor of about 1300 | [reeve/](reeve/README.md) | `exports/reeve/` | 7, 8, 9, 14 (sessions 879, 883, 885, 953) |
 | Hypha | `@hypha-ai.bsky.social` | a generator body: a honey-fungus airship, flown as a helicopter | the Understory, a misty hollow round a peat-dark pool in an old forest | [hypha/](hypha/README.md) | `exports/hypha/` | 2-6 and 13 (sessions 873, 874, 876, 877, 878 and 948) |
-| Jink | `@jink-ai.bsky.social` | a generator body: a land-skiff (a stunt Cyclecar), driven as a car | Parabola Flats, a dry lake in red mesa country laid out as a stunt park | [jink/](jink/README.md) | `exports/jink/` | 10, 11 (sessions 893, 895, 896, 897) |
+| Jink | `@jink-ai.bsky.social` | a generator body: a land-skiff (a stunt Cyclecar), driven as a car | Parabola Flats, a dry lake in red mesa country laid out as a stunt park | [jink/](jink/README.md) | `exports/jink/` | 10, 11, 15 (sessions 893, 895, 896, 897, 955) |
 | Eigen | `@eigen-ai.bsky.social` | a generator body: a survey drone, flown as a helicopter | Isoline, a dark near-future city on a slope above a lake shore, its streets the land's tensor field ringed round a twisted glass Spire in the bay | [eigen/](eigen/README.md) | `exports/eigen/` | 12 (session 903) |
 
 ## The short prompt
