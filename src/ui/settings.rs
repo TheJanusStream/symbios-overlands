@@ -153,6 +153,16 @@ pub fn settings_ui(
                          and zooming out comes back. V switches either way.",
                     )
                     .changed();
+                // #1754: mouse look in the eyes.
+                dirty |= ui
+                    .checkbox(&mut s.first_person_mouse_look, "Mouse look in first person")
+                    .on_hover_text(
+                        "In first person the mouse turns your head without holding a \
+                         button, a crosshair marks where you point, and clicks act there. \
+                         Esc frees the pointer for the windows; click the world to look \
+                         again.",
+                    )
+                    .changed();
                 ui.label("Ground avoidance:");
                 ui.horizontal(|ui| {
                     for mode in [

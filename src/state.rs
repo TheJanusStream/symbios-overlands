@@ -665,6 +665,12 @@ pub struct LocalSettings {
     /// way in is switched by it: V changes the view either way, and a zoom
     /// out still leaves the eyes. Read by `camera::first_person`.
     pub zoom_into_first_person: bool,
+    /// In first person the mouse turns the head with no button held, a
+    /// crosshair marks where it points, and a click acts there (#1754). Off
+    /// by default - old prefs files get it through the struct-level
+    /// `serde(default)`. Esc frees the pointer for the windows and a click on
+    /// the world takes it back. Read by `camera::first_person`.
+    pub first_person_mouse_look: bool,
     /// How loudly the room's contact effects are allowed to play (#1221
     /// f308). The visual counterpart to the app-wide audio mute, and the
     /// accessibility control the app lacked for flashing and motion.
@@ -818,6 +824,7 @@ impl Default for LocalSettings {
             camera_ground_clearance_m: crate::config::camera::TERRAIN_CLEARANCE,
             orthographic_camera: false,
             zoom_into_first_person: true,
+            first_person_mouse_look: false,
             effects_intensity: EffectsIntensity::default(),
             show_peer_nametags: true,
             ui_scale: 1.0,

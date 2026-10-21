@@ -13,6 +13,8 @@
 //! gameplay-effect concerns. PDS describes "what the avatar is";
 //! interaction describes "how it looks to the world."
 
+use bevy::math::Vec2;
+
 use crate::config::terrain::water::wake as wcfg;
 use crate::pds::{
     AirplaneParams, CarParams, HelicopterParams, HoverBoatParams, HumanoidParams, LocomotionConfig,
@@ -51,6 +53,16 @@ pub trait LocomotionFootprint {
     fn water_slack(&self) -> f32 {
         wcfg::CONTACT_SLACK
     }
+
+    /// How far the body reaches from its middle to its outline toward a
+    /// horizontal direction in its own frame - `x` across it, `y` ahead along
+    /// it; only their sizes count (#1751). Where an eye stands on it: a
+    /// first-person view at its nose, the agent's eye view toward whatever it
+    /// looks at. Every way the footprint radius unless a preset knows its own
+    /// outline.
+    fn reach(&self, _toward: Vec2) -> f32 {
+        self.footprint_radius()
+    }
 }
 
 impl LocomotionFootprint for HumanoidParams {
@@ -83,12 +95,34 @@ fn cuboid_height(half_extents: [f32; 3]) -> f32 {
     (half_extents[1] * 2.0).max(0.01)
 }
 
+/// How far a chassis-cuboid vehicle reaches from its middle toward `toward`
+/// in its own frame (#1751): to the face of its box the direction leaves it
+/// through - its nose straight ahead, its flank to the side - where the
+/// footprint, the longer of its width and length, put the eyes of a vehicle
+/// wider than long out in front of its nose.
+fn cuboid_reach(half_extents: [f32; 3], toward: Vec2) -> f32 {
+    let toward = toward.normalize_or(Vec2::Y);
+    let face = |half: f32, share: f32| {
+        if share.abs() > 1e-6 {
+            half / share.abs()
+        } else {
+            f32::INFINITY
+        }
+    };
+    face(half_extents[0], toward.x)
+        .min(face(half_extents[2], toward.y))
+        .max(0.0)
+}
+
 impl LocomotionFootprint for HoverBoatParams {
     fn footprint_radius(&self) -> f32 {
         cuboid_footprint(self.chassis_half_extents.0)
     }
     fn total_height(&self) -> f32 {
         cuboid_height(self.chassis_half_extents.0)
+    }
+    fn reach(&self, toward: Vec2) -> f32 {
+        cuboid_reach(self.chassis_half_extents.0, toward)
     }
     fn ground_reach(&self) -> f32 {
         self.suspension_rest_length.0.max(0.0)
@@ -105,6 +139,9 @@ impl LocomotionFootprint for CarParams {
     fn total_height(&self) -> f32 {
         cuboid_height(self.chassis_half_extents.0)
     }
+    fn reach(&self, toward: Vec2) -> f32 {
+        cuboid_reach(self.chassis_half_extents.0, toward)
+    }
     fn ground_reach(&self) -> f32 {
         self.suspension_rest_length.0.max(0.0)
     }
@@ -120,6 +157,9 @@ impl LocomotionFootprint for HelicopterParams {
     fn total_height(&self) -> f32 {
         cuboid_height(self.chassis_half_extents.0)
     }
+    fn reach(&self, toward: Vec2) -> f32 {
+        cuboid_reach(self.chassis_half_extents.0, toward)
+    }
     fn water_slack(&self) -> f32 {
         wcfg::SKIM_SLACK
     }
@@ -131,6 +171,9 @@ impl LocomotionFootprint for AirplaneParams {
     }
     fn total_height(&self) -> f32 {
         cuboid_height(self.chassis_half_extents.0)
+    }
+    fn reach(&self, toward: Vec2) -> f32 {
+        cuboid_reach(self.chassis_half_extents.0, toward)
     }
     fn water_slack(&self) -> f32 {
         wcfg::SKIM_SLACK
@@ -158,6 +201,21 @@ pub fn locomotion_footprint(cfg: &LocomotionConfig) -> f32 {
         LocomotionConfig::Car(p) => p.footprint_radius(),
         LocomotionConfig::Helicopter(p) => p.footprint_radius(),
         LocomotionConfig::Airplane(p) => p.footprint_radius(),
+        LocomotionConfig::Unknown => UNKNOWN_FOOTPRINT,
+    }
+}
+
+/// How far any locomotion config's body reaches from its middle toward
+/// `toward`, a horizontal direction in its own frame - `x` across, `y` ahead
+/// ([`LocomotionFootprint::reach`], #1751); [`UNKNOWN_FOOTPRINT`] for
+/// `Unknown`.
+pub fn locomotion_reach(cfg: &LocomotionConfig, toward: Vec2) -> f32 {
+    match cfg {
+        LocomotionConfig::Humanoid(p) => p.reach(toward),
+        LocomotionConfig::HoverBoat(p) => p.reach(toward),
+        LocomotionConfig::Car(p) => p.reach(toward),
+        LocomotionConfig::Helicopter(p) => p.reach(toward),
+        LocomotionConfig::Airplane(p) => p.reach(toward),
         LocomotionConfig::Unknown => UNKNOWN_FOOTPRINT,
     }
 }
@@ -226,6 +284,33 @@ mod tests {
         assert!((hb.footprint_radius() - 3.0).abs() < 1e-5);
         hb.chassis_half_extents = Fp3([4.0, 0.4, 0.5]);
         assert!((hb.footprint_radius() - 4.0).abs() < 1e-5);
+    }
+
+    /// **A body's reach ends at its outline** (#1751): a vehicle's box at its
+    /// nose straight ahead and its flank to the side - a vehicle wider than
+    /// long reaches its half-length ahead, not its width, which put a nose
+    /// camera out in front of it - and the face the direction leaves through
+    /// on a diagonal; a person's footprint circle every way.
+    #[test]
+    fn a_reach_ends_at_the_bodys_outline() {
+        let wide = LocomotionConfig::Car(Box::new(CarParams {
+            chassis_half_extents: Fp3([2.0, 0.5, 1.0]),
+            ..Default::default()
+        }));
+        let reach = |toward: Vec2| locomotion_reach(&wide, toward);
+        assert!((reach(Vec2::Y) - 1.0).abs() < 1e-5, "ahead: the nose");
+        assert!((reach(Vec2::NEG_Y) - 1.0).abs() < 1e-5, "behind: the tail");
+        assert!((reach(Vec2::X) - 2.0).abs() < 1e-5, "across: the flank");
+        let diagonal = reach(Vec2::new(1.0, 1.0));
+        assert!(
+            (diagonal - std::f32::consts::SQRT_2).abs() < 1e-5,
+            "a diagonal leaves through the nose: {diagonal}"
+        );
+        let person = LocomotionConfig::Humanoid(Box::default());
+        let radius = locomotion_footprint(&person);
+        for toward in [Vec2::Y, Vec2::X, Vec2::new(0.6, -0.8)] {
+            assert_eq!(locomotion_reach(&person, toward), radius);
+        }
     }
 
     /// A vehicle or an aircraft skims the water and a person must touch it

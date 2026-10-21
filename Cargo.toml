@@ -200,6 +200,9 @@ console_error_panic_hook = "0.1"
 getrandom = { version = "0.2", features = ["js"] }
 web-sys = { version = "0.3", features = [
     "Document",
+    # `Document::pointer_lock_element`: whether the browser still holds the
+    # pointer mouse look asked for (#1754).
+    "Element",
     "Window",
     "HtmlElement",
     "HtmlAnchorElement",

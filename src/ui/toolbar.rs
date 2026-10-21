@@ -1149,7 +1149,7 @@ const EDITOR_ROWS: &[ControlRow] = &[
 // Same contract as the movement and editor rows - these mirror live
 // handlers, change both together:
 // * Enter          → `ui::shortcuts` chat focus
-// * Esc            → drag abort · selection clear · window close
+// * Esc            → drag abort · pointer freed · selection clear · window close
 // * Ctrl+S         → `ui::shortcuts` publish
 // * Ctrl+Z / Shift → `ui::undo::trigger`
 // Camera rows - the same on every chassis. A const rather than inline
@@ -1175,6 +1175,17 @@ const CAMERA_ROWS: &[ControlRow] = &[
         keys: "V  or  zoom all the way in",
         action: "first-person view (zoom out or V to come back)",
     },
+    // #1754: mouse look, a Settings choice (`camera::first_person`). While
+    // it holds the pointer, Esc frees it: a rung of the back-out ladder,
+    // below a live drag's (`ui::shortcuts`).
+    ControlRow {
+        keys: "Mouse  (mouse look on, in Settings)",
+        action: "look around in first person, no button held",
+    },
+    ControlRow {
+        keys: "Esc  (under mouse look)",
+        action: "free the pointer · click the world to look again",
+    },
 ];
 
 const GLOBAL_ROWS: &[ControlRow] = &[
@@ -1184,7 +1195,7 @@ const GLOBAL_ROWS: &[ControlRow] = &[
     },
     ControlRow {
         keys: "Esc",
-        action: "back out one step: drag · selection · pop-out · gateway · windows",
+        action: "back out one step: drag · pointer · selection · pop-out · gateway · windows",
     },
     ControlRow {
         keys: "Ctrl+S",
@@ -2108,6 +2119,27 @@ mod tests {
             shortcuts.contains("just_pressed(KeyCode::KeyV)")
                 && shortcuts.contains("first_person.request_toggle()"),
             "ui::shortcuts no longer binds V to the view"
+        );
+        // And the mouse-look rows: the look, and its Esc (#1754).
+        assert!(
+            CAMERA_ROWS
+                .iter()
+                .any(|row| row.keys.starts_with("Mouse") && row.action.contains("look around")),
+            "the camera rows say mouse look turns the head"
+        );
+        assert!(
+            include_str!("../camera.rs").contains("first_person::follow_mouse_look"),
+            "the camera no longer runs mouse look"
+        );
+        assert!(
+            CAMERA_ROWS
+                .iter()
+                .any(|row| row.keys.starts_with("Esc") && row.action.contains("free the pointer")),
+            "the camera rows say what Esc does under mouse look"
+        );
+        assert!(
+            shortcuts.contains("EscStep::FreePointer => first_person.release_mouse_look()"),
+            "ui::shortcuts no longer frees the pointer on Esc"
         );
     }
 

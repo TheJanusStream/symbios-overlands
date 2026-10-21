@@ -221,6 +221,15 @@ pub enum PlayerMove {
 #[derive(Resource, Default)]
 pub struct PlayerMoveRequest(Option<PlayerMove>);
 
+/// The local body was set down facing a new way (#1750) - a gateway's landing,
+/// or the world's own on a return to the spawn or a fall's recovery. Looking
+/// out of the eyes on foot, the walk turns the body to where the eyes look, so
+/// the camera turns the eyes to this first: without it the landing's facing
+/// was lost to the way the player looked before. A scatter, with no landing,
+/// faces no way anyone chose, and says nothing.
+#[derive(Message, Clone, Copy, Debug, PartialEq)]
+pub struct FacingSet(pub Quat);
+
 impl PlayerMoveRequest {
     /// Ask for a move on the next `Update`.
     pub fn request(&mut self, what: PlayerMove) {
@@ -288,6 +297,7 @@ pub(super) fn apply_player_move(
     time: Res<Time>,
     mut session_log: ResMut<crate::diagnostics::SessionLog>,
     mut toasts: ResMut<crate::notify::Toasts>,
+    mut facing_set: MessageWriter<FacingSet>,
 ) {
     let Some(what) = request.0.take() else {
         return;
@@ -316,6 +326,9 @@ pub(super) fn apply_player_move(
                 .and_then(|r| crate::world_builder::compile::landing_on(&r.0, &hm_res));
             let pose = recovery_pose(&hm_res, landing, clearance);
             rot.0 = pose.rot;
+            if landing.is_some() {
+                facing_set.write(FacingSet(pose.rot));
+            }
             (pose.pos, RecoveryReason::Requested.toast())
         }
         PlayerMove::GoTo(target) => {
@@ -369,6 +382,7 @@ pub(super) fn respawn_if_fallen(
     mut session_log: ResMut<crate::diagnostics::SessionLog>,
     mut recent_respawns: ResMut<crate::diagnostics::anomaly::RecentRespawns>,
     mut toasts: ResMut<crate::notify::Toasts>,
+    mut facing_set: MessageWriter<FacingSet>,
 ) {
     let Ok((entity, mut pos, mut rot, mut lin_vel, mut ang_vel, lift, throttle)) =
         query.single_mut()
@@ -408,6 +422,9 @@ pub(super) fn respawn_if_fallen(
     let pose = recovery_pose(&hm_res, landing, clearance);
     pos.0 = pose.pos;
     rot.0 = pose.rot;
+    if landing.is_some() {
+        facing_set.write(FacingSet(pose.rot));
+    }
     lin_vel.0 = Vec3::ZERO;
     ang_vel.0 = Vec3::ZERO;
     super::helicopter::set_down(lift);
@@ -475,6 +492,86 @@ pub(super) fn respawn_if_fallen(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A recovery says which way it set the body down, where the world
+    /// names a landing** (#1750): a body looking out of its eyes is turned by
+    /// the walk to where they look, so the landing's facing has to reach the
+    /// camera, which turns the eyes to it - once, with the rotation the body
+    /// was given, on a return to the spawn and on a fall's recovery alike. A
+    /// scatter, with no landing, faces no way anyone chose, and the eyes keep
+    /// the way they looked.
+    #[test]
+    fn a_recovery_says_its_landings_facing() {
+        use bevy::ecs::system::RunSystemOnce;
+
+        /// The facing the body was given, and what was said of it.
+        fn recover(
+            fall: bool,
+            landing: Option<crate::pds::DefaultLanding>,
+        ) -> (Quat, Vec<FacingSet>) {
+            let record = crate::pds::RoomRecord {
+                default_landing: landing,
+                ..Default::default()
+            };
+            let mut app = App::new();
+            app.add_plugins(MinimalPlugins)
+                .add_message::<FacingSet>()
+                .init_resource::<crate::diagnostics::SessionLog>()
+                .init_resource::<crate::diagnostics::MetricsRegistry>()
+                .init_resource::<crate::diagnostics::anomaly::RecentRespawns>()
+                .init_resource::<crate::notify::Toasts>()
+                .insert_resource(LiveRoomRecord(record))
+                .insert_resource(crate::terrain::FinishedHeightMap(
+                    bevy_symbios_ground::HeightMap::new(33, 33, 2.0),
+                    None,
+                ))
+                .insert_resource(PlayerMoveRequest(
+                    (!fall).then_some(PlayerMove::ReturnToSpawn),
+                ));
+            // Far under the ground for the fall, on it for the return.
+            let at = Vec3::Y * if fall { -100.0 } else { 0.0 };
+            let body = app
+                .world_mut()
+                .spawn((
+                    LocalPlayer,
+                    Position(at),
+                    Rotation::default(),
+                    LinearVelocity::default(),
+                    AngularVelocity::default(),
+                ))
+                .id();
+            let ran = if fall {
+                app.world_mut().run_system_once(respawn_if_fallen)
+            } else {
+                app.world_mut().run_system_once(apply_player_move)
+            };
+            ran.expect("the recovery runs");
+            let set_down = app.world().get::<Rotation>(body).expect("a body").0;
+            let said = app
+                .world()
+                .resource::<Messages<FacingSet>>()
+                .iter_current_update_messages()
+                .copied()
+                .collect();
+            (set_down, said)
+        }
+
+        let landing = crate::pds::DefaultLanding {
+            pos: crate::pds::Fp2([6.0, -4.0]),
+            y: None,
+            yaw_deg: crate::pds::Fp(90.0),
+        };
+        for fall in [false, true] {
+            let (set_down, said) = recover(fall, Some(landing));
+            assert!(
+                set_down.abs_diff_eq(Quat::from_rotation_y(90f32.to_radians()), 1e-5),
+                "fall {fall}: set down facing the landing's way, {set_down:?}"
+            );
+            assert_eq!(said, vec![FacingSet(set_down)], "fall {fall}");
+            let (_, said) = recover(fall, None);
+            assert!(said.is_empty(), "fall {fall}: a scatter says nothing");
+        }
+    }
 
     /// #1240 f169. Sequence: fly the airship out over the sea until the
     /// ground ends. The fall test cannot fire out there - the heightmap

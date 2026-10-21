@@ -343,6 +343,12 @@ pub enum EscStep {
     BlobElement,
     /// Disarm an armed drag-to-place / drag-to-gift (#831).
     DragToPlace,
+    /// Free the pointer from mouse look in first person (#1754); a click on
+    /// the world takes it back. Below the rungs another system takes on the
+    /// same press - a gizmo drag's abort, a blob element's step out - or that
+    /// spend it, so a press is still one step; above the selection and the
+    /// windows, which nothing can point at while the pointer is held.
+    FreePointer,
     /// Clear the ordinary editor selection - room OR avatar.
     Selection,
     /// The audio pop-out cleared its own selection; the ladder does
@@ -361,6 +367,8 @@ pub enum EscStep {
 /// Everything the ladder can see this frame, as data (#1236).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct EscFacts {
+    /// Mouse look holds the pointer (#1754).
+    pub mouse_look: bool,
     /// A `GizmoTarget` reports an active drag.
     pub gizmo_dragging: bool,
     /// `BlobEditContext` has an element selected.
@@ -396,6 +404,8 @@ pub fn esc_step(facts: EscFacts) -> EscStep {
         // Above the room's own selection: the press was aimed at the
         // window on top, which is the pop-out.
         EscStep::AudioEditorSelection
+    } else if facts.mouse_look {
+        EscStep::FreePointer
     } else if facts.has_selection {
         EscStep::Selection
     } else if facts.audio_popout {
@@ -441,6 +451,8 @@ impl EscLadder<'_, '_> {
     /// Read the ladder's world state into [`EscFacts`].
     fn facts(&self) -> EscFacts {
         EscFacts {
+            // Filled in by `global_shortcuts`, which holds the camera's view.
+            mouse_look: false,
             gizmo_dragging: self.gizmo_dragging(),
             blob_element: self.blob_ctx.selected_element.is_some(),
             drag_armed: self.pending_drop.generator_name.is_some(),
@@ -587,7 +599,12 @@ pub fn global_shortcuts(
     // ── Esc: the back-out ladder ─────────────────────────────────────
     // The rungs live in `esc_step`; this is only the world-writing half.
     if keyboard.just_pressed(KeyCode::Escape) && gate.allows_esc() {
-        match esc_step(esc.facts()) {
+        let facts = EscFacts {
+            mouse_look: first_person.mouse_look_captured(),
+            ..esc.facts()
+        };
+        match esc_step(facts) {
+            EscStep::FreePointer => first_person.release_mouse_look(),
             // Owned elsewhere (`editor_gizmo::drag` / `::blob`, PostUpdate,
             // later this same frame); doing nothing here lets them consume
             // the press exactly as before.
@@ -1028,6 +1045,57 @@ mod tests {
         audio_editor_keys: false,
     };
 
+    /// **Esc frees mouse look's pointer before the selection and the
+    /// windows, and after the steps another system takes** (#1754). Nothing
+    /// can point at a selection or a window while the pointer is held, so it
+    /// is freed first; but a gizmo drag's abort and a blob element's step out
+    /// read the press for themselves, and an armed drag or the audio pop-out
+    /// spends it, so freeing the pointer on the same press made one press two
+    /// steps.
+    #[test]
+    fn esc_frees_the_pointer_before_the_selection_and_the_windows() {
+        let looking = EscFacts {
+            mouse_look: true,
+            has_selection: true,
+            audio_popout: true,
+            gateway_picker: true,
+            ..Default::default()
+        };
+        assert_eq!(esc_step(looking), EscStep::FreePointer);
+        for (step, facts) in [
+            (
+                EscStep::GizmoDrag,
+                EscFacts {
+                    gizmo_dragging: true,
+                    ..looking
+                },
+            ),
+            (
+                EscStep::BlobElement,
+                EscFacts {
+                    blob_element: true,
+                    ..looking
+                },
+            ),
+            (
+                EscStep::DragToPlace,
+                EscFacts {
+                    drag_armed: true,
+                    ..looking
+                },
+            ),
+            (
+                EscStep::AudioEditorSelection,
+                EscFacts {
+                    audio_editor_selection: true,
+                    ..looking
+                },
+            ),
+        ] {
+            assert_eq!(esc_step(facts), step, "the press is {step:?}'s alone");
+        }
+    }
+
     /// **V is the view, Ctrl+V a paste** (#1745): with no text field focused
     /// a paste reached the V binding and flipped the camera into the eyes.
     /// Shift (a sprint) may be held; Ctrl, Cmd and Alt may not.
@@ -1185,6 +1253,7 @@ mod tests {
     #[test]
     fn the_esc_ladder_takes_exactly_one_step_from_the_top() {
         let everything = EscFacts {
+            mouse_look: true,
             gizmo_dragging: true,
             blob_element: true,
             drag_armed: true,
@@ -1202,6 +1271,8 @@ mod tests {
         facts.drag_armed = false;
         assert_eq!(esc_step(facts), EscStep::AudioEditorSelection);
         facts.audio_editor_selection = false;
+        assert_eq!(esc_step(facts), EscStep::FreePointer);
+        facts.mouse_look = false;
         assert_eq!(esc_step(facts), EscStep::Selection);
         facts.has_selection = false;
         assert_eq!(esc_step(facts), EscStep::AudioPopout);

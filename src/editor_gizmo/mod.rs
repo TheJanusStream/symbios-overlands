@@ -612,7 +612,8 @@ impl Plugin for EditorGizmoPlugin {
 /// the selection (and the drag) untouched. The converse - a pick whose
 /// NEW gizmo puts a handle under the same press - is not a drag either:
 /// [`drag::withhold_the_selecting_press`] keeps that press from grabbing
-/// it (#1396).
+/// it (#1396). Under mouse look neither flag is the player's, and neither
+/// counts ([`press_picks`], #1754).
 ///
 /// **Face picking (#961).** While the Faces panel has [`FacePick`] armed,
 /// the same click additionally resolves *which face* of the prim was under
@@ -666,17 +667,15 @@ fn pick_on_scene_click(
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
     };
-    // Clicks on the toolbar or any editor window are UI interactions, not
-    // a "click into the world" - leave the selection alone.
-    if ctx.is_pointer_over_egui() {
-        return;
-    }
-    // The click is starting (or continuing) a gizmo interaction - keep the
-    // selection so the drag can run.
-    if gizmo_targets
+    let on_gizmo = gizmo_targets
         .iter()
-        .any(|t| t.is_focused() || t.is_active())
-    {
+        .any(|t| t.is_focused() || t.is_active());
+    if !press_picks(
+        pick.mouse_look_waiting(),
+        pick.pointer_captured(),
+        ctx.is_pointer_over_egui(),
+        on_gizmo,
+    ) {
         return;
     }
 
@@ -1094,12 +1093,54 @@ pub(super) struct ScenePick<'w, 's> {
     terrain: Query<'w, 's, Entity, With<crate::terrain::TerrainMesh>>,
     /// Instance sets' copies, for the colliders that name them (#1644).
     copies: Query<'w, 's, &'static crate::world_builder::instances::InstanceCopyOf>,
+    /// Whether mouse look holds the pointer (#1754).
+    first_person: Option<Res<'w, crate::camera::FirstPerson>>,
+}
+
+/// Whether a left press picks. A click on the toolbar or any editor window
+/// (`over_egui`) is a UI interaction, not a click into the world, and leaves
+/// the selection alone; so does one starting (or continuing) a gizmo
+/// interaction (`on_gizmo`), so the drag can run. While mouse look holds the
+/// pointer (#1754) the click is the world's, aimed at the crosshair: egui
+/// hears no pointer, and a gizmo's hover is the hidden pointer's, whose press
+/// [`drag::withhold_the_selecting_press`] withholds. The click that takes the
+/// pointer back (`waiting`) does only that.
+fn press_picks(waiting: bool, captured: bool, over_egui: bool, on_gizmo: bool) -> bool {
+    !waiting && (captured || !(over_egui || on_gizmo))
+}
+
+/// Where a pick is aimed in a window of `window` logical size (#1754): at the
+/// `cursor`, or at the centre while mouse look holds the pointer - where its
+/// crosshair is, and where the hidden pointer is not.
+fn pick_point(cursor: Option<Vec2>, window: Vec2, captured: bool) -> Option<Vec2> {
+    if captured { Some(window / 2.0) } else { cursor }
 }
 
 impl ScenePick<'_, '_> {
-    /// Where the pointer is in the primary window, if it is in it at all.
+    /// Where the pointer is in the primary window, if it is in it at all -
+    /// its centre while mouse look holds the pointer ([`pick_point`]).
     pub(super) fn cursor_position(&self) -> Option<Vec2> {
-        self.windows.single().ok()?.cursor_position()
+        let window = self.windows.single().ok()?;
+        pick_point(
+            window.cursor_position(),
+            window.size(),
+            self.pointer_captured(),
+        )
+    }
+
+    /// Whether mouse look holds the pointer (#1754).
+    pub(super) fn pointer_captured(&self) -> bool {
+        self.first_person
+            .as_deref()
+            .is_some_and(crate::camera::FirstPerson::mouse_look_captured)
+    }
+
+    /// Whether mouse look waits for a click on the world to take the pointer
+    /// back (#1754) - a click that is nothing else.
+    pub(super) fn mouse_look_waiting(&self) -> bool {
+        self.first_person
+            .as_deref()
+            .is_some_and(crate::camera::FirstPerson::mouse_look_waiting)
     }
 
     /// The world ray under the cursor, or `None` when there is no cursor,
@@ -1251,6 +1292,49 @@ pub(crate) struct DragState {
 #[cfg(test)]
 mod pick_tests {
     use super::*;
+
+    /// **Under mouse look a pick is aimed at the crosshair** (#1754): the
+    /// window's centre while mouse look holds the pointer, wherever the hidden
+    /// pointer sits - and with the pointer free, at the pointer, or nowhere
+    /// when it is outside the window.
+    #[test]
+    fn under_mouse_look_a_pick_is_aimed_at_the_crosshair() {
+        let window = Vec2::new(1280.0, 720.0);
+        let pointer = Some(Vec2::new(40.0, 600.0));
+        assert_eq!(
+            pick_point(pointer, window, true),
+            Some(Vec2::new(640.0, 360.0))
+        );
+        assert_eq!(
+            pick_point(None, window, true),
+            Some(Vec2::new(640.0, 360.0))
+        );
+        assert_eq!(pick_point(pointer, window, false), pointer);
+        assert_eq!(pick_point(None, window, false), None);
+    }
+
+    /// **Under mouse look a click picks at the crosshair, and the click
+    /// that takes the pointer back picks nothing** (#1754). The controls are
+    /// the free pointer's rules: a click on a window or on a gizmo's handle
+    /// does not pick, one into the world does.
+    #[test]
+    fn under_mouse_look_a_click_is_the_worlds() {
+        // waiting, captured, over egui, on a gizmo.
+        assert!(
+            press_picks(false, false, false, false),
+            "control: the world"
+        );
+        assert!(!press_picks(false, false, true, false), "control: a window");
+        assert!(!press_picks(false, false, false, true), "control: a handle");
+        assert!(
+            press_picks(false, true, true, true),
+            "held: egui's last sight of the pointer and the hidden pointer's hover count for nothing"
+        );
+        assert!(
+            !press_picks(true, false, false, false),
+            "the click that takes the pointer back"
+        );
+    }
 
     /// #1590, #1644: the owner's own content keeps a click from every
     /// merged copy's box, and from a collider behind it; a collider truly in

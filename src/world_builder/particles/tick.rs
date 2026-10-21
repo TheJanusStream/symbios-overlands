@@ -310,3 +310,132 @@ mod tests {
         assert_eq!(eye.toward(right), back);
     }
 }
+
+/// World-space particles carry their emitter's render layers (#1748).
+///
+/// A particle left in world space is spawned unparented, so a layer carried
+/// down the emitter's hierarchy never reaches it: from a body hidden in its
+/// own first-person camera (#1745) its sparks and trails went on drawing in
+/// the camera's face, and from the item preview's stage (#1288) they drew in
+/// the world. Mirrored every frame - see [`register_layer_follow`] for when -
+/// so a particle spawned this frame and an emitter whose body has just been
+/// hidden or shown are right on the frame they happen. Written only where
+/// they differ; a particle whose emitter is gone keeps what it has until it
+/// ages out.
+pub fn follow_emitter_layers(
+    mut commands: Commands,
+    emitters: Query<Option<&bevy::camera::visibility::RenderLayers>>,
+    particles: Query<
+        (
+            Entity,
+            &Particle,
+            Option<&bevy::camera::visibility::RenderLayers>,
+        ),
+        Without<ChildOf>,
+    >,
+) {
+    for (entity, particle, layers) in &particles {
+        let Ok(wanted) = emitters.get(particle.emitter) else {
+            continue;
+        };
+        if layers == wanted {
+            continue;
+        }
+        match wanted {
+            Some(wanted) => {
+                commands.entity(entity).try_insert(wanted.clone());
+            }
+            None => {
+                commands
+                    .entity(entity)
+                    .try_remove::<bevy::camera::visibility::RenderLayers>();
+            }
+        }
+    }
+}
+
+/// Run [`follow_emitter_layers`] in `PostUpdate`, after the layers are
+/// carried down the hierarchy and before visibility is decided (#1748).
+pub fn register_layer_follow(app: &mut App) {
+    app.add_systems(
+        PostUpdate,
+        follow_emitter_layers
+            .after(bevy::app::PropagateSet::<
+                bevy::camera::visibility::RenderLayers,
+            >::default())
+            .before(bevy::camera::visibility::VisibilitySystems::CheckVisibility),
+    );
+}
+
+#[cfg(test)]
+mod layer_follow_tests {
+    use super::*;
+    use bevy::app::Propagate;
+    use bevy::camera::visibility::RenderLayers;
+
+    fn particle(emitter: Entity) -> Particle {
+        Particle {
+            age: 0.0,
+            lifetime: 1.0,
+            velocity: Vec3::ZERO,
+            emitter,
+            atlas_dim: None,
+            frame_index: 0,
+            frame_mode: AnimationFrameMode::Still,
+            ramp_index: 0,
+        }
+    }
+
+    /// **A world-space particle draws on its emitter's layers** (#1748): a
+    /// spark left in world space by an emitter on a body hidden in its own
+    /// first-person camera is hidden with it on the frame the body is, a spark
+    /// spawned while it is hidden is hidden on its first frame, and both are
+    /// drawn again on the frame the body is shown.
+    #[test]
+    fn a_world_space_particle_draws_on_its_emitters_layers() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        crate::camera::register_render_layer_propagation(&mut app);
+        register_layer_follow(&mut app);
+        let body = app.world_mut().spawn(Transform::default()).id();
+        let emitter = app
+            .world_mut()
+            .spawn((Transform::default(), ChildOf(body)))
+            .id();
+        let spark = app
+            .world_mut()
+            .spawn((Transform::default(), particle(emitter)))
+            .id();
+        let hidden = RenderLayers::layer(crate::config::camera::FIRST_PERSON_BODY_LAYER);
+        app.update();
+        assert_eq!(app.world().get::<RenderLayers>(spark), None, "in view");
+
+        app.world_mut()
+            .entity_mut(body)
+            .insert(Propagate(hidden.clone()));
+        app.update();
+        assert_eq!(
+            app.world().get::<RenderLayers>(spark),
+            Some(&hidden),
+            "hidden with the body, the same frame"
+        );
+        let late = app
+            .world_mut()
+            .spawn((Transform::default(), particle(emitter)))
+            .id();
+        app.update();
+        assert_eq!(
+            app.world().get::<RenderLayers>(late),
+            Some(&hidden),
+            "hidden on its first frame"
+        );
+
+        app.world_mut()
+            .entity_mut(body)
+            .remove::<Propagate<RenderLayers>>();
+        app.update();
+        for drawn in [spark, late] {
+            assert_eq!(app.world().get::<RenderLayers>(drawn), None, "shown again");
+        }
+    }
+}

@@ -91,6 +91,7 @@ pub mod avatar;
 pub mod catalogue;
 pub mod chat;
 pub mod confirm;
+pub mod crosshair;
 pub mod diagnostics;
 pub mod editable;
 pub mod fonts;

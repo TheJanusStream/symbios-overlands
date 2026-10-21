@@ -329,7 +329,6 @@ pub(super) fn spawn_driver(
                 &spec.record.locomotion,
                 true,
                 None,
-                None,
             )),
             bevy::app::Propagate(bevy::camera::visibility::RenderLayers::layer(
                 crate::config::camera::FIRST_PERSON_BODY_LAYER,

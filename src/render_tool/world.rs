@@ -710,14 +710,17 @@ fn spawn_one_walker(
         root.insert(PendingWear(body.worn));
     }
     let root = root.id();
-    // `--first-person` (#1745): the chassis stands on the feet, so the rig's
-    // eye line, which is measured from them, is the eyes' height over it.
+    // `--first-person` (#1745): the rig's eye line at rest, through the root
+    // into the chassis' frame as the game takes it (#1749) - the chassis
+    // stands on the feet here, so the root hangs at no offset.
     let eyes = (spec.first_person && index == 0).then(|| {
         body.avatar
             .rig
             .landmarks()
             .get(symbios_avatar::rig::Landmark::EyeLine)
-            .map_or(1.6, |anchor| anchor.position.y)
+            .map_or(Vec3::Y * 1.6, |anchor| {
+                rigged_root_transform(0.0).transform_point(anchor.position)
+            })
     });
     spawn_avatar(
         commands,
@@ -733,7 +736,7 @@ fn spawn_one_walker(
     commands.entity(chassis).insert(crate::grass::PartsGrass);
     if let Some(eyes) = eyes {
         commands.entity(chassis).insert((
-            super::rig::FirstPersonEyes(crate::camera::EyeMount::OnFoot { above_centre: eyes }),
+            super::rig::FirstPersonEyes(crate::camera::EyeMount::OnFoot { eye: eyes }),
             bevy::app::Propagate(bevy::camera::visibility::RenderLayers::layer(
                 crate::config::camera::FIRST_PERSON_BODY_LAYER,
             )),

@@ -1651,6 +1651,9 @@ pub fn run() {
         .as_deref()
         .map(|b| parse_hex_colour(b).unwrap_or_else(|e| panic!("{e}")))
         .unwrap_or(DEFAULT_BACKDROP);
+    // As the game does: a world-space particle draws on its emitter's layers
+    // (#1748), so a `--first-person` body's trail is out of its picture.
+    crate::world_builder::particles::register_layer_follow(&mut app);
     app.insert_resource(ClearColor(Color::srgb_u8(br, bg, bb)))
         .insert_resource(RenderJob {
             subject,

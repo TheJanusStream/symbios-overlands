@@ -621,6 +621,8 @@ impl Plugin for WorldBuilderPlugin {
                     .chain()
                     .run_if(in_state(AppState::InGame)),
             );
+        // A world-space particle draws on its emitter's layers (#1748).
+        particles::register_layer_follow(app);
         // The player's ground-cover draw distance (#1480), kept on every
         // scattered small copy the compile stamps.
         draw_distance::register(app);

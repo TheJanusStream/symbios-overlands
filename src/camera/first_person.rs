@@ -9,7 +9,10 @@
 //! to orbit, so turning the head is the gesture that orbits, with the same
 //! smoothing; only its zoom is held while the eyes look (its zoom sensitivity
 //! goes to 0, [`switch_view`]). On foot the eyes look level with the world
-//! along the orbit's yaw and pitch. In a vehicle they ride its nose, turning,
+//! along the orbit's yaw and pitch, from the rig's eye line where its pose
+//! carries it - a swim's crawl or a sit followed whole, the walk's bob eased
+//! to a share of itself ([`ease_drift`], #1749). In a vehicle they ride its
+//! nose, where its box ends straight ahead (#1751), turning,
 //! pitching and banking with it, and the orbit stops following the vehicle's
 //! turns (`follow_local_player`): its yaw since the eyes were entered is how
 //! far the head is turned from straight ahead.
@@ -44,6 +47,21 @@
 //! setting, as the agent's eye view does: an orthographic camera at eye
 //! height is a wall of ground under a band of sky (`follow_projection_setting`).
 //!
+//! **Mouse look** (#1754), a Settings choice: in the eyes the pointer is held
+//! and hidden and the mouse turns the head with no button down
+//! ([`follow_mouse_look`]); a crosshair marks the screen's centre
+//! (`ui::crosshair`), picks are aimed there (`editor_gizmo::ScenePick`), no
+//! press grabs a gizmo, which aims by the hidden pointer, and egui hears no
+//! pointer (`gate_camera_on_gui`). Esc frees the pointer
+//! (`ui::shortcuts`), and so does a dialog wanting an answer; a click on the
+//! world takes it back, and is nothing else. On the web the browser's letting
+//! go of the lock frees it too.
+//!
+//! **A landing turns the eyes** (#1750): a gateway's landing or a return to
+//! the spawn says which way it set the body down (`player::FacingSet`), and
+//! the eyes of a body on foot turn to it - the walk turns the body to the
+//! eyes, so the landing's facing would otherwise be lost.
+//!
 //! **The body faces where the eyes look** (#1746). On foot the walk turns
 //! the chassis to the eyes' way rather than to its travel
 //! (`player::humanoid`), so A, D and S step it sideways and back, and its
@@ -56,16 +74,16 @@
 use bevy::app::{HierarchyPropagatePlugin, Propagate, PropagateSet};
 use bevy::camera::visibility::{RenderLayers, VisibilitySystems};
 use bevy::input::gestures::PinchGesture;
-use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
+use bevy::input::mouse::{MouseMotion, MouseScrollUnit, MouseWheel};
 use bevy::input::touch::Touches;
 use bevy::prelude::*;
 use bevy_panorbit_camera::PanOrbitCamera;
-use bevy_symbios_avatar::AvatarBody;
+use bevy_symbios_avatar::{AvatarBody, AvatarPose};
 use symbios_avatar::rig::Landmark;
 
 use super::{IsWorldCamera, WorldCamera, clear_of_terrain};
 use crate::config::camera as cfg;
-use crate::interaction::locomotion::{locomotion_footprint, locomotion_total_height};
+use crate::interaction::locomotion::{locomotion_reach, locomotion_total_height};
 use crate::pds::LocomotionConfig;
 use crate::player::{RiggedRoot, VehicleChassis};
 use crate::state::{LiveAvatarRecord, LocalPlayer, LocalSettings};
@@ -108,6 +126,13 @@ pub struct FirstPerson {
     zoom_sensitivity: Option<f32>,
     /// The chassis whose body is out of the camera's view.
     hidden: Option<Entity>,
+    /// Mouse look holds the pointer (#1754).
+    captured: bool,
+    /// Mouse look is wanted - in the eyes with the setting on - held or not.
+    look_wanted: bool,
+    /// When mouse look last took the pointer, for the browser's grace in
+    /// granting the lock.
+    captured_at: f64,
 }
 
 impl FirstPerson {
@@ -142,6 +167,27 @@ impl FirstPerson {
         self.view == CameraView::Eyes && !self.rides_vehicle()
     }
 
+    /// Whether mouse look holds the pointer (#1754) - in the eyes with the
+    /// setting on, until Esc frees it: the head turns with the mouse, a
+    /// crosshair marks the screen's centre, and picking reads it there.
+    pub fn mouse_look_captured(&self) -> bool {
+        self.captured
+    }
+
+    /// Free the pointer (Esc, #1754): mouse look waits for a click on the
+    /// world to take it back.
+    pub fn release_mouse_look(&mut self) {
+        self.captured = false;
+    }
+
+    /// Whether mouse look is wanted but the pointer is free (#1754): Esc freed
+    /// it, a dialog opened, or the window lost its focus. A click on the world
+    /// then takes the pointer back and is nothing else - not a pick, not a
+    /// gizmo's grab.
+    pub fn mouse_look_waiting(&self) -> bool {
+        self.look_wanted && !self.captured
+    }
+
     /// All the way into the eyes, for a test elsewhere that needs a body
     /// looking out of them.
     #[cfg(test)]
@@ -150,6 +196,26 @@ impl FirstPerson {
             view: CameraView::Eyes,
             blend: 1.0,
             ..Self::default()
+        }
+    }
+
+    /// All the way into the eyes, mouse look holding the pointer.
+    #[cfg(test)]
+    pub(crate) fn mouse_looking() -> Self {
+        Self {
+            captured: true,
+            look_wanted: true,
+            ..Self::looking()
+        }
+    }
+
+    /// All the way into the eyes, mouse look waiting for a click on the world
+    /// to take the pointer back.
+    #[cfg(test)]
+    pub(crate) fn mouse_look_freed() -> Self {
+        Self {
+            look_wanted: true,
+            ..Self::looking()
         }
     }
 
@@ -249,27 +315,22 @@ impl ZoomPush {
 /// Where a body's eyes are (#1745).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum EyeMount {
-    /// On foot: this far above the chassis centre, on its axis. The look is
+    /// On foot: here in the chassis' own frame - the rig's eye line where its
+    /// pose carries it, or on the axis at the body's eye height. The look is
     /// the orbit's, level with the world.
-    OnFoot { above_centre: f32 },
+    OnFoot { eye: Vec3 },
     /// In a vehicle: here in the chassis' own frame - its nose, near its top.
     /// The look turns, pitches and banks with the vehicle.
     Vehicle { at: Vec3 },
 }
 
 impl EyeMount {
-    /// The eyes of a body moving by `locomotion`: a vehicle's at the front of
-    /// its footprint, [`cfg::EYE_HEIGHT_FRACTION`] of the way up (the agent's
-    /// eye view, #1420); a person's at their rig's own eye line when it has
-    /// one, `rig_eyes` above the root that hangs `root_y` off the chassis
-    /// centre (its swim lift with it), and otherwise at that fraction of the
-    /// collider's height.
-    pub(crate) fn of(
-        locomotion: &LocomotionConfig,
-        vehicle: bool,
-        root_y: Option<f32>,
-        rig_eyes: Option<f32>,
-    ) -> Self {
+    /// The eyes of a body moving by `locomotion`: a vehicle's at its nose,
+    /// where its box ends straight ahead (#1751), [`cfg::EYE_HEIGHT_FRACTION`]
+    /// of the way up (the agent's eye view, #1420); a person's at `rig_eye`, their rig's eye line in the
+    /// chassis' frame (#1749), when they have one, and otherwise on the axis
+    /// at that fraction of the collider's height.
+    pub(crate) fn of(locomotion: &LocomotionConfig, vehicle: bool, rig_eye: Option<Vec3>) -> Self {
         let height = locomotion_total_height(locomotion);
         let fraction_above_centre = (cfg::EYE_HEIGHT_FRACTION - 0.5) * height;
         if vehicle {
@@ -277,15 +338,13 @@ impl EyeMount {
                 at: Vec3::new(
                     0.0,
                     fraction_above_centre,
-                    -locomotion_footprint(locomotion),
+                    -locomotion_reach(locomotion, Vec2::Y),
                 ),
             };
         }
-        let above_centre = match (root_y, rig_eyes) {
-            (Some(root_y), Some(eyes)) => root_y + eyes,
-            _ => fraction_above_centre,
-        };
-        Self::OnFoot { above_centre }
+        Self::OnFoot {
+            eye: rig_eye.unwrap_or(Vec3::Y * fraction_above_centre),
+        }
     }
 
     /// The eyes' pose on `chassis`, the head turned `yaw` and pitched `pitch`
@@ -295,8 +354,8 @@ impl EyeMount {
     pub(crate) fn pose(self, chassis: &Transform, yaw: f32, pitch: f32) -> Transform {
         let head = Quat::from_rotation_y(yaw) * Quat::from_rotation_x(-pitch);
         match self {
-            Self::OnFoot { above_centre } => Transform {
-                translation: chassis.translation + Vec3::Y * above_centre,
+            Self::OnFoot { eye } => Transform {
+                translation: chassis.translation + chassis.rotation * eye,
                 rotation: head,
                 ..default()
             },
@@ -306,6 +365,174 @@ impl EyeMount {
                 ..default()
             },
         }
+    }
+}
+
+/// A rig's eye line, read once a body (#1749): the head joint the engine puts
+/// [`Landmark::EyeLine`] on, the line's offset from it, and where it stands
+/// at rest - all in body space.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct EyeLine {
+    /// The rigged root it was read from.
+    root: Entity,
+    /// The head joint that carries it.
+    head: usize,
+    /// The eye line off that joint, at rest.
+    offset: Vec3,
+    /// The eye line at rest.
+    rest: Vec3,
+}
+
+impl EyeLine {
+    /// Read off `rig`, as the engine places the landmark: on the first head
+    /// joint. None for a body with no head.
+    fn of(root: Entity, rig: &symbios_avatar::Rig) -> Option<Self> {
+        let rest = rig.landmarks().get(Landmark::EyeLine)?.position;
+        let head = *rig.in_zone(symbios_avatar::Zone::Head).first()?;
+        Some(Self {
+            root,
+            head,
+            offset: rest - rig.joints[head].position,
+            rest,
+        })
+    }
+
+    /// Where `pose` carries the eye line, in body space.
+    fn posed(&self, rig: &symbios_avatar::Rig, pose: &symbios_avatar::Pose) -> Vec3 {
+        let posed = pose.forward(rig);
+        match (
+            posed.positions.get(self.head),
+            posed.rotations.get(self.head),
+        ) {
+            (Some(&at), Some(&turned)) => at + turned * self.offset,
+            _ => self.rest,
+        }
+    }
+}
+
+/// Whether mouse look holds the pointer this frame (#1754), pure: taken the
+/// frame it is `wanted` - in the eyes with the setting on - and again on a
+/// click on the world while wanted and free; let go when no longer wanted, or
+/// when the pointer was `lost` - the window's focus gone, a dialog wanting an
+/// answer, or the browser's lock let go.
+fn hold_pointer(
+    wanted: bool,
+    was_wanted: bool,
+    held: bool,
+    clicked_world: bool,
+    lost: bool,
+) -> bool {
+    if !wanted || lost {
+        return false;
+    }
+    held || !was_wanted || clicked_world
+}
+
+/// The head's turn for a mouse move under mouse look (#1754), as yaw and pitch
+/// in the orbit's terms: the orbit crate's own scale for a drag - a window's
+/// width a whole turn, its height half a turn - times its sensitivity, so a
+/// look feels the same with the button held or not. Right lowers the yaw, as
+/// a drag to the right does, and down raises the pitch, which looks down.
+fn look_turn(moved: Vec2, window: Vec2, sensitivity: f32) -> (f32, f32) {
+    let window = window.max(Vec2::ONE);
+    (
+        moved.x / window.x * std::f32::consts::TAU * sensitivity,
+        moved.y / window.y * std::f32::consts::PI * sensitivity,
+    )
+}
+
+/// Whether the browser still holds the pointer for the page (#1754): Esc lets
+/// it go, and the page does not always see the key that did.
+#[cfg(target_arch = "wasm32")]
+fn pointer_locked() -> bool {
+    web_sys::window()
+        .and_then(|window| window.document())
+        .is_some_and(|document| document.pointer_lock_element().is_some())
+}
+
+/// Mouse look in first person (#1754). In the eyes with
+/// `LocalSettings::first_person_mouse_look` on, the pointer is held from the
+/// moment they are entered, or from a click on the world once it was freed
+/// ([`hold_pointer`]), until Esc, the way out, a dialog wanting an answer, the
+/// window's focus going, or on the web the browser letting the lock go. While
+/// it is held the mouse turns the head ([`look_turn`]); a held right or middle
+/// button still turns it through the crate, and is not counted twice.
+/// `gate_camera_on_gui` holds and hides the pointer, turns egui's pointer
+/// input off for it and hands egui's pointer over. Runs after the view is
+/// decided and before the crate.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn follow_mouse_look(
+    time: Res<Time>,
+    settings: Res<LocalSettings>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    attention: Option<Res<crate::player::AttentionHeld>>,
+    mut motion: MessageReader<MouseMotion>,
+    mut contexts: Query<&mut bevy_egui::EguiContext>,
+    mut first_person: ResMut<FirstPerson>,
+    mut cameras: Query<&mut PanOrbitCamera, IsWorldCamera>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    mut was_wanted: Local<bool>,
+) {
+    let moved: Vec2 = motion.read().map(|event| event.delta).sum();
+    let now = time.elapsed_secs_f64();
+    let window = windows.single().ok();
+    let fp = first_person.bypass_change_detection();
+    let wanted = settings.first_person_mouse_look && fp.view == CameraView::Eyes;
+    fp.look_wanted = wanted;
+    let clicked_world = mouse.just_pressed(MouseButton::Left)
+        && !contexts
+            .iter_mut()
+            .any(|mut context| context.get_mut().is_pointer_over_egui());
+    #[cfg(target_arch = "wasm32")]
+    let lock_lost =
+        fp.captured && now - fp.captured_at > cfg::MOUSE_LOOK_LOCK_GRACE_S && !pointer_locked();
+    #[cfg(not(target_arch = "wasm32"))]
+    let lock_lost = false;
+    // A dialog that wants an answer wants the pointer to give it with: a
+    // gift's Accept, the unsaved-edits Save - and Esc, under a dialog, is the
+    // dialog's own Cancel.
+    let lost = lock_lost
+        || window.is_some_and(|window| !window.focused)
+        || attention.is_some_and(|attention| attention.0);
+    let held = hold_pointer(wanted, *was_wanted, fp.captured, clicked_world, lost);
+    *was_wanted = wanted;
+    if held != fp.captured {
+        fp.captured = held;
+        if held {
+            fp.captured_at = now;
+        }
+        first_person.set_changed();
+    }
+    if !held || moved == Vec2::ZERO || mouse.any_pressed([MouseButton::Right, MouseButton::Middle])
+    {
+        return;
+    }
+    let (Ok(mut orbit), Some(window)) = (cameras.single_mut(), window) else {
+        return;
+    };
+    let (yaw, pitch) = look_turn(
+        moved,
+        Vec2::new(window.width(), window.height()),
+        orbit.orbit_sensitivity,
+    );
+    orbit.target_yaw -= yaw;
+    let lowest = orbit.pitch_lower_limit.unwrap_or(f32::NEG_INFINITY);
+    let highest = orbit.pitch_upper_limit.unwrap_or(f32::INFINITY);
+    orbit.target_pitch = (orbit.target_pitch + pitch).clamp(lowest, highest);
+}
+
+/// One frame of the eyes' lag behind the head (#1749): `eased`, last frame's
+/// departure of the eye line from its rest, moved toward `drift`, this
+/// frame's, over `dt` seconds by [`cfg::FIRST_PERSON_EYE_RESPONSE_S`]. The
+/// first frame takes `drift` whole, so the eyes do not slide in from the rest
+/// line on the way in.
+fn ease_drift(eased: Option<Vec3>, drift: Vec3, dt: f32) -> Vec3 {
+    match eased {
+        Some(eased) => {
+            let follow = 1.0 - (-dt / cfg::FIRST_PERSON_EYE_RESPONSE_S).exp();
+            eased + (drift - eased) * follow
+        }
+        None => drift,
     }
 }
 
@@ -390,6 +617,7 @@ pub(super) fn switch_view(
     mut first_person: ResMut<FirstPerson>,
     players: Query<(&Transform, Has<VehicleChassis>), (With<LocalPlayer>, Without<WorldCamera>)>,
     mut cameras: Query<&mut PanOrbitCamera, IsWorldCamera>,
+    mut facings: MessageReader<crate::player::FacingSet>,
     mut last_spread: Local<Option<f32>>,
 ) {
     let orbit = cameras.single_mut().ok();
@@ -463,6 +691,20 @@ pub(super) fn switch_view(
             }
         }
         _ => {}
+    }
+    // A gateway's landing or a return to the spawn set the body down facing a
+    // new way (#1750). Looking out of a body on foot, the eyes turn with it,
+    // at once - an arrival is a cut - since the walk turns the body to the
+    // eyes; a vehicle's eyes ride its nose, which turned with it already.
+    for set in facings.read() {
+        if fp.looks_out_on_foot()
+            && let Some(yaw) = heading(&Transform::from_rotation(set.0))
+        {
+            let yaw = near_turn(yaw, orbit.target_yaw);
+            orbit.target_yaw = yaw;
+            orbit.yaw = Some(yaw);
+            orbit.force_update = true;
+        }
     }
     if fp.view != before {
         first_person.set_changed();
@@ -562,11 +804,18 @@ pub(super) fn place_first_person_camera(
         (With<LocalPlayer>, Without<WorldCamera>),
     >,
     rigs: Query<
-        (Entity, &ChildOf, &Transform, Ref<AvatarBody>),
+        (
+            Entity,
+            &ChildOf,
+            &Transform,
+            Ref<AvatarBody>,
+            Option<&AvatarPose>,
+        ),
         (With<RiggedRoot>, Without<WorldCamera>),
     >,
     mut cameras: Query<(&mut PanOrbitCamera, &mut Transform), IsWorldCamera>,
-    mut eye_line: Local<Option<(Entity, Option<f32>)>>,
+    mut eye_line: Local<Option<EyeLine>>,
+    mut eye_drift: Local<Option<Vec3>>,
 ) {
     let was = first_person.blend;
     let target = match first_person.view {
@@ -604,6 +853,7 @@ pub(super) fn place_first_person_camera(
     // whole its own pose is written: the crate may write nothing that frame,
     // which would leave the last step of the way out standing.
     if blend <= 0.0 && was <= 0.0 {
+        *eye_drift = None;
         return;
     }
     if blend <= 0.0 && first_person.leaving_turn.is_some() {
@@ -626,33 +876,30 @@ pub(super) fn place_first_person_camera(
         return;
     };
 
-    // The rig's eye line, read once a body (#1745): the landmark is the rest
-    // pose's, so walking does not bob the view.
+    // The rig's eye line where its pose carries it (#1749), into the
+    // chassis' frame through the root - its half turn and its swim lift with
+    // it: a slow change of posture, a swim's crawl or a sit, followed whole,
+    // and the walk's bob eased to a share of itself ([`ease_drift`]).
     let rig = rigs
         .iter()
-        .find(|(_, parent, _, _)| parent.parent() == chassis_entity);
-    let rig_eyes =
-        rig.and_then(
-            |(root, _, _, body)| match eye_line.filter(|(at, _)| *at == root) {
-                Some((_, eyes)) if !body.is_changed() => eyes,
-                _ => {
-                    let eyes = body
-                        .avatar
-                        .rig
-                        .landmarks()
-                        .get(Landmark::EyeLine)
-                        .map(|anchor| anchor.position.y);
-                    *eye_line = Some((root, eyes));
-                    eyes
-                }
-            },
-        );
-    let mount = EyeMount::of(
-        &record.0.locomotion,
-        vehicle,
-        rig.map(|(_, _, root, _)| root.translation.y),
-        rig_eyes,
-    );
+        .find(|(_, parent, ..)| parent.parent() == chassis_entity);
+    let rig_eye = rig.and_then(|(root, _, root_tf, body, pose)| {
+        let line = match *eye_line {
+            Some(line) if line.root == root && !body.is_changed() => line,
+            _ => {
+                let line = EyeLine::of(root, &body.avatar.rig)?;
+                *eye_line = Some(line);
+                line
+            }
+        };
+        let drift = pose.map_or(Vec3::ZERO, |pose| {
+            line.posed(&body.avatar.rig, &pose.0) - line.rest
+        });
+        let eased = ease_drift(*eye_drift, drift, time.delta_secs());
+        *eye_drift = Some(eased);
+        Some(root_tf.transform_point(line.rest + eased))
+    });
+    let mount = EyeMount::of(&record.0.locomotion, vehicle, rig_eye);
     let look_yaw = match (first_person.ahead_yaw, first_person.leaving_turn) {
         (Some(ahead), _) if vehicle => yaw - ahead,
         // On the way out of a vehicle's eyes the orbit counts from the world
@@ -810,23 +1057,20 @@ mod tests {
         LocomotionConfig::Humanoid(Box::default())
     }
 
-    /// **A person's eyes are their rig's eye line, on their axis, and look the
-    /// orbit's way level with the world** (#1745). Without a rig to read, they
-    /// are the agent's eye height.
+    /// **A person's eyes are their rig's eye line, turned with their body, and
+    /// look the orbit's way level with the world** (#1745, #1749). Without a
+    /// rig to read, they are the agent's eye height, on the axis.
     #[test]
-    fn a_persons_eyes_are_on_their_axis_at_their_eye_line() {
-        let feet = -0.9;
-        let mount = EyeMount::of(&walker(), false, Some(feet), Some(1.66));
-        assert_eq!(
-            mount,
-            EyeMount::OnFoot {
-                above_centre: feet + 1.66
-            }
-        );
-        let chassis =
-            Transform::from_xyz(3.0, 10.0, -2.0).with_rotation(Quat::from_rotation_y(1.0));
+    fn a_persons_eyes_are_at_their_eye_line() {
+        // A tenth of a metre ahead of the axis, 0.76 over the centre.
+        let line = Vec3::new(0.0, 0.76, -0.1);
+        let mount = EyeMount::of(&walker(), false, Some(line));
+        assert_eq!(mount, EyeMount::OnFoot { eye: line });
+        // Facing world -X, a quarter turn left: ahead of the axis is -X.
+        let chassis = Transform::from_xyz(3.0, 10.0, -2.0)
+            .with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2));
         let pose = mount.pose(&chassis, 0.0, 0.0);
-        assert!((pose.translation - Vec3::new(3.0, 10.76, -2.0)).length() < 1e-5);
+        assert!((pose.translation - Vec3::new(2.9, 10.76, -2.0)).length() < 1e-5);
         assert!(
             (pose.forward().as_vec3() - Vec3::NEG_Z).length() < 1e-5,
             "level, the orbit's yaw"
@@ -836,11 +1080,86 @@ mod tests {
             pitched.forward().y < -0.4,
             "a pitch looks down, as the orbit's does"
         );
-        let fallback = EyeMount::of(&walker(), false, None, None);
         let expected = (cfg::EYE_HEIGHT_FRACTION - 0.5) * locomotion_total_height(&walker());
-        assert!(
-            matches!(fallback, EyeMount::OnFoot { above_centre } if (above_centre - expected).abs() < 1e-5)
+        assert_eq!(
+            EyeMount::of(&walker(), false, None),
+            EyeMount::OnFoot {
+                eye: Vec3::Y * expected
+            }
         );
+    }
+
+    /// **The eyes ride the posed head** (#1749): the eye line read off a
+    /// rig's head joint is where the engine's landmark puts it at rest, a pose
+    /// that carries the body carries it as far, and a head turned on its joint
+    /// turns it with the head.
+    #[test]
+    fn the_eye_line_rides_the_posed_head() {
+        use symbios_avatar::Pose;
+
+        let avatar = symbios_avatar::Avatar::build_with(
+            &crate::pds::avatar::wardrobe::engine_default_for_did("did:plc:eyes"),
+            &symbios_avatar::AvatarConfig {
+                atlas: 64,
+                ..Default::default()
+            },
+        )
+        .expect("the default body builds");
+        let rig = &avatar.rig;
+        let line = EyeLine::of(Entity::PLACEHOLDER, rig).expect("a head");
+        let landmark = rig
+            .landmarks()
+            .get(Landmark::EyeLine)
+            .expect("an eye line")
+            .position;
+        assert_eq!(line.rest, landmark);
+        assert!(
+            (line.posed(rig, &Pose::rest(rig)) - line.rest).length() < 1e-5,
+            "at rest, the landmark"
+        );
+        let mut lowered = Pose::rest(rig);
+        lowered.translation = Vec3::new(0.0, -0.4, 0.3);
+        assert!(
+            (line.posed(rig, &lowered) - (line.rest + lowered.translation)).length() < 1e-5,
+            "carried with the body"
+        );
+        let mut bowed = Pose::rest(rig);
+        bowed.rotations[line.head] = Quat::from_rotation_x(std::f32::consts::FRAC_PI_2);
+        assert!(
+            (line.posed(rig, &bowed) - line.rest).length() > 0.01,
+            "turned with the head"
+        );
+    }
+
+    /// **The eyes follow a change of posture whole and a walk's bob in part**
+    /// (#1749): half a metre down - a swim's crawl, a sit - is followed to
+    /// within a twentieth of itself in a second, and a bob of four centimetres
+    /// twice a second reaches the eyes at well under half of itself, at sixty
+    /// frames a second.
+    #[test]
+    fn the_eyes_follow_posture_whole_and_the_bob_in_part() {
+        let dt = 1.0 / 60.0;
+        let mut eased = ease_drift(None, Vec3::ZERO, dt);
+        for _ in 0..60 {
+            eased = ease_drift(Some(eased), Vec3::Y * -0.5, dt);
+        }
+        assert!((eased.y + 0.5).abs() < 0.025, "after a second: {eased}");
+
+        let mut eased = Some(Vec3::ZERO);
+        let (mut low, mut high) = (f32::MAX, f32::MIN);
+        for frame in 0..600 {
+            let t = frame as f32 * dt;
+            let bob = Vec3::Y * 0.04 * (std::f32::consts::TAU * 2.0 * t).sin();
+            let now = ease_drift(eased, bob, dt);
+            eased = Some(now);
+            if frame >= 300 {
+                low = low.min(now.y);
+                high = high.max(now.y);
+            }
+        }
+        let swing = (high - low) / 2.0;
+        assert!(swing < 0.4 * 0.04, "the bob reaches the eyes at {swing}");
+        assert!(swing > 0.1 * 0.04, "but some of it does: {swing}");
     }
 
     /// **A vehicle's eyes ride its nose and turn, pitch and bank with it**
@@ -849,7 +1168,7 @@ mod tests {
     #[test]
     fn a_vehicles_eyes_ride_its_nose() {
         let car = LocomotionConfig::Car(Box::default());
-        let mount = EyeMount::of(&car, true, None, None);
+        let mount = EyeMount::of(&car, true, None);
         let EyeMount::Vehicle { at } = mount else {
             panic!("a vehicle's eyes are on the vehicle: {mount:?}");
         };
@@ -874,6 +1193,18 @@ mod tests {
         );
         let turned = mount.pose(&Transform::IDENTITY, 0.5, 0.0);
         assert!(turned.forward().x < -0.4, "the head's turn is off the nose");
+        // A car wider than long has its nose at its half-length (#1751).
+        let wide = LocomotionConfig::Car(Box::new(crate::pds::CarParams {
+            chassis_half_extents: crate::pds::types::Fp3([2.0, 0.5, 1.0]),
+            ..Default::default()
+        }));
+        let EyeMount::Vehicle { at } = EyeMount::of(&wide, true, None) else {
+            panic!("a vehicle's eyes");
+        };
+        assert!(
+            (at.z + 1.0).abs() < 1e-5,
+            "at the nose, not out in front: {at}"
+        );
     }
 
     /// **The orbit's pose stands its radius from its focus, looking at it, and
@@ -914,6 +1245,9 @@ mod tests {
         register_render_layer_propagation(&mut app);
         app.add_message::<MouseWheel>()
             .add_message::<PinchGesture>()
+            .add_message::<MouseMotion>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .add_message::<crate::player::FacingSet>()
             .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<FirstPerson>()
             .init_resource::<OrbitHold>()
@@ -930,7 +1264,11 @@ mod tests {
             .add_systems(
                 PostUpdate,
                 (
-                    (switch_view, super::super::follow_projection_setting)
+                    (
+                        switch_view,
+                        follow_mouse_look,
+                        super::super::follow_projection_setting,
+                    )
                         .chain()
                         .before(PanOrbitCameraSystemSet),
                     place_first_person_camera.after(PanOrbitCameraSystemSet),
@@ -1131,8 +1469,6 @@ mod tests {
     /// at the floor. A notch out then comes back.
     #[test]
     fn a_right_drag_looks_round_from_the_eyes_and_the_wheel_holds() {
-        use bevy::input::mouse::MouseMotion;
-
         let notch = |y: f32| MouseWheel {
             unit: MouseScrollUnit::Line,
             x: 0.0,
@@ -1212,7 +1548,6 @@ mod tests {
     /// from a 1280 x 720 window it is told is its own. The camera and the
     /// chassis.
     fn crate_app() -> (App, Entity, Entity) {
-        use bevy::input::mouse::MouseMotion;
         use bevy_panorbit_camera::{ActiveCameraData, PanOrbitCameraPlugin};
 
         let (mut app, camera, chassis, _) = eyes_app(false);
@@ -1378,8 +1713,6 @@ mod tests {
     /// vehicle's own up, so the drag looked left.
     #[test]
     fn on_its_back_a_vehicles_eyes_still_look_right_for_a_drag_right() {
-        use bevy::input::mouse::MouseMotion;
-
         let (mut app, camera, chassis) = crate_app();
         board(&mut app, chassis, 0.0);
         app.world_mut()
@@ -1519,6 +1852,194 @@ mod tests {
             home.translation
         );
         assert!(pose.rotation.angle_between(home.rotation) < 1e-4);
+    }
+
+    /// **Mouse look holds the pointer from the eyes until it is let go**
+    /// (#1754), pure: taken the frame it is wanted, kept, given up when no
+    /// longer wanted or when lost, and taken back by a click on the world.
+    #[test]
+    fn mouse_look_holds_the_pointer_until_it_is_let_go() {
+        // (wanted, was wanted, held, clicked the world, lost)
+        assert!(
+            hold_pointer(true, false, false, false, false),
+            "taken on the way in"
+        );
+        assert!(hold_pointer(true, true, true, false, false), "kept");
+        assert!(
+            !hold_pointer(true, true, true, false, true),
+            "lost: the window's focus, the browser's lock"
+        );
+        assert!(
+            !hold_pointer(false, true, true, true, false),
+            "not wanted: out of the eyes, or the setting off"
+        );
+        assert!(
+            !hold_pointer(true, true, false, false, false),
+            "freed, it waits"
+        );
+        assert!(
+            hold_pointer(true, true, false, true, false),
+            "a click on the world takes it back"
+        );
+        assert!(
+            !hold_pointer(true, true, false, true, true),
+            "but not while lost"
+        );
+    }
+
+    /// **A mouse move turns the head at the crate's own scale** (#1754): a
+    /// quarter of the window's width a quarter turn, a quarter of its height an
+    /// eighth of one, times the orbit's sensitivity.
+    #[test]
+    fn a_mouse_move_turns_the_head_at_the_crates_scale() {
+        use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
+
+        let window = Vec2::new(1280.0, 720.0);
+        let (yaw, pitch) = look_turn(Vec2::new(320.0, 180.0), window, 1.0);
+        assert!((yaw - FRAC_PI_2).abs() < 1e-5, "{yaw}");
+        assert!((pitch - FRAC_PI_4).abs() < 1e-5, "{pitch}");
+        let (slow, _) = look_turn(Vec2::new(320.0, 0.0), window, 0.5);
+        assert!((slow - FRAC_PI_4).abs() < 1e-5, "{slow}");
+    }
+
+    /// **Mouse look in the eyes, end to end** (#1754): with the setting on,
+    /// the pointer is held on the way into the eyes; a move to the right turns
+    /// the head to the right; a held right button leaves the turning to the
+    /// crate, not counted twice; Esc frees the pointer and the mouse then
+    /// turns nothing; a click on the world takes it back; a dialog wanting an
+    /// answer frees it, and once answered it waits for that click again; and
+    /// the way out lets it go.
+    #[test]
+    fn mouse_look_in_the_eyes_end_to_end() {
+        let (mut app, camera, _, _) = eyes_app(false);
+        app.world_mut()
+            .resource_mut::<LocalSettings>()
+            .first_person_mouse_look = true;
+        app.world_mut()
+            .spawn((Window::default(), bevy::window::PrimaryWindow));
+        let captured = |app: &App| app.world().resource::<FirstPerson>().mouse_look_captured();
+        let target = |app: &App| {
+            app.world()
+                .get::<PanOrbitCamera>(camera)
+                .unwrap()
+                .target_yaw
+        };
+        let nudge = |app: &mut App| {
+            app.world_mut().write_message(MouseMotion {
+                delta: Vec2::new(128.0, 0.0),
+            });
+            frames(app, 1);
+        };
+        let button = |app: &mut App, button: MouseButton, down: bool| {
+            let mut buttons = app.world_mut().resource_mut::<ButtonInput<MouseButton>>();
+            if down {
+                buttons.press(button);
+            } else {
+                buttons.release(button);
+            }
+        };
+
+        frames(&mut app, 2);
+        assert!(!captured(&app), "in the orbit the pointer is free");
+        toggle(&mut app);
+        frames(&mut app, 2);
+        assert!(captured(&app), "held on the way in");
+        let before = target(&app);
+        nudge(&mut app);
+        assert!(
+            target(&app) < before - 0.5,
+            "a move right turns the head right"
+        );
+
+        button(&mut app, MouseButton::Right, true);
+        let before = target(&app);
+        nudge(&mut app);
+        assert_eq!(target(&app), before, "a drag's turn is the crate's");
+        button(&mut app, MouseButton::Right, false);
+
+        app.world_mut()
+            .resource_mut::<FirstPerson>()
+            .release_mouse_look();
+        frames(&mut app, 1);
+        assert!(!captured(&app), "Esc frees it");
+        let before = target(&app);
+        nudge(&mut app);
+        assert_eq!(target(&app), before, "free, the mouse turns nothing");
+
+        let click = |app: &mut App| {
+            button(app, MouseButton::Left, true);
+            frames(app, 1);
+            button(app, MouseButton::Left, false);
+            // No input plugin here to end the press's frame.
+            app.world_mut()
+                .resource_mut::<ButtonInput<MouseButton>>()
+                .clear();
+        };
+        let waiting = |app: &App| app.world().resource::<FirstPerson>().mouse_look_waiting();
+        assert!(waiting(&app), "free, it waits for a click on the world");
+        click(&mut app);
+        assert!(captured(&app), "a click on the world takes it back");
+        assert!(!waiting(&app));
+
+        app.world_mut()
+            .insert_resource(crate::player::AttentionHeld(true));
+        frames(&mut app, 1);
+        assert!(!captured(&app), "a dialog wanting an answer frees it");
+        app.world_mut()
+            .insert_resource(crate::player::AttentionHeld(false));
+        frames(&mut app, 1);
+        assert!(
+            !captured(&app) && waiting(&app),
+            "answered, it waits for a click on the world"
+        );
+        click(&mut app);
+        assert!(captured(&app), "which takes it back");
+
+        toggle(&mut app);
+        frames(&mut app, 2);
+        assert!(!captured(&app), "the way out lets it go");
+        assert!(!waiting(&app), "and waits for nothing");
+    }
+
+    /// **A landing turns the eyes to its facing** (#1750): a gateway's landing
+    /// or a return to the spawn sets the body down facing a new way, and
+    /// looking out of a body on foot the eyes turn with it - the walk turns
+    /// the body to the eyes, so without this the landing's facing was lost to
+    /// the way the player looked before. In the orbit the camera keeps its
+    /// own way, as ever.
+    #[test]
+    fn a_landing_turns_the_eyes_to_its_facing() {
+        let (mut app, camera, _, _) = eyes_app(false);
+        let landing = crate::player::FacingSet(Quat::from_rotation_y(2.0));
+        frames(&mut app, 2);
+        app.world_mut().write_message(landing);
+        frames(&mut app, 1);
+        assert_eq!(
+            app.world()
+                .get::<PanOrbitCamera>(camera)
+                .unwrap()
+                .target_yaw,
+            0.0,
+            "in the orbit nothing turns"
+        );
+
+        toggle(&mut app);
+        frames(&mut app, 10);
+        app.world_mut().write_message(landing);
+        frames(&mut app, 1);
+        let orbit = app.world().get::<PanOrbitCamera>(camera).unwrap();
+        assert!(same_way(orbit.target_yaw, 2.0), "{}", orbit.target_yaw);
+        assert_eq!(
+            orbit.yaw,
+            Some(orbit.target_yaw),
+            "at once: an arrival is a cut"
+        );
+        frames(&mut app, 1);
+        let now = looking(&app, camera);
+        assert!(
+            same_way(now, 2.0),
+            "the eyes look the landing's way, not {now}"
+        );
     }
 
     /// **The Avatar editor keeps the camera at the orbit** (#1745): looking

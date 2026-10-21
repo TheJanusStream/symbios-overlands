@@ -82,6 +82,9 @@ impl Plugin for CameraPlugin {
             .insert_resource(egui_global_settings())
             .init_resource::<FirstPerson>()
             .init_resource::<OrbitHold>()
+            // What turns a first-person view to a landing (#1750); the player
+            // plugin writes it, and registers it too.
+            .add_message::<crate::player::FacingSet>()
             .add_systems(Startup, spawn_orbit_camera)
             .add_systems(
                 Update,
@@ -98,6 +101,12 @@ impl Plugin for CameraPlugin {
                     first_person::switch_view
                         .after(gate_camera_on_gui)
                         .before(follow_projection_setting)
+                        .before(PanOrbitCameraSystemSet)
+                        .run_if(in_state(AppState::InGame)),
+                    // Once the view is decided, and before the crate eases
+                    // toward what it writes (#1754).
+                    first_person::follow_mouse_look
+                        .after(first_person::switch_view)
                         .before(PanOrbitCameraSystemSet)
                         .run_if(in_state(AppState::InGame)),
                     // Before the crate, so it lays a new lens out on the
@@ -168,18 +177,20 @@ fn pan_binding(alt_held: bool) -> (MouseButton, Option<KeyCode>) {
 /// fix wearing native clothes.)
 ///
 /// `Locked` on wasm because `Confined` is not a thing the web backend
-/// implements - pointer lock is; `Confined` on native, which is the
-/// gentler of the two and enough, since native motion is already
-/// unbounded. The cursor is hidden either way: a pointer visibly stuck
-/// against the screen edge while the view keeps turning is its own small
-/// lie.
+/// implements - pointer lock is - and on macOS, whose winit backend has no
+/// confinement either (#1754: a hidden pointer mouse look left free walked
+/// out of the window, and its next click landed on whatever lay behind);
+/// `Confined` on the other natives, which is the gentler of the two and
+/// enough, since native motion is already unbounded, and the one X11 has.
+/// The cursor is hidden either way: a pointer visibly stuck against the
+/// screen edge while the view keeps turning is its own small lie.
 fn drag_cursor_grab(dragging: bool) -> (bevy::window::CursorGrabMode, bool) {
     if !dragging {
         return (bevy::window::CursorGrabMode::None, true);
     }
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(any(target_arch = "wasm32", target_os = "macos"))]
     let held = bevy::window::CursorGrabMode::Locked;
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(any(target_arch = "wasm32", target_os = "macos")))]
     let held = bevy::window::CursorGrabMode::Confined;
     (held, false)
 }
@@ -206,19 +217,46 @@ fn drag_cursor_grab(dragging: bool) -> (bevy::window::CursorGrabMode, bool) {
 /// Mirrors the crate's own two-frame trick: `wants_pointer_input()` flips
 /// true one frame late on a click into a window, so both the previous and
 /// current frame must be GUI-free before camera input is allowed.
+#[allow(clippy::too_many_arguments)]
 fn gate_camera_on_gui(
     mut contexts: Query<&mut bevy_egui::EguiContext>,
+    mut egui_settings: Query<(Entity, &mut bevy_egui::EguiContextSettings)>,
+    mut egui_input: MessageWriter<bevy_egui::input::EguiInputEvent>,
     mouse: Res<ButtonInput<MouseButton>>,
     keyboard: Res<ButtonInput<KeyCode>>,
     mut cameras: Query<&mut PanOrbitCamera>,
     mut cursors: Query<&mut bevy::window::CursorOptions, With<bevy::window::PrimaryWindow>>,
+    first_person: Option<Res<FirstPerson>>,
     mut prev_gui_wants: Local<bool>,
 ) {
+    // Mouse look holds the pointer for the world (#1754): egui hears none of
+    // it, so the hidden pointer cannot hover or click a window, and the
+    // camera does not stand down for a window egui still thinks it is over.
+    let captured = first_person
+        .as_deref()
+        .is_some_and(FirstPerson::mouse_look_captured);
+    for (entity, mut settings) in egui_settings.iter_mut() {
+        if pointer_input_off(&settings) != captured {
+            let input = &mut settings.input_system_settings;
+            input.run_write_window_pointer_moved_messages_system = !captured;
+            input.run_write_pointer_button_messages_system = !captured;
+            input.run_write_mouse_wheel_messages_system = !captured;
+            if captured && let Ok(mut context) = contexts.get_mut(entity) {
+                for event in pointer_hand_over(context.get_mut()) {
+                    egui_input.write(bevy_egui::input::EguiInputEvent {
+                        context: entity,
+                        event,
+                    });
+                }
+            }
+        }
+    }
     let mut gui_wants = false;
     for mut ctx in contexts.iter_mut() {
         let ctx = ctx.get_mut();
         gui_wants |= ctx.egui_wants_pointer_input();
     }
+    let gui_wants = gui_wants && !captured;
     let dragging = mouse.any_pressed([MouseButton::Right, MouseButton::Middle]);
     let enable = dragging || (!gui_wants && !*prev_gui_wants);
     *prev_gui_wants = gui_wants;
@@ -241,8 +279,9 @@ fn gate_camera_on_gui(
         }
     }
     // The cursor treatment follows an ENABLED drag: a right-drag that egui
-    // owns (resizing a window) must not confine the pointer.
-    let (grab, visible) = drag_cursor_grab(dragging && enable);
+    // owns (resizing a window) must not confine the pointer. Mouse look holds
+    // it the same way, for as long as it looks (#1754).
+    let (grab, visible) = drag_cursor_grab((dragging && enable) || captured);
     for mut cursor in cursors.iter_mut() {
         if cursor.grab_mode != grab {
             cursor.grab_mode = grab;
@@ -251,6 +290,51 @@ fn gate_camera_on_gui(
             cursor.visible = visible;
         }
     }
+}
+
+/// What egui is told as mouse look turns its pointer input off (#1754), on
+/// the frame the switches go: from the next, it hears nothing more of the
+/// pointer, so what it last heard would stand for as long as the look lasts.
+/// Each button it holds down is let go where the pointer is, so the click
+/// that took the pointer back is not a press held for ever; the pointer is
+/// gone, so no window shows it hovering, and a click on the world does not
+/// read as one on the window egui last saw it over; and a text field gives
+/// up the keyboard, which chat would otherwise keep, out of reach of the
+/// click that would take it away.
+fn pointer_hand_over(egui: &mut bevy_egui::egui::Context) -> Vec<bevy_egui::egui::Event> {
+    use bevy_egui::egui::{Event, PointerButton};
+    let mut events: Vec<Event> = egui.input(|input| {
+        // A button down has a press origin, so this is only none with none.
+        let Some(pos) = input.pointer.latest_pos().or(input.pointer.press_origin()) else {
+            return Vec::new();
+        };
+        [
+            PointerButton::Primary,
+            PointerButton::Secondary,
+            PointerButton::Middle,
+        ]
+        .into_iter()
+        .filter(|&button| input.pointer.button_down(button))
+        .map(|button| Event::PointerButton {
+            pos,
+            button,
+            pressed: false,
+            modifiers: input.modifiers,
+        })
+        .collect()
+    });
+    events.push(Event::PointerGone);
+    egui.memory_mut(|memory| memory.stop_text_input());
+    events
+}
+
+/// Whether egui's pointer input is off for a context (#1754): the three
+/// switches mouse look turns together, read as one.
+fn pointer_input_off(settings: &bevy_egui::EguiContextSettings) -> bool {
+    let input = &settings.input_system_settings;
+    !input.run_write_window_pointer_moved_messages_system
+        && !input.run_write_pointer_button_messages_system
+        && !input.run_write_mouse_wheel_messages_system
 }
 
 /// How (whether) the orbit camera avoids the terrain (#872). Referenced
@@ -1478,6 +1562,121 @@ mod tests {
         assert!(
             !visible,
             "a pointer visibly stuck at the screen edge while the view turns is its own lie"
+        );
+    }
+
+    /// **Mouse look holds the pointer for the world** (#1754): while it looks
+    /// the gate holds and hides the pointer as a drag does and turns egui's
+    /// pointer input off - so the hidden pointer cannot hover or click a
+    /// window - telling egui the pointer is gone as it does, once; and once
+    /// Esc frees it, all three come back.
+    #[test]
+    fn mouse_look_holds_the_pointer_for_the_world() {
+        use bevy::ecs::system::RunSystemOnce;
+        use bevy_egui::input::EguiInputEvent;
+
+        let handed = |world: &World| -> Vec<(Entity, bevy_egui::egui::Event)> {
+            world
+                .resource::<Messages<EguiInputEvent>>()
+                .iter_current_update_messages()
+                .map(|message| (message.context, message.event.clone()))
+                .collect()
+        };
+        let mut world = World::new();
+        world.init_resource::<ButtonInput<MouseButton>>();
+        world.init_resource::<ButtonInput<KeyCode>>();
+        world.init_resource::<Messages<EguiInputEvent>>();
+        world.insert_resource(FirstPerson::mouse_looking());
+        let context = world.spawn(bevy_egui::EguiContext::default()).id();
+        let window = world
+            .spawn((
+                bevy::window::CursorOptions::default(),
+                bevy::window::PrimaryWindow,
+            ))
+            .id();
+        world
+            .run_system_once(gate_camera_on_gui)
+            .expect("the gate runs");
+        let cursor = world
+            .get::<bevy::window::CursorOptions>(window)
+            .expect("a cursor");
+        assert_ne!(cursor.grab_mode, bevy::window::CursorGrabMode::None);
+        assert!(!cursor.visible, "hidden, as under a drag");
+        let settings = world
+            .get::<bevy_egui::EguiContextSettings>(context)
+            .expect("settings");
+        assert!(pointer_input_off(settings), "egui hears no pointer");
+        // A context that holds no button is let go of none.
+        let gone = vec![(context, bevy_egui::egui::Event::PointerGone)];
+        assert_eq!(handed(&world), gone, "egui told the pointer is gone");
+        world
+            .run_system_once(gate_camera_on_gui)
+            .expect("the gate runs");
+        assert_eq!(handed(&world), gone, "and told once");
+
+        world.insert_resource(FirstPerson::default());
+        world
+            .run_system_once(gate_camera_on_gui)
+            .expect("the gate runs");
+        let cursor = world
+            .get::<bevy::window::CursorOptions>(window)
+            .expect("a cursor");
+        assert_eq!(cursor.grab_mode, bevy::window::CursorGrabMode::None);
+        assert!(cursor.visible);
+        let input = &world
+            .get::<bevy_egui::EguiContextSettings>(context)
+            .expect("settings")
+            .input_system_settings;
+        assert!(
+            input.run_write_window_pointer_moved_messages_system
+                && input.run_write_pointer_button_messages_system
+                && input.run_write_mouse_wheel_messages_system,
+            "egui's pointer back"
+        );
+    }
+
+    /// **Mouse look hands egui its pointer over** (#1754): from the frame its
+    /// pointer input goes off egui hears nothing more of the pointer, so what
+    /// it last heard would stand. The press that took the pointer back is let
+    /// go where the pointer is - and a button egui does not hold is not, as a
+    /// release can be a click - the pointer is gone, and a text field gives
+    /// the keyboard up.
+    #[test]
+    fn mouse_look_hands_egui_its_pointer_over() {
+        use bevy_egui::egui::{self, Event, PointerButton, pos2};
+
+        let mut ctx = egui::Context::default();
+        let at = pos2(100.0, 80.0);
+        let input = egui::RawInput {
+            events: vec![
+                Event::PointerMoved(at),
+                Event::PointerButton {
+                    pos: at,
+                    button: PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Default::default(),
+                },
+            ],
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(input, |_| {});
+        let chat = egui::Id::new("chat");
+        ctx.memory_mut(|memory| memory.request_focus(chat));
+        assert_eq!(
+            pointer_hand_over(&mut ctx),
+            vec![
+                Event::PointerButton {
+                    pos: at,
+                    button: PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Default::default(),
+                },
+                Event::PointerGone,
+            ]
+        );
+        assert!(
+            !ctx.memory(|memory| memory.has_focus(chat)),
+            "the text field gave the keyboard up"
         );
     }
 

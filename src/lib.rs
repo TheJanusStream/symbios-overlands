@@ -757,6 +757,8 @@ pub(crate) fn build_client_app(app: &mut App, boot: boot_params::BootParams, she
                 // after every window that could have started one, and
                 // before the toast surface draws.
                 boot_params::drain_clipboard_outcomes,
+                // Mouse look's crosshair (#1754), on the Foreground order.
+                ui::crosshair::crosshair_ui,
                 // Last in the chain AND on the egui Foreground order, so
                 // toasts paint above every floating window (#819).
                 ui::toast::toast_ui,

@@ -217,13 +217,21 @@ fn moved(from: &Transform, to: &Transform) -> bool {
 /// press. Withholding the press on the one frame a gizmo is new makes that
 /// true for every route a selection can arrive by. Runs between the attach
 /// (so the new target is `Added`) and transform-gizmo's `Last` update.
+///
+/// Mouse look's presses are withheld too (#1754). transform-gizmo aims by
+/// the window's pointer, which mouse look hides, not by the crosshair a click
+/// is aimed at, so the handle it would grab is one the player cannot see
+/// they are on; and the click that takes the pointer back is only that.
 pub(super) fn withhold_the_selecting_press(
     mouse: Res<ButtonInput<MouseButton>>,
     new_gizmos: Query<(), Added<GizmoTarget>>,
+    first_person: Option<Res<crate::camera::FirstPerson>>,
     drag_started: Option<ResMut<Messages<GizmoDragStarted>>>,
 ) {
+    let mouse_look =
+        first_person.is_some_and(|fp| fp.mouse_look_captured() || fp.mouse_look_waiting());
     if mouse.just_pressed(MouseButton::Left)
-        && !new_gizmos.is_empty()
+        && (mouse_look || !new_gizmos.is_empty())
         && let Some(mut drag_started) = drag_started
     {
         drag_started.clear();
@@ -757,6 +765,43 @@ mod tests {
         assert!(
             moved(&start, &after(|t| t.scale *= 1.001)),
             "a 0.1% scale is a move"
+        );
+    }
+
+    /// #1754: under mouse look no press grabs a gizmo - the handle the hidden
+    /// pointer is on is not one the player can see they are on, and the click
+    /// that takes the pointer back is only that. The control: in the eyes
+    /// without mouse look, a press on a gizmo that was there reaches it.
+    #[test]
+    fn under_mouse_look_a_press_grabs_no_gizmo() {
+        use crate::camera::FirstPerson;
+
+        fn drag_starts(first_person: FirstPerson) -> usize {
+            let mut app = App::new();
+            app.add_message::<GizmoDragStarted>()
+                .init_resource::<ButtonInput<MouseButton>>()
+                .insert_resource(first_person)
+                .add_systems(Update, withhold_the_selecting_press);
+            app.world_mut().spawn(GizmoTarget::default());
+            app.update();
+            app.world_mut()
+                .resource_mut::<ButtonInput<MouseButton>>()
+                .press(MouseButton::Left);
+            app.world_mut().write_message(GizmoDragStarted);
+            app.update();
+            app.world().resource::<Messages<GizmoDragStarted>>().len()
+        }
+
+        assert_eq!(drag_starts(FirstPerson::looking()), 1, "control");
+        assert_eq!(
+            drag_starts(FirstPerson::mouse_looking()),
+            0,
+            "a press aimed at the crosshair"
+        );
+        assert_eq!(
+            drag_starts(FirstPerson::mouse_look_freed()),
+            0,
+            "the click that takes the pointer back"
         );
     }
 

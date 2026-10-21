@@ -1468,6 +1468,7 @@ mod tests {
             load_external_assets: false,
             orthographic_camera: true,
             zoom_into_first_person: false,
+            first_person_mouse_look: true,
             theme: UserTheme::HighContrast,
             ui_scale: 1.4,
             ..Default::default()

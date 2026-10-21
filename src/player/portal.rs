@@ -489,6 +489,8 @@ pub(super) fn poll_portal_travel_tasks(
             if let Some(deg) = yaw_deg {
                 tf.rotation = Quat::from_rotation_y(deg.to_radians());
                 rot.0 = tf.rotation;
+                // A first-person view turns to the landing too (#1750).
+                commands.write_message(super::FacingSet(tf.rotation));
             }
             lv.0 = Vec3::ZERO;
             av.0 = Vec3::ZERO;

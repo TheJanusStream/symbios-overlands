@@ -1395,6 +1395,11 @@ mod turning {
         /// not a lever: zero hands the gait the chassis' raw speed, which is
         /// how to ask whether a reading is the lag's.
         pace_response: Option<f32>,
+        /// Until when, seconds into the run, the eyes look out of the body
+        /// (#1753): in first person it faces where they look - here straight
+        /// down `-Z`, the controller's own forward with no camera - and A, D
+        /// and S step it sideways and back. `None` is the orbit, as shipped.
+        eyes_until: Option<f32>,
     }
 
     const SHIPPED: Treatment = Treatment {
@@ -1402,6 +1407,7 @@ mod turning {
         turn_rate: None,
         carriage: Carriage::Chassis,
         pace_response: None,
+        eyes_until: None,
     };
 
     /// What one frame of a run left behind, read off the chassis and off the
@@ -1643,6 +1649,13 @@ mod turning {
                     input.press(SHIFT);
                 }
             }
+            if let Some(until) = treatment.eyes_until {
+                app.insert_resource(if t < until {
+                    crate::camera::FirstPerson::looking()
+                } else {
+                    crate::camera::FirstPerson::default()
+                });
+            }
             app.world_mut().resource_mut::<Time<Fixed>>().advance_by(dt);
             app.world_mut()
                 .run_system_once(apply_humanoid_walk)
@@ -1726,6 +1739,108 @@ mod turning {
             });
         }
         run
+    }
+
+    /// **Leaving the eyes mid-strafe keeps the feet planted** (#1753): a body
+    /// strafing left in first person whose eyes leave while A is still held
+    /// takes the straight stride on that frame - the strafe's heading gives
+    /// way to none - and turns toward its travel over the quarter second
+    /// after. Held to the turn's own rulers (#1323) over the second after the
+    /// switch: no strained frame, and the planted soles sliding no further
+    /// than the 420 mm ceiling the agreed turn is held to.
+    #[test]
+    fn leaving_the_eyes_mid_strafe_keeps_the_feet_planted() {
+        const A: KeyCode = KeyCode::KeyA;
+        const STRAFE: Script = Script {
+            name: "A in the eyes 2 s, then A out of them",
+            spans: &[(2.0, &[A]), (2.0, &[A])],
+        };
+        let switch = STAND_SECS + 2.0;
+        let run = turned(
+            &STRAFE,
+            false,
+            Treatment {
+                name: "eyes until the switch",
+                eyes_until: Some(switch),
+                ..SHIPPED
+            },
+        );
+        let window = |from: f32, to: f32| -> Vec<&Frame> {
+            run.frames
+                .iter()
+                .filter(|frame| frame.t >= from && frame.t < to)
+                .collect()
+        };
+        let strafing = window(switch - 1.0, switch);
+        let after = window(switch, switch + 1.0);
+        for frame in after.iter().step_by(4).take(10) {
+            println!(
+                "t {:.3} facing {:+.1} travel {:?} source {:?} strained {}",
+                frame.t, frame.facing, frame.angle, frame.source, frame.strained
+            );
+        }
+        let strained = after.iter().filter(|frame| frame.strained).count();
+        let slid = slide(&after);
+        println!(
+            "strafing: slide {:.1} mm; after the switch: slide {:.1} mm, strained {strained}",
+            slide(&strafing) * 1000.0,
+            slid * 1000.0
+        );
+        assert_eq!(strained, 0, "{strained} strained frames after the switch");
+        assert!(
+            slid <= 0.420,
+            "the planted soles slid {:.1} mm after the switch, over the 420 mm ceiling",
+            slid * 1000.0
+        );
+    }
+
+    /// The legs of a walk in first person, every way the keys go (#1753):
+    /// two seconds of each key held with the body facing where the eyes look,
+    /// the planted soles' slide and the strained frames over the second
+    /// second. A strafe's stride is shortened by the engine's reach and its
+    /// shuffle bound while the step rate still comes from the speed alone,
+    /// and a hold yields across past half its limb's offset, so the sideways
+    /// walk slides where the forward one does not.
+    #[test]
+    #[ignore = "probe for #1753: prints the first-person walk table, asserts nothing"]
+    fn probe_a_first_person_walk_every_way() {
+        const A: KeyCode = KeyCode::KeyA;
+        let ways: [(&'static str, &'static [KeyCode]); 5] = [
+            ("W, ahead", &[W]),
+            ("A, a strafe left", &[A]),
+            ("D, a strafe right", &[D]),
+            ("S, backing up", &[S]),
+            ("W+D, a diagonal", &[W, D]),
+        ];
+        for (name, keys) in ways {
+            let script = Script {
+                name,
+                spans: Box::leak(vec![(SCRIPT_SECS, keys)].into_boxed_slice()),
+            };
+            for shift in [false, true] {
+                let run = turned(
+                    &script,
+                    shift,
+                    Treatment {
+                        name: "in the eyes",
+                        eyes_until: Some(f32::MAX),
+                        ..SHIPPED
+                    },
+                );
+                let settled: Vec<&Frame> = run
+                    .frames
+                    .iter()
+                    .filter(|frame| frame.t >= STAND_SECS + 1.0 && frame.t < STAND_SECS + 2.0)
+                    .collect();
+                let strained = settled.iter().filter(|frame| frame.strained).count();
+                let speed = settled.last().map_or(0.0, |frame| frame.speed);
+                println!(
+                    "{name:<20} {}: {speed:.2} m/s, slide {:.1} mm, strained {strained}",
+                    if shift { "run " } else { "walk" },
+                    slide(&settled) * 1000.0
+                );
+            }
+        }
     }
 
     fn key_label(keys: &[KeyCode]) -> String {

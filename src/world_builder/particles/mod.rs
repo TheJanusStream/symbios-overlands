@@ -53,7 +53,9 @@ pub use atlas::{ParticleAtlasMeshes, ParticleQuadMesh};
 pub use ramp::EmitterMaterialRamp;
 pub(super) use spawn::{snapshot_from_record, spawn_particle_emitter_entity};
 pub use spawn::{spawn_particle_emitter, tick_emitter_spawn};
-pub use tick::{tick_particles, update_emitter_motion};
+pub use tick::{
+    follow_emitter_layers, register_layer_follow, tick_particles, update_emitter_motion,
+};
 
 use bevy::prelude::*;
 use rand_chacha::ChaCha8Rng;

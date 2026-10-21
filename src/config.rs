@@ -837,6 +837,20 @@ pub(crate) mod camera {
     /// player's own body leaves their view, and comes back on the way out:
     /// past a third of the way the camera is inside the head's reach.
     pub const FIRST_PERSON_HIDE_AT: f32 = 0.35;
+    /// How long, seconds, the browser has to grant the pointer lock mouse look
+    /// asks for before its absence counts as the pointer let go (#1754): the
+    /// request is answered asynchronously, and refused outright without a
+    /// click or a key to back it - a zoom into the eyes is neither. The
+    /// browser's alone: a native window holds its pointer without asking.
+    #[cfg(target_arch = "wasm32")]
+    pub const MOUSE_LOOK_LOCK_GRACE_S: f64 = 0.5;
+    /// How quickly the eyes follow the head as the pose carries it, seconds
+    /// (#1749): the time constant of a first-order lag on the eye line's
+    /// departure from where it stands at rest. A walk bobs the head about
+    /// twice a second, and this passes about a quarter of that bob; a slow
+    /// change of posture - a swim's crawl, a sit - it follows whole within a
+    /// second.
+    pub const FIRST_PERSON_EYE_RESPONSE_S: f32 = 0.3;
     /// The orbit's lowest pitch while looking through the eyes (#1745): 83
     /// degrees up. The orbit's own floor ([`PITCH_LOWER_LIMIT`]) keeps a
     /// chase camera off the ground; an eye has no ground behind it to hit.

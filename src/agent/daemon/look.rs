@@ -52,7 +52,7 @@ use crate::config::agent::{
     HOME_DIR, LOOK_ANSWER_TIMEOUT, LOOK_SIZE, LOOK_WARMUP_FRAMES, LOOKS_DIR, LOOKS_KEPT,
 };
 use crate::config::camera::EYE_HEIGHT_FRACTION;
-use crate::interaction::locomotion::{locomotion_footprint, locomotion_total_height};
+use crate::interaction::locomotion::{locomotion_reach, locomotion_total_height};
 use crate::state::{
     AppState, CurrentRoomDid, LiveAvatarRecord, LocalPlayer, LocalSettings, TravelingTo,
 };
@@ -145,10 +145,14 @@ fn aim(world: &mut World, spec: &LookSpec) -> Result<Shot, String> {
                 .ok_or("the agent has no body yet")?
                 .0
                 .locomotion;
+            // Out at the body's outline toward the look, across and ahead
+            // in its own frame (#1751): a vehicle's nose straight ahead, its
+            // flank to the side, a person's face.
+            let toward = Vec2::new(dir.perp_dot(facing), dir.dot(facing));
             eyes_pose(
                 centre,
                 locomotion_total_height(locomotion),
-                locomotion_footprint(locomotion),
+                locomotion_reach(locomotion, toward),
                 dir,
             )
         }

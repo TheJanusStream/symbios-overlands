@@ -282,6 +282,11 @@ pub(super) fn detect_scene_right_click(
     if !menu.drag.release() {
         return;
     }
+    // Mouse look holds the pointer (#1754): a right-click there is a look, and
+    // a menu nobody can point at would only wait for Esc.
+    if pick.pointer_captured() {
+        return;
+    }
 
     // A right-click on the toolbar or an editor window is a UI interaction,
     // not a click into the world - leave any open menu to egui's own close
