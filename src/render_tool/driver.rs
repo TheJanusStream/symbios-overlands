@@ -134,6 +134,9 @@ pub(super) struct DriverSpec {
     pub(super) lead: f32,
     /// Where `--drive-log` writes the run, one JSON line a physics step.
     pub(super) log: Option<String>,
+    /// `--first-person` (#1745): the camera rides the car's nose, and the
+    /// car is out of its own picture.
+    pub(super) first_person: bool,
 }
 
 impl DriverSpec {
@@ -320,6 +323,19 @@ pub(super) fn spawn_driver(
         start_step,
         held: Vec::new(),
     });
+    if spec.first_person {
+        commands.entity(chassis).insert((
+            super::rig::FirstPersonEyes(crate::camera::EyeMount::of(
+                &spec.record.locomotion,
+                true,
+                None,
+                None,
+            )),
+            bevy::app::Propagate(bevy::camera::visibility::RenderLayers::layer(
+                crate::config::camera::FIRST_PERSON_BODY_LAYER,
+            )),
+        ));
+    }
     if let Some(path) = &spec.log {
         // A fresh log a run: every line after this one is this drive's.
         if let Err(e) = std::fs::write(path, "") {
@@ -465,6 +481,7 @@ mod tests {
             keys: parse_drive_keys(&[keys.to_owned()]).expect("the keys parse"),
             lead: 1.0,
             log: None,
+            first_person: false,
         }
     }
 

@@ -7,6 +7,12 @@
 //! steering rotates the world around the player instead of whipping
 //! the view around.
 //!
+//! Zoomed in past its closest, or at V, the same camera looks out of the
+//! player's own eyes instead ([`FirstPerson`], #1745): placed there after the
+//! crate has placed it round the orbit, with the crate still turning its yaw
+//! and pitch under a right-drag. A vehicle's eyes ride its nose, and while
+//! they do the follow system stops turning the orbit with it.
+//!
 //! The player may choose an orthographic camera (#1603,
 //! [`crate::state::LocalSettings::orthographic_camera`]): nothing shrinks
 //! with distance. The orbit is the same free orbit - the crate turns its
@@ -54,24 +60,46 @@ use crate::player::VehicleChassis;
 use crate::state::{AppState, LocalPlayer};
 use crate::terrain::FinishedHeightMap;
 
+mod first_person;
+
+pub use first_person::{CameraView, FirstPerson, OrbitHold};
+// The render tool's `--first-person` (#1745), which is native only.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use first_person::EyeMount;
+pub(crate) use first_person::register_render_layer_propagation;
+
 pub struct CameraPlugin;
 
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
+        // A body hidden from its own first-person camera (#1745) is hidden
+        // by a layer carried down its hierarchy.
+        register_render_layer_propagation(app);
         app.add_plugins(PanOrbitCameraPlugin)
             // #1317: this plugin, not bevy_egui, decides which camera egui
             // draws through. `insert_resource` is order-independent against
             // `EguiPlugin`, whose `init_resource` never overwrites a value.
             .insert_resource(egui_global_settings())
+            .init_resource::<FirstPerson>()
+            .init_resource::<OrbitHold>()
             .add_systems(Startup, spawn_orbit_camera)
             .add_systems(
                 Update,
                 follow_local_player.run_if(in_state(AppState::InGame)),
             )
+            .add_systems(OnExit(AppState::InGame), first_person::leave_first_person)
             .add_systems(
                 PostUpdate,
                 (
                     gate_camera_on_gui.before(PanOrbitCameraSystemSet),
+                    // After the gate, which says whether the wheel is the
+                    // world's or a window's, and before the lens and the
+                    // crate, which the view changes (#1745).
+                    first_person::switch_view
+                        .after(gate_camera_on_gui)
+                        .before(follow_projection_setting)
+                        .before(PanOrbitCameraSystemSet)
+                        .run_if(in_state(AppState::InGame)),
                     // Before the crate, so it lays a new lens out on the
                     // frame it is chosen (#1603).
                     follow_projection_setting.before(PanOrbitCameraSystemSet),
@@ -87,6 +115,15 @@ impl Plugin for CameraPlugin {
                     clamp_camera_to_terrain
                         .after(PanOrbitCameraSystemSet)
                         .before(bevy::transform::TransformSystems::Propagate)
+                        .run_if(in_state(AppState::InGame)),
+                    // Last on the camera: the eyes replace the orbit's pose,
+                    // its terrain clamp and its orthographic stand-off with
+                    // it, before propagation and the frustum read it (#1745).
+                    first_person::place_first_person_camera
+                        .after(clamp_camera_to_terrain)
+                        .after(stand_orthographic_camera)
+                        .before(bevy::transform::TransformSystems::Propagate)
+                        .before(bevy::camera::CameraUpdateSystems)
                         .run_if(in_state(AppState::InGame)),
                 ),
             );
@@ -466,12 +503,34 @@ pub(crate) fn orthographic_lens(distance: f32) -> OrthographicProjection {
 /// a lower pitch up to it. Runs before the orbit crate, which lays the new
 /// lens out on the same frame (`force_update`). Writes nothing while the
 /// lens already matches.
+///
+/// The eyes see through the perspective lens whatever the setting, from the
+/// moment they are asked for until the camera is whole round the orbit again
+/// (#1745), and may look up to [`cfg::FIRST_PERSON_PITCH_LOWER_LIMIT`]; the
+/// orbit's own floor comes back as they leave, so the orbit eases out of a
+/// look up on the way.
 fn follow_projection_setting(
     settings: Res<crate::state::LocalSettings>,
+    first_person: Option<Res<FirstPerson>>,
     mut cameras: Query<(&mut Projection, &mut PanOrbitCamera), IsWorldCamera>,
 ) {
-    let orthographic = settings.orthographic_camera;
+    let eyes = first_person.as_deref().is_some_and(FirstPerson::engaged);
+    let looking = first_person
+        .as_deref()
+        .is_some_and(|fp| fp.view() == CameraView::Eyes);
+    let orthographic = settings.orthographic_camera && !eyes;
+    let pitch_floor = if looking {
+        cfg::FIRST_PERSON_PITCH_LOWER_LIMIT
+    } else if orthographic {
+        cfg::ORTHO_PITCH_LOWER_LIMIT
+    } else {
+        cfg::PITCH_LOWER_LIMIT
+    };
     for (mut projection, mut orbit) in cameras.iter_mut() {
+        if orbit.pitch_lower_limit != Some(pitch_floor) {
+            orbit.pitch_lower_limit = Some(pitch_floor);
+            orbit.force_update = true;
+        }
         if matches!(*projection, Projection::Orthographic(_)) == orthographic {
             continue;
         }
@@ -481,11 +540,6 @@ fn follow_projection_setting(
         } else {
             Projection::Perspective(perspective_lens())
         };
-        orbit.pitch_lower_limit = Some(if orthographic {
-            cfg::ORTHO_PITCH_LOWER_LIMIT
-        } else {
-            cfg::PITCH_LOWER_LIMIT
-        });
         orbit.force_update = true;
     }
 }
@@ -703,9 +757,14 @@ pub(crate) fn camera_listener() -> SpatialListener {
 /// each fixed step), so it lags a frame and its staleness oscillates at
 /// the fixed-vs-refresh beat - feeding it into the focus lerp was the
 /// rubber-band half of the own-avatar stutter.
+///
+/// While the eyes ride a vehicle (#1745) the orbit stops following its turns:
+/// the camera turns with the vehicle itself, and the orbit's yaw is how far
+/// the head is turned on it.
 fn follow_local_player(
     player_query: Query<(&Transform, Option<&VehicleChassis>), With<LocalPlayer>>,
     mut camera_query: Query<&mut PanOrbitCamera>,
+    first_person: Option<Res<FirstPerson>>,
     mut prev_yaw: Local<Option<f32>>,
 ) {
     let Ok((player_tf, vehicle)) = player_query.single() else {
@@ -729,7 +788,10 @@ fn follow_local_player(
     // (keep `prev_yaw`) and resume accumulating once the nose comes back
     // down; a full loop then contributes its true net yaw instead of a
     // flip.
-    if vehicle.is_some() {
+    let riding = first_person
+        .as_deref()
+        .is_some_and(FirstPerson::rides_vehicle);
+    if vehicle.is_some() && !riding {
         let fwd = player_tf.rotation * Vec3::NEG_Z;
         if fwd.y.abs() <= cfg::YAW_FREEZE_FORWARD_Y {
             let vehicle_yaw = (-fwd.x).atan2(-fwd.z);

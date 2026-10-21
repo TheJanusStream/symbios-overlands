@@ -132,6 +132,11 @@ BEVY_ASSET_ROOT=<repo> <repo>/target/test-release/render --world <did> \
 
 `--focus walker` follows the file's body; `--yaw 150` looks at its face, and
 `--walker <seed>` adds a seeded person beside it for comparison.
+`--first-person` looks out of the body's own eyes instead, as a player who
+zooms all the way in does (#1745), with the body out of the picture and its
+shadow on the ground: `--elev` lowers the head that many degrees and `--yaw`
+turns it left, so a doorway, a ceiling or a railing is judged at the height
+a person meets it.
 
 ## Dressing a rigged person
 

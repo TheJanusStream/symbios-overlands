@@ -222,6 +222,7 @@ mod tests {
             "ui::login::mirror_login_activity",
             "ui::confirm::mirror_attention_held",
             "ui::catalogue::mirror_preview_request",
+            "ui::toolbar::mirror_orbit_hold",
         ] {
             assert!(
                 lib.lines().any(|line| code(line).contains(mirror)),

@@ -142,6 +142,17 @@ pub fn settings_ui(
                             .changed();
                     }
                 });
+                // #1745: the zoom's way into the eyes; V works either way.
+                dirty |= ui
+                    .checkbox(
+                        &mut s.zoom_into_first_person,
+                        "Zoom all the way in for first person",
+                    )
+                    .on_hover_text(
+                        "Zooming in past the closest view looks through your own eyes, \
+                         and zooming out comes back. V switches either way.",
+                    )
+                    .changed();
                 ui.label("Ground avoidance:");
                 ui.horizontal(|ui| {
                     for mode in [

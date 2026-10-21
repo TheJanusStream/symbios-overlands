@@ -585,6 +585,9 @@ pub(crate) fn build_client_app(app: &mut App, boot: boot_params::BootParams, she
                 ui::login::mirror_login_activity,
                 ui::confirm::mirror_attention_held,
                 ui::catalogue::mirror_preview_request,
+                // The camera's hold at the orbit while the Avatar editor is
+                // open (#1745), read by its first-person switch in PostUpdate.
+                ui::toolbar::mirror_orbit_hold,
             ),
         )
         .add_systems(
@@ -991,6 +994,13 @@ fn setup_lighting(
         },
         Transform::from_xyz(lp[0], lp[1], lp[2]).looking_at(Vec3::ZERO, Vec3::Y),
         cascade_shadow_config,
+        // The world's layer, and the one a body hidden from its own eyes
+        // moves to (#1745): the camera no longer draws it, the sun still
+        // shadows it.
+        bevy::camera::visibility::RenderLayers::from_layers(&[
+            0,
+            config::camera::FIRST_PERSON_BODY_LAYER,
+        ]),
     ));
 
     commands.insert_resource(GlobalAmbientLight {

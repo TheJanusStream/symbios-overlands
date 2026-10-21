@@ -894,6 +894,16 @@ struct Args {
     /// constant, so a landing's bounce is not a shake (default 0, rigid).
     #[arg(long, default_value_t = 0.0)]
     follow_lag: f32,
+    /// For a followed body (`--focus walker` or `--focus driver`): look out
+    /// of its own eyes, as the game's first-person view does (#1745) - a
+    /// person's at their rig's eye line, a car's at its nose, turning with
+    /// it - with the body out of its own picture and its shadow still on the
+    /// ground. `--yaw` then turns the head that many degrees to the left of
+    /// straight ahead and `--elev` lowers it that many degrees (both default
+    /// 0, within the game's own limits); distance, sweep and `--eye` mean
+    /// nothing.
+    #[arg(long)]
+    first_person: bool,
     /// `--world`: the camera's vertical field of view in degrees, for a shot
     /// on another lens than the game's (Bevy's 45 degrees) - a long lens
     /// that flattens a jump's run-up, a wide one inside the action (#1546).
@@ -1354,6 +1364,11 @@ pub fn run() {
          stands a subject on the ground"
     );
     let rig = build_rig(&args, is_world);
+    assert!(
+        !args.first_person || matches!(rig.focus, Focus::Walker | Focus::Driver),
+        "--first-person looks out of a followed body's eyes: give --focus walker or \
+         --focus driver"
+    );
     let walker = (!args.walker.is_empty() || args.walker_avatar.is_some()).then(|| WalkerSpec {
         seeds: args.walker.clone(),
         avatar: args.walker_avatar.clone(),
@@ -1372,6 +1387,7 @@ pub fn run() {
             .map(|o| parse_outfit(o).unwrap_or_else(|e| panic!("{e}")))
             .collect(),
         spread: args.walker_spread,
+        first_person: rig.eyes_on(Focus::Walker),
     });
     assert!(
         walker.is_none() || is_world,
@@ -1390,6 +1406,7 @@ pub fn run() {
         },
         lead: args.drive_lead,
         log: args.drive_log.clone(),
+        first_person: rig.eyes_on(Focus::Driver),
     });
     assert!(
         driver.is_none() || !args.editor,
@@ -1736,6 +1753,15 @@ fn build_rig(args: &Args, is_world: bool) -> CameraRig {
         None if is_world => Focus::Origin,
         None => Focus::Subject,
     };
+    // In the eyes the game's head starts level and straight ahead, and a
+    // right-drag pitches it between the first-person limits.
+    let first_person = args.first_person.then(|| rig::HeadTurn {
+        yaw: args.yaw.unwrap_or(0.0).to_radians(),
+        pitch: args.elev.unwrap_or(0.0).to_radians().clamp(
+            crate::config::camera::FIRST_PERSON_PITCH_LOWER_LIMIT,
+            crate::config::camera::PITCH_UPPER_LIMIT,
+        ),
+    });
     // `--play-view` leaves distance and elevation unset so the framing can
     // hand the rig the game's own pair (`rig::PLAY_DIST` / `play_elev_deg`),
     // and holds the angle: it is a shot of a craft standing still at the
@@ -1756,6 +1782,7 @@ fn build_rig(args: &Args, is_world: bool) -> CameraRig {
             eye: eye_pair(args),
             yaw_world: args.yaw_world,
             follow_lag: args.follow_lag.max(0.0),
+            first_person,
         };
     }
     // A vista focus (the spawn, the landing, the settlement) looks at the
@@ -1797,6 +1824,7 @@ fn build_rig(args: &Args, is_world: bool) -> CameraRig {
         eye: eye_pair(args),
         yaw_world: args.yaw_world,
         follow_lag: args.follow_lag.max(0.0),
+        first_person,
     }
 }
 

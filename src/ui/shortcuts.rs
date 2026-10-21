@@ -61,6 +61,9 @@
 //!   `target_focus` is pinned to the chassis every frame, so there is no
 //!   "frame selection" to bind: the only way to bring an off-screen
 //!   selection into view in this world is to walk the player to it.
+//! * **V - through the eyes and back** (#1745). The camera's first-person
+//!   view, which the zoom also reaches past the orbit's closest distance;
+//!   [`crate::camera::FirstPerson`] takes the request on the next frame.
 //!
 //! Gizmo-style S/R/G/X/Y/Z keys are deliberately NOT bound - they collide
 //! with WASD/Shift movement.
@@ -528,6 +531,20 @@ pub(crate) fn expand_window(ctx: &egui::Context, window: UiWindow) {
     }
 }
 
+/// V asks for the other view (#1745), alone or with Shift held for a
+/// sprint: Ctrl+V (Cmd+V) is a paste, and Alt the orbit's pan modifier.
+fn view_toggle_pressed(keyboard: &ButtonInput<KeyCode>) -> bool {
+    keyboard.just_pressed(KeyCode::KeyV)
+        && !keyboard.any_pressed([
+            KeyCode::ControlLeft,
+            KeyCode::ControlRight,
+            KeyCode::SuperLeft,
+            KeyCode::SuperRight,
+            KeyCode::AltLeft,
+            KeyCode::AltRight,
+        ])
+}
+
 /// The one global-shortcut system (Update, `InGame` only).
 #[allow(clippy::too_many_arguments)]
 pub fn global_shortcuts(
@@ -546,6 +563,8 @@ pub fn global_shortcuts(
     focus: Res<crate::editor_gizmo::GizmoFocus>,
     mut player_move: ResMut<crate::player::PlayerMoveRequest>,
     players: Query<&Transform, With<crate::state::LocalPlayer>>,
+    // V: the eyes and back (#1745).
+    mut first_person: ResMut<crate::camera::FirstPerson>,
 ) {
     // Guarded so the every-frame system doesn't flag the resource
     // changed while nothing is pending.
@@ -726,6 +745,14 @@ pub fn global_shortcuts(
             // no-op (#1208).
             _ => toasts.info("Nothing is selected to go to", now),
         }
+    }
+
+    // ── V: through the eyes and back (#1745) ─────────────────────────
+    // Gated like F, so a "v" typed into chat stays in chat. The zoom does
+    // the same past the orbit's floor; this works whether or not the
+    // player has switched that off.
+    if view_toggle_pressed(&keyboard) && gate.allows_esc() {
+        first_person.request_toggle();
     }
 
     // ── Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y): undo / redo (#864) ────────
@@ -1000,6 +1027,31 @@ mod tests {
         popup_open: false,
         audio_editor_keys: false,
     };
+
+    /// **V is the view, Ctrl+V a paste** (#1745): with no text field focused
+    /// a paste reached the V binding and flipped the camera into the eyes.
+    /// Shift (a sprint) may be held; Ctrl, Cmd and Alt may not.
+    #[test]
+    fn v_turns_the_view_and_ctrl_v_does_not() {
+        let pressed = |held: &[KeyCode]| {
+            let mut keyboard = ButtonInput::<KeyCode>::default();
+            for key in held {
+                keyboard.press(*key);
+            }
+            keyboard.press(KeyCode::KeyV);
+            view_toggle_pressed(&keyboard)
+        };
+        assert!(pressed(&[]));
+        assert!(pressed(&[KeyCode::ShiftLeft]), "on the run");
+        for chord in [
+            KeyCode::ControlLeft,
+            KeyCode::ControlRight,
+            KeyCode::SuperLeft,
+            KeyCode::AltLeft,
+        ] {
+            assert!(!pressed(&[chord]), "{chord:?}+V");
+        }
+    }
 
     /// #1333 B12/A9. The audio pop-out's editors read Ctrl+Z from egui, but
     /// this module reads Bevy's `ButtonInput<KeyCode>`, which egui cannot

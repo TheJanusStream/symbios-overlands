@@ -96,7 +96,7 @@
 //! looks roots up *from* an entity that has a `GaitAnimation`, so a stage
 //! with no such parent is never reached.
 
-use bevy::app::{HierarchyPropagatePlugin, Propagate};
+use bevy::app::Propagate;
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::RenderTarget;
 use bevy::camera::primitives::Aabb;
@@ -112,9 +112,11 @@ use crate::player::visuals::{AvatarSpawnDeps, spawn_visual_tree};
 use crate::state::{AppState, LiveInventoryRecord};
 
 /// The render layer the preview stage, its key light and its camera live
-/// on. Nothing else in the crate uses `RenderLayers` at all, so layer 0 -
-/// the layer every component-less entity belongs to - is the whole rest of
-/// the app.
+/// on. The world camera draws layer 0 - the layer every component-less
+/// entity belongs to - which is the rest of the app but for the player's
+/// body while it looks out of its own eyes
+/// ([`crate::config::camera::FIRST_PERSON_BODY_LAYER`], #1745) and what the
+/// agent's interface pictures hide.
 pub const PREVIEW_LAYER: usize = 1;
 
 /// Where the stage sits. Two kilometres up: far enough that a construct's
@@ -249,19 +251,16 @@ impl Plugin for ItemPreviewPlugin {
         // particles spawned after the tree - get their layer from here,
         // in PostUpdate, which is before visibility is computed and
         // before the render world extracts.
-        app.add_plugins(HierarchyPropagatePlugin::<RenderLayers>::new(PostUpdate))
-            // The plugin only says WHICH schedule; ordering it before
-            // visibility is what makes the claim above true. Without this
-            // the propagation could land after the frame's visibility
-            // check and a freshly spawned preview node - or a particle the
-            // emitter added this frame - would be drawn by the WORLD
-            // camera once, two kilometres over the player's head.
-            .configure_sets(
-                PostUpdate,
-                bevy::app::PropagateSet::<RenderLayers>::default()
-                    .before(bevy::camera::visibility::VisibilitySystems::CheckVisibility),
-            )
-            .init_resource::<PreviewRequest>()
+        // The plugin only says WHICH schedule; ordering it before visibility
+        // is what makes the claim above true. Without that the propagation
+        // could land after the frame's visibility check and a freshly
+        // spawned preview node - or a particle the emitter added this frame
+        // - would be drawn by the WORLD camera once, two kilometres over the
+        // player's head. Shared with the first-person camera (#1745), which
+        // hides the player's body the same way: one registration, whichever
+        // plugin asks first.
+        crate::camera::register_render_layer_propagation(app);
+        app.init_resource::<PreviewRequest>()
             .add_systems(Startup, setup_preview)
             .add_systems(Update, restage_preview.run_if(in_state(AppState::InGame)))
             .add_systems(
@@ -863,6 +862,7 @@ mod tests {
 #[cfg(test)]
 mod propagation_tests {
     use super::*;
+    use bevy::app::HierarchyPropagatePlugin;
 
     #[test]
     fn the_layer_reaches_a_child_the_spawn_path_never_tagged() {

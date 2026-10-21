@@ -109,6 +109,25 @@ pub(super) struct CameraRig {
     /// with this time constant, so a landing's bounce is not a shake. 0
     /// follows rigidly.
     pub(super) follow_lag: f32,
+    /// `--first-person` (#1745): the camera is the followed body's eyes
+    /// ([`FirstPersonEyes`]), the head turned this far, and the rest of the
+    /// rig means nothing.
+    pub(super) first_person: Option<HeadTurn>,
+}
+
+/// `--first-person` (#1745): where the followed body's eyes are, as the
+/// game's first-person view puts them. On the lead walker or the driven car
+/// only, which also carry the layer that keeps them out of their own picture.
+#[derive(Component, Clone, Copy, Debug)]
+pub(super) struct FirstPersonEyes(pub(super) crate::camera::EyeMount);
+
+/// `--first-person` (#1745): the head turned from straight ahead, radians,
+/// as a right-drag turns it in the game - the yaw to the left, the pitch
+/// down - from `--yaw` and `--elev` in degrees.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(super) struct HeadTurn {
+    pub(super) yaw: f32,
+    pub(super) pitch: f32,
 }
 
 /// Where an `--eye` camera stands: `x,z` at a person's eye height over the
@@ -155,6 +174,14 @@ impl Eye {
 }
 
 impl CameraRig {
+    /// `--first-person` (#1745): whether `body` - [`Focus::Walker`] or
+    /// [`Focus::Driver`] - looks out of its own eyes, which only the body the
+    /// rig follows does. With both a walker and a car in the world, the
+    /// other stays in the picture.
+    pub(super) fn eyes_on(&self, body: Focus) -> bool {
+        self.first_person.is_some() && self.focus == body
+    }
+
     /// Camera position and look-at point for clip progress `t` (0..=1),
     /// orbiting `focus`. `yaw_base` is added to the rig's yaw - the walker
     /// mode passes the direction behind the body, everything else 0 - and
@@ -291,7 +318,25 @@ mod tests {
             eye: None,
             yaw_world: false,
             follow_lag: 0.0,
+            first_person: None,
         }
+    }
+
+    /// **Only the body the rig follows looks out of its own eyes** (#1745):
+    /// with a walker and a car both in the world, `--focus driver` hid the
+    /// lead walker too, and whichever body the query met first lent the
+    /// camera its eyes.
+    #[test]
+    fn only_the_followed_body_gets_the_eyes() {
+        let mut followed = rig();
+        followed.focus = Focus::Driver;
+        assert!(
+            !followed.eyes_on(Focus::Driver),
+            "not without --first-person"
+        );
+        followed.first_person = Some(HeadTurn::default());
+        assert!(followed.eyes_on(Focus::Driver));
+        assert!(!followed.eyes_on(Focus::Walker));
     }
 
     const AUTO: (f32, f32) = (99.0, 45.0);

@@ -1467,6 +1467,7 @@ mod tests {
             show_peer_nametags: false,
             load_external_assets: false,
             orthographic_camera: true,
+            zoom_into_first_person: false,
             theme: UserTheme::HighContrast,
             ui_scale: 1.4,
             ..Default::default()

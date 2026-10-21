@@ -79,6 +79,22 @@ impl Default for UiPanels {
     }
 }
 
+/// Mirrors the Avatar editor's being open into the camera's
+/// [`crate::camera::OrbitHold`] (#1745), so the camera does not import the
+/// egui layer (#1158, #1297). Runs unconditionally, like the other mirrors:
+/// with no panels at all - before login, in the render tool - nothing holds
+/// the camera.
+pub fn mirror_orbit_hold(
+    panels: Option<Res<UiPanels>>,
+    mut hold: ResMut<crate::camera::OrbitHold>,
+) {
+    let next = crate::camera::OrbitHold(panels.is_some_and(|panels| panels.avatar));
+    // Guarded write (#879): an unconditional one stamps a change every frame.
+    if *hold != next {
+        *hold = next;
+    }
+}
+
 /// Does the signed-in player own the overland they're standing in?
 /// Ownership is DID equality - the room record lives in the owner's PDS.
 pub(crate) fn owns_current_room(
@@ -1142,7 +1158,7 @@ const EDITOR_ROWS: &[ControlRow] = &[
 const CAMERA_ROWS: &[ControlRow] = &[
     ControlRow {
         keys: "Right-drag",
-        action: "orbit camera",
+        action: "orbit camera · look around in first person",
     },
     ControlRow {
         keys: "Middle-drag  or  Alt + right-drag",
@@ -1151,6 +1167,12 @@ const CAMERA_ROWS: &[ControlRow] = &[
     ControlRow {
         keys: "Scroll  or  pinch",
         action: "zoom",
+    },
+    // #1745: the zoom carries on past its closest into the eyes, and V does
+    // the same from the keyboard (`ui::shortcuts`).
+    ControlRow {
+        keys: "V  or  zoom all the way in",
+        action: "first-person view (zoom out or V to come back)",
     },
 ];
 
@@ -2060,6 +2082,58 @@ mod tests {
             "no trackpad-reachable zoom: {printed}"
         );
         assert!(printed.contains("orbit"));
+    }
+
+    /// **The sheet's V row is a key the shortcuts read** (#1745): the
+    /// first-person row names V, and `ui::shortcuts` binds `KeyCode::KeyV` to
+    /// the camera's view, so neither half can go without the other.
+    #[test]
+    fn the_first_person_row_mirrors_its_key() {
+        let row = CAMERA_ROWS
+            .iter()
+            .find(|row| row.action.contains("first-person"))
+            .expect("the camera rows name the first-person view");
+        assert!(
+            row.keys.starts_with("V "),
+            "the row names V: {:?}",
+            row.keys
+        );
+        assert!(
+            row.keys.contains("zoom"),
+            "and the zoom that also gets there"
+        );
+        let shortcuts = include_str!("shortcuts.rs");
+        assert!(
+            shortcuts.contains("just_pressed(KeyCode::KeyV)")
+                && shortcuts.contains("first_person.request_toggle()"),
+            "ui::shortcuts no longer binds V to the view"
+        );
+    }
+
+    /// **The Avatar editor holds the camera at the orbit, through a mirror**
+    /// (#1745): the camera reads [`crate::camera::OrbitHold`], which the
+    /// mirror writes from the panel - and only when it changes, so the hold
+    /// is not stamped changed every frame.
+    #[test]
+    fn the_avatar_editor_holds_the_orbit_through_its_mirror() {
+        use crate::camera::OrbitHold;
+
+        let mut app = App::new();
+        app.init_resource::<UiPanels>()
+            .init_resource::<OrbitHold>()
+            .add_systems(Update, mirror_orbit_hold);
+        app.update();
+        assert_eq!(*app.world().resource::<OrbitHold>(), OrbitHold(false));
+        app.world_mut().resource_mut::<UiPanels>().avatar = true;
+        app.update();
+        assert_eq!(*app.world().resource::<OrbitHold>(), OrbitHold(true));
+        let stamped = app.world().resource_ref::<OrbitHold>().last_changed();
+        app.update();
+        assert_eq!(
+            app.world().resource_ref::<OrbitHold>().last_changed(),
+            stamped,
+            "an unchanged hold is not written again"
+        );
     }
 
     /// **The visitor-usable right-click is documented to visitors**

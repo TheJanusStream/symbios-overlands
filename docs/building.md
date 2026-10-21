@@ -665,7 +665,15 @@ films four times slower than life (the warm-up runs at full speed, and the
 chassis is eased between physics steps as the game eases a player's).
 `--ortho` (#1603) draws through the game's orthographic camera instead -
 what a player who chose it in Settings sees - framing at the focus what the
-45-degree lens frames from `--dist` away.
+45-degree lens frames from `--dist` away. `--first-person` (#1745, with
+`--focus walker` or `--focus driver`) looks out of the followed body's own
+eyes, where the game's first-person view puts them: a person's at their
+rig's eye line, a car's on its nose, riding its pitch and bank. The body is
+out of its own picture and its shadow is still on the ground, by the same
+render layer the game moves it to. `--yaw` then turns the head that many
+degrees to the left of straight ahead and `--elev` lowers it, as a
+right-drag does in the game (both default 0, level and ahead); distance,
+sweep and `--eye` mean nothing.
 
 `--editor` (#1353, with `--world`) draws the game's own editing surfaces
 into the same frame as the world: the toolbar, the World Editor, the

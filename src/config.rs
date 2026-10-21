@@ -822,6 +822,51 @@ pub(crate) mod camera {
     /// there whipped the camera π mid-loop.
     pub const YAW_FREEZE_FORWARD_Y: f32 = 0.95;
 
+    /// Where the eyes are in a body, as a fraction of its height from its
+    /// feet: an adult's eye line is 93-94% of their stature, and a vehicle
+    /// sees from near its top. The fallback for a body with no rig to read
+    /// an eye line from, in first person (#1745) and in the agent's `look
+    /// --view eyes` (#1420).
+    pub const EYE_HEIGHT_FRACTION: f32 = 0.93;
+
+    /// Seconds the camera takes to move between the orbit and the eyes, each
+    /// way (#1745): long enough to read as the zoom carrying on, short
+    /// enough not to stand between a player and the view they asked for.
+    pub const FIRST_PERSON_BLEND_S: f32 = 0.25;
+    /// How far into that move (eased, 0 at the orbit, 1 at the eyes) the
+    /// player's own body leaves their view, and comes back on the way out:
+    /// past a third of the way the camera is inside the head's reach.
+    pub const FIRST_PERSON_HIDE_AT: f32 = 0.35;
+    /// The orbit's lowest pitch while looking through the eyes (#1745): 83
+    /// degrees up. The orbit's own floor ([`PITCH_LOWER_LIMIT`]) keeps a
+    /// chase camera off the ground; an eye has no ground behind it to hit.
+    pub const FIRST_PERSON_PITCH_LOWER_LIMIT: f32 = -1.45;
+    /// The render layer a body hidden from its own first-person camera is
+    /// moved to (#1745): the world camera draws only layer 0, the sun casts
+    /// shadows from this one too, so the body keeps its shadow. Layer 1 is
+    /// the item preview's stage, 31 the agent's interface pictures.
+    pub const FIRST_PERSON_BODY_LAYER: usize = 2;
+
+    /// The zoom-in that takes the camera past its closest orbit into first
+    /// person (#1745), in the orbit crate's own units: one wheel notch is
+    /// 1.0, a trackpad's 200 pixels are 1.0 (it scales pixels by 0.005), a
+    /// trackpad pinch counts ten times its scale, a touch pinch 0.015 a
+    /// pixel of the fingers' spread.
+    pub const ZOOM_PUSH_NOTCH: f32 = 1.0;
+    /// How long the orbit must have rested at its closest, with no zoom-in
+    /// arriving, before a zoom-in counts toward first person (#1745). A
+    /// trackpad swipe that carries the camera down to [`ZOOM_LOWER_LIMIT`]
+    /// goes on sending input while its momentum lasts, and each of those
+    /// starts the wait again: without it the swipe fell straight through
+    /// into the eyes.
+    pub const ZOOM_PUSH_SETTLE_S: f64 = 0.15;
+    /// A push gathered at the floor and then left this long is dropped: a
+    /// half-push long ago and a half-push now are not a push.
+    pub const ZOOM_PUSH_IDLE_S: f64 = 0.4;
+    /// The zoom-out that brings first person back to the orbit (#1745): half
+    /// a notch, so one wheel notch or a short trackpad pull does it.
+    pub const ZOOM_PULL_NOTCH: f32 = 0.5;
+
     /// Camera distance (m, from a body's ROOT) at which a rigged body's hair
     /// swaps to the engine's far tier - `bevy_symbios_avatar::HairLod::switch`
     /// for this lens (#1358).
@@ -2863,10 +2908,6 @@ pub(crate) mod agent {
     pub const LOOKS_DIR: &str = "looks";
     /// How many pictures that directory keeps; the oldest go first.
     pub const LOOKS_KEPT: usize = 32;
-    /// Where the eyes are in a body, as a fraction of its height from its
-    /// feet: an adult's eye line is 93-94% of their stature, and a vehicle
-    /// sees from near its top.
-    pub const EYE_HEIGHT_FRACTION: f32 = 0.93;
 
     // --- The interface (#1424) ---
 

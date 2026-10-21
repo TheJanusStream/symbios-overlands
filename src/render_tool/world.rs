@@ -89,6 +89,9 @@ pub(super) struct WalkerSpec {
     /// `--walker-spread`: metres between neighbouring bodies across the
     /// line of walk.
     pub(super) spread: f32,
+    /// `--first-person` (#1745): the lead looks out of its own eyes - its
+    /// rig's eye line - and is out of its own picture.
+    pub(super) first_person: bool,
 }
 
 /// One body of a `--walker` group, in walking order - see
@@ -342,6 +345,9 @@ pub(super) fn register(app: &mut App, spec: &WorldSpec, walker: Option<WalkerSpe
     crate::terrain::register_headless_roads(app);
     crate::world_builder::register_headless_compile(app);
     crate::register_headless_atmosphere(app);
+    // `--first-person` (#1745) keeps the followed body out of its own picture
+    // with a layer carried down its hierarchy, as the game does.
+    crate::camera::register_render_layer_propagation(app);
     // What the ground offers whatever grows on it (#1674): the game's own.
     app.add_plugins(crate::ground_cover::GroundCoverPlugin);
     // The grass that grows on it (#1675), at the desktop's setting.
@@ -691,6 +697,15 @@ fn spawn_one_walker(
         root.insert(PendingWear(body.worn));
     }
     let root = root.id();
+    // `--first-person` (#1745): the chassis stands on the feet, so the rig's
+    // eye line, which is measured from them, is the eyes' height over it.
+    let eyes = (spec.first_person && index == 0).then(|| {
+        body.avatar
+            .rig
+            .landmarks()
+            .get(symbios_avatar::rig::Landmark::EyeLine)
+            .map_or(1.6, |anchor| anchor.position.y)
+    });
     spawn_avatar(
         commands,
         root,
@@ -703,6 +718,14 @@ fn spawn_one_walker(
     );
     // The grass parts around a walker as around a player (#1675).
     commands.entity(chassis).insert(crate::grass::PartsGrass);
+    if let Some(eyes) = eyes {
+        commands.entity(chassis).insert((
+            super::rig::FirstPersonEyes(crate::camera::EyeMount::OnFoot { above_centre: eyes }),
+            bevy::app::Propagate(bevy::camera::visibility::RenderLayers::layer(
+                crate::config::camera::FIRST_PERSON_BODY_LAYER,
+            )),
+        ));
+    }
     commands.entity(chassis).insert(Walker {
         from,
         dir,
@@ -773,6 +796,7 @@ mod tests {
             lead: 1.5,
             outfits: Vec::new(),
             spread: 1.6,
+            first_person: false,
         }
     }
 

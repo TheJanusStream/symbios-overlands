@@ -49,9 +49,9 @@ use serde_json::{Value, json};
 
 use crate::camera::{IsWorldCamera, clear_of_terrain};
 use crate::config::agent::{
-    EYE_HEIGHT_FRACTION, HOME_DIR, LOOK_ANSWER_TIMEOUT, LOOK_SIZE, LOOK_WARMUP_FRAMES, LOOKS_DIR,
-    LOOKS_KEPT,
+    HOME_DIR, LOOK_ANSWER_TIMEOUT, LOOK_SIZE, LOOK_WARMUP_FRAMES, LOOKS_DIR, LOOKS_KEPT,
 };
+use crate::config::camera::EYE_HEIGHT_FRACTION;
 use crate::interaction::locomotion::{locomotion_footprint, locomotion_total_height};
 use crate::state::{
     AppState, CurrentRoomDid, LiveAvatarRecord, LocalPlayer, LocalSettings, TravelingTo,

@@ -59,7 +59,8 @@ use crate::world_builder::particles::{Particle, ParticleEmitterMarker};
 
 use super::driver::{Driver, driver_pose};
 use super::rig::{
-    CameraRig, Focus, delay_cs, ease_follow, half_fov_x, play_elev_deg, progress, px_per_metre,
+    CameraRig, FirstPersonEyes, Focus, HeadTurn, delay_cs, ease_follow, half_fov_x, play_elev_deg,
+    progress, px_per_metre,
 };
 use super::rigged::{FileBody, HeadFrame, RiggedFraming, spawn_standing};
 use super::world::{
@@ -1243,6 +1244,7 @@ pub(super) fn drive(
                         &job,
                         &mut cams,
                         walker,
+                        followed.eyes(job.rig.first_person),
                         record.as_deref(),
                         heightmap.as_deref(),
                         0,
@@ -1267,6 +1269,7 @@ pub(super) fn drive(
                             &job,
                             &mut cams,
                             walker,
+                            followed.eyes(job.rig.first_person),
                             record.as_deref(),
                             heightmap.as_deref(),
                             0,
@@ -1321,6 +1324,7 @@ pub(super) fn drive(
                     &job,
                     &mut cams,
                     walker,
+                    followed.eyes(job.rig.first_person),
                     record.as_deref(),
                     heightmap.as_deref(),
                     0,
@@ -1360,6 +1364,7 @@ pub(super) fn drive(
                     &job,
                     &mut cams,
                     walker,
+                    followed.eyes(job.rig.first_person),
                     record.as_deref(),
                     heightmap.as_deref(),
                     0,
@@ -1427,6 +1432,7 @@ pub(super) fn drive(
                     &job,
                     &mut cams,
                     walker,
+                    followed.eyes(job.rig.first_person),
                     record.as_deref(),
                     heightmap.as_deref(),
                     next,
@@ -1460,12 +1466,22 @@ pub(super) fn drive(
     }
 }
 
+/// `--first-person` (#1745): the followed body with its eyes, clear of the
+/// line-up's slots, which [`drive`] moves.
+type EyesQuery<'w, 's> = Query<
+    'w,
+    's,
+    (&'static Transform, &'static FirstPersonEyes),
+    (Without<TileCam>, Without<PlaySlot>),
+>;
+
 /// The bodies a rig can follow: the `--walker` group and the `--driver` car.
 /// Bundled because [`drive`] is at Bevy's sixteen-parameter ceiling.
 #[derive(bevy::ecs::system::SystemParam)]
 pub(super) struct Followed<'w, 's> {
     walkers: Query<'w, 's, (&'static Transform, &'static Walker), Without<TileCam>>,
     drivers: Query<'w, 's, &'static Transform, (With<Driver>, Without<TileCam>)>,
+    eyes: EyesQuery<'w, 's>,
 }
 
 impl Followed<'_, '_> {
@@ -1482,6 +1498,22 @@ impl Followed<'_, '_> {
             Focus::Driver => self.drivers.iter().next().map(driver_pose),
             _ => None,
         }
+    }
+
+    /// `--first-person` (#1745): the followed body's eyes, as the game puts
+    /// them - a person's level along the way they face, a car's on its nose
+    /// with its own pitch and bank - with the head turned by `turn`, or none
+    /// before the body is there.
+    fn eyes(&self, turn: Option<HeadTurn>) -> Option<Transform> {
+        let turn = turn?;
+        self.eyes.iter().next().map(|(body, eyes)| {
+            let forward = body.forward().as_vec3();
+            let ahead = match eyes.0 {
+                crate::camera::EyeMount::OnFoot { .. } => (-forward.x).atan2(-forward.z),
+                crate::camera::EyeMount::Vehicle { .. } => 0.0,
+            };
+            eyes.0.pose(body, ahead + turn.yaw, turn.pitch)
+        })
     }
 }
 
@@ -1946,11 +1978,21 @@ fn aim_rig(
     job: &RenderJob,
     cams: &mut Query<(&mut Transform, &TileCam)>,
     followed: Option<(Vec3, Vec3)>,
+    eyes: Option<Transform>,
     record: Option<&LiveRoomRecord>,
     heightmap: Option<&FinishedHeightMap>,
     frame: u32,
     now: f32,
 ) {
+    // `--first-person` (#1745): the camera is the body's eyes, nothing else.
+    if job.rig.first_person.is_some() {
+        if let Some(eyes) = eyes {
+            for (mut transform, _) in cams.iter_mut() {
+                *transform = eyes;
+            }
+        }
+        return;
+    }
     let Some((framed_at, auto)) = capture
         .framing
         .as_ref()
@@ -2694,6 +2736,7 @@ mod tests {
                 eye: None,
                 yaw_world: false,
                 follow_lag: 0.0,
+                first_person: None,
             },
             frames: 12,
             bench: 0,

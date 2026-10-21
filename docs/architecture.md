@@ -458,7 +458,9 @@ generation cores shared with the wasm Web Worker.
   SCTP message ceiling.
 - [`src/camera.rs`](../src/camera.rs), [`src/avatar.rs`](../src/avatar.rs),
   [`src/social.rs`](../src/social.rs) - the third-person orbit camera + distance
-  fog, the peer profile-picture cache that backs the chat / People panel icons,
+  fog (and, in [`src/camera/first_person.rs`](../src/camera/first_person.rs),
+  the first-person view the same camera zooms or V-switches into, #1745),
+  the peer profile-picture cache that backs the chat / People panel icons,
   and the ATProto social graph: the mutual-follow resonance tagger for peers in
   the room, plus the TTL-cached mutuals enumeration service (paginated
   `getFollows` ∩ `getFollowers`) that the gateway destination picker lists a

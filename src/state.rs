@@ -659,6 +659,12 @@ pub struct LocalSettings {
     /// through the struct-level `serde(default)`. Applied by
     /// `camera::follow_projection_setting`.
     pub orthographic_camera: bool,
+    /// Zooming in past the closest orbit looks through the body's own eyes,
+    /// and zooming out comes back (#1745). On by default - old prefs files
+    /// get it through the struct-level `serde(default)` - and only the zoom's
+    /// way in is switched by it: V changes the view either way, and a zoom
+    /// out still leaves the eyes. Read by `camera::first_person`.
+    pub zoom_into_first_person: bool,
     /// How loudly the room's contact effects are allowed to play (#1221
     /// f308). The visual counterpart to the app-wide audio mute, and the
     /// accessibility control the app lacked for flashing and motion.
@@ -811,6 +817,7 @@ impl Default for LocalSettings {
             camera_ground_avoidance: crate::camera::CameraGroundAvoidance::default(),
             camera_ground_clearance_m: crate::config::camera::TERRAIN_CLEARANCE,
             orthographic_camera: false,
+            zoom_into_first_person: true,
             effects_intensity: EffectsIntensity::default(),
             show_peer_nametags: true,
             ui_scale: 1.0,
