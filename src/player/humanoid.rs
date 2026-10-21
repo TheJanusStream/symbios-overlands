@@ -408,6 +408,10 @@ pub fn run_key_is_dead(record_walk_speed: f32, derived_walk: f32) -> bool {
 ///   Space ascends, Shift / Ctrl descend, both add `swim_vertical_speed`
 ///   to the desired Y. The terrain-raycast jump is bypassed - Space is
 ///   already swim-ascend.
+///
+/// The chassis turns toward its travel - except on land and wading in first
+/// person (#1746), where it faces where the eyes look, moving or not, and A,
+/// D and S step it sideways and back instead of turning it round.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(super) fn apply_humanoid_walk(
     live: Res<LiveAvatarRecord>,
@@ -432,6 +436,7 @@ pub(super) fn apply_humanoid_walk(
     hold: Res<super::RigHold>,
     bodies: Query<(&ChildOf, &bevy_symbios_avatar::AvatarBody), With<super::rigged::RiggedRoot>>,
     gravity: Option<Res<Gravity>>,
+    first_person: Option<Res<crate::camera::FirstPerson>>,
 ) {
     if traveling.is_some() {
         return;
@@ -464,6 +469,10 @@ pub(super) fn apply_humanoid_walk(
     // Horizontal-plane derivatives for land/wade mode.
     let h_forward = Vec3::new(cam_forward.x, 0.0, cam_forward.z).normalize_or_zero();
     let h_right = Vec3::new(-h_forward.z, 0.0, h_forward.x);
+    // Looking out of the body's own eyes (#1746).
+    let looking = first_person
+        .as_deref()
+        .is_some_and(|fp| fp.looks_out_on_foot());
 
     let dt = time.delta_secs().max(1e-4);
     let pressed_w = keyboard.pressed(KeyCode::KeyW) || keyboard.pressed(KeyCode::ArrowUp);
@@ -472,9 +481,10 @@ pub(super) fn apply_humanoid_walk(
     let pressed_a = keyboard.pressed(KeyCode::KeyA) || keyboard.pressed(KeyCode::ArrowLeft);
 
     // Visuals-root facing target: tracked across modes so the avatar
-    // always turns toward its movement direction (or for swimming,
-    // toward the horizontal projection of its swim direction so the
-    // model still faces forward even during a vertical-only ascent).
+    // turns toward its movement direction (or for swimming, toward the
+    // horizontal projection of its swim direction so the model still
+    // faces forward even during a vertical-only ascent) - on land in
+    // first person, toward where the eyes look (#1746).
     let mut facing_target: Option<Vec3> = None;
 
     match state {
@@ -544,7 +554,13 @@ pub(super) fn apply_humanoid_walk(
             lin_vel.0.x = new_h.x;
             lin_vel.0.z = new_h.z;
 
-            if new_h.length_squared() > 0.01 {
+            // In first person the body faces where the eyes look, moving or
+            // not (#1746): A, D and S step it sideways and back - the rig
+            // reads its travel against its facing
+            // (`rigged::motion::heading_of`) - instead of turning it round.
+            if looking && h_forward != Vec3::ZERO {
+                facing_target = Some(h_forward);
+            } else if new_h.length_squared() > 0.01 {
                 facing_target = Some(new_h.normalize());
             }
 
@@ -701,7 +717,13 @@ pub(super) fn apply_humanoid_walk(
     {
         let target = Transform::IDENTITY.looking_to(facing, Vec3::Y).rotation;
         let turn_alpha = (p.turn_rate.0 * dt).clamp(0.0, 1.0);
-        chassis_tf.rotation = chassis_tf.rotation.slerp(target, turn_alpha);
+        let turned = chassis_tf.rotation.slerp(target, turn_alpha);
+        // Written only when it turns the body: in first person the target is
+        // set every step, standing or not (#1746), and a write marks the whole
+        // body changed whether it moved it or not.
+        if !turned.abs_diff_eq(chassis_tf.rotation, 1e-6) {
+            chassis_tf.rotation = turned;
+        }
     }
 }
 
@@ -2844,6 +2866,156 @@ mod feet_on_the_ground_tests {
         assert!(
             missed_by_a_ray > 0,
             "the premise: a straight-down ray missed none of the {points} points"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// In first person the body faces where the eyes look (#1746)
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod first_person_facing {
+    use super::*;
+    use crate::pds::AvatarRecord;
+    use crate::water::WaterSurfaces;
+    use bevy::ecs::system::RunSystemOnce;
+
+    /// The fixed step the drive systems run at.
+    const HZ: f64 = 64.0;
+
+    /// The walk controller's app with a standing chassis, the camera looking a
+    /// quarter turn left of where the chassis starts facing - along world
+    /// `-X` - and the eyes `looking` or not. The app and the chassis.
+    fn standing(looking: bool) -> (App, Entity) {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.init_resource::<ButtonInput<KeyCode>>();
+        app.init_resource::<avian3d::collider_tree::ColliderTrees>();
+        app.init_resource::<JumpQueued>();
+        app.init_resource::<crate::player::RigHold>();
+        app.insert_resource(WaterSurfaces { planes: Vec::new() });
+        app.insert_resource(LiveAvatarRecord(AvatarRecord::wearing("3jzfcijpj2z2a")));
+        app.insert_resource(Time::<Fixed>::from_hz(HZ));
+        if looking {
+            app.insert_resource(crate::camera::FirstPerson::looking());
+        }
+        let camera = Transform::from_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2));
+        app.world_mut().spawn((
+            Camera3d::default(),
+            crate::camera::WorldCamera,
+            GlobalTransform::from(camera),
+        ));
+        let chassis = app
+            .world_mut()
+            .spawn((
+                LocalPlayer,
+                HumanoidPreset,
+                LinearVelocity::default(),
+                // The pose the walk reads (#1548), as avian keeps it.
+                Position::default(),
+                Transform::default(),
+                GlobalTransform::default(),
+            ))
+            .id();
+        (app, chassis)
+    }
+
+    /// `steps` fixed steps of the walk controller.
+    fn step(app: &mut App, steps: usize) {
+        for _ in 0..steps {
+            app.world_mut()
+                .resource_mut::<Time<Fixed>>()
+                .advance_by(std::time::Duration::from_secs_f64(1.0 / HZ));
+            app.world_mut()
+                .run_system_once(apply_humanoid_walk)
+                .expect("the walk controller runs");
+        }
+    }
+
+    /// The chassis' forward and velocity after two seconds with `keys` held,
+    /// from [`standing`].
+    fn walked(looking: bool, keys: &[KeyCode]) -> (Vec3, Vec3) {
+        let (mut app, chassis) = standing(looking);
+        {
+            let mut input = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            for &key in keys {
+                input.press(key);
+            }
+        }
+        step(&mut app, (2.0 * HZ) as usize);
+        let forward = app
+            .world()
+            .get::<Transform>(chassis)
+            .expect("a chassis")
+            .forward()
+            .as_vec3();
+        let velocity = app
+            .world()
+            .get::<LinearVelocity>(chassis)
+            .expect("a velocity")
+            .0;
+        (forward, velocity)
+    }
+
+    /// **A body facing where the eyes look is left alone once it does**
+    /// (#1746): in first person the walk aims the body every step, standing
+    /// or not, and writing a rotation it already has marked the whole body
+    /// changed every step for as long as the player stood looking.
+    #[test]
+    fn a_settled_facing_is_not_written_again() {
+        let (mut app, chassis) = standing(true);
+        step(&mut app, (2.0 * HZ) as usize);
+        let settled = app
+            .world()
+            .entity(chassis)
+            .get_ref::<Transform>()
+            .expect("a chassis")
+            .last_changed();
+        step(&mut app, 8);
+        assert_eq!(
+            app.world()
+                .entity(chassis)
+                .get_ref::<Transform>()
+                .expect("a chassis")
+                .last_changed(),
+            settled,
+            "a body already facing the eyes' way was written again"
+        );
+    }
+
+    /// **In the eyes a walker faces where it looks** (#1746): standing, it
+    /// turns to the eyes' way; S backs it away, and A and D step it to its
+    /// left and to its right - each the other's mirror - without turning it
+    /// round. Out of the eyes S turns it round to walk the other way, as it
+    /// always has.
+    #[test]
+    fn in_the_eyes_a_walker_faces_where_it_looks() {
+        let look = Vec3::NEG_X;
+        let (facing, _) = walked(true, &[]);
+        assert!(
+            (facing - look).length() < 0.02,
+            "standing, it faces {facing}"
+        );
+        for (key, way) in [
+            (KeyCode::KeyS, Vec3::X),
+            (KeyCode::KeyA, Vec3::Z),
+            (KeyCode::KeyD, Vec3::NEG_Z),
+        ] {
+            let (facing, velocity) = walked(true, &[key]);
+            assert!(
+                (facing - look).length() < 0.02,
+                "{key:?} turned it to {facing}"
+            );
+            assert!(
+                velocity.normalize_or_zero().dot(way) > 0.99,
+                "{key:?} moved it along {velocity}"
+            );
+        }
+        let (facing, velocity) = walked(false, &[KeyCode::KeyS]);
+        assert!(
+            facing.dot(velocity.normalize_or_zero()) > 0.99,
+            "out of the eyes it faces its travel: {facing} against {velocity}"
         );
     }
 }

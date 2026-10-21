@@ -608,7 +608,12 @@ fixed; without it each body wears the outfit its seed rolls, since engine
 0.10 dresses a re-roll (#1404)). The first seed is the body
 `--focus walker` follows; the others walk beside it, `--walker-spread`
 metres apart (default 1.6) on alternate sides and each half a metre further
-back, so three seeds read as friends walking together (#1352). They are
+back, so three seeds read as friends walking together (#1352).
+`--walker-face DEG` turns every body that many degrees to the left of its
+line (#1746) - 90 strafes it to its right, `--walker-face=-90` to its left,
+180 backs it up - as a player in first person is turned by where they look
+while A, D or S carries them; the rig reads the travel against the facing
+as the game does. They are
 driven by the same `Drive` / `AvatarDriver` pair the game hangs a local
 player on, on the real heightmap, and they start walking `--walker-lead`
 seconds (default 1.5) before the first captured frame so a clip opens

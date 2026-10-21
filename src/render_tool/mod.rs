@@ -654,6 +654,13 @@ struct Args {
     /// and each hangs half a metre further back.
     #[arg(long, default_value_t = 1.6)]
     walker_spread: f32,
+    /// With `--walker`: every body faces this many degrees to the left of
+    /// its line of walk, as a player in first person faces where they look
+    /// while A, D or S carry them sideways or back (#1746): 90 steps to the
+    /// body's right, `--walker-face=-90` to its left, 180 backs it up. The
+    /// rig reads the travel against the facing as the game does.
+    #[arg(long, default_value_t = 0.0)]
+    walker_face: f32,
     /// With `--world`: a car driven through the world on the game's own
     /// physics (#1546) - the avatar in this file (what `rec.py pull avatar`
     /// writes, or an `agent avatar get ""` answer), whose body must be a
@@ -1387,6 +1394,7 @@ pub fn run() {
             .map(|o| parse_outfit(o).unwrap_or_else(|e| panic!("{e}")))
             .collect(),
         spread: args.walker_spread,
+        face: args.walker_face.to_radians(),
         first_person: rig.eyes_on(Focus::Walker),
     });
     assert!(

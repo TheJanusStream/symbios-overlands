@@ -43,6 +43,15 @@
 //! **The eyes see through a perspective lens** whatever the projection
 //! setting, as the agent's eye view does: an orthographic camera at eye
 //! height is a wall of ground under a band of sky (`follow_projection_setting`).
+//!
+//! **The body faces where the eyes look** (#1746). On foot the walk turns
+//! the chassis to the eyes' way rather than to its travel
+//! (`player::humanoid`), so A, D and S step it sideways and back, and its
+//! rig reads the stride off the travel against the facing
+//! (`player::rigged::motion::fill_rigged_drive`). Peers learn the view from
+//! [`crate::protocol::OverlandsMessage::FirstPerson`], since a body turning
+//! toward its travel must keep the straight stride and nothing in a pose
+//! sample tells the two apart.
 
 use bevy::app::{HierarchyPropagatePlugin, Propagate, PropagateSet};
 use bevy::camera::visibility::{RenderLayers, VisibilitySystems};
@@ -122,6 +131,35 @@ impl FirstPerson {
     /// ride it, and the orbit's yaw is the head's turn.
     pub(crate) fn rides_vehicle(&self) -> bool {
         self.ahead_yaw.is_some()
+    }
+
+    /// Whether the eyes look out of a body on foot (#1746) - in the eyes, and
+    /// not riding a vehicle, whose nose they ride instead. Such a body faces
+    /// where the eyes look, so its stride is read off its travel against its
+    /// facing, on this screen and, by `OverlandsMessage::FirstPerson`, on
+    /// every peer's.
+    pub fn looks_out_on_foot(&self) -> bool {
+        self.view == CameraView::Eyes && !self.rides_vehicle()
+    }
+
+    /// All the way into the eyes, for a test elsewhere that needs a body
+    /// looking out of them.
+    #[cfg(test)]
+    pub(crate) fn looking() -> Self {
+        Self {
+            view: CameraView::Eyes,
+            blend: 1.0,
+            ..Self::default()
+        }
+    }
+
+    /// All the way into the eyes of a vehicle, straight ahead along it.
+    #[cfg(test)]
+    pub(crate) fn riding() -> Self {
+        Self {
+            ahead_yaw: Some(0.0),
+            ..Self::looking()
+        }
     }
 }
 
@@ -1270,6 +1308,30 @@ mod tests {
             app.world().resource::<FirstPerson>().view(),
             CameraView::Orbit
         );
+    }
+
+    /// **Only the eyes of a body on foot look out of it** (#1746): a walker's
+    /// eyes do, and its body then faces where they look and strafes; a
+    /// vehicle's eyes ride its nose, so a body worn on a vehicle - a rigged
+    /// person on a car's chassis, say - keeps the stride its travel gives
+    /// it, here and on every peer's screen; and the orbit looks out of
+    /// nothing.
+    #[test]
+    fn only_a_body_on_foot_looks_out() {
+        let (mut app, _, chassis) = crate_app();
+        frames(&mut app, 5);
+        toggle(&mut app);
+        frames(&mut app, 10);
+        assert!(
+            app.world().resource::<FirstPerson>().looks_out_on_foot(),
+            "a walker's eyes"
+        );
+        board(&mut app, chassis, 0.0);
+        frames(&mut app, 2);
+        let fp = app.world().resource::<FirstPerson>();
+        assert_eq!(fp.view(), CameraView::Eyes);
+        assert!(!fp.looks_out_on_foot(), "a car's nose");
+        assert!(!FirstPerson::default().looks_out_on_foot(), "the orbit");
     }
 
     /// **Off a vehicle inside the eyes, the view stays** (#1745): the car

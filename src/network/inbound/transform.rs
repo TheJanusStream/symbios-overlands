@@ -59,3 +59,31 @@ pub(super) fn handle(
         }
     }
 }
+
+/// Mark whether a peer looks out of its own eyes (#1746), as its
+/// `FirstPerson` message says: its rig then reads its stride off its travel
+/// against its facing (`player::rigged::motion::fill_rigged_drive`). Only the
+/// sender's own body is touched, so the worst a peer can claim is a strafe
+/// for itself.
+pub(super) fn handle_first_person(
+    sender: PeerId,
+    on: bool,
+    commands: &mut Commands,
+    peers: &Query<PeerParts>,
+) {
+    for (entity, peer, ..) in peers.iter() {
+        if peer.peer_id != sender {
+            continue;
+        }
+        // `try_`: the peer may leave in the frame its word arrives (#1410).
+        if on {
+            commands
+                .entity(entity)
+                .try_insert(crate::player::InFirstPerson);
+        } else {
+            commands
+                .entity(entity)
+                .try_remove::<crate::player::InFirstPerson>();
+        }
+    }
+}

@@ -971,7 +971,8 @@ struct ControlRow {
 const ON_FOOT_ROWS: &[ControlRow] = &[
     ControlRow {
         keys: "W A S D  or  Arrows",
-        action: "walk",
+        // #1746: in first person the body faces where the eyes look.
+        action: "walk (first person: A / D sidestep, S backs up)",
     },
     ControlRow {
         // #1193: the record's `walk_speed` IS the run, and unshifted

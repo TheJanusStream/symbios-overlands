@@ -248,6 +248,23 @@ pub enum OverlandsMessage {
     /// Appended last, and [`PROTOCOL_VERSION`] bumped with it: an older peer
     /// drops the unknown discriminant and keeps the behaviour it has.
     RoomRecordsPublished,
+    /// Whether the sender looks out of its own body's eyes (#1746). In first
+    /// person a walker faces where it looks, and A, D and S step it sideways
+    /// and back, so a peer draws its stride off its travel against its
+    /// facing - where a body that turns toward its travel keeps the straight
+    /// stride, because a heading read off the lag of that turn splays its feet
+    /// past the stance agreed for it (#1323).
+    ///
+    /// Broadcast on the Reliable channel when the view changes, and repeated
+    /// on the identity cadence while it is on - to each peer whose `Hello`
+    /// said [`FIRST_PERSON_SINCE`] or later - so a peer that joins later
+    /// learns it within a second. A peer says it only of itself: the receiver
+    /// marks the sender's own body and nothing else.
+    ///
+    /// Appended last, and [`PROTOCOL_VERSION`] bumped with it: an older peer
+    /// drops the unknown discriminant, with a decode warning in its log, and
+    /// draws the body as it always has.
+    FirstPerson { on: bool },
 }
 
 /// What an [`OverlandsMessage::ItemOffer`] is offering (#1184).
@@ -407,8 +424,14 @@ where
 /// [`OverlandsMessage::ItemOfferResponse`] onto single JSON payloads
 /// (#1184) - a deliberate break, so that the *next* field either of them
 /// grows is not one; 4 appended [`OverlandsMessage::RoomRecordsPublished`]
-/// (#1499).
-pub const PROTOCOL_VERSION: u16 = 4;
+/// (#1499); 5 appended [`OverlandsMessage::FirstPerson`] (#1746).
+pub const PROTOCOL_VERSION: u16 = 5;
+
+/// The first [`PROTOCOL_VERSION`] whose builds read
+/// [`OverlandsMessage::FirstPerson`] (#1746). An older one drops it with a
+/// decode warning in its log, so the flag's once-a-second repeat goes only to
+/// peers whose `Hello` said this or later.
+pub const FIRST_PERSON_SINCE: u16 = 5;
 
 /// This build's human-readable identity for [`OverlandsMessage::Hello`]:
 /// crate version plus the short git sha `build.rs` bakes in. Only ever
@@ -972,6 +995,7 @@ mod tests {
                 digest: 2,
             },
             OverlandsMessage::RoomRecordsPublished,
+            OverlandsMessage::FirstPerson { on: true },
         ]
     }
 
@@ -1058,6 +1082,8 @@ mod tests {
         ("WorldDigest", "0a00000001000000000000000200000000000000"),
         // #1499, appended with PROTOCOL_VERSION 4.
         ("RoomRecordsPublished", "0b000000"),
+        // #1746, appended with PROTOCOL_VERSION 5.
+        ("FirstPerson", "0c00000001"),
     ];
 
     fn hex(bytes: &[u8]) -> String {
@@ -1105,7 +1131,7 @@ mod tests {
     #[test]
     fn the_protocol_version_matches_the_pinned_layout() {
         assert_eq!(
-            PROTOCOL_VERSION, 4,
+            PROTOCOL_VERSION, 5,
             "PROTOCOL_VERSION changed: WIRE_LAYOUT must have changed in the \
              same commit, or the bump describes nothing"
         );

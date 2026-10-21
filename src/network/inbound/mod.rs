@@ -85,6 +85,9 @@ enum CoalesceKey {
     /// `RoomRecordsPublished` (#1499): it carries nothing, and the room
     /// refresh keeps one notice however many come.
     RoomPublished,
+    /// `FirstPerson` (#1746): a flag repeated on the identity cadence while
+    /// it is on, so only the last in a drain says anything.
+    FirstPerson,
 }
 
 fn coalesce_key(msg: &OverlandsMessage) -> Option<CoalesceKey> {
@@ -95,6 +98,7 @@ fn coalesce_key(msg: &OverlandsMessage) -> Option<CoalesceKey> {
         OverlandsMessage::Hello { .. } => Some(CoalesceKey::Hello),
         OverlandsMessage::AvatarRecordsPublished => Some(CoalesceKey::AvatarPublished),
         OverlandsMessage::RoomRecordsPublished => Some(CoalesceKey::RoomPublished),
+        OverlandsMessage::FirstPerson { .. } => Some(CoalesceKey::FirstPerson),
         _ => None,
     }
 }
@@ -400,6 +404,9 @@ pub(super) fn handle_incoming_messages(
                 &mut session_log,
                 now,
             ),
+            OverlandsMessage::FirstPerson { on } => {
+                transform::handle_first_person(msg.sender, on, &mut commands, &peers)
+            }
             OverlandsMessage::RoomStateUpdate { record_json } => record_updates::handle_room_state(
                 msg.sender,
                 record_json,
@@ -665,6 +672,52 @@ mod tests {
         );
         assert_eq!(world.resource::<PeerAvatarCache>().notice_seq(), 1);
         assert!(world.get::<AvatarPublishedAt>(bystander).is_none());
+    }
+
+    /// **A peer's `FirstPerson` word marks its own body and nothing else**
+    /// (#1746): on marks the sender's chassis with
+    /// [`crate::player::InFirstPerson`], so its stride is read off its travel
+    /// against its facing; off takes the mark away; and the peer beside it is
+    /// never touched.
+    #[test]
+    fn a_first_person_word_marks_its_senders_body_only() {
+        use crate::player::InFirstPerson;
+        use bevy::ecs::system::RunSystemOnce;
+
+        let id = |n: u8| -> PeerId {
+            serde_json::from_str(&format!("\"00000000-0000-0000-0000-0000000000{n:02}\""))
+                .expect("a well-formed uuid")
+        };
+        let peer = |n: u8| {
+            (
+                RemotePeer {
+                    peer_id: id(n),
+                    did: None,
+                    handle: None,
+                    muted: false,
+                    avatar: None,
+                    build: None,
+                    connected_at: 0.0,
+                },
+                Transform::default(),
+                TransformBuffer::default(),
+            )
+        };
+        let mut world = World::new();
+        let speaker = world.spawn(peer(1)).id();
+        let beside = world.spawn(peer(2)).id();
+        let say = |world: &mut World, on: bool| {
+            world
+                .run_system_once(move |mut commands: Commands, peers: Query<PeerParts>| {
+                    transform::handle_first_person(id(1), on, &mut commands, &peers);
+                })
+                .expect("the word is handled");
+        };
+        say(&mut world, true);
+        assert!(world.get::<InFirstPerson>(speaker).is_some(), "marked");
+        assert!(world.get::<InFirstPerson>(beside).is_none(), "only its own");
+        say(&mut world, false);
+        assert!(world.get::<InFirstPerson>(speaker).is_none(), "unmarked");
     }
 
     /// #1499: the room's owner saying a guest's copy is behind the saved one

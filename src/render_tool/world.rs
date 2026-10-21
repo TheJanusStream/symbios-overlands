@@ -89,6 +89,9 @@ pub(super) struct WalkerSpec {
     /// `--walker-spread`: metres between neighbouring bodies across the
     /// line of walk.
     pub(super) spread: f32,
+    /// `--walker-face` (#1746): how far every body faces to the left of its
+    /// line of walk, radians - a strafe or a back-up, as in first person.
+    pub(super) face: f32,
     /// `--first-person` (#1745): the lead looks out of its own eyes - its
     /// rig's eye line - and is out of its own picture.
     pub(super) first_person: bool,
@@ -161,6 +164,14 @@ pub(super) fn walker_record(
 pub(super) struct Walker {
     from: Vec3,
     dir: Vec3,
+    /// The way the body faces, horizontal: its line of walk unless
+    /// `--walker-face` turns it off it.
+    face: Vec3,
+    /// Whether `--walker-face` turned it off its line: a body walking as a
+    /// player looks out of its own eyes, whose stride the game reads off its
+    /// travel against its facing (#1746). On its line it keeps the straight
+    /// stride, as a body in the orbit does.
+    looks_out: bool,
     pace: f32,
     /// Clock seconds at which the body starts moving.
     start: f32,
@@ -675,9 +686,11 @@ fn spawn_one_walker(
         from2.y,
     );
     let dir = Vec3::new(dir2.x, 0.0, dir2.y);
+    // `--walker-face` (#1746): turned off the line to the left.
+    let face = Quat::from_rotation_y(spec.face) * dir;
     let chassis = commands
         .spawn((
-            Transform::from_translation(from).looking_to(dir, Vec3::Y),
+            Transform::from_translation(from).looking_to(face, Vec3::Y),
             Visibility::default(),
         ))
         .id();
@@ -729,26 +742,31 @@ fn spawn_one_walker(
     commands.entity(chassis).insert(Walker {
         from,
         dir,
+        face,
+        looks_out: spec.face != 0.0,
         pace: spec.pace,
         start: timing.capture_start - spec.lead,
         root,
         lead: index == 0,
     });
     info!(
-        "walker {}: from ({:.1}, {:.1}) heading ({:.2}, {:.2}) at {:.2} m/s, walking from t={:.2}s",
+        "walker {}: from ({:.1}, {:.1}) heading ({:.2}, {:.2}) at {:.2} m/s, facing {:.0} deg \
+         left of it, walking from t={:.2}s",
         body.name,
         from.x,
         from.z,
         dir.x,
         dir.z,
         spec.pace,
+        spec.face.to_degrees(),
         timing.capture_start - spec.lead
     );
 }
 
 /// Move the walker along its line at the clock's pace and hand the driver
-/// what the game's `fill_rigged_drive` would: a place, a velocity and the
-/// chassis yaw carried through the root's half turn.
+/// what the game's `fill_rigged_drive` would: a place, a velocity, the
+/// chassis yaw carried through the root's half turn, and the travel against
+/// it (#1746).
 ///
 /// Runs before the avatar plugin's `Animate` set so the pose the frame
 /// renders is the pose for this position. Height is the heightmap's - the
@@ -768,7 +786,7 @@ pub(super) fn step_walkers(
         let walked = (clock.elapsed - walker.start).max(0.0);
         let flat = walker.from + walker.dir * walker.pace * walked;
         let at = Vec3::new(flat.x, heightmap.world_height_at(flat.x, flat.z), flat.z);
-        *transform = Transform::from_translation(at).looking_to(walker.dir, Vec3::Y);
+        *transform = Transform::from_translation(at).looking_to(walker.face, Vec3::Y);
         if let Ok(mut drive) = drives.get_mut(walker.root) {
             drive.velocity = if clock.elapsed > walker.start {
                 walker.dir * walker.pace
@@ -776,7 +794,12 @@ pub(super) fn step_walkers(
                 Vec3::ZERO
             };
             drive.at = at;
-            drive.facing = walker.dir.x.atan2(walker.dir.z);
+            drive.facing = walker.face.x.atan2(walker.face.z);
+            drive.heading = if walker.looks_out {
+                crate::player::heading_of(drive.velocity, drive.facing)
+            } else {
+                None
+            };
         }
     }
 }
@@ -796,6 +819,7 @@ mod tests {
             lead: 1.5,
             outfits: Vec::new(),
             spread: 1.6,
+            face: 0.0,
             first_person: false,
         }
     }

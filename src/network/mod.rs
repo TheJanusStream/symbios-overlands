@@ -286,6 +286,7 @@ impl Plugin for NetworkPlugin {
                     broadcast::broadcast_avatar_state,
                     broadcast::broadcast_room_state,
                     broadcast::broadcast_world_digest,
+                    broadcast::broadcast_first_person,
                 )
                     .run_if(in_state(AppState::InGame)),
             );

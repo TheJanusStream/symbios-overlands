@@ -1,8 +1,8 @@
 use avian3d::prelude::LinearVelocity;
 use bevy::prelude::*;
 use bevy_symbios_avatar::{AvatarBody, AvatarPose, Drive, Drove};
-use symbios_avatar::Zone;
 use symbios_avatar::anim::driver::Hold;
+use symbios_avatar::{Heading, Zone};
 
 use crate::player::emote::EmoteRequest;
 use crate::player::humanoid::{WaterState, humanoid_water_state};
@@ -29,6 +29,37 @@ pub(in crate::player) const SURFACE_CROWN: f32 = 0.1;
 /// the stroke from bobbing the whole body and still carries a swimmer from a
 /// tread into a crawl, or down on a dive, without a pop.
 const LIFT_RESPONSE: f32 = 0.3;
+
+/// The slowest travel a heading is read from, metres a second (#1746): the
+/// speed under which the walk controller calls travel directionless. Slower
+/// than this a body has no travel to face against, and a peer's differenced
+/// positions are mostly noise.
+const HEADING_MIN_SPEED: f32 = 0.1;
+
+/// A peer looking out of its own eyes (#1746), as its last
+/// [`crate::protocol::OverlandsMessage::FirstPerson`] said: its body faces
+/// where it looks, so its rig reads its stride off its travel against its
+/// facing. Set on the peer's chassis by the network's inbound handler; a peer
+/// that never says so - an older build among them - keeps the stride its
+/// travel gives it. The local body answers the same question from the
+/// camera's own view instead.
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct InFirstPerson;
+
+/// Which way a body travels against the way it faces (#1746), as the engine
+/// takes it: the horizontal of `velocity` turned into the body's own frame -
+/// forward `+Z`, left `+X` - by `facing`, the yaw that carries that frame onto
+/// the world ([`Drive::facing`]). `None` under [`HEADING_MIN_SPEED`], which
+/// leaves the stride as the speed built it.
+///
+/// A diagonal is a heading in its own right and the engine's stride is
+/// continuous across all of them (`symbios_avatar::Heading`), so a body
+/// swinging from a walk into a strafe has nothing to pop on.
+pub(crate) fn heading_of(velocity: Vec3, facing: f32) -> Option<Heading> {
+    let travel = Vec3::new(velocity.x, 0.0, velocity.z);
+    (travel.length() >= HEADING_MIN_SPEED)
+        .then(|| Heading::toward(Quat::from_rotation_y(-facing) * travel))
+}
 
 /// Every rigged body the fill writes: where it hangs, what it is told, its
 /// trail, and - once built and posed - the body and pose the surface lift
@@ -75,16 +106,24 @@ pub(in crate::player) fn fill_rigged_drive(
     time: Res<Time>,
     water: Option<Res<WaterSurfaces>>,
     mut bodies: FilledBodies,
-    chassis: Query<(&GlobalTransform, Option<&LinearVelocity>)>,
+    chassis: Query<(
+        &GlobalTransform,
+        Option<&LinearVelocity>,
+        Has<InFirstPerson>,
+    )>,
     locals: Query<(), With<LocalPlayer>>,
     hold: Res<crate::player::RigHold>,
+    first_person: Option<Res<crate::camera::FirstPerson>>,
 ) {
     let delta = time.delta_secs();
     if delta <= 0.0 {
         return;
     }
+    let looking_out = first_person
+        .as_deref()
+        .is_some_and(|fp| fp.looks_out_on_foot());
     for (child_of, mut root, mut drive, mut trail, drawn) in &mut bodies {
-        let Ok((transform, velocity)) = chassis.get(child_of.parent()) else {
+        let Ok((transform, velocity, peer_looking_out)) = chassis.get(child_of.parent()) else {
             continue;
         };
         let position = transform.translation();
@@ -120,12 +159,6 @@ pub(in crate::player) fn fill_rigged_drive(
         // the body and read as skating (#1193).
         let forward = transform.rotation() * Vec3::NEG_Z;
         drive.facing = forward.x.atan2(forward.z);
-        // `None` rather than straight ahead: it leaves the stride exactly as
-        // the speed axis built it, which is what this app wants - the chassis
-        // is aimed down its own travel by `Transform::looking_to`, so facing
-        // and heading are kept in step by something else. A body that could
-        // strafe or back up would derive one.
-        drive.heading = None;
         // **In deep water before anything else** (#1074). The rigged root is
         // offset so `y = 0` is the chassis collider's bottom, which makes its
         // own transform the body's half-height - the same figure the
@@ -158,6 +191,26 @@ pub(in crate::player) fn fill_rigged_drive(
                 WaterState::Swimming { .. }
             )
         });
+        // **Travel against facing, for a body looking out of its own eyes**
+        // (#1746). In first person a walker faces where the eyes look and A,
+        // D and S step it sideways and back, so its stride is read off its
+        // travel against its facing: the local body while the camera looks
+        // out of it, a peer while its last word said so ([`InFirstPerson`]).
+        // Every other body keeps `None`, the stride as the speed built it:
+        // the walk turns it toward its travel, and a heading read off the lag
+        // of that turn splayed the feet 252 mm in a quarter turn, against the
+        // 36 the stance agreed for it allows (#1323). Not in deep water,
+        // whose stroke goes the way it faces.
+        let looking = if locals.contains(child_of.parent()) {
+            looking_out
+        } else {
+            peer_looking_out
+        };
+        drive.heading = if looking && !drive.swimming {
+            heading_of(drive.velocity, drive.facing)
+        } else {
+            None
+        };
         // **Afloat, the drawn body rides the surface** (#1324; see
         // [`SURFACE_CROWN`]). Afloat is the controller's own test: swimming,
         // with the capsule's top out of the water. The crown is read off LAST

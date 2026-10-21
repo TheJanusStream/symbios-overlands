@@ -3532,3 +3532,126 @@ fn the_render_tools_rigged_body_is_the_one_the_game_builds() {
         tool.offset
     );
 }
+
+/// **A heading is a body's travel turned into its own frame** (#1746). A
+/// chassis facing world `-Z` - a facing of a half turn, as the fill reads the
+/// chassis' forward through the root's half turn - that travels along `-Z`
+/// walks forward, along `+Z` backs up, and along `+X` and `-X` steps to its
+/// right and to its left, each the other's mirror. Turned a quarter round to
+/// face `-X`, its travel along `-X` is forward again. A body barely moving
+/// has no heading, so its stride stays as the speed built it.
+#[test]
+fn a_heading_is_travel_against_facing() {
+    use std::f32::consts::{FRAC_PI_2, PI};
+
+    let angle = |velocity: Vec3, facing: f32| {
+        motion::heading_of(velocity, facing).map(|heading| Vec2::from_angle(heading.angle()))
+    };
+    let near = |got: Option<Vec2>, want: f32| {
+        got.is_some_and(|got| (got - Vec2::from_angle(want)).length() < 1e-4)
+    };
+    assert!(near(angle(Vec3::NEG_Z * 1.4, PI), 0.0), "forward");
+    assert!(near(angle(Vec3::Z * 1.4, PI), PI), "backwards");
+    assert!(near(angle(Vec3::X * 1.4, PI), -FRAC_PI_2), "to its right");
+    assert!(near(angle(Vec3::NEG_X * 1.4, PI), FRAC_PI_2), "to its left");
+    assert!(
+        near(angle(Vec3::NEG_X * 1.4, -FRAC_PI_2), 0.0),
+        "turned with it"
+    );
+    assert_eq!(motion::heading_of(Vec3::X * 0.05, PI), None, "standing");
+    assert!(
+        motion::heading_of(Vec3::new(0.0, -3.0, 0.0), PI).is_none(),
+        "a fall is not a heading"
+    );
+}
+
+/// One body stepping to its right through the real fill for ten frames,
+/// facing world `-Z` and carried along `+X`: a peer, its velocity read off
+/// its played-out positions, or the local body, carrying its own; looking out
+/// of its eyes or not - a peer by [`InFirstPerson`], the local body by the
+/// camera's view, whose eyes may be `riding` a vehicle's nose. The heading
+/// the fill gave it.
+fn sidestep_heading(local: bool, looking: bool, riding: bool) -> Option<symbios_avatar::Heading> {
+    use bevy::time::TimeUpdateStrategy;
+    use std::time::Duration;
+
+    #[derive(Component)]
+    struct PlayedOut;
+
+    /// The smoother's shape: facing `-Z`, carried along `+X`.
+    fn play_out(time: Res<Time>, mut peers: Query<&mut Transform, With<PlayedOut>>) {
+        for mut transform in &mut peers {
+            transform.translation = Vec3::X * 1.2 * time.elapsed_secs();
+        }
+    }
+
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, bevy::transform::TransformPlugin));
+    app.init_resource::<crate::player::RigHold>();
+    app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
+        1.0 / 60.0,
+    )));
+    app.add_systems(Update, (play_out, motion::fill_rigged_drive).chain());
+    let chassis = app
+        .world_mut()
+        .spawn((Transform::default(), PlayedOut))
+        .id();
+    if local {
+        app.world_mut()
+            .entity_mut(chassis)
+            .insert((LocalPlayer, avian3d::prelude::LinearVelocity(Vec3::X * 1.2)));
+        if riding {
+            app.insert_resource(crate::camera::FirstPerson::riding());
+        } else if looking {
+            app.insert_resource(crate::camera::FirstPerson::looking());
+        }
+    } else if looking {
+        app.world_mut().entity_mut(chassis).insert(InFirstPerson);
+    }
+    let root = app
+        .world_mut()
+        .spawn((
+            RiggedRoot,
+            Drive::default(),
+            RiggedTrail::default(),
+            Transform::default(),
+            ChildOf(chassis),
+        ))
+        .id();
+    for _ in 0..10 {
+        app.update();
+    }
+    app.world().get::<Drive>(root).expect("a drive").heading
+}
+
+/// **A body looking out of its eyes is seen stepping sideways, and only
+/// that body** (#1746). A peer's facing and travel arrive as a rotation and
+/// positions; the fill reads its heading off them while its last
+/// `FirstPerson` word said it looks out, and the local body's while the
+/// camera does - so a walker in first person, facing where it looks while D
+/// carries it to its right, is drawn strafing, by everyone. Every other body
+/// keeps the straight stride: a heading read off a turning body's lag behind
+/// its travel splayed the agreed quarter turn's feet 252 mm (#1323).
+#[test]
+fn only_a_body_looking_out_of_its_eyes_strafes() {
+    let right = Vec2::from_angle(-std::f32::consts::FRAC_PI_2);
+    for local in [false, true] {
+        let who = if local { "the local body" } else { "a peer" };
+        let heading = sidestep_heading(local, true, false)
+            .unwrap_or_else(|| panic!("{who} looking out, on the move, has no heading"));
+        assert!(
+            (Vec2::from_angle(heading.angle()) - right).length() < 1e-3,
+            "{who}: a strafe to its right, not {heading:?}"
+        );
+        assert_eq!(
+            sidestep_heading(local, false, false),
+            None,
+            "{who} in the orbit keeps the straight stride"
+        );
+    }
+    assert_eq!(
+        sidestep_heading(true, true, true),
+        None,
+        "a body worn on a vehicle, its eyes on the nose, keeps the straight stride"
+    );
+}

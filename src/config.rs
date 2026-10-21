@@ -1687,6 +1687,12 @@ pub(crate) mod network {
     /// Only send a transform every N-th tick while stationary.  At the 64 Hz
     /// `FixedUpdate` tick this yields ~2 Hz (64 / 30 ≈ 2.1).
     pub const STATIONARY_BROADCAST_DIVISOR: u32 = 30;
+    /// How far the body may have turned since the last pose sent, radians,
+    /// and still count as at rest (#1746). A walker in first person turns
+    /// with the eyes where it stands, by writing its rotation while avian's
+    /// velocities stay at rest - which the two thresholds above cannot see,
+    /// so its look-turns reached peers at the rest rate, half a second late.
+    pub const STATIONARY_TURN_RADIANS: f32 = 0.01;
 
     // --- Reliable-message chunking (#716) -----------------------------------
     // A WebRTC data-channel message has a hard whole-message ceiling of

@@ -11,12 +11,16 @@ use crate::config;
 use crate::protocol::OverlandsMessage;
 use crate::state::{CurrentRoomDid, LiveAvatarRecord, LiveRoomRecord, LocalPlayer};
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn broadcast_local_state(
     query: Query<(&Transform, &LinearVelocity, &AngularVelocity), With<LocalPlayer>>,
     session: Option<Res<AtprotoSession>>,
+    first_person: Option<Res<crate::camera::FirstPerson>>,
+    peers: Query<&crate::state::RemotePeer>,
     mut sender: SendMessage<OverlandsMessage>,
     mut tick: Local<u32>,
     mut was_stationary: Local<bool>,
+    mut sent_rotation: Local<Option<Quat>>,
 ) {
     *tick = tick.wrapping_add(1);
 
@@ -27,9 +31,14 @@ pub(super) fn broadcast_local_state(
     // Throttle transform broadcasts when nearly stationary: drop from ~64 Hz
     // to ~2 Hz (every 30th tick) to save WebRTC bandwidth and WASM CPU.
     // Check both linear *and* angular velocity so a spinning-in-place rover
-    // still streams smooth rotation updates to peers.
+    // still streams smooth rotation updates to peers - and the turn since the
+    // last pose sent, for a body turned by writing its rotation (#1746).
+    let turned = sent_rotation.is_none_or(|sent| {
+        sent.angle_between(tf.rotation) > config::network::STATIONARY_TURN_RADIANS
+    });
     let stationary = lin_vel.0.length() <= config::network::STATIONARY_SPEED_THRESHOLD
-        && ang_vel.0.length() <= config::network::STATIONARY_ANGULAR_THRESHOLD;
+        && ang_vel.0.length() <= config::network::STATIONARY_ANGULAR_THRESHOLD
+        && !turned;
     // Force one final broadcast on the tick we cross into rest so peers land
     // on the true parked pose instead of interpolating toward a stale sample.
     let just_came_to_rest = stationary && !*was_stationary;
@@ -46,6 +55,7 @@ pub(super) fn broadcast_local_state(
             },
             ChannelKind::Unreliable,
         );
+        *sent_rotation = Some(tf.rotation);
     }
 
     if tick.is_multiple_of(config::network::IDENTITY_BROADCAST_INTERVAL_TICKS) {
@@ -70,7 +80,50 @@ pub(super) fn broadcast_local_state(
                 ChannelKind::Reliable,
             );
         }
+        // Looking out of our own eyes is said again on this cadence while it
+        // lasts (#1746), so a peer that met us since the switch learns it
+        // within a second; `broadcast_first_person` says each switch at once.
+        // Only to peers whose `Hello` said they read it: an older build logs
+        // a decode warning for every copy.
+        if looks_out(first_person.as_deref()) {
+            for peer in &peers {
+                if peer
+                    .build
+                    .as_ref()
+                    .is_some_and(|build| build.protocol >= crate::protocol::FIRST_PERSON_SINCE)
+                {
+                    sender.to(
+                        peer.peer_id,
+                        OverlandsMessage::FirstPerson { on: true },
+                        ChannelKind::Reliable,
+                    );
+                }
+            }
+        }
     }
+}
+
+/// Whether the local body looks out of its own eyes, on foot (#1746).
+fn looks_out(first_person: Option<&crate::camera::FirstPerson>) -> bool {
+    first_person.is_some_and(|fp| fp.looks_out_on_foot())
+}
+
+/// Tell peers when we look out of our own eyes and when we stop (#1746), so
+/// they draw our body's stride off its travel against its facing - see
+/// [`OverlandsMessage::FirstPerson`]. Compared against what we last SENT, as
+/// the world digest is, so each switch of the view goes out once and nothing
+/// else does.
+pub(super) fn broadcast_first_person(
+    first_person: Option<Res<crate::camera::FirstPerson>>,
+    mut sender: SendMessage<OverlandsMessage>,
+    mut last_sent: Local<bool>,
+) {
+    let on = looks_out(first_person.as_deref());
+    if on == *last_sent {
+        return;
+    }
+    *last_sent = on;
+    sender.broadcast(OverlandsMessage::FirstPerson { on }, ChannelKind::Reliable);
 }
 
 /// Announce our world digest whenever it changes (#1146).
@@ -224,4 +277,144 @@ pub(super) fn broadcast_room_state(
         super::chunk::LIVE_WORLD,
         now,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// **Each switch of the view goes out once, and nothing else does**
+    /// (#1746): into the eyes says `FirstPerson { on: true }` on the
+    /// Reliable channel, a frame with nothing changed says nothing, and out
+    /// again says `on: false`. With no camera there is nothing to say.
+    #[test]
+    fn each_switch_of_the_view_is_said_once() {
+        let mut app = App::new();
+        app.add_message::<Broadcast<OverlandsMessage>>()
+            .add_message::<SendTo<OverlandsMessage>>()
+            .add_systems(Update, broadcast_first_person);
+        let said = |app: &mut App| -> Vec<bool> {
+            app.update();
+            app.world()
+                .resource::<Messages<Broadcast<OverlandsMessage>>>()
+                .iter_current_update_messages()
+                .filter_map(|sent| match sent.payload {
+                    OverlandsMessage::FirstPerson { on } => {
+                        assert!(matches!(sent.channel, ChannelKind::Reliable));
+                        Some(on)
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
+        assert_eq!(said(&mut app), Vec::<bool>::new(), "no camera");
+        app.insert_resource(crate::camera::FirstPerson::riding());
+        assert_eq!(said(&mut app), Vec::<bool>::new(), "a vehicle's nose");
+        app.insert_resource(crate::camera::FirstPerson::looking());
+        assert_eq!(said(&mut app), vec![true], "into the eyes");
+        assert_eq!(said(&mut app), Vec::<bool>::new(), "said once");
+        app.insert_resource(crate::camera::FirstPerson::default());
+        assert_eq!(said(&mut app), vec![false], "out again");
+    }
+
+    /// The local body's state broadcaster in an app of its own, a body at
+    /// rest standing at the origin: the app and the body.
+    fn local_state_app() -> (App, Entity) {
+        let mut app = App::new();
+        app.add_message::<Broadcast<OverlandsMessage>>()
+            .add_message::<SendTo<OverlandsMessage>>()
+            .add_systems(Update, broadcast_local_state);
+        let body = app
+            .world_mut()
+            .spawn((
+                LocalPlayer,
+                Transform::default(),
+                LinearVelocity::default(),
+                AngularVelocity::default(),
+            ))
+            .id();
+        (app, body)
+    }
+
+    /// **A body turning where it stands streams its turn** (#1746). In first
+    /// person a walker turns with the eyes by writing its rotation while
+    /// avian's velocities stay at rest, and the rest rate - a pose every
+    /// thirtieth tick - showed that turn to peers half a second late. Turning,
+    /// it sends a pose every tick; still again, it falls back to the rest rate
+    /// after one pose that lands the turn.
+    #[test]
+    fn a_body_turning_where_it_stands_streams_its_turn() {
+        let (mut app, body) = local_state_app();
+        let poses = |app: &mut App| {
+            app.update();
+            app.world()
+                .resource::<Messages<Broadcast<OverlandsMessage>>>()
+                .iter_current_update_messages()
+                .filter(|sent| matches!(sent.payload, OverlandsMessage::Transform { .. }))
+                .count()
+        };
+        // The first pose a body ever has goes out; then it rests.
+        poses(&mut app);
+        let resting: usize = (0..10).map(|_| poses(&mut app)).sum();
+        assert!(resting <= 1, "at rest, {resting} poses in ten ticks");
+        let mut turning = 0;
+        for tick in 1..=10 {
+            app.world_mut()
+                .get_mut::<Transform>(body)
+                .expect("a body")
+                .rotation = Quat::from_rotation_y(0.05 * tick as f32);
+            turning += poses(&mut app);
+        }
+        assert_eq!(turning, 10, "turning, a pose every tick");
+        let landed = poses(&mut app);
+        let after: usize = (0..10).map(|_| poses(&mut app)).sum();
+        assert!(
+            landed + after <= 2,
+            "still again, {} poses in eleven ticks",
+            landed + after
+        );
+    }
+
+    /// **The once-a-second repeat goes only to peers that read it** (#1746):
+    /// a build older than [`crate::protocol::FIRST_PERSON_SINCE`] drops the
+    /// message with a decode warning in its log, and a peer whose `Hello`
+    /// has not come yet is told on the next round.
+    #[test]
+    fn the_repeat_goes_only_to_peers_that_read_it() {
+        let (mut app, _) = local_state_app();
+        app.insert_resource(crate::camera::FirstPerson::looking());
+        let peer = |n: u8, protocol: Option<u16>| crate::state::RemotePeer {
+            peer_id: serde_json::from_str(&format!("\"00000000-0000-0000-0000-0000000000{n:02}\""))
+                .expect("a well-formed uuid"),
+            did: None,
+            handle: None,
+            muted: false,
+            avatar: None,
+            build: protocol.map(|protocol| crate::state::PeerBuild {
+                protocol,
+                build: String::new(),
+            }),
+            connected_at: 0.0,
+        };
+        let reader = peer(1, Some(crate::protocol::FIRST_PERSON_SINCE));
+        let to = reader.peer_id;
+        app.world_mut().spawn(reader);
+        app.world_mut()
+            .spawn(peer(2, Some(crate::protocol::FIRST_PERSON_SINCE - 1)));
+        app.world_mut().spawn(peer(3, None));
+        let mut told = Vec::new();
+        for _ in 0..config::network::IDENTITY_BROADCAST_INTERVAL_TICKS {
+            app.update();
+            told.extend(
+                app.world()
+                    .resource::<Messages<SendTo<OverlandsMessage>>>()
+                    .iter_current_update_messages()
+                    .filter(|sent| {
+                        matches!(sent.payload, OverlandsMessage::FirstPerson { on: true })
+                    })
+                    .map(|sent| sent.target),
+            );
+        }
+        assert_eq!(told, vec![to], "one round, to the one peer that reads it");
+    }
 }

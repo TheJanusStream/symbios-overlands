@@ -266,4 +266,10 @@ pub(super) use build::{kick_rigged_builds, land_rigged_builds};
 #[cfg(test)]
 pub(super) use motion::SURFACE_CROWN;
 pub(super) use motion::{count_motion_strain, fill_rigged_drive, start_emotes};
+// What a peer's `FirstPerson` message marks (#1746), set by the network.
+pub(crate) use motion::InFirstPerson;
+// The render tool's walker reads its heading as the game does (#1746); the
+// render tool is native only.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use motion::heading_of;
 pub(super) use placeholder::{announce_slow_builds, sync_local_placeholder};
