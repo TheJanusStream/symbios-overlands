@@ -250,7 +250,15 @@ part ([region.md](region.md), "Planting: scatters"). What did it:
   `Fur`: drawn strands hanging down V - `curl` 1 is a sheep's fleece,
   `patches` with `color_patch` a Holstein's or a piebald's markings - for
   beasts, and for garments: the Body tab's texture picker offers all four.
-  Sheet a lineup before choosing a scale.
+  Sheet a lineup before choosing a scale. A coat already in `Moss` keeps
+  its palette as Fur: Moss's deep colour as `color_root`, its tip as
+  `color_tip`, so dark legs stay dark (`exports/reeve/b/fur1729.py`). Fur
+  wins on a long or crimped coat - a fleece in locks (lift its root half
+  way to Moss's dry colour, or the undercoat greys it), bristles, a
+  glossy short hide - and loses on a speckled one: Moss's fine speckle
+  made a fallow's spots, a dapple grey and a hen's flecks, where Fur's
+  `patches` came out as large blotches (session 953, judged close, Moss
+  beside Fur).
 - **Borrow a texture's field names from upstream**, not from memory: the
   `Moss` colours are `color_deep`, `color_tip`, `color_dry` - a guessed
   `color_base` was dropped without a word and the yew kept the default green;

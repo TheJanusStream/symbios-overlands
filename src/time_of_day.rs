@@ -11,7 +11,11 @@
 //!   fifteen degrees an hour, as the sun does at an equinox: it rises at six
 //!   a quarter turn round the horizon from noon's bearing, sets at eighteen
 //!   opposite, and stands as far under the horizon at midnight as it stood
-//!   over it at noon.
+//!   over it at noon. It rises in the east and sets in the west (in the
+//!   worlds' compass east is +X and north -Z) whichever side of the sky it
+//!   crosses at noon: so it turns clockwise seen from above under a noon sun
+//!   in the south, as it does north of the tropics, and anticlockwise under
+//!   one in the north, as south of them (#1731).
 //! * **Its light.** A lower sun's light crosses more air (the air mass), so
 //!   it is dimmer and redder: blue scatters most ([`EXTINCTION`]). Noon's
 //!   colour and level are the room's own, and every other hour's are noon's
@@ -89,10 +93,11 @@ pub(crate) fn hours_apart(a: f32, b: f32) -> f32 {
 const NOON_ALTITUDE_DEG: (f32, f32) = (1.0, 89.9);
 
 /// The direction toward the room's noon sun: its `sun_position`, raised or
-/// lowered into [`NOON_ALTITUDE_DEG`].
+/// lowered into [`NOON_ALTITUDE_DEG`]. A sun straight overhead has no
+/// bearing of its own and is taken to stand in the south.
 fn noon_toward(env: &Environment) -> Vec3 {
     let toward = Vec3::from_array(env.sun_position.0).normalize_or(Vec3::Y);
-    let across = Vec3::new(toward.x, 0.0, toward.z).normalize_or(Vec3::X);
+    let across = Vec3::new(toward.x, 0.0, toward.z).normalize_or(Vec3::Z);
     let altitude = toward.y.clamp(-1.0, 1.0).asin().clamp(
         NOON_ALTITUDE_DEG.0.to_radians(),
         NOON_ALTITUDE_DEG.1.to_radians(),
@@ -105,12 +110,19 @@ fn noon_toward(env: &Environment) -> Vec3 {
 /// about the sky's pole, fifteen degrees an hour. The pole is square to the
 /// noon sun in its vertical plane, past the zenith, so the sun's path is a
 /// great circle through the noon sun that meets the horizon a quarter turn
-/// either side of noon's bearing.
+/// either side of noon's bearing. Which way round decides where it rises:
+/// a positive angle about the upward pole turns the sun anticlockwise seen
+/// from above, so a noon sun in the south (+Z) turns by noon's hour minus
+/// the hour, and rises at +X, the east; one in the north (-Z) turns the
+/// other way and rises in the east too (#1731: the turn was the same for
+/// both, and every southern noon rose in the west). A noon sun due east or
+/// west has no such answer and turns as a southern one does.
 pub fn sun_toward(noon: Vec3, hour: f32) -> Vec3 {
-    let across = Vec3::new(noon.x, 0.0, noon.z).normalize_or(Vec3::X);
+    let across = Vec3::new(noon.x, 0.0, noon.z).normalize_or(Vec3::Z);
     let altitude = noon.y.clamp(-1.0, 1.0).asin();
     let pole = Vec3::Y * altitude.cos() - across * altitude.sin();
-    Quat::from_axis_angle(pole, (hour - 12.0) / 24.0 * TAU) * noon
+    let turn = if across.z < 0.0 { -1.0 } else { 1.0 };
+    Quat::from_axis_angle(pole, turn * (12.0 - hour) / 24.0 * TAU) * noon
 }
 
 /// The air a ray of sunlight crosses at `altitude_deg`, as a share of the

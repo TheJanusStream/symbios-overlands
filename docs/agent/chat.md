@@ -24,7 +24,9 @@ AGENT_ACCOUNT=<handle> <repo>/docs/agent/tools/watch.py 0 30
   with `nohup ... &` by slip: it ran, and would never have woken the session.
   To find and stop a stray, `pgrep -af tools/watch.py` and kill it by pid: its
   command line starts with the interpreter's full path, so a pattern anchored
-  on `^python3` matches nothing.
+  on `^python3` matches nothing. Never `pkill -f tools/watch.py` on a shell
+  line: it matches that line's own shell too ([developing.md](developing.md)),
+  and session 953 lost the watcher and its own command that way.
 - Resume from `NEXT`, or from a later `seq` if you read events yourself
   meanwhile. `NEXT` is the last seq already read: pass it as it is, never
   `NEXT + 1` - a `since` ahead of the log reads as a daemon restart, and the

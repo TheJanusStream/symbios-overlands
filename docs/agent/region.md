@@ -83,6 +83,11 @@ the skyline comes from placed rock ([Backdrop](#backdrop-making-the-far-places-r
   `value`) as the game does - about 2 s. A negative focus needs the `=`.
   Render a copy with `fog_visibility` pushed out and `cloud_cover` 0 to read
   the land; render the real settings to judge the mood.
+- **A turning day renders at the wall clock's hour**, and a weather that
+  comes and goes at the clock's spell: a saved record with both drew
+  Ashmere's planning views at night. Plan on a copy without
+  `/environment/time_of_day` and `/environment/weather`, at
+  `views.py --hour 11` (and 15 for the low sun) (#1730).
 - Bring each good step live with one `room set` per part, then `look`.
 
 ## Ground textures
@@ -337,8 +342,10 @@ Grass, each row with an Auto box). Every field is optional:
   "day_minutes": 0}` (scaled ints: 180000 is 18:00), draws the room at that
   hour, its other fields as its noon. The sun turns along its day's arc
   through where `sun_position` puts it at noon - rising at 6:00 a quarter
-  turn round the horizon from noon's bearing, setting at 18:00 opposite,
-  under the horizon by night - its light dimmer and redder the lower it
+  turn round the horizon from noon's bearing, on the east side (+X) whichever
+  side of the sky noon's sun stands, setting at 18:00 opposite, under the
+  horizon by night (#1731: before it, a noon sun in the south rose in the
+  west) - its light dimmer and redder the lower it
   stands, the sky and the horizon darker and warmer round sunrise and
   sunset, and by night the moon and the stars. The moon stands opposite the
   sun and gives 7% of the noon sun's light, kept within 400 to 2,000 lux
@@ -1209,6 +1216,50 @@ Session 879's village and its fields filled the middle 300 m of a world about
   caterpillar however lumpy; late September gave the truer answer anyway (the
   beans are in, the bed is dug). A `LogEnd` texture is a card, clear outside
   each log's end: on a box it drew floating discs - a woodpile is capsules.
+
+Session 953 filled most of what was left of Ashmere in an hour and a half,
+twelve saves. What worked:
+
+- **A map, not a picture**: the render tool's `--terrain-report --plan`
+  draws placements by index and scatter rings over the water; session 953's
+  `exports/reeve/b/map1729.py RECORD OUT.png [--labels]` adds the ground's
+  height over the water in bands (one `--terrain-report` on a 4 m grid, a
+  second for 60,000 points), each placement's name and every instance
+  set's copies - so empty ground is plainly empty and each piece is sited
+  against its neighbours' real extents. Then look from the landing
+  in every direction: the emptiness a visitor meets first is what matters.
+- **Woods are instance sets, led by the tree that makes the most canopy a
+  triangle**: `render --generator FILE` prints a tree's size and
+  triangles; Ashmere's old oak spreads 21 m for 7,674, its young oak 11 m
+  for 3,614, a hazel 3.9 m for 2,224, a birch 4.4 m for 4,316. Scattered
+  trees one to 200-300 m2 read as wood-pasture; a wood is oak standards
+  about 19 m apart, young oaks between, the small trees only in an edge
+  band where the eye sees under the canopy, two parts a tree. Coppice with
+  standards gives a period wood its own glades: a ride kept clear, a coupe
+  cut last winter (low stools), a lobed outline (`exports/reeve/b/wood1729.py`).
+  A scene inside the coppice band is hidden from outside and in: put the
+  swineherd by the ride.
+- **A shore wood is a band by height over the water**: Poisson-disc points
+  in a box, kept where `ground.py` puts the ground 0.4-6 m over the water,
+  thinned by a slow noise into thickets and glades, a low scrub fringe at
+  the water's edge (`exports/reeve/b/carr1729.py`). A birch reads as bare
+  poles past about 150 m: an accent, not the mass.
+- **An L-system plant's transform scales its leaves**: Ashmere's old hazel,
+  grown by a 2.3 x 2.6 transform, wore half-metre leaves on a 0.4 m base, a
+  palm in a pot up close, and scaling a copy up only made it worse. Redrawn
+  in metres with Twig sprays (a coppice stool's rods, `exports/reeve/b/hazel1729.py`)
+  it read true at every distance once each side shoot carried four sprays -
+  one spray a shoot read as bare twigs from 30 m - for fewer triangles. A
+  narrow leaf is a Twig card scaled narrow (`~(0,sx,sy,sz)`); the same rods
+  on a squat bolling are a pollard willow (`willow1729.py`).
+- **Re-fit, do not copy, a piece fitted to its own ground**: a hurdle fold
+  laid on one slope stood 1.5-1.9 m tall and tilted elsewhere; `fence.py`
+  lays one on any ground. Run a closed fence from one gate post round to the
+  other: closed on its own first point it stands two stakes in that corner,
+  a z-fight.
+- **Furlongs fill field land cheaply in triangles** (`fields.py`: about 80
+  parts and 20k triangles a furlong, a record of its own of 30-77 KB), where
+  the three fields of a manor's rotation lie: fallow, stubble, ploughing.
 
 ## A city: the road network
 

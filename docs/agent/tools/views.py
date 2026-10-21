@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""usage: views.py DID RECORD.json OUT.png "LABEL X Y Z LOOK [DOWN]" ...
+"""usage: views.py [--hour H] [--weather KIND:I] DID RECORD.json OUT.png "LABEL X Y Z LOOK [DOWN]" ...
 
 Offline pictures of a world record from where a person would stand: one render
 per view, the camera AT world (X, Y, Z) looking toward compass LOOK in degrees
@@ -15,6 +15,9 @@ face, and "@landingcam [DOWN]" what a new visitor's screen first shows (the
 game's camera behind them) - both from RECORD's default_landing, no daemon
 needed. DOWN (default 2) tilts the view that many degrees below level: 30-50
 to see what lies at your feet - a level view misses anything low and close.
+`--hour H` and `--weather KIND:I` (anywhere on the line) draw every view at
+that hour and under that weather, as the render tool's own flags do: a turning
+day's evening or a shower judged before anyone sees it (#1730).
 
 Built on the render tool's orbit rig: a camera 1 m behind its focus, 2 degrees
 up, whose yaw turns the other way from a compass.
@@ -33,9 +36,10 @@ TILE = (960, 480)
 
 
 def main():
-    if len(sys.argv) < 5:
+    argv, extra = agentlib.split_render_flags(sys.argv[1:])
+    if len(argv) < 4:
         sys.exit(__doc__)
-    did, record, out, specs = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
+    did, record, out, specs = argv[0], argv[1], argv[2], argv[3:]
     parsed = [spec.split() for spec in specs]
     if any(f[0] in ("@admin", "@admincam") for f in parsed):   # not @landing: it needs no admin
         # "@admin [DOWN]": where the admin stands, eyes 1.6 m up, looking the way they face;
@@ -90,11 +94,12 @@ def main():
             label, x, y, z, look = fields[:5]
             down = fields[5] if len(fields) > 5 else "2"
             path = os.path.join(tmp, f"view{i}.png")
-            agentlib.render("--world", did, "--world-record", record, f"--focus={x},{y},{z}", "--dist", "1",
-                            f"--elev={down}", "--yaw", str((-float(look)) % 360), "--width", "1280",
-                            "--height", "640", "--out", path)
+            _, err = agentlib.render("--world", did, "--world-record", record, f"--focus={x},{y},{z}",
+                                     "--dist", "1", f"--elev={down}", "--yaw", str((-float(look)) % 360),
+                                     "--width", "1280", "--height", "640", "--out", path, *extra)
             if not os.path.exists(path):
-                sys.exit(f"view {label} did not render (is the render tool built?)")
+                # The render tool's own words: a mistyped --hour or --weather reads as one.
+                sys.exit(f"view {label} did not render (is the render tool built?)\n{err.strip()[-600:]}")
             im = Image.open(path).convert("RGB").resize(TILE)
             ImageDraw.Draw(im).text((8, 8), label, fill=(255, 255, 255))
             tiles.append(im)

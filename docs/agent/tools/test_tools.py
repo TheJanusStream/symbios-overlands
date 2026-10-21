@@ -19,6 +19,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import agentlib  # noqa: E402
 import rec  # noqa: E402
 import near  # noqa: E402
 import thread  # noqa: E402
@@ -303,6 +304,63 @@ class Apply(unittest.TestCase):
         usage = " ".join(rec.__doc__.split())
         for label in labels:
             self.assertIn(label, usage)
+
+
+class RenderFlags(unittest.TestCase):
+    """views.py and compare.py draw an hour and a weather (#1730)."""
+
+    def test_the_hour_and_weather_are_taken_out_wherever_they_stand(self):
+        rest, flags = agentlib.split_render_flags(
+            ["--hour", "18", "did:plc:x", "room.json", "out.png", "--weather=rain:0.6", "a 1 2 3 90"])
+        self.assertEqual(rest, ["did:plc:x", "room.json", "out.png", "a 1 2 3 90"])
+        self.assertEqual(flags, ["--hour=18", "--weather=rain:0.6"])
+
+    def test_a_negative_hour_is_passed_on_as_a_value(self):
+        # As `--hour -3` the render tool's parser reads -3 as a flag of its own.
+        _, flags = agentlib.split_render_flags(["--hour", "-3", "did:plc:x"])
+        self.assertEqual(flags, ["--hour=-3"])
+
+    def test_a_flag_without_its_value_is_refused(self):
+        for argv in (["did:plc:x", "room.json", "out.png", "--hour"], ["--hour=", "did:plc:x"],
+                     ["--hour", "--weather", "rain:0.5", "did:plc:x"]):
+            with self.assertRaises(SystemExit, msg=argv):
+                agentlib.split_render_flags(argv)
+
+    def test_every_view_is_drawn_at_the_hour_and_in_the_weather(self):
+        from PIL import Image
+        import views
+        calls = []
+
+        def fake_render(*args, timeout=180):
+            calls.append(args)
+            Image.new("RGB", (64, 32)).save(args[args.index("--out") + 1])
+            return "", ""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            argv = ["views.py", "--hour", "6", "did:plc:x", os.path.join(tmp, "room.json"),
+                    os.path.join(tmp, "out.png"), "a 0 2 0 90", "--weather", "fog:0.4", "b 1 2 1 180"]
+            with mock.patch.object(agentlib, "render", fake_render), mock.patch.object(sys, "argv", argv), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                views.main()
+        self.assertEqual(len(calls), 2)
+        for args in calls:
+            self.assertIn("--hour=6", args)
+            self.assertIn("--weather=fog:0.4", args)
+
+    def test_a_view_that_did_not_render_says_what_the_render_tool_said(self):
+        import views
+
+        def failing_render(*args, timeout=180):
+            return "", "error: invalid value 'rian:0.5' for '--weather <WEATHER>'"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            argv = ["views.py", "--weather", "rian:0.5", "did:plc:x", os.path.join(tmp, "room.json"),
+                    os.path.join(tmp, "out.png"), "a 0 2 0 90"]
+            with mock.patch.object(agentlib, "render", failing_render), mock.patch.object(sys, "argv", argv), \
+                    self.assertRaises(SystemExit) as stop:
+                views.main()
+        self.assertIn("invalid value 'rian:0.5'", str(stop.exception.code))
+
 
 class Near(unittest.TestCase):
     """near.py's footprint reading (--box), session 885."""

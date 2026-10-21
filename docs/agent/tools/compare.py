@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""usage: compare.py DID SRC.json EDITS OUT.png "SPEC" ...
+"""usage: compare.py [--hour H] [--weather KIND:I] DID SRC.json EDITS OUT.png "SPEC" ...
 
 Before and after, offline: EDITS folded into a copy of SRC (as `rec.py
 compose` does), every SPEC rendered from both (a views.py spec: "LABEL X Y Z
 LOOK [DOWN]", `~` heights, "@landing", "@landingcam", "@admin"...), and one
 row per spec - the source on the left, the edited copy on the right - so a
 change is judged in one picture, from the same eyes. Session 878 chained the
-same four commands for this a dozen times.
+same four commands for this a dozen times. `--hour` and `--weather` are
+passed on to views.py, so both sides are drawn at that hour, in that weather.
 """
 import os
 import subprocess
@@ -15,12 +16,14 @@ import tempfile
 
 from PIL import Image, ImageDraw
 
+import agentlib
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 TILE = (960, 480)  # views.py's tile
 
 
-def sheet(did, record, out, specs):
-    subprocess.run([sys.executable, os.path.join(HERE, "views.py"), did, record, out, *specs],
+def sheet(did, record, out, specs, extra):
+    subprocess.run([sys.executable, os.path.join(HERE, "views.py"), *extra, did, record, out, *specs],
                    check=True, stdout=subprocess.DEVNULL)
     im = Image.open(out)
     return [im.crop(((i % 2) * TILE[0], (i // 2) * TILE[1], (i % 2 + 1) * TILE[0], (i // 2 + 1) * TILE[1]))
@@ -28,15 +31,16 @@ def sheet(did, record, out, specs):
 
 
 def main():
-    if len(sys.argv) < 6:
+    argv, extra = agentlib.split_render_flags(sys.argv[1:])
+    if len(argv) < 5:
         sys.exit(__doc__)
-    did, src, edits, out, specs = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5:]
+    did, src, edits, out, specs = argv[0], argv[1], argv[2], argv[3], argv[4:]
     with tempfile.TemporaryDirectory() as tmp:
         after = os.path.join(tmp, "after.json")
         subprocess.run([sys.executable, os.path.join(HERE, "rec.py"), "compose", src, edits, after],
                        check=True, stdout=subprocess.DEVNULL)
-        before_tiles = sheet(did, src, os.path.join(tmp, "before.png"), specs)
-        after_tiles = sheet(did, after, os.path.join(tmp, "after.png"), specs)
+        before_tiles = sheet(did, src, os.path.join(tmp, "before.png"), specs, extra)
+        after_tiles = sheet(did, after, os.path.join(tmp, "after.png"), specs, extra)
     rows = Image.new("RGB", (TILE[0] * 2, TILE[1] * len(specs)))
     for i, (b, a) in enumerate(zip(before_tiles, after_tiles)):
         for j, (tile, word) in enumerate(((b, "before"), (a, "after"))):

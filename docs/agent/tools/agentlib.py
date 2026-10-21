@@ -40,6 +40,40 @@ def result(answer, what):
     return answer["result"]
 
 
+# The render tool's flags for a world's hour and weather, which views.py and compare.py pass
+# on to every render they make: a turning day or a weather trial judged offline (#1730).
+RENDER_FLAGS = ("--hour", "--weather")
+
+
+def split_render_flags(argv):
+    """`argv` without its `--hour H` and `--weather KIND:I` (anywhere on the line, as `--flag
+    value` or `--flag=value`), and those flags as the render tool takes them: always
+    `--flag=value`, so a negative hour reaches it as a value and not as a flag of its own. A
+    flag with no value, an empty one or another flag where its value should be is refused here,
+    where the mistake is plain, rather than as a view that did not render."""
+    rest, flags = [], []
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        name = arg.split("=", 1)[0]
+        if name not in RENDER_FLAGS:
+            rest.append(arg)
+            i += 1
+            continue
+        if "=" in arg:
+            value = arg.split("=", 1)[1]
+            i += 1
+        elif i + 1 < len(argv):
+            value = argv[i + 1]
+            i += 2
+        else:
+            raise SystemExit(f"{name} needs a value")
+        if not value or value.startswith("--"):
+            raise SystemExit(f"{name} needs a value, not {value!r}")
+        flags.append(f"{name}={value}")
+    return rest, flags
+
+
 def render(*args, timeout=180):
     """Run the render tool; returns (stdout, stderr)."""
     out = subprocess.run(["timeout", str(timeout), RENDER, *args], capture_output=True, text=True, env=ENV)

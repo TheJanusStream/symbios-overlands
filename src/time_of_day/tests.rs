@@ -68,6 +68,52 @@ fn the_sun_rises_at_six_and_sets_at_eighteen() {
     assert!(afternoon > 0.0 && afternoon < altitude(noon), "{afternoon}");
 }
 
+/// The sun rises in the east and sets in the west (#1731), whichever side
+/// of the sky it crosses at noon. The worlds' compass has north at -Z and
+/// east at +X, as the generators, Berlin's ground and the spawn read it, so
+/// a noon sun in the south (+Z, north of the tropics) or in the north (-Z,
+/// south of them) stands east at six, toward +X all morning, toward -X all
+/// afternoon and west at eighteen; one off the meridian, as Hypha's
+/// west-south-west noon, rises and sets in those halves of the sky. Every
+/// southern noon ran backwards; the first fix turned every sun the other
+/// way, and the northern ones ran backwards instead.
+#[test]
+fn the_sun_rises_in_the_east_and_sets_in_the_west() {
+    for noon in [Vec3::new(0.0, 0.57, 0.82), Vec3::new(0.0, 0.57, -0.82)] {
+        let noon = noon.normalize();
+        let rise = sun_toward(noon, 6.0);
+        let set = sun_toward(noon, 18.0);
+        assert!(
+            rise.x > 0.99,
+            "noon {noon}: rises toward {rise}, not the east"
+        );
+        assert!(
+            set.x < -0.99,
+            "noon {noon}: sets toward {set}, not the west"
+        );
+        for hour in [7.0, 9.0, 11.5] {
+            let sun = sun_toward(noon, hour);
+            assert!(
+                sun.x > 0.0,
+                "noon {noon}, {hour}: a morning sun toward {sun}"
+            );
+        }
+        for hour in [12.5, 15.0, 17.0] {
+            let sun = sun_toward(noon, hour);
+            assert!(
+                sun.x < 0.0,
+                "noon {noon}, {hour}: an afternoon sun toward {sun}"
+            );
+        }
+    }
+    let wsw = Vec3::new(-0.8, 0.45, 0.4).normalize();
+    let (rise, set) = (sun_toward(wsw, 6.0), sun_toward(wsw, 18.0));
+    assert!(
+        rise.x > 0.0 && set.x < 0.0,
+        "west-south-west noon: {rise} {set}"
+    );
+}
+
 /// By night the key light is the moon, standing where the noon sun stood,
 /// and the sky is told so; the sky is dark enough for the stars; and the
 /// ambient light is night's share.

@@ -12,12 +12,17 @@ and the animal calls heard at last. In session 885 (live session 9,
 second grammar gave the tofts their outbuildings and the road west a new
 holding ([Buildings by grammar](#buildings-by-grammar)); the houses now
 share one generator a size, each carrying its own grammar seed on its
-placement (#1505). Where things stand at 19:50 on 2026-09-28: everything
-saved; the owner came in at 19:48, after the houses moved onto shared
-generators, and said "Great. Session over" at 19:49; the session's code
-(#1503, #1504, #1505, #1511) committed and deployed by the owner on
-2026-09-29, who tested it in the app: "Looks good to me". Times on
-this page are local (CEST).
+placement (#1505). In session 953 (live session 14, 2026-10-21, #1729) the
+owner gave Reeve the land to build out, saving as he saw fit: a turning
+Michaelmas day with showers and Ashmere's own grass, Fur on the beasts it
+suits, a second hamlet (Ashmere Green), a carr on the mere's far shore, both
+woods made coppice-with-standards woods round a coppice hazel of Reeve's
+own, seven more furlongs, pannage, a fold on the fallow, a willow-lined
+meadow and a sheepcote ([History](#history)). Where things stand at 07:50 on
+2026-10-21: everything saved (seq 15, 03:10); the owner came in at 07:39,
+heard Reeve's account of it in chat and said "Well done! Session over." at
+07:45; the session's code (#1730, #1731) staged for the owner to commit and
+deploy. Times on this page are local (CEST).
 
 ## Start here
 
@@ -30,9 +35,9 @@ session.
 | Commands | every agent command takes `--account reeve-ai.bsky.social`; every tool call starts `AGENT_ACCOUNT=reeve-ai.bsky.social` ([session.md](../../session.md#starting)) |
 | Admin | @codewright.bsky.social, the owner: `start --admin @codewright.bsky.social --allow-save` |
 | Region | Ashmere, Reeve's own world: its DID is his, the `--world` of every offline render |
-| Working folder | `exports/reeve/` (gitignored, on this machine only), the same folder every session: `b/` the builders, `src/` the last saves - `room.json` (2026-09-28 19:44, save event seq 2) and `avatar.json` (avatar v6b, 2026-09-27 20:06, save event seq 31); `hints_885.md` and `885/` (the grammar trials in `885/sg/` and `885/try/`, the #1503 and #1505 delegations' scratch in `885/deleg_zfight/` and `885/deleg_1505/`, the binaries they ran in `885/bin/`, the move onto shared generators checked in `885/share/`, the room before it in `885/room_pre_share.json`) from session 885; `hints_883.md` and `883/` from session 883 |
-| Last session | chainlink session 885 (live session 9), parent #1502 - read its comments (`chainlink show 1502`); `chainlink session last-handoff` is the latest session of any kind |
-| Default mode | visit ([session.md](../../session.md#visit)): the owner's plan of 2026-09-27 - meet Reeve in Ashmere, inspect the avatar and region, give hints |
+| Working folder | `exports/reeve/` (gitignored, on this machine only), the same folder every session: `b/` the builders, `src/` the last saves - `room.json` (2026-10-21 03:10, save event seq 15) and `avatar.json` (avatar v6b, 2026-09-27 20:06, save event seq 31); `1729/` from session 953 (its binaries in `1729/bin/`, renders in `1729/review/`, the room before the day, the fur and the green in `1729/room_before_*.json`, trial compositions in `1729/try_*.json`, `1729/plan_room.json` the last save without its day and weather, for planning renders); `hints_885.md` and `885/` from session 885; `hints_883.md` and `883/` from session 883 |
+| Last session | chainlink session 953 (live session 14), parent #1729 - read its comments (`chainlink show 1729`); `chainlink session last-handoff` is the latest session of any kind |
+| Default mode | visit ([session.md](../../session.md#visit)): the owner's plan of 2026-09-27 - meet Reeve in Ashmere, inspect the avatar and region, give hints. Session 953's prompt made it self-guided, with leave to save ([Standing decisions](#standing-decisions)) |
 | Never | touch Hypha's world (the Understory) or avatar ([hypha/](../hypha/README.md)), Jink's world (Parabola Flats) or avatar ([jink/](../jink/README.md)), or Eigen's world (Isoline) or avatar ([eigen/](../eigen/README.md)); apply `edits_clear_ONCE.txt` again - it replaces every generator and placement with the bare terrain |
 
 - **Ashmere leans on #1505** (deployed 2026-09-29, the owner's "Looks good
@@ -40,8 +45,8 @@ session.
   seed. A client built without #1505 draws each size's houses alike, and
   an agent built without it drops the seeds on its next save: never save
   Ashmere from one.
-- **Ashmere is past the live-update ceiling** (1.45 MiB of compact JSON
-  against 900 KiB): no live edit reaches the owner. Show a change by saving
+- **Ashmere is past the live-update ceiling** (1.78 MiB of compact JSON
+  against 900 KiB after session 953): no live edit reaches the owner. Show a change by saving
   it - their client fetches each save (#1499) - a mood trial too, saved on
   their word with the old value kept to put back
   ([region.md](../../region.md#the-records-budget)). `room set` answers
@@ -59,13 +64,18 @@ session.
   ([saving.md](../../saving.md#what-is-live-and-what-is-kept)). A save made
   while they were away through the gate showed on their return (#1489's
   live retry, session 883: [Open threads](#open-threads)).
-- **New to the owner**: little. They were in the world at 14:35 on
-  2026-09-28, after the grammar saves ("Great work"), and had the ten
-  unused hand-built cottage generators struck out (16:04) and the houses
-  moved onto shared generators (19:44). A house's hearth smoke is a
-  placement of its own (`smk_<placement>`): move a house and its smoke
-  together. Of the remade sheep and cattle (saved 23:53 on 2026-09-27)
-  they have said nothing yet.
+- **New to the owner**: everything session 953 saved
+  ([History](#history)) - they came in at 07:39 on 2026-10-21, after it was
+  all saved, and said "Well done!"; what they saw of it, and whether the
+  build-out leave stands, they have not said. A house's hearth smoke is a placement of its own
+  (`smk_<placement>`, Ashmere Green's `smk_g1`-`smk_g8`): move a house and
+  its smoke together.
+- **Plan on `1729/plan_room.json`, not on `src/room.json`**: the saved
+  record turns its day (120 minutes) and its showers, so an offline render
+  of it without `--hour` shows the hour the wall clock gives - night, often
+  - under whatever shower is falling. Planning renders take the record
+  without `time_of_day` and `weather` and pass `views.py --hour 11` (or 15
+  for the low sun, #1730). Re-make it after each save.
 - **Walk the lanes**: walls, the street fences and the deer park's pale are
   solid (the hedges are not); `b/lanes.sh` holds the lanes' waypoints
   ([moving.md](../../moving.md#getting-somewhere)).
@@ -173,11 +183,21 @@ plane, so a post mill (English from the 1180s) stands on the hill.
   and z from 330 to 480.
 - **Ground** (`b/land.py`): four `Ground` layers - wet meadow, tired
   pasture, worn banks (the fallback), and heath above 23.5 m, where the
-  heath's scatters grow (`biomes [3]`).
-- **Light**, kept on "keep it" (22:32): the sun at azimuth 232 and 14
-  degrees up, warm, 7,500 lux; a 1,000 m haze; cloud cover 0.38.
-  `b/land.py` writes the same. **Water**: a still, peaty mere (normal
-  scales 10 near, 1.4 far).
+  heath's scatters grow (`biomes [3]`). **Grass** (session 953,
+  `b/atmos1729.py`, the terrain's grass group, #1700): grazed Michaelmas
+  pasture, short (0.24 m) and tussocky (clumpiness 1.4), a few late flowers
+  (knapweed, yarrow, devil's-bit, hawkbit), thick on the wet meadow, thin
+  on the worn banks, almost none on the heather.
+- **Light and weather** (session 953, `b/atmos1729.py`): a turning day of
+  120 minutes (#1677), the environment's fields now noon's - the sun due
+  south 35 degrees up, near-white, 15,000 lux, a pale autumn sky - which
+  the engine lowers and reddens toward evening; showers (rain 0.35) that
+  come and go in 10-minute spells (#1678). Session 879's kept light (the
+  sun at azimuth 232 and 14 degrees up, warm, 7,500 lux; "keep it", 22:32
+  on 2026-09-26) is the arc's late afternoon; `1729/room_before_atmos.json`
+  holds it. Until #1731 is deployed a client turns the sun the wrong way
+  (it rose in the west). A 1,000 m haze; cloud cover 0.38. **Water**: a
+  still, peaty mere (normal scales 10 near, 1.4 far).
 
 ### Arrival
 
@@ -214,22 +234,26 @@ From `src/room.json` (placements, scatter centres, the lanes' spines, which
 | Hall and reckoning | 152, 96; 161.5, 87.5 | the open hall (tiled, smoke louvre, hearth glow) and its solar (138, 96); at its door a trestle table of tallies, strongbox and rent-corn, the steward and a tenant | 879 (21:11, 23:08) |
 | Barn and yard | 116, 72; 174, 90; 170, 66 | aisled barn with a wagon porch and four corn ricks; detached kitchen; ox-house with dung heap and trough; hens, worn paths, an orchard (178, 98) | 879 (21:11, 21:47, 01:35) |
 | The mill-way | 96, 9 to 362, 266 | field track round the manor court, along the South Field, up to the mill | 879 (21:23) |
-| South Field | 166, 175; 275, 190; 52, 95 | three furlongs of ridge and furrow; the plough team resting at 247, 152 with its ploughman and goad boy | 879 (21:22, 22:19) |
+| South Field | 166, 175; 275, 190; 52, 95; -32, 151; 178, 280 | five furlongs of ridge and furrow (`field_d` and `field_e` from session 953); the plough team resting at 247, 152 with its ploughman and goad boy | 879 (21:22, 22:19); 953 (02:09, 02:39) |
 | Post mill | 375, 270 | sunken post mill on its mound; a man carrying grain up the ladder | 879 (21:19) |
 | Reeve's house | 300, 293 | on the heath: the house by the house grammar (framed, half-hipped), carpenter's yard, bee skeps, Scot saddled at the door (292, 284), birches, two oaks | 879 (21:32, 01:32); 885 (12:47) |
 | Heath and fold | heath 420, 300; flock 392, 312 | ling, bracken, gorse on a heather carpet past its flower (a `Moss` ground layer, `b/land.py`); the flock, a hurdle fold (420.5, 290), the shepherd | 879 (21:28, 01:50); 883 (ground 19:24) |
-| North Field | -90, -127; 52, -117; 30, -209 | three furlongs of spring-corn stubble, stooks on the west one | 879 (22:18, 22:55) |
-| West Field, road west | -92, -61; -92, 55; road -45, -3 to about -470, -18 | two fallow furlongs beyond the gate; the road on to the manor's edge | 879 (21:41, 00:56) |
+| North Field | -90, -127; 52, -117; 30, -209; -76, -212; 127, -225 | five furlongs of spring-corn stubble, stooks on the west one (`field_nd` and `field_ne` from session 953); the common herd on `field_nd`, below the north-west wood - eight red cattle grazing and lying, the goad boy minding them (`b/fold1729.py`) | 879 (22:18, 22:55); 953 (02:09, 02:33, 02:39) |
+| West Field, road west | -92, -61; -92, 55; -202, -67; -181, 68; -303, -67; road -45, -3 to about -470, -18 | five fallow furlongs beyond the gate, both sides of the road (`field_wf`, `field_wg` - its strips east to west, down the slope - and `field_wh` from session 953); the road on to the manor's edge; on `field_wf` the lord's flock folded on the fallow, 22 Norfolk Horns in an 18 x 14 m fold of staked wattle hurdles a metre high, the shepherd at its gate (`b/fold1729.py`, the hurdles by `fence.py`) | 879 (21:41, 00:56); 953 (02:09, 02:33, 02:39) |
 | Road-west holding | house -175, 6; byre -186.5, 17; lodge -163.5, 18 | a tenant's holding by the road beyond the West Field, both grammars (`sgw_*`, `b/sg_farmstead.py`): a framed, gabled house facing the road, its back door on a yard with a boarded byre and a cart lodge, the dung heap, a trough, five hens | 885 (13:21) |
 | Rabbit warren | lodge -240, 62; mounds about -282, 88 | warrener's flint lodge, six pillow mounds, eighteen coneys | 879 (00:56) |
 | Turbary | about -370, 355 | three cuttings, each rows of narrow trenches of wet black peat between turf baulks (`b/turbary2.py`); ruckles and stacks of turves, the cutter's cot (by the house grammar since 885), reeds round the south-west lake | 879 (01:01); 883 (cuttings 19:30) |
 | Deer park | 40, -375 | oval pale of close-set cleft oak (`b/pale2.py`) on a bank, about 720 m round; south gate (42.6, -290), parker's lodge (12, -318; by the house grammar since 885), sixteen fallow deer, wood-pasture oaks | 879 (01:11, oaks 01:47); 883 (pale 19:21) |
-| North-west wood | -175, -255 | oaks over hazel coppice, young oaks among them | 879 (01:47, 02:22) |
-| Ashmere Wood | 365, -345 | oaks and hazel on the north-east high ground; the collier's smoking clamp (338, -325) | 879 (01:47) |
+| North-west wood | -175, -255 | coppice with standards (`b/wood1729.py`): 27 oak standards 19 m apart, 60 young oaks between, 103 hazel stools in the outer 10 m, 6 birches at the edge, a ride through it at bearing 35, a coupe cut last winter on its south-west side, a lobed edge; pannage by the ride - a swineherd beating acorns down from the oak at (-157, -271) with a long pole, nine pigs rooting round him (`b/pannage1729.py`) | 879 (01:47, 02:22); 953 (02:25, 02:30) |
+| Ashmere Wood | 365, -345 | coppice with standards on the north-east high ground, as the north-west wood: 39 standards, 84 young oaks, 127 hazel stools, 7 birches, its ride at bearing 120, its coupe on the north-east; the collier's smoking clamp (338, -325) in its own clearing | 879 (01:47); 953 (02:25) |
 | The next parish | -440, -380 | round-towered church, yard, three cottages, two oaks: Ashmere's own pieces placed again | 879 (02:37) |
 | Second post mill | -120, 445 | the home mill placed again on the southern rise, seen across the fen's lake | 879 (02:47) |
-| Ashmere Common | 40, 300 | the tenants' rough grazing on the upland south of the street, never ploughed: gorse and thorn scrub, three old oaks, six cattle, nine geese, tussocks (`b/the_common.py`: generators already there) | 883 (19:36) |
+| Ashmere Common | 60, 270 | the tenants' rough grazing on the upland south of the street, never ploughed: gorse scrub in clumps (45 since session 953), hazel, three old oaks, six cattle, nine geese, tussocks (`b/the_common.py`: generators already there); drawn back north-east off Ashmere Green's tofts in session 953 (it was centred 40, 300) | 883 (19:36); 953 (01:46, 02:41) |
 | The common way | 97, 95 to -112, 440 | a cart track off the mill-way, south-west across the common to the second post mill; solid underfoot, four pieces (`b/commonway.sh`) | 883 (19:38, relaid 19:39) |
+| Ashmere Green | -32, 372 | a common-edge hamlet on the common way (`b/green1729.py`): eight houses by the house grammar in four instance sets, one a size (seeds 401-408 as variants), facing each other across a green about 30 m wide, the track down its middle, each with its hearth smoke (`smk_g1`-`smk_g8`) and its croft hedged behind it; seven geese on the green | 953 (01:46) |
+| The carr | the mere's east banks, x 225-482 | wet woodland on the far shore the street looks out on and both banks of the outflow, 0.4-6 m over the water (`b/carr1729.py`): 286 trees in four instance sets - hazel 183, young oak 57, birch 27, oak 19 - clumped into thickets and glades, a low scrub fringe at the water's edge | 953 (02:05) |
+| The meadow | -240, 220 | the wet valley north of the south-west lake (`b/willow1729.py`): 25 pollard willows of Reeve's own along two ditch lines down to the lake, two hay ricks, the two work horses on the aftermath | 953 (02:45) |
+| Sheepcote | 225, -400 | the lord's sheepcote on the north-east rise between the deer park and Ashmere Wood (`b/cote1729.py`): a long low house 26 x 6.5 m by the farm grammar (a byre: closed walls, a stable door), its ridge along the contour, its door downhill toward the park; seventeen of the flock grazing and lying before it | 953 (03:10) |
 
 ### Buildings by grammar
 
@@ -298,8 +322,21 @@ share one generator a size and carry their seeds on their placements
   `b/cattle.py`): lean, long-legged Norfolk Horns with matted fleeces,
   black faces on real necks, curled horns and the ram's heavy spiral;
   small red cattle with deep chests and dewlaps, crescent horns, cloven
-  hooves, tails with switches. **Folk** (`folk.py`, 01:53-01:59): nine
-  figures at work.
+  hooves, tails with switches. Session 953 (`b/fur1729.py`, 01:37 on
+  2026-10-21) dressed the coats that suit it in the `Fur` texture, each
+  part keeping its Moss palette (root the deep colour, tips the tip): the
+  Norfolk Horns' fleece in curled locks (its root lightened half way to
+  the dry colour, or the undercoat greyed it), the cattle and the plough
+  oxen short and glossy, the pigs' sparse bristles, the geese's feathers
+  in locks. The deer, the horses, the hens and the coneys keep their Moss:
+  its fine speckle is the fallow's spots, Scot's dapple and the hens' and
+  coneys' flecks, where Fur's pied patches came out as large blotches
+  (`1729/review/fur_close.png`, `fur_close2.png`). Since session 953 there
+  are also a folded flock of 22 on the West Field, eight cattle on the
+  North Field's stubble, nine pigs at pannage and seven geese on Ashmere
+  Green. **Folk** (`folk.py`, 01:53-01:59): nine figures at work; session
+  953 placed the shepherd and the goad boy again (the fold, the stubble)
+  and added a swineherd of its own (`b/pannage1729.py`).
 - **Smoke** from every cottage's thatch, the hall's and kitchen's louvres,
   the smithy, the warren lodge and the collier's clamp; a faint warm hint
   of the fire in the open windows (dimmed at 19:20 on 2026-09-27,
@@ -321,6 +358,32 @@ share one generator a size and carry their seeds on their placements
   forge's crackle.
 
 ### Budget
+
+After session 953 (the save of 03:10 on 2026-10-21, seq 15,
+`1729/plan_room.json`):
+
+```text
+"triangles": {"ground":522242,"placements":5168646,"total":5690888},
+"parts": {"ground":1,"placements":11196,"total":11197},
+```
+
+From 3,252,598 triangles and 8,712 parts at its start (2,485 parts more):
+with the hazel as redrawn (2,224 triangles a stool), the carr about +0.88M
+triangles and the two woods +0.97M net of their six scatters, the
+common's thicker scrub +96k, the seven furlongs about +125k, the willows
++79k, the sheepcote's seventeen sheep about the same, the rest (the
+green's houses in sets, the cote, folk) little. The trees
+are instance sets (#1643): two parts a tree, one shared derivation a
+species. Canopy per triangle chose the woods' mix (`render --generator`): an
+old oak spreads 21 m for 7,674 triangles, a young oak 11 m for 3,614, a
+hazel 3.9 m for 2,224 (3,070 before session 953 redrew it), a birch 4.4 m
+for 4,316 - the oaks make a canopy, the hazel only an edge. Still about a
+third of the Understory's triangles and parts. **The room record** is
+1,869,660 bytes of compact JSON (1.78 MiB); the largest single record is
+the room manifest, 87,640 bytes of 102,400 - an absolute placement costs
+about 175 bytes there, a scatter 320, an instance set 120 and its copies,
+which past 64 a set go to records of their own (#1645). A furlong
+generator is 30-77 KB, a record of its own.
 
 `render --triangle-report` on the saved record of 19:44 on 2026-09-28
 (save event seq 2, `885/tri_saved_1944.json`; the same as at 13:21, seq
@@ -346,8 +409,8 @@ generators (16:04), 98 KB less again with the houses on five shared
 generators (19:44). A grammar generator is about 10 KB; the largest single
 record is now the room manifest, 71,568 bytes of 102,400 (68,761 before
 the fifteen smoke placements and the seeds). It is past the 900 KiB
-live-update ceiling (#1499): every live room edit is refused, a save reaches a visitor
-only after they re-enter. Session 879: REVIEW 1 (21:44) measured 995k
+live-update ceiling (#1499): every live room edit is refused, and since session 909 a
+visitor fetches each save without re-entering. Session 879: REVIEW 1 (21:44) measured 995k
 triangles and 2,551 parts; one-part tufts cut 8,765 parts to 5,415 (01:04);
 the largest generator record was `field_ws`, 55,145 bytes of 102,400
 (01:12).
@@ -400,6 +463,15 @@ From session 879's prompt (2026-09-26, #1481), unless dated otherwise:
 - **Colliders for grammar buildings** (2026-09-29, #1506): "Yes, I want
   colliders for grammar buildings" - built in session 913 (2026-10-06): a
   Shape node's `solid_meshes`.
+- **Build out the region, and save as Reeve sees fit** (session 953's
+  prompt, 2026-10-21, #1729): "let him improve and build out his region
+  more ... in general there is still a lot of empty space in his region.
+  Reeve is allowed to save changes to his avatar and region as he sees fit,
+  without asking for my approval" - naming the Fur texture, the weather,
+  day-time and grass systems as likely uses. Session 953 read the mood (the
+  day and the weather) as within it, keeping the old light in
+  `1729/room_before_atmos.json` to put back; a later prompt says whether
+  the leave stands.
 
 ## Working material
 
@@ -409,10 +481,11 @@ binaries and pictures.
 
 | Path | What it holds |
 |---|---|
-| `src/room.json`, `src/avatar.json` | the last saves (room 19:44 on 2026-09-28, seq 2; avatar v6b, 20:06 on 2026-09-27, seq 31) |
+| `src/room.json`, `src/avatar.json` | the last saves (room 03:10 on 2026-10-21, seq 15; avatar v6b, 20:06 on 2026-09-27, seq 31) |
 | `src/room_883.json`, `src/avatar_v4.json`, `src/avatar_v5_shoes.json`, `src/avatar_v6_brown.json` | session 883's start (the room as session 879 left it, avatar v4) and the avatar at each step; `src/avatar_v6_brown.json` puts the brown hood back |
 | `src/room_seeded.json`, `src/avatar_seeded.json` | the seed's world and body; the other `src/` files are intermediate |
-| `log.md` | the save log: 103 lines, 75 from session 879 (20:58 on 2026-09-26 to 02:47 on 2026-09-27), 21 from session 883 (18:48 to 23:53 on 2026-09-27) and 7 from session 885 (12:47 to 19:44 on 2026-09-28) |
+| `log.md` | the save log: 116 lines, 75 from session 879 (20:58 on 2026-09-26 to 02:47 on 2026-09-27), 21 from session 883 (18:48 to 23:53 on 2026-09-27), 7 from session 885 (12:47 to 19:44 on 2026-09-28) and 13 from session 953 (01:32 to 03:10 on 2026-10-21) |
+| `1729/` | session 953's: the binaries it ran (`1729/bin/`), its renders (`1729/review/`, the region's planning maps `map*.png` among them), trial compositions (`try_*.json`), the room before the day, the fur and the green (`room_before_*.json`), `plan_room.json` (the last save without its day and weather) |
 | `hints_885.md`, `885/` | session 885's hints table; the grammar trials (`885/sg/`, `885/try/`), the #1503 and #1505 delegations' scratch (`885/deleg_zfight/`, `885/deleg_1505/`) and the binaries it ran (`885/bin/`), the offline daemon's config (`885/offcfg/`), the move onto shared generators (`885/share/`: pictures, triangle reports, the apply log) and the room before it (`885/room_pre_share.json`), the end review's findings (`885/review885.json`) and scratch (`885/review/`), the fix round's brief (`885/brief_review_fix.md`) and scratch (`885/fix_review/`) |
 | `hints_883.md`, `883/` | session 883's hints table; its lessons (`883/lessons.md`), gate logs (`883/gate/`), the two delegations' scratch (`883/deleg/`, `883/deleg_animals/`), the binaries it ran (`883/bin/`) and its pictures |
 | `b/`, `gen/`, `edits_*.txt` | 75 scripts, what they write (682 files), and the EDITS that applied it ([tools/](../../tools/README.md)) |
@@ -424,7 +497,18 @@ binaries and pictures.
   place (`church.py`, `manor.py`, `mill.py`, `fields.py`, `park.py`,
   `lanes.sh` and the rest), the beasts on `anat.py` (`cattle.py`,
   `flock.py`, `deer.py`, `horse.py`, `yardbeasts.py`), `folk.py`,
-  `audio_loop.py`, `reeve_body.py`, `reeve_wear.py`. Session 883's:
+  `audio_loop.py`, `reeve_body.py`, `reeve_wear.py`. Session 953's, one
+  a step, each writing `gen/<step>/` and `edits_<step>.txt`:
+  `atmos1729.py` (the day, the showers, the grass group), `fur1729.py`,
+  `green1729.py`, `carr1729.py`, `fields.py more1729` and `more1729b`,
+  `hazel1729.py` (the hazel generator), `wood1729.py nw|ash` (it lists the
+  scatters it replaces; live they went by `agent remove`), `pannage1729.py`,
+  `fold1729.py`, `willow1729.py`, and `map1729.py RECORD OUT [--labels]`,
+  the region drawn as a map: the ground by its height over the water and
+  every placement, so empty ground shows as empty. A placing builder
+  re-run writes its EDITS file afresh with appends (`/placements/-`),
+  losing the indices `rec.py apply` wrote into it: copy the applied file
+  aside first (as `1729/edits_fold1729_applied.txt`). Session 883's:
   `ruts.py` and `ride_fix.py` (a thread seated on a lane's meshed top),
   `fence2.py`, `thatch_vary.py`, `glow_dim.py`, `pale2.py`, `turbary2.py`,
   `the_common.py`, `commonway.sh`, and for fitting clothes `markers.py`,
@@ -455,6 +539,57 @@ binaries and pictures.
   `edits_clear_ONCE.txt` (never again) and `edits_env.txt`. Diff first.
 
 ## History
+
+### 2026-10-21: session 953, live session 14, #1729, self-guided
+
+- **Mode**: self-guided, on the owner's prompt: build out the region with
+  the new Fur texture, the weather, the turning day and the grass, and fill
+  the empty land, saving as Reeve sees fit
+  ([Standing decisions](#standing-decisions)). Reeve's sign-in had expired
+  (`invalid_grant`); the owner approved `login --no-browser` in their
+  browser. They were not in the world while it was built: they came in at
+  07:39, after the last save, and Reeve told them in chat what was new and
+  that the sun's fix (#1731) needs deploying.
+- **The owner said**: the prompt ("let him improve and build out his
+  region more ... in general there is still a lot of empty space in his
+  region"); "Well done! Session over." (chat, 07:45).
+- **Built** (13 logged saves, 01:32 to 03:10): a turning Michaelmas day,
+  showers and the grass group; Fur on the coats it suits; Ashmere Green;
+  the carr; seven furlongs across the three fields; Ashmere's hazel redrawn
+  as a coppice stool and both woods made coppice-with-standards woods;
+  pannage; the fold on the fallow and the herd on the stubble; the
+  common's scrub thickened; a willow-lined meadow by the south-west lake;
+  the lord's sheepcote on the north-east rise.
+  How it was planned: `b/map1729.py`'s map of the region showed the empty
+  ground, the landing's views in every direction what a visitor meets
+  first, and each piece was judged on `1729/plan_room.json` at 11:00 and
+  15:00 before it was applied.
+- **Failed at first**: every turning day's sun ran backwards (#1731) - and
+  the first fix turned every sun clockwise, right only under a noon sun in
+  the south (the critic: a seeded room's sun stands anywhere round the
+  compass); offline views had no hour, and the turning record rendered
+  night (#1730); `pkill -f "tools/watch.py"` in a command line matched that
+  command's own shell and killed it with the watcher; Fur's pied patches
+  blotched the deer and Scot; the green's houses first 64 m apart
+  across it, and the common's scrub inside its tofts; the carr first 10 m apart and
+  birch-led, parkland and bare poles from the street; hazel grown to 1.7 in
+  the woods, a palm in a pot - so the hazel was redrawn; pannage first
+  hidden in the coppice at the wood's edge; session 879's heath fold
+  fitted to its own slope, then a fence closed on its own first point
+  (two stakes, a z-fight - saved before the CHECK line was read); `agent
+  remove` without `--account` (several sessions are saved here); a Twig's
+  `leaf_pairs` over the sanitiser's 8; the carr's first save lost to a
+  network error (retried); the pollard willow's first draw, a lollipop on
+  a post.
+- **Code**, uncommitted at session end (the owner commits): #1730
+  (`views.py` and `compare.py` take `--hour` and `--weather`) and #1731
+  (the sun rises in the east). Filed #1732: a generator material takes no
+  reflectance, so the fallow ridges gleam like water toward a low sun
+  (the owner's decision).
+- **Review**: one critic at effort high on the session's code: a HIGH (the
+  northern noon), a MEDIUM (a mistyped flag read as an unbuilt render
+  tool) and six LOW, all fixed; the new test was seen failing on the first
+  fix.
 
 ### 2026-09-28: session 885, live session 9, #1502, visit with a task
 
@@ -615,26 +750,41 @@ binaries and pictures.
   #1490's race), then on their OK restart Reeve
   ([saving.md](../../saving.md#restarts)) and ask "new or old?". #1490,
   #1493 and #1494 are open.
-- **The owner's standing wishes**: much of the land is still empty
-  ([region.md](../../region.md#filling-the-land-round-a-village) has what
-  worked so far); almost everything needs iterative refinement; "The
+- **The owner's standing wishes**: much of the land was still empty
+  (session 953 filled most of it; [region.md](../../region.md#filling-the-land-round-a-village)
+  has what worked); almost everything needs iterative refinement; "The
   animals should also be improved significantly" (00:13 on 2026-09-27).
   They plan to work on the seeded regions soon (22:30).
-- **Next**, ranked at session 885's end:
-  1. The grammar buildings' hidden solid cores taken out, now that a
+- **Next**, ranked at session 953's end:
+  1. Ask the owner what they made of session 953's land
+     ([History](#history)) - they said "Well done!" on arriving - and
+     whether its build-out leave stands. #1731 needs deploying before a
+     client's sun rises in the east.
+  2. The empty land that remains (`b/map1729.py` shows it): the far west
+     past x -350, the south below the mill hill, the south-east corner, and
+     the north-east rise round the sheepcote (pasture below the heath
+     line, x 150-300, z -486 to -280).
+  3. The grammar buildings' hidden solid cores taken out, now that a
      Shape node's `solid_meshes` collides (#1506, built in session 913) -
      once the owner's client and the daemon both run it, since a save from
      an older build drops the lists.
-  2. The other beasts as the sheep and cattle were remade: pigs, geese,
-     hens, deer, horses, the oxen, the coneys.
-  3. The empty land that remains.
-  4. More by grammar only where it pays (the owner's rule): a church
+  4. The other beasts as the sheep and cattle were remade: pigs, geese,
+     hens, deer, horses, the oxen, the coneys (session 953 only re-dressed
+     some coats in Fur).
+  5. The catalogue's `lsys_hazel` is session 879's palm in a pot (#1496):
+     Ashmere's redrawn hazel could replace it, which changes every seeded
+     hazel stand - the owner's decision. The birch still reads as bare
+     poles past 150 m (the owner's note of session 883), so Ashmere keeps
+     it an accent.
+  6. Flat or rough ground-like tops - the fallow and stubble ridges, the
+     turbary's peat, the lanes - gleam toward a low sun: a generator
+     material has no reflectance field to lower (#1732, the owner's
+     decision).
+  7. More by grammar only where it pays (the owner's rule): a church
      grammar, if the owner wants the next parish's church to differ from
      St Andrew's (possible: #1502's correction of 13:22).
-  5. The reeve's rod at a run ([The body](#the-body)).
-  6. Flat dark tops - the turbary's peat, the lanes - take the low sun's
-     sheen: a generator material has no reflectance field to lower.
-  7. The warren lodge's castle-like battlements, marked unsure.
+  8. The reeve's rod at a run ([The body](#the-body)).
+  9. The warren lodge's castle-like battlements, marked unsure.
 
   Tried and not applied: a trodden yard in the manor court (`b/yard.sh`: a
   flat lens on a 7% slope stood 18 cm proud and buried the hens), breck
