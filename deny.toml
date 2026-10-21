@@ -62,6 +62,24 @@ ignore = [
     # Found by #1650; delete them with the three above when #1178 reopens.
     "RUSTSEC-2026-0346",
     "RUSTSEC-2026-0349",
+    # Two more on the same path, dated 2026-10-19 and -20 (CVE-2026-111943,
+    # Mozilla bug 2083449): the private keys of some emSign intermediates are
+    # now well known. 0381: webpki-roots 0.22.6, the roots async-tls 0.13
+    # trusts, includes "emSign ECC Root CA - G3" (1.0.10 drops it). 0382:
+    # rustls-webpki 0.101.7 does not reject those intermediates' keys (0.103.16
+    # does, and the copy reqwest and webrtc use takes it; this one cannot).
+    # Unlike the two above, this IS reachable: a certificate signed with a
+    # leaked key chains to a trusted root here, so someone between a native
+    # client (the desktop app, the agent daemon) and the relay could read or
+    # rewrite its signalling, and with it the DTLS fingerprints its SDP
+    # carries. Browsers are not exposed: their WebSocket uses the browser's
+    # own trust store, which distrusts these, and rustls 0.21 is not in the
+    # wasm graph. Accepted by the owner on 2026-10-21 (#1733) under #1178's
+    # wait for matchbox, re-checked on 2026-11-11; the in-repo async-tls
+    # stand-in on rustls 0.23 designed on #1178 would retire all seven.
+    # Delete them with the five above when #1178 reopens.
+    "RUSTSEC-2026-0381",
+    "RUSTSEC-2026-0382",
     # bincode 1.3.3 is unmaintained by the authors' explicit decision rather
     # than through neglect - they consider 1.3.3 complete and finished. It
     # reaches us as the multiuser/matchbox wire codec, where replacing it
