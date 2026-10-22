@@ -202,6 +202,16 @@ pub(crate) struct RiggedRoot;
 #[derive(Component, Default)]
 pub(super) struct RiggedTrail {
     last: Option<(Vec3, f32)>,
+    /// The facing the driver was handed last frame, and the delta of the frame
+    /// it was seen on (#1752): what a body looking out of its eyes turned by
+    /// is read off it, over that delta for the reason `last` is.
+    facing: Option<(f32, f32)>,
+    /// The yaw a [`crate::player::FacingSet`] set the local body down at, and
+    /// how many more frames the fill waits to see the body there (#1752):
+    /// the word arrives before the chassis does, which its own easing carries
+    /// to the new facing over a frame or two, and none of those frames is a
+    /// turn.
+    landing: Option<(f32, u8)>,
     /// How far the drawn body is raised above where its root hangs, metres
     /// (#1324): nonzero only for a swimmer afloat at the surface, whose
     /// crawl the engine lays prone about its standing hip height - see

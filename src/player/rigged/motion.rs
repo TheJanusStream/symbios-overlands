@@ -36,6 +36,30 @@ const LIFT_RESPONSE: f32 = 0.3;
 /// positions are mostly noise.
 const HEADING_MIN_SPEED: f32 = 0.1;
 
+/// How far a chassis moves in one frame before the fill reads it as placed
+/// there rather than walked there, metres (#1752): further than any walk
+/// covers in a frame - the walk speed's ceiling, 50 m/s, is 0.8 m at 60 Hz -
+/// so a gateway's landing or a return to the spawn, which sets the facing as
+/// well as the place, is not read as a turn as fast as the frame was short.
+/// Read as one, a quarter turn in a frame is ninety radians a second, and the
+/// body steps round on the spot for a second after it arrives. A placement
+/// closer than this that sets a facing says so instead ([`LANDING_FRAMES`]).
+const PLACED_PAST: f32 = 2.0;
+
+/// How many frames the fill waits after a [`crate::player::FacingSet`] to see
+/// the local body at the yaw it set, reading every one of them as the
+/// placement rather than a turn (#1752). The chassis reaches a set rotation at
+/// its next physics step and eases there over its frame: two or three frames
+/// at a high refresh rate, a fixed step being 1/64 s. Eight is that with room,
+/// and a body that never arrives - turned on at once by the eyes - is told its
+/// turn again after them.
+const LANDING_FRAMES: u8 = 8;
+
+/// How near the yaw a [`crate::player::FacingSet`] set the local body counts
+/// as there, radians (#1752): far under a frame of any turn, far over the
+/// rounding between a rotation and the transform it is propagated into.
+const LANDED_WITHIN: f32 = 1e-3;
+
 /// A peer looking out of its own eyes (#1746), as its last
 /// [`crate::protocol::OverlandsMessage::FirstPerson`] said: its body faces
 /// where it looks, so its rig reads its stride off its travel against its
@@ -59,6 +83,13 @@ pub(crate) fn heading_of(velocity: Vec3, facing: f32) -> Option<Heading> {
     let travel = Vec3::new(velocity.x, 0.0, velocity.z);
     (travel.length() >= HEADING_MIN_SPEED)
         .then(|| Heading::toward(Quat::from_rotation_y(-facing) * travel))
+}
+
+/// How far a yaw of `from` has to turn to reach `to`, the short way round, in
+/// radians - positive toward the body's left, the engine's sense of a turn.
+fn turned_from(from: f32, to: f32) -> f32 {
+    use std::f32::consts::{PI, TAU};
+    (to - from + PI).rem_euclid(TAU) - PI
 }
 
 /// Every rigged body the fill writes: where it hangs, what it is told, its
@@ -102,6 +133,7 @@ type FilledBodies<'w, 's> = Query<
 /// bottom, and slopes are carried by the chassis pose the way the collider
 /// itself carries them. So this app needs none of the escape hatch a body
 /// with a driver and no [`Drive`] gets.
+#[allow(clippy::too_many_arguments)]
 pub(in crate::player) fn fill_rigged_drive(
     time: Res<Time>,
     water: Option<Res<WaterSurfaces>>,
@@ -114,6 +146,7 @@ pub(in crate::player) fn fill_rigged_drive(
     locals: Query<(), With<LocalPlayer>>,
     hold: Res<crate::player::RigHold>,
     first_person: Option<Res<crate::camera::FirstPerson>>,
+    facings: Option<MessageReader<crate::player::FacingSet>>,
 ) {
     let delta = time.delta_secs();
     if delta <= 0.0 {
@@ -122,6 +155,14 @@ pub(in crate::player) fn fill_rigged_drive(
     let looking_out = first_person
         .as_deref()
         .is_some_and(|fp| fp.looks_out_on_foot());
+    // Where the world last set the local body down facing, if it did since
+    // the last frame - as a yaw read the way the chassis' own is below.
+    let landed = facings.and_then(|mut facings| {
+        facings.read().last().map(|set| {
+            let forward = set.0 * Vec3::NEG_Z;
+            forward.x.atan2(forward.z)
+        })
+    });
     for (child_of, mut root, mut drive, mut trail, drawn) in &mut bodies {
         let Ok((transform, velocity, peer_looking_out)) = chassis.get(child_of.parent()) else {
             continue;
@@ -151,6 +192,9 @@ pub(in crate::player) fn fill_rigged_drive(
                 drive.at = position;
             }
         }
+        let moved_far = trail
+            .last
+            .is_some_and(|(last, _)| last.distance(position) > PLACED_PAST);
         trail.last = Some((position, delta));
         // **The chassis' yaw carried THROUGH the rigged root's half turn**
         // (#1066). The engine's forward is `+Z` and Bevy's is `-Z`, so the
@@ -201,16 +245,41 @@ pub(in crate::player) fn fill_rigged_drive(
         // of that turn splayed the feet 252 mm in a quarter turn, against the
         // 36 the stance agreed for it allows (#1323). Not in deep water,
         // whose stroke goes the way it faces.
-        let looking = if locals.contains(child_of.parent()) {
-            looking_out
-        } else {
-            peer_looking_out
-        };
+        let local = locals.contains(child_of.parent());
+        let looking = if local { looking_out } else { peer_looking_out };
         drive.heading = if looking && !drive.swimming {
             heading_of(drive.velocity, drive.facing)
         } else {
             None
         };
+        // **And how fast it turns, for the same bodies only** (#1752). Looking
+        // out of its eyes a body faces where they look, standing or walking,
+        // so it turns as they do - and told the turn, the engine steps it round
+        // on planted feet (symbios-avatar #361) where an untold turn carried
+        // them round on the floor. Every other body keeps 0: the agreed orbit
+        // stance was measured with the turn untold (#1323), and its facing
+        // follows its travel, which the stride already walks. A body placed
+        // this frame turned nothing ([`PLACED_PAST`]), and nor did one the
+        // world set down facing a new way, on any frame from its word to the
+        // first one the body is seen there ([`LANDING_FRAMES`]).
+        if local && let Some(yaw) = landed {
+            trail.landing = Some((yaw, LANDING_FRAMES));
+        }
+        let landing = trail.landing.take();
+        if let Some((yaw, left)) = landing
+            && turned_from(yaw, drive.facing).abs() >= LANDED_WITHIN
+            && left > 1
+        {
+            trail.landing = Some((yaw, left - 1));
+        }
+        let placed = moved_far || landing.is_some();
+        drive.turn = match trail.facing {
+            Some((last, over)) if looking && !drive.swimming && !placed => {
+                turned_from(last, drive.facing) / over
+            }
+            _ => 0.0,
+        };
+        trail.facing = Some((drive.facing, delta));
         // **Afloat, the drawn body rides the surface** (#1324; see
         // [`SURFACE_CROWN`]). Afloat is the controller's own test: swimming,
         // with the capsule's top out of the water. The crown is read off LAST

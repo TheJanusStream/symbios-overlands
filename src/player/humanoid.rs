@@ -1400,6 +1400,11 @@ mod turning {
         /// down `-Z`, the controller's own forward with no camera - and A, D
         /// and S step it sideways and back. `None` is the orbit, as shipped.
         eyes_until: Option<f32>,
+        /// How fast the eyes turn while they look out, radians a second
+        /// positive toward the body's left, from the end of the standing
+        /// second (#1752): a world camera turned at this rate, whose flat
+        /// forward the body faces in first person. Zero is no camera at all.
+        look_rate: f32,
     }
 
     const SHIPPED: Treatment = Treatment {
@@ -1408,6 +1413,7 @@ mod turning {
         carriage: Carriage::Chassis,
         pace_response: None,
         eyes_until: None,
+        look_rate: 0.0,
     };
 
     /// What one frame of a run left behind, read off the chassis and off the
@@ -1626,6 +1632,17 @@ mod turning {
             .get::<Transform>(root)
             .expect("the rigged root has its offset");
 
+        // The eyes, where they turn: the world camera the controller reads
+        // the eyes' way off, at the yaw `look_rate` has carried it to.
+        let eyes = (treatment.look_rate != 0.0).then(|| {
+            app.world_mut()
+                .spawn((
+                    Camera3d::default(),
+                    crate::camera::WorldCamera,
+                    GlobalTransform::default(),
+                ))
+                .id()
+        });
         let dt = Duration::from_secs_f64(1.0 / HZ);
         let frames = ((STAND_SECS + SCRIPT_SECS) * HZ as f32).round() as usize;
         let mut run = Run {
@@ -1655,6 +1672,13 @@ mod turning {
                 } else {
                     crate::camera::FirstPerson::default()
                 });
+            }
+            if let Some(eyes) = eyes {
+                let yaw = treatment.look_rate * (t - STAND_SECS).max(0.0);
+                *app.world_mut()
+                    .get_mut::<GlobalTransform>(eyes)
+                    .expect("the eyes have a transform") =
+                    GlobalTransform::from(Transform::from_rotation(Quat::from_rotation_y(yaw)));
             }
             app.world_mut().resource_mut::<Time<Fixed>>().advance_by(dt);
             app.world_mut()
@@ -1794,23 +1818,26 @@ mod turning {
         );
     }
 
-    /// The legs of a walk in first person, every way the keys go (#1753):
-    /// two seconds of each key held with the body facing where the eyes look,
-    /// the planted soles' slide and the strained frames over the second
-    /// second. A strafe's stride is shortened by the engine's reach and its
-    /// shuffle bound while the step rate still comes from the speed alone,
-    /// and a hold yields across past half its limb's offset, so the sideways
-    /// walk slides where the forward one does not.
+    /// **In the eyes, every key keeps its planted soles** (#1755): two seconds
+    /// of each key held with the body facing where the eyes look, the planted
+    /// soles' slide and the strained frames over the second second. Through
+    /// symbios-avatar 0.11 a strafe's stride was the reach's share of the
+    /// travel at the speed's own step rate, and a shuffle bound held it to
+    /// 88 mm on the default body; the table read A 533.1 mm walking and 331.2
+    /// running, D 532.9 and 331.6, S 90.9 and 44.7, W+D 106.4 and 54.8. The
+    /// engine now crosses a strafe over in a split stance and steps a
+    /// heading's shorter stride at the cadence that covers the travel
+    /// (symbios-avatar #362), so every way holds as ahead does.
     #[test]
-    #[ignore = "probe for #1753: prints the first-person walk table, asserts nothing"]
-    fn probe_a_first_person_walk_every_way() {
+    fn in_the_eyes_every_key_keeps_its_planted_soles() {
         const A: KeyCode = KeyCode::KeyA;
-        let ways: [(&'static str, &'static [KeyCode]); 5] = [
+        let ways: [(&'static str, &'static [KeyCode]); 6] = [
             ("W, ahead", &[W]),
             ("A, a strafe left", &[A]),
             ("D, a strafe right", &[D]),
             ("S, backing up", &[S]),
             ("W+D, a diagonal", &[W, D]),
+            ("S+A, back and left", &[S, A]),
         ];
         for (name, keys) in ways {
             let script = Script {
@@ -1834,13 +1861,76 @@ mod turning {
                     .collect();
                 let strained = settled.iter().filter(|frame| frame.strained).count();
                 let speed = settled.last().map_or(0.0, |frame| frame.speed);
+                let slid = slide(&settled);
+                let pace = if shift { "run " } else { "walk" };
                 println!(
-                    "{name:<20} {}: {speed:.2} m/s, slide {:.1} mm, strained {strained}",
-                    if shift { "run " } else { "walk" },
-                    slide(&settled) * 1000.0
+                    "{name:<20} {pace}: {speed:.2} m/s, slide {:.1} mm, strained {strained}",
+                    slid * 1000.0
+                );
+                assert_eq!(
+                    strained, 0,
+                    "{name} at a {pace}: {strained} strained frames"
+                );
+                assert!(
+                    slid < 0.010,
+                    "{name} at a {pace}: the planted soles slid {:.1} mm",
+                    slid * 1000.0
                 );
             }
         }
+    }
+
+    /// **In the eyes, a body turning where it stands steps round** (#1752).
+    /// Looking out of its eyes a body faces where they look, so a player
+    /// looking round on the spot turns it; told the turn now, the engine
+    /// walks it a pivot - a stride of no length whose stances turn - and its
+    /// planted feet stay where they are (symbios-avatar #361). Through 0.11 it
+    /// idled under the turn, and the idle posed its feet in the body, so they
+    /// went round on the floor with it.
+    #[test]
+    fn in_the_eyes_a_body_turning_where_it_stands_steps_round() {
+        const STILL: Script = Script {
+            name: "standing, the eyes turning",
+            spans: &[(SCRIPT_SECS, &[])],
+        };
+        let run = turned(
+            &STILL,
+            false,
+            Treatment {
+                name: "looking round, 90 deg/s",
+                eyes_until: Some(f32::MAX),
+                look_rate: std::f32::consts::FRAC_PI_2,
+                ..SHIPPED
+            },
+        );
+        let turning: Vec<&Frame> = run
+            .frames
+            .iter()
+            .filter(|frame| frame.t >= STAND_SECS + 1.0 && frame.t < STAND_SECS + 2.0)
+            .collect();
+        assert!(
+            turning.iter().all(|frame| frame.source == Source::Gait),
+            "a body turning where it stands did not step round"
+        );
+        for foot in 0..2 {
+            assert!(
+                turning.iter().any(|frame| frame.down[foot])
+                    && turning.iter().any(|frame| !frame.down[foot]),
+                "foot {foot} never stepped"
+            );
+        }
+        let slid = slide(&turning);
+        let strained = turning.iter().filter(|frame| frame.strained).count();
+        println!(
+            "looking round: slide {:.1} mm, strained {strained}",
+            slid * 1000.0
+        );
+        assert_eq!(strained, 0, "{strained} strained frames");
+        assert!(
+            slid < 0.010,
+            "the planted feet slid {:.1} mm under a turn",
+            slid * 1000.0
+        );
     }
 
     fn key_label(keys: &[KeyCode]) -> String {

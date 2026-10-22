@@ -3624,6 +3624,201 @@ fn sidestep_heading(local: bool, looking: bool, riding: bool) -> Option<symbios_
     app.world().get::<Drive>(root).expect("a drive").heading
 }
 
+/// One body turning toward its left at `rate` radians a second through the
+/// real fill for ten frames, standing still: a peer, or the local body;
+/// looking out of its eyes or not. On the tenth frame it is `placed` three
+/// metres away facing a quarter turn round, as a gateway's landing does. The
+/// turn the fill told the driver for that frame - read a frame later, since
+/// the fill reads the chassis' `GlobalTransform` before this frame's
+/// propagation, as it does every peer's.
+fn turn_told(local: bool, looking: bool, rate: f32, placed: bool) -> f32 {
+    use bevy::time::TimeUpdateStrategy;
+    use std::time::Duration;
+
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, bevy::transform::TransformPlugin));
+    app.init_resource::<crate::player::RigHold>();
+    app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
+        1.0 / 60.0,
+    )));
+    app.add_systems(Update, motion::fill_rigged_drive);
+    let chassis = app.world_mut().spawn(Transform::default()).id();
+    if local {
+        app.world_mut()
+            .entity_mut(chassis)
+            .insert((LocalPlayer, avian3d::prelude::LinearVelocity(Vec3::ZERO)));
+        if looking {
+            app.insert_resource(crate::camera::FirstPerson::looking());
+        }
+    } else if looking {
+        app.world_mut().entity_mut(chassis).insert(InFirstPerson);
+    }
+    let root = app
+        .world_mut()
+        .spawn((
+            RiggedRoot,
+            Drive::default(),
+            RiggedTrail::default(),
+            Transform::default(),
+            ChildOf(chassis),
+        ))
+        .id();
+    for frame in 1..=10 {
+        let mut yaw = rate * frame as f32 / 60.0;
+        let mut at = Vec3::ZERO;
+        if placed && frame == 10 {
+            yaw += std::f32::consts::FRAC_PI_2;
+            at = Vec3::X * 3.0;
+        }
+        *app.world_mut()
+            .get_mut::<Transform>(chassis)
+            .expect("a chassis") =
+            Transform::from_translation(at).with_rotation(Quat::from_rotation_y(yaw));
+        app.update();
+    }
+    app.update();
+    app.world().get::<Drive>(root).expect("a drive").turn
+}
+
+/// **A body looking out of its eyes is told how fast it turns, and only that
+/// body** (#1752). Looking out, its facing follows the eyes, standing or
+/// walking, and the engine steps it round on planted feet only when it is
+/// told the turn - a peer looking out by its last `FirstPerson` word, the
+/// local body while the camera does. Every other body is told nothing: the
+/// orbit's agreed stance was measured with the turn untold (#1323). And a
+/// body placed somewhere - a gateway's landing turns it as it moves it -
+/// turned nothing that frame, where read as a turn the quarter turn in one
+/// frame would be ninety radians a second.
+#[test]
+fn only_a_body_looking_out_of_its_eyes_is_told_its_turn() {
+    for local in [false, true] {
+        let who = if local { "the local body" } else { "a peer" };
+        let told = turn_told(local, true, 1.5, false);
+        assert!(
+            (told - 1.5).abs() < 1e-3,
+            "{who} looking out turned 1.5 rad/s and was told {told}"
+        );
+        let right = turn_told(local, true, -1.5, false);
+        assert!(
+            (right + 1.5).abs() < 1e-3,
+            "{who}: a turn to the right reads {right}"
+        );
+        assert_eq!(
+            turn_told(local, false, 1.5, false),
+            0.0,
+            "{who} in the orbit is told no turn"
+        );
+        assert_eq!(
+            turn_told(local, true, 1.5, true),
+            0.0,
+            "{who} placed somewhere new turned nothing that frame"
+        );
+    }
+}
+
+/// The turns the fill tells the local body looking out of its eyes, turning
+/// at 1.5 rad/s, on each of twenty frames - set down on the sixth half a
+/// metre away and a quarter turn round, as the world sets it down: the word
+/// (`FacingSet`) on that frame, the chassis there over the next two, eased,
+/// as its `TransformInterpolation` carries it. `announce` sends the word;
+/// `arrive` takes the chassis to the yaw it names rather than short of it.
+fn turns_told_landing(announce: bool, arrive: bool) -> Vec<f32> {
+    use bevy::time::TimeUpdateStrategy;
+    use std::time::Duration;
+
+    let rate = 1.5;
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, bevy::transform::TransformPlugin));
+    app.init_resource::<crate::player::RigHold>();
+    app.add_message::<crate::player::FacingSet>();
+    app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
+        1.0 / 60.0,
+    )));
+    app.insert_resource(crate::camera::FirstPerson::looking());
+    app.add_systems(Update, motion::fill_rigged_drive);
+    let chassis = app
+        .world_mut()
+        .spawn((
+            Transform::default(),
+            LocalPlayer,
+            avian3d::prelude::LinearVelocity(Vec3::ZERO),
+        ))
+        .id();
+    let root = app
+        .world_mut()
+        .spawn((
+            RiggedRoot,
+            Drive::default(),
+            RiggedTrail::default(),
+            Transform::default(),
+            ChildOf(chassis),
+        ))
+        .id();
+    let landing = Quat::from_rotation_y(rate * 6.0 / 60.0 + std::f32::consts::FRAC_PI_2);
+    let short = Quat::from_rotation_y(rate * 6.0 / 60.0 + 1.2);
+    let mut told = Vec::new();
+    for frame in 1..=20 {
+        let turning = Quat::from_rotation_y(rate * frame as f32 / 60.0);
+        let set = if arrive { landing } else { short };
+        let (rotation, at) = match frame {
+            ..6 => (turning, Vec3::ZERO),
+            6 => (turning.slerp(set, 0.5), Vec3::X * 0.25),
+            _ => (
+                set * Quat::from_rotation_y(rate * (frame - 7) as f32 / 60.0),
+                Vec3::X * 0.5,
+            ),
+        };
+        if announce && frame == 6 {
+            app.world_mut()
+                .write_message(crate::player::FacingSet(landing));
+        }
+        *app.world_mut()
+            .get_mut::<Transform>(chassis)
+            .expect("a chassis") = Transform::from_translation(at).with_rotation(rotation);
+        app.update();
+        told.push(app.world().get::<Drive>(root).expect("a drive").turn);
+    }
+    told
+}
+
+/// **A body the world sets down facing a new way turned nothing** (#1752),
+/// however near it was set down. A return to the spawn or a gateway's landing
+/// sets the facing as it sets the place, and within `PLACED_PAST` of where the
+/// body stood the fill read the quarter turn in a frame as one - 94 rad/s,
+/// and the body stepped round on the spot for a second after it arrived. The
+/// world says so (`FacingSet`) a frame or two before the chassis shows it, so
+/// every frame from the word to the body arriving is told no turn - and once
+/// there, the turn it makes is told again.
+#[test]
+fn a_body_set_down_facing_a_new_way_turned_nothing() {
+    let told = turns_told_landing(true, true);
+    // The fill sees the chassis a frame late: the word on the sixth frame,
+    // the eased chassis on the seventh and eighth.
+    for (frame, turn) in told.iter().enumerate().skip(5).take(3) {
+        assert_eq!(*turn, 0.0, "frame {}: told {turn} rad/s", frame + 1);
+    }
+    for (frame, turn) in told.iter().enumerate().skip(8) {
+        assert!(
+            (turn - 1.5).abs() < 1e-3,
+            "frame {}: arrived, the body turning 1.5 rad/s was told {turn}",
+            frame + 1
+        );
+    }
+    // The control: unannounced, the same landing reads as a turn.
+    let unannounced = turns_told_landing(false, true);
+    assert!(
+        unannounced.iter().any(|turn| turn.abs() > 20.0),
+        "an unannounced quarter turn in a frame was not read as a turn at all: {unannounced:?}"
+    );
+    // A body that never arrives at the yaw the word named - turned on at once
+    // by the eyes - is told its turn again once the wait is over.
+    let short = turns_told_landing(true, false);
+    assert!(
+        short.iter().skip(15).all(|turn| (turn - 1.5).abs() < 1e-3),
+        "a landing never reached held the turn untold: {short:?}"
+    );
+}
+
 /// **A body looking out of its eyes is seen stepping sideways, and only
 /// that body** (#1746). A peer's facing and travel arrive as a rotation and
 /// positions; the fill reads its heading off them while its last
