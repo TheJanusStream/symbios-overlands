@@ -409,10 +409,22 @@ main eave cut) is quicker and better by hand.
   short), and a different list there would disagree. A first version that let
   the builder choose the roof, thatch and frame per house was the wrong way
   round.
-- **Each terminal is a part**, drawn every frame: a framed house came to 58-69
-  parts, a mud cot 26-41, a byre or a shed 19-36, where the hand-built cottage
-  was 14. Triangles cost little (a house 280-790). `render --generator` prints
-  both; `--triangle-report` counts grammar terminals as it counts primitives.
+- **A grammar draws a part a material** (#1578): a Shape node's terminals
+  that tile their material are merged into one mesh for each material, and
+  their textures run on across the pieces' edges - a coursed wall built of
+  bays and storeys reads as one wall. A window card, a turned shaft and a
+  material only one terminal wears are still a part each. Before #1578 every
+  terminal was a part, drawn every frame: a framed house came to 58-69 parts,
+  a mud cot 26-41, where the hand-built cottage was 14; the castle drew 4,137
+  and draws 110. Triangles cost little (a house 280-790). `render --generator`
+  prints both; `--triangle-report` counts a grammar's parts merged, as the
+  game draws them while the world is under the bound below. A merged mesh
+  is one per building variant, shared by every copy, so a seed of its own on
+  each of many copies costs memory as well as variety: a world's merged
+  meshes stop at 32,768 terminals in all (about 40 MiB on the GPU and as
+  much again in memory, eight castles), its placements judged in order, and
+  a variant past that draws a part a terminal again, which the report does
+  not count.
 - **One generator per footprint, the seed on the placement.** A grammar
   generator is about 10 KB, 6 KB of it the grammar text. An absolute
   placement's `seed` (#1505, the owner's yes, 2026-09-28; a decimal string,

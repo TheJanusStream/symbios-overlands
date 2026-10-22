@@ -868,7 +868,9 @@ mod tests {
     /// #1505: the copy a seeded placement is counted by is grown with its
     /// seed written into the tree's grammar, as the compile draws it - here
     /// a grammar whose seed draws one block or two - and each copy is grown
-    /// once, however many placements draw it.
+    /// once, however many placements draw it. Two blocks of one material
+    /// draw as one merged part (#1578), so a copy is told by its triangles,
+    /// twelve a block.
     #[test]
     fn a_seeded_copy_is_grown_as_its_seed_draws_it() {
         let grammar = [
@@ -893,14 +895,14 @@ mod tests {
                 .map(|seed| (seed.to_string(), hut(seed)))
                 .collect(),
         );
-        let parts_of = |parts: u64| {
+        let drawing = |blocks: u64| {
             grown
                 .iter()
-                .find(|(_, tally)| tally.parts == parts)
+                .find(|(_, tally)| tally.triangles == 12 * blocks)
                 .map(|(seed, _)| seed.parse::<u64>().expect("a seed"))
-                .unwrap_or_else(|| panic!("no seed draws {parts} blocks: {grown:?}"))
+                .unwrap_or_else(|| panic!("no seed draws {blocks} blocks: {grown:?}"))
         };
-        let (one, two) = (parts_of(1), parts_of(2));
+        let (one, two) = (drawing(1), drawing(2));
 
         let mut record = fixture();
         record.generators.insert("hut".to_string(), hut(one));
@@ -937,9 +939,9 @@ mod tests {
             };
         }
         let report = world_report("did:test", &record, &ramp(), &each, &seeded, &[]);
-        assert_eq!(placement(&report, 0)["parts"], 1);
-        assert_eq!(placement(&report, 1)["parts"], 2);
-        assert_eq!(placement(&report, 2)["parts"], 2);
+        assert_eq!(placement(&report, 0)["triangles"], 12);
+        assert_eq!(placement(&report, 1)["triangles"], 24);
+        assert_eq!(placement(&report, 2)["triangles"], 24);
     }
 
     /// #1554: a road network's streets are counted as the game meshes them -

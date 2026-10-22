@@ -1090,6 +1090,75 @@ mod tests {
         assert!(failure.contains("derivation"), "{failure}");
     }
 
+    /// #1578: a set's template is merged however much the room's buildings
+    /// merge - its forms draw it once baked, and its own merged meshes go
+    /// with it (#1643) - so a grammar's copies are drawn seamless: the front
+    /// of a row of three blocks reads one texture across all three, its U
+    /// the place along the row, where each block's ran 0 to 1 again.
+    #[test]
+    fn a_sets_grammar_is_baked_seamless_past_the_rooms_merge_bound() {
+        use bevy::mesh::VertexAttributeValues;
+        let mut app = instances_app(vec![vec![InstanceCopy::at(0.0, 0.0, 0.0)]]);
+        let row: Generator = serde_json::from_value(serde_json::json!({
+            "$type": "network.symbios.gen.shape",
+            "grammar_source": "Lot --> Extrude(1) Repeat(X, 1) { Cell }\nCell --> I(\"Block\")",
+            "root_rule": "Lot",
+            "footprint": [30_000, 0, 10_000],
+            "seed": "1",
+        }))
+        .expect("a Shape node");
+        app.world_mut()
+            .resource_mut::<LiveRoomRecord>()
+            .0
+            .generators
+            .insert("post".into(), row);
+        app.world_mut()
+            .resource_mut::<crate::world_builder::ShapeMeshCache>()
+            .hold_merged(
+                ("elsewhere".into(), 0),
+                crate::world_builder::shape::MERGE_ROOM_MAX_TERMINALS,
+            );
+        let root = anchor(&mut app, 0);
+        run_to_idle(&mut app);
+        let world = app.world();
+        let meshes = world.resource::<Assets<Mesh>>();
+        // Each front vertex's place along the row and its U.
+        let mut front: Vec<(f32, f32)> = Vec::new();
+        for child in world.get::<Children>(root).expect("the copy").iter() {
+            let Some(mesh) = world.get::<Mesh3d>(child) else {
+                continue;
+            };
+            let mesh = meshes.get(&mesh.0).expect("the form's mesh");
+            let (
+                Some(VertexAttributeValues::Float32x3(positions)),
+                Some(VertexAttributeValues::Float32x3(normals)),
+                Some(VertexAttributeValues::Float32x2(uvs)),
+            ) = (
+                mesh.attribute(Mesh::ATTRIBUTE_POSITION),
+                mesh.attribute(Mesh::ATTRIBUTE_NORMAL),
+                mesh.attribute(Mesh::ATTRIBUTE_UV_0),
+            )
+            else {
+                panic!("the form's mesh has positions, normals and UVs");
+            };
+            for ((p, n), uv) in positions.iter().zip(normals).zip(uvs) {
+                if n[2] < -0.999 {
+                    front.push((p[0], uv[0]));
+                }
+            }
+        }
+        assert!(front.len() >= 8, "three blocks' fronts: {front:?}");
+        // The front reads U along -X: one texture, its U and its place
+        // summing to one number everywhere along the row.
+        let along = front[0].0 + front[0].1;
+        for (x, u) in &front {
+            assert!(
+                (x + u - along).abs() < 1e-4,
+                "the front at x {x} reads U {u}, not one texture: {front:?}"
+            );
+        }
+    }
+
     /// #1649: a re-roll leaves nothing of the sets it replaced. Each re-roll
     /// gives the set an item drawn otherwise (as a new Kiez's every item
     /// is) and the compile a new anchor; once the room is drawn again, the

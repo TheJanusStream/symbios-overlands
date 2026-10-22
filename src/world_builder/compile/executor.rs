@@ -453,6 +453,9 @@ fn plan_job(
             commands.entity(e).try_despawn();
         }
         water_surfaces.planes.clear();
+        // Every variant is judged anew against the room's bound on merged
+        // meshes, in the placements' order (#1578).
+        shape_mesh.room_replanned();
         world.units = (0..len).map(|_| CompiledUnit::default()).collect();
         for (index, placement) in record.placements.iter().enumerate() {
             queue.push_back(QueuedUnit {
@@ -1635,7 +1638,9 @@ mod tests {
     /// off the origin, under a non-solid root - and the rest do not: the
     /// wall holds a point inside it, the doorway beside it holds none.
     /// Listing the door instead, an edit, swaps them, so a changed list is
-    /// not answered from the cached spawn list.
+    /// not answered from the cached spawn list. The two are drawn merged,
+    /// one mesh for the one material they wear (#1578), so each middle is
+    /// found inside a drawn mesh's box rather than at a terminal's own.
     #[test]
     fn a_grammar_s_solid_terminals_collide_where_they_are_drawn() {
         use bevy::ecs::system::RunSystemOnce;
@@ -1681,16 +1686,29 @@ mod tests {
             for _ in 0..4 {
                 app.update();
             }
-            let drawn: Vec<Vec3> = app
+            let drawn: Vec<(Handle<Mesh>, GlobalTransform)> = app
                 .world_mut()
-                .query_filtered::<&GlobalTransform, With<Mesh3d>>()
+                .query::<(&Mesh3d, &GlobalTransform)>()
                 .iter(app.world())
-                .map(GlobalTransform::translation)
+                .map(|(mesh, global)| (mesh.0.clone(), *global))
                 .collect();
+            let meshes = app.world().resource::<Assets<Mesh>>();
             for at in [wall, door] {
                 assert!(
-                    drawn.iter().any(|d| d.distance(at) < 1e-3),
-                    "a terminal is drawn at {at}: {drawn:?}"
+                    drawn.iter().any(|(mesh, global)| {
+                        let local = global.affine().inverse().transform_point3(at);
+                        meshes
+                            .get(mesh)
+                            .and_then(bevy::camera::primitives::MeshAabb::compute_aabb)
+                            .is_some_and(|aabb| {
+                                (local - Vec3::from(aabb.center))
+                                    .abs()
+                                    .cmple(Vec3::from(aabb.half_extents) + 1e-3)
+                                    .all()
+                            })
+                    }),
+                    "a terminal is drawn at {at}: {} meshes drawn",
+                    drawn.len()
                 );
             }
             app.world_mut()
@@ -1985,6 +2003,60 @@ mod tests {
             }
         });
         assert_ne!(unit_anchors(&app)[0], first, "the set itself builds anew");
+    }
+
+    /// A grammar of a row of three 1 m blocks, all of one material: drawn
+    /// merged, one mesh (#1578).
+    fn row_of_three() -> Generator {
+        serde_json::from_value(serde_json::json!({
+            "$type": "network.symbios.gen.shape",
+            "grammar_source": "Lot --> Extrude(1) Repeat(X, 1) { Cell }\nCell --> I(\"Block\")",
+            "root_rule": "Lot",
+            "footprint": [30_000, 0, 10_000],
+            "seed": "1",
+        }))
+        .expect("a Shape node")
+    }
+
+    /// #1578: what the room's buildings merge stays under a bound, every
+    /// variant its compile draws together - a merged building charges the
+    /// room's entity budget a mesh a material, so that budget does not stop
+    /// a seed of its own on each of many copies. With room held for three
+    /// more terminals, two seeded rows of three blocks added to the room
+    /// are judged in order: the first is drawn merged, one mesh, and the
+    /// second as its three blocks, as before. A full plan judges them again
+    /// against what the room draws then, so the room held before is gone
+    /// and the second row, refused once, is drawn merged.
+    #[test]
+    fn a_room_merges_no_more_than_its_bound() {
+        use crate::world_builder::shape::MERGE_ROOM_MAX_TERMINALS;
+        let mut record = test_record(1);
+        record.generators.insert("row".to_string(), row_of_three());
+        let mut app = compile_app(record);
+        settle(&mut app);
+        app.world_mut()
+            .resource_mut::<ShapeMeshCache>()
+            .hold_merged(("elsewhere".to_string(), 0), MERGE_ROOM_MAX_TERMINALS - 3);
+        let edit = |app: &mut App, f: &dyn Fn(&mut RoomRecord)| {
+            f(&mut app.world_mut().resource_mut::<LiveRoomRecord>().0);
+            settle(app);
+        };
+        edit(&mut app, &|record| {
+            record.placements.push(placed("row", 1, Some(3)));
+            record.placements.push(placed("row", 2, Some(4)));
+        });
+        let meshes = |app: &App| -> Vec<usize> { drawn(app).iter().map(Vec::len).collect() };
+        assert_eq!(
+            meshes(&app)[1..],
+            [1, 3],
+            "the first row merged, the second past the bound"
+        );
+
+        // The box taken away: a full plan.
+        edit(&mut app, &|record| {
+            record.placements.remove(0);
+        });
+        assert_eq!(meshes(&app), [1, 1], "both rows merged, judged again");
     }
 
     /// #1505: the geometry cache keeps one entry per node and seed. Three

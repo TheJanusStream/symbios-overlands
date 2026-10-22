@@ -39,6 +39,13 @@
 //! A node may list mesh ids as solid (#1506): each terminal with one of
 //! them collides as the box of its scope, all of a node's in one compound
 //! collider on the node's own entity ([`solid_collider`]).
+//!
+//! A node's terminals that tile their material are drawn merged, one mesh
+//! per material in the node's frame with their UVs anchored to the node, so
+//! neighbouring pieces continue one pattern and a building draws as many
+//! meshes as it has materials (#1578, [`merge`]) - as far as the room's
+//! bound on its merged meshes lets them ([`ShapeMeshCache::merge_room`]).
+//! Colliders and the z-fighting check still read each terminal.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -67,6 +74,11 @@ use super::generator_cache::{
 };
 use super::material::spawn_procedural_material;
 
+mod merge;
+#[cfg(test)]
+pub(crate) use merge::MERGE_ROOM_MAX_TERMINALS;
+use merge::MergedPart;
+
 /// Persistent cross-compile cache for shape generator material handles.
 ///
 /// Mirrors [`super::lsystem::LSystemMaterialCache`] - a `Placement::Scatter`
@@ -82,29 +94,56 @@ pub type ShapeMaterialCache = GeneratorCache<(String, String), Handle<WeatheredM
 /// One pre-baked terminal: the world-relative transform produced by
 /// `scope_to_transform`, the unit-sized procedural mesh handle (shared across
 /// all terminals with the same `(profile, size)` triple), the optional
-/// material name emitted by `Mat("...")` in the grammar, and whether its
-/// mesh id is listed solid (#1506).
+/// material name emitted by `Mat("...")` in the grammar, whether its
+/// mesh id is listed solid (#1506), and whether it is drawn as part of one
+/// of its node's merged meshes (#1578) rather than as its own.
 #[derive(Clone, Debug)]
 pub struct ShapeInstance {
     pub transform: Transform,
     pub mesh: Handle<Mesh>,
     pub material_id: Option<String>,
     pub solid: bool,
+    pub merged: bool,
 }
 
 /// What a grammar draws, as the spawner caches it per node and seed: its
-/// terminals in derivation order, and the collider of those listed solid
-/// (#1506, [`solid_collider`]) - built once per variant and shared, as the
-/// meshes are, by every copy that draws all of its terminals.
+/// terminals in derivation order, the collider of those listed solid
+/// (#1506, [`solid_collider`]), and the meshes its merged terminals are
+/// drawn as, one per material (#1578, [`merge`]). Built once per variant:
+/// every copy of it draws its meshes, and every copy that draws all of its
+/// terminals collides as its collider.
 #[derive(Debug, Default)]
 pub struct ShapeBuild {
     pub instances: Vec<ShapeInstance>,
     pub solid: Option<Collider>,
+    pub merged: Vec<MergedPart>,
+    /// How many of its terminals would merge had the room's bound left room
+    /// for them, where it did not (#1578): none merged then. Zero where
+    /// they merged, or where none would.
+    pub starved: usize,
 }
 
-/// Persistent cross-compile cache for shape grammar geometry - the
-/// per-terminal spawn list. Materials are orthogonal: the per-instance
-/// `material_id` is resolved against [`ShapeMaterialCache`] at spawn time.
+impl ShapeBuild {
+    /// How many terminals its merged meshes draw.
+    pub fn merged_terminals(&self) -> usize {
+        self.merged.iter().map(|part| part.terminals).sum()
+    }
+
+    /// Whether it is what building it with `room` would make (#1578): merged
+    /// where that room holds what it merges, unmerged where it is short.
+    fn merges_with(&self, room: usize) -> bool {
+        if self.starved > 0 {
+            self.starved > room
+        } else {
+            self.merged_terminals() <= room
+        }
+    }
+}
+
+/// Persistent cross-compile cache for shape grammar geometry - what each
+/// variant draws ([`ShapeBuild`]). Materials are orthogonal: the
+/// per-instance `material_id` is resolved against [`ShapeMaterialCache`] at
+/// spawn time.
 ///
 /// Without this, a scatter placement with `count = 1000` referencing a
 /// shape generator would re-parse every grammar line, re-seed the
@@ -163,6 +202,13 @@ pub struct ShapeMeshCache {
     /// every change of its failures, and for all of them by the next plan
     /// ([`Self::placements_changed`]).
     failing: HashMap<String, Failing>,
+    /// The variants the room's own compile has drawn since its last full
+    /// plan, each with the terminals its merged meshes draw, and those
+    /// counts summed (#1578): what the room's bound on merged meshes reads
+    /// ([`Self::merge_room`]). No avatar, preview or instance set's template
+    /// is among them.
+    room_drawn: HashMap<(String, u64), usize>,
+    room_merged: usize,
     /// How many remembered failures the copies that draw have had in view
     /// as they wrote their nodes' statuses ([`Self::failing_variant`]): for
     /// a test to see that a node looks at its own and no other's.
@@ -250,11 +296,13 @@ impl ShapeMeshCache {
         self.remembered_failures = 0;
         self.root_seeds.clear();
         self.failing.clear();
+        self.room_replanned();
     }
 
     /// Keep only the variants in `touched`: the end-of-job GC of a full
     /// compile, whose touch-set holds every variant the world draws.
     pub(crate) fn retain(&mut self, touched: &HashSet<(String, u64)>) {
+        self.unnote_room_drawn(|key| !touched.contains(key));
         self.builds.retain(|node, seeds| {
             seeds.retain(|seed, _| touched.contains(&(node.clone(), *seed)));
             !seeds.is_empty()
@@ -313,6 +361,63 @@ impl ShapeMeshCache {
         seeds
     }
 
+    /// How many terminals the variant keyed `key` may merge where the room's
+    /// own compile draws it (#1578): what the variants it has drawn since
+    /// its last full plan, besides `key`'s own, leave of
+    /// [`merge::MERGE_ROOM_MAX_TERMINALS`]. Counted from what the room
+    /// draws, not from what the cache holds, so that neither what a world
+    /// left before a travel, nor a preview or an avatar, takes any of it.
+    pub(super) fn merge_room(&self, key: &(String, u64)) -> usize {
+        let own = self.room_drawn.get(key).copied().unwrap_or(0);
+        merge::MERGE_ROOM_MAX_TERMINALS.saturating_sub(self.room_merged - own)
+    }
+
+    /// The room's compile plans every placement anew (#1578): each variant
+    /// it draws is judged again, against the room that the variants drawn
+    /// before it leave, so that how a variant merges is the record's to say
+    /// and not what was drawn before.
+    pub(crate) fn room_replanned(&mut self) {
+        self.room_drawn.clear();
+        self.room_merged = 0;
+    }
+
+    /// Whether the room's compile has drawn the variant `key` since its
+    /// last full plan (#1578): judged then, it is drawn as it was.
+    fn room_drew(&self, key: &(String, u64)) -> bool {
+        self.room_drawn.contains_key(key)
+    }
+
+    /// The room's compile draws the variant `key`, whose merged meshes draw
+    /// `terminals` (#1578).
+    fn note_room_drawn(&mut self, key: &(String, u64), terminals: usize) {
+        if let Some(noted) = self.room_drawn.get_mut(key) {
+            self.room_merged = self.room_merged - *noted + terminals;
+            *noted = terminals;
+        } else {
+            self.room_drawn.insert(key.clone(), terminals);
+            self.room_merged += terminals;
+        }
+    }
+
+    /// Forget that the room drew each variant `gone` names (#1578).
+    fn unnote_room_drawn(&mut self, gone: impl Fn(&(String, u64)) -> bool) {
+        let merged = &mut self.room_merged;
+        self.room_drawn.retain(|key, terminals| {
+            let kept = !gone(key);
+            if !kept {
+                *merged -= *terminals;
+            }
+            kept
+        });
+    }
+
+    /// Note the room's compile drawing a variant keyed `key` whose merged
+    /// meshes draw `terminals`: the room's other buildings, for a test.
+    #[cfg(test)]
+    pub(crate) fn hold_merged(&mut self, key: (String, u64), terminals: usize) {
+        self.note_room_drawn(&key, terminals);
+    }
+
     /// Whether a variant of `node` is held with a seed other than `seed`.
     fn holds_another(&self, node: &str, seed: u64) -> bool {
         fn another<V>(seeds: &HashMap<u64, V>, seed: u64) -> bool {
@@ -333,6 +438,7 @@ impl ShapeMeshCache {
     /// variant forgotten while drawn would cost a derivation, never a hole
     /// in the world.
     fn forget_undrawn(&mut self, node: &str, drawn: impl Fn(u64) -> bool) {
+        self.unnote_room_drawn(|(n, seed)| n == node && !drawn(*seed));
         if let Some(seeds) = self.builds.get_mut(node) {
             seeds.retain(|seed, _| drawn(*seed));
             if seeds.is_empty() {
@@ -827,8 +933,10 @@ impl ShapeDef<'_> {
     pub(crate) fn spawned(&self) -> Result<Vec<(Transform, Vec<Vec3>)>, String> {
         let mut meshes = Assets::<Mesh>::default();
         let mut cache = UpstreamShapeMeshCache::default();
-        let built = build_shape_geometry(self, "spawned", &mut meshes, &mut cache)?;
+        // Each terminal is read, so none is merged.
+        let built = build_shape_geometry(self, "spawned", 0, &mut meshes, &mut cache)?;
         Ok(built
+            .instances
             .iter()
             .map(|instance| {
                 let mesh = meshes
@@ -923,17 +1031,21 @@ fn shape_geometry_fingerprint(def: &ShapeDef<'_>) -> u64 {
 
 /// Derive the grammar ([`ShapeDef::derive`]) and return a flat list of
 /// [`ShapeInstance`]s ready to spawn, each terminal meshed and placed by
-/// [`ShapeDef::bake`]. `Err` (the grammar error, line-numbered where the
-/// parser knows one) on parse / derive failure or empty output so the
-/// caller can skip the spawn and surface the message in the editor (#829);
-/// a fault in the grammar's text or its derivation is also `warn!`-logged,
-/// naming the node as `label` does.
+/// [`ShapeDef::bake`], with the collider of those listed solid and the
+/// meshes the terminals that tile their material are merged into, if no
+/// more than `room` of them would merge ([`merge`], #1578). `Err` (the
+/// grammar error, line-numbered where the parser knows one) on parse /
+/// derive failure or empty output so the caller can skip the spawn and
+/// surface the message in the editor (#829); a fault in the grammar's text
+/// or its derivation is also `warn!`-logged, naming the node as `label`
+/// does.
 fn build_shape_geometry(
     def: &ShapeDef<'_>,
     label: &str,
+    room: usize,
     meshes: &mut Assets<Mesh>,
     upstream_cache: &mut UpstreamShapeMeshCache,
-) -> Result<Vec<ShapeInstance>, String> {
+) -> Result<ShapeBuild, String> {
     let model = def.derive().map_err(|underived| {
         if underived.logged {
             warn!("Shape `{}` {}", label, underived.message);
@@ -948,18 +1060,28 @@ fn build_shape_geometry(
     // generator with the same window pattern reuses the existing handle
     // instead of uploading a duplicate.
     let mut instances = Vec::with_capacity(model.terminals.len());
+    let mut merging = Vec::with_capacity(model.terminals.len());
     for terminal in &model.terminals {
         let bake = def.bake(terminal);
         let mesh = upstream_cache.get_or_insert_with(bake.cache_key(), || meshes.add(bake.mesh()));
+        merging.push(merge::mergeable(bake.stretch_uvs, bake.round_segments));
         instances.push(ShapeInstance {
             transform: bake.transform,
             mesh,
             material_id: terminal.material.as_ref().map(|m| m.id.clone()),
             solid: def.solid_meshes.contains(&terminal.mesh_id),
+            merged: false,
         });
     }
+    let (merged, starved) = merge::merge(&mut instances, &merging, room, meshes);
+    let solid = solid_collider(&instances);
 
-    Ok(instances)
+    Ok(ShapeBuild {
+        instances,
+        solid,
+        merged,
+        starved,
+    })
 }
 
 /// Resolve (and cache) a part's material handle for a given material
@@ -1036,7 +1158,29 @@ pub(super) fn spawn_shape_entity(
     // own (#1505).
     let key = (generator_ref.to_string(), def.key());
     let geometry_hash = shape_geometry_fingerprint(&def);
-    let (drawn, held) = match ctx.shape_mesh_cache.drawn(&key, geometry_hash) {
+    // What it may merge (#1578). The room's own compile merges no more than
+    // its bound leaves room for, and judges a variant the first time it
+    // draws it after a full plan: a build cached with more room or less than
+    // it has now is built again, so that a variant once refused merges when
+    // there is room again and one that no longer fits is drawn unmerged. An
+    // avatar, a preview and an instance set's template merge as far as
+    // their nodes' own cap lets them.
+    let room_compile = !ctx.avatar_mode;
+    let room = if room_compile {
+        ctx.shape_mesh_cache.merge_room(&key)
+    } else {
+        usize::MAX
+    };
+    let judged = !room_compile || ctx.shape_mesh_cache.room_drew(&key);
+    let cached = ctx
+        .shape_mesh_cache
+        .drawn(&key, geometry_hash)
+        .filter(|drawn| match drawn {
+            Ok(build) => judged || build.merges_with(room),
+            // A grammar that draws nothing draws nothing with any room.
+            Err(_) => true,
+        });
+    let (drawn, held) = match cached {
         // Drawn from these very settings before: derived cleanly then, or
         // drew nothing, as it would again.
         Some(drawn) => (drawn, true),
@@ -1057,13 +1201,14 @@ pub(super) fn spawn_shape_entity(
                     drawn_by(ctx.placement_index, seed, params)
                 ),
             };
-            let drawn: Drawn =
-                build_shape_geometry(&def, &label, ctx.meshes, ctx.upstream_shape_mesh_cache).map(
-                    |instances| {
-                        let solid = solid_collider(&instances);
-                        Arc::new(ShapeBuild { instances, solid })
-                    },
-                );
+            let drawn: Drawn = build_shape_geometry(
+                &def,
+                &label,
+                room,
+                ctx.meshes,
+                ctx.upstream_shape_mesh_cache,
+            )
+            .map(Arc::new);
             // A grammar rejected, a root rule missing or an empty model is
             // remembered as well, under the hash it failed at: an edit that
             // fixes it changes the hash, so it is derived afresh rather
@@ -1076,6 +1221,10 @@ pub(super) fn spawn_shape_entity(
             (drawn, held)
         }
     };
+    if room_compile {
+        let terminals = drawn.as_ref().map_or(0, |build| build.merged_terminals());
+        ctx.shape_mesh_cache.note_room_drawn(&key, terminals);
+    }
     // What the end-of-job GC keeps: every variant the cache holds that this
     // job drew, and no other, so the set is bounded as the cache is.
     if held && !ctx.shape_mesh_touched.contains(&key) {
@@ -1115,39 +1264,50 @@ pub(super) fn spawn_shape_entity(
             .id()
     };
 
-    // Each terminal is a real ECS entity, so it contributes to the
+    // Each mesh drawn is a real ECS entity, so it contributes to the
     // room-wide spawn budget. Without this, a record can put a high-count
-    // `Scatter` over a Shape grammar that derives thousands of terminals
-    // - the per-generator-node accounting in `spawn_generator` would only
+    // `Scatter` over a Shape grammar that derives thousands of terminals -
+    // the per-generator-node accounting in `spawn_generator` would only
     // charge one per scatter point regardless of terminal count, blowing
-    // past `MAX_ROOM_ENTITIES` and OOMing the ECS.
-    let mut drawn = 0;
-    for instance in &build.instances {
+    // past `MAX_ROOM_ENTITIES` and OOMing the ECS. The merged meshes first,
+    // one entity each for all their terminals (#1578), then each terminal
+    // drawn as its own.
+    let parts = build
+        .merged
+        .iter()
+        .map(|part| (&part.mesh, part.material_id.as_deref(), Transform::IDENTITY))
+        .chain(
+            build
+                .instances
+                .iter()
+                .filter(|instance| !instance.merged)
+                .map(|instance| {
+                    (
+                        &instance.mesh,
+                        instance.material_id.as_deref(),
+                        instance.transform,
+                    )
+                }),
+        );
+    let (mut drawn, mut whole) = (0, true);
+    for (mesh, material_id, local) in parts {
         if budget_exceeded(*ctx.entities_spawned, ctx.budget_warned) {
+            whole = false;
             break;
         }
         drawn += 1;
-        let material = resolve_material_handle(
-            ctx,
-            generator_ref,
-            def.materials,
-            instance.material_id.as_deref(),
-        );
+        let material = resolve_material_handle(ctx, generator_ref, def.materials, material_id);
         // NB: no `RoomEntity` marker on child meshes - see the lsystem
         // spawner for the rationale (recursive despawn from the parent
         // covers them; double-marking cascades into "entity despawned"
         // warnings during room rebuilds).
         let child = ctx
             .commands
-            .spawn((
-                Mesh3d(instance.mesh.clone()),
-                MeshMaterial3d(material),
-                instance.transform,
-            ))
+            .spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material), local))
             .id();
         ctx.commands.entity(parent).add_child(child);
-        // A scattered copy's terminal takes its draw distance (#1480).
-        ctx.note_part(child, &instance.mesh, &instance.transform);
+        // A scattered copy's part takes its draw distance (#1480).
+        ctx.note_part(child, mesh, &local);
         *ctx.entities_spawned = ctx.entities_spawned.saturating_add(1);
     }
     // The solid terminals' collider (#1506), of the terminals drawn: past
@@ -1155,10 +1315,10 @@ pub(super) fn spawn_shape_entity(
     // an avatar, whose locomotion preset's chassis is its only body - as a
     // solid primitive's collider is not - nor on a building that turns, or
     // hangs below a part that does (#1604).
-    let collider = if drawn == build.instances.len() {
+    let collider = if whole {
         build.solid.clone()
     } else {
-        solid_collider(&build.instances[..drawn])
+        solid_collider(&drawn_terminals(&build, drawn))
     };
     if !ctx.avatar_mode
         && !ctx.spinning
@@ -1266,6 +1426,32 @@ pub(crate) fn solid_collider(instances: &[ShapeInstance]) -> Option<Collider> {
     (!pieces.is_empty()).then(|| Collider::compound(pieces))
 }
 
+/// The terminals of `build` drawn when the room's budget let only its first
+/// `drawn` meshes spawn: its merged meshes first, each drawing all of its
+/// material's merged terminals, then its own terminals in order.
+fn drawn_terminals(build: &ShapeBuild, drawn: usize) -> Vec<ShapeInstance> {
+    let merged = &build.merged[..drawn.min(build.merged.len())];
+    let own = drawn.saturating_sub(build.merged.len());
+    build
+        .instances
+        .iter()
+        .filter(|instance| {
+            instance.merged
+                && merged
+                    .iter()
+                    .any(|part| part.material_id == instance.material_id)
+        })
+        .chain(
+            build
+                .instances
+                .iter()
+                .filter(|instance| !instance.merged)
+                .take(own),
+        )
+        .cloned()
+        .collect()
+}
+
 /// How a grammar error names the copy that drew it (#1505): by its
 /// placement's index and the seed that placement gave it, or the values
 /// (#1643).
@@ -1360,6 +1546,7 @@ mod grammar_error_tests {
                 solid_meshes: &[],
             },
             "test_gen",
+            0,
             &mut meshes,
             &mut cache,
         )
@@ -1378,6 +1565,7 @@ mod grammar_error_tests {
                 solid_meshes: &[],
             },
             "test_gen",
+            0,
             &mut meshes,
             &mut cache,
         )
@@ -1396,6 +1584,7 @@ mod grammar_error_tests {
                 solid_meshes: &[],
             },
             "test_gen",
+            0,
             &mut meshes,
             &mut cache,
         )
@@ -1541,10 +1730,12 @@ mod round_mesh_tests {
                 solid_meshes: &[],
             },
             "test_gen",
+            0,
             &mut meshes,
             &mut cache,
         )
-        .expect("grammar must derive");
+        .expect("grammar must derive")
+        .instances;
         assert_eq!(built.len(), 2);
 
         let vert_count = |i: usize| -> usize {
@@ -1728,10 +1919,12 @@ mod card_uv_tests {
                 solid_meshes: &[],
             },
             "test_gen",
+            0,
             &mut meshes,
             &mut cache,
         )
-        .expect("grammar must derive");
+        .expect("grammar must derive")
+        .instances;
 
         let max_u = |slot: &str| {
             let inst = built
@@ -1819,6 +2012,7 @@ mod solid_collider_tests {
             mesh: Handle::default(),
             material_id: None,
             solid,
+            merged: false,
         }
     }
 
@@ -1930,5 +2124,341 @@ mod solid_collider_tests {
             h.fp(axis);
         }
         assert_eq!(key(&[], &[]), h.finish(), "an empty list adds nothing");
+    }
+}
+
+#[cfg(test)]
+mod merge_probe {
+    use super::*;
+
+    /// The bytes a mesh takes on the GPU, and again on the CPU while its
+    /// main-world copy is kept: its vertices at their own size and its
+    /// indices.
+    fn bytes(mesh: &Mesh) -> usize {
+        let indices = mesh.indices().map_or(0, |i| match i {
+            bevy::mesh::Indices::U16(v) => v.len() * 2,
+            bevy::mesh::Indices::U32(v) => v.len() * 4,
+        });
+        mesh.get_vertex_size() as usize * mesh.count_vertices() + indices
+    }
+
+    /// Every Shape node under `g`.
+    fn shape_nodes<'g>(g: &'g Generator, out: &mut Vec<&'g Generator>) {
+        if matches!(g.kind, GeneratorKind::Shape { .. }) {
+            out.push(g);
+        }
+        for child in &g.children {
+            shape_nodes(child, out);
+        }
+    }
+
+    /// What `node` draws as the spawner builds it: its meshes, merged and
+    /// not, and the terminals it merges.
+    fn drawn(node: &Generator) -> Option<(usize, usize, usize, usize, usize)> {
+        let def = node.kind.shape_def()?;
+        let mut meshes = Assets::<Mesh>::default();
+        let mut cache = UpstreamShapeMeshCache::default();
+        let ShapeBuild {
+            instances, merged, ..
+        } = build_shape_geometry(
+            &def,
+            "probe",
+            MERGE_ROOM_MAX_TERMINALS,
+            &mut meshes,
+            &mut cache,
+        )
+        .ok()?;
+        let own: Vec<&ShapeInstance> = instances.iter().filter(|i| !i.merged).collect();
+        let mut unique: HashSet<AssetId<Mesh>> = HashSet::new();
+        let shared: usize = instances
+            .iter()
+            .filter(|i| unique.insert(i.mesh.id()))
+            .map(|i| bytes(meshes.get(&i.mesh).expect("a terminal's mesh")))
+            .sum();
+        let merged_bytes: usize = merged
+            .iter()
+            .map(|part| bytes(meshes.get(&part.mesh).expect("a merged mesh")))
+            .sum();
+        Some((
+            instances.len(),
+            instances.len() - own.len(),
+            merged.len() + own.len(),
+            shared,
+            merged_bytes,
+        ))
+    }
+
+    /// **The castle draws a mesh a material, not a terminal** (#1578): its
+    /// 4,137 terminals - the largest grammar the catalogue ships - drew as
+    /// 4,137 meshes; merged, the 4,032 that tile a material another of them
+    /// wears too draw as one mesh for each of its materials, beside its
+    /// cards and turned shafts.
+    #[test]
+    fn the_castle_draws_a_mesh_a_material_not_a_terminal() {
+        let castle = crate::catalogue::items::ENTRIES
+            .iter()
+            .find(|e| e.slug() == "medieval_castle")
+            .expect("the catalogue has its castle")
+            .build("");
+        let mut nodes = Vec::new();
+        shape_nodes(&castle, &mut nodes);
+        let (terminals, merged, meshes, ..) = nodes
+            .iter()
+            .filter_map(|node| drawn(node))
+            .max_by_key(|row| row.0)
+            .expect("the castle is a grammar");
+        assert!(
+            terminals > 4000,
+            "the castle's grammar drew {terminals} terminals"
+        );
+        assert!(
+            merged > 4000,
+            "only {merged} of {terminals} terminals merged"
+        );
+        assert!(meshes <= 120, "the castle draws {meshes} meshes");
+    }
+
+    /// **A variant's room is what the others drawn leave** (#1578): the
+    /// room's bound counts every variant its compile has drawn but the one
+    /// asking, whose build replaces its own, so a variant derived again is
+    /// counted once; a full plan starts the count again.
+    #[test]
+    fn a_variant_s_room_is_what_the_others_drawn_leave() {
+        let mut cache = ShapeMeshCache::default();
+        let asking = ("n".to_string(), 1);
+        cache.hold_merged(asking.clone(), 100);
+        cache.hold_merged(("n".to_string(), 2), 30);
+        cache.hold_merged(("m".to_string(), 1), 7);
+        assert_eq!(cache.merge_room(&asking), MERGE_ROOM_MAX_TERMINALS - 37);
+        assert_eq!(
+            cache.merge_room(&("o".to_string(), 1)),
+            MERGE_ROOM_MAX_TERMINALS - 137,
+            "a variant not held"
+        );
+        cache.hold_merged(("m".to_string(), 2), MERGE_ROOM_MAX_TERMINALS);
+        assert_eq!(cache.merge_room(&asking), 0, "none past the bound");
+        cache.hold_merged(("m".to_string(), 2), 0);
+        assert_eq!(
+            cache.merge_room(&asking),
+            MERGE_ROOM_MAX_TERMINALS - 37,
+            "drawn again unmerged"
+        );
+        cache.room_replanned();
+        assert_eq!(cache.merge_room(&asking), MERGE_ROOM_MAX_TERMINALS);
+    }
+
+    /// **A build is judged by the room it has now** (#1578): one merged is
+    /// kept while the room holds what it merges, one refused room is kept
+    /// while it is still short, and one with nothing to merge always is.
+    #[test]
+    fn a_build_is_judged_by_the_room_it_has_now() {
+        let merged = ShapeBuild {
+            merged: vec![MergedPart {
+                mesh: Handle::default(),
+                material_id: None,
+                terminals: 5,
+            }],
+            ..ShapeBuild::default()
+        };
+        assert!(merged.merges_with(5));
+        assert!(!merged.merges_with(4), "no longer fits: built again");
+        let starved = ShapeBuild {
+            starved: 5,
+            ..ShapeBuild::default()
+        };
+        assert!(starved.merges_with(4));
+        assert!(!starved.merges_with(5), "room again: built again");
+        assert!(ShapeBuild::default().merges_with(0));
+    }
+
+    /// #1578 measurement: how long the spawner takes to build the castle -
+    /// derive, bake, collide and merge, as a cache miss does on the main
+    /// thread - and, of that, its solid collider and its merge alone.
+    #[test]
+    #[ignore = "probe for #1578: times building the castle, merged and not"]
+    fn probe_how_long_merging_the_castle_takes() {
+        let castle = crate::catalogue::items::ENTRIES
+            .iter()
+            .find(|e| e.slug() == "medieval_castle")
+            .expect("the catalogue has its castle")
+            .build("");
+        let mut nodes = Vec::new();
+        shape_nodes(&castle, &mut nodes);
+        let def = nodes
+            .iter()
+            .filter_map(|node| node.kind.shape_def())
+            .max_by_key(|def| def.derive().map_or(0, |m| m.terminals.len()))
+            .expect("the castle is a grammar");
+        for round in 0..3 {
+            let mut meshes = Assets::<Mesh>::default();
+            let mut cache = UpstreamShapeMeshCache::default();
+            let start = std::time::Instant::now();
+            let mut instances = build_shape_geometry(
+                &def,
+                "probe",
+                MERGE_ROOM_MAX_TERMINALS,
+                &mut meshes,
+                &mut cache,
+            )
+            .expect("derives")
+            .instances;
+            let built = start.elapsed();
+            let start = std::time::Instant::now();
+            let _ = solid_collider(&instances);
+            let collided = start.elapsed();
+            let merging: Vec<bool> = instances.iter().map(|i| i.merged).collect();
+            for instance in &mut instances {
+                instance.merged = false;
+            }
+            let start = std::time::Instant::now();
+            let (parts, _) = merge::merge(
+                &mut instances,
+                &merging,
+                MERGE_ROOM_MAX_TERMINALS,
+                &mut meshes,
+            );
+            println!(
+                "CASTLE round {round}: build {:.1} ms, of which its collider {:.1} ms and its merge {:.1} ms (into {} meshes)",
+                built.as_secs_f64() * 1e3,
+                collided.as_secs_f64() * 1e3,
+                start.elapsed().as_secs_f64() * 1e3,
+                parts.len()
+            );
+        }
+    }
+
+    /// #1578 measurement over a whole world: the room record at the path in
+    /// `MERGE_PROBE_RECORD` (its wire JSON), every Shape node of every
+    /// generator its placements draw, once for each seed and values a
+    /// placement draws it with - the variants the spawner caches, whose
+    /// merged meshes every copy shares - and the meshes its copies draw
+    /// before and after (an instance set's are merged by its own bake, and
+    /// left out). Prints nothing without the variable.
+    #[test]
+    #[ignore = "probe for #1578: prints a world's merge cost; MERGE_PROBE_RECORD=<room.json>"]
+    fn probe_what_merging_costs_a_world() {
+        let Some(path) = std::env::var_os("MERGE_PROBE_RECORD") else {
+            return;
+        };
+        let text = std::fs::read_to_string(&path).expect("the record reads");
+        let record: RoomRecord = serde_json::from_str(&text).expect("a room record");
+        let mut seen: HashSet<(String, u64, String)> = HashSet::new();
+        let (mut shared, mut merged, mut before, mut after, mut variants) = (0, 0, 0, 0, 0);
+        for placement in &record.placements {
+            let (name, seed, params, copies) = match placement {
+                Placement::Absolute {
+                    generator_ref,
+                    seed,
+                    params,
+                    ..
+                } => (generator_ref, *seed, Some(params), 1),
+                Placement::Scatter {
+                    generator_ref,
+                    count,
+                    ..
+                } => (generator_ref, None, None, *count as usize),
+                Placement::Grid {
+                    generator_ref,
+                    counts,
+                    ..
+                } => (
+                    generator_ref,
+                    None,
+                    None,
+                    counts.iter().map(|&c| c.max(1) as usize).product(),
+                ),
+                _ => continue,
+            };
+            let Some(tree) = record.generators.get(name) else {
+                continue;
+            };
+            let mut nodes = Vec::new();
+            shape_nodes(tree, &mut nodes);
+            for (k, node) in nodes.into_iter().enumerate() {
+                let Some(def) = node.kind.shape_def() else {
+                    continue;
+                };
+                let def = def.variant(seed, params);
+                let mut meshes = Assets::<Mesh>::default();
+                let mut cache = UpstreamShapeMeshCache::default();
+                let Ok(ShapeBuild {
+                    instances,
+                    merged: parts,
+                    ..
+                }) = build_shape_geometry(
+                    &def,
+                    "probe",
+                    MERGE_ROOM_MAX_TERMINALS,
+                    &mut meshes,
+                    &mut cache,
+                )
+                else {
+                    continue;
+                };
+                let own = instances.iter().filter(|i| !i.merged).count();
+                before += instances.len() * copies;
+                after += (own + parts.len()) * copies;
+                if seen.insert((name.clone(), def.key(), k.to_string())) {
+                    variants += 1;
+                    let mut unique: HashSet<AssetId<Mesh>> = HashSet::new();
+                    shared += instances
+                        .iter()
+                        .filter(|i| unique.insert(i.mesh.id()))
+                        .map(|i| bytes(meshes.get(&i.mesh).expect("a terminal's mesh")))
+                        .sum::<usize>();
+                    merged += parts
+                        .iter()
+                        .map(|part| bytes(meshes.get(&part.mesh).expect("a merged mesh")))
+                        .sum::<usize>();
+                }
+            }
+        }
+        println!(
+            "WORLD {}: {variants} grammar variants; meshes drawn {before} -> {after}; \
+             shared {:.1} MiB (an upper bound: deduped per variant, not across them), \
+             merged {:.1} MiB",
+            std::path::Path::new(&path).display(),
+            shared as f64 / 1048576.0,
+            merged as f64 / 1048576.0
+        );
+    }
+
+    /// #1578 measurement: what merging each grammar building's terminals
+    /// into one mesh per material costs and saves, entry by entry, as the
+    /// spawner builds them.
+    #[test]
+    #[ignore = "probe for #1578: prints the merge's cost per grammar building"]
+    fn probe_what_merging_grammar_buildings_costs() {
+        let mut rows = Vec::new();
+        for entry in crate::catalogue::items::ENTRIES {
+            let built = entry.build("");
+            let mut nodes = Vec::new();
+            shape_nodes(&built, &mut nodes);
+            for node in nodes {
+                if let Some(row) = drawn(node) {
+                    rows.push((entry.slug(), row));
+                }
+            }
+        }
+        rows.sort_by_key(|(_, row)| std::cmp::Reverse(row.4));
+        let (mut shared, mut merged, mut before, mut after) = (0, 0, 0, 0);
+        for (slug, (terminals, merging, meshes, own, mine)) in &rows {
+            shared += own;
+            merged += mine;
+            before += terminals;
+            after += meshes;
+            println!(
+                "MERGE {slug:<34} terminals {terminals:>5} merged {merging:>5} | meshes {terminals:>5} -> {meshes:>4} | \
+                 shared {:>7.1} KiB, merged {:>7.1} KiB",
+                *own as f64 / 1024.0,
+                *mine as f64 / 1024.0
+            );
+        }
+        println!(
+            "MERGE TOTAL {} grammar nodes: meshes {before} -> {after}; shared {:.1} MiB, merged {:.1} MiB",
+            rows.len(),
+            shared as f64 / 1048576.0,
+            merged as f64 / 1048576.0
+        );
     }
 }
