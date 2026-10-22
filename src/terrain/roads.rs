@@ -357,22 +357,31 @@ fn resolved_road_materials(
     let palette = road_palette(theme);
     let color3 = |c: crate::pds::Fp3| Color::srgb(c.0[0], c.0[1], c.0[2]);
     // Dark wet-asphalt drivable deck - low roughness + reflectance gives the
-    // sheen that catches the city light.
+    // sheen that catches the city light. An owner who roughens it (a dirt
+    // lane, gravel) gets a rough part's sheen, the ground's (#1732); the
+    // shipped 0.22 keeps its 0.6 exactly.
+    let deck_roughness = ap.deck_roughness.map_or(0.22, |r| r.0);
     let deck = StandardMaterial {
         base_color: ap.deck_color.map(color3).unwrap_or(palette.deck),
-        perceptual_roughness: ap.deck_roughness.map_or(0.22, |r| r.0),
+        perceptual_roughness: deck_roughness,
         metallic: 0.0,
-        reflectance: 0.6,
+        reflectance: crate::world_builder::rough_reflectance(deck_roughness, 0.6),
         double_sided: true,
         cull_mode: None,
         ..default()
     };
     // Concrete/metal foundation (curb + skirt + bottom) - matte and lighter
-    // so the deck reads as a distinct surface sitting on top of it.
+    // so the deck reads as a distinct surface sitting on top of it, with the
+    // sheen every part this rough wears (#1732).
+    let structure_roughness = 0.8;
     let structure = StandardMaterial {
         base_color: ap.structure_color.map(color3).unwrap_or(palette.structure),
-        perceptual_roughness: 0.8,
+        perceptual_roughness: structure_roughness,
         metallic: 0.25,
+        reflectance: crate::world_builder::rough_reflectance(
+            structure_roughness,
+            StandardMaterial::default().reflectance,
+        ),
         double_sided: true,
         cull_mode: None,
         ..default()
@@ -812,5 +821,30 @@ mod tests {
             );
             seen.push(moved);
         }
+    }
+
+    /// #1732: the deck follows the rough-part rule. The shipped deck (0.22,
+    /// wet asphalt) keeps its 0.6 exactly; an owner who roughens it into a
+    /// dirt lane gets the ground's sheen, not a shine brighter than any part.
+    #[test]
+    fn a_roughened_deck_wears_the_grounds_reflectance() {
+        use crate::pds::generator::RoadAppearance;
+        use crate::pds::types::Fp;
+        use crate::seeded_defaults::ThemeArchetype;
+
+        let deck = |appearance: &RoadAppearance| {
+            let [deck, _, _] =
+                super::resolved_road_materials(ThemeArchetype::AncientClassical, appearance);
+            deck.reflectance
+        };
+        assert_eq!(deck(&RoadAppearance::default()), 0.6);
+        let dirt = RoadAppearance {
+            deck_roughness: Some(Fp(0.95)),
+            ..Default::default()
+        };
+        assert_eq!(
+            deck(&dirt),
+            crate::config::terrain::splat::MATERIAL_REFLECTANCE
+        );
     }
 }

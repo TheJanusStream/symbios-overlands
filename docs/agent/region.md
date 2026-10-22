@@ -180,6 +180,19 @@ them as dunes; `normal_strength` 0.8 -> 0.5 (the sanitiser's floor) with
 `leaf_thickness` 0.15 halved the ripple (a Laplacian spread 35 -> 17 live),
 and grass tufts on the open tops broke up the rest.
 
+**A rough part reads as the ground does toward a low sun** (#1732). Since
+2026-10-22 every procedural material with roughness 0.9 or more wears the
+terrain's reflectance 0.25, eased in from roughness 0.7 (below that it keeps
+the default 0.5), with no setting in the record. Before, a ground-coloured
+prim at roughness 0.97 - Ashmere's fallow ridges - gleamed pale grey-white
+toward the afternoon sun, like sheets of water, brighter than the ground it
+lay on, and nothing a builder could set damped it. So a part meant to catch
+the light (wet stone, glazed tile, polished wood) wants roughness under 0.7,
+and one at 0.9 or more - earth, thatch, rough timber - needs nothing more;
+between the two it is partway. Rough parts also read darker and truer to
+their colour in any light, because the sky's sheen on them shrank too.
+Rain still wets every part toward water's sheen.
+
 **A live terrain edit could abort your daemon until #1738.** Setting any
 part of `base_terrain` but its `grass` group (a layer, a rule, the land's
 shape) builds a new heightmap in every client in the world (a grass edit

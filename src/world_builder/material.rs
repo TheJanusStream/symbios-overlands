@@ -16,6 +16,8 @@ use bevy::math::Affine2;
 use bevy::prelude::*;
 use bevy_symbios_texture::{TextureCache, apply_generated_handles};
 
+use crate::config::material::{ROUGH_REFLECTANCE_AT, ROUGH_REFLECTANCE_FROM};
+use crate::config::terrain::splat::MATERIAL_REFLECTANCE;
 use crate::weathered::{WeatheredMaterial, weathered};
 
 use crate::pds::{Environment, SovereignMaterialSettings, SovereignTextureConfig, WaterSurface};
@@ -256,6 +258,8 @@ pub fn build_procedural_material(
     // convention overwrites this one field; with offset and rotation at
     // their defaults this reproduces that `from_scale` exactly.
     material.uv_transform = sovereign_uv_transform(settings);
+    // #1732: likewise overlands-side, a rough part's sheen is the ground's.
+    material.reflectance = rough_reflectance(material.perceptual_roughness, material.reflectance);
 
     // Cache hit: write handles into the material before we hand it to Bevy.
     // Full lookup - disk-backed stores read their blob and upload it into
@@ -343,6 +347,37 @@ pub(crate) fn sovereign_uv_transform(settings: &SovereignMaterialSettings) -> Af
     )
 }
 
+/// The reflectance a procedural material wears for its `roughness` (#1732):
+/// `reflectance` as built below [`ROUGH_REFLECTANCE_FROM`], the ground's
+/// [`MATERIAL_REFLECTANCE`] from [`ROUGH_REFLECTANCE_AT`], and a smoothstep
+/// between, so two materials a hair apart in roughness never differ by a
+/// step.
+///
+/// **A rough dielectric gleams toward a low sun however it is coloured.**
+/// Every procedural material came out of `standard_material` at the
+/// renderer's default reflectance 0.5, twice the ground's 0.25 since #1467
+/// (F0 0.04 against 0.01), and seen at a grazing angle toward the sun that
+/// throws a broad
+/// sheen in the sun's own colour over its base colour and texture alike:
+/// Ashmere's fallow ridges - spine prims at roughness 0.97 wearing the
+/// Ground texture - read pale grey-white from its landing at 15:00, like
+/// sheets of water, brighter than the ground they lie on, and nothing in a
+/// record could damp it. So a rough part wears the ground's reflectance, as
+/// the owner chose on 2026-10-22 (#1758): no schema change, every world's
+/// rough parts at once.
+///
+/// Keyed on the material's roughness as authored - the number the editor
+/// shows, and the factor its baked roughness map is scaled by. Rain still
+/// wets every part toward water's reflectance in `weathered.wgsl`, from
+/// whichever base it has, and a metal's sheen is its base colour's whatever
+/// this says.
+pub(crate) fn rough_reflectance(roughness: f32, reflectance: f32) -> f32 {
+    let span = ROUGH_REFLECTANCE_AT - ROUGH_REFLECTANCE_FROM;
+    let t = ((roughness - ROUGH_REFLECTANCE_FROM) / span).clamp(0.0, 1.0);
+    let eased = t * t * (3.0 - 2.0 * t);
+    reflectance + (MATERIAL_REFLECTANCE - reflectance) * eased
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -400,6 +435,89 @@ mod tests {
         assert!(
             MaterialSettings::default().cache_key(size, size).is_none(),
             "TextureConfig::None has no cache key"
+        );
+    }
+
+    /// #1732: a material keeps the reflectance it was built with below
+    /// roughness 0.7, wears the ground's from 0.9, and never steps between -
+    /// the steepest thousandth of roughness moves it by a smoothstep's
+    /// slope, 1.5 times the even share of the fall.
+    #[test]
+    fn a_rough_material_wears_the_grounds_reflectance() {
+        let built = StandardMaterial::default().reflectance;
+        assert_eq!(rough_reflectance(0.5, built), built);
+        assert_eq!(rough_reflectance(ROUGH_REFLECTANCE_FROM, built), built);
+        assert_eq!(
+            rough_reflectance(ROUGH_REFLECTANCE_AT, built),
+            MATERIAL_REFLECTANCE
+        );
+        assert_eq!(rough_reflectance(1.0, built), MATERIAL_REFLECTANCE);
+        let (mut last, mut steepest) = (built, 0.0f32);
+        for step in 0..=1000 {
+            let roughness = step as f32 / 1000.0;
+            let now = rough_reflectance(roughness, built);
+            assert!(now <= last, "the reflectance rose at roughness {roughness}");
+            steepest = steepest.max(last - now);
+            last = now;
+        }
+        let even = (built - MATERIAL_REFLECTANCE)
+            / 1000.0
+            / (ROUGH_REFLECTANCE_AT - ROUGH_REFLECTANCE_FROM);
+        assert!(
+            steepest <= even * 1.5 + 1e-6,
+            "the reflectance fell {steepest} in a thousandth of roughness"
+        );
+    }
+
+    /// The reflectance a material built through [`build_procedural_material`]
+    /// at `roughness` comes out with.
+    fn built_reflectance(roughness: f32) -> f32 {
+        use crate::pds::types::Fp;
+        use bevy::ecs::system::RunSystemOnce;
+
+        let mut world = World::new();
+        world.init_resource::<Assets<WeatheredMaterial>>();
+        world.init_resource::<Assets<Image>>();
+        world.insert_resource(TextureCache::memory(4));
+        world
+            .run_system_once(
+                move |mut commands: Commands,
+                      mut materials: ResMut<Assets<WeatheredMaterial>>,
+                      mut images: ResMut<Assets<Image>>,
+                      mut cache: ResMut<TextureCache>| {
+                    let settings = SovereignMaterialSettings {
+                        roughness: Fp(roughness),
+                        ..Default::default()
+                    };
+                    let handle = build_procedural_material(
+                        &mut commands,
+                        &mut materials,
+                        &mut images,
+                        &mut cache,
+                        &settings,
+                        true,
+                    );
+                    materials
+                        .get(&handle)
+                        .expect("the material was added")
+                        .base
+                        .reflectance
+                },
+            )
+            .expect("the builder runs")
+    }
+
+    /// #1732, where it is applied: every catalogue construct, primitive,
+    /// foliage card and avatar part is built through
+    /// [`build_procedural_material`], and one as rough as Ashmere's fallow
+    /// ridges comes out wearing the ground's reflectance while a smooth one
+    /// keeps the renderer's default.
+    #[test]
+    fn every_procedural_material_takes_the_rough_rule() {
+        assert_eq!(built_reflectance(0.97), MATERIAL_REFLECTANCE);
+        assert_eq!(
+            built_reflectance(0.5),
+            StandardMaterial::default().reflectance
         );
     }
 }

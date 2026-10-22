@@ -1373,6 +1373,25 @@ pub(crate) mod textures {
 }
 
 // ---------------------------------------------------------------------------
+// Procedural material appearance
+// ---------------------------------------------------------------------------
+/// What every procedural material wears over the upstream
+/// `StandardMaterial` once `crate::world_builder::material::build_procedural_material`
+/// has built it - catalogue constructs, primitives, foliage cards, prim
+/// avatars and vehicles - and what signs, instance sets' far forms and road
+/// decks wear beside it. Rigged bodies' materials are the avatar crate's own.
+pub(crate) mod material {
+    /// The roughness from which a procedural material's reflectance eases
+    /// toward the ground's, [`super::terrain::splat::MATERIAL_REFLECTANCE`]
+    /// (#1732); below it a material keeps the renderer's default.
+    pub const ROUGH_REFLECTANCE_FROM: f32 = 0.7;
+    /// The roughness from which a procedural material wears the ground's
+    /// reflectance whole (#1732): a part this rough reads toward a low sun
+    /// as the ground beside it does. The owner's rule (2026-10-22).
+    pub const ROUGH_REFLECTANCE_AT: f32 = 0.9;
+}
+
+// ---------------------------------------------------------------------------
 // Vegetation wind sway (wind.rs)
 // ---------------------------------------------------------------------------
 /// Tuning for the foliage wind-sway vertex shader (#916).

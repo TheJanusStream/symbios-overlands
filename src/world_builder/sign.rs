@@ -19,7 +19,7 @@ use crate::pds::{AlphaModeKind, Fp2, SignSource, SovereignMaterialSettings};
 
 use super::compile::SpawnCtx;
 use super::image_cache::{SamplerFilter, request_blob_image_filtered};
-use super::material::sovereign_uv_transform;
+use super::material::{rough_reflectance, sovereign_uv_transform};
 
 /// Spawn a Sign entity: a textured plane with the StandardMaterial
 /// toggles surfaced by the [`GeneratorKind::Sign`](crate::pds::GeneratorKind::Sign) variant. Returns the
@@ -133,7 +133,9 @@ fn build_sign_mesh(size: &Fp2) -> Mesh {
 /// `uv_scale` / `uv_offset` / `uv_rotation` mean here what they mean
 /// everywhere else. Sign images upload **clamp-to-edge**, so a scale above
 /// `1.0` shrinks the image into the panel's near corner and stretches its
-/// border across the rest - a crop/zoom control, never a tiling one.
+/// border across the rest - a crop/zoom control, never a tiling one. The
+/// reflectance is the shared [`rough_reflectance`] (#1732), so a rough
+/// panel's sheen is the ground's as any other part's is.
 fn build_sign_material(
     settings: &SovereignMaterialSettings,
     double_sided: bool,
@@ -165,6 +167,10 @@ fn build_sign_material(
         emissive,
         uv_transform: sovereign_uv_transform(settings),
         perceptual_roughness: settings.roughness.0,
+        reflectance: rough_reflectance(
+            settings.roughness.0,
+            StandardMaterial::default().reflectance,
+        ),
         metallic: settings.metallic.0,
         alpha_mode: bevy_alpha,
         double_sided,
@@ -257,5 +263,25 @@ mod tests {
                 "corner {corner:?} sampled {got:?}, legacy baked {legacy:?}"
             );
         }
+    }
+
+    /// #1732: a sign is a part like any other, so a rough panel - weathered
+    /// boards, a slate - wears the ground's reflectance, and a smooth one
+    /// keeps the renderer's default.
+    #[test]
+    fn a_rough_panel_wears_the_grounds_reflectance() {
+        let panel = |roughness: f32| {
+            let settings = SovereignMaterialSettings {
+                roughness: Fp(roughness),
+                ..Default::default()
+            };
+            build_sign_material(&settings, false, &crate::pds::AlphaModeKind::Opaque, false)
+                .reflectance
+        };
+        assert_eq!(
+            panel(0.97),
+            crate::config::terrain::splat::MATERIAL_REFLECTANCE
+        );
+        assert_eq!(panel(0.5), StandardMaterial::default().reflectance);
     }
 }

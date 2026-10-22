@@ -533,12 +533,18 @@ fn spawn_instances(
 /// The material every far form is drawn with: white, so each part shows
 /// its vertex colour, and matte, as a building a kilometre off is. It is
 /// drawn under the weather, so a far roof whitens with the near ones
-/// (#1686).
+/// (#1686), and its sheen is the one every procedural material this rough
+/// wears (#1732), so a far form and its rough near copies agree at the
+/// hand-off.
 pub(crate) fn far_material() -> StandardMaterial {
+    let roughness = 0.9;
     StandardMaterial {
         base_color: Color::WHITE,
-        perceptual_roughness: 0.9,
-        reflectance: 0.3,
+        perceptual_roughness: roughness,
+        reflectance: super::material::rough_reflectance(
+            roughness,
+            StandardMaterial::default().reflectance,
+        ),
         ..default()
     }
 }

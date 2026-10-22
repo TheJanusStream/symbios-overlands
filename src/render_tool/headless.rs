@@ -1170,6 +1170,9 @@ fn spawn_ground(
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: Color::srgb(0.30, 0.33, 0.27),
             perceptual_roughness: 0.95,
+            // The real ground's sheen (#1467), so parts on this stand-in
+            // compare with it as they do with a world's ground (#1732).
+            reflectance: crate::config::terrain::splat::MATERIAL_REFLECTANCE,
             ..default()
         })),
         Transform::default(),

@@ -130,6 +130,7 @@ use bevy::prelude::*;
 pub(crate) use compile::pad::{AnchorGround, snapped_absolute_anchor};
 pub use compile::pad::{snap_footprint_radius, snapped_ground_y};
 pub use lsystem::{LSystemMaterialCache, LSystemMeshCache};
+pub(crate) use material::rough_reflectance;
 #[cfg(test)]
 pub(crate) use prim::for_touch;
 pub use prim::{
