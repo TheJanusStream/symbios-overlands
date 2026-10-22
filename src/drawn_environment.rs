@@ -205,6 +205,7 @@ mod tests {
             kind: WeatherKind::Rain,
             intensity: Fp(1.0),
             spell_minutes: Fp(0.0),
+            ..Weather::default()
         });
         app.insert_resource(LiveRoomRecord(record));
         app.update();
@@ -230,6 +231,7 @@ mod tests {
             kind: WeatherKind::Storm,
             intensity: Fp(1.0),
             spell_minutes: Fp(0.0),
+            ..Weather::default()
         });
         // A dim room under a dark sky: the storm takes it under the sky's
         // moon thresholds.
@@ -267,6 +269,7 @@ mod tests {
                 kind: WeatherKind::Rain,
                 intensity: Fp(0.5),
                 spell_minutes: Fp(0.0),
+                ..Weather::default()
             });
             record
         };

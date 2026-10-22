@@ -386,8 +386,9 @@ generation cores shared with the wasm Web Worker.
   and the ambient light with it; it also tells the sky whether the key
   light is the sun or the moon.
 - [`src/weather.rs`](../src/weather.rs) - a room's weather (#1678): overcast,
-  rain, a storm, snow or fog at an intensity, standing or coming and going
-  with the clock (UTC), laid over the room's light and air, and the ground
+  rain, a storm, snow, fog or a dust storm (#1735) at an intensity, standing
+  or coming and going with the clock (UTC) for about the share of the time it
+  sets, laid over the room's light and air, and the ground
   keeping what fell - its wetness and snow cover, which the ground's and
   the grass's shaders draw from the shared fields in
   `assets/shaders/ground_common.wgsl`, the water's rings its rain (#1683);

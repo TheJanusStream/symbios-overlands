@@ -153,6 +153,9 @@ pub(crate) fn apply_environment_state(
     if let Some(moon) = drawn.moon {
         sky.look.y = moon;
     }
+    // A dust storm hides the stars as it thickens (#1735): it has no cloud
+    // of its own to dim them, the dust being the sky.
+    sky.look.z *= 1.0 - drawn.weather.dust;
     for material_handle in skybox.iter() {
         if let Some(mut mat) = sky_materials.get_mut(&material_handle.0) {
             mat.uniforms = sky;
@@ -207,8 +210,9 @@ pub(crate) fn apply_environment_state(
     if let Some(mut veg_wind) = vegetation_wind {
         let dir = Vec2::new(wind[0], wind[1]);
         let speed = env.cloud_speed.0;
-        // A storm's gust fronts (#1684) ride the same wind.
-        let storm = drawn.weather.storm;
+        // A storm's gust fronts (#1684) ride the same wind, and a dust
+        // storm's (#1735).
+        let storm = drawn.weather.gusts();
         if veg_wind.dir != dir || veg_wind.speed != speed || veg_wind.storm != storm {
             veg_wind.dir = dir;
             veg_wind.speed = speed;
@@ -383,6 +387,112 @@ mod tests {
                 "{hue:?} at a full lean: {c:?}"
             );
         }
+    }
+
+    /// The wind the grass, the foliage and the gust fronts follow blows
+    /// under a dust storm as under a storm (#1684, #1735), and not under
+    /// rain: what the drawn weather gusts.
+    #[test]
+    fn a_dust_storm_gusts_the_vegetation_as_a_storm_does() {
+        use crate::pds::WeatherKind;
+        use bevy::ecs::system::RunSystemOnce;
+        for (kind, gusts) in [
+            (WeatherKind::Storm, 1.0),
+            (WeatherKind::Dust, 1.0),
+            (WeatherKind::Rain, 0.0),
+        ] {
+            let mut app = App::new();
+            let record = crate::pds::RoomRecord {
+                lex_type: "network.symbios.room".to_owned(),
+                environment: Default::default(),
+                generators: Default::default(),
+                placements: Vec::new(),
+                traits: Default::default(),
+                contact_effects: Default::default(),
+                default_landing: None,
+                geo_source: None,
+                opaque_refs: Default::default(),
+            };
+            app.insert_resource(LiveRoomRecord(record))
+                .insert_resource(crate::drawn_environment::DrawnEnvironment {
+                    weather: crate::weather::amounts(kind, 1.0),
+                    ..default()
+                })
+                .init_resource::<ClearColor>()
+                .init_resource::<GlobalAmbientLight>()
+                .init_resource::<Assets<crate::sky::SkyMaterial>>()
+                .init_resource::<Assets<CloudMaterial>>()
+                .init_resource::<Assets<crate::water::WaterMaterial>>()
+                .init_resource::<crate::wind::VegetationWind>();
+            app.world_mut()
+                .run_system_once(apply_environment_state)
+                .expect("the environment applies");
+            let wind = app.world().resource::<crate::wind::VegetationWind>();
+            assert_eq!(wind.storm, gusts, "{kind:?}");
+        }
+    }
+
+    /// A dust storm hides the stars as it thickens (#1735), and a night
+    /// without one keeps them: what the sky is given at a dark night.
+    #[test]
+    fn a_dust_storm_hides_the_stars() {
+        use crate::pds::WeatherKind;
+        use bevy::ecs::system::RunSystemOnce;
+        let stars_under = |dust: Option<f32>| {
+            let mut app = App::new();
+            let record = crate::pds::RoomRecord {
+                lex_type: "network.symbios.room".to_owned(),
+                environment: Default::default(),
+                generators: Default::default(),
+                placements: Vec::new(),
+                traits: Default::default(),
+                contact_effects: Default::default(),
+                default_landing: None,
+                geo_source: None,
+                opaque_refs: Default::default(),
+            };
+            let night = crate::pds::Environment {
+                sun_illuminance: crate::pds::Fp(10.0),
+                sky_color: crate::pds::Fp3([0.01, 0.012, 0.03]),
+                cloud_cover: crate::pds::Fp(0.0),
+                ..default()
+            };
+            let weather = dust.map_or_else(Default::default, |intensity| {
+                crate::weather::amounts(WeatherKind::Dust, intensity)
+            });
+            app.insert_resource(LiveRoomRecord(record))
+                .insert_resource(crate::drawn_environment::DrawnEnvironment {
+                    env: night,
+                    weather,
+                    ..default()
+                })
+                .init_resource::<ClearColor>()
+                .init_resource::<GlobalAmbientLight>()
+                .init_resource::<Assets<crate::sky::SkyMaterial>>()
+                .init_resource::<Assets<CloudMaterial>>()
+                .init_resource::<Assets<crate::water::WaterMaterial>>();
+            let sky = app
+                .world_mut()
+                .resource_mut::<Assets<crate::sky::SkyMaterial>>()
+                .add(crate::sky::SkyMaterial::default());
+            app.world_mut()
+                .spawn((MeshMaterial3d(sky.clone()), crate::SkyBox));
+            app.world_mut()
+                .run_system_once(apply_environment_state)
+                .expect("the environment applies");
+            app.world()
+                .resource::<Assets<crate::sky::SkyMaterial>>()
+                .get(&sky)
+                .expect("the sky")
+                .uniforms
+                .look
+                .z
+        };
+        let clear = stars_under(None);
+        assert!(clear > 0.9, "a clear night's stars: {clear}");
+        assert_eq!(stars_under(Some(1.0)), 0.0, "a full dust storm's");
+        let light = stars_under(Some(0.0));
+        assert!(light > 0.0 && light < clear, "a light haze's: {light}");
     }
 
     /// The camera's grade follows the record's three fields (#1669), and

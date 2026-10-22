@@ -525,9 +525,9 @@ struct Args {
     #[arg(long, requires = "world", value_name = "HOUR", value_parser = parse_hour)]
     hour: Option<f32>,
     /// With `--world`: draw the room under this weather (#1678), standing
-    /// still - `overcast`, `rain`, `storm`, `snow` or `fog`, with an
-    /// intensity from 0 to 1 after a colon (`rain:0.4`; 1 without one) -
-    /// whatever weather its record holds.
+    /// still - `overcast`, `rain`, `storm`, `snow`, `fog` or `dust` (#1735),
+    /// with an intensity from 0 to 1 after a colon (`rain:0.4`; 1 without
+    /// one) - whatever weather its record holds.
     #[arg(long, requires = "world", value_name = "KIND[:INTENSITY]", value_parser = parse_weather)]
     weather: Option<crate::pds::Weather>,
     /// With `--world`: hold a lightning flash at this light, 0 to 1 (#1684).
@@ -1086,7 +1086,7 @@ fn parse_weather(word: &str) -> Result<crate::pds::Weather, String> {
     let kind = crate::pds::WeatherKind::ALL
         .into_iter()
         .find(|k| k.label().eq_ignore_ascii_case(kind.trim()))
-        .ok_or_else(|| format!("{kind:?} is not overcast, rain, storm, snow or fog"))?;
+        .ok_or_else(|| format!("{kind:?} is not overcast, rain, storm, snow, fog or dust"))?;
     let intensity = intensity
         .trim()
         .parse::<f32>()
@@ -1096,7 +1096,7 @@ fn parse_weather(word: &str) -> Result<crate::pds::Weather, String> {
     Ok(crate::pds::Weather {
         kind,
         intensity: crate::pds::Weather::intensity_of(crate::pds::Fp(intensity)),
-        spell_minutes: crate::pds::Fp(0.0),
+        ..crate::pds::Weather::default()
     })
 }
 

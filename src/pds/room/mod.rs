@@ -130,9 +130,10 @@ pub struct Environment {
     /// The room's weather (#1678). `None`, the default and every room made
     /// before it, keeps the sky, the light and the air as the fields above
     /// and the time of day set them. `Some` lays a weather over them - a
-    /// grey sky, rain, a storm, snow or fog, at an intensity - that stands,
-    /// or comes and goes with the clock, the same for every visitor (see
-    /// `crate::weather`). Older clients ignore the key.
+    /// grey sky, rain, a storm, snow, fog or a dust storm, at an intensity -
+    /// that stands, or comes and goes with the clock for about the share of
+    /// the time it sets, the same for every visitor (see `crate::weather`).
+    /// Older clients ignore the key.
     pub weather: Option<Weather>,
 }
 
@@ -197,7 +198,8 @@ impl TimeOfDay {
 }
 
 /// A room's weather (#1678): what it brings, how heavily, and whether it
-/// stands or comes and goes with the clock.
+/// stands or comes and goes with the clock - and then for how much of the
+/// time.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 #[serde(default)]
 pub struct Weather {
@@ -210,6 +212,14 @@ pub struct Weather {
     /// clock (UTC) - clear spells and spells of [`Self::kind`], the clouds
     /// gathering before anything falls - or 0 for a weather that stands.
     pub spell_minutes: Fp,
+    /// For a weather that comes and goes, about the share of the time it is
+    /// here, 0 to 1 (#1735): what falls falling, or its fog or its dust in
+    /// the air, its clouds gathered round that a while longer. The default,
+    /// [`Self::DEFAULT_SHARE`], is every room's from before there was a
+    /// setting, and is left off the wire. A weather that stands is here all
+    /// the time.
+    #[serde(skip_serializing_if = "Weather::shares_the_default")]
+    pub share: Fp,
 }
 
 impl Default for Weather {
@@ -218,11 +228,37 @@ impl Default for Weather {
             kind: WeatherKind::Rain,
             intensity: Fp(0.5),
             spell_minutes: Fp(0.0),
+            share: Fp(Self::DEFAULT_SHARE),
         }
     }
 }
 
 impl Weather {
+    /// The share of the time a weather that comes and goes is here when its
+    /// record sets none (#1735): about half, as every room's was before
+    /// there was a setting.
+    pub const DEFAULT_SHARE: f32 = 0.5;
+
+    /// `share` as the record holds it: within `0..=1` on the wire's grid,
+    /// and one that is not a number the default.
+    pub fn share_of(share: Fp) -> Fp {
+        if share.0.is_finite() {
+            share.clamped(0.0, 1.0).on_wire()
+        } else {
+            Fp(Self::DEFAULT_SHARE)
+        }
+    }
+
+    /// Whether `share` is held as the default is: then it is left off the
+    /// wire, so a record from before the setting reads back as it was
+    /// written. Decided on the wire's integer, which is what a peer reads,
+    /// of the share as the record holds it - one that is not a number is
+    /// the default, as the weather draws it.
+    fn shares_the_default(share: &Fp) -> bool {
+        use crate::pds::types::to_wire;
+        to_wire(Self::share_of(*share).0) == to_wire(Self::DEFAULT_SHARE)
+    }
+
     /// `intensity` as the record holds it: within `0..=1` on the wire's
     /// grid, a NaN none at all.
     pub fn intensity_of(intensity: Fp) -> Fp {
@@ -268,19 +304,26 @@ pub enum WeatherKind {
     /// Fog closing in.
     #[serde(rename = "network.symbios.weather.fog")]
     Fog,
+    /// A dust storm (#1735): a wall of warm dust closing in on a storm's
+    /// raised, gusting wind. Nothing falls, and the ground stays dry.
+    #[serde(rename = "network.symbios.weather.dust")]
+    Dust,
 
     #[serde(other, skip_serializing)]
     Unknown,
 }
 
 impl WeatherKind {
-    /// Every kind an owner can choose, in the editor's order.
-    pub const ALL: [WeatherKind; 5] = [
+    /// Every kind an owner can choose, in the editor's order. A kind's place
+    /// here is also its weather's timeline (`crate::weather::salt`), so a
+    /// new kind goes at the end.
+    pub const ALL: [WeatherKind; 6] = [
         WeatherKind::Overcast,
         WeatherKind::Rain,
         WeatherKind::Storm,
         WeatherKind::Snow,
         WeatherKind::Fog,
+        WeatherKind::Dust,
     ];
 
     /// The kind's name as the editor and the render tool write it.
@@ -291,6 +334,7 @@ impl WeatherKind {
             WeatherKind::Storm => "storm",
             WeatherKind::Snow => "snow",
             WeatherKind::Fog => "fog",
+            WeatherKind::Dust => "dust",
             WeatherKind::Unknown => "unknown",
         }
     }
@@ -471,12 +515,14 @@ impl Environment {
             time.hour = TimeOfDay::clock_hour(time.hour.0);
             time.day_minutes = TimeOfDay::day_length(time.day_minutes);
         }
-        // Weather (#1678): an intensity of 0 to 1 and a spell of two minutes
-        // to a week or none, as the wire holds them. An unknown kind stays
-        // as it came, for a newer client, and is drawn as no weather.
+        // Weather (#1678): an intensity of 0 to 1, a spell of two minutes
+        // to a week or none, and a share of the time of 0 to 1 (#1735), as
+        // the wire holds them. An unknown kind stays as it came, for a newer
+        // client, and is drawn as no weather.
         if let Some(weather) = self.weather.as_mut() {
             weather.intensity = Weather::intensity_of(weather.intensity);
             weather.spell_minutes = Weather::spell_length(weather.spell_minutes);
+            weather.share = Weather::share_of(weather.share);
         }
 
         // Water-environment fields. Keep every channel in a finite,

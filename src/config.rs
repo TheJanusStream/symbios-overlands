@@ -167,6 +167,7 @@ pub(crate) mod lighting {
             pub snow: (f32, f32),
             pub fog: (f32, f32),
             pub storm: (f32, f32),
+            pub dust: (f32, f32),
         }
 
         const NONE: (f32, f32) = (0.0, 0.0);
@@ -178,6 +179,7 @@ pub(crate) mod lighting {
             snow: NONE,
             fog: NONE,
             storm: NONE,
+            dust: NONE,
         };
         /// Rain, under a sky already mostly grey, the air hazing with it.
         pub const RAIN: Amounts = Amounts {
@@ -186,6 +188,7 @@ pub(crate) mod lighting {
             snow: NONE,
             fog: (0.0, 0.3),
             storm: NONE,
+            dust: NONE,
         };
         /// A storm: heavy rain under a whole, dark overcast.
         pub const STORM: Amounts = Amounts {
@@ -194,6 +197,7 @@ pub(crate) mod lighting {
             snow: NONE,
             fog: (0.1, 0.3),
             storm: (0.3, 1.0),
+            dust: NONE,
         };
         /// Snow from a pale grey sky, the air thick with it.
         pub const SNOW: Amounts = Amounts {
@@ -202,6 +206,7 @@ pub(crate) mod lighting {
             snow: (0.0, 1.0),
             fog: (0.0, 0.4),
             storm: NONE,
+            dust: NONE,
         };
         /// Fog, under a sky it greys a little.
         pub const FOG: Amounts = Amounts {
@@ -210,6 +215,17 @@ pub(crate) mod lighting {
             snow: NONE,
             fog: (0.0, 1.0),
             storm: NONE,
+            dust: NONE,
+        };
+        /// A dust storm (#1735): the dust on a storm's raised wind, from a
+        /// light haze of it to a wall, and no cloud: the dust is the sky.
+        pub const DUST: Amounts = Amounts {
+            overcast: NONE,
+            rain: NONE,
+            snow: NONE,
+            fog: NONE,
+            storm: NONE,
+            dust: (0.15, 1.0),
         };
 
         /// A weather that comes and goes, by how far into its weather the
@@ -247,10 +263,27 @@ pub(crate) mod lighting {
         /// light the snow and the cloud send back and forth.
         pub const SNOW_GREY: f32 = 0.3;
         pub const SNOW_GLARE: f32 = 0.35;
-        /// The visibility (m) full fog, rain and snow close the air to.
+        /// The visibility (m) full fog, rain, snow and dust close the air to.
         pub const FOG_VISIBILITY: f32 = 60.0;
         pub const RAIN_VISIBILITY: f32 = 220.0;
         pub const SNOW_VISIBILITY: f32 = 140.0;
+        pub const DUST_VISIBILITY: f32 = 130.0;
+        /// A dust storm (#1735). The dust's colour (sRGB), a warm red-brown:
+        /// what the sky, the horizon and the clouds turn toward at their own
+        /// brightness, so a dusty night stays a night - the horizon, the
+        /// wall itself, the whole way, the sky overhead and the clouds this
+        /// share of it.
+        pub const DUST_COLOR: [f32; 3] = [0.64, 0.5, 0.37];
+        pub const DUST_SKY: f32 = 0.8;
+        /// The share of the way toward the dust over which a colour first
+        /// loses its own hue, before the dust's comes in (`weather::dusted`).
+        pub const DUST_GREYS: f32 = 0.25;
+        /// The sun's direct light left under full dust, and the colour the
+        /// dust leaves it (sRGB, a filter: its blue scattered away first);
+        /// and the share of the sky's light full dust takes.
+        pub const DUST_SUN: f32 = 0.2;
+        pub const DUST_SUN_TINT: [f32; 3] = [1.0, 0.72, 0.46];
+        pub const DUST_DARK: f32 = 0.3;
         /// How far a weather that comes and goes moves before the room is
         /// drawn anew: the most any of its amounts has changed.
         pub const WEATHER_STEP: f32 = 0.01;

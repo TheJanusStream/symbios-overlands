@@ -1054,7 +1054,7 @@ cargo run --profile test-release --bin render -- --world 34 --focus landing --di
 # turns renders at the hour it is now, so two runs differ:
 cargo run --profile test-release --bin render -- --world 16 --hour 17.8 --out /tmp/dusk.png
 # A world under a weather (#1678), standing still, whatever its record holds:
-# overcast, rain, storm, snow or fog, an intensity after a colon (1 without);
+# overcast, rain, storm, snow, fog or dust, an intensity after a colon (1 without);
 # with --hour too, the weather lays over that hour:
 cargo run --profile test-release --bin render -- --world 16 --weather rain:0.6 --out /tmp/rain.png
 # A still of a storm holds no lightning (#1684): the clock's strikes are left

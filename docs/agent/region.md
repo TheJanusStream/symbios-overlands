@@ -402,64 +402,76 @@ Grass, each row with an Auto box). Every field is optional:
   sky, so a turning day wants a neutral one.
 - **A weather** (#1678): `/environment/weather`, `{"kind": {"$type":
   "network.symbios.weather.rain"}, "intensity": 6000, "spell_minutes": 0}`
-  (`overcast`, `rain`, `storm`, `snow` or `fog`; intensity 0 to 1 as a
-  scaled int), lays a weather over the room's light - after its hour, so a
-  rainy night is a night. Overcast closes the cloud deck to a whole cover
-  and takes almost all the sun's direct light (the shadows go), giving a
-  little more of the sky's; rain and a storm darken the sky and its light
-  besides, snow brightens the sky a little; rain, snow and fog close in
-  the visibility (at full, fog to 60 m, snow to 140 m and rain to about
-  200 m in a room that sees 350 m); and rain and snow fall round the
-  camera, slanting on `cloud_wind_dir` at `cloud_speed`, denser the
-  heavier they are - not in an orthographic view, where nothing falls. The
-  ground keeps what falls (#1683): rain darkens it and makes it glossy,
-  puddles gather on flat ground and drown the grass there, and drops ring
-  the water near you; snow settles from the highest ground down as it
-  builds, whitening the grass and burying most of it; after a weather that
-  comes and goes the ground dries and the snow melts over its next spells
-  (the snow slower). A storm (#1684) blows harder - its wind,
-  `cloud_speed` raised up to 2.5 times, moves the clouds, the grass, the
-  foliage and the rain together - with gust fronts crossing the ground
-  downwind; and lightning strikes on the clock, every visitor seeing a
-  flash at once: the sky and the world flash (never more than two flashes
-  in any second), and thunder follows a strike as far behind as its
-  distance (300 m to 3 km) takes sound to cross, a crack first when it is
-  near. Render a flash with `render --world <did> --weather storm --flash
-  1`. With `spell_minutes` above 0 the weather comes and goes with the
-  clock in spells of about that many real minutes (two at least, a week at
-  most): clear spells and spells of the kind, up to its intensity, the
-  clouds gathering before anything falls - the same for every visitor, and
-  the same for two rooms set alike. Something falls in about half of the
-  time and the clouds gather in about four fifths of it, whatever the
-  intensity, which sets how much and never how often (the Understory's
-  rain, measured over 20,000 spells of its timeline, #1712): a "shower" of
-  8-minute spells came about once an hour and lasted 10-20 minutes, but
-  over a day it rains as often as not. Without the key the room is drawn as
-  its fields set it. Render one with `render --world <did> --weather
-  rain:0.6` (a weather that comes and goes renders as it is now). A desert
-  has no fit: Parabola Flats under a storm at 0.25, 0.45 and 0.9 was a
-  grey murk every time, the red rock and the blue sky gone, and coming and
-  going it would be so about half the time - it kept no weather (#1735 asks
-  for a share-of-time setting and a dust storm kind). A city at night is
-  the other way round once its windows light: Isoline under rain at 0.6
-  was a near-black night with only its cyan lines showing, but with lit
-  windows in every tower (building.md, "A grammar can light a texture's
-  windows") a rainy dusk is grey sky over wet streets with the panes and
-  the neon carrying the colour, and it keeps rain at 0.5 in 12-minute
+  (`overcast`, `rain`, `storm`, `snow`, `fog` or `dust`; intensity 0 to 1 as a
+  scaled int; and `"share"`, below), lays a weather over the room's light -
+  after its hour, so a rainy night is a night. Overcast closes the cloud deck
+  to a whole cover and takes almost all the sun's direct light (the shadows
+  go), giving a little more of the sky's; rain and a storm darken the sky and
+  its light besides, snow brightens the sky a little; rain, snow and fog close
+  in the visibility (at full, fog to 60 m, snow to 140 m and rain to about 200
+  m in a room that sees 350 m); and rain and snow fall round the camera,
+  slanting on `cloud_wind_dir` at `cloud_speed`, denser the heavier they are -
+  not in an orthographic view, where nothing falls. The ground keeps what
+  falls (#1683): rain darkens it and makes it glossy, puddles gather on flat
+  ground and drown the grass there, and drops ring the water near you; snow
+  settles from the highest ground down as it builds, whitening the grass and
+  burying most of it; after a weather that comes and goes the ground dries and
+  the snow melts over its next spells (the snow slower). A storm (#1684) blows
+  harder - its wind, `cloud_speed` raised up to 2.5 times, moves the clouds,
+  the grass, the foliage and the rain together - with gust fronts crossing the
+  ground downwind; and lightning strikes on the clock, every visitor seeing a
+  flash at once: the sky and the world flash (never more than two flashes in
+  any second), and thunder follows a strike as far behind as its distance (300
+  m to 3 km) takes sound to cross, a crack first when it is near. Render a
+  flash with `render --world <did> --weather storm --flash 1`. A dust storm
+  (`dust`, #1735) is a desert's: a wall of warm red-brown dust that closes the
+  air (to about 130 m at full; a light haze of it at 0) and turns the horizon
+  to the dust's own colour and the sky and the clouds most of the way - each
+  as bright as it was, less what the dust takes, so a dusty night stays a
+  night, its stars hidden - with the sun dimmed to a fifth and reddened behind
+  it; it blows as a storm does, gusts and all, strikes no lightning, and
+  nothing falls: the ground stays dry. With `spell_minutes` above 0 the
+  weather comes and goes with the clock in spells of about that many real
+  minutes (two at least, a week at most): clear spells and spells of the kind,
+  up to its intensity, the clouds gathering before anything falls - the same
+  for every visitor, and the same for two rooms set alike. How often is
+  `"share"` (#1735), 0 to 1 as a scaled int, the default 0.5 left off the
+  wire: something falls - or the fog or the dust hangs - about that share of
+  the time, the clouds gathering a while longer round it, and the intensity
+  sets how much, never how often. Measured over 20,000 spells (rain): at 0.5
+  it fell 0.50 of the time and the clouds gathered 0.81 (the Understory's
+  "shower" of 8-minute spells, #1712, came about once an hour and lasted 10-20
+  minutes, but over a day it rains as often as not); at 0.125 it fell 0.11 of
+  the time, the clouds 0.27, each wet run about one spell long; at 0.25 0.23
+  (0.50); at 0.75 0.77 (0.96); at 0.9 0.92 (0.99), its wet runs ten spells. A
+  rarer weather comes only in the spells a commoner one of its kind and spell
+  length comes in, and it still reaches its heaviest. An older client ignores
+  the share and draws such a weather about half the time, and a save from it
+  drops the share; a dust storm is a kind it does not know, drawn as no
+  weather. Without the key the room is drawn as its fields set it. Render one
+  with `render --world <did> --weather rain:0.6` (a weather that comes and
+  goes renders as it is now). A storm greys a desert: Parabola Flats under one
+  at 0.25, 0.45 and 0.9 was a grey murk every time, the red rock and the blue
+  sky gone, and at the default share it would be so about half the time - it
+  kept no weather; a dust storm and a small share (#1735) are the desert's. A
+  city at night is the other way round once its windows light: Isoline under
+  rain at 0.6 was a near-black night with only its cyan lines showing, but
+  with lit windows in every tower (building.md, "A grammar can light a
+  texture's windows") a rainy dusk is grey sky over wet streets with the panes
+  and the neon carrying the colour, and it keeps rain at 0.5 in 12-minute
   spells (session 956, on the owner's "the two together might give a good
-  balance between lit and greyed"). Rain and
-  snow stop under a roof, and the ground and the grass under it stay dry
-  and bare (#1685) - under a solid one: a part made with `solid: false`
-  carries no collider and shelters nothing, and nor does a tree's crown.
-  Roads, buildings and placed pieces answer the weather as the ground does
-  (#1686): wet, darker and glossier, puddled where they are flat, and
-  white from the snow line up wherever they face the sky - so a roof
-  whitens with the hills - and dry and bare under a solid part, a floor
-  under a roof included. An instance set's copies shelter no piece (they
-  collide as a voxel shell standing over their own roof), and a chimney
-  keeps the roof dry in its own half-cell. A piece drawn unlit (a neon
-  line), a ceiling and swaying foliage take none, and nor do avatars, what
-  they wear or ride.
+  balance between lit and greyed"). Rain and snow stop under a roof, and the
+  ground and the grass under it stay dry and bare (#1685) - under a solid one:
+  a part made with `solid: false` carries no collider and shelters nothing,
+  and nor does a tree's crown. Roads, buildings and placed pieces answer the
+  weather as the ground does (#1686): wet, darker and glossier, puddled where
+  they are flat, and white from the snow line up wherever they face the sky -
+  so a roof whitens with the hills - and dry and bare under a solid part, a
+  floor under a roof included. An instance set's copies shelter no piece (they
+  collide as a voxel shell standing over their own roof), and a chimney keeps
+  the roof dry in its own half-cell. A piece drawn unlit (a neon line), a
+  ceiling and swaying foliage take none, and nor do avatars, what they wear or
+  ride.
 - **The clouds are lit and cast shade** (#1673): one layer at
   `cloud_height`. `cloud_cover` is the share of the sky they cover - 0.3
   scattered, 0.75 broken with sunny gaps, 1 a whole overcast (before #1673

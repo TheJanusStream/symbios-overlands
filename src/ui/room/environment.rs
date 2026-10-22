@@ -161,7 +161,7 @@ fn time_of_day(ui: &mut egui::Ui, time: &mut Option<crate::pds::TimeOfDay>, dirt
 /// The world's weather (#1678): off - the sky and the air as the fields
 /// set them - or a kind of weather at an intensity, which stands still or,
 /// with a spell length, comes and goes with the clock, the same for every
-/// visitor.
+/// visitor, here about the share of the time it sets (#1735).
 fn weather(ui: &mut egui::Ui, weather: &mut Option<crate::pds::Weather>, dirty: &mut bool) {
     use crate::pds::{Weather, WeatherKind};
     let mut on = weather.is_some();
@@ -169,7 +169,8 @@ fn weather(ui: &mut egui::Ui, weather: &mut Option<crate::pds::Weather>, dirty: 
         .checkbox(&mut on, "Weather")
         .on_hover_text(
             "Off: the sky and the air are as the fields above set them. On: \
-             a weather over them - a grey sky, rain, a storm, snow or fog.",
+             a weather over them - a grey sky, rain, a storm, snow, fog or a \
+             dust storm.",
         )
         .changed()
     {
@@ -196,7 +197,9 @@ fn weather(ui: &mut egui::Ui, weather: &mut Option<crate::pds::Weather>, dirty: 
         .response
         .on_hover_text(
             "What the weather brings. A storm is heavy rain under a dark sky, \
-             gusting wind, lightning and thunder. \
+             gusting wind, lightning and thunder. A dust storm is a wall of \
+             warm red-brown dust closing in on a storm's gusting wind: nothing \
+             falls, and the ground stays dry. \
              \"A newer kind\" is one a newer version of the game set: chosen \
              here, it is replaced.",
         );
@@ -236,6 +239,39 @@ fn weather(ui: &mut egui::Ui, weather: &mut Option<crate::pds::Weather>, dirty: 
          this weather, the clouds gathering before anything falls - the same \
          for everyone in the world without anything sent between them.",
     );
+    // How much of the time (#1735).
+    ui.horizontal(|ui| {
+        ui.label("Share of time");
+        let mut share = weather.share.0;
+        let response = ui.add(crate::ui::num::slider(&mut share, 0.0..=1.0));
+        let held = Weather::share_of(Fp(share));
+        if response.changed() && held != weather.share {
+            weather.share = held;
+            *dirty = true;
+        }
+        response
+    })
+    .inner
+    .on_hover_text(
+        "As the weather comes and goes, about how much of the time it is \
+         here: rain or snow falling, or its fog or its dust in the air, \
+         about this share of the time, its clouds gathering a while round \
+         each spell of it. 0.5, about half the time, is every world's own; \
+         0.125 about one spell in eight, a desert's rare storm; 0.9 most of \
+         the time; 1 never clears, though between its spells it thins. A \
+         rarer weather comes in the spells a commoner one of its kind comes \
+         in.",
+    );
+    if weather.spell_minutes.0 <= 0.0 {
+        ui.label(
+            egui::RichText::new(
+                "A weather that stands is here all the time: the share counts \
+                 once it has a spell.",
+            )
+            .small()
+            .color(crate::ui::theme::current(ui.ctx()).text_weak),
+        );
+    }
 }
 
 /// A kind of weather as the editor names it.
@@ -247,6 +283,7 @@ fn weather_kind_text(kind: crate::pds::WeatherKind) -> &'static str {
         WeatherKind::Storm => "Storm",
         WeatherKind::Snow => "Snow",
         WeatherKind::Fog => "Fog",
+        WeatherKind::Dust => "Dust storm",
         WeatherKind::Unknown => "A newer kind",
     }
 }
@@ -1364,6 +1401,49 @@ mod tests {
                 assert_eq!(source, start);
                 assert!(!dirty);
             }
+        }
+    }
+
+    /// The weather shown and not touched (#1735, the rule of every editor
+    /// widget: a value the owner did not touch is not rewritten): none, the
+    /// default, a dust storm here an eighth of the time, a standing one, a
+    /// share between two steps of the wire's grid, and a kind a newer
+    /// client wrote.
+    #[test]
+    fn an_untouched_weather_writes_nothing() {
+        use crate::pds::{Weather, WeatherKind};
+        let rare = Weather {
+            kind: WeatherKind::Dust,
+            intensity: Fp(0.7),
+            spell_minutes: Fp(20.0),
+            share: Fp(0.125),
+        };
+        let starts = [
+            None,
+            Some(Weather::default()),
+            Some(rare),
+            Some(Weather {
+                spell_minutes: Fp(0.0),
+                ..rare
+            }),
+            Some(Weather {
+                share: Fp(0.333_33),
+                ..rare
+            }),
+            Some(Weather {
+                kind: WeatherKind::Unknown,
+                ..rare
+            }),
+        ];
+        for start in starts {
+            let ctx = egui::Context::default();
+            let mut drawn = start;
+            let mut dirty = false;
+            let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+                weather(ui, &mut drawn, &mut dirty);
+            });
+            assert_eq!(drawn, start);
+            assert!(!dirty, "{start:?}");
         }
     }
 

@@ -1,8 +1,10 @@
-//! A room's weather (#1678): a grey sky, rain, a storm, snow or fog laid
-//! over its light, standing still or coming and going with the clock.
+//! A room's weather (#1678): a grey sky, rain, a storm, snow, fog or a
+//! dust storm laid over its light, standing still or coming and going with
+//! the clock.
 //!
 //! The weather now is a handful of amounts, each 0 to 1 ([`WeatherNow`]):
-//! how overcast, how hard it rains or snows, how thick the fog, how stormy.
+//! how overcast, how hard it rains or snows, how thick the fog or the dust,
+//! how stormy.
 //! [`weather_now`] reads them off the record's [`Weather`] and the clock,
 //! and [`environment_in`] lays them over the room's environment - after its
 //! hour (`crate::time_of_day`), so a rainy night is a night that rains:
@@ -18,6 +20,11 @@
 //!   further, and settled snow sends back more of the sky's light (#1683).
 //! * **Rain, snow and fog** close in the visibility, fog the most, and
 //!   [`precipitation`] draws what falls.
+//! * **A dust storm** (#1735) closes the air to a warm haze: the horizon
+//!   turns to the dust's own red-brown and the sky overhead and the clouds
+//!   most of the way, each at its own brightness, so a dusty night stays a
+//!   night; the sun dims and reddens behind it, and what lies behind the
+//!   haze fades into the dust. Nothing falls, and the ground stays dry.
 //!
 //! The ground keeps what fell (#1683): how wet it is and how far the snow
 //! has settled ([`WeatherNow::wet`], [`WeatherNow::cover`]) build up with
@@ -36,11 +43,16 @@
 //! A storm (#1684) blows: its wind is the room's, raised by the storm, which
 //! the clouds, the grass, the foliage and the rain all follow; gust fronts
 //! cross the world over it (`storm_common.wgsl`); and [`lightning`] strikes
-//! on the clock, flashing the sky and the world, its thunder after it.
+//! on the clock, flashing the sky and the world, its thunder after it. A
+//! dust storm blows as a storm does ([`WeatherNow::gusts`]), and strikes no
+//! lightning.
 //!
 //! A weather that comes and goes reads its spells off UTC ([`severity_at`]),
 //! as a turning day reads its hour: every visitor's clock gives every other
-//! visitor's weather, as nearly as their clocks agree.
+//! visitor's weather, as nearly as their clocks agree. It is here about the
+//! share of the time its record sets (#1735, [`spread`]), on the timeline a
+//! room at the default share draws: rarer, it comes in the spells that
+//! room's comes in, never in others.
 
 pub mod lightning;
 pub mod precipitation;
@@ -63,6 +75,9 @@ pub struct WeatherNow {
     pub fog: f32,
     /// How stormy (#1684 draws the gusts, lightning and thunder).
     pub storm: f32,
+    /// How thick a dust storm's dust (#1735): the air closed to a warm haze,
+    /// the light dimmed and warmed, the wind raised as a storm's.
+    pub dust: f32,
     /// How wet the ground is, 0 dry to 1 soaked: wetted by the rain and,
     /// after a weather that comes and goes, drying once it stops (#1683).
     pub wet: f32,
@@ -82,6 +97,13 @@ impl WeatherNow {
         self.rain > 0.0 || self.snow > 0.0
     }
 
+    /// How hard the weather blows, 0 to 1: a storm's wind, or a dust
+    /// storm's (#1735), which the clouds, the grass and the foliage follow
+    /// and the gust fronts cross. Only a storm's strikes lightning.
+    pub(crate) fn gusts(&self) -> f32 {
+        self.storm.max(self.dust)
+    }
+
     /// The most any amount differs between `self` and `other`.
     pub(crate) fn gap(&self, other: &WeatherNow) -> f32 {
         [
@@ -90,6 +112,7 @@ impl WeatherNow {
             self.snow - other.snow,
             self.fog - other.fog,
             self.storm - other.storm,
+            self.dust - other.dust,
             self.wet - other.wet,
             self.cover - other.cover,
         ]
@@ -108,6 +131,7 @@ impl WeatherNow {
             snow,
             fog: self.fog * falls,
             storm: self.storm * falls,
+            dust: self.dust * falls,
             wet: wet_under(rain),
             cover: cover_under(snow),
         }
@@ -122,6 +146,7 @@ pub fn amounts(kind: WeatherKind, intensity: f32) -> WeatherNow {
         WeatherKind::Storm => &cfg::STORM,
         WeatherKind::Snow => &cfg::SNOW,
         WeatherKind::Fog => &cfg::FOG,
+        WeatherKind::Dust => &cfg::DUST,
         // A kind a newer client added: drawn as no weather.
         WeatherKind::Unknown => return WeatherNow::default(),
     };
@@ -138,6 +163,7 @@ pub fn amounts(kind: WeatherKind, intensity: f32) -> WeatherNow {
         snow,
         fog: at(table.fog),
         storm: at(table.storm),
+        dust: at(table.dust),
         wet: wet_under(rain),
         cover: cover_under(snow),
     }
@@ -214,8 +240,9 @@ pub fn storm_at(weather: &Weather, unix_secs: f64) -> f32 {
 /// `unix_secs`: 0 clear, 1 its kind at its intensity. A smooth value noise
 /// over the spells counted since 1970, each spell's value drawn from its
 /// count and from the weather's kind and spell length, so every visitor
-/// reads one timeline and two rooms set alike share theirs. A weather that
-/// stands is at 1.
+/// reads one timeline and two rooms set alike share theirs, and spread for
+/// the share of the time it is here ([`spread`]). A weather that stands is
+/// at 1.
 pub fn severity_at(weather: &Weather, unix_secs: f64) -> f32 {
     let spell_secs = f64::from(weather.spell_minutes.0) * 60.0;
     if spell_secs.is_nan() || spell_secs <= 0.0 {
@@ -225,9 +252,37 @@ pub fn severity_at(weather: &Weather, unix_secs: f64) -> f32 {
     let count = t.floor();
     let into = (t - count) as f32;
     let salt = salt(weather);
-    let a = spell_value(count as i64, salt);
-    let b = spell_value(count as i64 + 1, salt);
+    let share = weather.share.0;
+    let a = spread(spell_value(count as i64, salt), share);
+    let b = spread(spell_value(count as i64 + 1, salt), share);
     a + (b - a) * into * into * (3.0 - 2.0 * into)
+}
+
+/// A spell's value, `value` (0 to 1, drawn evenly), spread for a weather
+/// here about `share` of the time (#1735). The values a weather at the
+/// default share draws dry and clear under ([`cfg::FALLS`],
+/// [`cfg::CLOUDS_GATHER`]: a half and a quarter) are moved to where that
+/// share's would be - the dry ones under `1 - share`, the clear ones under
+/// its square, so the clouds keep gathering for a while round each spell of
+/// it - and each stretch between is straight. So a spell is wet about
+/// `share` of the time, as often at its heaviest when it is; and at the
+/// default every value stays as it was drawn, to the bit.
+fn spread(value: f32, share: f32) -> f32 {
+    let share = if share.is_finite() {
+        share.clamp(0.0, 1.0)
+    } else {
+        Weather::DEFAULT_SHARE
+    };
+    let (gather, fall) = (cfg::CLOUDS_GATHER.0, cfg::FALLS.0);
+    let dry = 1.0 - share;
+    let clear = dry * dry;
+    if value < clear {
+        gather * (value / clear)
+    } else if value < dry {
+        gather + (fall - gather) * ((value - clear) / (dry - clear))
+    } else {
+        fall + (1.0 - fall) * ((value - dry) / (1.0 - dry))
+    }
 }
 
 /// What sets a weather's timeline apart from another's: its kind and its
@@ -263,6 +318,11 @@ fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
+/// The luminance of linear light.
+fn luma(lin: Vec3) -> f32 {
+    lin.dot(Vec3::new(0.2126, 0.7152, 0.0722))
+}
+
 /// An sRGB colour as linear light.
 fn linear(srgb: [f32; 3]) -> Vec3 {
     let c = Color::srgb(srgb[0], srgb[1], srgb[2]).to_linear();
@@ -282,8 +342,28 @@ fn srgb(linear: Vec3) -> [f32; 3] {
 /// stays a night under snow.
 fn weathered(c: [f32; 3], grey: f32, dark: f32, light: f32) -> [f32; 3] {
     let lin = linear(c);
-    let lum = lin.dot(Vec3::new(0.2126, 0.7152, 0.0722));
-    srgb(lin.lerp(Vec3::splat(lum), grey) * (1.0 - dark) * (1.0 + light))
+    srgb(lin.lerp(Vec3::splat(luma(lin)), grey) * (1.0 - dark) * (1.0 + light))
+}
+
+/// `c` (sRGB) turned `share` of the way toward the dust's colour at its own
+/// brightness (#1735): the dust gives the light its hue, not its level. Its
+/// own colour goes grey over the first [`cfg::DUST_GREYS`] of the way and
+/// the dust's hue comes in over the rest, so the two never mix: a blue sky
+/// turned toward a warm hue at once passes through a lilac and a mauve no
+/// dust shows, where a dusty sky pales before it browns.
+fn dusted(c: [f32; 3], share: f32) -> [f32; 3] {
+    let lin = linear(c);
+    let lum = luma(lin);
+    let grey = Vec3::splat(lum);
+    let dust = linear(cfg::DUST_COLOR);
+    let own = (1.0 - share / cfg::DUST_GREYS).clamp(0.0, 1.0);
+    let dusts = ((share - cfg::DUST_GREYS) / (1.0 - cfg::DUST_GREYS)).clamp(0.0, 1.0);
+    srgb(grey + (lin - grey) * own + (dust * (lum / luma(dust)) - grey) * dusts)
+}
+
+/// `c` (sRGB) through the dust's filter `filter` (linear, per channel).
+fn filtered(c: [f32; 3], filter: Vec3) -> [f32; 3] {
+    srgb(linear(c) * filter)
 }
 
 /// Room environment `env` (at its hour) under the weather `now` (see the
@@ -300,7 +380,7 @@ pub fn environment_in(env: &Environment, now: &WeatherNow) -> Environment {
     // follows the room's wind - the clouds, the grass, the foliage, the rain
     // (#1684).
     out.cloud_cover = Fp(lerp(env.cloud_cover.0, 1.0, o));
-    out.cloud_speed = Fp(env.cloud_speed.0 * (1.0 + now.storm * cfg::storm::WIND_GAIN));
+    out.cloud_speed = Fp(env.cloud_speed.0 * (1.0 + now.gusts() * cfg::storm::WIND_GAIN));
     out.cloud_density = Fp(lerp(
         env.cloud_density.0,
         env.cloud_density.0.max(cfg::OVERCAST_DENSITY),
@@ -308,10 +388,14 @@ pub fn environment_in(env: &Environment, now: &WeatherNow) -> Environment {
     ));
 
     // The light: the sun's almost gone behind a whole overcast, the sky's
-    // a little more; both darker in rain and a storm.
-    let storm = now.storm;
-    let dark = (now.rain * cfg::RAIN_DARK).max(storm * cfg::STORM_DARK);
-    let sun = lerp(1.0, cfg::OVERCAST_SUN, o) * lerp(1.0, cfg::STORM_SUN, storm);
+    // a little more; both darker in rain, a storm and dust.
+    let (storm, dust) = (now.storm, now.dust);
+    let dark = (now.rain * cfg::RAIN_DARK)
+        .max(storm * cfg::STORM_DARK)
+        .max(dust * cfg::DUST_DARK);
+    let sun = lerp(1.0, cfg::OVERCAST_SUN, o)
+        * lerp(1.0, cfg::STORM_SUN, storm)
+        * lerp(1.0, cfg::DUST_SUN, dust);
     let ambient =
         lerp(1.0, cfg::OVERCAST_AMBIENT, o) * (1.0 - dark) * (1.0 + now.cover * cfg::SNOW_GLARE);
     out.sun_illuminance = Fp(env.sun_illuminance.0 * sun);
@@ -344,8 +428,10 @@ pub fn environment_in(env: &Environment, now: &WeatherNow) -> Environment {
     // The haze of a weather is water and ice, which take no colour from
     // the light: the fog's own tints - what it takes from what lies behind
     // it and what it adds (Bevy's atmospheric fog) - grey with the sky's,
-    // and wholly in a thick fog.
-    let haze = grey(cfg::HORIZON_GREY).max(now.fog);
+    // and wholly in a thick fog. And so they do in dust (#1735), whose hue
+    // the fog's colour carries: a tint of their own, which Bevy raises to
+    // the power e, turns a warm haze to a red one.
+    let haze = grey(cfg::HORIZON_GREY).max(now.fog).max(dust);
     out.fog_extinction = Fp3(weathered(env.fog_extinction.0, haze, 0.0, 0.0));
     out.fog_inscattering = Fp3(weathered(env.fog_inscattering.0, haze, 0.0, 0.0));
 
@@ -354,13 +440,31 @@ pub fn environment_in(env: &Environment, now: &WeatherNow) -> Environment {
     out.fog_sun_color = with_alpha(rgb(env.fog_sun_color), env.fog_sun_color.0[3] * (1.0 - o));
     out.water_sun_glitter = Fp(env.water_sun_glitter.0 * (1.0 - o));
 
-    // The air closes in: each of fog, rain and snow takes the visibility
-    // that share of the way, in proportion, toward its own.
+    // A dust storm (#1735): the dust's hue over the horizon - which the
+    // haze fades what lies behind it into - the sky and the clouds; and the
+    // sun, its glow and its glitter reddened and dimmed behind it.
+    if dust > 0.0 {
+        out.sky_color = Fp3(dusted(out.sky_color.0, dust * cfg::DUST_SKY));
+        out.fog_color = with_alpha(dusted(rgb(out.fog_color), dust), out.fog_color.0[3]);
+        out.cloud_color = Fp3(dusted(out.cloud_color.0, dust * cfg::DUST_SKY));
+        out.cloud_shadow_color = Fp3(dusted(out.cloud_shadow_color.0, dust * cfg::DUST_SKY));
+        let reddened = Vec3::ONE.lerp(linear(cfg::DUST_SUN_TINT), dust);
+        out.sun_color = Fp3(filtered(env.sun_color.0, reddened));
+        out.fog_sun_color = with_alpha(
+            filtered(rgb(out.fog_sun_color), reddened),
+            out.fog_sun_color.0[3],
+        );
+        out.water_sun_glitter = Fp(out.water_sun_glitter.0 * lerp(1.0, cfg::DUST_SUN, dust));
+    }
+
+    // The air closes in: each of fog, rain, snow and dust takes the
+    // visibility that share of the way, in proportion, toward its own.
     let mut visibility = env.fog_visibility.0;
     for (amount, closed) in [
         (now.fog, cfg::FOG_VISIBILITY),
         (now.rain, cfg::RAIN_VISIBILITY),
         (now.snow, cfg::SNOW_VISIBILITY),
+        (dust, cfg::DUST_VISIBILITY),
     ] {
         if closed < visibility {
             visibility *= (closed / visibility).powf(amount);

@@ -227,15 +227,16 @@ pub type VegetationWindMaterial = ExtendedMaterial<StandardMaterial, WindExtensi
 ///
 /// Written by the world compiler's `apply_environment_state` from the drawn
 /// environment's `cloud_wind_dir` / `cloud_speed` (a storm's raised wind,
-/// and the storm itself, #1684) - the same values that drive the cloud
-/// deck, so a wind-direction drag in the editor turns the clouds and the
-/// foliage together rather than leaving them disagreeing.
+/// and the storm itself, #1684, or a dust storm's, #1735) - the same values
+/// that drive the cloud deck, so a wind-direction drag in the editor turns
+/// the clouds and the foliage together rather than leaving them disagreeing.
 #[derive(Resource, Debug, Clone, Copy)]
 pub struct VegetationWind {
     pub dir: Vec2,
     pub speed: f32,
-    /// How stormy, 0 to 1 (#1684): the drawn weather's, for the gust fronts
-    /// the foliage and the grass take (`storm_common.wgsl`).
+    /// How stormy, 0 to 1 (#1684): how hard the drawn weather gusts - a
+    /// storm's, or a dust storm's (#1735, `WeatherNow::gusts`) - for the
+    /// gust fronts the foliage and the grass take (`storm_common.wgsl`).
     pub storm: f32,
 }
 
