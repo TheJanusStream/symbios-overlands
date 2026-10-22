@@ -90,10 +90,12 @@ fn build_tree() -> Generator {
         [0.0, rel(pad_y + 0.09), 0.0],
         id_quat(),
     ));
+    // The fore-and-aft bar of the cross stands 5 mm prouder than the other:
+    // at one height their tops drew the crossing in one place (#1739).
     for (sx, sz) in [(1.0_f32, 0.0_f32), (0.0, 1.0)] {
         root.children.push(prim(
             cuboid_tapered(
-                [0.9 * sx + 0.06, 0.03, 0.9 * sz + 0.06],
+                [0.9 * sx + 0.06, 0.03 + 0.01 * sz, 0.9 * sz + 0.06],
                 0.0,
                 glow(NEON_CYAN, 4.0),
             ),
@@ -181,11 +183,19 @@ fn build_tree() -> Generator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::catalogue::items::overhaul::assert_no_z_fighting;
     use crate::catalogue::items::util::assert_sanitize_stable;
 
     #[test]
     fn build_round_trips_through_sanitize() {
         assert_sanitize_stable(&DronePerch.build(""), "drone_perch");
+    }
+
+    /// No two pieces draw faces in one place (#1739: the agent's check named
+    /// this piece's pairs when Isoline's fringe placed it).
+    #[test]
+    fn nothing_z_fights() {
+        assert_no_z_fighting(&DronePerch.build(""), "drone_perch");
     }
 
     #[test]

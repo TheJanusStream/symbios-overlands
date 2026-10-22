@@ -444,11 +444,15 @@ pub(crate) fn first_difference(a: &Generator, b: &Generator, path: &str) -> Opti
 /// where its faces are chords inside it, a hair short past exponent 2,
 /// where they bow out past it.
 ///
-/// Read GENEROUSLY, so a part can seem to meet what it misses: a hollow's
-/// bore, read solid. It is the one generous reading #1577 left, and #1723
-/// holds it: reading it turns parts loose on four craft, each a design call
-/// of its own. A bend that LIFTS a prim's top (`bend.y`) is refused
-/// outright - its inverse is a root solve no craft has needed (#1393).
+/// A hollow's bore is read as drawn too since #1723 - the last generous
+/// reading #1577 left - at `hollow` of the radius, clamped as each mesher
+/// clamps it, on a sweep, cylinder, cone, torus and lathe. Read solid, it
+/// had hidden four craft whose parts sat in a bore clear of its wall: the
+/// roadster's steering column, the ox-cart's roof, the autogyro's cowl ring
+/// and the hybrid airship's ducted fans. A ball keeps its bore solid: its
+/// drawn inner shell is chords inside a round bore, and no craft hollows a
+/// ball. A bend that LIFTS a prim's top (`bend.y`) is refused outright - its
+/// inverse is a root solve no craft has needed (#1393).
 ///
 /// Two parts meet when a sample of one - a point of its drawn surface - lies
 /// inside the other, or when a witness does: where two of its sweeps,
@@ -666,14 +670,17 @@ pub(crate) mod touch {
                     r <= radius + EPS
                         && (band[0] - EPS..=band[1] + EPS).contains(&q.y)
                         && section.in_wedge(q.x, q.z, EPS)
+                        && r >= section.hollow * radius - EPS
                 }
                 Shape::Cylinder {
                     radius,
                     band,
                     section,
                 } => {
+                    let reach = section.reach(q.x, q.z, EPS);
                     (band[0] - EPS..=band[1] + EPS).contains(&q.y)
-                        && section.reach(q.x, q.z, EPS) <= radius + EPS
+                        && reach <= radius + EPS
+                        && reach >= section.hollow * radius - EPS
                 }
                 Shape::Cone {
                     radius,
@@ -683,10 +690,12 @@ pub(crate) mod touch {
                 } => {
                     // Its section at any height is the base ring shrunk toward
                     // the apex: every lateral face runs from the tip to a base
-                    // edge.
+                    // edge - and its bore's, the bore's.
                     let k = ((half_h - q.y) / (2.0 * half_h)).clamp(0.0, 1.0);
+                    let reach = section.reach(q.x, q.z, EPS);
                     (band[0] - EPS..=band[1] + EPS).contains(&q.y)
-                        && section.reach(q.x, q.z, EPS) <= radius * k + EPS
+                        && reach <= radius * k + EPS
+                        && reach >= section.hollow * radius * k - EPS
                 }
                 Shape::Ring {
                     minor,
@@ -699,7 +708,8 @@ pub(crate) mod touch {
                     // measure - its reach against the major ring - the
                     // section is the minor ring laid at the major radius.
                     let u = major_section.reach(q.x, q.z, EPS);
-                    minor_section.reach(u - major, q.y, EPS) <= minor + EPS
+                    let reach = minor_section.reach(u - major, q.y, EPS);
+                    reach <= minor + EPS && reach >= minor_section.hollow * minor - EPS
                 }
                 Shape::Tube {
                     stations,
@@ -762,8 +772,11 @@ pub(crate) mod touch {
                         let r = sa.radius + (sb.radius - sa.radius) * u;
                         let tol = EPS / r.max(EPS);
                         match on_ring(d, n, b) {
-                            Some((x, y)) => section.reach(x, y, tol) <= 1.0 + tol,
-                            None => d.length() <= EPS,
+                            Some((x, y)) => {
+                                let reach = section.reach(x, y, tol);
+                                reach <= 1.0 + tol && reach >= section.hollow - tol
+                            }
+                            None => d.length() <= EPS && section.hollow == 0.0,
                         }
                     };
                     // Boxes first, chunk then window: a point outside a box is
@@ -781,34 +794,22 @@ pub(crate) mod touch {
                 // lathe's caps are exactly that closure. Every face between two
                 // profile stations is flat, so the section at any height is
                 // the ring at the profile's radius there, and the point's
-                // distance out is its reach. On the silhouette counts as in,
-                // as on every other shape's surface: a crossing count alone
-                // says nothing there, and every vertex the lathe is drawn
-                // through lies on it.
+                // distance out is its reach. Hollow, its bore is the same
+                // profile at `hollow` of its radius, open at either end
+                // through its annular caps (#1577): a point in it is in the
+                // profile at its reach over `hollow`, and not on it.
                 Shape::Revolve {
                     profile, section, ..
                 } => {
-                    let pt = Vec2::new(section.reach(q.x, q.z, EPS), q.y);
-                    let mut poly: Vec<Vec2> = profile.clone();
-                    poly.push(Vec2::new(0.0, profile[profile.len() - 1].y));
-                    poly.push(Vec2::new(0.0, profile[0].y));
-                    let mut inside = false;
-                    let n = poly.len();
-                    for i in 0..n {
-                        let (a, b) = (poly[i], poly[(i + 1) % n]);
-                        let ab = b - a;
-                        let t = ((pt - a).dot(ab) / ab.length_squared().max(1e-12)).clamp(0.0, 1.0);
-                        if (pt - (a + ab * t)).length() <= EPS {
-                            return true;
-                        }
-                        if (a.y > pt.y) != (b.y > pt.y) {
-                            let x = a.x + (pt.y - a.y) / (b.y - a.y) * (b.x - a.x);
-                            if pt.x < x {
-                                inside = !inside;
-                            }
-                        }
-                    }
-                    inside
+                    let reach = section.reach(q.x, q.z, EPS);
+                    let (inside, on) = in_silhouette(profile, Vec2::new(reach, q.y), EPS);
+                    let k = section.hollow;
+                    let bored = k > 0.0 && {
+                        let (inside, on) =
+                            in_silhouette(profile, Vec2::new(reach / k, q.y), EPS / k);
+                        inside && !on
+                    };
+                    (inside || on) && !bored
                 }
             }
         }
@@ -825,11 +826,15 @@ pub(crate) mod touch {
     /// 43 % of its cylinders are under resolution 8 (#1393 T2a). A path cut
     /// is part of the layout, not a trim of it: a half-pipe of three faces
     /// is half a hexagon, which no whole ring of resolution 3 draws.
+    ///
+    /// A hollow draws the same ring again inside it, scaled by `hollow`, and
+    /// the solid is the band between the two (#1577).
     #[derive(Clone, Copy)]
     struct Section {
         a0: f32,
         span: f32,
         sides: u32,
+        hollow: f32,
     }
 
     impl Section {
@@ -838,11 +843,12 @@ pub(crate) mod touch {
                 a0: 0.0,
                 span: TAU,
                 sides,
+                hollow: 0.0,
             }
         }
 
-        /// The ring a prim's resolution and path cut lay, the cut read as
-        /// `cuts::path_cut_angles` reads it.
+        /// The ring a prim's resolution, path cut and hollow lay, the cut read
+        /// as `cuts::path_cut_angles` reads it.
         fn of(sides: u32, kind: &GeneratorKind) -> Self {
             let [lo, hi] = kind.torture().map_or([0.0, 1.0], |t| t.path_cut.0);
             let (a0, span) = if hi >= lo {
@@ -850,10 +856,19 @@ pub(crate) mod touch {
             } else {
                 (hi * TAU, (lo - hi) * TAU)
             };
+            let hollow = bore_of(kind);
             if span >= TAU - 1e-3 {
-                Self::whole(sides)
+                Self {
+                    hollow,
+                    ..Self::whole(sides)
+                }
             } else {
-                Self { a0, span, sides }
+                Self {
+                    a0,
+                    span,
+                    sides,
+                    hollow,
+                }
             }
         }
 
@@ -893,8 +908,9 @@ pub(crate) mod touch {
         }
 
         /// Every vertex the ring is drawn through, as `(cos, sin)` on the unit
-        /// ring: the whole ring's `sides`, or a cut ring's `sides + 1` and the
-        /// axis its cut faces run to.
+        /// ring: the whole ring's `sides`, or a cut ring's `sides + 1` and,
+        /// solid, the axis its cut faces run to - hollow, they run to its
+        /// bore ([`Self::bore_corners`]).
         fn corners(&self) -> Vec<(f32, f32)> {
             let last = if self.is_whole() {
                 self.sides - 1
@@ -907,11 +923,48 @@ pub(crate) mod touch {
                     (c, s)
                 })
                 .collect();
-            if !self.is_whole() {
+            if !self.is_whole() && self.hollow == 0.0 {
                 out.push((0.0, 0.0));
             }
             out
         }
+
+        /// Every vertex its bore is drawn through, as [`Self::corners`] gives
+        /// them: none for a solid ring.
+        fn bore_corners(&self) -> Vec<(f32, f32)> {
+            if self.hollow == 0.0 {
+                return Vec::new();
+            }
+            self.corners()
+                .into_iter()
+                .map(|(c, s)| (c * self.hollow, s * self.hollow))
+                .collect()
+        }
+    }
+
+    /// Whether `pt` - `(reach, height)` - lies in a lathe's silhouette, its
+    /// `profile` closed down the axis as its caps close it; and whether it
+    /// lies within `eps` of that outline, which counts as in, as on every
+    /// other shape's surface: a crossing count alone says nothing there, and
+    /// every vertex the lathe is drawn through lies on it.
+    fn in_silhouette(profile: &[Vec2], pt: Vec2, eps: f32) -> (bool, bool) {
+        let mut poly: Vec<Vec2> = profile.to_vec();
+        poly.push(Vec2::new(0.0, profile[profile.len() - 1].y));
+        poly.push(Vec2::new(0.0, profile[0].y));
+        let mut inside = false;
+        let mut on = false;
+        for (&a, &b) in poly.iter().zip(poly.iter().cycle().skip(1)) {
+            let ab = b - a;
+            let t = ((pt - a).dot(ab) / ab.length_squared().max(1e-12)).clamp(0.0, 1.0);
+            on |= (pt - (a + ab * t)).length() <= eps;
+            if (a.y > pt.y) != (b.y > pt.y) {
+                let x = a.x + (pt.y - a.y) / (b.y - a.y) * (b.x - a.x);
+                if pt.x < x {
+                    inside = !inside;
+                }
+            }
+        }
+        (inside, on)
     }
 
     /// The band of its height a profile cut keeps, `0..1` from its bottom
@@ -920,6 +973,17 @@ pub(crate) mod touch {
         let [t0, t1] = kind.torture().map_or([0.0, 1.0], |t| t.profile_cut.0);
         let t0 = t0.clamp(0.0, 1.0);
         [t0, t1.clamp(0.0, 1.0).max(t0 + 1e-3)]
+    }
+
+    /// The hollow `kind`'s mesher draws, as a share of its radius: as it
+    /// clamps it, and nothing under a ten-thousandth (#1577).
+    fn bore_of(kind: &GeneratorKind) -> f32 {
+        let most = match kind {
+            GeneratorKind::Cylinder { .. } | GeneratorKind::Cone { .. } => 0.999,
+            _ => 0.99,
+        };
+        let k = kind.torture().map_or(0.0, |t| t.hollow.0).clamp(0.0, most);
+        if k > 1e-4 { k } else { 0.0 }
     }
 
     /// The ring a window draws at `u` between two rings, each given as its
@@ -987,7 +1051,8 @@ pub(crate) mod touch {
                 band,
                 section,
             } => {
-                if section.is_whole() && band[0] <= -radius && band[1] >= *radius {
+                let whole = section.is_whole() && section.hollow == 0.0;
+                if whole && band[0] <= -radius && band[1] >= *radius {
                     for a in [Vec3::X, Vec3::Y, Vec3::Z] {
                         out.push(a * *radius);
                         out.push(-a * *radius);
@@ -1066,10 +1131,11 @@ pub(crate) mod touch {
                 band,
                 section,
             } => {
-                let corners = section.corners();
+                let (corners, bore) = (section.corners(), section.bore_corners());
                 for k in 0..=rows {
                     let y = band[0] + (band[1] - band[0]) * k as f32 / rows as f32;
                     ring(Vec3::Y * y, Vec3::X, Vec3::Z, *radius, &corners, &mut out);
+                    ring(Vec3::Y * y, Vec3::X, Vec3::Z, *radius, &bore, &mut out);
                 }
             }
             Shape::Cone {
@@ -1078,7 +1144,7 @@ pub(crate) mod touch {
                 band,
                 section,
             } => {
-                let corners = section.corners();
+                let (corners, bore) = (section.corners(), section.bore_corners());
                 for k in 0..=rows {
                     let y = band[0] + (band[1] - band[0]) * k as f32 / rows as f32;
                     let at = radius * ((half_h - y) / (2.0 * half_h)).clamp(0.0, 1.0);
@@ -1088,6 +1154,7 @@ pub(crate) mod touch {
                         continue;
                     }
                     ring(Vec3::Y * y, Vec3::X, Vec3::Z, at, &corners, &mut out);
+                    ring(Vec3::Y * y, Vec3::X, Vec3::Z, at, &bore, &mut out);
                 }
             }
             Shape::Ring {
@@ -1096,7 +1163,8 @@ pub(crate) mod touch {
                 major_section,
                 minor_section,
             } => {
-                let minor_ring = minor_section.corners();
+                let mut minor_ring = minor_section.corners();
+                minor_ring.extend(minor_section.bore_corners());
                 // A cut major arc ends in caps across the tube, never at the
                 // ring's axis.
                 let majors: Vec<(f32, f32)> = major_section
@@ -1133,10 +1201,11 @@ pub(crate) mod touch {
                 section,
                 dense,
             } => {
-                let corners = section.corners();
+                let (corners, bore) = (section.corners(), section.bore_corners());
                 for (i, s) in profile.iter().enumerate() {
                     if !dense || taken(i, profile.len()) {
                         ring(Vec3::Y * s.y, Vec3::X, Vec3::Z, s.x, &corners, &mut out);
+                        ring(Vec3::Y * s.y, Vec3::X, Vec3::Z, s.x, &bore, &mut out);
                     }
                 }
             }
@@ -1186,10 +1255,16 @@ pub(crate) mod touch {
                 // pole at 0 to the north at 1.
                 let [t0, t1] = kept_band(kind);
                 let at = |t: f32| radius.0 * (-FRAC_PI_2 + t * PI).sin();
+                // Its bore stays solid: the drawn inner shell's faces are
+                // chords INSIDE a round bore, which would read the shell
+                // thinner than it is drawn - and no craft hollows a ball.
                 Shape::Ball {
                     radius: radius.0,
                     band: [at(t0), at(t1)],
-                    section: Section::of(4, kind),
+                    section: Section {
+                        hollow: 0.0,
+                        ..Section::of(4, kind)
+                    },
                 }
             }
             GeneratorKind::Cylinder {
@@ -1232,6 +1307,7 @@ pub(crate) mod touch {
                         a0: t0 * TAU + FRAC_PI_2,
                         span: ((t1 - t0) * TAU).min(TAU),
                         sides: minor_sides,
+                        hollow: bore_of(kind),
                     }
                 } else {
                     Section::whole(minor_sides)
@@ -1239,7 +1315,10 @@ pub(crate) mod touch {
                 Shape::Ring {
                     minor: minor_radius.0,
                     major: major_radius.0,
-                    major_section: Section::of(major_sides, kind),
+                    major_section: Section {
+                        hollow: 0.0,
+                        ..Section::of(major_sides, kind)
+                    },
                     minor_section,
                 }
             }
@@ -1431,12 +1510,21 @@ pub(crate) mod touch {
                 let rings: Vec<&[Vec3]> = outline.chunks(m).collect();
                 debug_assert_eq!(rings.len(), stations.len(), "{path}: a ring per station");
                 let taken = |i: usize| i.is_multiple_of(STRIDE) || i + 1 == rings.len();
-                let samples: Vec<Vec3> = rings
+                let mut samples: Vec<Vec3> = rings
                     .iter()
                     .enumerate()
                     .filter(|&(i, _)| taken(i))
                     .flat_map(|(_, r)| r.iter().copied())
                     .collect();
+                // A hollow tube's bore wall too (#1577), each sampled ring
+                // drawn in to its bore in the tube's own frame and carried as
+                // its vertices are.
+                let bore = section.bore_corners();
+                for (_, st) in stations.iter().enumerate().filter(|&(i, _)| taken(i)) {
+                    samples.extend(bore.iter().map(|&(c, sn)| {
+                        to_root(st.pos + (st.normal * c + st.binormal * sn) * st.radius)
+                    }));
+                }
                 let chunks = (0..rings.len() - 1)
                     .collect::<Vec<_>>()
                     .chunks(CHUNK)
@@ -2064,6 +2152,7 @@ pub(crate) mod touch {
                 a0: PI,
                 span: PI,
                 sides: 3,
+                hollow: 0.0,
             };
             let apothem = (PI / 6.0).cos();
             assert!(
@@ -2269,6 +2358,28 @@ pub(crate) mod touch {
                 ("a rounded bevel", bevel([0.3, 0.8, 0.5], 0.1, 4, m())),
                 ("a wedge", wedge([0.5, 0.3, 0.8], m())),
                 (
+                    "a hollow sweep",
+                    with_cut(
+                        line(&[([0.0, 0.0, -0.6], 0.3), ([0.0, 0.1, 0.6], 0.25)], 6),
+                        [0.0, 1.0],
+                        [0.0, 1.0],
+                        0.5,
+                    ),
+                ),
+                (
+                    "a hollow half-pipe",
+                    with_cut(
+                        line(&[([0.0, 0.0, -0.6], 0.3), ([0.0, 0.0, 0.6], 0.3)], 5),
+                        [0.25, 1.0],
+                        [0.0, 1.0],
+                        0.4,
+                    ),
+                ),
+                (
+                    "a hollow lathe",
+                    with_cut(raw_lathe(), [0.0, 1.0], [0.0, 1.0], 0.5),
+                ),
+                (
                     "a sliced smooth lathe",
                     with_cut(
                         lathe(
@@ -2283,20 +2394,24 @@ pub(crate) mod touch {
                     ),
                 ),
                 (
+                    "a hollow cylinder",
+                    with_cut(cylinder(0.3, 0.8, 8, m()), [0.0, 1.0], [0.0, 1.0], 0.6),
+                ),
+                (
                     "a sliced cylinder",
                     with_cut(cylinder(0.3, 0.8, 6, m()), [0.0, 1.0], [0.25, 0.75], 0.0),
                 ),
                 (
-                    "a sliced cone",
-                    with_cut(cone(0.4, 0.9, 8, m()), [0.0, 1.0], [0.0, 0.6], 0.0),
+                    "a hollow sliced cone",
+                    with_cut(cone(0.4, 0.9, 8, m()), [0.0, 1.0], [0.0, 0.6], 0.5),
                 ),
                 (
                     "a cut torus",
                     with_cut(torus(0.08, 0.4, m()), [0.0, 0.6], [0.0, 1.0], 0.0),
                 ),
                 (
-                    "a channel torus",
-                    with_cut(torus(0.08, 0.4, m()), [0.0, 1.0], [0.25, 0.75], 0.0),
+                    "a hollow channel torus",
+                    with_cut(torus(0.08, 0.4, m()), [0.0, 1.0], [0.25, 0.75], 0.5),
                 ),
                 (
                     "a dome",

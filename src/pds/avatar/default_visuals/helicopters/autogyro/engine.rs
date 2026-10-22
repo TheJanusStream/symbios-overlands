@@ -26,7 +26,15 @@ const CYL_R: f32 = 0.032;
 const CYL_LEN: f32 = 0.10;
 const COWL_Z: [f32; 2] = [1.30, 1.50];
 const COWL_R: f32 = 0.235;
-const COWL_HOLLOW: f32 = 0.86;
+/// The cowl ring's bore, as a share of its radius: narrow enough that the
+/// ring bears on her nose at its after lip (#1723), and still wide enough
+/// to show the cylinders, whose heads it grazes. It bears on the crown at
+/// every girth and on the keel too at the slimmer ones: the ring is centred
+/// on the engine, and her nose's centreline rises against it as her girth
+/// grows, so at the fullest it rides on the crown alone. Bored 0.86 it stood
+/// clear of the nose all round, by 11 mm at the fullest girth, and of every
+/// head - held by nothing.
+const COWL_HOLLOW: f32 = 0.75;
 
 /// Where the airscrew's hub turns: 3 cm ahead of the cowl ring's lip, so
 /// her blades clear it - the biplane's; her hubcap's silhouette, `(radius,

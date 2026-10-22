@@ -73,7 +73,11 @@ fn build_tree() -> Generator {
     prims.push(footing(10.0, 8.0, [0.0, 0.0], 11.0));
 
     // Surviving concrete walls at broken heights: the solid back wall faces
-    // away (+Z), the gate and barrel fire face the camera (−Z).
+    // away (+Z), the gate and barrel fire face the camera (−Z). The side walls
+    // stand 2 cm in from the back wall's ends, where they run into it: flush
+    // with them, their outer faces drew in one place with its end faces
+    // (#1739).
+    let side_x = 4.68_f32;
     prims.push(prim(
         solid(cuboid_tapered(
             [10.0, 5.0, 0.6],
@@ -89,7 +93,7 @@ fn build_tree() -> Generator {
             0.0,
             concrete(CONCRETE_GREY),
         )),
-        [-4.7, base_h + 2.1, 0.0],
+        [-side_x, base_h + 2.1, 0.0],
         id_quat(),
     ));
     prims.push(prim(
@@ -98,7 +102,7 @@ fn build_tree() -> Generator {
             0.0,
             concrete(CONCRETE_GREY),
         )),
-        [4.7, base_h + 1.3, 0.0],
+        [side_x, base_h + 1.3, 0.0],
         id_quat(),
     ));
     // Broken front wall stubs flanking the gate (−Z). The right stub is lower
@@ -144,12 +148,12 @@ fn build_tree() -> Generator {
                 0.25,
                 concrete(CONCRETE_GREY),
             )),
-            [-4.7, side_top + th * 0.5, dz],
+            [-side_x, side_top + th * 0.5, dz],
             quat_y(dz * 0.02),
         ));
     }
     // Rebar jutting from the snapped lower-right wall and a gate stub.
-    prims.extend(rebar_stubs([4.7, base_h + 2.6, 1.6], 1.3, 4));
+    prims.extend(rebar_stubs([side_x, base_h + 2.6, 1.6], 1.3, 4));
     prims.extend(rebar_stubs([3.3, base_h + 1.8, -3.7], 0.9, 3));
 
     // Welded scrap-sheet reinforcement patching the back wall, inside.
@@ -219,11 +223,19 @@ fn build_tree() -> Generator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::catalogue::items::overhaul::assert_no_z_fighting;
     use crate::catalogue::items::util::assert_sanitize_stable;
 
     #[test]
     fn build_round_trips_through_sanitize() {
         assert_sanitize_stable(&FortifiedRuin.build(""), "fortified_ruin");
+    }
+
+    /// No two pieces draw faces in one place (#1739: the agent's check named
+    /// this piece's pairs when Isoline's fringe placed it).
+    #[test]
+    fn nothing_z_fights() {
+        assert_no_z_fighting(&FortifiedRuin.build(""), "fortified_ruin");
     }
 
     #[test]

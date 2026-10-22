@@ -96,9 +96,12 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
+    // The uprights stand a centimetre prouder than the rails they cross:
+    // the same depth, the four corners drew their fronts in one place
+    // (#1739).
     for sx in [-1.0_f32, 1.0] {
         root.children.push(prim(
-            cuboid_tapered([0.1, 1.18, 0.16], 0.0, glow(NEON_MAGENTA, 5.0)),
+            cuboid_tapered([0.1, 1.18, 0.18], 0.0, glow(NEON_MAGENTA, 5.0)),
             [sx * 0.52, scr_y, 0.5],
             id_quat(),
         ));
@@ -139,9 +142,12 @@ fn build_tree() -> Generator {
         [0.0, rel(slab_h + box_h + 0.16), 0.55],
         id_quat(),
     ));
+    // The lip strip hangs a centimetre under the awning and wraps its ends by
+    // one: its underside level with the awning's, and its ends with the
+    // awning's sides, the two drew a strip in one place (#1739).
     root.children.push(prim(
-        cuboid_tapered([1.5, 0.07, 0.08], 0.0, glow(NEON_MAGENTA, 5.0)),
-        [0.0, rel(slab_h + box_h + 0.02), 0.8],
+        cuboid_tapered([1.52, 0.07, 0.08], 0.0, glow(NEON_MAGENTA, 5.0)),
+        [0.0, rel(slab_h + box_h + 0.01), 0.8],
         id_quat(),
     ));
 
@@ -156,11 +162,19 @@ fn shade(c: [f32; 3]) -> [f32; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::catalogue::items::overhaul::assert_no_z_fighting;
     use crate::catalogue::items::util::assert_sanitize_stable;
 
     #[test]
     fn build_round_trips_through_sanitize() {
         assert_sanitize_stable(&NeonKiosk.build(""), "neon_kiosk");
+    }
+
+    /// No two pieces draw faces in one place (#1739: the agent's check named
+    /// this piece's pairs when Isoline's fringe placed it).
+    #[test]
+    fn nothing_z_fights() {
+        assert_no_z_fighting(&NeonKiosk.build(""), "neon_kiosk");
     }
 
     #[test]

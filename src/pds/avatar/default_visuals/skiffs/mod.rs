@@ -713,10 +713,9 @@ mod tests {
     /// on the tree AS SAVED, through the record's 0.1 mm wire, as the
     /// roadster's is.
     ///
-    /// What it cannot see: the guard ignores `hollow`, so it judges a wheel's
-    /// bored felloe as a solid disc and a spoke meets it whatever. A spoke's
-    /// contact is by construction - each is seated half the felloe's depth
-    /// into it (`running_gear::spoked_wheel`).
+    /// A wheel's bored felloe is read as the ring it is since #1723, and each
+    /// spoke meets it by construction - seated half the felloe's depth into
+    /// it (`running_gear::spoked_wheel`).
     #[test]
     fn a_wagon_is_one_machine_at_every_blueprint_extreme() {
         use super::super::common::touch;
@@ -835,10 +834,9 @@ mod tests {
     /// Nothing on her is fattened to meet: every frame member is drawn
     /// through joints another member also runs through, and a mass hung
     /// between joints sits on the tube's drawn centreline (see the buggy's
-    /// module docs). What the guard still reads generously: a `hollow` as
-    /// solid, so the pod's bore is judged filled. The canopy's stripes it
-    /// reads as the path-cut strips they are, and a turned tyre at every
-    /// station of its raw profile (#1393).
+    /// module docs). The pod's bore it reads as the opening it is (#1723),
+    /// the canopy's stripes as the path-cut strips they are, and a turned
+    /// tyre at every station of its raw profile (#1393).
     #[test]
     fn a_buggy_is_one_machine_at_every_blueprint_extreme() {
         use super::super::common::touch;

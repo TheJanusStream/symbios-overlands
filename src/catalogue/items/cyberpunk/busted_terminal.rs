@@ -101,8 +101,10 @@ fn build_tree() -> Generator {
         [0.0, 0.02, zf + 0.02],
         id_quat(),
     ));
+    // As deep as the slot, so it stands proud of the bezel it sits under:
+    // 3 cm deep, its front was the bezel's own (#1739).
     body.children.push(prim(
-        cuboid_tapered([0.06, 0.04, 0.03], 0.0, glow([0.2, 1.0, 0.3], 4.0)),
+        cuboid_tapered([0.06, 0.04, 0.04], 0.0, glow([0.2, 1.0, 0.3], 4.0)),
         [0.27, 0.02, zf + 0.02],
         id_quat(),
     ));
@@ -128,11 +130,19 @@ fn build_tree() -> Generator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::catalogue::items::overhaul::assert_no_z_fighting;
     use crate::catalogue::items::util::assert_sanitize_stable;
 
     #[test]
     fn build_round_trips_through_sanitize() {
         assert_sanitize_stable(&BustedTerminal.build(""), "busted_terminal");
+    }
+
+    /// No two pieces draw faces in one place (#1739: the agent's check named
+    /// this piece's pairs when Isoline's fringe placed it).
+    #[test]
+    fn nothing_z_fights() {
+        assert_no_z_fighting(&BustedTerminal.build(""), "busted_terminal");
     }
 
     #[test]

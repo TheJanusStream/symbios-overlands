@@ -84,6 +84,22 @@ const DUCT_BORE: f32 = 0.86;
 const BLADE_LEN: f32 = 0.08;
 const BLADE_MID: f32 = 0.055;
 const FAN_DEG_S: f32 = 1200.0;
+/// The stators that hold each fan in its duct (#1723): how far aft of the
+/// blades they stand, their hub's radius and length on the axis - a short
+/// drum the fan's spinner runs against - and the vanes' reach out of it into
+/// the duct's wall and their chord (m, prototype frame). The vanes start
+/// outside the spinner, so nothing fixed cuts into the turning ball. Before
+/// them the duct and the fan only ran past each other: 6 mm of tip clearance
+/// by design, and nothing holding the fan.
+const STATOR_AFT: f32 = 0.035;
+const STATOR_HUB: [f32; 2] = [0.026, 0.045];
+const STATOR_REACH: [f32; 2] = [0.024, 0.108];
+const STATOR_CHORD: f32 = 0.03;
+/// Where a pylon or a strut ends, as a share of the duct's radius from its
+/// axis: inside the duct's wall, between its bore and its skin (#1723). Run
+/// on into the bore, at 0.80 and 0.85, they crossed the wall without ending
+/// in it.
+const MOUNT_IN_DUCT: f32 = 0.93;
 /// The forward pair: how far out of the cabin's flank, and how far under
 /// its centreline (m, prototype frame).
 const FORE_FAN_OUT: f32 = 0.23;
@@ -262,8 +278,10 @@ fn cabin(kids: &mut Vec<Generator>, plan: &HullPlan, c: &HybridColours) {
     }
 }
 
-/// A ducted fan at `at`: its duct along her, and five blades on a hub
-/// turning inside it.
+/// A ducted fan at `at`: its duct along her, five blades on a hub turning
+/// inside it, and the stators aft of them - a drum the hub's spinner runs
+/// against and four vanes from it into the duct's wall - that hold it
+/// there.
 fn ducted_fan(
     kids: &mut Vec<Generator>,
     plan: &HullPlan,
@@ -281,6 +299,34 @@ fn ducted_fan(
         at,
         quat_xyzw(quat_x(FRAC_PI_2)),
     ));
+    let aft = [at[0], at[1], at[2] - plan.len(STATOR_AFT)];
+    kids.push(prim(
+        cylinder(
+            plan.len(STATOR_HUB[0]),
+            plan.len(STATOR_HUB[1]),
+            12,
+            c.metal.clone(),
+        ),
+        aft,
+        quat_xyzw(quat_x(FRAC_PI_2)),
+    ));
+    let [from, to] = STATOR_REACH;
+    for k in 0..4 {
+        let angle = (45.0 + 90.0 * k as f32).to_radians();
+        let mid = plan.len((from + to) * 0.5);
+        kids.push(prim(
+            cuboid(
+                [plan.len(to - from), MIN_DIM, plan.len(STATOR_CHORD)],
+                c.duct.clone(),
+            ),
+            [
+                aft[0] + angle.cos() * mid,
+                aft[1] + angle.sin() * mid,
+                aft[2],
+            ],
+            quat_xyzw(quat_z(angle)),
+        ));
+    }
     let mut parts = vec![prim(
         sphere(plan.len(0.03), 3, c.metal.clone()),
         [0.0; 3],
@@ -322,7 +368,7 @@ fn fans(kids: &mut Vec<Generator>, plan: &HullPlan, c: &HybridColours) {
                     plan.len(0.045),
                 ),
                 (
-                    [x - side * plan.len(DUCT_R * 0.8), at[1], at[2]],
+                    [x - side * plan.len(DUCT_R * MOUNT_IN_DUCT), at[1], at[2]],
                     plan.len(0.045),
                 ),
             ],
@@ -342,7 +388,7 @@ fn fans(kids: &mut Vec<Generator>, plan: &HullPlan, c: &HybridColours) {
         let d = ra + plan.len(DUCT_R) + plan.len(0.03);
         let at = [lx + side * d * a.cos(), d * a.sin(), za];
         let inner = ra - plan.len(0.02);
-        let outer = plan.len(DUCT_R * 0.85);
+        let outer = plan.len(DUCT_R * MOUNT_IN_DUCT);
         kids.push(rod(
             [lx + side * inner * a.cos(), inner * a.sin(), za],
             [at[0] - side * outer * a.cos(), at[1] - outer * a.sin(), za],

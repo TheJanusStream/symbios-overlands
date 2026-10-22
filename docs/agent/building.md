@@ -638,9 +638,9 @@ Two faces in one plane, facing one way, flicker as anyone moves. A still
   just under it - z-fights where the two profiles meet: sixteen such pairs
   on the Ghost Tree, each a cap and its own gills (children N and N+1).
   Keep the inner layer a clear 6% of the radius below and inside the rim.
-- The catalogue has its own (#1440 - 196 of 401 entries, 9 of them among
-  the 10 built by grammar): not yours to fix unless asked, but never copy a
-  joint from one without checking it.
+- The catalogue has its own (#1440 - 184 of 522 entries by the census of
+  2026-10-22): not yours to fix unless asked, but never copy a joint from
+  one without checking it.
 
 ## The sanitiser
 
@@ -661,13 +661,17 @@ above its open lattice, and its dish was pierced by the legs with the feed
 horn floating beside it. Look at props from close up and from below before
 calling them done.
 
-Some z-fight as shipped (#1739: seven of the post-apocalyptic and street
-pieces), and `rec.py apply` names each pair as a `zf` line when the entry is
-first set. Eigen's fringe (session 956) fixed the two that show in its copy:
-`fortified_ruin`'s side walls ended flush with the front wall's ends
-(children 2 and 3 moved 2 cm in), and `neon_kiosk` had a strip under its
-awning and its window frames' corners flush (`exports/eigen/edits_catfix956.txt`
-and `edits_catfix956b.txt`).
+`rec.py apply` names any pair of faces drawn in one place as a `zf` line
+when an entry is first set - for many catalogue entries as shipped (#1440,
+counted above). Seven post-apocalyptic and street pieces that Isoline placed
+were fixed in the catalogue by #1739: `fortified_ruin`,
+`neon_kiosk`, `tarp_shelter`, `tire_wall`, `wrecked_car`, `drone_perch` and
+`busted_terminal`. A world that placed one before the fix keeps the copy it
+saved - a world's generators are its own, the catalogue is code. Eigen's
+Isoline had two fixed in its own copies (session 956): `fortified_ruin`'s
+side walls moved 2 cm in from the back wall's ends, and `neon_kiosk`'s
+awning strip and screen frame
+(`exports/eigen/edits_catfix956.txt` and `edits_catfix956b.txt`).
 
 ## A build, start to finish
 

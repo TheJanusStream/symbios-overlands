@@ -91,10 +91,12 @@ fn build_tree() -> Generator {
         [0.45, 1.15, 0.0],
         quat_y(FRAC_PI_2),
     ));
-    // Front + rear bumpers, one hanging loose at an angle.
+    // Front + rear bumpers, one hanging loose at an angle. The front one
+    // reaches 2 cm aft of the charred bay's back face, toward the chassis:
+    // level with it, the two drew a strip in one place (#1739).
     prims.push(prim(
         solid(cuboid_tapered([0.2, 0.18, 1.7], 0.0, rusted(STEEL_GREY))),
-        [1.95, 0.5, 0.0],
+        [1.93, 0.5, 0.0],
         id_quat(),
     ));
     prims.push(prim(
@@ -130,10 +132,18 @@ fn build_tree() -> Generator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::catalogue::items::overhaul::assert_no_z_fighting;
     use crate::catalogue::items::util::assert_sanitize_stable;
 
     #[test]
     fn build_round_trips_through_sanitize() {
         assert_sanitize_stable(&WreckedCar.build(""), "wrecked_car");
+    }
+
+    /// No two pieces draw faces in one place (#1739: the agent's check named
+    /// this piece's pairs when Isoline's fringe placed it).
+    #[test]
+    fn nothing_z_fights() {
+        assert_no_z_fighting(&WreckedCar.build(""), "wrecked_car");
     }
 }

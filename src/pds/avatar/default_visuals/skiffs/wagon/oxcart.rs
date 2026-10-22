@@ -39,6 +39,11 @@ const CABIN_H: f32 = 0.26;
 const ROOF_SCALE_Y: f32 = 0.55;
 /// The nave's size over a wagon's.
 const NAVE: f32 = 1.3;
+/// How deep the roof's barrel is bored: its shell's inside narrower than the
+/// cabin, so the roof bears on the cabin's top edges (#1723). Bored 0.90 the
+/// inside was wider than the cabin and its edges hung 1.8 mm outside the
+/// cabin's walls - the roof rested on nothing.
+const ROOF_HOLLOW: f32 = 0.88;
 
 pub(super) struct OxCart;
 
@@ -121,7 +126,7 @@ impl Bodywork for OxCart {
             ));
         }
         let roof = Self::roof(plan);
-        kids.push(half_pipe(&roof, ROOF_SCALE_Y, 0.90, &c.paint));
+        kids.push(half_pipe(&roof, ROOF_SCALE_Y, ROOF_HOLLOW, &c.paint));
         if o == OrnatenessTier::Ornate {
             // A gilt ridge along the crown, stopping short of the eaves so it
             // cannot stand off their upswept ends.

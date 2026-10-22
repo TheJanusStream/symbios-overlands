@@ -47,7 +47,11 @@ impl CatalogueEntry for TarpShelter {
 }
 
 fn build_tree() -> Generator {
-    let pole_h = 2.4_f32;
+    // Where the tarp meets the poles. Their tips push 4 cm up through it, as
+    // a tarp lashed over its poles is: cut off at the tarp, each tip drew its
+    // top in one place with the tarp's own surface (#1739).
+    let eave = 2.4_f32;
+    let pole_h = eave + 0.04;
     let half = 1.4_f32;
     let pole = || solid(cylinder_tapered(0.08, pole_h, 6, 0.0, metal(DARK_METAL)));
 
@@ -108,7 +112,7 @@ fn build_tree() -> Generator {
     // Dim lamp hanging under the tarp.
     prims.push(prim(
         sphere(0.16, 3, glow(NEON_CYAN, 3.0)),
-        [0.2, pole_h - 0.45, 0.0],
+        [0.2, eave - 0.45, 0.0],
         id_quat(),
     ));
     // A burn-barrel brazier in the corner keeping the shelter warm.
@@ -123,11 +127,19 @@ fn build_tree() -> Generator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::catalogue::items::overhaul::assert_no_z_fighting;
     use crate::catalogue::items::util::assert_sanitize_stable;
 
     #[test]
     fn build_round_trips_through_sanitize() {
         assert_sanitize_stable(&TarpShelter.build(""), "tarp_shelter");
+    }
+
+    /// No two pieces draw faces in one place (#1739: the agent's check named
+    /// this piece's pairs when Isoline's fringe placed it).
+    #[test]
+    fn nothing_z_fights() {
+        assert_no_z_fighting(&TarpShelter.build(""), "tarp_shelter");
     }
 
     #[test]

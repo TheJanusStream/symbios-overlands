@@ -38,6 +38,9 @@ const SCREEN_SET: f32 = 0.022;
 /// of the cockpit and its rim stood out past the flank (#1651).
 const COLUMN_X: f32 = 0.44;
 const WHEEL_R: f32 = 0.55;
+/// How far the column runs on past its foot into the footwell floor, as a
+/// fraction of the length (#1723).
+const COLUMN_SEAT: f32 = 0.02;
 /// The rim's tube radius and how far the rim stands proud of the boss toward
 /// the driver - the dish a period wheel has - as fractions of the length.
 const RIM_R: f32 = 0.0065;
@@ -131,8 +134,15 @@ fn steering(plan: &RoadsterPlan, c: &SkiffColours, sz: f32) -> [Generator; 2] {
         plan.cockpit_z().1 + l * 0.026,
     );
     let end = Vec3::new(wx, l * 0.052, sz + 0.120 * l);
+    // Run on along its own line past the foot, down into the footwell floor
+    // under the scuttle, so the column is fixed to the car (#1723): ended at
+    // the foot it stood 3.4 to 6.4 mm clear of the bore wall.
+    let seated = foot + (foot - end).normalize() * l * COLUMN_SEAT;
     let column = line(
-        &[(foot.to_array(), l * 0.0048), (end.to_array(), l * 0.0048)],
+        &[
+            (seated.to_array(), l * 0.0048),
+            (end.to_array(), l * 0.0048),
+        ],
         6,
         c.machinery.clone(),
     );
@@ -259,7 +269,8 @@ mod tests {
             .expect("the wheel has a rim")
     }
 
-    /// The column's foot and its end: the steering's one top-level spine.
+    /// The column's two points - its seated end in the floor, then its end
+    /// at the wheel: the steering's one top-level spine.
     fn column(parts: &[Generator]) -> (Vec3, Vec3) {
         let (g, points) = parts
             .iter()
@@ -296,6 +307,30 @@ mod tests {
                     "{what}: the screen frame draws {v}, {} m behind the dash at z {lip} \
                      and inside the scuttle's section there ({section:.3} of it)",
                     lip - v.z
+                );
+            }
+        }
+    }
+
+    /// The column's seated end stays inside the car (#1723): run on past its
+    /// foot into the footwell floor so the column is fixed to the body, every
+    /// vertex the mesher draws for it below the datum lies within the body's
+    /// outer section at its station - in the floor's wall, or the footwell
+    /// over it - never out through the tub's underside.
+    #[test]
+    fn the_column_is_seated_in_the_floor_and_buried_there() {
+        let c = skiff_colours(&PartCtx::for_seed(0));
+        for (plan, what) in plans() {
+            let parts = steering(&plan, &c, plan.seat_z());
+            let column = &parts[0];
+            for v in vertices(column, placed(column, Affine3A::IDENTITY)) {
+                let (hw, crown) = (plan.half_width_at(v.z), plan.crown_at(v.z));
+                let section = (v.x / hw).powi(2) + (v.y / crown).powi(2);
+                assert!(
+                    v.y >= 0.0 || section < 1.0,
+                    "{what}: the column draws {v} outside the tub's skin at z {} \
+                     ({section:.3} of its section)",
+                    v.z
                 );
             }
         }

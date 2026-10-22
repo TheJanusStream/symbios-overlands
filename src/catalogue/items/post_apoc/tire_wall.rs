@@ -44,36 +44,41 @@ impl CatalogueEntry for TireWall {
 }
 
 fn build_tree() -> Generator {
+    // Every other column sits 2 cm deeper in the ground, and so does the
+    // middle capping tyre: neighbours overlap where they pack together, and
+    // two tyres lying at one height drew their flat facets in one place
+    // there (#1739). A rampart rammed into the dirt is not level anyway.
+    let sunk = |column: usize| if column.is_multiple_of(2) { 0.02 } else { 0.0 };
     let mut prims = vec![
         // First tyre - the root, lying flat at the left end of the bottom row.
         prim(
             solid(torus(0.18, 0.42, tarp(TIRE_BLACK))),
-            [-1.35, 0.18, 0.0],
+            [-1.35, 0.18 - sunk(0), 0.0],
             id_quat(),
         ),
     ];
     // Dirt rammed into the root tyre's bore - the packed-out barrier read.
     prims.push(prim(
         solid(cylinder_tapered(0.3, 0.14, 10, 0.0, tarp(ASH_GREY))),
-        [-1.35, 0.5, 0.0],
+        [-1.35, 0.5 - sunk(0), 0.0],
         id_quat(),
     ));
     prims.push(prim(
         solid(torus(0.18, 0.42, tarp(TIRE_BLACK))),
-        [-1.35, 0.5, 0.0],
+        [-1.35, 0.5 - sunk(0), 0.0],
         id_quat(),
     ));
 
     // Three two-high tyre columns packing out the rampart along X, each lower
     // bore rammed with dirt.
-    for cx in [-0.45_f32, 0.45, 1.35] {
-        prims.extend(tyre_stack([cx, 0.18, 0.0], 0.32));
+    for (column, cx) in [-0.45_f32, 0.45, 1.35].into_iter().enumerate() {
+        prims.extend(tyre_stack([cx, 0.18 - sunk(column + 1), 0.0], 0.32));
     }
     // Capping tyres bridging the gaps on the top course, half-buried in dirt.
-    for cx in [-0.9_f32, 0.0, 0.9] {
+    for (cap, cx) in [-0.9_f32, 0.0, 0.9].into_iter().enumerate() {
         prims.push(prim(
             solid(torus(0.18, 0.42, tarp(TIRE_BLACK))),
-            [cx, 0.84, 0.0],
+            [cx, 0.84 - sunk(cap + 1), 0.0],
             id_quat(),
         ));
     }
@@ -90,10 +95,18 @@ fn build_tree() -> Generator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::catalogue::items::overhaul::assert_no_z_fighting;
     use crate::catalogue::items::util::assert_sanitize_stable;
 
     #[test]
     fn build_round_trips_through_sanitize() {
         assert_sanitize_stable(&TireWall.build(""), "tire_wall");
+    }
+
+    /// No two pieces draw faces in one place (#1739: the agent's check named
+    /// this piece's pairs when Isoline's fringe placed it).
+    #[test]
+    fn nothing_z_fights() {
+        assert_no_z_fighting(&TireWall.build(""), "tire_wall");
     }
 }
