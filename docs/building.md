@@ -617,7 +617,12 @@ as the game does. They are
 driven by the same `Drive` / `AvatarDriver` pair the game hangs a local
 player on, on the real heightmap, and they start walking `--walker-lead`
 seconds (default 1.5) before the first captured frame so a clip opens
-mid-stride.
+mid-stride. They set off at their pace at once, which the engine reads as a
+body that was always walking; `--walker-ramp` sets them off from standing as
+the game's controller starts a player instead - the default humanoid
+record's acceleration held to the walk's ramp, about 0.3 s to a walk's pace and 0.6 s
+to a run's - which is what films a start's footing (#1759). A negative lead
+(`--walker-lead=-0.5`) films the stand before it.
 
 `--walker-avatar FILE` (with `--world`, #1482) makes the lead walker - the
 one `--focus walker` follows - the rigged body in a `--rigged` file instead

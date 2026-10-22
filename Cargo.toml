@@ -84,7 +84,7 @@ bevy_symbios_texture = { version = "0.13.1", features = ["egui"] }
 symbios-texture = "0.8"
 bevy_symbios_audio = { version = "0.6", features = ["egui"] }
 transform-gizmo-bevy = "0.11"
-symbios-avatar = "0.12"
+symbios-avatar = "0.12.1"
 symbios = "1.5"
 symbios-turtle-3d = "0.6"
 symbios-shape = "0.4"

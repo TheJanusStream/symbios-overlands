@@ -95,6 +95,10 @@ pub(super) struct WalkerSpec {
     /// `--first-person` (#1745): the lead looks out of its own eyes - its
     /// rig's eye line - and is out of its own picture.
     pub(super) first_person: bool,
+    /// `--walker-ramp` (#1759): every body sets off from standing as the
+    /// game's controller starts a player, rather than at the pace at once -
+    /// see [`ramped_walk`].
+    pub(super) ramp: bool,
 }
 
 /// One body of a `--walker` group, in walking order - see
@@ -173,6 +177,8 @@ pub(super) struct Walker {
     /// stride, as a body in the orbit does.
     looks_out: bool,
     pace: f32,
+    /// Whether it sets off as a player does ([`WalkerSpec::ramp`]).
+    ramp: bool,
     /// Clock seconds at which the body starts moving.
     start: f32,
     /// The rigged root carrying the [`Drive`].
@@ -748,6 +754,7 @@ fn spawn_one_walker(
         face,
         looks_out: spec.face != 0.0,
         pace: spec.pace,
+        ramp: spec.ramp,
         start: timing.capture_start - spec.lead,
         root,
         lead: index == 0,
@@ -787,12 +794,17 @@ pub(super) fn step_walkers(
     };
     for (walker, mut transform) in &mut walkers {
         let walked = (clock.elapsed - walker.start).max(0.0);
-        let flat = walker.from + walker.dir * walker.pace * walked;
+        let (distance, speed) = if walker.ramp {
+            ramped_walk(walked, walker.pace)
+        } else {
+            (walker.pace * walked, walker.pace)
+        };
+        let flat = walker.from + walker.dir * distance;
         let at = Vec3::new(flat.x, heightmap.world_height_at(flat.x, flat.z), flat.z);
         *transform = Transform::from_translation(at).looking_to(walker.face, Vec3::Y);
         if let Ok(mut drive) = drives.get_mut(walker.root) {
             drive.velocity = if clock.elapsed > walker.start {
-                walker.dir * walker.pace
+                walker.dir * speed
             } else {
                 Vec3::ZERO
             };
@@ -807,9 +819,97 @@ pub(super) fn step_walkers(
     }
 }
 
+/// The game's fixed step, which its controller runs at: Bevy's default.
+const CONTROLLER_HZ: f32 = 64.0;
+
+/// How far a body set off from standing toward `pace` has gone after
+/// `seconds`, and how fast it is going, as the game's controller starts a
+/// player (#1759): fixed steps of
+/// [`crate::player::humanoid::land_velocity_step`] at the default humanoid
+/// record's rates, each step's velocity carried over the step as the physics
+/// carries it. The speed is the last whole step's, the velocity the game's
+/// fill reads; the distance is the chassis as it is drawn, eased from the
+/// step before that one toward it, so the body moves at exactly the speed
+/// the driver is handed.
+///
+/// The walker otherwise sets off at its pace at once, which the engine reads
+/// as a body that was always walking: its eased pace starts at the speed it
+/// first sees. A start the way a player makes one is the only way to film
+/// what a start does to a planted foot.
+fn ramped_walk(seconds: f32, pace: f32) -> (f32, f32) {
+    let params = crate::pds::HumanoidParams::default();
+    let rates = (params.acceleration.0, params.stop_damping.0);
+    let dt = 1.0 / CONTROLLER_HZ;
+    let desired = Vec3::Z * pace;
+    let step =
+        |velocity| crate::player::humanoid::land_velocity_step(velocity, desired, true, rates, dt);
+    let whole = (seconds * CONTROLLER_HZ).floor() as usize;
+    let (mut velocity, mut distance) = (Vec3::ZERO, 0.0f32);
+    for _ in 0..whole {
+        velocity = step(velocity);
+        distance += velocity.z * dt;
+    }
+    let into = seconds - whole as f32 * dt;
+    (distance - velocity.z * (dt - into), velocity.z)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A ramped walker sets off as the controller starts a player**
+    /// (#1759): standing at first, then the controller's own climb - 0.281 s
+    /// to 95% of the default body's 1.85 m/s walk and 0.562 s to the 5.0 m/s
+    /// run, as `player::humanoid`'s ramp measured them through the real
+    /// controller - and then at its pace, its distance never ahead of a body
+    /// that walked at the pace from the start, and always moving at the
+    /// speed it hands the driver: a walker drawn a step ahead of that speed
+    /// is told of less ground than it covers, and its planted feet slide the
+    /// difference in the very clip it exists to film.
+    #[test]
+    fn a_ramped_walker_sets_off_as_the_controller_starts_a_player() {
+        assert_eq!(ramped_walk(0.0, 1.85), (0.0, 0.0));
+        for (pace, reached) in [(1.85f32, 0.281f32), (5.0, 0.562)] {
+            let (_, before) = ramped_walk(reached - 0.03, pace);
+            let (_, after) = ramped_walk(reached + 0.03, pace);
+            assert!(
+                before < 0.95 * pace && after >= 0.95 * pace,
+                "{pace} m/s: {before:.3} m/s at {:.3} s and {after:.3} at {:.3} s, where the \
+                 controller reaches 95% at {reached} s",
+                reached - 0.03,
+                reached + 0.03
+            );
+            let (mut last, mut seconds) = (0.0f32, 0.0f32);
+            while seconds < 3.0 {
+                seconds += 0.01;
+                let (distance, _) = ramped_walk(seconds, pace);
+                assert!(
+                    distance >= last && distance <= pace * seconds,
+                    "{pace} m/s at {seconds:.2} s: walked {distance:.4} m after {last:.4}"
+                );
+                last = distance;
+            }
+            let (_, speed) = ramped_walk(3.0, pace);
+            assert!(
+                (speed - pace).abs() < 1e-3,
+                "{pace} m/s: still at {speed} m/s after 3 s"
+            );
+            // A quarter of a step on, inside the same step: the ground
+            // covered over that time is the speed handed over.
+            for step in 1..48 {
+                let seconds = (step as f32 + 0.25) / CONTROLLER_HZ;
+                let later = seconds + 0.25 / CONTROLLER_HZ;
+                let ((from, speed), (to, _)) =
+                    (ramped_walk(seconds, pace), ramped_walk(later, pace));
+                let moving = (to - from) / (later - seconds);
+                assert!(
+                    (moving - speed).abs() < 1e-3,
+                    "{pace} m/s at step {step}: the walker moves at {moving:.4} m/s and hands \
+                     the driver {speed:.4}"
+                );
+            }
+        }
+    }
 
     fn spec() -> WalkerSpec {
         WalkerSpec {
@@ -824,6 +924,7 @@ mod tests {
             spread: 1.6,
             face: 0.0,
             first_person: false,
+            ramp: false,
         }
     }
 

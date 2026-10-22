@@ -44,6 +44,9 @@ const HEADING_MIN_SPEED: f32 = 0.1;
 /// Read as one, a quarter turn in a frame is ninety radians a second, and the
 /// body steps round on the spot for a second after it arrives. A placement
 /// closer than this that sets a facing says so instead ([`LANDING_FRAMES`]).
+///
+/// Nor, for a peer, as a speed (#1759): its speed is differenced from its
+/// positions, and ten metres in a frame is six hundred metres a second.
 const PLACED_PAST: f32 = 2.0;
 
 /// How many frames the fill waits after a [`crate::player::FacingSet`] to see
@@ -168,6 +171,9 @@ pub(in crate::player) fn fill_rigged_drive(
             continue;
         };
         let position = transform.translation();
+        let moved_far = trail
+            .last
+            .is_some_and(|(last, _)| last.distance(position) > PLACED_PAST);
         match velocity {
             // A local chassis carries an avian velocity, and its SIGN is the
             // whole of the driver's airborne state machine - an `abs` here
@@ -185,16 +191,22 @@ pub(in crate::player) fn fill_rigged_drive(
             // on a colossal launch. Over the delta of the frame that position
             // was seen on, not this one's: the transform read here is last
             // frame's playout (see [`RiggedTrail`], #1323).
+            //
+            // **Not across a placement** (#1759): a peer set down somewhere
+            // else keeps the speed it had. Differenced across the jump it
+            // read as hundreds of metres a second for a frame, and the eased
+            // pace behind that took a second to come back down - a sprint on
+            // the spot through symbios-avatar 0.12.0, a stride built for the
+            // sprint and stepped at the walk's ground since 0.12.1.
             None => {
-                drive.velocity = trail
-                    .last
-                    .map_or(Vec3::ZERO, |(last, over)| (position - last) / over);
+                if !moved_far {
+                    drive.velocity = trail
+                        .last
+                        .map_or(Vec3::ZERO, |(last, over)| (position - last) / over);
+                }
                 drive.at = position;
             }
         }
-        let moved_far = trail
-            .last
-            .is_some_and(|(last, _)| last.distance(position) > PLACED_PAST);
         trail.last = Some((position, delta));
         // **The chassis' yaw carried THROUGH the rigged root's half turn**
         // (#1066). The engine's forward is `+Z` and Bevy's is `-Z`, so the

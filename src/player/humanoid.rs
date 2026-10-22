@@ -119,6 +119,31 @@ fn ramped(current: Vec3, proposed: Vec3, toward: Vec3, dt: f32) -> Vec3 {
     current + axis * along.clamp(-SLOW_DOWN_LIMIT * dt, SPEED_UP_LIMIT * dt) + across
 }
 
+/// One fixed step of a walker's planar velocity on land: the record's own
+/// approach toward `desired` - a lerp at `acceleration` while a key is held,
+/// a decay at `stop_damping` when none is - then the ramp ([`ramped`],
+/// #1323), after that approach so the record's two rates still shape the
+/// curve under the cap. Planar only: the jump's vertical is not its business.
+///
+/// [`apply_humanoid_walk`]'s step on land and in the wading shallows, and the
+/// render tool's for a walker that sets off as a player does (#1759).
+pub(crate) fn land_velocity_step(
+    current: Vec3,
+    desired: Vec3,
+    keyed: bool,
+    (acceleration, stop_damping): (f32, f32),
+    dt: f32,
+) -> Vec3 {
+    let proposed = if keyed {
+        current.lerp(desired, (acceleration * dt).clamp(0.0, 1.0))
+    } else {
+        // Snappy friction: collapse horizontal velocity to zero fast (stops
+        // on a dime at the default `stop_damping`) instead of coasting.
+        current * (-stop_damping * dt).exp()
+    };
+    ramped(current, proposed, desired, dt)
+}
+
 /// Update-side jump edge latch (#852). The drive systems run in
 /// `FixedUpdate` (64 Hz) but a key's `just_pressed` edge lives for one
 /// *render* frame: at 120/144 Hz many render frames execute zero fixed
@@ -536,21 +561,15 @@ pub(super) fn apply_humanoid_walk(
             let desired = desired.normalize_or_zero() * walk_speed;
 
             let current_h = Vec3::new(lin_vel.0.x, 0.0, lin_vel.0.z);
-            let proposed = if any_input {
-                let alpha = (p.acceleration.0 * dt).clamp(0.0, 1.0);
-                current_h.lerp(desired, alpha)
-            } else {
-                // Snappy friction: collapse horizontal velocity to zero fast
-                // (stops on a dime at the default `stop_damping`) instead of
-                // coasting.
-                let decay = (-p.stop_damping.0 * dt).exp();
-                current_h * decay
-            };
-            // The ramp (#1323), after the record's own approach so its
-            // `acceleration` and `stop_damping` still shape the curve under
-            // the cap. Land and wading only - swimming keeps its unramped
-            // lerp - and planar only: the jump's vertical is untouched.
-            let new_h = ramped(current_h, proposed, desired, dt);
+            // The record's approach held to the ramp (#1323). Land and
+            // wading only - swimming keeps its unramped lerp.
+            let new_h = land_velocity_step(
+                current_h,
+                desired,
+                any_input,
+                (p.acceleration.0, p.stop_damping.0),
+                dt,
+            );
             lin_vel.0.x = new_h.x;
             lin_vel.0.z = new_h.z;
 
@@ -2150,8 +2169,19 @@ mod turning {
     ///   agreed (0.8.0, walk    -182.9 mm     364.9 mm   -25.8..+25.1    -116.8 mm   339.3 mm   0
     ///     1.85, run 5.0,
     ///     ramp 9 / 13.5)
-    ///   steady bob             -115.3 mm
+    ///   symbios-avatar 0.12.1  -112.2 mm     163.3 mm   -25.6..+27.3    -112.7 mm   196.8 mm   0
+    ///   steady bob             -115.3 mm (0.12.1: -116.2)
     /// ```
+    ///
+    /// **symbios-avatar 0.12.1 steps an orbit body at the ground it covers**
+    /// (#1759, engine #363), as first person has been since #1755: the start
+    /// slides 163.3 mm where it slid 364.9 and dips no deeper than the walk's
+    /// own bob. The quarter turn's figure here is one moment of the stride,
+    /// and a moment is a sample: swept over every moment, the turn slides 313
+    /// mm on average and 455 at worst on the pace's cadence, 317 and 466 on
+    /// the ground's - the engine's
+    /// `a_body_with_no_heading_steps_the_ground_it_covers_too` holds that
+    /// sweep, and this test the moment the owner agreed by eye.
     #[test]
     fn a_start_and_a_quarter_turn_keep_the_agreed_stance() {
         let control = turned(&SCRIPTS[0], false, SHIPPED);

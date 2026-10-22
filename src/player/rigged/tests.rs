@@ -209,6 +209,83 @@ fn a_peers_speed_is_its_travel_over_the_frame_the_travel_took() {
     }
 }
 
+/// **A peer set down somewhere else keeps the speed it had** (#1759). Its
+/// speed is differenced from its positions, and a placement - a respawn, a
+/// `go_to` - moves it ten metres in a frame: six hundred metres a second for
+/// that frame, which the driver's eased pace then took a second to come back
+/// down from. The fill keeps the walk's own speed across the jump.
+#[test]
+fn a_peer_set_down_elsewhere_keeps_its_speed() {
+    use bevy::time::TimeUpdateStrategy;
+    use std::time::Duration;
+
+    /// The walk being played out, m/s.
+    const SPEED: f32 = 1.85;
+    /// How far the peer is set down from where it walked, metres, and on
+    /// which frame.
+    const JUMP: f32 = 10.0;
+    const PLACED: usize = 20;
+
+    #[derive(Component)]
+    struct PlayedOut;
+
+    #[derive(Resource)]
+    struct Frame(usize);
+
+    /// The smoother's shape: the peer's `Transform` at this frame's time,
+    /// set down `JUMP` further on from `PLACED`.
+    fn play_out(
+        time: Res<Time>,
+        frame: Res<Frame>,
+        mut peers: Query<&mut Transform, With<PlayedOut>>,
+    ) {
+        let placed = if frame.0 >= PLACED { JUMP } else { 0.0 };
+        for mut transform in &mut peers {
+            transform.translation = Vec3::NEG_Z * (SPEED * time.elapsed_secs() + placed);
+        }
+    }
+
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, bevy::transform::TransformPlugin));
+    app.init_resource::<crate::player::RigHold>();
+    app.add_systems(Update, (play_out, motion::fill_rigged_drive).chain());
+    let chassis = app
+        .world_mut()
+        .spawn((Transform::default(), PlayedOut))
+        .id();
+    let root = app
+        .world_mut()
+        .spawn((
+            RiggedRoot,
+            Drive::default(),
+            RiggedTrail::default(),
+            Transform::default(),
+            ChildOf(chassis),
+        ))
+        .id();
+    for frame in 0..PLACED + 20 {
+        app.insert_resource(Frame(frame));
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
+            1.0 / 60.0,
+        )));
+        app.update();
+        let speed = app
+            .world()
+            .get::<Drive>(root)
+            .expect("a drive")
+            .velocity
+            .length();
+        // Past the frames with nothing to difference against, as above.
+        if frame >= 3 {
+            assert!(
+                (speed - SPEED).abs() < 1e-3,
+                "frame {frame} read the peer at {speed:.3} m/s, walking at {SPEED} and set down \
+                 {JUMP} m on at frame {PLACED}"
+            );
+        }
+    }
+}
+
 /// The driver on a body, which is where the state these instruments read
 /// after a frame - the source, the cycle, the speed, the leap - now lives.
 fn driver_of(app: &App, root: Entity) -> &AvatarDriver {
@@ -1321,33 +1398,62 @@ fn a_stop_does_not_skate() {
     // atan2 off the platform libm - the arithmetic changed, and
     // reproducible was never going to mean smaller.)
     //
-    // So the guard is at 60 mm, 2 mm above the one figure and nearly
-    // 4-fold below the 225.3 mm regression it exists to catch -
+    // So the guard is at 82 mm, 2 mm above the one figure and nearly
+    // 3-fold below the 225.3 mm regression it exists to catch -
     //
     //     57.85 mm   alone, after player::rigged::, after all of player::
     //                - one figure on INSTRUMENT_SEED (2026-09-02, this
     //                box, symbios-avatar 0.5.1)
+    //     79.94 mm   the same, since symbios-avatar 0.12.1 (#1759)
+    //
+    // **The worst phase is a knife edge** (#1759, engine #363). It is the
+    // stop after 127 frames, where the hand-over to the idle is chaotic in
+    // the moment it lands: on 0.12.0 it read 55.69 mm, under the 57.85 of
+    // the stop after 103 frames that was then the worst, and a walk up to six
+    // parts in a million faster or slower read anything from 56 to 87 mm
+    // there (the engine's own copy of this instrument). Since 0.12.1 the
+    // walk's clock carries the velocity this harness differences from its
+    // positions, a few millionths of a cycle away by the stop, and that phase
+    // reads 79.94 where the other thirty move by about half a millimetre at
+    // most. A change that moves the figure inside that band has moved the
+    // sample, not the stop - so the median of the thirty-one stops is held as
+    // well, which a regression lifting the ordinary phases moves and a knife
+    // edge cannot: 19.07 mm.
     //
     // If CI reads past it, read the printed figure against that line: a
     // millimetre or two is an unroutable `bevy_math`/`avian` glam site
-    // (#1183/#323's controlled experiments), the high 50s to 80s is a body
-    // standing on an unpinned seed, and the pre-fix regime reads hundreds.
-    let worst = (100..=130)
+    // (#1183/#323's controlled experiments), anything from the high 50s to
+    // the high 80s is the knife edge or a body standing on an unpinned seed,
+    // and the pre-fix regime reads hundreds.
+    let mut skids: Vec<f32> = (100..=130)
         .map(|frames| skid_through_a_stop(frames).0)
-        .fold(0.0f32, f32::max);
+        .collect();
+    let worst = skids.iter().copied().fold(0.0f32, f32::max);
+    skids.sort_by(f32::total_cmp);
+    let median = skids[skids.len() / 2];
     // The reading itself, so every run records its figure instead of only
     // its verdict - the silent environment margin was #1183's complaint,
     // and the figure-per-context table on #1194 only exists because a run
     // printed one.
-    println!("worst stop skid: {:.2} mm", worst * 1000.0);
+    println!(
+        "worst stop skid: {:.2} mm, median {:.2} mm",
+        worst * 1000.0,
+        median * 1000.0
+    );
     assert!(
-        worst < 0.06,
-        "a foot standing on the ground slid {:.1} mm through a stop, against 57.85 mm \
-         on INSTRUMENT_SEED in every process context (#1194) and 225.3 mm before \
+        worst < 0.082,
+        "a foot standing on the ground slid {:.1} mm through a stop, against 79.94 mm \
+         on INSTRUMENT_SEED in every process context (#1194, #1759) and 225.3 mm before \
          engine #276 - a millimetre or two is an unroutable glam site (#1183/#323), \
-         the high 50s to 80s is a body standing on an unpinned seed, and the pre-fix \
-         regime reads hundreds.",
+         the high 50s to the high 80s is the 127-frame knife edge or a body standing on \
+         an unpinned seed, and the pre-fix regime reads hundreds.",
         worst * 1000.0
+    );
+    assert!(
+        median < 0.03,
+        "the median stop slid a standing foot {:.1} mm, against 19.07 mm on \
+         INSTRUMENT_SEED (#1759): the ordinary stopping phases have regressed",
+        median * 1000.0
     );
 }
 

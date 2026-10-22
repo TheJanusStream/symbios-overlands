@@ -625,6 +625,15 @@ struct Args {
     /// (default 1.5), so a clip opens mid-stride.
     #[arg(long, default_value_t = 1.5)]
     walker_lead: f32,
+    /// With `--walker`: the bodies set off from standing as the game's
+    /// controller starts a player - the default humanoid record's
+    /// acceleration held to the walk's ramp, about 0.3 s to a walk's pace and
+    /// 0.6 s to a run's -
+    /// rather than at the pace at once, which is what films a start's footing
+    /// (#1759). A negative `--walker-lead` (`--walker-lead=-0.5`) films the
+    /// stand before it.
+    #[arg(long)]
+    walker_ramp: bool,
     /// With `--editor`: open the AVATAR editor on its Body tab rather than
     /// the World Editor (#1358). That tab hosts its sculpting sections from
     /// `bevy_symbios_avatar::editor`, so it is the surface that changes when
@@ -1396,6 +1405,7 @@ pub fn run() {
         spread: args.walker_spread,
         face: args.walker_face.to_radians(),
         first_person: rig.eyes_on(Focus::Walker),
+        ramp: args.walker_ramp,
     });
     assert!(
         walker.is_none() || is_world,
