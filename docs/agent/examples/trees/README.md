@@ -8,7 +8,10 @@ pictures, a second criticising the result, and a third fixing what the
 critic found (see [../../developing.md](../../developing.md), "Delegating
 to a sub-agent"). The oak and the apple were made for Ashmere, a Norfolk
 manor village of about 1300, and judged in its evening light; the apple is
-the oak's grammar scaled to a fruit tree.
+the oak's grammar scaled to a fruit tree. The cherry and the plane were made
+for the catalogue itself (#1763, #1764, the owner's choices of 2026-10-23):
+the apple's grammar reshaped into a cherry's vase in blossom, the oak's
+into a plane's high dome.
 
 | Builder | Tree | Cost | Rebuild the shipped tree |
 |---|---|---|---|
@@ -16,6 +19,8 @@ the oak's grammar scaled to a fruit tree.
 | `birch.py` | `pale_birch`: a silver birch, white marked trunk, hanging leaf strands | 4,316 triangles, 2 parts | `python3 birch.py` |
 | `oak.py` | an open-grown English oak: a 3.1 m bole, low crooked limbs, fissured grey-brown bark, a broad lumpy dark-green crown 21 x 17 m, a sixth of it bronzing; preset `y` is a 9 m young oak (3,614 triangles) | 7,674 triangles, 3 parts | `python3 oak.py` |
 | `apple.py` | an old croft apple: short leaning bole, low rounded crown 7 x 5.6 m, 65 solid apples, red-flushed and a few green | 3,890 triangles, 3 parts | `python3 apple.py` |
+| `cherry.py` | a Japanese flowering cherry in full blossom: a vase of four scaffolds on a 1.5 m bole, 5.9 m tall and 7.3 m across, pink blossom along the limbs, lenticelled red-brown bark; presets `w` (white blossom) and `s` (summer green) are its re-skins | 3,308 triangles, 3 parts | `python3 cherry.py` |
+| `plane.py` | a London plane: a 3.8 m bole of camouflage bark, five ascending limbs, a high broad dome of big lobed leaves 14.7 m tall and 16.7 m across; `autumn` and `blossom_pale` are its re-skins | 7,648 triangles, 2 parts | `python3 plane.py` |
 
 Each writes one `network.symbios.gen.lsystem` generator in wire form, to
 set with `room set /generators/<name> --file <out>`. The docstrings list
@@ -32,9 +37,10 @@ field into its envelope: compare after a `room set`, not before.
 
 ## In the catalogue
 
-Five of these trees are catalogue entries now, each the generator saved in
-a room record, copied into `src/catalogue/items/plants/`: four from Ashmere's
-(#1496) and the spruce from the Understory's (#1708):
+Seven of these trees are catalogue entries now, copied into
+`src/catalogue/items/plants/`: four from Ashmere's room record (#1496), the
+spruce from the Understory's (#1708), and the cherry and the plane from
+their builders' own output (#1763, #1764):
 
 | Builder | Catalogue entry |
 |---|---|
@@ -43,6 +49,8 @@ a room record, copied into `src/catalogue/items/plants/`: four from Ashmere's
 | `oak.py` | `lsys_oak` |
 | `oak.py` preset `y` | `lsys_young_oak` |
 | `apple.py` | `lsys_apple` |
+| `cherry.py` | `lsys_flowering_tree` - it replaced the #910 blossom tree there, keeping the slug, so the seeded worlds' blossom stands and Berlin's cherries, apples, pears, thorns and rowans grow it (the pears, apples and thorns in its `white` re-skin, the rowans in `summer`) |
+| `plane.py` | `lsys_sympodial_tree` - it replaced the #910 sympodial broadleaf there, keeping the slug and its `autumn` and `blossom_pale` re-skins, so the seeded worlds' broadleaf stands and Berlin's planes, chestnuts, beeches and elms grow it |
 
 Ashmere's other plants joined them: `lsys_yew` is preset `y` dressed as a
 yew (a Needle card, a red-brown bark), and `lsys_hazel` and `lsys_gorse` are

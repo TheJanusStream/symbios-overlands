@@ -1,7 +1,7 @@
 //! Seeded ground-cover scatter specs (#911).
 //!
-//! The tier below the trees: grass tufts, wildflowers, ferns, reeds, dwarf
-//! shrubs and the encrusting moss / lichen cushions. Where a tree scatter
+//! The tier below the trees: grass tufts, wildflowers, ferns, reeds, heather
+//! clumps and the encrusting moss / lichen cushions. Where a tree scatter
 //! places tens of instances of an expensive grammar, a ground-cover scatter
 //! places hundreds of a prop of one to four parts, most of them one (a
 //! turned card, a cushion) - so the biome reads as *covered* rather than as
@@ -80,7 +80,8 @@ pub enum GroundCoverSpecies {
     ShoreGrass,
     /// Floating lily pads on still wetland water (#914).
     LilyPad,
-    /// Low woody cushion for tundra and alpine.
+    /// Heather clump, a hummock of wiry shoots flecked with bloom (#1762) -
+    /// tundra and alpine.
     DwarfShrub,
     /// Velvet moss cushion of melted domes.
     MossPatch,

@@ -278,7 +278,7 @@ const FINALIZATION_CODE: &str = "\
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalogue::items::plants::variant::apply_named;
+    use crate::catalogue::items::plants::variant::{apply_named, split_colours};
     use crate::pds::sanitize_generator;
 
     fn authored_materials() -> HashMap<u16, SovereignMaterialSettings> {
@@ -297,32 +297,6 @@ mod tests {
         let mut kept = built.clone();
         sanitize_generator(&mut kept);
         assert_eq!(kept, built, "the sanitiser changed the birch");
-    }
-
-    /// A texture's colours taken out of it: its colour fields in order, and
-    /// the texture with each of them blacked out, so that everything else in
-    /// it can be compared whole. The birch wears only these two kinds.
-    fn split_colours(texture: &SovereignTextureConfig) -> (Vec<Fp3>, SovereignTextureConfig) {
-        let mut rest = texture.clone();
-        let fields = match &mut rest {
-            SovereignTextureConfig::Lichen(lichen) => vec![
-                &mut lichen.color_rock,
-                &mut lichen.color_lichen_a,
-                &mut lichen.color_lichen_b,
-                &mut lichen.color_rim,
-            ],
-            SovereignTextureConfig::Twig(twig) => vec![
-                &mut twig.stem_color,
-                &mut twig.leaf.color_base,
-                &mut twig.leaf.color_edge,
-            ],
-            other => panic!("the birch wears a Lichen and a Twig texture, not {other:?}"),
-        };
-        let colours = fields
-            .into_iter()
-            .map(|colour| std::mem::replace(colour, Fp3([0.0; 3])))
-            .collect();
-        (colours, rest)
     }
 
     /// Each re-skin recolours the TEXTURE of the slots it names, and only

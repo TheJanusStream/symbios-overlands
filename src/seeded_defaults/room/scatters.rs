@@ -38,7 +38,8 @@ pub enum TreeSpecies {
     TernaryProps,
     /// Conifer-like single leader (`lsys_monopodial_tree`).
     Monopodial,
-    /// Broad sympodial crown (`lsys_sympodial_tree`).
+    /// London plane, a high broad dome on a mottled bole
+    /// (`lsys_sympodial_tree`, #1764).
     Sympodial,
     /// Gnarled, gravity-bent silhouette (`lsys_ternary_gravity`).
     TernaryGravity,
@@ -61,7 +62,7 @@ pub enum TreeSpecies {
     Fern,
     /// Clump of green canes (`lsys_bamboo`) - jungle groves.
     Bamboo,
-    /// Small pink-blossomed ornamental (`lsys_flowering_tree`).
+    /// Japanese cherry in full blossom (`lsys_flowering_tree`, #1763).
     Blossom,
 }
 

@@ -88,6 +88,34 @@ the civic planter and garden bed (#972):
   head on its stem tip, step back half the card's height along the pitched
   heading first: `&(48)f(-h)~(0,…)`.
 
+Five more, found growing the cherry and the plane (#1763, #1764):
+
+- **The `;` V-scale follows each tube's girth.** U wraps once round every
+  tube whatever its girth, so one `;` squashes a bark pattern across a
+  trunk and stretches it along a twig. Setting `;(c/v)` in each internode
+  (width goes with vigour) keeps it the same on every tube - the cherry's
+  lenticels are horizontal dashes on the trunk and the twigs alike. Too high
+  a V-scale turns fine detail into a rope-like herringbone.
+- **A card draws its whole sprite atlas.** A `Flower` of `variant_rows` x
+  `variant_cols` is that many flowers on one card - the cherry's 4 x 3 is a
+  cluster of twelve; only particles pick a single cell. Cards draw at alpha
+  mask 0.5, so a sparse atlas thins away at a distance: petals that overlap
+  hold the crown together to 150 m, separate ones fade it to bare sticks.
+- **A Leaf texture's lobes follow the midrib**, as `cos(v (2n+1) pi)` along
+  it, not a palmate fan: `lobe_count` 1.5 on a `Twig` card reads as a
+  plane's or a maple's three to five points. The `Broadleaf` texture is
+  truly palmate but one leaf per card, and the `tint_*` helpers do not
+  reach it.
+- **A per-plant age counter needs a rewrite at every stage.** A module
+  stops counting once no rule rewrites it, so an apex past its last fork
+  keeps the age it had there unless a rule steps it on (the cherry's `ag`).
+  Its use: a finalization card scale may be an expression of the marker's
+  parameters against growth-block defines, `~(0,0.6*min(1,ka+kb*n))`, so a
+  sapling wears small blossom rather than the adult's.
+- **The seed is part of the budget.** One grammar's triangles vary by up
+  to a fifth between seeds; the plane ships at seed 6, and seed 2 would
+  cost 9,206 triangles for its 7,648. Re-measure when changing a seed.
+
 ### Two traps particular to this engine
 
 - **`age` is per-rewrite, not per-plant.** We now advance the state clock once
@@ -221,9 +249,10 @@ vector is horizontal - preserving heading, flattening the branch *plane*. `$` is
 the ABOP idiom for flat crowns. The spruce (`lsys_monopodial_tree`, #1708)
 opens its branch rule `b1` with it, rolling each new whorl branch level before
 its needle nodes are placed, so a node's side-up and side-down cards stay on
-their sides; the birch, the oak and the apple (#1496) use it too. The
-sympodial tree's old planar `$`-flattened zigzag was retired in favour of a
-genuinely three-dimensional crown. Note that `$` has the *same* fixpoint as
+their sides; the birch, the oak and the apple (#1496) use it too, and the
+plane and the cherry grown from them (#1764, #1763). The sympodial tree's old
+planar `$`-flattened zigzag was retired long ago; the entry is the London
+plane now. Note that `$` has the *same* fixpoint as
 tropism, for the same reason: it builds its left vector from `Y × H`, so on a
 vertical heading it silently does nothing. It flattens laterals, never the
 leader.
@@ -366,14 +395,16 @@ whatever stands in for it (bamboo cane, fern rachis, the cactus's succulent
 skin). Above that the catalogue runs two families: **0 bark / 1 foliage**
 (birch, acacia, bamboo, bush, hazel, gorse, the garden bed's fern - the
 catalogue's `lsys_fern` is one turned card since #1711 - palm, monopodial,
-poplar, and the flowering tree's leaf ring) and **0 bark / 2 foliage**
-(mangrove, sympodial, ternary-gravity). Only `lsys_ternary_props` uses the full **0 bark / 1
-twig-cluster / 2 leaf** split; `lsys_flowering_tree` puts blossom on `2`, and
-Ashmere's species (#1496) use `2` beside a foliage `1` - `lsys_oak` and
-`lsys_young_oak` for their bronzing leaf cards, `lsys_yew` for a second copy of
-its needle card (the young oak's grammar, re-dressed), `lsys_apple` for its
-untextured fruit; `lsys_cactus` and `lsys_dead_shrub` ship slot `0` alone;
-nothing ships on `3`.
+poplar, and the plane, `lsys_sympodial_tree`) and **0 bark / 2 foliage**
+(mangrove, ternary-gravity). Only `lsys_ternary_props` uses the full **0 bark
+/ 1 twig-cluster / 2 leaf** split; Ashmere's species (#1496) use `2` beside a
+foliage `1` - `lsys_oak` and `lsys_young_oak` for their bronzing leaf cards,
+`lsys_yew` for a second copy of its needle card (the young oak's grammar,
+re-dressed), `lsys_apple` for its untextured fruit; `lsys_cactus` and
+`lsys_dead_shrub` ship slot `0` alone; and the coneflower,
+`lsys_coneflower` (#972), and the cherry, `lsys_flowering_tree` (#1763),
+number their slots as the next paragraph proposes: `0` stem or bark, `2`
+leaf, `3` flower, slot `1` empty.
 
 Palettes and biome tinting do *not* key off the numbering - `PlantVariant::apply`
 names the slot it re-skins per species - so the rule that actually binds is

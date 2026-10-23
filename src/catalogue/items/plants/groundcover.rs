@@ -20,17 +20,15 @@
 //! * **Crossed cards** - two alpha-masked quads at 90 degrees, each carrying
 //!   one of the WS1 vegetation textures. Crossing them means the prop reads
 //!   from every yaw instead of vanishing edge-on, which a single card does.
-//!   The wildflower and the dwarf shrub are still this shape: the
-//!   wildflower's blossoms are cards of their own, which the seeded tint
-//!   colours scatter by scatter (#1703), and a `Broadleaf` leaf is one
-//!   sprite, not an atlas of clumps a lathe could wrap.
-//! * **Cushions** - encrusting cover (moss, lichen) carrying opaque
-//!   *surface* textures rather than alpha cards, so a flat quad would read as
-//!   a square stamped on the terrain. Each is one
-//!   [`blob_group`](crate::catalogue::items::util::blob_group) of six domes
+//!   The wildflower is still this shape: its blossoms are cards of their
+//!   own, which the seeded tint colours scatter by scatter (#1703).
+//! * **Cushions** - cover that grows as a mass (moss, lichen, heather)
+//!   carrying opaque *surface* textures rather than alpha cards, so a flat
+//!   quad would read as a square stamped on the terrain. Each is one
+//!   [`blob_group`](crate::catalogue::items::util::blob_group) of domes
 //!   (`dome`) melted into one mat, its domes' centres under the ground: the
 //!   moss is Hypha's cushion, the lichen the same recipe flattened to a
-//!   crust (#1715).
+//!   crust (#1715), the dwarf shrub heaped into a heather clump (#1762).
 //!
 //! ## Card geometry
 //!
@@ -57,8 +55,7 @@
 //!
 //! | Prop | Parts |
 //! |---|---|
-//! | grass tuft, dry grass tuft, shore grass, fern clump, reed clump, moss, lichen | 1 |
-//! | dwarf shrub | 2 |
+//! | grass tuft, dry grass tuft, shore grass, fern clump, reed clump, moss, lichen, dwarf shrub | 1 |
 //! | wildflower, lily pads | 4 |
 
 use std::f32::consts::FRAC_PI_2;
@@ -71,7 +68,7 @@ use crate::pds::PrimCommon;
 use crate::pds::generator::BlobElement;
 use crate::pds::{
     Fp, Fp2, Fp3, Fp4, Fp64, Generator, GeneratorKind, SovereignBroadleafConfig,
-    SovereignFlowerConfig, SovereignGrassTuftConfig, SovereignLichenConfig,
+    SovereignFlowerConfig, SovereignFurConfig, SovereignGrassTuftConfig, SovereignLichenConfig,
     SovereignMaterialSettings, SovereignMossConfig, SovereignNeedleConfig, SovereignReedConfig,
     SovereignTextureConfig, TortureParams, TransformData,
 };
@@ -488,23 +485,64 @@ ground_cover_entry!(
 );
 
 ground_cover_entry!(
+    /// Dwarf shrub - a heather clump in flower (the owner's choice, #1762):
+    /// the moss's recipe heaped into a hummock, one [`blob_group`] of twelve
+    /// domes ([`dome`]) - a broad core, nine tufts round its edge at uneven
+    /// angles and reaches, and two crown tufts - so the clump's outline is
+    /// scalloped rather than smooth. Its `Fur` texture (an arrival of 0.8.0)
+    /// draws short wiry shoots gathered into locks, dark at the root and
+    /// heather green at the tip, with mauve patches of bloom, its colours
+    /// light enough to read as foliage in a tundra's low sun as well as at an
+    /// alpine noon (darker ones read there as lumps on the sand). A `Moss`
+    /// texture in heather colours, tried first, read as olive stones in both
+    /// lights; a ring of fine shoots
+    /// round the rim (a turned card of `Needle` sprigs), tried in eight
+    /// forms, read as a ring of spikes from the game's camera and was left
+    /// out. It replaced two crossed cards, each one three-lobed `Broadleaf`
+    /// leaf.
+    ///
+    /// Measured with the render tool: 0.25 m above the ground and 0.81 x
+    /// 0.78 m across, 396 triangles in 1 part (the crossed cards it
+    /// replaced: 0.35 m by 0.5 m, 4 triangles in 2 parts).
     DwarfShrub,
     "gc_dwarf_shrub",
-    "Dwarf Shrub",
-    "Low woody cushion - tundra and alpine ground cover.",
-    || crossed_cards(
-        0.5,
-        0.35,
-        card_material(SovereignTextureConfig::Broadleaf(
-            SovereignBroadleafConfig {
-                color_base: Fp3([0.12, 0.18, 0.07]),
-                color_edge: Fp3([0.28, 0.24, 0.10]),
-                lobe_count: crate::pds::Fp64(3.0),
-                radius: crate::pds::Fp64(0.8),
-                ..Default::default()
-            }
-        ))
-    )
+    "Heather Clump",
+    "Low heather hummock flecked with mauve bloom - tundra and alpine ground cover.",
+    || Generator::from_kind(blob_group(
+        vec![
+            dome([0.0, 0.0], 0.3, 0.34),
+            dome([0.307, 0.0431], 0.13, 0.2),
+            dome([0.191, 0.2048], 0.12, 0.22),
+            dome([0.0288, 0.3287], 0.11, 0.17),
+            dome([-0.1431, 0.229], 0.13, 0.21),
+            dome([-0.306, 0.0936], 0.12, 0.18),
+            dome([-0.2742, -0.0944], 0.14, 0.22),
+            dome([-0.16, -0.2886], 0.11, 0.16),
+            dome([0.0469, -0.2659], 0.13, 0.21),
+            dome([0.2304, -0.2074], 0.12, 0.19),
+            dome([0.08, 0.07], 0.15, 0.34),
+            dome([-0.09, -0.06], 0.14, 0.33),
+        ],
+        10,
+        SovereignMaterialSettings {
+            base_color: Fp3([1.0, 1.0, 1.0]),
+            roughness: Fp(0.95),
+            texture: SovereignTextureConfig::Fur(SovereignFurConfig {
+                seed: 7,
+                density: Fp64(56.0),
+                length: Fp64(0.2),
+                curl: Fp64(0.15),
+                clumping: Fp64(0.75),
+                flow: Fp64(0.7),
+                color_root: Fp3([0.03, 0.045, 0.018]),
+                color_tip: Fp3([0.13, 0.18, 0.06]),
+                patches: Fp64(0.2),
+                color_patch: Fp3([0.32, 0.11, 0.28]),
+                normal_strength: Fp(3.0),
+            }),
+            ..Default::default()
+        },
+    ))
 );
 
 ground_cover_entry!(
@@ -789,18 +827,17 @@ mod tests {
         );
     }
 
-    /// Cushion `g`'s domes, read from the built blob group: one part, six
-    /// ellipsoids, each centred under the ground and flatter than it is
-    /// wide, and every one of them showing a cap above the ground. Their
-    /// caps make one mat: each dome's circle on the ground (where its
-    /// surface crosses it) meets another's, so no cap stands apart as a
-    /// patch of its own.
-    fn assert_one_mat_of_buried_domes(g: &Generator, slug: &str) -> Vec<BlobElement> {
+    /// Cushion `g`'s domes, read from the built blob group: one part,
+    /// `count` ellipsoids, each round in plan and centred under the ground,
+    /// and every one of them showing a cap above the ground. Their caps make
+    /// one mat: each dome's circle on the ground (where its surface crosses
+    /// it) meets another's, so no cap stands apart as a patch of its own.
+    fn assert_one_mat_of_buried_domes(g: &Generator, slug: &str, count: usize) -> Vec<BlobElement> {
         assert!(g.children.is_empty(), "{slug}: one part");
         let GeneratorKind::BlobGroup { elements, .. } = &g.kind else {
             panic!("{slug}: a blob group");
         };
-        assert_eq!(elements.len(), 6, "{slug}");
+        assert_eq!(elements.len(), count, "{slug}");
         // Each dome's centre in the plane and the radius it crosses the
         // ground at.
         let mut circles = Vec::new();
@@ -809,10 +846,7 @@ mod tests {
             let [x, y, z] = e.position.0;
             assert_eq!(e.shape, crate::pds::generator::BlobShape::Ellipsoid);
             assert!(y < 0.0, "{slug}: a dome's centre is buried: {e:?}");
-            assert!(
-                ry < rx && rx == rz,
-                "{slug}: a round dome flatter than wide: {e:?}"
-            );
+            assert_eq!(rx, rz, "{slug}: a dome is round in plan: {e:?}");
             assert!(y + ry > 0.0, "{slug}: a dome's cap shows: {e:?}");
             circles.push(([x, z], rx * (1.0 - (y / ry).powi(2)).sqrt()));
         }
@@ -831,13 +865,19 @@ mod tests {
         elements.clone()
     }
 
+    /// Whether every dome of `domes` is flatter than it is wide.
+    fn flatter_than_wide(domes: &[BlobElement]) -> bool {
+        domes.iter().all(|e| e.radii.0[1] < e.radii.0[0])
+    }
+
     /// The moss is one blob mat of domes whose centres lie under the
     /// ground, flatter than they are wide, with the field sliced off below
     /// the ground so no face lies flush with it.
     #[test]
     fn the_moss_is_one_mat_of_buried_domes() {
         let g = MossPatch.build("");
-        assert_one_mat_of_buried_domes(&g, "gc_moss_patch");
+        let domes = assert_one_mat_of_buried_domes(&g, "gc_moss_patch", 6);
+        assert!(flatter_than_wide(&domes), "{domes:?}");
         let common = g.kind.common().expect("a primitive");
         assert_eq!(common.torture.profile_cut, Fp2([0.3, 1.0]));
     }
@@ -850,7 +890,8 @@ mod tests {
     #[test]
     fn the_lichen_is_a_crust_of_buried_domes() {
         let g = LichenPatch.build("");
-        let domes = assert_one_mat_of_buried_domes(&g, "gc_lichen_patch");
+        let domes = assert_one_mat_of_buried_domes(&g, "gc_lichen_patch", 6);
+        assert!(flatter_than_wide(&domes), "{domes:?}");
         for e in &domes {
             let proud = e.position.0[1] + e.radii.0[1];
             assert!(proud <= 0.09 + 1e-6, "a crust, not a cushion: {e:?}");
@@ -861,6 +902,46 @@ mod tests {
             common.material.texture,
             SovereignTextureConfig::Lichen(_)
         ));
+    }
+
+    /// The dwarf shrub is a heather clump (#1762): one mat of twelve buried
+    /// domes heaped into a hummock - its highest cap a quarter of a metre
+    /// proud, three times the lichen's crust, and the clump at least two and
+    /// a half times as wide as it is tall - none of them cut, wearing a `Fur`
+    /// of shoots green at the tip with patches of a mauve bloom.
+    #[test]
+    fn the_dwarf_shrub_is_a_heather_hummock() {
+        let g = DwarfShrub.build("");
+        let domes = assert_one_mat_of_buried_domes(&g, "gc_dwarf_shrub", 12);
+        let top = domes
+            .iter()
+            .map(|e| e.position.0[1] + e.radii.0[1])
+            .fold(f32::MIN, f32::max);
+        assert!((0.2..=0.3).contains(&top), "{top} m proud");
+        // How far out from the middle a cap reaches, where it meets the
+        // ground.
+        let reach = domes
+            .iter()
+            .map(|e| {
+                let [x, y, z] = e.position.0;
+                let [r, h, _] = e.radii.0;
+                x.hypot(z) + r * (1.0 - (y / h).powi(2)).sqrt()
+            })
+            .fold(0.0, f32::max);
+        assert!(
+            2.0 * reach > 2.5 * top,
+            "a hummock, 2.5 times as wide as tall: {reach} m out, {top} m up"
+        );
+        let common = g.kind.common().expect("a primitive");
+        assert_eq!(common.torture, TortureParams::default(), "no cut");
+        let SovereignTextureConfig::Fur(fur) = &common.material.texture else {
+            panic!("a fur of shoots");
+        };
+        let [r, gr, b] = fur.color_patch.0;
+        assert!(r > gr && b > gr, "a mauve bloom: {:?}", fur.color_patch);
+        let [r, gr, b] = fur.color_tip.0;
+        assert!(gr > r && gr > b, "green tips: {:?}", fur.color_tip);
+        assert!(fur.patches.0 > 0.0, "it flowers");
     }
 
     /// The turned cards, the fern among them (#1711), and the dry and shore
@@ -876,9 +957,9 @@ mod tests {
         ]
     }
 
-    /// The two cushions.
-    fn cushions() -> [&'static dyn CatalogueEntry; 2] {
-        [&MossPatch, &LichenPatch]
+    /// The cushions: the moss, the lichen and the heather.
+    fn cushions() -> [&'static dyn CatalogueEntry; 3] {
+        [&MossPatch, &LichenPatch, &DwarfShrub]
     }
 
     /// A turned card is one part, its foot on the ground: the lowest
@@ -1013,7 +1094,7 @@ mod tests {
     }
 
     /// No re-skins: no seeded pool, Berlin or the garden bed names a
-    /// variant for these eight (the ground-cover pools carry none, the fern
+    /// variant for these nine (the ground-cover pools carry none, the fern
     /// stands are `plain`), and the only recolour they take is the seeded
     /// grass tint, which reaches the green and dry grass tufts' textures
     /// (`seeded_defaults::room::grass`). A variant added here would need a

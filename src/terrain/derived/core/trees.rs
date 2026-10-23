@@ -42,7 +42,8 @@ const SPECIES: &[(&str, &str, Option<&str>)] = &[
     ("Acer", "lsys_ternary_props", None),
     ("Carpinus", "lsys_ternary_props", None),
     ("Fraxinus", "lsys_ternary_props", None),
-    // Broad spreading crowns: planes, chestnuts, beeches, elms.
+    // Broad spreading crowns, the London plane since #1764: planes,
+    // chestnuts, beeches, elms.
     ("Platanus", "lsys_sympodial_tree", None),
     ("Aesculus", "lsys_sympodial_tree", None),
     ("Fagus", "lsys_sympodial_tree", None),
@@ -54,12 +55,14 @@ const SPECIES: &[(&str, &str, Option<&str>)] = &[
     ("Robinia", "lsys_acacia", None),
     ("Sophora", "lsys_acacia", None),
     ("Styphnolobium", "lsys_acacia", None),
-    // Small flowering trees: cherries, apples, pears, thorns, rowans.
+    // Small flowering trees, the cherry in blossom since #1763: cherries
+    // pink, apples, pears and thorns white, rowans and whitebeams - whose
+    // small white clusters do not cloud a crown - in summer leaf.
     ("Prunus", "lsys_flowering_tree", None),
-    ("Malus", "lsys_flowering_tree", None),
-    ("Pyrus", "lsys_flowering_tree", None),
-    ("Crataegus", "lsys_flowering_tree", None),
-    ("Sorbus", "lsys_flowering_tree", None),
+    ("Malus", "lsys_flowering_tree", Some("white")),
+    ("Pyrus", "lsys_flowering_tree", Some("white")),
+    ("Crataegus", "lsys_flowering_tree", Some("white")),
+    ("Sorbus", "lsys_flowering_tree", Some("summer")),
     ("Corylus", "lsys_hazel", None),
     ("Salix", "lsys_ternary_gravity", None),
     ("Taxus", "lsys_yew", None),
@@ -85,12 +88,12 @@ const SPECIES: &[(&str, &str, Option<&str>)] = &[
 pub(crate) const GROWN_HEIGHT_M: &[(&str, f32)] = &[
     ("lsys_acacia", 6.12),
     ("lsys_birch", 9.21),
-    ("lsys_flowering_tree", 5.18),
+    ("lsys_flowering_tree", 6.03),
     ("lsys_hazel", 3.44),
     ("lsys_monopodial_tree", 9.20),
     ("lsys_oak", 17.05),
     ("lsys_poplar", 14.56),
-    ("lsys_sympodial_tree", 8.18),
+    ("lsys_sympodial_tree", 14.99),
     ("lsys_ternary_gravity", 7.18),
     ("lsys_ternary_props", 13.71),
     ("lsys_yew", 9.50),

@@ -143,6 +143,66 @@ pub fn tint_lichen(
     }
 }
 
+/// Re-tint a slot carrying a [`SovereignTextureConfig::Flower`] texture - a
+/// card of blossom, the cherry's (#1763). `petal` recolours its petals'
+/// base, edge and throat and `centre` the flowers' middles; the flowers'
+/// shape, count and atlas keep the species' authored values.
+pub fn tint_flower(
+    materials: &mut HashMap<u16, SovereignMaterialSettings>,
+    slot: u16,
+    base: [f32; 3],
+    petal: [[f32; 3]; 3],
+    centre: [f32; 3],
+) {
+    let Some(m) = materials.get_mut(&slot) else {
+        return;
+    };
+    m.base_color = Fp3(base);
+    if let SovereignTextureConfig::Flower(flower) = &mut m.texture {
+        flower.petal.color_base = Fp3(petal[0]);
+        flower.petal.color_edge = Fp3(petal[1]);
+        flower.petal.color_throat = Fp3(petal[2]);
+        flower.center_color = Fp3(centre);
+    }
+}
+
+/// A texture's colours taken out of it, for a variant's test: its colour
+/// fields in order, and the texture with each of them blacked out, so that
+/// everything else in it can be compared whole. A re-skin that names a slot
+/// changes its colours and nothing else; one that does not name it leaves
+/// both alone. Covers the kinds the re-skinned species wear.
+#[cfg(test)]
+pub(super) fn split_colours(
+    texture: &SovereignTextureConfig,
+) -> (Vec<Fp3>, SovereignTextureConfig) {
+    let mut rest = texture.clone();
+    let fields = match &mut rest {
+        SovereignTextureConfig::Lichen(lichen) => vec![
+            &mut lichen.color_rock,
+            &mut lichen.color_lichen_a,
+            &mut lichen.color_lichen_b,
+            &mut lichen.color_rim,
+        ],
+        SovereignTextureConfig::Twig(twig) => vec![
+            &mut twig.stem_color,
+            &mut twig.leaf.color_base,
+            &mut twig.leaf.color_edge,
+        ],
+        SovereignTextureConfig::Flower(flower) => vec![
+            &mut flower.petal.color_base,
+            &mut flower.petal.color_edge,
+            &mut flower.petal.color_throat,
+            &mut flower.center_color,
+        ],
+        other => panic!("no re-skinned species wears {other:?}"),
+    };
+    let colours = fields
+        .into_iter()
+        .map(|colour| std::mem::replace(colour, Fp3([0.0; 3])))
+        .collect();
+    (colours, rest)
+}
+
 /// Resolve a variant by name and apply it. An empty or unknown name leaves
 /// the species' authored materials untouched, which is the correct fallback
 /// for every pool entry that doesn't ask for a re-skin.
@@ -162,7 +222,10 @@ pub fn apply_named(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pds::{Fp, Fp64, SovereignBarkConfig, SovereignLeafConfig, SovereignLichenConfig};
+    use crate::pds::{
+        Fp, Fp64, SovereignBarkConfig, SovereignFlowerConfig, SovereignLeafConfig,
+        SovereignLichenConfig,
+    };
 
     fn leaf_slot() -> SovereignMaterialSettings {
         SovereignMaterialSettings {
@@ -244,6 +307,44 @@ mod tests {
                 ..authored
             }
         );
+    }
+
+    #[test]
+    fn tint_flower_rewrites_the_petals_and_the_centre() {
+        let authored = SovereignFlowerConfig {
+            variant_rows: 4,
+            variant_cols: 3,
+            petal_count: 5,
+            ..Default::default()
+        };
+        let mut m = HashMap::from([(
+            3u16,
+            SovereignMaterialSettings {
+                base_color: Fp3([0.1, 0.2, 0.3]),
+                texture: SovereignTextureConfig::Flower(authored.clone()),
+                ..Default::default()
+            },
+        )]);
+        tint_flower(
+            &mut m,
+            3,
+            [1.0, 1.0, 1.0],
+            [[0.9, 0.8, 0.7], [0.6, 0.5, 0.4], [0.3, 0.2, 0.1]],
+            [0.05, 0.04, 0.03],
+        );
+        let slot = &m[&3];
+        assert_eq!(slot.base_color.0, [1.0, 1.0, 1.0]);
+        let SovereignTextureConfig::Flower(flower) = &slot.texture else {
+            panic!("texture kind changed");
+        };
+        // The four colours, and nothing else: the flowers keep their
+        // authored shape, count and atlas.
+        let mut expected = authored;
+        expected.petal.color_base = Fp3([0.9, 0.8, 0.7]);
+        expected.petal.color_edge = Fp3([0.6, 0.5, 0.4]);
+        expected.petal.color_throat = Fp3([0.3, 0.2, 0.1]);
+        expected.center_color = Fp3([0.05, 0.04, 0.03]);
+        assert_eq!(*flower, expected);
     }
 
     #[test]
