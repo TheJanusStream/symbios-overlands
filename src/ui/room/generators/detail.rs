@@ -16,6 +16,7 @@ use super::super::lsystem::draw_lsystem_forge;
 use super::super::shape::draw_shape_forge;
 use super::super::terrain::draw_terrain_forge;
 use super::super::widgets::draw_transform;
+use super::WaterLayer;
 use super::particles::draw_generator_particles;
 use super::primitive::{
     FacePanel, FacePickUi, PrimEdit, draw_primitive_bevel, draw_primitive_blob_group,
@@ -187,6 +188,8 @@ pub(super) fn draw_detail_panel(
     // the terrain shapes Berlin's ground (#1642).
     let seed_note = source.grammar_seed_note(&id.root);
     let berlin_ground = source.ground_is_berlin();
+    // And what a terrain water layer draws (#1760).
+    let water_layer = source.water_layer(&id);
 
     if let Some(node) = find_node_mut(source, &id) {
         let child_count = node.children.len();
@@ -245,6 +248,39 @@ pub(super) fn draw_detail_panel(
                     crate::pds::room::MAX_ROAD_NETWORKS
                 ),
             );
+        }
+        // What a terrain water layer draws (#1760): the sea, or a lake round
+        // its position - and a lake whose position stands dry draws nothing,
+        // which is said here, where it is moved and raised. Outside the
+        // section above, as the road note is.
+        if let Some(layer) = water_layer {
+            let theme = crate::ui::theme::current(ui.ctx());
+            let (text, color) = match layer {
+                WaterLayer::Sea => (
+                    "The world's sea: the lowest water on its terrain floods all \
+                     ground below its height.",
+                    theme.text_weak,
+                ),
+                WaterLayer::Berlin => (
+                    "Berlin's water: in this square of Berlin each of its bodies \
+                     lies at its own level, whatever height this water has. \
+                     Without it the world has no water.",
+                    theme.text_weak,
+                ),
+                WaterLayer::Lake => (
+                    "A lake: above the world's sea, it fills the dip round its \
+                     position up to its height, and stops where the ground rises \
+                     above it.",
+                    theme.text_weak,
+                ),
+                WaterLayer::Dry => (
+                    "No lake: above the world's sea, this water fills the dip round \
+                     its position - but the ground there is at or above its height, \
+                     so it draws nothing. Move it over lower ground, or raise it.",
+                    theme.status.warn,
+                ),
+            };
+            ui.label(egui::RichText::new(text).small().color(color));
         }
         ui.add_space(4.0);
         ui.separator();

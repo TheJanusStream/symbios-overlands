@@ -416,6 +416,7 @@ mod tests {
             shelter: add(),
             shelter_map: ShelterMap::open(frame.cover_texels as usize, texel, origin),
             weight_layer: None,
+            lakes: None,
             revision: 0,
         }
     }

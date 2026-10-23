@@ -989,7 +989,7 @@ mod world_height_tests {
                 core.set(x, z, 30.0);
             }
         }
-        let ground = geo::GeoGround::from_cover(21, 2.0, vec![None; 21 * 21], None);
+        let ground = geo::GeoGround::from_cover(21, 2.0, vec![None; 21 * 21], Vec::new());
         let berlin = FinishedHeightMap(core, Some(ground));
         assert_eq!(berlin.walkable_half_extent(), 20.0);
         // Past the edge, the edge's height and slope hold.

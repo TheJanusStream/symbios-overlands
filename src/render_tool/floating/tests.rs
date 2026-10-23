@@ -63,9 +63,11 @@ fn scatter(name: &str) -> Value {
 
 /// The report's fields for `record` over `map`, by name.
 fn fields(record: &RoomRecord, map: &HeightMap) -> HashMap<&'static str, Value> {
-    let water = crate::world_builder::compile::room_water_level(record);
+    let water = crate::water::bodies::RoomWater::sea_alone(
+        crate::world_builder::compile::room_water_level(record),
+    );
     let terrain = crate::terrain::FinishedHeightMap(map.clone(), None);
-    report("did:test", record, &terrain, water, &bodies_of(record))
+    report("did:test", record, &terrain, &water, &bodies_of(record))
         .into_iter()
         .collect()
 }
@@ -485,13 +487,15 @@ fn the_report_prints_a_row_a_line() {
         vec![limb(0.5, 1.0, 1.0), limb(0.5, 1.0, -1.0)],
     );
     let record = record(vec![("a/b~c", tree)], vec![absolute("a/b~c", 0.0, 0.0)]);
-    let water = crate::world_builder::compile::room_water_level(&record);
+    let water = crate::water::bodies::RoomWater::sea_alone(
+        crate::world_builder::compile::room_water_level(&record),
+    );
     let terrain = crate::terrain::FinishedHeightMap(flat(), None);
     let printed = one_row_a_line(&report(
         "did:test",
         &record,
         &terrain,
-        water,
+        &water,
         &bodies_of(&record),
     ));
 

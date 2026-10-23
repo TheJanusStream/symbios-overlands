@@ -14,7 +14,7 @@ use crate::pds::{Generator, GeneratorKind};
 
 use super::super::generator_cache::part_material_fingerprint;
 use super::super::lsystem::spawn_lsystem_entity;
-use super::super::material::{spawn_procedural_material, spawn_water_volume};
+use super::super::material::{spawn_procedural_material, spawn_water_body, spawn_water_volume};
 use super::super::particles::{snapshot_from_record, spawn_particle_emitter_entity};
 use super::super::portal::spawn_portal_entity;
 use super::super::prim::{
@@ -211,33 +211,83 @@ fn spawn_node(
                 .heightmap
                 .map(|hm| (hm.0.width() - 1) as f32 * hm.0.scale())
                 .unwrap_or_else(|| (tcfg::GRID_SIZE - 1) as f32 * tcfg::CELL_SCALE);
-            // A region built from real Berlin draws its water at Berlin's
-            // level (#1586), whatever height the record gives the plane: the
-            // beds are carved below that level and all other ground is kept
-            // above it. Only the water the room's water line is read from
-            // moves - a Terrain root's own Water children, as
-            // `room_water_level` counts them, which hang from the terrain's
-            // anchor at the origin, so their height is the plane's.
+            // A Terrain root's own Water children are the room's water
+            // layers, as `room_water_level` counts them, hanging from the
+            // terrain's anchor at the origin so their height is the plane's.
             let terrain_water = path.len() == 1
                 && matches!(
                     ctx.record.generators.get(base_ref).map(|g| &g.kind),
                     Some(GeneratorKind::Terrain(_))
                 );
-            let mut transform = transform;
-            if terrain_water && let Some(level) = super::water::geo_water_level(ctx.heightmap) {
-                transform.translation.y = level;
+            // A layer over the room's lowest is a lake (#1760): it fills the
+            // dip round its point on the ground the world is drawn on, and is
+            // drawn and answered there alone - and nowhere while its point
+            // stands dry, or before the ground is built. The lowest is the
+            // room's sea, but in a region built from real Berlin whose core
+            // has water Berlin's own bodies are drawn in its place (#1586,
+            // #1724), each at its own level over its own cells, whatever
+            // height the record gives the layer: the record says there is
+            // water, Berlin where it lies. Both are found from the record's
+            // own layers, as every reader of the room's water finds them
+            // (`water::bodies::RoomWater`).
+            let bodies = terrain_water.then(|| {
+                let layer = Transform::from(&generator.transform);
+                let lowest = crate::water::bodies::sea_level(
+                    &crate::water::bodies::terrain_layers(ctx.record),
+                );
+                if lowest.is_some_and(|lowest| layer.translation.y > lowest) {
+                    Some(
+                        ctx.heightmap
+                            .and_then(|heightmap| crate::water::bodies::lake(&heightmap.0, &layer))
+                            .into_iter()
+                            .collect::<Vec<_>>(),
+                    )
+                } else {
+                    super::water::geo_water(ctx.heightmap).map(<[_]>::to_vec)
+                }
+            });
+            match bodies.flatten() {
+                Some(bodies) => {
+                    // The layer's own node, where its record puts it: what
+                    // the editor selects and moves, which a body's frame -
+                    // the world's, at its level - is not. The bodies are
+                    // drawn beside it, retired with the placement as its
+                    // water always was.
+                    for body in &bodies {
+                        spawn_water_body(
+                            ctx.commands,
+                            surface,
+                            &ctx.record.environment,
+                            body,
+                            ctx.meshes,
+                            ctx.water_materials,
+                            ctx.water_surfaces,
+                            ctx.placement_index,
+                        );
+                    }
+                    Some(
+                        ctx.commands
+                            .spawn((
+                                transform,
+                                Visibility::default(),
+                                RoomEntity,
+                                PlacementUnit(ctx.placement_index),
+                            ))
+                            .id(),
+                    )
+                }
+                None => Some(spawn_water_volume(
+                    ctx.commands,
+                    surface,
+                    &ctx.record.environment,
+                    transform,
+                    world_extent,
+                    ctx.meshes,
+                    ctx.water_materials,
+                    ctx.water_surfaces,
+                    ctx.placement_index,
+                )),
             }
-            Some(spawn_water_volume(
-                ctx.commands,
-                surface,
-                &ctx.record.environment,
-                transform,
-                world_extent,
-                ctx.meshes,
-                ctx.water_materials,
-                ctx.water_surfaces,
-                ctx.placement_index,
-            ))
         }
         // The road network's mesh is built by the terrain plugin from its
         // config + the finished heightmap (same reason Terrain's own mesh isn't

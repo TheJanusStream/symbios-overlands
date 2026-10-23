@@ -71,6 +71,7 @@ use crate::seeded_defaults::{
     EscalationTier, ProsperityTier, SceneCharacter, ThemeArchetype, fnv1a_64,
 };
 use crate::state::{CurrentRoomDid, LiveRoomRecord};
+use crate::water::bodies::RoomWater;
 
 use super::{FinishedHeightMap, HeightMapSource, heightmap_is_current};
 
@@ -162,29 +163,36 @@ fn seed_prefix(seed: u64) -> String {
 /// edits, leaving buildings standing on the previous layout until a
 /// re-roll.
 /// Combined fingerprint across every active network (#895).
-fn combined_fingerprint(did: &str, configs: &[RoadConfig], water_level: Option<f32>) -> String {
+fn combined_fingerprint(
+    did: &str,
+    configs: &[RoadConfig],
+    heightmap: Option<&bevy_symbios_ground::HeightMap>,
+    water: &RoomWater,
+) -> String {
     configs
         .iter()
         .enumerate()
-        .map(|(i, c)| format!("[{i}]{}", layout_fingerprint(did, c, water_level)))
+        .map(|(i, c)| format!("[{i}]{}", layout_fingerprint(did, c, heightmap, water)))
         .collect::<Vec<_>>()
         .join("\u{1f}")
 }
 
-/// `water_level` is the room's water line: it moves the streets and lots
+/// `water` is the room's water on `heightmap`: it moves the streets and lots
 /// of a network that avoids water (#1552), so it is part of that network's
 /// key and of no other's - a dry-traced network must not churn its
-/// buildings when the lake is raised.
+/// buildings when the sea is raised - and of that one only by the sea and
+/// the lakes its district reaches (#1727, [`crate::urban::water_key`]).
 ///
 /// The street field (#1556) is part of every network's key: its smoothing
 /// and basis fields move the streets, and its keep-out discs drop lots. So is
 /// the layout revision from 1 on (#1558): it re-derives the graph and lots.
-fn layout_fingerprint(did: &str, c: &RoadConfig, water_level: Option<f32>) -> String {
-    let water = if c.avoid_water {
-        format!("|water={water_level:?}")
-    } else {
-        String::new()
-    };
+fn layout_fingerprint(
+    did: &str,
+    c: &RoadConfig,
+    heightmap: Option<&bevy_symbios_ground::HeightMap>,
+    water: &RoomWater,
+) -> String {
+    let water = crate::urban::water_key(heightmap, c, water);
     // The layout revision (#1558) re-derives the graph and the lots; at 0,
     // every network saved before it, the key is what it always was.
     let layout = if c.layout_revision == 0 {
@@ -945,7 +953,7 @@ fn simulate_districts(
     heightmap: &bevy_symbios_ground::HeightMap,
     did: &str,
     configs: &[(usize, RoadConfig)],
-    water: Option<f32>,
+    water: &RoomWater,
 ) -> Vec<(usize, usize)> {
     let mut scratch = record.clone();
     strip_lot_buildings(&mut scratch);
@@ -996,7 +1004,7 @@ fn districts_complete(
     heightmap: &bevy_symbios_ground::HeightMap,
     did: &str,
     configs: &[(usize, RoadConfig)],
-    water: Option<f32>,
+    water: &RoomWater,
 ) -> bool {
     // Per network, which layers it grows and the record lacks.
     let missing: Vec<(bool, bool)> = configs
@@ -1030,14 +1038,15 @@ pub(crate) fn grow_missing_districts(
     terrain: &FinishedHeightMap,
     did: &str,
 ) -> usize {
-    // The water line as drawn: Berlin's in a geodata region (#1586).
-    let water = crate::world_builder::compile::drawn_water_level(record, Some(terrain));
+    // The water as drawn: the room's sea and its lakes (#1760), or Berlin's
+    // own bodies in a geodata region whose core has water (#1724).
+    let water = crate::world_builder::compile::drawn_water(record, Some(terrain));
     let heightmap = &terrain.0;
     let mut planted = 0;
     for (i, c) in active_configs(record) {
         let (has_lots, has_props) = layer_content(record, i, &c);
         if c.populate_lots && !has_lots {
-            let lots = crate::urban::extract_building_lots(heightmap, &c, water);
+            let lots = crate::urban::extract_building_lots(heightmap, &c, &water);
             let prefix = net_prefix(LOT_PREFIX, i, c.seed);
             planted += inject_lots(
                 record,
@@ -1051,7 +1060,7 @@ pub(crate) fn grow_missing_districts(
             .placed;
         }
         if c.furniture.enabled && !has_props {
-            let spots = crate::urban::extract_furniture_spots(heightmap, &c, water);
+            let spots = crate::urban::extract_furniture_spots(heightmap, &c, &water);
             let prefix = net_prefix(FURNITURE_PREFIX, i, c.seed);
             planted +=
                 inject_street_furniture(record, &spots, did, c.seed, &prefix, &c.lots).placed;
@@ -1191,7 +1200,7 @@ pub(super) fn maybe_populate_lots(
             return;
         }
         let networks = configs.iter().map(|(_, c)| c.clone()).collect::<Vec<_>>();
-        let layout = combined_fingerprint(did_str, &networks, None);
+        let layout = combined_fingerprint(did_str, &networks, None, &RoomWater::default());
         // A stand-in for Berlin's ground (#1593): a visit that landed only
         // part of Berlin draws other heights, or Berlin's uncarved at the
         // record's own water line, and the carried district was grown on
@@ -1226,13 +1235,13 @@ pub(super) fn maybe_populate_lots(
         // district the edit left behind.
         let edited_meanwhile =
             session_fp.is_none() && session_layout.as_deref().is_some_and(|k| k != layout);
-        let water = crate::world_builder::compile::drawn_water_level(&record.0, Some(&heightmap));
-        let fp = combined_fingerprint(did_str, &networks, water);
+        let water = crate::world_builder::compile::drawn_water(&record.0, Some(&heightmap));
+        let fp = combined_fingerprint(did_str, &networks, Some(&heightmap.0), &water);
         // Only a fresh session asks whether the record is complete (the
         // pure `lot_action` reads it for nothing else); a layer that grows
         // nothing is as complete as one whose buildings are saved.
         let populated = session_fp.is_some()
-            || districts_complete(&record.0, &heightmap.0, did_str, &configs, water);
+            || districts_complete(&record.0, &heightmap.0, did_str, &configs, &water);
         let action = if terrain_moved || edited_meanwhile {
             LotAction::Repopulate
         } else {
@@ -1290,11 +1299,11 @@ pub(super) fn maybe_populate_lots(
         stats.pending = false;
         return; // the change branch above already swept
     }
-    let water = crate::world_builder::compile::drawn_water_level(&record.0, Some(&heightmap));
+    let water = crate::world_builder::compile::drawn_water(&record.0, Some(&heightmap));
     let networks = configs.iter().map(|(_, c)| c.clone()).collect::<Vec<_>>();
-    let fp = combined_fingerprint(did_str, &networks, water);
+    let fp = combined_fingerprint(did_str, &networks, Some(&heightmap.0), &water);
     let populated = session_fp.is_some()
-        || districts_complete(&record.0, &heightmap.0, did_str, &configs, water);
+        || districts_complete(&record.0, &heightmap.0, did_str, &configs, &water);
     // The deadline re-evaluates against the CURRENT record, so it asks the
     // pure question again rather than trusting the arming decision - but a
     // forced repopulate has to survive that re-ask (see `forced`).
@@ -1317,13 +1326,18 @@ pub(super) fn maybe_populate_lots(
     let stripped = strip_lot_buildings(&mut record_mut.0);
     stats.last_replaced = stripped;
     *session_fp = Some(fp);
-    *session_layout = Some(combined_fingerprint(did_str, &networks, None));
+    *session_layout = Some(combined_fingerprint(
+        did_str,
+        &networks,
+        None,
+        &RoomWater::default(),
+    ));
     stats.buildings = 0;
     stats.props = 0;
     stats.clamps = super::LotClamps::default();
     for (i, config) in &configs {
         if config.populate_lots {
-            let lots = crate::urban::extract_building_lots(&heightmap.0, config, water);
+            let lots = crate::urban::extract_building_lots(&heightmap.0, config, &water);
             if !lots.is_empty() {
                 let report = inject_lots(
                     &mut record_mut.0,
@@ -1346,7 +1360,7 @@ pub(super) fn maybe_populate_lots(
         }
         // Street furniture (#893) - independent of the building layer.
         if config.furniture.enabled {
-            let spots = crate::urban::extract_furniture_spots(&heightmap.0, config, water);
+            let spots = crate::urban::extract_furniture_spots(&heightmap.0, config, &water);
             let report = inject_street_furniture(
                 &mut record_mut.0,
                 &spots,
@@ -1414,7 +1428,9 @@ mod tests {
         // #882: the graph (and thus the lots) depends on seed + extent +
         // spacings; ribbon-profile dims must NOT churn the buildings.
         let base = RoadConfig::default();
-        let fp = |c: &RoadConfig| layout_fingerprint("did:test:0", c, Some(7.0));
+        let fp = |c: &RoadConfig| {
+            layout_fingerprint("did:test:0", c, None, &RoomWater::sea_alone(Some(7.0)))
+        };
 
         let mut spacing = base.clone();
         spacing.major_spacing.0 += 10.0;
@@ -1448,7 +1464,7 @@ mod tests {
 
         assert_ne!(
             fp(&base),
-            layout_fingerprint("did:test:1", &base, Some(7.0)),
+            layout_fingerprint("did:test:1", &base, None, &RoomWater::sea_alone(Some(7.0))),
             "fingerprint is per-room"
         );
 
@@ -1501,13 +1517,28 @@ mod tests {
     fn the_water_line_keys_only_the_lots_of_a_network_that_avoids_water() {
         let dry_traced = RoadConfig::default();
         assert_eq!(
-            layout_fingerprint("did:test:0", &dry_traced, Some(7.0)),
-            layout_fingerprint("did:test:0", &dry_traced, Some(9.5)),
+            layout_fingerprint(
+                "did:test:0",
+                &dry_traced,
+                None,
+                &RoomWater::sea_alone(Some(7.0))
+            ),
+            layout_fingerprint(
+                "did:test:0",
+                &dry_traced,
+                None,
+                &RoomWater::sea_alone(Some(9.5))
+            ),
             "a network that ignores the water keeps its lots when the lake rises"
         );
         assert_eq!(
-            layout_fingerprint("did:test:0", &dry_traced, Some(7.0)),
-            layout_fingerprint("did:test:0", &dry_traced, None),
+            layout_fingerprint(
+                "did:test:0",
+                &dry_traced,
+                None,
+                &RoomWater::sea_alone(Some(7.0))
+            ),
+            layout_fingerprint("did:test:0", &dry_traced, None, &RoomWater::default()),
             "or when the lake goes"
         );
 
@@ -1516,13 +1547,13 @@ mod tests {
             ..RoadConfig::default()
         };
         assert_ne!(
-            layout_fingerprint("did:test:0", &shore, Some(7.0)),
-            layout_fingerprint("did:test:0", &shore, Some(9.5)),
+            layout_fingerprint("did:test:0", &shore, None, &RoomWater::sea_alone(Some(7.0))),
+            layout_fingerprint("did:test:0", &shore, None, &RoomWater::sea_alone(Some(9.5))),
             "a network that stops at the shore re-derives when the lake rises"
         );
         assert_ne!(
-            layout_fingerprint("did:test:0", &shore, Some(7.0)),
-            layout_fingerprint("did:test:0", &shore, None),
+            layout_fingerprint("did:test:0", &shore, None, &RoomWater::sea_alone(Some(7.0))),
+            layout_fingerprint("did:test:0", &shore, None, &RoomWater::default()),
             "and when the lake goes"
         );
     }
@@ -2122,6 +2153,7 @@ mod tests {
                     ..RoadConfig::default()
                 },
                 None,
+                &RoomWater::default(),
             )
         };
         assert_ne!(fp(0), fp(1), "an upgrade must regrow the district");
@@ -2575,7 +2607,7 @@ mod tests {
             |c| c.lots.escalation = Some(Fp(0.5)),
             |c| c.lots.tier_bias = crate::pds::generator::LotTierBias::Downtown,
         ];
-        let fp = |c: &RoadConfig| layout_fingerprint("did:test:0", c, None);
+        let fp = |c: &RoadConfig| layout_fingerprint("did:test:0", c, None, &RoomWater::default());
         let mut seen = vec![fp(&base)];
         for edit in edits {
             let mut edited = base.clone();

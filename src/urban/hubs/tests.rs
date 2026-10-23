@@ -866,8 +866,8 @@ fn a_junction_that_loses_an_arm_to_the_district_clip_is_no_gap() {
 fn pilot_hubs_are_sound() {
     let hm = pilot_heightmap();
     let config = cfg(PILOT_ROAD_SEED);
-    let (graph, sub, _lo) =
-        crate::urban::build_road_graph(&hm, &config, None).expect("pilot must trace");
+    let (graph, sub, _lo) = crate::urban::build_road_graph(&hm, &config, &RoomWater::default())
+        .expect("pilot must trace");
     let dims = Dims::from_config(&config);
     let drawn = crate::urban::drawn_graph(&graph, &sub);
     let chains = crate::urban::extract_chains(&drawn, &sub, &dims);

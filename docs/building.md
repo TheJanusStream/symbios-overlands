@@ -976,8 +976,9 @@ cargo run --bin render -- --scatter-plot 3 --out /tmp/scatter.png
 # gives the --yaw that faces the sun (a sky shot: --yaw it, --elev=-15):
 cargo run --bin render -- --describe 0..32
 cargo run --bin render -- --describe 11
-# A world's ground as numbers, no render (#1449): percentiles, the water line
-# and the share it floods, the landing, where each placement stands, and at
+# A world's ground as numbers, no render (#1449): percentiles, the sea's level
+# and the share it floods (and each lake's), the landing, where each placement
+# stands, and at
 # each point its height, slope, downhill way and contour yaw (--footprint:
 # what a thing that wide rests on), and which ground textures the game blends
 # there - each splat layer's share, from its own weight map, and the layer a

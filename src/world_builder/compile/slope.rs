@@ -36,13 +36,13 @@ const FREEBOARD: f32 = 0.75;
 /// Slide an anchor off over-steep ground along its bearing through the
 /// origin. Candidates must be gentle at the centre and (for a non-zero
 /// `clearance`) around an eight-point footprint ring, and must stay dry
-/// when the room has a water line.
+/// over the room's water there, where it has any.
 pub(super) fn relocate_off_steep_ground(
     hm: &bevy_symbios_ground::HeightMap,
     extent: f32,
     half: f32,
     translation: &mut Vec3,
-    water_y: Option<f32>,
+    water: &crate::water::bodies::RoomWater,
     clearance: f32,
 ) {
     let sample = |x: f32, z: f32| {
@@ -59,8 +59,9 @@ pub(super) fn relocate_off_steep_ground(
         if slope(x, z) > STEEP_LIMIT {
             return false;
         }
-        if let Some(w) = water_y
-            && sample(x, z) < w + FREEBOARD
+        if water
+            .level_at(x, z)
+            .is_some_and(|w| sample(x, z) < w + FREEBOARD)
         {
             return false;
         }
@@ -74,7 +75,10 @@ pub(super) fn relocate_off_steep_ground(
             // the search moves on - so a one-ULP difference in a probe
             // position can relocate a building between two peers.
             let (px, pz) = (x + libm::sinf(a) * clearance, z + libm::cosf(a) * clearance);
-            slope(px, pz) <= STEEP_LIMIT && water_y.is_none_or(|w| sample(px, pz) >= w + FREEBOARD)
+            slope(px, pz) <= STEEP_LIMIT
+                && water
+                    .level_at(px, pz)
+                    .is_none_or(|w| sample(px, pz) >= w + FREEBOARD)
         })
     };
 
@@ -124,7 +128,14 @@ mod tests {
     fn anchor_on_ramp_slides_to_the_plateau() {
         let hm = ramp_then_plateau();
         let mut t = Vec3::new(10.0, 0.0, 0.0);
-        relocate_off_steep_ground(&hm, 128.0, 64.0, &mut t, None, 0.0);
+        relocate_off_steep_ground(
+            &hm,
+            128.0,
+            64.0,
+            &mut t,
+            &crate::water::bodies::RoomWater::default(),
+            0.0,
+        );
         assert!(t.x > 20.0, "anchor should reach the plateau: {t:?}");
         assert_eq!(t.z, 0.0, "walk must stay on the bearing line");
     }
@@ -133,7 +144,14 @@ mod tests {
     fn flat_anchor_stays_put_and_hopeless_gives_up() {
         let hm = ramp_then_plateau();
         let mut flat = Vec3::new(40.0, 0.0, 0.0);
-        relocate_off_steep_ground(&hm, 128.0, 64.0, &mut flat, None, 0.0);
+        relocate_off_steep_ground(
+            &hm,
+            128.0,
+            64.0,
+            &mut flat,
+            &crate::water::bodies::RoomWater::default(),
+            0.0,
+        );
         assert_eq!(flat.x, 40.0);
 
         // Uniform steep ramp everywhere: give up in place.
@@ -144,7 +162,14 @@ mod tests {
             }
         }
         let mut t = Vec3::new(-20.0, 0.0, 10.0);
-        relocate_off_steep_ground(&steep, 128.0, 64.0, &mut t, None, 0.0);
+        relocate_off_steep_ground(
+            &steep,
+            128.0,
+            64.0,
+            &mut t,
+            &crate::water::bodies::RoomWater::default(),
+            0.0,
+        );
         assert_eq!((t.x, t.z), (-20.0, 10.0));
     }
 
@@ -155,7 +180,14 @@ mod tests {
         // drowned must be skipped. Plateau height 84 stays dry.
         let hm = ramp_then_plateau();
         let mut t = Vec3::new(10.0, 0.0, 0.0);
-        relocate_off_steep_ground(&hm, 128.0, 64.0, &mut t, Some(80.0), 0.0);
+        relocate_off_steep_ground(
+            &hm,
+            128.0,
+            64.0,
+            &mut t,
+            &crate::water::bodies::RoomWater::sea_alone(Some(80.0)),
+            0.0,
+        );
         assert!(
             t.x > 20.0,
             "anchor should land on the dry flat plateau: {t:?}"
@@ -170,7 +202,14 @@ mod tests {
         // a 10 m ring reaches back onto the ramp.
         let hm = ramp_then_plateau();
         let mut t = Vec3::new(22.0, 0.0, 0.0);
-        relocate_off_steep_ground(&hm, 128.0, 64.0, &mut t, None, 10.0);
+        relocate_off_steep_ground(
+            &hm,
+            128.0,
+            64.0,
+            &mut t,
+            &crate::water::bodies::RoomWater::default(),
+            10.0,
+        );
         assert!(
             t.x > 30.0,
             "ring-sampled anchor must clear the slope break: {t:?}"

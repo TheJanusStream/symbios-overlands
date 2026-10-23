@@ -113,7 +113,7 @@ pub(crate) struct ScatterCensus {
 /// peer's terrain pass produces for that record.
 pub(crate) fn scatter_census(record: &RoomRecord) -> ScatterCensus {
     let heightmap = crate::terrain::rebuild_terrain_for_record(record);
-    let water_level = super::water::drawn_water_level(record, Some(&heightmap));
+    let water = super::water::drawn_water(record, Some(&heightmap));
 
     let rows = record
         .placements
@@ -131,7 +131,7 @@ pub(crate) fn scatter_census(record: &RoomRecord) -> ScatterCensus {
                 return None;
             };
             let run = |naturalness: &ScatterNaturalness| {
-                replay(record, &heightmap, water_level, p, naturalness)
+                replay(record, &heightmap, &water, p, naturalness)
                     .expect("the placement is a scatter")
             };
 
@@ -157,8 +157,8 @@ pub(crate) fn scatter_census(record: &RoomRecord) -> ScatterCensus {
                 max_slope_deg: naturalness.max_slope_deg.map(|d| d.0),
                 above_water_band: naturalness.above_water_band.map(|b| b.0),
                 altitude_band: naturalness.altitude_band.map(|b| b.0),
-                above_water: height_percentiles(&tuned, &heightmap, water_level),
-                above_water_unbanded: height_percentiles(&unbanded, &heightmap, water_level),
+                above_water: height_percentiles(&tuned, &heightmap, &water),
+                above_water_unbanded: height_percentiles(&unbanded, &heightmap, &water),
                 slope_deg: slope_percentiles(&tuned, &heightmap),
                 slope_deg_offered: slope_percentiles(&unlimited, &heightmap),
                 bounds_radius: bounds_radius(bounds),
@@ -184,7 +184,7 @@ pub(crate) fn scatter_yields(
     record: &RoomRecord,
     heightmap: &FinishedHeightMap,
 ) -> Vec<Option<u32>> {
-    let water_level = super::water::drawn_water_level(record, Some(heightmap));
+    let water = super::water::drawn_water(record, Some(heightmap));
     record
         .placements
         .iter()
@@ -192,7 +192,7 @@ pub(crate) fn scatter_yields(
             let Placement::Scatter { naturalness, .. } = p else {
                 return None;
             };
-            replay(record, heightmap, water_level, p, naturalness).map(|placed| placed.len() as u32)
+            replay(record, heightmap, &water, p, naturalness).map(|placed| placed.len() as u32)
         })
         .collect()
 }
@@ -203,7 +203,7 @@ pub(crate) fn scatter_yields(
 fn replay(
     record: &RoomRecord,
     heightmap: &FinishedHeightMap,
-    water_level: Option<f32>,
+    water: &crate::water::bodies::RoomWater,
     placement: &Placement,
     naturalness: &ScatterNaturalness,
 ) -> Option<Vec<(f32, f32)>> {
@@ -224,7 +224,7 @@ fn replay(
     let filters = SampleFilters {
         biome_filter,
         terrain_cfg: crate::pds::find_terrain_config(record),
-        water_level,
+        water,
         urban_exclusions: &exclusions,
         slope_cutoff: slope_cutoff(naturalness),
         tree_clearance: trees,
@@ -309,21 +309,21 @@ fn slope_percentiles(points: &[(f32, f32)], heightmap: &FinishedHeightMap) -> (f
     (at(0.5), at(0.95), degs[degs.len() - 1])
 }
 
-/// `(median, p95, max)` height above the water line, in metres, over a set
-/// of placed points. `water_level` of `None` measures raw world Y instead,
-/// which is what a room with no water generator has to compare against.
+/// `(median, p95, max)` height above the water there, in metres, over a
+/// set of placed points. Where there is no water it measures raw world Y
+/// instead, which is what a room with no water generator has to compare
+/// against.
 fn height_percentiles(
     points: &[(f32, f32)],
     heightmap: &FinishedHeightMap,
-    water_level: Option<f32>,
+    water: &crate::water::bodies::RoomWater,
 ) -> (f32, f32, f32) {
     if points.is_empty() {
         return (0.0, 0.0, 0.0);
     }
-    let wl = water_level.unwrap_or(0.0);
     let mut hs: Vec<f32> = points
         .iter()
-        .map(|&(x, z)| heightmap.world_height_at(x, z) - wl)
+        .map(|&(x, z)| heightmap.world_height_at(x, z) - water.level_at(x, z).unwrap_or(0.0))
         .collect();
     hs.sort_by(f32::total_cmp);
     let at = |q: f32| hs[((hs.len() - 1) as f32 * q).round() as usize];

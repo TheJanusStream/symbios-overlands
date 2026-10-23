@@ -587,6 +587,7 @@ pub(crate) fn run_at_frame_rate(
                 local_half_extents: Vec2::splat(FLOOR_M * 0.5),
                 flow_strength: 0.0,
                 owner: crate::water::WaterPlane::NO_OWNER,
+                cells: None,
             })
             .into_iter()
             .collect(),

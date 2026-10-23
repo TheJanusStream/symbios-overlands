@@ -1349,6 +1349,13 @@ pub(crate) mod terrain {
         /// to it - so it must stay modest enough that it reads as wet
         /// ground and never as a different biome.
         pub const MOISTURE_STRENGTH: f32 = 0.28;
+        /// The span (m) a lake's level is written over, about the ground at
+        /// each vertex, in the weight map's second layer (#1727,
+        /// `ground_cover::lake_layer`): in a byte's 255 steps of 6 cm, half
+        /// of it - twice [`MOISTURE_DEPTH`] - either way, so the whole damp
+        /// margin reads true. Ground further under its lake reads as that far
+        /// under, and further over it as that far over, where no band reaches.
+        pub const LAKE_SPAN: f32 = 4.0 * MOISTURE_DEPTH;
 
         /// View distance (m) where the splat albedo starts cross-fading to
         /// each layer's mean colour (#1320).

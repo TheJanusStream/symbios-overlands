@@ -9,6 +9,8 @@
 
 mod mesh;
 
+/// The water every urban test hands the tracer, by name.
+pub(crate) use crate::water::bodies::RoomWater;
 pub(crate) use mesh::*;
 
 use bevy_symbios_ground::{FbmNoise, HeightMap, TerrainGenerator};
@@ -197,4 +199,31 @@ pub(crate) fn mk_sample(centres: &[(f32, f32)], floors: &[f32]) -> ChainSample {
         .map(|w| (w[1].cx - w[0].cx).hypot(w[1].cz - w[0].cz).max(1.0e-3))
         .collect();
     ChainSample { frames, seg }
+}
+
+/// The pilot room's water with a lake in `config`'s district (#1727): over
+/// its lowest ground there, at the height a third of the pilot's cells stand
+/// under, its rectangle twice the world's so it reaches as far as its ground
+/// lets it - and the sea a metre below all of the ground, so the tracer's one
+/// water line, the sea's, sees none of it on its own.
+pub(crate) fn pilot_lake(hm: &HeightMap, config: &RoadConfig) -> RoomWater {
+    let (lo, side) =
+        crate::urban::graph::district_window(hm, config).expect("the pilot district has a window");
+    let mut heights: Vec<f32> = hm.data().to_vec();
+    heights.sort_by(f32::total_cmp);
+    let level = heights[heights.len() / 3];
+    let lowest = (lo[1]..lo[1] + side)
+        .flat_map(|z| (lo[0]..lo[0] + side).map(move |x| (x, z)))
+        .min_by(|a, b| hm.get(a.0, a.1).total_cmp(&hm.get(b.0, b.1)))
+        .expect("a window has cells");
+    let (x, z) =
+        crate::water::bodies::CellGrid::of(hm).world_of((lowest.0 as u32, lowest.1 as u32));
+    let layer = bevy::prelude::Transform::from_xyz(x, level, z)
+        .with_scale(bevy::prelude::Vec3::new(2.0, 1.0, 2.0));
+    let lake =
+        crate::water::bodies::lake(hm, &layer).expect("the district's lowest ground holds a lake");
+    RoomWater {
+        sea: Some(hm.data().iter().copied().fold(f32::INFINITY, f32::min) - 1.0),
+        bodies: vec![lake],
+    }
 }

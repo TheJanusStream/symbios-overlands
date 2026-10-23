@@ -24,8 +24,9 @@
 //!   textures have baked.
 //! * **`cover`** - one `R8Unorm` texel per metre (two a 2 m cell): 1 where
 //!   the ground is open, 0 under a road, a building, any solid placed item
-//!   standing on the ground, and wherever the ground lies under water or
-//!   within [`WATER_MARGIN`] of it. Sample it linearly, and its edges fade
+//!   standing on the ground, and wherever the ground lies under water - a
+//!   lake's at its own level (#1727) - or within [`WATER_MARGIN`] of it.
+//!   Sample it linearly, and its edges fade
 //!   across a metre. [`GroundCover::mask`] is the same on the CPU.
 //! * **`shelter`** - on the cover's grid, one `Rg16Float` texel each: red
 //!   the top of the highest static shape over it, minus infinity under the
@@ -111,6 +112,9 @@ pub struct GroundCover {
     /// The weight map's own layer, kept on the CPU to write the shelter
     /// beside it ([`weight_image`]), with the weights.
     pub(crate) weight_layer: Option<Arc<WeightLayer>>,
+    /// The lakes written beside the shelter ([`lake_layer`]), as last drawn:
+    /// `None` in a room without them.
+    pub(crate) lakes: Option<Vec<[u8; 2]>>,
     /// How many times the cover has been drawn for this heightmap; 0 while
     /// it is still the all-open stand-in.
     pub revision: u32,
@@ -191,18 +195,26 @@ pub(crate) struct WeightLayer {
 /// The splat weight map as the image the ground and the grass sample: a
 /// two-layer array, `layer` the weights and the second layer's red
 /// `sheltered` (one byte a texel, 0 open to 255 sheltered; open everywhere
-/// when `None`) - linear between texels, clamped at the edges, GPU only.
-/// The same size each time, so a rewrite is copied into the texture already
-/// bound ([`replace`]).
-pub(crate) fn weight_image(layer: &WeightLayer, sheltered: Option<&[u8]>) -> Image {
+/// when `None`), its green and blue the `lakes` ([`lake_layer`]; none when
+/// `None`) - linear between texels, clamped at the edges, GPU only. The same
+/// size each time, so a rewrite is copied into the texture already bound
+/// ([`replace`]).
+pub(crate) fn weight_image(
+    layer: &WeightLayer,
+    sheltered: Option<&[u8]>,
+    lakes: Option<&[[u8; 2]]>,
+) -> Image {
     use bevy::render::render_resource::{TextureViewDescriptor, TextureViewDimension};
     let texels = (layer.width * layer.height) as usize;
     let mut bytes = Vec::with_capacity(texels * 8);
     bytes.extend_from_slice(&layer.bytes);
-    match sheltered {
-        Some(sheltered) => bytes.extend(sheltered.iter().flat_map(|&s| [s, 0, 0, 0])),
-        None => bytes.resize(texels * 8, 0),
-    }
+    let sheltered = |i: usize| sheltered.map_or(0, |s| s[i]);
+    let lakes = lakes.filter(|lakes| lakes.len() == texels);
+    let lake = |i: usize| lakes.map_or([0, 0], |l| l[i]);
+    bytes.extend((0..texels).flat_map(|i| {
+        let [level, shore] = lake(i);
+        [sheltered(i), level, shore, 0]
+    }));
     let mut image = Image::new(
         Extent3d {
             width: layer.width,
@@ -268,6 +280,53 @@ fn sheltered_layer(
         .into_iter()
         .map(|c| (usize::from(c) * 255 / 4) as u8)
         .collect()
+}
+
+/// The lakes over each heightmap vertex of `hm` (#1727), two bytes each in
+/// the weight map's order, for its second layer's green and blue: how far
+/// the lake's level stands over the vertex, `LAKE_SPAN` about the middle
+/// (`config::terrain::splat`); and 255 where a lake's reach takes the vertex
+/// in (`water::bodies::BodyCells::reach`), else 0 - its water, and the bank
+/// reached from it standing under the damp margin over its level - the
+/// highest lake's where two reach one vertex. There the ground is damp to
+/// the lake's level and its snow and grass stop at its water, as they do at
+/// the sea's (`splat.wgsl`). `None` in a room without lakes: the ground
+/// reads the sea's alone.
+pub(crate) fn lake_layer(
+    hm: &bevy_symbios_ground::HeightMap,
+    water: &crate::water::bodies::RoomWater,
+) -> Option<Vec<[u8; 2]>> {
+    use crate::config::terrain::splat::LAKE_SPAN;
+    let grid = crate::water::bodies::CellGrid::of(hm);
+    if !water.bodies.iter().any(|body| body.cells.grid == grid) {
+        return None;
+    }
+    let w = hm.width();
+    let mut levels = vec![f32::NEG_INFINITY; w * hm.height()];
+    let mut any = false;
+    for body in water.bodies.iter().filter(|body| body.cells.grid == grid) {
+        for (cz, first, past) in body.cells.reach.runs() {
+            for cx in first..past {
+                let i = cz as usize * w + cx as usize;
+                levels[i] = levels[i].max(body.level);
+                any = true;
+            }
+        }
+    }
+    any.then(|| {
+        levels
+            .iter()
+            .zip(hm.data())
+            .map(|(&level, &ground)| {
+                if level.is_finite() {
+                    let over = (0.5 + (level - ground) / LAKE_SPAN).clamp(0.0, 1.0);
+                    [(over * 255.0).round() as u8, 255]
+                } else {
+                    [0, 0]
+                }
+            })
+            .collect()
+    })
 }
 
 /// Whether the cover waits to be redrawn, and what can make it.
@@ -348,6 +407,7 @@ fn sync_ground_height(
             cover.weights = None;
             cover.maxima = None;
             cover.weight_layer = None;
+            cover.lakes = None;
         }
         None => commands.insert_resource(GroundCover {
             frame,
@@ -359,6 +419,7 @@ fn sync_ground_height(
             shelter: images.add(shelter_map.image()),
             shelter_map,
             weight_layer: None,
+            lakes: None,
             revision: 0,
         }),
     }
@@ -411,7 +472,11 @@ fn write_shelter_layer(
         return;
     }
     let sheltered = sheltered_layer(&cover.frame, hm, &cover.shelter_map);
-    replace(images, handle, weight_image(layer, Some(&sheltered)));
+    replace(
+        images,
+        handle,
+        weight_image(layer, Some(&sheltered), cover.lakes.as_deref()),
+    );
 }
 
 /// Note when the world changed in a way that can move the cover: a new
@@ -500,9 +565,10 @@ fn rebuild_cover(
 
     let water = record
         .as_ref()
-        .and_then(|r| crate::world_builder::compile::drawn_water_level(&r.0, Some(&*heightmap)));
-    if let Some(level) = water {
-        block_water(&mut mask, hm, level + cfg::WATER_MARGIN);
+        .map(|r| crate::world_builder::compile::drawn_water(&r.0, Some(&*heightmap)))
+        .unwrap_or_default();
+    if !water.is_dry() {
+        block_water(&mut mask, hm, &water, cfg::WATER_MARGIN);
     }
 
     let mut outlines = 0usize;
@@ -536,12 +602,19 @@ fn rebuild_cover(
     replace(&mut images, &cover.cover, cover_image(&mask));
     let (open, covered) = (mask.open_share(), shelter.covered_share());
     cover.mask = mask;
-    // Most redraws - an edit that moves no static shape - leave the shelter
-    // as it was: its upload and the weights' rewrite are skipped then.
+    // Most redraws - an edit that moves no static shape and no lake - leave
+    // the shelter and the lakes as they were: their uploads and the weights'
+    // rewrite are skipped then.
     let began = bevy::platform::time::Instant::now();
-    if shelter != cover.shelter_map {
+    let lakes = lake_layer(hm, &water);
+    let lakes_moved = lakes != cover.lakes;
+    cover.lakes = lakes;
+    let sheltered_moved = shelter != cover.shelter_map;
+    if sheltered_moved {
         replace(&mut images, &cover.shelter, shelter.image());
         cover.shelter_map = shelter;
+    }
+    if sheltered_moved || lakes_moved {
         write_shelter_layer(&mut images, &cover, hm);
     }
     sheltering += began.elapsed();
@@ -557,11 +630,19 @@ fn rebuild_cover(
     dirty.since = None;
 }
 
-/// Block the ground lower than `line`. The drawn ground is flat between a
-/// cell's corners, so a cell whose four corners all stand above the line is
-/// dry throughout and one whose four all lie under it is wet throughout;
-/// only a cell the shore crosses is tested texel by texel.
-fn block_water(mask: &mut CoverMask, hm: &bevy_symbios_ground::HeightMap, line: f32) {
+/// Block the ground lower than the water's line: its level at each place,
+/// a lake's in its cells and the sea's elsewhere (#1727), and `margin` over
+/// it. The drawn ground is flat between a cell's corners, so a cell whose
+/// four corners share a line and all stand above it is dry throughout and
+/// one whose four all lie under it is wet throughout; only a cell the shore
+/// crosses, or a lake's edge, is tested texel by texel, each texel against
+/// the line at its own place.
+fn block_water(
+    mask: &mut CoverMask,
+    hm: &bevy_symbios_ground::HeightMap,
+    water: &crate::water::bodies::RoomWater,
+    margin: f32,
+) {
     /// What a cell holds of the water.
     #[derive(Clone, Copy, PartialEq)]
     enum Cell {
@@ -572,19 +653,28 @@ fn block_water(mask: &mut CoverMask, hm: &bevy_symbios_ground::HeightMap, line: 
     let (w, h) = (hm.width(), hm.height());
     let cells = Vec2::new((w - 1) as f32, (h - 1) as f32);
     let half = cells * hm.scale() * 0.5;
+    let line_at = |xz: Vec2| water.level_at(xz.x, xz.y).map(|level| level + margin);
+    let grid = crate::water::bodies::CellGrid::of(hm);
+    let line_of = |(x, z): (usize, usize)| {
+        water
+            .level_at_cell(grid, (x as u32, z as u32))
+            .map(|level| level + margin)
+    };
     let mut wet = vec![Cell::Dry; (w - 1) * (h - 1)];
     for z in 0..h - 1 {
         for x in 0..w - 1 {
-            let corners = [
-                hm.get(x, z),
-                hm.get(x + 1, z),
-                hm.get(x, z + 1),
-                hm.get(x + 1, z + 1),
-            ];
-            wet[z * (w - 1) + x] = if corners.iter().all(|&c| c < line) {
-                Cell::Under
-            } else if corners.iter().any(|&c| c < line) {
+            let corners = [(x, z), (x + 1, z), (x, z + 1), (x + 1, z + 1)];
+            let line = line_of((x, z));
+            wet[z * (w - 1) + x] = if corners[1..].iter().any(|&corner| line_of(corner) != line) {
                 Cell::Shore
+            } else if let Some(line) = line {
+                if corners.iter().all(|&(cx, cz)| hm.get(cx, cz) < line) {
+                    Cell::Under
+                } else if corners.iter().any(|&(cx, cz)| hm.get(cx, cz) < line) {
+                    Cell::Shore
+                } else {
+                    Cell::Dry
+                }
             } else {
                 Cell::Dry
             };
@@ -598,7 +688,7 @@ fn block_water(mask: &mut CoverMask, hm: &bevy_symbios_ground::HeightMap, line: 
         match wet[cell.y as usize * (w - 1) + cell.x as usize] {
             Cell::Dry => false,
             Cell::Under => true,
-            Cell::Shore => mesh_height(hm, xz) < line,
+            Cell::Shore => line_at(xz).is_some_and(|line| mesh_height(hm, xz) < line),
         }
     });
 }
@@ -779,7 +869,7 @@ mod tests {
         let weights = app
             .world_mut()
             .resource_mut::<Assets<Image>>()
-            .add(weight_image(&layer, None));
+            .add(weight_image(&layer, None, None));
         let maxima = Arc::new(WeightMaxima::of(&[[255, 0, 0, 0]; 4], 2, 2, 8.0));
         app.insert_resource(SplatWeights(weights.clone(), maxima, layer.clone()));
         app.update();
@@ -879,6 +969,177 @@ mod tests {
         // The ground meets the water line at x = 0 (4 m up the slope).
         assert_eq!(open_at(&app, -20.0, 0.0), 0.0);
         assert_eq!(open_at(&app, 20.0, 0.0), 1.0);
+    }
+
+    /// A valley at 5 m in the west, a ridge at 10 m, and in the east a round
+    /// dip 20 m across, its floor at 6 m round (16, 0): on 33 x 33 vertices
+    /// 2 m apart.
+    fn dip_and_valley() -> bevy_symbios_ground::HeightMap {
+        let mut hm = bevy_symbios_ground::HeightMap::new(33, 33, 2.0);
+        for z in 0..33 {
+            for x in 0..33 {
+                let (wx, wz) = (x as f32 * 2.0 - 32.0, z as f32 * 2.0 - 32.0);
+                let dip = ((wx - 16.0).powi(2) + wz.powi(2)).sqrt();
+                let y = if wx < -12.0 {
+                    5.0
+                } else if dip < 10.0 {
+                    6.0 + dip * 0.4
+                } else {
+                    10.0
+                };
+                hm.set(x, z, y);
+            }
+        }
+        hm
+    }
+
+    /// A room whose terrain has its sea at 0 m and a lake at 8 m in the dip.
+    fn dip_lake_record() -> RoomRecord {
+        let mut record = RoomRecord::default();
+        record.generators.clear();
+        let mut terrain = Generator::from_kind(GeneratorKind::Terrain(Default::default()));
+        for (x, level) in [(0.0, 0.0), (16.0, 8.0)] {
+            let mut water = Generator::from_kind(GeneratorKind::Water {
+                surface: Default::default(),
+            });
+            water.transform = TransformData {
+                translation: Fp3([x, level, 0.0]),
+                ..Default::default()
+            };
+            terrain.children.push(water);
+        }
+        record.generators.insert("terrain".into(), terrain);
+        record
+    }
+
+    /// #1727: a lake blocks the ground in its dip up to its own level, and
+    /// not the lower valley beyond its reach, which the sea under it leaves
+    /// open - and its shore is written beside the shelter, where the ground
+    /// reads it.
+    #[test]
+    fn a_lake_blocks_its_dip_and_not_the_valley_beyond_it() {
+        let mut app = app(FinishedHeightMap(dip_and_valley(), None));
+        app.insert_resource(LiveRoomRecord(dip_lake_record()));
+        app.update();
+        let layer = Arc::new(WeightLayer {
+            width: 33,
+            height: 33,
+            bytes: [255, 0, 0, 0].repeat(33 * 33),
+        });
+        let weights = app
+            .world_mut()
+            .resource_mut::<Assets<Image>>()
+            .add(weight_image(&layer, None, None));
+        let maxima = Arc::new(WeightMaxima::of(&[[255, 0, 0, 0]; 4], 2, 2, 8.0));
+        app.insert_resource(SplatWeights(weights.clone(), maxima, layer));
+        app.update();
+        settle(&mut app);
+        assert_eq!(open_at(&app, 16.0, 0.0), 0.0, "the lake's floor");
+        assert_eq!(open_at(&app, 16.0, 3.0), 0.0, "in the lake");
+        assert_eq!(
+            open_at(&app, 16.0, 8.0),
+            1.0,
+            "the dip's bank, over the lake"
+        );
+        assert_eq!(
+            open_at(&app, -24.0, 0.0),
+            1.0,
+            "the valley, below the lake but out of its reach"
+        );
+        assert_eq!(open_at(&app, 0.0, 0.0), 1.0, "the ridge");
+
+        let images = app.world().resource::<Assets<Image>>();
+        let data = images
+            .get(&weights)
+            .and_then(|i| i.data.as_ref())
+            .expect("the weight map's texels");
+        // Vertex (k, l) stands at (-32 + 2k, -32 + 2l): its second layer's
+        // green and blue.
+        let lake = |x: f32, z: f32| {
+            let (k, l) = (((x + 32.0) / 2.0) as usize, ((z + 32.0) / 2.0) as usize);
+            let i = 33 * 33 * 4 + (l * 33 + k) * 4;
+            [data[i + 1], data[i + 2]]
+        };
+        assert_eq!(lake(16.0, 0.0), [159, 255], "2 m under the lake");
+        assert_eq!(lake(-24.0, 0.0), [0, 0], "the valley");
+    }
+
+    /// #1727: a lake's shore is its cells and the ground over it its damp
+    /// margin reaches, each with how far the lake's level stands over it;
+    /// the valley below it, out of its reach, is the sea's. A room without
+    /// lakes has no lake layer at all.
+    #[test]
+    fn a_lakes_shore_is_its_water_and_the_bank_its_margin_reaches() {
+        let terrain = FinishedHeightMap(dip_and_valley(), None);
+        let water = crate::world_builder::compile::drawn_water(&dip_lake_record(), Some(&terrain));
+        let layer = lake_layer(&terrain.0, &water).expect("a lake");
+        let at = |x: f32, z: f32| {
+            let (k, l) = (((x + 32.0) / 2.0) as usize, ((z + 32.0) / 2.0) as usize);
+            layer[l * 33 + k]
+        };
+        // (0.5 + over / LAKE_SPAN) of 255: 2 m under, and 1.2 m over.
+        assert_eq!(at(16.0, 0.0), [159, 255], "the lake's floor");
+        assert_eq!(at(16.0, 8.0), [108, 255], "the bank");
+        assert_eq!(at(0.0, 0.0)[1], 255, "the ridge, 2 m over the lake");
+        assert_eq!(
+            at(-24.0, 0.0),
+            [0, 0],
+            "the valley, below the lake but out of its reach"
+        );
+        let sea = crate::water::bodies::RoomWater::sea_alone(Some(0.0));
+        assert_eq!(lake_layer(&terrain.0, &sea), None, "no lake, no layer");
+    }
+
+    /// #1724: in a region built from real Berlin, whose own bodies are its
+    /// water and no sea spans it, each body blocks the ground under it, and
+    /// the hollow beside it that is lower but no water stays open.
+    #[test]
+    fn berlins_own_water_blocks_its_cover() {
+        // Ground at 10 m, a pool round (-10, 0) whose bed lies at 5 m, and
+        // an underpass at 4 m round (14, 0) that is no water.
+        let mut hm = bevy_symbios_ground::HeightMap::new(33, 33, 2.0);
+        let mut cover = Vec::new();
+        for z in 0..33 {
+            for x in 0..33 {
+                let (wx, wz) = (x as f32 * 2.0 - 32.0, z as f32 * 2.0 - 32.0);
+                let pool = (wx + 10.0).abs() < 6.0 && wz.abs() < 6.0;
+                let underpass = (wx - 14.0).abs() < 4.0 && wz.abs() < 4.0;
+                hm.set(
+                    x,
+                    z,
+                    if pool {
+                        5.0
+                    } else if underpass {
+                        4.0
+                    } else {
+                        10.0
+                    },
+                );
+                cover.push(Some(if pool {
+                    geodata::berlin::LandUse::Water
+                } else {
+                    geodata::berlin::LandUse::Park
+                }));
+            }
+        }
+        let water = crate::terrain::geo::GeoGround::water_of_cover(&hm, &cover, 8.0);
+        let berlin = crate::terrain::geo::GeoGround::from_cover(33, 2.0, cover, water);
+        let mut app = app(FinishedHeightMap(hm, Some(berlin)));
+        let mut record = dip_lake_record();
+        record
+            .generators
+            .values_mut()
+            .for_each(|terrain| terrain.children.truncate(1));
+        app.insert_resource(LiveRoomRecord(record));
+        app.update();
+        settle(&mut app);
+        assert_eq!(open_at(&app, -10.0, 0.0), 0.0, "the pool");
+        assert_eq!(
+            open_at(&app, 14.0, 0.0),
+            1.0,
+            "the underpass, lower, but dry"
+        );
+        assert_eq!(open_at(&app, 0.0, 20.0), 1.0, "the ground");
     }
 
     /// A collider under a moving body moves with it: it blocks nothing,

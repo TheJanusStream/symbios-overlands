@@ -61,7 +61,8 @@ pub(super) fn write_cover_map(
     let mask = &cover.mask;
     let water = record
         .as_ref()
-        .and_then(|r| crate::world_builder::compile::drawn_water_level(&r.0, Some(&*heightmap)));
+        .map(|r| crate::world_builder::compile::drawn_water(&r.0, Some(&*heightmap)))
+        .unwrap_or_default();
     let size = mask.size() as u32;
     let sun = SUN.normalize();
     let step = mask.texel();
@@ -87,8 +88,9 @@ pub(super) fn write_cover_map(
                 }
             }
             if mask.bytes()[j * mask.size() + i] == crate::ground_cover::mask::BLOCKED {
-                let under_water =
-                    water.is_some_and(|level| h(0.0, 0.0) < level + cfg::WATER_MARGIN);
+                let under_water = water
+                    .level_at(xz.x, xz.y)
+                    .is_some_and(|level| h(0.0, 0.0) < level + cfg::WATER_MARGIN);
                 let tint = if under_water {
                     WATER_TINT
                 } else {

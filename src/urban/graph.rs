@@ -23,18 +23,21 @@ use symbios_tensor::{
 
 use crate::pds::generator::{RoadBasis, RoadConfig};
 use crate::pds::types::Fp2;
+use crate::water::bodies::{CellGrid, RoomWater, WaterBody};
 
 /// The road network's rationalized planar graph for `config`, plus the district
 /// sub-heightmap it was traced on and that window's lower cell index `lo`.
 /// `None` when the network is disabled, the window is too small, or the tracer
 /// can't produce a network. Deterministic in `config.seed` and, for a network
-/// that avoids water, `water_level`. Never writes back to `hm` (the `sub` copy
+/// that avoids water, `water`. Never writes back to `hm` (the `sub` copy
 /// is the only mutable surface, and nothing carves it).
 ///
-/// `water_level` is the room's water line in world Y as drawn
-/// ([`crate::world_builder::compile::drawn_water_level`]: Berlin's in a
-/// geodata region, #1586), `None` for a dry room. It is read only when
-/// `config.avoid_water` is set (#1552).
+/// `water` is the room's water as drawn
+/// ([`crate::world_builder::compile::drawn_water`]: its sea and its lakes,
+/// #1760, or Berlin's own bodies in a geodata region, #1724), none for a
+/// dry room. It is
+/// read only when `config.avoid_water` is set (#1552), and then the streets
+/// stop at each body's shore as at the sea's ([`shore_ground`]).
 ///
 /// Shared by [`crate::urban::build_road_geometry`] (the draped mesh) and
 /// [`crate::urban::extract_building_lots`] (footprints) so both read the *same* graph - a
@@ -43,9 +46,9 @@ use crate::pds::types::Fp2;
 pub(crate) fn build_road_graph(
     hm: &HeightMap,
     config: &RoadConfig,
-    water_level: Option<f32>,
+    water: &RoomWater,
 ) -> Option<(RoadGraph, HeightMap, [usize; 2])> {
-    let (mut graph, sub, lo) = build_road_graph_raw(hm, config, water_level)?;
+    let (mut graph, sub, lo) = build_road_graph_raw(hm, config, water)?;
     // Clean tracer / rationalize artefacts (grazing false junctions and dead-end
     // stubs) out of the topology, and weld near-miss dead-ends into junctions,
     // before it is meshed *or* lotted - see [`sanitize_graph`]. Both consumers read
@@ -65,11 +68,44 @@ pub(crate) fn build_road_graph(
 pub(crate) fn build_road_graph_raw(
     hm: &HeightMap,
     config: &RoadConfig,
-    water_level: Option<f32>,
+    water: &RoomWater,
 ) -> Option<(RoadGraph, HeightMap, [usize; 2])> {
     if !config.enabled {
         return None;
     }
+    let (lo, side) = district_window(hm, config)?;
+
+    // District window → its own heightmap, both for tensor to road and for us
+    // to sample heights from. Copied, never written back (no carving).
+    let mut sub = HeightMap::new(side, side, hm.scale());
+    for z in 0..side {
+        for x in 0..side {
+            sub.set(x, z, hm.get(lo[0] + x, lo[1] + z));
+        }
+    }
+
+    let line = water_line(&sub, water);
+    let cfg = tensor_config(hm, config, line, lo);
+    // A network that stops at the shore stops at each lake's too (#1727): it
+    // is traced on the ground as the tracer's one water line must read it.
+    let shore = if config.avoid_water {
+        shore_ground(hm, &sub, lo, water, line)
+    } else {
+        None
+    };
+    let mut graph = generate_roads(shore.as_ref().unwrap_or(&sub), &cfg).ok()?;
+    // Rationalize for clean XZ geometry (RDP straighten + Bézier fillets). We
+    // ignore its smoothed elevations and sample the real terrain when draping.
+    rationalize_graph(&mut graph, &sub, &RationalizeConfig::default());
+    Some((graph, sub, lo))
+}
+
+/// The district window of `config` on `hm`: its lower cell and its side, in
+/// cells - `None` where it is too small to trace. Its centre is the authored
+/// XZ offset (#889) in cells, clamped so the window always stays fully
+/// inside the heightmap - pushing the centre past an edge slides the
+/// district back rather than truncating it.
+pub(crate) fn district_window(hm: &HeightMap, config: &RoadConfig) -> Option<([usize; 2], usize)> {
     let scale = hm.scale();
     let full_w = hm.width();
     let half_cells = ((config.district_half_extent.0 / scale).round() as usize).min(full_w / 2);
@@ -77,31 +113,107 @@ pub(crate) fn build_road_graph_raw(
     if side < 8 {
         return None;
     }
-    // District centre (#889): the authored XZ offset in cells, clamped so the
-    // window always stays fully inside the heightmap - pushing the centre past
-    // an edge slides the district back rather than truncating it.
     let max_lo = full_w - side;
     let lo_axis = |offset_m: f32| -> usize {
         let centered = full_w as f32 / 2.0 + offset_m / scale;
         ((centered - half_cells as f32).round().max(0.0) as usize).min(max_lo)
     };
-    let lo = [lo_axis(config.center.0[0]), lo_axis(config.center.0[1])];
+    Some((
+        [lo_axis(config.center.0[0]), lo_axis(config.center.0[1])],
+        side,
+    ))
+}
 
-    // District window → its own heightmap, both for tensor to road and for us
-    // to sample heights from. Copied, never written back (no carving).
-    let mut sub = HeightMap::new(side, side, scale);
+/// The bodies of `water` with a cell in the district window of `side` cells
+/// from `lo` on `hm` - on `hm`'s own grid, so a body found on other ground
+/// reaches none.
+fn reaching<'a>(
+    hm: &HeightMap,
+    water: &'a RoomWater,
+    lo: [usize; 2],
+    side: usize,
+) -> impl Iterator<Item = &'a WaterBody> {
+    let grid = CellGrid::of(hm);
+    let (lo, side) = ((lo[0] as u32, lo[1] as u32), (side as u32, side as u32));
+    water
+        .bodies
+        .iter()
+        .filter(move |body| body.cells.grid == grid && body.cells.mask.meets(lo, side))
+}
+
+/// The district window `sub` (lower cell `lo` in `hm`) as the tracer and the
+/// lots must read it to stop at every lake's shore (#1727). symbios-tensor
+/// knows one water line, the sea's, so each cell a body holds is lowered by
+/// how far the body stands over the sea: the sea's line then crosses it where
+/// the ground crosses the body's own level. The ring of dry shore cells a
+/// body holds is lowered with it, so between a wet cell and a dry one the
+/// line falls where it does on the ground; the step this leaves in the
+/// ground the tracer reads lies a cell inland, between two dry cells, where
+/// its street field reads it as a steep bank. `line` is the one the tracer
+/// is given ([`water_line`]). `None` where no body reaches the window: the
+/// tracer reads the ground itself, as it always did.
+pub(crate) fn shore_ground(
+    hm: &HeightMap,
+    sub: &HeightMap,
+    lo: [usize; 2],
+    water: &RoomWater,
+    line: Option<f32>,
+) -> Option<HeightMap> {
+    let sea = line?;
+    let side = sub.width();
+    let bodies: Vec<&WaterBody> = reaching(hm, water, lo, side).collect();
+    if bodies.is_empty() {
+        return None;
+    }
+    let mut shore = HeightMap::new(side, side, sub.scale());
     for z in 0..side {
         for x in 0..side {
-            sub.set(x, z, hm.get(lo[0] + x, lo[1] + z));
+            let cell = ((lo[0] + x) as u32, (lo[1] + z) as u32);
+            let over = bodies
+                .iter()
+                .filter(|body| body.cells.mask.contains(cell))
+                .map(|body| body.level - sea)
+                .fold(0.0_f32, f32::max);
+            shore.set(x, z, sub.get(x, z) - over);
         }
     }
+    Some(shore)
+}
 
-    let cfg = tensor_config(hm, config, water_level, lo);
-    let mut graph = generate_roads(&sub, &cfg).ok()?;
-    // Rationalize for clean XZ geometry (RDP straighten + Bézier fillets). We
-    // ignore its smoothed elevations and sample the real terrain when draping.
-    rationalize_graph(&mut graph, &sub, &RationalizeConfig::default());
-    Some((graph, sub, lo))
+/// The one water line the tracer and the lot subdivision know over the
+/// district window `sub` (#1552): the room's sea - or, where Berlin's own
+/// bodies are its water and no sea spans it (#1724), a line a metre under
+/// the window's lowest ground, which no ground reaches but the bodies' cells
+/// lowered under it ([`shore_ground`]). `None` for a dry room.
+pub(crate) fn water_line(sub: &HeightMap, water: &RoomWater) -> Option<f32> {
+    water.sea.or_else(|| {
+        (!water.bodies.is_empty())
+            .then(|| sub.data().iter().copied().fold(f32::INFINITY, f32::min) - 1.0)
+    })
+}
+
+/// What a network's streets and lots read of the room's water, as their key
+/// (#1552, #1727): nothing where it ignores the water; else the sea's level -
+/// the whole key where no lake reaches its district, as the room's one water
+/// line always keyed it - and each lake that does, by its level and cells,
+/// so raising a lake re-traces the districts it reaches and no other.
+pub(crate) fn water_key(hm: Option<&HeightMap>, config: &RoadConfig, water: &RoomWater) -> String {
+    if !config.avoid_water {
+        return String::new();
+    }
+    let mut key = format!("|water={:?}", water.sea);
+    if let Some(hm) = hm
+        && let Some((lo, side)) = district_window(hm, config)
+    {
+        for body in reaching(hm, water, lo, side) {
+            key.push_str(&format!(
+                "|lake={:?}@{:?}",
+                body.level,
+                body.cells.mask.signature()
+            ));
+        }
+    }
+    key
 }
 
 /// The offset from a district window's own frame to the room frame (#889,

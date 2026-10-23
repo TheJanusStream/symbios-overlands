@@ -159,6 +159,7 @@ fn field_app_on(vertices: usize, quality: GrassQuality, eye: Vec3) -> App {
             Vec2::splat(-frame.half),
         ),
         weight_layer: None,
+        lakes: None,
         revision: 1,
     })
     .insert_resource(FinishedHeightMap(hm, None));

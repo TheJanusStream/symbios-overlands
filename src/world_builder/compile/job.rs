@@ -103,7 +103,11 @@ impl CompileJob {
     /// on a compile.
     #[cfg(test)]
     pub(crate) fn running() -> Self {
-        CompileJob(Some(ActiveJob::new(VecDeque::new(), true, None)))
+        CompileJob(Some(ActiveJob::new(
+            VecDeque::new(),
+            true,
+            Default::default(),
+        )))
     }
 }
 
@@ -155,11 +159,12 @@ pub(super) struct ActiveJob {
     /// first index - the owner's clue to which rows are missing.
     pub(super) skipped_units: u32,
     pub(super) skipped_from: Option<usize>,
-    /// The room's water level at plan time, for `start_unit`'s dry-land
-    /// walk. Cached on the job so the execute slices don't re-scan every
-    /// generator each frame (#673); a replan recomputes it, and the record
-    /// cannot change between plans without triggering one.
-    pub(super) room_water_y: Option<f32>,
+    /// The room's water at plan time (`drawn_water`: its sea and lakes,
+    /// #1727), for `start_unit`'s dry-land walk. Cached on the job so the
+    /// execute slices don't re-scan every generator each frame (#673); a
+    /// replan recomputes it, and the record cannot change between plans
+    /// without triggering one.
+    pub(super) room_water: crate::water::bodies::RoomWater,
     /// The scattered copy being spawned and each generator's size class,
     /// measured on its first copy this job (#1480) - see
     /// [`CopyRecorder`](super::super::draw_distance::CopyRecorder).
@@ -171,7 +176,11 @@ pub(super) struct ActiveJob {
 }
 
 impl ActiveJob {
-    pub(super) fn new(queue: VecDeque<QueuedUnit>, full: bool, room_water_y: Option<f32>) -> Self {
+    pub(super) fn new(
+        queue: VecDeque<QueuedUnit>,
+        full: bool,
+        room_water: crate::water::bodies::RoomWater,
+    ) -> Self {
         Self {
             queue,
             cursor: None,
@@ -181,7 +190,7 @@ impl ActiveJob {
             budget_warned: false,
             skipped_units: 0,
             skipped_from: None,
-            room_water_y,
+            room_water,
             copy: Default::default(),
             work: Duration::ZERO,
             frames: 0,
@@ -228,9 +237,11 @@ pub(super) enum CursorKind {
         /// at unit start from `local_seed`. Always populated, so enabling
         /// clumping changes only the contraction.
         clusters: Vec<(f32, f32)>,
-        /// Water level sampled from the registry at scatter start -
-        /// once per unit, matching the monolithic pass.
-        water_level: Option<f32>,
+        /// The water the samples are judged against, read from the planes
+        /// spawned when the scatter started, matching the monolithic pass
+        /// ([`crate::water::ScatterWater`]): the level over its centre, and
+        /// a lake's at each sample its reach takes in (#1727).
+        water: crate::water::ScatterWater,
     },
 }
 
@@ -253,22 +264,24 @@ pub(super) fn placement_generator_ref(placement: &Placement) -> Option<&str> {
 /// - the placement itself,
 /// - the generator tree it references (children are embedded, so the
 ///   whole blueprint is covered) and that generator's `traits` entry,
-/// - the room water level for `avoid_water` placements (the dry-land
-///   walk samples it),
-/// - the terrain config + room water level for biome-filtered scatters
+/// - the room's water for `avoid_water` placements (the dry-land walk
+///   asks it the level at each probe),
+/// - the terrain config + the room's water for biome-filtered scatters
 ///   (`dominant_biome` reads the terrain rules; the filter's water
-///   relation reads the registry - the room level is a sound proxy for
-///   the home-water plane those filters target in practice; a
-///   scatter near a *moved scattered pond* can go stale until the next
-///   full rebuild, which heightmap edits and placement-count changes
-///   both force).
+///   relation reads the registry at each sample - the room's water, its
+///   sea and its lakes, is a sound proxy for the planes those filters
+///   target in practice; a scatter near a *moved scattered pond* can go
+///   stale until the next full rebuild, which heightmap edits and
+///   placement-count changes both force).
 ///
 /// Once-per-planning-pass fingerprint inputs that are pure functions of
-/// the whole record: the room water level and the terrain config, both
-/// serialised up front. In a region built from real Berlin the water level
-/// is the one drawn, Berlin's (#1586), and its land use - which a scatter's
-/// biome filter reads there instead of the terrain rules - changes only
-/// with the heightmap, whose every swap is a full rebuild. Before this
+/// the whole record: the room's water and the terrain config, both
+/// serialised up front. The water is the one drawn - its sea's level, and
+/// its bodies' levels and cells (`RoomWater::key`, #1727): a lake's, or
+/// Berlin's own in a region built from real Berlin (#1724) - and the
+/// bodies' cells and Berlin's land use, which a scatter's biome filter reads
+/// there instead of the terrain rules, change only with the heightmap,
+/// whose every swap is a full rebuild. Before this
 /// existed, every `unit_fingerprint` call re-scanned all generators
 /// (`room_water_level` + `find_terrain_config`) - O(placements ×
 /// generators) per pass in the editing loop (#673). Scoped to a single pass ONLY: the fingerprint is
@@ -284,9 +297,9 @@ pub(super) struct FingerprintPass {
 }
 
 impl FingerprintPass {
-    pub(super) fn new(record: &RoomRecord, room_water_y: Option<f32>) -> Self {
+    pub(super) fn new(record: &RoomRecord, room_water: &crate::water::bodies::RoomWater) -> Self {
         Self {
-            water_level: serde_json::to_value(room_water_y).ok(),
+            water_level: Some(room_water.key()),
             // The land a scatter samples, not its grass (#1700).
             terrain: serde_json::to_value(
                 crate::pds::find_terrain_config(record).map(|terrain| terrain.land()),
@@ -397,7 +410,7 @@ mod tests {
                 fingerprint: None,
             })
             .collect();
-        let mut job = ActiveJob::new(queue, true, None);
+        let mut job = ActiveJob::new(queue, true, Default::default());
         job.units_built = 2;
         let running = CompileJob(Some(job));
         assert_eq!(
@@ -412,10 +425,10 @@ mod tests {
     /// `total > 0` filter keeps a not-yet-planned job on the bare spinner.
     #[test]
     fn a_job_with_nothing_queued_reports_a_whole_ratio() {
-        let mut job = ActiveJob::new(VecDeque::new(), true, None);
+        let mut job = ActiveJob::new(VecDeque::new(), true, Default::default());
         job.units_built = 7;
         assert_eq!(CompileJob(Some(job)).progress(), Some((7, 7)));
-        let empty = ActiveJob::new(VecDeque::new(), true, None);
+        let empty = ActiveJob::new(VecDeque::new(), true, Default::default());
         assert_eq!(
             CompileJob(Some(empty)).progress(),
             Some((0, 0)),
@@ -425,7 +438,12 @@ mod tests {
 
     fn fingerprints(record: &RoomRecord) -> Vec<Option<String>> {
         // Same once-per-pass construction the planner uses.
-        let pass = FingerprintPass::new(record, super::super::water::room_water_level(record));
+        let pass = FingerprintPass::new(
+            record,
+            &crate::water::bodies::RoomWater::sea_alone(super::super::water::room_water_level(
+                record,
+            )),
+        );
         record
             .placements
             .iter()

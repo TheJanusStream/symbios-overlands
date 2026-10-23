@@ -364,24 +364,22 @@ fn clip_to_square(pts: &[(f32, f32)], lo: f32, hi: f32) -> Vec<Cut> {
 /// the height between the dry ground at the two ends of its run of wet
 /// cells along its row or its column, the shorter run of the two - the
 /// way a bridge crosses the river - and at least [`BRIDGE_DECK_M`] over the
-/// water's `level`: a bridge is a deck from quay to quay.
+/// water drawn there, at `level_over` the cell's row-major index: a bridge
+/// is a deck from quay to quay, over each body at its own level (#1724). A
+/// wet cell no water is drawn over keeps its ground.
 pub(crate) fn road_ground(
     raw: &[f32],
     settled: &[f32],
     grid: u32,
     cell: f32,
     wet: &[bool],
-    level: Option<f32>,
+    level_over: impl Fn(usize) -> Option<f32>,
 ) -> HeightMap {
     let side = grid as usize;
     let mut ground = HeightMap::new(side, side, cell);
     for ((h, r), s) in ground.data_mut().iter_mut().zip(raw).zip(settled) {
         *h = r.max(*s);
     }
-    let Some(level) = level else {
-        return ground;
-    };
-    let floor = level + BRIDGE_DECK_M;
     let land = ground.data().to_vec();
     // Per wet cell, the shortest run through it bounded by dry ground at
     // both ends, and the height between those ends there.
@@ -413,8 +411,9 @@ pub(crate) fn road_ground(
             }
         }
     }
-    for ((h, &wet), span) in ground.data_mut().iter_mut().zip(wet).zip(&span) {
-        if wet {
+    for (i, ((h, &wet), span)) in ground.data_mut().iter_mut().zip(wet).zip(&span).enumerate() {
+        let floor = level_over(i).map(|level| level + BRIDGE_DECK_M);
+        if let (true, Some(floor)) = (wet, floor) {
             *h = span.map_or(floor, |(_, height)| height.max(floor));
         }
     }
@@ -653,7 +652,9 @@ mod tests {
             })
             .collect();
         let wet: Vec<bool> = (0..n * n).map(|i| spree(i % n)).collect();
-        let ground = road_ground(&raw, &settled, frame.grid, frame.cell, &wet, Some(level));
+        let ground = road_ground(&raw, &settled, frame.grid, frame.cell, &wet, |_| {
+            Some(level)
+        });
         assert_eq!(ground.data()[160], 33.0, "mid-river, quay to quay");
         assert_eq!(ground.data()[149], 33.0, "the quay keeps Berlin's height");
         assert_eq!(ground.data()[10], 33.0, "the land is the land");

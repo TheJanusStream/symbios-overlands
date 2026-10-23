@@ -348,7 +348,10 @@ generation cores shared with the wasm Web Worker.
   whatever grows on it (#1674): the terrain's height as a GPU texture, the
   splat weight map shared with the ground's material, and a cover mask of
   where something may grow, redrawn on the CPU from every static collider's
-  outline on the ground and from the water line once the world settles.
+  outline on the ground and from the water once the world settles - the
+  sea's level and each lake's (#1727), whose reach it writes into the
+  weight map's second layer beside the shelter for the ground's damp
+  margins.
 - [`src/grass/`](../src/grass/) - the GPU grass (#1675): tiles of blades
   laid around the camera, each drawing a prefix of the same blades - the
   fewest that hold what can grow in it, none where nothing can, hidden
@@ -403,7 +406,11 @@ generation cores shared with the wasm Web Worker.
   [`src/splat.rs`](../src/splat.rs), [`src/water.rs`](../src/water.rs),
   [`src/clouds.rs`](../src/clouds.rs), [`src/wind.rs`](../src/wind.rs) -
   heightmap + Avian heightfield collider, four-layer splat material extension,
-  Gerstner-wave water shader, the lit cloud deck and the shade it casts, the
+  Gerstner-wave water shader and the room's water at more than one level
+  ([`src/water/bodies.rs`](../src/water/bodies.rs), #1594: its sea, and
+  bodies - lakes round a terrain water layer's point, Berlin's own - each a
+  level over its own cells, with the one lookup every reader asks, the level
+  at a point), the lit cloud deck and the shade it casts, the
   vegetation wind-sway material extension (leaf buckets and ground-cover
   cards only, attached a frame after spawn so it inherits the
   asynchronously-baked procedural textures, and batched per source material

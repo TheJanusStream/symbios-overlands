@@ -758,6 +758,7 @@ mod tests {
                 local_half_extents: Vec2::splat(half),
                 flow_strength: 0.0,
                 owner: WaterPlane::NO_OWNER,
+                cells: None,
             }],
         }
     }
@@ -860,12 +861,14 @@ mod tests {
                     local_half_extents: Vec2::splat(100.0),
                     flow_strength: 0.0,
                     owner: WaterPlane::NO_OWNER,
+                    cells: None,
                 },
                 WaterPlane {
                     world_from_local: Transform::from_xyz(0.0, 5.0, 0.0),
                     local_half_extents: Vec2::splat(2.0),
                     flow_strength: 0.0,
                     owner: WaterPlane::NO_OWNER,
+                    cells: None,
                 },
             ],
         };
@@ -2721,6 +2724,7 @@ mod surface {
                 local_half_extents: Vec2::splat(1_000.0),
                 flow_strength: 0.0,
                 owner: WaterPlane::NO_OWNER,
+                cells: None,
             }],
         });
         let camera = Transform::from_rotation(Quat::from_rotation_x(-script.pitch));

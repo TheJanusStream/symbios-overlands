@@ -18,9 +18,9 @@
 //!   [`MAX_ROOM_ENTITIES`] cap +
 //!   [`budget_exceeded`] gate, and [`spawn_ctx::transform_from_data`].
 //! * [`water`] - [`water::room_water_level`] sea-level lookup, the water
-//!   line as drawn ([`water::drawn_water_level`]: Berlin's in a geodata
-//!   region, #1586) and the dry-land relocation walk for water-avoiding
-//!   placements.
+//!   as drawn ([`water::drawn_water`]: its sea and its lakes, #1760, or
+//!   Berlin's own bodies in a geodata region whose core has water, #1724)
+//!   and the dry-land relocation walk for water-avoiding placements.
 //! * [`environment`] - [`apply_environment_state`] (its own system).
 //! * [`scatter`] - sampling helpers and the biome-rule evaluator.
 //! * [`census`] - offline replay of the sampling loop, for measuring what
@@ -69,10 +69,10 @@ pub use job::{CompileJob, CompiledWorld};
 pub(crate) use scatter::ScatterPreview;
 pub(crate) use spawn_ctx::MAX_ROOM_ENTITIES;
 pub use spawn_ctx::{GeneratorCaches, SpawnCtx, budget_exceeded};
-/// Re-exported so the terrain splat pass reads the room's water line from
-/// the same single source the scatter sampler does - if the two ever
-/// disagreed, the damp margin drawn on the ground and the riparian band the
-/// reeds are placed in would sit at different heights (#913). Every reader
-/// with a heightmap asks [`drawn_water_level`], so in a geodata region they
-/// all read Berlin's level (#1586).
-pub(crate) use water::{drawn_water_level, landing_ashore, landing_on, room_water_level};
+/// Re-exported so the terrain splat pass reads the room's water from the
+/// same single source the scatter sampler does - if the two ever disagreed,
+/// the damp margin drawn on the ground and the riparian band the reeds are
+/// placed in would sit at different heights (#913). Every reader with a
+/// heightmap asks [`drawn_water`], so in a geodata region they all read
+/// Berlin's own bodies (#1724), and round a lake its own level (#1760).
+pub(crate) use water::{drawn_water, landing_ashore, landing_on, room_water_level};

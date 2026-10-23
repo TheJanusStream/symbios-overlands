@@ -379,26 +379,40 @@ fn the_spree_at_the_museumsinsel_settles_at_its_level() {
         .map(|&c| table[usize::from(c)] == Some(LandUse::Water))
         .collect();
     let before = heights.clone();
-    let settled = water::settle(&mut heights, &wet, 300, 300, 2.0).unwrap();
+    let settled = water::settle(&mut heights, &wet, 300, 300, 2.0);
     // The Spree below the Muehlendamm lock lies at about 30.5 m; the
     // terrain layer draws it flat in the 30-31 m class (measured 30.54 m).
+    // Its arms, parted here by the bridges the land use maps as street, are
+    // bodies of their own, each at its own level (#1724).
+    let largest = settled
+        .bodies
+        .iter()
+        .max_by_key(|body| body.wet.len())
+        .expect("the Spree settles");
     assert!(
-        (30.3..30.8).contains(&settled.level),
+        (30.3..30.8).contains(&largest.level),
         "level {}",
-        settled.level
+        largest.level
     );
+    for body in &settled.bodies {
+        assert!(
+            (29.5..32.0).contains(&body.level) && !body.wet.is_empty(),
+            "a body of the Spree's at {}",
+            body.level
+        );
+    }
     // Every body mapped here is the Spree or an arm of it, and is drawn as
-    // water: the smoothed shore trades a few pixels each way (10,504 drawn
-    // of 10,525 mapped).
-    let mapped = wet.iter().filter(|&&w| w).count() as u32;
-    assert_eq!(settled.stranded, 0);
+    // water: the smoothed shores trade a few pixels each way.
+    let mapped = wet.iter().filter(|&&w| w).count();
+    let drawn: usize = settled.bodies.iter().map(|body| body.wet.len()).sum();
     assert!(
-        settled.wet.abs_diff(mapped) * 100 < mapped,
-        "{settled:?} of {mapped}"
+        drawn.abs_diff(mapped) * 100 < mapped && settled.stranded as usize * 100 < mapped,
+        "{drawn} drawn and {} stranded of {mapped} mapped",
+        settled.stranded
     );
     // Out of the shore's reach - nothing but water, or no water, within
-    // two pixels - the rules hold exactly: the water below the level, the
-    // land above it, and no land lifted by a metre.
+    // two pixels - the rules hold exactly: the water below its body's level,
+    // and the land as the terrain draws it, no plane lifting it.
     let only = |i: usize, want: bool| {
         let (x, y) = ((i % 300) as i64, (i / 300) as i64);
         (-2..=2).all(|dy| {
@@ -410,17 +424,168 @@ fn the_spree_at_the_museumsinsel_settles_at_its_level() {
             })
         })
     };
-    let crest = settled.level + water::FREEBOARD_M;
+    let mut level_of = vec![None; 300 * 300];
+    for body in &settled.bodies {
+        for &i in &body.wet {
+            level_of[i as usize] = Some(body.level);
+        }
+    }
     for (i, (&now, &was)) in heights.iter().zip(&before).enumerate() {
         if wet[i] && only(i, true) {
-            assert!(now < settled.level, "water pixel {i} at {now}");
+            let level = level_of[i].unwrap_or_else(|| panic!("water pixel {i} is no body's"));
+            assert!(now < level, "water pixel {i} at {now}");
         } else if !wet[i] && only(i, false) {
+            assert_eq!(now, was, "land pixel {i}");
+        }
+    }
+}
+
+/// A recorded square's terrain and land use (`<what>_<name>_600m_300px.png`),
+/// decoded on one 2 m grid, its water settled (#1724): the settled heights,
+/// the water as mapped, and what the settle made of it.
+fn settled_square(name: &str) -> (Vec<f32>, Vec<bool>, water::Water) {
+    let terrain = parse_value_legend(&fixture("dgm1_legend.json")).unwrap();
+    let image = decode_png(&fixture(&format!("dgm1_{name}_600m_300px.png")), 300, 300).unwrap();
+    let grid = decode_terrain(&image, &terrain).unwrap();
+    assert_eq!((grid.transparent, grid.unmatched), (0, 0));
+    let legend = parse_class_legend(&fixture("landuse_legend.json")).unwrap();
+    let table = berlin::land_use_table(&legend);
+    let image = decode_png(
+        &fixture(&format!("landuse_{name}_600m_300px.png")),
+        300,
+        300,
+    )
+    .unwrap();
+    let wet: Vec<bool> = decode_classes(&image, &legend)
+        .unwrap()
+        .classes
+        .iter()
+        .map(|&c| table[usize::from(c)] == Some(LandUse::Water))
+        .collect();
+    let mut heights = grid.heights;
+    let settled = water::settle(&mut heights, &wet, 300, 300, 2.0);
+    (heights, wet, settled)
+}
+
+/// A square's settled bodies, as `(level, pixels drawn)`, the most first.
+fn drawn(settled: &water::Water) -> Vec<(f32, usize)> {
+    let mut bodies: Vec<(f32, usize)> = settled
+        .bodies
+        .iter()
+        .map(|body| (body.level, body.wet.len()))
+        .collect();
+    bodies.sort_by_key(|&(_, pixels)| std::cmp::Reverse(pixels));
+    bodies
+}
+
+/// Every pixel each body's water covers lies under its level, and the
+/// ground out of every shore's reach is the terrain's own.
+fn holds_its_water(heights: &[f32], wet: &[bool], settled: &water::Water, before: &[f32]) {
+    for body in &settled.bodies {
+        for &i in &body.wet {
             assert!(
-                now >= crest && now - was < 1.0,
-                "land pixel {i}: {was} to {now}"
+                heights[i as usize] < body.level,
+                "pixel {i} over its body at {}",
+                body.level
             );
         }
     }
+    let near_water = |i: usize| {
+        let (x, y) = ((i % 300) as i64, (i / 300) as i64);
+        (-3..=3).any(|dy| {
+            (-3..=3).any(|dx| {
+                let (nx, ny) = (x + dx, y + dy);
+                (0..300).contains(&nx) && (0..300).contains(&ny) && wet[(ny * 300 + nx) as usize]
+            })
+        })
+    };
+    for (i, (&now, &was)) in heights.iter().zip(before).enumerate() {
+        if !near_water(i) {
+            assert_eq!(now, was, "pixel {i}, far from any water");
+        }
+    }
+}
+
+/// #1724, the two reaches of the Muehlendamm lock: the Spree above it at
+/// 32.5 m and below it at 30.5 m, its fall 1.8 m (measured from the
+/// terrain layer's classes). A plane at one level drew the upper reach's
+/// at the lower's, or the lower's at the upper's (the single settle took
+/// 32.5 m here and carved the lower reach under it); each now lies at its
+/// own.
+#[test]
+fn the_muehlendamm_locks_two_reaches_settle_at_their_own_levels() {
+    let name = "391655_5819112";
+    let (heights, wet, settled) = settled_square(name);
+    let image = decode_png(&fixture(&format!("dgm1_{name}_600m_300px.png")), 300, 300).unwrap();
+    let before = decode_terrain(
+        &image,
+        &parse_value_legend(&fixture("dgm1_legend.json")).unwrap(),
+    )
+    .unwrap()
+    .heights;
+    let bodies = drawn(&settled);
+    let at = |range: std::ops::Range<f32>| {
+        bodies
+            .iter()
+            .filter(|(level, _)| range.contains(level))
+            .map(|&(_, pixels)| pixels)
+            .sum::<usize>()
+    };
+    assert!(at(30.3..30.7) > 2_000, "the lower reach: {bodies:?}");
+    assert!(at(32.3..32.7) > 5_000, "the upper reach: {bodies:?}");
+    // And the arms above the lock, each at its own between 32.5 and 33 m.
+    assert!(
+        bodies
+            .iter()
+            .all(|&(level, _)| (30.3..30.7).contains(&level) || (32.3..33.2).contains(&level)),
+        "{bodies:?}"
+    );
+    holds_its_water(&heights, &wet, &settled, &before);
+}
+
+/// #1724, a lake on the Barnim plateau: the Weisser See, 8.3 ha, at
+/// 41.5 m, ten metres over the Spree's valley; drawn whole at its level.
+#[test]
+fn the_weisser_see_settles_at_its_level_on_the_plateau() {
+    let name = "395500_5823500";
+    let (heights, wet, settled) = settled_square(name);
+    let image = decode_png(&fixture(&format!("dgm1_{name}_600m_300px.png")), 300, 300).unwrap();
+    let before = decode_terrain(
+        &image,
+        &parse_value_legend(&fixture("dgm1_legend.json")).unwrap(),
+    )
+    .unwrap()
+    .heights;
+    let bodies = drawn(&settled);
+    let (level, pixels) = bodies[0];
+    assert!((41.3..41.7).contains(&level), "{bodies:?}");
+    // 8.3 ha of 2 m pixels, less the few its shore trades.
+    assert!((19_000..21_500).contains(&pixels), "{bodies:?}");
+    holds_its_water(&heights, &wet, &settled, &before);
+}
+
+/// #1724, two lakes on the plateau a few hundred metres apart and two
+/// metres apart in level: the Orankesee at 50.5 m and the Obersee's west
+/// end at 52.5 m. One plane carved the Obersee under the Orankesee's level,
+/// within the old three-metre gap; each now lies at its own.
+#[test]
+fn the_orankesee_and_the_obersee_settle_two_metres_apart() {
+    let name = "396900_5822900";
+    let (heights, wet, settled) = settled_square(name);
+    let image = decode_png(&fixture(&format!("dgm1_{name}_600m_300px.png")), 300, 300).unwrap();
+    let before = decode_terrain(
+        &image,
+        &parse_value_legend(&fixture("dgm1_legend.json")).unwrap(),
+    )
+    .unwrap()
+    .heights;
+    let bodies = drawn(&settled);
+    let (orankesee, obersee) = (bodies[0], bodies[1]);
+    assert!((50.3..50.7).contains(&orankesee.0), "{bodies:?}");
+    // 4.4 ha of 2 m pixels.
+    assert!((10_000..12_000).contains(&orankesee.1), "{bodies:?}");
+    assert!((52.3..52.7).contains(&obersee.0), "{bodies:?}");
+    holds_its_water(&heights, &wet, &settled, &before);
 }
 
 #[test]

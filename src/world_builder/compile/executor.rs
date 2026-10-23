@@ -94,8 +94,9 @@ pub(crate) fn compile_room_record(
             &existing,
             record,
             heightmap_changed,
-            // Berlin's level where a geodata region's core has water (#1586).
-            super::water::drawn_water_level(record, heightmap.as_deref()),
+            // Its sea and its lakes (#1760) - or Berlin's own bodies where a
+            // geodata region's core has water (#1586, #1724).
+            super::water::drawn_water(record, heightmap.as_deref()),
             &mut generator_caches.world,
             &mut generator_caches.job,
             &mut water_surfaces,
@@ -122,7 +123,7 @@ pub(crate) fn compile_room_record(
     let mut finished = false;
     // Cached at plan time (#673) so the per-frame slices don't re-scan
     // every generator; a record change replans before it could go stale.
-    let room_water_y = job.room_water_y;
+    let room_water = job.room_water.clone();
 
     {
         let mut ctx = SpawnCtx {
@@ -213,7 +214,7 @@ pub(crate) fn compile_room_record(
                 }
             } else if let Some(queued) = job.queue.pop_front() {
                 ctx.placement_index = queued.index;
-                match start_unit(&mut ctx, queued, room_water_y) {
+                match start_unit(&mut ctx, queued, &room_water) {
                     UnitStart::Committed(index, unit) => {
                         generator_caches.world.units[index] = unit;
                         job.units_built += 1;
@@ -376,7 +377,7 @@ fn plan_job(
     existing: &Query<(Entity, Option<&PlacementUnit>), With<RoomEntity>>,
     record: &RoomRecord,
     heightmap_changed: bool,
-    room_water_y: Option<f32>,
+    room_water: crate::water::bodies::RoomWater,
     world: &mut CompiledWorld,
     job: &mut CompileJob,
     water_surfaces: &mut WaterSurfaces,
@@ -414,10 +415,11 @@ fn plan_job(
     }
 
     // One generator scan + one terrain serialisation for the whole pass
-    // (#673): `room_water_y` - the water line as drawn, Berlin's in a
-    // geodata region - feeds both the fingerprints below and (via the job)
-    // `start_unit`'s dry-land walk during the execute slices.
-    let fp_pass = FingerprintPass::new(record, room_water_y);
+    // (#673): `room_water` - the room's water as drawn, its sea and its
+    // lakes or Berlin's own bodies - feeds both the fingerprints below
+    // and (via the job) `start_unit`'s dry-land walk during the execute
+    // slices.
+    let fp_pass = FingerprintPass::new(record, &room_water);
 
     let len = record.placements.len();
     // Full when the heightmap was swapped (every snapped transform
@@ -571,10 +573,10 @@ fn plan_job(
         Some(active) => {
             active.queue = queue;
             active.full |= full;
-            active.room_water_y = room_water_y;
+            active.room_water = room_water;
         }
         None if queue.is_empty() => {}
-        None => job.0 = Some(ActiveJob::new(queue, full, room_water_y)),
+        None => job.0 = Some(ActiveJob::new(queue, full, room_water)),
     }
 }
 
@@ -597,7 +599,7 @@ enum UnitStart {
 fn start_unit(
     ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
     queued: QueuedUnit,
-    room_water_y: Option<f32>,
+    room_water: &crate::water::bodies::RoomWater,
 ) -> UnitStart {
     let index = queued.index;
     // Same reference-copy trick as `step_unit`: the placement borrows
@@ -673,7 +675,7 @@ fn start_unit(
             // (#1399), so the two cannot disagree about where it stands.
             if let Some(clearance) = avoid_water {
                 super::pad::relocate_snapped_anchor(
-                    &super::pad::AnchorGround::new(hm_res, room_water_y),
+                    &super::pad::AnchorGround::new(hm_res, room_water),
                     &mut anchor_world_tf.translation,
                     clearance,
                 );
@@ -776,19 +778,17 @@ fn start_unit(
             naturalness,
             ..
         } => {
-            // Resolve the biome-filter water threshold from the runtime
-            // registry. One global Y per scatter, sampled at its centre
-            // at unit start - placements that come before the
+            // The biome filter's water, from the runtime registry as it
+            // stands at unit start - placements that come before the
             // home-water spawn collapse to "no water" and the filter
-            // accepts by default, exactly as in the monolithic pass.
+            // accepts by default, exactly as in the monolithic pass: one
+            // level read at the scatter's centre, as it always was, and a
+            // lake's at each sample its reach takes in (#1727).
             let scatter_center_xz = match bounds {
                 ScatterBounds::Circle { center, .. } => Vec2::new(center.0[0], center.0[1]),
                 ScatterBounds::Rect { center, .. } => Vec2::new(center.0[0], center.0[1]),
             };
-            let water_level = ctx
-                .water_surfaces
-                .surface_at(scatter_center_xz)
-                .map(|(_, y)| y);
+            let water = ctx.water_surfaces.for_scatter(scatter_center_xz);
             UnitStart::InProgress(UnitCursor {
                 index,
                 fingerprint: queued.fingerprint,
@@ -808,7 +808,7 @@ fn start_unit(
                         *local_seed,
                         naturalness.edge_falloff.0,
                     ),
-                    water_level,
+                    water,
                 },
             })
         }
@@ -921,7 +921,7 @@ fn step_unit(
                 rng,
                 jitter_rng,
                 clusters,
-                water_level,
+                water,
             },
         ) => {
             let terrain_cfg = crate::pds::find_terrain_config(ctx.record);
@@ -933,7 +933,7 @@ fn step_unit(
             let filters = super::scatter::SampleFilters {
                 biome_filter,
                 terrain_cfg,
-                water_level: *water_level,
+                water: &*water,
                 urban_exclusions: &urban_exclusions,
                 // `1 - normal.y` cutoff resolved once per unit (#912) - the
                 // trigonometry would otherwise be paid per sample.
@@ -963,7 +963,10 @@ fn step_unit(
                 // the submerged terrain the sample landed on. `max` so a
                 // sample on dry shore keeps its bank height - floating only
                 // ever lifts, it never sinks an instance into the ground.
-                if *float_on_water && let Some(wl) = *water_level {
+                if *float_on_water
+                    && let Some(wl) =
+                        crate::water::bodies::WaterAt::water_at(&*water, world_x, world_z)
+                {
                     world_y = world_y.max(wl);
                 }
 
@@ -1299,14 +1302,15 @@ mod tests {
         assert_ne!(anchors_after[1], anchors_before[1], "unit 1 rebuilt");
     }
 
-    /// #1586: a region built from real Berlin draws its water plane at
-    /// Berlin's level, whatever height its record gives the plane; any
-    /// other region at the record's. Only the terrain's own water moves:
-    /// water hung lower in the tree keeps its height, as the water line
-    /// (`room_water_level`) never reads it.
+    /// #1586, #1724: a region built from real Berlin draws its own bodies
+    /// of water in place of the record's sea, each at its own level over its
+    /// own cells, whatever height its record gives the layer; any other
+    /// region its sea at the record's. Only the terrain's own water gives
+    /// way: water hung lower in the tree keeps its height and rectangle, as
+    /// the room's water (`room_water_level`) never reads it.
     #[test]
-    fn a_berlin_regions_water_plane_is_drawn_at_berlins_level() {
-        let plane_y = |ground: Option<crate::terrain::geo::GeoGround>, nested: bool| {
+    fn a_berlin_regions_water_is_drawn_as_its_own_bodies() {
+        let planes = |ground: Option<crate::terrain::geo::GeoGround>, nested: bool| {
             let mut record = test_record(0);
             let mut terrain = Generator::from_kind(GeneratorKind::Terrain(Default::default()));
             let mut water = Generator::from_kind(GeneratorKind::Water {
@@ -1338,19 +1342,153 @@ mod tests {
             map.1 = ground;
             app.insert_resource(map);
             settle(&mut app);
-            let planes = &app.world().resource::<WaterSurfaces>().planes;
-            assert_eq!(planes.len(), 1, "one water plane");
-            planes[0].world_from_local.translation.y
+            let mut planes: Vec<(f32, bool)> = app
+                .world()
+                .resource::<WaterSurfaces>()
+                .planes
+                .iter()
+                .map(|plane| (plane.world_from_local.translation.y, plane.cells.is_some()))
+                .collect();
+            planes.sort_by(|a, b| a.0.total_cmp(&b.0));
+            planes
         };
-        assert_eq!(plane_y(None, false), 0.0, "the record's own height");
-        let berlin =
-            crate::terrain::geo::GeoGround::from_cover(129, 1.0, vec![None; 129 * 129], Some(30.5));
-        assert_eq!(plane_y(Some(berlin.clone()), false), 30.5, "Berlin's level");
+        assert_eq!(planes(None, false), [(0.0, false)], "the record's own sea");
+        // Two pools of Berlin's, 1.8 m apart, as a lock's two reaches are.
+        use geodata::berlin::LandUse;
+        let heights = super::super::pad::wet_ramp().0;
+        let pool = |x0: usize| -> Vec<Option<LandUse>> {
+            (0..129 * 129)
+                .map(|i| (x0..x0 + 12).contains(&(i % 129)) && (50..80).contains(&(i / 129)))
+                .map(|wet| wet.then_some(LandUse::Water))
+                .collect()
+        };
+        let (lower, upper) = (pool(20), pool(90));
+        let water = [
+            crate::terrain::geo::GeoGround::water_of_cover(&heights, &lower, 30.5),
+            crate::terrain::geo::GeoGround::water_of_cover(&heights, &upper, 32.3),
+        ]
+        .concat();
+        let cover = lower.iter().zip(&upper).map(|(a, b)| a.or(*b)).collect();
+        let berlin = crate::terrain::geo::GeoGround::from_cover(129, 1.0, cover, water);
         assert_eq!(
-            plane_y(Some(berlin), true),
-            5.0,
+            planes(Some(berlin.clone()), false),
+            [(30.5, true), (32.3, true)],
+            "Berlin's own bodies, each at its level over its cells"
+        );
+        assert_eq!(
+            planes(Some(berlin), true),
+            [(5.0, false)],
             "the platform's pool keeps its own"
         );
+    }
+
+    /// #1760, #1725, #1726: a terrain water layer over the room's sea is a
+    /// lake round its point - drawn over its dip alone and answered there
+    /// alone - beside the sea, drawn as it always was. On a plateau at 30 m
+    /// with a dip round (40, 0) whose floor is at 22 m, and a valley at 4 m
+    /// to its west: a lake at 26 m holds the dip, and the valley below its
+    /// level reads the sea's. A lake whose point stands dry draws nothing.
+    #[test]
+    fn a_lake_over_the_sea_is_drawn_and_answered_in_its_dip_alone() {
+        let compiled = |lake_at: (f32, f32), ground: bool| {
+            let mut record = test_record(0);
+            let mut terrain = Generator::from_kind(GeneratorKind::Terrain(Default::default()));
+            for (x, level, z) in [(0.0, 2.0, 0.0), (lake_at.0, 26.0, lake_at.1)] {
+                let mut water = Generator::from_kind(GeneratorKind::Water {
+                    surface: Default::default(),
+                });
+                water.transform.translation = Fp3([x, level, z]);
+                terrain.children.push(water);
+            }
+            record
+                .generators
+                .insert("base_terrain".to_string(), terrain);
+            record.placements = vec![Placement::Absolute {
+                generator_ref: "base_terrain".to_string(),
+                transform: TransformData::default(),
+                snap_to_terrain: false,
+                avoid_water: false,
+                avoid_water_clearance: Fp(0.0),
+                seed: None,
+                params: Default::default(),
+            }];
+            let mut hm = bevy_symbios_ground::HeightMap::new(121, 121, 1.0);
+            for cz in 0..121 {
+                for cx in 0..121 {
+                    let (x, z) = (cx as f32 - 60.0, cz as f32 - 60.0);
+                    let land = if x < 0.0 {
+                        4.0
+                    } else {
+                        (4.0 + x * 1.3).min(30.0)
+                    };
+                    let dip = ((x - 40.0).powi(2) + z.powi(2)).sqrt();
+                    *hm.get_mut(cx, cz) = if dip < 20.0 { 22.0 + dip * 0.3 } else { land };
+                }
+            }
+            let mut app = compile_app(record);
+            if ground {
+                app.insert_resource(FinishedHeightMap(hm, None));
+            }
+            settle(&mut app);
+            let volumes = app
+                .world_mut()
+                .query_filtered::<(), With<crate::terrain::WaterVolume>>()
+                .iter(app.world())
+                .count();
+            // The lake layer's own node, which the editor selects and moves:
+            // where the record puts it, whatever its water is drawn as.
+            let node = app
+                .world_mut()
+                .query::<(&crate::world_builder::PrimMarker, &Transform)>()
+                .iter(app.world())
+                .find(|(marker, _)| marker.path == [1])
+                .map(|(_, transform)| transform.translation);
+            (
+                app.world().resource::<WaterSurfaces>().clone(),
+                volumes,
+                node,
+            )
+        };
+
+        let (surfaces, volumes, node) = compiled((40.0, 0.0), true);
+        assert_eq!(node, Some(Vec3::new(40.0, 26.0, 0.0)), "the layer's node");
+        assert_eq!(
+            (surfaces.planes.len(), volumes),
+            (2, 2),
+            "the sea and the lake"
+        );
+        let at = |x: f32, z: f32| surfaces.surface_at(Vec2::new(x, z)).map(|(_, y)| y);
+        assert_eq!(at(40.0, 0.0), Some(26.0), "the dip: the lake's");
+        assert_eq!(at(28.0, 0.0), Some(26.0));
+        assert_eq!(at(-15.0, 0.0), Some(2.0), "the valley: the sea's");
+        assert_eq!(
+            at(40.0, 30.0),
+            Some(2.0),
+            "the plateau: the sea's, far under it"
+        );
+        // A body in the valley at 10 m is under the lake's level, and in no
+        // water: the sea is below it and the lake is not there.
+        assert!(surfaces.query(Vec3::new(-15.0, 10.0, 0.0)).is_none());
+        let swimming = surfaces
+            .query(Vec3::new(40.0, 25.0, 0.0))
+            .expect("in the lake");
+        assert!((swimming.depth - 1.0).abs() < 1e-4);
+
+        let (dry, volumes, node) = compiled((40.0, 40.0), true);
+        assert_eq!((dry.planes.len(), volumes), (1, 1), "the sea alone");
+        assert!(dry.planes[0].cells.is_none());
+        assert_eq!(
+            node,
+            Some(Vec3::new(40.0, 26.0, 40.0)),
+            "a dry lake's node stays, for the editor to move it into a dip"
+        );
+
+        // Before the ground is built a lake is nowhere - not a plane over
+        // the world at its level - and its node stands where it will.
+        let (unbuilt, volumes, node) = compiled((40.0, 0.0), false);
+        assert_eq!((unbuilt.planes.len(), volumes), (1, 1), "the sea alone");
+        assert_eq!(unbuilt.planes[0].world_from_local.translation.y, 2.0);
+        assert_eq!(node, Some(Vec3::new(40.0, 26.0, 0.0)));
     }
 
     /// #1399: the editor reads a snapped Absolute anchor exactly where this
@@ -1394,6 +1532,7 @@ mod tests {
         ];
         let room_water_y = super::super::water::room_water_level(&record);
         assert_eq!(room_water_y, Some(0.0));
+        let room_water = crate::water::bodies::RoomWater::sea_alone(room_water_y);
 
         let mut app = compile_app(record);
         app.insert_resource(super::super::pad::wet_ramp());
@@ -1434,7 +1573,7 @@ mod tests {
                 panic!("test record uses Absolute placements");
             };
             let read = crate::world_builder::snapped_absolute_anchor(
-                &crate::world_builder::AnchorGround::new(&hm, room_water_y),
+                &crate::world_builder::AnchorGround::new(&hm, &room_water),
                 transform,
                 *avoid_water,
                 avoid_water_clearance.0,

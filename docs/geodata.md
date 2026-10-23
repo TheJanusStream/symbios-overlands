@@ -306,18 +306,16 @@ together and go together.
   of trees keeps 8 m off each of Berlin's own.
 - **Water.** The terrain layer draws water flat at its surface: the Spree at
   the Museumsinsel decodes to 30.54 m, its published level about 30.5 m.
-  `geodata::water::settle` takes one level for the core, the median height
-  of a body's pixels, and shapes the ground to it:
-  - every body within 3 m of the level is carved below it, its bed falling
-    a metre per two from the shore, to 3 m;
-  - all other ground is kept 0.2 m above it, so the one plane floods
-    nothing that is not water: an underpass, a building pit, a lock's lower
-    basin;
-  - the shore follows the water's blurred outline rather than the map's
+  `geodata::water::settle` settles each body of water - its pixels,
+  4-connected, eight at least - at its own level, the median height of its
+  pixels (#1724), and shapes the ground to it:
+  - its bed is carved below its level, falling a metre per two from the
+    shore, to 3 m;
+  - its shore follows the water's blurred outline rather than the map's
     2 m pixels, whose staircase showed from the ground as a row of teeth
-    along the far bank. Within that two-pixel margin the shore's profile
-    replaces the two rules above. Water narrower than about two pixels is
-    smoothed away with the steps;
+    along the far bank, the land in it first kept 0.2 m over the level so
+    the water's edge floods no low spot. Water narrower than about two
+    pixels is smoothed away with the steps;
   - the water runs on under its bridges (#1595). The land use maps a bridge
     as the street it carries, so a run of street space along a row or a
     column, at most 40 m, with water at both its ends and one of Berlin's
@@ -326,27 +324,40 @@ together and go together.
     no street deck covers, and every bridge of a region whose streets could
     not be had, stays the dam it was, and can be walked.
 
-  Lifting the ground is only a repair for the few low spots a plane would
-  flood, so the body that sets the level must be one the plane can stand
-  at. The largest bodies are tried in turn, and the first is taken whose
-  level sinks no more than 2 % of the core over a metre under it and that
-  keeps some water once its shore is smoothed. A pond on a hill over a
-  valley would lift the whole valley to its surface; a lake on the plateau
-  that is larger than the river below it leaves the level to the river.
-  Where no body qualifies, nothing is settled.
-- **One plane.** The record still says whether there is water - a record
-  with no water child draws none, and the beds lie dry - and Berlin says
-  where: the terrain's own water planes are drawn at Berlin's level, and
-  every reader of the water line (the damp ground, the dry-land walks, the
-  scatter bands, the streets, the editor and the tools) asks
-  `drawn_water_level` for it. A body more than 3 m off the level, a lake on
-  the plateau, is drawn dry; a region with water at several levels needs
-  bounded water planes, a later step. The streets' decks bridge the water
-  (#1595).
+  Each body is drawn as its own surface over its own cells, never as one
+  plane over the square, so the rest of the ground keeps Berlin's heights:
+  an underpass or a building pit beside the river and below its level stays
+  the hollow it is, a lake on the plateau lies at its own level over the
+  valley, and so do the two reaches of a lock. Each body is shaped against
+  the ground as drawn, so none depends on another: its own pixels are its
+  alone, and a dam between two takes the higher of their banks. Until
+  #1724 the core had one level, the largest body's that sank little of the
+  core, and a body more than 3 m off it was drawn dry. Measured on squares
+  fetched as the game fetches them, the one level against the bodies'
+  (2026-10-23): round the Muehlendamm lock (600 m, 1.2 m pixels) the one
+  plane took 32.5 m, carved the lower reach under it and lifted 7,639
+  pixels to it, where the Spree now lies at 30.5 m below the lock and
+  32.5 m above it; the Weisser See lies at 41.5 m either way; round the
+  Orankesee (1 km) the one plane at its 50.5 m carved the Obersee 2 m under
+  the Obersee's own 52.5 m; and 2 km round the Obersee it lifted 8,517
+  pixels, 13 ha, where 82 are raised now, in shores. Fixtures recorded for
+  #1724 (`crates/geodata/tests/fixtures`) pin the lock's two reaches, the
+  Weisser See and the two lakes.
+- **The water as drawn.** The record still says whether there is water - a
+  record with no water child draws none, and the beds lie dry - and Berlin
+  says where: its bodies are the region's water in place of a sea (#1724),
+  and every reader of the water (the damp ground, the dry-land walks, the
+  scatter bands, the streets, the editor and the tools) asks the level at
+  its own point (`water::bodies::RoomWater`): within a body's reach - its
+  water, and the bank reached from it standing under 4 m over its level -
+  that body's, and elsewhere none. A further water child is a lake on
+  Berlin's ground, as on any (#1760). The streets' decks bridge each body
+  at its own level (#1595).
 - **Failure.** If only the land use cannot be had, Berlin's terrain lands
   without it, coloured by the record's altitude bands and with no water,
   and the fallback says so as it does for the terrain.
-- **Editor.** The Region source section shows the water level Berlin set.
+- **Editor.** The Region source section shows the levels Berlin's water
+  lies at: one, or the range of its bodies'.
 
 The streets (#1595; `src/terrain/geo/streets.rs`) are Berlin's own on the
 walkable ground, meshed by the road networks' mesher.

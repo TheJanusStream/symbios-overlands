@@ -105,6 +105,90 @@ pub(super) fn spawn_water_volume(
     // waterline by setting that altitude on the Water generator's
     // placement transform inside `RoomRecord::default_for_did`.
 
+    // Flat `Plane3d` at the placement transform's altitude. The
+    // previous iteration spawned a 1×1×1 `Cuboid` scaled to
+    // `(world_extent, wl, world_extent)` and then discarded five out
+    // of six faces in the fragment shader - a lot of rasterisation
+    // work for zero visible fragments, and `fwidth`-after-`discard`
+    // is only well-defined under uniform quad control flow. The plane
+    // eliminates both.
+    let half_extent = world_extent / 2.0;
+    let mesh = meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(half_extent)));
+    // The mesh half-extent is recorded BEFORE the transform's scale is
+    // applied - `WaterSurfaces::surface_at` re-applies the scale via the
+    // inverse transform when testing containment.
+    let plane = WaterPlane {
+        world_from_local: placement_tf,
+        local_half_extents: Vec2::splat(half_extent),
+        flow_strength: surface.flow_strength.0,
+        // Placement ownership lets the incremental compiler retire
+        // exactly this plane when its placement is rebuilt. Avatar-mode
+        // spawns carry NO_OWNER and only fall to full-pass clears.
+        owner,
+        cells: None,
+    };
+    spawn_water_surface(
+        commands,
+        surface,
+        env,
+        mesh,
+        plane,
+        water_materials,
+        water_surfaces,
+    )
+}
+
+/// A body of water at its own level (#1725): a lake on any terrain
+/// (#1760) or one of Berlin's (#1724), drawn in the world's frame over its
+/// cells ([`crate::water::bodies::body_mesh`]) at its level, and water to
+/// physics over them alone (#1726). Its entity stands apart from the
+/// layer's node, which is where its record puts it and what the editor
+/// moves.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn spawn_water_body(
+    commands: &mut Commands,
+    surface: &WaterSurface,
+    env: &Environment,
+    body: &crate::water::bodies::WaterBody,
+    meshes: &mut Assets<Mesh>,
+    water_materials: &mut Assets<WaterMaterial>,
+    water_surfaces: &mut WaterSurfaces,
+    owner: usize,
+) -> Entity {
+    let grid = body.cells.grid;
+    let mesh = meshes.add(crate::water::bodies::body_mesh(&body.cells));
+    // Its rectangle is the whole grid and the half cell round it, its
+    // cells' squares: the cells bound it.
+    let reach = Vec2::new(grid.width as f32, grid.height as f32) * grid.scale * 0.5;
+    let plane = WaterPlane {
+        world_from_local: Transform::from_xyz(0.0, body.level, 0.0),
+        local_half_extents: reach,
+        flow_strength: surface.flow_strength.0,
+        owner,
+        cells: Some(body.cells.clone()),
+    };
+    spawn_water_surface(
+        commands,
+        surface,
+        env,
+        mesh,
+        plane,
+        water_materials,
+        water_surfaces,
+    )
+}
+
+/// Spawn a water surface drawn as `mesh` with `surface`'s material, placed
+/// as `plane` says and registered there for the physics to find.
+fn spawn_water_surface(
+    commands: &mut Commands,
+    surface: &WaterSurface,
+    env: &Environment,
+    mesh: Handle<Mesh>,
+    plane: WaterPlane,
+    water_materials: &mut Assets<WaterMaterial>,
+    water_surfaces: &mut WaterSurfaces,
+) -> Entity {
     // Straight-down view colour seeds the StandardMaterial base colour for
     // any non-shader-overridden path (shadow-caster fallback, editor outline,
     // etc.). The shader re-derives the view-dependent blend itself.
@@ -126,22 +210,9 @@ pub(super) fn spawn_water_volume(
         },
     });
 
-    // Flat `Plane3d` at the placement transform's altitude. The
-    // previous iteration spawned a 1×1×1 `Cuboid` scaled to
-    // `(world_extent, wl, world_extent)` and then discarded five out
-    // of six faces in the fragment shader - a lot of rasterisation
-    // work for zero visible fragments, and `fwidth`-after-`discard`
-    // is only well-defined under uniform quad control flow. The plane
-    // eliminates both.
-    let tf = placement_tf;
-
-    let half_extent = world_extent / 2.0;
-
     // Register this surface in the runtime lookup so per-frame physics
     // (rover buoyancy, scatter biome filter) can find it without re-walking
-    // the record. The mesh half-extent is recorded BEFORE the transform's
-    // scale is applied - `WaterSurfaces::surface_at` re-applies the scale
-    // via the inverse transform when testing containment.
+    // the record.
     //
     // `plane_idx` is captured before the push so it can be attached to
     // the spawned entity as a `WaterPlaneIndex`. The interaction
@@ -149,20 +220,13 @@ pub(super) fn spawn_water_volume(
     // uses this index to route contact samples (which the
     // ContactClassifier emits indexed against `WaterSurfaces.planes`)
     // to the correct material asset.
+    let (tf, owner) = (plane.world_from_local, plane.owner);
     let plane_idx = water_surfaces.planes.len();
-    water_surfaces.planes.push(WaterPlane {
-        world_from_local: tf,
-        local_half_extents: Vec2::splat(half_extent),
-        flow_strength: surface.flow_strength.0,
-        // Placement ownership lets the incremental compiler retire
-        // exactly this plane when its placement is rebuilt. Avatar-mode
-        // spawns carry NO_OWNER and only fall to full-pass clears.
-        owner,
-    });
+    water_surfaces.planes.push(plane);
 
     commands
         .spawn((
-            Mesh3d(meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(half_extent)))),
+            Mesh3d(mesh),
             MeshMaterial3d(water_mat),
             tf,
             WaterVolume,

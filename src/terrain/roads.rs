@@ -181,11 +181,12 @@ fn current_configs(
     // instead, which still moves with every member this build reads, so an
     // edit to it re-traces its streets like any other (#1556: an empty key
     // never moved, and the lots regrew round streets that were never drawn).
-    // The water line moves the streets of a network that stops at the
-    // shore (#1552), so it is part of that network's key: raising the lake
-    // re-traces it, and leaves a network that ignores the water alone. The
-    // line as drawn: Berlin's in a geodata region (#1586).
-    let water = crate::world_builder::compile::drawn_water_level(record, heightmap);
+    // The water moves the streets of a network that stops at the shore
+    // (#1552), so it is part of that network's key: raising the sea, or a
+    // lake its district reaches (#1727), re-traces it, and leaves a network
+    // that ignores the water alone. The water as drawn: Berlin's own bodies
+    // in a geodata region whose core has water (#1724).
+    let water = crate::world_builder::compile::drawn_water(record, heightmap);
     let want = configs
         .iter()
         .map(|c| {
@@ -193,9 +194,11 @@ fn current_configs(
             geometry_only.appearance = Default::default();
             let mut key = serde_json::to_string(&geometry_only)
                 .unwrap_or_else(|_| format!("{geometry_only:?}"));
-            if c.avoid_water {
-                key.push_str(&format!("|water={water:?}"));
-            }
+            key.push_str(&crate::urban::water_key(
+                heightmap.map(|hm| &hm.0),
+                c,
+                &water,
+            ));
             key
         })
         .collect::<Vec<_>>()
@@ -288,12 +291,11 @@ pub(super) fn maybe_rebuild_roads(
                 // One task builds every network (#895) - the heightmap copy
                 // is shared and the swap stays atomic across districts.
                 let hm = copy_heightmap(&heightmap.0);
-                let water =
-                    crate::world_builder::compile::drawn_water_level(&record.0, Some(&heightmap));
+                let water = crate::world_builder::compile::drawn_water(&record.0, Some(&heightmap));
                 let task = bevy::tasks::AsyncComputeTaskPool::get().spawn(async move {
                     configs
                         .iter()
-                        .map(|c| crate::urban::build_road_geometry(&hm, c, water))
+                        .map(|c| crate::urban::build_road_geometry(&hm, c, &water))
                         .collect::<Vec<_>>()
                 });
                 state.building = Some((want.unwrap_or_default(), task));

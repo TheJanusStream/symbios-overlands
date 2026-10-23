@@ -1,7 +1,8 @@
 # geodata fixtures
 
 Live answers of GDI Berlin's services, recorded 2026-10-08 (the urban
-structure's page on 2026-10-10), and truth rasters
+structure's page on 2026-10-10, the water squares on 2026-10-23), and truth
+rasters
 derived from independent sources to score the decoders against. All of it is
 under the Datenlizenz Deutschland - Zero - Version 2.0
 (<https://www.govdata.de/dl-de/zero-2-0>), which allows any use without
@@ -24,6 +25,9 @@ Berlin, <https://gdi.berlin.de>.
 | `dom_391200_5819700_600m_300px.png` | surface model over the Museumsinsel square, 2 m pixels | `GetMap` |
 | `landuse_legend.json` | JSON legend of land use `c_ua_realnutz_2015` | `GetLegendGraphic` |
 | `landuse_391200_5819700_600m_300px.png` | land-use render, E 391200-391800, N 5819700-5820300 (Museumsinsel), 2 m pixels | `GetMap` |
+| `dgm1_391655_5819112_600m_300px.png`, `landuse_391655_5819112_600m_300px.png` | terrain and land use round the Muehlendamm lock, 2 m pixels: the Spree's two reaches at 30.5 and 32.5 m and its arms above the lock (#1724) | `GetMap` |
+| `dgm1_395500_5823500_600m_300px.png`, `landuse_395500_5823500_600m_300px.png` | the Weisser See, a lake on the Barnim plateau at 41.5 m (#1724) | `GetMap` |
+| `dgm1_396900_5822900_600m_300px.png`, `landuse_396900_5822900_600m_300px.png` | the Orankesee at 50.5 m and the west end of the Obersee at 52.5 m (#1724) | `GetMap` |
 | `landuse_truth_391200_5819700_600m_300px.png` | the WFS land-use blocks rasterised to those pixels: class code, 0 street space, 255 unscored | WFS `c_ua_realnutz_2015` |
 | `storeys_legend_*.json` | JSON legends of the six storey-band layers | `GetLegendGraphic` |
 | `storeys_391200_5819700_600m_300px.png` | storeys render of all six layers over the land-use square | `GetMap` |

@@ -108,8 +108,10 @@ mod ribbon;
 pub(crate) mod test_support;
 mod truncation;
 
-use crate::urban::graph::{build_road_graph, window_to_room_shift};
+pub(crate) use crate::urban::graph::water_key;
+use crate::urban::graph::{build_road_graph, shore_ground, water_line, window_to_room_shift};
 use crate::urban::math::{cross, dot, sub3};
+use crate::water::bodies::RoomWater;
 
 pub(crate) use crate::urban::chains::{Chain, active_degree, drawn_graph, extract_chains};
 pub use crate::urban::diagnostics::{RoadDiagnostics, RoadGraphStats, road_graph_diagnostics};
@@ -343,17 +345,17 @@ impl RoadParts {
 
 /// Build terrain-conforming road geometry from a [`RoadConfig`], or `None` if
 /// the config is disabled or the tracer can't produce a network. Deterministic
-/// in `config.seed` (and, for a network that avoids water, `water_level`: the
-/// room's water line, `None` for a dry room - see [`build_road_graph`]). Does
+/// in `config.seed` (and, for a network that avoids water, `water`: the
+/// room's water as drawn, none for a dry room - see [`build_road_graph`]). Does
 /// **not** modify `hm` - the road drapes over the natural terrain. Which rooms
 /// *get* a road config is the seeding layer's policy ([`crate::pds::room`]);
 /// this just renders whatever it's handed.
 pub fn build_road_geometry(
     hm: &HeightMap,
     config: &RoadConfig,
-    water_level: Option<f32>,
+    water: &RoomWater,
 ) -> Option<RoadParts> {
-    let (graph, sub, lo) = build_road_graph(hm, config, water_level)?;
+    let (graph, sub, lo) = build_road_graph(hm, config, water)?;
     let parts = mesh_road_graph(&graph, &sub, lo, &Dims::from_config(config));
     (!parts.deck.is_empty() || !parts.structure.is_empty()).then_some(parts)
 }
@@ -512,9 +514,9 @@ pub struct BuildingLot {
 pub fn extract_building_lots(
     hm: &HeightMap,
     config: &RoadConfig,
-    water_level: Option<f32>,
+    water: &RoomWater,
 ) -> Vec<BuildingLot> {
-    let mut lots = traced_lots(hm, config, water_level);
+    let mut lots = traced_lots(hm, config, water);
     // Room frame on both sides: the lots were shifted out of the window
     // and the discs are authored in room metres.
     lots.retain(|lot| {
@@ -530,13 +532,23 @@ pub fn extract_building_lots(
 /// Every lot the network's blocks subdivide into, in the room placement
 /// frame: [`extract_building_lots`] before it drops the lots in a keep-out
 /// disc.
-fn traced_lots(hm: &HeightMap, config: &RoadConfig, water_level: Option<f32>) -> Vec<BuildingLot> {
-    let Some((mut graph, mut sub, lo)) = build_road_graph(hm, config, water_level) else {
+fn traced_lots(hm: &HeightMap, config: &RoadConfig, water: &RoomWater) -> Vec<BuildingLot> {
+    let Some((mut graph, sub, lo)) = build_road_graph(hm, config, water) else {
         return Vec::new();
     };
-    // Enclosed faces → blocks → recursively subdivided, street-aligned lots.
+    // Enclosed faces → blocks → recursively subdivided, street-aligned lots,
+    // on the ground the streets were traced on: a lake's shore holds them
+    // back as the sea's does (#1727). The default `WaterPolicy::Skip` never
+    // writes to it.
     extract_blocks(&mut graph);
-    let mut lots = extract_lots(&graph, &mut sub, &lot_config(config, water_level));
+    let line = water_line(&sub, water);
+    let mut ground = if config.avoid_water {
+        shore_ground(hm, &sub, lo, water, line)
+    } else {
+        None
+    }
+    .unwrap_or(sub);
+    let mut lots = extract_lots(&graph, &mut ground, &lot_config(config, line));
     // Layout revision 1 (#1558): every lot clears every street.
     if config.tidies_layout() {
         lots = clear_lots(
@@ -885,12 +897,12 @@ const FURNITURE_CURB_CLEARANCE_M: f32 = 0.6;
 pub fn extract_furniture_spots(
     hm: &HeightMap,
     config: &RoadConfig,
-    water_level: Option<f32>,
+    water: &RoomWater,
 ) -> Vec<FurnitureSpot> {
     if !config.furniture.enabled {
         return Vec::new();
     }
-    let Some((graph, sub, lo)) = build_road_graph(hm, config, water_level) else {
+    let Some((graph, sub, lo)) = build_road_graph(hm, config, water) else {
         return Vec::new();
     };
     let dims = Dims::from_config(config);
@@ -975,7 +987,7 @@ mod tests {
         // Regression guard: the other tests tolerate `None`; this asserts the
         // shipped default config genuinely yields road geometry on sloped
         // terrain, so a config/clip change can't silently render nothing.
-        let parts = build_road_geometry(&sloped_heightmap(), &cfg(7), None)
+        let parts = build_road_geometry(&sloped_heightmap(), &cfg(7), &RoomWater::default())
             .expect("default road config must produce a network on sloped terrain");
         assert!(!parts.deck.is_empty(), "no drivable deck");
         assert!(!parts.structure.is_empty(), "no curb/skirt structure");
@@ -987,8 +999,12 @@ mod tests {
     fn produces_a_network_at_room_scale_for_the_pilot_seed() {
         // The pilot room at real scale + its derived road seed. Guards against
         // the windowed path yielding an empty network there.
-        let parts = build_road_geometry(&pilot_heightmap(), &cfg(PILOT_ROAD_SEED), None)
-            .expect("room-scale build for the pilot seed must produce roads");
+        let parts = build_road_geometry(
+            &pilot_heightmap(),
+            &cfg(PILOT_ROAD_SEED),
+            &RoomWater::default(),
+        )
+        .expect("room-scale build for the pilot seed must produce roads");
         assert!(!parts.deck.is_empty());
     }
 
@@ -999,13 +1015,13 @@ mod tests {
         let hm = pilot_heightmap();
         let mut c = cfg(PILOT_ROAD_SEED);
         assert!(
-            extract_furniture_spots(&hm, &c, None).is_empty(),
+            extract_furniture_spots(&hm, &c, &RoomWater::default()).is_empty(),
             "furniture is opt-in"
         );
         c.furniture.enabled = true;
-        let spots = extract_furniture_spots(&hm, &c, None);
+        let spots = extract_furniture_spots(&hm, &c, &RoomWater::default());
         assert!(!spots.is_empty(), "no furniture spots on the pilot network");
-        let again = extract_furniture_spots(&hm, &c, None);
+        let again = extract_furniture_spots(&hm, &c, &RoomWater::default());
         assert_eq!(spots, again, "spots must be deterministic");
         let half = hm.world_width() * 0.5;
         for s in &spots {
@@ -1017,7 +1033,7 @@ mod tests {
         }
         // Wider spacing → fewer props.
         c.furniture.spacing.0 = 120.0;
-        let sparse = extract_furniture_spots(&hm, &c, None);
+        let sparse = extract_furniture_spots(&hm, &c, &RoomWater::default());
         assert!(sparse.len() < spots.len(), "spacing must thin the props");
     }
 
@@ -1027,7 +1043,7 @@ mod tests {
         // blocks that subdivide into real footprints, all inside the district
         // window (room-centred) with positive, finite extents.
         let hm = pilot_heightmap();
-        let lots = extract_building_lots(&hm, &cfg(PILOT_ROAD_SEED), None);
+        let lots = extract_building_lots(&hm, &cfg(PILOT_ROAD_SEED), &RoomWater::default());
         assert!(!lots.is_empty(), "pilot network enclosed no building lots");
 
         let district = cfg(PILOT_ROAD_SEED).district_half_extent.0;
@@ -1052,8 +1068,8 @@ mod tests {
         // The bake-into-record contract needs lots reproducible from the seed,
         // so every peer deriving the same record lands identical footprints.
         let hm = pilot_heightmap();
-        let a = extract_building_lots(&hm, &cfg(PILOT_ROAD_SEED), None);
-        let b = extract_building_lots(&hm, &cfg(PILOT_ROAD_SEED), None);
+        let a = extract_building_lots(&hm, &cfg(PILOT_ROAD_SEED), &RoomWater::default());
+        let b = extract_building_lots(&hm, &cfg(PILOT_ROAD_SEED), &RoomWater::default());
         assert_eq!(a, b, "building lots non-deterministic for identical input");
     }
 
@@ -1081,14 +1097,53 @@ mod tests {
             avoid_water: true,
             ..cfg(PILOT_ROAD_SEED)
         };
-        let lots = extract_building_lots(&hm, &shore, Some(level));
+        let lots = extract_building_lots(&hm, &shore, &RoomWater::sea_alone(Some(level)));
         assert!(!lots.is_empty(), "the shore network still grows lots");
         assert_eq!(drowned(&lots), 0, "a lot stands in the water");
 
-        let plain = extract_building_lots(&hm, &cfg(PILOT_ROAD_SEED), Some(level));
+        let plain = extract_building_lots(
+            &hm,
+            &cfg(PILOT_ROAD_SEED),
+            &RoomWater::sea_alone(Some(level)),
+        );
         assert!(
             drowned(&plain) > 0,
             "the control: with the switch off, lots grow on the lake bed"
+        );
+    }
+
+    /// #1727: a network that stops at the shore grows no lot that stands in
+    /// a lake either, the lake standing over the sea, whose one line the lot
+    /// subdivision is handed: the lots are cut on the ground the streets were
+    /// traced on. The control is the same network by the sea alone, which
+    /// grows lots on the lake bed.
+    #[test]
+    fn a_network_that_avoids_water_grows_no_lot_in_a_lake() {
+        let hm = pilot_heightmap();
+        let shore = RoadConfig {
+            avoid_water: true,
+            ..cfg(PILOT_ROAD_SEED)
+        };
+        let water = pilot_lake(&hm, &shore);
+        let half = hm.width().saturating_sub(1) as f32 * hm.scale() * 0.5;
+        let drowned = |lots: &[BuildingLot]| {
+            lots.iter()
+                .filter(|l| {
+                    let [x, z] = l.position;
+                    water
+                        .level_at(x, z)
+                        .is_some_and(|level| hm.get_height_at(x + half, z + half) <= level)
+                })
+                .count()
+        };
+        let lots = extract_building_lots(&hm, &shore, &water);
+        assert!(!lots.is_empty(), "the shore network still grows lots");
+        assert_eq!(drowned(&lots), 0, "a lot stands in the lake");
+
+        let by_the_sea = extract_building_lots(&hm, &shore, &RoomWater::sea_alone(water.sea));
+        assert!(
+            drowned(&by_the_sea) > 0,
+            "the control: by the sea alone, lots grow on the lake bed"
         );
     }
 
@@ -1129,8 +1184,8 @@ mod tests {
         downtown.lots.lot_area.0 = 2400.0;
         assert_eq!(lot_config(&downtown, None).max_lot_area, 2400.0);
         let hm = pilot_heightmap();
-        let small = extract_building_lots(&hm, &cfg(PILOT_ROAD_SEED), None);
-        let big = extract_building_lots(&hm, &downtown, None);
+        let small = extract_building_lots(&hm, &cfg(PILOT_ROAD_SEED), &RoomWater::default());
+        let big = extract_building_lots(&hm, &downtown, &RoomWater::default());
         assert!(
             !big.is_empty() && big.len() * 2 < small.len(),
             "a bigger lot area grows fewer, larger lots: {} vs {}",
@@ -1168,8 +1223,8 @@ mod tests {
                 .filter(|l| (l.position[0] - centre[0]).hypot(l.position[1] - centre[1]) < radius)
                 .count()
         };
-        let traced = traced_lots(&hm, &config, None);
-        let lots = extract_building_lots(&hm, &config, None);
+        let traced = traced_lots(&hm, &config, &RoomWater::default());
+        let lots = extract_building_lots(&hm, &config, &RoomWater::default());
         assert!(
             in_disc(&traced) > 0,
             "the control: the block round the disc grows lots in it"
@@ -1281,8 +1336,9 @@ mod tests {
         let hm = pilot_heightmap();
         let half = hm.width().saturating_sub(1) as f32 * hm.scale() * 0.5;
         let touching = |config: &RoadConfig, gap: f32| {
-            let parts = build_road_geometry(&hm, config, None).expect("the pilot meshes");
-            let lots = extract_building_lots(&hm, config, None);
+            let parts =
+                build_road_geometry(&hm, config, &RoomWater::default()).expect("the pilot meshes");
+            let lots = extract_building_lots(&hm, config, &RoomWater::default());
             let tris: Vec<[[f32; 3]; 3]> = [&parts.deck, &parts.structure]
                 .iter()
                 .flat_map(|g| {
@@ -1330,10 +1386,11 @@ mod tests {
     fn at_layout_revision_1_no_street_prop_stands_on_a_street() {
         let hm = pilot_heightmap();
         let on_street = |config: &RoadConfig| {
-            let (graph, _sub, lo) = build_road_graph(&hm, config, None).expect("traces");
+            let (graph, _sub, lo) =
+                build_road_graph(&hm, config, &RoomWater::default()).expect("traces");
             let shift = window_to_room_shift(&hm, lo);
             let streets = street_footprints(&graph, config, 0.0);
-            extract_furniture_spots(&hm, config, None)
+            extract_furniture_spots(&hm, config, &RoomWater::default())
                 .iter()
                 .filter(|s| {
                     let p = [s.position[0] - shift[0], s.position[1] - shift[1]];
@@ -1350,7 +1407,7 @@ mod tests {
             "the control: the original plan's props stand on streets"
         );
         config.layout_revision = 1;
-        assert!(!extract_furniture_spots(&hm, &config, None).is_empty());
+        assert!(!extract_furniture_spots(&hm, &config, &RoomWater::default()).is_empty());
         assert_eq!(on_street(&config), 0, "a prop stands on a street");
     }
 
@@ -1360,7 +1417,7 @@ mod tests {
             enabled: false,
             ..cfg(PILOT_ROAD_SEED)
         };
-        assert!(extract_building_lots(&pilot_heightmap(), &c, None).is_empty());
+        assert!(extract_building_lots(&pilot_heightmap(), &c, &RoomWater::default()).is_empty());
     }
 
     #[test]
@@ -1369,7 +1426,7 @@ mod tests {
             enabled: false,
             ..cfg(7)
         };
-        assert!(build_road_geometry(&sloped_heightmap(), &c, None).is_none());
+        assert!(build_road_geometry(&sloped_heightmap(), &c, &RoomWater::default()).is_none());
     }
 
     /// The record-build ↔ client-render contract rests on the layout being
@@ -1380,8 +1437,8 @@ mod tests {
         let a = sloped_heightmap();
         let b = sloped_heightmap();
         match (
-            build_road_geometry(&a, &cfg(7), None),
-            build_road_geometry(&b, &cfg(7), None),
+            build_road_geometry(&a, &cfg(7), &RoomWater::default()),
+            build_road_geometry(&b, &cfg(7), &RoomWater::default()),
         ) {
             (Some(x), Some(y)) => {
                 for (gx, gy) in surfaces(&x).into_iter().zip(surfaces(&y)) {
@@ -1399,7 +1456,7 @@ mod tests {
     fn draping_leaves_the_heightmap_untouched() {
         let original = sloped_heightmap();
         let mut probe = sloped_heightmap();
-        let _ = build_road_geometry(&probe, &cfg(7), None);
+        let _ = build_road_geometry(&probe, &cfg(7), &RoomWater::default());
         assert_eq!(
             original.data(),
             probe.data_mut(),

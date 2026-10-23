@@ -150,15 +150,15 @@ fn count_near_duplicate_nodes(
 pub fn road_graph_diagnostics(
     hm: &HeightMap,
     config: &RoadConfig,
-    water_level: Option<f32>,
+    water: &crate::water::bodies::RoomWater,
 ) -> Option<RoadDiagnostics> {
     let dims = Dims::from_config(config);
-    let (graph_raw, sub, _lo) = build_road_graph_raw(hm, config, water_level)?;
+    let (graph_raw, sub, _lo) = build_road_graph_raw(hm, config, water)?;
     let raw = collect_graph_stats(&graph_raw, &sub, &dims);
     // Sanitise a fresh raw build (deterministic, so byte-identical to `graph_raw`),
     // and tidy it at layout revision 1 or later (#1558) - the graph the
     // mesher and the lots read.
-    let (mut graph_san, sub2, _lo2) = build_road_graph_raw(hm, config, water_level)?;
+    let (mut graph_san, sub2, _lo2) = build_road_graph_raw(hm, config, water)?;
     sanitize_graph(&mut graph_san, WELD_TOL_FRACTION * config.minor_spacing.0);
     if config.tidies_layout() {
         tidy_graph(&mut graph_san, &sub2, config);

@@ -2364,6 +2364,7 @@ fn swam(pace: f32) -> (bool, f32) {
             local_half_extents: Vec2::splat(200.0),
             flow_strength: 0.0,
             owner: crate::water::WaterPlane::NO_OWNER,
+            cells: None,
         }],
     });
     let chassis = app

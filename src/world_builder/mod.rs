@@ -749,6 +749,15 @@ fn draw_placement_visualizers(
     focus: Res<PlacementFocus>,
     record: Option<Res<LiveRoomRecord>>,
     heightmap: Option<Res<FinishedHeightMap>>,
+    // The room's water a seeded anchor is walked against, and the ground and
+    // the terrain water layers it was found from: found again only when
+    // they change, a lake being a flood of the ground (#1727). The ground by
+    // its last change, which this system sees however long it went unrun.
+    mut water: Local<(
+        Option<bevy::ecs::change_detection::Tick>,
+        Vec<Transform>,
+        crate::water::bodies::RoomWater,
+    )>,
 ) {
     let Some(idx) = focus.selected else {
         return;
@@ -791,8 +800,14 @@ fn draw_placement_visualizers(
                 // placement is first walked off water and steep ground,
                 // so the sphere marks the building, not the spot its
                 // record names (#1399).
+                let layers = crate::water::bodies::terrain_layers(record);
+                let ground = heightmap.as_ref().map(|h| h.last_changed());
+                if water.0 != ground || water.1 != layers {
+                    water.2 = crate::water::bodies::RoomWater::from_layers(&layers, Some(hm));
+                    (water.0, water.1) = (ground, layers);
+                }
                 pos = snapped_absolute_anchor(
-                    &AnchorGround::new(hm, compile::drawn_water_level(record, Some(hm))),
+                    &AnchorGround::new(hm, &water.2),
                     transform,
                     *avoid_water,
                     avoid_water_clearance.0,

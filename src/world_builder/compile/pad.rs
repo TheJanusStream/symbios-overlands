@@ -52,26 +52,27 @@
 
 use bevy::math::Vec3;
 
-/// The ground a snapped anchor's walks read: the heights, the room's water
-/// line, and - on Berlin's ground (#1589) - where its streets run.
+/// The ground a snapped anchor's walks read: the heights, the room's water,
+/// and - on Berlin's ground (#1589) - where its streets run.
 #[derive(Clone, Copy)]
 pub(crate) struct AnchorGround<'a> {
     pub hm: &'a bevy_symbios_ground::HeightMap,
-    /// The room's water line, as the compile reads it (`drawn_water_level`).
-    pub water_y: Option<f32>,
+    /// The room's water, as the compile reads it (`drawn_water`): its sea
+    /// and its lakes, each walk asking the level at its own point (#1727).
+    pub water: &'a crate::water::bodies::RoomWater,
     /// Berlin's ground, where the region is built from it.
     pub berlin: Option<&'a crate::terrain::geo::GeoGround>,
 }
 
 impl<'a> AnchorGround<'a> {
-    /// `heightmap`'s ground, under the room's water line `water_y`.
+    /// `heightmap`'s ground, under the room's `water`.
     pub(crate) fn new(
         heightmap: &'a crate::terrain::FinishedHeightMap,
-        water_y: Option<f32>,
+        water: &'a crate::water::bodies::RoomWater,
     ) -> Self {
         AnchorGround {
             hm: &heightmap.0,
-            water_y,
+            water,
             berlin: heightmap.ground(),
         }
     }
@@ -163,7 +164,7 @@ pub(super) fn relocate_snapped_anchor(
             extent,
             half,
             translation,
-            ground.water_y,
+            ground.water,
             clearance,
         );
     };
@@ -174,7 +175,7 @@ pub(super) fn relocate_snapped_anchor(
                     hm,
                     (extent, half),
                     translation,
-                    ground.water_y,
+                    ground.water,
                     berlin,
                     clearance,
                 );
@@ -187,13 +188,13 @@ pub(super) fn relocate_snapped_anchor(
             open(translation);
         }
         None => {
-            if let Some(water_y) = ground.water_y {
+            if !ground.water.is_dry() {
                 super::water::relocate_above_water(
                     hm,
                     extent,
                     half,
                     translation,
-                    water_y,
+                    ground.water,
                     clearance,
                 );
             }
@@ -205,9 +206,10 @@ pub(super) fn relocate_snapped_anchor(
 /// Where the compile draws a SNAPPED `Absolute` placement's anchor: its
 /// record's x/z, walked by [`relocate_snapped_anchor`] when it avoids
 /// water, on the ground there ([`snapped_ground_y`]) plus its authored Y
-/// as an offset. `ground` carries the room's water line, as the compile
-/// reads it (`drawn_water_level`: Berlin's in a geodata region, #1586),
-/// and Berlin's ground where there is one (#1589).
+/// as an offset. `ground` carries the room's water, as the compile reads
+/// it (`drawn_water`: its sea and its lakes, #1760, or in a geodata region
+/// whose core has water Berlin's own bodies, #1724), and Berlin's ground
+/// where there is one (#1589).
 ///
 /// The editor's reading of the anchor, for the sites in the module docs'
 /// "Where it stands" (#1399) - and the Berlin seeder's (#1647), which keeps

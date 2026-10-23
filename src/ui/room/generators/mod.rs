@@ -255,6 +255,30 @@ pub(crate) trait GeneratorTreeSource {
     fn ground_is_berlin(&self) -> bool {
         false
     }
+    /// What the Water node `id` draws as one of the world's terrain water
+    /// layers (#1760), where it is one - a Terrain root's own child: the
+    /// sea, a lake, or nothing, its position standing dry. Painted under its
+    /// panel, a lake that is not there being no answer (#1289). `None` for
+    /// any other node, and a higher layer's before the ground it fills is
+    /// built.
+    fn water_layer(&self, _id: &GenNodeId) -> Option<WaterLayer> {
+        None
+    }
+}
+
+/// What a terrain water layer draws (#1760,
+/// [`GeneratorTreeSource::water_layer`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WaterLayer {
+    /// The lowest: the world's sea, all ground below its height.
+    Sea,
+    /// The lowest, in a square of Berlin whose core has water: Berlin's own
+    /// bodies, each at its own level, in place of a sea (#1724).
+    Berlin,
+    /// Higher: a lake, filling the dip round its position.
+    Lake,
+    /// Higher, on ground at or above its height: nothing.
+    Dry,
 }
 
 /// The note [`GeneratorTreeSource::grammar_seed_note`] paints for a tree
@@ -340,11 +364,26 @@ pub(crate) use reparent::request_root_delete;
 /// references follow the key instead.
 pub(crate) struct RoomTreeSource<'a> {
     pub(crate) record: &'a mut RoomRecord,
+    /// The ground the world is drawn on, where it has been built: what a
+    /// lake fills ([`GeneratorTreeSource::water_layer`]).
+    ground: Option<&'a crate::terrain::FinishedHeightMap>,
 }
 
 impl<'a> RoomTreeSource<'a> {
     pub(crate) fn new(record: &'a mut RoomRecord) -> Self {
-        Self { record }
+        Self {
+            record,
+            ground: None,
+        }
+    }
+
+    /// The source over the ground the world is drawn on.
+    pub(crate) fn with_ground(
+        mut self,
+        ground: Option<&'a crate::terrain::FinishedHeightMap>,
+    ) -> Self {
+        self.ground = ground;
+        self
     }
 }
 
@@ -456,6 +495,37 @@ impl GeneratorTreeSource for RoomTreeSource<'_> {
             .geo_source
             .as_ref()
             .is_some_and(|source| source.berlin_square().is_some())
+    }
+    fn water_layer(&self, id: &GenNodeId) -> Option<WaterLayer> {
+        use crate::pds::GeneratorKind;
+        let &[index] = id.path.as_slice() else {
+            return None;
+        };
+        let root = self.record.generators.get(&id.root)?;
+        let node = root.children.get(index)?;
+        if !matches!(root.kind, GeneratorKind::Terrain(_))
+            || !matches!(node.kind, GeneratorKind::Water { .. })
+        {
+            return None;
+        }
+        // As the world compiler tells them apart (`compile::dispatch`).
+        let lowest =
+            crate::water::bodies::sea_level(&crate::water::bodies::terrain_layers(self.record))?;
+        let layer = bevy::prelude::Transform::from(&node.transform);
+        if layer.translation.y <= lowest {
+            let berlin = crate::world_builder::compile::water::geo_water(self.ground).is_some();
+            return Some(if berlin {
+                WaterLayer::Berlin
+            } else {
+                WaterLayer::Sea
+            });
+        }
+        let ground = self.ground?;
+        Some(if crate::water::bodies::holds_a_lake(&ground.0, &layer) {
+            WaterLayer::Lake
+        } else {
+            WaterLayer::Dry
+        })
     }
 }
 
@@ -951,6 +1021,73 @@ mod source_facts_tests {
         })));
         let mut visuals = Generator::default_cuboid();
         assert!(!AvatarVisualsTreeSource::new(&mut visuals).ground_is_berlin());
+    }
+}
+
+#[cfg(test)]
+mod water_layer_tests {
+    use super::*;
+    use crate::pds::{Fp3, GeneratorKind, TransformData};
+
+    /// #1760: a Terrain's lowest Water child is the sea, a higher one a
+    /// lake where its position stands in a dip and nothing where it stands
+    /// on ground at or above its height - which needs the ground, so it is
+    /// told only once there is some - and no other node is a layer.
+    #[test]
+    fn a_terrain_water_child_is_told_as_sea_lake_or_dry() {
+        // Flat at 10 m, with a hollow at 4 m round (20, 0).
+        let mut hm = bevy_symbios_ground::HeightMap::new(41, 41, 2.0);
+        for z in 0..41 {
+            for x in 0..41 {
+                let (wx, wz) = (x as f32 * 2.0 - 40.0, z as f32 * 2.0 - 40.0);
+                let hollow = ((wx - 20.0).powi(2) + wz.powi(2)).sqrt() < 8.0;
+                hm.set(x, z, if hollow { 4.0 } else { 10.0 });
+            }
+        }
+        let ground = crate::terrain::FinishedHeightMap(hm, None);
+        let mut terrain = Generator::from_kind(GeneratorKind::Terrain(Default::default()));
+        for (x, level) in [(0.0, 0.0), (20.0, 6.0), (-20.0, 6.0)] {
+            let mut water = Generator::from_kind(GeneratorKind::Water {
+                surface: Default::default(),
+            });
+            water.transform = TransformData {
+                translation: Fp3([x, level, 0.0]),
+                ..Default::default()
+            };
+            terrain.children.push(water);
+        }
+        terrain.children.push(Generator::default_cuboid());
+        let mut record = RoomRecord::default();
+        record.generators.clear();
+        record.generators.insert("land".into(), terrain);
+        let child = |i: usize| GenNodeId {
+            root: "land".into(),
+            path: vec![i],
+        };
+
+        let source = RoomTreeSource::new(&mut record).with_ground(Some(&ground));
+        assert_eq!(source.water_layer(&child(0)), Some(WaterLayer::Sea));
+        assert_eq!(source.water_layer(&child(1)), Some(WaterLayer::Lake));
+        assert_eq!(source.water_layer(&child(2)), Some(WaterLayer::Dry));
+        assert_eq!(source.water_layer(&child(3)), None, "a box is no layer");
+        assert_eq!(source.water_layer(&GenNodeId::root("land")), None);
+
+        let unbuilt = RoomTreeSource::new(&mut record);
+        assert_eq!(unbuilt.water_layer(&child(0)), Some(WaterLayer::Sea));
+        assert_eq!(unbuilt.water_layer(&child(1)), None, "no ground yet");
+
+        // In a square of Berlin whose core has water, the lowest draws
+        // Berlin's own bodies in place of a sea (#1724).
+        let water = vec![Some(geodata::berlin::LandUse::Water); 41 * 41];
+        let bodies = crate::terrain::geo::GeoGround::water_of_cover(&ground.0, &water, 5.0);
+        let berlin = crate::terrain::FinishedHeightMap(
+            ground.0.clone(),
+            Some(crate::terrain::geo::GeoGround::from_cover(
+                41, 2.0, water, bodies,
+            )),
+        );
+        let source = RoomTreeSource::new(&mut record).with_ground(Some(&berlin));
+        assert_eq!(source.water_layer(&child(0)), Some(WaterLayer::Berlin));
     }
 }
 

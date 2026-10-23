@@ -125,10 +125,10 @@ pub(crate) fn kept_for(record: Option<&RoomRecord>, heightmap: &FinishedHeightMa
     let landing = record
         .and_then(|record| crate::world_builder::compile::landing_on(record, heightmap))
         .map_or((0.0, 0.0), |landing| (landing.pos.0[0], landing.pos.0[1]));
-    let water_y = record.and_then(|record| {
-        crate::world_builder::compile::drawn_water_level(record, Some(heightmap))
+    let water = record.map_or_else(Default::default, |record| {
+        crate::world_builder::compile::drawn_water(record, Some(heightmap))
     });
-    let anchors = crate::world_builder::AnchorGround::new(heightmap, water_y);
+    let anchors = crate::world_builder::AnchorGround::new(heightmap, &water);
     Kept::of(record, landing, Some(&anchors))
 }
 

@@ -1699,7 +1699,8 @@ pub fn room_admin_ui(
                                 tufts: crate::grass::profile::tufts(record_mut),
                                 match_tufts: &mut match_tufts,
                             };
-                            let mut tree_source = generators::RoomTreeSource::new(record_mut);
+                            let mut tree_source = generators::RoomTreeSource::new(record_mut)
+                                .with_ground(heightmap.as_deref());
                             generators::draw_generators_tab(
                                 ui,
                                 &mut tree_source,
@@ -1743,8 +1744,8 @@ pub fn room_admin_ui(
                             .max_height(body_height)
                             .show(ui, |ui| match other {
                                 EditorTab::Environment => {
-                                    // Whether the world has water to draw at
-                                    // Berlin's level (#1586).
+                                    // Whether the world has water for
+                                    // Berlin's own to be drawn in (#1724).
                                     let has_water =
                                         crate::world_builder::compile::room_water_level(record_mut)
                                             .is_some();

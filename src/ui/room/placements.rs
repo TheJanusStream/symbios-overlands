@@ -676,8 +676,7 @@ pub(super) fn draw_placements_tab(
                 // Read before the placement is borrowed out of the record:
                 // un-snapping walks a seeded anchor against it (#1399), and
                 // the Grammar seed control shows the item's own (#1505).
-                let room_water_y =
-                    crate::world_builder::compile::drawn_water_level(record, heightmap);
+                let water_layers = crate::water::bodies::terrain_layers(record);
                 let own_seeds = record
                     .placements
                     .get(idx)
@@ -706,7 +705,7 @@ pub(super) fn draw_placements_tab(
                     &all_names,
                     &eligible_names,
                     heightmap,
-                    room_water_y,
+                    &water_layers,
                     &own_seeds,
                     copies,
                     dirty,
@@ -886,9 +885,11 @@ fn draw_placement_detail(
     all_names: &[String],
     eligible_names: &[String],
     heightmap: Option<&crate::terrain::FinishedHeightMap>,
-    // The room's water line, which the compile walks a seeded anchor
-    // against (`drawn_water_level`: Berlin's in a geodata region).
-    room_water_y: Option<f32>,
+    // The room's terrain water layers (`water::bodies::terrain_layers`),
+    // whose water the compile walks a seeded anchor against: its sea and its
+    // lakes, or in a geodata region Berlin's own bodies, found from them only
+    // when a toggle needs them (#1727), a lake being a flood of the ground.
+    water_layers: &[bevy::prelude::Transform],
     // The seeds the placed item's shape grammars derive with on their own
     // (`own_grammar_seeds`), for the Grammar seed control (#1505).
     own_seeds: &[u64],
@@ -949,8 +950,10 @@ fn draw_placement_detail(
                     // spot jumped it back there - 6 m on seed 253's kiosk
                     // (#1399). `avoid_water` is untouched by this toggle,
                     // so the walk reads exactly as it did while snapped.
+                    let water =
+                        crate::water::bodies::RoomWater::from_layers(water_layers, heightmap);
                     transform.translation = Fp3(crate::world_builder::snapped_absolute_anchor(
-                        &crate::world_builder::AnchorGround::new(hm, room_water_y),
+                        &crate::world_builder::AnchorGround::new(hm, &water),
                         transform,
                         *avoid_water,
                         avoid_water_clearance.0,
@@ -1586,7 +1589,7 @@ mod tests {
                                 &names,
                                 &names,
                                 None,
-                                None,
+                                &[],
                                 &[5],
                                 copies,
                                 &mut dirty,
@@ -1942,7 +1945,7 @@ mod tests {
     fn click_snap_to_terrain(
         placement: &mut Placement,
         hm: &crate::terrain::FinishedHeightMap,
-        room_water_y: Option<f32>,
+        water_layers: &[bevy::prelude::Transform],
     ) -> bool {
         let ctx = egui::Context::default();
         ctx.enable_accesskit();
@@ -1975,7 +1978,7 @@ mod tests {
                     &names,
                     &names,
                     Some(hm),
-                    room_water_y,
+                    water_layers,
                     &[],
                     Default::default(),
                     &mut dirty,
@@ -2018,7 +2021,9 @@ mod tests {
         use crate::world_builder::{snapped_absolute_anchor, snapped_ground_y};
 
         let hm = crate::world_builder::compile::pad::wet_ramp();
-        let room_water_y = Some(0.0);
+        // The room's water: its sea at 0, the line `wet_ramp` is drawn against.
+        let water_layers = [bevy::prelude::Transform::IDENTITY];
+        let room_water = crate::water::bodies::RoomWater::sea_alone(Some(0.0));
         let landmark = |x: f32| Placement::Absolute {
             generator_ref: "landmark".into(),
             transform: TransformData {
@@ -2033,7 +2038,7 @@ mod tests {
         };
         let snapped_off = |mut placement: Placement| {
             assert!(
-                click_snap_to_terrain(&mut placement, &hm, room_water_y),
+                click_snap_to_terrain(&mut placement, &hm, &water_layers),
                 "a toggle is an edit"
             );
             let Placement::Absolute {
@@ -2066,7 +2071,7 @@ mod tests {
             panic!("landmark() is Absolute");
         };
         let drawn = snapped_absolute_anchor(
-            &crate::world_builder::AnchorGround::new(&hm, room_water_y),
+            &crate::world_builder::AnchorGround::new(&hm, &room_water),
             &transform,
             true,
             3.0,
@@ -2120,7 +2125,7 @@ mod tests {
                     &names,
                     &names,
                     None,
-                    None,
+                    &[],
                     own,
                     Default::default(),
                     &mut dirty,
@@ -2360,7 +2365,7 @@ mod tests {
                 &names,
                 &names,
                 None,
-                None,
+                &[],
                 own,
                 Default::default(),
                 &mut dirty,

@@ -18,6 +18,8 @@ use bevy::{
     shader::ShaderRef,
 };
 
+pub mod bodies;
+
 const WATER_SHADER_PATH: &str = "shaders/water.wgsl";
 
 /// Maximum number of live perturbations a single water plane renders
@@ -202,6 +204,11 @@ pub struct WaterSurfaces {
 /// the force-per-metre-submerged applied to floating bodies along the
 /// surface's downhill tangent. Always zero on flat water (the tangent of
 /// gravity on a horizontal plane is the zero vector).
+///
+/// A body of water at its own level - a lake (#1760) or one of Berlin's
+/// (#1724) - carries its `cells` too: the plane is water only over them, so
+/// a lake on a plateau is no water over the valley below it, which its
+/// rectangle reaches (#1726).
 #[derive(Debug, Clone)]
 pub struct WaterPlane {
     pub world_from_local: Transform,
@@ -213,6 +220,9 @@ pub struct WaterPlane {
     /// compiler uses this to drop exactly the planes belonging to a
     /// rebuilt placement instead of clearing the whole registry.
     pub owner: usize,
+    /// Where a body's plane is water: its cells. `None` for the sea and for
+    /// water in built pieces, which are water across their rectangle.
+    pub cells: Option<std::sync::Arc<bodies::BodyCells>>,
 }
 
 impl WaterPlane {
@@ -220,6 +230,44 @@ impl WaterPlane {
     /// a placement index, so such planes survive incremental rebuilds
     /// and are only dropped by a full-pass registry clear.
     pub const NO_OWNER: usize = usize::MAX;
+
+    /// Whether world `(x, z)` lies where the plane is water: inside a
+    /// body's cells, where it has them (#1726).
+    fn holds(&self, x: f32, z: f32) -> bool {
+        self.cells.as_ref().is_none_or(|cells| cells.holds(x, z))
+    }
+
+    /// Whether world `(x, z)` lies where the plane's level is the water's:
+    /// a body's reach, its bank as well as its cells (#1727), where it has
+    /// them.
+    fn reaches(&self, x: f32, z: f32) -> bool {
+        self.cells.as_ref().is_none_or(|cells| cells.reaches(x, z))
+    }
+}
+
+/// The water a scatter's samples are judged against (#1727). The planes
+/// that are water across their rectangles - the sea, a built piece's pool -
+/// give one level, the highest over the scatter's centre, which every sample
+/// reads wherever it falls, as every sample read before there were lakes:
+/// a sample past the sea's rectangle, at the world's edge, is judged against
+/// the sea as it always was. Over it, at each sample, the highest body whose
+/// reach takes the sample in: a reed band round a lake measures from the
+/// lake. Placements that come before the water's spawn find none, and their
+/// filters accept as they did in the monolithic pass.
+#[derive(Clone, Debug, Default)]
+pub struct ScatterWater {
+    centre: Option<f32>,
+    bodies: WaterSurfaces,
+}
+
+impl bodies::WaterAt for ScatterWater {
+    fn water_at(&self, x: f32, z: f32) -> Option<f32> {
+        let body = self.bodies.level_near(Vec2::new(x, z)).map(|(_, y)| y);
+        match (self.centre, body) {
+            (Some(centre), Some(body)) => Some(centre.max(body)),
+            (centre, body) => centre.or(body),
+        }
+    }
 }
 
 /// Result of a 3D water-volume query. Returned by [`WaterSurfaces::query`]
@@ -264,10 +312,44 @@ impl WaterSurfaces {
     /// queried XZ*, computed by solving the plane equation. Yaw-only
     /// rotation collapses to a constant Y.
     ///
-    /// Used by:
-    /// * the scatter biome filter (one global threshold per scatter), and
-    /// * the humanoid water-state classifier (column-vs-surface comparison).
+    /// Used by the humanoid water-state classifier (column-vs-surface
+    /// comparison), and by whatever swims or floats: it answers where the
+    /// water is drawn. The scatter's filters read [`Self::for_scatter`].
     pub fn surface_at(&self, world_xz: Vec2) -> Option<(usize, f32)> {
+        self.highest_where(world_xz, WaterPlane::holds)
+    }
+
+    /// [`Self::surface_at`] up a body's bank too (#1727): the level a place
+    /// stands over, the lake's where its reach takes the place in.
+    pub fn level_near(&self, world_xz: Vec2) -> Option<(usize, f32)> {
+        self.highest_where(world_xz, WaterPlane::reaches)
+    }
+
+    /// The water a scatter centred at `centre` judges its samples against
+    /// ([`ScatterWater`]): read at unit start, as the registry stands then.
+    pub fn for_scatter(&self, centre: Vec2) -> ScatterWater {
+        ScatterWater {
+            centre: self
+                .highest_where(centre, |plane, _, _| plane.cells.is_none())
+                .map(|(_, y)| y),
+            bodies: WaterSurfaces {
+                planes: self
+                    .planes
+                    .iter()
+                    .filter(|plane| plane.cells.is_some())
+                    .cloned()
+                    .collect(),
+            },
+        }
+    }
+
+    /// The highest plane whose rectangle holds `world_xz`'s projection and
+    /// that `held` takes the point in, with its world Y there.
+    fn highest_where(
+        &self,
+        world_xz: Vec2,
+        held: impl Fn(&WaterPlane, f32, f32) -> bool,
+    ) -> Option<(usize, f32)> {
         let mut best: Option<(usize, f32)> = None;
         for (i, plane) in self.planes.iter().enumerate() {
             let normal = (plane.world_from_local.rotation * Vec3::Y).normalize_or(Vec3::Y);
@@ -293,6 +375,7 @@ impl WaterSurfaces {
                 .transform_point3(world_p);
             if local.x.abs() <= plane.local_half_extents.x
                 && local.z.abs() <= plane.local_half_extents.y
+                && held(plane, world_xz.x, world_xz.y)
                 && best.is_none_or(|(_, by)| surface_y > by)
             {
                 best = Some((i, surface_y));
@@ -368,7 +451,9 @@ impl WaterSurfaces {
             .compute_affine()
             .inverse()
             .transform_point3(world_p);
-        if local.x.abs() > plane.local_half_extents.x || local.z.abs() > plane.local_half_extents.y
+        if local.x.abs() > plane.local_half_extents.x
+            || local.z.abs() > plane.local_half_extents.y
+            || !plane.holds(world_p.x, world_p.z)
         {
             return None;
         }
@@ -484,7 +569,58 @@ mod tests {
             local_half_extents: half,
             flow_strength: 0.0,
             owner: WaterPlane::NO_OWNER,
+            cells: None,
         }
+    }
+
+    /// #1727: a scatter reads the sea once, at its centre, as every sample
+    /// read it before there were lakes - a sample past the sea's rectangle,
+    /// at the world's edge, is judged against the sea all the same - and a
+    /// lake at each sample its reach takes in, where it stands over the sea.
+    /// A scatter centred off the sea's rectangle reads no sea, as before.
+    #[test]
+    fn a_scatter_reads_the_sea_at_its_centre_and_a_lake_where_it_reaches() {
+        use bodies::WaterAt;
+        // Ground at 10 m with a dip to 4 m round (20, 0), on 61 x 61 cells.
+        let mut hm = bevy_symbios_ground::HeightMap::new(61, 61, 1.0);
+        for z in 0..61 {
+            for x in 0..61 {
+                let (wx, wz) = (x as f32 - 30.0, z as f32 - 30.0);
+                let dip = ((wx - 20.0).powi(2) + wz.powi(2)).sqrt();
+                hm.set(x, z, if dip < 6.0 { 4.0 } else { 10.0 });
+            }
+        }
+        let lake = bodies::lake(&hm, &Transform::from_xyz(20.0, 6.0, 0.0)).expect("a lake");
+        let lake_plane = WaterPlane {
+            world_from_local: Transform::from_xyz(0.0, 6.0, 0.0),
+            local_half_extents: Vec2::splat(30.5),
+            flow_strength: 0.0,
+            owner: WaterPlane::NO_OWNER,
+            cells: Some(lake.cells.clone()),
+        };
+        let surfaces = WaterSurfaces {
+            planes: vec![flat_plane(2.0, Vec2::splat(30.0)), lake_plane],
+        };
+        let water = surfaces.for_scatter(Vec2::ZERO);
+        assert_eq!(water.water_at(0.0, 0.0), Some(2.0));
+        assert_eq!(
+            water.water_at(500.0, 0.0),
+            Some(2.0),
+            "past the sea's rectangle"
+        );
+        assert_eq!(water.water_at(20.0, 0.0), Some(6.0), "in the lake");
+        assert_eq!(water.water_at(-20.0, 0.0), Some(2.0), "beside it");
+        let off = surfaces.for_scatter(Vec2::new(500.0, 0.0));
+        assert_eq!(
+            off.water_at(500.0, 0.0),
+            None,
+            "a centre off the sea reads none"
+        );
+        assert_eq!(
+            off.water_at(20.0, 0.0),
+            Some(6.0),
+            "but a lake where it reaches"
+        );
     }
 
     #[test]
@@ -545,6 +681,7 @@ mod tests {
             local_half_extents: Vec2::splat(10.0),
             flow_strength: 0.0,
             owner: WaterPlane::NO_OWNER,
+            cells: None,
         };
         let surfaces = WaterSurfaces {
             planes: vec![plane],
@@ -563,6 +700,7 @@ mod tests {
             local_half_extents: Vec2::new(5.0, 10.0),
             flow_strength: 0.0,
             owner: WaterPlane::NO_OWNER,
+            cells: None,
         };
         let surfaces = WaterSurfaces {
             planes: vec![plane],
@@ -583,6 +721,7 @@ mod tests {
             local_half_extents: half,
             flow_strength: flow,
             owner: WaterPlane::NO_OWNER,
+            cells: None,
         }
     }
 
@@ -677,6 +816,7 @@ mod tests {
             local_half_extents: Vec2::splat(10.0),
             flow_strength: 5.0,
             owner: WaterPlane::NO_OWNER,
+            cells: None,
         };
         let surfaces = WaterSurfaces {
             planes: vec![plane],
@@ -724,6 +864,7 @@ mod tests {
                     local_half_extents: Vec2::splat(100.0),
                     flow_strength: 0.0,
                     owner: WaterPlane::NO_OWNER,
+                    cells: None,
                 },
             ],
         };
@@ -745,6 +886,7 @@ mod tests {
                     local_half_extents: Vec2::splat(2.0),
                     flow_strength: 0.0,
                     owner: WaterPlane::NO_OWNER,
+                    cells: None,
                 },
             ],
         };

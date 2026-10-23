@@ -31,9 +31,19 @@ and fill valley floors). You shape land by choosing a recipe and scanning
 seeds until one falls the way you want - the same seed always gives the
 same ground.
 
-The water is **one flat plane**: the water child's `transform.translation`
-y. Everything below it floods, so a pool is the deepest hollow under a level
-set just above its floor.
+The water is **a sea, and lakes over it** (#1760). The terrain's lowest
+water child is the sea: its `transform.translation` y is its level, and
+everything below it floods, so a pool at the sea's level is the deepest
+hollow under a level set just above its floor. Every other water child of
+the terrain, higher than the sea, is a lake: it fills the dip round its own
+x and z up to its own y, and stops where the ground rises over that height,
+so it never hangs over lower ground - a lake on a plateau beside a valley
+lower than it, or two lakes at two levels. A lake set over its dip's rim
+spills, and covers what lies below it as far as it reaches; how far is its
+rectangle, the world's extent round its x and z scaled by its `scale`. A
+lake whose x and z stand on ground at or over its y draws nothing, and the
+World Editor says so under the water child. Water inside a built piece (a
+Water child of a box) keeps its rectangle: its walls hold it.
 
 **A seeded world's land may be the wrong kind entirely.** Reeve's (session
 879) was a 69 m rough `DiamondSquare` mountain; an English lowland manor
@@ -42,7 +52,9 @@ wanted soft hills. `FbmNoise`, `height_scale` 30 m, `base_frequency` 2.2,
 lowland; a seed scan of 24 seeds (6 s) found one with a mere below a gentle
 ridge, and dropping the water from 6 to 5.2 m shrank the mere to a lake with
 an outflow. FBM makes blobby lakes, never a river: plan water mills and
-streams out ([the water is one flat plane](#the-land-is-a-recipe-not-a-sculpt)).
+streams out. A tarn on the hill above that mere is a second water child,
+set where the hollow is and as high as it should fill
+([a sea, and lakes over it](#the-land-is-a-recipe-not-a-sculpt)).
 
 **Mesa country** (Jink's Parabola Flats, session 893): `VoronoiTerracing`
 with `voronoi_num_terraces` 2 and `voronoi_num_seeds` 50 lays big flat cells
@@ -62,7 +74,8 @@ the skyline comes from placed rock ([Backdrop](#backdrop-making-the-far-places-r
   record.json --terrain-report --at=X,Z ... [--footprint R] [--plan
   plan.png --focus=X,Z --span M]` (#1449) reads the ground the game stands
   things on - the same heightmap job and the same footprint rule - and
-  prints height percentiles, the water line and the share it floods, the
+  prints height percentiles, the sea's level and the share it floods (and
+  each lake's level and cells), the
   landing's ground, slope and facing, where every placement stands (a seeded
   one walked off water says `moved_from`), and at each `--at` point its
   ground, slope, downhill way, the `--yaw` that lays a long thing along the
@@ -1624,18 +1637,21 @@ and generators stay until you take them out.
   never on a street. Its `altitude_band` is not read on Berlin ground.
   A scatter of trees (an `LSystem` generator) keeps 8 m off each of
   Berlin's own trees, so a park is not wooded twice over.
-- **Berlin sets the water level.** Where the square has a river or lake,
-  every water child under `base_terrain` is drawn at Berlin's level (the
-  Spree at the Museumsinsel: 30.5 m), whatever its `transform.translation` y
-  says; with no water child there is no water, and the beds lie dry. The
-  beds are carved below the level, all other ground is kept above it, and
-  a body more than 3 m off the level (a lake on the plateau over a river)
-  is drawn dry. The level is the largest body's that does not sink much of
-  the square under it: a pond on a hill leaves the valley below it alone,
-  and if no body can set a level, the square has no water. A bridge that
-  carries one of Berlin's streets is a deck over the water; a footbridge or
-  a rail bridge is a causeway at the waterline. The World Editor's Region
-  source shows the level.
+- **Berlin sets the water.** Where the square has a river or lake, its
+  lowest water child under `base_terrain` draws Berlin's own water in place
+  of a sea, whatever its `transform.translation` y says: each body at its
+  own level, over its own outline (#1724) - the Spree at the Museumsinsel
+  at 30.5 m, the Muehlendamm lock's two reaches at 30.5 and 32.5 m, the
+  Weisser See on the plateau at 41.5 m. With no water child there is no
+  water, and the beds lie dry. Each bed is carved below its level and its
+  shore eased through it; the rest of the ground keeps Berlin's heights,
+  an underpass below a river beside it a dry hollow, since no plane spans
+  the square to flood it. Water narrower than about two cells is too
+  narrow to draw, and stays the flat surface Berlin's terrain gives it. A
+  bridge that carries one of Berlin's streets is a deck over the water
+  under it; a footbridge or a rail bridge is a causeway at the waterline. A
+  further water child is a lake on Berlin's ground, as on any. The World
+  Editor's Region source shows the levels.
 - **The walkable ground has Berlin's street level** (P2.2): the theme's
   catalogue buildings on each of Berlin's building footprints (in rows down
   a long one, a landmark on a church or a large museum) - since #1598 the

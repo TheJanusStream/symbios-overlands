@@ -232,13 +232,13 @@ const GROUND_PARTS: u64 = 1;
 /// ground (#1554): `(network index, streets, junctions, triangles, parts)`.
 /// A network whose tracer finds nothing draws nothing and is left out.
 fn street_costs(record: &RoomRecord, heightmap: &FinishedHeightMap) -> Vec<(usize, Value, Tally)> {
-    let water = crate::world_builder::compile::drawn_water_level(record, Some(heightmap));
+    let water = crate::world_builder::compile::drawn_water(record, Some(heightmap));
     crate::pds::find_road_configs(record)
         .into_iter()
         .enumerate()
         .filter(|(_, c)| c.enabled)
         .filter_map(|(i, c)| {
-            let parts = crate::urban::build_road_geometry(&heightmap.0, c, water)?;
+            let parts = crate::urban::build_road_geometry(&heightmap.0, c, &water)?;
             let (triangles, drawn) = parts.draw_cost();
             let tally = Tally {
                 triangles: triangles as u64,

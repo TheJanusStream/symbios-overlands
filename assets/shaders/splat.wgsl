@@ -142,6 +142,10 @@ struct SplatUniforms {
     /// Its shape (#1702): how much it grows in tussocks and clumps (x) and
     /// how much of the ground it hides (y, the `carpet_depth`).
     grass_shape: vec4<f32>,
+    /// The room's lakes (#1727): 1 where the weight map's second layer
+    /// carries them (x), and the span its green is read over (y, m); all 0
+    /// in a room without lakes, whose ground draws as before.
+    lakes: vec4<f32>,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(106) var<uniform> splat_uniforms: SplatUniforms;
@@ -299,6 +303,23 @@ fn fragment(
     // Ground under a roof stays dry and bare (#1685): what falls reaches
     // only the open share of it, from the weight map's second layer.
     let open = 1.0 - textureSample(splat_weight_map, splat_weight_sampler, in.uv, 1).r;
+    // A lake stands at its own level (#1727), which the ground round it reads
+    // from the same layer: in its green how far the level stands over the
+    // vertex, about the middle, in its blue how far a lake's shore takes the
+    // place in (`ground_cover::lake_layer`). Sampled where the vertices
+    // stand, not at the mesh UV, whose half-texel drift toward the edges
+    // would tilt the level by half a cell's rise. A room without lakes reads
+    // none of it: its shore is 0, and every use below leaves the ground as
+    // the sea alone draws it.
+    var lake_shore = 0.0;
+    var lake_y = 0.0;
+    if splat_uniforms.lakes.x > 0.0 {
+        let texels = vec2<f32>(textureDimensions(splat_weight_map));
+        let at_vertex = (in.uv * (texels - 1.0) + 0.5) / texels;
+        let lake = textureSample(splat_weight_map, splat_weight_sampler, at_vertex, 1);
+        lake_shore = lake.b;
+        lake_y = in.world_position.y + (lake.g - 0.5) * splat_uniforms.lakes.y;
+    }
     let wetness = splat_uniforms.wetness * open;
     let snow = splat_uniforms.snow * open;
     let ground_up = normalize(in.world_normal).y;
@@ -306,11 +327,14 @@ fn fragment(
     var settled = 0.0;
     if splat_uniforms.wetness > 0.0 || splat_uniforms.snow > 0.0 {
         puddle = puddle_at(in.world_position.xz, ground_up, wetness);
-        let land = select(
+        let sea_land = select(
             1.0,
             smoothstep(splat_uniforms.water_y - 0.3, splat_uniforms.water_y, in.world_position.y),
             splat_uniforms.moisture_strength > 0.0,
         );
+        // Nor under a lake, at its level.
+        let lake_land = mix(1.0, smoothstep(lake_y - 0.3, lake_y, in.world_position.y), lake_shore);
+        let land = min(sea_land, lake_land);
         settled = land * snow_settled(
             in.world_position.xz,
             in.world_position.y,
@@ -455,11 +479,17 @@ fn fragment(
         // not grow (#913: a room has water exactly when its damp margin is
         // on), nor in a puddle, which drowns it.
         if splat_uniforms.grass_carpet > 0.0 {
-            let land = select(
+            let sea_land = select(
                 1.0,
                 smoothstep(splat_uniforms.water_y, splat_uniforms.water_y + GRASS_WATER_MARGIN, world_pos.y),
                 splat_uniforms.moisture_strength > 0.0,
             );
+            let lake_land = mix(
+                1.0,
+                smoothstep(lake_y, lake_y + GRASS_WATER_MARGIN, world_pos.y),
+                lake_shore,
+            );
+            let land = min(sea_land, lake_land);
             let up = normalize(in.world_normal);
             let to_eye = view.world_position - world_pos;
             let distance = length(to_eye);
@@ -571,11 +601,18 @@ fn fragment(
     if splat_uniforms.moisture_strength > 0.0 {
         let above_water = in.world_position.y - splat_uniforms.water_y;
         // 1 at (and below) the waterline, easing to 0 by `moisture_depth`.
-        let damp = 1.0 - smoothstep(
+        let sea_damp = 1.0 - smoothstep(
             0.0,
             max(splat_uniforms.moisture_depth, 0.001),
             above_water,
         );
+        // A lake's shore is damp to its own level (#1727).
+        let lake_damp = lake_shore * (1.0 - smoothstep(
+            0.0,
+            max(splat_uniforms.moisture_depth, 0.001),
+            in.world_position.y - lake_y,
+        ));
+        let damp = max(sea_damp, lake_damp);
         let f = 1.0 - splat_uniforms.moisture_strength * damp;
         pbr_input.material.base_color = vec4<f32>(
             pbr_input.material.base_color.rgb * f,

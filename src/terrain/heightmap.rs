@@ -260,6 +260,7 @@ pub(super) fn spawn_terrain_mesh(
             bytes: vec![0; 4],
         },
         None,
+        None,
     ));
 
     // Material starts disabled (flat colour) until the texture tasks finish.
@@ -305,6 +306,8 @@ pub(super) fn spawn_terrain_mesh(
                 wind: Vec4::ZERO,
                 grass_flower: Vec4::ZERO,
                 grass_shape: Vec4::ZERO,
+                // No lakes until the splat pass reads the room's (#1727).
+                lakes: Vec4::ZERO,
             },
             ..default()
         },
@@ -562,8 +565,8 @@ mod tests {
         };
         let hm = HeightMap::new(n, n, cell);
         let parts = mesh_streets(&streets, frame, &hm).expect("the T meshes");
-        let ground =
-            GeoGround::from_cover(n as u32, cell, vec![None; n * n], None).with_streets(parts);
+        let ground = GeoGround::from_cover(n as u32, cell, vec![None; n * n], Vec::new())
+            .with_streets(parts);
         let offset = road_offset(&hm);
 
         let mut world = World::new();

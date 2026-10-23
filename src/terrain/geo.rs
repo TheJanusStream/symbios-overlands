@@ -528,7 +528,7 @@ pub(crate) fn decode_core(bodies: &CoreBodies, grid: u32, cell: f32) -> Result<G
                     grid,
                     cell,
                     &ground.wet(bridges.as_deref()),
-                    ground.water_level(),
+                    |i| ground.level_over(((i as u32) % grid, (i as u32) / grid)),
                 );
                 if let Some(parts) = streets::mesh_streets(&read, frame, &road_ground) {
                     ground.set_streets(parts);
@@ -1137,8 +1137,13 @@ pub(crate) mod tests {
         let raw =
             decode_heights(&fixture(TERRAIN_LEGEND), &fixture(MUSEUM_TERRAIN), 300, 2.0).unwrap();
         let ground = core.ground.expect("the land use decodes");
-        let level = ground.water_level().expect("the Spree runs through it");
-        assert!((30.3..30.8).contains(&level), "level {level}");
+        // The Spree, the largest of its bodies, at its level (#1724).
+        let spree = ground
+            .water()
+            .iter()
+            .max_by_key(|body| body.cells.mask.len())
+            .expect("the Spree runs through it");
+        assert!((30.3..30.8).contains(&spree.level), "level {}", spree.level);
         // The heights are the terrain's, with the water settled on them
         // where the land use maps it, and under its bridges (#1595) - the
         // `geodata` crate's own tests hold `settle` to its rules on these
@@ -1163,8 +1168,13 @@ pub(crate) mod tests {
             "the Spree's bridges are its water: {bridged} cells"
         );
         let mut settled = raw.data.clone();
-        let water = geodata::water::settle(&mut settled, &wet, 300, 300, 2.0).unwrap();
-        assert_eq!(water.level, level);
+        let water = geodata::water::settle(&mut settled, &wet, 300, 300, 2.0);
+        let settled_levels: Vec<f32> = water.bodies.iter().map(|body| body.level).collect();
+        let drawn_levels: Vec<f32> = ground.water().iter().map(|body| body.level).collect();
+        assert_eq!(
+            settled_levels, drawn_levels,
+            "a body drawn for every body settled"
+        );
         assert_eq!(core.heights.data, settled);
         // A land use this build cannot read keeps the terrain as drawn.
         let mut bodies = museum_bodies();
@@ -1352,13 +1362,18 @@ pub(crate) mod tests {
                 .street_level()
                 .is_some_and(|level| level.is_complete())
         );
-        let level = ground.water_level().expect("the Spree");
-        // The Spree off the island's northern tip is under the level; the
+        // The Spree off the island's northern tip is under its level; the
         // Lustgarten (mapped as a city square) and the Marx-Engels-Forum
         // across the river (a park) stand above it, and only the park is
         // ground a stand of trees may take.
         use geodata::berlin::LandUse;
         let (spree, lustgarten, forum) = ((-150.0, -230.0), (-123.0, 61.0), (181.0, 85.0));
+        let level = ground
+            .water()
+            .iter()
+            .find(|body| body.cells.holds(spree.0, spree.1))
+            .map(|body| body.level)
+            .expect("the Spree");
         assert_eq!(ground.cover_at(spree.0, spree.1), Some(LandUse::Water));
         assert_eq!(
             ground.cover_at(lustgarten.0, lustgarten.1),
@@ -1487,7 +1502,7 @@ pub(crate) mod tests {
             .resource::<super::super::FinishedHeightMap>()
             .ground()
             .expect("the ground is Berlin's");
-        assert!(ground.water_level().is_some() && ground.streets().is_none());
+        assert!(!ground.water().is_empty() && ground.streets().is_none());
         let level = ground.street_level().expect("its street level is read");
         assert!(!level.buildings.is_empty());
         assert!(!level.is_complete(), "and never seeded without its streets");
@@ -1502,7 +1517,6 @@ pub(crate) mod tests {
         let core = decode_core(&museum_bodies(), 300, 2.0).unwrap();
         assert!(core.streets.is_none(), "{:?}", core.streets);
         let ground = core.ground.expect("the land use decodes");
-        let level = ground.water_level().expect("the Spree");
         let read = read_axes(&fixture(MUSEUM_STREETS), &fixture(MUSEUM_CARRIAGEWAYS)).unwrap();
         let frame = streets::CoreFrame {
             bbox: core_bbox(museum_square(), 300, 2.0),
@@ -1528,17 +1542,23 @@ pub(crate) mod tests {
         else {
             panic!("positions");
         };
-        let over: Vec<f32> = points
+        // Each deck stands over the body of water under it, at its level
+        // (#1724).
+        let over: Vec<(f32, f32)> = points
             .iter()
             .filter(|p| bridge(p[0], p[2]))
-            .map(|p| p[1])
+            .filter_map(|p| {
+                let cell = ((p[0] / 2.0).round() as u32, (p[2] / 2.0).round() as u32);
+                ground.level_over(cell).map(|level| (p[1], level))
+            })
             .collect();
-        let lowest = over.iter().copied().fold(f32::INFINITY, f32::min);
         assert!(over.len() > 20, "the streets cross on bridges");
-        assert!(
-            lowest >= level + streets::BRIDGE_DECK_M,
-            "a bridge deck at {lowest}, the water at {level}"
-        );
+        for &(deck, level) in &over {
+            assert!(
+                deck >= level + streets::BRIDGE_DECK_M,
+                "a bridge deck at {deck}, the water at {level}"
+            );
+        }
         // Streets the build cannot read leave the ground without them.
         let mut bodies = museum_bodies();
         bodies.streets = Some(Ok((b"<html>".as_slice().into(), b"".as_slice().into())));

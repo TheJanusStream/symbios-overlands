@@ -297,7 +297,8 @@ fn pilot_junctions_keep_every_mouth_after_truncation() {
     use std::collections::BTreeMap;
     let hm = pilot_heightmap();
     let config = cfg(PILOT_ROAD_SEED);
-    let (graph, sub, _lo) = build_road_graph(&hm, &config, None).expect("pilot must trace");
+    let (graph, sub, _lo) =
+        build_road_graph(&hm, &config, &RoomWater::default()).expect("pilot must trace");
     let dims = Dims::from_config(&config);
     let drawn = drawn_graph(&graph, &sub);
     let chains = extract_chains(&drawn, &sub, &dims);
@@ -512,7 +513,7 @@ fn a_dense_traced_plan_draws_no_hub_past_its_cap() {
         minor_spacing: Fp(12.0),
         ..cfg(PILOT_ROAD_SEED)
     };
-    let (graph, sub, _lo) = build_road_graph(&hm, &config, None).expect("traces");
+    let (graph, sub, _lo) = build_road_graph(&hm, &config, &RoomWater::default()).expect("traces");
     let dims = Dims::from_config(&config);
     let drawn = drawn_graph(&graph, &sub);
     let chains = extract_chains(&drawn, &sub, &dims);

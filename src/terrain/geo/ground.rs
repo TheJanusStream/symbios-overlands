@@ -1,6 +1,5 @@
 //! What real Berlin says about a geodata region's ground beside its heights
-//! (#1586): the land use covering each cell of the core, and the level of
-//! its water.
+//! (#1586): the land use covering each cell of the core, and its water.
 //!
 //! The land-use layer (Umweltatlas "Reale Nutzung" 2015) is rendered over
 //! the terrain's own box and grid, so its pixel `(x, z)` is the cover of
@@ -22,9 +21,11 @@
 //! water are none of it: a seeded stand of trees grows in the parks and
 //! forests, not across the streets ([`GeoGround::scatter_layer_at`]).
 //!
-//! Water is [`geodata::water::settle`]'s: one level for the core, the beds
-//! carved below it and all other ground kept above it, so the region's one
-//! water plane, drawn at that level, shows Berlin's water and nothing else.
+//! Water is [`geodata::water::settle`]'s (#1724): each body at its own
+//! level, its bed carved below it and its shore eased through it, so each
+//! body's own surface, drawn over its own cells ([`GeoGround::water`]),
+//! shows Berlin's water and nothing else - a lake on the plateau and the
+//! river below it, or a lock's two reaches, each at its own level.
 
 use std::sync::Arc;
 
@@ -33,14 +34,15 @@ use geodata::berlin::LandUse;
 
 use super::street_level::StreetLevel;
 use crate::urban::RoadParts;
+use crate::water::bodies::WaterBody;
 
 /// The scatter layer of ground that is no natural ground: matched by no
 /// biome filter.
 pub(crate) const NOT_NATURAL: u8 = u8::MAX;
 
-/// The land use under each cell of a geodata region's core, and the level of
-/// its water. Rides in [`super::super::FinishedHeightMap`] with the heights
-/// it was decoded beside, so the two land, and go, together.
+/// The land use under each cell of a geodata region's core, and its water.
+/// Rides in [`super::super::FinishedHeightMap`] with the heights it was
+/// decoded beside, so the two land, and go, together.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct GeoGround {
     /// Cells per side: the heightmap's grid.
@@ -51,9 +53,10 @@ pub(crate) struct GeoGround {
     /// data runs: the land use drawn there, `None` for street space and for
     /// a fill the legend does not name.
     cover: Vec<Option<LandUse>>,
-    /// The level of the core's water, metres above sea level, where it has
-    /// any.
-    water_level: Option<f32>,
+    /// The core's water, each body at its own level (#1724) and drawn over
+    /// its own cells; none for a dry core. Its cells are shared, so the
+    /// clones the contact classifier keeps do not copy them.
+    water: Vec<WaterBody>,
     /// Berlin's streets on the core, meshed (#1595), where it has any.
     streets: Option<StreetMeshes>,
     /// Its buildings, trees and street furniture (#1588), where they were
@@ -106,10 +109,20 @@ impl std::fmt::Debug for StreetMeshes {
 }
 
 impl GeoGround {
-    /// The level of the core's water, metres above sea level: where the
-    /// region draws its water plane. `None` for a dry core.
-    pub(crate) fn water_level(&self) -> Option<f32> {
-        self.water_level
+    /// The core's water: each body at its own level, metres above sea
+    /// level, and the cells it is drawn over (#1724). Empty for a dry core.
+    pub(crate) fn water(&self) -> &[WaterBody] {
+        &self.water
+    }
+
+    /// The level of the water drawn over cell `cell` of the core, the
+    /// highest body's where two meet there, or `None` where none is.
+    pub(super) fn level_over(&self, cell: (u32, u32)) -> Option<f32> {
+        self.water
+            .iter()
+            .filter(|body| body.cells.mask.contains(cell))
+            .map(|body| body.level)
+            .reduce(f32::max)
     }
 
     /// Berlin's streets on the core, meshed.
@@ -182,22 +195,66 @@ impl GeoGround {
 #[cfg(test)]
 impl GeoGround {
     /// A core of `grid` x `grid` cells `cell` metres apart, `cover` row by
-    /// row from the north-west corner, its water at `water_level`.
+    /// row from the north-west corner, its water `water`.
     pub(crate) fn from_cover(
         grid: u32,
         cell: f32,
         cover: Vec<Option<LandUse>>,
-        water_level: Option<f32>,
+        water: Vec<WaterBody>,
     ) -> Self {
         assert_eq!(cover.len(), (grid * grid) as usize, "one cover a cell");
         GeoGround {
             grid,
             cell,
             cover,
-            water_level,
+            water,
             streets: None,
             street_level: None,
         }
+    }
+
+    /// `cover`'s water on `heights` as a test's ground has it: every body
+    /// of its water cells, 4-connected, at `level`, drawn over those cells
+    /// and the ring round them, whatever the heights under them.
+    pub(crate) fn water_of_cover(
+        heights: &bevy_symbios_ground::HeightMap,
+        cover: &[Option<LandUse>],
+        level: f32,
+    ) -> Vec<WaterBody> {
+        let side = heights.width();
+        let water: Vec<bool> = cover.iter().map(|&c| c == Some(LandUse::Water)).collect();
+        let mut seen = vec![false; water.len()];
+        let mut bodies = Vec::new();
+        for start in 0..water.len() {
+            if !water[start] || seen[start] {
+                continue;
+            }
+            seen[start] = true;
+            let (mut stack, mut wet) = (vec![start], Vec::new());
+            while let Some(i) = stack.pop() {
+                wet.push(i as u32);
+                let (x, z) = (i % side, i / side);
+                let sides = [
+                    (x > 0, i.wrapping_sub(1)),
+                    (x + 1 < side, i + 1),
+                    (z > 0, i.wrapping_sub(side)),
+                    (z + 1 < side, i + side),
+                ];
+                for (on_grid, j) in sides {
+                    if on_grid && water[j] && !seen[j] {
+                        seen[j] = true;
+                        stack.push(j);
+                    }
+                }
+            }
+            wet.sort_unstable();
+            bodies.push(geodata::water::Body { level, wet });
+        }
+        let settled = geodata::water::Water {
+            bodies,
+            ..Default::default()
+        };
+        water_bodies(heights.data(), side as u32, heights.scale(), &settled)
     }
 
     /// This ground with `parts` as its streets.
@@ -312,15 +369,55 @@ pub(crate) fn decode_ground(
 ) -> Result<GeoGround, String> {
     let cover = decode_cover(legend, render, grid)?;
     let wet = water_mask(&cover, grid as usize, cell, bridges);
-    let water = geodata::water::settle(heights, &wet, grid, grid, cell);
+    let settled = geodata::water::settle(heights, &wet, grid, grid, cell);
     Ok(GeoGround {
         grid,
         cell,
         cover,
-        water_level: water.map(|w| w.level),
+        water: water_bodies(heights, grid, cell, &settled),
         streets: None,
         street_level: None,
     })
+}
+
+/// The `settled` water's bodies on the core whose settled heights are
+/// `heights`, `grid` x `grid` cells `cell` metres apart: each drawn over
+/// the cells its water covers and the ring round them, its level reaching
+/// up its bank ([`crate::water::bodies::body_round`]) - but never over
+/// another body's water, where two lie side by side at a lock.
+pub(super) fn water_bodies(
+    heights: &[f32],
+    grid: u32,
+    cell: f32,
+    settled: &geodata::water::Water,
+) -> Vec<WaterBody> {
+    let mut whose = vec![u32::MAX; heights.len()];
+    for (k, body) in settled.bodies.iter().enumerate() {
+        for &i in &body.wet {
+            whose[i as usize] = k as u32;
+        }
+    }
+    let cells = crate::water::bodies::CellGrid {
+        width: grid,
+        height: grid,
+        scale: cell,
+    };
+    settled
+        .bodies
+        .iter()
+        .enumerate()
+        .filter(|(_, body)| !body.wet.is_empty())
+        .map(|(k, body)| {
+            let wet: Vec<usize> = body.wet.iter().map(|&i| i as usize).collect();
+            let theirs = |j: usize| whose[j] == u32::MAX || whose[j] == k as u32;
+            WaterBody {
+                level: body.level,
+                cells: Arc::new(crate::water::bodies::body_round_on(
+                    heights, cells, body.level, &wet, theirs,
+                )),
+            }
+        })
+        .collect()
 }
 
 /// Decode a land-use render of `grid` x `grid` pixels through its legend:
@@ -426,7 +523,7 @@ mod tests {
     use super::*;
 
     fn ground(grid: u32, cover: Vec<Option<LandUse>>) -> GeoGround {
-        GeoGround::from_cover(grid, 2.0, cover, None)
+        GeoGround::from_cover(grid, 2.0, cover, Vec::new())
     }
 
     #[test]

@@ -27,8 +27,9 @@
 //! - [`raster`]: decoding a WMS render back into data - heights from the
 //!   terrain layer's colour classes, class ids from a categorical layer's
 //!   fills;
-//! - [`water`]: the level a core's water lies at, and the ground shaped so
-//!   one flat plane shows the water and nothing else.
+//! - [`water`]: each body of a core's water at its own level, and the
+//!   ground shaped so that each body's surface shows its water and nothing
+//!   else.
 //!
 //! # Why a styled render, not raw data
 //!

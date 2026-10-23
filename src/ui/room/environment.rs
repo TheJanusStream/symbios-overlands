@@ -365,7 +365,8 @@ fn draw_grading(ui: &mut egui::Ui, env: &mut Environment, dirty: &mut bool) {
 pub(super) struct BuiltGround<'a> {
     /// Berlin's ground under the world, once it has landed.
     pub berlin: Option<&'a crate::terrain::geo::GeoGround>,
-    /// Whether the world has water to draw at Berlin's level.
+    /// Whether the world has water - a terrain water layer - for Berlin's
+    /// own to be drawn in (#1724).
     pub has_water: bool,
     /// Whether the record holds its square's buildings, trees and street
     /// furniture: seeded for the square and scene it has (#1647).
@@ -784,6 +785,28 @@ fn draw_arrival_point(
         });
 }
 
+/// What the Region source section says of Berlin's water (#1586, #1724):
+/// the levels its bodies lie at - one, or the range of several - and
+/// whether the world draws them, which only a world with water does.
+fn berlin_water_text(levels: &[f32], drawn: bool) -> String {
+    let (low, high) = levels
+        .iter()
+        .fold((f32::INFINITY, f32::NEG_INFINITY), |(low, high), &level| {
+            (low.min(level), high.max(level))
+        });
+    let (low, high) = (format!("{low:.1}"), format!("{high:.1}"));
+    let at = match levels.len() {
+        0 => return "No water in this square".to_owned(),
+        _ if low == high => format!("Water at {low} m"),
+        bodies => format!("Water in {bodies} bodies, {low} to {high} m"),
+    };
+    if drawn {
+        format!("{at} above sea level")
+    } else {
+        format!("{at}, not drawn: this world has none")
+    }
+}
+
 /// The body of the Region source section: build this region from a square
 /// of real Berlin, at real scale, or from its seed as before. The square is
 /// set by its side and by its middle's latitude and longitude (#1599),
@@ -897,15 +920,10 @@ fn draw_region_source(
         *dirty = true;
     }
 
-    // What Berlin makes of the world's water (#1586).
+    // What Berlin makes of the world's water (#1586, #1724).
     if let Some(berlin) = ground.berlin {
-        ui.label(match (berlin.water_level(), ground.has_water) {
-            (Some(level), true) => format!("Water at {level:.1} m above sea level"),
-            (Some(level), false) => {
-                format!("Water at {level:.1} m, not drawn: this world has none")
-            }
-            (None, _) => "No water in this square".to_owned(),
-        });
+        let levels: Vec<f32> = berlin.water().iter().map(|body| body.level).collect();
+        ui.label(berlin_water_text(&levels, ground.has_water));
     }
 
     // Berlin's buildings, trees and street furniture, seeded into the
@@ -1351,6 +1369,26 @@ mod tests {
     /// Drawn with no input, the section writes nothing - not the source,
     /// not the dirty flag - whatever the source is (#1390's rule for every
     /// editor widget: a value the owner did not touch is not rewritten).
+    /// #1724: the section says the level Berlin's water lies at, or the
+    /// range of its bodies' levels, and whether the world draws it.
+    #[test]
+    fn berlins_water_is_told_by_its_levels() {
+        assert_eq!(berlin_water_text(&[], true), "No water in this square");
+        assert_eq!(
+            berlin_water_text(&[30.54, 30.51], true),
+            "Water at 30.5 m above sea level",
+            "two bodies at one tenth's level read as one level"
+        );
+        assert_eq!(
+            berlin_water_text(&[32.5, 30.5, 32.82], true),
+            "Water in 3 bodies, 30.5 to 32.8 m above sea level"
+        );
+        assert_eq!(
+            berlin_water_text(&[41.5], false),
+            "Water at 41.5 m, not drawn: this world has none"
+        );
+    }
+
     #[test]
     fn an_untouched_region_source_writes_nothing() {
         let berlin = Some(GeoSource::berlin(GeoSquare {
@@ -1367,8 +1405,15 @@ mod tests {
         });
         // Berlin's ground as built (#1586) is read, never written: with a
         // whole street level and with one that left a layer out (#1647).
-        let wet = crate::terrain::geo::GeoGround::from_cover(2, 2.0, vec![None; 4], Some(30.5));
-        let dry = crate::terrain::geo::GeoGround::from_cover(2, 2.0, vec![None; 4], None);
+        let water = vec![Some(geodata::berlin::LandUse::Water); 4];
+        let heights = bevy_symbios_ground::HeightMap::new(2, 2, 2.0);
+        let wet = crate::terrain::geo::GeoGround::from_cover(
+            2,
+            2.0,
+            water.clone(),
+            crate::terrain::geo::GeoGround::water_of_cover(&heights, &water, 30.5),
+        );
+        let dry = crate::terrain::geo::GeoGround::from_cover(2, 2.0, vec![None; 4], Vec::new());
         let level =
             crate::terrain::geo::street_level::StreetLevel::new(Vec::new(), Vec::new(), Vec::new());
         let whole = dry.clone().with_street_level(level.clone());

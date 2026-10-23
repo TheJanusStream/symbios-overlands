@@ -113,11 +113,12 @@ pub(super) fn print_floating_report(world: &str, record: &RoomRecord) {
             bodies,
         )
     });
-    // The water line as drawn: Berlin's in a geodata region (#1586).
-    let water = crate::world_builder::compile::drawn_water_level(record, Some(&terrain));
+    // The water as drawn: its sea and its lakes (#1760), or Berlin's own
+    // bodies in a geodata region (#1724).
+    let water = crate::world_builder::compile::drawn_water(record, Some(&terrain));
     println!(
         "{}",
-        one_row_a_line(&report(world, record, &terrain, water, &bodies))
+        one_row_a_line(&report(world, record, &terrain, &water, &bodies))
     );
 }
 
@@ -277,7 +278,7 @@ fn report(
     world: &str,
     record: &RoomRecord,
     terrain: &crate::terrain::FinishedHeightMap,
-    water: Option<f32>,
+    water: &crate::water::bodies::RoomWater,
     bodies: &BTreeMap<BodyKey, Body>,
 ) -> Vec<(&'static str, Value)> {
     let map = &terrain.0;
@@ -450,8 +451,8 @@ struct Check<'a, G: Fn(f32, f32) -> f32> {
     used: &'a Uses,
     /// The real ground's height at a world `(x, z)`.
     ground: &'a G,
-    /// The room's water level, if it has water.
-    water: Option<f32>,
+    /// The room's water, read at each place (#1727).
+    water: &'a crate::water::bodies::RoomWater,
 }
 
 impl<G: Fn(f32, f32) -> f32> Check<'_, G> {
@@ -571,11 +572,14 @@ impl<G: Fn(f32, f32) -> f32> Check<'_, G> {
     /// neither - the water's surface is not the ground, and what reaches
     /// down into it is not resting on it.
     fn afloat(&self, part: &Part) -> bool {
-        let Some(level) = self.water else {
-            return false;
-        };
         !self.used.stands.is_empty()
             && self.used.stands.iter().all(|(_, stand)| {
+                let Some(level) = self
+                    .water
+                    .level_at(stand.translation.x, stand.translation.z)
+                else {
+                    return false;
+                };
                 let (low, high) = part.points.iter().fold(
                     (f32::INFINITY, f32::NEG_INFINITY),
                     |(low, high), p| {
@@ -591,7 +595,9 @@ impl<G: Fn(f32, f32) -> f32> Check<'_, G> {
     /// the ground, or the water over it.
     fn support(&self, x: f32, z: f32) -> f32 {
         let height = (self.ground)(x, z);
-        self.water.map_or(height, |level| height.max(level))
+        self.water
+            .level_at(x, z)
+            .map_or(height, |level| height.max(level))
     }
 
     /// Class b: `part`, which rests on the generator's ground, where

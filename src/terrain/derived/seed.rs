@@ -437,7 +437,8 @@ pub(super) mod tests {
         for (i, h) in heights.data_mut().iter_mut().enumerate() {
             *h = (i % 8) as f32 * 0.25;
         }
-        let ground = GeoGround::from_cover(8, 2.0, vec![None; 64], None).with_street_level(level);
+        let ground =
+            GeoGround::from_cover(8, 2.0, vec![None; 64], Vec::new()).with_street_level(level);
         FinishedHeightMap(heights, Some(ground))
     }
 

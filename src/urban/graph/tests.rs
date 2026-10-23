@@ -128,7 +128,7 @@ fn road_style_changes_the_traced_graph() {
     let graph_for = |style: RoadStyle| {
         let mut c = cfg(7);
         c.style = style;
-        build_road_graph_raw(&hm, &c, None).map(|(g, _, _)| {
+        build_road_graph_raw(&hm, &c, &RoomWater::default()).map(|(g, _, _)| {
             (
                 g.nodes.len(),
                 g.nodes
@@ -199,8 +199,8 @@ fn a_network_that_avoids_water_traces_no_street_under_it() {
         avoid_water: true,
         ..cfg(PILOT_ROAD_SEED)
     };
-    let (graph, sub, _) =
-        build_road_graph(&hm, &shore, Some(level)).expect("the shore network traces");
+    let (graph, sub, _) = build_road_graph(&hm, &shore, &RoomWater::sea_alone(Some(level)))
+        .expect("the shore network traces");
     assert!(
         active_segments(&graph).len() > 20,
         "the shore network still has a city's worth of streets"
@@ -211,8 +211,12 @@ fn a_network_that_avoids_water_traces_no_street_under_it() {
         "a street of a network that avoids water runs under the water line"
     );
 
-    let (plain, plain_sub, _) = build_road_graph(&hm, &cfg(PILOT_ROAD_SEED), Some(level))
-        .expect("the plain network traces");
+    let (plain, plain_sub, _) = build_road_graph(
+        &hm,
+        &cfg(PILOT_ROAD_SEED),
+        &RoomWater::sea_alone(Some(level)),
+    )
+    .expect("the plain network traces");
     assert!(
         drowned_samples(&plain, &plain_sub, level) > 100,
         "the control: the same network with the switch off crosses the lake bed"
@@ -228,7 +232,7 @@ fn the_water_line_moves_only_a_network_that_avoids_water() {
     let hm = pilot_heightmap();
     let level = pilot_water_level(&hm);
     let positions = |config: &RoadConfig, water: Option<f32>| {
-        build_road_graph_raw(&hm, config, water).map(|(g, _, _)| {
+        build_road_graph_raw(&hm, config, &RoomWater::sea_alone(water)).map(|(g, _, _)| {
             g.nodes
                 .iter()
                 .map(|n| (n.position.x.to_bits(), n.position.y.to_bits()))
@@ -255,6 +259,164 @@ fn the_water_line_moves_only_a_network_that_avoids_water() {
         positions(&shore, Some(level)),
         Some(dry),
         "the control: with the switch on, the water line does move the trace"
+    );
+}
+
+// --- Lakes (#1727) ------------------------------------------------------------
+
+/// How many points, sampled every metre along the active edges, stand in
+/// `water` - at or below its level at their place - on `sub`, the district
+/// copy of `hm` from `lo` that the graph was traced on.
+fn drowned_in(
+    graph: &RoadGraph,
+    hm: &HeightMap,
+    (sub, lo): (&HeightMap, [usize; 2]),
+    water: &RoomWater,
+) -> usize {
+    let shift = window_to_room_shift(hm, lo);
+    active_segments(graph)
+        .into_iter()
+        .map(|(a, b)| {
+            let steps = (a.distance(b).ceil() as usize).max(1);
+            (0..=steps)
+                .filter(|i| {
+                    let p = a.lerp(b, *i as f32 / steps as f32);
+                    water
+                        .level_at(p.x + shift[0], p.y + shift[1])
+                        .is_some_and(|level| sub.get_height_at(p.x, p.y) <= level)
+                })
+                .count()
+        })
+        .sum()
+}
+
+/// #1727: a network that avoids water stops at a lake's shore as at the
+/// sea's, though the lake stands over the sea, where the tracer's one water
+/// line cannot see it but on the ground it is handed ([`shore_ground`]). The
+/// control is the same network with the sea alone, which runs out across the
+/// lake bed - without it the assertion could pass on a lake no street came
+/// near.
+#[test]
+fn a_network_that_avoids_water_stops_at_a_lakes_shore() {
+    let hm = pilot_heightmap();
+    let shore = RoadConfig {
+        avoid_water: true,
+        ..cfg(PILOT_ROAD_SEED)
+    };
+    let water = pilot_lake(&hm, &shore);
+    let (graph, sub, lo) = build_road_graph(&hm, &shore, &water).expect("the shore network traces");
+    assert!(
+        active_segments(&graph).len() > 20,
+        "the shore network still has a city's worth of streets"
+    );
+    assert_eq!(
+        drowned_in(&graph, &hm, (&sub, lo), &water),
+        0,
+        "a street of a network that avoids water runs into the lake"
+    );
+
+    let (sea, sea_sub, sea_lo) = build_road_graph(&hm, &shore, &RoomWater::sea_alone(water.sea))
+        .expect("the network traces by the sea alone");
+    assert!(
+        drowned_in(&sea, &hm, (&sea_sub, sea_lo), &water) > 100,
+        "the control: by the sea alone the same network crosses the lake bed"
+    );
+}
+
+/// #1724: where Berlin's own bodies are the room's water and no sea spans
+/// it, the tracer is still given a line ([`water_line`]): a network that
+/// avoids water stops at a body's shore all the same, and one in a dry room
+/// traces as it always did.
+#[test]
+fn a_network_stops_at_a_bodys_shore_where_no_sea_spans_the_room() {
+    let hm = pilot_heightmap();
+    let shore = RoadConfig {
+        avoid_water: true,
+        ..cfg(PILOT_ROAD_SEED)
+    };
+    let berlin = RoomWater {
+        sea: None,
+        ..pilot_lake(&hm, &shore)
+    };
+    let (graph, sub, lo) = build_road_graph(&hm, &shore, &berlin).expect("the network traces");
+    assert_eq!(
+        drowned_in(&graph, &hm, (&sub, lo), &berlin),
+        0,
+        "a street runs into the water"
+    );
+    let (dry, dry_sub, dry_lo) =
+        build_road_graph(&hm, &shore, &RoomWater::default()).expect("the network traces");
+    assert!(
+        drowned_in(&dry, &hm, (&dry_sub, dry_lo), &berlin) > 100,
+        "the control: with no water the same network crosses the body's bed"
+    );
+}
+
+/// #1727: a lake moves only the networks whose districts it reaches, and
+/// only those that avoid water. One outside the district leaves its trace
+/// and its key exactly as the sea alone does, so a lake raised across the
+/// world neither re-traces its streets nor regrows its lots; one inside
+/// moves both. A room with no lake keys as the room's one water line did.
+#[test]
+fn a_lake_moves_only_the_districts_it_reaches() {
+    let hm = pilot_heightmap();
+    let shore = RoadConfig {
+        avoid_water: true,
+        ..cfg(PILOT_ROAD_SEED)
+    };
+    let reaching = pilot_lake(&hm, &shore);
+    let sea = RoomWater::sea_alone(reaching.sea);
+    // A pond in the far corner, its rectangle a tenth of the world's: the
+    // district's window starts 43 cells in.
+    let (x, z) = CellGrid::of(&hm).world_of((10, 10));
+    let corner = bevy::prelude::Transform::from_xyz(x, hm.get(10, 10) + 3.0, z)
+        .with_scale(bevy::prelude::Vec3::new(0.1, 1.0, 0.1));
+    let apart = RoomWater {
+        bodies: vec![crate::water::bodies::lake(&hm, &corner).expect("the corner holds a pond")],
+        ..sea.clone()
+    };
+
+    let positions = |config: &RoadConfig, water: &RoomWater| {
+        build_road_graph(&hm, config, water).map(|(g, _, _)| {
+            g.nodes
+                .iter()
+                .map(|n| (n.position.x.to_bits(), n.position.y.to_bits()))
+                .collect::<Vec<_>>()
+        })
+    };
+    assert_eq!(
+        positions(&shore, &apart),
+        positions(&shore, &sea),
+        "a pond apart moved the trace"
+    );
+    assert_ne!(
+        positions(&shore, &reaching),
+        positions(&shore, &sea),
+        "a lake in the district did not"
+    );
+    let plain = cfg(PILOT_ROAD_SEED);
+    assert_eq!(
+        positions(&plain, &reaching),
+        positions(&plain, &sea),
+        "a network that ignores the water traces through the lake as before"
+    );
+
+    let key = |config: &RoadConfig, water: &RoomWater| water_key(Some(&hm), config, water);
+    assert_eq!(key(&shore, &apart), key(&shore, &sea));
+    assert_ne!(key(&shore, &reaching), key(&shore, &sea));
+    assert_eq!(
+        key(&plain, &reaching),
+        "",
+        "no water in the key of a network that ignores it"
+    );
+    assert_eq!(
+        water_key(Some(&hm), &shore, &RoomWater::sea_alone(Some(7.0))),
+        "|water=Some(7.0)",
+        "the sea alone keys as the room's one water line did"
+    );
+    assert_eq!(
+        water_key(None, &shore, &RoomWater::default()),
+        "|water=None"
     );
 }
 
@@ -380,14 +542,16 @@ fn a_grid_traces_its_major_streets_at_its_bearing_in_the_room_frame() {
             ..RoadField::default()
         },
     );
-    let (graph, _, lo) = build_road_graph(&hm, &grid, None).expect("the grid district traces");
+    let (graph, _, lo) =
+        build_road_graph(&hm, &grid, &RoomWater::default()).expect("the grid district traces");
     let shift = window_to_room_shift(&hm, lo);
     let majors = room_edges(&graph, shift, RoadType::Major);
     let minors = room_edges(&graph, shift, RoadType::Minor);
     let at_30 = length_share(&majors, |_, d| runs_along(d, 30.0, 5.0));
     let at_120 = length_share(&majors, |_, d| runs_along(d, 120.0, 5.0));
     let minor_120 = length_share(&minors, |_, d| runs_along(d, 120.0, 5.0));
-    let (plain, _, _) = build_road_graph(&hm, &base, None).expect("the plain district traces");
+    let (plain, _, _) =
+        build_road_graph(&hm, &base, &RoomWater::default()).expect("the plain district traces");
     let plain_30 = length_share(&room_edges(&plain, shift, RoadType::Major), |_, d| {
         runs_along(d, 30.0, 5.0)
     });
@@ -445,7 +609,8 @@ fn a_ring_rings_the_room_point_it_was_given() {
             ..RoadField::default()
         },
     );
-    let (graph, _, lo) = build_road_graph(&hm, &ring, None).expect("the ring district traces");
+    let (graph, _, lo) =
+        build_road_graph(&hm, &ring, &RoomWater::default()).expect("the ring district traces");
     let shift = window_to_room_shift(&hm, lo);
     let majors = room_edges(&graph, shift, RoadType::Major);
     let p = glam::Vec2::from(point.0);
@@ -502,8 +667,10 @@ fn a_keep_out_disc_keeps_the_streets_out_of_its_room_disc() {
             ..RoadField::default()
         },
     );
-    let (graph, _, lo) = build_road_graph(&hm, &kept, None).expect("the district traces");
-    let (open, _, _) = build_road_graph(&hm, &base, None).expect("the open district traces");
+    let (graph, _, lo) =
+        build_road_graph(&hm, &kept, &RoomWater::default()).expect("the district traces");
+    let (open, _, _) =
+        build_road_graph(&hm, &base, &RoomWater::default()).expect("the open district traces");
     let shift = window_to_room_shift(&hm, lo);
     let centre = glam::Vec2::from(disc.center.0);
     let inside = |graph: &RoadGraph, depth: f32| {
@@ -535,7 +702,7 @@ fn a_keep_out_disc_keeps_the_streets_out_of_its_room_disc() {
 fn a_basis_field_of_an_unknown_kind_is_ignored_at_trace() {
     let hm = pilot_heightmap();
     let positions = |config: &RoadConfig| {
-        build_road_graph_raw(&hm, config, None).map(|(g, _, _)| {
+        build_road_graph_raw(&hm, config, &RoomWater::default()).map(|(g, _, _)| {
             g.nodes
                 .iter()
                 .map(|n| (n.position.x.to_bits(), n.position.y.to_bits()))
@@ -746,7 +913,7 @@ fn a_sanitised_street_field_always_passes_the_tracers_validation() {
             }
             if turn == 0 {
                 assert!(
-                    build_road_graph_raw(&hm, &clean, None).is_some(),
+                    build_road_graph_raw(&hm, &clean, &RoomWater::default()).is_some(),
                     "the sanitised hostile network traces"
                 );
             }
@@ -1299,8 +1466,10 @@ fn the_tidy_never_collapses_a_wide_dense_or_sparse_plan() {
             layout_revision: 1,
             ..original.clone()
         };
-        let (plan, sub, _) = build_road_graph(&hm, &original, None).expect("traces");
-        let (tidied_plan, _, _) = build_road_graph(&hm, &tidy, None).expect("traces");
+        let (plan, sub, _) =
+            build_road_graph(&hm, &original, &RoomWater::default()).expect("traces");
+        let (tidied_plan, _, _) =
+            build_road_graph(&hm, &tidy, &RoomWater::default()).expect("traces");
 
         let (was, now) = (drawn_length(&plan, &sub), drawn_length(&tidied_plan, &sub));
         with_streets += usize::from(was > 0.0);
@@ -1312,7 +1481,7 @@ fn the_tidy_never_collapses_a_wide_dense_or_sparse_plan() {
         let mut clipped = plan.clone();
         clip_to_district(&mut clipped, &sub);
         let base = cleared_lots(&clipped, &sub, &original);
-        let lots = crate::urban::extract_building_lots(&hm, &tidy, None).len();
+        let lots = crate::urban::extract_building_lots(&hm, &tidy, &RoomWater::default()).len();
         assert!(
             3 * lots >= 2 * base,
             "{name}: {lots} lots, against {base} on the original plan cut to the district and cleared"
@@ -1441,7 +1610,8 @@ fn the_tidy_settles_and_erodes_no_dead_end() {
             layout_revision: 1,
             ..cfg(PILOT_ROAD_SEED)
         };
-        let (mut plan, _, _) = build_road_graph(&hm, &config, None).expect("traces");
+        let (mut plan, _, _) =
+            build_road_graph(&hm, &config, &RoomWater::default()).expect("traces");
         assert!(
             !tidy_pass(&mut plan, &TidyBounds::new(&config)),
             "{major_s}/{minor_s} m: the tidy left something to remove"
@@ -1557,6 +1727,7 @@ impl PlanPin {
     /// The pin of the network `config` traces on `hm`, its lots pinned
     /// whole when `whole_lots`.
     fn of(hm: &HeightMap, config: &RoadConfig, water: Option<f32>, whole_lots: bool) -> Self {
+        let water = &RoomWater::sea_alone(water);
         let (g, _, _) = build_road_graph(hm, config, water).expect("traces");
         let lots = crate::urban::extract_building_lots(hm, config, water);
         let spots = crate::urban::extract_furniture_spots(hm, config, water);
@@ -1806,6 +1977,7 @@ fn the_original_street_plan_is_traced_and_lotted_as_before_the_tidy() {
 /// graph's every node and edge, every lot and every street-prop spot,
 /// hashed to the bit.
 fn district_hash(hm: &HeightMap, config: &RoadConfig, water: Option<f32>) -> u64 {
+    let water = &RoomWater::sea_alone(water);
     let (g, _, _) = build_road_graph(hm, config, water).expect("traces");
     let lots = crate::urban::extract_building_lots(hm, config, water);
     let spots = crate::urban::extract_furniture_spots(hm, config, water);
@@ -1903,6 +2075,7 @@ fn layout_revision_2_derives_the_same_district_on_every_platform() {
 #[test]
 fn the_revision_2_pins_hold_whole_districts() {
     for (name, hm, config, water) in portable_networks() {
+        let water = &RoomWater::sea_alone(water);
         let lots = crate::urban::extract_building_lots(&hm, &config, water);
         let spots = crate::urban::extract_furniture_spots(&hm, &config, water);
         assert!(
@@ -1924,7 +2097,7 @@ fn the_revision_2_pins_hold_whole_districts() {
 fn the_tidy_cleans_the_pilot_plan() {
     let hm = pilot_heightmap();
     let count = |config: &RoadConfig| {
-        let (g, sub, _) = build_road_graph(&hm, config, None).expect("traces");
+        let (g, sub, _) = build_road_graph(&hm, config, &RoomWater::default()).expect("traces");
         let degree = active_degrees(&g);
         let chains = graph_chains(&g);
         let ends = |c: &GraphChain| (c.nodes[0], *c.nodes.last().expect("nodes"));

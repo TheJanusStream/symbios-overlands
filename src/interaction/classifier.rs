@@ -559,6 +559,7 @@ mod tests {
                 local_half_extents: Vec2::splat(100.0),
                 flow_strength: 0.0,
                 owner: WaterPlane::NO_OWNER,
+                cells: None,
             }],
         }
     }
@@ -788,7 +789,7 @@ mod tests {
         let cover = (0..81)
             .map(|i| (i % 9 > 4).then_some(LandUse::Park))
             .collect();
-        let ground = crate::terrain::geo::GeoGround::from_cover(9, 1.0, cover, None);
+        let ground = crate::terrain::geo::GeoGround::from_cover(9, 1.0, cover, Vec::new());
         let terrain = TerrainSurfaceQuery::new(
             TerrainQuery::new(hm, bevy_symbios_ground::SplatMapper::default()),
             4.0,

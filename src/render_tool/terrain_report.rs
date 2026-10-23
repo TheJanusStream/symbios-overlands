@@ -18,8 +18,9 @@ use bevy_symbios_ground::HeightMap;
 use serde_json::{Value, json};
 
 use crate::pds::{GeneratorKind, Placement, RoomRecord, ScatterBounds};
+use crate::water::bodies::RoomWater;
 use crate::world_builder::compile::pad;
-use crate::world_builder::compile::water::{drawn_water_level, room_water_level};
+use crate::world_builder::compile::water::drawn_water;
 
 /// What `--terrain-report` was asked.
 pub(super) struct Request<'a> {
@@ -112,10 +113,10 @@ impl<'a> Ground<'a> {
     }
 
     /// Where a snapped anchor's walks read: this ground under `water`.
-    fn anchor(&self, water: Option<f32>) -> crate::world_builder::AnchorGround<'a> {
+    fn anchor(&self, water: &'a RoomWater) -> crate::world_builder::AnchorGround<'a> {
         crate::world_builder::AnchorGround {
             hm: self.map,
-            water_y: water,
+            water,
             berlin: self.berlin,
         }
     }
@@ -143,8 +144,9 @@ impl<'a> Ground<'a> {
 /// and the `place --yaw` that lays a long thing's local +X along the contour
 /// there, so neither end floats. With a footprint, what a thing that wide
 /// rests on (the highest ground under it, the rule a snapped building uses)
-/// and how far the ground falls away beneath it; under water, how deep.
-fn point(ground: &Ground<'_>, x: f32, z: f32, footprint: Option<f32>, water: Option<f32>) -> Value {
+/// and how far the ground falls away beneath it; under water - the sea, or a
+/// lake (#1760) - how deep.
+fn point(ground: &Ground<'_>, x: f32, z: f32, footprint: Option<f32>, water: &RoomWater) -> Value {
     let height = ground.height(x, z);
     let [nx, ny, nz] = ground.normal(x, z);
     let slope_deg = ny.clamp(-1.0, 1.0).acos().to_degrees();
@@ -177,7 +179,7 @@ fn point(ground: &Ground<'_>, x: f32, z: f32, footprint: Option<f32>, water: Opt
             "drop_m": round2(rests_on - lowest),
         });
     }
-    if let Some(level) = water.filter(|level| *level > height) {
+    if let Some(level) = water.level_at(x, z).filter(|level| *level > height) {
         out["under_water_m"] = json!(round2(level - height));
     }
     out
@@ -272,13 +274,29 @@ fn lowest_under(ground: &Ground<'_>, x: f32, z: f32, radius: f32) -> f32 {
     lowest
 }
 
-/// Heights over the whole map, and the share of it under `water`.
-fn heights(map: &HeightMap, water: Option<f32>) -> Value {
+/// Heights over the whole map, and the share of it under `water` - under
+/// its sea, or a lake where it has some (#1760), each named with its level.
+fn heights(map: &HeightMap, water: &RoomWater) -> Value {
     let mut all: Vec<f32> = map.data().to_vec();
     all.sort_by(f32::total_cmp);
     let at = |q: f32| round2(all[((all.len() - 1) as f32 * q).round() as usize]);
-    let flooded = water.map(|level| {
-        let under = all.partition_point(|h| *h < level);
+    // The share of the map under water: under the sea's level, or a body's
+    // where its reach takes the cell in.
+    let wet = !water.is_dry();
+    let flooded = wet.then(|| {
+        let under = match water.sea {
+            Some(level) if water.bodies.is_empty() => all.partition_point(|h| *h < level),
+            _ => {
+                let grid = crate::water::bodies::CellGrid::of(map);
+                (0..map.height())
+                    .flat_map(|cz| (0..map.width()).map(move |cx| (cx, cz)))
+                    .filter(|&(cx, cz)| {
+                        let (x, z) = grid.world_of((cx as u32, cz as u32));
+                        water.level_at(x, z).is_some_and(|l| map.get(cx, cz) < l)
+                    })
+                    .count()
+            }
+        };
         round2(under as f32 / all.len() as f32)
     });
     json!({
@@ -286,7 +304,22 @@ fn heights(map: &HeightMap, water: Option<f32>) -> Value {
             "min": at(0.0), "p10": at(0.1), "p25": at(0.25), "p50": at(0.5),
             "p75": at(0.75), "p90": at(0.9), "max": at(1.0),
         },
-        "water": water.map(|level| json!({ "level_m": round2(level), "flooded_share": flooded })),
+        // The sea's level, none where Berlin's own bodies are the water, and
+        // each body's: a lake's (#1760), or one of Berlin's (#1724).
+        "water": wet.then(|| {
+            let mut water_json = json!({
+                "level_m": water.sea.map(round2),
+                "flooded_share": flooded,
+            });
+            if !water.bodies.is_empty() {
+                water_json["bodies"] = water
+                    .bodies
+                    .iter()
+                    .map(|body| json!({ "level_m": round2(body.level), "cells": body.cells.mask.len() }))
+                    .collect();
+            }
+            water_json
+        }),
     })
 }
 
@@ -297,7 +330,7 @@ fn heights(map: &HeightMap, water: Option<f32>) -> Value {
 fn placements(
     record: &RoomRecord,
     terrain: &crate::terrain::FinishedHeightMap,
-    water: Option<f32>,
+    water: &RoomWater,
 ) -> Vec<Value> {
     let anchor_ground = crate::world_builder::AnchorGround::new(terrain, water);
     let is_ground = |name: &str| {
@@ -409,8 +442,10 @@ pub(super) fn terrain_report(request: &Request<'_>) -> Value {
     let map = &terrain.0;
     let ground = Ground::of(&terrain);
     let splat = Splat::new(record, Some(&terrain));
-    // The water line as drawn: Berlin's in a geodata region (#1586).
-    let water = drawn_water_level(record, Some(&terrain));
+    // The water as drawn: its sea and its lakes (#1760), or Berlin's own
+    // bodies in a geodata region (#1724).
+    let water = drawn_water(record, Some(&terrain));
+    let water = &water;
     // Where a body sets down: walked to open dry ground on Berlin's (#1589),
     // its record's spot kept beside it where the two differ.
     let landing_json = crate::world_builder::compile::landing_on(record, &terrain).map(|landing| {
@@ -483,14 +518,19 @@ fn seed_scan(request: &Request<'_>, seeds: std::ops::Range<u64>) -> Value {
     let mut sheet = request
         .plan
         .map(|_| vec![0u8; (width * height * 3) as usize]);
-    let water = room_water_level(&request.record);
     let mut table = Vec::new();
     for (i, &seed) in seeds.iter().enumerate() {
         let record = reseeded(&request.record, seed);
-        let map = crate::terrain::rebuild_heightmap_for_record(&record);
-        let ground = Ground::new(&map);
+        let terrain = crate::terrain::FinishedHeightMap(
+            crate::terrain::rebuild_heightmap_for_record(&record),
+            None,
+        );
+        let map = &terrain.0;
+        let water = drawn_water(&record, Some(&terrain));
+        let water = &water;
+        let ground = Ground::new(map);
         let mut row = json!({ "seed": seed });
-        if let (Some(obj), Value::Object(h)) = (row.as_object_mut(), heights(&map, water)) {
+        if let (Some(obj), Value::Object(h)) = (row.as_object_mut(), heights(map, water)) {
             obj.extend(h);
         }
         if let Some(landing) = record.default_landing {
@@ -696,7 +736,7 @@ mod plan {
     pub fn draw(
         ground: &Ground<'_>,
         record: &RoomRecord,
-        water: Option<f32>,
+        water: &RoomWater,
         at: &[(f32, f32)],
         window: &Window,
         path: &Path,
@@ -719,7 +759,7 @@ mod plan {
     pub fn render(
         ground: &Ground<'_>,
         record: &RoomRecord,
-        water: Option<f32>,
+        water: &RoomWater,
         at: &[(f32, f32)],
         window: &Window,
         marks: bool,
@@ -748,7 +788,7 @@ mod plan {
                 let base = [40.0 + 150.0 * t, 70.0 + 110.0 * t, 40.0 + 100.0 * t];
                 let lit = 0.3 + 0.7 * shade;
                 let mut rgb = base.map(|c| (c * lit).clamp(0.0, 255.0) as u8);
-                if let Some(level) = water.filter(|level| h < *level) {
+                if let Some(level) = water.level_at(x, z).filter(|level| h < *level) {
                     let depth = ((level - h) / 6.0).clamp(0.0, 1.0);
                     rgb = [
                         (60.0 - 30.0 * depth) as u8,
@@ -870,6 +910,39 @@ mod plan {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::world_builder::compile::water::room_water_level;
+
+    /// #1724: water with no sea - Berlin's own bodies - is reported, each
+    /// body by its level and cells, with the share of the map under them.
+    #[test]
+    fn bodies_without_a_sea_are_reported() {
+        let mut map = HeightMap::new(9, 9, 1.0);
+        let mut cover = vec![Some(geodata::berlin::LandUse::Park); 81];
+        for z in 3..6 {
+            for x in 3..6 {
+                map.set(x, z, 2.0);
+                cover[z * 9 + x] = Some(geodata::berlin::LandUse::Water);
+            }
+        }
+        for (i, h) in map.data_mut().iter_mut().enumerate() {
+            if cover[i] != Some(geodata::berlin::LandUse::Water) {
+                *h = 9.0;
+            }
+        }
+        let water = RoomWater {
+            sea: None,
+            bodies: crate::terrain::geo::GeoGround::water_of_cover(&map, &cover, 4.0),
+        };
+        let report = heights(&map, &water);
+        assert_eq!(report["water"]["level_m"], Value::Null, "no sea");
+        assert_eq!(report["water"]["bodies"][0]["level_m"], json!(4.0));
+        assert_eq!(report["water"]["flooded_share"], json!(round2(9.0 / 81.0)));
+        assert_eq!(
+            heights(&map, &RoomWater::default())["water"],
+            Value::Null,
+            "a dry room"
+        );
+    }
 
     /// A 33 x 33 map, 2 m a cell, that rises half a metre per metre toward
     /// +X: ground at world x is `0.5 * (x + 32)`.
@@ -891,7 +964,7 @@ mod tests {
         let map = ramp();
         let ground = Ground::new(&map);
 
-        let at = point(&ground, 0.0, 5.0, None, None);
+        let at = point(&ground, 0.0, 5.0, None, &RoomWater::default());
 
         assert_eq!(at["ground_m"], 16.0, "{at}");
         assert_eq!(at["slope_deg"], 26.57, "{at}");
@@ -908,7 +981,13 @@ mod tests {
         let map = ramp();
         let ground = Ground::new(&map);
 
-        let at = point(&ground, 0.0, 0.0, Some(4.0), Some(20.0));
+        let at = point(
+            &ground,
+            0.0,
+            0.0,
+            Some(4.0),
+            &RoomWater::sea_alone(Some(20.0)),
+        );
 
         assert_eq!(at["footprint"]["rests_on_m"], 18.0, "{at}");
         assert_eq!(at["footprint"]["lowest_m"], 14.0, "{at}");
@@ -922,7 +1001,7 @@ mod tests {
         let map = HeightMap::new(9, 9, 1.0);
         let ground = Ground::new(&map);
 
-        let at = point(&ground, 1.0, 1.0, None, None);
+        let at = point(&ground, 1.0, 1.0, None, &RoomWater::default());
 
         assert_eq!(at["slope_deg"], 0.0);
         assert!(
@@ -936,7 +1015,7 @@ mod tests {
     fn the_flooded_share_is_the_share_below_the_water() {
         let map = ramp();
 
-        let report = heights(&map, Some(8.0));
+        let report = heights(&map, &RoomWater::sea_alone(Some(8.0)));
 
         // Columns 0..=7 of 33 (heights 0..7) are below 8 m.
         assert_eq!(
@@ -995,7 +1074,10 @@ mod tests {
             panic!("the seeded gateway is placed absolutely");
         };
         let stands = pad::snapped_absolute_anchor(
-            &crate::world_builder::AnchorGround::new(&finished, room_water_level(&record)),
+            &crate::world_builder::AnchorGround::new(
+                &finished,
+                &drawn_water(&record, Some(&finished)),
+            ),
             transform,
             *avoid_water,
             avoid_water_clearance.0,
@@ -1038,7 +1120,7 @@ mod tests {
             let map = crate::terrain::rebuild_heightmap_for_record(&reseeded(&record, seed));
             assert_eq!(
                 row["ground_m"],
-                heights(&map, room_water_level(&record))["ground_m"]
+                heights(&map, &RoomWater::sea_alone(room_water_level(&record)))["ground_m"]
             );
             assert_eq!(
                 crate::pds::find_terrain_config(&reseeded(&record, seed)).map(|c| c.seed),

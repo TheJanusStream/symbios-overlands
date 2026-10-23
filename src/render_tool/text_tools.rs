@@ -373,7 +373,7 @@ pub(super) fn dump_road_graph(room: &str, record: Option<RoomRecord>) {
         return;
     }
     let terrain = crate::terrain::rebuild_terrain_for_record(&record);
-    let water = crate::world_builder::compile::drawn_water_level(&record, Some(&terrain));
+    let water = crate::world_builder::compile::drawn_water(&record, Some(&terrain));
     let hm = terrain.0;
     for (i, config) in configs.into_iter().enumerate() {
         let label = format!("{room} network {i}");
@@ -385,7 +385,7 @@ pub(super) fn dump_road_graph(room: &str, record: Option<RoomRecord>) {
             "{label}: minor_spacing {:.1} m, major_spacing {:.1} m, layout revision {}",
             config.minor_spacing.0, config.major_spacing.0, config.layout_revision
         );
-        match crate::urban::road_graph_diagnostics(&hm, config, water) {
+        match crate::urban::road_graph_diagnostics(&hm, config, &water) {
             Some(stats) => print!("{}", stats.report(&label)),
             None => println!(
                 "{label}: road graph produced no network (district window too small or tracer empty)"

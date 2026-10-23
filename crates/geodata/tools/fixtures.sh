@@ -42,6 +42,16 @@ get landuse_legend.json "$(legend ua_flaechennutzung_2015 c_ua_realnutz_2015)"
 get landuse_391200_5819700_600m_300px.png \
   "$(map ua_flaechennutzung_2015 c_ua_realnutz_2015 391200,5819700,391800,5820300 300)"
 
+# Water at more than one level (#1724): the Muehlendamm lock's two reaches,
+# the Weisser See on the plateau, and the Orankesee beside the Obersee.
+for square in 391655,5819112,392255,5819712 395500,5823500,396100,5824100 \
+  396900,5822900,397500,5823500; do
+  name=$(echo "$square" | cut -d, -f1,2 | tr , _)
+  get "dgm1_${name}_600m_300px.png" "$(map dgm1 c_dgm1 "$square" 300)"
+  get "landuse_${name}_600m_300px.png" \
+    "$(map ua_flaechennutzung_2015 c_ua_realnutz_2015 "$square" 300)"
+done
+
 storeys=a_geschosszahl_mehr_10,b_geschosszahl_7_10,c_geschosszahl_5_6,d_geschosszahl_3_4,e_geschosszahl_1_2,f_geschosszahl_unter_1
 for layer in $(echo $storeys | tr , ' '); do
   get "storeys_legend_$layer.json" "$(legend gebaeude_geschosse "$layer")"

@@ -3,48 +3,43 @@
 
 use bevy::prelude::*;
 
-use crate::pds::{GeneratorKind, RoomRecord};
+use crate::pds::RoomRecord;
+use crate::water::bodies::RoomWater;
 
-/// The room's sea level: the highest Water child under any
-/// Terrain-rooted generator (the canonical homeworld layout puts the
-/// room's water plane there), or `None` for dry rooms. Water world Y
-/// is the child's translation because the terrain anchor sits at the
-/// origin unsnapped.
+/// The room's sea level: the lowest Water child under any Terrain-rooted
+/// generator (the canonical homeworld layout puts the room's water plane
+/// there, and a higher one is a lake, #1760), or `None` for dry rooms.
+/// Water world Y is the child's translation because the terrain anchor
+/// sits at the origin unsnapped.
 pub(crate) fn room_water_level(record: &RoomRecord) -> Option<f32> {
-    record
-        .generators
-        .values()
-        .filter(|g| matches!(g.kind, GeneratorKind::Terrain(_)))
-        .flat_map(|g| g.children.iter())
-        .filter(|c| matches!(c.kind, GeneratorKind::Water { .. }))
-        .map(|c| c.transform.translation.0[1])
-        .fold(None, |acc: Option<f32>, y| {
-            Some(acc.map_or(y, |a| a.max(y)))
-        })
+    crate::water::bodies::sea_level(&crate::water::bodies::terrain_layers(record))
 }
 
-/// The room's water level as drawn on `heightmap`: Berlin's own where a
-/// geodata region's core has water (#1586), else the record's
-/// ([`room_water_level`]). The record still decides whether there is water
-/// at all - a record with no Water generator draws no plane, and Berlin's
-/// beds lie dry - while Berlin decides where it lies: every water plane of
-/// such a region is drawn at its level. Every reader of the water line that
-/// has a heightmap asks this, so the plane, the damp ground, the dry-land
-/// walks, the scatter bands and the streets all agree on it.
-pub(crate) fn drawn_water_level(
+/// The room's water as drawn on `heightmap` (#1594): its sea and its lakes
+/// (#1760), each reader asking the level at its own point
+/// ([`RoomWater::level_at`]). Where a geodata region's core has water
+/// (#1586), Berlin's own bodies are the room's water in place of its sea,
+/// each at its own level (#1724, [`geo_water`]): the record still decides
+/// whether there is water at all - a record with no Water generator draws
+/// none, and Berlin's beds lie dry - while Berlin decides where it lies.
+/// Every reader of the water that has a heightmap asks this, so the planes,
+/// the damp ground, the dry-land walks, the scatter bands and the streets
+/// all agree on it.
+pub(crate) fn drawn_water(
     record: &RoomRecord,
     heightmap: Option<&crate::terrain::FinishedHeightMap>,
-) -> Option<f32> {
-    let own = room_water_level(record)?;
-    Some(geo_water_level(heightmap).unwrap_or(own))
+) -> RoomWater {
+    RoomWater::of(record, heightmap)
 }
 
-/// Berlin's water level under `heightmap`, where a geodata region's core
-/// has water: the height every water plane of the region is drawn at.
-pub(crate) fn geo_water_level(
+/// Berlin's water under `heightmap`, where a geodata region's core has
+/// any: its bodies, each at its own level (#1724), which the region draws
+/// in place of the record's sea.
+pub(crate) fn geo_water(
     heightmap: Option<&crate::terrain::FinishedHeightMap>,
-) -> Option<f32> {
-    heightmap?.ground()?.water_level()
+) -> Option<&[crate::water::bodies::WaterBody]> {
+    let water = heightmap?.ground()?.water();
+    (!water.is_empty()).then_some(water)
 }
 
 /// Probe spacing along the bearing of [`relocate_above_water`] (m).
@@ -58,7 +53,7 @@ const FREEBOARD: f32 = 0.75;
 /// Slide a water-avoiding anchor along its bearing through the origin -
 /// alternating outward / inward in `DRY_STEP`-metre increments - to
 /// the first probe where the terrain rises above the room's water
-/// line plus a freeboard margin. Bearing-aligned steps keep a
+/// there plus a freeboard margin. Bearing-aligned steps keep a
 /// spawn-facing yaw valid, and the walk is a pure function of the
 /// shared heightmap, so every peer relocates the anchor identically.
 /// Gives up after `DRY_MAX_PROBES` probes and leaves the anchor in
@@ -68,10 +63,10 @@ pub(super) fn relocate_above_water(
     extent: f32,
     half: f32,
     translation: &mut Vec3,
-    water_y: f32,
+    water: &RoomWater,
     clearance: f32,
 ) {
-    let dry = |x: f32, z: f32| is_dry(hm, extent, half, (x, z), water_y, clearance);
+    let dry = |x: f32, z: f32| is_dry(hm, extent, half, (x, z), water, clearance);
     let (x0, z0) = (translation.x, translation.z);
     if dry(x0, z0) {
         return;
@@ -101,22 +96,25 @@ pub(super) fn relocate_above_water(
     }
 }
 
-/// Whether `(x, z)` stands dry over `water_y`: its centre and (for a
+/// Whether `(x, z)` stands dry over `water`: its centre and (for a
 /// non-zero `clearance`) a ring of eight points at that radius all clear
-/// the water line by [`FREEBOARD`] - a wide building can't pass on a dry
+/// the water there by [`FREEBOARD`] - a wide building can't pass on a dry
 /// anchor while its far wing floods.
 fn is_dry(
     hm: &bevy_symbios_ground::HeightMap,
     extent: f32,
     half: f32,
     (x, z): (f32, f32),
-    water_y: f32,
+    water: &RoomWater,
     clearance: f32,
 ) -> bool {
     let sample = |x: f32, z: f32| {
         hm.get_height_at((x + half).clamp(0.0, extent), (z + half).clamp(0.0, extent))
     };
-    if sample(x, z) < water_y + FREEBOARD {
+    if water
+        .level_at(x, z)
+        .is_some_and(|level| sample(x, z) < level + FREEBOARD)
+    {
         return false;
     }
     if clearance <= 0.0 {
@@ -126,7 +124,10 @@ fn is_dry(
         let a = i as f32 * std::f32::consts::TAU / 8.0;
         // libm (#1132): same accept/reject shape as the slope walk - a
         // site is dry only if all eight probes clear the freeboard.
-        sample(x + libm::sinf(a) * clearance, z + libm::cosf(a) * clearance) >= water_y + FREEBOARD
+        let (px, pz) = (x + libm::sinf(a) * clearance, z + libm::cosf(a) * clearance);
+        water
+            .level_at(px, pz)
+            .is_none_or(|level| sample(px, pz) >= level + FREEBOARD)
     })
 }
 
@@ -148,13 +149,13 @@ pub(super) fn relocate_to_open_ground(
     hm: &bevy_symbios_ground::HeightMap,
     (extent, half): (f32, f32),
     translation: &mut Vec3,
-    water_y: Option<f32>,
+    water: &RoomWater,
     berlin: &crate::terrain::geo::GeoGround,
     clearance: f32,
 ) {
     let (x0, z0) = (translation.x, translation.z);
     let stands =
-        |x: f32, z: f32| is_open_and_dry(hm, (extent, half), berlin, (x, z), water_y, clearance);
+        |x: f32, z: f32| is_open_and_dry(hm, (extent, half), berlin, (x, z), water, clearance);
     if stands(x0, z0) {
         return;
     }
@@ -196,15 +197,15 @@ pub(super) fn relocate_to_open_ground(
 /// Whether `(x, z)` stands open and dry on Berlin's ground, at its centre
 /// and at eight points `clearance` round it: the land use names what lies
 /// there - no street space - and it is no water, which a lake on the
-/// plateau keeps as its flat surface; and, under the plane's water
-/// `water_y`, it is no lower than the settle keeps dry ground above it
+/// plateau keeps as its flat surface; and, under the water there, it is no
+/// lower than the settle keeps dry ground above it
 /// ([`geodata::water::FREEBOARD_M`]), the shore's slope being water's.
 fn is_open_and_dry(
     hm: &bevy_symbios_ground::HeightMap,
     (extent, half): (f32, f32),
     berlin: &crate::terrain::geo::GeoGround,
     (x, z): (f32, f32),
-    water_y: Option<f32>,
+    water: &RoomWater,
     clearance: f32,
 ) -> bool {
     let one = |x: f32, z: f32| {
@@ -213,7 +214,7 @@ fn is_open_and_dry(
             Some(cover) if cover != geodata::berlin::LandUse::Water
         );
         named
-            && water_y.is_none_or(|water_y| {
+            && water.level_at(x, z).is_none_or(|water_y| {
                 let height =
                     hm.get_height_at((x + half).clamp(0.0, extent), (z + half).clamp(0.0, extent));
                 // A centimetre's slack: the settled ground is the margin
@@ -250,7 +251,7 @@ pub(crate) fn landing_ashore(
         hm,
         (extent, extent * 0.5),
         &mut at,
-        drawn_water_level(record, Some(heightmap)),
+        &drawn_water(record, Some(heightmap)),
         berlin,
         LANDING_CLEARANCE_M,
     );
@@ -272,6 +273,7 @@ pub(crate) fn landing_on(
         return Some(landing);
     }
     landing.pos.0 = [x, z];
+    let water = drawn_water(record, Some(heightmap));
     let gate = record
         .placements
         .iter()
@@ -284,10 +286,7 @@ pub(crate) fn landing_on(
                 avoid_water_clearance,
                 ..
             } if generator_ref == GATEWAY => Some(super::pad::snapped_absolute_anchor(
-                &super::pad::AnchorGround::new(
-                    heightmap,
-                    drawn_water_level(record, Some(heightmap)),
-                ),
+                &super::pad::AnchorGround::new(heightmap, &water),
                 transform,
                 *avoid_water,
                 avoid_water_clearance.0,
@@ -311,39 +310,55 @@ const GATEWAY: &str = "social_gateway";
 #[cfg(test)]
 mod water_avoidance_tests {
     use super::*;
-    use crate::pds::Placement;
+    use crate::pds::{GeneratorKind, Placement};
 
-    /// #1586: the record says whether there is water, Berlin where it lies.
+    /// #1586, #1724: the record says whether there is water, Berlin where
+    /// it lies: its own bodies, each at its own level, in place of the
+    /// record's sea.
     #[test]
-    fn the_drawn_water_line_is_berlins_where_the_region_has_water() {
+    fn berlins_water_is_its_own_bodies_where_the_region_has_any() {
         use crate::terrain::FinishedHeightMap;
         use crate::terrain::geo::GeoGround;
         let record = RoomRecord::default_for_did("did:test:water");
-        let own = room_water_level(&record).expect("seeded rooms carry water");
+        let own = RoomWater::sea_alone(Some(
+            room_water_level(&record).expect("seeded rooms carry water"),
+        ));
         let map =
             |ground| FinishedHeightMap(bevy_symbios_ground::HeightMap::new(3, 3, 1.0), ground);
-        let wet = GeoGround::from_cover(3, 1.0, vec![None; 9], Some(30.5));
-        let dry = GeoGround::from_cover(3, 1.0, vec![None; 9], None);
-        assert_eq!(drawn_water_level(&record, None), Some(own));
-        assert_eq!(drawn_water_level(&record, Some(&map(None))), Some(own));
-        assert_eq!(
-            drawn_water_level(&record, Some(&map(Some(wet.clone())))),
-            Some(30.5),
-            "Berlin's level, not the record's"
+        let cover = vec![Some(geodata::berlin::LandUse::Water); 9];
+        let wet = GeoGround::from_cover(
+            3,
+            1.0,
+            cover.clone(),
+            GeoGround::water_of_cover(
+                &bevy_symbios_ground::HeightMap::new(3, 3, 1.0),
+                &cover,
+                30.5,
+            ),
         );
+        let dry = GeoGround::from_cover(3, 1.0, vec![None; 9], Vec::new());
+        assert_eq!(drawn_water(&record, None), own);
+        assert_eq!(drawn_water(&record, Some(&map(None))), own);
+        let berlin = drawn_water(&record, Some(&map(Some(wet.clone()))));
+        assert_eq!(berlin.sea, None, "no sea spans Berlin");
+        assert_eq!(berlin.bodies.as_slice(), wet.water(), "Berlin's own bodies");
+        assert_eq!(berlin.level_at(0.0, 0.0), Some(30.5));
         assert_eq!(
-            drawn_water_level(&record, Some(&map(Some(dry)))),
-            Some(own),
-            "a dry core keeps the record's plane, under Berlin's ground"
+            drawn_water(&record, Some(&map(Some(dry)))),
+            own,
+            "a dry core keeps the record's sea, under Berlin's ground"
         );
-        // No Water generator: no plane, and so no line, Berlin or not.
+        // No Water generator: no water, Berlin's or not.
         let mut without = record.clone();
         for generator in without.generators.values_mut() {
             generator
                 .children
                 .retain(|c| !matches!(c.kind, GeneratorKind::Water { .. }));
         }
-        assert_eq!(drawn_water_level(&without, Some(&map(Some(wet)))), None);
+        assert_eq!(
+            drawn_water(&without, Some(&map(Some(wet)))),
+            RoomWater::default()
+        );
     }
 
     #[test]
@@ -399,7 +414,8 @@ mod water_avoidance_tests {
                 });
             }
         }
-        let ground = GeoGround::from_cover(size as u32, 2.0, cover, Some(30.0));
+        let water = GeoGround::water_of_cover(&hm, &cover, 30.0);
+        let ground = GeoGround::from_cover(size as u32, 2.0, cover, water);
         (
             crate::terrain::FinishedHeightMap(hm.clone(), Some(ground)),
             hm,
@@ -488,12 +504,18 @@ mod water_avoidance_tests {
     #[test]
     fn a_seeded_gate_on_berlins_street_steps_off_it() {
         use crate::world_builder::compile::pad::AnchorGround;
+        // The water a Berlin region draws: its own bodies, no sea (#1724).
+        let berlins = |map: &crate::terrain::FinishedHeightMap| RoomWater {
+            sea: None,
+            bodies: map.ground().map_or_else(Vec::new, |g| g.water().to_vec()),
+        };
         let (berlin, hm) = lake_and_street();
+        let berlin_water = berlins(&berlin);
         let gate = crate::pds::TransformData {
             translation: crate::pds::Fp3([325.0, -0.35, 0.0]),
             ..Default::default()
         };
-        let ground = AnchorGround::new(&berlin, Some(30.0));
+        let ground = AnchorGround::new(&berlin, &berlin_water);
         let stands = crate::world_builder::snapped_absolute_anchor(&ground, &gate, true, 3.0);
         assert!(
             stands.x > 333.0 || (300.0..317.0).contains(&stands.x),
@@ -502,8 +524,9 @@ mod water_avoidance_tests {
         // An editor placement, which never walks, stays on the street.
         let hand = crate::world_builder::snapped_absolute_anchor(&ground, &gate, false, 0.0);
         assert_eq!((hand.x, hand.z), (325.0, 0.0));
-        // A lake on the plateau, drawn flat at its surface above the plane:
-        // water by its land use, though its height clears the level.
+        // Water on the plateau no body is drawn over - left as the terrain
+        // draws it, too narrow to settle: water by its land use, though no
+        // level is there to clear.
         let (mut high, _) = lake_and_street();
         let mut cover: Vec<Option<geodata::berlin::LandUse>> = (0..401 * 401)
             .map(|i| {
@@ -516,7 +539,7 @@ mod water_avoidance_tests {
             })
             .collect();
         cover.truncate(401 * 401);
-        let ground_high = crate::terrain::geo::GeoGround::from_cover(401, 2.0, cover, Some(30.0));
+        let ground_high = crate::terrain::geo::GeoGround::from_cover(401, 2.0, cover, Vec::new());
         high.1 = Some(ground_high);
         for row in 0..401 {
             for col in 0..401 {
@@ -527,13 +550,15 @@ mod water_avoidance_tests {
             translation: crate::pds::Fp3([370.0, -0.35, 0.0]),
             ..Default::default()
         };
-        let ground = AnchorGround::new(&high, Some(30.0));
+        let high_water = berlins(&high);
+        let ground = AnchorGround::new(&high, &high_water);
         let ashore = crate::world_builder::snapped_absolute_anchor(&ground, &pond, true, 3.0);
         assert!(ashore.x <= 337.0, "off the plateau lake: {ashore}");
 
         // Procedural ground: dry there, so it stays.
         let procedural = crate::terrain::FinishedHeightMap(hm, None);
-        let own = AnchorGround::new(&procedural, Some(30.0));
+        let sea_30 = RoomWater::sea_alone(Some(30.0));
+        let own = AnchorGround::new(&procedural, &sea_30);
         let stays = crate::world_builder::snapped_absolute_anchor(&own, &gate, true, 3.0);
         assert_eq!((stays.x, stays.z), (325.0, 0.0));
     }
@@ -551,23 +576,24 @@ mod water_avoidance_tests {
             }
         }
         let (extent, half) = (128.0, 64.0);
+        let sea = RoomWater::sea_alone(Some(2.0));
 
         // Submerged anchor at (10, 0), bearing +X: must slide outward
         // past the shoreline without leaving the bearing line.
         let mut t = Vec3::new(10.0, 0.0, 0.0);
-        relocate_above_water(&hm, extent, half, &mut t, 2.0, 0.0);
+        relocate_above_water(&hm, extent, half, &mut t, &sea, 0.0);
         assert!(t.x > 20.0, "anchor should cross the shoreline: {t:?}");
         assert_eq!(t.z, 0.0, "walk must stay on the bearing line");
 
         // Already-dry anchors stay exactly put.
         let mut dry = Vec3::new(40.0, 0.0, 0.0);
-        relocate_above_water(&hm, extent, half, &mut dry, 2.0, 0.0);
+        relocate_above_water(&hm, extent, half, &mut dry, &sea, 0.0);
         assert_eq!(dry.x, 40.0);
 
         // A fully-drowned bearing gives up and leaves the anchor in
         // place rather than teleporting it somewhere arbitrary.
         let mut hopeless = Vec3::new(0.0, 0.0, -30.0);
-        relocate_above_water(&hm, extent, half, &mut hopeless, 2.0, 0.0);
+        relocate_above_water(&hm, extent, half, &mut hopeless, &sea, 0.0);
         assert_eq!((hopeless.x, hopeless.z), (0.0, -30.0));
 
         // Clearance ring: an anchor just past the shoreline (x = 22) is
@@ -575,7 +601,7 @@ mod water_avoidance_tests {
         // the sea - the walk must push it further inland until the
         // whole disc clears.
         let mut wide = Vec3::new(22.0, 0.0, 0.0);
-        relocate_above_water(&hm, extent, half, &mut wide, 2.0, 10.0);
+        relocate_above_water(&hm, extent, half, &mut wide, &sea, 10.0);
         assert!(
             wide.x > 30.0,
             "ring-sampled anchor must move until the footprint clears: {wide:?}"

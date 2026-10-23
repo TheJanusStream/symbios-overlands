@@ -398,7 +398,8 @@ pub(crate) struct SampleFilters<'a> {
     /// `None` on a record with no terrain generator, which collapses the
     /// biome allow-list to "never matches".
     pub terrain_cfg: Option<&'a SovereignTerrainConfig>,
-    pub water_level: Option<f32>,
+    /// The water a sample is read against, at its own place (#1727).
+    pub water: &'a dyn crate::water::bodies::WaterAt,
     /// `(centre_x, centre_z, radius²)` road districts to stay out of.
     pub urban_exclusions: &'a [(f32, f32, f32)],
     /// Pre-resolved [`slope_cutoff`].
@@ -524,7 +525,7 @@ pub(crate) fn try_sample(
         // No water line means the band has nothing to measure from, so it
         // fails closed - the same stance the biome allow-list takes when
         // there is no terrain generator to resolve against.
-        let wl = filters.water_level?;
+        let wl = filters.water.water_at(world_x, world_z)?;
         if !(lo..=hi).contains(&(y - wl)) {
             return None;
         }
@@ -555,7 +556,10 @@ pub(crate) fn try_sample(
             (None, Some(tcfg), Some(s)) => dominant_biome(tcfg, y, s),
             _ => 255,
         };
-        if !filters.biome_filter.accepts(biome, y, filters.water_level) {
+        if !filters
+            .biome_filter
+            .accepts(biome, y, filters.water.water_at(world_x, world_z))
+        {
             return None;
         }
     }
@@ -970,7 +974,7 @@ mod tests {
         let filters = SampleFilters {
             biome_filter: &crate::pds::BiomeFilter::default(),
             terrain_cfg: None,
-            water_level: None,
+            water: &None,
             urban_exclusions: &[],
             slope_cutoff: None,
             tree_clearance: None,
@@ -1005,7 +1009,7 @@ mod tests {
         let filters = SampleFilters {
             biome_filter: &crate::pds::BiomeFilter::default(),
             terrain_cfg: None,
-            water_level: None,
+            water: &None,
             urban_exclusions: &[],
             slope_cutoff: slope_cutoff(&naturalness),
             tree_clearance: None,
@@ -1131,7 +1135,7 @@ mod tests {
                 })
             })
             .collect();
-        let ground = crate::terrain::geo::GeoGround::from_cover(129, 1.0, cover, None);
+        let ground = crate::terrain::geo::GeoGround::from_cover(129, 1.0, cover, Vec::new());
         let berlin = crate::terrain::FinishedHeightMap(hm, Some(ground));
         let stand = crate::pds::BiomeFilter {
             biomes: vec![0, 1],
@@ -1145,7 +1149,7 @@ mod tests {
         let filters = SampleFilters {
             biome_filter: &stand,
             terrain_cfg: Some(&cfg),
-            water_level: Some(30.5),
+            water: &Some(30.5),
             urban_exclusions: &[],
             slope_cutoff: None,
             tree_clearance: None,
@@ -1197,7 +1201,7 @@ mod tests {
             129,
             1.0,
             vec![Some(LandUse::Park); 129 * 129],
-            None,
+            Vec::new(),
         )
         .with_street_level(level);
         let berlin = crate::terrain::FinishedHeightMap(hm, Some(ground));
@@ -1228,7 +1232,7 @@ mod tests {
         let filters = SampleFilters {
             biome_filter: &anywhere,
             terrain_cfg: None,
-            water_level: None,
+            water: &None,
             urban_exclusions: &[],
             slope_cutoff: None,
             tree_clearance: Some(clearance),

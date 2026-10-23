@@ -399,7 +399,20 @@ pub(super) fn apply_splat_textures(
         height: weight_map.height as u32,
         bytes: wm_bytes,
     });
-    let wm_handle = images.add(crate::ground_cover::weight_image(&layer, None));
+    // The room's water as drawn - its sea and its lakes (#1760), or Berlin's
+    // own bodies in a geodata region (#1724) - and the bodies beside the
+    // weights from the first textured frame (#1727), which the ground cover
+    // keeps after.
+    let water = record
+        .as_ref()
+        .map(|r| crate::world_builder::compile::drawn_water(&r.0, Some(&hm_res)))
+        .unwrap_or_default();
+    let lakes = crate::ground_cover::lake_layer(hm, &water);
+    let wm_handle = images.add(crate::ground_cover::weight_image(
+        &layer,
+        None,
+        lakes.as_deref(),
+    ));
     // Whatever grows on the ground reads the same weights (#1674).
     commands.insert_resource(crate::ground_cover::SplatWeights(
         wm_handle.clone(),
@@ -408,14 +421,11 @@ pub(super) fn apply_splat_textures(
     ));
 
     // Damp ground near the water line (#913, WS5 step 3). Read from the
-    // same drawn water line the scatter sampler's riparian band uses -
-    // Berlin's in a geodata region (#1586) - so the darkened margin and the
-    // reeds standing in it cannot drift apart. A room with no water
-    // generator has no waterline to be damp around, so the effect stays off
-    // and the terrain renders exactly as it did before this landed.
-    let water_y = record
-        .as_ref()
-        .and_then(|r| crate::world_builder::compile::drawn_water_level(&r.0, Some(&hm_res)));
+    // same drawn water the scatter sampler's riparian band uses, so the
+    // darkened margin and the reeds standing in it cannot drift apart. A room
+    // with no water generator has no waterline to be damp around, so the
+    // effect stays off and the terrain renders exactly as it did before this
+    // landed.
     // The record's texture tiling (#1669: the Tile scale slider wrote it for
     // months while the shader read the constant), and the rock layer's
     // world-space scale, as dense as the top-down layers'.
@@ -431,7 +441,7 @@ pub(super) fn apply_splat_textures(
             wm_handle,
             (albedo_array, normal_array),
             (tile_scale, triplanar_scale),
-            water_y,
+            &water,
         );
 
         // Bind the avatar-interaction stains overlay (#245). The image
@@ -471,13 +481,14 @@ pub(super) fn apply_splat_textures(
 
 /// Flip a ground material from its placeholder to splat blending: its
 /// weight map, the layer arrays, the world-space texture scale, and the
-/// damp margin round `water_y` where the room has water.
+/// damp margin round the room's `water` where it has some - the sea's line,
+/// and its lakes' read from the weight map ([`lakes_uniform`]).
 fn enable_splat(
     mat: &mut SplatTerrainMaterial,
     weight_map: Handle<Image>,
     (albedo_array, normal_array): (Handle<Image>, Handle<Image>),
     (tile_scale, triplanar_scale): (f32, f32),
-    water_y: Option<f32>,
+    water: &crate::water::bodies::RoomWater,
 ) {
     textured_surface(&mut mat.base);
     mat.extension.weight_map = weight_map;
@@ -486,13 +497,35 @@ fn enable_splat(
     mat.extension.uniforms.enabled = 1;
     mat.extension.uniforms.tile_scale = tile_scale;
     mat.extension.uniforms.triplanar_scale = triplanar_scale;
-    match water_y {
-        Some(water_y) => {
-            mat.extension.uniforms.water_y = water_y;
-            mat.extension.uniforms.moisture_depth = tcfg::splat::MOISTURE_DEPTH;
-            mat.extension.uniforms.moisture_strength = tcfg::splat::MOISTURE_STRENGTH;
-        }
-        None => mat.extension.uniforms.moisture_strength = 0.0,
+    let (water_y, strength) = moisture(water);
+    mat.extension.uniforms.water_y = water_y;
+    mat.extension.uniforms.moisture_depth = tcfg::splat::MOISTURE_DEPTH;
+    mat.extension.uniforms.moisture_strength = strength;
+    mat.extension.uniforms.lakes = lakes_uniform(water);
+}
+
+/// The damp margin's datum and strength for the room's `water`: on wherever
+/// it has any, measured from its sea; where Berlin's own bodies are its
+/// water and no sea spans it (#1724), from a line far under all ground,
+/// which darkens nothing - each body's own margin is read from the weight
+/// map ([`lakes_uniform`]). Off, and the datum 0, in a room with none.
+fn moisture(water: &crate::water::bodies::RoomWater) -> (f32, f32) {
+    /// The sea's datum where none spans the room: far under any ground.
+    const NO_SEA_Y: f32 = -1.0e4;
+    match (water.sea, water.is_dry()) {
+        (_, true) => (0.0, 0.0),
+        (sea, false) => (sea.unwrap_or(NO_SEA_Y), tcfg::splat::MOISTURE_STRENGTH),
+    }
+}
+
+/// The splat uniforms' `lakes` for the room's `water` (#1727): on, with the
+/// span the weight map's green is read over, where it has lakes; all zero
+/// where it has none, which the ground reads as before they came.
+fn lakes_uniform(water: &crate::water::bodies::RoomWater) -> Vec4 {
+    if water.bodies.is_empty() {
+        Vec4::ZERO
+    } else {
+        Vec4::new(1.0, tcfg::splat::LAKE_SPAN, 0.0, 0.0)
     }
 }
 
@@ -547,23 +580,25 @@ pub(super) fn sync_moisture_water_level(
     if !record.is_changed() {
         return;
     }
-    // The drawn line: an edit to a Berlin region's water plane moves
-    // nothing, since the plane is drawn at Berlin's level (#1586).
-    let water = crate::world_builder::compile::drawn_water_level(&record.0, heightmap.as_deref());
-    let (water_y, strength) = match water {
-        Some(y) => (y, tcfg::splat::MOISTURE_STRENGTH),
-        // No water generator, no waterline to be damp around.
-        None => (0.0, 0.0),
-    };
+    // The drawn water: an edit to a Berlin region's water layer moves
+    // nothing, since Berlin's own bodies are drawn in its place (#1586,
+    // #1724). A body's own margin is read from the weight map the ground
+    // cover writes it in (#1727); this turns the reading on or off.
+    let water = crate::world_builder::compile::drawn_water(&record.0, heightmap.as_deref());
+    // No water generator, no waterline to be damp around.
+    let (water_y, strength) = moisture(&water);
+    let lakes = lakes_uniform(&water);
     let handle = &splat_mat.0;
     // Peek before taking the change-triggering mutable borrow.
     let stale = materials.get(handle).is_some_and(|m| {
         m.extension.uniforms.water_y != water_y
             || m.extension.uniforms.moisture_strength != strength
+            || m.extension.uniforms.lakes != lakes
     });
     if stale && let Some(mut mat) = materials.get_mut(handle) {
         mat.extension.uniforms.water_y = water_y;
         mat.extension.uniforms.moisture_strength = strength;
+        mat.extension.uniforms.lakes = lakes;
     }
 }
 
@@ -886,6 +921,36 @@ fn build_texture_array(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #1724: the damp margin is on wherever the room has water - measured
+    /// from its sea, or, where Berlin's own bodies are its water and no sea
+    /// spans it, from a datum under all ground, which darkens nothing, each
+    /// body's margin being read from the weight map - and off in a dry one.
+    #[test]
+    fn the_damp_margin_follows_the_rooms_water() {
+        use crate::water::bodies::RoomWater;
+        assert_eq!(moisture(&RoomWater::default()), (0.0, 0.0));
+        assert_eq!(
+            moisture(&RoomWater::sea_alone(Some(4.5))),
+            (4.5, tcfg::splat::MOISTURE_STRENGTH)
+        );
+        let hm = bevy_symbios_ground::HeightMap::new(8, 8, 1.0);
+        let berlin = RoomWater {
+            sea: None,
+            bodies: crate::terrain::geo::GeoGround::water_of_cover(
+                &hm,
+                &[Some(geodata::berlin::LandUse::Water); 64],
+                30.5,
+            ),
+        };
+        let (datum, strength) = moisture(&berlin);
+        assert!(datum < -1_000.0 && strength == tcfg::splat::MOISTURE_STRENGTH);
+        assert_eq!(
+            lakes_uniform(&berlin).x,
+            1.0,
+            "its bodies' margins are read"
+        );
+    }
 
     /// The snow creeps down the slopes (#1683): with none settled its line
     /// stands over the highest ground, and it falls as the snow settles
