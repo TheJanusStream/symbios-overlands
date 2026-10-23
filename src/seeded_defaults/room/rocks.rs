@@ -62,6 +62,9 @@ pub fn field_naturalness() -> ScatterNaturalness {
         scale_jitter: Fp(0.35),
         // ≈23°: settled at an angle, not planted.
         tilt_jitter: Fp(0.4),
+        // A boulder settles onto the slope it came to rest on (#1765), its
+        // tumble on top.
+        ground_tilt: Fp(1.0),
         max_slope_deg: None,
         // No microbiome bands (#913): a boulder is not alive. Erosion puts
         // rock at every altitude and right down to the waterline, so any

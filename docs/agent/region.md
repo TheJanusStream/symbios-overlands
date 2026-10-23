@@ -576,6 +576,14 @@ A forest is a few generators and a scatter placement each:
   (`water: Below`, band `[-3, -0.25]`, `float_on_water: true`, no tilt),
   ferns and moss keep to damp low ground, trees clump at 0.35 and stop at
   30 degrees of slope.
+- **Lay ground cover on its slope** with `naturalness.ground_tilt`, 0 to 1
+  (#1765): how far each copy leans with the ground under it. The seeder
+  lays moss, lichen, heather and boulders on it (1), leans grass tufts,
+  ferns and flowers half way (0.5), and stands trees, reeds and lilies
+  upright (0). Left out, a scatter stands its copies upright, as every
+  scatter did before it; without it a cushion's downhill edge stands
+  clear of a slope - a moss patch 28 cm at 20 degrees. A copy floating on
+  water stays level.
 - **`biomes` are your own splat layers**, by index. Filtering the trees to
   every layer but the one round the water leaves a clearing that follows the
   land.

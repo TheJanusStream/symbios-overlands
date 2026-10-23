@@ -3537,6 +3537,9 @@ mod scatter_naturalness_wire_tests {
             naturalness.max_slope_deg.is_none(),
             "and impose no slope limit"
         );
+        // The owner's choice (#1765): a scatter saved before the slope tilt
+        // existed keeps standing its copies upright.
+        assert_eq!(naturalness.ground_tilt, Fp(0.0), "and stand upright");
     }
 
     #[test]
@@ -3552,6 +3555,7 @@ mod scatter_naturalness_wire_tests {
             edge_falloff: Fp(1.2),
             scale_jitter: Fp(0.2),
             tilt_jitter: Fp(0.15),
+            ground_tilt: Fp(0.5),
             max_slope_deg: Some(Fp(36.0)),
             above_water_band: Some(Fp2([0.0, 3.5])),
             altitude_band: Some(Fp2([12.0, 90.0])),
@@ -3592,6 +3596,7 @@ mod scatter_naturalness_wire_tests {
             edge_falloff: Fp(-3.0),
             scale_jitter: Fp(f32::NAN),
             tilt_jitter: Fp(f32::INFINITY),
+            ground_tilt: Fp(3.0),
             max_slope_deg: Some(Fp(4000.0)),
             // Inverted and non-finite bands: a band that accepts nothing
             // would silently empty the scatter rather than error.
@@ -3603,6 +3608,7 @@ mod scatter_naturalness_wire_tests {
         assert_eq!(n.edge_falloff, Fp(0.0));
         assert_eq!(n.scale_jitter, Fp(0.0), "NaN must not survive the clamp");
         assert_eq!(n.tilt_jitter, Fp(0.0));
+        assert_eq!(n.ground_tilt, Fp(1.0), "no more than lying on the ground");
         assert_eq!(n.max_slope_deg, Some(Fp(90.0)));
         assert_eq!(
             n.above_water_band,

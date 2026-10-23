@@ -296,6 +296,20 @@ impl GroundCoverSpecies {
         // Tundra/Alpine/Boreal species - and from their slope tolerance,
         // which reaches the crags a floor was reaching for.
         let altitude_band = None;
+        // How far a copy leans with the slope under it (#1765). The cover
+        // that grows as a mat lies on the ground; tufts, ferns and flowers
+        // lean half way, their foot on the slope and their blades still
+        // reaching up; reeds grow straight up out of the bank, and a pad
+        // floats level on the water.
+        let ground_tilt = match self {
+            Self::MossPatch | Self::LichenPatch | Self::DwarfShrub => 1.0,
+            Self::ReedClump | Self::LilyPad => 0.0,
+            Self::GrassTuft
+            | Self::DryGrassTuft
+            | Self::ShoreGrass
+            | Self::Wildflower
+            | Self::FernClump => 0.5,
+        };
 
         ScatterNaturalness {
             clumping: Fp(clumping),
@@ -307,6 +321,7 @@ impl GroundCoverSpecies {
             // distinguishes one instance from the next.
             scale_jitter: Fp(0.2),
             tilt_jitter: Fp(tilt),
+            ground_tilt: Fp(ground_tilt),
             max_slope_deg: Some(Fp(max_slope_deg)),
             above_water_band,
             altitude_band,

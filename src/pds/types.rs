@@ -593,8 +593,9 @@ impl Default for ScatterBounds {
 /// **Determinism.** Two of these (`clumping`, `edge_falloff`) are pure
 /// remappings of an already-drawn sample and two (`scale_jitter`,
 /// `tilt_jitter`) are drawn from a side stream keyed off the scatter's
-/// `local_seed`; `max_slope_deg` only *rejects*. None of them consumes a
-/// draw from the placement RNG, so changing any knob leaves every surviving
+/// `local_seed`; `max_slope_deg` only *rejects*, and `ground_tilt` reads the
+/// ground under a copy and draws nothing. None of them consumes a draw from
+/// the placement RNG, so changing any knob leaves every surviving
 /// instance's position exactly where it was. The discipline that buys that
 /// is documented in the `world_builder::compile::scatter` module (a private
 /// module, so this is deliberately not a link).
@@ -625,6 +626,16 @@ pub struct ScatterNaturalness {
     /// less (a visibly leaning trunk reads as damaged, not natural).
     #[serde(default, skip_serializing_if = "Fp::is_zero")]
     pub tilt_jitter: Fp,
+    /// How far each copy tilts with the slope of the ground under it
+    /// (#1765), `0` to `1`. `0` - the default, and every scatter saved
+    /// before this field existed - stands it upright; `1` turns its up to
+    /// the ground's normal, so it lies on the ground as a mat or a rock
+    /// does; between, it leans part way. Trees and reeds grow upright
+    /// whatever the slope, moss, heather and rocks lie on it, and grass
+    /// tufts sit between. The random lean of `tilt_jitter` rides on top, and
+    /// a copy floating on water stays level.
+    #[serde(default, skip_serializing_if = "Fp::is_zero")]
+    pub ground_tilt: Fp,
     /// Reject samples on ground steeper than this, in **degrees** from
     /// horizontal. `None` (the default) imposes no slope limit, which is
     /// what every scatter did before this field existed - slope reached
@@ -690,6 +701,7 @@ impl ScatterNaturalness {
         self.edge_falloff = self.edge_falloff.clamped(0.0, 8.0);
         self.scale_jitter = self.scale_jitter.clamped(0.0, 1.5);
         self.tilt_jitter = self.tilt_jitter.clamped(0.0, std::f32::consts::FRAC_PI_3);
+        self.ground_tilt = self.ground_tilt.clamped(0.0, 1.0);
         if let Some(deg) = &mut self.max_slope_deg {
             *deg = deg.clamped(0.0, 90.0);
         }

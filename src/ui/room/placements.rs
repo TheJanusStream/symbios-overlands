@@ -256,9 +256,15 @@ pub(super) fn new_scatter_placement(target: String, anchor: [f32; 2]) -> Placeme
         random_yaw: true,
         avoid_urban: false,
         float_on_water: false,
-        // Flat uniform by default: a fresh scatter should do the plainly
-        // predictable thing, and the Naturalness section is right there.
-        naturalness: ScatterNaturalness::default(),
+        // No clumping or jitter by default: a fresh scatter should do the
+        // plainly predictable thing, and the Naturalness section is right
+        // there. But its instances sit on the ground they stand on (#1765,
+        // on for a new scatter by the owner's choice): a scatter of trees
+        // wants the tilt at 0.
+        naturalness: ScatterNaturalness {
+            ground_tilt: Fp(1.0),
+            ..ScatterNaturalness::default()
+        },
     }
 }
 
@@ -1396,6 +1402,15 @@ fn draw_naturalness(ui: &mut egui::Ui, n: &mut ScatterNaturalness, dirty: &mut b
         "Per-instance lean off vertical, in a random direction. 0.12 ≈ 7°, \
          about right for ground cover; trees want far less.",
     );
+    slider(
+        "Tilt with the ground",
+        &mut n.ground_tilt,
+        1.0,
+        "How far each instance leans with the slope under it: 0 stands it \
+         upright, as trees and reeds grow; 1 lays it on the ground, as moss \
+         and rocks lie; between leans part way, as grass does. An instance \
+         floating on water stays level.",
+    );
 
     // Microbiome bands (#913). Each is a two-ended range, so they get a
     // checkbox plus a pair of drags rather than a slider.
@@ -1508,6 +1523,24 @@ mod tests {
             },
             other => panic!("expected Scatter, got {other:?}"),
         }
+    }
+
+    /// #1765, the owner's choice: a scatter made in the editor starts with
+    /// its instances tilted all the way with the ground, and every other
+    /// naturalness knob off - a fresh scatter's sprinkle stays flat.
+    #[test]
+    fn new_scatter_lies_on_the_ground_and_jitters_nothing() {
+        let p = new_scatter_placement("tree".into(), anchor_xz(Some(POSE)));
+        let Placement::Scatter { naturalness, .. } = p else {
+            panic!("expected Scatter, got {p:?}");
+        };
+        assert_eq!(
+            naturalness,
+            ScatterNaturalness {
+                ground_tilt: Fp(1.0),
+                ..ScatterNaturalness::default()
+            }
+        );
     }
 
     /// #1643, #1390's rule: drawing a set's editor and an absolute

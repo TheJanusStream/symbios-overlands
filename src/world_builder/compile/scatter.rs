@@ -30,6 +30,9 @@
 //!   ([`JITTER_SEED_SALT`]) in a fixed 4-draw group per placed instance, so
 //!   the side stream stays in lockstep with the instance index and toggling
 //!   either knob changes nothing else.
+//! * `ground_tilt` (#1765) draws from neither stream: it reads the ground's
+//!   normal under a copy that has already been placed, so it re-poses the
+//!   copies without moving one.
 
 use bevy::prelude::*;
 use bevy_symbios_ground::SplatRule;
@@ -259,7 +262,9 @@ pub(crate) fn instance_jitter(rng: &mut ChaCha8Rng, n: &ScatterNaturalness) -> I
     }
 }
 
-/// Compose one instance's local pose from its position and a jitter draw.
+/// Compose one instance's local pose from its position, a jitter draw and
+/// `ground`, the ground's normal under it in the anchor's frame (`Vec3::Y`
+/// where there is no ground to read, or the copy floats).
 ///
 /// Shared by the compiler and by the headless render tool's scatter
 /// preview, so a contact sheet shows the arrangement the game will
@@ -273,6 +278,7 @@ pub(crate) fn instance_pose(
     jitter: &InstanceJitter,
     random_yaw: bool,
     n: &ScatterNaturalness,
+    ground: Vec3,
 ) -> Transform {
     let mut rotation = if random_yaw {
         Quat::from_rotation_y(jitter.yaw)
@@ -289,6 +295,17 @@ pub(crate) fn instance_pose(
             * Quat::from_rotation_x(jitter.tilt_angle)
             * Quat::from_rotation_y(-jitter.tilt_azimuth);
         rotation = lean * rotation;
+    }
+    if n.ground_tilt.0 > 0.0 {
+        // The copy's up turned toward the ground's normal by the shortest
+        // arc, `ground_tilt` of the way: a normalised lerp of the two ups,
+        // which bisects the angle at a half and needs no transcendental
+        // (#1132). The shortest arc spins nothing about the new up, so the
+        // copy keeps its heading, and the lean above rides on the slope.
+        let up = Vec3::Y.lerp(ground, n.ground_tilt.0).normalize_or_zero();
+        if up != Vec3::ZERO {
+            rotation = Quat::from_rotation_arc(Vec3::Y, up) * rotation;
+        }
     }
     let mut tf = Transform::from_translation(local_pos).with_rotation(rotation);
     if n.scale_jitter.0 > 0.0 {
@@ -353,7 +370,8 @@ impl ScatterPreview {
             .compute_affine()
             .inverse()
             .transform_point3(Vec3::new(x, 0.0, z));
-        anchor * instance_pose(local, &jitter, self.random_yaw, &self.naturalness)
+        // No ground to read: the preview's copies stand on a level plane.
+        anchor * instance_pose(local, &jitter, self.random_yaw, &self.naturalness, Vec3::Y)
     }
 }
 
@@ -914,7 +932,7 @@ mod tests {
         let mut rng = ChaCha8Rng::seed_from_u64(17);
         for _ in 0..200 {
             let j = instance_jitter(&mut rng, &n);
-            let tf = instance_pose(Vec3::ZERO, &j, false, &n);
+            let tf = instance_pose(Vec3::ZERO, &j, false, &n, Vec3::Y);
             // A pure lean tips the up axis by |tilt_angle| and leaves the
             // horizontal heading alone, so a forward vector projected back
             // onto the ground plane still points at -Z.
@@ -941,6 +959,108 @@ mod tests {
                     axis.y
                 );
             }
+        }
+    }
+
+    /// The ground tilt (#1765) turns a copy's up toward the ground's normal
+    /// as far as it is asked: 0 leaves it upright on any slope, 1 lays it
+    /// on the ground (its up is the normal), and a half leans it half the
+    /// slope's angle, in the slope's own direction - here a 26.6 degree
+    /// slope falling to +X and +Z alike, so the turn is off both axes.
+    #[test]
+    fn a_copy_tilts_with_the_ground_as_far_as_asked() {
+        let ground = Vec3::new(-0.35, 1.0, -0.35).normalize();
+        let slope = ground.angle_between(Vec3::Y);
+        let jitter = InstanceJitter {
+            yaw: 0.0,
+            tilt_azimuth: 0.0,
+            tilt_angle: 0.0,
+            scale: 1.0,
+        };
+        for (tilt, lean) in [(0.0, 0.0), (0.5, slope * 0.5), (1.0, slope)] {
+            let n = ScatterNaturalness {
+                ground_tilt: Fp(tilt),
+                ..ScatterNaturalness::default()
+            };
+            let up = instance_pose(Vec3::ZERO, &jitter, false, &n, ground).rotation * Vec3::Y;
+            assert!(
+                (up.angle_between(Vec3::Y) - lean).abs() < 1e-4,
+                "tilt {tilt}: leans {} for {lean}",
+                up.angle_between(Vec3::Y)
+            );
+            // In the plane of the upright and the ground's normal: the lean
+            // goes the way the ground falls, not some other way.
+            assert!(
+                up.cross(Vec3::Y).dot(ground).abs() < 1e-5,
+                "tilt {tilt}: leans out of the slope's plane: {up}"
+            );
+        }
+        let n = ScatterNaturalness {
+            ground_tilt: Fp(1.0),
+            ..ScatterNaturalness::default()
+        };
+        let up = instance_pose(Vec3::ZERO, &jitter, false, &n, ground).rotation * Vec3::Y;
+        assert!(
+            (up - ground).length() < 1e-5,
+            "lying on it: {up} for {ground}"
+        );
+    }
+
+    /// The ground tilt spins nothing: it is the shortest arc from the
+    /// upright to the slope, its axis horizontal, so a copy keeps the
+    /// heading its yaw gave it; and the random lean rides on the slope -
+    /// laid on the ground, a copy leans off the ground's normal by its own
+    /// jitter, not off the vertical.
+    #[test]
+    fn the_ground_tilt_keeps_the_heading_and_carries_the_lean() {
+        let ground = Vec3::new(0.2, 1.0, -0.45).normalize();
+        let lying = ScatterNaturalness {
+            ground_tilt: Fp(1.0),
+            ..ScatterNaturalness::default()
+        };
+        let upright = InstanceJitter {
+            yaw: 0.0,
+            tilt_azimuth: 0.0,
+            tilt_angle: 0.0,
+            scale: 1.0,
+        };
+        let tilt = instance_pose(Vec3::ZERO, &upright, false, &lying, ground).rotation;
+        let (axis, angle) = tilt.to_axis_angle();
+        assert!(
+            angle > 0.1 && axis.y.abs() < 1e-5,
+            "a lean, not a spin: {axis}"
+        );
+        // A yawed copy is the same yaw laid on the same slope.
+        let yawed = InstanceJitter {
+            yaw: 1.1,
+            ..upright
+        };
+        let both = instance_pose(Vec3::ZERO, &yawed, true, &lying, ground).rotation;
+        // Compared by what the turns do to the axes: a quaternion angle
+        // goes through `acos` near 1, a few ten-thousandths in f32.
+        let yaw_then_tilt = tilt * Quat::from_rotation_y(1.1);
+        for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
+            assert!(
+                (both * axis - yaw_then_tilt * axis).length() < 1e-5,
+                "{axis}"
+            );
+        }
+
+        let leaning = ScatterNaturalness {
+            ground_tilt: Fp(1.0),
+            tilt_jitter: Fp(0.3),
+            ..ScatterNaturalness::default()
+        };
+        let mut rng = ChaCha8Rng::seed_from_u64(29);
+        for _ in 0..100 {
+            let j = instance_jitter(&mut rng, &leaning);
+            let up = instance_pose(Vec3::ZERO, &j, false, &leaning, ground).rotation * Vec3::Y;
+            assert!(
+                (up.angle_between(ground) - j.tilt_angle.abs()).abs() < 1e-3,
+                "the lean is off the slope: {} vs {}",
+                up.angle_between(ground),
+                j.tilt_angle.abs()
+            );
         }
     }
 

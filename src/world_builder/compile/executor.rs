@@ -963,12 +963,23 @@ fn step_unit(
                 // the submerged terrain the sample landed on. `max` so a
                 // sample on dry shore keeps its bank height - floating only
                 // ever lifts, it never sinks an instance into the ground.
+                let mut afloat = false;
                 if *float_on_water
                     && let Some(wl) =
                         crate::water::bodies::WaterAt::water_at(&*water, world_x, world_z)
                 {
+                    afloat = wl > world_y;
                     world_y = world_y.max(wl);
                 }
+                // The ground's slope under the copy, in the anchor's frame,
+                // for `ground_tilt` (#1765): level where the copy floats -
+                // water is level - and where there is no ground to read.
+                let ground = match ctx.heightmap {
+                    Some(hm) if naturalness.ground_tilt.0 > 0.0 && !afloat => {
+                        cursor.anchor_world_tf.rotation.inverse() * hm.normal_at(world_x, world_z)
+                    }
+                    _ => Vec3::Y,
+                };
 
                 // Make scatter children of the anchor so grabbing the
                 // gizmo moves the whole forest live.
@@ -981,8 +992,13 @@ fn step_unit(
                 // whether or not the knobs are on, so any of them can be
                 // toggled without disturbing the others (#912).
                 let jitter = super::scatter::instance_jitter(jitter_rng, naturalness);
-                let cell_tf =
-                    super::scatter::instance_pose(local_pos, &jitter, *random_yaw, naturalness);
+                let cell_tf = super::scatter::instance_pose(
+                    local_pos,
+                    &jitter,
+                    *random_yaw,
+                    naturalness,
+                    ground,
+                );
 
                 // A small scattered copy is cut by distance (#1480).
                 ctx.begin_copy(generator_ref, &cell_tf);
@@ -2939,6 +2955,187 @@ mod tests {
             avoid_urban: false,
             float_on_water: false,
             naturalness: Default::default(),
+        }
+    }
+
+    /// #1765: a scatter's copies tilt with the ground as far as
+    /// `ground_tilt` asks, compiled for real on a ramp rising half a metre
+    /// per metre of +X: at 0 they stand upright, at 1 each one's up is the
+    /// ground's normal under it, at a half they lean half the slope - and
+    /// the tilt moves none of them, since it draws nothing from either
+    /// stream.
+    #[test]
+    fn a_scatter_tilts_its_copies_with_the_ground_without_moving_them() {
+        let copies = |ground_tilt: f32| {
+            let mut record = test_record(0);
+            let mut scatter = scattered("box", 12);
+            if let Placement::Scatter { naturalness, .. } = &mut scatter {
+                naturalness.ground_tilt = Fp(ground_tilt);
+            }
+            record.placements = vec![scatter];
+            let mut hm = bevy_symbios_ground::HeightMap::new(121, 121, 1.0);
+            for cz in 0..121 {
+                for cx in 0..121 {
+                    *hm.get_mut(cx, cz) = 0.5 * (cx as f32 - 60.0);
+                }
+            }
+            let mut app = compile_app(record);
+            app.insert_resource(FinishedHeightMap(hm, None));
+            settle(&mut app);
+            let mut copies: Vec<(Vec3, Vec3)> = app
+                .world_mut()
+                .query::<(&crate::world_builder::PrimMarker, &Transform)>()
+                .iter(app.world())
+                .filter(|(marker, _)| marker.generator_ref == "box" && marker.path.is_empty())
+                .map(|(_, tf)| (tf.translation, tf.rotation * Vec3::Y))
+                .collect();
+            copies.sort_by(|a, b| a.0.x.total_cmp(&b.0.x).then(a.0.z.total_cmp(&b.0.z)));
+            copies
+        };
+        let ground = Vec3::new(-0.5, 1.0, 0.0).normalize();
+        let slope = ground.angle_between(Vec3::Y);
+        let (upright, half, lying) = (copies(0.0), copies(0.5), copies(1.0));
+        assert_eq!(upright.len(), 12, "fixture: every copy placed");
+        for (at, up) in &upright {
+            assert!((*up - Vec3::Y).length() < 1e-6, "upright at {at}: {up}");
+        }
+        for (at, up) in &half {
+            let lean = up.angle_between(Vec3::Y);
+            assert!((lean - slope * 0.5).abs() < 1e-3, "half at {at}: {lean}");
+        }
+        for (at, up) in &lying {
+            assert!((*up - ground).length() < 1e-3, "lying at {at}: {up}");
+        }
+        let places = |copies: &[(Vec3, Vec3)]| copies.iter().map(|c| c.0).collect::<Vec<_>>();
+        assert_eq!(places(&upright), places(&lying), "the tilt moved a copy");
+        assert_eq!(places(&upright), places(&half));
+    }
+
+    /// A scatter's copies of the test box, each as its translation in its
+    /// anchor's frame, its up in the world - its own turn under its
+    /// anchor's, read off the anchor it hangs from.
+    fn tilted_copies(app: &mut App) -> Vec<(Vec3, Vec3)> {
+        let copies: Vec<(Vec3, Quat, Entity)> = app
+            .world_mut()
+            .query::<(&crate::world_builder::PrimMarker, &Transform, &ChildOf)>()
+            .iter(app.world())
+            .filter(|(marker, ..)| marker.generator_ref == "box" && marker.path.is_empty())
+            .map(|(_, tf, child_of)| (tf.translation, tf.rotation, child_of.parent()))
+            .collect();
+        copies
+            .into_iter()
+            .map(|(at, rotation, anchor)| {
+                let anchor = app.world().get::<Transform>(anchor).expect("its anchor");
+                (at, anchor.rotation * (rotation * Vec3::Y))
+            })
+            .collect()
+    }
+
+    /// #1765: the ground's normal is turned into a copy's anchor frame, so
+    /// a copy of a turned rect scatter, yawed at random, lies on the ground
+    /// in the world: on a ramp falling off both axes, each copy's world up
+    /// is the ground's normal.
+    #[test]
+    fn a_turned_scatter_lays_its_copies_on_the_ground_in_the_world() {
+        let mut record = test_record(0);
+        record.placements = vec![Placement::Scatter {
+            generator_ref: "box".to_string(),
+            bounds: ScatterBounds::Rect {
+                center: crate::pds::Fp2([5.0, -3.0]),
+                extents: crate::pds::Fp2([30.0, 20.0]),
+                rotation: Fp(0.9),
+            },
+            count: 12,
+            local_seed: 11,
+            biome_filter: Default::default(),
+            snap_to_terrain: false,
+            random_yaw: true,
+            avoid_urban: false,
+            float_on_water: false,
+            naturalness: crate::pds::ScatterNaturalness {
+                ground_tilt: Fp(1.0),
+                ..Default::default()
+            },
+        }];
+        let mut hm = bevy_symbios_ground::HeightMap::new(121, 121, 1.0);
+        for cz in 0..121 {
+            for cx in 0..121 {
+                *hm.get_mut(cx, cz) = 0.4 * (cx as f32 - 60.0) + 0.3 * (cz as f32 - 60.0);
+            }
+        }
+        let mut app = compile_app(record);
+        app.insert_resource(FinishedHeightMap(hm, None));
+        settle(&mut app);
+        let ground = Vec3::new(-0.4, 1.0, -0.3).normalize();
+        let copies = tilted_copies(&mut app);
+        assert_eq!(copies.len(), 12, "fixture: every copy placed");
+        for (at, up) in copies {
+            assert!((up - ground).length() < 1e-3, "at {at}: {up} on {ground}");
+        }
+    }
+
+    /// #1765: a copy floating on water stays level - water is level -
+    /// while a copy of the same scatter on the bank lies on its slope: a
+    /// floating scatter over a ramp that runs under a sea at 0 m.
+    #[test]
+    fn a_floating_copy_stays_level_and_a_copy_on_the_bank_lies_on_it() {
+        let mut record = test_record(0);
+        let mut terrain = Generator::from_kind(GeneratorKind::Terrain(Default::default()));
+        terrain
+            .children
+            .push(Generator::from_kind(GeneratorKind::Water {
+                surface: Default::default(),
+            }));
+        record
+            .generators
+            .insert("base_terrain".to_string(), terrain);
+        let mut scatter = scattered("box", 24);
+        if let Placement::Scatter {
+            naturalness,
+            float_on_water,
+            biome_filter,
+            ..
+        } = &mut scatter
+        {
+            naturalness.ground_tilt = Fp(1.0);
+            *float_on_water = true;
+            biome_filter.water = crate::pds::WaterRelation::Both;
+        }
+        record.placements = vec![
+            Placement::Absolute {
+                generator_ref: "base_terrain".to_string(),
+                transform: TransformData::default(),
+                snap_to_terrain: false,
+                avoid_water: false,
+                avoid_water_clearance: Fp(0.0),
+                seed: None,
+                params: Default::default(),
+            },
+            scatter,
+        ];
+        // Under the sea west of x = 0, a bank rising half a metre a metre
+        // east of it.
+        let mut hm = bevy_symbios_ground::HeightMap::new(121, 121, 1.0);
+        for cz in 0..121 {
+            for cx in 0..121 {
+                *hm.get_mut(cx, cz) = 0.5 * (cx as f32 - 60.0);
+            }
+        }
+        let mut app = compile_app(record);
+        app.insert_resource(FinishedHeightMap(hm, None));
+        settle(&mut app);
+        let bank = Vec3::new(-0.5, 1.0, 0.0).normalize();
+        let copies = tilted_copies(&mut app);
+        let (afloat, ashore): (Vec<_>, Vec<_>) = copies.iter().partition(|(at, _)| at.x < 0.0);
+        assert!(
+            !afloat.is_empty() && !ashore.is_empty(),
+            "fixture: {copies:?}"
+        );
+        for (at, up) in afloat {
+            assert!((up - Vec3::Y).length() < 1e-6, "afloat at {at}: {up}");
+        }
+        for (at, up) in ashore {
+            assert!((up - bank).length() < 1e-3, "ashore at {at}: {up}");
         }
     }
 

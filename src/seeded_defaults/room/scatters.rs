@@ -349,6 +349,9 @@ pub fn stand_naturalness(
         // ≈0.84×–1.20×: a mixed-age stand, not a plantation.
         scale_jitter: Fp(0.18),
         tilt_jitter: Fp(0.05),
+        // A tree grows upright whatever the slope (#1765): a stand leaning
+        // with its hillside reads as wind-thrown.
+        ground_tilt: Fp(0.0),
         max_slope_deg: Some(Fp(30.0)),
         above_water_band,
         // `-10_000` rather than 0: terrain dips below the origin plane, and
