@@ -12,19 +12,25 @@
 //!   grass tuft, the fern clump and the reed clump are this shape (#1711),
 //!   each the generator the agent Hypha saved in its region, the Understory
 //!   (#1708), where the owner judged them better than the crossed cards they
-//!   replaced; the catalogue's fern
-//!   ([`lsys_fern`](crate::catalogue::items::plants::lsys_fern)) is the same
-//!   recipe. The recipe is spelled out in `docs/agent/region.md` (a browser
-//!   pays per part).
+//!   replaced; the dry grass tuft and the shore grass are the grass tuft's
+//!   recipe in their own colours (#1715), and the catalogue's fern
+//!   ([`lsys_fern`](crate::catalogue::items::plants::lsys_fern)) the fern's.
+//!   The recipe is spelled out in `docs/agent/region.md` (a browser pays per
+//!   part).
 //! * **Crossed cards** - two alpha-masked quads at 90 degrees, each carrying
 //!   one of the WS1 vegetation textures. Crossing them means the prop reads
 //!   from every yaw instead of vanishing edge-on, which a single card does.
+//!   The wildflower and the dwarf shrub are still this shape: the
+//!   wildflower's blossoms are cards of their own, which the seeded tint
+//!   colours scatter by scatter (#1703), and a `Broadleaf` leaf is one
+//!   sprite, not an atlas of clumps a lathe could wrap.
 //! * **Cushions** - encrusting cover (moss, lichen) carrying opaque
 //!   *surface* textures rather than alpha cards, so a flat quad would read as
-//!   a square stamped on the terrain. The lichen is one squashed sphere
-//!   centred on the ground plane; the moss is Hypha's cushion, one
+//!   a square stamped on the terrain. Each is one
 //!   [`blob_group`](crate::catalogue::items::util::blob_group) of six domes
-//!   melted into one mat.
+//!   (`dome`) melted into one mat, its domes' centres under the ground: the
+//!   moss is Hypha's cushion, the lichen the same recipe flattened to a
+//!   crust (#1715).
 //!
 //! ## Card geometry
 //!
@@ -44,24 +50,25 @@
 //! lifts it by just that much times its height scale, so its foot stands on
 //! the ground (within a few millimetres) and the wind's card profile, which
 //! weighs sway by height above the entity's origin, all but holds the foot
-//! (a few millimetres, about 1.5 cm in a storm's gust front) and moves the
+//! (a few millimetres, under 2 cm in a storm's gust front) and moves the
 //! tips (see `wind::WindSway::Card`).
 //!
 //! ## Entity cost
 //!
 //! | Prop | Parts |
 //! |---|---|
-//! | grass tuft, fern clump, reed clump, moss, lichen | 1 |
-//! | dry grass tuft, shore grass, dwarf shrub | 2 |
+//! | grass tuft, dry grass tuft, shore grass, fern clump, reed clump, moss, lichen | 1 |
+//! | dwarf shrub | 2 |
 //! | wildflower, lily pads | 4 |
 
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    blob_ellipsoid, blob_group, lathe, prim, prim_scaled, quat_mul, quat_x, quat_y, quat_z, sphere,
+    blob_ellipsoid, blob_group, lathe, prim, quat_mul, quat_x, quat_y, quat_z,
 };
 use crate::catalogue::{CatalogueEntry, StructureRole};
 use crate::pds::PrimCommon;
+use crate::pds::generator::BlobElement;
 use crate::pds::{
     Fp, Fp2, Fp3, Fp4, Fp64, Generator, GeneratorKind, SovereignBroadleafConfig,
     SovereignFlowerConfig, SovereignGrassTuftConfig, SovereignLichenConfig,
@@ -113,22 +120,21 @@ fn crossed_cards(width: f32, height: f32, material: SovereignMaterialSettings) -
     root
 }
 
-/// A low cushion mound for the encrusting covers.
+/// How far under the ground a cushion's domes are centred (m).
+const DOME_DEPTH: f32 = 0.08;
+
+/// One dome of a cushion (the moss's recipe, Hypha's): a flattened
+/// ellipsoid `radius` wide and `height` tall, its centre `at` in the plane
+/// and [`DOME_DEPTH`] under the ground, blended into its neighbours.
 ///
 /// A flat quad would be simpler, but moss and lichen carry *opaque* surface
-/// textures rather than alpha cards, so a quad reads as an unmistakable square
-/// patch stamped on the terrain. A squashed sphere centred on the ground plane
-/// shows only its dome - no silhouette edge to give the trick away, and no
-/// coplanar z-fight, since nothing is flush with the surface.
-fn cushion(radius: f32, height: f32, material: SovereignMaterialSettings) -> Generator {
-    prim_scaled(
-        sphere(radius, 5, material),
-        // Centred on the ground: the lower hemisphere is buried, leaving a
-        // cushion sitting proud of the surface.
-        [0.0, 0.0, 0.0],
-        Fp4([0.0, 0.0, 0.0, 1.0]),
-        [1.0, (height / radius).max(0.05), 1.0],
-    )
+/// textures rather than alpha cards, so a quad reads as an unmistakable
+/// square patch stamped on the terrain. Domes centred under the ground show
+/// only their caps, melted into one mat by the blend - no silhouette edge to
+/// give the trick away, and no coplanar z-fight, since each cap crosses the
+/// ground at an angle rather than lying flush with it.
+fn dome(at: [f32; 2], radius: f32, height: f32) -> BlobElement {
+    blob_ellipsoid([at[0], -DOME_DEPTH, at[1]], [radius, height, radius], 0.09)
 }
 
 /// Matte card material - ground cover is never glossy, and `base_color` stays
@@ -343,22 +349,37 @@ ground_cover_entry!(
 );
 
 ground_cover_entry!(
+    /// Dry grass tuft - sun-bleached bunchgrass: the grass tuft's turned
+    /// card ([`tuft`]) at the size of the 0.4 m card it replaced, a little
+    /// lower and wider than the green tuft and turned a little further. Its
+    /// texture is the card's - its straw colours, seven blades in ten dry -
+    /// with the atlas's three columns added and its own seed, so its three
+    /// clumps are not the green tuft's: a savanna scatters both, and the
+    /// seeded grass tint (#1703) gives both the world's colours. The tint
+    /// and the Auto grass profile read the same colours and dry share from
+    /// it as from the card.
+    ///
+    /// Measured with the render tool: 0.40 m tall and 0.59 x 0.56 m
+    /// across, 36 triangles in 1 part (the crossed cards: 0.4 m by 0.6 m, 4
+    /// triangles in 2 parts).
     DryGrassTuft,
     "gc_dry_grass_tuft",
     "Dry Grass Tuft",
     "Sun-bleached grass clump - savanna, badlands and arid ground cover.",
-    || crossed_cards(
-        0.6,
-        0.4,
-        card_material(SovereignTextureConfig::GrassTuft(
-            SovereignGrassTuftConfig {
-                color_base: Fp3([0.20, 0.17, 0.07]),
-                color_tip: Fp3([0.47, 0.40, 0.15]),
-                color_dry: Fp3([0.52, 0.44, 0.18]),
-                dry_fraction: crate::pds::Fp64(0.7),
-                ..Default::default()
-            }
-        ))
+    || tuft(
+        SovereignTextureConfig::GrassTuft(SovereignGrassTuftConfig {
+            seed: 1,
+            variant_cols: 3,
+            color_base: Fp3([0.20, 0.17, 0.07]),
+            color_tip: Fp3([0.47, 0.40, 0.15]),
+            color_dry: Fp3([0.52, 0.44, 0.18]),
+            dry_fraction: Fp64(0.7),
+            ..Default::default()
+        }),
+        0.15,
+        -0.9,
+        0.072,
+        [1.58, 0.6063, 1.58],
     )
 );
 
@@ -487,24 +508,37 @@ ground_cover_entry!(
 );
 
 ground_cover_entry!(
+    /// Shore grass - marram on the strand line: the grass tuft's turned card
+    /// ([`tuft`]) at the size of the 0.5 m card it replaced, stiffer than
+    /// the green tuft - flared less and barely turned, so its blades stand
+    /// up from a wider foot. Its texture is the card's - the marram's
+    /// blue-green running to straw - with the atlas's three columns added
+    /// and its own seed. It keeps its own colours in a seeded world, as the
+    /// card did: the seeded grass tint leaves the shore's grass alone.
+    ///
+    /// Measured with the render tool: 0.50 m tall and 0.59 x 0.53 m
+    /// across, 36 triangles in 1 part (the crossed cards: 0.5 m by 0.65 m, 4
+    /// triangles in 2 parts).
     ShoreGrass,
     "gc_shore_grass",
     "Shore Grass",
     "Salt-bleached blue-green dune grass - the coastal waterline fringe.",
-    || crossed_cards(
-        0.65,
-        0.5,
-        card_material(SovereignTextureConfig::GrassTuft(
-            SovereignGrassTuftConfig {
-                // Marram-grass palette: glaucous blue-green blades running
-                // to pale straw where the salt wind burns them.
-                color_base: Fp3([0.09, 0.15, 0.10]),
-                color_tip: Fp3([0.33, 0.43, 0.29]),
-                color_dry: Fp3([0.51, 0.48, 0.28]),
-                dry_fraction: crate::pds::Fp64(0.4),
-                ..Default::default()
-            }
-        ))
+    || tuft(
+        SovereignTextureConfig::GrassTuft(SovereignGrassTuftConfig {
+            seed: 2,
+            variant_cols: 3,
+            // Marram-grass palette: glaucous blue-green blades running to
+            // pale straw where the salt wind burns them.
+            color_base: Fp3([0.09, 0.15, 0.10]),
+            color_tip: Fp3([0.33, 0.43, 0.29]),
+            color_dry: Fp3([0.51, 0.48, 0.28]),
+            dry_fraction: Fp64(0.4),
+            ..Default::default()
+        }),
+        0.06,
+        -0.75,
+        0.09,
+        [1.7, 0.7578, 1.7],
     )
 );
 
@@ -597,9 +631,6 @@ ground_cover_entry!(
     "Moss Patch",
     "Velvet moss cushion of melted domes - damp forest and boreal floors.",
     || {
-        let dome = |at: [f32; 2], radius: f32, height: f32| {
-            blob_ellipsoid([at[0], -0.08, at[1]], [radius, height, radius], 0.09)
-        };
         let mut kind = blob_group(
             vec![
                 dome([0.0, 0.0], 0.58, 0.3532),
@@ -633,17 +664,41 @@ ground_cover_entry!(
 );
 
 ground_cover_entry!(
+    /// Lichen patch - a crust of lichen over stone: the moss's recipe
+    /// flattened, one [`blob_group`] of six low domes ([`dome`]), two broad
+    /// ones side by side and four small ones bulging their edge, none
+    /// standing more than 9 cm proud, so their caps melt into one crust with
+    /// an uneven, lobed edge, as the colonies of a crustose lichen grow and
+    /// meet. Its domes are closed under the ground and none is cut, so on
+    /// a gentle slope its downhill edge stays nearer the ground than the
+    /// sphere's did (4 cm clear at 10 degrees, where the sphere's stood 8);
+    /// on a steep one it stands clear as any cushion does, since a scatter
+    /// leans its copies at random rather than to the ground. The default
+    /// `Lichen` texture, sage and rust colonies over grey stone, under a
+    /// white base colour. It replaced one squashed sphere, a round disc
+    /// whose texture ran from a pole at its middle.
+    ///
+    /// Measured with the render tool: 0.09 m above the ground and 1.47 x
+    /// 1.25 m across, 552 triangles in 1 part (the sphere: 0.09 m above the
+    /// ground and 1.1 m across, 720 triangles in 1 part).
     LichenPatch,
     "gc_lichen_patch",
     "Lichen Patch",
     "Crustose lichen crust over stone - tundra ground cover.",
-    || cushion(
-        0.55,
-        0.09,
+    || Generator::from_kind(blob_group(
+        vec![
+            dome([-0.14, 0.05], 0.42, 0.17),
+            dome([0.26, -0.08], 0.34, 0.15),
+            dome([0.12, 0.4], 0.24, 0.125),
+            dome([-0.52, -0.16], 0.22, 0.12),
+            dome([0.58, 0.16], 0.2, 0.115),
+            dome([-0.1, -0.42], 0.25, 0.125),
+        ],
+        14,
         card_material(SovereignTextureConfig::Lichen(
             SovereignLichenConfig::default()
-        ))
-    )
+        )),
+    ))
 );
 
 #[cfg(test)]
@@ -734,15 +789,46 @@ mod tests {
         );
     }
 
-    /// The lichen is a squashed dome centred on the ground plane, not a
-    /// flat quad - a flat quad carrying an opaque surface texture reads as a
-    /// square stamped on the terrain, and would z-fight if laid flush.
-    #[test]
-    fn the_lichen_is_a_squashed_dome_on_the_ground_plane() {
-        let g = LichenPatch.build("");
-        assert_eq!(g.transform.translation.0[1], 0.0);
-        let s = g.transform.scale.0;
-        assert!(s[1] < s[0] && s[1] < s[2], "squashed flat (scale {s:?})");
+    /// Cushion `g`'s domes, read from the built blob group: one part, six
+    /// ellipsoids, each centred under the ground and flatter than it is
+    /// wide, and every one of them showing a cap above the ground. Their
+    /// caps make one mat: each dome's circle on the ground (where its
+    /// surface crosses it) meets another's, so no cap stands apart as a
+    /// patch of its own.
+    fn assert_one_mat_of_buried_domes(g: &Generator, slug: &str) -> Vec<BlobElement> {
+        assert!(g.children.is_empty(), "{slug}: one part");
+        let GeneratorKind::BlobGroup { elements, .. } = &g.kind else {
+            panic!("{slug}: a blob group");
+        };
+        assert_eq!(elements.len(), 6, "{slug}");
+        // Each dome's centre in the plane and the radius it crosses the
+        // ground at.
+        let mut circles = Vec::new();
+        for e in elements {
+            let [rx, ry, rz] = e.radii.0;
+            let [x, y, z] = e.position.0;
+            assert_eq!(e.shape, crate::pds::generator::BlobShape::Ellipsoid);
+            assert!(y < 0.0, "{slug}: a dome's centre is buried: {e:?}");
+            assert!(
+                ry < rx && rx == rz,
+                "{slug}: a round dome flatter than wide: {e:?}"
+            );
+            assert!(y + ry > 0.0, "{slug}: a dome's cap shows: {e:?}");
+            circles.push(([x, z], rx * (1.0 - (y / ry).powi(2)).sqrt()));
+        }
+        let mut joined = vec![0];
+        while let Some(next) = (0..circles.len()).find(|&i| {
+            !joined.contains(&i)
+                && joined.iter().any(|&j| {
+                    let ([ax, az], ar) = circles[i];
+                    let ([bx, bz], br) = circles[j];
+                    (ax - bx).hypot(az - bz) < ar + br
+                })
+        }) {
+            joined.push(next);
+        }
+        assert_eq!(joined.len(), circles.len(), "{slug}: a cap stands apart");
+        elements.clone()
     }
 
     /// The moss is one blob mat of domes whose centres lie under the
@@ -751,30 +837,48 @@ mod tests {
     #[test]
     fn the_moss_is_one_mat_of_buried_domes() {
         let g = MossPatch.build("");
-        assert!(g.children.is_empty(), "one part");
-        let GeneratorKind::BlobGroup {
-            elements, common, ..
-        } = &g.kind
-        else {
-            panic!("a blob group");
-        };
-        assert_eq!(elements.len(), 6);
-        for e in elements {
-            let [rx, ry, rz] = e.radii.0;
-            assert!(e.position.0[1] < 0.0, "a dome's centre is buried: {e:?}");
-            assert!(ry < rx && ry < rz, "a dome is flatter than wide: {e:?}");
-        }
+        assert_one_mat_of_buried_domes(&g, "gc_moss_patch");
+        let common = g.kind.common().expect("a primitive");
         assert_eq!(common.torture.profile_cut, Fp2([0.3, 1.0]));
     }
 
-    /// The turned cards, the fern among them (#1711).
-    fn turned() -> [&'static dyn CatalogueEntry; 4] {
+    /// The lichen is the moss's recipe flattened to a crust (#1715): one mat
+    /// of buried domes, none of them standing more than 9 cm proud where
+    /// the moss's middle stands a quarter of a metre, and none cut, so each
+    /// is closed under the ground and shows its own rounded flank, not a
+    /// flat cut, where a slope falls away from it.
+    #[test]
+    fn the_lichen_is_a_crust_of_buried_domes() {
+        let g = LichenPatch.build("");
+        let domes = assert_one_mat_of_buried_domes(&g, "gc_lichen_patch");
+        for e in &domes {
+            let proud = e.position.0[1] + e.radii.0[1];
+            assert!(proud <= 0.09 + 1e-6, "a crust, not a cushion: {e:?}");
+        }
+        let common = g.kind.common().expect("a primitive");
+        assert_eq!(common.torture, TortureParams::default(), "no cut");
+        assert!(matches!(
+            common.material.texture,
+            SovereignTextureConfig::Lichen(_)
+        ));
+    }
+
+    /// The turned cards, the fern among them (#1711), and the dry and shore
+    /// grass (#1715).
+    fn turned() -> [&'static dyn CatalogueEntry; 6] {
         [
             &GrassTuft,
+            &DryGrassTuft,
+            &ShoreGrass,
             &FernClump,
             &ReedClump,
             &crate::catalogue::items::plants::lsys_fern::Fern,
         ]
+    }
+
+    /// The two cushions.
+    fn cushions() -> [&'static dyn CatalogueEntry; 2] {
+        [&MossPatch, &LichenPatch]
     }
 
     /// A turned card is one part, its foot on the ground: the lowest
@@ -811,12 +915,12 @@ mod tests {
     /// The new cover holds together: nothing draws a face where another
     /// does. The floating guard is the catalogue's usual pair, but each of
     /// these is one part, which it cannot fail: the feet are held by
-    /// `a_turned_card_stands_on_the_ground_in_one_part` and the moss's own
-    /// test.
+    /// `a_turned_card_stands_on_the_ground_in_one_part` and the cushions'
+    /// own tests.
     #[test]
     fn the_new_cover_holds_together() {
         let mut entries = turned().to_vec();
-        entries.push(&MossPatch);
+        entries.extend(cushions());
         for e in entries {
             let g = e.build("");
             assert_no_z_fighting(&g, e.slug());
@@ -824,54 +928,101 @@ mod tests {
         }
     }
 
-    /// The grass tuft stands as tall as the 0.45 m card it replaced, not
-    /// at Hypha's 1.6 times; its texture is the card's default `GrassTuft`
-    /// with only the atlas's columns added, so the seeded tint and the
-    /// Auto grass profile read the same colours and dry share from it.
+    /// The grass tufts stand as tall as the cards they replaced - the green
+    /// one 0.45 m, not Hypha's 1.6 times that, the dry one 0.4 m and the
+    /// shore's 0.5 m - and each wears its card's texture: its colours and
+    /// dry share as the card had them, the rest the default `GrassTuft`'s
+    /// but for the atlas's three columns and, for the dry and shore grass,
+    /// a seed of their own. So the seeded tint and the Auto grass profile,
+    /// which read only the colours and the dry share, read the same from
+    /// each as from its card.
     #[test]
-    fn the_grass_tuft_is_the_card_s_size_and_colours() {
-        let g = GrassTuft.build("");
-        let GeneratorKind::Lathe { points, common, .. } = &g.kind else {
-            panic!("a lathe");
+    fn the_grass_tufts_are_their_cards_sizes_and_colours() {
+        let coloured = |base, tip, dry, dry_fraction| SovereignGrassTuftConfig {
+            color_base: Fp3(base),
+            color_tip: Fp3(tip),
+            color_dry: Fp3(dry),
+            dry_fraction: Fp64(dry_fraction),
+            ..Default::default()
         };
-        let span = points.last().unwrap().height.0 - points[0].height.0;
-        let tall = span * g.transform.scale.0[1];
-        assert!((tall - 0.45).abs() < 0.01, "{tall} m tall");
-        assert_eq!(
-            common.material.texture,
-            SovereignTextureConfig::GrassTuft(SovereignGrassTuftConfig {
-                variant_cols: 3,
-                ..Default::default()
-            })
-        );
+        // Each tuft, its card's height, its own seed and its card's texture.
+        let cards: [(&dyn CatalogueEntry, f32, u32, SovereignGrassTuftConfig); 3] = [
+            (&GrassTuft, 0.45, 0, SovereignGrassTuftConfig::default()),
+            (
+                &DryGrassTuft,
+                0.4,
+                1,
+                coloured(
+                    [0.20, 0.17, 0.07],
+                    [0.47, 0.40, 0.15],
+                    [0.52, 0.44, 0.18],
+                    0.7,
+                ),
+            ),
+            (
+                &ShoreGrass,
+                0.5,
+                2,
+                coloured(
+                    [0.09, 0.15, 0.10],
+                    [0.33, 0.43, 0.29],
+                    [0.51, 0.48, 0.28],
+                    0.4,
+                ),
+            ),
+        ];
+        for (entry, card_tall, seed, card) in cards {
+            let g = entry.build("");
+            let GeneratorKind::Lathe { points, common, .. } = &g.kind else {
+                panic!("{}: a lathe", entry.slug());
+            };
+            let span = points.last().unwrap().height.0 - points[0].height.0;
+            let tall = span * g.transform.scale.0[1];
+            assert!(
+                (tall - card_tall).abs() < 0.01,
+                "{}: {tall} m tall",
+                entry.slug()
+            );
+            assert_eq!(
+                common.material.texture,
+                SovereignTextureConfig::GrassTuft(SovereignGrassTuftConfig {
+                    seed,
+                    variant_cols: 3,
+                    ..card
+                }),
+                "{}",
+                entry.slug()
+            );
+        }
     }
 
     /// The turned cards sway as the cards did - their textures are the
-    /// swaying kinds - and the moss, a surface, does not.
+    /// swaying kinds - and the cushions, surfaces, do not.
     #[test]
-    fn the_turned_cards_sway_and_the_moss_does_not() {
+    fn the_turned_cards_sway_and_the_cushions_do_not() {
         for e in turned() {
             let g = e.build("");
             let texture = &g.kind.material().expect("a material").texture;
             assert!(crate::wind::sways(texture), "{}: {texture:?}", e.slug());
         }
-        let moss = MossPatch.build("");
-        assert!(!crate::wind::sways(
-            &moss.kind.material().expect("a material").texture
-        ));
+        for e in cushions() {
+            let g = e.build("");
+            let texture = &g.kind.material().expect("a material").texture;
+            assert!(!crate::wind::sways(texture), "{}: {texture:?}", e.slug());
+        }
     }
 
     /// No re-skins: no seeded pool, Berlin or the garden bed names a
-    /// variant for these five (the ground-cover pools carry none, the fern
+    /// variant for these eight (the ground-cover pools carry none, the fern
     /// stands are `plain`), and the only recolour they take is the seeded
-    /// grass tint, which reaches the grass tuft's texture
+    /// grass tint, which reaches the green and dry grass tufts' textures
     /// (`seeded_defaults::room::grass`). A variant added here would need a
     /// recolour test of its own, and the fern's a route through the tree
     /// scatters, which re-skin L-system materials only.
     #[test]
     fn the_new_cover_has_no_skins() {
         let mut entries = turned().to_vec();
-        entries.push(&MossPatch);
+        entries.extend(cushions());
         for e in entries {
             assert!(e.variants().is_empty(), "{}", e.slug());
         }

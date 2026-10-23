@@ -1,3 +1,3 @@
-seed 3	square 384753 5816516 1000	f92bab90c0fa14dc	8 generators	placements 064e1fb5e3033827	landing 5.23 7.32 -144.5
+seed 3	square 384753 5816516 1000	562bcbb670d85b42	8 generators	placements 064e1fb5e3033827	landing 5.23 7.32 -144.5
 seed 4	square 392928 5822219 1000	f2daecd2134ad396	14 generators	placements cc38f11f9a3b4bf8	landing 4.37 7.87 -150.9
-seed 12	square 410510 5807046 1000	ca38f01b7b105236	12 generators	placements f2527317a207de6f	landing 7.87 4.37 -119.1
+seed 12	square 410510 5807046 1000	171560cc60a30a80	12 generators	placements f2527317a207de6f	landing 7.87 4.37 -119.1

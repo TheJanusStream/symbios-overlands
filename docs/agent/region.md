@@ -636,9 +636,10 @@ A forest is a few generators and a scatter placement each:
   `variant_cols` 3 added, `uv_scale` 15915, `torture.taper` [-0.6, -0.6],
   and `transform.scale` [width / 0.2, height / 0.628, width / 0.2]; a reed
   ring wider than about half the card's width falls apart into sub-clumps.
-  The catalogue's grass tuft, reed clump, fern clump and fern are these
-  lathes now, and its moss patch your BlobGroup cushion (#1711): an
-  unsaved seeded world that grows them grows these. The Understory went from about 48,700 parts
+  The catalogue's grass tufts (green, dry and shore), reed clump, fern
+  clump and fern are these lathes now, its moss patch your BlobGroup
+  cushion and its lichen patch that cushion flattened to a crust (#1711,
+  #1715): an unsaved seeded world that grows them grows these. The Understory went from about 48,700 parts
   (estimated from the record's structure at the session's start) to 38,579
   measured (`--triangle-report` counts `parts` since #1479) while gaining
   reed beds, heath and fans - and ground cover is still about 78% of them:

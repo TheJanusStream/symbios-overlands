@@ -81,9 +81,9 @@ pub enum WindSway {
     /// A ground-cover card, whose origin is its centre - weight is biased so
     /// the bottom edge is near-static and the top edge mobile. Any primitive
     /// wearing a swaying texture takes it, the ground cover's turned cards
-    /// among them (#1711): their origin is their root, lifted 0.08-0.27 m
-    /// over the foot, so the foot weighs 0 to 0.12 of the sway - a few
-    /// millimetres, about 1.5 cm in a storm's gust front - and the tips 0.3
+    /// among them (#1711, #1715): their origin is their root, lifted
+    /// 0.07-0.27 m over the foot, so the foot weighs 0 to 0.13 of the sway -
+    /// a few millimetres, under 2 cm in a storm's gust front - and the tips 0.3
     /// to 1, the fern's drooping tips least.
     Card,
 }

@@ -3,9 +3,9 @@
 //! The tier below the trees: grass tufts, wildflowers, ferns, reeds, dwarf
 //! shrubs and the encrusting moss / lichen cushions. Where a tree scatter
 //! places tens of instances of an expensive grammar, a ground-cover scatter
-//! places hundreds of a one- or two-part prop (a turned or crossed card, a
-//! cushion) - so the biome reads as *covered* rather than as bare splat
-//! colour with trees standing on it.
+//! places hundreds of a prop of one to four parts, most of them one (a
+//! turned card, a cushion) - so the biome reads as *covered* rather than as
+//! bare splat colour with trees standing on it.
 //!
 //! Species come from a biome-weighted pool, exactly as
 //! [`scatters`](super::scatters) does for trees, and the per-scatter instance
@@ -66,7 +66,8 @@ pub const DENSITY_NONE: (u32, u32) = (0, 0);
 pub enum GroundCoverSpecies {
     /// Flared grass clump, one turned card (#1711) - the workhorse.
     GrassTuft,
-    /// Sun-bleached grass for arid and savanna ground.
+    /// Sun-bleached grass for arid and savanna ground, one turned card
+    /// (#1715).
     DryGrassTuft,
     /// Grass tuft carrying a blossom.
     Wildflower,
@@ -74,7 +75,8 @@ pub enum GroundCoverSpecies {
     FernClump,
     /// Tall cattail reeds for wetland margins - wades into the shallows.
     ReedClump,
-    /// Salt-bleached dune grass hugging the coastal waterline.
+    /// Salt-bleached dune grass hugging the coastal waterline, one turned
+    /// card (#1715).
     ShoreGrass,
     /// Floating lily pads on still wetland water (#914).
     LilyPad,
@@ -82,7 +84,8 @@ pub enum GroundCoverSpecies {
     DwarfShrub,
     /// Velvet moss cushion of melted domes.
     MossPatch,
-    /// Crustose lichen cushion - the tundra ground cover.
+    /// Crustose lichen crust of melted domes (#1715) - the tundra ground
+    /// cover.
     LichenPatch,
 }
 

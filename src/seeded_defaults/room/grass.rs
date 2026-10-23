@@ -603,34 +603,49 @@ mod tests {
         }
     }
 
-    /// The grass tuft is one turned card since #1711, its texture wrapped
-    /// round a lathe rather than drawn on two crossed planes: the tint
-    /// still reaches it - its one `GrassTuft` texture takes the grass's
-    /// colours and dry share and keeps its atlas - while the turned fern
-    /// and reeds and the moss keep their own.
+    /// The grass tufts are turned cards, the green one since #1711 and the
+    /// dry one since #1715, each texture wrapped round a lathe rather than
+    /// drawn on two crossed planes: the tint still reaches them - each one
+    /// `GrassTuft` texture takes the grass's colours and dry share and
+    /// keeps its atlas and its seed - while the turned shore grass, fern
+    /// and reeds and the two cushions keep their own.
     #[test]
-    fn a_tint_reaches_the_turned_grass_tuft() {
+    fn a_tint_reaches_the_turned_grass_tufts() {
         let scene = SceneCharacter::for_seed(11);
         let palette = RoomPalette::from_scene(&scene, 11);
         let seeded = SeededGrass::from_scene(&scene, &palette, 11);
         let mut tint = seeded.tint();
-        let mut tuft = catalogued(GroundCoverSpecies::GrassTuft);
-        assert!(matches!(tuft.kind, crate::pds::GeneratorKind::Lathe { .. }));
-        tint.apply(GroundCoverSpecies::GrassTuft, &mut tuft);
-        let tufts: Vec<_> = textures(&tuft)
-            .into_iter()
-            .filter_map(|t| match t {
-                SovereignTextureConfig::GrassTuft(tuft) => Some(tuft),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(tufts.len(), 1, "one texture, one tuft");
-        assert!(matched(tufts[0], &seeded.config), "{:?}", tufts[0]);
-        assert_eq!(tufts[0].variant_cols, 3, "the atlas is kept");
         for species in [
+            GroundCoverSpecies::GrassTuft,
+            GroundCoverSpecies::DryGrassTuft,
+        ] {
+            let own = catalogued(species);
+            let mut tuft = own.clone();
+            assert!(matches!(tuft.kind, crate::pds::GeneratorKind::Lathe { .. }));
+            tint.apply(species, &mut tuft);
+            let tufts: Vec<_> = textures(&tuft)
+                .into_iter()
+                .filter_map(|t| match t {
+                    SovereignTextureConfig::GrassTuft(tuft) => Some(tuft),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(tufts.len(), 1, "{species:?}: one texture, one tuft");
+            assert!(matched(tufts[0], &seeded.config), "{:?}", tufts[0]);
+            let Some(SovereignTextureConfig::GrassTuft(before)) =
+                own.kind.material().map(|m| &m.texture)
+            else {
+                panic!("{species:?}: a grass tuft");
+            };
+            assert_eq!(tufts[0].variant_cols, 3, "{species:?}: the atlas is kept");
+            assert_eq!(tufts[0].seed, before.seed, "{species:?}: its seed is kept");
+        }
+        for species in [
+            GroundCoverSpecies::ShoreGrass,
             GroundCoverSpecies::FernClump,
             GroundCoverSpecies::ReedClump,
             GroundCoverSpecies::MossPatch,
+            GroundCoverSpecies::LichenPatch,
         ] {
             let mut own = catalogued(species);
             tint.apply(species, &mut own);
