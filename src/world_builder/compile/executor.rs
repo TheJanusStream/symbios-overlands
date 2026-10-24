@@ -214,7 +214,7 @@ pub(crate) fn compile_room_record(
                 }
             } else if let Some(queued) = job.queue.pop_front() {
                 ctx.placement_index = queued.index;
-                match start_unit(&mut ctx, queued, &room_water) {
+                match start_unit(&mut ctx, queued, &room_water, &mut job.keep_off) {
                     UnitStart::Committed(index, unit) => {
                         generator_caches.world.units[index] = unit;
                         job.units_built += 1;
@@ -574,6 +574,8 @@ fn plan_job(
             active.queue = queue;
             active.full |= full;
             active.room_water = room_water;
+            // What the record now keeps off is walked anew (#1776).
+            active.keep_off = None;
         }
         None if queue.is_empty() => {}
         None => job.0 = Some(ActiveJob::new(queue, full, room_water)),
@@ -600,6 +602,7 @@ fn start_unit(
     ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
     queued: QueuedUnit,
     room_water: &crate::water::bodies::RoomWater,
+    keep_off: &mut Option<super::job::KeepOff>,
 ) -> UnitStart {
     let index = queued.index;
     // Same reference-copy trick as `step_unit`: the placement borrows
@@ -809,6 +812,12 @@ fn start_unit(
                         naturalness.edge_falloff.0,
                     ),
                     water,
+                    keep_off: keep_off
+                        .get_or_insert_with(|| {
+                            super::scatter::structure_exclusions(record, ctx.heightmap, room_water)
+                                .into()
+                        })
+                        .clone(),
                 },
             })
         }
@@ -922,6 +931,7 @@ fn step_unit(
                 jitter_rng,
                 clusters,
                 water,
+                keep_off,
             },
         ) => {
             let terrain_cfg = crate::pds::find_terrain_config(ctx.record);
@@ -959,6 +969,15 @@ fn step_unit(
                 ) else {
                     continue;
                 };
+                // A copy in a seeded footprint or on the arrival's ground is
+                // suppressed (#1776): it spends its slot and its jitter draws
+                // as if grown, and grows nothing - so every other copy keeps
+                // its place and its pose.
+                if super::scatter::inside_any(keep_off, world_x, world_z) {
+                    super::scatter::instance_jitter(jitter_rng, naturalness);
+                    *spawned += 1;
+                    continue;
+                }
                 // Floating cover (#914) rides the water surface instead of
                 // the submerged terrain the sample landed on. `max` so a
                 // sample on dry shore keeps its bank height - floating only

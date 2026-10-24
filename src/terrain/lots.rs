@@ -551,6 +551,18 @@ pub(crate) fn grow_built(
     tree
 }
 
+/// The scene a network's district grows from (#1772): at layout revision 3
+/// the world's own - its theme suited to its land, the settlement's scene -
+/// and before it the scene every world drew before ([`SceneCharacter::even`]),
+/// so a district grown then grows again byte for byte.
+pub(crate) fn district_scene(did: &str, config: &RoadConfig) -> SceneCharacter {
+    if config.suits_land() {
+        SceneCharacter::for_did(did)
+    } else {
+        SceneCharacter::even_for_did(did)
+    }
+}
+
 /// [`inject_lots`] as layout revision 0 grows lots - every network saved
 /// before #1558 - for the tests of the rules that predate it.
 #[cfg(test)]
@@ -562,7 +574,8 @@ fn inject_lot_buildings(
     prefix: &str,
     settings: &LotSettings,
 ) -> InjectReport {
-    inject_lots(record, lots, did, seed, prefix, settings, false)
+    let scene = SceneCharacter::even_for_did(did);
+    inject_lots(record, lots, did, seed, prefix, settings, false, &scene)
 }
 
 /// Whether `entry`, drawn on `lot` as the network's settings draw it - its
@@ -584,7 +597,8 @@ fn fits_lot(
 }
 
 /// Inject lot buildings into `record`, deterministic in the room DID + the
-/// network's layout `seed`. Returns the number placed.
+/// network's layout `seed`, from `scene` ([`district_scene`]). Returns the
+/// number placed.
 ///
 /// With `fit_only` - a network at layout revision 1 or later (#1558) - no
 /// building or prop is drawn larger than its lot: a lot draws only from the
@@ -592,6 +606,7 @@ fn fits_lot(
 /// through the pools as an empty pool does, and grows nothing when none
 /// fits. Without it, as every network grew before: a building at its
 /// clamp's floor stands on a lot however small.
+#[allow(clippy::too_many_arguments)] // internal: a param object would just rename the call sites
 fn inject_lots(
     record: &mut RoomRecord,
     lots: &[crate::urban::BuildingLot],
@@ -600,12 +615,12 @@ fn inject_lots(
     prefix: &str,
     settings: &LotSettings,
     fit_only: bool,
+    scene: &SceneCharacter,
 ) -> InjectReport {
     let mut report = InjectReport {
         found: lots.len(),
         ..InjectReport::default()
     };
-    let scene = SceneCharacter::for_seed(fnv1a_64(did));
     // Authored theme override (#892): a case-insensitive label match against
     // the theme roster; empty / unrecognised falls through to the room theme.
     let base_theme = resolve_lot_theme(&settings.theme_override).unwrap_or(scene.theme);
@@ -619,7 +634,7 @@ fn inject_lots(
     } else {
         FALLBACK_THEME
     };
-    let character = lot_character(&scene, settings);
+    let character = lot_character(scene, settings);
     let pool = |role| pool_for(theme, role, character.0, character.1);
     let landmark = pool(StructureRole::Landmark);
     let secondary = pool(StructureRole::Secondary);
@@ -836,9 +851,9 @@ fn role_order<T>(
 }
 
 /// Inject street-furniture props (#893) at the extracted spots,
-/// deterministic in DID + seed: theme Prop-role entries, one shared
-/// generator per slug (#454 dedup), a placement per spot facing the road.
-/// Returns the number planted.
+/// deterministic in DID + seed: theme Prop-role entries from `scene`
+/// ([`district_scene`]), one shared generator per slug (#454 dedup), a
+/// placement per spot facing the road. Returns the number planted.
 fn inject_street_furniture(
     record: &mut RoomRecord,
     spots: &[crate::urban::FurnitureSpot],
@@ -846,13 +861,13 @@ fn inject_street_furniture(
     seed: u64,
     prefix: &str,
     settings: &LotSettings,
+    scene: &SceneCharacter,
 ) -> InjectReport {
     let mut report = InjectReport {
         found: spots.len(),
         kept: spots.len(),
         ..InjectReport::default()
     };
-    let scene = SceneCharacter::for_seed(fnv1a_64(did));
     // Same theme resolution as the buildings (#892 override honoured), with
     // the prop pool falling back to the guaranteed-populated theme.
     let base_theme = ThemeArchetype::ALL
@@ -864,7 +879,7 @@ fn inject_street_furniture(
         .unwrap_or(scene.theme);
     // The buildings' prosperity and escalation (#1555): a network told to
     // be peaceful does not line its streets with barricades.
-    let character = lot_character(&scene, settings);
+    let character = lot_character(scene, settings);
     let mut pool = pool_for(base_theme, StructureRole::Prop, character.0, character.1);
     if pool.is_empty() {
         pool = pool_for(
@@ -973,6 +988,7 @@ fn simulate_districts(
                         &prefix,
                         &c.lots,
                         c.tidies_layout(),
+                        &district_scene(did, c),
                     )
                     .placed;
                 }
@@ -981,9 +997,16 @@ fn simulate_districts(
             if c.furniture.enabled {
                 let spots = crate::urban::extract_furniture_spots(heightmap, c, water);
                 let prefix = net_prefix(FURNITURE_PREFIX, *i, c.seed);
-                props_planted =
-                    inject_street_furniture(&mut scratch, &spots, did, c.seed, &prefix, &c.lots)
-                        .placed;
+                props_planted = inject_street_furniture(
+                    &mut scratch,
+                    &spots,
+                    did,
+                    c.seed,
+                    &prefix,
+                    &c.lots,
+                    &district_scene(did, c),
+                )
+                .placed;
             }
             (lots_planted, props_planted)
         })
@@ -1056,14 +1079,23 @@ pub(crate) fn grow_missing_districts(
                 &prefix,
                 &c.lots,
                 c.tidies_layout(),
+                &district_scene(did, &c),
             )
             .placed;
         }
         if c.furniture.enabled && !has_props {
             let spots = crate::urban::extract_furniture_spots(heightmap, &c, &water);
             let prefix = net_prefix(FURNITURE_PREFIX, i, c.seed);
-            planted +=
-                inject_street_furniture(record, &spots, did, c.seed, &prefix, &c.lots).placed;
+            planted += inject_street_furniture(
+                record,
+                &spots,
+                did,
+                c.seed,
+                &prefix,
+                &c.lots,
+                &district_scene(did, &c),
+            )
+            .placed;
         }
     }
     planted
@@ -1143,11 +1175,18 @@ pub(super) fn maybe_populate_lots(
         stats.waiting = false;
     }
     // The room's own character, for the editor to arm an override at
-    // (#1555). Written only when missing, so an unchanged value never
+    // (#1555): the scene its first network grows from ([`district_scene`],
+    // #1772). Written only when it differs, so an unchanged value never
     // stamps the readout changed.
-    if stats.scene.is_none() {
-        let own = SceneCharacter::for_seed(fnv1a_64(did_str));
-        stats.scene = Some((own.prosperity, own.escalation));
+    if stats.scene.is_none() || record.is_changed() {
+        let own = active_configs(&record.0).first().map_or_else(
+            || SceneCharacter::even_for_did(did_str),
+            |(_, config)| district_scene(did_str, config),
+        );
+        let own = Some((own.prosperity, own.escalation));
+        if stats.scene != own {
+            stats.scene = own;
+        }
     }
 
     // 1 - change detection decides + arms. Sweeps (network gone) stay
@@ -1347,6 +1386,7 @@ pub(super) fn maybe_populate_lots(
                     &net_prefix(LOT_PREFIX, *i, config.seed),
                     &config.lots,
                     config.tidies_layout(),
+                    &district_scene(did_str, config),
                 );
                 stats.buildings += report.placed;
                 // The arithmetic behind the number (#1211).
@@ -1368,6 +1408,7 @@ pub(super) fn maybe_populate_lots(
                 config.seed,
                 &net_prefix(FURNITURE_PREFIX, *i, config.seed),
                 &config.lots,
+                &district_scene(did_str, config),
             );
             stats.props += report.placed;
             stats.clamps.props_dropped += report.dropped_to_cap;
@@ -1844,7 +1885,7 @@ mod tests {
     fn did_where(wanted: impl Fn(&SceneCharacter) -> bool) -> String {
         (0..10_000)
             .map(|i| format!("did:test:scene:{i}"))
-            .find(|did| wanted(&SceneCharacter::for_did(did)))
+            .find(|did| wanted(&SceneCharacter::even_for_did(did)))
             .expect("some DID rolls it")
     }
 
@@ -1961,7 +2002,7 @@ mod tests {
         let prefix = seed_prefix(4242);
         let placed = inject_lot_buildings(&mut record, &lots, &did, 4242, &prefix, &settings);
         assert_eq!(placed.placed, lots.len());
-        let scene = SceneCharacter::for_did(&did);
+        let scene = SceneCharacter::even_for_did(&did);
         let mut scales_seen: Vec<f32> = Vec::new();
         for (key, lot, transform, clearance) in grown(&record, &lots, &prefix) {
             assert_eq!(
@@ -2048,14 +2089,26 @@ mod tests {
                     })
                     .count()
             };
+            let scene = SceneCharacter::even_for_did(&did);
             let mut before = RoomRecord::default_for_did(&did);
-            inject_lots(&mut before, &lots, &did, 4242, &prefix, &settings, false);
+            inject_lots(
+                &mut before,
+                &lots,
+                &did,
+                4242,
+                &prefix,
+                &settings,
+                false,
+                &scene,
+            );
             assert!(
                 overflow(&before) > 0,
                 "the control (fit {fit}): revision 0 outgrows a small lot"
             );
             let mut after = RoomRecord::default_for_did(&did);
-            let report = inject_lots(&mut after, &lots, &did, 4242, &prefix, &settings, true);
+            let report = inject_lots(
+                &mut after, &lots, &did, 4242, &prefix, &settings, true, &scene,
+            );
             assert_eq!(
                 overflow(&after),
                 0,
@@ -2124,7 +2177,17 @@ mod tests {
         let lots = vec![lot_for(megatower)];
         let prefix = seed_prefix(4242);
         let mut record = RoomRecord::default_for_did(&did);
-        let report = inject_lots(&mut record, &lots, &did, 4242, &prefix, &settings, true);
+        let scene = SceneCharacter::even_for_did(&did);
+        let report = inject_lots(
+            &mut record,
+            &lots,
+            &did,
+            4242,
+            &prefix,
+            &settings,
+            true,
+            &scene,
+        );
         assert_eq!(report.placed, 1, "the lot grows a building");
         assert!(
             record
@@ -2328,7 +2391,7 @@ mod tests {
     fn downtown_grows_no_prop_while_the_theme_has_a_secondary() {
         use crate::pds::generator::LotTierBias;
         let did = urban_did();
-        let scene = SceneCharacter::for_did(&did);
+        let scene = SceneCharacter::even_for_did(&did);
         let lots: Vec<BuildingLot> = (0..40)
             .map(|i| lot(i as f32 * 60.0, 0.0, 20.0 + i as f32, 30.0))
             .collect();
@@ -2438,7 +2501,7 @@ mod tests {
             s.escalation_tier() == EscalationTier::Conflict
                 && s.prosperity_tier() == ProsperityTier::Rich
         });
-        let scene = SceneCharacter::for_did(&did);
+        let scene = SceneCharacter::even_for_did(&did);
         let lots: Vec<BuildingLot> = (0..80)
             .map(|i| lot(i as f32 * 60.0, 0.0, 10.0 + i as f32 * 0.5, 30.0))
             .collect();
@@ -2510,7 +2573,7 @@ mod tests {
     #[test]
     fn an_override_at_the_scenes_own_values_grows_the_scenes_district() {
         let did = did_where(|s| s.escalation_tier() == EscalationTier::Tense);
-        let scene = SceneCharacter::for_did(&did);
+        let scene = SceneCharacter::even_for_did(&did);
         let lots: Vec<BuildingLot> = (0..40)
             .map(|i| lot(i as f32 * 60.0, 0.0, 10.0 + i as f32, 30.0))
             .collect();
@@ -2544,7 +2607,7 @@ mod tests {
     fn the_street_props_take_the_lot_overrides() {
         use crate::seeded_defaults::EscalationBand;
         let did = did_where(|s| s.escalation_tier() == EscalationTier::Conflict);
-        let scene = SceneCharacter::for_did(&did);
+        let scene = SceneCharacter::even_for_did(&did);
         let spots: Vec<crate::urban::FurnitureSpot> = (0..120)
             .map(|i| crate::urban::FurnitureSpot {
                 position: [i as f32 * 7.0, 3.0],
@@ -2555,7 +2618,15 @@ mod tests {
         let room = RoomRecord::default_for_did(&did);
         let grow = |settings: &LotSettings| {
             let mut record = room.clone();
-            inject_street_furniture(&mut record, &spots, &did, 3, &prefix, settings);
+            inject_street_furniture(
+                &mut record,
+                &spots,
+                &did,
+                3,
+                &prefix,
+                settings,
+                &SceneCharacter::even_for_did(&did),
+            );
             record
         };
         let conflict_props = |record: &RoomRecord| {
@@ -2706,7 +2777,7 @@ mod tests {
             found: lots.len(),
             ..InjectReport::default()
         };
-        let scene = SceneCharacter::for_seed(fnv1a_64(did));
+        let scene = SceneCharacter::even(fnv1a_64(did));
         let base_theme = resolve_lot_theme(&settings.theme_override).unwrap_or(scene.theme);
         let theme = if entries_for(base_theme, StructureRole::Landmark)
             .next()
@@ -3146,7 +3217,7 @@ mod tests {
     #[test]
     fn the_prosperity_override_reaches_the_finish() {
         let did = did_where(|s| s.escalation < 0.3 && s.prosperity > 0.7);
-        let scene = SceneCharacter::for_did(&did);
+        let scene = SceneCharacter::even_for_did(&did);
         let lots: Vec<BuildingLot> = (0..24)
             .map(|i| lot(i as f32 * 80.0, 0.0, 12.0 + i as f32, 40.0))
             .collect();

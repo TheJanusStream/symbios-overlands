@@ -56,6 +56,7 @@
 
 pub mod lightning;
 pub mod precipitation;
+pub mod sound;
 
 use bevy::prelude::*;
 

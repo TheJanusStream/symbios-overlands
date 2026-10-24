@@ -43,6 +43,10 @@ impl CatalogueEntry for Ziggurat {
             ThemeArchetype::Mesoamerican,
         ]
     }
+    fn site(&self) -> crate::catalogue::SitePreference {
+        crate::catalogue::SitePreference::Crest
+    }
+
     fn footprint(&self) -> Footprint {
         Footprint {
             clearance: 18.0,

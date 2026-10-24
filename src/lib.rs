@@ -928,6 +928,8 @@ pub(crate) fn build_client_app(app: &mut App, boot: boot_params::BootParams, she
     drawn_environment::register(app);
     weather::precipitation::register(app);
     weather::lightning::register(app);
+    // The weather's own sound, and the ambient bed under it (#1771).
+    weather::sound::register(app);
     // The sun's shadow cascades follow the orbit zoom (#1475).
     shadow_reach::register(app, shadow_reach::follow_orbit_zoom);
 }

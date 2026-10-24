@@ -165,6 +165,23 @@ pub struct Footprint {
     pub min_spawn_dist: f32,
 }
 
+/// Where on a world's land a seeded building of an entry belongs, beyond
+/// ground that fits it (#1775): what the settlement scores the sites it
+/// fits on by, against the walk from where it was wanted.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SitePreference {
+    /// Anywhere it fits: the nearest site to where it was wanted.
+    #[default]
+    Anywhere,
+    /// High ground with a flat top - a crest or spur: castles, keeps,
+    /// temples, towers and beacons, the settlement's high point.
+    Crest,
+    /// The shore: harbours, resorts, lighthouses, boat sheds.
+    Shore,
+    /// A valley floor above the water: farms, barns and granaries.
+    ValleyFloor,
+}
+
 /// A measurement-fit declaration on a wearable entry (#1089): which body
 /// measurement the worn subtree is scaled to match, and the authored
 /// dimension that measurement replaces. The scale is uniform and computed at
@@ -351,6 +368,13 @@ pub trait CatalogueEntry: Sync {
     /// above its downhill side.
     fn ground_radius(&self) -> Option<f32> {
         None
+    }
+
+    /// Where a seeded building of this entry belongs on a world's land
+    /// (#1775) - [`SitePreference::Anywhere`], the default, for an entry
+    /// that goes wherever its ground fits.
+    fn site(&self) -> SitePreference {
+        SitePreference::Anywhere
     }
 
     /// The bound on the escalation ruin pass's lean for this entry (rad) -

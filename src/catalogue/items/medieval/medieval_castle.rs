@@ -84,6 +84,10 @@ impl CatalogueEntry for MedievalCastle {
     fn themes(&self) -> &'static [ThemeArchetype] {
         &[ThemeArchetype::Medieval]
     }
+    fn site(&self) -> crate::catalogue::SitePreference {
+        crate::catalogue::SitePreference::Crest
+    }
+
     fn footprint(&self) -> Footprint {
         Footprint {
             clearance: 54.0,

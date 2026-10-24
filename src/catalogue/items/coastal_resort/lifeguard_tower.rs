@@ -132,6 +132,10 @@ impl CatalogueEntry for LifeguardTower {
     fn prosperity_band(&self) -> crate::seeded_defaults::ProsperityBand {
         super::RESORT_BAND
     }
+    fn site(&self) -> crate::catalogue::SitePreference {
+        crate::catalogue::SitePreference::Shore
+    }
+
     fn footprint(&self) -> Footprint {
         Footprint {
             clearance: 5.5,

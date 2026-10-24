@@ -524,7 +524,8 @@ generation cores shared with the wasm Web Worker.
   ground-cover / particle scatters, a themed mini-settlement near spawn (a
   landmark plus secondary buildings and scatter props, drawn from the catalogue
   by theme and sited inside buildable regions segmented from a derive-time
-  proxy heightmap), exactly one social gateway on the origin→landmark approach
+  proxy heightmap, each where its plinth reaches the ground under its whole
+  footprint - #1773), exactly one social gateway on the origin→landmark approach
   - which also fixes the room's default landing pose - with the owner-identity
   monument standing beside it, a light
   theme accent nudged back onto the natural derivers (fog tint, particle mood),

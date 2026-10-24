@@ -374,6 +374,38 @@ pub(crate) mod lighting {
             /// heaviest rain or snow, a share of them in lighter.
             pub const DROPS: u32 = 12_000;
         }
+
+        /// The weather's own sound (`crate::weather::sound`, #1771).
+        pub mod sound {
+            /// The rate its loops are synthesised at (Hz): the ambient
+            /// bed's, so a rain's hiss keeps the top it has.
+            pub const RATE: u32 = 22_050;
+            /// How long each loop runs before it repeats (s): long enough
+            /// that the ear does not catch the repeat in its texture.
+            pub const LOOP_SECS: f32 = 7.0;
+            /// The tail folded into the loop's start, so the repeat has no
+            /// seam (s).
+            pub const CROSSFADE_SECS: f32 = 0.6;
+            /// Each loop's volume at its weather's heaviest: the rain's
+            /// hiss, and the wind's roar under a storm or a dust storm.
+            /// Measured against seeded beds (RMS about 0.05; the loops,
+            /// normalised, 0.18 and 0.21): a downpour about 1.4 times the
+            /// bed - which sinks under it - and a middling rain about the
+            /// bed's own level, all well under the thunder (0.25 to 0.9).
+            pub const RAIN_VOLUME: f32 = 0.4;
+            pub const WIND_VOLUME: f32 = 0.35;
+            /// Seconds a loop takes to fade from silence to its weather's
+            /// level, or back: a spell's change is slower than this, so
+            /// the sound follows it; a cut - a gateway into a downpour -
+            /// swells in rather than slams.
+            pub const FADE_SECS: f32 = 2.0;
+            /// Under this a loop is silent, and its player goes.
+            pub const SILENT: f32 = 0.002;
+            /// How far the ambient bed sinks under the heaviest rain and
+            /// the heaviest snow: the rain masks it, the snow muffles it.
+            pub const BED_UNDER_RAIN: f32 = 0.45;
+            pub const BED_UNDER_SNOW: f32 = 0.3;
+        }
     }
 
     /// Sky light (#1680): the environment map `sky_light` builds from the

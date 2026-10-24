@@ -24,8 +24,11 @@
 //! The lean is applied to the member's *root* transform, which the world
 //! compiler composes with the placement pose (`cell_tf * generator.transform`,
 //! see `world_builder::compile::dispatch`), so it tilts the whole structure
-//! in place. The pass is deterministic in the member's `grammar_seed`, so
-//! peers deriving the same room produce bit-identical ruins.
+//! in place - a lot building's. A seeded settlement's member keeps its
+//! footing level instead ([`apply_ruin_level`], #1776): only the parts above
+//! it lean, and hardly. The pass is deterministic in the member's
+//! `grammar_seed`, so peers deriving the same room produce bit-identical
+//! ruins.
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
@@ -51,6 +54,14 @@ const GROUND_TOL: f32 = 0.35;
 /// Fraction of collapsed parts that topple to the ground as intact debris
 /// rather than vanish outright.
 const FELL_FRACTION: f32 = 0.5;
+/// How far below the ground its structure stands on a part reaches before
+/// it counts as the footing (m, #1776): walls start at the ground, a plinth
+/// is buried a metre and more (`foundation::required_depth`).
+const FOOTING_BELOW: f32 = 0.5;
+/// How far a building's base may rise or sink against its level plinth as
+/// its parts lean ([`apply_ruin_level`], #1776, m): within the footing's
+/// 0.15 m reveal, so no wedge of daylight or buried wall shows at the seam.
+const LEVEL_SWAY: f32 = 0.1;
 /// Askew multiplier for survivors that still hold a standing part above
 /// them - a wall under an intact roof barely leans, so their contact isn't
 /// visually broken; free-standing survivors take the full stagger.
@@ -88,6 +99,24 @@ pub fn apply_ruin(node: &mut Generator, escalation: f32, seed: u64) {
 /// taken as it always was, so the rest of the ruin (sink, shrink, collapse,
 /// rubble, dead lights) comes out of the same stream.
 pub fn apply_ruin_bounded(node: &mut Generator, escalation: f32, seed: u64, max_lean: Option<f32>) {
+    ruin(node, escalation, seed, max_lean, false);
+}
+
+/// [`apply_ruin_bounded`] for a building standing on its own plinth - a
+/// seeded settlement's member (#1776): the same wear from the same draws,
+/// but its footing stays level. The whole-structure lean tilts only the
+/// parts above the footing, about the root, and no further than raises or
+/// sinks their base [`LEVEL_SWAY`] against it - a kiosk still leans, a
+/// castle hardly at all - and a footing is never knocked askew or felled.
+/// A tilted plinth, and a whole landmark leaning, read as a placement bug:
+/// seed 14's castle leaned about 8 degrees. The lots keep
+/// [`apply_ruin_bounded`] exactly, so a saved district grows as it was.
+pub fn apply_ruin_level(node: &mut Generator, escalation: f32, seed: u64, max_lean: Option<f32>) {
+    ruin(node, escalation, seed, max_lean, true);
+}
+
+/// The ruin pass, its plinth kept `level` or not ([`apply_ruin_level`]).
+fn ruin(node: &mut Generator, escalation: f32, seed: u64, max_lean: Option<f32>, level: bool) {
     let Some((tier_lean, max_sink, min_scale, collapse_p)) =
         envelope(EscalationTier::from_unit(escalation))
     else {
@@ -99,7 +128,11 @@ pub fn apply_ruin_bounded(node: &mut Generator, escalation: f32, seed: u64, max_
     // Whole-structure lean about a random horizontal axis.
     let lean = range_f32(&mut rng, 0.4, 1.0) * max_lean;
     let (ax, az) = (signed_unit_f32(&mut rng), signed_unit_f32(&mut rng));
-    lean_node(node, lean, ax, az);
+    if level {
+        lean_above_footing(node, lean, ax, az);
+    } else {
+        lean_node(node, lean, ax, az);
+    }
 
     // Settle into the ground and shrink a touch.
     node.transform.translation.0[1] -= range_f32(&mut rng, max_sink * 0.5, max_sink);
@@ -112,7 +145,7 @@ pub fn apply_ruin_bounded(node: &mut Generator, escalation: f32, seed: u64, max_
     // survivors askew, drop rubble at the base, and short out some of the
     // emissive trim (dead / guttering neon).
     if collapse_p > 0.0 {
-        collapse_children(node, collapse_p, max_lean, &mut rng);
+        collapse_children(node, collapse_p, max_lean, level, &mut rng);
         scatter_rubble(node, &mut rng);
         break_emissives(node, 0.5, &mut rng);
     }
@@ -149,6 +182,63 @@ fn lean_node(node: &mut Generator, angle: f32, ax: f32, az: f32) {
     let (s, c) = (half.sin(), half.cos());
     let tilt = [ax / len * s, 0.0, az / len * s, c];
     node.transform.rotation = Fp4(quat_mul(tilt, node.transform.rotation.0));
+}
+
+/// Whether a part reaching down to `min_y` in its root's frame is the
+/// footing its structure stands on: buried past [`FOOTING_BELOW`] under
+/// `grade`, the root-frame height of the ground the structure stands on
+/// ([`grade_of`]).
+fn is_footing(min_y: f32, grade: f32) -> bool {
+    min_y < grade - FOOTING_BELOW
+}
+
+/// The height, in `root`'s own frame, of the ground its structure stands on:
+/// its placement's origin, which the root's translation moves it from - a
+/// footing root sits its own origin at the block's middle, under the ground
+/// (`util::foundation_block`).
+fn grade_of(root: &Generator) -> f32 {
+    -root.transform.translation.0[1]
+}
+
+/// [`lean_node`] for a structure whose footing stays level (#1776): every
+/// part but the footing - the root's own prim, where it is one, and any
+/// part buried past [`FOOTING_BELOW`] - leans about the root's origin, by
+/// `angle` or the less that raises or sinks their base [`LEVEL_SWAY`]. A
+/// structure with no footing leans whole, within the same bound.
+fn lean_above_footing(node: &mut Generator, angle: f32, ax: f32, az: f32) {
+    let len = (ax * ax + az * az).sqrt();
+    if len < 1e-5 {
+        return;
+    }
+    let grade = grade_of(node);
+    let footed_root = kind_bounds(&node.kind).is_some_and(|b| is_footing(b.min[1], grade));
+    let leaning: Vec<usize> = (0..node.children.len())
+        .filter(|&i| !is_footing(part_bounds(&node.children[i]).min[1], grade))
+        .collect();
+    let footed = footed_root || leaning.len() < node.children.len();
+    let reach = |b: Bounds| {
+        [b.min[0], b.max[0], b.min[2], b.max[2]]
+            .into_iter()
+            .fold(0.0_f32, |far, v| far.max(v.abs()))
+    };
+    let parts = leaning
+        .iter()
+        .map(|&i| part_bounds(&node.children[i]))
+        .chain((!footed).then(|| kind_bounds(&node.kind)).flatten());
+    let extent = parts.map(reach).fold(0.0_f32, f32::max).max(0.5);
+    let angle = angle.min(LEVEL_SWAY / extent);
+    if !footed {
+        lean_node(node, angle, ax, az);
+        return;
+    }
+    let half = angle * 0.5;
+    let (s, c) = (half.sin(), half.cos());
+    let tilt = [ax / len * s, 0.0, az / len * s, c];
+    for i in leaning {
+        let part = &mut node.children[i];
+        part.transform.rotation = Fp4(quat_mul(tilt, part.transform.rotation.0));
+        part.transform.translation = Fp3(quat_rotate(tilt, part.transform.translation.0));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -429,7 +519,13 @@ enum Fate {
 /// scaled down by [`SUPPORTER_ASKEW`] when they still hold something up.
 /// Nodes without children - grammars whose geometry is internal - are
 /// untouched.
-fn collapse_children(node: &mut Generator, collapse_p: f32, max_lean: f32, rng: &mut ChaCha8Rng) {
+fn collapse_children(
+    node: &mut Generator,
+    collapse_p: f32,
+    max_lean: f32,
+    level: bool,
+    rng: &mut ChaCha8Rng,
+) {
     let n = node.children.len();
     if n == 0 {
         return;
@@ -461,10 +557,14 @@ fn collapse_children(node: &mut Generator, collapse_p: f32, max_lean: f32, rng: 
             .total_cmp(&bounds[a].max[1])
             .then(a.cmp(&b))
     });
+    // A footing kept level stands as the anchor does (#1776).
+    let grade = grade_of(node);
+    let footing = |i: usize| level && is_footing(bounds[i].min[1], grade);
+    let kept = |i: usize| i == anchor || footing(i);
     for &i in &order {
         let collapse_roll = unit_f32(rng);
         let fell_roll = unit_f32(rng);
-        if i == anchor || collapse_roll >= collapse_p {
+        if kept(i) || collapse_roll >= collapse_p {
             continue;
         }
         let holds_something = (0..n)
@@ -540,8 +640,12 @@ fn collapse_children(node: &mut Generator, collapse_p: f32, max_lean: f32, rng: 
                 };
                 let a = signed_unit_f32(rng) * max_lean * f;
                 let b = signed_unit_f32(rng) * max_lean * f;
-                lean_node(&mut child, (a * a + b * b).sqrt(), a, b);
-                child.transform.translation.0[1] -= range_f32(rng, 0.0, 0.2 * f);
+                let drop = range_f32(rng, 0.0, 0.2 * f);
+                // A footing kept level takes its draws and stays put.
+                if !footing(i) {
+                    lean_node(&mut child, (a * a + b * b).sqrt(), a, b);
+                    child.transform.translation.0[1] -= drop;
+                }
                 survivors.push(child);
             }
         }
@@ -639,6 +743,15 @@ fn tumble(yaw: [f32; 4], ax: f32, az: f32) -> [f32; 4] {
     quat_mul(tilt, yaw)
 }
 
+/// `v` turned by the unit quaternion `q` (`[x, y, z, w]`).
+fn quat_rotate(q: [f32; 4], v: [f32; 3]) -> [f32; 3] {
+    let [x, y, z, _] = quat_mul(
+        quat_mul(q, [v[0], v[1], v[2], 0.0]),
+        [-q[0], -q[1], -q[2], q[3]],
+    );
+    [x, y, z]
+}
+
 /// Hamilton product `a * b` of two `[x, y, z, w]` quaternions.
 fn quat_mul(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
     let [ax, ay, az, aw] = a;
@@ -687,6 +800,93 @@ mod tests {
             && (r[1]).abs() < 1e-6
             && (r[2]).abs() < 1e-6
             && (r[3] - 1.0).abs() < 1e-6
+    }
+
+    /// The angle a node's rotation turns it by.
+    fn tilt_of(node: &Generator) -> f32 {
+        2.0 * node.transform.rotation.0[3].abs().min(1.0).acos()
+    }
+
+    /// A building on a buried plinth, as the catalogue roots one (#1009):
+    /// the root a footing `half` m round reaching 3 m down, three storeys as
+    /// wide standing on it.
+    fn footed(half: f32) -> Generator {
+        let mut root = structure();
+        root.kind = GeneratorKind::Cuboid {
+            common: PrimCommon {
+                solid: true,
+                material: SovereignMaterialSettings::default(),
+                ..Default::default()
+            },
+            size: Fp3([2.0 * half, 3.15, 2.0 * half]),
+        };
+        root.transform.translation = Fp3([0.0, 0.15 - 3.15 * 0.5, 0.0]);
+        for (i, part) in root.children.iter_mut().enumerate() {
+            part.transform.translation = Fp3([0.0, 0.5 + i as f32 + 1.575, 0.0]);
+            part.transform.scale = Fp3([2.0 * half, 1.0, 2.0 * half]);
+        }
+        root
+    }
+
+    /// #1776: a seeded member's plinth stays level through the ruin, and the
+    /// parts above it lean no further than raises their base
+    /// [`LEVEL_SWAY`] - so a wide building hardly at all, and a narrow one
+    /// still by the tier's own lean.
+    #[test]
+    fn a_level_ruin_keeps_its_plinth_level_and_a_wide_building_upright() {
+        for seed in 0..32 {
+            for escalation in [0.5, 0.95] {
+                let mut wide = footed(20.0);
+                apply_ruin_level(&mut wide, escalation, seed, None);
+                assert!(is_identity_rot(&wide), "seed {seed}: the plinth tilted");
+                if escalation < 0.9 {
+                    // Light wear knocks no part: only the lean, which the
+                    // 20 m reach caps far under the tier's.
+                    for part in &wide.children {
+                        assert!(
+                            tilt_of(part) <= LEVEL_SWAY / 20.0 + 1e-5,
+                            "seed {seed}: a part leans {}",
+                            tilt_of(part)
+                        );
+                    }
+                    // A kiosk half a metre across still leans by the tier.
+                    let mut narrow = footed(0.5);
+                    apply_ruin_level(&mut narrow, escalation, seed, None);
+                    assert!(is_identity_rot(&narrow), "seed {seed}: its plinth tilted");
+                    assert!(
+                        narrow.children.iter().all(|part| tilt_of(part) > 0.015),
+                        "seed {seed}: the kiosk stood straight"
+                    );
+                }
+                // The lots' pass still leans the whole of it.
+                let mut lot = footed(20.0);
+                apply_ruin_bounded(&mut lot, escalation, seed, None);
+                assert!(
+                    !is_identity_rot(&lot),
+                    "seed {seed}: the lot stood straight"
+                );
+            }
+        }
+    }
+
+    /// #1776: a footing among a structure's parts - buried past
+    /// [`FOOTING_BELOW`] - is never knocked askew nor felled, at any tier.
+    #[test]
+    fn a_level_ruin_never_knocks_a_buried_footing() {
+        for seed in 0..64 {
+            let mut root = structure();
+            let mut footing = root.children[0].clone();
+            footing.transform.translation = Fp3([0.0, -1.5, 0.0]);
+            footing.transform.scale = Fp3([4.0, 3.0, 4.0]);
+            root.children.insert(0, footing.clone());
+            apply_ruin_level(&mut root, 0.95, seed, None);
+            assert!(
+                root.children
+                    .iter()
+                    .any(|part| part.transform == footing.transform),
+                "seed {seed}: the footing moved"
+            );
+        }
     }
 
     #[test]

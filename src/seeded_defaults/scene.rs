@@ -134,15 +134,17 @@ impl BiomeArchetype {
     }
 }
 
-/// Discrete theme family - the *artificial* axis, parallel and fully
-/// orthogonal to [`BiomeArchetype`] (the natural axis). Drives which
-/// themed mini-settlement of catalogue structures a room grows (a
-/// landmark plus secondary buildings and scatter props) and, optionally,
-/// a light accent the theme nudges back onto the natural derivers (fog
-/// tint, ambient audio, particle mood).
+/// Discrete theme family - the *artificial* axis, parallel to
+/// [`BiomeArchetype`] (the natural axis). Drives which themed
+/// mini-settlement of catalogue structures a room grows (a landmark plus
+/// secondary buildings and scatter props) and, optionally, a light accent
+/// the theme nudges back onto the natural derivers (fog tint, ambient
+/// audio, particle mood).
 ///
-/// Picked uniformly per room and independently of biome, so surreal
-/// collisions - a cyberpunk volcano, a medieval glacier - are intentional.
+/// A world on its own terrain draws one that suits its land three times in
+/// four ([`theme_for_land`], #1772); the fourth time a surreal collision - a
+/// cyberpunk volcano, a medieval glacier - and those stay intentional. A
+/// Berlin square draws among them all.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ThemeArchetype {
     // --- Historical ---
@@ -413,17 +415,51 @@ impl SceneCharacter {
     /// Derive the character anchor from a pre-computed seed. Pulled out
     /// of [`Self::for_did`] so tests can sample a known seed without
     /// picking a DID string that happens to hash to it.
+    ///
+    /// A world on its own terrain draws a theme that suits its land three
+    /// times in four (#1772, [`theme_for_land`]). A Berlin square's land is
+    /// the city whatever its biome, and it draws [`Self::even`]'s scene, as
+    /// every world did before.
     pub fn for_seed(seed: u64) -> Self {
+        let berlin = crate::seeded_defaults::RegionSource::for_seed(seed).kind
+            == crate::seeded_defaults::SourceKind::Berlin;
+        Self::drawn(seed, !berlin)
+    }
+
+    /// The scene `seed` drew before #1772: its theme drawn evenly among them
+    /// all, one draw, and so every dial after it as it was. The scene of what
+    /// is grown again from a DID while the rest of a world is saved: a road
+    /// network's look and its lot buildings (`terrain::roads`,
+    /// `terrain::lots`), which keep the streets and the districts of a city
+    /// saved before the land-suited draw. A Berlin square's scene is this
+    /// one ([`Self::for_seed`]).
+    pub fn even(seed: u64) -> Self {
+        Self::drawn(seed, false)
+    }
+
+    /// [`Self::even`] for a room-owner DID.
+    pub fn even_for_did(did: &str) -> Self {
+        Self::even(fnv1a_64(did))
+    }
+
+    /// `seed`'s scene, its theme suited to its land when `suited`.
+    fn drawn(seed: u64, suited: bool) -> Self {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
         let base_hue_deg = unit_f32(&mut rng) * 360.0;
         let temperature = signed_unit_f32(&mut rng);
         let time_of_day_bias = signed_unit_f32(&mut rng);
         let landform = pick(&LandformArchetype::ALL, &mut rng);
         let biome = pick(&BiomeArchetype::ALL, &mut rng);
-        let theme = pick(&ThemeArchetype::ALL, &mut rng);
+        let theme = if suited {
+            theme_for_land(landform, biome, &mut rng)
+        } else {
+            pick(&ThemeArchetype::ALL, &mut rng)
+        };
         // The socio-political axes are the last two draws, orthogonal to
-        // everything above: appending them leaves every prior archetype /
-        // knob (theme included) bit-identical to before they existed.
+        // everything above. (A land-suited theme takes two draws where the
+        // even pick took one, so a world on its own terrain rolls other
+        // dials than its even scene: an unedited world re-derives on every
+        // load; what a saved world grows again reads the even scene.)
         let prosperity = unit_f32(&mut rng);
         let escalation = unit_f32(&mut rng);
         Self {
@@ -569,6 +605,152 @@ pub fn range_f32(rng: &mut impl RngCore, lo: f32, hi: f32) -> f32 {
     lo + unit_f32(rng) * (hi - lo)
 }
 
+/// The share of worlds on their own terrain whose theme does not suit their
+/// land (#1772, owner 2026-10-24): about one in four stays surreal - a
+/// sports park on a volcano - the rest suit it.
+pub const SURREAL_SHARE: f32 = 0.25;
+
+/// The biomes a theme's settlement belongs in: where its kind of place is
+/// built, or could plausibly have been.
+pub fn theme_biomes(theme: ThemeArchetype) -> &'static [BiomeArchetype] {
+    use BiomeArchetype::*;
+    use ThemeArchetype as T;
+    match theme {
+        T::AncientClassical => &[
+            Arid,
+            Savanna,
+            Coastal,
+            Meadow,
+            Lush,
+            Volcanic,
+            TemperateForest,
+        ],
+        T::Medieval => &[
+            TemperateForest,
+            Meadow,
+            Lush,
+            Alpine,
+            Boreal,
+            Coastal,
+            Wetland,
+        ],
+        T::Nordic => &[Boreal, Tundra, Glacial, Alpine, Coastal, TemperateForest],
+        T::FeudalJapan => &[
+            Lush,
+            TemperateForest,
+            Alpine,
+            Coastal,
+            Meadow,
+            Volcanic,
+            Wetland,
+        ],
+        T::Mesoamerican => &[Jungle, Arid, Savanna, Lush, Volcanic, Wetland],
+        T::ModernCity => &[Coastal, Meadow, TemperateForest, Lush, Arid, Wetland],
+        T::Suburban => &[Meadow, TemperateForest, Lush, Coastal, Savanna],
+        T::RuralFarmland => &[Meadow, Lush, TemperateForest, Savanna, Wetland, Boreal],
+        T::IndustrialPark => &[
+            Badlands,
+            Arid,
+            Volcanic,
+            Coastal,
+            Wetland,
+            Tundra,
+            TemperateForest,
+        ],
+        T::CoastalResort => &[Coastal, Jungle, Lush, Savanna, Arid],
+        T::Roadside => &[Arid, Badlands, Savanna, Meadow, Boreal],
+        T::CivicCampus => &[Meadow, TemperateForest, Lush, Coastal],
+        T::SportsRec => &[Meadow, Lush, Coastal, Alpine, Glacial, TemperateForest],
+        T::Cyberpunk => &[Coastal, Wetland, Arid, Jungle, Badlands],
+        T::Steampunk => &[
+            Alpine,
+            Badlands,
+            Arid,
+            Boreal,
+            Volcanic,
+            Coastal,
+            TemperateForest,
+        ],
+        T::Solarpunk => &[
+            Lush,
+            Meadow,
+            Jungle,
+            Coastal,
+            TemperateForest,
+            Savanna,
+            Wetland,
+        ],
+        T::SpaceOutpost => &[Arid, Badlands, Volcanic, Glacial, Tundra],
+        T::Fantasy => &[
+            Lush,
+            TemperateForest,
+            Meadow,
+            Alpine,
+            Jungle,
+            Wetland,
+            Coastal,
+        ],
+        T::GothicHorror => &[Wetland, Boreal, TemperateForest, Tundra, Alpine, Coastal],
+        T::AlienOrganic => &[Jungle, Wetland, Volcanic, Lush],
+        T::AlienMonolithic => &[Arid, Badlands, Glacial, Tundra, Volcanic],
+        T::PostApoc => &[Arid, Badlands, Savanna, Volcanic, Tundra, Wetland],
+        T::WildWest => &[Arid, Badlands, Savanna, Meadow, Alpine],
+        T::Pirate => &[Coastal, Jungle, Lush, Savanna],
+    }
+}
+
+/// How well `theme` suits a world of `landform` and `biome`, as a weight:
+/// 0 where its settlement does not belong in the biome; otherwise 4, more
+/// on the landform its kind of place seeks - a harbour or a resort an
+/// archipelago's water, a farm, a suburb, a campus or a playing field
+/// gentle ground, a mountain town or a castle's crag rough ground, a
+/// frontier or an outpost the mesas.
+pub fn theme_affinity(
+    theme: ThemeArchetype,
+    landform: LandformArchetype,
+    biome: BiomeArchetype,
+) -> u32 {
+    use LandformArchetype as L;
+    use ThemeArchetype as T;
+    if !theme_biomes(theme).contains(&biome) {
+        return 0;
+    }
+    let seeks = match theme {
+        T::CoastalResort | T::Pirate => (landform == L::Archipelago).then_some(4),
+        T::RuralFarmland | T::Suburban | T::CivicCampus | T::SportsRec => {
+            matches!(landform, L::Rolling | L::Valleys).then_some(2)
+        }
+        T::Nordic | T::Medieval | T::Steampunk | T::GothicHorror | T::FeudalJapan => {
+            (landform == L::Craggy).then_some(2)
+        }
+        T::WildWest | T::Roadside | T::SpaceOutpost | T::AlienMonolithic | T::PostApoc => {
+            (landform == L::Mesa).then_some(2)
+        }
+        _ => None,
+    };
+    4 + seeks.unwrap_or(0)
+}
+
+/// The theme of a world on its own terrain of `landform` and `biome`
+/// (#1772): most often one that suits its land, drawn by
+/// [`theme_affinity`]; [`SURREAL_SHARE`] of the time one that does not,
+/// drawn evenly among those. A land every theme suits, or none, draws among
+/// them all.
+pub fn theme_for_land(
+    landform: LandformArchetype,
+    biome: BiomeArchetype,
+    rng: &mut impl RngCore,
+) -> ThemeArchetype {
+    let surreal = unit_f32(rng) < SURREAL_SHARE;
+    let suits = |theme: ThemeArchetype| theme_affinity(theme, landform, biome);
+    let drawn = if surreal {
+        pick_weighted(&ThemeArchetype::ALL, |t| u32::from(suits(t) == 0), rng)
+    } else {
+        pick_weighted(&ThemeArchetype::ALL, suits, rng)
+    };
+    drawn.unwrap_or_else(|| pick(&ThemeArchetype::ALL, rng))
+}
+
 /// Uniform pick from a non-empty slice.
 pub fn pick<T: Copy>(items: &[T], rng: &mut impl RngCore) -> T {
     let i = (unit_f32(rng) * items.len() as f32) as usize;
@@ -612,6 +794,89 @@ pub fn pick_weighted<T: Copy>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn berlin(seed: u64) -> bool {
+        crate::seeded_defaults::RegionSource::for_seed(seed).kind
+            == crate::seeded_defaults::SourceKind::Berlin
+    }
+
+    /// #1772: every biome suits a handful of themes and leaves a handful
+    /// surreal, so either branch of the draw has a choice to make.
+    #[test]
+    fn every_biome_suits_some_themes_and_not_others() {
+        for biome in BiomeArchetype::ALL {
+            let suits = ThemeArchetype::ALL
+                .iter()
+                .filter(|t| theme_biomes(**t).contains(&biome))
+                .count();
+            assert!(suits >= 4, "{biome:?} suits {suits} themes");
+            assert!(
+                ThemeArchetype::ALL.len() - suits >= 4,
+                "{biome:?} suits nearly all"
+            );
+        }
+    }
+
+    /// #1772: a land a theme's kind of place seeks weighs it more - a
+    /// harbour the archipelago's water, a farm gentle ground - and a biome
+    /// it does not belong in weighs it nothing, whatever the landform.
+    #[test]
+    fn a_theme_weighs_more_on_the_land_it_seeks() {
+        use BiomeArchetype as B;
+        use LandformArchetype as L;
+        use ThemeArchetype as T;
+        let pirate = |l| theme_affinity(T::Pirate, l, B::Coastal);
+        assert!(pirate(L::Archipelago) > pirate(L::Rolling));
+        let farm = |l| theme_affinity(T::RuralFarmland, l, B::Meadow);
+        assert!(farm(L::Rolling) > farm(L::Craggy));
+        assert!(farm(L::Craggy) > 0, "a farm still suits a craggy meadow");
+        for landform in LandformArchetype::ALL {
+            assert_eq!(theme_affinity(T::Pirate, landform, B::Glacial), 0);
+        }
+    }
+
+    /// #1772: about one world on its own terrain in four has a theme its
+    /// land does not suit, and every theme still comes up; a Berlin square
+    /// draws its theme, and every dial after it, exactly as the even pick
+    /// drew them before.
+    #[test]
+    fn a_world_mostly_suits_its_land_and_berlin_draws_as_before() {
+        let mut own = 0usize;
+        let mut surreal = 0usize;
+        let mut seen = std::collections::HashSet::new();
+        for seed in 0..4_000u64 {
+            let scene = SceneCharacter::for_seed(seed);
+            if berlin(seed) {
+                let mut rng = ChaCha8Rng::seed_from_u64(seed);
+                let _hue = unit_f32(&mut rng);
+                let _temperature = signed_unit_f32(&mut rng);
+                let _bias = signed_unit_f32(&mut rng);
+                let _landform = pick(&LandformArchetype::ALL, &mut rng);
+                let _biome = pick(&BiomeArchetype::ALL, &mut rng);
+                assert_eq!(
+                    scene.theme,
+                    pick(&ThemeArchetype::ALL, &mut rng),
+                    "seed {seed}"
+                );
+                assert_eq!(scene.prosperity, unit_f32(&mut rng), "seed {seed}");
+                assert_eq!(scene.escalation, unit_f32(&mut rng), "seed {seed}");
+                continue;
+            }
+            own += 1;
+            seen.insert(scene.theme.label());
+            surreal += usize::from(theme_affinity(scene.theme, scene.landform, scene.biome) == 0);
+        }
+        let share = surreal as f32 / own as f32;
+        assert!(
+            (SURREAL_SHARE - 0.04..=SURREAL_SHARE + 0.04).contains(&share),
+            "{surreal} of {own} surreal ({share})"
+        );
+        assert_eq!(
+            seen.len(),
+            ThemeArchetype::ALL.len(),
+            "every theme comes up"
+        );
+    }
 
     #[test]
     fn determinism_across_calls() {

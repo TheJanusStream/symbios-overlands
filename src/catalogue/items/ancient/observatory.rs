@@ -42,6 +42,10 @@ impl CatalogueEntry for Observatory {
     fn themes(&self) -> &'static [ThemeArchetype] {
         &[ThemeArchetype::AncientClassical]
     }
+    fn site(&self) -> crate::catalogue::SitePreference {
+        crate::catalogue::SitePreference::Crest
+    }
+
     fn footprint(&self) -> Footprint {
         Footprint {
             clearance: 4.5,

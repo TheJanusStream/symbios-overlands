@@ -34,6 +34,10 @@ impl CatalogueEntry for Boathouse {
     fn prosperity_band(&self) -> crate::seeded_defaults::ProsperityBand {
         super::NORDIC_BAND
     }
+    fn site(&self) -> crate::catalogue::SitePreference {
+        crate::catalogue::SitePreference::Shore
+    }
+
     fn footprint(&self) -> Footprint {
         Footprint {
             clearance: 7.0,

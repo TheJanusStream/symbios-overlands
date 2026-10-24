@@ -39,6 +39,10 @@ impl CatalogueEntry for Pagoda {
     fn prosperity_band(&self) -> crate::seeded_defaults::ProsperityBand {
         super::FEUDAL_BAND
     }
+    fn site(&self) -> crate::catalogue::SitePreference {
+        crate::catalogue::SitePreference::Crest
+    }
+
     fn footprint(&self) -> Footprint {
         Footprint {
             clearance: 14.0,

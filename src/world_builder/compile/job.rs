@@ -165,6 +165,11 @@ pub(super) struct ActiveJob {
     /// replan recomputes it, and the record cannot change between plans
     /// without triggering one.
     pub(super) room_water: crate::water::bodies::RoomWater,
+    /// What every scatter keeps off (#1776,
+    /// [`structure_exclusions`](super::scatter::structure_exclusions)),
+    /// walked once a plan when its first scatter starts: a replan - which a
+    /// new heightmap or record always brings - clears it.
+    pub(super) keep_off: Option<KeepOff>,
     /// The scattered copy being spawned and each generator's size class,
     /// measured on its first copy this job (#1480) - see
     /// [`CopyRecorder`](super::super::draw_distance::CopyRecorder).
@@ -191,6 +196,7 @@ impl ActiveJob {
             skipped_units: 0,
             skipped_from: None,
             room_water,
+            keep_off: None,
             copy: Default::default(),
             work: Duration::ZERO,
             frames: 0,
@@ -198,6 +204,11 @@ impl ActiveJob {
         }
     }
 }
+
+/// `(centre_x, centre_z, radius²)` of the ground every scatter keeps off
+/// ([`structure_exclusions`](super::scatter::structure_exclusions), #1776),
+/// shared by every scatter of a plan.
+pub(super) type KeepOff = std::sync::Arc<[(f32, f32, f32)]>;
 
 /// Resume point inside a multi-cell unit. The anchor and its resolved
 /// world transform are computed once at unit start; the kind carries
@@ -242,6 +253,9 @@ pub(super) enum CursorKind {
         /// ([`crate::water::ScatterWater`]): the level over its centre, and
         /// a lake's at each sample its reach takes in (#1727).
         water: crate::water::ScatterWater,
+        /// The seeded footprints and the landing it keeps off, where the
+        /// compile stands them ([`ActiveJob::keep_off`], #1776).
+        keep_off: KeepOff,
     },
 }
 
@@ -275,8 +289,8 @@ pub(super) fn placement_generator_ref(placement: &Placement) -> Option<&str> {
 ///   placement-count changes both force).
 ///
 /// Once-per-planning-pass fingerprint inputs that are pure functions of
-/// the whole record: the room's water and the terrain config, both
-/// serialised up front. The water is the one drawn - its sea's level, and
+/// the whole record: the room's water, the terrain config and what every
+/// scatter keeps off (#1776), all serialised up front. The water is the one drawn - its sea's level, and
 /// its bodies' levels and cells (`RoomWater::key`, #1727): a lake's, or
 /// Berlin's own in a region built from real Berlin (#1724) - and the
 /// bodies' cells and Berlin's land use, which a scatter's biome filter reads
@@ -294,10 +308,36 @@ pub(super) fn placement_generator_ref(placement: &Placement) -> Option<&str> {
 pub(super) struct FingerprintPass {
     water_level: Option<serde_json::Value>,
     terrain: Option<serde_json::Value>,
+    /// What every scatter keeps off (#1776): each seeded structure's place
+    /// and ground radius, and the world's landing with its facing -
+    /// `Value::Null` for a world with neither.
+    kept_off: Option<serde_json::Value>,
 }
 
 impl FingerprintPass {
     pub(super) fn new(record: &RoomRecord, room_water: &crate::water::bodies::RoomWater) -> Self {
+        // Only what the keep-outs read: where each seeded structure's record
+        // stands it and how wide its ground - not its generator, seed or
+        // params, whose edits leave every scatter as it was.
+        let structures: Vec<[f32; 4]> = record
+            .placements
+            .iter()
+            .filter_map(|placement| match placement {
+                Placement::Absolute {
+                    transform,
+                    snap_to_terrain: true,
+                    avoid_water: true,
+                    avoid_water_clearance,
+                    ..
+                } => Some([
+                    transform.translation.0[0],
+                    transform.translation.0[2],
+                    avoid_water_clearance.0,
+                    transform.scale.0[0],
+                ]),
+                _ => None,
+            })
+            .collect();
         Self {
             water_level: Some(room_water.key()),
             // The land a scatter samples, not its grass (#1700).
@@ -305,6 +345,15 @@ impl FingerprintPass {
                 crate::pds::find_terrain_config(record).map(|terrain| terrain.land()),
             )
             .ok(),
+            kept_off: if structures.is_empty() && record.default_landing.is_none() {
+                Some(serde_json::Value::Null)
+            } else {
+                let landing = record
+                    .default_landing
+                    .as_ref()
+                    .map(|landing| [landing.pos.0[0], landing.pos.0[1], landing.yaw_deg.0]);
+                serde_json::to_value((&structures, landing)).ok()
+            },
         }
     }
 }
@@ -336,13 +385,22 @@ pub(super) fn unit_fingerprint(
             biome_filter,
             naturalness,
             ..
-        } if !biome_filter.is_noop()
-            || naturalness.max_slope_deg.is_some()
-            || naturalness.above_water_band.is_some()
-            || naturalness.altitude_band.is_some() =>
-        {
-            extras.insert("water_level".into(), pass.water_level.clone()?);
-            extras.insert("terrain".into(), pass.terrain.clone()?);
+        } => {
+            if !biome_filter.is_noop()
+                || naturalness.max_slope_deg.is_some()
+                || naturalness.above_water_band.is_some()
+                || naturalness.altitude_band.is_some()
+            {
+                extras.insert("water_level".into(), pass.water_level.clone()?);
+                extras.insert("terrain".into(), pass.terrain.clone()?);
+            }
+            // Every scatter keeps off the seeded structures, where the
+            // water walks them, and off the landing (#1776).
+            let kept_off = pass.kept_off.clone()?;
+            if !kept_off.is_null() {
+                extras.insert("water_level".into(), pass.water_level.clone()?);
+                extras.insert("kept_off".into(), kept_off);
+            }
         }
         _ => {}
     }

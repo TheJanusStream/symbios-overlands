@@ -37,6 +37,10 @@ impl CatalogueEntry for StepPyramid {
     fn prosperity_band(&self) -> crate::seeded_defaults::ProsperityBand {
         super::MESO_BAND
     }
+    fn site(&self) -> crate::catalogue::SitePreference {
+        crate::catalogue::SitePreference::Crest
+    }
+
     fn footprint(&self) -> Footprint {
         Footprint {
             clearance: 18.0,

@@ -37,6 +37,10 @@ impl CatalogueEntry for MaizeGranary {
     fn prosperity_band(&self) -> crate::seeded_defaults::ProsperityBand {
         super::MESO_POOR
     }
+    fn site(&self) -> crate::catalogue::SitePreference {
+        crate::catalogue::SitePreference::ValleyFloor
+    }
+
     fn footprint(&self) -> Footprint {
         Footprint {
             clearance: 4.0,

@@ -231,6 +231,10 @@ impl CatalogueEntry for HarbourBattery {
     fn prosperity_band(&self) -> ProsperityBand {
         PORT_BAND
     }
+    fn site(&self) -> crate::catalogue::SitePreference {
+        crate::catalogue::SitePreference::Shore
+    }
+
     fn footprint(&self) -> Footprint {
         Footprint {
             clearance: 15.0,

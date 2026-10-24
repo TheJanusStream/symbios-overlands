@@ -993,33 +993,56 @@ pub(super) fn print_foundation_audit(filter: &str) {
     );
 }
 
-/// Measure the drop real seeded settlements actually span (#1009): for
-/// each of `seeds` rooms, rebuild the terrain and, for every seeded
-/// structure placement, report `max - min` terrain height across its
-/// footprint disc. That drop is exactly what a plinth has to cover, so
-/// this is what the depth rule should be sized from rather than a
-/// worst-case slope assumption.
+/// Measure the drop real seeded settlements actually span (#1009), where
+/// the compile stands them (#1773): for each of `seeds` rooms, rebuild the
+/// terrain and, for every seeded structure placement, walk it as the
+/// compile walks it ([`snapped_absolute_anchor`](crate::world_builder::snapped_absolute_anchor)) and report `max -
+/// min` terrain height across its footprint disc there. That drop is
+/// exactly what a plinth has to cover, so this is what the depth rule
+/// should be sized from rather than a worst-case slope assumption. Also how
+/// far the compile's walk moved each one, and which stand inside another's
+/// ground - a building walked onto its gate.
 pub(super) fn print_settlement_drop(seeds: u64) {
     use crate::pds::Placement;
+    use crate::world_builder::compile::pad;
 
-    let mut all: Vec<(f32, f32)> = Vec::new(); // (clearance, drop)
-    let mut covered = 0usize;
-    let mut short: Vec<(f32, f32)> = Vec::new(); // (drop, daylight gap)
+    struct Footprint {
+        seed: u64,
+        name: String,
+        x: f32,
+        z: f32,
+        radius: f32,
+        drop: f32,
+        /// Metres of daylight under the plinth; 0 where it reaches.
+        gap: f32,
+        /// How far the compile's walk moved it, metres.
+        moved: f32,
+    }
+
+    let mut all: Vec<Footprint> = Vec::new();
+    let mut inside: Vec<(u64, String, String, f32)> = Vec::new();
     for seed in 0..seeds.max(1) {
         let did = format!("did:plc:drop{seed}");
         // The procedural recipe, whose settlement this measures: a seed
         // drawing Berlin has none (#1589).
         let record = crate::seeded_defaults::room::build::build_room_with_source(seed, &did, None);
-        let hm = crate::terrain::rebuild_heightmap_for_record(&record);
+        let terrain = crate::terrain::FinishedHeightMap(
+            crate::terrain::rebuild_heightmap_for_record(&record),
+            None,
+        );
+        let water = crate::world_builder::compile::drawn_water(&record, Some(&terrain));
+        let ground = crate::world_builder::AnchorGround::new(&terrain, &water);
+        let hm = &terrain.0;
         let extent = (hm.width() - 1) as f32 * hm.scale();
         let half = extent * 0.5;
         let sample = |x: f32, z: f32| {
             hm.get_height_at((x + half).clamp(0.0, extent), (z + half).clamp(0.0, extent))
         };
 
-        let mut room = Vec::new();
+        let mut room: Vec<Footprint> = Vec::new();
         for p in &record.placements {
             let Placement::Absolute {
+                generator_ref,
                 transform,
                 avoid_water,
                 avoid_water_clearance,
@@ -1037,7 +1060,10 @@ pub(super) fn print_settlement_drop(seeds: u64) {
             if r <= 0.0 {
                 continue;
             }
-            let (x, z) = (transform.translation.0[0], transform.translation.0[2]);
+            let stands =
+                pad::snapped_absolute_anchor(&ground, transform, true, avoid_water_clearance.0);
+            let (x, z) = (stands.x, stands.z);
+            let (rx, rz) = (transform.translation.0[0], transform.translation.0[2]);
             let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
             for i in 0..48 {
                 for j in 0..8 {
@@ -1057,14 +1083,33 @@ pub(super) fn print_settlement_drop(seeds: u64) {
             let depth_world =
                 crate::catalogue::items::foundation::required_depth(r / scale) * scale;
             let plinth_bottom = hi - 0.35 - depth_world;
-            if plinth_bottom <= lo {
-                covered += 1;
-            } else {
-                short.push((hi - lo, plinth_bottom - lo));
-            }
-            room.push((r, hi - lo));
+            room.push(Footprint {
+                seed,
+                name: generator_ref.clone(),
+                x,
+                z,
+                radius: r,
+                drop: hi - lo,
+                gap: (plinth_bottom - lo).max(0.0),
+                moved: (x - rx).hypot(z - rz),
+            });
         }
-        println!("seed {seed}: {} seeded structures", room.len());
+        // One standing inside another's ground: the smaller's middle within
+        // the larger's footprint disc.
+        for (i, a) in room.iter().enumerate() {
+            for b in room.iter().skip(i + 1) {
+                let (small, large) = if a.radius <= b.radius { (a, b) } else { (b, a) };
+                let apart = (a.x - b.x).hypot(a.z - b.z);
+                if apart < large.radius {
+                    inside.push((seed, small.name.clone(), large.name.clone(), apart));
+                }
+            }
+        }
+        let walked = room.iter().filter(|f| f.moved > 0.5).count();
+        println!(
+            "seed {seed}: {} seeded structures, {walked} walked by the compile",
+            room.len()
+        );
         all.extend(room);
     }
 
@@ -1072,20 +1117,67 @@ pub(super) fn print_settlement_drop(seeds: u64) {
         println!("no seeded structures found");
         return;
     }
+    let covered = all.iter().filter(|f| f.gap <= 0.0).count();
     println!(
         "\nPLINTH COVERAGE: {covered}/{} footprints show no daylight ({:.1} %)",
         all.len(),
         100.0 * covered as f32 / all.len() as f32
     );
+    let mut short: Vec<&Footprint> = all.iter().filter(|f| f.gap > 0.0).collect();
     if !short.is_empty() {
-        short.sort_by(|a, b| b.1.total_cmp(&a.1));
-        println!("  worst uncovered (drop -> daylight gap):");
-        for (d, g) in short.iter().take(8) {
-            println!("    drop {d:6.2} m -> {g:5.2} m of daylight");
+        // Daylight where the plan sited it says the plan misread the
+        // ground; daylight after a walk says the walk found worse ground.
+        let walked = short.iter().filter(|f| f.moved > 0.5).count();
+        println!(
+            "  {} where sited, {walked} after the compile walked them",
+            short.len() - walked
+        );
+        short.sort_by(|a, b| b.gap.total_cmp(&a.gap));
+        println!("  worst uncovered (seed, structure: drop -> daylight gap, walked):");
+        for f in short.iter().take(12) {
+            println!(
+                "    seed {:>4} {:<28} drop {:6.2} m -> {:5.2} m of daylight, walked {:5.1} m",
+                f.seed, f.name, f.drop, f.gap, f.moved
+            );
         }
     }
 
-    let mut drops: Vec<f32> = all.iter().map(|(_, d)| *d).collect();
+    let mut moves: Vec<f32> = all.iter().map(|f| f.moved).filter(|m| *m > 0.5).collect();
+    moves.sort_by(f32::total_cmp);
+    println!(
+        "WALKED BY THE COMPILE: {}/{} ({:.1} %), moved median {:.1} m, max {:.1} m",
+        moves.len(),
+        all.len(),
+        100.0 * moves.len() as f32 / all.len() as f32,
+        moves.get(moves.len() / 2).copied().unwrap_or(0.0),
+        moves.last().copied().unwrap_or(0.0)
+    );
+    println!(
+        "STANDING INSIDE ANOTHER'S GROUND: {} pairs{}",
+        inside.len(),
+        if inside.is_empty() {
+            ""
+        } else {
+            " (seed, smaller, larger, metres apart):"
+        }
+    );
+    for (seed, small, large, apart) in inside.iter().take(8) {
+        println!("    seed {seed:>4} {small} inside {large}, {apart:.1} m apart");
+    }
+    // The forecourt's gate and monument are sited by their own deriver.
+    let forecourt = |name: &str| name.starts_with("social_") || name.starts_with("owner_");
+    let members = inside
+        .iter()
+        .filter(|(_, small, large, _)| !forecourt(small) && !forecourt(large))
+        .count();
+    if !inside.is_empty() {
+        println!(
+            "  {members} between settlement members, {} with the forecourt",
+            inside.len() - members
+        );
+    }
+
+    let mut drops: Vec<f32> = all.iter().map(|f| f.drop).collect();
     drops.sort_by(f32::total_cmp);
     let pct = |p: f32| drops[((drops.len() - 1) as f32 * p) as usize];
     println!(
@@ -1100,11 +1192,7 @@ pub(super) fn print_settlement_drop(seeds: u64) {
 
     // Drop against footprint radius - the rule is depth = k x clearance,
     // so print the ratio the data actually supports.
-    let mut ratios: Vec<f32> = all
-        .iter()
-        .filter(|(r, _)| *r > 0.0)
-        .map(|(r, d)| d / r)
-        .collect();
+    let mut ratios: Vec<f32> = all.iter().map(|f| f.drop / f.radius).collect();
     ratios.sort_by(f32::total_cmp);
     let rp = |p: f32| ratios[((ratios.len() - 1) as f32 * p) as usize];
     println!(
@@ -1118,8 +1206,8 @@ pub(super) fn print_settlement_drop(seeds: u64) {
     for (lo, hi) in [(0.0, 6.0), (6.0, 9.0), (9.0, 14.0), (14.0, 100.0)] {
         let mut b: Vec<f32> = all
             .iter()
-            .filter(|(r, _)| *r >= lo && *r < hi)
-            .map(|(_, d)| *d)
+            .filter(|f| f.radius >= lo && f.radius < hi)
+            .map(|f| f.drop)
             .collect();
         if b.is_empty() {
             continue;

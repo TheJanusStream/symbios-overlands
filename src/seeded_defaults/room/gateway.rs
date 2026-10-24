@@ -34,6 +34,17 @@ const LANDING_STANDOFF: f32 = 4.5;
 /// spawn-scatter square even when the gate is at [`MIN_GATE_DIST`].
 const MIN_LANDING_DIST: f32 = 6.0;
 
+/// The gate a world of `theme` stands (#747): the theme's own, else the
+/// cross-theme `civic_gateway` - the one the build places, and the one the
+/// settlement keeps its forecourt clear for (#1774).
+pub fn gateway_entry(
+    theme: crate::seeded_defaults::ThemeArchetype,
+) -> Option<&'static dyn crate::catalogue::CatalogueEntry> {
+    crate::catalogue::entries_for(theme, crate::catalogue::StructureRole::Gateway)
+        .next()
+        .or_else(|| crate::catalogue::by_slug("civic_gateway"))
+}
+
 /// Derived gateway placement for one room.
 #[derive(Clone, Copy, Debug)]
 pub struct GatewaySpot {

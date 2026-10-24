@@ -153,6 +153,10 @@ impl CatalogueEntry for CareeningSlip {
     fn prosperity_band(&self) -> ProsperityBand {
         PORT_BAND
     }
+    fn site(&self) -> crate::catalogue::SitePreference {
+        crate::catalogue::SitePreference::Shore
+    }
+
     fn footprint(&self) -> Footprint {
         Footprint {
             clearance: 12.0,

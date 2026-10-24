@@ -532,8 +532,9 @@ mod tests {
         use crate::seeded_defaults::{SceneCharacter, ThemeArchetype, fnv1a_64};
         let mut worst = (0usize, String::new());
         for theme in ThemeArchetype::ALL {
-            // First DID that lands on this theme. The scene picks uniformly,
-            // so a few thousand probes always finds one.
+            // First DID that lands on this theme. Every theme comes up, the
+            // rarest about two thirds as often as an even pick (#1772), so a
+            // few thousand probes always finds one.
             let did = (0..40_000u64)
                 .map(|i| format!("did:plc:probe{i}"))
                 .find(|d| SceneCharacter::for_seed(fnv1a_64(d)).theme == theme)

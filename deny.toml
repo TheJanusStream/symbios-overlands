@@ -96,6 +96,32 @@ ignore = [
     # allowlist (world_builder/blob_fetch.rs), never through bevy_image.
     # Delete this once bevy asks for ruzstd 0.9.1 or later. Tracked in #1633.
     "RUSTSEC-2026-0344",
+    # A timing side channel in crypto-bigint 0.5.5, dated 2026-10-23
+    # (RustCrypto/crypto-bigint#1365).
+    #
+    # The flaw: operations meant to be constant-time - subtraction, zero
+    # counting, division, Montgomery multiplication - can branch on secret
+    # values on some compilers and CPUs. It is fixed only in 0.7.6; the 0.5
+    # line has no fix.
+    #
+    # It arrives under elliptic-curve 0.13 by two paths:
+    #   k256 / p256 0.13 <- proto-blue-crypto 0.2.6 <- proto-blue-oauth 0.2.6
+    #     (this repo and bevy_symbios_multiuser): the atproto keys, the OAuth
+    #     DPoP key that signs each PDS request among them, on the web and
+    #     native;
+    #   p256 / p384 0.13 <- dtls 0.17.2 <- webrtc <- matchbox_socket: native
+    #     only, as a browser uses its own WebRTC.
+    #
+    # Exposure: using it means timing the signing closely - a local process
+    # reading the cache or the branch predictor, or very many remote samples.
+    # Over the network a signature's timing is lost in the jitter.
+    #
+    # Newer lines exist (elliptic-curve 0.14, proto-blue-crypto 0.3.3), but
+    # dtls 0.17.2 is still the newest dtls. The owner recorded this exception
+    # on 2026-10-24 (#1787), to be looked at closely with the rest of this list
+    # once the seeded-world epic (#1767) is done. Delete it when neither path
+    # asks for crypto-bigint 0.5.
+    "RUSTSEC-2026-0387",
 ]
 
 [licenses]

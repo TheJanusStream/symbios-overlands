@@ -962,7 +962,9 @@ cargo run --bin render -- --gateway-fit all
 # Plinth-depth audit of every settlement-placeable entry (`all` lists the
 # passing rows too; any other word shows only the shortfalls):
 cargo run --bin render -- --foundation-audit all
-# Terrain drop real seeded settlements span, measured over N seeds:
+# Terrain drop real seeded settlements span, measured over N seeds: how many
+# footprints show daylight under their plinths (where sited, or after the
+# compile walked them), the walks, and who stands inside whose ground (#1773):
 cargo run --bin render -- --settlement-drop 200
 # Analytic entity census over seeds 0..N - what a room will actually spawn:
 cargo run --bin render -- --room-census 32

@@ -80,6 +80,23 @@ pub(crate) const ROOM_VEGETATION_ENTITY_BUDGET: u64 = 120_000;
 /// cost inside `default_for_seed`.
 const SETTLEMENT_PROXY_GRID: u32 = 96;
 
+/// The terrain probe a seeded world's settlement is sited on (#905): the
+/// proxy of the ground `terrain_cfg` generates, read as derived (#1704),
+/// segmented against the water at `water_y`.
+pub(super) fn settlement_probe(
+    terrain_cfg: &SovereignTerrainConfig,
+    water_y: f32,
+) -> crate::seeded_defaults::TerrainProbe {
+    crate::seeded_defaults::TerrainProbe::new(
+        &gen_jobs::run_heightmap_proxy(
+            &crate::terrain::heightmap_params_as_derived(terrain_cfg),
+            SETTLEMENT_PROXY_GRID,
+        ),
+        water_y,
+        crate::seeded_defaults::BUILD_SLOPE_LIMIT,
+    )
+}
+
 /// Build the seeded default room from a pre-computed seed - the
 /// manual re-roll path. `seed` drives every derived value (terrain
 /// shape, palette, atmosphere, scatters, landmark, audio, …), its source
@@ -114,12 +131,19 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
     use crate::pds::types::{BiomeFilter, ScatterBounds, WaterRelation};
     use crate::pds::{Fp2, TortureParams};
     use crate::seeded_defaults::{
-        AmbientParticles, Atmosphere, BUILD_SLOPE_LIMIT, BiomeTextures, RockScatters, RoomPalette,
-        SceneCharacter, SettlementPlan, TerrainProbe, TerrainShape, TreeScatters, WaterDynamics,
+        AmbientParticles, Atmosphere, BiomeTextures, RockScatters, RoomPalette, SceneCharacter,
+        SettlementPlan, TerrainShape, TreeScatters, WaterDynamics,
     };
 
     let did_seed = seed;
-    let scene = SceneCharacter::for_seed(did_seed);
+    // A square of Berlin's land is the city whatever the seed would draw on
+    // its own ground: its scene is the even draw (#1772), as the derived
+    // layer's (`terrain::derived::fit::RoomScene`) - a square locked over a
+    // re-rolled seed included.
+    let scene = match berlin {
+        Some(_) => SceneCharacter::even(did_seed),
+        None => SceneCharacter::for_seed(did_seed),
+    };
     // A procedural world stands at its signature hour (#1769), which takes
     // its light fields as its noon and lowers and reddens the sun itself:
     // its palette and atmosphere are derived for noon, the daylight bias's
@@ -184,14 +208,7 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
     // fraction × height-scale product the Water child below places its
     // surface at.
     let seeded_water_y = shape.water_level_fraction * shape.height_scale;
-    let terrain_probe = TerrainProbe::new(
-        &gen_jobs::run_heightmap_proxy(
-            &crate::terrain::heightmap_params_as_derived(&terrain_cfg),
-            SETTLEMENT_PROXY_GRID,
-        ),
-        seeded_water_y,
-        BUILD_SLOPE_LIMIT,
-    );
+    let terrain_probe = settlement_probe(&terrain_cfg, seeded_water_y);
 
     let mut water_surface = WaterSurface {
         shallow_color: Fp4(palette.water_shallow),
@@ -664,11 +681,7 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
     // landing - the landing still resolves its height from the
     // heightmap and stays functional.)
     let mut default_landing = None;
-    let gateway_entry =
-        crate::catalogue::entries_for(scene.theme, crate::catalogue::StructureRole::Gateway)
-            .next()
-            .or_else(|| crate::catalogue::by_slug("civic_gateway"));
-    if let Some(entry) = gateway_entry {
+    if let Some(entry) = crate::seeded_defaults::room::gateway::gateway_entry(scene.theme) {
         let gate_clearance = entry.footprint().clearance;
         let primary_landmark = settlement_plan.primary_landmark();
         let spot = match berlin {
@@ -677,10 +690,11 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
                 primary_landmark.clearance,
                 gate_clearance,
             ),
-            // On the bearing the landmark would have stood on, north where
-            // it stands on the origin.
+            // On the bearing the landmark would have stood on, as it stood
+            // before its ground was read (#1773), north where it stands on
+            // the origin.
             Some(_) => {
-                let [x, z] = primary_landmark.offset;
+                let [x, z] = settlement_plan.unfitted_landmark;
                 let length = x.hypot(z);
                 let bearing = if length > 1e-3 {
                     [x / length, z / length]
@@ -736,11 +750,7 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
         // and a room owner's face on a smashed plinth reads as an insult.
         // The finish still carries the room's prosperity into its
         // materials, so a poor room's monument is a humbler one.
-        let monument_entry =
-            crate::catalogue::entries_for(scene.theme, crate::catalogue::StructureRole::Monument)
-                .next()
-                .or_else(|| crate::catalogue::by_slug("civic_monument"));
-        if let Some(entry) = monument_entry {
+        if let Some(entry) = crate::seeded_defaults::room::monument::monument_entry(scene.theme) {
             let clearance = entry.footprint().clearance;
             let mspot = crate::seeded_defaults::MonumentSpot::beside_gate(
                 &spot,
@@ -834,10 +844,26 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
     // native `bevy_symbios_audio::SequenceRecipe`; we mirror it
     // into the DAG-CBOR-safe SovereignSequenceRecipe (structured
     // Fp-wrapped form, per #311). Conversion is infallible - the
-    // structural walk just wraps each float in `Fp`.
-    let ambient = crate::seeded_defaults::AmbientRecipe::from_scene(&scene, did_seed);
+    // structural walk just wraps each float in `Fp`. A world standing at a
+    // dark hour hears its night's voices (#1771).
+    let ambient = crate::seeded_defaults::AmbientRecipe::from_scene_in(
+        &scene,
+        did_seed,
+        hour.map(|hour| hour.mood),
+    );
     environment.ambient_audio =
         crate::pds::audio::SovereignAudioConfig::from_sequence(&ambient.recipe);
+
+    // The landing faces as a saved world holds it - the sanitiser wraps its
+    // yaw into [0, 360) - so a world whose gate's bearing turns its landing
+    // past due south writes back unchanged. Wrapped after the hour read
+    // it, which keeps the light it composed. A Berlin square keeps its
+    // landing as its fixture pins it (#1589).
+    if berlin.is_none()
+        && let Some(landing) = &mut default_landing
+    {
+        landing.yaw_deg.0 = landing.yaw_deg.0.rem_euclid(360.0);
+    }
 
     let record = RoomRecord {
         lex_type: COLLECTION.into(),
@@ -907,8 +933,10 @@ fn build_member_generator(
     // structure by the room's conflict tier (the Ruins modifier).
     // Deterministic in the member's grammar seed; calm rooms are untouched.
     // A tall entry bounds the lean (#1559); every other entry's is the
-    // tier's own, as it always was.
-    crate::pds::ruin::apply_ruin_bounded(
+    // tier's own, as it always was. Its plinth stays level and it never
+    // leans whole: the parts above lean no further than hides at the seam,
+    // and at conflict they are still knocked askew one by one (#1776).
+    crate::pds::ruin::apply_ruin_level(
         &mut member_gen,
         escalation,
         member.grammar_seed,
@@ -1905,7 +1933,10 @@ mod tests {
         // derivations the corpus's buildings draw of it.
         let mut drawn: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         let (mut seeded, mut unseeded) = (0, 0);
-        for s in 0u64..64 {
+        // Since #1772 a world's theme suits its land, and since #1773 a
+        // building stands only where its ground fits it, so the big
+        // secondaries most grammars build are rarer than 64 rooms hold.
+        for s in 0u64..192 {
             let record = RoomRecord::default_for_did(&format!("did:test:{s}"));
             for placement in &record.placements {
                 let Placement::Absolute { generator_ref, .. } = placement else {
@@ -1964,7 +1995,7 @@ mod tests {
             "the corpus holds grammar buildings and others: {seeded} seeded, {unseeded} not"
         );
         let varied = drawn.values().filter(|layouts| layouts.len() > 1).count();
-        // 64 rooms hold 18 grammar buildings of 9 grammars, 5 of which
+        // 192 rooms hold 21 grammar buildings of 7 grammars, 4 of which
         // draw more than one derivation; each drew one before.
         assert!(
             varied >= 3,

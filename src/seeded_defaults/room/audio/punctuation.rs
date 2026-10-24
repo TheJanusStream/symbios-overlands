@@ -72,9 +72,20 @@ struct PunctuationParams {
     release_beats: f32,
 }
 
-fn derive_punctuation(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> PunctuationParams {
+fn derive_punctuation(
+    scene: &SceneCharacter,
+    rng: &mut ChaCha8Rng,
+    dark: bool,
+) -> PunctuationParams {
     use BiomeArchetype::*;
-    match scene.biome {
+    // By the blue hour the songbirds and the canopy have fallen quiet and
+    // the insects have the air (#1771): a world standing at a dark hour
+    // hears the meadow's chorus in their place.
+    let biome = match scene.biome {
+        Lush | TemperateForest | Jungle if dark => Meadow,
+        biome => biome,
+    };
+    match biome {
         // Songbirds in the verdant broadleaf biomes.
         Lush | TemperateForest => PunctuationParams {
             mood: PunctuationMood::BirdChirps,
@@ -454,14 +465,16 @@ fn punctuation_track_events(punct: &PunctuationParams, rng: &mut ChaCha8Rng) -> 
 }
 
 /// Build the biome punctuation voice - one instrument + its scattered
-/// event track. Shares the bed's reverb space via `params`.
+/// event track. Shares the bed's reverb space via `params`; `dark` is a
+/// world standing at a dark hour, whose birds are quiet.
 pub(super) fn build(
     scene: &SceneCharacter,
     params: &AmbientParams,
     rng: &mut ChaCha8Rng,
     seed: u64,
+    dark: bool,
 ) -> (Instrument, Track) {
-    let punct = derive_punctuation(scene, rng);
+    let punct = derive_punctuation(scene, rng, dark);
     let patch = build_punctuation_patch(&punct, params, seed);
     let events = punctuation_track_events(&punct, rng);
     (
@@ -503,7 +516,28 @@ mod tests {
             let mut sc = SceneCharacter::for_seed(1);
             sc.biome = biome;
             let mut rng = ChaCha8Rng::seed_from_u64(1);
-            assert_eq!(derive_punctuation(&sc, &mut rng).mood, mood);
+            assert_eq!(derive_punctuation(&sc, &mut rng, false).mood, mood);
+        }
+    }
+
+    /// #1771: at a dark hour the songbirds and the canopy are quiet and the
+    /// insects sing in their place; every other biome's voice - waves,
+    /// frogs, howls, ice - keeps its own at any hour.
+    #[test]
+    fn a_dark_hour_quiets_the_birds() {
+        use BiomeArchetype::*;
+        for biome in BiomeArchetype::ALL {
+            let mut sc = SceneCharacter::for_seed(1);
+            sc.biome = biome;
+            let light = derive_punctuation(&sc, &mut ChaCha8Rng::seed_from_u64(1), false).mood;
+            let dark = derive_punctuation(&sc, &mut ChaCha8Rng::seed_from_u64(1), true).mood;
+            match biome {
+                Lush | TemperateForest | Jungle => {
+                    assert_eq!(dark, PunctuationMood::InsectChorus, "{biome:?}");
+                    assert_ne!(light, dark, "{biome:?}");
+                }
+                _ => assert_eq!(light, dark, "{biome:?}"),
+            }
         }
     }
 }

@@ -85,6 +85,19 @@ impl AmbientRecipe {
     /// Derive a deterministic ambient recipe from the room's scene anchor
     /// and the room seed. Same inputs -> same recipe.
     pub fn from_scene(scene: &SceneCharacter, room_seed: u64) -> Self {
+        Self::from_scene_in(scene, room_seed, None)
+    }
+
+    /// [`Self::from_scene`] for a world standing in `mood`, its signature
+    /// hour (#1769): at a dark one - the blue hour, night - its birds are
+    /// quiet and the insects sing (#1771). The hour stands, so the bed is
+    /// baked for it once.
+    pub fn from_scene_in(
+        scene: &SceneCharacter,
+        room_seed: u64,
+        mood: Option<super::hour::Mood>,
+    ) -> Self {
+        let dark = mood.is_some_and(super::hour::Mood::is_dark);
         let mut rng = ChaCha8Rng::seed_from_u64(room_seed ^ AUDIO_STREAM_SALT);
         // Biome texture first - it derives the shared acoustic space.
         let (params, mut instruments, mut tracks) = bed::build_texture(scene, &mut rng, room_seed);
@@ -93,7 +106,7 @@ impl AmbientRecipe {
         // space. Order fixes the layer indices at
         // [bed, gust, punct, melody, bass].
         let (punct_instrument, punct_track) =
-            punctuation::build(scene, &params, &mut rng, room_seed);
+            punctuation::build(scene, &params, &mut rng, room_seed, dark);
         instruments.push(punct_instrument);
         tracks.push(punct_track);
         let (theme_instrument, theme_track) =
@@ -164,22 +177,22 @@ mod tests {
     #[test]
     fn a_seeded_ambient_track_is_the_same_on_every_platform() {
         const PINNED: [u64; 16] = [
-            0xefe7_3228_4c98_ca00,
-            0xada7_0910_1d55_381a,
+            0xe62a_f6cc_e391_63ba,
+            0x447f_e7a1_5e2d_b9a0,
             0x3b7d_380e_c4f8_3eea,
             0x0254_6e62_110a_cb60,
-            0x898d_baa6_072b_dbb4,
-            0x8604_33bb_42d2_52b9,
-            0x410e_6541_3058_20d5,
-            0x7c21_c626_2047_46b7,
-            0xab42_a6ad_91e2_a5f6,
-            0x626a_b775_2ef0_0888,
-            0xe93c_faf4_d430_2039,
+            0x0ddf_b565_0633_bbaf,
+            0xafda_25b9_525e_ef7b,
+            0xfd45_b23a_b027_9ef9,
+            0xe119_1a05_af59_3d84,
+            0x8d4e_313f_ebe9_f35e,
+            0x1976_2068_e91e_a4b9,
+            0x6188_8271_ca7a_cec7,
             0xc1d9_6603_77d0_ae0d,
-            0x695b_df4e_f64b_5614,
-            0x9554_75cc_6983_14c8,
-            0xd1bb_b410_166d_aae6,
-            0xdce6_7c80_d47c_2d08,
+            0x9231_f199_27bf_bec6,
+            0x61cd_67be_0012_02bc,
+            0x00da_4710_76b5_bf25,
+            0xeafd_60e8_4196_dbd7,
         ];
         let got: Vec<u64> = (1..=16u64)
             .map(|seed| {
@@ -191,6 +204,36 @@ mod tests {
             })
             .collect();
         assert_eq!(got, PINNED, "the seeded tracks moved: {got:#018x?}");
+    }
+
+    /// The track a world standing at a dark hour bakes (#1771), its birds
+    /// quiet and its insects singing, is pinned as the day's tracks are,
+    /// for the same reason: it is what a dark world's record carries.
+    #[test]
+    fn a_dark_hour_s_track_is_the_same_on_every_platform() {
+        const PINNED: [u64; 4] = [
+            0x319b_fdf3_4114_d67c,
+            0x9946_b401_4b5d_1331,
+            0x59a0_f681_96a1_4def,
+            0x1d87_535b_7f93_1978,
+        ];
+        let got: Vec<u64> = (1..=4u64)
+            .map(|seed| {
+                let mut scene = SceneCharacter::for_seed(seed);
+                // A biome whose birds go quiet, so the dark voice is drawn.
+                scene.biome = crate::seeded_defaults::BiomeArchetype::TemperateForest;
+                let recipe = AmbientRecipe::from_scene_in(
+                    &scene,
+                    seed,
+                    Some(crate::seeded_defaults::room::hour::Mood::Night),
+                )
+                .recipe;
+                let track = crate::pds::audio::SovereignAudioConfig::from_sequence(&recipe);
+                let wire = serde_json::to_string(&track).expect("a track writes");
+                crate::seeded_defaults::fnv1a_64(&wire)
+            })
+            .collect();
+        assert_eq!(got, PINNED, "the dark tracks moved: {got:#018x?}");
     }
 
     #[test]

@@ -183,13 +183,32 @@ pub fn start_attract_scene(
 /// Berlin region fetches its ground, and the login screen fetches nothing.
 /// Shared with [`reroll_attract_scene`], whose whole job is to land on a
 /// *different* millisecond.
+///
+/// The millisecond is stepped on to the first whose seed draws its own
+/// terrain (#1772): a seed drawing Berlin would draw its theme as a Berlin
+/// square does, evenly among them all, where a world on its own terrain
+/// draws one that suits its land - and the backdrop is a world on its own
+/// terrain. Three seeds in four draw it, so a step or two at most.
 fn seed_demo_world(commands: &mut Commands) {
-    let demo_did = format!("did:attract:{:x}", chrono::Utc::now().timestamp_millis());
+    let (demo_did, seed) = demo_world_after(chrono::Utc::now().timestamp_millis());
     info!("Attract backdrop: seeding demo world from {demo_did}");
-    let seed = crate::seeded_defaults::fnv1a_64(&demo_did);
     let record = crate::seeded_defaults::room::build::build_room_with_source(seed, &demo_did, None);
     commands.insert_resource(LiveRoomRecord(record));
     commands.insert_resource(AttractScene);
+}
+
+/// The demo world's DID and seed for the first millisecond from `ms` whose
+/// seed draws its own terrain ([`seed_demo_world`]).
+fn demo_world_after(ms: i64) -> (String, u64) {
+    use crate::seeded_defaults::{RegionSource, SourceKind};
+    (ms..)
+        .map(|ms| {
+            let did = format!("did:attract:{ms:x}");
+            let seed = crate::seeded_defaults::fnv1a_64(&did);
+            (did, seed)
+        })
+        .find(|(_, seed)| RegionSource::for_seed(*seed).kind == SourceKind::Procedural)
+        .expect("three seeds in four draw their own terrain")
 }
 
 /// Slow cinematic orbit around the demo world's centre. Writes only the
@@ -333,5 +352,37 @@ impl Plugin for AttractPlugin {
                     .run_if(in_state(AppState::Login).and_then(resource_exists::<AttractScene>)),
             )
             .add_systems(OnExit(AppState::Login), end_attract_scene);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::seeded_defaults::{RegionSource, SourceKind};
+
+    fn draws(ms: i64) -> SourceKind {
+        let did = format!("did:attract:{ms:x}");
+        RegionSource::for_seed(crate::seeded_defaults::fnv1a_64(&did)).kind
+    }
+
+    /// #1772: the backdrop's world is one whose seed draws its own terrain,
+    /// as the backdrop builds it - a millisecond that draws Berlin steps on
+    /// to the next that does not, and one that draws its own is kept.
+    #[test]
+    fn the_backdrop_steps_past_a_seed_that_draws_berlin() {
+        let berlin = (0..10_000i64)
+            .find(|ms| draws(*ms) == SourceKind::Berlin)
+            .expect("one seed in four draws Berlin");
+        let (did, seed) = demo_world_after(berlin);
+        assert_eq!(RegionSource::for_seed(seed).kind, SourceKind::Procedural);
+        assert_eq!(seed, crate::seeded_defaults::fnv1a_64(&did));
+        let stepped = i64::from_str_radix(did.trim_start_matches("did:attract:"), 16).unwrap();
+        assert!(stepped > berlin);
+        assert!((berlin..stepped).all(|ms| draws(ms) == SourceKind::Berlin));
+
+        let own = (0..10_000i64)
+            .find(|ms| draws(*ms) == SourceKind::Procedural)
+            .expect("three seeds in four draw their own");
+        assert_eq!(demo_world_after(own).0, format!("did:attract:{own:x}"));
     }
 }

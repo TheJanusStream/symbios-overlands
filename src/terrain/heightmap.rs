@@ -324,7 +324,7 @@ pub(super) fn spawn_terrain_mesh(
         .map(|parts| {
             super::roads::road_surfaces(
                 &parts,
-                super::roads::road_theme(did.as_deref()),
+                super::roads::road_theme(did.as_deref(), false),
                 &Default::default(),
                 &mut meshes,
                 &mut road_materials,

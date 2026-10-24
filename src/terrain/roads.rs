@@ -316,23 +316,28 @@ pub(super) fn maybe_rebuild_roads(
         for e in &existing {
             commands.entity(e).try_despawn();
         }
-        // Per-network appearances re-read at swap time (#891/#895).
+        // Per-network appearances re-read at swap time (#891/#895), each
+        // in its district's theme (#1772).
         let appearances: Vec<_> = crate::pds::find_road_configs(&record.0)
             .into_iter()
             .filter(|c| c.enabled)
-            .map(|c| c.appearance)
+            .map(|c| (c.appearance, road_theme(did.as_deref(), c.suits_land())))
             .collect();
         let (mut streets, mut junctions, mut vertices) = (0, 0, 0);
         for (i, parts) in all_parts.iter().enumerate() {
             let Some(parts) = parts else { continue };
+            let (appearance, theme) = appearances
+                .get(i)
+                .copied()
+                .unwrap_or_else(|| (Default::default(), road_theme(did.as_deref(), false)));
             spawn_road_meshes(
                 &mut commands,
                 &mut meshes,
                 &mut materials,
-                did.as_deref(),
+                theme,
                 &heightmap.0,
                 parts,
-                &appearances.get(i).copied().unwrap_or_default(),
+                &appearance,
                 RoadNetworkIndex(i),
             );
             streets += parts.chains;
@@ -430,17 +435,16 @@ pub(super) fn sync_road_appearance(
     let appearances: Vec<_> = crate::pds::find_road_configs(&record.0)
         .into_iter()
         .filter(|c| c.enabled)
-        .map(|c| c.appearance)
+        .map(|c| (c.appearance, road_theme(did.as_deref(), c.suits_land())))
         .collect();
     let key = format!("{appearances:?}");
     if last.as_deref() == Some(key.as_str()) {
         return;
     }
     *last = Some(key);
-    let theme = road_theme(did.as_deref());
     let resolved: Vec<[StandardMaterial; 3]> = appearances
         .iter()
-        .map(|ap| resolved_road_materials(theme, ap))
+        .map(|(ap, theme)| resolved_road_materials(*theme, ap))
         .collect();
     for (net, kind, handle) in &surfaces {
         let Some(set) = resolved.get(net.0) else {
@@ -457,10 +461,18 @@ pub(super) fn sync_road_appearance(
 }
 
 /// The room's theme, which the road look follows: Cyberpunk's when the room
-/// is not known.
-pub(super) fn road_theme(did: Option<&CurrentRoomDid>) -> ThemeArchetype {
+/// is not known. The scene a network's district grows from
+/// ([`district_scene`](super::lots::district_scene), #1772): the world's own
+/// for a network that `suits_land` (layout revision 3), else the even scene
+/// every world drew before ([`SceneCharacter::even`]) - the look is grown
+/// again on every load, and a city saved before keeps its streets' look.
+pub(super) fn road_theme(did: Option<&CurrentRoomDid>, suits_land: bool) -> ThemeArchetype {
     did.map_or(ThemeArchetype::Cyberpunk, |d| {
-        SceneCharacter::for_did(&d.0).theme
+        if suits_land {
+            SceneCharacter::for_did(&d.0).theme
+        } else {
+            SceneCharacter::even_for_did(&d.0).theme
+        }
     })
 }
 
@@ -585,16 +597,16 @@ fn spawn_road_meshes(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<WeatheredMaterial>,
-    did: Option<&CurrentRoomDid>,
+    theme: ThemeArchetype,
     heightmap: &HeightMap,
     parts: &crate::urban::RoadParts,
     appearance: &crate::pds::generator::RoadAppearance,
     network: RoadNetworkIndex,
 ) {
     let offset = road_offset(heightmap);
-    // The road look follows the room's theme (client-side; not stored),
-    // with the record's authored overrides layered on top (#891).
-    let theme = road_theme(did);
+    // The road look follows the district's theme ([`road_theme`];
+    // client-side, not stored), with the record's authored overrides
+    // layered on top (#891).
     for surface in road_surfaces(parts, theme, appearance, meshes, materials) {
         let mut entity = commands.spawn((
             Mesh3d(surface.mesh),

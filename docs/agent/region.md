@@ -30,7 +30,10 @@ biome's weather - rain, snow, fog or dust, now and then a storm, never under a
 blue hour or a night - coming and going in spells of the world's own length,
 there a sixth to a third of the time; its cloud cover is thinned to the fair
 sky between spells. Remove either key to draw the world as its fields set it.
-A Berlin square carries neither.
+A Berlin square carries neither. A world seeded at a dark hour (the blue hour
+or night) also has insects in its ambient sound where a green biome's birds
+would sing (#1771) - baked into its `/environment/ambient_audio` like the
+rest, so a new hour set by hand keeps the birds or the insects it had.
 
 ## The land is a recipe, not a sculpt
 
@@ -455,7 +458,10 @@ Grass, each row with an Auto box). Every field is optional:
   ground downwind; and lightning strikes on the clock, every visitor seeing a
   flash at once: the sky and the world flash (never more than two flashes in
   any second), and thunder follows a strike as far behind as its distance (300
-  m to 3 km) takes sound to cross, a crack first when it is near. Render a
+  m to 3 km) takes sound to cross, a crack first when it is near. The weather
+  sounds as well (#1771): rain hisses as hard as it falls, a storm's or a
+  dust storm's wind roars in gusts, and the ambient bed sinks under the rain
+  and the snow - every world with a weather, its own sound or not. Render a
   flash with `render --world <did> --weather storm --flash 1`. A dust storm
   (`dust`, #1735) is a desert's: a wall of warm red-brown dust that closes the
   air (to about 130 m at full; a light haze of it at 0) and turns the horizon
@@ -1510,10 +1516,14 @@ built this way; its builder is `exports/eigen/b/city.py`.
   with portable maths: every client - the native agent, a browser - grows
   the same district from it, where at 0 and 1 a lot sitting on a threshold
   can be kept on one platform and dropped on another until the district is
-  saved. The editor's new networks take 2, an older one shows `Upgrade to
-  revision 2` on its road panel, and in a record it is
-  `"layout_revision": 2` - a plain number, not x10,000. Changing it re-traces the district and regrows its lots, as any
-  layout edit does. A revision this build does not know reads as its
+  saved. 3 (#1772) grows the district in the world's own character - the
+  theme, prosperity and escalation its settlement has, a theme suited to
+  its land - where 0 to 2 keep the character every world drew before
+  themes followed the land, so a district saved then grows again as it
+  was. The editor's new networks take 3, an older one shows `Upgrade to
+  revision 3` on its road panel, and in a record it is
+  `"layout_revision": 3` - a plain number, not x10,000. Changing it
+  re-traces the district and regrows its lots, as any layout edit does. A revision this build does not know reads as its
   latest. How the streets are drawn - junction decks, curbs - is not part
   of it: every client meshes the plan itself, so a meshing fix reaches
   every network.

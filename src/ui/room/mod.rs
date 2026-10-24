@@ -1978,16 +1978,16 @@ mod settle_edit_tests {
     /// Off the grid in, the peers' room out: every float on the wire's
     /// 1/10 000 grid, and settling again changes nothing, so what the
     /// owner holds is what a peer decodes from the owner's broadcast.
-    /// Compared float for float (Debug prints each `f32` exactly), with the
-    /// generators in key order - a `HashMap` iterates in an order of its
-    /// own.
+    /// Compared float for float: the generators as values - each `f32`
+    /// exactly, a map's entries in whatever order it iterates them (a
+    /// `HashMap` keeps an order of its own, and an L-system's materials
+    /// are one) - and the rest as Debug prints it, each `f32` exactly.
     #[test]
     fn a_settled_edit_is_the_room_its_peers_hold() {
         let exact = |room: &RoomRecord| {
-            let generators: std::collections::BTreeMap<_, _> = room.generators.iter().collect();
             let mut bare = room.clone();
             bare.generators.clear();
-            format!("{bare:?} {generators:?}")
+            (format!("{bare:?}"), room.generators.clone())
         };
         let mut room = RoomRecord::default_for_seed(7, "did:plc:settle");
         room.environment.fog_visibility = Fp(123.456_78);

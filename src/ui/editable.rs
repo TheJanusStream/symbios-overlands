@@ -1307,8 +1307,10 @@ pub fn seed_row(
 ///
 /// The miss arm is a rare state - a room's every scene and source axis
 /// locked at once misses `PIN_HUNT_CAP` (#1589); the scene axes alone miss
-/// with probability ~e⁻¹³⁸ - and a click that does literally nothing needs a
-/// sentence more than a likely one does.
+/// with probability ~e⁻⁶³ since themes suit the land (#1772: the rarest set
+/// of the five scene axes - a surreal theme on its landform and biome, both
+/// tiers pinned too - is about 1 seed in 32,000) - and a click that does
+/// literally nothing needs a sentence more than a likely one does.
 pub fn hunt_disclosure(start: u64, effective: Option<u64>) -> Option<(StatusTone, String)> {
     match effective {
         Some(seed) if seed == start => None,

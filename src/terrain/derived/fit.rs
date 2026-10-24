@@ -57,9 +57,13 @@ impl RoomScene {
     }
 
     /// The room's theme and its prosperity and escalation: the lot layer's,
-    /// a theme with no landmark yet borrowing the settlements' fallback.
+    /// a theme with no landmark yet borrowing the settlements' fallback. A
+    /// square's land is the city whatever its seed would draw on its own
+    /// ground, so its scene is the even draw every world drew before
+    /// themes followed the land (#1772, [`SceneCharacter::even`]) - a
+    /// square placed over a world of its own included.
     pub(crate) fn theme(&self) -> (ThemeArchetype, (f32, f32)) {
-        let scene = SceneCharacter::for_seed(self.seed);
+        let scene = SceneCharacter::even(self.seed);
         let theme = if entries_for(scene.theme, StructureRole::Landmark)
             .next()
             .is_some()

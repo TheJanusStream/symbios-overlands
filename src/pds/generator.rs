@@ -235,8 +235,12 @@ pub struct RoadConfig {
     /// and street props depend on comes from the `libm` crate rather than
     /// the platform's own, which differ in the last bit between a native
     /// client and the web one - so every client, whatever it runs on, grows
-    /// the same district. Changing it re-traces the district and regrows its buildings,
-    /// so a later fix to either derivation bumps the revision rather than
+    /// the same district. 3 grows the district from the world's own scene
+    /// (#1772) - the theme, prosperity and escalation its settlement has,
+    /// a theme suited to its land - where 0 to 2 keep the scene every world
+    /// drew before, so a district grown then grows again as it was.
+    /// Changing it re-traces the district and regrows its buildings, so a
+    /// later fix to any of these derivations bumps the revision rather than
     /// adding a switch. The editor's new networks take
     /// [`Self::LATEST_LAYOUT`]; the sanitiser reads a revision from a newer
     /// client as the latest this build knows. How a network is MESHED is
@@ -245,9 +249,9 @@ pub struct RoadConfig {
 }
 
 impl RoadConfig {
-    /// The newest layout revision this build derives (#1558, #1563) - see
-    /// [`Self::layout_revision`].
-    pub const LATEST_LAYOUT: u32 = 2;
+    /// The newest layout revision this build derives (#1558, #1563, #1772)
+    /// - see [`Self::layout_revision`].
+    pub const LATEST_LAYOUT: u32 = 3;
 
     /// Whether the network's streets and lots are derived with the tidied
     /// graph and street-clear lots of layout revision 1 or later (#1558).
@@ -259,6 +263,12 @@ impl RoadConfig {
     /// every client: layout revision 2 or later (#1563).
     pub fn portable_math(&self) -> bool {
         self.layout_revision >= 2
+    }
+
+    /// Whether the district grows from the world's own scene, its theme
+    /// suited to its land: layout revision 3 or later (#1772).
+    pub fn suits_land(&self) -> bool {
+        self.layout_revision >= 3
     }
 
     /// The [`symbios_tensor::MathMode`] the network's layout is derived
@@ -4305,7 +4315,7 @@ mod layout_revision_tests {
             ..RoadConfig::default()
         };
         let wire = serde_json::to_string(&upgraded).expect("writes");
-        assert_eq!(wire, r#"{"layout_revision":2}"#);
+        assert_eq!(wire, r#"{"layout_revision":3}"#);
         let back: RoadConfig = serde_json::from_str(&wire).expect("reads");
         assert_eq!(back, upgraded);
         let old: RoadConfig = serde_json::from_str(r#"{"seed":"7"}"#).expect("reads");

@@ -230,6 +230,10 @@ impl CatalogueEntry for Farmhouse {
     fn prosperity_band(&self) -> crate::seeded_defaults::ProsperityBand {
         super::FARM_BAND
     }
+    fn site(&self) -> crate::catalogue::SitePreference {
+        crate::catalogue::SitePreference::ValleyFloor
+    }
+
     fn footprint(&self) -> Footprint {
         Footprint {
             clearance: 9.0,

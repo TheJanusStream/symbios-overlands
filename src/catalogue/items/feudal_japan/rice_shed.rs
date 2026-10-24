@@ -36,6 +36,10 @@ impl CatalogueEntry for RiceShed {
     fn prosperity_band(&self) -> crate::seeded_defaults::ProsperityBand {
         super::FEUDAL_POOR
     }
+    fn site(&self) -> crate::catalogue::SitePreference {
+        crate::catalogue::SitePreference::ValleyFloor
+    }
+
     fn footprint(&self) -> Footprint {
         Footprint {
             clearance: 4.0,

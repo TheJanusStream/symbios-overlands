@@ -45,6 +45,10 @@ impl CatalogueEntry for Cathedral {
     fn prosperity_band(&self) -> crate::seeded_defaults::ProsperityBand {
         super::GOTHIC_BAND
     }
+    fn site(&self) -> crate::catalogue::SitePreference {
+        crate::catalogue::SitePreference::Crest
+    }
+
     fn footprint(&self) -> Footprint {
         Footprint {
             clearance: 12.0,

@@ -234,6 +234,7 @@ fn replay(
         return None;
     };
     let exclusions = urban_exclusions(record, *avoid_urban);
+    let keep_off = super::scatter::structure_exclusions(record, Some(heightmap), water);
     let trees = super::scatter::tree_clearance(record, generator_ref, Some(heightmap));
     let filters = SampleFilters {
         biome_filter,
@@ -250,6 +251,7 @@ fn replay(
         naturalness,
         heightmap,
         &filters,
+        &keep_off,
     ))
 }
 
@@ -264,13 +266,17 @@ fn place(
     naturalness: &ScatterNaturalness,
     heightmap: &FinishedHeightMap,
     filters: &SampleFilters<'_>,
+    keep_off: &[(f32, f32, f32)],
 ) -> Vec<(f32, f32)> {
     let clusters = cluster_centers(bounds, count, local_seed, naturalness.edge_falloff.0);
     let mut rng = ChaCha8Rng::seed_from_u64(local_seed);
     let max_attempts = count.saturating_mul(10).max(count);
     let mut placed = Vec::with_capacity(count as usize);
+    // Copies taken, a suppressed one among them (#1776): it spends its slot
+    // as the executor's does, and grows nothing.
+    let mut taken = 0;
     let mut attempts = 0;
-    while (placed.len() as u32) < count && attempts < max_attempts {
+    while taken < count && attempts < max_attempts {
         attempts += 1;
         if let Some((x, _, z)) = try_sample(
             bounds,
@@ -280,7 +286,10 @@ fn place(
             Some(heightmap),
             filters,
         ) {
-            placed.push((x, z));
+            taken += 1;
+            if !super::scatter::inside_any(keep_off, x, z) {
+                placed.push((x, z));
+            }
         }
     }
     placed

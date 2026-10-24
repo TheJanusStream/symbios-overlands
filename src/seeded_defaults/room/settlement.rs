@@ -10,21 +10,43 @@
 //! back wholesale to [`FALLBACK_THEME`], so every room gets a coherent
 //! settlement while the catalogue fills out.
 //!
-//! Placement: the landmark sits at a footprint-appropriate distance band
-//! facing spawn; secondaries fan out on the *far* side of the landmark
-//! (so they never crowd the spawn square) facing inward; props scatter
-//! across the settlement's far hemisphere. The wiring layer
+//! Placement on no terrain ([`Settlement::from_scene`], the flat ring the
+//! sited plan grew from): the landmark sits at a footprint-appropriate
+//! distance band facing spawn; secondaries fan out on the *far* side of the
+//! landmark (so they never crowd the spawn square), their fronts turned
+//! away from it; props scatter across the settlement's far hemisphere. The
+//! wiring layer
 //! ([`RoomRecord::default_for_did`](crate::pds::RoomRecord::default_for_did))
 //! turns each member into a named generator plus a terrain-snapped
 //! `Placement::Absolute` carrying the member's water clearance and, for a
 //! Shape-grammar building, its grammar seed.
+//!
+//! Sited on a terrain probe ([`SettlementPlan::from_scene_sited`]), each
+//! member stands only where its ground fits it (#1773): the relief under
+//! its footprint, read on the proxy with a margin for what the proxy
+//! cannot see, within its plinth's reach; its middle and rim gentle enough
+//! that the compile's slope walk leaves it there; and dry. A member that
+//! fits nowhere near its place is drawn a quarter octave smaller each step,
+//! down to half size, then gives way to the next smaller entry of its role
+//! (#1774), and is dropped after that - all but the primary landmark, which
+//! always stands: the smallest at half size on its region's flattest
+//! ground. A landmark takes at most half its region's room, leaving as much
+//! again for its kit, and the plan keeps the forecourt before it clear.
+//!
+//! Where a building belongs, not only whether it fits (#1775): one whose
+//! entry seeks a crest, the shore or a valley floor
+//! ([`CatalogueEntry::site`](crate::catalogue::CatalogueEntry::site)) takes,
+//! of the sites it fits near its place, the one that ground suits best less
+//! the walk. A landmark faces the arrival; a house fronts downhill on a
+//! slope - along the contour, out over its view - and toward the arrival
+//! on level ground.
 
 use std::f32::consts::TAU;
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::{RngCore, SeedableRng};
 
-use super::siting::{BuildableRegion, TerrainProbe};
+use super::siting::{BuildableRegion, FootprintGround, TerrainProbe};
 use crate::catalogue::{StructureRole, entries_for, entries_for_room};
 use crate::seeded_defaults::scene::{
     EscalationTier, ProsperityTier, SceneCharacter, ThemeArchetype, pick, range_f32, unit_f32,
@@ -52,8 +74,9 @@ const PROP_SCALE_ROLL: (f32, f32) = (0.70, 1.05);
 
 /// A secondary's keep-clear radius before its scale is drawn - at the top of
 /// [`SECONDARY_SCALE_BAND`], so it is spaced for the largest it can be drawn
-/// (its scale is drawn after its position; drawing it first would move every
-/// seeded world's later draws).
+/// (its sites are listed before its scale is drawn; drawing it first would
+/// move every seeded world's later draws). Whatever stands in for it is
+/// spaced the same.
 fn secondary_spacing_clearance(clearance: f32) -> f32 {
     clearance * SECONDARY_SCALE_BAND.1
 }
@@ -351,9 +374,10 @@ pub const BUILD_SLOPE_LIMIT: f32 = 0.28;
 /// structures - the rest is breathing room between footprints.
 const FILL_FRACTION: f32 = 0.35;
 
-/// A member's desired position may snap at most this far (m) to reach a
-/// buildable cell; anything farther means the layout doesn't fit the
-/// region there and the member is dropped instead of smeared.
+/// A member's desired position may move at most this far (m) to reach a
+/// buildable cell its ground fits; anything farther means the layout
+/// doesn't fit the region there and the member is dropped instead of
+/// smeared.
 const SNAP_MAX_DIST: f32 = 30.0;
 
 /// Minimum region area (m²) for a hamlet (secondary + props, no
@@ -391,6 +415,11 @@ impl SettlementCluster {
 #[derive(Clone, Debug)]
 pub struct SettlementPlan {
     pub clusters: Vec<SettlementCluster>,
+    /// Where the primary landmark stood before its ground was read (#1773):
+    /// its region's cell nearest spawn clear of its spawn square. A Berlin
+    /// square's gate keeps that bearing (#1589), its fixture pinned: the fit
+    /// moves the procedural landmark, never the square's gate.
+    pub unfitted_landmark: [f32; 2],
 }
 
 impl SettlementPlan {
@@ -458,6 +487,7 @@ impl SettlementPlan {
                     secondaries: Vec::new(),
                     props: Vec::new(),
                 }],
+                unfitted_landmark: site,
             };
         }
 
@@ -481,16 +511,29 @@ impl SettlementPlan {
 
         let mut clusters = Vec::new();
         let mut total = 0usize;
-        let primary = place_cluster(
+        let (primary, unfitted_landmark) = place_cluster(
             theme,
             prosperity,
             escalation,
             &regions[primary_idx],
             probe,
             ClusterKind::Primary,
+            Forecourt::of(scene.theme),
+            None,
             MAX_TOTAL_MEMBERS,
             &mut rng,
         );
+        let unfitted_landmark = unfitted_landmark
+            .expect("the primary cluster always sites its landmark (the fallback theme has one)");
+        // Where a visitor arrives, which every other cluster's buildings face
+        // (#1775): the primary landmark's forecourt landing.
+        let arrival = primary
+            .landmark
+            .as_ref()
+            .zip(Forecourt::of(scene.theme))
+            .map_or([0.0, 0.0], |(landmark, forecourt)| {
+                forecourt.spot(landmark.offset, landmark.clearance).landing
+            });
         total += primary.member_count();
         clusters.push(primary);
 
@@ -507,18 +550,21 @@ impl SettlementPlan {
             if i == primary_idx || total >= MAX_TOTAL_MEMBERS {
                 continue;
             }
-            let landmark_room = region.area_m2 * FILL_FRACTION;
-            if allow_second_landmark
-                && !second_landmark_placed
-                && landmark_room >= 2.0 * member_area_cost(8.0)
+            // A second landmark where its own room and ground fit it
+            // (#1774) - no longer an 8 m stand-in's - and a hamlet where
+            // none does. A region too small for any landmark is not tried,
+            // so its hamlet draws as it always did.
+            if allow_second_landmark && !second_landmark_placed && landmark_has_room(theme, region)
             {
-                let c = place_cluster(
+                let (c, _) = place_cluster(
                     theme,
                     prosperity,
                     escalation,
                     region,
                     probe,
                     ClusterKind::Outpost,
+                    None,
+                    Some(arrival),
                     MAX_TOTAL_MEMBERS - total,
                     &mut rng,
                 );
@@ -526,15 +572,19 @@ impl SettlementPlan {
                     total += c.member_count();
                     second_landmark_placed = true;
                     clusters.push(c);
+                    continue;
                 }
-            } else if hamlets < MAX_HAMLETS && region.area_m2 >= HAMLET_MIN_AREA {
-                let c = place_cluster(
+            }
+            if hamlets < MAX_HAMLETS && region.area_m2 >= HAMLET_MIN_AREA {
+                let (c, _) = place_cluster(
                     theme,
                     prosperity,
                     escalation,
                     region,
                     probe,
                     ClusterKind::Hamlet,
+                    None,
+                    Some(arrival),
                     MAX_TOTAL_MEMBERS - total,
                     &mut rng,
                 );
@@ -546,8 +596,23 @@ impl SettlementPlan {
             }
         }
 
-        Self { clusters }
+        Self {
+            clusters,
+            unfitted_landmark,
+        }
     }
+}
+
+/// Whether `region` has room for any landmark of `theme`: its smallest at
+/// half size within [`LANDMARK_ROOM_SHARE`] of the region's room (#1774).
+/// Draw-free, so a region that cannot hold one is never tried as an outpost
+/// and grows its hamlet on the stream it always did.
+fn landmark_has_room(theme: ThemeArchetype, region: &BuildableRegion) -> bool {
+    let smallest = entries_for(theme, StructureRole::Landmark)
+        .filter(|entry| entry.street().is_none())
+        .map(|entry| entry.footprint().clearance)
+        .fold(f32::INFINITY, f32::min);
+    member_area_cost(smallest * SCALE_MIN) <= region.area_m2 * FILL_FRACTION * LANDMARK_ROOM_SHARE
 }
 
 /// Approximate ground area (m²) one member occupies, from its dry-land
@@ -555,6 +620,287 @@ impl SettlementPlan {
 fn member_area_cost(clearance: f32) -> f32 {
     let r = clearance + 2.0;
     std::f32::consts::PI * r * r
+}
+
+/// The share of its region's room ([`FILL_FRACTION`] of its area) a
+/// landmark may take: it leaves as much again for its kit (#1774). The
+/// second landmark's old gate asked the same of a fixed 8 m member; the
+/// primary landmark was never asked at all.
+const LANDMARK_ROOM_SHARE: f32 = 0.5;
+
+/// The smallest a member is drawn to fit its ground, as a share of its
+/// catalogue size - Berlin's fit's floor (#1588, `terrain::derived::fit`).
+const SCALE_MIN: f32 = 0.5;
+
+/// Each step down in size a member that does not fit takes: a quarter
+/// octave, as Berlin's fit steps (#1774).
+const SCALE_STEP: f32 = 0.840_896_4;
+
+/// How far a member stands below the ground its footprint's highest point
+/// sets it on (`room::build::member_placement`'s -0.35 m): part of what
+/// covers the ground falling away under it.
+const MEMBER_SINK: f32 = 0.35;
+
+/// How many times the proxy's relief under a footprint the full map is
+/// taken to have there (#1773). The proxy samples the ground ten metres
+/// apart and erodes its own gullies, so it reads a site flatter than it
+/// is: over 72 000 random sites in 200 seeds the full map's drop was 1.1x
+/// the proxy's relief at the median and 2.2x at p90. At 2.5, 97.7 % of the
+/// seeded footprints in seeds 0-299 show no daylight (91.6 % before), for
+/// 5 % fewer members than at 1.5. Craggy ground keeps most of the rest:
+/// its fine relief lies under the proxy's cells, and no margin the proxy
+/// can read sorts its sites without emptying them.
+const RELIEF_MARGIN: f32 = 2.5;
+
+/// The steepest the ground may be at a member's middle and its rim, read on
+/// the proxy as the compile's walk reads it on the full map
+/// (`world_builder::compile::slope`, 0.45): a margin under the walk's
+/// limit, so the walk leaves a site the plan chose where it is.
+const SITE_SLOPE: f32 = 0.35;
+
+/// How much further than the nearest site it fits a building with a site
+/// preference looks for one it prefers (m, #1775).
+const PREFERENCE_REACH: f32 = 150.0;
+
+/// What a metre's further walk from where a building was wanted costs its
+/// site preference, in the preference's own metres (#1775): a crest 5 m
+/// higher is worth a site 100 m further out.
+const WALK_COST: f32 = 0.05;
+
+/// The slope (rise/run) from which a building faces downhill, its front
+/// along the contour and out over its view, rather than toward the
+/// arrival (#1775).
+const CONTOUR_SLOPE: f32 = 0.06;
+
+/// The relief a prop's footprint may have: a prop carries no plinth
+/// (`foundation::is_settlement_structure`), only the sink and a little
+/// more.
+const PROP_REACH: f32 = 0.6;
+
+/// The scales a member is tried at, largest first: `drawn`, then a quarter
+/// octave smaller each step, down to [`SCALE_MIN`] (#1774). A member drawn
+/// smaller than that is tried as drawn alone.
+fn sizes(drawn: f32) -> impl Iterator<Item = f32> {
+    std::iter::successors(Some(drawn), |scale| Some(scale * SCALE_STEP))
+        .enumerate()
+        .take_while(move |&(i, scale)| i == 0 || scale >= SCALE_MIN - 1e-4)
+        .map(|(_, scale)| scale)
+}
+
+/// The radius of the ground `entry` stands on at `scale` - its own
+/// declared ground where it has one (#1559), else its clearance - as the
+/// record's placement carries it (`room::build::member_ground_radius`).
+fn ground_radius(entry: &dyn crate::catalogue::CatalogueEntry, scale: f32) -> f32 {
+    entry
+        .ground_radius()
+        .unwrap_or_else(|| entry.footprint().clearance)
+        * scale
+}
+
+/// The relief `entry`'s footprint may have at `scale` before daylight
+/// shows under it: how far below the ground it stands on its plinth
+/// reaches, the sink included (#1009) - or, for a prop, which carries
+/// none, [`PROP_REACH`].
+fn reach(entry: &dyn crate::catalogue::CatalogueEntry, scale: f32) -> f32 {
+    use crate::catalogue::items::foundation;
+    if foundation::is_settlement_structure(entry) {
+        foundation::required_depth(entry.footprint().clearance) * scale + MEMBER_SINK
+    } else {
+        PROP_REACH
+    }
+}
+
+/// Whether `entry` drawn at `scale` fits the ground at `at` (#1773): the
+/// relief under its footprint, as the full map is taken to have it, within
+/// its [`reach`]; the ground at its middle and rim gentle enough that the
+/// compile's walk leaves it there; and dry.
+fn member_fits(
+    probe: &TerrainProbe,
+    at: [f32; 2],
+    entry: &dyn crate::catalogue::CatalogueEntry,
+    scale: f32,
+) -> bool {
+    let reach = reach(entry, scale);
+    let fits = |ground: &FootprintGround| {
+        ground.relief * RELIEF_MARGIN <= reach && ground.steepest <= SITE_SLOPE && ground.is_dry()
+    };
+    // Read no further than the first points that refuse it: the slopes, the
+    // relief and the dry ground each only fail the more as the disc fills.
+    probe
+        .footprint_unless(at, ground_radius(entry, scale), |partial| !fits(partial))
+        .is_some_and(|ground| fits(&ground))
+}
+
+/// The first of `sites` where `entry` fits, at the largest of its
+/// [`sizes`] whose area `room` (m²) still holds (#1774) that fits on any of
+/// them (#1773), and that size.
+fn fit_among(
+    probe: &TerrainProbe,
+    sites: &[[f32; 2]],
+    from: [f32; 2],
+    entry: &dyn crate::catalogue::CatalogueEntry,
+    drawn: f32,
+    room: f32,
+) -> Option<([f32; 2], f32)> {
+    let clearance = entry.footprint().clearance;
+    sizes(drawn)
+        .filter(|&scale| member_area_cost(clearance * scale) <= room)
+        .find_map(|scale| site_for(probe, sites, from, entry, scale).map(|at| (at, scale)))
+}
+
+/// Where among `sites` - nearest `from` first - `entry` drawn at `scale`
+/// stands: the nearest site whose ground fits it (#1773), or, for an entry
+/// with a [site preference](crate::catalogue::SitePreference), the one it
+/// fits within [`PREFERENCE_REACH`] beyond that which its preference scores
+/// best, [`WALK_COST`] a metre from `from` taken off - the nearest of equals
+/// (#1775).
+fn site_for(
+    probe: &TerrainProbe,
+    sites: &[[f32; 2]],
+    from: [f32; 2],
+    entry: &dyn crate::catalogue::CatalogueEntry,
+    scale: f32,
+) -> Option<[f32; 2]> {
+    let fits = |at: [f32; 2]| member_fits(probe, at, entry, scale);
+    let first = sites.iter().position(|&at| fits(at))?;
+    let prefer = entry.site();
+    if prefer == crate::catalogue::SitePreference::Anywhere {
+        return Some(sites[first]);
+    }
+    // Square root, not `hypot` (#1132): the walk ranks the sites, and a
+    // square root rounds the same on every platform.
+    let walk = |at: [f32; 2]| {
+        let (dx, dz) = (at[0] - from[0], at[1] - from[1]);
+        (dx * dx + dz * dz).sqrt()
+    };
+    let reach = walk(sites[first]) + PREFERENCE_REACH;
+    let score = |at: [f32; 2]| probe.preference(prefer, at) - WALK_COST * walk(at);
+    let mut best = (sites[first], score(sites[first]));
+    for &at in sites[first + 1..]
+        .iter()
+        .take_while(|&&at| walk(at) <= reach)
+    {
+        if fits(at) {
+            let scored = score(at);
+            if scored > best.1 {
+                best = (at, scored);
+            }
+        }
+    }
+    Some(best.0)
+}
+
+/// The yaw that turns a building's front (its catalogue -Z) to face
+/// `toward`, a direction on the ground - libm's (#1132), so every peer
+/// writes the same bits.
+fn facing(toward: [f32; 2]) -> f32 {
+    libm::atan2f(-toward[0], -toward[1])
+}
+
+/// Which way a house at `at` faces (#1775): downhill where the ground falls
+/// at [`CONTOUR_SLOPE`] or more - its front along the contour, out over its
+/// view - else toward the world's `arrival`, its front to the visitor.
+fn house_facing(probe: &TerrainProbe, at: [f32; 2], arrival: [f32; 2]) -> [f32; 2] {
+    probe
+        .downhill(at, CONTOUR_SLOPE)
+        .unwrap_or([arrival[0] - at[0], arrival[1] - at[1]])
+}
+
+/// The first of `candidates` that [fits](fit_among) one of its sites
+/// (`sites_for` it, nearest `from` first) within `room` (m²), with where it
+/// stands and at what size: the building drawn, else what stands in for it
+/// ([`stand_ins`], #1774).
+fn choose(
+    probe: &TerrainProbe,
+    candidates: &[&'static dyn crate::catalogue::CatalogueEntry],
+    sites_for: impl Fn(&'static dyn crate::catalogue::CatalogueEntry) -> Vec<[f32; 2]>,
+    from: [f32; 2],
+    drawn: f32,
+    room: f32,
+) -> Option<(&'static dyn crate::catalogue::CatalogueEntry, [f32; 2], f32)> {
+    candidates.iter().find_map(|&entry| {
+        fit_among(probe, &sites_for(entry), from, entry, drawn, room)
+            .map(|(at, scale)| (entry, at, scale))
+    })
+}
+
+/// Catalogue entries by size - clearance, then slug - as Berlin's fit
+/// orders its pools (`terrain::derived::fit::sized_pool`).
+fn by_size(
+    a: &dyn crate::catalogue::CatalogueEntry,
+    b: &dyn crate::catalogue::CatalogueEntry,
+) -> std::cmp::Ordering {
+    a.footprint()
+        .clearance
+        .total_cmp(&b.footprint().clearance)
+        .then(a.slug().cmp(b.slug()))
+}
+
+/// `drawn`, then `pool`'s entries smaller than it, biggest first, each once:
+/// what a member tries in turn where the building drawn fits nowhere near
+/// its place even at half size - the next smaller entry of its role, as
+/// Berlin's fit gives way (#1774).
+fn stand_ins(
+    drawn: &'static dyn crate::catalogue::CatalogueEntry,
+    pool: impl IntoIterator<Item = &'static dyn crate::catalogue::CatalogueEntry>,
+) -> Vec<&'static dyn crate::catalogue::CatalogueEntry> {
+    let mut smaller: Vec<_> = pool
+        .into_iter()
+        .filter(|entry| by_size(*entry, drawn).is_lt())
+        .collect();
+    smaller.sort_by(|a, b| by_size(*b, *a));
+    smaller.dedup_by(|a, b| a.slug() == b.slug());
+    std::iter::once(drawn).chain(smaller).collect()
+}
+
+/// The room an arrival stands in at the landing (m), kept clear of members.
+const LANDING_KEEP: f32 = 2.0;
+
+/// The forecourt the build stands before the primary landmark (#747,
+/// #975): its gate and monument, by their footprints. The plan keeps it
+/// clear as it keeps its members (#1774): a building drawn smaller - or
+/// smaller standing in for it - brings the gate in closer, onto ground a
+/// secondary could take.
+#[derive(Clone, Copy)]
+struct Forecourt {
+    gate: f32,
+    monument: Option<f32>,
+}
+
+impl Forecourt {
+    /// The forecourt a world of `theme` stands, by the entries the build
+    /// places ([`gateway_entry`](super::gateway::gateway_entry),
+    /// [`monument_entry`](super::monument::monument_entry)); `None` for a
+    /// world with no gate.
+    fn of(theme: ThemeArchetype) -> Option<Self> {
+        super::gateway::gateway_entry(theme).map(|gate| Forecourt {
+            gate: gate.footprint().clearance,
+            monument: super::monument::monument_entry(theme)
+                .map(|monument| monument.footprint().clearance),
+        })
+    }
+
+    /// Its gate and landing before a landmark at `landmark` keeping
+    /// `clearance`, as the build stands them.
+    fn spot(self, landmark: [f32; 2], clearance: f32) -> super::GatewaySpot {
+        super::GatewaySpot::for_landmark(landmark, clearance, self.gate)
+    }
+
+    /// Where it stands before a landmark at `landmark` keeping `clearance`,
+    /// as (position, keep-clear radius): the gate, its landing, and the
+    /// monument on either side of the approach - its DID picks one, and the
+    /// plan does not know its DID.
+    fn keep_outs(self, landmark: [f32; 2], clearance: f32) -> Vec<([f32; 2], f32)> {
+        let gate = self.spot(landmark, clearance);
+        let mut keep = vec![(gate.offset, self.gate), (gate.landing, LANDING_KEEP)];
+        if let Some(monument) = self.monument {
+            for side in [false, true] {
+                let at = super::MonumentSpot::on_side(&gate, self.gate, monument, side);
+                keep.push((at.offset, monument));
+            }
+        }
+        keep
+    }
 }
 
 /// What kind of cluster [`place_cluster`] grows.
@@ -569,10 +915,16 @@ enum ClusterKind {
     Hamlet,
 }
 
-/// Grow one cluster inside `region`. Members whose desired ring
-/// position can't snap to a buildable cell (or would blow the region's
-/// fill budget / `member_budget`) are dropped - that *is* the capacity
-/// adaptation.
+/// Grow one cluster inside `region`. Members with no buildable cell near
+/// their desired ring position whose ground fits them (#1773), even a
+/// quarter octave smaller each step down to [`SCALE_MIN`], are dropped, as
+/// are those that would blow the region's fill budget / `member_budget` -
+/// that *is* the capacity adaptation.
+///
+/// Returned beside the cluster: the cell its anchor would have taken were
+/// its ground not read - the nearest spawn clear of the spawn square, else
+/// the nearest the region's centroid ([`SettlementPlan::unfitted_landmark`])
+/// - or `None` where the cluster grew no anchor.
 #[allow(clippy::too_many_arguments)] // internal: a param object would just rename the call site
 fn place_cluster(
     theme: ThemeArchetype,
@@ -581,16 +933,18 @@ fn place_cluster(
     region: &BuildableRegion,
     probe: &TerrainProbe,
     kind: ClusterKind,
+    forecourt: Option<Forecourt>,
+    arrival: Option<[f32; 2]>,
     member_budget: usize,
     rng: &mut ChaCha8Rng,
-) -> SettlementCluster {
+) -> (SettlementCluster, Option<[f32; 2]>) {
     let mut cluster = SettlementCluster {
         landmark: None,
         secondaries: Vec::new(),
         props: Vec::new(),
     };
     if member_budget == 0 {
-        return cluster;
+        return (cluster, None);
     }
     let usable_area = region.area_m2 * FILL_FRACTION;
     let mut consumed = 0.0_f32;
@@ -598,9 +952,8 @@ fn place_cluster(
     let mut placed: Vec<([f32; 2], f32)> = Vec::new();
 
     // Anchor: landmark for landmark-led clusters, a secondary for
-    // hamlets. Sits on the region cell nearest spawn that still clears
-    // the spawn square (falling back to the centroid for a region that
-    // hugs the origin).
+    // hamlets. Sits on the region cell nearest spawn, clear of the spawn
+    // square, whose ground fits it.
     let anchor_role = if kind == ClusterKind::Hamlet {
         StructureRole::Secondary
     } else {
@@ -615,31 +968,86 @@ fn place_cluster(
         anchor_pool
     };
     if anchor_pool.is_empty() {
-        return cluster;
+        return (cluster, None);
     }
-    let anchor_entry = pick(&anchor_pool, rng);
-    let anchor_fp = anchor_entry.footprint();
-    let spawn_clear = if kind == ClusterKind::Primary {
-        anchor_fp.min_spawn_dist
-    } else {
-        // Non-primary clusters live in other regions; only the basic
-        // spawn-square clearance applies.
-        10.0
+    let drawn_entry = pick(&anchor_pool, rng);
+    let spawn_keep = |entry: &dyn crate::catalogue::CatalogueEntry| {
+        let clear = if kind == ClusterKind::Primary {
+            entry.footprint().min_spawn_dist
+        } else {
+            // Non-primary clusters live in other regions; only the basic
+            // spawn-square clearance applies.
+            10.0
+        };
+        [([0.0, 0.0], clear)]
     };
-    let Some(anchor_pos) = probe
-        .snap_to_region(region, [0.0, 0.0], &[([0.0, 0.0], spawn_clear)])
-        .or_else(|| probe.snap_to_region(region, region.centroid, &[]))
-    else {
-        return cluster;
-    };
-    let anchor_yaw = anchor_pos[0].atan2(anchor_pos[1]) + range_f32(rng, -0.35, 0.35);
     let (scale_lo, scale_hi) = if kind == ClusterKind::Hamlet {
         SECONDARY_SCALE_BAND
     } else {
         landmark_scale_band(prosperity)
     };
-    let anchor_scale = range_f32(rng, scale_lo, scale_hi);
-    let anchor_clearance = anchor_fp.clearance * anchor_scale;
+    let yaw_jitter = range_f32(rng, -0.35, 0.35);
+    let drawn_scale = range_f32(rng, scale_lo, scale_hi);
+    // The region's cell nearest spawn, clear of the spawn square, where the
+    // anchor's ground fits it (#1773) - at the scale drawn, else a quarter
+    // octave smaller each step, its area within its share of the region's
+    // room; else the next smaller entry of its role, each clear of spawn by
+    // its own distance, of the world's escalation but any prosperity: the
+    // ground decides how grand it is, never how fought-over its world
+    // (#1774). The primary landmark always stands: on no fitting site, the
+    // smallest at half size on the flattest; any other cluster's anchor
+    // fitting nowhere grows nothing.
+    let sites_for = |entry: &dyn crate::catalogue::CatalogueEntry| {
+        probe.sites_near(region, [0.0, 0.0], f32::INFINITY, &spawn_keep(entry))
+    };
+    let unfitted = sites_for(drawn_entry).first().copied().or_else(|| {
+        probe
+            .sites_near(region, region.centroid, f32::INFINITY, &[])
+            .first()
+            .copied()
+    });
+    let candidates = stand_ins(
+        drawn_entry,
+        entries_for(theme, drawn_entry.role()).filter(|entry| {
+            entry.street().is_none() && entry.escalation_band().accepts(escalation)
+        }),
+    );
+    let room = match kind {
+        ClusterKind::Hamlet => usable_area,
+        ClusterKind::Primary | ClusterKind::Outpost => usable_area * LANDMARK_ROOM_SHARE,
+    };
+    let (anchor_entry, anchor_pos, anchor_scale) =
+        match choose(probe, &candidates, sites_for, [0.0, 0.0], drawn_scale, room) {
+            Some(chosen) => chosen,
+            None if kind == ClusterKind::Primary => {
+                let entry = candidates[candidates.len() - 1];
+                let scale = drawn_scale.min(SCALE_MIN);
+                let radius = ground_radius(entry, scale);
+                match probe
+                    .flattest(region, &spawn_keep(entry), radius)
+                    .or_else(|| probe.flattest(region, &[], radius))
+                {
+                    Some(at) => (entry, at, scale),
+                    None => return (cluster, None),
+                }
+            }
+            None => return (cluster, None),
+        };
+    let anchor_clearance = anchor_entry.footprint().clearance * anchor_scale;
+    // Where a visitor arrives (#1775): the primary cluster's own forecourt
+    // landing, else the one the caller knows, else spawn.
+    let arrival = forecourt
+        .map(|forecourt| forecourt.spot(anchor_pos, anchor_clearance).landing)
+        .or(arrival)
+        .unwrap_or([0.0, 0.0]);
+    // A landmark faces its arrival - the primary's on the ray from spawn
+    // its landing stands on, so spawn, as it always faced - and a hamlet's
+    // house faces as a house does (#1775).
+    let anchor_yaw = match kind {
+        ClusterKind::Primary => anchor_pos[0].atan2(anchor_pos[1]),
+        ClusterKind::Outpost => facing([arrival[0] - anchor_pos[0], arrival[1] - anchor_pos[1]]),
+        ClusterKind::Hamlet => facing(house_facing(probe, anchor_pos, arrival)),
+    } + yaw_jitter;
     let anchor_member = SettlementMember {
         slug: anchor_entry.slug(),
         offset: anchor_pos,
@@ -650,6 +1058,9 @@ fn place_cluster(
     };
     consumed += member_area_cost(anchor_clearance);
     placed.push((anchor_pos, anchor_clearance));
+    if let Some(forecourt) = forecourt {
+        placed.extend(forecourt.keep_outs(anchor_pos, anchor_clearance));
+    }
     if kind == ClusterKind::Hamlet {
         cluster.secondaries.push(anchor_member);
     } else {
@@ -657,7 +1068,7 @@ fn place_cluster(
     }
 
     // Secondaries fan out on the far side of the anchor (as the flat
-    // deriver always did), each snapped to buildable ground.
+    // deriver always did), each on buildable ground that fits it.
     let (sec_lo, sec_hi) = match kind {
         ClusterKind::Primary => secondary_count_band(prosperity),
         ClusterKind::Outpost => (0, 2),
@@ -668,7 +1079,8 @@ fn place_cluster(
     let sec_count = sample_count(rng, sec_lo.min(sec_hi), sec_hi);
     let base = anchor_pos[0].atan2(anchor_pos[1]);
     for i in 0..sec_count {
-        if cluster.member_count() >= member_budget {
+        // A stand-in spends the pool's entries faster than the count drew.
+        if cluster.member_count() >= member_budget || remaining.is_empty() {
             break;
         }
         let idx = ((unit_f32(rng) * remaining.len() as f32) as usize).min(remaining.len() - 1);
@@ -687,16 +1099,29 @@ fn place_cluster(
         let r = anchor_clearance + spacing + range_f32(rng, 4.0, 12.0);
         let desired = [anchor_pos[0] + dir.sin() * r, anchor_pos[1] + dir.cos() * r];
         let keep: Vec<([f32; 2], f32)> = placed.iter().map(|&(p, c)| (p, c + spacing)).collect();
-        let Some(pos) = probe.snap_to_region(region, desired, &keep) else {
-            continue;
-        };
-        let snap_d = ((pos[0] - desired[0]).powi(2) + (pos[1] - desired[1]).powi(2)).sqrt();
-        if snap_d > SNAP_MAX_DIST {
+        // The nearest buildable cell within reach of where it was wanted
+        // where its ground fits it, as drawn or smaller (#1773, #1774).
+        let sites = probe.sites_near(region, desired, SNAP_MAX_DIST, &keep);
+        if sites.is_empty() {
             continue;
         }
-        let yaw_rad =
-            (anchor_pos[0] - pos[0]).atan2(anchor_pos[1] - pos[1]) + range_f32(rng, -0.25, 0.25);
-        let scale = range_f32(rng, SECONDARY_SCALE_BAND.0, SECONDARY_SCALE_BAND.1);
+        let yaw_jitter = range_f32(rng, -0.25, 0.25);
+        let drawn = range_f32(rng, SECONDARY_SCALE_BAND.0, SECONDARY_SCALE_BAND.1);
+        // Else the next smaller of the pool's buildings left (#1774), spent.
+        let candidates = stand_ins(entry, remaining.iter().copied());
+        let Some((entry, pos, scale)) = choose(
+            probe,
+            &candidates,
+            |_| sites.clone(),
+            desired,
+            drawn,
+            usable_area - consumed,
+        ) else {
+            continue;
+        };
+        remaining.retain(|left| left.slug() != entry.slug());
+        let fp = entry.footprint();
+        let yaw_rad = facing(house_facing(probe, pos, arrival)) + yaw_jitter;
         let clearance = fp.clearance * scale;
         cluster.secondaries.push(SettlementMember {
             slug: entry.slug(),
@@ -710,9 +1135,10 @@ fn place_cluster(
         placed.push((pos, clearance));
     }
 
-    // Props scatter around the anchor, snapped the same way. Their
-    // keep-clear only guards against sitting *inside* another footprint
-    // (clutter may crowd).
+    // Props scatter around the anchor, sited the same way on ground they
+    // stand on - they carry no plinth - each clear of every footprint
+    // placed (#1776: at half the keep-clear a prop stood inside a castle's
+    // walls).
     let prop_pool: Vec<&'static dyn crate::catalogue::CatalogueEntry> =
         entries_for_room(theme, StructureRole::Prop, prosperity, escalation).collect();
     if !prop_pool.is_empty() {
@@ -734,17 +1160,15 @@ fn place_cluster(
             let dir = base + range_f32(rng, -1.4, 1.4);
             let r = range_f32(rng, anchor_clearance + 2.0, anchor_clearance + 25.0);
             let desired = [anchor_pos[0] + dir.sin() * r, anchor_pos[1] + dir.cos() * r];
-            let keep: Vec<([f32; 2], f32)> = placed
-                .iter()
-                .map(|&(p, c)| (p, (c + fp.clearance) * 0.5))
-                .collect();
-            let Some(pos) = probe.snap_to_region(region, desired, &keep) else {
+            let keep: Vec<([f32; 2], f32)> =
+                placed.iter().map(|&(p, c)| (p, c + fp.clearance)).collect();
+            let Some(pos) = probe
+                .sites_near(region, desired, SNAP_MAX_DIST, &keep)
+                .into_iter()
+                .find(|&at| member_fits(probe, at, entry, 1.0))
+            else {
                 continue;
             };
-            let snap_d = ((pos[0] - desired[0]).powi(2) + (pos[1] - desired[1]).powi(2)).sqrt();
-            if snap_d > SNAP_MAX_DIST {
-                continue;
-            }
             let yaw_rad = unit_f32(rng) * TAU;
             let _unapplied = range_f32(rng, PROP_SCALE_ROLL.0, PROP_SCALE_ROLL.1);
             cluster.props.push(SettlementMember {
@@ -760,7 +1184,7 @@ fn place_cluster(
         }
     }
 
-    cluster
+    (cluster, unfitted)
 }
 
 #[cfg(test)]
@@ -1520,6 +1944,235 @@ mod tests {
             grown > 0,
             "no member was drawn past 1.2x: the rule was never tested"
         );
+    }
+
+    /// #1774's ladder, as Berlin's fit steps: the size drawn, then a
+    /// quarter octave smaller each step, down to half size.
+    #[test]
+    fn a_member_is_tried_a_quarter_octave_smaller_each_step_down_to_half_size() {
+        let ladder: Vec<f32> = sizes(1.2).collect();
+        assert_eq!(ladder[0], 1.2);
+        for step in ladder.windows(2) {
+            assert!(
+                (step[1] / step[0] - 2f32.powf(-0.25)).abs() < 1e-5,
+                "{ladder:?}"
+            );
+        }
+        let last = ladder[ladder.len() - 1];
+        assert!(
+            last >= SCALE_MIN - 1e-4 && last * SCALE_STEP < SCALE_MIN,
+            "{ladder:?}"
+        );
+        // Half size itself is a rung.
+        assert!((sizes(1.0).last().unwrap() - SCALE_MIN).abs() < 1e-5);
+        // A member drawn under the floor is tried as drawn alone.
+        assert_eq!(sizes(0.4).collect::<Vec<_>>(), vec![0.4]);
+    }
+
+    /// #1773: a member fits ground its plinth reaches, the proxy's margin
+    /// taken - on one slope, so, drawn smaller where it does not drawn whole
+    /// - and never ground the water covers.
+    #[test]
+    fn a_member_fits_only_ground_its_plinth_reaches() {
+        let entry = *crate::catalogue::ENTRIES
+            .iter()
+            .find(|e| {
+                e.role() == StructureRole::Secondary
+                    && e.ground_radius().is_none()
+                    && (4.0..=12.0).contains(&e.footprint().clearance)
+            })
+            .expect("a mid-sized secondary");
+        let c = entry.footprint().clearance;
+        // Flat at 10 m west of x = 0 and rising at `k` east of it: a slope
+        // between what the entry spans drawn whole (5 k c against its reach
+        // 0.35 c + 0.4) and at half size (2.5 k c against 0.175 c + 0.375).
+        let k = (0.35 * c + 0.575) / (5.0 * c);
+        let probe = probe_from(64, 8.0, 0.0, |x, _| {
+            10.0 + (x as f32 * 8.0 - 252.0).max(0.0) * k
+        });
+        assert!(member_fits(&probe, [-150.0, 0.0], entry, 1.0));
+        assert!(!member_fits(&probe, [150.0, 0.0], entry, 1.0));
+        assert!(member_fits(&probe, [150.0, 0.0], entry, 0.5));
+        let drowned = probe_from(16, 8.0, 50.0, |_, _| 10.0);
+        assert!(!member_fits(&drowned, [0.0, 0.0], entry, 0.5));
+    }
+
+    /// #1774: what stands in for a building that fits nowhere is the next
+    /// smaller of its pool, biggest first, each once - the one drawn first.
+    #[test]
+    fn stand_ins_are_the_smaller_entries_biggest_first() {
+        let pool: Vec<&'static dyn crate::catalogue::CatalogueEntry> =
+            entries_for(ThemeArchetype::Medieval, StructureRole::Secondary).collect();
+        let drawn = *pool
+            .iter()
+            .max_by(|a, b| by_size(**a, **b))
+            .expect("a medieval secondary");
+        let doubled = pool.iter().chain(&pool).copied();
+        let ins = stand_ins(drawn, doubled);
+        assert_eq!(ins[0].slug(), drawn.slug());
+        assert_eq!(ins.len(), pool.len(), "each entry once");
+        for pair in ins.windows(2) {
+            assert!(by_size(pair[1], pair[0]).is_lt(), "biggest first");
+        }
+        // The smallest drawn has none to give way to.
+        let smallest = *pool.iter().min_by(|a, b| by_size(**a, **b)).unwrap();
+        assert_eq!(stand_ins(smallest, pool.iter().copied()).len(), 1);
+    }
+
+    /// #1774: a landmark takes no more than half its region's room, at the
+    /// size drawn or smaller, else gives way to the next smaller landmark of
+    /// its theme - a rich Medieval world's castle, on an island too small
+    /// for it at any size, gives way to a hovel standing on the island.
+    #[test]
+    fn a_landmark_too_big_for_its_region_gives_way() {
+        use crate::seeded_defaults::LandformArchetype::Rolling;
+        let scene_for = |s: u64| {
+            let mut scene = sited_scene(s, Rolling);
+            scene.theme = ThemeArchetype::Medieval;
+            scene.prosperity = 0.95;
+            scene.escalation = 0.1;
+            scene
+        };
+        let open = probe_from(64, 12.0, -5.0, |_, _| 10.0);
+        // An island 72 x 56 m east of spawn, its sea 20 m below its top.
+        let island = probe_from(32, 8.0, 0.0, |x, z| {
+            if (18..=27).contains(&x) && (12..=19).contains(&z) {
+                10.0
+            } else {
+                -10.0
+            }
+        });
+        let room = island.regions()[0].area_m2 * FILL_FRACTION * LANDMARK_ROOM_SHARE;
+        for s in 0u64..6 {
+            let scene = scene_for(s);
+            let drawn = SettlementPlan::from_scene_sited(&scene, s, &open);
+            let lm = drawn.primary_landmark();
+            assert_eq!(lm.slug, "medieval_castle", "seed {s}: drawn on open ground");
+            let fitted = SettlementPlan::from_scene_sited(&scene, s, &island);
+            let lm = fitted.primary_landmark();
+            assert_eq!(lm.slug, "wattle_hovel", "seed {s}: the castle gives way");
+            assert!(
+                member_area_cost(lm.clearance) <= room,
+                "seed {s}: {} takes {} of its {room} m2",
+                lm.slug,
+                member_area_cost(lm.clearance)
+            );
+            let entry = by_slug(lm.slug).unwrap();
+            assert!(member_fits(&island, lm.offset, entry, lm.scale), "seed {s}");
+            assert!(
+                lm.offset[0].hypot(lm.offset[1]) >= entry.footprint().min_spawn_dist,
+                "seed {s}: the hovel keeps its own distance from spawn"
+            );
+        }
+    }
+
+    /// #1775: a temple seeks the crest - it climbs to a hill's flat top
+    /// past the plain nearer spawn, which a building with no preference
+    /// takes - and a lighthouse the shore.
+    #[test]
+    fn a_building_with_a_site_preference_seeks_its_ground() {
+        use crate::catalogue::SitePreference;
+        // A plain, and a hill 12.5 m tall 150 m east of spawn: flat on top
+        // for 25 m round its middle, falling at 1 in 4 to the plain.
+        let hill = probe_from(64, 8.0, -100.0, |x, z| {
+            let (wx, wz) = (x as f32 * 8.0 - 252.0, z as f32 * 8.0 - 252.0);
+            (18.75 - 0.25 * (wx - 150.0).hypot(wz)).clamp(0.0, 12.5)
+        });
+        let region = &hill.regions()[0];
+        let temple = by_slug("ruined_temple").expect("the ruined temple");
+        assert_eq!(temple.site(), SitePreference::Crest);
+        let keep = [([0.0, 0.0], temple.footprint().min_spawn_dist)];
+        let sites = hill.sites_near(region, [0.0, 0.0], f32::INFINITY, &keep);
+        let at = site_for(&hill, &sites, [0.0, 0.0], temple, 1.0).expect("a site");
+        assert!(
+            hill.height_between(at) > 12.0 && hill.prominence(at) > 5.0,
+            "the temple stands on the hilltop: {at:?}"
+        );
+        let hut = by_slug("mudbrick_hut").expect("the mudbrick hut");
+        assert_eq!(hut.site(), SitePreference::Anywhere);
+        let at = site_for(&hill, &sites, [0.0, 0.0], hut, 1.0).expect("a site");
+        assert_eq!(at, sites[0], "a hut takes the nearest site");
+
+        // The sea west of x = -100; dry land rising 1 in 20 east of it.
+        let coast = probe_from(64, 8.0, 0.0, |x, _| {
+            ((x as f32 * 8.0 - 252.0) + 100.0) * 0.05
+        });
+        let region = &coast.regions()[0];
+        let lighthouse = by_slug("lighthouse").expect("the lighthouse");
+        assert_eq!(lighthouse.site(), SitePreference::Shore);
+        let keep = [([0.0, 0.0], lighthouse.footprint().min_spawn_dist)];
+        let sites = coast.sites_near(region, [0.0, 0.0], f32::INFINITY, &keep);
+        let at = site_for(&coast, &sites, [0.0, 0.0], lighthouse, 1.0).expect("a site");
+        assert!(
+            coast.shore_distance(at) < coast.shore_distance(sites[0]) - 20.0,
+            "the lighthouse goes to the water: {at:?} against {:?}",
+            sites[0]
+        );
+    }
+
+    /// #1775: a house fronts downhill on a slope - along the contour, out
+    /// over its view - and toward the arrival on level ground; the yaw
+    /// turns its catalogue -Z front that way.
+    #[test]
+    fn houses_front_downhill_on_a_slope_and_the_arrival_on_the_level() {
+        let ramp = probe_from(32, 8.0, -100.0, |x, _| x as f32 * 8.0 * 0.1);
+        let f = house_facing(&ramp, [0.0, 0.0], [50.0, 50.0]);
+        assert!(f[0] < -0.99 && f[1].abs() < 1e-3, "downhill: {f:?}");
+        let level = probe_from(32, 8.0, -100.0, |_, _| 10.0);
+        let f = house_facing(&level, [10.0, 0.0], [10.0, -30.0]);
+        assert!(f[0].abs() < 1e-4 && f[1] < 0.0, "toward the arrival: {f:?}");
+        assert!(facing([0.0, -1.0]).abs() < 1e-6, "-Z unturned");
+        let yaw = facing([1.0, 0.0]);
+        // The placement's yaw turns -Z to (-sin, -cos).
+        assert!(
+            (-yaw.sin() - 1.0).abs() < 1e-6 && yaw.cos().abs() < 1e-6,
+            "{yaw}"
+        );
+    }
+
+    /// #1773 across the fleet: every member a seeded world sites stands on
+    /// ground that fits it, read on the probe its derive read - all but a
+    /// primary landmark that fit nowhere, which stands at half size at most.
+    #[test]
+    fn every_sited_member_fits_its_ground() {
+        let mut members = 0;
+        for seed in 0u64..24 {
+            let record = crate::seeded_defaults::room::build::build_room_with_source(
+                seed,
+                "did:plc:fits",
+                None,
+            );
+            let scene = SceneCharacter::for_seed(seed);
+            let shape = crate::seeded_defaults::TerrainShape::from_scene(&scene, seed);
+            let cfg = crate::pds::find_terrain_config(&record).expect("a seeded terrain");
+            let probe = crate::seeded_defaults::room::build::settlement_probe(
+                cfg,
+                shape.water_level_fraction * shape.height_scale,
+            );
+            let plan = SettlementPlan::from_scene_sited(&scene, seed, &probe);
+            for (ci, cluster) in plan.clusters.iter().enumerate() {
+                let all = cluster
+                    .landmark
+                    .iter()
+                    .chain(&cluster.secondaries)
+                    .chain(&cluster.props);
+                for (i, m) in all.enumerate() {
+                    let entry = by_slug(m.slug).expect("a settlement slug resolves");
+                    let fits = member_fits(&probe, m.offset, entry, m.scale);
+                    let fallback = ci == 0 && i == 0 && m.scale <= SCALE_MIN + 1e-5;
+                    assert!(
+                        fits || fallback,
+                        "seed {seed}: {} x{} at {:?} stands on {:?}",
+                        m.slug,
+                        m.scale,
+                        m.offset,
+                        probe.footprint(m.offset, ground_radius(entry, m.scale))
+                    );
+                    members += 1;
+                }
+            }
+        }
+        assert!(members > 100, "only {members} members sited");
     }
 
     #[test]

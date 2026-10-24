@@ -450,6 +450,91 @@ pub(crate) fn tree_clearance<'a>(
     (!level.trees.is_empty()).then(|| level.tree_clearance())
 }
 
+/// The room an arrival stands in at a world's landing (m), and the reach of
+/// the clear ground behind it the arrival camera looks from: no scatter
+/// grows there, so no visitor lands inside a tree nor first sees the world
+/// through one (#1776).
+const LANDING_KEEP: f32 = 4.0;
+
+/// How many discs, past the landing's own, keep the ground clear back to
+/// where the arrival camera rests (#1776): its rest radius over the ground
+/// in steps a little shorter than [`LANDING_KEEP`], so they overlap.
+const ARRIVAL_STEPS: usize = 3;
+
+/// `(centre_x, centre_z, radius²)` of the ground every scatter keeps off
+/// (#1776): each seeded structure's footprint where the compile stands it -
+/// walked as [`super::pad::snapped_absolute_anchor`] walks it - and the
+/// world's landing with the ground behind it the arrival camera looks from
+/// (#1785). So no tree, boulder or tuft grows through a seeded building,
+/// its gate or its monument, on the spot a visitor arrives at, nor across
+/// their first view. A copy the sampler accepts there is suppressed, not
+/// drawn again: it spends its count slot and its jitter draws as if grown
+/// and grows nothing, so every other copy keeps its place and its pose - a
+/// saved world loses only what grew in the way. A seeded structure is a snapped `Absolute` placement opting into
+/// Avoid Water, the seeded pipeline's marker (see `pad`), so an editor's
+/// own placements are never ground a scatter avoids. With no heightmap
+/// yet, each stands where its record put it.
+pub(crate) fn structure_exclusions(
+    record: &crate::pds::RoomRecord,
+    heightmap: Option<&crate::terrain::FinishedHeightMap>,
+    water: &crate::water::bodies::RoomWater,
+) -> Vec<(f32, f32, f32)> {
+    let ground = heightmap.map(|hm| super::pad::AnchorGround::new(hm, water));
+    let mut keep: Vec<(f32, f32, f32)> = record
+        .placements
+        .iter()
+        .filter_map(|placement| {
+            let crate::pds::Placement::Absolute {
+                transform,
+                snap_to_terrain: true,
+                avoid_water: true,
+                avoid_water_clearance,
+                ..
+            } = placement
+            else {
+                return None;
+            };
+            let radius = avoid_water_clearance.0 * transform.scale.0[0].max(0.0);
+            let stands = match &ground {
+                Some(ground) => super::pad::snapped_absolute_anchor(
+                    ground,
+                    transform,
+                    true,
+                    avoid_water_clearance.0,
+                ),
+                None => bevy::math::Vec3::from_array(transform.translation.0),
+            };
+            (radius > 0.0).then_some((stands.x, stands.z, radius * radius))
+        })
+        .collect();
+    if let Some(landing) = &record.default_landing {
+        // Behind a body facing the landing's yaw - its forward is (-sin,
+        // -cos) - out to the camera's rest radius over the ground. libm
+        // (#1132): these discs decide which copies grow, on every peer.
+        let yaw = landing.yaw_deg.0.to_radians();
+        let behind = [libm::sinf(yaw), libm::cosf(yaw)];
+        let reach =
+            crate::config::camera::ORBIT_RADIUS * libm::cosf(crate::config::camera::ORBIT_PITCH);
+        for step in 0..=ARRIVAL_STEPS {
+            let back = reach * step as f32 / ARRIVAL_STEPS as f32;
+            keep.push((
+                landing.pos.0[0] + behind[0] * back,
+                landing.pos.0[1] + behind[1] * back,
+                LANDING_KEEP * LANDING_KEEP,
+            ));
+        }
+    }
+    keep
+}
+
+/// Whether `(x, z)` lies inside any `(centre_x, centre_z, radius²)` disc.
+pub(crate) fn inside_any(discs: &[(f32, f32, f32)], x: f32, z: f32) -> bool {
+    discs.iter().any(|&(cx, cz, r2)| {
+        let (dx, dz) = (x - cx, z - cz);
+        dx * dx + dz * dz < r2
+    })
+}
+
 /// `(centre_x, centre_z, radius²)` of every road district a scatter that
 /// opted into `avoid_urban` must stay out of (#895). Empty unless the
 /// scatter opted in *and* the room actually grows an enabled road network.
@@ -498,10 +583,7 @@ pub(crate) fn try_sample(
 
     // Road-network districts (#895) keep wild scatter out of the built-up
     // area. Purely positional, so it is checked before the terrain lookups.
-    if filters.urban_exclusions.iter().any(|&(cx, cz, r2)| {
-        let (dx, dz) = (world_x - cx, world_z - cz);
-        dx * dx + dz * dz < r2
-    }) {
+    if inside_any(filters.urban_exclusions, world_x, world_z) {
         return None;
     }
     // Berlin's own trees (#1588): a seeded one keeps a crown's width off
@@ -645,6 +727,7 @@ mod tests {
     //!   claims, which is checked statistically over a few thousand
     //!   samples rather than by pinning exact coordinates.
     use super::*;
+
     use crate::pds::{Fp, Fp2};
 
     fn disc(radius: f32) -> ScatterBounds {
@@ -674,6 +757,85 @@ mod tests {
         total / n as f32
     }
 
+    /// #1776 across seeded worlds: no scatter's copy - tree, boulder or
+    /// tuft - stands inside a seeded structure's footprint where the
+    /// compile stands it, nor on the landing or the ground behind it.
+    #[test]
+    fn no_scatter_grows_through_a_seeded_building_or_on_the_landing() {
+        let mut kept = 0;
+        for seed in 0u64..6 {
+            let record = crate::seeded_defaults::room::build::build_room_with_source(
+                seed,
+                "did:plc:keepoff",
+                None,
+            );
+            let terrain = crate::terrain::FinishedHeightMap(
+                crate::terrain::rebuild_heightmap_for_record(&record),
+                None,
+            );
+            let water = super::super::water::drawn_water(&record, Some(&terrain));
+            let keep_off = structure_exclusions(&record, Some(&terrain), &water);
+            assert!(
+                keep_off.len() >= 3,
+                "seed {seed}: a landmark, a gate and the landing at least"
+            );
+            for points in super::super::census::scatter_points(&record, &terrain)
+                .into_iter()
+                .flatten()
+            {
+                for (x, z) in points {
+                    assert!(
+                        !inside_any(&keep_off, x, z),
+                        "seed {seed}: a copy grows at ({x}, {z}), inside a seeded footprint"
+                    );
+                    kept += 1;
+                }
+            }
+        }
+        assert!(kept > 1000, "only {kept} copies placed");
+    }
+
+    /// #1776: the keep-outs are the seeded structures - a snapped
+    /// placement opting into Avoid Water - and the landing; an editor's own
+    /// placement is none.
+    #[test]
+    fn only_seeded_structures_and_the_landing_are_kept_off() {
+        let placed = |x: f32, avoid_water: bool| crate::pds::Placement::Absolute {
+            generator_ref: "g".into(),
+            transform: crate::pds::TransformData {
+                translation: crate::pds::Fp3([x, 0.0, 0.0]),
+                rotation: crate::pds::Fp4([0.0, 0.0, 0.0, 1.0]),
+                scale: crate::pds::Fp3([2.0, 2.0, 2.0]),
+            },
+            snap_to_terrain: true,
+            avoid_water,
+            avoid_water_clearance: crate::pds::Fp(5.0),
+            seed: None,
+            params: Default::default(),
+        };
+        let record = crate::pds::RoomRecord {
+            placements: vec![placed(20.0, true), placed(-20.0, false)],
+            default_landing: Some(crate::pds::room::DefaultLanding {
+                pos: crate::pds::Fp2([0.0, 30.0]),
+                y: None,
+                yaw_deg: crate::pds::Fp(0.0),
+            }),
+            ..Default::default()
+        };
+        let keep_off =
+            structure_exclusions(&record, None, &crate::water::bodies::RoomWater::default());
+        assert_eq!(keep_off.len(), 1 + 1 + ARRIVAL_STEPS);
+        assert_eq!(keep_off[0], (20.0, 0.0, 100.0));
+        assert_eq!(keep_off[1], (0.0, 30.0, LANDING_KEEP * LANDING_KEEP));
+        // Facing -Z (yaw 0), the camera rests behind it, toward +Z.
+        let last = keep_off[keep_off.len() - 1];
+        assert!(last.0.abs() < 1e-4 && last.1 > 30.0 + 10.0, "{last:?}");
+        // Each disc reaches the next.
+        for pair in keep_off[1..].windows(2) {
+            let gap = (pair[1].0 - pair[0].0).hypot(pair[1].1 - pair[0].1);
+            assert!(gap < LANDING_KEEP, "{gap}");
+        }
+    }
     /// #1512: the render tool's preview turns a turned rect's copies as the
     /// compile does - with Random yaw off, each faces along the rect's own X
     /// - and stands each where the sampler put it.

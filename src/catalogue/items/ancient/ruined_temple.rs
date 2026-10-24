@@ -52,6 +52,10 @@ impl CatalogueEntry for RuinedTemple {
     fn themes(&self) -> &'static [ThemeArchetype] {
         &[ThemeArchetype::AncientClassical]
     }
+    fn site(&self) -> crate::catalogue::SitePreference {
+        crate::catalogue::SitePreference::Crest
+    }
+
     fn footprint(&self) -> Footprint {
         Footprint {
             clearance: 14.5,

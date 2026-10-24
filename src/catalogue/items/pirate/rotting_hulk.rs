@@ -180,6 +180,10 @@ impl CatalogueEntry for RottingHulk {
     fn prosperity_band(&self) -> ProsperityBand {
         PORT_POOR
     }
+    fn site(&self) -> crate::catalogue::SitePreference {
+        crate::catalogue::SitePreference::Shore
+    }
+
     fn footprint(&self) -> Footprint {
         Footprint {
             clearance: 13.0,

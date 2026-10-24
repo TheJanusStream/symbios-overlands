@@ -505,14 +505,18 @@ const LAYOUT_REVISION_HOVER: &str = "Revision 1 tidies the traced streets - junc
      streets end at the district's edge - and keeps every lot a sidewalk clear of the streets, \
      growing no building larger than its lot. Revision 2 works all of that out the same way on \
      every computer, so a visitor in a browser grows the very district a desktop client does. \
-     Upgrading re-traces the district and regrows its buildings.";
+     Revision 3 grows the district in the world's own character - its theme, how rich and how \
+     fought-over it is - as its settlement has it, where an older plan keeps the character \
+     every world had before themes followed the land. Upgrading re-traces the district and \
+     regrows its buildings.";
 
 /// What the road panel calls a network's street plan revision (#1558,
-/// #1563).
+/// #1563, #1772).
 fn layout_revision_name(revision: u32) -> &'static str {
     match revision {
         0 => "the original",
         1 => "tidied",
+        2 => "portable",
         _ => "the latest",
     }
 }
@@ -2637,9 +2641,9 @@ mod lots_section_tests {
         assert!(!drawn.dirty);
     }
 
-    /// #1563: a network on the tidied plan of revision 1 is offered the
-    /// upgrade to the portable revision, and the panel names each plan for
-    /// what it is - revision 1 is no longer the original.
+    /// #1563, #1772: a network on the tidied plan of revision 1 is offered
+    /// the upgrade to the latest revision, and the panel names each plan for
+    /// what it is - revision 1 is no longer the original, nor 2 the latest.
     #[test]
     fn a_tidied_street_plan_is_offered_the_upgrade() {
         let ctx = context();
@@ -2649,11 +2653,15 @@ mod lots_section_tests {
         };
         let _ = pass(&ctx, &mut config, Vec::new());
         let drawn = pass(&ctx, &mut config, Vec::new());
-        find(&drawn, Role::Button, "Upgrade to revision 2");
+        find(
+            &drawn,
+            Role::Button,
+            &format!("Upgrade to revision {}", RoadConfig::LATEST_LAYOUT),
+        );
         assert!(!drawn.dirty);
         assert_eq!(
-            [0, 1, 2].map(super::layout_revision_name),
-            ["the original", "tidied", "the latest"]
+            [0, 1, 2, 3].map(super::layout_revision_name),
+            ["the original", "tidied", "portable", "the latest"]
         );
     }
 

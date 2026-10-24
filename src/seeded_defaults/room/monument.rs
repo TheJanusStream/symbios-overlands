@@ -31,6 +31,17 @@ const MONUMENT_GATE_MARGIN: f32 = 3.0;
 /// small still separates them enough to read as two structures.
 const MIN_LATERAL: f32 = 5.0;
 
+/// The monument a world of `theme` stands (#975): the theme's own, else the
+/// cross-theme `civic_monument` - selected exactly like its gate
+/// ([`gateway_entry`](super::gateway::gateway_entry)).
+pub fn monument_entry(
+    theme: crate::seeded_defaults::ThemeArchetype,
+) -> Option<&'static dyn crate::catalogue::CatalogueEntry> {
+    crate::catalogue::entries_for(theme, crate::catalogue::StructureRole::Monument)
+        .next()
+        .or_else(|| crate::catalogue::by_slug("civic_monument"))
+}
+
 /// Derived monument placement for one room.
 #[derive(Clone, Copy, Debug)]
 pub struct MonumentSpot {
@@ -51,6 +62,18 @@ impl MonumentSpot {
         monument_clearance: f32,
         did: &str,
     ) -> Self {
+        Self::on_side(gate, gate_clearance, monument_clearance, side_bit(did))
+    }
+
+    /// [`beside_gate`](Self::beside_gate) on a given side: the one `did`
+    /// picks there, or each in turn for a settlement keeping both clear
+    /// before its DID is known (#1774).
+    pub fn on_side(
+        gate: &GatewaySpot,
+        gate_clearance: f32,
+        monument_clearance: f32,
+        side: bool,
+    ) -> Self {
         // The approach bearing, origin → gate. Falls back to +Z for a gate
         // sitting improbably on the origin, so the geometry stays finite.
         let d = (gate.offset[0].powi(2) + gate.offset[1].powi(2)).sqrt();
@@ -60,7 +83,7 @@ impl MonumentSpot {
             [0.0, 1.0]
         };
         // Perpendicular to the approach, and the side to put it on.
-        let side = if side_bit(did) { 1.0 } else { -1.0 };
+        let side = if side { 1.0 } else { -1.0 };
         let lateral = [-bearing[1] * side, bearing[0] * side];
         let lat_dist =
             (gate_clearance + monument_clearance + MONUMENT_GATE_MARGIN).max(MIN_LATERAL);

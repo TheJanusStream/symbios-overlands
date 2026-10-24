@@ -644,9 +644,16 @@ mod tests {
 
     #[test]
     fn sprite_texture_matches_mood_and_is_deterministic() {
+        // A theme that leaves every biome its own mood, so each biome's
+        // sprite is the one tested - not one theme's override for all.
+        let theme = ThemeArchetype::ALL
+            .into_iter()
+            .find(|t| ThemeAccent::for_theme(*t).particle_mood.is_none())
+            .expect("a theme that leaves the biome's mood");
         for biome in BiomeArchetype::ALL {
             let mut scene = SceneCharacter::for_seed(7);
             scene.biome = biome;
+            scene.theme = theme;
             scene.escalation = 0.0; // test the biome sprites, not conflict smoke
             let p = AmbientParticles::from_scene(&scene, 7);
 
@@ -661,7 +668,8 @@ mod tests {
                 ParticleMood::Snowfall => "Snowflake",
                 ParticleMood::Embers => "Spark",
                 ParticleMood::DustMotes | ParticleMood::MistMotes | ParticleMood::Smoke => "Puff",
-                ParticleMood::Petals | ParticleMood::Leaves | ParticleMood::SeedDrift => "Petal",
+                ParticleMood::Petals | ParticleMood::SeedDrift => "Petal",
+                ParticleMood::Leaves => "Leaf Sprite",
             };
             assert_eq!(a.label(), expected, "mood {:?} sprite", p.mood);
 
