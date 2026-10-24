@@ -22,7 +22,10 @@
 //! - `time_of_day_bias` drives a physically-grounded light chain: the
 //!   sun slides along a blackbody-like locus (near-white noon → amber
 //!   horizon), the sky dims and desaturates toward the horizon hours,
-//!   and fog is derived as a sky/sun mix instead of a free hue.
+//!   and fog is derived as a sky/sun mix instead of a free hue. A world
+//!   on its own terrain is derived at noon (the bias zeroed): its
+//!   signature hour lowers and reddens the sun itself (#1769,
+//!   [`super::hour`]), which would otherwise redden it twice.
 //!
 //! Role still constrains *lightness* so the splat layers read in the
 //! expected order (snow brighter than rock, moist grass darker than

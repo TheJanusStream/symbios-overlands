@@ -587,6 +587,51 @@ fn round2(v: f32) -> f64 {
     (f64::from(v) * 100.0).round() / 100.0
 }
 
+/// A number in a 3x5 digit font at `(x, y)`, two pixels a dot, dark-edged so
+/// it reads over any ground or picture: each pixel handed to `put`. The plan
+/// marks its placements and points with it, and the album (#1768) its tiles.
+pub(super) fn draw_number(
+    x: i64,
+    y: i64,
+    n: usize,
+    rgb: [u8; 3],
+    put: &mut impl FnMut(i64, i64, [u8; 3]),
+) {
+    const DIGITS: [[u8; 5]; 10] = [
+        [7, 5, 5, 5, 7],
+        [2, 6, 2, 2, 7],
+        [7, 1, 7, 4, 7],
+        [7, 1, 7, 1, 7],
+        [5, 5, 7, 1, 1],
+        [7, 4, 7, 1, 7],
+        [7, 4, 7, 5, 7],
+        [7, 1, 1, 1, 1],
+        [7, 5, 7, 5, 7],
+        [7, 5, 7, 1, 7],
+    ];
+    const SCALE: i64 = 2;
+    let text = n.to_string();
+    for pass in [[16, 16, 16], rgb] {
+        let grow = i64::from(pass != rgb);
+        for (i, ch) in text.bytes().enumerate() {
+            let glyph = DIGITS[usize::from(ch - b'0')];
+            for (row, bits) in glyph.iter().enumerate() {
+                for col in 0..3 {
+                    if bits & (4 >> col) != 0 {
+                        let gx = x + (i as i64 * 4 + col) * SCALE;
+                        let gy = y + row as i64 * SCALE;
+                        for dy in -grow..SCALE + grow {
+                            for dx in -grow..SCALE + grow {
+                                put(gx + dx, gy + dy, pass);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// The plan view: the ground from above, shaded by its slope and tinted by
 /// its height, the water blue, a grid every so many metres, and on it the
 /// landing (white, with the way arrivals face), each absolute placement
@@ -694,42 +739,9 @@ mod plan {
             }
         }
 
-        /// A number in a 3x5 digit font, drawn `scale` px a dot, dark-edged
-        /// so it reads over any ground.
+        /// A number in [`draw_number`]'s digit font.
         pub fn number(&mut self, x: i64, y: i64, n: usize, rgb: [u8; 3]) {
-            const DIGITS: [[u8; 5]; 10] = [
-                [7, 5, 5, 5, 7],
-                [2, 6, 2, 2, 7],
-                [7, 1, 7, 4, 7],
-                [7, 1, 7, 1, 7],
-                [5, 5, 7, 1, 1],
-                [7, 4, 7, 1, 7],
-                [7, 4, 7, 5, 7],
-                [7, 1, 1, 1, 1],
-                [7, 5, 7, 5, 7],
-                [7, 5, 7, 1, 7],
-            ];
-            const SCALE: i64 = 2;
-            let text = n.to_string();
-            for pass in [[16, 16, 16], rgb] {
-                let grow = i64::from(pass != rgb);
-                for (i, ch) in text.bytes().enumerate() {
-                    let glyph = DIGITS[usize::from(ch - b'0')];
-                    for (row, bits) in glyph.iter().enumerate() {
-                        for col in 0..3 {
-                            if bits & (4 >> col) != 0 {
-                                let gx = x + (i as i64 * 4 + col) * SCALE;
-                                let gy = y + row as i64 * SCALE;
-                                for dy in -grow..SCALE + grow {
-                                    for dx in -grow..SCALE + grow {
-                                        self.put(gx + dx, gy + dy, pass);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            draw_number(x, y, n, rgb, &mut |px, py, c| self.put(px, py, c));
         }
     }
 

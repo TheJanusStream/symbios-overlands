@@ -6,7 +6,7 @@ seed 5	0a41502c2e6820da	19 generators
 seed 6	74909e7ed0e2e1e0	16 generators
 seed 7	2b704b0a3e36b1d9	11 generators
 seed 8	027d0fad5d0ef775	17 generators
-seed 9	900438cc123b7bb4	10 generators
+seed 9	6c87d732f3a88108	10 generators
 seed 10	9a8caa236bf31132	14 generators
 seed 11	419689f2db88f5e3	23 generators
 seed 12	316465bcca97cdf0	25 generators

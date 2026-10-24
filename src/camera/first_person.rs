@@ -219,6 +219,17 @@ impl FirstPerson {
         }
     }
 
+    /// On the way back out of the eyes: the orbit asked for, the camera still
+    /// blending from the eyes to it.
+    #[cfg(test)]
+    pub(crate) fn leaving() -> Self {
+        Self {
+            view: CameraView::Orbit,
+            blend: 0.5,
+            ..Self::default()
+        }
+    }
+
     /// All the way into the eyes of a vehicle, straight ahead along it.
     #[cfg(test)]
     pub(crate) fn riding() -> Self {
@@ -550,14 +561,14 @@ fn orbit_pose(yaw: f32, pitch: f32, radius: f32, focus: Vec3) -> Transform {
 /// A vehicle's heading as the orbit's yaw counts it - the yaw at which the
 /// orbit looks along it - or none near the vertical, where it has none
 /// (`follow_local_player` freezes there too, #853).
-fn heading(chassis: &Transform) -> Option<f32> {
+pub(super) fn heading(chassis: &Transform) -> Option<f32> {
     let forward = chassis.rotation * Vec3::NEG_Z;
     (forward.y.abs() <= cfg::YAW_FREEZE_FORWARD_Y).then(|| (-forward.x).atan2(-forward.z))
 }
 
 /// `angle` moved by whole turns to within half a turn of `near`: the orbit's
 /// yaw is unbounded, and a target a turn away from it spins the camera round.
-fn near_turn(angle: f32, near: f32) -> f32 {
+pub(super) fn near_turn(angle: f32, near: f32) -> f32 {
     use std::f32::consts::{PI, TAU};
     near + (angle - near + PI).rem_euclid(TAU) - PI
 }

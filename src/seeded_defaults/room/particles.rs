@@ -88,8 +88,27 @@ pub struct AmbientParticles {
 
 impl AmbientParticles {
     pub fn from_scene(scene: &SceneCharacter, room_seed: u64) -> Self {
+        Self::under(scene, room_seed, None)
+    }
+
+    /// [`Self::from_scene`] for a world whose own weather is `weather`
+    /// (#1770): where real snow or rain comes in its spells, the cold
+    /// biomes' always-falling `Snowfall` would keep falling from the clear
+    /// sky between them - or through the rain - so it gives way to the pale
+    /// `MistMotes` that hang in cold air, ice glinting, and what falls is the
+    /// weather's.
+    pub fn under(
+        scene: &SceneCharacter,
+        room_seed: u64,
+        weather: Option<crate::pds::WeatherKind>,
+    ) -> Self {
+        use crate::pds::WeatherKind;
         let mut rng = ChaCha8Rng::seed_from_u64(room_seed ^ PARTICLE_STREAM_SALT);
-        derive(scene, &mut rng, room_seed)
+        let falls = matches!(
+            weather,
+            Some(WeatherKind::Snow | WeatherKind::Rain | WeatherKind::Storm)
+        );
+        derive(scene, &mut rng, room_seed, falls)
     }
 
     /// Procedural sprite matched to the mood, baked locally by the particle
@@ -230,7 +249,12 @@ impl AmbientParticles {
     }
 }
 
-fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng, room_seed: u64) -> AmbientParticles {
+fn derive(
+    scene: &SceneCharacter,
+    rng: &mut ChaCha8Rng,
+    room_seed: u64,
+    falls: bool,
+) -> AmbientParticles {
     let seed = room_seed ^ 0x00AB_1E47;
     // Conflict overrides everything - a fought-over settlement smokes
     // regardless of biome or theme. Otherwise the biome sets the default
@@ -242,6 +266,10 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng, room_seed: u64) -> Ambie
         ThemeAccent::for_theme(scene.theme)
             .particle_mood
             .unwrap_or_else(|| biome_mood(scene.biome))
+    };
+    let mood = match mood {
+        ParticleMood::Snowfall if falls => ParticleMood::MistMotes,
+        mood => mood,
     };
     spec_for_mood(mood, rng, seed)
 }
@@ -523,6 +551,33 @@ mod tests {
             AmbientParticles::from_scene(&scene, 5).mood,
             ParticleMood::Fireflies
         );
+    }
+
+    /// #1770: a cold world whose own weather falls - snow, rain, a storm -
+    /// trades the biome's always-falling snow for ice motes, so what falls
+    /// is the weather's alone; under fog, an overcast or no weather it
+    /// snows as ever.
+    #[test]
+    fn a_falling_weather_takes_the_snowfall_s_place() {
+        use crate::pds::WeatherKind;
+        let theme = ThemeArchetype::ALL
+            .into_iter()
+            .find(|t| ThemeAccent::for_theme(*t).particle_mood.is_none())
+            .expect("a theme that leaves the biome's mood");
+        for biome in [BiomeArchetype::Boreal, BiomeArchetype::Alpine] {
+            let mut scene = SceneCharacter::for_seed(5);
+            scene.biome = biome;
+            scene.theme = theme;
+            scene.escalation = 0.0;
+            for kind in [WeatherKind::Snow, WeatherKind::Rain, WeatherKind::Storm] {
+                let p = AmbientParticles::under(&scene, 5, Some(kind));
+                assert_eq!(p.mood, ParticleMood::MistMotes, "{biome:?} {kind:?}");
+            }
+            for kind in [None, Some(WeatherKind::Fog), Some(WeatherKind::Overcast)] {
+                let p = AmbientParticles::under(&scene, 5, kind);
+                assert_eq!(p.mood, ParticleMood::Snowfall, "{biome:?} {kind:?}");
+            }
+        }
     }
 
     #[test]

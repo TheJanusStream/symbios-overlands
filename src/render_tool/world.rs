@@ -458,8 +458,8 @@ pub(super) fn resolve_focus(
     match focus {
         Focus::Origin => Vec3::new(0.0, ground(0.0, 0.0), 0.0),
         // Where a body sets down: walked to open dry ground on Berlin's
-        // (#1589).
-        Focus::Landing => match record.and_then(|r| {
+        // (#1589). The arrival camera frames from there too.
+        Focus::Landing | Focus::Arrival => match record.and_then(|r| {
             heightmap
                 .and_then(|h| crate::world_builder::compile::landing_on(r, h))
                 .or(r.default_landing)

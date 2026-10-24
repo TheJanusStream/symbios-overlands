@@ -184,6 +184,20 @@ pub(crate) fn scatter_yields(
     record: &RoomRecord,
     heightmap: &FinishedHeightMap,
 ) -> Vec<Option<u32>> {
+    scatter_points(record, heightmap)
+        .into_iter()
+        .map(|placed| placed.map(|placed| placed.len() as u32))
+        .collect()
+}
+
+/// Where each placement's scatter places its instances on `heightmap`, by
+/// placement index: the world XZ of every copy for a scatter, `None` for
+/// anything else - the replay [`scatter_yields`] counts. `render
+/// --first-view` (#1768) asks which copies stand in an arrival's view.
+pub(crate) fn scatter_points(
+    record: &RoomRecord,
+    heightmap: &FinishedHeightMap,
+) -> Vec<Option<Vec<(f32, f32)>>> {
     let water = super::water::drawn_water(record, Some(heightmap));
     record
         .placements
@@ -192,7 +206,7 @@ pub(crate) fn scatter_yields(
             let Placement::Scatter { naturalness, .. } = p else {
                 return None;
             };
-            replay(record, heightmap, &water, p, naturalness).map(|placed| placed.len() as u32)
+            replay(record, heightmap, &water, p, naturalness)
         })
         .collect()
 }

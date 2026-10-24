@@ -50,7 +50,7 @@ pub(crate) mod water;
 // through this re-export. Behavioural surface is identical to the
 // pre-refactor flat `compile.rs`.
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) use census::{scatter_census, scatter_yields};
+pub(crate) use census::{scatter_census, scatter_points, scatter_yields};
 pub(super) use contact_recipes::apply_contact_recipes;
 pub use dispatch::spawn_generator;
 /// The key a node's caches and grammar diagnostics are filed under (#1250

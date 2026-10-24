@@ -382,7 +382,9 @@ pub struct SceneCharacter {
     pub temperature: f32,
     /// `[-1, 1]` time-of-day bias. `0` is high noon; `±1` is near the
     /// horizon (dawn/dusk). Drives sun altitude and reddening of
-    /// directional light.
+    /// directional light on a Berlin square; a world on its own terrain
+    /// stands at its signature hour instead (#1769,
+    /// [`crate::seeded_defaults::room::hour`]) and is lit as its noon.
     pub time_of_day_bias: f32,
     pub landform: LandformArchetype,
     pub biome: BiomeArchetype,

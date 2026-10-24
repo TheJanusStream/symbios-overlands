@@ -22,22 +22,76 @@ pub(super) fn spawn_local_player(
     placement: Option<Res<PendingSpawnPlacement>>,
     room: Option<Res<LiveRoomRecord>>,
     mut avatar_deps: visuals::AvatarSpawnDeps,
+    mut facing_set: MessageWriter<super::FacingSet>,
 ) {
+    let pose = spawn_pose(
+        placement.as_deref(),
+        room.as_deref().map(|r| &r.0),
+        &hm_res,
+        super::preset::set_down_height(&live.0.locomotion),
+    );
+    let entity = commands.spawn(chassis_root_bundle(pose.transform)).id();
+    // A facing the world chose is the one the camera stands behind (#1785),
+    // and a first-person view turns to (#1750).
+    if pose.facing_chosen {
+        facing_set.write(super::FacingSet(pose.transform.rotation));
+    }
+
+    // One-shot: remove the resource so a portal travel or fall-respawn
+    // later in the session does not retroactively reapply this placement.
+    if placement.is_some() {
+        commands.remove_resource::<PendingSpawnPlacement>();
+    }
+
+    build_preset_components(&mut commands, entity, &live.0.locomotion);
+    visuals::spawn_avatar_visuals(
+        &mut commands,
+        entity,
+        &live.0.body,
+        None,
+        &mut meshes,
+        &mut materials,
+        &mut images,
+        &mut avatar_deps,
+        true,
+    );
+    // What was just painted (#1104), so the first record edit compares
+    // against it instead of respawning unconditionally.
+    commands
+        .entity(entity)
+        .insert(super::hotswap::AppliedLocalBody::painted(&live.0.body));
+}
+
+/// Where the local body is set down on entering a world, and whether the
+/// way it faces there was chosen - by a placement's `rot` or the world's
+/// landing - which the camera stands behind (#1785). A scatter, with
+/// neither, faces no way anyone chose.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct SpawnPose {
+    pub(super) transform: Transform,
+    pub(super) facing_chosen: bool,
+}
+
+/// The spawn's pose on `hm_res`, the body's origin `set_down` metres over the
+/// ground where nothing names its height.
+///
+/// Precedence (#745): an explicit URL/CLI placement wins wholesale; otherwise
+/// the room record's owner-configured default landing - walked ashore on
+/// Berlin's ground (#1589); otherwise the legacy random scatter. The landing
+/// converts to the same `TargetPos` shape the placement path uses (optional
+/// y = drop-pin, height from the heightmap) so the two sources can't drift.
+pub(super) fn spawn_pose(
+    placement: Option<&PendingSpawnPlacement>,
+    room: Option<&crate::pds::RoomRecord>,
+    hm_res: &crate::terrain::FinishedHeightMap,
+    set_down: f32,
+) -> SpawnPose {
     // Where a body may be set down: the world's ground.
     let half = hm_res.walkable_half_extent();
 
-    // Spawn-pose precedence (#745): an explicit URL/CLI placement wins
-    // wholesale; otherwise the room record's owner-configured default
-    // landing - walked ashore on Berlin's ground (#1589); otherwise the
-    // legacy random scatter. The landing converts to the same `TargetPos`
-    // shape the placement path uses (optional y = drop-pin, height from the
-    // heightmap) so the two sources can't drift.
-    let (pose_pos, pose_yaw_deg) = match placement.as_deref() {
+    let (pose_pos, pose_yaw_deg) = match placement {
         Some(p) => (p.pos, p.yaw_deg),
-        None => match room
-            .as_deref()
-            .and_then(|r| crate::world_builder::compile::landing_on(&r.0, &hm_res))
-        {
+        None => match room.and_then(|r| crate::world_builder::compile::landing_on(r, hm_res)) {
             Some(landing) => (
                 Some(TargetPos {
                     x: landing.pos.0[0],
@@ -69,39 +123,12 @@ pub(super) fn spawn_local_player(
         Some(y) => y,
         // As high as the body needs: an airship published before #1657 has
         // a box reaching its slung gondola (#1612).
-        None => ground_y + super::preset::set_down_height(&live.0.locomotion),
+        None => ground_y + set_down,
     };
-    let (ox, oz) = (rx, rz);
-
-    let entity = commands
-        .spawn(chassis_root_bundle(
-            Transform::from_xyz(ox, oy, oz).with_rotation(rotation),
-        ))
-        .id();
-
-    // One-shot: remove the resource so a portal travel or fall-respawn
-    // later in the session does not retroactively reapply this placement.
-    if placement.is_some() {
-        commands.remove_resource::<PendingSpawnPlacement>();
+    SpawnPose {
+        transform: Transform::from_xyz(rx, oy, rz).with_rotation(rotation),
+        facing_chosen: pose_yaw_deg.is_some(),
     }
-
-    build_preset_components(&mut commands, entity, &live.0.locomotion);
-    visuals::spawn_avatar_visuals(
-        &mut commands,
-        entity,
-        &live.0.body,
-        None,
-        &mut meshes,
-        &mut materials,
-        &mut images,
-        &mut avatar_deps,
-        true,
-    );
-    // What was just painted (#1104), so the first record edit compares
-    // against it instead of respawning unconditionally.
-    commands
-        .entity(entity)
-        .insert(super::hotswap::AppliedLocalBody::painted(&live.0.body));
 }
 
 /// The turn a spawn facing of `yaw_deg` gives the chassis: a turn about
@@ -146,6 +173,68 @@ pub(super) fn chassis_root_bundle(transform: Transform) -> impl Bundle {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Flat ground 4 m up, 33 cells of 2 m a side.
+    fn flat() -> crate::terrain::FinishedHeightMap {
+        let mut map = bevy_symbios_ground::HeightMap::new(33, 33, 2.0);
+        map.data_mut().fill(4.0);
+        crate::terrain::FinishedHeightMap(map, None)
+    }
+
+    /// A room with no water and a landing at `(5, -3)` facing `yaw_deg`.
+    fn landing_room(yaw_deg: f32) -> crate::pds::RoomRecord {
+        let mut record = crate::pds::RoomRecord::default();
+        record
+            .generators
+            .retain(|_, g| !matches!(g.kind, crate::pds::GeneratorKind::Water { .. }));
+        record.default_landing = Some(crate::pds::DefaultLanding {
+            pos: crate::pds::Fp2([5.0, -3.0]),
+            y: None,
+            yaw_deg: crate::pds::Fp(yaw_deg),
+        });
+        record
+    }
+
+    /// The way a pose faces, as the orbit's yaw counts it.
+    fn facing_yaw(pose: &SpawnPose) -> f32 {
+        crate::camera::yaw_behind(pose.transform.rotation).expect("a level facing")
+    }
+
+    /// A world's landing chooses the facing (#1785): the body stands at it,
+    /// set down over the ground, turned the way it faces - and says so, for
+    /// the camera to stand behind. A placement's `rot` chooses it over the
+    /// landing; a placement with no `rot`, or no landing at all, chooses
+    /// none.
+    #[test]
+    fn a_landing_or_a_rot_chooses_the_facing_and_a_scatter_does_not() {
+        let ground = flat();
+        let room = landing_room(90.0);
+        let pose = spawn_pose(None, Some(&room), &ground, 1.0);
+        assert!(pose.facing_chosen);
+        assert_eq!(pose.transform.translation, Vec3::new(5.0, 5.0, -3.0));
+        assert!((facing_yaw(&pose) - 90f32.to_radians()).abs() < 1e-5);
+
+        let turned = PendingSpawnPlacement {
+            pos: None,
+            yaw_deg: Some(30.0),
+        };
+        let pose = spawn_pose(Some(&turned), Some(&room), &ground, 1.0);
+        assert!(pose.facing_chosen);
+        assert!((facing_yaw(&pose) - 30f32.to_radians()).abs() < 1e-5);
+
+        let unturned = PendingSpawnPlacement {
+            pos: Some(crate::boot_params::TargetPos {
+                x: 2.0,
+                y: None,
+                z: 2.0,
+            }),
+            yaw_deg: None,
+        };
+        assert!(!spawn_pose(Some(&unturned), Some(&room), &ground, 1.0).facing_chosen);
+        let mut bare = room.clone();
+        bare.default_landing = None;
+        assert!(!spawn_pose(None, Some(&bare), &ground, 1.0).facing_chosen);
+    }
 
     /// A spawn facing turns counter-clockwise seen from above (#1547): 90
     /// faces -X, the reverse of a compass bearing. Jink's landing of 335

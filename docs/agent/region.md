@@ -20,6 +20,18 @@ square of real Berlin this clears its seeded buildings, trees and street
 furniture too, for good: a square is seeded once, and again only when it
 moves (see "Real Berlin ground").
 
+A world seeded on its own terrain also stands at an hour and has a weather
+(#1769, #1770). `/environment/time_of_day` holds a standing hour, its
+signature mood: most often a golden hour, else a low sun, a midday or a blue
+hour, and for the night themes mostly a moonlit night. Its light fields are
+its noon, the noon sun turned so that the hour's sun - or moon - falls across
+the landing's view rather than behind it. `/environment/weather` holds its
+biome's weather - rain, snow, fog or dust, now and then a storm, never under a
+blue hour or a night - coming and going in spells of the world's own length,
+there a sixth to a third of the time; its cloud cover is thinned to the fair
+sky between spells. Remove either key to draw the world as its fields set it.
+A Berlin square carries neither.
+
 ## The land is a recipe, not a sculpt
 
 There is no brush. The ground is generated from `base_terrain`'s fields:
@@ -101,6 +113,14 @@ the skyline comes from placed rock ([Backdrop](#backdrop-making-the-far-places-r
   Ashmere's planning views at night. Plan on a copy without
   `/environment/time_of_day` and `/environment/weather`, at
   `views.py --hour 11` (and 15 for the low sun) (#1730).
+- **Seeded worlds as visitors first see them** (#1768): `render --first-view
+  0..300` prints, for each seed that builds its own terrain, the hour and the
+  key light against the landing's view, the weather, the landing's slope, the
+  landmark's distance and how much of its height the arrival camera sees, and
+  what stands in the first 40 m of the view - then a summary.
+  `render --album 0..24` draws each such seed's arrival frame (`--world N
+  --focus arrival`, the game's own camera) into one contact sheet, and
+  `--weather own` holds each world in its own weather at its heaviest.
 - Bring each good step live with one `room set` per part, then `look`.
 
 ## Ground textures
@@ -1712,7 +1732,10 @@ reshaping, `walk-to` the landing again.
 **Judge the arrival from the camera, not from eye height.** A new visitor's
 first picture comes from the game's camera, about 11 m behind them and
 5-6 m above the ground, and the camera avoids only the terrain - never a
-building. The Understory's gateway stood 7 m behind the landing, so every
+building. It turns behind the body on every arrival (#1785) - after the
+login, through a gateway, back at the landing - so the landing's yaw is the
+first picture's; before that, the first picture looked wherever the login
+screen's slow orbit, or the last world, had left the camera. The Understory's gateway stood 7 m behind the landing, so every
 arrival looked through its pillars and translucent veil, and a taller body's
 camera sat under its caps; five sessions of reviews from eye height missed
 it (session 878). `tools/views.py ... "@landingcam"` renders that first

@@ -120,16 +120,42 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
 
     let did_seed = seed;
     let scene = SceneCharacter::for_seed(did_seed);
-    let palette = RoomPalette::from_scene(&scene, did_seed);
+    // A procedural world stands at its signature hour (#1769), which takes
+    // its light fields as its noon and lowers and reddens the sun itself:
+    // its palette and atmosphere are derived for noon, the daylight bias's
+    // own low sun left out. A Berlin square keeps the bias's light.
+    let lit = match berlin {
+        None => SceneCharacter {
+            time_of_day_bias: 0.0,
+            ..scene
+        },
+        Some(_) => scene,
+    };
+    let palette = RoomPalette::from_scene(&lit, did_seed);
     let shape = TerrainShape::from_scene(&scene, did_seed);
     let textures = BiomeTextures::from_scene(&scene, did_seed);
-    let atmosphere = Atmosphere::from_scene(&scene, did_seed);
+    let atmosphere = Atmosphere::from_scene(&lit, did_seed);
     let water_dynamics = WaterDynamics::from_scene(&scene, did_seed);
     let tree_scatters = TreeScatters::from_scene(&scene, did_seed);
     let rock_scatters = RockScatters::from_scene(&scene, did_seed);
     let ground_cover =
         crate::seeded_defaults::room::GroundCoverScatters::from_scene(&scene, did_seed);
-    let ambient_particles = AmbientParticles::from_scene(&scene, did_seed);
+    // A procedural world's signature hour (#1769) and climate (#1770): its
+    // mood's hour, turned to its arrival once the landing stands, and its
+    // biome's weather in spells on its own timeline - no storm under a dark
+    // hour. A Berlin square has neither.
+    let hour = berlin
+        .is_none()
+        .then(|| crate::seeded_defaults::SignatureHour::from_scene(&scene, did_seed));
+    let climate = hour.map(|hour| {
+        crate::seeded_defaults::room::climate::Climate::from_scene(
+            &scene,
+            did_seed,
+            hour.mood.is_dark(),
+        )
+    });
+    let ambient_particles =
+        AmbientParticles::under(&scene, did_seed, climate.map(|climate| climate.kind));
 
     let mut terrain_cfg = SovereignTerrainConfig {
         seed: did_seed,
@@ -772,15 +798,28 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
         environment.cloud_cover = Fp((environment.cloud_cover.0 + accent.haze).clamp(0.0, 1.0));
     }
 
-    // Theme nightfall: a nocturnal theme (cyberpunk neon) drops the sun
-    // to a dim moonlight key and darkens the sky / fog / cloud so its
-    // self-lit kit dominates. Runs *after* the accent so the result is a
-    // dark magenta-blue night rather than dark-neutral. A daylight theme
-    // has luminosity 1.0 and this is a no-op.
-    apply_nightfall(
-        crate::seeded_defaults::theme_luminosity(scene.theme),
-        &mut environment,
-    );
+    match (hour, default_landing) {
+        // The signature hour (#1769): the world stands at its mood's hour,
+        // the key light falling across the way its landing looks. A night
+        // theme's dark is its hour's - the moon, a night sky - rather than
+        // a dimmed noon the hour would dim again.
+        (Some(hour), Some(landing)) => {
+            let facing = crate::player::spawn_facing(landing.yaw_deg.0) * bevy::math::Vec3::NEG_Z;
+            hour.compose(bevy::math::Vec2::new(facing.x, facing.z), &mut environment);
+        }
+        // Theme nightfall: a nocturnal theme (cyberpunk neon) drops the sun
+        // to a dim moonlight key and darkens the sky / fog / cloud so its
+        // self-lit kit dominates. Runs *after* the accent so the result is
+        // a dark magenta-blue night rather than dark-neutral. A daylight
+        // theme has luminosity 1.0 and this is a no-op.
+        _ => apply_nightfall(
+            crate::seeded_defaults::theme_luminosity(scene.theme),
+            &mut environment,
+        ),
+    }
+    if let Some(climate) = climate {
+        climate.apply(&mut environment);
+    }
 
     // Colour grading (#1669): the theme's camera look, seeded into the
     // record like its light, so an owner who restyles the room restyles

@@ -2003,6 +2003,18 @@ fn aim_rig(
     else {
         return;
     };
+    // `--focus arrival` (#1768): the game's own arrival camera, the one
+    // `--first-view` measures, and nothing else of the rig.
+    if job.rig.focus == Focus::Arrival
+        && let (Some(record), Some(heightmap)) = (record, heightmap)
+        && let Some(view) = super::first_view::ArrivalView::of(&record.0, heightmap)
+    {
+        for (mut transform, _) in cams.iter_mut() {
+            *transform = Transform::from_translation(view.eye).looking_at(view.focus, Vec3::Y);
+        }
+        capture.look = Some(view.focus);
+        return;
+    }
     let (focus, yaw_base) = match job.rig.focus {
         Focus::Walker | Focus::Driver => {
             let at = resolve_focus(

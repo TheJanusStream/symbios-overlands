@@ -976,6 +976,15 @@ cargo run --bin render -- --scatter-plot 3 --out /tmp/scatter.png
 # gives the --yaw that faces the sun (a sky shot: --yaw it, --elev=-15):
 cargo run --bin render -- --describe 0..32
 cargo run --bin render -- --describe 11
+# What a visitor first sees arriving in each seeded world (#1768): the hour and
+# the key light against the landing's view, the weather, the landing's slope,
+# how much of the landmark the arrival camera sees and what stands in the first
+# 40 m - a row a seed that builds its own terrain, then a summary:
+cargo run --bin render -- --first-view 0..300
+# ...and their arrival frames as one contact sheet, each `--world N --focus
+# arrival` (the game's own camera); --hour, --weather, --effects and --grass
+# pass through, and `--weather own` holds each world in its own weather:
+cargo run --bin render -- --album 0..24 --album-jobs 3 --out /tmp/album.png
 # A world's ground as numbers, no render (#1449): percentiles, the sea's level
 # and the share it floods (and each lake's), the landing, where each placement
 # stands, and at
@@ -1079,7 +1088,9 @@ quickly, and `--terrain-report` builds one heightmap (about half a second;
 lots grow on it first - about 2 s in all,
 and `--floating-report` beside meshing every placed generator, about 1 s);
 `--scatter-census`, `--scatter-plot` and `--settlement-drop` rebuild each
-seed's heightmap, which costs a few seconds per seed.
+seed's heightmap, which costs a few seconds per seed; `--first-view` does too,
+about 0.2 s a seed. `--album` draws each frame in a process of its own, about
+5 s a frame, `--album-jobs` at a time.
 
 **Agent client** (#1413) - a headless Overlands client an AI agent drives
 from the command line, signed in as **its own** account. To everyone else in a

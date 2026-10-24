@@ -138,6 +138,7 @@ mod floating;
 // overhaul guard and census (#1575) and to the street buildings' check
 // (#1598).
 pub(crate) use floating::free_parts;
+mod first_view;
 mod generator_file;
 mod gif;
 mod headless;
@@ -192,7 +193,10 @@ const TOOL_DID: &str = "did:render:tool";
 
 #[derive(Parser)]
 #[command(
-    about = "Headless contact-sheet / clip renderer for avatars, catalogue, primitives, rooms and worlds"
+    about = "Headless contact-sheet / clip renderer for avatars, catalogue, primitives, rooms and worlds",
+    // What draws a world: a world shot, or an album of them (#1768) - which
+    // the world's own look flags (`--hour`, `--weather`, ...) go with.
+    group = clap::ArgGroup::new("drawn_world").args(["world", "album"]).multiple(true)
 )]
 struct Args {
     /// Avatar subject: a u64 seed or a DID string.
@@ -498,13 +502,13 @@ struct Args {
     /// `low` (a WebGL2 browser's default), `medium` (a WebGPU browser's) or
     /// `high` (the desktop's, and the default here) - to see a world as a
     /// browser visitor does.
-    #[arg(long, requires = "world", value_name = "QUALITY", value_parser = parse_grass)]
+    #[arg(long, requires = "drawn_world", value_name = "QUALITY", value_parser = parse_grass)]
     grass: Option<crate::grass::GrassQuality>,
     /// With `--world`: draw under this Effects setting (#1687) - `full` (the
     /// default), `reduced` or `off` - to see a world as a visitor who picked
     /// it does: its contact effects, its turning parts, and how much of a
     /// held `--flash` the lightning draws.
-    #[arg(long, requires = "world", value_name = "LEVEL", value_parser = parse_effects)]
+    #[arg(long, requires = "drawn_world", value_name = "LEVEL", value_parser = parse_effects)]
     effects: Option<crate::state::EffectsIntensity>,
     /// With `--world`: measure before the still (#1692) - draw this many
     /// frames once the world has warmed up, the scene held still and the
@@ -522,14 +526,16 @@ struct Args {
     /// moon and stars - whatever time of day its record holds. 12 is the
     /// room as its fields set it. Without it a room whose day turns is
     /// drawn at the hour it is now, by this machine's clock.
-    #[arg(long, requires = "world", value_name = "HOUR", value_parser = parse_hour)]
+    #[arg(long, requires = "drawn_world", value_name = "HOUR", value_parser = parse_hour)]
     hour: Option<f32>,
     /// With `--world`: draw the room under this weather (#1678), standing
     /// still - `overcast`, `rain`, `storm`, `snow`, `fog` or `dust` (#1735),
     /// with an intensity from 0 to 1 after a colon (`rain:0.4`; 1 without
-    /// one) - whatever weather its record holds.
-    #[arg(long, requires = "world", value_name = "KIND[:INTENSITY]", value_parser = parse_weather)]
-    weather: Option<crate::pds::Weather>,
+    /// one) - whatever weather its record holds; or `own`, its record's own
+    /// weather standing at the intensity it comes at its heaviest (#1770),
+    /// none for a room with none.
+    #[arg(long, requires = "drawn_world", value_name = "KIND[:INTENSITY]|own", value_parser = parse_weather)]
+    weather: Option<WeatherAsked>,
     /// With `--world`: hold a lightning flash at this light, 0 to 1 (#1684).
     /// Without it a still holds none: the clock's strikes are left out, so a
     /// storm's sheet does not depend on when it was taken. 1 is a strike
@@ -971,6 +977,27 @@ struct Args {
     /// minute of compile says so with a green rectangle. A no-render mode.
     #[arg(long)]
     describe: Option<String>,
+    /// The arrival survey (#1768): for each procedural seed of `A..B` (or
+    /// one seed), what a visitor sees on arriving through the game's own
+    /// arrival camera - the hour and the key light against the view, the
+    /// weather, the landing's slope, how far the landmark stands and how
+    /// much of its height is in the frame and in sight, and the trees, rocks
+    /// and buildings in the first 40 m of the view - then a summary. Berlin
+    /// squares are skipped. The instrument the seeded-world overhaul (#1767)
+    /// is judged on; see `first_view.rs`. A no-render mode.
+    #[arg(long, value_name = "SEED|A..B")]
+    first_view: Option<String>,
+    /// Draw the arrival frame of each procedural seed of `A..B` (or one) -
+    /// `--world N --focus arrival`, this binary run once a frame - and lay
+    /// the frames out as one contact sheet at `--out` (default
+    /// `/tmp/avatar-render/album.png`), each tile marked with its seed, the
+    /// frames kept beside it (#1768). `--hour`, `--weather`, `--effects` and
+    /// `--grass` pass through to every frame. At most 48 frames.
+    #[arg(long, value_name = "SEED|A..B", conflicts_with = "world")]
+    album: Option<String>,
+    /// With `--album`: how many frames are drawn at once, 1 to 4.
+    #[arg(long, default_value_t = 2, requires = "album")]
+    album_jobs: usize,
     /// With `--world`: print the world's ground as numbers and exit, without
     /// rendering (#1449) - heights over the map, the water line and the share
     /// of the map it floods, the landing, where every placement stands, and
@@ -1081,7 +1108,37 @@ fn parse_hour(word: &str) -> Result<f32, String> {
 }
 
 /// `--weather`'s value: a kind, and an intensity after a colon (#1678).
-fn parse_weather(word: &str) -> Result<crate::pds::Weather, String> {
+/// `--weather`'s value: a kind at an intensity, standing (#1678) - or the
+/// world's own weather, standing at its heaviest (#1770).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum WeatherAsked {
+    Kind(crate::pds::Weather),
+    Own,
+}
+
+impl WeatherAsked {
+    /// The weather `own` - the world's own weather - is drawn under:
+    /// standing, at the intensity it comes at its heaviest; none for a
+    /// world with none.
+    fn for_world(self, own: Option<crate::pds::Weather>) -> Option<crate::pds::Weather> {
+        match self {
+            WeatherAsked::Kind(weather) => Some(weather),
+            WeatherAsked::Own => own.map(|weather| crate::pds::Weather {
+                spell_minutes: crate::pds::Fp(0.0),
+                ..weather
+            }),
+        }
+    }
+}
+
+fn parse_weather(word: &str) -> Result<WeatherAsked, String> {
+    if word.trim().eq_ignore_ascii_case("own") {
+        return Ok(WeatherAsked::Own);
+    }
+    parse_weather_kind(word).map(WeatherAsked::Kind)
+}
+
+fn parse_weather_kind(word: &str) -> Result<crate::pds::Weather, String> {
     let (kind, intensity) = word.split_once(':').unwrap_or((word, "1"));
     let kind = crate::pds::WeatherKind::ALL
         .into_iter()
@@ -1237,6 +1294,28 @@ pub fn run() {
     // render app stands up.
     if let Some(what) = &args.describe {
         describe_rooms(what);
+        return;
+    }
+
+    // `--first-view <seed|a..b>`: the arrival survey - never renders (#1768).
+    if let Some(what) = &args.first_view {
+        first_view::print_first_view(what);
+        return;
+    }
+
+    // `--album <seed|a..b>`: the arrival frames as one contact sheet, each
+    // drawn by this binary in a process of its own (#1768).
+    if let Some(seeds) = &args.album {
+        first_view::album(&first_view::AlbumRequest {
+            seeds,
+            out: std::path::PathBuf::from(
+                args.out
+                    .clone()
+                    .unwrap_or_else(|| format!("{OUT_DIR}/album.png")),
+            ),
+            jobs: args.album_jobs,
+            pass: first_view::passthrough(std::env::args().skip(1)),
+        });
         return;
     }
 
@@ -1579,12 +1658,12 @@ pub fn run() {
                 day_minutes: crate::pds::Fp(0.0),
             });
         }
-        if let Some(weather) = args.weather {
-            app.world_mut()
-                .resource_mut::<crate::state::LiveRoomRecord>()
-                .0
-                .environment
-                .weather = Some(weather);
+        if let Some(asked) = args.weather {
+            let mut live = app
+                .world_mut()
+                .resource_mut::<crate::state::LiveRoomRecord>();
+            let env = &mut live.0.environment;
+            env.weather = asked.for_world(env.weather);
         }
         // A still's flash is held, 0 unless asked: the clock's strikes
         // would make a storm's sheet a matter of when it was taken.
@@ -2572,6 +2651,38 @@ fn primitive_for_tag(tag: &str) -> Option<GeneratorKind> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `--weather own` draws a world under its own weather, standing at its
+    /// heaviest, and a world with none under none; a named kind overrides
+    /// whatever the world holds (#1770).
+    #[test]
+    fn a_world_is_drawn_under_its_own_weather_standing() {
+        use crate::pds::{Fp, Weather, WeatherKind};
+        let own = Weather {
+            kind: WeatherKind::Snow,
+            intensity: Fp(0.6),
+            spell_minutes: Fp(23.5),
+            share: Fp(0.2),
+        };
+        let asked = parse_weather(" Own ").unwrap();
+        assert_eq!(
+            asked.for_world(Some(own)),
+            Some(Weather {
+                spell_minutes: Fp(0.0),
+                ..own
+            })
+        );
+        assert_eq!(asked.for_world(None), None);
+        let rain = parse_weather("rain:0.4").unwrap();
+        let Some(drawn) = rain.for_world(Some(own)) else {
+            panic!("a named kind is drawn");
+        };
+        assert_eq!(
+            (drawn.kind, drawn.spell_minutes),
+            (WeatherKind::Rain, Fp(0.0))
+        );
+        assert!(parse_weather("hail").is_err());
+    }
 
     #[test]
     fn a_backdrop_is_a_hex_colour_with_or_without_the_hash() {

@@ -1199,9 +1199,14 @@ pub(super) fn describe_rooms(what: &str) {
         d.fog_visibility, d.sun_height, d.sun_lux, d.cloud_cover, d.sky
     );
     println!(
-        "  sun yaw    {:.0}° - the --yaw that faces the sun",
-        d.sun_yaw
+        "  sun yaw    {:.0}° - the --yaw that faces the {}",
+        d.sun_yaw,
+        if d.moon { "moon" } else { "sun" }
     );
+    match d.hour {
+        Some(hour) => println!("  hour       {hour:.2} - the light above is this hour's"),
+        None => println!("  hour       none - the light above is the record's own"),
+    }
     println!("  ground     {}", d.ground);
     println!("  water      level {}", d.water);
     println!("  landing    {}", d.landing);
@@ -1226,8 +1231,13 @@ struct RoomDescription {
     hue_deg: f32,
     temperature: f32,
     time_of_day_bias: f32,
+    /// The hour the world is drawn at, for one with a time of day (#1769):
+    /// the sun, the sky and the lux below are that hour's.
+    hour: Option<f32>,
+    /// Whether the key light at that hour is the moon.
+    moon: bool,
     fog_visibility: f32,
-    /// The sun direction's unit-vector Y: 1 is noon, 0 the horizon.
+    /// The key light's unit-vector Y: 1 overhead, 0 the horizon.
     sun_height: f32,
     /// The sun's illuminance in lux - a night theme's dim moonlight key
     /// (#1671) is this, not its height.
@@ -1269,7 +1279,17 @@ impl RoomDescription {
     }
 
     fn new(scene: crate::seeded_defaults::scene::SceneCharacter, record: &RoomRecord) -> Self {
-        let env = &record.environment;
+        // The light as it is drawn: a world with a time of day stands at its
+        // hour, its fields its noon (#1677) - read at this machine's clock
+        // for a day that turns.
+        let hour = record.environment.time_of_day.as_ref().map(|time| {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0.0, |d| d.as_secs_f64());
+            crate::time_of_day::hour_at(time, now)
+        });
+        let drawn = hour.map(|hour| crate::time_of_day::environment_at(&record.environment, hour));
+        let env = drawn.as_ref().map_or(&record.environment, |at| &at.env);
         let sun = bevy::math::Vec3::from_array(env.sun_position.0).normalize_or_zero();
         let sky = env.sky_color.0;
         let (mut absolute, mut scatters, mut scattered, mut grids) = (0usize, 0usize, 0u32, 0usize);
@@ -1332,6 +1352,8 @@ impl RoomDescription {
             hue_deg: scene.base_hue_deg,
             temperature: scene.temperature,
             time_of_day_bias: scene.time_of_day_bias,
+            hour,
+            moon: drawn.as_ref().is_some_and(|at| at.moon >= 0.5),
             fog_visibility: env.fog_visibility.0,
             sun_height: sun.y,
             sun_lux: env.sun_illuminance.0,

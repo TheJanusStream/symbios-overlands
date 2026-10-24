@@ -23,6 +23,12 @@ pub(super) enum Focus {
     /// The record's default landing: the gateway forecourt, where a visitor
     /// arrives.
     Landing,
+    /// The game's own camera on arrival (#1768, #1785): behind the body set
+    /// down at the landing, facing the way it faces, at the rest radius and
+    /// pitch, pulled in off the ground as the player's is
+    /// ([`super::first_view::ArrivalView`]). The rest of the rig - distance,
+    /// elevation, yaw, lift, sweep - means nothing to it.
+    Arrival,
     /// The centre of the placed structures - the centroid of the record's
     /// `Absolute` placements - which is where the settlement actually
     /// stands, as opposed to the spawn square it grew around.
@@ -43,6 +49,7 @@ impl Focus {
         match s.trim().to_ascii_lowercase().as_str() {
             "origin" | "spawn" => return Ok(Self::Origin),
             "landing" | "gateway" => return Ok(Self::Landing),
+            "arrival" | "first-view" => return Ok(Self::Arrival),
             "settlement" | "town" => return Ok(Self::Settlement),
             "walker" => return Ok(Self::Walker),
             "driver" | "car" => return Ok(Self::Driver),
@@ -62,7 +69,7 @@ impl Focus {
                 z: *z,
             }),
             _ => Err(format!(
-                "--focus {s:?}: expected origin | landing | settlement | walker | driver | subject | x,z | x,y,z"
+                "--focus {s:?}: expected origin | landing | arrival | settlement | walker | driver | subject | x,z | x,y,z"
             )),
         }
     }

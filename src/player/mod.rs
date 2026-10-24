@@ -118,7 +118,8 @@ pub use rigged::RiggedBuildFailed;
 pub(crate) use rigged::RiggedRoot;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use rigged::heading_of;
-#[cfg(not(target_arch = "wasm32"))]
+// On every target: the seeder turns a world's signature hour to its
+// landing's facing (#1769), and seeds derive in the browser too.
 pub(crate) use spawn::spawn_facing;
 
 use avian3d::prelude::*;

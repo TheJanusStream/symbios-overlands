@@ -845,11 +845,30 @@ pub(crate) fn camera_listener() -> SpatialListener {
 /// While the eyes ride a vehicle (#1745) the orbit stops following its turns:
 /// the camera turns with the vehicle itself, and the orbit's yaw is how far
 /// the head is turned on it.
+///
+/// **A landing stands the camera behind the body** (#1785). When the world
+/// sets the body down facing a way it chose ([`crate::player::FacingSet`]) -
+/// entering a world, after the login or through a gateway, or back at its
+/// landing - the orbit cuts to the rest radius and pitch behind it, its
+/// focus on the body, so the first frame looks the way the landing looks
+/// rather than wherever the last world, or the login backdrop's slow orbit,
+/// left the camera. Looking out of the eyes, the eyes turn instead
+/// (`first_person`). A vehicle's turn to the new heading is not inherited
+/// as a turn of the vehicle's own: the follow waits up to
+/// [`LANDING_STEPS`] fixed steps for the body to reach it.
+///
+/// The heading is the body's as it was set down, and a body set down on a
+/// slope is tilted onto it: on steep ground its heading - and so the
+/// camera - is a few degrees off the landing's own yaw (6 at a 36 degree
+/// slope).
 fn follow_local_player(
     player_query: Query<(&Transform, Option<&VehicleChassis>), With<LocalPlayer>>,
     mut camera_query: Query<&mut PanOrbitCamera>,
     first_person: Option<Res<FirstPerson>>,
-    mut prev_yaw: Local<Option<f32>>,
+    mut facings: MessageReader<crate::player::FacingSet>,
+    time: Res<Time>,
+    fixed: Res<Time<Fixed>>,
+    mut followed: Local<Followed>,
 ) {
     let Ok((player_tf, vehicle)) = player_query.single() else {
         return;
@@ -858,6 +877,30 @@ fn follow_local_player(
         return;
     };
     cam.target_focus = player_tf.translation;
+
+    if let Some(yaw) = facings.read().last().and_then(|set| yaw_behind(set.0)) {
+        // The eyes turn themselves (#1750) - while they look; on the way
+        // back out of them the orbit is the camera's again.
+        let eyes = first_person
+            .as_deref()
+            .is_some_and(|fp| fp.view() == CameraView::Eyes);
+        if !eyes {
+            let yaw = first_person::near_turn(yaw, cam.target_yaw);
+            cam.yaw = Some(yaw);
+            cam.target_yaw = yaw;
+            cam.pitch = Some(cfg::ORBIT_PITCH);
+            cam.target_pitch = cfg::ORBIT_PITCH;
+            cam.radius = Some(cfg::ORBIT_RADIUS);
+            cam.target_radius = cfg::ORBIT_RADIUS;
+            cam.focus = player_tf.translation;
+            cam.force_update = true;
+        }
+        followed.landing = Some(Landing {
+            yaw,
+            waited: 0.0,
+            frames: 0,
+        });
+    }
 
     // Only inherit yaw when driving a vehicle preset (hover-boat, airplane,
     // helicopter, car). On the humanoid preset the physics body never
@@ -879,19 +922,83 @@ fn follow_local_player(
         let fwd = player_tf.rotation * Vec3::NEG_Z;
         if fwd.y.abs() <= cfg::YAW_FREEZE_FORWARD_Y {
             let vehicle_yaw = (-fwd.x).atan2(-fwd.z);
-            if let Some(prev) = *prev_yaw {
-                let delta = {
-                    use std::f32::consts::{PI, TAU};
-                    let d = (vehicle_yaw - prev).rem_euclid(TAU);
-                    if d > PI { d - TAU } else { d }
-                };
-                cam.target_yaw += delta;
+            match followed.landing.as_mut() {
+                // Set down facing a new way: the chassis reaches its set
+                // rotation at its next physics step, and nothing it turns
+                // through on the way is the vehicle's own turning.
+                Some(set) => {
+                    let there = (first_person::near_turn(vehicle_yaw, set.yaw) - set.yaw).abs()
+                        <= LANDED_WITHIN;
+                    set.waited += time.delta_secs();
+                    set.frames += 1;
+                    let long = set.waited > LANDING_STEPS * fixed.timestep().as_secs_f32()
+                        && set.frames > LANDING_MIN_FRAMES;
+                    if there || long {
+                        followed.landing = None;
+                    }
+                }
+                None => {
+                    if let Some(prev) = followed.prev_yaw {
+                        let delta = {
+                            use std::f32::consts::{PI, TAU};
+                            let d = (vehicle_yaw - prev).rem_euclid(TAU);
+                            if d > PI { d - TAU } else { d }
+                        };
+                        cam.target_yaw += delta;
+                    }
+                }
             }
-            *prev_yaw = Some(vehicle_yaw);
+            followed.prev_yaw = Some(vehicle_yaw);
         }
     } else {
-        *prev_yaw = None;
+        *followed = Followed::default();
     }
+}
+
+/// What the follow carries from one frame to the next: the vehicle's
+/// heading last frame, whose turn since it inherits, and a landing it waits
+/// to see the body reach.
+#[derive(Default)]
+struct Followed {
+    prev_yaw: Option<f32>,
+    landing: Option<Landing>,
+}
+
+/// A landing the follow waits to see the body reach (#1785): the heading it
+/// was set down at, how long it has waited, seconds, and over how many
+/// frames.
+#[derive(Clone, Copy, Debug)]
+struct Landing {
+    yaw: f32,
+    waited: f32,
+    frames: u32,
+}
+
+/// How many fixed steps the follow waits after a landing to see the body at
+/// the heading it was set down at, reading none of the frames between as the
+/// vehicle's turn: the chassis takes a set rotation at its next physics step
+/// and its `Transform` eases there over the step after (#670), up to two
+/// steps whatever the frame rate - at 360 Hz a dozen frames - so three is
+/// that with room. Counted in time, not frames: eight frames gave up before
+/// the second step at 240 Hz and more.
+const LANDING_STEPS: f32 = 3.0;
+
+/// The fewest frames the follow waits as well, whatever the time: a frame
+/// longer than [`LANDING_STEPS`] - under 21 a second - would otherwise give
+/// up on the frame the landing is read, before the steps that turn the body
+/// have run.
+const LANDING_MIN_FRAMES: u32 = 2;
+
+/// How near a landing's heading the body counts as there, radians.
+const LANDED_WITHIN: f32 = 1e-3;
+
+/// The orbit yaw that stands the camera behind a body turned `facing`, so it
+/// looks the way the body does (#1785): the body's heading as the orbit
+/// counts it - the orbit puts its camera at +Z turned by its yaw and looks
+/// back along -Z turned by it, and a body faces its own -Z. `None` for a
+/// body pointing nearly straight up or down, which has no heading.
+pub(crate) fn yaw_behind(facing: Quat) -> Option<f32> {
+    first_person::heading(&Transform::from_rotation(facing))
 }
 
 #[cfg(test)]
@@ -1313,6 +1420,214 @@ mod tests {
         );
     }
 
+    /// The follow alone, with the landing message it reads.
+    fn follow_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_message::<crate::player::FacingSet>()
+            .add_systems(Update, follow_local_player);
+        app
+    }
+
+    /// The world camera's orbit in `app`.
+    fn orbit(app: &mut App) -> PanOrbitCamera {
+        let mut cams = app.world_mut().query::<&PanOrbitCamera>();
+        *cams.single(app.world()).unwrap()
+    }
+
+    /// A camera somewhere a landing has to fetch it from: turned, pitched
+    /// and zoomed off the rest pose, as a login backdrop's orbit or the last
+    /// world leaves it.
+    fn astray() -> PanOrbitCamera {
+        PanOrbitCamera {
+            yaw: Some(2.5),
+            target_yaw: 2.5,
+            pitch: Some(1.1),
+            target_pitch: 1.1,
+            radius: Some(40.0),
+            target_radius: 40.0,
+            ..default()
+        }
+    }
+
+    /// #1785: a landing stands the camera behind the body at the rest
+    /// radius and pitch, at once - the yaw the orbit looks along the body's
+    /// facing at, written as well as targeted, so it cuts rather than
+    /// swings round.
+    #[test]
+    fn a_landing_stands_the_camera_behind_the_body_at_rest() {
+        let mut app = follow_app();
+        let at = Vec3::new(140.0, 12.0, -60.0);
+        app.world_mut()
+            .spawn((Transform::from_translation(at), LocalPlayer));
+        app.world_mut().spawn(astray());
+        let facing = Quat::from_rotation_y(0.9);
+        app.world_mut()
+            .write_message(crate::player::FacingSet(facing));
+        app.update();
+
+        let cam = orbit(&mut app);
+        // On the body at once, not easing toward it across the world.
+        assert_eq!((cam.focus, cam.target_focus), (at, at));
+        assert!((cam.target_yaw - 0.9).abs() < 1e-5, "{}", cam.target_yaw);
+        assert_eq!(cam.yaw, Some(cam.target_yaw));
+        assert_eq!(
+            (cam.pitch, cam.target_pitch),
+            (Some(cfg::ORBIT_PITCH), cfg::ORBIT_PITCH)
+        );
+        assert_eq!(
+            (cam.radius, cam.target_radius),
+            (Some(cfg::ORBIT_RADIUS), cfg::ORBIT_RADIUS)
+        );
+        // The orbit looks along the facing: its camera stands at +Z turned
+        // by its yaw, looking back down -Z turned by it.
+        let looks = Quat::from_rotation_y(cam.target_yaw) * Vec3::NEG_Z;
+        assert!(looks.distance(facing * Vec3::NEG_Z) < 1e-5);
+    }
+
+    /// #1785: a vehicle set down facing a new way is not also turned by
+    /// it - the follow would read the jump of its heading as the vehicle's
+    /// own turn and add it to the landing's yaw - whether its transform
+    /// reaches the set rotation that frame or a frame later; a real turn
+    /// after it is inherited as ever.
+    #[test]
+    fn a_vehicle_set_down_facing_a_new_way_is_not_turned_twice() {
+        for late in [false, true] {
+            let mut app = follow_app();
+            let player = app
+                .world_mut()
+                .spawn((
+                    Transform::from_rotation(Quat::from_rotation_y(0.3)),
+                    LocalPlayer,
+                    VehicleChassis,
+                ))
+                .id();
+            app.world_mut().spawn(astray());
+            app.update();
+
+            let set = Quat::from_rotation_y(1.5);
+            app.world_mut().write_message(crate::player::FacingSet(set));
+            let turn_to = |app: &mut App, rotation: Quat| {
+                app.world_mut()
+                    .entity_mut(player)
+                    .get_mut::<Transform>()
+                    .unwrap()
+                    .rotation = rotation;
+            };
+            if !late {
+                turn_to(&mut app, set);
+            }
+            app.update();
+            turn_to(&mut app, set);
+            app.update();
+            let cam = orbit(&mut app);
+            assert!(
+                (cam.target_yaw - 1.5).abs() < 1e-5,
+                "late {late}: the landing's turn was inherited too: {}",
+                cam.target_yaw
+            );
+
+            turn_to(&mut app, Quat::from_rotation_y(1.7));
+            app.update();
+            let cam = orbit(&mut app);
+            assert!(
+                (cam.target_yaw - 1.7).abs() < 1e-5,
+                "late {late}: a turn after the landing is the vehicle's: {}",
+                cam.target_yaw
+            );
+        }
+    }
+
+    /// #1785: at a high refresh rate a vehicle eases to its landing's
+    /// heading over a dozen frames - the chassis takes the set rotation at
+    /// its next physics step and its transform eases there over the step
+    /// after - and none of the ease is the vehicle's own turn; nor is it at
+    /// a low one, where the body is there the next frame - at 15 Hz a frame
+    /// longer than the whole wait, which must not give up on the frame the
+    /// landing is read.
+    #[test]
+    fn a_vehicle_eased_to_its_landing_over_many_frames_is_not_turned() {
+        use bevy::time::TimeUpdateStrategy;
+        use std::time::Duration;
+        for hz in [15.0f64, 30.0, 360.0] {
+            let mut app = follow_app();
+            app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
+                1.0 / hz,
+            )));
+            let player = app
+                .world_mut()
+                .spawn((
+                    Transform::from_rotation(Quat::from_rotation_y(0.3)),
+                    LocalPlayer,
+                    VehicleChassis,
+                ))
+                .id();
+            app.world_mut().spawn(astray());
+            app.update();
+            app.update();
+            let turn_to = |app: &mut App, yaw: f32| {
+                app.world_mut()
+                    .entity_mut(player)
+                    .get_mut::<Transform>()
+                    .unwrap()
+                    .rotation = Quat::from_rotation_y(yaw);
+            };
+
+            app.world_mut()
+                .write_message(crate::player::FacingSet(Quat::from_rotation_y(1.5)));
+            // 360 Hz: two steps of 1/64 s are eleven frames, the last on it.
+            let frames = if hz > 60.0 { 11 } else { 1 };
+            for k in 0..=frames {
+                turn_to(&mut app, 0.3 + 1.2 * k as f32 / frames as f32);
+                app.update();
+            }
+            let cam = orbit(&mut app);
+            assert!(
+                (cam.target_yaw - 1.5).abs() < 1e-4,
+                "{hz} Hz: part of the ease was read as a turn: {}",
+                cam.target_yaw
+            );
+            turn_to(&mut app, 1.7);
+            app.update();
+            let cam = orbit(&mut app);
+            assert!(
+                (cam.target_yaw - 1.7).abs() < 1e-4,
+                "{hz} Hz: a turn after the landing is the vehicle's: {}",
+                cam.target_yaw
+            );
+        }
+    }
+
+    /// #1785: looking out of the eyes, a landing leaves the orbit's zoom and
+    /// pitch to the eyes, which turn to the landing themselves (#1750); on
+    /// the way back out of them the orbit is the camera's again, and the
+    /// landing stands it behind the body.
+    #[test]
+    fn a_landing_leaves_the_eyes_their_own_view() {
+        let mut app = follow_app();
+        app.insert_resource(FirstPerson::looking());
+        app.world_mut().spawn((Transform::default(), LocalPlayer));
+        app.world_mut().spawn(astray());
+        app.world_mut()
+            .write_message(crate::player::FacingSet(Quat::from_rotation_y(0.9)));
+        app.update();
+
+        let cam = orbit(&mut app);
+        assert_eq!((cam.target_radius, cam.target_pitch), (40.0, 1.1));
+        assert_eq!(cam.target_yaw, 2.5);
+
+        let mut app = follow_app();
+        app.insert_resource(FirstPerson::leaving());
+        app.world_mut().spawn((Transform::default(), LocalPlayer));
+        app.world_mut().spawn(astray());
+        app.world_mut()
+            .write_message(crate::player::FacingSet(Quat::from_rotation_y(0.9)));
+        app.update();
+        let cam = orbit(&mut app);
+        assert!((cam.target_yaw - 0.9).abs() < 1e-5, "{}", cam.target_yaw);
+        assert_eq!(cam.target_radius, cfg::ORBIT_RADIUS);
+    }
+
     /// #670 guard: the follow target must come from `Transform` - the
     /// same-frame eased pose - not `GlobalTransform`. `MinimalPlugins`
     /// registers no transform propagation, so a regression back to
@@ -1320,9 +1635,7 @@ mod tests {
     /// and miss the spawned position.
     #[test]
     fn follow_reads_the_same_frame_transform() {
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins);
-        app.add_systems(Update, follow_local_player);
+        let mut app = follow_app();
         let pos = Vec3::new(5.0, 2.0, 7.0);
         app.world_mut()
             .spawn((Transform::from_translation(pos), LocalPlayer));
@@ -1343,9 +1656,7 @@ mod tests {
     /// delta into `target_yaw`.
     #[test]
     fn vehicle_yaw_delta_accumulates_from_transform() {
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins);
-        app.add_systems(Update, follow_local_player);
+        let mut app = follow_app();
         let player = app
             .world_mut()
             .spawn((
@@ -1381,9 +1692,7 @@ mod tests {
     fn vertical_forward_freezes_yaw_inheritance() {
         use std::f32::consts::FRAC_PI_2;
 
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins);
-        app.add_systems(Update, follow_local_player);
+        let mut app = follow_app();
         let player = app
             .world_mut()
             .spawn((

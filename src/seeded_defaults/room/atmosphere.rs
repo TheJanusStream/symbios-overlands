@@ -11,7 +11,9 @@
 //! Sun position is sampled in spherical coordinates: altitude is
 //! pulled toward the horizon by `time_of_day_bias`, azimuth is fully
 //! random. Cartesian conversion (radius × spherical → world XYZ) is
-//! straight trigonometry - see [`spherical_to_world`].
+//! straight trigonometry - see [`spherical_to_world`]. A world on its own
+//! terrain is derived at noon (the bias zeroed), and its signature hour
+//! then sets the noon sun's height and bearing (#1769, [`super::hour`]).
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;

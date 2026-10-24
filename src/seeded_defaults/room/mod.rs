@@ -2,9 +2,10 @@
 //!
 //! Each submodule owns one parameter group of the room - palette, the theme
 //! identity accent, terrain shape and the flat-region siting probe derived
-//! from it, biome textures, atmosphere, tree / rock / ground-cover / particle
-//! scatters, the spawn-side settlement with its social gateway and owner
-//! monument, and the ambient-audio bed. They share the
+//! from it, biome textures, atmosphere, the signature hour and the climate
+//! a world on its own terrain stands in ([`hour`], [`climate`]), tree / rock
+//! / ground-cover / particle scatters, the spawn-side settlement with its
+//! social gateway and owner monument, and the ambient-audio bed. They share the
 //! [`super::SceneCharacter`] anchor so the derived values stay
 //! internally coherent - see the module-level docstring on
 //! [`super`] for the full data flow.
@@ -18,10 +19,12 @@ pub mod accent;
 pub mod atmosphere;
 pub mod audio;
 pub mod build;
+pub mod climate;
 mod exotic;
 pub mod gateway;
 pub mod grass;
 pub mod groundcover;
+pub mod hour;
 pub mod monument;
 pub mod palette;
 pub mod particles;
@@ -39,6 +42,7 @@ pub use audio::AmbientRecipe;
 pub use gateway::GatewaySpot;
 pub use grass::SeededGrass;
 pub use groundcover::{GroundCoverScatter, GroundCoverScatters, GroundCoverSpecies};
+pub use hour::{Mood, SignatureHour};
 pub use monument::MonumentSpot;
 pub use palette::RoomPalette;
 pub use particles::{AmbientParticles, ParticleMood};
