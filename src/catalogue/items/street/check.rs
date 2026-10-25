@@ -174,6 +174,14 @@ pub(crate) fn conventions(
             ));
         }
     }
+    // A lit room's light is on from dusk to dawn (#1782,
+    // `opening_materials`): a room glowing at noon is no window by day.
+    if materials
+        .get("RoomLit")
+        .is_some_and(|room| !room.dusk_to_dawn)
+    {
+        problems.push("its lit rooms glow at every hour, not from dusk to dawn".to_string());
+    }
     for id in SOLID_AT_LEAST {
         if !solid_meshes.iter().any(|s| s == id) {
             problems.push(format!("{id} is not in its solid meshes"));

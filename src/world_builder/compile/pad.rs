@@ -118,6 +118,234 @@ fn snap_radius_of(avoid_water: bool, clearance: f32, scale_x: f32) -> Option<f32
     (avoid_water && r > 0.0).then_some(r)
 }
 
+/// How far along its own axis a seeded jetty looks for the water's edge,
+/// either way (m), and the step it reads the ground at (#1782): as far as
+/// the derive kept its ground clear for (`room::crafts::jetty::WALK`).
+const SHORE_REACH: f32 = 50.0;
+const SHORE_STEP: f32 = 0.5;
+/// How far inland of the water's edge a seeded jetty's anchor stands (m):
+/// its deck leaves the land there and runs back onto the bank past it.
+const SHORE_SET_BACK: f32 = 1.0;
+/// How deep the water under a seeded jetty's head is, at the least, for it
+/// to stand (m): its boats float there.
+const JETTY_HEAD_DEPTH: f32 = 0.8;
+/// How far the walk off water may move a seeded pad or mast before it no
+/// longer stands where it was sited clear of the rest (m).
+const PLACE_SLIDE: f32 = 4.0;
+/// How far the ground may fall away under a seeded pad or mast before its
+/// skirt or base no longer reaches it (m): the helipad's skirt, the mast's
+/// base (`catalogue::items::crafts`).
+const PLACE_REACH: f32 = 3.5;
+
+/// Which way a placement turned by `rotation` looks: its front, -Z, on the
+/// ground.
+pub(crate) fn front_of(rotation: bevy::math::Quat) -> bevy::math::Vec2 {
+    let front = rotation * Vec3::NEG_Z;
+    bevy::math::Vec2::new(front.x, front.z)
+}
+
+/// Walk a seeded jetty's anchor to the water's edge the ground draws
+/// (#1782): the derive sites it on a probe that misreads a shore by metres
+/// (by tens of them along a gentle one). Its anchor - where its deck leaves
+/// the land - moves along `out`, the way it runs out over the water, to
+/// [`SHORE_SET_BACK`] inland of the crossing from dry ground to water
+/// nearest it. `false`, the anchor left where it is, where no such crossing
+/// lies within [`SHORE_REACH`]. Moves X/Z only: its height is the water's,
+/// which its record keeps. Read through [`place_stands`], as the compile,
+/// the scatters' keep-outs and the editor's outline all read it.
+pub(crate) fn meet_the_shore(
+    ground: &AnchorGround<'_>,
+    translation: &mut Vec3,
+    out: bevy::math::Vec2,
+) -> bool {
+    let Some(out) = out.try_normalize() else {
+        return false;
+    };
+    let from = bevy::math::Vec2::new(translation.x, translation.z);
+    let wet = |s: f32| wet_at(ground, from + out * s);
+    // Every crossing in reach, the nearest kept: the first of equals,
+    // landward of the anchor before seaward.
+    let steps = (SHORE_REACH / SHORE_STEP) as i32;
+    let mut nearest: Option<f32> = None;
+    let mut dry = !wet(-SHORE_REACH);
+    for k in -steps..steps {
+        let s = (k + 1) as f32 * SHORE_STEP;
+        let here = !wet(s);
+        if dry && !here {
+            let crossing = s - SHORE_STEP * 0.5;
+            if nearest.is_none_or(|kept| crossing.abs() < kept.abs()) {
+                nearest = Some(crossing);
+            }
+        }
+        dry = here;
+    }
+    let Some(crossing) = nearest else {
+        return false;
+    };
+    let at = from + out * (crossing - SHORE_SET_BACK);
+    translation.x = at.x;
+    translation.z = at.y;
+    true
+}
+
+/// The ground's height at world `at`, on `ground`'s map.
+fn height_at(ground: &AnchorGround<'_>, at: bevy::math::Vec2) -> f32 {
+    let hm = ground.hm;
+    let extent = (hm.width().saturating_sub(1)) as f32 * hm.scale();
+    let half = extent * 0.5;
+    hm.get_height_at(
+        (at.x + half).clamp(0.0, extent),
+        (at.y + half).clamp(0.0, extent),
+    )
+}
+
+/// How deep the room's water stands over world `at`, or `None` where it
+/// has none there.
+fn depth_at(ground: &AnchorGround<'_>, at: bevy::math::Vec2) -> Option<f32> {
+    ground
+        .water
+        .level_at(at.x, at.y)
+        .map(|level| level - height_at(ground, at))
+}
+
+/// Whether world `at` is under the room's water.
+fn wet_at(ground: &AnchorGround<'_>, at: bevy::math::Vec2) -> bool {
+    depth_at(ground, at).is_some_and(|depth| depth > 0.0)
+}
+
+/// The lowest and the highest ground under a disc of `radius` round
+/// `(x, z)`: its rim, a ring halfway in and its middle, read where the
+/// heightmap draws them.
+fn footprint_range(ground: &AnchorGround<'_>, x: f32, z: f32, radius: f32) -> (f32, f32) {
+    let middle = height_at(ground, bevy::math::Vec2::new(x, z));
+    let (mut low, mut high) = (middle, middle);
+    for ring in [0.5, 1.0] {
+        for i in 0..RIM_SAMPLES {
+            let a = i as f32 * std::f32::consts::TAU / RIM_SAMPLES as f32;
+            // libm (#1132), as the snap's rim.
+            let at = bevy::math::Vec2::new(
+                x + libm::sinf(a) * radius * ring,
+                z + libm::cosf(a) * radius * ring,
+            );
+            let h = height_at(ground, at);
+            low = low.min(h);
+            high = high.max(h);
+        }
+    }
+    (low, high)
+}
+
+/// How far off a track's edge a windsock or a track's tyres stand to be
+/// that track's (m): a seeded windsock stands 5 m off its airstrip's edge,
+/// the tyres 1.5 m off their track's.
+const BESIDE_A_TRACK: f32 = 8.0;
+
+/// Whether `at` stands within [`BESIDE_A_TRACK`] of the edge of one of
+/// `tracks` the ground leaves unpainted (`terrain::track_drawn`): a windsock
+/// there marks an airstrip that is not drawn.
+fn beside_a_bare_track(
+    ground: &AnchorGround<'_>,
+    at: bevy::math::Vec2,
+    tracks: &[crate::pds::SovereignTrack],
+) -> bool {
+    tracks.iter().any(|track| {
+        let line: Vec<bevy::math::Vec2> = track
+            .line
+            .iter()
+            .map(|p| bevy::math::Vec2::from_array(p.0))
+            .collect();
+        let off = line
+            .windows(2)
+            .map(|pair| {
+                let (a, b) = (pair[0], pair[1]);
+                let along = b - a;
+                let t = if along.length_squared() > 0.0 {
+                    ((at - a).dot(along) / along.length_squared()).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                at.distance(a + along * t)
+            })
+            .fold(f32::MAX, f32::min);
+        off <= track.width.0 * 0.5 + BESIDE_A_TRACK
+            && !crate::terrain::track_drawn((ground.hm, ground.water), &line, track.width.0)
+    })
+}
+
+/// How a seeded world's place for a craft (#1782) stands on the ground the
+/// compile draws, which the probe it was sited on misreads: by the shore,
+/// in a hollow the sea floods, on a slope.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum PlaceStand {
+    /// Not a place for a craft: it stands as any placement does.
+    Other,
+    /// It stands here: a jetty walked to its shore, a snapped place where
+    /// its snap puts it.
+    At(Vec3),
+    /// The ground does not take it: it is not drawn and keeps nothing
+    /// clear. Its record keeps it, for its owner to move.
+    Not,
+}
+
+/// How the placement of `generator_ref` placed by `transform` stands on
+/// `ground` (see [`PlaceStand`]): a seeded jetty (`compile::scatter::JETTY`,
+/// unsnapped) walked to its shore, standing only where the water under its
+/// head is [`JETTY_HEAD_DEPTH`] deep; a seeded pad or mast (built) standing
+/// only where the walk off water moves it no more than [`PLACE_SLIDE`] and
+/// its ground falls no more than [`PLACE_REACH`] under it; a windsock or a
+/// track's tyres standing only on dry ground, beside no track of `tracks`
+/// the ground leaves unpainted ([`beside_a_bare_track`]). The compile, the
+/// scatters' keep-outs and the editor's outline all read it, so they
+/// agree.
+pub(crate) fn place_stands(
+    ground: &AnchorGround<'_>,
+    generator_ref: &str,
+    transform: &crate::pds::TransformData,
+    snap: bool,
+    avoid_water: bool,
+    clearance: f32,
+    tracks: &[crate::pds::SovereignTrack],
+) -> PlaceStand {
+    use super::scatter::{JETTY, MAST, PAD, TYRES, WINDSOCK};
+    use crate::catalogue::items::crafts::jetty::{HEAD, SEEDED_LENGTH};
+    let record = Vec3::from_array(transform.translation.0);
+    match generator_ref {
+        JETTY if !snap => {
+            let out = front_of(bevy::math::Quat::from_array(transform.rotation.0));
+            let mut at = record;
+            if !meet_the_shore(ground, &mut at, out) {
+                return PlaceStand::Not;
+            }
+            let head = bevy::math::Vec2::new(at.x, at.z)
+                + out.normalize_or_zero() * (SEEDED_LENGTH - HEAD[1] * 0.5);
+            match depth_at(ground, head) {
+                Some(depth) if depth >= JETTY_HEAD_DEPTH => PlaceStand::At(at),
+                _ => PlaceStand::Not,
+            }
+        }
+        PAD | MAST if snap && avoid_water => {
+            let at = snapped_absolute_anchor(ground, transform, avoid_water, clearance);
+            let moved = (at.x - record.x).hypot(at.z - record.z);
+            let (low, high) = footprint_range(ground, at.x, at.z, clearance);
+            if moved > PLACE_SLIDE || high - low > PLACE_REACH {
+                PlaceStand::Not
+            } else {
+                PlaceStand::At(at)
+            }
+        }
+        WINDSOCK | TYRES if snap => {
+            let at = snapped_absolute_anchor(ground, transform, avoid_water, clearance);
+            let xz = bevy::math::Vec2::new(at.x, at.z);
+            if wet_at(ground, xz) || beside_a_bare_track(ground, xz, tracks) {
+                PlaceStand::Not
+            } else {
+                PlaceStand::At(at)
+            }
+        }
+        _ => PlaceStand::Other,
+    }
+}
+
 /// The ground a snapped placement sits on - the single reading every
 /// consumer must use (see the module docs).
 ///
@@ -322,6 +550,158 @@ pub(crate) fn wet_ramp() -> crate::terrain::FinishedHeightMap {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #1782: a seeded jetty meets the shore the ground draws along its own
+    /// axis - from inland out to it, or back from the water to it - its
+    /// anchor SHORE_SET_BACK inland of the water's edge; and stays where it
+    /// is where its axis crosses no shore within reach, or the room has no
+    /// water.
+    #[test]
+    fn a_jetty_meets_the_shore_along_its_axis() {
+        // The wet ramp's shore: dry east of x = 30, the sea west of it.
+        let hm = wet_ramp();
+        let sea = crate::water::bodies::RoomWater::sea_alone(Some(0.0));
+        let ground = AnchorGround::new(&hm, &sea);
+        let west = bevy::math::Vec2::new(-1.0, 0.0);
+        for from in [45.0, 20.0] {
+            let mut at = Vec3::new(from, 0.6, 7.0);
+            assert!(
+                meet_the_shore(&ground, &mut at, west),
+                "from {from}: a shore"
+            );
+            assert!(
+                (at.x - (30.0 + SHORE_SET_BACK)).abs() <= SHORE_STEP,
+                "from {from}: {at}"
+            );
+            assert_eq!(
+                (at.y, at.z),
+                (0.6, 7.0),
+                "from {from}: X and Z along its axis alone"
+            );
+        }
+        let mut along = Vec3::new(45.0, 0.6, 0.0);
+        assert!(!meet_the_shore(
+            &ground,
+            &mut along,
+            bevy::math::Vec2::new(0.0, 1.0)
+        ));
+        assert_eq!(along, Vec3::new(45.0, 0.6, 0.0), "no shore crossed: left");
+        let dry = crate::water::bodies::RoomWater::sea_alone(None);
+        let mut inland = Vec3::new(45.0, 0.6, 0.0);
+        assert!(!meet_the_shore(
+            &AnchorGround::new(&hm, &dry),
+            &mut inland,
+            west
+        ));
+        assert_eq!(inland, Vec3::new(45.0, 0.6, 0.0), "no water: left");
+    }
+
+    /// #1782: a seeded place for a craft stands only where the ground the
+    /// compile draws takes it - a jetty with its shore along it and water
+    /// deep enough at its head, a pad dry where it was sited and on ground
+    /// its skirt reaches, a windsock out of the water and beside an airstrip
+    /// that is painted - and any other placement stands as it always did.
+    #[test]
+    fn a_place_for_a_craft_stands_where_the_ground_takes_it() {
+        use super::super::scatter::{JETTY, PAD, WINDSOCK};
+        use crate::pds::{Fp3, Fp4, TransformData};
+        let placed = |x: f32, z: f32, yaw: f32| TransformData {
+            translation: Fp3([x, 0.6, z]),
+            rotation: Fp4([0.0, (yaw * 0.5).sin(), 0.0, (yaw * 0.5).cos()]),
+            scale: Fp3([1.0, 1.0, 1.0]),
+        };
+        // A yaw of a quarter turns the front (-Z) to -X: west, to the sea.
+        let west = std::f32::consts::FRAC_PI_2;
+        let sea = crate::water::bodies::RoomWater::sea_alone(Some(0.0));
+        let ramp = wet_ramp();
+        let ground = AnchorGround::new(&ramp, &sea);
+        match place_stands(
+            &ground,
+            JETTY,
+            &placed(45.0, 7.0, west),
+            false,
+            false,
+            4.0,
+            &[],
+        ) {
+            PlaceStand::At(at) => assert!((at.x - (30.0 + SHORE_SET_BACK)).abs() <= SHORE_STEP),
+            other => panic!("a jetty off a shore stands: {other:?}"),
+        }
+        let north = placed(45.0, 7.0, 0.0);
+        assert_eq!(
+            place_stands(&ground, JETTY, &north, false, false, 4.0, &[]),
+            PlaceStand::Not
+        );
+        // A shore shelving 2 cm a metre: 0.3 m of water at the head.
+        let gentle = crate::terrain::FinishedHeightMap(map_from(|x, _| 0.02 * (x - 30.0)), None);
+        let shallow = AnchorGround::new(&gentle, &sea);
+        let jetty = placed(45.0, 7.0, west);
+        assert_eq!(
+            place_stands(&shallow, JETTY, &jetty, false, false, 4.0, &[]),
+            PlaceStand::Not
+        );
+        // A pad on the dry ramp, 2.8 m of fall under its 7 m: it stands; one
+        // the water walk carries off its site does not, nor one on ground
+        // falling past its skirt.
+        assert!(matches!(
+            place_stands(&ground, PAD, &placed(50.0, 0.0, 0.0), true, true, 7.0, &[]),
+            PlaceStand::At(_)
+        ));
+        let wet_pad = placed(25.0, 0.0, 0.0);
+        assert_eq!(
+            place_stands(&ground, PAD, &wet_pad, true, true, 7.0, &[]),
+            PlaceStand::Not
+        );
+        let steep = crate::terrain::FinishedHeightMap(map_from(|x, _| 0.3 * x + 30.0), None);
+        let hillside = AnchorGround::new(&steep, &sea);
+        let pad = placed(20.0, 0.0, 0.0);
+        assert_eq!(
+            place_stands(&hillside, PAD, &pad, true, true, 7.0, &[]),
+            PlaceStand::Not
+        );
+        // A windsock on dry ground stands, one in the water does not.
+        assert!(matches!(
+            place_stands(
+                &ground,
+                WINDSOCK,
+                &placed(50.0, 0.0, 0.0),
+                true,
+                false,
+                2.0,
+                &[]
+            ),
+            PlaceStand::At(_)
+        ));
+        let drowned = placed(10.0, 0.0, 0.0);
+        assert_eq!(
+            place_stands(&ground, WINDSOCK, &drowned, true, false, 2.0, &[]),
+            PlaceStand::Not
+        );
+        // A windsock beside its airstrip stands with it: dry beside a strip
+        // the sea floods it is not drawn, beside a strip on dry ground it is.
+        let strip = |x: f32| crate::pds::SovereignTrack {
+            line: vec![crate::pds::Fp2([x, -30.0]), crate::pds::Fp2([x, 30.0])],
+            width: crate::pds::Fp(12.0),
+        };
+        let flooded = [strip(20.0)];
+        let sock = placed(32.0, 0.0, 0.0);
+        assert_eq!(
+            place_stands(&ground, WINDSOCK, &sock, true, false, 2.0, &flooded),
+            PlaceStand::Not
+        );
+        let dry = [strip(45.0)];
+        let sock = placed(56.0, 0.0, 0.0);
+        assert!(matches!(
+            place_stands(&ground, WINDSOCK, &sock, true, false, 2.0, &dry),
+            PlaceStand::At(_)
+        ));
+        // Anything else is no place for a craft.
+        let house = placed(50.0, 0.0, 0.0);
+        assert_eq!(
+            place_stands(&ground, "landmark", &house, true, true, 8.0, &[]),
+            PlaceStand::Other
+        );
+    }
 
     /// 129×129, scale 1 → world [-64, 64].
     fn map_from(f: impl Fn(f32, f32) -> f32) -> bevy_symbios_ground::HeightMap {

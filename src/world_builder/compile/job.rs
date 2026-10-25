@@ -319,23 +319,24 @@ impl FingerprintPass {
         // Only what the keep-outs read: where each seeded structure's record
         // stands it, how wide its ground, and whether it is the landmark a
         // seeded landing looks at (#1777) - and the gate a walked Berlin
-        // landing turns to and the signature feature (#1781), water-avoiding
-        // or not - not its generator, seed or params, whose edits leave every
-        // scatter as it was.
-        let structures: Vec<[f32; 6]> = record
+        // landing turns to, the signature feature (#1781) and the crafts'
+        // places (#1782), water-avoiding or not, snapped or not - not its
+        // generator, seed or params, whose edits leave every scatter as it
+        // was.
+        let structures: Vec<[f32; 7]> = record
             .placements
             .iter()
             .filter_map(|placement| match placement {
                 Placement::Absolute {
                     generator_ref,
                     transform,
-                    snap_to_terrain: true,
+                    snap_to_terrain,
                     avoid_water,
                     avoid_water_clearance,
                     ..
-                } if *avoid_water
-                    || generator_ref == super::water::GATEWAY
-                    || generator_ref == super::scatter::FEATURE =>
+                } if *snap_to_terrain
+                    && (*avoid_water || generator_ref == super::water::GATEWAY)
+                    || super::scatter::KEPT_BY_NAME.contains(&generator_ref.as_str()) =>
                 {
                     Some([
                         transform.translation.0[0],
@@ -344,16 +345,18 @@ impl FingerprintPass {
                         transform.scale.0[0],
                         f32::from(u8::from(generator_ref == super::scatter::LANDMARK)),
                         f32::from(u8::from(*avoid_water)),
+                        f32::from(u8::from(*snap_to_terrain)),
                     ])
                 }
                 _ => None,
             })
             .collect();
-        // The paths every scatter keeps off (#1779): their lines and width.
+        // The paths every scatter keeps off (#1779): their lines and width,
+        // and the tracks (#1782), each at its own.
         let paths = crate::pds::find_terrain_config(record)
             .map(|terrain| &terrain.paths)
             .filter(|paths| !paths.is_empty())
-            .map(|paths| (&paths.lines, paths.width));
+            .map(|paths| (&paths.lines, paths.width, &paths.tracks));
         Self {
             water_level: Some(room_water.key()),
             // The land a scatter samples, not its grass (#1700).

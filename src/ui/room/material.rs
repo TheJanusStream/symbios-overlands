@@ -128,6 +128,31 @@ fn draw_splat_rule(ui: &mut egui::Ui, rule: &mut SovereignSplatRule, dirty: &mut
     );
 }
 
+/// The switch that shows a material's glow from dusk to dawn only (#1782),
+/// beside its emission in the editors whose parts are drawn under the
+/// weather - a primitive's, an L-system slot's, a Shape slot's - where
+/// `world_parts` says the parts are a world's. A sign, an avatar's parts and
+/// what it wears glow at every hour, so their editors have none. Written
+/// only when the owner clicks it.
+pub(super) fn draw_dusk_to_dawn_row(
+    ui: &mut egui::Ui,
+    m: &mut SovereignMaterialSettings,
+    world_parts: bool,
+    dirty: &mut bool,
+) {
+    if world_parts
+        && ui
+            .checkbox(&mut m.dusk_to_dawn, "Glow from dusk to dawn")
+            .on_hover_text(
+                "The emission shows only while the world is dark, as a lit room behind a \
+             window does: out by day, coming on at dusk. Off, it glows at every hour.",
+            )
+            .changed()
+    {
+        *dirty = true;
+    }
+}
+
 /// The `uv_transform` rows every material editor shares (#957): pattern
 /// slide and spin in degrees CCW.
 ///

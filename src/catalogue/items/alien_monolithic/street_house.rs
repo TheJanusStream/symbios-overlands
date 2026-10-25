@@ -71,7 +71,10 @@ pub(crate) fn slit_materials() -> HashMap<String, SovereignMaterialSettings> {
             "ShopGlass".to_string(),
             window_card(OBSIDIAN, 3, 2, 0.38, 0.05),
         ),
-        ("RoomLit".to_string(), glow(GLYPH_CYAN, 1.6)),
+        (
+            "RoomLit".to_string(),
+            crate::catalogue::items::street::lit_from_dusk(glow(GLYPH_CYAN, 1.6)),
+        ),
         ("RoomDark".to_string(), glow(GLYPH_VIOLET, 0.45)),
         ("ShopLit".to_string(), glow([0.30, 0.55, 1.0], 1.8)),
     ]);

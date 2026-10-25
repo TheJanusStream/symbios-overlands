@@ -173,7 +173,10 @@ fn materials() -> HashMap<String, SovereignMaterialSettings> {
     // for why the card is never tinted warm, and #972 lesson 1 for why a
     // card belongs on a plane with something real behind it.
     m.insert("Sash".to_string(), sash_glass());
-    m.insert("RoomLit".to_string(), room_light(LAMP_WARM, 2.4));
+    m.insert(
+        "RoomLit".to_string(),
+        crate::catalogue::items::street::lit_from_dusk(room_light(LAMP_WARM, 2.4)),
+    );
     m.insert("RoomUnlit".to_string(), room_light(ROOM_UNLIT, 0.0));
     m
 }

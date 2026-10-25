@@ -12,12 +12,15 @@
 //! carries no data of its own but whether it weathers at all: its bindings
 //! are one uniform buffer and one texture that every weathered material
 //! shares, kept in the render world ([`WorldWeatherGpu`]) and written in
-//! place each frame the weather moves. A step costs one 32-byte write.
+//! place each frame the weather moves. A step costs one 48-byte write.
 //!
 //! What it holds is [`WorldWeather`], kept from the ground's own weather
 //! (`terrain::GroundWeatherNow`, so a roof and the hill behind it whiten
-//! together) and from the ground cover's shelter map (#1685), which the
-//! shader reads to keep what stands under a roof dry.
+//! together), from the ground cover's shelter map (#1685), which the
+//! shader reads to keep what stands under a roof dry, and from how dark the
+//! drawn world is (`DrawnEnvironment::lights`), which lights a glow shown
+//! from dusk to dawn (#1782) - a lit room behind a window - and puts it out
+//! by day.
 //!
 //! The shelter's texture is the one exception to "never per material": a
 //! bind group holds the texture it was made with, so when the shelter's
@@ -43,6 +46,9 @@
 //! exactly as a plain `StandardMaterial` (the shader compiles without the
 //! weather). The key is part of the content-addressed prim cache's key, so
 //! an avatar's prop never shares a handle with a world's identical one.
+//! Its `dusk_to_dawn` key, its settings' own
+//! ([`SovereignMaterialSettings::dusk_to_dawn`](crate::pds::SovereignMaterialSettings::dusk_to_dawn)),
+//! compiles the glow's darkness in, and only beside the weather.
 
 use bevy::asset::AssetId;
 use bevy::ecs::system::SystemParamItem;
@@ -74,17 +80,35 @@ pub type WeatheredMaterial = ExtendedMaterial<StandardMaterial, WeatherExtension
 /// `base` drawn under the weather when `weathers`, and exactly as it is when
 /// not.
 pub fn weathered(base: StandardMaterial, weathers: bool) -> WeatheredMaterial {
+    weathered_glow(base, weathers, false)
+}
+
+/// `base` as [`weathered`] draws it, its glow shown from dusk to dawn only
+/// when `dusk_to_dawn` (#1782). Only under the weather: a part drawn
+/// without it - an avatar's, an item's preview - glows at every hour.
+pub fn weathered_glow(
+    base: StandardMaterial,
+    weathers: bool,
+    dusk_to_dawn: bool,
+) -> WeatheredMaterial {
     ExtendedMaterial {
         base,
-        extension: WeatherExtension { weathers },
+        extension: WeatherExtension {
+            weathers,
+            dusk_to_dawn: weathers && dusk_to_dawn,
+        },
     }
 }
 
-/// The weather's half of a [`WeatheredMaterial`]: whether it weathers. All
-/// else it binds is shared (see the module docs).
+/// The weather's half of a [`WeatheredMaterial`]: whether it weathers, and
+/// whether its glow shows from dusk to dawn only. It is the material's
+/// pipeline key whole; all else it binds is shared (see the module docs).
 #[derive(Asset, TypePath, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct WeatherExtension {
     pub weathers: bool,
+    /// Never without `weathers` ([`weathered_glow`]): the shader reads how
+    /// dark the world is from the weather's block.
+    pub dusk_to_dawn: bool,
 }
 
 /// The block `weathered.wgsl` reads as `WorldWeather`, one for the world.
@@ -102,6 +126,15 @@ pub struct WorldWeatherUniforms {
     pub shelter_origin: Vec2,
     pub shelter_texel: f32,
     pub shelter_size: f32,
+    /// How far the lights that show from dusk to dawn are on, 0 by day to
+    /// 1 in the dark (#1782, `DrawnEnvironment::lights`).
+    pub lights: f32,
+    /// Padding to a whole 16 bytes: WebGL2 lays a uniform block out std140,
+    /// which rounds the block up so, and a buffer bound short of it fails
+    /// the draw.
+    pub _pad0: f32,
+    pub _pad1: f32,
+    pub _pad2: f32,
 }
 
 /// The weather every weathered material draws, in the main world: kept by
@@ -126,15 +159,15 @@ pub struct WorldWeatherGpu {
 }
 
 impl AsBindGroup for WeatherExtension {
-    type Data = bool;
+    type Data = WeatherExtension;
     type Param = (SRes<WorldWeatherGpu>, SRes<FallbackImage>);
 
     fn label() -> &'static str {
         "weathered_material"
     }
 
-    fn bind_group_data(&self) -> bool {
-        self.weathers
+    fn bind_group_data(&self) -> WeatherExtension {
+        *self
     }
 
     fn unprepared_bind_group(
@@ -183,34 +216,41 @@ impl MaterialExtension for WeatherExtension {
     }
 
     /// The weather is compiled in only where it is drawn: a material that
-    /// does not weather runs Bevy's own fragment, line for line.
+    /// does not weather runs Bevy's own fragment, line for line. A glow
+    /// shown from dusk to dawn is compiled in beside it.
     fn specialize(
         _pipeline: &MaterialExtensionPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _layout: &MeshVertexBufferLayoutRef,
         key: MaterialExtensionKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
-        if key.bind_group_data
+        let key = key.bind_group_data;
+        if key.weathers
             && let Some(fragment) = descriptor.fragment.as_mut()
         {
             fragment.shader_defs.push("WEATHERED".into());
+            if key.dusk_to_dawn {
+                fragment.shader_defs.push("DUSK_TO_DAWN".into());
+            }
         }
         Ok(())
     }
 }
 
-/// Keep [`WorldWeather`] with the ground's weather and its shelter map, and
-/// rebuild every weathered material once when the shelter's texture is made
-/// anew (see the module docs).
+/// Keep [`WorldWeather`] with the ground's weather, its shelter map and how
+/// dark the drawn world is, and rebuild every weathered material once when
+/// the shelter's texture is made anew (see the module docs).
 pub fn follow_world_weather(
     ground: Option<Res<crate::terrain::GroundWeatherNow>>,
     cover: Option<Res<crate::ground_cover::GroundCover>>,
+    drawn: Option<Res<crate::drawn_environment::DrawnEnvironment>>,
     mut world: ResMut<WorldWeather>,
     mut materials: ResMut<Assets<WeatheredMaterial>>,
 ) {
     let wanted = wanted_weather(
         ground.map_or_else(Default::default, |g| g.0),
         cover.as_deref(),
+        drawn.map_or(0.0, |drawn| drawn.lights()),
     );
     if *world == wanted {
         return;
@@ -226,10 +266,11 @@ pub fn follow_world_weather(
 }
 
 /// What the world's parts draw under `ground`'s weather and `cover`'s
-/// shelter.
+/// shelter, their lights from dusk to dawn on by `lights`.
 fn wanted_weather(
     ground: crate::terrain::GroundWeather,
     cover: Option<&crate::ground_cover::GroundCover>,
+    lights: f32,
 ) -> WorldWeather {
     let (shelter, origin, texel, size) = match cover {
         Some(cover) => (
@@ -249,6 +290,8 @@ fn wanted_weather(
             shelter_origin: origin,
             shelter_texel: texel,
             shelter_size: size,
+            lights,
+            ..Default::default()
         },
         shelter,
     }
@@ -359,10 +402,15 @@ mod tests {
             ("shelter_origin", "vec2<f32>"),
             ("shelter_texel", "f32"),
             ("shelter_size", "f32"),
+            ("lights", "f32"),
+            ("_pad0", "f32"),
+            ("_pad1", "f32"),
+            ("_pad2", "f32"),
         ]
         .map(|(f, t)| (f.to_string(), t.to_string()));
         assert_eq!(wgsl_fields(SHADER, "WorldWeather"), expected);
-        assert_eq!(WorldWeatherUniforms::min_size().get(), 32);
+        // A whole number of 16 bytes, as WebGL2's std140 block is.
+        assert_eq!(WorldWeatherUniforms::min_size().get(), 48);
     }
 
     /// The parts stand dry as far under a shelter as the ground does.
@@ -375,14 +423,27 @@ mod tests {
         assert!(SHADER.contains(&line), "weathered.wgsl lacks `{line}`");
     }
 
-    /// Whether a material weathers is its whole key: the pipeline compiles
-    /// the weather in for one and out for the other.
+    /// Whether a material weathers, and whether its glow shows from dusk to
+    /// dawn, are its whole key: the pipeline compiles each in for one and
+    /// out for the other. A glow shown from dusk to dawn reads the weather's
+    /// block, so it is never keyed without the weather.
     #[test]
-    fn a_material_s_key_is_whether_it_weathers() {
-        let wet = weathered(StandardMaterial::default(), true);
-        let dry = weathered(StandardMaterial::default(), false);
-        assert!(wet.extension.bind_group_data());
-        assert!(!dry.extension.bind_group_data());
+    fn a_material_s_key_is_whether_it_weathers_and_glows_by_night() {
+        let key = |weathers, dusk| {
+            weathered_glow(StandardMaterial::default(), weathers, dusk)
+                .extension
+                .bind_group_data()
+        };
+        assert_eq!(
+            weathered(StandardMaterial::default(), true)
+                .extension
+                .bind_group_data(),
+            key(true, false)
+        );
+        assert!(key(true, false).weathers && !key(true, false).dusk_to_dawn);
+        assert!(key(true, true).weathers && key(true, true).dusk_to_dawn);
+        assert_eq!(key(false, true), key(false, false));
+        assert!(!key(false, true).weathers && !key(false, true).dusk_to_dawn);
     }
 
     /// Modified events for weathered materials, counted.
@@ -484,5 +545,43 @@ mod tests {
         cover.shelter_map = bigger.shelter_map;
         app.insert_resource(cover);
         assert_eq!(settle(&mut app), parts.len(), "another size: each once");
+    }
+
+    /// Night falling moves the shared block's lights and rebuilds no
+    /// material (#1782): the drawn world's darkness, and none with no world
+    /// drawn.
+    #[test]
+    fn the_lights_follow_the_drawn_world_and_rebuild_nothing() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Image>()
+            .init_asset::<WeatheredMaterial>()
+            .init_resource::<WorldWeather>()
+            .init_resource::<Rebuilt>()
+            .add_systems(Update, count_rebuilds)
+            .add_systems(PostUpdate, follow_world_weather);
+        app.world_mut()
+            .resource_mut::<Assets<WeatheredMaterial>>()
+            .add(weathered_glow(StandardMaterial::default(), true, true));
+        let settle = |app: &mut App| {
+            for _ in 0..3 {
+                app.update();
+            }
+            std::mem::take(&mut app.world_mut().resource_mut::<Rebuilt>().0)
+        };
+        assert_eq!(settle(&mut app), 0, "added, not modified");
+        let lights = |app: &App| app.world().resource::<WorldWeather>().uniforms.lights;
+        assert_eq!(lights(&app), 0.0, "no world drawn");
+
+        let env = crate::pds::RoomRecord::default().environment;
+        let midnight = crate::time_of_day::environment_at(&env, 0.0);
+        app.insert_resource(crate::drawn_environment::DrawnEnvironment {
+            env: midnight.env,
+            hour: Some(0.0),
+            moon: Some(midnight.moon),
+            weather: Default::default(),
+        });
+        assert_eq!(settle(&mut app), 0, "night falls and nothing is rebuilt");
+        assert_eq!(lights(&app), 1.0);
     }
 }

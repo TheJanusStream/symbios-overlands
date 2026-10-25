@@ -19,6 +19,7 @@ pub mod attachments;
 pub mod civic;
 pub mod civic_campus;
 pub mod coastal_resort;
+pub mod crafts;
 pub mod cyberpunk;
 pub mod fantasy;
 pub mod feudal_japan;
@@ -46,6 +47,7 @@ pub mod wild_west;
 pub mod foundation;
 pub(crate) mod fx;
 pub mod gateway_fit;
+pub(crate) mod life;
 pub mod measure;
 mod util;
 
@@ -642,6 +644,13 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &suburban::monument::SuburbanMonument,
     &wild_west::gateway::WildWestGateway,
     &wild_west::monument::WildWestMonument,
+    // Places for the crafts a visitor arrives in (#1782) - a seeded world
+    // sites them near its arrival by slug.
+    &crafts::jetty::Jetty,
+    &crafts::helipad::Helipad,
+    &crafts::mooring_mast::MooringMast,
+    &crafts::windsock::Windsock,
+    &crafts::tyre_stack::TyreStack,
     // Attachments - wearable items (#1086); also placeable like any entry.
     &attachments::banner::Sashimono,
     &attachments::circlet::Circlet,
@@ -895,6 +904,7 @@ mod tests {
             "wind_turbine [1, 0, 0] steady -60",
             "windmill [0, 0, 1] steady -40",
             "windmill [0, 1, 0] vane [0, 0, 1]",
+            "windsock [0, 1, 0] vane [1, 0, 0]",
         ];
         assert_eq!(got, want);
     }

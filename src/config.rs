@@ -110,6 +110,11 @@ pub(crate) mod lighting {
         pub const EXTINCTION: [f32; 3] = [0.08, 0.14, 0.30];
         /// The sun's light fades in over these altitudes, from none to all.
         pub const SUN_FADE_DEG: (f32, f32) = (-4.0, 6.0);
+        /// The lights that show from dusk to dawn (#1782, a lit room behind
+        /// a window): all on with the sun under the first altitude, out over
+        /// the second. A golden hour's low sun (4 to 9 degrees) has some on,
+        /// a blue hour's nearly all.
+        pub const LIGHTS_DEG: (f32, f32) = (-2.0, 10.0);
         /// The moon's fades out over these sun altitudes, from all to none:
         /// clear of the sun's, so the key light passes from one to the other
         /// where neither gives any, and the moon's disc brightens in rather

@@ -28,6 +28,9 @@ impl CatalogueEntry for Boathouse {
     fn role(&self) -> StructureRole {
         StructureRole::Secondary
     }
+    fn serves(&self) -> Option<crate::catalogue::Craft> {
+        Some(crate::catalogue::Craft::Boat)
+    }
     fn themes(&self) -> &'static [ThemeArchetype] {
         &[ThemeArchetype::Nordic]
     }

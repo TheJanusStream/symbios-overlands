@@ -1306,6 +1306,9 @@ pub(super) fn describe_rooms(what: &str) {
     for st in &d.structures {
         println!("    {st}");
     }
+    for track in &d.tracks {
+        println!("  track      {track}");
+    }
 }
 
 /// The facts `--describe` prints, gathered once so the table and the block
@@ -1338,6 +1341,8 @@ struct RoomDescription {
     sky: String,
     /// Its own terrain, or the Berlin square it is built on (#1589).
     ground: String,
+    /// Its tracks (#1782), each its width, its ends and its length.
+    tracks: Vec<String>,
     water: String,
     landing: String,
     absolute: usize,
@@ -1422,6 +1427,42 @@ impl RoomDescription {
             );
         let water = crate::world_builder::compile::room_water_level(record)
             .map_or_else(|| "none".to_string(), |y| format!("{y:.1} m"));
+        let tracks = crate::pds::find_terrain_config(record)
+            .map(|terrain| {
+                terrain
+                    .paths
+                    .tracks
+                    .iter()
+                    .filter_map(|track| {
+                        let (first, last) = (track.line.first()?.0, track.line.last()?.0);
+                        let length: f32 = track
+                            .line
+                            .windows(2)
+                            .map(|w| (w[1].0[0] - w[0].0[0]).hypot(w[1].0[1] - w[0].0[1]))
+                            .sum();
+                        let shape = if track.line.len() > 2 && first == last {
+                            "a loop round".to_string()
+                        } else {
+                            format!(
+                                "from ({:.0}, {:.0}) to ({:.0}, {:.0}),",
+                                first[0], first[1], last[0], last[1]
+                            )
+                        };
+                        let middle = track
+                            .line
+                            .iter()
+                            .fold([0.0, 0.0], |m, p| [m[0] + p.0[0], m[1] + p.0[1]]);
+                        let n = track.line.len() as f32;
+                        Some(format!(
+                            "{:.0} m wide, {shape} {length:.0} m, about ({:.0}, {:.0})",
+                            track.width.0,
+                            middle[0] / n,
+                            middle[1] / n
+                        ))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         let landing = record.default_landing.as_ref().map_or_else(
             || "none".to_string(),
             |l| {
@@ -1451,6 +1492,7 @@ impl RoomDescription {
             ground,
             water,
             landing,
+            tracks,
             absolute,
             scatters,
             scattered,

@@ -58,7 +58,10 @@ pub(crate) fn materials() -> HashMap<String, SovereignMaterialSettings> {
         shop: [1.0, 0.80, 0.52],
     });
     // Lamp and fire light, not mains: the lit rooms glow low and orange.
-    m.insert("RoomLit".to_string(), glow([0.92, 0.52, 0.22], 1.3));
+    m.insert(
+        "RoomLit".to_string(),
+        crate::catalogue::items::street::lit_from_dusk(glow([0.92, 0.52, 0.22], 1.3)),
+    );
     m.extend([
         ("Concrete".to_string(), concrete(CONCRETE_GREY)),
         ("Soot".to_string(), render([0.32, 0.30, 0.28])),

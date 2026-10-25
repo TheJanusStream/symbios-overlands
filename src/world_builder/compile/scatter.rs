@@ -475,7 +475,8 @@ const ARRIVAL_STEPS: usize = 3;
 /// only what grew in the way. A seeded structure is a snapped `Absolute`
 /// placement opting into Avoid Water, the seeded pipeline's marker (see
 /// `pad`), so an editor's own placements are never ground a scatter avoids -
-/// and the world's signature feature ([`FEATURE`]), whose giant tree or
+/// and the world's signature feature ([`FEATURE`]) and its crafts' places
+/// ([`KEPT_BY_NAME`]), whose giant tree or
 /// sea stack avoids no water and keeps its ground all the same (#1781).
 /// With no heightmap yet, each stands where its record put it.
 pub(crate) fn structure_exclusions(
@@ -491,7 +492,7 @@ pub(crate) fn structure_exclusions(
         let crate::pds::Placement::Absolute {
             generator_ref,
             transform,
-            snap_to_terrain: true,
+            snap_to_terrain,
             avoid_water,
             avoid_water_clearance,
             ..
@@ -499,17 +500,37 @@ pub(crate) fn structure_exclusions(
         else {
             continue;
         };
-        if !*avoid_water && generator_ref != FEATURE {
+        if !(KEPT_BY_NAME.contains(&generator_ref.as_str()) || *snap_to_terrain && *avoid_water) {
             continue;
         }
         let radius = avoid_water_clearance.0 * transform.scale.0[0].max(0.0);
+        // A snapped one where the compile stands it; an unsnapped one where
+        // its record does - but a seeded place for a craft where the ground
+        // takes it, and one it does not keeps nothing clear (#1782).
         let stands = match &ground {
-            Some(ground) => super::pad::snapped_absolute_anchor(
+            Some(ground) => match super::pad::place_stands(
                 ground,
+                generator_ref,
                 transform,
+                *snap_to_terrain,
                 *avoid_water,
                 avoid_water_clearance.0,
-            ),
+                crate::pds::find_terrain_config(record).map_or(&[][..], |t| &t.paths.tracks),
+            ) {
+                super::pad::PlaceStand::Not => continue,
+                super::pad::PlaceStand::At(at) => at,
+                super::pad::PlaceStand::Other if *snap_to_terrain => {
+                    super::pad::snapped_absolute_anchor(
+                        ground,
+                        transform,
+                        *avoid_water,
+                        avoid_water_clearance.0,
+                    )
+                }
+                super::pad::PlaceStand::Other => {
+                    bevy::math::Vec3::from_array(transform.translation.0)
+                }
+            },
             None => bevy::math::Vec3::from_array(transform.translation.0),
         };
         if radius > 0.0 {
@@ -566,11 +587,13 @@ pub(crate) fn structure_exclusions(
             }
         }
     }
-    // The world's paths (#1779): discs a little wider than the path, each
-    // stretch's no further apart than their radius, so they overlap.
+    // The world's paths (#1779) and tracks (#1782): discs a little wider
+    // than each way, each stretch's no further apart than their radius, so
+    // they overlap.
     if let Some(paths) = crate::pds::find_terrain_config(record).map(|cfg| &cfg.paths) {
-        let radius = paths.width.0 * 0.5 + PATH_KEEP;
-        for line in crate::terrain::path_lines(paths) {
+        let on = heightmap.map(|hm| (&hm.0, water));
+        for (line, width) in crate::terrain::path_ways(paths, on) {
+            let radius = width * 0.5 + PATH_KEEP;
             for pair in line.windows(2) {
                 let (a, b) = (pair[0], pair[1]);
                 let steps = ((b - a).length() / radius).ceil().max(1.0) as usize;
@@ -595,6 +618,24 @@ pub(super) const LANDMARK: &str = "landmark";
 /// its water clearance is the ground the scatters keep off whether it
 /// avoids water or not.
 pub(super) const FEATURE: &str = "signature_feature";
+
+/// The generators a seeded world's places for its crafts are placed by
+/// (#1782) that avoid no water, whose water clearance is the ground the
+/// scatters keep off all the same: the jetty's bank, the jetty placed
+/// unsnapped at the water's edge, and the windsock and the tyres beside the
+/// airstrip and the track.
+pub(crate) const JETTY: &str = "craft_jetty";
+pub(crate) const WINDSOCK: &str = "craft_windsock";
+pub(crate) const TYRES: &str = "craft_tyres";
+/// The built places for crafts (#1782): a helicopter's pad, an airship's
+/// mast - kept clear of as any building is, and drawn only where the
+/// ground the compile draws takes them (`pad::place_stands`).
+pub(crate) const PAD: &str = "craft_pad";
+pub(crate) const MAST: &str = "craft_mast";
+
+/// Every generator whose ground the scatters keep off by its name, snapped
+/// or not: the feature and the crafts' places above.
+pub(super) const KEPT_BY_NAME: [&str; 4] = [FEATURE, JETTY, WINDSOCK, TYRES];
 
 /// Whether `(x, z)` lies inside any `(centre_x, centre_z, radius²)` disc.
 pub(crate) fn inside_any(discs: &[(f32, f32, f32)], x: f32, z: f32) -> bool {

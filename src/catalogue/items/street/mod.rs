@@ -554,6 +554,23 @@ pub(crate) const OPENINGS: [&str; 10] = [
     "Wall --> Extrude(WallD) I(\"Wall\")",
 ];
 
+/// How much of its light's colour a lit room shows by day, when its light
+/// is out (#1782): a warm wall behind the glass, darker than the day
+/// outside, as a room seen through a window is.
+pub(crate) const ROOM_BY_DAY: f32 = 0.4;
+
+/// `room`, a lit room behind a window, as one lit from dusk to dawn
+/// (#1782): its light on only while the world is dark, its colour by day
+/// [`ROOM_BY_DAY`] of its own. Every building's `RoomLit` is one - the
+/// shared [`opening_materials`]' and a theme's own.
+pub(crate) fn lit_from_dusk(room: SovereignMaterialSettings) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(room.base_color.0.map(|c| c * ROOM_BY_DAY)),
+        dusk_to_dawn: true,
+        ..room
+    }
+}
+
 /// How the [`OPENINGS`] of a theme's street buildings look: the window's
 /// frame and its panes across and up, the light of a lit room and of a lit
 /// shop.
@@ -572,6 +589,10 @@ pub(crate) struct Glazing {
 /// a tinted card: a tint on the card lights the frame too (see
 /// `modern_city::rowhouse_terrace::sash_glass`). Low strengths (#972 lesson
 /// 30): a room is a broad surface.
+///
+/// A lit room's light is on from dusk to dawn (#1782): by day it is the
+/// room's warm wall behind the glass, [`ROOM_BY_DAY`] of its light's colour.
+/// A shop lights its window at every hour, as a shop does by day.
 pub(crate) fn opening_materials(glazing: Glazing) -> HashMap<String, SovereignMaterialSettings> {
     let lit = |tint: [f32; 3], glow: f32| SovereignMaterialSettings {
         base_color: Fp3(tint),
@@ -586,7 +607,7 @@ pub(crate) fn opening_materials(glazing: Glazing) -> HashMap<String, SovereignMa
             "Glass".to_string(),
             crate::catalogue::items::util::window_card(glazing.frame, across, up, 0.42, 0.08),
         ),
-        ("RoomLit".to_string(), lit(glazing.room, 2.2)),
+        ("RoomLit".to_string(), lit_from_dusk(lit(glazing.room, 2.2))),
         ("RoomDark".to_string(), lit([0.07, 0.08, 0.10], 0.0)),
         (
             "ShopGlass".to_string(),
@@ -658,6 +679,29 @@ mod tests {
             let default = kind.default_fit();
             assert_eq!(default.snapped(kind), default, "{}", kind.name());
         }
+    }
+
+    /// A lit room's light is on from dusk to dawn, and by day the room is a
+    /// warm wall darker than its light; a shop is lit at every hour, and a
+    /// dark room is dark at all of them (#1782).
+    #[test]
+    fn a_room_is_lit_from_dusk_to_dawn_and_a_shop_at_every_hour() {
+        let glazing = Glazing {
+            frame: [0.2, 0.2, 0.2],
+            panes: (2, 2),
+            room: [1.0, 0.8, 0.5],
+            shop: [1.0, 0.9, 0.7],
+        };
+        let materials = opening_materials(glazing);
+        let room = &materials["RoomLit"];
+        assert!(room.dusk_to_dawn);
+        assert!(room.emission_strength.0 > 0.0);
+        assert_eq!(room.emission_color.0, glazing.room);
+        assert_eq!(room.base_color.0, glazing.room.map(|c| c * ROOM_BY_DAY));
+        let shop = &materials["ShopLit"];
+        assert!(!shop.dusk_to_dawn && shop.emission_strength.0 > 0.0);
+        let dark = &materials["RoomDark"];
+        assert!(!dark.dusk_to_dawn && dark.emission_strength.0 == 0.0);
     }
 
     #[test]

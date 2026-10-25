@@ -587,6 +587,18 @@ pub struct SovereignMaterialSettings {
     pub base_color: Fp3,
     pub emission_color: Fp3,
     pub emission_strength: Fp,
+    /// Whether the emission shows only while the world is dark (#1782): from
+    /// dusk to dawn, as a lit room behind a window does, and at every hour
+    /// when off. How dark the world is follows its drawn hour and sky
+    /// (`DrawnEnvironment::lights`), so a world whose day turns lights up at
+    /// dusk and goes dark at dawn. A part drawn without the weather - an
+    /// avatar's, what it wears or rides, an item's preview - a sign, and an
+    /// L-system slot a palette supplies glow at every hour whatever this
+    /// says.
+    ///
+    /// Off is not written, so a record saved before the field keeps its
+    /// bytes, and a client built before it shows the glow at every hour.
+    pub dusk_to_dawn: bool,
     pub roughness: Fp,
     pub metallic: Fp,
     /// Texture repeats per **metre** of surface (#933).
@@ -624,6 +636,7 @@ crate::pds::serde_util::impl_default_eliding_serialize!(SovereignMaterialSetting
     base_color,
     emission_color,
     emission_strength,
+    dusk_to_dawn,
     roughness,
     metallic,
     uv_scale,
@@ -642,6 +655,7 @@ impl Default for SovereignMaterialSettings {
             base_color: Fp3([0.6, 0.4, 0.2]),
             emission_color: Fp3([0.0, 0.0, 0.0]),
             emission_strength: Fp(0.0),
+            dusk_to_dawn: false,
             roughness: Fp(0.5),
             metallic: Fp(0.0),
             uv_scale: Fp(1.0),
@@ -710,6 +724,31 @@ mod tests {
         assert!(v.get("uv_offset").is_some() && v.get("uv_rotation").is_some());
         let re: SovereignMaterialSettings = serde_json::from_value(v).expect("reparses");
         assert_eq!(re, m);
+    }
+
+    /// #1782: a glow at every hour writes no `dusk_to_dawn` key, so every
+    /// material published before it keeps its bytes and reads as it did; a
+    /// glow from dusk to dawn writes the key and reads it back.
+    #[test]
+    fn dusk_to_dawn_elides_off_and_round_trips_on() {
+        let glow = SovereignMaterialSettings {
+            emission_color: Fp3([1.0, 0.8, 0.5]),
+            emission_strength: Fp(2.2),
+            ..Default::default()
+        };
+        let v = serde_json::to_value(&glow).expect("serialises");
+        assert!(v.get("dusk_to_dawn").is_none(), "{v}");
+        let re: SovereignMaterialSettings = serde_json::from_value(v).expect("reparses");
+        assert!(!re.dusk_to_dawn);
+
+        let night = SovereignMaterialSettings {
+            dusk_to_dawn: true,
+            ..glow
+        };
+        let v = serde_json::to_value(&night).expect("serialises");
+        assert_eq!(v.get("dusk_to_dawn"), Some(&serde_json::Value::Bool(true)));
+        let re: SovereignMaterialSettings = serde_json::from_value(v).expect("reparses");
+        assert_eq!(re, night);
     }
 
     /// Each sprite-card mirror must survive a `to_native()` → `from_native()`

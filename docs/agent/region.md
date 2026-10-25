@@ -34,7 +34,10 @@ sky between spells. Remove either key to draw the world as its fields set it.
 A Berlin square carries neither. A world seeded at a dark hour (the blue hour
 or night) also has insects in its ambient sound where a green biome's birds
 would sing (#1771) - baked into its `/environment/ambient_audio` like the
-rest, so a new hour set by hand keeps the birds or the insects it had.
+rest, so a new hour set by hand keeps the birds or the insects it had. Its
+houses' lit rooms, unlike the sound, keep whatever hour is drawn (#1782):
+dark by day, coming on through the dusk and lit all night - a Berlin
+square's too.
 
 Such a world's visitors arrive at a viewpoint (#1777): out at the
 settlement's edge, farther from its landmark the taller it is - 30 m or so
@@ -404,6 +407,11 @@ World Editor: Generators, the terrain, Paths):
   0.85. A seeded snowy world (Glacial, Tundra, Alpine) sets 0.45, where
   dirt at full share reads as a dark smear, and an arid one 0.7.
 - `width`: metres, 0.5 to 8; unset 2.5.
+- `tracks` (#1782): ways wider than the paths, each `{line, width}` - a
+  line of at least two points (a loop ends where it starts) and its own
+  width, 2 to 30 m - painted in the paths' layer at their share and kept
+  clear as they are: a seeded world's airstrip and its car's track (see
+  "Places for crafts"). At most 4, 256 points and 2 km in all; unset none.
 
 A path edit builds the terrain anew, its heightmap included, as a layer or
 rule edit does, and regrows the scatters but not a district's lots. Clear
@@ -427,6 +435,48 @@ where the ground allows, beside the landmark in the first frame - about
 half the worlds show it on arrival; a few worlds whose ground takes none
 have none. It is a placement like any other: move it, delete it, or put
 something of your own there. A Berlin square has none.
+
+## Places for crafts
+
+Near its arrival such a world also has a place for each way to travel
+that its land takes (#1782): a jetty out over its water with a boat or two
+moored at its head (`craft_jetty`); a helicopter's pad (`craft_pad`); an
+airship's mooring mast (`craft_mast`); an airstrip 80 m long and 12 m wide
+along its wind, a windsock beside it (`craft_windsock`); and a car's track,
+a 190 m loop, with tyres at its bends (`craft_tyres`). Walking has the
+paths. The airstrip and the track are `tracks` in the terrain's `paths`
+group - ways painted and kept clear of trees and rocks as the paths are,
+each with a width of its own - and the World Editor's Paths section lists
+them. A craft goes without where no ground near takes its place (a jetty
+where no water lies near), and where the settlement already has one (a
+boathouse, a steampunk airship dock); a space outpost's own landing pad and
+a steampunk airship dock stand in place of the plain pad and mast. The jetty
+is placed at its deck's height over the water, unsnapped, and the compile
+walks it along its own axis to the water's edge the ground draws - so its
+outline stands there in the editor too, whatever its record says, and
+dragging it along the coast keeps it at the shore. They are sited on a
+coarse reading of the ground, so the compile has the last word on each:
+a jetty with no shore along it, or less than 0.8 m of water at its head,
+is not drawn, nor a pad or mast the water would push more than 4 m off its
+site or whose ground falls further than its footing reaches (3.5 m), nor a
+windsock or tyres standing in water, nor a track more than a tenth under
+water (not painted, not kept clear). The record keeps each: move it to
+ground that takes it. The plain pad's and mast's lights and the jetty's
+lamp show from dusk to dawn. All five are catalogue entries too
+(`jetty`, `helipad`, `mooring_mast`, `windsock`, `tyre_stack`, under
+Buildings: Place for a craft), for a world of your own.
+
+## Signs of life
+
+Gulls wheel over open water near such a world's arrival (#1782), past its
+shore, 16 m over the sea and water all round them: one placement,
+`life_gulls`, unsnapped, a hub turning slowly with six birds round it, their
+wings beating - every client turns them for itself (`spin`). A world with
+no open water near has none.
+In a calm world (escalation's bottom third) its grammar houses' chimneys
+and stacks smoke, most of them: particle emitters on the house's generator,
+over each chimney its rules draw at its placement's seed. The catalogue's
+houses with a hearth carry their smoke already, in every world.
 
 ## Water, sky and light
 
@@ -833,6 +883,15 @@ A forest is a few generators and a scatter placement each:
   session 903). Glass gets no emission and reads by its reflections; "lit"
   comes from small lit pieces (a canopy soffit, an open entrance, a framed
   sign).
+- **A light can keep the hour** (#1782): a material with `dusk_to_dawn:
+  true` shows its emission only while the world is dark - none by day,
+  coming on as the sun sinks (from 10 degrees up, all on from 2 degrees
+  under the horizon) and all on under the moon - and the world's own hour
+  and sky decide it, so a turning day lights it at dusk. Every grammar
+  building's `RoomLit` - the lit room behind its windows - is one, its
+  colour by day 0.4 of its light's. Give it to a lit room or a lamp, not
+  to a sign or a neon line meant to glow at noon. A sign, and anything an
+  avatar wears or rides, glows at every hour whatever it says.
 - **A texture on a twisted or tapered part (`torture`) shears with the
   deform**: a curtain-wall grid laid on one twisted box read "crooked" to
   the owner. Build a twist from straight pieces instead - one box a floor,

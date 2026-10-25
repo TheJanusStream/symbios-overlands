@@ -76,6 +76,11 @@ pub(crate) const ROOM_VEGETATION_ENTITY_BUDGET: u64 = 120_000;
 /// How wide a seeded settlement's paths are (m, #1779): a footway.
 const PATH_WIDTH: f32 = 2.5;
 
+/// The generator a seeded world's gulls are placed by (#1782), and their
+/// stream's salt.
+const GULLS: &str = "life_gulls";
+const GULL_STREAM_SALT: u64 = 0x1782_6011_1782_6011;
+
 /// How much of its dirt a seeded path shows at its middle (#1779), by the
 /// biome the world grows: trampled snow shows its earth less than a meadow
 /// path, which a dirt layer at full share would paint as a dark smear.
@@ -699,63 +704,108 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
     // own, and lined with props (#1780) - both before the settlement is
     // wired - and painted on the terrain the record carries, below. A
     // Berlin square keeps its streets.
-    let paths = match (&viewpoint, &gateway) {
-        (Some(viewpoint), Some((entry, spot))) => {
-            let mut forecourt: Vec<([f32; 2], f32)> = monument
-                .iter()
-                .map(|(entry, mspot)| (mspot.offset, entry.footprint().clearance))
-                .collect();
-            let gate = (spot.offset, entry.footprint().clearance);
-            let lines = crate::seeded_defaults::room::paths::route_plan(
-                &terrain_probe,
-                &mut settlement_plan,
-                viewpoint.landing,
-                gate,
-                &forecourt,
-            );
-            forecourt.push(gate);
-            crate::seeded_defaults::room::lining::line_paths(
-                &terrain_probe,
-                &mut settlement_plan,
-                &scene,
-                did_seed,
-                &lines,
-                PATH_WIDTH,
-                &forecourt,
-            );
-            // The world's signature feature (#1781), clear of all that now
-            // stands and of the view down to the landmark: placed after the
-            // gate and the monument, below.
-            let mut keep_off = forecourt;
-            let landmark = settlement_plan.primary_landmark();
-            keep_off.extend(viewpoint.keep_outs(landmark.offset, landmark.ground_radius()));
-            for cluster in &settlement_plan.clusters {
-                let members = cluster.landmark.iter().chain(&cluster.secondaries);
-                keep_off.extend(
-                    members
-                        .chain(&cluster.props)
-                        .map(|member| (member.offset, member.ground_radius())),
+    let paths =
+        match (&viewpoint, &gateway) {
+            (Some(viewpoint), Some((entry, spot))) => {
+                let mut forecourt: Vec<([f32; 2], f32)> = monument
+                    .iter()
+                    .map(|(entry, mspot)| (mspot.offset, entry.footprint().clearance))
+                    .collect();
+                let gate = (spot.offset, entry.footprint().clearance);
+                let lines = crate::seeded_defaults::room::paths::route_plan(
+                    &terrain_probe,
+                    &mut settlement_plan,
+                    viewpoint.landing,
+                    gate,
+                    &forecourt,
                 );
+                forecourt.push(gate);
+                crate::seeded_defaults::room::lining::line_paths(
+                    &terrain_probe,
+                    &mut settlement_plan,
+                    &scene,
+                    did_seed,
+                    &lines,
+                    PATH_WIDTH,
+                    &forecourt,
+                );
+                // The world's signature feature (#1781), clear of all that now
+                // stands and of the view down to the landmark: placed after the
+                // gate and the monument, below.
+                let mut keep_off = forecourt;
+                let landmark = settlement_plan.primary_landmark();
+                keep_off.extend(viewpoint.keep_outs(landmark.offset, landmark.ground_radius()));
+                for cluster in &settlement_plan.clusters {
+                    let members = cluster.landmark.iter().chain(&cluster.secondaries);
+                    keep_off.extend(
+                        members
+                            .chain(&cluster.props)
+                            .map(|member| (member.offset, member.ground_radius())),
+                    );
+                }
+                let feature = crate::seeded_defaults::room::feature::choose(
+                    &terrain_probe,
+                    &scene,
+                    did_seed,
+                    giant_tree.is_some(),
+                    viewpoint,
+                    &crate::seeded_defaults::room::feature::KeepClear {
+                        stands: &keep_off,
+                        paths: &lines,
+                        width: PATH_WIDTH,
+                    },
+                );
+                // A place for every craft (#1782), near the arrival and clear of
+                // all of that and of the feature: wired below.
+                let crafts =
+                    {
+                        use crate::seeded_defaults::room::crafts::{Ground, Kept, Siting, site};
+                        let mut kept: Vec<Ground> = keep_off
+                            .iter()
+                            .map(|&(at, r)| Ground::disc(at, r))
+                            .collect();
+                        kept.extend(lines.iter().flat_map(|line| line.windows(2)).map(|pair| {
+                            Ground {
+                                a: pair[0],
+                                b: pair[1],
+                                r: PATH_WIDTH * 0.5,
+                            }
+                        }));
+                        kept.extend(
+                            feature
+                                .as_ref()
+                                .map(|feature| Ground::disc(feature.at, feature.radius)),
+                        );
+                        let served: Vec<crate::catalogue::Craft> = settlement_plan
+                            .clusters
+                            .iter()
+                            .flat_map(|cluster| {
+                                cluster
+                                    .landmark
+                                    .iter()
+                                    .chain(&cluster.secondaries)
+                                    .chain(&cluster.props)
+                            })
+                            .filter_map(|member| crate::catalogue::by_slug(member.slug)?.serves())
+                            .collect();
+                        site(
+                            Siting {
+                                probe: &terrain_probe,
+                                view: viewpoint,
+                                kept: Kept(kept),
+                                wind: atmosphere.cloud_wind_dir,
+                                theme: scene.theme,
+                            },
+                            &served,
+                        )
+                    };
+                Some((lines, feature, crafts))
             }
-            let feature = crate::seeded_defaults::room::feature::choose(
-                &terrain_probe,
-                &scene,
-                did_seed,
-                giant_tree.is_some(),
-                viewpoint,
-                &crate::seeded_defaults::room::feature::KeepClear {
-                    stands: &keep_off,
-                    paths: &lines,
-                    width: PATH_WIDTH,
-                },
-            );
-            Some((lines, feature))
-        }
-        _ => None,
-    };
-    let (paths, feature) = match paths {
-        Some((lines, feature)) => (Some(lines), feature),
-        None => (None, None),
+            _ => None,
+        };
+    let (paths, feature, crafts) = match paths {
+        Some((lines, feature, crafts)) => (Some(lines), feature, crafts),
+        None => (None, None, Default::default()),
     };
 
     // A Berlin square is its own settlement (see the docs above): only its
@@ -949,8 +999,43 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
         });
     }
 
+    // The places for every craft (#1782), sited with the paths above: their
+    // generators and placements here, their tracks painted with the paths.
+    let craft_wiring = crafts.wire(did, terrain_probe.water_y(), did_seed);
+    for (name, generator) in craft_wiring.generators {
+        generators.insert(name, generator);
+    }
+    placements.extend(craft_wiring.placements);
+
+    // Gulls wheeling over the water nearest the arrival (#1782).
+    if let Some(viewpoint) = &viewpoint
+        && let Some(at) = crate::seeded_defaults::room::life::gulls(&terrain_probe, viewpoint)
+    {
+        generators.insert(
+            GULLS.to_string(),
+            crate::catalogue::items::life::gull_flock(did_seed ^ GULL_STREAM_SALT),
+        );
+        placements.push(Placement::Absolute {
+            generator_ref: GULLS.to_string(),
+            transform: TransformData {
+                translation: Fp3([
+                    at[0],
+                    terrain_probe.water_y() + crate::seeded_defaults::room::life::GULL_HEIGHT,
+                    at[1],
+                ]),
+                rotation: Fp4([0.0, 0.0, 0.0, 1.0]),
+                scale: Fp3([1.0, 1.0, 1.0]),
+            },
+            snap_to_terrain: false,
+            avoid_water: false,
+            avoid_water_clearance: Fp(0.0),
+            seed: None,
+            params: Default::default(),
+        });
+    }
+
     // The settlement's paths (#1779), painted on the terrain the record
-    // carries.
+    // carries, and the crafts' tracks (#1782) beside them.
     if let Some(lines) = paths
         && let Some(GeneratorKind::Terrain(terrain)) = generators
             .get_mut("base_terrain")
@@ -964,6 +1049,7 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
             layer: 1,
             share: Fp(path_share(scene.biome)),
             width: Fp(PATH_WIDTH),
+            tracks: craft_wiring.tracks,
         };
         // As a peer reads them back (#1789): the probe's edge can round a
         // hair past the terrain's.
@@ -1128,6 +1214,13 @@ fn build_member_generator(
         member.grammar_seed,
         entry.ruin_max_lean(),
     );
+    // A calm world's grammar houses smoke from their chimneys (#1782): its
+    // buildings stand whole, a ruin's hearth is cold.
+    if crate::seeded_defaults::EscalationTier::from_unit(escalation)
+        == crate::seeded_defaults::EscalationTier::Calm
+    {
+        crate::seeded_defaults::room::life::light_the_hearths(&mut member_gen, member.grammar_seed);
+    }
     scale_about_ground(&mut member_gen, member.scale);
     Some(member_gen)
 }
@@ -1783,6 +1876,114 @@ mod tests {
         assert!(
             fronted > 100 && to_the_water * 10 < fronted,
             "{fronted} buildings fronted, {to_the_water} looking out over the water"
+        );
+    }
+
+    /// #1782: a world seeded on its own ground has a place for each craft
+    /// its land takes near its arrival - a jetty where water lies near, a
+    /// pad, a mast, an airstrip, a track - the pad and the mast built as
+    /// buildings are and clear of every other, the jetty at the water, the
+    /// airstrip and the track painted at their own widths;
+    /// a Berlin square has none.
+    #[test]
+    fn a_seeded_world_has_a_place_for_its_crafts() {
+        let mut kinds = std::collections::BTreeMap::<String, usize>::new();
+        let (mut own, mut berlin) = (0, 0);
+        for n in 0..60 {
+            let record = RoomRecord::default_for_did(&format!("did:plc:craftfleet{n}"));
+            let mut built = Vec::new();
+            let mut crafts = Vec::new();
+            for placement in &record.placements {
+                let Placement::Absolute {
+                    generator_ref,
+                    transform,
+                    avoid_water,
+                    avoid_water_clearance,
+                    snap_to_terrain,
+                    ..
+                } = placement
+                else {
+                    continue;
+                };
+                let at = [transform.translation.0[0], transform.translation.0[2]];
+                if generator_ref.starts_with("craft_") {
+                    crafts.push((
+                        generator_ref.as_str(),
+                        at,
+                        *snap_to_terrain,
+                        *avoid_water,
+                        avoid_water_clearance.0,
+                    ));
+                } else if *avoid_water {
+                    built.push((at, avoid_water_clearance.0));
+                }
+            }
+            let tracks = match record.generators.get("base_terrain").map(|g| &g.kind) {
+                Some(GeneratorKind::Terrain(terrain)) => terrain.paths.tracks.clone(),
+                _ => Vec::new(),
+            };
+            if record.geo_source.is_some() {
+                assert!(
+                    crafts.is_empty() && tracks.is_empty(),
+                    "{n}: Berlin has no crafts' places"
+                );
+                berlin += 1;
+                continue;
+            }
+            own += 1;
+            for &(name, at, snapped, avoids, reach) in &crafts {
+                *kinds.entry(name.to_string()).or_default() += 1;
+                match name {
+                    "craft_pad" | "craft_mast" => {
+                        assert!(snapped && avoids, "{n}: the {name} is built");
+                        for &(spot, other) in &built {
+                            let apart = (at[0] - spot[0]).hypot(at[1] - spot[1]);
+                            assert!(
+                                apart >= reach + other - 1e-3,
+                                "{n}: the {name} at {at:?} stands {apart} m from {spot:?}"
+                            );
+                        }
+                    }
+                    "craft_jetty" => assert!(!snapped && !avoids, "{n}: {name}"),
+                    _ => assert!(snapped && !avoids, "{n}: {name}"),
+                }
+            }
+            let has = |name: &str| crafts.iter().any(|craft| craft.0 == name);
+            let widths: Vec<f32> = tracks.iter().map(|track| track.width.0).collect();
+            let wanted: Vec<f32> = [
+                (
+                    has("craft_windsock"),
+                    crate::seeded_defaults::room::crafts::strip_width(),
+                ),
+                (
+                    has("craft_tyres"),
+                    crate::seeded_defaults::room::crafts::track_width(),
+                ),
+            ]
+            .into_iter()
+            .filter_map(|(stands, width)| stands.then_some(width))
+            .collect();
+            assert_eq!(
+                widths, wanted,
+                "{n}: the tracks painted are the places sited"
+            );
+        }
+        assert!(berlin > 0 && own > 30, "{own} own, {berlin} Berlin");
+        for name in [
+            "craft_jetty",
+            "craft_pad",
+            "craft_mast",
+            "craft_windsock",
+            "craft_tyres",
+        ] {
+            assert!(
+                kinds.get(name).copied().unwrap_or(0) > 0,
+                "no {name} in {own} worlds: {kinds:?}"
+            );
+        }
+        assert!(
+            kinds["craft_pad"] * 2 > own && kinds["craft_mast"] * 2 > own,
+            "{kinds:?}"
         );
     }
 

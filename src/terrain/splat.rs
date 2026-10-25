@@ -350,11 +350,17 @@ pub(super) fn apply_splat_textures(
         .and_then(|r| crate::pds::find_terrain_config(&r.0))
     {
         Some(cfg) if !cfg.paths.is_empty() => {
+            // Its tracks only where the ground does not flood them (#1782).
+            let water = record
+                .as_ref()
+                .map(|r| crate::world_builder::compile::drawn_water(&r.0, Some(&*hm_res)))
+                .unwrap_or_default();
             super::paths::paint(
                 &mut weight_map.data,
                 weight_map.width,
                 hm.scale(),
                 &cfg.paths,
+                Some((hm, &water)),
             );
             true
         }

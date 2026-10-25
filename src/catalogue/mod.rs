@@ -117,6 +117,13 @@ pub enum StructureRole {
     /// `civic_monument`. Never part of the settlement Landmark/Secondary/
     /// Prop pools.
     Monument,
+    /// A place for a craft (#1782) - a jetty, a helicopter's pad, an
+    /// airship's mast, an airstrip's windsock, a track's tyres - that a
+    /// seeded world sites near its arrival by slug, never part of the
+    /// settlement Landmark/Secondary/Prop pools; its theme-agnostic entries
+    /// are themeless as the cross-theme gateway is. See
+    /// [`CatalogueEntry::serves`].
+    Port,
 }
 
 impl StructureRole {
@@ -131,6 +138,7 @@ impl StructureRole {
             Self::Tool => "Tool",
             Self::Gateway => "Gateway",
             Self::Monument => "Monument",
+            Self::Port => "Place for a craft",
             Self::Attachment => "Wearable",
         }
     }
@@ -139,9 +147,12 @@ impl StructureRole {
     /// a derived view of [`StructureRole`] so there's one taxonomy.
     pub fn category(self) -> CatalogueCategory {
         match self {
-            Self::Landmark | Self::Secondary | Self::Prop | Self::Gateway | Self::Monument => {
-                CatalogueCategory::Buildings
-            }
+            Self::Landmark
+            | Self::Secondary
+            | Self::Prop
+            | Self::Gateway
+            | Self::Monument
+            | Self::Port => CatalogueCategory::Buildings,
             Self::Attachment => CatalogueCategory::Attachments,
             Self::Plant => CatalogueCategory::Plants,
             Self::Pattern => CatalogueCategory::Patterns,
@@ -178,6 +189,22 @@ pub enum Lining {
     /// metres along its catalogue X from end to end, its front to the path:
     /// a fence.
     Run { length: f32 },
+}
+
+/// A way to travel a place is for (#1782): every one of them but walking,
+/// which a seeded world's paths serve.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Craft {
+    /// A boat: a jetty on the water.
+    Boat,
+    /// A helicopter: a pad.
+    Helicopter,
+    /// An airship: a mooring mast.
+    Airship,
+    /// An airplane: an airstrip, its windsock beside it.
+    Airplane,
+    /// A car: a track, tyres at its bends.
+    Car,
 }
 
 /// Where on a world's land a seeded building of an entry belongs, beyond
@@ -389,6 +416,15 @@ pub trait CatalogueEntry: Sync {
     /// lamp, a lantern, a bench, a post, a sign, a run of fence - a prop a
     /// walker passes. `None`, the default, for the rest.
     fn lines_paths(&self) -> Option<Lining> {
+        None
+    }
+
+    /// The craft this entry is a place for (#1782): a seeded world whose
+    /// settlement already stands one for a craft sites no second, and one
+    /// whose theme has its own (a steampunk airship dock, a space outpost's
+    /// landing pad) stands that in place of the cross-theme one. `None`,
+    /// the default, for the rest.
+    fn serves(&self) -> Option<Craft> {
         None
     }
 

@@ -3088,6 +3088,7 @@ mod collapsed_by_default_tests {
                             retries: &mut self.retries,
                             now: 0.0,
                             allow_external: true,
+                            world_parts: true,
                         },
                     );
                 });
@@ -3268,6 +3269,7 @@ mod source_facts_tests {
                     retries: &mut retries,
                     now: 0.0,
                     allow_external: true,
+                    world_parts: true,
                 },
             );
         });

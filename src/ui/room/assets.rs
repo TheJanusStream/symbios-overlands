@@ -53,6 +53,7 @@ impl AssetCaches<'_> {
             retries: &mut self.retries,
             now,
             allow_external: self.settings.load_external_assets,
+            world_parts: true,
         }
     }
 }
@@ -76,6 +77,10 @@ pub struct AssetPanel<'a> {
     /// from the settings rather than from a cache, so a field explains the
     /// silence even before anything has tried to fetch it.
     pub allow_external: bool,
+    /// Whether the parts edited are a world's, drawn under the weather
+    /// (#1782): an avatar's, and what it wears, are not, so the editors
+    /// offer no glow from dusk to dawn there - it would show at every hour.
+    pub world_parts: bool,
 }
 
 impl AssetPanel<'_> {
@@ -375,6 +380,7 @@ mod tests {
             retries: &mut retries,
             now: 0.0,
             allow_external: false,
+            world_parts: true,
         };
 
         let url = SignSource::Url {

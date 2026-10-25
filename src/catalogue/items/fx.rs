@@ -470,6 +470,37 @@ pub(crate) fn off_loop_rates(patch: &AudioPatch) -> Vec<(NodeId, f32)> {
         .collect()
 }
 
+/// A lazy grey column of hearth smoke from a chimney: the rural kit's, and
+/// a seeded world's over its calm grammar houses' chimneys and stacks
+/// (#1782).
+pub(crate) fn chimney_smoke(pos: [f32; 3], seed: u64) -> Generator {
+    Emitter {
+        burst: 0,
+        shape: EmitterShape::Cone {
+            half_angle: Fp(0.26),
+            height: Fp(0.4),
+        },
+        rate: 7.0,
+        max: 60,
+        life: (2.5, 5.0),
+        speed: (0.4, 1.0),
+        gravity: -0.05,
+        accel: [0.12, 0.24, 0.0],
+        drag: 0.6,
+        size: (0.3, 1.4),
+        start_color: [0.66, 0.65, 0.62, 0.32],
+        end_color: [0.74, 0.73, 0.70, 0.0],
+        blend: ParticleBlendMode::Alpha,
+        sprite: SovereignTextureConfig::Puff(crate::pds::SovereignPuffConfig {
+            seed: (seed ^ 0x0057_0E00) as u32,
+            color_base: Fp3([0.70, 0.69, 0.66]),
+            color_shadow: Fp3([0.44, 0.43, 0.40]),
+            ..Default::default()
+        }),
+    }
+    .at(pos, seed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

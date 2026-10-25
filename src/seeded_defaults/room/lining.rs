@@ -8,7 +8,7 @@
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::{RngCore, SeedableRng};
 
-use super::paths::{distance2, ground, off_segment};
+use super::paths::{distance2, ground, off_segment, segments_apart};
 use super::settlement::{
     SITE_SLOPE, SettlementMember, SettlementPlan, effective_theme, facing, ground_radius,
 };
@@ -214,28 +214,6 @@ fn runs(
         along += spacing;
     }
     stood
-}
-
-/// How near the segments `a` and `b`, each `[from, to]`, come to each
-/// other: none where they cross.
-fn segments_apart(a: [[f32; 2]; 2], b: [[f32; 2]; 2]) -> f32 {
-    // Which side of the line through `p` and `q` the point `r` stands on.
-    let side = |p: [f32; 2], q: [f32; 2], r: [f32; 2]| {
-        (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
-    };
-    if side(a[0], a[1], b[0]) * side(a[0], a[1], b[1]) < 0.0
-        && side(b[0], b[1], a[0]) * side(b[0], b[1], a[1]) < 0.0
-    {
-        return 0.0;
-    }
-    [
-        off_segment(a[0], b[0], b[1]),
-        off_segment(a[1], b[0], b[1]),
-        off_segment(b[0], a[0], a[1]),
-        off_segment(b[1], a[0], a[1]),
-    ]
-    .into_iter()
-    .fold(f32::MAX, f32::min)
 }
 
 /// The spot `off` metres from `on` square across a path running `run` (a

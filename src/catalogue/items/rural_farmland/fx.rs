@@ -14,41 +14,19 @@ use bevy_symbios_audio::{
 
 use crate::catalogue::items::fx::{Emitter, node, patch, wired};
 use crate::pds::{
-    EmitterShape, Fp, Fp3, Generator, ParticleBlendMode, SovereignAudioConfig, SovereignPuffConfig,
-    SovereignSoftDiscConfig, SovereignTextureConfig,
+    EmitterShape, Fp3, Generator, ParticleBlendMode, SovereignAudioConfig, SovereignSoftDiscConfig,
+    SovereignTextureConfig,
 };
 
 // ---------------------------------------------------------------------------
 // Particle emitters
 // ---------------------------------------------------------------------------
 
-/// A lazy grey column of hearth smoke from a chimney.
+/// A lazy grey column of hearth smoke from a chimney: the shared one
+/// (`items::fx::chimney_smoke`), which a seeded world lights over its
+/// grammar houses' chimneys too (#1782).
 pub(super) fn chimney_smoke(pos: [f32; 3], seed: u64) -> Generator {
-    Emitter {
-        burst: 0,
-        shape: EmitterShape::Cone {
-            half_angle: Fp(0.26),
-            height: Fp(0.4),
-        },
-        rate: 7.0,
-        max: 60,
-        life: (2.5, 5.0),
-        speed: (0.4, 1.0),
-        gravity: -0.05,
-        accel: [0.12, 0.24, 0.0],
-        drag: 0.6,
-        size: (0.3, 1.4),
-        start_color: [0.66, 0.65, 0.62, 0.32],
-        end_color: [0.74, 0.73, 0.70, 0.0],
-        blend: ParticleBlendMode::Alpha,
-        sprite: SovereignTextureConfig::Puff(SovereignPuffConfig {
-            seed: (seed ^ 0x0057_0E00) as u32,
-            color_base: Fp3([0.70, 0.69, 0.66]),
-            color_shadow: Fp3([0.44, 0.43, 0.40]),
-            ..Default::default()
-        }),
-    }
-    .at(pos, seed)
+    crate::catalogue::items::fx::chimney_smoke(pos, seed)
 }
 
 /// Golden chaff and hay dust drifting on the warm evening air off the

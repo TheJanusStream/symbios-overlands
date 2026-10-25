@@ -245,7 +245,10 @@ fn materials() -> HashMap<String, SovereignMaterialSettings> {
     // Glazing is two surfaces: a cool neutral card in the reveal and a plain
     // emissive (or dark) room behind it.
     m.insert("Sash".to_string(), glass(GLASS_TINT, 0.0));
-    m.insert("RoomLit".to_string(), interior(PORCH_WARM, 2.2));
+    m.insert(
+        "RoomLit".to_string(),
+        crate::catalogue::items::street::lit_from_dusk(interior(PORCH_WARM, 2.2)),
+    );
     m.insert("RoomUnlit".to_string(), interior(ROOM_DARK, 0.0));
     m
 }

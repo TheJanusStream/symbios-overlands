@@ -133,6 +133,54 @@ pub fn tree_bounds(root: &Generator) -> Option<Bounds> {
     out
 }
 
+/// The mesh ids a grammar draws a chimney or a smokestack as (#1782).
+pub const CHIMNEY_MESHES: [&str; 2] = ["Chimney", "Stack"];
+
+/// How near each other two chimney parts stand, across, to read as one
+/// chimney - a stack and its cap (m).
+const ONE_CHIMNEY: f32 = 1.2;
+
+/// The tops of the chimneys and smokestacks `root`'s grammars draw, drawn
+/// with `seed` as its placement draws them (#1782): each terminal drawn as
+/// one of [`CHIMNEY_MESHES`], the parts standing within [`ONE_CHIMNEY`] of
+/// each other across read as one chimney at the highest top among them, in
+/// the frame its root's own transform maps into - where a seeded world
+/// lights a hearth's smoke. The first found of each first.
+pub fn chimney_tops(root: &Generator, seed: u64) -> Vec<Vec3> {
+    fn visit(node: &Generator, parent: bevy::math::Affine3A, tops: &mut Vec<Vec3>) {
+        let world = parent * transform_of(&node.transform).compute_affine();
+        if let Some(def) = node.kind.shape_def()
+            && let Ok(model) = def.derive()
+        {
+            for terminal in &model.terminals {
+                if !CHIMNEY_MESHES.contains(&terminal.mesh_id.as_str()) {
+                    continue;
+                }
+                let placed = world * def.bake(terminal).transform.compute_affine();
+                let top = placed.transform_point3(Vec3::new(0.0, 0.5, 0.0));
+                let near = tops
+                    .iter_mut()
+                    .find(|kept| (kept.x - top.x).hypot(kept.z - top.z) <= ONE_CHIMNEY);
+                match near {
+                    Some(kept) if top.y > kept.y => *kept = top,
+                    Some(_) => {}
+                    None => tops.push(top),
+                }
+            }
+        }
+        for child in &node.children {
+            visit(child, world, tops);
+        }
+    }
+    let mut tops = Vec::new();
+    visit(
+        &root.with_shape_seed(seed),
+        bevy::math::Affine3A::IDENTITY,
+        &mut tops,
+    );
+    tops
+}
+
 /// The highest point `root` draws, in the frame its root's own transform
 /// maps into, read cheaply (#1777): each primitive's coarse box off its
 /// parameters (`pds::ruin::kind_box`), and each shape grammar terminal's

@@ -1,11 +1,11 @@
-//! Sanitiser for [`SovereignPathsConfig`] (#1779): a world's paths kept to
-//! what the ground can paint and a record can carry, and rounded onto the
-//! wire's grid as a peer reads them back.
+//! Sanitiser for [`SovereignPathsConfig`] (#1779): a world's paths and its
+//! tracks (#1782) kept to what the ground can paint and a record can carry,
+//! and rounded onto the wire's grid as a peer reads them back.
 
 use super::Sanitize;
 use super::common::clamp_finite;
 use super::limits;
-use crate::pds::paths::SovereignPathsConfig;
+use crate::pds::paths::{SovereignPathsConfig, SovereignTrack};
 use crate::pds::types::{Fp, Fp2};
 
 impl Sanitize for SovereignPathsConfig {
@@ -38,33 +38,56 @@ impl SovereignPathsConfig {
         // lines, so many points in all and so many metres in all - what the
         // painting and the scatters' keep-outs cost grows with them - so a
         // hostile record cannot run either away.
-        let (mut points, mut length) = (limits::MAX_PATH_POINTS, limits::MAX_PATH_LENGTH);
+        let mut budget = (limits::MAX_PATH_POINTS, limits::MAX_PATH_LENGTH);
         self.lines.truncate(limits::MAX_PATH_LINES);
         for line in &mut self.lines {
-            line.retain(|p| p.0.iter().all(|v| v.is_finite()));
-            for p in line.iter_mut() {
-                *p = Fp2(p.0.map(|v| v.clamp(-reach, reach))).on_wire();
-            }
-            let mut kept = 0;
-            for (k, p) in line.iter().enumerate() {
-                if kept == points {
-                    break;
-                }
-                if k > 0 {
-                    let q = line[k - 1].0;
-                    let step = ((p.0[0] - q[0]).powi(2) + (p.0[1] - q[1]).powi(2)).sqrt();
-                    if step > length {
-                        break;
-                    }
-                    length -= step;
-                }
-                kept += 1;
-            }
-            line.truncate(kept);
-            points -= kept;
+            keep_line(line, reach, &mut budget);
         }
         self.lines.retain(|line| line.len() >= 2);
+        // The tracks (#1782) alike, on a budget of their own, each its own
+        // width within a track's bounds.
+        let mut budget = (limits::MAX_TRACK_POINTS, limits::MAX_TRACK_LENGTH);
+        self.tracks.truncate(limits::MAX_TRACKS);
+        for track in &mut self.tracks {
+            track.width = Fp(clamp_finite(
+                track.width.0,
+                limits::MIN_TRACK_WIDTH,
+                limits::MAX_TRACK_WIDTH,
+                SovereignTrack::default().width.0,
+            ))
+            .on_wire();
+            keep_line(&mut track.line, reach, &mut budget);
+        }
+        self.tracks.retain(|track| track.line.len() >= 2);
     }
+}
+
+/// `line`'s points that are numbers, kept within `reach` of the middle on
+/// the wire's grid, as many as `budget`'s points and metres left allow -
+/// spent by what is kept.
+fn keep_line(line: &mut Vec<Fp2>, reach: f32, budget: &mut (usize, f32)) {
+    let (points, length) = budget;
+    line.retain(|p| p.0.iter().all(|v| v.is_finite()));
+    for p in line.iter_mut() {
+        *p = Fp2(p.0.map(|v| v.clamp(-reach, reach))).on_wire();
+    }
+    let mut kept = 0;
+    for (k, p) in line.iter().enumerate() {
+        if kept == *points {
+            break;
+        }
+        if k > 0 {
+            let q = line[k - 1].0;
+            let step = ((p.0[0] - q[0]).powi(2) + (p.0[1] - q[1]).powi(2)).sqrt();
+            if step > *length {
+                break;
+            }
+            *length -= step;
+        }
+        kept += 1;
+    }
+    line.truncate(kept);
+    *points -= kept;
 }
 
 #[cfg(test)]
@@ -89,6 +112,7 @@ mod tests {
             layer: 9,
             share: Fp(f32::NAN),
             width: Fp(100.0),
+            ..Default::default()
         };
         // On a terrain 500 m from its middle to its edge.
         paths.sanitize_within(500.0);
@@ -159,5 +183,50 @@ mod tests {
         paths.sanitize();
         let points: usize = paths.lines.iter().map(Vec::len).sum();
         assert_eq!(points, limits::MAX_PATH_POINTS);
+    }
+
+    /// #1782: hostile tracks are kept paintable as the paths are - each
+    /// width within a track's bounds, points that are no number dropped and
+    /// the rest pulled onto the terrain on the wire's grid, a track left
+    /// short gone, and no more of them than a world may carry.
+    #[test]
+    fn tracks_are_kept_paintable() {
+        let track = |line: Vec<Fp2>, width: f32| SovereignTrack {
+            line,
+            width: Fp(width),
+        };
+        let mut paths = SovereignPathsConfig {
+            tracks: vec![
+                track(
+                    vec![
+                        Fp2([0.123_456, 1.0]),
+                        Fp2([f32::NAN, 2.0]),
+                        Fp2([1.0e9, 3.0]),
+                    ],
+                    500.0,
+                ),
+                track(vec![Fp2([5.0, 5.0])], 6.0),
+                track(vec![Fp2([0.0, 0.0]), Fp2([0.0, 10.0])], f32::NAN),
+            ],
+            ..Default::default()
+        };
+        paths
+            .tracks
+            .extend(vec![paths.tracks[2].clone(); limits::MAX_TRACKS]);
+        paths.sanitize_within(500.0);
+        assert_eq!(
+            paths.tracks.len(),
+            limits::MAX_TRACKS - 1,
+            "the short one gone"
+        );
+        assert_eq!(paths.tracks[0].width, Fp(limits::MAX_TRACK_WIDTH));
+        assert_eq!(
+            paths.tracks[0].line,
+            vec![Fp2([0.1235, 1.0]), Fp2([500.0, 3.0])]
+        );
+        assert_eq!(paths.tracks[1].width, SovereignTrack::default().width);
+        let json = serde_json::to_string(&paths).expect("writes");
+        let back: SovereignPathsConfig = serde_json::from_str(&json).expect("reads");
+        assert_eq!(back, paths, "sanitised tracks are what a peer reads");
     }
 }

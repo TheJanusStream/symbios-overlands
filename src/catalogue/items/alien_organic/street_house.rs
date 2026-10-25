@@ -92,7 +92,10 @@ pub(crate) fn pod_materials() -> HashMap<String, SovereignMaterialSettings> {
             "ShopGlass".to_string(),
             window_card([0.14, 0.11, 0.17], 2, 1, 0.38, 0.06),
         ),
-        ("RoomLit".to_string(), lit_membrane([0.10, 0.80, 0.70], 1.5)),
+        (
+            "RoomLit".to_string(),
+            crate::catalogue::items::street::lit_from_dusk(lit_membrane([0.10, 0.80, 0.70], 1.5)),
+        ),
         ("RoomDark".to_string(), membrane([0.10, 0.20, 0.19])),
         ("ShopLit".to_string(), lit_membrane([0.30, 0.86, 0.34], 1.6)),
     ]);

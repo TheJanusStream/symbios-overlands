@@ -32,6 +32,10 @@
 //     glow too.
 //
 // An unlit surface - a neon edge line, a sign's glow - takes no weather.
+//
+// A material whose glow shows from dusk to dawn (#1782, `DUSK_TO_DAWN`, a
+// lit room behind a window) takes its glow by how dark the drawn world is,
+// the block's `lights`: none by day, all of it at night.
 
 #import bevy_pbr::{
     pbr_types,
@@ -61,6 +65,12 @@ struct WorldWeather {
     shelter_origin: vec2<f32>,
     shelter_texel: f32,
     shelter_size: f32,
+    // How far the lights that show from dusk to dawn are on, 0 to 1.
+    lights: f32,
+    // To a whole 16 bytes, as WebGL2's std140 block is.
+    _pad0: f32,
+    _pad1: f32,
+    _pad2: f32,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> weather: WorldWeather;
@@ -113,6 +123,15 @@ fn fragment(
     apply_decals(&pbr_input);
 
 #ifdef WEATHERED
+#ifdef DUSK_TO_DAWN
+    // A glow that shows from dusk to dawn: out by day, coming on as the
+    // world darkens. Its colour only: Bevy keeps the emission's exposure
+    // weight in its alpha.
+    pbr_input.material.emissive = vec4<f32>(
+        pbr_input.material.emissive.rgb * weather.lights,
+        pbr_input.material.emissive.a,
+    );
+#endif
     // Lit surfaces only: an unlit one (a neon tube, a glowing sign) draws
     // its colour as it is, and a wet or snowed colour there would shine.
     let lit = (pbr_input.material.flags & pbr_types::STANDARD_MATERIAL_FLAGS_UNLIT_BIT) == 0u;

@@ -52,8 +52,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
-    blob_box, blob_ellipsoid, blob_group, cuboid_tapered, cylinder_tapered, face_uv_offset,
-    footing, id_quat, nest, prim, quat_x, quat_y, solid, strut, torus,
+    assemble, blob_box, blob_ellipsoid, blob_group, cuboid_tapered, cylinder_tapered,
+    face_uv_offset, footing, id_quat, nest, prim, quat_x, quat_y, solid, strut, torus,
 };
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -478,6 +478,24 @@ fn spars() -> Vec<Generator> {
             id_quat(),
         ),
     ]
+}
+
+/// How deep she floats afloat (m): her keel this far under the water.
+pub(crate) const DRAUGHT: f32 = 0.3;
+
+/// The boat alone, afloat (#1782): her hull, topsides, fit-out and oars,
+/// her keel at the origin and her stem toward +X - moored at a seeded
+/// world's jetty, her keel [`DRAUGHT`] under the water. No chocks, no
+/// stand, no painter ashore.
+pub(crate) fn afloat() -> Generator {
+    let mut parts = vec![hull()];
+    parts.extend(topsides());
+    parts.extend(fit_out());
+    parts.extend(oars());
+    let mut boat = assemble(parts);
+    // `aboard` stands her on her chocks: bring her keel down to the origin.
+    boat.transform.translation.0[1] -= KEEL_Y;
+    boat
 }
 
 fn build_tree() -> Generator {

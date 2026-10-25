@@ -887,6 +887,8 @@ pub fn avatar_ui(
     // One borrowed view of the asset caches for the frame (#1246); see
     // `room::assets::AssetPanel`.
     let mut asset_panel = asset_caches.panel(time.elapsed_secs_f64());
+    // An avatar's parts draw without the weather (#1782).
+    asset_panel.world_parts = false;
 
     // …and one of the live body (#1256). Built here rather than inside the
     // tab because it is ECS queries and the tab is a plain drawing function

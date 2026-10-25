@@ -36,6 +36,9 @@ impl CatalogueEntry for LandingPad {
     fn role(&self) -> StructureRole {
         StructureRole::Secondary
     }
+    fn serves(&self) -> Option<crate::catalogue::Craft> {
+        Some(crate::catalogue::Craft::Helicopter)
+    }
     fn themes(&self) -> &'static [ThemeArchetype] {
         &[ThemeArchetype::SpaceOutpost]
     }

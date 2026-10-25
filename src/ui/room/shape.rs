@@ -11,7 +11,7 @@ use bevy_egui::egui;
 
 use crate::pds::{Fp3, SovereignMaterialSettings};
 
-use super::material::{draw_texture_bridge, draw_uv_transform_rows};
+use super::material::{draw_dusk_to_dawn_row, draw_texture_bridge, draw_uv_transform_rows};
 use super::widgets::{color_picker, fp_slider, grammar_status_line, u64_row};
 
 /// A comma-separated list of terminal mesh ids (`I("...")` literals),
@@ -278,6 +278,7 @@ pub(super) fn draw_shape_forge(
                         20.0,
                         dirty,
                     );
+                    draw_dusk_to_dawn_row(ui, m, assets.world_parts, dirty);
                     fp_slider(ui, "Roughness", &mut m.roughness, 0.0, 1.0, dirty);
                     fp_slider(ui, "Metallic", &mut m.metallic, 0.0, 1.0, dirty);
                     fp_slider(ui, "UV scale", &mut m.uv_scale, 0.1, 10.0, dirty);

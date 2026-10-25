@@ -666,6 +666,45 @@ fn start_unit(
 
     // Resolve Anchor world Y if snapped.
     let mut anchor_world_tf = anchor_tf;
+    // A seeded world's place for a craft stands where the ground the compile
+    // draws takes it - a jetty walked to its shore, placed at the water's
+    // height - or is not drawn (#1782).
+    if let Placement::Absolute {
+        generator_ref,
+        transform,
+        snap_to_terrain,
+        avoid_water,
+        avoid_water_clearance,
+        ..
+    } = placement
+        && let Some(hm_res) = ctx.heightmap
+    {
+        let tracks = crate::pds::find_terrain_config(record).map_or(&[][..], |t| &t.paths.tracks);
+        match super::pad::place_stands(
+            &super::pad::AnchorGround::new(hm_res, room_water),
+            generator_ref,
+            transform,
+            *snap_to_terrain,
+            *avoid_water,
+            avoid_water_clearance.0,
+            tracks,
+        ) {
+            super::pad::PlaceStand::Not => {
+                return UnitStart::Committed(
+                    index,
+                    CompiledUnit {
+                        fingerprint: queued.fingerprint,
+                        anchor: None,
+                    },
+                );
+            }
+            super::pad::PlaceStand::At(at) if !*snap_to_terrain => {
+                anchor_world_tf.translation.x = at.x;
+                anchor_world_tf.translation.z = at.z;
+            }
+            _ => {}
+        }
+    }
     if snap {
         if let Some(hm_res) = ctx.heightmap {
             // Water-avoiding placements slide to dry land before the

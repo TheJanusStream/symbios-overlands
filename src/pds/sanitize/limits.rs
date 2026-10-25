@@ -34,6 +34,13 @@ pub const MAX_PATH_LENGTH: f32 = 4_000.0;
 pub const MAX_PATH_REACH: f32 = 10_000.0;
 pub const MIN_PATH_WIDTH: f32 = 0.5;
 pub const MAX_PATH_WIDTH: f32 = 8.0;
+/// A world's tracks (#1782): how many, how many points and metres in all,
+/// and how wide each - an airstrip's 12 m, a car's track's 6 m.
+pub const MAX_TRACKS: usize = 4;
+pub const MAX_TRACK_POINTS: usize = 256;
+pub const MAX_TRACK_LENGTH: f32 = 2_000.0;
+pub const MIN_TRACK_WIDTH: f32 = 2.0;
+pub const MAX_TRACK_WIDTH: f32 = 30.0;
 /// The most a world's grass may sway (#1700), as a share of how far the
 /// wind leans it unset: twice as far.
 pub const MAX_GRASS_SWAY: f32 = 2.0;

@@ -18,7 +18,7 @@ use bevy_symbios_texture::{TextureCache, apply_generated_handles};
 
 use crate::config::material::{ROUGH_REFLECTANCE_AT, ROUGH_REFLECTANCE_FROM};
 use crate::config::terrain::splat::MATERIAL_REFLECTANCE;
-use crate::weathered::{WeatheredMaterial, weathered};
+use crate::weathered::{WeatheredMaterial, weathered_glow};
 
 use crate::pds::{Environment, SovereignMaterialSettings, SovereignTextureConfig, WaterSurface};
 use crate::terrain::WaterVolume;
@@ -286,7 +286,8 @@ pub(super) fn spawn_procedural_material(
 /// [`spawn_procedural_material`] is its sole caller.
 ///
 /// Returns a [`WeatheredMaterial`] handle - drawn under the weather when
-/// `weathers` (#1686) - whose texture slots are populated asynchronously
+/// `weathers` (#1686), its glow shown from dusk to dawn when its settings
+/// say so (#1782) - whose texture slots are populated asynchronously
 /// once the texture-generator task finishes - or synchronously when
 /// `texture_cache` already holds the config's fingerprint, in which case no
 /// task is spawned at all. The async-path patching is performed by the
@@ -334,13 +335,13 @@ pub fn build_procedural_material(
     {
         apply_generated_handles(&mut material, &handles);
         bump_texture_cache_counter(commands, true);
-        return materials.add(weathered(material, weathers));
+        return materials.add(weathered_glow(material, weathers, settings.dusk_to_dawn));
     }
     if cache_key.is_some() {
         bump_texture_cache_counter(commands, false);
     }
 
-    let handle = materials.add(weathered(material, weathers));
+    let handle = materials.add(weathered_glow(material, weathers, settings.dusk_to_dawn));
 
     // Cache miss: dispatch generation if a generator is selected.
     //

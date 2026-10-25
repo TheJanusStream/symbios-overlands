@@ -37,6 +37,9 @@ impl CatalogueEntry for AirshipDock {
     fn role(&self) -> StructureRole {
         StructureRole::Secondary
     }
+    fn serves(&self) -> Option<crate::catalogue::Craft> {
+        Some(crate::catalogue::Craft::Airship)
+    }
     fn themes(&self) -> &'static [ThemeArchetype] {
         &[ThemeArchetype::Steampunk]
     }

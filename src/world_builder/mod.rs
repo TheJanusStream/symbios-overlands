@@ -785,6 +785,7 @@ fn draw_placement_visualizers(
 
     match placement {
         Placement::Absolute {
+            generator_ref,
             transform,
             snap_to_terrain,
             avoid_water,
@@ -792,7 +793,11 @@ fn draw_placement_visualizers(
             ..
         } => {
             let mut pos = Vec3::from_array(transform.translation.0);
-            if *snap_to_terrain && let Some(hm) = heightmap.as_deref() {
+            // A seeded jetty, unsnapped, meets the shore (#1782).
+            let jetty = !*snap_to_terrain && generator_ref == compile::scatter::JETTY;
+            if (*snap_to_terrain || jetty)
+                && let Some(hm) = heightmap.as_deref()
+            {
                 // Match the compile executor's Absolute semantics: the
                 // authored Y is an OFFSET from the terrain height, not
                 // replaced by it - a preview that drops the offset shows
@@ -806,12 +811,31 @@ fn draw_placement_visualizers(
                     water.2 = crate::water::bodies::RoomWater::from_layers(&layers, Some(hm));
                     (water.0, water.1) = (ground, layers);
                 }
-                pos = snapped_absolute_anchor(
-                    &AnchorGround::new(hm, &water.2),
-                    transform,
-                    *avoid_water,
-                    avoid_water_clearance.0,
-                );
+                let ground = AnchorGround::new(hm, &water.2);
+                if jetty {
+                    // Where the compile draws it; where its record puts it
+                    // when the ground takes it nowhere (#1782).
+                    let tracks = crate::pds::find_terrain_config(record)
+                        .map_or(&[][..], |t| &t.paths.tracks);
+                    if let compile::pad::PlaceStand::At(at) = compile::pad::place_stands(
+                        &ground,
+                        generator_ref,
+                        transform,
+                        *snap_to_terrain,
+                        *avoid_water,
+                        avoid_water_clearance.0,
+                        tracks,
+                    ) {
+                        pos = at;
+                    }
+                } else {
+                    pos = snapped_absolute_anchor(
+                        &ground,
+                        transform,
+                        *avoid_water,
+                        avoid_water_clearance.0,
+                    );
+                }
             }
             gizmos.sphere(pos, 1.0, color);
         }

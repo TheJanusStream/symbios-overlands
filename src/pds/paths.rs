@@ -10,8 +10,12 @@
 //! inside a path it stands (`terrain::paths`) - and the ground under them
 //! grows no grass (`ground_cover`), so nothing but the weights the ground
 //! and the grass already read draws them.
+//!
+//! Beside them a world may carry tracks (#1782): ways wider than a path,
+//! each with a width of its own - a seeded world's airstrip and its car's
+//! track - painted and kept clear as the paths are ([`SovereignPathsConfig::ways`]).
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::types::{Fp, Fp2};
 
@@ -36,6 +40,11 @@ pub struct SovereignPathsConfig {
     pub share: Fp,
     /// How wide each path is (m).
     pub width: Fp,
+    /// Ways wider than the paths, each with a width of its own (#1782): a
+    /// seeded world's airstrip and its car's track, painted in the paths'
+    /// layer at their share and kept clear as the paths are. None is not
+    /// written, so a record saved before them keeps its bytes.
+    pub tracks: Vec<SovereignTrack>,
 }
 
 impl Default for SovereignPathsConfig {
@@ -45,6 +54,7 @@ impl Default for SovereignPathsConfig {
             layer: 1,
             share: Fp(0.85),
             width: Fp(2.5),
+            tracks: Vec::new(),
         }
     }
 }
@@ -54,7 +64,28 @@ crate::pds::serde_util::impl_default_eliding_serialize!(SovereignPathsConfig {
     layer,
     share,
     width,
+    tracks,
 });
+
+/// A way wider than a path, with a width of its own (#1782): an airstrip,
+/// a car's track.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct SovereignTrack {
+    /// Its line, world XZ, at least two points: a loop ends where it starts.
+    pub line: Vec<Fp2>,
+    /// How wide it is (m).
+    pub width: Fp,
+}
+
+impl Default for SovereignTrack {
+    fn default() -> Self {
+        Self {
+            line: Vec::new(),
+            width: Fp(6.0),
+        }
+    }
+}
 
 /// A byte read wide, then saturating (#1119).
 fn wide_u8<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u8, D::Error> {
@@ -62,9 +93,23 @@ fn wide_u8<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u8, D::Error> {
 }
 
 impl SovereignPathsConfig {
-    /// Whether the world paints no path.
+    /// Whether the world paints no path and no track.
     pub fn is_empty(&self) -> bool {
-        self.lines.iter().all(|line| line.len() < 2)
+        self.ways().all(|(line, _)| line.len() < 2)
+    }
+
+    /// Every way the ground paints and the scatters keep off: each path at
+    /// the paths' width, then each track at its own - a line and its width.
+    pub fn ways(&self) -> impl Iterator<Item = (&[Fp2], f32)> + '_ {
+        let paths = self
+            .lines
+            .iter()
+            .map(|line| (line.as_slice(), self.width.0));
+        paths.chain(
+            self.tracks
+                .iter()
+                .map(|track| (track.line.as_slice(), track.width.0)),
+        )
     }
 }
 
@@ -109,11 +154,45 @@ mod tests {
                 layer: 2,
                 share: Fp(0.5),
                 width: Fp(3.0),
+                ..Default::default()
             },
             ..Default::default()
         };
         let json = serde_json::to_string(&terrain).expect("writes");
         let back: SovereignTerrainConfig = serde_json::from_str(&json).expect("reads");
         assert_eq!(back.paths, terrain.paths);
+    }
+
+    /// #1782: paths with no tracks write no tracks key, so every record
+    /// saved before them keeps its bytes; set ones go over the wire and back,
+    /// and the ground reads every way - the paths at their width, then each
+    /// track at its own - a world with only tracks painting something.
+    #[test]
+    fn tracks_elide_round_trip_and_paint_at_their_own_width() {
+        let paths = SovereignPathsConfig {
+            lines: vec![vec![Fp2([0.0, 0.0]), Fp2([0.0, 20.0])]],
+            ..Default::default()
+        };
+        let json = serde_json::to_value(&paths).expect("writes");
+        assert!(json.get("tracks").is_none(), "{json}");
+
+        let tracked = SovereignPathsConfig {
+            tracks: vec![SovereignTrack {
+                line: vec![Fp2([30.0, 0.0]), Fp2([110.0, 0.0])],
+                width: Fp(12.0),
+            }],
+            ..paths.clone()
+        };
+        let json = serde_json::to_string(&tracked).expect("writes");
+        let back: SovereignPathsConfig = serde_json::from_str(&json).expect("reads");
+        assert_eq!(back, tracked);
+        let widths: Vec<f32> = tracked.ways().map(|(_, width)| width).collect();
+        assert_eq!(widths, vec![2.5, 12.0]);
+
+        let only = SovereignPathsConfig {
+            lines: Vec::new(),
+            ..tracked
+        };
+        assert!(!only.is_empty(), "a world with a track paints it");
     }
 }

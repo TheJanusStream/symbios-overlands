@@ -45,6 +45,35 @@ pub struct DrawnEnvironment {
     pub weather: WeatherNow,
 }
 
+impl DrawnEnvironment {
+    /// How far the lights that show from dusk to dawn are on (#1782), 0 by
+    /// day to 1 in the dark: all on while the key light is the moon - what
+    /// the hour says, or what the sky reads off the room (`crate::sky`) -
+    /// and coming on through the dusk as the sun sinks
+    /// ([`LIGHTS_DEG`](crate::config::lighting::time_of_day::LIGHTS_DEG)).
+    /// A key light with no direction stands overhead.
+    pub fn lights(&self) -> f32 {
+        let moon = self
+            .moon
+            .unwrap_or_else(|| crate::sky::sky_uniforms(&self.env).look.y);
+        let toward = Vec3::from_array(self.env.sun_position.0).normalize_or_zero();
+        let altitude = if toward == Vec3::ZERO {
+            90.0
+        } else {
+            toward.y.clamp(-1.0, 1.0).asin().to_degrees()
+        };
+        let (on, off) = day_cfg::LIGHTS_DEG;
+        let t = ((altitude - on) / (off - on)).clamp(0.0, 1.0);
+        // With the moon the key light, its altitude is the moon's.
+        let dusk = if moon >= 1.0 {
+            1.0
+        } else {
+            1.0 - t * t * (3.0 - 2.0 * t)
+        };
+        moon.max(dusk).clamp(0.0, 1.0)
+    }
+}
+
 /// The system that keeps [`DrawnEnvironment`] up: what reads it runs after.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DrawEnvironmentSet;
@@ -167,7 +196,7 @@ impl HeldFog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pds::{Fp, RoomRecord, TimeOfDay, Weather, WeatherKind};
+    use crate::pds::{Fp, Fp3, RoomRecord, TimeOfDay, Weather, WeatherKind};
 
     /// The drawn environment is the record's for a room with neither a time
     /// of day nor a weather, the sky left to read the moon for itself; its
@@ -373,5 +402,61 @@ mod tests {
             fog_now(None, Some(&drawn)),
             crate::config::camera::fog::VISIBILITY
         );
+    }
+
+    /// A world through its day (#1782): the lights that show from dusk to
+    /// dawn are out at noon and come on as the sun sinks - only ever further,
+    /// through the dusk rather than at once - and are all on under the moon.
+    #[test]
+    fn the_lights_come_on_as_the_sun_sinks() {
+        let mut env = RoomRecord::default().environment;
+        env.time_of_day = None;
+        env.weather = None;
+        let drawn_at = |hour: f32| {
+            let at = crate::time_of_day::environment_at(&env, hour);
+            DrawnEnvironment {
+                env: at.env,
+                hour: Some(hour),
+                moon: Some(at.moon),
+                weather: WeatherNow::default(),
+            }
+        };
+        assert_eq!(drawn_at(12.0).lights(), 0.0, "noon");
+        assert_eq!(drawn_at(0.0).lights(), 1.0, "midnight");
+        let mut last = 0.0;
+        let mut partly = false;
+        for k in 0..=120 {
+            let hour = 12.0 + k as f32 * 0.1;
+            let lights = drawn_at(hour).lights();
+            assert!(lights >= last, "{hour}: {lights} after {last}");
+            partly |= lights > 0.1 && lights < 0.9;
+            last = lights;
+        }
+        assert!(partly, "the lights come on through the dusk");
+        assert_eq!(last, 1.0, "midnight again");
+    }
+
+    /// A world with no time of day keeps its lights as its sky reads its key
+    /// light: out in a day room, on in a night room - a dim light under a
+    /// dark sky, which the sky draws as the moon - and a key light with no
+    /// direction stands overhead.
+    #[test]
+    fn a_world_with_no_hour_lights_up_as_its_sky_reads_the_moon() {
+        let room = |sky: [f32; 3], lux: f32| {
+            let mut env = RoomRecord::default().environment;
+            env.sky_color = Fp3(sky);
+            env.sun_illuminance = Fp(lux);
+            DrawnEnvironment {
+                env,
+                ..Default::default()
+            }
+        };
+        // The sky's own readings (`sky::tests`): seed 3's farmland by day,
+        // seed 31's cyberpunk night.
+        assert_eq!(room([0.61, 0.71, 0.79], 13_495.0).lights(), 0.0);
+        assert_eq!(room([0.20, 0.17, 0.23], 958.0).lights(), 1.0);
+        let mut sunless = room([0.61, 0.71, 0.79], 13_495.0);
+        sunless.env.sun_position = Fp3([0.0, 0.0, 0.0]);
+        assert_eq!(sunless.lights(), 0.0);
     }
 }
