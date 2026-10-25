@@ -608,7 +608,12 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
     //
     // Built once here and reused by the gateway wiring below, which
     // anchors the gate to the primary landmark.
-    let settlement_plan = SettlementPlan::from_scene_sited(&scene, did_seed, &terrain_probe);
+    // A world on its own ground keeps the best of a few plans (#1778); a
+    // Berlin square reads only its first plan's landmark bearing.
+    let settlement_plan = match berlin {
+        None => SettlementPlan::best_sited(&scene, did_seed, &terrain_probe),
+        Some(_) => SettlementPlan::from_scene_sited(&scene, did_seed, &terrain_probe),
+    };
     // A Berlin square is its own settlement (see the docs above): only its
     // landmark's bearing is kept, for the gate's.
     if berlin.is_none() {
@@ -672,24 +677,34 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
     // seeded room gets one gate. The theme's bespoke gateway wins via
     // `entries_for(theme, Gateway)`; every `ThemeArchetype` has one, so
     // the `civic_gateway` cross-theme fallback below is only reached if
-    // a future theme ships without a gate. The gate is a gatehouse on
-    // the origin→landmark approach and the default landing sits just in
-    // front of it facing the settlement, so visitors (and the owner on
-    // login) arrive at the settlement frontage rather than the empty
-    // region centre. (Caveat: the placement is water-avoiding, so on a
-    // soaked bearing the compiled gate can walk off the recorded
-    // landing - the landing still resolves its height from the
-    // heightmap and stays functional.)
+    // a future theme ships without a gate. A world on its own ground
+    // arrives at its viewpoint (#1777): out at the settlement's edge,
+    // looking at the landmark, the gate and the monument beside the view.
+    // Where the plan found none, the gate is a gatehouse on the
+    // origin->landmark approach and the landing sits just in front of it
+    // facing the settlement, as it always was. (Caveat: the gate is
+    // water-avoiding, so on a soaked bearing the compile can walk it off the
+    // recorded landing; a viewpoint's landing walks too, and turns to its
+    // landmark where either was walked - `compile::landing_on`.)
     let mut default_landing = None;
+    let viewpoint = settlement_plan.viewpoint.filter(|_| berlin.is_none());
     if let Some(entry) = crate::seeded_defaults::room::gateway::gateway_entry(scene.theme) {
         let gate_clearance = entry.footprint().clearance;
         let primary_landmark = settlement_plan.primary_landmark();
+        let gate_side = crate::seeded_defaults::room::monument::gate_side(did);
         let spot = match berlin {
-            None => crate::seeded_defaults::GatewaySpot::for_landmark(
-                primary_landmark.offset,
-                primary_landmark.clearance,
-                gate_clearance,
-            ),
+            None => match &viewpoint {
+                Some(viewpoint) => crate::seeded_defaults::GatewaySpot::at_viewpoint(
+                    viewpoint,
+                    gate_clearance,
+                    gate_side,
+                ),
+                None => crate::seeded_defaults::GatewaySpot::for_landmark(
+                    primary_landmark.offset,
+                    primary_landmark.clearance,
+                    gate_clearance,
+                ),
+            },
             // On the bearing the landmark would have stood on, as it stood
             // before its ground was read (#1773), north where it stands on
             // the origin.
@@ -728,10 +743,15 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
             seed: None,
             params: Default::default(),
         });
+        // A viewpoint's landing carries the pitch its landmark fits the
+        // first frame at, and walks off water and steep ground the probe
+        // missed, as its gate and monument do (#1777).
         default_landing = Some(DefaultLanding {
             pos: Fp2(spot.landing),
             y: None,
             yaw_deg: Fp(spot.landing_yaw_deg),
+            pitch_deg: viewpoint.map(|viewpoint| Fp(viewpoint.pitch.to_degrees())),
+            avoid_water: viewpoint.is_some(),
         });
 
         // Owner monument (#975): the themed monument carrying the room
@@ -752,12 +772,17 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
         // materials, so a poor room's monument is a humbler one.
         if let Some(entry) = crate::seeded_defaults::room::monument::monument_entry(scene.theme) {
             let clearance = entry.footprint().clearance;
-            let mspot = crate::seeded_defaults::MonumentSpot::beside_gate(
-                &spot,
-                gate_clearance,
-                clearance,
-                did,
-            );
+            let mspot = match &viewpoint {
+                Some(viewpoint) => crate::seeded_defaults::MonumentSpot::at_viewpoint(
+                    viewpoint, clearance, gate_side,
+                ),
+                None => crate::seeded_defaults::MonumentSpot::beside_gate(
+                    &spot,
+                    gate_clearance,
+                    clearance,
+                    did,
+                ),
+            };
             let mut monument = entry.build(did);
             crate::pds::material_finish::apply_socio_finish(
                 &mut monument,

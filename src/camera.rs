@@ -852,7 +852,9 @@ pub(crate) fn camera_listener() -> SpatialListener {
 /// landing - the orbit cuts to the rest radius and pitch behind it, its
 /// focus on the body, so the first frame looks the way the landing looks
 /// rather than wherever the last world, or the login backdrop's slow orbit,
-/// left the camera. Looking out of the eyes, the eyes turn instead
+/// left the camera - at the landing's own pitch where it sets one (#1777), so
+/// a seeded world's landmark stands whole in the frame. Looking out of the
+/// eyes, the eyes turn instead
 /// (`first_person`). A vehicle's turn to the new heading is not inherited
 /// as a turn of the vehicle's own: the follow waits up to
 /// [`LANDING_STEPS`] fixed steps for the body to reach it.
@@ -878,7 +880,11 @@ fn follow_local_player(
     };
     cam.target_focus = player_tf.translation;
 
-    if let Some(yaw) = facings.read().last().and_then(|set| yaw_behind(set.0)) {
+    if let Some((yaw, pitch)) = facings
+        .read()
+        .last()
+        .and_then(|set| yaw_behind(set.0).map(|yaw| (yaw, set.1)))
+    {
         // The eyes turn themselves (#1750) - while they look; on the way
         // back out of them the orbit is the camera's again.
         let eyes = first_person
@@ -886,10 +892,12 @@ fn follow_local_player(
             .is_some_and(|fp| fp.view() == CameraView::Eyes);
         if !eyes {
             let yaw = first_person::near_turn(yaw, cam.target_yaw);
+            // At the landing's own pitch where it sets one (#1777).
+            let pitch = pitch.unwrap_or(cfg::ORBIT_PITCH);
             cam.yaw = Some(yaw);
             cam.target_yaw = yaw;
-            cam.pitch = Some(cfg::ORBIT_PITCH);
-            cam.target_pitch = cfg::ORBIT_PITCH;
+            cam.pitch = Some(pitch);
+            cam.target_pitch = pitch;
             cam.radius = Some(cfg::ORBIT_RADIUS);
             cam.target_radius = cfg::ORBIT_RADIUS;
             cam.focus = player_tf.translation;
@@ -1463,7 +1471,7 @@ mod tests {
         app.world_mut().spawn(astray());
         let facing = Quat::from_rotation_y(0.9);
         app.world_mut()
-            .write_message(crate::player::FacingSet(facing));
+            .write_message(crate::player::FacingSet(facing, None));
         app.update();
 
         let cam = orbit(&mut app);
@@ -1483,6 +1491,35 @@ mod tests {
         // by its yaw, looking back down -Z turned by it.
         let looks = Quat::from_rotation_y(cam.target_yaw) * Vec3::NEG_Z;
         assert!(looks.distance(facing * Vec3::NEG_Z) < 1e-5);
+    }
+
+    /// #1777: a landing that sets its own pitch stands the camera at it - a
+    /// seeded viewpoint's, low enough that its landmark stands whole in the
+    /// first frame - and the next landing without one at the rest pitch.
+    #[test]
+    fn a_landings_own_pitch_is_the_cameras() {
+        let mut app = follow_app();
+        app.world_mut()
+            .spawn((Transform::from_xyz(0.0, 5.0, 0.0), LocalPlayer));
+        app.world_mut().spawn(astray());
+        let facing = Quat::from_rotation_y(0.4);
+        app.world_mut()
+            .write_message(crate::player::FacingSet(facing, Some(0.12)));
+        app.update();
+        let cam = orbit(&mut app);
+        assert_eq!((cam.pitch, cam.target_pitch), (Some(0.12), 0.12));
+        assert_eq!(
+            (cam.radius, cam.target_radius),
+            (Some(cfg::ORBIT_RADIUS), cfg::ORBIT_RADIUS)
+        );
+        app.world_mut()
+            .write_message(crate::player::FacingSet(facing, None));
+        app.update();
+        let cam = orbit(&mut app);
+        assert_eq!(
+            (cam.pitch, cam.target_pitch),
+            (Some(cfg::ORBIT_PITCH), cfg::ORBIT_PITCH)
+        );
     }
 
     /// #1785: a vehicle set down facing a new way is not also turned by
@@ -1506,7 +1543,8 @@ mod tests {
             app.update();
 
             let set = Quat::from_rotation_y(1.5);
-            app.world_mut().write_message(crate::player::FacingSet(set));
+            app.world_mut()
+                .write_message(crate::player::FacingSet(set, None));
             let turn_to = |app: &mut App, rotation: Quat| {
                 app.world_mut()
                     .entity_mut(player)
@@ -1574,7 +1612,7 @@ mod tests {
             };
 
             app.world_mut()
-                .write_message(crate::player::FacingSet(Quat::from_rotation_y(1.5)));
+                .write_message(crate::player::FacingSet(Quat::from_rotation_y(1.5), None));
             // 360 Hz: two steps of 1/64 s are eleven frames, the last on it.
             let frames = if hz > 60.0 { 11 } else { 1 };
             for k in 0..=frames {
@@ -1609,7 +1647,7 @@ mod tests {
         app.world_mut().spawn((Transform::default(), LocalPlayer));
         app.world_mut().spawn(astray());
         app.world_mut()
-            .write_message(crate::player::FacingSet(Quat::from_rotation_y(0.9)));
+            .write_message(crate::player::FacingSet(Quat::from_rotation_y(0.9), None));
         app.update();
 
         let cam = orbit(&mut app);
@@ -1621,7 +1659,7 @@ mod tests {
         app.world_mut().spawn((Transform::default(), LocalPlayer));
         app.world_mut().spawn(astray());
         app.world_mut()
-            .write_message(crate::player::FacingSet(Quat::from_rotation_y(0.9)));
+            .write_message(crate::player::FacingSet(Quat::from_rotation_y(0.9), None));
         app.update();
         let cam = orbit(&mut app);
         assert!((cam.target_yaw - 0.9).abs() < 1e-5, "{}", cam.target_yaw);

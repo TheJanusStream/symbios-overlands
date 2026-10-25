@@ -233,16 +233,31 @@ fn is_open_and_dry(
 /// Where a room's landing at `(x, z)` sets a body down on `heightmap`
 /// (#1589). On Berlin's ground it is walked to open dry ground by the rule
 /// that walks the room's gateway ([`relocate_to_open_ground`]), so a seeded
-/// landing in front of its gate comes with it off a lake or a street.
-/// Elsewhere it stays where it is: a procedural room's landing is its
-/// owner's, or its seed's, which sited it on its own terrain.
+/// landing in front of its gate comes with it off a lake or a street. On a
+/// world's own ground a landing that avoids water - a seeded viewpoint's
+/// (#1777) - walks off water and steep ground as its gate does
+/// ([`super::pad::relocate_snapped_anchor`]), off what the probe that sited
+/// it missed; any other stays where it is, its owner's spot.
 pub(crate) fn landing_ashore(
     record: &RoomRecord,
     heightmap: &crate::terrain::FinishedHeightMap,
     (x, z): (f32, f32),
 ) -> (f32, f32) {
     let Some(berlin) = heightmap.ground() else {
-        return (x, z);
+        if !record
+            .default_landing
+            .is_some_and(|landing| landing.avoid_water)
+        {
+            return (x, z);
+        }
+        let water = drawn_water(record, Some(heightmap));
+        let mut at = Vec3::new(x, 0.0, z);
+        super::pad::relocate_snapped_anchor(
+            &super::pad::AnchorGround::new(heightmap, &water),
+            &mut at,
+            LANDING_CLEARANCE_M,
+        );
+        return (at.x, at.z);
     };
     let hm = &heightmap.0;
     let extent = (hm.width().saturating_sub(1)) as f32 * hm.scale();
@@ -259,43 +274,56 @@ pub(crate) fn landing_ashore(
 }
 
 /// The room's default landing as it sets a body down on `heightmap`: its
-/// pose, its spot walked ashore ([`landing_ashore`]) - and, where the walk
-/// moved it, turned to face the room's gate where that stands, as the
-/// seeded landing faced it before either was walked.
+/// pose, its spot walked ashore ([`landing_ashore`]) - and turned to face
+/// what the derive faced it at, where that stands, once a walk has moved
+/// the two apart: a Berlin square's landing its gate, where the landing was
+/// walked; a seeded viewpoint's its landmark (#1777), where either was - the
+/// probe that sited both misses ground the compile walks them off - while it
+/// still [looks at](looks_at) the landmark: one its owner turned keeps the
+/// facing they gave it. Any other landing keeps its facing.
 pub(crate) fn landing_on(
     record: &RoomRecord,
     heightmap: &crate::terrain::FinishedHeightMap,
 ) -> Option<crate::pds::DefaultLanding> {
-    let mut landing = record.default_landing?;
+    let given = record.default_landing?;
+    let mut landing = given;
     let recorded = landing.pos.0;
     let (x, z) = landing_ashore(record, heightmap, (recorded[0], recorded[1]));
-    if (x, z) == (recorded[0], recorded[1]) {
-        return Some(landing);
-    }
     landing.pos.0 = [x, z];
+    let walked = (x, z) != (recorded[0], recorded[1]);
     let water = drawn_water(record, Some(heightmap));
-    let gate = record
-        .placements
-        .iter()
-        .find_map(|placement| match placement {
-            crate::pds::Placement::Absolute {
-                generator_ref,
-                transform,
-                snap_to_terrain: true,
-                avoid_water,
-                avoid_water_clearance,
-                ..
-            } if generator_ref == GATEWAY => Some(super::pad::snapped_absolute_anchor(
-                &super::pad::AnchorGround::new(heightmap, &water),
-                transform,
-                *avoid_water,
-                avoid_water_clearance.0,
-            )),
-            _ => None,
-        });
-    if let Some(gate) = gate {
-        let (dx, dz) = (gate.x - x, gate.z - z);
-        if dx.hypot(dz) > 1.0 {
+    let ground = super::pad::AnchorGround::new(heightmap, &water);
+    let stands = match heightmap.ground() {
+        Some(_) if walked => record
+            .placements
+            .iter()
+            .find_map(|placement| match placement {
+                crate::pds::Placement::Absolute {
+                    generator_ref,
+                    transform,
+                    snap_to_terrain: true,
+                    avoid_water,
+                    avoid_water_clearance,
+                    ..
+                } if generator_ref == GATEWAY => Some(super::pad::snapped_absolute_anchor(
+                    &ground,
+                    transform,
+                    *avoid_water,
+                    avoid_water_clearance.0,
+                )),
+                _ => None,
+            }),
+        None if landing.avoid_water => seeded_landmark(record, &ground)
+            .filter(|&(placed, stands)| {
+                // The walks move a spot or leave it bit for bit.
+                looks_at(&given, placed) && (walked || [stands.x, stands.z] != placed)
+            })
+            .map(|(_, stands)| stands),
+        _ => None,
+    };
+    if let Some(stands) = stands {
+        let (dx, dz) = (stands.x - x, stands.z - z);
+        if dx * dx + dz * dz > 1.0 {
             // The spawn's convention: a pose facing `(dx, dz)` turns by
             // atan2(-dx, -dz).
             landing.yaw_deg.0 = libm::atan2f(-dx, -dz).to_degrees();
@@ -304,8 +332,59 @@ pub(crate) fn landing_on(
     Some(landing)
 }
 
+/// Where `record`'s seeded landmark stands as the compile stands it on
+/// `ground`, beside where its record placed it, both world XZ (#1777): its
+/// [`LANDMARK`](super::scatter::LANDMARK) placement among the seeded
+/// structures - snapped, avoiding water - as the scatters keep off it.
+pub(super) fn seeded_landmark(
+    record: &RoomRecord,
+    ground: &super::pad::AnchorGround<'_>,
+) -> Option<([f32; 2], Vec3)> {
+    record
+        .placements
+        .iter()
+        .find_map(|placement| match placement {
+            crate::pds::Placement::Absolute {
+                generator_ref,
+                transform,
+                snap_to_terrain: true,
+                avoid_water: true,
+                avoid_water_clearance,
+                ..
+            } if generator_ref == super::scatter::LANDMARK => Some((
+                [transform.translation.0[0], transform.translation.0[2]],
+                super::pad::snapped_absolute_anchor(
+                    ground,
+                    transform,
+                    true,
+                    avoid_water_clearance.0,
+                ),
+            )),
+            _ => None,
+        })
+}
+
+/// How far a landing's facing may stand off the bearing to its landmark and
+/// still look at it (degrees, #1777): wide of the record's own rounding,
+/// narrow of any turn an owner gives it.
+const LOOKS_AT_DEG: f32 = 1.0;
+
+/// Whether `landing` looks at the point `at` (#1777): its facing within
+/// [`LOOKS_AT_DEG`] of the bearing to it. A seeded viewpoint's landing looks
+/// at its landmark; one its owner turned does not, and keeps its own facing
+/// and its trees.
+pub(super) fn looks_at(landing: &crate::pds::DefaultLanding, at: [f32; 2]) -> bool {
+    let [x, z] = landing.pos.0;
+    let (dx, dz) = (at[0] - x, at[1] - z);
+    if dx * dx + dz * dz < 1.0 {
+        return false;
+    }
+    let off = (landing.yaw_deg.0 - libm::atan2f(-dx, -dz).to_degrees()).rem_euclid(360.0);
+    off.min(360.0 - off) <= LOOKS_AT_DEG
+}
+
 /// The generator the seeded room's gate is placed by.
-const GATEWAY: &str = "social_gateway";
+pub(super) const GATEWAY: &str = "social_gateway";
 
 #[cfg(test)]
 mod water_avoidance_tests {
@@ -496,6 +575,133 @@ mod water_avoidance_tests {
         });
         let kept = landing_on(&landed, &berlin).expect("a landing");
         assert_eq!((kept.pos.0, kept.yaw_deg.0), ([350.0, 0.0], 30.0));
+    }
+
+    /// #1777: a seeded viewpoint's landing - one that avoids water - walks
+    /// off a world's own water the probe that sited it missed, and turns to
+    /// its landmark where the compile stands it whenever either of the two
+    /// was walked; where neither was, it keeps the facing it was given; one
+    /// its owner turned off the landmark keeps their facing, walked or not;
+    /// and a landing that does not avoid water is never walked.
+    #[test]
+    fn a_viewpoint_landing_walks_ashore_and_faces_its_landmark_where_it_stands() {
+        let record = (0u64..)
+            .map(|seed| {
+                crate::seeded_defaults::room::build::build_room_with_source(
+                    seed,
+                    "did:test:viewpoint",
+                    None,
+                )
+            })
+            .find(|record| room_water_level(record).is_some())
+            .expect("a seeded world with water");
+        let sea = room_water_level(&record).expect("its sea");
+        // 400 m of dry land 2 m a cell, its ponds - each 12 m round - under
+        // the sea.
+        let ground = |ponds: &[[f32; 2]]| {
+            let mut hm = bevy_symbios_ground::HeightMap::new(201, 201, 2.0);
+            for row in 0..201 {
+                for col in 0..201 {
+                    let at = [col as f32 * 2.0 - 200.0, row as f32 * 2.0 - 200.0];
+                    let wet = ponds
+                        .iter()
+                        .any(|p| (at[0] - p[0]).hypot(at[1] - p[1]) < 12.0);
+                    hm.set(col, row, if wet { sea - 3.0 } else { sea + 5.0 });
+                }
+            }
+            crate::terrain::FinishedHeightMap(hm, None)
+        };
+        let (landmark, landing) = ([40.0, 0.0], [0.0, 100.0]);
+        let mut seeded = record.clone();
+        for placement in &mut seeded.placements {
+            if let Placement::Absolute {
+                generator_ref,
+                transform,
+                avoid_water_clearance,
+                ..
+            } = placement
+                && generator_ref == super::super::scatter::LANDMARK
+            {
+                transform.translation.0 = [landmark[0], 0.0, landmark[1]];
+                transform.scale.0 = [1.0; 3];
+                *avoid_water_clearance = crate::pds::Fp(3.0);
+            }
+        }
+        // Looking at the landmark, as the derive faces it, the record's yaw
+        // in [0, 360).
+        let given = libm::atan2f(-(landmark[0] - landing[0]), -(landmark[1] - landing[1]))
+            .to_degrees()
+            .rem_euclid(360.0);
+        seeded.default_landing = Some(crate::pds::DefaultLanding {
+            pos: crate::pds::Fp2(landing),
+            yaw_deg: crate::pds::Fp(given),
+            pitch_deg: Some(crate::pds::Fp(12.0)),
+            avoid_water: true,
+            ..Default::default()
+        });
+        let faces = |landed: crate::pds::DefaultLanding, toward: [f32; 2]| {
+            let [x, z] = landed.pos.0;
+            let to = Vec3::new(toward[0] - x, 0.0, toward[1] - z).normalize();
+            (Quat::from_rotation_y(landed.yaw_deg.0.to_radians()) * Vec3::NEG_Z).dot(to) > 0.999
+        };
+
+        // Neither walked: the facing it was given, its pitch kept.
+        let kept = landing_on(&seeded, &ground(&[])).expect("a landing");
+        assert_eq!((kept.pos.0, kept.yaw_deg.0), (landing, given));
+        assert_eq!(kept.pitch_deg, Some(crate::pds::Fp(12.0)));
+
+        // The landing in a pond: ashore along its bearing, facing the
+        // landmark from there.
+        let walked = landing_on(&seeded, &ground(&[landing])).expect("a landing");
+        assert!(walked.pos.0[0] == 0.0 && (walked.pos.0[1] - 100.0).abs() >= 12.0);
+        assert!(faces(walked, landmark), "{walked:?}");
+        assert_eq!(walked.pitch_deg, Some(crate::pds::Fp(12.0)));
+
+        // The landmark in a pond: the landing stays, facing it where it
+        // stands.
+        let pond = ground(&[landmark]);
+        let water = drawn_water(&seeded, Some(&pond));
+        let stands = seeded
+            .placements
+            .iter()
+            .find_map(|placement| match placement {
+                Placement::Absolute {
+                    generator_ref,
+                    transform,
+                    ..
+                } if generator_ref == super::super::scatter::LANDMARK => {
+                    Some(super::super::pad::snapped_absolute_anchor(
+                        &super::super::pad::AnchorGround::new(&pond, &water),
+                        transform,
+                        true,
+                        3.0,
+                    ))
+                }
+                _ => None,
+            })
+            .expect("its landmark");
+        assert!((stands.x - landmark[0]).abs() >= 12.0, "{stands}");
+        let turned = landing_on(&seeded, &pond).expect("a landing");
+        assert_eq!(turned.pos.0, landing);
+        assert!(faces(turned, [stands.x, stands.z]), "{turned:?}");
+
+        // Turned by its owner off the landmark: their facing, walked or not.
+        let mut own = seeded.clone();
+        if let Some(l) = own.default_landing.as_mut() {
+            l.yaw_deg = crate::pds::Fp(10.0);
+        }
+        for ponds in [&[landmark][..], &[landing], &[landing, landmark]] {
+            let kept = landing_on(&own, &ground(ponds)).expect("a landing");
+            assert_eq!(kept.yaw_deg.0, 10.0, "{ponds:?}");
+        }
+
+        // An owner's landing stays where they set it, wet or not.
+        let mut owned = seeded.clone();
+        if let Some(l) = owned.default_landing.as_mut() {
+            l.avoid_water = false;
+        }
+        let set = landing_on(&owned, &ground(&[landing, landmark])).expect("a landing");
+        assert_eq!((set.pos.0, set.yaw_deg.0), (landing, given));
     }
 
     /// #1589: a seeded structure on Berlin's ground walks off its streets

@@ -1183,6 +1183,7 @@ mod tests {
             pos: Fp2([10.0, 0.0]),
             y: None,
             yaw_deg: Fp(0.0),
+            ..Default::default()
         });
         let build = built(&record, Transform::IDENTITY, None);
         let order: Vec<usize> = build.copies.iter().map(|copy| copy.index).collect();

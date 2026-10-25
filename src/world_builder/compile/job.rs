@@ -317,23 +317,28 @@ pub(super) struct FingerprintPass {
 impl FingerprintPass {
     pub(super) fn new(record: &RoomRecord, room_water: &crate::water::bodies::RoomWater) -> Self {
         // Only what the keep-outs read: where each seeded structure's record
-        // stands it and how wide its ground - not its generator, seed or
-        // params, whose edits leave every scatter as it was.
-        let structures: Vec<[f32; 4]> = record
+        // stands it, how wide its ground, and whether it is the landmark a
+        // seeded landing looks at (#1777) - and the gate a walked Berlin
+        // landing turns to, water-avoiding or not - not its generator, seed
+        // or params, whose edits leave every scatter as it was.
+        let structures: Vec<[f32; 6]> = record
             .placements
             .iter()
             .filter_map(|placement| match placement {
                 Placement::Absolute {
+                    generator_ref,
                     transform,
                     snap_to_terrain: true,
-                    avoid_water: true,
+                    avoid_water,
                     avoid_water_clearance,
                     ..
-                } => Some([
+                } if *avoid_water || generator_ref == super::water::GATEWAY => Some([
                     transform.translation.0[0],
                     transform.translation.0[2],
                     avoid_water_clearance.0,
                     transform.scale.0[0],
+                    f32::from(u8::from(generator_ref == super::scatter::LANDMARK)),
+                    f32::from(u8::from(*avoid_water)),
                 ]),
                 _ => None,
             })
@@ -348,10 +353,17 @@ impl FingerprintPass {
             kept_off: if structures.is_empty() && record.default_landing.is_none() {
                 Some(serde_json::Value::Null)
             } else {
-                let landing = record
-                    .default_landing
-                    .as_ref()
-                    .map(|landing| [landing.pos.0[0], landing.pos.0[1], landing.yaw_deg.0]);
+                // The pitch reaches the camera's ground back, and a landing
+                // that avoids water keeps its view clear (#1777).
+                let landing = record.default_landing.as_ref().map(|landing| {
+                    [
+                        landing.pos.0[0],
+                        landing.pos.0[1],
+                        landing.yaw_deg.0,
+                        landing.pitch_deg.map_or(f32::NAN, |pitch| pitch.0),
+                        f32::from(u8::from(landing.avoid_water)),
+                    ]
+                });
                 serde_json::to_value((&structures, landing)).ok()
             },
         }
@@ -546,6 +558,49 @@ mod tests {
             ..SovereignGrassConfig::default()
         };
         assert_eq!(fingerprints(&record), before);
+    }
+
+    /// #1777: every scatter is rebuilt when the gate a walked Berlin landing
+    /// turns to moves - water-avoiding or not - and when the landmark a
+    /// seeded landing looks at is another placement: both decide which way
+    /// the arrival camera stands, and the ground behind it is kept off.
+    #[test]
+    fn the_gate_and_the_landmark_reach_every_scatters_fingerprint() {
+        use crate::pds::Placement;
+        // On its own ground, where a seeded world has a landmark.
+        let mut record =
+            crate::seeded_defaults::room::build::build_room_with_source(0, "did:plc:fp_test", None);
+        let scatter = record
+            .placements
+            .iter()
+            .position(|p| matches!(p, Placement::Scatter { .. }))
+            .expect("a seeded scatter");
+        let named = |name: &'static str| move |p: &Placement| matches!(p, Placement::Absolute { generator_ref, .. } if generator_ref == name);
+        let gate = record
+            .placements
+            .iter()
+            .position(named(super::super::water::GATEWAY))
+            .expect("a seeded gate");
+        let before = fingerprints(&record)[scatter].clone();
+        // Made the owner's own - walked off nothing - the gate still counts.
+        if let Placement::Absolute { avoid_water, .. } = &mut record.placements[gate] {
+            *avoid_water = false;
+        }
+        let owned = fingerprints(&record)[scatter].clone();
+        assert_ne!(owned, before);
+        if let Placement::Absolute { transform, .. } = &mut record.placements[gate] {
+            transform.translation.0[0] += 5.0;
+        }
+        assert_ne!(fingerprints(&record)[scatter], owned, "a moved gate");
+        let moved = fingerprints(&record)[scatter].clone();
+        if let Some(Placement::Absolute { generator_ref, .. }) = record
+            .placements
+            .iter_mut()
+            .find(|p| named(super::super::scatter::LANDMARK)(p))
+        {
+            *generator_ref = "landmark_copy".into();
+        }
+        assert_ne!(fingerprints(&record)[scatter], moved, "another landmark");
     }
 
     #[test]

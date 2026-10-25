@@ -2021,7 +2021,7 @@ mod tests {
     #[test]
     fn a_landing_turns_the_eyes_to_its_facing() {
         let (mut app, camera, _, _) = eyes_app(false);
-        let landing = crate::player::FacingSet(Quat::from_rotation_y(2.0));
+        let landing = crate::player::FacingSet(Quat::from_rotation_y(2.0), None);
         frames(&mut app, 2);
         app.world_mut().write_message(landing);
         frames(&mut app, 1);

@@ -107,6 +107,40 @@ impl MonumentSpot {
     }
 }
 
+/// How far ahead of a viewpoint's landing its monument stands (m, #1777):
+/// nearer than the gate, so the two step back from the view in turn.
+const MONUMENT_AHEAD: f32 = 3.0;
+
+impl MonumentSpot {
+    /// The monument at a seeded world's viewpoint (#1777): beside the view
+    /// on the side its gate is not ([`GatewaySpot::at_viewpoint`] with
+    /// `!gate_side`), a little ahead of the landing and nearer it than the
+    /// gate, outside the view's corridor, turned to face the landing.
+    pub fn at_viewpoint(
+        viewpoint: &super::Viewpoint,
+        monument_clearance: f32,
+        gate_side: bool,
+    ) -> Self {
+        let [tx, tz] = viewpoint.toward;
+        let right = if gate_side { [tz, -tx] } else { [-tz, tx] };
+        let aside = super::viewpoint::CORRIDOR_HALF + monument_clearance;
+        let [lx, lz] = viewpoint.landing;
+        let offset = [
+            lx + tx * MONUMENT_AHEAD + right[0] * aside,
+            lz + tz * MONUMENT_AHEAD + right[1] * aside,
+        ];
+        let yaw_rad = libm::atan2f(offset[0] - lx, offset[1] - lz);
+        Self { offset, yaw_rad }
+    }
+}
+
+/// Which side of a viewpoint's view its gate stands on (#1777): the
+/// monument's side bit ([`MonumentSpot::beside_gate`]) turned over, so a
+/// world whose monument stood on the left now has it there still.
+pub fn gate_side(did: &str) -> bool {
+    !side_bit(did)
+}
+
 /// One stable bit from the DID - which side of the approach the monument
 /// stands on.
 ///

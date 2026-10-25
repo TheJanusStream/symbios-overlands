@@ -99,7 +99,13 @@ pub fn apply_ruin(node: &mut Generator, escalation: f32, seed: u64) {
 /// taken as it always was, so the rest of the ruin (sink, shrink, collapse,
 /// rubble, dead lights) comes out of the same stream.
 pub fn apply_ruin_bounded(node: &mut Generator, escalation: f32, seed: u64, max_lean: Option<f32>) {
-    ruin(node, escalation, seed, max_lean, false);
+    ruin(
+        node,
+        EscalationTier::from_unit(escalation),
+        seed,
+        max_lean,
+        false,
+    );
 }
 
 /// [`apply_ruin_bounded`] for a building standing on its own plinth - a
@@ -112,14 +118,24 @@ pub fn apply_ruin_bounded(node: &mut Generator, escalation: f32, seed: u64, max_
 /// seed 14's castle leaned about 8 degrees. The lots keep
 /// [`apply_ruin_bounded`] exactly, so a saved district grows as it was.
 pub fn apply_ruin_level(node: &mut Generator, escalation: f32, seed: u64, max_lean: Option<f32>) {
-    ruin(node, escalation, seed, max_lean, true);
+    apply_ruin_level_at(node, EscalationTier::from_unit(escalation), seed, max_lean);
+}
+
+/// [`apply_ruin_level`] at a world's escalation `tier`, which is all of its
+/// escalation the pass reads - for the settlement plan, which reads how tall
+/// its landmark stands as the build will draw it (#1777).
+pub fn apply_ruin_level_at(
+    node: &mut Generator,
+    tier: EscalationTier,
+    seed: u64,
+    max_lean: Option<f32>,
+) {
+    ruin(node, tier, seed, max_lean, true);
 }
 
 /// The ruin pass, its plinth kept `level` or not ([`apply_ruin_level`]).
-fn ruin(node: &mut Generator, escalation: f32, seed: u64, max_lean: Option<f32>, level: bool) {
-    let Some((tier_lean, max_sink, min_scale, collapse_p)) =
-        envelope(EscalationTier::from_unit(escalation))
-    else {
+fn ruin(node: &mut Generator, tier: EscalationTier, seed: u64, max_lean: Option<f32>, level: bool) {
+    let Some((tier_lean, max_sink, min_scale, collapse_p)) = envelope(tier) else {
         return;
     };
     let max_lean = max_lean.map_or(tier_lean, |bound| tier_lean.min(bound.max(0.0)));
@@ -277,6 +293,14 @@ impl Bounds {
             (self.max[2] - self.min[2]) * 0.5,
         ]
     }
+}
+
+/// [`kind_bounds`] for the crate (#1777): a kind's coarse local box,
+/// `(min, max)`, read off its parameters without meshing it - conservative,
+/// as the support test wants it. A seeded settlement reads its landmark's
+/// height from these (`catalogue::items::measure::coarse_top`).
+pub(crate) fn kind_box(kind: &GeneratorKind) -> Option<([f32; 3], [f32; 3])> {
+    kind_bounds(kind).map(|b| (b.min, b.max))
 }
 
 /// Coarse bounds of a kind's own geometry in its local frame, or `None` for

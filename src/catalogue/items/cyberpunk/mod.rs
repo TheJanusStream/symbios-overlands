@@ -420,8 +420,9 @@ mod tests {
     /// from a building's centre, so a clearance cut to the building's own
     /// reach stood props inside the megatower's podium - 19 in the Calm and
     /// Tense rooms of seeds 0-6000, and 28 more against a wall. Over the
-    /// Cyberpunk rooms of seeds 0-1000: no solid of any prop meets a solid
-    /// of a downtown building at the ground, in plan, within 5 cm.
+    /// Cyberpunk rooms of seeds 0-1400: no solid of any prop meets a solid
+    /// of a downtown building at the ground, in plan, within 5 cm - more
+    /// seeds than 1000 since the props keep off a viewpoint's view (#1777).
     #[test]
     fn no_prop_stands_in_a_downtown_building() {
         use crate::pds::{GeneratorKind, Placement};
@@ -488,7 +489,7 @@ mod tests {
             .map(|e| (e.slug(), size(&e.build("")).expect("a plinth root")))
             .collect();
         let (mut rooms, mut pairs) = (0, 0);
-        for seed in 0..1000_u64 {
+        for seed in 0..1400_u64 {
             if SceneCharacter::for_seed(seed).theme != ThemeArchetype::Cyberpunk {
                 continue;
             }

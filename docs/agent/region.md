@@ -4,7 +4,8 @@ A world's own settings live in its record beside the things placed in it:
 `/generators/base_terrain` (the ground, with the water as its child),
 `/environment` (sun, sky, fog, clouds, the water's look, the ambient sound,
 the time of day and the weather),
-`/default_landing` (where and which way visitors arrive) and `/geo_source`
+`/default_landing` (where and which way visitors arrive, how far down their
+camera looks and whether they are kept out of water) and `/geo_source`
 (a square of real Berlin the ground is built from - see "Real Berlin
 ground" below). All of it is edited with `room set` and kept with `save`,
 like a building.
@@ -34,6 +35,23 @@ A Berlin square carries neither. A world seeded at a dark hour (the blue hour
 or night) also has insects in its ambient sound where a green biome's birds
 would sing (#1771) - baked into its `/environment/ambient_audio` like the
 rest, so a new hour set by hand keeps the birds or the insects it had.
+
+Such a world's visitors arrive at a viewpoint (#1777): out at the
+settlement's edge, farther from its landmark the taller it is - 30 m or so
+for a hovel, 150 for a tower, a median 43 - on level, dry ground, looking at
+it across a view the probe found clear, nothing of the settlement nor any
+tree standing in it. The gate and the owner's monument stand either side of
+the view a few metres ahead, facing the landing. `/default_landing` there
+carries `pitch_deg`, how far below level the arrival camera looks (its rest
+is about 23; a tall landmark asks for less, so its top stands in the first
+frame), and `avoid_water: true`: where the finished ground puts the landing
+in water or on a cliff the game walks it off, and where it walks the landing
+or the landmark it turns the landing to face the landmark where it stands.
+Turn such a landing yourself and it keeps your facing: it turns, and keeps
+its view clear of trees, only while it looks at its landmark. The settlement
+is drawn four ways and the best kept (#1778): the one whose viewpoint scores
+best, whose landmark fills more of the first frame, and whose first frame
+shows more of its other buildings, on ground that fits them best.
 
 ## The land is a recipe, not a sculpt
 
@@ -118,9 +136,11 @@ the skyline comes from placed rock ([Backdrop](#backdrop-making-the-far-places-r
   `views.py --hour 11` (and 15 for the low sun) (#1730).
 - **Seeded worlds as visitors first see them** (#1768): `render --first-view
   0..300` prints, for each seed that builds its own terrain, the hour and the
-  key light against the landing's view, the weather, the landing's slope, the
-  landmark's distance and how much of its height the arrival camera sees, and
-  what stands in the first 40 m of the view - then a summary.
+  key light against the landing's view, the weather, the landing's slope and
+  its camera's pitch (`-` for the rest), the landmark's distance and how much
+  of its height the arrival camera sees, what stands in the first 40 m of the
+  view, and how many of the settlement's buildings it shows within 200 m -
+  then a summary.
   `render --album 0..24` draws each such seed's arrival frame (`--world N
   --focus arrival`, the game's own camera) into one contact sheet, and
   `--weather own` holds each world in its own weather at its heaviest.
@@ -777,8 +797,9 @@ A forest is a few generators and a scatter placement each:
   `{"kind": "gateway", "picker": "open"}` is the proof; `null` inside it
   means the zone is not where it is drawn.
 - Let people walk in: stand the zone from about 0.4 m BELOW the ground to
-  above head height, 0.8-1 m deep, on the path arrivals take (seeded worlds
-  put it a few metres behind the landing, facing it). A hand-placed gate
+  above head height, 0.8-1 m deep, on the path arrivals take (a seeded
+  world stands its gate a few metres from the landing, facing it: beside the
+  view on its own ground, ahead of it on a Berlin square). A hand-placed gate
   wants `avoid_water: false`: with it true (as copied from a seeded
   gateway) the game stands the gate on the highest ground within its
   footprint, and on a 14-degree slope the zone floated 0.8 m up.
@@ -1741,8 +1762,9 @@ reshaping, `walk-to` the landing again.
 
 **Judge the arrival from the camera, not from eye height.** A new visitor's
 first picture comes from the game's camera, about 11 m behind them and
-5-6 m above the ground, and the camera avoids only the terrain - never a
-building. It turns behind the body on every arrival (#1785) - after the
+5-6 m above the ground - lower, looking less far down, where the landing
+sets its own `pitch_deg` (#1777) - and the camera avoids only the terrain,
+never a building. It turns behind the body on every arrival (#1785) - after the
 login, through a gateway, back at the landing - so the landing's yaw is the
 first picture's; before that, the first picture looked wherever the login
 screen's slow orbit, or the last world, had left the camera. The Understory's gateway stood 7 m behind the landing, so every
@@ -1759,7 +1781,9 @@ flat grass, a looming church and a sliver of the mere: a brow hides the whole
 slope below it. At the brow the same camera looked down the street to the
 mere. Turning the landing's yaw 12 degrees then brought the mill on the far
 hill fully into the frame; the horizon sits near the top of the arrival
-frame, so a far landmark shows there or not at all. Keep a gateway (or anything tall) either more than
+frame, so a far landmark shows there or not at all - unless the landing's
+`pitch_deg` lowers the camera's gaze, which brings the horizon, and a tall
+landmark's top, down into the frame. Keep a gateway (or anything tall) either more than
 about 13 m behind the landing, so the camera sits in front of it, or off
 the line behind it - moved 8 m back along the same line, the gate still
 faces the landing, and walking in still read `picker: open`.

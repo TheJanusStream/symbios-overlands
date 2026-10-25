@@ -4,8 +4,9 @@
 //!
 //! **The arrival camera** is the game's own on arrival (#1785): behind the
 //! body set down at the landing, facing the way the landing faces, at the
-//! rest radius and pitch ([`ORBIT_RADIUS`](crate::config::camera::ORBIT_RADIUS),
-//! [`ORBIT_PITCH`](crate::config::camera::ORBIT_PITCH)), looking at the
+//! rest radius ([`ORBIT_RADIUS`](crate::config::camera::ORBIT_RADIUS)) and at
+//! the landing's own pitch where it sets one (#1777), else the rest pitch
+//! ([`ORBIT_PITCH`](crate::config::camera::ORBIT_PITCH)), looking at the
 //! body's origin a metre over the ground
 //! ([`SPAWN_HEIGHT_OFFSET`](crate::config::rover::SPAWN_HEIGHT_OFFSET)), and
 //! slid in along its ray where rising ground behind the body would hide it,
@@ -25,6 +26,9 @@
 //!   `moon` says whether the key light is the moon.
 //! - `weather`: kind, intensity, share of the time and spell length.
 //! - `slope`: the ground's slope under the landing.
+//! - `pitch`: the arrival camera's pitch in degrees below level where the
+//!   landing sets one - a seeded world's viewpoint does (#1777) - else `-`
+//!   for the rest pitch.
 //! - `lm_m`, `lm_off`: how far the landmark stands from the landing, and
 //!   how far its bearing is from the view's.
 //! - `seen`: the share of the landmark's height, from its foot to its drawn
@@ -37,6 +41,10 @@
 //!   within [`IN_WAY_M`] of the line from the camera to the landmark,
 //!   between the two and short of the landmark's own ground - the gate
 //!   among them wherever it stands on that line, as a seeded one does.
+//! - `town`: the settlement in view (#1778) - how many of its buildings
+//!   besides the landmark (not its props, gate or monument) stand in the
+//!   frame within [`TOWN_REACH_M`] of the body, in sight [`TOWN_UP_M`] over
+//!   their ground.
 //!
 //! **`--album a..b`** draws each procedural seed's arrival frame through this
 //! binary's own `--world N --focus arrival`, `--album-jobs` at a time, and
@@ -63,6 +71,14 @@ pub(super) const REACH_M: f32 = 40.0;
 /// its way, metres.
 pub(super) const IN_WAY_M: f32 = 3.0;
 
+/// How far from the body the settlement's buildings are counted in view,
+/// metres (`town`, #1778).
+pub(super) const TOWN_REACH_M: f32 = 200.0;
+
+/// How high over its ground a building is looked for (`town`), metres: its
+/// first storey.
+const TOWN_UP_M: f32 = 3.0;
+
 /// The frame's width over its height: the game is judged on 16:9.
 const ASPECT: f32 = 16.0 / 9.0;
 
@@ -87,6 +103,16 @@ pub(super) struct ArrivalView {
     pub(super) yaw_deg: f32,
 }
 
+/// The pitch the arrival camera looks down at over `landing`, radians: its
+/// own where it sets one (#1777), else the orbit's rest.
+pub(super) fn arrival_pitch(landing: &crate::pds::DefaultLanding) -> f32 {
+    landing
+        .pitch_deg
+        .map_or(crate::config::camera::ORBIT_PITCH, |pitch| {
+            pitch.0.to_radians()
+        })
+}
+
 impl ArrivalView {
     /// The arrival over `terrain`: the body set down at `record`'s landing
     /// as the compile sets it down ([`crate::world_builder::compile::landing_on`]),
@@ -97,15 +123,25 @@ impl ArrivalView {
         let [x, z] = landing.pos.0;
         let floor = terrain.world_height_at(x, z) + crate::config::rover::SPAWN_HEIGHT_OFFSET;
         let focus = Vec3::new(x, landing.y.map_or(floor, |y| y.0.max(floor)), z);
-        Some(Self::around(focus, landing.yaw_deg.0, terrain))
+        Some(Self::around(
+            focus,
+            landing.yaw_deg.0,
+            arrival_pitch(&landing),
+            terrain,
+        ))
     }
 
-    /// The camera behind a body at `focus` facing `yaw_deg`, pulled in off
-    /// `terrain` as the player's is.
-    pub(super) fn around(focus: Vec3, yaw_deg: f32, terrain: &FinishedHeightMap) -> Self {
+    /// The camera behind a body at `focus` facing `yaw_deg`, looking down at
+    /// `pitch` radians, pulled in off `terrain` as the player's is.
+    pub(super) fn around(
+        focus: Vec3,
+        yaw_deg: f32,
+        pitch: f32,
+        terrain: &FinishedHeightMap,
+    ) -> Self {
         let eye = crate::camera::clear_of_terrain(
             focus,
-            rest_eye(focus, yaw_deg),
+            rest_eye(focus, yaw_deg, pitch),
             &crate::state::LocalSettings::default(),
             terrain,
         );
@@ -135,15 +171,14 @@ impl ArrivalView {
     }
 }
 
-/// Where the orbit camera stands round `focus` at the rest radius and pitch,
-/// turned to look the way a body facing `yaw_deg` does - the orbit's own
-/// construction, yaw about the vertical and then pitch - before any terrain
-/// pulls it in.
-pub(super) fn rest_eye(focus: Vec3, yaw_deg: f32) -> Vec3 {
+/// Where the orbit camera stands round `focus` at the rest radius and
+/// `pitch`, turned to look the way a body facing `yaw_deg` does - the
+/// orbit's own construction, yaw about the vertical and then pitch - before
+/// any terrain pulls it in.
+pub(super) fn rest_eye(focus: Vec3, yaw_deg: f32, pitch: f32) -> Vec3 {
     // A turn about the vertical always has a heading.
     let yaw = crate::camera::yaw_behind(crate::player::spawn_facing(yaw_deg)).unwrap_or(0.0);
-    let rotation =
-        Quat::from_rotation_y(yaw) * Quat::from_rotation_x(-crate::config::camera::ORBIT_PITCH);
+    let rotation = Quat::from_rotation_y(yaw) * Quat::from_rotation_x(-pitch);
     focus + rotation * Vec3::new(0.0, 0.0, crate::config::camera::ORBIT_RADIUS)
 }
 
@@ -279,6 +314,8 @@ pub(super) struct FirstView {
     pub(super) moon: bool,
     pub(super) weather: Option<String>,
     pub(super) slope_deg: f32,
+    /// The landing's own arrival pitch, degrees; `None` for the rest pitch.
+    pub(super) pitch_deg: Option<f32>,
     /// The landmark's distance, bearing off the view and seen share; `None`
     /// for a world with no landmark.
     pub(super) landmark: Option<(f32, f32, f32)>,
@@ -286,6 +323,7 @@ pub(super) struct FirstView {
     pub(super) rocks: usize,
     pub(super) built: usize,
     pub(super) in_way: usize,
+    pub(super) town: usize,
 }
 
 /// `record`'s first view over `terrain`, with its day read at `unix_secs`.
@@ -321,6 +359,7 @@ pub(super) fn first_view(
     // Where each seeded structure stands, as the compile walks it.
     let mut landmark = None;
     let mut structures = Vec::new();
+    let mut town = Vec::new();
     for placement in &record.placements {
         let Placement::Absolute {
             generator_ref,
@@ -352,6 +391,14 @@ pub(super) fn first_view(
             landmark = Some((stands, top, avoid_water_clearance.0));
         } else {
             structures.push(stands);
+            // A building of the settlement's: a secondary, a hamlet's house,
+            // another cluster's landmark.
+            if (generator_ref.starts_with("settlement_")
+                && !generator_ref.starts_with("settlement_prop_"))
+                || generator_ref.starts_with("landmark_")
+            {
+                town.push(stands);
+            }
         }
     }
 
@@ -397,6 +444,15 @@ pub(super) fn first_view(
         }
     }
     let built = structures.iter().filter(|at| near(**at)).count();
+    let town = town
+        .iter()
+        .filter(|at| {
+            let point = **at + Vec3::Y * TOWN_UP_M;
+            Vec2::new(at.x - view.focus.x, at.z - view.focus.z).length() <= TOWN_REACH_M
+                && view.frames(point)
+                && in_sight(terrain, view.eye, point, 0.0)
+        })
+        .count();
     in_the_way += structures.iter().filter(|at| in_way(**at)).count();
 
     let landmark = landmark.map(|(stands, top, ground_m)| {
@@ -424,11 +480,17 @@ pub(super) fn first_view(
         moon,
         weather,
         slope_deg: normal.y.clamp(-1.0, 1.0).acos().to_degrees(),
+        pitch_deg: record
+            .default_landing
+            .as_ref()
+            .and_then(|l| l.pitch_deg)
+            .map(|p| p.0),
         landmark,
         trees,
         rocks,
         built,
         in_way: in_the_way,
+        town,
     })
 }
 
@@ -492,7 +554,7 @@ pub(super) fn print_first_view(what: &str) {
     let seeds = seeds(what).unwrap_or_else(|e| panic!("--first-view {e}"));
     let now = now_unix_secs();
     println!(
-        "{:>5}  {:<14} {:<10} {:>5} {:>5} {:>4} {:<4} {:<22} {:>5} {:>5} {:>6} {:>5} {:>5} {:>5} {:>5} {:>6}",
+        "{:>5}  {:<14} {:<10} {:>5} {:>5} {:>4} {:<4} {:<22} {:>5} {:>5} {:>5} {:>6} {:>5} {:>5} {:>5} {:>5} {:>6} {:>4}",
         "seed",
         "theme",
         "biome",
@@ -502,13 +564,15 @@ pub(super) fn print_first_view(what: &str) {
         "key",
         "weather",
         "slope",
+        "pitch",
         "lm_m",
         "lm_off",
         "seen",
         "trees",
         "rocks",
         "built",
-        "in_way"
+        "in_way",
+        "town"
     );
     let mut rows = Vec::new();
     let mut berlin = 0usize;
@@ -531,7 +595,7 @@ pub(super) fn print_first_view(what: &str) {
             |(d, off, seen)| (format!("{d:.0}"), format!("{off:.0}"), format!("{seen:.2}")),
         );
         println!(
-            "{:>5}  {:<14} {:<10} {:>5} {:>5.1} {:>4.0} {:<4} {:<22} {:>5.1} {:>5} {:>6} {:>5} {:>5} {:>5} {:>5} {:>6}",
+            "{:>5}  {:<14} {:<10} {:>5} {:>5.1} {:>4.0} {:<4} {:<22} {:>5.1} {:>5} {:>5} {:>6} {:>5} {:>5} {:>5} {:>5} {:>6} {:>4}",
             seed,
             truncate(row.theme, 14),
             truncate(row.biome, 10),
@@ -541,13 +605,16 @@ pub(super) fn print_first_view(what: &str) {
             if row.moon { "moon" } else { "sun" },
             row.weather.as_deref().unwrap_or("-"),
             row.slope_deg,
+            row.pitch_deg
+                .map_or_else(|| "-".to_string(), |p| format!("{p:.1}")),
             lm_m,
             lm_off,
             seen,
             row.trees,
             row.rocks,
             row.built,
-            row.in_way
+            row.in_way,
+            row.town
         );
         rows.push(row);
     }
@@ -629,14 +696,25 @@ fn print_summary(rows: &[FirstView], berlin: usize) {
             .join(", ")
     );
     let mut slopes: Vec<f32> = rows.iter().map(|r| r.slope_deg).collect();
+    let mut pitches: Vec<f32> = rows.iter().filter_map(|r| r.pitch_deg).collect();
     println!(
-        "  first {REACH_M:.0} m  a tree in view {}, a rock {}, a structure {}; something in the landmark's way {}; landing slope median {:.1} deg (p90 {:.1})",
+        "  first {REACH_M:.0} m  a tree in view {}, a rock {}, a structure {}; something in the landmark's way {}; landing slope median {:.1} deg (p90 {:.1}); a pitch of its own {} (median {:.1} deg, p10 {:.1})",
         count(&|r| r.trees > 0),
         count(&|r| r.rocks > 0),
         count(&|r| r.built > 0),
         count(&|r| r.in_way > 0),
         percentile(&mut slopes, 0.5),
         percentile(&mut slopes, 0.9),
+        pitches.len(),
+        percentile(&mut pitches, 0.5),
+        percentile(&mut pitches, 0.1),
+    );
+    let town: usize = rows.iter().map(|r| r.town).sum();
+    println!(
+        "  town      buildings of the settlement in view within {TOWN_REACH_M:.0} m: {town} in all, {:.2} a world; none in {}, three or more in {}",
+        town as f32 / n as f32,
+        count(&|r| r.town == 0),
+        count(&|r| r.town >= 3),
     );
 }
 
@@ -829,7 +907,7 @@ mod tests {
         let flat = terrain(65, 2.0, |_, _| 0.0);
         let focus = Vec3::new(0.0, 1.0, 0.0);
         for yaw in [0.0f32, 90.0, 180.0, 233.0] {
-            let view = ArrivalView::around(focus, yaw, &flat);
+            let view = ArrivalView::around(focus, yaw, crate::config::camera::ORBIT_PITCH, &flat);
             let back = view.eye - view.focus;
             let pitch = crate::config::camera::ORBIT_PITCH;
             let radius = crate::config::camera::ORBIT_RADIUS;
@@ -845,7 +923,7 @@ mod tests {
                 "yaw {yaw}: looks {looks}, faces {facing}"
             );
         }
-        let east = ArrivalView::around(focus, 90.0, &flat);
+        let east = ArrivalView::around(focus, 90.0, crate::config::camera::ORBIT_PITCH, &flat);
         assert!(east.eye.x > 11.0 && east.eye.z.abs() < 1e-3, "{}", east.eye);
     }
 
@@ -856,7 +934,7 @@ mod tests {
     fn rising_ground_behind_the_body_pulls_the_camera_in() {
         let ramp = terrain(65, 2.0, |_, z| (z * 0.8).max(0.0));
         let focus = Vec3::new(0.0, 1.0, 0.0);
-        let view = ArrivalView::around(focus, 0.0, &ramp);
+        let view = ArrivalView::around(focus, 0.0, crate::config::camera::ORBIT_PITCH, &ramp);
         let reach = view.eye.distance(view.focus);
         assert!(
             reach < crate::config::camera::ORBIT_RADIUS - 1.0,
@@ -874,7 +952,12 @@ mod tests {
     #[test]
     fn the_frame_holds_the_ground_ahead_and_not_what_stands_above_the_eye() {
         let flat = terrain(65, 2.0, |_, _| 0.0);
-        let view = ArrivalView::around(Vec3::new(0.0, 1.0, 0.0), 0.0, &flat);
+        let view = ArrivalView::around(
+            Vec3::new(0.0, 1.0, 0.0),
+            0.0,
+            crate::config::camera::ORBIT_PITCH,
+            &flat,
+        );
         assert!(view.frames(Vec3::new(0.0, 0.0, -10.0)), "the ground ahead");
         assert!(!view.frames(Vec3::new(0.0, 20.0, 0.0)), "overhead");
         assert!(!view.frames(Vec3::new(0.0, 0.0, 30.0)), "behind the camera");

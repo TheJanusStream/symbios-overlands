@@ -3877,7 +3877,7 @@ fn turns_told_landing(announce: bool, arrive: bool) -> Vec<f32> {
         };
         if announce && frame == 6 {
             app.world_mut()
-                .write_message(crate::player::FacingSet(landing));
+                .write_message(crate::player::FacingSet(landing, None));
         }
         *app.world_mut()
             .get_mut::<Transform>(chassis)

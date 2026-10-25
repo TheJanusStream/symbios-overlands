@@ -227,8 +227,20 @@ pub struct PlayerMoveRequest(Option<PlayerMove>);
 /// the camera turns the eyes to this first: without it the landing's facing
 /// was lost to the way the player looked before. A scatter, with no landing,
 /// faces no way anyone chose, and says nothing.
+///
+/// The second field is the pitch the camera looks down at, radians, where the
+/// landing sets one ([`crate::pds::DefaultLanding::pitch_deg`], #1777: a
+/// seeded viewpoint's, which fits its landmark in the first frame); `None`
+/// keeps the camera's rest pitch.
 #[derive(Message, Clone, Copy, Debug, PartialEq)]
-pub struct FacingSet(pub Quat);
+pub struct FacingSet(pub Quat, pub Option<f32>);
+
+impl FacingSet {
+    /// The facing `landing`'s pose is set down at: `facing`, and its pitch.
+    pub(crate) fn at(facing: Quat, landing: &crate::pds::DefaultLanding) -> Self {
+        Self(facing, landing.pitch_deg.map(|pitch| pitch.0.to_radians()))
+    }
+}
 
 impl PlayerMoveRequest {
     /// Ask for a move on the next `Update`.
@@ -326,8 +338,8 @@ pub(super) fn apply_player_move(
                 .and_then(|r| crate::world_builder::compile::landing_on(&r.0, &hm_res));
             let pose = recovery_pose(&hm_res, landing, clearance);
             rot.0 = pose.rot;
-            if landing.is_some() {
-                facing_set.write(FacingSet(pose.rot));
+            if let Some(landing) = &landing {
+                facing_set.write(FacingSet::at(pose.rot, landing));
             }
             (pose.pos, RecoveryReason::Requested.toast())
         }
@@ -422,8 +434,8 @@ pub(super) fn respawn_if_fallen(
     let pose = recovery_pose(&hm_res, landing, clearance);
     pos.0 = pose.pos;
     rot.0 = pose.rot;
-    if landing.is_some() {
-        facing_set.write(FacingSet(pose.rot));
+    if let Some(landing) = &landing {
+        facing_set.write(FacingSet::at(pose.rot, landing));
     }
     lin_vel.0 = Vec3::ZERO;
     ang_vel.0 = Vec3::ZERO;
@@ -560,6 +572,7 @@ mod tests {
             pos: crate::pds::Fp2([6.0, -4.0]),
             y: None,
             yaw_deg: crate::pds::Fp(90.0),
+            ..Default::default()
         };
         for fall in [false, true] {
             let (set_down, said) = recover(fall, Some(landing));
@@ -567,9 +580,20 @@ mod tests {
                 set_down.abs_diff_eq(Quat::from_rotation_y(90f32.to_radians()), 1e-5),
                 "fall {fall}: set down facing the landing's way, {set_down:?}"
             );
-            assert_eq!(said, vec![FacingSet(set_down)], "fall {fall}");
+            assert_eq!(said, vec![FacingSet(set_down, None)], "fall {fall}");
             let (_, said) = recover(fall, None);
             assert!(said.is_empty(), "fall {fall}: a scatter says nothing");
+            // A landing's own pitch is said with its facing (#1777).
+            let pitched = crate::pds::DefaultLanding {
+                pitch_deg: Some(crate::pds::Fp(14.0)),
+                ..landing
+            };
+            let (set_down, said) = recover(fall, Some(pitched));
+            assert_eq!(
+                said,
+                vec![FacingSet(set_down, Some(14f32.to_radians()))],
+                "fall {fall}"
+            );
         }
     }
 

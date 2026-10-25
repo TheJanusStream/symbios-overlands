@@ -133,6 +133,55 @@ pub fn tree_bounds(root: &Generator) -> Option<Bounds> {
     out
 }
 
+/// The highest point `root` draws, in the frame its root's own transform
+/// maps into, read cheaply (#1777): each primitive's coarse box off its
+/// parameters (`pds::ruin::kind_box`), and each shape grammar terminal's
+/// scope box, which the terminal's unit mesh fills (`world_builder::shape`,
+/// `scope_to_transform`) - so nothing is meshed, and a part whose mesh
+/// stops short of its box reads as the box. `None` for a tree that draws
+/// nothing it reads. A seeded settlement sizes its arrival's view from it:
+/// what a world reads on every load must not mesh a castle.
+pub fn coarse_top(root: &Generator) -> Option<f32> {
+    fn visit(node: &Generator, parent: bevy::math::Affine3A, top: &mut Option<f32>) {
+        let world = parent * transform_of(&node.transform).compute_affine();
+        let mut raise = |y: f32| *top = Some(top.map_or(y, |t: f32| t.max(y)));
+        let corners = |lo: Vec3, hi: Vec3| {
+            (0..8).map(move |corner: usize| {
+                let pick = |bit: usize, a: f32, b: f32| if corner & bit == 0 { a } else { b };
+                Vec3::new(
+                    pick(1, lo.x, hi.x),
+                    pick(2, lo.y, hi.y),
+                    pick(4, lo.z, hi.z),
+                )
+            })
+        };
+        if let Some(def) = node.kind.shape_def() {
+            if let Ok(model) = def.derive() {
+                for terminal in &model.terminals {
+                    let placed = world * def.bake(terminal).transform.compute_affine();
+                    for p in corners(Vec3::splat(-0.5), Vec3::splat(0.5)) {
+                        raise(placed.transform_point3(p).y);
+                    }
+                }
+            }
+        } else if let Some((lo, hi)) = crate::pds::ruin::kind_box(&node.kind) {
+            for p in corners(Vec3::from_array(lo), Vec3::from_array(hi)) {
+                raise(world.transform_point3(p).y);
+            }
+        } else if is_primitive(&node.kind) {
+            for p in crate::world_builder::primitive_points(&node.kind) {
+                raise(world.transform_point3(p).y);
+            }
+        }
+        for child in &node.children {
+            visit(child, world, top);
+        }
+    }
+    let mut top = None;
+    visit(root, bevy::math::Affine3A::IDENTITY, &mut top);
+    top
+}
+
 pub(super) fn walk(
     node: &Generator,
     world: &Transform,

@@ -45,6 +45,9 @@ pub fn gateway_entry(
         .or_else(|| crate::catalogue::by_slug("civic_gateway"))
 }
 
+/// How far ahead of a viewpoint's landing its gate stands (m, #1777).
+const GATE_AHEAD: f32 = 6.0;
+
 /// Derived gateway placement for one room.
 #[derive(Clone, Copy, Debug)]
 pub struct GatewaySpot {
@@ -97,6 +100,33 @@ impl GatewaySpot {
         let landing_dist = (gate_dist - LANDING_STANDOFF).max(MIN_LANDING_DIST);
         let landing = [bearing[0] * landing_dist, bearing[1] * landing_dist];
         Self::finish(offset, landing, bearing)
+    }
+
+    /// The gate at a seeded world's viewpoint (#1777): a few metres ahead of
+    /// the landing and beside the view, on `side` of it - the right seen
+    /// from the landing when `true` - its footprint outside the view's
+    /// corridor ([`super::viewpoint::CORRIDOR_HALF`]), turned to face the
+    /// landing, so it frames the landmark beyond rather than standing on
+    /// the line to it. The landing looks along the viewpoint's own facing,
+    /// at the landmark.
+    pub fn at_viewpoint(viewpoint: &super::Viewpoint, gate_clearance: f32, side: bool) -> Self {
+        let [tx, tz] = viewpoint.toward;
+        // Right of a body looking (tx, tz), seen from above with -Z ahead.
+        let right = if side { [-tz, tx] } else { [tz, -tx] };
+        let aside = super::viewpoint::CORRIDOR_HALF + gate_clearance;
+        let [lx, lz] = viewpoint.landing;
+        let offset = [
+            lx + tx * GATE_AHEAD + right[0] * aside,
+            lz + tz * GATE_AHEAD + right[1] * aside,
+        ];
+        // Facing the landing: to face direction `d`, yaw = atan2(-d.x, -d.z).
+        let yaw_rad = libm::atan2f(offset[0] - lx, offset[1] - lz);
+        Self {
+            offset,
+            yaw_rad,
+            landing: viewpoint.landing,
+            landing_yaw_deg: viewpoint.yaw_deg(),
+        }
     }
 
     /// Shared tail: the gate faces the origin; the landing faces the gate

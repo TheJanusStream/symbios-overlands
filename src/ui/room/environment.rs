@@ -391,7 +391,17 @@ pub(super) fn draw_environment_tab(
     egui::CollapsingHeader::new("Region source")
         .default_open(false)
         .show(ui, |ui| draw_region_source(ui, geo_source, ground, dirty));
-    draw_arrival_point(ui, landing, player_pose, dirty);
+    // A square of Berlin walks its landing ashore whatever the record says
+    // (#1589).
+    let berlin = geo_source
+        .as_ref()
+        .and_then(GeoSource::berlin_square)
+        .is_some();
+    egui::CollapsingHeader::new("Arrival point")
+        .default_open(false)
+        .show(ui, |ui| {
+            draw_arrival_point(ui, landing, player_pose, berlin, dirty)
+        });
 
     egui::CollapsingHeader::new("Lighting & sky")
         .default_open(true)
@@ -680,109 +690,162 @@ fn draw_arrival_point(
     ui: &mut egui::Ui,
     landing: &mut Option<DefaultLanding>,
     player_pose: Option<PlayerPose>,
+    berlin: bool,
     dirty: &mut bool,
 ) {
-    egui::CollapsingHeader::new("Arrival point")
-        .default_open(false)
-        .show(ui, |ui| {
-            let mut enabled = landing.is_some();
-            if ui
-                .checkbox(&mut enabled, "Set a custom arrival point")
-                .on_hover_text(
-                    "Where visitors come to rest when they enter without a specific \
-                     destination link - including through another world's gateway. \
-                     Off: they scatter near the world origin.",
-                )
-                .changed()
-            {
-                *landing = enabled.then(|| match player_pose {
-                    Some(p) => DefaultLanding {
-                        pos: Fp2([p.x, p.z]),
-                        y: None,
-                        yaw_deg: Fp(p.yaw_deg),
-                    },
-                    None => DefaultLanding::default(),
-                });
+    let mut enabled = landing.is_some();
+    if ui
+        .checkbox(&mut enabled, "Set a custom arrival point")
+        .on_hover_text(
+            "Where visitors come to rest when they enter without a specific \
+             destination link - including through another world's gateway. \
+             Off: they scatter near the world origin.",
+        )
+        .changed()
+    {
+        *landing = enabled.then(|| match player_pose {
+            Some(p) => DefaultLanding {
+                pos: Fp2([p.x, p.z]),
+                y: None,
+                yaw_deg: Fp(p.yaw_deg),
+                ..Default::default()
+            },
+            None => DefaultLanding::default(),
+        });
+        *dirty = true;
+    }
+
+    let Some(l) = landing.as_mut() else {
+        return;
+    };
+
+    if let Some(p) = player_pose
+        && ui
+            .button("⟲ Set to my position & facing")
+            .on_hover_text("Stamp your avatar's current spot and heading.")
+            .clicked()
+    {
+        l.pos = Fp2([p.x, p.z]);
+        l.yaw_deg = Fp(p.yaw_deg);
+        // Only overwrite the height when the owner is pinning one;
+        // a drop-pin pose keeps following the terrain.
+        if l.y.is_some() {
+            l.y = Some(Fp(p.y));
+        }
+        *dirty = true;
+    }
+
+    ui.add_space(2.0);
+    ui.horizontal(|ui| {
+        ui.label("X");
+        if ui
+            .add(crate::ui::num::drag(&mut l.pos.0[0]).speed(0.25))
+            .changed()
+        {
+            *dirty = true;
+        }
+        ui.label("Z");
+        if ui
+            .add(crate::ui::num::drag(&mut l.pos.0[1]).speed(0.25))
+            .changed()
+        {
+            *dirty = true;
+        }
+    });
+
+    ui.horizontal(|ui| {
+        ui.label("Facing (°)");
+        if ui
+            .add(
+                crate::ui::num::drag(&mut l.yaw_deg.0)
+                    .speed(1.0)
+                    .range(0.0..=360.0),
+            )
+            .on_hover_text(
+                "0° faces −Z, 90° faces −X: the facing turns counter-clockwise seen \
+                 from above.",
+            )
+            .changed()
+        {
+            *dirty = true;
+        }
+    });
+
+    let mut pin = l.y.is_some();
+    if ui
+        .checkbox(&mut pin, "Pin exact height")
+        .on_hover_text(
+            "Off: height follows the terrain at (X, Z) - best for ground-level \
+             spots. On: use a fixed Y, for a platform or rooftop.",
+        )
+        .changed()
+    {
+        l.y = pin.then(|| Fp(player_pose.map(|p| p.y).unwrap_or(0.0)));
+        *dirty = true;
+    }
+    if let Some(y) = l.y.as_mut() {
+        ui.horizontal(|ui| {
+            ui.label("Y");
+            if ui.add(crate::ui::num::drag(&mut y.0).speed(0.25)).changed() {
                 *dirty = true;
-            }
-
-            let Some(l) = landing.as_mut() else {
-                return;
-            };
-
-            if let Some(p) = player_pose
-                && ui
-                    .button("⟲ Set to my position & facing")
-                    .on_hover_text("Stamp your avatar's current spot and heading.")
-                    .clicked()
-            {
-                l.pos = Fp2([p.x, p.z]);
-                l.yaw_deg = Fp(p.yaw_deg);
-                // Only overwrite the height when the owner is pinning one;
-                // a drop-pin pose keeps following the terrain.
-                if l.y.is_some() {
-                    l.y = Some(Fp(p.y));
-                }
-                *dirty = true;
-            }
-
-            ui.add_space(2.0);
-            ui.horizontal(|ui| {
-                ui.label("X");
-                if ui
-                    .add(crate::ui::num::drag(&mut l.pos.0[0]).speed(0.25))
-                    .changed()
-                {
-                    *dirty = true;
-                }
-                ui.label("Z");
-                if ui
-                    .add(crate::ui::num::drag(&mut l.pos.0[1]).speed(0.25))
-                    .changed()
-                {
-                    *dirty = true;
-                }
-            });
-
-            ui.horizontal(|ui| {
-                ui.label("Facing (°)");
-                if ui
-                    .add(
-                        crate::ui::num::drag(&mut l.yaw_deg.0)
-                            .speed(1.0)
-                            .range(0.0..=360.0),
-                    )
-                    .on_hover_text(
-                        "0° faces −Z, 90° faces −X: the facing turns counter-clockwise seen \
-                         from above.",
-                    )
-                    .changed()
-                {
-                    *dirty = true;
-                }
-            });
-
-            let mut pin = l.y.is_some();
-            if ui
-                .checkbox(&mut pin, "Pin exact height")
-                .on_hover_text(
-                    "Off: height follows the terrain at (X, Z) - best for ground-level \
-                     spots. On: use a fixed Y, for a platform or rooftop.",
-                )
-                .changed()
-            {
-                l.y = pin.then(|| Fp(player_pose.map(|p| p.y).unwrap_or(0.0)));
-                *dirty = true;
-            }
-            if let Some(y) = l.y.as_mut() {
-                ui.horizontal(|ui| {
-                    ui.label("Y");
-                    if ui.add(crate::ui::num::drag(&mut y.0).speed(0.25)).changed() {
-                        *dirty = true;
-                    }
-                });
             }
         });
+    }
+
+    let mut tilt = l.pitch_deg.is_some();
+    if ui
+        .checkbox(&mut tilt, "Set the camera's tilt")
+        .on_hover_text(
+            "Off: a visitor's camera arrives at its usual tilt, looking a little \
+             down at them. On: it arrives looking down this many degrees - less \
+             to show something tall ahead in full.",
+        )
+        .changed()
+    {
+        l.pitch_deg = tilt.then(|| Fp(crate::config::camera::ORBIT_PITCH.to_degrees().round()));
+        *dirty = true;
+    }
+    if let Some(pitch) = l.pitch_deg.as_mut() {
+        ui.horizontal(|ui| {
+            ui.label("Tilt (°)");
+            if ui
+                .add(
+                    crate::ui::num::drag(&mut pitch.0)
+                        .speed(0.25)
+                        .range(DefaultLanding::pitch_range_deg()),
+                )
+                .on_hover_text("Degrees below level: 0 looks straight ahead, below 0 looks up.")
+                .changed()
+            {
+                *dirty = true;
+            }
+        });
+    }
+
+    if berlin {
+        // Shown as it acts: a square of Berlin walks its landing to open,
+        // dry ground however the record is set.
+        let mut always = true;
+        ui.add_enabled(
+            false,
+            egui::Checkbox::new(&mut always, "Keep visitors out of water"),
+        )
+        .on_disabled_hover_text(
+            "On a square of Berlin, visitors always arrive on open, dry ground: off \
+             the water and the streets.",
+        );
+    } else if ui
+        .checkbox(&mut l.avoid_water, "Keep visitors out of water")
+        .on_hover_text(
+            "On: where the ground puts this spot in water or on a cliff, visitors \
+             arrive on the nearest dry, gentle ground instead, still looking at \
+             the world's landmark if this spot does. A seeded world's arrival \
+             does. Off: they arrive exactly here.",
+        )
+        .changed()
+    {
+        *dirty = true;
+    }
 }
 
 /// What the Region source section says of Berlin's water (#1586, #1724):
@@ -1489,6 +1552,54 @@ mod tests {
             });
             assert_eq!(drawn, start);
             assert!(!dirty, "{start:?}");
+        }
+    }
+
+    /// The arrival point shown and not touched (#1777, the rule of every
+    /// editor widget): none, the default, a seeded viewpoint's - its tilt and
+    /// its keep out of water set - a Berlin square's negative facing over a
+    /// pinned height, and a tilt past the camera's limits, each with the
+    /// owner's pose to hand and without, and on a square of Berlin.
+    #[test]
+    fn an_untouched_arrival_point_writes_nothing() {
+        let viewpoint = DefaultLanding {
+            pos: Fp2([-86.8124, -54.6378]),
+            y: None,
+            yaw_deg: Fp(300.0),
+            pitch_deg: Some(Fp(16.0)),
+            avoid_water: true,
+        };
+        let starts = [
+            None,
+            Some(DefaultLanding::default()),
+            Some(viewpoint),
+            Some(DefaultLanding {
+                yaw_deg: Fp(-144.5),
+                y: Some(Fp(31.25)),
+                ..viewpoint
+            }),
+            Some(DefaultLanding {
+                pitch_deg: Some(Fp(120.0)),
+                ..viewpoint
+            }),
+        ];
+        let pose = PlayerPose {
+            x: 1.0,
+            y: 2.0,
+            z: 3.0,
+            yaw_deg: 45.0,
+        };
+        for (player_pose, berlin) in [(None, false), (Some(pose), false), (Some(pose), true)] {
+            for start in starts {
+                let ctx = egui::Context::default();
+                let mut drawn = start;
+                let mut dirty = false;
+                let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+                    draw_arrival_point(ui, &mut drawn, player_pose, berlin, &mut dirty);
+                });
+                assert_eq!(drawn, start);
+                assert!(!dirty, "{start:?}");
+            }
         }
     }
 

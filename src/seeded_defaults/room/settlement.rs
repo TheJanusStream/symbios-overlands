@@ -47,6 +47,7 @@ use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::{RngCore, SeedableRng};
 
 use super::siting::{BuildableRegion, FootprintGround, TerrainProbe};
+use super::viewpoint::Viewpoint;
 use crate::catalogue::{StructureRole, entries_for, entries_for_room};
 use crate::seeded_defaults::scene::{
     EscalationTier, ProsperityTier, SceneCharacter, ThemeArchetype, pick, range_f32, unit_f32,
@@ -420,6 +421,16 @@ pub struct SettlementPlan {
     /// square's gate keeps that bearing (#1589), its fixture pinned: the fit
     /// moves the procedural landmark, never the square's gate.
     pub unfitted_landmark: [f32; 2],
+    /// Where a visitor arrives (#1777): a viewpoint out at the settlement's
+    /// edge in view of the primary landmark, which the build stands a world's
+    /// own landing, gate and monument at - `None` where none fits, and the
+    /// forecourt stands in front of the landmark as it always did. A Berlin
+    /// square's build reads none of it.
+    pub viewpoint: Option<Viewpoint>,
+    /// How tall the primary landmark stands as the build draws it, metres
+    /// over its ground ([`landmark_top`]) - where its viewpoint was sought,
+    /// else 0 - which the plan's merit reads ([`Self::best_sited`], #1778).
+    landmark_top: f32,
 }
 
 impl SettlementPlan {
@@ -445,8 +456,89 @@ impl SettlementPlan {
     /// cluster, every landform may grow hamlets, all under
     /// [`MAX_TOTAL_MEMBERS`].
     pub fn from_scene_sited(scene: &SceneCharacter, room_seed: u64, probe: &TerrainProbe) -> Self {
+        Self::sited_on_stream(scene, room_seed, probe, 0)
+    }
+
+    /// The best of [`CANDIDATES`] plans for a world on its own ground
+    /// (#1778): each drawn as [`Self::from_scene_sited`] draws its plan, from
+    /// its own stream of `room_seed`'s draws - the first is that plan - and
+    /// the one of most [merit](Self::merit) kept, the first of equals, so a
+    /// world whose first plan is its best keeps it. Deterministic from
+    /// `(scene, room_seed, probe)`, as each is. A Berlin square's build
+    /// reads only the first plan's landmark bearing, and asks for that
+    /// alone.
+    pub fn best_sited(scene: &SceneCharacter, room_seed: u64, probe: &TerrainProbe) -> Self {
+        let mut best: Option<(f32, Self)> = None;
+        for stream in 0..CANDIDATES {
+            let plan = Self::sited_on_stream(scene, room_seed, probe, stream);
+            let merit = plan.merit(probe);
+            if best.as_ref().is_none_or(|(kept, _)| merit > *kept) {
+                best = Some((merit, plan));
+            }
+        }
+        best.map(|(_, plan)| plan)
+            .expect("one plan is drawn at least")
+    }
+
+    /// What a plan is worth to its world's first view and to its ground
+    /// (#1778): its viewpoint's own score ([`Viewpoint::score`]); how much of
+    /// the frame its landmark fills, up to the third of its height the
+    /// viewpoint's distance aims at; [`BUILDING_FRAMED`] for each building
+    /// and [`PROP_FRAMED`] for each prop the first frame shows besides
+    /// ([`Viewpoint::frames`]), up to [`FRAMED_MAX`] of each; less the share
+    /// of their plinths' reach its buildings' ground takes on average
+    /// ([`member_fits`]). The light is not scored: the world's hour turns
+    /// its sun to whichever view is kept (#1769). `f32::MIN` for a plan with
+    /// no viewpoint.
+    fn merit(&self, probe: &TerrainProbe) -> f32 {
+        let Some(view) = self.viewpoint else {
+            return f32::MIN;
+        };
+        let landmark = self.primary_landmark().offset;
+        let (dx, dz) = (landmark[0] - view.landing[0], landmark[1] - view.landing[1]);
+        let presence = (self.landmark_top * super::viewpoint::VIEW_PER_HEIGHT
+            / (dx * dx + dz * dz).sqrt().max(1.0))
+        .min(1.0);
+        let (mut built, mut props, mut taken, mut buildings) = (0usize, 0usize, 0.0, 0usize);
+        for (ci, cluster) in self.clusters.iter().enumerate() {
+            let anchor = cluster.landmark.iter().map(|member| (member, ci == 0));
+            for (member, looked_at) in anchor.chain(cluster.secondaries.iter().map(|m| (m, false)))
+            {
+                let Some(entry) = crate::catalogue::by_slug(member.slug) else {
+                    continue;
+                };
+                let radius = ground_radius(entry, member.scale);
+                if !looked_at && view.frames(probe, member.offset, radius) {
+                    built += 1;
+                }
+                let ground = probe.footprint(member.offset, radius);
+                taken += (ground.relief * RELIEF_MARGIN / reach(entry, member.scale)).min(1.0);
+                buildings += 1;
+            }
+            props += cluster
+                .props
+                .iter()
+                .filter(|prop| view.frames(probe, prop.offset, prop.clearance))
+                .count();
+        }
+        view.score
+            + presence
+            + BUILDING_FRAMED * built.min(FRAMED_MAX) as f32
+            + PROP_FRAMED * props.min(FRAMED_MAX) as f32
+            - taken / buildings.max(1) as f32
+    }
+
+    /// [`Self::from_scene_sited`] drawn from stream `stream` of the plan's
+    /// draws (#1778): stream 0 is the plan's own.
+    fn sited_on_stream(
+        scene: &SceneCharacter,
+        room_seed: u64,
+        probe: &TerrainProbe,
+        stream: u64,
+    ) -> Self {
         let mut rng =
             ChaCha8Rng::seed_from_u64(room_seed ^ SETTLEMENT_STREAM_SALT ^ SITED_STREAM_TWEAK);
+        rng.set_stream(stream);
         let theme = effective_theme(scene.theme);
         let prosperity = scene.prosperity_tier();
         let escalation = scene.escalation_tier();
@@ -471,7 +563,7 @@ impl SettlementPlan {
                     [site[0] * scale, site[1] * scale]
                 };
             }
-            let yaw_rad = site[0].atan2(site[1]) + range_f32(&mut rng, -0.35, 0.35);
+            let yaw_rad = libm::atan2f(site[0], site[1]) + range_f32(&mut rng, -0.35, 0.35);
             let (scale_lo, scale_hi) = landmark_scale_band(prosperity);
             let scale = range_f32(&mut rng, scale_lo, scale_hi);
             return Self {
@@ -488,6 +580,8 @@ impl SettlementPlan {
                     props: Vec::new(),
                 }],
                 unfitted_landmark: site,
+                viewpoint: None,
+                landmark_top: 0.0,
             };
         }
 
@@ -511,7 +605,12 @@ impl SettlementPlan {
 
         let mut clusters = Vec::new();
         let mut total = 0usize;
-        let (primary, unfitted_landmark) = place_cluster(
+        let Grown {
+            cluster: primary,
+            unfitted: unfitted_landmark,
+            viewpoint,
+            top: landmark_top,
+        } = place_cluster(
             theme,
             prosperity,
             escalation,
@@ -520,20 +619,30 @@ impl SettlementPlan {
             ClusterKind::Primary,
             Forecourt::of(scene.theme),
             None,
+            &[],
             MAX_TOTAL_MEMBERS,
             &mut rng,
         );
         let unfitted_landmark = unfitted_landmark
             .expect("the primary cluster always sites its landmark (the fallback theme has one)");
         // Where a visitor arrives, which every other cluster's buildings face
-        // (#1775): the primary landmark's forecourt landing.
-        let arrival = primary
-            .landmark
-            .as_ref()
-            .zip(Forecourt::of(scene.theme))
-            .map_or([0.0, 0.0], |(landmark, forecourt)| {
+        // (#1775): the primary landmark's viewpoint (#1777), else its
+        // forecourt landing - and what it keeps clear, which the other
+        // clusters keep clear too, as a viewpoint can stand out by their
+        // regions.
+        let arrival = match (viewpoint, primary.landmark.as_ref()) {
+            (Some(viewpoint), _) => viewpoint.landing,
+            (None, Some(landmark)) => Forecourt::of(scene.theme).map_or([0.0, 0.0], |forecourt| {
                 forecourt.spot(landmark.offset, landmark.clearance).landing
-            });
+            }),
+            (None, None) => [0.0, 0.0],
+        };
+        let reserved = match (viewpoint, primary.landmark.as_ref()) {
+            (Some(viewpoint), Some(landmark)) => {
+                viewpoint.keep_outs(landmark.offset, landmark.clearance)
+            }
+            _ => Vec::new(),
+        };
         total += primary.member_count();
         clusters.push(primary);
 
@@ -556,7 +665,7 @@ impl SettlementPlan {
             // so its hamlet draws as it always did.
             if allow_second_landmark && !second_landmark_placed && landmark_has_room(theme, region)
             {
-                let (c, _) = place_cluster(
+                let Grown { cluster: c, .. } = place_cluster(
                     theme,
                     prosperity,
                     escalation,
@@ -565,6 +674,7 @@ impl SettlementPlan {
                     ClusterKind::Outpost,
                     None,
                     Some(arrival),
+                    &reserved,
                     MAX_TOTAL_MEMBERS - total,
                     &mut rng,
                 );
@@ -576,7 +686,7 @@ impl SettlementPlan {
                 }
             }
             if hamlets < MAX_HAMLETS && region.area_m2 >= HAMLET_MIN_AREA {
-                let (c, _) = place_cluster(
+                let Grown { cluster: c, .. } = place_cluster(
                     theme,
                     prosperity,
                     escalation,
@@ -585,6 +695,7 @@ impl SettlementPlan {
                     ClusterKind::Hamlet,
                     None,
                     Some(arrival),
+                    &reserved,
                     MAX_TOTAL_MEMBERS - total,
                     &mut rng,
                 );
@@ -599,6 +710,8 @@ impl SettlementPlan {
         Self {
             clusters,
             unfitted_landmark,
+            viewpoint,
+            landmark_top,
         }
     }
 }
@@ -677,6 +790,39 @@ const CONTOUR_SLOPE: f32 = 0.06;
 /// more.
 const PROP_REACH: f32 = 0.6;
 
+/// How far over the water the lowest ground under the primary landmark
+/// stands on the proxy (m, #1777) - every other member keeps the proxy's
+/// own margin. The full map's ground lies up to about 3.5 m under the
+/// proxy's near the water (its p10), and a landmark the compile walks off
+/// water moves out of the arrival's view: over seeds 0-299 the landmarks
+/// whose lowest ground stood under 4 m over the water were walked 13 times
+/// in 37, those standing 4 to 8 m over it none in 21.
+const LANDMARK_FREEBOARD: f32 = 4.0;
+
+/// How far from spawn every member's middle stands at the least (m), as a
+/// non-primary anchor's always did: out of the spawn scatter's square, 5 m
+/// each way (#905), though a big footprint may reach into it. A primary
+/// landmark keeps its own entry's further distance; secondaries and props
+/// keep this one since a world's later candidate plans (#1778) found spots
+/// a first plan had missed.
+const SPAWN_SQUARE_KEEP: f32 = 10.0;
+
+/// How many plans a world on its own ground is drawn as before the best is
+/// kept ([`SettlementPlan::best_sited`], #1778).
+const CANDIDATES: u64 = 4;
+
+/// What each building the first frame shows besides the landmark adds to a
+/// plan's [merit](SettlementPlan::merit) (#1778): the settlement round its
+/// landmark, a reason to walk down.
+const BUILDING_FRAMED: f32 = 0.25;
+
+/// What each prop the first frame shows adds to a plan's merit (#1778).
+const PROP_FRAMED: f32 = 0.05;
+
+/// The most buildings, and the most props, a plan's merit counts in the
+/// first frame (#1778).
+const FRAMED_MAX: usize = 6;
+
 /// The scales a member is tried at, largest first: `drawn`, then a quarter
 /// octave smaller each step, down to [`SCALE_MIN`] (#1774). A member drawn
 /// smaller than that is tried as drawn alone.
@@ -697,6 +843,39 @@ fn ground_radius(entry: &dyn crate::catalogue::CatalogueEntry, scale: f32) -> f3
         * scale
 }
 
+/// How tall `entry` stands drawn at `scale` with `grammar_seed` in a world
+/// at `escalation`, metres over the ground its placement stands it on
+/// (#1777): its coarse top ([`crate::catalogue::items::measure::coarse_top`]),
+/// built for no one in particular - an entry's height is not its owner's -
+/// and ruined as the build ruins it (`room::build`), since a fought-over
+/// world can bring a stone circle down from 4.7 m to 0.6 m, a stadium from
+/// 13 m to 3 m. To the decimetre: the grammar and the ruin turn their parts
+/// with the platform's trigonometry, so two peers can measure a height a
+/// last bit apart, which would stand their viewpoints apart (#1132);
+/// rounded, they part only where it falls within a hair of a rounding step.
+fn landmark_top(
+    entry: &dyn crate::catalogue::CatalogueEntry,
+    scale: f32,
+    grammar_seed: u64,
+    escalation: EscalationTier,
+) -> f32 {
+    let mut built = entry.build(VIEW_DID);
+    crate::pds::ruin::apply_ruin_level_at(
+        &mut built,
+        escalation,
+        grammar_seed,
+        entry.ruin_max_lean(),
+    );
+    let top = crate::catalogue::items::measure::coarse_top(&built.with_shape_seed(grammar_seed))
+        .unwrap_or(0.0)
+        .max(0.0)
+        * scale;
+    (top * 10.0).round() / 10.0
+}
+
+/// The DID a landmark is built for to read its height (#1777).
+const VIEW_DID: &str = "did:plc:viewpoint";
+
 /// The relief `entry`'s footprint may have at `scale` before daylight
 /// shows under it: how far below the ground it stands on its plinth
 /// reaches, the sink included (#1009) - or, for a prop, which carries
@@ -713,16 +892,22 @@ fn reach(entry: &dyn crate::catalogue::CatalogueEntry, scale: f32) -> f32 {
 /// Whether `entry` drawn at `scale` fits the ground at `at` (#1773): the
 /// relief under its footprint, as the full map is taken to have it, within
 /// its [`reach`]; the ground at its middle and rim gentle enough that the
-/// compile's walk leaves it there; and dry.
+/// compile's walk leaves it there; and dry - its lowest ground `freeboard`
+/// metres over the water at least, where that asks more than the proxy's
+/// own margin ([`LANDMARK_FREEBOARD`], #1777).
 fn member_fits(
     probe: &TerrainProbe,
     at: [f32; 2],
     entry: &dyn crate::catalogue::CatalogueEntry,
     scale: f32,
+    freeboard: f32,
 ) -> bool {
     let reach = reach(entry, scale);
     let fits = |ground: &FootprintGround| {
-        ground.relief * RELIEF_MARGIN <= reach && ground.steepest <= SITE_SLOPE && ground.is_dry()
+        ground.relief * RELIEF_MARGIN <= reach
+            && ground.steepest <= SITE_SLOPE
+            && ground.is_dry()
+            && ground.above_water >= freeboard
     };
     // Read no further than the first points that refuse it: the slopes, the
     // relief and the dry ground each only fail the more as the disc fills.
@@ -731,9 +916,9 @@ fn member_fits(
         .is_some_and(|ground| fits(&ground))
 }
 
-/// The first of `sites` where `entry` fits, at the largest of its
-/// [`sizes`] whose area `room` (m²) still holds (#1774) that fits on any of
-/// them (#1773), and that size.
+/// The first of `sites` where `entry` fits over `freeboard`, at the largest
+/// of its [`sizes`] whose area `room` (m²) still holds (#1774) that fits on
+/// any of them (#1773), and that size.
 fn fit_among(
     probe: &TerrainProbe,
     sites: &[[f32; 2]],
@@ -741,15 +926,19 @@ fn fit_among(
     entry: &dyn crate::catalogue::CatalogueEntry,
     drawn: f32,
     room: f32,
+    freeboard: f32,
 ) -> Option<([f32; 2], f32)> {
     let clearance = entry.footprint().clearance;
     sizes(drawn)
         .filter(|&scale| member_area_cost(clearance * scale) <= room)
-        .find_map(|scale| site_for(probe, sites, from, entry, scale).map(|at| (at, scale)))
+        .find_map(|scale| {
+            site_for(probe, sites, from, entry, scale, freeboard).map(|at| (at, scale))
+        })
 }
 
 /// Where among `sites` - nearest `from` first - `entry` drawn at `scale`
-/// stands: the nearest site whose ground fits it (#1773), or, for an entry
+/// stands: the nearest site whose ground fits it over `freeboard`
+/// ([`member_fits`], #1773), or, for an entry
 /// with a [site preference](crate::catalogue::SitePreference), the one it
 /// fits within [`PREFERENCE_REACH`] beyond that which its preference scores
 /// best, [`WALK_COST`] a metre from `from` taken off - the nearest of equals
@@ -760,8 +949,9 @@ fn site_for(
     from: [f32; 2],
     entry: &dyn crate::catalogue::CatalogueEntry,
     scale: f32,
+    freeboard: f32,
 ) -> Option<[f32; 2]> {
-    let fits = |at: [f32; 2]| member_fits(probe, at, entry, scale);
+    let fits = |at: [f32; 2]| member_fits(probe, at, entry, scale, freeboard);
     let first = sites.iter().position(|&at| fits(at))?;
     let prefer = entry.site();
     if prefer == crate::catalogue::SitePreference::Anywhere {
@@ -807,9 +997,9 @@ fn house_facing(probe: &TerrainProbe, at: [f32; 2], arrival: [f32; 2]) -> [f32; 
 }
 
 /// The first of `candidates` that [fits](fit_among) one of its sites
-/// (`sites_for` it, nearest `from` first) within `room` (m²), with where it
-/// stands and at what size: the building drawn, else what stands in for it
-/// ([`stand_ins`], #1774).
+/// (`sites_for` it, nearest `from` first) within `room` (m²) and over
+/// `freeboard`, with where it stands and at what size: the building drawn,
+/// else what stands in for it ([`stand_ins`], #1774).
 fn choose(
     probe: &TerrainProbe,
     candidates: &[&'static dyn crate::catalogue::CatalogueEntry],
@@ -817,10 +1007,19 @@ fn choose(
     from: [f32; 2],
     drawn: f32,
     room: f32,
+    freeboard: f32,
 ) -> Option<(&'static dyn crate::catalogue::CatalogueEntry, [f32; 2], f32)> {
     candidates.iter().find_map(|&entry| {
-        fit_among(probe, &sites_for(entry), from, entry, drawn, room)
-            .map(|(at, scale)| (entry, at, scale))
+        fit_among(
+            probe,
+            &sites_for(entry),
+            from,
+            entry,
+            drawn,
+            room,
+            freeboard,
+        )
+        .map(|(at, scale)| (entry, at, scale))
     })
 }
 
@@ -921,10 +1120,8 @@ enum ClusterKind {
 /// are those that would blow the region's fill budget / `member_budget` -
 /// that *is* the capacity adaptation.
 ///
-/// Returned beside the cluster: the cell its anchor would have taken were
-/// its ground not read - the nearest spawn clear of the spawn square, else
-/// the nearest the region's centroid ([`SettlementPlan::unfitted_landmark`])
-/// - or `None` where the cluster grew no anchor.
+/// Returned beside the cluster ([`Grown`]): the cell its anchor would have
+/// taken were its ground not read, and the primary cluster's viewpoint.
 #[allow(clippy::too_many_arguments)] // internal: a param object would just rename the call site
 fn place_cluster(
     theme: ThemeArchetype,
@@ -935,21 +1132,23 @@ fn place_cluster(
     kind: ClusterKind,
     forecourt: Option<Forecourt>,
     arrival: Option<[f32; 2]>,
+    reserved: &[([f32; 2], f32)],
     member_budget: usize,
     rng: &mut ChaCha8Rng,
-) -> (SettlementCluster, Option<[f32; 2]>) {
+) -> Grown {
     let mut cluster = SettlementCluster {
         landmark: None,
         secondaries: Vec::new(),
         props: Vec::new(),
     };
     if member_budget == 0 {
-        return (cluster, None);
+        return Grown::bare(cluster);
     }
     let usable_area = region.area_m2 * FILL_FRACTION;
     let mut consumed = 0.0_f32;
-    // (position, keep-clear radius) of everything placed so far.
-    let mut placed: Vec<([f32; 2], f32)> = Vec::new();
+    // (position, keep-clear radius) of everything placed so far - from
+    // the first, what the clusters before kept clear (#1777).
+    let mut placed: Vec<([f32; 2], f32)> = reserved.to_vec();
 
     // Anchor: landmark for landmark-led clusters, a secondary for
     // hamlets. Sits on the region cell nearest spawn, clear of the spawn
@@ -968,23 +1167,28 @@ fn place_cluster(
         anchor_pool
     };
     if anchor_pool.is_empty() {
-        return (cluster, None);
+        return Grown::bare(cluster);
     }
     let drawn_entry = pick(&anchor_pool, rng);
+    let (scale_lo, scale_hi) = if kind == ClusterKind::Hamlet {
+        SECONDARY_SCALE_BAND
+    } else {
+        landmark_scale_band(prosperity)
+    };
+    // Clear of the spawn square, and of what the clusters before kept clear
+    // (#1777) by the anchor's footprint at the largest it is drawn.
     let spawn_keep = |entry: &dyn crate::catalogue::CatalogueEntry| {
         let clear = if kind == ClusterKind::Primary {
             entry.footprint().min_spawn_dist
         } else {
             // Non-primary clusters live in other regions; only the basic
             // spawn-square clearance applies.
-            10.0
+            SPAWN_SQUARE_KEEP
         };
-        [([0.0, 0.0], clear)]
-    };
-    let (scale_lo, scale_hi) = if kind == ClusterKind::Hamlet {
-        SECONDARY_SCALE_BAND
-    } else {
-        landmark_scale_band(prosperity)
+        let reach = entry.footprint().clearance * scale_hi;
+        std::iter::once(([0.0, 0.0], clear))
+            .chain(reserved.iter().map(|&(at, radius)| (at, radius + reach)))
+            .collect::<Vec<_>>()
     };
     let yaw_jitter = range_f32(rng, -0.35, 0.35);
     let drawn_scale = range_f32(rng, scale_lo, scale_hi);
@@ -1016,50 +1220,86 @@ fn place_cluster(
         ClusterKind::Hamlet => usable_area,
         ClusterKind::Primary | ClusterKind::Outpost => usable_area * LANDMARK_ROOM_SHARE,
     };
-    let (anchor_entry, anchor_pos, anchor_scale) =
-        match choose(probe, &candidates, sites_for, [0.0, 0.0], drawn_scale, room) {
-            Some(chosen) => chosen,
-            None if kind == ClusterKind::Primary => {
-                let entry = candidates[candidates.len() - 1];
-                let scale = drawn_scale.min(SCALE_MIN);
-                let radius = ground_radius(entry, scale);
-                match probe
-                    .flattest(region, &spawn_keep(entry), radius)
-                    .or_else(|| probe.flattest(region, &[], radius))
-                {
-                    Some(at) => (entry, at, scale),
-                    None => return (cluster, None),
-                }
+    let (anchor_entry, anchor_pos, anchor_scale) = match choose(
+        probe,
+        &candidates,
+        sites_for,
+        [0.0, 0.0],
+        drawn_scale,
+        room,
+        match kind {
+            // The arrival's view is of it (#1777).
+            ClusterKind::Primary => LANDMARK_FREEBOARD,
+            ClusterKind::Outpost | ClusterKind::Hamlet => 0.0,
+        },
+    ) {
+        Some(chosen) => chosen,
+        None if kind == ClusterKind::Primary => {
+            let entry = candidates[candidates.len() - 1];
+            let scale = drawn_scale.min(SCALE_MIN);
+            let radius = ground_radius(entry, scale);
+            match probe
+                .flattest(region, &spawn_keep(entry), radius)
+                .or_else(|| probe.flattest(region, &[], radius))
+            {
+                Some(at) => (entry, at, scale),
+                None => return Grown::bare(cluster),
             }
-            None => return (cluster, None),
-        };
+        }
+        None => return Grown::bare(cluster),
+    };
     let anchor_clearance = anchor_entry.footprint().clearance * anchor_scale;
-    // Where a visitor arrives (#1775): the primary cluster's own forecourt
-    // landing, else the one the caller knows, else spawn.
-    let arrival = forecourt
-        .map(|forecourt| forecourt.spot(anchor_pos, anchor_clearance).landing)
+    let grammar_seed = rng.next_u64();
+    // The primary landmark's arrival (#1777): a viewpoint out at the
+    // settlement's edge, in view of it, chosen before anything else is
+    // sited so that nothing else stands in the way.
+    let top = match (kind, forecourt) {
+        (ClusterKind::Primary, Some(_)) => {
+            landmark_top(anchor_entry, anchor_scale, grammar_seed, escalation)
+        }
+        _ => 0.0,
+    };
+    let viewpoint = match (kind, forecourt) {
+        (ClusterKind::Primary, Some(_)) => Viewpoint::choose(
+            probe,
+            anchor_pos,
+            ground_radius(anchor_entry, anchor_scale),
+            top,
+            anchor_clearance,
+        ),
+        _ => None,
+    };
+    // Where a visitor arrives (#1775): the primary cluster's own viewpoint,
+    // else its forecourt in front of its landmark, else the one the caller
+    // knows, else spawn.
+    let arrival = viewpoint
+        .map(|viewpoint| viewpoint.landing)
+        .or_else(|| forecourt.map(|forecourt| forecourt.spot(anchor_pos, anchor_clearance).landing))
         .or(arrival)
         .unwrap_or([0.0, 0.0]);
-    // A landmark faces its arrival - the primary's on the ray from spawn
-    // its landing stands on, so spawn, as it always faced - and a hamlet's
-    // house faces as a house does (#1775).
-    let anchor_yaw = match kind {
-        ClusterKind::Primary => anchor_pos[0].atan2(anchor_pos[1]),
-        ClusterKind::Outpost => facing([arrival[0] - anchor_pos[0], arrival[1] - anchor_pos[1]]),
-        ClusterKind::Hamlet => facing(house_facing(probe, anchor_pos, arrival)),
+    // A landmark faces its arrival - the primary's own viewpoint, or the
+    // forecourt on the ray from spawn its landing stands on, so spawn, as
+    // it always faced - and a hamlet's house faces as a house does (#1775).
+    let toward_arrival = [arrival[0] - anchor_pos[0], arrival[1] - anchor_pos[1]];
+    let anchor_yaw = match (kind, viewpoint) {
+        (ClusterKind::Primary, Some(_)) | (ClusterKind::Outpost, _) => facing(toward_arrival),
+        (ClusterKind::Primary, None) => libm::atan2f(anchor_pos[0], anchor_pos[1]),
+        (ClusterKind::Hamlet, _) => facing(house_facing(probe, anchor_pos, arrival)),
     } + yaw_jitter;
     let anchor_member = SettlementMember {
         slug: anchor_entry.slug(),
         offset: anchor_pos,
         yaw_rad: anchor_yaw,
         scale: anchor_scale,
-        grammar_seed: rng.next_u64(),
+        grammar_seed,
         clearance: anchor_clearance,
     };
     consumed += member_area_cost(anchor_clearance);
     placed.push((anchor_pos, anchor_clearance));
-    if let Some(forecourt) = forecourt {
-        placed.extend(forecourt.keep_outs(anchor_pos, anchor_clearance));
+    match (viewpoint, forecourt) {
+        (Some(viewpoint), _) => placed.extend(viewpoint.keep_outs(anchor_pos, anchor_clearance)),
+        (None, Some(forecourt)) => placed.extend(forecourt.keep_outs(anchor_pos, anchor_clearance)),
+        (None, None) => {}
     }
     if kind == ClusterKind::Hamlet {
         cluster.secondaries.push(anchor_member);
@@ -1077,7 +1317,16 @@ fn place_cluster(
     let mut remaining = tiered_pool(theme, StructureRole::Secondary, prosperity, escalation);
     let sec_hi = sec_hi.min(remaining.len()).min(MAX_SECONDARIES);
     let sec_count = sample_count(rng, sec_lo.min(sec_hi), sec_hi);
-    let base = anchor_pos[0].atan2(anchor_pos[1]);
+    // Away from the viewpoint the visitor looks from, round the landmark it
+    // looks at (#1777) - else away from spawn, as always. libm here and in
+    // the directions below (#1132): they decide which site each member takes.
+    let base = match viewpoint {
+        Some(viewpoint) => libm::atan2f(
+            anchor_pos[0] - viewpoint.landing[0],
+            anchor_pos[1] - viewpoint.landing[1],
+        ),
+        None => libm::atan2f(anchor_pos[0], anchor_pos[1]),
+    };
     for i in 0..sec_count {
         // A stand-in spends the pool's entries faster than the count drew.
         if cluster.member_count() >= member_budget || remaining.is_empty() {
@@ -1097,8 +1346,15 @@ fn place_cluster(
         };
         let dir = base + spread;
         let r = anchor_clearance + spacing + range_f32(rng, 4.0, 12.0);
-        let desired = [anchor_pos[0] + dir.sin() * r, anchor_pos[1] + dir.cos() * r];
-        let keep: Vec<([f32; 2], f32)> = placed.iter().map(|&(p, c)| (p, c + spacing)).collect();
+        let desired = [
+            anchor_pos[0] + libm::sinf(dir) * r,
+            anchor_pos[1] + libm::cosf(dir) * r,
+        ];
+        let keep: Vec<([f32; 2], f32)> = placed
+            .iter()
+            .map(|&(p, c)| (p, c + spacing))
+            .chain(std::iter::once(([0.0, 0.0], SPAWN_SQUARE_KEEP)))
+            .collect();
         // The nearest buildable cell within reach of where it was wanted
         // where its ground fits it, as drawn or smaller (#1773, #1774).
         let sites = probe.sites_near(region, desired, SNAP_MAX_DIST, &keep);
@@ -1116,6 +1372,7 @@ fn place_cluster(
             desired,
             drawn,
             usable_area - consumed,
+            0.0,
         ) else {
             continue;
         };
@@ -1159,13 +1416,19 @@ fn place_cluster(
             }
             let dir = base + range_f32(rng, -1.4, 1.4);
             let r = range_f32(rng, anchor_clearance + 2.0, anchor_clearance + 25.0);
-            let desired = [anchor_pos[0] + dir.sin() * r, anchor_pos[1] + dir.cos() * r];
-            let keep: Vec<([f32; 2], f32)> =
-                placed.iter().map(|&(p, c)| (p, c + fp.clearance)).collect();
+            let desired = [
+                anchor_pos[0] + libm::sinf(dir) * r,
+                anchor_pos[1] + libm::cosf(dir) * r,
+            ];
+            let keep: Vec<([f32; 2], f32)> = placed
+                .iter()
+                .map(|&(p, c)| (p, c + fp.clearance))
+                .chain(std::iter::once(([0.0, 0.0], SPAWN_SQUARE_KEEP)))
+                .collect();
             let Some(pos) = probe
                 .sites_near(region, desired, SNAP_MAX_DIST, &keep)
                 .into_iter()
-                .find(|&at| member_fits(probe, at, entry, 1.0))
+                .find(|&at| member_fits(probe, at, entry, 1.0, 0.0))
             else {
                 continue;
             };
@@ -1184,7 +1447,39 @@ fn place_cluster(
         }
     }
 
-    (cluster, unfitted)
+    Grown {
+        cluster,
+        unfitted,
+        viewpoint,
+        top,
+    }
+}
+
+/// What [`place_cluster`] grows (#1777).
+struct Grown {
+    cluster: SettlementCluster,
+    /// The cell its anchor would have taken were its ground not read - the
+    /// nearest spawn clear of the spawn square, else the nearest the
+    /// region's centroid ([`SettlementPlan::unfitted_landmark`]) - `None`
+    /// where it grew no anchor.
+    unfitted: Option<[f32; 2]>,
+    /// The primary cluster's viewpoint ([`SettlementPlan::viewpoint`]).
+    viewpoint: Option<Viewpoint>,
+    /// How tall its landmark stands where its viewpoint was sought
+    /// ([`SettlementPlan::landmark_top`]), else 0.
+    top: f32,
+}
+
+impl Grown {
+    /// `cluster`, grown no anchor.
+    fn bare(cluster: SettlementCluster) -> Self {
+        Grown {
+            cluster,
+            unfitted: None,
+            viewpoint: None,
+            top: 0.0,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1990,11 +2285,22 @@ mod tests {
         let probe = probe_from(64, 8.0, 0.0, |x, _| {
             10.0 + (x as f32 * 8.0 - 252.0).max(0.0) * k
         });
-        assert!(member_fits(&probe, [-150.0, 0.0], entry, 1.0));
-        assert!(!member_fits(&probe, [150.0, 0.0], entry, 1.0));
-        assert!(member_fits(&probe, [150.0, 0.0], entry, 0.5));
+        assert!(member_fits(&probe, [-150.0, 0.0], entry, 1.0, 0.0));
+        assert!(!member_fits(&probe, [150.0, 0.0], entry, 1.0, 0.0));
+        assert!(member_fits(&probe, [150.0, 0.0], entry, 0.5, 0.0));
         let drowned = probe_from(16, 8.0, 50.0, |_, _| 10.0);
-        assert!(!member_fits(&drowned, [0.0, 0.0], entry, 0.5));
+        assert!(!member_fits(&drowned, [0.0, 0.0], entry, 0.5, 0.0));
+        // A landmark's freeboard (#1777): ground 10 m over water at 7 fits
+        // over 3 m of it, not over 4.
+        let shore = probe_from(16, 8.0, 7.0, |_, _| 10.0);
+        assert!(member_fits(&shore, [0.0, 0.0], entry, 0.5, 0.0));
+        assert!(!member_fits(
+            &shore,
+            [0.0, 0.0],
+            entry,
+            0.5,
+            LANDMARK_FREEBOARD
+        ));
     }
 
     /// #1774: what stands in for a building that fits nowhere is the next
@@ -2058,7 +2364,10 @@ mod tests {
                 member_area_cost(lm.clearance)
             );
             let entry = by_slug(lm.slug).unwrap();
-            assert!(member_fits(&island, lm.offset, entry, lm.scale), "seed {s}");
+            assert!(
+                member_fits(&island, lm.offset, entry, lm.scale, 0.0),
+                "seed {s}"
+            );
             assert!(
                 lm.offset[0].hypot(lm.offset[1]) >= entry.footprint().min_spawn_dist,
                 "seed {s}: the hovel keeps its own distance from spawn"
@@ -2083,14 +2392,14 @@ mod tests {
         assert_eq!(temple.site(), SitePreference::Crest);
         let keep = [([0.0, 0.0], temple.footprint().min_spawn_dist)];
         let sites = hill.sites_near(region, [0.0, 0.0], f32::INFINITY, &keep);
-        let at = site_for(&hill, &sites, [0.0, 0.0], temple, 1.0).expect("a site");
+        let at = site_for(&hill, &sites, [0.0, 0.0], temple, 1.0, 0.0).expect("a site");
         assert!(
             hill.height_between(at) > 12.0 && hill.prominence(at) > 5.0,
             "the temple stands on the hilltop: {at:?}"
         );
         let hut = by_slug("mudbrick_hut").expect("the mudbrick hut");
         assert_eq!(hut.site(), SitePreference::Anywhere);
-        let at = site_for(&hill, &sites, [0.0, 0.0], hut, 1.0).expect("a site");
+        let at = site_for(&hill, &sites, [0.0, 0.0], hut, 1.0, 0.0).expect("a site");
         assert_eq!(at, sites[0], "a hut takes the nearest site");
 
         // The sea west of x = -100; dry land rising 1 in 20 east of it.
@@ -2102,7 +2411,7 @@ mod tests {
         assert_eq!(lighthouse.site(), SitePreference::Shore);
         let keep = [([0.0, 0.0], lighthouse.footprint().min_spawn_dist)];
         let sites = coast.sites_near(region, [0.0, 0.0], f32::INFINITY, &keep);
-        let at = site_for(&coast, &sites, [0.0, 0.0], lighthouse, 1.0).expect("a site");
+        let at = site_for(&coast, &sites, [0.0, 0.0], lighthouse, 1.0, 0.0).expect("a site");
         assert!(
             coast.shore_distance(at) < coast.shore_distance(sites[0]) - 20.0,
             "the lighthouse goes to the water: {at:?} against {:?}",
@@ -2149,7 +2458,7 @@ mod tests {
                 cfg,
                 shape.water_level_fraction * shape.height_scale,
             );
-            let plan = SettlementPlan::from_scene_sited(&scene, seed, &probe);
+            let plan = SettlementPlan::best_sited(&scene, seed, &probe);
             for (ci, cluster) in plan.clusters.iter().enumerate() {
                 let all = cluster
                     .landmark
@@ -2158,7 +2467,13 @@ mod tests {
                     .chain(&cluster.props);
                 for (i, m) in all.enumerate() {
                     let entry = by_slug(m.slug).expect("a settlement slug resolves");
-                    let fits = member_fits(&probe, m.offset, entry, m.scale);
+                    // The primary landmark over its freeboard (#1777).
+                    let freeboard = if ci == 0 && i == 0 {
+                        LANDMARK_FREEBOARD
+                    } else {
+                        0.0
+                    };
+                    let fits = member_fits(&probe, m.offset, entry, m.scale, freeboard);
                     let fallback = ci == 0 && i == 0 && m.scale <= SCALE_MIN + 1e-5;
                     assert!(
                         fits || fallback,
@@ -2173,6 +2488,62 @@ mod tests {
             }
         }
         assert!(members > 100, "only {members} members sited");
+    }
+
+    /// #1777: where a plan's arrival stands at a viewpoint, no member of any
+    /// cluster - but the primary landmark it looks at - stands its footprint
+    /// in the forecourt or across the view down to that landmark, the other
+    /// clusters' as well as the primary's - in the plan the build keeps, the
+    /// best of its candidates (#1778).
+    #[test]
+    fn no_member_stands_in_the_forecourt_or_across_the_view() {
+        let (mut viewpoints, mut members) = (0, 0);
+        for seed in 0u64..24 {
+            let record = crate::seeded_defaults::room::build::build_room_with_source(
+                seed,
+                "did:plc:fits",
+                None,
+            );
+            let scene = SceneCharacter::for_seed(seed);
+            let shape = crate::seeded_defaults::TerrainShape::from_scene(&scene, seed);
+            let cfg = crate::pds::find_terrain_config(&record).expect("a seeded terrain");
+            let probe = crate::seeded_defaults::room::build::settlement_probe(
+                cfg,
+                shape.water_level_fraction * shape.height_scale,
+            );
+            let plan = SettlementPlan::best_sited(&scene, seed, &probe);
+            let Some(viewpoint) = plan.viewpoint else {
+                continue;
+            };
+            viewpoints += 1;
+            let landmark = plan.primary_landmark();
+            let keep = viewpoint.keep_outs(landmark.offset, landmark.clearance);
+            for (ci, cluster) in plan.clusters.iter().enumerate() {
+                let others = cluster
+                    .landmark
+                    .iter()
+                    .filter(|_| ci > 0)
+                    .chain(&cluster.secondaries)
+                    .chain(&cluster.props);
+                for m in others {
+                    for &(at, radius) in &keep {
+                        let apart = (m.offset[0] - at[0]).hypot(m.offset[1] - at[1]);
+                        assert!(
+                            apart >= radius + m.clearance - 1e-3,
+                            "seed {seed}: {} {} m round stands {apart} m from {at:?}, kept {radius} m round",
+                            m.slug,
+                            m.clearance
+                        );
+                    }
+                    members += 1;
+                }
+            }
+        }
+        assert!(
+            viewpoints >= 12,
+            "only {viewpoints} of 24 plans arrive at a viewpoint"
+        );
+        assert!(members > 50, "only {members} members sited");
     }
 
     #[test]
@@ -2282,6 +2653,67 @@ mod tests {
                 "seed {s} nondeterministic"
             );
         }
+    }
+
+    /// #1778: a world on its own ground keeps the best of its candidate
+    /// plans - deterministically, the first of equals; no candidate it passed
+    /// over is worth more; the later candidates are other plans, drawn from
+    /// other streams; and the first is drawn from the stream every plan drew
+    /// from before there were others.
+    #[test]
+    fn the_best_of_its_plans_is_kept_and_the_first_is_the_sited_one() {
+        let (mut later, mut other) = (0, 0);
+        for seed in 0u64..16 {
+            let record = crate::seeded_defaults::room::build::build_room_with_source(
+                seed,
+                "did:plc:best",
+                None,
+            );
+            let scene = SceneCharacter::for_seed(seed);
+            let shape = crate::seeded_defaults::TerrainShape::from_scene(&scene, seed);
+            let cfg = crate::pds::find_terrain_config(&record).expect("a seeded terrain");
+            let probe = crate::seeded_defaults::room::build::settlement_probe(
+                cfg,
+                shape.water_level_fraction * shape.height_scale,
+            );
+            let key = |plan: &SettlementPlan| format!("{:?}", plan);
+            let first = SettlementPlan::sited_on_stream(&scene, seed, &probe, 0);
+            let best = SettlementPlan::best_sited(&scene, seed, &probe);
+            assert_eq!(
+                key(&best),
+                key(&SettlementPlan::best_sited(&scene, seed, &probe))
+            );
+            let merit = best.merit(&probe);
+            let mut kept = None;
+            for stream in 0..CANDIDATES {
+                let candidate = SettlementPlan::sited_on_stream(&scene, seed, &probe, stream);
+                let worth = candidate.merit(&probe);
+                assert!(worth <= merit, "seed {seed}: stream {stream} is worth more");
+                if kept.is_none() && worth == merit {
+                    kept = Some(stream);
+                    assert_eq!(
+                        key(&candidate),
+                        key(&best),
+                        "seed {seed}: the first of equals"
+                    );
+                }
+                if stream > 0 && key(&candidate) != key(&first) {
+                    other += 1;
+                }
+            }
+            later += usize::from(kept != Some(0));
+        }
+        assert!(other > 16, "the later streams draw the same plans: {other}");
+        assert!(
+            later > 0,
+            "no world kept a later plan: the merit decides nothing"
+        );
+        // Stream 0 is the stream a plan drew before there were others: a
+        // fresh generator moved to it draws what it always drew.
+        let mut was = ChaCha8Rng::seed_from_u64(0x1778);
+        let mut is = ChaCha8Rng::seed_from_u64(0x1778);
+        is.set_stream(0);
+        assert!((0..256).all(|_| was.next_u64() == is.next_u64()));
     }
 
     #[test]

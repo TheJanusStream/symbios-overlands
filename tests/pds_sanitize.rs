@@ -875,6 +875,7 @@ fn default_landing_clamped_and_definanned() {
         pos: Fp2([f32::NAN, 1.0e9]),
         y: Some(Fp(f32::NEG_INFINITY)),
         yaw_deg: Fp(-90.0),
+        ..Default::default()
     });
     r.sanitize();
     let landing = r.default_landing.expect("landing survives sanitise");
@@ -896,9 +897,30 @@ fn default_landing_clamped_and_definanned() {
         pos: Fp2([0.0, 0.0]),
         y: None,
         yaw_deg: Fp(f32::INFINITY),
+        ..Default::default()
     });
     r.sanitize();
     assert_eq!(r.default_landing.unwrap().yaw_deg, Fp(0.0));
+
+    // The arrival camera's pitch (#1777) is kept within the orbit camera's
+    // own range (`config::camera`'s pitch limits, -0.3 to 1.54 radians) to
+    // the whole degree inside it, and one that is no number keeps the
+    // camera's rest.
+    for (given, kept) in [
+        (12.5, Some(12.5)),
+        (95.0, Some(88.0)),
+        (-40.0, Some(-17.0)),
+        (f32::NAN, None),
+        (f32::INFINITY, None),
+    ] {
+        r.default_landing = Some(DefaultLanding {
+            pitch_deg: Some(Fp(given)),
+            ..Default::default()
+        });
+        r.sanitize();
+        let pitch = r.default_landing.unwrap().pitch_deg.map(|pitch| pitch.0);
+        assert_eq!(pitch, kept, "{given}");
+    }
 }
 
 // ---------------------------------------------------------------------------

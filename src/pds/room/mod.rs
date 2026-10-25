@@ -642,6 +642,34 @@ pub struct DefaultLanding {
     /// gateway landmark.
     #[serde(default)]
     pub yaw_deg: Fp,
+    /// The arrival camera's pitch, degrees below level (#1777) - the orbit
+    /// camera's own measure: 0 looks level, 23 is its rest. `None` (the wire
+    /// default) keeps the camera's rest pitch. A seeded world sets it so its
+    /// landmark stands whole in the first frame.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pitch_deg: Option<Fp>,
+    /// Whether the landing walks off water and steep ground where the
+    /// world's ground puts it there, as a placement that avoids water does
+    /// (#1777) - and, on a world's own ground, while it still looks at the
+    /// world's landmark, turns to face it where the compile walked the
+    /// landing or the landmark. A seeded world's landing has it, and keeps it
+    /// when its owner moves it in the World Editor; a landing without it
+    /// stays exactly where it was set.
+    #[serde(default, skip_serializing_if = "super::types::is_false")]
+    pub avoid_water: bool,
+}
+
+impl DefaultLanding {
+    /// The arrival camera pitches a landing may set, degrees (#1777): the
+    /// orbit camera's own range (`config::camera`) to the whole degree
+    /// inside it, so that its bounds lie on the wire's grid - what the
+    /// sanitiser clamps to and the World Editor offers.
+    pub fn pitch_range_deg() -> std::ops::RangeInclusive<f32> {
+        crate::config::camera::PITCH_LOWER_LIMIT.to_degrees().ceil()
+            ..=crate::config::camera::PITCH_UPPER_LIMIT
+                .to_degrees()
+                .floor()
+    }
 }
 
 /// The full recipe: environment + generators + placements + traits. Acts as
@@ -768,6 +796,17 @@ impl RoomRecord {
             } else {
                 0.0
             };
+            // Within the orbit camera's own pitch range, to the whole degree
+            // ([`DefaultLanding::pitch_range_deg`]); a pitch that is no number
+            // keeps the camera's rest.
+            landing.pitch_deg =
+                landing
+                    .pitch_deg
+                    .filter(|pitch| pitch.0.is_finite())
+                    .map(|pitch| {
+                        let range = DefaultLanding::pitch_range_deg();
+                        Fp(pitch.0.clamp(*range.start(), *range.end()))
+                    });
         }
         // Geodata source (#1583): a Berlin square is put back on the map if
         // it strays off it; a source that cannot be made safe is dropped,

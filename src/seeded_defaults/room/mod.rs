@@ -5,7 +5,8 @@
 //! from it, biome textures, atmosphere, the signature hour and the climate
 //! a world on its own terrain stands in ([`hour`], [`climate`]), tree / rock
 //! / ground-cover / particle scatters, the spawn-side settlement with its
-//! social gateway and owner monument, and the ambient-audio bed. They share the
+//! social gateway and owner monument at the viewpoint a visitor arrives at
+//! ([`viewpoint`]), and the ambient-audio bed. They share the
 //! [`super::SceneCharacter`] anchor so the derived values stay
 //! internally coherent - see the module-level docstring on
 //! [`super`] for the full data flow.
@@ -35,6 +36,7 @@ pub mod siting;
 pub mod source;
 pub mod terrain;
 pub mod textures;
+pub mod viewpoint;
 
 pub use accent::{ThemeAccent, ThemeGrade, theme_grading, theme_luminosity};
 pub use atmosphere::{Atmosphere, WaterDynamics};
@@ -55,3 +57,4 @@ pub use siting::{BuildableRegion, TerrainProbe};
 pub use source::{BERLIN_SHARE, RegionSource, SourceKind};
 pub use terrain::{SplatRule, TerrainShape};
 pub use textures::{BiomeTextures, GroundTextureParams, RockTextureParams};
+pub use viewpoint::Viewpoint;

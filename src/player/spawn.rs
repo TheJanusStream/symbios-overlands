@@ -34,7 +34,7 @@ pub(super) fn spawn_local_player(
     // A facing the world chose is the one the camera stands behind (#1785),
     // and a first-person view turns to (#1750).
     if pose.facing_chosen {
-        facing_set.write(super::FacingSet(pose.transform.rotation));
+        facing_set.write(super::FacingSet(pose.transform.rotation, pose.pitch));
     }
 
     // One-shot: remove the resource so a portal travel or fall-respawn
@@ -70,6 +70,9 @@ pub(super) fn spawn_local_player(
 pub(super) struct SpawnPose {
     pub(super) transform: Transform,
     pub(super) facing_chosen: bool,
+    /// The pitch the camera looks down at on arrival, radians, where the
+    /// landing set one (#1777).
+    pub(super) pitch: Option<f32>,
 }
 
 /// The spawn's pose on `hm_res`, the body's origin `set_down` metres over the
@@ -89,8 +92,8 @@ pub(super) fn spawn_pose(
     // Where a body may be set down: the world's ground.
     let half = hm_res.walkable_half_extent();
 
-    let (pose_pos, pose_yaw_deg) = match placement {
-        Some(p) => (p.pos, p.yaw_deg),
+    let (pose_pos, pose_yaw_deg, pitch) = match placement {
+        Some(p) => (p.pos, p.yaw_deg, None),
         None => match room.and_then(|r| crate::world_builder::compile::landing_on(r, hm_res)) {
             Some(landing) => (
                 Some(TargetPos {
@@ -99,8 +102,9 @@ pub(super) fn spawn_pose(
                     z: landing.pos.0[1],
                 }),
                 Some(landing.yaw_deg.0),
+                landing.pitch_deg.map(|pitch| pitch.0.to_radians()),
             ),
-            None => (None, None),
+            None => (None, None, None),
         },
     };
 
@@ -128,6 +132,7 @@ pub(super) fn spawn_pose(
     SpawnPose {
         transform: Transform::from_xyz(rx, oy, rz).with_rotation(rotation),
         facing_chosen: pose_yaw_deg.is_some(),
+        pitch,
     }
 }
 
@@ -191,6 +196,7 @@ mod tests {
             pos: crate::pds::Fp2([5.0, -3.0]),
             y: None,
             yaw_deg: crate::pds::Fp(yaw_deg),
+            ..Default::default()
         });
         record
     }
@@ -234,6 +240,20 @@ mod tests {
         let mut bare = room.clone();
         bare.default_landing = None;
         assert!(!spawn_pose(None, Some(&bare), &ground, 1.0).facing_chosen);
+
+        // The landing's own pitch rides with it, for the camera (#1777); a
+        // placement's pose has none.
+        assert_eq!(pose.pitch, None);
+        let mut pitched = room.clone();
+        if let Some(landing) = pitched.default_landing.as_mut() {
+            landing.pitch_deg = Some(crate::pds::Fp(14.0));
+        }
+        let pose = spawn_pose(None, Some(&pitched), &ground, 1.0);
+        assert_eq!(pose.pitch, Some(14f32.to_radians()));
+        assert_eq!(
+            spawn_pose(Some(&turned), Some(&pitched), &ground, 1.0).pitch,
+            None
+        );
     }
 
     /// A spawn facing turns counter-clockwise seen from above (#1547): 90

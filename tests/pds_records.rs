@@ -128,11 +128,22 @@ fn default_landing_elides_none_and_round_trips() {
             pos: Fp2([12.5, -30.0]),
             y: None,
             yaw_deg: Fp(135.0),
+            ..Default::default()
         },
         DefaultLanding {
             pos: Fp2([-4.25, 8.75]),
             y: Some(Fp(42.5)),
             yaw_deg: Fp(0.0),
+            ..Default::default()
+        },
+        // A seeded viewpoint's (#1777): the arrival camera's pitch, and a
+        // landing that walks off water and steep ground.
+        DefaultLanding {
+            pos: Fp2([88.0, -61.5]),
+            y: None,
+            yaw_deg: Fp(213.5),
+            pitch_deg: Some(Fp(12.5)),
+            avoid_water: true,
         },
     ] {
         record.default_landing = Some(landing);

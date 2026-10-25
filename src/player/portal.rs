@@ -466,7 +466,7 @@ pub(super) fn poll_portal_travel_tasks(
         // ground the frame the heightmap lands, exactly as it already does
         // for re-seeds and stale baked targets.
         if let Ok((mut tf, mut pos, mut rot, mut lv, mut av)) = players.single_mut() {
-            let (arrival, yaw_deg) = match travel_data.target_pos {
+            let (arrival, landed) = match travel_data.target_pos {
                 Some(pos) => (pos, None),
                 None => match destination_landing {
                     Some(landing) => (
@@ -475,7 +475,7 @@ pub(super) fn poll_portal_travel_tasks(
                             landing.y.map(|y| y.0).unwrap_or(0.0),
                             landing.pos.0[1],
                         ),
-                        Some(landing.yaw_deg.0),
+                        Some(landing),
                     ),
                     None => {
                         let (x, z) = super::random_spawn_xz();
@@ -486,11 +486,12 @@ pub(super) fn poll_portal_travel_tasks(
             // The physics' own pose with it, as for a hop within a room.
             tf.translation = arrival;
             pos.0 = arrival;
-            if let Some(deg) = yaw_deg {
-                tf.rotation = Quat::from_rotation_y(deg.to_radians());
+            if let Some(landing) = landed {
+                tf.rotation = Quat::from_rotation_y(landing.yaw_deg.0.to_radians());
                 rot.0 = tf.rotation;
-                // A first-person view turns to the landing too (#1750).
-                commands.write_message(super::FacingSet(tf.rotation));
+                // A first-person view turns to the landing too (#1750), and
+                // the camera looks down at its pitch (#1777).
+                commands.write_message(super::FacingSet::at(tf.rotation, &landing));
             }
             lv.0 = Vec3::ZERO;
             av.0 = Vec3::ZERO;
@@ -574,6 +575,7 @@ pub(super) fn release_travel_on_arrival(
             &mut AngularVelocity,
             Option<&mut super::helicopter::RotorLift>,
             Option<&mut super::airplane::Throttle>,
+            Option<&mut Rotation>,
         ),
         With<LocalPlayer>,
     >,
@@ -587,7 +589,7 @@ pub(super) fn release_travel_on_arrival(
     let (Some(heightmap), Some(_)) = (heightmap.as_deref(), compiled.as_deref()) else {
         return;
     };
-    if let Ok((mut pos, mut lin, mut ang, lift, throttle)) = players.single_mut() {
+    if let Ok((mut pos, mut lin, mut ang, lift, throttle, rot)) = players.single_mut() {
         // An arrival at the destination's landing - no baked target - comes
         // ashore on Berlin's ground, as a spawn there does (#1589): the
         // landing was taken before the ground it lands on existed.
@@ -599,6 +601,16 @@ pub(super) fn release_travel_on_arrival(
             if (x, z) != (pos.x, pos.z) {
                 pos.x = x;
                 pos.z = z;
+            }
+            // And it turns to what its landing faces where that stands, as
+            // a spawn there does: a walked Berlin landing to its gate, a
+            // seeded viewpoint to its landmark (#1777).
+            if let (Some(given), Some(mut rot)) = (room.0.default_landing, rot)
+                && let Some(landed) = crate::world_builder::compile::landing_on(&room.0, heightmap)
+                && landed.yaw_deg != given.yaw_deg
+            {
+                rot.0 = Quat::from_rotation_y(landed.yaw_deg.0.to_radians());
+                commands.write_message(super::FacingSet::at(rot.0, &landed));
             }
         }
         let clearance = live
@@ -750,6 +762,113 @@ mod tests {
             y >= 10.0 + clearance - 1e-4,
             "set down at y={y} with the ground at 10 m and a clearance of {clearance}"
         );
+    }
+
+    /// #1777: an arrival at a seeded world's viewpoint turns, once the world
+    /// stands, to its landmark where the compile stood it - walked off water
+    /// the probe that sited it missed - as a spawn there does, and tells the
+    /// camera; where the landmark stands as it was sited, the arrival keeps
+    /// the landing's facing and says nothing.
+    #[test]
+    fn an_arrival_turns_to_its_landmark_where_it_stands() {
+        use crate::pds::{DefaultLanding, Fp, Fp2, Placement};
+        let mut record = (0u64..)
+            .map(|seed| {
+                crate::seeded_defaults::room::build::build_room_with_source(
+                    seed,
+                    "did:test:arrival",
+                    None,
+                )
+            })
+            .find(|record| crate::world_builder::compile::room_water_level(record).is_some())
+            .expect("a seeded world with water");
+        let sea = crate::world_builder::compile::room_water_level(&record).expect("its sea");
+        let landmark = [40.0, 0.0];
+        for placement in &mut record.placements {
+            if let Placement::Absolute {
+                generator_ref,
+                transform,
+                avoid_water_clearance,
+                ..
+            } = placement
+                && generator_ref == "landmark"
+            {
+                transform.translation.0 = [landmark[0], 0.0, landmark[1]];
+                transform.scale.0 = [1.0; 3];
+                *avoid_water_clearance = Fp(3.0);
+            }
+        }
+        // Looking at the landmark from the landing, as the derive faces it.
+        let given = libm::atan2f(-landmark[0], -(landmark[1] - 100.0))
+            .to_degrees()
+            .rem_euclid(360.0);
+        record.default_landing = Some(DefaultLanding {
+            pos: Fp2([0.0, 100.0]),
+            yaw_deg: Fp(given),
+            pitch_deg: Some(Fp(12.0)),
+            avoid_water: true,
+            ..Default::default()
+        });
+        // 400 m of dry land 2 m a cell, its landmark in a pond or not.
+        let ground = |pond: bool| {
+            let mut hm = HeightMap::new(201, 201, 2.0);
+            for row in 0..201 {
+                for col in 0..201 {
+                    let (x, z) = (col as f32 * 2.0 - 200.0, row as f32 * 2.0 - 200.0);
+                    let wet = pond && (x - landmark[0]).hypot(z - landmark[1]) < 12.0;
+                    hm.set(col, row, if wet { sea - 3.0 } else { sea + 5.0 });
+                }
+            }
+            FinishedHeightMap(hm, None)
+        };
+        for pond in [true, false] {
+            let mut world = World::new();
+            world.insert_resource(TravelingTo {
+                target_did: "did:test:arrival".into(),
+                target_pos: None,
+                target_label: None,
+                phase: TravelPhase::Building,
+            });
+            world.insert_resource(ground(pond));
+            world.insert_resource(WorldCompiled);
+            world.insert_resource(LiveRoomRecord(record.clone()));
+            world.init_resource::<Messages<super::super::FacingSet>>();
+            let player = world
+                .spawn((
+                    LocalPlayer,
+                    Position(Vec3::new(0.0, 0.0, 100.0)),
+                    Rotation(Quat::from_rotation_y(given.to_radians())),
+                    LinearVelocity(Vec3::ZERO),
+                    AngularVelocity(Vec3::ZERO),
+                ))
+                .id();
+            run_gate(&mut world);
+            let turned = world
+                .entity(player)
+                .get::<Rotation>()
+                .expect("a rotation")
+                .0;
+            let told: Vec<_> = world
+                .resource_mut::<Messages<super::super::FacingSet>>()
+                .drain()
+                .collect();
+            if !pond {
+                assert_eq!(turned, Quat::from_rotation_y(given.to_radians()));
+                assert!(told.is_empty(), "{told:?}");
+                continue;
+            }
+            let landed = crate::world_builder::compile::landing_on(
+                &record,
+                world.resource::<FinishedHeightMap>(),
+            )
+            .expect("a landing");
+            assert_ne!(landed.yaw_deg.0, given, "the landmark was walked");
+            assert_eq!(turned, Quat::from_rotation_y(landed.yaw_deg.0.to_radians()));
+            assert_eq!(
+                told,
+                vec![super::super::FacingSet(turned, Some(12.0_f32.to_radians()))]
+            );
+        }
     }
 
     /// The gate is for the second half only. A fetch still in flight is

@@ -212,6 +212,12 @@ impl TerrainProbe {
         self.cell
     }
 
+    /// Half the map's side, metres: centred world XZ runs from minus this
+    /// to this.
+    pub fn half_extent(&self) -> f32 {
+        self.half
+    }
+
     /// Slope (rise/run) at a centred world XZ, from the nearest cell.
     pub fn slope_at(&self, world: [f32; 2]) -> f32 {
         let (x, z) = self.cell_index(world);
@@ -622,7 +628,7 @@ fn shore_distances(heights: &[f32], grid: usize, cell: f32, water_y: f32) -> Vec
 /// Twenty-four directions round a circle, fifteen degrees apart - every
 /// third one the compile walk's eight. Constant, so every platform reads
 /// the same points (#1132).
-const RIM: [[f32; 2]; 24] = {
+pub(super) const RIM: [[f32; 2]; 24] = {
     // sin and cos of k x 15 degrees, k = 0..24.
     const S: [f32; 24] = [
         0.0,

@@ -463,69 +463,109 @@ const ARRIVAL_STEPS: usize = 3;
 
 /// `(centre_x, centre_z, radius²)` of the ground every scatter keeps off
 /// (#1776): each seeded structure's footprint where the compile stands it -
-/// walked as [`super::pad::snapped_absolute_anchor`] walks it - and the
-/// world's landing with the ground behind it the arrival camera looks from
-/// (#1785). So no tree, boulder or tuft grows through a seeded building,
-/// its gate or its monument, on the spot a visitor arrives at, nor across
-/// their first view. A copy the sampler accepts there is suppressed, not
-/// drawn again: it spends its count slot and its jitter draws as if grown
-/// and grows nothing, so every other copy keeps its place and its pose - a
-/// saved world loses only what grew in the way. A seeded structure is a snapped `Absolute` placement opting into
-/// Avoid Water, the seeded pipeline's marker (see `pad`), so an editor's
-/// own placements are never ground a scatter avoids. With no heightmap
-/// yet, each stands where its record put it.
+/// walked as [`super::pad::snapped_absolute_anchor`] walks it - the world's
+/// landing as a body is set down there ([`super::water::landing_on`]) with
+/// the ground behind it the arrival camera looks from (#1785), and a seeded
+/// viewpoint's view down to its landmark (#1777). So no tree,
+/// boulder or tuft grows through a seeded building, its gate or its
+/// monument, on the spot a visitor arrives at, nor across their first view.
+/// A copy the sampler accepts there is suppressed, not drawn again: it
+/// spends its count slot and its jitter draws as if grown and grows nothing,
+/// so every other copy keeps its place and its pose - a saved world loses
+/// only what grew in the way. A seeded structure is a snapped `Absolute`
+/// placement opting into Avoid Water, the seeded pipeline's marker (see
+/// `pad`), so an editor's own placements are never ground a scatter avoids.
+/// With no heightmap yet, each stands where its record put it.
 pub(crate) fn structure_exclusions(
     record: &crate::pds::RoomRecord,
     heightmap: Option<&crate::terrain::FinishedHeightMap>,
     water: &crate::water::bodies::RoomWater,
 ) -> Vec<(f32, f32, f32)> {
     let ground = heightmap.map(|hm| super::pad::AnchorGround::new(hm, water));
-    let mut keep: Vec<(f32, f32, f32)> = record
-        .placements
-        .iter()
-        .filter_map(|placement| {
-            let crate::pds::Placement::Absolute {
+    let mut keep: Vec<(f32, f32, f32)> = Vec::new();
+    // The settlement's landmark, where it stands, and its ground's radius.
+    let mut landmark = None;
+    for placement in &record.placements {
+        let crate::pds::Placement::Absolute {
+            generator_ref,
+            transform,
+            snap_to_terrain: true,
+            avoid_water: true,
+            avoid_water_clearance,
+            ..
+        } = placement
+        else {
+            continue;
+        };
+        let radius = avoid_water_clearance.0 * transform.scale.0[0].max(0.0);
+        let stands = match &ground {
+            Some(ground) => super::pad::snapped_absolute_anchor(
+                ground,
                 transform,
-                snap_to_terrain: true,
-                avoid_water: true,
-                avoid_water_clearance,
-                ..
-            } = placement
-            else {
-                return None;
-            };
-            let radius = avoid_water_clearance.0 * transform.scale.0[0].max(0.0);
-            let stands = match &ground {
-                Some(ground) => super::pad::snapped_absolute_anchor(
-                    ground,
-                    transform,
-                    true,
-                    avoid_water_clearance.0,
-                ),
-                None => bevy::math::Vec3::from_array(transform.translation.0),
-            };
-            (radius > 0.0).then_some((stands.x, stands.z, radius * radius))
-        })
-        .collect();
-    if let Some(landing) = &record.default_landing {
+                true,
+                avoid_water_clearance.0,
+            ),
+            None => bevy::math::Vec3::from_array(transform.translation.0),
+        };
+        if radius > 0.0 {
+            keep.push((stands.x, stands.z, radius * radius));
+        }
+        // The first, as the landing turns to it (`water::seeded_landmark`).
+        if generator_ref == LANDMARK && landmark.is_none() {
+            landmark = Some((stands.x, stands.z, radius));
+        }
+    }
+    let landing = match heightmap {
+        Some(heightmap) => super::water::landing_on(record, heightmap),
+        None => record.default_landing,
+    };
+    if let Some(landing) = &landing {
+        let [x, z] = landing.pos.0;
         // Behind a body facing the landing's yaw - its forward is (-sin,
-        // -cos) - out to the camera's rest radius over the ground. libm
-        // (#1132): these discs decide which copies grow, on every peer.
+        // -cos) - out to where the camera rests over the ground, at the
+        // landing's own pitch (#1777) or the rest. libm (#1132): these discs
+        // decide which copies grow, on every peer.
         let yaw = landing.yaw_deg.0.to_radians();
         let behind = [libm::sinf(yaw), libm::cosf(yaw)];
-        let reach =
-            crate::config::camera::ORBIT_RADIUS * libm::cosf(crate::config::camera::ORBIT_PITCH);
+        let pitch = landing
+            .pitch_deg
+            .map_or(crate::config::camera::ORBIT_PITCH, |pitch| {
+                pitch.0.to_radians()
+            });
+        let reach = crate::config::camera::ORBIT_RADIUS * libm::cosf(pitch);
         for step in 0..=ARRIVAL_STEPS {
             let back = reach * step as f32 / ARRIVAL_STEPS as f32;
             keep.push((
-                landing.pos.0[0] + behind[0] * back,
-                landing.pos.0[1] + behind[1] * back,
+                x + behind[0] * back,
+                z + behind[1] * back,
                 LANDING_KEEP * LANDING_KEEP,
             ));
+        }
+        // The view down to the landmark (#1777): a seeded viewpoint's
+        // landing - one that avoids water, looking at its landmark - looks
+        // at it across ground no copy grows on, discs [`LANDING_KEEP`] round
+        // from the landing out to the landmark's own ground. An owner's own
+        // landing, or one they turned, may look anywhere, and keeps its trees.
+        if let Some((lx, lz, radius)) = landmark
+            .filter(|&(lx, lz, _)| landing.avoid_water && super::water::looks_at(landing, [lx, lz]))
+        {
+            let (dx, dz) = (lx - x, lz - z);
+            let length = (dx * dx + dz * dz).sqrt();
+            let run = length - radius;
+            if run > 0.0 {
+                let steps = (run / LANDING_KEEP).ceil() as usize;
+                for step in 1..=steps {
+                    let t = run * step as f32 / steps as f32 / length;
+                    keep.push((x + dx * t, z + dz * t, LANDING_KEEP * LANDING_KEEP));
+                }
+            }
         }
     }
     keep
 }
+
+/// The generator a seeded settlement's landmark is placed by.
+pub(super) const LANDMARK: &str = "landmark";
 
 /// Whether `(x, z)` lies inside any `(centre_x, centre_z, radius²)` disc.
 pub(crate) fn inside_any(discs: &[(f32, f32, f32)], x: f32, z: f32) -> bool {
@@ -759,10 +799,11 @@ mod tests {
 
     /// #1776 across seeded worlds: no scatter's copy - tree, boulder or
     /// tuft - stands inside a seeded structure's footprint where the
-    /// compile stands it, nor on the landing or the ground behind it.
+    /// compile stands it, nor on the landing or the ground behind it, nor
+    /// (#1777) across a viewpoint's view down to its landmark.
     #[test]
     fn no_scatter_grows_through_a_seeded_building_or_on_the_landing() {
-        let mut kept = 0;
+        let (mut kept, mut viewpoints) = (0, 0);
         for seed in 0u64..6 {
             let record = crate::seeded_defaults::room::build::build_room_with_source(
                 seed,
@@ -779,6 +820,38 @@ mod tests {
                 keep_off.len() >= 3,
                 "seed {seed}: a landmark, a gate and the landing at least"
             );
+            // The view is kept halfway down it, where the compile stands
+            // the landing and the landmark.
+            let landing = super::super::water::landing_on(&record, &terrain)
+                .filter(|landing| landing.avoid_water);
+            let landmark = record
+                .placements
+                .iter()
+                .find_map(|placement| match placement {
+                    crate::pds::Placement::Absolute {
+                        generator_ref,
+                        transform,
+                        avoid_water_clearance,
+                        ..
+                    } if generator_ref == LANDMARK => {
+                        Some(super::super::pad::snapped_absolute_anchor(
+                            &super::super::pad::AnchorGround::new(&terrain, &water),
+                            transform,
+                            true,
+                            avoid_water_clearance.0,
+                        ))
+                    }
+                    _ => None,
+                });
+            if let (Some(landing), Some(landmark)) = (landing, landmark) {
+                let [x, z] = landing.pos.0;
+                let (mx, mz) = ((x + landmark.x) * 0.5, (z + landmark.z) * 0.5);
+                assert!(
+                    inside_any(&keep_off, mx, mz),
+                    "seed {seed}: the view is not kept at ({mx}, {mz})"
+                );
+                viewpoints += 1;
+            }
             for points in super::super::census::scatter_points(&record, &terrain)
                 .into_iter()
                 .flatten()
@@ -793,6 +866,7 @@ mod tests {
             }
         }
         assert!(kept > 1000, "only {kept} copies placed");
+        assert!(viewpoints > 0, "no seeded world arrives at a viewpoint");
     }
 
     /// #1776: the keep-outs are the seeded structures - a snapped
@@ -819,6 +893,7 @@ mod tests {
                 pos: crate::pds::Fp2([0.0, 30.0]),
                 y: None,
                 yaw_deg: crate::pds::Fp(0.0),
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -836,6 +911,46 @@ mod tests {
             assert!(gap < LANDING_KEEP, "{gap}");
         }
     }
+    /// #1777: a seeded viewpoint's view down to its landmark is kept clear -
+    /// a landing that avoids water and looks at the landmark - and no other:
+    /// one its owner turned away, or one that does not avoid water, keeps
+    /// the trees across it.
+    #[test]
+    fn only_a_landing_looking_at_its_landmark_keeps_its_view_clear() {
+        let landmark = crate::pds::Placement::Absolute {
+            generator_ref: LANDMARK.into(),
+            transform: crate::pds::TransformData {
+                translation: crate::pds::Fp3([0.0, 0.0, 0.0]),
+                rotation: crate::pds::Fp4([0.0, 0.0, 0.0, 1.0]),
+                scale: crate::pds::Fp3([1.0, 1.0, 1.0]),
+            },
+            snap_to_terrain: true,
+            avoid_water: true,
+            avoid_water_clearance: crate::pds::Fp(8.0),
+            seed: None,
+            params: Default::default(),
+        };
+        let view_kept = |yaw: f32, avoid_water: bool| {
+            let record = crate::pds::RoomRecord {
+                placements: vec![landmark.clone()],
+                default_landing: Some(crate::pds::room::DefaultLanding {
+                    pos: crate::pds::Fp2([0.0, 60.0]),
+                    yaw_deg: crate::pds::Fp(yaw),
+                    avoid_water,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
+            let keep_off =
+                structure_exclusions(&record, None, &crate::water::bodies::RoomWater::default());
+            inside_any(&keep_off, 0.0, 30.0)
+        };
+        // Facing -Z, from (0, 60) down to the landmark at the origin.
+        assert!(view_kept(0.0, true));
+        assert!(!view_kept(90.0, true), "turned away by its owner");
+        assert!(!view_kept(0.0, false), "an owner's own landing");
+    }
+
     /// #1512: the render tool's preview turns a turned rect's copies as the
     /// compile does - with Random yaw off, each faces along the rect's own X
     /// - and stands each where the sampler put it.

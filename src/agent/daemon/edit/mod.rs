@@ -726,6 +726,7 @@ mod tests {
             pos: Fp2([1.234_567_9, -0.000_04]),
             y: None,
             yaw_deg: Fp(0.0),
+            ..Default::default()
         });
 
         assert!(write_room(world, record, "landing".into()).expect("written"));

@@ -103,7 +103,9 @@ mod tests {
         let mut record = RoomRecord::default_for_did("did:plc:sizes");
         let big: Generator = serde_json::from_value(serde_json::json!({
             "$type": "network.symbios.gen.cuboid", "size": [10000, 10000, 10000], "solid": true,
-            "children": (0..200).map(|i| serde_json::json!({
+            // Larger than any seeded building's record: this world's
+            // largest runs to 28 KB (#1778).
+            "children": (0..400).map(|i| serde_json::json!({
                 "$type": "network.symbios.gen.cuboid", "size": [1000, 1000, 1000], "solid": false,
                 "transform": {"translation": [i * 1000, 0, 0]}
             })).collect::<Vec<_>>()
