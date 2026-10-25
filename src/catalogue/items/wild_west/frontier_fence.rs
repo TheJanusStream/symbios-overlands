@@ -6,7 +6,7 @@ use std::f32::consts::FRAC_PI_2;
 use crate::catalogue::items::util::{
     assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_z, solid,
 };
-use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
+use crate::catalogue::{CatalogueEntry, Footprint, Lining, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
@@ -26,6 +26,10 @@ impl CatalogueEntry for FrontierFence {
     }
     fn role(&self) -> StructureRole {
         StructureRole::Prop
+    }
+    fn lines_paths(&self) -> Option<Lining> {
+        // From the rails' far end to the end of the brace.
+        Some(Lining::Run { length: 5.6 })
     }
     fn themes(&self) -> &'static [ThemeArchetype] {
         &[ThemeArchetype::WildWest]

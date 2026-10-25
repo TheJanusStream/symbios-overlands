@@ -5,7 +5,7 @@
 use crate::catalogue::items::util::{
     assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, solid,
 };
-use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
+use crate::catalogue::{CatalogueEntry, Footprint, Lining, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
@@ -25,6 +25,10 @@ impl CatalogueEntry for BambooFence {
     }
     fn role(&self) -> StructureRole {
         StructureRole::Prop
+    }
+    fn lines_paths(&self) -> Option<Lining> {
+        // The rails' span.
+        Some(Lining::Run { length: 4.0 })
     }
     fn themes(&self) -> &'static [ThemeArchetype] {
         &[ThemeArchetype::FeudalJapan]

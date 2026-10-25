@@ -370,6 +370,64 @@ Grass, each row with an Auto box). Every field is optional:
   `layer_density`, `flower_share`) and the grass stays as it was while you
   thin the cards down to highlights.
 
+## Paths
+
+A world seeded on its own ground has paths (#1779): footways from its
+landing down the view to its landmark, across to its gate, and on to each
+of its buildings, every one joining the paths laid before it - so they
+branch - and going round water and ground too steep to walk. They are
+painted, not built: each heightmap vertex's ground layers shift toward one
+layer by how far inside a path it stands, and no grass, tree, rock or tuft
+grows on them. A path reads best in a green world, a bare earth band
+through the grass; in sand it is faint, and in falling snow it snows over.
+A building no path reaches, across water or up a cliff, has none.
+
+Each building a path reaches but the landmark - which faces the arrival -
+is turned to front onto its path (#1780): its front faces the door its
+path leaves from. A building that belongs on the shore, a boathouse or a
+lifeguard tower, looks out over the water instead when it stands within
+60 m of it. And where one of the theme's props that line paths suits the
+world's prosperity and calm, it lines them: lamps, lanterns or benches a
+stride apart on alternate sides, a sign, or a fence down both sides of the
+way in - twelve at the most, each a settlement prop like any other. Where
+none suits, the paths go unlined: the lantern and the bench every theme
+shares suit only a calm world.
+
+**The terrain's `paths` group** sits beside `grass` in `base_terrain` (the
+World Editor: Generators, the terrain, Paths):
+
+- `lines`: the paths, each a list of `[x, z]` points in world metres
+  (times 10 000 on the wire), two at least.
+- `layer`: the ground layer that paints them, 0 to 3 in the material's
+  order; unset 1, the dirt.
+- `share`: how much of that layer a path's middle shows, 0 to 1; unset
+  0.85. A seeded snowy world (Glacial, Tundra, Alpine) sets 0.45, where
+  dirt at full share reads as a dark smear, and an arid one 0.7.
+- `width`: metres, 0.5 to 8; unset 2.5.
+
+A path edit builds the terrain anew, its heightmap included, as a layer or
+rule edit does, and regrows the scatters but not a district's lots. Clear
+them with the editor's Clear paths, or `room set` the group to `{}`. The
+paths are kept as they were routed: a building moved keeps its old path,
+and paths of your own are `lines` you write. The props that line them are
+placements like any other, which a path edit leaves where they stand.
+
+## Signature feature
+
+A world seeded on its own ground has one memorable thing of its land beside
+its settlement (#1781), the `signature_feature` generator and placement: a
+lone giant tree - one of the world's own trees, two and a half times its
+size, in a clearing - where trees grow; stacks of the world's rock
+standing out of the sea off a coast; a ruined temple or chapel on a crest
+of hilly land; or a ring of standing stones, on any land. Which a world
+tries first is drawn from its seed, a kind no ground takes gives way to
+the next, and the ring comes last. It stands 50 to 260 m from the landing,
+clear of the settlement, its paths and the view down to the landmark, and
+where the ground allows, beside the landmark in the first frame - about
+half the worlds show it on arrival; a few worlds whose ground takes none
+have none. It is a placement like any other: move it, delete it, or put
+something of your own there. A Berlin square has none.
+
 ## Water, sky and light
 
 - The water's look is in the water child's `surface` (`deep_color`,

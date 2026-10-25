@@ -7,7 +7,7 @@ use std::f32::consts::FRAC_PI_2;
 use crate::catalogue::items::util::{
     assemble, cone, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid, sphere, torus,
 };
-use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
+use crate::catalogue::{CatalogueEntry, Footprint, Lining, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
@@ -27,6 +27,10 @@ impl CatalogueEntry for IronFence {
     }
     fn role(&self) -> StructureRole {
         StructureRole::Prop
+    }
+    fn lines_paths(&self) -> Option<Lining> {
+        // Post base to post base.
+        Some(Lining::Run { length: 3.84 })
     }
     fn themes(&self) -> &'static [ThemeArchetype] {
         &[ThemeArchetype::GothicHorror]

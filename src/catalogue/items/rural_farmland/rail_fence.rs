@@ -2,7 +2,7 @@
 //! squared posts carrying two split rails, the boundary of a paddock.
 
 use crate::catalogue::items::util::{assemble, cuboid_tapered, id_quat, prim, quat_z, solid};
-use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
+use crate::catalogue::{CatalogueEntry, Footprint, Lining, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
@@ -22,6 +22,10 @@ impl CatalogueEntry for RailFence {
     }
     fn role(&self) -> StructureRole {
         StructureRole::Prop
+    }
+    fn lines_paths(&self) -> Option<Lining> {
+        // The rails' span.
+        Some(Lining::Run { length: 4.5 })
     }
     fn themes(&self) -> &'static [ThemeArchetype] {
         &[ThemeArchetype::RuralFarmland]

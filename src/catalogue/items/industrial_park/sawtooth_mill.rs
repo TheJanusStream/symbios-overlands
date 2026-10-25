@@ -236,11 +236,12 @@ fn build_kind() -> GeneratorKind {
         seed: 11,
         materials: materials(),
         // The flue, its foot and cap band, and the roof tank are turned;
-        // everything else on a mill is square-plan brickwork.
+        // everything else on a mill is square-plan brickwork. Sorted, as
+        // the sanitiser holds the list (#1789).
         round_meshes: vec![
             "Stack".to_string(),
-            "StackFoot".to_string(),
             "StackBand".to_string(),
+            "StackFoot".to_string(),
             "Tank".to_string(),
         ],
         solid_meshes: Vec::new(),

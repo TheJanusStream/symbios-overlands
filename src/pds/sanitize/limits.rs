@@ -22,6 +22,18 @@ pub const MAX_TEXTURE_SIZE: u32 = 4096;
 /// slider's range: one tile across the whole terrain to five hundred.
 pub const MIN_TILE_SCALE: f32 = 1.0;
 pub const MAX_TILE_SCALE: f32 = 500.0;
+/// A world's paths (#1779): how many lines, how many points in all, how
+/// far from the middle a point may stand (m, the landing's own bound), and
+/// how narrow and how wide a path may be (m).
+pub const MAX_PATH_LINES: usize = 64;
+pub const MAX_PATH_POINTS: usize = 2048;
+/// How long a world's paths may run in all (m, #1779): what the painting
+/// and the scatters' keep-outs cost grows with it. A seeded world's run to
+/// about 1.5 km at the most.
+pub const MAX_PATH_LENGTH: f32 = 4_000.0;
+pub const MAX_PATH_REACH: f32 = 10_000.0;
+pub const MIN_PATH_WIDTH: f32 = 0.5;
+pub const MAX_PATH_WIDTH: f32 = 8.0;
 /// The most a world's grass may sway (#1700), as a share of how far the
 /// wind leans it unset: twice as far.
 pub const MAX_GRASS_SWAY: f32 = 2.0;

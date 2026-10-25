@@ -165,6 +165,21 @@ pub struct Footprint {
     pub min_spawn_dist: f32,
 }
 
+/// How a seeded settlement stands a prop along its paths (#1780).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Lining {
+    /// One at a time, `stride` metres apart along a path on alternate sides,
+    /// turned to look at it: its catalogue front (-Z), or the side `face`
+    /// turns that to (radians, as a yaw turns) - a quarter turn for a lamp
+    /// whose arm reaches along +X over the path. A lamp, a lantern, a bench,
+    /// a sign.
+    Post { stride: f32, face: f32 },
+    /// Sections end to end down both sides of the way in, each `length`
+    /// metres along its catalogue X from end to end, its front to the path:
+    /// a fence.
+    Run { length: f32 },
+}
+
 /// Where on a world's land a seeded building of an entry belongs, beyond
 /// ground that fits it (#1775): what the settlement scores the sites it
 /// fits on by, against the walk from where it was wanted.
@@ -367,6 +382,13 @@ pub trait CatalogueEntry: Sync {
     /// within its neighbours' spacing, which on a slope stands it metres
     /// above its downhill side.
     fn ground_radius(&self) -> Option<f32> {
+        None
+    }
+
+    /// How a seeded settlement stands this entry along its paths (#1780): a
+    /// lamp, a lantern, a bench, a post, a sign, a run of fence - a prop a
+    /// walker passes. `None`, the default, for the rest.
+    fn lines_paths(&self) -> Option<Lining> {
         None
     }
 

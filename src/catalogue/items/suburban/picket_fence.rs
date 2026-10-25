@@ -22,7 +22,7 @@
 use crate::catalogue::items::util::{
     assemble, cuboid_tapered, cuboid_tapered_xz, id_quat, prim, solid, upright_boards,
 };
-use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
+use crate::catalogue::{CatalogueEntry, Footprint, Lining, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
@@ -66,6 +66,12 @@ impl CatalogueEntry for PicketFence {
     }
     fn role(&self) -> StructureRole {
         StructureRole::Prop
+    }
+    fn lines_paths(&self) -> Option<Lining> {
+        // Post to post, the caps' overhang included.
+        Some(Lining::Run {
+            length: SPAN + POST_W + 0.04,
+        })
     }
     fn themes(&self) -> &'static [ThemeArchetype] {
         &[ThemeArchetype::Suburban]

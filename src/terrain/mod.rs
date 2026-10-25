@@ -53,6 +53,8 @@ pub(crate) use heightmap::heightmap_params;
 pub(crate) use heightmap::heightmap_params_as_derived;
 mod lifecycle;
 mod lots;
+mod paths;
+pub(crate) use paths::lines as path_lines;
 pub mod referenced;
 mod roads;
 mod splat;

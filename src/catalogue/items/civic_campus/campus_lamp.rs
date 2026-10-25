@@ -7,7 +7,7 @@ use std::f32::consts::FRAC_PI_2;
 use crate::catalogue::items::util::{
     assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_y, solid, sphere, torus,
 };
-use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
+use crate::catalogue::{CatalogueEntry, Footprint, Lining, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
@@ -27,6 +27,12 @@ impl CatalogueEntry for CampusLamp {
     }
     fn role(&self) -> StructureRole {
         StructureRole::Prop
+    }
+    fn lines_paths(&self) -> Option<Lining> {
+        Some(Lining::Post {
+            stride: 16.0,
+            face: 0.0,
+        })
     }
     fn themes(&self) -> &'static [ThemeArchetype] {
         &[ThemeArchetype::CivicCampus]

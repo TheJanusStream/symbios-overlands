@@ -83,6 +83,10 @@ pub struct TerrainSurfaceQuery {
     /// Real Berlin's land use under a geodata region's ground (#1586),
     /// whose weights replace the splat rules': the layers the GPU draws.
     ground: Option<crate::terrain::geo::GeoGround>,
+    /// The splat weights as painted, one texel a heightmap vertex, where
+    /// the world's paths are painted into them (#1779): the layers the GPU
+    /// draws there too.
+    painted: Option<std::sync::Arc<crate::ground_cover::WeightLayer>>,
 }
 
 impl TerrainSurfaceQuery {
@@ -91,7 +95,18 @@ impl TerrainSurfaceQuery {
             query,
             half_extent,
             ground: None,
+            painted: None,
         }
+    }
+
+    /// Read the splat weights from `painted` - the weight map the GPU draws,
+    /// paths painted in (#1779) - rather than from the splat rules.
+    pub(crate) fn with_painted(
+        mut self,
+        painted: Option<std::sync::Arc<crate::ground_cover::WeightLayer>>,
+    ) -> Self {
+        self.painted = painted;
+        self
     }
 
     /// Read the splat weights from `ground`'s land use, as the GPU draws a
@@ -115,12 +130,54 @@ impl TerrainSurfaceQuery {
         let lx = world_x + self.half_extent;
         let lz = world_z + self.half_extent;
         let h = self.query.height_at(lx, lz);
-        let w = match &self.ground {
-            Some(ground) => ground.weights_at_local(lx, lz),
-            None => self.query.splat_weights_at(lx, lz),
+        let w = match (&self.ground, &self.painted) {
+            (Some(ground), _) => ground.weights_at_local(lx, lz),
+            (None, Some(painted)) => painted_weights(painted, self.half_extent, lx, lz),
+            (None, None) => self.query.splat_weights_at(lx, lz),
         };
         let n = self.query.normal_at(lx, lz);
         (h, w, Vec3::new(n[0], n[1], n[2]))
+    }
+}
+
+/// The normalised weights of `painted` - one RGBA texel a heightmap vertex,
+/// the grid `2 half` metres across - at heightmap-local `(lx, lz)`, linear
+/// between the vertices as the ground's shader samples them.
+fn painted_weights(
+    painted: &crate::ground_cover::WeightLayer,
+    half: f32,
+    lx: f32,
+    lz: f32,
+) -> [f32; 4] {
+    let (w, h) = (painted.width as usize, painted.height as usize);
+    // Ground no layer covers is the third's, as the ground's shader draws it.
+    const UNCOVERED: [f32; 4] = [0.0, 0.0, 1.0, 0.0];
+    if w < 2 || h < 2 || half <= 0.0 {
+        return UNCOVERED;
+    }
+    let cell = 2.0 * half / (w - 1) as f32;
+    let gx = (lx / cell).clamp(0.0, (w - 1) as f32);
+    let gz = (lz / cell).clamp(0.0, (h - 1) as f32);
+    let (i0, j0) = (gx.floor() as usize, gz.floor() as usize);
+    let (i1, j1) = ((i0 + 1).min(w - 1), (j0 + 1).min(h - 1));
+    let (fx, fz) = (gx - i0 as f32, gz - j0 as f32);
+    let texel = |i: usize, j: usize| {
+        let k = (j * w + i) * 4;
+        let b = &painted.bytes[k..k + 4];
+        [b[0], b[1], b[2], b[3]].map(f32::from)
+    };
+    let (a, b, c, d) = (texel(i0, j0), texel(i1, j0), texel(i0, j1), texel(i1, j1));
+    let mut out = [0.0; 4];
+    for k in 0..4 {
+        let top = a[k] + (b[k] - a[k]) * fx;
+        let bottom = c[k] + (d[k] - c[k]) * fx;
+        out[k] = top + (bottom - top) * fz;
+    }
+    let sum: f32 = out.iter().sum();
+    if sum > 0.0 {
+        out.map(|v| v / sum)
+    } else {
+        UNCOVERED
     }
 }
 
@@ -539,6 +596,28 @@ fn emit_for_avatar(
 mod tests {
     use super::super::contact::SurfaceKind;
     use super::*;
+
+    /// #1779: on a world with paths the CPU ground reads the weights as
+    /// painted - a path's dirt under the walker - linear between vertices,
+    /// as the ground's shader samples them.
+    #[test]
+    fn the_cpu_ground_reads_a_painted_path() {
+        // 3 x 3 vertices 10 m apart, all grass but the middle column dirt.
+        let mut bytes = Vec::new();
+        for _ in 0..3 {
+            bytes.extend([255, 0, 0, 0, 0, 255, 0, 0, 255, 0, 0, 0]);
+        }
+        let painted = crate::ground_cover::WeightLayer {
+            width: 3,
+            height: 3,
+            bytes,
+        };
+        let at = |lx: f32, lz: f32| painted_weights(&painted, 10.0, lx, lz);
+        assert_eq!(at(10.0, 4.0), [0.0, 1.0, 0.0, 0.0]);
+        assert_eq!(at(0.0, 20.0), [1.0, 0.0, 0.0, 0.0]);
+        let between = at(5.0, 10.0);
+        assert!((between[0] - 0.5).abs() < 1e-6 && (between[1] - 0.5).abs() < 1e-6);
+    }
 
     fn water_contact(plane_idx: usize, depth: f32) -> SurfaceContact {
         SurfaceContact::Water {

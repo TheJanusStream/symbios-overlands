@@ -106,6 +106,30 @@ impl CoverMask {
         });
     }
 
+    /// Block the ground a path `width` metres wide runs over along `line`,
+    /// world XZ (#1779): each stretch's band and each bend's round, so a
+    /// path grows no grass.
+    pub fn block_path(&mut self, line: &[Vec2], width: f32) {
+        let half = width * 0.5;
+        for pair in line.windows(2) {
+            let (a, b) = (pair[0], pair[1]);
+            let side = (b - a).perp().normalize_or_zero() * half;
+            if side == Vec2::ZERO {
+                continue;
+            }
+            self.block_convex(&[a + side, b + side, b - side, a - side]);
+        }
+        for &at in line.iter().skip(1).take(line.len().saturating_sub(2)) {
+            let round: Vec<Vec2> = (0..8)
+                .map(|k| {
+                    let turn = k as f32 * std::f32::consts::FRAC_PI_4;
+                    at + Vec2::new(libm::cosf(turn), libm::sinf(turn)) * half
+                })
+                .collect();
+            self.block_convex(&round);
+        }
+    }
+
     /// Block every texel whose centre `blocked` says yes to: the water's
     /// test, which asks the ground's height there.
     pub fn block_where(&mut self, blocked: impl Fn(Vec2) -> bool) {
@@ -256,6 +280,33 @@ pub fn convex_hull(mut points: Vec<Vec2>) -> Vec<Vec2> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A path grows no grass (#1779): its band blocked all along it, round
+    /// its bends, and the ground beside it open.
+    #[test]
+    fn a_path_blocks_its_band_and_nothing_beside_it() {
+        let mut m = CoverMask::open(40, 1.0, Vec2::splat(-20.0));
+        let line = [
+            Vec2::new(-15.0, 0.0),
+            Vec2::new(0.0, 0.0),
+            Vec2::new(0.0, 15.0),
+        ];
+        m.block_path(&line, 3.0);
+        for at in [
+            Vec2::new(-10.0, 0.2),
+            Vec2::new(-0.3, 0.3),
+            Vec2::new(0.4, 10.0),
+        ] {
+            assert_eq!(m.open_at(at), 0.0, "{at} on the path grows grass");
+        }
+        for at in [
+            Vec2::new(-10.0, 4.5),
+            Vec2::new(5.0, -5.0),
+            Vec2::new(-4.5, 10.0),
+        ] {
+            assert_eq!(m.open_at(at), 1.0, "{at} beside the path is blocked");
+        }
+    }
 
     /// The most open a rectangle reads is the most of the texels a linear
     /// sample in it can blend, and one more (#1693): blocked ground reads 0

@@ -33,6 +33,7 @@ pub mod limits;
 mod material;
 pub mod names;
 mod particles;
+mod paths;
 mod primitive;
 mod sign;
 pub(crate) use sign::{is_fetchable_endpoint, is_fetchable_reference, refusal_reason};

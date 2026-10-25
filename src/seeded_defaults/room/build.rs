@@ -73,6 +73,21 @@ pub(crate) const TREE_ENTITY_BUDGET: u64 = 1_600;
 /// ground-cover tier that actually needs the instance count.
 pub(crate) const ROOM_VEGETATION_ENTITY_BUDGET: u64 = 120_000;
 
+/// How wide a seeded settlement's paths are (m, #1779): a footway.
+const PATH_WIDTH: f32 = 2.5;
+
+/// How much of its dirt a seeded path shows at its middle (#1779), by the
+/// biome the world grows: trampled snow shows its earth less than a meadow
+/// path, which a dirt layer at full share would paint as a dark smear.
+fn path_share(biome: crate::seeded_defaults::scene::BiomeArchetype) -> f32 {
+    use crate::seeded_defaults::scene::BiomeArchetype::*;
+    match biome {
+        Glacial | Tundra | Alpine => 0.45,
+        Arid | Badlands | Volcanic => 0.7,
+        _ => 0.85,
+    }
+}
+
 /// Grid size of the derive-time proxy heightmap used for settlement
 /// siting (#905). At the default 512-cell / ~2 m terrain this is a
 /// ~10 m proxy cell - building-footprint scale, coarse enough that
@@ -396,6 +411,14 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
     } else {
         1.0
     };
+    // The first stand whose tree stands as a giant, for the signature
+    // feature (#1781).
+    let giant_tree = pending_tree_scatters
+        .iter()
+        .position(|(scatter, _, _)| {
+            crate::seeded_defaults::room::feature::stands_as_giant(scatter.species.slug())
+        })
+        .map(|idx| format!("tree_scatter_{idx}"));
     for (idx, (scatter, tree_gen, _)) in pending_tree_scatters.into_iter().enumerate() {
         let count = ((f64::from(scatter.count) * scale) as u32).max(1);
         let scatter_gen_name = format!("tree_scatter_{idx}");
@@ -610,10 +633,131 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
     // anchors the gate to the primary landmark.
     // A world on its own ground keeps the best of a few plans (#1778); a
     // Berlin square reads only its first plan's landmark bearing.
-    let settlement_plan = match berlin {
+    let mut settlement_plan = match berlin {
         None => SettlementPlan::best_sited(&scene, did_seed, &terrain_probe),
         Some(_) => SettlementPlan::from_scene_sited(&scene, did_seed, &terrain_probe),
     };
+
+    // Where the social gateway and the owner monument stand (both wired
+    // below), worked out before the settlement is: its paths keep off both.
+    let viewpoint = settlement_plan.viewpoint.filter(|_| berlin.is_none());
+    let gate_side = crate::seeded_defaults::room::monument::gate_side(did);
+    let gateway = crate::seeded_defaults::room::gateway::gateway_entry(scene.theme).map(|entry| {
+        let gate_clearance = entry.footprint().clearance;
+        let primary_landmark = settlement_plan.primary_landmark();
+        let spot = match berlin {
+            None => match &viewpoint {
+                Some(viewpoint) => crate::seeded_defaults::GatewaySpot::at_viewpoint(
+                    viewpoint,
+                    gate_clearance,
+                    gate_side,
+                ),
+                None => crate::seeded_defaults::GatewaySpot::for_landmark(
+                    primary_landmark.offset,
+                    primary_landmark.clearance,
+                    gate_clearance,
+                ),
+            },
+            // On the bearing the landmark would have stood on, as it stood
+            // before its ground was read (#1773), north where it stands on
+            // the origin.
+            Some(_) => {
+                let [x, z] = settlement_plan.unfitted_landmark;
+                let length = x.hypot(z);
+                let bearing = if length > 1e-3 {
+                    [x / length, z / length]
+                } else {
+                    [0.0, -1.0]
+                };
+                crate::seeded_defaults::GatewaySpot::at_centre(bearing, gate_clearance)
+            }
+        };
+        (entry, spot)
+    });
+    // The monument stands beside the gate, so a world without one goes
+    // without (see the wiring below).
+    let monument = gateway.as_ref().and_then(|(gate_entry, spot)| {
+        let entry = crate::seeded_defaults::room::monument::monument_entry(scene.theme)?;
+        let clearance = entry.footprint().clearance;
+        let mspot = match &viewpoint {
+            Some(viewpoint) => {
+                crate::seeded_defaults::MonumentSpot::at_viewpoint(viewpoint, clearance, gate_side)
+            }
+            None => crate::seeded_defaults::MonumentSpot::beside_gate(
+                spot,
+                gate_entry.footprint().clearance,
+                clearance,
+                did,
+            ),
+        };
+        Some((entry, mspot))
+    });
+
+    // The settlement's paths (#1779): routed on the probe from a
+    // viewpoint's landing down the view to the landmark, across to the
+    // gate and on to every building, which turns each to front onto its
+    // own, and lined with props (#1780) - both before the settlement is
+    // wired - and painted on the terrain the record carries, below. A
+    // Berlin square keeps its streets.
+    let paths = match (&viewpoint, &gateway) {
+        (Some(viewpoint), Some((entry, spot))) => {
+            let mut forecourt: Vec<([f32; 2], f32)> = monument
+                .iter()
+                .map(|(entry, mspot)| (mspot.offset, entry.footprint().clearance))
+                .collect();
+            let gate = (spot.offset, entry.footprint().clearance);
+            let lines = crate::seeded_defaults::room::paths::route_plan(
+                &terrain_probe,
+                &mut settlement_plan,
+                viewpoint.landing,
+                gate,
+                &forecourt,
+            );
+            forecourt.push(gate);
+            crate::seeded_defaults::room::lining::line_paths(
+                &terrain_probe,
+                &mut settlement_plan,
+                &scene,
+                did_seed,
+                &lines,
+                PATH_WIDTH,
+                &forecourt,
+            );
+            // The world's signature feature (#1781), clear of all that now
+            // stands and of the view down to the landmark: placed after the
+            // gate and the monument, below.
+            let mut keep_off = forecourt;
+            let landmark = settlement_plan.primary_landmark();
+            keep_off.extend(viewpoint.keep_outs(landmark.offset, landmark.ground_radius()));
+            for cluster in &settlement_plan.clusters {
+                let members = cluster.landmark.iter().chain(&cluster.secondaries);
+                keep_off.extend(
+                    members
+                        .chain(&cluster.props)
+                        .map(|member| (member.offset, member.ground_radius())),
+                );
+            }
+            let feature = crate::seeded_defaults::room::feature::choose(
+                &terrain_probe,
+                &scene,
+                did_seed,
+                giant_tree.is_some(),
+                viewpoint,
+                &crate::seeded_defaults::room::feature::KeepClear {
+                    stands: &keep_off,
+                    paths: &lines,
+                    width: PATH_WIDTH,
+                },
+            );
+            Some((lines, feature))
+        }
+        _ => None,
+    };
+    let (paths, feature) = match paths {
+        Some((lines, feature)) => (Some(lines), feature),
+        None => (None, None),
+    };
+
     // A Berlin square is its own settlement (see the docs above): only its
     // landmark's bearing is kept, for the gate's.
     if berlin.is_none() {
@@ -685,40 +829,11 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
     // facing the settlement, as it always was. (Caveat: the gate is
     // water-avoiding, so on a soaked bearing the compile can walk it off the
     // recorded landing; a viewpoint's landing walks too, and turns to its
-    // landmark where either was walked - `compile::landing_on`.)
+    // landmark where either was walked - `compile::landing_on`.) Where both
+    // stand was worked out above, for the paths.
     let mut default_landing = None;
-    let viewpoint = settlement_plan.viewpoint.filter(|_| berlin.is_none());
-    if let Some(entry) = crate::seeded_defaults::room::gateway::gateway_entry(scene.theme) {
+    if let Some((entry, spot)) = gateway {
         let gate_clearance = entry.footprint().clearance;
-        let primary_landmark = settlement_plan.primary_landmark();
-        let gate_side = crate::seeded_defaults::room::monument::gate_side(did);
-        let spot = match berlin {
-            None => match &viewpoint {
-                Some(viewpoint) => crate::seeded_defaults::GatewaySpot::at_viewpoint(
-                    viewpoint,
-                    gate_clearance,
-                    gate_side,
-                ),
-                None => crate::seeded_defaults::GatewaySpot::for_landmark(
-                    primary_landmark.offset,
-                    primary_landmark.clearance,
-                    gate_clearance,
-                ),
-            },
-            // On the bearing the landmark would have stood on, as it stood
-            // before its ground was read (#1773), north where it stands on
-            // the origin.
-            Some(_) => {
-                let [x, z] = settlement_plan.unfitted_landmark;
-                let length = x.hypot(z);
-                let bearing = if length > 1e-3 {
-                    [x / length, z / length]
-                } else {
-                    [0.0, -1.0]
-                };
-                crate::seeded_defaults::GatewaySpot::at_centre(bearing, gate_clearance)
-            }
-        };
         let mut gate = entry.build(did);
         // Socio finish for material coherence - but no ruin pass: a
         // collapsed gate that still teleports reads as a bug, not
@@ -770,19 +885,8 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
         // and a room owner's face on a smashed plinth reads as an insult.
         // The finish still carries the room's prosperity into its
         // materials, so a poor room's monument is a humbler one.
-        if let Some(entry) = crate::seeded_defaults::room::monument::monument_entry(scene.theme) {
+        if let Some((entry, mspot)) = monument {
             let clearance = entry.footprint().clearance;
-            let mspot = match &viewpoint {
-                Some(viewpoint) => crate::seeded_defaults::MonumentSpot::at_viewpoint(
-                    viewpoint, clearance, gate_side,
-                ),
-                None => crate::seeded_defaults::MonumentSpot::beside_gate(
-                    &spot,
-                    gate_clearance,
-                    clearance,
-                    did,
-                ),
-            };
             let mut monument = entry.build(did);
             crate::pds::material_finish::apply_socio_finish(
                 &mut monument,
@@ -805,6 +909,66 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
                 params: Default::default(),
             });
         }
+    }
+
+    // The world's signature feature (#1781), chosen with the paths above: a
+    // snapped placement whose ground the scatters keep off, a built one
+    // keeping its ground from the water as a building does; a giant tree and
+    // a sea stack avoid none, so stand where they were sited.
+    if let Some(feature) = feature
+        && let Some(generator) = crate::seeded_defaults::room::feature::generator(
+            &feature,
+            did,
+            giant_tree.as_ref().and_then(|name| generators.get(name)),
+            palette.rock_stone,
+            palette.rock_gap,
+        )
+    {
+        let in_the_sea =
+            feature.kind == crate::seeded_defaults::room::feature::FeatureKind::SeaStack;
+        let grammar = generator.draws_a_grammar();
+        generators.insert("signature_feature".to_string(), generator);
+        // libm's (#1132), as a member's.
+        let half_yaw = feature.yaw * 0.5;
+        placements.push(Placement::Absolute {
+            generator_ref: "signature_feature".to_string(),
+            transform: TransformData {
+                translation: Fp3([
+                    feature.at[0],
+                    if in_the_sea { 0.0 } else { -0.35 },
+                    feature.at[1],
+                ]),
+                rotation: Fp4([0.0, libm::sinf(half_yaw), 0.0, libm::cosf(half_yaw)]),
+                scale: Fp3([1.0, 1.0, 1.0]),
+            },
+            snap_to_terrain: true,
+            avoid_water: feature.kind.is_built(),
+            avoid_water_clearance: Fp(feature.radius),
+            seed: grammar.then_some(feature.seed),
+            params: Default::default(),
+        });
+    }
+
+    // The settlement's paths (#1779), painted on the terrain the record
+    // carries.
+    if let Some(lines) = paths
+        && let Some(GeneratorKind::Terrain(terrain)) = generators
+            .get_mut("base_terrain")
+            .map(|generator| &mut generator.kind)
+    {
+        terrain.paths = crate::pds::SovereignPathsConfig {
+            lines: lines
+                .into_iter()
+                .map(|line| line.into_iter().map(Fp2).collect())
+                .collect(),
+            layer: 1,
+            share: Fp(path_share(scene.biome)),
+            width: Fp(PATH_WIDTH),
+        };
+        // As a peer reads them back (#1789): the probe's edge can round a
+        // hair past the terrain's.
+        let reach = terrain.reach();
+        terrain.paths.sanitize_within(reach);
     }
 
     let mut traits = HashMap::new();
@@ -881,12 +1045,9 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
 
     // The landing faces as a saved world holds it - the sanitiser wraps its
     // yaw into [0, 360) - so a world whose gate's bearing turns its landing
-    // past due south writes back unchanged. Wrapped after the hour read
-    // it, which keeps the light it composed. A Berlin square keeps its
-    // landing as its fixture pins it (#1589).
-    if berlin.is_none()
-        && let Some(landing) = &mut default_landing
-    {
+    // past due south writes back unchanged (#1789, a Berlin square's too).
+    // Wrapped after the hour read it, which keeps the light it composed.
+    if let Some(landing) = &mut default_landing {
         landing.yaw_deg.0 = landing.yaw_deg.0.rem_euclid(360.0);
     }
 
@@ -992,7 +1153,8 @@ pub(crate) fn scale_about_ground(generator: &mut Generator, scale: f32) {
 /// member at its derived offset and yaw, referencing `generator_ref`. Its
 /// scale is the generator's own ([`scale_about_ground`]); the placement keeps
 /// a unit scale and carries the ground it stands on at the size the member
-/// is drawn ([`member_ground_radius`]). Sunk 0.35 m below the snap so
+/// is drawn ([`SettlementMember::ground_radius`](crate::seeded_defaults::SettlementMember::ground_radius)).
+/// Sunk 0.35 m below the snap so
 /// foundations bite into slopes instead of leaving daylight gaps under the
 /// downhill edge.
 ///
@@ -1007,30 +1169,21 @@ fn member_placement(
     member: &crate::seeded_defaults::SettlementMember,
     grammar: bool,
 ) -> Placement {
+    // libm's (#1132): a member's yaw is derived, and every peer writes it.
     let half_yaw = member.yaw_rad * 0.5;
     Placement::Absolute {
         generator_ref,
         transform: TransformData {
             translation: Fp3([member.offset[0], -0.35, member.offset[1]]),
-            rotation: Fp4([0.0, half_yaw.sin(), 0.0, half_yaw.cos()]),
+            rotation: Fp4([0.0, libm::sinf(half_yaw), 0.0, libm::cosf(half_yaw)]),
             scale: Fp3([1.0, 1.0, 1.0]),
         },
         snap_to_terrain: true,
         avoid_water: true,
-        avoid_water_clearance: Fp(member_ground_radius(member)),
+        avoid_water_clearance: Fp(member.ground_radius()),
         seed: grammar.then_some(member.grammar_seed),
         params: Default::default(),
     }
-}
-
-/// The ground a member's placement stands on, at the size it is drawn: the
-/// entry's own [`ground_radius`](crate::catalogue::CatalogueEntry::ground_radius)
-/// times the member's scale where it declares one (#1559), else the
-/// member's clearance - what every placement carried before, unchanged.
-fn member_ground_radius(member: &crate::seeded_defaults::SettlementMember) -> f32 {
-    crate::catalogue::by_slug(member.slug)
-        .and_then(|entry| entry.ground_radius())
-        .map_or(member.clearance, |radius| radius * member.scale)
 }
 
 /// Build an [`Environment`] whose colour fields are taken from a
@@ -1444,6 +1597,291 @@ fn apply_nightfall(luminosity: f32, env: &mut Environment) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #1779: a world seeded on its own ground carries its settlement's
+    /// paths - the first from its landing to its landmark's door, the
+    /// second to its gate, every point on dry ground - and a square of
+    /// Berlin, which has its streets, none.
+    #[test]
+    fn a_seeded_world_carries_its_paths_and_berlin_none() {
+        let (mut own, mut berlin) = (0, 0);
+        for n in 0..40 {
+            let record = RoomRecord::default_for_did(&format!("did:plc:paths{n}"));
+            let terrain = crate::pds::find_terrain_config(&record).expect("a terrain");
+            if record.geo_source.is_some() {
+                assert!(terrain.paths.is_empty(), "a Berlin square carries paths");
+                berlin += 1;
+                continue;
+            }
+            // On the wire's grid, as the paths are.
+            let landing = record.default_landing.expect("a landing").pos.on_wire().0;
+            let lines = &terrain.paths.lines;
+            assert!(lines.len() >= 2, "{n}: {} paths", lines.len());
+            assert_eq!(
+                lines[0][0].0, landing,
+                "{n}: the first path leaves the landing"
+            );
+            assert_eq!(lines[1][0].0, landing, "{n}: and so does the gate's");
+            let landmark = record
+                .placements
+                .iter()
+                .find_map(|p| match p {
+                    Placement::Absolute {
+                        generator_ref,
+                        transform,
+                        ..
+                    } if generator_ref == "landmark" => {
+                        Some([transform.translation.0[0], transform.translation.0[2]])
+                    }
+                    _ => None,
+                })
+                .expect("a landmark");
+            let end = lines[0][lines[0].len() - 1].0;
+            let (near, far) = (
+                (end[0] - landmark[0]).hypot(end[1] - landmark[1]),
+                (landing[0] - landmark[0]).hypot(landing[1] - landmark[1]),
+            );
+            assert!(
+                near < far * 0.5,
+                "{n}: the first path ends {near} m from the landmark"
+            );
+            own += 1;
+        }
+        assert!(own > 20 && berlin > 0, "{own} own, {berlin} Berlin");
+    }
+
+    /// #1779: no path runs over a seeded structure's ground - a building's,
+    /// a prop's, the gate's or the monument's - in 200 worlds.
+    #[test]
+    fn no_path_runs_over_a_seeded_structure() {
+        let off_segment = |p: [f32; 2], a: [f32; 2], b: [f32; 2]| {
+            let (dx, dz) = (b[0] - a[0], b[1] - a[1]);
+            let length2 = dx * dx + dz * dz;
+            let t = if length2 > 0.0 {
+                (((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / length2).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            (p[0] - a[0] - dx * t).hypot(p[1] - a[1] - dz * t)
+        };
+        let mut checked = 0;
+        for n in 0..200 {
+            let record = RoomRecord::default_for_did(&format!("did:plc:pathfleet{n}"));
+            let terrain = crate::pds::find_terrain_config(&record).expect("a terrain");
+            for placement in &record.placements {
+                let Placement::Absolute {
+                    generator_ref,
+                    transform,
+                    snap_to_terrain: true,
+                    avoid_water: true,
+                    avoid_water_clearance,
+                    ..
+                } = placement
+                else {
+                    continue;
+                };
+                let at = [transform.translation.0[0], transform.translation.0[2]];
+                let radius = avoid_water_clearance.0 * transform.scale.0[0];
+                for pair in terrain.paths.lines.iter().flat_map(|line| line.windows(2)) {
+                    let off = off_segment(at, pair[0].0, pair[1].0);
+                    assert!(
+                        off >= radius - 1e-3,
+                        "{n}: a path runs {off} m from {generator_ref}, {radius} m round"
+                    );
+                }
+                checked += 1;
+            }
+        }
+        assert!(checked > 1000, "only {checked} structures");
+    }
+
+    /// #1780: every building a path leaves from - all but the primary
+    /// landmark, whose path arrives at the front it turns to the landing -
+    /// fronts onto it, its catalogue front (-Z) turned to its door, in 100
+    /// worlds: all but one that belongs on the shore, which looks out over
+    /// the nearest water (`settlement::seaward`) as its jitter turns it, read
+    /// on the probe its derive read. A building's door is the first point of
+    /// its path, and no building's middle stands nearer it.
+    #[test]
+    fn a_building_fronts_onto_its_path() {
+        let (mut fronted, mut to_the_water) = (0, 0);
+        for seed in 0u64..100 {
+            let record = build_room_with_source(seed, "did:plc:front", None);
+            let terrain = crate::pds::find_terrain_config(&record).expect("a terrain");
+            let Some(landing) = record.default_landing.as_ref().map(|l| l.pos.on_wire().0) else {
+                continue;
+            };
+            let scene = crate::seeded_defaults::SceneCharacter::for_seed(seed);
+            let shape = crate::seeded_defaults::TerrainShape::from_scene(&scene, seed);
+            let probe = settlement_probe(terrain, shape.water_level_fraction * shape.height_scale);
+            // Where each building stands, the way its front faces and the
+            // ground it stands on.
+            let buildings: Vec<([f32; 2], [f32; 2], f32)> = record
+                .placements
+                .iter()
+                .filter_map(|placement| match placement {
+                    Placement::Absolute {
+                        generator_ref,
+                        transform,
+                        avoid_water_clearance,
+                        ..
+                    } if generator_ref.starts_with("landmark_")
+                        || generator_ref.contains("secondary_") =>
+                    {
+                        let [_, y, _, w] = transform.rotation.0;
+                        let yaw = 2.0 * y.atan2(w);
+                        Some((
+                            [transform.translation.0[0], transform.translation.0[2]],
+                            [-yaw.sin(), -yaw.cos()],
+                            avoid_water_clearance.0,
+                        ))
+                    }
+                    _ => None,
+                })
+                .collect();
+            // The landmark's and the gate's paths leave the landing; a
+            // building's door stands a metre past its ground.
+            for line in terrain
+                .paths
+                .lines
+                .iter()
+                .filter(|line| line[0].0 != landing)
+            {
+                let door = line[0].0;
+                let off = |at: [f32; 2]| (door[0] - at[0]).hypot(door[1] - at[1]);
+                let &(at, front, _) = buildings
+                    .iter()
+                    .find(|&&(at, _, ground)| (off(at) - ground - 1.0).abs() < 0.01)
+                    .unwrap_or_else(|| panic!("{seed}: no building's door at {door:?}"));
+                let cos = (front[0] * (door[0] - at[0]) + front[1] * (door[1] - at[1])) / off(at);
+                if cos > 0.9999 {
+                    fronted += 1;
+                    continue;
+                }
+                // Else it looks out over the water: a way within 10 degrees
+                // of its front reaches it within twice `SEAWARD` - the probe
+                // rebuilt from the wire's grid can take a neighbouring cell
+                // for the nearest (#1704), and its jitter turns it off that.
+                let reach = 2.0 * super::super::settlement::SEAWARD;
+                let looks_out = [-0.17_f32, 0.0, 0.17].iter().any(|&turn| {
+                    let (s, c) = turn.sin_cos();
+                    let way = [front[0] * c - front[1] * s, front[0] * s + front[1] * c];
+                    (1..=(reach / 2.0) as usize).any(|k| {
+                        let d = k as f32 * 2.0;
+                        probe.height_between([at[0] + way[0] * d, at[1] + way[1] * d])
+                            <= probe.water_y()
+                    })
+                });
+                assert!(
+                    looks_out,
+                    "{seed}: the building at {at:?} turns {} deg from its door, and not to the water",
+                    cos.clamp(-1.0, 1.0).acos().to_degrees()
+                );
+                to_the_water += 1;
+            }
+        }
+        assert!(
+            fronted > 100 && to_the_water * 10 < fronted,
+            "{fronted} buildings fronted, {to_the_water} looking out over the water"
+        );
+    }
+
+    /// #1781: a world on its own ground has its signature feature - a giant
+    /// tree, a sea stack, a ruin or a stone ring, trees, stacks and built
+    /// ones across a fleet - standing clear of its settlement: the ground of
+    /// no building, prop, gate or monument within its reach, which its
+    /// placement carries. A Berlin square has none.
+    #[test]
+    fn a_seeded_world_has_a_signature_feature_clear_of_its_settlement() {
+        use super::super::feature::{CLEARING, STACK_RADIUS};
+        let (mut own, mut featured, mut berlin) = (0, 0, 0);
+        let mut kinds = std::collections::BTreeSet::new();
+        for n in 0..60 {
+            let record = RoomRecord::default_for_did(&format!("did:plc:featurefleet{n}"));
+            // Every seeded structure, `(spot, radius)`, the feature apart.
+            let mut feature = None;
+            let mut structures = Vec::new();
+            for placement in &record.placements {
+                let Placement::Absolute {
+                    generator_ref,
+                    transform,
+                    avoid_water_clearance,
+                    avoid_water,
+                    ..
+                } = placement
+                else {
+                    continue;
+                };
+                let at = [transform.translation.0[0], transform.translation.0[2]];
+                if generator_ref == "signature_feature" {
+                    let (kind, reach) = match &record.generators[generator_ref].kind {
+                        GeneratorKind::LSystem { .. } => ("tree", CLEARING),
+                        GeneratorKind::Sphere { .. } => ("stack", STACK_RADIUS),
+                        _ => ("built", avoid_water_clearance.0),
+                    };
+                    // A built one stands as a building does; a tree and a
+                    // stack avoid no water, and keep their reach all the same.
+                    assert_eq!(*avoid_water, kind == "built", "{n}: the {kind}'s water");
+                    assert_eq!(avoid_water_clearance.0, reach, "{n}: the {kind}'s ground");
+                    kinds.insert(kind);
+                    feature = Some((at, reach, kind));
+                } else if *avoid_water {
+                    structures.push((at, avoid_water_clearance.0));
+                }
+            }
+            if record.geo_source.is_some() {
+                assert_eq!(feature, None, "{n}: a Berlin square has no feature");
+                berlin += 1;
+                continue;
+            }
+            own += 1;
+            let Some((at, reach, kind)) = feature else {
+                continue;
+            };
+            featured += 1;
+            for (spot, other) in structures {
+                let apart = (at[0] - spot[0]).hypot(at[1] - spot[1]);
+                assert!(
+                    apart >= reach + other - 1e-3,
+                    "{n}: the {kind} at {at:?} stands {apart} m from a structure at {spot:?}"
+                );
+            }
+        }
+        assert!(
+            berlin > 0 && featured * 10 >= own * 9,
+            "{featured} of {own} worlds have a feature, {berlin} Berlin"
+        );
+        for kind in ["tree", "stack", "built"] {
+            assert!(kinds.contains(kind), "no {kind} in {kinds:?}");
+        }
+    }
+
+    /// #1789: a seeded world - on its own ground or on a square of Berlin -
+    /// is derived in the sanitiser's canonical form: saved and read back, as
+    /// every peer and the agent's `write_room` hold it, it is the same world
+    /// on the wire, so writing it back unchanged reports no change.
+    #[test]
+    fn every_seeded_world_is_its_own_saved_self() {
+        let (mut berlin, mut own) = (0, 0);
+        for n in 0..200 {
+            let did = format!("did:plc:settlefleet{n}");
+            let record = RoomRecord::default_for_did(&did);
+            let wire = serde_json::to_value(&record).expect("serialises");
+            let mut settled: RoomRecord = serde_json::from_value(wire.clone()).expect("reads back");
+            settled.sanitize();
+            assert_eq!(
+                serde_json::to_value(&settled).expect("serialises"),
+                wire,
+                "{did} is not its saved self"
+            );
+            if record.geo_source.is_some() {
+                berlin += 1;
+            } else {
+                own += 1;
+            }
+        }
+        assert!(berlin > 20 && own > 100, "{berlin} Berlin, {own} own");
+    }
 
     /// #1454: an item is scaled by its root prim, about the ground point the
     /// placement stands it on - the root's own lift scales with it, so a root

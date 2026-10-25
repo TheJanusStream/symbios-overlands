@@ -474,7 +474,9 @@ const ARRIVAL_STEPS: usize = 3;
 /// so every other copy keeps its place and its pose - a saved world loses
 /// only what grew in the way. A seeded structure is a snapped `Absolute`
 /// placement opting into Avoid Water, the seeded pipeline's marker (see
-/// `pad`), so an editor's own placements are never ground a scatter avoids.
+/// `pad`), so an editor's own placements are never ground a scatter avoids -
+/// and the world's signature feature ([`FEATURE`]), whose giant tree or
+/// sea stack avoids no water and keeps its ground all the same (#1781).
 /// With no heightmap yet, each stands where its record put it.
 pub(crate) fn structure_exclusions(
     record: &crate::pds::RoomRecord,
@@ -490,19 +492,22 @@ pub(crate) fn structure_exclusions(
             generator_ref,
             transform,
             snap_to_terrain: true,
-            avoid_water: true,
+            avoid_water,
             avoid_water_clearance,
             ..
         } = placement
         else {
             continue;
         };
+        if !*avoid_water && generator_ref != FEATURE {
+            continue;
+        }
         let radius = avoid_water_clearance.0 * transform.scale.0[0].max(0.0);
         let stands = match &ground {
             Some(ground) => super::pad::snapped_absolute_anchor(
                 ground,
                 transform,
-                true,
+                *avoid_water,
                 avoid_water_clearance.0,
             ),
             None => bevy::math::Vec3::from_array(transform.translation.0),
@@ -561,11 +566,35 @@ pub(crate) fn structure_exclusions(
             }
         }
     }
+    // The world's paths (#1779): discs a little wider than the path, each
+    // stretch's no further apart than their radius, so they overlap.
+    if let Some(paths) = crate::pds::find_terrain_config(record).map(|cfg| &cfg.paths) {
+        let radius = paths.width.0 * 0.5 + PATH_KEEP;
+        for line in crate::terrain::path_lines(paths) {
+            for pair in line.windows(2) {
+                let (a, b) = (pair[0], pair[1]);
+                let steps = ((b - a).length() / radius).ceil().max(1.0) as usize;
+                for step in 0..=steps {
+                    let at = a + (b - a) * (step as f32 / steps as f32);
+                    keep.push((at.x, at.y, radius * radius));
+                }
+            }
+        }
+    }
     keep
 }
 
+/// How far past a path's edge a scatter keeps off it (m, #1779): a tree's
+/// trunk or a boulder stands beside a path, not on its edge.
+const PATH_KEEP: f32 = 0.5;
+
 /// The generator a seeded settlement's landmark is placed by.
 pub(super) const LANDMARK: &str = "landmark";
+
+/// The generator a seeded world's signature feature is placed by (#1781):
+/// its water clearance is the ground the scatters keep off whether it
+/// avoids water or not.
+pub(super) const FEATURE: &str = "signature_feature";
 
 /// Whether `(x, z)` lies inside any `(centre_x, centre_z, radius²)` disc.
 pub(crate) fn inside_any(discs: &[(f32, f32, f32)], x: f32, z: f32) -> bool {
@@ -887,7 +916,7 @@ mod tests {
             seed: None,
             params: Default::default(),
         };
-        let record = crate::pds::RoomRecord {
+        let mut record = crate::pds::RoomRecord {
             placements: vec![placed(20.0, true), placed(-20.0, false)],
             default_landing: Some(crate::pds::room::DefaultLanding {
                 pos: crate::pds::Fp2([0.0, 30.0]),
@@ -897,6 +926,12 @@ mod tests {
             }),
             ..Default::default()
         };
+        // The seeded terrain's own paths aside (#1779).
+        for generator in record.generators.values_mut() {
+            if let crate::pds::GeneratorKind::Terrain(terrain) = &mut generator.kind {
+                terrain.paths = Default::default();
+            }
+        }
         let keep_off =
             structure_exclusions(&record, None, &crate::water::bodies::RoomWater::default());
         assert_eq!(keep_off.len(), 1 + 1 + ARRIVAL_STEPS);
@@ -911,6 +946,44 @@ mod tests {
             assert!(gap < LANDING_KEEP, "{gap}");
         }
     }
+    /// #1781: a world's signature feature keeps the scatters off its ground
+    /// whether it avoids water or not - a giant tree's clearing, a sea
+    /// stack's foot - where any other placement that avoids none is no ground
+    /// a scatter keeps off.
+    #[test]
+    fn a_signature_feature_keeps_its_ground_avoiding_no_water() {
+        let kept = |generator_ref: &str| {
+            let mut record = crate::pds::RoomRecord {
+                placements: vec![crate::pds::Placement::Absolute {
+                    generator_ref: generator_ref.into(),
+                    transform: crate::pds::TransformData {
+                        translation: crate::pds::Fp3([40.0, 0.0, -10.0]),
+                        rotation: crate::pds::Fp4([0.0, 0.0, 0.0, 1.0]),
+                        scale: crate::pds::Fp3([1.0, 1.0, 1.0]),
+                    },
+                    snap_to_terrain: true,
+                    avoid_water: false,
+                    avoid_water_clearance: crate::pds::Fp(12.0),
+                    seed: None,
+                    params: Default::default(),
+                }],
+                default_landing: None,
+                ..Default::default()
+            };
+            // The seeded terrain's own paths aside (#1779).
+            for generator in record.generators.values_mut() {
+                if let crate::pds::GeneratorKind::Terrain(terrain) = &mut generator.kind {
+                    terrain.paths = Default::default();
+                }
+            }
+            let keep_off =
+                structure_exclusions(&record, None, &crate::water::bodies::RoomWater::default());
+            inside_any(&keep_off, 51.0, -10.0)
+        };
+        assert!(kept(FEATURE));
+        assert!(!kept("g"), "an editor's own placement");
+    }
+
     /// #1777: a seeded viewpoint's view down to its landmark is kept clear -
     /// a landing that avoids water and looks at the landmark - and no other:
     /// one its owner turned away, or one that does not avoid water, keeps
@@ -949,6 +1022,58 @@ mod tests {
         assert!(view_kept(0.0, true));
         assert!(!view_kept(90.0, true), "turned away by its owner");
         assert!(!view_kept(0.0, false), "an owner's own landing");
+    }
+
+    /// #1779: no scatter grows on a world's paths - along each stretch and
+    /// round its bends, a little past its edge - and a world without paths
+    /// keeps nothing for them.
+    #[test]
+    fn no_scatter_grows_on_a_path() {
+        use crate::pds::{Fp, Fp2, GeneratorKind, RoomRecord, SovereignPathsConfig};
+        // A seeded world's terrain, without its structures, its landing or
+        // its own paths.
+        let mut record = RoomRecord::default();
+        record.placements.clear();
+        record.default_landing = None;
+        let set_paths = |record: &mut RoomRecord, paths: &SovereignPathsConfig| {
+            for generator in record.generators.values_mut() {
+                if let GeneratorKind::Terrain(terrain) = &mut generator.kind {
+                    terrain.paths = paths.clone();
+                }
+            }
+        };
+        let water = crate::water::bodies::RoomWater::default();
+        let kept = |record: &RoomRecord, x: f32, z: f32| {
+            inside_any(&structure_exclusions(record, None, &water), x, z)
+        };
+        set_paths(&mut record, &SovereignPathsConfig::default());
+        assert!(
+            !kept(&record, -15.0, 0.0),
+            "a world without paths keeps nothing"
+        );
+        set_paths(
+            &mut record,
+            &SovereignPathsConfig {
+                lines: vec![vec![Fp2([-30.0, 0.0]), Fp2([0.0, 0.0]), Fp2([0.0, 40.0])]],
+                width: Fp(2.0),
+                ..Default::default()
+            },
+        );
+        for (x, z) in [
+            (-15.0, 0.0),
+            (-29.0, 0.4),
+            (0.0, 0.0),
+            (0.3, 25.0),
+            (-1.4, 39.0),
+        ] {
+            assert!(kept(&record, x, z), "({x}, {z}) on the path grows a copy");
+        }
+        for (x, z) in [(-15.0, 4.0), (5.0, 20.0), (-10.0, 20.0)] {
+            assert!(
+                !kept(&record, x, z),
+                "({x}, {z}) beside the path is kept off"
+            );
+        }
     }
 
     /// #1512: the render tool's preview turns a turned rect's copies as the

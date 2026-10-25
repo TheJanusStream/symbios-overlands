@@ -51,6 +51,7 @@ mod grass;
 mod instances;
 mod lsystem;
 mod material;
+mod paths;
 mod placements;
 /// For the agent's `place` (#1422) - Unix-only like the agent.
 #[cfg(unix)]

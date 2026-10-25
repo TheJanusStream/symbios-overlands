@@ -340,24 +340,26 @@ pub(super) fn apply_splat_textures(
     let world_extent = (hm.width() - 1) as f32 * hm.scale();
 
     let mapper = record_splat_mapper(record.as_ref().map(|r| &r.0));
-    let weight_map = match hm_res.ground() {
+    let mut weight_map = match hm_res.ground() {
         Some(ground) => ground.weight_map(),
         None => mapper.generate(hm),
     };
-
-    // CPU mirror for the avatar-world interaction classifier (#245):
-    // the same heightmap + splat weights the GPU sees, queryable for
-    // ground height / normal / splat weights at any world XZ. The
-    // heightfield collider *is* this heightmap, so this is the terrain
-    // analogue of `WaterSurfaces` (a CPU analytic query, not a physics
-    // raycast). `mapper` is moved in (unused after `generate`); the
-    // heightmap is deep-cloned once per terrain build (~1 MiB at the
-    // default 512 grid), and Berlin's land use with it (a quarter of
-    // that). Overwrites any prior query on regenerate.
-    commands.insert_resource(
-        TerrainSurfaceQuery::new(TerrainQuery::new(hm.clone(), mapper), world_extent * 0.5)
-            .with_ground(hm_res.ground().cloned()),
-    );
+    // A world's paths, painted in (#1779): before anything reads the weights.
+    let painted = match record
+        .as_ref()
+        .and_then(|r| crate::pds::find_terrain_config(&r.0))
+    {
+        Some(cfg) if !cfg.paths.is_empty() => {
+            super::paths::paint(
+                &mut weight_map.data,
+                weight_map.width,
+                hm.scale(),
+                &cfg.paths,
+            );
+            true
+        }
+        _ => false,
+    };
 
     // Build the weight-map image manually so we can use RENDER_WORLD-only
     // storage. The weights' bytes are kept once more on the CPU, in the
@@ -399,6 +401,22 @@ pub(super) fn apply_splat_textures(
         height: weight_map.height as u32,
         bytes: wm_bytes,
     });
+
+    // CPU mirror for the avatar-world interaction classifier (#245):
+    // the same heightmap + splat weights the GPU sees, queryable for
+    // ground height / normal / splat weights at any world XZ - the painted
+    // weights themselves where the world has paths (#1779), which the
+    // rules alone would read as grass. The heightfield collider *is* this
+    // heightmap, so this is the terrain analogue of `WaterSurfaces` (a CPU
+    // analytic query, not a physics raycast). `mapper` is moved in (unused
+    // after `generate`); the heightmap is deep-cloned once per terrain
+    // build (~1 MiB at the default 512 grid), and Berlin's land use with it
+    // (a quarter of that). Overwrites any prior query on regenerate.
+    commands.insert_resource(
+        TerrainSurfaceQuery::new(TerrainQuery::new(hm.clone(), mapper), world_extent * 0.5)
+            .with_ground(hm_res.ground().cloned())
+            .with_painted(painted.then(|| layer.clone())),
+    );
     // The room's water as drawn - its sea and its lakes (#1760), or Berlin's
     // own bodies in a geodata region (#1724) - and the bodies beside the
     // weights from the first textured frame (#1727), which the ground cover

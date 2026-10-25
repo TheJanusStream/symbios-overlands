@@ -280,13 +280,20 @@ impl Viewpoint {
     /// and in sight of [`FRAMED_UP`] metres over its ground, read as the
     /// landmark is.
     pub fn frames(&self, probe: &TerrainProbe, at: [f32; 2], radius: f32) -> bool {
+        self.shows(probe, at, probe.height_between(at) + FRAMED_UP, radius)
+    }
+
+    /// Whether the point `y` metres up, over `at` on ground of `radius`,
+    /// shows in the arrival's first frame: [`Self::frames`] at the height
+    /// asked - a sea stack shows from the water up (#1781).
+    pub fn shows(&self, probe: &TerrainProbe, at: [f32; 2], y: f32, radius: f32) -> bool {
         let eye = camera_eye(probe, self.landing, self.toward, self.pitch);
         let (dx, dz) = (at[0] - eye[0], at[1] - eye[2]);
         let far = (dx * dx + dz * dz).sqrt();
         far > radius
             && far <= FRAME_REACH
             && dx * self.toward[0] + dz * self.toward[1] >= far * libm::cosf(FRAME_HALF)
-            && in_sight(probe, eye, at, probe.height_between(at) + FRAMED_UP, radius)
+            && in_sight(probe, eye, at, y, radius)
     }
 
     /// What the settlement keeps clear for it, as `(position, radius)`: the

@@ -513,6 +513,35 @@ impl TerrainProbe {
         self.shore[z * self.grid + x]
     }
 
+    /// Which way the nearest water lies from `at`, `within` metres at the
+    /// most: a unit vector to the middle of the nearest cell at or under the
+    /// water line, the first of equals by cell - `None` where none lies that
+    /// near (#1780). The way a building on the shore looks out.
+    pub fn toward_water(&self, at: [f32; 2], within: f32) -> Option<[f32; 2]> {
+        let (cx, cz) = self.cell_index(at);
+        let span = (within / self.cell).ceil() as usize;
+        let mut best: Option<(f32, [f32; 2])> = None;
+        for z in cz.saturating_sub(span)..=(cz + span).min(self.grid - 1) {
+            for x in cx.saturating_sub(span)..=(cx + span).min(self.grid - 1) {
+                let c = z * self.grid + x;
+                if self.heights[c] > self.water_y {
+                    continue;
+                }
+                let water = self.cell_world(c as u32);
+                let (dx, dz) = (water[0] - at[0], water[1] - at[1]);
+                let d = dx * dx + dz * dz;
+                if d > 0.0 && d <= within * within && best.is_none_or(|(kept, _)| d < kept) {
+                    best = Some((d, [dx, dz]));
+                }
+            }
+        }
+        // Square root, not `hypot` (#1132): the way decides the facing.
+        best.map(|(d, [dx, dz])| {
+            let length = d.sqrt();
+            [dx / length, dz / length]
+        })
+    }
+
     /// How well `at` suits a building of `prefer`, in metres of the ground's
     /// own measure (#1775): its [prominence](Self::prominence) for a crest,
     /// that turned over for a valley floor, its nearness to the water within
@@ -856,6 +885,18 @@ mod tests {
         assert!((far - near - 80.0).abs() < 1e-3, "{near} {far}");
         let dry = probe_from(16, 8.0, -100.0, 10.0, |_, _| 10.0);
         assert!(dry.shore_distance([0.0, 0.0]).is_infinite());
+    }
+
+    /// #1780: the water lies the way of its nearest cell - straight out
+    /// across a straight coast - and nowhere past the reach asked.
+    #[test]
+    fn the_way_to_the_water_is_toward_its_nearest_cell() {
+        // The sea west of x = 0, the land rising east of it.
+        let p = probe_from(32, 8.0, 0.0, 10.0, |x, _| x as f32 * 8.0 - 124.0);
+        assert_eq!(p.toward_water([20.0, 4.0], 30.0), Some([-1.0, 0.0]));
+        assert_eq!(p.toward_water([100.0, 4.0], 30.0), None);
+        let dry = probe_from(16, 8.0, -100.0, 10.0, |_, _| 10.0);
+        assert_eq!(dry.toward_water([0.0, 0.0], 1000.0), None);
     }
 
     /// #1775: downhill points down the slope, and nowhere on gentler ground

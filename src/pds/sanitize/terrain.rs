@@ -94,6 +94,9 @@ impl Sanitize for SovereignTerrainConfig {
             layer.sanitize();
         }
         self.grass.sanitize();
+        // The paths on the terrain itself (#1779).
+        let reach = self.reach();
+        self.paths.sanitize_within(reach);
     }
 }
 

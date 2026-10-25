@@ -136,6 +136,10 @@ pub struct SovereignTerrainConfig {
     /// each setting left unset follows the world's ground cover, as the
     /// grass did before the group existed.
     pub grass: SovereignGrassConfig,
+
+    /// The paths painted on the ground (#1779): none unless a seeded world
+    /// routed them, or its owner kept them.
+    pub paths: crate::pds::SovereignPathsConfig,
 }
 
 crate::pds::serde_util::impl_default_eliding_serialize!(SovereignTerrainConfig {
@@ -163,6 +167,7 @@ crate::pds::serde_util::impl_default_eliding_serialize!(SovereignTerrainConfig {
     thermal_talus_angle,
     material,
     grass,
+    paths,
 });
 
 impl SovereignTerrainConfig {
@@ -180,16 +185,25 @@ impl SovereignTerrainConfig {
     }
 
     /// This terrain's ground alone (#1741): its land without the splat
-    /// material, which paints the ground and shapes none of it - the
-    /// heightmap job reads neither the material nor the grass. The key for
-    /// what was cut from the ground's shape (`terrain::ground_source_key`):
-    /// a recolour tears the terrain down and builds its heightmap again, but
-    /// of the same ground, so a saved district on it must stand.
+    /// material and the paths painted with it (#1779), which paint the
+    /// ground and shape none of it - the heightmap job reads neither, nor
+    /// the grass. The key for what was cut from the ground's shape
+    /// (`terrain::ground_source_key`): a recolour or a path edit tears the
+    /// terrain down and builds its heightmap again, but of the same ground,
+    /// so a saved district on it must stand.
     pub fn ground(&self) -> SovereignTerrainConfig {
         SovereignTerrainConfig {
             material: SovereignMaterialConfig::default(),
+            paths: crate::pds::SovereignPathsConfig::default(),
             ..self.land()
         }
+    }
+
+    /// How far this terrain runs from its middle to its edge (m): half its
+    /// side, which its paths keep within (#1779) - its side as the wire
+    /// carries it, so a world and its saved self keep them alike.
+    pub fn reach(&self) -> f32 {
+        self.grid_size.saturating_sub(1) as f32 * self.cell_scale.on_wire().0 * 0.5
     }
 }
 
@@ -228,6 +242,8 @@ impl Default for SovereignTerrainConfig {
             material: SovereignMaterialConfig::default(),
 
             grass: SovereignGrassConfig::default(),
+
+            paths: crate::pds::SovereignPathsConfig::default(),
         }
     }
 }

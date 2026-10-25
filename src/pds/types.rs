@@ -223,6 +223,14 @@ impl<'de> Deserialize<'de> for Fp2 {
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Fp3(pub [f32; 3]);
 
+impl Fp2 {
+    /// `self` as a peer reads it back: each component rounded onto the
+    /// wire's 1/10 000 grid, as [`Fp::on_wire`] rounds one.
+    pub(crate) fn on_wire(self) -> Fp2 {
+        Fp2(self.0.map(|v| Fp(v).on_wire().0))
+    }
+}
+
 impl From<[f32; 3]> for Fp3 {
     fn from(v: [f32; 3]) -> Self {
         Fp3(v)

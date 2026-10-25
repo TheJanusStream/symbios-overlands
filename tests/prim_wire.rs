@@ -219,8 +219,9 @@ fn seeded_room_bytes_are_pinned() {
 /// `1..=40`: the square, every generator's rkey, the placements and the
 /// landing. Moving the gate's spot, the monument's or the draw moves every
 /// unsaved Berlin room on every peer - a migration, never a re-bless.
-/// Moved once, by the owner's decision: #1637 made every seeded square a
-/// kilometre, and only the squares moved.
+/// Moved twice, by the owner's decisions: #1637 made every seeded square a
+/// kilometre, and only the squares moved; #1789 wrapped the landing's yaw
+/// into [0, 360), as the sanitiser holds it, and only the yaws moved.
 #[test]
 fn seeded_berlin_room_bytes_are_pinned() {
     use symbios_overlands::pds::RoomRecord;

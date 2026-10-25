@@ -189,6 +189,7 @@ pub mod grass;
 pub mod instances;
 pub mod inventory;
 pub mod material_finish;
+pub mod paths;
 pub mod prim;
 pub mod record_size;
 pub mod room;
@@ -230,6 +231,7 @@ pub use instances::{GrammarParams, InstanceCopy, InstanceSolid, InstanceVariant}
 pub use inventory::{
     InventoryItemRecord, InventoryRecord, fetch_inventory_record, publish_inventory_record,
 };
+pub use paths::SovereignPathsConfig;
 pub use prim::PropMeshType;
 pub use room::{
     DefaultLanding, Environment, MAX_ROAD_NETWORKS, RoomRecord, TimeOfDay, Weather, WeatherKind,

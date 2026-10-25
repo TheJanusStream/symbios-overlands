@@ -319,8 +319,9 @@ impl FingerprintPass {
         // Only what the keep-outs read: where each seeded structure's record
         // stands it, how wide its ground, and whether it is the landmark a
         // seeded landing looks at (#1777) - and the gate a walked Berlin
-        // landing turns to, water-avoiding or not - not its generator, seed
-        // or params, whose edits leave every scatter as it was.
+        // landing turns to and the signature feature (#1781), water-avoiding
+        // or not - not its generator, seed or params, whose edits leave every
+        // scatter as it was.
         let structures: Vec<[f32; 6]> = record
             .placements
             .iter()
@@ -332,17 +333,27 @@ impl FingerprintPass {
                     avoid_water,
                     avoid_water_clearance,
                     ..
-                } if *avoid_water || generator_ref == super::water::GATEWAY => Some([
-                    transform.translation.0[0],
-                    transform.translation.0[2],
-                    avoid_water_clearance.0,
-                    transform.scale.0[0],
-                    f32::from(u8::from(generator_ref == super::scatter::LANDMARK)),
-                    f32::from(u8::from(*avoid_water)),
-                ]),
+                } if *avoid_water
+                    || generator_ref == super::water::GATEWAY
+                    || generator_ref == super::scatter::FEATURE =>
+                {
+                    Some([
+                        transform.translation.0[0],
+                        transform.translation.0[2],
+                        avoid_water_clearance.0,
+                        transform.scale.0[0],
+                        f32::from(u8::from(generator_ref == super::scatter::LANDMARK)),
+                        f32::from(u8::from(*avoid_water)),
+                    ])
+                }
                 _ => None,
             })
             .collect();
+        // The paths every scatter keeps off (#1779): their lines and width.
+        let paths = crate::pds::find_terrain_config(record)
+            .map(|terrain| &terrain.paths)
+            .filter(|paths| !paths.is_empty())
+            .map(|paths| (&paths.lines, paths.width));
         Self {
             water_level: Some(room_water.key()),
             // The land a scatter samples, not its grass (#1700).
@@ -350,7 +361,10 @@ impl FingerprintPass {
                 crate::pds::find_terrain_config(record).map(|terrain| terrain.land()),
             )
             .ok(),
-            kept_off: if structures.is_empty() && record.default_landing.is_none() {
+            kept_off: if structures.is_empty()
+                && record.default_landing.is_none()
+                && paths.is_none()
+            {
                 Some(serde_json::Value::Null)
             } else {
                 // The pitch reaches the camera's ground back, and a landing
@@ -364,7 +378,7 @@ impl FingerprintPass {
                         f32::from(u8::from(landing.avoid_water)),
                     ]
                 });
-                serde_json::to_value((&structures, landing)).ok()
+                serde_json::to_value((&structures, landing, paths)).ok()
             },
         }
     }
@@ -601,6 +615,30 @@ mod tests {
             *generator_ref = "landmark_copy".into();
         }
         assert_ne!(fingerprints(&record)[scatter], moved, "another landmark");
+    }
+
+    /// #1779: every scatter is rebuilt when a world's paths change, which
+    /// it keeps off.
+    #[test]
+    fn a_path_edit_reaches_every_scatters_fingerprint() {
+        use crate::pds::{Fp2, GeneratorKind, Placement};
+        let mut record =
+            crate::seeded_defaults::room::build::build_room_with_source(0, "did:plc:fp_test", None);
+        let scatter = record
+            .placements
+            .iter()
+            .position(|p| matches!(p, Placement::Scatter { .. }))
+            .expect("a seeded scatter");
+        let before = fingerprints(&record)[scatter].clone();
+        for generator in record.generators.values_mut() {
+            if let GeneratorKind::Terrain(terrain) = &mut generator.kind {
+                terrain
+                    .paths
+                    .lines
+                    .push(vec![Fp2([1.0, 2.0]), Fp2([30.0, 2.0])]);
+            }
+        }
+        assert_ne!(fingerprints(&record)[scatter], before);
     }
 
     #[test]

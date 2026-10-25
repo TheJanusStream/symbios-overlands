@@ -28,7 +28,7 @@ use crate::catalogue::items::util::{
     cone, cuboid_tapered, cylinder_tapered, glow, id_quat, lit_interior, nest, plane, prim,
     quat_mul, quat_x, quat_y, quat_z, solid, sphere, torus,
 };
-use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
+use crate::catalogue::{CatalogueEntry, Footprint, Lining, StructureRole};
 use crate::pds::{Fp4, Generator};
 use crate::seeded_defaults::ThemeArchetype;
 
@@ -159,6 +159,12 @@ impl CatalogueEntry for GasLamp {
     }
     fn role(&self) -> StructureRole {
         StructureRole::Prop
+    }
+    fn lines_paths(&self) -> Option<Lining> {
+        Some(Lining::Post {
+            stride: 16.0,
+            face: 0.0,
+        })
     }
     fn themes(&self) -> &'static [ThemeArchetype] {
         &[ThemeArchetype::Steampunk]

@@ -39,7 +39,10 @@
 //! of the sites it fits near its place, the one that ground suits best less
 //! the walk. A landmark faces the arrival; a house fronts downhill on a
 //! slope - along the contour, out over its view - and toward the arrival
-//! on level ground.
+//! on level ground, until a path reaches it: then the build turns it to
+//! face its path (#1780, [`super::paths::route_plan`]). A building that
+//! belongs on the shore, but the primary landmark, looks out over the
+//! water within [`SEAWARD`] instead, path or none ([`seaward`]).
 
 use std::f32::consts::TAU;
 
@@ -110,6 +113,19 @@ pub struct SettlementMember {
     pub clearance: f32,
 }
 
+impl SettlementMember {
+    /// The ground its placement stands on, at the size it is drawn: the
+    /// entry's own [`ground_radius`](crate::catalogue::CatalogueEntry::ground_radius)
+    /// times its scale where it declares one (#1559), else its clearance -
+    /// what the record's placement carries, and what its neighbours' paths
+    /// keep off (#1779).
+    pub fn ground_radius(&self) -> f32 {
+        crate::catalogue::by_slug(self.slug)
+            .and_then(|entry| entry.ground_radius())
+            .map_or(self.clearance, |radius| radius * self.scale)
+    }
+}
+
 /// The full themed cluster for a room: exactly one landmark plus any
 /// available secondaries and props for the (effective) theme.
 #[derive(Clone, Debug)]
@@ -148,7 +164,7 @@ impl Settlement {
 
 /// The theme actually used for member selection: the room's own theme if
 /// it has at least one landmark entry, otherwise [`FALLBACK_THEME`].
-fn effective_theme(theme: ThemeArchetype) -> ThemeArchetype {
+pub(super) fn effective_theme(theme: ThemeArchetype) -> ThemeArchetype {
     if entries_for(theme, StructureRole::Landmark).next().is_some() {
         theme
     } else {
@@ -769,7 +785,7 @@ const RELIEF_MARGIN: f32 = 2.5;
 /// the proxy as the compile's walk reads it on the full map
 /// (`world_builder::compile::slope`, 0.45): a margin under the walk's
 /// limit, so the walk leaves a site the plan chose where it is.
-const SITE_SLOPE: f32 = 0.35;
+pub(super) const SITE_SLOPE: f32 = 0.35;
 
 /// How much further than the nearest site it fits a building with a site
 /// preference looks for one it prefers (m, #1775).
@@ -835,8 +851,8 @@ fn sizes(drawn: f32) -> impl Iterator<Item = f32> {
 
 /// The radius of the ground `entry` stands on at `scale` - its own
 /// declared ground where it has one (#1559), else its clearance - as the
-/// record's placement carries it (`room::build::member_ground_radius`).
-fn ground_radius(entry: &dyn crate::catalogue::CatalogueEntry, scale: f32) -> f32 {
+/// record's placement carries it ([`SettlementMember::ground_radius`]).
+pub(super) fn ground_radius(entry: &dyn crate::catalogue::CatalogueEntry, scale: f32) -> f32 {
     entry
         .ground_radius()
         .unwrap_or_else(|| entry.footprint().clearance)
@@ -895,7 +911,7 @@ fn reach(entry: &dyn crate::catalogue::CatalogueEntry, scale: f32) -> f32 {
 /// compile's walk leaves it there; and dry - its lowest ground `freeboard`
 /// metres over the water at least, where that asks more than the proxy's
 /// own margin ([`LANDMARK_FREEBOARD`], #1777).
-fn member_fits(
+pub(super) fn member_fits(
     probe: &TerrainProbe,
     at: [f32; 2],
     entry: &dyn crate::catalogue::CatalogueEntry,
@@ -983,7 +999,7 @@ fn site_for(
 /// The yaw that turns a building's front (its catalogue -Z) to face
 /// `toward`, a direction on the ground - libm's (#1132), so every peer
 /// writes the same bits.
-fn facing(toward: [f32; 2]) -> f32 {
+pub(super) fn facing(toward: [f32; 2]) -> f32 {
     libm::atan2f(-toward[0], -toward[1])
 }
 
@@ -994,6 +1010,25 @@ fn house_facing(probe: &TerrainProbe, at: [f32; 2], arrival: [f32; 2]) -> [f32; 
     probe
         .downhill(at, CONTOUR_SLOPE)
         .unwrap_or([arrival[0] - at[0], arrival[1] - at[1]])
+}
+
+/// How near the water a building that belongs on the shore stands for its
+/// front to look out over it (m, #1780).
+pub(super) const SEAWARD: f32 = 60.0;
+
+/// Which way a building of `entry` at `at` looks out over the water (#1780):
+/// toward the nearest within [`SEAWARD`] where it belongs on the shore - a
+/// careening slip's or a lifeguard tower's front is its sea face - else
+/// `None`, and it faces as any other building does. The paths, which never
+/// cross the water, leave it so turned ([`super::paths::route_plan`]).
+pub(super) fn seaward(
+    probe: &TerrainProbe,
+    entry: &dyn crate::catalogue::CatalogueEntry,
+    at: [f32; 2],
+) -> Option<[f32; 2]> {
+    (entry.site() == crate::catalogue::SitePreference::Shore)
+        .then(|| probe.toward_water(at, SEAWARD))
+        .flatten()
 }
 
 /// The first of `candidates` that [fits](fit_among) one of its sites
@@ -1279,12 +1314,20 @@ fn place_cluster(
         .unwrap_or([0.0, 0.0]);
     // A landmark faces its arrival - the primary's own viewpoint, or the
     // forecourt on the ray from spawn its landing stands on, so spawn, as
-    // it always faced - and a hamlet's house faces as a house does (#1775).
+    // it always faced - and a hamlet's house faces as a house does (#1775);
+    // an outpost's or a hamlet's that belongs on the shore looks out over
+    // the water (#1780).
     let toward_arrival = [arrival[0] - anchor_pos[0], arrival[1] - anchor_pos[1]];
     let anchor_yaw = match (kind, viewpoint) {
-        (ClusterKind::Primary, Some(_)) | (ClusterKind::Outpost, _) => facing(toward_arrival),
+        (ClusterKind::Primary, Some(_)) => facing(toward_arrival),
+        (ClusterKind::Outpost, _) => {
+            facing(seaward(probe, anchor_entry, anchor_pos).unwrap_or(toward_arrival))
+        }
         (ClusterKind::Primary, None) => libm::atan2f(anchor_pos[0], anchor_pos[1]),
-        (ClusterKind::Hamlet, _) => facing(house_facing(probe, anchor_pos, arrival)),
+        (ClusterKind::Hamlet, _) => facing(
+            seaward(probe, anchor_entry, anchor_pos)
+                .unwrap_or_else(|| house_facing(probe, anchor_pos, arrival)),
+        ),
     } + yaw_jitter;
     let anchor_member = SettlementMember {
         slug: anchor_entry.slug(),
@@ -1378,7 +1421,9 @@ fn place_cluster(
         };
         remaining.retain(|left| left.slug() != entry.slug());
         let fp = entry.footprint();
-        let yaw_rad = facing(house_facing(probe, pos, arrival)) + yaw_jitter;
+        let yaw_rad =
+            facing(seaward(probe, entry, pos).unwrap_or_else(|| house_facing(probe, pos, arrival)))
+                + yaw_jitter;
         let clearance = fp.clearance * scale;
         cluster.secondaries.push(SettlementMember {
             slug: entry.slug(),
@@ -2417,6 +2462,30 @@ mod tests {
             "the lighthouse goes to the water: {at:?} against {:?}",
             sites[0]
         );
+    }
+
+    /// #1780: a building that belongs on the shore looks out over the
+    /// nearest water within `SEAWARD`; further inland, and for a building
+    /// that does not belong there, the water has no say.
+    #[test]
+    fn a_shore_building_looks_out_over_the_water() {
+        // The sea west of x = -100, on level ground.
+        let coast = probe_from(64, 8.0, 0.0, |x, _| {
+            if x as f32 * 8.0 - 252.0 < -100.0 {
+                -5.0
+            } else {
+                3.0
+            }
+        });
+        let tower = by_slug("lifeguard_tower").expect("the lifeguard tower");
+        assert_eq!(
+            seaward(&coast, tower, [-60.0, 4.0]),
+            Some([-1.0, 0.0]),
+            "the sea is 48 m west"
+        );
+        assert_eq!(seaward(&coast, tower, [20.0, 4.0]), None, "128 m inland");
+        let hut = by_slug("mudbrick_hut").expect("the mudbrick hut");
+        assert_eq!(seaward(&coast, hut, [-60.0, 4.0]), None);
     }
 
     /// #1775: a house fronts downhill on a slope - along the contour, out

@@ -268,6 +268,12 @@ pub(super) fn draw_terrain_forge(
                 ui.label("The grass is set in the World Editor's own terrain.");
             }
         });
+
+    egui::CollapsingHeader::new("Paths")
+        .default_open(false)
+        .show(ui, |ui| {
+            super::paths::draw_paths_section(ui, &mut cfg.paths, dirty)
+        });
 }
 
 /// What a Berlin world's erosion sections say (#1642): its heights are

@@ -11,7 +11,7 @@ use std::f32::consts::FRAC_PI_2;
 use crate::catalogue::items::util::{
     assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, quat_z, solid, torus,
 };
-use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
+use crate::catalogue::{CatalogueEntry, Footprint, Lining, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
@@ -31,6 +31,13 @@ impl CatalogueEntry for HitchingPost {
     }
     fn role(&self) -> StructureRole {
         StructureRole::Prop
+    }
+    fn lines_paths(&self) -> Option<Lining> {
+        // Its rail runs along X, beside the path.
+        Some(Lining::Post {
+            stride: 20.0,
+            face: 0.0,
+        })
     }
     fn themes(&self) -> &'static [ThemeArchetype] {
         &[ThemeArchetype::WildWest]

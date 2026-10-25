@@ -4,7 +4,7 @@
 use crate::catalogue::items::util::{
     assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_z, solid,
 };
-use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
+use crate::catalogue::{CatalogueEntry, Footprint, Lining, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
@@ -24,6 +24,13 @@ impl CatalogueEntry for StreetLamp {
     }
     fn role(&self) -> StructureRole {
         StructureRole::Prop
+    }
+    fn lines_paths(&self) -> Option<Lining> {
+        // Its arm reaches along +X, over the path.
+        Some(Lining::Post {
+            stride: 16.0,
+            face: std::f32::consts::FRAC_PI_2,
+        })
     }
     fn themes(&self) -> &'static [ThemeArchetype] {
         &[ThemeArchetype::ModernCity]
