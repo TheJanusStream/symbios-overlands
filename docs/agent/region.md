@@ -100,9 +100,15 @@ x and z up to its own y, and stops where the ground rises over that height,
 so it never hangs over lower ground - a lake on a plateau beside a valley
 lower than it, or two lakes at two levels. A lake set over its dip's rim
 spills, and covers what lies below it as far as it reaches; how far is its
-rectangle, the world's extent round its x and z scaled by its `scale`. A
-lake whose x and z stand on ground at or over its y draws nothing, and the
-World Editor says so under the water child. Water inside a built piece (a
+rectangle, the world's extent round its x and z scaled by its `scale`.
+Where its water would run on past that rectangle onto lower ground, it
+stands at its brim instead (#1793): the highest level its ground holds
+inside the rectangle, never a straight edge over lower ground - widen the
+rectangle (its `scale`) to let it rise. A lake whose x and z stand on ground
+at or over its y draws nothing, nor one whose ground falls away past its
+rectangle from its very point, nor one whose brim lies at or under the sea,
+and the World Editor says which under the water child, and the brim a lake
+stands at. Water inside a built piece (a
 Water child of a box) keeps its rectangle: its walls hold it.
 
 **A seeded world's land may be the wrong kind entirely.** Reeve's (session
@@ -192,6 +198,20 @@ ground, where rock kept 27-43% of every texel. Its rippled pattern was the
 the moss ground was rock. Capped at `slope_max` 1.0 (10000 on the wire),
 rock left gentle ground entirely and the hollow read as moss. Cap every band
 at 1.0 for slope and 1.0 for height.
+
+A world seeded on its own ground has its bands written so (#1784): edges
+about 2; grass up its band from the shore - and, in a biome of grass, at
+least half its band above the water, so an island world whose sea stands
+high still has grassy shores - and never past the snow line; dirt from no
+higher than the grass reaches to just under the snow line, so no flat ground
+between them falls through to the third layer, and on slopes up to a little
+past where rock's begin; rock from a little steeper than the grass takes and
+never gentler than slope 0.2, so its skirt never reaches level ground, the
+largest layer on every steeper face; and snow only on slopes up to 0.4
+(fading out by about 0.44), leaving cliffs to rock. Over 211 seeded worlds no
+ground is left to no rule, no gentle ground shows rock and no cliff holds
+snow. A square of Berlin keeps the bands it had: its ground is painted from
+its land use (#1586).
 
 **Read the blend, do not guess it**: `--terrain-report --at=X,Z` prints
 each point's `layers` - every layer's share of the blend there, from the
@@ -436,6 +456,17 @@ World Editor: Generators, the terrain, Paths):
   width, 2 to 30 m - painted in the paths' layer at their share and kept
   clear as they are: a seeded world's airstrip and its car's track (see
   "Places for crafts"). At most 4, 256 points and 2 km in all; unset none.
+- `fields` (#1791): rectangles of ground in strips of crops in turn, each
+  `{center, size, bearing, strip, crops}` - its middle `[x, z]`, its
+  length along its strips and its depth across them (4 to 250 m), the
+  compass bearing its strips run along (degrees clockwise from north,
+  folded into 0 to 180), its strips' width (1 to 30 m), and one to four
+  crop colours (sRGB, 0 to 1) the strips take in turn across its depth.
+  Painted wholly in the paths' layer, coloured by the ground's shader over
+  that layer's grain, and kept clear of grass, trees and rocks as a path
+  is; at most 4 (the shader holds four); unset none. The World Editor's
+  Paths section lists them, with Add a field (at the world's middle) and
+  each one's Remove.
 
 A path edit builds the terrain anew, its heightmap included, as a layer or
 rule edit does, and regrows the scatters but not a district's lots. Clear
@@ -459,6 +490,22 @@ where the ground allows, beside the landmark in the first frame - about
 half the worlds show it on arrival; a few worlds whose ground takes none
 have none. It is a placement like any other: move it, delete it, or put
 something of your own there. A Berlin square has none.
+
+Before all of those, a lake (#1793), only where the land already holds one
+(the owner's choice): a dip whose rim stands over its floor, found on a
+coarse reading of the ground - in mesa country, near enough always, the
+pit between its terraces - in any biome but a desert, badlands or ice. It
+is no placement but a second water child of the terrain, calmer than the
+sea and dark - the pit is metres deep, and the sea's own water often lies
+in its bottom - set under the dip's rim, in a rectangle that keeps 10 m off
+every building, path, landing and gate and the view to the landmark. The
+full map's dip is deeper than the coarse reading and its rim is notched
+where the reading saw it whole, so a seeded lake often stands at its brim,
+a few metres under the level it was set at; about one in a hundred, whose
+ground falls away past its rectangle from its very point, draws nothing,
+and its world goes without a feature. About one world in ten has a lake;
+such a world has no other feature. Move it, raise or lower it, or delete
+the water child.
 
 ## Places for crafts
 
@@ -489,6 +536,31 @@ ground that takes it. The plain pad's and mast's lights and the jetty's
 lamp show from dusk to dawn. All five are catalogue entries too
 (`jetty`, `helipad`, `mooring_mast`, `windsock`, `tyre_stack`, under
 Buildings: Place for a craft), for a world of your own.
+
+## Fields and orchards
+
+A world seeded on its own ground whose theme farms - a farm, a medieval
+village, a Norse steading, a feudal Japanese village, a Mesoamerican town,
+a frontier town, a solarpunk commune - lays out one to three fields near
+its arrival (#1791), two or three on a farm: `fields` in the terrain's
+`paths` group, each in strips of its theme's crops in turn - ploughed
+earth, green and golden wheat and barley; paddy, ripe rice and tea; red
+earth and maize; dust; clover and lavender. Where its theme grows fruit, an
+orchard stands beside them: `seeded_orchard`, a grid of the theme's fruit
+tree (the apple; a feudal Japanese village's flowering cherry), five trees
+in each of four rows, each on the ground under it and turned its own way;
+the scatters keep off its trees and the ground between them. Each is sited after the places for
+crafts, clear of all they keep clear and of each other, on dry ground under
+the snow line that falls gently, its strips and its rows along the contour
+- toward the landing where the ground lies level - in the arrival's frame
+where ground there takes it. A world goes without what no ground near
+takes, and nothing is farmed on ice, tundra or badlands; on craggy land a
+field asks for ground twice as level, the coarse reading there seeing
+little of its roughness. The compile has the last word on a field, as on a
+track: one more than a tenth under water is not drawn (not painted, not
+coloured, not kept clear). Both are the world's own to change: a field's
+every setting in the Paths section, the orchard a placement like any other.
+A Berlin square has neither.
 
 ## Signs of life
 

@@ -14,10 +14,15 @@
 //! Beside them a world may carry tracks (#1782): ways wider than a path,
 //! each with a width of its own - a seeded world's airstrip and its car's
 //! track - painted and kept clear as the paths are ([`SovereignPathsConfig::ways`]).
+//!
+//! And fields (#1791): rectangles of ground ploughed into strips, each
+//! strip a crop's colour in turn - painted in the paths' layer, kept clear
+//! of grass and scatters, and coloured by the ground's own shader
+//! ([`SovereignField`]).
 
 use serde::{Deserialize, Serialize};
 
-use super::types::{Fp, Fp2};
+use super::types::{Fp, Fp2, Fp3};
 
 /// A world's paths (#1779): each of `lines` at least two points, world XZ,
 /// painted `width` metres wide in ground layer `layer` (0 to 3, the
@@ -45,6 +50,10 @@ pub struct SovereignPathsConfig {
     /// layer at their share and kept clear as the paths are. None is not
     /// written, so a record saved before them keeps its bytes.
     pub tracks: Vec<SovereignTrack>,
+    /// Fields (#1791): rectangles of ground in strips of crops, painted in
+    /// the paths' layer, kept clear of grass and scatters, and coloured by
+    /// the ground's shader. None is not written.
+    pub fields: Vec<SovereignField>,
 }
 
 impl Default for SovereignPathsConfig {
@@ -55,6 +64,7 @@ impl Default for SovereignPathsConfig {
             share: Fp(0.85),
             width: Fp(2.5),
             tracks: Vec::new(),
+            fields: Vec::new(),
         }
     }
 }
@@ -65,7 +75,64 @@ crate::pds::serde_util::impl_default_eliding_serialize!(SovereignPathsConfig {
     share,
     width,
     tracks,
+    fields,
 });
+
+/// A field (#1791): a rectangle of ground ploughed into strips along its
+/// length, each strip one of its crops' colours in turn - ploughed earth,
+/// green, golden - its grain the paths' layer's.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct SovereignField {
+    /// Its middle, world XZ (m).
+    pub center: Fp2,
+    /// Its length along its strips and its depth across them (m).
+    pub size: Fp2,
+    /// The compass bearing its strips run along, degrees clockwise from
+    /// north (-Z), east (+X) at 90: a field repeats every half turn, so the
+    /// sanitiser folds it into `[0, 180)`.
+    pub bearing: Fp,
+    /// How wide each strip is (m).
+    pub strip: Fp,
+    /// Its strips' colours in turn, sRGB, one to
+    /// [`MAX_FIELD_CROPS`](crate::pds::limits::MAX_FIELD_CROPS).
+    pub crops: Vec<Fp3>,
+}
+
+impl Default for SovereignField {
+    /// A small field of ploughed earth and green wheat.
+    fn default() -> Self {
+        Self {
+            center: Fp2([0.0, 0.0]),
+            size: Fp2([40.0, 30.0]),
+            bearing: Fp(0.0),
+            strip: Fp(5.0),
+            crops: vec![Fp3([0.36, 0.25, 0.15]), Fp3([0.34, 0.5, 0.18])],
+        }
+    }
+}
+
+impl SovereignField {
+    /// The unit direction its strips run along, world XZ: north is -Z.
+    pub fn along(&self) -> [f32; 2] {
+        let b = self.bearing.0.to_radians();
+        [libm::sinf(b), -libm::cosf(b)]
+    }
+
+    /// Its four corners, world XZ, in turn round it.
+    pub fn corners(&self) -> [[f32; 2]; 4] {
+        let [ax, az] = self.along();
+        let (across_x, across_z) = (-az, ax);
+        let [cx, cz] = self.center.0;
+        let (hl, hd) = (self.size.0[0] * 0.5, self.size.0[1] * 0.5);
+        [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)].map(|(l, d)| {
+            [
+                cx + ax * hl * l + across_x * hd * d,
+                cz + az * hl * l + across_z * hd * d,
+            ]
+        })
+    }
+}
 
 /// A way wider than a path, with a width of its own (#1782): an airstrip,
 /// a car's track.
@@ -93,9 +160,9 @@ fn wide_u8<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u8, D::Error> {
 }
 
 impl SovereignPathsConfig {
-    /// Whether the world paints no path and no track.
+    /// Whether the world paints no path, no track and no field.
     pub fn is_empty(&self) -> bool {
-        self.ways().all(|(line, _)| line.len() < 2)
+        self.ways().all(|(line, _)| line.len() < 2) && self.fields.is_empty()
     }
 
     /// Every way the ground paints and the scatters keep off: each path at

@@ -146,6 +146,17 @@ struct SplatUniforms {
     /// carries them (x), and the span its green is read over (y, m); all 0
     /// in a room without lakes, whose ground draws as before.
     lakes: vec4<f32>,
+    /// The world's fields (#1791): how many (x, to four) and the ground
+    /// layer they are painted in (y, the paths'); each one's frame - its
+    /// middle (world XZ, xy) and the unit direction its strips run along
+    /// (zw) - its half length and half depth (xy, m), its strips' width (z)
+    /// and how many crops it turns through (w), and its crops in turn
+    /// (linear RGB, field i's j-th at 4 i + j). None in a world without
+    /// fields, whose ground draws as before.
+    fields: vec4<f32>,
+    field_frame: array<vec4<f32>, 4>,
+    field_size: array<vec4<f32>, 4>,
+    field_crops: array<vec4<f32>, 16>,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(106) var<uniform> splat_uniforms: SplatUniforms;
@@ -159,6 +170,11 @@ const GRASS_WET_ROUGHNESS: f32 = 0.4;
 // Ground lower than this (m) over the water line grows no grass
 // (`config::terrain::ground_cover::WATER_MARGIN`): nor does it show any.
 const GRASS_WATER_MARGIN: f32 = 0.1;
+// A field's colours fade out over this past its edge (m), as the weight map
+// paints it (`terrain::paths::FEATHER`, #1791).
+const FIELD_FEATHER: f32 = 1.5;
+// One strip of a field steps to the next over this (m): a furrow's edge.
+const FIELD_STEP: f32 = 0.15;
 
 // Avatar-interaction stains overlay (Phase 3, #245). RGBA:
 //   R = wetness, G = kicked-up dust, B = footprint indent, A = reserved.
@@ -346,6 +362,9 @@ fn fragment(
     }
     // How much of the ground the grass on it hides (#1695; the grass block).
     var carpet = 0.0;
+    // How much of it a field covers (#1791; the fields block): none of it
+    // shows grass.
+    var field_cover = 0.0;
 
     if splat_uniforms.enabled != 0u {
         // Sample splat weights from the terrain-space UV ([0, 1] → full mesh).
@@ -418,6 +437,62 @@ fn fragment(
                     + textureSampleLevel(albedo_array, albedo_array_sampler, tiled_uv, 3, LAYER_MEAN_LOD) * weights.a;
                 pbr_input.material.base_color =
                     mix(pbr_input.material.base_color, layer_means, albedo_fade);
+            }
+        }
+
+        // --- Fields (#1791) -------------------------------------------------
+        // A field draws in strips of its crops' colours in turn across its
+        // depth, fading out over the paths' feather past its edge as the
+        // weight map paints it - the ground's grain kept under them: each
+        // colour scaled by how much lighter or darker the ground is here
+        // than the mean of the layer the fields are painted in. Before the
+        // ground's variation, so the crops vary as the ground does; the
+        // grass block keeps off them. None under the water: a field the
+        // ground floods at its edge shows its bed there, as the snow does.
+        let field_count = min(u32(splat_uniforms.fields.x), 4u);
+        if field_count > 0u {
+            let paint = min(u32(splat_uniforms.fields.y), 3u);
+            let paint_mean = textureSampleLevel(albedo_array, albedo_array_sampler, tiled_uv, paint, LAYER_MEAN_LOD).rgb;
+            let luma = vec3<f32>(0.2126, 0.7152, 0.0722);
+            let grain = clamp(
+                dot(pbr_input.material.base_color.rgb, luma) / max(dot(paint_mean, luma), 0.02),
+                0.5,
+                1.6,
+            );
+            let sea_land = select(
+                1.0,
+                smoothstep(splat_uniforms.water_y - 0.3, splat_uniforms.water_y, world_pos.y),
+                splat_uniforms.moisture_strength > 0.0,
+            );
+            let lake_land = mix(1.0, smoothstep(lake_y - 0.3, lake_y, world_pos.y), lake_shore);
+            let field_land = min(sea_land, lake_land);
+            for (var i = 0u; i < field_count; i = i + 1u) {
+                let frame = splat_uniforms.field_frame[i];
+                let size = splat_uniforms.field_size[i];
+                let rel = world_pos.xz - frame.xy;
+                let along = frame.zw;
+                let local = vec2<f32>(dot(rel, along), dot(rel, vec2<f32>(-along.y, along.x)));
+                let outside = length(max(abs(local) - size.xy, vec2<f32>(0.0)));
+                let cover = (1.0 - smoothstep(0.0, FIELD_FEATHER, outside)) * field_land;
+                // The strip, counted across from the field's near edge, and
+                // the step to the next over its last few centimetres.
+                let width = max(size.z, 0.01);
+                let s = max(local.y + size.y, 0.0) / width;
+                let k = floor(s);
+                let crops = max(u32(size.w), 1u);
+                let here = u32(k) % crops;
+                let next = (here + 1u) % crops;
+                let seam = smoothstep(1.0 - FIELD_STEP / width, 1.0, s - k);
+                let crop = mix(
+                    splat_uniforms.field_crops[i * 4u + here].rgb,
+                    splat_uniforms.field_crops[i * 4u + next].rgb,
+                    seam,
+                );
+                pbr_input.material.base_color = vec4<f32>(
+                    mix(pbr_input.material.base_color.rgb, crop * grain, cover),
+                    pbr_input.material.base_color.a,
+                );
+                field_cover = max(field_cover, cover);
             }
         }
 
@@ -495,7 +570,7 @@ fn fragment(
             let distance = length(to_eye);
             let facing = abs(dot(to_eye / max(distance, 1.0e-3), up));
             let density = grass_density_seen(
-                dot(weights, splat_uniforms.grass_layer_density) * land,
+                dot(weights, splat_uniforms.grass_layer_density) * land * (1.0 - field_cover),
                 world_pos.xz,
                 distance,
                 facing,

@@ -10,8 +10,11 @@
 //! it, inside its rectangle - so it fills its dip and stops where the
 //! ground rises over its level, never hanging over lower ground. A level
 //! over its dip's rim spills, and the lake then covers what lies below it
-//! as far as it reaches. A lake whose point stands at or over its level is
-//! no lake, and draws nothing.
+//! as far as it reaches inside its rectangle; where its water would run on
+//! past the rectangle onto lower ground it stands at its brim instead
+//! (#1793): the highest level its ground holds inside the rectangle
+//! ([`brim`]), so it never ends in a straight edge. A lake whose point
+//! stands at or over the level it stands at is no lake, and draws nothing.
 //!
 //! [`RoomWater`] holds them: the sea's level and the bodies, each a level
 //! and its cells ([`WaterBody`]), with one lookup, the level at a point
@@ -283,13 +286,24 @@ pub struct WaterBody {
     pub cells: Arc<BodyCells>,
 }
 
-/// The cells of the lake a layer at `level` fills round world `point` on
-/// `hm` (see the module docs): its point's cell and every cell below its
-/// level that this one reaches through others below it, 4-connected, where
-/// `inside` holds them - round them, its ring and its reach
-/// ([`body_round`]), as far as `inside` holds them. `None` where its point's
-/// cell lies off the grid, at or over its level, or where `inside` does not
-/// hold it.
+/// What a layer's water does round its point on the ground (#1793).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Flood {
+    /// It stands nowhere: its point's cell lies off the grid, outside its
+    /// rectangle, or at or over its level.
+    Dry,
+    /// Its ground holds it inside its rectangle: the lake's cells.
+    Held(BodyCells),
+    /// It would run past its rectangle onto lower ground: a cell beside it
+    /// that its rectangle does not hold lies below its level.
+    Spills,
+}
+
+/// What the water of a layer at `level` does round world `point` on `hm`
+/// (see the module docs): where its ground holds it inside `inside`, the
+/// lake's cells - its point's cell and every cell below its level that
+/// this one reaches through others below it, 4-connected, and round them
+/// its ring and its reach ([`body_round`]), as far as `inside` holds them.
 ///
 /// A cell is below the level where the heightmap's height there is: the
 /// same comparisons on the same heights, so every peer finds one lake.
@@ -298,7 +312,7 @@ pub fn lake_cells(
     level: f32,
     point: (f32, f32),
     inside: impl Fn(f32, f32) -> bool,
-) -> Option<BodyCells> {
+) -> Flood {
     /// What a cell has been found to be.
     const UNSEEN: u8 = 0;
     const WATER: u8 = 1;
@@ -312,10 +326,12 @@ pub fn lake_cells(
         let (x, z) = grid.world_of(((i % w) as u32, (i / w) as u32));
         inside(x, z)
     };
-    let (sx, sz) = grid.cell_at(point.0, point.1)?;
+    let Some((sx, sz)) = grid.cell_at(point.0, point.1) else {
+        return Flood::Dry;
+    };
     let start = sz as usize * w + sx as usize;
     if !(holds(start) && heights[start] < level) {
-        return None;
+        return Flood::Dry;
     }
     let mut found = vec![UNSEEN; w * h];
     found[start] = WATER;
@@ -332,6 +348,9 @@ pub fn lake_cells(
         for (on_grid, j) in sides {
             if on_grid && found[j] == UNSEEN {
                 found[j] = if !holds(j) {
+                    if heights[j] < level {
+                        return Flood::Spills;
+                    }
                     OUT
                 } else if heights[j] < level {
                     stack.push(j);
@@ -342,7 +361,87 @@ pub fn lake_cells(
             }
         }
     }
-    Some(body_round(hm, level, &water, holds))
+    Flood::Held(body_round(hm, level, &water, holds))
+}
+
+/// The highest level up to `level` at which water round world `point` on
+/// `hm` stays inside `inside` (#1793): its brim - `None` where its point's
+/// cell lies off the grid or outside `inside`. Read as water fills -
+/// the lowest cell round what it holds first, 4-connected, ties to the
+/// lower index - each cell wet once the water stands over the highest
+/// ground on the way to it; a cell `inside` does not hold, beside a wet
+/// one, lets the water out once it stands over both that ground and its
+/// own. At its brim, water fills ([`lake_cells`]) and runs past nothing.
+pub fn brim(
+    hm: &HeightMap,
+    point: (f32, f32),
+    level: f32,
+    inside: impl Fn(f32, f32) -> bool,
+) -> Option<f32> {
+    use std::cmp::Reverse;
+    use std::collections::BinaryHeap;
+    let grid = CellGrid::of(hm);
+    let (w, h) = (hm.width(), hm.height());
+    let heights = hm.data();
+    let holds = |i: usize| {
+        let (x, z) = grid.world_of(((i % w) as u32, (i / w) as u32));
+        inside(x, z)
+    };
+    let (sx, sz) = grid.cell_at(point.0, point.1)?;
+    let start = sz as usize * w + sx as usize;
+    if !holds(start) {
+        return None;
+    }
+    let mut brim = level;
+    let mut seen = vec![false; w * h];
+    seen[start] = true;
+    let mut queue = BinaryHeap::new();
+    queue.push(Reverse((Height(heights[start]), start)));
+    // The highest ground on the way to the cell taken last.
+    let mut over = f32::MIN;
+    while let Some(Reverse((Height(height), i))) = queue.pop() {
+        over = over.max(height);
+        if over >= brim {
+            break;
+        }
+        let (cx, cz) = (i % w, i / w);
+        let sides = [
+            (cx > 0, i.wrapping_sub(1)),
+            (cx + 1 < w, i + 1),
+            (cz > 0, i.wrapping_sub(w)),
+            (cz + 1 < h, i + w),
+        ];
+        for (on_grid, j) in sides {
+            if on_grid && !seen[j] {
+                seen[j] = true;
+                if holds(j) {
+                    queue.push(Reverse((Height(heights[j]), j)));
+                } else {
+                    brim = brim.min(over.max(heights[j]));
+                }
+            }
+        }
+    }
+    Some(brim)
+}
+
+/// A height ordered as `f32::total_cmp` orders it, for a heap: one order on
+/// every peer.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Height(f32);
+
+impl Eq for Height {}
+
+impl PartialOrd for Height {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Height {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.total_cmp(&other.0)
+    }
 }
 
 /// A body's cells round its `water` - `hm`'s cells it covers at `level`,
@@ -494,21 +593,45 @@ fn layer_rectangle(hm: &HeightMap, layer: &Transform) -> impl Fn(f32, f32) -> bo
 }
 
 /// The lake the layer drawn with `layer` fills on `hm`, inside its
-/// rectangle ([`layer_rectangle`]), or `None` where it is no lake (see
+/// rectangle ([`layer_rectangle`]): at its level where its ground holds it
+/// there, else at its [`brim`] (#1793) - or `None` where it is no lake (see
 /// [`lake_cells`]).
 pub fn lake(hm: &HeightMap, layer: &Transform) -> Option<WaterBody> {
-    let level = layer.translation.y;
+    let set = layer.translation.y;
     let point = (layer.translation.x, layer.translation.z);
-    lake_cells(hm, level, point, layer_rectangle(hm, layer)).map(|cells| WaterBody {
+    let inside = layer_rectangle(hm, layer);
+    let (level, cells) = match lake_cells(hm, set, point, &inside) {
+        Flood::Dry => return None,
+        Flood::Held(cells) => (set, cells),
+        Flood::Spills => {
+            let level = brim(hm, point, set, &inside)?;
+            match lake_cells(hm, level, point, &inside) {
+                Flood::Held(cells) => (level, cells),
+                // A brim at or under its point's ground holds no lake.
+                Flood::Dry | Flood::Spills => return None,
+            }
+        }
+    };
+    Some(WaterBody {
         level,
         cells: Arc::new(cells),
     })
 }
 
-/// Whether the layer drawn with `layer` is a lake on `hm` at all - its
-/// point's cell on the grid, in its rectangle and below its level - as
-/// [`lake`] finds it, at the cost of that one cell: for a reader that asks
-/// every frame, the editor saying why a layer draws nothing.
+/// [`lake`], over the sea at `sea` (#1793): a lake whose brim lies at or
+/// under the sea is no lake - it would be drawn under the sea's own plane.
+/// What every reader of a layer above the sea asks.
+pub fn lake_over(hm: &HeightMap, layer: &Transform, sea: f32) -> Option<WaterBody> {
+    lake(hm, layer).filter(|body| body.level > sea)
+}
+
+/// Whether the water of the layer drawn with `layer` stands at its point on
+/// `hm` - its point's cell on the grid, in its rectangle and below its
+/// level - as [`lake`] starts its flood, at the cost of that one cell: for
+/// a reader that asks every frame, the editor saying why a layer draws
+/// nothing. A lake whose water would run past its rectangle holds here,
+/// and is drawn at its [`brim`] - or not at all, where that is no higher
+/// than its point's ground.
 pub fn holds_a_lake(hm: &HeightMap, layer: &Transform) -> bool {
     let grid = CellGrid::of(hm);
     let inside = layer_rectangle(hm, layer);
@@ -616,7 +739,7 @@ impl RoomWater {
                 layers
                     .iter()
                     .filter(|layer| layer.translation.y > lowest)
-                    .filter_map(|layer| lake(&heightmap.0, layer)),
+                    .filter_map(|layer| lake_over(&heightmap.0, layer, lowest)),
             );
         }
         Self { sea, bodies }
@@ -827,18 +950,49 @@ mod tests {
 
     /// **A lake over its rim spills** (#1760): at 32 m, over the plateau's
     /// 30, it reaches the valley and covers it, as water at that level
-    /// would - inside its rectangle, the world's extent centred on its point
-    /// as its plane is, which ends 20 m west of the valley's edge here.
+    /// would, where its rectangle holds it - here one twice the world's
+    /// extent, past every edge of the map. In the world's own extent centred
+    /// on its point, as its plane is, which ends 20 m west of the valley's
+    /// edge, its water would run on past it: it stands at its brim instead
+    /// (#1793), the plateau's 30 m, and fills the dip alone.
     #[test]
     fn a_lake_over_its_rim_spills() {
         let hm = FinishedHeightMap(ground(121, 121, 1.0, plateau), None);
         let water = RoomWater::of(
-            &record(&[((0.0, 0.0), 2.0, 1.0), ((40.0, 0.0), 32.0, 1.0)]),
+            &record(&[((0.0, 0.0), 2.0, 1.0), ((40.0, 0.0), 32.0, 2.0)]),
             Some(&hm),
         );
         assert_eq!(water.level_at(-15.0, 0.0), Some(32.0));
         assert_eq!(water.level_at(55.0, 50.0), Some(32.0));
-        assert_eq!(water.level_at(-30.0, 0.0), Some(2.0), "past its rectangle");
+        assert_eq!(water.level_at(-50.0, 0.0), Some(32.0), "to the map's edge");
+        let brimmed = RoomWater::of(
+            &record(&[((0.0, 0.0), 2.0, 1.0), ((40.0, 0.0), 32.0, 1.0)]),
+            Some(&hm),
+        );
+        assert_eq!(brimmed.level_at(40.0, 0.0), Some(30.0), "at its brim");
+        assert_eq!(
+            brimmed.level_at(-15.0, 0.0),
+            Some(2.0),
+            "the valley the sea's"
+        );
+    }
+
+    /// #1793: a lake whose brim lies under the sea is no lake - drawn, it
+    /// would lie under the sea's own plane - though the same lake over a
+    /// lower sea stands at that brim.
+    #[test]
+    fn a_lake_whose_brim_lies_under_the_sea_is_none() {
+        let hm = FinishedHeightMap(ground(121, 121, 1.0, plateau), None);
+        // In a rectangle shrunk inside the dip, its brim is 24.1 m.
+        let shrunk = Transform::from_xyz(40.0, 26.0, 0.0).with_scale(Vec3::new(0.1, 1.0, 0.1));
+        assert!(lake(&hm.0, &shrunk).is_some_and(|body| body.level < 25.0));
+        assert!(lake_over(&hm.0, &shrunk, 25.0).is_none());
+        assert!(lake_over(&hm.0, &shrunk, 2.0).is_some());
+        let water = RoomWater::of(
+            &record(&[((0.0, 0.0), 25.0, 1.0), ((40.0, 0.0), 26.0, 0.1)]),
+            Some(&hm),
+        );
+        assert!(water.bodies.is_empty(), "under the sea at 25 m");
     }
 
     /// **A lake whose point stands dry has no body** (#1760), and the
@@ -861,9 +1015,10 @@ mod tests {
     }
 
     /// The editor's one-cell question - is there a lake at all - answers as
-    /// the flood does, wherever the layer stands: in the dip, on the
-    /// plateau, at the dip's edge, off the grid, and with its point past a
-    /// turned, shrunk rectangle's reach.
+    /// the flood does wherever the ground holds the water: in the dip, on
+    /// the plateau, at the dip's edge, off the grid, in a turned rectangle
+    /// narrower than the map, and with a turned, shrunk one round a dry
+    /// point.
     #[test]
     fn holds_a_lake_answers_as_the_flood_does() {
         let hm = ground(121, 121, 1.0, plateau);
@@ -874,8 +1029,8 @@ mod tests {
             (40.0, 19.5, 26.0, 1.0, Quat::IDENTITY),
             (40.0, 0.0, 21.0, 1.0, Quat::IDENTITY),
             (500.0, 0.0, 26.0, 1.0, Quat::IDENTITY),
-            (40.0, 0.0, 26.0, 0.01, turned),
-            (40.0, 0.0, 26.0, 0.1, turned),
+            (40.0, 0.0, 26.0, 0.3, turned),
+            (75.0, 0.0, 26.0, 0.1, turned),
         ] {
             let layer = Transform::from_xyz(x, level, z)
                 .with_rotation(rotation)
@@ -884,6 +1039,63 @@ mod tests {
                 holds_a_lake(&hm, &layer),
                 lake(&hm, &layer).is_some(),
                 "({x}, {z}) at {level} m, scaled {scale}"
+            );
+        }
+    }
+
+    /// #1793: a lake whose water would run past its rectangle onto lower
+    /// ground stands at its brim - the highest level its ground holds inside
+    /// the rectangle - lower than it is set, and holds there; one its ground
+    /// holds at its own level stays at it. Over the dip's rim the water runs
+    /// across the plateau into the valley and on past the rectangle's west
+    /// edge: it stands at the plateau's 30 m and fills the dip. In a
+    /// rectangle shrunk inside the dip it rises to where the ground just
+    /// past the rectangle's edge stands; and round no more than its point's
+    /// cell, on the dip's slope, it stands nowhere: the ground falls away
+    /// past the rectangle from its very point.
+    #[test]
+    fn a_lake_that_would_run_past_its_rectangle_stands_at_its_brim() {
+        let hm = ground(121, 121, 1.0, plateau);
+        let held = |layer: &Transform, level: f32| {
+            let inside = layer_rectangle(&hm, layer);
+            matches!(
+                lake_cells(
+                    &hm,
+                    level,
+                    (layer.translation.x, layer.translation.z),
+                    &inside
+                ),
+                Flood::Held(_)
+            )
+        };
+        let over = Transform::from_xyz(40.0, 31.0, 0.0);
+        let body = lake(&hm, &over).expect("a lake at its brim");
+        assert_eq!(body.level, 30.0);
+        assert!(held(&over, body.level));
+        assert!(
+            body.cells.holds(40.0, 0.0) && !body.cells.holds(10.0, 0.0),
+            "the dip alone"
+        );
+        let shrunk = Transform::from_xyz(40.0, 26.0, 0.0).with_scale(Vec3::new(0.1, 1.0, 0.1));
+        let body = lake(&hm, &shrunk).expect("a lake at its brim");
+        // Six metres to the rectangle's edge; the ground a metre past it,
+        // seven metres out, at 22 + 0.3 x 7.
+        assert!((body.level - 24.1).abs() < 1e-4, "{}", body.level);
+        assert!(held(&shrunk, body.level));
+        let point = Transform::from_xyz(40.0, 26.0, 10.0)
+            .with_rotation(Quat::from_rotation_y(0.6))
+            .with_scale(Vec3::new(0.01, 1.0, 0.01));
+        assert!(holds_a_lake(&hm, &point), "its water stands at its point");
+        assert!(lake(&hm, &point).is_none(), "but no level over it is held");
+        // Held at its level: the dip, in a rectangle wider than it, and in
+        // one whose edge crosses the dip's rim above its level.
+        for scale in [1.0, 0.3] {
+            let layer =
+                Transform::from_xyz(40.0, 26.0, 0.0).with_scale(Vec3::new(scale, 1.0, scale));
+            assert_eq!(
+                lake(&hm, &layer).map(|body| body.level),
+                Some(26.0),
+                "scaled {scale}"
             );
         }
     }

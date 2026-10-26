@@ -93,6 +93,55 @@ fn path_share(biome: crate::seeded_defaults::scene::BiomeArchetype) -> f32 {
     }
 }
 
+/// What one copy of the tree `tree` - catalogue species `slug` - costs in
+/// entities, its L-system's iterations first stepped down until its
+/// measured expansion fits under [`TREE_ENTITY_BUDGET`] (#810): its
+/// expansion, or its node count for a species that is no L-system (the
+/// fern, one turned card since #1711), as a ground-cover prop's. A grammar
+/// error is left untouched and costs its node count - the spawn path skips
+/// those generators.
+fn fit_tree_budget(tree: &mut Generator, slug: &str) -> u64 {
+    let mut per_tree = generator_entity_count(tree);
+    if let GeneratorKind::LSystem {
+        source_code,
+        finalization_code,
+        iterations,
+        seed,
+        angle,
+        step,
+        width,
+        elasticity,
+        tropism,
+        ..
+    } = &mut tree.kind
+    {
+        loop {
+            match crate::world_builder::lsystem::lsystem_entity_estimate(
+                source_code,
+                finalization_code,
+                *iterations,
+                *seed,
+                *angle,
+                *step,
+                *width,
+                *elasticity,
+                *tropism,
+                slug,
+            ) {
+                Some(e) if e > TREE_ENTITY_BUDGET && *iterations > 2 => {
+                    *iterations -= 1;
+                }
+                Some(e) => {
+                    per_tree = e;
+                    break;
+                }
+                None => break,
+            }
+        }
+    }
+    per_tree
+}
+
 /// Grid size of the derive-time proxy heightmap used for settlement
 /// siting (#905). At the default 512-cell / ~2 m terrain this is a
 /// ~10 m proxy cell - building-footprint scale, coarse enough that
@@ -207,7 +256,7 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
     };
     apply_shape_to_terrain_config(&shape, &mut terrain_cfg);
     apply_palette_to_material(&palette, &mut terrain_cfg.material);
-    apply_shape_to_material(&shape, &mut terrain_cfg.material);
+    apply_shape_to_material(&shape, berlin.is_some(), &mut terrain_cfg.material);
     apply_textures_to_material(&textures, &mut terrain_cfg.material);
     apply_biome_signature_surface(scene.biome, did_seed, &palette, &mut terrain_cfg.material);
     // The world's grass (#1703): its colours its own grass layer's, how it
@@ -236,6 +285,15 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
         ..WaterSurface::default()
     };
     apply_water_dynamics(&water_dynamics, &mut water_surface);
+    // A signature lake's water (#1793) is the sea's, calmer and deep.
+    let lake_surface = {
+        use crate::seeded_defaults::room::lake::{CALM, DEEP};
+        let mut surface = water_surface.clone();
+        surface.wave_scale = Fp(surface.wave_scale.0 * CALM);
+        surface.foam_amount = Fp(surface.foam_amount.0 * CALM);
+        surface.shallow_color.0[3] = surface.shallow_color.0[3].max(DEEP);
+        surface
+    };
 
     // Strict scheme: a single named generator describes the whole
     // region. Terrain sits at the root (only valid position for
@@ -318,23 +376,9 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
         }
         // A species that is not an L-system - the fern, one turned card
         // since #1711 - has no iterations to step or expansion to measure:
-        // it costs its node count, exactly as a ground-cover prop does, and
         // the stand's `iterations_delta` and re-skin pass it by (no pool
         // names a variant for one; `scatters` guards that).
-        let mut per_tree_entities = generator_entity_count(&tree_gen);
-        if let GeneratorKind::LSystem {
-            source_code,
-            finalization_code,
-            iterations,
-            seed,
-            angle,
-            step,
-            width,
-            elasticity,
-            tropism,
-            ..
-        } = &mut tree_gen.kind
-        {
+        if let GeneratorKind::LSystem { iterations, .. } = &mut tree_gen.kind {
             // The deriver only ever emits delta ∈ {-1, 0, +1}, but a
             // single step is enough to blow the exponential expansion up
             // an order of magnitude on lush species (#810 census:
@@ -349,36 +393,27 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
                 2,
                 crate::pds::sanitize::limits::MAX_LSYSTEM_ITERATIONS as i32,
             ) as u32;
-            // #810 per-tree ceiling: step iterations down until the
-            // measured expansion fits. A grammar error (`None`) is left
-            // untouched - the spawn path skips those generators, so they
-            // cost nothing either way.
-            loop {
-                match crate::world_builder::lsystem::lsystem_entity_estimate(
-                    source_code,
-                    finalization_code,
-                    *iterations,
-                    *seed,
-                    *angle,
-                    *step,
-                    *width,
-                    *elasticity,
-                    *tropism,
-                    scatter.species.slug(),
-                ) {
-                    Some(e) if e > TREE_ENTITY_BUDGET && *iterations > 2 => {
-                        *iterations -= 1;
-                    }
-                    Some(e) => {
-                        per_tree_entities = e;
-                        break;
-                    }
-                    None => break,
-                }
-            }
         }
+        let per_tree_entities = fit_tree_budget(&mut tree_gen, scatter.species.slug());
         pending_tree_scatters.push((scatter, tree_gen, per_tree_entities));
     }
+
+    // A farm's orchard (#1791): its theme's fruit tree, measured as a
+    // stand's, its every tree reserved from the budget below whether or not
+    // its ground is found - the world's other draws come before it is sited.
+    let farm = crate::seeded_defaults::room::fields::farm(scene.theme, scene.biome, scene.landform)
+        .filter(|_| berlin.is_none());
+    let orchard_tree = farm.and_then(|farm| farm.orchard).and_then(|slug| {
+        let mut tree = crate::catalogue::by_slug(slug)?.build(did);
+        let per_tree = fit_tree_budget(&mut tree, slug);
+        Some((tree, per_tree))
+    });
+    let orchard_reserve = orchard_tree.as_ref().map_or(0, |(_, per_tree)| {
+        u64::from(
+            crate::seeded_defaults::room::fields::ORCHARD_TREES
+                * crate::seeded_defaults::room::fields::ORCHARD_ROWS,
+        ) * per_tree
+    });
 
     // Ground-cover tier (#911): the cheap card props below the trees.
     // These are primitive trees, not grammars, so their per-instance cost
@@ -411,8 +446,9 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
         .map(|(s, _, per_instance)| u64::from(s.count) * per_instance)
         .sum();
     let projected = tree_projected.saturating_add(cover_projected);
-    let scale = if projected > ROOM_VEGETATION_ENTITY_BUDGET {
-        ROOM_VEGETATION_ENTITY_BUDGET as f64 / projected as f64
+    let budget = ROOM_VEGETATION_ENTITY_BUDGET.saturating_sub(orchard_reserve);
+    let scale = if projected > budget {
+        budget as f64 / projected as f64
     } else {
         1.0
     };
@@ -776,8 +812,9 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
                     },
                 );
                 // A place for every craft (#1782), near the arrival and clear of
-                // all of that and of the feature: wired below.
-                let crafts =
+                // all of that and of the feature, and a farm's fields and its
+                // orchard (#1791), clear of those too: wired below.
+                let (crafts, farm) =
                     {
                         use crate::seeded_defaults::room::crafts::{Ground, Kept, Siting, site};
                         let mut kept: Vec<Ground> = keep_off
@@ -808,24 +845,35 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
                             })
                             .filter_map(|member| crate::catalogue::by_slug(member.slug)?.serves())
                             .collect();
-                        site(
-                            Siting {
-                                probe: &terrain_probe,
-                                view: viewpoint,
-                                kept: Kept(kept),
-                                wind: atmosphere.cloud_wind_dir,
-                                theme: scene.theme,
-                            },
-                            &served,
-                        )
+                        let mut siting = Siting {
+                            probe: &terrain_probe,
+                            view: viewpoint,
+                            kept: Kept(kept),
+                            wind: atmosphere.cloud_wind_dir,
+                            theme: scene.theme,
+                        };
+                        let crafts = site(&mut siting, &served);
+                        // Under the snow line the ground's bands draw.
+                        let snow_y = shape.splat_rules[3].height_min * shape.height_scale;
+                        let farm = farm
+                            .map(|farm| {
+                                crate::seeded_defaults::room::fields::site(
+                                    &mut siting,
+                                    &farm,
+                                    did_seed,
+                                    snow_y,
+                                )
+                            })
+                            .unwrap_or_default();
+                        (crafts, farm)
                     };
-                Some((lines, feature, crafts))
+                Some((lines, feature, crafts, farm))
             }
             _ => None,
         };
-    let (paths, feature, crafts) = match paths {
-        Some((lines, feature, crafts)) => (Some(lines), feature, crafts),
-        None => (None, None, Default::default()),
+    let (paths, feature, crafts, farm) = match paths {
+        Some((lines, feature, crafts, farm)) => (Some(lines), feature, crafts, farm),
+        None => (None, None, Default::default(), Default::default()),
     };
 
     // A Berlin square is its own settlement (see the docs above): only its
@@ -1046,6 +1094,30 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
         });
     }
 
+    // The world's signature lake (#1793), chosen with the paths above: a
+    // second water layer of its terrain, which the compile fills round the
+    // floor of its basin to its level, within its rectangle.
+    if let Some(feature) = feature
+        && let Some(lake) = feature.lake
+        && let Some(base) = generators.get_mut("base_terrain")
+        && let GeneratorKind::Terrain(terrain) = &base.kind
+    {
+        let reach = terrain.reach();
+        base.children.push(Generator {
+            kind: GeneratorKind::Water {
+                surface: lake_surface,
+            },
+            transform: TransformData {
+                translation: Fp3([feature.at[0], lake.level, feature.at[1]]),
+                scale: Fp3([lake.half[0] / reach, 1.0, lake.half[1] / reach]),
+                ..TransformData::default()
+            },
+            children: Vec::new(),
+            audio: crate::pds::SovereignAudioConfig::None,
+            spin: None,
+        });
+    }
+
     // The places for every craft (#1782), sited with the paths above: their
     // generators and placements here, their tracks painted with the paths.
     let craft_wiring = crafts.wire(did, terrain_probe.water_y(), did_seed);
@@ -1053,6 +1125,16 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
         generators.insert(name, generator);
     }
     placements.extend(craft_wiring.placements);
+
+    // A farm's orchard (#1791), sited with the paths above: its tree, fitted
+    // to the budget with the stands, and its grid.
+    if let (Some(orchard), Some((tree, _))) = (&farm.orchard, orchard_tree) {
+        generators.insert(
+            crate::seeded_defaults::room::fields::ORCHARD.to_string(),
+            tree,
+        );
+        placements.push(orchard.placement());
+    }
 
     // Gulls wheeling over the water nearest the arrival (#1782).
     if let Some(viewpoint) = &viewpoint
@@ -1082,7 +1164,8 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
     }
 
     // The settlement's paths (#1779), painted on the terrain the record
-    // carries, and the crafts' tracks (#1782) beside them.
+    // carries, the crafts' tracks (#1782) beside them, and a farm's fields
+    // (#1791).
     if let Some(lines) = paths
         && let Some(GeneratorKind::Terrain(terrain)) = generators
             .get_mut("base_terrain")
@@ -1097,6 +1180,7 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
             share: Fp(path_share(scene.biome)),
             width: Fp(PATH_WIDTH),
             tracks: craft_wiring.tracks,
+            fields: farm.fields,
         };
         // As a peer reads them back (#1789): the probe's edge can round a
         // hair past the terrain's.
@@ -1433,12 +1517,20 @@ fn apply_shape_to_terrain_config(
 /// distribution (where grass/dirt/rock/snow each read as dominant on
 /// the slope/height surface) is the visible payoff here - an alpine
 /// room has a dramatically lower snow line than an arid one even
-/// before the textures themselves differ.
+/// before the textures themselves differ. A square of Berlin keeps the
+/// bands as they were written before #1784
+/// ([`TerrainShape::square_splat_rules`](crate::seeded_defaults::TerrainShape::square_splat_rules)).
 fn apply_shape_to_material(
     shape: &crate::seeded_defaults::TerrainShape,
+    square: bool,
     material: &mut crate::pds::terrain::SovereignMaterialConfig,
 ) {
-    for (i, rule) in shape.splat_rules.iter().enumerate() {
+    let rules = if square {
+        &shape.square_splat_rules
+    } else {
+        &shape.splat_rules
+    };
+    for (i, rule) in rules.iter().enumerate() {
         material.rules[i] = crate::pds::terrain::SovereignSplatRule {
             height_min: Fp(rule.height_min),
             height_max: Fp(rule.height_max),
@@ -2047,7 +2139,9 @@ mod tests {
     /// tree, a sea stack, a ruin or a stone ring, trees, stacks and built
     /// ones across a fleet - standing clear of its settlement: the ground of
     /// no building, prop, gate or monument within its reach, which its
-    /// placement carries. A Berlin square has none.
+    /// placement carries; or a lake (#1793), the terrain's second water
+    /// layer, whose whole rectangle stands clear of them. A Berlin square
+    /// has none.
     #[test]
     fn a_seeded_world_has_a_signature_feature_clear_of_its_settlement() {
         use super::super::feature::{CLEARING, STACK_RADIUS};
@@ -2086,12 +2180,45 @@ mod tests {
                     structures.push((at, avoid_water_clearance.0));
                 }
             }
+            // A lake: the terrain's second water layer, its rectangle the
+            // terrain's reach scaled round its point.
+            let lake = record.generators.get("base_terrain").and_then(|base| {
+                let GeneratorKind::Terrain(terrain) = &base.kind else {
+                    return None;
+                };
+                let layer = base
+                    .children
+                    .iter()
+                    .filter(|child| matches!(child.kind, GeneratorKind::Water { .. }))
+                    .nth(1)?;
+                let [x, _, z] = layer.transform.translation.0;
+                let [sx, _, sz] = layer.transform.scale.0;
+                Some(([x, z], [sx * terrain.reach(), sz * terrain.reach()]))
+            });
             if record.geo_source.is_some() {
                 assert_eq!(feature, None, "{n}: a Berlin square has no feature");
+                assert_eq!(lake, None, "{n}: nor a lake");
                 berlin += 1;
                 continue;
             }
             own += 1;
+            if let Some((at, half)) = lake {
+                assert_eq!(feature, None, "{n}: a lake is its feature");
+                featured += 1;
+                kinds.insert("lake");
+                for (spot, other) in structures {
+                    let (dx, dz) = (
+                        ((spot[0] - at[0]).abs() - half[0]).max(0.0),
+                        ((spot[1] - at[1]).abs() - half[1]).max(0.0),
+                    );
+                    let apart = dx.hypot(dz);
+                    assert!(
+                        apart >= other - 1e-3,
+                        "{n}: the lake round {at:?} stands {apart} m from a structure at {spot:?}"
+                    );
+                }
+                continue;
+            }
             let Some((at, reach, kind)) = feature else {
                 continue;
             };
@@ -2110,6 +2237,61 @@ mod tests {
         );
         for kind in ["tree", "stack", "built"] {
             assert!(kinds.contains(kind), "no {kind} in {kinds:?}");
+        }
+    }
+
+    /// #1793: a mesa world whose land holds a dip has a lake - its terrain's
+    /// second water layer, calmer than its sea - and the full map draws it,
+    /// at its level or at its brim, its water and its bank reaching no
+    /// seeded building, gate, monument, path or the landing.
+    #[test]
+    fn a_mesa_world_holds_its_lake_clear_of_its_settlement() {
+        // A savanna mesa's, from the census of seeds 0..300.
+        let record = build_room_with_source(85, "did:plc:lake", None);
+        let layers = crate::water::bodies::terrain_layers(&record);
+        assert_eq!(layers.len(), 2, "a sea and a lake");
+        let base = &record.generators["base_terrain"];
+        let surfaces: Vec<&WaterSurface> = base
+            .children
+            .iter()
+            .filter_map(|child| match &child.kind {
+                GeneratorKind::Water { surface } => Some(surface),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            surfaces[1].wave_scale.0 < surfaces[0].wave_scale.0,
+            "calmer"
+        );
+        assert!(
+            !record.generators.contains_key("signature_feature"),
+            "the lake is its feature"
+        );
+        let hm = crate::terrain::rebuild_terrain_for_record(&record);
+        let lake = crate::water::bodies::lake(&hm.0, &layers[1]).expect("the full map holds it");
+        assert!(lake.level <= layers[1].translation.y);
+        for placement in &record.placements {
+            if let Placement::Absolute {
+                generator_ref,
+                transform,
+                avoid_water: true,
+                ..
+            } = placement
+            {
+                let [x, _, z] = transform.translation.0;
+                assert!(!lake.cells.reaches(x, z), "{generator_ref} at ({x}, {z})");
+            }
+        }
+        let landing = record.default_landing.as_ref().expect("a landing").pos.0;
+        assert!(!lake.cells.reaches(landing[0], landing[1]), "the landing");
+        let paths = &crate::pds::find_terrain_config(&record)
+            .expect("a terrain")
+            .paths;
+        for point in paths.lines.iter().flatten() {
+            assert!(
+                !lake.cells.reaches(point.0[0], point.0[1]),
+                "a path at {point:?}"
+            );
         }
     }
 
@@ -2242,6 +2424,57 @@ mod tests {
             (avoid_water_clearance.0 - clearance * 1.3).abs() < 1e-4,
             "the footprint it is drawn at"
         );
+    }
+
+    /// #1784: a square of Berlin keeps the splat bands it was seeded with
+    /// before the plateau retune - its ground is painted from its land use,
+    /// and its record's bytes are pinned - while a world on its own ground
+    /// takes the retuned ones.
+    #[test]
+    fn a_berlin_square_keeps_its_bands() {
+        use crate::seeded_defaults::{RegionSource, SceneCharacter, SourceKind, TerrainShape};
+        let rules_of = |record: &RoomRecord| {
+            crate::pds::find_terrain_config(record)
+                .expect("a seeded terrain")
+                .material
+                .rules
+        };
+        let on_wire = |rules: &[crate::seeded_defaults::room::terrain::SplatRule; 4]| {
+            rules.map(|r| {
+                [
+                    r.height_min,
+                    r.height_max,
+                    r.slope_min,
+                    r.slope_max,
+                    r.sharpness,
+                ]
+                .map(|v| Fp(v).on_wire().0)
+            })
+        };
+        let read = |rules: [crate::pds::terrain::SovereignSplatRule; 4]| {
+            rules.map(|r| {
+                [
+                    r.height_min,
+                    r.height_max,
+                    r.slope_min,
+                    r.slope_max,
+                    r.sharpness,
+                ]
+                .map(|v| v.0)
+            })
+        };
+        let berlin = (1u64..40)
+            .find(|&seed| RegionSource::for_seed(seed).kind == SourceKind::Berlin)
+            .expect("a Berlin seed");
+        let square = build_room(berlin, "did:plc:bands");
+        let shape = TerrainShape::from_scene(&SceneCharacter::even(berlin), berlin);
+        assert_eq!(read(rules_of(&square)), on_wire(&shape.square_splat_rules));
+        let own = (1u64..40)
+            .find(|&seed| RegionSource::for_seed(seed).kind == SourceKind::Procedural)
+            .expect("a procedural seed");
+        let world = build_room(own, "did:plc:bands");
+        let shape = TerrainShape::from_scene(&SceneCharacter::for_seed(own), own);
+        assert_eq!(read(rules_of(&world)), on_wire(&shape.splat_rules));
     }
 
     /// #1463 across seeded worlds: every settlement member, the gate, the
@@ -2915,17 +3148,27 @@ mod tests {
     #[test]
     fn seeded_vegetation_scatters_respect_entity_budgets() {
         use crate::pds::generator::Placement;
-        for room_seed in [4u64, 11, 46] {
+        // Seed 34 a farm's, with an orchard (#1791).
+        for room_seed in [4u64, 11, 46, 34] {
             let record = RoomRecord::default_for_seed(room_seed, "did:test:budget");
             let mut projected = 0u64;
             for placement in &record.placements {
-                let Placement::Scatter {
-                    generator_ref,
-                    count,
-                    ..
-                } = placement
-                else {
-                    continue;
+                // A seeded orchard's trees are charged as a stand's (#1791):
+                // one copy a cell.
+                let (generator_ref, count) = match placement {
+                    Placement::Scatter {
+                        generator_ref,
+                        count,
+                        ..
+                    } => (generator_ref, *count),
+                    Placement::Grid {
+                        generator_ref,
+                        counts,
+                        ..
+                    } if generator_ref == crate::seeded_defaults::room::fields::ORCHARD => {
+                        (generator_ref, counts.iter().product())
+                    }
+                    _ => continue,
                 };
                 // Ground cover shares the ceiling with the trees (#911), so it
                 // has to be counted here or the guard measures half the load.
@@ -2935,10 +3178,12 @@ mod tests {
                         .generators
                         .get(generator_ref)
                         .expect("scatter references a derived generator");
-                    projected += generator_entity_count(generator) * u64::from(*count);
+                    projected += generator_entity_count(generator) * u64::from(count);
                     continue;
                 }
-                if !generator_ref.starts_with("tree_scatter_") {
+                if !generator_ref.starts_with("tree_scatter_")
+                    && generator_ref != crate::seeded_defaults::room::fields::ORCHARD
+                {
                     continue;
                 }
                 let generator = record
@@ -2961,7 +3206,7 @@ mod tests {
                     // A stand of a species that is not a grammar (the
                     // fern, #1711) costs its node count, as the build
                     // charges it.
-                    projected += generator_entity_count(generator) * u64::from(*count);
+                    projected += generator_entity_count(generator) * u64::from(count);
                     continue;
                 };
                 let per_tree = crate::world_builder::lsystem::lsystem_entity_estimate(
@@ -2981,7 +3226,7 @@ mod tests {
                     per_tree <= TREE_ENTITY_BUDGET,
                     "seed {room_seed}: {generator_ref} expands to {per_tree} entities/tree"
                 );
-                projected += per_tree * u64::from(*count);
+                projected += per_tree * u64::from(count);
             }
             assert!(
                 projected <= ROOM_VEGETATION_ENTITY_BUDGET,

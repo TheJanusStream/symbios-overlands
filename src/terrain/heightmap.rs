@@ -308,6 +308,11 @@ pub(super) fn spawn_terrain_mesh(
                 grass_shape: Vec4::ZERO,
                 // No lakes until the splat pass reads the room's (#1727).
                 lakes: Vec4::ZERO,
+                // No fields until the record's are read (#1791).
+                fields: Vec4::ZERO,
+                field_frame: Default::default(),
+                field_size: Default::default(),
+                field_crops: Default::default(),
             },
             ..default()
         },

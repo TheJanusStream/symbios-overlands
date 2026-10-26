@@ -233,7 +233,7 @@ pub use instances::{GrammarParams, InstanceCopy, InstanceSolid, InstanceVariant}
 pub use inventory::{
     InventoryItemRecord, InventoryRecord, fetch_inventory_record, publish_inventory_record,
 };
-pub use paths::{SovereignPathsConfig, SovereignTrack};
+pub use paths::{SovereignField, SovereignPathsConfig, SovereignTrack};
 pub use prim::PropMeshType;
 pub use room::{
     DefaultLanding, Environment, MAX_ROAD_NETWORKS, RoomRecord, TimeOfDay, Weather, WeatherKind,

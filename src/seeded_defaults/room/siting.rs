@@ -21,6 +21,9 @@
 //! the compile-time slope nudge in the world builder (the safety net
 //! that catches proxy-vs-full divergence).
 
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
+
 use gen_jobs::HeightmapData;
 
 /// Cells this close to the water line (in metres of height) count as
@@ -638,6 +641,136 @@ impl TerrainProbe {
             })
             .min_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)).then(a.2.cmp(&b.2)))
             .map(|(.., at)| at)
+    }
+
+    /// The basins whose floors lie between `near` and `far` of `from`
+    /// (#1793), `over` metres or more over the water: each cell lower than
+    /// its four neighbours there, filled as [`Self::basin`] fills it, those
+    /// that hold water before `most` cells. In the order of their floors'
+    /// cells.
+    pub fn basins_near(
+        &self,
+        from: [f32; 2],
+        near: f32,
+        far: f32,
+        over: f32,
+        most: usize,
+    ) -> Vec<Basin> {
+        (0..self.heights.len() as u32)
+            .filter(|&c| {
+                let far_off = {
+                    let [x, z] = self.cell_world(c);
+                    ((x - from[0]) * (x - from[0]) + (z - from[1]) * (z - from[1])).sqrt()
+                };
+                (near..=far).contains(&far_off) && self.heights[c as usize] >= self.water_y + over
+            })
+            .filter_map(|c| self.basin(c as usize, most))
+            .collect()
+    }
+
+    /// The basin round cell `start` (#1793), where it lies lower than its
+    /// four neighbours (than those of a lower index, where they are level
+    /// with it): filled from it as water fills it - the lowest cell
+    /// round what it holds first, 4-connected as a lake's flood is
+    /// (`water::bodies::lake_cells`), ties to the lower index - until the
+    /// next is lower than the water already stands, where it runs over its
+    /// rim. `None` where it is no dip, or reaches the map's edge or `most`
+    /// cells first.
+    fn basin(&self, start: usize, most: usize) -> Option<Basin> {
+        let grid = self.grid;
+        let around = |i: usize| {
+            let (x, z) = (i % grid, i / grid);
+            (x > 0 && z > 0 && x + 1 < grid && z + 1 < grid)
+                .then(|| [i - 1, i + 1, i - grid, i + grid])
+        };
+        let floor = self.heights[start];
+        // A floor of equal cells is the lowest index's.
+        if around(start)?
+            .iter()
+            .any(|&n| self.heights[n] < floor || self.heights[n] == floor && n < start)
+        {
+            return None;
+        }
+        let mut seen = vec![false; self.heights.len()];
+        seen[start] = true;
+        let mut queue = BinaryHeap::new();
+        queue.push(Reverse((Height(floor), start)));
+        let mut level = floor;
+        let mut cells = Vec::new();
+        while let Some(Reverse((Height(height), i))) = queue.pop() {
+            if height < level {
+                return Some(Basin {
+                    floor_at: self.cell_world(start as u32),
+                    floor,
+                    spill: level,
+                    cells,
+                });
+            }
+            let next = around(i)?;
+            if cells.len() == most {
+                return None;
+            }
+            level = height;
+            cells.push((self.cell_world(i as u32), height));
+            for n in next {
+                if !seen[n] {
+                    seen[n] = true;
+                    queue.push(Reverse((Height(self.heights[n]), n)));
+                }
+            }
+        }
+        None
+    }
+}
+
+/// A basin of the probe's ground (#1793): the dip round a cell lower than
+/// its four neighbours, as [`TerrainProbe::basin`] fills it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Basin {
+    /// Its lowest cell's middle, world XZ, and that cell's height.
+    pub floor_at: [f32; 2],
+    pub floor: f32,
+    /// The height its water runs over its rim at.
+    pub spill: f32,
+    /// Its cells the water covers before it runs over, each `(middle,
+    /// height)`, in the order it reaches them: their heights never fall.
+    cells: Vec<([f32; 2], f32)>,
+}
+
+impl Basin {
+    /// The middles of its cells water standing at `level` covers, in the
+    /// order it reaches them: those lower than `level`, which come first.
+    pub fn under(&self, level: f32) -> impl Iterator<Item = [f32; 2]> + '_ {
+        self.cells
+            .iter()
+            .take_while(move |&&(_, height)| height < level)
+            .map(|&(at, _)| at)
+    }
+
+    /// The height of its `n`th cell from the floor, counting from nought:
+    /// the level under which water covers its first `n` cells - `None` past
+    /// its last.
+    pub fn level_for(&self, n: usize) -> Option<f32> {
+        self.cells.get(n).map(|&(_, height)| height)
+    }
+}
+
+/// A height ordered as `f32::total_cmp` orders it, for a heap: one order on
+/// every peer.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Height(f32);
+
+impl Eq for Height {}
+
+impl PartialOrd for Height {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Height {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.total_cmp(&other.0)
     }
 }
 

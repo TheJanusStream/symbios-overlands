@@ -12,6 +12,8 @@ use bevy::{
     shader::ShaderRef,
 };
 
+use crate::pds::limits::{MAX_FIELD_CROPS, MAX_FIELDS};
+
 const SPLAT_SHADER_PATH: &str = "shaders/splat.wgsl";
 
 /// GPU uniform block shared with `splat.wgsl`.
@@ -94,6 +96,20 @@ pub struct SplatUniforms {
     /// ground draws as before; `y` the span its green is read over
     /// ([`crate::config::terrain::splat::LAKE_SPAN`]).
     pub lakes: Vec4,
+    /// The world's fields (#1791): how many in `x`, to [`MAX_FIELDS`] - the
+    /// arrays below hold that many - and none in the zeroed `Default`, which
+    /// draws the ground as before them; the ground layer they are painted in
+    /// (the paths') in `y`, whose grain their crops keep.
+    pub fields: Vec4,
+    /// Each field's frame: its middle (world XZ) in `xy`, the unit direction
+    /// its strips run along in `zw`.
+    pub field_frame: [Vec4; MAX_FIELDS],
+    /// Each field's half length and half depth (m) in `xy`, its strips'
+    /// width in `z`, how many crops it turns through in `w`.
+    pub field_size: [Vec4; MAX_FIELDS],
+    /// Each field's crops in turn, linear RGB: field `i`'s `j`th at
+    /// `4 i + j`.
+    pub field_crops: [Vec4; MAX_FIELDS * MAX_FIELD_CROPS],
 }
 
 /// GPU uniform block for the avatar-interaction stains overlay
@@ -295,6 +311,10 @@ mod uniform_layout_tests {
             field("grass_flower", "vec4<f32>"),
             field("grass_shape", "vec4<f32>"),
             field("lakes", "vec4<f32>"),
+            field("fields", "vec4<f32>"),
+            field("field_frame", "array<vec4<f32>, 4>"),
+            field("field_size", "array<vec4<f32>, 4>"),
+            field("field_crops", "array<vec4<f32>, 16>"),
         ];
         let stains = [
             field("world_period", "f32"),
@@ -320,10 +340,18 @@ mod uniform_layout_tests {
                 "splat.wgsl's {name} drifted from the Rust block"
             );
             // Four-byte scalars first, sixteen of them in the splat block,
-            // then the vectors.
+            // then the vectors, then the arrays of them.
             let laid_out: u64 = expected
                 .iter()
-                .map(|(_, ty)| if ty.starts_with("vec4") { 16 } else { 4 })
+                .map(|(_, ty)| {
+                    if let Some(rest) = ty.strip_prefix("array<vec4<f32>, ") {
+                        16 * rest.trim_end_matches('>').parse::<u64>().expect("a length")
+                    } else if ty.starts_with("vec4") {
+                        16
+                    } else {
+                        4
+                    }
+                })
                 .sum();
             assert_eq!(size, laid_out, "{name}");
         }
@@ -364,6 +392,10 @@ mod uniform_layout_tests {
             grass_flower: v(37.0),
             grass_shape: v(41.0),
             lakes: v(45.0),
+            fields: v(49.0),
+            field_frame: std::array::from_fn(|k| v(53.0 + 4.0 * k as f32)),
+            field_size: std::array::from_fn(|k| v(69.0 + 4.0 * k as f32)),
+            field_crops: std::array::from_fn(|k| v(85.0 + 4.0 * k as f32)),
         };
         let mut buffer = UniformBuffer::new(Vec::<u8>::new());
         buffer.write(&block).expect("the block writes");
@@ -376,7 +408,13 @@ mod uniform_layout_tests {
         let mut place = 0u32;
         let mut expected: Vec<u32> = Vec::new();
         for (_, ty) in wgsl_fields(&src, "SplatUniforms") {
-            let words = if ty.starts_with("vec4") { 4 } else { 1 };
+            let words = if let Some(rest) = ty.strip_prefix("array<vec4<f32>, ") {
+                4 * rest.trim_end_matches('>').parse::<u32>().expect("a length")
+            } else if ty.starts_with("vec4") {
+                4
+            } else {
+                1
+            };
             for _ in 0..words {
                 place += 1;
                 expected.push(if ty == "u32" {

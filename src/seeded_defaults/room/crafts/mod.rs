@@ -61,7 +61,7 @@ const NEAREST: f32 = 30.0;
 const FARTHEST: f32 = 170.0;
 
 /// How far a place keeps off the ground of what stands round it (m).
-const MARGIN: f32 = 6.0;
+pub(super) const MARGIN: f32 = 6.0;
 
 /// How far off the view's heading a big place - an airstrip, a track -
 /// keeps, as the cosine of that angle (about 35 degrees): beside the view,
@@ -124,7 +124,7 @@ impl Siting<'_> {
     /// probe's ground, each with its distance from the landing: nearest
     /// first, and in rows among equals, so the first that takes a place is
     /// every peer's.
-    fn lattice(&self, stride: f32, farthest: f32, edge: f32) -> Vec<([f32; 2], f32)> {
+    pub(super) fn lattice(&self, stride: f32, farthest: f32, edge: f32) -> Vec<([f32; 2], f32)> {
         let landing = self.view.landing;
         let step = self.probe.cell_size() * stride;
         let steps = (farthest / step).ceil() as i32;
@@ -148,7 +148,7 @@ impl Siting<'_> {
 
     /// How far `at`'s bearing from the landing stands off the view's
     /// heading, as the cosine of the angle: 1 straight ahead.
-    fn off_the_view(&self, at: [f32; 2]) -> f32 {
+    pub(super) fn off_the_view(&self, at: [f32; 2]) -> f32 {
         let landing = self.view.landing;
         let (dx, dz) = (at[0] - landing[0], at[1] - landing[1]);
         let far = (dx * dx + dz * dz).sqrt();
@@ -160,7 +160,7 @@ impl Siting<'_> {
 
     /// Whether the probe reads `at` as dry ground with [`FREEBOARD`] over
     /// the water.
-    fn dry(&self, at: [f32; 2]) -> bool {
+    pub(super) fn dry(&self, at: [f32; 2]) -> bool {
         self.probe.height_between(at) >= self.probe.water_y() + FREEBOARD
     }
 }
@@ -187,8 +187,9 @@ pub struct CraftPlaces {
 }
 
 /// Site a world's places (see the module docs): `served` the crafts its
-/// settlement already stands a place for.
-pub fn site(mut siting: Siting, served: &[Craft]) -> CraftPlaces {
+/// settlement already stands a place for. What `siting` keeps grows by
+/// each, for what is sited after them (`super::fields`).
+pub fn site(siting: &mut Siting, served: &[Craft]) -> CraftPlaces {
     let mut places = CraftPlaces::default();
     // The order each is sited in is the order each keeps clear of the
     // others: the jetty first, the water's edge being scarce.
@@ -198,19 +199,19 @@ pub fn site(mut siting: Siting, served: &[Craft]) -> CraftPlaces {
         Some(place)
     }
     let wanted = |craft| !served.contains(&craft);
-    places.jetty = take(&mut siting, wanted(Craft::Boat));
+    places.jetty = take(siting, wanted(Craft::Boat));
     places.pad = if wanted(Craft::Helicopter) {
-        pad::site(&siting, Craft::Helicopter).inspect(|pad| siting.kept.0.extend(pad.ground()))
+        pad::site(siting, Craft::Helicopter).inspect(|pad| siting.kept.0.extend(pad.ground()))
     } else {
         None
     };
     places.mast = if wanted(Craft::Airship) {
-        pad::site(&siting, Craft::Airship).inspect(|mast| siting.kept.0.extend(mast.ground()))
+        pad::site(siting, Craft::Airship).inspect(|mast| siting.kept.0.extend(mast.ground()))
     } else {
         None
     };
-    places.strip = take(&mut siting, wanted(Craft::Airplane));
-    places.track = take(&mut siting, wanted(Craft::Car));
+    places.strip = take(siting, wanted(Craft::Airplane));
+    places.track = take(siting, wanted(Craft::Car));
     places
 }
 
@@ -403,7 +404,7 @@ mod tests {
     fn a_coast_takes_a_place_for_every_craft() {
         let probe = coast();
         let view = view();
-        let places = site(siting(&probe, &view), &[]);
+        let places = site(&mut siting(&probe, &view), &[]);
         assert_eq!(places.count(), 5, "{places:?}");
         let jetty = places.jetty.as_ref().expect("a jetty");
         assert!(jetty.out[0] < -0.95, "out to sea, west: {:?}", jetty.out);
@@ -441,16 +442,19 @@ mod tests {
     fn a_served_craft_gets_no_second_and_a_theme_stands_its_own() {
         let probe = coast();
         let view = view();
-        let places = site(siting(&probe, &view), &[Craft::Helicopter, Craft::Boat]);
+        let places = site(
+            &mut siting(&probe, &view),
+            &[Craft::Helicopter, Craft::Boat],
+        );
         assert!(places.pad.is_none() && places.jetty.is_none());
         assert!(places.mast.is_some());
         let mut steampunk = siting(&probe, &view);
         steampunk.theme = ThemeArchetype::Steampunk;
-        let places = site(steampunk, &[]);
+        let places = site(&mut steampunk, &[]);
         assert_eq!(places.mast.map(|mast| mast.slug), Some("airship_dock"));
         let mut outpost = siting(&probe, &view);
         outpost.theme = ThemeArchetype::SpaceOutpost;
-        let places = site(outpost, &[]);
+        let places = site(&mut outpost, &[]);
         assert_eq!(places.pad.map(|pad| pad.slug), Some("landing_pad"));
     }
 
@@ -463,7 +467,7 @@ mod tests {
     fn the_places_wire_their_generators_placements_and_tracks() {
         let probe = coast();
         let view = view();
-        let places = site(siting(&probe, &view), &[]);
+        let places = site(&mut siting(&probe, &view), &[]);
         let wiring = places.wire("did:plc:wiring", 0.0, 7);
         let names: Vec<&str> = wiring
             .generators

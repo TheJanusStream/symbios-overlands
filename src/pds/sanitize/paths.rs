@@ -1,12 +1,13 @@
-//! Sanitiser for [`SovereignPathsConfig`] (#1779): a world's paths and its
-//! tracks (#1782) kept to what the ground can paint and a record can carry,
-//! and rounded onto the wire's grid as a peer reads them back.
+//! Sanitiser for [`SovereignPathsConfig`] (#1779): a world's paths, its
+//! tracks (#1782) and its fields (#1791) kept to what the ground can paint
+//! and a record can carry, and rounded onto the wire's grid as a peer reads
+//! them back.
 
 use super::Sanitize;
 use super::common::clamp_finite;
 use super::limits;
-use crate::pds::paths::{SovereignPathsConfig, SovereignTrack};
-use crate::pds::types::{Fp, Fp2};
+use crate::pds::paths::{SovereignField, SovereignPathsConfig, SovereignTrack};
+use crate::pds::types::{Fp, Fp2, Fp3};
 
 impl Sanitize for SovereignPathsConfig {
     fn sanitize(&mut self) {
@@ -59,6 +60,58 @@ impl SovereignPathsConfig {
             keep_line(&mut track.line, reach, &mut budget);
         }
         self.tracks.retain(|track| track.line.len() >= 2);
+        // The fields (#1791): as many as the ground's shader holds, each kept
+        // on the terrain, its sides, its strips and its crops within their
+        // bounds, its bearing folded into a half turn.
+        self.fields.truncate(limits::MAX_FIELDS);
+        for field in &mut self.fields {
+            keep_field(field, reach);
+        }
+    }
+}
+
+/// `field` as the ground draws it: its middle on the terrain, every number
+/// within its bounds on the wire's grid, and its crops one to
+/// [`MAX_FIELD_CROPS`](limits::MAX_FIELD_CROPS) colours - the default's
+/// where it has none.
+fn keep_field(field: &mut SovereignField, reach: f32) {
+    let defaults = SovereignField::default();
+    field.center = Fp2(if field.center.0.iter().all(|v| v.is_finite()) {
+        field.center.0.map(|v| v.clamp(-reach, reach))
+    } else {
+        [0.0, 0.0]
+    })
+    .on_wire();
+    for (side, default) in field.size.0.iter_mut().zip(defaults.size.0) {
+        *side = clamp_finite(
+            *side,
+            limits::MIN_FIELD_SIDE,
+            limits::MAX_FIELD_SIDE,
+            default,
+        );
+    }
+    field.size = field.size.on_wire();
+    // Folded after its rounding, so that a bearing a hair short of a half
+    // turn - rounded up to it - folds to nought, as a second pass would.
+    let bearing = if field.bearing.0.is_finite() {
+        Fp(field.bearing.0.rem_euclid(180.0)).on_wire().0
+    } else {
+        0.0
+    };
+    field.bearing = Fp(if bearing >= 180.0 { 0.0 } else { bearing });
+    field.strip = Fp(clamp_finite(
+        field.strip.0,
+        limits::MIN_FIELD_STRIP,
+        limits::MAX_FIELD_STRIP,
+        defaults.strip.0,
+    ))
+    .on_wire();
+    field.crops.truncate(limits::MAX_FIELD_CROPS);
+    for crop in &mut field.crops {
+        *crop = Fp3(crop.0.map(|c| clamp_finite(c, 0.0, 1.0, 0.0))).on_wire();
+    }
+    if field.crops.is_empty() {
+        field.crops = defaults.crops;
     }
 }
 
@@ -228,5 +281,64 @@ mod tests {
         let json = serde_json::to_string(&paths).expect("writes");
         let back: SovereignPathsConfig = serde_json::from_str(&json).expect("reads");
         assert_eq!(back, paths, "sanitised tracks are what a peer reads");
+    }
+
+    /// #1791: hostile fields are kept drawable - no more than the ground's
+    /// shader holds, each middle on the terrain (one that is no number at
+    /// the world's middle), sides and strips within bounds, the bearing
+    /// folded into a half turn after its rounding, crops one to four, each
+    /// a colour - all on the wire's grid, and a second pass moves nothing.
+    #[test]
+    fn fields_are_kept_drawable() {
+        let field = |center: [f32; 2], bearing: f32| SovereignField {
+            center: Fp2(center),
+            size: Fp2([1.0, 1.0e6]),
+            bearing: Fp(bearing),
+            strip: Fp(f32::NAN),
+            crops: vec![Fp3([2.0, -1.0, f32::NAN]); 9],
+        };
+        let mut paths = SovereignPathsConfig {
+            fields: vec![
+                field([1.0e9, 0.123_456], 190.0),
+                field([f32::NAN, 5.0], -30.0),
+                field([0.0, 0.0], 179.999_99),
+                field([0.0, 0.0], f32::INFINITY),
+                field([0.0, 0.0], 0.0),
+            ],
+            ..Default::default()
+        };
+        paths.fields[4].crops.clear();
+        paths.sanitize_within(500.0);
+        assert_eq!(paths.fields.len(), limits::MAX_FIELDS);
+        let first = &paths.fields[0];
+        assert_eq!(first.center, Fp2([500.0, 0.1235]));
+        assert_eq!(
+            first.size,
+            Fp2([limits::MIN_FIELD_SIDE, limits::MAX_FIELD_SIDE])
+        );
+        assert_eq!(first.strip, SovereignField::default().strip);
+        assert_eq!(
+            first.crops,
+            vec![Fp3([1.0, 0.0, 0.0]); limits::MAX_FIELD_CROPS]
+        );
+        let bearings: Vec<f32> = paths.fields.iter().map(|f| f.bearing.0).collect();
+        assert_eq!(bearings, vec![10.0, 150.0, 0.0, 0.0]);
+        assert_eq!(paths.fields[1].center, Fp2([0.0, 0.0]));
+        let mut again = paths.clone();
+        again.sanitize_within(500.0);
+        assert_eq!(again, paths, "a second pass moves nothing");
+        let json = serde_json::to_string(&paths).expect("writes");
+        let back: SovereignPathsConfig = serde_json::from_str(&json).expect("reads");
+        assert_eq!(back, paths, "sanitised fields are what a peer reads");
+        // A field's crops left empty take the default's.
+        let mut bare = SovereignPathsConfig {
+            fields: vec![SovereignField {
+                crops: Vec::new(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        bare.sanitize_within(500.0);
+        assert_eq!(bare.fields[0].crops, SovereignField::default().crops);
     }
 }

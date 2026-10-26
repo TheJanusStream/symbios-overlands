@@ -55,6 +55,7 @@ mod lifecycle;
 mod lots;
 mod paths;
 pub(crate) use paths::drawn as track_drawn;
+pub(crate) use paths::fields as path_fields;
 pub(crate) use paths::ways as path_ways;
 pub mod referenced;
 mod roads;
@@ -514,6 +515,7 @@ pub(crate) fn register_headless_terrain(app: &mut App) {
                 ),
                 splat::collect_texture_results,
                 splat::apply_splat_textures,
+                splat::sync_fields,
                 mark_splat_applied,
             )
                 .chain(),
@@ -714,6 +716,8 @@ impl Plugin for TerrainPlugin {
                     // Cheap scalar re-sync so an edited water level moves
                     // the damp-ground margin with it (#913).
                     splat::sync_moisture_water_level,
+                    // The fields' strips, as the record has them (#1791).
+                    splat::sync_fields,
                 )
                     .chain()
                     // Widened for the attract backdrop, like the group

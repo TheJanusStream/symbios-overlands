@@ -173,13 +173,21 @@ crate::pds::serde_util::impl_default_eliding_serialize!(SovereignTerrainConfig {
 impl SovereignTerrainConfig {
     /// This terrain as its land is built from it (#1700): all of it but its
     /// grass, which only the grass's and the ground's shaders draw, from
-    /// the live record. The key for everything a grass edit must not
-    /// rebuild - the heightmap (`terrain::terrain_fingerprint`), and the
-    /// compile units laid on the land or riding on its anchor - so an owner
-    /// dragging a grass slider recolours the grass and nothing else.
+    /// the live record - nor its fields' crops and strips (#1791), which
+    /// only the ground's shader draws. The key for everything a grass edit
+    /// must not rebuild - the heightmap (`terrain::terrain_fingerprint`),
+    /// and the compile units laid on the land or riding on its anchor - so
+    /// an owner dragging a grass slider recolours the grass and nothing
+    /// else, and one recolouring a field its strips.
     pub fn land(&self) -> SovereignTerrainConfig {
+        let mut paths = self.paths.clone();
+        for field in &mut paths.fields {
+            field.crops.clear();
+            field.strip = Fp(0.0);
+        }
         SovereignTerrainConfig {
             grass: SovereignGrassConfig::default(),
+            paths,
             ..self.clone()
         }
     }

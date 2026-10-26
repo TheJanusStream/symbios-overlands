@@ -255,6 +255,7 @@ pub(super) fn draw_detail_panel(
         // section above, as the road note is.
         if let Some(layer) = water_layer {
             let theme = crate::ui::theme::current(ui.ctx());
+            let brimmed;
             let (text, color) = match layer {
                 WaterLayer::Sea => (
                     "The world's sea: the lowest water on its terrain floods all \
@@ -277,6 +278,23 @@ pub(super) fn draw_detail_panel(
                     "No lake: above the world's sea, this water fills the dip round \
                      its position - but the ground there is at or above its height, \
                      so it draws nothing. Move it over lower ground, or raise it.",
+                    theme.status.warn,
+                ),
+                WaterLayer::Brimmed { level } => {
+                    brimmed = format!(
+                        "A lake at its brim: above the world's sea, it fills the dip \
+                         round its position - but at its height its water would run \
+                         past its own rectangle onto lower ground, so it stands at \
+                         {level:.1} m, as high as its ground holds it there. Widen it \
+                         with its scale to let it rise."
+                    );
+                    (brimmed.as_str(), theme.text_weak)
+                }
+                WaterLayer::Spills => (
+                    "No lake: above the world's sea, this water fills the dip round \
+                     its position - but its own rectangle holds it at no height over \
+                     both the ground there and the sea, so it draws nothing. Move it, \
+                     or widen it with its scale.",
                     theme.status.warn,
                 ),
             };

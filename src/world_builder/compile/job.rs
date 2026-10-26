@@ -309,8 +309,8 @@ pub(super) struct FingerprintPass {
     water_level: Option<serde_json::Value>,
     terrain: Option<serde_json::Value>,
     /// What every scatter keeps off (#1776): each seeded structure's place
-    /// and ground radius, and the world's landing with its facing -
-    /// `Value::Null` for a world with neither.
+    /// and ground radius, the world's landing with its facing, its paths
+    /// and its orchard's trees - `Value::Null` for a world with none.
     kept_off: Option<serde_json::Value>,
 }
 
@@ -351,22 +351,28 @@ impl FingerprintPass {
                 _ => None,
             })
             .collect();
+        // The land a scatter samples, not its grass (#1700) nor its fields'
+        // colours (#1791).
+        let land = crate::pds::find_terrain_config(record).map(|terrain| terrain.land());
         // The paths every scatter keeps off (#1779): their lines and width,
-        // and the tracks (#1782), each at its own.
-        let paths = crate::pds::find_terrain_config(record)
-            .map(|terrain| &terrain.paths)
+        // the tracks (#1782), each at its own, and the fields' ground (#1791).
+        let paths = land
+            .as_ref()
+            .map(|land| &land.paths)
             .filter(|paths| !paths.is_empty())
-            .map(|paths| (&paths.lines, paths.width, &paths.tracks));
+            .map(|paths| (&paths.lines, paths.width, &paths.tracks, &paths.fields));
+        // The ground a seeded orchard's trees stand on (#1791).
+        let orchards: Vec<[f32; 6]> = super::scatter::orchard_grounds(record)
+            .into_iter()
+            .map(|(middle, along, [hl, hd])| [middle.x, middle.y, along.x, along.y, hl, hd])
+            .collect();
         Self {
             water_level: Some(room_water.key()),
-            // The land a scatter samples, not its grass (#1700).
-            terrain: serde_json::to_value(
-                crate::pds::find_terrain_config(record).map(|terrain| terrain.land()),
-            )
-            .ok(),
+            terrain: serde_json::to_value(&land).ok(),
             kept_off: if structures.is_empty()
                 && record.default_landing.is_none()
                 && paths.is_none()
+                && orchards.is_empty()
             {
                 Some(serde_json::Value::Null)
             } else {
@@ -381,7 +387,7 @@ impl FingerprintPass {
                         f32::from(u8::from(landing.avoid_water)),
                     ]
                 });
-                serde_json::to_value((&structures, landing, paths)).ok()
+                serde_json::to_value((&structures, landing, paths, &orchards)).ok()
             },
         }
     }
@@ -642,6 +648,63 @@ mod tests {
             }
         }
         assert_ne!(fingerprints(&record)[scatter], before);
+    }
+
+    /// #1791: every scatter is rebuilt when a field's ground or a seeded
+    /// orchard moves, which it keeps off - and no unit, nor the terrain's
+    /// heightmap, when a field is recoloured or its strips widened, which
+    /// only the ground's shader draws.
+    #[test]
+    fn a_field_or_an_orchard_edit_reaches_the_scatters_and_a_recolour_nothing() {
+        use crate::pds::{Fp, Fp3, GeneratorKind, Placement};
+        // A farm on its own ground, with two fields and an orchard.
+        let mut record = crate::seeded_defaults::room::build::build_room_with_source(
+            34,
+            "did:plc:fp_test",
+            None,
+        );
+        let scatter = record
+            .placements
+            .iter()
+            .position(|p| matches!(p, Placement::Scatter { .. }))
+            .expect("a seeded scatter");
+        fn terrain(record: &mut RoomRecord) -> &mut crate::pds::SovereignTerrainConfig {
+            record
+                .generators
+                .values_mut()
+                .find_map(|generator| match &mut generator.kind {
+                    GeneratorKind::Terrain(terrain) => Some(terrain),
+                    _ => None,
+                })
+                .expect("the seeded world has a terrain")
+        }
+        let heightmap = |record: &mut RoomRecord| {
+            let cfg = terrain(record).clone();
+            crate::terrain::terrain_fingerprint(&cfg, record)
+        };
+        assert!(!terrain(&mut record).paths.fields.is_empty(), "a field");
+        let before = fingerprints(&record);
+        let ground = heightmap(&mut record);
+        let field = &mut terrain(&mut record).paths.fields[0];
+        field.crops[0] = Fp3([0.9, 0.1, 0.1]);
+        field.strip = Fp(field.strip.0 + 2.0);
+        assert_eq!(fingerprints(&record), before, "a recolour");
+        assert_eq!(heightmap(&mut record), ground, "a recolour");
+        terrain(&mut record).paths.fields[0].center.0[0] += 5.0;
+        assert_ne!(
+            fingerprints(&record)[scatter],
+            before[scatter],
+            "a field moved"
+        );
+        let moved = fingerprints(&record)[scatter].clone();
+        let Some(Placement::Grid { counts, .. }) = record.placements.iter_mut().find(|p| {
+            matches!(p, Placement::Grid { generator_ref, .. }
+                if generator_ref == super::super::scatter::ORCHARD)
+        }) else {
+            panic!("a seeded orchard");
+        };
+        counts[0] -= 1;
+        assert_ne!(fingerprints(&record)[scatter], moved, "an orchard edited");
     }
 
     #[test]

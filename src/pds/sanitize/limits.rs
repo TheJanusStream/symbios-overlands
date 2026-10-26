@@ -41,6 +41,16 @@ pub const MAX_TRACK_POINTS: usize = 256;
 pub const MAX_TRACK_LENGTH: f32 = 2_000.0;
 pub const MIN_TRACK_WIDTH: f32 = 2.0;
 pub const MAX_TRACK_WIDTH: f32 = 30.0;
+/// A world's fields (#1791): at most four - the ground shader's uniform
+/// block holds four - each side between the least and the most (m), its
+/// strips between the narrowest and the widest, and one to four crop
+/// colours.
+pub const MAX_FIELDS: usize = 4;
+pub const MIN_FIELD_SIDE: f32 = 4.0;
+pub const MAX_FIELD_SIDE: f32 = 250.0;
+pub const MIN_FIELD_STRIP: f32 = 1.0;
+pub const MAX_FIELD_STRIP: f32 = 30.0;
+pub const MAX_FIELD_CROPS: usize = 4;
 /// The most a world's grass may sway (#1700), as a share of how far the
 /// wind leans it unset: twice as far.
 pub const MAX_GRASS_SWAY: f32 = 2.0;

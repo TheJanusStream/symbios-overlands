@@ -603,9 +603,100 @@ pub(crate) fn structure_exclusions(
                 }
             }
         }
+        // Its fields (#1791) the ground draws.
+        for field in crate::terrain::path_fields(paths, on) {
+            keep_off_rectangle(
+                &mut keep,
+                bevy::math::Vec2::from_array(field.center.0),
+                bevy::math::Vec2::from_array(field.along()),
+                [field.size.0[0] * 0.5, field.size.0[1] * 0.5],
+            );
+        }
+    }
+    // A seeded orchard's trees (#1791) and the ground between them.
+    for (middle, along, half) in orchard_grounds(record) {
+        keep_off_rectangle(&mut keep, middle, along, half);
     }
     keep
 }
+
+/// Discs keeping the scatters off the rectangle round `middle` (#1791) -
+/// its length along the unit direction `along`, `half` its half length and
+/// half depth - pushed onto `keep`: one at the middle of each cell of a
+/// grid over it, cells no wider than [`RECT_KEEP`] (wider on a rectangle so
+/// big that more than [`RECT_CELLS`] a side would be needed), each reaching
+/// its cell's corners and [`PATH_KEEP`] past. Every point of the rectangle
+/// is inside one, and none reaches past its edge by more than about a fifth
+/// of a cell and that.
+fn keep_off_rectangle(
+    keep: &mut Vec<(f32, f32, f32)>,
+    middle: bevy::math::Vec2,
+    along: bevy::math::Vec2,
+    half: [f32; 2],
+) {
+    let across = bevy::math::Vec2::new(-along.y, along.x);
+    let size = half.map(|half| 2.0 * half.max(0.0));
+    let cells = size.map(|side| ((side / RECT_KEEP).ceil() as usize).clamp(1, RECT_CELLS));
+    let cell = [size[0] / cells[0] as f32, size[1] / cells[1] as f32];
+    let radius = 0.5 * (cell[0] * cell[0] + cell[1] * cell[1]).sqrt() + PATH_KEEP;
+    for j in 0..cells[1] {
+        for i in 0..cells[0] {
+            let u = cell[0] * (i as f32 + 0.5) - size[0] * 0.5;
+            let v = cell[1] * (j as f32 + 0.5) - size[1] * 0.5;
+            let at = middle + along * u + across * v;
+            keep.push((at.x, at.y, radius * radius));
+        }
+    }
+}
+
+/// The ground of each seeded orchard (#1791, [`ORCHARD`]), the first
+/// [`MAX_KEPT_ORCHARDS`]: the rectangle its grid stands its trees in, as
+/// the compile stands a grid's cells (`executor::step_unit`), reaching
+/// [`ORCHARD_CROWN`] past its outer trees - its middle, the unit direction
+/// its rows run along (the grid's X, turned) and its half length and half
+/// depth.
+pub(crate) fn orchard_grounds(
+    record: &crate::pds::RoomRecord,
+) -> Vec<(bevy::math::Vec2, bevy::math::Vec2, [f32; 2])> {
+    record
+        .placements
+        .iter()
+        .filter_map(|placement| match placement {
+            crate::pds::Placement::Grid {
+                generator_ref,
+                transform,
+                counts: [cx, _, cz],
+                gaps,
+                ..
+            } if generator_ref == ORCHARD => {
+                let anchor = bevy::prelude::Transform::from(transform);
+                let row = anchor.rotation * bevy::math::Vec3::X;
+                let along = bevy::math::Vec2::new(row.x, row.z)
+                    .try_normalize()
+                    .unwrap_or(bevy::math::Vec2::X);
+                let [gx, _, gz] = gaps.0;
+                let half = [
+                    cx.saturating_sub(1) as f32 * gx * 0.5 + ORCHARD_CROWN,
+                    cz.saturating_sub(1) as f32 * gz * 0.5 + ORCHARD_CROWN,
+                ];
+                let middle = bevy::math::Vec2::new(anchor.translation.x, anchor.translation.z);
+                Some((middle, along, half))
+            }
+            _ => None,
+        })
+        .take(MAX_KEPT_ORCHARDS)
+        .collect()
+}
+
+/// How wide a cell of the discs keeping the scatters off a field or an
+/// orchard is at the most (m, #1791), and how many cells a side at the most:
+/// a field 250 m long is kept off by cells 16 m wide.
+const RECT_KEEP: f32 = 6.0;
+const RECT_CELLS: usize = 16;
+
+/// How many seeded orchards the scatters keep off at the most (#1791): a
+/// seeded world stands one.
+const MAX_KEPT_ORCHARDS: usize = 4;
 
 /// How far past a path's edge a scatter keeps off it (m, #1779): a tree's
 /// trunk or a boulder stands beside a path, not on its edge.
@@ -632,6 +723,14 @@ pub(crate) const TYRES: &str = "craft_tyres";
 /// ground the compile draws takes them (`pad::place_stands`).
 pub(crate) const PAD: &str = "craft_pad";
 pub(crate) const MAST: &str = "craft_mast";
+
+/// The generator a seeded world's orchard is placed by (#1791): a grid of
+/// its fruit tree, whose ground the scatters keep off ([`orchard_grounds`]).
+pub(crate) const ORCHARD: &str = "seeded_orchard";
+
+/// How far an orchard's trees' crowns reach past them (m, #1791): an
+/// apple's is about 7 m across.
+pub(crate) const ORCHARD_CROWN: f32 = 4.0;
 
 /// Every generator whose ground the scatters keep off by its name, snapped
 /// or not: the feature and the crafts' places above.
@@ -1023,6 +1122,131 @@ mod tests {
         };
         assert!(kept(FEATURE));
         assert!(!kept("g"), "an editor's own placement");
+    }
+
+    /// #1791: a field's or an orchard's rectangle is kept off whole by its
+    /// discs, which reach past its edge by no more than their cells allow,
+    /// and one as big as a record allows costs no more than its cap of them.
+    #[test]
+    fn a_rectangle_is_kept_off_whole_and_no_further() {
+        use bevy::math::Vec2;
+        let middle = Vec2::new(30.0, -40.0);
+        for (half, along) in [
+            ([20.0, 15.0], Vec2::X),
+            ([125.0, 2.0], Vec2::new(0.6, -0.8)),
+            ([3.0, 3.0], Vec2::new(-0.8, -0.6)),
+            ([125.0, 125.0], Vec2::new(0.0, 1.0)),
+        ] {
+            let mut keep = Vec::new();
+            keep_off_rectangle(&mut keep, middle, along, half);
+            assert!(keep.len() <= RECT_CELLS * RECT_CELLS, "{}", keep.len());
+            let across = Vec2::new(-along.y, along.x);
+            let at = |u: f32, v: f32| middle + along * u + across * v;
+            for i in 0..=40 {
+                for j in 0..=40 {
+                    let p = at(
+                        half[0] * (i as f32 / 20.0 - 1.0),
+                        half[1] * (j as f32 / 20.0 - 1.0),
+                    );
+                    assert!(inside_any(&keep, p.x, p.y), "{half:?}: {p}");
+                }
+            }
+            // The cells the discs stand in, and the most any reaches past
+            // the edge: its radius less half its narrower side.
+            let cell = half.map(|half| {
+                let cells = ((2.0 * half / RECT_KEEP).ceil() as usize).clamp(1, RECT_CELLS);
+                2.0 * half / cells as f32
+            });
+            let reach = 0.5 * cell[0].hypot(cell[1]) + PATH_KEEP - 0.5 * cell[0].min(cell[1]);
+            let out = reach + 0.05;
+            for k in 0..=40 {
+                let t = k as f32 / 20.0 - 1.0;
+                for p in [
+                    at(half[0] * t, half[1] + out),
+                    at(half[0] * t, -half[1] - out),
+                    at(half[0] + out, half[1] * t),
+                    at(-half[0] - out, half[1] * t),
+                ] {
+                    assert!(!inside_any(&keep, p.x, p.y), "{half:?}: {p} past {out}");
+                }
+            }
+        }
+    }
+
+    /// #1791: a seeded orchard keeps the scatters off its trees and the
+    /// ground between them, wherever its grid stands them; an editor's own
+    /// grid keeps nothing.
+    #[test]
+    fn a_seeded_orchard_keeps_its_ground() {
+        let orchard = crate::seeded_defaults::room::fields::Orchard {
+            middle: [30.0, -40.0],
+            along: [0.6, -0.8],
+            slug: "lsys_apple",
+        };
+        let kept = |placement: crate::pds::Placement| {
+            let mut record = crate::pds::RoomRecord {
+                placements: vec![placement],
+                default_landing: None,
+                ..Default::default()
+            };
+            for generator in record.generators.values_mut() {
+                if let crate::pds::GeneratorKind::Terrain(terrain) = &mut generator.kind {
+                    terrain.paths = Default::default();
+                }
+            }
+            structure_exclusions(&record, None, &crate::water::bodies::RoomWater::default())
+        };
+        let placement = orchard.placement();
+        let keep = kept(placement.clone());
+        let crate::pds::Placement::Grid {
+            transform,
+            counts: [cx, _, cz],
+            gaps,
+            ..
+        } = &placement
+        else {
+            panic!("a grid");
+        };
+        let anchor = bevy::prelude::Transform::from(transform);
+        let [gx, _, gz] = gaps.0;
+        // Every tree as the compile stands it, and every point halfway
+        // between it and its neighbours.
+        for ix in 0..*cx {
+            for iz in 0..*cz {
+                for (dx, dz) in [(0.0, 0.0), (0.5, 0.0), (0.0, 0.5), (0.5, 0.5)] {
+                    if dx > 0.0 && ix + 1 == *cx || dz > 0.0 && iz + 1 == *cz {
+                        continue;
+                    }
+                    let local = bevy::math::Vec3::new(
+                        -((*cx as f32 - 1.0) * gx) / 2.0 + (ix as f32 + dx) * gx,
+                        0.0,
+                        -((*cz as f32 - 1.0) * gz) / 2.0 + (iz as f32 + dz) * gz,
+                    );
+                    let at = anchor.transform_point(local);
+                    assert!(inside_any(&keep, at.x, at.z), "{ix} {iz}: {at}");
+                }
+            }
+        }
+        let crate::pds::Placement::Grid {
+            transform,
+            counts,
+            gaps,
+            snap_to_terrain,
+            random_yaw,
+            ..
+        } = placement
+        else {
+            panic!("a grid");
+        };
+        let own = kept(crate::pds::Placement::Grid {
+            generator_ref: "g".into(),
+            transform,
+            counts,
+            gaps,
+            snap_to_terrain,
+            random_yaw,
+        });
+        assert!(own.is_empty(), "an editor's own grid");
     }
 
     /// #1777: a seeded viewpoint's view down to its landmark is kept clear -

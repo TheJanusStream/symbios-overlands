@@ -235,10 +235,12 @@ fn spawn_node(
                 let lowest = crate::water::bodies::sea_level(
                     &crate::water::bodies::terrain_layers(ctx.record),
                 );
-                if lowest.is_some_and(|lowest| layer.translation.y > lowest) {
+                if let Some(lowest) = lowest.filter(|&lowest| layer.translation.y > lowest) {
                     Some(
                         ctx.heightmap
-                            .and_then(|heightmap| crate::water::bodies::lake(&heightmap.0, &layer))
+                            .and_then(|heightmap| {
+                                crate::water::bodies::lake_over(&heightmap.0, &layer, lowest)
+                            })
                             .into_iter()
                             .collect::<Vec<_>>(),
                     )

@@ -15,6 +15,7 @@ use crate::config::terrain as tcfg;
 use crate::config::terrain::stains as scfg;
 use crate::interaction::{StainsImage, TerrainSurfaceQuery};
 use crate::offload::{GenJob, GenResult};
+use crate::pds::limits::{MAX_FIELD_CROPS, MAX_FIELDS};
 use crate::pds::{SovereignTerrainConfig, SovereignTextureConfig};
 use crate::splat::SplatTerrainMaterial;
 use crate::state::LiveRoomRecord;
@@ -623,6 +624,102 @@ pub(super) fn sync_moisture_water_level(
         mat.extension.uniforms.water_y = water_y;
         mat.extension.uniforms.moisture_strength = strength;
         mat.extension.uniforms.lakes = lakes;
+    }
+}
+
+/// The splat uniforms' fields (#1791): how many in `x` of the first and
+/// the ground layer they are painted in in `y`, then each one's frame, its
+/// sizes and its crops in linear RGB.
+type FieldsUniform = (
+    Vec4,
+    [Vec4; MAX_FIELDS],
+    [Vec4; MAX_FIELDS],
+    [Vec4; MAX_FIELDS * MAX_FIELD_CROPS],
+);
+
+/// The splat uniforms' fields for a world's `paths` - on `ground`, those it
+/// draws (`paths::field_drawn`) - as many as the block holds: none where it
+/// has none, which the ground draws as before them.
+fn fields_uniform(
+    paths: Option<&crate::pds::SovereignPathsConfig>,
+    ground: Option<super::paths::Ground<'_>>,
+) -> FieldsUniform {
+    let mut frame = [Vec4::ZERO; MAX_FIELDS];
+    let mut size = [Vec4::ZERO; MAX_FIELDS];
+    let mut crops = [Vec4::ZERO; MAX_FIELDS * MAX_FIELD_CROPS];
+    let fields = paths.map_or_else(Vec::new, |paths| super::paths::fields(paths, ground));
+    let count = fields.len().min(frame.len());
+    for (i, field) in fields.iter().take(count).enumerate() {
+        let [ax, az] = field.along();
+        frame[i] = Vec4::new(field.center.0[0], field.center.0[1], ax, az);
+        let kinds = field.crops.len().min(MAX_FIELD_CROPS);
+        size[i] = Vec4::new(
+            field.size.0[0] * 0.5,
+            field.size.0[1] * 0.5,
+            field.strip.0,
+            kinds as f32,
+        );
+        for (j, crop) in field.crops.iter().take(kinds).enumerate() {
+            let linear = Color::srgb(crop.0[0], crop.0[1], crop.0[2]).to_linear();
+            crops[i * MAX_FIELD_CROPS + j] = Vec4::new(linear.red, linear.green, linear.blue, 1.0);
+        }
+    }
+    let layer = paths.map_or(1, |paths| paths.layer.min(3));
+    (
+        Vec4::new(count as f32, f32::from(layer), 0.0, 0.0),
+        frame,
+        size,
+        crops,
+    )
+}
+
+/// Keep the ground's fields (#1791) as the record has them and the ground
+/// draws them: worked out again when the record or the ground changes (the
+/// fields the ground draws are read against its water, which floods its
+/// lakes), and compared every frame with the ground's material, written
+/// only when they differ - an edit, or a ground material rebuilt with its
+/// terrain - so the uniform block is uploaded no more often than the fields
+/// change.
+pub(super) fn sync_fields(
+    record: Option<Res<LiveRoomRecord>>,
+    heightmap: Option<Res<FinishedHeightMap>>,
+    splat_mat: Option<Res<SplatMaterialHandle>>,
+    mut materials: ResMut<Assets<SplatTerrainMaterial>>,
+    mut drawn: Local<Option<FieldsUniform>>,
+) {
+    let (Some(record), Some(splat_mat)) = (record, splat_mat) else {
+        return;
+    };
+    let moved = record.is_changed() || heightmap.as_ref().is_some_and(|hm| hm.is_changed());
+    if moved || drawn.is_none() {
+        let paths = crate::pds::find_terrain_config(&record.0).map(|terrain| &terrain.paths);
+        let water = paths
+            .filter(|paths| !paths.fields.is_empty())
+            .map(|_| crate::world_builder::compile::drawn_water(&record.0, heightmap.as_deref()));
+        let ground = heightmap
+            .as_deref()
+            .zip(water.as_ref())
+            .map(|(hm, water)| (&hm.0, water));
+        *drawn = Some(fields_uniform(paths, ground));
+    }
+    let Some((count, frame, size, crops)) = *drawn else {
+        return;
+    };
+    let handle = &splat_mat.0;
+    // Peek before taking the change-triggering mutable borrow.
+    let stale = materials.get(handle).is_some_and(|m| {
+        let u = &m.extension.uniforms;
+        u.fields != count
+            || u.field_frame != frame
+            || u.field_size != size
+            || u.field_crops != crops
+    });
+    if stale && let Some(mut mat) = materials.get_mut(handle) {
+        let u = &mut mat.extension.uniforms;
+        u.fields = count;
+        u.field_frame = frame;
+        u.field_size = size;
+        u.field_crops = crops;
     }
 }
 

@@ -535,6 +535,9 @@ pub struct RoomEditorExtras<'w, 's> {
     /// The room's default as a Berlin square seeds it (#1647): what Reset
     /// to default restores, where it is this room's.
     seeded_default: Option<Res<'w, crate::terrain::derived::SeededDefault>>,
+    /// The lakes the terrain's water layers draw (#1793), for the
+    /// Generators tab's notes: worked out when they or the ground change.
+    drawn_lakes: Local<'s, generators::DrawnLakes>,
 }
 
 /// The footer line while a terrain rebuild is in flight (#1249 f63).
@@ -906,6 +909,7 @@ pub fn room_admin_ui(
         mut undo_shortcut,
         mut undo_labels,
         mut face_pick,
+        mut drawn_lakes,
     } = extras;
     let (Some(session), Some(refresh_ctx), Some(room_did), Some(record)) =
         (session, refresh_ctx, room_did, room_record.as_mut())
@@ -1701,8 +1705,14 @@ pub fn room_admin_ui(
                                 tufts: crate::grass::profile::tufts(record_mut),
                                 match_tufts: &mut match_tufts,
                             };
+                            drawn_lakes.refresh(
+                                record_mut,
+                                heightmap.as_deref(),
+                                heightmap.as_ref().map(|heightmap| heightmap.last_changed()),
+                            );
                             let mut tree_source = generators::RoomTreeSource::new(record_mut)
-                                .with_ground(heightmap.as_deref());
+                                .with_ground(heightmap.as_deref())
+                                .with_lakes(&drawn_lakes);
                             generators::draw_generators_tab(
                                 ui,
                                 &mut tree_source,

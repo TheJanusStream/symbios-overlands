@@ -1,7 +1,8 @@
 //! A seeded world's signature feature (#1781): one memorable thing of its
-//! land by its settlement - a lone giant tree, a sea stack, a hilltop ruin
-//! or a stone ring - from a table by its landform and biome
-//! ([`FeatureKind::candidates`]), sited on ground that fits it, clear of the
+//! land by its settlement - a lone giant tree, a sea stack, a hilltop ruin,
+//! a stone ring or a lake in a dip of its land (#1793, [`super::lake`]) -
+//! from a table by its landform and biome ([`FeatureKind::candidates`],
+//! [`FeatureKind::lake_suits`]), sited on ground that fits it, clear of the
 //! settlement, its paths and the view down to its landmark, and - where any
 //! such ground does - where the arrival's first frame shows it beside the
 //! landmark: the view's second attractor.
@@ -9,6 +10,9 @@
 //! Which of its kinds a world tries first is drawn from a stream of its own,
 //! so that no other deriver's draws move; a kind no ground takes gives way
 //! to the next, and the stone ring, which fits nearly any land, comes last.
+//! A lake comes first wherever it suits: the land holds one in few worlds
+//! (the owner's choice of 2026-10-26, a lake only where the land holds one),
+//! and a world whose land holds none tries its kinds as before it.
 //!
 //! The siting reads the settlement's probe, ten metres a sample, which
 //! under-reads the full map's relief (#1773, #1788): a feature asks more
@@ -141,6 +145,9 @@ pub enum FeatureKind {
     HilltopRuin,
     /// A ring of standing stones.
     StoneRing,
+    /// Water standing in a dip of the land above the sea (#1793): a second
+    /// terrain water layer, not a placement ([`super::lake`]).
+    Lake,
 }
 
 impl FeatureKind {
@@ -148,6 +155,16 @@ impl FeatureKind {
     /// building does: snapped to the highest of its ground, walked dry.
     pub fn is_built(self) -> bool {
         matches!(self, Self::HilltopRuin | Self::StoneRing)
+    }
+
+    /// Whether a lake suits a world of `scene` (#1793): any but a desert's,
+    /// a badland's or an ice field's - its land decides, holding a lake in
+    /// few worlds of any biome (its basins are a mesa's, near enough all).
+    pub fn lake_suits(scene: &SceneCharacter) -> bool {
+        !matches!(
+            scene.biome,
+            BiomeArchetype::Arid | BiomeArchetype::Badlands | BiomeArchetype::Glacial
+        )
     }
 
     /// The kinds a world of `scene` may have, from the table by its landform
@@ -213,6 +230,9 @@ pub struct SignatureFeature {
     pub slug: &'static str,
     /// The seed its draw takes: a ruin's grammar, a stack's chunks.
     pub seed: u64,
+    /// A lake's water layer: its level and its rectangle about `at`, the
+    /// floor of its basin (#1793).
+    pub lake: Option<super::lake::LakeLayer>,
 }
 
 /// What a world's signature feature keeps clear of (#1781).
@@ -254,18 +274,34 @@ pub fn choose(
     if before_the_ring > 1 {
         kinds[..before_the_ring].rotate_left(first % before_the_ring);
     }
+    // A lake first, wherever the land holds one (#1793).
+    if FeatureKind::lake_suits(scene) {
+        kinds.insert(0, FeatureKind::Lake);
+    }
     kinds.into_iter().find_map(|kind| {
+        if kind == FeatureKind::Lake {
+            let (at, radius, lake) = super::lake::site(probe, viewpoint, clear)?;
+            return Some(SignatureFeature {
+                kind,
+                at,
+                yaw: 0.0,
+                radius,
+                slug: "",
+                seed: draw,
+                lake: Some(lake),
+            });
+        }
         let slug = match kind {
             FeatureKind::HilltopRuin => ruin,
             FeatureKind::StoneRing => "stone_circle",
-            FeatureKind::GiantTree | FeatureKind::SeaStack => "",
+            FeatureKind::GiantTree | FeatureKind::SeaStack | FeatureKind::Lake => "",
         };
         let (at, radius) = site(probe, kind, slug, viewpoint, clear)?;
         let yaw = match kind {
             FeatureKind::HilltopRuin | FeatureKind::StoneRing => {
                 facing([viewpoint.landing[0] - at[0], viewpoint.landing[1] - at[1]])
             }
-            FeatureKind::GiantTree | FeatureKind::SeaStack => turn,
+            FeatureKind::GiantTree | FeatureKind::SeaStack | FeatureKind::Lake => turn,
         };
         Some(SignatureFeature {
             kind,
@@ -274,6 +310,7 @@ pub fn choose(
             radius,
             slug,
             seed: draw,
+            lake: None,
         })
     })
 }
@@ -364,7 +401,7 @@ fn site(
             score += match kind {
                 FeatureKind::HilltopRuin => (probe.prominence(at) * 0.1).min(1.5),
                 FeatureKind::StoneRing => (probe.prominence(at) * 0.05).clamp(0.0, 0.5),
-                FeatureKind::GiantTree | FeatureKind::SeaStack => 0.0,
+                FeatureKind::GiantTree | FeatureKind::SeaStack | FeatureKind::Lake => 0.0,
             };
             if best.is_none_or(|(kept, _)| score > kept) {
                 best = Some((score, at));
@@ -436,6 +473,8 @@ pub fn generator(
         FeatureKind::HilltopRuin | FeatureKind::StoneRing => {
             crate::catalogue::by_slug(feature.slug).map(|entry| entry.build(did))
         }
+        // A terrain water layer, not a placement (`build`).
+        FeatureKind::Lake => None,
     }
 }
 
@@ -603,6 +642,7 @@ mod tests {
             radius: 10.0,
             slug,
             seed: 7,
+            lake: None,
         };
         let oak = crate::catalogue::by_slug("lsys_oak")
             .expect("the oak")

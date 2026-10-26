@@ -268,7 +268,7 @@ pub(crate) trait GeneratorTreeSource {
 
 /// What a terrain water layer draws (#1760,
 /// [`GeneratorTreeSource::water_layer`]).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum WaterLayer {
     /// The lowest: the world's sea, all ground below its height.
     Sea,
@@ -277,8 +277,76 @@ pub(crate) enum WaterLayer {
     Berlin,
     /// Higher: a lake, filling the dip round its position.
     Lake,
+    /// Higher, its water running past its rectangle at its height: a lake
+    /// at its brim instead, the highest level its ground holds inside the
+    /// rectangle (#1793), `level` metres.
+    Brimmed { level: f32 },
     /// Higher, on ground at or above its height: nothing.
     Dry,
+    /// Higher, its water standing at its position but held inside its
+    /// rectangle at no level over its ground there (#1793): nothing.
+    Spills,
+}
+
+/// The lakes a world's terrain water layers draw on its ground (#1793), for
+/// the editor to tell each layer's state by: worked out again only when the
+/// layers or the ground change - a lake's flood, and its brim's, is too
+/// dear to run every frame its layer is selected.
+#[derive(Default)]
+pub(crate) struct DrawnLakes {
+    /// What they were worked out from: the layers, and when the ground last
+    /// changed - `None` before there is ground.
+    key: Option<(
+        Vec<bevy::prelude::Transform>,
+        bevy::ecs::change_detection::Tick,
+    )>,
+    /// Each layer above the sea and the level its lake stands at - `None`
+    /// where it holds none.
+    levels: Vec<(bevy::prelude::Transform, Option<f32>)>,
+}
+
+impl DrawnLakes {
+    /// Bring them up to `record`'s layers on `ground`, which last changed
+    /// at `changed`, where either moved.
+    pub(crate) fn refresh(
+        &mut self,
+        record: &RoomRecord,
+        ground: Option<&crate::terrain::FinishedHeightMap>,
+        changed: Option<bevy::ecs::change_detection::Tick>,
+    ) {
+        let layers = crate::water::bodies::terrain_layers(record);
+        let key = changed.map(|changed| (layers, changed));
+        if key == self.key {
+            return;
+        }
+        self.levels = match (&key, ground) {
+            (Some((layers, _)), Some(ground)) => {
+                let sea = crate::water::bodies::sea_level(layers);
+                layers
+                    .iter()
+                    .filter(|layer| sea.is_some_and(|sea| layer.translation.y > sea))
+                    .map(|layer| {
+                        let level = sea.and_then(|sea| {
+                            crate::water::bodies::lake_over(&ground.0, layer, sea)
+                                .map(|body| body.level)
+                        });
+                        (*layer, level)
+                    })
+                    .collect()
+            }
+            _ => Vec::new(),
+        };
+        self.key = key;
+    }
+
+    /// The level the lake of the layer drawn with `layer` stands at - its
+    /// outer `None` where it is not known here.
+    fn level(&self, layer: &bevy::prelude::Transform) -> Option<Option<f32>> {
+        self.levels
+            .iter()
+            .find(|(drawn, _)| drawn == layer)
+            .map(|&(_, level)| level)
+    }
 }
 
 /// The note [`GeneratorTreeSource::grammar_seed_note`] paints for a tree
@@ -367,6 +435,9 @@ pub(crate) struct RoomTreeSource<'a> {
     /// The ground the world is drawn on, where it has been built: what a
     /// lake fills ([`GeneratorTreeSource::water_layer`]).
     ground: Option<&'a crate::terrain::FinishedHeightMap>,
+    /// The lakes its layers draw there, kept by the editor (#1793): read
+    /// where known, worked out where not.
+    lakes: Option<&'a DrawnLakes>,
 }
 
 impl<'a> RoomTreeSource<'a> {
@@ -374,6 +445,7 @@ impl<'a> RoomTreeSource<'a> {
         Self {
             record,
             ground: None,
+            lakes: None,
         }
     }
 
@@ -383,6 +455,12 @@ impl<'a> RoomTreeSource<'a> {
         ground: Option<&'a crate::terrain::FinishedHeightMap>,
     ) -> Self {
         self.ground = ground;
+        self
+    }
+
+    /// The source reading the lakes its layers draw from `lakes` (#1793).
+    pub(crate) fn with_lakes(mut self, lakes: &'a DrawnLakes) -> Self {
+        self.lakes = Some(lakes);
         self
     }
 }
@@ -521,10 +599,19 @@ impl GeneratorTreeSource for RoomTreeSource<'_> {
             });
         }
         let ground = self.ground?;
-        Some(if crate::water::bodies::holds_a_lake(&ground.0, &layer) {
-            WaterLayer::Lake
-        } else {
-            WaterLayer::Dry
+        if !crate::water::bodies::holds_a_lake(&ground.0, &layer) {
+            return Some(WaterLayer::Dry);
+        }
+        let level = self
+            .lakes
+            .and_then(|lakes| lakes.level(&layer))
+            .unwrap_or_else(|| {
+                crate::water::bodies::lake_over(&ground.0, &layer, lowest).map(|body| body.level)
+            });
+        Some(match level {
+            Some(level) if level < layer.translation.y => WaterLayer::Brimmed { level },
+            Some(_) => WaterLayer::Lake,
+            None => WaterLayer::Spills,
         })
     }
 }
@@ -1031,10 +1118,12 @@ mod water_layer_tests {
 
     /// #1760: a Terrain's lowest Water child is the sea, a higher one a
     /// lake where its position stands in a dip and nothing where it stands
-    /// on ground at or above its height - which needs the ground, so it is
-    /// told only once there is some - and no other node is a layer.
+    /// on ground at or above its height - and, where its water would run
+    /// past its rectangle (#1793), a lake at its brim, or nothing where no
+    /// level over its ground holds - which needs the ground, so it is told
+    /// only once there is some - and no other node is a layer.
     #[test]
-    fn a_terrain_water_child_is_told_as_sea_lake_or_dry() {
+    fn a_terrain_water_child_is_told_as_sea_lake_brimmed_dry_or_spilling() {
         // Flat at 10 m, with a hollow at 4 m round (20, 0).
         let mut hm = bevy_symbios_ground::HeightMap::new(41, 41, 2.0);
         for z in 0..41 {
@@ -1057,6 +1146,27 @@ mod water_layer_tests {
             terrain.children.push(water);
         }
         terrain.children.push(Generator::default_cuboid());
+        // The hollow's water in a rectangle 2 m round its middle: it would
+        // run past it onto the hollow's floor (#1793).
+        let mut spills = Generator::from_kind(GeneratorKind::Water {
+            surface: Default::default(),
+        });
+        spills.transform = TransformData {
+            translation: Fp3([20.0, 6.0, 0.0]),
+            scale: Fp3([0.05, 1.0, 0.05]),
+            ..Default::default()
+        };
+        terrain.children.push(spills);
+        // Over the flat, its water would run past its rectangle's west edge
+        // onto ground at 10 m: it stands at 10 m, filling the hollow.
+        let mut brimmed = Generator::from_kind(GeneratorKind::Water {
+            surface: Default::default(),
+        });
+        brimmed.transform = TransformData {
+            translation: Fp3([20.0, 12.0, 0.0]),
+            ..Default::default()
+        };
+        terrain.children.push(brimmed);
         let mut record = RoomRecord::default();
         record.generators.clear();
         record.generators.insert("land".into(), terrain);
@@ -1070,6 +1180,26 @@ mod water_layer_tests {
         assert_eq!(source.water_layer(&child(1)), Some(WaterLayer::Lake));
         assert_eq!(source.water_layer(&child(2)), Some(WaterLayer::Dry));
         assert_eq!(source.water_layer(&child(3)), None, "a box is no layer");
+        assert_eq!(source.water_layer(&child(4)), Some(WaterLayer::Spills));
+        assert_eq!(
+            source.water_layer(&child(5)),
+            Some(WaterLayer::Brimmed { level: 10.0 })
+        );
+        // The editor's own reading, kept until the layers or the ground
+        // change (#1793), answers the same.
+        let told: Vec<_> = (0..6).map(|i| source.water_layer(&child(i))).collect();
+        let mut lakes = DrawnLakes::default();
+        lakes.refresh(
+            &record,
+            Some(&ground),
+            Some(bevy::ecs::change_detection::Tick::new(1)),
+        );
+        assert_eq!(lakes.levels.len(), 4, "the four layers over the sea");
+        let source = RoomTreeSource::new(&mut record)
+            .with_ground(Some(&ground))
+            .with_lakes(&lakes);
+        let kept: Vec<_> = (0..6).map(|i| source.water_layer(&child(i))).collect();
+        assert_eq!(kept, told);
         assert_eq!(source.water_layer(&GenNodeId::root("land")), None);
 
         let unbuilt = RoomTreeSource::new(&mut record);

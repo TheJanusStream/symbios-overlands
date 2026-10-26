@@ -3,7 +3,9 @@
 //! layer that paints them, which the ground's shader and the grass both
 //! read - no texture of their own. The ground under them grows no grass
 //! (`ground_cover`), and no scatter grows on them
-//! (`world_builder::compile::scatter`).
+//! (`world_builder::compile::scatter`). A field (#1791) is painted wholly in
+//! that layer across its rectangle, its strips' colours the ground's
+//! shader's to draw (`splat.wgsl`).
 
 use bevy::math::Vec2;
 
@@ -13,12 +15,13 @@ const FEATHER: f32 = 1.5;
 /// The longest piece of a path painted at once (m).
 const PIECE: f32 = 4.0;
 
-/// How much of a track may lie under water before the ground leaves it
-/// unpainted (#1782): a seeded world sites its airstrip and its car's track
-/// on a probe that misses hollows the sea floods.
+/// How much of a track or a field may lie under water before the ground
+/// leaves it unpainted (#1782, #1791): a seeded world sites its airstrip,
+/// its car's track and its fields on a probe that misses hollows the sea
+/// floods.
 const TRACK_WET_SHARE: f32 = 0.1;
 
-/// How far apart a track's ground is read for its water (m).
+/// How far apart a track's or a field's ground is read for its water (m).
 const TRACK_READ: f32 = 4.0;
 
 /// The ground a track is read against: the heightmap, and the room's water
@@ -28,20 +31,23 @@ pub(crate) type Ground<'a> = (
     &'a crate::water::bodies::RoomWater,
 );
 
+/// Whether `ground` floods world `p`.
+fn wet((hm, water): Ground<'_>, p: Vec2) -> bool {
+    let extent = (hm.width().saturating_sub(1)) as f32 * hm.scale();
+    let half = extent * 0.5;
+    water.level_at(p.x, p.y).is_some_and(|level| {
+        hm.get_height_at(
+            (p.x + half).clamp(0.0, extent),
+            (p.y + half).clamp(0.0, extent),
+        ) < level
+    })
+}
+
 /// Whether `ground` paints a track along `line`, `width` wide (#1782): its
 /// middle and its edges, read [`TRACK_READ`] apart, no more than
 /// [`TRACK_WET_SHARE`] of them under water.
-pub(crate) fn drawn((hm, water): Ground<'_>, line: &[Vec2], width: f32) -> bool {
-    let extent = (hm.width().saturating_sub(1)) as f32 * hm.scale();
-    let half = extent * 0.5;
-    let wet = |p: Vec2| {
-        water.level_at(p.x, p.y).is_some_and(|level| {
-            hm.get_height_at(
-                (p.x + half).clamp(0.0, extent),
-                (p.y + half).clamp(0.0, extent),
-            ) < level
-        })
-    };
+pub(crate) fn drawn(ground: Ground<'_>, line: &[Vec2], width: f32) -> bool {
+    let wet = |p: Vec2| wet(ground, p);
     let (mut read, mut under) = (0usize, 0usize);
     for pair in line.windows(2) {
         let (a, b) = (pair[0], pair[1]);
@@ -59,6 +65,41 @@ pub(crate) fn drawn((hm, water): Ground<'_>, line: &[Vec2], width: f32) -> bool 
         }
     }
     read == 0 || (under as f32) <= TRACK_WET_SHARE * read as f32
+}
+
+/// Whether `ground` draws `field` (#1791): its rectangle read
+/// [`TRACK_READ`] apart, edges and corners too, no more than
+/// [`TRACK_WET_SHARE`] of the readings under water.
+pub(crate) fn field_drawn(ground: Ground<'_>, field: &crate::pds::SovereignField) -> bool {
+    let along = Vec2::from_array(field.along());
+    let across = Vec2::new(-along.y, along.x);
+    let middle = Vec2::from_array(field.center.0);
+    let size = Vec2::from_array(field.size.0);
+    let steps = (size / TRACK_READ).ceil().max(Vec2::ONE);
+    let (nl, nd) = (steps.x as usize, steps.y as usize);
+    let (mut read, mut under) = (0usize, 0usize);
+    for d in 0..=nd {
+        for l in 0..=nl {
+            let u = size.x * (l as f32 / nl as f32 - 0.5);
+            let v = size.y * (d as f32 / nd as f32 - 0.5);
+            read += 1;
+            under += usize::from(wet(ground, middle + along * u + across * v));
+        }
+    }
+    (under as f32) <= TRACK_WET_SHARE * read as f32
+}
+
+/// `paths`' fields (#1791): on `ground`, only those it draws
+/// ([`field_drawn`]); every one where there is no ground to ask.
+pub(crate) fn fields<'p>(
+    paths: &'p crate::pds::SovereignPathsConfig,
+    ground: Option<Ground<'_>>,
+) -> Vec<&'p crate::pds::SovereignField> {
+    paths
+        .fields
+        .iter()
+        .filter(|field| ground.is_none_or(|ground| field_drawn(ground, field)))
+        .collect()
 }
 
 /// `paths`' ways - its paths, then its tracks (#1782) - as world XZ points,
@@ -88,7 +129,8 @@ pub(crate) fn ways(
 /// weights shifted toward the paths' ground layer by how far inside a way
 /// it stands - the paths' share of it within half the way's width (a
 /// path's, or a track's own), fading over [`FEATHER`] beyond. On `ground`, a
-/// track it mostly floods is left unpainted ([`drawn`]).
+/// track or a field it mostly floods is left unpainted ([`drawn`],
+/// [`field_drawn`]).
 pub(crate) fn paint(
     weights: &mut [[u8; 4]],
     n: usize,
@@ -125,6 +167,11 @@ pub(crate) fn paint(
             }
         }
     }
+    // The fields (#1791): wholly the layer across each, fading over the
+    // paths' feather past its edge - on `ground`, those it does not flood.
+    for field in fields(paths, ground) {
+        field_stroke(&mut share, n, cell, half, field);
+    }
     for (texel, s) in weights.iter_mut().zip(share) {
         if s <= 0.0 {
             continue;
@@ -132,6 +179,41 @@ pub(crate) fn paint(
         for (c, w) in texel.iter_mut().enumerate() {
             let target = if c == layer { 255.0 } else { 0.0 };
             *w = (f32::from(*w) * (1.0 - s) + target * s).round() as u8;
+        }
+    }
+}
+
+/// Paint `field` into `share`, an `n` by `n` grid of vertices `cell` metres
+/// apart reaching `half` from the middle: each vertex inside its rectangle
+/// raised to the whole, fading out over [`FEATHER`] past its edge.
+fn field_stroke(
+    share: &mut [f32],
+    n: usize,
+    cell: f32,
+    half: f32,
+    field: &crate::pds::SovereignField,
+) {
+    let corners = field.corners().map(Vec2::from_array);
+    let lo = corners.iter().fold(Vec2::splat(f32::MAX), |m, c| m.min(*c)) - Vec2::splat(FEATHER);
+    let hi = corners.iter().fold(Vec2::splat(f32::MIN), |m, c| m.max(*c)) + Vec2::splat(FEATHER);
+    let last = (n - 1) as f32;
+    let index = |v: f32| ((v + half) / cell).clamp(0.0, last);
+    let (i0, j0) = (index(lo.x).floor() as usize, index(lo.y).floor() as usize);
+    let (i1, j1) = (index(hi.x).ceil() as usize, index(hi.y).ceil() as usize);
+    let along = Vec2::from_array(field.along());
+    let across = Vec2::new(-along.y, along.x);
+    let middle = Vec2::from_array(field.center.0);
+    let (hl, hd) = (field.size.0[0] * 0.5, field.size.0[1] * 0.5);
+    for j in j0..=j1 {
+        for i in i0..=i1 {
+            let at = Vec2::new(i as f32 * cell - half, j as f32 * cell - half) - middle;
+            let out = Vec2::new(
+                (at.dot(along).abs() - hl).max(0.0),
+                (at.dot(across).abs() - hd).max(0.0),
+            );
+            let s = 1.0 - (out.length() / FEATHER).clamp(0.0, 1.0);
+            let k = j * n + i;
+            share[k] = share[k].max(s);
         }
     }
 }
@@ -235,6 +317,7 @@ mod tests {
                 line: vec![Fp2([-16.0, 4.0]), Fp2([16.0, 4.0])],
                 width: Fp(18.0),
             }],
+            fields: Vec::new(),
         };
         paint(&mut weights, n, 2.0, &paths, None);
         let at = |x: usize, z: usize| weights[z * n + x];
@@ -284,6 +367,89 @@ mod tests {
             ways(&paths, None).len(),
             3,
             "with no ground to ask, every way"
+        );
+    }
+
+    /// #1791: the ground's shader fades a field's colours out over the
+    /// feather the weight map fades its paint over - which a test can only
+    /// pin here, the shader being read at runtime.
+    #[test]
+    fn the_ground_draws_a_field_to_the_edge_it_is_painted_to() {
+        let splat = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/shaders/splat.wgsl"
+        ))
+        .expect("splat.wgsl is a tracked asset");
+        let line = format!("const FIELD_FEATHER: f32 = {FEATHER:?};");
+        assert!(splat.contains(&line), "splat.wgsl: {line}");
+    }
+
+    /// #1791: a field the ground mostly floods is not drawn - nor painted -
+    /// and every field is where there is no ground to ask.
+    #[test]
+    fn a_flooded_field_is_not_drawn() {
+        // 41 vertices a metre apart, -20 to 20 m: a slope from 4 m under
+        // the sea in the west to 4 m over it in the east.
+        let n = 41;
+        let mut hm = bevy_symbios_ground::HeightMap::new(n, n, 1.0);
+        for z in 0..n {
+            for x in 0..n {
+                hm.set(x, z, (x as f32 - 20.0) * 0.2);
+            }
+        }
+        let water = crate::water::bodies::RoomWater::sea_alone(Some(0.0));
+        let field = |x: f32| crate::pds::SovereignField {
+            center: Fp2([x, 0.0]),
+            size: Fp2([10.0, 10.0]),
+            ..Default::default()
+        };
+        // Dry, under the sea, and half under it on the shore.
+        let paths = crate::pds::SovereignPathsConfig {
+            layer: 1,
+            fields: vec![field(12.0), field(-12.0), field(0.0)],
+            ..Default::default()
+        };
+        let drawn: Vec<f32> = fields(&paths, Some((&hm, &water)))
+            .iter()
+            .map(|field| field.center.0[0])
+            .collect();
+        assert_eq!(drawn, vec![12.0], "only the dry one");
+        assert_eq!(fields(&paths, None).len(), 3, "with no ground to ask");
+        let mut weights = vec![[255u8, 0, 0, 0]; n * n];
+        paint(&mut weights, n, 1.0, &paths, Some((&hm, &water)));
+        assert_eq!(weights[20 * n + 32], [0, 255, 0, 0], "the dry one painted");
+        assert_eq!(weights[20 * n + 8], [255, 0, 0, 0], "the flooded one not");
+    }
+
+    /// #1791: a field paints its whole rectangle in the paths' layer,
+    /// turned to its bearing, fading out past its edge, and nothing beyond.
+    #[test]
+    fn a_field_paints_its_rectangle() {
+        let n = 41;
+        let mut weights = vec![[255u8, 0, 0, 0]; n * n];
+        let paths = crate::pds::SovereignPathsConfig {
+            layer: 1,
+            fields: vec![crate::pds::SovereignField {
+                center: Fp2([0.0, 0.0]),
+                size: Fp2([24.0, 8.0]),
+                bearing: Fp(90.0),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(!paths.is_empty(), "a world with only a field paints it");
+        paint(&mut weights, n, 1.0, &paths, None);
+        let at = |x: f32, z: f32| weights[((z + 20.0) as usize) * n + (x + 20.0) as usize];
+        // Its strips run east: 12 m each way along X, 4 m along Z.
+        assert_eq!(at(11.0, 0.0), [0, 255, 0, 0]);
+        assert_eq!(at(0.0, 3.0), [0, 255, 0, 0]);
+        assert_eq!(at(0.0, 8.0), [255, 0, 0, 0], "past its depth and feather");
+        assert_eq!(at(15.0, 0.0), [255, 0, 0, 0], "past its length and feather");
+        // A metre past its end, two thirds into the feather.
+        let edge = at(13.0, 0.0);
+        assert!(
+            edge[1] > 0 && edge[1] < 255,
+            "fading past its edge: {edge:?}"
         );
     }
 }

@@ -570,7 +570,8 @@ fn rebuild_cover(
     if !water.is_dry() {
         block_water(&mut mask, hm, &water, cfg::WATER_MARGIN);
     }
-    // A world's paths and tracks grow no grass (#1779, #1782).
+    // A world's paths and tracks grow no grass (#1779, #1782), nor its
+    // fields (#1791).
     if let Some(paths) = record
         .as_ref()
         .and_then(|r| crate::pds::find_terrain_config(&r.0))
@@ -578,6 +579,9 @@ fn rebuild_cover(
     {
         for (line, width) in crate::terrain::path_ways(paths, Some((hm, &water))) {
             mask.block_path(&line, width);
+        }
+        for field in crate::terrain::path_fields(paths, Some((hm, &water))) {
+            mask.block_convex(&field.corners().map(Vec2::from_array));
         }
     }
 

@@ -11,7 +11,12 @@
 //! Splat rules (where each biome layer appears on the slope/height
 //! surface) are biased by [`BiomeArchetype`] in a sibling table: alpine
 //! pulls the snow line down, arid pushes it up to "effectively off",
-//! volcanic narrows grass, tundra widens snow.
+//! volcanic narrows grass, tundra widens snow. They are written for the
+//! ground's plateau semantics (#1168, #1784): a band is full weight
+//! across itself and fades over a skirt outside it, so the seeder keeps
+//! the skirts narrow, leaves no height or slope that no layer covers, and
+//! keeps rock off gentle ground and snow off cliffs
+//! ([`SplatDraws::plateau`]).
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
@@ -60,8 +65,14 @@ pub struct TerrainShape {
     pub thermal_iterations: u32,
     pub thermal_talus_angle: f32,
 
-    /// Per-layer splat rule (R Grass, G Dirt, B Rock, A Snow).
+    /// Per-layer splat rule (R Grass, G Dirt, B Rock, A Snow), written for
+    /// the ground's plateau semantics (#1784).
     pub splat_rules: [SplatRule; 4],
+
+    /// The same bands as they were written before #1784, which a square of
+    /// Berlin keeps: its ground is painted from its land use (#1586), and
+    /// its record's bytes are pinned.
+    pub square_splat_rules: [SplatRule; 4],
 
     /// Sea-level altitude expressed as a fraction of [`Self::
     /// height_scale`]. Lives on `TerrainShape` rather than the
@@ -226,8 +237,12 @@ fn landform_profile(l: LandformArchetype) -> LandformProfile {
     }
 }
 
-/// Biome-specific splat thresholds. Each entry describes where on the
-/// normalised height/slope grid that biome's layer reads as dominant.
+/// Biome-specific splat thresholds: the centres each world's bands are drawn
+/// round. [`SplatDraws::plateau`] writes them for the ground's plateau
+/// semantics (#1784): it keeps grass's height and slope, dirt's start and
+/// slope, rock's slope and the snow line as drawn, within the bounds that
+/// leave no ground uncovered, and runs dirt up to the snow line whatever its
+/// drawn top.
 struct BiomeSplatProfile {
     grass_height_max: f32,
     grass_slope_max: f32,
@@ -235,9 +250,11 @@ struct BiomeSplatProfile {
     dirt_height_max: f32,
     rock_slope_min: f32,
     snow_height_min: f32,
-    /// Default blend sharpness for the first three layers (Grass /
-    /// Dirt / Rock). Snow keeps the high-sharpness default since a
-    /// soft snow line reads as muddy.
+    /// Blend sharpness for the first three layers (Grass / Dirt / Rock)
+    /// as the tent semantics read it, before #1168: the centre of each
+    /// world's draw, which the plateau rules turn into a sharpness about
+    /// [`PLATEAU_SHARPNESS`] ([`SplatDraws::plateau`]). Snow keeps a
+    /// sharper edge since a soft snow line reads as muddy.
     blend_sharpness: f32,
 }
 
@@ -277,7 +294,8 @@ fn biome_splat_profile(b: BiomeArchetype) -> BiomeSplatProfile {
             blend_sharpness: 0.4,
         },
         Volcanic => BiomeSplatProfile {
-            // Sparse grass; rock dominates.
+            // Sparse grass; ash (dirt) over the slopes, rock on every steep
+            // face.
             grass_height_max: 0.20,
             grass_slope_max: 0.18,
             dirt_height_min: 0.10,
@@ -411,40 +429,9 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> TerrainShape {
     let erosion_drops = sample_u32(rng, lp.erosion_drops);
     let thermal_iterations = sample_u32(rng, lp.thermal_iterations);
 
-    let splat_rules = [
-        SplatRule {
-            height_min: 0.0,
-            height_max: jitter_around(rng, bp.grass_height_max, 0.05, 0.05, 0.95),
-            slope_min: 0.0,
-            slope_max: jitter_around(rng, bp.grass_slope_max, 0.05, 0.05, 0.95),
-            sharpness: jitter_around(rng, bp.blend_sharpness, 0.10, 0.2, 2.0),
-        },
-        SplatRule {
-            height_min: jitter_around(rng, bp.dirt_height_min, 0.04, 0.0, 0.95),
-            height_max: jitter_around(rng, bp.dirt_height_max, 0.05, 0.1, 1.0),
-            slope_min: 0.0,
-            slope_max: jitter_around(rng, 0.55, 0.05, 0.2, 0.9),
-            sharpness: jitter_around(rng, bp.blend_sharpness, 0.10, 0.2, 2.0),
-        },
-        SplatRule {
-            height_min: 0.0,
-            height_max: 1.0,
-            slope_min: jitter_around(rng, bp.rock_slope_min, 0.04, 0.05, 0.6),
-            slope_max: 1.0,
-            sharpness: jitter_around(rng, bp.blend_sharpness, 0.10, 0.2, 2.0),
-        },
-        SplatRule {
-            height_min: jitter_around(rng, bp.snow_height_min, 0.03, 0.05, 0.99),
-            height_max: 1.0,
-            slope_min: 0.0,
-            slope_max: 1.0,
-            // Snow keeps the sharp transition default - a soft snow
-            // line reads as muddy on a stylised palette.
-            sharpness: 4.0,
-        },
-    ];
+    let splat = SplatDraws::draw(rng, &bp);
 
-    TerrainShape {
+    let mut shape = TerrainShape {
         generator_kind,
         octaves,
         persistence: sample_f32(rng, lp.persistence),
@@ -465,8 +452,207 @@ fn derive(scene: &SceneCharacter, rng: &mut ChaCha8Rng) -> TerrainShape {
         thermal_enabled: true,
         thermal_iterations,
         thermal_talus_angle: sample_f32(rng, lp.thermal_talus_angle),
-        splat_rules,
+        splat_rules: splat.as_drawn(),
+        square_splat_rules: splat.as_drawn(),
         water_level_fraction: derive_water_level_fraction(scene, rng, &lp),
+    };
+    // Written once the water is drawn, last: the grass band reaches above it.
+    shape.splat_rules = splat.plateau(&bp, shape.water_level_fraction);
+    shape
+}
+
+/// The sharpness of a grass, dirt or rock band's edge under the plateau
+/// semantics (#1168, #1784): a skirt a third of the band's half-width wide
+/// beyond each end, as the ground's own defaults have it - a transition
+/// rather than a wash. Each world's draw is kept as a ratio round it.
+const PLATEAU_SHARPNESS: f32 = 2.0;
+
+/// The snow band's edge sharpness: a snow line reads as a line.
+const SNOW_SHARPNESS: f32 = 4.0;
+
+/// The steepest ground snow settles on (slope, `1 - normal.y`): a cliff
+/// above the snow line is rock's.
+const SNOW_SLOPE_MAX: f32 = 0.40;
+
+/// How far under the snow line the dirt band stops (a fraction of the height
+/// scale): its skirt reaches over the gap, so no flat ground between them is
+/// left to no layer, and neither plateau ties the other on the snow line -
+/// a tie goes to the lower layer, and would raise the line for every reader
+/// of the ground's largest layer.
+const DIRT_UNDER_SNOW: f32 = 0.01;
+
+/// How far under the snow line grass stops at the highest.
+const GRASS_UNDER_SNOW: f32 = 0.02;
+
+/// How far past rock's gentlest slope dirt's slope band reaches: a narrow
+/// blend of the two, then rock alone. Dirt full on slopes rock's band also
+/// covers would tie it there, and the tie goes to dirt - the lower layer.
+const DIRT_OVER_ROCK: f32 = 0.05;
+
+/// How far under the grass band's top the dirt band starts at the most.
+const DIRT_UNDER_GRASS: f32 = 0.02;
+
+/// How far above grass's steepest slope rock's band begins, at the least
+/// and at the most: never abutting it - two plateaus that touch both read
+/// full on the boundary, and which wins there is a matter of rounding - and
+/// never so far that their skirts leave a slope no layer covers.
+const ROCK_OVER_GRASS: (f32, f32) = (0.03, 0.10);
+
+/// The gentlest slope rock's band begins at: below it rock's skirt would
+/// reach level ground at the softest edge a world draws.
+const ROCK_SLOPE_FLOOR: f32 = 0.2;
+
+/// The share of its band's height grass reaches above the world's water at
+/// the least: an archipelago's water can stand above a band written for a
+/// low sea, and its islands would grow none.
+const GRASS_OVER_WATER: f32 = 0.5;
+
+/// The least grass band (its profile's top) a biome keeps a shore of grass
+/// for ([`GRASS_OVER_WATER`]): a glacier's, a tundra's, a badland's or a
+/// desert's few metres of grass are meant to drown.
+const GRASS_SHORE_BAND: f32 = 0.3;
+
+/// A world's splat bands as drawn, in the order they have always been
+/// drawn, so that every draw after them - the land's own shape - keeps its
+/// place (#1784). Written as rules two ways: [`Self::plateau`] for a world
+/// on its own ground, [`Self::as_drawn`] for a square of Berlin.
+#[derive(Clone, Copy, Debug)]
+struct SplatDraws {
+    grass_height_max: f32,
+    grass_slope_max: f32,
+    grass_sharpness: f32,
+    dirt_height_min: f32,
+    dirt_height_max: f32,
+    dirt_slope_max: f32,
+    dirt_sharpness: f32,
+    rock_slope_min: f32,
+    rock_sharpness: f32,
+    snow_height_min: f32,
+}
+
+impl SplatDraws {
+    /// The draws, field by field in their order.
+    fn draw(rng: &mut ChaCha8Rng, bp: &BiomeSplatProfile) -> Self {
+        Self {
+            grass_height_max: jitter_around(rng, bp.grass_height_max, 0.05, 0.05, 0.95),
+            grass_slope_max: jitter_around(rng, bp.grass_slope_max, 0.05, 0.05, 0.95),
+            grass_sharpness: jitter_around(rng, bp.blend_sharpness, 0.10, 0.2, 2.0),
+            dirt_height_min: jitter_around(rng, bp.dirt_height_min, 0.04, 0.0, 0.95),
+            dirt_height_max: jitter_around(rng, bp.dirt_height_max, 0.05, 0.1, 1.0),
+            dirt_slope_max: jitter_around(rng, 0.55, 0.05, 0.2, 0.9),
+            dirt_sharpness: jitter_around(rng, bp.blend_sharpness, 0.10, 0.2, 2.0),
+            rock_slope_min: jitter_around(rng, bp.rock_slope_min, 0.04, 0.05, 0.6),
+            rock_sharpness: jitter_around(rng, bp.blend_sharpness, 0.10, 0.2, 2.0),
+            snow_height_min: jitter_around(rng, bp.snow_height_min, 0.03, 0.05, 0.99),
+        }
+    }
+
+    /// The bands as they were written before #1784, for the tent semantics:
+    /// what a square of Berlin keeps ([`TerrainShape::square_splat_rules`]).
+    fn as_drawn(&self) -> [SplatRule; 4] {
+        [
+            SplatRule {
+                height_min: 0.0,
+                height_max: self.grass_height_max,
+                slope_min: 0.0,
+                slope_max: self.grass_slope_max,
+                sharpness: self.grass_sharpness,
+            },
+            SplatRule {
+                height_min: self.dirt_height_min,
+                height_max: self.dirt_height_max,
+                slope_min: 0.0,
+                slope_max: self.dirt_slope_max,
+                sharpness: self.dirt_sharpness,
+            },
+            SplatRule {
+                height_min: 0.0,
+                height_max: 1.0,
+                slope_min: self.rock_slope_min,
+                slope_max: 1.0,
+                sharpness: self.rock_sharpness,
+            },
+            SplatRule {
+                height_min: self.snow_height_min,
+                height_max: 1.0,
+                slope_min: 0.0,
+                slope_max: 1.0,
+                sharpness: SNOW_SHARPNESS,
+            },
+        ]
+    }
+
+    /// The bands as rules for the plateau semantics (#1168, #1784), on a
+    /// world whose water stands at `water` (a fraction of its height scale):
+    ///
+    /// * every edge about [`PLATEAU_SHARPNESS`] - under the tent semantics'
+    ///   0.35 to 0.65, rock's slope skirt reached level ground and put a
+    ///   third rock on it;
+    /// * grass up to at least [`GRASS_OVER_WATER`] of its band above the
+    ///   water in a biome of grass ([`GRASS_SHORE_BAND`]), under the snow
+    ///   line; dirt from no higher than grass reaches to just under the snow
+    ///   line ([`DIRT_UNDER_SNOW`]) - so no height is left to no layer, which
+    ///   the ground paints as rock;
+    /// * rock from a little above grass's steepest slope
+    ///   ([`ROCK_OVER_GRASS`]) and never below [`ROCK_SLOPE_FLOOR`], dirt's
+    ///   slopes ending just past it ([`DIRT_OVER_ROCK`]): never on gentle
+    ///   ground, never a slope left uncovered, and rock the ground's largest
+    ///   layer on its slopes as it was before - no tie handing them to dirt;
+    /// * snow on ground gentle enough to hold it ([`SNOW_SLOPE_MAX`]).
+    fn plateau(&self, bp: &BiomeSplatProfile, water: f32) -> [SplatRule; 4] {
+        let sharpness = |drawn: f32| PLATEAU_SHARPNESS * drawn / bp.blend_sharpness;
+        let shore = if bp.grass_height_max >= GRASS_SHORE_BAND {
+            water + GRASS_OVER_WATER * self.grass_height_max
+        } else {
+            0.0
+        };
+        let grass_top = self
+            .grass_height_max
+            .max(shore)
+            .min(self.snow_height_min - GRASS_UNDER_SNOW);
+        let dirt_top = self.snow_height_min - DIRT_UNDER_SNOW;
+        let dirt_bottom = self
+            .dirt_height_min
+            .min(grass_top - DIRT_UNDER_GRASS)
+            .clamp(0.0, dirt_top);
+        let rock_min = self
+            .rock_slope_min
+            .clamp(
+                self.grass_slope_max + ROCK_OVER_GRASS.0,
+                self.grass_slope_max + ROCK_OVER_GRASS.1,
+            )
+            .max(ROCK_SLOPE_FLOOR);
+        let dirt_slope_max = self.dirt_slope_max.min(rock_min + DIRT_OVER_ROCK);
+        [
+            SplatRule {
+                height_min: 0.0,
+                height_max: grass_top,
+                slope_min: 0.0,
+                slope_max: self.grass_slope_max,
+                sharpness: sharpness(self.grass_sharpness),
+            },
+            SplatRule {
+                height_min: dirt_bottom,
+                height_max: dirt_top,
+                slope_min: 0.0,
+                slope_max: dirt_slope_max,
+                sharpness: sharpness(self.dirt_sharpness),
+            },
+            SplatRule {
+                height_min: 0.0,
+                height_max: 1.0,
+                slope_min: rock_min,
+                slope_max: 1.0,
+                sharpness: sharpness(self.rock_sharpness),
+            },
+            SplatRule {
+                height_min: self.snow_height_min,
+                height_max: 1.0,
+                slope_min: 0.0,
+                slope_max: SNOW_SLOPE_MAX,
+                sharpness: SNOW_SHARPNESS,
+            },
+        ]
     }
 }
 
@@ -678,5 +864,134 @@ mod tests {
             alpine_total < arid_total,
             "alpine snow_min={alpine_total} should be lower than arid={arid_total}"
         );
+    }
+
+    /// The ground's own reading of a band (symbios-ground's plateau, #1168).
+    fn weights(rules: &[SplatRule; 4], height: f32, slope: f32) -> [f32; 4] {
+        rules.map(|r| {
+            bevy_symbios_ground::SplatRule::new(
+                (r.height_min, r.height_max),
+                (r.slope_min, r.slope_max),
+                r.sharpness,
+            )
+            .weight(height, slope)
+        })
+    }
+
+    /// Every world's bands for every biome and landform, over seeds enough
+    /// to reach their draws' extremes.
+    fn every_band() -> impl Iterator<Item = (BiomeArchetype, TerrainShape)> {
+        LandformArchetype::ALL.into_iter().flat_map(|landform| {
+            BiomeArchetype::ALL.into_iter().flat_map(move |biome| {
+                (0u64..24).map(move |s| {
+                    let mut scene = SceneCharacter::for_seed(s);
+                    scene.landform = landform;
+                    scene.biome = biome;
+                    (biome, TerrainShape::from_scene(&scene, s))
+                })
+            })
+        })
+    }
+
+    /// #1784: no ground from the water up is left to no layer - which the
+    /// ground paints as rock, flat or not - however a world's bands are
+    /// drawn: at every height and slope the four bands' weights sum to a
+    /// real share.
+    #[test]
+    fn no_ground_is_left_to_no_layer() {
+        let mut least = f32::MAX;
+        for (biome, t) in every_band() {
+            for hi in 0..=100 {
+                let height =
+                    t.water_level_fraction + (1.0 - t.water_level_fraction) * hi as f32 / 100.0;
+                for si in 0..=100 {
+                    let slope = si as f32 / 100.0;
+                    let total: f32 = weights(&t.splat_rules, height, slope).iter().sum();
+                    assert!(
+                        total >= 0.05,
+                        "{biome:?}: height {height} slope {slope} covered {total}: {:?}",
+                        t.splat_rules
+                    );
+                    least = least.min(total);
+                }
+            }
+        }
+        assert!(least >= 0.05, "{least}");
+    }
+
+    /// #1784: rock keeps off gentle ground - under the tent semantics' soft
+    /// edges its skirt reached level ground and put a third rock on it - and
+    /// snow off cliffs, which its band covered as fully as the flats.
+    #[test]
+    fn rock_keeps_off_gentle_ground_and_snow_off_cliffs() {
+        for (biome, t) in every_band() {
+            for hi in 0..=50 {
+                let height = hi as f32 / 50.0;
+                for (slope, rock_most) in [(0.0, 0.01), (0.03, 0.02), (0.05, 0.08)] {
+                    let w = weights(&t.splat_rules, height, slope);
+                    let total: f32 = w.iter().sum();
+                    if total > f32::EPSILON {
+                        assert!(
+                            w[2] / total <= rock_most,
+                            "{biome:?}: rock {} at height {height} slope {slope}: {:?}",
+                            w[2] / total,
+                            t.splat_rules
+                        );
+                    }
+                }
+                let w = weights(&t.splat_rules, height, 0.5);
+                assert_eq!(w[3], 0.0, "{biome:?}: snow on a cliff at height {height}");
+            }
+        }
+    }
+
+    /// #1784: a grassy biome's islands keep a shore of grass however high
+    /// their water stands - under the snow line - and a barren biome's few
+    /// metres of grass still drown.
+    #[test]
+    fn grass_keeps_a_shore_under_the_snow() {
+        for (biome, t) in every_band() {
+            let grass = t.splat_rules[0];
+            let snow = t.splat_rules[3].height_min;
+            assert!(
+                grass.height_max <= snow - GRASS_UNDER_SNOW + 1e-6,
+                "{biome:?}: {t:?}"
+            );
+            if biome_splat_profile(biome).grass_height_max >= GRASS_SHORE_BAND {
+                let shore = (t.water_level_fraction + 0.1).min(snow - GRASS_UNDER_SNOW);
+                assert!(
+                    grass.height_max >= shore - 1e-6,
+                    "{biome:?}: grass to {} over water at {}",
+                    grass.height_max,
+                    t.water_level_fraction
+                );
+            }
+        }
+    }
+
+    /// #1784: past dirt's slopes rock is the ground's largest layer over
+    /// grass and dirt, as it was where the tent semantics drew it - a
+    /// plateau tie would hand the steep faces to dirt, the lower layer, for
+    /// every reader of the largest layer - and over snow past snow's own
+    /// slopes.
+    #[test]
+    fn rock_is_the_largest_layer_on_steep_ground() {
+        for (biome, t) in every_band() {
+            let past = t.splat_rules[1].slope_max.max(t.splat_rules[0].slope_max) + 0.01;
+            for hi in 0..=50 {
+                let height = hi as f32 / 50.0;
+                for si in 0..=20 {
+                    let slope = past + (1.0 - past) * si as f32 / 20.0;
+                    let w = weights(&t.splat_rules, height, slope);
+                    // Snow holds as steep as its own band (and its skirt)
+                    // reaches above the snow line; past that, rock alone.
+                    let past_snow = slope > SNOW_SLOPE_MAX + 0.05;
+                    assert!(
+                        w[2] > w[0] && w[2] > w[1] && (!past_snow || w[2] > w[3]),
+                        "{biome:?}: height {height} slope {slope}: {w:?}"
+                    );
+                }
+            }
+        }
     }
 }
