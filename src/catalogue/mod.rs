@@ -115,7 +115,8 @@ pub enum StructureRole {
     /// [`Gateway`](Self::Gateway): the seeded wiring asks
     /// `entries_for(theme, Monument)` and falls back to the theme-agnostic
     /// `civic_monument`. Never part of the settlement Landmark/Secondary/
-    /// Prop pools.
+    /// Prop pools. The world's own banner on its standard (#1783,
+    /// `world_banner`) is one too, themeless, reached by its slug.
     Monument,
     /// A place for a craft (#1782) - a jetty, a helicopter's pad, an
     /// airship's mast, an airstrip's windsock, a track's tyres - that a
@@ -433,6 +434,15 @@ pub trait CatalogueEntry: Sync {
     /// that goes wherever its ground fits.
     fn site(&self) -> SitePreference {
         SitePreference::Anywhere
+    }
+
+    /// Whether this secondary building can lead a seeded settlement of its
+    /// theme as its landmark (#1783): a chapel's village, a market hall's
+    /// town, a watchtower on its crest, a boathouse's harbour - a building
+    /// a place is known for, beside the theme's own landmark, drawn where
+    /// its ground suits it. `false`, the default, for the rest.
+    fn leads(&self) -> bool {
+        false
     }
 
     /// The bound on the escalation ruin pass's lean for this entry (rad) -

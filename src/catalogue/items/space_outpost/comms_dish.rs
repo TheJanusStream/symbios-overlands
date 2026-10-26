@@ -34,6 +34,14 @@ impl CatalogueEntry for CommsDish {
     fn role(&self) -> StructureRole {
         StructureRole::Secondary
     }
+    /// Leads a settlement of its theme as its landmark (#1783).
+    fn leads(&self) -> bool {
+        true
+    }
+    /// High ground, as its kind is built on (#1783).
+    fn site(&self) -> crate::catalogue::SitePreference {
+        crate::catalogue::SitePreference::Crest
+    }
     fn themes(&self) -> &'static [ThemeArchetype] {
         &[ThemeArchetype::SpaceOutpost]
     }

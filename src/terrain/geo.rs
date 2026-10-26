@@ -1265,6 +1265,7 @@ pub(crate) mod tests {
             contact_effects: Default::default(),
             default_landing: None,
             geo_source: Some(GeoSource::berlin(museum_square())),
+            identity: None,
             opaque_refs: Default::default(),
         }
     }

@@ -186,6 +186,7 @@ pub mod contact_effects;
 pub mod generator;
 pub mod geo_source;
 pub mod grass;
+pub mod identity;
 pub mod instances;
 pub mod inventory;
 pub mod material_finish;
@@ -227,6 +228,7 @@ pub use generator::{
 };
 pub use geo_source::GeoSource;
 pub use grass::SovereignGrassConfig;
+pub use identity::{BannerDivision, BannerMark, WorldBanner, WorldIdentity};
 pub use instances::{GrammarParams, InstanceCopy, InstanceSolid, InstanceVariant};
 pub use inventory::{
     InventoryItemRecord, InventoryRecord, fetch_inventory_record, publish_inventory_record,

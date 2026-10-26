@@ -73,9 +73,11 @@ const VIEW_PER_RADIUS: f32 = 3.1;
 /// preferred first.
 const DISTANCE_STEPS: [f32; 5] = [1.0, 0.85, 1.2, 0.7, 1.4];
 
-/// The radius of the forecourt's ground (m): the landing, its gate and its
-/// monument ([`super::GatewaySpot::at_viewpoint`],
-/// [`super::MonumentSpot::at_viewpoint`]) and the room to stand about them.
+/// The radius of the forecourt's ground (m): the landing, its gate, its
+/// monument and its banner ([`super::GatewaySpot::at_viewpoint`],
+/// [`super::MonumentSpot::at_viewpoint`],
+/// [`super::MonumentSpot::banner_at_viewpoint`]) and the room to stand
+/// about them.
 pub const FORECOURT: f32 = 14.0;
 
 /// The radius of the spot the visitor is set down on (m).
@@ -649,20 +651,34 @@ mod tests {
         assert!(!view.frames(&ridged, [0.0, 0.0], 5.0), "behind a ridge");
     }
 
-    /// The forecourt (#1777), for every theme's own gate and monument: the
-    /// two stand either side of the view, their footprints outside its
-    /// corridor, inside the forecourt and clear of each other, each turned
-    /// to face the landing, and the landing looks along the view.
+    /// The forecourt (#1777), for every gate and monument of every theme's
+    /// pools (#1783): the two stand either side of the view, their
+    /// footprints outside its corridor, inside the forecourt and clear of
+    /// each other, each turned to face the landing, and the landing looks
+    /// along the view; the world's banner stands on the monument's side,
+    /// outside the corridor, inside the forecourt, clear of both and facing
+    /// the landing too.
     #[test]
     fn every_themes_gate_and_monument_flank_the_view() {
         use super::super::{GatewaySpot, MonumentSpot, gateway, monument};
+        let banner_clear = crate::catalogue::by_slug("world_banner")
+            .expect("the world's banner")
+            .footprint()
+            .clearance;
         for theme in crate::seeded_defaults::ThemeArchetype::ALL {
-            let (Some(gate), Some(stone)) = (
-                gateway::gateway_entry(theme),
-                monument::monument_entry(theme),
-            ) else {
-                continue;
-            };
+            for gate in gateway::gateway_pool(theme) {
+                for stone in monument::monument_pool(theme) {
+                    flank_the_view(theme, gate, stone, banner_clear);
+                }
+            }
+        }
+
+        fn flank_the_view(
+            theme: crate::seeded_defaults::ThemeArchetype,
+            gate: &'static dyn crate::catalogue::CatalogueEntry,
+            stone: &'static dyn crate::catalogue::CatalogueEntry,
+            banner_clear: f32,
+        ) {
             let (gate_clear, stone_clear) =
                 (gate.footprint().clearance, stone.footprint().clearance);
             for k in [0, 5, 13, 22] {
@@ -676,13 +692,18 @@ mod tests {
                 for side in [false, true] {
                     let gate = GatewaySpot::at_viewpoint(&view, gate_clear, side);
                     let stone = MonumentSpot::at_viewpoint(&view, stone_clear, side);
+                    let banner = MonumentSpot::banner_at_viewpoint(&view, banner_clear, side);
                     assert_eq!(gate.landing, view.landing);
                     assert_eq!(gate.landing_yaw_deg, view.yaw_deg());
                     let aside = |at: [f32; 2]| {
                         let (dx, dz) = (at[0] - view.landing[0], at[1] - view.landing[1]);
                         dx * view.toward[1] - dz * view.toward[0]
                     };
-                    let (g, s) = (aside(gate.offset), aside(stone.offset));
+                    let (g, s, b) = (
+                        aside(gate.offset),
+                        aside(stone.offset),
+                        aside(banner.offset),
+                    );
                     let tag = format!("{theme:?} bearing {k} side {side}");
                     assert!(
                         g.abs() >= CORRIDOR_HALF + gate_clear - 1e-3,
@@ -692,14 +713,23 @@ mod tests {
                         s.abs() >= CORRIDOR_HALF + stone_clear - 1e-3,
                         "{tag}: monument {s}"
                     );
-                    assert!(g * s < 0.0, "{tag}: both on one side");
                     assert!(
-                        distance(gate.offset, stone.offset) > gate_clear + stone_clear,
-                        "{tag}"
+                        b.abs() >= CORRIDOR_HALF + banner_clear - 1e-3,
+                        "{tag}: banner {b}"
                     );
+                    assert!(g * s < 0.0, "{tag}: both on one side");
+                    assert!(s * b > 0.0, "{tag}: the banner on the monument's side");
+                    for (a, a_clear, b, b_clear) in [
+                        (gate.offset, gate_clear, stone.offset, stone_clear),
+                        (gate.offset, gate_clear, banner.offset, banner_clear),
+                        (stone.offset, stone_clear, banner.offset, banner_clear),
+                    ] {
+                        assert!(distance(a, b) > a_clear + b_clear, "{tag}");
+                    }
                     for (at, clear, yaw) in [
                         (gate.offset, gate_clear, gate.yaw_rad),
                         (stone.offset, stone_clear, stone.yaw_rad),
+                        (banner.offset, banner_clear, banner.yaw_rad),
                     ] {
                         let off = distance(at, view.landing);
                         assert!(

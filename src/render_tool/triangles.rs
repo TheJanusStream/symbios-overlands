@@ -529,6 +529,7 @@ mod tests {
             contact_effects: Default::default(),
             default_landing: None,
             geo_source: None,
+            identity: None,
             opaque_refs: Default::default(),
         }
     }

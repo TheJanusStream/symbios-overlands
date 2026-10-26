@@ -91,8 +91,12 @@ pub fn clean_name(raw: &str, max_chars: usize) -> Option<String> {
         .collect();
     let trimmed: String = kept.trim().chars().take(max_chars).collect();
     // A trailing space left by the cut is trimmed again so the result is
-    // exactly what `validate_new_key` would have accepted.
-    let trimmed = trimmed.trim_end().to_owned();
+    // exactly what `validate_new_key` would have accepted - and a joiner the
+    // cut left last, whose second neighbour it cut away, so that a second
+    // pass keeps what the first did (#1783).
+    let trimmed = trimmed
+        .trim_end_matches(|c: char| c == '\u{200D}' || c.is_whitespace())
+        .to_owned();
     (!trimmed.is_empty()).then_some(trimmed)
 }
 
@@ -181,6 +185,18 @@ mod tests {
         assert!(has_invisible("Tree\u{200D}"));
         assert!(has_invisible("Tree\u{200B}"));
         assert!(!has_invisible("Tree"));
+    }
+
+    /// A name is its own clean form (#1783): a joiner the cut leaves last,
+    /// its second neighbour cut away, goes with the cut, so a second pass
+    /// keeps what the first did.
+    #[test]
+    fn a_clean_name_is_a_fixed_point_at_the_cut() {
+        let max = 8;
+        let joined = format!("{}\u{200D}\u{e9}xyz", "\u{e9}".repeat(max - 1));
+        let once = clean_name(&joined, max).expect("a name");
+        assert_eq!(clean_name(&once, max).as_deref(), Some(once.as_str()));
+        assert!(!once.ends_with('\u{200D}'), "{once:?}");
     }
 
     #[test]

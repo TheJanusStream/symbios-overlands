@@ -221,6 +221,7 @@ fn reference_as_sign_source(reference: &SovereignAssetReference) -> Option<SignS
             cid: cid.clone(),
         },
         SovereignAssetReference::DidPfp { did } => SignSource::DidPfp { did: did.clone() },
+        SovereignAssetReference::WorldBanner => SignSource::WorldBanner,
         SovereignAssetReference::Unknown => return None,
     })
 }

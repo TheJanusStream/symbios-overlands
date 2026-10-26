@@ -48,6 +48,7 @@ mod contact_effects;
 mod environment;
 pub(crate) mod generators;
 mod grass;
+mod identity;
 mod instances;
 mod lsystem;
 mod material;
@@ -1761,9 +1762,28 @@ pub fn room_admin_ui(
                                         record_mut.geo_source.as_ref().is_some_and(|source| {
                                             source.dataset == pds::geo_source::BERLIN
                                         });
+                                    // A name and banner suggested for the
+                                    // world's own land (#1783): its seed as
+                                    // the row last rolled it, a Berlin
+                                    // square's borough.
+                                    let suggestions = identity::Suggestions {
+                                        seed: reroll.start_seed(crate::seeded_defaults::fnv1a_64(
+                                            &room_did.0,
+                                        )),
+                                        berlin: record_mut
+                                            .geo_source
+                                            .as_ref()
+                                            .and_then(pds::GeoSource::berlin_square)
+                                            .and_then(|square| {
+                                                let (e, n) = square.centre();
+                                                geodata::berlin::Coverage::berlin().borough_at(e, n)
+                                            }),
+                                    };
                                     environment::draw_environment_tab(
                                         ui,
                                         &mut record_mut.environment,
+                                        &mut record_mut.identity,
+                                        suggestions,
                                         &mut record_mut.default_landing,
                                         &mut record_mut.geo_source,
                                         environment::BuiltGround {

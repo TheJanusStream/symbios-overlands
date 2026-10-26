@@ -133,6 +133,10 @@ impl CatalogueEntry for StaveChurch {
     fn role(&self) -> StructureRole {
         StructureRole::Secondary
     }
+    /// Leads a settlement of its theme as its landmark (#1783).
+    fn leads(&self) -> bool {
+        true
+    }
     /// The settlement's church - the established carved-timber register.
     /// The destitute end of the theme is the separate [`super::turf_house`].
     fn prosperity_band(&self) -> ProsperityBand {

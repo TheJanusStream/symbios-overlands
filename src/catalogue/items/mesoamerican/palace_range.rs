@@ -196,6 +196,10 @@ impl CatalogueEntry for PalaceRange {
     fn role(&self) -> StructureRole {
         StructureRole::Secondary
     }
+    /// Leads a settlement of its theme as its landmark (#1783).
+    fn leads(&self) -> bool {
+        true
+    }
     /// The dressed-stone city, not the farming settlement - the destitute end
     /// of the theme stays the [`adobe_hut`](super::adobe_hut) kit.
     fn prosperity_band(&self) -> ProsperityBand {

@@ -377,6 +377,8 @@ pub(super) struct BuiltGround<'a> {
 pub(super) fn draw_environment_tab(
     ui: &mut egui::Ui,
     env: &mut Environment,
+    identity: &mut Option<crate::pds::WorldIdentity>,
+    suggestions: super::identity::Suggestions,
     landing: &mut Option<DefaultLanding>,
     geo_source: &mut Option<GeoSource>,
     ground: BuiltGround<'_>,
@@ -387,6 +389,14 @@ pub(super) fn draw_environment_tab(
 ) {
     ui.heading("Environment");
     ui.add_space(4.0);
+
+    // The world's own name and banner (#1783), first: what it is called.
+    egui::CollapsingHeader::new(super::identity::header(identity.as_ref()))
+        .id_salt("name_and_banner")
+        .default_open(false)
+        .show(ui, |ui| {
+            super::identity::draw_identity(ui, identity, suggestions, dirty)
+        });
 
     egui::CollapsingHeader::new("Region source")
         .default_open(false)

@@ -139,6 +139,7 @@ pub(super) fn draw_sign_source(
         SignSource::Url { .. } => "URL",
         SignSource::AtprotoBlob { .. } => "ATProto blob",
         SignSource::DidPfp { .. } => "DID profile picture",
+        SignSource::WorldBanner => super::super::widgets::WORLD_BANNER,
         SignSource::Unknown => "Unknown",
     };
 
@@ -170,6 +171,17 @@ pub(super) fn draw_sign_source(
                     && !matches!(source, SignSource::DidPfp { .. })
                 {
                     *source = SignSource::DidPfp { did: String::new() };
+                    *dirty = true;
+                }
+                if ui
+                    .selectable_label(
+                        current == super::super::widgets::WORLD_BANNER,
+                        super::super::widgets::WORLD_BANNER,
+                    )
+                    .clicked()
+                    && !matches!(source, SignSource::WorldBanner)
+                {
+                    *source = SignSource::WorldBanner;
                     *dirty = true;
                 }
             });
@@ -242,6 +254,9 @@ pub(super) fn draw_sign_source(
                     *dirty = true;
                 }
             });
+        }
+        SignSource::WorldBanner => {
+            ui.weak(super::super::widgets::WORLD_BANNER_NOTE);
         }
         SignSource::Unknown => {
             super::super::widgets::unrecognised_value_line(ui, "source", None);

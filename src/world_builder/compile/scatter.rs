@@ -1785,6 +1785,7 @@ mod tests {
             contact_effects: Default::default(),
             default_landing: None,
             geo_source: None,
+            identity: None,
             opaque_refs: Default::default(),
         };
         assert!(tree_clearance(&record, "cover", Some(&berlin)).is_none());

@@ -358,6 +358,8 @@ pub struct AccountChip<'w, 's> {
     /// #1276 f46: the verified handle of the world's owner, so the chip can
     /// say whose world this is instead of printing a raw DID.
     world_names: Res<'w, crate::ui::travel::WorldNames>,
+    /// #1783: the world's own name, which the chip shows over whose it is.
+    record: Option<Res<'w, crate::state::LiveRoomRecord>>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -569,6 +571,24 @@ pub fn toolbar_ui(
                                 // unambiguous identifier for the world.
                                 ui.label(format!("Current world: {name}"))
                                     .on_hover_text(&room.0);
+                            }
+                            // The world's own name (#1783) under whose it is:
+                            // its owner's claim, on a line of its own, so the
+                            // line above keeps saying only what was verified.
+                            if let Some(identity) = chip
+                                .record
+                                .as_deref()
+                                .and_then(|record| record.0.identity.as_ref())
+                                .filter(|identity| !identity.name.is_empty())
+                            {
+                                ui.horizontal(|ui| {
+                                    crate::ui::world_title::banner_picture(
+                                        ui,
+                                        Some(&identity.banner),
+                                        12.0,
+                                    );
+                                    ui.label(format!("Called {}", identity.name));
+                                });
                             }
                             let player_tf = chip.local_player.single().ok().copied();
                             if crate::ui::diagnostics::landmark_link_button(

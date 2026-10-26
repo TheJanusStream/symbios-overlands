@@ -28,6 +28,10 @@ impl CatalogueEntry for Boathouse {
     fn role(&self) -> StructureRole {
         StructureRole::Secondary
     }
+    /// Leads a settlement of its theme as its landmark (#1783).
+    fn leads(&self) -> bool {
+        true
+    }
     fn serves(&self) -> Option<crate::catalogue::Craft> {
         Some(crate::catalogue::Craft::Boat)
     }

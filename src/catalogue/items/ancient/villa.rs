@@ -49,6 +49,10 @@ impl CatalogueEntry for Villa {
     fn role(&self) -> StructureRole {
         StructureRole::Secondary
     }
+    /// Leads a settlement of its theme as its landmark (#1783).
+    fn leads(&self) -> bool {
+        true
+    }
     /// An affluent residence - the prosperous end of the kit.
     fn prosperity_band(&self) -> ProsperityBand {
         ProsperityBand::only(ProsperityTier::Rich)

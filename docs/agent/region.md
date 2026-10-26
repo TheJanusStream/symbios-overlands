@@ -5,10 +5,11 @@ A world's own settings live in its record beside the things placed in it:
 `/environment` (sun, sky, fog, clouds, the water's look, the ambient sound,
 the time of day and the weather),
 `/default_landing` (where and which way visitors arrive, how far down their
-camera looks and whether they are kept out of water) and `/geo_source`
-(a square of real Berlin the ground is built from - see "Real Berlin
-ground" below). All of it is edited with `room set` and kept with `save`,
-like a building.
+camera looks and whether they are kept out of water), `/identity` (the
+world's own name and banner - see "A name and a banner" below) and
+`/geo_source` (a square of real Berlin the ground is built from - see "Real
+Berlin ground" below). All of it is edited with `room set` and kept with
+`save`, like a building.
 
 ## Clearing a seeded world
 
@@ -44,7 +45,8 @@ settlement's edge, farther from its landmark the taller it is - 30 m or so
 for a hovel, 150 for a tower, a median 43 - on level, dry ground, looking at
 it across a view the probe found clear, nothing of the settlement nor any
 tree standing in it. The gate and the owner's monument stand either side of
-the view a few metres ahead, facing the landing. `/default_landing` there
+the view a few metres ahead, facing the landing, and the world's banner
+past the monument. `/default_landing` there
 carries `pitch_deg`, how far below level the arrival camera looks (its rest
 is about 23; a tall landmark asks for less, so its top stands in the first
 frame), and `avoid_water: true`: where the finished ground puts the landing
@@ -55,6 +57,28 @@ its view clear of trees, only while it looks at its landmark. The settlement
 is drawn four ways and the best kept (#1778): the one whose viewpoint scores
 best, whose landmark fills more of the first frame, and whose first frame
 shows more of its other buildings, on ground that fits them best.
+
+Its landmark is its theme's own for its prosperity - a rich medieval
+world's castle, a poor one's hovel - or, above the poor, one of the
+theme's buildings that can lead a settlement (#1783): a chapel's village,
+a market hall's town, a watchtower on its crest, a stave church, a
+boathouse's harbour, a windmill, a clock tower - about two a theme. The
+land is read before the draw: a building that belongs on a crest, a shore
+or a valley floor is drawn more often where the land near the arrival has
+one, a leader whose ground is not there is not drawn at all, and one the
+siting would not stand on such ground - a crest too far out to be worth
+the walk - gives way to the theme's own landmark: no watchtower without a
+crest, no boathouse without a shore. A building that leads stands once in
+a world: never again in a hamlet or as another island's landmark. A rich world
+draws its own landmark most often, a modest one about as often as its
+leaders together; about one world in four above the poor is led by
+another building than its theme's landmark. Its gate and its monument are
+drawn from small pools (#1783): the theme's own two times in three, else
+one of a kindred theme that reads right there - a castle gatehouse in a
+gothic or a fantasy world, a ranch gate by a roadside, the classical
+portico in a campus or a city world, the gallows banner in a gothic one.
+A Berlin square, which has no settlement, keeps its theme's own gate and
+monument.
 
 ## The land is a recipe, not a sculpt
 
@@ -477,6 +501,52 @@ In a calm world (escalation's bottom third) its grammar houses' chimneys
 and stacks smoke, most of them: particle emitters on the house's generator,
 over each chimney its rules draw at its placement's seed. The catalogue's
 houses with a hearth carry their smoke already, in every world.
+
+## A name and a banner
+
+A world may have a name and a banner of its own (#1783), `/identity`:
+`{name, banner: {field, second, division, mark}}`. The name is at most 32
+characters; it may not start with `@` (that is how handles are written),
+is never a DID, and cannot read as a handle - a full stop run straight
+into a letter gets a space after it, so `alice.bsky.social` stands as
+`alice. bsky. social` - and characters that draw as nothing are dropped
+first, so none can hide an `@`. It is shown as a visitor arrives, for a
+few seconds at the top of the screen over whose world it is, and in the
+account menu under the line saying whose world it is - always with its
+owner's verified handle, never instead of it: the portal prompt and the
+travel card name the owner alone. The banner's `field` and
+`second` are sRGB colours, 0 to 1 a channel (scaled by 10 000 on the wire,
+as every number is); `division` is one of
+`network.symbios.banner.division.{plain, per_pale, per_fess, per_bend,
+quarterly, per_chevron}` and `mark` one of
+`network.symbios.banner.mark.{none, star, crescent, sun, roundel, lozenge,
+cross, saltire, tower, tree, peaks, waves}`, each written as
+`{"$type": "..."}`. The mark is drawn in the other colour of wherever it
+lies: on a plain field the second colour, on a divided one changing
+across the line. A world without `/identity` has neither, and is shown as
+its owner's.
+
+A world seeded on its own ground has both, drawn from its seed: a place
+name of its kind - a descriptor of its land or its theme joined to a
+place-word of its landform (Frostmere, Saltholm, Brasshaven), two words in
+a modern world (Maple Heights), a district in a cyberpunk one (Chrome
+Quarter), a station on a star for an outpost (Vega Station), a word of no
+human tongue for an alien world (Xyrrath) - and a banner of one light
+colour and one dark, its mark most often its land's: waves by the sea,
+peaks in the mountains, a tree in a forest, a sun in the desert. Where it
+arrives at a viewpoint - nearly every such world - the banner flies on a
+standard there (`world_banner`): across the view from the gate, past the
+monument. A Berlin square is named for its borough and has
+a banner but no standard. A re-roll draws a new name and banner with the
+rest of the world (undo brings the old one back).
+
+Anything that shows an image can show the banner: a sign or a texture
+whose source is `{"$type": "network.symbios.sign.world_banner"}` ("This
+world's banner" in the World Editor) shows the banner of the world it
+stands in, and every one recolours the moment the banner changes,
+rebuilding nothing; in a world without one it is undyed linen. The
+standard is a catalogue entry too (`world_banner`, under Buildings:
+Cross-theme, Monument). In the World Editor: Environment, Name and banner.
 
 ## Water, sky and light
 

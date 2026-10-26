@@ -31,6 +31,10 @@ impl CatalogueEntry for Watchtower {
     fn role(&self) -> StructureRole {
         StructureRole::Secondary
     }
+    /// Leads a settlement of its theme as its landmark (#1783).
+    fn leads(&self) -> bool {
+        true
+    }
     fn prosperity_band(&self) -> ProsperityBand {
         ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich)
     }

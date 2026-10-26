@@ -86,6 +86,9 @@ pub const MAX_SCATTER_COUNT: u32 = 100_000;
 /// [`crate::config::state::MAX_INVENTORY_NAME_CHARS`] so the two cannot
 /// drift.
 pub const MAX_GENERATOR_NAME_CHARS: usize = crate::config::state::MAX_INVENTORY_NAME_CHARS;
+/// A world's name, in characters (#1783): a place name, which a banner or
+/// the account chip shows beside its owner's handle.
+pub const MAX_WORLD_NAME_CHARS: usize = 32;
 /// Road lot theme label length in bytes (#892); cut on a char boundary.
 pub const MAX_LOT_THEME_OVERRIDE_BYTES: usize = 64;
 /// L-system derivation iterations. 12 is already enough to blow out most

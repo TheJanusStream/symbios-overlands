@@ -627,6 +627,34 @@ pub(super) fn caps_line(ui: &mut egui::Ui, caps: &str) {
     );
 }
 
+/// Why a source a record already holds loads nothing in a slot of `class`
+/// (#1251 f344, #1783): `what` is an image this slot does not draw - a
+/// sound's slot, or a ground layer, which loads an address or a blob alone.
+fn not_loaded_here(ui: &mut egui::Ui, class: ReferenceClass, what: &str) {
+    let why = match class {
+        ReferenceClass::Audio => format!(
+            "{what} is an image - this slot plays sound, so nothing will be loaded. Pick \
+             another source above."
+        ),
+        ReferenceClass::Ground | ReferenceClass::Texture => format!(
+            "The ground loads an image from an address or a blob only - {} shows nothing \
+             here. Pick another source above.",
+            what.to_lowercase()
+        ),
+    };
+    ui.label(
+        egui::RichText::new(why)
+            .small()
+            .color(crate::ui::theme::current(ui.ctx()).status.warn),
+    );
+}
+
+/// The source that shows the world's own banner (#1783), as the pickers
+/// name it.
+pub(crate) const WORLD_BANNER: &str = "This world's banner";
+/// What a slot showing it says under the picker.
+pub(crate) const WORLD_BANNER_NOTE: &str =
+    "Shows the banner of the world it stands in - set under Environment, Name and banner.";
 /// Sub-source picker + per-variant editor for a [`SovereignAssetReference`].
 ///
 /// Shared by the texture-bridge dropdown (when "Referenced" is selected)
@@ -662,7 +690,7 @@ pub(super) fn draw_asset_reference_editor(
             // them in via the body editor below. Switching variants resets
             // the payload because the strings of one variant are not the
             // strings of another (a URL is not a DID, etc).
-            let presets: [(&'static str, SovereignAssetReference); 3] = [
+            let presets: [(&'static str, SovereignAssetReference); 4] = [
                 ("URL", SovereignAssetReference::Url { url: String::new() }),
                 (
                     "ATProto Blob (DID + CID)",
@@ -675,9 +703,15 @@ pub(super) fn draw_asset_reference_editor(
                     "DID Profile Picture",
                     SovereignAssetReference::DidPfp { did: String::new() },
                 ),
+                (WORLD_BANNER, SovereignAssetReference::WorldBanner),
             ];
             for (label, preset) in presets {
-                if matches!(preset, SovereignAssetReference::DidPfp { .. }) && !allow_did_pfp {
+                // Images both (#1783): neither is a sound.
+                if matches!(
+                    preset,
+                    SovereignAssetReference::DidPfp { .. } | SovereignAssetReference::WorldBanner
+                ) && !allow_did_pfp
+                {
                     continue;
                 }
                 // Variant-tag comparison: same discriminant → already selected.
@@ -713,7 +747,7 @@ pub(super) fn draw_asset_reference_editor(
             caps_line(
                 ui,
                 &match class {
-                    ReferenceClass::Texture => {
+                    ReferenceClass::Texture | ReferenceClass::Ground => {
                         crate::world_builder::asset_failure::image_source_caps()
                     }
                     ReferenceClass::Audio => crate::world_builder::asset_failure::audio_clip_caps(),
@@ -745,14 +779,13 @@ pub(super) fn draw_asset_reference_editor(
             // carry it, so the one slot that can still be holding it says so
             // rather than staying silently mute.
             if !allow_did_pfp {
-                ui.label(
-                    egui::RichText::new(
-                        "A profile picture is an image - this slot plays sound, \
-                         so nothing will be loaded. Pick another source above.",
-                    )
-                    .small()
-                    .color(crate::ui::theme::current(ui.ctx()).status.warn),
-                );
+                not_loaded_here(ui, class, "A profile picture");
+            }
+        }
+        SovereignAssetReference::WorldBanner => {
+            ui.weak(WORLD_BANNER_NOTE);
+            if !allow_did_pfp {
+                not_loaded_here(ui, class, "This world's banner");
             }
         }
         SovereignAssetReference::Unknown => {
@@ -769,6 +802,8 @@ pub(super) fn draw_asset_reference_editor(
             assets.texture_reference(value),
             super::assets::AssetPanel::texture_retry(value),
         ),
+        // The ground's layer panel says how its image did.
+        ReferenceClass::Ground => (None, None),
         ReferenceClass::Audio => (
             assets.audio_reference(value),
             super::assets::AssetPanel::audio_retry(value),
@@ -789,6 +824,10 @@ pub(super) fn draw_asset_reference_editor(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ReferenceClass {
     Texture,
+    /// A terrain ground layer's image (#1783), loaded by the ground itself
+    /// from an address or a blob alone - no profile picture, no banner - and
+    /// told about by its own panel.
+    Ground,
     Audio,
 }
 

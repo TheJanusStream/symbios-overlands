@@ -24,6 +24,8 @@
 //!   Self-updating: a refresh between sessions picks up a new pfp without
 //!   changing the record. Image-only - the audio bridge UI should hide
 //!   this variant from its sub-picker since a JPEG isn't an audio source.
+//! * [`WorldBanner`](SovereignAssetReference::WorldBanner) - the banner of
+//!   the world it is shown in (#1783), drawn from its record, never fetched.
 //! * [`Unknown`](SovereignAssetReference::Unknown) - forward-compat seam.
 //!   A record authored by a newer engine version round-trips intact
 //!   through older clients.
@@ -72,6 +74,13 @@ pub enum SovereignAssetReference {
     /// Image-only. Audio consumers should treat this as `Unknown`.
     #[serde(rename = "network.symbios.sign.did_pfp")]
     DidPfp { did: String },
+    /// "This world's banner" (#1783) - the banner of the world it is shown
+    /// in, drawn from that world's record ([`crate::banner`]) rather than
+    /// fetched, so an owner's change to it recolours every one at once; a
+    /// world with no banner of its own flies undyed linen. Image-only, and
+    /// local: it names no host and discloses nothing.
+    #[serde(rename = "network.symbios.sign.world_banner")]
+    WorldBanner,
 
     #[serde(other, skip_serializing)]
     Unknown,
@@ -91,6 +100,7 @@ impl SovereignAssetReference {
             Self::Url { .. } => "URL",
             Self::AtprotoBlob { .. } => "ATProto Blob (DID + CID)",
             Self::DidPfp { .. } => "DID Profile Picture",
+            Self::WorldBanner => "This world's banner",
             Self::Unknown => "Unknown",
         }
     }

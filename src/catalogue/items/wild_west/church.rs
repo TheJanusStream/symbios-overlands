@@ -40,6 +40,10 @@ impl CatalogueEntry for Church {
     fn role(&self) -> StructureRole {
         StructureRole::Secondary
     }
+    /// Leads a settlement of its theme as its landmark (#1783).
+    fn leads(&self) -> bool {
+        true
+    }
     fn themes(&self) -> &'static [ThemeArchetype] {
         &[ThemeArchetype::WildWest]
     }

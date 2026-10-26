@@ -30,7 +30,8 @@ impl Sanitize for SignSource {
             SignSource::DidPfp { did } => {
                 truncate_on_char_boundary(did, limits::MAX_SIGN_DID_BYTES);
             }
-            SignSource::Unknown => {}
+            // This world's banner (#1783): nothing to bound.
+            SignSource::WorldBanner | SignSource::Unknown => {}
         }
     }
 }

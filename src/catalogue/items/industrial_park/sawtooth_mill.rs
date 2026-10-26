@@ -86,6 +86,10 @@ impl CatalogueEntry for SawtoothMill {
     fn role(&self) -> StructureRole {
         StructureRole::Secondary
     }
+    /// Leads a settlement of its theme as its landmark (#1783).
+    fn leads(&self) -> bool {
+        true
+    }
     /// The working estate's production hall - the established register.
     /// The derelict end of the theme is the separate [`super::derelict_shed`].
     fn prosperity_band(&self) -> ProsperityBand {

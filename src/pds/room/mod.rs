@@ -706,6 +706,12 @@ pub struct RoomRecord {
     /// was before it, so those records round-trip byte for byte.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub geo_source: Option<crate::pds::GeoSource>,
+    /// The world's own name and banner (#1783), shown beside its owner's
+    /// verified handle, never in its place. `None` - elided on the wire - is
+    /// a world without one, shown as its owner's, as every record was before
+    /// it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity: Option<crate::pds::WorldIdentity>,
     /// Manifest refs (name → child rkey) whose child record was **listed on
     /// the PDS but could not be decoded by this build** (#1175).
     ///
@@ -815,6 +821,11 @@ impl RoomRecord {
             && !source.sanitize()
         {
             self.geo_source = None;
+        }
+        // The world's name and banner (#1783): a name that is no handle, and
+        // colours in range.
+        if let Some(identity) = &mut self.identity {
+            identity.sanitize();
         }
         // Clean generator names before anything keyed by them is read:
         // cut to the shared length cap and stripped of invisible

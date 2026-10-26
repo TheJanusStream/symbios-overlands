@@ -30,6 +30,8 @@ mod fx;
 // Cross-theme fallback gateway (a Gateway, not a socio-political prop).
 pub mod gateway;
 pub mod monument;
+// The world's own banner on a standard (#1783), an identity monument too.
+pub mod world_banner;
 // Prosperity Poor.
 pub mod barrel_fire;
 pub mod laundry_line;

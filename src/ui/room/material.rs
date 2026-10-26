@@ -64,7 +64,7 @@ pub(super) fn draw_material_forge(
         egui::CollapsingHeader::new(format!("{} texture", label))
             .default_open(false)
             .show(ui, |ui| {
-                draw_texture_bridge(
+                draw_ground_texture_bridge(
                     ui,
                     &mut mat.layers[i],
                     &format!("terrain_layer_{}", i),
@@ -229,6 +229,49 @@ pub(super) fn draw_texture_bridge_opts(
     salt: &str,
     dirty: &mut bool,
     allow_referenced: bool,
+    assets: &mut super::assets::AssetPanel<'_>,
+) {
+    draw_texture_bridge_in(
+        ui,
+        texture,
+        salt,
+        dirty,
+        allow_referenced,
+        super::widgets::ReferenceClass::Texture,
+        assets,
+    );
+}
+
+/// [`draw_texture_bridge`] for a terrain ground layer (#1783): its
+/// `Referenced` image is loaded by the ground itself, from an address or a
+/// blob only ([`super::widgets::ReferenceClass::Ground`]).
+pub(super) fn draw_ground_texture_bridge(
+    ui: &mut egui::Ui,
+    texture: &mut SovereignTextureConfig,
+    salt: &str,
+    dirty: &mut bool,
+    assets: &mut super::assets::AssetPanel<'_>,
+) {
+    draw_texture_bridge_in(
+        ui,
+        texture,
+        salt,
+        dirty,
+        true,
+        super::widgets::ReferenceClass::Ground,
+        assets,
+    );
+}
+
+/// The body of the texture bridges: `class` is who loads a `Referenced`
+/// image in this slot.
+fn draw_texture_bridge_in(
+    ui: &mut egui::Ui,
+    texture: &mut SovereignTextureConfig,
+    salt: &str,
+    dirty: &mut bool,
+    allow_referenced: bool,
+    class: super::widgets::ReferenceClass,
     assets: &mut super::assets::AssetPanel<'_>,
 ) {
     // The list is 59 entries in a box egui scrolls at ~200 px, so about ten
@@ -484,14 +527,7 @@ pub(super) fn draw_texture_bridge_opts(
                 .small()
                 .color(crate::ui::theme::current(ui.ctx()).text_weak),
             );
-            super::widgets::draw_asset_reference_editor(
-                ui,
-                source,
-                salt,
-                dirty,
-                super::widgets::ReferenceClass::Texture,
-                assets,
-            );
+            super::widgets::draw_asset_reference_editor(ui, source, salt, dirty, class, assets);
         }
         SovereignTextureConfig::Leaf(c) => run!(
             c,

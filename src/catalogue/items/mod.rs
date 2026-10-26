@@ -602,6 +602,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &ancient::monument::AncientMonument,
     &civic::gateway::CivicGateway,
     &civic::monument::CivicMonument,
+    &civic::world_banner::WorldBanner,
     &civic_campus::gateway::CivicCampusGateway,
     &civic_campus::monument::CivicCampusMonument,
     &coastal_resort::gateway::CoastalResortGateway,

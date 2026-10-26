@@ -209,6 +209,8 @@ pub fn register_headless_spawn(app: &mut App) {
     // the render tool steps that clock by hand, so a clip's frame `k` shows
     // every spinner at `k / fps` seconds on every run.
     spin::register(app, spin::SpinClock::Scene);
+    // The world's banner (#1783), so a render shows it as the game does.
+    crate::banner::register(app);
 }
 
 /// Register the room-compile systems themselves - the half of
@@ -636,6 +638,8 @@ impl Plugin for WorldBuilderPlugin {
         // windmill's sails at the same angle. Not state-gated - the attract
         // backdrop and the avatar previews turn their parts as well.
         spin::register(app, spin::SpinClock::utc());
+        // The world's banner (#1783), drawn for every sign that shows it.
+        crate::banner::register(app);
     }
 }
 

@@ -154,6 +154,7 @@ mod tests {
             contact_effects: ContactEffects::default(),
             default_landing: None,
             geo_source: None,
+            identity: None,
             opaque_refs: Default::default(),
         }
     }

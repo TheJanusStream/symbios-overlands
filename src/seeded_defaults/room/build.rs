@@ -647,42 +647,46 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
     // below), worked out before the settlement is: its paths keep off both.
     let viewpoint = settlement_plan.viewpoint.filter(|_| berlin.is_none());
     let gate_side = crate::seeded_defaults::room::monument::gate_side(did);
-    let gateway = crate::seeded_defaults::room::gateway::gateway_entry(scene.theme).map(|entry| {
-        let gate_clearance = entry.footprint().clearance;
-        let primary_landmark = settlement_plan.primary_landmark();
-        let spot = match berlin {
-            None => match &viewpoint {
-                Some(viewpoint) => crate::seeded_defaults::GatewaySpot::at_viewpoint(
-                    viewpoint,
-                    gate_clearance,
-                    gate_side,
-                ),
-                None => crate::seeded_defaults::GatewaySpot::for_landmark(
-                    primary_landmark.offset,
-                    primary_landmark.clearance,
-                    gate_clearance,
-                ),
-            },
-            // On the bearing the landmark would have stood on, as it stood
-            // before its ground was read (#1773), north where it stands on
-            // the origin.
-            Some(_) => {
-                let [x, z] = settlement_plan.unfitted_landmark;
-                let length = x.hypot(z);
-                let bearing = if length > 1e-3 {
-                    [x / length, z / length]
-                } else {
-                    [0.0, -1.0]
-                };
-                crate::seeded_defaults::GatewaySpot::at_centre(bearing, gate_clearance)
-            }
-        };
-        (entry, spot)
-    });
+    // Drawn from the world's seed among its theme's own and its kindred
+    // themes' (#1783); a Berlin square's its own, as its fixture pins it.
+    let pool_seed = berlin.is_none().then_some(did_seed);
+    let gateway =
+        crate::seeded_defaults::room::gateway::gateway_entry(scene.theme, pool_seed).map(|entry| {
+            let gate_clearance = entry.footprint().clearance;
+            let primary_landmark = settlement_plan.primary_landmark();
+            let spot = match berlin {
+                None => match &viewpoint {
+                    Some(viewpoint) => crate::seeded_defaults::GatewaySpot::at_viewpoint(
+                        viewpoint,
+                        gate_clearance,
+                        gate_side,
+                    ),
+                    None => crate::seeded_defaults::GatewaySpot::for_landmark(
+                        primary_landmark.offset,
+                        primary_landmark.clearance,
+                        gate_clearance,
+                    ),
+                },
+                // On the bearing the landmark would have stood on, as it stood
+                // before its ground was read (#1773), north where it stands on
+                // the origin.
+                Some(_) => {
+                    let [x, z] = settlement_plan.unfitted_landmark;
+                    let length = x.hypot(z);
+                    let bearing = if length > 1e-3 {
+                        [x / length, z / length]
+                    } else {
+                        [0.0, -1.0]
+                    };
+                    crate::seeded_defaults::GatewaySpot::at_centre(bearing, gate_clearance)
+                }
+            };
+            (entry, spot)
+        });
     // The monument stands beside the gate, so a world without one goes
     // without (see the wiring below).
     let monument = gateway.as_ref().and_then(|(gate_entry, spot)| {
-        let entry = crate::seeded_defaults::room::monument::monument_entry(scene.theme)?;
+        let entry = crate::seeded_defaults::room::monument::monument_entry(scene.theme, pool_seed)?;
         let clearance = entry.footprint().clearance;
         let mspot = match &viewpoint {
             Some(viewpoint) => {
@@ -698,6 +702,21 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
         Some((entry, mspot))
     });
 
+    // The world's banner on its standard (#1783), at a viewpoint only: across
+    // the view from the gate, past the monument. A Berlin square has none -
+    // its placements are pinned - though it has a banner to fly.
+    let banner = match (&viewpoint, &gateway) {
+        (Some(viewpoint), Some(_)) => crate::catalogue::by_slug("world_banner").map(|entry| {
+            let spot = crate::seeded_defaults::MonumentSpot::banner_at_viewpoint(
+                viewpoint,
+                entry.footprint().clearance,
+                gate_side,
+            );
+            (entry, spot)
+        }),
+        _ => None,
+    };
+
     // The settlement's paths (#1779): routed on the probe from a
     // viewpoint's landing down the view to the landmark, across to the
     // gate and on to every building, which turns each to front onto its
@@ -709,6 +728,7 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
             (Some(viewpoint), Some((entry, spot))) => {
                 let mut forecourt: Vec<([f32; 2], f32)> = monument
                     .iter()
+                    .chain(&banner)
                     .map(|(entry, mspot)| (mspot.offset, entry.footprint().clearance))
                     .collect();
                 let gate = (spot.offset, entry.footprint().clearance);
@@ -959,6 +979,33 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
                 params: Default::default(),
             });
         }
+        // The world's banner (#1783), flown from its standard: socio finish
+        // for its frame, which leaves the cloth's colours alone (a sign's
+        // tint is not weathered, #977).
+        if let Some((entry, spot)) = banner {
+            let clearance = entry.footprint().clearance;
+            let mut standard = entry.build(did);
+            crate::pds::material_finish::apply_socio_finish(
+                &mut standard,
+                scene.prosperity,
+                scene.escalation,
+            );
+            generators.insert("world_banner".to_string(), standard);
+            let half_yaw = spot.yaw_rad * 0.5;
+            placements.push(Placement::Absolute {
+                generator_ref: "world_banner".to_string(),
+                transform: TransformData {
+                    translation: Fp3([spot.offset[0], -0.35, spot.offset[1]]),
+                    rotation: Fp4([0.0, libm::sinf(half_yaw), 0.0, libm::cosf(half_yaw)]),
+                    scale: Fp3([1.0, 1.0, 1.0]),
+                },
+                snap_to_terrain: true,
+                avoid_water: true,
+                avoid_water_clearance: Fp(clearance),
+                seed: None,
+                params: Default::default(),
+            });
+        }
     }
 
     // The world's signature feature (#1781), chosen with the paths above: a
@@ -1146,6 +1193,15 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
         contact_effects: ContactEffects::default(),
         default_landing,
         geo_source: berlin.map(crate::pds::GeoSource::berlin),
+        // Its name and banner (#1783): a Berlin square named for its borough.
+        identity: Some(crate::seeded_defaults::room::identity::derive(
+            &scene,
+            did_seed,
+            berlin.and_then(|square| {
+                let (e, n) = square.centre();
+                geodata::berlin::Coverage::berlin().borough_at(e, n)
+            }),
+        )),
         opaque_refs: std::collections::BTreeMap::new(),
     };
     // The world as every peer reads it back once it is saved (#1704):
@@ -2188,10 +2244,10 @@ mod tests {
         );
     }
 
-    /// #1463 across seeded worlds: every settlement member, the gate and the
-    /// monument are placed at unit scale, and no two of their footprints -
-    /// each at the size it is drawn - overlap. Drawing members at their
-    /// scale with the old, unscaled spacing overlapped 161 pairs in 300
+    /// #1463 across seeded worlds: every settlement member, the gate, the
+    /// monument and the banner are placed at unit scale, and no two of their
+    /// footprints - each at the size it is drawn - overlap. Drawing members
+    /// at their scale with the old, unscaled spacing overlapped 161 pairs in 300
     /// worlds, a landmark up to 17 m over its own gate.
     #[test]
     fn seeded_settlements_stand_clear_at_the_size_they_are_drawn() {
@@ -2210,7 +2266,8 @@ mod tests {
                     } if generator_ref.starts_with("landmark")
                         || generator_ref.starts_with("settlement_")
                         || generator_ref == "social_gateway"
-                        || generator_ref == "owner_monument" =>
+                        || generator_ref == "owner_monument"
+                        || generator_ref == "world_banner" =>
                     {
                         assert_eq!(transform.scale.0, [1.0; 3], "seed {seed}: {generator_ref}");
                         let prop = generator_ref.starts_with("settlement_prop_");

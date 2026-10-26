@@ -72,6 +72,7 @@ pub mod attract;
 pub mod audio_materials;
 pub mod audio_mute;
 pub mod avatar;
+pub mod banner;
 pub mod boot_params;
 pub mod camera;
 pub mod catalogue;
@@ -752,6 +753,8 @@ pub(crate) fn build_client_app(app: &mut App, boot: boot_params::BootParams, she
                 // running after the toolbar carves the top strip.
                 ui::travel::travel_overlay_ui,
                 ui::travel::portal_prompt_ui,
+                // The world's name and banner as a visitor arrives (#1783).
+                ui::world_title::world_title_ui,
                 // Clipboard writes report their outcome asynchronously on
                 // wasm (#1141), so the toast for a copy is raised here -
                 // after every window that could have started one, and

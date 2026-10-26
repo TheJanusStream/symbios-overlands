@@ -118,6 +118,7 @@ pub mod toolbar;
 pub mod travel;
 pub mod undo;
 pub mod unsaved_guard;
+pub mod world_title;
 
 #[cfg(test)]
 mod tests {

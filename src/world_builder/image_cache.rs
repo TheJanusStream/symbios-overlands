@@ -347,6 +347,13 @@ pub struct BlobImageCache {
     /// where the decision is made, because the decision is made inside the
     /// world compiler's unit builders, which have no `SystemParam` list.
     allow_external: bool,
+    /// The world's banner (#1783), drawn by [`crate::banner`]: what every
+    /// [`SignSource::WorldBanner`] request paints, never fetched. Handed in
+    /// once, when the image exists ([`Self::set_world_banner`]); a request
+    /// before then waits in `banner_waiting`. Kept across [`Self::clear`] -
+    /// it is no fetch, and it is redrawn in place for the next world.
+    world_banner: Option<Handle<Image>>,
+    banner_waiting: Vec<PaintTarget>,
 }
 
 /// Manual, because `allow_external` must default to TRUE (#1248 f298).
@@ -363,6 +370,8 @@ impl Default for BlobImageCache {
             decoded_bytes: 0,
             now: 0.0,
             allow_external: true,
+            world_banner: None,
+            banner_waiting: Vec::new(),
         }
     }
 }
@@ -372,6 +381,26 @@ impl BlobImageCache {
         self.by_source.clear();
         self.insert_order.clear();
         self.decoded_bytes = 0;
+        self.banner_waiting.clear();
+    }
+
+    /// The world's banner image, once [`crate::banner`] has handed it in.
+    pub fn world_banner(&self) -> Option<&Handle<Image>> {
+        self.world_banner.as_ref()
+    }
+
+    /// Hand in the world's banner image (#1783), and paint it on every
+    /// material that asked for it before it existed.
+    pub fn set_world_banner(
+        &mut self,
+        image: Handle<Image>,
+        standard: &mut Assets<StandardMaterial>,
+        weathered: &mut Assets<WeatheredMaterial>,
+    ) {
+        for target in self.banner_waiting.drain(..) {
+            target.paint(standard, weathered, &image);
+        }
+        self.world_banner = Some(image);
     }
 
     /// Decoded bytes currently held across all `Ready` entries.
@@ -551,6 +580,14 @@ pub fn request_blob_image_filtered(
     source: &SignSource,
     filter: SamplerFilter,
 ) {
+    // This world's banner (#1783): drawn here, never fetched.
+    if matches!(source, SignSource::WorldBanner) {
+        match &cache.world_banner {
+            Some(image) => into.paint(image.clone()),
+            None => cache.banner_waiting.push(into.target()),
+        }
+        return;
+    }
     let Some(source_key) = SignSourceKey::from_source(source) else {
         return;
     };

@@ -48,6 +48,14 @@ const PROMINENCE_RING: f32 = 60.0;
 /// beyond it every site is as far from the shore as any other (#1775).
 const SHORE_REACH: f32 = 200.0;
 
+/// How far a site stands over its ring to be a crest a settlement is drawn
+/// to lead from (m, #1783) - and under it, a valley floor.
+const OFFERED_RISE: f32 = 6.0;
+
+/// How near the water a site lies to be a shore a settlement is drawn to
+/// lead from (m, #1783).
+const OFFERED_SHORE: f32 = 60.0;
+
 /// One connected buildable region of the proxy grid.
 #[derive(Clone, Debug)]
 pub struct BuildableRegion {
@@ -554,6 +562,45 @@ impl TerrainProbe {
             SitePreference::Crest => self.prominence(at),
             SitePreference::ValleyFloor => -self.prominence(at),
             SitePreference::Shore => -self.shore_distance(at).min(SHORE_REACH),
+        }
+    }
+
+    /// Whether `region` offers a site of `prefer` within `reach` of `from`
+    /// (#1783): a crest standing [`OFFERED_RISE`] over its ring, a valley
+    /// floor as far under it, the shore within [`OFFERED_SHORE`] of the
+    /// water - anywhere always. What a settlement's landmark is drawn by.
+    pub fn offers(
+        &self,
+        region: &BuildableRegion,
+        prefer: crate::catalogue::SitePreference,
+        from: [f32; 2],
+        reach: f32,
+    ) -> bool {
+        use crate::catalogue::SitePreference;
+        if prefer == SitePreference::Anywhere {
+            return true;
+        }
+        region
+            .cells
+            .iter()
+            .map(|&c| self.cell_world(c))
+            .filter(|at| {
+                let (dx, dz) = (at[0] - from[0], at[1] - from[1]);
+                dx * dx + dz * dz <= reach * reach
+            })
+            .any(|at| self.suits(prefer, at))
+    }
+
+    /// Whether `at` is a site of `prefer` as [`Self::offers`] reads one
+    /// (#1783): a crest, a valley floor or a shore by its measure, and any
+    /// site for a building that goes anywhere.
+    pub fn suits(&self, prefer: crate::catalogue::SitePreference, at: [f32; 2]) -> bool {
+        use crate::catalogue::SitePreference;
+        match prefer {
+            SitePreference::Crest => self.prominence(at) >= OFFERED_RISE,
+            SitePreference::ValleyFloor => self.prominence(at) <= -OFFERED_RISE,
+            SitePreference::Shore => self.shore_distance(at) <= OFFERED_SHORE,
+            SitePreference::Anywhere => true,
         }
     }
 

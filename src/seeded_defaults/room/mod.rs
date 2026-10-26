@@ -28,6 +28,7 @@ pub mod gateway;
 pub mod grass;
 pub mod groundcover;
 pub mod hour;
+pub mod identity;
 pub mod life;
 pub mod lining;
 pub mod monument;

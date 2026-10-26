@@ -144,6 +144,7 @@ struct RoomSelfWire {
     contact_effects: ContactEffects,
     default_landing: Option<DefaultLanding>,
     geo_source: Option<GeoSource>,
+    identity: Option<crate::pds::WorldIdentity>,
 }
 
 /// The manifest written to `room/self` since #697: the full record minus
@@ -165,6 +166,8 @@ struct RoomManifestOut {
     default_landing: Option<DefaultLanding>,
     #[serde(skip_serializing_if = "Option::is_none")]
     geo_source: Option<GeoSource>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    identity: Option<crate::pds::WorldIdentity>,
     /// The parts a long set's copies are kept in (#1645), each with its
     /// set's index and its record key: written beside the manifest, never
     /// in it.
@@ -210,6 +213,7 @@ impl RoomManifestOut {
             contact_effects: record.contact_effects.clone(),
             default_landing: record.default_landing,
             geo_source: record.geo_source.clone(),
+            identity: record.identity.clone(),
             parts: kept_apart,
         })
     }
@@ -265,6 +269,7 @@ fn assemble_room(
         contact_effects,
         default_landing,
         geo_source,
+        identity,
     } = wire;
     let mut opaque_refs = std::collections::BTreeMap::new();
     for (name, rkey) in generator_refs {
@@ -304,6 +309,7 @@ fn assemble_room(
         contact_effects,
         default_landing,
         geo_source,
+        identity,
         opaque_refs,
     })
 }

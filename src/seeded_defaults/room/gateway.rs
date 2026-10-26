@@ -34,15 +34,80 @@ const LANDING_STANDOFF: f32 = 4.5;
 /// spawn-scatter square even when the gate is at [`MIN_GATE_DIST`].
 const MIN_LANDING_DIST: f32 = 6.0;
 
-/// The gate a world of `theme` stands (#747): the theme's own, else the
-/// cross-theme `civic_gateway` - the one the build places, and the one the
-/// settlement keeps its forecourt clear for (#1774).
+/// The gate a world of `theme` stands (#747): one of its
+/// [pool](gateway_pool) drawn by `seed` (#1783) - its own two times in
+/// three, a kindred theme's the rest - or, with no seed, its own: a Berlin
+/// square's, whose placements are pinned. The one the build places, and
+/// the one the settlement keeps its forecourt clear for (#1774).
 pub fn gateway_entry(
     theme: crate::seeded_defaults::ThemeArchetype,
+    seed: Option<u64>,
 ) -> Option<&'static dyn crate::catalogue::CatalogueEntry> {
-    crate::catalogue::entries_for(theme, crate::catalogue::StructureRole::Gateway)
+    draw_from_pool(&gateway_pool(theme), seed, GATE_POOL_SALT)
+}
+
+const GATE_POOL_SALT: u64 = 0x1783_6A7E_1783_6A7E;
+
+/// The gates a world of `theme` may stand (#1783): the theme's own first,
+/// else the cross-theme `civic_gateway`, then those of kindred themes that
+/// read right in it ([`kindred_gates`]).
+pub fn gateway_pool(
+    theme: crate::seeded_defaults::ThemeArchetype,
+) -> Vec<&'static dyn crate::catalogue::CatalogueEntry> {
+    let own = crate::catalogue::entries_for(theme, crate::catalogue::StructureRole::Gateway)
         .next()
-        .or_else(|| crate::catalogue::by_slug("civic_gateway"))
+        .or_else(|| crate::catalogue::by_slug("civic_gateway"));
+    own.into_iter()
+        .chain(
+            kindred_gates(theme)
+                .iter()
+                .filter_map(|slug| crate::catalogue::by_slug(slug)),
+        )
+        .collect()
+}
+
+/// The gates of kindred themes a world of `theme` may stand besides its own
+/// (#1783), by slug, chosen from a sheet of every gate for reading right
+/// there: a castle gatehouse in a gothic or a fantasy world and a lych gate
+/// in a medieval one, a ranch gate on a farm or by a roadside, the civic
+/// portico in a classical, a campus or a city world, a steel gantry in a
+/// ruined or a neon one.
+fn kindred_gates(theme: crate::seeded_defaults::ThemeArchetype) -> &'static [&'static str] {
+    use crate::seeded_defaults::ThemeArchetype::*;
+    match theme {
+        Medieval => &["gothic_horror_gateway"],
+        GothicHorror | Fantasy => &["medieval_gateway"],
+        WildWest => &["rural_farmland_gateway"],
+        RuralFarmland | Roadside => &["wild_west_gateway"],
+        AncientClassical | CivicCampus | ModernCity => &["civic_gateway"],
+        PostApoc | Cyberpunk => &["industrial_park_gateway"],
+        Nordic | FeudalJapan | Mesoamerican | Suburban | IndustrialPark | CoastalResort
+        | SportsRec | Steampunk | Solarpunk | SpaceOutpost | AlienOrganic | AlienMonolithic
+        | Pirate => &[],
+    }
+}
+
+/// One of `pool` drawn by `seed` under `salt`: its first two times in three,
+/// each other one of the rest; its first, with no seed.
+pub(super) fn draw_from_pool(
+    pool: &[&'static dyn crate::catalogue::CatalogueEntry],
+    seed: Option<u64>,
+    salt: u64,
+) -> Option<&'static dyn crate::catalogue::CatalogueEntry> {
+    use rand_chacha::rand_core::SeedableRng;
+    let first = *pool.first()?;
+    let Some(seed) = seed else {
+        return Some(first);
+    };
+    let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed ^ salt);
+    let kin = (pool.len() - 1) as u32;
+    let indices: Vec<usize> = (0..pool.len()).collect();
+    crate::seeded_defaults::scene::pick_weighted(
+        &indices,
+        |i| if i == 0 { 2 * kin.max(1) } else { 1 },
+        &mut rng,
+    )
+    .map(|i| pool[i])
 }
 
 /// How far ahead of a viewpoint's landing its gate stands (m, #1777).
@@ -213,5 +278,72 @@ mod tests {
         let len = (to_origin[0].powi(2) + to_origin[1].powi(2)).sqrt();
         let dot = (forward[0] * to_origin[0] + forward[1] * to_origin[1]) / len;
         assert!(dot > 0.999, "gate does not face origin (dot {dot})");
+    }
+
+    /// Every gate and monument a pool names is one of its kind (#1783), and
+    /// each theme's pool starts with its own.
+    #[test]
+    fn every_pool_holds_entries_of_its_kind() {
+        use crate::catalogue::StructureRole;
+        use crate::seeded_defaults::ThemeArchetype;
+        for theme in ThemeArchetype::ALL {
+            for (pool, role, named) in [
+                (
+                    gateway_pool(theme),
+                    StructureRole::Gateway,
+                    kindred_gates(theme),
+                ),
+                (
+                    super::super::monument::monument_pool(theme),
+                    StructureRole::Monument,
+                    super::super::monument::kindred_monuments(theme),
+                ),
+            ] {
+                let own = crate::catalogue::entries_for(theme, role).next();
+                assert_eq!(
+                    pool.first().map(|e| e.slug()),
+                    own.map(|e| e.slug()),
+                    "{theme:?}"
+                );
+                assert!(pool.iter().all(|e| e.role() == role), "{theme:?}");
+                // Every slug it names is an entry: none is dropped unseen.
+                assert_eq!(pool.len(), 1 + named.len(), "{theme:?}: {named:?}");
+                let mut slugs: Vec<&str> = pool.iter().map(|e| e.slug()).collect();
+                slugs.dedup();
+                assert_eq!(slugs.len(), pool.len(), "{theme:?}: twice in one pool");
+            }
+        }
+    }
+
+    /// A world draws its own gate two times in three and a kindred one the
+    /// rest, from its seed; with none - a Berlin square - its own.
+    #[test]
+    fn a_pool_draws_its_own_most_often() {
+        use crate::seeded_defaults::ThemeArchetype;
+        let pool = gateway_pool(ThemeArchetype::Medieval);
+        assert_eq!(pool.len(), 2);
+        let own = pool[0].slug();
+        assert_eq!(
+            gateway_entry(ThemeArchetype::Medieval, None).map(|e| e.slug()),
+            Some(own)
+        );
+        let drawn = (0..3_000u64)
+            .filter(|&seed| {
+                gateway_entry(ThemeArchetype::Medieval, Some(seed)).map(|e| e.slug()) == Some(own)
+            })
+            .count();
+        assert!((1_850..2_150).contains(&drawn), "{drawn} of 3000");
+        // The same seed draws the same gate.
+        for seed in 0..50 {
+            assert_eq!(
+                gateway_entry(ThemeArchetype::Medieval, Some(seed)).map(|e| e.slug()),
+                gateway_entry(ThemeArchetype::Medieval, Some(seed)).map(|e| e.slug())
+            );
+        }
+        // A theme with no kin draws its own whatever the seed.
+        let nordic = gateway_pool(ThemeArchetype::Nordic)[0].slug();
+        assert!((0..50).all(|seed| {
+            gateway_entry(ThemeArchetype::Nordic, Some(seed)).map(|e| e.slug()) == Some(nordic)
+        }));
     }
 }

@@ -31,15 +31,60 @@ const MONUMENT_GATE_MARGIN: f32 = 3.0;
 /// small still separates them enough to read as two structures.
 const MIN_LATERAL: f32 = 5.0;
 
-/// The monument a world of `theme` stands (#975): the theme's own, else the
-/// cross-theme `civic_monument` - selected exactly like its gate
-/// ([`gateway_entry`](super::gateway::gateway_entry)).
+/// The monument a world of `theme` stands (#975): one of its
+/// [pool](monument_pool) drawn by `seed` (#1783), or its own with none -
+/// selected exactly like its gate
+/// ([`gateway_entry`](super::gateway::gateway_entry)), from a stream of
+/// its own.
 pub fn monument_entry(
     theme: crate::seeded_defaults::ThemeArchetype,
+    seed: Option<u64>,
 ) -> Option<&'static dyn crate::catalogue::CatalogueEntry> {
-    crate::catalogue::entries_for(theme, crate::catalogue::StructureRole::Monument)
+    super::gateway::draw_from_pool(&monument_pool(theme), seed, MONUMENT_POOL_SALT)
+}
+
+const MONUMENT_POOL_SALT: u64 = 0x1783_3070_1783_3070;
+
+/// The monuments a world of `theme` may stand (#1783): the theme's own
+/// first, else the cross-theme `civic_monument`, then those of kindred
+/// themes that read right in it ([`kindred_monuments`]).
+pub fn monument_pool(
+    theme: crate::seeded_defaults::ThemeArchetype,
+) -> Vec<&'static dyn crate::catalogue::CatalogueEntry> {
+    let own = crate::catalogue::entries_for(theme, crate::catalogue::StructureRole::Monument)
         .next()
-        .or_else(|| crate::catalogue::by_slug("civic_monument"))
+        .or_else(|| crate::catalogue::by_slug("civic_monument"));
+    own.into_iter()
+        .chain(
+            kindred_monuments(theme)
+                .iter()
+                .filter_map(|slug| crate::catalogue::by_slug(slug)),
+        )
+        .collect()
+}
+
+/// The monuments of kindred themes a world of `theme` may stand besides its
+/// own (#1783), by slug, chosen from a sheet of every monument for reading
+/// right there: the civic stele in a classical, a campus or a city world,
+/// timber frames among the farm, the frontier and the roadside, the
+/// industrial frame among ruins, a garden planter in a suburb, the
+/// gallows banner in a gothic or a fantasy world.
+pub(super) fn kindred_monuments(
+    theme: crate::seeded_defaults::ThemeArchetype,
+) -> &'static [&'static str] {
+    use crate::seeded_defaults::ThemeArchetype::*;
+    match theme {
+        AncientClassical | ModernCity => &["civic_monument"],
+        CivicCampus => &["civic_monument", "modern_city_monument"],
+        WildWest => &["rural_farmland_monument"],
+        RuralFarmland | Roadside => &["wild_west_monument"],
+        PostApoc => &["industrial_park_monument"],
+        Suburban => &["solarpunk_monument"],
+        GothicHorror | Fantasy => &["medieval_monument"],
+        Medieval | Nordic | FeudalJapan | Mesoamerican | IndustrialPark | CoastalResort
+        | SportsRec | Steampunk | Solarpunk | SpaceOutpost | Cyberpunk | AlienOrganic
+        | AlienMonolithic | Pirate => &[],
+    }
 }
 
 /// Derived monument placement for one room.
@@ -132,7 +177,36 @@ impl MonumentSpot {
         let yaw_rad = libm::atan2f(offset[0] - lx, offset[1] - lz);
         Self { offset, yaw_rad }
     }
+
+    /// The world's banner at a seeded world's viewpoint (#1783): on its
+    /// monument's side of the view, across it from the gate, [`BANNER_AHEAD`]
+    /// along it - past the monument, so the two read as a pair from the
+    /// landing - its footprint just outside the view's corridor, turned to
+    /// face the landing.
+    pub fn banner_at_viewpoint(
+        viewpoint: &super::Viewpoint,
+        banner_clearance: f32,
+        gate_side: bool,
+    ) -> Self {
+        let [tx, tz] = viewpoint.toward;
+        let right = if gate_side { [tz, -tx] } else { [-tz, tx] };
+        let aside = super::viewpoint::CORRIDOR_HALF + banner_clearance + BANNER_MARGIN;
+        let [lx, lz] = viewpoint.landing;
+        let offset = [
+            lx + tx * BANNER_AHEAD + right[0] * aside,
+            lz + tz * BANNER_AHEAD + right[1] * aside,
+        ];
+        let yaw_rad = libm::atan2f(offset[0] - lx, offset[1] - lz);
+        Self { offset, yaw_rad }
+    }
 }
+
+/// How far ahead of a viewpoint's landing the world's banner stands (m,
+/// #1783): past the monument ([`MONUMENT_AHEAD`]).
+const BANNER_AHEAD: f32 = 10.0;
+
+/// The gap between the banner's footprint and the view's corridor (m).
+const BANNER_MARGIN: f32 = 0.5;
 
 /// Which side of a viewpoint's view its gate stands on (#1777): the
 /// monument's side bit ([`MonumentSpot::beside_gate`]) turned over, so a
