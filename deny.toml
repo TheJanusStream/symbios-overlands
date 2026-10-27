@@ -81,18 +81,22 @@ ignore = [
     "RUSTSEC-2026-0381",
     "RUSTSEC-2026-0382",
     # bincode 1.3.3 is unmaintained by the authors' explicit decision rather
-    # than through neglect - they consider 1.3.3 complete and finished. It
-    # reaches us as the multiuser/matchbox wire codec, where replacing it
-    # would be a wire-format change, not an upgrade.
+    # than through neglect - they consider 1.3.3 complete and finished. It is
+    # the multiuser wire codec, and this repo depends on it directly too
+    # (Cargo.toml pins 1.3, so the P2P chunker measures what the wire sends):
+    # replacing it would be a wire-format change, not an upgrade. matchbox
+    # does not bring it - its optional ggrs feature uses bincode 2.
     "RUSTSEC-2025-0141",
     # A decompression bomb in ruzstd 0.8.3: a block's decompressed size is
     # never bounded, so a tiny zstd input can grow to gigabytes. Fixed in
-    # 0.9.1, but bevy_image 0.19.1 asks for ruzstd 0.8, so no update from
-    # here reaches it. Its one caller is bevy_image's KTX2 loader (Zstandard
-    # supercompression), and nothing untrusted feeds that: this repo ships no
-    # .ktx2 file and registers no network asset source, so the only KTX2 it
-    # can load are bevy's own embedded tonemapping and SMAA tables, and every
-    # fetched image decodes through the `image` crate on a PNG, JPEG and WebP
+    # 0.9.1, but bevy_image 0.19.1 asks for ruzstd 0.8, and so does
+    # bevy_image 0.20.0 (checked 2026-10-27, #1787): no update from here
+    # reaches it, and the Bevy 0.20 train (#1634) will not either. Its one
+    # caller is bevy_image's KTX2 loader (Zstandard supercompression), and
+    # nothing untrusted feeds that: this repo ships no .ktx2 file and
+    # registers no network asset source, so the only KTX2 it can load are
+    # bevy's own embedded tonemapping and SMAA tables, and every fetched
+    # image decodes through the `image` crate on a PNG, JPEG and WebP
     # allowlist (world_builder/blob_fetch.rs), never through bevy_image.
     # Delete this once bevy asks for ruzstd 0.9.1 or later. Tracked in #1633.
     "RUSTSEC-2026-0344",
@@ -101,8 +105,9 @@ ignore = [
     #
     # The flaw: operations meant to be constant-time - subtraction, zero
     # counting, division, Montgomery multiplication - can branch on secret
-    # values on some compilers and CPUs. It is fixed only in 0.7.6; the 0.5
-    # line has no fix.
+    # values on some compilers and CPUs. It is fixed only on the 0.7 line,
+    # from 0.7.6 (0.7.6 to 0.7.8 have since been yanked; 0.7.9 and later
+    # stand); the 0.5 line has no fix.
     #
     # It arrives under elliptic-curve 0.13 by two paths:
     #   k256 / p256 0.13 <- proto-blue-crypto 0.2.6 <- proto-blue-oauth 0.2.6
@@ -116,11 +121,14 @@ ignore = [
     # reading the cache or the branch predictor, or very many remote samples.
     # Over the network a signature's timing is lost in the jitter.
     #
-    # Newer lines exist (elliptic-curve 0.14, proto-blue-crypto 0.3.3), but
-    # dtls 0.17.2 is still the newest dtls. The owner recorded this exception
-    # on 2026-10-24 (#1787), to be looked at closely with the rest of this list
-    # once the seeded-world epic (#1767) is done. Delete it when neither path
-    # asks for crypto-bigint 0.5.
+    # Neither path can move yet (checked 2026-10-27, #1787): proto-blue-crypto
+    # 0.3.3, the newest, still asks for k256 / p256 0.13, so no proto-blue
+    # bump leaves crypto-bigint 0.5; and dtls 0.17.2 is still the newest dtls,
+    # which moves only when matchbox_socket leaves webrtc 0.17. The owner
+    # recorded this exception on 2026-10-24 and kept it after that close look.
+    # matchbox's and proto-blue's next releases ride the Bevy 0.20 train
+    # (#1634): look again there. Delete it when neither path asks for
+    # crypto-bigint 0.5.
     "RUSTSEC-2026-0387",
 ]
 
