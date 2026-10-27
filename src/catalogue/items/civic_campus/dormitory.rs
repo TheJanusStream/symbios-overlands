@@ -186,7 +186,7 @@ fn glazing(size: [f32; 2], center: [f32; 3], panes: (u32, u32)) -> Generator {
     prim(
         plane(
             [size[0] + GLAZE_LAP, size[1] + GLAZE_LAP],
-            pane_grid(GLASS_TINT, 0.45, panes),
+            crate::catalogue::items::util::from_dusk(pane_grid(GLASS_TINT, 0.45, panes)),
         ),
         center,
         quat_x(-FRAC_PI_2),
@@ -515,7 +515,11 @@ fn entrance(bx: f32, parts: &mut Vec<Generator>) {
         0.22,
     ));
     parts.push(prim(
-        cuboid_tapered([ENTRY_W, 0.08, 0.9], 0.0, glow([1.0, 0.95, 0.84], 1.6)),
+        cuboid_tapered(
+            [ENTRY_W, 0.08, 0.9],
+            0.0,
+            crate::catalogue::items::street::lit_from_dusk(glow([1.0, 0.95, 0.84], 1.6)),
+        ),
         [bx, head - 0.3, ROOM_Z - 0.5],
         id_quat(),
     ));

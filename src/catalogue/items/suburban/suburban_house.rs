@@ -504,7 +504,7 @@ fn ground_fitout(parts: &mut Vec<Generator>, inner_w: f32, inner_d: f32) {
         cuboid_tapered(
             [inner_w * 0.45, 0.1, 0.5],
             0.0,
-            glow([1.0, 0.82, 0.52], 1.6),
+            crate::catalogue::items::street::lit_from_dusk(glow([1.0, 0.82, 0.52], 1.6)),
         ),
         [0.0, BASE_H + STOREY - 0.32, -0.6],
         id_quat(),
@@ -576,7 +576,7 @@ fn upper_storey(inner_w: f32, inner_d: f32) -> Generator {
                 cuboid_tapered(
                     [inner_w * 0.35, 0.1, 0.45],
                     0.0,
-                    glow([1.0, 0.84, 0.58], 1.3),
+                    crate::catalogue::items::street::lit_from_dusk(glow([1.0, 0.84, 0.58], 1.3)),
                 ),
                 [0.0, BASE_H + BODY_H - 0.45, -0.8],
                 id_quat(),

@@ -21,6 +21,7 @@ use crate::pds::{Generator, InstanceCopy, InstanceSolid, InstanceVariant, Placem
 use crate::player::visuals::AvatarSpawnDeps;
 use crate::weathered::WeatheredMaterial;
 use crate::world_builder::avatar_spawn::{detached_record, spawn_detached_tree};
+use crate::world_builder::compile::pad::copy_footing;
 use crate::world_builder::draw_distance::{DrawDistanceCuts, SizeClass};
 
 use super::bake::PartQuery;
@@ -180,18 +181,21 @@ fn plan_distance2(anchor: &Transform, copy: &InstanceCopy, landing: Vec2) -> f32
 
 /// A copy stood where the record puts it: its pose under the anchor, and
 /// where it stands in the world. On the ground under it, where the set
-/// snaps, raised by its own `y`.
+/// snaps - the highest ground within `footing` of its middle where it has
+/// one (a seeded hamlet's house, `compile::pad::copy_footing`) - raised by
+/// its own `y`.
 fn stand(
     anchor: &Transform,
     snap: bool,
     ground: Option<&bevy_symbios_ground::HeightMap>,
     copy: &InstanceCopy,
+    footing: Option<f32>,
 ) -> (Transform, Vec3) {
     let [x, y, z] = copy.position();
     let on_plan = on_plan(anchor, copy);
     let world_y = match (snap, ground) {
         (true, Some(ground)) => {
-            crate::world_builder::snapped_ground_y(ground, on_plan.x, on_plan.z, None) + y
+            crate::world_builder::snapped_ground_y(ground, on_plan.x, on_plan.z, footing) + y
         }
         (true, None) => y,
         (false, _) => (anchor.translation + anchor.rotation * Vec3::new(x, y, z)).y,
@@ -426,7 +430,8 @@ impl Build {
                 let variant = usize::try_from(copy.variant).ok()?;
                 let slot = slots.get_mut(variant)?;
                 slot.drawn = true;
-                let (pose, _) = stand(&anchor, *snap_to_terrain, ground, copy);
+                let footing = copy_footing(generator_ref, Some(&slot.variant), copy);
+                let (pose, _) = stand(&anchor, *snap_to_terrain, ground, copy, footing);
                 let distance = plan_distance2(&anchor, copy, landing);
                 Some((
                     distance,
@@ -923,7 +928,8 @@ impl Build {
                         .ok()
                         .filter(|v| *v < self.slots.len())
                     {
-                        let (pose, _) = stand(&self.anchor, self.snap, ground, copy);
+                        let footing = self.footing(copy);
+                        let (pose, _) = stand(&self.anchor, self.snap, ground, copy, footing);
                         queue.push(Stood {
                             index: j,
                             pose,
@@ -1007,8 +1013,17 @@ impl Build {
         copy: &InstanceCopy,
         ground: Option<&bevy_symbios_ground::HeightMap>,
     ) -> Transform {
-        let (pose, _) = stand(&self.anchor, self.snap, ground, copy);
+        let (pose, _) = stand(&self.anchor, self.snap, ground, copy, self.footing(copy));
         self.anchor * pose
+    }
+
+    /// How far round its middle the ground `copy` stands on reaches, where
+    /// its set's copies stand as members do (`compile::pad::copy_footing`).
+    fn footing(&self, copy: &InstanceCopy) -> Option<f32> {
+        let variant = usize::try_from(copy.variant)
+            .ok()
+            .and_then(|variant| self.slots.get(variant));
+        copy_footing(&self.generator_ref, variant.map(|slot| &slot.variant), copy)
     }
 
     /// The box variant `variant`'s parts fill, in a copy's frame, once it
@@ -1161,6 +1176,54 @@ mod tests {
         assert_eq!(pose.scale, Vec3::splat(2.0));
         // Turned clockwise: its front (-Z) faces +X.
         assert!((pose.rotation * Vec3::NEG_Z).abs_diff_eq(Vec3::X, 1e-6));
+    }
+
+    /// #1797: a seeded hamlet's house stands as a member does, on the
+    /// highest ground within its reach (by its variant's lot, at its copy's
+    /// size), sunk by its own y; the same copy of any other set stands on
+    /// the ground under its middle. Drawn or asked of, it stands alike.
+    #[test]
+    fn a_hamlets_house_stands_on_the_highest_ground_under_its_lot() {
+        // The ground rises 0.2 m a metre toward +X.
+        let mut ground = bevy_symbios_ground::HeightMap::new(65, 65, 1.0);
+        for z in 0..65 {
+            for x in 0..65 {
+                ground.set(x, z, 10.0 + 0.2 * x as f32);
+            }
+        }
+        let copy = InstanceCopy {
+            y_cm: -35,
+            scale_pm: 1_500,
+            ..InstanceCopy::at(0.0, 0.0, 0.0)
+        };
+        let lot = InstanceVariant {
+            seed: None,
+            params: crate::pds::GrammarParams(std::collections::BTreeMap::from([
+                ("Depth".to_string(), Fp(6.0)),
+                ("Frontage".to_string(), Fp(8.0)),
+            ])),
+        };
+        let mut record = room_of(vec![copy], vec![lot]);
+        let middle = 10.0 + 0.2 * 32.0;
+        let plain = built(&record, Transform::IDENTITY, Some(&ground));
+        assert!((plain.copies[0].pose.translation.y - (middle - 0.35)).abs() < 1e-4);
+        // Its reach at one and a half times, up the slope.
+        let hamlet = crate::world_builder::compile::scatter::HAMLET;
+        record
+            .generators
+            .insert(hamlet.into(), Generator::default_cuboid());
+        if let Placement::Instances { generator_ref, .. } = &mut record.placements[0] {
+            *generator_ref = hamlet.into();
+        }
+        let build = built(&record, Transform::IDENTITY, Some(&ground));
+        let reach = crate::world_builder::compile::scatter::house_reach(8.0, 6.0) * 1.5;
+        let stood = build.copies[0].pose.translation.y;
+        assert!(
+            (stood - (middle + 0.2 * reach - 0.35)).abs() < 1e-3,
+            "{stood}"
+        );
+        let asked = build.stand_world(&copy, Some(&ground)).translation.y;
+        assert!((asked - stood).abs() < 1e-6, "{asked} and {stood}");
     }
 
     /// Copies are drawn nearest the landing first, ties in the record's

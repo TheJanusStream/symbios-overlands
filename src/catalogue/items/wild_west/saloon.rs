@@ -284,7 +284,8 @@ fn build_tree() -> Generator {
         [0.0, slab_h + 0.55, bar_z - 1.2],
         id_quat(),
     ));
-    // Warm hanging lamp filling the barroom with light.
+    // Warm hanging lamp filling the barroom with light - a lamp, and the
+    // barroom a business's, both lit at every hour as a shop is (#1794).
     prims.push(prim(
         cuboid_tapered([5.8, 0.35, 3.4], 0.0, glow(BAR_WARM, 3.6)),
         [0.0, mid_y - 0.3, 0.1],
@@ -399,7 +400,11 @@ fn build_tree() -> Generator {
     let u_head = mid_y + 2.1;
     // Warm room light + deep-red curtains framing each window.
     prims.push(prim(
-        cuboid_tapered([5.5, 0.3, 3.0], 0.0, glow(BAR_WARM, 3.0)),
+        cuboid_tapered(
+            [5.5, 0.3, 3.0],
+            0.0,
+            crate::catalogue::items::street::lit_from_dusk(glow(BAR_WARM, 3.0)),
+        ),
         [0.0, body_top - 0.4, 0.2],
         id_quat(),
     ));

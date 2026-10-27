@@ -3926,6 +3926,107 @@ fn a_body_set_down_facing_a_new_way_turned_nothing() {
     );
 }
 
+/// The turns the fill tells the local body looking out of its eyes, turning
+/// at 1.5 rad/s, at `hz` frames a second: set down a quarter turn round on
+/// the sixth frame - the word (`FacingSet`) on it - and eased there over the
+/// two fixed steps of 1/64 s the chassis takes at any frame rate, half a
+/// metre on, then turning on from there. With the frame the word came on,
+/// and the first frame the fill sees the body arrived (it sees the chassis a
+/// frame late).
+fn turns_told_easing(hz: f64) -> (Vec<f32>, usize, usize) {
+    use bevy::time::TimeUpdateStrategy;
+    use std::time::Duration;
+
+    let rate = 1.5;
+    let dt = (1.0 / hz) as f32;
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, bevy::transform::TransformPlugin));
+    app.init_resource::<crate::player::RigHold>();
+    app.add_message::<crate::player::FacingSet>();
+    app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
+        1.0 / hz,
+    )));
+    app.insert_resource(crate::camera::FirstPerson::looking());
+    app.add_systems(Update, motion::fill_rigged_drive);
+    let chassis = app
+        .world_mut()
+        .spawn((
+            Transform::default(),
+            LocalPlayer,
+            avian3d::prelude::LinearVelocity(Vec3::ZERO),
+        ))
+        .id();
+    let root = app
+        .world_mut()
+        .spawn((
+            RiggedRoot,
+            Drive::default(),
+            RiggedTrail::default(),
+            Transform::default(),
+            ChildOf(chassis),
+        ))
+        .id();
+    let word = 6;
+    let ease = (2.0 / 64.0 * hz).ceil().max(1.0) as usize;
+    let turning = |frame: usize| Quat::from_rotation_y(rate * frame as f32 * dt);
+    let from = turning(word);
+    let landing = from * Quat::from_rotation_y(std::f32::consts::FRAC_PI_2);
+    let arrived = word + ease - 1;
+    let mut told = Vec::new();
+    for frame in 1..=arrived + 16 {
+        let (rotation, at) = if frame < word {
+            (turning(frame), Vec3::ZERO)
+        } else if frame <= arrived {
+            let t = (frame - word + 1) as f32 / ease as f32;
+            (from.slerp(landing, t), Vec3::X * 0.5 * t)
+        } else {
+            (
+                landing * Quat::from_rotation_y(rate * (frame - arrived) as f32 * dt),
+                Vec3::X * 0.5,
+            )
+        };
+        if frame == word {
+            app.world_mut()
+                .write_message(crate::player::FacingSet(landing, None));
+        }
+        *app.world_mut()
+            .get_mut::<Transform>(chassis)
+            .expect("a chassis") = Transform::from_translation(at).with_rotation(rotation);
+        app.update();
+        told.push(app.world().get::<Drive>(root).expect("a drive").turn);
+    }
+    (told, word, arrived + 1)
+}
+
+/// **A body eased to its landing over many frames turned nothing** (#1786),
+/// at any frame rate. The chassis takes the facing the world set at its next
+/// physics step and eases there over the step after: two steps of 1/64 s,
+/// twelve frames at 360 Hz, where the fill's eight frames gave up before it
+/// arrived and read the rest of the ease as a turn - a short turn in place
+/// after every return to the spawn. Now it waits that time, at any rate,
+/// and once the body is there its turn is told again.
+#[test]
+fn a_body_eased_to_its_landing_over_many_frames_turned_nothing() {
+    for hz in [30.0f64, 60.0, 240.0, 360.0] {
+        let (told, word, seen) = turns_told_easing(hz);
+        for (frame, turn) in told.iter().enumerate().take(seen).skip(word - 1) {
+            assert_eq!(
+                *turn,
+                0.0,
+                "{hz} Hz, frame {}: told {turn} rad/s",
+                frame + 1
+            );
+        }
+        for (frame, turn) in told.iter().enumerate().skip(seen + 1) {
+            assert!(
+                (turn - 1.5).abs() < 1e-3,
+                "{hz} Hz, frame {}: arrived, the body turning 1.5 rad/s was told {turn}",
+                frame + 1
+            );
+        }
+    }
+}
+
 /// **A body looking out of its eyes is seen stepping sideways, and only
 /// that body** (#1746). A peer's facing and travel arrive as a rotation and
 /// positions; the fill reads its heading off them while its last

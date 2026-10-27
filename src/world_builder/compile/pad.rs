@@ -111,6 +111,25 @@ pub fn snap_footprint_radius(placement: &crate::pds::Placement) -> Option<f32> {
     }
 }
 
+/// How far round its middle the ground a copy of the set drawn from
+/// `generator_ref` stands on reaches, as [`snapped_ground_y`] reads it (m):
+/// a seeded hamlet's house of `variant` stands on the highest ground within
+/// its reach, its lot and the steps before it, as a settlement's member
+/// stands on its own (#1797) - the ground the scatters keep off round it
+/// ([`super::scatter::house_reach`] of its [`super::scatter::hamlet_lot`]),
+/// at its copy's size. None for every other set's copy, which stands on the
+/// ground under its middle.
+pub(crate) fn copy_footing(
+    generator_ref: &str,
+    variant: Option<&crate::pds::InstanceVariant>,
+    copy: &crate::pds::InstanceCopy,
+) -> Option<f32> {
+    (generator_ref == super::scatter::HAMLET).then(|| {
+        let (frontage, depth) = super::scatter::hamlet_lot(variant);
+        super::scatter::house_reach(frontage, depth) * copy.scale()
+    })
+}
+
 /// [`snap_footprint_radius`] from the loose fields, for callers that hold
 /// a destructured placement rather than the enum.
 fn snap_radius_of(avoid_water: bool, clearance: f32, scale_x: f32) -> Option<f32> {

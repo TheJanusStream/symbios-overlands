@@ -112,7 +112,8 @@ fn build_kind() -> GeneratorKind {
             ..Default::default()
         },
     );
-    // Warm window-glow niches - the tower reads inhabited at night.
+    // Warm window-glow niches - the tower reads inhabited at night. A lamp
+    // in each (the grammar's `Lamp`), lit at every hour as a lamp is (#1794).
     materials.insert(
         "Ember".to_string(),
         SovereignMaterialSettings {

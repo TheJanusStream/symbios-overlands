@@ -478,7 +478,9 @@ const ARRIVAL_STEPS: usize = 3;
 /// and the world's signature feature ([`FEATURE`]) and its crafts' places
 /// ([`KEPT_BY_NAME`]), whose giant tree or
 /// sea stack avoids no water and keeps its ground all the same (#1781).
-/// With no heightmap yet, each stands where its record put it.
+/// With no heightmap yet, each stands where its record put it. Its paths,
+/// fields and orchard are kept off too, and its hamlet's houses, each where
+/// its copy stands ([`hamlet_grounds`], #1797).
 pub(crate) fn structure_exclusions(
     record: &crate::pds::RoomRecord,
     heightmap: Option<&crate::terrain::FinishedHeightMap>,
@@ -617,6 +619,10 @@ pub(crate) fn structure_exclusions(
     for (middle, along, half) in orchard_grounds(record) {
         keep_off_rectangle(&mut keep, middle, along, half);
     }
+    // A seeded hamlet's houses (#1797), each its reach round its lot.
+    for (x, z, reach) in hamlet_grounds(record) {
+        keep.push((x, z, reach * reach));
+    }
     keep
 }
 
@@ -731,6 +737,81 @@ pub(crate) const ORCHARD: &str = "seeded_orchard";
 /// How far an orchard's trees' crowns reach past them (m, #1791): an
 /// apple's is about 7 m across.
 pub(crate) const ORCHARD_CROWN: f32 = 4.0;
+
+/// The generator a seeded world's hamlet is placed by (#1797): one set of
+/// its theme's detached house, a copy a house, whose ground the scatters
+/// keep off ([`hamlet_grounds`]).
+pub(crate) const HAMLET: &str = "seeded_hamlet";
+
+/// How many of a seeded hamlet's houses the scatters keep off at the most
+/// (#1797): a seeded world stands eight at the most.
+const MAX_KEPT_HOUSES: usize = 32;
+
+/// The furthest a hamlet's house is taken to reach (m, #1797): a detached
+/// house on its broadest lot reaches 11 m.
+const MAX_HOUSE_REACH: f32 = 40.0;
+
+/// How far a detached house on a lot `frontage` by `depth` metres reaches
+/// from its lot's middle, turned any way (m, #1797): half its lot's
+/// diagonal with the steps and porch its front and back stand out
+/// (`street::MAX_REACH_M`) - `StreetFit::reach_m`, by a square root rather
+/// than `hypot` (#1132), as it decides where copies grow on every peer.
+pub(crate) fn house_reach(frontage: f32, depth: f32) -> f32 {
+    let depth = depth + 2.0 * crate::catalogue::items::street::MAX_REACH_M;
+    (frontage * frontage + depth * depth).sqrt() / 2.0
+}
+
+/// The broadest a hamlet's house's lot is taken to be either way (m,
+/// #1797): a detached house's broadest is 16 m.
+const MAX_HAMLET_LOT: f32 = 64.0;
+
+/// The lot a seeded hamlet's house of `variant` stands on, its frontage and
+/// its depth (m, #1797): by its grammar values, its kind's own where it
+/// names none.
+pub(crate) fn hamlet_lot(variant: Option<&crate::pds::InstanceVariant>) -> (f32, f32) {
+    let own = crate::catalogue::items::street::StreetKind::Detached.default_fit();
+    let value = |name: &str, or: f32| {
+        variant
+            .and_then(|variant| variant.params.0.get(name))
+            .map_or(or, |value| value.0)
+            .clamp(0.0, MAX_HAMLET_LOT)
+    };
+    (
+        value("Frontage", own.frontage_m()),
+        value("Depth", own.depth_m()),
+    )
+}
+
+/// The ground each house of a seeded hamlet stands on (#1797), as
+/// `(x, z, radius)`: where its copy stands on the plan, and its reach by its
+/// variant's lot ([`house_reach`], [`hamlet_lot`]) at its copy's size.
+pub(crate) fn hamlet_grounds(record: &crate::pds::RoomRecord) -> Vec<(f32, f32, f32)> {
+    record
+        .placements
+        .iter()
+        .filter_map(|placement| match placement {
+            crate::pds::Placement::Instances {
+                generator_ref,
+                transform,
+                variants,
+                copies,
+                ..
+            } if generator_ref == HAMLET => Some((transform, variants, copies)),
+            _ => None,
+        })
+        .flat_map(|(transform, variants, copies)| {
+            let anchor = bevy::prelude::Transform::from(transform);
+            copies.iter().map(move |copy| {
+                let [x, _, z] = copy.position();
+                let at = anchor.translation + anchor.rotation * bevy::math::Vec3::new(x, 0.0, z);
+                let (frontage, depth) = hamlet_lot(variants.get(copy.variant as usize));
+                let reach = house_reach(frontage, depth) * copy.scale();
+                (at.x, at.z, reach.clamp(0.0, MAX_HOUSE_REACH))
+            })
+        })
+        .take(MAX_KEPT_HOUSES)
+        .collect()
+}
 
 /// Every generator whose ground the scatters keep off by its name, snapped
 /// or not: the feature and the crafts' places above.
@@ -1247,6 +1328,68 @@ mod tests {
             random_yaw,
         });
         assert!(own.is_empty(), "an editor's own grid");
+    }
+
+    /// #1797: a seeded hamlet keeps the scatters off each of its houses,
+    /// its reach round where its copy stands under the set's anchor - by
+    /// its variant's lot, at its copy's size - and no further; an editor's
+    /// own set keeps nothing.
+    #[test]
+    fn a_seeded_hamlet_keeps_its_houses_ground() {
+        let lot = |frontage: f32, depth: f32| crate::pds::InstanceVariant {
+            seed: Some(3),
+            params: crate::pds::GrammarParams(std::collections::BTreeMap::from([
+                ("Depth".to_string(), crate::pds::Fp(depth)),
+                ("Frontage".to_string(), crate::pds::Fp(frontage)),
+            ])),
+        };
+        let copies = vec![
+            crate::pds::InstanceCopy::at(10.0, 0.0, 30.0),
+            crate::pds::InstanceCopy {
+                variant: 1,
+                scale_pm: 1_500,
+                ..crate::pds::InstanceCopy::at(-40.0, 20.0, 0.0)
+            },
+        ];
+        let set = |generator_ref: &str| crate::pds::Placement::Instances {
+            generator_ref: generator_ref.into(),
+            transform: crate::pds::TransformData {
+                translation: crate::pds::Fp3([5.0, 0.0, -5.0]),
+                ..Default::default()
+            },
+            snap_to_terrain: true,
+            solid: crate::pds::InstanceSolid::Shell,
+            variants: vec![lot(8.0, 8.0), lot(12.0, 10.0)],
+            copies: copies.clone(),
+        };
+        let kept = |placement: crate::pds::Placement| {
+            let mut record = crate::pds::RoomRecord {
+                placements: vec![placement],
+                default_landing: None,
+                ..Default::default()
+            };
+            for generator in record.generators.values_mut() {
+                if let crate::pds::GeneratorKind::Terrain(terrain) = &mut generator.kind {
+                    terrain.paths = Default::default();
+                }
+            }
+            structure_exclusions(&record, None, &crate::water::bodies::RoomWater::default())
+        };
+        let keep = kept(set(HAMLET));
+        // Half the diagonal of 8 by 8 + 4, and of 12 by 10 + 4 at 1.5.
+        let reaches = [house_reach(8.0, 8.0), house_reach(12.0, 10.0) * 1.5];
+        assert!((reaches[0] - 7.2111).abs() < 1e-3 && (reaches[1] - 13.8293).abs() < 1e-3);
+        for ([x, z], reach) in [[15.0, -5.0], [-35.0, 15.0]].into_iter().zip(reaches) {
+            assert!(
+                inside_any(&keep, x + reach - 0.05, z),
+                "inside at ({x}, {z})"
+            );
+            assert!(
+                !inside_any(&keep, x + reach + 0.05, z),
+                "past at ({x}, {z})"
+            );
+        }
+        assert!(kept(set("kiez_street_detached")).is_empty(), "an own set");
     }
 
     /// #1777: a seeded viewpoint's view down to its landmark is kept clear -

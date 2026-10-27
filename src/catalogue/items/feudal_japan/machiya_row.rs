@@ -266,9 +266,15 @@ fn materials() -> HashMap<String, SovereignMaterialSettings> {
     // The two halves of the hour: paper screens and the rooms behind the
     // lattice, lit or unlit together.
     m.insert("ShojiDay".to_string(), shoji(0.0));
-    m.insert("ShojiNight".to_string(), shoji(1.6));
+    m.insert(
+        "ShojiNight".to_string(),
+        crate::catalogue::items::util::from_dusk(shoji(1.6)),
+    );
     m.insert("InteriorDay".to_string(), interior(INTERIOR_DARK, 0.0));
-    m.insert("InteriorNight".to_string(), interior(INTERIOR_WARM, 2.2));
+    m.insert(
+        "InteriorNight".to_string(),
+        crate::catalogue::items::street::lit_from_dusk(interior(INTERIOR_WARM, 2.2)),
+    );
     m
 }
 

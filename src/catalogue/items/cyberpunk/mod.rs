@@ -41,6 +41,7 @@ pub mod facade;
 pub mod gateway;
 pub mod holo_billboard;
 pub mod monument;
+pub mod neon_dock;
 pub mod neon_kiosk;
 pub mod neon_megatower;
 pub mod parking_stack;
@@ -588,14 +589,15 @@ mod tests {
     /// A fought-over seeded room leans each downtown building by its own
     /// bound (#1559), through the settlement: the room build hands the
     /// member's `ruin_max_lean` to the ruin pass. Handed nothing, the tier's
-    /// 0.22 rad swung the megatower's crown up to 35 m. In the first six
-    /// Conflict-tier Cyberpunk rooms, every downtown building's whole lean
-    /// swings the top of its tree a metre at most (at scale 1).
+    /// 0.22 rad swung the megatower's crown up to 35 m. In the first twelve
+    /// Conflict-tier Cyberpunk rooms - a third of them stand none, and the
+    /// first six stood only eleven after #1796 - every downtown building's
+    /// whole lean swings the top of its tree a metre at most (at scale 1).
     #[test]
     fn a_fought_over_room_leans_each_downtown_building_a_metre_at_most() {
         let measures = downtown_measures();
         let mut leaned = 0;
-        let rooms = cyberpunk_rooms(crate::seeded_defaults::EscalationTier::Conflict, 6);
+        let rooms = cyberpunk_rooms(crate::seeded_defaults::EscalationTier::Conflict, 12);
         for (seed, record) in &rooms {
             for (name, g) in &record.generators {
                 let Some((slug, _, top)) = downtown_of(&measures, g) else {
@@ -612,7 +614,7 @@ mod tests {
             }
         }
         assert!(
-            rooms.len() == 6 && leaned >= 12,
+            rooms.len() == 12 && leaned >= 12,
             "too few to say anything: {} rooms, {leaned} buildings",
             rooms.len()
         );

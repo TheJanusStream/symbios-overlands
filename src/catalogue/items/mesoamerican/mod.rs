@@ -17,6 +17,7 @@
 
 pub mod ball_court;
 pub mod calendar_stone;
+pub mod causeway_temple;
 pub mod fire_bowl;
 pub mod gateway;
 pub mod idol;

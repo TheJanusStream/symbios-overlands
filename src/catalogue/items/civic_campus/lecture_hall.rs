@@ -88,12 +88,16 @@ fn build_tree() -> Generator {
         [9.0, 3.8],
         (6, 4),
         fz * 0.2,
-        glass(GLASS_TINT, 1.3),
+        crate::catalogue::items::util::from_dusk(glass(GLASS_TINT, 1.3)),
         steel(STEEL_GREY),
     ));
     // Recessed dark entrance doors behind the glazing.
     prims.push(prim(
-        cuboid_tapered([2.4, 2.2, 0.15], 0.0, glass([0.20, 0.24, 0.27], 0.4)),
+        cuboid_tapered(
+            [2.4, 2.2, 0.15],
+            0.0,
+            crate::catalogue::items::util::from_dusk(glass([0.20, 0.24, 0.27], 0.4)),
+        ),
         [0.0, slab_h + 1.1, fz * 3.42],
         id_quat(),
     ));
@@ -127,7 +131,7 @@ fn build_tree() -> Generator {
         [9.4, 0.7],
         (9, 1),
         fz * 0.15,
-        glass(GLASS_TINT, 1.1),
+        crate::catalogue::items::util::from_dusk(glass(GLASS_TINT, 1.1)),
         steel(STEEL_GREY),
     ));
 

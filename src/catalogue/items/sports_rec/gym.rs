@@ -110,7 +110,7 @@ fn build_tree() -> Generator {
         [11.0, 1.0],
         (8, 1),
         fz * 0.18,
-        glass(GLASS_TINT, 1.2),
+        crate::catalogue::items::util::from_dusk(glass(GLASS_TINT, 1.2)),
         steel(STEEL_GREY),
     ));
     // Glazed entrance - a steel-mullioned curtain wall facing the front.
@@ -119,7 +119,7 @@ fn build_tree() -> Generator {
         [3.6, 2.6],
         (3, 2),
         fz * 0.2,
-        glass(GLASS_TINT, 1.3),
+        crate::catalogue::items::util::from_dusk(glass(GLASS_TINT, 1.3)),
         steel(STEEL_GREY),
     ));
     // Concrete entrance canopy proud of the front.

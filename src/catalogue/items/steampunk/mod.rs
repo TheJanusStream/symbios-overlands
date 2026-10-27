@@ -16,6 +16,7 @@
 //! [`crate::seeded_defaults::room::accent`].
 
 pub mod airship_dock;
+pub mod brass_observatory;
 pub mod coal_hopper;
 pub mod cog_tower;
 pub mod foundry;

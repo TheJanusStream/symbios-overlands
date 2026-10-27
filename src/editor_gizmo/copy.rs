@@ -280,8 +280,10 @@ pub(super) fn commit_copy_drag(
 ) -> Option<usize> {
     let full = duplicate && crate::pds::instances::copy_refusal(record, placement).is_some();
     let Some(Placement::Instances {
+        generator_ref,
         transform,
         snap_to_terrain,
+        variants,
         copies,
         ..
     }) = record.placements.get_mut(placement)
@@ -292,12 +294,21 @@ pub(super) fn commit_copy_drag(
     let anchor = Transform::from(&*transform).with_scale(Vec3::ONE);
     let local = anchor.rotation.inverse() * (dragged.translation - anchor.translation);
     let lift = if *snap_to_terrain {
+        // The ground it was drawn on: a seeded hamlet's house's is the
+        // highest within its reach (#1797).
+        let footing = crate::world_builder::compile::pad::copy_footing(
+            generator_ref,
+            usize::try_from(was.variant)
+                .ok()
+                .and_then(|variant| variants.get(variant)),
+            &was,
+        );
         let ground = heightmap.map_or(0.0, |heightmap| {
             crate::world_builder::snapped_ground_y(
                 &heightmap.0,
                 original.translation.x,
                 original.translation.z,
-                None,
+                footing,
             )
         });
         dragged.translation.y - ground

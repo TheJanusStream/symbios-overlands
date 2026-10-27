@@ -44,8 +44,14 @@ impl CatalogueEntry for Church {
     fn leads(&self) -> bool {
         true
     }
+    /// A white clapboard chapel reads as a frontier town's, a farm
+    /// country's and a suburb's church alike: it leads all three (#1796).
     fn themes(&self) -> &'static [ThemeArchetype] {
-        &[ThemeArchetype::WildWest]
+        &[
+            ThemeArchetype::WildWest,
+            ThemeArchetype::RuralFarmland,
+            ThemeArchetype::Suburban,
+        ]
     }
     fn prosperity_band(&self) -> crate::seeded_defaults::ProsperityBand {
         super::FRONTIER_BAND
@@ -198,7 +204,11 @@ fn build_tree() -> Generator {
     //     A low altar and a warm cross hold the chancel against the rear wall.
     for sx in [-1.0_f32, 1.0] {
         prims.push(prim(
-            cuboid_tapered([0.12, 3.0, body_d - 0.9], 0.0, glow(WARM_NAVE, 2.2)),
+            cuboid_tapered(
+                [0.12, 3.0, body_d - 0.9],
+                0.0,
+                crate::catalogue::items::street::lit_from_dusk(glow(WARM_NAVE, 2.2)),
+            ),
             [sx * (side_x - 0.9), slab_h + 1.6, -0.1],
             id_quat(),
         ));
@@ -306,7 +316,7 @@ fn build_tree() -> Generator {
             0.14,
             16,
             0.0,
-            glow([1.0, 0.72, 0.46], 2.4),
+            crate::catalogue::items::street::lit_from_dusk(glow([1.0, 0.72, 0.46], 2.4)),
         )),
         [0.0, slab_h + 4.3, tower_face - 0.02],
         quat_x(FRAC_PI_2),

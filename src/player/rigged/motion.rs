@@ -43,20 +43,12 @@ const HEADING_MIN_SPEED: f32 = 0.1;
 /// well as the place, is not read as a turn as fast as the frame was short.
 /// Read as one, a quarter turn in a frame is ninety radians a second, and the
 /// body steps round on the spot for a second after it arrives. A placement
-/// closer than this that sets a facing says so instead ([`LANDING_FRAMES`]).
+/// closer than this that sets a facing says so instead
+/// ([`crate::player::FacingSet`], [`crate::player::LandingWait`]).
 ///
 /// Nor, for a peer, as a speed (#1759): its speed is differenced from its
 /// positions, and ten metres in a frame is six hundred metres a second.
 const PLACED_PAST: f32 = 2.0;
-
-/// How many frames the fill waits after a [`crate::player::FacingSet`] to see
-/// the local body at the yaw it set, reading every one of them as the
-/// placement rather than a turn (#1752). The chassis reaches a set rotation at
-/// its next physics step and eases there over its frame: two or three frames
-/// at a high refresh rate, a fixed step being 1/64 s. Eight is that with room,
-/// and a body that never arrives - turned on at once by the eyes - is told its
-/// turn again after them.
-const LANDING_FRAMES: u8 = 8;
 
 /// How near the yaw a [`crate::player::FacingSet`] set the local body counts
 /// as there, radians (#1752): far under a frame of any turn, far over the
@@ -150,8 +142,10 @@ pub(in crate::player) fn fill_rigged_drive(
     hold: Res<crate::player::RigHold>,
     first_person: Option<Res<crate::camera::FirstPerson>>,
     facings: Option<MessageReader<crate::player::FacingSet>>,
+    fixed: Res<Time<Fixed>>,
 ) {
     let delta = time.delta_secs();
+    let step = fixed.timestep().as_secs_f32();
     if delta <= 0.0 {
         return;
     }
@@ -273,16 +267,17 @@ pub(in crate::player) fn fill_rigged_drive(
         // follows its travel, which the stride already walks. A body placed
         // this frame turned nothing ([`PLACED_PAST`]), and nor did one the
         // world set down facing a new way, on any frame from its word to the
-        // first one the body is seen there ([`LANDING_FRAMES`]).
+        // first one the body is seen there - the steps the chassis takes to
+        // turn to it, at any frame rate (#1786, [`crate::player::LandingWait`]).
         if local && let Some(yaw) = landed {
-            trail.landing = Some((yaw, LANDING_FRAMES));
+            trail.landing = Some(crate::player::LandingWait::new(yaw));
         }
         let landing = trail.landing.take();
-        if let Some((yaw, left)) = landing
-            && turned_from(yaw, drive.facing).abs() >= LANDED_WITHIN
-            && left > 1
+        if let Some(mut wait) = landing
+            && turned_from(wait.yaw, drive.facing).abs() >= LANDED_WITHIN
+            && !wait.tick(delta, step)
         {
-            trail.landing = Some((yaw, left - 1));
+            trail.landing = Some(wait);
         }
         let placed = moved_far || landing.is_some();
         drive.turn = match trail.facing {

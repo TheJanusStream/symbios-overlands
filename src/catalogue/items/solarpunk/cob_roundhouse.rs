@@ -112,7 +112,11 @@ fn build_tree() -> Generator {
     ));
     // A little glazed window beside the door.
     prims.push(prim(
-        cuboid_tapered([0.6, 0.6, 0.15], 0.0, glass(GLASS_CLEAN, 0.6)),
+        cuboid_tapered(
+            [0.6, 0.6, 0.15],
+            0.0,
+            crate::catalogue::items::util::from_dusk(glass(GLASS_CLEAN, 0.6)),
+        ),
         [1.15, 1.6, -2.18],
         id_quat(),
     ));

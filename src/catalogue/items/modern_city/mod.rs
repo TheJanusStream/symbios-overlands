@@ -30,6 +30,7 @@ pub mod street_lamp;
 pub mod street_low;
 pub mod traffic_light;
 pub mod transit_stop;
+pub mod waterfront_concert_hall;
 // Poor (inner-city) variants - the prosperity-Poor end of the theme.
 pub mod corner_store;
 pub mod tenement;

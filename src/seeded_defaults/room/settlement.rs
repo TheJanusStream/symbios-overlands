@@ -211,10 +211,17 @@ fn leading(
     })
 }
 
+/// How many of its theme's leaders the weights of [`landmark_weights`] are
+/// for (#1796): a theme of more or fewer weighs its own as many times more
+/// or fewer, so its leaders together are drawn as often as three are.
+const LEADERS_WEIGHED: u32 = 3;
+
 /// How often a world draws its tier's own landmark (`own`) against each
 /// building of its theme that leads (`leader`), by its prosperity
 /// (#1783): a rich world's own most often - the castle - a modest one's
 /// as often as its chapel, its market hall or its watchtower together.
+/// For a theme of [`LEADERS_WEIGHED`] leaders; the draw weighs another's
+/// own to its count.
 fn landmark_weights(prosperity: ProsperityTier) -> (u32, u32) {
     match prosperity {
         ProsperityTier::Rich => (6, 1),
@@ -224,26 +231,18 @@ fn landmark_weights(prosperity: ProsperityTier) -> (u32, u32) {
 }
 
 /// The buildings that lead already standing in a plan, cluster by cluster
-/// (#1783): a building that leads stands once in a world - one a cluster
-/// stands as its landmark no other cluster stands at all, and no cluster's
-/// landmark is one standing anywhere else.
+/// (#1783): a building that leads stands once in a world - as one cluster's
+/// landmark or among one cluster's buildings (#1796) - and nowhere else.
 #[derive(Default)]
 struct Led {
     /// Every one standing, as a landmark or not.
     standing: Vec<&'static str>,
-    /// Those standing as a cluster's landmark.
-    leading: Vec<&'static str>,
 }
 
 impl Led {
     /// Note the buildings that lead in `cluster`.
     fn note(&mut self, cluster: &SettlementCluster) {
         let leads = |slug: &str| crate::catalogue::by_slug(slug).is_some_and(|e| e.leads());
-        if let Some(landmark) = &cluster.landmark
-            && leads(landmark.slug)
-        {
-            self.leading.push(landmark.slug);
-        }
         for member in cluster.landmark.iter().chain(&cluster.secondaries) {
             if leads(member.slug) {
                 self.standing.push(member.slug);
@@ -281,14 +280,7 @@ fn draw_landmark(
         probe.offers(region, entry.site(), [0.0, 0.0], reach)
     };
     let (own_weight, lead_weight) = landmark_weights(prosperity);
-    let mut pool: Vec<(&'static dyn crate::catalogue::CatalogueEntry, u32)> = own
-        .iter()
-        .map(|&entry| {
-            let suited = entry.site() != SitePreference::Anywhere && offered(entry);
-            (entry, if suited { own_weight * 2 } else { own_weight })
-        })
-        .collect();
-    pool.extend(
+    let leaders: Vec<(&'static dyn crate::catalogue::CatalogueEntry, u32)> =
         leading(theme, escalation)
             .filter(|entry| {
                 entry.prosperity_band().accepts(prosperity) && !led.standing.contains(&entry.slug())
@@ -300,8 +292,26 @@ fn draw_landmark(
                     _ => 0,
                 };
                 (entry, weight)
-            }),
-    );
+            })
+            .collect();
+    // Its own against its leaders together (#1796): a theme of one leader
+    // draws it as often as a theme of three draws one of its three - the
+    // weights are those of a theme of three, whose draws stand as they did.
+    let drawn = leaders.iter().filter(|(_, weight)| *weight > 0).count() as u32;
+    let own_weight = if drawn == 0 {
+        own_weight
+    } else {
+        // Never none: its own always stands a chance.
+        (own_weight * drawn / LEADERS_WEIGHED).max(1)
+    };
+    let mut pool: Vec<(&'static dyn crate::catalogue::CatalogueEntry, u32)> = own
+        .iter()
+        .map(|&entry| {
+            let suited = entry.site() != SitePreference::Anywhere && offered(entry);
+            (entry, if suited { own_weight * 2 } else { own_weight })
+        })
+        .collect();
+    pool.extend(leaders);
     let indices: Vec<usize> = (0..pool.len()).collect();
     crate::seeded_defaults::scene::pick_weighted(&indices, |i| pool[i].1, rng)
         .map_or(own[0], |i| pool[i].0)
@@ -412,25 +422,40 @@ fn place_secondaries(
             -1.2 + 2.4 * (i as f32) / ((count - 1) as f32) + range_f32(rng, -0.25, 0.25)
         };
         let dir = base + spread;
-        let r = landmark.clearance
+        let mut r = landmark.clearance
             + secondary_spacing_clearance(fp.clearance)
             + range_f32(rng, 4.0, 12.0);
-        let offset = [
-            landmark.offset[0] + dir.sin() * r,
-            landmark.offset[1] + dir.cos() * r,
-        ];
-        // Face the landmark centre (±0.25 rad jitter).
-        let yaw_rad = (landmark.offset[0] - offset[0]).atan2(landmark.offset[1] - offset[1])
-            + range_f32(rng, -0.25, 0.25);
-
+        // Its facing's jitter and its size, drawn where they always were.
+        let turn = range_f32(rng, -0.25, 0.25);
         let scale = range_f32(rng, SECONDARY_SCALE_BAND.0, SECONDARY_SCALE_BAND.1);
+        let clearance = fp.clearance * scale;
+        // Out along its bearing past the ground of every secondary placed
+        // before it (#1796): a long building - an aqueduct - keeps a wider
+        // circle than the fan's spacing allows for.
+        let at = |r: f32| {
+            [
+                landmark.offset[0] + dir.sin() * r,
+                landmark.offset[1] + dir.cos() * r,
+            ]
+        };
+        while out.iter().any(|placed: &SettlementMember| {
+            let [x, z] = at(r);
+            let (dx, dz) = (x - placed.offset[0], z - placed.offset[1]);
+            (dx * dx + dz * dz).sqrt() < placed.clearance + clearance
+        }) {
+            r += 1.0;
+        }
+        let offset = at(r);
+        // Face the landmark centre (±0.25 rad jitter).
+        let yaw_rad = (landmark.offset[0] - offset[0]).atan2(landmark.offset[1] - offset[1]) + turn;
+
         out.push(SettlementMember {
             slug: entry.slug(),
             offset,
             yaw_rad,
             scale,
             grammar_seed: rng.next_u64(),
-            clearance: fp.clearance * scale,
+            clearance,
         });
     }
     out
@@ -899,7 +924,7 @@ const SCALE_STEP: f32 = 0.840_896_4;
 /// How far a member stands below the ground its footprint's highest point
 /// sets it on (`room::build::member_placement`'s -0.35 m): part of what
 /// covers the ground falling away under it.
-const MEMBER_SINK: f32 = 0.35;
+pub(super) const MEMBER_SINK: f32 = 0.35;
 
 /// How many times the proxy's relief under a footprint the full map is
 /// taken to have there (#1773). The proxy samples the ground ten metres
@@ -910,7 +935,7 @@ const MEMBER_SINK: f32 = 0.35;
 /// 5 % fewer members than at 1.5. Craggy ground keeps most of the rest:
 /// its fine relief lies under the proxy's cells, and no margin the proxy
 /// can read sorts its sites without emptying them.
-const RELIEF_MARGIN: f32 = 2.5;
+pub(super) const RELIEF_MARGIN: f32 = 2.5;
 
 /// The steepest the ground may be at a member's middle and its rim, read on
 /// the proxy as the compile's walk reads it on the full map
@@ -1162,6 +1187,34 @@ pub(super) fn seaward(
         .flatten()
 }
 
+/// Whether `entry` stands on the shore wherever a settlement stands it
+/// among its buildings (#1796) - a secondary, or a hamlet's house - as a
+/// landmark drawn for a shore does: a boathouse, a quay or a beached hulk
+/// inland is no harbour. One that asks for a crest or a valley floor takes
+/// the best of that ground near its place ([`site_for`]) and stands anywhere.
+fn shore_bound(entry: &dyn crate::catalogue::CatalogueEntry) -> bool {
+    entry.role() == StructureRole::Secondary
+        && entry.site() == crate::catalogue::SitePreference::Shore
+}
+
+/// `sites`, those on the shore alone - by the measure a landmark is drawn
+/// for one ([`TerrainProbe::suits`]) - for a building that stands on it
+/// ([`shore_bound`], #1796).
+fn shore_sites(
+    probe: &TerrainProbe,
+    entry: &dyn crate::catalogue::CatalogueEntry,
+    sites: Vec<[f32; 2]>,
+) -> Vec<[f32; 2]> {
+    if shore_bound(entry) {
+        sites
+            .into_iter()
+            .filter(|&at| probe.suits(entry.site(), at))
+            .collect()
+    } else {
+        sites
+    }
+}
+
 /// The first of `candidates` that [fits](fit_among) one of its sites
 /// (`sites_for` it, nearest `from` first) within `room` (m²) and over
 /// `freeboard`, with where it stands and at what size: the building drawn,
@@ -1328,9 +1381,9 @@ fn place_cluster(
         StructureRole::Landmark
     };
     let mut anchor_pool = tiered_pool(theme, anchor_role, prosperity, escalation);
-    // A building another cluster stands as its landmark stands nowhere else
-    // (#1783).
-    anchor_pool.retain(|entry| !led.leading.contains(&entry.slug()));
+    // A building that leads standing in another cluster stands nowhere else
+    // (#1783), as no hamlet's house either (#1796).
+    anchor_pool.retain(|entry| !led.standing.contains(&entry.slug()));
     let anchor_pool = if anchor_pool.is_empty() && kind == ClusterKind::Hamlet {
         // A theme with no secondaries yet: fall back to props so the
         // hamlet is at least a marked spot rather than empty.
@@ -1392,7 +1445,8 @@ fn place_cluster(
     // fitting nowhere grows nothing.
     // A building that leads from a crest or a shore (#1783) is sited on the
     // ground it was drawn for, within the reach its draw read: where none of
-    // that ground fits it, it stands nowhere, and gives way.
+    // that ground fits it, it stands nowhere, and gives way. A hamlet's house
+    // that belongs on the shore stands on it ([`shore_sites`]).
     let reach = region.min_spawn_dist + PREFERENCE_REACH;
     let sites_for = |entry: &dyn crate::catalogue::CatalogueEntry| {
         let sites = probe.sites_near(region, [0.0, 0.0], f32::INFINITY, &spawn_keep(entry));
@@ -1404,7 +1458,7 @@ fn place_cluster(
                 })
                 .collect()
         } else {
-            sites
+            shore_sites(probe, entry, sites)
         }
     };
     let unfitted = sites_for(drawn_entry).first().copied().or_else(|| {
@@ -1428,7 +1482,9 @@ fn place_cluster(
     } else {
         stand_ins(
             drawn_entry,
-            entries_for(theme, drawn_entry.role()).filter(fits_escalation),
+            entries_for(theme, drawn_entry.role())
+                .filter(fits_escalation)
+                .filter(|entry| !led.standing.contains(&entry.slug())),
         )
     };
     let room = match kind {
@@ -1580,10 +1636,10 @@ fn place_cluster(
         ClusterKind::Hamlet => (0, 0), // the anchor *is* the secondary
     };
     let mut remaining = tiered_pool(theme, StructureRole::Secondary, prosperity, escalation);
-    // A building that leads stands once (#1783): not as its own secondary,
-    // nor where another cluster stands one as its landmark.
+    // A building that leads stands once in a world (#1783): not as its own
+    // secondary, nor where another cluster stands it (#1796).
     remaining.retain(|entry| {
-        entry.slug() != anchor_entry.slug() && !led.leading.contains(&entry.slug())
+        entry.slug() != anchor_entry.slug() && !led.standing.contains(&entry.slug())
     });
     let sec_hi = sec_hi.min(remaining.len()).min(MAX_SECONDARIES);
     let sec_count = sample_count(rng, sec_lo.min(sec_hi), sec_hi);
@@ -1633,12 +1689,13 @@ fn place_cluster(
         }
         let yaw_jitter = range_f32(rng, -0.25, 0.25);
         let drawn = range_f32(rng, SECONDARY_SCALE_BAND.0, SECONDARY_SCALE_BAND.1);
-        // Else the next smaller of the pool's buildings left (#1774), spent.
+        // Else the next smaller of the pool's buildings left (#1774), spent;
+        // one that belongs on the shore on it alone ([`shore_sites`]).
         let candidates = stand_ins(entry, remaining.iter().copied());
         let Some((entry, pos, scale)) = choose(
             probe,
             &candidates,
-            |_| sites.clone(),
+            |entry| shore_sites(probe, entry, sites.clone()),
             desired,
             drawn,
             usable_area - consumed,
@@ -3030,14 +3087,17 @@ mod tests {
         assert!(any, "some conflict room should place a conflict prop");
     }
 
-    /// #1783: a building that leads stands once in a world - the landmark
-    /// of one cluster stands nowhere else, as no other cluster's landmark and
-    /// as no hamlet's house - and one that leads from a crest or a shore
-    /// stands on one, by the measure it was drawn for.
+    /// #1783: a building that leads stands once in a world - as one cluster's
+    /// landmark or among one cluster's buildings, never again as another's
+    /// landmark, secondary or hamlet house (#1796) - and one that leads from
+    /// a crest or a shore stands on one, by the measure it was drawn for. A
+    /// building that belongs on the shore stands on one wherever a settlement
+    /// stands it among its buildings (#1796).
     #[test]
     fn a_leader_stands_once_and_on_its_site() {
         let mut led = 0;
         let mut sited = 0;
+        let mut shored = 0;
         for seed in 0u64..150 {
             if crate::seeded_defaults::RegionSource::for_seed(seed).kind
                 == crate::seeded_defaults::SourceKind::Berlin
@@ -3062,18 +3122,34 @@ mod tests {
                 .iter()
                 .flat_map(|c| c.landmark.iter().chain(&c.secondaries))
                 .collect();
+            for member in &members {
+                if by_slug(member.slug).expect("an entry").leads() {
+                    let standing = members.iter().filter(|m| m.slug == member.slug).count();
+                    assert_eq!(
+                        standing, 1,
+                        "seed {seed}: {} leads and stands {standing} times",
+                        member.slug
+                    );
+                }
+            }
+            for secondary in plan.clusters.iter().flat_map(|c| &c.secondaries) {
+                let entry = by_slug(secondary.slug).expect("an entry");
+                if shore_bound(entry) {
+                    shored += 1;
+                    assert!(
+                        probe.suits(entry.site(), secondary.offset),
+                        "seed {seed}: {} inland at {:?}",
+                        secondary.slug,
+                        secondary.offset
+                    );
+                }
+            }
             for landmark in plan.clusters.iter().filter_map(|c| c.landmark.as_ref()) {
                 let entry = by_slug(landmark.slug).expect("an entry");
                 if !entry.leads() {
                     continue;
                 }
                 led += 1;
-                let standing = members.iter().filter(|m| m.slug == landmark.slug).count();
-                assert_eq!(
-                    standing, 1,
-                    "seed {seed}: {} leads and stands {standing} times",
-                    landmark.slug
-                );
                 if entry.site() != crate::catalogue::SitePreference::Anywhere {
                     sited += 1;
                     assert!(
@@ -3089,5 +3165,6 @@ mod tests {
         // Few keep a crest or a shore's: the best of a world's plans (#1778)
         // most often keeps a nearer landmark's first view.
         assert!(led >= 15, "{led} led, {sited} of them from their sites");
+        assert!(shored >= 6, "{shored} stand by the water");
     }
 }

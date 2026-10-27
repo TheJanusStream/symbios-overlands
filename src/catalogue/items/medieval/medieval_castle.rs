@@ -199,13 +199,13 @@ fn build_kind() -> GeneratorKind {
     // card in front of it. This is what makes the castle read inhabited.
     materials.insert(
         "Hearth".to_string(),
-        SovereignMaterialSettings {
+        crate::catalogue::items::street::lit_from_dusk(SovereignMaterialSettings {
             base_color: Fp3([1.0, 0.62, 0.26]),
             emission_color: Fp3([1.0, 0.55, 0.22]),
             emission_strength: Fp(2.6),
             roughness: Fp(0.9),
             ..Default::default()
-        },
+        }),
     );
 
     // "Dark" - solid near-black, no texture. Used for arrow slits, gate

@@ -87,7 +87,11 @@ fn build_tree() -> Generator {
     ));
     // Access door at the tower foot, on the −Z front (for scale).
     prims.push(prim(
-        cuboid_tapered([0.5, 1.0, 0.1], 0.0, glass(GLASS_CLEAN, 0.5)),
+        cuboid_tapered(
+            [0.5, 1.0, 0.1],
+            0.0,
+            crate::catalogue::items::util::from_dusk(glass(GLASS_CLEAN, 0.5)),
+        ),
         [0.0, base_h + 0.55, -0.58],
         id_quat(),
     ));

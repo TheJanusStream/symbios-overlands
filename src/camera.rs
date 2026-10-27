@@ -856,8 +856,8 @@ pub(crate) fn camera_listener() -> SpatialListener {
 /// a seeded world's landmark stands whole in the frame. Looking out of the
 /// eyes, the eyes turn instead
 /// (`first_person`). A vehicle's turn to the new heading is not inherited
-/// as a turn of the vehicle's own: the follow waits up to
-/// [`LANDING_STEPS`] fixed steps for the body to reach it.
+/// as a turn of the vehicle's own: the follow waits for the body to reach
+/// it ([`crate::player::LandingWait`]).
 ///
 /// The heading is the body's as it was set down, and a body set down on a
 /// slope is tilted onto it: on steep ground its heading - and so the
@@ -903,11 +903,7 @@ fn follow_local_player(
             cam.focus = player_tf.translation;
             cam.force_update = true;
         }
-        followed.landing = Some(Landing {
-            yaw,
-            waited: 0.0,
-            frames: 0,
-        });
+        followed.landing = Some(crate::player::LandingWait::new(yaw));
     }
 
     // Only inherit yaw when driving a vehicle preset (hover-boat, airplane,
@@ -937,11 +933,8 @@ fn follow_local_player(
                 Some(set) => {
                     let there = (first_person::near_turn(vehicle_yaw, set.yaw) - set.yaw).abs()
                         <= LANDED_WITHIN;
-                    set.waited += time.delta_secs();
-                    set.frames += 1;
-                    let long = set.waited > LANDING_STEPS * fixed.timestep().as_secs_f32()
-                        && set.frames > LANDING_MIN_FRAMES;
-                    if there || long {
+                    let over = set.tick(time.delta_secs(), fixed.timestep().as_secs_f32());
+                    if there || over {
                         followed.landing = None;
                     }
                 }
@@ -965,37 +958,12 @@ fn follow_local_player(
 
 /// What the follow carries from one frame to the next: the vehicle's
 /// heading last frame, whose turn since it inherits, and a landing it waits
-/// to see the body reach.
+/// to see the body reach (#1785).
 #[derive(Default)]
 struct Followed {
     prev_yaw: Option<f32>,
-    landing: Option<Landing>,
+    landing: Option<crate::player::LandingWait>,
 }
-
-/// A landing the follow waits to see the body reach (#1785): the heading it
-/// was set down at, how long it has waited, seconds, and over how many
-/// frames.
-#[derive(Clone, Copy, Debug)]
-struct Landing {
-    yaw: f32,
-    waited: f32,
-    frames: u32,
-}
-
-/// How many fixed steps the follow waits after a landing to see the body at
-/// the heading it was set down at, reading none of the frames between as the
-/// vehicle's turn: the chassis takes a set rotation at its next physics step
-/// and its `Transform` eases there over the step after (#670), up to two
-/// steps whatever the frame rate - at 360 Hz a dozen frames - so three is
-/// that with room. Counted in time, not frames: eight frames gave up before
-/// the second step at 240 Hz and more.
-const LANDING_STEPS: f32 = 3.0;
-
-/// The fewest frames the follow waits as well, whatever the time: a frame
-/// longer than [`LANDING_STEPS`] - under 21 a second - would otherwise give
-/// up on the frame the landing is read, before the steps that turn the body
-/// have run.
-const LANDING_MIN_FRAMES: u32 = 2;
 
 /// How near a landing's heading the body counts as there, radians.
 const LANDED_WITHIN: f32 = 1e-3;

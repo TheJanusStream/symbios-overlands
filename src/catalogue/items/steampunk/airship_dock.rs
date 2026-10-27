@@ -200,7 +200,11 @@ fn build_tree() -> Generator {
     ));
     for sx in [-1.0_f32, 1.0] {
         prims.push(prim(
-            cuboid_tapered([0.08, 0.32, 2.0], 0.0, glow([1.0, 0.5, 0.14], 2.3)),
+            cuboid_tapered(
+                [0.08, 0.32, 2.0],
+                0.0,
+                crate::catalogue::items::street::lit_from_dusk(glow([1.0, 0.5, 0.14], 2.3)),
+            ),
             [sx * 0.56, ship_y - 1.65, ship_z],
             id_quat(),
         ));

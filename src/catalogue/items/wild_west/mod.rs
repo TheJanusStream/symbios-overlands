@@ -21,6 +21,8 @@ pub mod general_store;
 pub mod hitching_post;
 pub mod jail;
 pub mod monument;
+// Shore leader (#1796).
+pub mod river_landing;
 pub mod saloon;
 pub mod street_block;
 pub mod street_detached;

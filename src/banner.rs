@@ -13,15 +13,19 @@
 //! Every sign whose source is [`SignSource::WorldBanner`] paints the one
 //! image here ([`WorldBannerArt`]), handed to them through the image cache
 //! ([`BlobImageCache::set_world_banner`]); [`draw_world_banner`] redraws it
-//! in place when the world's banner changes, so an owner's edit recolours
-//! every banner in the world and rebuilds nothing.
+//! when the world's banner changes, so an owner's edit recolours every
+//! banner in the world and rebuilds nothing. The image carries its whole
+//! mip chain (#1796), so a banner far off reads as its colours rather than
+//! shimmering: each redraw is a new texture, which every sign's material is
+//! told to bind ([`rebind`]).
 //!
 //! [`SignSource::WorldBanner`]: crate::pds::SignSource::WorldBanner
 //! [`BlobImageCache::set_world_banner`]: crate::world_builder::image_cache::BlobImageCache::set_world_banner
 
 use bevy::asset::RenderAssetUsages;
+use bevy::image::ImageSampler;
 use bevy::prelude::*;
-use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
 
 use crate::pds::{BannerDivision, BannerMark, WorldBanner};
 
@@ -267,20 +271,119 @@ impl FromWorld for WorldBannerArt {
     }
 }
 
-/// `banner` as an image asset of the shared size.
+/// `banner` as an image asset of the shared size, its whole mip chain
+/// after it ([`mipped`]), sampled through the chain.
+///
+/// Bound for sampling only, no `COPY_DST`, as `sky_light::cube_image` is:
+/// Bevy re-uploads an image whose descriptor did not change by writing its
+/// first level alone into the texture it has (`GpuImage::prepare_asset`,
+/// bevy_render 0.19), which would leave a redrawn banner's old colours on
+/// its far levels. Without the usage it makes a new texture from the whole
+/// chain each time.
 fn banner_image(banner: Option<&WorldBanner>) -> Image {
-    Image::new(
-        Extent3d {
-            width: WIDTH,
-            height: HEIGHT,
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D2,
-        shared_raster(banner).to_vec(),
-        TextureFormat::Rgba8UnormSrgb,
-        // Kept on the CPU too: a redraw replaces it whole, and it is small.
-        RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
-    )
+    let (data, levels) = mipped(&shared_raster(banner), WIDTH, HEIGHT);
+    let mut image = Image::default();
+    image.texture_descriptor.size = Extent3d {
+        width: WIDTH,
+        height: HEIGHT,
+        depth_or_array_layers: 1,
+    };
+    image.texture_descriptor.dimension = TextureDimension::D2;
+    image.texture_descriptor.format = TextureFormat::Rgba8UnormSrgb;
+    image.texture_descriptor.mip_level_count = levels;
+    image.texture_descriptor.usage = TextureUsages::TEXTURE_BINDING;
+    image.sampler = ImageSampler::linear();
+    // Kept on the CPU too: a redraw replaces it whole, and it is small.
+    image.asset_usage = RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD;
+    image.data = Some(data);
+    image
+}
+
+/// `rgba`, straight-alpha sRGB bytes `width` by `height`, followed by every
+/// level of its mip chain, each half the last's size a side and at least a
+/// texel - and how many levels that is, its own included. Each texel of a
+/// level is the texels of the last it covers - two a side, one where a side
+/// is one texel, three at the end of an odd side, so none is left out -
+/// averaged in linear light and weighted by how much each covers, so a
+/// cut-away texel neither darkens nor tints the cloth beside it.
+fn mipped(rgba: &[u8], width: u32, height: u32) -> (Vec<u8>, u32) {
+    let mut data = rgba.to_vec();
+    // Each texel premultiplied, in linear light.
+    let mut level: Vec<[f32; 4]> = rgba
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|&[r, g, b, a]| {
+            let linear = LinearRgba::from(Srgba::rgba_u8(r, g, b, a));
+            let a = linear.alpha;
+            [linear.red * a, linear.green * a, linear.blue * a, a]
+        })
+        .collect();
+    let (mut w, mut h, mut levels) = (width.max(1), height.max(1), 1);
+    while w > 1 || h > 1 {
+        let (next_w, next_h) = ((w / 2).max(1), (h / 2).max(1));
+        // The texels along a side of `side` that texel `i` of `next` covers.
+        let span =
+            |i: u32, side: u32, next: u32| 2 * i..if i + 1 == next { side } else { 2 * i + 2 };
+        let next: Vec<[f32; 4]> = (0..next_h)
+            .flat_map(|y| (0..next_w).map(move |x| (x, y)))
+            .map(|(x, y)| {
+                let (xs, ys) = (span(x, w, next_w), span(y, h, next_h));
+                let covered = (xs.len() * ys.len()) as f32;
+                let mut sum = [0.0_f32; 4];
+                for ty in ys {
+                    for tx in xs.clone() {
+                        for (s, t) in sum.iter_mut().zip(level[(ty * w + tx) as usize]) {
+                            *s += t;
+                        }
+                    }
+                }
+                sum.map(|s| s / covered)
+            })
+            .collect();
+        for &[r, g, b, a] in &next {
+            let straight = if a > 0.0 {
+                LinearRgba::new(r / a, g / a, b / a, a)
+            } else {
+                LinearRgba::new(0.0, 0.0, 0.0, 0.0)
+            };
+            data.extend(Srgba::from(straight).to_u8_array());
+        }
+        (level, w, h) = (next, next_w, next_h);
+        levels += 1;
+    }
+    (data, levels)
+}
+
+/// Mark every material whose texture is `image` changed, so each is
+/// prepared anew and binds the texture `image` is drawn to now (#1796): a
+/// redrawn banner is a new texture. How many there were.
+fn rebind(
+    image: &Handle<Image>,
+    standard: &mut Assets<StandardMaterial>,
+    weathered: &mut Assets<crate::weathered::WeatheredMaterial>,
+) -> usize {
+    let painted: Vec<_> = standard
+        .iter()
+        .filter(|(_, material)| material.base_color_texture.as_ref() == Some(image))
+        .map(|(id, _)| id)
+        .collect();
+    for &id in &painted {
+        if let Some(material) = standard.get_mut(id) {
+            material.into_inner();
+        }
+    }
+    let weathered_painted: Vec<_> = weathered
+        .iter()
+        .filter(|(_, material)| material.base.base_color_texture.as_ref() == Some(image))
+        .map(|(id, _)| id)
+        .collect();
+    for &id in &weathered_painted {
+        if let Some(material) = weathered.get_mut(id) {
+            material.into_inner();
+        }
+    }
+    painted.len() + weathered_painted.len()
 }
 
 /// Hand the image to the image cache's signs, and redraw it when the
@@ -301,11 +404,12 @@ pub fn draw_world_banner(
     if art.drawn.as_ref() == Some(&want) {
         return;
     }
-    // In place, its one level: Bevy writes a changed image into the texture
-    // it has, which every sign's material already binds.
+    // A new texture, its whole chain (`banner_image`): every sign's
+    // material binds it once told.
     if let Some(mut image) = images.get_mut(&art.image) {
-        image.data = Some(shared_raster(want.as_ref()).to_vec());
+        *image = banner_image(want.as_ref());
     }
+    rebind(&art.image, &mut standard, &mut weathered);
     art.drawn = Some(want);
 }
 
@@ -445,5 +549,89 @@ mod tests {
             p[0] > 180 && p[1] > 170 && p[2] > 140 && p[3] == 255,
             "{p:?}"
         );
+    }
+
+    /// #1796: the banner carries its whole mip chain after its own bytes,
+    /// each level half the last a side down to one texel, and is a texture
+    /// made new at every redraw, sampled through the chain.
+    #[test]
+    fn a_banner_carries_its_mip_chain() {
+        let image = banner_image(None);
+        assert_eq!(image.texture_descriptor.mip_level_count, 8);
+        assert!(
+            !image
+                .texture_descriptor
+                .usage
+                .contains(TextureUsages::COPY_DST)
+        );
+        let texels: u32 = [
+            (96, 144),
+            (48, 72),
+            (24, 36),
+            (12, 18),
+            (6, 9),
+            (3, 4),
+            (1, 2),
+            (1, 1),
+        ]
+        .iter()
+        .map(|(w, h)| w * h)
+        .sum();
+        assert_eq!(image.data.as_ref().map(Vec::len), Some(texels as usize * 4));
+        assert_eq!(
+            &image.data.as_ref().expect("its bytes")[..(WIDTH * HEIGHT * 4) as usize],
+            shared_raster(None).as_slice(),
+            "its own level first"
+        );
+    }
+
+    /// #1796: a level averages the texels under it in linear light, each by
+    /// how much of it the cloth covers: a cut-away texel beside red cloth
+    /// leaves it red, three quarters covered, and white beside black averages
+    /// to the light of half white - lighter than the bytes' mean. The last
+    /// texel of an odd side is averaged in: red, green and blue make a grey.
+    #[test]
+    fn a_mip_level_averages_light_by_coverage() {
+        let red = [200, 20, 20, 255];
+        let (data, levels) = mipped(&[red, red, red, [0, 0, 0, 0]].concat(), 2, 2);
+        assert_eq!(levels, 2);
+        assert_eq!(data[16..20], [200, 20, 20, 191]);
+        let (data, levels) = mipped(&[[255, 255, 255, 255], [0, 0, 0, 255]].concat(), 2, 1);
+        assert_eq!(levels, 2);
+        assert!((186..=190).contains(&data[8]), "{}", data[8]);
+        let three = [[255, 0, 0, 255], [0, 255, 0, 255], [0, 0, 255, 255]];
+        let (data, levels) = mipped(&three.concat(), 3, 1);
+        assert_eq!(levels, 2);
+        let grey = &data[12..16];
+        assert!(
+            grey[0] == grey[1] && grey[1] == grey[2] && grey[3] == 255,
+            "{grey:?}"
+        );
+    }
+
+    /// #1796: a redraw tells every material that shows the banner - a plain
+    /// one or a weathered one - and no other, to bind it anew.
+    #[test]
+    fn a_redraw_rebinds_every_material_that_shows_the_banner() {
+        let mut images = Assets::<Image>::default();
+        let banner = images.add(banner_image(None));
+        let other = images.add(Image::default());
+        let mut standard = Assets::<StandardMaterial>::default();
+        for texture in [&banner, &banner, &other] {
+            standard.add(StandardMaterial {
+                base_color_texture: Some(texture.clone()),
+                ..default()
+            });
+        }
+        let mut weathered = Assets::<crate::weathered::WeatheredMaterial>::default();
+        weathered.add(crate::weathered::weathered(
+            StandardMaterial {
+                base_color_texture: Some(banner.clone()),
+                ..default()
+            },
+            true,
+        ));
+        assert_eq!(rebind(&banner, &mut standard, &mut weathered), 3);
+        assert_eq!(rebind(&other, &mut standard, &mut weathered), 1);
     }
 }

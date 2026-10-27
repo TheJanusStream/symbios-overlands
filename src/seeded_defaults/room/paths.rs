@@ -26,7 +26,7 @@ use super::siting::TerrainProbe;
 const SUBDIVIDE: usize = 2;
 
 /// The steepest step a path takes (rise/run).
-const MAX_SLOPE: f32 = 0.45;
+pub(super) const MAX_SLOPE: f32 = 0.45;
 
 /// How much more a step costs per unit of its slope: a 0.2 slope costs a
 /// path 2.2 times the level.
@@ -37,7 +37,7 @@ const SLOPE_COST: f32 = 6.0;
 const REUSE: f32 = 0.35;
 
 /// How far over the water a path's ground stands at the least (m).
-const FREEBOARD: f32 = 0.5;
+pub(super) const FREEBOARD: f32 = 0.5;
 
 /// How far past a building's ground its neighbours' paths keep off it (m).
 const CLEARANCE: f32 = 1.5;

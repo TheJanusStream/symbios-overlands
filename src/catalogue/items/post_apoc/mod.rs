@@ -14,6 +14,7 @@
 //! The theme's dust-haze accent lives in
 //! [`crate::seeded_defaults::room::accent`].
 
+pub mod beached_hulk;
 pub mod fortified_ruin;
 pub mod fuel_barrels;
 pub mod fuel_depot;

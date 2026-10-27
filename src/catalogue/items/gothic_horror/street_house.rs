@@ -67,7 +67,10 @@ pub(crate) fn materials() -> HashMap<String, SovereignMaterialSettings> {
         ("Door".to_string(), wood([0.26, 0.10, 0.10])),
         ("DoorBlack".to_string(), wood([0.14, 0.13, 0.13])),
         ("Fascia".to_string(), matte([0.06, 0.06, 0.07])),
-        ("Stained".to_string(), stained(STAINED_TINT, 1.2)),
+        (
+            "Stained".to_string(),
+            crate::catalogue::items::util::from_dusk(stained(STAINED_TINT, 1.2)),
+        ),
     ]);
     m
 }

@@ -169,12 +169,20 @@ fn build_tree() -> Generator {
     // Ceiling lamp + a warm wash up the back wall, so the room glows through
     // the windows rather than reading as a dark box.
     prims.push(prim(
-        cuboid_tapered([l - 3.0, 0.14, 0.6], 0.0, glow(LAMP_WARM, 2.8)),
+        cuboid_tapered(
+            [l - 3.0, 0.14, 0.6],
+            0.0,
+            crate::catalogue::items::street::lit_from_dusk(glow(LAMP_WARM, 2.8)),
+        ),
         [0.0, body_top - 0.25, 0.1],
         id_quat(),
     ));
     prims.push(prim(
-        cuboid_tapered([l - 1.2, 1.4, 0.05], 0.0, glow([1.0, 0.9, 0.7], 1.2)),
+        cuboid_tapered(
+            [l - 1.2, 1.4, 0.05],
+            0.0,
+            crate::catalogue::items::street::lit_from_dusk(glow([1.0, 0.9, 0.7], 1.2)),
+        ),
         [0.0, floor_y + 1.4, back_z - 0.12],
         id_quat(),
     ));

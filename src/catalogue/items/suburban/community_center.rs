@@ -165,7 +165,11 @@ fn build_tree() -> Generator {
     // Ceiling downlights spanning the hall.
     for &z in &[-2.5_f32, 0.5, 3.5] {
         prims.push(prim(
-            cuboid_tapered([wall_len - 2.5, 0.12, 0.22], 0.0, glow(CIVIC_WARM, 2.2)),
+            cuboid_tapered(
+                [wall_len - 2.5, 0.12, 0.22],
+                0.0,
+                crate::catalogue::items::street::lit_from_dusk(glow(CIVIC_WARM, 2.2)),
+            ),
             [0.0, wall_top - 0.4, z],
             id_quat(),
         ));

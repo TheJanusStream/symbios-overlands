@@ -178,7 +178,8 @@ fn pane_grid(panes: (u32, u32), lit: f32) -> SovereignMaterialSettings {
         cfg.panes_x = panes.0;
         cfg.panes_y = panes.1;
     }
-    m
+    // A room's window: its glow from dusk to dawn only (#1794).
+    crate::catalogue::items::util::from_dusk(m)
 }
 
 /// Glazing filling one opening: a card on a flat quad in the reveal, lapped

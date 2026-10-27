@@ -273,6 +273,8 @@ pub fn is_road_grown(placement: &crate::pds::Placement) -> bool {
 /// A street building's check holds every door and window above it (#1598).
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use lots::FOUNDATION_SINK_M;
+/// A seeded hamlet's houses grow as Berlin's street buildings do (#1797).
+pub(crate) use lots::grow_flush;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use lots::grow_missing_districts;
 pub(crate) use lots::{

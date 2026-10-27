@@ -21,6 +21,8 @@ pub mod civic_campus;
 pub mod coastal_resort;
 pub mod crafts;
 pub mod cyberpunk;
+pub mod family_gates;
+pub mod family_monuments;
 pub mod fantasy;
 pub mod feudal_japan;
 pub mod gothic_horror;
@@ -70,6 +72,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &ancient::observatory::Observatory,
     &ancient::colonnade::Colonnade,
     &ancient::amphitheatre::Amphitheatre,
+    &ancient::aqueduct::Aqueduct,
     &ancient::bathhouse::Bathhouse,
     &ancient::column_drum::ColumnDrum,
     &ancient::urn::Urn,
@@ -86,6 +89,8 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     // Buildings - Medieval theme (landmark + secondaries + props).
     &medieval::medieval_castle::MedievalCastle,
     &medieval::watchtower::Watchtower,
+    &medieval::medieval_hill_fort::HillFort,
+    &medieval::lake_castle::LakeCastle,
     &medieval::chapel::Chapel,
     &medieval::blacksmith::Blacksmith,
     &medieval::market_hall::MarketHall,
@@ -112,6 +117,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &cyberpunk::neon_kiosk::NeonKiosk,
     &cyberpunk::drone_perch::DronePerch,
     &cyberpunk::cable_arch::CableArch,
+    &cyberpunk::neon_dock::NeonDock,
     &street::StreetEntry(&cyberpunk::street_house::SPEC),
     &street::StreetEntry(&cyberpunk::street_block::SPEC),
     &street::StreetEntry(&cyberpunk::street_low::SPEC),
@@ -128,6 +134,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &nordic::boathouse::Boathouse,
     &nordic::signal_beacon::SignalBeacon,
     &nordic::stave_church::StaveChurch,
+    &nordic::nordic_ring_fort::RingFort,
     &nordic::rune_stones::RuneStones,
     &nordic::longship::Longship,
     &nordic::shield_rack::ShieldRack,
@@ -148,6 +155,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &feudal_japan::tea_house::TeaHouse,
     &feudal_japan::dojo::Dojo,
     &feudal_japan::machiya_row::MachiyaRow,
+    &feudal_japan::lakeside_shrine::LakesideShrine,
     &feudal_japan::stone_lantern::StoneLantern,
     &feudal_japan::koi_pond::KoiPond,
     &feudal_japan::bamboo_fence::BambooFence,
@@ -166,6 +174,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &mesoamerican::ball_court::BallCourt,
     &mesoamerican::shrine::Shrine,
     &mesoamerican::palace_range::PalaceRange,
+    &mesoamerican::causeway_temple::CausewayTemple,
     &mesoamerican::stela::Stela,
     &mesoamerican::skull_rack::SkullRack,
     &mesoamerican::idol::Idol,
@@ -185,6 +194,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &modern_city::office_block::OfficeBlock,
     &modern_city::parking_garage::ParkingGarage,
     &modern_city::rowhouse_terrace::RowhouseTerrace,
+    &modern_city::waterfront_concert_hall::WaterfrontConcertHall,
     &street::StreetEntry(&modern_city::street_house::SPEC),
     &street::StreetEntry(&modern_city::street_block::SPEC),
     &street::StreetEntry(&modern_city::street_low::SPEC),
@@ -203,6 +213,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &suburban::community_center::CommunityCenter,
     &suburban::suburban_house::SuburbanHouse,
     &suburban::craftsman_bungalow::CraftsmanBungalow,
+    &suburban::suburban_water_tower::SuburbanWaterTower,
     &suburban::detached_garage::DetachedGarage,
     &suburban::mini_mart::MiniMart,
     &suburban::picket_fence::PicketFence,
@@ -223,6 +234,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &rural_farmland::farmhouse::Farmhouse,
     &rural_farmland::grain_silo::GrainSilo,
     &rural_farmland::windmill::Windmill,
+    &rural_farmland::watermill::Watermill,
     &rural_farmland::greenhouse::Greenhouse,
     &rural_farmland::tractor::Tractor,
     &rural_farmland::hay_bales::HayBales,
@@ -244,6 +256,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &industrial_park::tank_farm::TankFarm,
     &industrial_park::shipping_containers::ShippingContainers,
     &industrial_park::sawtooth_mill::SawtoothMill,
+    &industrial_park::container_crane_quay::ContainerCraneQuay,
     &industrial_park::pipe_run::PipeRun,
     &industrial_park::pallet_stack::PalletStack,
     &industrial_park::floodlight::Floodlight,
@@ -266,6 +279,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &coastal_resort::deck_chair::DeckChair,
     &coastal_resort::dinghy::Dinghy,
     &coastal_resort::buoy::Buoy,
+    &coastal_resort::clifftop_lighthouse::ClifftopLighthouse,
     &street::StreetEntry(&coastal_resort::street_house::SPEC),
     &street::StreetEntry(&coastal_resort::street_block::SPEC),
     &street::StreetEntry(&coastal_resort::street_low::SPEC),
@@ -279,6 +293,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &roadside::gas_station::GasStation,
     &roadside::roadside_diner::RoadsideDiner,
     &roadside::motel::Motel,
+    &roadside::overlook_tower::OverlookTower,
     &roadside::billboard::Billboard,
     &roadside::fuel_pump::FuelPump,
     &roadside::road_sign::RoadSign,
@@ -300,6 +315,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &civic_campus::lecture_hall::LectureHall,
     &civic_campus::dormitory::Dormitory,
     &civic_campus::clock_tower::ClockTower,
+    &civic_campus::hilltop_observatory::HilltopObservatory,
     &civic_campus::flagpole::Flagpole,
     &civic_campus::bike_rack::BikeRack,
     &civic_campus::notice_board::NoticeBoard,
@@ -319,6 +335,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &sports_rec::bleachers::Bleachers,
     &sports_rec::ticket_booth::TicketBooth,
     &sports_rec::clubhouse::Clubhouse,
+    &sports_rec::rowing_boathouse::RowingBoathouse,
     &sports_rec::goalpost::Goalpost,
     &sports_rec::floodlight_mast::FloodlightMast,
     &sports_rec::scoreboard::Scoreboard,
@@ -343,6 +360,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &steampunk::gear_pile::GearPile,
     &steampunk::gas_lamp::GasLamp,
     &steampunk::coal_hopper::CoalHopper,
+    &steampunk::brass_observatory::BrassObservatory,
     &street::StreetEntry(&steampunk::street_house::SPEC),
     &street::StreetEntry(&steampunk::street_block::SPEC),
     &street::StreetEntry(&steampunk::street_low::SPEC),
@@ -362,6 +380,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &solarpunk::water_channel::WaterChannel,
     &solarpunk::solar_lamp::SolarLamp,
     &solarpunk::beehive::Beehive,
+    &solarpunk::tidal_station::TidalStation,
     &street::StreetEntry(&solarpunk::street_house::SPEC),
     &street::StreetEntry(&solarpunk::street_block::SPEC),
     &street::StreetEntry(&solarpunk::street_low::SPEC),
@@ -381,6 +400,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &space_outpost::cargo_crate::CargoCrate,
     &space_outpost::beacon::Beacon,
     &space_outpost::airlock::Airlock,
+    &space_outpost::desalination_plant::DesalinationPlant,
     &street::StreetEntry(&space_outpost::street_house::SPEC),
     &street::StreetEntry(&space_outpost::street_block::SPEC),
     &street::StreetEntry(&space_outpost::street_low::SPEC),
@@ -393,6 +413,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     // Buildings - High Fantasy theme (landmark + secondaries + props).
     &fantasy::wizard_tower::WizardTower,
     &fantasy::enchanted_library::EnchantedLibrary,
+    &fantasy::fae_lake_palace::FaeLakePalace,
     &fantasy::fae_ring::FaeRing,
     &fantasy::crystal_shrine::CrystalShrine,
     &fantasy::runestone::Runestone,
@@ -414,6 +435,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &gothic_horror::mausoleum::Mausoleum,
     &gothic_horror::cemetery::Cemetery,
     &gothic_horror::bell_tower::BellTower,
+    &gothic_horror::drowned_abbey::DrownedAbbey,
     &gothic_horror::gravestone::Gravestone,
     &gothic_horror::gargoyle::Gargoyle,
     &gothic_horror::dead_tree::DeadTree,
@@ -438,6 +460,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &alien_organic::tendril::Tendril,
     &alien_organic::spore_vent::SporeVent,
     &alien_organic::creep_patch::CreepPatch,
+    &alien_organic::spawning_pools::SpawningPools,
     &street::StreetEntry(&alien_organic::street_house::SPEC),
     &street::StreetEntry(&alien_organic::street_block::SPEC),
     &street::StreetEntry(&alien_organic::street_low::SPEC),
@@ -457,6 +480,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &alien_monolithic::energy_node::EnergyNode,
     &alien_monolithic::monolith_shard::MonolithShard,
     &alien_monolithic::light_disc::LightDisc,
+    &alien_monolithic::obelisk_ring::ObeliskRing,
     &street::StreetEntry(&alien_monolithic::street_house::SPEC),
     &street::StreetEntry(&alien_monolithic::street_block::SPEC),
     &street::StreetEntry(&alien_monolithic::street_low::SPEC),
@@ -471,6 +495,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &post_apoc::salvage_shack::SalvageShack,
     &post_apoc::radio_mast::RadioMast,
     &post_apoc::fuel_depot::FuelDepot,
+    &post_apoc::beached_hulk::BeachedHulk,
     &post_apoc::wrecked_car::WreckedCar,
     &post_apoc::scrap_wall::ScrapWall,
     &post_apoc::fuel_barrels::FuelBarrels,
@@ -488,6 +513,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     // Buildings - Wild West theme (landmark + secondaries + props).
     &wild_west::saloon::Saloon,
     &wild_west::water_tower::WaterTower,
+    &wild_west::river_landing::RiverLanding,
     &wild_west::church::Church,
     &wild_west::jail::Jail,
     &wild_west::general_store::GeneralStore,
@@ -506,6 +532,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &wild_west::tumbleweed::Tumbleweed,
     // Buildings - Pirate theme (landmark + secondaries + props).
     &pirate::harbour_battery::HarbourBattery,
+    &pirate::headland_redoubt::HeadlandRedoubt,
     &pirate::harbour_tavern::HarbourTavern,
     &pirate::prize_warehouse::PrizeWarehouse,
     &pirate::careening_slip::CareeningSlip,
@@ -602,6 +629,16 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &ancient::monument::AncientMonument,
     &civic::gateway::CivicGateway,
     &civic::monument::CivicMonument,
+    // Family monuments (#1796): themeless, each reached from the kindred
+    // tables of the themes it reads right in.
+    &family_monuments::market_cross::MarketCrossMonument,
+    &family_monuments::figurehead::FigureheadMonument,
+    &family_monuments::stone_lantern::StoneLanternMonument,
+    &family_monuments::serpent_altar::SerpentAltarMonument,
+    &family_monuments::holo_pillar::HoloPillarMonument,
+    &family_monuments::works_plaque::WorksPlaqueMonument,
+    &family_monuments::trophy::TrophyMonument,
+    &family_monuments::living_frame::LivingFrameMonument,
     &civic::world_banner::WorldBanner,
     &civic_campus::gateway::CivicCampusGateway,
     &civic_campus::monument::CivicCampusMonument,
@@ -645,6 +682,16 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &suburban::monument::SuburbanMonument,
     &wild_west::gateway::WildWestGateway,
     &wild_west::monument::WildWestMonument,
+    // Family gates (#1796) - themeless gates a few kindred themes share,
+    // reached through `seeded_defaults::room::gateway::kindred_gates`.
+    &family_gates::harbour::HarbourGateway,
+    &family_gates::palisade::PalisadeGateway,
+    &family_gates::yakuimon::YakuimonGateway,
+    &family_gates::corbel_arch::CorbelArchGateway,
+    &family_gates::light_ring::LightRingGateway,
+    &family_gates::garden_arch::GardenArchGateway,
+    &family_gates::bone_arch::BoneArchGateway,
+    &family_gates::works::WorksGateway,
     // Places for the crafts a visitor arrives in (#1782) - a seeded world
     // sites them near its arrival by slug.
     &crafts::jetty::Jetty,
@@ -900,6 +947,7 @@ mod tests {
             "steampunk_gateway [0, 0, -1] steady -25",
             "steampunk_gateway [0, 0, -1] steady -25",
             "steampunk_gateway [0, 0, -1] steady 12",
+            "watermill [0, 0, 1] steady -12",
             "wind_pump [0, 0, 1] steady -55",
             "wind_turbine [0, 1, 0] vane [-1, 0, 0]",
             "wind_turbine [1, 0, 0] steady -60",
@@ -933,6 +981,90 @@ mod tests {
             }
         }
     }
+
+    /// #1794: no building's window glows at noon. Every Window-textured glass
+    /// of a landmark, a secondary, a gate or a monument that glows - a room
+    /// lit behind it - glows from dusk to dawn only (`util::from_dusk`; the
+    /// owner's decision of 2026-10-26: a room's light, a window's, while a
+    /// lamp's or a lantern's glass keeps its glow at every hour, and no
+    /// building's lamp is a Window card). A room's own light behind the glass
+    /// is each entry's to mark (`street::lit_from_dusk`), and no test can
+    /// tell it from a lamp: the count of every light marked so is held at
+    /// [`DUSK_LIGHTS`] at the least, so one put back to every hour is seen.
+    ///
+    /// Glass lit at every hour, by the rule `street::opening_materials`
+    /// keeps for a shop (#1782): a shop's, a kiosk's and a diner's window, as
+    /// shops are lit by day; glazing lit by grow lights or a works floor, as
+    /// a lamp is; and a gauge's glass, as a screen is.
+    #[test]
+    fn no_buildings_window_glows_at_noon() {
+        const AT_EVERY_HOUR: [&str; 10] = [
+            // Shops.
+            "gas_station",
+            "roadside_diner",
+            "general_store",
+            "ticket_booth",
+            // Grow lights and works.
+            "greenhouse",
+            "poly_tunnel",
+            "hydroponics",
+            "vertical_farm",
+            "pump_house",
+            // Lit gauges, as a screen is.
+            "steampunk_gateway",
+        ];
+        use crate::catalogue::StructureRole::{Gateway, Landmark, Monument, Secondary};
+        use crate::pds::{Generator, SovereignTextureConfig};
+        /// The Window glass under `node` that glows at every hour; `found`
+        /// counts the glass that glows at all, `dusk` every light from dusk
+        /// to dawn.
+        fn walk(node: &mut Generator, found: &mut usize, dusk: &mut usize) -> Vec<String> {
+            let mut lit = Vec::new();
+            for m in crate::pds::material_finish::node_materials_mut(&mut node.kind) {
+                *dusk += usize::from(m.dusk_to_dawn && m.emission_strength.0 > 0.0);
+                if matches!(m.texture, SovereignTextureConfig::Window(_))
+                    && m.emission_strength.0 > 0.0
+                {
+                    *found += 1;
+                    if !m.dusk_to_dawn {
+                        lit.push(format!("{:?} at {}", m.base_color.0, m.emission_strength.0));
+                    }
+                }
+            }
+            for child in &mut node.children {
+                lit.extend(walk(child, found, dusk));
+            }
+            lit
+        }
+        let (mut found, mut dusk) = (0, 0);
+        let mut wrong = Vec::new();
+        for entry in ENTRIES {
+            if !matches!(entry.role(), Landmark | Secondary | Gateway | Monument) {
+                continue;
+            }
+            let lit = walk(&mut entry.build("did:plc:noon"), &mut found, &mut dusk);
+            match (AT_EVERY_HOUR.contains(&entry.slug()), lit.is_empty()) {
+                (true, true) => {
+                    wrong.push(format!("{} has no glass lit at every hour", entry.slug()))
+                }
+                (false, false) => {
+                    wrong.push(format!("{}'s windows glow at noon: {lit:?}", entry.slug()))
+                }
+                _ => {}
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+        // The guard reads the windows it means to, and every light that
+        // keeps the hour.
+        assert!(found > 30, "only {found} glowing windows found");
+        assert!(dusk >= DUSK_LIGHTS, "only {dusk} lights from dusk to dawn");
+    }
+
+    /// How many lights the catalogue's buildings, gates and monuments light
+    /// from dusk to dawn at the least (#1794): their windows' glass and the
+    /// rooms behind it ([`no_buildings_window_glows_at_noon`]) - as many as
+    /// when the pass marked them, so a light put back to every hour is seen.
+    const DUSK_LIGHTS: usize = 228;
 
     /// Wearability and the Attachment role travel together: `wear_socket()`
     /// is what the Wear button keys on, `role()` is what the section and

@@ -436,7 +436,11 @@ fn workshop(parts: &mut Vec<Generator>, inner: [f32; 2]) {
     // the camera see through the opening" question as the house's blinds, from
     // the inside. A garage light hangs on drop rods anyway.
     parts.push(prim(
-        cuboid_tapered([2.6, 0.09, 0.3], 0.0, glow([1.0, 0.94, 0.78], 1.8)),
+        cuboid_tapered(
+            [2.6, 0.09, 0.3],
+            0.0,
+            crate::catalogue::items::street::lit_from_dusk(glow([1.0, 0.94, 0.78], 1.8)),
+        ),
         [BAY_X, BASE_H + 1.78, -0.5],
         id_quat(),
     ));

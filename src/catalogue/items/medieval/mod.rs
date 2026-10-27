@@ -25,7 +25,9 @@
 //! maps, but they are on the same metre convention - the shape mesher emits
 //! world-space UVs too - so they are converted alongside these helpers.
 
+pub mod lake_castle;
 pub mod medieval_castle;
+pub mod medieval_hill_fort;
 pub mod monument;
 pub mod street_block;
 pub mod street_detached;

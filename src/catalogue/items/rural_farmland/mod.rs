@@ -30,6 +30,8 @@ pub mod street_hall;
 pub mod street_house;
 pub mod street_low;
 pub mod tractor;
+// Shore leader (#1796).
+pub mod watermill;
 pub mod windmill;
 // Poor (hardscrabble) variants - the prosperity-Poor end of the theme.
 pub mod farm_junk;

@@ -22,6 +22,7 @@ pub mod gateway;
 pub mod membrane_wall;
 pub mod monument;
 pub mod pod_cluster;
+pub mod spawning_pools;
 pub mod spore_vent;
 pub mod street_block;
 pub mod street_detached;

@@ -27,6 +27,7 @@ pub mod street_detached;
 pub mod street_hall;
 pub mod street_house;
 pub mod street_low;
+pub mod tidal_station;
 pub mod veggie_planter;
 pub mod vertical_farm;
 pub mod water_channel;

@@ -8,7 +8,9 @@
 //! ITS FOOTPRINT - its frontage, depth and storeys come from Berlin's data,
 //! on a few steps so copies still share meshes. Elsewhere - the inventory,
 //! a road network's lots - they are ordinary catalogue entries, built at
-//! their kind's own fit; a seeded settlement leaves them out. Owner
+//! their kind's own fit; a seeded settlement stands none among its members,
+//! but its hamlet (#1797) is its theme's detached house, each copy shaped
+//! to a lot of its own as a Berlin footprint's is. Owner
 //! decisions on #1600 (2026-10-10): every theme has TWO MORE - a detached
 //! house and a hall - so the planner can draw a block of villas, a
 //! commercial area's sheds, as Berlin's urban structure types them.
@@ -355,8 +357,8 @@ impl StreetSpec {
             footprint: Fp3([fit.frontage_m(), 0.0, fit.depth_m()]),
             seed: self.seed,
             materials,
-            round_meshes: self.round_meshes.iter().map(|s| s.to_string()).collect(),
-            solid_meshes: self.solid_meshes.iter().map(|s| s.to_string()).collect(),
+            round_meshes: canonical(self.round_meshes),
+            solid_meshes: canonical(self.solid_meshes),
         }
     }
 
@@ -408,6 +410,16 @@ impl StreetSpec {
             ("Trade".to_string(), Fp(f32::from(u8::from(fit.trade)))),
         ]))
     }
+}
+
+/// `ids` as a record keeps them (`sanitize`): sorted, once each - so a
+/// seeded world that carries a street building is its own saved self
+/// (#1797).
+fn canonical(ids: &[&str]) -> Vec<String> {
+    let mut ids: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
+    ids.sort();
+    ids.dedup();
+    ids
 }
 
 /// What sizes and centres a lot by the fit's grammar values (#1646): its

@@ -30,9 +30,9 @@ pub(super) use checks::{
     blob_components, has_emissive, nested_plants, placed, rotate_by, triangle_count, window_cards,
 };
 pub(super) use material::{
-    ageing, bonded_boards, bonded_brick, bonded_siding, face_uv_offset, foundation_mat, glow,
-    lit_interior, quarter_turn, soil, tile, tiles_per_metre, tint, upright_boards, uv_for_scale,
-    window_card,
+    ageing, bonded_boards, bonded_brick, bonded_siding, face_uv_offset, foundation_mat, from_dusk,
+    glow, lit_interior, quarter_turn, soil, tile, tiles_per_metre, tint, upright_boards,
+    uv_for_scale, window_card,
 };
 
 #[cfg(test)]

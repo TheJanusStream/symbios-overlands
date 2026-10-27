@@ -30,6 +30,7 @@ pub mod street_hall;
 pub mod street_house;
 pub mod street_low;
 pub mod suburban_house;
+pub mod suburban_water_tower;
 pub mod swing_set;
 // Poor (trailer-lot) variants - the prosperity-Poor end of the theme.
 pub mod carport;

@@ -214,7 +214,11 @@ fn build_tree() -> Generator {
                 id_quat(),
             ));
             prims.push(prim(
-                cuboid_tapered([0.66, 0.78, 0.1], 0.0, glow(HALL_LIGHT, 2.0)),
+                cuboid_tapered(
+                    [0.66, 0.78, 0.1],
+                    0.0,
+                    crate::catalogue::items::street::lit_from_dusk(glow(HALL_LIGHT, 2.0)),
+                ),
                 [sx * dx, foot_h + 2.4, zf - 0.06],
                 id_quat(),
             ));

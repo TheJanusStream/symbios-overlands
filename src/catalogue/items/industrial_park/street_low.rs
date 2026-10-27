@@ -67,7 +67,10 @@ pub(crate) fn materials() -> HashMap<String, SovereignMaterialSettings> {
         ("Door".to_string(), tank_steel([0.20, 0.28, 0.36])),
         ("Fascia".to_string(), tank_steel([0.86, 0.62, 0.16])),
         ("RoofSheet".to_string(), cladding([0.48, 0.50, 0.52])),
-        ("Northlight".to_string(), glass([0.30, 0.38, 0.40], 0.6)),
+        (
+            "Northlight".to_string(),
+            crate::catalogue::items::util::from_dusk(glass([0.30, 0.38, 0.40], 0.6)),
+        ),
     ]);
     m
 }

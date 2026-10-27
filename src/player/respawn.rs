@@ -242,6 +242,51 @@ impl FacingSet {
     }
 }
 
+/// A reader's wait, after a [`FacingSet`], to see the body at the yaw it set
+/// (#1785, #1786): the camera's follow and the rig's fill read none of the
+/// frames between as the body's own turn. The chassis takes a set rotation
+/// at its next physics step and its `Transform` eases there over the step
+/// after (#670): up to two fixed steps whatever the frame rate - at 360 Hz a
+/// dozen frames.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct LandingWait {
+    /// The yaw the body was set down at.
+    pub(crate) yaw: f32,
+    /// How long it has waited, seconds, and over how many frames.
+    waited: f32,
+    frames: u32,
+}
+
+impl LandingWait {
+    /// How many fixed steps the wait lasts: the two the body takes, with
+    /// room. Counted in time, not frames - eight frames gave up before the
+    /// second step at 240 Hz and more.
+    const STEPS: f32 = 3.0;
+
+    /// The fewest frames it lasts as well, whatever the time: a frame longer
+    /// than [`Self::STEPS`] - under 21 a second - would otherwise end it on
+    /// the frame the word is read, before the steps that turn the body have
+    /// run.
+    const MIN_FRAMES: u32 = 2;
+
+    /// A wait for the body to reach `yaw`.
+    pub(crate) fn new(yaw: f32) -> Self {
+        Self {
+            yaw,
+            waited: 0.0,
+            frames: 0,
+        }
+    }
+
+    /// One more frame of `delta` seconds, fixed steps being `step` seconds:
+    /// whether the wait is over, the body there or not.
+    pub(crate) fn tick(&mut self, delta: f32, step: f32) -> bool {
+        self.waited += delta;
+        self.frames += 1;
+        self.waited > Self::STEPS * step && self.frames > Self::MIN_FRAMES
+    }
+}
+
 impl PlayerMoveRequest {
     /// Ask for a move on the next `Update`.
     pub fn request(&mut self, what: PlayerMove) {

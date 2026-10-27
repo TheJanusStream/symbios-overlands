@@ -62,23 +62,45 @@ Its landmark is its theme's own for its prosperity - a rich medieval
 world's castle, a poor one's hovel - or, above the poor, one of the
 theme's buildings that can lead a settlement (#1783): a chapel's village,
 a market hall's town, a watchtower on its crest, a stave church, a
-boathouse's harbour, a windmill, a clock tower - about two a theme. The
+boathouse's harbour, a windmill, a clock tower - two to five a theme.
+Every theme has one for a crest, a shore or a valley floor its own
+landmark does not take (#1796): a hill fort and a lake castle, a ring fort,
+a lakeside shrine, a causeway temple, an aqueduct, a watermill, a river
+landing, a drowned abbey, a headland redoubt, a clifftop lighthouse, a
+water tower, a crane quay, an observatory, a tidal station and more; the
+white clapboard church leads a farm country's and a suburb's villages as
+well as a frontier town. The
 land is read before the draw: a building that belongs on a crest, a shore
 or a valley floor is drawn more often where the land near the arrival has
 one, a leader whose ground is not there is not drawn at all, and one the
 siting would not stand on such ground - a crest too far out to be worth
 the walk - gives way to the theme's own landmark: no watchtower without a
 crest, no boathouse without a shore. A building that leads stands once in
-a world: never again in a hamlet or as another island's landmark. A rich world
-draws its own landmark most often, a modest one about as often as its
-leaders together; about one world in four above the poor is led by
-another building than its theme's landmark. Its gate and its monument are
+a world: never again in a hamlet, as another island's landmark or among
+another settlement's buildings (#1796). One that belongs on the shore - a
+boathouse, a pier, a quay, a beached hulk - stands on it wherever a
+settlement stands it among its buildings, its front to the water, and a
+smaller one stands in its place where no shore is near; one that asks for
+a crest or a valley floor takes the best of that ground near its place
+and stands anywhere. A rich world
+draws its own landmark about two times in three, a modest one about one
+time in three, however many leaders its theme has (#1796); over a third of
+the worlds above the poor are led by another building than their theme's
+landmark, though one that asks for a crest or a shore stands only where its
+land holds one near, and seldom. Its gate and its monument are
 drawn from small pools (#1783): the theme's own two times in three, else
 one of a kindred theme that reads right there - a castle gatehouse in a
 gothic or a fantasy world, a ranch gate by a roadside, the classical
-portico in a campus or a city world, the gallows banner in a gothic one.
-A Berlin square, which has no settlement, keeps its theme's own gate and
-monument.
+portico in a campus or a city world, the gallows banner in a gothic one -
+or a family gate a few themes share (#1796): a stone quay arch on a pirate
+or a resort coast, a ring of light at an outpost, a monolith field or a
+neon city, a works yard's gate in an industrial or a steam-age world.
+Monuments have families too: a market cross in a medieval town, a ship's
+figurehead on a Norse, a pirate or a resort shore, a stone lantern in a
+feudal Japanese village, a holo pillar at an outpost or in a neon city, a
+works plaque, a trophy, a frame of living growth. Every theme's pools now
+hold more than its own. A Berlin square, which has no settlement, keeps
+its theme's own gate and monument.
 
 ## The land is a recipe, not a sculpt
 
@@ -561,6 +583,38 @@ track: one more than a tenth under water is not drawn (not painted, not
 coloured, not kept clear). Both are the world's own to change: a field's
 every setting in the Paths section, the orchard a placement like any other.
 A Berlin square has neither.
+
+## Hamlets
+
+Such a world whose theme lives in villages - a farm, a medieval village, a
+Norse steading, a feudal Japanese village, a Mesoamerican town, a frontier
+town, a solarpunk commune, a suburb - also stands a hamlet (#1797): three
+to eight of its theme's detached houses (the street building of the
+`Detached` kind, the `..._street_detached` entry) in a row past the
+landmark, each on a lot of its own - 8 to 16 m of frontage, 8 to 12 m deep,
+one storey or two, broader in a rich world - fronting a path, on whichever
+side its ground takes it. The path is one of the settlement's, or a lane of
+the hamlet's own: a straight path leaving one of them, out onto ground that
+takes the houses, one more of `lines` in the terrain's `paths` group (no
+props line it). The houses are one row, each within 30 m down the way of
+the last and all within 220 m of the landing. It is sited last, after the
+places for crafts and the fields, so it takes no craft's place, and on
+ground a house's footing covers, well over the water; on craggy land, whose
+roughness the coarse reading of the ground misses, none stands. Nearly two
+worlds in three of those themes have one.
+
+The houses are one instance set, `seeded_hamlet`: the kind's one
+generator, each house a copy and a variant - its seed, and its lot's
+`Frontage`, `Depth` and `Storeys` as the grammar's values - drawn merged
+and met as a building's voxel shell, so its chimneys do not smoke as the
+settlement's own houses' do. Its copies stand as the settlement's
+buildings do, sunk 0.35 m (a copy's `y` of -35) on the highest ground
+within each house's reach - its lot and the steps before it - which a copy
+of no other set does, and grass, trees and rocks keep off that ground.
+List, move, remove or detach its copies as any set's (see "Many copies:
+instance sets"); a detached house is a building of its own, kept off the
+water and over-steep ground as the settlement's are, so it may stand a
+little way from where its copy did. A Berlin square has none.
 
 ## Signs of life
 
@@ -1090,7 +1144,9 @@ manifest's budget.
   Leave trailing defaults out: variant 0, scale 1000, y 0.
 - **Each copy snaps by itself** (`snap_to_terrain`, true by default): it
   stands on the ground under its own centre, raised by its y, so a row
-  follows a slope. Off, y is above the anchor.
+  follows a slope. Off, y is above the anchor. A seeded hamlet's house
+  (`seeded_hamlet`, see "Hamlets") alone stands on the highest ground
+  within its reach, as a settlement's building does.
 - **A variant is a grammar seed and grammar values** (`params`, the record's
   scaled ints: 40000 is 4). Every Shape node of the generator reads the
   values in place of its own `attr` or `const` of that name, so one grammar

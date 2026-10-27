@@ -158,7 +158,13 @@ fn build_tree() -> Generator {
     // Great rose window: glowing light behind a stone tracery wheel.
     let rose_y = base_h + 6.0;
     prims.push(prim(
-        cylinder_tapered(1.35, 0.25, 22, 0.0, stained(STAINED_GLOW, 2.6)),
+        cylinder_tapered(
+            1.35,
+            0.25,
+            22,
+            0.0,
+            crate::catalogue::items::util::from_dusk(stained(STAINED_GLOW, 2.6)),
+        ),
         [0.0, rose_y, zf],
         quat_x(FRAC_PI_2),
     ));
@@ -218,7 +224,11 @@ fn build_tree() -> Generator {
         // Clerestory lit slits between the buttresses.
         for z in [-0.8_f32, 1.5] {
             prims.push(prim(
-                cuboid_tapered([0.2, 3.0, 0.8], 0.0, stained(STAINED_TINT, 2.0)),
+                cuboid_tapered(
+                    [0.2, 3.0, 0.8],
+                    0.0,
+                    crate::catalogue::items::util::from_dusk(stained(STAINED_TINT, 2.0)),
+                ),
                 [s * (w * 0.5 + 0.02), base_h + 4.0, z],
                 id_quat(),
             ));

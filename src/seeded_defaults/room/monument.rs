@@ -66,9 +66,20 @@ pub fn monument_pool(
 /// The monuments of kindred themes a world of `theme` may stand besides its
 /// own (#1783), by slug, chosen from a sheet of every monument for reading
 /// right there: the civic stele in a classical, a campus or a city world,
-/// timber frames among the farm, the frontier and the roadside, the
-/// industrial frame among ruins, a garden planter in a suburb, the
-/// gallows banner in a gothic or a fantasy world.
+/// the city's own among the campus and the neon blocks, timber frames among
+/// the farm, the frontier and the roadside, the industrial frame among
+/// ruins and engines and the engines' among the works, a garden planter in
+/// a suburb, the gallows banner in a gothic or a fantasy world and the
+/// gothic one in a medieval, the campus's among the sports grounds. Every
+/// theme has at least one, and the themes that had none take a cross-theme
+/// family monument (#1796, `catalogue::items::family_monuments`): the
+/// market cross in a medieval world, the figurehead by the sea (Nordic,
+/// Pirate, Coastal Resort), the stone lantern in Feudal Japan, the serpent
+/// altar in Mesoamerica, the holo-pillar among machines and stars (Space
+/// Outpost, Cyberpunk, Alien Monolithic), the works plaque in the
+/// industrial park and the steampunk works, the trophy at the sports
+/// ground, and the living frame where things grow (Solarpunk, Alien
+/// Organic).
 pub(super) fn kindred_monuments(
     theme: crate::seeded_defaults::ThemeArchetype,
 ) -> &'static [&'static str] {
@@ -81,9 +92,16 @@ pub(super) fn kindred_monuments(
         PostApoc => &["industrial_park_monument"],
         Suburban => &["solarpunk_monument"],
         GothicHorror | Fantasy => &["medieval_monument"],
-        Medieval | Nordic | FeudalJapan | Mesoamerican | IndustrialPark | CoastalResort
-        | SportsRec | Steampunk | Solarpunk | SpaceOutpost | Cyberpunk | AlienOrganic
-        | AlienMonolithic | Pirate => &[],
+        Medieval => &["market_cross_monument", "gothic_horror_monument"],
+        Nordic | Pirate | CoastalResort => &["figurehead_monument"],
+        FeudalJapan => &["stone_lantern_monument"],
+        Mesoamerican => &["serpent_altar_monument"],
+        SpaceOutpost | AlienMonolithic => &["holo_pillar_monument"],
+        Cyberpunk => &["holo_pillar_monument", "modern_city_monument"],
+        IndustrialPark => &["works_plaque_monument", "steampunk_monument"],
+        Steampunk => &["works_plaque_monument", "industrial_park_monument"],
+        SportsRec => &["trophy_monument", "civic_campus_monument"],
+        Solarpunk | AlienOrganic => &["living_frame_monument"],
     }
 }
 

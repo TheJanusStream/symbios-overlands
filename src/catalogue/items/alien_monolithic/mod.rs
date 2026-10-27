@@ -24,6 +24,7 @@ pub mod light_disc;
 pub mod light_pylon;
 pub mod monolith_shard;
 pub mod monument;
+pub mod obelisk_ring;
 pub mod street_block;
 pub mod street_detached;
 pub mod street_hall;

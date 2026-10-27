@@ -32,6 +32,8 @@ pub mod villa;
 pub mod ziggurat;
 // Established (town) secondaries + props - primitive-built.
 pub mod amphitheatre;
+// Valley-floor leader (#1796).
+pub mod aqueduct;
 pub mod bathhouse;
 pub mod brazier;
 pub mod colonnade;

@@ -28,6 +28,7 @@ pub mod fields;
 pub mod gateway;
 pub mod grass;
 pub mod groundcover;
+pub mod hamlet;
 pub mod hour;
 pub mod identity;
 pub mod lake;

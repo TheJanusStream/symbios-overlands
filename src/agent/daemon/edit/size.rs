@@ -104,8 +104,8 @@ mod tests {
         let big: Generator = serde_json::from_value(serde_json::json!({
             "$type": "network.symbios.gen.cuboid", "size": [10000, 10000, 10000], "solid": true,
             // Larger than any seeded building's record: this world's
-            // largest runs to 28 KB (#1778).
-            "children": (0..400).map(|i| serde_json::json!({
+            // largest runs to 48 KB (#1796).
+            "children": (0..600).map(|i| serde_json::json!({
                 "$type": "network.symbios.gen.cuboid", "size": [1000, 1000, 1000], "solid": false,
                 "transform": {"translation": [i * 1000, 0, 0]}
             })).collect::<Vec<_>>()

@@ -557,4 +557,42 @@ mod tests {
         }
         eprintln!("worst theme: {} at {}", worst.1, human_bytes(worst.0));
     }
+
+    /// #1792: no world of a fleet publishes a record over the budget - its
+    /// manifest, its terrain, every member at the finish and ruin its world
+    /// draws. One DID a theme (above) cannot see a building that runs heavy
+    /// in some worlds only: seven in 443 published a vertical farm's at 107
+    /// to 112 KB, and those seven are of the fleet. Every entry is held to
+    /// the budget at every finish as well (`seeded_defaults::room::build`'s
+    /// `every_entry_a_world_places_publishes_within_the_budget`).
+    #[test]
+    fn no_world_of_a_fleet_publishes_a_record_over_the_budget() {
+        const OVER_ONCE: [&str; 7] = [
+            "did:plc:critic146",
+            "did:plc:critic110",
+            "did:plc:critic221",
+            "did:plc:critic471",
+            "did:plc:critic158",
+            "did:plc:critic263",
+            "did:plc:critic541",
+        ];
+        let mut worst = (0usize, String::new());
+        let fleet = (0..200).map(|i| format!("did:plc:fleet{i}"));
+        for did in fleet.chain(OVER_ONCE.map(String::from)) {
+            let room = crate::pds::RoomRecord::default_for_did(&did);
+            let bytes =
+                crate::pds::room::max_publish_record_bytes(&room).expect("a room serialises");
+            if bytes > worst.0 {
+                worst = (bytes, did.clone());
+            }
+            assert_eq!(
+                classify(bytes),
+                SizeClass::WithinBudget,
+                "{did}'s largest published record is {} - over the {} soft budget",
+                human_bytes(bytes),
+                human_bytes(SOFT_RECORD_BUDGET_BYTES),
+            );
+        }
+        eprintln!("worst world: {} at {}", worst.1, human_bytes(worst.0));
+    }
 }

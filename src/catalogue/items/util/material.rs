@@ -783,6 +783,22 @@ pub(in crate::catalogue::items) fn lit_interior(
     }
 }
 
+/// `window`, a window's glass glowing as if lit from the room behind it, as
+/// glass whose glow shows from dusk to dawn only (#1794): by day its own
+/// tint, the room behind it unlit, as a window seen from outside by day is.
+/// A room's own light behind the glass is the street's
+/// [`lit_from_dusk`](crate::catalogue::items::street::lit_from_dusk), and a
+/// lamp's or a lantern's glass keeps its glow at every hour (the owner's
+/// decision of 2026-10-26).
+pub(in crate::catalogue::items) fn from_dusk(
+    window: SovereignMaterialSettings,
+) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        dusk_to_dawn: true,
+        ..window
+    }
+}
+
 pub(in crate::catalogue::items) fn glow(
     color: [f32; 3],
     strength: f32,

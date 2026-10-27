@@ -505,7 +505,11 @@ fn detachable(
 /// Detach copy `copy` of the set `placement` into an absolute placement of
 /// its own (#1644), drawn as it was: where it stood - on the ground, raised
 /// by its own lift, where the set snaps - turned as it was, with its
-/// variant's seed and values. A copy of another size than its item's is
+/// variant's seed and values. A seeded hamlet's house detaches as a
+/// settlement's member stands (#1797): on the highest ground within its
+/// reach, that ground the scatters keep off, and avoiding water - so the
+/// compile walks it off water and over-steep ground as it walks a member,
+/// which it never does a copy. A copy of another size than its item's is
 /// drawn from an item of its own at that size ([`sized_item`]): an absolute
 /// placement draws its item at its own size (#1454). So is a copy of a
 /// seeded set, whatever its size, its name without the seeding's prefix,
@@ -542,6 +546,10 @@ pub fn detach_copy(
     }
     let rotation = anchor.rotation * numbers.rotation();
     let snap = *snap_to_terrain;
+    // A seeded hamlet's house stands on the highest ground within its
+    // reach, as a member does (#1797): detached, it is one.
+    let footing =
+        crate::world_builder::compile::pad::copy_footing(generator_ref, Some(&variant), &numbers);
     let base = generator_ref.clone();
     copies.remove(copy);
     if let Some(sized) = make {
@@ -560,8 +568,8 @@ pub fn detach_copy(
             scale: Fp3([1.0; 3]),
         },
         snap_to_terrain: snap,
-        avoid_water: false,
-        avoid_water_clearance: Fp(0.0),
+        avoid_water: footing.is_some(),
+        avoid_water_clearance: Fp(footing.unwrap_or(0.0)),
         seed: variant.seed,
         params: variant.params,
     });
@@ -707,6 +715,51 @@ mod tests {
             let rotation = Quat::from_array(transform.rotation.0);
             assert!(rotation.abs_diff_eq(anchor.rotation * copy.rotation(), 1e-5));
         }
+    }
+
+    /// #1797: a seeded hamlet's house detaches as a member stands - kept
+    /// off the water, on the highest ground within its reach - as its copy
+    /// stood; any other set's copy avoids nothing.
+    #[test]
+    fn a_hamlets_detached_house_stands_as_a_member() {
+        let hamlet = crate::world_builder::compile::scatter::HAMLET;
+        let lot = InstanceVariant {
+            seed: Some(9),
+            params: GrammarParams(std::collections::BTreeMap::from([
+                ("Depth".to_string(), Fp(6.0)),
+                ("Frontage".to_string(), Fp(8.0)),
+            ])),
+        };
+        let stands = |generator_ref: &str| {
+            let mut record = room_with_set(
+                true,
+                TransformData::default(),
+                vec![InstanceCopy::at(4.0, 1.0, 90.0)],
+            );
+            let post = record.generators["post"].clone();
+            record.generators.insert(generator_ref.into(), post);
+            if let Placement::Instances {
+                generator_ref: name,
+                variants,
+                ..
+            } = &mut record.placements[0]
+            {
+                *name = generator_ref.into();
+                *variants = vec![lot.clone()];
+            }
+            detach_copy(&mut record, 0, 0).expect("detached");
+            match &record.placements[1] {
+                Placement::Absolute {
+                    avoid_water,
+                    avoid_water_clearance,
+                    ..
+                } => (*avoid_water, avoid_water_clearance.0),
+                _ => panic!("an absolute placement"),
+            }
+        };
+        let reach = crate::world_builder::compile::scatter::house_reach(8.0, 6.0);
+        assert_eq!(stands(hamlet), (true, reach));
+        assert_eq!(stands("post"), (false, 0.0));
     }
 
     /// A copy of another size is given an item of its own at that size -

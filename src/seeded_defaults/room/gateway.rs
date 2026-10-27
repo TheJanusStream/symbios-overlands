@@ -70,20 +70,37 @@ pub fn gateway_pool(
 /// (#1783), by slug, chosen from a sheet of every gate for reading right
 /// there: a castle gatehouse in a gothic or a fantasy world and a lych gate
 /// in a medieval one, a ranch gate on a farm or by a roadside, the civic
-/// portico in a classical, a campus or a city world, a steel gantry in a
-/// ruined or a neon one.
+/// portico in a classical, a campus or a city world, the campus gate at a
+/// sports ground, a steel gantry in a ruined, a neon or a steam-age one.
+/// Every theme has kin since #1796, whose family gates - themeless, as the
+/// civic portico is (`catalogue::items::family_gates`) - each serve a few
+/// themes: a stone quay arch on a pirate or a resort coast, a timber
+/// palisade in a Norse or a medieval world, a roofed yakuimon in feudal
+/// Japan, a corbel arch in Mesoamerica, a ring of light at an outpost, a
+/// monolith field or a neon city, a rose-dressed garden arch in a suburb or
+/// a solarpunk town, an arch of bones in an alien hive or a gothic one, and
+/// a works yard's gate in an industrial or a steam-age one.
 fn kindred_gates(theme: crate::seeded_defaults::ThemeArchetype) -> &'static [&'static str] {
     use crate::seeded_defaults::ThemeArchetype::*;
     match theme {
-        Medieval => &["gothic_horror_gateway"],
-        GothicHorror | Fantasy => &["medieval_gateway"],
+        Medieval => &["gothic_horror_gateway", "palisade_gateway"],
+        GothicHorror => &["medieval_gateway", "bone_arch_gateway"],
+        Fantasy => &["medieval_gateway"],
         WildWest => &["rural_farmland_gateway"],
         RuralFarmland | Roadside => &["wild_west_gateway"],
         AncientClassical | CivicCampus | ModernCity => &["civic_gateway"],
-        PostApoc | Cyberpunk => &["industrial_park_gateway"],
-        Nordic | FeudalJapan | Mesoamerican | Suburban | IndustrialPark | CoastalResort
-        | SportsRec | Steampunk | Solarpunk | SpaceOutpost | AlienOrganic | AlienMonolithic
-        | Pirate => &[],
+        PostApoc => &["industrial_park_gateway"],
+        Cyberpunk => &["industrial_park_gateway", "light_ring_gateway"],
+        Nordic => &["palisade_gateway"],
+        FeudalJapan => &["yakuimon_gateway"],
+        Mesoamerican => &["corbel_arch_gateway"],
+        Suburban | Solarpunk => &["garden_arch_gateway"],
+        IndustrialPark => &["works_gateway"],
+        Steampunk => &["industrial_park_gateway", "works_gateway"],
+        CoastalResort | Pirate => &["harbour_gateway"],
+        SportsRec => &["civic_campus_gateway"],
+        SpaceOutpost | AlienMonolithic => &["light_ring_gateway"],
+        AlienOrganic => &["bone_arch_gateway"],
     }
 }
 
@@ -321,7 +338,7 @@ mod tests {
     fn a_pool_draws_its_own_most_often() {
         use crate::seeded_defaults::ThemeArchetype;
         let pool = gateway_pool(ThemeArchetype::Medieval);
-        assert_eq!(pool.len(), 2);
+        assert_eq!(pool.len(), 3);
         let own = pool[0].slug();
         assert_eq!(
             gateway_entry(ThemeArchetype::Medieval, None).map(|e| e.slug()),
@@ -340,10 +357,45 @@ mod tests {
                 gateway_entry(ThemeArchetype::Medieval, Some(seed)).map(|e| e.slug())
             );
         }
-        // A theme with no kin draws its own whatever the seed.
-        let nordic = gateway_pool(ThemeArchetype::Nordic)[0].slug();
+        // A pool of one - every theme has kin since #1796 - draws its one
+        // whatever the seed.
+        let nordic = gateway_pool(ThemeArchetype::Nordic)[0];
         assert!((0..50).all(|seed| {
-            gateway_entry(ThemeArchetype::Nordic, Some(seed)).map(|e| e.slug()) == Some(nordic)
+            draw_from_pool(&[nordic], Some(seed), GATE_POOL_SALT).map(|e| e.slug())
+                == Some(nordic.slug())
         }));
+    }
+
+    /// Every theme stands a kindred gate besides its own (#1796), and each
+    /// family gate - themeless, so no theme's own - serves the themes it
+    /// was made for.
+    #[test]
+    fn every_theme_has_a_kindred_gate() {
+        use crate::seeded_defaults::ThemeArchetype::{self, *};
+        for theme in ThemeArchetype::ALL {
+            assert!(gateway_pool(theme).len() >= 2, "{theme:?} has no kin");
+        }
+        // Each list in the order of `ThemeArchetype::ALL`.
+        for (slug, themes) in [
+            ("harbour_gateway", &[CoastalResort, Pirate][..]),
+            ("palisade_gateway", &[Medieval, Nordic]),
+            ("yakuimon_gateway", &[FeudalJapan]),
+            ("corbel_arch_gateway", &[Mesoamerican]),
+            (
+                "light_ring_gateway",
+                &[Cyberpunk, SpaceOutpost, AlienMonolithic],
+            ),
+            ("garden_arch_gateway", &[Suburban, Solarpunk]),
+            ("bone_arch_gateway", &[GothicHorror, AlienOrganic]),
+            ("works_gateway", &[IndustrialPark, Steampunk]),
+        ] {
+            let gate = crate::catalogue::by_slug(slug).expect(slug);
+            assert!(gate.themes().is_empty(), "{slug} is themed");
+            let serving: Vec<ThemeArchetype> = ThemeArchetype::ALL
+                .into_iter()
+                .filter(|&t| gateway_pool(t).iter().any(|e| e.slug() == slug))
+                .collect();
+            assert_eq!(serving, themes, "{slug}");
+        }
     }
 }

@@ -22,6 +22,7 @@ pub mod clock_tower;
 pub mod dormitory;
 pub mod flagpole;
 pub mod gateway;
+pub mod hilltop_observatory;
 pub mod lecture_hall;
 pub mod library;
 pub mod monument;

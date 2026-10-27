@@ -913,8 +913,10 @@ fn draw_placement_visualizers(
         // spawner stands it, a ring with a stroke along its front - copies
         // are drawn merged, so the editor cannot pick them yet (#1644).
         Placement::Instances {
+            generator_ref,
             transform,
             snap_to_terrain,
+            variants,
             copies,
             ..
         } => {
@@ -929,7 +931,16 @@ fn draw_placement_visualizers(
                 let [x, y, z] = copy.position();
                 let mut pos = anchor.translation + anchor.rotation * Vec3::new(x, y, z);
                 if *snap_to_terrain {
-                    pos.y = get_y(pos.x, pos.z) + y;
+                    // On the ground the spawner stands it on: a seeded
+                    // hamlet's house on the highest within its reach (#1797).
+                    let variant = usize::try_from(copy.variant)
+                        .ok()
+                        .and_then(|variant| variants.get(variant));
+                    let footing = compile::pad::copy_footing(generator_ref, variant, copy);
+                    let ground = heightmap
+                        .as_deref()
+                        .map_or(0.0, |hm| snapped_ground_y(&hm.0, pos.x, pos.z, footing));
+                    pos.y = ground + y;
                 }
                 let front = anchor.rotation * copy.rotation() * Vec3::NEG_Z;
                 gizmos.circle(Isometry3d::new(pos, flat), 0.6, color);

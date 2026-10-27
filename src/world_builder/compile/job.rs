@@ -309,8 +309,9 @@ pub(super) struct FingerprintPass {
     water_level: Option<serde_json::Value>,
     terrain: Option<serde_json::Value>,
     /// What every scatter keeps off (#1776): each seeded structure's place
-    /// and ground radius, the world's landing with its facing, its paths
-    /// and its orchard's trees - `Value::Null` for a world with none.
+    /// and ground radius, the world's landing with its facing, its paths,
+    /// its orchard's trees and its hamlet's houses - `Value::Null` for a
+    /// world with none.
     kept_off: Option<serde_json::Value>,
 }
 
@@ -366,6 +367,12 @@ impl FingerprintPass {
             .into_iter()
             .map(|(middle, along, [hl, hd])| [middle.x, middle.y, along.x, along.y, hl, hd])
             .collect();
+        // The ground a seeded hamlet's houses stand on (#1797): its copies
+        // are no part of its set's unit, so the scatters' must carry them.
+        let houses: Vec<[f32; 3]> = super::scatter::hamlet_grounds(record)
+            .into_iter()
+            .map(|(x, z, reach)| [x, z, reach])
+            .collect();
         Self {
             water_level: Some(room_water.key()),
             terrain: serde_json::to_value(&land).ok(),
@@ -373,6 +380,7 @@ impl FingerprintPass {
                 && record.default_landing.is_none()
                 && paths.is_none()
                 && orchards.is_empty()
+                && houses.is_empty()
             {
                 Some(serde_json::Value::Null)
             } else {
@@ -387,7 +395,7 @@ impl FingerprintPass {
                         f32::from(u8::from(landing.avoid_water)),
                     ]
                 });
-                serde_json::to_value((&structures, landing, paths, &orchards)).ok()
+                serde_json::to_value((&structures, landing, paths, &orchards, &houses)).ok()
             },
         }
     }
@@ -648,6 +656,37 @@ mod tests {
             }
         }
         assert_ne!(fingerprints(&record)[scatter], before);
+    }
+
+    /// #1797: every scatter is rebuilt when a seeded hamlet's house moves,
+    /// which it keeps off - though the set's own unit is not, its copies
+    /// being followed in place (#1644).
+    #[test]
+    fn a_hamlets_moved_house_reaches_every_scatters_fingerprint() {
+        use crate::pds::Placement;
+        // A farm on its own ground, with a hamlet.
+        let mut record = crate::seeded_defaults::room::build::build_room_with_source(
+            34,
+            "did:plc:fp_test",
+            None,
+        );
+        let scatter = record
+            .placements
+            .iter()
+            .position(|p| matches!(p, Placement::Scatter { .. }))
+            .expect("a seeded scatter");
+        let hamlet = record
+            .placements
+            .iter()
+            .position(|p| p.generator_ref() == Some(super::super::scatter::HAMLET))
+            .expect("a seeded hamlet");
+        let before = fingerprints(&record);
+        if let Placement::Instances { copies, .. } = &mut record.placements[hamlet] {
+            copies[0].x_cm += 500;
+        }
+        let after = fingerprints(&record);
+        assert_ne!(after[scatter], before[scatter], "a moved house");
+        assert_eq!(after[hamlet], before[hamlet], "its set followed in place");
     }
 
     /// #1791: every scatter is rebuilt when a field's ground or a seeded

@@ -14,6 +14,7 @@
 //! and machinery hums under a steam hiss - all from [`fx`]. The theme's grey
 //! haze accent lives in [`crate::seeded_defaults::room::accent`].
 
+pub mod container_crane_quay;
 pub mod cooling_tower;
 pub mod factory;
 pub mod floodlight;

@@ -23,6 +23,7 @@ pub mod gateway;
 pub mod guardrail;
 pub mod monument;
 pub mod motel;
+pub mod overlook_tower;
 pub mod road_sign;
 pub mod roadside_diner;
 pub mod street_block;

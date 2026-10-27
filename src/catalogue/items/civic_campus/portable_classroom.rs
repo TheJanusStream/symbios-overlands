@@ -153,7 +153,11 @@ fn build_tree() -> Generator {
     for x in [0.2_f32, 2.0] {
         // Dim window pane.
         prims.push(prim(
-            cuboid_tapered([1.2, 1.0, 0.12], 0.0, glass(GLASS_TINT, 0.4)),
+            cuboid_tapered(
+                [1.2, 1.0, 0.12],
+                0.0,
+                crate::catalogue::items::util::from_dusk(glass(GLASS_TINT, 0.4)),
+            ),
             [x, wall_y + 0.2, fz * 1.66],
             id_quat(),
         ));

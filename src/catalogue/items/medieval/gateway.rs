@@ -130,8 +130,13 @@ fn build_tree() -> Generator {
         ));
         // Warm shutter-glow window high on the tower front - the gate reads
         // inhabited at dusk. Broad lit face → low strength so it holds colour.
+        // A room's light, lit from dusk to dawn (#1794).
         prims.push(prim(
-            cuboid_tapered([0.42, 0.55, 0.08], 0.0, glow(FORGE_ORANGE, 2.6)),
+            cuboid_tapered(
+                [0.42, 0.55, 0.08],
+                0.0,
+                crate::catalogue::items::street::lit_from_dusk(glow(FORGE_ORANGE, 2.6)),
+            ),
             [cx, 4.0, loop_z],
             id_quat(),
         ));

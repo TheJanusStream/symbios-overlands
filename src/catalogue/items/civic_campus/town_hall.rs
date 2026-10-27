@@ -91,7 +91,11 @@ fn build_tree() -> Generator {
     // Lit tall windows across the front behind the colonnade, set proud of the
     // -4.5 front wall.
     prims.push(prim(
-        cuboid_tapered([10.0, 2.8, 0.2], 0.0, glass(GLASS_TINT, 1.3)),
+        cuboid_tapered(
+            [10.0, 2.8, 0.2],
+            0.0,
+            crate::catalogue::items::util::from_dusk(glass(GLASS_TINT, 1.3)),
+        ),
         [0.0, base_h + 2.6, fz * 4.55],
         id_quat(),
     ));
@@ -200,7 +204,13 @@ fn dome_lantern(base_y: f32) -> Vec<Generator> {
         ),
         // Warm lit lantern band recessed inside the colonnette ring.
         prim(
-            cylinder_tapered(drum_r - 0.2, drum_h - 0.5, 16, 0.0, glow(WINDOW_WARM, 1.6)),
+            cylinder_tapered(
+                drum_r - 0.2,
+                drum_h - 0.5,
+                16,
+                0.0,
+                crate::catalogue::items::street::lit_from_dusk(glow(WINDOW_WARM, 1.6)),
+            ),
             [0.0, base_y + drum_h * 0.5, 0.0],
             id_quat(),
         ),

@@ -112,6 +112,7 @@ pub(crate) use portal::begin_portal_travel;
 pub use preset::{
     AirplanePreset, CarPreset, HelicopterPreset, HoverBoatPreset, HumanoidPreset, VehicleChassis,
 };
+pub(crate) use respawn::LandingWait;
 pub use respawn::{FacingSet, PlayerMove, PlayerMoveRequest, go_to_pose, return_to_spawn_blocked};
 pub(crate) use rigged::InFirstPerson;
 pub use rigged::RiggedBuildFailed;

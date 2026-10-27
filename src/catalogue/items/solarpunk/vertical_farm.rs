@@ -119,6 +119,11 @@ const DOCK_H: f32 = 2.6;
 const ROOF_PITCH: f32 = util::BALUSTER_PITCH * 1.6;
 const RAIL_H: f32 = 0.95;
 
+/// The green curtain on each flank: its rows of foliage clumps, three to a
+/// row, and the wires they are threaded through (#1792).
+const CURTAIN_ROWS: usize = 5;
+const CURTAIN_WIRES: usize = 4;
+
 /// The roof water tank, sitting on the deck.
 const TANK_R: f32 = 0.7;
 const TANK_H: f32 = 1.0;
@@ -547,21 +552,27 @@ fn green_curtain(sx: f32) -> Generator {
     );
 
     let mut parts = Vec::new();
-    // Standoff brackets and horizontal battens up the wall.
-    for k in 1..6 {
+    // Standoff brackets and horizontal battens up the wall, one to a foliage
+    // row, the root among them (#1792 thinned the curtain from six rows of
+    // four on seven wires to five rows of three, larger, on four).
+    for k in 1..CURTAIN_ROWS {
         parts.push(prim(
             solid(cuboid_tapered(
                 [0.1, 0.12, D - 0.6],
                 0.0,
                 steel(STEEL_WHITE),
             )),
-            [x, y0 + k as f32 * (y1 - y0) / 5.0, 0.0],
+            [
+                x,
+                y0 + k as f32 * (y1 - y0) / (CURTAIN_ROWS - 1) as f32,
+                0.0,
+            ],
             id_quat(),
         ));
     }
     // Vertical wires between them.
-    for k in 0..7 {
-        let z = -(D - 0.9) * 0.5 + k as f32 * (D - 0.9) / 6.0;
+    for k in 0..CURTAIN_WIRES {
+        let z = -(D - 0.9) * 0.5 + k as f32 * (D - 0.9) / (CURTAIN_WIRES - 1) as f32;
         parts.push(prim(
             solid(cylinder_tapered(0.02, y1 - y0, 6, 0.0, steel(STEEL_WHITE))),
             [x, center[1], z],
@@ -569,17 +580,17 @@ fn green_curtain(sx: f32) -> Generator {
         ));
     }
     // Foliage threaded through, in clumps rather than as a sheet.
-    for k in 0..6 {
+    for k in 0..CURTAIN_ROWS {
         parts.extend(crop_tufts(
             [
                 x + sx * 0.12,
-                y0 + 0.35 + k as f32 * (y1 - y0 - 0.7) / 5.0,
+                y0 + 0.35 + k as f32 * (y1 - y0 - 0.7) / (CURTAIN_ROWS - 1) as f32,
                 0.0,
             ],
             [0.0, D - 1.1],
             1,
-            4,
-            0.62,
+            3,
+            0.85,
             foliage(LEAF_GREEN),
         ));
     }
@@ -647,14 +658,16 @@ fn grow_deck(k: usize, above: Generator) -> Generator {
             // One row, not two. A tray bed 0.24 m deep planted 4 x 2 puts its
             // two rows 0.24 m apart under clumps 0.29 m across, so the back row
             // sat inside the front one: sixteen racks paying eight nodes each
-            // to show five (#1293). Widened to five across instead, which
-            // closes the gaps the four-across row had and costs three fewer.
+            // to show five (#1293). Then three larger clumps rather than five
+            // (#1792): behind the glazing three read as a planted tray as well,
+            // and sixteen racks' two clumps each are a fifteenth of the record,
+            // which ran past the 100 KiB budget in a ruined world.
             parts.extend(crop_tufts(
                 [bx, ry + 0.11, *rz],
                 [bw - 0.5, 0.0],
-                5,
+                3,
                 1,
-                0.26,
+                0.34,
                 foliage(CROP_GREEN),
             ));
         }

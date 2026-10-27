@@ -228,7 +228,11 @@ fn build_tree() -> Generator {
     for k in 0..bays.1 {
         let y = g_bottom + (k as f32 + 0.85) * row_h;
         prims.push(prim(
-            cuboid_tapered([gw - 0.8, 0.2, 0.16], 0.0, glow(OFFICE_WARM, 2.4)),
+            cuboid_tapered(
+                [gw - 0.8, 0.2, 0.16],
+                0.0,
+                crate::catalogue::items::street::lit_from_dusk(glow(OFFICE_WARM, 2.4)),
+            ),
             [0.0, y, front_z + 0.4],
             id_quat(),
         ));
@@ -257,7 +261,11 @@ fn build_tree() -> Generator {
     // shopfront head, where a real lobby soffit is: hung any higher it is
     // outside the opening and lights nothing the street can see.
     prims.push(prim(
-        cuboid_tapered([gw - 0.8, 0.12, cavity - 0.4], 0.0, glow(OFFICE_WARM, 1.1)),
+        cuboid_tapered(
+            [gw - 0.8, 0.12, cavity - 0.4],
+            0.0,
+            crate::catalogue::items::street::lit_from_dusk(glow(OFFICE_WARM, 1.1)),
+        ),
         [0.0, store_head - 0.25, cav_mid],
         id_quat(),
     ));

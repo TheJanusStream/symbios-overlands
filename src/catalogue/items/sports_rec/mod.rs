@@ -25,6 +25,7 @@ pub mod gym;
 pub mod monument;
 pub mod pelican_bicycle;
 pub mod players_bench;
+pub mod rowing_boathouse;
 pub mod scoreboard;
 pub mod stadium;
 pub mod street_block;

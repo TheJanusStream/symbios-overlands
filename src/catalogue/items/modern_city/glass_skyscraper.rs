@@ -149,7 +149,7 @@ fn build_tree() -> Generator {
         solid(cuboid_tapered(
             [lower_w - 0.2, lower_h, lower_w - 0.2],
             0.0,
-            glow(GLASS_BLUE, 1.6),
+            crate::catalogue::items::street::lit_from_dusk(glow(GLASS_BLUE, 1.6)),
         )),
         [0.0, lower_y0 + lower_h * 0.5, 0.0],
         id_quat(),
@@ -242,7 +242,7 @@ fn build_tree() -> Generator {
         solid(cuboid_tapered(
             [upper_w - 0.2, upper_h, upper_w - 0.2],
             0.0,
-            glow(GLASS_BLUE, 1.6),
+            crate::catalogue::items::street::lit_from_dusk(glow(GLASS_BLUE, 1.6)),
         )),
         [0.0, upper_y0 + 0.4 + upper_h * 0.5, 0.0],
         id_quat(),

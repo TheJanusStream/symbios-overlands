@@ -67,7 +67,10 @@ pub(crate) fn materials() -> HashMap<String, SovereignMaterialSettings> {
         ("Silver".to_string(), timber([0.58, 0.56, 0.52])),
         ("Honey".to_string(), timber([0.70, 0.54, 0.32])),
         ("Steel".to_string(), steel(STEEL_WHITE)),
-        ("NorthLight".to_string(), glass(GLASS_CLEAN, 0.3)),
+        (
+            "NorthLight".to_string(),
+            crate::catalogue::items::util::from_dusk(glass(GLASS_CLEAN, 0.3)),
+        ),
     ]);
     m
 }

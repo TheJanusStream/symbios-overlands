@@ -18,6 +18,8 @@ pub mod bell_tower;
 pub mod cathedral;
 pub mod cemetery;
 pub mod dead_tree;
+// Shore leader (#1796).
+pub mod drowned_abbey;
 pub mod gargoyle;
 pub mod gateway;
 pub mod gravestone;
@@ -294,7 +296,7 @@ pub(super) fn lancet(
             cuboid_tapered(
                 [half_w * 1.7, glass_h, 0.1],
                 0.0,
-                stained(STAINED_TINT, glow_str),
+                crate::catalogue::items::util::from_dusk(stained(STAINED_TINT, glow_str)),
             ),
             [cx, sill + glass_h * 0.5, glass_z],
             id_quat(),

@@ -94,7 +94,11 @@ fn build_tree() -> Generator {
     ));
     // Lit window band on the front (gridded glass survives the glow).
     prims.push(prim(
-        cuboid_tapered([8.5, 1.2, 0.15], 0.0, glass(GLASS_TINT, 1.2)),
+        cuboid_tapered(
+            [8.5, 1.2, 0.15],
+            0.0,
+            crate::catalogue::items::util::from_dusk(glass(GLASS_TINT, 1.2)),
+        ),
         [0.0, plinth_h + 1.6, -1.95],
         id_quat(),
     ));

@@ -134,8 +134,13 @@ fn build_tree() -> Generator {
         [0.0, span_y + 0.42, -1.05],
         id_quat(),
     ));
+    // Its glass glows from dusk to dawn (#1794), lit from under the canopy.
     prims.push(prim(
-        cuboid_tapered([4.2, 0.08, 1.7], 0.0, glass(GLASS_TEAL, 0.8)),
+        cuboid_tapered(
+            [4.2, 0.08, 1.7],
+            0.0,
+            crate::catalogue::items::util::from_dusk(glass(GLASS_TEAL, 0.8)),
+        ),
         [0.0, span_y + 0.34, -1.05],
         id_quat(),
     ));

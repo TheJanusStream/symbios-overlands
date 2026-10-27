@@ -56,7 +56,10 @@ pub(crate) fn materials() -> HashMap<String, SovereignMaterialSettings> {
     m.extend([
         ("IronPlate".to_string(), iron([0.30, 0.30, 0.32])),
         ("Slate".to_string(), slate([0.24, 0.25, 0.28])),
-        ("GlassRoof".to_string(), pane_grid(GLASS_AMBER, 0.3, (4, 3))),
+        (
+            "GlassRoof".to_string(),
+            crate::catalogue::items::util::from_dusk(pane_grid(GLASS_AMBER, 0.3, (4, 3))),
+        ),
     ]);
     m
 }

@@ -90,7 +90,7 @@ fn build_tree() -> Generator {
         [8.0, 3.4],
         (5, 4),
         fz * 0.18,
-        glass(GLASS_TINT, 1.2),
+        crate::catalogue::items::util::from_dusk(glass(GLASS_TINT, 1.2)),
         marble(MARBLE_WHITE),
     ));
     // Bronze doors.

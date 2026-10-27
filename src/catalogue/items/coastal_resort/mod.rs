@@ -21,6 +21,7 @@ pub mod beach_house;
 pub mod beach_umbrella;
 pub mod boardwalk_shops;
 pub mod buoy;
+pub mod clifftop_lighthouse;
 pub mod deck_chair;
 pub mod dinghy;
 pub mod gateway;

@@ -664,7 +664,7 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
     // primary landmark cluster (kept under the historical "landmark"
     // generator name the gateway and compile layers key on), an
     // optional second landmark cluster on naturally-partitioned
-    // landforms, and small hamlets in leftover regions. A Shape-grammar
+    // landforms, and small clusters in leftover regions. A Shape-grammar
     // building draws with its member's own seed, carried on its placement
     // (#1514), so two users - and two buildings of one entry - see
     // different derivations; every member snaps to terrain with its own
@@ -768,7 +768,7 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
                     .map(|(entry, mspot)| (mspot.offset, entry.footprint().clearance))
                     .collect();
                 let gate = (spot.offset, entry.footprint().clearance);
-                let lines = crate::seeded_defaults::room::paths::route_plan(
+                let mut lines = crate::seeded_defaults::room::paths::route_plan(
                     &terrain_probe,
                     &mut settlement_plan,
                     viewpoint.landing,
@@ -812,9 +812,10 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
                     },
                 );
                 // A place for every craft (#1782), near the arrival and clear of
-                // all of that and of the feature, and a farm's fields and its
-                // orchard (#1791), clear of those too: wired below.
-                let (crafts, farm) =
+                // all of that and of the feature, a farm's fields and its
+                // orchard (#1791), and a hamlet along a path or a lane of its
+                // own (#1797), each clear of those before it: wired below.
+                let (crafts, farm, hamlet) =
                     {
                         use crate::seeded_defaults::room::crafts::{Ground, Kept, Siting, site};
                         let mut kept: Vec<Ground> = keep_off
@@ -865,15 +866,35 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
                                 )
                             })
                             .unwrap_or_default();
-                        (crafts, farm)
+                        let landmark = settlement_plan.primary_landmark();
+                        let hamlet = crate::seeded_defaults::room::hamlet::site(
+                            &terrain_probe,
+                            viewpoint.landing,
+                            (landmark.offset, landmark.ground_radius()),
+                            &lines,
+                            PATH_WIDTH,
+                            &siting.kept,
+                            &scene,
+                            did_seed,
+                        );
+                        (crafts, farm, hamlet)
                     };
-                Some((lines, feature, crafts, farm))
+                // Its lane is one more path.
+                lines.extend(
+                    hamlet
+                        .as_ref()
+                        .and_then(|hamlet| hamlet.lane)
+                        .map(Vec::from),
+                );
+                Some((lines, feature, crafts, farm, hamlet))
             }
             _ => None,
         };
-    let (paths, feature, crafts, farm) = match paths {
-        Some((lines, feature, crafts, farm)) => (Some(lines), feature, crafts, farm),
-        None => (None, None, Default::default(), Default::default()),
+    let (paths, feature, crafts, farm, hamlet) = match paths {
+        Some((lines, feature, crafts, farm, hamlet)) => {
+            (Some(lines), feature, crafts, farm, hamlet)
+        }
+        None => (None, None, Default::default(), Default::default(), None),
     };
 
     // A Berlin square is its own settlement (see the docs above): only its
@@ -932,6 +953,14 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
                 let grammar = generators[&name].draws_a_grammar();
                 placements.push(member_placement(name, member, grammar));
             }
+        }
+        // The hamlet's houses (#1797): one set of its theme's detached house.
+        if let Some(hamlet) = &hamlet {
+            generators.insert(
+                crate::seeded_defaults::room::hamlet::HAMLET.to_string(),
+                hamlet.generator(prosperity, escalation),
+            );
+            placements.push(hamlet.placement());
         }
     }
 
@@ -1980,13 +2009,27 @@ mod tests {
                     _ => None,
                 })
                 .collect();
-            // The landmark's and the gate's paths leave the landing; a
-            // building's door stands a metre past its ground.
-            for line in terrain
-                .paths
-                .lines
+            // The landmark's and the gate's paths leave the landing, and a
+            // hamlet's lane (#1797), the last of the paths where its world
+            // has one, another path; a building's door stands a metre past
+            // its ground.
+            let lines = &terrain.paths.lines;
+            let hamlet = record
+                .placements
                 .iter()
-                .filter(|line| line[0].0 != landing)
+                .any(|p| p.generator_ref() == Some(super::super::hamlet::HAMLET));
+            let leaves_a_path = |line: &Vec<Fp2>| {
+                lines[..lines.len() - 1].iter().any(|other| {
+                    other.windows(2).any(|pair| {
+                        let [a, b] = [pair[0].0, pair[1].0];
+                        super::super::paths::off_segment(line[0].0, a, b) < 0.01
+                    })
+                })
+            };
+            let lane = lines.last().filter(|last| hamlet && leaves_a_path(last));
+            for line in lines
+                .iter()
+                .filter(|line| line[0].0 != landing && Some(*line) != lane)
             {
                 let door = line[0].0;
                 let off = |at: [f32; 2]| (door[0] - at[0]).hypot(door[1] - at[1]);
@@ -2293,6 +2336,122 @@ mod tests {
                 "a path at {point:?}"
             );
         }
+    }
+
+    /// #1797: a world on its own ground whose theme stands a hamlet, on
+    /// land not craggy, has one in most worlds - one set of its theme's
+    /// detached house - and on the full map every house of the first ten
+    /// such worlds stands as a member does: over the sea and out of a lake,
+    /// buried no deeper than a member's sink, and clear of every building
+    /// where the compile walks it; its footing reaches the ground under its
+    /// lot at all but one in fifty. Seeds 0..300 stood 36 hamlets of 57
+    /// worlds, 182 houses, none over daylight.
+    #[test]
+    fn a_seeded_hamlet_stands_dry_and_whole_on_the_full_map() {
+        use crate::seeded_defaults::room::hamlet::{HAMLET, most_houses};
+        let (mut worlds, mut hamlets, mut houses, mut daylight) = (0, 0, 0, 0);
+        for seed in 0u64..120 {
+            let scene = crate::seeded_defaults::SceneCharacter::for_seed(seed);
+            if most_houses(scene.theme).is_none()
+                || scene.landform == crate::seeded_defaults::LandformArchetype::Craggy
+            {
+                continue;
+            }
+            worlds += 1;
+            let record = build_room_with_source(seed, "did:plc:hamlet", None);
+            let Some((variants, copies)) = record.placements.iter().find_map(|p| match p {
+                Placement::Instances {
+                    generator_ref,
+                    variants,
+                    copies,
+                    ..
+                } if generator_ref == HAMLET => Some((variants, copies)),
+                _ => None,
+            }) else {
+                continue;
+            };
+            hamlets += 1;
+            if hamlets > 10 {
+                continue;
+            }
+            let hm = crate::terrain::rebuild_terrain_for_record(&record);
+            let layers = crate::water::bodies::terrain_layers(&record);
+            let sea = layers[0].translation.y;
+            let lake = layers
+                .get(1)
+                .and_then(|layer| crate::water::bodies::lake(&hm.0, layer));
+            let water = crate::world_builder::compile::water::drawn_water(&record, Some(&hm));
+            let ground = crate::world_builder::compile::pad::AnchorGround::new(&hm, &water);
+            let walked: Vec<([f32; 2], f32)> = record
+                .placements
+                .iter()
+                .filter_map(|p| match p {
+                    Placement::Absolute {
+                        transform,
+                        snap_to_terrain: true,
+                        avoid_water: true,
+                        avoid_water_clearance,
+                        ..
+                    } => {
+                        let at = crate::world_builder::compile::pad::snapped_absolute_anchor(
+                            &ground,
+                            transform,
+                            true,
+                            avoid_water_clearance.0,
+                        );
+                        Some(([at.x, at.z], avoid_water_clearance.0))
+                    }
+                    _ => None,
+                })
+                .collect();
+            for copy in copies {
+                houses += 1;
+                let variant = &variants[copy.variant as usize];
+                let (frontage, depth) =
+                    (variant.params.0["Frontage"].0, variant.params.0["Depth"].0);
+                let [x, y, z] = copy.position();
+                let footing =
+                    crate::world_builder::compile::pad::copy_footing(HAMLET, Some(variant), copy);
+                let floor = crate::world_builder::snapped_ground_y(&hm.0, x, z, footing) + y;
+                // The lot under it, turned as it is.
+                let turn = -(copy.yaw_ddeg as f32 / 10.0).to_radians();
+                let (sin, cos) = (turn.sin(), turn.cos());
+                let (mut low, mut high) = (f32::MAX, f32::MIN);
+                for i in 0..=8 {
+                    for j in 0..=8 {
+                        let (lx, lz) = (
+                            (i as f32 / 8.0 - 0.5) * frontage,
+                            (j as f32 / 8.0 - 0.5) * depth,
+                        );
+                        let (wx, wz) = (x + lx * cos + lz * sin, z - lx * sin + lz * cos);
+                        let h = crate::world_builder::snapped_ground_y(&hm.0, wx, wz, None);
+                        low = low.min(h);
+                        high = high.max(h);
+                    }
+                }
+                assert!(low > sea, "{seed}: a house at ({x}, {z}) in the sea");
+                assert!(
+                    !lake.as_ref().is_some_and(|lake| lake.cells.reaches(x, z)),
+                    "{seed}: a house at ({x}, {z}) in its lake"
+                );
+                assert!(high - floor <= 0.4, "{seed}: a house at ({x}, {z}) buried");
+                let reach = crate::world_builder::compile::scatter::house_reach(frontage, depth);
+                let covers = crate::catalogue::items::foundation::required_depth(reach);
+                daylight += usize::from(floor - covers > low);
+                for &(at, r) in &walked {
+                    let apart = (at[0] - x).hypot(at[1] - z) - r - reach;
+                    assert!(
+                        apart >= 0.0,
+                        "{seed}: a building walked onto a house at ({x}, {z})"
+                    );
+                }
+            }
+        }
+        assert!(hamlets * 2 > worlds, "{hamlets} hamlets in {worlds} worlds");
+        assert!(
+            daylight * 50 <= houses,
+            "{daylight} of {houses} over daylight"
+        );
     }
 
     /// #1789: a seeded world - on its own ground or on a square of Berlin -
@@ -3233,6 +3392,56 @@ mod tests {
                 "seed {room_seed}: {projected} projected vegetation entities"
             );
         }
+    }
+
+    /// #1792: every catalogue entry a world can place, built as the build
+    /// draws a settlement member - its socio finish at either end of
+    /// prosperity, its ruin at every escalation tier, a calm world's hearths
+    /// lit - publishes as a record inside the soft budget, with room for the
+    /// name and the type it is published under. Seven worlds in 443 published
+    /// a vertical farm's at 107 to 112 KB, which a test of one world a theme
+    /// could not see.
+    #[test]
+    fn every_entry_a_world_places_publishes_within_the_budget() {
+        use crate::pds::record_size::{SOFT_RECORD_BUDGET_BYTES, serialized_record_bytes};
+        use crate::seeded_defaults::EscalationTier;
+        // The generator record's `$type`, its `name` - a settlement member's
+        // longest is `settlement_c3_secondary_0` - and their punctuation.
+        const WRAPPER: usize = 160;
+        let mut worst = (0, "");
+        for entry in crate::catalogue::items::ENTRIES {
+            for prosperity in [0.0, 1.0] {
+                for escalation in [0.0, 0.4, 0.7, 1.0] {
+                    for seed in [7u64, 4242] {
+                        let mut built = entry.build("did:plc:budget");
+                        crate::pds::material_finish::apply_socio_finish(
+                            &mut built, prosperity, escalation,
+                        );
+                        crate::pds::ruin::apply_ruin_level(
+                            &mut built,
+                            escalation,
+                            seed,
+                            entry.ruin_max_lean(),
+                        );
+                        if EscalationTier::from_unit(escalation) == EscalationTier::Calm {
+                            crate::seeded_defaults::room::life::light_the_hearths(&mut built, seed);
+                        }
+                        let bytes =
+                            serialized_record_bytes(&built).expect("an entry serialises") + WRAPPER;
+                        if bytes > worst.0 {
+                            worst = (bytes, entry.slug());
+                        }
+                        assert!(
+                            bytes <= SOFT_RECORD_BUDGET_BYTES,
+                            "{} at prosperity {prosperity}, escalation {escalation}, seed {seed}: \
+                             {bytes} B over the {SOFT_RECORD_BUDGET_BYTES} B budget",
+                            entry.slug()
+                        );
+                    }
+                }
+            }
+        }
+        eprintln!("heaviest entry: {} at {} B", worst.1, worst.0);
     }
 
     /// The ground-cover tier must actually reach the record, and - unlike the

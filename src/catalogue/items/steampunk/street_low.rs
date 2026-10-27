@@ -61,7 +61,10 @@ pub(crate) fn materials() -> HashMap<String, SovereignMaterialSettings> {
         ("Brass".to_string(), brass(BRASS)),
         ("Copper".to_string(), copper(COPPER_ORANGE)),
         ("Sheet".to_string(), corrugated(CORRUGATED_RUST)),
-        ("NorthLight".to_string(), glass(GLASS_AMBER, 0.6)),
+        (
+            "NorthLight".to_string(),
+            crate::catalogue::items::util::from_dusk(glass(GLASS_AMBER, 0.6)),
+        ),
         ("Door".to_string(), plank(WOOD_BROWN)),
         ("DoorGreen".to_string(), plank([0.18, 0.30, 0.22])),
         ("Sign".to_string(), iron([0.10, 0.20, 0.16])),

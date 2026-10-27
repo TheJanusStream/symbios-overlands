@@ -77,7 +77,7 @@ pub(crate) fn materials() -> HashMap<String, SovereignMaterialSettings> {
         ("Bloom".to_string(), foliage([0.72, 0.36, 0.50])),
         (
             "GlassRoof".to_string(),
-            pane_grid(GLASS_CLEAN, 0.25, (4, 2)),
+            crate::catalogue::items::util::from_dusk(pane_grid(GLASS_CLEAN, 0.25, (4, 2))),
         ),
         ("PV".to_string(), pv(PV_BLUE)),
         ("Door".to_string(), timber([0.30, 0.20, 0.12])),

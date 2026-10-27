@@ -94,7 +94,13 @@ fn build_tree() -> Generator {
     // texture here would tile ~1/m around the drum and read as a tinted band,
     // not glazing; the ports read from the emissive glow + the porthole ring.)
     prims.push(prim(
-        cylinder_tapered(module_r + 0.08, 1.0, 20, 0.0, glow(GLASS_CYAN, 1.3)),
+        cylinder_tapered(
+            module_r + 0.08,
+            1.0,
+            20,
+            0.0,
+            crate::catalogue::items::util::from_dusk(glow(GLASS_CYAN, 1.3)),
+        ),
         [0.0, pad_h + 1.5, 0.0],
         id_quat(),
     ));
@@ -102,7 +108,11 @@ fn build_tree() -> Generator {
     for i in 0..8 {
         let a = i as f32 / 8.0 * TAU;
         prims.push(prim(
-            sphere(0.3, 4, glow(VIEWPORT_LIT, 1.6)),
+            sphere(
+                0.3,
+                4,
+                crate::catalogue::items::street::lit_from_dusk(glow(VIEWPORT_LIT, 1.6)),
+            ),
             [a.cos() * module_r, pad_h + 2.5, a.sin() * module_r],
             id_quat(),
         ));
@@ -129,7 +139,11 @@ fn build_tree() -> Generator {
     // whole sphere); the geodesic ribs below give it its paneling.
     prims.push(prim(
         solid(with_cut(
-            sphere(dome_r - 0.08, 6, glow(GLASS_CYAN, 1.2)),
+            sphere(
+                dome_r - 0.08,
+                6,
+                crate::catalogue::items::util::from_dusk(glow(GLASS_CYAN, 1.2)),
+            ),
             [0.0, 1.0],
             [0.5, 1.0],
             0.0,
@@ -161,7 +175,7 @@ fn build_tree() -> Generator {
         -1.0,
         hull(HULL_PANEL),
         steel(STEEL_DARK),
-        glow(VIEWPORT_LIT, 2.0),
+        crate::catalogue::items::street::lit_from_dusk(glow(VIEWPORT_LIT, 2.0)),
     ) {
         prims.push(piece);
     }

@@ -45,6 +45,8 @@ pub mod gateway;
 pub mod gibbet_cage;
 pub mod harbour_battery;
 pub mod harbour_tavern;
+// Crest leader (#1796).
+pub mod headland_redoubt;
 pub mod longboat;
 pub mod monument;
 pub mod powder_magazine;
