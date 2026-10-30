@@ -980,6 +980,14 @@ pub(crate) mod glyph_coverage_tests {
     /// those are probed by
     /// `every_hosted_texture_panel_label_is_in_the_base_font_set`, which
     /// walks their registry (#1405).
+    ///
+    /// Re-scanned against 0.15.0 (#1801, the quadruped's family, coat and
+    /// fur rows), lexing the non-test literals of its `src/editor.rs`: the
+    /// same seven. The family picker, the coat's loci and the fur's lengths
+    /// are all ASCII, and so are the names they draw out of the engine
+    /// (`Family`, `Pigment`, `Agouti`, `Pattern`, `White`, `Fantasy`):
+    /// symbios-avatar 0.14.0's only non-ASCII literal is a U+00D7 in a
+    /// texture-atlas decode error, which no section draws.
     const HOSTED_EDITOR_GLYPHS: &[char] = &[
         '·', // U+00B7, axis readouts
         // An escape, not the glyph: the 2026-09-14 hyphen sweep rewrote the

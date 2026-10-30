@@ -531,6 +531,119 @@ impl DriveBench {
     }
 }
 
+/// The walker's bench (#1802): the floor and one on-foot body, walked by the
+/// controller's own systems in the order `PlayerPlugin` chains them - the
+/// chassis sync, the end of a lying body's turn, the walk, the jump queue -
+/// with gravity on and no water unless a test lays some. No camera, so the
+/// walk's forward is -Z and D walks toward +X; no rigged body, so it walks
+/// at its run's share ([`super::humanoid`]'s fallback).
+#[cfg(test)]
+pub(crate) struct WalkBench {
+    app: App,
+    body: Entity,
+}
+
+#[cfg(test)]
+impl WalkBench {
+    /// Every key a walk reads.
+    const KEYS: [KeyCode; 6] = [
+        KeyCode::KeyW,
+        KeyCode::KeyS,
+        KeyCode::KeyA,
+        KeyCode::KeyD,
+        KeyCode::ShiftLeft,
+        KeyCode::Space,
+    ];
+
+    /// A body wearing `record`, its origin at `at`, facing -Z.
+    pub(crate) fn new(record: &AvatarRecord, at: Vec3) -> Self {
+        let (mut app, body) = bench_app(
+            record,
+            Transform::from_translation(at),
+            (
+                super::preset::sync_chassis,
+                super::humanoid::end_lying_turns,
+                super::humanoid::apply_humanoid_walk,
+                super::humanoid::clear_jump_queue,
+            )
+                .chain(),
+        );
+        app.insert_resource(crate::water::WaterSurfaces { planes: Vec::new() })
+            .init_resource::<super::humanoid::JumpQueued>()
+            .init_resource::<super::RigHold>();
+        Self { app, body }
+    }
+
+    /// A body wearing `record` set down on the floor at `(x, z)` facing -Z,
+    /// given a second to settle.
+    pub(crate) fn standing(record: &AvatarRecord, x: f32, z: f32) -> Self {
+        let at = super::preset::set_down_height(&record.locomotion);
+        let mut bench = Self::new(record, Vec3::new(x, at, z));
+        bench.run(1.0);
+        bench
+    }
+
+    /// A fixed block, `half` its half-extents, placed by `at`: a wall, or a
+    /// step.
+    pub(crate) fn block(&mut self, at: Transform, half: Vec3) {
+        spawn_block(&mut self.app, at, half);
+    }
+
+    /// Hold `keys` down, and let go of every other key a walk reads.
+    pub(crate) fn hold(&mut self, keys: &[KeyCode]) {
+        hold_keys(&mut self.app, keys, &Self::KEYS);
+    }
+
+    /// One fixed step: the walk's systems, then avian's step.
+    pub(crate) fn step(&mut self) {
+        fixed_step(&mut self.app);
+    }
+
+    /// Step for `secs` seconds with the keys as they are held.
+    pub(crate) fn run(&mut self, secs: f64) {
+        for _ in 0..(secs * BENCH_HZ).round() as usize {
+            self.step();
+        }
+    }
+
+    pub(crate) fn world_mut(&mut self) -> &mut World {
+        self.app.world_mut()
+    }
+
+    /// The walker's chassis.
+    pub(crate) fn body(&self) -> Entity {
+        self.body
+    }
+
+    pub(crate) fn position(&self) -> Vec3 {
+        self.component::<Position>().0
+    }
+
+    pub(crate) fn rotation(&self) -> Quat {
+        self.component::<Rotation>().0
+    }
+
+    pub(crate) fn velocity(&self) -> Vec3 {
+        self.component::<LinearVelocity>().0
+    }
+
+    pub(crate) fn angular_velocity(&self) -> Vec3 {
+        self.component::<AngularVelocity>().0
+    }
+
+    /// The body's collider, as avian holds it.
+    pub(crate) fn collider(&self) -> &Collider {
+        self.component::<Collider>()
+    }
+
+    fn component<C: Component>(&self) -> &C {
+        self.app
+            .world()
+            .get::<C>(self.body)
+            .expect("the bench walker has every physics component")
+    }
+}
+
 /// The poses [`run_at_frame_rate`] records, one after each fixed step.
 #[derive(Resource, Default)]
 struct StepPoses(Vec<(Vec3, Quat)>);
@@ -607,6 +720,7 @@ pub(crate) fn run_at_frame_rate(
             super::airplane::apply_airplane_uprighting,
             super::hover_boat::apply_hover_boat_drive,
             super::hover_boat::apply_hover_boat_uprighting,
+            super::humanoid::end_lying_turns,
             super::humanoid::apply_humanoid_walk,
             super::humanoid::clear_jump_queue,
             super::airplane::read_airplane_keys,
@@ -670,6 +784,11 @@ mod frame_rate_tests {
             LocomotionConfig::Car(p) => p.chassis_half_extents.0,
             _ => unreachable!("a car"),
         };
+        let beast = crate::pds::avatar::locomotion::beast_record(symbios_avatar::plan::Family::Dog);
+        let (beast_r, beast_stands) = match &beast.locomotion {
+            LocomotionConfig::Humanoid(p) => (p.capsule_radius.0, p.stand_height()),
+            _ => unreachable!("a beast on foot"),
+        };
         let bodies = [
             (
                 "car",
@@ -730,6 +849,31 @@ mod frame_rate_tests {
                 Transform::from_xyz(0.0, 1.6, 0.0),
                 Some(2.0),
                 vec![KeyCode::KeyW],
+            ),
+            // A beast lying along its capsule (#1802), walked off on a
+            // diagonal so its turn - by its angular velocity, not a written
+            // facing - is in the run, and one swimming, its water read off
+            // its back.
+            (
+                "dog",
+                beast.clone(),
+                Transform::from_xyz(0.0, beast_r + 0.02, 0.0),
+                None,
+                vec![KeyCode::KeyW, KeyCode::KeyD],
+            ),
+            (
+                "swimming dog",
+                beast,
+                Transform::from_xyz(0.0, 2.0 - 0.9 * beast_stands + beast_r, 0.0),
+                Some(2.0),
+                vec![KeyCode::KeyW, KeyCode::KeyD],
+            ),
+            (
+                "horse",
+                crate::pds::avatar::locomotion::beast_record(symbios_avatar::plan::Family::Horse),
+                Transform::from_xyz(0.0, 0.5, 0.0),
+                None,
+                vec![KeyCode::KeyS, KeyCode::KeyA],
             ),
         ];
         for (name, record, at, water, keys) in &bodies {

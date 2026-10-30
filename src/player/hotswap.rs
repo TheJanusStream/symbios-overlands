@@ -361,9 +361,10 @@ pub(super) fn detect_remote_change(
                 false,
             );
         }
+        // `try_`: a peer can be despawned by another system this frame (#1410).
         commands
             .entity(entity)
-            .insert(AppliedAvatar(record.clone()));
+            .try_insert(AppliedAvatar(record.clone()));
     }
 }
 

@@ -112,11 +112,16 @@ impl ChassisFamily {
     pub const PRE_AIRCRAFT: [Self; 4] = [Self::Boat, Self::Airship, Self::Humanoid, Self::Skiff];
 
     /// Human-readable display name - used by the pinned re-roll readout.
+    ///
+    /// The on-foot family reads "On foot", the Locomotion picker's own word
+    /// for the preset it seeds (#1803, #1266's one string per thing).
     pub fn label(self) -> &'static str {
         match self {
             Self::Boat => "Hover-boat",
             Self::Airship => "Airship",
-            Self::Humanoid => "Humanoid",
+            Self::Humanoid => {
+                <crate::pds::HumanoidParams as crate::pds::avatar::LocomotionPreset>::DISPLAY_LABEL
+            }
             Self::Skiff => "Land-skiff",
             Self::Helicopter => "Helicopter",
             Self::Airplane => "Airplane",
@@ -327,5 +332,19 @@ mod tests {
             let mut first = ChaCha8Rng::seed_from_u64(seed ^ AVATAR_AIRCRAFT_SALT);
             assert_eq!(pick(&SHARES, &mut first), Share::Rest, "seed {seed}");
         }
+    }
+
+    /// **The Chassis pin row names the on-foot family as the Locomotion
+    /// picker names its preset** (#1803, #1266's one string per thing):
+    /// "On foot" on both, where the row said "Humanoid" beside a picker
+    /// that no longer did.
+    #[test]
+    fn the_on_foot_family_reads_as_the_picker_does() {
+        let picker = crate::pds::LocomotionConfig::pickers()
+            .iter()
+            .find(|(kind, _, _)| *kind == "humanoid")
+            .map(|(_, label, _)| *label);
+        assert_eq!(picker, Some("On foot"));
+        assert_eq!(Some(ChassisFamily::Humanoid.label()), picker);
     }
 }

@@ -70,15 +70,74 @@ impl LocomotionFootprint for HumanoidParams {
         // Slightly larger than the literal capsule so effects ring the
         // body rather than emerge from inside it. Capsule radius is
         // already clamped ≥ 0.05 m by the PDS sanitiser, so the result
-        // is always positive.
-        self.capsule_radius.0 * 1.5
+        // is always positive. A beast lying along its capsule (#1802) is
+        // ringed as far again as its capsule's farther end runs from its
+        // origin, which the capsule's middle may stand ahead of or behind:
+        // the same margin round its nose and its tail.
+        let ring = self.capsule_radius.0 * 1.5;
+        if self.is_lying() {
+            ring + self.capsule_length.0 * 0.5 + self.capsule_ahead().abs()
+        } else {
+            ring
+        }
     }
 
     fn total_height(&self) -> f32 {
         // Delegates to the preset's own (inherent, PDS-side) method so
-        // the collider and the contact classifier agree on one number.
+        // the collider and the contact classifier agree on one number: a
+        // beast's lying capsule is its diameter tall, its feet at its bottom
+        // as a person's are (#1802), so a body's bottom is its feet either
+        // way and the contact slack below is a person's.
         HumanoidParams::total_height(self)
     }
+
+    fn reach(&self, toward: Vec2) -> f32 {
+        // A person every way the footprint radius; a beast to the outline of
+        // its lying capsule, seen from above (#1802): its radius across it,
+        // its round ends ahead and behind - which, its capsule's middle
+        // standing ahead of its origin, are not as far.
+        if self.is_lying() {
+            stadium_reach(
+                self.capsule_radius.0,
+                self.capsule_length.0 * 0.5,
+                self.capsule_ahead(),
+                toward,
+            )
+        } else {
+            self.footprint_radius()
+        }
+    }
+}
+
+/// How far a stadium - a capsule seen from above, `radius` round a segment
+/// running `half` either way along `y` from its middle `ahead` along `y` -
+/// reaches from the origin toward `toward` (#1802): to its flank across it,
+/// to its round end along it. The origin is inside it, as a body's is.
+fn stadium_reach(radius: f32, half: f32, ahead: f32, toward: Vec2) -> f32 {
+    let toward = toward.normalize_or(Vec2::Y);
+    let across = toward.x.abs();
+    // Out through the flat side, where the segment's nearest point is beside
+    // the line rather than at its end.
+    if across > 1e-6 {
+        let t = radius / across;
+        let y = t * toward.y;
+        if (ahead - half..=ahead + half).contains(&y) {
+            return t;
+        }
+    }
+    // Out through the round end it heads for: |t·toward - end| = radius.
+    let end = Vec2::new(
+        0.0,
+        if toward.y >= 0.0 {
+            ahead + half
+        } else {
+            ahead - half
+        },
+    );
+    let b = toward.dot(end);
+    b + (b * b - end.length_squared() + radius * radius)
+        .max(0.0)
+        .sqrt()
 }
 
 /// XZ "footprint" of a chassis-cuboid vehicle - the longer of width or
@@ -310,6 +369,57 @@ mod tests {
         let radius = locomotion_footprint(&person);
         for toward in [Vec2::Y, Vec2::X, Vec2::new(0.6, -0.8)] {
             assert_eq!(locomotion_reach(&person, toward), radius);
+        }
+    }
+
+    /// **A beast's reach ends at its lying capsule's outline** (#1802): its
+    /// radius across it, its round end ahead and behind, the outline itself
+    /// every way between - from the body's origin, which the capsule's middle
+    /// stands ahead of, so its nose is that much nearer the origin's front
+    /// and its tail that much farther; its footprint rings its whole length
+    /// from the origin, and its height is its capsule's diameter, its feet
+    /// at the bottom with a person's contact slack.
+    #[test]
+    fn a_beasts_reach_ends_at_its_lying_capsule() {
+        for ahead in [0.0f32, 0.1, -0.07] {
+            let beast = HumanoidParams {
+                capsule_radius: Fp(0.2),
+                capsule_length: Fp(0.6),
+                shape: crate::pds::avatar::OnFootShape::Lying {
+                    height: Fp(0.7),
+                    ahead: Fp(ahead),
+                },
+                ..Default::default()
+            };
+            let cfg = LocomotionConfig::Humanoid(Box::new(beast));
+            let reach = |toward: Vec2| locomotion_reach(&cfg, toward);
+            assert!(
+                (reach(Vec2::Y) - (0.5 + ahead)).abs() < 1e-5,
+                "{ahead}: ahead, its nose"
+            );
+            assert!(
+                (reach(Vec2::NEG_Y) - (0.5 - ahead)).abs() < 1e-5,
+                "{ahead}: behind, its tail"
+            );
+            assert!(
+                (reach(Vec2::X) - 0.2).abs() < 1e-5,
+                "{ahead}: across, its flank"
+            );
+            for step in 0..72 {
+                let toward = Vec2::from_angle((step as f32 * 5.0).to_radians());
+                let at = toward * reach(toward);
+                // The nearest point of the segment it is the radius round.
+                let nearest = Vec2::new(0.0, at.y.clamp(ahead - 0.3, ahead + 0.3));
+                let off = at.distance(nearest) - 0.2;
+                assert!(
+                    off.abs() < 1e-5,
+                    "{ahead}: toward {toward:?} it reaches {off:+} m off its outline"
+                );
+            }
+            assert!((locomotion_footprint(&cfg) - (0.6 + ahead.abs())).abs() < 1e-5);
+            assert!((locomotion_total_height(&cfg) - 0.4).abs() < 1e-5);
+            assert_eq!(locomotion_water_slack(&cfg), wcfg::CONTACT_SLACK);
+            assert_eq!(locomotion_ground_reach(&cfg), 0.0);
         }
     }
 

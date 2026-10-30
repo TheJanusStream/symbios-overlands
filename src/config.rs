@@ -846,6 +846,19 @@ pub(crate) mod attract {
 pub(crate) mod camera {
     /// Default orbit radius (metres from focus point).
     pub const ORBIT_RADIUS: f32 = 12.0;
+    /// The height of the body [`ORBIT_RADIUS`] frames (m): the default
+    /// person's 1.80 m capsule, as tall as they stand
+    /// (`HumanoidParams::default().stand_height()`, pinned by a test). A
+    /// four-legged beast's rest radius is [`ORBIT_RADIUS`] in its proportion
+    /// to it (#1804, owner decision D5).
+    pub const ORBIT_RADIUS_STATURE: f32 = 1.8;
+    /// The nearest a four-legged beast's rest radius comes (m) - a cat's and a
+    /// dog's (#1804, D5), who in proportion to their height would rest at 3.4
+    /// and 4.7 m. Below it the view holds little beyond the body and the wheel
+    /// is a few notches from the orbit's floor ([`ZOOM_LOWER_LIMIT`]) and the
+    /// eyes. The farthest is a person's [`ORBIT_RADIUS`], as a default horse's
+    /// is: no beast rests farther out than a person does.
+    pub const BEAST_ORBIT_RADIUS_MIN: f32 = 5.0;
     /// Default camera pitch angle (radians).
     pub const ORBIT_PITCH: f32 = 0.4;
     /// Initial camera world-space position [x, y, z].
@@ -970,6 +983,14 @@ pub(crate) mod camera {
     /// (0.90 m) below it, so at rest the camera is 12.38 m from the root - past
     /// a 12 m switch. The adapter's default would put the owner's own body in
     /// its far tier at the zoom the game opens on, and flip it on any nudge.
+    ///
+    /// **A four-legged beast's nearer rest asks nothing of it** (#1804). The
+    /// switch turns only a far tier, and a beast has none: its head grows no
+    /// hair and its fur has no second draw, so its fur draws at every distance
+    /// (owner decision D12; pinned by `a_beast_has_no_hair_tier_to_switch`).
+    /// The switch is judged in pixels a metre through this lens, whichever body
+    /// the camera happens to follow, so a person standing by a beast crosses
+    /// it at the distance they always did.
     pub const HAIR_SWITCH: f32 = 16.7;
 
     /// Width of the band the hair tiers crossfade over (m). **Zero, and not a

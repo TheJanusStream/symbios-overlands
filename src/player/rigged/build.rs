@@ -1,6 +1,6 @@
 use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
 use bevy::prelude::*;
-use bevy_symbios_avatar::{AvatarDriver, Drive, spawn_avatar};
+use bevy_symbios_avatar::{AvatarBody, AvatarDriver, Drive, spawn_avatar};
 use symbios_avatar::Avatar;
 
 // The three questions a rigged body is built and hung by live beside the
@@ -12,7 +12,7 @@ use crate::state::{LiveAvatarRecord, LocalPlayer, RemotePeer};
 
 use super::{
     DRAFT_ATLAS, RiggedApplied, RiggedBuild, RiggedBuildFailed, RiggedRoot, RiggedSettle,
-    RiggedSteady, RiggedTrail, SETTLE_SECS, next_room_seed,
+    RiggedSteady, RiggedTrail, SETTLE_SECS, next_room_seed, stands_on_four,
 };
 
 /// What the owner is told when their own body cannot be built (#1255).
@@ -270,6 +270,9 @@ pub(in crate::player) fn land_rigged_builds(
         Has<RiggedBuildFailed>,
     )>,
     roots: Query<(Entity, &ChildOf), With<RiggedRoot>>,
+    standing: Query<(&AvatarBody, &AvatarDriver, &Drive, &RiggedTrail), With<RiggedRoot>>,
+    live: Option<Res<LiveAvatarRecord>>,
+    peers: Query<&RemotePeer>,
     // All optional, because headless embedders (the render tool, minimal
     // test worlds) run this without the diagnostics or UI plugins.
     mut metrics: Option<ResMut<crate::diagnostics::MetricsRegistry>>,
@@ -346,18 +349,110 @@ pub(in crate::player) fn land_rigged_builds(
             .filter(|(_, child_of)| child_of.parent() == chassis)
             .map(|(root, _)| root)
             .collect();
-        install_built_body(
+        let carried = stale
+            .iter()
+            .find_map(|&root| standing.get(root).ok())
+            .and_then(|(body, driver, drive, trail)| {
+                Carried::across(&body.avatar.rig, &avatar.rig, driver, drive, trail)
+            });
+        // Hung where its record says now (#1805): a build spans frames, and one
+        // kicked under a lying record can land after its owner has stood up
+        // again, with nothing then owing a rebuild.
+        let record = if is_local {
+            live.as_deref().map(|live| &live.0)
+        } else {
+            peers
+                .get(chassis)
+                .ok()
+                .and_then(|peer| peer.avatar.as_ref())
+        };
+        install_carrying(
             &mut commands,
             chassis,
-            build.offset,
+            record.map_or(build.offset, rigged_root_offset),
             avatar,
             &stale,
+            carried,
             &mut meshes,
             &mut materials,
             &mut images,
             &mut bindposes,
         );
     }
+}
+
+/// What a beast's new body takes over from the one it replaces (#1805, owner
+/// decision D14), so a Sit or a Lie Down outlives a rebuild - which the
+/// draft-to-full ladder runs about [`SETTLE_SECS`] after any change to the
+/// record, on the owner's client and on every peer's. Kept until engine #383
+/// gives a [`symbios_avatar::anim::Driver`] a seat of its own.
+///
+/// **Carried whole across any change of beast, because the driver is safe
+/// across any**, read from symbios-avatar 0.14 rather than assumed. What it
+/// keeps of the old rig is its rest cache, keyed on the rig's joints and its
+/// outline's length and so solved again for a new one; its springs, found
+/// again when they stop fitting; its footholds, which are world points by
+/// limb; and its last two poses and any blend under way, which a change of
+/// joint count only shortens: a blend stops at the shorter pose, a forward
+/// solve reads what both have, and the idle's arrival refuses a pose that does
+/// not fit. Every beast the engine rolls has the same 38 joints today, so a
+/// change of count is read here and not yet driven by a test.
+///
+/// **With its [`Drive`] and its [`RiggedTrail`]**, the driver's other memories:
+/// the swimming it read last frame (the thresholds have two sides), and where
+/// the chassis was, whose absence reads a walking peer as a stop for a frame.
+pub(in crate::player) struct Carried {
+    driver: AvatarDriver,
+    drive: Drive,
+    trail: RiggedTrail,
+}
+
+impl Carried {
+    /// What a body on `new` keeps of one standing on `old`: everything, when
+    /// both are beasts, and nothing when either is a person, who keeps the
+    /// fresh driver a rebuild has always given them.
+    fn across(
+        old: &symbios_avatar::Rig,
+        new: &symbios_avatar::Rig,
+        driver: &AvatarDriver,
+        drive: &Drive,
+        trail: &RiggedTrail,
+    ) -> Option<Self> {
+        (stands_on_four(old) && stands_on_four(new)).then(|| Self {
+            driver: AvatarDriver(driver.0.clone()),
+            drive: drive.clone(),
+            trail: trail.clone(),
+        })
+    }
+}
+
+/// [`install_carrying`] with nothing carried: a fresh driver, as a test lands
+/// a body it built itself, at whatever atlas it can afford.
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+pub(in crate::player) fn install_built_body(
+    commands: &mut Commands,
+    chassis: Entity,
+    offset: f32,
+    avatar: Avatar,
+    stale_roots: &[Entity],
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    images: &mut Assets<Image>,
+    bindposes: &mut Assets<SkinnedMeshInverseBindposes>,
+) {
+    install_carrying(
+        commands,
+        chassis,
+        offset,
+        avatar,
+        stale_roots,
+        None,
+        meshes,
+        materials,
+        images,
+        bindposes,
+    );
 }
 
 /// Replace whatever rigged body stands under `chassis` with `avatar`, hung
@@ -373,13 +468,18 @@ pub(in crate::player) fn land_rigged_builds(
 /// yet. [`Drive::default`] stands at the origin, and nothing ever reads that:
 /// [`super::fill_rigged_drive`] writes a real place before the driver first
 /// sees the body.
+///
+/// **A beast takes over what `carried` says of the old body** ([`Carried`]).
+/// A carried trail's surface lift goes onto the new root as well, which the
+/// fill reads the hang back out from under.
 #[allow(clippy::too_many_arguments)]
-pub(in crate::player) fn install_built_body(
+fn install_carrying(
     commands: &mut Commands,
     chassis: Entity,
     offset: f32,
     avatar: Avatar,
     stale_roots: &[Entity],
+    carried: Option<Carried>,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
     images: &mut Assets<Image>,
@@ -388,13 +488,29 @@ pub(in crate::player) fn install_built_body(
     for &root in stale_roots {
         commands.entity(root).despawn();
     }
-    let root = commands
-        .spawn((
-            RiggedRoot,
+    let mut hung = rigged_root_transform(offset);
+    let (driver, drive, trail) = match carried {
+        Some(Carried {
+            driver,
+            drive,
+            trail,
+        }) => {
+            hung.translation.y += trail.lift;
+            (driver, drive, trail)
+        }
+        None => (
             AvatarDriver::seeded(next_room_seed()),
             Drive::default(),
             RiggedTrail::default(),
-            rigged_root_transform(offset),
+        ),
+    };
+    let root = commands
+        .spawn((
+            RiggedRoot,
+            driver,
+            drive,
+            trail,
+            hung,
             Visibility::default(),
             ChildOf(chassis),
         ))

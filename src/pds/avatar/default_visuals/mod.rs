@@ -412,7 +412,11 @@ pub fn voice_label(seed: u64) -> String {
 ///
 /// Read off the archetype's own stature axis rather than by building the
 /// body: a record's height axis IS the nominal stature, and meshing a body
-/// to measure one would cost a quarter-second per seeded default.
+/// to measure one would cost a quarter-second per seeded default. What the
+/// collider guard below measures a seeded capsule against; the capsule
+/// itself is sized by [`crate::pds::avatar::fit_on_foot`], which reads the
+/// same axis.
+#[cfg(test)]
 fn engine_stature(seed: u64) -> f32 {
     let record = super::wardrobe::engine_default_for_seed(seed);
     match &record.archetype {
@@ -489,15 +493,13 @@ pub(crate) fn seeded_travel_speed(step_cadence: f32) -> f32 {
 /// blueprint, and that is a correctness fix rather than a swap of
 /// equivalent sources: the rigged spawn path seats the skinned body's
 /// feet at the collider's *bottom*, so a capsule that disagreed with the
-/// body's stature would sink it into the ground or float it above.
+/// body's stature would sink it into the ground or float it above. The
+/// stature rule itself is [`crate::pds::avatar::fit_on_foot`]'s since #1802,
+/// moved there unchanged so the editor can fit a body by the same one.
 fn humanoid_locomotion(seed: u64) -> LocomotionConfig {
-    let stature = engine_stature(seed);
+    let body = super::wardrobe::engine_default_for_seed(seed);
     let gait = AvatarGait::for_seed(seed);
-    let mut p = HumanoidParams::default();
-    // A person is roughly a tenth of their height across the shoulders; the
-    // clamp keeps a rolled extreme inside collider sanity.
-    p.capsule_radius = Fp((stature * 0.11).clamp(0.18, 0.34));
-    p.capsule_length = Fp((stature - 2.0 * p.capsule_radius.0).max(0.4));
+    let mut p = super::fit_on_foot(&body, &HumanoidParams::default());
     p.walk_speed = Fp(seeded_travel_speed(gait.step_cadence));
     p.into_config()
 }

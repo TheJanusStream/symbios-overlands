@@ -113,6 +113,7 @@ pub fn chat_ui(
     mut peers: Query<(&mut RemotePeer, Option<&SocialResonance>)>,
     local: Query<Entity, With<crate::state::LocalPlayer>>,
     mut emotes: MessageWriter<crate::player::emote::EmoteRequest>,
+    live: Option<Res<crate::state::LiveAvatarRecord>>,
     mut deps: ChatDeps,
 ) {
     use crate::config::ui::chat as cfg;
@@ -322,7 +323,9 @@ pub fn chat_ui(
                 // #1068 shipped a feature findable only by typing one of its
                 // words by accident. Sourced from the keyword table so the
                 // examples cannot name a word that no longer gestures.
-                ui.small(crate::player::emote::Emote::hint_line());
+                ui.small(crate::player::emote::hint_for(
+                    live.as_deref().map(|live| &live.0),
+                ));
             });
 
             crate::ui::layout::fill_above(ui, |ui| {

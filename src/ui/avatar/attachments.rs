@@ -20,6 +20,13 @@
 //! focuses the row back. Both write the same quaternion, and the rotation
 //! row re-derives its angles from whatever the quaternion currently is, so
 //! a gizmo tilt and a typed yaw compose instead of fighting.
+//!
+//! A four-legged beast is offered only its own sockets - the neck, the back
+//! and the crown - and a prop a person wore anywhere else stays in the
+//! outfit, referenced and unworn, with a line on its row saying so (#1803,
+//! owner decisions D6 and D9; [`crate::pds::avatar::offers_socket`] is the
+//! one answer this tab and the dresser share). Where on a beast those three
+//! seat is P6.7's (#1807).
 
 use bevy_egui::egui;
 
@@ -391,6 +398,10 @@ pub(super) fn draw_attachments_tab(
                 let Some(resolved) = rig.resolved.as_mut() else {
                     return;
                 };
+                // What kind of body this is dressed at (#1803): read off the
+                // record, so a beast still building is offered a beast's
+                // sockets and not every one the person before it had.
+                let anatomy = resolved.body.archetype.anatomy();
                 for (index, attachment) in resolved.attachments.iter_mut().enumerate() {
                     let is_selected = selected.as_deref() == Some(attachment.rkey.as_str());
                     // Named by its inventory provenance when it has one
@@ -440,6 +451,14 @@ pub(super) fn draw_attachments_tab(
                                 // and "Take off" (#1267 f220).
                                 ui.label("Worn at");
                                 for socket in symbios_avatar::Socket::ALL {
+                                    // A person's socket on a beast is not
+                                    // offered at all (#1803, D7 and D9): the
+                                    // beast is dressed at its own three, and
+                                    // the line below says where a person's
+                                    // prop still is.
+                                    if !crate::pds::avatar::offers_socket(anatomy, socket) {
+                                        continue;
+                                    }
                                     let picked = attachment.record.socket == socket.name();
                                     // #1256 f103: `Socket::ALL` includes
                                     // `Tail`, which only some rigs carry.
@@ -481,11 +500,15 @@ pub(super) fn draw_attachments_tab(
                             // worn on a biped) keeps its row - the record is
                             // honoured by the body that has the part - but
                             // must not pretend to be on screen.
-                            if attachment
-                                .record
-                                .socket()
-                                .is_some_and(|socket| !body.has_socket(socket))
+                            let worn_socket = attachment.record.socket();
+                            if let Some(socket) = worn_socket
+                                && !crate::pds::avatar::offers_socket(anatomy, socket)
                             {
+                                ui.colored_label(
+                                    crate::ui::theme::current(ui.ctx()).status.warn,
+                                    beast_unworn_line(socket),
+                                );
+                            } else if worn_socket.is_some_and(|socket| !body.has_socket(socket)) {
                                 ui.colored_label(
                                     crate::ui::theme::current(ui.ctx()).status.warn,
                                     format!(
@@ -731,6 +754,20 @@ pub(super) fn draw_attachments_tab(
         });
 
     outcome
+}
+
+/// What a person's prop on a beast says on its row (#1803, owner decision
+/// D6): that it is not worn, why, and that it is kept.
+pub(super) fn beast_unworn_line(socket: symbios_avatar::Socket) -> String {
+    let label = |socket: symbios_avatar::Socket| {
+        crate::pds::avatar::socket_label(socket.name()).to_lowercase()
+    };
+    let [first, second, last] = crate::pds::avatar::BEAST_SOCKETS.map(label);
+    format!(
+        "Not worn - a four-legged body is dressed only at its {first}, {second} and {last}, \
+         not at the {}. The prop stays in your outfit for a body that is.",
+        label(socket)
+    )
 }
 
 /// The attachment record wearing the named inventory item (#1096): its
@@ -1590,5 +1627,143 @@ mod socket_label_tests {
     #[test]
     fn an_unknown_socket_name_survives_as_itself() {
         assert_eq!(socket_label("third-arm"), "third-arm");
+    }
+}
+
+/// A beast's Wearables tab (#1803).
+#[cfg(test)]
+mod beast_socket_tests {
+    use super::*;
+    use crate::pds::Generator;
+    use crate::pds::avatar::{ResolvedRig, RiggedBody};
+
+    /// What the Wearables tab draws over `record` with every worn row open
+    /// and no body standing: the socket chips it offers, the text it
+    /// paints, and whether it reported a change.
+    fn wearables(record: &mut crate::pds::AvatarRecord) -> (Vec<String>, Vec<String>, bool) {
+        use bevy_egui::egui::accesskit::Role;
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        ctx.memory_mut(|m| m.set_everything_is_visible(true));
+        let sockets: Vec<&str> = symbios_avatar::Socket::ALL
+            .iter()
+            .map(|s| crate::pds::avatar::socket_label(s.name()))
+            .collect();
+        let mut state = AttachmentsTabState::default();
+        let mut toasts = crate::notify::Toasts::default();
+        let mut selected = None;
+        let mut changed = false;
+        let (mut chips, mut text) = (Vec::new(), Vec::new());
+        for _ in 0..2 {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1280.0, 4000.0),
+                )),
+                ..Default::default()
+            };
+            let output = ctx.run_ui(input, |ui| {
+                changed |= draw_attachments_tab(
+                    ui,
+                    record,
+                    None,
+                    &mut state,
+                    None,
+                    &mut selected,
+                    false,
+                    &mut toasts,
+                    0.0,
+                    &WornBody::default(),
+                )
+                .changed;
+            });
+            let update = output.platform_output.accesskit_update.expect("a tree");
+            chips = update
+                .nodes
+                .iter()
+                .filter(|(_, n)| n.role() == Role::Button && n.toggled().is_some())
+                .filter_map(|(_, n)| n.label())
+                .filter(|label| sockets.contains(label))
+                .map(str::to_string)
+                .collect();
+            text = update
+                .nodes
+                .iter()
+                .filter(|(_, n)| n.role() == Role::Label)
+                .filter_map(|(_, n)| n.value().or(n.label()).map(str::to_string))
+                .collect();
+        }
+        chips.sort();
+        chips.dedup();
+        (chips, text, changed)
+    }
+
+    /// `body` wearing a person's prop at the left hand and a collar at the
+    /// neck.
+    fn dressed_as(body: crate::pds::avatar::EngineAvatarRecord) -> crate::pds::AvatarRecord {
+        let worn: Vec<ResolvedAttachment> = [
+            ("3jzfcijpj2z2b", symbios_avatar::Socket::LeftHand),
+            ("3jzfcijpj2z2c", symbios_avatar::Socket::Neck),
+        ]
+        .into_iter()
+        .map(|(rkey, socket)| ResolvedAttachment {
+            rkey: rkey.to_string(),
+            record: AttachmentRecord::new(Generator::default(), socket),
+        })
+        .collect();
+        let mut record = crate::pds::AvatarRecord::default_for_did("did:plc:tester");
+        record.body = crate::pds::avatar::AvatarBody::Rigged(Box::new(RiggedBody {
+            avatar: String::from("3jzfcijpj2z2a"),
+            attachments: worn.iter().map(|w| w.rkey.clone()).collect(),
+            resolved: Some(ResolvedRig {
+                body,
+                attachments: worn,
+            }),
+        }));
+        record
+    }
+
+    /// **A beast is offered its own three sockets and keeps a person's prop,
+    /// unworn** (#1803, owner decisions D6, D7 and D9): the socket picker on
+    /// every worn row offers the neck, the back and the crown and none of a
+    /// person's, the prop at the left hand stays referenced with a line
+    /// saying it is not worn and why, and drawing the tab changes nothing.
+    /// Read off the record, so a beast still building is offered the same.
+    /// A person, the control, is offered every socket and told nothing.
+    #[test]
+    fn a_beast_is_offered_its_own_sockets_and_keeps_a_persons_prop_unworn() {
+        let unworn = beast_unworn_line(symbios_avatar::Socket::LeftHand);
+        let mut beast = dressed_as(crate::pds::avatar::locomotion::default_beast(
+            symbios_avatar::plan::Family::Cat,
+        ));
+        let before = beast.clone();
+        let (chips, text, changed) = wearables(&mut beast);
+        let mut want: Vec<String> = crate::pds::avatar::BEAST_SOCKETS
+            .iter()
+            .map(|s| crate::pds::avatar::socket_label(s.name()).to_string())
+            .collect();
+        want.sort();
+        assert_eq!(chips, want, "a beast's socket picker");
+        assert_eq!(
+            text.iter().filter(|t| **t == unworn).count(),
+            1,
+            "the left-hand prop says it is not worn, and the collar does not: {text:?}"
+        );
+        assert!(
+            !changed,
+            "drawing a beast's Wearables tab reported a change"
+        );
+        assert_eq!(
+            beast, before,
+            "drawing a beast's Wearables tab moved its outfit"
+        );
+
+        let mut person = dressed_as(crate::pds::avatar::wardrobe::engine_default_for_did(
+            "did:plc:socket-test",
+        ));
+        let (chips, text, changed) = wearables(&mut person);
+        assert_eq!(chips.len(), symbios_avatar::Socket::ALL.len(), "{chips:?}");
+        assert!(!text.iter().any(|t| t.starts_with("Not worn")), "{text:?}");
+        assert!(!changed);
     }
 }

@@ -1,7 +1,15 @@
 //! Locomotion-tab UI: per-preset slider panel plus the central preset
 //! picker. Each preset's [`LocomotionPanel`] impl lives in its own
 //! submodule so adding a new preset is one new file + one match arm in
-//! [`draw_locomotion_tab`].
+//! [`draw_locomotion_tab`]. The On foot panel is the one exception, an
+//! inherent method that is also given the body's kind, since a person and
+//! a beast on it are offered different rows (#1803).
+//!
+//! The On foot preset carries a person upright or a four-legged beast lying
+//! along its capsule (#1802). A beast's collider is the body's, refitted on
+//! every edit of it on the Body tab, so its panel reads it rather than
+//! offering it to drag, and picking On foot under a beast fits the preset
+//! to it (#1803).
 
 mod airplane;
 mod car;
@@ -12,6 +20,7 @@ mod humanoid;
 
 use bevy_egui::egui;
 
+use crate::pds::avatar::EngineAvatarRecord;
 use crate::pds::{Fp, GaitParams, LocomotionConfig};
 use crate::player::LocalMovement;
 use crate::ui::avatar::TabCtx;
@@ -60,10 +69,19 @@ pub(super) fn draw_tab(
                 .current_seed()
                 .or_else(|| ctx.did.map(crate::seeded_defaults::fnv1a_64))
                 .unwrap_or_default();
+            // The body the preset carries, for the one preset sized by it
+            // (#1803): disjoint from the two fields the panel edits.
+            let record = &mut *ctx.record;
+            let body = record
+                .body
+                .rigged_ref()
+                .and_then(|rig| rig.resolved.as_ref())
+                .map(|resolved| &resolved.body);
             draw_locomotion_tab(
                 ui,
-                &mut ctx.record.locomotion,
-                &mut ctx.record.gait,
+                &mut record.locomotion,
+                &mut record.gait,
+                body,
                 fallback_seed,
                 ctx.changed,
                 &mut ctx.labels.slot(crate::ui::shortcuts::EditorKind::Avatar),
@@ -88,13 +106,34 @@ pub trait LocomotionPanel {
 /// the exact comparison the retired #838 confirm modal used to gate on. An
 /// untuned switch stays silent, because the sentence is about loss, not
 /// about having clicked.
-fn discarded_tuning(current: &LocomotionConfig) -> Option<&'static str> {
+///
+/// A beast's On foot preset is measured against what picking it gives that
+/// body - the preset fitted to it (#1803) - since that is the tuning nobody
+/// chose, where a person's is the preset's own defaults.
+fn discarded_tuning(
+    current: &LocomotionConfig,
+    body: Option<&EngineAvatarRecord>,
+) -> Option<&'static str> {
     let kind = current.kind_tag();
     LocomotionConfig::pickers()
         .iter()
         .find(|(k, _, _)| *k == kind)
-        .filter(|(_, _, ctor)| ctor() != *current)
+        .filter(|(_, _, ctor)| picked(*ctor, body) != *current)
         .map(|(_, label, _)| *label)
+}
+
+/// What picking a preset gives the avatar: the preset's own defaults, and
+/// for the On foot preset under a beast, those fitted to it (#1803, owner
+/// decision D3) - a beast never stands on a person's upright capsule, even
+/// for a frame. A person's are the defaults, untouched.
+fn picked(ctor: fn() -> LocomotionConfig, body: Option<&EngineAvatarRecord>) -> LocomotionConfig {
+    let mut config = ctor();
+    if let (LocomotionConfig::Humanoid(p), Some(body)) = (&mut config, body)
+        && let Some(fit) = crate::pds::avatar::locomotion::follow(body, None, p, &mut None)
+    {
+        **p = fit;
+    }
+    config
 }
 
 /// What the owner is told at the moment their tuning is replaced.
@@ -130,6 +169,9 @@ pub fn draw_locomotion_tab(
     ui: &mut egui::Ui,
     locomotion: &mut LocomotionConfig,
     gait: &mut Option<GaitParams>,
+    // The body the avatar wears, when it is a resolved rigged one: what
+    // the On foot preset is sized by under a beast (#1803).
+    body: Option<&EngineAvatarRecord>,
     fallback_seed: u64,
     dirty: &mut bool,
     undo_label: &mut crate::ui::undo::LabelSlot,
@@ -151,8 +193,8 @@ pub fn draw_locomotion_tab(
             if ui.selectable_label(current_kind == *kind, *label).clicked() && current_kind != *kind
             {
                 // Measured BEFORE the replacement.
-                let lost = discarded_tuning(locomotion);
-                *locomotion = ctor();
+                let lost = discarded_tuning(locomotion, body);
+                *locomotion = picked(*ctor, body);
                 undo_label.set(format!("preset switch to {label}"));
                 *dirty = true;
                 if let Some(from) = lost {
@@ -165,7 +207,10 @@ pub fn draw_locomotion_tab(
 
     match locomotion {
         LocomotionConfig::HoverBoat(p) => p.draw(ui, dirty, facts),
-        LocomotionConfig::Humanoid(p) => p.draw(ui, dirty, facts),
+        LocomotionConfig::Humanoid(p) => {
+            let beast = humanoid::carries_beast(body, p);
+            p.draw_on_foot(ui, dirty, facts, beast);
+        }
         LocomotionConfig::Airplane(p) => p.draw(ui, dirty, facts),
         LocomotionConfig::Helicopter(p) => p.draw(ui, dirty, facts),
         LocomotionConfig::Car(p) => p.draw(ui, dirty, facts),
@@ -258,7 +303,7 @@ mod tests {
         for (_, label, ctor) in LocomotionConfig::pickers() {
             let untouched = ctor();
             assert_eq!(
-                discarded_tuning(&untouched),
+                discarded_tuning(&untouched, None),
                 None,
                 "an untouched {label} has no tuning to lose"
             );
@@ -269,7 +314,7 @@ mod tests {
             let mut tuned = ctor();
             tune(&mut tuned);
             assert_eq!(
-                discarded_tuning(&tuned),
+                discarded_tuning(&tuned, None),
                 Some(*label),
                 "a tuned {label} must name itself as what the switch throws away"
             );
@@ -290,7 +335,7 @@ mod tests {
     /// above already tells the owner to replace it.
     #[test]
     fn an_unrecognised_preset_claims_no_lost_tuning() {
-        assert_eq!(discarded_tuning(&LocomotionConfig::Unknown), None);
+        assert_eq!(discarded_tuning(&LocomotionConfig::Unknown, None), None);
     }
 }
 
@@ -360,6 +405,14 @@ mod inert_panel_tests {
         out
     }
 
+    /// The engine body a record's rigged body resolves, as the tab is given
+    /// it.
+    fn worn(body: &crate::pds::avatar::AvatarBody) -> Option<&EngineAvatarRecord> {
+        body.rigged_ref()
+            .and_then(|rig| rig.resolved.as_ref())
+            .map(|resolved| &resolved.body)
+    }
+
     /// What one draw of the whole tab did to the record.
     struct Drawn {
         /// Every field whose value moved, as `name: before -> after`.
@@ -412,6 +465,7 @@ mod inert_panel_tests {
                     ui,
                     &mut record.locomotion,
                     &mut record.gait,
+                    worn(&record.body),
                     seed,
                     &mut dirty,
                     &mut labels.slot(crate::ui::shortcuts::EditorKind::Avatar),
@@ -629,6 +683,7 @@ mod inert_panel_tests {
                 ui,
                 &mut record.locomotion,
                 &mut record.gait,
+                worn(&record.body),
                 seed,
                 &mut dirty,
                 &mut labels.slot(crate::ui::shortcuts::EditorKind::Avatar),
@@ -782,5 +837,308 @@ mod inert_panel_tests {
             sections.join(" | "),
             complaints.join("\n")
         );
+    }
+
+    /// Every line of text a pass painted, as AccessKit reads it: each
+    /// label's text once, the per-row `TextRun` children of a wrapped one
+    /// skipped.
+    fn painted(output: &egui::FullOutput) -> Vec<String> {
+        use bevy_egui::egui::accesskit::Role;
+        let update = output
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .expect("accesskit was enabled, so the pass has a tree");
+        update
+            .nodes
+            .iter()
+            .filter(|(_, n)| n.role() == Role::Label)
+            .filter_map(|(_, n)| n.value().or(n.label()).map(str::to_string))
+            .collect()
+    }
+
+    /// One frame of the tab over `record`, every section open, with
+    /// `events` as its input; what it painted, its controls, and whether it
+    /// raised `dirty`.
+    fn pass(
+        ctx: &egui::Context,
+        record: &mut AvatarRecord,
+        events: Vec<egui::Event>,
+    ) -> (egui::FullOutput, bool) {
+        let mut labels = crate::ui::undo::PendingUndoLabels::default();
+        let mut toasts = crate::notify::Toasts::default();
+        let movement = crate::player::LocalMovement::default();
+        let mut dirty = false;
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1280.0, 1400.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        let output = ctx.run_ui(input, |ui| {
+            draw_locomotion_tab(
+                ui,
+                &mut record.locomotion,
+                &mut record.gait,
+                worn(&record.body),
+                0,
+                &mut dirty,
+                &mut labels.slot(crate::ui::shortcuts::EditorKind::Avatar),
+                &movement,
+                &mut toasts,
+                0.0,
+            );
+        });
+        (output, dirty)
+    }
+
+    /// A record wearing `family`'s default beast, resolved, on its fitted
+    /// On foot preset.
+    fn beast(family: symbios_avatar::plan::Family) -> AvatarRecord {
+        use crate::pds::avatar::LocomotionPreset;
+        let body = crate::pds::avatar::locomotion::default_beast(family);
+        let mut record = AvatarRecord::wearing("3jzfcijpj2z2a");
+        record.locomotion =
+            crate::pds::avatar::fit_on_foot(&body, &crate::pds::HumanoidParams::default())
+                .into_config();
+        if let Some(rig) = record.body.rigged_mut() {
+            rig.resolved = Some(crate::pds::avatar::ResolvedRig {
+                body,
+                attachments: Vec::new(),
+            });
+        }
+        record
+    }
+
+    /// **A beast's Locomotion tab reads its collider and offers no capsule
+    /// to drag** (#1803, owner decisions D3 and D7): the radius, length,
+    /// mass and jump sliders are a read-only "Body collider" readout that
+    /// says it follows the body - its length, its depth, the height of its
+    /// back (never the lying capsule's diameter, which is only the trunk's
+    /// depth) and where it is centred - while the run, the derived walk's
+    /// sliders and the water rows stay. Drawing it writes nothing. A
+    /// person's tab, the control, keeps its capsule sliders and its total
+    /// height.
+    #[test]
+    fn a_beasts_tab_reads_its_collider_and_a_persons_keeps_its_capsule() {
+        use symbios_avatar::plan::Family;
+        let capsule_rows = [
+            "Radius (m)",
+            "Cylinder length (m)",
+            "Mass (kg)",
+            "Jump impulse (N·s)",
+        ];
+        let kept_rows = [
+            "Run speed (m/s)",
+            "Linear damping",
+            "Acceleration (1/s)",
+            "Swim speed (m/s)",
+            "Wading speed factor",
+        ];
+        for family in [Family::Dog, Family::Cat, Family::Horse] {
+            let mut record = beast(family);
+            let p = match &record.locomotion {
+                LocomotionConfig::Humanoid(p) => (**p).clone(),
+                _ => unreachable!("on foot"),
+            };
+            let drawn = draw_tab_over(&mut record, 0, 2);
+            assert!(
+                drawn.moved.is_empty() && !drawn.dirty,
+                "{family:?}: drawing the beast's tab wrote {:?}, dirty {}",
+                drawn.moved,
+                drawn.dirty
+            );
+            assert!(
+                drawn.controls.iter().any(|c| c == "Body collider")
+                    && !drawn.controls.iter().any(|c| c == "Capsule"),
+                "{family:?}: sections {:?}",
+                drawn.controls
+            );
+            let rows: Vec<String> = controls_for(&mut record, 0)
+                .into_iter()
+                .map(|c| c.label)
+                .collect();
+            for row in capsule_rows {
+                assert!(!rows.iter().any(|r| r == row), "{family:?} offers {row:?}");
+            }
+            for row in kept_rows {
+                assert!(
+                    rows.iter().any(|r| r == row),
+                    "{family:?} lost {row:?}: {rows:?}"
+                );
+            }
+            let ctx = egui::Context::default();
+            ctx.enable_accesskit();
+            ctx.memory_mut(|m| m.set_everything_is_visible(true));
+            let (output, _) = pass(&ctx, &mut record, Vec::new());
+            let text = painted(&output);
+            for line in humanoid::collider_lines(&p)
+                .into_iter()
+                .chain([humanoid::FOLLOWS_THE_BODY.to_string()])
+            {
+                assert!(
+                    text.contains(&line),
+                    "{family:?} paints no {line:?}: {text:?}"
+                );
+            }
+            let back = format!("Back height {:.2} m over the feet", p.stand_height());
+            assert!(
+                p.stand_height() > p.total_height() + 0.05,
+                "{family:?}: the premise, a back above the capsule's top"
+            );
+            assert!(text.contains(&back), "{family:?}: {text:?}");
+            assert!(
+                !text.iter().any(|t| t.starts_with("Total height")),
+                "{family:?} shows the capsule's diameter as its height"
+            );
+        }
+
+        let mut person = AvatarRecord::wearing("3jzfcijpj2z2a");
+        let rows: Vec<String> = controls_for(&mut person, 0)
+            .into_iter()
+            .map(|c| c.label)
+            .collect();
+        for row in capsule_rows.into_iter().chain(kept_rows) {
+            assert!(
+                rows.iter().any(|r| r == row),
+                "a person lost {row:?}: {rows:?}"
+            );
+        }
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        ctx.memory_mut(|m| m.set_everything_is_visible(true));
+        let (output, _) = pass(&ctx, &mut person, Vec::new());
+        let text = painted(&output);
+        assert!(
+            text.iter().any(|t| t.starts_with("Total height")),
+            "{text:?}"
+        );
+        assert!(!text.iter().any(|t| t == humanoid::FOLLOWS_THE_BODY));
+    }
+
+    /// **Picking On foot under a beast stands it on its own collider**
+    /// (#1803, D3): the preset the picker makes is fitted to the body, not
+    /// a person's upright capsule for the beast to hang from until its next
+    /// edit - and since that is what the beast gets untouched, switching
+    /// away from it again claims no lost tuning. A person picking it gets
+    /// the preset's defaults, as before.
+    #[test]
+    fn picking_on_foot_under_a_beast_fits_it() {
+        use crate::pds::avatar::LocomotionPreset;
+        use bevy_egui::egui::accesskit::{Action, ActionRequest, TreeId};
+        let mut record = beast(symbios_avatar::plan::Family::Horse);
+        let want = record.locomotion.clone();
+        record.locomotion = crate::pds::CarParams::default_config();
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let (output, _) = pass(&ctx, &mut record, Vec::new());
+        let update = output.platform_output.accesskit_update.expect("a tree");
+        let on_foot = update
+            .nodes
+            .iter()
+            .find(|(_, n)| n.label() == Some("On foot") && n.toggled().is_some())
+            .map(|(id, _)| *id)
+            .expect("the picker offers On foot");
+        let click = vec![egui::Event::AccessKitActionRequest(ActionRequest {
+            action: Action::Click,
+            target_tree: TreeId::ROOT,
+            target_node: on_foot,
+            data: None,
+        })];
+        let (_, dirty) = pass(&ctx, &mut record, click);
+        assert!(dirty, "the switch reported no change");
+        assert_eq!(
+            record.locomotion, want,
+            "the horse is not on its own collider"
+        );
+        assert_eq!(
+            discarded_tuning(&record.locomotion, worn(&record.body)),
+            None,
+            "an untouched beast claims lost tuning"
+        );
+
+        let mut person = AvatarRecord::wearing("3jzfcijpj2z2a");
+        if let Some(rig) = person.body.rigged_mut() {
+            rig.resolved = Some(crate::pds::avatar::ResolvedRig {
+                body: crate::pds::avatar::wardrobe::engine_default_for_did("did:plc:picker"),
+                attachments: Vec::new(),
+            });
+        }
+        assert!(
+            worn(&person.body).is_some(),
+            "the premise: a resolved person"
+        );
+        assert_eq!(
+            picked(
+                crate::pds::HumanoidParams::default_config,
+                worn(&person.body)
+            ),
+            crate::pds::HumanoidParams::default_config()
+        );
+        person.locomotion = crate::pds::CarParams::default_config();
+        assert_eq!(
+            discarded_tuning(&person.locomotion, worn(&person.body)),
+            None
+        );
+    }
+
+    /// **The On foot panel reads the body's kind, not the preset's shape**
+    /// (#1803): a person under a lying preset - another app re-saved their
+    /// wardrobe entry as a person under a beast's collider - is offered a
+    /// person's capsule sliders, not a beast's read-only "Body collider"
+    /// that says it follows the body; a beast is shown its collider
+    /// whatever shape the preset has; and only with no body resolved does
+    /// the shape decide.
+    #[test]
+    fn the_on_foot_panel_reads_the_bodys_kind() {
+        use crate::pds::avatar::LocomotionPreset;
+        use symbios_avatar::plan::Family;
+        let horse = beast(Family::Horse);
+        let lying = horse.locomotion.clone();
+        let sections = |record: &mut AvatarRecord| draw_tab_over(record, 0, 2).controls;
+        let shows = |sections: &[String], header: &str| sections.iter().any(|c| c == header);
+
+        // A person under the horse's lying collider.
+        let mut person = AvatarRecord::wearing("3jzfcijpj2z2a");
+        if let Some(rig) = person.body.rigged_mut() {
+            rig.resolved = Some(crate::pds::avatar::ResolvedRig {
+                body: crate::pds::avatar::wardrobe::engine_default_for_did("did:plc:mirror"),
+                attachments: Vec::new(),
+            });
+        }
+        person.locomotion = lying.clone();
+        let drawn = sections(&mut person);
+        assert!(
+            shows(&drawn, "Capsule") && !shows(&drawn, "Body collider"),
+            "a person under a lying preset: {drawn:?}"
+        );
+        let rows: Vec<String> = controls_for(&mut person, 0)
+            .into_iter()
+            .map(|c| c.label)
+            .collect();
+        assert!(
+            rows.iter().any(|r| r == "Radius (m)")
+                && rows.iter().any(|r| r == "Jump impulse (N·s)"),
+            "a person is not offered their capsule: {rows:?}"
+        );
+
+        // A beast on an upright preset.
+        let mut upright = horse.clone();
+        upright.locomotion = crate::pds::HumanoidParams::default_config();
+        let drawn = sections(&mut upright);
+        assert!(
+            shows(&drawn, "Body collider") && !shows(&drawn, "Capsule"),
+            "a beast on an upright preset: {drawn:?}"
+        );
+
+        // No body resolved: the shape decides.
+        let mut unresolved = AvatarRecord::wearing("3jzfcijpj2z2a");
+        unresolved.locomotion = lying;
+        assert!(worn(&unresolved.body).is_none(), "the premise");
+        assert!(shows(&sections(&mut unresolved), "Body collider"));
+        unresolved.locomotion = crate::pds::HumanoidParams::default_config();
+        assert!(shows(&sections(&mut unresolved), "Capsule"));
     }
 }

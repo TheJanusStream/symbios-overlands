@@ -1398,13 +1398,21 @@ fn a_stop_does_not_skate() {
     // atan2 off the platform libm - the arithmetic changed, and
     // reproducible was never going to mean smaller.)
     //
-    // So the guard is at 82 mm, 2 mm above the one figure and nearly
-    // 3-fold below the 225.3 mm regression it exists to catch -
+    // So the guard is at 82 mm, 2 mm above the one figure of 0.12.1 and
+    // nearly 3-fold below the 225.3 mm regression it exists to catch, and it
+    // stays there while the figure sits inside the knife edge's band below -
     //
     //     57.85 mm   alone, after player::rigged::, after all of player::
     //                - one figure on INSTRUMENT_SEED (2026-09-02, this
     //                box, symbios-avatar 0.5.1)
     //     79.94 mm   the same, since symbios-avatar 0.12.1 (#1759)
+    //     56.81 mm   since symbios-avatar 0.14.0 (#1801), median 19.24
+    //
+    // The 0.14 move is the BODY's, not the engine's motion (#1801): engine
+    // generation 8 draws Age before Build (#178), and did:plc:stop-test is
+    // 38, so its body fat re-rolled from 0.059 to 0.060. The same 0.14.0
+    // build with that body fat set back to 0.059 reads 79.94 and 19.07
+    // exactly; a thousandth of body fat moved the knife edge below by 23 mm.
     //
     // **The worst phase is a knife edge** (#1759, engine #363). It is the
     // stop after 127 frames, where the hand-over to the idle is chaotic in
@@ -1418,7 +1426,7 @@ fn a_stop_does_not_skate() {
     // most. A change that moves the figure inside that band has moved the
     // sample, not the stop - so the median of the thirty-one stops is held as
     // well, which a regression lifting the ordinary phases moves and a knife
-    // edge cannot: 19.07 mm.
+    // edge cannot: 19.07 mm, and 19.24 since 0.14.0's body fat (#1801).
     //
     // If CI reads past it, read the printed figure against that line: a
     // millimetre or two is an unroutable `bevy_math`/`avian` glam site
@@ -1442,8 +1450,8 @@ fn a_stop_does_not_skate() {
     );
     assert!(
         worst < 0.082,
-        "a foot standing on the ground slid {:.1} mm through a stop, against 79.94 mm \
-         on INSTRUMENT_SEED in every process context (#1194, #1759) and 225.3 mm before \
+        "a foot standing on the ground slid {:.1} mm through a stop, against 56.81 mm \
+         on INSTRUMENT_SEED in every process context (#1194, #1759, #1801) and 225.3 mm before \
          engine #276 - a millimetre or two is an unroutable glam site (#1183/#323), \
          the high 50s to the high 80s is the 127-frame knife edge or a body standing on \
          an unpinned seed, and the pre-fix regime reads hundreds.",
@@ -1451,8 +1459,8 @@ fn a_stop_does_not_skate() {
     );
     assert!(
         median < 0.03,
-        "the median stop slid a standing foot {:.1} mm, against 19.07 mm on \
-         INSTRUMENT_SEED (#1759): the ordinary stopping phases have regressed",
+        "the median stop slid a standing foot {:.1} mm, against 19.24 mm on \
+         INSTRUMENT_SEED (#1759, #1801): the ordinary stopping phases have regressed",
         median * 1000.0
     );
 }
@@ -2864,7 +2872,9 @@ fn handover_pool() -> &'static bevy::tasks::TaskPool {
 /// `network::peer_cache`'s tests' own `finished`). A real body is built by the
 /// caller, on its own thread, before it gets here: the pool only ever hands a
 /// result back, so no doomed future can queue behind a build on it.
-fn finished(result: crate::offload::GenResult) -> bevy::tasks::Task<crate::offload::GenResult> {
+pub(super) fn finished(
+    result: crate::offload::GenResult,
+) -> bevy::tasks::Task<crate::offload::GenResult> {
     let task = handover_pool().spawn(async move { result });
     let give_up_at = std::time::Instant::now() + HANDOVER_BUDGET;
     while !task.is_finished() {
@@ -3153,6 +3163,103 @@ fn a_body_that_is_not_standing_yet_wears_a_stand_in() {
     assert!(
         app.world().get::<Mesh3d>(chassis).is_none(),
         "only a rigged body's wait is a void worth filling"
+    );
+}
+
+/// A beast waits under a stand-in lying along its own collider (#1802), not
+/// a person's upright one standing through the ground: as long as its
+/// capsule along the body's Z, its diameter tall, centred where the capsule
+/// is - ahead of the body's origin, at the girdles' midpoint. A person keeps
+/// the one stand-in for the session, and a beast's is cut again only when
+/// its collider changes.
+#[test]
+fn a_beast_waits_under_a_stand_in_lying_along_its_collider() {
+    use crate::pds::LocomotionConfig;
+    use bevy::camera::primitives::MeshAabb;
+    let mut app = test_app();
+    let wearing = |locomotion: LocomotionConfig| {
+        let mut record = rigged_record(ResolvedRig {
+            body: crate::pds::avatar::locomotion::default_beast(symbios_avatar::plan::Family::Dog),
+            attachments: Vec::new(),
+        });
+        record.locomotion = locomotion;
+        LiveAvatarRecord(record)
+    };
+    let beast = crate::pds::avatar::locomotion::beast_record(symbios_avatar::plan::Family::Dog);
+    let LocomotionConfig::Humanoid(p) = beast.locomotion.clone() else {
+        panic!("a beast on foot");
+    };
+    app.insert_resource(wearing(beast.locomotion.clone()));
+    let chassis = app
+        .world_mut()
+        .spawn((
+            LocalPlayer,
+            Transform::default(),
+            GlobalTransform::default(),
+        ))
+        .id();
+    let sync = |app: &mut App| {
+        app.world_mut()
+            .run_system_cached(sync_local_placeholder)
+            .expect("runs");
+    };
+    let worn = |app: &App| {
+        let mesh = app
+            .world()
+            .get::<Mesh3d>(chassis)
+            .expect("a stand-in")
+            .0
+            .clone();
+        let aabb = app
+            .world()
+            .resource::<Assets<Mesh>>()
+            .get(&mesh)
+            .and_then(|mesh| mesh.compute_aabb())
+            .expect("a stand-in with a shape");
+        (
+            mesh,
+            Vec3::from(aabb.center),
+            Vec3::from(aabb.half_extents) * 2.0,
+        )
+    };
+
+    sync(&mut app);
+    let (lying, center, size) = worn(&app);
+    let (r, length) = (p.capsule_radius.0, p.capsule_length.0);
+    // Where the collider's middle is: the girdles' midpoint, ahead of the
+    // body's origin toward -Z.
+    let middle = Vec3::NEG_Z * p.capsule_ahead();
+    assert!(
+        p.capsule_ahead() != 0.0 && center.distance(middle) < 1e-4,
+        "the stand-in is centred at {center:?}, off its collider's middle {middle:?}"
+    );
+    assert!(
+        (size.z - (length + 2.0 * r)).abs() < 1e-3
+            && (size.y - 2.0 * r).abs() < 1e-3
+            && (size.x - 2.0 * r).abs() < 1e-3,
+        "a beast's stand-in is {size:?}, its collider {:.3} long and {:.3} round",
+        length + 2.0 * r,
+        2.0 * r
+    );
+
+    // A person's is the upright one, and comes back the same.
+    app.insert_resource(wearing(LocomotionConfig::Humanoid(Box::default())));
+    sync(&mut app);
+    let (upright, _, size) = worn(&app);
+    assert!(size.y > size.z * 2.0, "a person's stand-in is {size:?}");
+    app.insert_resource(wearing(beast.locomotion.clone()));
+    sync(&mut app);
+    assert_eq!(
+        worn(&app).0,
+        lying,
+        "the beast's stand-in was cut again for the same collider"
+    );
+    app.insert_resource(wearing(LocomotionConfig::Humanoid(Box::default())));
+    sync(&mut app);
+    assert_eq!(
+        worn(&app).0,
+        upright,
+        "one person's stand-in for the session"
     );
 }
 

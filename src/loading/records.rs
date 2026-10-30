@@ -94,8 +94,25 @@ impl LoadedRecord for AvatarRecord {
         AvatarRecord::default_for_did(did)
     }
 
+    /// The owner's own record, arrived with its body resolved, stood on the
+    /// shape its body takes (`restore_body_shape`): a beast that a client
+    /// older than its shape saved upright - such a client drops the key it
+    /// cannot read on write-back - back on its lying capsule (#1802), or it
+    /// would hang from a person's capsule as tall as its trunk is long; and
+    /// a person whose wardrobe entry another app re-saved under a beast's
+    /// lying collider back on their feet (#1803). Refitted in BOTH copies,
+    /// so nothing reads as unsaved: the owner did nothing, and Save offering
+    /// itself on arrival would say they had. The published record keeps the
+    /// preset it was saved with - peers draw that, as published - until the
+    /// owner's next save of anything, which carries the refit with it.
     fn install(mut self, commands: &mut Commands) {
         self.sanitize();
+        if pds::avatar::locomotion::restore_body_shape(&mut self) {
+            info!(
+                "Avatar record: the on-foot preset was saved for another kind of body - \
+                 refitted to its body"
+            );
+        }
         commands.insert_resource(LiveAvatarRecord(self.clone()));
         commands.insert_resource(StoredAvatarRecord(self));
     }
@@ -205,4 +222,174 @@ pub(crate) fn start_inventory_record_fetch(
         0,
         time.elapsed_secs_f64(),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pds::avatar::LocomotionPreset;
+    use crate::pds::avatar::ResolvedRig;
+    use crate::pds::{HumanoidParams, LocomotionConfig};
+    use symbios_avatar::plan::Family;
+
+    /// The owner's horse as an older client wrote it back: its fitted
+    /// preset with the shape it could not read dropped, decoded here as a
+    /// peer decodes the published record.
+    fn stripped_horse() -> (AvatarRecord, HumanoidParams) {
+        let mut record = AvatarRecord::wearing("3jzfcijpj2z2a");
+        if let Some(rig) = record.body.rigged_mut() {
+            rig.resolved = Some(ResolvedRig {
+                body: crate::pds::avatar::locomotion::default_beast(Family::Horse),
+                attachments: Vec::new(),
+            });
+        }
+        let LocomotionConfig::Humanoid(fitted) =
+            crate::pds::avatar::locomotion::beast_record(Family::Horse).locomotion
+        else {
+            unreachable!("a beast on foot");
+        };
+        let mut wire = serde_json::to_value(&*fitted).expect("writes");
+        wire.as_object_mut().expect("an object").remove("shape");
+        let mut old: HumanoidParams = serde_json::from_value(wire).expect("reads");
+        old.sanitize();
+        assert!(!old.is_lying(), "the premise: the shape is gone");
+        record.locomotion = old.into_config();
+        (record, *fitted)
+    }
+
+    /// **A beast saved without its shape stands on it again on its owner's
+    /// client, and as published for a peer** (#1802): installed as the
+    /// owner's own record, it lies on the capsule its body fits - in the
+    /// live copy and the stored one alike, so nothing reads as unsaved - and
+    /// a person's record installs exactly as it arrived. The published
+    /// record, which is what a peer reads and sanitises, keeps the upright
+    /// preset it was saved with: the defence is the owner's alone.
+    #[test]
+    fn a_beast_saved_without_its_shape_stands_on_it_again_for_its_owner() {
+        let (published, fitted) = stripped_horse();
+        let mut world = World::new();
+        published.clone().install(&mut world.commands());
+        world.flush();
+        let live = &world.resource::<LiveAvatarRecord>().0;
+        let LocomotionConfig::Humanoid(p) = &live.locomotion else {
+            panic!("the owner's horse went off foot");
+        };
+        assert_eq!(**p, fitted, "the owner's horse is not its fit");
+        assert!(
+            !crate::pds::avatar::avatar_is_dirty(live, &world.resource::<StoredAvatarRecord>().0),
+            "the refit reads as unsaved work"
+        );
+        // As a peer reads the record it was published as.
+        let mut peer: AvatarRecord =
+            serde_json::from_value(serde_json::to_value(&published).expect("writes"))
+                .expect("reads");
+        peer.sanitize();
+        let LocomotionConfig::Humanoid(seen) = &peer.locomotion else {
+            panic!("a peer's horse went off foot");
+        };
+        assert!(!seen.is_lying(), "a peer's copy was refitted");
+        // A person installs as it arrived.
+        let mut person = AvatarRecord::wearing("3jzfcijpj2z2a");
+        if let Some(rig) = person.body.rigged_mut() {
+            rig.resolved = Some(ResolvedRig {
+                body: crate::pds::avatar::wardrobe::engine_default_for_did("did:plc:install"),
+                attachments: Vec::new(),
+            });
+        }
+        let mut world = World::new();
+        person.clone().install(&mut world.commands());
+        world.flush();
+        let mut want = person;
+        want.sanitize();
+        assert_eq!(world.resource::<LiveAvatarRecord>().0, want);
+    }
+
+    /// **A person saved under a beast's lying collider stands up on their
+    /// owner's client, and lies as published for a peer** (#1803): the
+    /// mirror of the beast's defence above. A wardrobe entry re-saved as a
+    /// person by another app, under a record still carrying the horse's
+    /// fit, installs on the stature rule's upright capsule with the default
+    /// person's mass, jump and run - and a tuning no body sizes, here the
+    /// acceleration, as it was - in the live copy and the stored one alike,
+    /// so nothing reads as unsaved. A body this build cannot read keeps the
+    /// lying preset a newer client wrote for it.
+    #[test]
+    fn a_person_saved_under_a_lying_preset_stands_up_for_its_owner() {
+        use crate::pds::types::Fp;
+        let body = crate::pds::avatar::wardrobe::engine_default_for_did("did:plc:install-person");
+        let LocomotionConfig::Humanoid(horse) =
+            crate::pds::avatar::locomotion::beast_record(Family::Horse).locomotion
+        else {
+            unreachable!("a beast on foot");
+        };
+        let lying = HumanoidParams {
+            acceleration: Fp(17.5),
+            ..(*horse).clone()
+        };
+        assert!(lying.is_lying(), "the premise: the horse's collider lies");
+        let wearing = |body: crate::pds::avatar::EngineAvatarRecord| {
+            let mut record = AvatarRecord::wearing("3jzfcijpj2z2a");
+            if let Some(rig) = record.body.rigged_mut() {
+                rig.resolved = Some(ResolvedRig {
+                    body,
+                    attachments: Vec::new(),
+                });
+            }
+            record.locomotion = lying.clone().into_config();
+            record
+        };
+        let published = wearing(body.clone());
+        let mut world = World::new();
+        published.clone().install(&mut world.commands());
+        world.flush();
+        let live = &world.resource::<LiveAvatarRecord>().0;
+        let LocomotionConfig::Humanoid(p) = &live.locomotion else {
+            panic!("the owner's person went off foot");
+        };
+        let person = HumanoidParams::default();
+        let want = crate::pds::avatar::fit_on_foot(
+            &body,
+            &HumanoidParams {
+                mass: person.mass,
+                jump_impulse: person.jump_impulse,
+                walk_speed: person.walk_speed,
+                ..lying.clone()
+            },
+        );
+        assert!(!want.is_lying(), "the premise: the stature rule stands");
+        assert_eq!(
+            **p, want,
+            "the owner's person still lies on the horse's collider"
+        );
+        assert_eq!(p.acceleration, Fp(17.5), "a tuning no body sizes moved");
+        assert!(
+            !crate::pds::avatar::avatar_is_dirty(live, &world.resource::<StoredAvatarRecord>().0),
+            "the refit reads as unsaved work"
+        );
+        // As a peer reads the record it was published as.
+        let mut peer: AvatarRecord =
+            serde_json::from_value(serde_json::to_value(&published).expect("writes"))
+                .expect("reads");
+        peer.sanitize();
+        let LocomotionConfig::Humanoid(seen) = &peer.locomotion else {
+            panic!("a peer's person went off foot");
+        };
+        assert!(seen.is_lying(), "a peer's copy was refitted");
+        // A body this build cannot read installs as it arrived.
+        let mut unknown = body;
+        unknown.archetype = symbios_avatar::Archetype::Unknown {
+            type_name: String::from("network.symbios.avatar.archetype#bird"),
+            fields: serde_json::Map::new(),
+        };
+        let mut world = World::new();
+        wearing(unknown.clone()).install(&mut world.commands());
+        world.flush();
+        let mut want = wearing(unknown);
+        want.sanitize();
+        assert_eq!(
+            world.resource::<LiveAvatarRecord>().0.locomotion,
+            want.locomotion,
+            "an unknown body's preset was refitted"
+        );
+    }
 }

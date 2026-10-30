@@ -11,8 +11,10 @@
 //! goes to 0, [`switch_view`]). On foot the eyes look level with the world
 //! along the orbit's yaw and pitch, from the rig's eye line where its pose
 //! carries it - a swim's crawl or a sit followed whole, the walk's bob eased
-//! to a share of itself ([`ease_drift`], #1749). In a vehicle they ride its
-//! nose, where its box ends straight ahead (#1751), turning,
+//! to a share of itself ([`ease_drift`], #1749) - a four-legged beast's eye
+//! line being its seated eyes, not the landmark (`EyeLine::of_body`, #1804).
+//! In a vehicle they ride its nose, where its box ends straight ahead (#1751),
+//! turning,
 //! pitching and banking with it, and the orbit stops following the vehicle's
 //! turns (`follow_local_player`): its yaw since the eyes were entered is how
 //! far the head is turned from straight ahead.
@@ -81,7 +83,7 @@ use bevy_panorbit_camera::PanOrbitCamera;
 use bevy_symbios_avatar::{AvatarBody, AvatarPose};
 use symbios_avatar::rig::Landmark;
 
-use super::{IsWorldCamera, WorldCamera, clear_of_terrain};
+use super::{BeastFraming, IsWorldCamera, WorldCamera, clear_of_terrain};
 use crate::config::camera as cfg;
 use crate::interaction::locomotion::{locomotion_reach, locomotion_total_height};
 use crate::pds::LocomotionConfig;
@@ -340,7 +342,8 @@ impl EyeMount {
     /// where its box ends straight ahead (#1751), [`cfg::EYE_HEIGHT_FRACTION`]
     /// of the way up (the agent's eye view, #1420); a person's at `rig_eye`, their rig's eye line in the
     /// chassis' frame (#1749), when they have one, and otherwise on the axis
-    /// at that fraction of the collider's height.
+    /// at that fraction of the collider's height; a body lying along its
+    /// capsule at `rig_eye` too, and otherwise at the capsule's nose (#1804).
     pub(crate) fn of(locomotion: &LocomotionConfig, vehicle: bool, rig_eye: Option<Vec3>) -> Self {
         let height = locomotion_total_height(locomotion);
         let fraction_above_centre = (cfg::EYE_HEIGHT_FRACTION - 0.5) * height;
@@ -354,7 +357,18 @@ impl EyeMount {
             };
         }
         Self::OnFoot {
-            eye: rig_eye.unwrap_or(Vec3::Y * fraction_above_centre),
+            eye: rig_eye.unwrap_or_else(|| match locomotion {
+                // A body lying along its capsule (#1804), which is drawn so
+                // until its rig lands: at the capsule's nose, and that
+                // fraction of how tall it stands rather than of the capsule,
+                // only its trunk's depth.
+                LocomotionConfig::Humanoid(p) if p.is_lying() => Vec3::new(
+                    0.0,
+                    cfg::EYE_HEIGHT_FRACTION * p.stand_height() - height / 2.0,
+                    -locomotion_reach(locomotion, Vec2::Y),
+                ),
+                _ => Vec3::Y * fraction_above_centre,
+            }),
         }
     }
 
@@ -395,6 +409,37 @@ pub(super) struct EyeLine {
 }
 
 impl EyeLine {
+    /// Read off a built body (#1804): a person's [`Landmark::EyeLine`]
+    /// ([`Self::of`]), and a four-legged beast's seated eyes - the midpoint of
+    /// its two globes' pivots, carried by the joint the pair hangs from.
+    ///
+    /// **Not the landmark on a beast.** The engine places the eye line by the
+    /// person rule, a quarter of the head joint's radius along the head's own
+    /// bone from the joint (symbios-avatar `rig/landmark.rs`). A beast's head
+    /// joint is its occiput and that bone runs back from it, so the landmark
+    /// falls at the back of the skull: 8, 11 and 23 cm behind the eyes of the
+    /// default cat, dog and horse. The eyes are where the engine draws them,
+    /// so they are where a beast looks from. A beast built without eyes, and a
+    /// head this build does not know, keep the landmark.
+    fn of_body(root: Entity, avatar: &symbios_avatar::Avatar) -> Option<Self> {
+        let rig = &avatar.rig;
+        match &avatar.parts.eyes {
+            Some(eyes)
+                if rig.anatomy.head == symbios_avatar::HeadKind::Beast
+                    && eyes.head < rig.joints.len() =>
+            {
+                let offset = (eyes.left.pivot + eyes.right.pivot) / 2.0;
+                Some(Self {
+                    root,
+                    head: eyes.head,
+                    offset,
+                    rest: rig.joints[eyes.head].position + offset,
+                })
+            }
+            _ => Self::of(root, rig),
+        }
+    }
+
     /// Read off `rig`, as the engine places the landmark: on the first head
     /// joint. None for a body with no head.
     fn of(root: Entity, rig: &symbios_avatar::Rig) -> Option<Self> {
@@ -419,6 +464,14 @@ impl EyeLine {
             _ => self.rest,
         }
     }
+}
+
+/// Where a built body's eyes stand at rest, in body space (#1804): a
+/// person's eye line, a four-legged beast's seated eyes (`EyeLine::of_body`).
+/// What the orbit lifts a beast's focus to, and what the render tool's
+/// `--first-person` looks out of. None for a body with no head.
+pub(crate) fn rest_eye_line(avatar: &symbios_avatar::Avatar) -> Option<Vec3> {
+    EyeLine::of_body(Entity::PLACEHOLDER, avatar).map(|line| line.rest)
 }
 
 /// Whether mouse look holds the pointer this frame (#1754), pure: taken the
@@ -809,6 +862,7 @@ pub(super) fn place_first_person_camera(
     settings: Res<LocalSettings>,
     heightmap: Option<Res<FinishedHeightMap>>,
     record: Option<Res<LiveAvatarRecord>>,
+    beast: Option<Res<BeastFraming>>,
     mut first_person: ResMut<FirstPerson>,
     players: Query<
         (Entity, &Transform, Has<VehicleChassis>),
@@ -898,7 +952,7 @@ pub(super) fn place_first_person_camera(
         let line = match *eye_line {
             Some(line) if line.root == root && !body.is_changed() => line,
             _ => {
-                let line = EyeLine::of(root, &body.avatar.rig)?;
+                let line = EyeLine::of_body(root, &body.avatar)?;
                 *eye_line = Some(line);
                 line
             }
@@ -924,7 +978,13 @@ pub(super) fn place_first_person_camera(
     } else {
         let mut around = orbit_pose(yaw, pitch, radius, orbit.focus);
         if let Some(hm) = heightmap.as_deref() {
-            around.translation = clear_of_terrain(orbit.focus, around.translation, &settings, hm);
+            around.translation = clear_of_terrain(
+                orbit.focus,
+                around.translation,
+                &settings,
+                hm,
+                BeastFraming::eyes_of(beast.as_deref()),
+            );
         }
         if eased <= 0.0 {
             around
@@ -1140,6 +1200,275 @@ mod tests {
             (line.posed(rig, &bowed) - line.rest).length() > 0.01,
             "turned with the head"
         );
+    }
+
+    /// A beast `family` rolled from `seed`, every lock lifted, as the editor's
+    /// kind switch rolls one; `None` keeps the family's default.
+    fn beast_body(
+        family: symbios_avatar::Family,
+        seed: Option<i64>,
+    ) -> crate::pds::avatar::EngineAvatarRecord {
+        let mut body = crate::pds::avatar::locomotion::default_beast(family);
+        if let Some(seed) = seed {
+            body.locks = symbios_avatar::LockSet::NONE;
+            body.reroll(seed);
+        }
+        body
+    }
+
+    /// `family`'s default grown or shrunk to the end of every size axis.
+    fn extreme_beast(
+        family: symbios_avatar::Family,
+        largest: bool,
+    ) -> crate::pds::avatar::EngineAvatarRecord {
+        let mut body = beast_body(family, None);
+        let symbios_avatar::Archetype::Quadruped(params) = &mut body.archetype else {
+            unreachable!("a beast");
+        };
+        // A cat with the deepest chest on the shortest legs does not build
+        // (the engine's build answers None), so its largest stops short of
+        // both ends.
+        let axis = if largest && family == symbios_avatar::Family::Cat {
+            2.0
+        } else {
+            3.0
+        };
+        let way = if largest { axis } else { -axis };
+        params.height = if largest { 4.24 } else { 0.05 };
+        params.body_length = way;
+        params.leg_length = -way;
+        params.chest_depth = way;
+        body.sanitize();
+        body
+    }
+
+    fn built(body: &crate::pds::avatar::EngineAvatarRecord) -> symbios_avatar::Avatar {
+        symbios_avatar::Avatar::build_with(
+            body,
+            &symbios_avatar::AvatarConfig {
+                atlas: 64,
+                ..Default::default()
+            },
+        )
+        .expect("the body builds")
+    }
+
+    /// **A beast looks out of its seated eyes** (#1804, owner decision D5),
+    /// which the engine's landmark is not: on the default dog, cat and horse,
+    /// the largest and smallest of each and a few rolls, the eye line stands
+    /// on the body's midline, ahead of the occiput it hangs from and of the
+    /// landmark, inside the box of the head's own skin - the midpoint of the
+    /// two globes, carried by their joint as the pose turns the head.
+    #[test]
+    fn a_beasts_eye_line_is_its_seated_eyes() {
+        use symbios_avatar::{Family, Pose, Zone};
+
+        let mut bodies = Vec::new();
+        for family in [Family::Dog, Family::Cat, Family::Horse] {
+            bodies.push((format!("{family:?}"), beast_body(family, None)));
+            bodies.push((format!("big {family:?}"), extreme_beast(family, true)));
+            bodies.push((format!("small {family:?}"), extreme_beast(family, false)));
+        }
+        for seed in [3, 41, 977] {
+            bodies.push((format!("roll {seed}"), beast_body(Family::Dog, Some(seed))));
+        }
+        for (name, body) in &bodies {
+            let avatar = built(body);
+            let rig = &avatar.rig;
+            assert_eq!(
+                rig.anatomy.head,
+                symbios_avatar::HeadKind::Beast,
+                "{name}: a beast"
+            );
+            let eyes = avatar.parts.eyes.as_ref().expect("a beast has eyes");
+            let line = EyeLine::of_body(Entity::PLACEHOLDER, &avatar).expect("a head");
+            let occiput = rig.joints[eyes.head].position;
+            let middle = (eyes.left.pivot + eyes.right.pivot) / 2.0;
+            assert_eq!(line.head, eyes.head, "{name}");
+            assert_eq!(line.rest, occiput + middle, "{name}");
+            assert_eq!(rest_eye_line(&avatar), Some(line.rest), "{name}");
+            assert!(line.rest.x.abs() < 1e-3, "{name}: {}", line.rest);
+
+            let landmark = rig
+                .landmarks()
+                .get(Landmark::EyeLine)
+                .expect("an eye line")
+                .position;
+            assert!(
+                line.rest.z > occiput.z && line.rest.z > landmark.z,
+                "{name}: {} is not ahead of the occiput {occiput} and the landmark {landmark}",
+                line.rest
+            );
+
+            let (mut low, mut high) = (Vec3::MAX, Vec3::MIN);
+            for (i, position) in avatar.parts.body.positions.iter().enumerate() {
+                if avatar.parts.zones[i] == Zone::Head {
+                    low = low.min(*position);
+                    high = high.max(*position);
+                }
+            }
+            assert!(
+                line.rest.cmpge(low).all() && line.rest.cmple(high).all(),
+                "{name}: {} is outside the head {low}..{high}",
+                line.rest
+            );
+
+            assert!(
+                (line.posed(rig, &Pose::rest(rig)) - line.rest).length() < 1e-5,
+                "{name}: at rest, the eyes"
+            );
+            let mut lowered = Pose::rest(rig);
+            lowered.translation = Vec3::new(0.0, -0.2, 0.1);
+            assert!(
+                (line.posed(rig, &lowered) - (line.rest + lowered.translation)).length() < 1e-5,
+                "{name}: carried with the body"
+            );
+            let mut bowed = Pose::rest(rig);
+            bowed.rotations[line.head] = Quat::from_rotation_x(std::f32::consts::FRAC_PI_2);
+            assert!(
+                (line.posed(rig, &bowed) - line.rest).length() > line.offset.length() / 2.0,
+                "{name}: turned with the head"
+            );
+        }
+    }
+
+    /// **A person keeps the landmark, to the bit** (#1804): the body-aware
+    /// reading of their rig is the rig's own, for the default person and a
+    /// seeded one.
+    #[test]
+    fn a_persons_eye_line_is_the_landmark_through_the_body() {
+        for body in [
+            crate::pds::avatar::wardrobe::engine_default_for_did("did:plc:eyes"),
+            crate::pds::avatar::wardrobe::engine_default_for_seed(42),
+        ] {
+            let avatar = built(&body);
+            let root = Entity::PLACEHOLDER;
+            let line = EyeLine::of_body(root, &avatar).expect("a head");
+            assert_eq!(Some(line), EyeLine::of(root, &avatar.rig));
+            let landmark = avatar
+                .rig
+                .landmarks()
+                .get(Landmark::EyeLine)
+                .expect("an eye line")
+                .position;
+            assert_eq!(
+                line.rest.to_array().map(f32::to_bits),
+                landmark.to_array().map(f32::to_bits)
+            );
+            assert_eq!(rest_eye_line(&avatar), Some(landmark));
+        }
+    }
+
+    /// **The system looks from a beast's eyes** (#1804): in the eyes, with a
+    /// horse's rig hung under its chassis as the game hangs one, the camera
+    /// stands at the seated eyes through the root and the chassis, not at the
+    /// landmark - well ahead of the axis, since the chassis turned a quarter
+    /// carries them round with it.
+    #[test]
+    fn a_beast_in_its_eyes_sees_from_them() {
+        let record = crate::pds::avatar::locomotion::beast_record(symbios_avatar::Family::Horse);
+        let (mut app, camera, chassis, _) = eyes_app(false);
+        app.insert_resource(FirstPerson::looking());
+        app.insert_resource(LiveAvatarRecord(record.clone()));
+        let turned = Transform::from_xyz(3.0, 10.0, -2.0)
+            .with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2));
+        app.world_mut().entity_mut(chassis).insert(turned);
+        let avatar = built(&beast_body(symbios_avatar::Family::Horse, None));
+        let rest = rest_eye_line(&avatar).expect("a head");
+        let landmark = avatar
+            .rig
+            .landmarks()
+            .get(Landmark::EyeLine)
+            .expect("an eye line")
+            .position;
+        let root = crate::player::visuals::rigged_root_transform(
+            crate::player::visuals::rigged_root_offset(&record),
+        );
+        app.world_mut().spawn((
+            root,
+            RiggedRoot,
+            bevy_symbios_avatar::AvatarBody { avatar },
+            ChildOf(chassis),
+        ));
+        frames(&mut app, 3);
+        let at = app.world().get::<Transform>(camera).unwrap().translation;
+        let expected = turned.translation + turned.rotation * root.transform_point(rest);
+        assert!((at - expected).length() < 1e-4, "{at} against {expected}");
+        let behind = turned.translation + turned.rotation * root.transform_point(landmark);
+        assert!(
+            (at - behind).length() > 0.1,
+            "the landmark stands apart from the eyes: {at} {behind}"
+        );
+        // Ahead: the quarter turn takes the chassis' -Z to world -X.
+        assert!(at.x < turned.translation.x - 0.5, "{at}");
+    }
+
+    /// **The move out of the eyes starts from where the orbit's clamp stands a
+    /// beast's camera** (#1804): halfway out, over flat ground at a low pitch,
+    /// a low cat's orbit half is at its rest, not pulled in to the clamp's
+    /// floor as it is with no framing.
+    #[test]
+    fn the_way_out_of_a_beasts_eyes_reads_its_framing() {
+        let place = |framed: bool| {
+            let (mut app, camera, _, _) = eyes_app(false);
+            app.insert_resource(FirstPerson::leaving());
+            app.insert_resource(FinishedHeightMap(
+                bevy_symbios_ground::HeightMap::new(128, 128, 1.0),
+                None,
+            ));
+            if framed {
+                app.insert_resource(super::super::beast_framing_for_tests(0.6));
+            }
+            {
+                let mut orbit = app.world_mut().get_mut::<PanOrbitCamera>(camera).unwrap();
+                orbit.focus = Vec3::new(40.0, 0.6, 40.0);
+                orbit.radius = Some(5.0);
+                orbit.pitch = Some(0.05);
+            }
+            app.update();
+            app.world().get::<Transform>(camera).unwrap().translation
+        };
+        let (framed, unframed) = (place(true), place(false));
+        assert!(
+            framed.distance(unframed) > 0.5,
+            "{framed} against {unframed}"
+        );
+    }
+
+    /// **A lying body with no rig yet looks from its capsule's nose** (#1804):
+    /// the outline `locomotion_reach` reads, ahead of its capsule's middle,
+    /// nearly as high as it stands rather than up its trunk's depth. A person
+    /// has `a_persons_eyes_are_at_their_eye_line`.
+    #[test]
+    fn a_lying_body_with_no_rig_looks_from_its_nose() {
+        use crate::pds::avatar::locomotion::beast_record;
+        use symbios_avatar::Family;
+
+        for family in [Family::Dog, Family::Cat, Family::Horse] {
+            let locomotion = beast_record(family).locomotion;
+            let LocomotionConfig::Humanoid(p) = &locomotion else {
+                unreachable!("a beast on foot");
+            };
+            let EyeMount::OnFoot { eye } = EyeMount::of(&locomotion, false, None) else {
+                panic!("a beast's eyes are on foot");
+            };
+            let feet = -p.total_height() / 2.0;
+            assert_eq!(eye.x, 0.0);
+            assert!(
+                (eye.y - (feet + cfg::EYE_HEIGHT_FRACTION * p.stand_height())).abs() < 1e-5,
+                "{family:?}: {eye}"
+            );
+            // The capsule's end, ahead of the origin: its middle's offset, half
+            // its length and its radius.
+            let nose = p.capsule_ahead() + p.capsule_length.0 / 2.0 + p.capsule_radius.0;
+            assert!((eye.z + nose).abs() < 1e-5, "{family:?}: {eye} {nose}");
+            // A rig's own eye still wins.
+            let line = Vec3::new(0.0, 0.3, -0.5);
+            assert_eq!(
+                EyeMount::of(&locomotion, false, Some(line)),
+                EyeMount::OnFoot { eye: line }
+            );
+        }
     }
 
     /// **The eyes follow a change of posture whole and a walk's bob in part**

@@ -16,15 +16,22 @@
 
 pub mod airplane;
 pub mod car;
+mod fit;
 pub mod helicopter;
 pub mod hover_boat;
 pub mod humanoid;
 
 pub use airplane::AirplaneParams;
 pub use car::CarParams;
+pub use fit::fit_on_foot;
+pub(crate) use fit::{
+    RunAnchor, beast_on_foot, carries_beast, follow, follow_body, restore_body_shape,
+};
+#[cfg(test)]
+pub(crate) use fit::{beast_record, default_beast};
 pub use helicopter::HelicopterParams;
 pub use hover_boat::HoverBoatParams;
-pub use humanoid::HumanoidParams;
+pub use humanoid::{HumanoidParams, OnFootShape};
 
 use super::super::types::{Fp, Fp3};
 use serde::{Deserialize, Serialize};

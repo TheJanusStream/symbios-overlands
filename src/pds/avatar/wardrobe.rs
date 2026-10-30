@@ -114,6 +114,26 @@ pub fn socket_label(name: &str) -> &str {
     }
 }
 
+/// The sockets a four-legged beast is dressed at (#1803, owner decision
+/// D9): its collar, its back and between its ears. The engine's rig carries
+/// a joint for most of the others too - a fore paw answers to a hand - but
+/// what a person wears there is cut for a person.
+pub const BEAST_SOCKETS: [symbios_avatar::Socket; 3] = [
+    symbios_avatar::Socket::Neck,
+    symbios_avatar::Socket::Back,
+    symbios_avatar::Socket::Crown,
+];
+
+/// Whether a body of `anatomy` is dressed at `socket` at all (#1803): a
+/// person at every socket their rig has, a body without a human trunk only
+/// at [`BEAST_SOCKETS`]. The one answer the wear surfaces and the dresser
+/// (`player::attachments::placements`) both ask, so a socket the Wearables
+/// tab hides is exactly one the body would not wear. A prop worn elsewhere
+/// stays referenced and unworn, for a body that is.
+pub fn offers_socket(anatomy: symbios_avatar::Anatomy, socket: symbios_avatar::Socket) -> bool {
+    anatomy.human_trunk() || BEAST_SOCKETS.contains(&socket)
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct AttachmentRecord {
     #[serde(rename = "$type")]

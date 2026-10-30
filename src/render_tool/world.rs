@@ -669,6 +669,16 @@ fn seeded_walker(spec: &WalkerSpec, index: usize, seed: u64, nth: usize) -> Dres
     }
 }
 
+/// Where a walker looks out of in its chassis' frame, for `--first-person`
+/// (#1745): the body's eyes at rest - a beast's seated ones (#1804) - through
+/// the root as the game takes them (#1749). The chassis stands on the feet
+/// here, so the root hangs at no offset.
+fn walker_eyes(avatar: &symbios_avatar::Avatar) -> Vec3 {
+    crate::camera::rest_eye_line(avatar).map_or(Vec3::Y * 1.6, |eyes| {
+        rigged_root_transform(0.0).transform_point(eyes)
+    })
+}
+
 /// One body of the group, started at `from2` heading `dir2`, the lead if it
 /// is the first.
 #[allow(clippy::too_many_arguments)]
@@ -716,18 +726,7 @@ fn spawn_one_walker(
         root.insert(PendingWear(body.worn));
     }
     let root = root.id();
-    // `--first-person` (#1745): the rig's eye line at rest, through the root
-    // into the chassis' frame as the game takes it (#1749) - the chassis
-    // stands on the feet here, so the root hangs at no offset.
-    let eyes = (spec.first_person && index == 0).then(|| {
-        body.avatar
-            .rig
-            .landmarks()
-            .get(symbios_avatar::rig::Landmark::EyeLine)
-            .map_or(Vec3::Y * 1.6, |anchor| {
-                rigged_root_transform(0.0).transform_point(anchor.position)
-            })
-    });
+    let eyes = (spec.first_person && index == 0).then(|| walker_eyes(&body.avatar));
     spawn_avatar(
         commands,
         root,
@@ -856,6 +855,42 @@ fn ramped_walk(seconds: f32, pace: f32) -> (f32, f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **`--first-person` looks out of a beast's seated eyes** (#1804), ahead
+    /// of the axis through the root's half turn and at their own height over
+    /// the feet the chassis stands on; a person still out of the engine's
+    /// landmark.
+    #[test]
+    fn a_walkers_first_person_eyes_are_its_own() {
+        let config = symbios_avatar::AvatarConfig {
+            atlas: 64,
+            ..symbios_avatar::AvatarConfig::default()
+        };
+        let beast = symbios_avatar::Avatar::build_with(
+            &crate::pds::avatar::locomotion::default_beast(symbios_avatar::Family::Dog),
+            &config,
+        )
+        .expect("the dog builds");
+        let parts = beast.parts.eyes.as_ref().expect("a beast has eyes");
+        let seated =
+            beast.rig.joints[parts.head].position + (parts.left.pivot + parts.right.pivot) / 2.0;
+        let eyes = walker_eyes(&beast);
+        assert!((eyes - Vec3::new(-seated.x, seated.y, -seated.z)).length() < 1e-5);
+        assert!(eyes.z < -0.3, "ahead of the chassis' origin: {eyes}");
+
+        let person = symbios_avatar::Avatar::build_with(&walker_record(3, None), &config)
+            .expect("the person builds");
+        let landmark = person
+            .rig
+            .landmarks()
+            .get(symbios_avatar::rig::Landmark::EyeLine)
+            .expect("an eye line")
+            .position;
+        assert_eq!(
+            walker_eyes(&person),
+            rigged_root_transform(0.0).transform_point(landmark)
+        );
+    }
 
     /// **A ramped walker sets off as the controller starts a player**
     /// (#1759): standing at first, then the controller's own climb - 0.281 s

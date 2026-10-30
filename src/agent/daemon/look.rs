@@ -47,7 +47,7 @@ use bevy_panorbit_camera::PanOrbitCamera;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use serde_json::{Value, json};
 
-use crate::camera::{IsWorldCamera, clear_of_terrain};
+use crate::camera::{BeastFraming, IsWorldCamera, clear_of_terrain};
 use crate::config::agent::{
     HOME_DIR, LOOK_ANSWER_TIMEOUT, LOOK_SIZE, LOOK_WARMUP_FRAMES, LOOKS_DIR, LOOKS_KEPT,
 };
@@ -222,7 +222,13 @@ fn play_view(world: &mut World, dir: Vec2) -> Result<Transform, String> {
         world.get_resource::<FinishedHeightMap>(),
         world.get_resource::<LocalSettings>(),
     ) {
-        pose.translation = clear_of_terrain(focus, pose.translation, settings, heightmap);
+        pose.translation = clear_of_terrain(
+            focus,
+            pose.translation,
+            settings,
+            heightmap,
+            BeastFraming::eyes_of(world.get_resource::<BeastFraming>()),
+        );
     }
     Ok(pose)
 }
@@ -643,6 +649,43 @@ mod tests {
     use super::*;
 
     const EPS: f32 = 1e-4;
+
+    /// **The agent's picture stands where the player's camera would, round a
+    /// beast** (#1804): over flat ground at a low pitch a cat's camera stays at
+    /// its radius, where with no framing the clamp pulls it in.
+    #[test]
+    fn a_play_view_reads_the_beasts_framing() {
+        let view = |framing: Option<BeastFraming>| {
+            let mut world = World::new();
+            world.insert_resource(LocalSettings::default());
+            world.insert_resource(FinishedHeightMap(
+                bevy_symbios_ground::HeightMap::new(128, 128, 1.0),
+                None,
+            ));
+            if let Some(framing) = framing {
+                world.insert_resource(framing);
+            }
+            let focus = Vec3::new(40.0, 0.6, 40.0);
+            world.spawn((
+                Camera3d::default(),
+                crate::camera::WorldCamera,
+                PanOrbitCamera {
+                    target_focus: focus,
+                    target_radius: 5.0,
+                    target_pitch: 0.05,
+                    ..default()
+                },
+            ));
+            play_view(&mut world, Vec2::Y)
+                .unwrap()
+                .translation
+                .distance(focus)
+        };
+        let framed = view(Some(crate::camera::beast_framing_for_tests(0.6)));
+        assert!((framed - 5.0).abs() < 1e-3, "{framed}");
+        let unframed = view(None);
+        assert!(unframed < 1.5, "{unframed}");
+    }
 
     /// A body facing +Z has -X on its right (forward x up), the frame
     /// `status` reports in: 90 is right, -90 left, 180 behind.

@@ -144,6 +144,7 @@ impl ArrivalView {
             rest_eye(focus, yaw_deg, pitch),
             &crate::state::LocalSettings::default(),
             terrain,
+            None,
         );
         Self {
             focus,

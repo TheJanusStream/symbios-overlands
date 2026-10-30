@@ -1124,6 +1124,23 @@ mod tests {
     use crate::agent::control::events::{DriveReport, EventLog};
     use crate::player::sim::{DriveBench, FlightBench};
 
+    /// A beast lying along its capsule goes on foot (#1802): the preset is a
+    /// person's, so the agent walks it where the camera looks, and it is no
+    /// body on wheels for `drive`.
+    #[test]
+    fn a_beast_walks_on_foot() {
+        let beast = crate::pds::avatar::locomotion::beast_record(symbios_avatar::plan::Family::Dog);
+        assert!(matches!(
+            &beast.locomotion,
+            LocomotionConfig::Humanoid(p) if p.is_lying()
+        ));
+        assert_eq!(
+            Drive::of(&beast.locomotion),
+            Ok(Drive::Ground(Ground::OnFoot))
+        );
+        assert_eq!(keys::airborne_above(&beast.locomotion), None);
+    }
+
     /// A face with nothing to turn still ends the movement under way - the
     /// follow it interrupts stops either way - and lets go of the keys.
     #[test]

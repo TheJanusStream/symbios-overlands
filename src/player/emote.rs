@@ -24,6 +24,13 @@
 //! the format. This module is also where each re-authored gesture is judged,
 //! because it is the only place they are ever seen in motion.
 //!
+//! # A body answers for itself
+//!
+//! A message is read twice, once as a person would hear it and once as a beast
+//! would ([`BeastEmote`], #1806), and the request carries both, because the
+//! chat and network layers that raise it know a chassis and not what stands on
+//! it. [`super::rigged::start_emotes`] plays the one the body knows.
+//!
 //! # What it does not do
 //!
 //! Only rigged bodies gesture. A generator chassis - a boat, an airship - has
@@ -124,16 +131,7 @@ impl Emote {
             .iter()
             .filter_map(|emote| emote.keywords().first().copied())
             .collect();
-        format!(
-            // #1269 f136: the gesture is raised inside the SUBMIT branch,
-            // after the message is pushed and immediately before the
-            // broadcast - never while typing. This line is the only place
-            // in the app that documents keyword emotes at all, so a hint
-            // that misdescribes the trigger sends a first-session user
-            // looking for a bug.
-            "Say {} - and your avatar gestures when you send it.",
-            examples.join(", ")
-        )
+        hint_naming(&examples)
     }
 
     /// The emote a chat message asks for, if any.
@@ -162,6 +160,140 @@ impl Emote {
     }
 }
 
+/// A gesture a chat message can ask of a beast (#1806).
+///
+/// **A beast answers a person's words with what it has.** A greeting, a yes and
+/// a thanks are the words in [`Emote::keywords`], so nobody learns a second
+/// vocabulary and a body switched mid-conversation still answers them. A
+/// refusal has nothing to play on a beast, and still decides its sentence
+/// ([`Self::from_text`]). Three more are a beast's alone: sit, lie down and get
+/// up, which a person's table does not hear.
+///
+/// **This table is what keeps a person's gestures off a beast**: the engine
+/// falls through to a person's gesture when a beast is asked for one by name
+/// ([`symbios_avatar::anim::gesture::for_body`]), so a name from [`Emote`] must
+/// never reach it. Guarded by test against the engine's own beast roster.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BeastEmote {
+    /// A wagging tail, for a greeting.
+    Wag,
+    /// A tilted head, for a yes.
+    HeadTilt,
+    /// A play bow, for a thanks.
+    PlayBow,
+    /// Sits, and stays sitting until it moves or is told otherwise.
+    Sit,
+    /// Lies down, and stays down until it moves or is told otherwise.
+    LieDown,
+    /// Gets up where it is out of a sit or a lying down.
+    GetUp,
+}
+
+impl BeastEmote {
+    /// Every emote a beast has, in the order the hint names them.
+    pub const ALL: [BeastEmote; 6] = [
+        BeastEmote::Wag,
+        BeastEmote::HeadTilt,
+        BeastEmote::PlayBow,
+        BeastEmote::Sit,
+        BeastEmote::LieDown,
+        BeastEmote::GetUp,
+    ];
+
+    /// The engine gesture this plays, by the name it answers to on a beast.
+    #[must_use]
+    pub fn gesture_name(self) -> &'static str {
+        match self {
+            BeastEmote::Wag => "Wag",
+            BeastEmote::HeadTilt => "Head Tilt",
+            BeastEmote::PlayBow => "Play Bow",
+            BeastEmote::Sit => "Sit",
+            BeastEmote::LieDown => "Lie Down",
+            BeastEmote::GetUp => symbios_avatar::anim::emote::GET_UP,
+        }
+    }
+
+    /// The words that ask for this emote, as [`Emote::keywords`] reads them.
+    /// A keyword with a space in it is that many words in a row: "lie" on its
+    /// own is an accusation and "down" on its own is a mood.
+    #[must_use]
+    pub fn keywords(self) -> &'static [&'static str] {
+        match self {
+            BeastEmote::Wag => Emote::Greeting.keywords(),
+            BeastEmote::HeadTilt => Emote::Nod.keywords(),
+            BeastEmote::PlayBow => Emote::Bow.keywords(),
+            BeastEmote::Sit => &["sit"],
+            BeastEmote::LieDown => &["lie down", "lay down"],
+            BeastEmote::GetUp => &["get up", "up"],
+        }
+    }
+
+    /// [`Emote::hint_line`] for a beast.
+    #[must_use]
+    pub fn hint_line() -> String {
+        let examples: Vec<&str> = BeastEmote::ALL
+            .iter()
+            .filter_map(|emote| emote.keywords().first().copied())
+            .collect();
+        hint_naming(&examples)
+    }
+
+    /// The emote a chat message asks of a beast, if any.
+    ///
+    /// The rule is [`Emote::from_text`]'s: the first hit in the message wins.
+    /// **A refusal is a hit with nothing to play**, so "no thanks" is no play
+    /// bow: it reads as the refusal on a beast as it does on a person.
+    #[must_use]
+    pub fn from_text(text: &str) -> Option<BeastEmote> {
+        let words: Vec<String> = text
+            .split_whitespace()
+            .map(|word| {
+                word.trim_matches(|c: char| !c.is_alphanumeric())
+                    .to_lowercase()
+            })
+            .filter(|word| !word.is_empty())
+            .collect();
+        let says = |at: usize, keyword: &str| match keyword.split_once(' ') {
+            Some((first, second)) => {
+                words[at] == first && words.get(at + 1).is_some_and(|next| next == second)
+            }
+            None => words[at] == keyword,
+        };
+        (0..words.len()).find_map(|at| {
+            let hit = BeastEmote::ALL
+                .into_iter()
+                .find(|emote| emote.keywords().iter().any(|keyword| says(at, keyword)));
+            let refused = Emote::Reject.keywords().iter().any(|word| says(at, word));
+            (hit.is_some() || refused).then_some(hit)
+        })?
+    }
+}
+
+/// The chat window's caption and the Controls sheet's line, naming `examples`.
+fn hint_naming(examples: &[&str]) -> String {
+    format!(
+        // #1269 f136: the gesture is raised inside the SUBMIT branch,
+        // after the message is pushed and immediately before the
+        // broadcast - never while typing. This line is the only place
+        // in the app that documents keyword emotes at all, so a hint
+        // that misdescribes the trigger sends a first-session user
+        // looking for a bug.
+        "Say {} - and your avatar gestures when you send it.",
+        examples.join(", ")
+    )
+}
+
+/// The hint for the body `record` stands on (#1806): a beast's words on four
+/// legs, and a person's otherwise, which is the line every chassis has always
+/// been shown.
+#[must_use]
+pub fn hint_for(record: Option<&crate::pds::AvatarRecord>) -> String {
+    match record.and_then(crate::pds::avatar::locomotion::beast_on_foot) {
+        Some(_) => BeastEmote::hint_line(),
+        None => Emote::hint_line(),
+    }
+}
+
 /// Ask a chassis's rigged body to play a gesture.
 ///
 /// The target is the **chassis** - the physics entity a peer or the local
@@ -173,8 +305,10 @@ impl Emote {
 pub struct EmoteRequest {
     /// The physics chassis whose body should gesture.
     pub chassis: Entity,
-    /// What to play.
-    pub emote: Emote,
+    /// What to play on a person, if the message asks them for anything.
+    pub emote: Option<Emote>,
+    /// What to play on a beast, if the message asks one for anything.
+    pub beast: Option<BeastEmote>,
 }
 
 /// Turn a chat message into an emote request, if it asks for one.
@@ -183,7 +317,12 @@ pub struct EmoteRequest {
 /// drift apart - the sender must see the same gesture everybody else sees, and
 /// two copies of this rule is how that stops being true.
 pub fn request_for(chassis: Entity, text: &str) -> Option<EmoteRequest> {
-    Emote::from_text(text).map(|emote| EmoteRequest { chassis, emote })
+    let (emote, beast) = (Emote::from_text(text), BeastEmote::from_text(text));
+    (emote.is_some() || beast.is_some()).then_some(EmoteRequest {
+        chassis,
+        emote,
+        beast,
+    })
 }
 
 #[cfg(test)]
@@ -269,6 +408,96 @@ mod tests {
                 emote.gesture_name()
             );
         }
+    }
+
+    #[test]
+    fn a_beast_answers_a_persons_words_and_three_of_its_own() {
+        use BeastEmote::*;
+        for (text, answer) in [
+            ("hello", Some(Wag)),
+            ("Hi there!", Some(Wag)),
+            ("yes", Some(HeadTilt)),
+            ("thanks", Some(PlayBow)),
+            ("sit", Some(Sit)),
+            ("Sit!", Some(Sit)),
+            ("lie down", Some(LieDown)),
+            ("Lie  down.", Some(LieDown)),
+            ("lay down", Some(LieDown)),
+            ("get up", Some(GetUp)),
+            ("up", Some(GetUp)),
+            ("sit, thanks", Some(Sit)),
+            ("thanks, no", Some(PlayBow)),
+            // Nothing to play for a refusal, and it decides its sentence.
+            ("no", None),
+            ("no thanks", None),
+            // Whole words, and the whole of a phrase.
+            ("lie", None),
+            ("down", None),
+            ("lie to me, down there", None),
+            ("the weather is fine", None),
+            ("sitting", None),
+            ("setup", None),
+            ("", None),
+        ] {
+            assert_eq!(BeastEmote::from_text(text), answer, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn a_person_does_not_hear_a_beasts_words() {
+        for text in ["sit", "lie down", "lay down", "get up", "up"] {
+            assert_eq!(Emote::from_text(text), None, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn a_request_carries_what_each_body_would_play() {
+        let chassis = Entity::PLACEHOLDER;
+        let asked = |text| request_for(chassis, text).map(|r| (r.emote, r.beast));
+        assert_eq!(
+            asked("hello"),
+            Some((Some(Emote::Greeting), Some(BeastEmote::Wag)))
+        );
+        assert_eq!(asked("sit"), Some((None, Some(BeastEmote::Sit))));
+        assert_eq!(asked("no"), Some((Some(Emote::Reject), None)));
+        assert_eq!(asked("look at that mountain"), None);
+    }
+
+    #[test]
+    fn no_two_beast_emotes_claim_the_same_word() {
+        for (index, emote) in BeastEmote::ALL.into_iter().enumerate() {
+            let others = BeastEmote::ALL.into_iter().skip(index + 1);
+            for other in others {
+                for word in emote.keywords() {
+                    assert!(
+                        !other.keywords().contains(word),
+                        "{word:?} is claimed by both {emote:?} and {other:?}"
+                    );
+                }
+            }
+            for word in emote.keywords() {
+                assert!(
+                    !Emote::Reject.keywords().contains(word),
+                    "{word:?} is a refusal, and {emote:?} plays it"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn each_body_is_told_its_own_words() {
+        use crate::pds::avatar::locomotion::beast_record;
+        use symbios_avatar::plan::Family;
+        let beast = BeastEmote::hint_line();
+        for emote in BeastEmote::ALL {
+            let word = emote.keywords()[0];
+            assert!(beast.contains(word), "hint dropped {word:?}: {beast}");
+            assert_eq!(BeastEmote::from_text(word), Some(emote), "{word:?}");
+        }
+        assert_eq!(hint_for(Some(&beast_record(Family::Dog))), beast);
+        let person = crate::pds::AvatarRecord::default_for_did("did:plc:hint-test");
+        assert_eq!(hint_for(Some(&person)), Emote::hint_line());
+        assert_eq!(hint_for(None), Emote::hint_line());
     }
 
     #[test]

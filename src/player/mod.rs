@@ -23,9 +23,11 @@
 //! - **HoverBoat** - `RigidBody::Dynamic` cuboid chassis with four
 //!   raycast-suspension corners + buoyancy + WASD drive (Hooke's-law
 //!   spring, lateral grip, jump impulse).
-//! - **Humanoid** - capsule rigid body with `LockedAxes` keeping it
-//!   upright, velocity-driven walk controller, jump impulse, swim/wading
-//!   modes triggered by water depth.
+//! - **Humanoid** - "On foot": a capsule rigid body with `LockedAxes`
+//!   keeping it upright, velocity-driven walk controller, jump impulse,
+//!   swim/wading modes triggered by water depth. A person stands up in the
+//!   capsule; a four-legged beast lies along it, turned by the physics about
+//!   Y (#1802).
 //! - **Airplane** - cuboid fuselage on three-wheel landing gear, a throttle
 //!   that holds, lift along the wings that stalls, and rate control that
 //!   levels the wings and the flight path when let go (#1615).
@@ -117,6 +119,7 @@ pub use respawn::{FacingSet, PlayerMove, PlayerMoveRequest, go_to_pose, return_t
 pub(crate) use rigged::InFirstPerson;
 pub use rigged::RiggedBuildFailed;
 pub(crate) use rigged::RiggedRoot;
+pub(crate) use rigged::StandIn;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use rigged::heading_of;
 // On every target: the seeder turns a world's signature hour to its
@@ -513,6 +516,10 @@ impl Plugin for PlayerPlugin {
                         .run_if(not(guard_attention_held)),
                     hover_boat::apply_hover_boat_uprighting
                         .run_if(not(avatar_visuals_row_selected)),
+                    // Ungated + chained right before the walk system: a
+                    // beast's turn lasts the step the walk set it for, and a
+                    // step the walk is stood down for turns nothing (#1802).
+                    humanoid::end_lying_turns,
                     humanoid::apply_humanoid_walk
                         .run_if(not(egui_wants_any_keyboard_input))
                         .run_if(not(avatar_visuals_row_selected))

@@ -550,6 +550,80 @@ mod tests {
         assert!((offset.z - 5.0).abs() < 1e-5);
     }
 
+    /// **A name over a beast reads right, standing, sitting and lying**
+    /// (#1805): the anchor reads the body's built bounds, which do not follow
+    /// its pose, so it hangs a clearance above the beast's standing top
+    /// whatever it is doing. Over each family, in every pose, it stands clear
+    /// of every joint and over the body's own footprint, and a beast at rest
+    /// has it no further above its head than this sum says.
+    #[test]
+    fn a_name_reads_right_over_a_beast_at_rest() {
+        use crate::pds::avatar::locomotion::default_beast;
+        use symbios_avatar::anim::driver::{Driver, Inputs, level_ground};
+        use symbios_avatar::plan::Family;
+        use symbios_avatar::{Avatar, AvatarConfig};
+        for family in [Family::Dog, Family::Cat, Family::Horse] {
+            let avatar = Avatar::build_with(
+                &default_beast(family),
+                &AvatarConfig {
+                    atlas: 64,
+                    ..Default::default()
+                },
+            )
+            .expect("a beast builds");
+            let mut bounds = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+            for drawn in &avatar.meshes {
+                for &at in &drawn.mesh.positions {
+                    bounds.0 = bounds.0.min(at);
+                    bounds.1 = bounds.1.max(at);
+                }
+            }
+            let anchor = nametag_anchor(Vec3::ZERO, Some(bounds));
+            let rig = &avatar.rig;
+            let footprint = bounds.1 - bounds.0;
+            assert!(anchor.x.abs() < footprint.x * 0.5);
+            assert!(
+                anchor.z > bounds.0.z && anchor.z < bounds.1.z,
+                "a {family:?}'s name is off its length"
+            );
+            for state in [None, Some("Sit"), Some("Lie Down")] {
+                let mut driver = Driver::seeded(11);
+                let mut top = f32::MIN;
+                let mut head = f32::MIN;
+                for frame in 0..600 {
+                    let inputs = Inputs {
+                        delta: 1.0 / 60.0,
+                        gesture: state.filter(|_| frame == 0),
+                        ..Default::default()
+                    };
+                    let driven = driver.drive(rig, &inputs, level_ground).expect("a frame");
+                    if frame == 599 {
+                        let posed = driven.pose.forward(rig);
+                        for (joint, place) in rig.joints.iter().zip(&posed.positions) {
+                            top = top.max(place.y + joint.radius);
+                            if joint.zone == symbios_avatar::Zone::Head {
+                                head = head.max(place.y + joint.radius);
+                            }
+                        }
+                    }
+                }
+                let over = anchor.y - head;
+                println!("a {family:?} {state:?}: a name {over:.3} m over its head");
+                assert!(
+                    anchor.y > top,
+                    "a {family:?} {state:?} reaches {top:.3} m through its name at {:.3} m",
+                    anchor.y
+                );
+                // Its head stays in the top half of its standing height, or
+                // the name is over where it stood and not over it.
+                assert!(
+                    over < bounds.1.y * 0.5 + cfg::HEAD_CLEARANCE_M,
+                    "a {family:?} {state:?}: a name {over:.3} m over its head"
+                );
+            }
+        }
+    }
+
     /// A peer with no meshes yet - the body is still being fetched - still
     /// gets a name, because the name is the only thing on screen saying
     /// somebody is standing there.

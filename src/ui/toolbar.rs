@@ -1340,6 +1340,7 @@ pub fn controls_hint_ui(
     >,
     session: Option<Res<AtprotoSession>>,
     current_room: Option<Res<CurrentRoomDid>>,
+    live: Option<Res<crate::state::LiveAvatarRecord>>,
 ) {
     if !panels.controls {
         return;
@@ -1421,7 +1422,9 @@ pub fn controls_hint_ui(
                 // shipped feature nobody could find without typing one of its
                 // words by chance (#1141). Sourced from the keyword table so the
                 // example words cannot drift from the ones that gesture.
-                ui.label(crate::player::emote::Emote::hint_line());
+                ui.label(crate::player::emote::hint_for(
+                    live.as_deref().map(|live| &live.0),
+                ));
                 ui.add_space(6.0);
                 ui.label(
                     "Walk through a portal doorway - or a gateway - to travel into \

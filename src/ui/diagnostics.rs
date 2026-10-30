@@ -1509,12 +1509,13 @@ pub(crate) fn landmark_link_button(
         )
         .clicked();
     if clicked && let Some(tf) = player_tf {
-        // Every locomotion preset writes its yaw into the chassis
-        // transform itself - the humanoid walk controller slerps the
-        // chassis rotation toward the movement direction (the rigid-body
-        // solver keeps the capsule axis-aligned via `LockedAxes`), and
-        // the vehicle presets are torque-driven so their chassis rotation
-        // already matches the visual yaw.
+        // Every locomotion preset's yaw is in the chassis transform - the
+        // humanoid walk controller slerps a person's chassis rotation
+        // toward the movement direction (the rigid-body solver keeps the
+        // capsule axis-aligned via `LockedAxes`), a beast lying along its
+        // capsule is turned by the solver about Y (#1802), and the vehicle
+        // presets are torque-driven, so their chassis rotation already
+        // matches the visual yaw.
         let yaw_deg = tf.rotation.to_euler(EulerRot::YXZ).0.to_degrees();
         let link = build_landmark_link(room_did, tf.translation, yaw_deg);
         clipboard.copy(&link, &format!("Copied: {link}"));

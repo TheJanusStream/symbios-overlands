@@ -441,6 +441,13 @@ pub(crate) fn placements<'a>(
             // that has the part.
             continue;
         };
+        // A person's prop on a beast (#1803, D6 and D9): a beast's rig has a
+        // joint for a hand - its fore paw - but is dressed only at its own
+        // sockets, so the prop stays referenced and unworn for a body that
+        // is. Every socket a person's rig has is still theirs.
+        if !crate::pds::avatar::offers_socket(avatar.rig.anatomy, socket) {
+            continue;
+        }
         let transform = if attachment.record.offset.is_identity() {
             let fitted = (attachment.record.fit_band_mm != 0)
                 .then(|| {
@@ -1240,6 +1247,53 @@ pub(super) mod tests {
             Some(*hand_joint)
         );
         assert!((hand_tf.translation - Vec3::new(0.1, 0.2, 0.3)).length() < 1e-6);
+    }
+
+    /// **A beast wears only at its own sockets** (#1803, owner decisions D6
+    /// and D9): its rig has a joint for a hand - a fore paw - and for the
+    /// face, but a person's prop seated there stays referenced and unworn,
+    /// while one at the neck, the back or between the ears is worn. A
+    /// person, the control, wears at every one of them.
+    #[test]
+    fn a_beast_wears_only_at_its_own_sockets() {
+        use symbios_avatar::Socket;
+        let beast = symbios_avatar::Avatar::build_with(
+            &crate::pds::avatar::locomotion::default_beast(symbios_avatar::plan::Family::Dog),
+            &symbios_avatar::AvatarConfig {
+                atlas: 64,
+                ..Default::default()
+            },
+        )
+        .expect("the default dog builds");
+        let person = built();
+        let outfit: Vec<ResolvedAttachment> = Socket::ALL
+            .into_iter()
+            .map(|socket| worn(AttachmentRecord::new(Generator::default(), socket)))
+            .collect();
+        for socket in [Socket::LeftHand, Socket::Face, Socket::Waist] {
+            assert!(
+                socket.joint(&beast.rig).is_some(),
+                "the premise: a beast's rig has a joint for {}",
+                socket.name()
+            );
+        }
+        let seated = |avatar: &symbios_avatar::Avatar| -> Vec<&str> {
+            placements(avatar, &outfit)
+                .into_iter()
+                .map(|(_, _, a)| a.record.socket.as_str())
+                .collect()
+        };
+        assert_eq!(seated(&beast), ["crown", "neck", "back"]);
+        let at_a_joint: Vec<&str> = Socket::ALL
+            .into_iter()
+            .filter(|socket| socket.joint(&person.rig).is_some())
+            .map(Socket::name)
+            .collect();
+        assert_eq!(
+            seated(&person),
+            at_a_joint,
+            "a person is not dressed at every socket their rig has"
+        );
     }
 
     /// The authoring convention: a default seat yaws the item's `+Z` face

@@ -22,11 +22,12 @@ use crate::pds::{
 #[derive(Component)]
 pub struct HoverBoatPreset;
 
-/// Marks the player as using the Humanoid preset. Brings the controller's
-/// water memory with it (#1324), so no humanoid chassis can be classified
-/// without one.
+/// Marks the player as using the Humanoid preset - the "On foot" body, a
+/// person upright on its capsule or a beast lying along it (#1802). Brings
+/// the controller's water memory with it (#1324), so no humanoid chassis can
+/// be classified without one, and a lying body's turn memory (#1802).
 #[derive(Component)]
-#[require(super::humanoid::HumanoidWater)]
+#[require(super::humanoid::HumanoidWater, super::humanoid::LyingTurn)]
 pub struct HumanoidPreset;
 
 /// Marks the player as using the Airplane preset.
@@ -80,6 +81,9 @@ pub(super) struct ChassisSpec {
     /// suspension blends its air and ground ones by the wheels it has down
     /// (#1524) - so the sync leaves them to it.
     steps_own_damping: bool,
+    /// Which ways the physics may not turn the body, or `None` for a body
+    /// it turns freely - every vehicle's.
+    locks: Option<Locks>,
 }
 
 /// A chassis' collider, as its record sizes it.
@@ -87,15 +91,70 @@ pub(super) struct ChassisSpec {
 enum ChassisShape {
     /// A vehicle's box, by its half-extents (m).
     Box([f32; 3]),
-    /// A person's capsule: its radius and cylindrical length (m).
-    Capsule { radius: f32, length: f32 },
+    /// An on-foot body's capsule: its radius and cylindrical length (m), up
+    /// the body or along it.
+    Capsule {
+        radius: f32,
+        length: f32,
+        axis: CapsuleAxis,
+    },
+}
+
+/// Which way an on-foot body's capsule runs (#1802).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum CapsuleAxis {
+    /// Up the body, a person's: avian's own capsule, along Y.
+    Upright,
+    /// Along the body, a beast's lying on it: along the body's Z, its
+    /// forward axis, its middle `ahead` metres in front of the body's
+    /// origin - the girdles' midpoint
+    /// ([`crate::pds::HumanoidParams::capsule_ahead`]).
+    Lying { ahead: f32 },
+}
+
+/// Which rotations the physics holds an on-foot body out of.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Locks {
+    /// All three: the body is turned by its controller writing its facing,
+    /// which an upright capsule - round about Y - is the same shape at.
+    Upright,
+    /// Pitch and roll, so the physics turns it about Y (#1802): a lying
+    /// capsule is long, and turned by a written facing its ends would be put
+    /// into whatever stands beside it. The controller turns it by its
+    /// angular velocity instead, and the solver stops a turn at a wall.
+    Level,
+}
+
+impl Locks {
+    fn axes(self) -> LockedAxes {
+        match self {
+            Self::Upright => LockedAxes::new()
+                .lock_rotation_x()
+                .lock_rotation_y()
+                .lock_rotation_z(),
+            Self::Level => LockedAxes::new().lock_rotation_x().lock_rotation_z(),
+        }
+    }
 }
 
 impl ChassisShape {
     fn collider(self) -> Collider {
         match self {
             Self::Box(half) => Collider::cuboid(half[0] * 2.0, half[1] * 2.0, half[2] * 2.0),
-            Self::Capsule { radius, length } => Collider::capsule(radius, length),
+            Self::Capsule {
+                radius,
+                length,
+                axis: CapsuleAxis::Upright,
+            } => Collider::capsule(radius, length),
+            Self::Capsule {
+                radius,
+                length,
+                axis: CapsuleAxis::Lying { ahead },
+            } => {
+                // Bevy's forward is -Z: ahead of the origin is toward it.
+                let (middle, end) = (Vec3::NEG_Z * ahead, Vec3::Z * (length * 0.5));
+                Collider::capsule_endpoints(radius, middle - end, middle + end)
+            }
         }
     }
 
@@ -103,7 +162,16 @@ impl ChassisShape {
     fn half_height(self) -> f32 {
         match self {
             Self::Box(half) => half[1],
-            Self::Capsule { radius, length } => radius + length * 0.5,
+            Self::Capsule {
+                radius,
+                length,
+                axis: CapsuleAxis::Upright,
+            } => radius + length * 0.5,
+            Self::Capsule {
+                axis: CapsuleAxis::Lying { .. },
+                radius,
+                ..
+            } => radius,
         }
     }
 }
@@ -136,6 +204,41 @@ pub(crate) fn set_down_height(locomotion: &LocomotionConfig) -> f32 {
     cfg::SPAWN_HEIGHT_OFFSET.max(reach + gear + SET_DOWN_CLEARANCE_M)
 }
 
+/// Whether `locomotion`'s body lies along its capsule - a beast on foot
+/// (#1802) - and so is always level: the physics holds its pitch and roll
+/// ([`Locks::Level`]) and only ever turns it about Y, so a tilt it is set
+/// down at is one nothing would take away.
+pub(crate) fn lies_level(locomotion: &LocomotionConfig) -> bool {
+    matches!(locomotion, LocomotionConfig::Humanoid(p) if p.is_lying())
+}
+
+/// `rotation` with its pitch and roll taken away (#1802): its turn about Y
+/// alone - the twist of its swing-twist split about Y - so the way it faces
+/// is kept. A rotation that is already level comes back bit for bit; one
+/// turned upside down about a level axis, which faces no way, comes back
+/// unturned.
+pub(crate) fn level(rotation: Quat) -> Quat {
+    if rotation.x == 0.0 && rotation.z == 0.0 {
+        return rotation;
+    }
+    let twist = Quat::from_xyzw(0.0, rotation.y, 0.0, rotation.w);
+    if twist.length_squared() < 1e-12 {
+        return Quat::IDENTITY;
+    }
+    twist.normalize()
+}
+
+/// The rotation `locomotion`'s body is set down at where a spawn or a
+/// recovery picks `rotation` - the ground's tilt under the way it faces: a
+/// lying body level ([`lies_level`], [`level`]), every other body as picked.
+pub(crate) fn set_down_rotation(locomotion: &LocomotionConfig, rotation: Quat) -> Quat {
+    if lies_level(locomotion) {
+        level(rotation)
+    } else {
+        rotation
+    }
+}
+
 impl ChassisSpec {
     /// A vehicle's box chassis: the shape all four vehicle presets share.
     fn vehicle(half: [f32; 3], mass: f32, linear_damping: f32, angular_damping: f32) -> Self {
@@ -146,6 +249,7 @@ impl ChassisSpec {
             angular_damping,
             center_of_mass: None,
             steps_own_damping: false,
+            locks: None,
         }
     }
 
@@ -159,6 +263,9 @@ impl ChassisSpec {
         ));
         if let Some(center) = self.center_of_mass {
             body.insert(CenterOfMass(center));
+        }
+        if let Some(locks) = self.locks {
+            body.insert(locks.axes());
         }
     }
 }
@@ -278,31 +385,39 @@ impl PresetComponents for CarParams {
 
 impl PresetComponents for HumanoidParams {
     fn chassis(&self) -> ChassisSpec {
+        // Traditional character controller: a person's capsule has all three
+        // rotation axes locked so it slides without spinning, and the walk
+        // controller rotates the chassis transform itself to face the
+        // movement direction. A beast's lying capsule keeps only its pitch
+        // and roll locked, and is turned by its angular velocity (#1802,
+        // [`Locks::Level`]).
+        let (axis, locks) = if self.is_lying() {
+            (
+                CapsuleAxis::Lying {
+                    ahead: self.capsule_ahead(),
+                },
+                Locks::Level,
+            )
+        } else {
+            (CapsuleAxis::Upright, Locks::Upright)
+        };
         ChassisSpec {
             shape: ChassisShape::Capsule {
                 radius: self.capsule_radius.0.max(0.05),
                 length: self.capsule_length.0.max(0.1),
+                axis,
             },
             mass: self.mass.0,
             linear_damping: self.linear_damping.0,
             angular_damping: cfg::ANGULAR_DAMPING,
             center_of_mass: None,
             steps_own_damping: false,
+            locks: Some(locks),
         }
     }
 
     fn insert_preset(&self, commands: &mut Commands, entity: Entity) {
-        commands.entity(entity).insert((
-            // Traditional character controller: lock all three rotation
-            // axes so the physics capsule slides without spinning. The
-            // walk controller rotates the chassis transform itself to
-            // face the movement direction.
-            LockedAxes::new()
-                .lock_rotation_x()
-                .lock_rotation_y()
-                .lock_rotation_z(),
-            HumanoidPreset,
-        ));
+        commands.entity(entity).insert(HumanoidPreset);
     }
 }
 
@@ -418,6 +533,7 @@ pub(super) fn sync_chassis(
                 &mut LinearDamping,
                 &mut AngularDamping,
                 Option<&mut CenterOfMass>,
+                Option<&mut LockedAxes>,
             ),
             (
                 With<crate::state::LocalPlayer>,
@@ -432,7 +548,7 @@ pub(super) fn sync_chassis(
         return;
     };
     let mut player = bodies.p0();
-    let Ok((body, mut built, shape, mut mass, mut linear, mut angular, center)) =
+    let Ok((body, mut built, shape, mut mass, mut linear, mut angular, center, locked)) =
         player.single_mut()
     else {
         return;
@@ -465,6 +581,14 @@ pub(super) fn sync_chassis(
         && center.0 != want
     {
         center.0 = want;
+    }
+    // A person become a beast in place, or a beast a person (#1802): the
+    // shape's axis and the rotations the physics holds it out of go
+    // together, or a lying capsule is left unable to turn.
+    if let (Some(want), Some(mut locked)) = (spec.locks, locked)
+        && Some(want) != was.locks
+    {
+        *locked = want.axes();
     }
     built.spec = spec;
     bodies.p1().update_mass_properties(body);
@@ -569,6 +693,12 @@ mod tests {
         person2.capsule_length.0 *= 1.3;
         person2.mass.0 *= 1.4;
         person2.linear_damping.0 += 0.2;
+        // A person become a beast in place (#1802): the same preset, its
+        // capsule turned to lie along the body and its locks with it.
+        let beast = crate::pds::avatar::fit_on_foot(
+            &crate::pds::avatar::locomotion::default_beast(symbios_avatar::plan::Family::Dog),
+            &person,
+        );
         [
             (
                 LocomotionConfig::HoverBoat(Box::new(boat)),
@@ -587,8 +717,16 @@ mod tests {
                 LocomotionConfig::Car(Box::new(car2)),
             ),
             (
-                LocomotionConfig::Humanoid(Box::new(person)),
+                LocomotionConfig::Humanoid(Box::new(person.clone())),
                 LocomotionConfig::Humanoid(Box::new(person2)),
+            ),
+            (
+                LocomotionConfig::Humanoid(Box::new(person.clone())),
+                LocomotionConfig::Humanoid(Box::new(beast.clone())),
+            ),
+            (
+                LocomotionConfig::Humanoid(Box::new(beast)),
+                LocomotionConfig::Humanoid(Box::new(person)),
             ),
         ]
         .into_iter()
@@ -615,9 +753,22 @@ mod tests {
             let h = cuboid.half_extents;
             ChassisShape::Box([h.x, h.y, h.z])
         } else if let Some(capsule) = shape.as_capsule() {
+            let (a, b) = (capsule.segment.a, capsule.segment.b);
+            let axis = if a.x == b.x && a.z == b.z {
+                CapsuleAxis::Upright
+            } else {
+                assert!(
+                    a.x == 0.0 && b.x == 0.0 && a.y == 0.0 && b.y == 0.0,
+                    "a lying capsule lies along the body's Z: {a:?} to {b:?}"
+                );
+                CapsuleAxis::Lying {
+                    ahead: -(a.z + b.z) * 0.5,
+                }
+            };
             ChassisShape::Capsule {
                 radius: capsule.radius,
                 length: capsule.half_height() * 2.0,
+                axis,
             }
         } else {
             panic!("a chassis is a box or a capsule")
@@ -625,11 +776,19 @@ mod tests {
     }
 
     /// What a body is, as far as its chassis goes: shape, mass, dampings,
-    /// centre of mass and stamp.
+    /// centre of mass, stamp, and the rotations it is locked out of.
+    #[allow(clippy::type_complexity)]
     fn read(
         world: &World,
         body: Entity,
-    ) -> (ChassisShape, f32, [f32; 2], Option<Vec3>, ChassisBuilt) {
+    ) -> (
+        ChassisShape,
+        f32,
+        [f32; 2],
+        Option<Vec3>,
+        ChassisBuilt,
+        Option<u8>,
+    ) {
         let at = world.entity(body);
         (
             shape_of(at.get::<Collider>().expect("a collider")),
@@ -640,6 +799,7 @@ mod tests {
             ],
             at.get::<CenterOfMass>().map(|c| c.0),
             *at.get::<ChassisBuilt>().expect("a stamp"),
+            at.get::<LockedAxes>().map(|locked| locked.to_bits()),
         )
     }
 
@@ -657,13 +817,14 @@ mod tests {
             kept.insert_resource(LiveAvatarRecord(now.clone()));
             kept.run_system_once(sync_chassis).expect("the sync runs");
             let (rebuilt, fresh) = bare_body(&now);
-            let (shape, mass, damping, center, built) = read(&kept, body);
+            let (shape, mass, damping, center, built, locked) = read(&kept, body);
             let want = read(&rebuilt, fresh);
             assert_ne!(before.0, want.0, "{kind}: the moved record moves the shape");
             assert_eq!(shape, want.0, "{kind}: the collider");
             assert_eq!(mass, want.1, "{kind}: the mass");
             assert_eq!(center, want.3, "{kind}: the centre of mass");
             assert_eq!(built, want.4, "{kind}: the stamp");
+            assert_eq!(locked, want.5, "{kind}: the locked rotations");
             if want.4.spec.steps_own_damping {
                 assert_eq!(damping, before.2, "{kind}: the suspension's dampings");
             } else {
@@ -680,11 +841,146 @@ mod tests {
                     at.get_change_ticks::<AngularDamping>().map(|t| t.changed),
                     at.get_change_ticks::<CenterOfMass>().map(|t| t.changed),
                     at.get_change_ticks::<ChassisBuilt>().map(|t| t.changed),
+                    at.get_change_ticks::<LockedAxes>().map(|t| t.changed),
                 ]
             };
             let settled = ticks(&kept);
             kept.run_system_once(sync_chassis).expect("the sync runs");
             assert_eq!(ticks(&kept), settled, "{kind}: an idle sync wrote");
+        }
+    }
+
+    /// **A beast's chassis lies along it** (#1802): its collider a capsule
+    /// along its own Z, its middle the girdles' midpoint ahead of its origin,
+    /// its pitch and roll locked and its yaw free for the physics to turn -
+    /// held against the axes a lying body needs, written out here rather than
+    /// read back off [`Locks`] - and it is set down by its radius, the
+    /// spawn's metre, every default beast's capsule reaching less than that
+    /// below its middle.
+    #[test]
+    fn a_beasts_chassis_lies_along_it() {
+        use symbios_avatar::plan::Family;
+        for family in [Family::Dog, Family::Cat, Family::Horse] {
+            let record = crate::pds::avatar::locomotion::beast_record(family);
+            let LocomotionConfig::Humanoid(p) = &record.locomotion else {
+                panic!("a beast on foot");
+            };
+            let (world, body) = bare_body(&record);
+            let (shape, mass, ..) = read(&world, body);
+            let ChassisShape::Capsule {
+                radius,
+                length,
+                axis: CapsuleAxis::Lying { ahead },
+            } = shape
+            else {
+                panic!("a {family:?} is not lying on its capsule: {shape:?}");
+            };
+            assert_eq!((radius, length), (p.capsule_radius.0, p.capsule_length.0));
+            assert!(
+                (ahead - p.capsule_ahead()).abs() < 1e-6 && p.capsule_ahead() != 0.0,
+                "a {family:?}'s capsule is centred {ahead} m ahead, its record {}",
+                p.capsule_ahead()
+            );
+            assert_eq!(mass, p.mass.0);
+            let locked = world.get::<LockedAxes>(body).expect("locked axes");
+            assert_eq!(
+                locked.to_bits(),
+                LockedAxes::new()
+                    .lock_rotation_x()
+                    .lock_rotation_z()
+                    .to_bits(),
+                "a {family:?} is held out of its pitch and roll alone"
+            );
+            assert!(
+                !locked.is_rotation_y_locked(),
+                "a {family:?}'s yaw is the physics' to turn"
+            );
+            assert_eq!(shape.half_height(), p.capsule_radius.0);
+            assert_eq!(
+                set_down_height(&record.locomotion),
+                cfg::SPAWN_HEIGHT_OFFSET
+            );
+        }
+    }
+
+    /// **A lying body is set down level, and nothing else is** (#1802): the
+    /// ground's tilt under a spawn or a recovery is taken off a beast's
+    /// rotation, keeping the way it faces, and a person's and a vehicle's
+    /// keep it as they always have; a level rotation comes back bit for bit.
+    /// Through the spawn and the recovery: `spawn::tests` and
+    /// `respawn::tests`.
+    #[test]
+    fn only_a_lying_body_is_set_down_level() {
+        let tilt = Quat::from_rotation_arc(Vec3::Y, Vec3::new(0.15, 1.0, 0.2).normalize());
+        let picked = tilt * Quat::from_rotation_y(1.1);
+        let beast = crate::pds::avatar::locomotion::beast_record(symbios_avatar::plan::Family::Dog);
+        let set = set_down_rotation(&beast.locomotion, picked);
+        assert!(
+            (set * Vec3::Y).abs_diff_eq(Vec3::Y, 1e-6),
+            "a beast is set down tilted: {set:?}"
+        );
+        // The ground's tilt is a turn about a level axis, so what is left is
+        // the facing exactly.
+        assert!(
+            set.abs_diff_eq(Quat::from_rotation_y(1.1), 1e-6),
+            "a beast set down level faces the way it was picked to: {set:?}"
+        );
+        let level_turn = Quat::from_rotation_y(-2.3);
+        assert_eq!(set_down_rotation(&beast.locomotion, level_turn), level_turn);
+        for other in [
+            LocomotionConfig::Humanoid(Box::default()),
+            AvatarRecord::default_for_seed(0).locomotion,
+        ] {
+            assert_eq!(set_down_rotation(&other, picked), picked, "{other:?}");
+        }
+        assert_eq!(
+            level(Quat::from_rotation_x(std::f32::consts::PI)),
+            Quat::IDENTITY
+        );
+    }
+
+    /// **Every seeded person's chassis is the one it always was** (#1802):
+    /// over 2000 people, the upright capsule the stature rule sizes, locked
+    /// every way, at the preset's mass and dampings - the chassis built
+    /// before a beast could lie along one.
+    #[test]
+    fn every_seeded_persons_chassis_is_unchanged() {
+        let mut people = 0;
+        for seed in 0u64.. {
+            if people == 2000 {
+                break;
+            }
+            if ChassisFamily::for_seed(seed) != ChassisFamily::Humanoid {
+                continue;
+            }
+            people += 1;
+            let body = crate::pds::avatar::wardrobe::engine_default_for_seed(seed);
+            let symbios_avatar::Archetype::Humanoid(engine) = &body.archetype else {
+                panic!("seed {seed} rolled no person");
+            };
+            let radius = (engine.height * 0.11).clamp(0.18, 0.34);
+            let length = (engine.height - 2.0 * radius).max(0.4);
+            let record = AvatarRecord::default_for_seed(seed);
+            let LocomotionConfig::Humanoid(p) = &record.locomotion else {
+                panic!("seed {seed}: a person on foot");
+            };
+            assert_eq!(
+                p.chassis(),
+                ChassisSpec {
+                    shape: ChassisShape::Capsule {
+                        radius: radius.max(0.05),
+                        length: length.max(0.1),
+                        axis: CapsuleAxis::Upright,
+                    },
+                    mass: 80.0,
+                    linear_damping: 0.3,
+                    angular_damping: cfg::ANGULAR_DAMPING,
+                    center_of_mass: None,
+                    steps_own_damping: false,
+                    locks: Some(Locks::Upright),
+                },
+                "seed {seed}"
+            );
         }
     }
 
@@ -813,8 +1109,8 @@ mod tests {
         let (rebuilt, fresh) = bare_body(&now);
         let (kept, want) = (read(&world, body), read(&rebuilt, fresh));
         assert_eq!(
-            (kept.0, kept.1, kept.3, kept.4),
-            (want.0, want.1, want.3, want.4),
+            (kept.0, kept.1, kept.3, kept.4, kept.5),
+            (want.0, want.1, want.3, want.4, want.5),
             "the released body was not brought into step"
         );
     }

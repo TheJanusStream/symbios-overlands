@@ -24,12 +24,17 @@ pub(super) fn spawn_local_player(
     mut avatar_deps: visuals::AvatarSpawnDeps,
     mut facing_set: MessageWriter<super::FacingSet>,
 ) {
-    let pose = spawn_pose(
+    let mut pose = spawn_pose(
         placement.as_deref(),
         room.as_deref().map(|r| &r.0),
         &hm_res,
         super::preset::set_down_height(&live.0.locomotion),
     );
+    // Flush on the slope, unless the body lies along its capsule: a beast
+    // the physics only turns about Y is set down level, or it would lean for
+    // the rest of the session (#1802).
+    pose.transform.rotation =
+        super::preset::set_down_rotation(&live.0.locomotion, pose.transform.rotation);
     let entity = commands.spawn(chassis_root_bundle(pose.transform)).id();
     // A facing the world chose is the one the camera stands behind (#1785),
     // and a first-person view turns to (#1750).
@@ -253,6 +258,52 @@ mod tests {
         assert_eq!(
             spawn_pose(Some(&turned), Some(&pitched), &ground, 1.0).pitch,
             None
+        );
+    }
+
+    /// **A beast is set down level on a slope, a person flush on it**
+    /// (#1802): through the real spawn, onto ground rising toward +X at a
+    /// landing facing 90 degrees. The physics turns a lying body about Y
+    /// alone, so the slope's tilt would be a lean for the session; it is set
+    /// down facing the landing's way and nothing else. A person is set down
+    /// flush on the slope, as always - its walk stands it up.
+    #[test]
+    fn a_beast_is_spawned_level_on_a_slope() {
+        use bevy::ecs::system::RunSystemOnce;
+        let spawned = |record: crate::pds::AvatarRecord| {
+            let mut app = crate::player::visuals::spawn_path_app();
+            app.add_message::<super::super::FacingSet>();
+            let mut map = bevy_symbios_ground::HeightMap::new(33, 33, 2.0);
+            for z in 0..33 {
+                for x in 0..33 {
+                    map.set(x, z, 4.0 + x as f32 * 0.4);
+                }
+            }
+            app.insert_resource(crate::terrain::FinishedHeightMap(map, None))
+                .insert_resource(LiveAvatarRecord(record))
+                .insert_resource(LiveRoomRecord(landing_room(90.0)));
+            app.world_mut()
+                .run_system_once(spawn_local_player)
+                .expect("the spawn runs");
+            let world = app.world_mut();
+            let mut chassis = world.query_filtered::<&Transform, With<LocalPlayer>>();
+            chassis.single(world).expect("one chassis").rotation
+        };
+        let beast = spawned(crate::pds::avatar::locomotion::beast_record(
+            symbios_avatar::plan::Family::Horse,
+        ));
+        assert!(
+            beast.abs_diff_eq(spawn_facing(90.0), 1e-5),
+            "a beast is spawned at {beast:?}: leaning {:.2} deg",
+            (beast * Vec3::Y).angle_between(Vec3::Y).to_degrees()
+        );
+        let mut person = crate::pds::AvatarRecord::default_for_did("did:plc:slope-spawn");
+        person.locomotion = crate::pds::LocomotionConfig::Humanoid(Box::default());
+        let person = spawned(person);
+        let lean = (person * Vec3::Y).angle_between(Vec3::Y).to_degrees();
+        assert!(
+            lean > 5.0,
+            "the premise: the slope tilts what is set down flush on it ({lean:.2} deg)"
         );
     }
 

@@ -949,8 +949,14 @@ pub(super) enum PeerPlaceholder {
     Retired,
 }
 
+/// Which lying stand-in a waiting peer wears (#1805). Absent on one wearing
+/// the upright stand-in every peer starts in.
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub(super) struct PeerStandIn(crate::player::StandIn);
+
 /// Put the stand-in body on every peer that does not have one yet
-/// (#1217 f328).
+/// (#1217 f328), and keep it lying along a beast's collider while it waits
+/// (#1805).
 ///
 /// The mesh goes on the chassis entity itself rather than on a child,
 /// because `spawn_avatar_visuals` clears EVERY chassis child before it
@@ -962,14 +968,35 @@ pub(super) enum PeerPlaceholder {
 /// `handle_peer_connections` is right that a synthesised body is
 /// indistinguishable from a deliberately minimal one and misleads the room.
 /// A translucent capsule cannot be mistaken for anybody.
+///
+/// A peer whose record says it lies gets its own mesh, its collider's size,
+/// as the owner does: none is shared, because a record can say any size, and
+/// the one a peer stops wearing is freed with its handle. Its record can
+/// arrive at any time before the body does, so this looks at every peer still
+/// waiting, and a retired stand-in stays retired.
 pub(super) fn dress_peer_placeholders(
     mut commands: Commands,
-    peers: Query<Entity, (With<RemotePeer>, Without<PeerPlaceholder>)>,
+    peers: Query<(
+        Entity,
+        &RemotePeer,
+        Option<&PeerPlaceholder>,
+        Option<&PeerStandIn>,
+    )>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut cached: Local<Option<(Handle<Mesh>, Handle<StandardMaterial>)>>,
 ) {
-    let mut peers = peers.iter().peekable();
+    use crate::player::StandIn;
+    // Most frames, in most rooms, have nothing to do.
+    let mut peers = peers
+        .iter()
+        .filter_map(|(entity, peer, placeholder, wearing)| {
+            let waiting = placeholder.is_none_or(|p| *p == PeerPlaceholder::Standing);
+            let wanted = peer.avatar.as_ref().map_or(StandIn::Upright, StandIn::of);
+            let worn = wearing.map_or(StandIn::Upright, |wearing| wearing.0);
+            (waiting && (placeholder.is_none() || wanted != worn)).then_some((entity, wanted))
+        })
+        .peekable();
     if peers.peek().is_none() {
         return;
     }
@@ -992,11 +1019,16 @@ pub(super) fn dress_peer_placeholders(
             )
         })
         .clone();
-    for entity in peers {
+    for (entity, wanted) in peers {
+        let mesh = match wanted {
+            StandIn::Upright => mesh.clone(),
+            StandIn::Lying { .. } => meshes.add(wanted.mesh()),
+        };
         commands.entity(entity).try_insert((
-            Mesh3d(mesh.clone()),
+            Mesh3d(mesh),
             MeshMaterial3d(material.clone()),
             PeerPlaceholder::Standing,
+            PeerStandIn(wanted),
         ));
     }
 }
@@ -1039,9 +1071,15 @@ pub(super) fn retire_peer_placeholders(
         let standing = has_rigged_root || has_generator_body;
         PeerResolve::set_body(&mut resolve, standing || contractually_bare);
         if standing && *placeholder == PeerPlaceholder::Standing {
+            // Its box too: bounds outlive the mesh they were read from, and a
+            // name plate reads every box under a chassis (#1805).
             commands
                 .entity(entity)
-                .try_remove::<(Mesh3d, MeshMaterial3d<StandardMaterial>)>()
+                .try_remove::<(
+                    Mesh3d,
+                    MeshMaterial3d<StandardMaterial>,
+                    bevy::camera::primitives::Aabb,
+                )>()
                 .try_insert(PeerPlaceholder::Retired);
         }
     }
@@ -1606,6 +1644,128 @@ mod tests {
             app.world().entity(chassis).get::<PeerPlaceholder>(),
             Some(&PeerPlaceholder::Retired),
         );
+    }
+
+    /// **A peer's stand-in lies along a beast's collider while it waits**
+    /// (#1805), as the owner's does: from the first frame when the record is
+    /// here, and as soon as it arrives when it is not, in the size that record
+    /// says. A person's stays the one shared capsule, a stand-in retired stays
+    /// off, and a peer whose record stands up again goes back to sharing.
+    #[test]
+    fn a_beast_peers_stand_in_lies_along_its_collider() {
+        use crate::pds::avatar::locomotion::beast_record;
+        use crate::player::StandIn;
+        use bevy::camera::primitives::MeshAabb;
+        use symbios_avatar::plan::Family;
+        let lying_height = |app: &App, chassis: Entity| {
+            let mesh = &app
+                .world()
+                .entity(chassis)
+                .get::<Mesh3d>()
+                .expect("a mesh")
+                .0;
+            let meshes = app.world().resource::<Assets<Mesh>>();
+            let bounds = meshes
+                .get(mesh)
+                .expect("the mesh")
+                .compute_aabb()
+                .expect("bounds");
+            (bounds.half_extents.y * 2.0, bounds.half_extents.z * 2.0)
+        };
+        let dog = beast_record(Family::Dog);
+        let StandIn::Lying { radius, length, .. } = StandIn::of(&dog) else {
+            panic!("a beast's record lies")
+        };
+        let mut app = placeholder_app();
+        let person = app
+            .world_mut()
+            .spawn((remote(1), PeerResolve::default()))
+            .id();
+        let mut known = remote(2);
+        known.avatar = Some(dog.clone());
+        let beast = app.world_mut().spawn((known, PeerResolve::default())).id();
+        let late = app
+            .world_mut()
+            .spawn((remote(3), PeerResolve::default()))
+            .id();
+        app.update();
+        let (tall, _) = lying_height(&app, person);
+        let (high, long) = lying_height(&app, beast);
+        assert!(tall > 1.0, "a person's stand-in stands: {tall}");
+        assert!((high - radius * 2.0).abs() < 1e-3, "{high}");
+        assert!((long - (length + radius * 2.0)).abs() < 1e-3, "{long}");
+        // Its record arrives after it did.
+        app.world_mut()
+            .get_mut::<RemotePeer>(late)
+            .expect("a peer")
+            .avatar = Some(dog.clone());
+        app.update();
+        assert!(lying_height(&app, late).1 > lying_height(&app, late).0);
+        // A settled frame adds no mesh, for all that it looks.
+        let count = app.world().resource::<Assets<Mesh>>().len();
+        app.update();
+        assert_eq!(app.world().resource::<Assets<Mesh>>().len(), count);
+        // And it stands up again, sharing the capsule once more.
+        app.world_mut()
+            .get_mut::<RemotePeer>(late)
+            .expect("a peer")
+            .avatar = None;
+        app.update();
+        assert_eq!(
+            app.world().entity(late).get::<Mesh3d>().expect("a mesh").0,
+            app.world()
+                .entity(person)
+                .get::<Mesh3d>()
+                .expect("a mesh")
+                .0
+        );
+        // A body lands: the stand-in goes, and a record changing after that
+        // does not put it back.
+        app.world_mut()
+            .spawn((crate::player::RiggedRoot, ChildOf(beast)));
+        app.update();
+        app.update();
+        assert!(!app.world().entity(beast).contains::<Mesh3d>());
+        app.world_mut()
+            .get_mut::<RemotePeer>(beast)
+            .expect("a peer")
+            .avatar = None;
+        app.update();
+        app.update();
+        assert!(
+            !app.world().entity(beast).contains::<Mesh3d>(),
+            "a retired stand-in came back"
+        );
+        assert_ne!(
+            app.world().entity(beast).get::<PeerStandIn>(),
+            Some(&PeerStandIn(StandIn::Upright)),
+            "a retired stand-in was dressed again, if only for a frame"
+        );
+    }
+
+    /// **A retired stand-in takes its box with it** (#1805). The renderer's
+    /// bounds outlive the mesh they were read from, and a name plate reads
+    /// every box under a chassis: a person who had retired theirs and then
+    /// became a beast would carry their name over a capsule nobody wears, about
+    /// 0.3 m too high on a dog.
+    #[test]
+    fn a_retired_stand_in_leaves_no_bounds_behind() {
+        use bevy::camera::primitives::Aabb;
+        let mut app = placeholder_app();
+        let chassis = app
+            .world_mut()
+            .spawn((remote(1), PeerResolve::default()))
+            .id();
+        app.update();
+        // What the renderer's own bounds system does for any mesh.
+        app.world_mut().entity_mut(chassis).insert(Aabb::default());
+        app.world_mut()
+            .spawn((crate::player::RiggedRoot, ChildOf(chassis)));
+        app.update();
+        app.update();
+        let chassis = app.world().entity(chassis);
+        assert!(!chassis.contains::<Mesh3d>());
+        assert!(!chassis.contains::<Aabb>(), "a box with nothing in it");
     }
 
     /// The mesh and material are minted once for the whole session. A room

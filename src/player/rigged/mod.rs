@@ -199,7 +199,7 @@ pub(crate) struct RiggedRoot;
 /// instrument suite in this module's tests walks a body in from a standing
 /// start, so a body that arrives already walking measures a different cycle -
 /// worth 0.3 mm on the stop skid the first time this was tried.
-#[derive(Component, Default)]
+#[derive(Component, Clone, Default)]
 pub(super) struct RiggedTrail {
     last: Option<(Vec3, f32)>,
     /// The facing the driver was handed last frame, and the delta of the frame
@@ -219,6 +219,19 @@ pub(super) struct RiggedTrail {
     /// the water classification reads as the body's half-height, stays
     /// recoverable under it.
     lift: f32,
+    /// Where a beast peer has stood still and for how many seconds (#1805,
+    /// `motion::hold_still`), or `None` while it is on the move.
+    still_at: Option<(Vec3, f32)>,
+    /// The fill has hung this body from its record's collider rather than
+    /// left it where its build put it (#1805, `motion::fill_rigged_drive`),
+    /// so it owes one more hang when a person stops lying.
+    rehung: bool,
+}
+
+/// Whether `rig` stands on four legs: the engine's own test of a beast, which
+/// it keeps to itself.
+pub(super) fn stands_on_four(rig: &symbios_avatar::Rig) -> bool {
+    rig.ground_contacts().len() == 4
 }
 
 /// The next idle-and-blink seed for a body about to join the room.
@@ -264,6 +277,8 @@ pub(super) fn drive_frame(app: &mut App) {
         .expect("the driver runs");
 }
 
+#[cfg(test)]
+mod beast_tests;
 mod build;
 mod motion;
 mod placeholder;
@@ -282,4 +297,5 @@ pub(crate) use motion::InFirstPerson;
 // render tool is native only.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use motion::heading_of;
+pub(crate) use placeholder::StandIn;
 pub(super) use placeholder::{announce_slow_builds, sync_local_placeholder};

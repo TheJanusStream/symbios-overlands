@@ -13,6 +13,13 @@
 //! and pitch under a right-drag. A vehicle's eyes ride its nose, and while
 //! they do the follow system stops turning the orbit with it.
 //!
+//! A four-legged beast is framed by its own size (#1804, owner decision D5,
+//! [`BeastOrbit`]): the focus at its eye height rather than the chassis', whose
+//! origin lies in the capsule on the ground under its trunk, and a rest radius
+//! in proportion to how tall it stands, from 5 m to a person's 12 m. It looks
+//! out of its seated eyes in first person. A person's orbit is the chassis
+//! origin at the rest radius, as it always was.
+//!
 //! The player may choose an orthographic camera (#1603,
 //! [`crate::state::LocalSettings::orthographic_camera`]): nothing shrinks
 //! with distance. The orbit is the same free orbit - the crate turns its
@@ -62,11 +69,11 @@ use crate::terrain::FinishedHeightMap;
 
 mod first_person;
 
+pub(crate) use first_person::register_render_layer_propagation;
 pub use first_person::{CameraView, FirstPerson, OrbitHold};
 // The render tool's `--first-person` (#1745), which is native only.
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) use first_person::EyeMount;
-pub(crate) use first_person::register_render_layer_propagation;
+pub(crate) use first_person::{EyeMount, rest_eye_line};
 
 pub struct CameraPlugin;
 
@@ -82,6 +89,7 @@ impl Plugin for CameraPlugin {
             .insert_resource(egui_global_settings())
             .init_resource::<FirstPerson>()
             .init_resource::<OrbitHold>()
+            .init_resource::<BeastFraming>()
             // What turns a first-person view to a landing (#1750); the player
             // plugin writes it, and registers it too.
             .add_message::<crate::player::FacingSet>()
@@ -428,6 +436,7 @@ fn clamp_distance_camera_only(
 fn clamp_camera_to_terrain(
     heightmap: Option<Res<FinishedHeightMap>>,
     settings: Res<crate::state::LocalSettings>,
+    beast: Option<Res<BeastFraming>>,
     mut cameras: Query<(&PanOrbitCamera, &mut Transform), IsWorldCamera>,
 ) {
     let Some(hm) = heightmap else {
@@ -438,7 +447,13 @@ fn clamp_camera_to_terrain(
         return;
     }
     for (cam, mut tf) in cameras.iter_mut() {
-        let clear = clear_of_terrain(cam.focus, tf.translation, &settings, &hm);
+        let clear = clear_of_terrain(
+            cam.focus,
+            tf.translation,
+            &settings,
+            &hm,
+            BeastFraming::eyes_of(beast.as_deref()),
+        );
         // Written only when it moves, as before: a write stamps the change
         // tick whether or not the value changed.
         if clear != tf.translation {
@@ -452,15 +467,19 @@ fn clamp_camera_to_terrain(
 /// it clears the terrain, or left where it is. The one rule for the player's
 /// camera and for any view that has to stand where the player's would - the
 /// agent's third-person snapshot (#1420).
+///
+/// `beast_eyes` is how high over its feet a four-legged beast's eyes stand,
+/// and None for every other body ([`BeastFraming::eyes_of`]).
 pub(crate) fn clear_of_terrain(
     focus: Vec3,
     translation: Vec3,
     settings: &crate::state::LocalSettings,
     hm: &FinishedHeightMap,
+    beast_eyes: Option<f32>,
 ) -> Vec3 {
     // Sanitized here rather than trusting the prefs file: a hand-edited
     // clearance of NaN/negative would otherwise poison every clamp.
-    let clearance = settings.camera_ground_clearance_m.clamp(0.0, 50.0);
+    let clearance = ground_clearance(settings.camera_ground_clearance_m, beast_eyes);
     let offset = translation - focus;
     let dist = offset.length();
     if dist <= cfg::TERRAIN_CLAMP_MIN_DIST {
@@ -482,6 +501,20 @@ pub(crate) fn clear_of_terrain(
     } else {
         translation
     }
+}
+
+/// How far over the ground the orbit keeps its camera (#1804): the player's
+/// setting, and for a four-legged beast no more than its own eyes' height.
+///
+/// A focus under the clearance line is one the rule cannot serve. Every ray
+/// from it starts under the line: the whole-ray check stops at its first
+/// sample, and the camera-only one finds no clear point near the level. A
+/// default cat's eyes are 0.6 m up, under the default metre, and its camera
+/// jumped from its 5 m rest to the clamp's 1 m on any pitch under about 5
+/// degrees, and sat at 1 m at every pitch under the whole-ray setting.
+fn ground_clearance(setting: f32, beast_eyes: Option<f32>) -> f32 {
+    let clearance = setting.clamp(0.0, 50.0);
+    beast_eyes.map_or(clearance, |eyes| clearance.min(eyes.max(0.0)))
 }
 
 /// The camera the player looks through - the one that means "the camera"
@@ -863,22 +896,55 @@ pub(crate) fn camera_listener() -> SpatialListener {
 /// slope is tilted onto it: on steep ground its heading - and so the
 /// camera - is a few degrees off the landing's own yaw (6 at a 36 degree
 /// slope).
+///
+/// **A four-legged beast is framed by its own size** (#1804): the focus at its
+/// eye height and a landing's radius its own ([`BeastOrbit`]). Everyone else's
+/// focus is the chassis origin itself and their radius [`cfg::ORBIT_RADIUS`],
+/// through no arithmetic at all.
+#[allow(clippy::too_many_arguments)]
 fn follow_local_player(
-    player_query: Query<(&Transform, Option<&VehicleChassis>), With<LocalPlayer>>,
+    player_query: Query<(Entity, &Transform, Option<&VehicleChassis>), With<LocalPlayer>>,
     mut camera_query: Query<&mut PanOrbitCamera>,
     first_person: Option<Res<FirstPerson>>,
+    record: Option<Res<crate::state::LiveAvatarRecord>>,
+    rigs: Query<(&ChildOf, &bevy_symbios_avatar::AvatarBody), With<crate::player::RiggedRoot>>,
+    framing: Option<ResMut<BeastFraming>>,
     mut facings: MessageReader<crate::player::FacingSet>,
     time: Res<Time>,
     fixed: Res<Time<Fixed>>,
     mut followed: Local<Followed>,
 ) {
-    let Ok((player_tf, vehicle)) = player_query.single() else {
+    let Ok((player, player_tf, vehicle)) = player_query.single() else {
         return;
     };
     let Ok(mut cam) = camera_query.single_mut() else {
         return;
     };
-    cam.target_focus = player_tf.translation;
+    let beast = record
+        .as_deref()
+        .and_then(|record| crate::pds::avatar::locomotion::beast_on_foot(&record.0))
+        .map(|p| {
+            // The built body's eyes, once it is the beast's: until then the
+            // person it was in the editor, or the stand-in, says nothing.
+            let eyes = rigs
+                .iter()
+                .find(|(parent, body)| {
+                    parent.parent() == player
+                        && body.avatar.rig.anatomy.head == symbios_avatar::HeadKind::Beast
+                })
+                .and_then(|(_, body)| first_person::rest_eye_line(&body.avatar));
+            BeastOrbit::of(p, eyes.map(|eyes| eyes.y))
+        });
+    if let Some(mut framing) = framing
+        && framing.0 != beast
+    {
+        framing.0 = beast;
+    }
+    let focus = match beast {
+        Some(beast) => player_tf.translation + Vec3::Y * beast.lift,
+        None => player_tf.translation,
+    };
+    cam.target_focus = focus;
 
     if let Some((yaw, pitch)) = facings
         .read()
@@ -898,9 +964,10 @@ fn follow_local_player(
             cam.target_yaw = yaw;
             cam.pitch = Some(pitch);
             cam.target_pitch = pitch;
-            cam.radius = Some(cfg::ORBIT_RADIUS);
-            cam.target_radius = cfg::ORBIT_RADIUS;
-            cam.focus = player_tf.translation;
+            let radius = beast.map_or(cfg::ORBIT_RADIUS, |beast| beast.radius);
+            cam.radius = Some(radius);
+            cam.target_radius = radius;
+            cam.focus = focus;
             cam.force_update = true;
         }
         followed.landing = Some(crate::player::LandingWait::new(yaw));
@@ -954,6 +1021,78 @@ fn follow_local_player(
     } else {
         *followed = Followed::default();
     }
+}
+
+/// How the orbit frames a four-legged beast (#1804, owner decision D5).
+///
+/// A person is framed by the chassis, whose origin is their middle. A beast's
+/// lies in the capsule on the ground under its trunk (#1802), under 20 cm up
+/// on a dog, so the focus is lifted to where the body looks from.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct BeastOrbit {
+    /// How far the focus stands over the chassis' origin (m): its eyes, level
+    /// with them over the chassis rather than out at the head, so a turn on
+    /// the spot does not swing the view round the nose. At rest: the pose's
+    /// bob and a sit's drop are not the camera's.
+    lift: f32,
+    /// Where a landing rests the camera (m), [`beast_rest_radius`].
+    radius: f32,
+    /// How high its eyes stand over its feet (m), [`ground_clearance`]'s
+    /// ceiling.
+    eyes: f32,
+}
+
+impl BeastOrbit {
+    /// The framing of the beast `p` carries, whose eyes stand `eyes` over its
+    /// feet - None until its body is built, when they are taken at its back's
+    /// height ([`crate::pds::HumanoidParams::stand_height`]), the nearest
+    /// thing the record knows.
+    fn of(p: &crate::pds::HumanoidParams, eyes: Option<f32>) -> Self {
+        let eyes = eyes.unwrap_or_else(|| p.stand_height());
+        Self {
+            lift: eyes - p.total_height() / 2.0,
+            radius: beast_rest_radius(p.stand_height()),
+            eyes,
+        }
+    }
+}
+
+/// Where the orbit rests round a beast standing `height` tall (m): the 12 m a
+/// person of [`cfg::ORBIT_RADIUS_STATURE`] rests at, in proportion, from
+/// [`cfg::BEAST_ORBIT_RADIUS_MIN`] to [`cfg::ORBIT_RADIUS`]. The height is the
+/// body's own ([`crate::pds::HumanoidParams::stand_height`]), never its lying
+/// capsule's, which is only its trunk's depth.
+fn beast_rest_radius(height: f32) -> f32 {
+    (cfg::ORBIT_RADIUS * height / cfg::ORBIT_RADIUS_STATURE)
+        .clamp(cfg::BEAST_ORBIT_RADIUS_MIN, cfg::ORBIT_RADIUS)
+}
+
+/// The local body's framing while it is a four-legged beast, and None for
+/// everyone else (#1804): written by [`follow_local_player`], and read where
+/// the orbit's camera is kept off the ground, which is told nothing else about
+/// the body.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct BeastFraming(pub(crate) Option<BeastOrbit>);
+
+impl BeastFraming {
+    /// How high the local beast's eyes stand over its feet, for
+    /// [`clear_of_terrain`]: None for any other body, and where no framing is
+    /// kept.
+    pub(crate) fn eyes_of(framing: Option<&Self>) -> Option<f32> {
+        framing
+            .and_then(|framing| framing.0)
+            .map(|beast| beast.eyes)
+    }
+}
+
+/// A framing whose eyes stand `eyes` over the feet, for a test.
+#[cfg(test)]
+pub(crate) fn beast_framing_for_tests(eyes: f32) -> BeastFraming {
+    BeastFraming(Some(BeastOrbit {
+        lift: eyes,
+        radius: 5.0,
+        eyes,
+    }))
 }
 
 /// What the follow carries from one frame to the next: the vehicle's
@@ -1632,6 +1771,339 @@ mod tests {
         let cam = orbit(&mut app);
         assert!((cam.target_yaw - 0.9).abs() < 1e-5, "{}", cam.target_yaw);
         assert_eq!(cam.target_radius, cfg::ORBIT_RADIUS);
+    }
+
+    /// A record wearing `family`'s default body, resolved, on the preset the
+    /// editor fits to it.
+    fn beast_wearing(family: symbios_avatar::Family) -> crate::pds::AvatarRecord {
+        let mut record = crate::pds::AvatarRecord::wearing("3jzfcijpj2z2a");
+        if let Some(rig) = record.body.rigged_mut() {
+            rig.resolved = Some(crate::pds::avatar::ResolvedRig {
+                body: crate::pds::avatar::locomotion::default_beast(family),
+                attachments: Vec::new(),
+            });
+        }
+        record.locomotion = crate::pds::avatar::locomotion::beast_record(family).locomotion;
+        record
+    }
+
+    /// The on-foot preset of `record`.
+    fn on_foot(record: &crate::pds::AvatarRecord) -> &crate::pds::HumanoidParams {
+        let crate::pds::LocomotionConfig::Humanoid(p) = &record.locomotion else {
+            unreachable!("on foot");
+        };
+        p
+    }
+
+    fn built(body: &crate::pds::avatar::EngineAvatarRecord) -> symbios_avatar::Avatar {
+        symbios_avatar::Avatar::build_with(
+            body,
+            &symbios_avatar::AvatarConfig {
+                atlas: 64,
+                ..Default::default()
+            },
+        )
+        .expect("the body builds")
+    }
+
+    /// `avatar`, hung under `chassis` as the game hangs a body from `record`.
+    fn hang(
+        app: &mut App,
+        record: &crate::pds::AvatarRecord,
+        avatar: symbios_avatar::Avatar,
+        chassis: Entity,
+    ) {
+        app.world_mut().spawn((
+            crate::player::visuals::rigged_root_transform(
+                crate::player::visuals::rigged_root_offset(record),
+            ),
+            crate::player::RiggedRoot,
+            bevy_symbios_avatar::AvatarBody { avatar },
+            ChildOf(chassis),
+        ));
+    }
+
+    /// **A beast's orbit stands at its eyes, its radius following its height**
+    /// (#1804, owner decision D5): on the default dog, cat and horse a landing
+    /// cuts the focus to the eyes' height over the chassis and the radius to
+    /// the 12 m in proportion to how tall it stands, from 5 m to 12 m; the
+    /// follow keeps the focus there as the chassis moves.
+    #[test]
+    fn a_beasts_orbit_stands_at_its_eyes_and_follows_its_height() {
+        use symbios_avatar::Family;
+        let mut radii = Vec::new();
+        for family in [Family::Dog, Family::Cat, Family::Horse] {
+            let record = beast_wearing(family);
+            let p = on_foot(&record).clone();
+            let avatar = built(&crate::pds::avatar::locomotion::default_beast(family));
+            let eyes = first_person::rest_eye_line(&avatar).expect("a head");
+            let mut app = follow_app();
+            app.init_resource::<BeastFraming>();
+            app.insert_resource(crate::state::LiveAvatarRecord(record.clone()));
+            let at = Vec3::new(140.0, 12.0, -60.0);
+            let chassis = app
+                .world_mut()
+                .spawn((Transform::from_translation(at), LocalPlayer))
+                .id();
+            hang(&mut app, &record, avatar, chassis);
+            app.world_mut().spawn(astray());
+            app.world_mut()
+                .write_message(crate::player::FacingSet(Quat::IDENTITY, None));
+            app.update();
+
+            let cam = orbit(&mut app);
+            let root_y = -p.total_height() / 2.0;
+            let focus = at + Vec3::Y * (root_y + eyes.y);
+            assert!(cam.target_focus.distance(focus) < 1e-5, "{family:?}");
+            assert_eq!(cam.focus, cam.target_focus, "{family:?}: cut, not eased");
+            let radius = (12.0 * p.stand_height() / 1.8).clamp(5.0, 12.0);
+            assert!((cam.target_radius - radius).abs() < 1e-5, "{family:?}");
+            assert_eq!(cam.radius, Some(cam.target_radius), "{family:?}");
+            assert!((5.0..=12.0).contains(&cam.target_radius), "{family:?}");
+            println!(
+                "{family:?}: stand {:.3} m, eyes {:.3} m over the feet at z {:.3}, \
+                 lift {:.3} m over the chassis, radius {:.2} m, trunk depth {:.3} m",
+                p.stand_height(),
+                eyes.y,
+                eyes.z,
+                root_y + eyes.y,
+                cam.target_radius,
+                p.total_height(),
+            );
+            radii.push(cam.target_radius);
+
+            // The follow keeps it there, and a framing for the ground clamp.
+            let moved = at + Vec3::new(1.0, 0.5, -2.0);
+            app.world_mut()
+                .entity_mut(chassis)
+                .insert(Transform::from_translation(moved));
+            app.update();
+            let cam = orbit(&mut app);
+            assert!(
+                cam.target_focus
+                    .distance(moved + Vec3::Y * (root_y + eyes.y))
+                    < 1e-5,
+                "{family:?}"
+            );
+            let framing = app.world().resource::<BeastFraming>();
+            assert_eq!(
+                BeastFraming::eyes_of(Some(framing)),
+                Some(eyes.y),
+                "{family:?}"
+            );
+        }
+        assert!(
+            radii[2] > radii[0],
+            "a horse stands the camera farther off: {radii:?}"
+        );
+    }
+
+    /// **The rest radius is a person's 12 m in proportion, from 5 m to 12 m**
+    /// (#1804, D5): the height it is in proportion to is the default person's,
+    /// who rests at the 12 m it was chosen for; a height off either end stops
+    /// there; and between them it follows.
+    #[test]
+    fn a_beasts_rest_radius_is_in_proportion_within_its_limits() {
+        assert!(
+            (crate::pds::HumanoidParams::default().stand_height() - cfg::ORBIT_RADIUS_STATURE)
+                .abs()
+                < 1e-5
+        );
+        assert!((beast_rest_radius(cfg::ORBIT_RADIUS_STATURE) - cfg::ORBIT_RADIUS).abs() < 1e-5);
+        assert_eq!(beast_rest_radius(0.1), cfg::BEAST_ORBIT_RADIUS_MIN);
+        assert_eq!(beast_rest_radius(5.0), cfg::ORBIT_RADIUS);
+        assert!((beast_rest_radius(0.9) - 6.0).abs() < 1e-5);
+        assert!((beast_rest_radius(1.2) - 8.0).abs() < 1e-5);
+    }
+
+    /// **Until the beast's own body is built its focus is at its back** (#1804):
+    /// with no rig, and with the person a body switched from still hung there,
+    /// whose eyes are nothing to do with it.
+    #[test]
+    fn a_beast_with_no_body_yet_is_framed_at_its_back() {
+        let record = beast_wearing(symbios_avatar::Family::Dog);
+        let p = on_foot(&record).clone();
+        let back = p.stand_height() - p.total_height() / 2.0;
+        let person = built(&symbios_avatar::AvatarRecord::default());
+        let mut person = Some(person);
+        for hung in [false, true] {
+            let mut app = follow_app();
+            app.insert_resource(crate::state::LiveAvatarRecord(record.clone()));
+            let at = Vec3::new(1.0, 2.0, 3.0);
+            let chassis = app
+                .world_mut()
+                .spawn((Transform::from_translation(at), LocalPlayer))
+                .id();
+            if hung {
+                hang(&mut app, &record, person.take().unwrap(), chassis);
+            }
+            app.world_mut().spawn(astray());
+            app.update();
+            assert!(
+                orbit(&mut app).target_focus.distance(at + Vec3::Y * back) < 1e-5,
+                "hung {hung}"
+            );
+        }
+    }
+
+    /// **A person's orbit is the chassis at 12 m, to the bit, by the body's
+    /// kind** (#1804): with a person's rig hung, under an upright preset and
+    /// under a beast's lying one someone else saved, the focus is the chassis'
+    /// own translation - a negative zero stays one, which any lift, even of
+    /// nothing, would turn positive - and a landing's radius is the constant.
+    #[test]
+    fn a_persons_orbit_is_the_chassis_to_the_bit() {
+        let mut upright = crate::pds::AvatarRecord::wearing("3jzfcijpj2z2a");
+        if let Some(rig) = upright.body.rigged_mut() {
+            rig.resolved = Some(crate::pds::avatar::ResolvedRig {
+                body: symbios_avatar::AvatarRecord::default(),
+                attachments: Vec::new(),
+            });
+        }
+        upright.locomotion = crate::pds::LocomotionConfig::Humanoid(Box::default());
+        let mut lying = upright.clone();
+        lying.locomotion =
+            crate::pds::avatar::locomotion::beast_record(symbios_avatar::Family::Horse).locomotion;
+        for record in [upright, lying] {
+            let mut app = follow_app();
+            app.init_resource::<BeastFraming>();
+            app.insert_resource(crate::state::LiveAvatarRecord(record.clone()));
+            let at = Vec3::new(-0.0, 1.7, 0.1);
+            let chassis = app
+                .world_mut()
+                .spawn((Transform::from_translation(at), LocalPlayer))
+                .id();
+            hang(
+                &mut app,
+                &record,
+                built(&symbios_avatar::AvatarRecord::default()),
+                chassis,
+            );
+            app.world_mut().spawn(astray());
+            app.world_mut()
+                .write_message(crate::player::FacingSet(Quat::from_rotation_y(0.9), None));
+            app.update();
+            let cam = orbit(&mut app);
+            for got in [cam.focus, cam.target_focus] {
+                assert_eq!(
+                    got.to_array().map(f32::to_bits),
+                    at.to_array().map(f32::to_bits)
+                );
+            }
+            assert_eq!(
+                cam.radius.map(f32::to_bits),
+                Some(cfg::ORBIT_RADIUS.to_bits())
+            );
+            assert_eq!(cam.target_radius.to_bits(), cfg::ORBIT_RADIUS.to_bits());
+            assert_eq!(*app.world().resource::<BeastFraming>(), BeastFraming(None));
+        }
+    }
+
+    /// **A focus under the clearance line keeps its camera** (#1804): a cat's
+    /// eyes, 0.6 m up, are lower than the metre the clamp keeps, so every ray from them
+    /// starts under it. Without its ceiling, the rest camera dropped to the
+    /// clamp's floor at any low pitch, and at every pitch under the whole-ray
+    /// setting. The ceiling never raises the setting, and no other body has
+    /// one.
+    #[test]
+    fn a_low_beasts_camera_stays_at_its_rest_over_flat_ground() {
+        use crate::state::LocalSettings;
+        let hm = FinishedHeightMap(bevy_symbios_ground::HeightMap::new(128, 128, 1.0), None);
+        let eyes = 0.6;
+        let focus = Vec3::new(40.0, eyes, 40.0);
+        let camera_at = |pitch: f32| focus + Vec3::new(0.0, pitch.sin(), pitch.cos()) * 5.0;
+        for mode in [
+            CameraGroundAvoidance::CameraOnly,
+            CameraGroundAvoidance::FullRay,
+        ] {
+            let settings = LocalSettings {
+                camera_ground_avoidance: mode,
+                ..default()
+            };
+            for pitch in [0.02, 0.05, cfg::ORBIT_PITCH] {
+                let at = camera_at(pitch);
+                assert_eq!(
+                    clear_of_terrain(focus, at, &settings, &hm, Some(eyes)),
+                    at,
+                    "{mode:?} at {pitch}"
+                );
+            }
+            // The fault it is here for.
+            let pitch = if mode == CameraGroundAvoidance::FullRay {
+                cfg::ORBIT_PITCH
+            } else {
+                0.05
+            };
+            let pulled = clear_of_terrain(focus, camera_at(pitch), &settings, &hm, None);
+            assert!(pulled.distance(focus) < 1.5, "{mode:?}: {pulled}");
+        }
+        assert_eq!(ground_clearance(1.0, None), 1.0);
+        assert_eq!(ground_clearance(1.0, Some(0.3)), 0.3);
+        assert_eq!(ground_clearance(1.0, Some(2.0)), 1.0);
+        assert_eq!(ground_clearance(f32::MAX, None), 50.0);
+        assert_eq!(ground_clearance(1.0, Some(-1.0)), 0.0);
+    }
+
+    /// **The clamp is told the beast's eyes** (#1804): the system itself, as
+    /// `a_low_beasts_camera_stays_at_its_rest_over_flat_ground` proves the rule.
+    /// A low cat's camera stays put, and with no framing it is pulled in.
+    #[test]
+    fn the_ground_clamp_reads_the_beasts_framing() {
+        for beast in [true, false] {
+            let eyes = 0.6;
+            let focus = Vec3::new(40.0, eyes, 40.0);
+            let at = focus + Vec3::new(0.0, 0.05f32.sin(), 0.05f32.cos()) * 5.0;
+            let mut app = App::new();
+            app.add_plugins(MinimalPlugins)
+                .init_resource::<crate::state::LocalSettings>()
+                .insert_resource(FinishedHeightMap(
+                    bevy_symbios_ground::HeightMap::new(128, 128, 1.0),
+                    None,
+                ))
+                .insert_resource(if beast {
+                    beast_framing_for_tests(eyes)
+                } else {
+                    BeastFraming(None)
+                })
+                .add_systems(Update, clamp_camera_to_terrain);
+            let camera = app
+                .world_mut()
+                .spawn((
+                    Camera3d::default(),
+                    WorldCamera,
+                    PanOrbitCamera { focus, ..default() },
+                    Transform::from_translation(at),
+                ))
+                .id();
+            app.update();
+            let got = app.world().get::<Transform>(camera).unwrap().translation;
+            if beast {
+                assert_eq!(got, at);
+            } else {
+                assert!(got.distance(focus) < 1.5, "{got}");
+            }
+        }
+    }
+
+    /// **A beast's nearer orbit leaves the hair's switch alone** (#1804): the
+    /// switch turns only a far tier, and a beast built asking for one has none.
+    /// Should the engine give it one, `cfg::HAIR_SWITCH`'s arithmetic is to do
+    /// again for a beast's rest.
+    #[test]
+    fn a_beast_has_no_hair_tier_to_switch() {
+        use symbios_avatar::Family;
+        for family in [Family::Dog, Family::Cat, Family::Horse] {
+            let avatar = symbios_avatar::Avatar::build_with(
+                &crate::pds::avatar::locomotion::default_beast(family),
+                &symbios_avatar::AvatarConfig {
+                    atlas: 64,
+                    far_hair: true,
+                    ..Default::default()
+                },
+            )
+            .expect("the body builds");
+            assert!(avatar.far_hair.is_none(), "{family:?}");
+        }
     }
 
     /// #670 guard: the follow target must come from `Transform` - the

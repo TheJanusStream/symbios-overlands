@@ -4,12 +4,12 @@ use bevy_symbios_avatar::{AvatarBody, AvatarPose, Drive, Drove};
 use symbios_avatar::anim::driver::Hold;
 use symbios_avatar::{Heading, Zone};
 
-use crate::player::emote::EmoteRequest;
-use crate::player::humanoid::{WaterState, humanoid_water_state};
-use crate::state::LocalPlayer;
+use crate::player::emote::{BeastEmote, Emote, EmoteRequest};
+use crate::player::humanoid::{WaterColumn, WaterState, humanoid_water_state, water_state};
+use crate::state::{LiveAvatarRecord, LocalPlayer, RemotePeer};
 use crate::water::WaterSurfaces;
 
-use super::{RiggedRoot, RiggedTrail};
+use super::{RiggedRoot, RiggedTrail, stands_on_four};
 
 /// Where the crown of a swimmer afloat at the surface is drawn, in metres
 /// above the waterline (#1324): the eyes about at the water, the head out.
@@ -23,6 +23,10 @@ use super::{RiggedRoot, RiggedTrail};
 /// tread barely moves - and it only ever rises: a body whose crown is already
 /// higher is left where it is.
 pub(in crate::player) const SURFACE_CROWN: f32 = 0.1;
+
+/// How far a beast peer's chassis may wander and still be read as standing
+/// still, metres (#1805, [`hold_still`]).
+const STILL_WITHIN: f32 = 0.03;
 
 /// How quickly the drawn body follows that lift, seconds (#1324). The pose it
 /// is read from strokes, rolls and surges; a first-order lag this long keeps
@@ -87,6 +91,48 @@ fn turned_from(from: f32, to: f32) -> f32 {
     (to - from + PI).rem_euclid(TAU) - PI
 }
 
+/// A beast peer's differenced speed, with a chassis that has stopped held at
+/// no speed at all until it is really going somewhere (#1805).
+///
+/// The engine gets a resting beast up at 0.1 m/s of travel. Its owner's client
+/// reads that off the chassis' own velocity and a peer's off this difference,
+/// which at a crawl is far noisier: a sender under that speed sends only every
+/// 30th tick, about twice a second, so the playout sits on the last sample and
+/// then crosses most of the gap in a frame. A chassis at rest is still on level
+/// ground, but on a steep slope it creeps, a dog about 12 mm/s on 28 degrees,
+/// and that reads as 0.28 m/s for a frame at 60 Hz and more at 144: its owner
+/// sees it sit, and every peer would see it get up.
+///
+/// So a body that has dropped under the engine's line stands where it is while
+/// it stays within [`STILL_WITHIN`] of there, and leaving is judged over the
+/// whole time since rather than over the frame that left: under the line on
+/// the whole, it is at rest again where it has got to. A walk is let go at its
+/// second crossing at the latest, about 6 cm in. Only the horizontal: the
+/// vertical is the leap's, and nothing a creep reaches.
+fn hold_still(trail: &mut RiggedTrail, position: Vec3, delta: f32, velocity: &mut Vec3) {
+    const STIR: f32 = 0.1;
+    let planar = |v: Vec3| Vec2::new(v.x, v.z);
+    let Some((at, since)) = trail.still_at else {
+        if planar(*velocity).length() < STIR {
+            trail.still_at = Some((position, 0.0));
+        }
+        return;
+    };
+    let since = since + delta;
+    let gone = planar(position - at).length();
+    trail.still_at = if gone < STILL_WITHIN {
+        Some((at, since))
+    } else if gone < STIR * since {
+        Some((position, 0.0))
+    } else {
+        None
+    };
+    if trail.still_at.is_some() {
+        velocity.x = 0.0;
+        velocity.z = 0.0;
+    }
+}
+
 /// Every rigged body the fill writes: where it hangs, what it is told, its
 /// trail, and - once built and posed - the body and pose the surface lift
 /// reads (#1324).
@@ -98,9 +144,24 @@ type FilledBodies<'w, 's> = Query<
         &'static mut Transform,
         &'static mut Drive,
         &'static mut RiggedTrail,
-        Option<(&'static AvatarBody, &'static AvatarPose)>,
+        Option<&'static AvatarBody>,
+        Option<&'static AvatarPose>,
     ),
     With<RiggedRoot>,
+>;
+
+/// What the fill reads of a body's chassis: where it is, how fast if it knows,
+/// and for a peer, whether it looks out of its eyes and what its owner's record
+/// says.
+type FilledChassis<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static GlobalTransform,
+        Option<&'static LinearVelocity>,
+        Has<InFirstPerson>,
+        Option<&'static RemotePeer>,
+    ),
 >;
 
 /// Tell every built body what its chassis is doing, for
@@ -133,12 +194,9 @@ pub(in crate::player) fn fill_rigged_drive(
     time: Res<Time>,
     water: Option<Res<WaterSurfaces>>,
     mut bodies: FilledBodies,
-    chassis: Query<(
-        &GlobalTransform,
-        Option<&LinearVelocity>,
-        Has<InFirstPerson>,
-    )>,
+    chassis: FilledChassis,
     locals: Query<(), With<LocalPlayer>>,
+    live: Option<Res<LiveAvatarRecord>>,
     hold: Res<crate::player::RigHold>,
     first_person: Option<Res<crate::camera::FirstPerson>>,
     facings: Option<MessageReader<crate::player::FacingSet>>,
@@ -160,10 +218,13 @@ pub(in crate::player) fn fill_rigged_drive(
             forward.x.atan2(forward.z)
         })
     });
-    for (child_of, mut root, mut drive, mut trail, drawn) in &mut bodies {
-        let Ok((transform, velocity, peer_looking_out)) = chassis.get(child_of.parent()) else {
+    for (child_of, mut root, mut drive, mut trail, body, pose) in &mut bodies {
+        let Ok((transform, velocity, peer_looking_out, peer)) = chassis.get(child_of.parent())
+        else {
             continue;
         };
+        let local = locals.contains(child_of.parent());
+        let beast = body.is_some_and(|body| stands_on_four(&body.avatar.rig));
         let position = transform.translation();
         let moved_far = trail
             .last
@@ -198,6 +259,9 @@ pub(in crate::player) fn fill_rigged_drive(
                         .last
                         .map_or(Vec3::ZERO, |(last, over)| (position - last) / over);
                 }
+                if beast {
+                    hold_still(&mut trail, position, delta, &mut drive.velocity);
+                }
                 drive.at = position;
             }
         }
@@ -226,20 +290,48 @@ pub(in crate::player) fn fill_rigged_drive(
         // and a remote peer alike - a peer has no controller here, and
         // classifying it by the same rule from the same positions is what
         // keeps what its owner sees and what everyone else sees the same.
-        let hung = root.translation.y - trail.lift;
+        //
+        // **A body whose collider is not a person standing in it reads the
+        // record instead** (#1805), for two things its root cannot say. A
+        // beast's height is its back's, not its lying capsule's, so it is
+        // drawn swimming where its controller swims ([`WaterColumn::of`]).
+        // And a chassis takes its record's shape at once while a body is only
+        // rebuilt for a change of body, which for a peer waits for the owner's
+        // Save: the chassis of a person turned beast plays out at the beast's
+        // height with the person still hung a person's height under it, in the
+        // ground to the waist, and the other way the beast hangs in the air.
+        // So the hang follows the collider, as the build's own offset does:
+        // whatever stands on a chassis has its feet at the collider's bottom.
+        // Asked of the body that stands and of the shape it stands in, and
+        // once more when a person stops lying. A person in an upright capsule
+        // who has never lain keeps the root's own reading, to the bit.
+        let record = if local {
+            live.as_deref().map(|live| &live.0)
+        } else {
+            peer.and_then(|peer| peer.avatar.as_ref())
+        };
+        let on_foot = record
+            .and_then(|record| match &record.locomotion {
+                crate::pds::LocomotionConfig::Humanoid(p) => Some(&**p),
+                _ => None,
+            })
+            .filter(|p| p.is_lying() || beast || trail.rehung);
+        if let Some(p) = on_foot {
+            trail.rehung = p.is_lying() || beast;
+        }
+        let column = on_foot.map(WaterColumn::of);
+        let hung = column.map_or(root.translation.y - trail.lift, |column| -column.drop);
         let half_height = -hung;
         let was_swimming = drive.swimming;
         drive.swimming = water.as_ref().is_some_and(|water| {
-            matches!(
-                humanoid_water_state(
-                    was_swimming,
-                    position.y,
-                    Vec2::new(position.x, position.z),
-                    half_height * 2.0,
-                    water,
-                ),
-                WaterState::Swimming { .. }
-            )
+            let xz = Vec2::new(position.x, position.z);
+            let state = match column {
+                Some(column) => water_state(was_swimming, position.y, xz, column, water),
+                None => {
+                    humanoid_water_state(was_swimming, position.y, xz, half_height * 2.0, water)
+                }
+            };
+            matches!(state, WaterState::Swimming { .. })
         });
         // **Travel against facing, for a body looking out of its own eyes**
         // (#1746). In first person a walker faces where the eyes look and A,
@@ -251,7 +343,6 @@ pub(in crate::player) fn fill_rigged_drive(
         // of that turn splayed the feet 252 mm in a quarter turn, against the
         // 36 the stance agreed for it allows (#1323). Not in deep water,
         // whose stroke goes the way it faces.
-        let local = locals.contains(child_of.parent());
         let looking = if local { looking_out } else { peer_looking_out };
         drive.heading = if looking && !drive.swimming {
             heading_of(drive.velocity, drive.facing)
@@ -296,10 +387,16 @@ pub(in crate::player) fn fill_rigged_drive(
             .as_ref()
             .and_then(|water| water.surface_at(Vec2::new(position.x, position.z)))
             .map(|(_, surface_y)| surface_y);
-        let target = match (drive.swimming, surface, drawn) {
-            (true, Some(surface_y), Some((body, pose)))
-                if position.y + half_height >= surface_y =>
-            {
+        // A column's top, for a body whose top is not its capsule's: the
+        // controller's own afloat.
+        let top = column.map_or(position.y + half_height, |column| {
+            position.y - column.drop + column.height
+        });
+        let target = match (drive.swimming, surface, body, pose) {
+            // A body landed this frame has no pose to read yet: a lift it
+            // carried over holds, rather than sagging for the frame.
+            (_, _, Some(_), None) => trail.lift,
+            (true, Some(surface_y), Some(body), Some(pose)) if top >= surface_y => {
                 let rig = &body.avatar.rig;
                 let posed = pose.0.forward(rig);
                 // A body with no head has nothing to hold out of the water.
@@ -308,8 +405,10 @@ pub(in crate::player) fn fill_rigged_drive(
                     .map(|&joint| posed.positions[joint].y)
                     .reduce(f32::max)
                     .map_or(0.0, |crown| {
-                        (surface_y + SURFACE_CROWN - (position.y + hung + crown))
-                            .clamp(0.0, half_height)
+                        (surface_y + SURFACE_CROWN - (position.y + hung + crown)).clamp(
+                            0.0,
+                            column.map_or(half_height, |column| column.height * 0.5),
+                        )
                     })
             }
             _ => 0.0,
@@ -340,7 +439,7 @@ pub(in crate::player) fn fill_rigged_drive(
         //
         // Peers are never held; neither is the local body outside those
         // editor states.
-        drive.hold = if locals.contains(child_of.parent()) {
+        drive.hold = if local {
             match (hold.at_rest, hold.pose) {
                 (true, _) => Hold::Rest,
                 (false, true) => Hold::Pose,
@@ -369,16 +468,27 @@ pub(in crate::player) fn fill_rigged_drive(
 /// on the driver's own clock. There is no missing-clip case either: every
 /// [`crate::player::emote::Emote`] names an engine gesture, guarded by test
 /// rather than checked per request.
+///
+/// **The body that stands here chooses** (#1806), read off the rig that is
+/// drawn as the hang is: what a beast plays on four legs, what a person plays
+/// otherwise, and nothing when the message asked this body for nothing.
 pub(in crate::player) fn start_emotes(
     mut requests: MessageReader<EmoteRequest>,
-    mut bodies: Query<(&ChildOf, &mut Drive), With<RiggedRoot>>,
+    mut bodies: Query<(&ChildOf, &mut Drive, Option<&AvatarBody>), With<RiggedRoot>>,
 ) {
     for request in requests.read() {
-        for (child_of, mut drive) in &mut bodies {
+        for (child_of, mut drive, body) in &mut bodies {
             if child_of.parent() != request.chassis {
                 continue;
             }
-            drive.gesture(request.emote.gesture_name());
+            let name = if body.is_some_and(|body| stands_on_four(&body.avatar.rig)) {
+                request.beast.map(BeastEmote::gesture_name)
+            } else {
+                request.emote.map(Emote::gesture_name)
+            };
+            if let Some(name) = name {
+                drive.gesture(name);
+            }
         }
     }
 }

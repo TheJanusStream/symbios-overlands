@@ -49,9 +49,12 @@ pub use body::{
 pub use gait::GaitParams;
 pub use locomotion::{
     AirplaneParams, CarParams, HelicopterParams, HoverBoatParams, HumanoidParams, LocomotionConfig,
-    LocomotionPickerEntry, LocomotionPreset,
+    LocomotionPickerEntry, LocomotionPreset, OnFootShape, fit_on_foot,
 };
-pub use wardrobe::{AttachmentRecord, EngineAvatarRecord, EngineProfileRecord, socket_label};
+pub use wardrobe::{
+    AttachmentRecord, BEAST_SOCKETS, EngineAvatarRecord, EngineProfileRecord, offers_socket,
+    socket_label,
+};
 
 use super::AVATAR_COLLECTION;
 use super::xrpc::{FetchError, XrpcError, decode_record_json, resolve_pds_outcome};

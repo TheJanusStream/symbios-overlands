@@ -1,8 +1,11 @@
-//! Humanoid preset - capsule rigid body with `LockedAxes` keeping it
-//! upright, walk/wading/swim controller, jump impulse. Visual mesh comes
-//! from the avatar's `visuals` generator tree; cosmetic root-level gait
-//! animation (bounce / sway / head-turn) lives in [`super::gait`], while
-//! per-limb articulation remains intentionally out of scope.
+//! Humanoid preset - the "On foot" body: a capsule rigid body with
+//! `LockedAxes` keeping it upright, walk/wading/swim controller, jump
+//! impulse. A person stands up in the capsule and is turned by its facing
+//! written; a four-legged beast lies along it and is turned by its angular
+//! velocity, its water read off its back ([`WaterColumn`], `lying_turn`,
+//! #1802). A rigged body is drawn by `super::rigged`; a generator body's
+//! cosmetic root-level gait animation (bounce / sway / head-turn) lives in
+//! [`super::gait`].
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
@@ -201,6 +204,17 @@ pub enum WaterState {
 /// swimming (#1324): the water at its chin, on the capsule the controller
 /// classifies with.
 ///
+/// **A beast's height is the top of its back** (#1802, [`WaterColumn::of`]):
+/// its lying capsule is only its trunk's depth tall, and on that a dog would
+/// swim in water short of its belly. Over its back the share puts the water
+/// above the trunk's middle - where a body as buoyant as a trunk floats - with
+/// the head still well out of it: on the default dog, whose back stands
+/// 0.70 m, swimming starts at 0.60 m of water, 0.18 m under the lowest point
+/// of its head; on the cat at 0.43 m, 0.06 m under; on the horse at 1.54 m,
+/// 0.40 m under (`a_beast_swims_from_its_back_with_its_head_out`). A share
+/// of the head's height instead would wade a beast with its back under
+/// water, which no animal does.
+///
 /// It used to be the whole height - the head had to go under - and that line
 /// was also the only one: a swimmer rising to the surface crossed it the
 /// moment its head came out, dropped into the land controller, fell back
@@ -250,13 +264,45 @@ const DIVE_PITCH: f32 = 0.61;
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq)]
 pub struct HumanoidWater(pub WaterState);
 
+/// The vertical line an on-foot body's water is read along (#1802): from its
+/// feet, `drop` under its chassis' origin, up `height`.
+///
+/// A person's is their capsule, centred on the origin. A beast lying along
+/// its capsule has its feet at the capsule's bottom too, but stands as tall
+/// as its back, which the capsule - only its trunk's depth - does not reach:
+/// its water depths are shares of that (`SWIM_FROM`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WaterColumn {
+    /// How far the feet are under the chassis' origin (m).
+    pub drop: f32,
+    /// How tall the body stands over them (m).
+    pub height: f32,
+}
+
+impl WaterColumn {
+    /// A body `height` tall centred on its origin: a person's capsule.
+    pub fn upright(height: f32) -> Self {
+        Self {
+            drop: height * 0.5,
+            height,
+        }
+    }
+
+    /// The column an on-foot record stands in: its feet at its collider's
+    /// bottom, its height its own ([`crate::pds::HumanoidParams::stand_height`]).
+    pub fn of(p: &crate::pds::HumanoidParams) -> Self {
+        Self {
+            drop: p.total_height() * 0.5,
+            height: p.stand_height(),
+        }
+    }
+}
+
 /// Classify the avatar's relationship to the water column at its XZ
 /// position, given whether it was swimming a moment ago. The avatar is
 /// treated as a vertical line segment of length `height` centred on
-/// `chassis_y` - its feet at `chassis_y - height/2`. The classifier samples
-/// [`WaterSurfaces::surface_at`] at the avatar's XZ to locate the containing
-/// surface, then compares the submerged share of the height against
-/// [`SWIM_FROM`] (to start swimming) or [`SWIM_UNTIL`] (to stop).
+/// `chassis_y` - its feet at `chassis_y - height/2` - which is
+/// [`water_state`] along [`WaterColumn::upright`].
 ///
 /// Returns [`WaterState::Dry`] when no water surface contains the
 /// avatar's column - the same fall-through used when the player walks
@@ -268,10 +314,33 @@ pub fn humanoid_water_state(
     height: f32,
     water_surfaces: &WaterSurfaces,
 ) -> WaterState {
+    water_state(
+        was_swimming,
+        chassis_y,
+        chassis_xz,
+        WaterColumn::upright(height),
+        water_surfaces,
+    )
+}
+
+/// Classify the avatar's relationship to the water column at its XZ
+/// position, given whether it was swimming a moment ago, along `column`: its
+/// feet `column.drop` under `chassis_y`. The classifier samples
+/// [`WaterSurfaces::surface_at`] at the avatar's XZ to locate the containing
+/// surface, then compares the submerged share of the column's height against
+/// `SWIM_FROM` (to start swimming) or `SWIM_UNTIL` (to stop).
+pub fn water_state(
+    was_swimming: bool,
+    chassis_y: f32,
+    chassis_xz: Vec2,
+    column: WaterColumn,
+    water_surfaces: &WaterSurfaces,
+) -> WaterState {
+    let height = column.height;
     let Some((_, surface_y)) = water_surfaces.surface_at(chassis_xz) else {
         return WaterState::Dry;
     };
-    let feet_y = chassis_y - height * 0.5;
+    let feet_y = chassis_y - column.drop;
     if feet_y >= surface_y {
         return WaterState::Dry;
     }
@@ -371,11 +440,11 @@ pub(super) fn publish_movement_facts(
         // two thresholds, and this system runs while the controller stands
         // down for a focused text field, so it cannot borrow the
         // controller's. Same inputs, same rule, so the two agree.
-        facts.water = humanoid_water_state(
+        facts.water = water_state(
             matches!(published.water, WaterState::Swimming { .. }),
             pos.y,
             Vec2::new(pos.x, pos.z),
-            p.total_height(),
+            WaterColumn::of(p),
             &water_surfaces,
         );
         // The same derivation `apply_humanoid_walk` uses for the unshifted
@@ -390,6 +459,139 @@ pub(super) fn publish_movement_facts(
     // vehicle preset has its own buoyancy and its own keys.
     if *published != facts {
         *published = facts;
+    }
+}
+
+/// How fast the ends of a long body may sweep round while it turns (m/s,
+/// #1802): a beast lying along its capsule turns no faster than this at its
+/// nose and its tail. About a dog's own spin on the spot - half a turn in a
+/// third of a second - and a horse's in a little under a second, where the
+/// person's turn rate unbounded would swing a horse's 2.3 m capsule round at
+/// 40 m/s at its ends.
+pub(crate) const LONG_BODY_END_SPEED: f32 = 4.0;
+
+/// How fast those ends may speed up (m/s², #1802): from standing to
+/// [`LONG_BODY_END_SPEED`] in an eighth of a second. The reason it is not
+/// instant is a wall: the solver stops a turn against one by taking the
+/// body's angular velocity away, and a turn asked at full speed again each
+/// step drove the end back into it, 23 to 31 mm deep on the default dog,
+/// cat and horse. Asked to speed up from what the solver left it, the turn
+/// presses an end into a wall at half a metre a second at most.
+pub(crate) const LONG_BODY_END_ACCEL: f32 = 32.0;
+
+/// What the physics last turned a lying body by (#1802), rad/s about Y: its
+/// angular velocity as avian's step left it - stopped against a wall, or
+/// carried on by a contact - before `end_lying_turns` took it away. What
+/// its next turn speeds up from (`lying_turn`). Required by
+/// [`super::HumanoidPreset`], as the water memory is.
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq)]
+pub struct LyingTurn(pub f32);
+
+/// The angular velocity that turns a lying body toward `facing` this step
+/// (#1802): the person's own turn - `turn_rate` of the way there a second,
+/// the share [`apply_humanoid_walk`]'s slerp turns a person by - held to
+/// [`LONG_BODY_END_SPEED`] at ends `reach` metres from its middle, and
+/// speeding up from `spun`, what the physics last turned it by, no faster
+/// than [`LONG_BODY_END_ACCEL`]; slowing down at once. Nothing at all with no
+/// facing to turn to, so a beast standing still is not spun by what it
+/// touches.
+///
+/// **By the physics, not by a written facing.** A person's capsule is round
+/// about Y, so a facing written to its transform turns nothing the solver
+/// can see; a beast's lies along it, and written round its ends would be
+/// put into whatever stands beside it, to be shoved out again. Turned by
+/// its angular velocity, a wall stops the turn.
+pub(crate) fn lying_turn(
+    rotation: Quat,
+    facing: Option<Vec3>,
+    turn_rate: f32,
+    (reach, spun): (f32, f32),
+    dt: f32,
+) -> Vec3 {
+    let Some(facing) = facing else {
+        return Vec3::ZERO;
+    };
+    let yaw = |forward: Vec3| (-forward.x).atan2(-forward.z);
+    let off = yaw(facing) - yaw(rotation * Vec3::NEG_Z);
+    let off = (off + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+    let share = (turn_rate * dt).clamp(0.0, 1.0);
+    let reach = reach.max(0.05);
+    let wanted =
+        (off * share / dt).clamp(-LONG_BODY_END_SPEED / reach, LONG_BODY_END_SPEED / reach);
+    // As fast as it already turned that way, and a step's speeding up more.
+    let already = (spun * wanted.signum()).max(0.0);
+    let most = already + LONG_BODY_END_ACCEL / reach * dt;
+    Vec3::Y * wanted.signum() * wanted.abs().min(most)
+}
+
+/// The local chassis' turn, what the physics left of the last one, its
+/// rotation, and whether it is on foot yet - [`end_lying_turns`]' one
+/// query. Every body that has ever been on foot carries a [`LyingTurn`]: a
+/// swap to another preset leaves it on the chassis.
+pub(super) type LyingTurns<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static mut AngularVelocity,
+        &'static mut LyingTurn,
+        &'static mut Rotation,
+        Has<HumanoidPreset>,
+    ),
+    With<LocalPlayer>,
+>;
+
+/// End a lying body's turn with every fixed step (#1802): the walk sets the
+/// angular velocity that turns it again each step it runs, and a step it is
+/// stood down for - a text field focused, an editor holding the body - must
+/// not carry the last one on and spin the beast round. What the physics left
+/// it turning at is kept in its [`LyingTurn`], which the next turn speeds up
+/// from. Ungated, and chained before the walk, as [`clear_jump_queue`] is
+/// after it.
+///
+/// **And keeps it level.** The physics holds a lying body's pitch and roll
+/// and turns it about Y alone, so a tilt it was given - set down on a slope,
+/// or swapped in from a car leaning on one - is a tilt nothing would ever
+/// take away: it is taken away here, the way it faces kept
+/// ([`super::preset::level`]); the spawn and the recoveries set a beast
+/// down level besides.
+///
+/// **And stops it the step it stops lying.** A beast become a person in
+/// place, or swapped to a vehicle, keeps the angular velocity the solver
+/// left it - and avian turns a body by its angular velocity whatever its
+/// locks, which only take the solver's say in it away: a person swapped in
+/// from a dog turning at full speed turned 93 degrees standing still. The
+/// first step that is not lying takes it away once, `was_lying` remembering
+/// the step before; a body that never lay is never touched.
+pub(super) fn end_lying_turns(
+    live: Option<Res<LiveAvatarRecord>>,
+    mut bodies: LyingTurns,
+    mut was_lying: Local<bool>,
+) {
+    let lying = live.is_some_and(|live| super::preset::lies_level(&live.0.locomotion));
+    let ended = std::mem::replace(&mut *was_lying, lying) && !lying;
+    for (mut spin, mut spun, mut rotation, on_foot) in &mut bodies {
+        if ended {
+            if spin.0 != Vec3::ZERO {
+                spin.0 = Vec3::ZERO;
+            }
+            if spun.0 != 0.0 {
+                spun.0 = 0.0;
+            }
+            continue;
+        }
+        if !lying || !on_foot {
+            continue;
+        }
+        if spun.0 != spin.0.y {
+            spun.0 = spin.0.y;
+        }
+        if spin.0 != Vec3::ZERO {
+            spin.0 = Vec3::ZERO;
+        }
+        let level = super::preset::level(rotation.0);
+        if level != rotation.0 {
+            rotation.0 = level;
+        }
     }
 }
 
@@ -436,7 +638,9 @@ pub fn run_key_is_dead(record_walk_speed: f32, derived_walk: f32) -> bool {
 ///
 /// The chassis turns toward its travel - except on land and wading in first
 /// person (#1746), where it faces where the eyes look, moving or not, and A,
-/// D and S step it sideways and back instead of turning it round.
+/// D and S step it sideways and back instead of turning it round. A person
+/// is turned by its facing written; a beast lying along its capsule by its
+/// angular velocity ([`lying_turn`], #1802).
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(super) fn apply_humanoid_walk(
     live: Res<LiveAvatarRecord>,
@@ -451,6 +655,10 @@ pub(super) fn apply_humanoid_walk(
             &mut Transform,
             &Position,
             &mut HumanoidWater,
+            // A lying body's turn (#1802): what the physics turns it by, and
+            // the rotation it has. Optional, so a harness that builds a
+            // person without them still walks it.
+            Option<(&Rotation, &mut AngularVelocity, &LyingTurn)>,
         ),
         (With<LocalPlayer>, With<HumanoidPreset>),
     >,
@@ -469,7 +677,8 @@ pub(super) fn apply_humanoid_walk(
     let LocomotionConfig::Humanoid(p) = &live.0.locomotion else {
         return;
     };
-    let Ok((entity, mut lin_vel, mut chassis_tf, position, mut water)) = query.single_mut() else {
+    let Ok((entity, mut lin_vel, mut chassis_tf, position, mut water, spin)) = query.single_mut()
+    else {
         return;
     };
 
@@ -477,11 +686,13 @@ pub(super) fn apply_humanoid_walk(
     // see `super::physics_pose`).
     let chassis_pos = position.0;
     let total_height = p.total_height();
-    let state = humanoid_water_state(
+    // A person's capsule, or a beast's back over its lying one (#1802).
+    let column = WaterColumn::of(p);
+    let state = water_state(
         matches!(water.0, WaterState::Swimming { .. }),
         chassis_pos.y,
         Vec2::new(chassis_pos.x, chassis_pos.z),
-        total_height,
+        column,
         &water_surfaces,
     );
     if water.0 != state {
@@ -600,9 +811,10 @@ pub(super) fn apply_humanoid_walk(
             }
         }
         WaterState::Swimming { depth } => {
-            // Afloat: the capsule's top is out of the water (#1324).
-            let submerged = depth + total_height * 0.5;
-            let afloat = submerged <= total_height;
+            // Afloat: the capsule's top is out of the water (#1324) - a
+            // beast's back (#1802).
+            let submerged = depth + column.drop;
+            let afloat = submerged <= column.height;
             // 3D forward = full camera direction, so swimming forward while
             // pitched down dives. Right is the camera's right vector with
             // its Y component flattened so strafing stays in a horizontal
@@ -666,7 +878,7 @@ pub(super) fn apply_humanoid_walk(
             // swims down. Fully under water nothing changes: the swim keeps
             // its own feel, including a slow sink with no keys held.
             if afloat {
-                let above = SWIM_FLOAT * total_height - submerged;
+                let above = SWIM_FLOAT * column.height - submerged;
                 desired.y = desired.y.min(-above * FLOAT_SETTLE);
             }
 
@@ -700,11 +912,7 @@ pub(super) fn apply_humanoid_walk(
         state,
         WaterState::Wading { .. } | WaterState::Swimming { .. }
     ) {
-        let feet_pos = Vec3::new(
-            chassis_pos.x,
-            chassis_pos.y - total_height * 0.5,
-            chassis_pos.z,
-        );
+        let feet_pos = Vec3::new(chassis_pos.x, chassis_pos.y - column.drop, chassis_pos.z);
         if let Some(q) = water_surfaces.query(feet_pos)
             && q.flow_strength > 0.0
             && q.flow_dir != Vec3::ZERO
@@ -712,7 +920,7 @@ pub(super) fn apply_humanoid_walk(
             // Cap the contributing depth at the avatar's height so an
             // arbitrarily deep pond doesn't accelerate the swimmer past
             // any sane velocity.
-            let depth = q.depth.min(total_height);
+            let depth = q.depth.min(column.height);
             lin_vel.0 += q.flow_dir * q.flow_strength * depth * dt;
         }
     }
@@ -731,7 +939,20 @@ pub(super) fn apply_humanoid_walk(
     // `super::avatar_visuals_row_selected`) let this system run, and
     // WASD slewed the "frozen" avatar's facing mid-edit.
     let frozen = hold.still;
-    if let Some(facing) = facing_target
+    if p.is_lying() {
+        if let Some((rotation, mut spin, spun)) = spin {
+            let turn = lying_turn(
+                rotation.0,
+                facing_target.filter(|_| !frozen),
+                p.turn_rate.0,
+                (p.capsule_length.0 * 0.5 + p.capsule_radius.0, spun.0),
+                dt,
+            );
+            if spin.0 != turn {
+                spin.0 = turn;
+            }
+        }
+    } else if let Some(facing) = facing_target
         && !frozen
     {
         let target = Transform::IDENTITY.looking_to(facing, Vec3::Y).rotation;
@@ -2173,8 +2394,14 @@ mod turning {
     ///     1.85, run 5.0,
     ///     ramp 9 / 13.5)
     ///   symbios-avatar 0.12.1  -112.2 mm     163.3 mm   -25.6..+27.3    -112.7 mm   196.8 mm   0
-    ///   steady bob             -115.3 mm (0.12.1: -116.2)
+    ///   symbios-avatar 0.14.0  -112.4 mm     163.4 mm   |..| 27.3       -113.0 mm   196.9 mm   0
+    ///   steady bob             -115.3 mm (0.12.1: -116.2, 0.14.0: -116.3)
     /// ```
+    ///
+    /// The 0.14.0 row is the body's move (#1801): engine generation 8 draws
+    /// Age before Build (#178), and this DID is 38, so its body fat
+    /// re-rolled from 0.059 to 0.060. The splay there is the test's printed
+    /// magnitude, not the range.
     ///
     /// **symbios-avatar 0.12.1 steps an orbit body at the ground it covers**
     /// (#1759, engine #363), as first person has been since #1755: the start
@@ -3256,5 +3483,561 @@ mod first_person_facing {
             facing.dot(velocity.normalize_or_zero()) > 0.99,
             "out of the eyes it faces its travel: {facing} against {velocity}"
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// A beast on foot, lying along its capsule (#1802)
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod beast_on_foot {
+    use super::*;
+    use crate::pds::avatar::locomotion::{beast_record, default_beast};
+    use crate::pds::{AvatarRecord, HumanoidParams};
+    use crate::player::sim::WalkBench;
+    use crate::water::WaterPlane;
+    use symbios_avatar::plan::{Family, Zone};
+
+    const FAMILIES: [Family; 3] = [Family::Dog, Family::Cat, Family::Horse];
+
+    fn params(record: &AvatarRecord) -> &HumanoidParams {
+        match &record.locomotion {
+            LocomotionConfig::Humanoid(p) => p,
+            other => panic!("not on foot: {other:?}"),
+        }
+    }
+
+    /// The two ends of a lying capsule's segment, in the world.
+    fn ends(bench: &WalkBench, p: &HumanoidParams) -> [Vec3; 2] {
+        let half = Vec3::Z * (p.capsule_length.0 * 0.5);
+        let (at, turned) = (bench.position(), bench.rotation());
+        let middle = at + turned * (Vec3::NEG_Z * p.capsule_ahead());
+        [middle + turned * half, middle - turned * half]
+    }
+
+    /// The yaw a body faces, as the walk counts it.
+    fn yaw(rotation: Quat) -> f32 {
+        let forward = rotation * Vec3::NEG_Z;
+        (-forward.x).atan2(-forward.z)
+    }
+
+    /// **A beast stands on its feet** (#1802): set down and settled, its
+    /// collider - lying, so longer than it is tall or wide - rests on the
+    /// floor, and the rig hung under it, at rest, has every foot on the
+    /// floor: the lowest point of each, its joint's reach under it, within
+    /// 15 mm under the floor and 5 mm over it (the engine's own rest pose
+    /// presses a paw 5 to 13 mm into its ground). A lying capsule is hung its
+    /// radius under its middle; hung by a person's rule, half its length and
+    /// both ends, the dog's feet stood 0.26 m in the floor and the horse's
+    /// 0.70 m. And the collider is under the body: its ends at the girdles,
+    /// over the feet, which the capsule spans from the hind pair to the fore.
+    #[test]
+    fn a_beast_stands_on_its_feet() {
+        for family in FAMILIES {
+            let record = beast_record(family);
+            let p = params(&record).clone();
+            let bench = WalkBench::standing(&record, 0.0, 0.0);
+            let bounds = bench.collider().aabb(bench.position(), bench.rotation());
+            let size = bounds.max - bounds.min;
+            assert!(
+                size.z > size.y * 1.5 && size.z > size.x * 1.5,
+                "a {family:?}'s collider is {size:.3?}: not lying along it"
+            );
+            assert!(
+                bounds.min.y.abs() < 0.005,
+                "a {family:?}'s collider rests {:+.1} mm off the floor",
+                bounds.min.y * 1000.0
+            );
+            // The rig as the game hangs it: the root under the chassis, by
+            // the record's offset, turned to face the chassis' -Z.
+            let rig = symbios_avatar::Rig::from_skeleton(&default_beast(family).skeleton())
+                .expect("a beast rigs");
+            let hang = Transform::from_translation(bench.position())
+                .with_rotation(bench.rotation())
+                * crate::player::visuals::rigged_root_transform(
+                    crate::player::visuals::rigged_root_offset(&record),
+                );
+            let feet: Vec<_> = rig
+                .joints
+                .iter()
+                .filter(|joint| matches!(joint.zone, Zone::Extremity(_)) && !joint.marker)
+                .collect();
+            assert!(feet.len() >= 4, "a {family:?} has {} feet", feet.len());
+            let mut lowest = std::collections::BTreeMap::new();
+            for foot in &feet {
+                let Zone::Extremity(limb) = foot.zone else {
+                    unreachable!()
+                };
+                let at = hang.transform_point(foot.position);
+                let low = at.y - foot.radius * foot.scale.y;
+                let entry = lowest.entry(format!("{limb:?}")).or_insert((f32::MAX, at));
+                if low < entry.0 {
+                    *entry = (low, at);
+                }
+            }
+            assert_eq!(lowest.len(), 4, "a {family:?}'s legs: {lowest:?}");
+            // The capsule's segment, in the world: the girdles' span.
+            let along = bench.rotation() * Vec3::NEG_Z;
+            let middle = bench.position() + along * p.capsule_ahead();
+            let half = p.capsule_length.0 * 0.5;
+            for (limb, (low, at)) in &lowest {
+                assert!(
+                    (-0.015..=0.005).contains(low),
+                    "a {family:?}'s {limb} foot stands {:+.1} mm off the floor",
+                    low * 1000.0
+                );
+                // Each foot under the capsule's span, within a radius of its
+                // nearer end.
+                let t = (*at - middle).dot(along);
+                assert!(
+                    t.abs() < half + p.capsule_radius.0,
+                    "a {family:?}'s {limb} foot is {t:+.3} m along from its capsule's middle, \
+                     past its end {half:.3} m away"
+                );
+            }
+        }
+    }
+
+    /// **A beast swims once the water closes over most of its back**
+    /// (#1802, [`SWIM_FROM`]): its water depths are shares of its back's
+    /// height over its feet, not of its lying capsule, which is only the
+    /// trunk's depth tall. It starts swimming above the trunk's middle and
+    /// stands again below it as a person does about their chest; its head is
+    /// out of the water where it starts, and by the capsule's height it would
+    /// have swum with the water under the trunk's middle.
+    #[test]
+    fn a_beast_swims_from_its_back_with_its_head_out() {
+        let surfaces = WaterSurfaces {
+            planes: vec![WaterPlane {
+                world_from_local: Transform::IDENTITY,
+                local_half_extents: Vec2::splat(50.0),
+                flow_strength: 0.0,
+                owner: WaterPlane::NO_OWNER,
+                cells: None,
+            }],
+        };
+        for family in FAMILIES {
+            let record = beast_record(family);
+            let p = params(&record);
+            let column = WaterColumn::of(p);
+            let r = p.capsule_radius.0;
+            assert_eq!(
+                column.drop, r,
+                "a {family:?}'s feet are its collider's bottom"
+            );
+            assert_eq!(column.height, p.stand_height());
+            // The chassis' height with `share` of the beast's height under a
+            // surface at y = 0.
+            let at = |share: f32| column.drop - share * column.height;
+            let state =
+                |share: f32, was| water_state(was, at(share), Vec2::ZERO, column, &surfaces);
+            let wading = |share| matches!(state(share, false), WaterState::Wading { .. });
+            assert!(wading(SWIM_FROM - 0.01), "a {family:?} swims too soon");
+            assert!(!wading(SWIM_FROM + 0.01), "a {family:?} does not swim");
+            assert!(matches!(
+                state(SWIM_UNTIL + 0.01, true),
+                WaterState::Swimming { .. }
+            ));
+            assert!(matches!(
+                state(SWIM_UNTIL - 0.01, true),
+                WaterState::Wading { .. }
+            ));
+            let line = SWIM_FROM * column.height;
+            let middle = column.height - r;
+            assert!(
+                line > middle,
+                "a {family:?} swims with the water at {line:.3} m, under its trunk's middle \
+                 {middle:.3} m up"
+            );
+            let rig = symbios_avatar::Rig::from_skeleton(&default_beast(family).skeleton())
+                .expect("a beast rigs");
+            let chin = rig
+                .joints
+                .iter()
+                .filter(|joint| joint.zone == Zone::Head)
+                .map(|joint| joint.position.y - joint.radius)
+                .fold(f32::MAX, f32::min);
+            assert!(
+                chin > line + 0.03,
+                "a {family:?} starts swimming with the water at {line:.3} m and its head's \
+                 lowest point {chin:.3} m up"
+            );
+            assert!(
+                SWIM_FROM * p.total_height() < middle,
+                "the premise: by its capsule's height a {family:?} swims under its trunk's middle"
+            );
+        }
+    }
+
+    /// **A beast walks, stops, turns and steps up a kerb, and never sinks**
+    /// (#1802): W walks it ahead, letting go stops it, D turns it to face
+    /// +X - its ends never sweeping faster than [`LONG_BODY_END_SPEED`] - and
+    /// walks it up a 3 cm step; its collider's bottom stays on what it stands
+    /// on within 5 mm throughout. A step is mounted by the capsule's round
+    /// end, so what a body walks up goes with its radius, as a person's does
+    /// (`probe_steps_and_walls`): the default person walks up 5 cm and runs
+    /// up 8, the dog walks and runs up 5, the cat walks up 3 and runs up 5,
+    /// and the horse walks up 10 and runs up 15.
+    #[test]
+    fn a_beast_walks_stops_turns_and_steps_up_a_kerb() {
+        const STEP: f32 = 0.03;
+        for family in FAMILIES {
+            let record = beast_record(family);
+            let p = params(&record).clone();
+            let r = p.capsule_radius.0;
+            let reach = p.capsule_length.0 * 0.5 + r;
+            let mut bench = WalkBench::standing(&record, 0.0, 0.0);
+            let mut sunk = 0.0f32;
+            let mut sinks = |bench: &WalkBench, floor: f32| {
+                sunk = sunk.max(floor - (bench.position().y - r));
+            };
+
+            bench.hold(&[KeyCode::KeyW]);
+            for _ in 0..128 {
+                bench.step();
+                sinks(&bench, 0.0);
+            }
+            let walking = bench.velocity();
+            assert!(
+                walking.z < -0.5 && walking.x.abs() < 1e-3,
+                "a {family:?} walks at {walking:.3?}"
+            );
+
+            bench.hold(&[]);
+            bench.run(0.5);
+            sinks(&bench, 0.0);
+            assert!(
+                bench.velocity().length() < 0.01,
+                "a {family:?} has not stopped: {:.3?}",
+                bench.velocity()
+            );
+
+            // The step ahead of where D walks it, 3 cm high.
+            let from = bench.position();
+            let kerb = from.x + reach + 1.0;
+            bench.block(
+                Transform::from_xyz(kerb + 3.0, STEP * 0.5, from.z),
+                Vec3::new(3.0, STEP * 0.5, 3.0),
+            );
+            bench.hold(&[KeyCode::KeyD]);
+            let mut fastest = 0.0f32;
+            for _ in 0..96 {
+                bench.step();
+                fastest = fastest.max(bench.angular_velocity().y.abs() * reach);
+                sinks(&bench, 0.0);
+            }
+            let facing = yaw(bench.rotation()).to_degrees();
+            assert!(
+                (facing + 90.0).abs() < 1.0,
+                "a {family:?} turned to {facing:.2} deg, not to face +X"
+            );
+            assert!(
+                fastest <= LONG_BODY_END_SPEED + 1e-3,
+                "a {family:?}'s ends swept round at {fastest:.2} m/s"
+            );
+            bench.run(3.0);
+            let on = bench.position();
+            assert!(
+                on.x > kerb + reach && (on.y - r - STEP).abs() < 0.005,
+                "a {family:?} did not step up onto the kerb at x {kerb:.2}: it is at {on:.3?}"
+            );
+            assert!(
+                sunk < 0.005,
+                "a {family:?} sank {:.1} mm into the floor",
+                sunk * 1000.0
+            );
+        }
+    }
+
+    /// **A beast turning beside a wall stays out of it** (#1802): standing
+    /// along a wall 2 cm off its flank, D turns it toward the wall and walks
+    /// it into it. The physics turns a lying capsule, so the wall stops the
+    /// turn; written round by its facing as a person is, its end was put
+    /// into the wall and shoved back out (the dog's 119 mm into it).
+    #[test]
+    fn a_beast_turning_beside_a_wall_stays_out_of_it() {
+        for family in FAMILIES {
+            let record = beast_record(family);
+            let p = params(&record).clone();
+            let r = p.capsule_radius.0;
+            let mut bench = WalkBench::standing(&record, 0.0, 0.0);
+            let face = bench.position().x + r + 0.02;
+            bench.block(
+                Transform::from_xyz(face + 0.1, 1.5, 0.0),
+                Vec3::new(0.1, 1.5, 6.0),
+            );
+            bench.step();
+            bench.hold(&[KeyCode::KeyD]);
+            let mut deepest = f32::MIN;
+            for _ in 0..192 {
+                bench.step();
+                let reaches = ends(&bench, &p)
+                    .into_iter()
+                    .map(|end| end.x + r)
+                    .fold(f32::MIN, f32::max);
+                deepest = deepest.max(reaches - face);
+            }
+            // Half a millimetre: the turn stops at the wall, which the real
+            // code meets at under a tenth of one. With the yaw locked too,
+            // written round instead, the dog pushed 4.6 mm in, the cat 5.9
+            // and the horse 1.0.
+            assert!(
+                deepest < 0.0005,
+                "a {family:?} turning beside a wall pushed {:.2} mm into it",
+                deepest * 1000.0
+            );
+            assert!(
+                bench.position().x < face,
+                "a {family:?} went through the wall"
+            );
+        }
+    }
+
+    /// A beast's turn ends with the step it was set for (#1802): a step the
+    /// walk is stood down for - a text field focused - leaves it still, not
+    /// spinning on at the last turn's speed.
+    #[test]
+    fn a_beast_stood_down_mid_turn_stops_turning() {
+        use bevy::ecs::system::RunSystemOnce;
+        let record = beast_record(Family::Dog);
+        let mut bench = WalkBench::standing(&record, 0.0, 0.0);
+        bench.hold(&[KeyCode::KeyD]);
+        for _ in 0..4 {
+            bench.step();
+        }
+        assert!(
+            bench.angular_velocity().y.abs() > 1.0,
+            "the fixture: it is turning"
+        );
+        bench
+            .world_mut()
+            .run_system_once(end_lying_turns)
+            .expect("the end of a turn runs");
+        assert_eq!(bench.angular_velocity(), Vec3::ZERO);
+    }
+
+    /// How far a rotation leans off the vertical (degrees).
+    fn lean(rotation: Quat) -> f32 {
+        (rotation * Vec3::Y).angle_between(Vec3::Y).to_degrees()
+    }
+
+    /// The tilt a 10.2 degree slope gives what is set down flush on it.
+    fn slope_tilt() -> Quat {
+        Quat::from_rotation_arc(Vec3::Y, Vec3::new(0.0, 1.0, 0.18).normalize())
+    }
+
+    /// **A beast swapped in leaning stands level, and stays level** (#1802):
+    /// a body handed over tilted - a car leaning on a slope swapped for a
+    /// beast keeps its chassis' rotation - is level by the next step, facing
+    /// the way it faced, and stays level standing, walking and turning. A
+    /// person standing flush on a slope become a beast in place is levelled
+    /// the same way. Nothing else would level it: the physics holds a lying
+    /// body's pitch and roll and turns it about Y alone, and the 10.2 degree
+    /// tilt stood at 10.20 degrees at rest, 10.20 after a second's walk and
+    /// 9.62 after three seconds of turning.
+    #[test]
+    fn a_beast_swapped_in_leaning_stands_level() {
+        for family in FAMILIES {
+            let record = beast_record(family);
+            let mut bench = WalkBench::standing(&record, 0.0, 0.0);
+            let body = bench.body();
+            let faced = Quat::from_rotation_y(0.4);
+            bench
+                .world_mut()
+                .get_mut::<Rotation>(body)
+                .expect("a body")
+                .0 = slope_tilt() * faced;
+            bench.step();
+            assert!(
+                bench.rotation().abs_diff_eq(faced, 1e-5),
+                "a {family:?} swapped in leaning stands at {:?}, {:.2} deg off level",
+                bench.rotation(),
+                lean(bench.rotation())
+            );
+            let mut most = 0.0f32;
+            for keys in [&[][..], &[KeyCode::KeyW], &[KeyCode::KeyD]] {
+                bench.hold(keys);
+                for _ in 0..128 {
+                    bench.step();
+                    most = most.max(lean(bench.rotation()));
+                }
+            }
+            assert!(most < 1e-3, "a {family:?} leaned {most:.4} deg");
+        }
+        // A person set down flush on the slope, become a beast where it
+        // stands.
+        let mut person = AvatarRecord::default_for_did("did:plc:beast-bench");
+        person.locomotion = LocomotionConfig::Humanoid(Box::default());
+        let mut bench = WalkBench::standing(&person, 0.0, 0.0);
+        let body = bench.body();
+        bench
+            .world_mut()
+            .get_mut::<Rotation>(body)
+            .expect("a body")
+            .0 = slope_tilt();
+        bench
+            .world_mut()
+            .insert_resource(LiveAvatarRecord(beast_record(Family::Dog)));
+        bench.step();
+        assert!(
+            lean(bench.rotation()) < 1e-3,
+            "a person become a beast in place leans {:.2} deg",
+            lean(bench.rotation())
+        );
+    }
+
+    /// **A beast that stops lying mid-turn stops turning** (#1802): a dog
+    /// and a horse turning at full speed become a person in place, or are
+    /// swapped for a car, and the turn the solver left them is gone by the
+    /// next step's own systems - a person standing still does not turn at
+    /// all. Avian turns
+    /// a body by its angular velocity whatever its locks, and before this
+    /// the person swapped in from the dog turned 92.8 degrees in two seconds
+    /// standing still, from the horse 78.1.
+    #[test]
+    fn a_beast_that_stops_lying_mid_turn_stops_turning() {
+        let turning = |family| {
+            let record = beast_record(family);
+            let mut bench = WalkBench::standing(&record, 0.0, 0.0);
+            bench.hold(&[KeyCode::KeyD]);
+            for _ in 0..6 {
+                bench.step();
+            }
+            assert!(
+                bench.angular_velocity().y.abs() > 1.0,
+                "the fixture: a {family:?} is turning"
+            );
+            bench.hold(&[]);
+            // Stopped where it stands, so the person the swap stands there
+            // has no travel of its own to turn toward.
+            let body = bench.body();
+            bench
+                .world_mut()
+                .get_mut::<LinearVelocity>(body)
+                .expect("a body")
+                .0 = Vec3::ZERO;
+            (record, bench)
+        };
+        for family in [Family::Dog, Family::Horse] {
+            let (record, mut bench) = turning(family);
+            let mut person = record.clone();
+            person.locomotion = LocomotionConfig::Humanoid(Box::default());
+            bench.world_mut().insert_resource(LiveAvatarRecord(person));
+            // The step's own systems, before avian's step can say anything
+            // of the body's contacts.
+            bench.world_mut().run_schedule(FixedUpdate);
+            assert_eq!(
+                bench.angular_velocity(),
+                Vec3::ZERO,
+                "a {family:?} become a person"
+            );
+            let before = yaw(bench.rotation());
+            bench.run(2.0);
+            let turned = (yaw(bench.rotation()) - before).to_degrees();
+            assert!(
+                turned.abs() < 1e-3,
+                "a person swapped in from a turning {family:?} turned {turned:.2} deg standing still"
+            );
+
+            let (record, mut bench) = turning(family);
+            let mut car = record.clone();
+            car.locomotion = LocomotionConfig::Car(Box::default());
+            bench.world_mut().insert_resource(LiveAvatarRecord(car));
+            bench.world_mut().run_schedule(FixedUpdate);
+            assert_eq!(
+                bench.angular_velocity(),
+                Vec3::ZERO,
+                "a {family:?} swapped for a car"
+            );
+        }
+    }
+
+    /// A person's turn is the one it always was (#1802): no angular velocity
+    /// - its capsule's axes are all locked - and its facing written.
+    #[test]
+    fn a_person_turns_as_before() {
+        let mut record = AvatarRecord::default_for_did("did:plc:beast-bench");
+        record.locomotion = LocomotionConfig::Humanoid(Box::default());
+        let mut bench = WalkBench::standing(&record, 0.0, 0.0);
+        bench.hold(&[KeyCode::KeyD]);
+        bench.run(1.5);
+        assert_eq!(bench.angular_velocity(), Vec3::ZERO);
+        assert!((yaw(bench.rotation()).to_degrees() + 90.0).abs() < 1.0);
+    }
+
+    /// What a body on foot walks and runs up, and how far a wall beside it
+    /// lets it turn (#1802): the person and the three default beasts, steps
+    /// from 3 to 15 cm, 1 m ahead of their capsules' ends, four seconds each.
+    #[test]
+    #[ignore = "a probe: prints the steps each body walks up"]
+    fn probe_steps_and_walls() {
+        let mut person = AvatarRecord::default_for_did("did:plc:beast-bench");
+        person.locomotion = LocomotionConfig::Humanoid(Box::default());
+        let mut bodies = vec![("person".to_owned(), person)];
+        bodies.extend(FAMILIES.map(|family| (format!("{family:?}"), beast_record(family))));
+        for (name, record) in &bodies {
+            let p = params(record).clone();
+            let r = p.capsule_radius.0;
+            let reach = if p.is_lying() {
+                p.capsule_length.0 * 0.5 + r
+            } else {
+                r
+            };
+            for step in [0.03f32, 0.05, 0.08, 0.1, 0.15] {
+                let mut ups = [false; 2];
+                for (run, went_up) in ups.iter_mut().enumerate() {
+                    let mut bench = WalkBench::standing(record, 0.0, 0.0);
+                    let edge = bench.position().x + reach + 1.0;
+                    bench.block(
+                        Transform::from_xyz(edge + 3.0, step * 0.5, 0.0),
+                        Vec3::new(3.0, step * 0.5, 3.0),
+                    );
+                    let keys: &[KeyCode] = if run == 1 {
+                        &[KeyCode::KeyD, KeyCode::ShiftLeft]
+                    } else {
+                        &[KeyCode::KeyD]
+                    };
+                    bench.hold(keys);
+                    let mut up = false;
+                    for _ in 0..256 {
+                        bench.step();
+                        up |= bench.position().x > edge + reach
+                            && bench.position().y - p.total_height() * 0.5 > step * 0.5;
+                    }
+                    *went_up = up;
+                }
+                println!(
+                    "{name}: a {step} m step walked up {}, run up {}",
+                    ups[0], ups[1]
+                );
+            }
+            let mut bench = WalkBench::standing(record, 0.0, 0.0);
+            let face = bench.position().x + r + 0.02;
+            bench.block(
+                Transform::from_xyz(face + 0.1, 1.5, 0.0),
+                Vec3::new(0.1, 1.5, 6.0),
+            );
+            bench.step();
+            bench.hold(&[KeyCode::KeyD]);
+            let mut deepest = f32::MIN;
+            for _ in 0..192 {
+                bench.step();
+                let reaches = if p.is_lying() {
+                    ends(&bench, &p)
+                        .into_iter()
+                        .map(|end| end.x + r)
+                        .fold(f32::MIN, f32::max)
+                } else {
+                    bench.position().x + r
+                };
+                deepest = deepest.max(reaches - face);
+            }
+            println!(
+                "{name}: beside a wall, turned to {:.1} deg, {:.1} mm into it at the deepest",
+                yaw(bench.rotation()).to_degrees(),
+                deepest * 1000.0
+            );
+        }
     }
 }

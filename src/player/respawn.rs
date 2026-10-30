@@ -190,6 +190,19 @@ pub fn recovery_pose(
     }
 }
 
+/// `pose` as the body wearing `live` is set down at it: flush on the slope,
+/// unless it lies along its capsule - a beast the physics only turns about Y
+/// is set down level, or it would lean for the rest of the session (#1802,
+/// [`super::preset::set_down_rotation`]).
+fn set_down(pose: RecoveryPose, live: Option<&LiveAvatarRecord>) -> RecoveryPose {
+    RecoveryPose {
+        rot: live.map_or(pose.rot, |live| {
+            super::preset::set_down_rotation(&live.0.locomotion, pose.rot)
+        }),
+        ..pose
+    }
+}
+
 /// Where the owner has asked to be moved, on purpose (#1240 f159, #1244
 /// f148).
 ///
@@ -381,7 +394,7 @@ pub(super) fn apply_player_move(
             let landing = room
                 .as_deref()
                 .and_then(|r| crate::world_builder::compile::landing_on(&r.0, &hm_res));
-            let pose = recovery_pose(&hm_res, landing, clearance);
+            let pose = set_down(recovery_pose(&hm_res, landing, clearance), live.as_deref());
             rot.0 = pose.rot;
             if let Some(landing) = &landing {
                 facing_set.write(FacingSet::at(pose.rot, landing));
@@ -476,7 +489,7 @@ pub(super) fn respawn_if_fallen(
     let clearance = live.as_deref().map_or(cfg::SPAWN_HEIGHT_OFFSET, |live| {
         super::preset::set_down_height(&live.0.locomotion)
     });
-    let pose = recovery_pose(&hm_res, landing, clearance);
+    let pose = set_down(recovery_pose(&hm_res, landing, clearance), live.as_deref());
     pos.0 = pose.pos;
     rot.0 = pose.rot;
     if let Some(landing) = &landing {
@@ -638,6 +651,82 @@ mod tests {
                 said,
                 vec![FacingSet(set_down, Some(14f32.to_radians()))],
                 "fall {fall}"
+            );
+        }
+    }
+
+    /// **A beast is recovered level on a slope, a person flush on it**
+    /// (#1802): a return to the spawn and a fall's recovery both set a body
+    /// down on ground rising toward +X, at a landing facing 90 degrees. The
+    /// physics turns a lying body about Y alone, so the slope's tilt would be
+    /// a lean for the session; it is set down facing the landing's way and
+    /// nothing else, and a person is set down flush on the slope as always.
+    #[test]
+    fn a_beast_is_recovered_level_on_a_slope() {
+        use bevy::ecs::system::RunSystemOnce;
+        let recover = |fall: bool, record: crate::pds::AvatarRecord| {
+            let mut map = bevy_symbios_ground::HeightMap::new(33, 33, 2.0);
+            for z in 0..33 {
+                for x in 0..33 {
+                    map.set(x, z, x as f32 * 0.4);
+                }
+            }
+            let room = crate::pds::RoomRecord {
+                default_landing: Some(crate::pds::DefaultLanding {
+                    pos: crate::pds::Fp2([6.0, -4.0]),
+                    y: None,
+                    yaw_deg: crate::pds::Fp(90.0),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
+            let mut app = App::new();
+            app.add_plugins(MinimalPlugins)
+                .add_message::<FacingSet>()
+                .init_resource::<crate::diagnostics::SessionLog>()
+                .init_resource::<crate::diagnostics::MetricsRegistry>()
+                .init_resource::<crate::diagnostics::anomaly::RecentRespawns>()
+                .init_resource::<crate::notify::Toasts>()
+                .insert_resource(LiveRoomRecord(room))
+                .insert_resource(LiveAvatarRecord(record))
+                .insert_resource(crate::terrain::FinishedHeightMap(map, None))
+                .insert_resource(PlayerMoveRequest(
+                    (!fall).then_some(PlayerMove::ReturnToSpawn),
+                ));
+            let at = Vec3::Y * if fall { -100.0 } else { 10.0 };
+            let body = app
+                .world_mut()
+                .spawn((
+                    LocalPlayer,
+                    Position(at),
+                    Rotation::default(),
+                    LinearVelocity::default(),
+                    AngularVelocity::default(),
+                ))
+                .id();
+            let ran = if fall {
+                app.world_mut().run_system_once(respawn_if_fallen)
+            } else {
+                app.world_mut().run_system_once(apply_player_move)
+            };
+            ran.expect("the recovery runs");
+            app.world().get::<Rotation>(body).expect("a body").0
+        };
+        let beast = crate::pds::avatar::locomotion::beast_record(symbios_avatar::plan::Family::Dog);
+        let mut person = crate::pds::AvatarRecord::default_for_did("did:plc:slope-recovery");
+        person.locomotion = crate::pds::LocomotionConfig::Humanoid(Box::default());
+        for fall in [false, true] {
+            let set_down = recover(fall, beast.clone());
+            assert!(
+                set_down.abs_diff_eq(Quat::from_rotation_y(90f32.to_radians()), 1e-5),
+                "fall {fall}: a beast is set down at {set_down:?}, leaning {:.2} deg",
+                (set_down * Vec3::Y).angle_between(Vec3::Y).to_degrees()
+            );
+            let flush = recover(fall, person.clone());
+            let lean = (flush * Vec3::Y).angle_between(Vec3::Y).to_degrees();
+            assert!(
+                lean > 5.0,
+                "fall {fall}: the premise, a person is set down flush on the slope ({lean:.2} deg)"
             );
         }
     }
