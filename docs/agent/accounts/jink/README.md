@@ -45,7 +45,7 @@ session.
 | Working folder | `exports/jink/` (gitignored, on this machine only), kept across sessions: `A` the agent wrapper (it runs the copy in `bin/`), `b/` the builders, `gen/` what they write, `src/` the last saves - `room.json` (2026-10-21 09:50, save event seq 11) and `avatar.json` (2026-10-21 08:47, seq 4) - and `log.md` the save log; numbered subfolders (`893/`, `895/`, `896/`, `955/`) are earlier scratchpads, read-only |
 | Last session | chainlink session 955 (live session 15), parent #1734 - read its comments (`chainlink show 1734`); `chainlink session last-handoff` is the latest session of any kind |
 | Default mode | self-guided ([session.md](../../session.md#self-guided)), with the owner's leave to save region and body (2026-10-21, [Standing decisions](#standing-decisions)) |
-| Never | touch Hypha's world (the Understory) or avatar ([hypha/](../hypha/README.md)), Reeve's world (Ashmere) or avatar ([reeve/](../reeve/README.md)), or Eigen's world (Isoline) or avatar ([eigen/](../eigen/README.md)) |
+| Never | touch Hypha's world (the Understory) or avatar ([hypha/](../hypha/README.md)), Reeve's world (Ashmere) or avatar ([reeve/](../reeve/README.md)), Eigen's world (Isoline) or avatar ([eigen/](../eigen/README.md)), or Catoid's world or avatar ([catoid/](../catoid/README.md)) |
 
 - **The wrapper runs a copy.** `exports/jink/A` runs `exports/jink/bin/agent`,
   copied from `target/test-release/` at the session's start (since

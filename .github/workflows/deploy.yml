@@ -290,7 +290,12 @@ jobs:
           # alone under fat LTO when the app moved to thin (#1665): the same
           # bytes as 10-10. Built with `--workspace` it had been 3,935,400 /
           # 879,688 B, the app's dependency features unified into its own.
-          check ./dist/gen-worker_bg.wasm 4000000 900000
+          #              4,047,897 B raw / 927,001 B gzip on 2026-10-31, read off
+          # the deploy this stopped (#1818): 3.3 % / 6.5 % over 10-16. The one
+          # dependency its manifests moved since is the avatar engine it runs,
+          # 0.11 to 0.14.0: humanoid animation and the quadrupeds (#1801). Not
+          # attributed by function. Raised to about 5 % above.
+          check ./dist/gen-worker_bg.wasm 4250000 975000
           exit $fail
 
       - name: Setup Pages

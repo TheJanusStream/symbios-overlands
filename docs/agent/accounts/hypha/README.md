@@ -26,7 +26,7 @@ session.
 | Working folder | `exports/hypha/` (gitignored, on this machine only), kept across sessions: `src/room.json` and `src/avatar.json` are the last saves (room copied from `948/src/`, saved 2026-10-19 10:23 local, seq 13 of that run; avatar from `878/src/`, 2026-09-26 08:37), `log.md` the save log. The numbered subfolders `873/`, `874/`, `876/`, `877/`, `878/` and `948/` are those sessions' scratchpads: read them, build nothing in them |
 | Last session | chainlink session 948 (live session 13), parent #1712 - read its comments (`chainlink show 1712`); the one before, 878 (live 6, #1474), holds the last ranked review; `chainlink session last-handoff` is the latest session of any kind |
 | Default mode | [self-guided](../../session.md#self-guided), as in 878; 873-877 and 948 took tasks in chat |
-| Never | touch Reeve's world (Ashmere) or his avatar ([his page](../reeve/README.md)), Jink's world (Parabola Flats) or avatar ([its page](../jink/README.md)), or Eigen's world (Isoline) or avatar ([eigen/](../eigen/README.md)); close a live session's parent - the owner does that |
+| Never | touch Reeve's world (Ashmere) or his avatar ([his page](../reeve/README.md)), Jink's world (Parabola Flats) or avatar ([its page](../jink/README.md)), Eigen's world (Isoline) or avatar ([eigen/](../eigen/README.md)), or Catoid's world or avatar ([catoid/](../catoid/README.md)); close a live session's parent - the owner does that |
 
 - No live retry of Hypha's own is pending. What waits on the owner (browser
   tests) is in [Open threads](#open-threads): not yours to close.
