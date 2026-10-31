@@ -372,6 +372,16 @@ impl EyeMount {
         }
     }
 
+    /// How far over the chassis' origin these eyes stand, for the agent's eye
+    /// view, which is native only.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn over_centre(self) -> f32 {
+        match self {
+            Self::OnFoot { eye } => eye.y,
+            Self::Vehicle { at } => at.y,
+        }
+    }
+
     /// The eyes' pose on `chassis`, the head turned `yaw` and pitched `pitch`
     /// by the orbit's own convention (`pitch` down, as the orbit's camera
     /// looks down at its focus): on foot `yaw` is a heading, in a vehicle the

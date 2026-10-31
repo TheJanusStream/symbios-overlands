@@ -2167,6 +2167,7 @@ mod tests {
                 socket: String::from("head"),
                 offset: Default::default(),
                 fit_band_mm: 0,
+                fit_beast_mm: 0,
                 source: None,
             },
         }

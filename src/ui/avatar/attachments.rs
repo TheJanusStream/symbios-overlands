@@ -502,11 +502,23 @@ pub(super) fn draw_attachments_tab(
                             // must not pretend to be on screen.
                             let worn_socket = attachment.record.socket();
                             if let Some(socket) = worn_socket
-                                && !crate::pds::avatar::offers_socket(anatomy, socket)
+                                && !crate::pds::avatar::dresses(
+                                    anatomy,
+                                    socket,
+                                    attachment.record.fit_beast_mm,
+                                )
                             {
                                 ui.colored_label(
                                     crate::ui::theme::current(ui.ctx()).status.warn,
-                                    beast_unworn_line(socket),
+                                    if crate::pds::avatar::offers_socket(anatomy, socket) {
+                                        format!(
+                                            "Not worn - this is {}. The prop stays in your \
+                                             outfit for a body that wears it.",
+                                            cut_for(anatomy)
+                                        )
+                                    } else {
+                                        beast_unworn_line(socket)
+                                    },
                                 );
                             } else if worn_socket.is_some_and(|socket| !body.has_socket(socket)) {
                                 ui.colored_label(
@@ -527,7 +539,14 @@ pub(super) fn draw_attachments_tab(
                             // schema has a face in the editor - never edited
                             // here: the declaration belongs to the catalogue
                             // entry, and the computed scale to the body.
-                            if attachment.record.fit_band_mm != 0 {
+                            if attachment.record.fit_beast_mm != 0 {
+                                ui.small(format!(
+                                    "fitted: {} mm authored, scaled to a four-legged body \
+                                     while the offset stays engine-seated",
+                                    attachment.record.fit_beast_mm
+                                ));
+                            }
+                            if attachment.record.fit_band_mm != 0 && anatomy.human_trunk() {
                                 ui.small(format!(
                                     "fitted: {} mm band, scaled to your head while the \
                                      offset stays engine-seated",
@@ -841,6 +860,40 @@ pub(crate) fn wear_blocked_reason(
         ));
     }
     None
+}
+
+/// Why the live body would not wear this prop (#1807, owner decision D9), or
+/// `None` when it would: a person with something cut for a beast, a beast
+/// with something it is not dressed in. Apart from [`wear_blocked_reason`],
+/// which is about the body whatever the item, and asked after it by every
+/// surface that offers to wear something, so a click that would leave a prop
+/// in the outfit and off the body says so first.
+pub(crate) fn wear_refused_reason(
+    avatar: Option<&AvatarRecord>,
+    socket: &str,
+    fit_beast_mm: u32,
+) -> Option<String> {
+    let resolved = avatar?.body.rigged_ref()?.resolved.as_ref()?;
+    let socket = symbios_avatar::Socket::from_name(socket)?;
+    let anatomy = resolved.body.archetype.anatomy();
+    if crate::pds::avatar::dresses(anatomy, socket, fit_beast_mm) {
+        None
+    } else if crate::pds::avatar::offers_socket(anatomy, socket) {
+        Some(format!("This is {}.", cut_for(anatomy)))
+    } else {
+        Some(beast_unworn_line(socket))
+    }
+}
+
+/// Who a prop a body does not wear is cut for (#1807): the worn row and the
+/// disabled Wear buttons say it in their own sentences. Only asked of a socket
+/// the body offers: one it does not is [`beast_unworn_line`]'s.
+fn cut_for(anatomy: symbios_avatar::Anatomy) -> &'static str {
+    if anatomy.human_trunk() {
+        "cut for a four-legged body"
+    } else {
+        "cut for a person - a four-legged body wears what is cut for one, and a crown"
+    }
 }
 
 /// Put a built attachment record on the body: sanitised, at a minted TID,
@@ -1747,7 +1800,7 @@ mod beast_socket_tests {
         assert_eq!(
             text.iter().filter(|t| **t == unworn).count(),
             1,
-            "the left-hand prop says it is not worn, and the collar does not: {text:?}"
+            "the left-hand prop says it is not worn and why: {text:?}"
         );
         assert!(
             !changed,
@@ -1765,5 +1818,66 @@ mod beast_socket_tests {
         assert_eq!(chips.len(), symbios_avatar::Socket::ALL.len(), "{chips:?}");
         assert!(!text.iter().any(|t| t.starts_with("Not worn")), "{text:?}");
         assert!(!changed);
+    }
+
+    /// **A Wear button says what the dresser would do** (#1807, D9), on the
+    /// socket and the cut together: a beast refuses the banner though it has
+    /// a back, a person the collar though they have a neck, and each is
+    /// offered the rest. No record says nothing, as the blocked reasons do.
+    #[test]
+    fn a_wear_is_refused_by_the_cut_as_the_dresser_refuses_it() {
+        use symbios_avatar::Socket;
+        let beast = dressed_as(crate::pds::avatar::locomotion::default_beast(
+            symbios_avatar::plan::Family::Horse,
+        ));
+        let person = dressed_as(crate::pds::avatar::wardrobe::engine_default_for_did(
+            "did:plc:socket-test",
+        ));
+        let refused = |avatar: &crate::pds::AvatarRecord, socket: Socket, cut: u32| {
+            wear_refused_reason(Some(avatar), socket.name(), cut)
+        };
+        assert!(refused(&beast, Socket::Neck, 200).is_none());
+        assert!(refused(&beast, Socket::Back, 600).is_none());
+        assert!(refused(&beast, Socket::Crown, 140).is_none());
+        assert!(refused(&beast, Socket::Crown, 0).is_none(), "the circlet");
+        assert!(refused(&beast, Socket::Back, 0).is_some(), "the banner");
+        assert!(refused(&beast, Socket::LeftHip, 0).is_some(), "the satchel");
+        assert!(
+            refused(&beast, Socket::LeftHand, 0).is_some(),
+            "the lantern"
+        );
+
+        assert!(refused(&person, Socket::Back, 0).is_none());
+        assert!(refused(&person, Socket::LeftHip, 0).is_none());
+        assert!(refused(&person, Socket::Crown, 0).is_none());
+        for (socket, cut) in [
+            (Socket::Neck, 200),
+            (Socket::Back, 600),
+            (Socket::Crown, 140),
+        ] {
+            let line = refused(&person, socket, cut).expect("a beast's cut");
+            assert!(line.contains("four-legged"), "{line}");
+        }
+        assert_eq!(wear_refused_reason(None, "back", 0), None);
+        assert_eq!(wear_refused_reason(Some(&beast), "no-such-socket", 0), None);
+    }
+
+    /// The worn row tells a prop a beast has the socket for but refuses from
+    /// one at a socket it does not have (#1807): a person's banner at the back
+    /// keeps its row, says so, and stays where the record says.
+    #[test]
+    fn a_beasts_row_says_why_a_person_prop_at_its_own_socket_is_off() {
+        let mut beast = dressed_as(crate::pds::avatar::locomotion::default_beast(
+            symbios_avatar::plan::Family::Dog,
+        ));
+        let before = beast.clone();
+        let (_, text, changed) = wearables(&mut beast);
+        assert!(
+            text.iter()
+                .any(|t| t.starts_with("Not worn - this is cut for a person")),
+            "the neck prop, cut for nobody's beast, says so: {text:?}"
+        );
+        assert!(!changed);
+        assert_eq!(beast, before);
     }
 }

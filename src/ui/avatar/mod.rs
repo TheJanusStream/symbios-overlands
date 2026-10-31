@@ -63,7 +63,8 @@ mod attachments;
 mod icon;
 pub(crate) use attachments::{
     attach_record, is_worn_from, record_for_inventory_item, rename_worn_source,
-    save_worn_to_inventory, take_off_rkey, take_off_source, wear_blocked_reason, worn_rkeys_from,
+    save_worn_to_inventory, take_off_rkey, take_off_source, wear_blocked_reason,
+    wear_refused_reason, worn_rkeys_from,
 };
 mod body;
 mod locomotion;

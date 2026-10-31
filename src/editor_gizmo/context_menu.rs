@@ -874,6 +874,14 @@ pub(super) fn scene_context_menu_ui(
                 toasts.warn(format!("\"{name}\" is not wearable."), now);
                 return;
             };
+            if let Some(reason) = crate::ui::avatar::wear_refused_reason(
+                Some(&live.0),
+                &record.socket,
+                record.fit_beast_mm,
+            ) {
+                toasts.warn(reason, now);
+                return;
+            }
             if let Some(rig) = live.0.body.rigged_mut()
                 && crate::ui::avatar::attach_record(rig, record, &did).is_some()
             {

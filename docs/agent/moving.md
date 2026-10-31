@@ -128,6 +128,11 @@ the hang time, do not guess it.
 
 ## Bodies that are not feet
 
+A four-legged body (`status.locomotion` reads `four_legged`, see
+[avatar.md](avatar.md)) is on feet: it walks a `walk-to` and arrives as a person
+does, at its own speeds. Its collider is its own size, so a horse, 0.89 m wide,
+does not fit a gap a person passes.
+
 A car or hover-boat turns on the spot before it drives, at its own pace -
 the default car about 25 degrees a second, so a point behind it takes some
 7 s of swinging before it closes (#1541); an airship or a helicopter (one

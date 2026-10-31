@@ -80,6 +80,9 @@ pub struct WearMeta {
     /// Authored band inner diameter in whole millimetres; `0` = no fit.
     #[serde(default, rename = "fitBandMm", skip_serializing_if = "fit_elides")]
     pub fit_band_mm: u32,
+    /// A beast's cut (#1807), in whole millimetres; `0` = not cut for one.
+    #[serde(default, rename = "fitBeastMm", skip_serializing_if = "fit_elides")]
+    pub fit_beast_mm: u32,
     /// Socket-relative offset, identity elided.
     #[serde(default, skip_serializing_if = "TransformData::is_identity")]
     pub offset: TransformData,
@@ -99,6 +102,7 @@ impl WearMeta {
         Self {
             socket: socket.name().into(),
             fit_band_mm: fit.map_or(0, |fit| fit.band_mm()),
+            fit_beast_mm: fit.map_or(0, |fit| fit.beast_mm()),
             offset: TransformData::default(),
         }
     }
@@ -114,6 +118,7 @@ impl WearMeta {
         super::avatar::wardrobe::sanitize_wear_fields(
             &mut self.socket,
             &mut self.fit_band_mm,
+            &mut self.fit_beast_mm,
             &mut self.offset,
         );
     }
@@ -892,6 +897,7 @@ mod tests {
         let meta = WearMeta {
             socket: String::from("left-hip"),
             fit_band_mm: 0,
+            fit_beast_mm: 0,
             offset: TransformData::default(),
         };
         let item = InventoryItemRecord::new("satchel", &Generator::default_cuboid(), Some(&meta));
@@ -960,6 +966,7 @@ mod tests {
             WearMeta {
                 socket: "head".to_owned(),
                 fit_band_mm: 170,
+                fit_beast_mm: 0,
                 offset: TransformData::default(),
             },
         );

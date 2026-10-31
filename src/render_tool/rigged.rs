@@ -957,6 +957,8 @@ pub(crate) struct RiggedBuilt {
     pub(crate) offset: f32,
     /// What it wears, as the game dresses it.
     pub(crate) worn: Vec<ResolvedAttachment>,
+    /// The pose `--rigged-gesture` asked for, in place of the standing one.
+    pub(crate) held: Option<symbios_avatar::Pose>,
     /// One line per worn item: the socket it hangs at, or why it does not.
     pub(crate) seating: Vec<String>,
     /// Where the head is, in the body's own space: what the close-ups frame.
@@ -997,6 +999,7 @@ pub(crate) fn build_rigged(avatar: &RiggedAvatar) -> Result<RiggedBuilt, String>
         offset: rigged_root_offset(&avatar.record),
         seating,
         worn,
+        held: None,
         idle_seed: resolved.body.seed as u64,
         avatar: built,
     })
@@ -1084,6 +1087,15 @@ fn seating(avatar: &symbios_avatar::Avatar, worn: &[ResolvedAttachment]) -> Vec<
                 None if item.record.socket().is_none() => {
                     format!("worn {rkey}: NOT drawn - {socket:?} is not a socket this build knows")
                 }
+                None if item
+                    .record
+                    .socket()
+                    .is_some_and(|known| known.joint(&avatar.rig).is_some()) =>
+                {
+                    format!(
+                        "worn {rkey}: NOT drawn - this body has a {socket} but does not wear it"
+                    )
+                }
                 None => format!("worn {rkey}: NOT drawn - this body has no {socket}"),
             }
         })
@@ -1167,6 +1179,28 @@ pub(crate) fn standing_pose(rig: &symbios_avatar::Rig) -> symbios_avatar::Pose {
     pose
 }
 
+/// The pose `rig` holds once `gesture` has played out and settled on level
+/// ground (#1807): `--rigged-gesture`'s picture of a sitting or a lying body,
+/// from the engine's own driver. `None` for a gesture it never finishes
+/// reading, which draws the standing pose.
+pub(crate) fn held_pose(rig: &symbios_avatar::Rig, gesture: &str) -> Option<symbios_avatar::Pose> {
+    use symbios_avatar::anim::driver::{Driver, Inputs, level_ground};
+    const FRAME: f32 = 1.0 / 60.0;
+    let mut driver = Driver::seeded(3);
+    let mut pose = None;
+    for frame in 0..600 {
+        let inputs = Inputs {
+            delta: FRAME,
+            gesture: (frame == 0).then_some(gesture),
+            ..Default::default()
+        };
+        pose = driver
+            .drive(rig, &inputs, level_ground)
+            .map(|driven| driven.pose);
+    }
+    pose
+}
+
 /// Where the studio stands a body's chassis: its centre `offset` above the
 /// floor, as a capsule's is, so the game's root drop puts the feet on it.
 pub(crate) fn studio_chassis(offset: f32) -> Transform {
@@ -1199,7 +1233,12 @@ pub(crate) fn spawn_standing(
     let mut root = commands.spawn((
         rigged_root_transform(built.offset),
         Visibility::default(),
-        AvatarPose(standing_pose(&built.avatar.rig)),
+        AvatarPose(
+            built
+                .held
+                .clone()
+                .unwrap_or_else(|| standing_pose(&built.avatar.rig)),
+        ),
         ChildOf(chassis),
     ));
     if !built.worn.is_empty() {

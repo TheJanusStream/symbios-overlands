@@ -384,6 +384,11 @@ struct Args {
     /// `--play-view`, `--ages`, `--reference-figure` or the walker flags.
     #[arg(long, value_name = "FILE")]
     rigged: Option<String>,
+    /// With `--rigged`: hold the body in this gesture's settled pose rather
+    /// than standing (`Sit`, `Lie Down`), as the engine's driver leaves it
+    /// (#1807), to see what it wears follow the pose.
+    #[arg(long, value_name = "GESTURE")]
+    rigged_gesture: Option<String>,
     /// Catalogue subject: an entry slug (e.g. `villa`, `bench`, `wizard_tower`).
     #[arg(long)]
     catalogue: Option<String>,
@@ -1830,8 +1835,12 @@ pub fn run() {
 fn build_file_body(args: &Args, subject: &mut Subject) -> Option<rigged::RiggedBuilt> {
     if let Subject::Rigged { avatar, framing } = subject {
         let path = args.rigged.as_deref().unwrap_or("?");
-        let built = rigged::build_or_exit("--rigged", path, avatar);
+        let mut built = rigged::build_or_exit("--rigged", path, avatar);
         *framing = Some(built.studio_framing());
+        built.held = args
+            .rigged_gesture
+            .as_deref()
+            .and_then(|gesture| rigged::held_pose(&built.avatar.rig, gesture));
         return Some(built);
     }
     let path = args.walker_avatar.as_deref()?;

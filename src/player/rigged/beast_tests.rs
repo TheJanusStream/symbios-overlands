@@ -1478,3 +1478,335 @@ fn a_beast_told_to_sit_stays_until_told_to_get_up() {
         assert_eq!(now, at, "{up:?} moved the chassis");
     }
 }
+
+/// The stage for what a beast wears: the game's own dresser after the fill,
+/// on the spawn path it needs.
+fn dressing_app() -> App {
+    let mut app = crate::player::visuals::spawn_path_app();
+    app.add_plugins((
+        bevy::time::TimePlugin,
+        bevy::transform::TransformPlugin,
+        bevy_symbios_avatar::AvatarPlugin,
+    ));
+    app.init_resource::<crate::diagnostics::MetricsRegistry>();
+    app.init_resource::<crate::player::RigHold>();
+    app.add_systems(
+        Update,
+        (
+            land_rigged_builds,
+            crate::player::attachments::sync_rigged_attachments,
+        )
+            .chain()
+            .in_set(bevy_symbios_avatar::AvatarSystems::Build),
+    );
+    app.add_systems(
+        Update,
+        fill_rigged_drive
+            .before(bevy_symbios_avatar::drive_avatar_bodies)
+            .in_set(bevy_symbios_avatar::AvatarSystems::Animate),
+    );
+    app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f32(
+        FRAME,
+    )));
+    app
+}
+
+/// A record on foot wearing the catalogue's `slugs` on `body`.
+fn wearing(family: Family, body: &EngineAvatarRecord, slugs: &[&str]) -> AvatarRecord {
+    let mut record = AvatarRecord::wearing("3jzfcijpj2z2a");
+    record.locomotion = beast_record(family).locomotion;
+    let attachments = slugs
+        .iter()
+        .enumerate()
+        .map(|(index, slug)| {
+            let entry = crate::catalogue::ENTRIES
+                .iter()
+                .find(|entry| entry.slug() == *slug)
+                .expect("a catalogue entry");
+            let mut worn = crate::pds::avatar::AttachmentRecord::with_fit(
+                entry.build("did:plc:wear"),
+                entry.wear_socket().expect("wearable"),
+                entry.wear_fit(),
+            );
+            worn.sanitize();
+            crate::pds::avatar::ResolvedAttachment {
+                rkey: format!("3jzfcijpj2z2{index}"),
+                record: worn,
+            }
+        })
+        .collect();
+    if let Some(rig) = record.body.rigged_mut() {
+        rig.resolved = Some(crate::pds::avatar::ResolvedRig {
+            body: body.clone(),
+            attachments,
+        });
+    }
+    record
+}
+
+/// Every worn prop standing in the world: the joint it hangs from and its
+/// place, in the order the joints are.
+fn props_on(app: &mut App, root: Entity) -> Vec<(usize, Transform, GlobalTransform)> {
+    let joints = app
+        .world()
+        .get::<AvatarJoints>(root)
+        .expect("a body's joints")
+        .0
+        .clone();
+    let mut query = app.world_mut().query_filtered::<(
+        &ChildOf,
+        &Transform,
+        &GlobalTransform,
+    ), With<crate::player::attachments::AttachmentRoot>>();
+    let mut props: Vec<(usize, Transform, GlobalTransform)> = query
+        .iter(app.world())
+        .map(|(child_of, local, global)| {
+            let joint = joints
+                .iter()
+                .position(|joint| *joint == child_of.parent())
+                .expect("a prop on one of this body's joints");
+            (joint, *local, *global)
+        })
+        .collect();
+    props.sort_by_key(|(joint, _, _)| *joint);
+    props
+}
+
+/// How many worn props stand in the whole world, on this body or any other.
+fn props_anywhere(app: &mut App) -> usize {
+    let mut query = app
+        .world_mut()
+        .query_filtered::<(), With<crate::player::attachments::AttachmentRoot>>();
+    query.iter(app.world()).count()
+}
+
+/// **What a beast refuses stays off it, on its owner's client and a peer's,
+/// and through a change of body** (#1807): a banner, a lantern and a satchel
+/// on a record come to nothing on a beast and come back on the person it
+/// turns into; the collar does the reverse. A saved outfit neither crashes
+/// nor draws what it should not on the way.
+#[test]
+fn a_beast_and_a_person_each_leave_off_what_is_not_theirs() {
+    let slugs = [
+        "sashimono",
+        "ships_lantern",
+        "satchel",
+        "beast_collar",
+        "circlet",
+    ];
+    let person = engine_default_for_did("did:plc:wear-person");
+    let beast = default_beast(Family::Dog);
+    for under in [Under::Local, Under::Peer] {
+        let record = wearing(Family::Dog, &beast, &slugs);
+        let offset = crate::player::visuals::rigged_root_offset(&record);
+        let mut app = dressing_app();
+        let chassis = chassis(&mut app, under, record, Vec3::Y * offset);
+        land(&mut app, chassis, &beast, 64, offset);
+        app.update();
+        assert_eq!(
+            props_anywhere(&mut app),
+            2,
+            "{under:?}: a beast wears its collar and the circlet, and nothing else"
+        );
+
+        // The owner changes body: the record changes with it, as the editor
+        // leaves it, and the build lands.
+        let as_person = wearing(Family::Dog, &person, &slugs);
+        match under {
+            Under::Local => {
+                app.insert_resource(LiveAvatarRecord(as_person));
+            }
+            Under::Peer => {
+                app.world_mut()
+                    .get_mut::<RemotePeer>(chassis)
+                    .expect("a peer")
+                    .avatar = Some(as_person);
+            }
+        }
+        land(&mut app, chassis, &person, 64, offset);
+        app.update();
+        assert_eq!(
+            props_anywhere(&mut app),
+            4,
+            "{under:?}: a person wears all but the collar"
+        );
+
+        // And back.
+        let as_beast = wearing(Family::Dog, &beast, &slugs);
+        match under {
+            Under::Local => {
+                app.insert_resource(LiveAvatarRecord(as_beast));
+            }
+            Under::Peer => {
+                app.world_mut()
+                    .get_mut::<RemotePeer>(chassis)
+                    .expect("a peer")
+                    .avatar = Some(as_beast);
+            }
+        }
+        land(&mut app, chassis, &beast, 64, offset);
+        app.update();
+        assert_eq!(
+            props_anywhere(&mut app),
+            2,
+            "{under:?}: back on the beast, the banner is off it again"
+        );
+    }
+}
+
+/// **Props survive a carried rebuild of a sitting beast** (#1807): the
+/// draft-to-full rebuild replaces the root, the joints and everything hung on
+/// them, while the driver is carried over. The fresh root is dressed the same
+/// frame, every prop on one of its joints and in the place it was, and the
+/// owner's still answer to the new root in the editor.
+#[test]
+fn what_a_sitting_beast_wears_survives_its_rebuild() {
+    let slugs = ["beast_collar", "saddle_pad", "ear_bow"];
+    for under in [Under::Local, Under::Peer] {
+        let body = default_beast(Family::Dog);
+        let record = wearing(Family::Dog, &body, &slugs);
+        let offset = crate::player::visuals::rigged_root_offset(&record);
+        let mut app = dressing_app();
+        let chassis = chassis(&mut app, under, record, Vec3::Y * offset);
+        land(&mut app, chassis, &body, 64, offset);
+        run(&mut app, 0.5);
+        let root = root_of(&mut app, chassis);
+        let rig = rig_of(&app, root);
+        ask(&mut app, root, "Sit");
+        run(
+            &mut app,
+            emote::seconds(&rig, "Sit").expect("a state") + 0.5,
+        );
+        let seated = props_on(&mut app, root);
+        assert_eq!(seated.len(), 3, "{under:?}: all three worn while it sits");
+
+        land(&mut app, chassis, &body, 128, offset);
+        let new_root = root_of(&mut app, chassis);
+        assert_ne!(new_root, root, "{under:?}: the body was rebuilt");
+        assert_eq!(
+            props_anywhere(&mut app),
+            3,
+            "{under:?}: the rebuild dressed the fresh root and left no ghosts"
+        );
+        // A frame for the transforms to reach the fresh props.
+        app.update();
+        let rebuilt = props_on(&mut app, new_root);
+        assert_eq!(rebuilt.len(), 3, "{under:?}: all three on the new joints");
+        for ((joint, local, global), (new_joint, new_local, new_global)) in
+            seated.iter().zip(&rebuilt)
+        {
+            assert_eq!(joint, new_joint, "{under:?}: rides the same joint");
+            assert_eq!(local, new_local, "{under:?}: the seat moved");
+            let moved = (global.translation() - new_global.translation()).length();
+            assert!(
+                moved < 0.01,
+                "{under:?}: a prop on joint {joint} jumped {moved:.3} m in the rebuild"
+            );
+        }
+        assert_eq!(
+            gesture_of(&app, new_root).as_deref(),
+            Some("Sit"),
+            "{under:?}: the rebuild got the dog up"
+        );
+        let mut owned = app
+            .world_mut()
+            .query::<&crate::player::attachments::LocalAttachment>();
+        let owned: Vec<_> = owned
+            .iter(app.world())
+            .map(|local| local.rigged_root)
+            .collect();
+        match under {
+            Under::Local => assert_eq!(owned, vec![new_root; 3]),
+            Under::Peer => assert!(owned.is_empty(), "a peer's outfit is never editable"),
+        }
+    }
+}
+
+/// **A collar and a pad go where the body goes when it rests** (#1807): the
+/// seat is a place on a joint, so a dog's sit and a horse's lying down carry
+/// it. Whatever the clip does to the neck and the spine, the collar stays on
+/// the neck's bone, still ringing it, and the pad stays over the chest with
+/// its face to the same side of the spine as the skin's.
+#[test]
+fn a_collar_and_a_pad_follow_a_resting_body() {
+    let posed = |app: &mut App, root: Entity, joint: usize| {
+        let entity = app.world().get::<AvatarJoints>(root).expect("joints").0[joint];
+        *app.world()
+            .get::<GlobalTransform>(entity)
+            .expect("a posed joint")
+    };
+    for (family, gesture) in [
+        (Family::Dog, "Sit"),
+        (Family::Cat, "Sit"),
+        (Family::Dog, "Lie Down"),
+        (Family::Horse, "Lie Down"),
+        (Family::Horse, "Sit"),
+    ] {
+        let body = default_beast(family);
+        let record = wearing(family, &body, &["beast_collar", "saddle_pad"]);
+        let offset = crate::player::visuals::rigged_root_offset(&record);
+        let mut app = dressing_app();
+        let chassis = chassis(&mut app, Under::Local, record, Vec3::Y * offset);
+        land(&mut app, chassis, &body, 64, offset);
+        run(&mut app, 0.5);
+        let root = root_of(&mut app, chassis);
+        let rig = rig_of(&app, root);
+        let neck = rig.in_zone(Zone::Neck)[0];
+        let parent = rig.joints[neck].parent.expect("a neck's parent");
+        let head = rig.in_zone(Zone::Head)[0];
+        let chest = rig.in_zone(Zone::Chest);
+        ask(&mut app, root, gesture);
+        run(
+            &mut app,
+            emote::seconds(&rig, gesture).expect("a state") + 0.5,
+        );
+        let props = props_on(&mut app, root);
+        let collar = props.iter().find(|prop| prop.0 == neck).expect("a collar");
+        let pad = props.iter().find(|prop| prop.0 == chest[1]).expect("a pad");
+
+        // The collar's centre, against the neck as posed. At rest it stands
+        // off the joint by the section's offset, no more: a pose must keep it
+        // there, since the joint is what carries it, and turn the ring no
+        // further from the bones either side than the neck itself bends.
+        let (from, joint, to) = (
+            posed(&mut app, root, parent).translation(),
+            posed(&mut app, root, neck).translation(),
+            posed(&mut app, root, head).translation(),
+        );
+        let centre = collar.2.translation();
+        let off = (centre - joint).length();
+        let rest_off = collar.1.translation.length() * 1.05 + 0.002;
+        assert!(
+            off <= rest_off,
+            "{family:?} {gesture}: the collar stands {off:.3} m off its joint, {rest_off:.3} at rest"
+        );
+        let ring = collar.2.rotation() * Vec3::Y;
+        let bisect = ((joint - from).normalize() + (to - joint).normalize()).normalize();
+        let angle = ring.dot(bisect).clamp(-1.0, 1.0).acos().to_degrees();
+        println!("{family:?} {gesture}: the ring stands {angle:.1} deg off the neck's line");
+        assert!(
+            angle < 45.0,
+            "{family:?} {gesture}: the ring stands {angle:.1} deg off the neck's line"
+        );
+
+        // The pad stays on the top of the chest: over its two joints in the
+        // chest's own up, the way it was at rest.
+        let (near, far) = (
+            posed(&mut app, root, chest[0]),
+            posed(&mut app, root, chest[1]),
+        );
+        let middle = (near.translation() + far.translation()) * 0.5;
+        let up = pad.2.rotation() * Vec3::Y;
+        let over = (pad.2.translation() - middle).dot(up);
+        let rest_over = pad.1.translation.length();
+        println!(
+            "{family:?} {gesture}: the pad stands {over:.3} m over the spine ({rest_over:.3} at \
+             rest), and faces {up}"
+        );
+        assert!(
+            over > rest_over * 0.6 && over < rest_over * 1.2,
+            "{family:?} {gesture}: the pad stands {over:.3} m over the spine, {rest_over:.3} at \
+             rest"
+        );
+    }
+}

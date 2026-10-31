@@ -52,8 +52,8 @@ pub use locomotion::{
     LocomotionPickerEntry, LocomotionPreset, OnFootShape, fit_on_foot,
 };
 pub use wardrobe::{
-    AttachmentRecord, BEAST_SOCKETS, EngineAvatarRecord, EngineProfileRecord, offers_socket,
-    socket_label,
+    AttachmentRecord, BEAST_SOCKETS, EngineAvatarRecord, EngineProfileRecord, dresses,
+    offers_socket, socket_label,
 };
 
 use super::AVATAR_COLLECTION;

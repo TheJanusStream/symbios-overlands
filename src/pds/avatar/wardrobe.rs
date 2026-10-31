@@ -134,6 +134,26 @@ pub fn offers_socket(anatomy: symbios_avatar::Anatomy, socket: symbios_avatar::S
     anatomy.human_trunk() || BEAST_SOCKETS.contains(&socket)
 }
 
+/// Whether a body of `anatomy` wears a prop at `socket`, the prop's own cut
+/// counted (#1807, owner decision D9): the socket alone cannot say, because a
+/// banner names the same back a saddle pad does.
+///
+/// A person wears whatever is not cut for a beast. A beast wears what is cut
+/// for one at any of its sockets, and between its ears whatever is seated
+/// there, which is how the circlet comes to be allowed at its authored size.
+/// Asked of the record every client holds, a peer's included: refused here,
+/// a prop stays referenced and unworn for a body that would wear it.
+pub fn dresses(
+    anatomy: symbios_avatar::Anatomy,
+    socket: symbios_avatar::Socket,
+    fit_beast_mm: u32,
+) -> bool {
+    if anatomy.human_trunk() {
+        return fit_beast_mm == 0;
+    }
+    offers_socket(anatomy, socket) && (fit_beast_mm != 0 || socket == symbios_avatar::Socket::Crown)
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct AttachmentRecord {
     #[serde(rename = "$type")]
@@ -159,6 +179,15 @@ pub struct AttachmentRecord {
     /// size. Integer millimetres because atproto records hold no floats.
     #[serde(default, rename = "fitBandMm", skip_serializing_if = "fit_elides")]
     pub fit_band_mm: u32,
+    /// A beast's cut (#1807), copied from the catalogue entry's
+    /// [`WearFit::Beast`](crate::catalogue::WearFit) at Wear time: the item's
+    /// authored measure in whole millimetres, which each client fits to the
+    /// beast it dresses. Non-zero also says the prop is cut for a beast
+    /// ([`dresses`]), so a person leaves it off. `0` (elided) is every prop
+    /// before it. A field of its own rather than [`Self::fit_band_mm`],
+    /// which a person's dresser reads as a head band whatever the socket.
+    #[serde(default, rename = "fitBeastMm", skip_serializing_if = "fit_elides")]
+    pub fit_beast_mm: u32,
     /// The inventory item this was worn from (#1096), by name - the
     /// provenance "Save to inventory" writes back to, and what lets the
     /// Inventory window show an item as worn. `None` for a prop attached
@@ -176,14 +205,15 @@ fn fit_elides(mm: &u32) -> bool {
     *mm == 0
 }
 
-/// The shared clamp for the three fields an attachment record and an
-/// inventory item's [`WearMeta`](crate::pds::inventory::WearMeta) both
-/// carry (#1096): socket name length, the fit dimension's divisor floor
-/// and ceiling, and the offset transform. One function so the two wire
+/// The shared clamp for the fields an attachment record and an inventory
+/// item's [`WearMeta`](crate::pds::inventory::WearMeta) both carry (#1096):
+/// socket name length, the fit dimensions' divisor floor and ceiling, and
+/// the offset transform. One function so the two wire
 /// forms can never drift apart in what they accept.
 pub fn sanitize_wear_fields(
     socket: &mut String,
     fit_band_mm: &mut u32,
+    fit_beast_mm: &mut u32,
     offset: &mut TransformData,
 ) {
     if socket.chars().count() > MAX_SOCKET_NAME_CHARS {
@@ -197,6 +227,9 @@ pub fn sanitize_wear_fields(
     if *fit_band_mm != 0 {
         *fit_band_mm = (*fit_band_mm).clamp(MIN_FIT_BAND_MM, MAX_FIT_BAND_MM);
     }
+    if *fit_beast_mm != 0 {
+        *fit_beast_mm = (*fit_beast_mm).clamp(MIN_FIT_BAND_MM, MAX_FIT_BAND_MM);
+    }
 }
 
 impl AttachmentRecord {
@@ -208,6 +241,7 @@ impl AttachmentRecord {
             socket: socket.name().into(),
             offset: TransformData::default(),
             fit_band_mm: 0,
+            fit_beast_mm: 0,
             source: None,
         }
     }
@@ -221,6 +255,7 @@ impl AttachmentRecord {
     ) -> Self {
         let mut record = Self::new(item, socket);
         record.fit_band_mm = fit.map_or(0, |fit| fit.band_mm());
+        record.fit_beast_mm = fit.map_or(0, |fit| fit.beast_mm());
         record
     }
 
@@ -240,6 +275,7 @@ impl AttachmentRecord {
             socket: meta.socket.clone(),
             offset: meta.offset.clone(),
             fit_band_mm: meta.fit_band_mm,
+            fit_beast_mm: meta.fit_beast_mm,
             source: Some(name.to_string()),
         }
     }
@@ -251,6 +287,7 @@ impl AttachmentRecord {
         crate::pds::inventory::WearMeta {
             socket: self.socket.clone(),
             fit_band_mm: self.fit_band_mm,
+            fit_beast_mm: self.fit_beast_mm,
             offset: self.offset.clone(),
         }
     }
@@ -272,7 +309,12 @@ impl AttachmentRecord {
     /// tools as a placed one now, so it gets the same freedom.
     pub fn sanitize(&mut self) {
         sanitize_avatar_visuals(&mut self.item);
-        sanitize_wear_fields(&mut self.socket, &mut self.fit_band_mm, &mut self.offset);
+        sanitize_wear_fields(
+            &mut self.socket,
+            &mut self.fit_band_mm,
+            &mut self.fit_beast_mm,
+            &mut self.offset,
+        );
         if let Some(source) = self.source.as_mut()
             && source.chars().count() > crate::config::state::MAX_INVENTORY_NAME_CHARS
         {
@@ -1675,6 +1717,37 @@ mod tests {
         assert_eq!(old.fit_band_mm, 0, "an old record is worn at authored size");
     }
 
+    /// A beast's cut on the wire (#1807): a whole number, carried through a
+    /// save to the inventory and back, clamped like the band's, and elided on
+    /// every record that is not one, so a person's outfit reads as it did.
+    #[test]
+    fn a_beasts_cut_rides_the_wire_and_elides_for_everyone_else() {
+        let mut record = AttachmentRecord::with_fit(
+            Generator::default(),
+            symbios_avatar::Socket::Neck,
+            Some(crate::catalogue::WearFit::Beast { across: 0.2 }),
+        );
+        record.sanitize();
+        let json = serde_json::to_string(&record).expect("serializes");
+        assert!(json.contains("\"fitBeastMm\":200"), "encode: {json}");
+        assert!(!json.contains("fitBandMm"), "no head band: {json}");
+        let back: AttachmentRecord = serde_json::from_str(&json).expect("decodes");
+        assert_eq!(back.fit_beast_mm, 200);
+        let meta = back.wear_meta();
+        assert_eq!(meta.fit_beast_mm, 200);
+        let worn = AttachmentRecord::from_inventory("collar", Generator::default(), &meta);
+        assert_eq!(worn.fit_beast_mm, 200, "through the inventory and back");
+
+        let plain = AttachmentRecord::new(Generator::default(), symbios_avatar::Socket::Neck);
+        let plain_json = serde_json::to_string(&plain).expect("serializes");
+        assert!(!plain_json.contains("fitBeastMm"), "elides: {plain_json}");
+
+        let mut tiny = record.clone();
+        tiny.fit_beast_mm = 1;
+        tiny.sanitize();
+        assert_eq!(tiny.fit_beast_mm, MIN_FIT_BAND_MM, "a hostile divisor");
+    }
+
     /// The #1096 provenance field in all three schema directions, plus the
     /// inventory round trip it exists for: worn from a stash item, the
     /// record carries the item's socket / fit / offset and its name; saved
@@ -1685,6 +1758,7 @@ mod tests {
         let meta = WearMeta {
             socket: String::from("crown"),
             fit_band_mm: 178,
+            fit_beast_mm: 0,
             offset: TransformData {
                 translation: Fp3([0.0, 0.05, 0.0]),
                 ..Default::default()

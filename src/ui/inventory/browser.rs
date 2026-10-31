@@ -225,6 +225,11 @@ pub(crate) fn pane_facts(
         if meta.fit_band_mm != 0 {
             facts.push(String::from("Sizes itself to the wearer's head."));
         }
+        if meta.fit_beast_mm != 0 {
+            facts.push(String::from(
+                "Cut for a four-legged body, and sizes itself to it.",
+            ));
+        }
     }
     let parts = crate::ui::room::caps::node_count(generator);
     facts.push(format!(
@@ -368,6 +373,7 @@ mod tests {
         let worn_hat = WearMeta {
             socket: String::from("head"),
             fit_band_mm: 178,
+            fit_beast_mm: 0,
             offset: crate::pds::TransformData::default(),
         };
         let facts = pane_facts(&cuboid, Some(&worn_hat), true);

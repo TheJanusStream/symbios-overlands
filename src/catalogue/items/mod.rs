@@ -702,7 +702,10 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     // Attachments - wearable items (#1086); also placeable like any entry.
     &attachments::banner::Sashimono,
     &attachments::circlet::Circlet,
+    &attachments::collar::Collar,
+    &attachments::ear_bow::EarBow,
     &attachments::lantern::Lantern,
+    &attachments::saddle_pad::SaddlePad,
     &attachments::satchel::Satchel,
 ];
 

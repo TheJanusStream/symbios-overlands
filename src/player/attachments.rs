@@ -26,7 +26,9 @@
 //!     [`hat_line`]); an unmeasurable head falls back to the plain seat at
 //!     authored size;
 //!   - an authored offset → taken verbatim, in the joint's rest-pose frame:
-//!     a full transform, per-axis scale included (#1095).
+//!     a full transform, per-axis scale included (#1095);
+//!   - a beast (#1807) → only what [`crate::pds::avatar::dresses`] allows,
+//!     seated by its own rules in [`super::beast_seat`].
 //!
 //! Props spawn through [`spawn_attachment_tree`] - the same avatar-mode
 //! pipeline as generator bodies, colliders and room tags suppressed - always
@@ -443,9 +445,28 @@ pub(crate) fn placements<'a>(
         };
         // A person's prop on a beast (#1803, D6 and D9): a beast's rig has a
         // joint for a hand - its fore paw - but is dressed only at its own
-        // sockets, so the prop stays referenced and unworn for a body that
-        // is. Every socket a person's rig has is still theirs.
-        if !crate::pds::avatar::offers_socket(avatar.rig.anatomy, socket) {
+        // sockets and in what is cut for it, so the prop stays referenced and
+        // unworn for a body that is. A person leaves off a beast's collar the
+        // same way (#1807). Every socket a person's rig has is still theirs.
+        let fit_beast_mm = attachment.record.fit_beast_mm;
+        if !crate::pds::avatar::dresses(avatar.rig.anatomy, socket, fit_beast_mm) {
+            continue;
+        }
+        // A beast is measured by its own rules (#1807): nothing below reads
+        // a person's head, and an authored offset is read in the joint the
+        // seat rides, since the gizmo commits against that one.
+        if !avatar.rig.anatomy.human_trunk() {
+            let Some(joint) = super::beast_seat::carrier(avatar, socket) else {
+                continue;
+            };
+            let transform = if attachment.record.offset.is_identity() {
+                super::beast_seat::seat(avatar, socket, joint, fit_beast_mm)
+            } else {
+                Some(transform_from_data(&attachment.record.offset))
+            };
+            if let Some(transform) = transform {
+                out.push((joint, transform, attachment));
+            }
             continue;
         }
         let transform = if attachment.record.offset.is_identity() {
@@ -696,6 +717,93 @@ pub(super) mod tests {
             Some(0),
             "a generator body wears no rig attachments at all"
         );
+    }
+
+    /// The catalogue's wearable `slug`, worn as the Wear button records it.
+    fn catalogue_worn(slug: &str) -> ResolvedAttachment {
+        let entry = crate::catalogue::ENTRIES
+            .iter()
+            .find(|entry| entry.slug() == slug)
+            .expect("a catalogue entry");
+        let mut record = AttachmentRecord::with_fit(
+            entry.build("did:plc:wear"),
+            entry.wear_socket().expect("wearable"),
+            entry.wear_fit(),
+        );
+        record.sanitize();
+        worn(record)
+    }
+
+    fn slugs_placed(avatar: &symbios_avatar::Avatar, slugs: &[&str]) -> Vec<String> {
+        slugs
+            .iter()
+            .filter(|slug| {
+                let item = [catalogue_worn(slug)];
+                !placements(avatar, &item).is_empty()
+            })
+            .map(|slug| String::from(*slug))
+            .collect()
+    }
+
+    const PERSON_CUT: [&str; 4] = ["sashimono", "circlet", "ships_lantern", "satchel"];
+    const BEAST_CUT: [&str; 3] = ["beast_collar", "saddle_pad", "ear_bow"];
+
+    /// **D9, by the record alone** (#1807): every client reads this off the
+    /// record a peer sent, so what is refused here is refused everywhere. A
+    /// banner names the same back a pad does, so a socket cannot refuse it.
+    /// A person's head band stays the size it was authored between a beast's
+    /// ears, though the engine will measure a beast's skull if it is asked.
+    #[test]
+    fn a_beast_wears_what_it_is_cut_for_and_the_circlet() {
+        use symbios_avatar::plan::Family;
+        for family in [Family::Dog, Family::Cat, Family::Horse] {
+            let avatar = symbios_avatar::Avatar::build_with(
+                &crate::pds::avatar::locomotion::default_beast(family),
+                &symbios_avatar::AvatarConfig {
+                    atlas: 64,
+                    ..Default::default()
+                },
+            )
+            .expect("a beast builds");
+            assert_eq!(
+                slugs_placed(&avatar, &PERSON_CUT),
+                vec![String::from("circlet")],
+                "{family:?}"
+            );
+            assert_eq!(slugs_placed(&avatar, &BEAST_CUT).len(), 3, "{family:?}");
+            let circlet = [catalogue_worn("circlet")];
+            let (joint, seat, _) = placements(&avatar, &circlet)[0];
+            assert_eq!(seat.scale, Vec3::ONE, "{family:?}: resized the circlet");
+            assert_eq!(
+                Some(joint),
+                avatar.parts.beast.as_ref().map(|beast| beast.ears.head),
+                "{family:?}: rides the head joint the ears hang from"
+            );
+
+            // An authored offset is honoured on what is worn, and refuses
+            // nothing it should not: a nudged banner is still a banner.
+            let mut nudged = catalogue_worn("beast_collar");
+            nudged.record.offset.translation.0 = [0.0, 0.1, 0.0];
+            let nudged = [nudged];
+            assert_eq!(
+                placements(&avatar, &nudged)[0].1.translation,
+                Vec3::new(0.0, 0.1, 0.0),
+                "{family:?}"
+            );
+            let mut banner = catalogue_worn("sashimono");
+            banner.record.offset.translation.0 = [0.0, 0.1, 0.0];
+            assert!(placements(&avatar, &[banner]).is_empty(), "{family:?}");
+        }
+    }
+
+    /// And a person leaves a beast's cut off, whatever record it reached them
+    /// on: a collar's fit is not a head band (#1807). What a person wore
+    /// before is untouched.
+    #[test]
+    fn a_person_leaves_off_what_is_cut_for_a_beast() {
+        let avatar = built();
+        assert!(slugs_placed(&avatar, &BEAST_CUT).is_empty());
+        assert_eq!(slugs_placed(&avatar, &PERSON_CUT).len(), 4);
     }
 
     fn built() -> symbios_avatar::Avatar {
@@ -1277,20 +1385,30 @@ pub(super) mod tests {
                 socket.name()
             );
         }
-        let seated = |avatar: &symbios_avatar::Avatar| -> Vec<&str> {
-            placements(avatar, &outfit)
+        let seated = |avatar: &symbios_avatar::Avatar, outfit: &[ResolvedAttachment]| {
+            placements(avatar, outfit)
                 .into_iter()
-                .map(|(_, _, a)| a.record.socket.as_str())
-                .collect()
+                .map(|(_, _, a)| a.record.socket.clone())
+                .collect::<Vec<String>>()
         };
-        assert_eq!(seated(&beast), ["crown", "neck", "back"]);
+        // Uncut, a beast wears the crown alone; cut for it, its three (#1807).
+        assert_eq!(seated(&beast, &outfit), ["crown"]);
+        let cut: Vec<ResolvedAttachment> = outfit
+            .iter()
+            .cloned()
+            .map(|mut item| {
+                item.record.fit_beast_mm = 200;
+                item
+            })
+            .collect();
+        assert_eq!(seated(&beast, &cut), ["crown", "neck", "back"]);
         let at_a_joint: Vec<&str> = Socket::ALL
             .into_iter()
             .filter(|socket| socket.joint(&person.rig).is_some())
             .map(Socket::name)
             .collect();
         assert_eq!(
-            seated(&person),
+            seated(&person, &outfit),
             at_a_joint,
             "a person is not dressed at every socket their rig has"
         );

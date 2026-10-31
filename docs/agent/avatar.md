@@ -1,8 +1,8 @@
 # Your own body
 
 The avatar is the one record the agent may edit in any world. Two kinds of
-body: a **rigged** person (a sculpt and worn items, kept in records of their
-own) and a **generator** body - every vehicle: a car, a hover-boat, an
+body: a **rigged** person or four-legged beast (a sculpt and worn items, kept
+in records of their own) and a **generator** body - every vehicle: a car, a hover-boat, an
 airship, a helicopter, an airplane - whose whole shape is one generator tree at
 `/record/body/visuals`, the same JSON as a building's
 ([building.md](building.md)). Everyone sees a generator body's edits at
@@ -232,6 +232,35 @@ wrong and the offsets need tuning".
   see a rigged body's changes only once saved. (The old clothes the admin
   saw after a restart in session 879 were a stale copy in his own client,
   #1485, since fixed: Reeve's change had been saved.)
+
+## A four-legged body
+
+A rigged body can be a dog, a cat or a horse instead of a person, or a cross
+of them (#1799). In the Avatar window's Body tab, `quadruped` rolls one from
+the body's seed and `humanoid` rolls a person back (`A ui click "Avatar > body
+> quadruped"`), or send a whole body with `A avatar set /body ...`. Either way
+its collider, walk, run, weight and jump follow the body in the same undo step,
+and `status.locomotion` reads `four_legged`. Others see the new body once it is
+saved (`A save avatar --wait`), like any rigged sculpt.
+
+- **It walks as a person does**: `walk-to`, `follow`, Shift to run, swimming.
+  `look --view eyes` looks from its own eyes.
+- **Its collider lies along its trunk** and cannot be set by hand: the body is
+  what sizes it. The default dog is 0.88 m long and 0.36 m deep, the cat 0.69
+  by 0.29, the horse 2.28 by 0.89.
+- **It gestures at what it says**, as a person does. A greeting's words wag, a
+  thanks plays a bow, a yes tilts the head, and a no plays nothing. `sit`, `lie
+  down` and `get up` (or `up`) are a beast's alone and mean nothing to a person.
+  It stays down until it moves, swims, leaves the ground or says `get up`. A
+  player who arrives after it sat sees it standing: nothing sent says it sits. A
+  gesture within 2 s of the last is dropped, so `hi` and then `sit` at once
+  loses the sit.
+- **It wears what is cut for it.** The catalogue's `beast_collar`, `saddle_pad`
+  and `ear_bow` go on its neck, back and between its ears, each fitted to the
+  body by whoever draws it. Beyond them it wears only what is seated at
+  `crown`, so the circlet at its authored size. A person's banner, lantern or
+  satchel is refused, and `wear` says why. A person is refused a beast's cut the
+  same way. Either stays in the outfit, unworn, for a body that wears it.
 
 ## A workbench on the body
 

@@ -52,6 +52,15 @@ pub(super) fn get(world: &mut World, pointer: &str) -> Result<Value, String> {
     }))
 }
 
+/// The engine body `record` wears, when it is resolved.
+fn worn_body(record: &AvatarRecord) -> Option<&EngineAvatarRecord> {
+    record
+        .body
+        .rigged_ref()
+        .and_then(|rig| rig.resolved.as_ref())
+        .map(|resolved| &resolved.body)
+}
+
 /// Replace the part of the avatar's JSON at `pointer` with `value`.
 pub(super) fn set(world: &mut World, pointer: &str, value: Value) -> Result<Value, String> {
     super::in_world(world)?;
@@ -76,6 +85,13 @@ pub(super) fn set(world: &mut World, pointer: &str, value: Value) -> Result<Valu
         .ok()
         .and_then(|document| document.pointer(at).cloned());
     edited.sanitize();
+    // A change of body takes its collider with it, in this one write and so
+    // one undo step, as the editor's does (#1809): sent to a person's capsule,
+    // a beast would stand in it. A person standing up is never refitted.
+    let before = worn_body(&live);
+    if worn_body(&edited) != before {
+        crate::pds::avatar::locomotion::follow_body(&mut edited, before, &mut None);
+    }
     let label = if pointer.is_empty() {
         "JSON set of the whole avatar".to_owned()
     } else {
@@ -324,6 +340,55 @@ mod tests {
         );
     }
 
+    /// **An agent's switch of body takes its collider with it** (#1809), as
+    /// the editor's does: to four legs it lies along the beast, in the one
+    /// write, and back again it stands. An edit of a person moves nothing.
+    #[test]
+    fn a_body_set_to_four_legs_brings_its_collider() {
+        use crate::pds::LocomotionConfig;
+        use crate::pds::avatar::locomotion::LocomotionPreset as _;
+        let (mut app, _) = app_in(AGENT);
+        wearing(&mut app, seeded(true));
+        let lying = |app: &App| match &app.world().resource::<LiveAvatarRecord>().0.locomotion {
+            LocomotionConfig::Humanoid(p) => Some(p.is_lying()),
+            _ => None,
+        };
+        let mut person = app.world().resource::<LiveAvatarRecord>().0.clone();
+        person.locomotion = crate::pds::HumanoidParams::default().into_config();
+        wearing(&mut app, person);
+        let before = app
+            .world()
+            .resource::<LiveAvatarRecord>()
+            .0
+            .locomotion
+            .clone();
+        let body = get(app.world_mut(), "/body").expect("a body")["value"].clone();
+        let mut older = body.clone();
+        older["composites"]["age"] = json!(60);
+        set(app.world_mut(), "/body", older).expect("an edit of a person");
+        assert_eq!(
+            app.world().resource::<LiveAvatarRecord>().0.locomotion,
+            before,
+            "an edit of a person refitted them"
+        );
+
+        let beast =
+            crate::pds::avatar::locomotion::default_beast(symbios_avatar::plan::Family::Dog);
+        let beast = serde_json::to_value(&beast).expect("a body's JSON");
+        set(app.world_mut(), "/body", beast).expect("to four legs");
+        assert_eq!(lying(&app), Some(true), "a beast in a person's capsule");
+        assert_eq!(
+            crate::pds::avatar::locomotion::beast_on_foot(
+                &app.world().resource::<LiveAvatarRecord>().0
+            )
+            .map(crate::pds::HumanoidParams::is_lying),
+            Some(true)
+        );
+
+        set(app.world_mut(), "/body", body).expect("and back");
+        assert_eq!(lying(&app), Some(false), "a person in a beast's capsule");
+    }
+
     /// #1483 in the avatar: a key the sculpt does not have, set on its own,
     /// is named; a real one set to what it holds is not.
     #[test]
@@ -482,6 +547,7 @@ mod tests {
             socket: "head".into(),
             offset: Default::default(),
             fit_band_mm: 0,
+            fit_beast_mm: 0,
             source: None,
         };
         let rig = avatar.body.rigged_mut().expect("a rigged body");

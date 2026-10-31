@@ -868,6 +868,9 @@ fn detail_panel(
                             "sizes itself to the wearer's head ({:.0} mm band authored)",
                             inner_diameter * 1000.0
                         ),
+                        crate::catalogue::WearFit::Beast { .. } => {
+                            String::from("cut for a four-legged body, and sizes itself to it")
+                        }
                     };
                     row(ui, "Fit", text);
                 }
@@ -985,7 +988,15 @@ fn inventory_row(
         let reason = crate::ui::avatar::wear_blocked_reason(
             live_avatar.as_ref().map(|live| &live.as_ref().0),
             true,
-        );
+        )
+        .or_else(|| {
+            let beast_mm = entry.wear_fit().map_or(0, |fit| fit.beast_mm());
+            crate::ui::avatar::wear_refused_reason(
+                live_avatar.as_ref().map(|live| &live.as_ref().0),
+                socket.name(),
+                beast_mm,
+            )
+        });
         if let Some(reason) = reason {
             ui.add_enabled(false, egui::Button::new("Copy to inventory & wear"))
                 .on_disabled_hover_text(&reason);

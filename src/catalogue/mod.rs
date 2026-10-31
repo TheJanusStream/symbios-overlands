@@ -249,6 +249,21 @@ pub enum WearFit {
         /// Authored inner diameter of the band, metres.
         inner_diameter: f32,
     },
+    /// Cut for a four-legged body (#1807, owner decision D9): worn by a beast
+    /// and by no person, and sized to the beast it lands on. `across` is the
+    /// authored measure the seat scales, in metres, and which measure that is
+    /// follows the socket: the bore of a collar, the width of a saddle pad,
+    /// the span between the ears of an ornament
+    /// (`src/player/beast_seat.rs`).
+    ///
+    /// **Authoring convention:** a collar's band circles the origin in the
+    /// X-Z plane, its `+Z` at the throat; a pad's underside runs through the
+    /// origin at the spine, its arc falling away below `y = 0` and running
+    /// along `Z`; an ornament stands on the origin.
+    Beast {
+        /// The authored measure, metres.
+        across: f32,
+    },
 }
 
 impl WearFit {
@@ -259,6 +274,16 @@ impl WearFit {
     pub fn band_mm(&self) -> u32 {
         match self {
             Self::HeadBand { inner_diameter } => (inner_diameter.max(0.0) * 1000.0).round() as u32,
+            Self::Beast { .. } => 0,
+        }
+    }
+
+    /// The wire form of a beast's cut (#1807): the authored measure in whole
+    /// millimetres, or `0` for a prop that is not cut for one.
+    pub fn beast_mm(&self) -> u32 {
+        match self {
+            Self::HeadBand { .. } => 0,
+            Self::Beast { across } => (across.max(0.0) * 1000.0).round() as u32,
         }
     }
 }

@@ -47,11 +47,10 @@ use bevy_panorbit_camera::PanOrbitCamera;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use serde_json::{Value, json};
 
-use crate::camera::{BeastFraming, IsWorldCamera, clear_of_terrain};
+use crate::camera::{BeastFraming, EyeMount, IsWorldCamera, clear_of_terrain};
 use crate::config::agent::{
     HOME_DIR, LOOK_ANSWER_TIMEOUT, LOOK_SIZE, LOOK_WARMUP_FRAMES, LOOKS_DIR, LOOKS_KEPT,
 };
-use crate::config::camera::EYE_HEIGHT_FRACTION;
 use crate::interaction::locomotion::{locomotion_reach, locomotion_total_height};
 use crate::state::{
     AppState, CurrentRoomDid, LiveAvatarRecord, LocalPlayer, LocalSettings, TravelingTo,
@@ -151,7 +150,7 @@ fn aim(world: &mut World, spec: &LookSpec) -> Result<Shot, String> {
             let toward = Vec2::new(dir.perp_dot(facing), dir.dot(facing));
             eyes_pose(
                 centre,
-                locomotion_total_height(locomotion),
+                eye_over_centre(locomotion, world.get_resource::<BeastFraming>()),
                 locomotion_reach(locomotion, toward),
                 dir,
             )
@@ -243,12 +242,23 @@ fn play_pose(focus: Vec3, radius: f32, pitch: f32, dir: Vec2) -> Transform {
         .with_rotation(rotation)
 }
 
-/// The body's eyes: [`EYE_HEIGHT_FRACTION`] of the way up it and `reach` in
-/// front of its middle, turned with the head toward `dir`, looking level.
-/// `centre` is the body's middle, which is where its origin is.
-fn eyes_pose(centre: Vec3, height: f32, reach: f32, dir: Vec2) -> Transform {
+/// How far over its middle a body looks from: a four-legged beast from the
+/// eyes its rig seats (#1809), since a lying capsule's height is only its
+/// trunk's depth, and any other body where first person puts eyes with no rig
+/// to ask, which is that fraction of the way up it.
+fn eye_over_centre(locomotion: &crate::pds::LocomotionConfig, beast: Option<&BeastFraming>) -> f32 {
+    match BeastFraming::eyes_of(beast) {
+        Some(eyes) => eyes - locomotion_total_height(locomotion) / 2.0,
+        None => EyeMount::of(locomotion, false, None).over_centre(),
+    }
+}
+
+/// The body's eyes: `above` over its middle and `reach` in front of it, turned
+/// with the head toward `dir`, looking level. `centre` is the body's middle,
+/// which is where its origin is.
+fn eyes_pose(centre: Vec3, above: f32, reach: f32, dir: Vec2) -> Transform {
     let along = Vec3::new(dir.x, 0.0, dir.y);
-    let eye = centre + Vec3::Y * (EYE_HEIGHT_FRACTION - 0.5) * height + along * reach;
+    let eye = centre + Vec3::Y * above + along * reach;
     Transform::from_translation(eye).looking_to(along, Vec3::Y)
 }
 
@@ -754,7 +764,7 @@ mod tests {
     #[test]
     fn the_eyes_are_at_the_front_of_the_head_looking_level() {
         let centre = Vec3::new(0.0, 10.0 + 1.75 / 2.0, 0.0);
-        let pose = eyes_pose(centre, 1.75, 0.45, Vec2::new(1.0, 0.0));
+        let pose = eyes_pose(centre, (0.93 - 0.5) * 1.75, 0.45, Vec2::new(1.0, 0.0));
         let above_feet = pose.translation.y - 10.0;
         assert!((above_feet - 0.93 * 1.75).abs() < 1e-3, "{above_feet}");
         assert!((pose.translation.x - 0.45).abs() < EPS, "in front");
@@ -762,6 +772,40 @@ mod tests {
             pose.forward().as_vec3().distance(Vec3::X) < EPS,
             "level, along +X"
         );
+    }
+
+    /// **A beast looks out of its eyes, not out of its trunk** (#1809): a lying
+    /// capsule's height is only the trunk's depth, which saw from a dog's
+    /// knee. From the eyes its rig seats, and before the rig lands from that
+    /// fraction of how tall it stands. A person's line is where it was, to the
+    /// bit.
+    #[test]
+    fn a_beast_looks_out_of_its_eyes() {
+        use crate::config::camera::EYE_HEIGHT_FRACTION;
+        let dog = crate::pds::avatar::locomotion::beast_record(symbios_avatar::plan::Family::Dog)
+            .locomotion;
+        let crate::pds::LocomotionConfig::Humanoid(p) = &dog else {
+            panic!("on foot")
+        };
+        let half = locomotion_total_height(&dog) / 2.0;
+        let framing = crate::camera::beast_framing_for_tests(0.6);
+        assert_eq!(eye_over_centre(&dog, Some(&framing)), 0.6 - half);
+        let waiting = eye_over_centre(&dog, None);
+        assert!((waiting + half - EYE_HEIGHT_FRACTION * p.stand_height()).abs() < 1e-5);
+        assert!(
+            waiting > 2.0 * half * (EYE_HEIGHT_FRACTION - 0.5) + 0.05,
+            "from its trunk: {waiting}"
+        );
+        for n in 0..12 {
+            let did = format!("did:plc:eyes-{n}");
+            let body = crate::pds::AvatarRecord::default_for_did(&did).locomotion;
+            let tall = locomotion_total_height(&body);
+            assert_eq!(
+                eye_over_centre(&body, None).to_bits(),
+                ((EYE_HEIGHT_FRACTION - 0.5) * tall).to_bits(),
+                "{did}"
+            );
+        }
     }
 
     /// The agent's own directory keeps the newest pictures; anything else in

@@ -80,6 +80,7 @@
 mod air_fleet;
 mod airplane;
 pub(crate) mod attachments;
+mod beast_seat;
 mod car;
 pub(crate) mod emote;
 pub(crate) mod gait;

@@ -379,6 +379,7 @@ fn wear_buttons(
     ui: &mut egui::Ui,
     name: &str,
     socket: &str,
+    fit_beast_mm: u32,
     action: &mut Option<WearAction>,
     live_avatar: Option<&crate::state::LiveAvatarRecord>,
 ) {
@@ -398,8 +399,9 @@ fn wear_buttons(
     }
     // This row is drawn FROM the inventory, so it is loaded by
     // construction (#1233 f261).
-    if let Some(reason) =
-        crate::ui::avatar::wear_blocked_reason(live_avatar.map(|live| &live.0), true)
+    let avatar = live_avatar.map(|live| &live.0);
+    if let Some(reason) = crate::ui::avatar::wear_blocked_reason(avatar, true)
+        .or_else(|| crate::ui::avatar::wear_refused_reason(avatar, socket, fit_beast_mm))
     {
         ui.add_enabled(false, egui::Button::new("Wear").small())
             .on_disabled_hover_text(reason);
@@ -452,6 +454,14 @@ fn apply_wear_action(
                 toasts.warn(format!("\"{name}\" is not wearable."), now);
                 return;
             };
+            if let Some(reason) = crate::ui::avatar::wear_refused_reason(
+                Some(&live.0),
+                &record.socket,
+                record.fit_beast_mm,
+            ) {
+                toasts.warn(format!("Could not wear \"{name}\" - {reason}"), now);
+                return;
+            }
             // No `else` arm: the check above already established a rigged,
             // resolved body under the cap, which is exactly the condition
             // `attach_record` returns `Some` on.
@@ -1049,6 +1059,7 @@ pub fn inventory_ui(
                                                             ui,
                                                             name,
                                                             meta.socket.as_str(),
+                                                            meta.fit_beast_mm,
                                                             &mut wear_action,
                                                             live_avatar.as_deref(),
                                                         );
@@ -1629,6 +1640,7 @@ mod search_tests {
         WearMeta {
             socket: String::from("head"),
             fit_band_mm: 0,
+            fit_beast_mm: 0,
             offset: crate::pds::TransformData::default(),
         }
     }

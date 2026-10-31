@@ -71,7 +71,7 @@ pub(super) fn snapshot(world: &mut World) -> Value {
         "link": world.get_resource::<crate::network::LinkState>().map(|l| link_word(l.phase())),
         "locomotion": world
             .get_resource::<LiveAvatarRecord>()
-            .map(|live| locomotion_word(&live.0.locomotion)),
+            .map(|live| locomotion_word(&live.0)),
         "position": pose.as_ref().map(|p| hundredths3(p.position)),
         "height_m": super::movement::height(world).map(hundredths),
         "facing": pose.as_ref().map(|p| [hundredths(p.forward.x), hundredths(p.forward.z)]),
@@ -326,8 +326,17 @@ fn holds(generator: &Generator, is: &dyn Fn(&GeneratorKind) -> bool) -> bool {
 }
 
 /// How the agent's body moves, which decides what `walk-to` can do with it.
-fn locomotion_word(locomotion: &LocomotionConfig) -> &'static str {
-    match locomotion {
+///
+/// A beast walks as a person does, under a person's preset, and is named for
+/// what it is all the same (#1809): its collider and what it can wear are not a
+/// person's.
+fn locomotion_word(record: &crate::pds::AvatarRecord) -> &'static str {
+    match &record.locomotion {
+        LocomotionConfig::Humanoid(_)
+            if crate::pds::avatar::locomotion::beast_on_foot(record).is_some() =>
+        {
+            "four_legged"
+        }
         LocomotionConfig::Humanoid(_) => "humanoid",
         LocomotionConfig::Car(_) => "car",
         LocomotionConfig::HoverBoat(_) => "hover_boat",
@@ -355,6 +364,22 @@ fn link_word(phase: LinkPhase) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    /// #1809: what `status` calls a body, on foot on two legs or on four, for
+    /// every family, and a vehicle whoever is in it.
+    #[test]
+    fn a_beast_is_named_for_its_legs() {
+        use crate::pds::avatar::locomotion::{LocomotionPreset as _, beast_record};
+        use symbios_avatar::plan::Family;
+        for family in [Family::Dog, Family::Cat, Family::Horse] {
+            assert_eq!(super::locomotion_word(&beast_record(family)), "four_legged");
+        }
+        let mut person = crate::pds::AvatarRecord::default_for_did("did:plc:status-test");
+        person.locomotion = crate::pds::HumanoidParams::default().into_config();
+        assert_eq!(super::locomotion_word(&person), "humanoid");
+        person.locomotion = crate::pds::LocomotionConfig::Unknown;
+        assert_eq!(super::locomotion_word(&person), "unknown");
+    }
+
     /// #1527: a heading is a compass bearing - north 0, east 90, south 180,
     /// west 270, clockwise - read to the hundredth.
     #[test]

@@ -33,7 +33,7 @@ use crate::pds::inventory::{WearMeta, is_drop_placeable};
 use crate::state::{LiveAvatarRecord, LiveInventoryRecord, LiveRoomRecord};
 use crate::ui::avatar::{
     AvatarEditorState, attach_record, is_worn_from, record_for_inventory_item, take_off_source,
-    wear_blocked_reason, worn_rkeys_from,
+    wear_blocked_reason, wear_refused_reason, worn_rkeys_from,
 };
 use crate::ui::room::widgets::unique_key;
 
@@ -269,7 +269,9 @@ pub(super) fn wear(world: &mut World, name: &str) -> Result<Value, String> {
         .get_resource::<LiveAvatarRecord>()
         .map(|live| live.0.clone())
         .ok_or("the agent has no avatar record yet")?;
-    if let Some(reason) = wear_blocked_reason(Some(&avatar), true) {
+    if let Some(reason) = wear_blocked_reason(Some(&avatar), true)
+        .or_else(|| wear_refused_reason(Some(&avatar), &item.socket, item.fit_beast_mm))
+    {
         return Err(reason);
     }
     let did = world
