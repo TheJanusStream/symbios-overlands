@@ -1,12 +1,13 @@
-# Catoid
+# Catoid and Purlieu
 
 Catoid (@catoid-ai.bsky.social) is the account that lives in a four-legged
 body: the testbed for quadruped avatar development, as Jink is for skiff
 physics and Eigen for the road pipeline. Its home body is a cat. Its world is
 a pretty nature region, mostly a large lush meadow beside a lake or the sea,
 whose banks, steps, shallows, rails and gaps test a beast without looking like
-a test. As of 2026-10-31 neither exists yet: the account has never played, and
-its seed gives it a hover-boat.
+a test. As of 2026-10-31, after its first session: a brown mackerel tabby with
+white socks and a collar, and Purlieu, a lake and its north-east meadow, with
+every place in the table below built and saved.
 
 ## Start here
 
@@ -15,29 +16,21 @@ its seed gives it a hover-boat.
 | Account | `@catoid-ai.bsky.social`, `did:plc:hl3tauh5rilw2baafaco2b5u` |
 | Commands | every agent command takes `--account catoid-ai.bsky.social`; every tool call starts `AGENT_ACCOUNT=catoid-ai.bsky.social` ([../../session.md](../../session.md)) |
 | Admin | `@codewright.bsky.social`, the owner: `start --admin @codewright.bsky.social --allow-save` |
-| Region | not named yet; the account's own world |
+| Region | Purlieu; the account's own world |
 | Working folder | `exports/catoid/` (gitignored, on this machine only), made at the first session's start and kept across sessions: the last saves in `src/` with their times and seq, the save log `log.md`; numbered subfolders are earlier scratchpads, read-only |
-| Last session | none yet; the first is live session 17 |
+| Last session | chainlink session 983 (live session 17), parent #1819 - read its comments (`chainlink show 1819`) |
 | Default mode | [first session](../../session.md#first-session), then self-guided |
 | Never | touch Hypha's world (the Understory) or avatar ([hypha/](../hypha/README.md)), Reeve's world (Ashmere) or avatar ([reeve/](../reeve/README.md)), Jink's world (Parabola Flats) or avatar ([jink/](../jink/README.md)), or Eigen's world (Isoline) or avatar ([eigen/](../eigen/README.md)); save a body or a world the deployed client cannot draw (Standing decisions) |
 
-First, in the first session:
+First, next session:
 
-- **The sign-in is saved** (2026-10-31): skip the first-session mode's `A login`
-  unless `start` says it expired or was refused.
-- **The seeded body is a hover-boat**, a Cyberpunk sloop. Pull it as the
-  reference ([first session](../../session.md#first-session)), then "Wear a
-  rigged body" and `quadruped` in the Avatar window's Body tab
-  ([avatar.md](../../avatar.md), "A four-legged body"), and choose the cat in
-  that tab's `family` row (`A ui` names the paths). A pick there goes through
-  the engine's own switch and carries the body's axes across; writing the
-  family field alone with `avatar set` does not. `status.locomotion` then
-  reads `four_legged`.
-- **The first check, with the owner in a browser:** Catoid wears the
-  catalogue's `beast_collar`, saves, and the owner looks. A rigged body reaches
-  others only as saved. This is the first real test of #1813 (a body from the
-  web's worker) on the deployed client, and of a beast with another player
-  there; everything before it was offline.
+- **The sign-in is saved** (2026-10-31): no `A login` unless `start` says it
+  expired or was refused.
+- **`--run` dives under water** until a daemon built from #1821 runs: walk, do
+  not run, into the lake. A body under the surface does not come back up with
+  `walk-to`.
+- **A change of the land strands a body where it stood:** it was left on the
+  lake bed by the first land edit. Walk it out first, or restart.
 
 ## Who Catoid is
 
@@ -48,7 +41,12 @@ grow.
 
 ## The body
 
-A **rigged** beast from the `symbios-avatar` engine: a cat at home. It walks on
+A **rigged** beast from the `symbios-avatar` engine: a cat at home, a brown
+mackerel tabby with white socks and slit green eyes, 0.46 m at the back, wearing
+the catalogue's `beast_collar`. Its source is `exports/catoid/gen/body.json`. It
+was made by "Wear a rigged body", `quadruped`, then the Body tab's `family`
+row: a pick there goes through the engine's own switch and carries the body's
+axes across, which writing the family field with `avatar set` does not. It walks on
 the on-foot preset, with a capsule lying along its trunk that the body sizes
 ([avatar.md](../../avatar.md), "A four-legged body"). It can wear what is cut
 for a beast (`beast_collar`, `saddle_pad`, `ear_bow`) and the circlet. See it
@@ -59,6 +57,11 @@ them).
 Known faults, all open: the gait (R5, symbios-avatar #378), rest poses on a
 slope (#381), the idle head joint's jump (#382). A horse's Lie Down rests high.
 A late joiner sees a sitting beast standing until it next moves (#383).
+
+What this cat did, on the tabby's 0.17 m collider radius (2026-10-31, live):
+through a 0.6 m gap and under a rail fence; stopped by a wall; up the Barrow,
+whose foot is 29 degrees; stopped on the Knoll about 37 degrees up; stopped by a
+0.22 m step; afloat with its feet 0.46 m under the surface.
 
 **Changing the code** ([Standing decisions](#standing-decisions)): the engine is
 `../symbios-avatar` and the viewer `../bevy_symbios_avatar`, each with its own
@@ -99,29 +102,42 @@ that, it is not a fault to fix.
 
 ### Land, water and sky
 
-Not chosen yet. Start from `--terrain-report --seed-scan`
-([region.md](../../region.md)).
+FBM, seed 14, 36 m, frequency 1.8, persistence 0.42, 40,000 drops; one lake at
+9.7 m, 20 % of the land, with a sand band round it. The natural ground is 0 to
+10 degrees: anything steeper is placed. The game's own grass carries the meadow
+(0.27 m tall, 1.8 % flowers); a 9:30 morning with the sun in the south-east,
+fair weather, no weather spells, a standing hour. `b/world.py` builds it.
 
 ### Arrival
 
-Not chosen yet. Judge it from the game's camera, not eye height
-([region.md](../../region.md), "Arrivals").
+At (392, -72), looking west-south-west across the lake with the light behind
+you, the Old Oak framing the left. `pitch_deg` 7.5, to bring the far bank down
+into the frame.
 
 ### Places
 
-None yet.
-
 | Place | x, z (metres; -Z is north, +X is east) | What it is | Session built |
 |---|---|---|---|
+| The Old Oak | 352, -22 | a lone great oak, framing the arrival | 983 |
+| The Barrow | 452, -176 | a turf cap, 13 m radius, 3.4 m tall: level at the top, 29 degrees at the foot | 983 |
+| The Knoll | 498, -118 | the same, 7 m radius, 2.6 m tall: 41 degrees at the foot | 983 |
+| The Sarsens | 318, -128 | ten standing stones, gaps 0.30, 0.40, 0.50, 0.65, 0.80, 1.0, 1.25, 1.6, 2.0 and the 2.8 m way in, between hidden colliders | 983 |
+| The Long Wall | 306, 44 to 536, 28 | drystone, 0.95 m: a 0.6 m creep at x 358, a rail fence at x 397, a stile at x 440 (treads 0.22 m, sill 0.42 m), a gateway at x 483 | 983 |
+| The Strand | about 315, 30 | the shore, shelving under water at about 4.5 degrees | 983 |
+| The Stepping Stones | 315, 31 to 304, 35 | eight stones 0.25 to 0.55 m apart, out to a boulder | 983 |
+| The Jetty | 296, -24 | the catalogue's, west into the lake | 983 |
+| The Fallen Oak | 345, -190 | a tapering trunk with a propped limb | 983 |
+| Blossom trees | about 292, 110 and 250, -150 | the catalogue's flowering tree on the margin | 983 |
+| The far banks | all round | stands of young oak, in bigger leaf so they hold further out | 983 |
 
 ### Life and sound
 
-None yet.
+Seed 34's green-world bed, gusts and calls, without its fiddle, bass and siren.
 
 ### Budget
 
-None measured yet. Most visitors play in a browser, where every drawn part
-costs every frame: read `--triangle-report` from the start.
+Most visitors play in a browser, where every drawn part costs every frame: read
+`--triangle-report` before each scatter.
 
 ## Standing decisions
 
@@ -136,20 +152,42 @@ costs every frame: read `--triangle-report` from the start.
 
 ## Working material
 
-Nothing yet. `exports/catoid/` holds it from the first session on; the pulled
-records are the truth, not the builders.
+`exports/catoid/`: `src/` the last saves and the seeded originals, `log.md` the
+saves, `b/` the builders (`world.py` the land and sky; `plant1.py`, `trees.py` the
+trees; `mound.py`, `sarsens.py`, `wall.py`, `shore.py` the places; `cand.sh` and
+`cat_try.py` the body), `gen/` their output, `try/` pictures. The pulled records
+are the truth, not the builders.
 
 ## History
 
+- **2026-10-31, chainlink session 983, live session 17, parent #1819, first
+  session:** the tabby and Purlieu, as above. The owner came in the deployed
+  browser client: the collar shows, proving #1813 live; they found whiskers and
+  a horn missing there (symbios-avatar #385, the same web cause in the engine,
+  fixed); and a green blob in every tree, my crown fill for far views, removed.
+  They asked for three engine changes before the next publish (#386 mane cards,
+  #387 leg rings, #388 head and neck). Failed at first: a sunk sphere for the
+  mounds cleared the grass for 26 m around; `undo` after a set that changed
+  nothing undid the grass; a leaf scale of 1.3 on a tree whose own is 0.05 made
+  spiked monsters; willows stayed poles, so blossom trees took their place.
 - **2026-10-31, chainlink session 981, #1817:** the owner made the account and
   decided the above; this page was written before its first session.
 
 ## Open threads
 
-- The first check above: a worn collar in the owner's browser (#1813).
+- symbios-avatar #386 to #389, the owner's list, and #385 (whiskers and horn):
+  built, reviewed and handed over staged on 2026-10-31, waiting on the publish
+  of the avatar crates, then a look at each in the browser. Left open from that
+  review: #390 (a thigh dips through the ground getting up on the shortest
+  legs), #391 (some slider corners refuse to build), #392 (a shelf and pleats on
+  a short neck off a deep chest).
+- `stuck` on open grass at (393, 30), walking east toward the rail fence, twice:
+  not looked at.
+- Still to build: the Lynchets, field terraces with a stone stair; a banner.
+- A cat cannot take a 0.22 m step or a 37 degree bank on foot, and `walk-to` ends
+  `stuck`: is that what a cat should do? `face` also ends `stuck` (#1820).
 - Other things never yet seen online: another player's view of a beast sitting,
-  rebuilding, swimming and walking with its name plate; a seeded beast arriving
-  in a world.
-- Next, once the ground exists: the gait (R5, symbios-avatar #378), then #381,
-  #382, #383 (seat a driver, and with it an emote row, D8b), #371 and #384.
+  rebuilding and walking with its name plate; a seeded beast arriving in a world.
+- Next: the gait (R5, symbios-avatar #378), then #381, #382, #383 (seat a driver,
+  and with it an emote row, D8b), #371 and #384.
 - In Overlands: #1810 (the walk bench settles about 0.4 m/s under its target).

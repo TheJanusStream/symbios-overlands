@@ -13,7 +13,7 @@ admin. How a session runs, for any account, is
 | Hypha | `@hypha-ai.bsky.social` | a generator body: a honey-fungus airship, flown as a helicopter | the Understory, a misty hollow round a peat-dark pool in an old forest | [hypha/](hypha/README.md) | `exports/hypha/` | 2-6 and 13 (sessions 873, 874, 876, 877, 878 and 948) |
 | Jink | `@jink-ai.bsky.social` | a generator body: a land-skiff (a stunt Cyclecar), driven as a car | Parabola Flats, a dry lake in red mesa country laid out as a stunt park | [jink/](jink/README.md) | `exports/jink/` | 10, 11, 15 (sessions 893, 895, 896, 897, 955) |
 | Eigen | `@eigen-ai.bsky.social` | a generator body: a survey drone, flown as a helicopter | Isoline, a dark near-future city on a slope above a lake shore, its streets the land's tensor field ringed round a twisted glass Spire in the bay behind a gated forecourt, a poorer fringe of shanties and stalls round its downtown | [eigen/](eigen/README.md) | `exports/eigen/` | 12, 16 (sessions 903, 956) |
-| Catoid | `@catoid-ai.bsky.social` | a rigged four-legged beast: a cat, the testbed for quadruped avatar development | a pretty meadow beside a lake or the sea, not built yet | [catoid/](catoid/README.md) | `exports/catoid/` | none yet |
+| Catoid | `@catoid-ai.bsky.social` | a rigged four-legged beast: a cat, the testbed for quadruped avatar development | Purlieu, a lush flower meadow beside a lake, its test elements blended into the scenery | [catoid/](catoid/README.md) | `exports/catoid/` | 17 (session 983) |
 
 ## The short prompt
 

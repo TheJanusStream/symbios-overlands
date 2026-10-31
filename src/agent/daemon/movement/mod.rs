@@ -714,7 +714,15 @@ pub(super) fn steer(
                     forward,
                     velocity,
                 };
-                steer_ground(goal, ground, body, &peers, now, &sink)
+                steer_ground(
+                    goal,
+                    ground,
+                    body,
+                    swimming(local.as_deref()),
+                    &peers,
+                    now,
+                    &sink,
+                )
             }
             (Drive::Rotor(rotor), Some(sensing), Some(craft)) => {
                 steer_flight(goal, &rotor, craft, sensing, &peers, now, &sink)
@@ -782,10 +790,7 @@ pub(super) fn steer(
         // A swimmer goes where the camera looks in three dimensions, so a
         // camera pitched down to watch the ground would steer it into the
         // lake bed. Level it while swimming.
-        if local
-            .as_deref()
-            .is_some_and(|m| matches!(m.water, WaterState::Swimming { .. }))
-        {
+        if swimming(local.as_deref()) {
             orbit.pitch = Some(0.0);
             orbit.target_pitch = 0.0;
         }
@@ -806,6 +811,7 @@ fn steer_ground(
     goal: &mut Goal,
     ground: Ground,
     body: Body,
+    swims: bool,
     peers: &Peers,
     now: f64,
     sink: &EventSink,
@@ -854,7 +860,7 @@ fn steer_ground(
             {
                 Step::Drive(brake(forward, velocity))
             } else {
-                Step::Drive(ground.toward(position, forward, *target, *run))
+                Step::Drive(ground.toward(position, forward, *target, *run && !swims))
             }
         }
         Aim::Peer {
@@ -908,7 +914,7 @@ fn steer_ground(
                     if wheeled && rolling > stopping.approach_speed(*gap - *keep) {
                         Step::Drive(brake(forward, velocity))
                     } else {
-                        Step::Drive(ground.toward(position, forward, at.xz(), run))
+                        Step::Drive(ground.toward(position, forward, at.xz(), run && !swims))
                     }
                 }
             }
@@ -1091,6 +1097,13 @@ pub(super) fn park(
     }
 }
 
+/// Whether the body swims now. A walker asked to run lets go of the run key
+/// while it does (#1821): the same key swims down, and a run into a lake ended
+/// on its bed.
+fn swimming(local: Option<&LocalMovement>) -> bool {
+    local.is_some_and(|m| matches!(m.water, WaterState::Swimming { .. }))
+}
+
 /// Note `off`, how far the body is turned from its way in degrees either
 /// side, if it is the least yet by a real turn ([`PROGRESS_TURN_DEG`]), and
 /// when: whether it was.
@@ -1127,6 +1140,24 @@ mod tests {
     /// A beast lying along its capsule goes on foot (#1802): the preset is a
     /// person's, so the agent walks it where the camera looks, and it is no
     /// body on wheels for `drive`.
+    /// **A run into a lake swims, it does not dive** (#1821): the run key is
+    /// the swim-down key, and a run held on into the water took a body to the
+    /// bed and along it. The steering lets go of it from here.
+    #[test]
+    fn a_run_lets_go_of_its_key_while_swimming() {
+        let on = |water| LocalMovement {
+            water,
+            ..Default::default()
+        };
+        assert!(!swimming(None));
+        assert!(!swimming(Some(&on(WaterState::Dry))));
+        assert!(!swimming(Some(&on(WaterState::Wading { depth: 0.2 }))));
+        assert!(swimming(Some(&on(WaterState::Swimming { depth: 0.3 }))));
+        let held = |swims: bool| ground::on_foot(Vec3::ZERO, Vec2::new(0.0, 10.0), !swims).keys;
+        assert!(held(false).contains(&KeyCode::ShiftLeft));
+        assert!(!held(true).contains(&KeyCode::ShiftLeft));
+    }
+
     #[test]
     fn a_beast_walks_on_foot() {
         let beast = crate::pds::avatar::locomotion::beast_record(symbios_avatar::plan::Family::Dog);
