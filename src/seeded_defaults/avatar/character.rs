@@ -10,7 +10,8 @@
 //! biases its samples around the same anchor.
 //!
 //! Two discrete axes anchor the design space - the [`ChassisFamily`] (the
-//! body plan: humanoid / boat / airship / skiff / helicopter) and the
+//! body plan: humanoid / beast / boat / airship / skiff / helicopter /
+//! airplane) and the
 //! [`ThemeArchetype`] *style* (deliberately the **same** enum the room
 //! uses, so a cyberpunk avatar and a cyberpunk room speak one style
 //! vocabulary). Two continuous socio-style axes follow - `ornateness`
@@ -146,7 +147,8 @@ pub struct AvatarCharacter {
     /// `[-1, 1]` cool → warm bias. Shifts accent colours and material
     /// tones toward blue/cyan (`-1`) or amber/orange (`+1`).
     pub temperature: f32,
-    /// Body plan - humanoid / boat / airship / skiff / helicopter. Picked via the
+    /// Body plan - humanoid / beast / boat / airship / skiff / helicopter /
+    /// airplane. Picked via the
     /// existing [`ChassisFamily::for_seed`] so this anchor stays
     /// bit-compatible with the standalone chassis pick.
     pub chassis: ChassisFamily,
@@ -387,7 +389,7 @@ impl AvatarPins {
 
     /// Pin (or clear) the chassis family. **Any** change clears the craft
     /// pin - the brief's rule, and the only consistent one: one family's
-    /// types mean nothing under another, and two of the five families have
+    /// types mean nothing under another, and the two rigged families have
     /// none at all. A no-op when unchanged, for the reason in
     /// [`Self::lock_craft`].
     pub fn set_chassis(&mut self, chassis: Option<ChassisFamily>) {
@@ -613,31 +615,43 @@ mod tests {
         assert!(pins.matches(&AvatarCharacter::for_seed(s)));
     }
 
-    /// The five-axis worst case, MEASURED (#1380): sweeping all 936
-    /// reachable pin sets from start 0, this one walks furthest - 52 571
-    /// trials, 2.6 % of `PIN_HUNT_CAP`. The assertion is the margin, not
-    /// the number: an affinity or draw change that pushed a legal set near
-    /// the cap would turn a safety net into a stall on the UI thread.
+    /// The worst cases, MEASURED: sweeping every reachable pin set from start
+    /// 0, the furthest of the 936 with a craft or a family of old walks 52 571
+    /// trials (#1380), and the furthest of the 216 on four legs, the rarest
+    /// family, 78 156 (#1808), 3.9 % of `PIN_HUNT_CAP`. The assertion is the
+    /// margin, not the number: an affinity or draw change that pushed a legal
+    /// set near the cap would turn a safety net into a stall on the UI thread.
     #[test]
-    fn the_measured_worst_pin_set_stays_far_inside_the_cap() {
-        let pins = AvatarPins {
-            chassis: Some(ChassisFamily::Skiff),
-            style: Some(ThemeArchetype::PostApoc),
-            ornateness: Some(OrnatenessTier::Ornate),
-            wear: Some(WearTier::Worn),
-            craft: Some(CraftType::Skiff(SkiffType::Roadster)),
-        };
+    fn the_measured_worst_pin_sets_stay_far_inside_the_cap() {
+        let worst = [
+            AvatarPins {
+                chassis: Some(ChassisFamily::Skiff),
+                style: Some(ThemeArchetype::PostApoc),
+                ornateness: Some(OrnatenessTier::Ornate),
+                wear: Some(WearTier::Worn),
+                craft: Some(CraftType::Skiff(SkiffType::Roadster)),
+            },
+            AvatarPins {
+                chassis: Some(ChassisFamily::Beast),
+                style: Some(ThemeArchetype::AncientClassical),
+                ornateness: Some(OrnatenessTier::Ornate),
+                wear: Some(WearTier::Pristine),
+                craft: None,
+            },
+        ];
         const START: u64 = 0;
-        let s = pins
-            .find_seed(START)
-            .expect("the measured worst case missed");
-        assert!(pins.accepts(s));
-        let trials = s - START;
-        assert!(
-            trials < 200_000,
-            "the worst legal pin set now walks {trials} trials; it was 52 571 at b1b4648, \
-             and PIN_HUNT_CAP is 2 000 000 on the UI thread"
-        );
+        for pins in worst {
+            let s = pins
+                .find_seed(START)
+                .expect("the measured worst case missed");
+            assert!(pins.accepts(s));
+            let trials = s - START;
+            assert!(
+                trials < 200_000,
+                "{pins:?} now walks {trials} trials; the worst were 52 571 at b1b4648 and \
+                 78 156 on four legs, and PIN_HUNT_CAP is 2 000 000 on the UI thread"
+            );
+        }
     }
 
     // --- The craft pin: the one dependent axis (#1380) ----------------

@@ -26,8 +26,9 @@ pub(super) fn draw_tab(ui: &mut egui::Ui, ctx: &mut TabCtx, aim: &mut AimCtx, he
         // to draw. #1265 f101: this used to promise the rigged editor was
         // still coming (it shipped, as the Body tab) and to advise a bare
         // re-roll, which lands back on a rigged body whenever
-        // `ChassisFamily::for_seed` rolls `Humanoid` - about one seed in
-        // six since the aircraft came (#1614, #1617). The Chassis pin row is
+        // `ChassisFamily::for_seed` rolls a rigged family - about one seed in
+        // six since the aircraft came (#1614, #1617), a person seven times in
+        // eight of those and a beast the eighth (#1808). The Chassis pin row is
         // the deterministic control, so the advice routes through it and
         // names the five tree families by the labels that row actually shows
         // (`ChassisFamily::label`).

@@ -39,7 +39,7 @@ use bevy_symbios_avatar::{AvatarDriver, Drive, spawn_avatar};
 
 use crate::camera::WorldCamera;
 use crate::pds::RoomRecord;
-use crate::pds::avatar::wardrobe::engine_default_for_seed;
+use crate::pds::avatar::wardrobe::engine_body_for_seed;
 use crate::pds::avatar::{AttachmentRecord, ResolvedAttachment};
 use crate::state::{CurrentRoomDid, LiveRoomRecord, LocalSettings};
 use crate::terrain::{FinishedHeightMap, HeightMapSource, RoadPanelStats, SplatApplied};
@@ -142,12 +142,13 @@ pub(super) struct WalkerOutfit {
 
 /// The body one `--walker` seed rolls: the seed's default record - the
 /// same derivation a fresh account takes, outfit included since engine
-/// 0.10 rolls one (#358) - in the colours and lengths asked for.
+/// 0.10 rolls one (#358), and a beast on a seed that rolls one (#1808) - in the
+/// colours and lengths asked for.
 pub(super) fn walker_record(
     seed: u64,
     outfit: Option<WalkerOutfit>,
 ) -> crate::pds::avatar::EngineAvatarRecord {
-    let mut record = engine_default_for_seed(seed);
+    let mut record = engine_body_for_seed(seed);
     if let Some(outfit) = outfit {
         record.outfit.top.colour = outfit.top;
         record.outfit.trousers.colour = outfit.trousers;
@@ -1031,7 +1032,7 @@ mod tests {
         let plain = walker_record(3, None);
         assert_eq!(
             plain.outfit,
-            engine_default_for_seed(3).outfit,
+            engine_body_for_seed(3).outfit,
             "no flag: the outfit the seed rolled"
         );
         assert_ne!(

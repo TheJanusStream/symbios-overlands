@@ -227,7 +227,7 @@ impl CraftType {
             ChassisFamily::Helicopter => &Self::HELICOPTERS,
             ChassisFamily::Airplane => &Self::AIRPLANES,
             ChassisFamily::Airship => &Self::AIRSHIPS,
-            ChassisFamily::Humanoid => &[],
+            ChassisFamily::Humanoid | ChassisFamily::Beast => &[],
         }
     }
 
@@ -264,7 +264,7 @@ impl CraftType {
 /// The craft axis of an already-derived anchor: the type it rolled, or why
 /// its family has none.
 ///
-/// One match over the six families, so the value and the explanation can
+/// One match over the seven families, so the value and the explanation can
 /// never disagree and neither arm is dead. [`CraftType::for_character`] is
 /// this with the words thrown away, and the pinned re-roll draws its craft
 /// row straight from it: `Ok` as a lockable value, `Err` as the weak
@@ -281,7 +281,7 @@ pub fn craft_axis(c: &AvatarCharacter) -> Result<CraftType, &'static str> {
             c.style, c.seed,
         ))),
         ChassisFamily::Airship => Ok(CraftType::Airship(AirshipType::for_style(c.style, c.seed))),
-        ChassisFamily::Humanoid => Err("a rigged avatar has no craft types"),
+        ChassisFamily::Humanoid | ChassisFamily::Beast => Err("a rigged avatar has no craft types"),
     }
 }
 
@@ -1182,7 +1182,7 @@ mod tests {
                 | (ChassisFamily::Helicopter, Some(CraftType::Helicopter(_)))
                 | (ChassisFamily::Airplane, Some(CraftType::Airplane(_)))
                 | (ChassisFamily::Airship, Some(CraftType::Airship(_))) => families += 1,
-                (ChassisFamily::Humanoid, None) => families += 1,
+                (ChassisFamily::Humanoid | ChassisFamily::Beast, None) => families += 1,
                 (fam, craft) => panic!("seed {s}: {fam:?} got craft {craft:?}"),
             }
         }

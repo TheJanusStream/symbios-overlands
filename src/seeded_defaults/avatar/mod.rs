@@ -23,7 +23,8 @@
 //! ```
 //!
 //! The top-level discrete pick is [`ChassisFamily`] (boat / airship /
-//! humanoid / skiff / helicopter - two stages since #1614, see [`chassis`]),
+//! humanoid / beast / skiff / helicopter / airplane - in stages since #1614,
+//! see [`chassis`]),
 //! and inside three of the vehicle families a second discrete pick follows
 //! it: the [`CraftType`] (sloop / longship / tug / junk / runabout / scow,
 //! roadster / buggy / armoured car / cyclecar / wagon / rover, and the

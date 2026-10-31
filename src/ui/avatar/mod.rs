@@ -1270,9 +1270,11 @@ pub fn avatar_ui(
                                 EventPayload::AvatarReseeded { seed },
                             );
                         } else {
-                            // Unreachable in practice (the cap misses a legal
-                            // pin-set with probability ~e⁻²⁴¹⁵); keep the
-                            // record untouched rather than violate the locks.
+                            // Unreachable in practice (the furthest a legal
+                            // pin-set walks is 4 % of the cap,
+                            // `the_measured_worst_pin_sets_stay_far_inside_the_cap`);
+                            // keep the record untouched rather than violate
+                            // the locks.
                             bevy::log::warn!(
                                 "pinned re-roll found no seed matching {:?} from {start}",
                                 reroll.pins

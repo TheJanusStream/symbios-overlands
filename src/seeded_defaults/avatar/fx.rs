@@ -102,7 +102,7 @@ impl ParticleAura {
             ChassisFamily::Skiff | ChassisFamily::Helicopter | ChassisFamily::Airplane => {
                 Self::Exhaust
             }
-            ChassisFamily::Humanoid => Self::None,
+            ChassisFamily::Humanoid | ChassisFamily::Beast => Self::None,
         }
     }
 
@@ -116,6 +116,7 @@ impl ParticleAura {
             ChassisFamily::Boat
             | ChassisFamily::Skiff
             | ChassisFamily::Humanoid
+            | ChassisFamily::Beast
             | ChassisFamily::Airplane => false,
         }
     }
@@ -127,7 +128,7 @@ impl ParticleAura {
     /// jet straight into the water or road, so it trails its wake / exhaust
     /// instead.
     fn effective(style_aura: Self, chassis: ChassisFamily) -> Self {
-        if chassis == ChassisFamily::Humanoid {
+        if chassis.is_rigged() {
             return style_aura;
         }
         match style_aura {
@@ -218,7 +219,7 @@ fn voice_for(style: ThemeArchetype, chassis: ChassisFamily) -> AvatarVoice {
     match style {
         Cyberpunk | AlienMonolithic => AvatarVoice::NeonBuzz,
         Fantasy | AlienOrganic | Solarpunk => AvatarVoice::ArcaneShimmer,
-        _ if chassis != ChassisFamily::Humanoid => AvatarVoice::Drive,
+        _ if !chassis.is_rigged() => AvatarVoice::Drive,
         _ => AvatarVoice::None,
     }
 }

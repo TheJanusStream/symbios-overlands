@@ -239,23 +239,24 @@ mod tests {
 
     /// **An upright body writes the bytes it wrote before the shape existed**
     /// (#1802, D1): the default preset to the byte, and no seeded person's
-    /// record names a shape at all.
+    /// record names a shape at all, where a seeded beast's does (#1808).
     #[test]
     fn an_upright_body_writes_no_shape() {
+        use crate::seeded_defaults::ChassisFamily;
         let wire = serde_json::to_string(&HumanoidParams::default()).expect("writes");
         assert_eq!(wire, DEFAULT_WIRE);
-        let mut people = 0;
+        let (mut people, mut beasts) = (0, 0);
         for seed in 0u64..600 {
             if let LocomotionConfig::Humanoid(p) = AvatarRecord::default_for_seed(seed).locomotion {
-                people += 1;
+                let beast = ChassisFamily::for_seed(seed) == ChassisFamily::Beast;
+                people += i32::from(!beast);
+                beasts += i32::from(beast);
                 let wire = serde_json::to_string(&p).expect("writes");
-                assert!(
-                    !wire.contains("shape"),
-                    "seed {seed} writes a shape: {wire}"
-                );
+                assert_eq!(wire.contains("shape"), beast, "seed {seed}: {wire}");
             }
         }
         assert!(people > 50, "the fixture: only {people} people under 600");
+        assert!(beasts > 3, "the fixture: only {beasts} beasts under 600");
     }
 
     /// **A lying body writes its shape, on the wire's grid, and reads it

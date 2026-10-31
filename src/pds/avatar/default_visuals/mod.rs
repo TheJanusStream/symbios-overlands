@@ -21,6 +21,10 @@
 //! [`crate::pds::tid::tid_for_seed`] so two devices that both save a
 //! never-edited seeded default agree on where it goes.
 //!
+//! **The beast family is the same promise on four legs** (#1808): a dog, a cat,
+//! a horse or a cross of them rolled from the seed, standing on the on-foot
+//! preset cut to its own trunk.
+//!
 //! **Boats and skiffs are drawn at airship class** (#1361, owner decision 1 of
 //! the #1359 redesign), and since #1364 both are there for real: [`boats`] and
 //! [`skiffs`] each draw one builder per craft type off one profile, authored
@@ -354,6 +358,9 @@ fn build_seeded(seed: u64, livery: Option<usize>) -> (RecordBody, LocomotionConf
     if family == ChassisFamily::Humanoid {
         return (RecordBody::rigged_seeded(seed), humanoid_locomotion(seed));
     }
+    if family == ChassisFamily::Beast {
+        return (RecordBody::beast_seeded(seed), beast_locomotion(seed));
+    }
     // No visual-root scale: the airship-class bridge of #1361 carried a
     // uniform factor here (and a matching one into the FX, because a particle
     // sprite is sized in world metres rather than in its emitter's frame)
@@ -372,7 +379,9 @@ fn build_seeded(seed: u64, livery: Option<usize>) -> (RecordBody, LocomotionConf
         ChassisFamily::Airplane => (airplanes::build(seed, livery), airplane_locomotion(seed)),
         // Handled above; a family added later lands here loudly rather
         // than silently assembling nothing.
-        ChassisFamily::Humanoid => unreachable!("the rigged family returns above"),
+        ChassisFamily::Humanoid | ChassisFamily::Beast => {
+            unreachable!("the rigged families return above")
+        }
     };
     // Seeded FX: hang the style's signature particle aura (floored to the
     // chassis wake / vent / exhaust) + body voice on the built root. The mount
@@ -445,7 +454,7 @@ fn engine_stature(seed: u64) -> f32 {
 fn fx_mount(aura: ParticleAura, family: ChassisFamily, seed: u64) -> [f32; 3] {
     match family {
         // A tight aura around the torso (chest height), not floating overhead.
-        ChassisFamily::Humanoid => [0.0, 0.45, 0.0],
+        ChassisFamily::Humanoid | ChassisFamily::Beast => [0.0, 0.45, 0.0],
         // A boat's aura is read off her own hull by the craft type that
         // drew it (#1363) - a wake leaves the transom of the boat that is
         // actually there, not a fraction of a nominal one.
@@ -502,6 +511,15 @@ fn humanoid_locomotion(seed: u64) -> LocomotionConfig {
     let mut p = super::fit_on_foot(&body, &HumanoidParams::default());
     p.walk_speed = Fp(seeded_travel_speed(gait.step_cadence));
     p.into_config()
+}
+
+/// On-foot locomotion cut to the beast the seed rolls (#1808): the fit is all
+/// of it, the collider lying along its trunk, the run its legs give it, its
+/// weight and its jump. A person's run reads the seeded gait cadence; a beast's
+/// is its size's own (owner decision D4).
+fn beast_locomotion(seed: u64) -> LocomotionConfig {
+    let body = super::wardrobe::engine_beast_for_seed(seed);
+    super::fit_on_foot(&body, &HumanoidParams::default()).into_config()
 }
 
 // ---------------------------------------------------------------------------
@@ -970,9 +988,9 @@ pub fn seeded_gait(seed: u64) -> GaitParams {
             g.lean_degrees = Fp::ZERO;
         }
         // The airship's heave and nose wander are what her types keep
-        // (#1656 decision 5); a humanoid has no craft type. The angular
-        // field keeps its old meaning for both.
-        ChassisFamily::Airship | ChassisFamily::Humanoid => {}
+        // (#1656 decision 5); a rigged body has no craft type. The angular
+        // field keeps its old meaning for all three.
+        ChassisFamily::Airship | ChassisFamily::Humanoid | ChassisFamily::Beast => {}
     }
     g
 }
@@ -1060,11 +1078,11 @@ mod tests {
         build_for_did(did).0.visuals().cloned()
     }
 
-    /// A DID per VEHICLE family - the four that build a generator tree.
+    /// A DID per VEHICLE family - the ones that build a generator tree.
     fn vehicle_dids() -> Vec<(ChassisFamily, String)> {
         family_dids()
             .into_iter()
-            .filter(|(fam, _)| *fam != ChassisFamily::Humanoid)
+            .filter(|(fam, _)| !fam.is_rigged())
             .collect()
     }
     // `seed_for_class` hunted a seed whose outfit rolled a named structural
@@ -1881,7 +1899,7 @@ mod tests {
             let expected = match fam {
                 ChassisFamily::Boat => "hover_boat",
                 ChassisFamily::Airship | ChassisFamily::Helicopter => "helicopter",
-                ChassisFamily::Humanoid => "humanoid",
+                ChassisFamily::Humanoid | ChassisFamily::Beast => "humanoid",
                 ChassisFamily::Skiff => "car",
                 ChassisFamily::Airplane => "airplane",
             };
@@ -2294,6 +2312,145 @@ mod tests {
             again.resolved.as_ref().expect("resolved").body,
             "the person must be deterministic"
         );
+    }
+
+    /// The first `count` seeds that roll a beast, a family about one seed in
+    /// 48 lands in.
+    fn beast_seeds(count: usize) -> Vec<u64> {
+        (0u64..)
+            .filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Beast)
+            .take(count)
+            .collect()
+    }
+
+    /// #1060's contract on four legs (#1808): a beast is rolled locally from
+    /// the seed, so two clients agree on the animal and on its wardrobe key
+    /// with nothing exchanged, and it stands on the preset cut to its trunk,
+    /// wearing nothing.
+    #[test]
+    fn the_beast_family_is_rigged_and_resolves_without_a_fetch() {
+        for seed in beast_seeds(12) {
+            let (body, loco) = build_for_seed(seed);
+            let rig = body.rigged_ref().expect("the beast family is rigged");
+            let resolved = rig
+                .resolved
+                .as_ref()
+                .expect("seeded bodies resolve locally - no PDS round trip");
+            assert!(
+                matches!(
+                    resolved.body.archetype,
+                    symbios_avatar::Archetype::Quadruped(_)
+                ),
+                "seed {seed} rolled no beast"
+            );
+            assert_eq!(rig.avatar.len(), 13, "a deterministic TID rkey");
+            assert!(body.visuals().is_none(), "no generator tree to walk");
+            assert!(
+                rig.attachments.is_empty() && resolved.attachments.is_empty(),
+                "seed {seed}: a seeded body wears nothing"
+            );
+            let LocomotionConfig::Humanoid(p) = &loco else {
+                panic!("seed {seed}: a beast walks, on {}", loco.kind_tag());
+            };
+            assert!(p.is_lying(), "seed {seed} stands in a person's capsule");
+            assert_eq!(
+                (body.clone(), loco.clone()),
+                build_for_seed(seed),
+                "seed {seed}: the beast must be deterministic"
+            );
+        }
+    }
+
+    /// Owner decision D10: the seeded beasts mix as the engine's own roll
+    /// mixes them, a family at a time and 15 % crosses, and the clamp is the
+    /// only thing this crate does to that roll. Over 400 beasts a cross is
+    /// 60 with a standard deviation of about 7, so its band is five of them
+    /// wide.
+    #[test]
+    fn the_seeded_beasts_are_the_engines_own_mix_at_a_size_it_accepts() {
+        use symbios_avatar::plan::{Family, quadruped_height_range};
+        use symbios_avatar::{Archetype, QuadrupedParams};
+        let (low, high) = quadruped_height_range();
+        let (mut dogs, mut cats, mut horses, mut crosses, mut clamped) = (0, 0, 0, 0, 0);
+        for seed in beast_seeds(400) {
+            let record = super::super::wardrobe::engine_beast_for_seed(seed);
+            let Archetype::Quadruped(params) = &record.archetype else {
+                panic!("seed {seed} rolled no beast");
+            };
+            assert!(
+                (low..=high).contains(&params.height),
+                "seed {seed}: {} m at the back",
+                params.height
+            );
+            match params.family {
+                Family::Dog => dogs += 1,
+                Family::Cat => cats += 1,
+                Family::Horse => horses += 1,
+            }
+            crosses += i32::from(params.hybrid.is_some());
+            // The engine's roll, the clamp aside.
+            let mut rolled = symbios_avatar::AvatarRecord::rolled(
+                "Wanderer",
+                Archetype::Quadruped(QuadrupedParams::default()),
+                seed as i64,
+            );
+            rolled.sanitize();
+            let Archetype::Quadruped(raw) = &mut rolled.archetype else {
+                panic!("seed {seed} rolled no beast");
+            };
+            clamped += i32::from(!(low..=high).contains(&raw.height));
+            raw.height = params.height;
+            assert_eq!(
+                rolled, record,
+                "seed {seed} moved more than the engine's roll"
+            );
+        }
+        assert!(
+            dogs > 60 && cats > 60 && horses > 60,
+            "{dogs} dogs, {cats} cats and {horses} horses"
+        );
+        assert!((25..=95).contains(&crosses), "{crosses} crosses in 400");
+        assert!(
+            clamped > 0,
+            "no roll in 400 reached the clamp: what is it for?"
+        );
+    }
+
+    /// A seeded beast's record is as a peer decodes it, and its own client has
+    /// nothing to correct: the sanitiser moves nothing, and the owner's defence
+    /// against a preset and a body written apart finds them together (#1808).
+    /// A body that came out of the fit unrigged would stand in a person's
+    /// capsule, and it would be caught here.
+    #[test]
+    fn a_seeded_beast_is_settled_as_it_is_given() {
+        for seed in beast_seeds(60) {
+            let record = crate::pds::AvatarRecord::default_for_seed(seed);
+            let mut again = record.clone();
+            again.sanitize();
+            assert_eq!(again, record, "seed {seed}: the sanitiser moved it");
+            assert!(
+                !super::super::locomotion::restore_body_shape(&mut again),
+                "seed {seed}: its owner's client refitted it"
+            );
+            let wire = serde_json::to_string(&record.locomotion).expect("a locomotion config");
+            let decoded: LocomotionConfig = serde_json::from_str(&wire).expect("it decodes");
+            assert_eq!(decoded, record.locomotion, "seed {seed}: the wire moved it");
+        }
+    }
+
+    /// Beasts are bodies the game must really draw, so these are built whole,
+    /// as a client builds them, rather than read off the skeleton as the fit
+    /// is. A handful: a body takes about a second (the sweep over hundreds was
+    /// run by hand when the family came, #1808).
+    #[test]
+    fn seeded_beasts_build() {
+        for seed in beast_seeds(4) {
+            let record = super::super::wardrobe::engine_beast_for_seed(seed);
+            assert!(
+                symbios_avatar::Avatar::build_with(&record, &Default::default()).is_some(),
+                "seed {seed} does not build"
+            );
+        }
     }
 
     #[test]

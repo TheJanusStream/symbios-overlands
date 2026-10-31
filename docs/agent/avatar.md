@@ -131,7 +131,7 @@ BEVY_ASSET_ROOT=<repo> <repo>/target/test-release/render --world <did> \
 ```
 
 `--focus walker` follows the file's body; `--yaw 150` looks at its face, and
-`--walker <seed>` adds a seeded person beside it for comparison.
+`--walker <seed>` adds that seed's body beside it for comparison.
 `--first-person` looks out of the body's own eyes instead, as a player who
 zooms all the way in does (#1745), with the body out of the picture and its
 shadow on the ground: `--elev` lowers the head that many degrees and `--yaw`
@@ -147,7 +147,8 @@ wrong and the offsets need tuning".
 
 - **A seeded account may be a vehicle.** The Avatar window's Body tab has
   "Wear a rigged body" (`ui click "Avatar > Wear a rigged body"`);
-  `status.locomotion` then reads `humanoid`.
+  `status.locomotion` then reads `humanoid`, or `four_legged` on an account
+  whose seed rolls a beast (see "A four-legged body").
 - **The sculpt** is `avatar set /body/...`. Wire scale: 1000 = 1.0 on the
   axes (-1..1, explorable to +-3), height in millimetres, age in whole
   years; read symbios-avatar's `plan/*.rs` for the ranges, not memory.
@@ -242,6 +243,11 @@ the body's seed and `humanoid` rolls a person back (`A ui click "Avatar > body
 its collider, walk, run, weight and jump follow the body in the same undo step,
 and `status.locomotion` reads `four_legged`. Others see the new body once it is
 saved (`A save avatar --wait`), like any rigged sculpt.
+
+An account can also start as one: one seed in eight of those on foot is a
+beast, about one avatar in 48 (#1808). Offline,
+`A start --offline --stand-in did:plc:agentofflinebeast22222ia` is a dog, and
+the render tool's `--family-seeds beast` lists more seeds.
 
 - **It walks as a person does**: `walk-to`, `follow`, Shift to run, swimming.
   `look --view eyes` looks from its own eyes.

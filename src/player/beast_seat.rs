@@ -4,8 +4,14 @@
 //! the occiput with the skull's axis for a direction, so `Socket::seat` lands
 //! ahead of the face - and its node radii say nothing of a neck much deeper
 //! than it is wide. So every seat here is read off what was built: the ear
-//! bases a head declares, and the skin itself, cut by a plane or dropped onto
-//! along a line.
+//! joints in its rig, and the skin itself, cut by a plane or dropped onto along
+//! a line.
+//!
+//! **Only off what a body keeps across the web's worker boundary** (#1813). A
+//! body built on a worker comes back drawable and no more: its closed surface
+//! (`Parts::body`) and its declared head (`Parts::beast`) stay behind, and a
+//! seat read off them leaves a browser's beast wearing nothing. The rig and the
+//! drawn meshes both arrive, and every client reads the same two.
 //!
 //! A seat is a local transform on the joint it rides, at rest, so it follows
 //! the pose the way the skin nearest that joint does. Each rides the joint
@@ -14,7 +20,8 @@
 //! joint of the chest.
 
 use bevy::prelude::*;
-use symbios_avatar::{Avatar, Socket, Zone};
+use symbios_avatar::rig::Role;
+use symbios_avatar::{Avatar, HeadKind, MeshKind, PolyMesh, Rig, Socket, Zone};
 
 /// Air between a seat and the skin it stands on, in metres: a prop stands
 /// on a head, where the person's seat keeps clear of a chest.
@@ -41,7 +48,7 @@ const PAD_FIT: f32 = 0.4;
 /// ears.
 pub(super) fn carrier(avatar: &Avatar, socket: Socket) -> Option<usize> {
     match socket {
-        Socket::Crown => avatar.parts.beast.as_ref().map(|beast| beast.ears.head),
+        Socket::Crown => Ears::of(&avatar.rig).map(|ears| ears.head),
         // The engine's back is the first joint of the chest. The pad lies on
         // the bone after it, whose skin the next joint carries: on the first,
         // a sitting dog's back swings out from under it.
@@ -73,17 +80,66 @@ pub(super) fn seat(
 /// anywhere. A prop cut for a beast scales with the span between them, and
 /// anything else, the circlet, stays the size it was authored.
 fn between_the_ears(avatar: &Avatar, joint: usize, across: Option<f32>) -> Option<Transform> {
-    let ears = &avatar.parts.beast.as_ref()?.ears;
+    let ears = Ears::of(&avatar.rig)?;
     let head = avatar.rig.joints[joint];
-    let middle = head.position + (ears.left.base + ears.right.base) * 0.5;
+    let middle = (ears.left + ears.right) * 0.5;
     let reach = avatar.parts.surface.widest(joint).max(head.radius);
     let skin = skin_under(avatar, middle, reach).unwrap_or(middle.y);
-    let span = (ears.left.base - ears.right.base).length();
+    let span = (ears.left - ears.right).length();
     Some(Transform {
         translation: Vec3::new(middle.x, skin + SKIN_AIR, middle.z) - head.position,
         rotation: Quat::IDENTITY,
         scale: Vec3::splat(across.map_or(1.0, |across| span / across)),
     })
+}
+
+/// A beast's ears, as its rig holds them.
+struct Ears {
+    /// The head joint they hang from.
+    head: usize,
+    /// One base, in body space.
+    left: Vec3,
+    /// The other.
+    right: Vec3,
+}
+
+impl Ears {
+    /// Found as the engine's own driver finds them: each base is the parent of
+    /// a spring at an ear's tip, on a joint of a beast's head. `None` for a
+    /// body with no such pair, whatever else hangs off its head.
+    fn of(rig: &Rig) -> Option<Self> {
+        if rig.anatomy.head != HeadKind::Beast {
+            return None;
+        }
+        let mut bases = rig
+            .joints
+            .iter()
+            .filter(|joint| joint.role == Role::Spring)
+            .filter_map(|tip| tip.parent)
+            .filter(|&base| {
+                rig.joints[base]
+                    .parent
+                    .is_some_and(|head| rig.joints[head].zone == Zone::Head)
+            });
+        let (left, right) = (bases.next()?, bases.next()?);
+        Some(Self {
+            head: rig.joints[left].parent?,
+            left: rig.joints[left].position,
+            right: rig.joints[right].position,
+        })
+    }
+}
+
+/// Every face of the drawn skin, with the mesh it indexes.
+fn skin_faces(avatar: &Avatar) -> impl Iterator<Item = (&PolyMesh, &[u32])> {
+    avatar
+        .meshes
+        .iter()
+        .filter(|drawn| drawn.kind == MeshKind::Skin)
+        .flat_map(|drawn| {
+            let mesh = &drawn.mesh;
+            mesh.faces.iter().map(move |face| (mesh, face.as_slice()))
+        })
 }
 
 /// Round the neck, at the joint the bone into it ends at: the point of the
@@ -179,9 +235,8 @@ impl Section {
     /// stands within `reach` of `at`. `None` for a plane that finds no skin.
     fn cut(avatar: &Avatar, at: Vec3, axis: Vec3, reach: f32) -> Option<Self> {
         let deep = axis.cross(Vec3::X).try_normalize()?;
-        let mesh = &avatar.parts.body;
         let mut points = Vec::new();
-        for face in &mesh.faces {
+        for (mesh, face) in skin_faces(avatar) {
             for (index, &from) in face.iter().enumerate() {
                 let to = face[(index + 1) % face.len()];
                 let (a, b) = (mesh.positions[from as usize], mesh.positions[to as usize]);
@@ -240,10 +295,9 @@ impl Section {
 /// The highest skin on the vertical line through `point`, within `reach` of
 /// it, in height: where something dropped there lands.
 fn skin_under(avatar: &Avatar, point: Vec3, reach: f32) -> Option<f32> {
-    let mesh = &avatar.parts.body;
     let at = Vec2::new(point.x, point.z);
     let mut top: Option<f32> = None;
-    for face in &mesh.faces {
+    for (mesh, face) in skin_faces(avatar) {
         let Some((first, rest)) = face.split_first() else {
             continue;
         };
@@ -292,11 +346,16 @@ mod tests {
     /// `ROLLS` of the engine's own rolled bodies per family, crosses among
     /// them: a re-roll draws its own family, so they are sorted as they fall.
     fn rolled() -> Vec<(Family, Avatar)> {
+        rolled_up_to(ROLLS)
+    }
+
+    /// `rolls` of them per family.
+    fn rolled_up_to(rolls: usize) -> Vec<(Family, Avatar)> {
         let mut out = Vec::new();
         let mut counts = [0usize; 3];
         let families = [Family::Dog, Family::Cat, Family::Horse];
         for seed in 0..4000i64 {
-            if counts.iter().all(|count| *count >= ROLLS) {
+            if counts.iter().all(|count| *count >= rolls) {
                 break;
             }
             let mut record = EngineAvatarRecord {
@@ -311,7 +370,7 @@ mod tests {
             let Some(slot) = families.iter().position(|f| *f == family) else {
                 continue;
             };
-            if counts[slot] >= ROLLS {
+            if counts[slot] >= rolls {
                 continue;
             }
             let config = AvatarConfig {
@@ -323,7 +382,7 @@ mod tests {
                 out.push((family, avatar));
             }
         }
-        assert_eq!(counts, [ROLLS; 3], "too few rolls came out of each family");
+        assert_eq!(counts, [rolls; 3], "too few rolls came out of each family");
         out
     }
 
@@ -494,6 +553,41 @@ mod tests {
                 wide > side && wide < side * 2.0,
                 "{family:?}: a pad {wide:.3} m wide on a back {side:.3} m wide"
             );
+        }
+    }
+
+    /// **The drawn skin seats a prop as the closed surface does** (#1813),
+    /// which only a body built here still has. The same to the bit when this
+    /// was written, ears and jaw merged into the draw and all: they do not
+    /// reach the cuts. Should a roll ever bring one there, this says so.
+    #[test]
+    fn the_drawn_skin_seats_as_the_closed_surface_does() {
+        const SOCKETS: [(Socket, u32); 3] = [
+            (Socket::Crown, EAR_SPAN_MM),
+            (Socket::Neck, BORE_MM),
+            (Socket::Back, WIDTH_MM),
+        ];
+        for (family, mut avatar) in rolled_up_to(20) {
+            let seated = |avatar: &Avatar, socket: Socket, mm: u32| {
+                let joint = carrier(avatar, socket).expect("a joint");
+                seat(avatar, socket, joint, mm).expect("a seat")
+            };
+            let drawn = SOCKETS.map(|(socket, mm)| seated(&avatar, socket, mm));
+            avatar.meshes = vec![symbios_avatar::AvatarMesh {
+                kind: MeshKind::Skin,
+                mesh: avatar.parts.body.clone(),
+            }];
+            for ((socket, mm), drawn) in SOCKETS.into_iter().zip(drawn) {
+                let whole = seated(&avatar, socket, mm);
+                let moved = drawn.translation.distance(whole.translation);
+                let grew = (drawn.scale / whole.scale - Vec3::ONE).abs().max_element();
+                let turned = drawn.rotation.angle_between(whole.rotation).to_degrees();
+                assert!(
+                    moved < 0.002 && grew < 0.01 && turned < 0.5,
+                    "{family:?} at {socket:?}: moved {moved:.4} m, grew {grew:.3}, turned \
+                     {turned:.2} deg"
+                );
+            }
         }
     }
 

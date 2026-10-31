@@ -17,22 +17,25 @@ use super::Args;
 
 /// Print the first `count` u64 seeds whose
 /// [`ChassisFamily`] matches `fam`
-/// (case-insensitive `humanoid` | `boat` | `airship` | `skiff` |
+/// (case-insensitive `humanoid` | `beast` | `boat` | `airship` | `skiff` |
 /// `helicopter` | `airplane`). A survey aid for the avatar overhaul - a
-/// helicopter and an airplane are a sixth of the seeds each and the other
-/// four share the rest (#1614, #1617), so scanning a few thousand always
-/// finds enough.
+/// helicopter and an airplane are a sixth of the seeds each, the other four
+/// share the rest (#1614, #1617) and a beast is an eighth of the humanoid's
+/// share (#1808), so scanning a few thousand always finds enough.
 pub(super) fn print_family_seeds(fam: &str, count: usize, craft: Option<&str>) {
     use crate::seeded_defaults::ChassisFamily;
     let want = match fam.to_lowercase().as_str() {
         "humanoid" => ChassisFamily::Humanoid,
+        "beast" => ChassisFamily::Beast,
         "boat" => ChassisFamily::Boat,
         "airship" => ChassisFamily::Airship,
         "skiff" => ChassisFamily::Skiff,
         "helicopter" => ChassisFamily::Helicopter,
         "airplane" => ChassisFamily::Airplane,
         other => {
-            panic!("unknown family {other:?} (humanoid|boat|airship|skiff|helicopter|airplane)")
+            panic!(
+                "unknown family {other:?} (humanoid|beast|boat|airship|skiff|helicopter|airplane)"
+            )
         }
     };
     let craft = craft.map(|c| resolve_craft(c, want));
@@ -53,14 +56,15 @@ pub(super) fn print_family_seeds(fam: &str, count: usize, craft: Option<&str>) {
             seeds.len()
         );
     }
-    // Humanoid seeds are rigged bodies since #1060 - there is no generator
-    // tree to render and no stylization tier to exemplify, so say where the
-    // instrument for them lives instead of printing a table about parts
-    // that no longer exist.
-    if want == ChassisFamily::Humanoid {
+    // Humanoid seeds are rigged bodies since #1060, and beast seeds since
+    // #1808 - there is no generator tree to render and no stylization tier to
+    // exemplify, so say where the instrument for them lives instead of
+    // printing a table about parts that no longer exist.
+    if want.is_rigged() {
         println!(
-            "  (humanoid seeds are rigged symbios-avatar bodies - render them \n\
-              with the bevy_symbios_avatar viewer, not this tool)"
+            "  ({} seeds are rigged symbios-avatar bodies - render them \n\
+              with the bevy_symbios_avatar viewer, not this tool)",
+            fam.to_lowercase()
         );
     }
 }
@@ -145,13 +149,29 @@ fn character_for(subject: &str) -> crate::seeded_defaults::AvatarCharacter {
     }
 }
 
-/// The seeded craft type of an avatar `subject`, or `None` for the one
-/// family without one (the rigged humanoid).
+/// The seeded craft type of an avatar `subject`, or `None` for the two
+/// families without one (the rigged humanoid and beast).
 fn craft_for(subject: &str) -> Option<CraftType> {
     match subject.parse::<u64>() {
         Ok(seed) => CraftType::for_seed(seed),
         Err(_) => CraftType::for_did(subject),
     }
+}
+
+/// What a seeded beast is, in words (#1808): its family, a cross's other
+/// parent and share, and its size - what a survey picks a beast by.
+fn beast_line(seed: u64) -> String {
+    let record = crate::pds::avatar::wardrobe::engine_beast_for_seed(seed);
+    let symbios_avatar::Archetype::Quadruped(params) = &record.archetype else {
+        return "not four-legged".to_string();
+    };
+    let cross = params.hybrid.map_or(String::new(), |other| {
+        format!(" x {other:?} at {:.2}", params.blend)
+    });
+    format!(
+        "{:?}{cross}, {:.2} m at the back",
+        params.family, params.height
+    )
 }
 
 /// Print what one avatar `subject` (a `u64` seed or a DID) resolves to:
@@ -174,6 +194,9 @@ pub(super) fn print_outfit(subject: &str) {
     // craft it is drawn as. The readout used to carry a second answer - "not
     // built yet, drawn as the <floor>" - for a pick nothing drew; that state
     // no longer exists and #1382 removed it with the seam.
+    if character.chassis == ChassisFamily::Beast {
+        println!("  beast: {}", beast_line(character.seed));
+    }
     if let Some(craft) = craft_for(subject) {
         println!("  craft type: {}", craft.label());
         // And the heritage livery it is painted in (#1365) - a second DID-

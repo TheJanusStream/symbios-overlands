@@ -3011,10 +3011,7 @@ mod tests {
         // rigged humanoid is refused by name.
         let vehicle = (0..64)
             .map(|i| format!("{did}-{i}"))
-            .find(|d| {
-                crate::seeded_defaults::ChassisFamily::for_did(d)
-                    != crate::seeded_defaults::ChassisFamily::Humanoid
-            })
+            .find(|d| !crate::seeded_defaults::ChassisFamily::for_did(d).is_rigged())
             .expect("one of 64 DIDs rolls a vehicle");
         assert_eq!(
             lineup_slot(&vehicle, None).label,

@@ -3088,8 +3088,9 @@ pub(crate) mod agent {
     /// hover-boat) and `did:plc:agentofflineair222222222` an airship (a
     /// helicopter: a twin envelope, the slowest of them to turn, until #1657,
     /// and a Zeppelin since - her CivicCampus theme is one of the Zeppelin's
-    /// homes, so the fan-out's types left her one, #1658-#1663) - found with
-    /// the render tool's `--outfit` (#1421, #1430).
+    /// homes, so the fan-out's types left her one, #1658-#1663), and
+    /// `did:plc:agentofflinebeast22222ia` a dog on four legs (#1808) - found
+    /// with the render tool's `--outfit` (#1421, #1430).
     pub const OFFLINE_DID: &str = "did:plc:agentofflinestandin22222";
     /// The offline agent's handle, on a name that can never resolve.
     pub const OFFLINE_HANDLE: &str = "agent.offline.invalid";

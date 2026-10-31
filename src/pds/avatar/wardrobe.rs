@@ -1136,8 +1136,9 @@ pub async fn publish_avatar_bundle(
 /// DID, which is the whole contract - the rigged counterpart of
 /// [`super::AvatarRecord::default_for_did`], used when #1057 gives seeded
 /// defaults a rigged option. The archetype is the host's call and overlands
-/// says humanoid; the name is a placeholder the identity's handle replaces
-/// in UI, not on the record.
+/// says humanoid here, whichever family the DID's seed rolls - the seeded
+/// beast is [`engine_beast_for_seed`]; the name is a placeholder the identity's
+/// handle replaces in UI, not on the record.
 pub fn engine_default_for_did(did: &str) -> EngineAvatarRecord {
     engine_default_for_seed(crate::seeded_defaults::fnv1a_64(did))
 }
@@ -1169,6 +1170,41 @@ pub fn engine_default_for_seed(seed: u64) -> EngineAvatarRecord {
     // record is compared by value against what a peer decoded.
     record.sanitize();
     record
+}
+
+/// The engine body the seeded four-legged family builds through (#1808): the
+/// engine's own roll, which mixes dogs, cats, horses and their crosses as it
+/// does for an editor's re-roll (owner decision D10).
+///
+/// **Its size is held to the engine's accepted range**, on the reasoning of
+/// [`engine_default_for_seed`]: the rare wildcard reaches a 20 cm cat or a horse
+/// 2.3 m at the back, and this is the body an identity is given before they
+/// have ever opened an editor.
+pub fn engine_beast_for_seed(seed: u64) -> EngineAvatarRecord {
+    let mut record = EngineAvatarRecord::rolled(
+        "Wanderer",
+        symbios_avatar::Archetype::Quadruped(symbios_avatar::QuadrupedParams::default()),
+        seed as i64,
+    );
+    let (low, high) = symbios_avatar::plan::quadruped_height_range();
+    if let symbios_avatar::Archetype::Quadruped(params) = &mut record.archetype {
+        params.height = params.height.clamp(low, high);
+    }
+    // Re-quantised for the reason its person's is.
+    record.sanitize();
+    record
+}
+
+/// The engine body a seed gives its identity (#1808): its beast on a seed that
+/// rolls one, and a person on any other, a vehicle's among them, whose identity
+/// has no rigged body of its own to come back to.
+pub fn engine_body_for_seed(seed: u64) -> EngineAvatarRecord {
+    use crate::seeded_defaults::ChassisFamily;
+    if ChassisFamily::for_seed(seed) == ChassisFamily::Beast {
+        engine_beast_for_seed(seed)
+    } else {
+        engine_default_for_seed(seed)
+    }
 }
 
 /// Dress `record` in a fresh engine body (#1059): a new wardrobe rkey
@@ -1205,7 +1241,7 @@ pub fn wear_new_engine_body(record: &mut super::AvatarRecord, did: &str) {
         let (references, worn) = outfit.unwrap_or_default();
         rig.attachments = references;
         rig.resolved = Some(ResolvedRig {
-            body: engine_default_for_did(did),
+            body: engine_body_for_seed(crate::seeded_defaults::fnv1a_64(did)),
             attachments: worn,
         });
     }
@@ -1559,6 +1595,46 @@ mod tests {
             "a rigged body walks"
         );
         let _ = walked;
+    }
+
+    /// **"Rolled from your identity" means its own roll** (#1808): an identity
+    /// seeded a beast gets that beast from the Body tab's fresh body, as its
+    /// Reset gives it, and the tab's refit stands it on the collider it takes.
+    /// Any other identity gets the person it always did.
+    #[test]
+    fn a_fresh_body_is_the_one_the_identity_rolls() {
+        const BEAST: &str = "did:plc:agentofflinebeast22222ia";
+        let seed = crate::seeded_defaults::fnv1a_64(BEAST);
+        // From a vehicle, whose preset a rigged body replaces.
+        let mut record =
+            super::super::AvatarRecord::default_for_did("did:plc:agentofflinecar22222222e");
+        wear_new_engine_body(&mut record, BEAST);
+        let body = record
+            .body
+            .rigged_ref()
+            .and_then(|rig| rig.resolved.clone());
+        let body = body.expect("a fresh body resolves").body;
+        assert_eq!(body, engine_beast_for_seed(seed));
+        assert!(crate::pds::avatar::locomotion::follow_body(
+            &mut record,
+            None,
+            &mut None
+        ));
+        assert!(
+            crate::pds::avatar::locomotion::beast_on_foot(&record).is_some_and(|p| p.is_lying()),
+            "a beast stands on a person's capsule"
+        );
+
+        const PERSON: &str = "did:plc:agentofflinestandin22222";
+        assert_eq!(
+            engine_body_for_seed(crate::seeded_defaults::fnv1a_64(PERSON)),
+            engine_default_for_did(PERSON)
+        );
+        const VEHICLE: &str = "did:plc:agentofflineair222222222";
+        assert_eq!(
+            engine_body_for_seed(crate::seeded_defaults::fnv1a_64(VEHICLE)),
+            engine_default_for_did(VEHICLE)
+        );
     }
 
     /// #1201 (finding 97). Sequence: the wardrobe fetch fails on a network

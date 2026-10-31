@@ -52,6 +52,7 @@ use crate::config::agent::{
     HOME_DIR, LOOK_ANSWER_TIMEOUT, LOOK_SIZE, LOOK_WARMUP_FRAMES, LOOKS_DIR, LOOKS_KEPT,
 };
 use crate::interaction::locomotion::{locomotion_reach, locomotion_total_height};
+use crate::player::RiggedRoot;
 use crate::state::{
     AppState, CurrentRoomDid, LiveAvatarRecord, LocalPlayer, LocalSettings, TravelingTo,
 };
@@ -126,10 +127,11 @@ fn aim(world: &mut World, spec: &LookSpec) -> Result<Shot, String> {
     if world.contains_resource::<TravelingTo>() {
         return Err("the agent is travelling".to_owned());
     }
-    let body = *world
-        .query_filtered::<&GlobalTransform, With<LocalPlayer>>()
+    let (player, body) = world
+        .query_filtered::<(Entity, &GlobalTransform), With<LocalPlayer>>()
         .iter(world)
         .next()
+        .map(|(player, body)| (player, *body))
         .ok_or("the agent has no body yet")?;
     let centre = body.translation();
     let forward = body.forward().as_vec3();
@@ -146,14 +148,18 @@ fn aim(world: &mut World, spec: &LookSpec) -> Result<Shot, String> {
                 .locomotion;
             // Out at the body's outline toward the look, across and ahead
             // in its own frame (#1751): a vehicle's nose straight ahead, its
-            // flank to the side, a person's face.
-            let toward = Vec2::new(dir.perp_dot(facing), dir.dot(facing));
-            eyes_pose(
-                centre,
-                eye_over_centre(locomotion, world.get_resource::<BeastFraming>()),
-                locomotion_reach(locomotion, toward),
-                dir,
-            )
+            // flank to the side, a person's face, and past a beast's whole
+            // drawn body.
+            let toward = toward_in_body(dir, facing);
+            let above = eye_over_centre(locomotion, world.get_resource::<BeastFraming>());
+            let reach = locomotion_reach(locomotion, toward);
+            let reach = world
+                .query_filtered::<(&ChildOf, &bevy_symbios_avatar::AvatarBody), With<RiggedRoot>>()
+                .iter(world)
+                .find(|(parent, _)| parent.parent() == player)
+                .and_then(|(_, body)| beast_reach(&body.avatar, toward))
+                .unwrap_or(reach);
+            eyes_pose(centre, above, reach, dir)
         }
     };
     let room = world
@@ -251,6 +257,36 @@ fn eye_over_centre(locomotion: &crate::pds::LocomotionConfig, beast: Option<&Bea
         Some(eyes) => eyes - locomotion_total_height(locomotion) / 2.0,
         None => EyeMount::of(locomotion, false, None).over_centre(),
     }
+}
+
+/// How far clear of its own body a beast's eye view stands (m): a head at rest
+/// nods and reaches a little past where it is read from.
+const VIEW_CLEARANCE: f32 = 0.05;
+
+/// How far out toward the look a four-legged body's eye view stands (#1814),
+/// `toward` being [`toward_in_body`]: past everything drawn of it that way, its
+/// muzzle ahead, its tail behind, its flank to the side. A beast's head and tail
+/// stand out past its collider, so a view from the collider's end stood inside
+/// the skull, between the backs of the eyes with the nose ahead of it. A rig's
+/// `+Z` is the chassis's forward and its `+X` the body's left. `None` for
+/// anything but a beast's head, a person among them.
+fn beast_reach(avatar: &symbios_avatar::Avatar, toward: Vec2) -> Option<f32> {
+    if avatar.rig.anatomy.head != symbios_avatar::HeadKind::Beast {
+        return None;
+    }
+    avatar
+        .meshes
+        .iter()
+        .flat_map(|drawn| &drawn.mesh.positions)
+        .map(|at| at.x * toward.x + at.z * toward.y)
+        .reduce(f32::max)
+        .map(|far| far + VIEW_CLEARANCE)
+}
+
+/// The look `dir` in a body's own frame, as a body facing `facing` reads it:
+/// across it toward its left, and ahead.
+fn toward_in_body(dir: Vec2, facing: Vec2) -> Vec2 {
+    Vec2::new(dir.perp_dot(facing), dir.dot(facing))
 }
 
 /// The body's eyes: `above` over its middle and `reach` in front of it, turned
@@ -806,6 +842,52 @@ mod tests {
                 "{did}"
             );
         }
+    }
+
+    /// **A beast's eye view sees nothing of itself, whichever way it looks**
+    /// (#1814): every point drawn of a dog, a cat or a horse at rest, hung under
+    /// its chassis as the game hangs it, lies behind the camera, and the nearest
+    /// by no more than the clearance, for every way it faces and looks. From the
+    /// end of its collider the view looked through the backs of its eyes at its
+    /// nose. A person has no such reach and keeps the collider's.
+    #[test]
+    fn a_beasts_eye_view_sees_nothing_of_itself() {
+        use crate::player::visuals::rigged_root_transform;
+        use symbios_avatar::plan::Family;
+        let config = symbios_avatar::AvatarConfig {
+            atlas: 16,
+            ..Default::default()
+        };
+        let centre = Vec3::new(3.0, 7.0, -2.0);
+        for family in [Family::Dog, Family::Cat, Family::Horse] {
+            let body = crate::pds::avatar::locomotion::default_beast(family);
+            let avatar = symbios_avatar::Avatar::build_with(&body, &config).expect("a beast");
+            for facing in [Vec2::NEG_Y, Vec2::X, Vec2::new(0.6, 0.8)] {
+                let chassis = Transform::from_translation(centre)
+                    .looking_to(Vec3::new(facing.x, 0.0, facing.y), Vec3::Y);
+                let hung = chassis.to_matrix() * rigged_root_transform(0.2).to_matrix();
+                for heading in [0.0, 45.0, 90.0, 135.0, 180.0, -135.0, -90.0, -45.0] {
+                    let (dir, _) = direction(facing, centre.xz(), Some(heading), None).unwrap();
+                    let reach = beast_reach(&avatar, toward_in_body(dir, facing)).expect("a beast");
+                    let pose = eyes_pose(centre, 0.4, reach, dir);
+                    let ahead = pose.forward().as_vec3();
+                    let nearest = avatar
+                        .meshes
+                        .iter()
+                        .flat_map(|drawn| &drawn.mesh.positions)
+                        .map(|at| (hung.transform_point3(*at) - pose.translation).dot(ahead))
+                        .fold(f32::MIN, f32::max);
+                    assert!(
+                        (-(VIEW_CLEARANCE + 0.01)..0.0).contains(&nearest),
+                        "{family:?} facing {facing} looking {heading}: the nearest of it stands \
+                         {nearest} m ahead of the camera"
+                    );
+                }
+            }
+        }
+        let person = crate::pds::avatar::wardrobe::engine_default_for_did("did:plc:eyes");
+        let person = symbios_avatar::Avatar::build_with(&person, &config).expect("a person");
+        assert_eq!(beast_reach(&person, Vec2::Y), None);
     }
 
     /// The agent's own directory keeps the newest pictures; anything else in

@@ -748,6 +748,67 @@ pub(super) mod tests {
     const PERSON_CUT: [&str; 4] = ["sashimono", "circlet", "ships_lantern", "satchel"];
     const BEAST_CUT: [&str; 3] = ["beast_collar", "saddle_pad", "ear_bow"];
 
+    /// A body as it is built here, and as the same job comes back across the
+    /// web's worker boundary: over a self-describing codec, as the worker's own
+    /// is, whose `serde(skip)`s are the same. The premise of every test on it is
+    /// checked here: what a body may not read there is gone.
+    fn built_here_and_on_the_worker(
+        body: &crate::pds::avatar::EngineAvatarRecord,
+    ) -> (symbios_avatar::Avatar, symbios_avatar::Avatar) {
+        let built = crate::offload::GenJob::AvatarBuild {
+            record: Box::new(body.clone()),
+            atlas: 16,
+            far_hair: false,
+        }
+        .run();
+        let bytes = serde_json::to_vec(&built).expect("a result encodes");
+        let crate::offload::GenResult::Avatar(Some(back)) =
+            serde_json::from_slice(&bytes).expect("a result decodes")
+        else {
+            panic!("no body came back");
+        };
+        let crate::offload::GenResult::Avatar(Some(here)) = built else {
+            panic!("the body does not build");
+        };
+        assert!(
+            back.parts.body.positions.is_empty() && back.parts.beast.is_none(),
+            "the worker's body kept what it was to drop"
+        );
+        (*here, *back)
+    }
+
+    /// **A browser's beast is dressed as anyone's is** (#1813). A body built on
+    /// the web's worker comes back without its closed surface and its declared
+    /// head, which is what every beast seat once read, so a collar, a pad and a
+    /// bow were simply not worn there and nothing said so.
+    #[test]
+    fn a_body_from_the_web_worker_is_dressed_the_same() {
+        use symbios_avatar::plan::Family;
+        let worn: Vec<ResolvedAttachment> = BEAST_CUT
+            .iter()
+            .chain(["circlet"].iter())
+            .map(|slug| catalogue_worn(slug))
+            .collect();
+        for family in [Family::Dog, Family::Cat, Family::Horse] {
+            let (here, back) = built_here_and_on_the_worker(
+                &crate::pds::avatar::locomotion::default_beast(family),
+            );
+            let (there, here) = (placements(&back, &worn), placements(&here, &worn));
+            assert_eq!(there.len(), worn.len(), "{family:?}: left something off");
+            assert_eq!(here.len(), worn.len(), "{family:?}");
+            for ((far, seat, _), (near, same, item)) in there.iter().zip(&here) {
+                let name = item.record.socket.as_str();
+                assert_eq!(far, near, "{family:?} at {name}: another joint");
+                assert!(
+                    seat.translation.distance(same.translation) < 1e-4
+                        && (seat.scale - same.scale).abs().max_element() < 1e-4
+                        && seat.rotation.angle_between(same.rotation) < 1e-3,
+                    "{family:?} at {name}: {seat:?} there, {same:?} here"
+                );
+            }
+        }
+    }
+
     /// **D9, by the record alone** (#1807): every client reads this off the
     /// record a peer sent, so what is refused here is refused everywhere. A
     /// banner names the same back a pad does, so a socket cannot refuse it.

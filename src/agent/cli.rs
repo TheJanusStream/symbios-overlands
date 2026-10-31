@@ -656,8 +656,9 @@ pub struct RunArgs {
     /// Offline only: stand in as this identity instead - its seeded world
     /// and its seeded body. A DID no directory knows keeps them seeded:
     /// `did:plc:agentofflinecar22222222e` drives a car,
-    /// `did:plc:agentofflineboat2222222d` a hover-boat, and
-    /// `did:plc:agentofflineair222222222` flies an airship. Other commands
+    /// `did:plc:agentofflineboat2222222d` a hover-boat,
+    /// `did:plc:agentofflineair222222222` flies an airship, and
+    /// `did:plc:agentofflinebeast22222ia` walks as a dog. Other commands
     /// reach it with `--account <DID>`.
     #[arg(long, value_name = "DID", requires = "offline", value_parser = room_did)]
     pub stand_in: Option<String>,

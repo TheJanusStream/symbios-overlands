@@ -138,11 +138,22 @@ impl AvatarBody {
     /// identity who has never opened the editor still look like themselves
     /// to everyone in the room.
     pub fn rigged_seeded(seed: u64) -> Self {
+        Self::seeded_wearing(seed, super::wardrobe::engine_default_for_seed(seed))
+    }
+
+    /// The seeded default's four-legged body (#1808), on the terms of
+    /// [`Self::rigged_seeded`]: every peer derives the same beast for a DID.
+    pub fn beast_seeded(seed: u64) -> Self {
+        Self::seeded_wearing(seed, super::wardrobe::engine_beast_for_seed(seed))
+    }
+
+    /// A seeded engine body, resolved at the seed's own wardrobe key.
+    fn seeded_wearing(seed: u64, body: super::wardrobe::EngineAvatarRecord) -> Self {
         Self::Rigged(Box::new(RiggedBody {
             avatar: crate::pds::tid::tid_for_seed(seed),
             attachments: Vec::new(),
             resolved: Some(ResolvedRig {
-                body: super::wardrobe::engine_default_for_seed(seed),
+                body,
                 attachments: Vec::new(),
             }),
         }))

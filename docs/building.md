@@ -943,7 +943,7 @@ cargo run --bin render -- --diff-sessions old.jsonl new.jsonl
 # Road-network graph diagnostics for a seed or DID:
 cargo run --bin render -- --road-dump 1
 # List seeds that produce a given avatar chassis family (boat, airship,
-# humanoid, skiff, helicopter or airplane):
+# humanoid, beast, skiff, helicopter or airplane):
 cargo run --bin render -- --family-seeds skiff --family-count 8
 # ...narrowed to one seeded craft type (#1362) - the survey each craft-type
 # slice opens with. A craft type is a property of the SEED, so this answers
@@ -1124,6 +1124,7 @@ $A stop                              # never logs out: the session is kept
 $A start --offline                   # no account: a stand-in, alone, saves nothing
 $A start --offline --stand-in did:plc:agentofflinecar22222222e   # ...that drives a car
 $A start --offline --stand-in did:plc:agentofflineair222222222   # ...that flies an airship
+$A start --offline --stand-in did:plc:agentofflinebeast22222ia   # ...that walks as a dog
 # Editing its own world (#1422) - live for whoever is there, kept only once saved:
 $A placements --within 40            # what is placed, by index, where it is drawn
 $A catalogue lighthouse              # what can be placed, by slug
@@ -1265,7 +1266,8 @@ the agent knows it works (#1452).
 `did:plc:agentofflinecar22222222e` is a roadster,
 `did:plc:agentofflineboat2222222d` a steam tug,
 `did:plc:agentofflineair222222222` an airship (a twin envelope until #1657,
-a Zeppelin since) - and the other
+a Zeppelin since), `did:plc:agentofflinebeast22222ia` a dog (#1808) - and the
+other
 commands reach it with `--account <DID>`; `--room <DID>` puts it in another
 seeded world. Either DID has to be well formed (`did:plc:` and 24 of `a-z`
 and `2-7`): the directory refuses a malformed one, which the loading screen

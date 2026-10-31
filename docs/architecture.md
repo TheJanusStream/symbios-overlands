@@ -529,11 +529,12 @@ generation cores shared with the wasm Web Worker.
   - which also fixes the room's default landing pose - with the owner-identity
   monument standing beside it, a light
   theme accent nudged back onto the natural derivers (fog tint, particle mood),
-  and the layered ambient soundtrack. Avatar side: one of six chassis
-  families (boat / airship / humanoid / skiff / helicopter / airplane) plus
-  its palette, body proportions and gait. The family is a two-stage pick
-  (#1614): a sixth of seeds are helicopters, a sixth airplanes (#1617), and
-  the rest keep the four-way pick they always had. Every vehicle family is
+  and the layered ambient soundtrack. Avatar side: one of seven chassis
+  families (boat / airship / humanoid / beast / skiff / helicopter / airplane)
+  plus its palette, body proportions and gait. The family is a staged pick
+  (#1614): a sixth of seeds are helicopters, a sixth airplanes (#1617), the
+  rest keep the four-way pick they always had, and one in eight of those it
+  puts on foot is a beast (#1808), about one avatar in 48. Every vehicle family is
   drawn by one builder per seeded craft type, reading every line and mount
   off a single profile - `HullProfile` for the boat (#1363), `BodyPlan` for
   the skiff (#1364), `PodPlan` for the helicopter (#1614), `FusePlan` for
@@ -544,7 +545,8 @@ generation cores shared with the wasm Web Worker.
   the outfit that filled its slots - which is what stopped their trim
   floating and their mounts needing embed fudge factors. The humanoid family short-circuits both
   pipelines and rolls a seeded `symbios-avatar` engine record instead, whose
-  stature the locomotion capsule is then cut to.
+  stature the locomotion capsule is then cut to; the beast family rolls one on
+  four legs, with the capsule lying along its trunk.
 - [`src/catalogue/`](../src/catalogue/) - code-shipped read-only library of
   starter generator blueprints (~380 entries across 24 themes),
   organised by theme and structural role (landmark / secondary / prop / plant /

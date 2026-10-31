@@ -109,7 +109,7 @@ fn aura_emitter(
 ) -> Option<Generator> {
     let rate = |base: f32| base * intensity;
     let pop = |base: u32| ((base as f32 * intensity) as u32).min(120);
-    let is_vehicle = family != ChassisFamily::Humanoid;
+    let is_vehicle = !family.is_rigged();
     let emitter = match aura {
         ParticleAura::None => return None,
         // Pale steam / exhaust. On a surface craft it vents from working gear
@@ -375,7 +375,7 @@ fn voice_patch(voice: AvatarVoice, family: ChassisFamily, seed: u64) -> Option<A
 /// How the avatar for `seed` on `family` is driven. Every vehicle answers
 /// for the craft it is DRAWN as (#1383, #1377, #1614, #1617, #1657) - the
 /// Zeppelin's engine cars are an engine, as every old airship's rotors were;
-/// a humanoid has none.
+/// a rigged body has none.
 pub(super) fn drive_of(family: ChassisFamily, seed: u64) -> Propulsion {
     match family {
         ChassisFamily::Boat => super::boats::propulsion(seed),
@@ -383,7 +383,7 @@ pub(super) fn drive_of(family: ChassisFamily, seed: u64) -> Propulsion {
         ChassisFamily::Helicopter => super::helicopters::propulsion(seed),
         ChassisFamily::Airplane => super::airplanes::propulsion(seed),
         ChassisFamily::Airship => super::airships::propulsion(seed),
-        ChassisFamily::Humanoid => Propulsion::Engine,
+        ChassisFamily::Humanoid | ChassisFamily::Beast => Propulsion::Engine,
     }
 }
 
@@ -466,7 +466,7 @@ fn driven_voice_patch(
     drive: Propulsion,
     bucket: u32,
 ) -> Option<AudioPatch> {
-    let is_vehicle = family != ChassisFamily::Humanoid;
+    let is_vehicle = !family.is_rigged();
     let detune = detune_factor(bucket);
     let mut g = GraphBuilder::new();
     let out = match voice {
@@ -488,8 +488,8 @@ fn driven_voice_patch(
 /// render tool's `--outfit` line, so a survey can find a seed by its voice.
 pub(super) fn voice_label(seed: u64) -> String {
     let family = ChassisFamily::for_seed(seed);
-    if family == ChassisFamily::Humanoid {
-        // The rigged family returns before any FX is attached.
+    if family.is_rigged() {
+        // A rigged family returns before any FX is attached.
         return "silent (a rigged body carries no seeded voice)".to_string();
     }
     let voice = AvatarFx::for_seed(seed).voice;
@@ -499,7 +499,10 @@ pub(super) fn voice_label(seed: u64) -> String {
         (Propulsion::Sail, _) => "wash and rig wind",
         (Propulsion::Engine, ChassisFamily::Boat) => "boat engine hum",
         (Propulsion::Engine, ChassisFamily::Airship | ChassisFamily::Helicopter) => "rotor thump",
-        (Propulsion::Engine, ChassisFamily::Skiff | ChassisFamily::Humanoid) => "putter",
+        (
+            Propulsion::Engine,
+            ChassisFamily::Skiff | ChassisFamily::Humanoid | ChassisFamily::Beast,
+        ) => "putter",
         (Propulsion::Rolling, _) => "roll and creak",
         (Propulsion::Poled, _) => "lap and sweep creak",
         (Propulsion::Steam, _) => "chuff and thump",
@@ -578,9 +581,10 @@ fn family_drive(
         (Propulsion::Engine, ChassisFamily::Airship | ChassisFamily::Helicopter) => {
             airship_rotor(g, detune)
         }
-        (Propulsion::Engine, ChassisFamily::Skiff | ChassisFamily::Humanoid) => {
-            skiff_putter(g, detune)
-        }
+        (
+            Propulsion::Engine,
+            ChassisFamily::Skiff | ChassisFamily::Humanoid | ChassisFamily::Beast,
+        ) => skiff_putter(g, detune),
         (Propulsion::Rolling, _) => wagon_roll(g),
         (Propulsion::Poled, _) => scow_lap(g),
         (Propulsion::Steam, _) => tug_chuff(g, detune),
@@ -1629,6 +1633,20 @@ mod audio_tests {
         Propulsion::CoaxialTurbine,
         Propulsion::ElectricProp,
     ];
+
+    /// A beast is silent as a person is (#1808): a rigged family returns before
+    /// any FX is attached, and the survey line says so rather than naming the
+    /// drive a beast does not have.
+    #[test]
+    fn a_seeded_beast_carries_no_voice() {
+        let beast = (0u64..)
+            .find(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Beast)
+            .expect("some seed rolls a beast");
+        assert_eq!(
+            voice_label(beast),
+            "silent (a rigged body carries no seeded voice)"
+        );
+    }
 
     /// Every voice patch there is: each voice on each chassis under each
     /// drive, on every detune bucket, labelled for a failure message. The
