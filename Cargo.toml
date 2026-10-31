@@ -84,13 +84,13 @@ bevy_symbios_texture = { version = "0.13.1", features = ["egui"] }
 symbios-texture = "0.8"
 bevy_symbios_audio = { version = "0.6", features = ["egui"] }
 transform-gizmo-bevy = "0.11"
-symbios-avatar = "0.14"
+symbios-avatar = "0.15"
 symbios = "1.5"
 symbios-turtle-3d = "0.6"
 symbios-shape = "0.4"
 bevy_symbios_shape = "0.10"
 symbios-tensor = "0.6"
-bevy_symbios_avatar = "0.15"
+bevy_symbios_avatar = "0.16"
 gen-jobs = { path = "crates/gen-jobs" }
 # Geodata regions (#1580): where a region's square of Berlin lies, the
 # GDI Berlin request URLs, and the decoders for what they answer. The app
