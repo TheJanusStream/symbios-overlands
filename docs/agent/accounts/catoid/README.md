@@ -26,9 +26,6 @@ First, next session:
 
 - **The sign-in is saved** (2026-10-31): no `A login` unless `start` says it
   expired or was refused.
-- **`--run` dives under water** until a daemon built from #1821 runs: walk, do
-  not run, into the lake. A body under the surface does not come back up with
-  `walk-to`.
 - **A change of the land strands a body where it stood:** it was left on the
   lake bed by the first land edit. Walk it out first, or restart.
 
@@ -175,12 +172,15 @@ are the truth, not the builders.
 
 ## Open threads
 
-- symbios-avatar #386 to #389, the owner's list, and #385 (whiskers and horn):
-  built, reviewed and handed over staged on 2026-10-31, waiting on the publish
-  of the avatar crates, then a look at each in the browser. Left open from that
-  review: #390 (a thigh dips through the ground getting up on the shortest
-  legs), #391 (some slider corners refuse to build), #392 (a shelf and pleats on
-  a short neck off a deep chest).
+- symbios-avatar #385 to #389, the owner's list: engine 0.15.0 and viewer 0.16.0,
+  published 2026-10-31. Save nothing that needs them until the client that draws
+  them is deployed, then look at each in the browser (milestone #13 in that
+  tracker). Left open from that review, in milestones #14 and #15: #390 (a thigh
+  dips through the ground getting up on the shortest legs), #391 (some slider
+  corners refuse to build), #392 (a shelf and pleats on a short neck off a deep
+  chest), #393 (surface leftovers to judge in-world).
+- The idle head joint's jump (#382) is worse than first filed: 530 mm in one frame
+  on a horse. Find out which joint it is before the gait work.
 - `stuck` on open grass at (393, 30), walking east toward the rail fence, twice:
   not looked at.
 - Still to build: the Lynchets, field terraces with a stone stair; a banner.
