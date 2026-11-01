@@ -3716,9 +3716,10 @@ mod beast_on_foot {
             // The step ahead of where D walks it, 3 cm high.
             let from = bench.position();
             let kerb = from.x + reach + 1.0;
+            // Long enough for a horse's three seconds at its 2.5 m/s walk.
             bench.block(
-                Transform::from_xyz(kerb + 3.0, STEP * 0.5, from.z),
-                Vec3::new(3.0, STEP * 0.5, 3.0),
+                Transform::from_xyz(kerb + 6.0, STEP * 0.5, from.z),
+                Vec3::new(6.0, STEP * 0.5, 3.0),
             );
             bench.hold(&[KeyCode::KeyD]);
             let mut fastest = 0.0f32;

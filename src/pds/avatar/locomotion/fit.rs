@@ -22,7 +22,7 @@ use crate::pds::types::Fp;
 const UNKNOWN_STATURE: f32 = 1.7;
 
 /// The Froude number a beast runs at - Shift, the record's `walk_speed` - on
-/// its own legs (#1802, owner decision D4): the default person's own run,
+/// its own hip height (#1802, owner decision D4): the default person's own run,
 /// the preset's 5.0 m/s on that body's 0.71 m leg, so the run key asks every
 /// body for the same dimensionless speed and a cat and a horse each get
 /// their own metres a second of it. A canter on four legs, between the
@@ -42,7 +42,7 @@ pub(crate) const RUN_FROUDE: f32 = 3.586;
 ///   the fore, its radius half the trunk's depth between them, its middle
 ///   the girdles' midpoint, and the shape's height the top of the trunk
 ///   over the feet, which its water depths are shares of. The run is
-///   `RUN_FROUDE` on its legs; the mass is the default person's mass for
+///   `RUN_FROUDE` on its hip height; the mass is the default person's mass for
 ///   the default person's capsule, scaled by the volume of this one; the
 ///   jump impulse keeps the default person's change of speed on that mass
 ///   as the record's clamps hold it, so every body jumps as high as they
