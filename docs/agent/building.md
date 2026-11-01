@@ -211,6 +211,10 @@ along).
   is dropped from what the world keeps).
 - `uv_scale` is repeats per METRE of surface, whatever the part's size:
   `0.5` lays a 2 m tile, `6` a 16 cm one.
+- **A texture's colours are multiplied by `base_color`.** Borrow a catalogue
+  material with both set, as `straw_bales` has, and its 0.6 straw comes out at
+  0.36: Catoid's nests read as mud until `base_color` went white and the colour
+  stayed in the texture alone (LINEAR there, sRGB in `base_color`).
 - Colour is the admin's call. Keep one material per visible surface; two
   shades side by side read as a patch, and the lighter corrugated rust read
   as "too bright and yellow" next to the darker one.
