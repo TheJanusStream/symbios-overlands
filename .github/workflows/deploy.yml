@@ -270,14 +270,21 @@ jobs:
           # [profile.deploy]): 12.7 % more raw and 1.6 % less gzip than the
           # fat-LTO 65,495,625 / 18,409,375 B of the same commit. The raw
           # budget raised to about 5 % above; the gzip one already was.
-          check ./dist/symbios-overlands_bg.wasm 77500000 19000000
+          #             76,920,314 B raw / 18,991,503 B gzip on 2026-11-01,
+          # from this step's own run, with beasts' gait, free colours and head
+          # ornaments in (symbios-avatar 0.17 and 0.18, #1825, #1827): 99.96 %
+          # of the gzip budget. Both raised to about 5 % above.
+          check ./dist/symbios-overlands_bg.wasm 81000000 20000000
           # app, WebGPU (#1670): 73,899,365 B raw / 18,156,125 B gzip on
           # 2026-10-16, measured locally with this file's own build: Bevy's
           # `webgpu` feature in place of `webgl2` costs 95,280 B raw /
           # 40,122 B gzip over the WebGL2 bundle of the same commit
           # (73,804,085 / 18,116,003 B). The raw budget about 5 % above; the
           # gzip one is the WebGL2 app's, which already was.
-          check ./dist/symbios-overlands-webgpu_bg.wasm 77600000 19000000
+          #             77,005,599 B raw / 19,025,507 B gzip on 2026-11-01, from
+          # this step's own run: over the gzip budget by 25,507 B. Both raised
+          # to about 5 % above, the gzip one still the WebGL2 app's.
+          check ./dist/symbios-overlands-webgpu_bg.wasm 81100000 20000000
           # gen-worker:  3.25 MB raw /  0.68 MB gzip on 2026-08-29
           #              3.57 MB raw /  0.80 MB gzip on 2026-09-22, after the
           # outfit textures (#1403). Measured locally, that commit added
