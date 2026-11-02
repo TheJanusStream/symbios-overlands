@@ -84,13 +84,13 @@ bevy_symbios_texture = { version = "0.13.1", features = ["egui"] }
 symbios-texture = "0.8"
 bevy_symbios_audio = { version = "0.6", features = ["egui"] }
 transform-gizmo-bevy = "0.11"
-symbios-avatar = "0.18"
+symbios-avatar = "0.19"
 symbios = "1.5"
 symbios-turtle-3d = "0.6"
 symbios-shape = "0.4"
 bevy_symbios_shape = "0.10"
 symbios-tensor = "0.6"
-bevy_symbios_avatar = "0.19"
+bevy_symbios_avatar = "0.20"
 gen-jobs = { path = "crates/gen-jobs" }
 # Geodata regions (#1580): where a region's square of Berlin lies, the
 # GDI Berlin request URLs, and the decoders for what they answer. The app
@@ -325,3 +325,6 @@ strip = false      # a failing gate should still print a legible backtrace
 # Cheap at this opt-level, and the wasm deploy profile is untouched.
 debug-assertions = true
 overflow-checks = true
+# A one-line edit recompiled in 89 s against 193, measured on this crate, and the
+# suite ran no slower for it (68 s against 71). 7.2 GB of target/.
+incremental = true

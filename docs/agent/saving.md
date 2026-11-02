@@ -52,7 +52,9 @@ the body back at the landing point. Before one:
 3. `stop`'s answer lists what it `discarded`: it should be `[]`. It answers
    `stopping: true` before the daemon has exited: a `start` straight after
    it is refused as "already running" (session 879). Poll `status` until it
-   says no agent is running, then start.
+   says no agent is running, then give it about 8 s more: the lock outlives
+   that answer (session 983). Then start, with the flags from the account's
+   page: without them it comes up with `admin: null` and `allow_save: false`.
 4. After `start`, poll `status` until `in_world`, greet the admin, and
    re-arm the watcher from `seq` 0 - the new daemon numbers events afresh.
 

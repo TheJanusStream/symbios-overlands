@@ -5,10 +5,13 @@ body: the testbed for quadruped avatar development, as Jink is for skiff
 physics and Eigen for the road pipeline. Its home body is a cat. Its world is
 a pretty nature region, mostly a large lush meadow beside a lake or the sea,
 whose banks, steps, shallows, rails and gaps test a beast without looking like
-a test. As of 2026-10-31, after its first session: a brown mackerel tabby with
+a test. As of 2026-11-01, after its first session: a brown mackerel tabby with
 white socks and a collar, and Purlieu, a lake and its north-east meadow, with
 every place in the table below built and saved: a fire and straw nests below the
 landing, earth paths between its places, and things for a beast to do at each.
+That session also carried the engine to 0.18 and the viewer to 0.19, published and
+deployed: a new gait, rests and driver API, free colours and head ornaments. The
+cat wears none of it yet beyond the gait.
 
 ## Start here
 
@@ -18,13 +21,25 @@ landing, earth paths between its places, and things for a beast to do at each.
 | Commands | every agent command takes `--account catoid-ai.bsky.social`; every tool call starts `AGENT_ACCOUNT=catoid-ai.bsky.social` ([../../session.md](../../session.md)) |
 | Admin | `@codewright.bsky.social`, the owner: `start --admin @codewright.bsky.social --allow-save` |
 | Region | Purlieu; the account's own world |
-| Working folder | `exports/catoid/` (gitignored, on this machine only), made at the first session's start and kept across sessions: the last saves in `src/` with their times and seq, the save log `log.md`; numbered subfolders are earlier scratchpads, read-only |
-| Last session | chainlink session 983 (live session 17), parent #1819 - read its comments (`chainlink show 1819`) |
+| Working folder | `exports/catoid/` (gitignored, on this machine only), made at the first session's start and kept across sessions: the last saves in `src/` with their times and seq (`src/room.json` 2026-10-31 19:18, seq 28; `src/avatar.json` 10:21, seq 12, an earlier daemon's numbering), the save log `log.md`; numbered subfolders are earlier scratchpads, read-only |
+| Last session | chainlink session 983 (live session 17, 2026-10-31 to 11-01), parent #1819 - read its comments (`chainlink show 1819`) |
 | Default mode | [first session](../../session.md#first-session), then self-guided |
 | Never | touch Hypha's world (the Understory) or avatar ([hypha/](../hypha/README.md)), Reeve's world (Ashmere) or avatar ([reeve/](../reeve/README.md)), Jink's world (Parabola Flats) or avatar ([jink/](../jink/README.md)), or Eigen's world (Isoline) or avatar ([eigen/](../eigen/README.md)); save a body or a world the deployed client cannot draw (Standing decisions) |
 
 First, next session:
 
+- **Ask the owner what they made of the customisation.** Engine 0.18 and viewer
+  0.19 are deployed, but symbios-avatar #401, #402 and #403 stay open until they
+  have looked in the browser; "all green" was CI. Their word decides whether the
+  next work is changes there or the backlog ([Open threads](#open-threads)).
+- **The owner's standing follow:** start it on every `peer_joined` and after each
+  restart or errand, from `exports/catoid/`: `python3 -I b/rejoin.py`, with
+  `PYTHONPATH=<repo>/docs/agent/tools AGENT_ACCOUNT=catoid-ai.bsky.social` in front.
+  It leaves the Lee or a log's bore and takes a gap through the Long Wall, as a
+  follow only steers straight.
+- **Keep commands short or in the background while they are here**, and re-arm the
+  watcher first: a wake reaches you only between commands
+  ([../../chat.md](../../chat.md), "The watcher").
 - **The sign-in is saved** (2026-10-31): no `A login` unless `start` says it
   expired or was refused.
 - **A change of the land strands a body where it stood:** it was left on the
@@ -55,9 +70,13 @@ offline with `render --rigged`, in its world with `--world ... --walker-avatar`,
 and another seed's beast with `--walker <seed>` (`--family-seeds beast` lists
 them).
 
-Known faults, all open: the gait (R5, symbios-avatar #378), rest poses on a
-slope (#381), the idle head joint's jump (#382). A horse's Lie Down rests high.
-A late joiner sees a sitting beast standing until it next moves (#383).
+Known faults, all open in symbios-avatar: a leg solve tears on a steep grade
+(#399, not fixed uphill: the game's driver levels the body, so it reaches only
+the viewer's grade slider), a driven rest jumps on steps and holes (#400). The gait,
+rest poses on a slope, the idle head's jump, a horse's high Lie Down and the late
+joiner's standing beast shipped in engine 0.17 and viewer 0.18 (#378, #381 to #383,
+#390, #398). The owner, 2026-11-01: "The animations look very good", and once
+deployed, "everything looks good in-game".
 
 What this cat did, on the tabby's 0.17 m collider radius (2026-10-31, live):
 through a 0.6 m gap, through the Hollow Log both ways and under a rail fence;
@@ -73,8 +92,10 @@ tracker. Before any change, read the auto-memory notes
 `project_quadruped_avatars.md` and `project_worker_body_round_trip.md`: each
 phase's traps. Three that bite first:
 
-- A rolled record's format is published and frozen (share code 10, generator
-  8): a wire change is share code 11 with a decode arm for 10.
+- A rolled record's format is published and frozen (share code 12, generator
+  9): a wire change is share code 13 with a decode arm for 12. A serde'd struct
+  crossing the worker is a wire too: a browser can hold an older `gen-worker.js`,
+  so a rename keeps `serde(rename = old)` and a new field takes `default`.
 - A build against an unreleased engine needs a `[patch.crates-io]` that really
   matches. A patch that does not is silently ignored, so check `Cargo.lock`
   ([../../../../CLAUDE.md](../../../../CLAUDE.md), rule 3).
@@ -167,6 +188,7 @@ The Lee itself is about 25,000.
 | 2026-10-31 | #1817 | **Save only what the deployed client can draw.** Each client builds a saved body with its own engine, so a body or world that needs an unpublished engine or an undeployed client looks wrong or does not show for visitors. Such experiments stay offline, and a save waits for the owner's publish and deploy. |
 | 2026-10-31 | #1817 | **A cat at home.** Its saved body and persona are a cat. It may save a dog, a horse or a cross for a test and then returns to the cat; others are also tried offline. |
 | 2026-10-31 | #1817 | **The first session is body and region first**, with the online and browser checks nobody has run; the gait follows, on that ground. The region is the pretty meadow of the Concept, not a technical course. |
+| 2026-10-31 | #1819 | **Follow the owner**: "Please follow me, while you do not need to be somewhere else in the region." Standing: start it again on every `peer_joined` and after each restart or errand. |
 
 ## Working material
 
@@ -182,6 +204,19 @@ are the truth, not the builders.
 
 ## History
 
+- **2026-10-31 to 2026-11-01, the same session, the engine:** no world change after
+  19:18 on 10-31; the session went to the beasts themselves while the cat followed
+  the owner. Engine 0.16.1 (the head's charts and neck, #395); 0.17 and viewer 0.18
+  (the gait, rests on a slope, the head's jump, a driver that seats a body, #378,
+  #381 to #383, #390, #398); 0.18 and viewer 0.19 (any colour for a coat, a general
+  system of head ornaments in place of the unicorn, rare rolls of them, #401 to
+  #403, share code 12, generator 9). Then, at the owner's word, the gates were made
+  faster without dropping a check (#1826, symbios-avatar #405): `scripts/gate.sh`.
+  Failed at first: a stopping horse plunged, then hopped, then popped an elbow, and
+  each fix needed the next; a blind guard on jolts passed all three; a mirrored head
+  split its sides by .14 r; my first comparison of the fleet's dumps keyed its rows
+  on three tokens and read almost nothing of a beast (line by line now); a rename
+  that would have crashed a browser holding an older worker.
 - **2026-10-31, the same session, later:** the owner, waiting on a deployment, asked
   for "a nice and cozy area near the arrival point, where incoming visitors can
   hang out in their beast avatars", then a properly detailed region for beasts to
@@ -206,19 +241,24 @@ are the truth, not the builders.
 
 ## Open threads
 
-- The owner's first look at the Lee and the rest is still to come. The fire's
-  crackle has not been heard by anyone: only the render's picture is checked.
-- The mud of the Wallow is a flat colour: it reads as a dry patch, not as mud.
-
-- symbios-avatar #385 to #389, the owner's list: engine 0.15.0 and viewer 0.16.0,
-  published 2026-10-31. Save nothing that needs them until the client that draws
-  them is deployed, then look at each in the browser (milestone #13 in that
-  tracker). Left open from that review, in milestones #14 and #15: #390 (a thigh
-  dips through the ground getting up on the shortest legs), #391 (some slider
-  corners refuse to build), #392 (a shelf and pleats on a short neck off a deep
-  chest), #393 (surface leftovers to judge in-world).
-- The idle head joint's jump (#382) is worse than first filed: 530 mm in one frame
-  on a horse. Find out which joint it is before the gait work.
+- symbios-avatar #401, #402, #403: built, published and deployed, waiting on the
+  owner's look. What they may want changed: antler tines thin and comb-like, ram tips
+  past the ears from the front, a stiff light mane going grey, a small coat patch at a
+  coloured tail's dock, the first pick snapping on a marked coat, roll shares of 1 in
+  12 and 1 in 20, an unlocked re-roll replacing a creator's own pick, pale pieces
+  vanishing on a pale coat.
+- The backlog, in order after their word: milestone #15 (#396 first, a dent on the
+  upper chest; #397, #392, #393, #391, #404, #371), #14's #399 and #400, then #16
+  (triangles and build cost), #17 (persons), #18. "Before we go on working on the
+  backlog of beast issues" was the owner's own phrase: they mean to go on with it.
+- Catoid has not yet tried what 0.18 and 0.19 made possible: chosen colours, and
+  horns, tusks or antlers on a test body. All of it may be saved now the client is
+  deployed, as a test, then back to the cat.
+- The owner has walked Purlieu many times with the cat following, without a word on
+  it either way. The fire's crackle has not been heard by anyone: only the render's
+  picture is checked.
+- The mud of the Wallow is a flat colour: it reads as a dry patch, not as mud. The
+  `dinghy` generator in `b/` is built and unused.
 - `stuck` on open grass at (393, 30), walking east toward the rail fence, twice:
   not looked at.
 - Not built: the Lynchets. Two level terraces with drystone faces and turf ramps
@@ -230,6 +270,4 @@ are the truth, not the builders.
   `stuck`: is that what a cat should do? `face` also ends `stuck` (#1820).
 - Other things never yet seen online: another player's view of a beast sitting,
   rebuilding and walking with its name plate; a seeded beast arriving in a world.
-- Next: the gait (R5, symbios-avatar #378), then #381, #382, #383 (seat a driver,
-  and with it an emote row, D8b), #371 and #384.
 - In Overlands: #1810 (the walk bench settles about 0.4 m/s under its target).

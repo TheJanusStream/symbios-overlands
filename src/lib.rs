@@ -74,6 +74,7 @@ pub mod audio_mute;
 pub mod avatar;
 pub mod banner;
 pub mod boot_params;
+pub mod build_info;
 pub mod camera;
 pub mod catalogue;
 pub mod clouds;

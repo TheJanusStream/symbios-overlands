@@ -19,6 +19,11 @@ a fresh shell ([session.md](session.md#starting)).
 AGENT_ACCOUNT=<handle> <repo>/docs/agent/tools/watch.py 0 30
 ```
 
+- A woken watcher hears nothing until it is re-armed, and a wake reaches you
+  only between commands. With the owner in the world, re-arm first and run
+  anything longer than a minute in the background too. In session 983, during
+  long gate runs, the owner had to ask "Did you not receive my in-world chat
+  message?", and later a "please follow me" waited 14 minutes.
 - Start it with the harness's background mode, NOT with `&` and its output
   thrown away - a watcher nobody hears is no watcher. Session 879 re-armed one
   with `nohup ... &` by slip: it ran, and would never have woken the session.

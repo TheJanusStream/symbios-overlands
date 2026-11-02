@@ -21,7 +21,10 @@ Use `follow` when the task is to stay with them ("follow me", an escort);
 it runs to catch up and waits for a sleeping tab rather than walking to its
 stand-in. An airship escorts 8 m up and lands beside them once they have
 stood still for five seconds: a 130 m drive was escorted live and ended
-3.5 m from the car.
+3.5 m from the car. A follow only steers straight at them: with a wall or an
+enclosure between you it stops and the watcher wakes, so walk through the gap
+first and follow from there (`exports/catoid/b/rejoin.py` does that with a
+list of Purlieu's gaps).
 
 ## Getting somewhere
 

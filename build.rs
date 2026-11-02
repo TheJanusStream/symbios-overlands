@@ -1,10 +1,12 @@
 //! Build script - captures two facts about the build into the environment,
 //! and tells a web build which browser backend it is for.
 //!
-//! `SYMBIOS_GIT_SHA` is the short git sha, so the diagnostic suite's startup
-//! snapshot (src/diagnostics/snapshot.rs) can record which commit produced a
-//! session log. Degrades to `"unknown"` outside a git checkout or when `git`
-//! is unavailable.
+//! `SYMBIOS_GIT_SHA` is the short git sha, so a deployed build's session logs
+//! and its `Hello` can say which commit produced them. **Only when
+//! `SYMBIOS_STAMP_SHA` is set**, as deploy.yml sets it: the variable reaches every
+//! target of this crate, so stamping it on every build recompiled all 600,000
+//! lines after every commit, 3 to 4 minutes a gate step with no code changed.
+//! A local build says `unknown` instead (`crate::build_info`).
 //!
 //! `SYMBIOS_AVIAN_VERSION` is the resolved `avian3d` version, so the
 //! island-corruption canary in `tests/freeze_rigid_body.rs` can notice when
@@ -24,28 +26,31 @@
 use std::process::Command;
 
 fn main() {
-    let sha = Command::new("git")
-        .args(["rev-parse", "--short", "HEAD"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "unknown".to_string());
-    println!("cargo:rustc-env=SYMBIOS_GIT_SHA={sha}");
-    // Re-run when HEAD moves so the sha stays current without a clean rebuild.
-    //
-    // `.git/HEAD` alone is NOT enough: on a branch it holds `ref:
-    // refs/heads/<branch>` and does not change when you commit - only the
-    // ref file does. Watching just HEAD meant the stamped sha went stale
-    // for every commit on a branch, so session logs misattributed their
-    // build (a log from a 13-commits-later binary claimed the older sha,
-    // which cost real time during the #919 diagnosis). Watch the ref files
-    // too; `packed-refs` covers the case where git has packed them away.
-    println!("cargo:rerun-if-changed=.git/HEAD");
-    println!("cargo:rerun-if-changed=.git/refs/heads");
-    println!("cargo:rerun-if-changed=.git/packed-refs");
+    println!("cargo:rerun-if-env-changed=SYMBIOS_STAMP_SHA");
+    if std::env::var_os("SYMBIOS_STAMP_SHA").is_some() {
+        let sha = Command::new("git")
+            .args(["rev-parse", "--short", "HEAD"])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "unknown".to_string());
+        println!("cargo:rustc-env=SYMBIOS_GIT_SHA={sha}");
+        // Re-run when HEAD moves so the sha stays current without a clean rebuild.
+        //
+        // `.git/HEAD` alone is NOT enough: on a branch it holds `ref:
+        // refs/heads/<branch>` and does not change when you commit - only the
+        // ref file does. Watching just HEAD meant the stamped sha went stale
+        // for every commit on a branch, so session logs misattributed their
+        // build (a log from a 13-commits-later binary claimed the older sha,
+        // which cost real time during the #919 diagnosis). Watch the ref files
+        // too; `packed-refs` covers the case where git has packed them away.
+        println!("cargo:rerun-if-changed=.git/HEAD");
+        println!("cargo:rerun-if-changed=.git/refs/heads");
+        println!("cargo:rerun-if-changed=.git/packed-refs");
+    }
 
     println!("cargo:rustc-env=SYMBIOS_AVIAN_VERSION={}", avian_version());
     println!("cargo:rerun-if-changed=Cargo.lock");

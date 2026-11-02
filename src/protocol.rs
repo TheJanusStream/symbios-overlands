@@ -434,13 +434,13 @@ pub const PROTOCOL_VERSION: u16 = 5;
 pub const FIRST_PERSON_SINCE: u16 = 5;
 
 /// This build's human-readable identity for [`OverlandsMessage::Hello`]:
-/// crate version plus the short git sha `build.rs` bakes in. Only ever
+/// crate version plus the short git sha ([`crate::build_info`]). Only ever
 /// displayed and logged - never compared.
 pub fn build_id() -> String {
     format!(
         "{}+{}",
         env!("CARGO_PKG_VERSION"),
-        option_env!("SYMBIOS_GIT_SHA").unwrap_or("unknown")
+        crate::build_info::git_sha()
     )
 }
 

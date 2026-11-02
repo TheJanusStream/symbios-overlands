@@ -1,7 +1,7 @@
 //! Startup snapshot - the first record of every session (Pillar A-4).
 //!
 //! Enough build/environment context to key a log to a DID and correlate it
-//! across runs: crate version, git sha (from `build.rs`), target arch, build
+//! across runs: crate version, git sha (`crate::build_info`), target arch, build
 //! profile, the boot params, and - once authenticated - the session DID/relay.
 //!
 //! It is emitted in two phases (see [`SnapshotPhase`]): a `Boot` snapshot at
@@ -12,12 +12,9 @@
 use crate::boot_params::BootParams;
 use crate::diagnostics::event::{EventPayload, SnapshotPhase, StartupInfo};
 
-/// Short git sha baked in by `build.rs`, or `"unknown"` if that script was not
-/// run (kept as `option_env!` so the crate compiles without it).
+/// Short git sha of this build: see [`crate::build_info`].
 fn git_sha() -> String {
-    option_env!("SYMBIOS_GIT_SHA")
-        .unwrap_or("unknown")
-        .to_string()
+    crate::build_info::git_sha().to_string()
 }
 
 /// The four facts that identify a BUILD, shared by the startup snapshot and

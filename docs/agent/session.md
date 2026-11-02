@@ -350,8 +350,8 @@ and what it has cost and found. The essentials:
   inherit the session's; a sub-agent runs fmt, clippy and its own targeted
   tests, and `cargo test --profile test-release --lib` only when it touches
   process-global state. Say so in the brief: CLAUDE.md tells every agent
-  to run all seven gate lines, and the brief overrides it - the main
-  session runs them once, at the end.
+  to run the whole gate, and the brief overrides it - the main session
+  runs `scripts/gate.sh` once, at the end.
 - The brief is all it knows: the goal and how to tell it is done, paths,
   the issue number, the checks above, the files it may edit (stay off them
   until it reports), and the traps by name, as developing.md lists them; it
@@ -387,12 +387,12 @@ When the owner says "session over", in chat or in the terminal:
    one reviewer over it, no verifier per finding - read each finding
    yourself before acting on it. Fix what is medium or worse, each with a
    test that fails without it; file the low ones. Delegated work had its
-   critic and is not reviewed again. After the last source change, the
-   seven-line gate from [../../CLAUDE.md](../../CLAUDE.md), once (a
-   delegate's full gate run counts if no source changed after it), and
-   `cargo test --profile test-release --lib`, CI's one-process run (twice
-   if the session touched process-global state); mutation-check a new rule
-   that protects data or security and was not checked yet.
+   critic and is not reviewed again. After the last source change,
+   `scripts/gate.sh` from [../../CLAUDE.md](../../CLAUDE.md), once (a
+   delegate's full gate run counts if no source changed after it). It holds
+   `cargo test --profile test-release --lib`, CI's one-process run; run that
+   once more if the session touched process-global state. Mutation-check a
+   new rule that protects data or security and was not checked yet.
 3. Close the shipped sub-issues with `chainlink close --no-changelog <id>`
    and write each CHANGELOG.md bullet yourself, as what shipped, under the
    right heading. World content gets no bullet. Leave the parent open.

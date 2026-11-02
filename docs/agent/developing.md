@@ -79,7 +79,7 @@ session 885 checked the same work up to four times: builder -> critic, no
 automatic fixer; the critic reads and breaks the riskiest rules itself but
 re-runs no gate and copies no repository; sub-agents run at effort `high`
 (`medium` for mechanical work), with fmt, clippy and their targeted tests;
-the seven-line gate runs once, at the end, in the main session; the end
+`scripts/gate.sh` runs once, at the end, in the main session; the end
 review covers only code no critic has seen, with one reviewer; mutation
 checks only for rules that protect data or security. The rules are in
 [session.md](session.md#delegating); the history below is why.
@@ -246,9 +246,10 @@ JSON (`serde_json::from_value`) - the same form `room set` takes.
 - The first write of a never-saved world re-quantises every generator onto
   the wire's grid, so "what changed" must compare against the old record
   settled the same way.
-- The gate at the end is [../../CLAUDE.md](../../CLAUDE.md)'s seven lines
-  plus `cargo test --profile test-release --lib` twice - never plain
-  `--release`. Run the wasm line early: a new `pub(crate) use` that only
+- The gate at the end is `scripts/gate.sh`, [../../CLAUDE.md](../../CLAUDE.md)'s
+  eight lines plus `cargo test --profile test-release --lib`, that once more
+  after touching process-global state - never plain `--release`. Run the wasm
+  line early: a new `pub(crate) use` that only
   native code reads (the render tool) is an unused import on wasm, a red
   CI job under `-D warnings` - gate it `#[cfg(not(target_arch = "wasm32"))]`.
 

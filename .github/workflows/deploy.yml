@@ -14,6 +14,11 @@ concurrency:
   group: "pages"
   cancel-in-progress: true
 
+env:
+  # The deployed bundle says which commit it is (build.rs). Only here: stamping
+  # every build recompiles the whole crate after every commit.
+  SYMBIOS_STAMP_SHA: "1"
+
 jobs:
   # Two browser bundles, built side by side on two runners (#1670): the
   # WebGL2 one every browser can run, and the WebGPU one `index.html` hands a

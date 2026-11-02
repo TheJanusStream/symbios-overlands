@@ -171,6 +171,29 @@ covers the whole workspace, so it needs no separate override.
 
 ## Tests and quality gates
 
+`scripts/gate.sh` runs every line below, `cargo test --lib` under `--profile
+test-release` so that it shares the suite's build. Steps that share no build lock run
+side by side, in lanes (tests, the debug profile's checks, the wasm checks), and a step
+that passed is not run again while everything that can decide it is the same: every file
+git would see, `Cargo.lock`, the toolchain, the command and the flags. It keeps that
+record in `target/gate/`, so losing `target/` only costs the time, and CI still runs
+fresh on every push. `cargo deny` always runs, as what decides it is an advisory
+database that moves overnight.
+
+`--patched` runs against `../symbios-avatar` and `../bevy_symbios_avatar` and puts
+`Cargo.lock` back, on everything but `cargo deny`, which cannot see a patch and would pin
+the lockfile back on the registry; `--worker` also builds the worker and checks it
+against its budget in `deploy.yml`; `--force` runs everything. After a bump to crates
+that have just been published, `--published` compares their packages with the siblings
+file for file and, where a `--patched` run passed on that very source and this tree, runs
+the checks but not the tests or the doc gate again; anywhere else it runs the lot.
+
+It says `gate: passed` only when every step it owes has reported a pass and nothing it
+read has changed under it, so a lane that dies or an edit during a run reads as a
+failure. [`scripts/gate_test.sh`](../scripts/gate_test.sh) holds it to all of that on a
+stub toolchain, and runs as a step of the gate whenever a script has changed. The lines
+themselves:
+
 ```bash
 cargo fmt --all -- --check                             # formatting (CI blocks on it)
 cargo clippy --all-targets -- -D warnings              # lint, exactly as CI runs it
@@ -185,6 +208,7 @@ RUSTFLAGS='-D warnings' cargo check --workspace --target wasm32-unknown-unknown
 # and the WebGPU bundle (#1670), whose `webgpu` feature moves code between the
 # arms of the `webgl2` cfg build.rs sets
 RUSTFLAGS='-D warnings' cargo check -p symbios-overlands --target wasm32-unknown-unknown --features webgpu
+cargo deny check                                       # advisories and licences
 ```
 
 **`cargo test --lib` is a separate gate, not a subset of the nextest run.**
