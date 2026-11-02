@@ -984,10 +984,14 @@ pub(crate) mod camera {
     /// a 12 m switch. The adapter's default would put the owner's own body in
     /// its far tier at the zoom the game opens on, and flip it on any nudge.
     ///
-    /// **A four-legged beast's nearer rest asks nothing of it** (#1804). The
-    /// switch turns only a far tier, and a beast has none: its head grows no
-    /// hair and its fur has no second draw, so its fur draws at every distance
-    /// (owner decision D12; pinned by `a_beast_has_no_hair_tier_to_switch`).
+    /// **A four-legged beast rests inside it** (#1804). Its head grows no hair,
+    /// but since symbios-avatar #407 a maned beast's fur has a far tier, its
+    /// mane drawn as a coarser solid and the rest of its fur as it was, so the
+    /// switch turns a mane as it turns a person's hair (owner decision D12 had
+    /// all fur draw at every distance until then). The orbit rests round a
+    /// beast at most [`ORBIT_RADIUS`] from its eyes, nearer than this, so the
+    /// owner's own beast draws its near tier at the zoom the game opens on
+    /// (pinned by `a_beast_rests_inside_the_hair_switch`).
     /// The switch is judged in pixels a metre through this lens, whichever body
     /// the camera happens to follow, so a person standing by a beast crosses
     /// it at the distance they always did.

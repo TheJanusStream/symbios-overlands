@@ -2085,25 +2085,44 @@ mod tests {
         }
     }
 
-    /// **A beast's nearer orbit leaves the hair's switch alone** (#1804): the
-    /// switch turns only a far tier, and a beast built asking for one has none.
-    /// Should the engine give it one, `cfg::HAIR_SWITCH`'s arithmetic is to do
-    /// again for a beast's rest.
+    /// **A beast rests inside the hair's switch** (#1804, #1832): since a maned
+    /// beast's fur has a far tier (symbios-avatar #407, its mane drawn as a
+    /// coarser solid), `cfg::HAIR_SWITCH` turns a mane as it turns a person's
+    /// hair, so the owner's own beast has to rest nearer than the switch. The
+    /// switch measures from the body's root, under its feet; the orbit rests
+    /// at most `cfg::ORBIT_RADIUS` from its focus at the eyes, straight above
+    /// the root, pitched `cfg::ORBIT_PITCH` up. The tallest beast a record may
+    /// ask for, a maned horse at the top of its height, is the farthest of them
+    /// (a default beast grows no fur, so the test gives it its mane).
     #[test]
-    fn a_beast_has_no_hair_tier_to_switch() {
-        use symbios_avatar::Family;
-        for family in [Family::Dog, Family::Cat, Family::Horse] {
-            let avatar = symbios_avatar::Avatar::build_with(
-                &crate::pds::avatar::locomotion::default_beast(family),
-                &symbios_avatar::AvatarConfig {
-                    atlas: 64,
-                    far_hair: true,
-                    ..Default::default()
-                },
-            )
-            .expect("the body builds");
-            assert!(avatar.far_hair.is_none(), "{family:?}");
+    fn a_beast_rests_inside_the_hair_switch() {
+        use symbios_avatar::{Archetype, Family};
+        let mut record = crate::pds::avatar::locomotion::default_beast(Family::Horse);
+        if let Archetype::Quadruped(params) = &mut record.archetype {
+            params.height = 100.0;
+            params.fur.mane = 1.0;
         }
+        record.sanitize();
+        let horse = symbios_avatar::Avatar::build_with(
+            &record,
+            &symbios_avatar::AvatarConfig {
+                atlas: 64,
+                far_hair: true,
+                ..Default::default()
+            },
+        )
+        .expect("the tallest horse builds");
+        assert!(
+            horse.far_hair.is_some(),
+            "a maned beast has a far tier to switch"
+        );
+        let eyes = rest_eye_line(&horse).expect("a beast's eyes").y;
+        let (radius, pitch) = (cfg::ORBIT_RADIUS, cfg::ORBIT_PITCH);
+        let rest = (radius * radius + eyes * eyes + 2.0 * radius * eyes * pitch.sin()).sqrt();
+        assert!(
+            rest < cfg::HAIR_SWITCH,
+            "the tallest horse, eyes {eyes} m up, rests {rest} m from its root"
+        );
     }
 
     /// #670 guard: the follow target must come from `Transform` - the
