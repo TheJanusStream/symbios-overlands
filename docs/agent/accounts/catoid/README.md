@@ -28,10 +28,10 @@ cat wears none of it yet beyond the gait.
 
 First, next session:
 
-- **Ask the owner what they made of the customisation.** Engine 0.18 and viewer
-  0.19 are deployed, but symbios-avatar #401, #402 and #403 stay open until they
-  have looked in the browser; "all green" was CI. Their word decides whether the
-  next work is changes there or the backlog ([Open threads](#open-threads)).
+- **The customisation is accepted.** The owner looked in the browser on 2026-11-02:
+  "Looks good enough for now." symbios-avatar #401, #402 and #403 are closed, and
+  the next engine work is the beast backlog, in the group the owner picks (milestone
+  #15 recommended). Engine 0.19 and viewer 0.20 change no body.
 - **The owner's standing follow:** start it on every `peer_joined` and after each
   restart or errand, from `exports/catoid/`: `python3 -I b/rejoin.py`, with
   `PYTHONPATH=<repo>/docs/agent/tools AGENT_ACCOUNT=catoid-ai.bsky.social` in front.
@@ -241,12 +241,12 @@ are the truth, not the builders.
 
 ## Open threads
 
-- symbios-avatar #401, #402, #403: built, published and deployed, waiting on the
-  owner's look. What they may want changed: antler tines thin and comb-like, ram tips
-  past the ears from the front, a stiff light mane going grey, a small coat patch at a
-  coloured tail's dock, the first pick snapping on a marked coat, roll shares of 1 in
-  12 and 1 in 20, an unlocked re-roll replacing a creator's own pick, pale pieces
-  vanishing on a pale coat.
+- symbios-avatar #401, #402, #403: closed 2026-11-02 at the owner's "Looks good
+  enough for now." Rough edges seen, kept here as notes until the owner asks: antler
+  tines thin and comb-like, ram tips past the ears from the front, a stiff light mane
+  going grey, a small coat patch at a coloured tail's dock, the first pick snapping on
+  a marked coat, roll shares of 1 in 12 and 1 in 20, an unlocked re-roll replacing a
+  creator's own pick, pale pieces vanishing on a pale coat.
 - The backlog, in order after their word: milestone #15 (#396 first, a dent on the
   upper chest; #397, #392, #393, #391, #404, #371), #14's #399 and #400, then #16
   (triangles and build cost), #17 (persons), #18. "Before we go on working on the

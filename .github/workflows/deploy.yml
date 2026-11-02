@@ -307,7 +307,12 @@ jobs:
           # dependency its manifests moved since is the avatar engine it runs,
           # 0.11 to 0.14.0: humanoid animation and the quadrupeds (#1801). Not
           # attributed by function. Raised to about 5 % above.
-          check ./dist/gen-worker_bg.wasm 4250000 975000
+          #              4,179,017 B raw / 978,556 B gzip on 2026-11-02, built
+          # locally by `scripts/gate.sh --patched --worker` against the engine
+          # of symbios-avatar milestone #15 before its publish (#1831): eased
+          # slider corners, the tail's chart, the neck's join and the ornament
+          # seats, 0.4 % over the gzip budget. Raised to about 5 % above.
+          check ./dist/gen-worker_bg.wasm 4390000 1030000
           exit $fail
 
       - name: Setup Pages
