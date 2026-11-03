@@ -90,7 +90,7 @@ symbios-turtle-3d = "0.6"
 symbios-shape = "0.4"
 bevy_symbios_shape = "0.10"
 symbios-tensor = "0.6"
-bevy_symbios_avatar = "0.20"
+bevy_symbios_avatar = "0.21"
 gen-jobs = { path = "crates/gen-jobs" }
 # Geodata regions (#1580): where a region's square of Berlin lies, the
 # GDI Berlin request URLs, and the decoders for what they answer. The app

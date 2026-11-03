@@ -25,7 +25,7 @@ pub use airplane::AirplaneParams;
 pub use car::CarParams;
 pub use fit::fit_on_foot;
 pub(crate) use fit::{
-    RunAnchor, beast_on_foot, carries_beast, follow, follow_body, restore_body_shape,
+    LyingCapsule, RunAnchor, beast_on_foot, carries_beast, follow, follow_body, restore_body_shape,
 };
 #[cfg(test)]
 pub(crate) use fit::{beast_record, default_beast};

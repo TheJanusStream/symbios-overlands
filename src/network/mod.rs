@@ -226,7 +226,12 @@ impl Plugin for NetworkPlugin {
                     // The liveness the transport does not always report
                     // (#1224 f335) - a ghost is worse than an absence.
                     lifecycle::sweep_quiet_peers,
-                    smoother::smooth_remote_transforms,
+                    // Before the bodies are told where their chassis are
+                    // (#1833): a beast peer's ground is sampled through the
+                    // `Transform` this writes, which is the pose the body is
+                    // drawn at only once this frame's playout is in it.
+                    smoother::smooth_remote_transforms
+                        .before(bevy_symbios_avatar::AvatarSystems::Animate),
                     presence::retire_peer_placeholders,
                     // Mute's audio half (#1219 f324), beside its visibility
                     // half below: `RemotePeer::muted` used to reach

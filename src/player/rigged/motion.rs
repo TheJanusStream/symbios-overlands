@@ -7,8 +7,10 @@ use symbios_avatar::{Heading, Zone};
 use crate::player::emote::{BeastEmote, Emote, EmoteRequest};
 use crate::player::humanoid::{WaterColumn, WaterState, humanoid_water_state, water_state};
 use crate::state::{LiveAvatarRecord, LocalPlayer, RemotePeer};
+use crate::terrain::FinishedHeightMap;
 use crate::water::WaterSurfaces;
 
+use super::underfoot::Underfoot;
 use super::{RiggedRoot, RiggedTrail, stands_on_four};
 
 /// Where the crown of a swimmer afloat at the surface is drawn, in metres
@@ -152,7 +154,8 @@ type FilledBodies<'w, 's> = Query<
 
 /// What the fill reads of a body's chassis: where it is, how fast if it knows,
 /// and for a peer, whether it looks out of its eyes and what its owner's record
-/// says.
+/// says - and, for the ground under it, where it is drawn this frame: its own
+/// `Transform`, and its parent if it has one (#1833, [`drawn_pose`]).
 type FilledChassis<'w, 's> = Query<
     'w,
     's,
@@ -161,8 +164,31 @@ type FilledChassis<'w, 's> = Query<
         Option<&'static LinearVelocity>,
         Has<InFirstPerson>,
         Option<&'static RemotePeer>,
+        &'static Transform,
+        Option<&'static ChildOf>,
     ),
+    Without<RiggedRoot>,
 >;
+
+/// Where a chassis is drawn this frame (#1833): its own `Transform`, which is
+/// its pose in the world for a top-level chassis - every one the game makes
+/// is - and composed with its parent's for one that is not. Not its
+/// `GlobalTransform`, which in `Update` is the pose last frame's `PostUpdate`
+/// propagated: see the [`super::underfoot`] module doc.
+///
+/// A parent's own `GlobalTransform` is the best this frame knows of it short
+/// of walking the whole hierarchy, and no chassis has one.
+fn drawn_pose(
+    chassis: &FilledChassis,
+    transform: &Transform,
+    parent: Option<&ChildOf>,
+) -> GlobalTransform {
+    let own = GlobalTransform::from(*transform);
+    match parent.and_then(|parent| chassis.get(parent.parent()).ok()) {
+        Some((parent, ..)) => parent.mul_transform(*transform),
+        None => own,
+    }
+}
 
 /// Tell every built body what its chassis is doing, for
 /// [`bevy_symbios_avatar::drive_avatar_bodies`] to drive it with (#1171).
@@ -183,12 +209,13 @@ type FilledChassis<'w, 's> = Query<
 /// together in [`bevy_symbios_avatar::AvatarSystems::Animate`], and a test
 /// that runs one without the other measures neither (#1069).
 ///
-/// The engine's own floor - a level plane at the rigged root's `y = 0` - is
-/// what `drive_avatar_bodies` supplies, and it is exactly the floor this file
-/// used to build: the root is offset so `y = 0` is the chassis collider's
-/// bottom, and slopes are carried by the chassis pose the way the collider
-/// itself carries them. So this app needs none of the escape hatch a body
-/// with a driver and no [`Drive`] gets.
+/// **The floor is the level plane at the rigged root's `y = 0`** - the root
+/// is offset so that is the chassis collider's bottom - **unless the body is
+/// a beast resting on the terrain**, which is handed the terrain under it as
+/// [`Drive::ground`] (#1833, [`super::underfoot`]): a beast's chassis is
+/// held level, so on a slope the level plane ran through the hill under its
+/// feet. Either way it is data on the [`Drive`], so this app needs none of
+/// the escape hatch a body with a driver and no [`Drive`] gets.
 #[allow(clippy::too_many_arguments)]
 pub(in crate::player) fn fill_rigged_drive(
     time: Res<Time>,
@@ -201,6 +228,8 @@ pub(in crate::player) fn fill_rigged_drive(
     first_person: Option<Res<crate::camera::FirstPerson>>,
     facings: Option<MessageReader<crate::player::FacingSet>>,
     fixed: Res<Time<Fixed>>,
+    heightmap: Option<Res<FinishedHeightMap>>,
+    underfoot: Underfoot,
 ) {
     let delta = time.delta_secs();
     let step = fixed.timestep().as_secs_f32();
@@ -219,7 +248,8 @@ pub(in crate::player) fn fill_rigged_drive(
         })
     });
     for (child_of, mut root, mut drive, mut trail, body, pose) in &mut bodies {
-        let Ok((transform, velocity, peer_looking_out, peer)) = chassis.get(child_of.parent())
+        let Ok((transform, velocity, peer_looking_out, peer, drawn, parent)) =
+            chassis.get(child_of.parent())
         else {
             continue;
         };
@@ -419,6 +449,24 @@ pub(in crate::player) fn fill_rigged_drive(
         }
         if root.translation.y != hung + trail.lift {
             root.translation.y = hung + trail.lift;
+        }
+        // **The ground under the feet, once the root hangs where it is drawn
+        // this frame** (#1833): through the chassis' pose THIS frame, the one
+        // the body is drawn at, rather than the `GlobalTransform` that
+        // `Drive::at` above has always read - last frame's, which at a slope
+        // break at a gallop sampled the ground 5 cm off for seven frames.
+        // `Drive::at` itself is left as it was: every person's motion is
+        // measured against it.
+        match body {
+            Some(body) => underfoot.fill(
+                &mut drive,
+                &body.avatar.rig,
+                child_of.parent(),
+                &drawn_pose(&chassis, drawn, parent).mul_transform(*root),
+                heightmap.as_deref(),
+                &mut trail.rest,
+            ),
+            None => drive.ground = None,
         }
         // **The attachment-editing holds (#1062, #1106).** An attachment
         // offset is stored in its carrying joint's *rest* frame, so while the

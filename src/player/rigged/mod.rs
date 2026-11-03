@@ -36,8 +36,9 @@
 //!     the walk-run boundary - symbios-avatar #240, adopted under #1070),
 //!     the idle when it stands (breath, sway, weight shift, fidgets and the
 //!     glance they aim - engine #246), goal-space gestures over either
-//!     (#1068), inertialized source switches, stance feet planted on the
-//!     local ground plane through the world foothold ledger, and
+//!     (#1068), inertialized source switches, stance feet planted through
+//!     the world foothold ledger on the local ground plane - or, for a beast
+//!     resting on the terrain, on the terrain itself (#1833) - and
 //!     engine-driven blinking. **The state machine behind all of that was
 //!     this module's until #1171 moved it upstream**, where the sibling
 //!     viewer now runs the same one; what is left here is the half only an
@@ -226,6 +227,10 @@ pub(super) struct RiggedTrail {
     /// left it where its build put it (#1805, `motion::fill_rigged_drive`),
     /// so it owes one more hang when a person stops lying.
     rehung: bool,
+    /// What the body was last cast as resting on, for one the physics does
+    /// not simulate here (#1833, [`underfoot::RestCast`]): a peer standing
+    /// still is not cast again every frame.
+    rest: underfoot::RestCast,
 }
 
 /// Whether `rig` stands on four legs: the engine's own test of a beast, which
@@ -284,6 +289,7 @@ mod motion;
 mod placeholder;
 #[cfg(test)]
 mod tests;
+mod underfoot;
 
 #[cfg(test)]
 pub(super) use build::install_built_body;
@@ -297,5 +303,8 @@ pub(crate) use motion::InFirstPerson;
 // render tool is native only.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use motion::heading_of;
+// And is handed the ground under it as the game hands it over (#1833).
 pub(crate) use placeholder::StandIn;
 pub(super) use placeholder::{announce_slow_builds, sync_local_placeholder};
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use underfoot::{RestsOn, Underfoot};

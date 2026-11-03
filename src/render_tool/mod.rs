@@ -299,7 +299,7 @@ struct Args {
     ride_height: Option<String>,
     /// List the first `--family-count` seeds whose
     /// [`ChassisFamily`](crate::seeded_defaults::ChassisFamily) matches
-    /// (`humanoid` | `boat` | `airship` | `skiff` | `helicopter` |
+    /// (`humanoid` | `beast` | `boat` | `airship` | `skiff` | `helicopter` |
     /// `airplane`) and exit - a survey aid for
     /// the avatar overhaul: pick seeds from the printed list, then render each
     /// with `--avatar <seed>`. Highest precedence (prints, never renders).
@@ -605,7 +605,12 @@ struct Args {
     /// forecourt toward the spawn by default - on the engine's own gait.
     /// The first is the body `--focus walker` follows (unless
     /// `--walker-avatar` leads); the rest walk beside it, `--walker-spread`
-    /// apart, so a clip can show a world with people in it (#1352).
+    /// apart, so a clip can show a world with people in it (#1352). A seed
+    /// that rolls a beast walks that beast (#1808): `--family-seeds beast`
+    /// lists them. A beast is set down as its game chassis rests, its lying
+    /// capsule on its uphill end, and one resting on the terrain alone stands
+    /// on the terrain under it, as in the game (#1833); see `--walker-level`.
+    /// The world runs avian while anything walks, for the walkers to rest on.
     #[arg(long, value_delimiter = ',', action = clap::ArgAction::Append)]
     walker: Vec<u64>,
     /// With `--world`: the first walker - the one `--focus walker` follows -
@@ -645,6 +650,13 @@ struct Args {
     /// stand before it.
     #[arg(long)]
     walker_ramp: bool,
+    /// With `--walker`: every body walks on the level floor through its
+    /// root, as every body did before the game handed a beast on the terrain
+    /// the terrain under it (#1833) - the "before" of a before-and-after on
+    /// a slope. A beast is still set down where its capsule rests, so the
+    /// two differ only in the feet. A person walks on it either way.
+    #[arg(long)]
+    walker_level: bool,
     /// With `--editor`: open the AVATAR editor on its Body tab rather than
     /// the World Editor (#1358). That tab hosts its sculpting sections from
     /// `bevy_symbios_avatar::editor`, so it is the surface that changes when
@@ -1490,6 +1502,7 @@ pub fn run() {
         face: args.walker_face.to_radians(),
         first_person: rig.eyes_on(Focus::Walker),
         ramp: args.walker_ramp,
+        level: args.walker_level,
     });
     assert!(
         walker.is_none() || is_world,
@@ -1641,6 +1654,8 @@ pub fn run() {
     if args.bench.is_some() {
         app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
     }
+    // Whether there are walkers, for the physics they rest on (#1833).
+    let walks = walker.is_some();
     if let Subject::World(spec) = &subject {
         world::register(&mut app, spec, walker);
         if let Some(quality) = args.grass {
@@ -1720,6 +1735,15 @@ pub fn run() {
                 script
             });
             editor::register(&mut app, &spec.record, &spec.did, opening, script);
+        }
+        // **A walker rests on the world's colliders as the game's chassis
+        // does** (#1833): its body's lying capsule cast down onto them sets it
+        // down and says whether it rests on the terrain alone, and rays read
+        // what stands on the terrain within its reach - the game's own
+        // `Underfoot`, over avian's collider trees. So walking runs avian as a
+        // drive or the editor already does, unless one of them brought it.
+        if walks && !app.is_plugin_added::<avian3d::prelude::PhysicsSchedulePlugin>() {
+            app.add_plugins(avian3d::prelude::PhysicsPlugins::default());
         }
     }
     // Rigged bodies for `--wear` (#1088), `--walker` and `--rigged` (#1482): the engine's

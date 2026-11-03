@@ -99,6 +99,10 @@ pub(super) struct WalkerSpec {
     /// game's controller starts a player, rather than at the pace at once -
     /// see [`ramped_walk`].
     pub(super) ramp: bool,
+    /// `--walker-level` (#1833): every body walks on the level floor through
+    /// its root, as every body did before a beast was handed the terrain -
+    /// the "before" of a before-and-after.
+    pub(super) level: bool,
 }
 
 /// One body of a `--walker` group, in walking order - see
@@ -186,6 +190,10 @@ pub(super) struct Walker {
     root: Entity,
     /// The first `--walker` seed: the body the rig follows.
     lead: bool,
+    /// The height a beast's capsule came to rest at last frame (#1833), which
+    /// the next frame's cast down starts over: a walker on a pad stays on it
+    /// wherever the terrain under it falls away.
+    rested: Option<f32>,
 }
 
 impl Walker {
@@ -758,6 +766,7 @@ fn spawn_one_walker(
         start: timing.capture_start - spec.lead,
         root,
         lead: index == 0,
+        rested: None,
     });
     info!(
         "walker {}: from ({:.1}, {:.1}) heading ({:.2}, {:.2}) at {:.2} m/s, facing {:.0} deg \
@@ -779,20 +788,50 @@ fn spawn_one_walker(
 /// it (#1746).
 ///
 /// Runs before the avatar plugin's `Animate` set so the pose the frame
-/// renders is the pose for this position. Height is the heightmap's - the
-/// body walks the raw ground the way the game's capsule rides it, and only
-/// the horizontal velocity is handed over: the signed vertical is the
-/// engine's airborne state machine, and a slope is not a jump.
+/// renders is the pose for this position. Only the horizontal velocity is
+/// handed over: the signed vertical is the engine's airborne state machine,
+/// and a slope is not a jump.
+///
+/// **A person walks the raw ground** - the heightmap under its centre, where
+/// an upright capsule's round end rests on a slope. **A beast rests as its
+/// chassis does** (#1833): its body's lying capsule, held level, cast down
+/// onto the world's colliders from a metre over the higher of the terrain
+/// under it and where it rested last frame, comes to rest on its uphill end on
+/// a slope, or on whatever stands higher under it -
+/// the root at the capsule's underside there, which on a slope is above the
+/// terrain under its centre. Put there, the walker drew a beast lower on
+/// steep ground than the game does, and its before-and-after flattered the
+/// slope. The cast that sets it down is the same one that tells a peer's
+/// fill what it rests on.
+///
+/// **And the ground under the feet, as the game hands it over** (#1833): a
+/// beast resting on the terrain alone is given the terrain under it, with
+/// what stands on it within its reach, through the game's own
+/// [`crate::player::Underfoot`] and this frame's chassis pose through the
+/// root's own transform; a person, and a beast resting on anything else,
+/// keeps the level floor. `--walker-level` keeps it for every beast too, the
+/// floor every body stood on before, for a before-and-after; the beast is
+/// set down on its capsule either way.
 pub(super) fn step_walkers(
     clock: Res<Clock>,
     heightmap: Option<Res<FinishedHeightMap>>,
-    mut walkers: Query<(&Walker, &mut Transform)>,
-    mut drives: Query<&mut Drive>,
+    spec: Option<Res<WalkerSpec>>,
+    underfoot: crate::player::Underfoot,
+    mut walkers: Query<(&mut Walker, &mut Transform)>,
+    mut drives: Query<
+        (
+            &mut Drive,
+            &Transform,
+            Option<&bevy_symbios_avatar::AvatarBody>,
+        ),
+        Without<Walker>,
+    >,
 ) {
     let Some(heightmap) = heightmap else {
         return;
     };
-    for (walker, mut transform) in &mut walkers {
+    let level = spec.as_ref().is_some_and(|spec| spec.level);
+    for (mut walker, mut transform) in &mut walkers {
         let walked = (clock.elapsed - walker.start).max(0.0);
         let (distance, speed) = if walker.ramp {
             ramped_walk(walked, walker.pace)
@@ -800,21 +839,54 @@ pub(super) fn step_walkers(
             (walker.pace * walked, walker.pace)
         };
         let flat = walker.from + walker.dir * distance;
-        let at = Vec3::new(flat.x, heightmap.world_height_at(flat.x, flat.z), flat.z);
-        *transform = Transform::from_translation(at).looking_to(walker.face, Vec3::Y);
-        if let Ok(mut drive) = drives.get_mut(walker.root) {
-            drive.velocity = if clock.elapsed > walker.start {
-                walker.dir * speed
-            } else {
-                Vec3::ZERO
-            };
-            drive.at = at;
-            drive.facing = walker.face.x.atan2(walker.face.z);
-            drive.heading = if walker.looks_out {
-                crate::player::heading_of(drive.velocity, drive.facing)
-            } else {
-                None
-            };
+        let face = walker.face;
+        let placed = |y: f32| {
+            Transform::from_translation(Vec3::new(flat.x, y, flat.z)).looking_to(face, Vec3::Y)
+        };
+        let ground = heightmap.world_height_at(flat.x, flat.z);
+        let Ok((mut drive, hung, body)) = drives.get_mut(walker.root) else {
+            *transform = placed(ground);
+            continue;
+        };
+        // Set down from over the higher of the terrain under its centre and
+        // where it rested last frame: `fell` is how far under that the capsule
+        // came to rest, negative uphill.
+        let rig = body.map(|body| &body.avatar.rig);
+        let over = walker.rested.map_or(ground, |rested| rested.max(ground));
+        let set_down = rig.and_then(|rig| {
+            underfoot.set_down(
+                rig,
+                &GlobalTransform::from(placed(over)).mul_transform(*hung),
+            )
+        });
+        let (y, rests) = set_down.map_or(
+            (ground, crate::player::RestsOn::Elsewhere),
+            |(fell, rests)| (over - fell, rests),
+        );
+        walker.rested = set_down.map(|_| y);
+        *transform = placed(y);
+        let at = transform.translation;
+        drive.velocity = if clock.elapsed > walker.start {
+            walker.dir * speed
+        } else {
+            Vec3::ZERO
+        };
+        drive.at = at;
+        drive.facing = walker.face.x.atan2(walker.face.z);
+        drive.heading = if walker.looks_out {
+            crate::player::heading_of(drive.velocity, drive.facing)
+        } else {
+            None
+        };
+        match rig.filter(|_| !level) {
+            Some(rig) => underfoot.fill_resting(
+                &mut drive,
+                rig,
+                &GlobalTransform::from(*transform).mul_transform(*hung),
+                Some(&heightmap),
+                rests,
+            ),
+            None => drive.ground = None,
         }
     }
 }
@@ -961,6 +1033,7 @@ mod tests {
             face: 0.0,
             first_person: false,
             ramp: false,
+            level: false,
         }
     }
 

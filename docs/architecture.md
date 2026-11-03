@@ -253,7 +253,12 @@ a two-rung atlas ladder: 256 px while the record is still moving under an
 editor, full size once it has been still for 0.8 s, so sculpting stays
 interactive without shipping a draft skin. The finished body lands under a
 child offset that puts the engine's ground plane (y = 0, at the feet) on the
-chassis collider's bottom. Props are then plain parenting: the Bevy layer
+chassis collider's bottom. A beast the physics has resting on the terrain and
+nothing else plants its feet on the terrain itself instead, sampled under it each
+frame through the pose it is drawn at, with rays reading in whatever stands on the
+terrain within its reach (#1833): its chassis is held level, so on a slope that
+plane runs through the hill. A beast on a floor, a pad, a deck or a road keeps the
+plane. Props are then plain parenting: the Bevy layer
 spawns a real entity per rig joint, so a prop rides its joint through every
 motion for free - an identity offset lets the engine seat the prop just clear
 of the *measured* surface, an authored offset is taken verbatim.

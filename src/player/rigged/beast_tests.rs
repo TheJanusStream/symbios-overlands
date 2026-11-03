@@ -1810,3 +1810,1250 @@ fn a_collar_and_a_pad_follow_a_resting_body() {
         );
     }
 }
+
+/// A metre-grid heightmap 64 m across, centred on the origin as the world's
+/// is, its ground at `height` of each world `(x, z)`.
+fn terrain(height: impl Fn(f32, f32) -> f32) -> crate::terrain::FinishedHeightMap {
+    let mut map = bevy_symbios_ground::HeightMap::new(65, 65, 1.0);
+    for z in 0..65 {
+        for x in 0..65 {
+            map.set(x, z, height(x as f32 - 32.0, z as f32 - 32.0));
+        }
+    }
+    crate::terrain::FinishedHeightMap(map, None)
+}
+
+/// A built `body` hung under a chassis at `place` the way the game hangs
+/// one, filled once over `ground`, and the [`Drive`] the fill wrote.
+///
+/// The body goes on as a bare [`AvatarBody`], with nothing drawn: the fill
+/// reads the rig and nothing else of it. The ground is physics as well as a
+/// heightmap (#1833): its heightfield collider on a `TerrainMesh`, as the
+/// game spawns it, stepped until avian's collider trees hold it. Neither
+/// chassis carries a collider here, so the fill asks what each rests on as
+/// it asks of a peer - its body's lying capsule cast down onto the world.
+fn filled_over(
+    ground: crate::terrain::FinishedHeightMap,
+    water: Option<WaterSurfaces>,
+    under: Under,
+    record: AvatarRecord,
+    body: &EngineAvatarRecord,
+    place: Transform,
+) -> Drive {
+    filled_drawn(ground, water, under, record, body, place, place)
+}
+
+/// [`filled_over`], with the chassis drawn at `drawn` this frame - its
+/// `Transform` - while its `GlobalTransform` still says `place`, as the one
+/// last frame propagated does (#1833).
+fn filled_drawn(
+    ground: crate::terrain::FinishedHeightMap,
+    water: Option<WaterSurfaces>,
+    under: Under,
+    record: AvatarRecord,
+    body: &EngineAvatarRecord,
+    place: Transform,
+    drawn: Transform,
+) -> Drive {
+    let offset = crate::player::visuals::rigged_root_offset(&record);
+    let mut app = App::new();
+    app.add_plugins((
+        MinimalPlugins,
+        bevy::asset::AssetPlugin::default(),
+        avian3d::prelude::PhysicsPlugins::default(),
+    ));
+    // Avian's collider cache listens for mesh events.
+    app.init_asset::<Mesh>();
+    app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f32(
+        FRAME,
+    )));
+    app.init_resource::<crate::player::RigHold>();
+    app.world_mut().spawn(terrain_body(&ground));
+    app.insert_resource(ground);
+    if let Some(water) = water {
+        app.insert_resource(water);
+    }
+    app.finish();
+    app.cleanup();
+    for _ in 0..3 {
+        app.update();
+    }
+    let chassis = chassis(&mut app, under, record, place.translation);
+    app.world_mut()
+        .entity_mut(chassis)
+        .insert((drawn, GlobalTransform::from(place)));
+    let root = app
+        .world_mut()
+        .spawn((
+            RiggedRoot,
+            Drive::default(),
+            RiggedTrail::default(),
+            crate::player::visuals::rigged_root_transform(offset),
+            AvatarBody {
+                avatar: built(body, 64),
+            },
+            ChildOf(chassis),
+        ))
+        .id();
+    app.world_mut()
+        .run_system_once(fill_rigged_drive)
+        .expect("the fill runs");
+    app.world().get::<Drive>(root).expect("a drive").clone()
+}
+
+/// The terrain's static body as the game spawns it
+/// (`terrain::heightmap::spawn_terrain_mesh`): the heightfield collider of
+/// `ground` at the origin, marked as the terrain.
+fn terrain_body(ground: &crate::terrain::FinishedHeightMap) -> impl Bundle {
+    (
+        Transform::IDENTITY,
+        avian3d::prelude::RigidBody::Static,
+        bevy_symbios_ground::build_heightfield_collider(&ground.0),
+        crate::terrain::TerrainMesh,
+    )
+}
+
+/// How far the rigged root of a `record` chassis hangs under its centre: a
+/// beast's by its record's column ([`WaterColumn::of`]), as the fill hangs it.
+fn drop_of(record: &AvatarRecord) -> f32 {
+    let crate::pds::LocomotionConfig::Humanoid(p) = &record.locomotion else {
+        panic!("on foot")
+    };
+    WaterColumn::of(p).drop
+}
+
+/// The patch's ground at `(x, z)` of the body's own frame.
+fn patch_at(patch: &bevy_symbios_avatar::GroundPatch, x: f32, z: f32) -> f32 {
+    patch
+        .ground(Vec3::new(x, 0.0, z))
+        .expect("a patch always answers")
+        .position
+        .y
+}
+
+/// **A beast on a slope is handed the slope, in its own frame** (#1833).
+/// Each family, on its owner's client and a peer's, faces several ways on
+/// ground rising a fifth of a metre per metre toward its front, and then
+/// toward its left: through the rigged root's half turn the patch rises
+/// toward the body's `+Z` in the first case and its `+X` in the second -
+/// the engine's forward and left - and is level across the other way. A
+/// half turn dropped from the mapping reads both backwards, which is the
+/// mirrored case this is tested on. And the patch is the terrain itself: at
+/// every corner of the body's reach it is the heightmap under that point,
+/// less the root's height.
+#[test]
+fn a_beast_on_a_slope_is_handed_the_slope_in_its_own_frame() {
+    const GRADE: f32 = 0.2;
+    for (family, under) in [
+        (Family::Dog, Under::Local),
+        (Family::Cat, Under::Peer),
+        (Family::Horse, Under::Local),
+        (Family::Horse, Under::Peer),
+    ] {
+        let record = beast_record(family);
+        let body = default_beast(family);
+        let rig = built(&body, 64).rig;
+        let reach = bevy_symbios_avatar::GroundPatch::reach(&rig).expect("it stands");
+        for yaw in [0.0f32, 1.3, 3.5] {
+            let turn = Quat::from_rotation_y(yaw);
+            // The chassis' own forward is its `-Z` and its left its `-X`.
+            for (rises, toward) in [("front", Vec3::NEG_Z), ("left", Vec3::NEG_X)] {
+                let uphill = turn * toward;
+                let height = |x: f32, z: f32| 4.0 + GRADE * (x * uphill.x + z * uphill.z);
+                let at = Vec2::new(3.0, -2.0);
+                let place = Transform::from_xyz(at.x, height(at.x, at.y) + drop_of(&record), at.y)
+                    .with_rotation(turn);
+                let ground = terrain(height);
+                assert!((ground.world_height_at(at.x, at.y) - height(at.x, at.y)).abs() < 1e-4);
+                let drive = filled_over(ground, None, under, record.clone(), &body, place);
+                let patch = drive.ground.as_ref().unwrap_or_else(|| {
+                    panic!("{family:?} {under:?} at {yaw}: no patch on the terrain")
+                });
+                let (along, across) = (
+                    patch_at(patch, 0.0, 0.5) - patch_at(patch, 0.0, -0.5),
+                    patch_at(patch, 0.5, 0.0) - patch_at(patch, -0.5, 0.0),
+                );
+                let (up, level) = if rises == "front" {
+                    (along, across)
+                } else {
+                    (across, along)
+                };
+                assert!(
+                    (up - GRADE).abs() < 1e-3 && level.abs() < 1e-3,
+                    "{family:?} {under:?} at {yaw}, rising toward its {rises}: a metre of the \
+                     patch rises {along:.4} toward the front and {across:.4} toward the left"
+                );
+                // Every corner of the reach, against the heightmap itself.
+                let root = GlobalTransform::from(place).mul_transform(
+                    crate::player::visuals::rigged_root_transform(drop_of(&record)),
+                );
+                for corner in [reach.min, reach.max, Vec2::new(reach.min.x, reach.max.y)] {
+                    let world = root.transform_point(Vec3::new(corner.x, 0.0, corner.y));
+                    let expected = height(world.x, world.z) - world.y;
+                    let got = patch_at(patch, corner.x, corner.y);
+                    assert!(
+                        (got - expected).abs() < 1e-3,
+                        "{family:?} {under:?} at {yaw}: {got} at {corner} where the terrain is \
+                         {expected}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// **Only a beast standing on the terrain is handed it** (#1833). The same
+/// dog on the same slope: half a metre above it, in the air with nothing
+/// under it, it keeps the level floor; and so it does in water deep enough
+/// to swim, whose stroke has no floor. (Resting on a deck, a road or a floor
+/// the heightmap does not know is the physics' to say, and
+/// `a_beast_resting_on_a_deck_or_a_ribbon_is_handed_no_patch` says it.) A person
+/// standing on that slope keeps it too while
+/// [`super::underfoot::PEOPLE_STAND_ON_TERRAIN`] is off, the owner's default,
+/// and is handed it once it is on.
+#[test]
+fn only_a_beast_on_the_terrain_is_handed_it() {
+    let slope = |_: f32, z: f32| -3.0 - 0.2 * z;
+    let record = beast_record(Family::Dog);
+    let body = default_beast(Family::Dog);
+    let on = |lift: f32| Transform::from_xyz(0.0, slope(0.0, 0.0) + drop_of(&record) + lift, 0.0);
+    for under in [Under::Local, Under::Peer] {
+        let standing = filled_over(terrain(slope), None, under, record.clone(), &body, on(0.0));
+        assert!(
+            standing.ground.is_some(),
+            "{under:?}: on the terrain, and given none"
+        );
+        let above = filled_over(terrain(slope), None, under, record.clone(), &body, on(0.5));
+        assert!(
+            above.ground.is_none(),
+            "{under:?}: half a metre over it, and given it"
+        );
+        // The pond's surface is at 0 and the ground three metres under it.
+        let swimming = filled_over(
+            terrain(slope),
+            Some(pond()),
+            under,
+            record.clone(),
+            &body,
+            on(0.0),
+        );
+        assert!(
+            swimming.swimming,
+            "{under:?}: three metres down, and not swimming"
+        );
+        assert!(
+            swimming.ground.is_none(),
+            "{under:?}: swimming, and given a floor"
+        );
+    }
+    let person = person_record("did:plc:terrain-person");
+    let offset = crate::player::visuals::rigged_root_offset(&person);
+    let drive = filled_over(
+        terrain(slope),
+        None,
+        Under::Local,
+        person,
+        &engine_default_for_did("did:plc:terrain-person"),
+        Transform::from_xyz(0.0, slope(0.0, 0.0) + offset, 0.0),
+    );
+    assert_eq!(
+        drive.ground.is_some(),
+        super::underfoot::PEOPLE_STAND_ON_TERRAIN,
+        "a person's ground is not the one the setting asks for"
+    );
+}
+
+/// A world for the ground under a beast resting in it (#1833), in the game's
+/// order of systems: `ground` laid as the game lays it - its heightfield
+/// collider on a `TerrainMesh` as well as the heightmap - and `solids`, static
+/// boxes standing on it, each its half-extents and its pose, under avian at
+/// the game's fixed step.
+fn grounded(ground: &dyn Fn(f32, f32) -> f32, solids: &[(Vec3, Transform)]) -> App {
+    let ground = terrain(ground);
+    let mut app = app();
+    app.add_plugins(avian3d::prelude::PhysicsPlugins::default());
+    app.world_mut().spawn(terrain_body(&ground));
+    for &(half, at) in solids {
+        app.world_mut().spawn((
+            at,
+            avian3d::prelude::RigidBody::Static,
+            avian3d::prelude::Collider::cuboid(half.x * 2.0, half.y * 2.0, half.z * 2.0),
+        ));
+    }
+    app.insert_resource(ground);
+    app.finish();
+    app.cleanup();
+    app.update();
+    app
+}
+
+/// A static box spanning `min` to `max`, as [`grounded`] takes one.
+fn block(min: Vec3, max: Vec3) -> (Vec3, Transform) {
+    (
+        (max - min) * 0.5,
+        Transform::from_translation((min + max) * 0.5),
+    )
+}
+
+/// A `family` beast's chassis set down at `place` in `app`, a body built
+/// under it, and its root, once both have settled.
+///
+/// On its owner's client the chassis is the game's own - the local player's
+/// root with its record's preset, a dynamic lying capsule held level - left
+/// to come to rest under gravity before the body lands, so what it rests on
+/// is what the physics says it rests on. A peer has no collider and is
+/// played out exactly at `place`, so a peer's `place` is where a local
+/// chassis came to rest ([`rest_place`]).
+fn standing(app: &mut App, under: Under, family: Family, place: Transform) -> (Entity, Entity) {
+    let record = beast_record(family);
+    let offset = crate::player::visuals::rigged_root_offset(&record);
+    let chassis = match under {
+        Under::Local => {
+            app.insert_resource(LiveAvatarRecord(record.clone()));
+            let chassis = app
+                .world_mut()
+                .spawn(crate::player::spawn::chassis_root_bundle(place))
+                .id();
+            let mut commands = app.world_mut().commands();
+            crate::player::preset::build_preset_components(
+                &mut commands,
+                chassis,
+                &record.locomotion,
+            );
+            app.world_mut().flush();
+            chassis
+        }
+        Under::Peer => app.world_mut().spawn((place, peer(record))).id(),
+    };
+    run(app, 0.5);
+    land(app, chassis, &default_beast(family), 64, offset);
+    run(app, 1.0);
+    (chassis, root_of(app, chassis))
+}
+
+/// Where a `family` beast's own chassis, set down at `place` over `ground`
+/// and `solids`, comes to rest: the pose a peer of it is played out at.
+fn rest_place(
+    ground: &dyn Fn(f32, f32) -> f32,
+    solids: &[(Vec3, Transform)],
+    family: Family,
+    place: Transform,
+) -> Transform {
+    let mut app = grounded(ground, solids);
+    let (chassis, _) = standing(&mut app, Under::Local, family, place);
+    *app.world().get::<Transform>(chassis).expect("a chassis")
+}
+
+/// A `family` beast standing at `place`, set down just over where its own
+/// chassis rests there, on either client: the app, the chassis and the root.
+fn beast_resting(
+    ground: &dyn Fn(f32, f32) -> f32,
+    solids: &[(Vec3, Transform)],
+    under: Under,
+    family: Family,
+    place: Transform,
+) -> (App, Entity, Entity) {
+    let place = match under {
+        Under::Local => place,
+        Under::Peer => rest_place(ground, solids, family, place),
+    };
+    let mut app = grounded(ground, solids);
+    let (chassis, root) = standing(&mut app, under, family, place);
+    (app, chassis, root)
+}
+
+/// The lowest point of each foot a body stands on, as it is drawn: for each
+/// limb it stands on ([`Rig::ground_contacts`]), the lowest reach of its
+/// extremity joints - a joint's centre less its radius through its section,
+/// as [`lowest_foot`] reads one at rest.
+fn drawn_soles(app: &App, root: Entity) -> Vec<Vec3> {
+    let rig = rig_of(app, root);
+    let at = drawn(app, root);
+    rig.ground_contacts()
+        .into_iter()
+        .map(|limb| {
+            rig.extremity_joints(limb)
+                .into_iter()
+                .map(|joint| {
+                    at[joint] - Vec3::Y * rig.joints[joint].radius * rig.joints[joint].scale.y
+                })
+                .min_by(|a, b| a.y.total_cmp(&b.y))
+                .expect("a foot has an extremity")
+        })
+        .collect()
+}
+
+/// A beast's lying capsule, read off the body `family` defaults to.
+fn capsule_of(family: Family) -> crate::pds::avatar::locomotion::LyingCapsule {
+    crate::pds::avatar::locomotion::LyingCapsule::of(&built(&default_beast(family), 64).rig)
+        .expect("a beast lies along its trunk")
+}
+
+/// **A beast on a level floor cut into a hillside stands on the floor**
+/// (#1833) - the floor a seeded building's pad is, set at the highest
+/// terrain under it without the heightmap being flattened
+/// (`world_builder::compile::pad`). A horse and a dog rest on such a floor
+/// with their front at its uphill edge, where the hill rises past it, on a
+/// grade of a fifth and on 20 degrees, on either client.
+///
+/// The physics has each resting on the floor, so it keeps the level floor
+/// through its collider, and every foot is on it: within the window a beast
+/// on the level floor stands its feet in at rest (`lowest_foot`, -15 to
+/// +5 mm, the pad joints' own round undersides), widened by the 5 mm the
+/// contact solver lets a resting capsule sink. A band against the heightmap
+/// once handed these the hill under the floor, and their feet went down
+/// through it: the horse's hind soles 0.43 m on a fifth, 0.79 m on 20
+/// degrees.
+#[test]
+fn a_beast_on_a_floor_cut_into_a_hillside_stands_on_the_floor() {
+    for grade in [0.2f32, 20f32.to_radians().tan()] {
+        // The hill rises toward -Z, the way a chassis faces at no yaw.
+        let ground = move |_: f32, z: f32| -grade * z;
+        let top = 4.0 * grade;
+        let floor = block(
+            Vec3::new(-4.0, -4.0 * grade - 1.0, -4.0),
+            Vec3::new(4.0, top, 4.0),
+        );
+        for family in [Family::Horse, Family::Dog] {
+            let capsule = capsule_of(family);
+            let record = beast_record(family);
+            // Its front a hand short of the edge: the rig's +Z is the
+            // chassis' -Z, uphill.
+            let place = Transform::from_xyz(
+                0.0,
+                top + drop_of(&record) + 0.01,
+                -4.0 + capsule.to + capsule.radius + 0.05,
+            );
+            for under in [Under::Local, Under::Peer] {
+                let (app, _, root) = beast_resting(&ground, &[floor], under, family, place);
+                let drive = app.world().get::<Drive>(root).expect("a drive");
+                assert!(
+                    drive.ground.is_none(),
+                    "{family:?} {under:?} on grade {grade}: on the floor, and handed the hill"
+                );
+                for sole in drawn_soles(&app, root) {
+                    let off = sole.y - top;
+                    assert!(
+                        (-0.02..=0.005).contains(&off),
+                        "{family:?} {under:?} on grade {grade}: a foot at {sole} stands \
+                         {:+.1} mm off the floor",
+                        off * 1000.0
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// The ground a patch hands a body at `(x, z)` of its own frame, in the
+/// world: the patch's height there plus the root's own.
+fn patched_world(drive: &Drive, root: &GlobalTransform, x: f32, z: f32) -> f32 {
+    patch_at(drive.ground.as_ref().expect("a patch"), x, z) + root.translation().y
+}
+
+/// **A beast at a pad's uphill edge puts its fore feet on the pad** (#1833).
+/// A pad is set at the highest terrain under it, so at its uphill edge its
+/// top is the terrain's height and downhill it stands over it. A horse and a
+/// dog stand on the terrain just uphill of one on 20 degrees, facing down
+/// the hill with their fore feet 0.4 m over the pad: resting on the terrain
+/// alone, each is handed the terrain - and over the pad, the pad's top, read
+/// by a ray, where the heightmap is 0.15 m under it. Its fore feet stand on
+/// the pad and not in it, on either client.
+#[test]
+fn a_beast_at_a_pads_uphill_edge_puts_its_fore_feet_on_the_pad() {
+    let grade = 20f32.to_radians().tan();
+    let ground = move |_: f32, z: f32| -grade * z;
+    let pad = block(
+        Vec3::new(-3.0, -6.0 * grade - 1.0, 0.0),
+        Vec3::new(3.0, 0.0, 6.0),
+    );
+    for family in [Family::Horse, Family::Dog] {
+        let capsule = capsule_of(family);
+        let record = beast_record(family);
+        let rig = built(&default_beast(family), 64).rig;
+        let stance = bevy_symbios_avatar::GroundPatch::stance(&rig).expect("it stands");
+        // Facing +Z, down the hill: the rig's +Z is the world's.
+        let fore = 0.4;
+        let z = fore - stance.max.y;
+        // Dropped onto the hill from a hand over its rear end, uphill.
+        let rear = -grade * (z + capsule.from - capsule.radius);
+        let place = Transform::from_xyz(0.0, rear + drop_of(&record) + 0.05, z)
+            .with_rotation(Quat::from_rotation_y(std::f32::consts::PI));
+        for under in [Under::Local, Under::Peer] {
+            let (app, _, root) = beast_resting(&ground, &[pad], under, family, place);
+            let posed = *app.world().get::<GlobalTransform>(root).expect("placed");
+            let drive = app.world().get::<Drive>(root).expect("a drive");
+            assert!(
+                drive.ground.is_some(),
+                "{family:?} {under:?}: on the terrain, and handed none"
+            );
+            for x in [stance.min.x, stance.max.x] {
+                let world = posed.transform_point(Vec3::new(x, 0.0, stance.max.y));
+                let got = patched_world(drive, &posed, x, stance.max.y);
+                let terrain_y = -grade * world.z;
+                assert!(
+                    got.abs() < 5e-3 && got - terrain_y > 0.1,
+                    "{family:?} {under:?}: over the pad at {world} the ground is {got:.3}, \
+                     the pad's top 0 and the terrain {terrain_y:.3}"
+                );
+            }
+            let soles = drawn_soles(&app, root);
+            let fore_soles = soles.iter().filter(|sole| sole.z > 0.05);
+            for sole in fore_soles {
+                assert!(
+                    (-0.02..=0.03).contains(&sole.y),
+                    "{family:?} {under:?}: a fore foot over the pad stands at {sole}"
+                );
+            }
+        }
+    }
+}
+
+/// **A tall obstacle beside a beast lifts no foot onto it** (#1833). A wall
+/// two metres high stands a hand to the side of a horse on a slope, inside
+/// its feet's reach: every sample of its patch, over the wall or not, is the
+/// terrain under it. A ray down over the wall starts inside it, and a foot is
+/// never lifted onto a surface higher than a step - read as a hit where it
+/// started, it would have stood that foot on the air 0.45 m up.
+#[test]
+fn a_tall_obstacle_beside_a_beast_lifts_no_foot_onto_it() {
+    let grade = 0.2;
+    let hill = move |_: f32, z: f32| -grade * z;
+    let family = Family::Horse;
+    let capsule = capsule_of(family);
+    let record = beast_record(family);
+    let side = capsule.radius + 0.15;
+    let wall = block(Vec3::new(side, -3.0, -3.0), Vec3::new(side + 1.0, 3.0, 3.0));
+    // Dropped onto the hill from a hand over its front end, uphill.
+    let front = grade * (capsule.to + capsule.radius);
+    let place = Transform::from_xyz(0.0, front + drop_of(&record) + 0.05, 0.0);
+    for under in [Under::Local, Under::Peer] {
+        let (app, _, root) = beast_resting(&hill, &[wall], under, family, place);
+        let posed = *app.world().get::<GlobalTransform>(root).expect("placed");
+        let drive = app.world().get::<Drive>(root).expect("a drive");
+        let patch = drive
+            .ground
+            .as_ref()
+            .unwrap_or_else(|| panic!("{under:?}: on the terrain, and handed none"));
+        let mut over = 0;
+        for row in 0..patch.side() {
+            for column in 0..patch.side() {
+                let at = patch.sample_at(column, row);
+                let world = posed.transform_point(Vec3::new(at.x, 0.0, at.y));
+                over += usize::from((side..side + 1.0).contains(&world.x));
+                let got = patch.heights()[row * patch.side() + column] + world.y;
+                assert!(
+                    (got - hill(world.x, world.z)).abs() < 1e-3,
+                    "{under:?}: at {world} the ground is {got:.3}, the terrain {:.3}",
+                    hill(world.x, world.z)
+                );
+            }
+        }
+        assert!(over > 10, "{under:?}: the wall is not inside the reach");
+    }
+}
+
+/// **A beast resting on a deck is handed no patch** (#1833). A deck laid 8 cm
+/// over a 20-degree hill and parallel to it - a boardwalk, or a ribbon draped
+/// lower than a road's 0.2 m - takes a horse and a dog resting on it, on
+/// either client: what they rest on is not the terrain, so they keep the
+/// level floor their collider stands them on. A band 5 cm either side of the
+/// terrain under the collider passed both - the lying capsule rests on its
+/// uphill end, nearer the terrain there than the deck's own 8 cm - and the
+/// patch stood their feet in the deck, on the terrain under it.
+#[test]
+fn a_beast_resting_on_a_deck_or_a_ribbon_is_handed_no_patch() {
+    let grade = 20f32.to_radians().tan();
+    let ground = move |_: f32, z: f32| -grade * z;
+    let tilt = grade.atan();
+    let half = Vec3::new(2.0, 0.025, 4.0);
+    // Its top the plane 8 cm over the hill, through a centre under it.
+    let centre_y = 0.08 - (tilt.cos() + grade * tilt.sin()) * half.y;
+    let deck = (
+        half,
+        Transform::from_xyz(0.0, centre_y, 0.0).with_rotation(Quat::from_rotation_x(tilt)),
+    );
+    for family in [Family::Horse, Family::Dog] {
+        let record = beast_record(family);
+        // Dropped onto the deck from a hand over it at its front end, uphill.
+        let capsule = capsule_of(family);
+        let front = 0.08 + grade * (capsule.to + capsule.radius);
+        let place = Transform::from_xyz(0.0, front + drop_of(&record) + 0.05, 0.0);
+        for under in [Under::Local, Under::Peer] {
+            let (app, chassis, root) = beast_resting(&ground, &[deck], under, family, place);
+            let at = app
+                .world()
+                .get::<Transform>(chassis)
+                .expect("a chassis")
+                .translation;
+            assert!(
+                at.z.abs() < 0.5,
+                "{family:?} {under:?}: slid off the deck to {at}"
+            );
+            let drive = app.world().get::<Drive>(root).expect("a drive");
+            assert!(
+                drive.ground.is_none(),
+                "{family:?} {under:?}: resting on the deck, and handed the terrain under it"
+            );
+        }
+    }
+}
+
+/// **A chassis is sampled where it is drawn this frame** (#1833). A peer
+/// played out to the brow of a hill - its `Transform` this frame - while its
+/// `GlobalTransform` still says where last frame's propagation left it, a
+/// metre and a half back on the flat, is handed the ground under where it is
+/// drawn: at every corner of its reach the terrain there. Sampled through the
+/// stale pose, as it was, the patch was the flat's for a body drawn going
+/// over the brow, its front feet over the air. On either client, since the
+/// local chassis' `Transform` is the one avian's interpolation has eased
+/// this frame.
+#[test]
+fn a_chassis_is_sampled_where_it_is_drawn_this_frame() {
+    // Flat to the brow at z = 0, then falling away a third of a metre a metre.
+    let hill = |_: f32, z: f32| if z < 0.0 { 2.0 } else { 2.0 - 0.33 * z };
+    let family = Family::Horse;
+    let record = beast_record(family);
+    let body = default_beast(family);
+    let reach = bevy_symbios_avatar::GroundPatch::reach(&built(&body, 64).rig).expect("it stands");
+    // Facing +Z, over the brow.
+    let turn = Quat::from_rotation_y(std::f32::consts::PI);
+    let at = |z: f32| Transform::from_xyz(0.0, 2.0 + drop_of(&record), z).with_rotation(turn);
+    let (drawn, stale) = (at(0.3), at(-1.5));
+    let root_at = |chassis: Transform| {
+        GlobalTransform::from(chassis).mul_transform(crate::player::visuals::rigged_root_transform(
+            drop_of(&record),
+        ))
+    };
+    for under in [Under::Local, Under::Peer] {
+        let drive = filled_drawn(
+            terrain(hill),
+            None,
+            under,
+            record.clone(),
+            &body,
+            stale,
+            drawn,
+        );
+        let mut apart = 0.0f32;
+        for corner in [reach.min, reach.max, Vec2::new(reach.min.x, reach.max.y)] {
+            let expect = |root: GlobalTransform| {
+                let world = root.transform_point(Vec3::new(corner.x, 0.0, corner.y));
+                hill(world.x, world.z) - world.y
+            };
+            let got = patch_at(
+                drive
+                    .ground
+                    .as_ref()
+                    .unwrap_or_else(|| panic!("{under:?}: handed none")),
+                corner.x,
+                corner.y,
+            );
+            assert!(
+                (got - expect(root_at(drawn))).abs() < 1e-3,
+                "{under:?}: {got:.3} at {corner}, where the ground under the drawn body is \
+                 {:.3} and under the stale pose {:.3}",
+                expect(root_at(drawn)),
+                expect(root_at(stale))
+            );
+            apart = apart.max((expect(root_at(drawn)) - expect(root_at(stale))).abs());
+        }
+        assert!(
+            apart > 0.2,
+            "the two poses stand on the same ground: {apart}"
+        );
+    }
+}
+
+/// One pass of a beast walking a line, set down each frame as the render
+/// tool's walker is ([`crate::player::Underfoot::set_down`]), and the worst
+/// one-frame rise or fall of a planted foot: on the frames its patch came or
+/// went, and on every other frame.
+fn walked_pop(
+    ground: &dyn Fn(f32, f32) -> f32,
+    solids: &[(Vec3, Transform)],
+    family: Family,
+    from: f32,
+    to: f32,
+) -> (f32, f32, usize) {
+    const PACE: f32 = 1.2;
+    let record = beast_record(family);
+    let drop = drop_of(&record);
+    let rig = built(&default_beast(family), 64).rig;
+    let turn = if to > from {
+        Quat::from_rotation_y(std::f32::consts::PI)
+    } else {
+        Quat::IDENTITY
+    };
+    let mut app = grounded(ground, solids);
+    // Over the higher of the terrain and where it rested last, as the walker.
+    let mut rested: Option<f32> = None;
+    let mut set_down = |app: &mut App, z: f32| {
+        let over = rested.map_or(ground(0.0, z), |rested| rested.max(ground(0.0, z)));
+        let on = Transform::from_xyz(0.0, over + drop, z).with_rotation(turn);
+        let rig = rig.clone();
+        let fell = app
+            .world_mut()
+            .run_system_once(move |underfoot: crate::player::Underfoot| {
+                let root = GlobalTransform::from(on)
+                    .mul_transform(crate::player::visuals::rigged_root_transform(drop));
+                underfoot.set_down(&rig, &root).map(|(fell, _)| fell)
+            })
+            .expect("the cast runs")
+            .expect("it comes to rest");
+        rested = Some(over - fell);
+        on.with_translation(Vec3::new(0.0, over - fell + drop, z))
+    };
+    let start = set_down(&mut app, from);
+    let (chassis, root) = standing(&mut app, Under::Peer, family, start);
+    let frames = ((to - from).abs() / PACE / FRAME) as usize;
+    let mut was = drawn_soles(&app, root);
+    let mut patched = app
+        .world()
+        .get::<Drive>(root)
+        .expect("a drive")
+        .ground
+        .is_some();
+    let (mut at_toggle, mut elsewhere, mut toggles) = (0.0f32, 0.0f32, 0);
+    for frame in 1..=frames {
+        let z = from + (to - from).signum() * PACE * FRAME * frame as f32;
+        let place = set_down(&mut app, z);
+        *app.world_mut()
+            .get_mut::<Transform>(chassis)
+            .expect("a chassis") = place;
+        app.update();
+        let now = drawn_soles(&app, root);
+        let has = app
+            .world()
+            .get::<Drive>(root)
+            .expect("a drive")
+            .ground
+            .is_some();
+        let toggled = has != patched;
+        toggles += usize::from(toggled);
+        patched = has;
+        for (a, b) in was.iter().zip(&now) {
+            let planted = Vec2::new(a.x - b.x, a.z - b.z).length() < 2e-3;
+            if planted {
+                let jump = (b.y - a.y).abs();
+                if toggled {
+                    at_toggle = at_toggle.max(jump);
+                } else {
+                    elsewhere = elsewhere.max(jump);
+                }
+            }
+        }
+        was = now;
+    }
+    (at_toggle, elsewhere, toggles)
+}
+
+/// **A measurement (#1833): does a planted foot pop as a beast's patch comes
+/// or goes?** A horse and a dog walk from the terrain onto a level pad cut
+/// into a 20-degree hill at its uphill edge, and back off it, set down each
+/// frame as the walker is; the worst one-frame jump of a planted foot is
+/// printed for the frames the patch came or went and for every other frame.
+#[test]
+#[ignore = "a measurement, printed: run by hand"]
+fn probe_a_beast_walking_onto_a_pad() {
+    let grade = 20f32.to_radians().tan();
+    let ground = move |_: f32, z: f32| -grade * z;
+    let pad = block(
+        Vec3::new(-3.0, -6.0 * grade - 1.0, 0.0),
+        Vec3::new(3.0, 0.0, 6.0),
+    );
+    for family in [Family::Horse, Family::Dog] {
+        for (way, from, to) in [("onto", -3.0, 3.0), ("off", 3.0, -3.0)] {
+            let (at_toggle, elsewhere, toggles) = walked_pop(&ground, &[pad], family, from, to);
+            println!(
+                "{family:?} walking {way} the pad: {toggles} toggles, a planted foot jumps up to \
+                 {:.1} mm on them and {:.1} mm on any other frame",
+                at_toggle * 1000.0,
+                elsewhere * 1000.0
+            );
+        }
+    }
+}
+
+/// **A measurement (#1833): what the ground under a beast costs a frame.** A
+/// horse standing on a hill at a pad's uphill edge, its fore feet over the
+/// pad, is filled a few thousand times: in open terrain, where nothing is
+/// gathered and no ray is cast, and beside a building - the pad and forty
+/// posts on it, each a collider of its own - where every sample over one of
+/// them is read by a ray. And on flat ground, in the open and between the
+/// streets of a street grid that is one trimesh of 28,672 triangles, its
+/// bounds the whole terrain (review finding 2). Printed per fill, with the
+/// structures gathered.
+///
+/// Then a peer's own cost (finding 3), in open terrain on the hill: the
+/// capsule's cast alone, and a whole fill a frame for a peer standing still,
+/// which reads its last cast back, and for one walking, which casts every
+/// frame.
+#[test]
+#[ignore = "a measurement, printed: run by hand"]
+fn probe_the_cost_of_the_ground_beside_a_building() {
+    const FILLS: u32 = 4000;
+    let grade = 20f32.to_radians().tan();
+    let hill = move |_: f32, z: f32| -grade * z;
+    let flat = |_: f32, _: f32| 0.0;
+    let mut building = vec![block(
+        Vec3::new(-3.0, -6.0 * grade - 1.0, 0.0),
+        Vec3::new(3.0, 0.0, 6.0),
+    )];
+    for i in 0..40 {
+        let (x, z) = (-2.8 + 0.7 * (i % 8) as f32, 1.0 + 1.1 * (i / 8) as f32);
+        building.push(block(
+            Vec3::new(x, 0.0, z),
+            Vec3::new(x + 0.15, 2.5, z + 0.15),
+        ));
+    }
+    let family = Family::Horse;
+    let capsule = capsule_of(family);
+    let record = beast_record(family);
+    let rig = built(&default_beast(family), 64).rig;
+    let stance = bevy_symbios_avatar::GroundPatch::stance(&rig).expect("it stands");
+    let z = 0.4 - stance.max.y;
+    let rear = -grade * (z + capsule.from - capsule.radius);
+    let on_hill = Transform::from_xyz(0.0, rear + drop_of(&record) + 0.05, z)
+        .with_rotation(Quat::from_rotation_y(std::f32::consts::PI));
+    // Between the streets at x and z of 0 and 10, which run 1.5 m either side.
+    let between = Transform::from_xyz(5.0, drop_of(&record) + 0.01, 5.0)
+        .with_rotation(Quat::from_rotation_y(0.4));
+    let grid = || vec![street_grid(10.0, 3.0, 0.0625, 0.2)];
+    // A scene: its name, its ground, its boxes, its trimeshes, and the pose.
+    type Scene = (
+        &'static str,
+        Box<dyn Fn(f32, f32) -> f32>,
+        Vec<(Vec3, Transform)>,
+        Vec<avian3d::prelude::Collider>,
+        Transform,
+    );
+    let scenes: [Scene; 4] = [
+        (
+            "open terrain",
+            Box::new(hill),
+            Vec::new(),
+            Vec::new(),
+            on_hill,
+        ),
+        (
+            "beside a building",
+            Box::new(hill),
+            building,
+            Vec::new(),
+            on_hill,
+        ),
+        ("open flat", Box::new(flat), Vec::new(), Vec::new(), between),
+        (
+            "between streets",
+            Box::new(flat),
+            Vec::new(),
+            grid(),
+            between,
+        ),
+    ];
+    for (label, ground, solids, trimeshes, place) in scenes {
+        let mut app = grounded_with(&*ground, &solids, trimeshes);
+        let (chassis, root) = standing(&mut app, Under::Local, family, place);
+        let rig = rig_of(&app, root);
+        let posed = *app.world().get::<GlobalTransform>(root).expect("placed");
+        let (per_fill, patched, gathered) = app
+            .world_mut()
+            .run_system_once(
+                move |underfoot: crate::player::Underfoot,
+                      heightmap: Res<crate::terrain::FinishedHeightMap>| {
+                    let mut drive = Drive::default();
+                    let reach = bevy_symbios_avatar::GroundPatch::reach(&rig).expect("it stands");
+                    let structures = underfoot.structures_over(&posed, reach, &heightmap);
+                    let gathered = structures.len();
+                    // The samples a ray is cast for: those over a structure.
+                    let side = (reach.size().max_element() / 0.25).ceil() as usize + 1;
+                    let origin = reach.center() - Vec2::splat((side - 1) as f32 * 0.125);
+                    let rays = (0..side * side)
+                        .filter(|i| {
+                            let at =
+                                origin + Vec2::new((i % side) as f32, (i / side) as f32) * 0.25;
+                            let world = posed.transform_point(Vec3::new(at.x, 0.0, at.y));
+                            structures.iter().any(|s| {
+                                (s.aabb.min.x..=s.aabb.max.x).contains(&world.x)
+                                    && (s.aabb.min.z..=s.aabb.max.z).contains(&world.z)
+                            })
+                        })
+                        .count();
+                    let mut memory = super::underfoot::RestCast::default();
+                    let start = std::time::Instant::now();
+                    for _ in 0..FILLS {
+                        underfoot.fill(
+                            &mut drive,
+                            &rig,
+                            chassis,
+                            &posed,
+                            Some(&heightmap),
+                            &mut memory,
+                        );
+                    }
+                    (
+                        start.elapsed() / FILLS,
+                        drive.ground.is_some(),
+                        (gathered, rays, side * side),
+                    )
+                },
+            )
+            .expect("the fill runs");
+        let (gathered, rays, samples) = gathered;
+        println!(
+            "{label}: {per_fill:?} a fill, {gathered} structures gathered, {rays} of {samples} \
+             samples read by a ray, patched: {patched}"
+        );
+    }
+    // A peer, played out where its owner's chassis came to rest.
+    let place = rest_place(&hill, &[], family, on_hill);
+    let mut app = grounded(&hill, &[]);
+    let (chassis, root) = standing(&mut app, Under::Peer, family, place);
+    let rig = rig_of(&app, root);
+    let posed = *app.world().get::<GlobalTransform>(root).expect("placed");
+    let (cast, still, walking, patched) = app
+        .world_mut()
+        .run_system_once(
+            move |underfoot: crate::player::Underfoot,
+                  heightmap: Res<crate::terrain::FinishedHeightMap>| {
+                let shape = crate::pds::avatar::locomotion::LyingCapsule::of(&rig)
+                    .expect("a trunk")
+                    .collider();
+                let start = std::time::Instant::now();
+                for _ in 0..FILLS {
+                    std::hint::black_box(underfoot.resting_cast(&shape, &posed));
+                }
+                let cast = start.elapsed() / FILLS;
+                let mut drive = Drive::default();
+                let mut timed = |step: Vec3| {
+                    let mut memory = super::underfoot::RestCast::default();
+                    let start = std::time::Instant::now();
+                    for i in 0..FILLS {
+                        let at =
+                            posed.mul_transform(Transform::from_translation(step * (i % 2) as f32));
+                        underfoot.fill(
+                            &mut drive,
+                            &rig,
+                            chassis,
+                            &at,
+                            Some(&heightmap),
+                            &mut memory,
+                        );
+                    }
+                    start.elapsed() / FILLS
+                };
+                let still = timed(Vec3::ZERO);
+                // Two centimetres a frame back and forth: a cast every frame.
+                let walking = timed(Vec3::Z * 0.02);
+                (cast, still, walking, drive.ground.is_some())
+            },
+        )
+        .expect("the fill runs");
+    println!(
+        "a peer in open terrain: the cast alone {cast:?}; a fill a frame standing still \
+         {still:?}, walking {walking:?}; patched: {patched}"
+    );
+}
+
+/// Every sample of `drive`'s patch, posed at `root`, in the world: where it
+/// is and the ground the patch hands a foot there.
+fn patch_samples(drive: &Drive, root: &GlobalTransform) -> Vec<(Vec3, f32)> {
+    let patch = drive.ground.as_ref().expect("a patch");
+    let mut samples = Vec::new();
+    for row in 0..patch.side() {
+        for column in 0..patch.side() {
+            let at = patch.sample_at(column, row);
+            let world = root.transform_point(Vec3::new(at.x, 0.0, at.y));
+            samples.push((
+                world,
+                patch.heights()[row * patch.side() + column] + world.y,
+            ));
+        }
+    }
+    samples
+}
+
+/// **A beast under a low slab stands on the terrain, not on it** (#1833
+/// review, finding 1). A cat on flat ground under a static slab spanning
+/// 0.32 to 0.35 m - its back at 0.29 - and a dog under one from 0.39 to
+/// 0.44 m, a bench or a low table: a ray down from a step over the body met
+/// the slab's top, and the patch stood the cat's soles on it at +0.346. Met
+/// again from the terrain, the slab's underside stands clear of the ground,
+/// so every sample is the terrain and every drawn foot stands on it, on
+/// either client. And a boardwalk ahead of the cat, its underside 3 cm off
+/// the ground - too little room for a paw - is stood on.
+#[test]
+fn a_beast_under_a_low_slab_stands_on_the_terrain() {
+    let flat = |_: f32, _: f32| 0.0;
+    for (family, low, high) in [(Family::Cat, 0.32, 0.35), (Family::Dog, 0.39, 0.44)] {
+        let capsule = capsule_of(family);
+        assert!(
+            capsule.radius * 2.0 < low - 0.01,
+            "{family:?}: its back at {:.3} meets the slab",
+            capsule.radius * 2.0
+        );
+        let slab = block(Vec3::new(-3.0, low, -3.0), Vec3::new(3.0, high, 3.0));
+        let place = Transform::from_xyz(0.0, drop_of(&beast_record(family)) + 0.01, 0.0);
+        for under in [Under::Local, Under::Peer] {
+            let (app, _, root) = beast_resting(&flat, &[slab], under, family, place);
+            let posed = *app.world().get::<GlobalTransform>(root).expect("placed");
+            let drive = app.world().get::<Drive>(root).expect("a drive");
+            assert!(
+                drive.ground.is_some(),
+                "{family:?} {under:?}: on the terrain under the slab, and handed none"
+            );
+            for (world, got) in patch_samples(drive, &posed) {
+                assert!(
+                    got.abs() < 1e-3,
+                    "{family:?} {under:?}: under the slab at {world} the ground is {got:.3}"
+                );
+            }
+            for sole in drawn_soles(&app, root) {
+                assert!(
+                    (-0.02..=0.03).contains(&sole.y),
+                    "{family:?} {under:?}: a foot under the slab stands at {sole}"
+                );
+            }
+        }
+    }
+    // The cat faces -Z: its front is the rig's +Z.
+    let family = Family::Cat;
+    let capsule = capsule_of(family);
+    let front = capsule.to + capsule.radius;
+    let boardwalk = block(
+        Vec3::new(-3.0, 0.03, -front - 3.0),
+        Vec3::new(3.0, 0.08, -front - 0.03),
+    );
+    let place = Transform::from_xyz(0.0, drop_of(&beast_record(family)) + 0.01, 0.0);
+    for under in [Under::Local, Under::Peer] {
+        let (app, _, root) = beast_resting(&flat, &[boardwalk], under, family, place);
+        let posed = *app.world().get::<GlobalTransform>(root).expect("placed");
+        let drive = app.world().get::<Drive>(root).expect("a drive");
+        assert!(
+            drive.ground.is_some(),
+            "{under:?}: on the terrain beside the boardwalk, and handed none"
+        );
+        let mut over = 0;
+        for (world, got) in patch_samples(drive, &posed) {
+            if world.z < -front - 0.04 && world.x.abs() < 2.9 {
+                over += 1;
+                assert!(
+                    (got - 0.08).abs() < 1e-3,
+                    "{under:?}: over the boardwalk at {world} the ground is {got:.3}, its top 0.08"
+                );
+            }
+        }
+        assert!(over > 0, "{under:?}: the boardwalk is not inside the reach");
+    }
+}
+
+/// A street grid as one trimesh, as `terrain::roads` builds a network's deck
+/// (#1833): strips `width` wide every `spacing` metres along both axes of the
+/// 64 m terrain, a sheet `height` over it, cut into `segment`-metre lengths
+/// two triangles across.
+fn street_grid(spacing: f32, width: f32, segment: f32, height: f32) -> avian3d::prelude::Collider {
+    let (mut vertices, mut indices) = (Vec::new(), Vec::new());
+    let segments = (64.0 / segment).round() as usize;
+    let lines = (31.0 / spacing).floor() as i32;
+    for line in -lines..=lines {
+        let middle = line as f32 * spacing;
+        for along_x in [true, false] {
+            for i in 0..segments {
+                let (a, b) = (-32.0 + i as f32 * segment, -32.0 + (i + 1) as f32 * segment);
+                let (l, r) = (middle - width * 0.5, middle + width * 0.5);
+                let corners = [(a, l), (b, l), (b, r), (a, r)].map(|(u, v)| {
+                    if along_x {
+                        Vec3::new(u, height, v)
+                    } else {
+                        Vec3::new(v, height, u)
+                    }
+                });
+                let first = vertices.len() as u32;
+                vertices.extend(corners);
+                indices.push([first, first + 2, first + 1]);
+                indices.push([first, first + 3, first + 2]);
+            }
+        }
+    }
+    avian3d::prelude::Collider::trimesh(vertices, indices)
+}
+
+/// `grounded`, with `trimeshes` laid as static bodies too, and stepped until
+/// avian's collider trees hold them.
+fn grounded_with(
+    ground: &dyn Fn(f32, f32) -> f32,
+    solids: &[(Vec3, Transform)],
+    trimeshes: Vec<avian3d::prelude::Collider>,
+) -> App {
+    let mut app = grounded(ground, solids);
+    for trimesh in trimeshes {
+        app.world_mut().spawn((
+            Transform::IDENTITY,
+            avian3d::prelude::RigidBody::Static,
+            trimesh,
+        ));
+    }
+    app.update();
+    app
+}
+
+/// **A road network is gathered only where its triangles are** (#1833
+/// review, finding 2). A street grid is one trimesh whose bounds span the
+/// whole terrain, so gathered by bounds a horse anywhere in it had all 256
+/// samples rayed against it. Gathered by its shape meeting the box a foot
+/// stands in, nothing is gathered for a horse between the streets, at any
+/// heading; and a horse whose reach takes in a street gathers it - but not
+/// a canopy three metres over it - and is handed the street's sheet where
+/// it reaches over it.
+#[test]
+fn a_road_network_is_gathered_only_where_its_triangles_are() {
+    const STREET: f32 = 0.2;
+    let flat = |_: f32, _: f32| 0.0;
+    let canopy = block(Vec3::new(-30.0, 3.0, -30.0), Vec3::new(30.0, 3.1, 30.0));
+    let mut app = grounded_with(&flat, &[canopy], vec![street_grid(10.0, 3.0, 1.0, STREET)]);
+    let rig = built(&default_beast(Family::Horse), 64).rig;
+    let reach = bevy_symbios_avatar::GroundPatch::reach(&rig).expect("it stands");
+    let gathered = |app: &mut App, root: GlobalTransform| {
+        app.world_mut()
+            .run_system_once(
+                move |underfoot: crate::player::Underfoot,
+                      heightmap: Res<crate::terrain::FinishedHeightMap>| {
+                    underfoot.structures_over(&root, reach, &heightmap).len()
+                },
+            )
+            .expect("the gathering runs")
+    };
+    // Between the streets at x and z of 0 and 10, which run 1.5 m either side.
+    for yaw in [0.0f32, 0.8, 2.0] {
+        let root = GlobalTransform::from(
+            Transform::from_xyz(5.0, 0.0, 5.0).with_rotation(Quat::from_rotation_y(yaw)),
+        );
+        assert_eq!(
+            gathered(&mut app, root),
+            0,
+            "at {yaw}: between the streets, and something gathered"
+        );
+    }
+    // The street along x at z = 0 inside the rear half of the reach.
+    let z = 1.5 - reach.min.y * 0.5;
+    let root = GlobalTransform::from(Transform::from_xyz(5.0, 0.0, z));
+    assert_eq!(gathered(&mut app, root), 1, "beside a street, not it alone");
+    let mut drive = Drive::default();
+    let drive = app
+        .world_mut()
+        .run_system_once(
+            move |underfoot: crate::player::Underfoot,
+                  heightmap: Res<crate::terrain::FinishedHeightMap>| {
+                underfoot.fill_resting(
+                    &mut drive,
+                    &rig,
+                    &root,
+                    Some(&heightmap),
+                    crate::player::RestsOn::Terrain,
+                );
+                drive.clone()
+            },
+        )
+        .expect("the fill runs");
+    let over = patched_world(&drive, &root, 0.0, reach.min.y * 0.75);
+    assert!(
+        (over - STREET).abs() < 1e-3,
+        "over the street the ground is {over:.3}, its sheet {STREET}"
+    );
+}
+
+/// **A peer's cast is kept while it stands still, and not past its moving**
+/// (#1833 review, finding 3). A dog peer standing on the terrain is cast
+/// once and read back on the frames after - never more than
+/// [`super::underfoot::RECAST_EVERY`] running - and cast again on the frame
+/// it moves 2 cm. Walking at 1.2 m/s onto a floor laid 3 cm over the
+/// terrain ahead of it, its patch goes on the very frame a fresh cast says
+/// it rests on the floor; creeping onto it 3 mm a frame, within the frames a
+/// centimetre takes.
+#[test]
+fn a_peers_cast_is_kept_while_it_stands_still() {
+    let flat = |_: f32, _: f32| 0.0;
+    let family = Family::Dog;
+    let capsule = capsule_of(family);
+    let drop = drop_of(&beast_record(family));
+    // The floor ahead, its edge a hand in front of the dog's front end.
+    let edge = -(capsule.to + capsule.radius) - 0.1;
+    let floor = block(Vec3::new(-3.0, -0.5, -6.0), Vec3::new(3.0, 0.03, edge));
+    let shape = capsule.collider();
+    for (pace, lag) in [(1.2 * FRAME, 0usize), (0.003, 3)] {
+        let mut app = grounded(&flat, &[floor]);
+        let place = Transform::from_xyz(0.0, drop, 0.0);
+        let (chassis, root) = standing(&mut app, Under::Peer, family, place);
+        let reused = |app: &App| {
+            app.world()
+                .get::<RiggedTrail>(root)
+                .expect("a trail")
+                .rest
+                .reused()
+        };
+        let patched = |app: &App| {
+            app.world()
+                .get::<Drive>(root)
+                .expect("a drive")
+                .ground
+                .is_some()
+        };
+        assert!(patched(&app), "on the terrain, and handed none");
+        let mut seen = Vec::new();
+        for _ in 0..3 * super::underfoot::RECAST_EVERY {
+            app.update();
+            seen.push(reused(&app).expect("a cast kept"));
+        }
+        assert!(
+            seen.iter().any(|&n| n > 0) && seen.iter().all(|&n| n < super::underfoot::RECAST_EVERY),
+            "standing still, the cast was reused {seen:?} frames running"
+        );
+        let mut at = place;
+        at.translation.z -= 0.02;
+        *app.world_mut()
+            .get_mut::<Transform>(chassis)
+            .expect("a chassis") = at;
+        app.update();
+        assert_eq!(reused(&app), Some(0), "moved 2 cm, and not cast again");
+        // On toward the floor until a fresh cast has it on the floor.
+        let (mut flipped, mut dropped) = (None, None);
+        for frame in 0..400usize {
+            at.translation.z -= pace;
+            *app.world_mut()
+                .get_mut::<Transform>(chassis)
+                .expect("a chassis") = at;
+            app.update();
+            let posed = *app.world().get::<GlobalTransform>(root).expect("placed");
+            let shape = shape.clone();
+            let fresh = app
+                .world_mut()
+                .run_system_once(move |underfoot: crate::player::Underfoot| {
+                    underfoot.resting_cast(&shape, &posed)
+                })
+                .expect("the cast runs");
+            if fresh == crate::player::RestsOn::Elsewhere && flipped.is_none() {
+                flipped = Some(frame);
+            }
+            if !patched(&app) && dropped.is_none() {
+                dropped = Some(frame);
+            }
+            if flipped.is_some() && dropped.is_some() {
+                break;
+            }
+        }
+        let (flipped, dropped) = (
+            flipped.expect("never reached the floor"),
+            dropped.expect("never stopped being handed the terrain"),
+        );
+        println!(
+            "at {:.1} mm a frame: on the floor at frame {flipped}, the patch gone at {dropped}",
+            pace * 1000.0
+        );
+        assert!(
+            dropped >= flipped && dropped - flipped <= lag,
+            "at {pace} m a frame: on the floor at frame {flipped}, and handed the terrain until \
+             {dropped}"
+        );
+    }
+}

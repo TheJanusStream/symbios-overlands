@@ -123,6 +123,8 @@ pub(crate) use rigged::RiggedRoot;
 pub(crate) use rigged::StandIn;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use rigged::heading_of;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use rigged::{RestsOn, Underfoot};
 // On every target: the seeder turns a world's signature hour to its
 // landing's facing (#1769), and seeds derive in the browser too.
 pub(crate) use spawn::spawn_facing;
@@ -268,10 +270,28 @@ pub(crate) fn ground_under(
     body: Entity,
     min_normal_y: f32,
 ) -> Option<Vec3> {
+    resting_under(contacts, sensors, body, min_normal_y)
+        .next()
+        .map(|(_, normal)| normal)
+}
+
+/// Everything the physics has `body` resting on, as [`ground_under`] reads
+/// one thing: each solid it touches under it, with that contact's normal
+/// turned to point out of it, in the contact graph's order.
+///
+/// A beast is handed the terrain's own ground only while the terrain is all
+/// it rests on (#1833), which is a question about every thing under it
+/// rather than the first.
+pub(crate) fn resting_under<'a>(
+    contacts: &'a ContactGraph,
+    sensors: &'a Query<Entity, With<Sensor>>,
+    body: Entity,
+    min_normal_y: f32,
+) -> impl Iterator<Item = (Entity, Vec3)> + 'a {
     contacts
         .contact_pairs_with(body)
         .filter(|pair| pair.is_touching())
-        .find_map(|pair| {
+        .filter_map(move |pair| {
             let (other, out_of_other) = if pair.collider1 == body {
                 (pair.collider2, -1.0)
             } else {
@@ -290,7 +310,7 @@ pub(crate) fn ground_under(
                         .points
                         .iter()
                         .any(|point| point.penetration > -cfg::BODY_TOUCH_M))
-                .then_some(normal)
+                .then_some((other, normal))
             })
         })
 }

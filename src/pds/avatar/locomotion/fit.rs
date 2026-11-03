@@ -155,6 +155,43 @@ impl Trunk {
     }
 }
 
+/// A beast's lying capsule in its rig's frame (#1833): the collider
+/// [`fit_on_foot`] cuts from this same rig, its axis level along the body's
+/// `z` from girdle to girdle at its own radius over the rig's floor, so its
+/// underside is the floor at `y = 0`.
+///
+/// What a body with no collider of its own is asked about as though it had
+/// one - a peer, whose chassis is played out rather than simulated, and the
+/// render tool's walker: what that capsule would rest on, and where.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct LyingCapsule {
+    /// The capsule's radius, and its axis' height over the floor.
+    pub(crate) radius: f32,
+    /// Where its axis starts and ends along the rig's `z`: the girdles.
+    pub(crate) from: f32,
+    pub(crate) to: f32,
+}
+
+impl LyingCapsule {
+    /// `rig`'s, or `None` for a rig with no trunk to lie along.
+    pub(crate) fn of(rig: &Rig) -> Option<Self> {
+        let trunk = Trunk::of(rig)?;
+        let half = trunk.span * 0.5;
+        Some(Self {
+            radius: trunk.radius,
+            from: trunk.middle - half,
+            to: trunk.middle + half,
+        })
+    }
+
+    /// The capsule as a collider in the rig's frame, its underside on the
+    /// floor.
+    pub(crate) fn collider(&self) -> avian3d::prelude::Collider {
+        let axis = |z: f32| bevy::math::Vec3::new(0.0, self.radius, z);
+        avian3d::prelude::Collider::capsule_endpoints(self.radius, axis(self.from), axis(self.to))
+    }
+}
+
 /// A capsule's volume (m³): its cylinder and the sphere its two ends make.
 fn capsule_volume(radius: f32, length: f32) -> f32 {
     std::f32::consts::PI * radius * radius * (length + radius * 4.0 / 3.0)
