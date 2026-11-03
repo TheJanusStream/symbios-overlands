@@ -54,7 +54,7 @@ const HEADING_MIN_SPEED: f32 = 0.1;
 ///
 /// Nor, for a peer, as a speed (#1759): its speed is differenced from its
 /// positions, and ten metres in a frame is six hundred metres a second.
-const PLACED_PAST: f32 = 2.0;
+pub(super) const PLACED_PAST: f32 = 2.0;
 
 /// How near the yaw a [`crate::player::FacingSet`] set the local body counts
 /// as there, radians (#1752): far under a frame of any turn, far over the
@@ -465,6 +465,7 @@ pub(in crate::player) fn fill_rigged_drive(
                 &drawn_pose(&chassis, drawn, parent).mul_transform(*root),
                 heightmap.as_deref(),
                 &mut trail.rest,
+                delta,
             ),
             None => drive.ground = None,
         }

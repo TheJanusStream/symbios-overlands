@@ -2680,7 +2680,7 @@ fn probe_the_cost_of_the_ground_beside_a_building() {
                             })
                         })
                         .count();
-                    let mut memory = super::underfoot::RestCast::default();
+                    let mut memory = super::underfoot::Resting::default();
                     let start = std::time::Instant::now();
                     for _ in 0..FILLS {
                         underfoot.fill(
@@ -2690,6 +2690,7 @@ fn probe_the_cost_of_the_ground_beside_a_building() {
                             &posed,
                             Some(&heightmap),
                             &mut memory,
+                            FRAME,
                         );
                     }
                     (
@@ -2727,7 +2728,7 @@ fn probe_the_cost_of_the_ground_beside_a_building() {
                 let cast = start.elapsed() / FILLS;
                 let mut drive = Drive::default();
                 let mut timed = |step: Vec3| {
-                    let mut memory = super::underfoot::RestCast::default();
+                    let mut memory = super::underfoot::Resting::default();
                     let start = std::time::Instant::now();
                     for i in 0..FILLS {
                         let at =
@@ -2739,6 +2740,7 @@ fn probe_the_cost_of_the_ground_beside_a_building() {
                             &at,
                             Some(&heightmap),
                             &mut memory,
+                            FRAME,
                         );
                     }
                     start.elapsed() / FILLS
@@ -2968,9 +2970,11 @@ fn a_road_network_is_gathered_only_where_its_triangles_are() {
 /// once and read back on the frames after - never more than
 /// [`super::underfoot::RECAST_EVERY`] running - and cast again on the frame
 /// it moves 2 cm. Walking at 1.2 m/s onto a floor laid 3 cm over the
-/// terrain ahead of it, its patch goes on the very frame a fresh cast says
-/// it rests on the floor; creeping onto it 3 mm a frame, within the frames a
-/// centimetre takes.
+/// terrain ahead of it, its answer changes on the very frame a fresh cast
+/// says it rests on the floor; creeping onto it 3 mm a frame, within the
+/// frames a centimetre takes. Its patch is gone a hold and an ease after
+/// that (#1835: [`super::underfoot::HOLD_SECS`] and
+/// [`super::underfoot::BLEND_SECS`]), not on that frame.
 #[test]
 fn a_peers_cast_is_kept_while_it_stands_still() {
     let flat = |_: f32, _: f32| 0.0;
@@ -3050,10 +3054,16 @@ fn a_peers_cast_is_kept_while_it_stands_still() {
             "at {:.1} mm a frame: on the floor at frame {flipped}, the patch gone at {dropped}",
             pace * 1000.0
         );
+        // The patch then holds and eases out (#1835): it is gone once the
+        // answer has held a hold's time and the ease has run its course.
+        let eased =
+            ((super::underfoot::HOLD_SECS + super::underfoot::BLEND_SECS) / FRAME).ceil() as usize;
         assert!(
-            dropped >= flipped && dropped - flipped <= lag,
+            dropped + 1 >= flipped + eased && dropped - flipped <= lag + eased + 1,
             "at {pace} m a frame: on the floor at frame {flipped}, and handed the terrain until \
              {dropped}"
         );
     }
 }
+
+mod standing_still;

@@ -52,6 +52,28 @@
 //! terrain onto anything moves more than that a frame and is read again on
 //! the frame it does.
 //!
+//! **Leaving the terrain is held, and the ground eased** (#1835). The
+//! physics' answer is a step's, and a step can lose the body: the owner's
+//! capsule turning on the spot on a hill or walking over a fold of it now and
+//! then touches nothing for one fixed step, and its contacts say it rests on
+//! nothing. Standing still it never did, measured headless. Read raw, that
+//! step handed the body the level floor, and the engine rides a beast's trunk
+//! over whatever ground it is handed at once, so on a slope the trunk snapped
+//! level and back - 9 to 16 degrees for a frame at 60 Hz and for two at 144.
+//! So a body on the terrain stands by it until the physics has said otherwise
+//! for [`HOLD_SECS`], while the terrain is still under it, and then its patch
+//! is eased out to the level floor over [`BLEND_SECS`] ([`RestHold`]):
+//! stepping onto a pad on a hill turns the trunk level over a fifth of a
+//! second rather than in a frame. Coming back onto the terrain from a pad or a
+//! step down eases the patch in over the same time. A body the terrain has
+//! fallen away from - in the air, or on a deck over it - is handed the level
+//! floor at once, and one landing on the terrain from the air is handed the
+//! terrain at once: a held patch planted a falling body's feet on the ground
+//! under it, and a held level floor stood a landing body's on the air over a
+//! hill (review, findings 1 and 2). A peer's cast keeps it on the terrain a
+//! little further over it than it takes to put it there ([`RESTING_BAND`]),
+//! so a pose played out near the line does not flip it.
+//!
 //! **Sampled through this frame's pose.** In `Update` a chassis' own
 //! `GlobalTransform` is last frame's propagation - avian writes back only the
 //! `Transform`, and its interpolation eases that before `Update` - while the
@@ -66,7 +88,7 @@ use avian3d::prelude::*;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_symbios_avatar::{Drive, GroundPatch};
-use symbios_avatar::{FootingConfig, Rig};
+use symbios_avatar::{DriverConfig, FootingConfig, Rig};
 
 use super::stands_on_four;
 use crate::pds::avatar::locomotion::LyingCapsule;
@@ -146,6 +168,48 @@ pub(super) const RECAST_EVERY: u32 = 8;
 /// played out a little over a slope between two of its samples. Further, it
 /// is in the air.
 const RESTING_WITHIN: f32 = 0.05;
+
+/// How much further than [`RESTING_WITHIN`] a collider-less body that stands
+/// on the terrain may fall before its cast says it is in the air, metres
+/// (#1835): two centimetres, so a pose played out near the line, a few
+/// millimetres either side of it from one recast to the next, is not put on
+/// the terrain and taken off it.
+const RESTING_BAND: f32 = 0.02;
+
+/// How long the physics must say a body on the terrain rests elsewhere, the
+/// terrain still under it, before its patch eases out, seconds (#1835): about
+/// ten of the game's fixed steps. The gaps it bridges are one step long - the
+/// owner's capsule not touching the terrain for a step as it turns on a slope
+/// or crosses a fold - and a step onto a pad keeps the patch, which reads the
+/// pad by its rays, this long before it eases out.
+pub(super) const HOLD_SECS: f32 = 0.15;
+
+/// How long the patch takes to ease out to the level floor once a body that
+/// stood on the terrain stands elsewhere, and in again once it is back on the
+/// terrain without having been in the air, seconds (#1835). A beast's trunk
+/// on a 20-degree hill is 19 degrees from where the level floor holds it, so
+/// eased at both ends this turns it at most 2.4 degrees a frame at 60 Hz and
+/// one at 144, against the 19 in a frame of a change read raw.
+pub(super) const BLEND_SECS: f32 = 0.2;
+
+/// How far over the terrain a body the physics has resting on it may be read
+/// straight down its centre line and still be on it, metres (#1835 end
+/// review): a horse's capsule across 35 degrees is 9.8 cm over it there, and
+/// one over a crest's kink between two samples 12 cm on 35; a body set down a
+/// metre up is not.
+const STALE_WITHIN: f32 = 0.25;
+
+/// How far apart along a body the terrain is read to say whether it is under
+/// the body, metres (#1835 end review, finding 1): a crest's kink between two
+/// samples is then at most 5 cm from one, a few millimetres of clearance on a
+/// steep one.
+const UNDER_STEP: f32 = 0.1;
+
+/// The longest frame a hold or an ease is moved on by, seconds (#1835 review,
+/// finding 4): two of the game's fixed steps, about. A browser tab brought
+/// back after a pause hands over its whole absence as one frame, which would
+/// have run a hold out and most of an ease over a step the physics lost.
+const LONGEST_FRAME: f32 = 1.0 / 30.0;
 
 /// How near the first thing under a cast capsule something else must be to
 /// be under it too, metres (#1833): the contact graph's own reach
@@ -283,12 +347,18 @@ fn over_open_space(structure: &Structure<'_>, from: Vec3, terrain: f32, top: f32
 /// ground (#1833), with `structures` read in over it, and every other body
 /// the level floor.
 ///
-/// A beast that `rests` on the terrain is handed it as a [`GroundPatch`],
+/// A beast that rests on the terrain is handed it as a [`GroundPatch`],
 /// sampled over everywhere its feet can reach ([`GroundPatch::reach`]). One
 /// that rests anywhere else stands on something the heightmap does not know,
 /// and keeps the level floor through its collider, as it always has. So does
 /// one in deep water, whose stroke has no floor, and a person, unless
 /// [`PEOPLE_STAND_ON_TERRAIN`].
+///
+/// `share` is how much of the terrain the patch carries (#1835, [`RestHold`]):
+/// none is the level floor and no patch at all, the whole of it the terrain
+/// itself, to the bit, and between them each sample's height over the level
+/// floor that share of the terrain's - a body easing onto the terrain or off
+/// it.
 ///
 /// **Each sample is the terrain under it, unless a structure is**: a sample
 /// inside one of `structures`' bounds is read by a ray straight down from a
@@ -319,7 +389,7 @@ pub(crate) fn fill_terrain_ground(
     rig: &Rig,
     root: &GlobalTransform,
     heightmap: Option<&FinishedHeightMap>,
-    rests: RestsOn,
+    share: f32,
     structures: &[Structure<'_>],
 ) {
     let (Some(heightmap), Some(reach)) = (wanted(drive, rig, heightmap), GroundPatch::reach(rig))
@@ -327,7 +397,7 @@ pub(crate) fn fill_terrain_ground(
         drive.ground = None;
         return;
     };
-    if rests != RestsOn::Terrain {
+    if share <= 0.0 {
         drive.ground = None;
         return;
     }
@@ -350,7 +420,7 @@ pub(crate) fn fill_terrain_ground(
                 Below::Nothing | Below::Inside => terrain,
             }
         };
-        surface - world.y
+        (surface - world.y) * share
     };
     // Last frame's samples are overwritten in place: this runs every frame
     // for every beast standing on the terrain, on the web too.
@@ -367,6 +437,89 @@ fn wanted<'h>(
     heightmap: Option<&'h FinishedHeightMap>,
 ) -> Option<&'h FinishedHeightMap> {
     heightmap.filter(|_| (stands_on_four(rig) || PEOPLE_STAND_ON_TERRAIN) && !drive.swimming)
+}
+
+/// Whether the terrain is under a body posed at `root` (#1835 review): the
+/// nearest the terrain comes to `rig`'s lying capsule, along its length from
+/// cap to cap, is no further than a peer resting on it may fall
+/// ([`RESTING_WITHIN`] and [`RESTING_BAND`]). A step the physics loses a body
+/// on a hill leaves it millimetres over it; a body in the air, or on a deck or
+/// a boat over the terrain, is further.
+///
+/// **Measured at right angles to the ground, every [`UNDER_STEP`]** (#1835
+/// end review, finding 1). Each sample is the terrain under a point of the
+/// capsule's centre line, and its clearance is how far the capsule stands off
+/// the plane the ground lies in there: the distance from the nearest point of
+/// its axis to that plane, less its radius. Read straight down the centre line
+/// instead, a capsule lying across a hill - touching on its uphill side - read
+/// its radius times `1 / cos - 1` over the ground, 6.9 cm for a horse across
+/// 30 degrees and 9.8 across 35, and a crest's kink between two samples read
+/// the slope over the gap: both stood a horse resting on the terrain on the
+/// level floor. A crest read through the plane of one of its sides is read a
+/// little nearer than it is, never further, so a body on one is held. A rig
+/// with no trunk to lie along is asked at its root.
+///
+/// **Read loosely of a body the physics has on the terrain** (`exact` false):
+/// its contacts are the answer, and asked here only because they are a step
+/// old - a body set down a metre up between two steps is still read on the
+/// terrain under it for the frame between. So it is five samples straight
+/// down its cylinder, against [`STALE_WITHIN`], which no capsule resting on a
+/// hill or a crest comes near, at a twentieth of the exact reading's cost to
+/// a body on the terrain every frame.
+fn terrain_under(
+    rig: &Rig,
+    root: &GlobalTransform,
+    heightmap: &FinishedHeightMap,
+    exact: bool,
+) -> bool {
+    let affine = root.affine();
+    let (start, along) = (
+        Vec3::from(affine.translation),
+        Vec3::from(affine.matrix3.z_axis),
+    );
+    let (from, to, radius) = LyingCapsule::of(rig).map_or((0.0, 0.0, 0.0), |capsule| {
+        (capsule.from, capsule.to, capsule.radius)
+    });
+    if !exact {
+        let over = (0..=4u8)
+            .map(|i| {
+                let at = start + along * (from + (to - from) * f32::from(i) / 4.0);
+                start.y - heightmap.world_height_at(at.x, at.z)
+            })
+            .fold(f32::INFINITY, f32::min);
+        return over <= STALE_WITHIN;
+    }
+    // The ground's plane at a point: the bilinear terrain's own slope a few
+    // centimetres either way, and not the heightmap's normal, which is read
+    // over a whole cell and rounds a crest off.
+    let ground = |x: f32, z: f32| {
+        let height = |x: f32, z: f32| heightmap.world_height_at(x, z);
+        let e = UNDER_STEP * 0.5;
+        let slope = Vec2::new(
+            (height(x + e, z) - height(x - e, z)) / (2.0 * e),
+            (height(x, z + e) - height(x, z - e)) / (2.0 * e),
+        );
+        (
+            Vec3::new(x, height(x, z), z),
+            Vec3::new(-slope.x, 1.0, -slope.y).normalize(),
+        )
+    };
+    let (low, high) = (from - radius, to + radius);
+    let samples = ((high - low) / UNDER_STEP).ceil().max(0.0) as usize;
+    let nearest = (0..=samples)
+        .map(|i| {
+            let z = if samples == 0 {
+                low
+            } else {
+                low + (high - low) * i as f32 / samples as f32
+            };
+            let at = start + along * z;
+            let (point, normal) = ground(at.x, at.z);
+            let axis = start + along * z.clamp(from, to) + Vec3::Y * radius;
+            normal.dot(axis - point) - radius
+        })
+        .fold(f32::INFINITY, f32::min);
+    nearest <= RESTING_WITHIN + RESTING_BAND
 }
 
 /// What a structure is read off: its shape, where it is, its bounds, and the
@@ -402,7 +555,7 @@ pub(crate) struct Underfoot<'w, 's> {
 
 /// What a body the physics does not simulate here remembers of the cast that
 /// last said what it rests on (#1833 review, finding 3), kept in its
-/// [`super::RiggedTrail`]: the lying capsule it casts, cut once from the rig
+/// [`Resting`]: the lying capsule it casts, cut once from the rig
 /// and again only when the rig's trunk changes, and the last answer with the
 /// drawn pose it was cast from. [`Underfoot::fill`] reads the answer back
 /// while the body stands within [`RECAST_MOVED`] and [`RECAST_TURNED`] of
@@ -417,6 +570,204 @@ pub(super) struct RestCast {
     last: Option<LastRest>,
 }
 
+/// The answer a body stands by of what it rests on, and how much of the
+/// terrain its patch still carries (#1835): what keeps a step the physics
+/// loses the body from handing it the level floor for that step. Read and
+/// moved on by [`Underfoot::fill`] once a frame.
+///
+/// Kept for every body, simulated here or not, and across a rebuild with the
+/// rest of the trail. A body's first frame, and its first after it is set
+/// down somewhere else ([`Resting::drawn_at`]), stands by its first answer
+/// at once, so a beast arriving on a hill is drawn on it from its first
+/// frame.
+#[derive(Clone, Copy, Default)]
+struct RestHold {
+    /// The answer stood by, or `None` before the first.
+    held: Option<RestsOn>,
+    /// How long the physics has said otherwise, seconds.
+    against: f32,
+    /// How much of the terrain the patch carries, `0..=1`, before the ease at
+    /// its ends: all of it once on the terrain, and easing toward none off it
+    /// and toward all of it onto it.
+    share: f32,
+    /// Off the terrain, whether the body has moved as the engine counts a body
+    /// in the air - launched up or falling down faster than its
+    /// [`DriverConfig`] says - so that its arrival is a landing.
+    airborne: bool,
+}
+
+impl RestHold {
+    /// Take this frame's answer, `delta` seconds after the last, and say how
+    /// much of the terrain the patch carries this frame. `under` says whether
+    /// the terrain is under the body, asked loosely of one read on the terrain
+    /// and exactly of one read elsewhere while its patch carries some of it
+    /// ([`terrain_under`]): never of a body on a pad or a deck, on the level
+    /// floor already.
+    ///
+    /// **Only leaving the terrain is held, and only while it is under the
+    /// body** (#1835 review, findings 1 and 2). A lost step on a hill leaves
+    /// the body where it was, its capsule a few millimetres off the ground,
+    /// and is held. A body that rises off it or falls from over it - a jump, a
+    /// walk off a ledge, a push, a respawn set down a metre up - has the
+    /// terrain fall away from under it, and is handed the level floor at
+    /// once: held, its feet stayed planted on the terrain as it fell, 0.86 m
+    /// under a dog's root and 1.25 m under a horse's, for the engine counts
+    /// a body falling only once it falls 2 m/s.
+    ///
+    /// **Arriving is eased in, unless it is a landing** (#1835 end review,
+    /// findings 2 and 3). A body stepping off a pad's side onto the hill
+    /// below, or straddling a pad's edge while the pad's contact drops for a
+    /// step, comes onto the terrain from the level floor without the engine
+    /// counting it in the air, and taken at once its trunk turned 11 to 18
+    /// degrees in a frame; so the patch eases in over [`BLEND_SECS`], from
+    /// wherever an ease out had got to. A body the engine counted in the air
+    /// (`vertical`, its speed up, past [`DriverConfig`]'s launch or fall)
+    /// lands, and the engine eases its own landing: held on the level floor
+    /// instead, a body landing on a hill stood its soles on the air over it
+    /// and in it, 0.73 m and 0.43 m, for a third of a second. So a landing is
+    /// handed the terrain at once.
+    fn settle(
+        &mut self,
+        rests: RestsOn,
+        under: impl FnOnce(bool) -> bool,
+        vertical: f32,
+        delta: f32,
+    ) -> f32 {
+        // A long frame - a tab in the background, a hitch - is not a long
+        // hold: what the body did over it is not known (finding 4).
+        let delta = delta.min(LONGEST_FRAME);
+        let config = DriverConfig::default();
+        let flying = vertical > config.launch_speed || vertical < -config.fall_speed;
+        // Asked of a body read on the terrain too: contacts are a step old.
+        let under = if rests == RestsOn::Terrain {
+            under(false)
+        } else {
+            self.share > 0.0 && under(true)
+        };
+        let ease = delta / BLEND_SECS;
+        match (self.held, rests) {
+            (_, RestsOn::Terrain) if !under => self.level(flying),
+            (None, RestsOn::Terrain) => {
+                *self = Self {
+                    held: Some(RestsOn::Terrain),
+                    share: 1.0,
+                    ..Self::default()
+                }
+            }
+            (Some(_), RestsOn::Terrain) => {
+                let share = if self.airborne {
+                    1.0
+                } else {
+                    (self.share + ease).min(1.0)
+                };
+                *self = Self {
+                    held: Some(RestsOn::Terrain),
+                    share,
+                    ..Self::default()
+                };
+            }
+            (None, RestsOn::Elsewhere) => self.level(flying),
+            (Some(_), RestsOn::Elsewhere) if self.share > 0.0 && !under => self.level(flying),
+            (Some(RestsOn::Terrain), RestsOn::Elsewhere) => {
+                self.airborne |= flying;
+                // A share still easing in is held where it has got to.
+                self.against += delta;
+                if self.against >= HOLD_SECS {
+                    self.held = Some(RestsOn::Elsewhere);
+                    self.against = 0.0;
+                }
+            }
+            (Some(RestsOn::Elsewhere), RestsOn::Elsewhere) => {
+                self.airborne |= flying;
+                self.share = (self.share - ease).max(0.0);
+            }
+        }
+        // Eased at both ends, so the trunk starts to turn and stops turning
+        // without a jolt; nothing at all at either end.
+        let t = self.share;
+        t * t * (3.0 - 2.0 * t)
+    }
+
+    /// Stand the body on the level floor at once, with nothing to ease out
+    /// of, remembering whether it is moving as a body in the air does.
+    fn level(&mut self, flying: bool) {
+        *self = Self {
+            airborne: self.airborne || flying,
+            ..Self::LEVEL
+        };
+    }
+
+    /// A body standing on the level floor with nothing to ease out of.
+    const LEVEL: Self = Self {
+        held: Some(RestsOn::Elsewhere),
+        against: 0.0,
+        share: 0.0,
+        airborne: false,
+    };
+
+    /// Whether the answer stood by is the terrain.
+    fn on_terrain(&self) -> bool {
+        self.held == Some(RestsOn::Terrain)
+    }
+}
+
+/// What a body remembers of what it rests on, kept in its
+/// [`super::RiggedTrail`]: its last cast, for one the physics does not
+/// simulate here (#1833, [`RestCast`]), and the answer it stands by with how
+/// much of the terrain its patch still carries, for every body (#1835,
+/// [`RestHold`]).
+#[derive(Clone, Default)]
+pub(super) struct Resting {
+    cast: RestCast,
+    hold: RestHold,
+    /// Where the body was drawn last frame: a body drawn further than
+    /// [`super::motion::PLACED_PAST`] from it has been set down somewhere
+    /// else.
+    drawn: Option<Vec3>,
+}
+
+impl Resting {
+    /// Note where the body is drawn this frame, and if it has been set down
+    /// somewhere else since the last (#1835 review, finding 3), forget what it
+    /// stood by where it was, so it stands by this frame's answer at once.
+    /// Read off the drawn pose and not the chassis' `GlobalTransform`, which
+    /// for a peer is a frame behind: read there, a peer set down on a floor
+    /// was held on the terrain it left for the frame between.
+    ///
+    /// **Set down is further than its `speed` took it over the frame's
+    /// `delta`**, by [`super::motion::PLACED_PAST`] (#1835 end review,
+    /// finding 4): a galloping body over a fifth of a second's hitch travels
+    /// that far, and is not set down anywhere.
+    fn drawn_at(&mut self, at: Vec3, speed: f32, delta: f32) {
+        let travel = speed * delta + super::motion::PLACED_PAST;
+        if self.drawn.is_some_and(|was| was.distance(at) > travel) {
+            self.hold = RestHold::default();
+        }
+        self.drawn = Some(at);
+    }
+}
+
+#[cfg(test)]
+impl Resting {
+    /// How many frames running the last cast has been read back, or `None`
+    /// with no cast kept: for a test to tell a reused answer from a fresh one.
+    pub(super) fn reused(&self) -> Option<u32> {
+        self.cast.last.map(|last| last.reused)
+    }
+
+    /// Forget the last cast, so the next frame casts afresh: for a test to
+    /// put a peer's answer through on the frame it changes.
+    pub(super) fn forget_cast(&mut self) {
+        self.cast.last = None;
+    }
+
+    /// How much of the terrain the patch carries, before the ease at its
+    /// ends, and whether the answer stood by is the terrain.
+    pub(super) fn held(&self) -> (f32, bool) {
+        (self.hold.share, self.hold.on_terrain())
+    }
+}
+
 /// One cast's answer (#1833, [`RestCast`]): the drawn pose it was cast from,
 /// how many frames have read it back since, and what the body rested on.
 #[derive(Clone, Copy)]
@@ -427,24 +778,17 @@ struct LastRest {
     rests: RestsOn,
 }
 
-impl RestCast {
-    /// How many frames running the last cast has been read back, or `None`
-    /// with no cast kept: for a test to tell a reused answer from a fresh one.
-    #[cfg(test)]
-    pub(super) fn reused(&self) -> Option<u32> {
-        self.last.map(|last| last.reused)
-    }
-}
-
 impl Underfoot<'_, '_> {
-    /// Hand the body under `chassis`, posed at `root` this frame, the ground
-    /// under it: [`fill_terrain_ground`] with what the physics has it resting
-    /// on and the structures within its reach. `memory` is the body's own
-    /// [`RestCast`], for one the physics does not simulate.
+    /// Hand the body under `chassis`, posed at `root` this frame, `delta`
+    /// seconds after the last, the ground under it: [`fill_terrain_ground`]
+    /// with what the physics has it resting on, held and eased (#1835,
+    /// [`RestHold`]), and the structures within its reach. `memory` is the
+    /// body's own [`Resting`].
     ///
     /// Nothing is asked of the physics for a body that does not stand on the
     /// terrain at all - a person, a swimmer - so a person's frame is what it
     /// was before #1833 to the bit.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn fill(
         &self,
         drive: &mut Drive,
@@ -452,21 +796,34 @@ impl Underfoot<'_, '_> {
         chassis: Entity,
         root: &GlobalTransform,
         heightmap: Option<&FinishedHeightMap>,
-        memory: &mut RestCast,
+        memory: &mut Resting,
+        delta: f32,
     ) {
-        let rests = if wanted(drive, rig, heightmap).is_some() {
-            self.rests_on(chassis, rig, root, memory)
+        memory.drawn_at(root.translation(), drive.velocity.length(), delta);
+        let share = if let Some(heightmap) = wanted(drive, rig, heightmap) {
+            let rests = self.rests_on(chassis, rig, root, memory);
+            memory.hold.settle(
+                rests,
+                |exact| terrain_under(rig, root, heightmap, exact),
+                drive.velocity.y,
+                delta,
+            )
         } else {
-            // A swimmer coming out is read afresh, not off a cast from before.
-            memory.last = None;
-            RestsOn::Elsewhere
+            // A swimmer coming out is read afresh, not off a cast from
+            // before, and so is a body that stood before the heightmap did.
+            memory.cast.last = None;
+            memory.hold = RestHold::default();
+            0.0
         };
-        self.fill_resting(drive, rig, root, heightmap, rests);
+        self.fill_share(drive, rig, root, heightmap, share);
     }
 
     /// [`Self::fill`] for a body whose resting is already known: the render
     /// tool's walker, which reads it off the cast that set it down
-    /// ([`Self::set_down`]).
+    /// ([`Self::set_down`]). Native only, as the tool is: the game's own
+    /// bodies go through [`Self::fill`], which holds and eases what they rest
+    /// on (#1835), and the walker is set down afresh every frame.
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn fill_resting(
         &self,
         drive: &mut Drive,
@@ -475,30 +832,51 @@ impl Underfoot<'_, '_> {
         heightmap: Option<&FinishedHeightMap>,
         rests: RestsOn,
     ) {
-        let structures = match (
-            rests,
-            GroundPatch::reach(rig),
-            wanted(drive, rig, heightmap),
-        ) {
-            (RestsOn::Terrain, Some(reach), Some(heightmap)) => {
+        let share = f32::from(u8::from(rests == RestsOn::Terrain));
+        self.fill_share(drive, rig, root, heightmap, share);
+    }
+
+    /// [`fill_terrain_ground`] carrying `share` of the terrain, with the
+    /// structures within the body's reach gathered whenever it carries any:
+    /// a patch easing out to the level floor reads a pad by its rays to the
+    /// end.
+    fn fill_share(
+        &self,
+        drive: &mut Drive,
+        rig: &Rig,
+        root: &GlobalTransform,
+        heightmap: Option<&FinishedHeightMap>,
+        share: f32,
+    ) {
+        let structures = match (GroundPatch::reach(rig), wanted(drive, rig, heightmap)) {
+            (Some(reach), Some(heightmap)) if share > 0.0 => {
                 self.structures_over(root, reach, heightmap)
             }
             _ => Vec::new(),
         };
-        fill_terrain_ground(drive, rig, root, heightmap, rests, &structures);
+        fill_terrain_ground(drive, rig, root, heightmap, share, &structures);
     }
 
     /// What the chassis rests on: its contacts, for one the physics simulates
     /// here; for one it does not, its body's lying capsule cast down from a
     /// little above where it stands ([`Self::rest_of`]), or the last such
-    /// cast's answer while it has not moved since ([`RestCast`]).
+    /// cast's answer while it has not moved since ([`RestCast`]). This
+    /// frame's answer, raw: [`RestHold`] decides what the body stands by.
     fn rests_on(
         &self,
         chassis: Entity,
         rig: &Rig,
         root: &GlobalTransform,
-        memory: &mut RestCast,
+        memory: &mut Resting,
     ) -> RestsOn {
+        // On the terrain, a peer's cast may fall a little further and still
+        // rest there (#1835).
+        let within = if memory.hold.on_terrain() {
+            RESTING_WITHIN + RESTING_BAND
+        } else {
+            RESTING_WITHIN
+        };
+        let memory = &mut memory.cast;
         if self.simulated.contains(chassis) {
             let Some(contacts) = self.contacts.as_deref() else {
                 return RestsOn::Elsewhere;
@@ -545,7 +923,7 @@ impl Underfoot<'_, '_> {
         let Some((_, capsule)) = memory.capsule.as_ref() else {
             return RestsOn::Elsewhere;
         };
-        let rests = self.resting_cast(capsule, root);
+        let rests = self.cast_within(capsule, root, within);
         memory.last = Some(LastRest {
             at,
             rotation,
@@ -555,12 +933,20 @@ impl Underfoot<'_, '_> {
         rests
     }
 
+    /// [`Self::cast_within`] [`RESTING_WITHIN`], as a body off the terrain is
+    /// cast: for a test to read a fresh cast beside the fill's.
+    #[cfg(test)]
+    pub(super) fn resting_cast(&self, capsule: &Collider, root: &GlobalTransform) -> RestsOn {
+        self.cast_within(capsule, root, RESTING_WITHIN)
+    }
+
     /// What `capsule` posed at `root` rests on, cast down from [`CAST_RISE`]
     /// over it: [`Self::rest_of`]'s answer, if it fell no further than
-    /// [`RESTING_WITHIN`] - further, it is in the air.
-    pub(super) fn resting_cast(&self, capsule: &Collider, root: &GlobalTransform) -> RestsOn {
+    /// `within` - further, it is in the air. That is [`RESTING_WITHIN`], and
+    /// [`RESTING_BAND`] more for a body standing by the terrain (#1835).
+    fn cast_within(&self, capsule: &Collider, root: &GlobalTransform, within: f32) -> RestsOn {
         match self.rest_of(capsule, root, CAST_RISE, CAST_FALL) {
-            Some((fell, rests)) if fell <= RESTING_WITHIN => rests,
+            Some((fell, rests)) if fell <= within => rests,
             _ => RestsOn::Elsewhere,
         }
     }

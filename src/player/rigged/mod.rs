@@ -229,8 +229,10 @@ pub(super) struct RiggedTrail {
     rehung: bool,
     /// What the body was last cast as resting on, for one the physics does
     /// not simulate here (#1833, [`underfoot::RestCast`]): a peer standing
-    /// still is not cast again every frame.
-    rest: underfoot::RestCast,
+    /// still is not cast again every frame. And what it stands by, with how
+    /// much of the terrain its ground still carries, for every body (#1835):
+    /// a step the physics loses it does not snap its trunk level.
+    rest: underfoot::Resting,
 }
 
 /// Whether `rig` stands on four legs: the engine's own test of a beast, which
