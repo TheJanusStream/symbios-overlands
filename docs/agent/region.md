@@ -123,8 +123,24 @@ ones: one procedural world per theme, one square of real Berlin per borough
   at once.
 - Before loading over a world you might want back, `stash-world` it and
   `save inventory`: an undo lasts only until the daemon stops.
-- A world is loaded, never placed or given: `place` and `gift give` refuse
-  one and name the verb it is for.
+- A world is loaded or given, never placed: `place` refuses one and names
+  the verb it is for. `A gift give @admin "<world item>"` gives a world from
+  the inventory (#1847) once the inventory holding it is saved - the player
+  fetches it from your saved copy after accepting, so an unsaved or edited
+  one is refused until `A save inventory` - and only to a player whose game
+  can take one. The answer (`gift_answered`, which `--wait` waits for) comes
+  once it has landed with them, or `not_fetched`. A Catalogue world is not
+  given: they have the same Catalogue.
+- A world the admin offers arrives as `gift_offered` with `is: "world"`,
+  its kind and `bytes`. `A gift accept <id>` answers `fetching`: it is
+  fetched from their saved copy into your inventory - your own world does
+  not change - and a `gift_world_landed` event says under which name, or
+  `gift_world_not_landed` why not (`--wait` waits for either). A sign-in
+  from before world items cannot take one: `gift_offered` says so in
+  `cannot_accept`, and an accept is refused with the offer left waiting -
+  decline it, and tell the owner the account needs signing in again
+  ([session.md](session.md), "Signing in again": theirs to do, in the
+  terminal, with nothing unsaved).
 
 ## The land is a recipe, not a sculpt
 

@@ -263,6 +263,9 @@ pub(crate) struct SessionTasks<'w, 's> {
     /// A world being loaded from the Inventory (#1839): it would land in
     /// the next session's world.
     world_load: Query<'w, 's, Entity, With<crate::ui::inventory::LoadWorldTask>>,
+    /// A world given to this session being fetched (#1844): it would land
+    /// in the next session's stash, and answer the giver in its name.
+    gift_world: Query<'w, 's, Entity, With<crate::ui::inventory::GiftWorldTask>>,
     mutuals: Query<'w, 's, Entity, With<crate::social::MutualsFetchTask>>,
     blob_audio: Query<'w, 's, Entity, With<crate::world_builder::audio_resolver::BlobAudioTask>>,
     blob_image: Query<'w, 's, Entity, With<crate::world_builder::image_cache::BlobImageTask>>,
@@ -277,6 +280,7 @@ impl SessionTasks<'_, '_> {
             .chain(self.avatar_publish.iter())
             .chain(self.inventory_publish.iter())
             .chain(self.world_load.iter())
+            .chain(self.gift_world.iter())
             .chain(self.mutuals.iter())
             .chain(self.blob_audio.iter())
             .chain(self.blob_image.iter());

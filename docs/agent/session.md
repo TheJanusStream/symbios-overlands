@@ -292,8 +292,9 @@ A saved sign-in keeps the grant it was made with. One made before a
 collection joined the client's sign-in cannot write that collection, and the
 game says so in its own sentence: since #1839 a world item's contents live
 in `network.symbios.overlands.inventory.part`, so on an older sign-in
-`stash-world`, a catalogue world's `stash` and a `save inventory` holding a
-new world item answer "This sign-in predates a permission saving worlds to
+`stash-world`, a catalogue world's `stash`, a `save inventory` holding a
+new world item and a `gift accept` of a world (`gift_offered.cannot_accept`
+says so first) answer "This sign-in predates a permission saving worlds to
 your inventory needs ..." ([saving.md](saving.md), "Whole avatars and worlds
 in the inventory"). Nothing was written. Everything else works as before.
 

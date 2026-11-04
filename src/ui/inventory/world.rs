@@ -16,6 +16,10 @@
 //!
 //! Only in your own world, and one load at a time: the row's Load says why
 //! not, painted on its hover.
+//!
+//! A world GIVEN to this client (#1844) is not loaded through here: it goes
+//! into the Inventory, fetched from the giver's saved copy
+//! ([`super::gift_world`]), and is loaded from its row like any other.
 
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;

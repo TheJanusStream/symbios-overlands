@@ -6,17 +6,27 @@
 //! the debug view.
 //!
 //! Drag-to-gift: peer rows double as drop targets for the inventory /
-//! world-editor drag. While a generator drag is armed, hovering a peer row
+//! world-editor drag. While a drag of any kind is armed, hovering a peer row
 //! writes a [`crate::ui::inventory::PeerDropTarget`] into
 //! [`crate::ui::inventory::PendingGeneratorDrop`]; releasing there routes
 //! the drop into an [`crate::protocol::OverlandsMessage::ItemOffer`]
 //! instead of a ground placement. See [`crate::ui::inventory::handle_generator_drop`].
 //!
+//! A whole avatar or world (#1844) is offered the same way, to a peer whose
+//! build can take one ([`gift_block_reason`] reads the drag's kind against
+//! the peer's announced protocol); an older or still-unknown build's row
+//! refuses it and says why.
+//!
 //! Incoming offer modal: when [`crate::state::IncomingOfferDialog`] is set,
 //! [`incoming_offer_ui`] renders the Accept / Decline / Mute & Decline
 //! prompt. Exactly one dialog is ever active - concurrent offers are
 //! auto-declined with "busy" at the network layer, see
-//! [`crate::network`].
+//! [`crate::network`]. It names what is offered and how large: a thing's
+//! kind, an avatar's kind - the one you have on stays on - or a world's
+//! kind, fetched from the giver's saved copy on Accept with nothing in your
+//! own world changed. A thing or an avatar lands at the click; a world when
+//! its parts arrive ([`crate::ui::inventory::gift_world`]), and Accept for
+//! one is disabled, its reason painted, for a sign-in that cannot save it.
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -29,10 +39,9 @@ use crate::diagnostics::SessionLog;
 use crate::diagnostics::event::EventPayload;
 use crate::network::presence::{PeerLabel, PeerResolve, peer_status, set_peer_mute};
 use crate::pds::InventoryRecord;
-use crate::protocol::OverlandsMessage;
+use crate::protocol::{GiftItem, GiftKind, OverlandsMessage};
 use crate::state::{
-    IncomingOfferDialog, LiveInventoryRecord, PublishFeedback, PublishStatus, RemotePeer,
-    SocialResonance,
+    IncomingOfferDialog, LiveInventoryRecord, PublishFeedback, RemotePeer, SocialResonance,
 };
 use crate::ui::avatar::draw_avatar_icon;
 use crate::ui::chat::AVATAR_ICON_PX;
@@ -76,7 +85,16 @@ fn roster_sort_key(
 /// Order matters: a muted peer is muted whether or not they have identified,
 /// and saying "still identifying" about somebody you deliberately blocked
 /// would be the wrong sentence.
-pub fn gift_block_reason(peer: &RemotePeer, link_is_up: bool) -> Option<&'static str> {
+///
+/// A whole avatar or world (`kind`, #1844) goes only to a peer whose `Hello`
+/// said [`crate::protocol::WHOLE_GIFTS_SINCE`] or later, read off its
+/// compatibility as of `now`. A thing goes to any build, as it always has.
+pub fn gift_block_reason(
+    peer: &RemotePeer,
+    link_is_up: bool,
+    kind: GiftKind,
+    now: f64,
+) -> Option<&'static str> {
     if !link_is_up {
         // A gift sent while our link is down spends an inventory item on an
         // offer that can never be answered, and then blames the recipient
@@ -92,8 +110,30 @@ pub fn gift_block_reason(peer: &RemotePeer, link_is_up: bool) -> Option<&'static
              arrived yet. Try again in a moment.",
         );
     }
+    if kind.is_whole() {
+        use crate::state::PeerCompatibility;
+        match peer.compatibility(now) {
+            PeerCompatibility::Pending => {
+                return Some(
+                    "Still finding out which version of the game they run - try again in a \
+                     moment.",
+                );
+            }
+            PeerCompatibility::Unannounced => return Some(OLDER_BUILD),
+            PeerCompatibility::Mismatched(theirs)
+                if theirs < crate::protocol::WHOLE_GIFTS_SINCE =>
+            {
+                return Some(OLDER_BUILD);
+            }
+            PeerCompatibility::Compatible | PeerCompatibility::Mismatched(_) => {}
+        }
+    }
     None
 }
+
+/// Why a whole avatar or world cannot go to a peer on an older build (#1844).
+const OLDER_BUILD: &str =
+    "Their game is an older version that cannot take a whole avatar or world.";
 
 /// Why the Visit button is disabled, or `None` when it works (#1220 f302).
 ///
@@ -300,7 +340,8 @@ pub fn people_ui(
                         // normal transient: a peer's DID resolves a beat
                         // after they appear, which is exactly when a new
                         // user tries their first gift.
-                        let blocked = gift_block_reason(&peer, deps.link.is_up());
+                        let blocked =
+                            gift_block_reason(&peer, deps.link.is_up(), pending_drop.kind, now);
                         let row = ui.horizontal(|ui| {
                             crate::ui::affordances::status_dot(ui, dot_color);
                             draw_avatar_icon(
@@ -736,6 +777,9 @@ pub struct OfferAnswering<'w, 's> {
     busy_declines: ResMut<'w, crate::state::BusyAutoDeclines>,
     toasts: ResMut<'w, crate::notify::Toasts>,
     muted_dids: ResMut<'w, crate::state::MutedDids>,
+    /// How an accepted world's parts are fetched (#1844): the network's,
+    /// unless a test stands one in.
+    gift_fetch: Option<Res<'w, crate::ui::inventory::GiftWorldFetch>>,
 }
 
 /// How an incoming offer is answered.
@@ -753,7 +797,7 @@ pub(crate) enum OfferAnswer {
 
 /// Where an accepted gift landed.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct AcceptedGift {
+pub struct AcceptedGift {
     /// Its name in the inventory - the offered name, or that name with a
     /// suffix when the stash already held one.
     pub key: String,
@@ -764,11 +808,12 @@ pub(crate) struct AcceptedGift {
 /// Renders the incoming-offer modal when [`IncomingOfferDialog`] is set
 /// and drives the Accept / Decline / Mute & Decline actions. On accept,
 /// the item is copied into the owner's live inventory under a
-/// collision-safe key (see [`crate::ui::inventory::store_accepted_gift`]) and a publish
+/// collision-safe key (see [`crate::ui::inventory::accept_gift`]) and a publish
 /// task is spawned immediately so the new item is on the PDS before the
 /// user closes the window - the user explicitly opted into "auto-publish
-/// on accept" for less-likely-to-lose-items behaviour. Not run where
-/// [`OffersAnsweredElsewhere`] stands.
+/// on accept" for less-likely-to-lose-items behaviour. A world (#1844)
+/// lands when its parts have been fetched from the giver's saved copy. Not
+/// run where [`OffersAnsweredElsewhere`] stands.
 pub fn incoming_offer_ui(
     mut contexts: EguiContexts,
     mut panels: ResMut<crate::ui::toolbar::UiPanels>,
@@ -816,14 +861,15 @@ pub fn incoming_offer_ui(
                 .small()
                 .color(crate::ui::theme::current(ui.ctx()).text_weak),
         );
-        // What's actually being offered (#843): kind + rough serialized
-        // size. The generator arrives decoded + sanitized before the
-        // dialog opens; the size is measured once per offer (cached by
-        // offer_id - serializing per frame would be wasted work).
+        // What's actually being offered (#843): kind + rough size. The item
+        // arrives decoded + sanitized before the dialog opens; the size is
+        // measured once per offer (cached by offer_id - serializing per
+        // frame would be wasted work). A world's is its head's word for
+        // the saved world (#1844), which nothing here fetches.
         let bytes = match *offer_size {
             Some((id, bytes)) if id == dialog.offer_id => bytes,
             _ => {
-                let bytes = crate::pds::record_size::serialized_record_bytes(&dialog.generator);
+                let bytes = offer_bytes(&dialog.item);
                 *offer_size = Some((dialog.offer_id, bytes));
                 bytes
             }
@@ -832,94 +878,55 @@ pub fn incoming_offer_ui(
             .map(crate::pds::record_size::human_bytes)
             .unwrap_or_else(|| "size unknown".to_owned());
         ui.label(
-            egui::RichText::new(format!(
-                "{} · {size_text}",
-                // #1267 f214: a visitor deciding whether to accept a gift
-                // was told what kind of thing it is as "BlobGroup".
-                crate::pds::GeneratorKind::display_name(dialog.generator.kind_tag()),
-            ))
-            .small()
-            .color(crate::ui::theme::current(ui.ctx()).text_weak),
+            egui::RichText::new(format!("{} · {size_text}", offer_kind_label(&dialog.item)))
+                .small()
+                .color(crate::ui::theme::current(ui.ctx()).text_weak),
         );
+        if let Some(note) = offer_note(&dialog.item, &dialog.sender_label) {
+            ui.add(egui::Label::new(egui::RichText::new(note).small()).wrap());
+        }
         ui.separator();
         // Lifted out of the `if let Some(live)` (#1220 f302): a missing
-        // record must produce visible text too, not a silent grey Accept.
+        // record must produce visible text too, not a silent grey Accept -
+        // which `answer_row` paints below, beside the button it disables.
         let cap = crate::config::state::MAX_INVENTORY_ITEMS;
-        match answering.live_inventory.as_deref() {
-            Some(live) => {
-                let len = live.0.item_count();
-                ui.label(format!("Your inventory: {len}/{cap}"));
-                if len >= cap {
-                    ui.colored_label(
-                        crate::ui::theme::current(ui.ctx()).status.error,
-                        "Inventory full - remove an item to accept.",
-                    );
-                    // A real action, not a panel flag (#1220 f288). This
-                    // modal blocks background input, so the old button
-                    // raised the Inventory UNDER it - unclickable, while the
-                    // countdown declined the gift out from under the user.
-                    // The offer is held instead: the dialog closes, the
-                    // Inventory works, and the offer comes straight back the
-                    // moment a slot frees.
-                    if ui
-                        .button("Make room for it")
-                        .on_hover_text(
-                            "Sets this offer aside and opens your Inventory. It comes \
-                             back as soon as you free a slot - the sender's countdown \
-                             keeps running.",
-                        )
-                        .clicked()
-                    {
-                        action = Some(OfferAction::Hold);
-                    }
+        if let Some(live) = answering.live_inventory.as_deref() {
+            let len = live.0.item_count();
+            ui.label(format!("Your inventory: {len}/{cap}"));
+            if len >= cap {
+                // A real action, not a panel flag (#1220 f288). This
+                // modal blocks background input, so the old button
+                // raised the Inventory UNDER it - unclickable, while the
+                // countdown declined the gift out from under the user.
+                // The offer is held instead: the dialog closes, the
+                // Inventory works, and the offer comes straight back the
+                // moment a slot frees.
+                if ui
+                    .button("Make room for it")
+                    .on_hover_text(
+                        "Sets this offer aside and opens your Inventory. It comes \
+                         back as soon as you free a slot - the sender's countdown \
+                         keeps running.",
+                    )
+                    .clicked()
+                {
+                    action = Some(OfferAction::Hold);
                 }
-            }
-            None => {
-                ui.colored_label(
-                    crate::ui::theme::current(ui.ctx()).status.warn,
-                    "Your inventory hasn't loaded - nothing can be accepted into it yet.",
-                );
             }
         }
         ui.add_space(6.0);
-        ui.horizontal(|ui| {
-            let can_accept = answering
-                .live_inventory
+        let blocked = accept_blocked_reason(
+            &dialog.item,
+            answering.live_inventory.as_deref().map(|live| &live.0),
+            answering
+                .session
                 .as_deref()
-                .map(|l| l.0.item_count() < cap)
-                .unwrap_or(false);
-            // A disabled control says why (#1220 f302). The reason is
-            // already on screen above, but the button is where the pointer
-            // is and the user is on a countdown.
-            let accept = ui
-                .add_enabled(
-                    can_accept,
-                    egui::Button::new(
-                        egui::RichText::new("Accept")
-                            .color(crate::ui::theme::current(ui.ctx()).status.ok),
-                    ),
-                )
-                .on_disabled_hover_text(if answering.live_inventory.is_some() {
-                    "Your inventory is full - free a slot with \"Make room for it\"."
-                } else {
-                    "Your inventory hasn't loaded yet."
-                });
-            if accept.clicked() {
-                action = Some(OfferAction::Accept);
-            }
-            if ui.button("Decline").clicked() {
-                action = Some(OfferAction::Decline);
-            }
-            if ui
-                .add(egui::Button::new(
-                    egui::RichText::new("Mute & Decline")
-                        .color(crate::ui::theme::current(ui.ctx()).status.error),
-                ))
-                .clicked()
-            {
-                action = Some(OfferAction::MuteAndDecline);
-            }
-        });
+                .map(|s| s.session.token_set().scope.clone())
+                .as_deref(),
+        );
+        if let Some(asked) = answer_row(ui, blocked) {
+            action = Some(asked);
+        }
         ui.add_space(4.0);
         // The lifecycle sweep auto-declines the dialog after the TTL
         // (`config::network::OFFER_DIALOG_TIMEOUT_SECS`) - surface that
@@ -1036,109 +1043,27 @@ impl OfferAnswering<'_, '_> {
         }
 
         let mut landed = None;
+        // A world is answered when its parts land, not at the click (#1844).
+        let mut answered_later = false;
         if let OfferAnswer::Accept { publish } = answer {
-            if let Some(live) = self.live_inventory.as_mut() {
-                // The gift lands in `live`; what gets PUBLISHED is `stored` plus
-                // the gift (#1200) - the owner's other unsaved edits are theirs
-                // to save or revert, not this dialog's to commit.
-                let stored = self
-                    .stored_inventory
-                    .as_deref()
-                    .map(|s| s.0.clone())
-                    .unwrap_or_default();
-                // Bind the landed key (#1220 f119). `accept_gift` renames on a
-                // collision - "lantern" becomes "lantern_2" - and discarding the
-                // key meant the one moment a gift becomes yours was the least
-                // confirmed event in the lifecycle, under a name the recipient
-                // was never shown.
-                let (key, payload) = crate::ui::inventory::accept_gift(
-                    &mut live.0,
-                    &stored,
-                    &dialog.item_name,
-                    dialog.generator.clone(),
-                    dialog.wear.clone(),
-                );
-                self.toasts.success(
-                    if key == dialog.item_name {
-                        format!("\"{key}\" is in your inventory.")
-                    } else {
-                        // Say the rename rather than hide it: the recipient is
-                        // the one person who cannot find the item afterwards if
-                        // the name they were shown is not the name it has.
-                        format!(
-                            "\"{}\" is in your inventory as \"{key}\" - you already had one \
-                             by that name.",
-                            dialog.item_name
-                        )
-                    },
-                    now,
-                );
-                self.session_log.info(
-                    now,
-                    EventPayload::ItemOfferUserResponded {
-                        offer_id: dialog.offer_id,
-                        accepted: true,
-                    },
-                );
-
-                // Auto-publish the updated inventory immediately. The user
-                // explicitly chose "publish on accept" over "mark dirty" so
-                // accepted items are persistent even if the session ends
-                // before they click the Inventory's Publish button. The
-                // `poll_publish_inventory_tasks` system (already in the
-                // Update schedule) drains the task and flips
-                // `StoredInventoryRecord` + `PublishFeedback<InventoryRecord>`
-                // on completion, so we only kick off the I/O here.
-                //
-                // Unless the stash never loaded (#1199): then `stored` is the
-                // empty default, the diff would delete a legacy monolith the
-                // owner still has, and the banner in the Inventory window
-                // promised they would be asked first. The gift lands locally
-                // and stays dirty; the editor's own guarded Save publishes it.
-                let mut saving = false;
-                if self.inventory_recovery.is_some() {
-                    self.toasts.info(
-                        format!(
-                            "Saved \"{}\" locally - your inventory could not be loaded, so \
-                             open Inventory to save it deliberately.",
-                            dialog.item_name
-                        ),
-                        now,
-                    );
-                } else if publish
-                    && let (Some(sess), Some(refresh)) =
-                        (self.session.as_deref(), self.refresh_ctx.as_deref())
-                {
-                    self.inventory_feedback.status = PublishStatus::Publishing { since_secs: now };
-                    crate::ui::inventory::spawn_publish_inventory_task(
-                        &mut self.commands,
-                        sess,
-                        refresh,
-                        payload,
-                        stored,
-                        now,
-                    );
-                    saving = true;
+            let item = match &dialog.item {
+                GiftItem::World(head) => {
+                    self.fetch_given_world(dialog, head, publish, now);
+                    answered_later = true;
+                    None
                 }
-                landed = Some(AcceptedGift { key, saving });
-            } else {
-                // Live inventory resource absent - should not happen in
-                // `AppState::InGame`, but decline rather than drop the
-                // response and leave the sender hanging. The user's response was
-                // an accept, so it records as such but at Warn severity because
-                // the item could not actually be stored.
-                warn!(
-                    "Could not store accepted offer \"{}\" from {}: inventory not loaded",
-                    dialog.item_name,
-                    dialog.sender_label.addressed()
-                );
-                self.session_log.warn(
-                    now,
-                    EventPayload::ItemOfferUserResponded {
-                        offer_id: dialog.offer_id,
-                        accepted: true,
-                    },
-                );
+                GiftItem::Generator { generator, wear } => {
+                    Some(crate::ui::inventory::GiftLanding::Generator {
+                        generator: generator.clone(),
+                        wear: wear.clone(),
+                    })
+                }
+                GiftItem::Avatar(avatar) => {
+                    Some(crate::ui::inventory::GiftLanding::Avatar(avatar.clone()))
+                }
+            };
+            if let Some(item) = item {
+                landed = self.land(dialog, item, publish, now);
             }
         } else {
             self.session_log.info(
@@ -1152,24 +1077,264 @@ impl OfferAnswering<'_, '_> {
 
         // Fire the response back to the sender. Broadcast-with-address: the
         // `target_did` field is the *sender's* DID so only they pick it up.
-        self.writer.write(Broadcast {
-            payload: OverlandsMessage::item_offer_response(
-                dialog.offer_id,
-                dialog.sender_did.clone(),
-                accepted,
-                // A person answered (#1220 f127) - including "Mute & Decline",
-                // which reports as a plain decline for privacy.
-                crate::protocol::DeclineReason::Declined,
-            ),
-            channel: ChannelKind::Reliable,
-        });
+        if !answered_later {
+            self.writer.write(Broadcast {
+                payload: OverlandsMessage::item_offer_response(
+                    dialog.offer_id,
+                    dialog.sender_did.clone(),
+                    accepted,
+                    // A person answered (#1220 f127) - including "Mute &
+                    // Decline", which reports as a plain decline for privacy.
+                    crate::protocol::DeclineReason::Declined,
+                ),
+                channel: ChannelKind::Reliable,
+            });
+        }
 
         self.commands.remove_resource::<IncomingOfferDialog>();
         landed
     }
+
+    /// Land an accepted thing or avatar in the live inventory by the one
+    /// rule every gift lands by ([`crate::ui::inventory::accept_gift`]),
+    /// saving it at once when `publish` says to, and say where it landed.
+    fn land(
+        &mut self,
+        dialog: &IncomingOfferDialog,
+        item: crate::ui::inventory::GiftLanding,
+        publish: bool,
+        now: f64,
+    ) -> Option<AcceptedGift> {
+        let Some(live) = self.live_inventory.as_mut() else {
+            // Live inventory resource absent - should not happen in
+            // `AppState::InGame`, but answer rather than drop the response
+            // and leave the sender hanging. The user's response was an
+            // accept, so it records as such but at Warn severity because the
+            // item could not actually be stored.
+            warn!(
+                "Could not store accepted offer \"{}\" from {}: inventory not loaded",
+                dialog.item_name,
+                dialog.sender_label.addressed()
+            );
+            self.session_log.warn(
+                now,
+                EventPayload::ItemOfferUserResponded {
+                    offer_id: dialog.offer_id,
+                    accepted: true,
+                },
+            );
+            return None;
+        };
+        // The gift lands in `live`; what gets PUBLISHED is `stored` plus the
+        // gift (#1200) - the owner's other unsaved edits are theirs to save
+        // or revert, not this dialog's to commit.
+        let stored = self
+            .stored_inventory
+            .as_deref()
+            .map(|s| s.0.clone())
+            .unwrap_or_default();
+        // Bind the landed key (#1220 f119). `accept_gift` renames on a
+        // collision - "lantern" becomes "lantern_2" - and discarding the key
+        // meant the one moment a gift becomes yours was the least confirmed
+        // event in the lifecycle, under a name the recipient was never shown.
+        let (key, payload) =
+            crate::ui::inventory::accept_gift(&mut live.0, &stored, &dialog.item_name, item);
+        self.session_log.info(
+            now,
+            EventPayload::ItemOfferUserResponded {
+                offer_id: dialog.offer_id,
+                accepted: true,
+            },
+        );
+        let saving = crate::ui::inventory::after_gift_landed(
+            crate::ui::inventory::Landed {
+                key: &key,
+                offered: &dialog.item_name,
+                payload,
+                stored,
+                publish,
+            },
+            &mut crate::ui::inventory::LandingSinks {
+                commands: &mut self.commands,
+                session: self.session.as_deref(),
+                refresh: self.refresh_ctx.as_deref(),
+                recovery: self.inventory_recovery.is_some(),
+                feedback: self.inventory_feedback.reborrow(),
+                toasts: &mut self.toasts,
+            },
+            now,
+        );
+        Some(AcceptedGift { key, saving })
+    }
+
+    /// Start fetching an accepted world from the giver's saved copy (#1844):
+    /// from the data server of the relay-authenticated sender the offer
+    /// arrived under, never any DID the payload names. It lands, and the
+    /// sender hears the answer, when the parts arrive.
+    fn fetch_given_world(
+        &mut self,
+        dialog: &IncomingOfferDialog,
+        head: &crate::pds::inventory::WorldHead,
+        publish: bool,
+        now: f64,
+    ) {
+        let Some(recipient) = self.session.as_deref().map(|s| s.did.clone()) else {
+            warn!("A world was accepted with nobody signed in; nothing was fetched");
+            return;
+        };
+        let fetch = self.gift_fetch.as_deref().cloned().unwrap_or_default();
+        crate::ui::inventory::gift_world::spawn_gift_world_task(
+            &mut self.commands,
+            &fetch,
+            crate::ui::inventory::gift_world::GiftWorldOffer {
+                offer_id: dialog.offer_id,
+                giver_did: &dialog.sender_did,
+                giver_label: dialog.sender_label.addressed(),
+                recipient_did: &recipient,
+                name: &dialog.item_name,
+                head,
+                publish,
+                arrived_at_epoch: dialog.arrived_at_epoch,
+            },
+            now,
+        );
+        self.toasts.info(
+            format!(
+                "Fetching \"{}\" from {}'s saved copy\u{2026}",
+                dialog.item_name,
+                dialog.sender_label.addressed()
+            ),
+            now,
+        );
+    }
 }
 
-#[derive(Clone, Copy)]
+/// How large an offered item is (#843, #1844): a thing's or an avatar's
+/// serialised size, a world's head's word for its saved JSON.
+fn offer_bytes(item: &GiftItem) -> Option<usize> {
+    match item {
+        GiftItem::Generator { generator, .. } => {
+            crate::pds::record_size::serialized_record_bytes(generator)
+        }
+        GiftItem::Avatar(avatar) => crate::pds::record_size::serialized_record_bytes(avatar),
+        GiftItem::World(head) => usize::try_from(head.bytes).ok(),
+    }
+}
+
+/// What kind of thing is offered, as a person reads it (#1267 f214, #1844):
+/// a thing's kind, or an avatar's or a world's.
+fn offer_kind_label(item: &GiftItem) -> String {
+    match item {
+        // #1267 f214: a visitor deciding whether to accept a gift was told
+        // what kind of thing it is as "BlobGroup".
+        GiftItem::Generator { generator, .. } => {
+            crate::pds::GeneratorKind::display_name(generator.kind_tag()).to_owned()
+        }
+        GiftItem::Avatar(avatar) => format!("Avatar \u{b7} {}", avatar.kind().label()),
+        GiftItem::World(head) => format!("World \u{b7} {}", head.summary.kind_label()),
+    }
+}
+
+/// What accepting a whole item does, said before the click (#1844): an
+/// avatar goes into the Inventory and the one worn stays on; a world is
+/// fetched from the giver's saved copy and changes nothing in the
+/// recipient's own world. `None` for a thing.
+fn offer_note(item: &GiftItem, giver: &PeerLabel) -> Option<String> {
+    match item {
+        GiftItem::Generator { .. } => None,
+        GiftItem::Avatar(_) => Some(String::from(
+            "It goes into your Inventory - the avatar you have on stays on.",
+        )),
+        GiftItem::World(_) => {
+            let whose = if giver.is_named() {
+                format!("{}'s", giver.addressed())
+            } else {
+                String::from("the sender's")
+            };
+            Some(format!(
+                "Its contents are fetched from {whose} saved copy when you accept, and it goes \
+                 into your Inventory - nothing in your own world changes."
+            ))
+        }
+    }
+}
+
+/// Why Accept cannot take `item` right now, or `None` when it can
+/// (#1220 f302, #1844): the stash has not loaded, or is full, or - for a
+/// world, whose landing saves records of a collection of their own - the
+/// sign-in's grant `scope` cannot write them
+/// ([`crate::pds::inventory::world::grant_covers_parts`]). Decline and Mute &
+/// Decline work whatever this says.
+pub(crate) fn accept_blocked_reason(
+    item: &GiftItem,
+    live: Option<&InventoryRecord>,
+    scope: Option<&str>,
+) -> Option<&'static str> {
+    let Some(live) = live else {
+        return Some("Your inventory hasn't loaded - nothing can be accepted into it yet.");
+    };
+    if live.is_full() {
+        return Some("Your inventory is full - free a slot with \"Make room for it\".");
+    }
+    accept_grant_refusal(item, scope)
+}
+
+/// Why a sign-in whose grant is `scope` cannot accept `item`, or `None`
+/// when it can (#1844): a world's landing saves records of a collection of
+/// their own, which a grant from before it cannot write. The part of
+/// [`accept_blocked_reason`] the agent client asks on its own (#1847),
+/// where the stash's other answers are its own words.
+pub(crate) fn accept_grant_refusal(item: &GiftItem, scope: Option<&str>) -> Option<&'static str> {
+    (matches!(item, GiftItem::World(_))
+        && scope.is_some_and(|scope| !crate::pds::inventory::world::grant_covers_parts(scope)))
+    .then_some(crate::pds::inventory::world::SIGN_IN_AGAIN)
+}
+
+/// The modal's answers (#1220 f302, #1844): Accept - disabled when
+/// `accept_blocked` says why, and the reason PAINTED above it, since egui
+/// shows no hover text on a disabled control (#1289) and the user is on a
+/// countdown - then Decline and Mute & Decline, which always work. A widget
+/// function so a test can drive it.
+fn answer_row(ui: &mut egui::Ui, accept_blocked: Option<&str>) -> Option<OfferAction> {
+    let mut action = None;
+    if let Some(reason) = accept_blocked {
+        ui.add(
+            egui::Label::new(
+                egui::RichText::new(reason).color(crate::ui::theme::current(ui.ctx()).status.error),
+            )
+            .wrap(),
+        );
+    }
+    ui.horizontal(|ui| {
+        let accept = ui
+            .add_enabled(
+                accept_blocked.is_none(),
+                egui::Button::new(
+                    egui::RichText::new("Accept")
+                        .color(crate::ui::theme::current(ui.ctx()).status.ok),
+                ),
+            )
+            .on_disabled_hover_text(accept_blocked.unwrap_or_default());
+        if accept.clicked() {
+            action = Some(OfferAction::Accept);
+        }
+        if ui.button("Decline").clicked() {
+            action = Some(OfferAction::Decline);
+        }
+        if ui
+            .add(egui::Button::new(
+                egui::RichText::new("Mute & Decline")
+                    .color(crate::ui::theme::current(ui.ctx()).status.error),
+            ))
+            .clicked()
+        {
+            action = Some(OfferAction::MuteAndDecline);
+        }
+    });
+    action
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum OfferAction {
     Accept,
     Decline,
@@ -1185,6 +1350,245 @@ enum OfferAction {
 mod gate_tests {
     use super::*;
     use bevy_symbios_multiuser::prelude::PeerId;
+
+    const THING: GiftKind = GiftKind::Generator;
+
+    /// A peer whose build reads `compat` at `NOW`.
+    const NOW: f64 = 10.0;
+    fn on_build(compat: Option<u16>, connected_at: f64) -> RemotePeer {
+        RemotePeer {
+            build: compat.map(|protocol| crate::state::PeerBuild {
+                protocol,
+                build: String::from("0.8.0+abcdef1"),
+            }),
+            connected_at,
+            ..peer(Some("did:plc:them"), false)
+        }
+    }
+
+    /// #1844. A whole avatar or world goes only to a build that can take
+    /// one: not to a peer still announcing, nor to one that never did, nor
+    /// to one on protocol 5 - each refused with its own sentence - and to
+    /// protocol 6 or later. A thing goes to all four, as it always has.
+    #[test]
+    fn a_whole_gift_waits_for_a_build_that_can_take_it() {
+        use crate::state::PeerCompatibility;
+        let pending = on_build(None, NOW);
+        let unannounced = on_build(None, 0.0);
+        let five = on_build(Some(5), 0.0);
+        let six = on_build(Some(6), 0.0);
+        let seven = on_build(Some(7), 0.0);
+        assert_eq!(pending.compatibility(NOW), PeerCompatibility::Pending);
+        assert_eq!(
+            unannounced.compatibility(NOW),
+            PeerCompatibility::Unannounced
+        );
+        assert_eq!(five.compatibility(NOW), PeerCompatibility::Mismatched(5));
+        assert_eq!(six.compatibility(NOW), PeerCompatibility::Compatible);
+
+        for whole in [GiftKind::Avatar, GiftKind::World] {
+            let still = gift_block_reason(&pending, true, whole, NOW).expect("waits");
+            assert!(still.contains("try again in a moment"), "{still}");
+            for older in [&unannounced, &five] {
+                let why = gift_block_reason(older, true, whole, NOW).expect("refused");
+                assert!(why.contains("older version"), "{why}");
+                assert!(why.contains("whole avatar or world"), "{why}");
+            }
+            assert_eq!(gift_block_reason(&six, true, whole, NOW), None);
+            assert_eq!(gift_block_reason(&seven, true, whole, NOW), None, "newer");
+        }
+        for peer in [&pending, &unannounced, &five, &six] {
+            assert_eq!(gift_block_reason(peer, true, THING, NOW), None);
+        }
+        // The older gates still come first.
+        let muted = RemotePeer {
+            muted: true,
+            ..on_build(Some(5), 0.0)
+        };
+        assert!(
+            gift_block_reason(&muted, true, GiftKind::World, NOW)
+                .is_some_and(|why| why.contains("muted"))
+        );
+    }
+
+    /// The painted text one frame of [`answer_row`] drew, and what it was
+    /// asked for, with the pointer events given.
+    fn answer_frame(
+        ctx: &egui::Context,
+        frame: &mut u32,
+        blocked: Option<&str>,
+        events: Vec<egui::Event>,
+    ) -> (Option<OfferAction>, Vec<String>, Vec<(String, egui::Pos2)>) {
+        *frame += 1;
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(400.0, 300.0),
+            )),
+            time: Some(f64::from(*frame) / 60.0),
+            events,
+            ..Default::default()
+        };
+        let mut action = None;
+        let output = ctx.run_ui(input, |ui| {
+            action = answer_row(ui, blocked);
+        });
+        fn texts_of(shape: &egui::Shape, out: &mut Vec<String>) {
+            match shape {
+                egui::Shape::Text(text) => out.push(text.galley.text().to_string()),
+                egui::Shape::Vec(shapes) => {
+                    for shape in shapes {
+                        texts_of(shape, out);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut texts = Vec::new();
+        for clipped in &output.shapes {
+            texts_of(&clipped.shape, &mut texts);
+        }
+        let nodes = output
+            .platform_output
+            .accesskit_update
+            .map(|update| {
+                update
+                    .nodes
+                    .iter()
+                    .filter_map(|(_, node)| {
+                        let label = node.label()?.to_string();
+                        let b = node.bounds()?;
+                        Some((
+                            label,
+                            egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32),
+                        ))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        (action, texts, nodes)
+    }
+
+    fn press(pos: egui::Pos2, pressed: bool) -> egui::Event {
+        egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        }
+    }
+
+    /// Click the button labelled `label` in [`answer_row`] and say what it
+    /// asked for.
+    fn click(blocked: Option<&str>, label: &str) -> (Option<OfferAction>, Vec<String>) {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut frame = 0;
+        let (_, painted, nodes) = answer_frame(&ctx, &mut frame, blocked, vec![]);
+        let at = nodes
+            .iter()
+            .find(|(name, _)| name == label)
+            .map(|(_, at)| *at)
+            .unwrap_or_else(|| panic!("the row draws {label}: {nodes:?}"));
+        answer_frame(
+            &ctx,
+            &mut frame,
+            blocked,
+            vec![egui::Event::PointerMoved(at)],
+        );
+        answer_frame(&ctx, &mut frame, blocked, vec![press(at, true)]);
+        let (action, _, _) = answer_frame(&ctx, &mut frame, blocked, vec![press(at, false)]);
+        (action, painted)
+    }
+
+    /// #1844, #1289. A sign-in whose grant cannot write a world's parts
+    /// cannot accept a world: Accept does nothing, and the reason is PAINTED,
+    /// since egui shows no hover on a disabled control, in the words a save
+    /// would refuse it with. Decline and Mute & Decline still work, and a
+    /// thing is not refused by the same grant.
+    #[test]
+    fn accept_of_a_world_is_disabled_and_says_why_on_a_grant_without_parts() {
+        let head = crate::pds::inventory::WorldItem::snapshot(
+            &crate::pds::inventory::world::tests::seeded_world(61),
+        )
+        .expect("copies")
+        .head()
+        .clone();
+        let world = GiftItem::World(head);
+        let a_thing = GiftItem::Generator {
+            generator: Box::new(crate::pds::Generator::default_cuboid()),
+            wear: None,
+        };
+        let stash = InventoryRecord::default();
+        let old_grant = format!("atproto repo:{}", crate::pds::INVENTORY_ITEM_COLLECTION);
+        let new_grant = format!("{old_grant} repo:{}", crate::pds::INVENTORY_PART_COLLECTION);
+        let reason =
+            accept_blocked_reason(&world, Some(&stash), Some(&old_grant)).expect("refused");
+        assert_eq!(reason, crate::pds::inventory::world::SIGN_IN_AGAIN);
+        assert_eq!(
+            accept_blocked_reason(&world, Some(&stash), Some(&new_grant)),
+            None
+        );
+        assert_eq!(
+            accept_blocked_reason(&a_thing, Some(&stash), Some(&old_grant)),
+            None
+        );
+        assert!(
+            accept_blocked_reason(&a_thing, None, None).is_some(),
+            "not loaded"
+        );
+
+        let (accepted, painted) = click(Some(reason), "Accept");
+        assert_eq!(accepted, None, "a disabled Accept does nothing");
+        assert!(
+            painted.iter().any(|text| text == reason),
+            "the reason is painted, not hidden in a hover: {painted:?}"
+        );
+        assert_eq!(click(Some(reason), "Decline").0, Some(OfferAction::Decline));
+        assert_eq!(
+            click(Some(reason), "Mute & Decline").0,
+            Some(OfferAction::MuteAndDecline)
+        );
+        let (accepted, painted) = click(None, "Accept");
+        assert_eq!(accepted, Some(OfferAction::Accept));
+        assert!(!painted.iter().any(|text| text == reason));
+    }
+
+    /// #1844. The modal names what is offered and how large - an avatar's
+    /// kind and size, a world's kind and its head's size - and what Accept
+    /// does to the recipient's own avatar and world: nothing.
+    #[test]
+    fn the_offer_says_what_a_whole_item_is_and_what_accepting_it_does() {
+        use crate::pds::inventory::avatar_item_tests::rigged_record;
+        let avatar =
+            crate::pds::inventory::AvatarItem::from_record(&rigged_record()).expect("copies");
+        let item = GiftItem::Avatar(Box::new(avatar.clone()));
+        assert_eq!(offer_kind_label(&item), "Avatar \u{b7} person");
+        assert_eq!(
+            offer_bytes(&item),
+            crate::pds::record_size::serialized_record_bytes(&avatar)
+        );
+        let giver = PeerLabel::new(Some("giver.test"), Some("did:plc:giver"));
+        assert!(offer_note(&item, &giver).is_some_and(|note| note.contains("stays on")));
+
+        let head = crate::pds::inventory::WorldItem::snapshot(
+            &crate::pds::inventory::world::tests::seeded_world(62),
+        )
+        .expect("copies")
+        .head()
+        .clone();
+        let world = GiftItem::World(head.clone());
+        assert_eq!(offer_kind_label(&world), "World \u{b7} a procedural world");
+        assert_eq!(offer_bytes(&world), Some(head.bytes as usize));
+        let note = offer_note(&world, &giver).expect("a note");
+        assert!(note.contains("@giver.test's saved copy"), "{note}");
+        assert!(note.contains("nothing in your own world changes"), "{note}");
+        let a_thing = GiftItem::Generator {
+            generator: Box::new(crate::pds::Generator::default_cuboid()),
+            wear: None,
+        };
+        assert_eq!(offer_note(&a_thing, &giver), None);
+    }
 
     fn peer_id(last: u8) -> PeerId {
         serde_json::from_str::<PeerId>(&format!("\"00000000-0000-0000-0000-0000000000{last:02}\""))
@@ -1276,16 +1680,18 @@ mod gate_tests {
     #[test]
     fn every_reason_a_row_cannot_take_a_gift_has_a_sentence() {
         assert_eq!(
-            gift_block_reason(&peer(Some("did:plc:them"), false), true),
+            gift_block_reason(&peer(Some("did:plc:them"), false), true, THING, 0.0),
             None
         );
 
-        let unidentified = gift_block_reason(&peer(None, false), true).expect("blocked");
+        let unidentified =
+            gift_block_reason(&peer(None, false), true, THING, 0.0).expect("blocked");
         assert!(unidentified.contains("identifying"), "{unidentified}");
-        let muted = gift_block_reason(&peer(Some("did:plc:them"), true), true).expect("blocked");
+        let muted = gift_block_reason(&peer(Some("did:plc:them"), true), true, THING, 0.0)
+            .expect("blocked");
         assert!(muted.contains("muted"), "{muted}");
-        let offline =
-            gift_block_reason(&peer(Some("did:plc:them"), false), false).expect("blocked");
+        let offline = gift_block_reason(&peer(Some("did:plc:them"), false), false, THING, 0.0)
+            .expect("blocked");
         assert!(offline.contains("connected"), "{offline}");
     }
 
@@ -1294,7 +1700,7 @@ mod gate_tests {
     /// is the wrong sentence.
     #[test]
     fn a_mute_outranks_a_missing_identity_in_the_gift_reason() {
-        let reason = gift_block_reason(&peer(None, true), true).expect("blocked");
+        let reason = gift_block_reason(&peer(None, true), true, THING, 0.0).expect("blocked");
         assert!(reason.contains("muted"), "{reason}");
     }
 

@@ -3,6 +3,12 @@
 //! inventory→room placement, or a room→room placement depending on
 //! whether the cursor was over a peer row in the People panel and which
 //! [`DropSource`] armed the drag.
+//!
+//! A whole avatar or world (#1844) arms a gift-only drag: released on a
+//! People row it is offered like a thing - an avatar by value, a world by
+//! its head, and a world only once every part it names is in the saved
+//! stash - while the ground preview never draws for it and a release over
+//! the world view places nothing and says so.
 
 use std::collections::HashMap;
 
@@ -16,8 +22,11 @@ use bevy_symbios_multiuser::prelude::*;
 use crate::diagnostics::SessionLog;
 use crate::diagnostics::event::EventPayload;
 use crate::pds::{Fp3, Fp4, Generator, Placement, TransformData};
-use crate::protocol::OverlandsMessage;
-use crate::state::{CurrentRoomDid, LiveInventoryRecord, LiveRoomRecord, PendingOutgoingOffers};
+use crate::protocol::{GiftItem, GiftKind, OverlandsMessage};
+use crate::state::{
+    CurrentRoomDid, LiveInventoryRecord, LiveRoomRecord, PendingOutgoingOffers,
+    StoredInventoryRecord,
+};
 
 use crate::pds::inventory::is_drop_placeable;
 
@@ -36,6 +45,9 @@ use super::{DropSource, PendingGeneratorDrop};
 ///   `Placement::Absolute`.
 /// * [`DropSource::Catalogue`] release over the 3D viewport - resolve
 ///   the slug and stamp a fresh deep-copied blueprint the same way.
+///
+/// A whole avatar or world (#1844) takes the first path only: released
+/// over the viewport it places nothing and one toast says so.
 ///
 /// The peer branch fires even when the local user does not own the current
 /// room - gifting is a personal transaction between two players and
@@ -71,17 +83,20 @@ pub(crate) fn handle_generator_drop(
     mut session_log: ResMut<SessionLog>,
     mut sender: SendMessage<OverlandsMessage>,
     mut chunk: crate::network::chunk::ChunkSend,
-    // Bundled to stay under Bevy's 16-parameter ceiling.
-    (time, mut toasts, mut undo_labels): (
+    // Bundled to stay under Bevy's 16-parameter ceiling. The stored stash
+    // says whether a world is saved, and so can be given (#1844).
+    (time, mut toasts, mut undo_labels, stored_inventory): (
         Res<Time>,
         ResMut<crate::notify::Toasts>,
         ResMut<crate::ui::undo::PendingUndoLabels>,
+        Option<Res<StoredInventoryRecord>>,
     ),
 ) {
     let Some(name) = pending.generator_name.clone() else {
         return;
     };
     let source = pending.source;
+    let kind = pending.kind;
     let peer_target = pending.peer_target.clone();
 
     // The drag only commits on the frame the button is released. Every other
@@ -125,32 +140,47 @@ pub(crate) fn handle_generator_drop(
             );
             return;
         }
-        // The sender still needs the source `Generator` in hand; pull it
-        // from the same sources the ground-placement branches use so
-        // both drop origins can gift.
+        // The sender still needs the item in hand; pull it from the same
+        // sources the ground-placement branches use so both drop origins
+        // can gift.
         let Some(sess) = session.as_deref() else {
             return;
         };
-        let Some((generator, wear)) = gift_contents(
+        let Some(gift) = gift_contents(
             source,
             &name,
             inventory.as_deref().map(|inv| &inv.0),
             &sess.did,
         ) else {
-            warn!("Peer-gift drop: source generator '{}' not found", name);
+            warn!("Peer-gift drop: source item '{}' not found", name);
             return;
         };
-        if !is_drop_placeable(&generator) {
-            // Same filter the UI uses to gate drag-start; defence-in-depth
-            // in case a non-placeable kind slipped through.
-            return;
+        match &gift {
+            // Same filters the UI uses to gate drag-start; defence-in-depth
+            // in case an item that cannot be given slipped through.
+            GiftItem::Generator { generator, .. } if !is_drop_placeable(generator) => return,
+            GiftItem::Avatar(avatar) if !avatar.is_readable() => return,
+            // A world goes from the saved copy (#1844), and a save may have
+            // moved under the drag: asked again on the release, and said.
+            GiftItem::World(head) => {
+                if let Some(reason) = crate::pds::inventory::world::gift_blocked_reason(
+                    head,
+                    stored_inventory.as_deref().map(|stored| &stored.0.worlds),
+                ) {
+                    toasts.info(
+                        format!("Couldn't give \"{name}\" to {} - {reason}", target.label),
+                        time.elapsed_secs_f64(),
+                    );
+                    return;
+                }
+            }
+            _ => {}
         }
         send_gift_offer(
             &target.did,
             &target.label,
             &name,
-            &generator,
-            wear.as_ref(),
+            &gift,
             &mut GiftSending {
                 pending_offers: &mut pending_offers,
                 session_log: &mut session_log,
@@ -177,6 +207,13 @@ pub(crate) fn handle_generator_drop(
         return;
     };
     if ctx.is_pointer_over_egui() {
+        return;
+    }
+    // A whole avatar or world is given, never placed (#1844): the drag that
+    // carries one is gift-only, so a release over the world view says so
+    // rather than vanishing - in any world, the owner's own included.
+    if let Some(line) = whole_release_refusal(kind, &name) {
+        toasts.info(line, time.elapsed_secs_f64());
         return;
     }
 
@@ -335,30 +372,60 @@ fn place_drop(record: &mut crate::pds::RoomRecord, gen_key: &str, hit_point: Vec
     crate::ui::room::settle_edit(record);
 }
 
-/// What a gift of `name` from `source` carries: the tree, and the wear
-/// metadata that rides along with it (#1108) - from the stash's own item
-/// and its side table, or built fresh for `did` from the catalogue entry
-/// and minted from its declaration, the same two sources the local
-/// Copy-to-inventory and Wear flows read. `None` when there is no such
-/// item. Shared by the drag and the agent client's `gift give` (#1423).
+/// What a release over the world view says about a drag of `kind` (#1844):
+/// a whole avatar or world places nothing, so the one toast names the
+/// gesture that does give it. `None` for a thing, which the placement path
+/// takes from here.
+pub(crate) fn whole_release_refusal(kind: GiftKind, name: &str) -> Option<String> {
+    let what = match kind {
+        GiftKind::Generator => return None,
+        GiftKind::Avatar => "an avatar",
+        GiftKind::World => "a world",
+    };
+    Some(format!(
+        "\"{name}\" is {what}, so nothing was placed - drop it on a person in the People list \
+         to give it."
+    ))
+}
+
+/// What a gift of `name` from `source` gives (#1844): a stash item's tree
+/// and the wear metadata in its side table (#1108), a whole avatar by value,
+/// or a whole world's head; or a catalogue entry's tree built fresh for
+/// `did`, with wear minted from its declaration - the same two sources the
+/// local Copy-to-inventory and Wear flows read. Catalogue avatars and worlds
+/// are not given (the recipient has the same Catalogue), so a slug names a
+/// thing or nothing. `None` when there is no such item. Shared by the drag
+/// and the agent client's `gift give` (#1423).
 pub(crate) fn gift_contents(
     source: DropSource,
     name: &str,
     inventory: Option<&crate::pds::InventoryRecord>,
     did: &str,
-) -> Option<(Generator, Option<crate::pds::inventory::WearMeta>)> {
+) -> Option<GiftItem> {
     match source {
-        DropSource::Inventory => inventory.and_then(|inv| {
-            inv.generators
+        DropSource::Inventory => {
+            let inv = inventory?;
+            if let Some(generator) = inv.generators.get(name) {
+                return Some(GiftItem::Generator {
+                    generator: Box::new(generator.clone()),
+                    wear: inv.wear.get(name).cloned(),
+                });
+            }
+            if let Some(avatar) = inv.avatars.get(name) {
+                return Some(GiftItem::Avatar(Box::new(avatar.clone())));
+            }
+            inv.worlds
                 .get(name)
-                .cloned()
-                .map(|generator| (generator, inv.wear.get(name).cloned()))
-        }),
+                .map(|world| GiftItem::World(world.head().clone()))
+        }
         DropSource::Catalogue => crate::catalogue::by_slug(name).map(|entry| {
             let wear = entry
                 .wear_socket()
                 .map(|socket| crate::pds::inventory::WearMeta::for_entry(socket, entry.wear_fit()));
-            (entry.build(did), wear)
+            GiftItem::Generator {
+                generator: Box::new(entry.build(did)),
+                wear,
+            }
         }),
     }
 }
@@ -373,21 +440,22 @@ pub(crate) struct GiftSending<'a, 'm, 'c> {
     pub toasts: &'a mut crate::notify::Toasts,
 }
 
-/// Offer `generator` to `target_did` as `item_name`: send it and keep the
+/// Offer `gift` to `target_did` as `item_name`: send it and keep the
 /// offer pending until it is answered or lapses - the one path the drag and
 /// the agent client's `gift give` share (#1423). The offer's id once it has
 /// gone out; `None` when the transport refused it, which a toast says.
 ///
 /// Routed through the chunker (#717): a gifted `Generator` can be a large
-/// Shape-grammar / L-system blueprint whose `generator_json` pushes the
-/// offer past the 64 KiB WebRTC message ceiling, which would otherwise fail
-/// silently and leave the recipient without the gift.
+/// Shape-grammar / L-system blueprint, and a whole avatar (#1844) carries
+/// every prop it wears, either pushing the offer past the 64 KiB WebRTC
+/// message ceiling, which would otherwise fail silently and leave the
+/// recipient without the gift. Past the chunker's own reliable cap the send
+/// is refused, and the sender's toast says the item is too large.
 pub(crate) fn send_gift_offer(
     target_did: &str,
     target_label: &str,
     item_name: &str,
-    generator: &Generator,
-    wear: Option<&crate::pds::inventory::WearMeta>,
+    gift: &GiftItem,
     to: &mut GiftSending<'_, '_, '_>,
     now: f64,
 ) -> Option<u64> {
@@ -396,13 +464,7 @@ pub(crate) fn send_gift_offer(
         to.sender,
         to.session_log,
         now,
-        OverlandsMessage::item_offer(
-            offer_id,
-            target_did.to_owned(),
-            item_name.to_owned(),
-            generator,
-            wear,
-        ),
+        OverlandsMessage::item_offer(offer_id, target_did.to_owned(), item_name.to_owned(), gift),
     );
     let sent = outcome.is_sent();
     record_gift_outcome(
@@ -467,7 +529,8 @@ pub(crate) fn choose_room_generator_key(
 /// mid-drag. Green = a release here places; red = the ground can't take
 /// it (visiting someone else's overland - gift on a People row instead).
 /// Over egui areas nothing draws: the follow-cursor tooltip is the
-/// feedback there, and a release there is the cancel gesture.
+/// feedback there, and a release there is the cancel gesture. Nor for a
+/// whole avatar or world (#1844), which no release places.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn preview_generator_drop(
     mut contexts: EguiContexts,
@@ -485,6 +548,11 @@ pub(crate) fn preview_generator_drop(
     let Some(name) = pending.generator_name.as_ref() else {
         return;
     };
+    // A whole avatar or world places nothing (#1844), so there is no spot
+    // to mark: the follow-cursor tooltip says where it goes instead.
+    if pending.kind.is_whole() {
+        return;
+    }
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
     };
@@ -737,6 +805,46 @@ mod gift_outcome_tests {
 #[cfg(test)]
 mod place_drop_tests {
     use super::*;
+
+    /// #1844. A whole avatar or world released over the world view places
+    /// nothing - in the owner's own world too - and the one toast names the
+    /// gesture that gives it; a thing goes on to the placement path.
+    #[test]
+    fn a_whole_item_released_over_the_world_places_nothing_and_says_so() {
+        for (kind, what) in [
+            (GiftKind::Avatar, "an avatar"),
+            (GiftKind::World, "a world"),
+        ] {
+            let line = whole_release_refusal(kind, "harbour").expect("refused");
+            assert!(line.contains("\"harbour\""), "{line}");
+            assert!(line.contains(what), "{line}");
+            assert!(line.contains("nothing was placed"), "{line}");
+            assert!(line.contains("People list"), "{line}");
+        }
+        assert_eq!(whole_release_refusal(GiftKind::Generator, "lamp"), None);
+    }
+
+    /// #1844. What a stash gives, by kind: a thing with its wear, an avatar
+    /// by value, a world by its head alone.
+    #[test]
+    fn a_stash_gives_each_kind_as_itself() {
+        use crate::pds::inventory::avatar_item_tests::generator_record;
+        let mut stash = crate::pds::InventoryRecord::default();
+        stash.put_item(String::from("lamp"), Generator::default_cuboid(), None);
+        let avatar =
+            crate::pds::inventory::AvatarItem::from_record(&generator_record()).expect("copies");
+        stash.put_avatar(String::from("ride"), avatar.clone());
+        let world = crate::pds::inventory::WorldItem::snapshot(
+            &crate::pds::inventory::world::tests::seeded_world(81),
+        )
+        .expect("copies");
+        stash.put_world(String::from("harbour"), world.clone());
+        let give = |name| gift_contents(DropSource::Inventory, name, Some(&stash), "did:plc:me");
+        assert!(matches!(give("lamp"), Some(GiftItem::Generator { .. })));
+        assert!(matches!(give("ride"), Some(GiftItem::Avatar(a)) if *a == avatar));
+        assert!(matches!(give("harbour"), Some(GiftItem::World(h)) if &h == world.head()));
+        assert!(give("nothing").is_none());
+    }
 
     /// A drop lands where every peer will read it (#1707): the raycast
     /// point is off the wire's grid, and the placement stands on the grid.

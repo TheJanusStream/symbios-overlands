@@ -570,6 +570,12 @@ fn load_ended(event: serde_json::Value) -> Response {
     ended(event, "world_load_failed", "the world did not load")
 }
 
+/// What `gift accept --wait` prints once a given world has landed or not
+/// (#1844) - see [`save_ended`].
+fn gift_world_ended(event: serde_json::Value) -> Response {
+    ended(event, "gift_world_not_landed", "the world did not land")
+}
+
 /// A waited-for ending as the answer: the event as the result, and - when
 /// its kind is `failed` - a refusal too, its reason the error.
 fn ended(event: serde_json::Value, failed: &str, fallback: &str) -> Response {
@@ -586,7 +592,9 @@ fn ended(event: serde_json::Value, failed: &str, fallback: &str) -> Response {
 
 /// `gift give|accept|decline`. A gift goes to a player named by DID or by
 /// handle, looked up here; with `--wait` its answer is followed on the event
-/// log - a lapsed offer answers too, so the wait ends.
+/// log - a lapsed offer answers too, so the wait ends, and a world given is
+/// answered once it has landed with them. An accepted world lands after its
+/// answer (`fetching`), and `accept --wait` follows it to its landing.
 pub(super) fn gift(args: GiftArgs) -> Result<ExitCode, String> {
     match args.action {
         GiftAction::Give(give) => {
@@ -618,12 +626,35 @@ pub(super) fn gift(args: GiftArgs) -> Result<ExitCode, String> {
             })?;
             print_response(&Response::success(answered))
         }
-        GiftAction::Accept(offer) => ask(
-            offer.account.name.as_deref(),
-            Request::GiftAccept {
-                offer_id: offer.offer_id,
-            },
-        ),
+        GiftAction::Accept(accept) => {
+            let socket = socket_for(accept.offer.account.name.as_deref())?;
+            let offer_id = accept.offer.offer_id;
+            let started = control::client::call(&socket, &Request::GiftAccept { offer_id })?;
+            let Some(result) = started
+                .result
+                .as_ref()
+                .filter(|_| accept.wait && started.ok)
+            else {
+                return print_response(&started);
+            };
+            // Landed already: anything but a world lands with the answer.
+            let (Some(_), Some(since)) =
+                (result["fetching"].as_str(), result["events_seq"].as_u64())
+            else {
+                return print_response(&started);
+            };
+            let landed = wait_for_event(&socket, since, config::agent::GIFT_WAIT, |event| {
+                (event["kind"] == "gift_world_landed" || event["kind"] == "gift_world_not_landed")
+                    && event["offer_id"].as_u64() == Some(offer_id)
+            })
+            .map_err(|waited| {
+                format!(
+                    "the world had not landed after {} s; it may yet, and `agent events` says",
+                    waited.as_secs()
+                )
+            })?;
+            print_response(&gift_world_ended(landed))
+        }
         GiftAction::Decline(offer) => ask(
             offer.account.name.as_deref(),
             Request::GiftDecline {
@@ -662,7 +693,7 @@ pub(super) fn ui(args: UiArgs) -> Result<ExitCode, String> {
 mod tests {
     use serde_json::json;
 
-    use super::{drive_segment, load_ended, save_ended, stand_off, xz};
+    use super::{drive_segment, gift_world_ended, load_ended, save_ended, stand_off, xz};
 
     /// #1527: `KEYS@SECONDS`, keys joined by `+`, `none` for none; the keys'
     /// names are the daemon's to check, the shape is this side's.
@@ -754,6 +785,45 @@ mod tests {
                 "ok": false,
                 "result": failed,
                 "error": "you are no longer in your own world, so nothing was loaded",
+            })
+        );
+    }
+
+    /// `gift accept --wait` (#1844) ends as `load --wait` does: a world that
+    /// landed is the result, one that did not a refusal with its reason - so
+    /// the command exits non-zero when the gift was lost.
+    #[test]
+    fn a_given_worlds_ending_is_wrapped_like_a_loads() {
+        let landed = json!({
+            "kind": "gift_world_landed",
+            "offer_id": 0,
+            "from_did": "did:plc:admin",
+            "item": "Harbour",
+            "as": "Harbour",
+            "saving": true,
+            "seq": 5,
+            "at": 3,
+        });
+        let not_landed = json!({
+            "kind": "gift_world_not_landed",
+            "offer_id": 0,
+            "from_did": "did:plc:admin",
+            "item": "Harbour",
+            "reason": "the inventory filled up while it was fetched",
+            "seq": 6,
+            "at": 4,
+        });
+
+        assert_eq!(
+            serde_json::to_value(gift_world_ended(landed.clone())).unwrap(),
+            json!({ "ok": true, "result": landed })
+        );
+        assert_eq!(
+            serde_json::to_value(gift_world_ended(not_landed.clone())).unwrap(),
+            json!({
+                "ok": false,
+                "result": not_landed,
+                "error": "the inventory filled up while it was fetched",
             })
         );
     }

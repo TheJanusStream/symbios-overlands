@@ -450,22 +450,26 @@ mod sweep {
         // Avatar, Inventory, World Editor: one definition-or-call each for
         // the Save row's Save and its recovery "Save anyway" - both
         // refused - and the World Editor's "Reset stored world", refused.
+        // The Inventory's third is the save a gift's landing starts
+        // (`after_gift_landed`, #1844): the offer dialog's Accept, which the
+        // daemon never draws, and a given world's fetch landing, which no
+        // control does.
         ("src/ui/avatar/mod.rs", "spawn_publish_avatar_task(", 2),
         (
             "src/ui/inventory/mod.rs",
             "spawn_publish_inventory_task(",
-            2,
+            3,
         ),
         ("src/ui/room/mod.rs", "spawn_room_publish_task(", 1),
         ("src/ui/room/mod.rs", "spawn_reset_task(", 1),
         // People: Visit, the row's menu (Copy account id, Open Bluesky
-        // profile) and Mute - refused. Its second mute and its inventory
-        // save are the offer dialog's, which the daemon never draws.
+        // profile) and Mute - refused. Its second mute is the offer
+        // dialog's, which the daemon never draws; the dialog's inventory
+        // save moved to the Inventory's gift landing (#1844).
         ("src/ui/people.rs", ".copy(", 1),
         ("src/ui/people.rs", "GuardedAction::PortalTravel", 1),
         ("src/ui/people.rs", "open_url_in_browser(", 1),
         ("src/ui/people.rs", "set_peer_mute(", 2),
-        ("src/ui/people.rs", "spawn_publish_inventory_task(", 1),
         // Settings: the muted list's Unmute and Copy id - refused.
         ("src/ui/settings.rs", ".copy(", 1),
         ("src/ui/settings.rs", "set_peer_mute(", 1),

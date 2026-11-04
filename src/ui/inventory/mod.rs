@@ -5,13 +5,12 @@
 //! saved from the Avatar editor. An avatar row's expansion offers Wear,
 //! which replaces the live avatar in one undo step - unsaved until the
 //! Avatar editor's Save - plus Rename and delete; its pane says what kind of
-//! avatar it is and how many wearables it carries. An avatar row never arms
-//! a drag: an avatar is neither placed nor gifted. Since #1839 the stash
+//! avatar it is and how many wearables it carries. Since #1839 the stash
 //! also holds whole worlds saved from the World Editor: a world row's
 //! expansion offers Load into my world - in your own world only, after a
 //! confirm, replacing the world as a re-roll does, one undo step and unsaved
 //! until the World Editor's Save ([`world`]) - plus Rename and delete; its
-//! pane is a text card, and it never arms a drag either. A click selects a row (#1301): the selected row
+//! pane is a text card. A click selects a row (#1301): the selected row
 //! expands in place to carry that item's controls - Wear / Take off,
 //! Rename, delete - and a pane beside the list pictures it and says what
 //! the row does not ([`browser`]). Once the stash diverges from the
@@ -26,8 +25,8 @@
 //! would need full equality), so the dirty check round-trips through
 //! `serde_json` - same pattern the world editor uses for its Reset button.
 //!
-//! Drag-to-place: each row is a drag source. When the owner releases a drag
-//! over the 3D viewport while standing in their own room,
+//! Drag-to-place: each thing's row is a drag source. When the owner releases
+//! a drag over the 3D viewport while standing in their own room,
 //! [`drop::handle_generator_drop`] raycasts against the terrain and appends
 //! a fresh `Placement::Absolute` to the live `RoomRecord`, copying the
 //! dragged generator into the room's `generators` map on first use.
@@ -35,10 +34,16 @@
 //! Drag-to-gift: releasing the same drag over a peer row in the People
 //! window routes it into an `ItemOffer` instead. Gifting works in ANY room
 //! (#699) - only the ground-placement branch is owner-gated, and the drop
-//! handler enforces that, not the drag source.
+//! handler enforces that, not the drag source. Since #1844 an avatar row,
+//! and a world row whose world is saved, arm a GIFT-ONLY drag: it is
+//! offered the same way and places nothing. An accepted thing or avatar
+//! lands at the click; an accepted world lands when its parts have been
+//! fetched from the giver's saved copy ([`gift_world`]). Every kind lands
+//! by one rule ([`accept_gift`]).
 
 pub(crate) mod browser;
 mod drop;
+pub(crate) mod gift_world;
 pub(crate) mod world;
 
 pub use browser::InventoryBrowser;
@@ -51,6 +56,7 @@ pub(crate) use drop::choose_room_generator_key;
 #[cfg(unix)]
 pub(crate) use drop::{GiftSending, gift_contents, send_gift_offer};
 pub(crate) use drop::{handle_generator_drop, preview_generator_drop};
+pub use gift_world::{GiftWorldFetch, GiftWorldTask, poll_gift_world_tasks};
 pub use world::{LoadWorldTask, WorldLoadsEnded, poll_world_load_tasks};
 
 use browser::{
@@ -279,6 +285,11 @@ pub enum DropSource {
 pub struct PendingGeneratorDrop {
     pub generator_name: Option<String>,
     pub source: DropSource,
+    /// What the drag would give (#1844), set with `generator_name` by the
+    /// row that arms it: a thing, or a whole avatar or world - which the
+    /// People row gates on the peer's build, the ground preview never marks
+    /// and a release over the world view never places.
+    pub kind: crate::protocol::GiftKind,
     pub peer_target: Option<PeerDropTarget>,
 }
 
@@ -313,6 +324,23 @@ pub fn drag_tooltip(ui: &egui::Ui, id_salt: &str, label: &str, owns_room: bool) 
                 "Offer “{label}” - drop on a peer in the People list"
             ));
         }
+    });
+}
+
+/// The follow-the-cursor tooltip a whole avatar's or world's drag carries
+/// (#1844): it places nothing, so the one thing it says is where it goes -
+/// in anyone's world, the owner's own included.
+pub fn gift_drag_tooltip(ui: &egui::Ui, id_salt: &str, label: &str) {
+    egui::Tooltip::always_open(
+        ui.ctx().clone(),
+        ui.layer_id(),
+        egui::Id::new((id_salt, label)),
+        egui::PopupAnchor::Pointer,
+    )
+    .show(|ui| {
+        ui.label(format!(
+            "Give “{label}” - drop it on a person in the People list"
+        ));
     });
 }
 
@@ -1006,23 +1034,38 @@ pub fn inventory_ui(
                                     );
                                 }
                                 for name in &names {
-                                    // A whole world (#1839): click to select,
-                                    // never a drag; Load, Rename and delete
-                                    // in the expansion.
+                                    // A whole world (#1839): click to select;
+                                    // Load, Rename and delete in the
+                                    // expansion. A saved one drags to give
+                                    // (#1844); an unsaved one never drags,
+                                    // and its pane says why.
                                     if let Some(item) = live.0.worlds.get(name) {
                                         let selected = browser.is_selected(name);
                                         let tag = format!("({})", world_tag(item));
-                                        let response =
-                                            stash_row(ui, name, &tag, RowKind::World, selected);
+                                        let giftable =
+                                            crate::pds::inventory::world::gift_blocked_reason(
+                                                item.head(),
+                                                Some(&stored.0.worlds),
+                                            )
+                                            .is_none();
+                                        let kind = RowKind::World { giftable };
+                                        let response = stash_row(ui, name, &tag, kind, selected);
                                         let gesture = RowGesture::of(&response);
                                         if gesture.acts() {
                                             apply_row_gesture(
                                                 gesture,
                                                 name,
+                                                kind,
                                                 browser,
                                                 pending_drop,
                                                 now,
                                             );
+                                        }
+                                        if gesture.dragged
+                                            && pending_drop.generator_name.as_deref()
+                                                == Some(name.as_str())
+                                        {
+                                            gift_drag_tooltip(ui, "inv_drag_tip", name);
                                         }
                                         if selected {
                                             let blocked = world::world_load_blocked_reason(
@@ -1067,10 +1110,19 @@ pub fn inventory_ui(
                                             apply_row_gesture(
                                                 gesture,
                                                 name,
+                                                RowKind::Avatar,
                                                 browser,
                                                 pending_drop,
                                                 now,
                                             );
+                                        }
+                                        // A gift-only drag (#1844): it is
+                                        // given, never placed.
+                                        if gesture.dragged
+                                            && pending_drop.generator_name.as_deref()
+                                                == Some(name.as_str())
+                                        {
+                                            gift_drag_tooltip(ui, "inv_drag_tip", name);
                                         }
                                         if selected {
                                             let blocked =
@@ -1150,6 +1202,7 @@ pub fn inventory_ui(
                                         apply_row_gesture(
                                             gesture,
                                             name,
+                                            kind,
                                             browser,
                                             pending_drop,
                                             now,
@@ -1233,7 +1286,14 @@ pub fn inventory_ui(
                                     if let Some(world) = live.0.worlds.get(name) {
                                         return Some(PaneItem {
                                             name,
-                                            what: PaneWhat::World(world),
+                                            what: PaneWhat::World {
+                                                item: world,
+                                                gift_blocked:
+                                                    crate::pds::inventory::world::gift_blocked_reason(
+                                                        world.head(),
+                                                        Some(&stored.0.worlds),
+                                                    ),
+                                            },
                                         });
                                     }
                                     if let Some(avatar) = live.0.avatars.get(name) {
@@ -1659,6 +1719,40 @@ fn choose_gift_key(is_taken: impl Fn(&str) -> bool, incoming_name: &str) -> Stri
     name
 }
 
+/// What an accepted gift puts in the stash (#1844): a thing with its wear
+/// metadata, a whole avatar, or a whole world - the recipient's OWN snapshot
+/// of the world it fetched and sanitised, never the giver's text.
+#[derive(Clone, Debug)]
+pub enum GiftLanding {
+    /// A generator, and its wear metadata when it is a wearable (#1108).
+    Generator {
+        generator: Box<Generator>,
+        wear: Option<crate::pds::inventory::WearMeta>,
+    },
+    /// A whole avatar.
+    Avatar(Box<crate::pds::inventory::AvatarItem>),
+    /// A whole world, its parts held until the stash is saved.
+    World(crate::pds::inventory::WorldItem),
+}
+
+impl GiftLanding {
+    /// Put the item in `record` under `key` - a key free across every kind,
+    /// so the put cannot be refused.
+    fn put_into(self, record: &mut InventoryRecord, key: String) {
+        match self {
+            Self::Generator { generator, wear } => {
+                record.put_item(key, *generator, wear);
+            }
+            Self::Avatar(item) => {
+                record.put_avatar(key, *item);
+            }
+            Self::World(item) => {
+                record.put_world(key, item);
+            }
+        }
+    }
+}
+
 /// Accept a gift (#1200): land it in `live` and return the record the
 /// auto-publish writes, which is `stored` plus the gift - never `live`.
 ///
@@ -1670,21 +1764,101 @@ fn choose_gift_key(is_taken: impl Fn(&str) -> bool, incoming_name: &str) -> Stri
 /// "Revert to saved" became permanent on Accept, and the revert itself
 /// stopped working because the poll pinned `stored` to the published
 /// snapshot. The gift's key is free in both stashes for the same reason.
+///
+/// One rule for every kind (#1844): a thing and an avatar land here at the
+/// click, a world when its parts have been fetched ([`gift_world`]).
 pub fn accept_gift(
     live: &mut InventoryRecord,
     stored: &InventoryRecord,
     incoming_name: &str,
-    generator: Generator,
-    wear: Option<crate::pds::inventory::WearMeta>,
+    item: GiftLanding,
 ) -> (String, InventoryRecord) {
     let key = choose_gift_key(
         |name| live.has_name(name) || stored.has_name(name),
         incoming_name,
     );
-    live.put_item(key.clone(), generator.clone(), wear.clone());
+    item.clone().put_into(live, key.clone());
     let mut payload = stored.clone();
-    payload.put_item(key.clone(), generator, wear);
+    item.put_into(&mut payload, key.clone());
     (key, payload)
+}
+
+/// A gift that has just landed (#1844), for [`after_gift_landed`].
+pub(crate) struct Landed<'a> {
+    /// The name it landed under.
+    pub key: &'a str,
+    /// The name it was offered under.
+    pub offered: &'a str,
+    /// What a save writes: the stored stash plus the gift ([`accept_gift`]).
+    pub payload: InventoryRecord,
+    /// The stored stash the save's diff is computed against.
+    pub stored: InventoryRecord,
+    /// Whether to save at once, as Accept does.
+    pub publish: bool,
+}
+
+/// What [`after_gift_landed`] writes to.
+pub(crate) struct LandingSinks<'a, 'w, 's> {
+    pub commands: &'a mut Commands<'w, 's>,
+    pub session: Option<&'a AtprotoSession>,
+    pub refresh: Option<&'a crate::oauth::OauthRefreshCtx>,
+    /// Whether the stash never loaded (#1199) - then nothing is saved.
+    pub recovery: bool,
+    /// A `Mut`, so its tick moves only when a save starts.
+    pub feedback: Mut<'a, PublishFeedback<InventoryRecord>>,
+    pub toasts: &'a mut crate::notify::Toasts,
+}
+
+/// Say where a gift landed and save it, by the rules every kind shares
+/// (#1200, #1199, #1844): the toast names the key, and says the rename when
+/// the offered name was taken; a stash that never loaded is not saved over -
+/// the gift stays local and dirty, and a toast says to save it deliberately;
+/// otherwise, when `publish` says to and a session can, the save of stored
+/// plus the gift starts at once. Whether it did.
+pub(crate) fn after_gift_landed(landed: Landed<'_>, sinks: &mut LandingSinks, now: f64) -> bool {
+    let Landed {
+        key,
+        offered,
+        payload,
+        stored,
+        publish,
+    } = landed;
+    sinks.toasts.success(
+        if key == offered {
+            format!("\"{key}\" is in your inventory.")
+        } else {
+            // Say the rename rather than hide it: the recipient is the one
+            // person who cannot find the item afterwards if the name they
+            // were shown is not the name it has (#1220 f119).
+            format!(
+                "\"{offered}\" is in your inventory as \"{key}\" - you already had one by that \
+                 name."
+            )
+        },
+        now,
+    );
+    // Auto-publish the updated inventory immediately, so an accepted item is
+    // persistent even if the session ends before Save. The poll lands the
+    // write, so only the I/O starts here. Unless the stash never loaded
+    // (#1199): then `stored` is the empty default, the diff would delete a
+    // legacy monolith the owner still has, and the banner in the Inventory
+    // window promised they would be asked first.
+    if sinks.recovery {
+        sinks.toasts.info(
+            format!(
+                "Saved \"{offered}\" locally - your inventory could not be loaded, so open \
+                 Inventory to save it deliberately."
+            ),
+            now,
+        );
+        return false;
+    }
+    let (true, Some(session), Some(refresh)) = (publish, sinks.session, sinks.refresh) else {
+        return false;
+    };
+    sinks.feedback.status = PublishStatus::Publishing { since_secs: now };
+    spawn_publish_inventory_task(sinks.commands, session, refresh, payload, stored, now);
+    true
 }
 
 /// Land an accepted gift in the stash (#1108): under
@@ -1702,6 +1876,15 @@ pub fn store_accepted_gift(
     let key = choose_inventory_gift_key(inventory, incoming_name);
     inventory.put_item(key.clone(), generator, wear);
     key
+}
+
+/// A thing to land, as a test gives one.
+#[cfg(test)]
+pub(crate) fn thing(generator: Generator) -> GiftLanding {
+    GiftLanding::Generator {
+        generator: Box::new(generator),
+        wear: None,
+    }
 }
 
 #[cfg(test)]
@@ -1729,8 +1912,7 @@ mod gift_tests {
             &mut live,
             &stored,
             "lantern",
-            Generator::default_cuboid(),
-            None,
+            thing(Generator::default_cuboid()),
         );
         assert_eq!(
             key, "lantern_2",
@@ -1796,6 +1978,41 @@ mod gift_tests {
 mod gift_arrival_tests {
     use super::*;
 
+    /// #1844: one landing rule for every kind. An avatar given while the
+    /// stash holds a THING by its name - one namespace across kinds - and a
+    /// stored item by the next, lands under a name free in both, in live,
+    /// and the save is the stored stash plus the gift and nothing else.
+    #[test]
+    fn an_accepted_avatar_lands_under_a_free_name_across_kinds() {
+        use crate::pds::inventory::AvatarItem;
+        use crate::pds::inventory::avatar_item_tests::rigged_record;
+        let mut stored = crate::pds::InventoryRecord::default();
+        stored.put_item(String::from("me_2"), Generator::default_cuboid(), None);
+        let mut live = stored.clone();
+        live.remove_item("me_2");
+        live.put_item(String::from("me"), Generator::default_cuboid(), None);
+        live.put_item(String::from("unsaved"), Generator::default_cuboid(), None);
+        let avatar = AvatarItem::from_record(&rigged_record()).expect("copies");
+
+        let (key, payload) = accept_gift(
+            &mut live,
+            &stored,
+            "me",
+            GiftLanding::Avatar(Box::new(avatar.clone())),
+        );
+
+        assert_eq!(key, "me_3", "free in live AND stored, across kinds");
+        assert_eq!(live.avatars.get(&key), Some(&avatar));
+        assert!(live.generators.contains_key("me"), "the thing it met stays");
+        assert_eq!(payload.avatars.get(&key), Some(&avatar));
+        assert!(payload.generators.contains_key("me_2"), "stored kept");
+        assert!(
+            !payload.generators.contains_key("unsaved") && !payload.generators.contains_key("me"),
+            "no unsaved edit rides along"
+        );
+        assert_eq!(payload.item_count(), 2);
+    }
+
     /// #1220 f119. The sequence: a friend gifts you "lantern", you already
     /// have one, you accept - and the item is in your stash as "lantern_2"
     /// with no explanation, under a name the modal never showed you. The
@@ -1819,8 +2036,7 @@ mod gift_arrival_tests {
             &mut live,
             &stored,
             "lantern",
-            crate::pds::Generator::default(),
-            None,
+            thing(crate::pds::Generator::default()),
         );
         assert_ne!(
             key, "lantern",
@@ -1836,8 +2052,7 @@ mod gift_arrival_tests {
             &mut empty,
             &crate::pds::InventoryRecord::default(),
             "lantern",
-            crate::pds::Generator::default(),
-            None,
+            thing(crate::pds::Generator::default()),
         );
         assert_eq!(key, "lantern");
     }
@@ -1861,8 +2076,7 @@ mod gift_arrival_tests {
                 &mut live,
                 &stored,
                 &offered,
-                crate::pds::Generator::default(),
-                None,
+                thing(crate::pds::Generator::default()),
             );
             assert_ne!(key, held, "{offered:?}");
             payload.sanitize();

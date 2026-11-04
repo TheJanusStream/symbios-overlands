@@ -329,8 +329,9 @@ generation cores shared with the wasm Web Worker.
   whole avatar by value (`avatar` instead of `generator`), or since #1839 a
   whole world (`world`: a small head - summary, part keys, byte length,
   digest - whose `RoomRecord` JSON lives in content-addressed parts in
-  `…overlands.inventory.part`, fetched only when the world is loaded, and
-  written parts first, heads, head deletes, part deletes) - one payload per
+  `…overlands.inventory.part`, fetched only when the world is loaded - or,
+  from the giver's repo, when a world given to someone is accepted (#1844) -
+  and written parts first, heads, head deletes, part deletes) - one payload per
   record, item names unique across every kind; see
   [`inventory.rs`](../src/pds/inventory.rs),
   [`inventory/avatar.rs`](../src/pds/inventory/avatar.rs) and
@@ -479,7 +480,12 @@ generation cores shared with the wasm Web Worker.
   peer wire format, jitter-buffered transform smoothing, identity
   authentication, live preview broadcast, item-offer arbitration, and
   app-layer chunking of oversized reliable messages under WebRTC's 64 KiB
-  SCTP message ceiling.
+  SCTP message ceiling. A gift (`ItemOffer`) gives a thing, or since #1844 a
+  whole avatar by value or a whole world by its head alone, whose parts the
+  recipient fetches from the giver's data server after Accept and keeps as
+  its own snapshot; a whole gift goes only to a peer whose `Hello` says
+  protocol 6 or later, and an older build refuses one cleanly as a thing it
+  cannot place.
 - [`src/camera.rs`](../src/camera.rs), [`src/avatar.rs`](../src/avatar.rs),
   [`src/social.rs`](../src/social.rs) - the third-person orbit camera + distance
   fog (and, in [`src/camera/first_person.rs`](../src/camera/first_person.rs),
@@ -491,7 +497,8 @@ generation cores shared with the wasm Web Worker.
   room owner's neighbourhood from.
 - [`src/ui/`](../src/ui/) - the whole egui surface, not just a panel list.
   Panels: [login](../src/ui/login/), [chat](../src/ui/chat.rs),
-  [people](../src/ui/people.rs) (with drag-to-gift),
+  [people](../src/ui/people.rs) (with drag-to-gift, of a thing, a whole
+  avatar or a saved world, #1844),
   [avatar editor](../src/ui/avatar/) (Body - the engine's own sculpting axes
   hosted in this window's chrome, plus the cross-app wardrobe - Attachments,
   Visuals and Locomotion, and a footer Save to Inventory that copies the live
@@ -499,7 +506,9 @@ generation cores shared with the wasm Web Worker.
   avatars and whole worlds; an avatar row's Wear puts it back on, unsaved
   until the Avatar editor's Save, and a world row's Load into my world
   replaces the owner's world as a re-roll does - confirmed, one undo step,
-  unsaved until the World Editor's Save),
+  unsaved until the World Editor's Save; an avatar row, and a world row once
+  the Inventory is saved, drag onto a person in the People list to give a
+  copy, #1844),
   [catalogue](../src/ui/catalogue.rs) (items to place or copy, and since
   #1840 ready-made avatars of every kind: Wear puts one on through the
   Inventory's own wear path, Copy to inventory stashes it as an avatar item;

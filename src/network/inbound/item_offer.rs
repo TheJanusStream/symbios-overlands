@@ -1,12 +1,18 @@
 //! Peer-to-peer gifting: the offer and the answer (#1161).
 //!
 //! The largest pair of arms in the protocol and the one with the most gates,
-//! because an `ItemOffer` asks this client to put a stranger's generator on
+//! because an `ItemOffer` asks this client to put a stranger's item on
 //! screen and, if accepted, into the owner's stash. Between the wire and the
-//! dialog sit: the relay's DID binding, the mute list, the inventory cap,
-//! the busy-gate (one dialog at a time, #843/#1220 f288) and
-//! `pds::inventory::is_drop_placeable` - the rule that decides whether a
-//! stranger's generator is safe to place at all.
+//! dialog sit: the relay's DID binding, the mute list, the busy-gate (one
+//! dialog at a time, #843/#1220 f288) - all three before anything the payload
+//! holds is decoded - and then what the item is (#1844): a thing passes
+//! `pds::inventory::is_drop_placeable`, the rule that decides whether a
+//! stranger's generator is safe to place at all; a whole avatar passes the
+//! stash's own sanitiser and must be readable by this build; a whole world's
+//! head passes `pds::inventory::world::check_head` and its summary's
+//! sanitiser, and nothing of its contents is read here - they are fetched
+//! from the sender's data server only after Accept. Each refusal answers
+//! `Unavailable`, writes one session-log line, and raises no dialog.
 
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
@@ -16,8 +22,9 @@ use super::{InboundBuffers, PeerParts};
 use crate::diagnostics::SessionLog;
 use crate::diagnostics::event::EventPayload;
 use crate::network::presence::PeerLabel;
-use crate::protocol::{DeclineReason, OverlandsMessage};
-use crate::state::{IncomingOfferDialog, PendingOutgoingOffers};
+use crate::protocol::{DeclineReason, GiftItem, OverlandsMessage};
+use crate::state::{BusyAutoDeclines, IncomingOfferDialog, PendingOutgoingOffers};
+
 /// Decide what to do with a stranger's gift: refuse it, auto-decline it, or
 /// raise the dialog that asks the owner.
 #[allow(clippy::too_many_arguments)]
@@ -33,7 +40,9 @@ pub(super) fn handle(
     session_log: &mut SessionLog,
     out: &mut SendMessage<OverlandsMessage>,
     metrics: &mut crate::diagnostics::MetricsRegistry,
-    bufs: &mut InboundBuffers,
+    // Counted for the dialog's closing note (#843). The `ResMut` itself, so
+    // its tick moves only on a busy decline.
+    busy_declines: &mut ResMut<BusyAutoDeclines>,
     now: f64,
     // Whether a dialog is already up (or staged) this frame. `Commands` do
     // not apply until end-of-system, so re-reading the resource would report
@@ -103,15 +112,41 @@ pub(super) fn handle(
         return;
     }
 
-    // Decode the payload. Deliberately AFTER the muted and
-    // busy gates (#1184): this is a broadcast with an
-    // address, so every peer in the room receives every
-    // gift, and parsing a blueprint the recipient is about
-    // to auto-decline is work nobody asked for. The envelope
-    // carries everything those two gates need.
-    //
-    // A malformed payload - or an Unknown generator variant
-    // - is a protocol error: auto-decline and log.
+    // Busy-gate: a dialog is already up (or was staged earlier
+    // this same frame), so an attacker can't queue-flood the
+    // recipient with nested prompts. Decline and log so the
+    // user knows someone tried. Before the payload is read
+    // (#1184, #1844): every peer in the room receives every
+    // gift, and decoding a whole avatar the recipient is about
+    // to turn away is work nobody asked for - the envelope
+    // carries everything this gate needs.
+    if *dialog_open {
+        out.to(
+            sender,
+            // The finding's headline case (#1220 f127): a
+            // mechanical throttle reaching the sender as "they
+            // declined" misattributes it to a person AND teaches
+            // them not to retry, in the one case where retrying
+            // in ten seconds works.
+            OverlandsMessage::item_offer_response(
+                offer_id,
+                sender_did.clone(),
+                false,
+                DeclineReason::Busy,
+            ),
+            ChannelKind::Reliable,
+        );
+        session_log.info(now, EventPayload::ItemOfferAutoDeclinedBusy { offer_id });
+        crate::diagnostics::samplers::offer_auto_declined_busy(metrics);
+        // Counted for the dialog's closing note (#843) - the
+        // decline itself stays invisible until then, preserving
+        // the single-dialog anti-spam invariant.
+        busy_declines.0 = busy_declines.0.saturating_add(1);
+        return;
+    }
+
+    // Decode the payload. A malformed one is a protocol error:
+    // auto-decline and log.
     let Some(payload) = OverlandsMessage::decode_item_offer(&payload_json) else {
         out.to(
             sender,
@@ -134,16 +169,13 @@ pub(super) fn handle(
         );
         return;
     };
-    let mut generator = payload.generator;
 
     // Clamp the wire-supplied item name *before* any
     // diagnostics or dialog state references it. The
     // protocol field is an unbounded `String`, so a hostile
-    // sender can ship a 10 MiB blob; spamming such offers
-    // at a busy victim would otherwise force the main
-    // thread to allocate that string into every busy-gate
-    // / rejection log line. Clamping up front guarantees
-    // the rest of this handler only sees a bounded value.
+    // sender can ship a 10 MiB blob; clamping up front
+    // guarantees the rest of this handler only sees a
+    // bounded value.
     let item_name = {
         let mut n: String = payload
             .item_name
@@ -157,52 +189,9 @@ pub(super) fn handle(
         n
     };
 
-    // Busy-gate: a dialog is already up (or was staged earlier
-    // this same frame), so an attacker can't queue-flood the
-    // recipient with nested prompts. Decline and log so the
-    // user knows someone tried.
-    if *dialog_open {
-        out.to(
-            sender,
-            // The finding's headline case (#1220 f127): a
-            // mechanical throttle reaching the sender as "they
-            // declined" misattributes it to a person AND teaches
-            // them not to retry, in the one case where retrying
-            // in ten seconds works.
-            OverlandsMessage::item_offer_response(
-                offer_id,
-                sender_did.clone(),
-                false,
-                DeclineReason::Busy,
-            ),
-            ChannelKind::Reliable,
-        );
-        session_log.info(now, EventPayload::ItemOfferAutoDeclinedBusy { offer_id });
-        crate::diagnostics::samplers::offer_auto_declined_busy(metrics);
-        // Counted for the dialog's closing note (#843) - the
-        // decline itself stays invisible until then, preserving
-        // the single-dialog anti-spam invariant.
-        bufs.busy_declines.0 = bufs.busy_declines.0.saturating_add(1);
-        return;
-    }
-
-    crate::pds::sanitize_generator(&mut generator);
-    // Wear metadata (#1108) through the same clamp the inventory
-    // and attachment records share. A `wear` the payload could
-    // not read is already `None` by the time it gets here - the
-    // payload's own lenient decoder degrades a bad one to decor
-    // rather than refusing the gift (#1184).
-    let wear = payload.wear.map(|mut meta| {
-        meta.sanitize();
-        meta
-    });
-
-    // Non-placeable kinds (terrain / water / Unknown) never
-    // make sense as a gift - the sender UI already filters
-    // these, but reject here too so a hand-crafted payload
-    // can't stuff an unplaceable item into the recipient's
-    // stash via the accept path.
-    if !crate::pds::inventory::is_drop_placeable(&generator) {
+    // A refusal of what the payload holds: not the recipient's
+    // choice, so `Unavailable`, one log line, and no dialog.
+    let mut refuse = |reason: String| {
         out.to(
             sender,
             OverlandsMessage::item_offer_response(
@@ -217,11 +206,67 @@ pub(super) fn handle(
             now,
             EventPayload::ItemOfferRejected {
                 offer_id,
-                reason: format!("from {sender_name}: item kind not giftable"),
+                reason: format!("from {sender_name}: {reason}"),
             },
         );
-        return;
-    }
+    };
+
+    let item = match payload.into_gift() {
+        Ok(item) => item,
+        Err(why) => {
+            refuse(String::from(why));
+            return;
+        }
+    };
+    let item = match item {
+        GiftItem::Generator {
+            mut generator,
+            wear,
+        } => {
+            crate::pds::sanitize_generator(&mut generator);
+            // Wear metadata (#1108) through the same clamp the inventory
+            // and attachment records share. A `wear` the payload could
+            // not read is already `None` by the time it gets here - the
+            // payload's own lenient decoder degrades a bad one to decor
+            // rather than refusing the gift (#1184).
+            let wear = wear.map(|mut meta| {
+                meta.sanitize();
+                meta
+            });
+            // Non-placeable kinds (terrain / water / Unknown) never
+            // make sense as a gift - the sender UI already filters
+            // these, but reject here too so a hand-crafted payload
+            // can't stuff an unplaceable item into the recipient's
+            // stash via the accept path.
+            if !crate::pds::inventory::is_drop_placeable(&generator) {
+                refuse(String::from("item kind not giftable"));
+                return;
+            }
+            GiftItem::Generator { generator, wear }
+        }
+        GiftItem::Avatar(mut avatar) => {
+            // The stash's own sanitiser for an avatar item (#1838), and
+            // the stash's own rule for what this build can hold: an
+            // avatar it cannot read could only be deleted.
+            avatar.sanitize();
+            if !avatar.is_readable() {
+                refuse(String::from("avatar this build cannot read"));
+                return;
+            }
+            GiftItem::Avatar(avatar)
+        }
+        GiftItem::World(mut head) => {
+            // Only the head is read here; its contents are fetched from
+            // the sender's data server after Accept, and the load's own
+            // checks and room sanitiser stand there.
+            head.summary.sanitize();
+            if let Err(why) = crate::pds::inventory::world::check_head(&head) {
+                refuse(format!("world head refused - {why}"));
+                return;
+            }
+            GiftItem::World(head)
+        }
+    };
 
     // The name's size, never the name (#1432): it is the sender's words,
     // and this line is written before anything - the agent daemon's
@@ -240,8 +285,7 @@ pub(super) fn handle(
         sender_did,
         sender_label,
         item_name,
-        generator,
-        wear,
+        item,
         arrived_at_secs: now,
         // The TTL and the countdown run on wall clock (#1216);
         // the virtual stamp above stays for the session log.
@@ -344,5 +388,304 @@ pub(super) fn handle_response(
             crate::protocol::offer_refusal_line(reason, &pending.target_label, &pending.item_name),
             now,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pds::inventory::avatar_item_tests::rigged_record;
+    use crate::pds::inventory::{AvatarItem, WorldHead, WorldItem};
+    use crate::protocol::WHOLE_GIFT_MARKER;
+    use crate::state::RemotePeer;
+    use bevy::ecs::system::{RunSystemOnce, SystemState};
+
+    const ME: &str = "did:plc:recipientofgifts222222";
+    const GIVER: &str = "did:plc:giverofgifts22222222222";
+    const ELSEWHERE: &str = "did:plc:someoneelseentirely222";
+
+    fn id(n: u8) -> PeerId {
+        serde_json::from_str(&format!("\"00000000-0000-0000-0000-0000000000{n:02}\""))
+            .expect("a well-formed uuid")
+    }
+
+    /// The recipient signed in as [`ME`], with the giver - peer 1, whom the
+    /// relay knows as [`GIVER`] - in the room, muted or not.
+    fn app_with(giver_muted: bool) -> App {
+        let mut app = App::new();
+        let sessions = PeerSessionMapRes::default();
+        sessions
+            .0
+            .write()
+            .expect("unpoisoned")
+            .insert(id(1), GIVER.to_owned());
+        app.insert_resource(sessions)
+            .insert_resource(
+                crate::oauth::stand_in::stand_in_session(ME, "me.test").expect("a session"),
+            )
+            .init_resource::<SessionLog>()
+            .init_resource::<crate::diagnostics::MetricsRegistry>()
+            .init_resource::<BusyAutoDeclines>()
+            .add_message::<SendTo<OverlandsMessage>>()
+            .add_message::<Broadcast<OverlandsMessage>>();
+        app.world_mut().spawn((
+            RemotePeer {
+                peer_id: id(1),
+                did: Some(GIVER.to_owned()),
+                handle: Some(String::from("giver.test")),
+                muted: giver_muted,
+                avatar: None,
+                build: None,
+                connected_at: 0.0,
+            },
+            Transform::default(),
+            TransformBuffer::default(),
+        ));
+        app
+    }
+
+    /// Hand `payload` to the offer handler as peer 1's offer 9, with a
+    /// dialog already up when `busy`.
+    fn offer(app: &mut App, payload: Vec<u8>, busy: bool) {
+        app.world_mut()
+            .run_system_once(
+                move |mut commands: Commands,
+                      mut peers: Query<PeerParts>,
+                      sessions: Res<PeerSessionMapRes>,
+                      session: Option<Res<AtprotoSession>>,
+                      mut log: ResMut<SessionLog>,
+                      mut out: SendMessage<OverlandsMessage>,
+                      mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
+                      mut busy_declines: ResMut<BusyAutoDeclines>| {
+                    let mut open = busy;
+                    handle(
+                        id(1),
+                        9,
+                        ME.to_owned(),
+                        payload.clone(),
+                        &mut commands,
+                        &mut peers,
+                        &sessions,
+                        &session,
+                        &mut log,
+                        &mut out,
+                        &mut metrics,
+                        &mut busy_declines,
+                        1.0,
+                        &mut open,
+                    );
+                },
+            )
+            .expect("the offer is handled");
+    }
+
+    /// The answers sent back: (offer id, to whom, accepted, reason).
+    fn answers(app: &App) -> Vec<(u64, String, bool, DeclineReason)> {
+        let sent = app.world().resource::<Messages<SendTo<OverlandsMessage>>>();
+        sent.get_cursor()
+            .read(sent)
+            .filter_map(|message| match &message.payload {
+                OverlandsMessage::ItemOfferResponse {
+                    offer_id,
+                    target_did,
+                    payload_json,
+                } => {
+                    let payload = OverlandsMessage::decode_item_offer_response(payload_json)?;
+                    Some((
+                        *offer_id,
+                        target_did.clone(),
+                        payload.accepted,
+                        payload.reason,
+                    ))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn rejected(app: &App) -> usize {
+        app.world()
+            .resource::<SessionLog>()
+            .iter()
+            .filter(|event| matches!(event.payload, EventPayload::ItemOfferRejected { .. }))
+            .count()
+    }
+
+    fn avatar() -> AvatarItem {
+        AvatarItem::from_record(&rigged_record()).expect("copies")
+    }
+
+    fn head() -> WorldHead {
+        WorldItem::snapshot(&crate::pds::inventory::world::tests::seeded_world(71))
+            .expect("copies")
+            .head()
+            .clone()
+    }
+
+    /// An offer's payload bytes as the sending build writes them.
+    fn wire(gift: &GiftItem) -> Vec<u8> {
+        let OverlandsMessage::ItemOffer { payload_json, .. } =
+            OverlandsMessage::item_offer(9, ME.to_owned(), String::from("gift"), gift)
+        else {
+            panic!("not an offer");
+        };
+        payload_json
+    }
+
+    /// A whole gift's payload, hand-written so it can say what no build
+    /// sends.
+    fn whole(avatar: Option<serde_json::Value>, world: Option<serde_json::Value>) -> Vec<u8> {
+        let mut payload = serde_json::json!({
+            "item_name": "gift",
+            "generator": {"$type": WHOLE_GIFT_MARKER},
+        });
+        if let Some(avatar) = avatar {
+            payload["avatar"] = avatar;
+        }
+        if let Some(world) = world {
+            payload["world"] = world;
+        }
+        serde_json::to_vec(&payload).expect("encodes")
+    }
+
+    /// #1844. A valid whole avatar and world each raise the dialog,
+    /// carrying what they give.
+    #[test]
+    fn a_whole_avatar_and_a_world_head_raise_the_dialog() {
+        for gift in [
+            GiftItem::Avatar(Box::new(avatar())),
+            GiftItem::World(head()),
+        ] {
+            let mut app = app_with(false);
+            offer(&mut app, wire(&gift), false);
+            let dialog = app
+                .world()
+                .get_resource::<IncomingOfferDialog>()
+                .expect("a dialog");
+            assert_eq!(dialog.item.kind(), gift.kind());
+            assert_eq!(dialog.sender_did, GIVER);
+            assert!(answers(&app).is_empty(), "nothing answered yet");
+        }
+    }
+
+    /// #1844. An avatar this build cannot read, and a world head a load
+    /// would refuse, are turned away at the seam: `Unavailable`, one log
+    /// line, and no dialog for a gift that could not land. So is a payload
+    /// offering both at once.
+    #[test]
+    fn an_unreadable_avatar_or_a_bad_head_auto_declines_with_no_dialog() {
+        let mut unreadable = serde_json::to_value(avatar()).expect("encodes");
+        unreadable["body"]["$type"] =
+            serde_json::json!("network.symbios.overlands.inventory.item#future");
+        let mut damaged = head();
+        damaged.parts.clear();
+        for payload in [
+            whole(Some(unreadable), None),
+            whole(None, Some(serde_json::to_value(&damaged).expect("encodes"))),
+            whole(
+                Some(serde_json::to_value(avatar()).expect("encodes")),
+                Some(serde_json::to_value(head()).expect("encodes")),
+            ),
+        ] {
+            let mut app = app_with(false);
+            offer(&mut app, payload, false);
+            assert!(!app.world().contains_resource::<IncomingOfferDialog>());
+            assert_eq!(
+                answers(&app),
+                [(9, GIVER.to_owned(), false, DeclineReason::Unavailable)]
+            );
+            assert_eq!(rejected(&app), 1);
+        }
+    }
+
+    /// #1844. The muted and busy gates stand before anything a whole gift
+    /// holds is read, exactly as for a thing: a muted giver hears a plain
+    /// decline with nothing logged, a busy recipient answers busy and counts
+    /// it for the dialog's closing note.
+    #[test]
+    fn the_muted_and_busy_gates_are_unchanged_for_whole_gifts() {
+        for gift in [
+            GiftItem::Avatar(Box::new(avatar())),
+            GiftItem::World(head()),
+        ] {
+            let mut app = app_with(true);
+            offer(&mut app, wire(&gift), false);
+            assert!(!app.world().contains_resource::<IncomingOfferDialog>());
+            assert_eq!(
+                answers(&app),
+                [(9, GIVER.to_owned(), false, DeclineReason::Declined)]
+            );
+            assert_eq!(app.world().resource::<SessionLog>().iter().count(), 0);
+
+            let mut app = app_with(false);
+            offer(&mut app, wire(&gift), true);
+            assert!(!app.world().contains_resource::<IncomingOfferDialog>());
+            assert_eq!(
+                answers(&app),
+                [(9, GIVER.to_owned(), false, DeclineReason::Busy)]
+            );
+            assert_eq!(app.world().resource::<BusyAutoDeclines>().0, 1);
+        }
+    }
+
+    /// **A world is fetched from the giver the relay authenticated**
+    /// (#1844). The payload names another DID - at the top and inside the
+    /// head - and it changes nothing: Accept aims the fetch at the sender the
+    /// offer arrived under, and answers nothing until the parts land.
+    #[test]
+    fn a_world_fetch_is_aimed_at_the_authenticated_sender() {
+        use crate::ui::inventory::gift_world::tests::recording_fetch;
+        use crate::ui::people::{OfferAnswer, OfferAnswering};
+        bevy::tasks::IoTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+        let mut world = serde_json::to_value(head()).expect("encodes");
+        world["did"] = serde_json::json!(ELSEWHERE);
+        world["owner"] = serde_json::json!(ELSEWHERE);
+        let mut payload: serde_json::Value =
+            serde_json::from_slice(&whole(None, Some(world))).expect("JSON");
+        payload["did"] = serde_json::json!(ELSEWHERE);
+        payload["from_did"] = serde_json::json!(ELSEWHERE);
+
+        let mut app = app_with(false);
+        offer(
+            &mut app,
+            serde_json::to_vec(&payload).expect("encodes"),
+            false,
+        );
+        let dialog = app
+            .world()
+            .get_resource::<IncomingOfferDialog>()
+            .cloned()
+            .expect("a dialog");
+
+        let (fetch, asked) = recording_fetch(Err(String::from("not needed")));
+        app.insert_resource(fetch)
+            .insert_resource(Time::<()>::default())
+            .insert_resource(crate::state::LiveInventoryRecord(Default::default()))
+            .insert_resource(crate::state::StoredInventoryRecord(Default::default()))
+            .init_resource::<crate::state::PublishFeedback<crate::pds::InventoryRecord>>()
+            .init_resource::<crate::notify::Toasts>()
+            .init_resource::<crate::state::MutedDids>();
+        let mut state = SystemState::<OfferAnswering>::new(app.world_mut());
+        let landed = state
+            .get_mut(app.world_mut())
+            .expect("answerable")
+            .answer(&dialog, OfferAnswer::Accept { publish: true });
+        state.apply(app.world_mut());
+
+        assert_eq!(landed, None, "it lands when its parts do");
+        assert_eq!(*asked.lock().expect("unpoisoned"), vec![GIVER.to_owned()]);
+        let sent = app
+            .world()
+            .resource::<Messages<Broadcast<OverlandsMessage>>>();
+        assert_eq!(sent.get_cursor().read(sent).count(), 0, "no answer yet");
+        assert_eq!(
+            app.world_mut()
+                .query::<&crate::ui::inventory::GiftWorldTask>()
+                .single(app.world())
+                .expect("a fetch in flight")
+                .giver_did,
+            GIVER
+        );
+        assert!(!app.world().contains_resource::<IncomingOfferDialog>());
     }
 }

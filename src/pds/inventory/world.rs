@@ -19,10 +19,17 @@
 //!     ([`PartRecord`]) in [`crate::pds::INVENTORY_PART_COLLECTION`], each
 //!     small enough that its write fits one request ([`PART_DATA_BUDGET`]),
 //!     each keyed by its own content ([`part_rkey`]). Parts are fetched by
-//!     `getRecord` only when a world is loaded ([`load_world`]), a few at a
-//!     time, joined, checked against the head's byte length, digest and
-//!     part keys, decoded and passed through the SAME sanitiser a fetched
-//!     room goes through ([`join_parts`]).
+//!     `getRecord` only when a world is loaded ([`load_world`]) - or, from
+//!     the giver's repo, when a world given to this client is accepted
+//!     (#1844) - a few at a time, joined, checked against the head's byte
+//!     length, digest and part keys, decoded and passed through the SAME
+//!     sanitiser a fetched room goes through ([`join_parts`]).
+//!
+//! A world is given by its head alone (#1844), and only from the saved
+//! copy: every part the head names must be named by a stored head
+//! ([`gift_blocked_reason`]), because the recipient reads the parts from the
+//! giver's data server. What it keeps is its own snapshot of the world it
+//! fetched and sanitised, never the giver's text.
 //!
 //! Content keys make parts shareable: two items holding one world, or an
 //! item renamed (a new head over the same parts), name the same records.
@@ -611,6 +618,34 @@ pub fn world_grant_refusal(
     (touches_worlds(live, stored) && !grant_covers_parts(scope)).then_some(SIGN_IN_AGAIN)
 }
 
+/// Why a world item cannot be given yet (#1844): a world is given from the
+/// giver's SAVED copy - the recipient fetches its parts from the giver's data
+/// server - so every part its head names must be named by a head in the
+/// stored stash. A renamed saved world qualifies (a new head over the same
+/// parts); a new or edited one does not, until the Inventory is saved.
+pub const GIFT_UNSAVED: &str = "Save your Inventory first - a world is given from your saved \
+     copy, and this one isn't saved yet.";
+
+/// Why a world whose head is damaged cannot be given (#1844).
+pub const GIFT_DAMAGED: &str = "This world item is damaged, so it cannot be given.";
+
+/// Why the world `head` names cannot be given from a stash whose stored
+/// copy holds `stored` worlds, or `None` when it can: its head is one a load
+/// would follow ([`check_head`]), and every part it names is named by a
+/// stored head ([`GIFT_UNSAVED`]). No stored stash at all is nothing saved.
+pub fn gift_blocked_reason(
+    head: &WorldHead,
+    stored: Option<&HashMap<String, WorldItem>>,
+) -> Option<&'static str> {
+    if check_head(head).is_err() {
+        return Some(GIFT_DAMAGED);
+    }
+    let saved = stored.map(|stored| parts_named(stored.values()));
+    let all_saved =
+        saved.is_some_and(|saved| head.parts.iter().all(|key| saved.contains(key.as_str())));
+    (!all_saved).then_some(GIFT_UNSAVED)
+}
+
 /// The heads a save of `live` over `stored` writes - creates and updates:
 /// every live world whose head the stored one under its name is not.
 fn written_heads<'a>(
@@ -883,7 +918,8 @@ async fn fetch_part(
     Ok((part.value.data, read))
 }
 
-/// Fetch every part `head` names from `did`'s repo, a few at a time
+/// Fetch every part `head` names from `did`'s repo - the owner's for a load,
+/// the giver's for a gift (#1844) - a few at a time
 /// ([`PART_FETCH_CONCURRENCY`]), within one byte budget: at most what the
 /// head says the world weighs, escaped, plus each response's envelope, and
 /// never more than [`MAX_WORLD_FETCH_BYTES`]. A head that lies about its
@@ -894,9 +930,12 @@ pub async fn fetch_parts(
     head: &WorldHead,
 ) -> Result<Vec<String>, String> {
     let bytes = check_head(head)?;
+    // Whose data server: the owner's own for a load (#1839), the giver's
+    // for a world given to this client (#1844) - `did` is the
+    // relay-authenticated giver there, never a DID the offer names.
     let pds = crate::config::http::run_or(crate::pds::xrpc::resolve_pds(client, did), None)
         .await
-        .ok_or_else(|| String::from("your data server could not be found"))?;
+        .ok_or_else(|| String::from("the data server holding it could not be found"))?;
     let budget = bytes
         .saturating_mul(2)
         .saturating_add(

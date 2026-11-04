@@ -18,7 +18,7 @@ use bevy::prelude::*;
 
 use crate::config;
 use crate::network::ChatDelivery;
-use crate::pds::{AvatarRecord, Generator, InventoryRecord, RoomRecord};
+use crate::pds::{AvatarRecord, InventoryRecord, RoomRecord};
 
 /// Application state machine. `Loading` waits on all six loading tasks -
 /// the async heightmap generation task, the ATProto PDS room-record fetch,
@@ -65,10 +65,13 @@ pub struct RemotePeer {
 
 /// A peer's self-declared wire protocol and build string (#1121).
 ///
-/// Both fields are peer-supplied over an unauthenticated data channel and
-/// nothing is gated on them: the protocol number only drives a chip on the
-/// peer's own row and a session-log line, and the build string is only ever
-/// displayed. A peer that lies mislabels itself.
+/// Both fields are peer-supplied over an unauthenticated data channel, so
+/// nothing this client accepts is gated on them: the protocol number drives
+/// a chip on the peer's own row and a session-log line, and decides only what
+/// this client SENDS that peer - the first-person flag
+/// ([`crate::protocol::FIRST_PERSON_SINCE`]) and a whole avatar or world
+/// gift ([`crate::protocol::WHOLE_GIFTS_SINCE`], #1844). The build string is
+/// only ever displayed. A peer that lies mislabels itself.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PeerBuild {
     /// The peer's [`crate::protocol::PROTOCOL_VERSION`].
@@ -970,10 +973,11 @@ pub struct IncomingOfferDialog {
     /// instead of guessing.
     pub sender_label: crate::network::PeerLabel,
     pub item_name: String,
-    pub generator: Generator,
-    /// The item's wear metadata (#1108) when the sender gifted a wearable,
-    /// already sanitised at the wire seam; `None` lands the gift as decor.
-    pub wear: Option<crate::pds::inventory::WearMeta>,
+    /// What is offered (#1844), already sanitised at the wire seam: a thing
+    /// with its wear metadata (#1108) when it is a wearable, a whole avatar,
+    /// or a whole world's head - whose contents are fetched from the
+    /// sender's data server only after Accept.
+    pub item: crate::protocol::GiftItem,
     /// Session-relative seconds the offer arrived. Kept for the session
     /// log, whose other stamps are all on this clock.
     pub arrived_at_secs: f64,

@@ -455,7 +455,7 @@ pub(super) fn handle_incoming_messages(
                 &mut session_log,
                 &mut sender,
                 &mut metrics,
-                &mut bufs,
+                &mut bufs.busy_declines,
                 now,
                 &mut dialog_open,
             ),

@@ -1176,7 +1176,9 @@ $A wear avatar_boat_sloop            # a catalogue avatar by its slug; `stash` c
 $A load worlds_nordic                 # a catalogue world, built and loaded at once
 $A save inventory                    # with --allow-save, as for the world
 $A gift give @you.example.com lantern --wait   # an inventory item or a slug
+$A gift give @you.example.com Harbour --wait   # a whole avatar or saved world item too (#1847)
 $A gift accept 3                     # the admin's offer, by the id its event gives
+$A gift accept 4 --wait              # a world: until it has been fetched and landed
 # The game's own interface (#1424) - the windows it may use, control by control:
 $A ui                                # what is open, what can be, what is not its to read
 $A ui open Avatar                    # as the toolbar button does; lists the window
@@ -1487,9 +1489,9 @@ ended arrives as a `world_loaded` or `world_load_failed` event, which `load
 in each; `wear`, `load` and `stash` take their slugs (`avatar_...`,
 `worlds_...`) as the Catalogue's Wear, Load into my world and Copy to
 inventory do - a catalogue world is built for the agent and loaded in the
-frame, the answer saying `loaded`. Neither is ever placed or given: `place`
-and `gift give` refuse one (`place` of a Catalogue slug names the verb it is
-for; a gift says only things can be given). A world item's
+frame, the answer saying `loaded`. Neither is ever placed: `place` refuses
+one (`place` of a Catalogue slug names the verb it is for). An avatar item or a saved world item is
+given like a thing (#1847, below); the Catalogue's are not. A world item's
 contents are records of their own (`network.symbios.overlands.inventory.part`),
 which a sign-in made before #1839 has no grant for: `stash-world`, a
 catalogue world's `stash` and a `save inventory` that would write a world are
@@ -1499,19 +1501,35 @@ from its admin only**, as it hears chat: anyone else's offer is declined the
 moment it lands - reaching them as an ordinary "declined" - and leaves a
 `gift_declined` event that names who, never what. The admin's offer arrives
 as a `gift_offered` event with its id, the item's name (the admin's words,
-as data), what kind of thing it is and whether it can be worn, and waits for
-`gift accept` or `gift decline` for the game's own 90 s, then goes back as
-unanswered (`gift_offer_closed`); while it waits, any other offer is turned
-away as busy, the game's one-at-a-time rule. The daemon draws no offer
-dialog - it held every movement key for as long as an offer waited. An
-accepted gift goes into the inventory and, if the agent may save, is saved
-at once as a person's Accept saves it; if not, it is unsaved, and the answer
-says so. `gift give` offers an inventory item or a catalogue entry to a
-player in the agent's world through the same path as a drag onto the People
-list; a gift is a copy, and the answer comes back as a `gift_answered` event:
-`accepted`, or `declined`, `busy`, `unavailable`, `unanswered`, or
-`no_answer` when nothing came back in three minutes. A second offer to a
-player who has not answered the first waits for that answer.
+as data), what it `is` - a `thing`, an `avatar` or a `world` - its
+`item_kind` (a thing's kind, an avatar's, a world's), a world's size in
+`bytes`, whether it can be worn and, for a world the agent's sign-in cannot
+take, why (`cannot_accept`; `status`'s waiting offer says the same), and
+waits for `gift accept` or `gift decline` for the game's own 90 s, then goes
+back as unanswered (`gift_offer_closed`); while it waits, any other offer is
+turned away as busy, the game's one-at-a-time rule. The daemon draws no
+offer dialog - it held every movement key for as long as an offer waited. An
+accepted thing or avatar goes into the inventory and, if the agent may save,
+is saved at once as a person's Accept saves it; if not, it is unsaved, and
+the answer says so. An accepted world (#1847) is fetched from the admin's
+saved copy first, as the game's Accept fetches it: the answer says
+`fetching`, and how it ended arrives as a `gift_world_landed` event (`as`
+the name it took, `saving`) or a `gift_world_not_landed` event with the
+game's reason - `gift accept --wait` waits for it, and the admin hears the
+answer only then. Accepting a world on a sign-in from before world items is
+refused with the game's sign-in-again sentence and the offer left waiting,
+to decline. `gift give` offers an inventory item - a thing, a whole avatar,
+or a whole world once the inventory holding it is saved - or a catalogue
+thing to a player in the agent's world through the same path as a drag onto
+the People list, refused where the drag is and in its words: an unsaved
+world (`save inventory` first), a player whose game is too old for a whole
+avatar or world or has not yet said which it is, a Catalogue avatar or world
+(they have the same Catalogue). A gift is a copy, and the answer comes back
+as a `gift_answered` event: `accepted`, or `declined`, `busy`,
+`unavailable`, `unanswered`, `not_fetched` (a world's saved copy could not
+be fetched), or `no_answer` when nothing came back in three minutes - a
+world is answered once it has landed with them. A second offer to a player
+who has not answered the first waits for that answer.
 
 **The interface** (#1424). `ui` works the game's own windows the way a
 person does, through AccessKit - egui's account of every widget it draws,

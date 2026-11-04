@@ -17,20 +17,21 @@
 //! driven with synthetic pointer events rather than taken on trust.
 //!
 //! An avatar item (#1838) is a row of its own kind ([`RowKind::Avatar`]):
-//! it selects on a click and never arms a drag, because an avatar is
-//! neither placed nor gifted in this slice - a drag that cannot land must
-//! not start. Its expansion is [`avatar_row_controls`]: Wear, Rename and
-//! delete. Its pane says what it is and how many wearables it carries, and
-//! pictures a vehicle from its visuals tree; a rigged body has no picture
-//! yet and says so (#1842).
+//! a click selects it and a drag arms a GIFT-ONLY drag (#1844) - an avatar
+//! is given to a person in the People list, never placed. Its expansion is
+//! [`avatar_row_controls`]: Wear, Rename and delete. Its pane says what it is
+//! and how many wearables it carries, and pictures a vehicle from its
+//! visuals tree and a person or a beast from its built body (#1842).
 //!
-//! A world item (#1839) is a row of its own kind too ([`RowKind::World`]),
-//! click-only for the same reason: a world is neither placed nor gifted.
-//! Its expansion is [`world_row_controls`] - Load into my world, Rename and
-//! delete - and its pane is a text card from the head's summary: the
-//! world's name, whether it is procedural or a Berlin square, how much is in
-//! it and how large it is ([`world_pane_facts`]). It has no picture, and
-//! says so.
+//! A world item (#1839) is a row of its own kind too ([`RowKind::World`]).
+//! A world is given from the saved copy (#1844), so its row arms the same
+//! gift-only drag only when every part its head names is in the stored
+//! stash; an unsaved one is click-only, and its pane says why
+//! ([`crate::pds::inventory::world::gift_blocked_reason`]). Its expansion is
+//! [`world_row_controls`] - Load into my world, Rename and delete - and its
+//! pane is a text card from the head's summary: the world's name, whether
+//! it is procedural or a Berlin square, how much is in it and how large it
+//! is ([`world_pane_facts`]). It has no picture, and says so.
 
 use bevy::prelude::*;
 use bevy_egui::egui;
@@ -39,6 +40,7 @@ use crate::pds::inventory::{AvatarItem, AvatarItemBody, WearMeta, WorldItem};
 use crate::pds::{Generator, GeneratorKind, InventoryRecord};
 
 use super::{DropSource, PendingGeneratorDrop};
+use crate::protocol::GiftKind;
 
 /// Which stash item the Inventory window has selected, and when (#1301).
 ///
@@ -124,14 +126,26 @@ pub(crate) enum RowKind {
     /// refused (#832).
     RoomScoped,
     /// A whole avatar (#1838): click to select - its Wear, Rename and
-    /// delete live in the expansion - and no drag sense, because an avatar
-    /// is neither placed nor gifted, and a drag that cannot land must not
-    /// start.
+    /// delete live in the expansion - and drag to give it (#1844), a drag
+    /// that places nothing.
     Avatar,
     /// A whole world (#1839): click to select - its Load, Rename and
-    /// delete live in the expansion - and no drag sense, for the avatar's
-    /// reason.
-    World,
+    /// delete live in the expansion. `giftable` when it is saved (#1844):
+    /// then a drag gives it as an avatar's does; an unsaved world has no
+    /// drag sense, because a drag that cannot land must not start.
+    World { giftable: bool },
+}
+
+impl RowKind {
+    /// Whether the row arms a drag, and what it would give.
+    fn drag(self) -> Option<GiftKind> {
+        match self {
+            Self::Placeable => Some(GiftKind::Generator),
+            Self::Avatar => Some(GiftKind::Avatar),
+            Self::World { giftable: true } => Some(GiftKind::World),
+            Self::RoomScoped | Self::World { giftable: false } => None,
+        }
+    }
 }
 
 /// What the pointer did to a row this frame.
@@ -174,13 +188,13 @@ pub(crate) fn stash_row(
     selected: bool,
 ) -> egui::Response {
     let weak = crate::ui::theme::current(ui.ctx()).text_weak;
-    let (label, sense) = match kind {
+    let draggable = kind.drag().is_some();
+    let (label, sense) = if draggable {
         // The handle glyph and the grab cursor make the row read as
         // draggable (#832).
-        RowKind::Placeable => (format!("☰ {name}"), egui::Sense::click_and_drag()),
-        RowKind::RoomScoped | RowKind::Avatar | RowKind::World => {
-            (name.to_string(), egui::Sense::click())
-        }
+        (format!("☰ {name}"), egui::Sense::click_and_drag())
+    } else {
+        (name.to_string(), egui::Sense::click())
     };
     let response = ui.add(
         egui::Button::selectable(selected, label)
@@ -189,9 +203,10 @@ pub(crate) fn stash_row(
             .min_size(egui::vec2(ui.available_width(), 0.0))
             .sense(sense),
     );
-    match kind {
-        RowKind::Placeable => response.on_hover_cursor(egui::CursorIcon::Grab),
-        RowKind::RoomScoped | RowKind::Avatar | RowKind::World => response,
+    if draggable {
+        response.on_hover_cursor(egui::CursorIcon::Grab)
+    } else {
+        response
     }
 }
 
@@ -296,6 +311,9 @@ pub(crate) fn avatar_pane_facts(item: &AvatarItem) -> Vec<String> {
         "Wear replaces the avatar you have on. It stays unsaved until you Save in the \
          Avatar window.",
     ));
+    facts.push(String::from(
+        "Drag it onto a person in the People list to give them a copy.",
+    ));
     facts
 }
 
@@ -364,8 +382,8 @@ pub(crate) const WORLD_NO_PICTURE: &str = "A world is a whole place - ground, sk
 /// What the pane says about a world item (#1839), from its head's summary
 /// alone - nothing is fetched or decoded to say it: what it is called and
 /// what kind of world it is, how much is in it, how large it is, and what
-/// loading it does.
-pub(crate) fn world_pane_facts(item: &WorldItem) -> Vec<String> {
+/// loading it does - and, when it cannot be given yet, why (#1844).
+pub(crate) fn world_pane_facts(item: &WorldItem, gift_blocked: Option<&str>) -> Vec<String> {
     let head = item.head();
     let summary = &head.summary;
     let mut facts = vec![WORLD_NO_PICTURE.to_string()];
@@ -400,16 +418,24 @@ pub(crate) fn world_pane_facts(item: &WorldItem) -> Vec<String> {
         "Load into my world replaces everything in your world with it, as a re-roll does. It \
          can be undone, and stays unsaved until you Save in the World Editor.",
     ));
+    facts.push(match gift_blocked {
+        None => String::from(
+            "Drag it onto a person in the People list to give it - they get a copy of your \
+             saved world.",
+        ),
+        Some(reason) => format!("To give it to someone: {reason}"),
+    });
     facts
 }
 
 /// Apply a row's gesture: a click selects, a drag start arms the shared
-/// drop bus. egui never reports both for one press (see the module
-/// header), and the drag tooltip is the caller's, because it needs to
-/// know whose room this is.
+/// drop bus with what the row would give (#1844). egui never reports both
+/// for one press (see the module header), and the drag tooltip is the
+/// caller's, because it needs to know whose room this is.
 pub(crate) fn apply_row_gesture(
     gesture: RowGesture,
     name: &str,
+    row: RowKind,
     browser: &mut InventoryBrowser,
     pending: &mut PendingGeneratorDrop,
     now: f64,
@@ -417,9 +443,12 @@ pub(crate) fn apply_row_gesture(
     if gesture.clicked {
         browser.select(name, now);
     }
-    if gesture.drag_started {
+    if gesture.drag_started
+        && let Some(kind) = row.drag()
+    {
         pending.generator_name = Some(name.to_string());
         pending.source = DropSource::Inventory;
+        pending.kind = kind;
     }
 }
 
@@ -487,8 +516,12 @@ pub(crate) enum PaneWhat<'a> {
     },
     /// A whole avatar.
     Avatar(&'a AvatarItem),
-    /// A whole world (#1839).
-    World(&'a WorldItem),
+    /// A whole world (#1839), and why it cannot be given yet, if it
+    /// cannot (#1844).
+    World {
+        item: &'a WorldItem,
+        gift_blocked: Option<&'static str>,
+    },
 }
 
 /// The pane beside the list: the picture, the name, the facts - or the
@@ -528,7 +561,7 @@ pub(crate) fn draw_pane(
             worn,
         } => pane_facts(generator, wear, worn),
         PaneWhat::Avatar(avatar) => avatar_pane_facts(avatar),
-        PaneWhat::World(world) => world_pane_facts(world),
+        PaneWhat::World { item, gift_blocked } => world_pane_facts(item, gift_blocked),
     };
     for fact in facts {
         ui.add(egui::Label::new(egui::RichText::new(fact).small().color(weak)).wrap());
@@ -676,7 +709,7 @@ mod tests {
                 rect = response.rect;
                 let gesture = RowGesture::of(&response);
                 if gesture.acts() {
-                    apply_row_gesture(gesture, "lantern", browser, pending, now);
+                    apply_row_gesture(gesture, "lantern", kind, browser, pending, now);
                 }
             });
             rect
@@ -765,32 +798,87 @@ mod tests {
         assert_eq!(row.browser.selected_name(), Some("lantern"));
     }
 
-    /// #1838. An avatar row selects on a click, so its Wear, Rename and
-    /// delete are reachable, and a drag on it arms nothing: an avatar is
-    /// neither placed nor gifted, and a drag that cannot land must not
-    /// start - it would release onto the world or a person and do nothing.
-    #[test]
-    fn an_avatar_row_selects_but_never_arms_a_drag() {
+    /// Press `kind`'s row, move the pointer 48 points and release it -
+    /// a drag - and say what the drop bus was armed with on the way.
+    fn drag_row(kind: RowKind) -> PendingGeneratorDrop {
         let mut row = RowHarness::new();
-        let at = row.frame(RowKind::Avatar, vec![]).center();
-        row.frame(RowKind::Avatar, vec![egui::Event::PointerMoved(at)]);
-        row.frame(RowKind::Avatar, vec![button(at, true)]);
+        let at = row.frame(kind, vec![]).center();
+        row.frame(kind, vec![egui::Event::PointerMoved(at)]);
+        row.frame(kind, vec![button(at, true)]);
         for step in 1..=4 {
             let to = at + egui::vec2(12.0 * step as f32, 0.0);
-            row.frame(RowKind::Avatar, vec![egui::Event::PointerMoved(to)]);
+            row.frame(kind, vec![egui::Event::PointerMoved(to)]);
         }
-        row.frame(
-            RowKind::Avatar,
-            vec![button(at + egui::vec2(48.0, 0.0), false)],
-        );
-        assert_eq!(row.pending.generator_name, None, "no drag sense, no drag");
+        let armed = std::mem::take(&mut row.pending);
+        row.frame(kind, vec![button(at + egui::vec2(48.0, 0.0), false)]);
+        assert_eq!(row.browser.selected_name(), None, "a drag is not a click");
+        armed
+    }
 
+    /// Click `kind`'s row in place and say what is selected.
+    fn click_row(kind: RowKind) -> Option<String> {
         let mut row = RowHarness::new();
-        let at = row.frame(RowKind::Avatar, vec![]).center();
-        row.frame(RowKind::Avatar, vec![egui::Event::PointerMoved(at)]);
-        row.frame(RowKind::Avatar, vec![button(at, true)]);
-        row.frame(RowKind::Avatar, vec![button(at, false)]);
-        assert_eq!(row.browser.selected_name(), Some("lantern"));
+        let at = row.frame(kind, vec![]).center();
+        row.frame(kind, vec![egui::Event::PointerMoved(at)]);
+        row.frame(kind, vec![button(at, true)]);
+        row.frame(kind, vec![button(at, false)]);
+        assert_eq!(row.pending.generator_name, None, "a click arms no drag");
+        row.browser.selected_name().map(str::to_owned)
+    }
+
+    /// #1844. An avatar row and a SAVED world row arm a drag - a gift-only
+    /// one, carrying the kind it would give, so the People row can gate it
+    /// on the peer's build and the world view can refuse to place it - and
+    /// still select on a click, so their Wear or Load, Rename and delete
+    /// stay reachable.
+    #[test]
+    fn an_avatar_row_and_a_saved_world_row_arm_a_gift_drag() {
+        for (kind, gives) in [
+            (RowKind::Avatar, GiftKind::Avatar),
+            (RowKind::World { giftable: true }, GiftKind::World),
+            (RowKind::Placeable, GiftKind::Generator),
+        ] {
+            let armed = drag_row(kind);
+            assert_eq!(armed.generator_name.as_deref(), Some("lantern"), "{kind:?}");
+            assert_eq!(armed.source, DropSource::Inventory);
+            assert_eq!(armed.kind, gives, "{kind:?}");
+            assert_eq!(click_row(kind).as_deref(), Some("lantern"), "{kind:?}");
+        }
+    }
+
+    /// #1844. An UNSAVED world row selects on a click, so its Load, Rename
+    /// and delete are reachable, and a drag on it arms nothing: a world is
+    /// given from the saved copy, and a drag that cannot land must not
+    /// start. Its pane says why, in the game's words.
+    #[test]
+    fn an_unsaved_world_row_arms_no_drag_and_its_pane_says_why() {
+        let unsaved = RowKind::World { giftable: false };
+        assert_eq!(drag_row(unsaved).generator_name, None, "no drag sense");
+        assert_eq!(click_row(unsaved).as_deref(), Some("lantern"));
+
+        let world = crate::pds::inventory::world::tests::seeded_world(43);
+        let item = WorldItem::snapshot(&world).expect("copies");
+        let mut stored = std::collections::HashMap::new();
+        let reason = crate::pds::inventory::world::gift_blocked_reason(item.head(), Some(&stored))
+            .expect("nothing is saved");
+        assert!(reason.contains("Save your Inventory"), "{reason}");
+        let facts = world_pane_facts(&item, Some(reason));
+        assert!(
+            facts.iter().any(|fact| fact.contains(reason)),
+            "the pane says it: {facts:?}"
+        );
+        // Saved - under any name, a rename being a new head over the same
+        // parts - it can go, and the pane says how.
+        stored.insert(String::from("renamed"), item.clone());
+        assert_eq!(
+            crate::pds::inventory::world::gift_blocked_reason(item.head(), Some(&stored)),
+            None
+        );
+        assert!(
+            world_pane_facts(&item, None)
+                .iter()
+                .any(|fact| fact.contains("People list")),
+        );
     }
 
     impl RowHarness {
@@ -1002,33 +1090,6 @@ mod tests {
         assert!(browser.is_stale(&stash), "gone");
     }
 
-    /// #1839. A world row selects on a click, so its Load, Rename and
-    /// delete are reachable, and a drag on it arms nothing: a world is
-    /// neither placed nor gifted.
-    #[test]
-    fn a_world_row_selects_but_never_arms_a_drag() {
-        let mut row = RowHarness::new();
-        let at = row.frame(RowKind::World, vec![]).center();
-        row.frame(RowKind::World, vec![egui::Event::PointerMoved(at)]);
-        row.frame(RowKind::World, vec![button(at, true)]);
-        for step in 1..=4 {
-            let to = at + egui::vec2(12.0 * step as f32, 0.0);
-            row.frame(RowKind::World, vec![egui::Event::PointerMoved(to)]);
-        }
-        row.frame(
-            RowKind::World,
-            vec![button(at + egui::vec2(48.0, 0.0), false)],
-        );
-        assert_eq!(row.pending.generator_name, None, "no drag sense, no drag");
-
-        let mut row = RowHarness::new();
-        let at = row.frame(RowKind::World, vec![]).center();
-        row.frame(RowKind::World, vec![egui::Event::PointerMoved(at)]);
-        row.frame(RowKind::World, vec![button(at, true)]);
-        row.frame(RowKind::World, vec![button(at, false)]);
-        assert_eq!(row.browser.selected_name(), Some("lantern"));
-    }
-
     /// #1839. The world row's Load asks to load when it can; when it
     /// cannot - not your own world, or a load in flight - a click does
     /// nothing and the hover says why (#1289: `on_disabled_hover_text`).
@@ -1100,7 +1161,7 @@ mod tests {
             None,
             "world"
         ));
-        let facts = world_pane_facts(&item);
+        let facts = world_pane_facts(&item, None);
         assert_eq!(facts[0], WORLD_NO_PICTURE);
         assert_eq!(facts[1], "\"Harbour\", a procedural world.");
         assert!(
@@ -1119,6 +1180,6 @@ mod tests {
         }));
         let item = WorldItem::snapshot(&berlin).expect("copies");
         assert_eq!(world_tag(&item), "world \u{b7} Berlin");
-        assert!(world_pane_facts(&item)[1].starts_with("A Berlin square in "));
+        assert!(world_pane_facts(&item, None)[1].starts_with("A Berlin square in "));
     }
 }

@@ -30,9 +30,18 @@
 //! the Reliable channel and addressed by the recipient DID inside the
 //! payload, because `bevy_symbios_multiuser` has no directed-send primitive
 //! - non-targets authenticate the DID and drop the message on receipt.
+//!
+//! An offer gives one [`GiftItem`] (#1844): a thing - a generator and the
+//! wear it carries - a whole avatar, by value, or a whole world, by its head
+//! alone. A world's contents never ride the wire: the recipient fetches them
+//! from the giver's data server after Accept. A build from before whole
+//! gifts reads one as a thing of a kind it does not know and refuses it
+//! cleanly ([`WHOLE_GIFT_MARKER`]), and a sender offers one only to a peer
+//! whose `Hello` said [`WHOLE_GIFTS_SINCE`] or later.
 
 use serde::{Deserialize, Serialize};
 
+use crate::pds::inventory::{AvatarItem, WearMeta, WorldHead};
 use crate::pds::{AvatarRecord, Generator, RoomRecord};
 
 /// All messages exchanged over the P2P network.
@@ -71,15 +80,16 @@ pub enum OverlandsMessage {
     /// live preview of the peer's editor state, so other players see edits
     /// immediately without waiting for a Publish round-trip.
     AvatarStateUpdate { record_json: Vec<u8> },
-    /// Peer-to-peer inventory gift. The sender drags a generator from their
-    /// Inventory (or World Editor Generators tab) onto a peer row in the
-    /// People window; the engine broadcasts this message and only the peer
-    /// whose authenticated DID matches `target_did` acts on it.
+    /// Peer-to-peer inventory gift. The sender drags an item from their
+    /// Inventory - a thing, or since #1844 a whole avatar or a saved world -
+    /// or a thing from the Catalogue onto a peer row in the People window;
+    /// the engine broadcasts this message and only the peer whose
+    /// authenticated DID matches `target_did` acts on it.
     ///
     /// Broadcast-with-address is used because
     /// [`bevy_symbios_multiuser::messages::Broadcast`] has no directed-send primitive -
     /// non-targets drop the message on receipt after the DID check. The
-    /// `generator_json` payload is a JSON-serialised [`Generator`] for the
+    /// `payload_json` is a JSON-serialised [`ItemOfferPayload`] for the
     /// same reason [`Self::RoomStateUpdate`] ships JSON-in-bincode:
     /// `Generator` is a `#[serde(tag = "$type")]` open union that bincode's
     /// streaming decoder cannot handle.
@@ -92,8 +102,8 @@ pub enum OverlandsMessage {
     /// # Envelope and payload (#1184)
     ///
     /// Everything the item *is* - its name, its blueprint, its wear
-    /// metadata - lives in `payload_json` as one JSON
-    /// [`ItemOfferPayload`]. This is the variant that already broke once:
+    /// metadata, or the whole avatar or world head it gives (#1844) - lives
+    /// in `payload_json` as one JSON [`ItemOfferPayload`]. This is the variant that already broke once:
     /// 59ff989 appended `wear_json` beside four bincode fields with no
     /// version bump, and every gift across that boundary has failed
     /// silently since, because bincode identifies fields by position and
@@ -192,9 +202,11 @@ pub enum OverlandsMessage {
     ///
     /// `protocol` is [`PROTOCOL_VERSION`]; `build` is the human-readable
     /// version+sha, carried only so a bug report can name the two builds that
-    /// disagreed. Both are peer-supplied and therefore advisory: nothing
-    /// gates on them, so a peer that lies gets a wrong chip on its own row
-    /// and nothing else.
+    /// disagreed. Both are peer-supplied and therefore advisory: what gates
+    /// on `protocol` - the first-person flag's repeat ([`FIRST_PERSON_SINCE`])
+    /// and a whole gift ([`WHOLE_GIFTS_SINCE`], #1844) - decides only what
+    /// this build sends that peer, so a peer that lies gets a wrong chip on
+    /// its own row and messages its own build refuses, and nothing else.
     ///
     /// Appended last, for the reason [`Self::AvatarRecordsPublished`] gives:
     /// a build that predates this arm meets an unknown discriminant and drops
@@ -276,6 +288,14 @@ pub enum OverlandsMessage {
 /// that has not. Every field is `default`ed for that reason - a decoder
 /// that refuses a payload for a missing member would give the version
 /// skew back.
+///
+/// A whole gift (#1844) carries `avatar` or `world`, and then `generator`
+/// is not a blueprint but [`WHOLE_GIFT_MARKER`]: a tag no build knows, so a
+/// build from before whole gifts - which ignores the two members it has
+/// never heard of - reads a thing of a kind it cannot place, and refuses the
+/// offer as `Unavailable` with no dialog. This build ignores `generator`
+/// whenever `avatar` or `world` is present, and refuses a payload carrying
+/// both ([`Self::into_gift`]).
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(default)]
 pub struct ItemOfferPayload {
@@ -284,7 +304,8 @@ pub struct ItemOfferPayload {
     pub item_name: String,
     /// The item's blueprint. JSON all the way down because `Generator` is
     /// an internally tagged open union (`#[serde(tag = "$type")]`), which
-    /// bincode's streaming decoder cannot handle at all.
+    /// bincode's streaming decoder cannot handle at all. For a whole gift,
+    /// the marker - read here as an `Unknown` kind, and ignored.
     pub generator: Generator,
     /// Wear metadata (#1108) - socket, fit and saved offset - so a gifted
     /// wearable arrives wearable rather than as decor. Absent for plain
@@ -295,7 +316,111 @@ pub struct ItemOfferPayload {
         deserialize_with = "lenient_wear",
         skip_serializing_if = "Option::is_none"
     )]
-    pub wear: Option<crate::pds::inventory::WearMeta>,
+    pub wear: Option<WearMeta>,
+    /// A whole avatar, by value (#1844). Absent for anything else.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar: Option<AvatarItem>,
+    /// A whole world's head (#1844): what it is and the part keys its
+    /// contents are saved under on the giver's data server - never the
+    /// contents. Absent for anything else.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub world: Option<WorldHead>,
+}
+
+/// The `$type` an [`ItemOfferPayload`]'s `generator` carries on a whole gift
+/// (#1844). Not a kind any build knows: every build since #1111 decodes it as
+/// `GeneratorKind::Unknown`, which `pds::inventory::is_drop_placeable`
+/// refuses - so a build that cannot take a whole avatar or world says
+/// `Unavailable` instead of showing an offer it would fail to land.
+pub const WHOLE_GIFT_MARKER: &str = "network.symbios.overlands.gift.whole";
+
+/// What a gift gives (#1844), decoded: the content of an
+/// [`ItemOfferPayload`] with the marker read away. The sender builds one from
+/// its stash or the Catalogue; the recipient holds one on its offer dialog.
+#[derive(Clone, Debug)]
+pub enum GiftItem {
+    /// A thing: a generator, and the wear metadata it carries when it is a
+    /// wearable (#1108).
+    Generator {
+        generator: Box<Generator>,
+        wear: Option<WearMeta>,
+    },
+    /// A whole avatar, by value.
+    Avatar(Box<AvatarItem>),
+    /// A whole world, by its head: the recipient fetches its parts from the
+    /// giver's data server after Accept.
+    World(WorldHead),
+}
+
+/// Which kind of item a gift, or a drag that may become one, carries
+/// (#1844). The sender's peer gate turns on it: a whole avatar or world goes
+/// only to a peer whose build can take one ([`WHOLE_GIFTS_SINCE`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum GiftKind {
+    /// A thing - a generator, worn or placed.
+    #[default]
+    Generator,
+    /// A whole avatar.
+    Avatar,
+    /// A whole world.
+    World,
+}
+
+impl GiftKind {
+    /// Whether this is a whole avatar or world - given, never placed.
+    pub fn is_whole(self) -> bool {
+        !matches!(self, Self::Generator)
+    }
+}
+
+impl GiftItem {
+    /// Which kind of item this is.
+    pub fn kind(&self) -> GiftKind {
+        match self {
+            Self::Generator { .. } => GiftKind::Generator,
+            Self::Avatar(_) => GiftKind::Avatar,
+            Self::World(_) => GiftKind::World,
+        }
+    }
+}
+
+impl ItemOfferPayload {
+    /// What the payload gives, or why it is malformed: a whole avatar, a
+    /// whole world, else the generator and its wear. A payload carrying both
+    /// an avatar and a world is refused - no build sends one.
+    pub fn into_gift(self) -> Result<GiftItem, &'static str> {
+        match (self.avatar, self.world) {
+            (Some(_), Some(_)) => Err("it offered an avatar and a world at once"),
+            (Some(avatar), None) => Ok(GiftItem::Avatar(Box::new(avatar))),
+            (None, Some(world)) => Ok(GiftItem::World(world)),
+            (None, None) => Ok(GiftItem::Generator {
+                generator: Box::new(self.generator),
+                wear: self.wear,
+            }),
+        }
+    }
+}
+
+/// A whole gift's payload as this build writes it (#1844): the members an
+/// [`ItemOfferPayload`] reads, with [`WHOLE_GIFT_MARKER`] in place of a
+/// blueprint. A struct of its own because a `Generator` of an unknown kind
+/// refuses to serialise (#1111), which is right for a blueprint and exactly
+/// what the marker is not.
+#[derive(Serialize)]
+struct WholeOfferWire<'a> {
+    item_name: &'a str,
+    generator: WholeMarker,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    avatar: Option<&'a AvatarItem>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    world: Option<&'a WorldHead>,
+}
+
+/// [`WHOLE_GIFT_MARKER`] as a generator's `$type`.
+#[derive(Serialize)]
+struct WholeMarker {
+    #[serde(rename = "$type")]
+    lex_type: &'static str,
 }
 
 /// Deserialize [`ItemOfferPayload::wear`] leniently: a value that will not
@@ -307,9 +432,7 @@ pub struct ItemOfferPayload {
 /// arrived. Folding it into one struct would have made a bad `wear` refuse
 /// the gift outright - a strictly worse outcome, since the blueprint is
 /// intact and the placement is a convenience the recipient can redo.
-fn lenient_wear<'de, D>(
-    deserializer: D,
-) -> Result<Option<crate::pds::inventory::WearMeta>, D::Error>
+fn lenient_wear<'de, D>(deserializer: D) -> Result<Option<WearMeta>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -341,11 +464,16 @@ pub enum DeclineReason {
     Unavailable,
     /// Nobody answered before the offer expired on the recipient's side.
     Unanswered,
+    /// The recipient accepted a whole world, and its contents could not be
+    /// fetched from the giver's saved copy (#1844). Saving the Inventory and
+    /// offering it again is what helps. An older sender reads it as
+    /// [`Self::Declined`] ([`lenient_reason`]).
+    NotFetched,
 }
 
 /// The sentence the SENDER sees when a gift is refused (#1220 f127).
 ///
-/// One place, because there are four reasons and they used to share one
+/// One place, because there are several reasons and they used to share one
 /// sentence - "@them declined" - which misattributed a mechanical throttle
 /// to a person's choice and, worse, taught the sender not to retry in the
 /// one case where retrying works. A muted sender reads `Declined`
@@ -354,7 +482,7 @@ pub enum DeclineReason {
 /// It lived in `ui::inventory` and had exactly one non-test caller -
 /// `network::inbound::item_offer`, which is not `ui` at all (#1297).
 /// The sentence explains a [`DeclineReason`]; it belongs beside the
-/// enum whose four variants it exists to tell apart.
+/// enum whose variants it exists to tell apart.
 pub fn offer_refusal_line(reason: DeclineReason, who: &str, item: &str) -> String {
     match reason {
         DeclineReason::Declined => format!("{who} declined \"{item}\"."),
@@ -365,6 +493,10 @@ pub fn offer_refusal_line(reason: DeclineReason, who: &str, item: &str) -> Strin
             format!("{who} couldn't take \"{item}\" - their inventory is full.")
         }
         DeclineReason::Unanswered => format!("{who} didn't answer about \"{item}\" in time."),
+        DeclineReason::NotFetched => format!(
+            "{who} couldn't fetch \"{item}\" from your saved copy - save your Inventory and \
+             offer it again."
+        ),
     }
 }
 
@@ -424,14 +556,24 @@ where
 /// [`OverlandsMessage::ItemOfferResponse`] onto single JSON payloads
 /// (#1184) - a deliberate break, so that the *next* field either of them
 /// grows is not one; 4 appended [`OverlandsMessage::RoomRecordsPublished`]
-/// (#1499); 5 appended [`OverlandsMessage::FirstPerson`] (#1746).
-pub const PROTOCOL_VERSION: u16 = 5;
+/// (#1499); 5 appended [`OverlandsMessage::FirstPerson`] (#1746); 6 let an
+/// [`OverlandsMessage::ItemOffer`] carry a whole avatar or a world (#1844) -
+/// no layout moved, the payload grew two members, and the bump is the
+/// capability [`WHOLE_GIFTS_SINCE`] gates on.
+pub const PROTOCOL_VERSION: u16 = 6;
 
 /// The first [`PROTOCOL_VERSION`] whose builds read
 /// [`OverlandsMessage::FirstPerson`] (#1746). An older one drops it with a
 /// decode warning in its log, so the flag's once-a-second repeat goes only to
 /// peers whose `Hello` said this or later.
 pub const FIRST_PERSON_SINCE: u16 = 5;
+
+/// The first [`PROTOCOL_VERSION`] whose builds take a whole avatar or world
+/// in an [`OverlandsMessage::ItemOffer`] (#1844). An older one refuses such an
+/// offer cleanly ([`WHOLE_GIFT_MARKER`]), but a sender that knows it will
+/// does not ask: a whole gift goes only to a peer whose `Hello` said this or
+/// later, and the People row says why not.
+pub const WHOLE_GIFTS_SINCE: u16 = 6;
 
 /// This build's human-readable identity for [`OverlandsMessage::Hello`]:
 /// crate version plus the short git sha ([`crate::build_info`]). Only ever
@@ -530,24 +672,49 @@ impl OverlandsMessage {
     /// Package an [`ItemOffer`](Self::ItemOffer): the address stays on the
     /// message, the item goes into one JSON [`ItemOfferPayload`] (#1184).
     ///
-    /// `wear` is the item's wear metadata when it is wearable (#1108);
-    /// `None` gifts plain decor.
+    /// A thing carries its blueprint and, when it is wearable, its wear
+    /// metadata (#1108) - byte for byte the payload it was before whole
+    /// gifts. A whole avatar or world carries itself beside
+    /// [`WHOLE_GIFT_MARKER`] (#1844).
     pub fn item_offer(
         offer_id: u64,
         target_did: String,
         item_name: String,
-        generator: &Generator,
-        wear: Option<&crate::pds::inventory::WearMeta>,
+        gift: &GiftItem,
     ) -> Self {
-        let payload = ItemOfferPayload {
-            item_name,
-            generator: generator.clone(),
-            wear: wear.cloned(),
+        let payload_json = match gift {
+            GiftItem::Generator { generator, wear } => serialize_for_wire(
+                &ItemOfferPayload {
+                    item_name,
+                    generator: Generator::clone(generator),
+                    wear: wear.clone(),
+                    avatar: None,
+                    world: None,
+                },
+                "ItemOffer",
+            ),
+            GiftItem::Avatar(_) | GiftItem::World(_) => serialize_for_wire(
+                &WholeOfferWire {
+                    item_name: &item_name,
+                    generator: WholeMarker {
+                        lex_type: WHOLE_GIFT_MARKER,
+                    },
+                    avatar: match gift {
+                        GiftItem::Avatar(avatar) => Some(avatar),
+                        _ => None,
+                    },
+                    world: match gift {
+                        GiftItem::World(head) => Some(head),
+                        _ => None,
+                    },
+                },
+                "ItemOffer",
+            ),
         };
         Self::ItemOffer {
             offer_id,
             target_did,
-            payload_json: serialize_for_wire(&payload, "ItemOffer").unwrap_or_default(),
+            payload_json: payload_json.unwrap_or_default(),
         }
     }
 
@@ -669,6 +836,7 @@ mod item_offer_tests {
             DeclineReason::Busy,
             DeclineReason::Unavailable,
             DeclineReason::Unanswered,
+            DeclineReason::NotFetched,
         ] {
             let line = offer_refusal_line(reason, "@them", "lantern");
             assert!(line.contains("@them"), "{line}");
@@ -681,6 +849,14 @@ mod item_offer_tests {
         meta.fit_band_mm = 178;
         meta.offset.translation = crate::pds::types::Fp3([0.0, 0.02, 0.0]);
         meta
+    }
+
+    /// A thing to give.
+    fn thing(generator: Generator, wear: Option<WearMeta>) -> GiftItem {
+        GiftItem::Generator {
+            generator: Box::new(generator),
+            wear,
+        }
     }
 
     /// Unpack an offer's payload bytes, whatever the envelope says.
@@ -700,8 +876,7 @@ mod item_offer_tests {
             7,
             String::from("did:plc:recipient"),
             String::from("circlet"),
-            &Generator::default(),
-            Some(&wear()),
+            &thing(Generator::default(), Some(wear())),
         );
         let bytes = offer.to_chunk_bytes().expect("encodes");
         let landed = OverlandsMessage::from_chunk_bytes(&bytes).expect("decodes");
@@ -718,8 +893,7 @@ mod item_offer_tests {
             8,
             String::from("did:plc:recipient"),
             String::from("bench"),
-            &Generator::default(),
-            None,
+            &thing(Generator::default(), None),
         );
         let payload =
             OverlandsMessage::decode_item_offer(&payload_of(&decor)).expect("payload decodes");
@@ -728,6 +902,207 @@ mod item_offer_tests {
             !String::from_utf8_lossy(&payload_of(&decor)).contains("wear"),
             "and elides the member entirely rather than shipping a null"
         );
+    }
+
+    /// **A generator gift's payload is byte-for-byte what it was before
+    /// whole gifts (#1844).** Pinned before the payload grew its `avatar` and
+    /// `world` members: a build that cannot take a whole gift must keep
+    /// reading every thing a newer one gives exactly as it always has.
+    #[test]
+    fn a_generator_gifts_payload_bytes_are_pinned() {
+        let payload = |wear: Option<WearMeta>| {
+            let message = OverlandsMessage::item_offer(
+                7,
+                String::from("did:plc:recipient"),
+                String::from("circlet"),
+                &thing(Generator::default_cuboid(), wear),
+            );
+            String::from_utf8(payload_of(&message)).expect("JSON is text")
+        };
+        assert_eq!(
+            payload(None),
+            r#"{"item_name":"circlet","generator":{"$type":"network.symbios.gen.cuboid","size":[10000,10000,10000],"solid":true}}"#
+        );
+        assert_eq!(
+            payload(Some(wear())),
+            r#"{"item_name":"circlet","generator":{"$type":"network.symbios.gen.cuboid","size":[10000,10000,10000],"solid":true},"wear":{"socket":"crown","fitBandMm":178,"offset":{"translation":[0,200,0]}}}"#
+        );
+    }
+
+    /// Send `gift` through the whole wire path - its JSON inside the
+    /// message, the message through bincode (the chunker's codec) - and
+    /// decode what lands, with the payload's text beside it.
+    fn over_the_wire(gift: &GiftItem) -> (Result<GiftItem, &'static str>, String) {
+        let offer = OverlandsMessage::item_offer(
+            3,
+            String::from("did:plc:recipient"),
+            String::from("whole"),
+            gift,
+        );
+        let bytes = offer.to_chunk_bytes().expect("encodes");
+        let landed = OverlandsMessage::from_chunk_bytes(&bytes).expect("decodes");
+        let text = String::from_utf8(payload_of(&landed)).expect("JSON is text");
+        let payload = OverlandsMessage::decode_item_offer(text.as_bytes()).expect("decodes");
+        assert_eq!(payload.item_name, "whole");
+        (payload.into_gift(), text)
+    }
+
+    /// #1844: a whole avatar rides the offer by value - a rigged body with
+    /// what it wears, and a generator body - and lands equal, beside the
+    /// marker that keeps an older build from reading it as a thing.
+    #[test]
+    fn a_whole_avatar_offer_round_trips() {
+        use crate::pds::inventory::avatar_item_tests::{generator_record, rigged_record};
+        for record in [rigged_record(), generator_record()] {
+            let item = AvatarItem::from_record(&record).expect("copies");
+            // What any wire holds of it: its numbers on the wire's grid, as
+            // a saved stash item's are.
+            let held: AvatarItem =
+                serde_json::from_value(serde_json::to_value(&item).expect("encodes"))
+                    .expect("decodes");
+            let (landed, text) = over_the_wire(&GiftItem::Avatar(Box::new(item.clone())));
+            match landed {
+                Ok(GiftItem::Avatar(back)) => assert_eq!(*back, held),
+                other => panic!("{other:?}"),
+            }
+            assert!(text.contains(WHOLE_GIFT_MARKER), "{text}");
+            assert!(!text.contains("\"world\""), "{text}");
+        }
+    }
+
+    /// #1844: a world rides as its head alone - what it is, its part keys,
+    /// its size and digest - and none of its contents.
+    #[test]
+    fn a_whole_world_offer_carries_its_head_and_no_part_text() {
+        let world = crate::pds::inventory::world::tests::seeded_world(17);
+        let item = crate::pds::inventory::WorldItem::snapshot(&world).expect("copies");
+        let head = item.head().clone();
+        let (landed, text) = over_the_wire(&GiftItem::World(head.clone()));
+        match landed {
+            Ok(GiftItem::World(back)) => assert_eq!(back, head),
+            other => panic!("{other:?}"),
+        }
+        assert!(text.contains(WHOLE_GIFT_MARKER), "{text}");
+        let slices = item.slices().expect("held");
+        for slice in slices.iter() {
+            let sample: String = slice.chars().take(48).collect();
+            assert!(!text.contains(&sample), "a part's text rode the offer");
+        }
+        assert!(
+            (text.len() as u64) < head.bytes,
+            "the offer is the head, {} bytes, not the {}-byte world",
+            text.len(),
+            head.bytes
+        );
+    }
+
+    /// #1844: no build sends an avatar and a world in one offer, so a
+    /// payload that does is refused as malformed - neither is taken.
+    #[test]
+    fn an_offer_of_both_an_avatar_and_a_world_is_refused() {
+        use crate::pds::inventory::avatar_item_tests::generator_record;
+        let world = crate::pds::inventory::world::tests::seeded_world(19);
+        let head = crate::pds::inventory::WorldItem::snapshot(&world)
+            .expect("copies")
+            .head()
+            .clone();
+        let both = serde_json::json!({
+            "item_name": "both",
+            "generator": {"$type": WHOLE_GIFT_MARKER},
+            "avatar": AvatarItem::from_record(&generator_record()).expect("copies"),
+            "world": head,
+        });
+        let payload =
+            OverlandsMessage::decode_item_offer(&serde_json::to_vec(&both).expect("encodes"))
+                .expect("the JSON itself reads");
+        assert!(payload.into_gift().is_err());
+    }
+
+    /// **A build from before whole gifts refuses one cleanly** (#1844). A
+    /// frozen copy of protocol 5's payload - the members it knew - reads a
+    /// whole avatar's and a whole world's offer as a generator of a kind it
+    /// does not know, which its `is_drop_placeable` refuses: `Unavailable`,
+    /// and no dialog for a gift it could not land.
+    #[test]
+    fn a_protocol_5_build_reads_a_whole_gift_as_a_thing_it_cannot_place() {
+        use crate::pds::inventory::avatar_item_tests::rigged_record;
+        #[derive(serde::Deserialize, Default)]
+        #[serde(default)]
+        struct Protocol5Payload {
+            item_name: String,
+            generator: Generator,
+            #[serde(deserialize_with = "lenient_wear")]
+            wear: Option<WearMeta>,
+        }
+        let world = crate::pds::inventory::world::tests::seeded_world(23);
+        let head = crate::pds::inventory::WorldItem::snapshot(&world)
+            .expect("copies")
+            .head()
+            .clone();
+        let avatar = AvatarItem::from_record(&rigged_record()).expect("copies");
+        for gift in [GiftItem::Avatar(Box::new(avatar)), GiftItem::World(head)] {
+            let offer = OverlandsMessage::item_offer(
+                5,
+                String::from("did:plc:old"),
+                String::from("whole"),
+                &gift,
+            );
+            let old: Protocol5Payload =
+                serde_json::from_slice(&payload_of(&offer)).expect("an older build reads it");
+            assert_eq!(old.item_name, "whole");
+            assert_eq!(old.wear, None);
+            let mut generator = old.generator;
+            assert!(matches!(generator.kind, crate::pds::GeneratorKind::Unknown));
+            crate::pds::sanitize_generator(&mut generator);
+            assert!(
+                !crate::pds::inventory::is_drop_placeable(&generator),
+                "and refuses it as Unavailable"
+            );
+        }
+    }
+
+    /// #1844: `NotFetched` is the sender's sentence for a world whose saved
+    /// copy could not be fetched, and it says what helps. A sender from
+    /// before it - whose reason enum ends at `Unanswered` and reads leniently
+    /// - hears a plain decline.
+    #[test]
+    fn not_fetched_says_what_helps_and_an_older_sender_reads_it_as_declined() {
+        let line = offer_refusal_line(DeclineReason::NotFetched, "@them", "harbour");
+        assert!(line.contains("saved copy"), "{line}");
+        assert!(line.contains("save your Inventory"), "{line}");
+        assert!(line.contains("offer it again"), "{line}");
+        assert!(!line.contains("declined"), "{line}");
+
+        #[derive(serde::Deserialize, Default, Debug, PartialEq)]
+        #[serde(rename_all = "camelCase")]
+        enum OldReason {
+            #[default]
+            Declined,
+            Busy,
+            Unavailable,
+            Unanswered,
+        }
+        let OverlandsMessage::ItemOfferResponse { payload_json, .. } =
+            OverlandsMessage::item_offer_response(
+                2,
+                String::from("did:plc:giver"),
+                false,
+                DeclineReason::NotFetched,
+            )
+        else {
+            panic!("not a response");
+        };
+        let value: serde_json::Value = serde_json::from_slice(&payload_json).expect("JSON");
+        let old: OldReason = serde_json::from_value(value["reason"].clone()).unwrap_or_default();
+        assert_eq!(old, OldReason::Declined);
+        assert_eq!(value["accepted"], false);
+        for reason in ["busy", "unavailable", "unanswered"] {
+            assert_ne!(
+                serde_json::from_value::<OldReason>(serde_json::json!(reason)).ok(),
+                None,
+                "the frozen enum reads the reasons it knew: {reason}"
+            );
+        }
     }
 
     /// A malformed wear payload must not refuse the gift: the item is
@@ -831,6 +1206,7 @@ mod item_offer_tests {
             DeclineReason::Busy,
             DeclineReason::Unavailable,
             DeclineReason::Unanswered,
+            DeclineReason::NotFetched,
         ] {
             let OverlandsMessage::ItemOfferResponse { payload_json, .. } =
                 OverlandsMessage::item_offer_response(
@@ -912,6 +1288,7 @@ mod item_offer_tests {
             (DeclineReason::Busy, "busy"),
             (DeclineReason::Unavailable, "unavailable"),
             (DeclineReason::Unanswered, "unanswered"),
+            (DeclineReason::NotFetched, "notFetched"),
         ] {
             assert_eq!(
                 serde_json::to_string(&reason).expect("serialises"),
@@ -1127,13 +1504,16 @@ mod tests {
     /// A version nobody bumps is a version nobody has. This does not prove the
     /// bump happened - no test can - but it pins the pairing so the two facts
     /// live in one place: when [`WIRE_LAYOUT`] above fails, this constant is
-    /// what has to move with it.
+    /// what has to move with it. 6 moved no layout (#1844): it names a
+    /// capability inside a JSON payload, which [`WHOLE_GIFTS_SINCE`] gates on.
     #[test]
     fn the_protocol_version_matches_the_pinned_layout() {
         assert_eq!(
-            PROTOCOL_VERSION, 5,
+            PROTOCOL_VERSION, 6,
             "PROTOCOL_VERSION changed: WIRE_LAYOUT must have changed in the \
-             same commit, or the bump describes nothing"
+             same commit, or a capability a sender gates on, or the bump \
+             describes nothing"
         );
+        assert_eq!(WHOLE_GIFTS_SINCE, 6, "the capability 6 introduced");
     }
 }

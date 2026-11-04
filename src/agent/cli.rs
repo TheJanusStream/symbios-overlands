@@ -339,12 +339,16 @@ pub struct GiftArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum GiftAction {
-    /// Offer a player in the agent's world an inventory item, by its name,
-    /// or a catalogue entry, by its slug. A gift is a copy: the agent keeps
-    /// its own.
+    /// Offer a player in the agent's world an inventory item, by its name -
+    /// a thing, a whole avatar, or a whole world once the inventory holding
+    /// it is saved - or a catalogue thing, by its slug. A gift is a copy:
+    /// the agent keeps its own. A whole avatar or world goes only to a
+    /// player whose game can take one.
     Give(GiveArgs),
     /// Accept the admin's gift offer. Saved at once when the agent may save.
-    Accept(OfferArgs),
+    /// A world is fetched from the admin's saved copy first, and lands a
+    /// moment later: `--wait` for it, or read its `gift_world_landed` event.
+    Accept(AcceptArgs),
     /// Decline the admin's gift offer.
     Decline(OfferArgs),
 }
@@ -357,7 +361,8 @@ pub struct GiveArgs {
     pub player: String,
     /// What: an inventory item's name, or a catalogue entry's slug.
     pub item: String,
-    /// Wait for their answer - or for the offer to lapse - and print it.
+    /// Wait for their answer - or for the offer to lapse - and print it. A
+    /// world is answered once it has landed with them, or failed to.
     #[arg(long)]
     pub wait: bool,
 }
@@ -368,6 +373,16 @@ pub struct OfferArgs {
     pub account: AccountArg,
     /// The offer, by the id its `gift_offered` event gives.
     pub offer_id: u64,
+}
+
+#[derive(Args, Debug)]
+pub struct AcceptArgs {
+    #[command(flatten)]
+    pub offer: OfferArgs,
+    /// For a world: wait until it has landed in the inventory, or failed
+    /// to, and print how. Anything else lands with the answer.
+    #[arg(long)]
+    pub wait: bool,
 }
 
 #[derive(Args, Debug)]
@@ -1008,6 +1023,7 @@ mod tests {
             &["room"],
             &["room", "get"],
             &["gift", "give"],
+            &["gift", "accept"],
             &["save"],
             &["ui", "show"],
         ] {
@@ -1284,8 +1300,18 @@ mod tests {
         let Command::Gift(gift) = parse(&["gift", "accept", "7"]).unwrap() else {
             panic!("gift");
         };
-        assert!(matches!(gift.action, GiftAction::Accept(offer) if offer.offer_id == 7));
+        assert!(
+            matches!(gift.action, GiftAction::Accept(accept) if accept.offer.offer_id == 7 && !accept.wait)
+        );
         assert!(parse(&["gift", "decline", "-1"]).is_err());
+        // #1847: an accept may wait for a world to land; a decline may not.
+        let Command::Gift(gift) = parse(&["gift", "accept", "7", "--wait"]).unwrap() else {
+            panic!("gift");
+        };
+        assert!(
+            matches!(gift.action, GiftAction::Accept(accept) if accept.offer.offer_id == 7 && accept.wait)
+        );
+        assert!(parse(&["gift", "decline", "7", "--wait"]).is_err());
     }
 
     /// The avatar's and the world's commands (#1843): the two stashes take

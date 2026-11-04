@@ -834,6 +834,11 @@ pub(crate) fn catalogue_ui(
                                                 pending_drop.generator_name =
                                                     Some(slug.to_string());
                                                 pending_drop.source = DropSource::Catalogue;
+                                                // A thing (#1844): the
+                                                // Catalogue gives no whole
+                                                // avatar or world.
+                                                pending_drop.kind =
+                                                    crate::protocol::GiftKind::Generator;
                                             }
                                         }
                                         _ => {}

@@ -2105,6 +2105,18 @@ pub(crate) mod network {
     /// timeout from the recipient) still races its own pending entry.
     pub const PENDING_OFFER_TIMEOUT_SECS: f64 = 180.0;
 
+    /// How long before its giver's [`PENDING_OFFER_TIMEOUT_SECS`] runs out a
+    /// given world must be answered (#1844). Its parts are fetched after
+    /// Accept and it is answered when they land, so a slow fetch could
+    /// answer after the giver's entry was swept - where the answer is
+    /// dropped, and the giver is told "didn't answer in time" about a world
+    /// the recipient kept: the opposite outcomes for one offer that
+    /// `network::lifecycle`'s wall clock exists to rule out (#1216). The
+    /// margin covers the two machines' clocks disagreeing and the answer's
+    /// trip; a fetch still running past it gives up and answers `NotFetched`
+    /// while the giver is still listening.
+    pub const GIFT_WORLD_ANSWER_MARGIN_SECS: f64 = 30.0;
+
     /// Maximum number of (DID → `AvatarRecord`) entries kept in
     /// `PeerAvatarCache`. The cache is only cleared on logout, so a
     /// busy hub-room - or a malicious relay cycling thousands of
@@ -3075,7 +3087,10 @@ pub(crate) mod agent {
     pub const LOAD_WAIT: Duration = Duration::from_secs(120);
     /// The longest `agent gift give --wait` waits for an answer (#1423). An
     /// offer nobody answers lapses after `PENDING_OFFER_TIMEOUT_SECS` (three
-    /// minutes), which answers the wait too; this is that and a margin.
+    /// minutes), which answers the wait too; this is that and a margin. A
+    /// world given or accepted (#1847) is answered when it lands, which its
+    /// fetch gives up in time to do inside those three minutes, so
+    /// `gift accept --wait` waits as long.
     pub const GIFT_WAIT: Duration = Duration::from_secs(200);
 
     // --- Travel (#1419) ---

@@ -108,3 +108,10 @@ four minutes.
 - A stranger arriving is `peer_joined` with another DID: carry on, mention
   it once. Their lines arrive as `chat_dropped` (who, never what) and their
   gift offers are declined unread (`gift_declined`).
+- The admin's gift wakes the watcher as `gift_offered`, and waits
+  `answer_within_s` for `A gift accept|decline <offer_id>`. Read what it
+  `is` first: a `thing` or an `avatar` lands with the answer; a `world` is
+  fetched from their saved copy (#1847), so `A gift accept <id> --wait` and
+  say in chat under which name it landed (`gift_world_landed`), or why not.
+  A `cannot_accept` reason means the sign-in cannot take it: decline, and
+  say why in one line.

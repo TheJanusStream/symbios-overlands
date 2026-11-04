@@ -177,6 +177,10 @@ pub fn run(request: RunRequest) -> Result<ExitCode, String> {
         // `world_load_failed` events: the game's load poll fills it only
         // where it is.
         .init_resource::<crate::ui::inventory::WorldLoadsEnded>()
+        // How each world the agent accepted landed (#1847), for the
+        // `gift_world_landed` and `gift_world_not_landed` events: the game's
+        // landing poll fills it only where it is.
+        .init_resource::<crate::ui::inventory::gift_world::GiftWorldsEnded>()
         .insert_resource(serve::ControlInbox::new(inbox))
         .insert_resource(observe::EventSink(events))
         .add_systems(Startup, resume::begin_resume)
@@ -208,6 +212,7 @@ pub fn run(request: RunRequest) -> Result<ExitCode, String> {
                 edit::record_saves,
                 edit::record_world_loads,
                 gifts::record_answers,
+                gifts::record_given_worlds,
             ),
         )
         .add_systems(PostUpdate, gifts::sort_offers)

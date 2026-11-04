@@ -143,7 +143,10 @@ as long as you resume from the last `seq` you actually read.
   and `load` a world item put one back, each one undo step and unsaved
   until saved; `catalogue` lists ready-made `avatars` and `worlds` for the
   same verbs by slug ([saving.md](saving.md), [avatar.md](avatar.md),
-  [region.md](region.md)).
+  [region.md](region.md)). `gift give` gives an avatar item, or a world
+  item once the inventory is saved, to a player whose game can take one;
+  `gift accept` of an offered world fetches it from the giver's saved copy
+  and says how that ended as an event (#1847).
 - `status.peers[]` gives each player's `position` and `facing` (world
   direction `[x, z]`); `status.nearby[]` the placed things around you;
   `status.editing` what is unsaved.

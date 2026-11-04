@@ -100,14 +100,43 @@ pub enum EventKind {
     /// The agent's admin offered it a gift (#1423). It waits for `agent gift
     /// accept|decline <offer_id>` for `answer_within_s`, then goes back to
     /// them as unanswered. `item` is its name in the admin's words, as data.
+    /// `is` says what it is (#1847) - a `thing`, an `avatar` or a `world` -
+    /// and `item_kind` its kind: a thing's ("Shape grammar"), an avatar's
+    /// ("a beast") or a world's ("a procedural world"); `bytes` a world's
+    /// saved size. `cannot_accept` says why the agent's sign-in cannot take
+    /// it, in the game's words - a world, on a grant from before world items.
     GiftOffered {
         offer_id: u64,
         from_did: String,
         from: String,
         item: String,
+        is: String,
         item_kind: String,
         wearable: bool,
+        bytes: Option<u64>,
+        cannot_accept: Option<String>,
         answer_within_s: u64,
+    },
+    /// A world the agent accepted from its admin (#1847) was fetched from
+    /// their saved copy and is in the inventory, `as` the name it took -
+    /// the offered `item`, or that with a suffix when the name was taken.
+    /// `saving` when its save started; otherwise it is unsaved.
+    GiftWorldLanded {
+        offer_id: u64,
+        from_did: String,
+        item: String,
+        #[serde(rename = "as")]
+        landed_as: String,
+        saving: bool,
+    },
+    /// A world the agent accepted did not land: `reason` says why, in the
+    /// game's words - its saved copy could not be fetched, or the inventory
+    /// filled meanwhile. The giver was told.
+    GiftWorldNotLanded {
+        offer_id: u64,
+        from_did: String,
+        item: String,
+        reason: String,
     },
     /// Someone other than the admin offered the agent a gift, and it was
     /// declined unread (#1423): who, never what. One per offer.
@@ -118,7 +147,10 @@ pub enum EventKind {
     /// A gift the agent offered was answered - `accepted`, or `answer` says
     /// why not: `declined`, `busy` (another offer was on their screen),
     /// `unavailable` (their inventory could not take it), `unanswered`
-    /// (their time to answer ran out), or `no_answer` (nothing came back).
+    /// (their time to answer ran out), `not_fetched` (the agent's saved copy
+    /// of a world it gave could not be fetched, #1844), or `no_answer`
+    /// (nothing came back). A world is answered once it has landed with
+    /// them, or failed to.
     GiftAnswered {
         offer_id: u64,
         to_did: String,

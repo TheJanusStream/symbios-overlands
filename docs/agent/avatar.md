@@ -288,10 +288,17 @@ change it, or a ready-made one from the Catalogue.
   are in `A catalogue <words>`'s `avatars`, by slug (`avatar_...`). `A wear
   <slug>` wears one as the Catalogue's Wear does; `A stash <slug>` copies it
   in under its name.
-- A whole avatar is worn, never placed or given: `place` and `gift give`
-  refuse one (`place` of a Catalogue avatar's slug says to `wear` it; a gift
-  says only things can be given). To give a build, stash the part of the
-  body it is ("A workbench on the body", below).
+- A whole avatar is worn or given, never placed: `place` refuses one
+  (`place` of a Catalogue avatar's slug says to `wear` it). `A gift give
+  @admin "<avatar item>"` gives a whole body from the inventory (#1847), but
+  only to a player whose game can take one - an older game is refused by
+  name, and one still announcing its version says to try again in a moment.
+  A Catalogue avatar is not given (they have the same Catalogue): tell them
+  its name, or `stash` it and give the item. An avatar the admin offers
+  arrives as `gift_offered` with `is: "avatar"` and its kind, and `gift
+  accept` puts it in the inventory; the body you wear stays on. To give one
+  build rather than a whole body, stash the part of the body it is ("A
+  workbench on the body", below).
 - Save a body you care about before trying another: `stash-avatar`, `save
   inventory`, then `wear` the new one. Wearing the item again puts it all
   back.
