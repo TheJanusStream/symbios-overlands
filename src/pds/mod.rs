@@ -8,6 +8,7 @@
 //! | [`room::RoomCopiesRecord`] | `network.symbios.overlands.room.copies` | `hex(fnv1a_64(part json))` |
 //! | [`AvatarRecord`]   | `network.symbios.overlands.avatar`       | `self` |
 //! | [`inventory::InventoryItemRecord`] | `network.symbios.overlands.inventory.item` | `hex(fnv1a_64(name))` |
+//! | [`inventory::world::PartRecord`] | `network.symbios.overlands.inventory.part` | `hex(fnv1a_64(slice))` + a salted second hash |
 //! | [`avatar::EngineAvatarRecord`] | `network.symbios.avatar.avatar` | TID |
 //! | [`avatar::EngineProfileRecord`] | `network.symbios.avatar.profile` | `self` |
 //! | [`avatar::AttachmentRecord`] | `network.symbios.overlands.avatar.attachment` | TID |
@@ -23,7 +24,10 @@
 //! stash, read via `listRecords` and written as an atomic `applyWrites`
 //! diff. [`InventoryRecord`] survives as the in-memory model, and its old
 //! `network.symbios.overlands.inventory / self` monolith is still read as a
-//! migration fallback (deleted by the first per-item save).
+//! migration fallback (deleted by the first per-item save). A world item
+//! (#1839) is too large for one record: its item carries a head, and the
+//! world's JSON rides in content-addressed parts beside the stash
+//! ([`inventory::world`]).
 //!
 //! The room publishes as a slim **manifest** at `room/self` (environment,
 //! placements, traits, `generator_refs` name → rkey) plus one
@@ -129,6 +133,10 @@ pub(crate) const AVATAR_COLLECTION: &str = "network.symbios.overlands.avatar";
 pub const INVENTORY_COLLECTION: &str = "network.symbios.overlands.inventory";
 /// One record per stash entry (#696); the collection is the stash.
 pub const INVENTORY_ITEM_COLLECTION: &str = "network.symbios.overlands.inventory.item";
+/// The contents of a world item (#1839): its world's JSON, cut into
+/// content-addressed parts the item's head names in order
+/// ([`inventory::world`]). Fetched only when the world is loaded.
+pub const INVENTORY_PART_COLLECTION: &str = "network.symbios.overlands.inventory.part";
 /// Content-addressed child generators of the room manifest (#697):
 /// `rkey = hex(fnv1a_64(child record json))`, referenced by name from the
 /// manifest's `generator_refs`.
@@ -171,6 +179,9 @@ pub const WRITTEN_COLLECTIONS: &[&str] = &[
     AVATAR_COLLECTION,
     INVENTORY_COLLECTION,
     INVENTORY_ITEM_COLLECTION,
+    // A world item's parts (#1839): a sign-in older than this grant is
+    // refused up front wherever a world item would be written or deleted.
+    INVENTORY_PART_COLLECTION,
     // The wardrobe trio (#1054): two under the SIBLING project's lexicon,
     // because a cross-app body lives in a cross-app collection - but still
     // in the signed-in identity's own repo, so still a `repo:` grant.

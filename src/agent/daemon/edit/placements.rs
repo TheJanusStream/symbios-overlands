@@ -188,7 +188,8 @@ fn drawn_anchors(world: &mut World) -> HashMap<usize, Transform> {
 /// ([`crate::catalogue::search`], which the render tool's
 /// `--catalogue-sizes` sizes by too).
 pub(super) fn catalogue(search: Option<&str>) -> Value {
-    let entries: Vec<Value> = crate::catalogue::search(search.unwrap_or_default())
+    let words = search.unwrap_or_default();
+    let entries: Vec<Value> = crate::catalogue::search(words)
         .map(|entry| {
             json!({
                 "slug": entry.slug(),
@@ -199,7 +200,62 @@ pub(super) fn catalogue(search: Option<&str>) -> Value {
             })
         })
         .collect();
-    json!({ "count": entries.len(), "entries": entries })
+    // The Catalogue's avatars and worlds (#1843) beside its things, found by
+    // what its own search box finds them by - every word somewhere, as for
+    // a thing. They are worn or loaded, never placed or sized, so they list
+    // apart and `entries` stays the things `render --catalogue-sizes` sizes.
+    let words: Vec<String> = words.split_whitespace().map(str::to_lowercase).collect();
+    let found = |matches: &dyn Fn(&str) -> bool| words.iter().all(|word| matches(word));
+    let avatars: Vec<Value> = crate::catalogue::avatars::AVATARS
+        .iter()
+        .filter(|entry| found(&|word| entry.matches(word)))
+        .map(|entry| {
+            json!({
+                "slug": entry.slug,
+                "name": entry.name,
+                "description": entry.description,
+                "family": entry.family_label(),
+            })
+        })
+        .collect();
+    let worlds: Vec<Value> = crate::catalogue::worlds::WORLDS
+        .iter()
+        .filter(|entry| found(&|word| entry.matches(word)))
+        .map(|entry| {
+            json!({
+                "slug": entry.slug,
+                "name": entry.name,
+                "description": entry.description,
+                "group": entry.group(),
+                "theme": entry.theme.label(),
+            })
+        })
+        .collect();
+    json!({
+        "count": entries.len(),
+        "entries": entries,
+        "avatars": avatars,
+        "worlds": worlds,
+    })
+}
+
+/// Why a catalogue avatar or world named by its slug is not placed, if it
+/// is one (#1843): it is worn, or loaded, instead.
+fn not_placed(slug: &str) -> Option<String> {
+    if let Some(entry) = crate::catalogue::avatars::avatar_by_slug(slug) {
+        return Some(format!(
+            "the catalogue's {slug} is an avatar ({}), which is worn, not placed: `agent wear \
+             {slug}`, or `agent stash {slug}` to keep a copy",
+            entry.name
+        ));
+    }
+    crate::catalogue::worlds::world_by_slug(slug).map(|entry| {
+        format!(
+            "the catalogue's {slug} is a world ({}), which is loaded over the agent's own, not \
+             placed: `agent load {slug}`, or `agent stash {slug}` to keep a copy",
+            entry.name
+        )
+    })
 }
 
 /// Put `what` down in the agent's world at `at` - or ahead of the agent -
@@ -221,11 +277,13 @@ pub(super) fn place(
         (what.to_owned(), "world", PLACED_CLEARANCE_M)
     } else {
         let entry = by_slug(what).ok_or_else(|| {
-            format!(
-                "neither this world nor the catalogue has anything called {what:?}; \
-                 `agent placements` lists the world's things, `agent catalogue <words>` \
-                 searches the catalogue"
-            )
+            not_placed(what).unwrap_or_else(|| {
+                format!(
+                    "neither this world nor the catalogue has anything called {what:?}; \
+                     `agent placements` lists the world's things, `agent catalogue <words>` \
+                     searches the catalogue"
+                )
+            })
         })?;
         if Cap::Generators.is_full(record.generators.len()) {
             return Err(Cap::Generators.full_reason());
@@ -906,6 +964,50 @@ mod tests {
                 .any(|e| e["slug"] == slug)
         );
         assert_eq!(none["count"], 0);
+    }
+
+    /// The Catalogue's avatars and worlds list beside its things (#1843),
+    /// every word of a search somewhere in each, as the Catalogue's own
+    /// search box finds them - and never among the things.
+    #[test]
+    fn a_catalogue_search_lists_its_avatars_and_worlds_apart() {
+        use crate::catalogue::avatars::AVATARS;
+        use crate::catalogue::worlds::WORLDS;
+        let everything = catalogue(None);
+        assert_eq!(
+            everything["avatars"].as_array().unwrap().len(),
+            AVATARS.len()
+        );
+        assert_eq!(everything["worlds"].as_array().unwrap().len(), WORLDS.len());
+        assert!(
+            everything["entries"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|e| !e["slug"].as_str().unwrap().starts_with("avatar_")
+                    && !e["slug"].as_str().unwrap().starts_with("worlds_"))
+        );
+
+        let world = &WORLDS[0];
+        let found = catalogue(Some(&format!("{} WORLD", world.slug)));
+        assert_eq!(
+            found["worlds"].as_array().unwrap()[0]["slug"],
+            world.slug,
+            "{found}"
+        );
+        assert!(found["avatars"].as_array().unwrap().is_empty());
+        let avatar = &AVATARS[0];
+        let found = catalogue(Some(avatar.slug));
+        assert_eq!(found["avatars"].as_array().unwrap()[0]["slug"], avatar.slug);
+        let none = catalogue(Some(&format!("{} zzqxunlikely", avatar.slug)));
+        assert!(none["avatars"].as_array().unwrap().is_empty());
+
+        // Neither is placed: each names the verb it is for.
+        let (mut app, _) = super::super::harness::app_in(AGENT);
+        let why = place(app.world_mut(), avatar.slug, Some([1.0, 1.0]), None).expect_err("worn");
+        assert!(why.contains("`agent wear"), "{why}");
+        let why = place(app.world_mut(), world.slug, Some([1.0, 1.0]), None).expect_err("loaded");
+        assert!(why.contains("`agent load"), "{why}");
     }
 
     /// `render --catalogue-sizes <words>` sizes what this lists for the same

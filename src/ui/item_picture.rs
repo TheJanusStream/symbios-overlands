@@ -30,11 +30,20 @@ pub(crate) const CATALOGUE_SIDE: f32 = 180.0;
 /// target, so it stays crisp at 2x.
 pub(crate) const INVENTORY_SIDE: f32 = 112.0;
 
+/// What the pane says under the tile when the person or beast it would
+/// picture cannot be built (#1842) - the engine's one failure, which the
+/// game itself would stand no body for either. In the voice of the panes'
+/// other no-picture sentences.
+pub(crate) const BODY_NOT_BUILT: &str = "This body can't be built at these proportions, so \
+     there is no picture of it.";
+
 /// Which pane is asking, and for what.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum PictureOf<'a> {
     /// The Catalogue's detail panel, for an entry slug.
     Catalogue(&'a str),
+    /// The Catalogue's detail panel, for an avatar entry's slug (#1840).
+    CatalogueAvatar(&'a str),
     /// The Inventory's pane, for a stash item name.
     Inventory(&'a str),
 }
@@ -49,6 +58,7 @@ impl PictureOf<'_> {
     fn is(&self, subject: &PreviewSubject) -> bool {
         match (self, subject) {
             (Self::Catalogue(slug), PreviewSubject::Catalogue(shown)) => shown == slug,
+            (Self::CatalogueAvatar(slug), PreviewSubject::CatalogueAvatar(shown)) => shown == slug,
             (Self::Inventory(name), PreviewSubject::Inventory { name: shown, .. }) => shown == name,
             _ => false,
         }
@@ -63,13 +73,17 @@ impl PictureOf<'_> {
 /// not been reframed onto the new geometry yet. Drawing it a frame early
 /// would put the previous item's picture, or the new one seen from the
 /// previous one's distance, under the right item's name. The pane holds
-/// the space with a plain tile instead, so nothing below it jumps.
+/// the space with a plain tile instead, so nothing below it jumps - and
+/// when the item is a person or a beast whose body cannot be built, says
+/// so under it ([`failure_note`]), so the tile is never blank without a
+/// word.
 pub(crate) fn draw_preview(
     ui: &mut egui::Ui,
     preview: Option<&ItemPreview>,
     of: PictureOf<'_>,
     side: f32,
 ) {
+    let note = failure_note(preview, of);
     let showing = preview.filter(|p| p.showing().is_some_and(|shown| of.is(shown)));
     ui.add_space(4.0);
     match showing {
@@ -90,7 +104,24 @@ pub(crate) fn draw_preview(
             }
         }
     }
+    if let Some(note) = note {
+        let weak = crate::ui::theme::current(ui.ctx()).text_weak;
+        ui.add(egui::Label::new(egui::RichText::new(note).small().color(weak)).wrap());
+    }
     ui.add_space(4.0);
+}
+
+/// What the pane says under its tile for `of`: [`BODY_NOT_BUILT`] when the
+/// stage's subject is this pane's item and its body could not be built
+/// ([`ItemPreview::failed`]), else nothing.
+pub(crate) fn failure_note(
+    preview: Option<&ItemPreview>,
+    of: PictureOf<'_>,
+) -> Option<&'static str> {
+    preview
+        .and_then(ItemPreview::failed)
+        .is_some_and(|failed| of.is(failed))
+        .then_some(BODY_NOT_BUILT)
 }
 
 #[cfg(test)]
@@ -113,6 +144,11 @@ mod tests {
         assert!(PictureOf::Catalogue(name).is(&entry));
         assert!(!PictureOf::Catalogue(name).is(&stash));
         assert!(!PictureOf::Inventory("bench").is(&stash));
+        // An avatar entry (#1840) is its own kind of subject.
+        let avatar = PreviewSubject::CatalogueAvatar(name.to_string());
+        assert!(PictureOf::CatalogueAvatar(name).is(&avatar));
+        assert!(!PictureOf::Catalogue(name).is(&avatar));
+        assert!(!PictureOf::CatalogueAvatar(name).is(&entry));
         // Any edit of the same item is still that item.
         assert!(PictureOf::Inventory(name).is(&PreviewSubject::Inventory {
             name: name.to_string(),

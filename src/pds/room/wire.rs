@@ -219,6 +219,22 @@ impl RoomManifestOut {
     }
 }
 
+/// Why this build cannot write `record` whole, or `None` when it can: a
+/// placement it read only as `Unknown` (named by its index), or anything
+/// else that will not serialize ([`crate::pds::record_size::wire_ready`]).
+/// The room's own save asks it first, and so does a world copied into the
+/// Inventory (#1839), which must hold the world whole or not at all.
+pub(crate) fn write_refused(record: &RoomRecord) -> Option<String> {
+    if let Some(index) = record
+        .placements
+        .iter()
+        .position(|placement| matches!(placement, Placement::Unknown))
+    {
+        return Some(unreadable_placement(index));
+    }
+    crate::pds::record_size::wire_ready(record, "world").err()
+}
+
 /// Why a room holding placement `index`, which this build could not read in
 /// full, is not saved (#1111): it would be written back without what this
 /// build could not read - for a set kept in parts (#1645), its copies.
@@ -819,14 +835,9 @@ pub async fn publish_room_record(
     // would replace the owner's newer content with a husk - the split-wire
     // publish would even GC the original child as an orphan. A placement
     // is named, as a set read without its copies (#1645) can be one.
-    if let Some(index) = record
-        .placements
-        .iter()
-        .position(|placement| matches!(placement, Placement::Unknown))
-    {
-        return Err(unreadable_placement(index));
+    if let Some(reason) = write_refused(record) {
+        return Err(reason);
     }
-    crate::pds::record_size::wire_ready(record, "world")?;
     let pds = resolve_pds(client, &session.did)
         .await
         .ok_or_else(|| "Failed to resolve PDS".to_string())?;
@@ -887,7 +898,7 @@ fn may_write_parts(session: &AtprotoSession) -> bool {
 /// must name this one, or every one; a scope naming none - an older broad
 /// grant, or a form this build does not read - is left for the PDS to
 /// judge, with [`crate::pds::xrpc`]'s hint if it refuses.
-fn grant_covers(scope: &str, collection: &str) -> bool {
+pub(crate) fn grant_covers(scope: &str, collection: &str) -> bool {
     let mut named = scope
         .split_whitespace()
         .filter_map(|grant| grant.strip_prefix("repo:"))

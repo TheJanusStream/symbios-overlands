@@ -286,6 +286,25 @@ mode:
   start each session's lines with a dated heading (`## YYYY-MM-DD, session
   <session>, live session N`).
 
+### Signing in again
+
+A saved sign-in keeps the grant it was made with. One made before a
+collection joined the client's sign-in cannot write that collection, and the
+game says so in its own sentence: since #1839 a world item's contents live
+in `network.symbios.overlands.inventory.part`, so on an older sign-in
+`stash-world`, a catalogue world's `stash` and a `save inventory` holding a
+new world item answer "This sign-in predates a permission saving worlds to
+your inventory needs ..." ([saving.md](saving.md), "Whole avatars and worlds
+in the inventory"). Nothing was written. Everything else works as before.
+
+Signing in again is the owner's, done in the terminal, never asked for in
+chat: with nothing unsaved ([saving.md](saving.md), "Restarts"), `A stop`,
+then `A login` in the harness's background mode, as in step 6 of Starting
+(the wrapper carries `--account`, so a browser signed in as anyone else is
+refused), the owner approves it in their browser, and `A start` with the
+account page's flags. The new session replaces the old one in the saved
+sessions; the account, its world and its inventory are untouched.
+
 ## Throughout
 
 - **Budget for the browser.** Most visitors play in WASM, where every drawn

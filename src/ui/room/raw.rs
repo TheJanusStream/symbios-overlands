@@ -66,6 +66,13 @@ impl RawJsonBuffer {
         }
     }
 
+    /// The text the tab shows - for tests that check what a replace left
+    /// behind.
+    #[cfg(test)]
+    pub(super) fn text(&self) -> &str {
+        &self.text
+    }
+
     /// First-draw seed; a no-op once initialised.
     pub(super) fn ensure_seeded(&mut self, record: &RoomRecord) {
         if !self.initialised {

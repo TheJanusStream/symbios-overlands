@@ -440,6 +440,13 @@ pub struct PublishFeedback<R: Send + Sync + 'static> {
     pub live_size: crate::pds::record_size::SizeReadout,
     /// When `live_size` was last refreshed (`Time::elapsed_secs_f64`).
     pub live_bytes_at: Option<f64>,
+    /// How long the save in flight may run before it is given up, when that
+    /// is not the fixed [`crate::config::http::PUBLISH_TASK_DEADLINE`]: an
+    /// Inventory save that writes a world is many requests, each bounded on
+    /// its own, and its deadline grows with them (#1839) - so the status
+    /// line names THAT deadline ([`crate::ui::editable::status_line_text_within`]).
+    /// `None`: the fixed one. Kept by the save's poll.
+    pub gives_up_after_secs: Option<f64>,
     _record: PhantomData<fn() -> R>,
 }
 
@@ -462,6 +469,7 @@ impl<R: Send + Sync + 'static> Default for PublishFeedback<R> {
             status: PublishStatus::Idle,
             live_size: crate::pds::record_size::SizeReadout::default(),
             live_bytes_at: None,
+            gives_up_after_secs: None,
             _record: PhantomData,
         }
     }

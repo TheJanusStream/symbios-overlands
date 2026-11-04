@@ -268,6 +268,34 @@ the render tool's `--family-seeds beast` lists more seeds.
   satchel is refused, and `wear` says why. A person is refused a beast's cut the
   same way. Either stays in the outfit, unworn, for a body that wears it.
 
+## A whole body in the inventory
+
+The inventory keeps whole avatars (#1843): a body worth keeping before you
+change it, or a ready-made one from the Catalogue.
+
+- `A stash-avatar [name]` copies the avatar you wear - its body, every prop
+  it wears, how it moves - unsaved edits included, as the Avatar editor's
+  Save to Inventory does, in any world. Without a name the item takes the
+  body's own name, or what it is (`person`, `boat`, `aircraft`). It is an
+  inventory edit: `A save inventory` keeps it.
+- `A wear <item>` with an avatar item puts the whole avatar on in place of
+  the one worn: one step of the avatar's undo history (`A undo avatar` takes
+  it off), unsaved until `A save avatar`, which writes its body and props
+  and retires the outfit it replaced. A rigged body is resolved at once,
+  with no fetch. The one already on is refused: "You are already wearing
+  ...". `A inventory` marks the avatar item you wear `worn: true`.
+- The Catalogue's avatars - one per craft, a spread of people and beasts -
+  are in `A catalogue <words>`'s `avatars`, by slug (`avatar_...`). `A wear
+  <slug>` wears one as the Catalogue's Wear does; `A stash <slug>` copies it
+  in under its name.
+- A whole avatar is worn, never placed or given: `place` and `gift give`
+  refuse one (`place` of a Catalogue avatar's slug says to `wear` it; a gift
+  says only things can be given). To give a build, stash the part of the
+  body it is ("A workbench on the body", below).
+- Save a body you care about before trying another: `stash-avatar`, `save
+  inventory`, then `wear` the new one. Wearing the item again puts it all
+  back.
+
 ## A workbench on the body
 
 Away from its own world the agent can edit nothing but its avatar. So give

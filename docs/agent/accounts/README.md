@@ -61,7 +61,11 @@ with.
 2. Sign it in once: `agent login --account <handle>`, then the owner
    approves the sign-in in their browser. Never sign in as the owner's own
    account: the relay lets one identity into a room once
-   ([../README.md](../README.md), "Setting up").
+   ([../README.md](../README.md), "Setting up"). A sign-in keeps the grant
+   it was made with: an account signed in before a collection joined it -
+   world items' parts, #1839 - is refused that collection's writes with the
+   game's "sign out and in again" sentence, and signs in the same way again
+   ([../session.md](../session.md#signing-in-again)).
 3. Its first session runs in "first session" mode. Until its page exists,
    the prompt's last sentence carries the brief - who the account is, the
    body and world wanted, the decisions already made - as live session 7's

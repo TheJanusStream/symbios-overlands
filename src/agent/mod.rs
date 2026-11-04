@@ -47,8 +47,8 @@ use cli::{Cli, Command};
 use control::protocol::Request;
 use lifecycle::{list_accounts, run_daemon, run_login, start_daemon};
 use requests::{
-    JsonRecord, ask, catalogue, detach, drive, face, follow, gift, look, move_placement, place,
-    placements, record_json, remove, save, travel, ui, walk_to, watch_events,
+    JsonRecord, ask, catalogue, detach, drive, face, follow, gift, load, look, move_placement,
+    place, placements, record_json, remove, save, travel, ui, walk_to, watch_events,
 };
 
 use crate::config;
@@ -117,6 +117,15 @@ fn execute(command: Command) -> Result<ExitCode, String> {
                 from_avatar: args.from_avatar,
             },
         ),
+        Command::StashAvatar(args) => ask(
+            args.account.name.as_deref(),
+            Request::StashAvatar { name: args.name },
+        ),
+        Command::StashWorld(args) => ask(
+            args.account.name.as_deref(),
+            Request::StashWorld { name: args.name },
+        ),
+        Command::Load(args) => load(args),
         Command::Unstash(args) => ask(
             args.account.name.as_deref(),
             Request::Unstash { name: args.item },

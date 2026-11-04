@@ -102,6 +102,30 @@ works plaque, a trophy, a frame of living growth. Every theme's pools now
 hold more than its own. A Berlin square, which has no settlement, keeps
 its theme's own gate and monument.
 
+## A whole world from the inventory or the Catalogue
+
+The inventory keeps whole worlds (#1843), and the Catalogue offers ready
+ones: one procedural world per theme, one square of real Berlin per borough
+(`A catalogue worlds`, the `worlds` list, by slug `worlds_...`).
+
+- `A stash-world [name]` copies your world as it stands - ground, sky, every
+  thing and placement, unsaved edits included - as the World Editor's Save
+  to Inventory does. Only in your own world. Without a name it takes the
+  world's own (`/identity`), else `world`. `A save inventory` keeps it.
+- `A load <item>` replaces everything in your world with it, as the
+  Inventory's Load into my world does, and `A load <slug>` with a catalogue
+  world, built for you as a re-roll builds. Only in your own world, one load
+  at a time. It is one step of the world's undo history - `A undo` puts the
+  old world back whole - and unsaved until `A save`. An item from the
+  inventory lands a moment after its answer (`loading`): `A load <item>
+  --wait`, or read its `world_loaded` event ([saving.md](saving.md), "Whole
+  avatars and worlds in the inventory"). A catalogue world answers `loaded`
+  at once.
+- Before loading over a world you might want back, `stash-world` it and
+  `save inventory`: an undo lasts only until the daemon stops.
+- A world is loaded, never placed or given: `place` and `gift give` refuse
+  one and name the verb it is for.
+
 ## The land is a recipe, not a sculpt
 
 There is no brush. The ground is generated from `base_terrain`'s fields:

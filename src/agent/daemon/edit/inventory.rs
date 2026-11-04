@@ -20,6 +20,13 @@
 //!   history and is saved with `agent save avatar`.
 //! * `unstash` takes an item out, but not one the avatar is wearing: that
 //!   comes off first, with `take-off`, as its own step.
+//!
+//! Since #1843 the inventory holds whole avatars and whole worlds beside
+//! things, in one namespace, and the listing says which each item is. Their
+//! own commands live in `stash.rs`: `stash-avatar`, `stash-world`, `load`,
+//! and `wear` of an avatar item. `stash` and `wear` given a catalogue
+//! avatar's or world's slug go there too, as the Catalogue's Copy to
+//! inventory and Wear do.
 
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
@@ -29,42 +36,60 @@ use crate::catalogue::by_slug;
 use crate::config::state::MAX_INVENTORY_ITEMS;
 use crate::pds::InventoryRecord;
 use crate::pds::avatar::socket_label;
-use crate::pds::inventory::{WearMeta, is_drop_placeable};
+use crate::pds::inventory::{AvatarItem, WearMeta, is_drop_placeable};
 use crate::state::{LiveAvatarRecord, LiveInventoryRecord, LiveRoomRecord};
 use crate::ui::avatar::{
     AvatarEditorState, attach_record, is_worn_from, record_for_inventory_item, take_off_source,
     wear_blocked_reason, wear_refused_reason, worn_rkeys_from,
 };
-use crate::ui::room::widgets::unique_key;
 
-/// The inventory, item by item, by name.
+/// The inventory, item by item, by name: every kind in one list, each
+/// saying what it `is` - a `thing`, an `avatar` or a `world` (#1843).
 pub(super) fn list(world: &mut World) -> Result<Value, String> {
     super::in_world(world)?;
     let unsaved = super::inventory_unsaved(world);
     let inventory = &inventory(world)?.0;
-    let worn = world
-        .get_resource::<LiveAvatarRecord>()
-        .and_then(|live| live.0.body.rigged_ref());
-    let mut names: Vec<&String> = inventory.generators.keys().collect();
+    let avatar = world.get_resource::<LiveAvatarRecord>().map(|live| &live.0);
+    let worn = avatar.and_then(|avatar| avatar.body.rigged_ref());
+    // What the avatar worn would be as an item: an avatar item equal to it
+    // is the one worn, as the game's Wear tells it is already on.
+    let wearing = avatar.and_then(|avatar| AvatarItem::from_record(avatar).ok());
+    let mut names: Vec<&String> = inventory.names().collect();
     names.sort();
     let items: Vec<Value> = names
         .into_iter()
-        .map(|name| {
-            let generator = &inventory.generators[name];
-            json!({
-                "name": name,
-                "kind": crate::pds::GeneratorKind::display_name(generator.kind_tag()),
-                "wearable_on": inventory
-                    .wear
-                    .get(name)
-                    .map(|meta| socket_label(&meta.socket).to_lowercase()),
-                "worn": worn.is_some_and(|rig| is_worn_from(rig, name)),
+        .filter_map(|name| {
+            if let Some(generator) = inventory.generators.get(name) {
+                return Some(json!({
+                    "name": name,
+                    "is": "thing",
+                    "kind": crate::pds::GeneratorKind::display_name(generator.kind_tag()),
+                    "wearable_on": inventory
+                        .wear
+                        .get(name)
+                        .map(|meta| socket_label(&meta.socket).to_lowercase()),
+                    "worn": worn.is_some_and(|rig| is_worn_from(rig, name)),
+                }));
+            }
+            if let Some(item) = inventory.avatars.get(name) {
+                let mut listed = super::stash::describe_avatar(item);
+                listed["name"] = json!(name);
+                listed["worn"] = json!(wearing.as_ref() == Some(item));
+                return Some(listed);
+            }
+            inventory.worlds.get(name).map(|item| {
+                let mut listed = super::stash::describe_world(item);
+                listed["name"] = json!(name);
+                listed
             })
         })
         .collect();
     Ok(json!({
         "count": items.len(),
         "cap": MAX_INVENTORY_ITEMS,
+        "things": inventory.generators.len(),
+        "avatars": inventory.avatars.len(),
+        "worlds": inventory.worlds.len(),
         "unsaved": unsaved,
         "items": items,
     }))
@@ -85,8 +110,28 @@ pub(super) fn stash(
     from_avatar: Option<&str>,
 ) -> Result<Value, String> {
     super::in_world(world)?;
+    let own_world = super::owns_room(world);
+    let in_own_world = |what: &str| {
+        own_world
+            && world
+                .get_resource::<LiveRoomRecord>()
+                .is_some_and(|room| room.0.generators.contains_key(what))
+    };
+    // A catalogue avatar or world, by its slug, as the Catalogue's Copy to
+    // inventory copies it (#1843) - refused, the inventory full among the
+    // rest, in its own words. A thing of the agent's own world by that
+    // name comes first, as below.
+    if from_avatar.is_none() && !in_own_world(what) {
+        if let Some(entry) = crate::catalogue::avatars::avatar_by_slug(what) {
+            return super::stash::copy_avatar(world, entry);
+        }
+        if let Some(entry) = crate::catalogue::worlds::world_by_slug(what) {
+            return super::stash::copy_world(world, entry);
+        }
+    }
     let mut inventory = inventory(world)?.0.clone();
-    if inventory.generators.len() >= MAX_INVENTORY_ITEMS {
+    // Every kind of item counts against the cap (#1838).
+    if inventory.is_full() {
         return Err(full());
     }
     if let Some(pointer) = from_avatar {
@@ -99,12 +144,11 @@ pub(super) fn stash(
         // node into a plain cuboid, and a kind this build cannot name never
         // serialises far enough to be read here.
         let generator = super::avatar::body_part(world, pointer)?;
-        let name = unique_key(&inventory.generators, name);
+        let name = inventory.free_name(name);
         inventory.put_item(name.clone(), generator, None);
         world.resource_mut::<LiveInventoryRecord>().0 = inventory;
         return Ok(json!({ "stashed": name, "from": "avatar", "wearable": false }));
     }
-    let own_world = super::owns_room(world);
     let from_world = own_world
         .then(|| world.get_resource::<LiveRoomRecord>())
         .flatten()
@@ -112,7 +156,7 @@ pub(super) fn stash(
         .cloned();
     let (name, from, wearable) = match from_world {
         Some(generator) => {
-            let name = unique_key(&inventory.generators, what);
+            let name = inventory.free_name(what);
             inventory.put_item(name.clone(), generator, None);
             (name, "world", false)
         }
@@ -139,7 +183,7 @@ pub(super) fn stash(
             let wear = entry
                 .wear_socket()
                 .map(|socket| WearMeta::for_entry(socket, entry.wear_fit()));
-            let name = unique_key(&inventory.generators, entry.name());
+            let name = inventory.free_name(entry.name());
             let wearable = wear.is_some();
             inventory.put_item(name.clone(), generator, wear);
             (name, "catalogue", wearable)
@@ -160,7 +204,9 @@ fn full() -> String {
 pub(super) fn unstash(world: &mut World, name: &str) -> Result<Value, String> {
     super::in_world(world)?;
     let inventory = &inventory(world)?.0;
-    if !inventory.generators.contains_key(name) {
+    // An item of any kind (#1843): an avatar or a world comes out as a
+    // thing does.
+    if !inventory.has_name(name) {
         return Err(no_such(inventory, name));
     }
     let worn = world
@@ -204,7 +250,7 @@ fn no_such(inventory: &InventoryRecord, name: &str) -> String {
         ),
         _ => format!(
             "the inventory has nothing called {name:?} ({} items); `agent inventory` lists them",
-            inventory.generators.len()
+            inventory.item_count()
         ),
     }
 }
@@ -256,10 +302,25 @@ fn not_worn(rig: &crate::pds::avatar::RiggedBody, name: &str) -> String {
 }
 
 /// Put the inventory item `name` on the avatar: a step of its undo history.
+/// An avatar item, or a catalogue avatar by its slug, is worn whole instead
+/// (#1843).
 pub(super) fn wear(world: &mut World, name: &str) -> Result<Value, String> {
     super::in_world(world)?;
     let inventory = &inventory(world)?.0;
+    if let Some(item) = inventory.avatars.get(name) {
+        let item = item.clone();
+        return super::stash::wear_item(world, name, &item);
+    }
+    if inventory.worlds.contains_key(name) {
+        return Err(format!(
+            "{name:?} is a world, which is loaded over the agent's own world, not worn: `agent \
+             load {name:?}`"
+        ));
+    }
     if !inventory.generators.contains_key(name) {
+        if let Some(entry) = crate::catalogue::avatars::avatar_by_slug(name) {
+            return super::stash::wear_entry(world, entry);
+        }
         return Err(no_such(inventory, name));
     }
     let item = record_for_inventory_item(inventory, name)
@@ -571,6 +632,73 @@ mod tests {
         assert_eq!(item("owner_monument")["worn"], false);
         assert!(item("owner_monument")["wearable_on"].is_null());
         assert_eq!(listed["unsaved"], true);
+    }
+
+    /// The listing names every kind in one list, in name order, each saying
+    /// what it `is` (#1843): a thing as before, an avatar with its kind and
+    /// whether it is the one worn, a world with its kind and size - and the
+    /// count and the cap count them all.
+    #[test]
+    fn the_listing_shows_every_kind() {
+        let (mut app, _) = app_in(AGENT);
+        let worn = vehicle();
+        app.world_mut()
+            .insert_resource(LiveAvatarRecord(worn.clone()));
+        {
+            let mut live = app.world_mut().resource_mut::<LiveInventoryRecord>();
+            live.0.put_item(
+                "b crate".into(),
+                crate::pds::Generator::default_cuboid(),
+                None,
+            );
+            live.0.put_avatar(
+                "a boat".into(),
+                AvatarItem::from_record(&worn).expect("copies"),
+            );
+            live.0.put_avatar(
+                "d person".into(),
+                AvatarItem::from_record(&rigged()).expect("copies"),
+            );
+            live.0.put_world(
+                "c harbour".into(),
+                crate::pds::inventory::WorldItem::snapshot(
+                    &crate::pds::RoomRecord::default_for_did(AGENT),
+                )
+                .expect("copies"),
+            );
+        }
+
+        let listed = list(app.world_mut()).expect("listed");
+
+        assert_eq!(listed["count"], 4);
+        assert_eq!(
+            (&listed["things"], &listed["avatars"], &listed["worlds"]),
+            (&json!(1), &json!(2), &json!(1))
+        );
+        let items = listed["items"].as_array().expect("items");
+        let names: Vec<&str> = items.iter().map(|i| i["name"].as_str().unwrap()).collect();
+        assert_eq!(names, ["a boat", "b crate", "c harbour", "d person"]);
+        let is: Vec<&str> = items.iter().map(|i| i["is"].as_str().unwrap()).collect();
+        assert_eq!(is, ["avatar", "thing", "world", "avatar"]);
+        assert_eq!(items[0]["worn"], true, "the avatar on is the one worn");
+        assert_eq!(items[3]["worn"], false);
+        assert_eq!(
+            items[3]["kind"],
+            AvatarItem::from_record(&rigged())
+                .expect("copies")
+                .kind()
+                .label()
+        );
+        assert_eq!(items[1]["kind"], "Box", "a thing's kind as before");
+        assert!(
+            items[2]["kind"]
+                .as_str()
+                .is_some_and(|kind| kind.starts_with("a ")),
+            "{}",
+            items[2]
+        );
+        assert!(items[2]["bytes"].as_u64().is_some_and(|bytes| bytes > 0));
+        assert_eq!(items[2]["held"], true);
     }
 
     /// A seeded avatar with a generator body - a vehicle, whose drawn parts

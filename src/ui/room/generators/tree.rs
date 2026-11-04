@@ -611,7 +611,8 @@ fn build_tree_node(
         // path enforces - sanitize then silently deleted the overflow on
         // the next login. Disabled (with the reason) instead of hidden.
         let cap = crate::config::state::MAX_INVENTORY_ITEMS;
-        let stash_full = menu_inventory.is_some_and(|inv| inv.0.generators.len() >= cap);
+        // Every kind of item counts (#1838).
+        let stash_full = menu_inventory.is_some_and(|inv| inv.0.item_count() >= cap);
         if ui
             .add_enabled(
                 menu_inventory.is_some() && !stash_full,

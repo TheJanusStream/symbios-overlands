@@ -57,8 +57,12 @@ use crate::pds::avatar::{
     ResolvedRig,
 };
 use crate::player::attachments::{dressed_by, placements};
+// The standing pose and the box a body fills in it are the game's own since
+// #1842, which pictures a person or a beast in the item preview's stage the
+// way a sheet stands one here.
 use crate::player::visuals::{
-    rigged_build_job, rigged_root_offset, rigged_root_transform, settled_atlas,
+    rigged_build_job, rigged_root_offset, rigged_root_transform, settled_atlas, standing_box,
+    standing_pose,
 };
 
 use super::headless::PendingWear;
@@ -1005,21 +1009,6 @@ pub(crate) fn build_rigged(avatar: &RiggedAvatar) -> Result<RiggedBuilt, String>
     })
 }
 
-/// The box `avatar` fills in its [`standing_pose`], in its own space: every
-/// drawn mesh posed as the engine poses it (the far hair tier is not drawn
-/// beside the near one, so it is not here either).
-fn standing_box(avatar: &symbios_avatar::Avatar) -> (Vec3, Vec3) {
-    let pose = standing_pose(&avatar.rig);
-    avatar
-        .posed(&pose, 0.0)
-        .iter()
-        .flat_map(|drawn| drawn.mesh.positions.iter().copied())
-        .fold(
-            (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)),
-            |(min, max), p| (min.min(p), max.max(p)),
-        )
-}
-
 /// Where a `--rigged` sheet's cameras look, in the studio's world.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct RiggedFraming {
@@ -1164,19 +1153,6 @@ pub(crate) fn head_frame(rig: &symbios_avatar::Rig) -> Option<HeadFrame> {
         centre: (top + neck) * 0.5,
         radius: top.distance(neck) * 0.5 * HEAD_MARGIN,
     })
-}
-
-/// The pose a body the game shows standing still is built on: the rest pose
-/// with the arms hung at its sides, the engine's own carriage
-/// ([`symbios_avatar::anim::gait::hang_arms`]) and the first thing the
-/// game's idle does every frame. The idle's breath, sway, weight shift and
-/// fidgets move over it with time, and are left out so two sheets of one
-/// record are the same picture. (The bind pose is the A-pose a body is
-/// modelled in, arms 50 degrees out; nothing standing in the game shows it.)
-pub(crate) fn standing_pose(rig: &symbios_avatar::Rig) -> symbios_avatar::Pose {
-    let mut pose = symbios_avatar::Pose::rest(rig);
-    symbios_avatar::anim::gait::hang_arms(rig, &mut pose);
-    pose
 }
 
 /// The pose `rig` holds once `gesture` has played out and settled on level

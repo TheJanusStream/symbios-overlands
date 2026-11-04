@@ -189,7 +189,7 @@ fn respond(world: &mut World, offer_id: u64, accept: bool) -> Result<Value, Stri
     let answer = if accept {
         let held = world
             .get_resource::<LiveInventoryRecord>()
-            .map(|live| live.0.generators.len())
+            .map(|live| live.0.item_count())
             .ok_or("the agent's inventory has not loaded yet; the offer still waits")?;
         if held >= MAX_INVENTORY_ITEMS {
             return Err(format!(
@@ -252,6 +252,28 @@ fn give(world: &mut World, to_did: &str, item: &str) -> Result<Value, String> {
     let inventory = world
         .get_resource::<LiveInventoryRecord>()
         .map(|live| &live.0);
+    // A whole avatar or world is neither placed nor given (#1843): its row
+    // in the Inventory and its entry in the Catalogue start no drag, so no
+    // person can offer one either.
+    let whole = if inventory.is_some_and(|inventory| inventory.avatars.contains_key(item))
+        || crate::catalogue::avatars::avatar_by_slug(item).is_some()
+    {
+        Some("avatar")
+    } else if inventory.is_some_and(|inventory| inventory.worlds.contains_key(item))
+        || crate::catalogue::worlds::world_by_slug(item).is_some()
+    {
+        Some("world")
+    } else {
+        None
+    };
+    if let Some(whole) = whole
+        && !inventory.is_some_and(|inventory| inventory.generators.contains_key(item))
+    {
+        return Err(format!(
+            "{item:?} is a whole {whole}, and only things can be given - as a person can drag \
+             only a thing onto another player"
+        ));
+    }
     let source = if inventory.is_some_and(|inventory| inventory.generators.contains_key(item)) {
         DropSource::Inventory
     } else {
@@ -703,6 +725,52 @@ mod tests {
             },
         );
         assert!(absent.unwrap_err().contains("not in this world"));
+    }
+
+    /// A whole avatar or world is never given (#1843) - by its item's name
+    /// or by its catalogue slug - as no person can drag one onto a player;
+    /// nothing is offered.
+    #[test]
+    fn a_whole_avatar_or_world_is_not_given() {
+        let (mut app, _) = app_in(AGENT);
+        app.world_mut().spawn(remote(ADMIN));
+        app.world_mut().insert_resource(LinkState::up_since(0.0));
+        {
+            let mut live = app.world_mut().resource_mut::<LiveInventoryRecord>();
+            live.0.put_world(
+                "Harbour".into(),
+                crate::pds::inventory::WorldItem::snapshot(
+                    &crate::pds::RoomRecord::default_for_did(AGENT),
+                )
+                .expect("copies"),
+            );
+        }
+        let vehicle = crate::catalogue::avatars::AVATARS
+            .iter()
+            .find(|entry| !entry.is_rigged())
+            .expect("a vehicle entry");
+        let world = &crate::catalogue::worlds::WORLDS[0];
+        for (item, whole) in [
+            ("Harbour", "world"),
+            (vehicle.slug, "avatar"),
+            (world.slug, "world"),
+        ] {
+            let why = answer(
+                app.world_mut(),
+                GiftRequest::Give {
+                    to_did: ADMIN.into(),
+                    item: item.into(),
+                },
+            )
+            .expect_err(item);
+            assert!(why.contains(&format!("a whole {whole}")), "{why}");
+        }
+        assert!(
+            app.world()
+                .resource::<PendingOutgoingOffers>()
+                .by_id
+                .is_empty()
+        );
     }
 
     /// Each answer to the agent's own gift is one event, in words.

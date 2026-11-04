@@ -21,10 +21,30 @@ const NOWHERE: &str = "https://example.invalid";
 
 /// A session for `did` / `handle` that is signed in to nothing.
 pub fn stand_in_session(did: &str, handle: &str) -> Result<AtprotoSession, String> {
+    stand_in_session_granted(did, handle, "atproto")
+}
+
+/// [`stand_in_session`] whose grant is `scope` - a sign-in made before a
+/// collection joined the login's scope, for the tests of what such a
+/// sign-in is refused (#1843).
+#[cfg(test)]
+pub(crate) fn stand_in_session_scoped(
+    did: &str,
+    handle: &str,
+    scope: &str,
+) -> Result<AtprotoSession, String> {
+    stand_in_session_granted(did, handle, scope)
+}
+
+fn stand_in_session_granted(
+    did: &str,
+    handle: &str,
+    scope: &str,
+) -> Result<AtprotoSession, String> {
     let token_set = TokenSet {
         issuer: NOWHERE.into(),
         sub: did.into(),
-        scope: "atproto".into(),
+        scope: scope.into(),
         access_token: "stand-in".into(),
         refresh_token: None,
         token_type: "DPoP".into(),

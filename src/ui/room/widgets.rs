@@ -836,20 +836,16 @@ pub(super) enum ReferenceClass {
 /// or `prefix_1`, `prefix_2`, ... with the prefix cut to leave the suffix
 /// room under the cap (#1717), so the sanitiser never cuts a new key back
 /// onto the one it was made unique from and drops it.
+///
+/// An inventory's items span more than one map (#1838), so the stash asks
+/// [`crate::pds::InventoryRecord::free_name`] instead, which shares the
+/// rule through [`crate::pds::sanitize::names::unique_name`].
 pub(crate) fn unique_key<T>(map: &std::collections::HashMap<String, T>, prefix: &str) -> String {
-    use crate::pds::{limits::MAX_GENERATOR_NAME_CHARS, sanitize::names::with_suffix};
-    let mut n = 0;
-    loop {
-        let key = if n == 0 {
-            with_suffix(prefix, "", MAX_GENERATOR_NAME_CHARS)
-        } else {
-            with_suffix(prefix, &format!("_{n}"), MAX_GENERATOR_NAME_CHARS)
-        };
-        if !map.contains_key(&key) {
-            return key;
-        }
-        n += 1;
-    }
+    crate::pds::sanitize::names::unique_name(
+        |key| map.contains_key(key),
+        prefix,
+        crate::pds::limits::MAX_GENERATOR_NAME_CHARS,
+    )
 }
 
 /// Default LSystem starter - delegates to the foliage-rich

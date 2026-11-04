@@ -90,6 +90,13 @@ pub enum EventKind {
         reason: String,
         terminal: bool,
     },
+    /// A world item `agent load` asked for landed over the agent's own
+    /// world (#1843): one step of the world's undo history, unsaved until
+    /// `agent save`. `name` is the item's.
+    WorldLoaded { name: String },
+    /// A world item's load did not land, and the world is as it was:
+    /// `reason` says why, in the game's own words.
+    WorldLoadFailed { name: String, reason: String },
     /// The agent's admin offered it a gift (#1423). It waits for `agent gift
     /// accept|decline <offer_id>` for `answer_within_s`, then goes back to
     /// them as unanswered. `item` is its name in the admin's words, as data.

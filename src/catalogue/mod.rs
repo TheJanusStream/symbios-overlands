@@ -19,8 +19,17 @@
 //! viewport. Slugs are stable across builds; renaming an entry must
 //! preserve the slug or older drag-in-flight state would silently
 //! resolve to the wrong blueprint.
+//!
+//! Beside the items the Catalogue lists two kinds of recipe that are not
+//! blueprints and place nothing: ready-made avatars ([`avatars`], #1840)
+//! and ready-made worlds ([`worlds`], #1841), each drawn by the seeded
+//! builders from a pinned seed hunt. Their slugs share the one namespace
+//! (`avatar_`, `worlds_`), so a selection resolves to exactly one of the
+//! three.
 
+pub mod avatars;
 pub mod items;
+pub mod worlds;
 
 pub use items::{ENTRIES, by_slug};
 

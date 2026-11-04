@@ -1163,10 +1163,17 @@ $A start --allow-save                # only then may it save:
 $A save --wait                       # or `save avatar`
 $A travel home --discard-edits       # or --save-edits; without, refused
 # Its inventory and gifts (#1423):
-$A inventory                         # what it holds, what it wears
+$A inventory                         # what it holds - things, avatars, worlds - and wears
 $A stash ships_lantern               # a catalogue entry - or a thing in its own world
 $A stash Birdhouse --from-avatar /record/body/visuals/children/0/children/0   # or a part of its body
 $A wear "Ship's Lantern"             # `take-off` and `unstash` likewise, by name
+$A stash-avatar "Sunday best"        # the avatar it wears, whole (#1843); any world
+$A stash-world Harbour               # its own world, whole; only there
+$A wear "Sunday best"                # an avatar item replaces the avatar worn
+$A load Harbour --wait               # a world item replaces its own world
+$A catalogue boat                    # `avatars` and `worlds` list beside the things
+$A wear avatar_boat_sloop            # a catalogue avatar by its slug; `stash` copies one
+$A load worlds_nordic                 # a catalogue world, built and loaded at once
 $A save inventory                    # with --allow-save, as for the world
 $A gift give @you.example.com lantern --wait   # an inventory item or a slug
 $A gift accept 3                     # the admin's offer, by the id its event gives
@@ -1454,7 +1461,40 @@ is how it builds away from home: on its own body, then `stash`, then `gift
 give`.
 `wear` and `take-off` are avatar edits, steps of its undo history, saved with
 `save avatar`; the inventory itself is saved with `save inventory` and
-`revert`ed, and has no undo history, as in the game. **The agent takes gifts
+`revert`ed, and has no undo history, as in the game.
+
+**Whole avatars and worlds** (#1843). The inventory holds them beside things,
+in one namespace and under one cap, and `inventory` says what each item
+`is`: a `thing`, an `avatar` (with its `kind` - person, beast, boat - and
+`worn` when it is the avatar on) or a `world` (its `kind`, its name, its
+counts and size). Each command goes through the game's own path and answers
+any refusal with the game's own sentence. `stash-avatar [name]` copies the
+avatar worn, unsaved edits included, as the Avatar editor's Save to Inventory
+does, in any world; `stash-world [name]` copies the agent's own world as the
+World Editor's Save to Inventory does, there only. Without a name the item
+takes the game's own: the body's name or what it is, the world's name.
+`wear <avatar item>` puts the whole avatar on as the Inventory's Wear does:
+one step of the avatar's undo history, resolved at once, unsaved until `save
+avatar`; wearing the one already on is refused. `load <world item>` replaces
+everything in the agent's own world with it, as the Inventory's Load into my
+world does: refused anywhere else and while another load runs, its parts
+fetched from the account when this session no longer holds them, then one
+step of the world's undo history - `undo` takes it back - unsaved until
+`save`. Its answer says it started (`loading`, with `events_seq`); how it
+ended arrives as a `world_loaded` or `world_load_failed` event, which `load
+--wait` waits for. `catalogue <words>` lists the Catalogue's `avatars` and
+`worlds` beside its things (`entries`), every word of the search somewhere
+in each; `wear`, `load` and `stash` take their slugs (`avatar_...`,
+`worlds_...`) as the Catalogue's Wear, Load into my world and Copy to
+inventory do - a catalogue world is built for the agent and loaded in the
+frame, the answer saying `loaded`. Neither is ever placed or given: `place`
+and `gift give` refuse one (`place` of a Catalogue slug names the verb it is
+for; a gift says only things can be given). A world item's
+contents are records of their own (`network.symbios.overlands.inventory.part`),
+which a sign-in made before #1839 has no grant for: `stash-world`, a
+catalogue world's `stash` and a `save inventory` that would write a world are
+refused with the game's sign-in-again sentence, and the cure is `stop`,
+`login --account <handle>` again, `start`. Loading needs no new grant. **The agent takes gifts
 from its admin only**, as it hears chat: anyone else's offer is declined the
 moment it lands - reaching them as an ordinary "declined" - and leaves a
 `gift_declined` event that names who, never what. The admin's offer arrives

@@ -113,7 +113,7 @@ pub use avatar::{
 // named set (`mood::NEON`), and the boat builders reach them from outside
 // this module.
 pub use avatar::mood;
-pub use hash::fnv1a_64;
+pub use hash::{fnv1a_64, fnv1a_64_continue};
 pub use room::{
     AmbientParticles, AmbientRecipe, Atmosphere, BERLIN_SHARE, BUILD_SLOPE_LIMIT, BiomeTextures,
     BuildableRegion, GatewaySpot, GroundTextureParams, MonumentSpot, ParticleMood, RegionSource,

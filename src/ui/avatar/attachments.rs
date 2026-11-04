@@ -1038,11 +1038,13 @@ pub(crate) fn save_worn_to_inventory(
     inventory: &mut InventoryRecord,
 ) -> Result<String, String> {
     let name = match record.source.as_deref() {
-        Some(source) => source.to_string(),
-        None => crate::ui::room::widgets::unique_key(&inventory.generators, &record.socket),
+        // A source name an avatar item has since taken is not this prop's
+        // to overwrite (#1838): it lands beside it instead.
+        Some(source) if !inventory.avatars.contains_key(source) => source.to_string(),
+        _ => inventory.free_name(record.source.as_deref().unwrap_or(&record.socket)),
     };
     let cap = crate::config::state::MAX_INVENTORY_ITEMS;
-    if !inventory.generators.contains_key(&name) && inventory.generators.len() >= cap {
+    if !inventory.generators.contains_key(&name) && inventory.item_count() >= cap {
         return Err(format!("Inventory full ({cap}/{cap}) - item not saved."));
     }
     inventory.put_item(name.clone(), record.item.clone(), Some(record.wear_meta()));

@@ -40,6 +40,37 @@
   track edits that way. `revert` puts the last save back whole; then pull
   the record and compare it with your source.
 
+## Whole avatars and worlds in the inventory
+
+The inventory keeps whole avatars and whole worlds beside things (#1843);
+`A inventory` says what each item `is` (`thing`, `avatar`, `world`).
+
+- `A stash-avatar [name]` and `A stash-world [name]` copy what you wear and
+  your own world as they are NOW, unsaved edits included. The copy is an
+  inventory edit: unsaved until `A save inventory`, gone at a restart
+  before it. `stash-world` works in your own world only.
+- `A wear <avatar item>` replaces the avatar you wear and `A load <world
+  item>` replaces EVERYTHING in your world - ground, sky, every placement.
+  Each is one step of its own history: `A undo avatar` or `A undo` takes it
+  back whole, and it is unsaved until `A save avatar` or `A save`. Keep the
+  world you are replacing first if it matters: `A stash-world` before the
+  `load`, and save the inventory.
+- A load from the inventory is not done when it answers: its answer says
+  `loading`, and the world lands a moment later - fetched from the account
+  unless this session still holds it (`held` in `A inventory`: stashed and
+  not yet saved). `A load <item> --wait` prints how
+  it ended (`world_loaded`, or `world_load_failed` with the game's reason);
+  without `--wait`, read the event. Do not edit the world or save it until
+  it has landed. A catalogue world (`A load worlds_...`) lands in the frame
+  and says `loaded`.
+- **"This sign-in predates a permission ..."** answers `stash-world`, a
+  catalogue world's `stash` or a `save inventory` holding a new world item
+  on an account signed in before world items existed: their contents are
+  records of their own, which that sign-in may not write. Tell the owner in
+  the terminal, nothing in chat; signing in again is theirs:
+  [session.md](session.md#signing-in-again). Loading a world needs no new
+  sign-in.
+
 ## Restarts
 
 A restart (`A stop`, then `A start ...`) throws away unsaved edits and puts

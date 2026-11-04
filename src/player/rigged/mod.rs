@@ -67,8 +67,10 @@ use crate::pds::avatar::EngineAvatarRecord;
 /// this line used to carry (68 against 277) were #1061's and describe an engine
 /// several hair releases ago; the expensive half of a body is now geometry,
 /// which the atlas size does not touch. The rung stays because a quarter off
-/// every keystroke of a slider drag is still worth having.
-const DRAFT_ATLAS: u32 = 256;
+/// every keystroke of a slider drag is still worth having - and it is the rung
+/// the item preview's picture of a person or a beast is built at
+/// ([`crate::player::visuals::draft_atlas`], #1842).
+pub(super) const DRAFT_ATLAS: u32 = 256;
 /// How long the record must be still before the full-atlas build is owed.
 const SETTLE_SECS: f32 = 0.8;
 

@@ -608,6 +608,20 @@ impl AudioEditorState {
         self.reseeded = false;
     }
 
+    /// Close the window AND drop every staged commit: the record they were
+    /// for was replaced whole (#1839, a re-roll or a world loaded from the
+    /// Inventory), and a commit is keyed by a slot's salt - which the new
+    /// record may give another slot, so landing it would write the old
+    /// world's sound into the new one. An open window's audition is stopped
+    /// at the next draw, as a rebind stops it.
+    pub(crate) fn abandon(&mut self) {
+        if self.open {
+            self.stop_audition = true;
+        }
+        self.close();
+        self.pending.clear();
+    }
+
     /// Bring the working copy back into step with the record when the
     /// record changed from outside (#1333 A9). Called by the bound slot's
     /// bridge, which is the only place that holds the live value.
@@ -1165,6 +1179,11 @@ pub(crate) fn draw_audio_editor_window(
     audience: AudioAudience,
 ) {
     if !editor.open {
+        // A window closed by a replaced world (`AudioEditorState::abandon`)
+        // still stops what it was auditioning.
+        if std::mem::take(&mut editor.stop_audition) {
+            io.requests.write(MonitorRequest::Stop);
+        }
         return;
     }
     // One shared layout slot for every audio slot's pop-out: the window

@@ -213,18 +213,25 @@ session_scoped_resources! {
 /// would pre-select - and ask the item preview to stage - whatever the next
 /// account happens to have under that name. The Catalogue's selection is a
 /// slug in a list compiled into the binary, the same for everyone, and is
-/// deliberately left alone.
+/// deliberately left alone - but a Load into my world it has parked behind
+/// its confirmation (#1841) is the previous account's click, and is
+/// dropped: the next account would otherwise be asked to replace its
+/// world with something it never chose.
 fn clear_editor_state_on_logout(
     mut commands: Commands,
     travel_tasks: Query<Entity, With<crate::player::PortalTravelTask>>,
     mut avatar_editor: ResMut<crate::ui::avatar::AvatarEditorState>,
     mut room_editor: ResMut<crate::ui::room::RoomEditorState>,
     mut inventory_browser: ResMut<crate::ui::inventory::InventoryBrowser>,
+    catalogue_browser: Option<ResMut<crate::ui::catalogue::CatalogueBrowser>>,
     in_flight: SessionTasks,
 ) {
     *avatar_editor = crate::ui::avatar::AvatarEditorState::default();
     *room_editor = crate::ui::room::RoomEditorState::default();
     *inventory_browser = crate::ui::inventory::InventoryBrowser::default();
+    if let Some(mut catalogue) = catalogue_browser {
+        catalogue.cancel_pending_load();
+    }
     // Neither `LocalPlayer` nor `RoomEntity`, so `cleanup_on_logout`'s
     // despawn sweep never reaches these. Dropping the `Task` is enough on
     // native; on wasm the work behind it keeps running (project memory,
@@ -237,7 +244,8 @@ fn clear_editor_state_on_logout(
 }
 
 /// Every bare task entity a session can leave in flight (#1204): the four
-/// PDS writes, the mutuals walk and the two blob fetches. None carries
+/// PDS writes, a world loading from the Inventory (#1839), the mutuals walk
+/// and the two blob fetches. None carries
 /// `LocalPlayer` or `RoomEntity`, so the entity sweep in
 /// [`cleanup_on_logout`] never reached them, and the publish polls run only
 /// `InGame` - so a save fired just before logout sat un-polled and landed in
@@ -252,6 +260,9 @@ pub(crate) struct SessionTasks<'w, 's> {
     room_reset: Query<'w, 's, Entity, With<crate::ui::room::ResetRoomTask>>,
     avatar_publish: Query<'w, 's, Entity, With<crate::ui::avatar::PublishAvatarTask>>,
     inventory_publish: Query<'w, 's, Entity, With<crate::ui::inventory::PublishInventoryTask>>,
+    /// A world being loaded from the Inventory (#1839): it would land in
+    /// the next session's world.
+    world_load: Query<'w, 's, Entity, With<crate::ui::inventory::LoadWorldTask>>,
     mutuals: Query<'w, 's, Entity, With<crate::social::MutualsFetchTask>>,
     blob_audio: Query<'w, 's, Entity, With<crate::world_builder::audio_resolver::BlobAudioTask>>,
     blob_image: Query<'w, 's, Entity, With<crate::world_builder::image_cache::BlobImageTask>>,
@@ -265,6 +276,7 @@ impl SessionTasks<'_, '_> {
             .chain(self.room_reset.iter())
             .chain(self.avatar_publish.iter())
             .chain(self.inventory_publish.iter())
+            .chain(self.world_load.iter())
             .chain(self.mutuals.iter())
             .chain(self.blob_audio.iter())
             .chain(self.blob_image.iter());
@@ -761,6 +773,7 @@ mod tests {
             spawned_at: 0.0,
             record_bytes: None,
             published: InventoryRecord::default(),
+            bound: crate::pds::inventory::SaveBound::Whole,
         });
         world.spawn(crate::world_builder::audio_resolver::BlobAudioTask {
             key: crate::world_builder::audio_resolver::AudioReferenceKey::Url(
@@ -885,6 +898,32 @@ mod tests {
             "the previous session's pick is still selected"
         );
         assert_eq!(browser.picked_at(), 0.0, "and still stamped");
+    }
+
+    /// #1841: a Catalogue Load into my world parked behind its confirmation
+    /// is the previous account's click; the selection, a compiled-in slug,
+    /// stays.
+    #[test]
+    fn a_parked_catalogue_load_does_not_survive_logout() {
+        let mut world = World::new();
+        world.insert_resource(crate::ui::avatar::AvatarEditorState::default());
+        world.insert_resource(crate::ui::room::RoomEditorState::default());
+        world.insert_resource(crate::ui::inventory::InventoryBrowser::default());
+        let mut catalogue = crate::ui::catalogue::CatalogueBrowser::default();
+        catalogue.select_for_test(Some("worlds_medieval"), 3.0);
+        catalogue.park_load_for_test("worlds_medieval");
+        world.insert_resource(catalogue);
+
+        world
+            .run_system_once(clear_editor_state_on_logout)
+            .expect("teardown system");
+
+        let catalogue = world.resource::<crate::ui::catalogue::CatalogueBrowser>();
+        assert!(
+            !catalogue.load_is_pending(),
+            "the old account's Load is still parked"
+        );
+        assert_eq!(catalogue.selected_slug(), Some("worlds_medieval"));
     }
 
     /// Signing in answers the offer a fresh tab was shown (#1408).

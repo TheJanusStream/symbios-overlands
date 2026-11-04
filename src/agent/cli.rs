@@ -134,8 +134,9 @@ pub enum Command {
     /// List the things placed in the agent's own world, by index, each
     /// where it is drawn.
     Placements(PlacementsArgs),
-    /// List the catalogue of things that can be placed - those matching a
-    /// search, when given.
+    /// List the catalogue: the things that can be placed, and the avatars
+    /// and worlds that can be worn or loaded - those matching a search,
+    /// when given.
     Catalogue(CatalogueArgs),
     /// Put a catalogue item down in the agent's own world. Everyone there
     /// sees it at once; it stays only once saved.
@@ -166,15 +167,32 @@ pub enum Command {
     /// account, where everyone who visits sees it. Refused unless the agent
     /// was started with --allow-save.
     Save(SaveArgs),
-    /// List what the agent's inventory holds.
+    /// List what the agent's inventory holds: things, whole avatars and
+    /// whole worlds.
     Inventory(AccountArg),
     /// Put something into the inventory: a thing in the agent's own world,
-    /// by the name `placements` gives it, or a catalogue entry, by its slug.
+    /// by the name `placements` gives it, or a catalogue entry - a thing,
+    /// an avatar or a world - by its slug.
     Stash(StashArgs),
+    /// Copy the avatar the agent wears, unsaved edits included, into the
+    /// inventory as one avatar item, as the Avatar editor's Save to
+    /// Inventory does. Works in any world.
+    StashAvatar(StashWholeArgs),
+    /// Copy the agent's own world, unsaved edits included, into the
+    /// inventory as one world item, as the World Editor's Save to Inventory
+    /// does. Only in its own world.
+    StashWorld(StashWholeArgs),
     /// Take an item out of the inventory.
     Unstash(ItemArgs),
-    /// Put an inventory item on the avatar.
+    /// Put an inventory item on the avatar: a thing on its socket, or a
+    /// whole avatar instead of the one worn - or a catalogue avatar, by its
+    /// slug.
     Wear(ItemArgs),
+    /// Load a world over the agent's own, as the Inventory's Load into my
+    /// world does: an inventory world item, by its name, or a catalogue
+    /// world, by its slug. It replaces everything in the world; `undo`
+    /// takes it back, and it is unsaved until `save`.
+    Load(LoadArgs),
     /// Take a worn item off the avatar.
     TakeOff(ItemArgs),
     /// Offer a gift to another player in the agent's world, or answer one
@@ -283,6 +301,29 @@ pub struct StashArgs {
 }
 
 #[derive(Args, Debug)]
+pub struct StashWholeArgs {
+    #[command(flatten)]
+    pub account: AccountArg,
+    /// The name to keep it under - with a suffix if an item already has
+    /// it. When absent, the game's own: the body's name or what it is, the
+    /// world's name.
+    pub name: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct LoadArgs {
+    #[command(flatten)]
+    pub account: AccountArg,
+    /// The world: an inventory world item, by the name `inventory` gives
+    /// it, or a catalogue world, by its slug (`worlds_...`).
+    pub item: String,
+    /// Wait for an inventory world to land - its parts may be fetched from
+    /// the account first - and print how it went.
+    #[arg(long)]
+    pub wait: bool,
+}
+
+#[derive(Args, Debug)]
 pub struct ItemArgs {
     #[command(flatten)]
     pub account: AccountArg,
@@ -342,7 +383,8 @@ pub struct PlacementsArgs {
 pub struct CatalogueArgs {
     #[command(flatten)]
     pub account: AccountArg,
-    /// Words to look for in an entry's slug, name, section or description.
+    /// Words to look for in an entry's slug, name, section or description -
+    /// an avatar's family or craft, a world's theme, ground or borough.
     pub search: Option<String>,
 }
 
@@ -1244,6 +1286,46 @@ mod tests {
         };
         assert!(matches!(gift.action, GiftAction::Accept(offer) if offer.offer_id == 7));
         assert!(parse(&["gift", "decline", "-1"]).is_err());
+    }
+
+    /// The avatar's and the world's commands (#1843): the two stashes take
+    /// an optional name, `load` takes one world and may wait for it, and
+    /// `--account` reaches each of them wherever it stands.
+    #[test]
+    fn whole_avatars_and_worlds_take_a_name_and_load_may_wait() {
+        let parse = |args: &[&str]| {
+            Cli::try_parse_from(std::iter::once("agent").chain(args.iter().copied()))
+                .map(|cli| cli.command)
+        };
+        let Command::StashAvatar(avatar) = parse(&["stash-avatar"]).unwrap() else {
+            panic!("stash-avatar");
+        };
+        assert_eq!(avatar.name, None);
+        let Command::StashAvatar(avatar) =
+            parse(&["stash-avatar", "Sunday best", "--account", "a.test"]).unwrap()
+        else {
+            panic!("stash-avatar, named");
+        };
+        assert_eq!(avatar.name.as_deref(), Some("Sunday best"));
+        assert_eq!(avatar.account.name.as_deref(), Some("a.test"));
+        let Command::StashWorld(world) = parse(&["stash-world", "Harbour"]).unwrap() else {
+            panic!("stash-world");
+        };
+        assert_eq!(world.name.as_deref(), Some("Harbour"));
+        assert!(parse(&["stash-world", "a", "b"]).is_err(), "one name");
+
+        let Command::Load(load) = parse(&["load", "Harbour", "--wait"]).unwrap() else {
+            panic!("load");
+        };
+        assert_eq!(load.item, "Harbour");
+        assert!(load.wait);
+        let Command::Load(load) = parse(&["--account", "a.test", "load", "worlds_x"]).unwrap()
+        else {
+            panic!("load, slug");
+        };
+        assert!(!load.wait);
+        assert_eq!(load.account.name.as_deref(), Some("a.test"));
+        assert!(parse(&["load"]).is_err(), "load what");
     }
 
     /// A JSON set takes its value inline or from a file - one of them.

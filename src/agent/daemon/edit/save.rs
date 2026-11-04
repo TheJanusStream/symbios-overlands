@@ -4,7 +4,9 @@
 //! Refused unless the operator allowed saving when the agent was started;
 //! then refused for the Save button's own reasons, in its own words - a
 //! save already under way, an expired session, a record too big to write,
-//! nothing to save - and, where the editor would stop to ask a person, for
+//! nothing to save, an inventory holding a world item that a sign-in from
+//! before world items cannot write (#1843) - and, where the editor would
+//! stop to ask a person, for
 //! a record whose saved copy could not be read when the agent arrived:
 //! saving over it could overwrite work the agent never saw.
 //!
@@ -144,10 +146,10 @@ fn save_inventory(world: &mut World) -> Result<SizeReadout, String> {
     };
     // The Inventory window's Save stands down past the cap too (#841).
     let cap = crate::config::state::MAX_INVENTORY_ITEMS;
-    if live.0.generators.len() > cap {
+    if live.0.item_count() > cap {
         return Err(format!(
             "the inventory holds {} items, past the {cap} it may save; `agent unstash` some",
-            live.0.generators.len()
+            live.0.item_count()
         ));
     }
     let dirty = records_differ(&live.0, &stored.0);
@@ -155,6 +157,18 @@ fn save_inventory(world: &mut World) -> Result<SizeReadout, String> {
     let status = &world.resource::<PublishFeedback<InventoryRecord>>().status;
     if let Some(why) = save_refusal(dirty, true, &size, saving, status) {
         return Err(why);
+    }
+    // A save that writes or deletes a world item writes its parts, which a
+    // sign-in made before #1839 has no grant for: the save itself refuses
+    // that before any write, and so does this, in its words (#1843).
+    let scope = world
+        .get_resource::<AtprotoSession>()
+        .map(|session| session.session.token_set().scope.clone())
+        .unwrap_or_default();
+    if let Some(why) =
+        crate::pds::inventory::world::world_grant_refusal(&live.0.worlds, &stored.0.worlds, &scope)
+    {
+        return Err(why.to_owned());
     }
     let (record, stored) = (live.0.clone(), stored.0.clone());
     let now = world.resource::<Time>().elapsed_secs_f64();

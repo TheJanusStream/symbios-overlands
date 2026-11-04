@@ -163,6 +163,26 @@ pub enum Request {
     Wear { name: String },
     /// Take the worn item `name` off the avatar.
     TakeOff { name: String },
+    /// Copy the avatar the agent wears - unsaved edits included - into the
+    /// inventory as one avatar item (#1843), as the Avatar editor's Save to
+    /// Inventory does, under a free name built on `name` when given. A
+    /// command of its own, as every new behaviour is: a daemon built before
+    /// it refuses it rather than reading it as something else.
+    StashAvatar {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+    },
+    /// Copy the agent's own world - unsaved edits included - into the
+    /// inventory as one world item (#1843), as the World Editor's Save to
+    /// Inventory does.
+    StashWorld {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+    },
+    /// Load a world over the agent's own (#1843): the inventory's world
+    /// item `name`, as its Load into my world does, or the catalogue's
+    /// world entry by that slug.
+    Load { name: String },
     /// Offer `item` - an inventory item by its name, or a catalogue entry by
     /// its slug - to the player `to_did`, who is in the agent's world.
     GiftGive { to_did: String, item: String },
@@ -439,6 +459,15 @@ pub enum EditRequest {
     TakeOff {
         name: String,
     },
+    StashAvatar {
+        name: Option<String>,
+    },
+    StashWorld {
+        name: Option<String>,
+    },
+    Load {
+        name: String,
+    },
 }
 
 impl EditRequest {
@@ -576,6 +605,9 @@ impl Request {
             Self::Unstash { name } => edit(EditRequest::Unstash { name }),
             Self::Wear { name } => edit(EditRequest::Wear { name }),
             Self::TakeOff { name } => edit(EditRequest::TakeOff { name }),
+            Self::StashAvatar { name } => edit(EditRequest::StashAvatar { name }),
+            Self::StashWorld { name } => edit(EditRequest::StashWorld { name }),
+            Self::Load { name } => edit(EditRequest::Load { name }),
             Self::GiftGive { to_did, item } => {
                 Route::World(WorldRequest::Gift(GiftRequest::Give { to_did, item }))
             }
@@ -833,6 +865,13 @@ mod tests {
             Request::Wear { name: "hat".into() },
             Request::TakeOff { name: "hat".into() },
             Request::GiftAccept { offer_id: 1 },
+            Request::StashAvatar { name: None },
+            Request::StashWorld {
+                name: Some("harbour".into()),
+            },
+            Request::Load {
+                name: "harbour".into(),
+            },
         ] {
             assert!(writes(writer.clone()), "{writer:?}");
         }
@@ -880,6 +919,35 @@ mod tests {
             .unwrap(),
             r#"{"command":"stash","what":"bench","from_avatar":"/record/body/visuals"}"#
         );
+    }
+
+    /// The avatar's and the world's ways into and out of the inventory
+    /// (#1843) are commands of their own, a name optional on the two
+    /// stashes and left out of the line when not given.
+    #[test]
+    fn whole_avatars_and_worlds_travel_as_commands_of_their_own() {
+        assert_eq!(
+            serde_json::from_str::<Request>(r#"{"command":"stash_avatar"}"#).unwrap(),
+            Request::StashAvatar { name: None }
+        );
+        assert_eq!(
+            serde_json::to_string(&Request::StashWorld {
+                name: Some("Harbour".into())
+            })
+            .unwrap(),
+            r#"{"command":"stash_world","name":"Harbour"}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&Request::StashWorld { name: None }).unwrap(),
+            r#"{"command":"stash_world"}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<Request>(r#"{"command":"load","name":"worlds_x"}"#).unwrap(),
+            Request::Load {
+                name: "worlds_x".into()
+            }
+        );
+        assert!(serde_json::from_str::<Request>(r#"{"command":"load"}"#).is_err());
     }
 
     /// The interface commands' wire forms (#1424): one flat object each,

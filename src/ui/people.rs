@@ -847,7 +847,7 @@ pub fn incoming_offer_ui(
         let cap = crate::config::state::MAX_INVENTORY_ITEMS;
         match answering.live_inventory.as_deref() {
             Some(live) => {
-                let len = live.0.generators.len();
+                let len = live.0.item_count();
                 ui.label(format!("Your inventory: {len}/{cap}"));
                 if len >= cap {
                     ui.colored_label(
@@ -886,7 +886,7 @@ pub fn incoming_offer_ui(
             let can_accept = answering
                 .live_inventory
                 .as_deref()
-                .map(|l| l.0.generators.len() < cap)
+                .map(|l| l.0.item_count() < cap)
                 .unwrap_or(false);
             // A disabled control says why (#1220 f302). The reason is
             // already on screen above, but the button is where the pointer

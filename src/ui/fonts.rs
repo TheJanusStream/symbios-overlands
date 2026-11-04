@@ -524,7 +524,7 @@ pub fn detect_script_needs(
             see(&offer.sender_label.name());
         }
         if let Some(inventory) = inventory.as_ref().filter(|i| i.is_changed()) {
-            for item_name in inventory.0.generators.keys() {
+            for item_name in inventory.0.names() {
                 see(item_name);
             }
         }
@@ -942,9 +942,18 @@ pub(crate) mod glyph_coverage_tests {
         // one surface still using the retired word - precisely because this
         // file is not under `src/ui` and no scan could see it.
         "src/catalogue/mod.rs",
+        // #1840: an avatar entry's name, description and family labels are
+        // the Catalogue's Avatars rows and its detail panel.
+        "src/catalogue/avatars.rs",
+        // #1841: a world entry's name, description and kind label are the
+        // Catalogue's Worlds rows and its detail card.
+        "src/catalogue/worlds.rs",
         // #1583: `Borough::name` labels a geodata region's square in the
         // World Editor - "Tempelhof-Sch\u{f6}neberg", "Neuk\u{f6}lln".
         "crates/geodata/src/berlin/mod.rs",
+        // #1839: a world item's refusals and its summary's kind label are
+        // toasted and drawn verbatim by the Inventory and the World Editor.
+        "src/pds/inventory/world.rs",
     ];
 
     /// Non-ASCII glyphs drawn by the sculpting sections the Body tab HOSTS

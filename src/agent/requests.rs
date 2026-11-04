@@ -1,14 +1,14 @@
 //! The commands that talk to a running agent (#1416-#1422): each sends one
 //! request over the control socket and prints the answer; `walk-to --wait`,
-//! `travel --wait` and `save --wait` then follow the event log to the end of
-//! what they started.
+//! `travel --wait`, `save --wait` and `load --wait` then follow the event
+//! log to the end of what they started.
 
 use std::process::ExitCode;
 
 use super::cli::{
     CatalogueArgs, DetachArgs, DriveArgs, EventsArgs, FaceArgs, FollowArgs, GiftAction, GiftArgs,
-    JsonAction, LookArgs, MoveArgs, PlaceArgs, PlacementsArgs, RecordJsonArgs, RemoveArgs,
-    SaveArgs, TravelArgs, UiAction, UiArgs, WalkToArgs,
+    JsonAction, LoadArgs, LookArgs, MoveArgs, PlaceArgs, PlacementsArgs, RecordJsonArgs,
+    RemoveArgs, SaveArgs, TravelArgs, UiAction, UiArgs, WalkToArgs,
 };
 use super::control::protocol::{DriveSegment, LookSpec, Request, Response, UnsavedEdits};
 use super::{config, control, find_session, print_json, resolve_name, session_file};
@@ -534,13 +534,49 @@ pub(super) fn save(args: SaveArgs) -> Result<ExitCode, String> {
 /// still the result, so `result.kind` reads the same either way. A refusal
 /// exits non-zero, as a failed save always has.
 fn save_ended(event: serde_json::Value) -> Response {
-    if event["kind"] != "save_failed" {
+    ended(event, "save_failed", "the save did not land")
+}
+
+/// `load` (#1843): one world over the agent's own. A catalogue world lands
+/// at once and the answer says so; an inventory world is fetched and lands
+/// later, and with `--wait` its `world_loaded` or `world_load_failed` event
+/// is printed as `save --wait` prints a save's ending.
+pub(super) fn load(args: LoadArgs) -> Result<ExitCode, String> {
+    let socket = socket_for(args.account.name.as_deref())?;
+    let started = control::client::call(&socket, &Request::Load { name: args.item })?;
+    let Some(result) = started.result.as_ref().filter(|_| args.wait && started.ok) else {
+        return print_response(&started);
+    };
+    // Landed already: a catalogue world is built and loaded in the frame.
+    let (Some(name), Some(since)) = (result["loading"].as_str(), result["events_seq"].as_u64())
+    else {
+        return print_response(&started);
+    };
+    let landed = wait_for_event(&socket, since, config::agent::LOAD_WAIT, |event| {
+        (event["kind"] == "world_loaded" || event["kind"] == "world_load_failed")
+            && event["name"] == name
+    })
+    .map_err(|waited| {
+        format!(
+            "the world had not landed after {} s; it may yet, and `agent events` says",
+            waited.as_secs()
+        )
+    })?;
+    print_response(&load_ended(landed))
+}
+
+/// What `load --wait` prints once the load has ended - see [`save_ended`].
+fn load_ended(event: serde_json::Value) -> Response {
+    ended(event, "world_load_failed", "the world did not load")
+}
+
+/// A waited-for ending as the answer: the event as the result, and - when
+/// its kind is `failed` - a refusal too, its reason the error.
+fn ended(event: serde_json::Value, failed: &str, fallback: &str) -> Response {
+    if event["kind"] != failed {
         return Response::success(event);
     }
-    let reason = event["reason"]
-        .as_str()
-        .unwrap_or("the save did not land")
-        .to_owned();
+    let reason = event["reason"].as_str().unwrap_or(fallback).to_owned();
     Response {
         ok: false,
         result: Some(event),
@@ -626,7 +662,7 @@ pub(super) fn ui(args: UiArgs) -> Result<ExitCode, String> {
 mod tests {
     use serde_json::json;
 
-    use super::{drive_segment, save_ended, stand_off, xz};
+    use super::{drive_segment, load_ended, save_ended, stand_off, xz};
 
     /// #1527: `KEYS@SECONDS`, keys joined by `+`, `none` for none; the keys'
     /// names are the daemon's to check, the shape is this side's.
@@ -691,6 +727,33 @@ mod tests {
                 "ok": false,
                 "result": failed,
                 "error": "the record is past its ceiling",
+            })
+        );
+    }
+
+    /// `load --wait` (#1843) ends as `save --wait` does: a landed world is
+    /// the result, a failed one a refusal with the game's reason.
+    #[test]
+    fn a_loads_ending_is_wrapped_like_a_saves() {
+        let loaded = json!({ "kind": "world_loaded", "name": "Harbour", "seq": 3, "at": 1 });
+        let failed = json!({
+            "kind": "world_load_failed",
+            "name": "Harbour",
+            "reason": "you are no longer in your own world, so nothing was loaded",
+            "seq": 4,
+            "at": 2,
+        });
+
+        assert_eq!(
+            serde_json::to_value(load_ended(loaded.clone())).unwrap(),
+            json!({ "ok": true, "result": loaded })
+        );
+        assert_eq!(
+            serde_json::to_value(load_ended(failed.clone())).unwrap(),
+            json!({
+                "ok": false,
+                "result": failed,
+                "error": "you are no longer in your own world, so nothing was loaded",
             })
         );
     }

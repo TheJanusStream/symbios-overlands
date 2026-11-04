@@ -251,17 +251,23 @@ impl AvatarBody {
     /// of the record sanitises.
     pub fn sanitize(&mut self) {
         match self {
-            Self::Generator(body) => {
-                sanitize_avatar_visuals(&mut body.visuals);
-                // The visuals ROOT is the gait layer's to move (#1604): it
-                // writes the root's pose every frame, so a spin there could
-                // only fight it. Every node below may turn, and a worn
-                // prop's root may too - nothing else moves that.
-                body.visuals.spin = None;
-            }
+            Self::Generator(body) => body.sanitize(),
             Self::Rigged(body) => body.sanitize(),
             Self::Unknown | Self::Absent => {}
         }
+    }
+}
+
+impl GeneratorBody {
+    /// The generator body's clamp - shared by the avatar record and an
+    /// avatar inventory item (#1838), which carries this same payload.
+    pub fn sanitize(&mut self) {
+        sanitize_avatar_visuals(&mut self.visuals);
+        // The visuals ROOT is the gait layer's to move (#1604): it
+        // writes the root's pose every frame, so a spin there could
+        // only fight it. Every node below may turn, and a worn
+        // prop's root may too - nothing else moves that.
+        self.visuals.spin = None;
     }
 }
 

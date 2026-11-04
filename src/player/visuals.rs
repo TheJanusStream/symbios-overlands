@@ -174,13 +174,26 @@ pub fn spawn_attachment_tree(
 // because this module is the avatar spawn path the render tool reaches: its
 // `--rigged` sheet and `--walker-avatar` walker ask them exactly as
 // `rigged::build::kick_rigged_builds` does, so the body a sheet shows is the
-// body the game stands under a chassis.
+// body the game stands under a chassis. The item preview's stage (#1842) asks
+// them too, and stands its picture in the same still pose a sheet does.
 
 /// The skin atlas a rigged body is built at once its record has settled:
 /// the engine's full size, the rung above the editor's draft
 /// (`rigged`'s settle ladder, #1059).
 pub(crate) fn settled_atlas() -> u32 {
     symbios_avatar::AvatarConfig::default().atlas
+}
+
+/// The skin atlas a rigged body is built at while its record is still moving:
+/// the rung below [`settled_atlas`] (`rigged`'s settle ladder, #1059). The item
+/// preview builds its picture of a person or a beast at it too (#1842): the
+/// picture is at most 180 points of a 256-pixel target, so a body fills some
+/// 200 pixels of it and its face a few dozen, and a 256 atlas already gives
+/// that face more texels than it covers pixels - the full 1,024 would cost a
+/// quarter more build and sixteen times the texture memory for a picture that
+/// cannot show the difference.
+pub(crate) fn draft_atlas() -> u32 {
+    super::rigged::DRAFT_ATLAS
 }
 
 /// The job that builds a rigged body's engine record at `atlas`.
@@ -234,6 +247,40 @@ pub(crate) fn rigged_root_offset(record: &crate::pds::AvatarRecord) -> f32 {
 pub(crate) fn rigged_root_transform(offset: f32) -> Transform {
     Transform::from_xyz(0.0, -offset, 0.0)
         .with_rotation(Quat::from_rotation_y(std::f32::consts::PI))
+}
+
+/// The pose a body the game shows standing still is built on: the rest pose
+/// with the arms hung at its sides, the engine's own carriage
+/// ([`symbios_avatar::anim::gait::hang_arms`]) and the first thing the
+/// game's idle does every frame. The idle's breath, sway, weight shift and
+/// fidgets move over it with time, and are left out where a still picture is
+/// wanted: the render tool's `--rigged` sheet, so two sheets of one record are
+/// the same picture, and the item preview's stage (#1842). (The bind pose is
+/// the A-pose a body is modelled in, arms 50 degrees out; nothing standing in
+/// the game shows it. A beast's fore legs carry it, so they are left alone.)
+pub(crate) fn standing_pose(rig: &symbios_avatar::Rig) -> symbios_avatar::Pose {
+    let mut pose = symbios_avatar::Pose::rest(rig);
+    symbios_avatar::anim::gait::hang_arms(rig, &mut pose);
+    pose
+}
+
+/// The box `avatar` fills in its [`standing_pose`], in its own space: every
+/// drawn mesh posed as the engine poses it (the far hair tier is not drawn
+/// beside the near one, so it is not here either).
+///
+/// What frames a standing body, because Bevy bounds a skinned mesh by its
+/// bind pose - the A-pose, arms out - so the drawn meshes' own boxes say a
+/// person is half again as wide as they stand.
+pub(crate) fn standing_box(avatar: &symbios_avatar::Avatar) -> (Vec3, Vec3) {
+    let pose = standing_pose(&avatar.rig);
+    avatar
+        .posed(&pose, 0.0)
+        .iter()
+        .flat_map(|drawn| drawn.mesh.positions.iter().copied())
+        .fold(
+            (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)),
+            |(min, max), p| (min.min(p), max.max(p)),
+        )
 }
 
 /// An app holding every asset store and cache [`AvatarSpawnDeps`] fans out

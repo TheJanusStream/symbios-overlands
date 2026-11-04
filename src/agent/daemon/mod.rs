@@ -173,6 +173,10 @@ pub fn run(request: RunRequest) -> Result<ExitCode, String> {
         // itself (#1423).
         .insert_resource(gifts::OffersAnsweredElsewhere)
         .init_resource::<gifts::OfferWatch>()
+        // How each world load ended (#1843), for the `world_loaded` and
+        // `world_load_failed` events: the game's load poll fills it only
+        // where it is.
+        .init_resource::<crate::ui::inventory::WorldLoadsEnded>()
         .insert_resource(serve::ControlInbox::new(inbox))
         .insert_resource(observe::EventSink(events))
         .add_systems(Startup, resume::begin_resume)
@@ -202,6 +206,7 @@ pub fn run(request: RunRequest) -> Result<ExitCode, String> {
                 travel::record_travel,
                 travel::withdraw_unanswered_guard,
                 edit::record_saves,
+                edit::record_world_loads,
                 gifts::record_answers,
             ),
         )

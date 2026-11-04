@@ -158,6 +158,7 @@ fn an_inventory_edit_made_during_a_save_stays_dirty() {
             spawned_at: 0.0,
             record_bytes: Some(1),
             published: published.clone(),
+            bound: symbios_overlands::pds::inventory::SaveBound::Whole,
         });
 
     run_until_landed(&mut app, |app| {
@@ -177,6 +178,77 @@ fn an_inventory_edit_made_during_a_save_stays_dirty() {
          recorded as saved - otherwise Save greys out and it is lost at login"
     );
     assert!(records_differ(&stored.0, &edited), "still dirty");
+}
+
+/// #1839: a save writing a world is many requests, each bounded inside it,
+/// and the poll waits for it as long as its [`SaveBound`] says - past the
+/// fixed deadline a save of one bound still gets. Both run on a clock
+/// stepped past the fixed deadline: the one-bound save is declared dead,
+/// the world save is still waited for.
+///
+/// [`SaveBound`]: symbios_overlands::pds::inventory::SaveBound
+#[test]
+fn a_save_writing_a_world_outlives_the_fixed_deadline() {
+    use symbios_overlands::pds::inventory::SaveBound;
+    use symbios_overlands::ui::inventory::PublishInventoryTask;
+    let mut app = harness();
+    app.add_systems(
+        Update,
+        symbios_overlands::ui::inventory::poll_publish_inventory_tasks,
+    );
+    app.init_resource::<PublishFeedback<InventoryRecord>>();
+    app.insert_resource(StoredInventoryRecord(InventoryRecord::default()));
+    // Signed in as the world save's account: the status line names THAT
+    // save's deadline, never another identity's left-over task's.
+    app.insert_resource(
+        symbios_overlands::oauth::stand_in::stand_in_session("did:plc:world", "world.test")
+            .expect("a stand-in session"),
+    );
+    let fixed = SaveBound::Whole.deadline();
+    let world = SaveBound::PerRequest(20);
+    assert!(world.deadline() > fixed * 4);
+    app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(fixed));
+    // The virtual clock clamps a step to a quarter second by default.
+    app.world_mut()
+        .resource_mut::<Time<Virtual>>()
+        .set_max_delta(fixed * 2);
+    for (did, bound) in [
+        ("did:plc:whole", SaveBound::Whole),
+        ("did:plc:world", world),
+    ] {
+        let pending: bevy::tasks::Task<Result<(), String>> =
+            bevy::tasks::IoTaskPool::get().spawn(std::future::pending());
+        app.world_mut().spawn(PublishInventoryTask {
+            task: pending,
+            did: did.into(),
+            spawned_at: 0.0,
+            record_bytes: None,
+            published: InventoryRecord::default(),
+            bound,
+        });
+    }
+    // Steps of the fixed deadline each (the first update has no delta):
+    // past the fixed deadline, well inside the world save's.
+    for _ in 0..4 {
+        app.update();
+    }
+    let elapsed = app.world().resource::<Time>().elapsed();
+    assert!(elapsed > fixed && elapsed < world.deadline(), "{elapsed:?}");
+    let left: Vec<String> = app
+        .world_mut()
+        .query::<&PublishInventoryTask>()
+        .iter(app.world())
+        .map(|task| task.did.clone())
+        .collect();
+    assert_eq!(left, vec![String::from("did:plc:world")]);
+    // ... and the status line names the world save's own deadline, not the
+    // fixed one it is already past (#1839 end review).
+    assert_eq!(
+        app.world()
+            .resource::<PublishFeedback<InventoryRecord>>()
+            .gives_up_after_secs,
+        Some(world.deadline().as_secs_f64())
+    );
 }
 
 #[test]
@@ -468,6 +540,7 @@ fn a_recovery_marker_outlives_a_failed_write_and_retires_on_a_landed_one() {
                 spawned_at: 0.0,
                 record_bytes: Some(1),
                 published,
+                bound: symbios_overlands::pds::inventory::SaveBound::Whole,
             });
         run_until_landed(&mut app, |app| {
             app.world()
@@ -537,6 +610,7 @@ fn an_inventory_write_in_flight_does_not_hold_a_portal_travel() {
             spawned_at: 0.0,
             record_bytes: Some(1),
             published: InventoryRecord::default(),
+            bound: symbios_overlands::pds::inventory::SaveBound::Whole,
         });
     app.update();
     let (travel, logout) = guard_probe(&app);

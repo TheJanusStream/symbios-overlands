@@ -113,6 +113,28 @@ pub fn with_suffix(base: &str, suffix: &str, max_chars: usize) -> String {
     clean_name(&name, max_chars).unwrap_or(name)
 }
 
+/// A name `is_taken` refuses nothing of: `prefix` as the sanitiser keeps
+/// it, or `prefix_1`, `prefix_2`, ... with the prefix cut to leave the
+/// suffix room under `max_chars` (#1717), so the sanitiser never cuts a new
+/// name back onto the one it was made unique from and drops it.
+///
+/// A predicate rather than a map so one namespace can span several maps -
+/// an inventory's generator and avatar items share one (#1838).
+pub fn unique_name(is_taken: impl Fn(&str) -> bool, prefix: &str, max_chars: usize) -> String {
+    let mut n = 0;
+    loop {
+        let key = if n == 0 {
+            with_suffix(prefix, "", max_chars)
+        } else {
+            with_suffix(prefix, &format!("_{n}"), max_chars)
+        };
+        if !is_taken(&key) {
+            return key;
+        }
+        n += 1;
+    }
+}
+
 /// Rewrite every key of `map` through [`clean_name`] in lexicographic key
 /// order, returning the `(old, new)` pairs that changed so the caller can
 /// move whatever else is keyed by the old name.
@@ -124,15 +146,39 @@ pub fn with_suffix(base: &str, suffix: &str, max_chars: usize) -> String {
 /// rename's target) is removed rather than overwriting: the survivor is
 /// always the lexicographically first claimant, never the last writer.
 pub fn sanitize_keys<V>(map: &mut HashMap<String, V>, max_chars: usize) -> Vec<(String, String)> {
-    let mut keys: Vec<String> = map.keys().cloned().collect();
-    keys.sort();
     // Keys that already satisfy the rules keep their slot unconditionally,
     // so a rename can never displace an untouched neighbour.
-    let mut claimed: std::collections::HashSet<String> = keys
-        .iter()
+    let mut claimed = clean_keys(map, max_chars);
+    sanitize_keys_sharing(map, max_chars, &mut claimed)
+}
+
+/// The keys of `map` that [`clean_name`] keeps as they are: the names a
+/// rename may never take.
+pub fn clean_keys<V>(
+    map: &HashMap<String, V>,
+    max_chars: usize,
+) -> std::collections::HashSet<String> {
+    map.keys()
         .filter(|k| clean_name(k, max_chars).as_deref() == Some(k.as_str()))
         .cloned()
-        .collect();
+        .collect()
+}
+
+/// [`sanitize_keys`] over one of several maps that share ONE namespace
+/// (#1838: an inventory's generator and avatar items, whose record key is
+/// the name's hash). `claimed` must start as the [`clean_keys`] of EVERY
+/// map in the namespace, so a rename in one map can never land on a name
+/// another map holds untouched: the record under that name belongs to the
+/// untouched item, and a stash that renamed onto it would aim its next
+/// update or delete at that item's record. Each rename's target joins
+/// `claimed`, so a later map's renames see it too.
+pub fn sanitize_keys_sharing<V>(
+    map: &mut HashMap<String, V>,
+    max_chars: usize,
+    claimed: &mut std::collections::HashSet<String>,
+) -> Vec<(String, String)> {
+    let mut keys: Vec<String> = map.keys().cloned().collect();
+    keys.sort();
     let mut renames = Vec::new();
     for old in keys {
         let cleaned = clean_name(&old, max_chars);

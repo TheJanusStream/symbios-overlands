@@ -895,6 +895,7 @@ pub(crate) fn build_client_app(app: &mut App, boot: boot_params::BootParams, she
                 ui::avatar::poll_publish_avatar_tasks,
                 ui::avatar::poll_wardrobe_list_tasks,
                 ui::inventory::poll_publish_inventory_tasks,
+                ui::inventory::poll_world_load_tasks,
                 ui::inventory::handle_generator_drop,
                 ui::inventory::preview_generator_drop,
                 ui::inventory::open_people_for_gift_drag,

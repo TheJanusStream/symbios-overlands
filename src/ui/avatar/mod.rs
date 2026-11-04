@@ -49,6 +49,15 @@
 //! refused in console silence (#1123, open). It remains available if the
 //! preview fidelity is ever worth those three.
 //!
+//! **Save to Inventory (#1838).** The footer carries one more button,
+//! reachable from every tab: it copies the LIVE avatar - unsaved edits
+//! included, what the owner sees - into the Inventory as an avatar item,
+//! which the Inventory window's Save then writes. It is disabled, with the
+//! reason painted beside it and on the hover, while the inventory has not
+//! loaded, is full, or the body has nothing to copy or cannot be written
+//! back. Wearing an item back is the Inventory window's row (see
+//! `stash`).
+//!
 //! Three explicit buttons drive persistence and discard flows:
 //!
 //!   * **Save** writes the current `LiveAvatarRecord` to the
@@ -68,6 +77,11 @@ pub(crate) use attachments::{
 };
 mod body;
 mod locomotion;
+mod stash;
+pub(crate) use stash::{
+    save_avatar_to_inventory, save_avatar_to_inventory_as, save_to_inventory_blocked_reason,
+    wear_avatar_blocked_reason, wear_avatar_on_live,
+};
 mod target;
 mod visuals;
 pub use target::GizmoTarget;
@@ -364,6 +378,35 @@ impl AvatarEditorState {
             parts_tree: &mut self.parts_tree,
         }
         .aim(target);
+    }
+
+    /// The fetched wardrobe listing, when one has landed (#1838): the
+    /// bodies this client KNOWS are in the wardrobe, by key, which a worn
+    /// avatar item may reuse instead of minting a new one.
+    pub(crate) fn wardrobe_entries(
+        &self,
+    ) -> Option<&[(String, crate::pds::avatar::EngineAvatarRecord)]> {
+        self.wardrobe.entries.as_deref()
+    }
+
+    /// Keep a landed listing true to a save this client just made (critic
+    /// of #1838): the body written at `rkey` replaces the listed one, or
+    /// joins the listing as its newest entry. Without it the listing kept
+    /// the body the key held when it was fetched, and a worn avatar item
+    /// equal to that old body could be put back over the saved one. A
+    /// listing never fetched stays unfetched: its first fetch is fresh.
+    pub(crate) fn note_published_body(
+        &mut self,
+        rkey: &str,
+        body: &crate::pds::avatar::EngineAvatarRecord,
+    ) {
+        let Some(entries) = self.wardrobe.entries.as_mut() else {
+            return;
+        };
+        match entries.iter_mut().find(|(listed, _)| listed == rkey) {
+            Some((_, listed)) => *listed = body.clone(),
+            None => entries.push((rkey.to_owned(), body.clone())),
+        }
     }
 
     /// True when a visuals row is currently selected. The locomotion
@@ -1366,6 +1409,59 @@ pub fn avatar_ui(
                             *size_readout_generation = Some(generation);
                         }
                         let size = feedback.live_size.clone();
+
+                        // --- Save to Inventory (#1838) -------------------
+                        // One fixed-height row, drawn on every tab and in
+                        // every state, so the panel's reserve never moves.
+                        // The stash is read through `Deref` and written
+                        // only on the click (#1322).
+                        ui.horizontal(|ui| {
+                            let blocked = save_to_inventory_blocked_reason(
+                                &live_mut.0,
+                                inventory.as_deref().map(|inv| &inv.0),
+                            );
+                            let response = ui
+                                .add_enabled(
+                                    blocked.is_none(),
+                                    egui::Button::new("Save to Inventory"),
+                                )
+                                .on_hover_text(
+                                    "Copy this avatar, as you see it now, into your inventory - \
+                                     wear it again from there",
+                                )
+                                .on_disabled_hover_text(blocked.as_deref().unwrap_or_default());
+                            if let Some(reason) = blocked.as_deref() {
+                                // Painted as well as hovered (#1289), on one
+                                // truncated line so the row's height holds.
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new(reason)
+                                            .small()
+                                            .color(crate::ui::theme::current(ui.ctx()).text_weak),
+                                    )
+                                    .truncate(),
+                                );
+                            }
+                            if response.clicked()
+                                && let Some(inventory) = inventory.as_mut()
+                            {
+                                let now = time.elapsed_secs_f64();
+                                match save_avatar_to_inventory(&live_mut.0, &mut inventory.0) {
+                                    Ok(name) => toasts.success(
+                                        format!(
+                                            "Saved as \"{name}\" - wear it from your Inventory, \
+                                             and Save there to keep it."
+                                        ),
+                                        now,
+                                    ),
+                                    Err(reason) => toasts.warn(
+                                        format!("Could not save to your inventory - {reason}"),
+                                        now,
+                                    ),
+                                }
+                            }
+                        });
+
                         let ctrl_s =
                             publish_shortcut.take(crate::ui::shortcuts::EditorKind::Avatar);
                         let mut do_publish = false;
@@ -1823,6 +1919,8 @@ pub fn poll_publish_avatar_tasks(
     mut network: bevy_symbios_multiuser::prelude::SendMessage<crate::protocol::OverlandsMessage>,
     // A result for another identity must not pin `stored` (#1204).
     session: Option<Res<AtprotoSession>>,
+    // The wardrobe listing follows a save (critic of #1838).
+    mut editor: Option<ResMut<AvatarEditorState>>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
         let spawned_at = task.spawned_at;
@@ -1857,6 +1955,12 @@ pub fn poll_publish_avatar_tasks(
                 info!("Avatar record saved to PDS");
                 if let Some(stored) = stored.as_mut() {
                     stored.0 = task.published.clone();
+                }
+                if let Some(rig) = task.published.body.rigged_ref()
+                    && let Some(resolved) = rig.resolved.as_ref()
+                    && let Some(editor) = editor.as_mut()
+                {
+                    editor.note_published_body(&rig.avatar, &resolved.body);
                 }
                 // The stored copy is now exactly what was written, so the
                 // recovery marker retires where success is known (#1199).

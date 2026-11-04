@@ -3067,6 +3067,12 @@ pub(crate) mod agent {
     /// is given up on by the game after `PUBLISH_TASK_DEADLINE` (a minute);
     /// this is that and a margin.
     pub const SAVE_WAIT: Duration = Duration::from_secs(90);
+    /// The longest `agent load --wait` waits for an inventory world to land
+    /// (#1843). The game gives a load up after `PUBLISH_TASK_DEADLINE` and
+    /// a request's timeout per four parts fetched - 90 s for a world of up
+    /// to four parts, as most are; this is that and a margin. A larger
+    /// world can take longer, and its event still comes.
+    pub const LOAD_WAIT: Duration = Duration::from_secs(120);
     /// The longest `agent gift give --wait` waits for an answer (#1423). An
     /// offer nobody answers lapses after `PENDING_OFFER_TIMEOUT_SECS` (three
     /// minutes), which answers the wait too; this is that and a margin.

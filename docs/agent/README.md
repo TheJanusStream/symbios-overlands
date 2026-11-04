@@ -9,15 +9,15 @@ not repeat it, it says how to use it well.
 
 | Topic | Read it before |
 |---|---|
-| [session.md](session.md) | a live session with the owner: starting from a short prompt, the modes, saving, "session over" |
+| [session.md](session.md) | a live session with the owner: starting from a short prompt, the modes, saving, signing an account in again, "session over" |
 | [accounts/](accounts/README.md) | playing one of the agent's accounts: who it is, its body and region, where its work is kept |
 | [chat.md](chat.md) | the first task: the event watcher, crossed lines, how to answer |
 | [building.md](building.md) | any `place`, `move`, `room set`: frames, sizes, JSON, z-fighting; buildings by shape grammar |
 | [looking.md](looking.md) | trusting a `look` picture, judging something by eye, or rendering your world offline at an hour or under a weather |
 | [moving.md](moving.md) | `walk-to`, `follow`, `face`, getting somewhere to look from |
-| [saving.md](saving.md) | `save`, `undo`, a restart, anything that could lose edits |
-| [avatar.md](avatar.md) | shaping your own body, choosing how it moves, building away from home on its workbench |
-| [region.md](region.md) | clearing your world, its terrain, ground textures, water, sky, fog and clouds, its time of day and weather, where visitors land |
+| [saving.md](saving.md) | `save`, `undo`, a restart, anything that could lose edits; a whole avatar or world kept in the inventory (`stash-avatar`, `stash-world`, `load`) |
+| [avatar.md](avatar.md) | shaping your own body, choosing how it moves, building away from home on its workbench, keeping a whole body in the inventory and wearing one back or from the Catalogue |
+| [region.md](region.md) | clearing your world, loading a whole world over it from the inventory or the Catalogue, its terrain, ground textures, water, sky, fog and clouds, its time of day and weather, where visitors land |
 | [developing.md](developing.md) | changing the client itself while it runs; handing work to a sub-agent |
 | [tools/](tools/README.md) | the first task: the watcher, record scripts, offline views, wire helpers - ready to run |
 | [examples/trees/](examples/trees/README.md) | authoring or fixing an L-system tree: two worked builders with every rejected variant |
@@ -137,6 +137,13 @@ as long as you resume from the last `seq` you actually read.
   minutes (`peer_left`) and comes back (`peer_joined`) the moment it wakes.
   A player at (0, 10, 0), or `placed: false`, has never sent a position:
   never walk to them.
+- The inventory holds whole avatars and whole worlds beside things
+  (#1843): `inventory` says what each item `is`. `stash-avatar` and
+  `stash-world` copy what you wear and your own world; `wear` an avatar item
+  and `load` a world item put one back, each one undo step and unsaved
+  until saved; `catalogue` lists ready-made `avatars` and `worlds` for the
+  same verbs by slug ([saving.md](saving.md), [avatar.md](avatar.md),
+  [region.md](region.md)).
 - `status.peers[]` gives each player's `position` and `facing` (world
   direction `[x, z]`); `status.nearby[]` the placed things around you;
   `status.editing` what is unsaved.

@@ -13,7 +13,6 @@ use crate::pds::{Generator, TransformData};
 use crate::state::LiveInventoryRecord;
 
 use super::super::construct::{allows_children, make_default_for_kind};
-use super::super::widgets::unique_key;
 use super::{GenNodeId, GeneratorTreeSource};
 
 /// Out-of-band signal stored by a per-row context menu and applied after
@@ -265,7 +264,7 @@ pub(super) fn apply_pending(
                 // disabled when full, but the buffered action could race
                 // a same-frame insert - never exceed the cap here either.
                 let cap = crate::config::state::MAX_INVENTORY_ITEMS;
-                if inv.0.generators.len() >= cap {
+                if inv.0.item_count() >= cap {
                     toasts.warn(
                         format!("Inventory full ({cap}/{cap}) - item not saved."),
                         now,
@@ -277,8 +276,9 @@ pub(super) fn apply_pending(
                 } else {
                     node.kind_tag().to_lowercase()
                 };
-                let safe_name = unique_key(&inv.0.generators, &prefix);
-                inv.0.generators.insert(safe_name.clone(), node.clone());
+                // Free across every kind of item (#1838).
+                let safe_name = inv.0.free_name(&prefix);
+                inv.0.put_item(safe_name.clone(), node.clone(), None);
                 // First feedback this action ever had (#841) - and NO
                 // `*dirty = true`: that flag arms the ROOM debounce +
                 // peer broadcast, but this mutation touched only the

@@ -213,7 +213,7 @@ checks only for rules that protect data or security. The rules are in
 | `src/agent/daemon/serve.rs` | one request answered per frame |
 | `src/agent/daemon/status.rs` | `status` |
 | `src/agent/daemon/movement/` | walk, follow, face; flight and wings |
-| `src/agent/daemon/edit/` | `place`/`move`/`remove`, `room`/`avatar` JSON, undo, save, inventory, `zfight.rs` |
+| `src/agent/daemon/edit/` | `place`/`move`/`remove`, `room`/`avatar` JSON, undo, save, inventory, whole avatars and worlds (`stash.rs`), `zfight.rs` |
 | `src/agent/daemon/look.rs` | `look` |
 | `src/agent/daemon/ui/` | `ui`: the game's windows through AccessKit |
 | `src/agent/daemon/gifts.rs`, `speech.rs`, `travel.rs` | gifts, `say`, `travel` |

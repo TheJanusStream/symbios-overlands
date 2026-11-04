@@ -232,6 +232,21 @@ pub fn sanitize_wear_fields(
     }
 }
 
+/// The whole clamp of a worn prop's tree and placement - an attachment
+/// record's, and a wearable's inside an avatar inventory item (#1838),
+/// which carries the same fields by value. One function so a stashed
+/// outfit is bounded exactly as a worn one.
+pub fn sanitize_worn_prop(
+    item: &mut Generator,
+    socket: &mut String,
+    fit_band_mm: &mut u32,
+    fit_beast_mm: &mut u32,
+    offset: &mut TransformData,
+) {
+    sanitize_avatar_visuals(item);
+    sanitize_wear_fields(socket, fit_band_mm, fit_beast_mm, offset);
+}
+
 impl AttachmentRecord {
     /// A new attachment of `item` at `socket`, with an identity offset.
     pub fn new(item: Generator, socket: symbios_avatar::Socket) -> Self {
@@ -308,8 +323,8 @@ impl AttachmentRecord {
     /// the judgement to the author. A worn item is edited with the same
     /// tools as a placed one now, so it gets the same freedom.
     pub fn sanitize(&mut self) {
-        sanitize_avatar_visuals(&mut self.item);
-        sanitize_wear_fields(
+        sanitize_worn_prop(
+            &mut self.item,
             &mut self.socket,
             &mut self.fit_band_mm,
             &mut self.fit_beast_mm,

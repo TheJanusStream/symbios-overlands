@@ -1,7 +1,17 @@
 //! Personal inventory stash UI.
 //!
-//! The Inventory window lists every `Generator` the owner has tucked aside
-//! across editing sessions. A click selects a row (#1301): the selected row
+//! The Inventory window lists every item the owner has tucked aside across
+//! editing sessions: `Generator` blueprints, and since #1838 whole avatars
+//! saved from the Avatar editor. An avatar row's expansion offers Wear,
+//! which replaces the live avatar in one undo step - unsaved until the
+//! Avatar editor's Save - plus Rename and delete; its pane says what kind of
+//! avatar it is and how many wearables it carries. An avatar row never arms
+//! a drag: an avatar is neither placed nor gifted. Since #1839 the stash
+//! also holds whole worlds saved from the World Editor: a world row's
+//! expansion offers Load into my world - in your own world only, after a
+//! confirm, replacing the world as a re-roll does, one undo step and unsaved
+//! until the World Editor's Save ([`world`]) - plus Rename and delete; its
+//! pane is a text card, and it never arms a drag either. A click selects a row (#1301): the selected row
 //! expands in place to carry that item's controls - Wear / Take off,
 //! Rename, delete - and a pane beside the list pictures it and says what
 //! the row does not ([`browser`]). Once the stash diverges from the
@@ -27,8 +37,9 @@
 //! (#699) - only the ground-placement branch is owner-gated, and the drop
 //! handler enforces that, not the drag source.
 
-mod browser;
+pub(crate) mod browser;
 mod drop;
+pub(crate) mod world;
 
 pub use browser::InventoryBrowser;
 /// The drop's generator keying, for the agent's `place` (#1422) -
@@ -40,10 +51,12 @@ pub(crate) use drop::choose_room_generator_key;
 #[cfg(unix)]
 pub(crate) use drop::{GiftSending, gift_contents, send_gift_offer};
 pub(crate) use drop::{handle_generator_drop, preview_generator_drop};
+pub use world::{LoadWorldTask, WorldLoadsEnded, poll_world_load_tasks};
 
-use browser::{PaneItem, RowGesture, RowKind, apply_row_gesture, draw_pane, stash_row};
-
-use std::collections::HashMap;
+use browser::{
+    AvatarRowAction, PaneItem, PaneWhat, RowGesture, RowKind, WorldRowAction, apply_row_gesture,
+    avatar_row_controls, avatar_tag, draw_pane, stash_row, world_row_controls, world_tag,
+};
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
@@ -55,7 +68,7 @@ use crate::pds::{Generator, GeneratorKind, InventoryRecord};
 use crate::state::{
     CurrentRoomDid, LiveInventoryRecord, PublishFeedback, PublishStatus, StoredInventoryRecord,
 };
-use crate::ui::editable::{RecordAction, publish_status_line, save_load_reset_row};
+use crate::ui::editable::{RecordAction, publish_status_line_within, save_load_reset_row};
 
 /// Whether one stash row matches the (already trimmed and lower-cased)
 /// search query (#1275 f134).
@@ -69,7 +82,7 @@ use crate::ui::editable::{RecordAction, publish_status_line, save_load_reset_row
 ///
 /// **What it must not do:** the filter decides which rows are drawn and
 /// nothing else. Drag, gift, wear, rename and delete all act on the row's
-/// own `name`, the over-cap count reads `generators.len()`, and the Save
+/// own `name`, the over-cap count reads `item_count()`, and the Save
 /// row's dirty check compares whole records - so a hidden row is still in
 /// the stash, still saved, and still worn. That is the property
 /// `hiding_a_row_does_not_change_the_stash` pins.
@@ -130,6 +143,9 @@ pub struct InventoryEditorState {
     /// owner decision, and the red minus sits beside Rename. Carries the
     /// item name; the body says whether it is worn.
     pub delete_confirm: crate::ui::confirm::ConfirmState<String>,
+    /// Pending Load into my world confirmation (#1839), carrying the world
+    /// item's name: a load replaces everything in the world.
+    pub load_confirm: crate::ui::confirm::ConfirmState<String>,
     /// Pending publish-after-degraded-fetch confirmation (#840): while
     /// [`crate::state::InventoryRecordRecovery`] is present the stash
     /// shows the empty default and saving would wipe the stored one -
@@ -223,6 +239,10 @@ pub struct PublishInventoryTask {
     /// having been written. `stored` is also what the next save's diff is
     /// computed against, so the loss compounds instead of self-healing.
     pub published: InventoryRecord,
+    /// How the save is bounded (#1839): the poll declares the task dead
+    /// past [`crate::pds::inventory::SaveBound::deadline`], which a save
+    /// writing a world grows by the requests it can make.
+    pub bound: crate::pds::inventory::SaveBound,
 }
 
 /// Origin of a drag-to-place operation. The raycast + placement path
@@ -340,14 +360,18 @@ pub fn open_people_for_gift_drag(
 
 /// The inventory is the wear surface (#1096): everything a Wear / Take off
 /// click on a row needs, bundled to stay under Bevy's 16-parameter system
-/// ceiling. The avatar record is mutated only on a click (guarded-dirty);
+/// ceiling - and since #1840 what the Catalogue's avatar entries wear
+/// through as well. The avatar record is mutated only on a click (guarded-dirty);
 /// the editor state carries the detach queue the publish bundle drains.
 #[derive(bevy::ecs::system::SystemParam)]
 pub struct WearSurface<'w> {
-    live_avatar: Option<ResMut<'w, crate::state::LiveAvatarRecord>>,
-    avatar_editor: ResMut<'w, crate::ui::avatar::AvatarEditorState>,
-    undo_labels: ResMut<'w, crate::ui::undo::PendingUndoLabels>,
-    toasts: ResMut<'w, crate::notify::Toasts>,
+    pub(crate) live_avatar: Option<ResMut<'w, crate::state::LiveAvatarRecord>>,
+    /// What the avatar save last wrote - where a worn avatar item may
+    /// reuse a wardrobe key instead of growing the wardrobe (#1838).
+    pub(crate) stored_avatar: Option<Res<'w, crate::state::StoredAvatarRecord>>,
+    pub(crate) avatar_editor: ResMut<'w, crate::ui::avatar::AvatarEditorState>,
+    pub(crate) undo_labels: ResMut<'w, crate::ui::undo::PendingUndoLabels>,
+    pub(crate) toasts: ResMut<'w, crate::notify::Toasts>,
 }
 
 /// What a stash row reads and writes besides the stash itself (#1301): the
@@ -358,10 +382,13 @@ pub struct WearSurface<'w> {
 /// on a real gesture ([`RowGesture::acts`]); the preview is `Option`
 /// because `item_preview`'s `Startup` system inserts it.
 #[derive(bevy::ecs::system::SystemParam)]
-pub struct RowSurface<'w> {
+pub struct RowSurface<'w, 's> {
     pending_drop: ResMut<'w, PendingGeneratorDrop>,
     browser: ResMut<'w, InventoryBrowser>,
     preview: Option<Res<'w, crate::item_preview::ItemPreview>>,
+    /// A world being loaded (#1839): one at a time, so a world row's Load
+    /// waits while one is in flight.
+    world_loads: Query<'w, 's, (), With<LoadWorldTask>>,
 }
 
 /// A Wear / Take off click on an inventory row (#1096), applied after the
@@ -369,6 +396,8 @@ pub struct RowSurface<'w> {
 enum WearAction {
     Wear(String),
     TakeOff(String),
+    /// Put on the named avatar item, replacing the live avatar (#1838).
+    WearAvatar(String),
 }
 
 /// The Wear / Take off buttons for a wearable row. Which one shows is
@@ -427,14 +456,17 @@ fn wear_buttons(
 fn apply_wear_action(
     action: WearAction,
     inventory: &InventoryRecord,
-    live_avatar: Option<&mut crate::state::LiveAvatarRecord>,
+    // A `Mut`, not a `&mut` (critic of #1838): a refusal reads it through
+    // `Deref`, so only a write that happens stamps the change tick.
+    live_avatar: Option<Mut<'_, crate::state::LiveAvatarRecord>>,
+    stored_avatar: Option<&crate::pds::AvatarRecord>,
     avatar_editor: &mut crate::ui::avatar::AvatarEditorState,
     did: &str,
     undo_labels: &mut crate::ui::undo::PendingUndoLabels,
     toasts: &mut crate::notify::Toasts,
     now: f64,
 ) {
-    let Some(live) = live_avatar else {
+    let Some(mut live) = live_avatar else {
         toasts.warn(String::from("No avatar loaded yet."), now);
         return;
     };
@@ -471,6 +503,26 @@ fn apply_wear_action(
                 undo_labels.set_avatar(format!("wear {name}"));
             }
         }
+        WearAction::WearAvatar(name) => {
+            let Some(item) = inventory.avatars.get(&name) else {
+                toasts.warn(format!("\"{name}\" is not in your inventory."), now);
+                return;
+            };
+            // One wear path for every surface (#1840): the refusals, the
+            // already-worn check and the one-write undo step live there.
+            // A refusal has already said why in a toast.
+            let _ = crate::ui::avatar::wear_avatar_on_live(
+                item,
+                &name,
+                live,
+                stored_avatar,
+                avatar_editor,
+                did,
+                undo_labels,
+                toasts,
+                now,
+            );
+        }
         WearAction::TakeOff(name) => {
             let Some(rig) = live.0.body.rigged_mut() else {
                 return;
@@ -505,6 +557,7 @@ pub fn inventory_ui(
 ) {
     let WearSurface {
         live_avatar,
+        stored_avatar,
         avatar_editor,
         undo_labels,
         toasts,
@@ -513,7 +566,9 @@ pub fn inventory_ui(
         pending_drop,
         browser,
         preview,
+        world_loads,
     } = &mut rows;
+    let world_loading = !world_loads.is_empty();
     let (Some(live), Some(stored), Some(session), Some(refresh_ctx)) =
         (live.as_mut(), stored, session, refresh_ctx)
     else {
@@ -549,7 +604,8 @@ pub fn inventory_ui(
             "Rename Inventory Item",
             &old_name,
             &mut new_name,
-            |draft| live.0.generators.contains_key(draft),
+            // Taken across every kind of item: one namespace (#1838).
+            |draft| live.0.has_name(draft),
         ) {
             crate::ui::confirm::RenameOutcome::Open => {
                 state.renaming_generator = Some((old_name, new_name));
@@ -570,6 +626,8 @@ pub fn inventory_ui(
                 // on the body; moving one without the other left the row
                 // offering Wear on something already worn.
                 if live.0.rename_item(&old_name, applied.clone())
+                    // Provenance names generator items only (#1838).
+                    && live.0.generators.contains_key(&applied)
                     && let Some(rig) = live_avatar
                         .as_deref_mut()
                         .and_then(|avatar| avatar.0.body.rigged_mut())
@@ -580,10 +638,7 @@ pub fn inventory_ui(
                     // the save row must show it.
                     undo_labels.set_avatar(format!("rename {old_name} to {applied}"));
                 }
-                if carry
-                    && !live.0.generators.contains_key(&old_name)
-                    && live.0.generators.contains_key(&applied)
-                {
+                if carry && !live.0.has_name(&old_name) && live.0.has_name(&applied) {
                     browser.follow_rename(&old_name, &applied);
                 }
                 state.renaming_generator = None;
@@ -649,7 +704,8 @@ pub fn inventory_ui(
             // now it loads intact, reads red here, and blocks publishing
             // until the user decides what to prune.
             let cap = crate::config::state::MAX_INVENTORY_ITEMS;
-            let count = live.0.generators.len();
+            // Every kind of item counts against the cap (#1838).
+            let count = live.0.item_count();
             let over_cap = count > cap;
             if over_cap {
                 ui.colored_label(
@@ -760,8 +816,7 @@ pub fn inventory_ui(
                     .is_none_or(|baseline| *baseline != live_value);
                 // Publishing is blocked while over the cap (#841) - the red
                 // header line explains; mirrors the hard-ceiling size block.
-                let within_cap =
-                    live.0.generators.len() <= crate::config::state::MAX_INVENTORY_ITEMS;
+                let within_cap = live.0.item_count() <= crate::config::state::MAX_INVENTORY_ITEMS;
                 // `session` + `refresh_ctx` are guaranteed present (the early
                 // return above bails otherwise), so a publish is always
                 // attemptable while dirty.
@@ -804,7 +859,7 @@ pub fn inventory_ui(
                         // Inventory has no undo stack (#866) - keep the modal.
                         confirm: Some(&mut state.row_confirm),
                         reset: crate::ui::editable::ResetWording::EmptyStash {
-                            items: live.0.generators.len(),
+                            items: live.0.item_count(),
                         },
                     },
                 ) {
@@ -856,18 +911,29 @@ pub fn inventory_ui(
                     );
                 }
 
-                publish_status_line(ui, &feedback.status, now, dirty);
+                publish_status_line_within(
+                    ui,
+                    &feedback.status,
+                    now,
+                    dirty,
+                    feedback.gives_up_after_secs,
+                );
             });
 
             crate::ui::layout::fill_above(ui, |ui| {
                 let now = time.elapsed_secs_f64();
                 let q = state.search.trim().to_lowercase();
+                // Every kind of item, in one list (#1838). An avatar row's
+                // facet is its tag - "avatar" and its kind - as drawn.
                 let mut names: Vec<String> = live
                     .0
-                    .generators
-                    .keys()
-                    .filter(|name| {
-                        row_matches(
+                    .names()
+                    .filter(|name| match live.0.avatars.get(*name) {
+                        Some(item) => row_matches(name, &avatar_tag(item), None, &q),
+                        None if live.0.worlds.contains_key(*name) => {
+                            row_matches(name, &world_tag(&live.0.worlds[*name]), None, &q)
+                        }
+                        None => row_matches(
                             name,
                             live.0
                                 .generators
@@ -876,7 +942,7 @@ pub fn inventory_ui(
                                 .unwrap_or("?"),
                             live.0.wear.get(*name),
                             &q,
-                        )
+                        ),
                     })
                     .cloned()
                     .collect();
@@ -903,7 +969,7 @@ pub fn inventory_ui(
                 // closures alive at once. A click lands in the pane on the
                 // next frame, which is also when its row expands.
                 let pane_name = browser.selected_name().map(str::to_owned);
-                let (to_remove, wear_action) = crate::ui::layout::beside_pane(
+                let (to_remove, wear_action, load_request) = crate::ui::layout::beside_pane(
                     ui,
                     crate::ui::item_picture::INVENTORY_SIDE,
                     |ui| {
@@ -913,6 +979,7 @@ pub fn inventory_ui(
                             .show(ui, |ui| {
                                 let mut to_remove: Option<String> = None;
                                 let mut wear_action: Option<WearAction> = None;
+                                let mut load_request: Option<String> = None;
                                 // "Nothing matched" is a different fact from
                                 // "nothing here" (#1275 f134), and the count
                                 // line above reports the whole stash, so the
@@ -939,6 +1006,101 @@ pub fn inventory_ui(
                                     );
                                 }
                                 for name in &names {
+                                    // A whole world (#1839): click to select,
+                                    // never a drag; Load, Rename and delete
+                                    // in the expansion.
+                                    if let Some(item) = live.0.worlds.get(name) {
+                                        let selected = browser.is_selected(name);
+                                        let tag = format!("({})", world_tag(item));
+                                        let response =
+                                            stash_row(ui, name, &tag, RowKind::World, selected);
+                                        let gesture = RowGesture::of(&response);
+                                        if gesture.acts() {
+                                            apply_row_gesture(
+                                                gesture,
+                                                name,
+                                                browser,
+                                                pending_drop,
+                                                now,
+                                            );
+                                        }
+                                        if selected {
+                                            let blocked = world::world_load_blocked_reason(
+                                                owns_room,
+                                                world_loading,
+                                            );
+                                            let action = ui
+                                                .indent(
+                                                    ("inventory_row_controls", name.as_str()),
+                                                    |ui| world_row_controls(ui, blocked),
+                                                )
+                                                .inner;
+                                            match action {
+                                                Some(WorldRowAction::Load) => {
+                                                    load_request = Some(name.clone());
+                                                }
+                                                Some(WorldRowAction::Rename) => {
+                                                    state.renaming_generator =
+                                                        Some((name.clone(), name.clone()));
+                                                }
+                                                Some(WorldRowAction::Delete) => {
+                                                    to_remove = Some(name.clone());
+                                                }
+                                                None => {}
+                                            }
+                                        }
+                                        continue;
+                                    }
+                                    if let Some(item) = live.0.avatars.get(name) {
+                                        if !item.is_readable() {
+                                            if unreadable_row(ui, name) {
+                                                to_remove = Some(name.clone());
+                                            }
+                                            continue;
+                                        }
+                                        let selected = browser.is_selected(name);
+                                        let tag = format!("({})", avatar_tag(item));
+                                        let response =
+                                            stash_row(ui, name, &tag, RowKind::Avatar, selected);
+                                        let gesture = RowGesture::of(&response);
+                                        if gesture.acts() {
+                                            apply_row_gesture(
+                                                gesture,
+                                                name,
+                                                browser,
+                                                pending_drop,
+                                                now,
+                                            );
+                                        }
+                                        if selected {
+                                            let blocked =
+                                                crate::ui::avatar::wear_avatar_blocked_reason(
+                                                    live_avatar.as_deref().map(|live| &live.0),
+                                                    item,
+                                                );
+                                            let action = ui
+                                                .indent(
+                                                    ("inventory_row_controls", name.as_str()),
+                                                    |ui| avatar_row_controls(ui, blocked),
+                                                )
+                                                .inner;
+                                            match action {
+                                                Some(AvatarRowAction::Wear) => {
+                                                    wear_action =
+                                                        Some(WearAction::WearAvatar(name.clone()));
+                                                }
+                                                Some(AvatarRowAction::Rename) => {
+                                                    state.renaming_generator =
+                                                        Some((name.clone(), name.clone()));
+                                                }
+                                                Some(AvatarRowAction::Delete) => {
+                                                    to_remove = Some(name.clone());
+                                                }
+                                                None => {}
+                                            }
+                                        }
+                                        continue;
+                                    }
                                     let Some(generator) = live.0.generators.get(name) else {
                                         continue;
                                     };
@@ -965,46 +1127,9 @@ pub fn inventory_ui(
                                     // and its delete stays on the row: it is
                                     // the one thing the owner can do about it.
                                     if matches!(generator.kind, GeneratorKind::Unknown) {
-                                        ui.horizontal(|ui| {
-                                            ui.with_layout(
-                                                egui::Layout::right_to_left(egui::Align::Center),
-                                                |ui| {
-                                                    if crate::ui::affordances::remove_button(
-                                                        ui,
-                                                        "Delete this item from your inventory",
-                                                    )
-                                                    .clicked()
-                                                    {
-                                                        to_remove = Some(name.clone());
-                                                    }
-                                                    let warn = crate::ui::theme::current(ui.ctx())
-                                                        .status
-                                                        .warn;
-                                                    ui.add_enabled_ui(false, |ui| {
-                                                        ui.add(
-                                                            egui::Button::selectable(
-                                                                false,
-                                                                name.as_str(),
-                                                            )
-                                                            .right_text(
-                                                                egui::RichText::new(
-                                                                    UNREADABLE_ITEM_TAG,
-                                                                )
-                                                                .small()
-                                                                .color(warn),
-                                                            )
-                                                            .truncate()
-                                                            .min_size(egui::vec2(
-                                                                ui.available_width(),
-                                                                0.0,
-                                                            )),
-                                                        );
-                                                    })
-                                                    .response
-                                                    .on_disabled_hover_text(UNREADABLE_ITEM_HOVER);
-                                                },
-                                            );
-                                        });
+                                        if unreadable_row(ui, name) {
+                                            to_remove = Some(name.clone());
+                                        }
                                         continue;
                                     }
                                     // Terrain and water are room-scoped, not
@@ -1092,7 +1217,7 @@ pub fn inventory_ui(
                                         );
                                     }
                                 }
-                                (to_remove, wear_action)
+                                (to_remove, wear_action, load_request)
                             })
                             .inner
                     },
@@ -1105,6 +1230,18 @@ pub fn inventory_ui(
                             .auto_shrink([false, false])
                             .show(ui, |ui| {
                                 let item = pane_name.as_deref().and_then(|name| {
+                                    if let Some(world) = live.0.worlds.get(name) {
+                                        return Some(PaneItem {
+                                            name,
+                                            what: PaneWhat::World(world),
+                                        });
+                                    }
+                                    if let Some(avatar) = live.0.avatars.get(name) {
+                                        return Some(PaneItem {
+                                            name,
+                                            what: PaneWhat::Avatar(avatar),
+                                        });
+                                    }
                                     let generator = live.0.generators.get(name)?;
                                     let worn = live_avatar
                                         .as_deref()
@@ -1114,9 +1251,11 @@ pub fn inventory_ui(
                                         });
                                     Some(PaneItem {
                                         name,
-                                        generator,
-                                        wear: live.0.wear.get(name),
-                                        worn,
+                                        what: PaneWhat::Generator {
+                                            generator,
+                                            wear: live.0.wear.get(name),
+                                            worn,
+                                        },
                                     })
                                 });
                                 draw_pane(ui, item, preview.as_deref());
@@ -1130,7 +1269,8 @@ pub fn inventory_ui(
                     apply_wear_action(
                         action,
                         &live.0,
-                        live_avatar.as_deref_mut(),
+                        live_avatar.as_mut().map(|avatar| avatar.reborrow()),
+                        stored_avatar.as_deref().map(|stored| &stored.0),
                         avatar_editor.as_mut(),
                         &session.did,
                         undo_labels.as_mut(),
@@ -1138,15 +1278,48 @@ pub fn inventory_ui(
                         now,
                     );
                 }
+                // Load into my world asks first (#1839): it replaces
+                // everything in the world. The reasons it cannot are asked
+                // again on the confirm, which a travel or a second load may
+                // have overtaken.
+                if let Some(name) = load_request {
+                    let (title, body) = world::load_confirm_text(&name);
+                    state.load_confirm.request(title, body, "Load", name);
+                }
+                if let Some(name) = state.load_confirm.show(ui.ctx(), "inventory-load-world") {
+                    match (
+                        live.0.worlds.get(&name),
+                        world::world_load_blocked_reason(owns_room, world_loading),
+                    ) {
+                        (Some(item), None) => {
+                            world::spawn_world_load_task(
+                                &mut commands,
+                                &session.did,
+                                &name,
+                                item,
+                                now,
+                            );
+                            toasts.info(format!("Loading \"{name}\" into your world\u{2026}"), now);
+                        }
+                        (Some(_), Some(reason)) => {
+                            toasts.warn(format!("Could not load \"{name}\" - {reason}"), now);
+                        }
+                        (None, _) => {
+                            toasts.warn(format!("\"{name}\" is not in your inventory."), now);
+                        }
+                    }
+                }
                 // Delete asks first (#1200): this is the one surface with
                 // no undo. A worn item is named as such - deleting takes it
                 // off too, so the prop cannot linger on the body with the
                 // only row that offered "Take off" gone (finding 131).
                 if let Some(name) = to_remove {
-                    let worn = live_avatar
-                        .as_deref()
-                        .and_then(|avatar| avatar.0.body.rigged_ref())
-                        .is_some_and(|rig| crate::ui::avatar::is_worn_from(rig, &name));
+                    // Provenance names generator items only (#1838).
+                    let worn = live.0.generators.contains_key(&name)
+                        && live_avatar
+                            .as_deref()
+                            .and_then(|avatar| avatar.0.body.rigged_ref())
+                            .is_some_and(|rig| crate::ui::avatar::is_worn_from(rig, &name));
                     let body = if worn {
                         format!(
                             "You are wearing \"{name}\" - deleting it also takes it off. \
@@ -1167,15 +1340,17 @@ pub fn inventory_ui(
                     );
                 }
                 if let Some(name) = state.delete_confirm.show(ui.ctx(), "inventory-delete") {
-                    let worn = live_avatar
-                        .as_deref()
-                        .and_then(|avatar| avatar.0.body.rigged_ref())
-                        .is_some_and(|rig| crate::ui::avatar::is_worn_from(rig, &name));
+                    let worn = live.0.generators.contains_key(&name)
+                        && live_avatar
+                            .as_deref()
+                            .and_then(|avatar| avatar.0.body.rigged_ref())
+                            .is_some_and(|rig| crate::ui::avatar::is_worn_from(rig, &name));
                     if worn {
                         apply_wear_action(
                             WearAction::TakeOff(name.clone()),
                             &live.0,
-                            live_avatar.as_deref_mut(),
+                            live_avatar.as_mut().map(|avatar| avatar.reborrow()),
+                            stored_avatar.as_deref().map(|stored| &stored.0),
                             avatar_editor.as_mut(),
                             &session.did,
                             undo_labels.as_mut(),
@@ -1183,7 +1358,7 @@ pub fn inventory_ui(
                             now,
                         );
                     }
-                    if live.0.remove_item(&name).is_some() {
+                    if live.0.remove_item(&name) {
                         toasts.info(
                             if worn {
                                 format!("Deleted \"{name}\" and took it off.")
@@ -1244,6 +1419,9 @@ pub(crate) fn spawn_publish_inventory_task(
     // item record, not the whole stash (#694/#696).
     let record_bytes = crate::pds::inventory::max_item_bytes(&record);
     let published = record.clone();
+    // A save that writes a world is many requests, each bounded inside the
+    // publish (#1839); any other is one bound over the whole, as before.
+    let bound = crate::pds::inventory::SaveBound::of(&record, &stored);
     let pool = bevy::tasks::IoTaskPool::get();
     let task = pool.spawn(async move {
         let fut = async {
@@ -1257,11 +1435,16 @@ pub(crate) fn spawn_publish_inventory_task(
             )
             .await
         };
-        crate::config::http::run_or(
-            fut,
-            Err(crate::config::http::timed_out("Saving your inventory")),
-        )
-        .await
+        match bound {
+            crate::pds::inventory::SaveBound::Whole => {
+                crate::config::http::run_or(
+                    fut,
+                    Err(crate::config::http::timed_out("Saving your inventory")),
+                )
+                .await
+            }
+            crate::pds::inventory::SaveBound::PerRequest(_) => fut.await,
+        }
     });
     commands.spawn(PublishInventoryTask {
         task,
@@ -1269,6 +1452,7 @@ pub(crate) fn spawn_publish_inventory_task(
         spawned_at: now,
         record_bytes,
         published,
+        bound,
     });
 }
 
@@ -1285,14 +1469,31 @@ pub fn poll_publish_inventory_tasks(
     mut toasts: ResMut<crate::notify::Toasts>,
     // A result for another identity must not pin `stored` (#1204).
     session: Option<Res<AtprotoSession>>,
+    // A saved world's contents are let go (#1839).
+    mut live: Option<ResMut<LiveInventoryRecord>>,
 ) {
+    // The status line names the deadline the signed-in account's save in
+    // flight is given up at (#1839 end review): ONE value a frame, from that
+    // account's task alone - a task left over from another identity must not
+    // take turns with it - written only when it moves, so the feedback's
+    // change tick does not move every frame a save is in flight.
+    let current = session.as_deref().map(|s| s.did.as_str());
+    let gives_up = tasks
+        .iter()
+        .find(|(_, task)| Some(task.did.as_str()) == current)
+        .map(|(_, task)| task.bound.deadline().as_secs_f64());
+    if gives_up.is_some() && feedback.gives_up_after_secs != gives_up {
+        feedback.gives_up_after_secs = gives_up;
+    }
     for (entity, mut task) in tasks.iter_mut() {
         let spawned_at = task.spawned_at;
-        let Some(result) = crate::ui::editable::poll_or_expire(
+        let deadline = task.bound.deadline();
+        let Some(result) = crate::ui::editable::poll_or_expire_within(
             &mut task.task,
             spawned_at,
             time.elapsed_secs_f64(),
             "Saving your inventory",
+            deadline,
         ) else {
             continue;
         };
@@ -1322,6 +1523,20 @@ pub fn poll_publish_inventory_tasks(
                 // `PublishInventoryTask::published`.
                 if let Some(stored) = stored.as_mut() {
                     stored.0 = task.published.clone();
+                    // A saved world's parts are on the data server now, and
+                    // a load fetches them again (#1839): neither copy keeps
+                    // megabytes it no longer needs - wasm's heap never
+                    // shrinks. Live's copy goes through
+                    // `bypass_change_detection`, because nothing it compares
+                    // or serialises moves.
+                    stored.0.forget_saved_world_contents(&task.published);
+                }
+                if let Some(live) = live.as_mut()
+                    && live.0.holds_world_contents()
+                {
+                    live.bypass_change_detection()
+                        .0
+                        .forget_saved_world_contents(&task.published);
                 }
                 // The stored copy is now exactly what was written, so the
                 // recovery marker retires where success is known (#1199).
@@ -1364,6 +1579,35 @@ pub fn poll_publish_inventory_tasks(
     }
 }
 
+/// The row for an item this build cannot read (#1207), of either kind
+/// (#1838): not selectable - it cannot be placed, worn, renamed or written
+/// back - with its delete on the row, the one thing the owner can do about
+/// it. Whether the delete was clicked.
+fn unreadable_row(ui: &mut egui::Ui, name: &str) -> bool {
+    let mut delete = false;
+    ui.horizontal(|ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if crate::ui::affordances::remove_button(ui, "Delete this item from your inventory")
+                .clicked()
+            {
+                delete = true;
+            }
+            let warn = crate::ui::theme::current(ui.ctx()).status.warn;
+            ui.add_enabled_ui(false, |ui| {
+                ui.add(
+                    egui::Button::selectable(false, name)
+                        .right_text(egui::RichText::new(UNREADABLE_ITEM_TAG).small().color(warn))
+                        .truncate()
+                        .min_size(egui::vec2(ui.available_width(), 0.0)),
+                );
+            })
+            .response
+            .on_disabled_hover_text(UNREADABLE_ITEM_HOVER);
+        });
+    });
+    delete
+}
+
 /// The row tag for an item this build cannot decode (#1207). It used to
 /// share the terrain/water "room-scoped" tag, which sent the owner looking
 /// for a placement rule when the item was simply unreadable.
@@ -1381,11 +1625,11 @@ pub const UNREADABLE_ITEM_HOVER: &str = "This item was made by a newer version o
 /// existing entries is not consulted - a gift always lands as a new item,
 /// because two players may each have tweaked the same base blueprint and
 /// silently coalescing would lose data.
-pub fn choose_inventory_gift_key(
-    existing: &HashMap<String, Generator>,
-    incoming_name: &str,
-) -> String {
-    choose_gift_key(|name| existing.contains_key(name), incoming_name)
+///
+/// Free across every kind of item (#1838): an avatar item's name is as
+/// taken as a generator item's.
+pub fn choose_inventory_gift_key(existing: &InventoryRecord, incoming_name: &str) -> String {
+    choose_gift_key(|name| existing.has_name(name), incoming_name)
 }
 
 /// [`choose_inventory_gift_key`] over any taken-set. The accept path asks
@@ -1434,7 +1678,7 @@ pub fn accept_gift(
     wear: Option<crate::pds::inventory::WearMeta>,
 ) -> (String, InventoryRecord) {
     let key = choose_gift_key(
-        |name| live.generators.contains_key(name) || stored.generators.contains_key(name),
+        |name| live.has_name(name) || stored.has_name(name),
         incoming_name,
     );
     live.put_item(key.clone(), generator.clone(), wear.clone());
@@ -1455,7 +1699,7 @@ pub fn store_accepted_gift(
     generator: Generator,
     wear: Option<crate::pds::inventory::WearMeta>,
 ) -> String {
-    let key = choose_inventory_gift_key(&inventory.generators, incoming_name);
+    let key = choose_inventory_gift_key(inventory, incoming_name);
     inventory.put_item(key.clone(), generator, wear);
     key
 }

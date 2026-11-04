@@ -34,6 +34,18 @@
 //! prop mappings, traits, etc. stay editable while the visual UI catches
 //! up to the full schema.
 //!
+//! **Save to Inventory (#1839).** The footer carries one more fixed-height
+//! row, reachable from every tab: it copies the LIVE world - unsaved edits
+//! included, what the owner sees - into the Inventory as a world item,
+//! which the Inventory window's Save then writes ([`stash`]). It is
+//! disabled, with the reason painted beside it and on the hover, while the
+//! inventory has not loaded or is full, while the sign-in predates the
+//! grant a world item's parts need, and while the world cannot be copied
+//! whole or is past what an item holds. The way back is the Inventory row's
+//! Load into my world, which replaces the world through [`replace_world`] -
+//! the path a re-roll takes, so the World Editor's open state never goes
+//! stale under it.
+//!
 //! Sub-module map: each [`EditorTab`] variant has a dedicated file so the
 //! mod.rs stays focused on orchestration. [`widgets`] holds the shared
 //! egui helpers (sliders, colour pickers, transform editor), plus the
@@ -62,6 +74,7 @@ pub(crate) use publish::stale_result;
 mod raw;
 mod seed_source;
 mod shape;
+pub(crate) mod stash;
 mod terrain;
 pub(crate) mod widgets;
 
@@ -300,9 +313,104 @@ pub struct RoomEditorState {
     /// than measured per frame because it costs a full bincode encode of
     /// the record - the same encode the broadcaster pays.
     live_sync_bytes: Option<usize>,
+    /// Whether the live world can be copied into a world item (#1839),
+    /// asked on the size readout's throttle: the answer serialises the
+    /// whole world. See [`stash::WorldStashCheck`].
+    world_stash: stash::WorldStashCheck,
+}
+
+/// What the World Editor holds that names parts of the record it edits -
+/// selections by index and path, the confirmations parked on them, the
+/// debounce aimed at it, the audio editor's working copy and the commits it
+/// has staged for the record's slots - and the Raw JSON mirror of it
+/// (#1839). Lent to
+/// [`replace_world`], which re-seeds all of it when the whole record is
+/// replaced, so a re-roll and a world loaded from the Inventory leave the
+/// same editor behind - open or closed.
+pub(crate) struct WorldView<'a> {
+    raw: &'a mut raw::RawJsonBuffer,
+    tree: &'a mut generators::TreePanelState,
+    selected_placement: &'a mut Option<usize>,
+    extra_placements: &'a mut Vec<usize>,
+    picked_copy: &'a mut Option<(usize, usize)>,
+    preferred_pick: &'a mut Option<PreferredPick>,
+    placement_bulk_delete: &'a mut crate::ui::confirm::ConfirmState<Vec<usize>>,
+    pending_flush_secs: &'a mut f32,
+    audio_editor: &'a mut audio::AudioEditorState,
+}
+
+impl WorldView<'_> {
+    /// The record was replaced whole: nothing selected, nothing parked
+    /// that was aimed at the old one, the debounce drained (its burst was
+    /// aimed at the old record, and draining it later would mint a second
+    /// undo step), the audio editor closed with its staged commits dropped
+    /// (they are keyed by a slot's salt, which the new record may reuse for
+    /// another slot), and the Raw JSON mirror showing the new record -
+    /// unless it holds unparsed edits, which are kept and flagged (#1212).
+    fn reset(self, record: &RoomRecord) {
+        self.raw.sync_to(record);
+        self.tree.selection.clear();
+        self.tree.view.set_selected(Vec::new());
+        self.tree.confirms.cancel_all();
+        self.tree.renaming = None;
+        *self.selected_placement = None;
+        self.extra_placements.clear();
+        *self.picked_copy = None;
+        *self.preferred_pick = None;
+        self.placement_bulk_delete.cancel();
+        *self.pending_flush_secs = 0.0;
+        self.audio_editor.abandon();
+    }
+}
+
+/// Replace the whole world the owner is editing with `with` (#1839): the
+/// one path a re-roll and a world loaded from the Inventory share. The
+/// record is written once - the caller's one change tick, so one undo step
+/// under `label` - and the editor's view of it re-seeded ([`WorldView`]).
+/// The caller arms the rebuild: the World Editor through its broadcast
+/// flag, anyone else by writing `record` through the resource.
+pub(crate) fn replace_world(
+    record: &mut RoomRecord,
+    with: RoomRecord,
+    view: WorldView<'_>,
+    undo_labels: &mut crate::ui::undo::PendingUndoLabels,
+    label: String,
+) {
+    *record = with;
+    view.reset(record);
+    undo_labels.set_room(label);
 }
 
 impl RoomEditorState {
+    /// The editor's view of the record, lent to [`replace_world`] from
+    /// outside the World Editor (#1839).
+    pub(crate) fn world_view(&mut self) -> WorldView<'_> {
+        WorldView {
+            raw: &mut self.raw,
+            tree: &mut self.tree,
+            selected_placement: &mut self.selected_placement,
+            extra_placements: &mut self.extra_placements,
+            picked_copy: &mut self.picked_copy,
+            preferred_pick: &mut self.preferred_pick,
+            placement_bulk_delete: &mut self.placement_bulk_delete,
+            pending_flush_secs: &mut self.pending_flush_secs,
+            audio_editor: &mut self.audio_editor,
+        }
+    }
+
+    /// Seed the Raw JSON tab from `record`, as its first draw does - for
+    /// tests of what a replace leaves behind (#1839).
+    #[cfg(test)]
+    pub(crate) fn seed_raw_for_test(&mut self, record: &RoomRecord) {
+        self.raw.ensure_seeded(record);
+    }
+
+    /// The Raw JSON tab's text - for the same tests.
+    #[cfg(test)]
+    pub(crate) fn raw_text_for_test(&self) -> &str {
+        self.raw.text()
+    }
+
     /// True when the user has any row selected - placement, generator
     /// node, or inferred via tab. Used by the cross-editor mutex and the
     /// collapse-deselect logic to decide whether the gizmo should detach.
@@ -967,6 +1075,8 @@ pub fn room_admin_ui(
         live_baseline,
         size_readout_generation,
         live_sync_bytes,
+        preferred_pick,
+        world_stash,
         ..
     } = &mut *editor;
     // For the Referenced rows' "sound is muted" line in this frame's bridges.
@@ -1390,14 +1500,26 @@ pub fn room_admin_ui(
                         if let Some(kept) = ground.kept {
                             rolled.geo_source = kept;
                         }
-                        *record_mut = rolled;
-                        raw.sync_to(&*record_mut);
-                        tree.selection.root = None;
-                        *selected_placement = None;
-                        tree.selection.path = None;
-                        tree.view.set_selected(Vec::new());
+                        // The path a world loaded from the Inventory takes
+                        // too (#1839).
+                        replace_world(
+                            record_mut,
+                            rolled,
+                            WorldView {
+                                raw: &mut *raw,
+                                tree: &mut *tree,
+                                selected_placement: &mut *selected_placement,
+                                extra_placements: &mut *extra_placements,
+                                picked_copy: &mut *picked_copy,
+                                preferred_pick: &mut *preferred_pick,
+                                placement_bulk_delete: &mut *placement_bulk_delete,
+                                pending_flush_secs: &mut *pending_flush_secs,
+                                audio_editor: &mut *audio_editor,
+                            },
+                            &mut undo_labels,
+                            format!("seed re-roll ({seed})"),
+                        );
                         needs_broadcast = true;
-                        undo_labels.set_room(format!("seed re-roll ({seed})"));
                     } else {
                         // Rare: the cap misses only a set the seeds all but
                         // never roll - every scene axis locked with all three
@@ -1530,6 +1652,44 @@ pub fn room_admin_ui(
                                     .and_then(crate::network::chunk::wire_payload_bytes);
                         }
                         let size = publish_feedback.live_size.clone();
+
+                        // --- Save to Inventory (#1839) -------------------
+                        // One fixed-height row, drawn on every tab and in
+                        // every state, so the panel's reserve never moves.
+                        // The stash is read through `Deref` and written only
+                        // on the click (#1322); whether the world can be
+                        // copied is asked on the size readout's throttle.
+                        let copy_blocked = world_stash.reason(generation, now, record_mut);
+                        let parts_granted = crate::pds::inventory::world::grant_covers_parts(
+                            &session.session.token_set().scope,
+                        );
+                        let blocked = stash::save_world_blocked_reason(
+                            inventory.as_deref().map(|inventory| &inventory.0),
+                            parts_granted,
+                            copy_blocked,
+                        );
+                        if stash::save_world_row(ui, blocked.as_deref())
+                            && let Some(inventory) = inventory.as_mut()
+                        {
+                            match stash::save_world_to_inventory(
+                                record_mut,
+                                &mut inventory.0,
+                                parts_granted,
+                            ) {
+                                Ok(name) => toasts.success(
+                                    format!(
+                                        "Saved as \"{name}\" - load it from your Inventory, and \
+                                         Save there to keep it."
+                                    ),
+                                    now,
+                                ),
+                                Err(reason) => toasts.warn(
+                                    format!("Could not save to your inventory - {reason}"),
+                                    now,
+                                ),
+                            }
+                        }
+
                         let ctrl_s = publish_shortcut.take(crate::ui::shortcuts::EditorKind::World);
                         let mut do_publish = false;
                         match save_load_reset_row(
@@ -2191,7 +2351,7 @@ mod recovery_banner_tests {
 }
 
 #[cfg(test)]
-mod placement_focus_tests {
+pub(crate) mod placement_focus_tests {
     use super::*;
     use crate::state::CurrentRoomDid;
     use crate::ui::toolbar::UiPanels;
@@ -2202,7 +2362,7 @@ mod placement_focus_tests {
     /// A signed-in owner. The mirror reads only `did`; the rest is the
     /// live signing session the type insists on (same fixture as
     /// `reauth::tests`).
-    fn session(did: &str) -> AtprotoSession {
+    pub(crate) fn session(did: &str) -> AtprotoSession {
         AtprotoSession {
             did: String::from(did),
             handle: String::from("alice"),

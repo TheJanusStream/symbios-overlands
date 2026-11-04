@@ -34,6 +34,7 @@ mod json;
 mod placements;
 mod save;
 mod size;
+mod stash;
 mod zfight;
 
 // The z-fighting check, lent to the catalogue's overhaul guard (#1575) and
@@ -60,6 +61,7 @@ use crate::ui::undo::{
 use super::super::control::protocol::{EditRecord, EditRequest};
 
 pub(super) use save::{record_saves, save};
+pub(super) use stash::record_world_loads;
 
 /// What the operator allowed when the agent was started (#1422).
 #[derive(Resource, Clone, Copy, Debug, Default)]
@@ -150,6 +152,9 @@ pub(super) fn answer(world: &mut World, request: EditRequest) -> Result<Value, S
         EditRequest::Unstash { name } => inventory::unstash(world, &name),
         EditRequest::Wear { name } => inventory::wear(world, &name),
         EditRequest::TakeOff { name } => inventory::take_off(world, &name),
+        EditRequest::StashAvatar { name } => stash::stash_avatar(world, name.as_deref()),
+        EditRequest::StashWorld { name } => stash::stash_world(world, name.as_deref()),
+        EditRequest::Load { name } => stash::load(world, &name),
     }
 }
 

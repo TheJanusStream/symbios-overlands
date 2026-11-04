@@ -6,6 +6,39 @@
 //! rows are themselves the drag source: drag one into the active room (or
 //! onto a peer in People to gift) to stamp a fresh copy on viewport release.
 //!
+//! Since #1840 the browser also lists **avatars** - the recipes in
+//! [`crate::catalogue::avatars`], one per craft type plus a spread of
+//! people and beasts. They are not items: an avatar entry places nothing,
+//! so its row never arms the drop bus, and the menus that add an item from
+//! the Catalogue ([`catalogue_menu`]) never list one. Its detail offers
+//! **Wear**, which puts it on through the Inventory's own wear path
+//! ([`crate::ui::avatar::wear_avatar_on_live`]: one undo step, unsaved
+//! until the Avatar editor's Save, allowed in any world), and **Copy to
+//! inventory**, which inserts it as an avatar item under a free name
+//! ([`crate::ui::avatar::save_avatar_to_inventory_as`]) for the Inventory's
+//! Save to keep. The Hierarchy files them under Avatars, then family; the
+//! name mode lists them among the items; the theme, role and size modes,
+//! which have nothing to sort an avatar by, end with one Avatars group.
+//!
+//! Since #1841 it lists **worlds** too - the recipes in
+//! [`crate::catalogue::worlds`], one procedural world per theme and one
+//! square of real Berlin per borough. A world places nothing either, and is
+//! never built to be looked at: its detail is a text card read off the
+//! entry's pins, and the world is built - the whole procedural pipeline,
+//! the re-roll's stall, said in a toast before it - only on a click.
+//! **Load into my world** asks first with the Inventory's own confirmation
+//! and lands the built world through the Inventory's own landing
+//! ([`crate::ui::inventory::world::land_loaded_world`], so through
+//! [`crate::ui::room::replace_world`], the re-roll's path): one undo step,
+//! unsaved until the World Editor's Save, only in your own world.
+//! **Copy to inventory** stashes the built world as a world item through
+//! the World Editor's snapshot path
+//! ([`crate::ui::room::stash::save_world_to_inventory_as`]) under a free
+//! name built on the entry's. Both are disabled, with the reason painted,
+//! for the reasons those paths give. The Hierarchy files them under
+//! Worlds, then Procedural or Berlin; the other modes treat them as they
+//! treat the avatars.
+//!
 //! Drag mechanics mirror [`crate::ui::inventory::inventory_ui`] - the drag
 //! source is [`DropSource::Catalogue`], which makes
 //! [`handle_generator_drop`](crate::ui::inventory::handle_generator_drop)
@@ -17,6 +50,8 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use egui_ltreeview::{Action, TreeView};
 
+use crate::catalogue::avatars::{AVATARS, AvatarEntry, avatar_by_slug};
+use crate::catalogue::worlds::{WORLDS, WorldEntry, world_by_slug};
 use crate::catalogue::{CatalogueCategory, CatalogueEntry, ENTRIES, StructureRole, by_slug};
 use crate::pds::Generator;
 use crate::pds::inventory::is_drop_placeable;
@@ -74,6 +109,9 @@ pub struct CatalogueBrowser {
     /// seconds (#1301): the item preview has one stage, and with the
     /// Inventory also holding a selection the most recent pick is pictured.
     picked_at: f64,
+    /// Pending Load into my world confirmation (#1841), carrying the world
+    /// entry's slug: a load replaces everything in the world.
+    load_confirm: crate::ui::confirm::ConfirmState<&'static str>,
 }
 
 impl CatalogueBrowser {
@@ -100,6 +138,27 @@ impl CatalogueBrowser {
     pub(crate) fn select_for_test(&mut self, slug: Option<&str>, at: f64) {
         self.selected = slug.map(str::to_owned);
         self.picked_at = at;
+    }
+
+    /// Drop a Load into my world parked behind its confirmation (#1841) -
+    /// the logout teardown's: it is the previous account's click.
+    pub(crate) fn cancel_pending_load(&mut self) {
+        if self.load_confirm.is_pending() {
+            self.load_confirm.cancel();
+        }
+    }
+
+    /// Whether a Load into my world waits on its confirmation.
+    #[cfg(test)]
+    pub(crate) fn load_is_pending(&self) -> bool {
+        self.load_confirm.is_pending()
+    }
+
+    /// Park a Load of `slug` behind its confirmation without a draw, for
+    /// the logout test.
+    #[cfg(test)]
+    pub(crate) fn park_load_for_test(&mut self, slug: &'static str) {
+        self.load_confirm.request("Load?", "Load.", "Load", slug);
     }
 }
 
@@ -236,8 +295,9 @@ pub(crate) fn empty_state(query: &str) -> &'static str {
         "This build shipped no catalogue entries."
     } else {
         "Nothing matches that search. The Catalogue looks at names, \
-         categories, roles and theme names - try \"wearables\", \"tools\", \
-         or a theme like \"medieval\"."
+         categories, roles, theme names, kinds of avatar, and a world's \
+         ground and borough - try \"wearables\", \"tools\", \"boat\", \
+         \"berlin\", or a theme like \"medieval\"."
     }
 }
 
@@ -252,6 +312,22 @@ fn leaf(parent: &str, e: &'static dyn CatalogueEntry) -> CatNode {
     CatNode::Leaf {
         id: format!("{parent}#{}", e.slug()),
         name: e.name(),
+    }
+}
+
+/// An avatar entry's leaf (#1840): its slug after the `#`, like an item's.
+fn avatar_leaf(parent: &str, e: &'static AvatarEntry) -> CatNode {
+    CatNode::Leaf {
+        id: format!("{parent}#{}", e.slug),
+        name: e.name,
+    }
+}
+
+/// A world entry's leaf (#1841): its slug after the `#`, like an item's.
+fn world_leaf(parent: &str, e: &'static WorldEntry) -> CatNode {
+    CatNode::Leaf {
+        id: format!("{parent}#{}", e.slug),
+        name: e.name,
     }
 }
 
@@ -272,9 +348,118 @@ fn mk_dir(id: String, label: String, children: Vec<CatNode>) -> CatNode {
     }
 }
 
-/// Build the browse tree for `mode`, filtered by `query`. Empty groups are
-/// dropped, so a search that matches nothing under a group hides it.
+/// Build the browse tree for `mode`, filtered by `query`: the items, then
+/// the avatars (#1840), then the worlds (#1841). Empty groups are dropped,
+/// so a search that matches nothing under a group hides it.
+///
+/// The name mode lists every leaf in one alphabetical run, an avatar or a
+/// world among the items; every other mode ends with one Avatars group and
+/// one Worlds group - in the Hierarchy split by family and by ground, and
+/// in the theme, role and size modes flat, because an avatar has no theme,
+/// and neither an avatar nor a world has a settlement role or a footprint
+/// to file it by.
 fn build_nodes(mode: BrowseMode, query: &str) -> Vec<CatNode> {
+    let q = query.trim().to_lowercase();
+    let avatars: Vec<&'static AvatarEntry> =
+        AVATARS.iter().filter(|entry| entry.matches(&q)).collect();
+    let worlds: Vec<&'static WorldEntry> =
+        WORLDS.iter().filter(|entry| entry.matches(&q)).collect();
+    if mode == BrowseMode::Name {
+        let mut leaves: Vec<(&'static str, CatNode)> = ENTRIES
+            .iter()
+            .copied()
+            .filter(|e| matches(*e, &q))
+            .map(|e| (e.name(), leaf("", e)))
+            .chain(avatars.iter().map(|e| (e.name, avatar_leaf("", e))))
+            .chain(worlds.iter().map(|e| (e.name, world_leaf("", e))))
+            .collect();
+        leaves.sort_by_key(|(name, _)| *name);
+        return leaves.into_iter().map(|(_, node)| node).collect();
+    }
+    let mut nodes = generator_nodes(mode, query);
+    nodes.extend(avatar_dir(mode, &avatars));
+    nodes.extend(world_dir(mode, &worlds));
+    nodes
+}
+
+/// The id prefix of `mode`'s own group of `label`, so a leaf id is unique
+/// per occurrence as an item's is.
+fn mode_dir_id(mode: BrowseMode, label: &str) -> String {
+    match mode {
+        BrowseMode::Hierarchy => format!("/{label}"),
+        BrowseMode::Theme => format!("t/{label}"),
+        BrowseMode::Role => format!("r/{label}"),
+        BrowseMode::Name | BrowseMode::Footprint => format!("s/{label}"),
+    }
+}
+
+/// The Worlds group for `mode` (#1841), or `None` when no world is listed:
+/// in the Hierarchy split into Procedural and Berlin, elsewhere flat.
+fn world_dir(mode: BrowseMode, worlds: &[&'static WorldEntry]) -> Option<CatNode> {
+    use crate::catalogue::worlds::{CATEGORY, GROUP_ORDER};
+    if worlds.is_empty() {
+        return None;
+    }
+    let id = mode_dir_id(mode, CATEGORY);
+    let children = if mode == BrowseMode::Hierarchy {
+        GROUP_ORDER
+            .iter()
+            .filter_map(|&group| {
+                let group_id = format!("{id}/{group}");
+                let leaves: Vec<CatNode> = worlds
+                    .iter()
+                    .filter(|e| e.group() == group)
+                    .map(|e| world_leaf(&group_id, e))
+                    .collect();
+                (!leaves.is_empty()).then(|| mk_dir(group_id, group.to_string(), leaves))
+            })
+            .collect()
+    } else {
+        worlds.iter().map(|e| world_leaf(&id, e)).collect()
+    };
+    Some(mk_dir(id, CATEGORY.to_string(), children))
+}
+
+/// The Avatars group for `mode` (#1840), or `None` when no avatar is
+/// listed. Each mode's group id carries that mode's prefix, so a leaf id is
+/// unique per occurrence as an item's is.
+fn avatar_dir(mode: BrowseMode, avatars: &[&'static AvatarEntry]) -> Option<CatNode> {
+    if avatars.is_empty() {
+        return None;
+    }
+    let label = crate::catalogue::avatars::CATEGORY;
+    let id = mode_dir_id(mode, label);
+    let children = if mode == BrowseMode::Hierarchy {
+        crate::catalogue::avatars::FAMILY_ORDER
+            .iter()
+            .filter_map(|&family| {
+                let leaves: Vec<CatNode> = avatars
+                    .iter()
+                    .filter(|e| e.family() == family)
+                    .map(|e| {
+                        avatar_leaf(
+                            &format!("{id}/{}", crate::catalogue::avatars::family_group(family)),
+                            e,
+                        )
+                    })
+                    .collect();
+                if leaves.is_empty() {
+                    return None;
+                }
+                let group = crate::catalogue::avatars::family_group(family);
+                Some(mk_dir(format!("{id}/{group}"), group.to_string(), leaves))
+            })
+            .collect()
+    } else {
+        avatars.iter().map(|e| avatar_leaf(&id, e)).collect()
+    };
+    Some(mk_dir(id, label.to_string(), children))
+}
+
+/// The items' half of [`build_nodes`]: the browse tree over
+/// [`ENTRIES`] alone - what the add-from-Catalogue menus list, since an
+/// avatar or a world is not an item to add.
+fn generator_nodes(mode: BrowseMode, query: &str) -> Vec<CatNode> {
     let q = query.trim().to_lowercase();
     let entries: Vec<&'static dyn CatalogueEntry> = ENTRIES
         .iter()
@@ -464,6 +649,22 @@ fn by_role(entries: &[&'static dyn CatalogueEntry]) -> Vec<CatNode> {
 /// the precomputed leaf `total` alongside (#639).
 type NodeCache = Option<(BrowseMode, String, Vec<CatNode>, usize)>;
 
+/// What a world entry's Load into my world reaches besides the wear
+/// surface's undo labels and toasts (#1841): the live world and the World
+/// Editor's view of it, which the Inventory's landing replaces and
+/// re-seeds; the Inventory's world loads in flight, which a Load waits
+/// for; and the commands that announce the rebuild. Bundled so
+/// `catalogue_ui` stays under Bevy's parameter ceiling. Both `ResMut`s are
+/// written only on a confirmed Load - reads go through `Deref` - so
+/// browsing never dirties the world (the guarded-dirty rule).
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct WorldSurface<'w, 's> {
+    live_room: Option<ResMut<'w, crate::state::LiveRoomRecord>>,
+    room_editor: Option<ResMut<'w, crate::ui::room::RoomEditorState>>,
+    loads: Query<'w, 's, (), With<crate::ui::inventory::LoadWorldTask>>,
+    commands: Commands<'w, 's>,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn catalogue_ui(
     mut contexts: EguiContexts,
@@ -471,10 +672,12 @@ pub(crate) fn catalogue_ui(
     mut chrome: crate::ui::layout::WindowChrome,
     mut browser: ResMut<CatalogueBrowser>,
     mut pending_drop: ResMut<PendingGeneratorDrop>,
-    // Wear wiring (#1087): mutated only on a Wear click, so the ResMut
-    // never dirties the live record from mere browsing (the guarded-dirty
-    // rule) - reads go through `as_ref()`.
-    mut live_avatar: Option<ResMut<crate::state::LiveAvatarRecord>>,
+    // Wear wiring (#1087, #1840): the Inventory's wear surface - the live
+    // avatar, what its save last wrote, the Avatar editor's state, the undo
+    // labels and the toasts. The live avatar and the editor are mutated
+    // only on a Wear click, so the ResMuts never dirty them from mere
+    // browsing (the guarded-dirty rule) - reads go through `as_ref()`.
+    mut wear: crate::ui::inventory::WearSurface,
     // The inventory is the wear surface (#1096): the catalogue copies a
     // vanilla item into it. Same guarded-dirty discipline - the stash's
     // dirty state is derived live-vs-stored, so a deref_mut on click is
@@ -484,8 +687,6 @@ pub(crate) fn catalogue_ui(
     // Whose room this is (#1220 f132): the drag tooltip promises a
     // placement only to an owner - a visitor can gift and nothing else.
     room_did: Option<Res<crate::state::CurrentRoomDid>>,
-    mut undo_labels: ResMut<crate::ui::undo::PendingUndoLabels>,
-    mut toasts: ResMut<crate::notify::Toasts>,
     time: Res<Time>,
     // Per-frame cache (#639): the node tree is a pure function of (mode,
     // search) over the `const ENTRIES`; rebuild only when those keys change.
@@ -495,6 +696,9 @@ pub(crate) fn catalogue_ui(
     // harness that runs this system without that plugin simply draws the
     // placeholder square.
     preview: Option<Res<crate::item_preview::ItemPreview>>,
+    // Load into my world (#1841): the live world, the World Editor's view
+    // of it, the loads in flight and the rebuild announcement.
+    mut worlds: WorldSurface,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
@@ -509,6 +713,9 @@ pub(crate) fn catalogue_ui(
     // does. If a consumer is ever added, call `set_changed()` on a real edit
     // rather than deleting this line.
     let browser = browser.bypass_change_detection();
+    // A world entry's Load click (#1841), carried out of the detail panel
+    // to the confirmation drawn after it.
+    let mut load_request: Option<&'static WorldEntry> = None;
     // Guarded-dirty (#879): `.open(&mut panels.catalogue)` through the
     // `ResMut` would mark UiPanels changed every frame, starving the
     // prefs save debounce - local copy in, write back only on close.
@@ -621,10 +828,7 @@ pub(crate) fn catalogue_ui(
                                             {
                                                 continue;
                                             }
-                                            let placeable = by_slug(slug)
-                                                .map(|e| is_drop_placeable(&e.build("")))
-                                                .unwrap_or(false);
-                                            if placeable {
+                                            if drag_placeable(slug) {
                                                 browser.selected = Some(slug.to_string());
                                                 browser.picked_at = time.elapsed_secs_f64();
                                                 pending_drop.generator_name =
@@ -683,21 +887,59 @@ pub(crate) fn catalogue_ui(
                             .id_salt("catalogue_detail_scroll")
                             .auto_shrink([false, false])
                             .show(ui, |ui| {
-                                detail_panel(
+                                load_request = detail_panel(
                                     ui,
                                     browser.selected.as_deref(),
                                     preview.as_deref(),
                                     live_inventory.as_mut(),
-                                    live_avatar.as_mut(),
+                                    &mut wear,
+                                    &worlds,
                                     session.as_deref(),
-                                    &mut undo_labels,
-                                    &mut toasts,
+                                    room_did.as_deref().map(|room| room.0.as_str()),
                                     time.elapsed_secs_f64(),
                                 );
                             });
                     },
                 );
             });
+
+            // Load into my world asks first (#1841), with the Inventory's
+            // own confirmation: it replaces everything in the world. The
+            // reasons it cannot are asked again on the answer, which a
+            // travel or an Inventory load may have overtaken.
+            if let Some(entry) = load_request.take() {
+                let (title, body) = crate::ui::inventory::world::load_confirm_text(entry.name);
+                browser
+                    .load_confirm
+                    .request(title, body, "Load", entry.slug);
+            }
+            if let Some(slug) = browser.load_confirm.show(ui.ctx(), "catalogue-load-world")
+                && let Some(entry) = world_by_slug(slug)
+            {
+                let now = time.elapsed_secs_f64();
+                let loaded = load_world_entry(
+                    entry,
+                    session
+                        .as_deref()
+                        .map(|s| s.did.as_str())
+                        .unwrap_or_default(),
+                    !worlds.loads.is_empty(),
+                    room_did.as_deref().map(|room| room.0.as_str()),
+                    worlds.live_room.as_mut().map(|live| live.reborrow()),
+                    worlds.room_editor.as_mut().map(|editor| editor.reborrow()),
+                    &mut wear.undo_labels,
+                    &mut wear.toasts,
+                    now,
+                );
+                if loaded.is_ok() {
+                    worlds
+                        .commands
+                        .insert_resource(crate::world_builder::RebuildAnnounce {
+                            what: format!("Loaded \"{}\"", entry.name),
+                            since_secs: now,
+                        });
+                }
+            }
         });
     if panels.catalogue && !open {
         panels.catalogue = false;
@@ -727,7 +969,8 @@ pub(crate) fn catalogue_menu(
     did: &str,
     mut on_pick: impl FnMut(String, Generator),
 ) {
-    let nodes = build_nodes(BrowseMode::Hierarchy, "");
+    // Items only (#1840): an avatar is not something to add to a tree.
+    let nodes = generator_nodes(BrowseMode::Hierarchy, "");
     render_menu_nodes(ui, &nodes, did, &mut on_pick);
 }
 
@@ -789,10 +1032,70 @@ fn render_nodes(builder: &mut egui_ltreeview::TreeViewBuilder<'_, String>, nodes
     }
 }
 
+/// Whether a row dragged out of the tree arms the drop bus: an item that
+/// can be point-placed. An avatar entry (#1840) never does - it places
+/// nothing - and neither does a slug the registry no longer answers to.
+fn drag_placeable(slug: &str) -> bool {
+    by_slug(slug).is_some_and(|e| is_drop_placeable(&e.build("")))
+}
+
+/// The detail panel for the selection: an item's, an avatar's (#1840), a
+/// world's (#1841), or the prompt to pick one. Returns the world entry
+/// whose Load into my world was clicked, for the confirmation.
 #[allow(clippy::too_many_arguments)]
 fn detail_panel(
     ui: &mut egui::Ui,
     selected: Option<&str>,
+    preview: Option<&crate::item_preview::ItemPreview>,
+    live_inventory: Option<&mut ResMut<crate::state::LiveInventoryRecord>>,
+    wear: &mut crate::ui::inventory::WearSurface,
+    worlds: &WorldSurface,
+    session: Option<&bevy_symbios_multiuser::auth::AtprotoSession>,
+    room_did: Option<&str>,
+    now: f64,
+) -> Option<&'static WorldEntry> {
+    if let Some(entry) = selected.and_then(world_by_slug) {
+        return world_detail_panel(
+            ui,
+            entry,
+            live_inventory,
+            &mut wear.toasts,
+            worlds,
+            session,
+            room_did,
+            now,
+        );
+    }
+    if let Some(entry) = selected.and_then(by_slug) {
+        item_detail(
+            ui,
+            entry,
+            preview,
+            live_inventory,
+            wear.live_avatar.as_mut(),
+            session,
+            &mut wear.undo_labels,
+            &mut wear.toasts,
+            now,
+        );
+    } else if let Some(entry) = selected.and_then(avatar_by_slug) {
+        avatar_detail(ui, entry, preview, live_inventory, wear, session, now);
+    } else {
+        ui.add_space(8.0);
+        ui.label(
+            egui::RichText::new("Select an item to see its details.")
+                .italics()
+                .color(crate::ui::theme::current(ui.ctx()).text_weak),
+        );
+    }
+    None
+}
+
+/// An item entry's detail: its picture, facts, and the inventory row.
+#[allow(clippy::too_many_arguments)]
+fn item_detail(
+    ui: &mut egui::Ui,
+    entry: &'static dyn CatalogueEntry,
     preview: Option<&crate::item_preview::ItemPreview>,
     live_inventory: Option<&mut ResMut<crate::state::LiveInventoryRecord>>,
     live_avatar: Option<&mut ResMut<crate::state::LiveAvatarRecord>>,
@@ -801,15 +1104,6 @@ fn detail_panel(
     toasts: &mut crate::notify::Toasts,
     now: f64,
 ) {
-    let Some(entry) = selected.and_then(by_slug) else {
-        ui.add_space(8.0);
-        ui.label(
-            egui::RichText::new("Select an item to see its details.")
-                .italics()
-                .color(crate::ui::theme::current(ui.ctx()).text_weak),
-        );
-        return;
-    };
     let slug = entry.slug();
 
     crate::ui::item_picture::draw_preview(
@@ -942,7 +1236,7 @@ fn inventory_row(
     // Reads through `as_ref` - deref_mut would count as an edit every
     // frame the panel is open (the guarded-dirty rule).
     let cap = crate::config::state::MAX_INVENTORY_ITEMS;
-    let count = inventory.as_ref().0.generators.len();
+    let count = inventory.as_ref().0.item_count();
     if count >= cap {
         let reason = format!("Inventory full ({cap}/{cap}) - remove something first.");
         ui.add_enabled(false, egui::Button::new("Copy to inventory"))
@@ -952,7 +1246,7 @@ fn inventory_row(
     }
 
     // Where the copy would go - shown so "& wear" is not a surprise.
-    let name = crate::ui::room::widgets::unique_key(&inventory.as_ref().0.generators, entry.name());
+    let name = inventory.as_ref().0.free_name(entry.name());
     let copy = |inventory: &mut ResMut<crate::state::LiveInventoryRecord>| -> String {
         let meta = wearable.map(|socket| WearMeta::for_entry(socket, entry.wear_fit()));
         inventory
@@ -1044,6 +1338,553 @@ fn inventory_row(
             }
         }
     });
+}
+
+/// Why an avatar entry could not be built: its hunt found no seed, which
+/// `catalogue::avatars`' drift test forbids - so a person reads this only
+/// on a build that shipped with that test failing.
+const UNBUILT_AVATAR: &str = "This avatar could not be made in this version of Overlands.";
+
+/// Why an avatar entry (#1840) cannot be worn right now, or `None` when it
+/// can: what S1's own [`crate::ui::avatar::wear_avatar_blocked_reason`]
+/// says - no avatar loaded, a body this build cannot read - asked of the
+/// entry's cached item, never a fresh copy. There is no world gate: a
+/// person can wear an avatar in anybody's world, as from the Inventory.
+pub(crate) fn avatar_wear_blocked(
+    entry: &AvatarEntry,
+    live: Option<&crate::pds::AvatarRecord>,
+) -> Option<String> {
+    let Some(built) = entry.built() else {
+        return Some(UNBUILT_AVATAR.to_string());
+    };
+    match &built.item {
+        Err(reason) => Some(reason.clone()),
+        Ok(item) => crate::ui::avatar::wear_avatar_blocked_reason(live, item).map(str::to_string),
+    }
+}
+
+/// Why an avatar entry (#1840) cannot be copied to the Inventory right
+/// now, or `None` when it can: signed out, or what S1's
+/// [`crate::ui::avatar::save_to_inventory_blocked_reason`] says - the
+/// inventory has not loaded, it is full, or the body has nothing to copy.
+pub(crate) fn avatar_copy_blocked(
+    entry: &AvatarEntry,
+    signed_in: bool,
+    inventory: Option<&crate::pds::InventoryRecord>,
+) -> Option<String> {
+    if !signed_in {
+        return Some(String::from("Sign in to own items."));
+    }
+    let Some(built) = entry.built() else {
+        return Some(UNBUILT_AVATAR.to_string());
+    };
+    crate::ui::avatar::save_to_inventory_blocked_reason(&built.record, inventory)
+}
+
+/// An avatar entry's detail (#1840): its picture - or why there is none -
+/// what it is, and the Wear and Copy to inventory row. Selecting the entry
+/// is what builds it; every later frame reads the entry's cache.
+fn avatar_detail(
+    ui: &mut egui::Ui,
+    entry: &'static AvatarEntry,
+    preview: Option<&crate::item_preview::ItemPreview>,
+    live_inventory: Option<&mut ResMut<crate::state::LiveInventoryRecord>>,
+    wear: &mut crate::ui::inventory::WearSurface,
+    session: Option<&bevy_symbios_multiuser::auth::AtprotoSession>,
+    now: f64,
+) {
+    let weak = crate::ui::theme::current(ui.ctx()).text_weak;
+    crate::ui::item_picture::draw_preview(
+        ui,
+        preview,
+        crate::ui::item_picture::PictureOf::CatalogueAvatar(entry.slug),
+        crate::ui::item_picture::CATALOGUE_SIDE,
+    );
+    ui.heading(entry.name);
+    ui.add(egui::Label::new(entry.description).wrap());
+    ui.add_space(4.0);
+    ui.separator();
+
+    let built = entry.built();
+    egui::Grid::new("catalogue_avatar_grid")
+        .num_columns(2)
+        .spacing([10.0, 4.0])
+        .max_col_width(280.0)
+        .show(ui, |ui| {
+            let row = |ui: &mut egui::Ui, k: &str, v: String| {
+                ui.label(egui::RichText::new(k).strong());
+                ui.add(egui::Label::new(v).wrap());
+                ui.end_row();
+            };
+            row(
+                ui,
+                "Category",
+                crate::catalogue::avatars::CATEGORY.to_string(),
+            );
+            row(ui, "Family", entry.family_label().to_string());
+            if let Some(craft) = entry.craft_type() {
+                row(ui, "Craft", craft.label().to_string());
+            }
+            if let Some(built) = built {
+                row(
+                    ui,
+                    "Locomotion",
+                    built.record.locomotion.display_label().to_string(),
+                );
+                if let Some(parts) = built.parts {
+                    row(
+                        ui,
+                        "Parts",
+                        format!("{parts} {}", crate::text::plural(parts, "part", "parts")),
+                    );
+                }
+            }
+            ui.label(egui::RichText::new("Slug").strong());
+            ui.label(egui::RichText::new(entry.slug).monospace().small());
+            ui.end_row();
+        });
+
+    ui.add_space(6.0);
+    ui.separator();
+
+    // Reads through `as_ref` - deref_mut would count as an edit every frame
+    // the panel is open (the guarded-dirty rule).
+    let wear_blocked = avatar_wear_blocked(
+        entry,
+        wear.live_avatar.as_ref().map(|live| &live.as_ref().0),
+    );
+    let copy_blocked = avatar_copy_blocked(
+        entry,
+        session.is_some(),
+        live_inventory.as_ref().map(|live| &live.as_ref().0),
+    );
+    // Where the copy would go - named on the hover, as the item row does.
+    let copy_name = live_inventory
+        .as_ref()
+        .map(|live| live.as_ref().0.free_name(entry.name))
+        .unwrap_or_else(|| entry.name.to_string());
+    let did = session.map(|s| s.did.as_str()).unwrap_or_default();
+
+    let mut wear_clicked = false;
+    let mut copy_clicked = false;
+    ui.horizontal(|ui| {
+        wear_clicked = ui
+            .add_enabled(wear_blocked.is_none(), egui::Button::new("Wear"))
+            .on_hover_text(
+                "Wear this avatar instead of the one you have on - it stays unsaved \
+                 until you Save in the Avatar window",
+            )
+            .on_disabled_hover_text(wear_blocked.as_deref().unwrap_or_default())
+            .clicked();
+        copy_clicked = ui
+            .add_enabled(
+                copy_blocked.is_none(),
+                egui::Button::new("Copy to inventory"),
+            )
+            .on_hover_text(format!("Add a copy to your inventory as \"{copy_name}\""))
+            .on_disabled_hover_text(copy_blocked.as_deref().unwrap_or_default())
+            .clicked();
+    });
+    // One string, two surfaces (#1289): the hover a pointer reaches for,
+    // and the line a reader sees. Each reason once.
+    let hint = |ui: &mut egui::Ui, text: &str| {
+        ui.add(egui::Label::new(egui::RichText::new(text).small().color(weak)).wrap());
+    };
+    if let Some(reason) = &wear_blocked {
+        hint(ui, &format!("Wear: {reason}"));
+    }
+    if let Some(reason) = &copy_blocked {
+        hint(ui, &format!("Copy: {reason}"));
+    }
+
+    if wear_clicked {
+        // The toast has already said how it went.
+        let _ = wear_avatar_entry(entry, wear, did, now);
+    }
+    if copy_clicked && let Some(inventory) = live_inventory {
+        // A `ResMut`'s `deref_mut` stamps the stash's tick: on the click,
+        // and only there. The toast has already said how it went.
+        let _ = copy_avatar_entry(entry, &mut inventory.0, &mut wear.toasts, now);
+    }
+}
+
+/// Wear an avatar entry (#1840) through the Inventory's own path
+/// ([`crate::ui::avatar::wear_avatar_on_live`]): the built entry's item
+/// replaces the live avatar in one write and one undo step, unsaved until
+/// the Avatar editor's Save. `Ok` when it was put on. The button is
+/// disabled for every refusal it can foresee; each one also toasts, and is
+/// the `Err` - the sentence the agent client answers with (#1843).
+pub(crate) fn wear_avatar_entry(
+    entry: &AvatarEntry,
+    wear: &mut crate::ui::inventory::WearSurface,
+    did: &str,
+    now: f64,
+) -> Result<(), String> {
+    let item = match entry.built().map(|built| &built.item) {
+        Some(Ok(item)) => item,
+        Some(Err(reason)) => {
+            wear.toasts
+                .warn(format!("Could not wear \"{}\" - {reason}", entry.name), now);
+            return Err(reason.clone());
+        }
+        None => {
+            wear.toasts.warn(UNBUILT_AVATAR.to_string(), now);
+            return Err(UNBUILT_AVATAR.to_string());
+        }
+    };
+    let Some(live) = wear.live_avatar.as_mut() else {
+        const NO_AVATAR: &str = "No avatar loaded yet.";
+        wear.toasts.warn(NO_AVATAR.to_string(), now);
+        return Err(NO_AVATAR.to_owned());
+    };
+    crate::ui::avatar::wear_avatar_on_live(
+        item,
+        entry.name,
+        live.reborrow(),
+        wear.stored_avatar.as_deref().map(|stored| &stored.0),
+        &mut wear.avatar_editor,
+        did,
+        &mut wear.undo_labels,
+        &mut wear.toasts,
+        now,
+    )
+}
+
+/// Copy an avatar entry (#1840) into `inventory` through S1's insert
+/// ([`crate::ui::avatar::save_avatar_to_inventory_as`]): the built record
+/// as an avatar item, under a free name built on the entry's, for the
+/// Inventory's Save to keep. Toasts where it landed, or why it did not.
+pub(crate) fn copy_avatar_entry(
+    entry: &AvatarEntry,
+    inventory: &mut crate::pds::InventoryRecord,
+    toasts: &mut crate::notify::Toasts,
+    now: f64,
+) -> Result<String, String> {
+    let copied = match entry.built() {
+        Some(built) => crate::ui::avatar::save_avatar_to_inventory_as(
+            &built.record,
+            Some(entry.name),
+            inventory,
+        ),
+        None => Err(UNBUILT_AVATAR.to_string()),
+    };
+    match &copied {
+        Ok(name) => toasts.success(format!("Copied to inventory as \"{name}\"."), now),
+        Err(reason) => toasts.warn(format!("Could not copy \"{}\" - {reason}", entry.name), now),
+    }
+    copied
+}
+
+/// Why a world entry could not be built: its hunt found no seed, which
+/// `catalogue::worlds`' drift test forbids - so a person reads this only on
+/// a build that shipped with that test failing.
+const UNBUILT_WORLD: &str = "This world could not be made in this version of Overlands.";
+
+/// Why Load into my world is refused while the owner's world has not
+/// arrived - the Inventory's landing says the same, lower-cased.
+pub(crate) const WORLD_NOT_LOADED: &str = "Your world has not loaded yet - wait for it to arrive.";
+
+/// Why a world entry (#1841) cannot be loaded into the owner's world right
+/// now, or `None` when it can: the Inventory's own reasons
+/// ([`crate::ui::inventory::world::world_load_blocked_reason`]) - your own
+/// world only, one load at a time - and, as its landing refuses, a world
+/// that has not loaded yet.
+pub(crate) fn world_entry_load_blocked(
+    owns_world: bool,
+    loading: bool,
+    world_loaded: bool,
+) -> Option<&'static str> {
+    crate::ui::inventory::world::world_load_blocked_reason(owns_world, loading)
+        .or_else(|| (!world_loaded).then_some(WORLD_NOT_LOADED))
+}
+
+/// Why a world entry (#1841) cannot be copied to the Inventory right now,
+/// or `None` when it can: signed out, or what the World Editor's Save to
+/// Inventory says ([`crate::ui::room::stash::save_world_blocked_reason`]) -
+/// the inventory has not loaded or is full, or the sign-in predates the
+/// grant a world item's parts need. That the built world is past what an
+/// item holds is known only once it is built, so the click says it.
+pub(crate) fn world_copy_blocked(
+    signed_in: bool,
+    inventory: Option<&crate::pds::InventoryRecord>,
+    parts_granted: bool,
+) -> Option<String> {
+    if !signed_in {
+        return Some(String::from("Sign in to own items."));
+    }
+    crate::ui::room::stash::save_world_blocked_reason(inventory, parts_granted, None)
+}
+
+/// The world `entry` builds for `did`, held as an editor gesture leaves
+/// the world ([`crate::ui::room::settle_edit`], #1707) - as the re-roll's
+/// flush and the Inventory's load hold theirs. The whole procedural
+/// pipeline: only on a click.
+pub(crate) fn built_world(entry: &WorldEntry, did: &str) -> Option<crate::pds::RoomRecord> {
+    let (_, mut world) = entry.build(did)?;
+    crate::ui::room::settle_edit(&mut world);
+    Some(world)
+}
+
+/// Load a world entry (#1841) into `did`'s world: refused, building
+/// nothing, for the reasons [`world_entry_load_blocked`] gives; else said in
+/// a toast BEFORE the build - the build is the stall, as the re-roll's is -
+/// then built ([`built_world`]) and landed through the Inventory's own
+/// landing ([`crate::ui::inventory::world::land_loaded_world`]), which
+/// replaces the world through [`crate::ui::room::replace_world`]: one write,
+/// one undo step labelled for the entry, unsaved until the World Editor's
+/// Save. Toasts how it went; the caller announces the rebuild.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn load_world_entry(
+    entry: &WorldEntry,
+    did: &str,
+    loading: bool,
+    room_did: Option<&str>,
+    live: Option<Mut<'_, crate::state::LiveRoomRecord>>,
+    editor: Option<Mut<'_, crate::ui::room::RoomEditorState>>,
+    undo_labels: &mut crate::ui::undo::PendingUndoLabels,
+    toasts: &mut crate::notify::Toasts,
+    now: f64,
+) -> Result<(), String> {
+    let name = entry.name;
+    let owns_world = !did.is_empty() && room_did == Some(did);
+    if let Some(reason) = world_entry_load_blocked(owns_world, loading, live.is_some()) {
+        toasts.warn(format!("Could not load \"{name}\" - {reason}"), now);
+        return Err(reason.to_owned());
+    }
+    toasts.info(format!("Loading \"{name}\" into your world\u{2026}"), now);
+    let Some(world) = built_world(entry, did) else {
+        toasts.warn(UNBUILT_WORLD.to_string(), now);
+        return Err(UNBUILT_WORLD.to_owned());
+    };
+    let landed = crate::ui::inventory::world::land_loaded_world(
+        name,
+        did,
+        Ok(world),
+        room_did,
+        live,
+        editor,
+        undo_labels,
+    );
+    match &landed {
+        Ok(()) => toasts.success(
+            format!(
+                "Loaded \"{name}\" into your world - Save in the World Editor to keep it, or \
+                 undo it."
+            ),
+            now,
+        ),
+        Err(reason) => toasts.warn(format!("Could not load \"{name}\" - {reason}"), now),
+    }
+    landed
+}
+
+/// Copy a world entry (#1841) into `inventory`: refused, building nothing,
+/// for the reasons the World Editor's Save to Inventory gives; else said in
+/// a toast before the build, built for `did` ([`built_world`]) and stashed
+/// through that Save's own snapshot path
+/// ([`crate::ui::room::stash::save_world_to_inventory_as`]) under a free
+/// name built on the entry's, for the Inventory's Save to keep. Toasts
+/// where it landed, or why it did not.
+pub(crate) fn copy_world_entry(
+    entry: &WorldEntry,
+    did: &str,
+    inventory: &mut crate::pds::InventoryRecord,
+    parts_granted: bool,
+    toasts: &mut crate::notify::Toasts,
+    now: f64,
+) -> Result<String, String> {
+    let copied = match crate::ui::room::stash::save_world_blocked_reason(
+        Some(inventory),
+        parts_granted,
+        None,
+    ) {
+        Some(reason) => Err(reason),
+        None => {
+            toasts.info(
+                format!("Making \"{}\" for your inventory\u{2026}", entry.name),
+                now,
+            );
+            match built_world(entry, did) {
+                Some(world) => crate::ui::room::stash::save_world_to_inventory_as(
+                    &world,
+                    Some(entry.name),
+                    inventory,
+                    parts_granted,
+                ),
+                None => Err(UNBUILT_WORLD.to_owned()),
+            }
+        }
+    };
+    match &copied {
+        Ok(name) => toasts.success(
+            format!(
+                "Copied to inventory as \"{name}\" - load it from there, and Save there to keep \
+                 it."
+            ),
+            now,
+        ),
+        Err(reason) => toasts.warn(format!("Could not copy \"{}\" - {reason}", entry.name), now),
+    }
+    copied
+}
+
+/// A click on a world entry's detail (#1841).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WorldClick {
+    /// Load into my world - asked first.
+    Load,
+    /// Copy to inventory.
+    Copy,
+}
+
+/// A world entry's detail (#1841): a text card, no picture - the sentence
+/// the Inventory's pane gives a world item - read off the entry's pins
+/// alone, so drawing it builds nothing; and the Load into my world and Copy
+/// to inventory row, each disabled with its reason on the hover and painted
+/// under the row (#1289). Which was clicked.
+pub(crate) fn world_detail(
+    ui: &mut egui::Ui,
+    entry: &WorldEntry,
+    load_blocked: Option<&str>,
+    copy_blocked: Option<&str>,
+    copy_name: &str,
+) -> Option<WorldClick> {
+    use crate::catalogue::worlds::Ground;
+    let weak = crate::ui::theme::current(ui.ctx()).text_weak;
+    ui.add(
+        egui::Label::new(
+            egui::RichText::new(crate::ui::inventory::browser::WORLD_NO_PICTURE)
+                .small()
+                .color(weak),
+        )
+        .wrap(),
+    );
+    ui.heading(entry.name);
+    ui.add(egui::Label::new(entry.description).wrap());
+    ui.add_space(4.0);
+    ui.separator();
+
+    egui::Grid::new("catalogue_world_grid")
+        .num_columns(2)
+        .spacing([10.0, 4.0])
+        .max_col_width(280.0)
+        .show(ui, |ui| {
+            let row = |ui: &mut egui::Ui, k: &str, v: &str| {
+                ui.label(egui::RichText::new(k).strong());
+                ui.add(egui::Label::new(v).wrap());
+                ui.end_row();
+            };
+            row(ui, "Category", crate::catalogue::worlds::CATEGORY);
+            row(ui, "Kind", entry.kind_label());
+            row(ui, "Theme", entry.theme.label());
+            match entry.ground {
+                Ground::Procedural { landform, biome } => {
+                    row(ui, "Landform", landform.label());
+                    row(ui, "Biome", biome.label());
+                }
+                Ground::Berlin(borough) => row(ui, "Borough", borough.name()),
+            }
+            ui.label(egui::RichText::new("Slug").strong());
+            ui.label(egui::RichText::new(entry.slug).monospace().small());
+            ui.end_row();
+        });
+
+    ui.add_space(6.0);
+    ui.separator();
+
+    let mut click = None;
+    ui.horizontal(|ui| {
+        if ui
+            .add_enabled(
+                load_blocked.is_none(),
+                egui::Button::new("Load into my world"),
+            )
+            .on_hover_text(
+                "Replace everything in your world with this one, as a re-roll does - it asks \
+                 first, can be undone, and stays unsaved until you Save in the World Editor",
+            )
+            .on_disabled_hover_text(load_blocked.unwrap_or_default())
+            .clicked()
+        {
+            click = Some(WorldClick::Load);
+        }
+        if ui
+            .add_enabled(
+                copy_blocked.is_none(),
+                egui::Button::new("Copy to inventory"),
+            )
+            .on_hover_text(format!(
+                "Make this world and add it to your inventory as \"{copy_name}\""
+            ))
+            .on_disabled_hover_text(copy_blocked.unwrap_or_default())
+            .clicked()
+        {
+            click = Some(WorldClick::Copy);
+        }
+    });
+    // One string, two surfaces (#1289): the hover a pointer reaches for,
+    // and the line a reader sees. Each reason once.
+    let hint = |ui: &mut egui::Ui, text: &str| {
+        ui.add(egui::Label::new(egui::RichText::new(text).small().color(weak)).wrap());
+    };
+    if let Some(reason) = load_blocked {
+        hint(ui, &format!("Load: {reason}"));
+    }
+    if let Some(reason) = copy_blocked {
+        hint(ui, &format!("Copy: {reason}"));
+    }
+    click
+}
+
+/// A world entry's detail in the Catalogue window (#1841): the reasons its
+/// two actions are disabled, read through `Deref` every frame - nothing is
+/// built or written until a click - then [`world_detail`]. A Copy click
+/// copies at once; a Load click is returned for the confirmation.
+#[allow(clippy::too_many_arguments)]
+fn world_detail_panel(
+    ui: &mut egui::Ui,
+    entry: &'static WorldEntry,
+    live_inventory: Option<&mut ResMut<crate::state::LiveInventoryRecord>>,
+    toasts: &mut crate::notify::Toasts,
+    worlds: &WorldSurface,
+    session: Option<&bevy_symbios_multiuser::auth::AtprotoSession>,
+    room_did: Option<&str>,
+    now: f64,
+) -> Option<&'static WorldEntry> {
+    let did = session.map(|s| s.did.as_str());
+    let owns_world = did.is_some() && did == room_did;
+    let load_blocked = world_entry_load_blocked(
+        owns_world,
+        !worlds.loads.is_empty(),
+        worlds.live_room.is_some(),
+    );
+    let parts_granted = session.is_some_and(|s| {
+        crate::pds::inventory::world::grant_covers_parts(&s.session.token_set().scope)
+    });
+    let inventory = live_inventory.as_ref().map(|live| &live.as_ref().0);
+    let copy_blocked = world_copy_blocked(session.is_some(), inventory, parts_granted);
+    // Where the copy would go - named on the hover, as the item row does.
+    let copy_name = inventory
+        .map(|inventory| inventory.free_name(entry.name))
+        .unwrap_or_else(|| entry.name.to_string());
+    match world_detail(ui, entry, load_blocked, copy_blocked.as_deref(), &copy_name)? {
+        WorldClick::Load => Some(entry),
+        WorldClick::Copy => {
+            if let (Some(inventory), Some(session)) = (live_inventory, session) {
+                // A `ResMut`'s `deref_mut` stamps the stash's tick: on the
+                // click, and only there. The toast has said how it went.
+                let _ = copy_world_entry(
+                    entry,
+                    &session.did,
+                    &mut inventory.0,
+                    parts_granted,
+                    toasts,
+                    now,
+                );
+            }
+            None
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1398,6 +2239,81 @@ mod tests {
         assert_eq!(take_restage_count(), 0, "and an empty stage stays empty");
     }
 
+    /// #1838. A vehicle avatar item is pictured from its visuals tree by
+    /// the same stage a generator item uses; a rigged one is asked for as a
+    /// body to build (#1842; the body is `item_preview::body_tests`').
+    /// Through the REAL mirror and the REAL `restage_preview`.
+    #[test]
+    fn a_vehicle_avatar_item_is_pictured_and_a_rigged_one_is_asked_for() {
+        use bevy::ecs::system::RunSystemOnce;
+        use bevy::prelude::*;
+
+        use crate::item_preview::{
+            PreviewCamera, PreviewRequest, PreviewSubject, preview_for_test, restage_preview,
+            take_restage_count,
+        };
+        use crate::pds::InventoryRecord;
+        use crate::pds::inventory::AvatarItem;
+        use crate::pds::inventory::avatar_item_tests::{generator_record, rigged_record};
+        use crate::state::LiveInventoryRecord;
+        use crate::ui::inventory::InventoryBrowser;
+        use crate::ui::toolbar::UiPanels;
+
+        let mut app = crate::player::visuals::spawn_path_app();
+        let world = app.world_mut();
+        world.init_resource::<PreviewRequest>();
+        world.insert_resource(UiPanels {
+            inventory: true,
+            ..Default::default()
+        });
+        world.insert_resource(CatalogueBrowser::default());
+        let mut stash = InventoryRecord::default();
+        stash.put_avatar(
+            "ride".into(),
+            AvatarItem::from_record(&generator_record()).expect("copies"),
+        );
+        stash.put_avatar(
+            "me".into(),
+            AvatarItem::from_record(&rigged_record()).expect("copies"),
+        );
+        world.insert_resource(LiveInventoryRecord(stash));
+        let mut browser = InventoryBrowser::default();
+        browser.select("ride", 1.0);
+        world.insert_resource(browser);
+        let camera = world.spawn((Camera::default(), PreviewCamera)).id();
+        world.insert_resource(preview_for_test(camera));
+        let frame = |world: &mut World| {
+            world
+                .run_system_once(mirror_preview_request)
+                .expect("the mirror runs");
+            world
+                .run_system_once(restage_preview)
+                .expect("the restage runs");
+        };
+
+        take_restage_count();
+        frame(world);
+        assert!(
+            matches!(
+                &world.resource::<PreviewRequest>().0,
+                Some(PreviewSubject::Inventory { name, .. }) if name == "ride"
+            ),
+            "the vehicle is asked for"
+        );
+        assert_eq!(take_restage_count(), 1, "and staged");
+
+        world.resource_mut::<InventoryBrowser>().select("me", 2.0);
+        frame(world);
+        assert!(
+            matches!(
+                &world.resource::<PreviewRequest>().0,
+                Some(PreviewSubject::Inventory { name, .. }) if name == "me"
+            ),
+            "a person is asked for (#1842)"
+        );
+        assert_eq!(take_restage_count(), 1, "and restaged once");
+    }
+
     fn collect_slugs<'a>(nodes: &'a [CatNode], out: &mut Vec<&'a str>) {
         for n in nodes {
             match n {
@@ -1478,7 +2394,14 @@ mod tests {
     fn every_mode_covers_all_entries() {
         // The union of leaf slugs across the whole tree must equal the full
         // registry in every mode - no entry is ever unreachable.
-        let want: HashSet<&str> = ENTRIES.iter().map(|e| e.slug()).collect();
+        // The avatars (#1840) and the worlds (#1841) are listed in every
+        // mode too.
+        let want: HashSet<&str> = ENTRIES
+            .iter()
+            .map(|e| e.slug())
+            .chain(AVATARS.iter().map(|e| e.slug))
+            .chain(WORLDS.iter().map(|e| e.slug))
+            .collect();
         for mode in BrowseMode::ALL {
             let nodes = build_nodes(mode, "");
             let got: HashSet<&str> = all_slugs(&nodes).into_iter().collect();
@@ -1542,8 +2465,13 @@ mod tests {
         let nodes = build_nodes(BrowseMode::Hierarchy, "medieval");
         let slugs = all_slugs(&nodes);
         assert!(!slugs.is_empty());
-        // Every surviving leaf matches the query.
+        // Every surviving leaf matches the query - a world (#1841) by its
+        // theme.
         for s in &slugs {
+            if let Some(world) = world_by_slug(s) {
+                assert!(world.matches("medieval"), "{s}");
+                continue;
+            }
             let e = by_slug(s).unwrap();
             assert!(
                 matches(e, "medieval"),
@@ -1570,12 +2498,860 @@ mod tests {
         let names: Vec<&str> = nodes
             .iter()
             .map(|n| match n {
-                CatNode::Leaf { id, .. } => by_slug(leaf_slug(id).unwrap()).unwrap().name(),
+                CatNode::Leaf { id, .. } => {
+                    let slug = leaf_slug(id).unwrap();
+                    by_slug(slug)
+                        .map(|e| e.name())
+                        .or_else(|| avatar_by_slug(slug).map(|e| e.name))
+                        .or_else(|| world_by_slug(slug).map(|e| e.name))
+                        .unwrap()
+                }
                 _ => unreachable!(),
             })
             .collect();
         let mut sorted = names.clone();
         sorted.sort();
         assert_eq!(names, sorted);
+        assert!(
+            names.contains(&"Sloop"),
+            "an avatar is listed among the items"
+        );
+        assert!(
+            names.contains(&"Medieval world"),
+            "a world is listed among the items"
+        );
+    }
+
+    // ---- Avatars in the Catalogue (#1840) ----
+
+    fn avatar(slug: &str) -> &'static AvatarEntry {
+        avatar_by_slug(slug).expect("a shipped avatar entry")
+    }
+
+    /// The Hierarchy files every avatar under Avatars, then its family; the
+    /// add-from-Catalogue menus list none of them; and search finds them by
+    /// name and by family.
+    #[test]
+    fn the_browse_tree_and_search_list_the_avatars() {
+        let nodes = build_nodes(BrowseMode::Hierarchy, "");
+        let Some(CatNode::Dir {
+            label, children, ..
+        }) = nodes.iter().rev().nth(1)
+        else {
+            panic!("the Avatars group comes before the Worlds group");
+        };
+        assert_eq!(label, crate::catalogue::avatars::CATEGORY);
+        for family_dir in children {
+            let CatNode::Dir {
+                label, children, ..
+            } = family_dir
+            else {
+                panic!("the level under Avatars is the family");
+            };
+            for leaf in children {
+                let CatNode::Leaf { id, .. } = leaf else {
+                    panic!("a family lists its entries");
+                };
+                let entry = avatar(leaf_slug(id).unwrap());
+                assert_eq!(
+                    crate::catalogue::avatars::family_group(entry.family()),
+                    label
+                );
+            }
+        }
+        let filed: HashSet<&str> = all_slugs(children).into_iter().collect();
+        let all: HashSet<&str> = AVATARS.iter().map(|e| e.slug).collect();
+        assert_eq!(filed, all, "every avatar, once");
+
+        // The menus add items, and an avatar is not one.
+        let menu = generator_nodes(BrowseMode::Hierarchy, "");
+        assert!(
+            all_slugs(&menu)
+                .iter()
+                .all(|slug| avatar_by_slug(slug).is_none()),
+            "the add menu lists an avatar"
+        );
+
+        // By name, and by family.
+        let hits = |q: &str| -> HashSet<String> {
+            all_slugs(&build_nodes(BrowseMode::Name, q))
+                .into_iter()
+                .filter(|slug| avatar_by_slug(slug).is_some())
+                .map(str::to_string)
+                .collect()
+        };
+        assert!(hits("sloop").contains("avatar_boat_sloop"));
+        assert!(hits("Tandem").contains("avatar_helicopter_tandem"));
+        for (query, family) in [
+            ("beast", crate::seeded_defaults::ChassisFamily::Beast),
+            ("airship", crate::seeded_defaults::ChassisFamily::Airship),
+            ("people", crate::seeded_defaults::ChassisFamily::Humanoid),
+        ] {
+            let found = hits(query);
+            for entry in AVATARS.iter().filter(|e| e.family() == family) {
+                assert!(found.contains(entry.slug), "{query} misses {}", entry.slug);
+            }
+        }
+        assert_eq!(hits("avatar").len(), AVATARS.len(), "the section's word");
+        assert!(hits("medieval").is_empty(), "an avatar has no theme");
+    }
+
+    /// An avatar entry places nothing, so dragging its row never arms the
+    /// drop bus.
+    #[test]
+    fn an_avatar_entry_is_not_a_drag_source() {
+        for entry in &AVATARS {
+            assert!(!drag_placeable(entry.slug), "{} arms a drop", entry.slug);
+        }
+        assert!(
+            ENTRIES.iter().any(|e| drag_placeable(e.slug())),
+            "the control: an item does"
+        );
+    }
+
+    /// Every reason Wear and Copy to inventory are disabled is one these
+    /// answer, in S1's words.
+    #[test]
+    fn the_avatar_buttons_say_why_they_are_disabled() {
+        use crate::pds::InventoryRecord;
+        use crate::pds::inventory::avatar_item_tests::rigged_record;
+        let entry = avatar("avatar_beast_dog");
+
+        assert_eq!(
+            avatar_wear_blocked(entry, None).as_deref(),
+            Some("No avatar loaded yet.")
+        );
+        assert_eq!(avatar_wear_blocked(entry, Some(&rigged_record())), None);
+
+        assert!(
+            avatar_copy_blocked(entry, false, Some(&InventoryRecord::default()))
+                .is_some_and(|why| why.contains("Sign in"))
+        );
+        assert!(
+            avatar_copy_blocked(entry, true, None).is_some_and(|why| why.contains("not loaded"))
+        );
+        assert_eq!(
+            avatar_copy_blocked(entry, true, Some(&InventoryRecord::default())),
+            None
+        );
+        let mut full = InventoryRecord::default();
+        for i in 0..crate::config::state::MAX_INVENTORY_ITEMS {
+            full.put_item(format!("g{i}"), Generator::default_cuboid(), None);
+        }
+        assert!(
+            avatar_copy_blocked(entry, true, Some(&full)).is_some_and(|why| why.contains("full"))
+        );
+    }
+
+    /// Copy to inventory inserts exactly S1's copy of the built record,
+    /// under a free name built on the entry's, and refuses when full.
+    #[test]
+    fn copy_to_inventory_inserts_the_built_avatar_under_a_free_name() {
+        use crate::pds::InventoryRecord;
+        use crate::pds::inventory::AvatarItem;
+        let entry = avatar("avatar_boat_sloop");
+        let want = AvatarItem::from_record(entry.record().expect("builds")).expect("copies");
+        let mut inventory = InventoryRecord::default();
+        inventory.put_item("Sloop".into(), Generator::default_cuboid(), None);
+        let mut toasts = crate::notify::Toasts::default();
+
+        let name = copy_avatar_entry(entry, &mut inventory, &mut toasts, 0.0).expect("copies");
+        assert_eq!(name, "Sloop_1", "free across every kind of item");
+        assert_eq!(inventory.avatars[&name], want);
+
+        let person = avatar("avatar_person_older_man");
+        let name = copy_avatar_entry(person, &mut inventory, &mut toasts, 0.0).expect("copies");
+        assert_eq!(name, person.name, "named for the entry, not \"Wanderer\"");
+        assert_eq!(
+            inventory.avatars[&name],
+            AvatarItem::from_record(person.record().unwrap()).unwrap()
+        );
+
+        let cap = crate::config::state::MAX_INVENTORY_ITEMS;
+        let mut i = 0;
+        while inventory.item_count() < cap {
+            inventory.put_item(format!("g{i}"), Generator::default_cuboid(), None);
+            i += 1;
+        }
+        let refused = copy_avatar_entry(entry, &mut inventory, &mut toasts, 0.0).expect_err("full");
+        assert!(refused.contains("full"), "{refused}");
+        assert_eq!(inventory.item_count(), cap);
+    }
+
+    /// Wear from the Catalogue is S1's wear: one undo step, and the live
+    /// record wears the built avatar - its tree and locomotion for a
+    /// vehicle, its engine body for a person.
+    #[test]
+    fn wearing_an_avatar_entry_is_one_undo_step_of_the_built_avatar() {
+        use crate::pds::inventory::avatar_item_tests::rigged_record;
+        use crate::state::LiveAvatarRecord;
+        use crate::ui::inventory::WearSurface;
+        use crate::ui::undo::{AvatarUndoHistory, PendingUndoLabels};
+        use bevy::ecs::system::RunSystemOnce;
+
+        let old = rigged_record();
+        let mut app = App::new();
+        app.insert_resource(LiveAvatarRecord(old.clone()));
+        app.init_resource::<crate::ui::avatar::AvatarEditorState>();
+        app.init_resource::<AvatarUndoHistory>();
+        app.init_resource::<PendingUndoLabels>();
+        app.init_resource::<crate::notify::Toasts>();
+        app.add_systems(Update, crate::ui::undo::capture_avatar_history);
+        app.update();
+        let before = app.world().resource::<AvatarUndoHistory>().len();
+
+        let wear_entry = |app: &mut App, slug: &'static str| -> bool {
+            app.world_mut()
+                .run_system_once(move |mut wear: WearSurface| {
+                    wear_avatar_entry(avatar(slug), &mut wear, "did:plc:catalogue", 0.0).is_ok()
+                })
+                .expect("the wear runs")
+        };
+        assert!(wear_entry(&mut app, "avatar_airship_zeppelin"));
+        app.update();
+        app.update();
+        let entry = avatar("avatar_airship_zeppelin");
+        let built = entry.record().unwrap();
+        {
+            let live = &app.world().resource::<LiveAvatarRecord>().0;
+            assert_eq!(live.body.visuals(), entry.visuals(), "the built tree");
+            assert_eq!(live.locomotion, built.locomotion);
+        }
+        let mut history = app.world_mut().resource_mut::<AvatarUndoHistory>();
+        assert_eq!(history.len(), before + 1, "one undo step");
+        let (undone, _) = history.undo().expect("undoable");
+        assert_eq!(undone.record, old, "and one undo takes it off again");
+
+        // Wearing it again is refused as already on, and writes nothing.
+        let tick = app
+            .world()
+            .resource_ref::<LiveAvatarRecord>()
+            .last_changed();
+        app.world_mut().increment_change_tick();
+        assert!(!wear_entry(&mut app, "avatar_airship_zeppelin"));
+        assert_eq!(
+            app.world()
+                .resource_ref::<LiveAvatarRecord>()
+                .last_changed(),
+            tick,
+            "a refusal stamps no tick"
+        );
+
+        // A person wears the engine body the entry built, resolved at once.
+        assert!(wear_entry(&mut app, "avatar_person_young_woman"));
+        let person = avatar("avatar_person_young_woman");
+        let live = &app.world().resource::<LiveAvatarRecord>().0;
+        let worn = crate::catalogue::avatars::engine_body(live).expect("resolved");
+        assert_eq!(
+            Some(worn),
+            crate::catalogue::avatars::engine_body(person.record().unwrap())
+        );
+    }
+
+    /// A vehicle entry is pictured from the tree it builds, by the same
+    /// stage an item uses; a person or a beast is asked for too (#1842),
+    /// staged as a body to build, which spawns nothing at once. An idle
+    /// selection builds and restages nothing more. Through the REAL mirror
+    /// and the REAL `restage_preview`; the body itself is
+    /// `item_preview::body_tests`'.
+    #[test]
+    fn a_vehicle_avatar_entry_is_staged_and_a_rigged_one_is_asked_for() {
+        use crate::item_preview::{
+            PreviewCamera, PreviewRequest, PreviewSubject, preview_for_test, restage_preview,
+            take_restage_count,
+        };
+        use crate::ui::toolbar::UiPanels;
+        use bevy::ecs::system::RunSystemOnce;
+
+        let mut app = crate::player::visuals::spawn_path_app();
+        let world = app.world_mut();
+        world.init_resource::<PreviewRequest>();
+        world.insert_resource(UiPanels {
+            catalogue: true,
+            ..Default::default()
+        });
+        let mut browser = CatalogueBrowser::default();
+        browser.select_for_test(Some("avatar_skiff_rover"), 1.0);
+        world.insert_resource(browser);
+        let camera = world.spawn((Camera::default(), PreviewCamera)).id();
+        world.insert_resource(preview_for_test(camera));
+        let frame = |world: &mut World| {
+            world
+                .run_system_once(mirror_preview_request)
+                .expect("the mirror runs");
+            world
+                .run_system_once(restage_preview)
+                .expect("the restage runs");
+        };
+
+        take_restage_count();
+        crate::catalogue::avatars::take_build_count();
+        frame(world);
+        assert_eq!(
+            world.resource::<PreviewRequest>().0,
+            Some(PreviewSubject::CatalogueAvatar("avatar_skiff_rover".into())),
+            "the vehicle is asked for"
+        );
+        assert_eq!(take_restage_count(), 1, "and staged");
+        assert!(avatar("avatar_skiff_rover").is_built());
+        assert!(
+            crate::catalogue::avatars::take_build_count() <= 1,
+            "selecting builds the entry at most once"
+        );
+        for _ in 0..30 {
+            frame(world);
+        }
+        assert_eq!(
+            take_restage_count(),
+            0,
+            "thirty idle frames restage nothing"
+        );
+        assert_eq!(
+            crate::catalogue::avatars::take_build_count(),
+            0,
+            "and build nothing"
+        );
+
+        world
+            .resource_mut::<CatalogueBrowser>()
+            .select_for_test(Some("avatar_beast_horse"), 2.0);
+        frame(world);
+        assert_eq!(
+            world.resource::<PreviewRequest>().0,
+            Some(PreviewSubject::CatalogueAvatar("avatar_beast_horse".into())),
+            "a beast is asked for (#1842)"
+        );
+        assert_eq!(take_restage_count(), 1, "and restaged once");
+        for _ in 0..30 {
+            frame(world);
+        }
+        assert_eq!(take_restage_count(), 0, "and then left alone");
+    }
+
+    // ---- Worlds in the Catalogue (#1841) ----
+
+    fn world(slug: &str) -> &'static WorldEntry {
+        world_by_slug(slug).expect("a shipped world entry")
+    }
+
+    /// The Hierarchy closes with Worlds, then Procedural and Berlin, every
+    /// world once under its own group; the other modes list them in one
+    /// flat group; the add-from-Catalogue menus list none of them; and
+    /// search finds them by name, theme, landform, biome and borough.
+    #[test]
+    fn the_browse_tree_and_search_list_the_worlds() {
+        use crate::catalogue::worlds::{BERLIN_GROUP, CATEGORY, PROCEDURAL_GROUP};
+        let nodes = build_nodes(BrowseMode::Hierarchy, "");
+        let Some(CatNode::Dir {
+            label, children, ..
+        }) = nodes.last()
+        else {
+            panic!("the Worlds group closes the tree");
+        };
+        assert_eq!(label, CATEGORY);
+        let groups: Vec<&str> = children
+            .iter()
+            .map(|node| match node {
+                CatNode::Dir { label, .. } => label.as_str(),
+                CatNode::Leaf { .. } => panic!("the level under Worlds is the ground"),
+            })
+            .collect();
+        assert_eq!(groups, [PROCEDURAL_GROUP, BERLIN_GROUP]);
+        for group in children {
+            let CatNode::Dir {
+                label, children, ..
+            } = group
+            else {
+                unreachable!();
+            };
+            for leaf in children {
+                let CatNode::Leaf { id, .. } = leaf else {
+                    panic!("a ground lists its entries");
+                };
+                assert_eq!(world(leaf_slug(id).unwrap()).group(), label);
+            }
+        }
+        let filed: Vec<&str> = all_slugs(children);
+        let all: Vec<&str> = WORLDS.iter().map(|e| e.slug).collect();
+        assert_eq!(filed, all, "every world once, in browse order");
+
+        for mode in [BrowseMode::Theme, BrowseMode::Role, BrowseMode::Footprint] {
+            let nodes = build_nodes(mode, "");
+            let Some(CatNode::Dir {
+                label, children, ..
+            }) = nodes.last()
+            else {
+                panic!("{}: a Worlds group", mode.label());
+            };
+            assert_eq!(label, CATEGORY);
+            assert!(children.iter().all(|c| matches!(c, CatNode::Leaf { .. })));
+            assert_eq!(all_slugs(children), all, "{}", mode.label());
+        }
+
+        let menu = generator_nodes(BrowseMode::Hierarchy, "");
+        assert!(
+            all_slugs(&menu)
+                .iter()
+                .all(|slug| world_by_slug(slug).is_none()),
+            "the add menu lists a world"
+        );
+
+        let hits = |q: &str| -> HashSet<String> {
+            all_slugs(&build_nodes(BrowseMode::Name, q))
+                .into_iter()
+                .filter(|slug| world_by_slug(slug).is_some())
+                .map(str::to_string)
+                .collect()
+        };
+        assert!(hits("Medieval world").contains("worlds_medieval"));
+        assert!(
+            hits("sports & rec").contains("worlds_sports_rec"),
+            "by theme"
+        );
+        assert!(
+            hits("neukolln").contains("worlds_berlin_neukoelln"),
+            "by borough"
+        );
+        assert!(hits("Sch\u{f6}neberg").contains("worlds_berlin_tempelhof_schoeneberg"));
+        for (query, group) in [("berlin", BERLIN_GROUP), ("procedural", PROCEDURAL_GROUP)] {
+            let want: HashSet<String> = WORLDS
+                .iter()
+                .filter(|e| e.group() == group)
+                .map(|e| e.slug.to_string())
+                .collect();
+            assert_eq!(hits(query), want, "{query}");
+        }
+        for (query, slug) in [
+            ("mesa", "worlds_wild_west"),
+            ("glacial", "worlds_alien_monolithic"),
+        ] {
+            assert!(hits(query).contains(slug), "{query} misses {slug}");
+        }
+        assert_eq!(hits("world").len(), WORLDS.len(), "the section's word");
+        let avatars_hit = all_slugs(&build_nodes(BrowseMode::Name, "berlin"))
+            .into_iter()
+            .any(|slug| avatar_by_slug(slug).is_some());
+        assert!(!avatars_hit, "an avatar is not a borough");
+    }
+
+    /// A world entry places nothing and is never pictured: dragging its row
+    /// arms no drop, and selecting it asks the stage for nothing - nor does
+    /// it take the stage from an Inventory pick that has a picture.
+    #[test]
+    fn a_world_entry_is_not_a_drag_source_and_is_never_staged() {
+        use crate::item_preview::{Pick, PreviewSubject, wanted_subject};
+        for entry in &WORLDS {
+            assert!(!drag_placeable(entry.slug), "{} arms a drop", entry.slug);
+            let pick = Pick {
+                open: true,
+                selected: Some(entry.slug),
+                at: 5.0,
+            };
+            assert_eq!(wanted_subject(pick, Pick::default(), None), None);
+        }
+        let mut stash = crate::pds::InventoryRecord::default();
+        stash.put_item("lantern".into(), Generator::default_cuboid(), None);
+        let tick = bevy::ecs::change_detection::Tick::new(1);
+        let got = wanted_subject(
+            Pick {
+                open: true,
+                selected: Some("worlds_medieval"),
+                at: 5.0,
+            },
+            Pick {
+                open: true,
+                selected: Some("lantern"),
+                at: 1.0,
+            },
+            Some((&stash, tick)),
+        );
+        assert!(
+            matches!(got, Some(PreviewSubject::Inventory { .. })),
+            "a later world pick leaves the stage to the lantern"
+        );
+    }
+
+    /// Every reason Load into my world and Copy to inventory are disabled
+    /// is one these answer, in S2's words.
+    #[test]
+    fn the_world_buttons_say_why_they_are_disabled() {
+        use crate::pds::InventoryRecord;
+        use crate::pds::inventory::world::SIGN_IN_AGAIN;
+        assert_eq!(world_entry_load_blocked(true, false, true), None);
+        assert_eq!(
+            world_entry_load_blocked(false, false, true),
+            crate::ui::inventory::world::world_load_blocked_reason(false, false)
+        );
+        assert!(
+            world_entry_load_blocked(false, false, true).is_some_and(|w| w.contains("own world"))
+        );
+        assert!(world_entry_load_blocked(true, true, true).is_some_and(|w| w.contains("loading")));
+        assert_eq!(
+            world_entry_load_blocked(true, false, false),
+            Some(WORLD_NOT_LOADED)
+        );
+
+        let empty = InventoryRecord::default();
+        assert!(
+            world_copy_blocked(false, Some(&empty), true).is_some_and(|w| w.contains("Sign in"))
+        );
+        assert!(world_copy_blocked(true, None, true).is_some_and(|w| w.contains("not loaded")));
+        assert_eq!(
+            world_copy_blocked(true, Some(&empty), false).as_deref(),
+            Some(SIGN_IN_AGAIN)
+        );
+        assert_eq!(world_copy_blocked(true, Some(&empty), true), None);
+        let mut full = InventoryRecord::default();
+        for i in 0..crate::config::state::MAX_INVENTORY_ITEMS {
+            full.put_item(format!("g{i}"), Generator::default_cuboid(), None);
+        }
+        assert!(world_copy_blocked(true, Some(&full), true).is_some_and(|w| w.contains("full")));
+    }
+
+    /// Draw [`world_detail`] headless for `frames` frames with `events` on
+    /// the last, AccessKit on: what was clicked, where each button is, and
+    /// the texts painted.
+    fn draw_world_detail(
+        ctx: &egui::Context,
+        entry: &WorldEntry,
+        load_blocked: Option<&str>,
+        copy_blocked: Option<&str>,
+        events: Vec<egui::Event>,
+        frame: u32,
+    ) -> (Option<WorldClick>, Vec<(String, egui::Pos2)>, Vec<String>) {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(480.0, 640.0),
+            )),
+            time: Some(f64::from(frame) / 60.0),
+            events,
+            ..Default::default()
+        };
+        let mut click = None;
+        let output = ctx.run_ui(input, |ui| {
+            click = world_detail(ui, entry, load_blocked, copy_blocked, "Medieval world");
+        });
+        let buttons = output
+            .platform_output
+            .accesskit_update
+            .expect("AccessKit is on")
+            .nodes
+            .iter()
+            .filter_map(|(_, node)| {
+                let label = node.label()?;
+                let b = node.bounds()?;
+                Some((
+                    label.to_string(),
+                    egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32),
+                ))
+            })
+            .collect();
+        fn texts(shape: &egui::Shape, out: &mut Vec<String>) {
+            match shape {
+                egui::Shape::Text(text) => out.push(text.galley.text().to_string()),
+                egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| texts(s, out)),
+                _ => {}
+            }
+        }
+        let mut painted = Vec::new();
+        output
+            .shapes
+            .iter()
+            .for_each(|clipped| texts(&clipped.shape, &mut painted));
+        (click, buttons, painted)
+    }
+
+    /// The detail is a text card - the Inventory's no-picture sentence, the
+    /// theme, the ground - and its buttons click when they can; when they
+    /// cannot, a click does nothing and the reason is painted under them.
+    #[test]
+    fn the_world_detail_is_a_text_card_whose_buttons_click_or_say_why_not() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let entry = world("worlds_medieval");
+        let press = |at, pressed| egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let at = |buttons: &[(String, egui::Pos2)], label: &str| {
+            buttons
+                .iter()
+                .find(|(l, _)| l == label)
+                .map(|(_, at)| *at)
+                .unwrap_or_else(|| panic!("the detail draws {label}"))
+        };
+        let mut frame = 0;
+        let mut click_on = |label: &str, load: Option<&str>, copy: Option<&str>| {
+            frame += 10;
+            let (_, buttons, painted) = draw_world_detail(&ctx, entry, load, copy, vec![], frame);
+            let pos = at(&buttons, label);
+            draw_world_detail(
+                &ctx,
+                entry,
+                load,
+                copy,
+                vec![egui::Event::PointerMoved(pos)],
+                frame + 1,
+            );
+            draw_world_detail(&ctx, entry, load, copy, vec![press(pos, true)], frame + 2);
+            let (click, _, _) =
+                draw_world_detail(&ctx, entry, load, copy, vec![press(pos, false)], frame + 3);
+            (click, painted)
+        };
+
+        let (click, painted) = click_on("Load into my world", None, None);
+        assert_eq!(click, Some(WorldClick::Load));
+        for text in [
+            crate::ui::inventory::browser::WORLD_NO_PICTURE,
+            "Medieval",
+            "Craggy",
+            "Temperate Forest",
+        ] {
+            assert!(
+                painted.iter().any(|p| p.contains(text)),
+                "the card says {text}: {painted:?}"
+            );
+        }
+        let (click, _) = click_on("Copy to inventory", None, None);
+        assert_eq!(click, Some(WorldClick::Copy));
+
+        let why_load =
+            crate::ui::inventory::world::world_load_blocked_reason(false, false).unwrap();
+        let why_copy = "Your inventory has not loaded yet.";
+        let (click, painted) = click_on("Load into my world", Some(why_load), Some(why_copy));
+        assert_eq!(click, None, "a disabled Load does nothing");
+        assert!(painted.iter().any(|p| p.contains(why_load)), "{painted:?}");
+        assert!(painted.iter().any(|p| p.contains(why_copy)), "{painted:?}");
+        let (click, _) = click_on("Copy to inventory", Some(why_load), Some(why_copy));
+        assert_eq!(click, None, "a disabled Copy does nothing");
+    }
+
+    /// Nothing is built on selection or per frame: thirty frames of a world
+    /// entry's detail, the tree that lists it, a search that finds it and
+    /// the preview mirror holding it build no world.
+    #[test]
+    fn nothing_is_built_on_selection_or_per_frame() {
+        use crate::item_preview::PreviewRequest;
+        use crate::ui::toolbar::UiPanels;
+        use bevy::ecs::system::RunSystemOnce;
+
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut world_app = World::new();
+        world_app.init_resource::<PreviewRequest>();
+        world_app.insert_resource(UiPanels {
+            catalogue: true,
+            ..Default::default()
+        });
+        let mut browser = CatalogueBrowser::default();
+        browser.select_for_test(Some("worlds_berlin_mitte"), 1.0);
+        world_app.insert_resource(browser);
+
+        crate::catalogue::worlds::take_build_count();
+        for frame in 0..30 {
+            for slug in ["worlds_berlin_mitte", "worlds_fantasy"] {
+                let entry = world(slug);
+                let blocked = world_entry_load_blocked(true, false, true);
+                draw_world_detail(&ctx, entry, blocked, None, vec![], frame);
+            }
+            let _ = build_nodes(BrowseMode::Hierarchy, "mitte");
+            world_app
+                .run_system_once(mirror_preview_request)
+                .expect("the mirror runs");
+        }
+        assert_eq!(world_app.resource::<PreviewRequest>().0, None);
+        assert_eq!(
+            crate::catalogue::worlds::take_build_count(),
+            0,
+            "a world is built only on a click"
+        );
+    }
+
+    const OWNER: &str = "did:plc:catalogue-owner";
+
+    /// An owner in their own world with the World Editor holding a
+    /// selection and the room undo ring watching - as the app runs it.
+    fn world_app(old: &crate::pds::RoomRecord) -> App {
+        use crate::state::{CurrentRoomDid, LiveRoomRecord};
+        use crate::ui::room::RoomEditorState;
+        let mut app = App::new();
+        app.insert_resource(LiveRoomRecord(old.clone()));
+        app.insert_resource(crate::ui::room::placement_focus_tests::session(OWNER));
+        app.insert_resource(CurrentRoomDid(String::from(OWNER)));
+        let mut editor = RoomEditorState::default();
+        editor.selected_placement = Some(0);
+        editor.seed_raw_for_test(old);
+        app.insert_resource(editor);
+        app.init_resource::<crate::ui::undo::RoomUndoHistory>();
+        app.init_resource::<crate::state::RoomWriteSignals>();
+        app.init_resource::<crate::ui::undo::PendingUndoLabels>();
+        app.init_resource::<crate::notify::Toasts>();
+        app.add_systems(Update, crate::ui::undo::capture_room_history);
+        app.update();
+        app
+    }
+
+    /// Load `slug` as the confirmation does, with the owner in `room` and
+    /// `loading` world loads in flight.
+    fn load_entry(
+        app: &mut App,
+        slug: &'static str,
+        room: &str,
+        loading: bool,
+    ) -> Result<(), String> {
+        use crate::state::LiveRoomRecord;
+        use crate::ui::room::RoomEditorState;
+        use bevy::ecs::system::RunSystemOnce;
+        let room = room.to_owned();
+        app.world_mut()
+            .run_system_once(
+                move |mut live: Option<ResMut<LiveRoomRecord>>,
+                      mut editor: Option<ResMut<RoomEditorState>>,
+                      mut labels: ResMut<crate::ui::undo::PendingUndoLabels>,
+                      mut toasts: ResMut<crate::notify::Toasts>| {
+                    load_world_entry(
+                        world(slug),
+                        OWNER,
+                        loading,
+                        Some(room.as_str()),
+                        live.as_mut().map(|live| live.reborrow()),
+                        editor.as_mut().map(|editor| editor.reborrow()),
+                        &mut labels,
+                        &mut toasts,
+                        0.0,
+                    )
+                },
+            )
+            .expect("the load runs")
+    }
+
+    fn value(record: &crate::pds::RoomRecord) -> serde_json::Value {
+        serde_json::to_value(record).expect("serializes")
+    }
+
+    /// Load from the Catalogue is S2's load: the live world IS the built
+    /// one, as one undo step labelled for the entry that one undo takes
+    /// back, with no World Editor selection left naming the old world.
+    #[test]
+    fn loading_a_world_entry_replaces_the_live_world_in_one_undo_step() {
+        use crate::state::LiveRoomRecord;
+        use crate::ui::room::RoomEditorState;
+        use crate::ui::undo::RoomUndoHistory;
+        let old = crate::pds::inventory::world::tests::seeded_world(41);
+        let mut app = world_app(&old);
+        let before = app.world().resource::<RoomUndoHistory>().len();
+        let entry = world("worlds_steampunk");
+        let want = built_world(entry, OWNER).expect("builds");
+
+        crate::catalogue::worlds::take_build_count();
+        assert_eq!(load_entry(&mut app, entry.slug, OWNER, false), Ok(()));
+        assert_eq!(crate::catalogue::worlds::take_build_count(), 1, "one build");
+        app.update();
+        app.update();
+
+        assert_eq!(
+            value(&app.world().resource::<LiveRoomRecord>().0),
+            value(&want),
+            "the built world is the live one"
+        );
+        assert!(!app.world().resource::<RoomEditorState>().has_selection());
+        let mut history = app.world_mut().resource_mut::<RoomUndoHistory>();
+        assert_eq!(history.len(), before + 1, "one undo step");
+        let (undone, label) = history.undo().expect("undoable");
+        assert_eq!(label, format!("load {}", entry.name));
+        assert_eq!(value(&undone.record), value(&old), "one undo takes it back");
+    }
+
+    /// Outside your own world, while a load is in flight, or before your
+    /// world has arrived, a Load is refused, builds nothing and changes
+    /// nothing.
+    #[test]
+    fn loading_a_world_entry_is_refused_outside_your_world() {
+        use crate::state::LiveRoomRecord;
+        use crate::ui::undo::RoomUndoHistory;
+        let old = crate::pds::inventory::world::tests::seeded_world(42);
+        let mut app = world_app(&old);
+        let before = app.world().resource::<RoomUndoHistory>().len();
+        crate::catalogue::worlds::take_build_count();
+
+        let elsewhere = load_entry(&mut app, "worlds_pirate", "did:plc:someone-else", false);
+        assert!(elsewhere.is_err_and(|why| why.contains("own world")));
+        let busy = load_entry(&mut app, "worlds_pirate", OWNER, true);
+        assert!(busy.is_err_and(|why| why.contains("loading")));
+        app.update();
+        app.update();
+        assert_eq!(
+            value(&app.world().resource::<LiveRoomRecord>().0),
+            value(&old)
+        );
+        assert_eq!(app.world().resource::<RoomUndoHistory>().len(), before);
+
+        app.world_mut().remove_resource::<LiveRoomRecord>();
+        let unloaded = load_entry(&mut app, "worlds_pirate", OWNER, false);
+        assert_eq!(unloaded, Err(WORLD_NOT_LOADED.to_owned()));
+        assert_eq!(
+            crate::catalogue::worlds::take_build_count(),
+            0,
+            "a refusal builds nothing"
+        );
+    }
+
+    /// Copy to inventory stashes S2's snapshot of the built world, under a
+    /// free name built on the entry's; a full stash or a sign-in without
+    /// the grant is refused before anything is built.
+    #[test]
+    fn copying_a_world_entry_stashes_the_built_world_under_a_free_name() {
+        use crate::pds::InventoryRecord;
+        use crate::pds::inventory::WorldItem;
+        let entry = world("worlds_berlin_neukoelln");
+        let built = built_world(entry, OWNER).expect("builds");
+        let want = WorldItem::snapshot(&built).expect("copies");
+        let mut inventory = InventoryRecord::default();
+        inventory.put_item(entry.name.into(), Generator::default_cuboid(), None);
+        let mut toasts = crate::notify::Toasts::default();
+
+        crate::catalogue::worlds::take_build_count();
+        let name =
+            copy_world_entry(entry, OWNER, &mut inventory, true, &mut toasts, 0.0).expect("copies");
+        assert_eq!(crate::catalogue::worlds::take_build_count(), 1, "one build");
+        assert_eq!(name, format!("{}_1", entry.name), "free across every kind");
+        let item = &inventory.worlds[&name];
+        assert_eq!(item, &want, "S2's snapshot of the built world");
+        assert_eq!(
+            item.head().summary.borough.as_deref(),
+            Some("Neuk\u{f6}lln")
+        );
+        let held = crate::pds::inventory::world::join_parts(
+            item.head(),
+            item.slices().expect("held for the save"),
+        )
+        .expect("loads");
+        assert_eq!(
+            value(&held),
+            value(&crate::pds::inventory::world::tests::as_loaded(&built))
+        );
+
+        let refused = copy_world_entry(entry, OWNER, &mut inventory, false, &mut toasts, 0.0);
+        assert_eq!(
+            refused,
+            Err(crate::pds::inventory::world::SIGN_IN_AGAIN.to_owned())
+        );
+        let cap = crate::config::state::MAX_INVENTORY_ITEMS;
+        let mut i = 0;
+        while inventory.item_count() < cap {
+            inventory.put_item(format!("g{i}"), Generator::default_cuboid(), None);
+            i += 1;
+        }
+        let full = copy_world_entry(entry, OWNER, &mut inventory, true, &mut toasts, 0.0);
+        assert!(full.is_err_and(|why| why.contains("full")));
+        assert_eq!(inventory.item_count(), cap);
+        assert_eq!(
+            crate::catalogue::worlds::take_build_count(),
+            0,
+            "a refusal builds nothing"
+        );
     }
 }

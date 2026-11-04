@@ -118,7 +118,9 @@ terrain's four splat layers on every target, plus - on wasm - every construct /
 avatar / primitive material texture, which the upstream generator pool would
 otherwise bake on the render thread; identical requests coalesce onto one
 airborne job), and the **avatar builds** (meshing one rigged body from its
-record, 68 ms at the draft atlas and 277 ms at full size). Three of the four
+record, 68 ms at the draft atlas and 277 ms at full size - a player's, a
+peer's, and since #1842 the item preview's picture of a person or a beast,
+built by the same job at the draft atlas, one build in flight for the stage). Three of the four
 ride the urgent lane - everything but the texture bakes, whose only cost is
 pop-in. Each job is a self-contained, serialisable `GenJob` whose pure `run()`
 is byte-identical on both backends, keeping progressive loading deterministic
@@ -323,7 +325,16 @@ generation cores shared with the wasm Web Worker.
   `room.copies`, written via `applyWrites` in an order a reader never sees
   half-done), `AvatarRecord` as
   `…overlands.avatar`, and the inventory as one record per stashed item
-  (`…overlands.inventory.item`); the rigged body's own three collections
+  (`…overlands.inventory.item`) - a generator blueprint, since #1838 a
+  whole avatar by value (`avatar` instead of `generator`), or since #1839 a
+  whole world (`world`: a small head - summary, part keys, byte length,
+  digest - whose `RoomRecord` JSON lives in content-addressed parts in
+  `…overlands.inventory.part`, fetched only when the world is loaded, and
+  written parts first, heads, head deletes, part deletes) - one payload per
+  record, item names unique across every kind; see
+  [`inventory.rs`](../src/pds/inventory.rs),
+  [`inventory/avatar.rs`](../src/pds/inventory/avatar.rs) and
+  [`inventory/world.rs`](../src/pds/inventory/world.rs)); the rigged body's own three collections
   ([`avatar/wardrobe.rs`](../src/pds/avatar/wardrobe.rs), two of them under the
   cross-app `network.symbios.avatar.*` lexicons); plus the `Generator` /
   `Placement` / `LocomotionConfig` / `AvatarBody` open unions, fixed-point
@@ -483,14 +494,31 @@ generation cores shared with the wasm Web Worker.
   [people](../src/ui/people.rs) (with drag-to-gift),
   [avatar editor](../src/ui/avatar/) (Body - the engine's own sculpting axes
   hosted in this window's chrome, plus the cross-app wardrobe - Attachments,
-  Visuals and Locomotion), [inventory](../src/ui/inventory/),
-  [catalogue](../src/ui/catalogue.rs),
+  Visuals and Locomotion, and a footer Save to Inventory that copies the live
+  avatar into the stash), [inventory](../src/ui/inventory/) (items, whole
+  avatars and whole worlds; an avatar row's Wear puts it back on, unsaved
+  until the Avatar editor's Save, and a world row's Load into my world
+  replaces the owner's world as a re-roll does - confirmed, one undo step,
+  unsaved until the World Editor's Save),
+  [catalogue](../src/ui/catalogue.rs) (items to place or copy, and since
+  #1840 ready-made avatars of every kind: Wear puts one on through the
+  Inventory's own wear path, Copy to inventory stashes it as an avatar item;
+  since #1841 ready-made worlds - one procedural world per theme, one Berlin
+  square per borough - described by a text card, built only on a click:
+  Load into my world replaces the owner's world through the Inventory's own
+  landing, confirmed, one undo step, unsaved until the World Editor's Save,
+  and Copy to inventory stashes it as a world item; both windows picture
+  the selection from one off-screen stage,
+  [`item_preview.rs`](../src/item_preview.rs), on a render layer of its own -
+  an item or a vehicle from its tree, and since #1842 a person or a beast as
+  the game builds, hangs, dresses and stands it, built off the frame),
   [diagnostics](../src/ui/diagnostics.rs) (the 5-tab metrics/anomaly HUD),
   [settings](../src/ui/settings.rs), the
   [gateway destination picker](../src/ui/gateway.rs) (the room owner's mutuals,
   listed on contact with the gate), and the owner-only
   [world editor](../src/ui/room/) (Environment / Items /
-  Placements / Effects / Raw JSON tabs, plus a pop-out
+  Placements / Effects / Raw JSON tabs, a footer Save to Inventory that
+  copies the live world into the stash, plus a pop-out
   [audio editor](../src/ui/room/audio.rs) hosting the crate's audition strip
   above its node-graph and sequence canvases). Around them sits the shell: the [toolbar](../src/ui/toolbar.rs) that
   owns every panel's open flag, [computed non-overlapping window
@@ -520,6 +548,9 @@ generation cores shared with the wasm Web Worker.
   is the failure this derivation exists to prevent - plus one `rpc:` grant for
   minting relay service-auth tokens. Repo *reads* need no scope at all. The hosted copy
   in `assets/client-metadata.json` must match, and an integration test says so.
+  A grant older than a collection cannot write it: a save that needs one -
+  a long instance set's copy parts, a world item's parts (#1839) - is refused
+  up front with a sign-in-again sentence rather than after a partial write.
 - [`src/seeded_defaults/`](../src/seeded_defaults/) - DID-seeded deterministic
   defaults, derived along two orthogonal axes: a natural *biome* and an
   artificial *theme*, plus continuous prosperity/escalation dials. Room side:
@@ -557,7 +588,20 @@ generation cores shared with the wasm Web Worker.
   organised by theme and structural role (landmark / secondary / prop / plant /
   pattern / tool, plus the per-theme gateway and owner monument), functionally
   analogous to a user inventory but always present; the same entries the seeded
-  settlement deriver draws from.
+  settlement deriver draws from. Beside them,
+  [`avatars.rs`](../src/catalogue/avatars.rs) lists the Catalogue's avatars
+  (#1840): recipes, not stored records - each a slug, a name, its
+  `AvatarPins` and a start seed, built on demand by the pinned re-roll's hunt
+  and `AvatarRecord::default_for_seed` and cached for the process. One entry
+  per craft type, plus six people and six beasts chosen by what the engine's
+  own roll varies; a drift test holds every entry to its name.
+  [`worlds.rs`](../src/catalogue/worlds.rs) lists its worlds (#1841) the
+  same way: each a slug, a name, its `ScenePins` and a start seed, built by
+  the World Editor re-roll's hunt and `build_room_with_source` for the
+  signed-in owner - never cached, and never built to be looked at. One
+  procedural entry per theme on a landform and biome it suits (together
+  every landform and every biome), and one Berlin entry per borough; a
+  drift test holds every entry to its name.
 - [`src/editor_gizmo/`](../src/editor_gizmo/) - bridge between the editor
   selection and the in-world 3D transform gizmo, plus the scene context menu.
   Includes [`face_pick.rs`](../src/editor_gizmo/face_pick.rs) - the viewport

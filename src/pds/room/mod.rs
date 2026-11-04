@@ -1039,6 +1039,7 @@ pub use wire::{
     RoomGeneratorRecord, child_rkey, delete_room_record, fetch_room_record,
     max_publish_record_bytes, measure_publish, publish_room_record, reset_room_record,
 };
+pub(crate) use wire::{grant_covers, write_refused};
 
 #[cfg(test)]
 mod tests {

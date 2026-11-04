@@ -976,18 +976,32 @@ pub fn status_line_text(
     now_secs: f64,
     dirty: bool,
 ) -> Option<(StatusTone, String)> {
+    status_line_text_within(status, now_secs, dirty, None)
+}
+
+/// [`status_line_text`] for a save given up at its OWN deadline
+/// (`gives_up_after_secs`, e.g. an Inventory save that writes a world,
+/// #1839) rather than the fixed
+/// [`crate::config::http::PUBLISH_TASK_DEADLINE`]; `None` is the fixed one.
+/// Without it a world save the poll was still rightly waiting for said it
+/// gave up at 60 s, and then "(75s) - still trying; gives up at 60s".
+pub fn status_line_text_within(
+    status: &PublishStatus,
+    now_secs: f64,
+    dirty: bool,
+    gives_up_after_secs: Option<f64>,
+) -> Option<(StatusTone, String)> {
     let ago = |at: f64| (now_secs - at).max(0.0);
     match status {
         PublishStatus::Idle => None,
         PublishStatus::Publishing { since_secs } => {
             let elapsed = ago(*since_secs);
             if elapsed >= SAVE_SLOW_SECS {
+                let deadline = gives_up_after_secs
+                    .unwrap_or_else(|| crate::config::http::PUBLISH_TASK_DEADLINE.as_secs_f64());
                 Some((
                     StatusTone::Error,
-                    format!(
-                        "⟳ Saving… ({elapsed:.0}s) - still trying; gives up at {}s",
-                        crate::config::http::PUBLISH_TASK_DEADLINE.as_secs()
-                    ),
+                    format!("⟳ Saving… ({elapsed:.0}s) - still trying; gives up at {deadline:.0}s"),
                 ))
             } else {
                 Some((StatusTone::Warn, format!("⟳ Saving… ({elapsed:.0}s)")))
@@ -1033,7 +1047,20 @@ pub fn status_line_text(
 /// title already says *which* record, so the line stays terse. `dirty` is
 /// the row's own derived flag, see [`status_line_text`].
 pub fn publish_status_line(ui: &mut egui::Ui, status: &PublishStatus, now_secs: f64, dirty: bool) {
-    let Some((tone, text)) = status_line_text(status, now_secs, dirty) else {
+    publish_status_line_within(ui, status, now_secs, dirty, None);
+}
+
+/// [`publish_status_line`] naming a save's own deadline
+/// ([`status_line_text_within`]).
+pub fn publish_status_line_within(
+    ui: &mut egui::Ui,
+    status: &PublishStatus,
+    now_secs: f64,
+    dirty: bool,
+    gives_up_after_secs: Option<f64>,
+) {
+    let Some((tone, text)) = status_line_text_within(status, now_secs, dirty, gives_up_after_secs)
+    else {
         return;
     };
     let theme = crate::ui::theme::current(ui.ctx());
@@ -1488,16 +1515,32 @@ pub fn poll_or_expire(
     now: f64,
     label: &str,
 ) -> Option<Result<(), String>> {
+    poll_or_expire_within(
+        task,
+        spawned_at,
+        now,
+        label,
+        crate::config::http::PUBLISH_TASK_DEADLINE,
+    )
+}
+
+/// [`poll_or_expire`] against a deadline of the caller's own: a publish of
+/// many requests, each bounded inside it, is given longer than one
+/// (#1839, [`crate::pds::inventory::SaveBound`]).
+pub fn poll_or_expire_within(
+    task: &mut bevy::tasks::Task<Result<(), String>>,
+    spawned_at: f64,
+    now: f64,
+    label: &str,
+    deadline: std::time::Duration,
+) -> Option<Result<(), String>> {
     if let Some(result) = futures_lite::future::block_on(futures_lite::future::poll_once(task)) {
         return Some(result);
     }
-    if now - spawned_at > crate::config::http::PUBLISH_TASK_DEADLINE.as_secs_f64() {
+    if now - spawned_at > deadline.as_secs_f64() {
         // Its OWN bound (#1206): borrowing `timed_out` reported the inner
         // 30 s a full minute after the click.
-        return Some(Err(crate::config::http::timed_out_after(
-            label,
-            crate::config::http::PUBLISH_TASK_DEADLINE,
-        )));
+        return Some(Err(crate::config::http::timed_out_after(label, deadline)));
     }
     None
 }
@@ -1787,6 +1830,12 @@ mod tests {
             )),
             "{text}"
         );
+        // A save given up at its own deadline - an Inventory save writing a
+        // world (#1839 end review) - names THAT one, also past the fixed one.
+        let (_, text) =
+            status_line_text_within(&in_flight, 175.0, true, Some(1740.0)).expect("drawn");
+        assert!(text.contains("(75s)"), "{text}");
+        assert!(text.contains("gives up at 1740s"), "{text}");
         assert!(status_line_text(&PublishStatus::Idle, 0.0, true).is_none());
     }
 

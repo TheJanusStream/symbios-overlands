@@ -611,9 +611,9 @@ pub(super) fn resolve_held_offer(
         dialog.is_some(),
         crate::state::real_secs_since(held.0.arrived_at_epoch)
             >= config::network::OFFER_DIALOG_TIMEOUT_SECS,
-        live_inventory.as_deref().is_some_and(|live| {
-            live.0.generators.len() < crate::config::state::MAX_INVENTORY_ITEMS
-        }),
+        live_inventory
+            .as_deref()
+            .is_some_and(|live| live.0.item_count() < crate::config::state::MAX_INVENTORY_ITEMS),
     );
     if outcome == HeldOfferOutcome::Expire {
         sender.to(
