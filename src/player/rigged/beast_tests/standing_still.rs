@@ -1034,9 +1034,14 @@ fn fallen(under: Under, family: Family, by: f32, hz: f32) -> Vec<Fall> {
 }
 
 /// How far a falling body's legs may be stretched against how they stood on
-/// the hill before the lift ([`leg_stretches`]): a tenth past it, where the
-/// engine's flight holds them within 7 per cent.
-const FALLING_STRETCH: f32 = 1.1;
+/// the hill before the lift ([`leg_stretches`]): a fifth past it. Since
+/// symbios-avatar 0.19.6 (its #414) the flight draws a paw the trunk's pitch
+/// would sink onto the plane the body left, which reaches a horse peer's leg
+/// to 1.10 of how it stood at 144 Hz (every other case 1.00 to 1.08). Feet
+/// held on the terrain a metre under a falling body would stretch a leg about
+/// twice over, and the whole body sinking onto it is [`FALLING_SINK`]'s to
+/// catch (#1836).
+const FALLING_STRETCH: f32 = 1.2;
 
 /// How far a falling body's trunk may sink toward its root against how it
 /// was carried on the hill before the lift ([`trunk_height`]), metres: the
