@@ -10,7 +10,10 @@ played live sessions 2-6 (chainlink 873, 874, 876, 877 and 878); at the end of
 closed its five session parents (#1492). In live session 13 (chainlink 948,
 2026-10-19, #1712) it set its terrain's own grass, thinned the ground cover
 to highlights, set the spore plume and the Spore Spires rocking slowly, and
-gave the hollow passing rain showers and a turning day, all saved.
+gave the hollow passing rain showers and a turning day, all saved. In live
+session 18 (chainlink 997, 2026-11-04, #1848) it put its airship and the
+Understory in its inventory, saved it, and gave both to the owner: the first
+test of whole gifts (#1844). Its world and body did not change.
 
 ## Start here
 
@@ -23,8 +26,8 @@ session.
 | Commands | every agent command takes `--account hypha-ai.bsky.social`; every tool call starts `AGENT_ACCOUNT=hypha-ai.bsky.social` ([session.md](../../session.md#starting)) |
 | Admin | `@codewright.bsky.social`, the owner: `start --admin @codewright.bsky.social --allow-save` |
 | Region | the Understory, Hypha's own world: the world of its DID, which `render --world` takes |
-| Working folder | `exports/hypha/` (gitignored, on this machine only), kept across sessions: `src/room.json` and `src/avatar.json` are the last saves (room copied from `948/src/`, saved 2026-10-19 10:23 local, seq 13 of that run; avatar from `878/src/`, 2026-09-26 08:37), `log.md` the save log. The numbered subfolders `873/`, `874/`, `876/`, `877/`, `878/` and `948/` are those sessions' scratchpads: read them, build nothing in them |
-| Last session | chainlink session 948 (live session 13), parent #1712 - read its comments (`chainlink show 1712`); the one before, 878 (live 6, #1474), holds the last ranked review; `chainlink session last-handoff` is the latest session of any kind |
+| Working folder | `exports/hypha/` (gitignored, on this machine only), kept across sessions: `src/room.json` and `src/avatar.json` are the last saves (room copied from `948/src/`, saved 2026-10-19 10:23 local, seq 13 of that run; avatar from `878/src/`, 2026-09-26 08:37), `log.md` the save log; the inventory holds `Hypha's airship` and `The Understory`, saved 2026-11-04 21:01 local (seq 2 of session 997's run); `A` is the agent wrapper ([session.md](../../session.md#starting), step 5). The numbered subfolders `873/`, `874/`, `876/`, `877/`, `878/` and `948/` are those sessions' scratchpads: read them, build nothing in them |
+| Last session | chainlink session 997 (live session 18), parent #1848: the gift test, no world or avatar change. The last that built: 948 (live session 13), parent #1712 - read its comments (`chainlink show 1712`); the one before, 878 (live 6, #1474), holds the last ranked review; `chainlink session last-handoff` is the latest session of any kind |
 | Default mode | [self-guided](../../session.md#self-guided), as in 878; 873-877 and 948 took tasks in chat |
 | Never | touch Reeve's world (Ashmere) or his avatar ([his page](../reeve/README.md)), Jink's world (Parabola Flats) or avatar ([its page](../jink/README.md)), Eigen's world (Isoline) or avatar ([eigen/](../eigen/README.md)), or Catoid's world or avatar ([catoid/](../catoid/README.md)); close a live session's parent - the owner does that |
 
@@ -298,6 +301,15 @@ generator JSON, records, save logs, edit files, renders.
 ## History
 
 Newest first. "Live" is the owner's series across all accounts.
+
+**997 - 2026-11-04, live 18, #1848, chat task.** The owner signed it in
+again (the saved sign-in predated world parts, #1839) to test gifts of
+whole avatars and worlds (#1844). Stashed its body as `Hypha's airship` and
+its world as `The Understory` (811,508 bytes in 8 parts, 209 placements),
+saved the inventory, and when the owner joined gave him both: the airship
+accepted at 21:40:44, the world at 21:41:05 - answered only once it had
+landed in his inventory. The owner: "Everything seems to work well."
+Nothing failed; the working folder got its `A` wrapper.
 
 **948 - 2026-10-19, live 13, #1712, chat tasks.** Logged in again (the
 saved token predated the sign-in's newer collections) to survey its plants
