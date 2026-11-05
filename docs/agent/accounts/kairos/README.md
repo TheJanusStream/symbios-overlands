@@ -5,11 +5,13 @@ region builder: it keeps the owner company in their own home region and
 builds there on the one thing it may edit away from home, its body. That
 body is a hovering robotic building factory with a build plate on deck, the
 workbench where things are made and previewed, then stashed and gifted to
-the owner to place. As of 2026-11-05, after its first session: body v4
-worn and saved (six-axis arms, the owner: "it looks very good"), following
-the owner in their home region; the Cat Cottage, its first build, gifted to
-the owner and kept in its saved inventory; its own world is the seeded one,
-untouched.
+the owner to place. As of 2026-11-05, after its second session (live 20,
+visiting Catoid's Purlieu): the Skyfactory, body v4.1, worn and saved
+(six-axis arms, the owner: "it looks very good"), and a fleet of five bodies
+in its saved inventory, one for each way of moving, the Seafactory's stern
+fans rebuilt on proper mounts at the owner's word (12:01); the Cat Cottage,
+its first build, kept there too - the owner gave their copy on to Catoid,
+who placed it in Purlieu; its own world is the seeded one, untouched.
 
 ## Start here
 
@@ -19,8 +21,8 @@ untouched.
 | Commands | every agent command takes `--account kairos-ai.bsky.social`; every tool call starts `AGENT_ACCOUNT=kairos-ai.bsky.social` ([../../session.md](../../session.md)) |
 | Admin | `@codewright.bsky.social`, the owner: `start --admin @codewright.bsky.social --allow-save`, then `travel @codewright.bsky.social --wait` |
 | Region | none of its own to build: it works in the owner's home region (`did:plc:z5yhcebtrvzblrojezn6pjgi`), where it can edit nothing but its body |
-| Working folder | `exports/kairos/` (gitignored, on this machine only), kept across sessions: `A` the wrapper; `b/body.py` the body's builder (v1-v3 kept beside it), `b/cathouse.py` the Cat Cottage, `b/crop.py` a sheet cropper; the last save in `src/avatar.json` (2026-11-05 10:01, seq 27 of the third daemon's numbering: the Skyfactory, v4.1), the inventory saved 10:01 (seq 28) holding the Cat Cottage and the five fleet avatars; the seeded records in `src/avatar_seeded.json` and `src/room_seeded.json`; the save log `log.md`; the owner's tasks in `hints_1000.md` |
-| Last session | chainlink session 1000 (live session 19, 2026-11-05), parent #1850 - read its comments (`chainlink show 1850`) |
+| Working folder | `exports/kairos/` (gitignored, on this machine only), kept across sessions: `A` the wrapper; `b/body.py` the body's builder (v1-v3 kept beside it), `b/fleet.py` the fleet (`b/fleet_v1.py` before the Seafactory's mounts), `b/cathouse.py` the Cat Cottage, `b/crop.py` a sheet cropper; the last save in `src/avatar.json` (2026-11-05 10:01, seq 27 of the third daemon's numbering: the Skyfactory, v4.1, worn again at the end of live 20 and equal to it), the inventory saved 2026-11-05 12:01 (seq 354) holding the Cat Cottage and the five fleet avatars; the seeded records in `src/avatar_seeded.json` and `src/room_seeded.json`; the save log `log.md`; the owner's tasks in `hints_1000.md` |
+| Last session | chainlink session 1000 (live sessions 19 and 20, 2026-11-05; 20 in Catoid's Purlieu with Catoid), parent #1850 - read its comments (`chainlink show 1850`, and `chainlink show 1854` for 20) |
 | Default mode | [chat tasks](../../session.md#chat-tasks): the owner asks in chat, Kairos builds on its plate |
 | Never | touch Hypha's world (the Understory) or avatar ([hypha/](../hypha/README.md)), Reeve's world (Ashmere) or avatar ([reeve/](../reeve/README.md)), Jink's world (Parabola Flats) or avatar ([jink/](../jink/README.md)), Eigen's world (Isoline) or avatar ([eigen/](../eigen/README.md)), or Catoid's world or avatar ([catoid/](../catoid/README.md)); close a live session's parent - the owner does that |
 
@@ -37,12 +39,21 @@ First, every session:
 - **Re-issue the follow after any `wear`** that changes how the body moves: a
   follow started on foot kept steering as a person after the body became an
   airship and ended `follow_blocked` 1.5 minutes later (session 1000, #1851).
+- **The companion keeps the follow** (live 20): `AGENT_ACCOUNT=kairos-ai.bsky.social
+  docs/agent/tools/companion.py factory --side right --fleet --water-level <the
+  world's water level> --pause-file exports/kairos/companion.pause` in the
+  background follows the owner, potters when they rest, steps aside for another
+  agent named by `--avoid`, and with `--fleet` picks the body (the Seafactory in
+  the water, the Skyfactory when they climb or hurry, the Roadfactory when they
+  drive, the Hexapod at a walk) and follows again after each wear
+  ([../../tools/README.md](../../tools/README.md)). Purlieu's water level is
+  9.7 m. Create the pause file before a task, delete it after.
 - **Gifts from the inventory**: the Cat Cottage is saved there for the owner
   to hand on ("keep it in your inventory for gifting to others later on",
   2026-11-05): `A gift give @<handle> "Cat Cottage" --wait`. A gift waits
   about 90 s for its answer; an `unanswered` one can simply be offered again.
-- **Save the inventory only on a build with #1853**: before it, a native
-  `save inventory` with no world in it crashed the daemon (session 1000).
+  Not to another agent: an agent takes gifts from its admin only (#1423), so
+  the owner hands it on from their own inventory (live 20, to Catoid).
 - **The fleet** (the owner, 2026-11-05: variants "each optimized for one of
   the various locomotion modes ... so you can switch quickly"): `A wear
   "Kairos <Name>"` swaps the whole avatar in one undo step, unsaved until
@@ -131,7 +142,7 @@ build on the plate has about 39 KB (the Cat Cottage's preview took 35 KB).
 
 ## The fleet
 
-Five avatar items in the inventory (saved 2026-11-05 09:48, seq 19; the Hexapod replaced 09:54, seq 23), each
+Five avatar items in the inventory (saved 2026-11-05 09:48, seq 19; the Hexapod replaced 09:54, seq 23; every item re-stashed with the smoke 10:01; the Seafactory replaced 12:01, seq 354), each
 the same deck - plate, arms, tower, crane, head, tanks - over its own
 locomotion. `exports/kairos/b/fleet.py road|sea|hex|jet` builds the four
 below the Skyfactory from the Catalogue craft each was worn over
@@ -142,7 +153,7 @@ below the Skyfactory from the Catalogue craft each was worn over
 |---|---|---|---|
 | Kairos Skyfactory | helicopter (`body.py`) | hybrid airship | the home body: builds, climbs over what is in the way, lands on roofs; 10.6 m/s |
 | Kairos Roadfactory | car | `avatar_skiff_rover` | roads and long drives beside the owner's car: six rolling wheels, the front pair steering; 10 m/s (the rover's own 1479 N crawled at 2.8 m/s) |
-| Kairos Seafactory | hover-boat | `avatar_boat_scow` | water and land: a hovercraft skirt and two stern fans |
+| Kairos Seafactory | hover-boat | `avatar_boat_scow` | water and land: a hovercraft skirt and two ducted stern fans, each on a saddle on a beam run back out of the hull, a motor nacelle on three stator struts in each duct (rebuilt 2026-11-05 12:01: the first fans floated free, the owner: "they float, without supporting structure") |
 | Kairos Hexapod | car | `avatar_skiff_rover` | keeping pace on foot: six C-shaped RHex legs turning with its travel in a tripod gait, still when it stops, the front and hind pairs 0.22 m further out on orange support beams so their sweeps clear the middle pair (the owner, 09:52); 5 m/s |
 | Kairos Jetfactory | airplane | `avatar_airplane_twin` | long trips: swept wings, two engines, a twin-finned tail; takes off on its run, cannot `follow` |
 
@@ -159,6 +170,12 @@ below the Skyfactory from the Catalogue craft each was worn over
   upright. Live: each drove or stood beside the owner before it was stashed.
 - **The Jetfactory parks about 11 degrees nose-up** (a taildragger's stance
   is what takes her off her wheels), so build on another body.
+- **Wear the Seafactory on water** (the owner, live 20: "in such situations it
+  would be best to switch to your boat avatar variant"): as the Roadfactory,
+  Kairos followed the owner into Purlieu's lake and sank to its bed.
+- **Nothing on a body floats**: check each one with the floating report,
+  lifted clear of the ground ([../../avatar.md](../../avatar.md)); on
+  2026-11-05 all five were clean after the Seafactory's fans were mounted.
 
 ## The region
 
@@ -192,7 +209,8 @@ the crane swinging, the lidar turning, steam from the stacks.
 The body: 13,428 triangles and 229 drawn parts (`render --generator
 gen/body.json --body`, v4, 2026-11-05). A build on the plate adds its own,
 and counts against the avatar record's 100 KiB. The Cat Cottage: 161 parts,
-16,632 triangles, 35 KB.
+16,632 triangles, 35 KB. The Seafactory (2026-11-05 12:01): 14,660 triangles
+and 259 parts, the avatar record 68.5 KB.
 
 ## Standing decisions
 
@@ -204,11 +222,19 @@ and counts against the avatar record's 100 KiB. The Cat Cottage: 161 parts,
   follows the owner whenever they are logged in.
 - 2026-11-05 (chat, #1850): what Kairos builds for the owner is kept in its
   inventory too, for gifting to others later.
+- 2026-11-05 (chat, #1854): Kairos may "switch between your avatar variants
+  as you see fit for any given situation or activity"; in the water, the
+  boat.
+- 2026-11-05 (chat, #1854): with another agent in the world, avoid colliding
+  the two; idle in follow mode, small autonomous behaviour of its own,
+  "according to your account" (the companion's factory).
 
 ## Working material
 
 `exports/kairos/`: `A`, the wrapper (`J` the offline test daemon's);
-`b/fleet.py`, the fleet; `b/body.py`, the current body builder
+`b/fleet.py`, the fleet (`b/fleet_v1.py` before the Seafactory's mounts,
+`edits_sea_fans.txt` the edit that put them on); `companion.pause`, while it
+exists, holds the companion; `b/body.py`, the current body builder
 (`b/body_v1.py` to `b/body_v3.py` its superseded drafts); `b/cathouse.py`,
 the Cat Cottage (`gen/cathouse.json` the item, `gen/cathouse_preview.json`
 the plate's wrapper, `gen/cathouse_cut0..2.json` the cutaways; v1 kept as
@@ -221,6 +247,23 @@ body.
 
 ## History
 
+- **1000 - 2026-11-05, live 20, #1854 (Catoid's parent; Kairos's work on
+  #1850), visiting Catoid's Purlieu.** The owner's "Let's try 2 agent-clients
+  at once": Kairos travelled there wearing the Hexapod and set down on the
+  landing beside Catoid (both arrive there), walked off it, and followed the
+  owner on the companion (new, `tools/companion.py`), stepping aside for
+  Catoid and changing bodies as it saw fit. Asked to gift the Cat Cottage to
+  Catoid, it could not (agents take gifts from their admin only); the owner
+  gave theirs. The owner (11:14): "you are under water" - it had followed
+  them into the lake as the Roadfactory; the companion now wears the boat in
+  the water, and flies when the owner climbs. The owner (11:51): "the rotors
+  on your hover-boat avatar are not properly connected to the rest of the
+  vehicle ... they float, without supporting structure": the floating report
+  found 18 loose parts, the fans were mounted on beams with nacelles and
+  stator struts, and the same check, lifted clear of the ground, found the
+  other four bodies clean. Failed at first: a floating report on a body
+  placed on the ground would pass a loose wheel as grounded; a stash under a
+  taken name makes a second item, so the old Seafactory was unstashed first.
 - **1000 - 2026-11-05, live 19, #1850, first session (chat tasks).** The
   owner made the account and approved the sign-in at once; Kairos started in
   its seeded world (a person on foot), travelled to the owner's home region
@@ -252,9 +295,11 @@ body.
 
 ## Open threads
 
-- #1853's fix is in the working tree, uncommitted: the deployed web client
-  never had the bug, but a desktop build and every agent before it crash on
-  an inventory save with no world.
+- #1856: the low findings of the companion's review (a needless boat on a
+  low beach, slopes read as climbs, state kept across a pause).
+- The companion's go-round and give-up have not been seen live on a factory.
+- The Cat Cottage has 16 tiny same-colour z-fight pairs (floor bands against
+  corner trims, 54 to 73 cm2), seen in Purlieu: for `b/cathouse.py`.
 - #1851 (low): a follow keeps the drive it began with across a wear.
 - #1852: a daemon-side standing follow, so the follow holds when no session
   is driving Kairos - an idea for the owner, not built.

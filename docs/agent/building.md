@@ -51,6 +51,11 @@ The record's wire form, as the World Editor's Raw JSON tab shows it:
   those same angles, so it is exactly its own collider. That is how Jink's
   Mound (an octagonal frustum of earth) gives a car what it shows; a
   rounder lathe is drawn up to 8% of its radius outside what the car rides.
+- **A `smooth` lathe swings past its points** on a long straight run into a
+  corner: the Cat Tree's 15 m trunk, its wall one long segment up to the
+  summit's shoulder, bulged a 1 m drum out through its own summit deck (live
+  session 20). Give a long wall a point every 2 m or so, or draw it with
+  `smooth` false.
 - Kinds used so far: `cuboid` (`size`), `cylinder` (`radius`, `height`,
   `resolution` 3..128, axis along +Y), `sphere` (`radius`, `resolution` =
   icosphere subdivisions 0..6: 20 x (n+1)^2 triangles - 80 at 1, 720 at 5; `render --generator` prints the count), `torus`
@@ -567,7 +572,17 @@ composed into a copy of the record and seen from where visitors stand
   draws the grammar, and its rows say the `seed`. L-systems and signs are not meshed (their generators are listed as
   `unmeshed`). It cannot see a part whose own mesh splits into islands (a
   BlobGroup whose elements do not overlap), and a stacked stone's overhang
-  reads as class b: judge those by eye.
+  reads as class b, as do the upper copies of a generator placed in a stack
+  (three of the Cat Tree's ramp units, each on the one below, live session
+  20): judge those by eye.
+- **Check every placement names a generator the record holds**, after a
+  builder writes both: nothing else does (#1857). Catoid's forest saved 66 pad
+  placements naming four generators its builder never wrote; every `room
+  set` answered ok, `apply` exited 0, the floating report has nothing to mesh
+  for a missing part, and the owner was told the pads were up (live session
+  20). On the `compose`d record: every placement's `generator_ref` in
+  `generators` (`render --triangle-report` lists what is drawn, by
+  generator).
 - **Seat a piece placed many times by its own ground, not by the report's
   gaps.** Class b takes a part for one that rests on the ground when it
   touches the ground at ANY of its generator's placements. Eigen's fringe
@@ -596,7 +611,14 @@ composed into a copy of the record and seen from where visitors stand
   opening in the floor above. Solid walls, floors, ramps and rails; soft
   things (beds, cushions) are not solid, so a low cushion is no ledge. Look
   inside before showing it: a cutaway of each floor, its front and right
-  walls and everything above left out, rendered like any piece.
+  walls and everything above left out, rendered like any piece. Bridges
+  between decks (the Cat Tree Forest, live session 20): no steeper than 21
+  degrees, each end a centimetre off its deck, posts every 2 m on both sides
+  with the rails through their tops, and pylons from the ground under the
+  long spans - the owner: "proper constructions for the guardrails or none
+  at all ... depending on the piece". Jump pads a cat's jump apart: 0.85 m
+  up, 0.7 m across (its jump is 75 N s on 13.3 kg, about 5.6 m/s, a 1.6 m
+  peak).
 
 ## Z-fighting: two faces in one place
 
@@ -662,7 +684,10 @@ Two faces in one plane, facing one way, flicker as anyone moves. A still
   the header sits ON them; wall tops run 3 cm INTO an 8 cm roof; a wall's end
   stops 2 cm inside the wall it butts against, never flush with its outer
   face; two bars crossing at one height get different heights, or their
-  crossing is buried in a post; door jambs run up into the header.
+  crossing is buried in a post; where two beams meet at their ends, each runs
+  past the other's outer face (the Starlight Pergola's, 3 cm apart in height,
+  still z-fought at all four corners while each end lay flush with the
+  other's side, live session 20); door jambs run up into the header.
 - A part drawn as two layers - a mushroom cap and the glowing gill layer
   just under it - z-fights where the two profiles meet: sixteen such pairs
   on the Ghost Tree, each a cap and its own gills (children N and N+1).

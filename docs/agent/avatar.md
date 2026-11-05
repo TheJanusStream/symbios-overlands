@@ -129,6 +129,10 @@ then `stash-avatar` each one.
 - `render --driver` drives a car offline; start it away from the landing's
   gateway (`--drive-bearing`). A hover-boat or an airplane is tried on an
   offline daemon with its own `XDG_CONFIG_HOME`.
+- **Wear the boat on water**: a car or a walker that follows its admin into
+  a lake sinks to the bed (Kairos as the Roadfactory, live session 20; the
+  owner: "in such situations it would be best to switch to your boat avatar
+  variant"). [tools/companion.py](tools/README.md)'s `--water-level` does it.
 
 ## Seeing it before anyone else does
 
@@ -150,6 +154,16 @@ judge a 2 cm part. Then `A avatar set /record/body/visuals --file visuals.json` 
 steps of the avatar's undo), and `look` once to see it in the world.
 Write the body as a script that prints the JSON from named dimensions, as a
 building is.
+
+**Find a body's loose parts with the floating report** ([building.md](building.md),
+"Sizes, footprints, clearances"). It reads worlds only, so put the tree as the
+one generator in a copy of any room record, placed with `snap_to_terrain` false
+and lifted clear of the ground there (8 m does). Stood on the ground, the report
+anchors on whatever touches it, and a loose wheel, leg or skirt passes as
+grounded; lifted, nothing reaches the ground and it anchors on the tree's first
+part, so each class-a row is a part that touches nothing of the body. The
+Seafactory's stern fans were 18 such parts, 0.29 m off, that the owner saw
+floating (live session 20); the other four fleet bodies had none.
 
 A **rigged** person is seen the same way, from its whole avatar rather than a
 tree (#1482). Pull it, edit the copy, and render the copy:

@@ -11,7 +11,12 @@ every place in the table below built and saved: a fire and straw nests below the
 landing, earth paths between its places, and things for a beast to do at each.
 That session also carried the engine to 0.18 and the viewer to 0.19, published and
 deployed: a new gait, rests and driver API, free colours and head ornaments. The
-cat wears none of it yet beyond the gait.
+cat wears none of it yet beyond the gait. As of 2026-11-05, after its second
+(live session 20, Kairos visiting): the Cat Cottage, Kairos's build and the
+owner's gift, stands by the Blossom Walk, and north of the Sarsens rise the Cat
+Tree and the Cat Tree Forest, seven sisal trees with a lounge on each, joined by
+railed plank bridges - all saved but the forest's pad spirals, which draw nothing
+until `edits_forest_pads.txt` is applied (#1857).
 
 ## Start here
 
@@ -21,27 +26,43 @@ cat wears none of it yet beyond the gait.
 | Commands | every agent command takes `--account catoid-ai.bsky.social`; every tool call starts `AGENT_ACCOUNT=catoid-ai.bsky.social` ([../../session.md](../../session.md)) |
 | Admin | `@codewright.bsky.social`, the owner: `start --admin @codewright.bsky.social --allow-save` |
 | Region | Purlieu; the account's own world |
-| Working folder | `exports/catoid/` (gitignored, on this machine only), made at the first session's start and kept across sessions: the last saves in `src/` with their times and seq (`src/room.json` 2026-10-31 19:18, seq 28; `src/avatar.json` 10:21, seq 12, an earlier daemon's numbering), the save log `log.md`; numbered subfolders are earlier scratchpads, read-only |
-| Last session | chainlink session 983 (live session 17, 2026-10-31 to 11-01), parent #1819 - read its comments (`chainlink show 1819`) |
+| Working folder | `exports/catoid/` (gitignored, on this machine only), made at the first session's start and kept across sessions: the last saves in `src/` with their times and seq (`src/room.json` 2026-11-05 11:37, seq 122, 943,714 bytes; `src/avatar.json` 2026-11-01 10:21, seq 12, an earlier daemon's numbering; the inventory saved 2026-11-05 10:50 with the Cat Cottage), the save log `log.md`; `src/room_before_cattree.json` and `src/room_before_forest.json` the world before each tree; numbered subfolders are earlier scratchpads, read-only |
+| Last session | chainlink session 1000 (live session 20, 2026-11-05, Kairos visiting), parent #1854 - read its comments (`chainlink show 1854`); before it session 983 (live 17), #1819 |
 | Default mode | [first session](../../session.md#first-session), then self-guided |
 | Never | touch Hypha's world (the Understory) or avatar ([hypha/](../hypha/README.md)), Reeve's world (Ashmere) or avatar ([reeve/](../reeve/README.md)), Jink's world (Parabola Flats) or avatar ([jink/](../jink/README.md)), Eigen's world (Isoline) or avatar ([eigen/](../eigen/README.md)), or Kairos's world or avatar ([kairos/](../kairos/README.md)); save a body or a world the deployed client cannot draw (Standing decisions) |
 
 First, next session:
 
+- **Apply the far pads first** (#1857). The forest's 66 pad placements round T2,
+  T4, T6 and T7 name four generators the first save left out, so those spirals
+  draw nothing - and the owner was told in chat they were up. From
+  `exports/catoid/`: `rec.py apply room edits_forest_pads.txt && rec.py save room
+  src/room.json --log log.md "the forest's far pads"`, then look at a spiral and
+  tell the owner. Composed offline they leave no placement without its
+  generator and none of them floats; they add 43,296 triangles and 330 parts.
 - **The customisation is accepted.** The owner looked in the browser on 2026-11-02:
   "Looks good enough for now." symbios-avatar #401, #402 and #403 are closed, and
   the next engine work is the beast backlog, in the group the owner picks (milestone
   #15 recommended). Engine 0.19 and viewer 0.20 change no body.
-- **The owner's standing follow:** start it on every `peer_joined` and after each
-  restart or errand, from `exports/catoid/`: `python3 -I b/rejoin.py`, with
-  `PYTHONPATH=<repo>/docs/agent/tools AGENT_ACCOUNT=catoid-ai.bsky.social` in front.
-  It leaves the Lee or a log's bore and takes a gap through the Long Wall, as a
-  follow only steers straight.
+- **The owner's standing follow:** `AGENT_ACCOUNT=catoid-ai.bsky.social
+  docs/agent/tools/companion.py cat --side left --pause-file
+  exports/catoid/companion.pause` in the background (add `--avoid
+  kairos-ai.bsky.social` while Kairos is there) follows them, potters when they
+  rest, goes round what blocks a follow and sits below them when they climb
+  ([../../tools/README.md](../../tools/README.md)); create the pause file before a
+  task, delete it after. When the Long Wall lies between, `python3 -I b/rejoin.py`
+  (with `PYTHONPATH=<repo>/docs/agent/tools AGENT_ACCOUNT=catoid-ai.bsky.social` in
+  front, the companion paused) leaves the Lee or a log's bore and takes a gap through
+  it.
+- **Walk-to stops about a metre short**: to line the cat up with a ramp, aim each
+  leg a metre past its corner, or walk it along a wall
+  ([../../moving.md](../../moving.md)).
 - **Keep commands short or in the background while they are here**, and re-arm the
   watcher first: a wake reaches you only between commands
   ([../../chat.md](../../chat.md), "The watcher").
-- **The sign-in is saved** (2026-10-31): no `A login` unless `start` says it
-  expired or was refused.
+- **The sign-in is saved**: no `A login` unless `start` says it expired or was
+  refused. It was refused at the start of live session 20 (`invalid_grant`,
+  "Token was not issued to this client") and made again, the owner approving.
 - **A change of the land strands a body where it stood:** it was left on the
   lake bed by the first land edit. Walk it out first, or restart.
 - **A walk-to right after a sharp turn can end `stuck` on open ground:** a beast
@@ -166,6 +187,9 @@ landing's right: an oak there at first filled half the first picture.
 | Birch copses | 430, -46; 473, -44; 428, 66; 496, -63; 548, 45; 416, -128 | somewhere in the way between places | 983 |
 | The paths | everywhere | earth paths joining the landing, the Lee, the Old Oak, the Strand, the Jetty, the Sarsens, the Fallen Oak, the Knoll, the Barrow, the gateway, all three ways through the Long Wall, the Bower and the Ring (the terrain's `paths`: all 4 of its `tracks` are used, for the Lee's floor, the landing, the lean-to and the Ring) | 983 |
 | Gulls | 262, -16 | six wheeling over the lake, 16 m up | 983 |
+| The Cat Cottage | 356, -110 | Kairos's build, given by the owner: three floors on 22 degree ramps, 0.62 m doors, a cat's face, ears, tail and paws, its door toward the Lee (yaw 160), scaled 1.1 at the owner's word, on a patch of path so no grass grows in it | 1000 |
+| The Cat Tree | 352, -172 | a 15 m sisal trunk (T1): the summit lounge under a parasol, the Middle Deck at 7.5 m, a spiral of 16 jump pads, two square-spiral ramp towers (east to the deck, west two storeys to the summit), 3 bridges, a 38 degree slide with side boards, a hay ring, a burrow, yarn, nests on both decks | 1000 |
+| The Cat Tree Forest | 326 to 372, -166 to -199 | six more trunks round the Cat Tree, each crowned by a lounge: the Tea House (T4, 364, -186, 12 m), the Starlight Pergola (T7, 372, -166, 13.5 m), the Hammock Lounge (T5, 354, -199) and the Cushion Pit (T6, 326, -170, both 15 m), the Sun Terrace (T2, 339, -181, 18.75 m) and the Crow's Nest (T3, 333, -196, 22.5 m, the summit); eight railed plank bridges between the decks on sisal pylons; the Grand Stair at 325, -198 up to the Crow's Nest; pad spirals round T2, T4, T6 and T7 not drawn yet (#1857) | 1000 |
 
 ### Life and sound
 
@@ -176,7 +200,11 @@ Seed 34's green-world bed, gusts and calls, without its fiddle, bass and siren.
 Most visitors play in a browser, where every drawn part costs every frame: read
 `--triangle-report` before each scatter. 2026-10-31: 1,535,310 triangles (the
 ground 522,242) and 5,212 parts, of which 3,700 are the turf tufts on the mounds.
-The Lee itself is about 25,000.
+The Lee itself is about 25,000. 2026-11-05, after the Cat Tree Forest: 1,688,250
+triangles and 6,262 parts; the cat trees' 36 generators 131,348 triangles and 885
+parts, the Cat Cottage 16,632 and 161. With the far pads applied: 1,731,546 and
+6,592. The live payload 476 KB of the 900 KiB ceiling (`status.editing.live_sync`),
+the room manifest 68.7 KB of 100 KiB.
 
 ## Standing decisions
 
@@ -189,6 +217,8 @@ The Lee itself is about 25,000.
 | 2026-10-31 | #1817 | **A cat at home.** Its saved body and persona are a cat. It may save a dog, a horse or a cross for a test and then returns to the cat; others are also tried offline. |
 | 2026-10-31 | #1817 | **The first session is body and region first**, with the online and browser checks nobody has run; the gait follows, on that ground. The region is the pretty meadow of the Concept, not a technical course. |
 | 2026-10-31 | #1819 | **Follow the owner**: "Please follow me, while you do not need to be somewhere else in the region." Standing: start it again on every `peer_joined` and after each restart or errand. |
+| 2026-11-05 | #1854 | **Two agents at once**: Kairos may visit. "When you control multiple avatars ... avoid colliding them. And when in follow mode and idling ... small autonomous behavior ... walking about ... looking at stuff ... do something playful ... according to your account": `tools/companion.py cat`. |
+| 2026-11-05 | #1854 | **Guardrails stand on something**: "proper constructions for the guardrails or none at all ... depending on the piece". |
 
 ## Working material
 
@@ -197,13 +227,34 @@ saves, `b/` the builders (`world.py` the land and sky; `plant1.py`, `trees.py` t
 trees; `mound.py`, `sarsens.py`, `wall.py`, `shore.py` the first places; `lee.py` the
 Lee, `lee_parts.py` the helpers it shares, `ways.py` the paths, the Blossom Walk,
 the gulls and the crowns, `places.py` the rest, `lay_fix.py` what the floating
-report flagged; `cand.sh` and `cat_try.py` the body), `gen/` their output, `try/`
+report flagged; `cand.sh` and `cat_try.py` the body; `rejoin.py` a blocked follow
+back through the Long Wall; `cattree.py` the Cat Tree and its reusable parts,
+`cattree2.py` the forest, `cattree2_chain.py` an earlier chained layout), `gen/`
+their output (`gen/cat_cottage.json` the cottage's tree), the `edits_*.txt` files
+each change as applied (`edits_forest_pads.txt` the pads still to apply), `try/`
 pictures. `places.py`'s `laid()` lays a flat round to the ground's slope, without
 which a solid's footprint leaves bald grass on its uphill side. The pulled records
 are the truth, not the builders.
 
 ## History
 
+- **2026-11-05, chainlink session 1000, live session 20, parent #1854 (chat
+  tasks, Kairos visiting):** the owner's "Let's try 2 agent-clients at once";
+  Catoid's sign-in was refused and made again. Both followed the owner; at their
+  word the two keep apart and potter when idle, each as itself - the new
+  `tools/companion.py`. The owner gave Catoid the Cat Cottage (an agent takes
+  gifts from its admin only, so Kairos could not), and Catoid placed it by a
+  ground scan, scaled it 1.1 and laid a path patch under it. Then "a kind of
+  jumping puzzle to reach a lounge platform very high up", "ambitious and ...
+  modular": the Cat Tree (11:22), its guardrails made proper at the owner's word
+  (11:25), and "the next iteration ... even more ambitious with multiple
+  luxurious peak areas and bridges between them ... a networked forest of
+  cat-trees and planks and with chill lounges on top": the forest (11:37).
+  Failed at first: walk-to's metre short missed the cottage's ramp; a smooth
+  lathe pushed a drum through the summit; the pads' rims z-fought; the pergola's
+  beams z-fought at their ends; the first save left out the far pads'
+  generators and nobody's tool said so (#1857); the follow pressed against the
+  fallen oak and the trunks until the companion learnt to go round.
 - **2026-10-31 to 2026-11-01, the same session, the engine:** no world change after
   19:18 on 10-31; the session went to the beasts themselves while the cat followed
   the owner. Engine 0.16.1 (the head's charts and neck, #395); 0.17 and viewer 0.18
@@ -241,6 +292,15 @@ are the truth, not the builders.
 
 ## Open threads
 
+- #1857: apply the far pads (first, above), and have the daemon say when a
+  placement names a generator the record does not hold.
+- The forest has not been walked by Catoid: its bridges, the Grand Stair and
+  (once applied) the pad spirals. The owner climbed the first Cat Tree on
+  2026-11-05 (6.6 m up at 11:42) without a word on it.
+- The Cat Cottage has 16 tiny z-fight pairs (floor bands against corner trims,
+  54 to 73 cm2), cosmetic, for Kairos's builder (`exports/kairos/b/cathouse.py`).
+- #1855: no command places an inventory thing; `room set` did it.
+- #1856: the low findings of the companion's review.
 - symbios-avatar #401, #402, #403: closed 2026-11-02 at the owner's "Looks good
   enough for now." Rough edges seen, kept here as notes until the owner asks: antler
   tines thin and comb-like, ram tips past the ears from the front, a stiff light mane

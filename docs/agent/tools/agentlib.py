@@ -24,9 +24,14 @@ def account_args():
     return ["--account", account] if account else []
 
 
-def agent(*args):
-    """Run one agent command and return its JSON answer (never raises on a refusal)."""
-    out = subprocess.run([AGENT, *args, *account_args()], capture_output=True, text=True, env=ENV)
+def agent(*args, timeout=None):
+    """Run one agent command and return its JSON answer (never raises on a refusal). With a
+    `timeout`, a command that has not answered in that many seconds is killed and answers not ok."""
+    try:
+        out = subprocess.run([AGENT, *args, *account_args()], capture_output=True, text=True, env=ENV,
+                             timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": f"no answer from agent within {timeout} s"}
     try:
         return json.loads(out.stdout)
     except json.JSONDecodeError:

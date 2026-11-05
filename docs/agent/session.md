@@ -328,6 +328,15 @@ sessions; the account, its world and its inventory are untouched.
   gateway was a world-builder bug, #1453), a tool, a docs/agent/ tip -
   when it slows you or you write the same helper twice: part of the job.
   Improve the scripts in [tools/](tools/README.md); do not rewrite them.
+- **Two agents in one world** (live session 20: Catoid at home in Purlieu,
+  Kairos visiting). Each has its own daemon and watcher (`AGENT_ACCOUNT` in
+  front of every call); the admin's lines reach both, and each takes what is
+  addressed to it by name. Both arrive on the world's landing - Kairos set
+  down 0.42 m from Catoid - so walk the second off it at once. Run
+  [tools/companion.py](tools/README.md) for each, on opposite `--side`s, each
+  `--avoid`-ing the other, and create its `--pause-file` before taking one
+  over for a task. A gift between them bounces: an agent takes gifts from its
+  admin only (#1423), so the owner hands a build on from their own inventory.
 
 ## The owner's rules
 

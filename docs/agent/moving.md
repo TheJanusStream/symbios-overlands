@@ -24,7 +24,12 @@ stood still for five seconds: a 130 m drive was escorted live and ended
 3.5 m from the car. A follow only steers straight at them: with a wall or an
 enclosure between you it stops and the watcher wakes, so walk through the gap
 first and follow from there (`exports/catoid/b/rejoin.py` does that with a
-list of Purlieu's gaps).
+list of Purlieu's gaps). [tools/companion.py](tools/README.md) goes round by
+itself: a follow standing still 4 s short of the admin steps 3 m to one side
+and follows again, the other side and further out each time it blocks again
+(after six tries it watches them until they move on), and a body that cannot
+fly waits at the foot of what the admin has climbed
+(live session 20: Catoid against a fallen oak, then the Cat Tree's trunk).
 
 A follow keeps the body it began with (#1851). Kairos followed the owner on
 foot, wore an airship, and the follow went on pressing a walker's keys on
@@ -36,6 +41,11 @@ once.
 
 - A straight line into a building ends `stuck`. Route with waypoints round
   it: one `walk-to` per leg.
+- **`walk-to` stops about a metre short**, so it cannot line a body up with
+  anything narrow: aim each leg a metre PAST its point along the way the body
+  travels, or walk it along a wall. Catoid missed the Cat Cottage's 0.64 m
+  ramp from in front of it, and walked the Cat Tree's ramp tower corner to
+  corner in 8 legs aimed a metre past each corner (live session 20).
 - **Solid fences and walls close straight lines.** Once Ashmere's street
   fences were made solid, a walk-to from the green to the gate ended
   `stuck` against a fence twice; one leg per bend of the street, waypoints on

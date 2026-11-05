@@ -8,6 +8,7 @@ thread.py's ground is stubbed with a plane, and what it writes is meshed as the 
 judged against the lane's drawn top, not against the formula that laid it. rec.py talks to a stubbed
 agent.
 """
+import argparse
 import contextlib
 import io
 import json
@@ -15,11 +16,13 @@ import math
 import os
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import agentlib  # noqa: E402
+import companion  # noqa: E402
 import rec  # noqa: E402
 import near  # noqa: E402
 import thread  # noqa: E402
@@ -466,6 +469,270 @@ class NearRect(unittest.TestCase):
         [(_, text)] = near.near(self.record(-5236, center), 0.0, 0.0, 0.0, box)
         self.assertIn("reaches", text)
 
+
+class Clock:
+    """companion.py's time, moved by hand."""
+
+    def __init__(self):
+        self.now = 1000.0
+
+    def time(self):
+        return self.now
+
+    def strftime(self, _fmt):
+        return "00:00:00"
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+
+class CompanionTool(unittest.TestCase):
+    """companion.py against a stubbed agent: its blocked follow, its body changes and its run.
+
+    A follow steers straight at the admin: in the Cat Tree Forest (live session 20) Catoid pressed
+    against a fallen oak across that line, then against a trunk the owner had climbed.
+    """
+
+    CAT = dict(persona="cat", side="left", avoid=[], idle=8.0, fleet=False, water_level=None, pause_file=None)
+    FACTORY = dict(CAT, persona="factory", side="right", fleet=True)
+
+    def setUp(self):
+        self.clock, self.calls, self.status, self.refuse = Clock(), [], None, {}
+        for patch in (mock.patch.object(companion, "time", self.clock),
+                      mock.patch.object(companion, "agent", self.agent),
+                      mock.patch.object(companion, "PAUSE", None)):
+            patch.start()
+            self.addCleanup(patch.stop)
+        random_state = companion.random.getstate()
+        companion.random.seed(7)
+        self.addCleanup(companion.random.setstate, random_state)
+        self.out = io.StringIO()
+        quiet = contextlib.redirect_stdout(self.out)
+        quiet.__enter__()
+        self.addCleanup(quiet.__exit__, None, None, None)
+
+    def agent(self, *args, timeout=None):
+        """`status` answers self.status (not running while it is None), a command named in
+        self.refuse is refused in its words, and anything else is done."""
+        self.calls.append(args)
+        if args[0] == "status":
+            if self.status is None:
+                return {"ok": False, "error": "the agent is not running"}
+            return {"ok": True, "result": self.status}
+        if args[0] in self.refuse:
+            return {"ok": False, "error": self.refuse[args[0]]}
+        return {"ok": True, "result": {}}
+
+    def make(self, **opts):
+        return companion.Companion(argparse.Namespace(**dict(self.CAT, **opts)))
+
+    def world(self, me, admin, doing="following"):
+        movement = {"doing": doing, "distance_m": math.dist(me, admin), "closing": True} if doing else None
+        self.status = {"state": "in_world", "position": list(me), "nearby": [], "movement": movement,
+                       "peers": [{"admin": True, "placed": True, "handle": "owner.test", "position": list(admin),
+                                  "facing": [0.0, -1.0]}]}
+
+    def walks(self):
+        return [(float(a[1]), float(a[2])) for a in self.calls if a[0] == "walk-to"]
+
+    def count(self, command):
+        return sum(a[0] == command for a in self.calls)
+
+    # ---- a follow that cannot get through
+
+    def test_a_follow_standing_still_short_of_the_admin_goes_round_once_blocked_for_has_passed(self):
+        cat = self.make()
+        self.world((0, 0, 0), (0, 0, -20))  # the admin 20 m north, on level ground
+        cat.step()
+        self.clock.now += companion.BLOCKED_FOR - 0.5
+        cat.step()
+        self.assertEqual(self.walks(), [])
+        self.clock.now += 1.0
+        cat.step()
+        # a ROUND to its side and a metre back, away from the admin, then the follow again
+        self.assertEqual(self.walks(), [(3.0, 1.0)])
+        self.assertEqual(self.calls[-1], ("follow", "@owner.test", "--distance", "2.5"))
+
+    def test_a_follow_that_keeps_moving_is_never_blocked(self):
+        cat = self.make()
+        for k in range(10):
+            self.world((0, 0, -0.6 * k), (0, 0, -20))
+            cat.step()
+            self.clock.now += 1.0
+        self.assertEqual(self.walks(), [])
+
+    def test_each_new_block_goes_round_the_other_side_one_round_further_out_every_second_try(self):
+        cat = self.make()
+        # the admin east this time: the step is across the line to them, the metre back along it
+        for _ in range(8):
+            cat.go_round({"position": [0.0, 0.0, 0.0]}, {"position": [10.0, 0.0, 0.0], "handle": "owner.test"})
+        self.assertEqual(self.walks(), [(-1.0, 3.0), (-1.0, -3.0), (-1.0, 6.0), (-1.0, -6.0),
+                                        (-1.0, 9.0), (-1.0, -9.0), (-1.0, 9.0), (-1.0, -9.0)])
+
+    def test_reaching_the_admin_starts_the_next_block_afresh(self):
+        cat = self.make()
+        cat.detours = 3
+        self.world((0, 0, 0), (0, 0, -3.0))  # within keep + 1 m
+        cat.step()
+        self.assertEqual(cat.detours, 0)
+
+    def test_after_give_up_after_detours_it_watches_and_tries_again_once_the_admin_moves_on(self):
+        cat = self.make()
+        self.world((0, 0, 0), (0, 0, -20))  # fenced off: every way round blocks again
+        for _ in range(40):
+            cat.step()
+            self.clock.now += 2.5
+        self.assertEqual(len(self.walks()), companion.GIVE_UP_AFTER)
+        self.assertIsNotNone(cat.waiting_for)
+        self.assertIn(("face", "@owner.test"), self.calls)
+        self.world((0, 0, 0), (2, 0, -20))  # 2 m on: not far enough to try again
+        cat.step()
+        self.assertIsNotNone(cat.waiting_for)
+        self.world((0, 0, 0), (4, 0, -20))
+        cat.step()
+        self.assertIsNone(cat.waiting_for)
+        self.assertEqual(cat.detours, 0)
+        self.assertEqual(self.calls[-1], ("follow", "@owner.test", "--distance", "2.5"))
+
+    def test_a_cat_blocked_under_an_admin_up_a_tree_sits_and_watches_and_follows_them_down(self):
+        cat = self.make()
+        self.world((0, 0, 0), (2, 7, 0))  # 2 m across, 7 m up
+        cat.step()
+        self.clock.now += companion.BLOCKED_FOR + 0.5
+        cat.step()
+        self.assertEqual(self.walks(), [])  # it does not go round a trunk to reach someone up it
+        self.assertIn(("halt",), self.calls)
+        self.assertEqual(self.calls[-1], ("face", "@owner.test"))
+        self.world((0, 0, 0), (2, 7, 0), doing=None)
+        self.clock.now += 20.0
+        cat.step()
+        self.assertEqual(self.calls[-1][0], "say")
+        self.assertIn(self.calls[-1][1], companion.CAT_LINES["sit"])
+        # past GESTURE_EVERY, so only the sat-once rule keeps it from saying it again
+        self.clock.now += companion.GESTURE_EVERY + 10.0
+        cat.step()
+        self.assertEqual(self.calls[-1], ("status",))
+        self.world((0, 0, 0), (-2, 7, 0), doing=None)  # round to its other side
+        self.clock.now += 20.0
+        cat.step()
+        self.assertEqual(self.calls[-1], ("face", "@owner.test"))
+        self.world((0, 0, 0), (-2, 1.5, 0), doing=None)  # down, within 2 m of its height
+        self.clock.now += 1.0
+        cat.step()
+        self.assertFalse(cat.under)
+        self.assertEqual(self.calls[-1], ("follow", "@owner.test", "--distance", "2.5"))
+
+    def test_a_factory_on_the_fleet_goes_round_where_a_cat_would_wait_as_it_flies_up(self):
+        factory = self.make(**self.FACTORY)
+        factory.body = companion.FLEET["hurry"]  # already in the air for the climb
+        self.world((0, 0, 0), (2, 7, -9))
+        factory.step()
+        self.clock.now += companion.BLOCKED_FOR + 0.5
+        factory.step()
+        self.assertFalse(factory.under)
+        self.assertEqual(len(self.walks()), 1)
+
+    # ---- its bodies
+
+    def test_a_refused_wear_is_tried_again_only_after_switch_every_and_stops_nothing(self):
+        factory = self.make(**self.FACTORY)
+        self.refuse = {"wear": "There is no avatar item named Kairos Skyfactory."}
+        self.world((0, 0, 0), (2, 7, -9), doing=None)  # the admin up high: the climb asks for the air
+        for _ in range(10):
+            factory.step()
+            self.clock.now += 1.0
+        self.assertEqual(self.count("wear"), 1)
+        self.assertEqual(self.count("halt"), 0)
+        self.clock.now += companion.SWITCH_EVERY
+        factory.step()
+        self.assertEqual(self.count("wear"), 2)
+
+    def test_a_wear_refused_as_already_worn_takes_that_body_as_worn(self):
+        factory = self.make(**self.FACTORY)
+        self.refuse = {"wear": "You are already wearing Kairos Skyfactory."}
+        self.world((0, 0, 0), (2, 7, -9), doing=None)
+        factory.step()
+        self.assertEqual(factory.body, companion.FLEET["hurry"])
+        self.clock.now += companion.SWITCH_EVERY + 1.0
+        factory.step()
+        self.assertEqual(self.count("wear"), 1)
+
+    def test_dry_for_counts_time_clear_of_the_water_without_a_break(self):
+        boat = self.make(**dict(self.FACTORY, water_level=10.0))
+        boat.body = companion.FLEET["water"]
+        clear, edge, admin = {"position": [0.0, 11.0, 0.0]}, {"position": [0.0, 10.5, 0.0]}, {"position": [3.0, 11.0, 0.0]}
+        self.assertIsNone(boat.pick_body(clear, admin))
+        self.clock.now += 5.0
+        self.assertIsNone(boat.pick_body(edge, admin))  # at the water's edge again: neither wet nor dry
+        self.clock.now += 1.0
+        self.assertIsNone(boat.pick_body(clear, admin))  # clear again: DRY_FOR from now
+        self.clock.now += companion.DRY_FOR - 1.0
+        self.assertIsNone(boat.pick_body(clear, admin))
+        self.clock.now += 2.0
+        self.assertEqual(boat.pick_body(clear, admin), companion.FLEET["walk"])
+
+    # ---- its chat and its run
+
+    def test_a_second_gesture_waits_gesture_every(self):
+        cat = self.make()
+        self.assertTrue(cat.say_gesture("sit"))
+        self.clock.now += 100.0
+        self.assertFalse(cat.say_gesture("lie"))
+        self.clock.now += companion.GESTURE_EVERY
+        self.assertTrue(cat.say_gesture("lie"))
+
+    def test_nothing_is_sent_while_the_pause_file_exists(self):
+        with tempfile.NamedTemporaryFile() as pause, mock.patch.object(companion, "PAUSE", pause.name):
+            self.assertIsNone(companion.ask("follow", "@owner.test"))
+        self.assertEqual(self.calls, [])
+
+    def test_a_world_still_loading_is_waited_for_not_given_up_on(self):
+        cat = self.make()
+        self.status = {"state": "loading"}
+        for _ in range(20):
+            cat.step()
+        self.assertEqual(cat.misses, 0)
+
+    def test_a_bad_answer_skips_its_tick_and_the_run_goes_on(self):
+        cat = self.make()
+        self.world((0, 0, 0), (0, 0, -20))
+        self.status["position"] = [0.0]  # cut short: xz() cannot read it
+        ticks, real_step = [], cat.step
+
+        def step():
+            ticks.append(self.clock.now)
+            if len(ticks) == 3:
+                self.status = None  # then the daemon goes away
+            real_step()
+
+        cat.step = step
+        cat.run()
+        self.assertIn("skipped a tick", self.out.getvalue())
+        self.assertEqual(len(ticks), 2 + 15)  # two bad ticks, then 15 unanswered, then it stops
+
+    def test_an_agent_binary_that_cannot_run_counts_as_gone_not_a_crash(self):
+        def busy(*args, timeout=None):
+            raise OSError(26, "Text file busy")
+
+        with mock.patch.object(companion, "agent", busy):
+            self.make().run()
+        self.assertIn("the agent is gone", self.out.getvalue())
+
+
+class AgentTimeout(unittest.TestCase):
+    """agentlib.agent's timeout: a hung command must not hang the tool that sent it."""
+
+    def test_a_command_past_its_timeout_is_killed_and_answers_not_ok(self):
+        with tempfile.TemporaryDirectory() as d:
+            slow = os.path.join(d, "agent")
+            with open(slow, "w") as fh:
+                fh.write("#!/bin/sh\nexec sleep 5\n")
+            os.chmod(slow, 0o755)
+            started = time.monotonic()
+            with mock.patch.object(agentlib, "AGENT", slow):
+                answer = agentlib.agent("status", timeout=0.3)
+        self.assertFalse(answer["ok"])
+        self.assertLess(time.monotonic() - started, 3.0)
 
 if __name__ == "__main__":
     unittest.main()
