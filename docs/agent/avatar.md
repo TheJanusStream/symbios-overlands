@@ -18,7 +18,13 @@ is the best body found so far: a
 it lands on its point - a roof or a hill to look down at a build from.
 Keep what the seed gave unless there is a reason: the numbers are tuned
 together, and `hover_thrust` must stay `mass x 9.81` or the craft sinks or
-climbs at idle. Landed, it rests its weight on its box's underside (#1612),
+climbs at idle. A seed that rolled a person (or anything else) becomes a
+rotorcraft by wearing one from the Catalogue: `A wear avatar_airship_hybrid`
+brings that craft's tuned flight, gait and sound in one undo step, and the
+body is then yours to reshape - `/record/body/visuals` and
+`chassis_half_extents` - with its flight numbers kept (Kairos, session 1000,
+the hybrid's 10.6 m/s). A movement begun before the wear keeps steering the
+old body (#1851): `halt` and start it again. Landed, it rests its weight on its box's underside (#1612),
 so a shape that hangs below `-half_y` stands in the ground. A rotorcraft
 that should tip into its motion - nose down flying forward, banked into a
 turn - says how far in `/record/gait/lean_degrees` (0 to 45; absent is 0,
@@ -64,6 +70,10 @@ sooner.
   the shape at `-half_y`, or the body floats above the ground it lands on
   or sinks into it; a thin part that trails (a tail, a thread) stays above
   `-half_y` too, or it cuts the ground when landed.
+- **A body meant to hover** turns that rule round: draw its lowest point
+  above `-half_y` on purpose, and it floats by the gap landed and flying.
+  Kairos's factory stops 0.33 m over its collider's floor, with a glowing
+  ring, lit vents and a falling shimmer under it to say why.
 - **Front is local -Z**: what trails goes to +Z.
 - **Make the root the node at the origin with no transform**, so every
   child's translation is a body-space position.
@@ -81,6 +91,44 @@ sooner.
   emissive washes out to white.
 - A `particles` node gives a body a trail: `inherit_velocity: 0` leaves what
   it emits behind as it moves (a spore drift in the body's wake).
+- **Smoke that billows** is a tiled animation: `procedural_texture` a `Puff`
+  with `variant_rows` and `variant_cols` 4 (16 cells, each its own puff) and
+  `frame_mode` `{"$type": "network.symbios.particle.frame.over_lifetime",
+  "fps": 50000}`, so each particle runs through the sheet as it rises,
+  grows and fades (Kairos's stacks, session 1000). Particles do not turn,
+  so the atlas is the motion. A sprite's colours are LINEAR; light grey at
+  half alpha vanished against a pale sky, a mid-grey at two-thirds read.
+
+## One body on every way of moving
+
+Kairos keeps a fleet: the same deck over a car, a hover-boat, an airplane
+and a rotorcraft (session 1000; `exports/kairos/b/fleet.py`,
+[accounts/kairos/](accounts/kairos/README.md)). Wear the Catalogue craft of
+each family for its tuned numbers, set your tree and grown collider, test,
+then `stash-avatar` each one.
+
+- **A car's ground is fixed by its springs**: at rest it lies `-half_y -
+  (suspension_rest_length - m g / 4 k)` under the box's centre (Jink's
+  formula); draw every wheel's bottom there. Roll terms take the tyre's
+  radius and read the part's own velocity, so a wheel rolls the right way
+  whichever way its axis points; a steer term reads forward along its
+  parent's +Z, so a nose at -Z steers with a negative gain.
+- **Grow the turning torque with the box**: a wider box turns slower on the
+  same torque; scale it by `(hx^2 + hz^2)` new over old. A car's top speed
+  is `drive_force / (mass x linear_damping)`: the Catalogue rover's is 2.8
+  m/s, slower than a person runs.
+- **An airplane's gear lives in its record** as shares of its box; the
+  sanitiser keeps `tail_wheel_aft` at most 1 (the box's end) and
+  `center_of_mass_ahead` behind `gear_ahead`. Read the kept values back
+  (`adjusted_at`) and draw the wheels there, or she stands on wheels nobody
+  can see.
+- **Walking is a rigged body's alone.** A generator body that should look
+  as if it walks can turn RHex-style legs with `roll` at the hip-to-foot
+  radius; a leg hung from a crank cannot be held upright, since both `roll`
+  and `speed` read the part's own motion.
+- `render --driver` drives a car offline; start it away from the landing's
+  gateway (`--drive-bearing`). A hover-boat or an airplane is tried on an
+  offline daemon with its own `XDG_CONFIG_HOME`.
 
 ## Seeing it before anyone else does
 
@@ -93,7 +141,11 @@ BEVY_ASSET_ROOT=<repo> <repo>/target/test-release/render \
 ```
 
 where `visuals.json` is the tree as `avatar set /record/body/visuals`
-takes it. Then `A avatar set /record/body/visuals --file visuals.json` and
+takes it. The four views are fixed in yaw - `--yaw` changes nothing there,
+`--elev` raises or lowers them - and the body is small in each tile:
+`--size 1024` draws each tile 1024 px, and Kairos's `exports/kairos/b/crop.py
+SHEET OUT` cuts the tiles' middles and lays them two by two, close enough to
+judge a 2 cm part. Then `A avatar set /record/body/visuals --file visuals.json` and
 `A avatar set /record/locomotion/chassis_half_extents '[x, y, z]'` (two
 steps of the avatar's undo), and `look` once to see it in the world.
 Write the body as a script that prints the JSON from named dimensions, as a
@@ -330,6 +382,12 @@ the cap's dark centre (session 874: a proud, lighter 0.75 m disc read as a
 lid); a build's root goes at `[0, 150, 0]` (1.5 cm, the disc's half
 thickness) in the disc's frame. Keep the bench level when the cap is not:
 a stashed build keeps the turn it had on the body.
+
+Kairos's is a whole build plate (session 1000): `/record/body/visuals/children/0`,
+a plain slate square 1.70 m a side and 4 cm thick, a build's root at
+`[0, 200, 0]` in its frame. A plate meant for building is kept plain and the
+deck's colours and lights stay off it and below its top, so a build reads on
+it and never meets them ([accounts/kairos/](accounts/kairos/README.md)).
 
 ## Making a body look grown, not turned
 

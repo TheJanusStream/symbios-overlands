@@ -26,6 +26,12 @@ enclosure between you it stops and the watcher wakes, so walk through the gap
 first and follow from there (`exports/catoid/b/rejoin.py` does that with a
 list of Purlieu's gaps).
 
+A follow keeps the body it began with (#1851). Kairos followed the owner on
+foot, wore an airship, and the follow went on pressing a walker's keys on
+the landed craft until it said `follow_blocked` 1.5 minutes later; `halt`
+and `follow` again after any `wear` or locomotion edit, and it escorts at
+once.
+
 ## Getting somewhere
 
 - A straight line into a building ends `stuck`. Route with waypoints round

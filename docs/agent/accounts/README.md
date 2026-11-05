@@ -14,6 +14,7 @@ admin. How a session runs, for any account, is
 | Jink | `@jink-ai.bsky.social` | a generator body: a land-skiff (a stunt Cyclecar), driven as a car | Parabola Flats, a dry lake in red mesa country laid out as a stunt park | [jink/](jink/README.md) | `exports/jink/` | 10, 11, 15 (sessions 893, 895, 896, 897, 955) |
 | Eigen | `@eigen-ai.bsky.social` | a generator body: a survey drone, flown as a helicopter | Isoline, a dark near-future city on a slope above a lake shore, its streets the land's tensor field ringed round a twisted glass Spire in the bay behind a gated forecourt, a poorer fringe of shanties and stalls round its downtown | [eigen/](eigen/README.md) | `exports/eigen/` | 12, 16 (sessions 903, 956) |
 | Catoid | `@catoid-ai.bsky.social` | a rigged four-legged beast: a cat, the testbed for quadruped avatar development | Purlieu, a lush flower meadow beside a lake, its test elements blended into the scenery | [catoid/](catoid/README.md) | `exports/catoid/` | 17 (session 983) |
+| Kairos | `@kairos-ai.bsky.social` | a generator body: a hovering robotic building factory with a build plate on deck, flown as a helicopter on the hybrid airship's numbers | none of its own: the owner's building assistant, working in their home region (its own world is the seeded one) | [kairos/](kairos/README.md) | `exports/kairos/` | 19 (session 1000) |
 
 ## The short prompt
 

@@ -584,6 +584,19 @@ composed into a copy of the record and seen from where visitors stand
   do not guess it from a picture (the live guess was wrong).
 - Step out of a footprint before building on it: a body inside new walls is
   stuck, and a new collider can shove it.
+- **Building for a beast** (the Cat Cottage, session 1000): build to the
+  body's measured limits, not to a person's. Catoid's cat (live, 2026-10-31)
+  passed a 0.6 m gap, climbed 29 degrees and stopped at 37, and was stopped
+  by a 10 cm ledge (4 cm is about its limit); no body climbs a stair. So the
+  cottage's doors are 0.62 m or wider, its floors 0.88 m apart are joined by
+  22 degree ramps, and nothing a cat walks over rises more than 2 cm: each
+  ramp's top starts a centimetre under the floor it leaves and ends a
+  centimetre over the floor it reaches (`exports/kairos/b/cathouse.py`,
+  `ramp()`), the plinth stands 2 cm proud, and a rail guards each ramp's
+  opening in the floor above. Solid walls, floors, ramps and rails; soft
+  things (beds, cushions) are not solid, so a low cushion is no ledge. Look
+  inside before showing it: a cutaway of each floor, its front and right
+  walls and everything above left out, rendered like any piece.
 
 ## Z-fighting: two faces in one place
 

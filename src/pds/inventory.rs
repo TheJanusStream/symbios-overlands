@@ -1019,6 +1019,22 @@ impl SaveBound {
         Self::PerRequest(2 + probes + batches)
     }
 
+    /// Run `save` - a [`publish_inventory_record`] - under this bound, as
+    /// its task does: inside one `run_or` over the whole for a
+    /// [`Self::Whole`] save, and simply awaited for a [`Self::PerRequest`]
+    /// one. The save bounds each of its requests either way, so a whole save
+    /// nests one bounded call in another (#1853).
+    pub async fn run<F>(self, save: F) -> Result<(), String>
+    where
+        F: std::future::Future<Output = Result<(), String>>,
+    {
+        use crate::config::http::{run_or, timed_out};
+        match self {
+            Self::Whole => run_or(save, Err(timed_out("Saving your inventory"))).await,
+            Self::PerRequest(_) => save.await,
+        }
+    }
+
     /// How long the poll waits for the save before declaring it dead: the
     /// fixed deadline for a [`Self::Whole`] save, and beyond it a request's
     /// bound per request for a [`Self::PerRequest`] one - as a world load's
@@ -2468,6 +2484,36 @@ mod world_item_tests {
     /// is bounded per request, its deadline grown by a request's bound for
     /// every request it can make - the resolution, the legacy check, the
     /// probe windows, one batch per part and per item write, the deletes.
+    /// #1853: a save that touches no world runs under one bound over the
+    /// whole, and the save bounds each of its requests inside it. On native
+    /// both were `block_on` on the shared runtime: the inner one panicked
+    /// ("Cannot start a runtime from within a runtime") and the panic took
+    /// the client down with its task - Kairos's first save of a thing, live.
+    /// Here the save gets as far as its first request, resolving the data
+    /// server of a `did:key`, which answers at once with no network.
+    #[test]
+    fn a_save_without_a_world_runs_its_requests_under_the_whole_bound() {
+        let mut live = InventoryRecord::default();
+        assert!(live.put_item(
+            String::from("Cat Cottage"),
+            Generator::default_cuboid(),
+            None
+        ));
+        let stored = InventoryRecord::default();
+        let bound = SaveBound::of(&live, &stored);
+        assert_eq!(bound, SaveBound::Whole);
+        let session = crate::oauth::stand_in::stand_in_session(
+            "did:key:zkairoswhosesavegoesnowhere",
+            "kairos.example",
+        )
+        .expect("builds");
+        let refresh = crate::oauth::stand_in::stand_in_refresh_ctx().expect("builds");
+        let client = reqwest::Client::new();
+        let save = publish_inventory_record(&client, &session, &refresh, &live, &stored);
+        let answer = futures_lite::future::block_on(bound.run(save));
+        assert_eq!(answer, Err(String::from("Failed to resolve PDS")));
+    }
+
     #[test]
     fn a_save_writing_a_world_is_bounded_per_request() {
         use crate::config::http::{PUBLISH_TASK_DEADLINE, REQUEST_TIMEOUT};

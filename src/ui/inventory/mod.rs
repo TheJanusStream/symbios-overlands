@@ -1495,16 +1495,7 @@ pub(crate) fn spawn_publish_inventory_task(
             )
             .await
         };
-        match bound {
-            crate::pds::inventory::SaveBound::Whole => {
-                crate::config::http::run_or(
-                    fut,
-                    Err(crate::config::http::timed_out("Saving your inventory")),
-                )
-                .await
-            }
-            crate::pds::inventory::SaveBound::PerRequest(_) => fut.await,
-        }
+        bound.run(fut).await
     });
     commands.spawn(PublishInventoryTask {
         task,

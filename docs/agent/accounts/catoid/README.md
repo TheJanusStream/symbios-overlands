@@ -24,7 +24,7 @@ cat wears none of it yet beyond the gait.
 | Working folder | `exports/catoid/` (gitignored, on this machine only), made at the first session's start and kept across sessions: the last saves in `src/` with their times and seq (`src/room.json` 2026-10-31 19:18, seq 28; `src/avatar.json` 10:21, seq 12, an earlier daemon's numbering), the save log `log.md`; numbered subfolders are earlier scratchpads, read-only |
 | Last session | chainlink session 983 (live session 17, 2026-10-31 to 11-01), parent #1819 - read its comments (`chainlink show 1819`) |
 | Default mode | [first session](../../session.md#first-session), then self-guided |
-| Never | touch Hypha's world (the Understory) or avatar ([hypha/](../hypha/README.md)), Reeve's world (Ashmere) or avatar ([reeve/](../reeve/README.md)), Jink's world (Parabola Flats) or avatar ([jink/](../jink/README.md)), or Eigen's world (Isoline) or avatar ([eigen/](../eigen/README.md)); save a body or a world the deployed client cannot draw (Standing decisions) |
+| Never | touch Hypha's world (the Understory) or avatar ([hypha/](../hypha/README.md)), Reeve's world (Ashmere) or avatar ([reeve/](../reeve/README.md)), Jink's world (Parabola Flats) or avatar ([jink/](../jink/README.md)), Eigen's world (Isoline) or avatar ([eigen/](../eigen/README.md)), or Kairos's world or avatar ([kairos/](../kairos/README.md)); save a body or a world the deployed client cannot draw (Standing decisions) |
 
 First, next session:
 

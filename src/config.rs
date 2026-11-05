@@ -2622,7 +2622,18 @@ pub(crate) mod http {
             // Native is bounded by `default_client`'s builder timeout, so
             // this arm can never produce `on_timeout`.
             drop(on_timeout);
-            block_on(fut)
+            // A bounded call may run inside another (#1853): an inventory
+            // save bounds each of its requests, and a save that touches no
+            // world is bounded whole by its caller as well. The outer call's
+            // `block_on` has entered the shared runtime, so awaiting drives
+            // this future there; a second `block_on` would panic ("Cannot
+            // start a runtime from within a runtime") and take the client
+            // down with the task.
+            if tokio::runtime::Handle::try_current().is_ok() {
+                fut.await
+            } else {
+                block_on(fut)
+            }
         }
         #[cfg(target_arch = "wasm32")]
         {
@@ -3708,6 +3719,25 @@ mod http_client_tests {
         // calls this per task.
         let again = super::http::default_client();
         drop((client, again));
+    }
+
+    /// #1853: a bounded call inside another returns what it returns. On
+    /// native `run_or` blocked on the shared runtime even when the outer
+    /// call's `block_on` already had, and tokio panicked: "Cannot start a
+    /// runtime from within a runtime". The inner call also sleeps on the
+    /// runtime's timer, so the nested await is driven by the shared runtime.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_bounded_call_nested_in_another_returns_its_value() {
+        use super::http::run_or;
+        let inner = async {
+            let seven = async {
+                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                7
+            };
+            run_or(seven, 0).await + 1
+        };
+        assert_eq!(futures_lite::future::block_on(run_or(inner, 0)), 8);
     }
 
     /// `use_rustls_tls` is feature-gated in reqwest, so this is really a

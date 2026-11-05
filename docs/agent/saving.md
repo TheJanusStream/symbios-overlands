@@ -63,6 +63,11 @@ The inventory keeps whole avatars and whole worlds beside things (#1843);
   without `--wait`, read the event. Do not edit the world or save it until
   it has landed. A catalogue world (`A load worlds_...`) lands in the frame
   and says `loaded`.
+- **A client built before #1853 dies on a `save inventory` with no world
+  in it** (session 1000): Kairos stashed a thing from its plate, saved, and
+  the daemon panicked inside the save, taking the unsaved stash with it.
+  On such a build, give a thing without saving (`gift give` of a thing
+  needs no save) and save the inventory only once the daemon runs the fix.
 - **"This sign-in predates a permission ..."** answers `stash-world`, a
   catalogue world's `stash` or a `save inventory` holding a new world item
   on an account signed in before world items existed: their contents are
