@@ -659,6 +659,9 @@ pub(super) fn apply_humanoid_walk(
             // the rotation it has. Optional, so a harness that builds a
             // person without them still walks it.
             Option<(&Rotation, &mut AngularVelocity, &LyingTurn)>,
+            // A winged body's flight (#1861): off its feet, the flight moves
+            // it, and on them Space is its take-off rather than a jump.
+            Option<&super::flight::Flight>,
         ),
         (With<LocalPlayer>, With<HumanoidPreset>),
     >,
@@ -677,10 +680,14 @@ pub(super) fn apply_humanoid_walk(
     let LocomotionConfig::Humanoid(p) = &live.0.locomotion else {
         return;
     };
-    let Ok((entity, mut lin_vel, mut chassis_tf, position, mut water, spin)) = query.single_mut()
+    let Ok((entity, mut lin_vel, mut chassis_tf, position, mut water, spin, flight)) =
+        query.single_mut()
     else {
         return;
     };
+    if flight.is_some_and(|flight| flight.mode().airborne()) {
+        return;
+    }
 
     // The physics' own position, not the pose the last frame left (#1548,
     // see `super::physics_pose`).
@@ -799,7 +806,9 @@ pub(super) fn apply_humanoid_walk(
             // fixed steps on >64 Hz displays. `clear_jump_queue` (chained
             // after this system) wipes the flag each step, so a tap fires
             // at most once and a mid-air tap can't fire on a later landing.
-            if jump_queued.0 {
+            // A body that flies takes off on Space instead (#1861):
+            // `flight::fly_on_foot`, earlier in the step.
+            if jump_queued.0 && !p.flies() {
                 // Exclude self + every sensor so a gateway veil / portal never
                 // counts as ground for the jump check (#813) -
                 // see [`super::ground_ray_filter`].

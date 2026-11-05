@@ -52,6 +52,14 @@ pub struct HumanoidParams {
     /// accepted as cosmetic.
     #[serde(default, skip_serializing_if = "OnFootShape::leaves_no_key")]
     pub shape: OnFootShape,
+    /// How the body flies, when it does (#1861): a winged body's numbers.
+    /// **Absent is left off the wire**, so a body that only walks - every
+    /// person and beast - writes exactly the bytes it did before the section
+    /// existed. A client older than it drops the key when it writes the
+    /// record back, and nothing restores it until the winged bodies (#1862)
+    /// can read it back from their kind ([`super::flight`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flight: Option<super::FlightParams>,
 }
 
 /// How an on-foot body stands over its capsule (#1802) - an open union, like
@@ -137,6 +145,7 @@ impl Default for HumanoidParams {
             stop_damping: default_stop_damping(),
             turn_rate: default_turn_rate(),
             shape: OnFootShape::Upright,
+            flight: None,
         }
     }
 }
@@ -221,6 +230,9 @@ impl LocomotionPreset for HumanoidParams {
             },
             OnFootShape::Upright | OnFootShape::Unknown => OnFootShape::Upright,
         };
+        if let Some(flight) = &mut self.flight {
+            flight.sanitize();
+        }
     }
 
     fn into_config(self) -> LocomotionConfig {

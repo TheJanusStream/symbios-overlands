@@ -81,6 +81,23 @@ impl LoadedRecord for RoomRecord {
     }
 }
 
+/// What the owner's own avatar record is put through before it goes live
+/// ([`LoadedRecord::install`]): sanitised, and stood on the shape its body
+/// takes (`restore_body_shape`). **Nothing gives a body a flight section it
+/// was not given** (#1861): a generator body's visuals are no sound witness of
+/// wings - a pair of swaying lanterns swings as a pair of wings does - so a
+/// section a client older than it dropped stays dropped, until the winged
+/// bodies (#1862) can restore it from their kind.
+pub(crate) fn settle_installed(record: &mut AvatarRecord) {
+    record.sanitize();
+    if pds::avatar::locomotion::restore_body_shape(record) {
+        info!(
+            "Avatar record: the on-foot preset was saved for another kind of body - \
+             refitted to its body"
+        );
+    }
+}
+
 impl LoadedRecord for AvatarRecord {
     const LABEL: &'static str = "Avatar";
     const RECORD_KIND: RecordKind = RecordKind::Avatar;
@@ -106,13 +123,7 @@ impl LoadedRecord for AvatarRecord {
     /// preset it was saved with - peers draw that, as published - until the
     /// owner's next save of anything, which carries the refit with it.
     fn install(mut self, commands: &mut Commands) {
-        self.sanitize();
-        if pds::avatar::locomotion::restore_body_shape(&mut self) {
-            info!(
-                "Avatar record: the on-foot preset was saved for another kind of body - \
-                 refitted to its body"
-            );
-        }
+        settle_installed(&mut self);
         commands.insert_resource(LiveAvatarRecord(self.clone()));
         commands.insert_resource(StoredAvatarRecord(self));
     }
@@ -226,6 +237,30 @@ pub(crate) fn start_inventory_record_fetch(
 
 #[cfg(test)]
 mod tests {
+
+    /// **A body that swings a pair of parts is not given wings it was not
+    /// given** (#1861's critic): the stand-in bird's own record, its flight
+    /// section dropped as a client older than the section drops it, goes live
+    /// walking. A heuristic that restored a section from a swinging pair gave
+    /// swaying lanterns a take-off in place of the owner's jump.
+    #[test]
+    fn a_dropped_flight_section_is_not_restored_from_the_body() {
+        use crate::pds::avatar::locomotion::LocomotionConfig;
+        let mut record: AvatarRecord = serde_json::from_str(include_str!(
+            "../../tests/fixtures/winged/standin_bird_avatar.json"
+        ))
+        .expect("the bird decodes");
+        let LocomotionConfig::Humanoid(p) = &mut record.locomotion else {
+            panic!("the bird walks on foot");
+        };
+        assert!(p.flies(), "the fixture flies");
+        p.flight = None;
+        settle_installed(&mut record);
+        let LocomotionConfig::Humanoid(p) = &record.locomotion else {
+            panic!("still on foot");
+        };
+        assert!(!p.flies(), "a dropped section came back from the body");
+    }
     use super::*;
     use crate::pds::avatar::LocomotionPreset;
     use crate::pds::avatar::ResolvedRig;

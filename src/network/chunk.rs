@@ -516,6 +516,7 @@ fn variant_label(msg: &OverlandsMessage) -> &'static str {
         OverlandsMessage::WorldDigest { .. } => "WorldDigest",
         OverlandsMessage::RoomRecordsPublished => "RoomRecordsPublished",
         OverlandsMessage::FirstPerson { .. } => "FirstPerson",
+        OverlandsMessage::Flight { .. } => "Flight",
     }
 }
 

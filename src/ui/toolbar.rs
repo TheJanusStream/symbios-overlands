@@ -1015,6 +1015,26 @@ const ON_FOOT_ROWS: &[ControlRow] = &[
         action: "swim down (in water - Shift stops meaning run)",
     },
 ];
+/// A winged body's rows (#1861), under the on-foot ones when its record
+/// flies. Mirrors `player::flight`'s keys - change both together.
+const WING_ROWS: &[ControlRow] = &[
+    ControlRow {
+        keys: "Space",
+        action: "take off · in the air: flap (hold to keep beating)",
+    },
+    ControlRow {
+        keys: "W / S",
+        action: "in the air: nose down / up",
+    },
+    ControlRow {
+        keys: "A / D",
+        action: "in the air: bank left / right to turn",
+    },
+    ControlRow {
+        keys: "Shift",
+        action: "in the air: fold the wings and dive",
+    },
+];
 const BOAT_ROWS: &[ControlRow] = &[
     ControlRow {
         keys: "W / S  or  ⬆ / ⬇",
@@ -1402,6 +1422,20 @@ pub fn controls_hint_ui(
                             ui.monospace(row.keys);
                             ui.label(row.action);
                             ui.end_row();
+                        }
+                        let flies = chassis == PilotedChassis::OnFoot
+                            && live.as_deref().is_some_and(|live| {
+                                matches!(
+                                    &live.0.locomotion,
+                                    crate::pds::LocomotionConfig::Humanoid(p) if p.flies()
+                                )
+                            });
+                        if flies {
+                            for row in WING_ROWS {
+                                ui.monospace(row.keys);
+                                ui.label(row.action);
+                                ui.end_row();
+                            }
                         }
                         // Camera controls are the same on every chassis.
                         for row in CAMERA_ROWS {

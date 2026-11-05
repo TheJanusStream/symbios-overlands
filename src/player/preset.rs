@@ -26,8 +26,15 @@ pub struct HoverBoatPreset;
 /// person upright on its capsule or a beast lying along it (#1802). Brings
 /// the controller's water memory with it (#1324), so no humanoid chassis can
 /// be classified without one, and a lying body's turn memory (#1802).
+/// And its flight (#1861): on its feet for a body that does not fly, and the
+/// keys a flight reads.
 #[derive(Component)]
-#[require(super::humanoid::HumanoidWater, super::humanoid::LyingTurn)]
+#[require(
+    super::humanoid::HumanoidWater,
+    super::humanoid::LyingTurn,
+    super::flight::Flight,
+    super::flight::FlightKeys
+)]
 pub struct HumanoidPreset;
 
 /// Marks the player as using the Airplane preset.
@@ -534,6 +541,7 @@ pub(super) fn sync_chassis(
                 &mut AngularDamping,
                 Option<&mut CenterOfMass>,
                 Option<&mut LockedAxes>,
+                Option<&super::flight::Flight>,
             ),
             (
                 With<crate::state::LocalPlayer>,
@@ -544,15 +552,23 @@ pub(super) fn sync_chassis(
     )>,
 ) {
     let locomotion = &live.0.locomotion;
-    let Some(spec) = chassis_spec(locomotion) else {
+    let Some(mut spec) = chassis_spec(locomotion) else {
         return;
     };
     let mut player = bodies.p0();
-    let Ok((body, mut built, shape, mut mass, mut linear, mut angular, center, locked)) =
+    let Ok((body, mut built, shape, mut mass, mut linear, mut angular, center, locked, flight)) =
         player.single_mut()
     else {
         return;
     };
+    // Off its feet a winged body's rotation is its flight's, written every
+    // step, so the physics holds all three - a beast's lying capsule too,
+    // whose turn about Y is the physics' on the ground - and its drag is its
+    // glide polar's, so the walk's damping is not added to it (#1861).
+    if flight.is_some_and(|flight| flight.mode().airborne()) {
+        spec.locks = spec.locks.map(|_| Locks::Upright);
+        spec.linear_damping = 0.0;
+    }
     let (mut collider, density, mut collider_mass) = shape;
     if built.kind != locomotion.kind_tag() || built.spec == spec {
         return;
@@ -620,6 +636,8 @@ pub(super) fn strip_preset_components(commands: &mut Commands, entity: Entity) {
         CarPreset,
         super::car::CarContact,
         super::car::CarAirKeys,
+        // A winged body's flight (#1861), which its marker requires.
+        (super::flight::Flight, super::flight::FlightKeys),
         super::helicopter::RotorLift,
         super::airplane::Throttle,
         super::airplane::Stick,

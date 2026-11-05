@@ -71,6 +71,10 @@ fn bench_app<M>(
         .insert_resource(Time::<Fixed>::from_hz(BENCH_HZ))
         .init_resource::<ButtonInput<KeyCode>>()
         .insert_resource(LiveAvatarRecord(record.clone()))
+        // What an on-foot body's walk and flight read (#1861).
+        .init_resource::<crate::water::WaterSurfaces>()
+        .init_resource::<super::humanoid::JumpQueued>()
+        .init_resource::<super::RigHold>()
         .add_systems(FixedUpdate, systems);
     let body = furnish(&mut app, record, at);
     // `App::update` would do these on its first run; the bench drives
@@ -190,6 +194,13 @@ impl FlightBench {
                 super::airplane::read_airplane_keys,
                 super::airplane::fly_airplane,
                 super::helicopter::apply_helicopter_forces,
+                // A winged body on foot (#1861): its flight, then the walk
+                // that moves it on its feet, then the jump latch's wipe.
+                super::flight::read_flight_keys,
+                super::flight::fly_on_foot,
+                super::humanoid::end_lying_turns,
+                super::humanoid::apply_humanoid_walk,
+                super::humanoid::clear_jump_queue,
             )
                 .chain(),
         );
@@ -226,6 +237,8 @@ impl FlightBench {
             crate::pds::LocomotionConfig::Airplane(p) => {
                 p.chassis_half_extents.0[1] + p.gear_height.0
             }
+            // A winged body on foot (#1861) stands on its capsule's bottom.
+            crate::pds::LocomotionConfig::Humanoid(p) => p.total_height() * 0.5,
             _ => panic!("the flight bench sets down a flying preset"),
         };
         Self::new(record, Vec3::new(x, stands + 0.02, z))
@@ -308,6 +321,29 @@ impl FlightBench {
     /// Hold `keys` down, and let go of every other flight key.
     pub(crate) fn hold(&mut self, keys: &[KeyCode]) {
         hold_keys(&mut self.app, keys, &FLIGHT_KEYS);
+    }
+
+    /// Press Space for the next step, as the game's jump latch hands a tap
+    /// to the first fixed step after it (#852): a winged body's take-off or
+    /// beat (#1861). Held or not is [`Self::hold`]'s.
+    pub(crate) fn tap(&mut self) {
+        self.app
+            .world_mut()
+            .resource_mut::<super::humanoid::JumpQueued>()
+            .0 = true;
+    }
+
+    /// A winged body's flight (#1861).
+    pub(crate) fn flight(&self) -> super::flight::Flight {
+        *self.component::<super::flight::Flight>()
+    }
+
+    /// Set a winged body's flight, as if it had been flying so (#1861).
+    pub(crate) fn set_flight(&mut self, flight: super::flight::Flight) {
+        let body = self.body;
+        if let Some(mut flying) = self.app.world_mut().get_mut::<super::flight::Flight>(body) {
+            *flying = flight;
+        }
     }
 
     /// One fixed step of the game's loop: the flight systems, then avian's

@@ -13,7 +13,15 @@ use crate::state::{CurrentRoomDid, LiveAvatarRecord, LiveRoomRecord, LocalPlayer
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn broadcast_local_state(
-    query: Query<(&Transform, &LinearVelocity, &AngularVelocity), With<LocalPlayer>>,
+    query: Query<
+        (
+            &Transform,
+            &LinearVelocity,
+            &AngularVelocity,
+            Option<&crate::player::Flight>,
+        ),
+        With<LocalPlayer>,
+    >,
     session: Option<Res<AtprotoSession>>,
     first_person: Option<Res<crate::camera::FirstPerson>>,
     peers: Query<&crate::state::RemotePeer>,
@@ -24,7 +32,7 @@ pub(super) fn broadcast_local_state(
 ) {
     *tick = tick.wrapping_add(1);
 
-    let Ok((tf, lin_vel, ang_vel)) = query.single() else {
+    let Ok((tf, lin_vel, ang_vel, flight)) = query.single() else {
         return;
     };
 
@@ -100,6 +108,27 @@ pub(super) fn broadcast_local_state(
                 }
             }
         }
+        // A winged body off its feet says what it is doing again on this
+        // cadence (#1861), as the first-person flag does, to the peers that
+        // read it; `broadcast_flight` says each change at once.
+        if let Some(mode) = flight
+            .map(crate::player::Flight::mode)
+            .filter(|mode| mode.airborne())
+        {
+            for peer in &peers {
+                if peer
+                    .build
+                    .as_ref()
+                    .is_some_and(|build| build.protocol >= crate::protocol::FLIGHT_SINCE)
+                {
+                    sender.to(
+                        peer.peer_id,
+                        OverlandsMessage::Flight { mode: mode.wire() },
+                        ChannelKind::Reliable,
+                    );
+                }
+            }
+        }
     }
 }
 
@@ -124,6 +153,28 @@ pub(super) fn broadcast_first_person(
     }
     *last_sent = on;
     sender.broadcast(OverlandsMessage::FirstPerson { on }, ChannelKind::Reliable);
+}
+
+/// Tell peers what our winged body is doing whenever it changes (#1861) -
+/// see [`OverlandsMessage::Flight`]. Compared against what we last SENT, as
+/// the first-person flag is, so each change goes out once; a body that never
+/// leaves its feet - every body that does not fly - never sends one.
+pub(super) fn broadcast_flight(
+    query: Query<&crate::player::Flight, With<LocalPlayer>>,
+    mut sender: SendMessage<OverlandsMessage>,
+    mut last_sent: Local<crate::player::FlightMode>,
+) {
+    let mode = query
+        .single()
+        .map_or(crate::player::FlightMode::Ground, |flight| flight.mode());
+    if mode == *last_sent {
+        return;
+    }
+    *last_sent = mode;
+    sender.broadcast(
+        OverlandsMessage::Flight { mode: mode.wire() },
+        ChannelKind::Reliable,
+    );
 }
 
 /// Announce our world digest whenever it changes (#1146).
@@ -315,6 +366,42 @@ mod tests {
         assert_eq!(said(&mut app), Vec::<bool>::new(), "said once");
         app.insert_resource(crate::camera::FirstPerson::default());
         assert_eq!(said(&mut app), vec![false], "out again");
+    }
+
+    /// **Each change of a winged body's mode goes out once** (#1861), as its
+    /// wire code on the Reliable channel; a body on its feet that never
+    /// leaves them - every body that does not fly - says nothing at all.
+    #[test]
+    fn each_change_of_the_flight_mode_is_said_once() {
+        use crate::player::{Flight, FlightMode};
+        let mut app = App::new();
+        app.add_message::<Broadcast<OverlandsMessage>>()
+            .add_message::<SendTo<OverlandsMessage>>()
+            .add_systems(Update, broadcast_flight);
+        let said = |app: &mut App| -> Vec<u8> {
+            app.update();
+            app.world()
+                .resource::<Messages<Broadcast<OverlandsMessage>>>()
+                .iter_current_update_messages()
+                .filter_map(|sent| match sent.payload {
+                    OverlandsMessage::Flight { mode } => {
+                        assert!(matches!(sent.channel, ChannelKind::Reliable));
+                        Some(mode)
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
+        assert_eq!(said(&mut app), Vec::<u8>::new(), "no body");
+        let body = app.world_mut().spawn((LocalPlayer, Flight::default())).id();
+        assert_eq!(said(&mut app), Vec::<u8>::new(), "on its feet");
+        let mut flying = Flight::default();
+        flying.set_mode_for_tests(FlightMode::Glide);
+        app.world_mut().entity_mut(body).insert(flying);
+        assert_eq!(said(&mut app), vec![FlightMode::Glide.wire()], "off them");
+        assert_eq!(said(&mut app), Vec::<u8>::new(), "said once");
+        app.world_mut().entity_mut(body).insert(Flight::default());
+        assert_eq!(said(&mut app), vec![FlightMode::Ground.wire()], "landed");
     }
 
     /// The local body's state broadcaster in an app of its own, a body at

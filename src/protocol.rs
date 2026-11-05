@@ -277,6 +277,24 @@ pub enum OverlandsMessage {
     /// drops the unknown discriminant, with a decode warning in its log, and
     /// draws the body as it always has.
     FirstPerson { on: bool },
+    /// What the sender's winged body is doing (#1861): on its feet, taking
+    /// off, flapping, gliding, diving, flaring or landing, as the code of a
+    /// `player::FlightMode` ([`crate::player::FlightMode::wire`]). Its pose is
+    /// in its transform - the chassis banks and pitches - but a transform
+    /// says nothing of whether the wings beat, and an idle body's transform
+    /// goes out at 2 Hz: a peer keeps the mode on the body.
+    ///
+    /// A byte rather than an enum, so a mode a newer build appends reaches an
+    /// older one as a code it does not know - which it keeps as no mode -
+    /// rather than as a message it cannot decode. Sent on the Reliable
+    /// channel when the mode changes, and repeated on the identity cadence
+    /// while the body is off its feet, to each peer whose `Hello` said
+    /// [`FLIGHT_SINCE`] or later. A peer says it only of itself.
+    ///
+    /// Appended last, and [`PROTOCOL_VERSION`] bumped with it: an older peer
+    /// drops the unknown discriminant and draws the body as its transform
+    /// has it.
+    Flight { mode: u8 },
 }
 
 /// What an [`OverlandsMessage::ItemOffer`] is offering (#1184).
@@ -559,8 +577,9 @@ where
 /// (#1499); 5 appended [`OverlandsMessage::FirstPerson`] (#1746); 6 let an
 /// [`OverlandsMessage::ItemOffer`] carry a whole avatar or a world (#1844) -
 /// no layout moved, the payload grew two members, and the bump is the
-/// capability [`WHOLE_GIFTS_SINCE`] gates on.
-pub const PROTOCOL_VERSION: u16 = 6;
+/// capability [`WHOLE_GIFTS_SINCE`] gates on; 7 appended
+/// [`OverlandsMessage::Flight`] (#1861).
+pub const PROTOCOL_VERSION: u16 = 7;
 
 /// The first [`PROTOCOL_VERSION`] whose builds read
 /// [`OverlandsMessage::FirstPerson`] (#1746). An older one drops it with a
@@ -574,6 +593,11 @@ pub const FIRST_PERSON_SINCE: u16 = 5;
 /// does not ask: a whole gift goes only to a peer whose `Hello` said this or
 /// later, and the People row says why not.
 pub const WHOLE_GIFTS_SINCE: u16 = 6;
+
+/// The first [`PROTOCOL_VERSION`] whose builds read
+/// [`OverlandsMessage::Flight`] (#1861): its repeat goes only to peers whose
+/// `Hello` said this or later, as [`FIRST_PERSON_SINCE`]'s does.
+pub const FLIGHT_SINCE: u16 = 7;
 
 /// This build's human-readable identity for [`OverlandsMessage::Hello`]:
 /// crate version plus the short git sha ([`crate::build_info`]). Only ever
@@ -1373,6 +1397,7 @@ mod tests {
             },
             OverlandsMessage::RoomRecordsPublished,
             OverlandsMessage::FirstPerson { on: true },
+            OverlandsMessage::Flight { mode: 2 },
         ]
     }
 
@@ -1461,6 +1486,8 @@ mod tests {
         ("RoomRecordsPublished", "0b000000"),
         // #1746, appended with PROTOCOL_VERSION 5.
         ("FirstPerson", "0c00000001"),
+        // #1861, appended with PROTOCOL_VERSION 7: the mode's code, a byte.
+        ("Flight", "0d00000002"),
     ];
 
     fn hex(bytes: &[u8]) -> String {
@@ -1506,14 +1533,16 @@ mod tests {
     /// live in one place: when [`WIRE_LAYOUT`] above fails, this constant is
     /// what has to move with it. 6 moved no layout (#1844): it names a
     /// capability inside a JSON payload, which [`WHOLE_GIFTS_SINCE`] gates on.
+    /// 7 appended [`OverlandsMessage::Flight`] (#1861).
     #[test]
     fn the_protocol_version_matches_the_pinned_layout() {
         assert_eq!(
-            PROTOCOL_VERSION, 6,
+            PROTOCOL_VERSION, 7,
             "PROTOCOL_VERSION changed: WIRE_LAYOUT must have changed in the \
              same commit, or a capability a sender gates on, or the bump \
              describes nothing"
         );
         assert_eq!(WHOLE_GIFTS_SINCE, 6, "the capability 6 introduced");
+        assert_eq!(FLIGHT_SINCE, 7, "the message 7 appended");
     }
 }

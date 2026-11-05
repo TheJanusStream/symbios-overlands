@@ -88,6 +88,9 @@ enum CoalesceKey {
     /// `FirstPerson` (#1746): a flag repeated on the identity cadence while
     /// it is on, so only the last in a drain says anything.
     FirstPerson,
+    /// `Flight` (#1861): a mode repeated on the identity cadence while the
+    /// body is off its feet; the last in a drain is the one it is in.
+    Flight,
 }
 
 fn coalesce_key(msg: &OverlandsMessage) -> Option<CoalesceKey> {
@@ -99,6 +102,7 @@ fn coalesce_key(msg: &OverlandsMessage) -> Option<CoalesceKey> {
         OverlandsMessage::AvatarRecordsPublished => Some(CoalesceKey::AvatarPublished),
         OverlandsMessage::RoomRecordsPublished => Some(CoalesceKey::RoomPublished),
         OverlandsMessage::FirstPerson { .. } => Some(CoalesceKey::FirstPerson),
+        OverlandsMessage::Flight { .. } => Some(CoalesceKey::Flight),
         _ => None,
     }
 }
@@ -406,6 +410,9 @@ pub(super) fn handle_incoming_messages(
             ),
             OverlandsMessage::FirstPerson { on } => {
                 transform::handle_first_person(msg.sender, on, &mut commands, &peers)
+            }
+            OverlandsMessage::Flight { mode } => {
+                transform::handle_flight(msg.sender, mode, &mut commands, &peers)
             }
             OverlandsMessage::RoomStateUpdate { record_json } => record_updates::handle_room_state(
                 msg.sender,
@@ -718,6 +725,62 @@ mod tests {
         assert!(world.get::<InFirstPerson>(beside).is_none(), "only its own");
         say(&mut world, false);
         assert!(world.get::<InFirstPerson>(speaker).is_none(), "unmarked");
+    }
+
+    /// **A peer's `Flight` word is kept on its own body and nothing else**
+    /// (#1861): a mode it names is kept as [`crate::player::PeerFlight`], a
+    /// later one replaces it, a code this build does not know - a newer
+    /// peer's mode - takes it off, and the peer beside it is never touched.
+    #[test]
+    fn a_flight_word_is_kept_on_its_senders_body_only() {
+        use crate::player::{FlightMode, PeerFlight};
+        use bevy::ecs::system::RunSystemOnce;
+
+        let id = |n: u8| -> PeerId {
+            serde_json::from_str(&format!("\"00000000-0000-0000-0000-0000000000{n:02}\""))
+                .expect("a well-formed uuid")
+        };
+        let peer = |n: u8| {
+            (
+                RemotePeer {
+                    peer_id: id(n),
+                    did: None,
+                    handle: None,
+                    muted: false,
+                    avatar: None,
+                    build: None,
+                    connected_at: 0.0,
+                },
+                Transform::default(),
+                TransformBuffer::default(),
+            )
+        };
+        let mut world = World::new();
+        let speaker = world.spawn(peer(1)).id();
+        let beside = world.spawn(peer(2)).id();
+        let say = |world: &mut World, mode: u8| {
+            world
+                .run_system_once(move |mut commands: Commands, peers: Query<PeerParts>| {
+                    transform::handle_flight(id(1), mode, &mut commands, &peers);
+                })
+                .expect("the word is handled");
+        };
+        say(&mut world, FlightMode::Glide.wire());
+        assert_eq!(
+            world.get::<PeerFlight>(speaker),
+            Some(&PeerFlight(FlightMode::Glide))
+        );
+        assert!(world.get::<PeerFlight>(beside).is_none(), "only its own");
+        say(&mut world, FlightMode::Land.wire());
+        assert_eq!(
+            world.get::<PeerFlight>(speaker),
+            Some(&PeerFlight(FlightMode::Land))
+        );
+        say(&mut world, 200);
+        assert!(
+            world.get::<PeerFlight>(speaker).is_none(),
+            "an unknown mode"
+        );
     }
 
     /// #1499: the room's owner saying a guest's copy is behind the saved one

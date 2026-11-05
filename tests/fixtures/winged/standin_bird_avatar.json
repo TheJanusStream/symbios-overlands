@@ -1,0 +1,510 @@
+{
+ "$type": "network.symbios.overlands.avatar",
+ "body": {
+  "$type": "network.symbios.overlands.avatar#generator",
+  "visuals": {
+   "$type": "network.symbios.gen.sphere",
+   "radius": 500,
+   "resolution": 1,
+   "solid": false,
+   "material": {
+    "base_color": [
+     4500,
+     3200,
+     2000
+    ],
+    "roughness": 8000
+   },
+   "children": [
+    {
+     "$type": "network.symbios.gen.sphere",
+     "radius": 10000,
+     "resolution": 3,
+     "solid": false,
+     "material": {
+      "base_color": [
+       4500,
+       3200,
+       2000
+      ],
+      "roughness": 8000
+     },
+     "transform": {
+      "translation": [
+       0,
+       -450,
+       200
+      ],
+      "scale": [
+       2000,
+       1800,
+       2800
+      ]
+     }
+    },
+    {
+     "$type": "network.symbios.gen.sphere",
+     "radius": 1300,
+     "resolution": 3,
+     "solid": false,
+     "material": {
+      "base_color": [
+       4500,
+       3200,
+       2000
+      ],
+      "roughness": 8000
+     },
+     "transform": {
+      "translation": [
+       0,
+       1950,
+       -2000
+      ]
+     }
+    },
+    {
+     "$type": "network.symbios.gen.sphere",
+     "radius": 300,
+     "resolution": 2,
+     "solid": false,
+     "material": {
+      "base_color": [
+       9300,
+       8700,
+       7200
+      ],
+      "roughness": 8000
+     },
+     "transform": {
+      "translation": [
+       650,
+       2300,
+       -3066
+      ]
+     },
+     "children": [
+      {
+       "$type": "network.symbios.gen.sphere",
+       "radius": 160,
+       "resolution": 1,
+       "solid": false,
+       "material": {
+        "base_color": [
+         500,
+         400,
+         400
+        ],
+        "roughness": 8000
+       },
+       "transform": {
+        "translation": [
+         40,
+         20,
+         -225
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "$type": "network.symbios.gen.sphere",
+     "radius": 300,
+     "resolution": 2,
+     "solid": false,
+     "material": {
+      "base_color": [
+       9300,
+       8700,
+       7200
+      ],
+      "roughness": 8000
+     },
+     "transform": {
+      "translation": [
+       -650,
+       2300,
+       -3066
+      ]
+     },
+     "children": [
+      {
+       "$type": "network.symbios.gen.sphere",
+       "radius": 160,
+       "resolution": 1,
+       "solid": false,
+       "material": {
+        "base_color": [
+         500,
+         400,
+         400
+        ],
+        "roughness": 8000
+       },
+       "transform": {
+        "translation": [
+         -40,
+         20,
+         -225
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "$type": "network.symbios.gen.cone",
+     "radius": 350,
+     "height": 1000,
+     "resolution": 12,
+     "solid": false,
+     "material": {
+      "base_color": [
+       9500,
+       6000,
+       1500
+      ],
+      "roughness": 8000
+     },
+     "transform": {
+      "translation": [
+       0,
+       1650,
+       -3600
+      ],
+      "rotation": [
+       -7071,
+       0,
+       0,
+       7071
+      ]
+     }
+    },
+    {
+     "$type": "network.symbios.gen.cuboid",
+     "size": [
+      1600,
+      200,
+      1800
+     ],
+     "solid": false,
+     "material": {
+      "base_color": [
+       2800,
+       1900,
+       1200
+      ],
+      "roughness": 8000
+     },
+     "transform": {
+      "translation": [
+       0,
+       -250,
+       3500
+      ],
+      "rotation": [
+       -1305,
+       0,
+       0,
+       9914
+      ]
+     }
+    },
+    {
+     "$type": "network.symbios.gen.sphere",
+     "radius": 450,
+     "resolution": 3,
+     "solid": false,
+     "material": {
+      "base_color": [
+       4500,
+       3200,
+       2000
+      ],
+      "roughness": 8000
+     },
+     "transform": {
+      "translation": [
+       1700,
+       50,
+       -200
+      ]
+     },
+     "children": [
+      {
+       "$type": "network.symbios.gen.cuboid",
+       "size": [
+        4200,
+        250,
+        2000
+       ],
+       "solid": false,
+       "material": {
+        "base_color": [
+         4500,
+         3200,
+         2000
+        ],
+        "roughness": 8000
+       },
+       "transform": {
+        "translation": [
+         2100,
+         0,
+         200
+        ]
+       }
+      },
+      {
+       "$type": "network.symbios.gen.cuboid",
+       "size": [
+        2000,
+        200,
+        1400
+       ],
+       "solid": false,
+       "material": {
+        "base_color": [
+         2800,
+         1900,
+         1200
+        ],
+        "roughness": 8000
+       },
+       "transform": {
+        "translation": [
+         5000,
+         0,
+         500
+        ]
+       }
+      }
+     ],
+     "spin": {
+      "axis": [
+       0,
+       0,
+       10000
+      ],
+      "terms": [
+       {
+        "$type": "network.symbios.spin.swing",
+        "amplitude": 300000,
+        "period": 6000
+       }
+      ]
+     }
+    },
+    {
+     "$type": "network.symbios.gen.sphere",
+     "radius": 450,
+     "resolution": 3,
+     "solid": false,
+     "material": {
+      "base_color": [
+       4500,
+       3200,
+       2000
+      ],
+      "roughness": 8000
+     },
+     "transform": {
+      "translation": [
+       -1700,
+       50,
+       -200
+      ]
+     },
+     "children": [
+      {
+       "$type": "network.symbios.gen.cuboid",
+       "size": [
+        4200,
+        250,
+        2000
+       ],
+       "solid": false,
+       "material": {
+        "base_color": [
+         4500,
+         3200,
+         2000
+        ],
+        "roughness": 8000
+       },
+       "transform": {
+        "translation": [
+         -2100,
+         0,
+         200
+        ]
+       }
+      },
+      {
+       "$type": "network.symbios.gen.cuboid",
+       "size": [
+        2000,
+        200,
+        1400
+       ],
+       "solid": false,
+       "material": {
+        "base_color": [
+         2800,
+         1900,
+         1200
+        ],
+        "roughness": 8000
+       },
+       "transform": {
+        "translation": [
+         -5000,
+         0,
+         500
+        ]
+       }
+      }
+     ],
+     "spin": {
+      "axis": [
+       0,
+       0,
+       -10000
+      ],
+      "terms": [
+       {
+        "$type": "network.symbios.spin.swing",
+        "amplitude": 300000,
+        "period": 6000
+       }
+      ]
+     }
+    },
+    {
+     "$type": "network.symbios.gen.cylinder",
+     "radius": 250,
+     "height": 1800,
+     "resolution": 8,
+     "solid": false,
+     "material": {
+      "base_color": [
+       9500,
+       6000,
+       1500
+      ],
+      "roughness": 8000
+     },
+     "transform": {
+      "translation": [
+       700,
+       -2850,
+       0
+      ]
+     },
+     "children": [
+      {
+       "$type": "network.symbios.gen.cuboid",
+       "size": [
+        800,
+        200,
+        1200
+       ],
+       "solid": false,
+       "material": {
+        "base_color": [
+         9500,
+         6000,
+         1500
+        ],
+        "roughness": 8000
+       },
+       "transform": {
+        "translation": [
+         0,
+         -800,
+         -300
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "$type": "network.symbios.gen.cylinder",
+     "radius": 250,
+     "height": 1800,
+     "resolution": 8,
+     "solid": false,
+     "material": {
+      "base_color": [
+       9500,
+       6000,
+       1500
+      ],
+      "roughness": 8000
+     },
+     "transform": {
+      "translation": [
+       -700,
+       -2850,
+       0
+      ]
+     },
+     "children": [
+      {
+       "$type": "network.symbios.gen.cuboid",
+       "size": [
+        800,
+        200,
+        1200
+       ],
+       "solid": false,
+       "material": {
+        "base_color": [
+         9500,
+         6000,
+         1500
+        ],
+        "roughness": 8000
+       },
+       "transform": {
+        "translation": [
+         0,
+         -800,
+         -300
+        ]
+       }
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "locomotion": {
+  "$type": "network.symbios.locomotion.humanoid",
+  "capsule_radius": 2000,
+  "capsule_length": 3500,
+  "mass": 80000,
+  "linear_damping": 3000,
+  "walk_speed": 30000,
+  "acceleration": 120000,
+  "jump_impulse": 320000,
+  "swim_speed": 15000,
+  "swim_vertical_speed": 12000,
+  "wading_speed_factor": 5000,
+  "stop_damping": 200000,
+  "turn_rate": 120000,
+  "flight": {
+   "flight_power": 10000,
+   "glide_ratio": 50000,
+   "trim_speed": 65000,
+   "stall_speed": 35000,
+   "beat_speed": 20000,
+   "wingbeat_rate": 30000,
+   "stamina_beats": 240000,
+   "stamina_recovery": 80000,
+   "takeoff_speed": 30000,
+   "max_bank": 500000,
+   "roll_rate": 1800000,
+   "pitch_rate": 900000
+  }
+ }
+}

@@ -901,9 +901,17 @@ pub(crate) fn camera_listener() -> SpatialListener {
 /// eye height and a landing's radius its own ([`BeastOrbit`]). Everyone else's
 /// focus is the chassis origin itself and their radius [`cfg::ORBIT_RADIUS`],
 /// through no arithmetic at all.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn follow_local_player(
-    player_query: Query<(Entity, &Transform, Option<&VehicleChassis>), With<LocalPlayer>>,
+    player_query: Query<
+        (
+            Entity,
+            &Transform,
+            Option<&VehicleChassis>,
+            Option<&crate::player::Flight>,
+        ),
+        With<LocalPlayer>,
+    >,
     mut camera_query: Query<&mut PanOrbitCamera>,
     first_person: Option<Res<FirstPerson>>,
     record: Option<Res<crate::state::LiveAvatarRecord>>,
@@ -914,9 +922,13 @@ fn follow_local_player(
     fixed: Res<Time<Fixed>>,
     mut followed: Local<Followed>,
 ) {
-    let Ok((player, player_tf, vehicle)) = player_query.single() else {
+    let Ok((player, player_tf, vehicle, flight)) = player_query.single() else {
         return;
     };
+    // A winged body off its feet (#1861) is framed as a vehicle is: the orbit
+    // follows its heading, a chase framing, and its focus rides out the bob
+    // of its beats.
+    let flying = flight.is_some_and(|flight| flight.mode().airborne());
     let Ok(mut cam) = camera_query.single_mut() else {
         return;
     };
@@ -940,10 +952,18 @@ fn follow_local_player(
     {
         framing.0 = beast;
     }
-    let focus = match beast {
+    let mut focus = match beast {
         Some(beast) => player_tf.translation + Vec3::Y * beast.lift,
         None => player_tf.translation,
     };
+    if flying {
+        focus.y = followed
+            .air_focus_y
+            .map_or(focus.y, |was| flap_damped(was, focus.y, time.delta_secs()));
+        followed.air_focus_y = Some(focus.y);
+    } else if followed.air_focus_y.is_some() {
+        followed.air_focus_y = None;
+    }
     cam.target_focus = focus;
 
     if let Some((yaw, pitch)) = facings
@@ -989,7 +1009,7 @@ fn follow_local_player(
     let riding = first_person
         .as_deref()
         .is_some_and(FirstPerson::rides_vehicle);
-    if vehicle.is_some() && !riding {
+    if (vehicle.is_some() || flying) && !riding {
         let fwd = player_tf.rotation * Vec3::NEG_Z;
         if fwd.y.abs() <= cfg::YAW_FREEZE_FORWARD_Y {
             let vehicle_yaw = (-fwd.x).atan2(-fwd.z);
@@ -1019,8 +1039,23 @@ fn follow_local_player(
             followed.prev_yaw = Some(vehicle_yaw);
         }
     } else {
-        *followed = Followed::default();
+        *followed = Followed {
+            air_focus_y: followed.air_focus_y,
+            ..Followed::default()
+        };
     }
+}
+
+/// How long (s) a flying body's focus takes to follow its height (#1861): a
+/// beat lifts the body a few centimetres and lets it sink back three times a
+/// second, and a camera that followed each would bob with it, where a climb
+/// or a dive - seconds long - it follows within a few frames.
+const FLAP_FOCUS_LAG_S: f32 = 0.2;
+
+/// The focus height a flying body's camera moves to over `dt` seconds, from
+/// `was` toward the body's `now` ([`FLAP_FOCUS_LAG_S`]).
+fn flap_damped(was: f32, now: f32, dt: f32) -> f32 {
+    was + (now - was) * (1.0 - (-dt / FLAP_FOCUS_LAG_S).exp())
 }
 
 /// How the orbit frames a four-legged beast (#1804, owner decision D5).
@@ -1102,6 +1137,8 @@ pub(crate) fn beast_framing_for_tests(eyes: f32) -> BeastFraming {
 struct Followed {
     prev_yaw: Option<f32>,
     landing: Option<crate::player::LandingWait>,
+    /// A flying body's focus height, damped ([`flap_damped`], #1861).
+    air_focus_y: Option<f32>,
 }
 
 /// How near a landing's heading the body counts as there, radians.

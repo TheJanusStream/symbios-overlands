@@ -61,7 +61,7 @@ const LAND_BELOW_M_S: f32 = 1.0;
 /// The steepest ground a body lands on (the cosine of 30 degrees): steeper,
 /// it would slide off on its own weight, so it hovers against the slope as
 /// it always did.
-const LAND_NORMAL_Y: f32 = 0.866;
+pub(super) const LAND_NORMAL_Y: f32 = 0.866;
 
 /// Whether a rotorcraft is down on something or holding itself up (#1612).
 ///

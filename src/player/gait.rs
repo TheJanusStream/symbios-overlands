@@ -507,6 +507,12 @@ pub(super) fn animate_avatar_gait(
         Has<CarPreset>,
         Has<LocalPlayer>,
         &mut GaitAnimation,
+        // A winged body off its feet (#1861): its own flight, or what a
+        // peer's last said.
+        (
+            Option<&super::flight::Flight>,
+            Option<&super::flight::PeerFlight>,
+        ),
     )>,
     mut roots: Query<(&AvatarVisualRoot, &mut Transform), Without<GaitAnimation>>,
 ) {
@@ -527,6 +533,7 @@ pub(super) fn animate_avatar_gait(
         skiff,
         is_local,
         mut anim,
+        (flight, peer_flight),
     ) in &mut avatars
     {
         // Drop the animation when the entity's current profile no longer
@@ -592,7 +599,15 @@ pub(super) fn animate_avatar_gait(
                 }
             }
         };
-        let speed = Vec2::new(moving_at.x, moving_at.z).length();
+        // In the air a walker's stride is not its gait (#1861): a body
+        // flying at its trim speed would bob as a runner does.
+        let flying = flight.is_some_and(|flight| flight.mode().airborne())
+            || peer_flight.is_some_and(|peer| peer.0.airborne());
+        let speed = if flying {
+            0.0
+        } else {
+            Vec2::new(moving_at.x, moving_at.z).length()
+        };
         // Yaw-rate (heading change, rad/s) for skiff banking: physics angular
         // velocity when present (local), else a 1-frame finite difference of
         // the replicated heading, wrapped to the shortest arc.

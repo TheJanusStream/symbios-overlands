@@ -1384,7 +1384,9 @@ mod gate_tests {
             PeerCompatibility::Unannounced
         );
         assert_eq!(five.compatibility(NOW), PeerCompatibility::Mismatched(5));
-        assert_eq!(six.compatibility(NOW), PeerCompatibility::Compatible);
+        // A build a version behind, on 6 since #1861's 7, still takes one.
+        assert_eq!(six.compatibility(NOW), PeerCompatibility::Mismatched(6));
+        assert_eq!(seven.compatibility(NOW), PeerCompatibility::Compatible);
 
         for whole in [GiftKind::Avatar, GiftKind::World] {
             let still = gift_block_reason(&pending, true, whole, NOW).expect("waits");

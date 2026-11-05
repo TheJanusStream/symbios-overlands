@@ -334,6 +334,69 @@ the render tool's `--family-seeds beast` lists more seeds.
   satchel is refused, and `wear` says why. A person is refused a beast's cut the
   same way. Either stays in the outfit, unworn, for a body that wears it.
 
+## A body that flies
+
+An on-foot body can fly (#1861): its preset's optional `flight` section says
+how, and Space takes it off. It is one body with a mode, never a change of
+preset, so taking off edits nothing and saves nothing. The prototype's
+stand-in is a bird made of primitives: [`tests/fixtures/winged/`](../../tests/fixtures/winged/)
+holds its body (`standin_bird_visuals.json`), the whole avatar
+(`standin_bird_avatar.json`) and the script that prints both
+(`standin_bird.py`).
+
+To wear it, from a body that is already a generator body (a seeded person is
+rigged, and JSON cannot change a body's kind): `A wear avatar_airship_hybrid`
+first if it is not, then
+
+```
+A stash-avatar "before the bird"
+A avatar set /record --file tests/fixtures/winged/standin_bird_avatar.json
+A save avatar --wait
+```
+
+`A wear "before the bird"` puts the old body back. `status.flight` reads the
+mode (`ground`, `takeoff`, `flap`, `glide`, `dive`, `flare`, `land`),
+`stamina` (0 to 1), `stalled`, `pitch_deg`, `bank_deg`, `beats`,
+`flight_power` and `can_flap`; `null` for a body that does not fly.
+
+- **The keys.** On the ground it walks as a person does, and Space takes it
+  off: a leap up and forward and two beats. In the air a Space press beats
+  once and holding it beats at `wingbeat_rate`; no key glides; W and S put the
+  nose down and up, trading height for speed; A and D bank it, which turns
+  it; Shift folds the wings and dives. Walked off a ledge, it opens its wings
+  after a moment's fall. An agent cannot fly it yet: `walk-to` walks it, and
+  `drive`, which holds keys segment by segment, takes only a body on wheels.
+- **The numbers** (scaled ints, as every record number): `flight_power` 0 to 1
+  (1 a bird, about 0.7 a bat, 0 a glider: under 0.25 it cannot flap at all and
+  leaps 1.6 times as hard), `glide_ratio` and `trim_speed` (a hands-off glide
+  settles at the trim and sinks `trim_speed / glide_ratio`, 1.3 m/s on the
+  bird), `stall_speed` (slower, the nose drops and it dives until it flies
+  again), `beat_speed` (what a full-power beat adds, m/s), `wingbeat_rate`,
+  `stamina_beats` (beats a full stamina holds; a weaker flyer's beats cost
+  more), `stamina_recovery` (seconds gliding from empty to full, three times
+  faster standing), `takeoff_speed`, `max_bank`, `roll_rate` and
+  `pitch_rate` (degrees). The bird's are the defaults for a body 0.75 m tall;
+  speeds grow with a bigger body and the wingbeat slows.
+- **It lands on the tops of things**: ground, a roof, a deck, a beam - any
+  surface flatter than 30 degrees - when its path closes on one within its
+  capture radius (0.6 of its height). The flare starts about 0.45 s before
+  contact, whatever the speed, and draws it onto the spot; down, it settles a
+  quarter of a second and is on its feet. A wall stops it but is never landed
+  on. Into water it swims.
+- **A generator body on foot hangs from the capsule's middle**: draw its
+  feet at `-(capsule_length / 2 + capsule_radius)`, the collider's bottom, or
+  it stands in the ground or over it. Nothing refits a generator body's
+  capsule, as a rigged body's is refitted.
+- **Wings are a pair of parts swinging along the body**: each a joint node
+  either side of the middle with a `.swing` spin about the fore-aft axis
+  (`[0, 0, 10000]` on the right, `[0, 0, -10000]` on the left, so both rise
+  together), the wing hung from it. What makes a body fly is its record's
+  `flight` section, never its wings: an older game drops the key when it saves
+  the record, and nothing gives it back until the winged bodies (#1862) - set
+  it again. A section that leaves a number out takes the default for it. The
+  wings flap all the time, on the ground too: posing them by the mode is the
+  rigged body's job, later (#1862).
+
 ## A whole body in the inventory
 
 The inventory keeps whole avatars (#1843): a body worth keeping before you

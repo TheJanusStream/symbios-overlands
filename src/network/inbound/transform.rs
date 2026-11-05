@@ -60,6 +60,37 @@ pub(super) fn handle(
     }
 }
 
+/// What a peer's winged body is doing (#1861), as its `Flight` message
+/// says: kept on its body as [`PeerFlight`](crate::player::PeerFlight) - or taken off for a mode this
+/// build does not know, from a newer peer. Only the sender's own body is
+/// touched.
+pub(super) fn handle_flight(
+    sender: PeerId,
+    mode: u8,
+    commands: &mut Commands,
+    peers: &Query<PeerParts>,
+) {
+    let mode = crate::player::FlightMode::from_wire(mode);
+    for (entity, peer, ..) in peers.iter() {
+        if peer.peer_id != sender {
+            continue;
+        }
+        // `try_`: the peer may leave in the frame its word arrives (#1410).
+        match mode {
+            Some(mode) => {
+                commands
+                    .entity(entity)
+                    .try_insert(crate::player::PeerFlight(mode));
+            }
+            None => {
+                commands
+                    .entity(entity)
+                    .try_remove::<crate::player::PeerFlight>();
+            }
+        }
+    }
+}
+
 /// Mark whether a peer looks out of its own eyes (#1746), as its
 /// `FirstPerson` message says: its rig then reads its stride off its travel
 /// against its facing (`player::rigged::motion::fill_rigged_drive`). Only the

@@ -83,6 +83,7 @@ pub(crate) mod attachments;
 mod beast_seat;
 mod car;
 pub(crate) mod emote;
+pub(crate) mod flight;
 pub(crate) mod gait;
 mod helicopter;
 mod hotswap;
@@ -106,6 +107,7 @@ pub(crate) use airplane::reach_for_stance as airplane_reach_for_stance;
 pub(crate) use airplane::Handling as AirplaneHandling;
 #[cfg(unix)]
 pub(crate) use car::CarContact;
+pub(crate) use flight::{Flight, FlightMode, PeerFlight};
 pub(crate) use hotswap::AppliedAvatar;
 pub(crate) use portal::PORTAL_COOLDOWN_SECS;
 pub use portal::PortalContact;
@@ -540,6 +542,14 @@ impl Plugin for PlayerPlugin {
                     // Ungated + chained right before the walk system: a
                     // beast's turn lasts the step the walk set it for, and a
                     // step the walk is stood down for turns nothing (#1802).
+                    // A winged body's flight (#1861), before the walk: its
+                    // keys gated as the walk's are, the flight itself not, so
+                    // a body typing in the air glides on.
+                    flight::read_flight_keys
+                        .run_if(not(egui_wants_any_keyboard_input))
+                        .run_if(not(avatar_visuals_row_selected))
+                        .run_if(not(guard_attention_held)),
+                    flight::fly_on_foot,
                     humanoid::end_lying_turns,
                     humanoid::apply_humanoid_walk
                         .run_if(not(egui_wants_any_keyboard_input))

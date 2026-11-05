@@ -574,7 +574,10 @@ pub(super) fn release_travel_on_arrival(
             &mut LinearVelocity,
             &mut AngularVelocity,
             Option<&mut super::helicopter::RotorLift>,
-            Option<&mut super::airplane::Throttle>,
+            (
+                Option<&mut super::airplane::Throttle>,
+                Option<&mut super::flight::Flight>,
+            ),
             Option<&mut Rotation>,
         ),
         With<LocalPlayer>,
@@ -589,7 +592,7 @@ pub(super) fn release_travel_on_arrival(
     let (Some(heightmap), Some(_)) = (heightmap.as_deref(), compiled.as_deref()) else {
         return;
     };
-    if let Ok((mut pos, mut lin, mut ang, lift, throttle, rot)) = players.single_mut() {
+    if let Ok((mut pos, mut lin, mut ang, lift, (throttle, flight), rot)) = players.single_mut() {
         // An arrival at the destination's landing - no baked target - comes
         // ashore on Berlin's ground, as a spawn there does (#1589): the
         // landing was taken before the ground it lands on existed.
@@ -624,6 +627,7 @@ pub(super) fn release_travel_on_arrival(
         // and an airplane stays there, her throttle closed (#1615).
         super::helicopter::set_down(lift);
         super::airplane::set_down(throttle);
+        super::flight::set_down(flight);
     }
     // The editor selection belonging to the world we LEFT is dropped by
     // `ui::room::clear_selection_on_room_change`, which watches

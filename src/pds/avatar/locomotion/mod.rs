@@ -17,6 +17,7 @@
 pub mod airplane;
 pub mod car;
 mod fit;
+pub mod flight;
 pub mod helicopter;
 pub mod hover_boat;
 pub mod humanoid;
@@ -29,6 +30,7 @@ pub(crate) use fit::{
 };
 #[cfg(test)]
 pub(crate) use fit::{beast_record, default_beast};
+pub use flight::FlightParams;
 pub use helicopter::HelicopterParams;
 pub use hover_boat::HoverBoatParams;
 pub use humanoid::{HumanoidParams, OnFootShape};

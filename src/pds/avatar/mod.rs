@@ -48,8 +48,8 @@ pub use body::{
 };
 pub use gait::GaitParams;
 pub use locomotion::{
-    AirplaneParams, CarParams, HelicopterParams, HoverBoatParams, HumanoidParams, LocomotionConfig,
-    LocomotionPickerEntry, LocomotionPreset, OnFootShape, fit_on_foot,
+    AirplaneParams, CarParams, FlightParams, HelicopterParams, HoverBoatParams, HumanoidParams,
+    LocomotionConfig, LocomotionPickerEntry, LocomotionPreset, OnFootShape, fit_on_foot,
 };
 pub use wardrobe::{
     AttachmentRecord, BEAST_SOCKETS, EngineAvatarRecord, EngineProfileRecord, dresses,

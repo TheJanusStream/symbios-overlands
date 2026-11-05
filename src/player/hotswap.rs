@@ -380,7 +380,10 @@ pub(super) fn lift_player_above_new_ground(
             &mut LinearVelocity,
             &mut AngularVelocity,
             Option<&mut super::helicopter::RotorLift>,
-            Option<&mut super::airplane::Throttle>,
+            (
+                Option<&mut super::airplane::Throttle>,
+                Option<&mut super::flight::Flight>,
+            ),
         ),
         With<LocalPlayer>,
     >,
@@ -391,7 +394,8 @@ pub(super) fn lift_player_above_new_ground(
     if !hm_res.is_added() {
         return;
     }
-    let Ok((mut pos, mut lin_vel, mut ang_vel, lift, throttle)) = query.single_mut() else {
+    let Ok((mut pos, mut lin_vel, mut ang_vel, lift, (throttle, flight))) = query.single_mut()
+    else {
         return;
     };
     let clearance = live.as_deref().map_or(cfg::SPAWN_HEIGHT_OFFSET, |live| {
@@ -402,6 +406,7 @@ pub(super) fn lift_player_above_new_ground(
     if snap_above_ground(&hm_res, clearance, &mut pos, &mut lin_vel, &mut ang_vel) {
         super::helicopter::set_down(lift);
         super::airplane::set_down(throttle);
+        super::flight::set_down(flight);
     }
 }
 

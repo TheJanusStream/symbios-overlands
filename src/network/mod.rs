@@ -292,6 +292,7 @@ impl Plugin for NetworkPlugin {
                     broadcast::broadcast_room_state,
                     broadcast::broadcast_world_digest,
                     broadcast::broadcast_first_person,
+                    broadcast::broadcast_flight,
                 )
                     .run_if(in_state(AppState::InGame)),
             );

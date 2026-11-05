@@ -72,6 +72,7 @@ pub(super) fn snapshot(world: &mut World) -> Value {
         "locomotion": world
             .get_resource::<LiveAvatarRecord>()
             .map(|live| locomotion_word(&live.0)),
+        "flight": flight(world),
         "position": pose.as_ref().map(|p| hundredths3(p.position)),
         "height_m": super::movement::height(world).map(hundredths),
         "facing": pose.as_ref().map(|p| [hundredths(p.forward.x), hundredths(p.forward.z)]),
@@ -346,6 +347,40 @@ fn locomotion_word(record: &crate::pds::AvatarRecord) -> &'static str {
     }
 }
 
+/// A winged body's flight (#1861), or `null` for a body that does not fly:
+/// what it is doing - `ground`, `takeoff`, `flap`, `glide`, `dive`, `flare`
+/// or `land` - what is left of its stamina, 0 to 1, whether its wings have
+/// stalled, its nose and bank, and whether it can flap at all.
+fn flight(world: &mut World) -> Value {
+    let Some(params) =
+        world
+            .get_resource::<LiveAvatarRecord>()
+            .and_then(|live| match &live.0.locomotion {
+                LocomotionConfig::Humanoid(p) => p.flight.clone(),
+                _ => None,
+            })
+    else {
+        return Value::Null;
+    };
+    let flight = world
+        .query_filtered::<&crate::player::Flight, With<LocalPlayer>>()
+        .iter(world)
+        .next()
+        .copied()
+        .unwrap_or_default();
+    let (_, pitch, bank) = flight.attitude();
+    json!({
+        "mode": flight.mode().word(),
+        "stamina": hundredths(flight.stamina()),
+        "stalled": flight.stalled(),
+        "beats": flight.beats(),
+        "pitch_deg": hundredths(pitch.to_degrees()),
+        "bank_deg": hundredths(bank.to_degrees()),
+        "flight_power": hundredths(params.flight_power.0),
+        "can_flap": params.can_flap(),
+    })
+}
+
 fn state_word(state: &AppState) -> &'static str {
     match state {
         AppState::Login => "signing_in",
@@ -364,6 +399,27 @@ fn link_word(phase: LinkPhase) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    /// #1861: `status.flight` names a winged body's mode and stamina, and is
+    /// null for a body that does not fly.
+    #[test]
+    fn a_winged_body_reports_its_flight() {
+        use bevy::prelude::*;
+        let mut world = World::new();
+        let person = crate::pds::AvatarRecord::default_for_did("did:plc:status-test");
+        world.insert_resource(crate::state::LiveAvatarRecord(person));
+        assert_eq!(super::flight(&mut world), serde_json::Value::Null);
+        let bird = crate::player::flight::tests::bird();
+        world.insert_resource(crate::state::LiveAvatarRecord(bird));
+        let mut gliding = crate::player::Flight::default();
+        gliding.set_mode_for_tests(crate::player::FlightMode::Glide);
+        world.spawn((crate::state::LocalPlayer, gliding));
+        let flight = super::flight(&mut world);
+        assert_eq!(flight["mode"], "glide", "{flight}");
+        assert_eq!(flight["stamina"], 1.0, "{flight}");
+        assert_eq!(flight["can_flap"], true, "{flight}");
+        assert_eq!(flight["flight_power"], 1.0, "{flight}");
+    }
+
     /// #1809: what `status` calls a body, on foot on two legs or on four, for
     /// every family, and a vehicle whoever is in it.
     #[test]

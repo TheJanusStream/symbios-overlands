@@ -224,8 +224,8 @@ pub use asset_reference::SovereignAssetReference;
 pub use audio::SovereignAudioConfig;
 pub use avatar::{
     AirplaneParams, AttachmentRecord, AvatarBody, AvatarRecord, CarParams, EngineAvatarRecord,
-    EngineProfileRecord, GaitParams, HelicopterParams, HoverBoatParams, HumanoidParams,
-    LocomotionConfig, fetch_avatar_record,
+    EngineProfileRecord, FlightParams, GaitParams, HelicopterParams, HoverBoatParams,
+    HumanoidParams, LocomotionConfig, fetch_avatar_record,
 };
 pub use contact_effects::{
     AudioClipSource, AudioParams, ContactEffectKind, ContactEffectRecord, ContactEffects,
