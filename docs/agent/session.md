@@ -424,7 +424,11 @@ When the owner says "session over", in chat or in the terminal:
    new rule that protects data or security and was not checked yet.
 3. Close the shipped sub-issues with `chainlink close --no-changelog <id>`
    and write each CHANGELOG.md bullet yourself, as what shipped, under the
-   right heading. World content gets no bullet. Leave the parent open.
+   right heading. World content gets no bullet. Leave the parent open
+   until the owner commits the session's work; then close it with a note
+   naming the commit and the children that stay open, which stand alone: a
+   finished session left open reads as unfinished work (the owner,
+   2026-10-22).
 4. Fold the session's lessons into docs/agent/.
 5. Update the account page so the next prompt can stay short. In "Start
    here": the "Last session" row; the "Working folder" row (the last saves
