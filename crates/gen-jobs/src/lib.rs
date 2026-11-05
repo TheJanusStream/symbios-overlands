@@ -1031,6 +1031,91 @@ mod tests {
         );
     }
 
+    /// **A body a newer build sent still arrives** (#1860, engine #419).
+    ///
+    /// A browser's page and its worker can be different releases, so a body a
+    /// newer worker built may name kinds this build has never heard of - a
+    /// kind of head, trunk or feet, a zone, a joint role, a kind of mesh - and
+    /// carry keys it has no field for. Through the worker's own codec
+    /// (`to_vec_named`, then `from_slice`, as `gen_worker::MsgpackCodec` does)
+    /// each name reads as the engine's documented fallback and each key is
+    /// passed over, so the page gets a drawable body that stands on the legs
+    /// it declares, rather than the panic the codec's `expect` raises on a
+    /// refused decode.
+    #[test]
+    fn a_body_naming_kinds_from_a_newer_build_still_arrives() {
+        use symbios_avatar::{
+            Archetype, FootKind, HeadKind, MeshKind, QuadrupedParams, Role, TrunkKind, Zone,
+        };
+        let mut record = symbios_avatar::AvatarRecord::new(
+            "Newer",
+            Archetype::Quadruped(QuadrupedParams::default()),
+        );
+        record.reroll(5);
+        let GenResult::Avatar(built) = GenJob::AvatarBuild {
+            record: Box::new(record),
+            atlas: 64,
+            far_hair: false,
+        }
+        .run() else {
+            unreachable!("an avatar job must return an avatar result");
+        };
+        let built = built.expect("the beast meshes");
+        let (meshes, contacts, legs) = (
+            built.meshes.len(),
+            built.rig.ground_contacts(),
+            built.rig.anatomy.legs,
+        );
+        let tail = built.rig.in_zone(Zone::Tail);
+        assert!(tail.len() >= 3, "the premise: a tail to retag");
+
+        // What a newer build might send: new kinds, new keys, a new draw.
+        let mut wire = serde_json::to_value(GenResult::Avatar(Some(built))).expect("writes");
+        {
+            let avatar = &mut wire["Avatar"];
+            let rig = &mut avatar["rig"];
+            rig["anatomy"]["head"] = serde_json::json!("beak");
+            rig["anatomy"]["trunk"] = serde_json::json!({ "keel": 2 });
+            rig["anatomy"]["feet"] = serde_json::json!("talons");
+            rig["anatomy"]["wings"] = serde_json::json!(3);
+            rig["joints"][tail[0]]["zone"] = serde_json::json!("wing");
+            rig["joints"][tail[1]]["zone"] = serde_json::json!({ "pinion": "foreLeft" });
+            rig["joints"][tail[2]]["role"] = serde_json::json!("Feather");
+            rig["flight"] = serde_json::json!({ "span": 1.5 });
+            let mut membrane = avatar["meshes"][0].clone();
+            membrane["kind"] = serde_json::json!("Membrane");
+            avatar["meshes"]
+                .as_array_mut()
+                .expect("a list of meshes")
+                .push(membrane);
+        }
+        let bytes = rmp_serde::to_vec_named(&wire).expect("encode result");
+        let GenResult::Avatar(back) = rmp_serde::from_slice(&bytes).expect("a newer body decodes")
+        else {
+            unreachable!("an avatar result must decode as an avatar");
+        };
+        let back = back.expect("a built body stays built");
+
+        assert_eq!(back.rig.anatomy.head, HeadKind::Beast);
+        assert_eq!(back.rig.anatomy.trunk, TrunkKind::Beast);
+        assert_eq!(back.rig.anatomy.feet, FootKind::Beast);
+        assert_eq!(back.rig.anatomy.legs, legs);
+        assert_eq!(back.rig.joints[tail[0]].zone, Zone::FALLBACK);
+        assert_eq!(back.rig.joints[tail[1]].zone, Zone::FALLBACK);
+        assert_eq!(back.rig.joints[tail[2]].role, Role::Deform);
+        assert_eq!(
+            back.rig.ground_contacts(),
+            contacts,
+            "it stands on the legs it declares"
+        );
+        assert_eq!(back.meshes.len(), meshes + 1);
+        assert_eq!(
+            back.meshes.last().map(|mesh| mesh.kind),
+            Some(MeshKind::Skin),
+            "a kind of draw this build does not know is drawn as skin"
+        );
+    }
+
     /// A job asks for the far tier and gets one; a job that does not, does
     /// not - and an `AvatarBuild` encoded with no `farHair` key at all still
     /// decodes, as the near-only body it was always asking for (#1358).

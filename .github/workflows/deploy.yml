@@ -343,11 +343,20 @@ jobs:
             exit 1
           fi
 
+      # One Pages artifact per attempt (#1863). Artifacts stay with a run
+      # across its attempts, so under the default name every re-run of a
+      # failed deploy added a second `github-pages` and deploy-pages refused
+      # the run for good ("Multiple artifacts named github-pages"). The
+      # bundles above keep their names: a re-run of this job alone still
+      # finds the build legs' halves.
       - name: Upload Pages artifact
         id: deployment
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./dist
+          name: github-pages-${{ github.run_attempt }}
 
       - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: github-pages-${{ github.run_attempt }}
