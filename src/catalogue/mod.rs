@@ -258,15 +258,16 @@ pub enum WearFit {
         /// Authored inner diameter of the band, metres.
         inner_diameter: f32,
     },
-    /// Cut for a four-legged body (#1807, owner decision D9): worn by a beast
-    /// and by no person, and sized to the beast it lands on. `across` is the
-    /// authored measure the seat scales, in metres, and which measure that is
-    /// follows the socket: the bore of a collar, the width of a saddle pad,
-    /// the span between the ears of an ornament
-    /// (`src/player/beast_seat.rs`).
+    /// Cut for an animal (#1807, owner decision D9): worn by a beast and a
+    /// winged body (#1879) and by no person, and sized to the body it lands
+    /// on. `across` is the authored measure the seat scales, in metres, and
+    /// which measure that is follows the socket: the bore of a collar or of
+    /// a leg band, the width of a saddle pad, the span between the ears of an
+    /// ornament (`src/player/beast_seat.rs`, `src/player/winged_seat.rs`).
     ///
-    /// **Authoring convention:** a collar's band circles the origin in the
-    /// X-Z plane, its `+Z` at the throat; a pad's underside runs through the
+    /// **Authoring convention:** a collar's or a leg band's band circles the
+    /// origin in the X-Z plane, a collar's `+Z` at the throat and a band's
+    /// the side turned out of the body; a pad's underside runs through the
     /// origin at the spine, its arc falling away below `y = 0` and running
     /// along `Z`; an ornament stands on the origin.
     Beast {

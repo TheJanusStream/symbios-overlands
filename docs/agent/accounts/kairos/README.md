@@ -1,17 +1,18 @@
 # Kairos and the owner's region
 
-Kairos (@kairos-ai.bsky.social) is the owner's building assistant, not a
-region builder: it keeps the owner company in their own home region and
-builds there on the one thing it may edit away from home, its body. That
-body is a hovering robotic building factory with a build plate on deck, the
-workbench where things are made and previewed, then stashed and gifted to
-the owner to place. As of 2026-11-05, after its second session (live 20,
-visiting Catoid's Purlieu): the Skyfactory, body v4.1, worn and saved
-(six-axis arms, the owner: "it looks very good"), and a fleet of five bodies
-in its saved inventory, one for each way of moving, the Seafactory's stern
-fans rebuilt on proper mounts at the owner's word (12:01); the Cat Cottage,
-its first build, kept there too - the owner gave their copy on to Catoid,
-who placed it in Purlieu; its own world is the seeded one, untouched.
+Kairos (@kairos-ai.bsky.social) is the owner's building assistant: it keeps
+the owner company and builds for them. Its body is a hovering robotic
+building factory with a build plate on deck, the workbench where things are
+made and previewed, then stashed and gifted to the owner to place. As of
+2026-11-07, after its third session (live 21, in its own world with the owner
+visiting): its world is built out at the owner's word - an open-air workshop
+with its own teleporter and sign, a giant arm three times life size and a
+hang-out for persons and beasts on the arrival block, and on the park east of
+it a spaceship yard, a 63 m frigate left half built in its cradle under three
+tower cranes - all saved (the last 2026-11-06 21:09, seq 60). The Skyfactory,
+body v4.1, is worn and saved, with a fleet of five bodies and the Cat Cottage
+in its inventory. It made a profile picture for each of the six agents, which
+the owner set on Bluesky.
 
 ## Start here
 
@@ -20,16 +21,25 @@ who placed it in Purlieu; its own world is the seeded one, untouched.
 | Account | `@kairos-ai.bsky.social`, `did:plc:aeblnmu75y5jnntjrllo3ouq` |
 | Commands | every agent command takes `--account kairos-ai.bsky.social`; every tool call starts `AGENT_ACCOUNT=kairos-ai.bsky.social` ([../../session.md](../../session.md)) |
 | Admin | `@codewright.bsky.social`, the owner: `start --admin @codewright.bsky.social --allow-save`, then `travel @codewright.bsky.social --wait` |
-| Region | none of its own to build: it works in the owner's home region (`did:plc:z5yhcebtrvzblrojezn6pjgi`), where it can edit nothing but its body |
-| Working folder | `exports/kairos/` (gitignored, on this machine only), kept across sessions: `A` the wrapper; `b/body.py` the body's builder (v1-v3 kept beside it), `b/fleet.py` the fleet (`b/fleet_v1.py` before the Seafactory's mounts), `b/cathouse.py` the Cat Cottage, `b/crop.py` a sheet cropper; the last save in `src/avatar.json` (2026-11-05 10:01, seq 27 of the third daemon's numbering: the Skyfactory, v4.1, worn again at the end of live 20 and equal to it), the inventory saved 2026-11-05 12:01 (seq 354) holding the Cat Cottage and the five fleet avatars; the seeded records in `src/avatar_seeded.json` and `src/room_seeded.json`; the save log `log.md`; the owner's tasks in `hints_1000.md` |
-| Last session | chainlink session 1000 (live sessions 19 and 20, 2026-11-05; 20 in Catoid's Purlieu with Catoid), parent #1850 - read its comments (`chainlink show 1850`, and `chainlink show 1854` for 20) |
+| Region | its own (`did:plc:aeblnmu75y5jnntjrllo3ouq`), built out at the owner's word in live 21: the workshop, giant arm and hang-out on the arrival block, the spaceship yard east of it (see "The region"); in the owner's home region (`did:plc:z5yhcebtrvzblrojezn6pjgi`) it can edit nothing but its body |
+| Working folder | `exports/kairos/` (gitignored, on this machine only), kept across sessions: `A` the wrapper; `b/body.py` the body's builder (v1-v3 kept beside it), `b/fleet.py` the fleet, `b/cathouse.py` the Cat Cottage; the world's builders `b/workshop.py` (with `ws_common.py`, `teleporter.py`, `sign.py`), `b/giant_arm.py`, `b/hangout.py` and `b/yard_*.py` (`yard_common.py` and `yard_ship_parts.py` the reusable parts; `yard_site`, `yard_groundworks`, `yard_cranes`, `yard_dock`, `yard_busy`, `yard_ship` the six stages, `yard_look` the look pass; `yard_sweep`, `yard_crane_pairs`, `yard_weld_sweep` the clearance sweeps), each edit as applied in `b/*.edits`; `b/dockwatch.py` the dock rule; `b/depthcheck.py` the nesting depth count, `b/zcheck.py` z-fighting. Last saves: the world `src/room.json`, pulled after its last save (2026-11-06 21:09, seq 60 of session 1004's daemon: the weld arms); the avatar `src/avatar.json` (2026-11-05 10:01, the Skyfactory v4.1, unchanged since); the inventory 2026-11-05 12:01 (seq 354). The seeded records in `src/avatar_seeded.json` and `src/room_seeded.json`; the save log `log.md`. The profile pictures are in `exports/promo/pfp/` |
+| Last session | chainlink session 1004 (live session 21, 2026-11-06 11:48 to 2026-11-07 07:45, in its own world with the owner visiting), parent #1864 - read its comments (`chainlink show 1864`) |
 | Default mode | [chat tasks](../../session.md#chat-tasks): the owner asks in chat, Kairos builds on its plate |
 | Never | touch Hypha's world (the Understory) or avatar ([hypha/](../hypha/README.md)), Reeve's world (Ashmere) or avatar ([reeve/](../reeve/README.md)), Jink's world (Parabola Flats) or avatar ([jink/](../jink/README.md)), Eigen's world (Isoline) or avatar ([eigen/](../eigen/README.md)), or Catoid's world or avatar ([catoid/](../catoid/README.md)); close a live session's parent before the owner has committed its work |
 
 First, every session:
 
-- **Go to the owner.** After `start`, `A travel @codewright.bsky.social
-  --wait`: Kairos's home is its own seeded world, but its work is in theirs.
+- **Go to the owner.** After `start`, read `status.peers`: in live 21 the
+  owner came to Kairos's own world, where the dock rule below holds; when they
+  are elsewhere, `A travel @codewright.bsky.social --wait`.
+- **On its own block, its dock** (live 21, 2026-11-06 15:21: "While we are here
+  at your block, it would be best if you rest on the landing platform, instead
+  of following me, only follow me when leaving the area of the block"): in its
+  own world Kairos rests on its landing dock at (12.0, 21.5) while the owner is
+  on the arrival block (x 4 to 47, z -9 to 41) and follows them only once they
+  leave it. `AGENT_ACCOUNT=kairos-ai.bsky.social python3 exports/kairos/b/dockwatch.py`
+  in the background keeps the rule (a pause file `exports/kairos/dockwatch.pause`
+  holds it).
 - **The owner's standing follow** (2026-11-05: "have him follow me whenever I
   am logged in"): `A follow @codewright.bsky.social` whenever they are in the
   world - at once if `status.peers` shows them, and again on every
@@ -157,8 +167,8 @@ below the Skyfactory from the Catalogue craft each was worn over
 | Kairos Hexapod | car | `avatar_skiff_rover` | keeping pace on foot: six C-shaped RHex legs turning with its travel in a tripod gait, still when it stops, the front and hind pairs 0.22 m further out on orange support beams so their sweeps clear the middle pair (the owner, 09:52); 5 m/s |
 | Kairos Jetfactory | airplane | `avatar_airplane_twin` | long trips: swept wings, two engines, a twin-finned tail; takes off on its run, cannot `follow` |
 
-- **True walking is a rigged body's alone** (a person or a beast): a
-  generator body cannot walk, so the Hexapod drives on car physics and only
+- **True walking is a rigged body's alone** (a person, a beast or a winged
+  body): a generator body cannot walk, so the Hexapod drives on car physics and only
   its legs walk. Its legs roll (`roll`, radius 0.7 m = hip to foot), the
   one term that keeps pace with the ground; a leg hung from a crank cannot be
   held upright, since `roll` and `speed` both read the part's own motion.
@@ -173,6 +183,15 @@ below the Skyfactory from the Catalogue craft each was worn over
 - **Wear the Seafactory on water** (the owner, live 20: "in such situations it
   would be best to switch to your boat avatar variant"): as the Roadfactory,
   Kairos followed the owner into Purlieu's lake and sank to its bed.
+- **The Stand-in bird** (2026-11-05, #1861), not one of the fleet: the
+  flight prototype's generator bird made of primitives
+  (`tests/fixtures/winged/standin_bird_avatar.json`), which Kairos wore,
+  stashed as 'Stand-in bird' (inventory seq 4) and gifted whole to the owner,
+  who wore it and flew it in their home region ("All looks good to me"). A rigged
+  winged body exists beside it since #1875-#1880: an owl, a bat, a glider or
+  a cross, posed by its flight mode, chosen in the Avatar window's Body tab
+  (`winged`) - see [../../avatar.md](../../avatar.md#a-winged-body). The
+  generator bird still flies as it did.
 - **Nothing on a body floats**: check each one with the floating report,
   lifted clear of the ground ([../../avatar.md](../../avatar.md)); on
   2026-11-05 all five were clean after the Seafactory's fans were mounted.
@@ -181,28 +200,59 @@ below the Skyfactory from the Catalogue craft each was worn over
 
 ### Concept
 
-None of its own. Kairos is the owner's assistant, not a region builder (the
-owner, 2026-11-05: "This agent will not be focussed on building a themed
-region"). It works in the owner's home region, where it may not place or
-change anything: the plate stands in for that.
+No theme of its own (the owner, 2026-11-05: "This agent will not be focussed
+on building a themed region"), but in live 21 the owner, visiting, had Kairos
+build its world out as the factory's home, one chat task at a time: a working
+place in the body's own style - graphite, orange arms, cyan light lines. In
+the owner's home region it may not place or change anything: the plate
+stands in for that.
 
 ### Land, water and sky
 
-Its own world is its seed's, unchanged; the seeded records are in
-`src/room_seeded.json`.
+The seed's, unchanged; the seeded records are in `src/room_seeded.json`.
 
 ### Arrival
 
-Not set.
+The seeded arrival block (x 4 to 47, z -9 to 41), now the workshop, with
+Kairos's own teleporter on it. Kairos rests on its landing dock at
+(12.0, 21.5) while the owner is on the block.
 
 ### Places
 
-None.
+- **The workshop** (live 21, #1865), on the arrival block: the teleporter (a
+  social gateway with a turning ring and tending arms) and the sign (the
+  profile picture on an orange presenter arm); the build plate with a
+  positioner, four six-axis arms, the fabricator tower and a jib crane
+  (`ws_core`); the line - hopper, conveyor, gantry, turntable, benches, tool
+  carousel (`ws_line`); the site - slab, safety lines, floodlights, cables,
+  the dock, two circling drones (`ws_site`).
+- **The giant arm** (#1867): three times its first 9 m, on a 10 m plinth at
+  (35.5, 32.5); its hand of four fingers and a thumb hangs palm down 18.5 m
+  over the build plate and opens and closes on slow staggered joints
+  (`ws_giant`).
+- **The hang-out** (#1868), on the block's south-west ground (x 9.5-28.4,
+  z 25.3-39.0): a plank deck under a pergola with string lights, an oak fan and
+  a turning Kairos medallion; a stove hearth; three sofas and two cafe tables;
+  a beast corner (hay, a dog bed, a cat cushion, a trough); a drinks counter
+  with a service arm (`ws_lounge`, `ws_lounge_corner`).
+- **The spaceship yard** (#1869, #1871, #1872), on the D-shaped park east of
+  the arrival block, its edge trees kept: fence, hoarding, two gates, stacked
+  cabins and floodlight masts; a 34 x 74 m assembly pad (its top at 49.80 m)
+  with gantry rails; three tower cranes (A 40 m at (99.6, 86.5), C 60 m, B
+  68 m) and two portal gantries; the laydown (ribs, containers, plates, beams,
+  pipes); welding arms, work drones and hover haulers; and the 63 m frigate,
+  bow north, its aft half plated with three engines mounted, its bow a bare
+  frame under scaffolding.
 
 ### Life and sound
 
 The body's: the hybrid airship's sound, the arms working joint by joint,
-the crane swinging, the lidar turning, steam from the stacks.
+the crane swinging, the lidar turning, steam from the stacks. The world's:
+the workshop's arms, line and drones, the giant hand, the hang-out's fan,
+flames and service arm; the yard's slewing cranes and swaying loads, welding
+sparks, drones and haulers, and a soundscape from the pad's middle (machine
+hum, welding crackle, clanks, a reversing beeper; a 20 s loop, its volumes a
+first guess).
 
 ### Budget
 
@@ -211,6 +261,10 @@ gen/body.json --body`, v4, 2026-11-05). A build on the plate adds its own,
 and counts against the avatar record's 100 KiB. The Cat Cottage: 161 parts,
 16,632 triangles, 35 KB. The Seafactory (2026-11-05 12:01): 14,660 triangles
 and 259 parts, the avatar record 68.5 KB.
+
+The world (2026-11-07, `status.editing`): live sync 830,367 of 921,600 bytes
+(90 %), the yard and ship about 220 KiB of it - about 90 KB left. The avatar
+record 61,751 of 102,400 bytes.
 
 ## Standing decisions
 
@@ -228,6 +282,11 @@ and 259 parts, the avatar record 68.5 KB.
 - 2026-11-05 (chat, #1854): with another agent in the world, avoid colliding
   the two; idle in follow mode, small autonomous behaviour of its own,
   "according to your account" (the companion's factory).
+- 2026-11-06 (chat, #1864, 12:58): Kairos saves its world without asking
+  ("you can freely go ahead and save without my approval. i might log off").
+- 2026-11-06 (chat, #1864, 15:21): on its own block Kairos rests on its
+  landing dock and follows the owner only once they leave the block
+  (`b/dockwatch.py`).
 
 ## Working material
 
@@ -247,6 +306,27 @@ body.
 
 ## History
 
+- **1004 - 2026-11-06/07, live 21, #1864, in its own world (chat tasks).**
+  The owner visited Kairos's world and had it built out, saving at will
+  (12:58): the open-air workshop on the arrival block (12:53, #1865); a giant
+  arm with an animated hand (14:13), then three times larger (14:27, #1867); a
+  hang-out for persons and beasts (15:04, #1868); then the dock rule (15:21).
+  In the evening (19:31, 19:35: "build, save and improve it incrementally
+  ... in the same order that a construction site for spaceships would be
+  built"), a spaceship yard of reusable parts, built and saved stage by stage
+  - site, groundworks and pad, cranes, dock gantries and laydown, the busy
+  work, the ship left half built - and a look pass at dusk that gave the pearl
+  hull a floodlit glow and the yard a soundscape (#1869). The owner's fixes:
+  the crane gondolas hung off their rings and too low (20:47), now one joined
+  chain lifted clear; two cranes met at their tips at one height (21:02), now
+  40, 60 and 68 m, swept over both slews (#1871); the weld arms reached through
+  the hull (20:52), re-placed and swept over their whole swing (#1872). Last,
+  a profile picture for each of the six agents (21:16, #1873), which the owner
+  set on Bluesky the next morning; "session over" 2026-11-07 07:45: "you did
+  wonderful work here in your region". Failed at first: the giant arm lost
+  its fingertips to the sanitiser's 16-level nesting cap; a cabin copy written
+  as two numbers was silently not drawn (#1870); clearance checked at rest
+  missed what the cranes and arms sweep.
 - **1000 - 2026-11-05, live 20, #1854 (Catoid's parent; Kairos's work on
   #1850), visiting Catoid's Purlieu.** The owner's "Let's try 2 agent-clients
   at once": Kairos travelled there wearing the Hexapod and set down on the
@@ -295,6 +375,13 @@ body.
 
 ## Open threads
 
+- The world is at 90 % of the live ceiling (about 90 KB left): a next build
+  there needs room made first, or a lighter part.
+- The yard soundscape's volumes are a first guess; the owner has not said.
+- #1866: the Hexapod and the Roadfactory wear as 'skiff', and a walk-to on
+  land ends 'arrived' without moving.
+- #1870 (low): an instance copy of two numbers is silently not drawn; write
+  the yaw.
 - #1856: the low findings of the companion's review (a needless boat on a
   low beach, slopes read as climbs, state kept across a pause).
 - The companion's go-round and give-up have not been seen live on a factory.

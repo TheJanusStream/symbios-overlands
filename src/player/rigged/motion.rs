@@ -1,17 +1,18 @@
 use avian3d::prelude::LinearVelocity;
 use bevy::prelude::*;
-use bevy_symbios_avatar::{AvatarBody, AvatarPose, Drive, Drove};
+use bevy_symbios_avatar::{AvatarBody, AvatarDriver, AvatarPose, Drive, Drove};
 use symbios_avatar::anim::driver::Hold;
 use symbios_avatar::{Heading, Zone};
 
-use crate::player::emote::{BeastEmote, Emote, EmoteRequest};
+use crate::player::emote::{BeastEmote, Emote, EmoteRequest, WingedEmote};
 use crate::player::humanoid::{WaterColumn, WaterState, humanoid_water_state, water_state};
 use crate::state::{LiveAvatarRecord, LocalPlayer, RemotePeer};
 use crate::terrain::FinishedHeightMap;
 use crate::water::WaterSurfaces;
 
 use super::underfoot::Underfoot;
-use super::{RiggedRoot, RiggedTrail, stands_on_four};
+use super::{RiggedRoot, RiggedTrail};
+use crate::pds::avatar::RiggedKind;
 
 /// Where the crown of a swimmer afloat at the surface is drawn, in metres
 /// above the waterline (#1324): the eyes about at the water, the head out.
@@ -26,8 +27,8 @@ use super::{RiggedRoot, RiggedTrail, stands_on_four};
 /// higher is left where it is.
 pub(in crate::player) const SURFACE_CROWN: f32 = 0.1;
 
-/// How far a beast peer's chassis may wander and still be read as standing
-/// still, metres (#1805, [`hold_still`]).
+/// How far a beast's or a winged peer's chassis may wander and still be read
+/// as standing still, metres (#1805, #1878, [`hold_still`]).
 const STILL_WITHIN: f32 = 0.03;
 
 /// How quickly the drawn body follows that lift, seconds (#1324). The pose it
@@ -93,10 +94,12 @@ fn turned_from(from: f32, to: f32) -> f32 {
     (to - from + PI).rem_euclid(TAU) - PI
 }
 
-/// A beast peer's differenced speed, with a chassis that has stopped held at
-/// no speed at all until it is really going somewhere (#1805).
+/// A beast's or a winged peer's differenced speed, with a chassis that has
+/// stopped held at no speed at all until it is really going somewhere (#1805;
+/// a winged body's rests since #1878).
 ///
-/// The engine gets a resting beast up at 0.1 m/s of travel. Its owner's client
+/// The engine gets a resting beast up at 0.1 m/s of travel, and a perched
+/// bird, a resting bat or a curled glider at the same. Its owner's client
 /// reads that off the chassis' own velocity and a peer's off this difference,
 /// which at a crawl is far noisier: a sender under that speed sends only every
 /// 30th tick, about twice a second, so the playout sits on the last sample and
@@ -137,7 +140,7 @@ fn hold_still(trail: &mut RiggedTrail, position: Vec3, delta: f32, velocity: &mu
 
 /// Every rigged body the fill writes: where it hangs, what it is told, its
 /// trail, and - once built and posed - the body and pose the surface lift
-/// reads (#1324).
+/// reads (#1324), and the driver a flight's hand-on asks (#1877).
 type FilledBodies<'w, 's> = Query<
     'w,
     's,
@@ -148,6 +151,7 @@ type FilledBodies<'w, 's> = Query<
         &'static mut RiggedTrail,
         Option<&'static AvatarBody>,
         Option<&'static AvatarPose>,
+        Option<&'static AvatarDriver>,
     ),
     With<RiggedRoot>,
 >;
@@ -155,7 +159,8 @@ type FilledBodies<'w, 's> = Query<
 /// What the fill reads of a body's chassis: where it is, how fast if it knows,
 /// and for a peer, whether it looks out of its eyes and what its owner's record
 /// says - and, for the ground under it, where it is drawn this frame: its own
-/// `Transform`, and its parent if it has one (#1833, [`drawn_pose`]).
+/// `Transform`, and its parent if it has one (#1833, [`drawn_pose`]) - and its
+/// flight: the owner's own, or a peer's words (#1877).
 type FilledChassis<'w, 's> = Query<
     'w,
     's,
@@ -166,6 +171,10 @@ type FilledChassis<'w, 's> = Query<
         Option<&'static RemotePeer>,
         &'static Transform,
         Option<&'static ChildOf>,
+        (
+            Option<&'static crate::player::Flight>,
+            Option<&'static crate::player::PeerFlight>,
+        ),
     ),
     Without<RiggedRoot>,
 >;
@@ -211,11 +220,12 @@ fn drawn_pose(
 ///
 /// **The floor is the level plane at the rigged root's `y = 0`** - the root
 /// is offset so that is the chassis collider's bottom - **unless the body is
-/// a beast resting on the terrain**, which is handed the terrain under it as
-/// [`Drive::ground`] (#1833, [`super::underfoot`]): a beast's chassis is
-/// held level, so on a slope the level plane ran through the hill under its
-/// feet. Either way it is data on the [`Drive`], so this app needs none of
-/// the escape hatch a body with a driver and no [`Drive`] gets.
+/// a beast resting on the terrain or a structure**, which is handed the
+/// ground under it as [`Drive::ground`] (#1833, #1834,
+/// [`super::underfoot`]): a beast's chassis is held level, so on a slope or
+/// a sloped road the level plane ran through the ground under its feet.
+/// Either way it is data on the [`Drive`], so this app needs none of the
+/// escape hatch a body with a driver and no [`Drive`] gets.
 #[allow(clippy::too_many_arguments)]
 pub(in crate::player) fn fill_rigged_drive(
     time: Res<Time>,
@@ -247,14 +257,19 @@ pub(in crate::player) fn fill_rigged_drive(
             forward.x.atan2(forward.z)
         })
     });
-    for (child_of, mut root, mut drive, mut trail, body, pose) in &mut bodies {
-        let Ok((transform, velocity, peer_looking_out, peer, drawn, parent)) =
+    for (child_of, mut root, mut drive, mut trail, body, pose, driver) in &mut bodies {
+        let Ok((transform, velocity, peer_looking_out, peer, drawn, parent, flight)) =
             chassis.get(child_of.parent())
         else {
             continue;
         };
         let local = locals.contains(child_of.parent());
-        let beast = body.is_some_and(|body| stands_on_four(&body.avatar.rig));
+        // What is drawn here (#1875): a beast or a winged peer is held still
+        // while it rests (#1878), and every body that is not a person is hung
+        // from its record's collider.
+        let kind = body.map(|body| RiggedKind::of_rig(&body.avatar.rig));
+        let beast = kind == Some(RiggedKind::Beast);
+        let not_a_person = beast || kind.is_some_and(RiggedKind::is_winged);
         let position = transform.translation();
         let moved_far = trail
             .last
@@ -289,7 +304,7 @@ pub(in crate::player) fn fill_rigged_drive(
                         .last
                         .map_or(Vec3::ZERO, |(last, over)| (position - last) / over);
                 }
-                if beast {
+                if not_a_person {
                     hold_still(&mut trail, position, delta, &mut drive.velocity);
                 }
                 drive.at = position;
@@ -332,9 +347,12 @@ pub(in crate::player) fn fill_rigged_drive(
         // ground to the waist, and the other way the beast hangs in the air.
         // So the hang follows the collider, as the build's own offset does:
         // whatever stands on a chassis has its feet at the collider's bottom.
-        // Asked of the body that stands and of the shape it stands in, and
-        // once more when a person stops lying. A person in an upright capsule
-        // who has never lain keeps the root's own reading, to the bit.
+        // Asked of the body that stands - a beast, and a winged body (#1875),
+        // whose upright bird's capsule is cut to the bird and not to the
+        // person a record not yet refitted still carries - and of the shape it
+        // stands in, and once more when a person stops lying. A person in an
+        // upright capsule who has never lain keeps the root's own reading, to
+        // the bit.
         let record = if local {
             live.as_deref().map(|live| &live.0)
         } else {
@@ -345,9 +363,9 @@ pub(in crate::player) fn fill_rigged_drive(
                 crate::pds::LocomotionConfig::Humanoid(p) => Some(&**p),
                 _ => None,
             })
-            .filter(|p| p.is_lying() || beast || trail.rehung);
+            .filter(|p| p.is_lying() || not_a_person || trail.rehung);
         if let Some(p) = on_foot {
-            trail.rehung = p.is_lying() || beast;
+            trail.rehung = p.is_lying() || not_a_person;
         }
         let column = on_foot.map(WaterColumn::of);
         let hung = column.map_or(root.translation.y - trail.lift, |column| -column.drop);
@@ -401,8 +419,41 @@ pub(in crate::player) fn fill_rigged_drive(
             trail.landing = Some(wait);
         }
         let placed = moved_far || landing.is_some();
+        // **A winged body in the air** (#1877, [`super::aloft`]): its
+        // chassis' flight handed to the engine, held through a landing until
+        // the engine says it has settled. Only on a rig with wings: the engine
+        // ignores a flight on any other, and a person or a beast wearing a
+        // flight section is drawn exactly as it was.
+        drive.flight = match (kind, body) {
+            (Some(RiggedKind::Winged(_)), Some(body)) => {
+                let (local, peer) = flight;
+                let params = record.and_then(|record| match &record.locomotion {
+                    crate::pds::LocomotionConfig::Humanoid(p) => p.flight.as_ref(),
+                    _ => None,
+                });
+                trail.aloft.feed(
+                    super::aloft::Said {
+                        local,
+                        peer,
+                        params,
+                        now: time.elapsed_secs_f64(),
+                    },
+                    driver.and_then(|driver| driver.flight(&body.avatar.rig)),
+                    super::aloft::Footing {
+                        planar: Vec2::new(drive.velocity.x, drive.velocity.z).length(),
+                        swimming: drive.swimming,
+                        placed,
+                    },
+                )
+            }
+            _ => None,
+        };
+        // In the air it turns as its facing does, which the engine lays into
+        // the rudder and the outer wing (#1877) - with the placements above
+        // turning nothing.
+        let aloft = drive.flight.is_some();
         drive.turn = match trail.facing {
-            Some((last, over)) if looking && !drive.swimming && !placed => {
+            Some((last, over)) if ((looking && !drive.swimming) || aloft) && !placed => {
                 turned_from(last, drive.facing) / over
             }
             _ => 0.0,
@@ -519,8 +570,11 @@ pub(in crate::player) fn fill_rigged_drive(
 /// rather than checked per request.
 ///
 /// **The body that stands here chooses** (#1806), read off the rig that is
-/// drawn as the hang is: what a beast plays on four legs, what a person plays
-/// otherwise, and nothing when the message asked this body for nothing.
+/// drawn as the hang is ([`RiggedKind::of_rig`]): what a beast plays, what a
+/// person plays, what a winged body plays by the name its leading family's
+/// roster gives it (#1878, [`WingedEmote::gesture_name`]), and nothing when
+/// the message asked this body for nothing. Never another kind's: a bat once
+/// heard a beast's "yes" as its leg count read it.
 pub(in crate::player) fn start_emotes(
     mut requests: MessageReader<EmoteRequest>,
     mut bodies: Query<(&ChildOf, &mut Drive, Option<&AvatarBody>), With<RiggedRoot>>,
@@ -530,10 +584,12 @@ pub(in crate::player) fn start_emotes(
             if child_of.parent() != request.chassis {
                 continue;
             }
-            let name = if body.is_some_and(|body| stands_on_four(&body.avatar.rig)) {
-                request.beast.map(BeastEmote::gesture_name)
-            } else {
-                request.emote.map(Emote::gesture_name)
+            let name = match body.map(|body| RiggedKind::of_rig(&body.avatar.rig)) {
+                Some(RiggedKind::Beast) => request.beast.map(BeastEmote::gesture_name),
+                Some(RiggedKind::Winged(family)) => request
+                    .winged
+                    .and_then(|emote| WingedEmote::gesture_name(emote, family)),
+                _ => request.emote.map(Emote::gesture_name),
             };
             if let Some(name) = name {
                 drive.gesture(name);

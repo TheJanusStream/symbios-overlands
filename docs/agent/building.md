@@ -145,6 +145,27 @@ The record's wire form, as the World Editor's Raw JSON tab shows it:
   hub, an axle - stood unturned, and nest the blades under it. A turning part
   and everything under it has no solid collider. Everything stands still while
   the World Editor has a selection; deselect to watch it.
+- **A generator nests at most 16 levels** (`MAX_GENERATOR_DEPTH`,
+  src/pds/sanitize/limits.rs); the sanitiser drops what lies deeper and says
+  so only as an `adjusted_at` ending in `/children`. A chain of animated
+  joints runs out fast when each joint is a spin stub under a still stub
+  for its rest turn: Kairos's giant arm (live 21) reached depth 18 at its
+  fingertips and lost them on the first apply. Put a rest turn on the spin
+  stub itself when the spin turns about the rest's own axis, give a joint
+  with no rest pose one stub, hang caps and tips beside a segment's geometry
+  rather than under it, and count the depth before applying.
+- **A moving part must clear what it sweeps, not only where it rests**
+  (Kairos's spaceship yard, live 21): a still render hid three faults the owner
+  saw at once - crane loads hanging a metre off their hook rings and dipping
+  into the structures on their slew path, two cranes at one height meeting tip
+  to tip, and welding arms reaching through the hull. Hang a load from the
+  ring it turns with as one joined chain, so it cannot drift off it; give
+  cranes whose circles overlap different heights (the yard: 40, 60 and 68 m);
+  and sweep every moving part over its WHOLE swing, every joint together and
+  every pair of moving parts at every pair of angles, against everything in
+  reach. The yard's sweeps (exports/kairos/b/yard_crane_pairs.py,
+  yard_weld_sweep.py) found 2.1 m least clearance between cranes and kept the
+  arms 0.12 m off the hull.
 - **A spin on a body, and proving it** (Jink, session 955): `.steer` counts
   forward along its parent's +Z, as seeded vehicles are drawn, so a body
   drawn nose at -Z reads driving forward as reversing - give it a NEGATIVE

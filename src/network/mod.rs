@@ -293,6 +293,7 @@ impl Plugin for NetworkPlugin {
                     broadcast::broadcast_world_digest,
                     broadcast::broadcast_first_person,
                     broadcast::broadcast_flight,
+                    broadcast::tell_flight_on_hello,
                 )
                     .run_if(in_state(AppState::InGame)),
             );

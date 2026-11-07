@@ -15,7 +15,13 @@ name tags, no chat) - `A ui show <window> --picture` draws that.
   level, so a tall thing needs distance: to see the top of something `h`
   metres above your eyes, stand at least `h / tan(20 deg)` (about 2.7 h)
   away. The 15 m mast needed 35 m. Something low and close (a buggy 3 m
-  away) sits below the frame.
+  away) sits below the frame. A person's eyes are where first person puts
+  them; a four-legged beast's and a winged body's are the eyes its rig seats
+  (#1809, #1880), near the ground on a bat or a glider, and the view stands
+  just clear of everything drawn of the
+  body that way - its head, its tail, its folded wings - so none of it is in
+  the picture. It stays level in flight too, where the player's own first
+  person banks and pitches with the body.
 
 ## Reading a picture
 

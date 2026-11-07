@@ -2,14 +2,16 @@
 //! picker. Each preset's [`LocomotionPanel`] impl lives in its own
 //! submodule so adding a new preset is one new file + one match arm in
 //! [`draw_locomotion_tab`]. The On foot panel is the one exception, an
-//! inherent method that is also given the body's kind, since a person and
-//! a beast on it are offered different rows (#1803).
+//! inherent method that is also given the body's kind, since a person, a
+//! beast and a winged body on it are offered different rows (#1803, #1876).
 //!
-//! The On foot preset carries a person upright or a four-legged beast lying
-//! along its capsule (#1802). A beast's collider is the body's, refitted on
-//! every edit of it on the Body tab, so its panel reads it rather than
-//! offering it to drag, and picking On foot under a beast fits the preset
-//! to it (#1803).
+//! The On foot preset carries a person upright, a four-legged beast lying
+//! along its capsule (#1802), or a winged body by its leading family's
+//! posture (#1875). A beast's collider and a winged body's are the body's,
+//! refitted on every edit of it on the Body tab, so the panel reads them
+//! rather than offering them to drag - a winged body's flight with them,
+//! all but the handling its owner tunes - and picking On foot under either
+//! fits the preset to it (#1803).
 
 mod airplane;
 mod car;
@@ -107,9 +109,10 @@ pub trait LocomotionPanel {
 /// untuned switch stays silent, because the sentence is about loss, not
 /// about having clicked.
 ///
-/// A beast's On foot preset is measured against what picking it gives that
-/// body - the preset fitted to it (#1803) - since that is the tuning nobody
-/// chose, where a person's is the preset's own defaults.
+/// A beast's or a winged body's On foot preset is measured against what
+/// picking it gives that body - the preset fitted to it (#1803, #1875) -
+/// since that is the tuning nobody chose, where a person's is the preset's
+/// own defaults.
 fn discarded_tuning(
     current: &LocomotionConfig,
     body: Option<&EngineAvatarRecord>,
@@ -123,9 +126,9 @@ fn discarded_tuning(
 }
 
 /// What picking a preset gives the avatar: the preset's own defaults, and
-/// for the On foot preset under a beast, those fitted to it (#1803, owner
-/// decision D3) - a beast never stands on a person's upright capsule, even
-/// for a frame. A person's are the defaults, untouched.
+/// for the On foot preset under a beast or a winged body, those fitted to it
+/// (#1803, owner decision D3; #1875) - neither ever stands on a person's
+/// upright capsule, even for a frame. A person's are the defaults, untouched.
 fn picked(ctor: fn() -> LocomotionConfig, body: Option<&EngineAvatarRecord>) -> LocomotionConfig {
     let mut config = ctor();
     if let (LocomotionConfig::Humanoid(p), Some(body)) = (&mut config, body)
@@ -208,8 +211,8 @@ pub fn draw_locomotion_tab(
     match locomotion {
         LocomotionConfig::HoverBoat(p) => p.draw(ui, dirty, facts),
         LocomotionConfig::Humanoid(p) => {
-            let beast = humanoid::carries_beast(body, p);
-            p.draw_on_foot(ui, dirty, facts, beast);
+            let kind = humanoid::OnFootBody::of(body, p);
+            p.draw_on_foot(ui, dirty, facts, kind);
         }
         LocomotionConfig::Airplane(p) => p.draw(ui, dirty, facts),
         LocomotionConfig::Helicopter(p) => p.draw(ui, dirty, facts),
@@ -1143,5 +1146,204 @@ mod inert_panel_tests {
         assert!(shows(&sections(&mut unresolved), "Body collider"));
         unresolved.locomotion = crate::pds::HumanoidParams::default_config();
         assert!(shows(&sections(&mut unresolved), "Capsule"));
+    }
+
+    /// A record wearing `family`'s default winged body - the owl, the fruit
+    /// bat, the sugar glider - resolved, on its fitted On foot preset.
+    fn winged(family: symbios_avatar::WingedFamily) -> AvatarRecord {
+        use crate::pds::avatar::locomotion::{default_winged, fitted_record};
+        fitted_record(default_winged(family))
+    }
+
+    /// **A winged body's Locomotion tab reads its collider and its flight,
+    /// and offers only what its owner tunes** (#1876): on the owl, the bat
+    /// and the glider the person's capsule - its radius, length, mass, jump
+    /// and a "Total height" that is wrong for a lying capsule - is gone; the
+    /// "Body collider" readout says the body's own shape as fitted, lying
+    /// along a bat's and a glider's trunk and standing upright round the
+    /// bird; and a "Flight" section reads out what the body sets and offers
+    /// the six fields a refit keeps as sliders, and nothing else. Drawing it
+    /// writes nothing. Without it the tab drew the person's Capsule panel, a
+    /// mass slider of 30..150 under a body of a few kilograms.
+    #[test]
+    fn a_winged_bodys_tab_reads_its_collider_and_flight_and_offers_its_handling() {
+        use symbios_avatar::WingedFamily;
+        let person_rows = [
+            "Radius (m)",
+            "Cylinder length (m)",
+            "Mass (kg)",
+            "Jump impulse (N·s)",
+        ];
+        let kept_rows = [
+            "Run speed (m/s)",
+            "Linear damping",
+            "Acceleration (1/s)",
+            "Stop snappiness (1/s)",
+            "Facing turn rate (1/s)",
+            "Swim speed (m/s)",
+            "Wading speed factor",
+        ];
+        let handling = [
+            "Stamina (full-power beats)",
+            "Stamina recovery (s)",
+            "Glide ratio",
+            "Steepest bank (°)",
+            "Roll rate (°/s)",
+            "Pitch rate (°/s)",
+        ];
+        let person: Vec<String> = controls_for(&mut AvatarRecord::wearing("3jzfcijpj2z2a"), 0)
+            .into_iter()
+            .map(|c| c.label)
+            .collect();
+        for family in [WingedFamily::Bird, WingedFamily::Bat, WingedFamily::Glider] {
+            let mut record = winged(family);
+            let p = match &record.locomotion {
+                LocomotionConfig::Humanoid(p) => (**p).clone(),
+                _ => unreachable!("on foot"),
+            };
+            let flight = p
+                .flight
+                .clone()
+                .expect("the premise: a fitted winged body flies");
+            assert_eq!(
+                p.is_lying(),
+                family != WingedFamily::Bird,
+                "{family:?}: the premise, its leading family's posture"
+            );
+            let drawn = draw_tab_over(&mut record, 0, 2);
+            assert!(
+                drawn.moved.is_empty() && !drawn.dirty,
+                "{family:?}: drawing the winged tab wrote {:?}, dirty {}",
+                drawn.moved,
+                drawn.dirty
+            );
+            for (header, shown) in [
+                ("Body collider", true),
+                ("Flight", true),
+                ("Capsule", false),
+            ] {
+                assert_eq!(
+                    drawn.controls.iter().any(|c| c == header),
+                    shown,
+                    "{family:?}: {header:?} in {:?}",
+                    drawn.controls
+                );
+            }
+            let rows: Vec<String> = controls_for(&mut record, 0)
+                .into_iter()
+                .map(|c| c.label)
+                .collect();
+            // Against a person's tab: the capsule's rows gone, the
+            // handling's come, and every other row the same.
+            let set = |rows: &[String]| -> std::collections::BTreeSet<String> {
+                rows.iter().filter(|r| !r.is_empty()).cloned().collect()
+            };
+            let (winged_rows, person_rows_drawn) = (set(&rows), set(&person));
+            let gone: Vec<&String> = person_rows_drawn.difference(&winged_rows).collect();
+            let came: Vec<&String> = winged_rows.difference(&person_rows_drawn).collect();
+            let mut lost = person_rows.to_vec();
+            lost.sort_unstable();
+            assert_eq!(gone, lost, "{family:?}: the rows it lost");
+            let mut wanted = handling.to_vec();
+            wanted.sort_unstable();
+            assert_eq!(came, wanted, "{family:?}: the rows it gained, of {rows:?}");
+            for row in kept_rows {
+                assert!(winged_rows.contains(row), "{family:?} lost {row:?}");
+            }
+
+            let ctx = egui::Context::default();
+            ctx.enable_accesskit();
+            ctx.memory_mut(|m| m.set_everything_is_visible(true));
+            let (output, _) = pass(&ctx, &mut record, Vec::new());
+            let text = painted(&output);
+            for line in humanoid::collider_lines(&p)
+                .into_iter()
+                .chain(humanoid::flight_lines(&flight))
+                .chain([
+                    humanoid::FOLLOWS_THE_BODY.to_string(),
+                    humanoid::FLIGHT_FOLLOWS_THE_BODY.to_string(),
+                ])
+            {
+                assert!(
+                    text.contains(&line),
+                    "{family:?} paints no {line:?}: {text:?}"
+                );
+            }
+            let shape = if p.is_lying() {
+                format!("Back height {:.2} m over the feet", p.stand_height())
+            } else {
+                format!("Height {:.2} m, standing upright", p.total_height())
+            };
+            assert!(text.contains(&shape), "{family:?}: {text:?}");
+            assert!(
+                !text.iter().any(|t| t.starts_with("Total height")),
+                "{family:?} shows a person's total height"
+            );
+            assert_eq!(
+                text.iter().any(|t| t.starts_with("Cannot flap")),
+                family == WingedFamily::Glider,
+                "{family:?}: {text:?}"
+            );
+            println!("{family:?}: {:?}", humanoid::collider_lines(&p));
+            println!("{family:?}: {:?}", humanoid::flight_lines(&flight));
+        }
+    }
+
+    /// **A winged body's handling is its owner's to drag** (#1876): one step
+    /// of the "Glide ratio" slider, through AccessKit, moves the record's
+    /// glide ratio and only it, and says the record changed - and the body's
+    /// next refit keeps it ([`crate::pds::FlightParams::keep_handling`]).
+    #[test]
+    fn a_winged_bodys_glide_ratio_is_its_owners_to_drag() {
+        use bevy_egui::egui::accesskit::{Action, ActionRequest, Role, TreeId};
+        let mut record = winged(symbios_avatar::WingedFamily::Bat);
+        let before = record.clone();
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let (output, _) = pass(&ctx, &mut record, Vec::new());
+        let update = output.platform_output.accesskit_update.expect("a tree");
+        // The slider after the "Glide ratio" label: the first slider whose
+        // value is the record's glide ratio.
+        let flight = |record: &AvatarRecord| match &record.locomotion {
+            LocomotionConfig::Humanoid(p) => p.flight.clone().expect("flies"),
+            _ => unreachable!("on foot"),
+        };
+        let ratio = flight(&before).glide_ratio.0 as f64;
+        let slider = update
+            .nodes
+            .iter()
+            .find(|(_, n)| {
+                n.role() == Role::Slider
+                    && n.numeric_value().is_some_and(|v| (v - ratio).abs() < 1e-4)
+                    && n.max_numeric_value() == Some(20.0)
+            })
+            .map(|(id, _)| *id)
+            .expect("the glide ratio's slider");
+        let step = vec![egui::Event::AccessKitActionRequest(ActionRequest {
+            action: Action::Increment,
+            target_tree: TreeId::ROOT,
+            target_node: slider,
+            data: None,
+        })];
+        let (_, dirty) = pass(&ctx, &mut record, step);
+        assert!(dirty, "the drag reported no change");
+        let (was, now) = (flight(&before), flight(&record));
+        assert!(now.glide_ratio.0 > was.glide_ratio.0, "{was:?} -> {now:?}");
+        assert_eq!(
+            crate::pds::FlightParams {
+                glide_ratio: was.glide_ratio,
+                ..now.clone()
+            },
+            was,
+            "more than the glide ratio moved"
+        );
+        let body = worn(&record.body).expect("resolved").clone();
+        let mut anchor = None;
+        crate::pds::avatar::locomotion::follow_body(&mut record, Some(&body), &mut anchor);
+        assert_eq!(
+            flight(&record).glide_ratio,
+            now.glide_ratio,
+            "the refit lost it"
+        );
     }
 }

@@ -119,7 +119,7 @@ avatar / primitive material texture, which the upstream generator pool would
 otherwise bake on the render thread; identical requests coalesce onto one
 airborne job), and the **avatar builds** (meshing one rigged body from its
 record, 68 ms at the draft atlas and 277 ms at full size - a player's, a
-peer's, and since #1842 the item preview's picture of a person or a beast,
+peer's, and since #1842 the item preview's picture of a rigged body,
 built by the same job at the draft atlas, one build in flight for the stage). Three of the four
 ride the urgent lane - everything but the texture bakes, whose only cost is
 pop-in. Each job is a self-contained, serialisable `GenJob` whose pure `run()`
@@ -209,7 +209,17 @@ almost everything downstream:
 
 - **`#rigged`** - a parametric skinned body from the `symbios-avatar` engine.
   Every seeded humanoid is one - there is no primitive-built humanoid - as is
-  any body authored in the editor's Body tab.
+  any body authored in the editor's Body tab. Its engine record is one of
+  three body plans, and the game asks which through one kind
+  ([`RiggedKind`](../src/pds/avatar/kind.rs), #1875): a **person**, a
+  **four-legged beast** (dog, cat, horse or a cross, #1799) or a **winged
+  body** (bird, bat, sugar glider or a cross, led by one family, #1859). It is
+  read off the record where the record is what matters (the editor, the
+  wardrobe, the fit) and off the built rig where the drawn body is (motion,
+  dressing, the camera), since a browser holding an older cached worker draws
+  a winged record as the stand-in person. A winged body takes its leading
+  family's posture: a bird stands upright, a bat or a glider goes on four as
+  a beast does.
 - **`#generator`** - the classic `Generator` tree, spawned by the avatar-side
   spawner back through the world compiler's own primitive / L-system /
   shape-grammar machinery. This is the vehicle families: boat, airship,
@@ -255,23 +265,48 @@ a two-rung atlas ladder: 256 px while the record is still moving under an
 editor, full size once it has been still for 0.8 s, so sculpting stays
 interactive without shipping a draft skin. The finished body lands under a
 child offset that puts the engine's ground plane (y = 0, at the feet) on the
-chassis collider's bottom. A beast the physics has resting on the terrain and
-nothing else plants its feet on the terrain itself instead, sampled under it each
+chassis collider's bottom. A body on four legs - a beast, and a winged body a
+bat or a glider leads - the physics has resting on the terrain and nothing else
+plants its feet on the terrain itself instead, sampled under it each
 frame through the pose it is drawn at, with rays reading in whatever stands on the
 terrain within its reach (#1833): its chassis is held level, so on a slope that
-plane runs through the hill. A beast on a floor, a pad, a deck or a road keeps the
-plane. Props are then plain parenting: the Bevy layer
+plane runs through the hill. One resting on static structures - a floor, a
+pad, a deck, a road - stands on their surfaces the same way: a surface joined
+to the one under its feet, neighbour to neighbour within a step, as it is, so
+a road is stood on as it climbs, crests and dips; other ground within a step
+of the plane it stands on, so a room's walls and the terrain under its floor
+are not, and legs over a deck's edge are held at the deck's plane (#1834);
+one on a boat,
+another body or anything that moves keeps the plane, as a person and a bird
+always do. Props are then plain
+parenting: the Bevy layer
 spawns a real entity per rig joint, so a prop rides its joint through every
 motion for free - an identity offset lets the engine seat the prop just clear
-of the *measured* surface, an authored offset is taken verbatim.
+of the *measured* surface, an authored offset is taken verbatim. Which sockets
+a body is dressed at is its kind's
+([`wardrobe.rs`](../src/pds/avatar/wardrobe.rs)): a person at every one, a
+beast at its neck, back and crown (#1803), a winged body at its neck, crown
+and both legs - not its back, where the wings fold, nor its hands, a wing's
+wrists (#1879). A beast and a winged body wear only what is cut for an animal,
+and at the crown what is seated there; a person never what is so cut. An
+animal's cut is fitted to the body it lands on, a beast's by
+[`beast_seat.rs`](../src/player/beast_seat.rs) and a winged body's by
+[`winged_seat.rs`](../src/player/winged_seat.rs), read off what crosses the
+web worker alone - a collar over a bird's feathers, a band at the middle of its
+leg. A prop at a socket its body is not dressed at stays referenced, unworn.
 
 **Motion is computed, never played back.** There is no clip library, no clip
 fetch and no play-rate arithmetic anywhere in this path: the gait comes
 off a single dimensionless speed that decides stride, cadence, duty and the
 walk-run boundary; the idle, the leap, the swim, the goal-space gestures and
 the blinking are all engine layers posed from what the chassis is actually
-doing. Chat keywords reach four of those gestures - a greeting, a yes, a no and
-a bow - with no command syntax to learn ([`emote.rs`](../src/player/emote.rs)).
+doing, and a winged body's flight too (#1877): the chassis' flight mode, its
+beat and its time to contact drive the engine's airborne motion
+([`aloft.rs`](../src/player/rigged/aloft.rs)), a landing held until the wings
+have folded. Chat keywords reach the gestures with no command syntax to learn
+([`emote.rs`](../src/player/emote.rs)): a person's four - a greeting, a yes, a
+no and a bow - and a beast's and a winged body's own tables (#1806, #1878),
+the winged one by its leading family's names, its rests among them.
 The older cosmetic `AvatarGait` bobber still animates *generator* bodies and
 only those.
 
@@ -519,8 +554,9 @@ generation cores shared with the wasm Web Worker.
   and Copy to inventory stashes it as a world item; both windows picture
   the selection from one off-screen stage,
   [`item_preview.rs`](../src/item_preview.rs), on a render layer of its own -
-  an item or a vehicle from its tree, and since #1842 a person or a beast as
-  the game builds, hangs, dresses and stands it, built off the frame),
+  an item or a vehicle from its tree, and since #1842 a person, a beast or
+  (#1875) a winged body as the game builds, hangs, dresses and stands it,
+  built off the frame),
   [diagnostics](../src/ui/diagnostics.rs) (the 5-tab metrics/anomaly HUD),
   [settings](../src/ui/settings.rs), the
   [gateway destination picker](../src/ui/gateway.rs) (the room owner's mutuals,
@@ -591,7 +627,10 @@ generation cores shared with the wasm Web Worker.
   floating and their mounts needing embed fudge factors. The humanoid family short-circuits both
   pipelines and rolls a seeded `symbios-avatar` engine record instead, whose
   stature the locomotion capsule is then cut to; the beast family rolls one on
-  four legs, with the capsule lying along its trunk.
+  four legs, with the capsule lying along its trunk. No seed rolls a winged
+  body yet (#1882); one made in the editor is fitted by its leading family's
+  posture, with the flight section its body flies by
+  ([`fit.rs`](../src/pds/avatar/locomotion/fit.rs)).
 - [`src/catalogue/`](../src/catalogue/) - code-shipped read-only library of
   starter generator blueprints (~380 entries across 24 themes),
   organised by theme and structural role (landmark / secondary / prop / plant /
@@ -603,7 +642,10 @@ generation cores shared with the wasm Web Worker.
   `AvatarPins` and a start seed, built on demand by the pinned re-roll's hunt
   and `AvatarRecord::default_for_seed` and cached for the process. One entry
   per craft type, plus six people and six beasts chosen by what the engine's
-  own roll varies; a drift test holds every entry to its name.
+  own roll varies (no winged body yet, #1882); a drift test holds every entry
+  to its name. The Attachments category holds the wearables, a person's and
+  an animal's: the collar and the ear bow for a beast or a winged body, the
+  saddle pad for a beast, and the leg band (#1879) for a winged body.
   [`worlds.rs`](../src/catalogue/worlds.rs) lists its worlds (#1841) the
   same way: each a slug, a name, its `ScenePins` and a start seed, built by
   the World Editor re-roll's hunt and `build_room_with_source` for the

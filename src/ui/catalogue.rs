@@ -1167,9 +1167,10 @@ fn item_detail(
                             "sizes itself to the wearer's head ({:.0} mm band authored)",
                             inner_diameter * 1000.0
                         ),
-                        crate::catalogue::WearFit::Beast { .. } => {
-                            String::from("cut for a four-legged body, and sizes itself to it")
-                        }
+                        crate::catalogue::WearFit::Beast { .. } => format!(
+                            "cut for {}, and sizes itself to it",
+                            crate::pds::avatar::cut_wearers(socket)
+                        ),
                     };
                     row(ui, "Fit", text);
                 }

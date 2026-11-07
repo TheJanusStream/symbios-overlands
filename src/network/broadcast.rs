@@ -177,6 +177,39 @@ pub(super) fn broadcast_flight(
     );
 }
 
+/// Say what our winged body is doing to each peer as soon as its `Hello` says
+/// it reads it (#1877), while we are off our feet: the once-a-second repeat
+/// in [`broadcast_local_state`] left a peer that met us in the air drawing a
+/// flying body running in mid-air for up to a second. A peer is told once per
+/// meeting - kept in `told` while its body stands, forgotten when it goes -
+/// and only if it reads the word, as the repeat asks.
+pub(super) fn tell_flight_on_hello(
+    query: Query<&crate::player::Flight, With<LocalPlayer>>,
+    peers: Query<&crate::state::RemotePeer>,
+    mut sender: SendMessage<OverlandsMessage>,
+    mut told: Local<Vec<PeerId>>,
+) {
+    told.retain(|id| peers.iter().any(|peer| peer.peer_id == *id));
+    let mode = query.single().map(|flight| flight.mode()).ok();
+    for peer in &peers {
+        let reads = peer
+            .build
+            .as_ref()
+            .is_some_and(|build| build.protocol >= crate::protocol::FLIGHT_SINCE);
+        if !reads || told.contains(&peer.peer_id) {
+            continue;
+        }
+        told.push(peer.peer_id);
+        if let Some(mode) = mode.filter(|mode| mode.airborne()) {
+            sender.to(
+                peer.peer_id,
+                OverlandsMessage::Flight { mode: mode.wire() },
+                ChannelKind::Reliable,
+            );
+        }
+    }
+}
+
 /// Announce our world digest whenever it changes (#1146).
 ///
 /// Sent on the reliable channel, once per settled derivation rather than on a

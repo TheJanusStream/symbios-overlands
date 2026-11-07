@@ -2196,14 +2196,14 @@ fn capsule_of(family: Family) -> crate::pds::avatar::locomotion::LyingCapsule {
 /// with their front at its uphill edge, where the hill rises past it, on a
 /// grade of a fifth and on 20 degrees, on either client.
 ///
-/// The physics has each resting on the floor, so it keeps the level floor
-/// through its collider, and every foot is on it: within the window a beast
-/// on the level floor stands its feet in at rest (`lowest_foot`, -15 to
-/// +5 mm, the pad joints' own round undersides), widened by the 5 mm the
-/// contact solver lets a resting capsule sink. A band against the heightmap
-/// once handed these the hill under the floor, and their feet went down
-/// through it: the horse's hind soles 0.43 m on a fifth, 0.79 m on 20
-/// degrees.
+/// The physics has each resting on the floor, so it is handed the floor's
+/// ground (#1834) - under its feet the floor's top, not the hill under it -
+/// and every foot is on it: within the window a beast on the level floor
+/// stands its feet in at rest (`lowest_foot`, -15 to +5 mm, the pad joints'
+/// own round undersides), widened by the 5 mm the contact solver lets a
+/// resting capsule sink. A band against the heightmap once handed these the
+/// hill under the floor, and their feet went down through it: the horse's
+/// hind soles 0.43 m on a fifth, 0.79 m on 20 degrees.
 #[test]
 fn a_beast_on_a_floor_cut_into_a_hillside_stands_on_the_floor() {
     for grade in [0.2f32, 20f32.to_radians().tan()] {
@@ -2224,13 +2224,23 @@ fn a_beast_on_a_floor_cut_into_a_hillside_stands_on_the_floor() {
                 top + drop_of(&record) + 0.01,
                 -4.0 + capsule.to + capsule.radius + 0.05,
             );
+            let stance =
+                bevy_symbios_avatar::GroundPatch::stance(&built(&default_beast(family), 64).rig)
+                    .expect("it stands");
             for under in [Under::Local, Under::Peer] {
                 let (app, _, root) = beast_resting(&ground, &[floor], under, family, place);
+                let posed = *app.world().get::<GlobalTransform>(root).expect("placed");
                 let drive = app.world().get::<Drive>(root).expect("a drive");
-                assert!(
-                    drive.ground.is_none(),
-                    "{family:?} {under:?} on grade {grade}: on the floor, and handed the hill"
-                );
+                for corner in [stance.min, stance.max] {
+                    let got = drive.ground.as_ref().map_or(posed.translation().y, |_| {
+                        patched_world(drive, &posed, corner.x, corner.y)
+                    });
+                    assert!(
+                        (got - top).abs() < 1e-3,
+                        "{family:?} {under:?} on grade {grade}: on the floor, and handed {got:.3} \
+                         under its feet, the floor's top {top:.3}"
+                    );
+                }
                 for sole in drawn_soles(&app, root) {
                     let off = sole.y - top;
                     assert!(
@@ -2353,16 +2363,18 @@ fn a_tall_obstacle_beside_a_beast_lifts_no_foot_onto_it() {
     }
 }
 
-/// **A beast resting on a deck is handed no patch** (#1833). A deck laid 8 cm
-/// over a 20-degree hill and parallel to it - a boardwalk, or a ribbon draped
-/// lower than a road's 0.2 m - takes a horse and a dog resting on it, on
-/// either client: what they rest on is not the terrain, so they keep the
-/// level floor their collider stands them on. A band 5 cm either side of the
-/// terrain under the collider passed both - the lying capsule rests on its
-/// uphill end, nearer the terrain there than the deck's own 8 cm - and the
-/// patch stood their feet in the deck, on the terrain under it.
+/// **A beast resting on a deck is handed the deck's top** (#1833, #1834). A
+/// deck laid 8 cm over a 20-degree hill and parallel to it - a boardwalk, or
+/// a ribbon draped lower than a road's 0.2 m - takes a horse and a dog
+/// resting on it, on either client: what they rest on is not the terrain, so
+/// they are handed the structure's ground, and over the deck it is the
+/// deck's top, never the terrain under it. A band 5 cm either side of the
+/// terrain under the collider passed both as on the terrain - the lying
+/// capsule rests on its uphill end, nearer the terrain there than the deck's
+/// own 8 cm - and the patch stood their feet in the deck, on the terrain
+/// under it; until #1834 they kept the level floor, through the slope.
 #[test]
-fn a_beast_resting_on_a_deck_or_a_ribbon_is_handed_no_patch() {
+fn a_beast_resting_on_a_deck_or_a_ribbon_is_handed_its_top() {
     let grade = 20f32.to_radians().tan();
     let ground = move |_: f32, z: f32| -grade * z;
     let tilt = grade.atan();
@@ -2390,10 +2402,30 @@ fn a_beast_resting_on_a_deck_or_a_ribbon_is_handed_no_patch() {
                 at.z.abs() < 0.5,
                 "{family:?} {under:?}: slid off the deck to {at}"
             );
+            let posed = *app.world().get::<GlobalTransform>(root).expect("placed");
             let drive = app.world().get::<Drive>(root).expect("a drive");
             assert!(
-                drive.ground.is_none(),
-                "{family:?} {under:?}: resting on the deck, and handed the terrain under it"
+                drive.ground.is_some(),
+                "{family:?} {under:?}: resting on the deck, and handed no patch"
+            );
+            let mut over = 0;
+            for (world, got) in patch_samples(drive, &posed) {
+                // Well inside the deck's top, the sloped box's own corners
+                // aside.
+                if world.x.abs() < half.x - 0.1 && world.z.abs() < (half.z - 0.2) * tilt.cos() {
+                    over += 1;
+                    let top = ground(world.x, world.z) + 0.08;
+                    assert!(
+                        (got - top).abs() < 2e-3,
+                        "{family:?} {under:?}: over the deck at {world} the ground is {got:.3}, \
+                         its top {top:.3} and the terrain under it {:.3}",
+                        ground(world.x, world.z)
+                    );
+                }
+            }
+            assert!(
+                over > 20,
+                "{family:?} {under:?}: the deck is not under the reach"
             );
         }
     }
@@ -2972,9 +3004,10 @@ fn a_road_network_is_gathered_only_where_its_triangles_are() {
 /// it moves 2 cm. Walking at 1.2 m/s onto a floor laid 3 cm over the
 /// terrain ahead of it, its answer changes on the very frame a fresh cast
 /// says it rests on the floor; creeping onto it 3 mm a frame, within the
-/// frames a centimetre takes. Its patch is gone a hold and an ease after
-/// that (#1835: [`super::underfoot::HOLD_SECS`] and
-/// [`super::underfoot::BLEND_SECS`]), not on that frame.
+/// frames a centimetre takes. Its patch carries none of the terrain's ground
+/// a hold and an ease after that (#1835: [`super::underfoot::HOLD_SECS`] and
+/// [`super::underfoot::BLEND_SECS`]), not on that frame - by then it is the
+/// floor's (#1834).
 #[test]
 fn a_peers_cast_is_kept_while_it_stands_still() {
     let flat = |_: f32, _: f32| 0.0;
@@ -3002,6 +3035,15 @@ fn a_peers_cast_is_kept_while_it_stands_still() {
                 .expect("a drive")
                 .ground
                 .is_some()
+        };
+        let on_terrain = |app: &App| {
+            app.world()
+                .get::<RiggedTrail>(root)
+                .expect("a trail")
+                .rest
+                .held()
+                .0
+                > 0.0
         };
         assert!(patched(&app), "on the terrain, and handed none");
         let mut seen = Vec::new();
@@ -3036,10 +3078,10 @@ fn a_peers_cast_is_kept_while_it_stands_still() {
                     underfoot.resting_cast(&shape, &posed)
                 })
                 .expect("the cast runs");
-            if fresh == crate::player::RestsOn::Elsewhere && flipped.is_none() {
+            if fresh == crate::player::RestsOn::Structure && flipped.is_none() {
                 flipped = Some(frame);
             }
-            if !patched(&app) && dropped.is_none() {
+            if !on_terrain(&app) && dropped.is_none() {
                 dropped = Some(frame);
             }
             if flipped.is_some() && dropped.is_some() {
@@ -3066,4 +3108,7 @@ fn a_peers_cast_is_kept_while_it_stands_still() {
     }
 }
 
+mod flight;
 mod standing_still;
+mod structure_ground;
+mod winged;

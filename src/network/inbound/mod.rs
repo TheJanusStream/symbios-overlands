@@ -412,7 +412,7 @@ pub(super) fn handle_incoming_messages(
                 transform::handle_first_person(msg.sender, on, &mut commands, &peers)
             }
             OverlandsMessage::Flight { mode } => {
-                transform::handle_flight(msg.sender, mode, &mut commands, &peers)
+                transform::handle_flight(msg.sender, mode, now, &mut commands, &peers)
             }
             OverlandsMessage::RoomStateUpdate { record_json } => record_updates::handle_room_state(
                 msg.sender,
@@ -761,20 +761,20 @@ mod tests {
         let say = |world: &mut World, mode: u8| {
             world
                 .run_system_once(move |mut commands: Commands, peers: Query<PeerParts>| {
-                    transform::handle_flight(id(1), mode, &mut commands, &peers);
+                    transform::handle_flight(id(1), mode, 0.0, &mut commands, &peers);
                 })
                 .expect("the word is handled");
         };
         say(&mut world, FlightMode::Glide.wire());
         assert_eq!(
-            world.get::<PeerFlight>(speaker),
-            Some(&PeerFlight(FlightMode::Glide))
+            world.get::<PeerFlight>(speaker).map(|flight| flight.heard),
+            Some(FlightMode::Glide)
         );
         assert!(world.get::<PeerFlight>(beside).is_none(), "only its own");
         say(&mut world, FlightMode::Land.wire());
         assert_eq!(
-            world.get::<PeerFlight>(speaker),
-            Some(&PeerFlight(FlightMode::Land))
+            world.get::<PeerFlight>(speaker).map(|flight| flight.heard),
+            Some(FlightMode::Land)
         );
         say(&mut world, 200);
         assert!(

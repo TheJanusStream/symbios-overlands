@@ -705,6 +705,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &attachments::collar::Collar,
     &attachments::ear_bow::EarBow,
     &attachments::lantern::Lantern,
+    &attachments::leg_band::LegBand,
     &attachments::saddle_pad::SaddlePad,
     &attachments::satchel::Satchel,
 ];

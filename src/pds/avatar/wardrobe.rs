@@ -124,34 +124,71 @@ pub const BEAST_SOCKETS: [symbios_avatar::Socket; 3] = [
     symbios_avatar::Socket::Crown,
 ];
 
-/// Whether a body of `anatomy` is dressed at `socket` at all (#1803): a
-/// person at every socket their rig has, a body without a human trunk only
-/// at [`BEAST_SOCKETS`]. The one answer the wear surfaces and the dresser
+/// The sockets a winged body is dressed at (#1879, the owner's choice): its
+/// collar, its crown and a band on either leg. Not its back, where the folded
+/// wings lie, and not its hands, which are a wing's wrists.
+pub const WINGED_SOCKETS: [symbios_avatar::Socket; 4] = [
+    symbios_avatar::Socket::Neck,
+    symbios_avatar::Socket::Crown,
+    symbios_avatar::Socket::LeftFoot,
+    symbios_avatar::Socket::RightFoot,
+];
+
+/// Whether a body of `kind` is dressed at `socket` at all (#1803): a person
+/// (and a body plan this build cannot read, drawn as one) at every socket
+/// their rig has, a four-legged beast only at [`BEAST_SOCKETS`], and a winged
+/// body only at [`WINGED_SOCKETS`] (#1879) - asked by its kind, since a winged
+/// body's head and trunk are a beast's kind and an anatomy offered it a
+/// beast's three. The one answer the wear surfaces and the dresser
 /// (`player::attachments::placements`) both ask, so a socket the Wearables
 /// tab hides is exactly one the body would not wear. A prop worn elsewhere
 /// stays referenced and unworn, for a body that is.
-pub fn offers_socket(anatomy: symbios_avatar::Anatomy, socket: symbios_avatar::Socket) -> bool {
-    anatomy.human_trunk() || BEAST_SOCKETS.contains(&socket)
+pub fn offers_socket(kind: super::RiggedKind, socket: symbios_avatar::Socket) -> bool {
+    use super::RiggedKind;
+    match kind {
+        RiggedKind::Person | RiggedKind::Unknown => true,
+        RiggedKind::Beast => BEAST_SOCKETS.contains(&socket),
+        RiggedKind::Winged(_) => WINGED_SOCKETS.contains(&socket),
+    }
 }
 
-/// Whether a body of `anatomy` wears a prop at `socket`, the prop's own cut
+/// Whether a body of `kind` wears a prop at `socket`, the prop's own cut
 /// counted (#1807, owner decision D9): the socket alone cannot say, because a
 /// banner names the same back a saddle pad does.
 ///
-/// A person wears whatever is not cut for a beast. A beast wears what is cut
-/// for one at any of its sockets, and between its ears whatever is seated
-/// there, which is how the circlet comes to be allowed at its authored size.
-/// Asked of the record every client holds, a peer's included: refused here,
-/// a prop stays referenced and unworn for a body that would wear it.
-pub fn dresses(
-    anatomy: symbios_avatar::Anatomy,
-    socket: symbios_avatar::Socket,
-    fit_beast_mm: u32,
-) -> bool {
-    if anatomy.human_trunk() {
-        return fit_beast_mm == 0;
+/// A person wears whatever is not cut for an animal. A beast and a winged
+/// body (#1879, the beast's cut reused) wear what is cut for one at any of
+/// their sockets, and at the crown whatever is seated there, which is how the
+/// circlet comes to be allowed at its authored size. Asked of the record
+/// every client holds, a peer's included: refused here, a prop stays
+/// referenced and unworn for a body that would wear it.
+pub fn dresses(kind: super::RiggedKind, socket: symbios_avatar::Socket, fit_beast_mm: u32) -> bool {
+    use super::RiggedKind;
+    match kind {
+        RiggedKind::Person | RiggedKind::Unknown => fit_beast_mm == 0,
+        RiggedKind::Beast | RiggedKind::Winged(_) => {
+            offers_socket(kind, socket)
+                && (fit_beast_mm != 0 || socket == symbios_avatar::Socket::Crown)
+        }
     }
-    offers_socket(anatomy, socket) && (fit_beast_mm != 0 || socket == symbios_avatar::Socket::Crown)
+}
+
+/// Who wears a prop cut for an animal at `socket` (#1879), as the catalogue's
+/// Fit line and a person's refusal say it: the bodies whose sockets offer it -
+/// a collar a four-legged or a winged body, a saddle pad a four-legged one, a
+/// leg band a winged one.
+pub fn cut_wearers(socket: symbios_avatar::Socket) -> &'static str {
+    use super::RiggedKind;
+    let beast = offers_socket(RiggedKind::Beast, socket);
+    let winged = offers_socket(
+        RiggedKind::Winged(symbios_avatar::WingedFamily::Bird),
+        socket,
+    );
+    match (beast, winged) {
+        (true, true) => "a four-legged or winged body",
+        (false, true) => "a winged body",
+        _ => "a four-legged body",
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

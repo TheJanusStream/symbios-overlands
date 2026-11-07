@@ -152,6 +152,19 @@ A four-legged body (`status.locomotion` reads `four_legged`, see
 does, at its own speeds. Its collider is its own size, so a horse, 0.89 m wide,
 does not fit a gap a person passes.
 
+A winged body (`status.locomotion` reads `winged`, see
+[avatar.md](avatar.md#a-winged-body)) is on feet too as far as the agent goes:
+`walk-to` and `follow` walk it and it arrives as a person does, a bird upright
+on two legs, a bat or a glider on four, in a collider of its own size. Under
+the keys it flies - Space takes it off, Space beats, no key glides, W and S
+pitch, A and D bank, Shift dives - and lands on the top of whatever its path
+closes on, a roof or a deck as well as the ground; a glider only leaps and
+glides. No command flies it (a walk never presses Space, and `drive` takes
+only a body on wheels), but a walk that takes it off a ledge has it open its
+wings after a moment's fall, and the walk's W - and Shift, when it runs - then
+put its nose down and dive it: walk it round drops. `status.flight` reads its
+mode, `ground` while it walks. In water it swims and cannot take off.
+
 A car or hover-boat turns on the spot before it drives, at its own pace -
 the default car about 25 degrees a second, so a point behind it takes some
 7 s of swinging before it closes (#1541); an airship or a helicopter (one

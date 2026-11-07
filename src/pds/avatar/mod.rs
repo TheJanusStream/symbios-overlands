@@ -38,6 +38,7 @@ pub mod body;
 pub(crate) mod colour;
 pub mod default_visuals;
 pub mod gait;
+pub mod kind;
 pub mod livery;
 pub mod locomotion;
 pub mod parts;
@@ -47,13 +48,14 @@ pub use body::{
     AvatarBody, GeneratorBody, MAX_AVATAR_ATTACHMENTS, ResolvedAttachment, ResolvedRig, RiggedBody,
 };
 pub use gait::GaitParams;
+pub use kind::RiggedKind;
 pub use locomotion::{
     AirplaneParams, CarParams, FlightParams, HelicopterParams, HoverBoatParams, HumanoidParams,
     LocomotionConfig, LocomotionPickerEntry, LocomotionPreset, OnFootShape, fit_on_foot,
 };
 pub use wardrobe::{
-    AttachmentRecord, BEAST_SOCKETS, EngineAvatarRecord, EngineProfileRecord, dresses,
-    offers_socket, socket_label,
+    AttachmentRecord, BEAST_SOCKETS, EngineAvatarRecord, EngineProfileRecord, WINGED_SOCKETS,
+    cut_wearers, dresses, offers_socket, socket_label,
 };
 
 use super::AVATAR_COLLECTION;

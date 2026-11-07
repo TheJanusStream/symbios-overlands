@@ -609,7 +609,8 @@ struct Args {
     /// that rolls a beast walks that beast (#1808): `--family-seeds beast`
     /// lists them. A beast is set down as its game chassis rests, its lying
     /// capsule on its uphill end, and one resting on the terrain alone stands
-    /// on the terrain under it, as in the game (#1833); see `--walker-level`.
+    /// on the terrain under it, one on a static structure on the structure,
+    /// as in the game (#1833, #1834); see `--walker-level`.
     /// The world runs avian while anything walks, for the walkers to rest on.
     #[arg(long, value_delimiter = ',', action = clap::ArgAction::Append)]
     walker: Vec<u64>,
@@ -1738,8 +1739,9 @@ pub fn run() {
         }
         // **A walker rests on the world's colliders as the game's chassis
         // does** (#1833): its body's lying capsule cast down onto them sets it
-        // down and says whether it rests on the terrain alone, and rays read
-        // what stands on the terrain within its reach - the game's own
+        // down and says whether it rests on the terrain alone or on a
+        // structure (#1834), and rays read what stands within its reach -
+        // the game's own
         // `Underfoot`, over avian's collider trees. So walking runs avian as a
         // drive or the editor already does, unless one of them brought it.
         if walks && !app.is_plugin_added::<avian3d::prelude::PhysicsSchedulePlugin>() {

@@ -27,9 +27,10 @@ pub use car::CarParams;
 pub use fit::fit_on_foot;
 pub(crate) use fit::{
     LyingCapsule, RunAnchor, beast_on_foot, carries_beast, follow, follow_body, restore_body_shape,
+    winged_on_foot,
 };
 #[cfg(test)]
-pub(crate) use fit::{beast_record, default_beast};
+pub(crate) use fit::{beast_record, default_beast, default_winged, fitted_record};
 pub use flight::FlightParams;
 pub use helicopter::HelicopterParams;
 pub use hover_boat::HoverBoatParams;

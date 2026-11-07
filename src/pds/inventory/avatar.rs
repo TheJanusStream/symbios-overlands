@@ -31,6 +31,7 @@ use crate::pds::avatar::wardrobe::sanitize_worn_prop;
 use crate::pds::avatar::{
     AttachmentRecord, AvatarBody, AvatarRecord, EngineAvatarRecord, GaitParams, GeneratorBody,
     LocomotionConfig, MAX_AVATAR_ATTACHMENTS, ResolvedAttachment, ResolvedRig, RiggedBody,
+    RiggedKind,
 };
 use crate::pds::generator::{Generator, GeneratorKind};
 
@@ -93,6 +94,8 @@ pub enum AvatarKind {
     Person,
     /// A rigged four-legged body.
     Beast,
+    /// A rigged winged body (#1875): a bird, a bat, a glider or a cross.
+    Winged,
     /// A generator body on the hover-boat preset.
     Boat,
     /// A generator body on the car preset - the land-skiff.
@@ -117,6 +120,7 @@ impl AvatarKind {
         match self {
             Self::Person => "person",
             Self::Beast => "beast",
+            Self::Winged => "winged",
             Self::Boat => "boat",
             Self::Skiff => "skiff",
             Self::Airplane => "airplane",
@@ -290,16 +294,13 @@ impl AvatarItem {
     /// What this avatar is, as far as the record can tell.
     pub fn kind(&self) -> AvatarKind {
         match &self.body {
-            AvatarItemBody::Rigged(rigged) => {
-                if matches!(
-                    rigged.record.archetype,
-                    symbios_avatar::Archetype::Quadruped(_)
-                ) {
-                    AvatarKind::Beast
-                } else {
-                    AvatarKind::Person
-                }
-            }
+            // A body plan this build cannot read is drawn as a person, and
+            // labelled one, as it always was.
+            AvatarItemBody::Rigged(rigged) => match RiggedKind::of_record(&rigged.record) {
+                RiggedKind::Beast => AvatarKind::Beast,
+                RiggedKind::Winged(_) => AvatarKind::Winged,
+                RiggedKind::Person | RiggedKind::Unknown => AvatarKind::Person,
+            },
             AvatarItemBody::Generator(_) => match self.locomotion {
                 LocomotionConfig::HoverBoat(_) => AvatarKind::Boat,
                 LocomotionConfig::Car(_) => AvatarKind::Skiff,

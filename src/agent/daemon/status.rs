@@ -330,9 +330,15 @@ fn holds(generator: &Generator, is: &dyn Fn(&GeneratorKind) -> bool) -> bool {
 ///
 /// A beast walks as a person does, under a person's preset, and is named for
 /// what it is all the same (#1809): its collider and what it can wear are not a
-/// person's.
+/// person's. So is a winged body (#1875), `winged`, whichever family leads it
+/// - a bat on four legs too: what it can do is a winged body's, not a beast's.
 fn locomotion_word(record: &crate::pds::AvatarRecord) -> &'static str {
     match &record.locomotion {
+        LocomotionConfig::Humanoid(_)
+            if crate::pds::avatar::locomotion::winged_on_foot(record).is_some() =>
+        {
+            "winged"
+        }
         LocomotionConfig::Humanoid(_)
             if crate::pds::avatar::locomotion::beast_on_foot(record).is_some() =>
         {
@@ -434,6 +440,21 @@ mod tests {
         assert_eq!(super::locomotion_word(&person), "humanoid");
         person.locomotion = crate::pds::LocomotionConfig::Unknown;
         assert_eq!(super::locomotion_word(&person), "unknown");
+    }
+
+    /// #1875: a winged body is `winged` on foot, a bird on two legs and a bat
+    /// and a glider lying on four alike - never `humanoid` nor
+    /// `four_legged` - and a vehicle whoever is in it.
+    #[test]
+    fn a_winged_body_is_named_winged() {
+        use crate::pds::avatar::locomotion::{default_winged, fitted_record};
+        use symbios_avatar::WingedFamily;
+        for family in [WingedFamily::Bird, WingedFamily::Bat, WingedFamily::Glider] {
+            let mut record = fitted_record(default_winged(family));
+            assert_eq!(super::locomotion_word(&record), "winged", "{family:?}");
+            record.locomotion = crate::pds::LocomotionConfig::Car(Box::default());
+            assert_eq!(super::locomotion_word(&record), "car", "{family:?}");
+        }
     }
 
     /// #1527: a heading is a compass bearing - north 0, east 90, south 180,

@@ -84,13 +84,13 @@ bevy_symbios_texture = { version = "0.13.1", features = ["egui"] }
 symbios-texture = "0.8"
 bevy_symbios_audio = { version = "0.6", features = ["egui"] }
 transform-gizmo-bevy = "0.11"
-symbios-avatar = "0.19"
+symbios-avatar = "0.23"
 symbios = "1.5"
 symbios-turtle-3d = "0.6"
 symbios-shape = "0.4"
 bevy_symbios_shape = "0.10"
 symbios-tensor = "0.6"
-bevy_symbios_avatar = "0.21"
+bevy_symbios_avatar = "0.25"
 gen-jobs = { path = "crates/gen-jobs" }
 # Geodata regions (#1580): where a region's square of Berlin lies, the
 # GDI Berlin request URLs, and the decoders for what they answer. The app
@@ -182,6 +182,10 @@ lewton = "0.10"
 # UI glyph-coverage guard asks each bundled face's charmap directly, because
 # epaint's `has_glyph` compares faces, not glyphs (#1105).
 skrifa = "0.42.1"
+# The web worker's codec (already in the graph, through gen-jobs): a built body
+# is read back over msgpack as the browser reads it, so what crosses the worker
+# is tested over the bytes it really crosses in (#1875).
+rmp-serde = "1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # The headless render tool's animated output (`--frames N`, `.gif`). `gif`

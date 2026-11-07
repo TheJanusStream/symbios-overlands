@@ -235,10 +235,19 @@ pub(super) struct RiggedTrail {
     /// much of the terrain its ground still carries, for every body (#1835):
     /// a step the physics loses it does not snap its trunk level.
     rest: underfoot::Resting,
+    /// What a winged body's flight handed the engine and how far it has got
+    /// (#1877, [`aloft::Aloft`]): the hold of a landing until it settles, a
+    /// takeoff's hand-on and a peer's words taken.
+    aloft: aloft::Aloft,
 }
 
 /// Whether `rig` stands on four legs: the engine's own test of a beast, which
-/// it keeps to itself.
+/// it keeps to itself. Asked only of where a body stands (`underfoot`): a
+/// beast, and a winged body a bat or a glider leads, stand on four legs on the
+/// terrain's own ground, and a bird on two on the level floor as a person does
+/// (the owner's decision on #1875). Whatever asks what KIND of body it is asks
+/// [`crate::pds::avatar::RiggedKind::of_rig`], which this cannot answer: it
+/// reads a bat as a beast and a bird as a person.
 pub(super) fn stands_on_four(rig: &symbios_avatar::Rig) -> bool {
     rig.ground_contacts().len() == 4
 }
@@ -286,6 +295,7 @@ pub(super) fn drive_frame(app: &mut App) {
         .expect("the driver runs");
 }
 
+mod aloft;
 #[cfg(test)]
 mod beast_tests;
 mod build;

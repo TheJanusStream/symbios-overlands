@@ -26,10 +26,11 @@
 //!
 //! # A body answers for itself
 //!
-//! A message is read twice, once as a person would hear it and once as a beast
-//! would ([`BeastEmote`], #1806), and the request carries both, because the
-//! chat and network layers that raise it know a chassis and not what stands on
-//! it. [`super::rigged::start_emotes`] plays the one the body knows.
+//! A message is read three times, as a person would hear it, as a beast would
+//! ([`BeastEmote`], #1806) and as a winged body would ([`WingedEmote`],
+//! #1878), and the request carries all three, because the chat and network
+//! layers that raise it know a chassis and not what stands on it.
+//! [`super::rigged::start_emotes`] plays the one the body knows.
 //!
 //! # What it does not do
 //!
@@ -245,27 +246,170 @@ impl BeastEmote {
     /// bow: it reads as the refusal on a beast as it does on a person.
     #[must_use]
     pub fn from_text(text: &str) -> Option<BeastEmote> {
-        let words: Vec<String> = text
-            .split_whitespace()
-            .map(|word| {
-                word.trim_matches(|c: char| !c.is_alphanumeric())
-                    .to_lowercase()
-            })
-            .filter(|word| !word.is_empty())
-            .collect();
-        let says = |at: usize, keyword: &str| match keyword.split_once(' ') {
-            Some((first, second)) => {
-                words[at] == first && words.get(at + 1).is_some_and(|next| next == second)
-            }
-            None => words[at] == keyword,
+        first_hit(text, &BeastEmote::ALL, |emote| {
+            emote.keywords().iter().copied()
+        })
+    }
+}
+
+/// The first of `all` a chat message asks for, by [`Emote::from_text`]'s rule:
+/// the first hit in the message wins, a keyword with a space in it is that
+/// many words in a row, and **a refusal is a hit with nothing to play**, so
+/// "no thanks" plays nothing on a body that has nothing for "no".
+fn first_hit<E: Copy, K: IntoIterator<Item = &'static str>>(
+    text: &str,
+    all: &[E],
+    keywords: impl Fn(E) -> K,
+) -> Option<E> {
+    let words: Vec<String> = text
+        .split_whitespace()
+        .map(|word| {
+            word.trim_matches(|c: char| !c.is_alphanumeric())
+                .to_lowercase()
+        })
+        .filter(|word| !word.is_empty())
+        .collect();
+    let says = |at: usize, keyword: &str| match keyword.split_once(' ') {
+        Some((first, second)) => {
+            words[at] == first && words.get(at + 1).is_some_and(|next| next == second)
+        }
+        None => words[at] == keyword,
+    };
+    (0..words.len()).find_map(|at| {
+        let hit = all
+            .iter()
+            .copied()
+            .find(|&emote| keywords(emote).into_iter().any(|keyword| says(at, keyword)));
+        let refused = Emote::Reject.keywords().iter().any(|word| says(at, word));
+        (hit.is_some() || refused).then_some(hit)
+    })?
+}
+
+/// A gesture a chat message can ask of a winged body (#1878, the owner's
+/// words): a bird's, a bat's or a sugar glider's, each played by the name its
+/// own family's roster gives it ([`Self::gesture_name`]).
+///
+/// **The words are a person's and a beast's where they have one**, as a
+/// beast's are a person's: a greeting plays a wing stretch, a yes a head tilt,
+/// a thanks a preen, "sit" the family's rest and "lie down" a bird's roost or
+/// a bat's or a glider's own rest, which is lying already, so a body switched
+/// mid-conversation still answers them. A refusal plays
+/// nothing and still decides its sentence. **And words of their own**: perch,
+/// roost, rest, curl, preen, groom, stretch, shake and get up, where the three
+/// rests' names, preen and groom are each one gesture's words on every family:
+/// "perch" said to a bat rests it as a bat rests.
+///
+/// **This table keeps every other body's gestures off a winged one**, and the
+/// engine would not have played them anyway: on a winged rig
+/// [`symbios_avatar::anim::gesture::for_body`] answers only its own family's
+/// roster ([`symbios_avatar::anim::winged::rests`]), so a name off a person's
+/// or a beast's table plays nothing there. Guarded by test against the
+/// engine's three rosters, a cross by its leading family's.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WingedEmote {
+    /// A wing stretch, a glider's bow-stretch, for a greeting.
+    WingStretch,
+    /// A tilted head, for a yes.
+    HeadTilt,
+    /// A preen, a bat's or a glider's groom, for a thanks.
+    Preen,
+    /// The family's rest - a bird's perch, a bat's rest, a glider's curl - held
+    /// until it moves or is told otherwise.
+    Rest,
+    /// A bird's roost, lower still with its head tucked, held as a rest is. A
+    /// bat or a glider has none, and lies down in its own rest, which is a
+    /// lying pose: a bat's rest, a glider's curl.
+    Roost,
+    /// A shake of the trunk and the wings.
+    Shake,
+    /// Gets up where it is out of a rest.
+    GetUp,
+}
+
+impl WingedEmote {
+    /// Every emote a winged body has, in the order the hint names them.
+    pub const ALL: [WingedEmote; 7] = [
+        WingedEmote::WingStretch,
+        WingedEmote::HeadTilt,
+        WingedEmote::Preen,
+        WingedEmote::Rest,
+        WingedEmote::Roost,
+        WingedEmote::Shake,
+        WingedEmote::GetUp,
+    ];
+
+    /// The engine gesture this plays on a body `family` leads, by the name
+    /// that family's roster gives it, or `None` for one it has no gesture
+    /// for. A roost on a bat or a glider is its own lying rest.
+    #[must_use]
+    pub fn gesture_name(self, family: symbios_avatar::WingedFamily) -> Option<&'static str> {
+        use symbios_avatar::WingedFamily::{Bat, Bird, Glider};
+        Some(match (self, family) {
+            (WingedEmote::WingStretch, Glider) => "Stretch",
+            (WingedEmote::WingStretch, Bird | Bat) => "Wing Stretch",
+            (WingedEmote::HeadTilt, _) => "Head Tilt",
+            (WingedEmote::Preen, Bird) => "Preen",
+            (WingedEmote::Preen, Bat | Glider) => "Groom",
+            (WingedEmote::Rest, Bird) => "Perch",
+            (WingedEmote::Rest, Bat) => "Rest",
+            (WingedEmote::Rest, Glider) => "Curl",
+            (WingedEmote::Roost, Bird) => "Roost",
+            (WingedEmote::Roost, Bat) => "Rest",
+            (WingedEmote::Roost, Glider) => "Curl",
+            (WingedEmote::Shake, _) => "Shake",
+            (WingedEmote::GetUp, _) => symbios_avatar::anim::emote::GET_UP,
+        })
+    }
+
+    /// The words that ask for this emote, as [`BeastEmote::keywords`] reads
+    /// them: a person's or a beast's first, then a winged body's own.
+    pub fn keywords(self) -> impl Iterator<Item = &'static str> {
+        let (shared, own): (&'static [&'static str], &'static [&'static str]) = match self {
+            WingedEmote::WingStretch => (Emote::Greeting.keywords(), &["stretch"]),
+            WingedEmote::HeadTilt => (Emote::Nod.keywords(), &[]),
+            WingedEmote::Preen => (Emote::Bow.keywords(), &["preen", "groom"]),
+            WingedEmote::Rest => (BeastEmote::Sit.keywords(), &["perch", "rest", "curl"]),
+            WingedEmote::Roost => (BeastEmote::LieDown.keywords(), &["roost"]),
+            WingedEmote::Shake => (&[], &["shake"]),
+            WingedEmote::GetUp => (BeastEmote::GetUp.keywords(), &[]),
         };
-        (0..words.len()).find_map(|at| {
-            let hit = BeastEmote::ALL
-                .into_iter()
-                .find(|emote| emote.keywords().iter().any(|keyword| says(at, keyword)));
-            let refused = Emote::Reject.keywords().iter().any(|word| says(at, word));
-            (hit.is_some() || refused).then_some(hit)
-        })?
+        shared.iter().chain(own).copied()
+    }
+
+    /// The word a hint names for this emote on a body `family` leads, or
+    /// `None` for one that plays nothing there or plays what another word
+    /// already names: a rest by the family's own name for it, a roost by its
+    /// own on a bird alone - a bat's or a glider's is its rest - and the rest
+    /// by their first word.
+    fn example(self, family: symbios_avatar::WingedFamily) -> Option<&'static str> {
+        use symbios_avatar::WingedFamily::{Bat, Bird, Glider};
+        self.gesture_name(family)?;
+        Some(match (self, family) {
+            (WingedEmote::Rest, Bird) => "perch",
+            (WingedEmote::Rest, Bat) => "rest",
+            (WingedEmote::Rest, Glider) => "curl",
+            (WingedEmote::Roost, Bird) => "roost",
+            (WingedEmote::Roost, Bat | Glider) => return None,
+            _ => self.keywords().next()?,
+        })
+    }
+
+    /// [`Emote::hint_line`] for a body `family` leads: only words that play on
+    /// it.
+    #[must_use]
+    pub fn hint_line(family: symbios_avatar::WingedFamily) -> String {
+        let examples: Vec<&str> = WingedEmote::ALL
+            .iter()
+            .filter_map(|emote| emote.example(family))
+            .collect();
+        hint_naming(&examples)
+    }
+
+    /// The emote a chat message asks of a winged body, if any: the rule is
+    /// [`BeastEmote::from_text`]'s.
+    #[must_use]
+    pub fn from_text(text: &str) -> Option<WingedEmote> {
+        first_hit(text, &WingedEmote::ALL, WingedEmote::keywords)
     }
 }
 
@@ -284,13 +428,23 @@ fn hint_naming(examples: &[&str]) -> String {
 }
 
 /// The hint for the body `record` stands on (#1806): a beast's words on four
-/// legs, and a person's otherwise, which is the line every chassis has always
-/// been shown.
+/// legs, a winged body's own family's (#1878, [`WingedEmote::hint_line`], a
+/// cross's leading family's), and a person's otherwise, which is the line
+/// every chassis has always been shown.
 #[must_use]
 pub fn hint_for(record: Option<&crate::pds::AvatarRecord>) -> String {
-    match record.and_then(crate::pds::avatar::locomotion::beast_on_foot) {
-        Some(_) => BeastEmote::hint_line(),
-        None => Emote::hint_line(),
+    use crate::pds::avatar::RiggedKind;
+    use crate::pds::avatar::locomotion::{beast_on_foot, winged_on_foot};
+    let winged = record
+        .filter(|record| winged_on_foot(record).is_some())
+        .and_then(|record| record.body.rigged_ref()?.resolved.as_ref())
+        .map(|resolved| RiggedKind::of_record(&resolved.body));
+    if let Some(RiggedKind::Winged(family)) = winged {
+        WingedEmote::hint_line(family)
+    } else if record.and_then(beast_on_foot).is_some() {
+        BeastEmote::hint_line()
+    } else {
+        Emote::hint_line()
     }
 }
 
@@ -309,6 +463,9 @@ pub struct EmoteRequest {
     pub emote: Option<Emote>,
     /// What to play on a beast, if the message asks one for anything.
     pub beast: Option<BeastEmote>,
+    /// What to play on a winged body, if the message asks one for anything
+    /// (#1878).
+    pub winged: Option<WingedEmote>,
 }
 
 /// Turn a chat message into an emote request, if it asks for one.
@@ -317,11 +474,16 @@ pub struct EmoteRequest {
 /// drift apart - the sender must see the same gesture everybody else sees, and
 /// two copies of this rule is how that stops being true.
 pub fn request_for(chassis: Entity, text: &str) -> Option<EmoteRequest> {
-    let (emote, beast) = (Emote::from_text(text), BeastEmote::from_text(text));
-    (emote.is_some() || beast.is_some()).then_some(EmoteRequest {
+    let (emote, beast, winged) = (
+        Emote::from_text(text),
+        BeastEmote::from_text(text),
+        WingedEmote::from_text(text),
+    );
+    (emote.is_some() || beast.is_some() || winged.is_some()).then_some(EmoteRequest {
         chassis,
         emote,
         beast,
+        winged,
     })
 }
 
@@ -453,13 +615,22 @@ mod tests {
     #[test]
     fn a_request_carries_what_each_body_would_play() {
         let chassis = Entity::PLACEHOLDER;
-        let asked = |text| request_for(chassis, text).map(|r| (r.emote, r.beast));
+        let asked = |text| request_for(chassis, text).map(|r| (r.emote, r.beast, r.winged));
         assert_eq!(
             asked("hello"),
-            Some((Some(Emote::Greeting), Some(BeastEmote::Wag)))
+            Some((
+                Some(Emote::Greeting),
+                Some(BeastEmote::Wag),
+                Some(WingedEmote::WingStretch)
+            ))
         );
-        assert_eq!(asked("sit"), Some((None, Some(BeastEmote::Sit))));
-        assert_eq!(asked("no"), Some((Some(Emote::Reject), None)));
+        assert_eq!(
+            asked("sit"),
+            Some((None, Some(BeastEmote::Sit), Some(WingedEmote::Rest)))
+        );
+        assert_eq!(asked("no"), Some((Some(Emote::Reject), None, None)));
+        // A winged body's own word asks nothing of a person or a beast.
+        assert_eq!(asked("perch"), Some((None, None, Some(WingedEmote::Rest))));
         assert_eq!(asked("look at that mountain"), None);
     }
 
@@ -498,6 +669,172 @@ mod tests {
         let person = crate::pds::AvatarRecord::default_for_did("did:plc:hint-test");
         assert_eq!(hint_for(Some(&person)), Emote::hint_line());
         assert_eq!(hint_for(None), Emote::hint_line());
+    }
+
+    /// **A winged body hears the owner's words** (#1878): a person's and a
+    /// beast's where it has a gesture for them, nothing for a refusal, which
+    /// still decides its sentence, and nine of its own.
+    #[test]
+    fn a_winged_body_answers_the_owners_words() {
+        use WingedEmote::*;
+        for (text, answer) in [
+            ("hello", Some(WingStretch)),
+            ("Hi there!", Some(WingStretch)),
+            ("stretch", Some(WingStretch)),
+            ("yes", Some(HeadTilt)),
+            ("thanks", Some(Preen)),
+            ("preen", Some(Preen)),
+            ("groom", Some(Preen)),
+            ("sit", Some(Rest)),
+            ("perch", Some(Rest)),
+            ("rest", Some(Rest)),
+            ("Curl!", Some(Rest)),
+            ("lie down", Some(Roost)),
+            ("lay down", Some(Roost)),
+            ("roost", Some(Roost)),
+            ("shake", Some(Shake)),
+            ("get up", Some(GetUp)),
+            ("up", Some(GetUp)),
+            ("perch, thanks", Some(Rest)),
+            // Nothing to play for a refusal, and it decides its sentence.
+            ("no", None),
+            ("no thanks", None),
+            ("nope, roost", None),
+            // Whole words, and the whole of a phrase.
+            ("lie", None),
+            ("restless", None),
+            ("curled", None),
+            ("the weather is fine", None),
+            ("", None),
+        ] {
+            assert_eq!(WingedEmote::from_text(text), answer, "{text:?}");
+        }
+    }
+
+    /// **Every winged word plays a gesture its family builds** (#1878), by the
+    /// engine's own roster and its own resolver, on a rig of each family and
+    /// of a cross led by each: the owner's table, the rests a bird's perch, a
+    /// bat's rest and a glider's curl, a roost a bird's own and a bat's or a
+    /// glider's lying down its rest.
+    #[test]
+    fn every_winged_word_names_a_gesture_its_family_builds() {
+        use crate::pds::avatar::RiggedKind;
+        use symbios_avatar::anim::gesture;
+        use symbios_avatar::anim::winged::rests;
+        use symbios_avatar::{Archetype, WingedFamily, WingedParams};
+        let families = [WingedFamily::Bird, WingedFamily::Bat, WingedFamily::Glider];
+        for (family, roster, rest) in [
+            (WingedFamily::Bird, rests::BIRD, "Perch"),
+            (WingedFamily::Bat, rests::BAT, "Rest"),
+            (WingedFamily::Glider, rests::GLIDER, "Curl"),
+        ] {
+            for emote in WingedEmote::ALL {
+                if let Some(name) = emote.gesture_name(family) {
+                    assert!(roster.contains(&name), "{family:?}: {emote:?} names {name}");
+                }
+            }
+            assert_eq!(WingedEmote::Rest.gesture_name(family), Some(rest));
+            let lies = WingedEmote::Roost.gesture_name(family);
+            let roost = if family == WingedFamily::Bird {
+                "Roost"
+            } else {
+                rest
+            };
+            assert_eq!(lies, Some(roost), "{family:?}");
+            // On a rig of the family alone, and of a cross it leads.
+            let other = families[(families.iter().position(|f| *f == family).unwrap() + 1) % 3];
+            for blend in [0.0, 0.3] {
+                let mut params = WingedParams::default();
+                params.set_kind(family, Some(other), blend);
+                params.blend = blend;
+                let body = crate::pds::avatar::EngineAvatarRecord {
+                    archetype: Archetype::Winged(params),
+                    ..Default::default()
+                };
+                assert_eq!(RiggedKind::of_record(&body), RiggedKind::Winged(family));
+                let config = symbios_avatar::AvatarConfig {
+                    atlas: 16,
+                    ..Default::default()
+                };
+                let rig = symbios_avatar::Avatar::build_with(&body, &config)
+                    .expect("builds")
+                    .rig;
+                assert_eq!(gesture::roster(&rig), roster, "{family:?} at {blend}");
+                for emote in WingedEmote::ALL {
+                    if let Some(name) = emote.gesture_name(family) {
+                        assert!(
+                            gesture::for_body(&rig, name).is_some(),
+                            "{family:?} at {blend}: {name} does not build"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// **No word is claimed twice, and none is a refusal** (#1878).
+    #[test]
+    fn no_two_winged_emotes_claim_the_same_word() {
+        for (index, emote) in WingedEmote::ALL.into_iter().enumerate() {
+            for other in WingedEmote::ALL.into_iter().skip(index + 1) {
+                for word in emote.keywords() {
+                    assert!(
+                        !other.keywords().any(|theirs| theirs == word),
+                        "{word:?} is claimed by both {emote:?} and {other:?}"
+                    );
+                }
+            }
+            for word in emote.keywords() {
+                assert!(
+                    !Emote::Reject.keywords().contains(&word),
+                    "{word:?} is a refusal, and {emote:?} plays it"
+                );
+            }
+        }
+    }
+
+    /// **A winged body is told its own words** (#1878): each family the words
+    /// that play on it, each gesture once - not a person's line, nor a
+    /// beast's, nor a bird's roost told to a bat, whose lying down is its
+    /// rest - and a person and a beast what they always were.
+    #[test]
+    fn a_winged_body_is_told_its_own_words() {
+        use crate::pds::avatar::locomotion::{default_winged, fitted_record};
+        use symbios_avatar::WingedFamily;
+        for family in [WingedFamily::Bird, WingedFamily::Bat, WingedFamily::Glider] {
+            let hint = hint_for(Some(&fitted_record(default_winged(family))));
+            assert_eq!(hint, WingedEmote::hint_line(family), "{family:?}");
+            assert_ne!(hint, Emote::hint_line(), "{family:?} told a person's words");
+            assert_ne!(
+                hint,
+                BeastEmote::hint_line(),
+                "{family:?} told a beast's words"
+            );
+            let named = hint
+                .trim_start_matches("Say ")
+                .split(" - ")
+                .next()
+                .expect("a list");
+            let mut told = 0;
+            for word in named.split(", ") {
+                let emote = WingedEmote::from_text(word).expect(word);
+                assert!(
+                    emote.gesture_name(family).is_some(),
+                    "{family:?} is told {word:?}, which plays nothing on it"
+                );
+                told += 1;
+            }
+            let mut plays: Vec<&str> = WingedEmote::ALL
+                .iter()
+                .filter_map(|emote| emote.gesture_name(family))
+                .collect();
+            plays.sort_unstable();
+            plays.dedup();
+            let plays = plays.len();
+            assert_eq!(told, plays, "{family:?}: {hint}");
+        }
+        assert!(WingedEmote::hint_line(WingedFamily::Bird).contains("roost"));
+        assert!(!WingedEmote::hint_line(WingedFamily::Bat).contains("roost"));
     }
 
     #[test]

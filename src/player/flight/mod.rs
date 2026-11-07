@@ -59,6 +59,21 @@
 //! ([`Flight::attitude`]), and sent to peers in the chassis' transform. On
 //! the ground the walk turns it, as it always did.
 //!
+//! **The collider is the ground one through every mode** (#1877), turned
+//! with the written attitude. Turned about its middle an upright capsule
+//! never dips, but one lying along the body does: a rigged winged body
+//! lying so - a bat or a glider - raises its take-off nose at its pitch
+//! rate, from level, rather than setting it on the leap's step, which put
+//! its tail into the ground it leapt from. Every other body sets it at once.
+//!
+//! # A rigged winged body
+//!
+//! A rigged body is posed by the engine's airborne motion from this mode, its
+//! beat and its time to contact (`rigged::aloft`): [`Flight::beat_phase`]
+//! and [`Flight::contact`] are what it reads, and a peer's mode is kept with
+//! when it was heard ([`PeerFlight`]) so it is drawn with the pose it
+//! speaks of.
+//!
 //! # What is passive
 //!
 //! The keys are read by [`read_flight_keys`], which stands down while the
@@ -265,6 +280,9 @@ pub struct Flight {
     mode_beats: u32,
     /// Every beat, counted: what a pose will phase its wings by.
     beats: u32,
+    /// The time to contact of the top it closed on this step (s), if any:
+    /// what a rigged winged body's flare is posed by (#1877).
+    contact: Option<f32>,
 }
 
 impl Default for Flight {
@@ -282,15 +300,89 @@ impl Default for Flight {
             lost: 0.0,
             mode_beats: 0,
             beats: 0,
+            contact: None,
         }
     }
 }
 
-/// What a peer's winged body is doing (#1861): the mode its last `Flight`
-/// message named (`network::inbound`), kept on the peer's body for what draws
+/// What a peer's winged body is doing (#1861): the modes its `Flight`
+/// messages named (`network::inbound`), kept on the peer's body for what draws
 /// it. Absent on a body that has never said, which is on its feet.
-#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct PeerFlight(pub(crate) FlightMode);
+///
+/// **A word is heard before the body it speaks of is drawn there** (#1877).
+/// It comes on the reliable channel at once, while the peer's transform plays
+/// out [`PEER_DELAY_S`] behind what it sent, so a landing's word arrived as
+/// the body was still a tenth of a second over the top it lands on, and a
+/// rigged body played its absorb in the air. So each word is kept with when
+/// it was heard ([`Self::hear`]), and a rigged body takes the next only once
+/// it is that old ([`Self::next_due`]), one a frame - a quick Land then
+/// Ground, heard in one frame, still plays the Land. [`Self::heard`] is the
+/// last word as soon as it is heard, which a generator body's gait reads as
+/// it always has.
+#[derive(Component, Clone, Debug, PartialEq)]
+pub(crate) struct PeerFlight {
+    /// The mode the last word named, as soon as it was heard.
+    pub(crate) heard: FlightMode,
+    /// The last few words, oldest first.
+    words: std::collections::VecDeque<PeerWord>,
+}
+
+/// One word of a peer's flight (#1877, [`PeerFlight`]): the mode it named,
+/// when it was heard (the app's elapsed seconds), and its count among the
+/// words its body has heard.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct PeerWord {
+    pub(crate) mode: FlightMode,
+    at: f64,
+    count: u32,
+}
+
+/// How long a peer's word waits before a rigged body takes it (s, #1877):
+/// the transform playout's own delay, so the word and the pose it speaks of
+/// are drawn together.
+pub(crate) const PEER_DELAY_S: f64 = crate::config::network::KINEMATIC_RENDER_DELAY_SECS;
+
+impl PeerFlight {
+    /// How many words are kept: far more than a body plays out in a frame.
+    const KEPT: usize = 8;
+
+    /// A body whose first word, `mode`, was heard `at`.
+    pub(crate) fn heard_at(mode: FlightMode, at: f64) -> Self {
+        Self {
+            heard: mode,
+            words: std::iter::once(PeerWord { mode, at, count: 0 }).collect(),
+        }
+    }
+
+    /// Hear `mode` `at`: kept, unless it is the mode the last word named - the
+    /// once-a-second repeat while airborne, or a word said again on a `Hello`.
+    pub(crate) fn hear(&mut self, mode: FlightMode, at: f64) {
+        if mode == self.heard {
+            return;
+        }
+        self.heard = mode;
+        let count = self
+            .words
+            .back()
+            .map_or(0, |word| word.count.wrapping_add(1));
+        self.words.push_back(PeerWord { mode, at, count });
+        while self.words.len() > Self::KEPT {
+            self.words.pop_front();
+        }
+    }
+
+    /// The word a body that last took `taken` takes `now`: the one after it,
+    /// once [`PEER_DELAY_S`] old - or, for a body that has taken none of these
+    /// words or fallen behind them, the newest that old. `None` while nothing
+    /// new is due.
+    pub(crate) fn next_due(&self, taken: Option<PeerWord>, now: f64) -> Option<PeerWord> {
+        let due = |word: &&PeerWord| now - word.at >= PEER_DELAY_S;
+        match taken.and_then(|taken| self.words.iter().position(|word| *word == taken)) {
+            Some(at) => self.words.get(at + 1).filter(due).copied(),
+            None => self.words.iter().rev().find(due).copied(),
+        }
+    }
+}
 
 /// The keys a flight reads on a step (#1861), written by the input-gated
 /// [`read_flight_keys`] and spent by [`fly_on_foot`], so a step the keys
@@ -334,6 +426,9 @@ pub(crate) struct Wings {
     feet: f32,
     /// The capsule's radius (m).
     radius: f32,
+    /// A winged body lying along its capsule (#1877): a bat- or glider-led
+    /// body, whose take-off eases its nose up rather than setting it.
+    lying: bool,
 }
 
 impl Wings {
@@ -362,7 +457,14 @@ impl Wings {
             capture: (CAPTURE_OF_HEIGHT * height).max(body.capsule_radius.0),
             feet: height * 0.5,
             radius: body.capsule_radius.0,
+            lying: false,
         }
+    }
+
+    /// These wings on a winged body lying along its capsule, or not (#1877):
+    /// see [`Self::lying`].
+    pub(crate) fn lying(self, lying: bool) -> Self {
+        Self { lying, ..self }
     }
 
     /// The nose a hands-off glide holds at `speed` (radians): the polar's
@@ -433,6 +535,25 @@ impl Flight {
     #[cfg_attr(not(unix), allow(dead_code))]
     pub fn beats(&self) -> u32 {
         self.beats
+    }
+
+    /// Where its wings are in their beat (#1877), in beats - a whole number
+    /// at each beat, where it pushes (which a rigged body draws at the middle
+    /// of its downstroke, `rigged::aloft`), and the share of a
+    /// beat's period since the last between them, held at the next once a
+    /// period has passed without one - at `wingbeat_rate` beats a second, the
+    /// record's. Kept within the engine's 64 beats ([`symbios_avatar::Flown`]):
+    /// the count wraps, and only the share is compared.
+    pub fn beat_phase(&self, wingbeat_rate: f32) -> f32 {
+        let period = 1.0 / wingbeat_rate.max(0.5);
+        (self.beats % 64) as f32 + (self.since_beat / period).min(1.0)
+    }
+
+    /// The time to contact of the top it closed on this step (s, #1877), or
+    /// `None` with none ahead - always on its feet and landing, where it
+    /// looks for none.
+    pub fn contact(&self) -> Option<f32> {
+        self.contact
     }
 
     /// Whether its wings have stalled.
@@ -537,6 +658,7 @@ impl Flight {
     ) -> (Self, Option<Vec3>) {
         self.since_beat = (self.since_beat + dt).min(1.0e3);
         self.in_mode += dt;
+        self.contact = now.approach.map(|approach| approach.tau);
         let mut velocity = now.velocity;
         if self.mode != FlightMode::Ground && now.in_water {
             // Into the water it swims, as the walk swims it.
@@ -672,7 +794,13 @@ impl Flight {
         let mut velocity = now.velocity;
         if keys.press && now.on_ground {
             self.heading = now.facing;
-            self.pitch = TAKEOFF_PITCH;
+            // **A lying body's nose eases up** (#1877): turned about its
+            // middle, a capsule lying along the body dips its tail as its nose
+            // rises, and set to the take-off's 20 degrees at once a bat's tail
+            // went into the ground it leapt from, which pushed it out. Eased at
+            // its pitch rate, the leap has carried it clear first. An upright
+            // capsule turned about its middle never dips: set at once.
+            self.pitch = if wings.lying { 0.0 } else { TAKEOFF_PITCH };
             self.bank = 0.0;
             self.enter(FlightMode::Takeoff);
             let leap = wings.takeoff * if wings.can_flap { 1.0 } else { GLIDER_LEAP };
@@ -715,9 +843,22 @@ impl Flight {
         dt: f32,
     ) -> (Self, Option<Vec3>) {
         self.recover(wings.recovery * GROUND_RECOVERY, dt);
-        let level = 3.0 * wings.pitch_rate.max(wings.roll_rate) * dt;
-        self.pitch = toward(self.pitch, 0.0, level);
-        self.bank = toward(self.bank, 0.0, level);
+        if wings.lying {
+            // **A lying body is righted over the whole landing** (#1877, the
+            // W6 end review): at three times its pitch rate a bat or a glider
+            // turned about 8.5 degrees a frame at 60 Hz, which a body lying
+            // along the chassis shows as about 100 mm a frame at its ends, and
+            // at its pitch rate alone it would still hold most of its
+            // touch-down tilt when `set_down` zeroes it. Shared evenly over
+            // what is left of `LAND_S`, the tilt is gone as it is set down.
+            let left = (LAND_S - self.in_mode).max(dt);
+            self.pitch = toward(self.pitch, 0.0, self.pitch.abs() * dt / left);
+            self.bank = toward(self.bank, 0.0, self.bank.abs() * dt / left);
+        } else {
+            let level = 3.0 * wings.pitch_rate.max(wings.roll_rate) * dt;
+            self.pitch = toward(self.pitch, 0.0, level);
+            self.bank = toward(self.bank, 0.0, level);
+        }
         let mut velocity = now.velocity;
         let keep = (-LAND_BRAKE * dt).exp();
         velocity.x *= keep;
@@ -902,7 +1043,10 @@ pub(super) fn fly_on_foot(
         }
         return;
     };
-    let wings = Wings::of(params, p);
+    // A winged body lying along its capsule eases its take-off in (#1877); a
+    // beast wearing a flight section flies as the prototype flew it.
+    let lying = p.is_lying() && crate::pds::avatar::locomotion::winged_on_foot(&live.0).is_some();
+    let wings = Wings::of(params, p).lying(lying);
     let pull = gravity
         .as_deref()
         .map_or(Gravity::default().0, |gravity| gravity.0);

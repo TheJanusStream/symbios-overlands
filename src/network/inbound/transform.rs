@@ -61,12 +61,14 @@ pub(super) fn handle(
 }
 
 /// What a peer's winged body is doing (#1861), as its `Flight` message
-/// says: kept on its body as [`PeerFlight`](crate::player::PeerFlight) - or taken off for a mode this
+/// says: heard `now` onto its body's [`PeerFlight`](crate::player::PeerFlight),
+/// which keeps when each word came (#1877) - or taken off for a mode this
 /// build does not know, from a newer peer. Only the sender's own body is
 /// touched.
 pub(super) fn handle_flight(
     sender: PeerId,
     mode: u8,
+    now: f64,
     commands: &mut Commands,
     peers: &Query<PeerParts>,
 ) {
@@ -75,12 +77,20 @@ pub(super) fn handle_flight(
         if peer.peer_id != sender {
             continue;
         }
-        // `try_`: the peer may leave in the frame its word arrives (#1410).
+        // `try_` and silenced: the peer may leave in the frame its word
+        // arrives (#1410).
         match mode {
             Some(mode) => {
                 commands
                     .entity(entity)
-                    .try_insert(crate::player::PeerFlight(mode));
+                    .queue_silenced(move |mut body: EntityWorldMut| match body
+                        .get_mut::<crate::player::PeerFlight>(
+                    ) {
+                        Some(mut flight) => flight.hear(mode, now),
+                        None => {
+                            body.insert(crate::player::PeerFlight::heard_at(mode, now));
+                        }
+                    });
             }
             None => {
                 commands

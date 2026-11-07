@@ -97,6 +97,7 @@ mod rigged;
 pub(crate) mod sim;
 mod spawn;
 pub mod visuals;
+mod winged_seat;
 
 // The seeded airplane family sizes her gear by it (#1617).
 pub(crate) use airplane::reach_for_stance as airplane_reach_for_stance;

@@ -13,11 +13,12 @@
 //! the bytes it wrote before the section existed: the key is left off. A
 //! client older than the section reads a record with it, drops the key it
 //! does not know and walks; when it writes the record back, the section is
-//! gone, and nothing gives it back yet: the only witness a client could read
-//! it back from is the body, and a generator body's visuals are no sound one
-//! (a pair of swaying lanterns swings as a pair of wings does - #1861's
-//! critic). Wear the section again; the winged bodies (#1862) will restore it
-//! from their kind, which can be read.
+//! gone. A winged body gets it back on its owner's client, as its body flies
+//! (#1875, `fit::restore_body_shape`): its kind is on its record, and its
+//! section is fitted from its body (`fit::fit_on_foot`). Nothing gives one
+//! back to a generator body: its visuals are no sound witness (a pair of
+//! swaying lanterns swings as a pair of wings does - #1861's critic), so its
+//! section is worn again by hand.
 //!
 //! Every number is a scaled int on the wire ([`Fp`]), as every record number
 //! is (atproto has no floats), and the sanitiser quantises as it clamps.
@@ -118,6 +119,23 @@ impl FlightParams {
     /// Whether the body can flap at all ([`Self::MIN_FLAP_POWER`]).
     pub fn can_flap(&self) -> bool {
         self.flight_power.0 >= Self::MIN_FLAP_POWER
+    }
+
+    /// Keep `owned`'s handling over these numbers (#1875's critic): the ones
+    /// the body does not size - how many beats a stamina holds and how fast
+    /// it comes back, the glide polar's ratio, and the bank, roll and pitch
+    /// the controller turns by - which are the owner's to tune. The rest -
+    /// the flap power its families give, the trim and stall speeds, a beat's
+    /// push, the wingbeat and the take-off leap - are the body's, and a
+    /// winged body's refit sizes them afresh on every edit.
+    pub fn keep_handling(&mut self, owned: &Self) {
+        self.stamina_beats = owned.stamina_beats;
+        self.stamina_recovery = owned.stamina_recovery;
+        self.glide_ratio = owned.glide_ratio;
+        self.max_bank = owned.max_bank;
+        self.roll_rate = owned.roll_rate;
+        self.pitch_rate = owned.pitch_rate;
+        self.sanitize();
     }
 
     /// Clamp every number into a sane range and onto the wire's grid: a clamp

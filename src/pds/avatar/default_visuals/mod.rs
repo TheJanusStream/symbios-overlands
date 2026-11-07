@@ -432,8 +432,11 @@ fn engine_stature(seed: u64) -> f32 {
         symbios_avatar::Archetype::Humanoid(params) => params.height,
         symbios_avatar::Archetype::Quadruped(params) => params.height,
         // A body plan this build cannot read gets the canon figure, which
-        // is what the preset's own default collider was cut for.
-        symbios_avatar::Archetype::Unknown { .. } => 1.7,
+        // is what the preset's own default collider was cut for. So does a
+        // winged body, which this seed's default never is: it rolls only
+        // persons, and `fit_on_foot` sizes a winged body by its own posture
+        // (#1875), which no stature axis says.
+        symbios_avatar::Archetype::Winged(_) | symbios_avatar::Archetype::Unknown { .. } => 1.7,
     }
 }
 

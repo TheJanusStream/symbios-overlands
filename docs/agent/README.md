@@ -16,7 +16,7 @@ not repeat it, it says how to use it well.
 | [looking.md](looking.md) | trusting a `look` picture, judging something by eye, or rendering your world offline at an hour or under a weather |
 | [moving.md](moving.md) | `walk-to`, `follow`, `face`, getting somewhere to look from |
 | [saving.md](saving.md) | `save`, `undo`, a restart, anything that could lose edits; a whole avatar or world kept in the inventory (`stash-avatar`, `stash-world`, `load`) |
-| [avatar.md](avatar.md) | shaping your own body, choosing how it moves, building away from home on its workbench, keeping a whole body in the inventory and wearing one back or from the Catalogue |
+| [avatar.md](avatar.md) | shaping your own body - a person, a beast, a winged body or a vehicle - choosing how it moves, building away from home on its workbench, keeping a whole body in the inventory and wearing one back or from the Catalogue |
 | [region.md](region.md) | clearing your world, loading a whole world over it from the inventory or the Catalogue, its terrain, ground textures, water, sky, fog and clouds, its time of day and weather, where visitors land |
 | [developing.md](developing.md) | changing the client itself while it runs; handing work to a sub-agent |
 | [tools/](tools/README.md) | the first task: the watcher, record scripts, offline views, wire helpers - ready to run |

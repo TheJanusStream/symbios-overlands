@@ -1,9 +1,10 @@
 # Your own body
 
 The avatar is the one record the agent may edit in any world. Two kinds of
-body: a **rigged** person or four-legged beast (a sculpt and worn items, kept
-in records of their own) and a **generator** body - every vehicle: a car, a hover-boat, an
-airship, a helicopter, an airplane - whose whole shape is one generator tree at
+body: a **rigged** person, four-legged beast or winged body (a sculpt and worn
+items, kept in records of their own) and a **generator** body - every vehicle:
+a car, a hover-boat, an airship, a helicopter, an airplane - whose whole shape
+is one generator tree at
 `/record/body/visuals`, the same JSON as a building's
 ([building.md](building.md)). Everyone sees a generator body's edits at
 once; other clients fetch a rigged body's sculpt and worn items from your
@@ -214,7 +215,8 @@ wrong and the offsets need tuning".
 - **A seeded account may be a vehicle.** The Avatar window's Body tab has
   "Wear a rigged body" (`ui click "Avatar > Wear a rigged body"`);
   `status.locomotion` then reads `humanoid`, or `four_legged` on an account
-  whose seed rolls a beast (see "A four-legged body").
+  whose seed rolls a beast (see "A four-legged body"). No seed rolls a winged
+  body yet (see "A winged body").
 - **The sculpt** is `avatar set /body/...`. Wire scale: 1000 = 1.0 on the
   axes (-1..1, explorable to +-3), height in millimetres, age in whole
   years; read symbios-avatar's `plan/*.rs` for the ranges, not memory.
@@ -334,12 +336,120 @@ the render tool's `--family-seeds beast` lists more seeds.
   satchel is refused, and `wear` says why. A person is refused a beast's cut the
   same way. Either stays in the outfit, unworn, for a body that wears it.
 
+## A winged body
+
+A rigged body can be winged instead (#1875): a bird, a bat or a sugar glider,
+or a cross of two of them. In the Avatar window's Body tab, `winged` rolls one
+from the body's seed with every lock lifted - so it may land on a bird, a
+bat, a glider or a cross, not only the owl - and `humanoid` or `quadruped` rolls
+the other kinds back (`A ui click "Avatar > body > winged"`); the family, the
+size and the shape are the viewer's own picks under it, with a bird's plumage
+or a bat's or a glider's coat. Or send a whole body with `A avatar set /body
+...`, its `archetype` a `network.symbios.avatar.defs#winged` with a `family`
+(`bird`, `bat` or `glider`), and for a cross a `hybrid` family and its
+`blend`. Either way the new body, its collider and its flight section are one
+undo step, and `status.locomotion` reads `winged`, whichever family leads.
+Others see it once it is saved (`A save avatar --wait`). No seed rolls one
+yet, and there is no offline stand-in or Catalogue avatar of one (#1882).
+
+- **The leading family decides its posture**, and a cross takes its leading
+  family's (the one with the larger share; at an even blend the `hybrid`). A
+  bird stands upright on two legs, on the level floor a person stands on; a
+  bat or a glider goes on four, lying along its trunk as a beast does, and
+  plants its feet on the real terrain and on the roads, floors and decks under
+  it as a beast does.
+- **Its collider is its body's** and cannot be set by hand. A bird stands in
+  an upright capsule as tall as it is to the top of its head and as wide as
+  its trunk - the default owl 0.67 m tall and 0.26 m across; a bat or a
+  glider lies in a capsule along its trunk, the default bat 0.46 m long and
+  0.19 m deep, the glider 0.41 by 0.16. Its run (Shift), its mass and its
+  jump follow the body as a beast's do - the owl runs 3.2 m/s and weighs
+  6.5 kg, the bat 1.9 m/s and 2.2 kg, the glider 2.1 m/s and 1.4 kg - on
+  every edit and across a change of family, a bird made a bat; a run you
+  tuned keeps its distance from the body's own.
+- **Its flight section is its body's too.** The numbers its body sizes -
+  `flight_power`, `trim_speed`, `stall_speed`, `beat_speed`, `wingbeat_rate`
+  and `takeoff_speed` - are refitted on every edit of the body, the wingbeat
+  the one its wings are drawn at; the handling - `stamina_beats`,
+  `stamina_recovery`, `glide_ratio`, `max_bank`, `roll_rate` and `pitch_rate`
+  - is yours to tune and is kept through every edit (the Locomotion tab shows
+  the first as read-outs and the second as sliders). `flight_power` is 1 for a
+  bird and 0.7 for a bat, a cross's by the families' shares, and 0 for a
+  glider or any cross a glider leads. The default owl trims at 6.2 m/s,
+  stalls under 3.4 and beats 3.0 times a second; the bat 3.9, 2.1 and 2.6;
+  the glider 4.1 and 2.2, and does not beat. A winged body made a
+  person or a beast loses its section; one an older game saved without it
+  gets it back from its body when its owner's game installs the record.
+- **It flies as "A body that flies" says**, posed by the mode (#1877): it
+  crouches and leaps, beats in time with the flap key, spreads its wings to
+  glide, folds them to dive, flares and lands, and turns its tail and outer
+  wing into a banked turn; everyone else sees the same, each mode as its body
+  is drawn there. A bat or a glider, lying along its capsule, raises its nose
+  over the take-off's first fifth of a second rather than at once. Down, it
+  plays its landing out - its legs give and its wings fold, about half a
+  second - unless it walks off, swims or is set down elsewhere first; Space
+  in that time takes off again from a crouch.
+  - **A glider cannot flap.** It leaps twice as hard as a flapper its size
+    would (on top of the 1.6 times every non-flapper gets) and only glides:
+    from level ground the default glider rises about 1.35 m and glides about
+    3.7 m, so launch it from a height to go anywhere.
+  - **A weak flapper** - a cross under a bat's 0.7 - beats with a bat's push,
+    so it can climb, but spends its stamina sooner.
+  - **Not from water.** In water it swims, and Space swims up: it cannot
+    take off there.
+  - An agent cannot fly it: `walk-to` and `follow` walk it, and
+    `status.flight` reads what it is doing.
+- **It gestures at what it says**, by its leading family's names. A message
+  plays the first of these it holds:
+
+  | Words | Bird | Bat | Glider |
+  | --- | --- | --- | --- |
+  | a greeting (`hi`, `hello`, `bye`, ...), `stretch` | Wing Stretch | Wing Stretch | Stretch |
+  | a yes (`yes`, `ok`, `sure`, ...) | Head Tilt | Head Tilt | Head Tilt |
+  | a thanks (`thanks`, `bow`, `gg`, ...), `preen`, `groom` | Preen | Groom | Groom |
+  | `sit`, `perch`, `rest`, `curl` | Perch | Rest | Curl |
+  | `lie down` (`lay down`), `roost` | Roost | Rest | Curl |
+  | `shake` | Shake | Shake | Shake |
+  | `get up`, `up` | gets up | gets up | gets up |
+  | a no (`no`, `nope`, ...) | nothing | nothing | nothing |
+
+  A rest (a perch, a roost, a bat's rest, a glider's curl) is held until it
+  moves, swims, takes off or says `get up`, and a player who arrives after it
+  sat down sees it standing. A gesture within 2 s of the last is dropped, as
+  on any body. The chat window's hint names only the words that play on it.
+- **It wears what is cut for an animal, at three places**: its neck (the
+  catalogue's `beast_collar`, fitted over its feathers or fur), its crown
+  (the `ear_bow`, standing on its head, which a bird has no ears to read; or
+  the circlet at its authored size, as anything seated at the crown) and its
+  legs (the `leg_band`, cut for it, on the left leg - the Wearables tab moves
+  it to the right - at the middle of a bird's tarsus or a bat's or a glider's
+  shin; a glider's folded membrane hides it for now). Not its back, where the
+  folded wings lie, so the `saddle_pad` is refused, and not its hands, which
+  are a wing's wrists. A person's banner, lantern or satchel is refused, and
+  `wear` says why; whatever it cannot wear stays in the outfit, unworn, for a
+  body that does.
+- **It is framed by its size**, as a beast is: the orbit's focus at its eyes
+  and its rest radius in proportion to how tall it stands, from 5 m (the
+  default owl, and every smaller body, which so looks small in the frame) to
+  a person's 12 m. In flight the orbit follows its heading, as a vehicle's
+  does, and after a landing the focus eases down to it. First person looks
+  out of its seated eyes on foot, and in flight rides its attitude - banking
+  and pitching with it - once it has been off its feet a tenth of a second.
+  `look --view eyes` looks from its seated eyes, level, from clear of its
+  own head, tail and wings.
+- **`render --rigged`** draws a winged body and what it wears from its file,
+  as for a person ("Seeing it before anyone else does").
+
 ## A body that flies
 
 An on-foot body can fly (#1861): its preset's optional `flight` section says
 how, and Space takes it off. It is one body with a mode, never a change of
-preset, so taking off edits nothing and saves nothing. The prototype's
-stand-in is a bird made of primitives: [`tests/fixtures/winged/`](../../tests/fixtures/winged/)
+preset, so taking off edits nothing and saves nothing. A person or a beast
+keeps its section through every edit of its body, a rename or `avatar set
+/body` among them; a rigged winged body has its own, sized from its body ("A
+winged body", above). Before the winged bodies there was a stand-in: a
+generator bird made of primitives, which still flies.
+[`tests/fixtures/winged/`](../../tests/fixtures/winged/)
 holds its body (`standin_bird_visuals.json`), the whole avatar
 (`standin_bird_avatar.json`) and the script that prints both
 (`standin_bird.py`).
@@ -381,8 +491,9 @@ mode (`ground`, `takeoff`, `flap`, `glide`, `dive`, `flare`, `land`),
   surface flatter than 30 degrees - when its path closes on one within its
   capture radius (0.6 of its height). The flare starts about 0.45 s before
   contact, whatever the speed, and draws it onto the spot; down, it settles a
-  quarter of a second and is on its feet. A wall stops it but is never landed
-  on. Into water it swims.
+  quarter of a second and is on its feet; a rigged winged body then plays
+  its landing out. A wall stops it but is never landed on. Into water it
+  swims, and it cannot take off from water.
 - **A generator body on foot hangs from the capsule's middle**: draw its
   feet at `-(capsule_length / 2 + capsule_radius)`, the collider's bottom, or
   it stands in the ground or over it. Nothing refits a generator body's
@@ -392,10 +503,10 @@ mode (`ground`, `takeoff`, `flap`, `glide`, `dive`, `flare`, `land`),
   (`[0, 0, 10000]` on the right, `[0, 0, -10000]` on the left, so both rise
   together), the wing hung from it. What makes a body fly is its record's
   `flight` section, never its wings: an older game drops the key when it saves
-  the record, and nothing gives it back until the winged bodies (#1862) - set
-  it again. A section that leaves a number out takes the default for it. The
-  wings flap all the time, on the ground too: posing them by the mode is the
-  rigged body's job, later (#1862).
+  the record, and nothing gives a generator body's back - set it again. A
+  section that leaves a number out takes the default for it. The wings flap
+  all the time, on the ground too: only a rigged winged body is posed by the
+  mode.
 
 ## A whole body in the inventory
 
@@ -405,8 +516,8 @@ change it, or a ready-made one from the Catalogue.
 - `A stash-avatar [name]` copies the avatar you wear - its body, every prop
   it wears, how it moves - unsaved edits included, as the Avatar editor's
   Save to Inventory does, in any world. Without a name the item takes the
-  body's own name, or what it is (`person`, `boat`, `aircraft`). It is an
-  inventory edit: `A save inventory` keeps it.
+  body's own name, or what it is (`person`, `winged`, `boat`, `aircraft`). It
+  is an inventory edit: `A save inventory` keeps it.
 - `A wear <item>` with an avatar item puts the whole avatar on in place of
   the one worn: one step of the avatar's undo history (`A undo avatar` takes
   it off), unsaved until `A save avatar`, which writes its body and props

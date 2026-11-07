@@ -24,6 +24,9 @@ struct Frame {
     steps: u32,
     /// Whether the body was handed a patch.
     patched: bool,
+    /// Whether the body stands by the terrain (#1834): on a structure it is
+    /// handed a patch too, the structure's ground.
+    on_terrain: bool,
     /// The trunk's pitch, roll and yaw as drawn, degrees: the line from the
     /// hips' midpoint to the shoulders', and the one from the right girdle
     /// joints' midpoint to the left's.
@@ -203,6 +206,7 @@ fn frames_of(
                 .expect("a drive")
                 .ground
                 .is_some(),
+            on_terrain: held(app, root).1,
             pitch,
             roll,
             yaw,
@@ -757,8 +761,8 @@ fn pad_on_a_hill() -> (impl Fn(f32, f32) -> f32 + Copy, (Vec3, Transform)) {
 /// [`pad_on_a_hill`] onto its pad, or up off the pad onto the hill: the trunk's
 /// worst one-frame turn, degrees, from a little before its chassis first
 /// touches what it is walking onto to a little after the ease has run its
-/// course, and how often its patch came or went.
-fn walked_onto_the_pad(family: Family, onto: bool, hz: f32) -> (f32, usize) {
+/// course, how often it came onto the terrain or left it, and every frame.
+fn walked_onto_the_pad(family: Family, onto: bool, hz: f32) -> (f32, usize, Vec<Frame>) {
     let (ground, pad) = pad_on_a_hill();
     let record = beast_record(family);
     // Facing down the hill onto the pad, walked back (S, toward +Z); facing
@@ -777,11 +781,11 @@ fn walked_onto_the_pad(family: Family, onto: bool, hz: f32) -> (f32, usize) {
     let log = walked(&ground, &[pad], family, place, key, (4.0, 4.0), hz);
     let toggles = log
         .windows(2)
-        .filter(|pair| pair[0].patched != pair[1].patched)
+        .filter(|pair| pair[0].on_terrain != pair[1].on_terrain)
         .count();
     let toggle = log
         .windows(2)
-        .position(|pair| pair[0].patched != pair[1].patched)
+        .position(|pair| pair[0].on_terrain != pair[1].on_terrain)
         .map_or(log.len(), |i| i + 1);
     // The first frame the contacts say something else than they did.
     let touched = log
@@ -790,14 +794,15 @@ fn walked_onto_the_pad(family: Family, onto: bool, hz: f32) -> (f32, usize) {
         .unwrap_or(toggle);
     let margin = (0.08 * hz) as usize;
     let window = touched.min(toggle).saturating_sub(margin)..toggle + (0.25 * hz) as usize;
-    (worst_turn(&log, window), toggles)
+    (worst_turn(&log, window), toggles, log)
 }
 
 /// **A beast walking onto a level pad on a hill turns its trunk level over a
 /// fifth of a second, not in a frame** (#1835). A dog and a horse on their
 /// owner's client walk down a 20-degree hill onto a pad cut into it at its
 /// uphill edge, and up off it onto the hill, at 60 and 144 frames a second.
-/// Each comes onto the pad or off it - its patch going or coming once - and
+/// Each comes onto the pad or off it - leaving the terrain or coming onto it
+/// once, the pad's ground easing in for the hill's or out (#1834) - and
 /// from a little before its chassis touches the pad or the hill to a little
 /// after the ease has run, no frame turns the trunk more than the ease does
 /// in a frame at most, and half a degree for the stride: 1.5 times a frame's
@@ -810,7 +815,7 @@ fn a_beast_walking_onto_a_pad_on_a_hill_turns_its_trunk_smoothly() {
     for family in [Family::Dog, Family::Horse] {
         for onto in [true, false] {
             for hz in [60.0f32, 144.0] {
-                let (worst, toggles) = walked_onto_the_pad(family, onto, hz);
+                let (worst, toggles, _) = walked_onto_the_pad(family, onto, hz);
                 // The agreed ease, not the constant: a shorter one fails this.
                 let ease = 1.5 / hz / 0.2 * 20.0;
                 let way = if onto { "onto" } else { "off" };
@@ -820,8 +825,8 @@ fn a_beast_walking_onto_a_pad_on_a_hill_turns_its_trunk_smoothly() {
                 );
                 assert_eq!(
                     toggles, 1,
-                    "{family:?} walking {way} the pad at {hz} Hz: its patch came or went \
-                     {toggles} times"
+                    "{family:?} walking {way} the pad at {hz} Hz: it came onto the terrain or \
+                     left it {toggles} times"
                 );
                 assert!(
                     worst <= ease + 0.5,
@@ -833,9 +838,51 @@ fn a_beast_walking_onto_a_pad_on_a_hill_turns_its_trunk_smoothly() {
     }
 }
 
+/// **A beast walking from a hill onto a pad and back keeps a patch, and
+/// turns its trunk from the one to the other smoothly** (#1834). A dog and a
+/// horse on their owner's client walk down the 20-degree hill of
+/// [`pad_on_a_hill`] onto its pad and up off it, at 30, 60 and 144 frames a
+/// second: they are handed a patch on every frame - the hill's ground, then
+/// the pad's, eased from one to the other - and from a little before the
+/// chassis touches what it walks onto to a little after the ease has run, no
+/// frame turns the trunk more than the ease's own most in a frame of a trunk
+/// turned 19 degrees by the hill, 2.4 degrees at 60 Hz and in proportion to
+/// the frame at the others ([`super::super::underfoot::BLEND_SECS`]). Until
+/// #1834 the patch went on the pad, the level floor in its place.
+#[test]
+fn a_beast_walking_between_a_hill_and_a_pad_keeps_a_patch() {
+    for family in [Family::Dog, Family::Horse] {
+        for onto in [true, false] {
+            for hz in [30.0f32, 60.0, 144.0] {
+                let (worst, _, log) = walked_onto_the_pad(family, onto, hz);
+                let way = if onto { "onto" } else { "off" };
+                let most = 2.4 * 60.0 / hz;
+                let unpatched = log.iter().filter(|frame| !frame.patched).count();
+                println!(
+                    "{family:?} walking {way} the pad at {hz} Hz: {unpatched} frames unpatched, \
+                     the trunk turning {worst:.2} deg in a frame at most"
+                );
+                assert_eq!(
+                    unpatched,
+                    0,
+                    "{family:?} walking {way} the pad at {hz} Hz: handed the level floor on \
+                     {unpatched} of {} frames",
+                    log.len()
+                );
+                assert!(
+                    worst <= most,
+                    "{family:?} walking {way} the pad at {hz} Hz: the trunk turned {worst:.2} deg \
+                     in a frame, past {most:.2}"
+                );
+            }
+        }
+    }
+}
+
 /// **A measurement (#1835): the trunk frame by frame as a beast walks onto
-/// the pad of [`pad_on_a_hill`] and off it.** Printed: the frame the patch
-/// came or went, and each frame's turn of pitch and roll around it.
+/// the pad of [`pad_on_a_hill`] and off it.** Printed: the frame it came
+/// onto the terrain or left it, and each frame's turn of pitch and roll
+/// around it.
 #[test]
 #[ignore = "a measurement, printed: run by hand"]
 fn probe_walking_onto_the_pad() {
@@ -861,7 +908,7 @@ fn probe_walking_onto_the_pad() {
                 let skip = (0.6 * hz) as usize;
                 let toggle = log
                     .windows(2)
-                    .position(|pair| pair[0].patched != pair[1].patched)
+                    .position(|pair| pair[0].on_terrain != pair[1].on_terrain)
                     .map_or(0, |i| i + 1);
                 let elsewhere = log
                     .iter()
@@ -1209,8 +1256,9 @@ fn a_beast_standing_elsewhere_is_let_go_of_the_terrain_in_good_time() {
 /// its first frame** (#1835 review, finding 3). A dog peer standing on flat
 /// terrain is set down 5 m away on a floor laid 3 cm over it - close enough
 /// over the terrain to be held on it, had it walked there - at 60 and 144
-/// frames a second: it is handed the level floor on the first frame it is
-/// drawn there, not a hold and an ease later.
+/// frames a second: it is handed the floor's ground, the whole of it and
+/// none of the terrain's, on the first frame it is drawn there (#1834), not
+/// a hold and an ease later.
 #[test]
 fn a_beast_set_down_elsewhere_stands_by_what_is_there_at_once() {
     let flat = |_: f32, _: f32| 0.0;
@@ -1229,16 +1277,12 @@ fn a_beast_set_down_elsewhere_stands_by_what_is_there_at_once() {
             .expect("a chassis")
             .translation = Vec3::new(0.0, 0.03 + drop, -5.0);
         app.update();
-        let patched = app
-            .world()
-            .get::<Drive>(root)
-            .expect("a drive")
-            .ground
-            .is_some();
+        let rest = &app.world().get::<RiggedTrail>(root).expect("a trail").rest;
         assert!(
-            !patched && held(&app, root) == (0.0, false),
-            "at {hz} Hz: set down on the floor, and still handed the terrain: {:?}",
-            held(&app, root)
+            rest.held() == (0.0, false) && rest.stands_by() == (Some(RestsOn::Structure), 1.0),
+            "at {hz} Hz: set down on the floor, and still handed the terrain: {:?} {:?}",
+            rest.held(),
+            rest.stands_by()
         );
     }
 }
@@ -1363,8 +1407,9 @@ fn stepped_off_the_side(family: Family, degrees: f32, hz: f32) -> Vec<Frame> {
 /// **A beast stepping off a pad onto the hill beside it eases onto the hill**
 /// (#1835 end review, finding 2). A dog and a horse on their owner's client
 /// walk sideways off the side of a level pad cut into a 20- and a 25-degree
-/// hill, onto the hill a step below, at 60 and 144 frames a second. The patch
-/// comes on once, and from a little before its share starts to rise to a
+/// hill, onto the hill a step below, at 60 and 144 frames a second. It comes
+/// onto the terrain once, the pad's ground easing out as the hill's eases in
+/// (#1834), and from a little before its share starts to rise to a
 /// little after it is whole, no frame turns the trunk more than the ease does
 /// at most - 1.5 times a frame's share of the agreed fifth of a second, of the
 /// whole turn the hill asks of it, 29 to 37 degrees of roll side on to it -
@@ -1380,11 +1425,11 @@ fn a_beast_stepping_off_a_pad_onto_a_hill_eases_onto_it() {
                 let log = stepped_off_the_side(family, degrees, hz);
                 let toggles = log
                     .windows(2)
-                    .filter(|pair| pair[0].patched != pair[1].patched)
+                    .filter(|pair| pair[0].on_terrain != pair[1].on_terrain)
                     .count();
                 let came = log
                     .windows(2)
-                    .position(|pair| !pair[0].patched && pair[1].patched)
+                    .position(|pair| !pair[0].on_terrain && pair[1].on_terrain)
                     .map_or(log.len(), |i| i + 1);
                 let margin = (0.08 * hz) as usize;
                 let window = came.saturating_sub(margin)..came + ((0.2 + 0.08) * hz) as usize;
@@ -1405,8 +1450,8 @@ fn a_beast_stepping_off_a_pad_onto_a_hill_eases_onto_it() {
                 );
                 assert!(
                     toggles == 1,
-                    "{family:?} off the {degrees} deg pad at {hz} Hz: its patch came or went \
-                     {toggles} times"
+                    "{family:?} off the {degrees} deg pad at {hz} Hz: it came onto the terrain \
+                     or left it {toggles} times"
                 );
                 assert!(
                     on <= off.max(ease) + 0.5,

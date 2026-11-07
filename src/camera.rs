@@ -17,8 +17,18 @@
 //! [`BeastOrbit`]): the focus at its eye height rather than the chassis', whose
 //! origin lies in the capsule on the ground under its trunk, and a rest radius
 //! in proportion to how tall it stands, from 5 m to a person's 12 m. It looks
-//! out of its seated eyes in first person. A person's orbit is the chassis
-//! origin at the rest radius, as it always was.
+//! out of its seated eyes in first person. So is a winged body of every family
+//! (#1880) - a bird standing upright as a person does, at 0.67 m an owl, as
+//! much as a bat or a glider lying as a beast does. A person's orbit is the
+//! chassis origin at the rest radius, as it always was.
+//!
+//! A body in flight (#1861) is followed as a vehicle is - the orbit turns with
+//! its heading, a chase framing - and its focus height is damped, so a
+//! wingbeat's bob is not the camera's; down again from a landing, the focus
+//! eases the rest of the way to the body rather than cutting to it, and a body
+//! moved and set down - a respawn, a gateway - is framed where it arrives
+//! (#1880). Its eyes ride its attitude as a vehicle's ride its nose
+//! (`first_person`).
 //!
 //! The player may choose an orthographic camera (#1603,
 //! [`crate::state::LocalSettings::orthographic_camera`]): nothing shrinks
@@ -63,6 +73,7 @@ use transform_gizmo_bevy::GizmoCamera;
 
 use crate::config::camera as cfg;
 use crate::config::interaction::audio as audio_cfg;
+use crate::pds::avatar::RiggedKind;
 use crate::player::VehicleChassis;
 use crate::state::{AppState, LocalPlayer};
 use crate::terrain::FinishedHeightMap;
@@ -468,8 +479,8 @@ fn clamp_camera_to_terrain(
 /// camera and for any view that has to stand where the player's would - the
 /// agent's third-person snapshot (#1420).
 ///
-/// `beast_eyes` is how high over its feet a four-legged beast's eyes stand,
-/// and None for every other body ([`BeastFraming::eyes_of`]).
+/// `beast_eyes` is how high over its feet a four-legged beast's or a winged
+/// body's eyes stand, and None for every other body ([`BeastFraming::eyes_of`]).
 pub(crate) fn clear_of_terrain(
     focus: Vec3,
     translation: Vec3,
@@ -504,7 +515,8 @@ pub(crate) fn clear_of_terrain(
 }
 
 /// How far over the ground the orbit keeps its camera (#1804): the player's
-/// setting, and for a four-legged beast no more than its own eyes' height.
+/// setting, and for a four-legged beast or a winged body (#1880) no more than
+/// its own eyes' height.
 ///
 /// A focus under the clearance line is one the rule cannot serve. Every ray
 /// from it starts under the line: the whole-ray check stops at its first
@@ -897,10 +909,16 @@ pub(crate) fn camera_listener() -> SpatialListener {
 /// camera - is a few degrees off the landing's own yaw (6 at a 36 degree
 /// slope).
 ///
-/// **A four-legged beast is framed by its own size** (#1804): the focus at its
-/// eye height and a landing's radius its own ([`BeastOrbit`]). Everyone else's
-/// focus is the chassis origin itself and their radius [`cfg::ORBIT_RADIUS`],
-/// through no arithmetic at all.
+/// **A four-legged beast and a winged body are framed by their own size**
+/// (#1804, #1880): the focus at its eye height and a landing's radius its own
+/// ([`BeastOrbit`], [`framed_by_size`]). Everyone else's focus is the chassis
+/// origin itself and their radius [`cfg::ORBIT_RADIUS`], through no arithmetic
+/// at all.
+///
+/// **A body in flight** (#1861) is followed as a vehicle is, its focus height
+/// damped, and eased back down to the body after a landing rather than cut to
+/// it ([`AirFocus::focus_y`], #1880); a body moved and set down is framed
+/// where it arrives.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn follow_local_player(
     player_query: Query<
@@ -934,15 +952,18 @@ fn follow_local_player(
     };
     let beast = record
         .as_deref()
-        .and_then(|record| crate::pds::avatar::locomotion::beast_on_foot(&record.0))
-        .map(|p| {
-            // The built body's eyes, once it is the beast's: until then the
-            // person it was in the editor, or the stand-in, says nothing.
+        .and_then(|record| framed_by_size(&record.0))
+        .map(|(p, kind)| {
+            // The built body's eyes, once it is the body the record wears -
+            // read off the rig, as the player reads what is drawn: until then
+            // the person it was in the editor, or the stand-in, says nothing,
+            // and nor does a winged body an older cached worker drew as the
+            // stand-in person.
             let eyes = rigs
                 .iter()
                 .find(|(parent, body)| {
                     parent.parent() == player
-                        && body.avatar.rig.anatomy.head == symbios_avatar::HeadKind::Beast
+                        && RiggedKind::of_rig(&body.avatar.rig).same_body(kind)
                 })
                 .and_then(|(_, body)| first_person::rest_eye_line(&body.avatar));
             BeastOrbit::of(p, eyes.map(|eyes| eyes.y))
@@ -956,21 +977,17 @@ fn follow_local_player(
         Some(beast) => player_tf.translation + Vec3::Y * beast.lift,
         None => player_tf.translation,
     };
-    if flying {
-        focus.y = followed
-            .air_focus_y
-            .map_or(focus.y, |was| flap_damped(was, focus.y, time.delta_secs()));
-        followed.air_focus_y = Some(focus.y);
-    } else if followed.air_focus_y.is_some() {
-        followed.air_focus_y = None;
+    // A body set down somewhere new is framed where it arrives, whatever
+    // height its flight's focus stood at (#1880).
+    let set_down = facings.read().last().copied();
+    if set_down.is_some() {
+        followed.air.arrived();
     }
+    let mode = flight.map_or(crate::player::FlightMode::Ground, |flight| flight.mode());
+    focus.y = followed.air.focus_y(mode, focus.y, time.delta_secs());
     cam.target_focus = focus;
 
-    if let Some((yaw, pitch)) = facings
-        .read()
-        .last()
-        .and_then(|set| yaw_behind(set.0).map(|yaw| (yaw, set.1)))
-    {
+    if let Some((yaw, pitch)) = set_down.and_then(|set| yaw_behind(set.0).map(|yaw| (yaw, set.1))) {
         // The eyes turn themselves (#1750) - while they look; on the way
         // back out of them the orbit is the camera's again.
         let eyes = first_person
@@ -1040,7 +1057,7 @@ fn follow_local_player(
         }
     } else {
         *followed = Followed {
-            air_focus_y: followed.air_focus_y,
+            air: followed.air,
             ..Followed::default()
         };
     }
@@ -1055,14 +1072,55 @@ const FLAP_FOCUS_LAG_S: f32 = 0.2;
 /// The focus height a flying body's camera moves to over `dt` seconds, from
 /// `was` toward the body's `now` ([`FLAP_FOCUS_LAG_S`]).
 fn flap_damped(was: f32, now: f32, dt: f32) -> f32 {
-    was + (now - was) * (1.0 - (-dt / FLAP_FOCUS_LAG_S).exp())
+    was + (now - was) * flap_follow(dt)
 }
 
-/// How the orbit frames a four-legged beast (#1804, owner decision D5).
+/// The share of the way to the body's height a flying body's focus closes in
+/// `dt` seconds ([`FLAP_FOCUS_LAG_S`]).
+fn flap_follow(dt: f32) -> f32 {
+    1.0 - (-dt / FLAP_FOCUS_LAG_S).exp()
+}
+
+/// How near the body's own height (m) a landed focus counts as there, and
+/// stops easing (#1880).
+const LANDED_FOCUS_WITHIN: f32 = 1e-3;
+
+/// The most a landing's lag (m) is eased rather than cut (#1880). The damping
+/// lags a fifth of a second of a descent, and a landing's quarter second
+/// settling (`flight::LAND_S`), the body still, takes all but 29% of that off
+/// before it stands: 2.5 m left is a descent of over 40 m/s, far faster than
+/// a flight comes down onto a top. A focus farther off is a body moved, not
+/// landed.
+const LANDED_LAG_MAX_M: f32 = 2.5;
+
+/// The local body's framing by its own size (#1804, #1880): the on-foot
+/// preset of a four-legged beast or a winged body, of any family, and the
+/// kind its built body has to be for its eyes to be read - `None` for a
+/// person, a vehicle and a body the record does not resolve yet. A bird-led
+/// body stands upright as a person does, but at 0.67 m an owl framed as one
+/// was a speck at the focus of a person's 12 m orbit, centred on its chassis
+/// and not its eyes.
+fn framed_by_size(
+    record: &crate::pds::AvatarRecord,
+) -> Option<(&crate::pds::HumanoidParams, RiggedKind)> {
+    use crate::pds::avatar::locomotion::{beast_on_foot, winged_on_foot};
+    beast_on_foot(record)
+        .map(|p| (p, RiggedKind::Beast))
+        .or_else(|| {
+            winged_on_foot(record)
+                .map(|p| (p, RiggedKind::Winged(symbios_avatar::WingedFamily::Bird)))
+        })
+}
+
+/// How the orbit frames a four-legged beast (#1804, owner decision D5), and a
+/// winged body of any family (#1880).
 ///
 /// A person is framed by the chassis, whose origin is their middle. A beast's
 /// lies in the capsule on the ground under its trunk (#1802), under 20 cm up
-/// on a dog, so the focus is lifted to where the body looks from.
+/// on a dog, so the focus is lifted to where the body looks from. A winged
+/// body's is in a capsule a bat or a glider lies in as a beast does, or a
+/// bird stands up in as tall as it is, its eyes near the top: either way
+/// the focus is lifted to its eyes, and its radius is its own height's.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct BeastOrbit {
     /// How far the focus stands over the chassis' origin (m): its eyes, level
@@ -1078,10 +1136,12 @@ pub(crate) struct BeastOrbit {
 }
 
 impl BeastOrbit {
-    /// The framing of the beast `p` carries, whose eyes stand `eyes` over its
-    /// feet - None until its body is built, when they are taken at its back's
-    /// height ([`crate::pds::HumanoidParams::stand_height`]), the nearest
-    /// thing the record knows.
+    /// The framing of the beast or winged body `p` carries, whose eyes stand
+    /// `eyes` over its feet - None until its body is built, when they are
+    /// taken at its back's height, or a standing bird's crown
+    /// ([`crate::pds::HumanoidParams::stand_height`]), the nearest thing the
+    /// record knows. The chassis' origin is the capsule's middle, half its
+    /// height over the feet, lying or standing.
     fn of(p: &crate::pds::HumanoidParams, eyes: Option<f32>) -> Self {
         let eyes = eyes.unwrap_or_else(|| p.stand_height());
         Self {
@@ -1102,17 +1162,17 @@ fn beast_rest_radius(height: f32) -> f32 {
         .clamp(cfg::BEAST_ORBIT_RADIUS_MIN, cfg::ORBIT_RADIUS)
 }
 
-/// The local body's framing while it is a four-legged beast, and None for
-/// everyone else (#1804): written by [`follow_local_player`], and read where
-/// the orbit's camera is kept off the ground, which is told nothing else about
-/// the body.
+/// The local body's framing while it is a four-legged beast or a winged body,
+/// and None for everyone else (#1804, #1880): written by
+/// [`follow_local_player`], and read where the orbit's camera is kept off the
+/// ground, which is told nothing else about the body.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct BeastFraming(pub(crate) Option<BeastOrbit>);
 
 impl BeastFraming {
-    /// How high the local beast's eyes stand over its feet, for
-    /// [`clear_of_terrain`]: None for any other body, and where no framing is
-    /// kept.
+    /// How high the local beast's or winged body's eyes stand over its feet,
+    /// for [`clear_of_terrain`]: None for any other body, and where no framing
+    /// is kept.
     pub(crate) fn eyes_of(framing: Option<&Self>) -> Option<f32> {
         framing
             .and_then(|framing| framing.0)
@@ -1131,14 +1191,90 @@ pub(crate) fn beast_framing_for_tests(eyes: f32) -> BeastFraming {
 }
 
 /// What the follow carries from one frame to the next: the vehicle's
-/// heading last frame, whose turn since it inherits, and a landing it waits
-/// to see the body reach (#1785).
+/// heading last frame, whose turn since it inherits, a landing it waits to
+/// see the body reach (#1785), and the eased focus height of a body flying
+/// or just down from a flight.
 #[derive(Default)]
 struct Followed {
     prev_yaw: Option<f32>,
     landing: Option<crate::player::LandingWait>,
+    /// The focus height of a body flying or just down ([`AirFocus`]).
+    air: AirFocus,
+}
+
+/// The focus height of a body flying, or just down from a flight (#1861,
+/// #1880), carried from frame to frame.
+#[derive(Clone, Copy, Debug, Default)]
+struct AirFocus {
     /// A flying body's focus height, damped ([`flap_damped`], #1861).
-    air_focus_y: Option<f32>,
+    damped: Option<f32>,
+    /// How far over the body's own height (m) a landed body's focus still
+    /// stands, easing out.
+    landed_offset: Option<f32>,
+    /// The flight's mode last frame.
+    was: crate::player::FlightMode,
+}
+
+impl AirFocus {
+    /// The focus height for a body whose framing puts it at `now` (m), this
+    /// frame of `dt` seconds, its flight in `mode`.
+    ///
+    /// In flight the focus follows the body's height damped
+    /// ([`flap_damped`]): a beat's bob is not the camera's, a climb or a dive
+    /// is. **Down again, it eases the rest of the way** (#1880): what the
+    /// damping still lagged as the body stood - on a descent of 3 m/s about
+    /// 0.6 m as it touches down, and about 0.17 m after the quarter second a
+    /// landing settles in, the body still and the damping closing on it -
+    /// closes at the same rate, carried on the body's own height, so the
+    /// landing is no cut and the walk off it no lag; once within
+    /// [`LANDED_FOCUS_WITHIN`] the focus is the body's height again. A
+    /// take-off before then damps on from the eased height, no cut either.
+    ///
+    /// **Only a landing is eased**: a flight that went from its landing to
+    /// its feet ([`crate::player::FlightMode::Land`] to `Ground`), lagging no
+    /// more than [`LANDED_LAG_MAX_M`]. A body set on its feet anywhere else -
+    /// Return to Spawn, Go to selection, a gateway, the fall rescue, each of
+    /// which moves it and sets it down in one step - is framed where it is,
+    /// as is a focus that is not a number (#867): neither is carried, in
+    /// flight or out of it. A body that never flew is framed at `now`
+    /// itself, to the bit.
+    fn focus_y(&mut self, mode: crate::player::FlightMode, now: f32, dt: f32) -> f32 {
+        let was = std::mem::replace(&mut self.was, mode);
+        if mode.airborne() {
+            let from = self
+                .damped
+                .or_else(|| self.landed_offset.map(|offset| now + offset))
+                .filter(|from| from.is_finite());
+            self.landed_offset = None;
+            let y = from.map_or(now, |from| flap_damped(from, now, dt));
+            self.damped = Some(y);
+            return y;
+        }
+        if let Some(damped) = self.damped.take() {
+            let lag = damped - now;
+            self.landed_offset = (was == crate::player::FlightMode::Land
+                && lag.abs() <= LANDED_LAG_MAX_M)
+                .then_some(lag);
+        }
+        let Some(offset) = self.landed_offset else {
+            return now;
+        };
+        let offset = offset * (1.0 - flap_follow(dt));
+        if offset.abs() < LANDED_FOCUS_WITHIN {
+            self.landed_offset = None;
+            now
+        } else {
+            self.landed_offset = Some(offset);
+            now + offset
+        }
+    }
+
+    /// The body was set down somewhere new (`player::FacingSet`): nothing of
+    /// its flight's focus is carried there.
+    fn arrived(&mut self) {
+        self.damped = None;
+        self.landed_offset = None;
+    }
 }
 
 /// How near a landing's heading the body counts as there, radians.
@@ -2603,6 +2739,401 @@ mod tests {
             holders.iter().any(|&(_, preview)| preview),
             "with the automatic pick on, the preview camera should have won \
              a context of its own; holders: {holders:?}"
+        );
+    }
+
+    /// A record wearing `body`, resolved, on the preset the editor fits to it.
+    fn winged_wearing(body: crate::pds::avatar::EngineAvatarRecord) -> crate::pds::AvatarRecord {
+        crate::pds::avatar::locomotion::fitted_record(body)
+    }
+
+    /// `family`'s default winged body, its size set that share of the way
+    /// along the envelope when `size` gives one.
+    fn winged_body(
+        family: symbios_avatar::WingedFamily,
+        size: Option<f32>,
+    ) -> crate::pds::avatar::EngineAvatarRecord {
+        let mut body = crate::pds::avatar::locomotion::default_winged(family);
+        if let (Some(share), symbios_avatar::Archetype::Winged(params)) =
+            (size, &mut body.archetype)
+        {
+            let (low, high) = symbios_avatar::WingedParams::size_envelope();
+            params.size = low + (high - low) * share;
+        }
+        body.sanitize();
+        body
+    }
+
+    /// **A winged body's orbit stands at its eyes, its radius following its
+    /// height** (#1880, as #1804 framed a beast): on the owl, the bat and the
+    /// glider, and the smallest, a middling and the largest owl, a landing cuts the focus to
+    /// the eyes' height over the chassis - its seated eyes, ahead of the
+    /// engine's landmark - and the radius to the person's 12 m in proportion
+    /// to how tall it stands, from 5 m to 12 m; the follow keeps the
+    /// focus there as the chassis moves, and the ground clamp is told its
+    /// eyes. A bird-led body - upright, as a person is - was framed as a
+    /// person: the focus at the chassis' origin and the radius 12 m, about an
+    /// owl of 0.67 m.
+    #[test]
+    fn a_winged_bodys_orbit_stands_at_its_eyes_and_follows_its_height() {
+        use symbios_avatar::WingedFamily;
+        let mut bodies = Vec::new();
+        for family in [WingedFamily::Bird, WingedFamily::Bat, WingedFamily::Glider] {
+            bodies.push((format!("{family:?}"), winged_body(family, None)));
+        }
+        for (name, share) in [
+            ("small owl", 0.0),
+            ("middling owl", 0.5),
+            ("large owl", 1.0),
+        ] {
+            bodies.push((
+                String::from(name),
+                winged_body(WingedFamily::Bird, Some(share)),
+            ));
+        }
+        let mut radii = Vec::new();
+        for (name, body) in bodies {
+            let record = winged_wearing(body.clone());
+            let p = on_foot(&record).clone();
+            let avatar = built(&body);
+            let eyes = first_person::rest_eye_line(&avatar).expect("a head");
+            // Its seated eyes, ahead of the landmark the engine puts by the
+            // person rule at the back of the skull.
+            let landmark = avatar
+                .rig
+                .landmarks()
+                .get(symbios_avatar::rig::Landmark::EyeLine)
+                .expect("an eye line")
+                .position;
+            assert!(
+                avatar.parts.eyes.is_some() && eyes.z > landmark.z,
+                "{name}: the eyes {eyes} against the landmark {landmark}"
+            );
+            let mut app = follow_app();
+            app.init_resource::<BeastFraming>();
+            app.insert_resource(crate::state::LiveAvatarRecord(record.clone()));
+            let at = Vec3::new(140.0, 12.0, -60.0);
+            let chassis = app
+                .world_mut()
+                .spawn((Transform::from_translation(at), LocalPlayer))
+                .id();
+            hang(&mut app, &record, avatar, chassis);
+            app.world_mut().spawn(astray());
+            app.world_mut()
+                .write_message(crate::player::FacingSet(Quat::IDENTITY, None));
+            app.update();
+
+            let cam = orbit(&mut app);
+            let root_y = -p.total_height() / 2.0;
+            let focus = at + Vec3::Y * (root_y + eyes.y);
+            println!("{name}: eyes {eyes}, landmark {landmark}");
+            assert!(
+                cam.target_focus.distance(focus) < 1e-5,
+                "{name}: focus {} against the eyes' {focus}",
+                cam.target_focus
+            );
+            let radius = beast_rest_radius(p.stand_height());
+            assert!(
+                (cam.target_radius - radius).abs() < 1e-5,
+                "{name}: radius {} against {radius}",
+                cam.target_radius
+            );
+            assert_eq!(cam.radius, Some(cam.target_radius), "{name}");
+            println!(
+                "{name}: stand {:.3} m, eyes {:.3} m over the feet at z {:.3}, lift {:.3} m, \
+                 radius {:.2} m",
+                p.stand_height(),
+                eyes.y,
+                eyes.z,
+                root_y + eyes.y,
+                cam.target_radius,
+            );
+            radii.push((name.clone(), cam.target_radius));
+
+            let moved = at + Vec3::new(1.0, 0.5, -2.0);
+            app.world_mut()
+                .entity_mut(chassis)
+                .insert(Transform::from_translation(moved));
+            app.update();
+            let cam = orbit(&mut app);
+            assert!(
+                cam.target_focus
+                    .distance(moved + Vec3::Y * (root_y + eyes.y))
+                    < 1e-5,
+                "{name}"
+            );
+            let framing = app.world().resource::<BeastFraming>();
+            assert_eq!(BeastFraming::eyes_of(Some(framing)), Some(eyes.y), "{name}");
+        }
+        let radius = |name: &str| radii.iter().find(|(n, _)| n == name).expect("framed").1;
+        assert!(
+            radius("large owl") > radius("middling owl")
+                && radius("middling owl") > radius("Bird")
+                && radius("Bird") >= radius("small owl"),
+            "a larger bird stands the camera farther off: {radii:?}"
+        );
+        // The largest owl the record allows stands 2.7 m, and is framed at the
+        // 12 m ceiling; the three defaults, cat to dog sized, at the 5 m floor.
+        for name in ["Bird", "Bat", "Glider"] {
+            assert_eq!(
+                radius(name),
+                cfg::BEAST_ORBIT_RADIUS_MIN,
+                "{name} is framed at {} m: {radii:?}",
+                radius(name)
+            );
+        }
+    }
+
+    /// **A winged body drawn as the stand-in person is framed at its back**
+    /// (#1880): an older cached worker builds a winged record as the person
+    /// it knew, whose eyes are nothing to do with it, so the focus stands at
+    /// the height the record knows, as a beast's does before its body lands.
+    #[test]
+    fn a_winged_body_drawn_as_a_person_is_framed_at_its_back() {
+        let record = winged_wearing(winged_body(symbios_avatar::WingedFamily::Bat, None));
+        let p = on_foot(&record).clone();
+        let back = p.stand_height() - p.total_height() / 2.0;
+        let mut app = follow_app();
+        app.insert_resource(crate::state::LiveAvatarRecord(record.clone()));
+        let at = Vec3::new(1.0, 2.0, 3.0);
+        let chassis = app
+            .world_mut()
+            .spawn((Transform::from_translation(at), LocalPlayer))
+            .id();
+        hang(
+            &mut app,
+            &record,
+            built(&symbios_avatar::AvatarRecord::default()),
+            chassis,
+        );
+        app.world_mut().spawn(astray());
+        app.update();
+        assert!(orbit(&mut app).target_focus.distance(at + Vec3::Y * back) < 1e-5);
+    }
+
+    /// A follow app stepping `hz` frames a second, its chassis at `y` in the
+    /// flight `mode`, the clock started.
+    fn flying_app(hz: f32, y: f32, mode: crate::player::FlightMode) -> (App, Entity) {
+        use bevy::time::TimeUpdateStrategy;
+        let mut app = follow_app();
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0 / hz),
+        ));
+        let chassis = app
+            .world_mut()
+            .spawn((Transform::from_xyz(5.0, y, 5.0), LocalPlayer, in_mode(mode)))
+            .id();
+        app.world_mut().spawn(astray());
+        // Two frames to start the clock.
+        app.update();
+        app.update();
+        (app, chassis)
+    }
+
+    /// A body's flight in `mode`.
+    fn in_mode(mode: crate::player::FlightMode) -> crate::player::Flight {
+        let mut flight = crate::player::Flight::default();
+        flight.set_mode_for_tests(mode);
+        flight
+    }
+
+    /// One frame with the chassis at `y` in `mode`: the focus height after it.
+    fn fly_frame(app: &mut App, chassis: Entity, y: f32, mode: crate::player::FlightMode) -> f32 {
+        app.world_mut()
+            .entity_mut(chassis)
+            .insert((Transform::from_xyz(5.0, y, 5.0), in_mode(mode)));
+        app.update();
+        orbit(app).target_focus.y
+    }
+
+    /// A glide down at 3 m/s from 40 m for two seconds, then the quarter
+    /// second a landing settles in, the body still (`flight::LAND_S`), as the
+    /// game lands it: the body's height, the focus' at the end of the glide,
+    /// and the largest step the focus took in a frame from the touch-down on.
+    fn glide_down_and_land(app: &mut App, chassis: Entity, hz: f32) -> (f32, f32, f32) {
+        use crate::player::FlightMode;
+        let fall = 3.0 / hz;
+        let mut y = 40.0f32;
+        let mut focus = y;
+        for _ in 0..(2.0 * hz) as usize {
+            y -= fall;
+            focus = fly_frame(app, chassis, y, FlightMode::Glide);
+        }
+        let glided = focus;
+        let mut worst = 0.0f32;
+        for _ in 0..(0.25 * hz).round() as usize {
+            let now = fly_frame(app, chassis, y, FlightMode::Land);
+            worst = worst.max((now - focus).abs());
+            focus = now;
+        }
+        (y, glided, worst)
+    }
+
+    /// **The focus eases down after a landing** (#1880): a body gliding down at
+    /// 3 m/s, its focus damped a fifth of a second behind its height
+    /// (#1861), touches down, settles the quarter second a landing takes and
+    /// is on its feet, as the game lands it (Glide, Land, Ground); on every
+    /// frame from the touch-down on, at 60 and at 144 frames a second, the
+    /// focus moves no farther than the body fell in one frame of the flight,
+    /// and within two seconds it stands on the body. The lag is about 0.6 m as
+    /// it touches down and about 0.17 m as it stands: cleared there, that came
+    /// back in the one frame. A body that never flew is framed at its own
+    /// height, to the bit.
+    #[test]
+    fn the_focus_eases_down_after_a_landing() {
+        use crate::player::FlightMode;
+        for hz in [60.0f32, 144.0] {
+            let (mut app, chassis) = flying_app(hz, 40.0, FlightMode::Glide);
+            let fall = 3.0 / hz;
+            let (y, glided, mut worst) = glide_down_and_land(&mut app, chassis, hz);
+            let lag = glided - y;
+            assert!(
+                lag > 0.4,
+                "{hz} Hz: the premise, the focus lags {lag} m behind"
+            );
+            let mut was = orbit(&mut app).target_focus.y;
+            let standing = was - y;
+            assert!(
+                (0.1..0.25).contains(&standing),
+                "{hz} Hz: the lag as it stands is {standing} m"
+            );
+            for _ in 0..(2.0 * hz) as usize {
+                let now = fly_frame(&mut app, chassis, y, FlightMode::Ground);
+                worst = worst.max((now - was).abs());
+                was = now;
+            }
+            println!(
+                "{hz} Hz: lag at touch-down {lag:.3} m, on its feet {standing:.3} m, largest \
+                 step after {worst:.4} m"
+            );
+            assert!(
+                worst <= fall + 1e-4,
+                "{hz} Hz: the focus stepped {worst} m in a frame (a frame's fall is {fall})"
+            );
+            assert_eq!(
+                was, y,
+                "{hz} Hz: after two seconds the focus is not on the body"
+            );
+        }
+
+        // Never flown: the chassis' height itself, a negative zero kept.
+        let mut air = AirFocus::default();
+        assert_eq!(
+            air.focus_y(FlightMode::Ground, -0.0, 1.0 / 60.0).to_bits(),
+            (-0.0f32).to_bits()
+        );
+    }
+
+    /// **A body moved in flight is framed where it arrives** (#1880). Return
+    /// to Spawn, Go to selection, a gateway and the fall rescue move a body
+    /// and set it on its feet in one step (`flight::set_down`): from a glide,
+    /// from the middle of a landing, and with the landing's facing said
+    /// (`FacingSet`) though it moved only a metre, the focus is on the body
+    /// on the first frame. Eased as a landing's lag, the old height fell
+    /// 95 m over a second (92.4 m on the first frame of 60).
+    #[test]
+    fn a_body_moved_in_flight_is_framed_where_it_arrives() {
+        use crate::player::FlightMode;
+        let hz = 60.0;
+        for case in ["from a glide", "from a landing", "facing set"] {
+            let (mut app, chassis) = flying_app(hz, 100.0, FlightMode::Glide);
+            let to = if case == "facing set" {
+                let (y, ..) = glide_down_and_land(&mut app, chassis, hz);
+                for _ in 0..3 {
+                    fly_frame(&mut app, chassis, y, FlightMode::Land);
+                }
+                app.world_mut()
+                    .write_message(crate::player::FacingSet(Quat::IDENTITY, None));
+                y - 1.0
+            } else {
+                for _ in 0..(2.0 * hz) as usize {
+                    fly_frame(&mut app, chassis, 100.0, FlightMode::Glide);
+                }
+                if case == "from a landing" {
+                    for _ in 0..6 {
+                        fly_frame(&mut app, chassis, 100.0, FlightMode::Land);
+                    }
+                }
+                5.0
+            };
+            let focus = fly_frame(&mut app, chassis, to, FlightMode::Ground);
+            assert_eq!(focus, to, "{case}: the focus stands at {focus} over {to}");
+            let later = fly_frame(&mut app, chassis, to, FlightMode::Ground);
+            assert_eq!(later, to, "{case}");
+        }
+    }
+
+    /// **A NaN in flight does not stay in the focus** (#1880, as #867 kept
+    /// one out of the chassis). One frame of a height that is not a number in
+    /// a glide, then a second's more glide: the focus is a number again, on
+    /// the body. One on the last frame of a landing: on its feet the focus is
+    /// on the body. Carried, the NaN stood in the focus for good.
+    #[test]
+    fn a_nan_in_flight_does_not_stay_in_the_focus() {
+        use crate::player::FlightMode;
+        let hz = 60.0;
+        let (mut app, chassis) = flying_app(hz, 20.0, FlightMode::Glide);
+        for _ in 0..30 {
+            fly_frame(&mut app, chassis, 20.0, FlightMode::Glide);
+        }
+        fly_frame(&mut app, chassis, f32::NAN, FlightMode::Glide);
+        let mut focus = f32::NAN;
+        for _ in 0..60 {
+            focus = fly_frame(&mut app, chassis, 20.0, FlightMode::Glide);
+        }
+        assert!(
+            (focus - 20.0).abs() < 1e-3,
+            "a second after a NaN the focus is {focus}"
+        );
+
+        for _ in 0..14 {
+            fly_frame(&mut app, chassis, 20.0, FlightMode::Land);
+        }
+        fly_frame(&mut app, chassis, f32::NAN, FlightMode::Land);
+        for _ in 0..600 {
+            focus = fly_frame(&mut app, chassis, 20.0, FlightMode::Ground);
+        }
+        assert_eq!(focus, 20.0, "ten seconds on its feet the focus is {focus}");
+    }
+
+    /// **A take-off while the focus still eases down is no cut** (#1880).
+    /// Landed from a glide at 3 m/s, the focus a little over the body still,
+    /// the body leaps off again a tenth of a second later and climbs at
+    /// 1 m/s: the focus moves on from where it stood, no farther in a frame
+    /// than the body climbs in one. Cut to the body, it dropped the ~0.1 m it
+    /// still stood over it in the one frame.
+    #[test]
+    fn a_take_off_while_the_focus_eases_down_is_no_cut() {
+        use crate::player::FlightMode;
+        let hz = 60.0;
+        let (mut app, chassis) = flying_app(hz, 40.0, FlightMode::Glide);
+        let (mut y, ..) = glide_down_and_land(&mut app, chassis, hz);
+        let mut was = orbit(&mut app).target_focus.y;
+        for _ in 0..6 {
+            was = fly_frame(&mut app, chassis, y, FlightMode::Ground);
+        }
+        assert!(
+            was - y > 0.05,
+            "the premise: the focus stands {} m over",
+            was - y
+        );
+        let climb = 1.0 / hz;
+        let mut worst = 0.0f32;
+        for frame in 0..30 {
+            y += climb;
+            let mode = if frame < 10 {
+                FlightMode::Takeoff
+            } else {
+                FlightMode::Flap
+            };
+            let now = fly_frame(&mut app, chassis, y, mode);
+            worst = worst.max((now - was).abs());
+            was = now;
+        }
+        println!("largest step over the take-off {worst:.4} m");
+        assert!(
+            worst <= climb + 1e-4,
+            "the focus stepped {worst} m in a frame (a frame's climb is {climb})"
         );
     }
 }

@@ -1,6 +1,9 @@
-//! Ear bow - a beast's Crown (#1807, owner decision D9). Cut for a
-//! four-legged body: a ribbon bow that stands on the skull between the ears,
-//! scaled to the span between them (`src/player/beast_seat.rs`).
+//! Ear bow - an animal's Crown (#1807, owner decision D9; #1879). Cut for a
+//! four-legged or a winged body: a ribbon bow that stands on the skull - on a
+//! beast between the ears, scaled to the span between them
+//! (`src/player/beast_seat.rs`), and on a winged body (a bird has no ears to
+//! read) on the head itself, scaled to a share of its drawn width
+//! (`src/player/winged_seat.rs`).
 
 use crate::catalogue::items::util::{
     cuboid_tapered, id_quat, nest, prim, prim_scaled, quat_z, solid, sphere,
@@ -39,8 +42,8 @@ impl CatalogueEntry for EarBow {
         "Ear Bow"
     }
     fn description(&self) -> &'static str {
-        "A satin ribbon bow - cut for a four-legged body, it sits between the ears and fits \
-         itself to them."
+        "A satin ribbon bow - cut for a four-legged or winged body, it sits between a beast's \
+         ears or on a winged body's head and fits itself to the head it lands on."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Attachment

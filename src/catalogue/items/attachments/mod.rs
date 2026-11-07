@@ -28,7 +28,8 @@
 //!   wearer, so the authored geometry needs no per-body drop guessing.
 //! * **A beast's cut declares what it scales** (#1807). An entry declaring
 //!   [`WearFit::Beast`](crate::catalogue::WearFit) is worn by four-legged
-//!   bodies only, and its authoring convention is that variant's docs.
+//!   and winged bodies only (#1879), and its authoring convention is that
+//!   variant's docs.
 //! * **Small budgets.** These ride inside the avatar record's byte budget
 //!   and on a body whose triangle budget already has a known worst corner;
 //!   a wearable is a garnish, not a building. Slice #1092 adds the guard
@@ -46,6 +47,7 @@ pub mod circlet;
 pub mod collar;
 pub mod ear_bow;
 pub mod lantern;
+pub mod leg_band;
 pub mod saddle_pad;
 pub mod satchel;
 

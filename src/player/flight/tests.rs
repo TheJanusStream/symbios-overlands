@@ -697,3 +697,355 @@ fn the_hands_off_nose_is_the_polars() {
     );
     assert_eq!((next.mode(), moved), (FlightMode::Ground, None));
 }
+
+/// `record` set down on the bench floor and stood half a second, then taken
+/// off: the lowest its collider reaches in the pose the flight writes on the
+/// take-off's step, before avian moves it (m over the floor), and the nose
+/// the flight set on that step (radians).
+fn take_off(record: &AvatarRecord) -> (f32, f32) {
+    let mut bench = FlightBench::set_down(record, 0.0, 0.0);
+    fly(&mut bench, 0.5, |_| {});
+    assert_eq!(
+        bench.flight().mode(),
+        FlightMode::Ground,
+        "the premise: it stands"
+    );
+    bench.hold(&[KeyCode::Space]);
+    bench.tap();
+    let mut lowest = f32::NAN;
+    bench.step_reading(|world| {
+        let mut bodies =
+            world.query_filtered::<(&Collider, &Position, &Rotation), With<LocalPlayer>>();
+        let (collider, position, rotation) = bodies.single(world).expect("one body");
+        lowest = collider.aabb(position.0, rotation.0).min.y;
+    });
+    assert_eq!(
+        bench.flight().mode(),
+        FlightMode::Takeoff,
+        "the premise: it leapt"
+    );
+    (lowest, bench.flight().attitude().1)
+}
+
+/// **A lying winged body takes off without its tail in the ground** (#1877):
+/// its nose eases up at its pitch rate from level rather than being set to
+/// the take-off's 20 degrees on the leap's step, which - turned about the
+/// capsule's middle - wrote a bat's and a glider's tail into the ground it
+/// leapt from. The pose the take-off step writes reaches no lower than the
+/// body stood.
+#[test]
+fn a_lying_winged_body_takes_off_without_its_tail_in_the_ground() {
+    use crate::pds::avatar::locomotion::{default_winged, fitted_record};
+    use symbios_avatar::WingedFamily;
+    for family in [WingedFamily::Bat, WingedFamily::Glider] {
+        let record = fitted_record(default_winged(family));
+        let LocomotionConfig::Humanoid(p) = &record.locomotion else {
+            panic!("on foot");
+        };
+        assert!(
+            p.is_lying(),
+            "the premise: a {family:?} lies along its capsule"
+        );
+        let (lowest, pitch) = take_off(&record);
+        assert_eq!(pitch, 0.0, "{family:?}: its nose set up at once");
+        assert!(
+            lowest > -0.002,
+            "{family:?}: its take-off wrote it {:.1} mm into the ground",
+            -lowest * 1000.0
+        );
+    }
+}
+
+/// **A bat flies: it takes off and climbs on its flap key** (#1877): its
+/// beat pushes as hard a second as `for_height` sizes it to, at the engine's
+/// slower wingbeat. Pushed only as hard a beat, a bat's leap fell back before
+/// its stall speed and it beat along the ground, climbing nothing in three
+/// seconds.
+#[test]
+fn a_bat_takes_off_and_climbs() {
+    use crate::pds::avatar::locomotion::{default_winged, fitted_record};
+    let record = fitted_record(default_winged(symbios_avatar::WingedFamily::Bat));
+    let (climb, speed, ..) = flies(&record);
+    assert!(
+        climb > 0.5 && speed > 3.0,
+        "climbed {climb:.2} m/s at {speed:.2} m/s with the flap key held"
+    );
+}
+
+/// **Every other body takes off as the prototype did** (#1877): the stand-in
+/// bird, a bird-led rigged body standing in its upright capsule, and a beast
+/// wearing a flight section set the take-off's nose at once.
+#[test]
+fn every_other_body_sets_its_take_off_nose_at_once() {
+    use crate::pds::avatar::locomotion::{beast_record, default_winged, fitted_record};
+    let mut beast = beast_record(symbios_avatar::plan::Family::Dog);
+    if let LocomotionConfig::Humanoid(p) = &mut beast.locomotion {
+        p.flight = Some(FlightParams::default());
+    }
+    for (name, record) in [
+        ("the stand-in bird", bird()),
+        (
+            "a bird",
+            fitted_record(default_winged(symbios_avatar::WingedFamily::Bird)),
+        ),
+        ("a beast", beast),
+    ] {
+        let (_, pitch) = take_off(&record);
+        assert_eq!(pitch, TAKEOFF_PITCH, "{name}");
+    }
+}
+
+/// **A lying winged body is righted over the whole landing** (#1877, the W6
+/// end review): righted at three times its pitch rate, a bat or a glider
+/// turned about 8.5 degrees a frame, which a body lying along the chassis
+/// shows as about 100 mm a frame at its ends. Shared over what is left of
+/// [`LAND_S`], a touch-down tilt turns no more a frame than that tilt over the
+/// landing's frames, and none is left for `set_down` to zero; every other body
+/// is righted as before.
+#[test]
+fn a_lying_winged_body_is_righted_over_the_whole_landing() {
+    let (_, upright) = params(&bird());
+    let dt = 1.0 / 60.0;
+    let touched = Reading {
+        position: Vec3::ZERO,
+        velocity: Vec3::ZERO,
+        facing: 0.0,
+        on_ground: true,
+        resting: true,
+        approach: None,
+        in_water: false,
+        gravity: 9.81,
+    };
+    let (pitch0, bank0) = (0.87_f32, -0.4_f32);
+    // Every frame's (pitch, bank) from touch-down until it is set down; the
+    // last is set_down's.
+    let land = |wings: &Wings| {
+        let mut flight = Flight::default();
+        flight.enter(FlightMode::Land);
+        flight.pitch = pitch0;
+        flight.bank = bank0;
+        let mut attitudes = vec![(flight.pitch, flight.bank)];
+        while flight.mode() == FlightMode::Land {
+            assert!(attitudes.len() < 120, "never set down");
+            flight = flight.stepped(wings, FlightKeys::default(), touched, dt).0;
+            attitudes.push((flight.pitch, flight.bank));
+        }
+        attitudes
+    };
+    let turns = |attitudes: &[(f32, f32)]| -> Vec<f32> {
+        attitudes
+            .windows(2)
+            .map(|w| (w[1].0 - w[0].0).abs().max((w[1].1 - w[0].1).abs()))
+            .collect()
+    };
+
+    let lying = land(&upright.lying(true));
+    let share = pitch0.abs().max(bank0.abs()) * dt / LAND_S;
+    let worst = turns(&lying).into_iter().fold(0.0_f32, f32::max);
+    assert!(
+        worst <= share * 1.08 + 1e-5,
+        "a lying body turned {:.2} degrees in a frame, against its tilt over the landing's {:.2}",
+        worst.to_degrees(),
+        share.to_degrees()
+    );
+    let before = lying[lying.len() - 2];
+    assert!(
+        before.0.abs() < 1e-3 && before.1.abs() < 1e-3,
+        "a lying body still tilted ({:.2}, {:.2}) degrees as it was set down",
+        before.0.to_degrees(),
+        before.1.to_degrees()
+    );
+
+    // An upright body keeps three times its pitch rate, frame for frame.
+    let step = 3.0 * upright.pitch_rate.max(upright.roll_rate) * dt;
+    for (i, w) in land(&upright).windows(2).enumerate() {
+        let expected = (toward(w[0].0, 0.0, step), toward(w[0].1, 0.0, step));
+        let set_down = w[1] == (0.0, 0.0);
+        assert!(
+            set_down || w[1] == expected,
+            "frame {i}: an upright body righted to {:?}, not {expected:?}",
+            w[1]
+        );
+    }
+}
+
+/// How `record` flies on the bench: a take-off and three seconds of the
+/// flap key - its climb (m/s) and its speed (m/s) - then four seconds hands
+/// off, the last two read - its glide's speed and sink (m/s) - and the mode
+/// it ends in.
+fn flies(record: &AvatarRecord) -> (f32, f32, f32, f32, FlightMode) {
+    let mut bench = FlightBench::set_down(record, 0.0, 0.0);
+    fly(&mut bench, 0.5, |_| {});
+    let start = bench.position();
+    bench.hold(&[KeyCode::Space]);
+    bench.tap();
+    let mut highest = start.y;
+    fly(&mut bench, 3.0, |bench| {
+        highest = highest.max(bench.position().y)
+    });
+    let climb = (bench.position().y - start.y) / 3.0;
+    let flapping = bench.velocity().length();
+    bench.hold(&[]);
+    fly(&mut bench, 2.0, |_| {});
+    let from = bench.position();
+    fly(&mut bench, 2.0, |_| {});
+    let glide = (bench.position() - from) / 2.0;
+    (
+        climb,
+        flapping,
+        glide.with_y(0.0).length(),
+        -glide.y,
+        bench.flight().mode(),
+    )
+}
+
+/// Every winged body the fit is asked of (#1877): each family's own, and
+/// each cross of two at 0.49, 0.5 and 0.51 - either side of an even blend
+/// and on it, where its second family leads - fitted as the editor fits it.
+fn winged_bodies() -> Vec<(String, AvatarRecord)> {
+    use crate::pds::avatar::locomotion::{default_winged, fitted_record};
+    use symbios_avatar::{Archetype, WingedFamily};
+    const FAMILIES: [WingedFamily; 3] =
+        [WingedFamily::Bird, WingedFamily::Bat, WingedFamily::Glider];
+    let mut bodies: Vec<(String, AvatarRecord)> = FAMILIES
+        .iter()
+        .map(|family| {
+            (
+                format!("{family:?}"),
+                fitted_record(default_winged(*family)),
+            )
+        })
+        .collect();
+    for family in FAMILIES {
+        for other in FAMILIES.into_iter().filter(|other| *other != family) {
+            for blend in [0.49, 0.5, 0.51] {
+                let mut body = default_winged(family);
+                if let Archetype::Winged(params) = &mut body.archetype {
+                    params.set_kind(family, Some(other), blend);
+                    params.blend = blend;
+                }
+                bodies.push((format!("{family:?}x{other:?}@{blend}"), fitted_record(body)));
+            }
+        }
+    }
+    bodies
+}
+
+/// `record` set down on the bench floor and taken off with one press of its
+/// key, nothing held, and flown until it is on its feet again - six seconds
+/// at most: the highest its feet rose (m), how far it went (m), and whether
+/// it glided on the way.
+fn leaps(record: &AvatarRecord) -> (f32, f32, bool) {
+    let (_, wings) = params(record);
+    let mut bench = FlightBench::set_down(record, 0.0, 0.0);
+    fly(&mut bench, 0.5, |_| {});
+    let start = bench.position();
+    bench.hold(&[]);
+    bench.tap();
+    bench.step();
+    assert_eq!(
+        bench.flight().mode(),
+        FlightMode::Takeoff,
+        "the premise: it leapt"
+    );
+    let (mut apex, mut glided) = (0.0f32, false);
+    for _ in 0..(6.0 * BENCH_HZ) as usize {
+        bench.step();
+        apex = apex.max(feet_over_floor(&bench, &wings) - (start.y - wings.feet));
+        glided |= bench.flight().mode() == FlightMode::Glide;
+        if bench.flight().mode() == FlightMode::Ground {
+            break;
+        }
+    }
+    (
+        apex,
+        (bench.position() - start).with_y(0.0).length(),
+        glided,
+    )
+}
+
+/// **A body that cannot flap leaps strongly into a glide** (#1877, the
+/// owner's decision on #1859: "the glider glide-only with a strong leap"):
+/// from level ground the default glider and every cross a glider leads leap
+/// over a metre, glide, and come down metres off. Its take-off is twice what
+/// its stand gives a flapper, on top of the prototype's own glider's leap.
+/// With a flapper's take-off a glider leapt 0.35 m and was down 0.61 s
+/// later, never gliding.
+#[test]
+fn a_body_that_cannot_flap_leaps_strongly_into_a_glide() {
+    let mut gliders = 0;
+    for (name, record) in winged_bodies() {
+        let (flight, _) = params(&record);
+        if flight.can_flap() {
+            continue;
+        }
+        gliders += 1;
+        let (apex, went, glided) = leaps(&record);
+        assert!(
+            glided && apex > 1.0 && went > 3.0,
+            "{name}: leapt {apex:.2} m and came down {went:.2} m off, gliding {glided}"
+        );
+    }
+    assert!(
+        gliders >= 7,
+        "the premise: {gliders} bodies that cannot flap"
+    );
+}
+
+/// **Every winged body that may flap clears its stall and climbs** (#1877):
+/// each family and every cross that flaps at all - at or over
+/// [`FlightParams::MIN_FLAP_POWER`] - climbs at least 0.3 m/s over three
+/// seconds of its key from a take-off on level ground, flying faster than its
+/// stall. A weak flapper's beat pushes as hard as a bat's power does and
+/// tires it sooner. Pushed only by its own power, a cross a glider shares
+/// half of flapped along at its stall: a bird-led one climbing -0.02 m/s at
+/// 1.3 against a 3.2 stall, a bat-led one 0.2 at 1.8 against 2.0.
+#[test]
+fn every_winged_body_that_flaps_clears_its_stall_and_climbs() {
+    let mut flappers = 0;
+    for (name, record) in winged_bodies() {
+        let (flight, _) = params(&record);
+        if !flight.can_flap() {
+            continue;
+        }
+        flappers += 1;
+        let (climb, speed, ..) = flies(&record);
+        assert!(
+            climb >= 0.3 && speed > flight.stall_speed.0,
+            "{name} (power {:.2}): climbed {climb:.2} m/s at {speed:.2} m/s against a {:.2} stall",
+            flight.flight_power.0,
+            flight.stall_speed.0
+        );
+    }
+    assert!(flappers >= 12, "the premise: {flappers} bodies that flap");
+}
+
+/// **Probe, not a gate** (#1877): how every winged body flies - each family
+/// and each cross at 0.49, 0.5 and 0.51 - as its fit sizes it: its flight
+/// section, its climb and speed over three seconds of the flap key, its
+/// glide hands off, and the leap of a take-off with nothing held. Prints a
+/// table.
+#[test]
+#[ignore = "a probe: prints how the winged fits fly"]
+fn probe_how_the_winged_fits_fly() {
+    for (name, record) in winged_bodies() {
+        let LocomotionConfig::Humanoid(p) = &record.locomotion else {
+            panic!("on foot");
+        };
+        let f = p.flight.clone().expect("a winged fit flies");
+        let (climb, flapping, speed, sink, ends) = flies(&record);
+        let (apex, went, glided) = leaps(&record);
+        println!(
+            "{name}: {} power {:.2} trim {:.2} stall {:.2} beat {:.2} at {:.2} Hz, takeoff {:.2} | \
+             climb {climb:.2} m/s at {flapping:.2}; glide {speed:.2} sinking {sink:.2}, ends {ends:?} | \
+             leap apex {apex:.2} went {went:.2} glided {glided}",
+            if p.is_lying() { "lying" } else { "upright" },
+            f.flight_power.0,
+            f.trim_speed.0,
+            f.stall_speed.0,
+            f.beat_speed.0,
+            f.wingbeat_rate.0,
+            f.takeoff_speed.0,
+        );
+    }
+}

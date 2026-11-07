@@ -820,7 +820,8 @@ socket>` overrides the entry's own `wear_socket()`, which is also how you sheet
 an entry that has no wear socket at all - without it such a slug is refused by
 name. Sheets are labelled `wear-<slug>-<socket>`.
 
-`--rigged FILE` (#1482) draws one rigged person from its record: the file
+`--rigged FILE` (#1482) draws one rigged body from its record - a person, a
+four-legged beast or a winged body (#1879): the file
 `agent avatar get ""` prints, or its `value` alone as `rec.py pull avatar`
 writes it, `{record, body, worn}`. The body is built by the game's own job
 (the full atlas and the far hair tier), hung under its chassis by the game's
@@ -1308,7 +1309,9 @@ takes for an outage and retries for minutes. None of the stand-ins is an
 airplane (a sixth of seeds are since #1617, but the stand-ins kept their
 families), so for testing, `start --offline --wear-airplane` (hidden from
 `--help`) flies the default airplane in place of the stand-in's own
-locomotion, its body left as it is.
+locomotion, its body left as it is. None is a winged body either, as no seed
+rolls one until #1882: a stand-in turned winged by `ui click "Avatar > body >
+winged"` or `avatar set /body` is one (`status.locomotion` reads `winged`).
 
 `look` renders a 1024x576 PNG only when asked: the daemon parks the world
 camera, so between pictures it draws nothing at all, and each picture gets a
@@ -1467,8 +1470,8 @@ give`.
 
 **Whole avatars and worlds** (#1843). The inventory holds them beside things,
 in one namespace and under one cap, and `inventory` says what each item
-`is`: a `thing`, an `avatar` (with its `kind` - person, beast, boat - and
-`worn` when it is the avatar on) or a `world` (its `kind`, its name, its
+`is`: a `thing`, an `avatar` (with its `kind` - person, beast, winged, boat -
+and `worn` when it is the avatar on) or a `world` (its `kind`, its name, its
 counts and size). Each command goes through the game's own path and answers
 any refusal with the game's own sentence. `stash-avatar [name]` copies the
 avatar worn, unsaved edits included, as the Avatar editor's Save to Inventory

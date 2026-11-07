@@ -806,12 +806,13 @@ fn spawn_one_walker(
 ///
 /// **And the ground under the feet, as the game hands it over** (#1833): a
 /// beast resting on the terrain alone is given the terrain under it, with
-/// what stands on it within its reach, through the game's own
+/// what stands on it within its reach, and one resting on a static structure
+/// the structure's ground (#1834), through the game's own
 /// [`crate::player::Underfoot`] and this frame's chassis pose through the
-/// root's own transform; a person, and a beast resting on anything else,
-/// keeps the level floor. `--walker-level` keeps it for every beast too, the
-/// floor every body stood on before, for a before-and-after; the beast is
-/// set down on its capsule either way.
+/// root's own transform; a person, and a beast resting on anything that
+/// moves, keeps the level floor. `--walker-level` keeps it for every beast
+/// too, the floor every body stood on before, for a before-and-after; the
+/// beast is set down on its capsule either way.
 pub(super) fn step_walkers(
     clock: Res<Clock>,
     heightmap: Option<Res<FinishedHeightMap>>,

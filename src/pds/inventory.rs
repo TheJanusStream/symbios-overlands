@@ -1668,6 +1668,40 @@ pub(crate) mod avatar_item_tests {
         assert!(generator_item().visuals().is_some());
     }
 
+    /// **A winged avatar is labelled winged** (#1875), where it read "person"
+    /// for not being four-legged; a person, a beast and a body plan this build
+    /// cannot read keep the labels they had.
+    #[test]
+    fn an_avatar_item_is_labelled_by_its_body_kind() {
+        use symbios_avatar::{Archetype, QuadrupedParams, WingedParams};
+        let wearing = |archetype: Archetype| {
+            let mut item = rigged_item();
+            if let AvatarItemBody::Rigged(rigged) = &mut item.body {
+                rigged.record.archetype = archetype;
+            }
+            item.kind()
+        };
+        assert_eq!(
+            wearing(Archetype::Humanoid(Default::default())),
+            AvatarKind::Person
+        );
+        assert_eq!(
+            wearing(Archetype::Quadruped(QuadrupedParams::default())),
+            AvatarKind::Beast
+        );
+        let winged = wearing(Archetype::Winged(WingedParams::default()));
+        assert_eq!(winged, AvatarKind::Winged);
+        assert_eq!(winged.label(), "winged");
+        assert_eq!(winged.default_name(), "winged");
+        assert_eq!(
+            wearing(Archetype::Unknown {
+                type_name: String::from("network.symbios.avatar.archetype#kite"),
+                fields: serde_json::Map::new(),
+            }),
+            AvatarKind::Person
+        );
+    }
+
     /// Today's decode, frozen (#1838): `generator` was required. Kept
     /// verbatim so the claim "an older client is safe" is tested against
     /// the client that is actually out there, not against this one.

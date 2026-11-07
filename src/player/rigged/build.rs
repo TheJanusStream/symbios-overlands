@@ -12,8 +12,9 @@ use crate::state::{LiveAvatarRecord, LocalPlayer, RemotePeer};
 
 use super::{
     DRAFT_ATLAS, RiggedApplied, RiggedBuild, RiggedBuildFailed, RiggedRoot, RiggedSettle,
-    RiggedSteady, RiggedTrail, SETTLE_SECS, next_room_seed, stands_on_four,
+    RiggedSteady, RiggedTrail, SETTLE_SECS, next_room_seed,
 };
+use crate::pds::avatar::RiggedKind;
 
 /// What the owner is told when their own body cannot be built (#1255).
 ///
@@ -385,7 +386,14 @@ pub(in crate::player) fn land_rigged_builds(
 /// decision D14), so a Sit or a Lie Down outlives a rebuild - which the
 /// draft-to-full ladder runs about [`SETTLE_SECS`] after any change to the
 /// record, on the owner's client and on every peer's. Kept until engine #383
-/// gives a [`symbios_avatar::anim::Driver`] a seat of its own.
+/// gives a [`symbios_avatar::anim::Driver`] a seat of its own. **A winged
+/// body's too** (#1875), so a resting or a flying one is not stood up or
+/// snapped shut by the same ladder: across any change of winged body, a bird
+/// made a bat among them, on the same reading of the driver. **Across a change
+/// of winged family a rest still going down or held goes on as the new
+/// family's** (#1878, [`rest_onto`]): each family's rest is its own roster's,
+/// and a driver asked to hold a name its roster lacks lets it go - which is
+/// what stands up a body that was getting up.
 ///
 /// **Carried whole across any change of beast, because the driver is safe
 /// across any**, read from symbios-avatar 0.14 rather than assumed. What it
@@ -409,8 +417,10 @@ pub(in crate::player) struct Carried {
 
 impl Carried {
     /// What a body on `new` keeps of one standing on `old`: everything, when
-    /// both are beasts, and nothing when either is a person, who keeps the
-    /// fresh driver a rebuild has always given them.
+    /// both are beasts or both winged ([`RiggedKind::same_body`], read off the
+    /// rigs as drawn), and nothing when either is a person, who keeps the
+    /// fresh driver a rebuild has always given them, nor across a change of
+    /// kind.
     fn across(
         old: &symbios_avatar::Rig,
         new: &symbios_avatar::Rig,
@@ -418,12 +428,102 @@ impl Carried {
         drive: &Drive,
         trail: &RiggedTrail,
     ) -> Option<Self> {
-        (stands_on_four(old) && stands_on_four(new)).then(|| Self {
-            driver: AvatarDriver(driver.0.clone()),
-            drive: drive.clone(),
-            trail: trail.clone(),
+        let (from, to) = (RiggedKind::of_rig(old), RiggedKind::of_rig(new));
+        let carries = matches!(from, RiggedKind::Beast | RiggedKind::Winged(_));
+        (carries && from.same_body(to)).then(|| {
+            let mut driver = driver.0.clone();
+            if let RiggedKind::Winged(family) = to
+                && from != to
+            {
+                rest_onto(&mut driver, drive, old, new, family);
+            }
+            Self {
+                driver: AvatarDriver(driver),
+                drive: drive.clone(),
+                trail: trail.clone(),
+            }
         })
     }
+}
+
+/// A winged rest carried onto a body of another family, `family` leading it
+/// (#1878): a perched bird made a bat rests as a bat rests, and a curled glider
+/// made a bird perches. The new family's own rest
+/// ([`crate::player::emote::WingedEmote::Rest`]), as far down as the old one
+/// had gone, held if it was all the way down - a bird's roost too, which only
+/// a bird has. **Only a rest still going down or held, untouched**
+/// ([`still_resting`]): a body getting up - told to, got up by another gesture
+/// or by moving - is let go, and stands up on the new body, whose roster lacks
+/// the old rest's name. Nothing else changes: an emote, a flight and a rest
+/// the new roster also has go on as they were.
+fn rest_onto(
+    driver: &mut symbios_avatar::anim::Driver,
+    drive: &Drive,
+    old: &symbios_avatar::Rig,
+    new: &symbios_avatar::Rig,
+    family: symbios_avatar::WingedFamily,
+) {
+    use symbios_avatar::anim::emote;
+    let Some((name, elapsed)) = driver.gesture() else {
+        return;
+    };
+    let Some(down) = emote::seconds(old, name) else {
+        return;
+    };
+    if emote::seconds(new, name).is_some() || !still_resting(driver, drive, old, name, down) {
+        return;
+    }
+    let Some(rest) = crate::player::emote::WingedEmote::Rest.gesture_name(family) else {
+        return;
+    };
+    let through = if down > 0.0 {
+        (elapsed / down).min(1.0)
+    } else {
+        1.0
+    };
+    driver.seat(new, rest, through);
+}
+
+/// Whether the rest `name` the driver plays on `rig`, which takes `down`
+/// seconds to go down, is still going down or held and nothing has got it up:
+/// not told to get up, nor to play another gesture, nor moved, since it began
+/// - nor about to be, by what `drive` asks of the next frame.
+///
+/// **Asked of the driver itself**, as nothing else knows. symbios-avatar 0.23
+/// says only the rest's name and how long it has run, and that clock runs on
+/// through a getting up, so a body rising or coming back up part way reads as
+/// further down (#1878). Where the rest has got to is the driver's own state,
+/// and what it does next shows it: a copy is run on, once, for longer than the
+/// rest takes to go down and to get up, with the drive's speed, water, flight
+/// and request and nothing else. A rest going down or held is still held on
+/// the copy, and one getting up is over - by the engine's own rules for what
+/// gets a body up, not a copy of them here. The copy is dropped, and costs one
+/// frame of the motion, only on a change of family under a resting body.
+fn still_resting(
+    driver: &symbios_avatar::anim::Driver,
+    drive: &Drive,
+    rig: &symbios_avatar::Rig,
+    name: &str,
+    down: f32,
+) -> bool {
+    use symbios_avatar::anim::{Inputs, emote, level_ground};
+    let Some((_, up)) = emote::getting_up(rig, name) else {
+        return false;
+    };
+    let mut copy = driver.clone();
+    let inputs = Inputs {
+        delta: down + up + 1.0,
+        velocity: drive.velocity,
+        at: drive.at,
+        facing: drive.facing,
+        swimming: drive.swimming,
+        gesture: drive.gesture.as_deref(),
+        showing: drive.showing,
+        flight: drive.flight,
+        ..Default::default()
+    };
+    let _ = copy.drive(rig, &inputs, level_ground);
+    copy.gesture().is_some_and(|(held, _)| held == name)
 }
 
 /// [`install_carrying`] with nothing carried: a fresh driver, as a test lands

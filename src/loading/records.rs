@@ -83,11 +83,12 @@ impl LoadedRecord for RoomRecord {
 
 /// What the owner's own avatar record is put through before it goes live
 /// ([`LoadedRecord::install`]): sanitised, and stood on the shape its body
-/// takes (`restore_body_shape`). **Nothing gives a body a flight section it
-/// was not given** (#1861): a generator body's visuals are no sound witness of
-/// wings - a pair of swaying lanterns swings as a pair of wings does - so a
-/// section a client older than it dropped stays dropped, until the winged
-/// bodies (#1862) can restore it from their kind.
+/// takes (`restore_body_shape`). **A flight section a client older than it
+/// dropped comes back only to a winged body** (#1875), whose kind its record
+/// says, and as its body flies. **Nothing gives a generator body a section it
+/// was not given** (#1861): its visuals are no sound witness of wings - a pair
+/// of swaying lanterns swings as a pair of wings does - so its dropped section
+/// stays dropped.
 pub(crate) fn settle_installed(record: &mut AvatarRecord) {
     record.sanitize();
     if pds::avatar::locomotion::restore_body_shape(record) {

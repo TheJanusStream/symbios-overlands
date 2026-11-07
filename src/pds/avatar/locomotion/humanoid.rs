@@ -56,8 +56,8 @@ pub struct HumanoidParams {
     /// **Absent is left off the wire**, so a body that only walks - every
     /// person and beast - writes exactly the bytes it did before the section
     /// existed. A client older than it drops the key when it writes the
-    /// record back, and nothing restores it until the winged bodies (#1862)
-    /// can read it back from their kind ([`super::flight`]).
+    /// record back; a winged body's owner gets it back from the body's kind
+    /// (#1875), and a generator body's stays dropped ([`super::flight`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flight: Option<super::FlightParams>,
 }

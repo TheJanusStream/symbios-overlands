@@ -312,7 +312,13 @@ jobs:
           # of symbios-avatar milestone #15 before its publish (#1831): eased
           # slider corners, the tail's chart, the neck's join and the ornament
           # seats, 0.4 % over the gzip budget. Raised to about 5 % above.
-          check ./dist/gen-worker_bg.wasm 4390000 1030000
+          #              4,415,520 B raw / 1,080,760 B gzip on 2026-11-07, built
+          # locally as `scripts/gate.sh --worker` builds it, on symbios-avatar
+          # 0.23.0 (#1874): 4.7 % raw / 8.6 % gzip over the 4,218,514 /
+          # 995,242 B the gate read on 0.19.6 (#1861), over both budgets. The
+          # engine's winged bodies are built here: wings, feathers, plumage,
+          # contour cards, toes and beaks. Raised to about 5 % above.
+          check ./dist/gen-worker_bg.wasm 4640000 1135000
           exit $fail
 
       - name: Setup Pages

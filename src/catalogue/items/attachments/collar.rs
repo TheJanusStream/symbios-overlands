@@ -1,8 +1,9 @@
-//! Leather collar - a beast's Neck (#1807, owner decision D9). Cut for a
-//! four-legged body: the band circles the origin and the fitted seat scales
-//! its bore across and through to the neck it lands on, a cat's round one or
-//! a horse's narrow deep one (`src/player/beast_seat.rs`). Placed as world
-//! decor it lies flat at this authored size.
+//! Leather collar - an animal's Neck (#1807, owner decision D9; #1879). Cut
+//! for a four-legged or a winged body: the band circles the origin and the
+//! fitted seat scales its bore across and through to the neck it lands on, a
+//! cat's round one or a horse's narrow deep one (`src/player/beast_seat.rs`),
+//! or a bird's over its feathers (`src/player/winged_seat.rs`). Placed as
+//! world decor it lies flat at this authored size.
 //!
 //! Drawn at [`DRAFT`]x, the circlet's technique: the sanitiser's floors are
 //! prim-local, and the band's wall and the tag's disc are thinner than them
@@ -36,8 +37,8 @@ impl CatalogueEntry for Collar {
         "Leather Collar"
     }
     fn description(&self) -> &'static str {
-        "A buckled leather collar with a brass tag - cut for a four-legged body, it fits \
-         itself to the neck it lands on."
+        "A buckled leather collar with a brass tag - cut for a four-legged or winged body, \
+         it fits itself to the neck it lands on."
     }
     fn role(&self) -> StructureRole {
         StructureRole::Attachment

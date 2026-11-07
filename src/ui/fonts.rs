@@ -997,6 +997,13 @@ pub(crate) mod glyph_coverage_tests {
     /// (`Family`, `Pigment`, `Agouti`, `Pattern`, `White`, `Fantasy`):
     /// symbios-avatar 0.14.0's only non-ASCII literal is a U+00D7 in a
     /// texture-atlas decode error, which no section draws.
+    ///
+    /// Re-scanned against 0.25.0 (#1874, the winged body's identity button,
+    /// wing, beak and plumage rows), on the same terms: the same seven in its
+    /// `src/editor.rs`, and the only other non-ASCII literals in the crate
+    /// are two U+2014 in `src/animator.rs`, already listed. symbios-avatar
+    /// 0.23.0's family, plumage and pattern names are ASCII; its one
+    /// non-ASCII literal is still the U+00D7 in the atlas decode error.
     const HOSTED_EDITOR_GLYPHS: &[char] = &[
         '·', // U+00B7, axis readouts
         // An escape, not the glyph: the 2026-09-14 hyphen sweep rewrote the

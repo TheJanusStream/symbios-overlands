@@ -602,7 +602,7 @@ pub(super) fn animate_avatar_gait(
         // In the air a walker's stride is not its gait (#1861): a body
         // flying at its trim speed would bob as a runner does.
         let flying = flight.is_some_and(|flight| flight.mode().airborne())
-            || peer_flight.is_some_and(|peer| peer.0.airborne());
+            || peer_flight.is_some_and(|peer| peer.heard.airborne());
         let speed = if flying {
             0.0
         } else {

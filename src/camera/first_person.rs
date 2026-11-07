@@ -12,12 +12,21 @@
 //! along the orbit's yaw and pitch, from the rig's eye line where its pose
 //! carries it - a swim's crawl or a sit followed whole, the walk's bob eased
 //! to a share of itself ([`ease_drift`], #1749) - a four-legged beast's eye
-//! line being its seated eyes, not the landmark (`EyeLine::of_body`, #1804).
+//! line being its seated eyes, not the landmark (`EyeLine::of_body`, #1804),
+//! and a winged body's too (#1880).
 //! In a vehicle they ride its nose, where its box ends straight ahead (#1751),
 //! turning,
 //! pitching and banking with it, and the orbit stops following the vehicle's
 //! turns (`follow_local_player`): its yaw since the eyes were entered is how
-//! far the head is turned from straight ahead.
+//! far the head is turned from straight ahead. A body in flight (#1880) is
+//! ridden the same way from its own eyes: the flight turns, pitches and banks
+//! its chassis, so the eyes ride it. A take-off is a hop the player makes over
+//! and over, not a boarding: the head keeps its turn and its pitch on the
+//! body through it and through the landing, the chassis' attitude eased into
+//! the eyes and out of them over [`ATTITUDE_EASE_S`], and a body is ridden
+//! only once it has been off its feet longer than [`RIDES_AFTER_S`] - a tap
+//! of Space in the water lifts it for one step - and no longer from the frame
+//! it is on them.
 //!
 //! **Into the eyes and out again.** The move takes
 //! [`cfg::FIRST_PERSON_BLEND_S`] each way, eased: the camera is placed between
@@ -87,7 +96,8 @@ use super::{BeastFraming, IsWorldCamera, WorldCamera, clear_of_terrain};
 use crate::config::camera as cfg;
 use crate::interaction::locomotion::{locomotion_reach, locomotion_total_height};
 use crate::pds::LocomotionConfig;
-use crate::player::{RiggedRoot, VehicleChassis};
+use crate::pds::avatar::RiggedKind;
+use crate::player::{Flight, RiggedRoot, VehicleChassis};
 use crate::state::{LiveAvatarRecord, LocalPlayer, LocalSettings};
 use crate::terrain::FinishedHeightMap;
 
@@ -135,6 +145,9 @@ pub struct FirstPerson {
     /// When mouse look last took the pointer, for the browser's grace in
     /// granting the lock.
     captured_at: f64,
+    /// How long (s) the body has been off its feet, to this frame (#1880):
+    /// its eyes ride its flight once that is past [`RIDES_AFTER_S`].
+    airborne_s: f32,
 }
 
 impl FirstPerson {
@@ -158,6 +171,12 @@ impl FirstPerson {
     /// ride it, and the orbit's yaw is the head's turn.
     pub(crate) fn rides_vehicle(&self) -> bool {
         self.ahead_yaw.is_some()
+    }
+
+    /// Whether the body has flown long enough for its eyes to ride the
+    /// flight ([`rides`]).
+    fn aloft(&self) -> bool {
+        rides(false, self.airborne_s)
     }
 
     /// Whether the eyes look out of a body on foot (#1746) - in the eyes, and
@@ -332,18 +351,98 @@ pub(crate) enum EyeMount {
     /// pose carries it, or on the axis at the body's eye height. The look is
     /// the orbit's, level with the world.
     OnFoot { eye: Vec3 },
-    /// In a vehicle: here in the chassis' own frame - its nose, near its top.
-    /// The look turns, pitches and banks with the vehicle.
+    /// In a vehicle: here in the chassis' own frame - its nose, near its top;
+    /// or a body's eyes in flight (#1880). The look turns, pitches and banks
+    /// with the chassis.
     Vehicle { at: Vec3 },
+}
+
+/// Whether a body's eyes ride its chassis' turning (#1745, #1880): a
+/// vehicle's, and a body off its feet ([`Flight::mode`]) for `airborne_s`
+/// past [`RIDES_AFTER_S`], whose chassis the flight turns, pitches and banks
+/// (`player::flight`) - the walk does not turn it to the eyes there, so its
+/// eyes ride it as a vehicle's ride its nose. A body only settling onto its
+/// feet is still flying.
+fn rides(vehicle: bool, airborne_s: f32) -> bool {
+    vehicle || airborne_s > RIDES_AFTER_S
+}
+
+/// How long (s) a body is off its feet before its eyes ride its flight
+/// (#1880). A flier tapping Space while it swims is lifted for one physics
+/// step and put back by the water on the next (#1861): ridden at once, each
+/// tap switched the eyes onto the chassis and off again, and the view the
+/// peers are told with them. A take-off's leap is longer than this by far.
+const RIDES_AFTER_S: f32 = 0.1;
+
+/// How long (s) a flight's attitude takes to come into the eyes, and to go out
+/// of them once the body is on its feet (#1880): taken whole on the frame,
+/// a take-off's nose-up turned the view a third of a radian at once.
+const ATTITUDE_EASE_S: f32 = 0.25;
+
+/// The heading of a body turned `rotation`, as the orbit's yaw counts it, the
+/// rest being its attitude ([`off_level`]): the first of its turns taken
+/// heading, pitch and bank in turn, as a flight builds its chassis' rotation
+/// (`Flight::rotation`) and sets it down upright at that heading, so the
+/// heading runs on unbroken through a landing. It is [`heading`]'s own,
+/// with an answer, if not a steady one, for a nose straight up or down.
+fn level_yaw(rotation: Quat) -> f32 {
+    rotation.to_euler(EulerRot::YXZ).0
+}
+
+/// The attitude of a body turned `rotation`, off its level heading
+/// ([`level_yaw`]): its nose up or down and its bank, in its own heading's
+/// frame.
+fn off_level(rotation: Quat) -> Quat {
+    Quat::from_rotation_y(-level_yaw(rotation)) * rotation
+}
+
+/// A flight's attitude in the eyes (#1880), eased in as the eyes start to
+/// ride it and out once the body is on its feet ([`ATTITUDE_EASE_S`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct EyeAttitude {
+    /// The attitude the eyes ride ([`off_level`]): the chassis' while it
+    /// flies, and its last in flight after.
+    held: Quat,
+    /// How much of it the eyes take, 0 to 1, in time; eased.
+    weight: f32,
+}
+
+impl EyeAttitude {
+    /// This frame's, `dt` seconds on from `was`: toward `flying`'s attitude,
+    /// where the eyes ride a flight, and toward none where they do not. None
+    /// once none is left.
+    fn step(was: Option<Self>, flying: Option<Quat>, dt: f32) -> Option<Self> {
+        let step = dt / ATTITUDE_EASE_S;
+        match (was, flying) {
+            (was, Some(held)) => Some(Self {
+                held,
+                weight: (was.map_or(0.0, |was| was.weight) + step).min(1.0),
+            }),
+            (Some(was), None) => (was.weight > step).then_some(Self {
+                weight: was.weight - step,
+                ..was
+            }),
+            (None, None) => None,
+        }
+    }
+
+    /// The frame the eyes ride on a chassis turned `rotation`: its level
+    /// heading, and the share of the attitude they take.
+    fn frame(self, rotation: Quat) -> Quat {
+        let eased = self.weight * self.weight * (3.0 - 2.0 * self.weight);
+        Quat::from_rotation_y(level_yaw(rotation)) * Quat::IDENTITY.slerp(self.held, eased)
+    }
 }
 
 impl EyeMount {
     /// The eyes of a body moving by `locomotion`: a vehicle's at its nose,
     /// where its box ends straight ahead (#1751), [`cfg::EYE_HEIGHT_FRACTION`]
-    /// of the way up (the agent's eye view, #1420); a person's at `rig_eye`, their rig's eye line in the
+    /// of the way up (the agent's eye view, #1420); a person's at `rig_eye`,
+    /// their rig's eye line in the
     /// chassis' frame (#1749), when they have one, and otherwise on the axis
     /// at that fraction of the collider's height; a body lying along its
-    /// capsule at `rig_eye` too, and otherwise at the capsule's nose (#1804).
+    /// capsule - a beast's, a bat's or a glider's - at `rig_eye` too, and
+    /// otherwise at the capsule's nose (#1804).
     pub(crate) fn of(locomotion: &LocomotionConfig, vehicle: bool, rig_eye: Option<Vec3>) -> Self {
         let height = locomotion_total_height(locomotion);
         let fraction_above_centre = (cfg::EYE_HEIGHT_FRACTION - 0.5) * height;
@@ -358,10 +457,12 @@ impl EyeMount {
         }
         Self::OnFoot {
             eye: rig_eye.unwrap_or_else(|| match locomotion {
-                // A body lying along its capsule (#1804), which is drawn so
-                // until its rig lands: at the capsule's nose, and that
-                // fraction of how tall it stands rather than of the capsule,
-                // only its trunk's depth.
+                // A body lying along its capsule (#1804) - a beast, or a
+                // winged body a bat or a glider leads (#1875), by the shape
+                // its fit gave it - which is drawn so until its rig lands: at
+                // the capsule's nose, and that fraction of how tall it stands
+                // rather than of the capsule, only its trunk's depth. A bird
+                // stands up in a capsule as tall as it is, as a person does.
                 LocomotionConfig::Humanoid(p) if p.is_lying() => Vec3::new(
                     0.0,
                     cfg::EYE_HEIGHT_FRACTION * p.stand_height() - height / 2.0,
@@ -369,6 +470,16 @@ impl EyeMount {
                 ),
                 _ => Vec3::Y * fraction_above_centre,
             }),
+        }
+    }
+
+    /// The eyes of a body in flight (#1880): where they are on foot
+    /// ([`Self::of`]), ridden as a vehicle's nose is - turning, pitching and
+    /// banking with the chassis the flight turns.
+    pub(crate) fn in_flight(locomotion: &LocomotionConfig, rig_eye: Option<Vec3>) -> Self {
+        match Self::of(locomotion, false, rig_eye) {
+            Self::OnFoot { eye } => Self::Vehicle { at: eye },
+            mount => mount,
         }
     }
 
@@ -420,22 +531,26 @@ pub(super) struct EyeLine {
 
 impl EyeLine {
     /// Read off a built body (#1804): a person's [`Landmark::EyeLine`]
-    /// ([`Self::of`]), and a four-legged beast's seated eyes - the midpoint of
-    /// its two globes' pivots, carried by the joint the pair hangs from.
+    /// ([`Self::of`]), and the seated eyes of every other body - a four-legged
+    /// beast's, a winged body's (#1880) - the midpoint of its two globes'
+    /// pivots, carried by the joint the pair hangs from. Told by the body's
+    /// kind as its rig draws it ([`RiggedKind::of_rig`]), not by its head's:
+    /// a winged body's head is a beast's kind too, and so is its trunk.
     ///
     /// **Not the landmark on a beast.** The engine places the eye line by the
     /// person rule, a quarter of the head joint's radius along the head's own
     /// bone from the joint (symbios-avatar `rig/landmark.rs`). A beast's head
     /// joint is its occiput and that bone runs back from it, so the landmark
     /// falls at the back of the skull: 8, 11 and 23 cm behind the eyes of the
-    /// default cat, dog and horse. The eyes are where the engine draws them,
-    /// so they are where a beast looks from. A beast built without eyes, and a
-    /// head this build does not know, keep the landmark.
+    /// default cat, dog and horse, and behind an owl's, a bat's and a
+    /// glider's too. The eyes are where the engine draws them, so they are
+    /// where such a body looks from. One built without eyes keeps the
+    /// landmark. The eyes cross the web's worker as everything drawn does.
     fn of_body(root: Entity, avatar: &symbios_avatar::Avatar) -> Option<Self> {
         let rig = &avatar.rig;
         match &avatar.parts.eyes {
             Some(eyes)
-                if rig.anatomy.head == symbios_avatar::HeadKind::Beast
+                if RiggedKind::of_rig(rig) != RiggedKind::Person
                     && eyes.head < rig.joints.len() =>
             {
                 let offset = (eyes.left.pivot + eyes.right.pivot) / 2.0;
@@ -477,9 +592,10 @@ impl EyeLine {
 }
 
 /// Where a built body's eyes stand at rest, in body space (#1804): a
-/// person's eye line, a four-legged beast's seated eyes (`EyeLine::of_body`).
-/// What the orbit lifts a beast's focus to, and what the render tool's
-/// `--first-person` looks out of. None for a body with no head.
+/// person's eye line, a four-legged beast's or a winged body's seated eyes
+/// (`EyeLine::of_body`). What the orbit lifts the focus of a body framed by
+/// its size to, and what the render tool's `--first-person` looks out of.
+/// None for a body with no head.
 pub(crate) fn rest_eye_line(avatar: &symbios_avatar::Avatar) -> Option<Vec3> {
     EyeLine::of_body(Entity::PLACEHOLDER, avatar).map(|line| line.rest)
 }
@@ -689,7 +805,10 @@ pub(super) fn switch_view(
     mut wheel: MessageReader<MouseWheel>,
     mut pinch: MessageReader<PinchGesture>,
     mut first_person: ResMut<FirstPerson>,
-    players: Query<(&Transform, Has<VehicleChassis>), (With<LocalPlayer>, Without<WorldCamera>)>,
+    players: Query<
+        (&Transform, Has<VehicleChassis>, Option<&Flight>),
+        (With<LocalPlayer>, Without<WorldCamera>),
+    >,
     mut cameras: Query<&mut PanOrbitCamera, IsWorldCamera>,
     mut facings: MessageReader<crate::player::FacingSet>,
     mut last_spread: Local<Option<f32>>,
@@ -718,7 +837,19 @@ pub(super) fn switch_view(
     // changed only when the view does.
     let fp = first_person.bypass_change_detection();
     let before = fp.view;
+    // A body in flight is ridden as a vehicle is, once it has been off its
+    // feet long enough (#1880): `riding` below means either.
     let player = players.single().ok();
+    let airborne = player
+        .and_then(|(_, _, flight)| flight)
+        .is_some_and(|flight| flight.mode().airborne());
+    fp.airborne_s = if airborne {
+        fp.airborne_s + time.delta_secs()
+    } else {
+        0.0
+    };
+    let player =
+        player.map(|(chassis, vehicle, _)| (chassis, vehicle, rides(vehicle, fp.airborne_s)));
     let held_off = player.is_none() || hold.0;
 
     let mut want = fp.view;
@@ -747,19 +878,26 @@ pub(super) fn switch_view(
     }
 
     match (fp.view, want, player) {
-        (CameraView::Orbit, CameraView::Eyes, Some((chassis, vehicle))) => {
-            enter_eyes(fp, &mut orbit, chassis, vehicle);
+        (CameraView::Orbit, CameraView::Eyes, Some((chassis, _, riding))) => {
+            enter_eyes(fp, &mut orbit, chassis, riding);
         }
-        (CameraView::Eyes, CameraView::Orbit, player) => leave_eyes(fp, &mut orbit, player),
+        (CameraView::Eyes, CameraView::Orbit, player) => leave_eyes(
+            fp,
+            &mut orbit,
+            player.map(|(chassis, _, riding)| (chassis, riding)),
+        ),
         // A body that changes kind while the eyes look - a vehicle worn in
-        // place of feet, or the other way about - takes the eyes with it: on
-        // board they look along its nose, and off it they go on looking the
-        // way they looked.
-        (CameraView::Eyes, CameraView::Eyes, Some((chassis, vehicle)))
-            if vehicle != fp.rides_vehicle() =>
+        // place of feet, or the other way about, or a take-off and a landing
+        // (#1880) - takes the eyes with it: on board they look along its
+        // nose; aloft the head keeps its turn and its pitch on the body; and
+        // off it, or down, they go on looking the way they looked.
+        (CameraView::Eyes, CameraView::Eyes, Some((chassis, vehicle, riding)))
+            if riding != fp.rides_vehicle() =>
         {
             if vehicle {
                 fp.ahead_yaw = Some(look_ahead(&mut orbit, chassis));
+            } else if riding {
+                fp.ahead_yaw = Some(take_off(&orbit, chassis));
             } else {
                 ride_off(fp, &mut orbit, Some(chassis));
             }
@@ -793,6 +931,18 @@ fn look_ahead(orbit: &mut PanOrbitCamera, chassis: &Transform) -> f32 {
     orbit.target_pitch = 0.0;
     orbit.force_update = true;
     ahead
+}
+
+/// Onto a flight's frame (#1880), and which of the body's yaws is straight
+/// ahead on it: its level heading ([`level_yaw`]), the one nearest where the
+/// head looks. Nothing of the orbit moves - a take-off is a hop the player
+/// makes over and over, not a boarding - so the head keeps its turn on the
+/// body, which the walk had turned to face it, and its pitch.
+fn take_off(orbit: &PanOrbitCamera, chassis: &Transform) -> f32 {
+    near_turn(
+        level_yaw(chassis.rotation),
+        orbit.yaw.unwrap_or(orbit.target_yaw),
+    )
 }
 
 /// Into the eyes: hold the orbit's zoom at its floor, keep its pitch to give
@@ -891,6 +1041,7 @@ pub(super) fn place_first_person_camera(
     mut cameras: Query<(&mut PanOrbitCamera, &mut Transform), IsWorldCamera>,
     mut eye_line: Local<Option<EyeLine>>,
     mut eye_drift: Local<Option<Vec3>>,
+    mut attitude: Local<Option<EyeAttitude>>,
 ) {
     let was = first_person.blend;
     let target = match first_person.view {
@@ -910,7 +1061,7 @@ pub(super) fn place_first_person_camera(
     let eased = blend * blend * (3.0 - 2.0 * blend);
     let hide_on = player
         .filter(|_| eased >= cfg::FIRST_PERSON_HIDE_AT)
-        .map(|(chassis, _, _)| chassis);
+        .map(|(chassis, ..)| chassis);
     if first_person.hidden != hide_on {
         if let Some(shown) = first_person.hidden {
             commands
@@ -929,6 +1080,7 @@ pub(super) fn place_first_person_camera(
     // which would leave the last step of the way out standing.
     if blend <= 0.0 && was <= 0.0 {
         *eye_drift = None;
+        *attitude = None;
         return;
     }
     if blend <= 0.0 && first_person.leaving_turn.is_some() {
@@ -937,6 +1089,15 @@ pub(super) fn place_first_person_camera(
     let (Some((chassis_entity, chassis, vehicle)), Some(record)) = (player, record) else {
         return;
     };
+    // A body in flight rides its own attitude as a vehicle's eyes ride its
+    // nose (#1880), eased in, and out again once it is down.
+    let flying = !vehicle && first_person.aloft();
+    *attitude = EyeAttitude::step(
+        *attitude,
+        flying.then(|| off_level(chassis.rotation)),
+        time.delta_secs(),
+    )
+    .filter(|_| !vehicle);
     let Ok((mut orbit, mut transform)) = cameras.single_mut() else {
         return;
     };
@@ -974,15 +1135,35 @@ pub(super) fn place_first_person_camera(
         *eye_drift = Some(eased);
         Some(root_tf.transform_point(line.rest + eased))
     });
-    let mount = EyeMount::of(&record.0.locomotion, vehicle, rig_eye);
+    // A flight's eyes ride the chassis' level heading and as much of its
+    // attitude as is eased in: the whole of it, a moment into the flight, and
+    // none, a moment after it, when they look out of a body on foot again.
+    let (mount, frame) = match *attitude {
+        Some(eased) => (
+            EyeMount::in_flight(&record.0.locomotion, rig_eye),
+            Transform {
+                rotation: eased.frame(chassis.rotation),
+                ..*chassis
+            },
+        ),
+        None => (
+            EyeMount::of(&record.0.locomotion, vehicle, rig_eye),
+            *chassis,
+        ),
+    };
+    let riding = vehicle || flying;
     let look_yaw = match (first_person.ahead_yaw, first_person.leaving_turn) {
-        (Some(ahead), _) if vehicle => yaw - ahead,
+        (Some(ahead), _) if riding => yaw - ahead,
         // On the way out of a vehicle's eyes the orbit counts from the world
         // again; the eyes' half holds the head's turn as they left.
-        (None, Some(turn)) if vehicle => turn,
+        (None, Some(turn)) if riding => turn,
+        // A flight's frame with nothing else to count from - its attitude
+        // easing out of the eyes of a body on its feet: the orbit's yaw from
+        // the body's level heading.
+        _ if attitude.is_some() => yaw - level_yaw(chassis.rotation),
         _ => yaw,
     };
-    let eyes = mount.pose(chassis, look_yaw, pitch);
+    let eyes = mount.pose(&frame, look_yaw, pitch);
     let pose = if eased >= 1.0 {
         eyes
     } else {
@@ -2101,6 +2282,327 @@ mod tests {
         assert!(
             after < before - 0.5,
             "a drag right turns the head right: {before} to {after}"
+        );
+    }
+
+    /// The test app stepping 60 frames a second, as a flight is drawn.
+    fn at_60_hz(app: &mut App) {
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f64(1.0 / 60.0),
+        ));
+    }
+
+    /// One frame with the body at `at` turned `rotation`, its flight in
+    /// `mode`: how far the camera turned in it (radians).
+    fn fly_frame(
+        app: &mut App,
+        (camera, chassis): (Entity, Entity),
+        mode: crate::player::FlightMode,
+        at: Vec3,
+        rotation: Quat,
+    ) -> f32 {
+        let before = app.world().get::<Transform>(camera).unwrap().rotation;
+        let mut flight = Flight::default();
+        flight.set_mode_for_tests(mode);
+        app.world_mut().entity_mut(chassis).insert((
+            flight,
+            Transform::from_translation(at).with_rotation(rotation),
+        ));
+        app.update();
+        before.angle_between(app.world().get::<Transform>(camera).unwrap().rotation)
+    }
+
+    /// **In flight the eyes ride the body's attitude, and down again they
+    /// look out level** (#1880). Looking level out of a walker's eyes, the
+    /// body takes off the way they look into a glide, its nose down: the
+    /// eyes come round to look along its nose, the attitude eased in over a
+    /// quarter second, no frame turning them more than 0.04 rad. Banked, they
+    /// are rolled with its bank as a vehicle's are, and a turn of the chassis
+    /// carries them round, each on the same frame; nor do they look out of a
+    /// body on foot, which the walk would turn to them. Set straight down on
+    /// its feet from the banked glide, they look out level again the way the
+    /// body faced, the attitude eased out as it was eased in, no frame
+    /// turning them more than 0.07 rad (0.6 rad of it). The eyes once saw
+    /// nothing of the flight, and then took its attitude in one frame.
+    #[test]
+    fn in_flight_the_eyes_ride_the_attitude_and_look_out_level_once_down() {
+        use crate::player::FlightMode;
+        let (mut app, camera, chassis) = crate_app();
+        at_60_hz(&mut app);
+        frames(&mut app, 5);
+        toggle(&mut app);
+        frames(&mut app, 60);
+        assert!(app.world().resource::<FirstPerson>().looks_out_on_foot());
+
+        let along = |app: &App, attitude: Quat| {
+            let pose = app.world().get::<Transform>(camera).unwrap();
+            (
+                (pose.forward().as_vec3() - attitude * Vec3::NEG_Z).length(),
+                (pose.up().as_vec3() - attitude * Vec3::Y).length(),
+            )
+        };
+        let attitude = |heading: f32| {
+            Quat::from_rotation_y(heading)
+                * Quat::from_rotation_x(-0.35)
+                * Quat::from_rotation_z(0.5)
+        };
+        let aloft = Vec3::new(0.0, 20.0, 0.0);
+        let nose_down = Quat::from_rotation_x(-0.35);
+        let mut worst = 0.0f32;
+        for _ in 0..30 {
+            let turned = fly_frame(
+                &mut app,
+                (camera, chassis),
+                FlightMode::Glide,
+                aloft,
+                nose_down,
+            );
+            worst = worst.max(turned);
+        }
+        assert!(
+            worst <= 0.04,
+            "taking off the eyes turned {worst} rad in a frame"
+        );
+        let (nose, roll) = along(&app, nose_down);
+        assert!(
+            nose < 0.02 && roll < 0.02,
+            "the eyes are off the glide by {nose} along the nose and {roll} in the bank"
+        );
+        fly_frame(
+            &mut app,
+            (camera, chassis),
+            FlightMode::Glide,
+            aloft,
+            attitude(0.0),
+        );
+        let (nose, roll) = along(&app, attitude(0.0));
+        assert!(
+            nose < 0.02 && roll < 0.02,
+            "the eyes are off the attitude by {nose} along the nose and {roll} in the bank"
+        );
+        let fp = app.world().resource::<FirstPerson>();
+        assert_eq!(fp.view(), CameraView::Eyes);
+        assert!(
+            !fp.looks_out_on_foot(),
+            "a flying body is ridden, not looked out of"
+        );
+
+        fly_frame(
+            &mut app,
+            (camera, chassis),
+            FlightMode::Glide,
+            aloft,
+            attitude(0.5),
+        );
+        let (nose, roll) = along(&app, attitude(0.5));
+        assert!(
+            nose < 0.02 && roll < 0.02,
+            "a turn left the eyes behind: {nose} {roll}"
+        );
+
+        let mut worst = 0.0f32;
+        for _ in 0..30 {
+            let turned = fly_frame(
+                &mut app,
+                (camera, chassis),
+                FlightMode::Ground,
+                Vec3::Y,
+                Quat::from_rotation_y(0.5),
+            );
+            worst = worst.max(turned);
+        }
+        assert!(
+            worst <= 0.07,
+            "set down the eyes turned {worst} rad in a frame"
+        );
+        assert!(app.world().resource::<FirstPerson>().looks_out_on_foot());
+        let pose = *app.world().get::<Transform>(camera).unwrap();
+        assert!(
+            pose.forward().y.abs() < 0.02 && pose.up().y > 0.99,
+            "down again the eyes look out level: {:?}",
+            pose.rotation
+        );
+        let way = looking(&app, camera);
+        assert!(same_way(way, 0.5), "the way the body landed facing: {way}");
+    }
+
+    /// **A take-off keeps the player's look, and eases the attitude in**
+    /// (#1880). Looking 0.4 rad down along the way the body faces, it takes
+    /// off nose up (`flight`'s 0.35 rad), beats on and climbs, settles onto
+    /// a top levelling its attitude, and stands: on no frame do the eyes turn
+    /// more than 0.04 rad (a take-off is a hop the player makes over and
+    /// over), aloft they look 0.4 rad under its nose, and on its feet 0.4 rad
+    /// down again. Taking off once looked straight along the nose: 0.571 rad
+    /// on the first frame, and a landing never gave the look back.
+    #[test]
+    fn a_take_off_keeps_the_look_and_eases_the_attitude_in() {
+        use crate::player::FlightMode;
+        let (mut app, camera, chassis) = crate_app();
+        at_60_hz(&mut app);
+        frames(&mut app, 5);
+        toggle(&mut app);
+        frames(&mut app, 60);
+        app.world_mut()
+            .get_mut::<PanOrbitCamera>(camera)
+            .unwrap()
+            .target_pitch = 0.4;
+        frames(&mut app, 60);
+        let down = Quat::from_rotation_x(-0.4) * Vec3::NEG_Z;
+        let forward = |app: &App| {
+            app.world()
+                .get::<Transform>(camera)
+                .unwrap()
+                .forward()
+                .as_vec3()
+        };
+        assert!(
+            (forward(&app) - down).length() < 0.01,
+            "the premise: the eyes look {} down",
+            forward(&app)
+        );
+
+        let takeoff_pitch = 0.35;
+        let mut worst = 0.0f32;
+        let mut first = None;
+        for frame in 0..60 {
+            let mode = if frame < 15 {
+                FlightMode::Takeoff
+            } else {
+                FlightMode::Flap
+            };
+            let at = Vec3::Y * (1.0 + 0.05 * frame as f32);
+            let turned = fly_frame(
+                &mut app,
+                (camera, chassis),
+                mode,
+                at,
+                Quat::from_rotation_x(takeoff_pitch),
+            );
+            first.get_or_insert(turned);
+            worst = worst.max(turned);
+        }
+        println!(
+            "taking off: {:?} rad on the first frame, {worst} at most",
+            first
+        );
+        assert!(
+            worst <= 0.04,
+            "taking off the eyes turned {worst} rad in a frame"
+        );
+        let under_the_nose = Quat::from_rotation_x(takeoff_pitch) * down;
+        assert!(
+            (forward(&app) - under_the_nose).length() < 0.02,
+            "aloft the eyes look {} and not {under_the_nose}",
+            forward(&app)
+        );
+        assert!(!app.world().resource::<FirstPerson>().looks_out_on_foot());
+
+        let top = Vec3::Y * 4.0;
+        let mut worst = 0.0f32;
+        for frame in 0..15 {
+            let level = takeoff_pitch * (1.0 - (frame + 1) as f32 / 15.0);
+            let turned = fly_frame(
+                &mut app,
+                (camera, chassis),
+                FlightMode::Land,
+                top,
+                Quat::from_rotation_x(level),
+            );
+            worst = worst.max(turned);
+        }
+        for _ in 0..60 {
+            let turned = fly_frame(
+                &mut app,
+                (camera, chassis),
+                FlightMode::Ground,
+                top,
+                Quat::IDENTITY,
+            );
+            worst = worst.max(turned);
+        }
+        assert!(
+            worst <= 0.04,
+            "landing the eyes turned {worst} rad in a frame"
+        );
+        assert!(app.world().resource::<FirstPerson>().looks_out_on_foot());
+        assert!(
+            (forward(&app) - down).length() < 0.02,
+            "on its feet the eyes look {} and not {down}",
+            forward(&app)
+        );
+    }
+
+    /// **A flier tapping Space in the water does not flap the eyes** (#1880).
+    /// Swimming, a tap takes the flight off its feet for one step and the
+    /// water puts it straight back (#1861): the eyes go on looking out of the
+    /// body on foot, not turned the least by the step's attitude, frame after
+    /// frame. A real take-off is ridden once the body has been off its feet
+    /// longer than a tenth of a second, and its landing at once. Each tap
+    /// once switched the eyes onto the chassis and off again within two
+    /// steps, and the view the peers are told with them.
+    #[test]
+    fn a_flier_tapping_space_in_the_water_does_not_flap_the_eyes() {
+        use crate::player::FlightMode;
+        let (mut app, camera, chassis) = crate_app();
+        at_60_hz(&mut app);
+        frames(&mut app, 5);
+        toggle(&mut app);
+        frames(&mut app, 60);
+        let level = app.world().get::<Transform>(camera).unwrap().rotation;
+        let nose_up = Quat::from_rotation_x(0.35);
+        for tap in 0..5 {
+            for mode in [
+                FlightMode::Flap,
+                FlightMode::Ground,
+                FlightMode::Ground,
+                FlightMode::Ground,
+            ] {
+                let rotation = if mode == FlightMode::Flap {
+                    nose_up
+                } else {
+                    Quat::IDENTITY
+                };
+                fly_frame(&mut app, (camera, chassis), mode, Vec3::Y, rotation);
+                assert!(
+                    app.world().resource::<FirstPerson>().looks_out_on_foot(),
+                    "tap {tap}: the eyes ride the body at {mode:?}"
+                );
+                let now = app.world().get::<Transform>(camera).unwrap().rotation;
+                assert!(
+                    now.angle_between(level) < 1e-5,
+                    "tap {tap}: the eyes turned {} rad at {mode:?}",
+                    now.angle_between(level)
+                );
+            }
+        }
+
+        let mut ridden = None;
+        for frame in 0..40 {
+            fly_frame(
+                &mut app,
+                (camera, chassis),
+                FlightMode::Flap,
+                Vec3::Y * 2.0,
+                nose_up,
+            );
+            if ridden.is_none() && !app.world().resource::<FirstPerson>().looks_out_on_foot() {
+                ridden = Some(frame);
+            }
+        }
+        assert!(
+            ridden.is_some_and(|frame| (5..=7).contains(&frame)),
+            "a take-off is ridden from frame {ridden:?}"
+        );
+        fly_frame(
+            &mut app,
+            (camera, chassis),
+            FlightMode::Ground,
+            Vec3::Y,
+            Quat::IDENTITY,
+        );
+        assert!(
+            app.world().resource::<FirstPerson>().looks_out_on_foot(),
+            "down again the eyes look out of the body on the same frame"
         );
     }
 

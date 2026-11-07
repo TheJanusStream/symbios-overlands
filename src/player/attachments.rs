@@ -28,7 +28,9 @@
 //!   - an authored offset → taken verbatim, in the joint's rest-pose frame:
 //!     a full transform, per-axis scale included (#1095);
 //!   - a beast (#1807) → only what [`crate::pds::avatar::dresses`] allows,
-//!     seated by its own rules in [`super::beast_seat`].
+//!     seated by its own rules in [`super::beast_seat`];
+//!   - a winged body (#1879) → the same, at its own sockets, seated by its
+//!     own rules in [`super::winged_seat`].
 //!
 //! Props spawn through [`spawn_attachment_tree`] - the same avatar-mode
 //! pipeline as generator bodies, colliders and room tags suppressed - always
@@ -418,6 +420,14 @@ pub(super) fn sync_rigged_attachments(
     }
 }
 
+/// The joint an animal wears a socket at ([`super::beast_seat::carrier`],
+/// [`super::winged_seat::carrier`]).
+type Carrier = fn(&symbios_avatar::Avatar, symbios_avatar::Socket) -> Option<usize>;
+
+/// An animal's seat at a socket, on that joint, for a cut
+/// ([`super::beast_seat::seat`], [`super::winged_seat::seat`]).
+type Seat = fn(&symbios_avatar::Avatar, symbios_avatar::Socket, usize, u32) -> Option<Transform>;
+
 /// Which joint carries each wearable attachment, and at what local
 /// transform. Pure - the whole placement decision, kept apart from the ECS
 /// so it can be tested against a real build without a world.
@@ -430,6 +440,9 @@ pub(crate) fn placements<'a>(
     // the full body mesh, so it runs at most once per dress, and only when
     // something worn actually declares a fit.
     let mut measured: Option<Option<HatLine>> = None;
+    // What is drawn (#1875): the rig, which crosses the web's worker, and
+    // never its anatomy, which reads a winged body as a beast.
+    let kind = crate::pds::avatar::RiggedKind::of_rig(&avatar.rig);
     for attachment in desired {
         let Some(socket) = attachment.record.socket() else {
             info!(
@@ -448,19 +461,32 @@ pub(crate) fn placements<'a>(
         // sockets and in what is cut for it, so the prop stays referenced and
         // unworn for a body that is. A person leaves off a beast's collar the
         // same way (#1807). Every socket a person's rig has is still theirs.
+        // A winged body likewise, at its neck, crown and legs (#1879).
         let fit_beast_mm = attachment.record.fit_beast_mm;
-        if !crate::pds::avatar::dresses(avatar.rig.anatomy, socket, fit_beast_mm) {
+        if !crate::pds::avatar::dresses(kind, socket, fit_beast_mm) {
             continue;
         }
-        // A beast is measured by its own rules (#1807): nothing below reads
-        // a person's head, and an authored offset is read in the joint the
-        // seat rides, since the gizmo commits against that one.
-        if !avatar.rig.anatomy.human_trunk() {
-            let Some(joint) = super::beast_seat::carrier(avatar, socket) else {
+        // A beast is measured by its own rules (#1807), and a winged body by
+        // its own (#1879): nothing below reads a person's head, and an
+        // authored offset is read in the joint the seat rides, since the
+        // gizmo commits against that one.
+        let animal = match kind {
+            crate::pds::avatar::RiggedKind::Beast => Some((
+                super::beast_seat::carrier as Carrier,
+                super::beast_seat::seat as Seat,
+            )),
+            crate::pds::avatar::RiggedKind::Winged(_) => Some((
+                super::winged_seat::carrier as Carrier,
+                super::winged_seat::seat as Seat,
+            )),
+            _ => None,
+        };
+        if let Some((carrier, seat)) = animal {
+            let Some(joint) = carrier(avatar, socket) else {
                 continue;
             };
             let transform = if attachment.record.offset.is_identity() {
-                super::beast_seat::seat(avatar, socket, joint, fit_beast_mm)
+                seat(avatar, socket, joint, fit_beast_mm)
             } else {
                 Some(transform_from_data(&attachment.record.offset))
             };
@@ -747,6 +773,7 @@ pub(super) mod tests {
 
     const PERSON_CUT: [&str; 4] = ["sashimono", "circlet", "ships_lantern", "satchel"];
     const BEAST_CUT: [&str; 3] = ["beast_collar", "saddle_pad", "ear_bow"];
+    const WINGED_CUT: [&str; 3] = ["beast_collar", "ear_bow", "leg_band"];
 
     /// A body as it is built here, and as the same job comes back across the
     /// web's worker boundary: over a self-describing codec, as the worker's own
@@ -777,33 +804,124 @@ pub(super) mod tests {
         (*here, *back)
     }
 
-    /// **A browser's beast is dressed as anyone's is** (#1813). A body built on
-    /// the web's worker comes back without its closed surface and its declared
-    /// head, which is what every beast seat once read, so a collar, a pad and a
-    /// bow were simply not worn there and nothing said so.
+    /// Whether two seats turn the same way, to within a sixth of a degree.
+    /// Through the dot of the two, not `Quat::angle_between`, whose `acos`
+    /// near one reads float noise as a turn: two bit-identical rotations a
+    /// few ulps short of unit length compare a milliradian and more apart.
+    fn same_turn(a: Quat, b: Quat) -> bool {
+        a.normalize().dot(b.normalize()).abs() > 1.0 - 1e-6
+    }
+
+    /// **A rotation is the same turn as itself** (#1879), which
+    /// `angle_between` denied: a quaternion three ulps short of unit length,
+    /// as one composed in `f32` is, read 1.2 milliradians from its own copy.
+    #[test]
+    fn a_rotation_is_the_same_turn_as_itself() {
+        let short = 1.0 - 3.0 * f32::EPSILON / 2.0;
+        let turn = Quat::from_xyzw(0.0, 0.0, 0.0, short.sqrt());
+        assert!(turn.is_normalized(), "the premise: glam takes it as unit");
+        println!("angle_between reads {:.5} rad", turn.angle_between(turn));
+        assert!(same_turn(turn, turn));
+        assert!(same_turn(turn, -turn), "a quaternion and its negation");
+        assert!(!same_turn(turn, Quat::from_rotation_y(0.005)));
+    }
+
+    /// **A browser's beast is dressed as anyone's is** (#1813), and a
+    /// browser's winged body (#1879). A body built on the web's worker comes
+    /// back without its closed surface, its declared head and its wings'
+    /// build, which is what every beast seat once read, so a collar, a pad and
+    /// a bow were simply not worn there and nothing said so. A winged body
+    /// wears its collar, a crown and a band on each leg the same there as
+    /// here.
     #[test]
     fn a_body_from_the_web_worker_is_dressed_the_same() {
+        use symbios_avatar::WingedFamily;
         use symbios_avatar::plan::Family;
-        let worn: Vec<ResolvedAttachment> = BEAST_CUT
+        let beast_worn: Vec<ResolvedAttachment> = BEAST_CUT
             .iter()
             .chain(["circlet"].iter())
             .map(|slug| catalogue_worn(slug))
             .collect();
-        for family in [Family::Dog, Family::Cat, Family::Horse] {
-            let (here, back) = built_here_and_on_the_worker(
-                &crate::pds::avatar::locomotion::default_beast(family),
-            );
-            let (there, here) = (placements(&back, &worn), placements(&here, &worn));
-            assert_eq!(there.len(), worn.len(), "{family:?}: left something off");
-            assert_eq!(here.len(), worn.len(), "{family:?}");
+        let mut winged_worn: Vec<ResolvedAttachment> = WINGED_CUT
+            .iter()
+            .chain(["circlet"].iter())
+            .map(|slug| catalogue_worn(slug))
+            .collect();
+        let mut right = catalogue_worn("leg_band");
+        right.record.socket = symbios_avatar::Socket::RightFoot.name().to_string();
+        winged_worn.push(right);
+        let beasts = [Family::Dog, Family::Cat, Family::Horse].map(|family| {
+            (
+                format!("{family:?}"),
+                crate::pds::avatar::locomotion::default_beast(family),
+                &beast_worn,
+            )
+        });
+        let winged = [WingedFamily::Bird, WingedFamily::Bat, WingedFamily::Glider].map(|family| {
+            (
+                format!("{family:?}"),
+                crate::pds::avatar::locomotion::default_winged(family),
+                &winged_worn,
+            )
+        });
+        for (family, body, worn) in beasts.into_iter().chain(winged) {
+            let (here, back) = built_here_and_on_the_worker(&body);
+            let (there, here) = (placements(&back, worn), placements(&here, worn));
+            assert_eq!(there.len(), worn.len(), "{family}: left something off");
+            assert_eq!(here.len(), worn.len(), "{family}");
             for ((far, seat, _), (near, same, item)) in there.iter().zip(&here) {
                 let name = item.record.socket.as_str();
-                assert_eq!(far, near, "{family:?} at {name}: another joint");
+                assert_eq!(far, near, "{family} at {name}: another joint");
                 assert!(
                     seat.translation.distance(same.translation) < 1e-4
                         && (seat.scale - same.scale).abs().max_element() < 1e-4
-                        && seat.rotation.angle_between(same.rotation) < 1e-3,
-                    "{family:?} at {name}: {seat:?} there, {same:?} here"
+                        && same_turn(seat.rotation, same.rotation),
+                    "{family} at {name}: {seat:?} there, {same:?} here"
+                );
+            }
+        }
+    }
+
+    /// **A winged body wears an animal's cut at its own sockets, here or from
+    /// the web's worker** (#1879): its collar, the bow and the circlet at its
+    /// crown and a band on its leg, and none of a person's props nor the
+    /// beast's saddle pad, though its rig has a joint for each - its back is
+    /// where the wings fold, its hands a wing's wrists. Read off the rig as
+    /// drawn, so a body that crossed the worker answers the same.
+    #[test]
+    fn a_winged_body_wears_its_cut_at_its_own_sockets() {
+        use symbios_avatar::WingedFamily;
+        for family in [WingedFamily::Bird, WingedFamily::Bat, WingedFamily::Glider] {
+            let (here, back) = built_here_and_on_the_worker(
+                &crate::pds::avatar::locomotion::default_winged(family),
+            );
+            for (how, avatar) in [("here", &here), ("from the worker", &back)] {
+                assert!(
+                    symbios_avatar::Socket::ALL
+                        .iter()
+                        .all(|socket| socket.joint(&avatar.rig).is_some()),
+                    "the premise: a {family:?} {how} has a joint at every socket"
+                );
+                let mut cut = slugs_placed(avatar, &BEAST_CUT);
+                cut.extend(slugs_placed(avatar, &WINGED_CUT));
+                cut.sort();
+                cut.dedup();
+                assert_eq!(
+                    cut,
+                    ["beast_collar", "ear_bow", "leg_band"],
+                    "a {family:?} {how}"
+                );
+                assert_eq!(
+                    slugs_placed(avatar, &PERSON_CUT),
+                    ["circlet"],
+                    "a {family:?} {how}"
+                );
+                let circlet = [catalogue_worn("circlet")];
+                let (_, seat, _) = placements(avatar, &circlet)[0];
+                assert_eq!(
+                    seat.scale,
+                    Vec3::ONE,
+                    "a {family:?} {how}: resized the circlet"
                 );
             }
         }

@@ -52,6 +52,7 @@ use crate::config::agent::{
     HOME_DIR, LOOK_ANSWER_TIMEOUT, LOOK_SIZE, LOOK_WARMUP_FRAMES, LOOKS_DIR, LOOKS_KEPT,
 };
 use crate::interaction::locomotion::{locomotion_reach, locomotion_total_height};
+use crate::pds::avatar::RiggedKind;
 use crate::player::RiggedRoot;
 use crate::state::{
     AppState, CurrentRoomDid, LiveAvatarRecord, LocalPlayer, LocalSettings, TravelingTo,
@@ -148,8 +149,8 @@ fn aim(world: &mut World, spec: &LookSpec) -> Result<Shot, String> {
                 .locomotion;
             // Out at the body's outline toward the look, across and ahead
             // in its own frame (#1751): a vehicle's nose straight ahead, its
-            // flank to the side, a person's face, and past a beast's whole
-            // drawn body.
+            // flank to the side, a person's face, and past a beast's or a
+            // winged body's whole drawn body.
             let toward = toward_in_body(dir, facing);
             let above = eye_over_centre(locomotion, world.get_resource::<BeastFraming>());
             let reach = locomotion_reach(locomotion, toward);
@@ -250,8 +251,9 @@ fn play_pose(focus: Vec3, radius: f32, pitch: f32, dir: Vec2) -> Transform {
 
 /// How far over its middle a body looks from: a four-legged beast from the
 /// eyes its rig seats (#1809), since a lying capsule's height is only its
-/// trunk's depth, and any other body where first person puts eyes with no rig
-/// to ask, which is that fraction of the way up it.
+/// trunk's depth, and a winged body too, the orbit's framing of it (#1880);
+/// any other body where first person puts eyes with no rig to ask, which is
+/// that fraction of the way up it.
 fn eye_over_centre(locomotion: &crate::pds::LocomotionConfig, beast: Option<&BeastFraming>) -> f32 {
     match BeastFraming::eyes_of(beast) {
         Some(eyes) => eyes - locomotion_total_height(locomotion) / 2.0,
@@ -267,11 +269,13 @@ const VIEW_CLEARANCE: f32 = 0.05;
 /// `toward` being [`toward_in_body`]: past everything drawn of it that way, its
 /// muzzle ahead, its tail behind, its flank to the side. A beast's head and tail
 /// stand out past its collider, so a view from the collider's end stood inside
-/// the skull, between the backs of the eyes with the nose ahead of it. A rig's
-/// `+Z` is the chassis's forward and its `+X` the body's left. `None` for
-/// anything but a beast's head, a person among them.
+/// the skull, between the backs of the eyes with the nose ahead of it. So do a
+/// winged body's head, tail and folded wings (#1880), standing up or lying.
+/// A rig's `+Z` is the chassis's forward and its `+X` the body's left. Told by
+/// the body's kind as its rig draws it ([`RiggedKind::of_rig`]); `None` for a
+/// person, whose collider is as tall and as deep as they are.
 fn beast_reach(avatar: &symbios_avatar::Avatar, toward: Vec2) -> Option<f32> {
-    if avatar.rig.anatomy.head != symbios_avatar::HeadKind::Beast {
+    if RiggedKind::of_rig(&avatar.rig) == RiggedKind::Person {
         return None;
     }
     avatar
@@ -845,7 +849,8 @@ mod tests {
     }
 
     /// **A beast's eye view sees nothing of itself, whichever way it looks**
-    /// (#1814): every point drawn of a dog, a cat or a horse at rest, hung under
+    /// (#1814): every point drawn of a dog, a cat or a horse at rest - and of an
+    /// owl, a bat or a glider (#1880) - hung under
     /// its chassis as the game hangs it, lies behind the camera, and the nearest
     /// by no more than the clearance, for every way it faces and looks. From the
     /// end of its collider the view looked through the backs of its eyes at its
@@ -859,16 +864,31 @@ mod tests {
             ..Default::default()
         };
         let centre = Vec3::new(3.0, 7.0, -2.0);
+        let mut bodies: Vec<(String, crate::pds::avatar::EngineAvatarRecord)> = Vec::new();
         for family in [Family::Dog, Family::Cat, Family::Horse] {
             let body = crate::pds::avatar::locomotion::default_beast(family);
-            let avatar = symbios_avatar::Avatar::build_with(&body, &config).expect("a beast");
+            bodies.push((format!("{family:?}"), body));
+        }
+        // A winged body's head, tail and folded wings too (#1880), the bird
+        // standing up and the bat and the glider lying.
+        for family in [
+            symbios_avatar::WingedFamily::Bird,
+            symbios_avatar::WingedFamily::Bat,
+            symbios_avatar::WingedFamily::Glider,
+        ] {
+            let body = crate::pds::avatar::locomotion::default_winged(family);
+            bodies.push((format!("{family:?}"), body));
+        }
+        for (family, body) in bodies {
+            let avatar = symbios_avatar::Avatar::build_with(&body, &config).expect("a body");
             for facing in [Vec2::NEG_Y, Vec2::X, Vec2::new(0.6, 0.8)] {
                 let chassis = Transform::from_translation(centre)
                     .looking_to(Vec3::new(facing.x, 0.0, facing.y), Vec3::Y);
                 let hung = chassis.to_matrix() * rigged_root_transform(0.2).to_matrix();
                 for heading in [0.0, 45.0, 90.0, 135.0, 180.0, -135.0, -90.0, -45.0] {
                     let (dir, _) = direction(facing, centre.xz(), Some(heading), None).unwrap();
-                    let reach = beast_reach(&avatar, toward_in_body(dir, facing)).expect("a beast");
+                    let reach = beast_reach(&avatar, toward_in_body(dir, facing))
+                        .expect("a body that is not a person's");
                     let pose = eyes_pose(centre, 0.4, reach, dir);
                     let ahead = pose.forward().as_vec3();
                     let nearest = avatar
@@ -879,7 +899,7 @@ mod tests {
                         .fold(f32::MIN, f32::max);
                     assert!(
                         (-(VIEW_CLEARANCE + 0.01)..0.0).contains(&nearest),
-                        "{family:?} facing {facing} looking {heading}: the nearest of it stands \
+                        "{family} facing {facing} looking {heading}: the nearest of it stands \
                          {nearest} m ahead of the camera"
                     );
                 }

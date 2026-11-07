@@ -25,17 +25,17 @@ use symbios_avatar::{Avatar, HeadKind, MeshKind, PolyMesh, Rig, Socket, Zone};
 
 /// Air between a seat and the skin it stands on, in metres: a prop stands
 /// on a head, where the person's seat keeps clear of a chest.
-const SKIN_AIR: f32 = 0.003;
+pub(super) const SKIN_AIR: f32 = 0.003;
 
 /// How much roomier than the cut skin a fitted band runs, as a factor: the
 /// section's facets lie inside the ellipse fitted to them, the band's own
 /// facets do not.
-const BAND_EASE: f32 = 1.04;
+pub(super) const BAND_EASE: f32 = 1.04;
 
 /// How far from a bone a cut still counts as that bone's section, in measured
 /// radii: far enough for a section off its bone, short of a head hanging past
 /// the neck or a leg under the chest.
-const CUT_REACH: f32 = 1.7;
+pub(super) const CUT_REACH: f32 = 1.7;
 
 /// How far along the back the slope a pad lies at is read, in the trunk's
 /// measured radii: about the pad's own length.
@@ -319,7 +319,7 @@ fn skin_under(avatar: &Avatar, point: Vec3, reach: f32) -> Option<f32> {
 
 /// The height of a triangle over the point `at` of the ground plane, if it
 /// lies over it.
-fn height_on(at: Vec2, a: Vec3, b: Vec3, c: Vec3) -> Option<f32> {
+pub(super) fn height_on(at: Vec2, a: Vec3, b: Vec3, c: Vec3) -> Option<f32> {
     let flat = |p: Vec3| Vec2::new(p.x, p.z);
     let (u, v, w) = (flat(b) - flat(a), flat(c) - flat(a), at - flat(a));
     let area = u.perp_dot(v);

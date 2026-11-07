@@ -400,8 +400,9 @@ pub(super) fn draw_attachments_tab(
                 };
                 // What kind of body this is dressed at (#1803): read off the
                 // record, so a beast still building is offered a beast's
-                // sockets and not every one the person before it had.
-                let anatomy = resolved.body.archetype.anatomy();
+                // sockets and not every one the person before it had - and
+                // by its kind (#1875), which tells a winged body from a beast.
+                let kind = crate::pds::avatar::RiggedKind::of_record(&resolved.body);
                 for (index, attachment) in resolved.attachments.iter_mut().enumerate() {
                     let is_selected = selected.as_deref() == Some(attachment.rkey.as_str());
                     // Named by its inventory provenance when it has one
@@ -456,7 +457,7 @@ pub(super) fn draw_attachments_tab(
                                     // beast is dressed at its own three, and
                                     // the line below says where a person's
                                     // prop still is.
-                                    if !crate::pds::avatar::offers_socket(anatomy, socket) {
+                                    if !crate::pds::avatar::offers_socket(kind, socket) {
                                         continue;
                                     }
                                     let picked = attachment.record.socket == socket.name();
@@ -503,21 +504,21 @@ pub(super) fn draw_attachments_tab(
                             let worn_socket = attachment.record.socket();
                             if let Some(socket) = worn_socket
                                 && !crate::pds::avatar::dresses(
-                                    anatomy,
+                                    kind,
                                     socket,
                                     attachment.record.fit_beast_mm,
                                 )
                             {
                                 ui.colored_label(
                                     crate::ui::theme::current(ui.ctx()).status.warn,
-                                    if crate::pds::avatar::offers_socket(anatomy, socket) {
+                                    if crate::pds::avatar::offers_socket(kind, socket) {
                                         format!(
                                             "Not worn - this is {}. The prop stays in your \
                                              outfit for a body that wears it.",
-                                            cut_for(anatomy)
+                                            cut_for(kind, socket)
                                         )
                                     } else {
-                                        beast_unworn_line(socket)
+                                        unworn_line(kind, socket)
                                     },
                                 );
                             } else if worn_socket.is_some_and(|socket| !body.has_socket(socket)) {
@@ -541,12 +542,23 @@ pub(super) fn draw_attachments_tab(
                             // entry, and the computed scale to the body.
                             if attachment.record.fit_beast_mm != 0 {
                                 ui.small(format!(
-                                    "fitted: {} mm authored, scaled to a four-legged body \
-                                     while the offset stays engine-seated",
-                                    attachment.record.fit_beast_mm
+                                    "fitted: {} mm authored, scaled to {} while the offset \
+                                     stays engine-seated",
+                                    attachment.record.fit_beast_mm,
+                                    if kind.is_winged() {
+                                        "a winged body"
+                                    } else {
+                                        "a four-legged body"
+                                    }
                                 ));
                             }
-                            if attachment.record.fit_band_mm != 0 && anatomy.human_trunk() {
+                            if attachment.record.fit_band_mm != 0
+                                && matches!(
+                                    kind,
+                                    crate::pds::avatar::RiggedKind::Person
+                                        | crate::pds::avatar::RiggedKind::Unknown
+                                )
+                            {
                                 ui.small(format!(
                                     "fitted: {} mm band, scaled to your head while the \
                                      offset stays engine-seated",
@@ -775,6 +787,36 @@ pub(super) fn draw_attachments_tab(
     outcome
 }
 
+/// What a prop at a socket a winged body is not dressed at says on its row
+/// (#1879, the owner's choice): that it is not worn, why, and that it is kept.
+/// The back and the hands say what is there instead: the folded wings, and a
+/// wing's wrist.
+pub(super) fn winged_unworn_line(socket: symbios_avatar::Socket) -> String {
+    use symbios_avatar::Socket;
+    let label = crate::pds::avatar::socket_label(socket.name()).to_lowercase();
+    let there = match socket {
+        Socket::Back => String::from("not on its back, where its wings fold"),
+        Socket::LeftHand | Socket::RightHand => {
+            format!("not at its {label}, which is a wing's wrist")
+        }
+        _ => format!("not at the {label}"),
+    };
+    format!(
+        "Not worn - a winged body is dressed only at its neck, crown and legs, {there}. The \
+         prop stays in your outfit for a body that is."
+    )
+}
+
+/// What a prop at a socket `kind` is not dressed at says on its row: a
+/// winged body's [`winged_unworn_line`], and a beast's [`beast_unworn_line`].
+fn unworn_line(kind: crate::pds::avatar::RiggedKind, socket: symbios_avatar::Socket) -> String {
+    if kind.is_winged() {
+        winged_unworn_line(socket)
+    } else {
+        beast_unworn_line(socket)
+    }
+}
+
 /// What a person's prop on a beast says on its row (#1803, owner decision
 /// D6): that it is not worn, why, and that it is kept.
 pub(super) fn beast_unworn_line(socket: symbios_avatar::Socket) -> String {
@@ -875,24 +917,34 @@ pub(crate) fn wear_refused_reason(
 ) -> Option<String> {
     let resolved = avatar?.body.rigged_ref()?.resolved.as_ref()?;
     let socket = symbios_avatar::Socket::from_name(socket)?;
-    let anatomy = resolved.body.archetype.anatomy();
-    if crate::pds::avatar::dresses(anatomy, socket, fit_beast_mm) {
+    let kind = crate::pds::avatar::RiggedKind::of_record(&resolved.body);
+    if crate::pds::avatar::dresses(kind, socket, fit_beast_mm) {
         None
-    } else if crate::pds::avatar::offers_socket(anatomy, socket) {
-        Some(format!("This is {}.", cut_for(anatomy)))
+    } else if crate::pds::avatar::offers_socket(kind, socket) {
+        Some(format!("This is {}.", cut_for(kind, socket)))
     } else {
-        Some(beast_unworn_line(socket))
+        Some(unworn_line(kind, socket))
     }
 }
 
-/// Who a prop a body does not wear is cut for (#1807): the worn row and the
-/// disabled Wear buttons say it in their own sentences. Only asked of a socket
-/// the body offers: one it does not is [`beast_unworn_line`]'s.
-fn cut_for(anatomy: symbios_avatar::Anatomy) -> &'static str {
-    if anatomy.human_trunk() {
-        "cut for a four-legged body"
-    } else {
-        "cut for a person - a four-legged body wears what is cut for one, and a crown"
+/// Who a prop a body does not wear at `socket` is cut for (#1807): the worn
+/// row and the disabled Wear buttons say it in their own sentences. Only asked
+/// of a socket the body offers: one it does not is [`unworn_line`]'s. A
+/// person is told who wears an animal's cut there (#1879,
+/// [`crate::pds::avatar::cut_wearers`]): a collar a four-legged or a winged
+/// body, a pad a four-legged one, a leg band a winged one.
+fn cut_for(kind: crate::pds::avatar::RiggedKind, socket: symbios_avatar::Socket) -> String {
+    use crate::pds::avatar::RiggedKind;
+    match kind {
+        RiggedKind::Person | RiggedKind::Unknown => {
+            format!("cut for {}", crate::pds::avatar::cut_wearers(socket))
+        }
+        RiggedKind::Beast => String::from(
+            "cut for a person - a four-legged body wears what is cut for one, and a crown",
+        ),
+        RiggedKind::Winged(_) => String::from(
+            "cut for a person - a winged body wears what is cut for an animal, and a crown",
+        ),
     }
 }
 
@@ -1862,6 +1914,117 @@ mod beast_socket_tests {
         }
         assert_eq!(wear_refused_reason(None, "back", 0), None);
         assert_eq!(wear_refused_reason(Some(&beast), "no-such-socket", 0), None);
+    }
+
+    /// **A winged body is offered its neck, its crown and its legs, and a Wear
+    /// says why anywhere else** (#1879, the owner's choice): an animal's cut
+    /// at the neck and the legs and anything at the crown is worn; a person's
+    /// prop at a socket it offers is refused as a person's; the back is
+    /// refused for its folded wings and a hand as a wing's wrist, each in a
+    /// winged body's own words, not a beast's. And a person is told who wears
+    /// an animal's cut: a leg band a winged body.
+    #[test]
+    fn a_winged_body_is_offered_its_neck_crown_and_legs() {
+        use symbios_avatar::{Socket, WingedFamily};
+        for family in [WingedFamily::Bird, WingedFamily::Bat, WingedFamily::Glider] {
+            let body = crate::pds::avatar::locomotion::default_winged(family);
+            let kind = crate::pds::avatar::RiggedKind::of_record(&body);
+            let winged = dressed_as(body);
+            let refused =
+                |socket: Socket, cut: u32| wear_refused_reason(Some(&winged), socket.name(), cut);
+            for socket in Socket::ALL {
+                let offered = crate::pds::avatar::WINGED_SOCKETS.contains(&socket);
+                assert_eq!(
+                    crate::pds::avatar::offers_socket(kind, socket),
+                    offered,
+                    "{family:?}: {socket:?}"
+                );
+                for cut in [0, 35, 200] {
+                    let worn = offered && (cut != 0 || socket == Socket::Crown);
+                    assert_eq!(
+                        crate::pds::avatar::dresses(kind, socket, cut),
+                        worn,
+                        "{family:?}: {socket:?} cut {cut}"
+                    );
+                    assert_eq!(
+                        refused(socket, cut).is_none(),
+                        worn,
+                        "{family:?}: {socket:?}"
+                    );
+                }
+            }
+            for (socket, why) in [
+                (Socket::Back, "not on its back, where its wings fold"),
+                (
+                    Socket::LeftHand,
+                    "not at its left hand, which is a wing's wrist",
+                ),
+                (
+                    Socket::RightHand,
+                    "not at its right hand, which is a wing's wrist",
+                ),
+            ] {
+                for cut in [0, 200] {
+                    let line = refused(socket, cut).expect("refused");
+                    assert_eq!(line, winged_unworn_line(socket), "{family:?}");
+                    assert!(
+                        line.starts_with("Not worn - a winged body is dressed only at its neck")
+                            && line.contains(why),
+                        "{family:?}: {line}"
+                    );
+                }
+            }
+            assert_eq!(
+                refused(Socket::Neck, 0).as_deref(),
+                Some(
+                    "This is cut for a person - a winged body wears what is cut for an animal, \
+                     and a crown."
+                ),
+                "{family:?}"
+            );
+        }
+        let person = dressed_as(crate::pds::avatar::wardrobe::engine_default_for_did(
+            "did:plc:socket-test",
+        ));
+        assert_eq!(
+            wear_refused_reason(Some(&person), "left-foot", 35).as_deref(),
+            Some("This is cut for a winged body.")
+        );
+        assert_eq!(
+            wear_refused_reason(Some(&person), "neck", 200).as_deref(),
+            Some("This is cut for a four-legged or winged body.")
+        );
+        assert_eq!(
+            wear_refused_reason(Some(&person), "back", 600).as_deref(),
+            Some("This is cut for a four-legged body.")
+        );
+    }
+
+    /// **A winged body's tab offers its own sockets and keeps the rest,
+    /// unworn** (#1879): the picker on every worn row offers the neck, the
+    /// crown and the two feet, the prop at the left hand stays referenced
+    /// saying it is a wing's wrist, and drawing the tab changes nothing.
+    #[test]
+    fn a_winged_bodys_tab_offers_its_own_sockets() {
+        let mut bird = dressed_as(crate::pds::avatar::locomotion::default_winged(
+            symbios_avatar::WingedFamily::Bird,
+        ));
+        let before = bird.clone();
+        let (chips, text, changed) = wearables(&mut bird);
+        let mut want: Vec<String> = crate::pds::avatar::WINGED_SOCKETS
+            .iter()
+            .map(|s| crate::pds::avatar::socket_label(s.name()).to_string())
+            .collect();
+        want.sort();
+        assert_eq!(chips, want, "a winged body's socket picker");
+        let wrist = winged_unworn_line(symbios_avatar::Socket::LeftHand);
+        assert_eq!(
+            text.iter().filter(|t| **t == wrist).count(),
+            1,
+            "the left-hand prop says it is not worn and why: {text:?}"
+        );
+        assert!(!changed);
+        assert_eq!(bird, before);
     }
 
     /// The worn row tells a prop a beast has the socket for but refuses from

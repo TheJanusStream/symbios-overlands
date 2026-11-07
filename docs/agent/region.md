@@ -1181,7 +1181,9 @@ manifest's budget.
   with their own), the turn in TENTHS of a degree clockwise seen from above (as
   `placements`' `yaw_deg`: 0 faces -Z, 900 faces +X), the variant's index,
   the size in THOUSANDTHS, and centimetres above the ground under it.
-  Leave trailing defaults out: variant 0, scale 1000, y 0.
+  Leave trailing defaults out: variant 0, scale 1000, y 0. Never the yaw: a
+  copy of two numbers is silently not drawn (#1870; Kairos's gatehouse cabin,
+  live 21), so an unturned copy is `[x, z, 0]`.
 - **Each copy snaps by itself** (`snap_to_terrain`, true by default): it
   stands on the ground under its own centre, raised by its y, so a row
   follows a slope. Off, y is above the anchor. A seeded hamlet's house

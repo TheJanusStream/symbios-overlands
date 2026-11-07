@@ -389,6 +389,74 @@ mod tests {
         assert_eq!(lying(&app), Some(false), "a person in a beast's capsule");
     }
 
+    /// **An agent's switch to a winged body takes its fit with it** (#1875,
+    /// #1881), as the editor's does: a bat lies along its trunk and a bird
+    /// stands up, each with the flight section its body flies by, in the one
+    /// write; back to a person it stands on the stature rule and flies no
+    /// more.
+    #[test]
+    fn a_body_set_to_a_winged_one_brings_its_fit() {
+        use crate::pds::LocomotionConfig;
+        use crate::pds::avatar::locomotion::{LocomotionPreset as _, default_winged};
+        use symbios_avatar::WingedFamily;
+        let (mut app, _) = app_in(AGENT);
+        wearing(&mut app, seeded(true));
+        let mut person = app.world().resource::<LiveAvatarRecord>().0.clone();
+        person.locomotion = crate::pds::HumanoidParams::default().into_config();
+        wearing(&mut app, person);
+        let fitted = |app: &App| match &app.world().resource::<LiveAvatarRecord>().0.locomotion {
+            LocomotionConfig::Humanoid(p) => Some((p.is_lying(), p.flies())),
+            _ => None,
+        };
+        let body = get(app.world_mut(), "/body").expect("a body")["value"].clone();
+
+        for (family, lying) in [(WingedFamily::Bat, true), (WingedFamily::Bird, false)] {
+            let winged = serde_json::to_value(default_winged(family)).expect("a body's JSON");
+            set(app.world_mut(), "/body", winged).expect("to a winged body");
+            assert_eq!(fitted(&app), Some((lying, true)), "{family:?}");
+            assert!(
+                crate::pds::avatar::locomotion::winged_on_foot(
+                    &app.world().resource::<LiveAvatarRecord>().0
+                )
+                .is_some(),
+                "{family:?}"
+            );
+        }
+
+        set(app.world_mut(), "/body", body).expect("and back");
+        assert_eq!(
+            fitted(&app),
+            Some((false, false)),
+            "a person in a bird's fit"
+        );
+    }
+
+    /// **An agent's edit of a flying person's body keeps their flight
+    /// section** (#1875's critic, #1861): `avatar set /body` refits through
+    /// the editor's rule, and a person standing up - flying or not - is
+    /// never refitted.
+    #[test]
+    fn a_body_edit_keeps_a_flying_persons_section() {
+        use crate::pds::avatar::locomotion::LocomotionPreset as _;
+        let (mut app, _) = app_in(AGENT);
+        let mut person = seeded(true);
+        person.locomotion = crate::pds::HumanoidParams {
+            walk_speed: crate::pds::types::Fp(6.2),
+            flight: Some(crate::pds::avatar::locomotion::FlightParams::default()),
+            ..crate::pds::HumanoidParams::default()
+        }
+        .into_config();
+        wearing(&mut app, person.clone());
+        let mut body = get(app.world_mut(), "/body").expect("a body")["value"].clone();
+        body["composites"]["age"] = json!(60);
+        set(app.world_mut(), "/body", body).expect("an edit of a person");
+        assert_eq!(
+            app.world().resource::<LiveAvatarRecord>().0.locomotion,
+            person.locomotion,
+            "an edit of a flying person refitted them"
+        );
+    }
+
     /// #1483 in the avatar: a key the sculpt does not have, set on its own,
     /// is named; a real one set to what it holds is not.
     #[test]

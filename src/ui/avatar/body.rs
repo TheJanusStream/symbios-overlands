@@ -20,21 +20,26 @@
 //!     readout, and the wardrobe - every body this identity has published,
 //!     wearable with a click, plus save-as-copy for branching a look.
 //!
-//! Archetype exposure: the engine identity section carries the
-//! humanoid/quadruped toggle, and a quadruped builds and animates on the
-//! same rig path as a person (#1057/#1058 run on the rig, not on an
-//! anatomy) - so quadrupeds are deliberately NOT hidden here. Since
-//! bevy_symbios_avatar 0.15 the tab hosts the viewer's `coat_axes` and
-//! `fur_axes` too, in the viewer's own order after the skin; each draws
-//! only for a quadruped and nothing on a person (#1801).
+//! Archetype exposure: the engine identity section carries the body
+//! choice - a person, a four-legged beast or a winged body (bird, bat,
+//! glider or a cross) - and every one builds and animates on the same rig
+//! path (#1057/#1058 run on the rig, not on an anatomy), so none is hidden
+//! here. The viewer's sections draw for the body they belong to and nothing
+//! on any other: since bevy_symbios_avatar 0.15 the tab hosts its `coat_axes`
+//! and `fur_axes`, in the viewer's own order after the skin, which draw only
+//! for a quadruped (#1801); since 0.25 its `body_axes` carry a winged body's
+//! family, size and shape with a bird's plumage or a bat's and a glider's
+//! coat (#1876). The face, hair and outfit hide on every body without a
+//! person's head or trunk, and the identity row says which it hides.
 //!
-//! Switching between a person and a quadruped rolls the new body from the
-//! body's own seed, and every edit of a beast refits its on-foot collider
-//! to it in the same undo step (#1803, owner decisions D3 and D6) - see
-//! [`draw_body_tab`].
-//! What a beast still lacks - a camera fitted to its body, its own emotes,
-//! seats of its own for its wearables - is the rest of the quadruped
-//! integration epic, #1800.
+//! Switching between kinds - person, beast and winged, either way - rolls the
+//! new body from the body's own seed with every lock lifted, and every edit
+//! of a beast or a winged body refits its on-foot collider to it in the same
+//! undo step (#1803, owner decisions D3 and D6; #1875, #1876) - see
+//! [`draw_body_tab`]. A change of winged family is no switch: it is the
+//! viewer's family picker, and refits as any edit does. The Locomotion tab
+//! then reads the fitted collider of a beast or a winged body rather than
+//! offering a person's capsule (`super::locomotion`).
 
 use bevy::prelude::Commands;
 use bevy_egui::egui;
@@ -42,6 +47,7 @@ use bevy_symbios_avatar::editor as sections;
 
 use super::TabCtx;
 use crate::pds::AvatarRecord;
+use crate::pds::avatar::RiggedKind;
 use crate::pds::avatar::wardrobe::{EngineAvatarRecord, wear_new_engine_body};
 
 /// The Body tab, wired to the editor (#1161).
@@ -296,9 +302,18 @@ fn roll_switched(body: &mut EngineAvatarRecord) {
     body.locks = locks;
 }
 
-/// Whether `body` is a four-legged beast.
-fn is_beast(body: &EngineAvatarRecord) -> bool {
-    matches!(body.archetype, symbios_avatar::Archetype::Quadruped(_))
+/// What kind of body `body` is stored as, for telling a switch of kind
+/// (#1803, #1875): a person, a four-legged beast or a winged body, whichever
+/// family leads it - a change of winged family is no switch, it is the
+/// viewer's family picker. A body this build cannot read counts as the
+/// person it is drawn as, so picking a person on one rolls nothing, as
+/// before.
+fn body_kind(body: &EngineAvatarRecord) -> RiggedKind {
+    match RiggedKind::of_record(body) {
+        RiggedKind::Unknown => RiggedKind::Person,
+        RiggedKind::Winged(_) => RiggedKind::Winged(symbios_avatar::WingedFamily::Bird),
+        kind => kind,
+    }
 }
 
 /// The Body tab's own drawing, before locomotion follows what it did.
@@ -402,21 +417,21 @@ fn draw_body_sections(
                 "Rolls this body's proportions and colouring. The whole-avatar seed above \
                  replaces the entire avatar, including which kind of body it is.",
             );
-            let was_beast = is_beast(engine);
+            let was = body_kind(engine);
             let (rebuilt, noted) = sections::identity(ui, engine);
             // The viewer's body toggle reports a change and nothing about
             // what it was, so the switch is read off the archetype either
-            // side of the draw (#1803).
-            match (was_beast, is_beast(engine)) {
-                (false, true) => {
-                    roll_switched(engine);
-                    outcome.label = Some(String::from("switch to a four-legged body"));
-                }
-                (true, false) => {
-                    roll_switched(engine);
-                    outcome.label = Some(String::from("switch to a person"));
-                }
-                _ => {}
+            // side of the draw (#1803): a kind, not a bool, since the toggle
+            // offers a winged body too (#1875), and a beast made winged was
+            // once named a switch to a person.
+            let now = body_kind(engine);
+            if now != was {
+                roll_switched(engine);
+                outcome.label = Some(String::from(match now {
+                    RiggedKind::Beast => "switch to a four-legged body",
+                    RiggedKind::Winged(_) => "switch to a winged body",
+                    _ => "switch to a person",
+                }));
             }
             let mut changed = rebuilt;
             ui.separator();
@@ -1010,6 +1025,26 @@ mod tests {
         }
     }
 
+    /// **A person who flies keeps their section and their tuning through an
+    /// edit of their body** (#1875's critic, #1861): the seed arrow redraws a
+    /// tuned person wearing the prototype's flight section, and nothing of
+    /// their preset moves - an on-foot body of any kind may fly, and only a
+    /// body that was winged has a winged body's section to lose.
+    #[test]
+    fn a_flying_persons_edits_never_refit_them() {
+        for did in ["did:plc:kind-switch", "did:plc:plan-test"] {
+            let mut person = tuned_person(did);
+            if let crate::pds::LocomotionConfig::Humanoid(p) = &mut person.locomotion {
+                p.flight = Some(crate::pds::avatar::locomotion::FlightParams::default());
+            }
+            let mut record = person.clone();
+            let driven = drive(&mut record, "\u{25b6}");
+            assert!(driven.changed, "{did}: the seed arrow reported no change");
+            assert_ne!(worn_body(&person), worn_body(&record), "{did}: the premise");
+            assert_eq!(record.locomotion, person.locomotion, "{did}: refitted");
+        }
+    }
+
     /// **A beast that becomes a person stands back up as one** (#1803): the
     /// stature rule's capsule, upright, and the default person's mass, jump
     /// and run - not the beast's, which the fit would otherwise keep - with
@@ -1340,5 +1375,218 @@ mod tests {
             !next.changed,
             "the frame after reported a change of its own"
         );
+    }
+
+    /// `family`'s default winged body - the owl, the fruit bat, the sugar
+    /// glider - worn and on its fitted preset, as the editor leaves one.
+    fn fitted_winged(family: symbios_avatar::WingedFamily) -> AvatarRecord {
+        crate::pds::avatar::locomotion::fitted_record(
+            crate::pds::avatar::locomotion::default_winged(family),
+        )
+    }
+
+    /// **A winged body's Body tab draws its own panels and drawing them
+    /// changes nothing** (#1876): the owl, the bat and the glider show the
+    /// viewer's body section and their surface - a bird's plumage, a bat's
+    /// and a glider's coat - and none of a person's face, hair or outfit, and
+    /// two passes with every section open leave the record as it was and
+    /// report no change.
+    #[test]
+    fn a_winged_body_draws_its_panels_and_drawing_them_changes_nothing() {
+        use symbios_avatar::WingedFamily;
+        for family in [WingedFamily::Bird, WingedFamily::Bat, WingedFamily::Glider] {
+            let mut record = fitted_winged(family);
+            let before = record.clone();
+            let (labels, changed) = hosted_sections(&mut record);
+            let surface = if family == WingedFamily::Bird {
+                "plumage"
+            } else {
+                "coat"
+            };
+            for section in ["body", surface] {
+                assert!(
+                    labels.iter().any(|l| l == section),
+                    "{family:?}'s Body tab hosts the {section:?} section; drawn: {labels:?}"
+                );
+            }
+            for section in ["face", "hair", "outfit"] {
+                assert!(
+                    !labels.iter().any(|l| l == section),
+                    "{family:?}'s Body tab draws a person's {section:?}; drawn: {labels:?}"
+                );
+            }
+            assert!(!changed, "drawing {family:?}'s Body tab reported a change");
+            assert_eq!(record, before, "drawing {family:?}'s Body tab rewrote it");
+        }
+    }
+
+    /// **A switch to a winged body and back is one undo step each way**
+    /// (#1876, owner decision 4 on #1862): the viewer's `winged` toggle,
+    /// clicked under a tuned person, rolls the winged body the person's seed
+    /// gives with every lock lifted - so it may land on a bat or a glider -
+    /// names the step "switch to a winged body", and stands it on the preset
+    /// fitted to it, flight and all, in the same draw; one undo is the person
+    /// back to the bit. The way back - `humanoid` under the owl - names a
+    /// switch to a person, stands the person up without the owl's flight,
+    /// and one undo is the owl back; and the owl made a beast is a switch to
+    /// a four-legged body that flies no more.
+    #[test]
+    fn a_switch_to_a_winged_body_and_back_is_one_undo_each_way() {
+        use symbios_avatar::{Archetype, WingedParams};
+        let mut rolled = Vec::new();
+        for did in ["did:plc:kind-switch", "did:plc:kind-switch-2"] {
+            let person = tuned_person(did);
+            let mut record = person.clone();
+            let driven = drive(&mut record, "winged");
+            assert!(driven.changed, "{did}: the switch reported no change");
+            assert_eq!(driven.label.as_deref(), Some("switch to a winged body"));
+            let body = worn_body(&record).expect("still resolved").clone();
+            let mut want = worn_body(&person).expect("resolved").clone();
+            want.archetype = Archetype::Winged(WingedParams::default());
+            roll_switched(&mut want);
+            want.sanitize();
+            assert_eq!(
+                body, want,
+                "{did}: not the winged body the person's seed rolls"
+            );
+            assert_ne!(
+                body.archetype,
+                Archetype::Winged(WingedParams::default()),
+                "{did}: the default owl, not a rolled body"
+            );
+            let fitted = crate::pds::avatar::fit_on_foot(&body, on_foot(&person));
+            assert!(
+                fitted.flies(),
+                "{did}: the premise, a winged body that rigs"
+            );
+            assert_eq!(on_foot(&record), &fitted, "{did}: not on its own preset");
+            let (steps, undone) = one_undo(&person, &record);
+            assert_eq!(steps, 2, "the baseline and one step");
+            assert_eq!(undone, person, "{did}: one undo is not the person back");
+            rolled.push(body.archetype);
+        }
+        assert_ne!(rolled[0], rolled[1], "two seeds rolled one body");
+
+        let owl = fitted_winged(symbios_avatar::WingedFamily::Bird);
+        let mut record = owl.clone();
+        let driven = drive(&mut record, "humanoid");
+        assert_eq!(driven.label.as_deref(), Some("switch to a person"));
+        let p = on_foot(&record);
+        assert!(
+            !p.flies() && !p.is_lying(),
+            "the person kept the owl's flight"
+        );
+        let (steps, undone) = one_undo(&owl, &record);
+        assert_eq!(steps, 2, "the baseline and one step");
+        assert_eq!(undone, owl, "one undo is not the owl back");
+
+        let mut record = owl.clone();
+        let driven = drive(&mut record, "quadruped");
+        assert_eq!(
+            driven.label.as_deref(),
+            Some("switch to a four-legged body")
+        );
+        let p = on_foot(&record);
+        assert!(
+            p.is_lying() && !p.flies(),
+            "the beast kept the owl's flight"
+        );
+        let (_, undone) = one_undo(&owl, &record);
+        assert_eq!(undone, owl, "one undo is not the owl back");
+    }
+
+    /// **A switch to or from a winged body rolls the new body whole from the
+    /// seed, and the creator's locks survive it** (#1876, mirroring
+    /// `a_switch_of_kind_rolls_the_new_body_whole_and_keeps_the_locks` for
+    /// the third kind): the viewer's toggle sets the default owl, so a lock
+    /// held across the switch would hold the owl's values - a held Stature
+    /// every winged body at the owl's size, a held Colouring every one in
+    /// the owl's plumage. Every lock set gives the body the seed rolls with
+    /// nothing locked, both ways, and the lock set comes back whole, so the
+    /// seed arrow after it keeps a locked size.
+    #[test]
+    fn a_switch_to_or_from_a_winged_body_rolls_it_whole_and_keeps_the_locks() {
+        use symbios_avatar::{Archetype, Category, LockSet, WingedParams};
+        let mut every = LockSet::NONE;
+        for category in Category::ALL {
+            every = every.with(category);
+        }
+        let lock_sets = [
+            LockSet::NONE.with(Category::Stature),
+            LockSet::NONE.with(Category::Head),
+            LockSet::NONE.with(Category::Colouring),
+            every,
+        ];
+        let rolled = |from: &EngineAvatarRecord, kind: Archetype| {
+            let mut want = from.clone();
+            want.archetype = kind;
+            want.locks = LockSet::NONE;
+            want.reroll(want.seed);
+            want.sanitize();
+            want.locks = from.locks;
+            want
+        };
+        let owl = WingedParams::default();
+        for did in ["did:plc:lock-a", "did:plc:lock-b", "did:plc:lock-c"] {
+            for locks in lock_sets {
+                // A person becoming a winged body.
+                let mut person = crate::pds::avatar::wardrobe::engine_default_for_did(did);
+                person.locks = locks;
+                let mut record = wearing(person.clone());
+                let driven = drive(&mut record, "winged");
+                assert!(driven.changed, "{did} {locks:?}: no change");
+                let body = worn_body(&record).expect("resolved").clone();
+                assert_eq!(body.locks, locks, "{did}: the lock set did not survive");
+                assert_eq!(
+                    body,
+                    rolled(&person, Archetype::Winged(owl)),
+                    "{did} {locks:?}: not the winged body the seed rolls"
+                );
+                let Archetype::Winged(w) = &body.archetype else {
+                    panic!("{did}: not winged");
+                };
+                assert!(
+                    w.size != owl.size
+                        && w.head_size != owl.head_size
+                        && (w.plumage != owl.plumage || w.coat != owl.coat),
+                    "{did} {locks:?}: a locked category kept the default owl's"
+                );
+
+                // A winged body becoming a person.
+                let mut winged = body;
+                winged.seed ^= 0x5eed;
+                winged.reroll(winged.seed);
+                winged.sanitize();
+                let mut record = wearing(winged.clone());
+                let driven = drive(&mut record, "humanoid");
+                assert!(driven.changed, "{did} {locks:?}: no change back");
+                let body = worn_body(&record).expect("resolved").clone();
+                assert_eq!(
+                    body.locks, locks,
+                    "{did}: the lock set did not survive back"
+                );
+                let want = rolled(&winged, Archetype::Humanoid(Default::default()));
+                assert_eq!(body, want, "{did} {locks:?}: not the person the seed rolls");
+                assert_ne!(
+                    body.archetype,
+                    Archetype::Humanoid(Default::default()),
+                    "{did} {locks:?}: the default person"
+                );
+            }
+        }
+        // The seed arrows after a switch keep the locks over the rolled body.
+        let mut person = crate::pds::avatar::wardrobe::engine_default_for_did("did:plc:lock-a");
+        person.locks = LockSet::NONE.with(Category::Stature);
+        let mut record = wearing(person);
+        drive(&mut record, "winged");
+        let switched = worn_body(&record).expect("resolved").clone();
+        drive(&mut record, "\u{25b6}");
+        let after = worn_body(&record).expect("resolved");
+        let size = |body: &EngineAvatarRecord| match &body.archetype {
+            Archetype::Winged(w) => w.size,
+            _ => panic!("not winged"),
+        };
+        assert_ne!(after.seed, switched.seed, "the premise: the arrow rolled");
+        assert_eq!(size(after), size(&switched), "the stature lock let go");
     }
 }

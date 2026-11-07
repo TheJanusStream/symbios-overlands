@@ -1031,6 +1031,73 @@ mod tests {
         );
     }
 
+    /// A winged body crosses the worker boundary with the wings a page poses
+    /// (#1874, symbios-avatar 0.20's #421).
+    ///
+    /// What a page needs of a wing is on the rig: `Rig::wings` - each wing's
+    /// joints, the tail fan's and the families the body is - is data a pose
+    /// writes, so a motion on the far side spreads and folds wings the worker
+    /// grew. The grown parts are not: `Parts::wings` stays on the side that
+    /// built them, as `Parts::body` always has, so a consumer that reached for
+    /// either would read nothing in the browser and something natively. This
+    /// pins both halves through the worker's own codec, on a body that really
+    /// grew wings before the trip.
+    #[test]
+    fn a_winged_avatar_build_round_trips_through_msgpack() {
+        let mut record = symbios_avatar::AvatarRecord::new(
+            "Winged",
+            symbios_avatar::Archetype::Winged(symbios_avatar::WingedParams::default()),
+        );
+        record.reroll(11);
+        assert!(
+            matches!(record.archetype, symbios_avatar::Archetype::Winged(_)),
+            "a re-roll keeps the plan"
+        );
+
+        let GenResult::Avatar(built) = GenJob::AvatarBuild {
+            record: Box::new(record),
+            atlas: 64,
+            far_hair: true,
+        }
+        .run() else {
+            unreachable!("an avatar job must return an avatar result");
+        };
+        let built = built.expect("a rolled winged body meshes");
+        // The premise: the build itself grew them, so what is missing on the
+        // far side went missing on the way.
+        let wings = built.rig.wings.clone().expect("a winged body has wings");
+        assert_eq!(wings.sides.len(), 2, "a body with two wings");
+        assert!(
+            !wings.joints.is_empty(),
+            "wings with no joints of their own"
+        );
+        assert!(built.parts.wings.is_some(), "the build grew no wing parts");
+        assert!(built.parts.body.face_count() > 0, "the build has no body");
+
+        let bytes =
+            rmp_serde::to_vec_named(&GenResult::Avatar(Some(built))).expect("encode result");
+        let GenResult::Avatar(back) = rmp_serde::from_slice(&bytes).expect("decode result") else {
+            unreachable!("an avatar result must decode as an avatar");
+        };
+        let back = back.expect("a built body stays built");
+
+        assert!(!back.meshes.is_empty(), "a body arrived with no geometry");
+        assert_eq!(
+            back.rig.wings.as_ref(),
+            Some(&wings),
+            "the wings a page poses arrived changed or not at all"
+        );
+        assert!(
+            back.parts.wings.is_none(),
+            "the grown wing parts crossed the boundary"
+        );
+        assert_eq!(
+            (back.parts.body.vertex_count(), back.parts.body.face_count()),
+            (0, 0),
+            "the unmerged body crossed the boundary"
+        );
+    }
+
     /// **A body a newer build sent still arrives** (#1860, engine #419).
     ///
     /// A browser's page and its worker can be different releases, so a body a

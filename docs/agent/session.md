@@ -151,8 +151,8 @@ hints in chat; you turn each into an improvement, one small step at a time.
   on the avatar; whenever they arrive, stop and greet them. Meanwhile look
   with fresh eyes, offline: the arrival (`views.py ... "@landingcam"`),
   each place from where a visitor stands, the lanes at walking height; the
-  body (a rigged person with `render --rigged`, walking and running in its
-  world with `--world ... --walker-avatar`; a generator body with
+  body (a rigged one with `render --rigged`, a person or a beast walking and
+  running in its world with `--world ... --walker-avatar`; a generator body with
   `render --generator ... --body`: [avatar.md](avatar.md));
   `--triangle-report` and `--floating-report`. Rank what you would improve
   in a short list, as a comment on the parent (`chainlink comment <parent>

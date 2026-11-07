@@ -124,7 +124,8 @@
 //!   exist, and standing in [`crate::player::visuals::standing_pose`] - the
 //!   rest pose with the arms hung, no breath, no sway: a still picture. The
 //!   stand-in chassis is turned so the face is seen, a person in three
-//!   quarters and a beast more from the side ([`body_facing`]).
+//!   quarters and a beast more from the side ([`body_facing`]); a winged body
+//!   as its posture goes, a bird as a person and a bat or a glider as a beast.
 //! - **Framed on the posed body.** Bevy bounds a skinned mesh by its bind
 //!   pose - the A-pose, arms out - so the skinned meshes' `Aabb`s are left out
 //!   of the framing and the body's own [`crate::player::visuals::standing_box`]
@@ -1131,7 +1132,7 @@ fn stand_body(
     images: &mut Assets<Image>,
     bindposes: &mut Assets<SkinnedMeshInverseBindposes>,
 ) -> StandingBody {
-    let beast = matches!(record.archetype, symbios_avatar::Archetype::Quadruped(_));
+    let beast = shows_its_flank(record);
     let standing_box = standing_box(&avatar);
     let stage = commands
         .spawn((
@@ -1161,6 +1162,14 @@ fn stand_body(
         shown: true,
         settle: 1,
     }
+}
+
+/// Whether `record`'s body is turned as a beast is ([`body_facing`]), its
+/// flank to the camera: a body that goes on four legs, which is a beast and a
+/// winged body a bat or a glider leads (#1875). A bird stands up as a person
+/// does, and is turned to show its face.
+fn shows_its_flank(record: &EngineAvatarRecord) -> bool {
+    crate::pds::avatar::RiggedKind::of_record(record).on_four()
 }
 
 /// How the stand-in chassis turns a body so the camera sees it: a person's
@@ -2124,6 +2133,32 @@ mod body_tests {
             "the doomed body was built once, ever"
         );
         assert_eq!(preview(&app).failed(), Some(&subject));
+    }
+
+    /// **A winged body is turned as its posture goes** (#1875): a bird, on
+    /// two legs, as a person; a bat or a glider, on four, as a beast. Persons
+    /// and beasts as they were.
+    #[test]
+    fn a_winged_body_is_turned_as_its_posture_goes() {
+        use symbios_avatar::{Archetype, QuadrupedParams, WingedFamily, WingedParams};
+        let body = |archetype| EngineAvatarRecord {
+            archetype,
+            ..EngineAvatarRecord::default()
+        };
+        let winged = |family| {
+            let mut params = WingedParams::default();
+            params.set_kind(family, None, 0.0);
+            body(Archetype::Winged(params))
+        };
+        assert!(!shows_its_flank(&body(Archetype::Humanoid(
+            Default::default()
+        ))));
+        assert!(shows_its_flank(&body(Archetype::Quadruped(
+            QuadrupedParams::default()
+        ))));
+        assert!(!shows_its_flank(&winged(WingedFamily::Bird)));
+        assert!(shows_its_flank(&winged(WingedFamily::Bat)));
+        assert!(shows_its_flank(&winged(WingedFamily::Glider)));
     }
 
     /// A person is turned to show the face in three quarters and a beast
