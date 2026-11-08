@@ -31,7 +31,7 @@
 //! the rain and the snow and, after a weather that comes and goes, dry and
 //! melt over its next spells, read off the same timeline. The ground's and
 //! the grass's shaders draw them (`terrain::splat`, `grass`), and the
-//! water's rings its rain (`water.wgsl`), and the world's parts - roads,
+//! water's rings its rain (`water.wesl`), and the world's parts - roads,
 //! buildings, placed pieces - wet and take snow as the ground does
 //! (#1686, `crate::weathered`). Under a roof what falls folds away, and
 //! the ground, the grass and the parts under it stay dry and bare (#1685,
@@ -42,7 +42,7 @@
 //!
 //! A storm (#1684) blows: its wind is the room's, raised by the storm, which
 //! the clouds, the grass, the foliage and the rain all follow; gust fronts
-//! cross the world over it (`storm_common.wgsl`); and [`lightning`] strikes
+//! cross the world over it (`storm_common.wesl`); and [`lightning`] strikes
 //! on the clock, flashing the sky and the world, its thunder after it. A
 //! dust storm blows as a storm does ([`WeatherNow::gusts`]), and strikes no
 //! lightning.

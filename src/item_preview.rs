@@ -521,6 +521,7 @@ pub(crate) fn setup_preview(
     let camera = commands
         .spawn((
             Camera3d::default(),
+            crate::camera::TONEMAPPING,
             PreviewCamera,
             // Deliberately NO egui context. bevy_egui's automatic pick is
             // off (#1317, `crate::camera::egui_global_settings`), so a

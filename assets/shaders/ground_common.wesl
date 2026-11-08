@@ -1,6 +1,6 @@
 // What the ground and the grass on it share (#1676): the world-space tone
-// fields that vary them together, imported by asset path by `splat.wgsl` (the
-// ground) and `grass.wgsl` (the blades), so the grass on a lighter stretch of
+// fields that vary them together, imported by asset path by `splat.wesl` (the
+// ground) and `grass.wesl` (the blades), so the grass on a lighter stretch of
 // ground is drier, and the grass fading out toward its reach fades into
 // ground that varies as it does - and the weather on both (#1683), and what
 // the ground shows of the grass growing on it (#1695), further down.
@@ -100,7 +100,7 @@ fn ground_vary(colour: vec3<f32>, drift: f32, mottle: f32) -> vec3<f32> {
 const WET_DARKEN: f32 = 0.72;
 // Wet ground's share of its roughness; a puddle's colour share, darker
 // still, and its roughness, nearly a mirror; settled snow's roughness. The
-// world's parts take the same (`weathered.wgsl`, #1686), so a wet road and
+// world's parts take the same (`weathered.wesl`, #1686), so a wet road and
 // the wet verge beside it shine alike.
 const WET_ROUGHNESS: f32 = 0.45;
 const PUDDLE_DARKEN: f32 = 0.4;
@@ -160,7 +160,7 @@ fn puddle_at(xz: vec2<f32>, up: f32, wet: f32) -> f32 {
 //     with bare ground between, which a glance sees too;
 //   * what of the blades shows: their tips at a glance, more of their height
 //     from higher up, the dry ones' share, drier where the ground drifts
-//     lighter, as `grass.wgsl` colours a blade - and its flowers' heads, by
+//     lighter, as `grass.wesl` colours a blade - and its flowers' heads, by
 //     the share of the blades that flower (#1700);
 //   * the wind: the blades' gust wave, and a storm's fronts, lighten it where
 //     they lean the blades over, the further the more the grass sways - the
@@ -170,14 +170,14 @@ fn puddle_at(xz: vec2<f32>, up: f32, wet: f32) -> f32 {
 //   * the weather: a puddle drowns it, as it drowns the blades.
 
 // How far a blade's normal leans to the sky from facing the eye
-// (`grass.wgsl`'s `blade_point`).
+// (`grass.wesl`'s `blade_point`).
 const BLADE_SKYWARD: f32 = 0.6;
 // How much lighter grass leaning over in a gust is, by how far it leans:
 // in the room's default wind, a swell about a fifth lighter than a lull.
 const CARPET_GUST: f32 = 0.2;
 // The most the wind leans a blade over, as a share of
 // `config::grass::WIND_LEAN` (a world's sway scales the lean, not this): its
-// tip at most nine tenths of its height over (`grass.wgsl`'s bend), about
+// tip at most nine tenths of its height over (`grass.wesl`'s bend), about
 // three times `WIND_LEAN` on a blade `BLADE_HEIGHT` tall.
 const LEAN_MOST: f32 = 3.0;
 // The wind speed (m/s) at which the blades lean as far as the room says

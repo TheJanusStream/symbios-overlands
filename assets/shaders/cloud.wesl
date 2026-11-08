@@ -28,14 +28,14 @@
 // The colours arrive linear (`clouds::cloud_uniforms`). WebGL2-safe:
 // uniforms and arithmetic only.
 
-#import bevy_pbr::{
+import bevy_pbr::render::{
     mesh_view_bindings::{globals, view, lights},
     forward_io::{VertexOutput, FragmentOutput},
-}
-#import "shaders/sky_common.wgsl"::sky_toward
-#import "shaders/cloud_common.wgsl"::{CloudUniforms, cloud_mass, FULL_OCTAVES}
+};
+import super::sky_common::sky_toward;
+import super::cloud_common::{CloudUniforms, cloud_mass, FULL_OCTAVES};
 
-@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> cloud: CloudUniforms;
+@group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> cloud: CloudUniforms;
 
 // How bright a lightning flash lights the deck from within, at its peak
 // (#1684): this many times the cloud's own colour.
@@ -58,7 +58,7 @@ const MIN_SUN_HEIGHT: f32 = 0.15;
 // sun stays a dim grey rather than going to its shadow colour whole.
 const LIT_FLOOR: f32 = 0.2;
 // Moonlight is white whatever the key light's tint, as the sky's moon disc
-// is (`sky.wgsl`'s MOON_TINT): under the moon (`sky_look.y`) the clouds take
+// is (`sky.wesl`'s MOON_TINT): under the moon (`sky_look.y`) the clouds take
 // the light's brightness in this colour.
 const MOON_TINT: vec3<f32> = vec3<f32>(0.86, 0.90, 1.0);
 // The share of the sun's light (its colour times illuminance times the

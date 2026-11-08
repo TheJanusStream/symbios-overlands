@@ -38,11 +38,10 @@ use std::time::Instant;
 use bevy::anti_alias::fxaa::Fxaa;
 use bevy::camera::RenderTarget;
 use bevy::core_pipeline::prepass::DepthPrepass;
-use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
 use bevy::render::gpu_readback::{Readback, ReadbackComplete};
-use bevy::render::view::ColorGrading;
+use bevy::render::view::{ColorGrading, Tonemapping};
 use bevy_panorbit_camera::PanOrbitCamera;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use serde_json::{Value, json};
@@ -396,6 +395,9 @@ fn start(world: &mut World, shot: Shot, spec: LookSpec, reply: mpsc::Sender<Resp
         .add(crate::render_tool::new_target(LOOK_SIZE));
     let mut camera = world.spawn((
         Camera3d::default(),
+        // Overwritten by the world camera's lens below, which is the same
+        // operator; named here for a picture taken with no world camera.
+        crate::camera::TONEMAPPING,
         LookCamera,
         // The grass is laid for this camera too: as thick as it needs where
         // it stands, and never hidden behind a hill the camera sees over.

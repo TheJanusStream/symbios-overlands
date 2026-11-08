@@ -794,10 +794,7 @@ impl PrimitiveShape for TetrahedronShape<'_> {
         classified(mesh, FaceKey::Surface, tetra_face)
     }
     fn analytical_collider(&self) -> Option<Collider> {
-        Some(
-            Collider::convex_hull(self.corners().to_vec())
-                .unwrap_or_else(|| Collider::sphere(self.size)),
-        )
+        Some(Collider::convex_hull(&self.corners()).unwrap_or_else(|| Collider::sphere(self.size)))
     }
 }
 
@@ -912,7 +909,7 @@ impl PrimitiveShape for WedgeShape<'_> {
             Vec3::new(w, h, -d),
         ];
         Some(
-            Collider::convex_hull(corners)
+            Collider::convex_hull(&corners)
                 .unwrap_or_else(|| Collider::cuboid(self.size[0], self.size[1], self.size[2])),
         )
     }
@@ -955,7 +952,7 @@ impl PrimitiveShape for SuperellipsoidShape<'_> {
         // back to a bounding sphere.
         let points =
             superellipsoid_hull_points(self.half_extents, self.exponent_ns, self.exponent_ew);
-        Some(Collider::convex_hull(points).unwrap_or_else(|| {
+        Some(Collider::convex_hull(&points).unwrap_or_else(|| {
             Collider::sphere(
                 self.half_extents[0]
                     .max(self.half_extents[1])
@@ -996,7 +993,7 @@ impl PrimitiveShape for SpineShape<'_> {
         // concave side of a bend hull-fills (standoff-over-fidelity, like
         // every tortured prim).
         let points = spine_hull_points(&self.points);
-        Some(Collider::convex_hull(points).unwrap_or_else(|| Collider::sphere(0.5)))
+        Some(Collider::convex_hull(&points).unwrap_or_else(|| Collider::sphere(0.5)))
     }
 }
 
@@ -1028,7 +1025,7 @@ impl PrimitiveShape for LatheShape<'_> {
     }
     fn analytical_collider(&self) -> Option<Collider> {
         let points = lathe_hull_points(&self.points, self.smooth);
-        Some(Collider::convex_hull(points).unwrap_or_else(|| Collider::sphere(0.5)))
+        Some(Collider::convex_hull(&points).unwrap_or_else(|| Collider::sphere(0.5)))
     }
 }
 
@@ -1065,7 +1062,7 @@ impl PrimitiveShape for BlobGroupShape<'_> {
         if points.is_empty() {
             return None;
         }
-        Some(Collider::convex_hull(points).unwrap_or_else(|| Collider::sphere(0.25)))
+        Some(Collider::convex_hull(&points).unwrap_or_else(|| Collider::sphere(0.25)))
     }
 }
 

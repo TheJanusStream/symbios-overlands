@@ -4,7 +4,7 @@
 //! room has it, the ones published before it included.
 //!
 //! The sky is the cuboid `setup_lighting` spawns around the camera, drawn by
-//! [`SkyMaterial`] through `assets/shaders/sky.wgsl`. The shader lights the
+//! [`SkyMaterial`] through `assets/shaders/sky.wesl`. The shader lights the
 //! disc with the scene's own directional light and hazes everything with
 //! the camera's own distance fog, along an imaginary path that is longest at
 //! the horizon: the far terrain, which the same fog covers, fades into the
@@ -39,13 +39,13 @@ use bevy::{
 use crate::config::lighting::sky as cfg;
 use crate::pds::Environment;
 
-const SKY_SHADER_PATH: &str = "shaders/sky.wgsl";
+const SKY_SHADER_PATH: &str = "shaders/sky.wesl";
 
 /// An optical depth past which nothing of the sky's own colour is left
 /// (`exp(-50)` is 2e-22): where a fog with no visibility at all lands.
 const FOGGED_THROUGH: f32 = 50.0;
 
-/// What `sky.wgsl` is given: two `Vec4`s, a 32-byte block - WebGL2 rejects
+/// What `sky.wesl` is given: two `Vec4`s, a 32-byte block - WebGL2 rejects
 /// a uniform block that is not a multiple of 16 bytes
 /// (`the_uniform_block_is_16_byte_aligned`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, ShaderType)]
@@ -71,7 +71,7 @@ pub struct SkyMaterial {
 }
 
 impl Material for SkyMaterial {
-    /// Draws the cuboid at the far plane (#1673): see `sky.wgsl`'s `vertex`.
+    /// Draws the cuboid at the far plane (#1673): see `sky.wesl`'s `vertex`.
     fn vertex_shader() -> ShaderRef {
         SKY_SHADER_PATH.into()
     }
@@ -91,7 +91,7 @@ impl Material for SkyMaterial {
     }
 
     /// The camera is inside the cuboid, looking at its inner faces. The sky
-    /// stands at the far plane (`sky.wgsl`'s `vertex`, #1673), where the
+    /// stands at the far plane (`sky.wesl`'s `vertex`, #1673), where the
     /// depth buffer starts, so a depth it wrote would change nothing: it
     /// writes none.
     fn specialize(

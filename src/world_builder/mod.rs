@@ -177,7 +177,7 @@ pub fn register_headless_spawn(app: &mut App) {
         // itself contributes nothing to a contact sheet - but the material is
         // registered here anyway because *this* is the headless path that
         // actually creates the foliage render pipeline. Without it, a broken
-        // `wind.wgsl` would first surface in a browser.
+        // `wind.wesl` would first surface in a browser.
         .add_plugins(crate::wind::VegetationWindPlugin)
         // The world's parts (#1686): registered here for the same reason,
         // and because every part the spawn path makes is one.

@@ -2271,7 +2271,7 @@ impl Underfoot<'_, '_> {
                     &pose,
                     &band,
                 )
-                .unwrap_or(true)
+                .map_or(true, |hit| hit.intersecting)
             };
             if fixed && meets() {
                 found.push(Structure {

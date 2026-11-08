@@ -67,7 +67,7 @@ fn bench_app<M>(
 ) -> (App, Entity) {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
-        .add_plugins(PhysicsPlugins::default())
+        .add_plugins(crate::player::GamePhysics)
         .insert_resource(Time::<Fixed>::from_hz(BENCH_HZ))
         .init_resource::<ButtonInput<KeyCode>>()
         .insert_resource(LiveAvatarRecord(record.clone()))
@@ -382,7 +382,7 @@ impl FlightBench {
     /// The lowest point of the body's collider, as it stands.
     pub(crate) fn underside(&self) -> f32 {
         self.component::<Collider>()
-            .aabb(self.position(), self.rotation())
+            .aabb(self.position(), self.rotation(), 0.0)
             .min
             .y
     }
@@ -541,7 +541,7 @@ impl DriveBench {
     /// The lowest point of the chassis box, as it stands.
     pub(crate) fn underside(&self) -> f32 {
         self.component::<Collider>()
-            .aabb(self.position(), self.rotation())
+            .aabb(self.position(), self.rotation(), 0.0)
             .min
             .y
     }
@@ -723,7 +723,7 @@ pub(crate) fn run_at_frame_rate(
         bevy::asset::AssetPlugin::default(),
     ))
     .init_asset::<Mesh>()
-    .add_plugins(PhysicsPlugins::default())
+    .add_plugins(crate::player::GamePhysics)
     .insert_resource(Time::<Fixed>::from_hz(BENCH_HZ))
     .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
         std::time::Duration::from_secs_f64(1.0 / fps),

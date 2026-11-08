@@ -1,10 +1,10 @@
 // Weather on the world's parts (#1686): roads, buildings, placed items and
 // plants' trunks wet, gather puddles and take settled snow as the ground
-// under them does (`splat.wgsl`), from the same fields (`ground_common.wgsl`)
+// under them does (`splat.wesl`), from the same fields (`ground_common.wesl`)
 // and the same values, so a road through a snowfield is white where the
 // field is and a roof whitens with the hills.
 //
-// The forward fragment of Bevy's own `pbr.wgsl`, the weather laid on
+// The forward fragment of Bevy's own `pbr.wesl`, the weather laid on
 // between the alpha discard and the lighting; everything a
 // `StandardMaterial` draws (textures, alpha masks, unlit, the draw
 // distance's dither) draws as it did. A material whose `weathers` is off -
@@ -37,26 +37,27 @@
 // lit room behind a window) takes its glow by how dark the drawn world is,
 // the block's `lights`: none by day, all of it at night.
 
-#import bevy_pbr::{
-    pbr_types,
-    pbr_functions::{alpha_discard, apply_pbr_lighting, main_pass_post_lighting_processing},
-    pbr_fragment::pbr_input_from_standard_material,
+import bevy_pbr::{
+    render::{
+        pbr_types,
+        pbr_functions::{alpha_discard, apply_pbr_lighting, main_pass_post_lighting_processing},
+        pbr_fragment::pbr_input_from_standard_material,
+        forward_io::{VertexOutput, FragmentOutput},
+    },
     decal::clustered::apply_decals,
-    forward_io::{VertexOutput, FragmentOutput},
-}
+};
 
-#ifdef VISIBILITY_RANGE_DITHER
-#import bevy_pbr::pbr_functions::visibility_range_dither;
-#endif
+@if(VISIBILITY_RANGE_DITHER)
+import bevy_pbr::render::pbr_functions::visibility_range_dither;
 
-#ifdef OIT_ENABLED
-#import bevy_core_pipeline::oit::oit_draw
-#endif
+@if(MATERIAL_OIT_ENABLED)
+import bevy_core_pipeline::oit::draw::oit_draw;
 
-#ifdef WEATHERED
-#import "shaders/ground_common.wgsl"::{snow_settled, puddle_at, SNOW_ALBEDO, WET_DARKEN, WET_ROUGHNESS, PUDDLE_DARKEN, PUDDLE_ROUGHNESS, SNOW_ROUGHNESS, WATER_REFLECTANCE, WET_REFLECTANCE_SHARE}
+@if(WEATHERED)
+import super::ground_common::{snow_settled, puddle_at, SNOW_ALBEDO, WET_DARKEN, WET_ROUGHNESS, PUDDLE_DARKEN, PUDDLE_ROUGHNESS, SNOW_ROUGHNESS, WATER_REFLECTANCE, WET_REFLECTANCE_SHARE};
 
 // `crate::weathered::WorldWeatherUniforms`; a test holds the two in step.
+@if(WEATHERED)
 struct WorldWeather {
     wetness: f32,
     snow: f32,
@@ -73,19 +74,24 @@ struct WorldWeather {
     _pad2: f32,
 }
 
-@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> weather: WorldWeather;
-@group(#{MATERIAL_BIND_GROUP}) @binding(101) var shelter: texture_2d<f32>;
+@if(WEATHERED)
+@group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> weather: WorldWeather;
+@if(WEATHERED)
+@group(constants::MATERIAL_BIND_GROUP) @binding(101) var shelter: texture_2d<f32>;
 
 // `config::terrain::ground_cover::SHELTER_CLEARANCE`, which a test pins:
 // how far under a shelter's top a surface stands dry, as the ground does.
+@if(WEATHERED)
 const SHELTER_CLEARANCE: f32 = 0.5;
 // A surface facing up less than this is a wall, which no shelter keeps
 // dry: its texel holds its own building's roof, which the map cannot tell
 // from one over it, and rain drives onto walls besides.
+@if(WEATHERED)
 const SHELTER_WALL: f32 = 0.3;
 
 // How open to the sky a surface at `p` facing up by `up` is: 1 in the open,
 // off the map and on a wall, 0 well under a shelter.
+@if(WEATHERED)
 fn open_sky(p: vec3<f32>, up: f32) -> f32 {
     if weather.shelter_size < 1.0 || abs(up) < SHELTER_WALL {
         return 1.0;
@@ -105,7 +111,6 @@ fn open_sky(p: vec3<f32>, up: f32) -> f32 {
     let allowed = SHELTER_CLEARANCE + gradient * weather.shelter_texel * 0.7072;
     return select(1.0, 0.0, top - p.y > allowed);
 }
-#endif
 
 @fragment
 fn fragment(
@@ -114,60 +119,62 @@ fn fragment(
 ) -> FragmentOutput {
     var in = vertex_output;
 
-#ifdef VISIBILITY_RANGE_DITHER
+    @if(VISIBILITY_RANGE_DITHER)
     visibility_range_dither(in.position, in.visibility_range_dither);
-#endif
 
     var pbr_input = pbr_input_from_standard_material(in, is_front);
-    pbr_input.material.base_color = alpha_discard(pbr_input.material, pbr_input.material.base_color);
+    pbr_input.material.base_color = alpha_discard(
+        pbr_input.material.flags,
+        pbr_input.material.alpha_cutoff,
+        pbr_input.material.base_color
+    );
     apply_decals(&pbr_input);
 
-#ifdef WEATHERED
-#ifdef DUSK_TO_DAWN
-    // A glow that shows from dusk to dawn: out by day, coming on as the
-    // world darkens. Its colour only: Bevy keeps the emission's exposure
-    // weight in its alpha.
-    pbr_input.material.emissive = vec4<f32>(
-        pbr_input.material.emissive.rgb * weather.lights,
-        pbr_input.material.emissive.a,
-    );
-#endif
-    // Lit surfaces only: an unlit one (a neon tube, a glowing sign) draws
-    // its colour as it is, and a wet or snowed colour there would shine.
-    let lit = (pbr_input.material.flags & pbr_types::STANDARD_MATERIAL_FLAGS_UNLIT_BIT) == 0u;
-    if lit && (weather.wetness > 0.0 || weather.snow > 0.0) {
-        let p = in.world_position.xyz;
-        // The surface's own facing, not its normal map's: the side seen of
-        // a two-sided part, so an awning seen from below faces down.
-        let facing = pbr_input.world_normal;
-        let up = facing.y;
-        let open = open_sky(p, up);
-        // Rain falls: what faces the ground - a ceiling, a soffit, an
-        // awning's underside - is not wetted, walls are.
-        let wet = weather.wetness * open * smoothstep(-0.5, -0.2, up);
-        let puddle = puddle_at(p.xz, up, wet);
-        let settled = snow_settled(p.xz, p.y, up, weather.snow * open, weather.snow_line, weather.snow_feather);
-        let metal = pbr_input.material.metallic;
-
-        var albedo = pbr_input.material.base_color.rgb * mix(1.0, WET_DARKEN, wet * (1.0 - metal));
-        var rough = pbr_input.material.perceptual_roughness * mix(1.0, WET_ROUGHNESS, wet);
-        albedo = albedo * mix(1.0, PUDDLE_DARKEN, puddle);
-        rough = mix(rough, PUDDLE_ROUGHNESS, puddle);
-        pbr_input.material.reflectance = mix(
-            pbr_input.material.reflectance,
-            vec3<f32>(WATER_REFLECTANCE),
-            max(puddle, WET_REFLECTANCE_SHARE * wet),
+    @if(WEATHERED) {
+        // A glow that shows from dusk to dawn: out by day, coming on as the
+        // world darkens. Its colour only: Bevy keeps the emission's exposure
+        // weight in its alpha.
+        @if(DUSK_TO_DAWN)
+        pbr_input.material.emissive = vec4<f32>(
+            pbr_input.material.emissive.rgb * weather.lights,
+            pbr_input.material.emissive.a,
         );
-        albedo = mix(albedo, SNOW_ALBEDO, settled);
-        rough = mix(rough, SNOW_ROUGHNESS, settled);
-        pbr_input.material.metallic = mix(metal, 0.0, settled);
-        pbr_input.material.emissive = pbr_input.material.emissive * (1.0 - settled);
-        // A puddle and a snow cover lie flat: the surface's own detail goes.
-        pbr_input.N = normalize(mix(pbr_input.N, facing, max(puddle, 0.7 * settled)));
-        pbr_input.material.base_color = vec4<f32>(albedo, pbr_input.material.base_color.a);
-        pbr_input.material.perceptual_roughness = rough;
+        // Lit surfaces only: an unlit one (a neon tube, a glowing sign) draws
+        // its colour as it is, and a wet or snowed colour there would shine.
+        let lit = (pbr_input.material.flags & pbr_types::STANDARD_MATERIAL_FLAGS_UNLIT_BIT) == 0u;
+        if lit && (weather.wetness > 0.0 || weather.snow > 0.0) {
+            let p = in.world_position.xyz;
+            // The surface's own facing, not its normal map's: the side seen of
+            // a two-sided part, so an awning seen from below faces down.
+            let facing = pbr_input.world_normal;
+            let up = facing.y;
+            let open = open_sky(p, up);
+            // Rain falls: what faces the ground - a ceiling, a soffit, an
+            // awning's underside - is not wetted, walls are.
+            let wet = weather.wetness * open * smoothstep(-0.5, -0.2, up);
+            let puddle = puddle_at(p.xz, up, wet);
+            let settled = snow_settled(p.xz, p.y, up, weather.snow * open, weather.snow_line, weather.snow_feather);
+            let metal = pbr_input.material.metallic;
+
+            var albedo = pbr_input.material.base_color.rgb * mix(1.0, WET_DARKEN, wet * (1.0 - metal));
+            var rough = pbr_input.material.perceptual_roughness * mix(1.0, WET_ROUGHNESS, wet);
+            albedo = albedo * mix(1.0, PUDDLE_DARKEN, puddle);
+            rough = mix(rough, PUDDLE_ROUGHNESS, puddle);
+            pbr_input.material.reflectance = mix(
+                pbr_input.material.reflectance,
+                vec3<f32>(WATER_REFLECTANCE),
+                max(puddle, WET_REFLECTANCE_SHARE * wet),
+            );
+            albedo = mix(albedo, SNOW_ALBEDO, settled);
+            rough = mix(rough, SNOW_ROUGHNESS, settled);
+            pbr_input.material.metallic = mix(metal, 0.0, settled);
+            pbr_input.material.emissive = pbr_input.material.emissive * (1.0 - settled);
+            // A puddle and a snow cover lie flat: the surface's own detail goes.
+            pbr_input.N = normalize(mix(pbr_input.N, facing, max(puddle, 0.7 * settled)));
+            pbr_input.material.base_color = vec4<f32>(albedo, pbr_input.material.base_color.a);
+            pbr_input.material.perceptual_roughness = rough;
+        }
     }
-#endif
 
     var out: FragmentOutput;
     if (pbr_input.material.flags & pbr_types::STANDARD_MATERIAL_FLAGS_UNLIT_BIT) == 0u {
@@ -177,13 +184,20 @@ fn fragment(
     }
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
 
-#ifdef OIT_ENABLED
-    let alpha_mode = pbr_input.material.flags & pbr_types::STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS;
-    if alpha_mode != pbr_types::STANDARD_MATERIAL_FLAGS_ALPHA_MODE_OPAQUE {
-        oit_draw(in.position, out.color);
-        discard;
+    @if(MATERIAL_OIT_ENABLED) {
+        let alpha_mode = pbr_input.material.flags & pbr_types::STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS;
+        if alpha_mode == pbr_types::STANDARD_MATERIAL_FLAGS_ALPHA_MODE_BLEND {
+            // The fragments will only be drawn during the oit resolve pass.
+            oit_draw(in.position, vec4(out.color.rgb * out.color.a, out.color.a));
+            discard;
+        }
+        // Both `Premultiplied` and `Add` colors are premultiplied in `premultiply_alpha()`
+        if alpha_mode == pbr_types::STANDARD_MATERIAL_FLAGS_ALPHA_MODE_PREMULTIPLIED
+            || alpha_mode == pbr_types::STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ADD {
+            oit_draw(in.position, out.color);
+            discard;
+        }
     }
-#endif
 
     return out;
 }

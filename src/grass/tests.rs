@@ -37,9 +37,9 @@ fn wgsl_fields(src: &str, struct_name: &str) -> Vec<(String, String)> {
 fn wgsl_block_mirrors_the_rust_one() {
     let src = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/assets/shaders/grass.wgsl"
+        "/assets/shaders/grass.wesl"
     ))
-    .expect("grass.wgsl is a tracked asset");
+    .expect("grass.wesl is a tracked asset");
     let expected = [
         ("base", "vec4<f32>"),
         ("tip", "vec4<f32>"),
@@ -61,17 +61,17 @@ fn wgsl_block_mirrors_the_rust_one() {
         .collect();
     assert_eq!(
         actual, expected,
-        "grass.wgsl's GrassUniforms drifted from the Rust block"
+        "grass.wesl's GrassUniforms drifted from the Rust block"
     );
     assert_eq!(GrassUniforms::min_size().get(), 288);
     assert!(
         src.contains(&format!("const TILE_M: f32 = {:.1};", cfg::TILE_M)),
-        "grass.wgsl's TILE_M is config::grass::TILE_M"
+        "grass.wesl's TILE_M is config::grass::TILE_M"
     );
     // The world's sway (#1700) scales the shader's own lean.
     assert!(
         src.contains(&format!("const WIND_LEAN: f32 = {};", cfg::WIND_LEAN)),
-        "grass.wgsl's WIND_LEAN is config::grass::WIND_LEAN"
+        "grass.wesl's WIND_LEAN is config::grass::WIND_LEAN"
     );
 }
 
@@ -628,7 +628,7 @@ fn the_grass_follows_a_record_that_lands_before_its_ground() {
 /// (#1683), and the ground shows it (#1695): both shaders take the drift,
 /// the mottle, the variation, the settled snow, the puddles, the grass's
 /// clumps, what the ground shows of it and its gusts from
-/// `ground_common.wgsl`, call them in their own code - an import alone
+/// `ground_common.wesl`, call them in their own code - an import alone
 /// compiles to nothing - and keep no copy of their own that could drift
 /// from the other's: the drier grass would no longer stand on the lighter
 /// ground, a puddle would keep its blades, and the far blades would fade
@@ -642,7 +642,7 @@ fn the_grass_and_the_ground_read_one_field() {
         ))
         .unwrap_or_else(|_| panic!("{name} is a tracked asset"))
     };
-    let common = read("ground_common.wgsl");
+    let common = read("ground_common.wesl");
     let fields = [
         "ground_drift",
         "ground_mottle",
@@ -664,21 +664,21 @@ fn the_grass_and_the_ground_read_one_field() {
         assert_eq!(
             common.matches(&definition).count(),
             1,
-            "ground_common.wgsl defines {field}"
+            "ground_common.wesl defines {field}"
         );
     }
-    for shader in ["grass.wgsl", "splat.wgsl"] {
+    for shader in ["grass.wesl", "splat.wesl"] {
         let src = read(shader);
         let import = src
             .lines()
-            .find(|l| l.starts_with("#import \"shaders/ground_common.wgsl\""))
-            .unwrap_or_else(|| panic!("{shader} imports ground_common.wgsl"));
+            .find(|l| l.starts_with("import super::ground_common::{"))
+            .unwrap_or_else(|| panic!("{shader} imports ground_common.wesl"));
         for field in fields {
             assert!(import.contains(field), "{shader} takes {field} from it");
             let call = format!("{field}(");
             assert!(
                 src.lines()
-                    .filter(|l| !l.starts_with("#import") && !l.trim_start().starts_with("//"))
+                    .filter(|l| !l.starts_with("import ") && !l.trim_start().starts_with("//"))
                     .any(|l| l.contains(&call)),
                 "{shader} calls {field}"
             );
@@ -704,7 +704,7 @@ fn the_ground_shows_the_grass_as_its_blades_are() {
         ))
         .unwrap_or_else(|_| panic!("{name} is a tracked asset"))
     };
-    let splat = read("splat.wgsl");
+    let splat = read("splat.wesl");
     for line in [
         format!(
             "const GRASS_ROUGHNESS: f32 = {:?};",
@@ -716,14 +716,14 @@ fn the_ground_shows_the_grass_as_its_blades_are() {
             crate::config::terrain::ground_cover::WATER_MARGIN
         ),
     ] {
-        assert!(splat.contains(&line), "splat.wgsl: {line}");
+        assert!(splat.contains(&line), "splat.wesl: {line}");
     }
-    let common = read("ground_common.wgsl");
+    let common = read("ground_common.wesl");
     let lean_most: f32 = common
         .lines()
         .find_map(|l| l.strip_prefix("const LEAN_MOST: f32 = "))
         .and_then(|v| v.trim_end_matches(';').parse().ok())
-        .expect("ground_common.wgsl's LEAN_MOST");
+        .expect("ground_common.wesl's LEAN_MOST");
     assert!(
         lean_most <= 0.9 * cfg::BLADE_HEIGHT / cfg::WIND_LEAN,
         "{lean_most}"
@@ -735,27 +735,27 @@ fn the_ground_shows_the_grass_as_its_blades_are() {
     // holds the lean it makes.
     assert!(
         splat.contains("                splat_uniforms.wind.w,\n                gust_fineness(distance, facing),"),
-        "splat.wgsl's carpet_shade takes the sway in wind.w"
+        "splat.wesl's carpet_shade takes the sway in wind.w"
     );
     assert!(
-        read("grass.wgsl").contains("grass.wind.z, grass.wind.w / WIND_LEAN, gust_fineness("),
-        "grass.wgsl's carpet_shade takes its lean as a share of WIND_LEAN"
+        read("grass.wesl").contains("grass.wind.z, grass.wind.w / WIND_LEAN, gust_fineness("),
+        "grass.wesl's carpet_shade takes its lean as a share of WIND_LEAN"
     );
     // The world's clumpiness and the ground's depth (#1702): both shaders
     // take each from its own component of their shape.
-    let grass = read("grass.wgsl");
+    let grass = read("grass.wesl");
     for line in [
         "let density = grass_density(ground_density, at, grass.shape.x);",
         "grass_density_seen(ground_density, at, distance, view_facing, grass.shape.x);",
         "carpet_cover(density_seen, view_facing, grass.shape.y)",
     ] {
-        assert!(grass.contains(line), "grass.wgsl: {line}");
+        assert!(grass.contains(line), "grass.wesl: {line}");
     }
     for line in [
         "                splat_uniforms.grass_shape.x,\n            );",
         "carpet_cover(density, facing, splat_uniforms.grass_shape.y)",
     ] {
-        assert!(splat.contains(line), "splat.wgsl: {line}");
+        assert!(splat.contains(line), "splat.wesl: {line}");
     }
 }
 

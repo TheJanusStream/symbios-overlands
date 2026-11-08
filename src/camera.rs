@@ -66,6 +66,7 @@ use bevy::camera::ScalingMode;
 #[cfg(not(webgl2))]
 use bevy::core_pipeline::prepass::DepthPrepass;
 use bevy::pbr::{DistanceFog, FogFalloff};
+use bevy::render::view::Tonemapping;
 use bevy::{post_process::bloom::Bloom, prelude::*};
 use bevy_egui::{EguiGlobalSettings, PrimaryEguiContext};
 use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin, PanOrbitCameraSystemSet};
@@ -257,8 +258,8 @@ fn gate_camera_on_gui(
     for (entity, mut settings) in egui_settings.iter_mut() {
         if pointer_input_off(&settings) != captured {
             let input = &mut settings.input_system_settings;
-            input.run_write_window_pointer_moved_messages_system = !captured;
-            input.run_write_pointer_button_messages_system = !captured;
+            input.run_write_window_pointer_moved_messages = !captured;
+            input.run_write_pointer_button_messages = !captured;
             input.run_write_mouse_wheel_messages_system = !captured;
             if captured && let Ok(mut context) = contexts.get_mut(entity) {
                 for event in pointer_hand_over(context.get_mut()) {
@@ -351,8 +352,8 @@ fn pointer_hand_over(egui: &mut bevy_egui::egui::Context) -> Vec<bevy_egui::egui
 /// switches mouse look turns together, read as one.
 fn pointer_input_off(settings: &bevy_egui::EguiContextSettings) -> bool {
     let input = &settings.input_system_settings;
-    !input.run_write_window_pointer_moved_messages_system
-        && !input.run_write_pointer_button_messages_system
+    !input.run_write_window_pointer_moved_messages
+        && !input.run_write_pointer_button_messages
         && !input.run_write_mouse_wheel_messages_system
 }
 
@@ -737,6 +738,23 @@ pub(crate) fn default_distance_fog() -> DistanceFog {
     }
 }
 
+/// The tone curve every camera Overlands draws through takes (#1576).
+///
+/// Bevy's default, `TonyMcMapface`, samples a lookup table that ships only
+/// with Bevy's `tonemapping_luts` feature; without the feature a camera left
+/// on the default draws Bevy's placeholder instead of the world. The tables
+/// cost the web bundle 918 KB raw and 627 KB gzipped, so they went (owner's
+/// decision of 2026-11-08, judged on four worlds rendered under each
+/// operator), and every camera names this operator instead:
+/// `SomewhatBoringDisplayTransform`, Tony's LUT-free sibling by the same
+/// author, which sat within a few levels of Tony's mean brightness in every
+/// world and kept its highlights as crisp.
+///
+/// Spawn a camera with it in the same bundle as its `Camera3d`:
+/// `every_spawned_camera_names_the_tone_curve` reads the crate for one that
+/// does not.
+pub(crate) const TONEMAPPING: Tonemapping = Tonemapping::SomewhatBoringDisplayTransform;
+
 /// How a world camera smooths its edges (#1669).
 ///
 /// Native and the WebGPU build (#1670) draw Bevy's 4x MSAA. The WebGL2
@@ -784,6 +802,7 @@ fn spawn_orbit_camera(mut commands: Commands) {
     let pos = cfg::INITIAL_POS;
     commands.spawn((
         Camera3d::default(),
+        TONEMAPPING,
         WorldCamera,
         // #1317: the primary egui context lives HERE, by name. See
         // `egui_global_settings` for why it must not be left to bevy_egui.
@@ -813,8 +832,8 @@ fn spawn_orbit_camera(mut commands: Commands) {
         // backend rejects with "WGSL `textureLoad` from depth textures is
         // not supported in GLSL", panicking pipeline creation for every
         // alpha-blend PBR material (cloud, water). The shoreline-foam
-        // block in water.wgsl is the only consumer in this codebase and
-        // is already `#ifdef DEPTH_PREPASS`-guarded, so omitting the
+        // block in water.wesl is the only consumer in this codebase and
+        // is already `@if(DEPTH_PREPASS)`-guarded, so omitting the
         // component on the WebGL2 build cleanly disables the feature -
         // shore foam is the only visual loss there, and only on water
         // bodies whose room record sets `shore_foam_width > 0`. The WebGPU
@@ -1292,6 +1311,7 @@ pub(crate) fn yaw_behind(facing: Quat) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::headless::Headless as _;
     use bevy::MinimalPlugins;
 
     /// Native and the WebGPU build draw 4x MSAA and the WebGL2 build FXAA
@@ -1705,6 +1725,152 @@ mod tests {
             query_types(aliased)[0].contains("WorldCamera"),
             "IsWorldCamera must satisfy the rule by name, or every real \
              call site goes uncounted"
+        );
+    }
+
+    /// The spawn bundle around each camera in `code`: the balanced `( .. )`
+    /// group that directly holds a `Camera3d::default()` or a
+    /// `Camera3d { .. }` literal - the tuple handed to `spawn`. A camera no
+    /// group holds is returned as its own text, which names no tone curve.
+    fn camera_bundles(code: &str) -> Vec<String> {
+        let chars: Vec<char> = code.chars().collect();
+        let mut out = Vec::new();
+        for needle in ["Camera3d::default()", "Camera3d {"] {
+            let pat: Vec<char> = needle.chars().collect();
+            for at in 0..=chars.len().saturating_sub(pat.len()) {
+                if chars[at..at + pat.len()] != pat[..] {
+                    continue;
+                }
+                // The tail of a longer name is some other type.
+                if at > 0 && (chars[at - 1].is_alphanumeric() || chars[at - 1] == '_') {
+                    continue;
+                }
+                let mut depth = 0i32;
+                let mut open = None;
+                for i in (0..at).rev() {
+                    match chars[i] {
+                        ')' => depth += 1,
+                        '(' if depth == 0 => {
+                            open = Some(i);
+                            break;
+                        }
+                        '(' => depth -= 1,
+                        _ => {}
+                    }
+                }
+                let Some(open) = open else {
+                    out.push(needle.to_string());
+                    continue;
+                };
+                let mut depth = 0i32;
+                let mut close = chars.len() - 1;
+                for (i, c) in chars.iter().enumerate().skip(open) {
+                    match c {
+                        '(' => depth += 1,
+                        ')' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                close = i;
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                out.push(chars[open..=close].iter().collect());
+            }
+        }
+        out
+    }
+
+    /// #1576: every camera the crate spawns outside its tests names
+    /// [`TONEMAPPING`] in the bundle it is spawned with.
+    ///
+    /// Bevy's default operator needs the `tonemapping_luts` feature the
+    /// crate no longer builds, and a camera left on it draws Bevy's
+    /// placeholder rather than the world. Nothing fails to compile and
+    /// nothing logs; the picture is simply wrong, on that one camera. A
+    /// test-only file (`tests.rs`, `*_tests.rs`) and a file's test module
+    /// are not read: no test camera reaches a screen.
+    #[test]
+    fn every_spawned_camera_names_the_tone_curve() {
+        use crate::ui::fonts::glyph_coverage_tests::{
+            code_only, non_test_source, rust_sources_under,
+        };
+        assert!(
+            !matches!(
+                TONEMAPPING,
+                Tonemapping::TonyMcMapface | Tonemapping::AgX | Tonemapping::BlenderFilmic
+            ),
+            "{TONEMAPPING:?} samples a lookup table, and the crate builds Bevy \
+             without `tonemapping_luts`"
+        );
+        let mut bare: Vec<String> = Vec::new();
+        let mut seen = 0usize;
+        for path in rust_sources_under("src") {
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if name == "tests.rs" || name.ends_with("_tests.rs") {
+                continue;
+            }
+            let source = std::fs::read_to_string(&path).expect("source readable");
+            let code = code_only(non_test_source(&source));
+            for bundle in camera_bundles(&code) {
+                seen += 1;
+                if !bundle.contains("TONEMAPPING") {
+                    let rel = path.display().to_string();
+                    let rel = rel.rsplit_once("src/").map(|(_, r)| r).unwrap_or(&rel);
+                    let head: String = bundle.split_whitespace().collect::<Vec<_>>().join(" ");
+                    let head: String = head.chars().take(120).collect();
+                    bare.push(format!("src/{rel}: {head}"));
+                }
+            }
+        }
+        assert!(
+            bare.is_empty(),
+            "these cameras are spawned on Bevy's default tone curve, which needs \
+             the lookup tables the crate does not build - add \
+             `crate::camera::TONEMAPPING` to the bundle:\n  {}",
+            bare.join("\n  ")
+        );
+        // A FLOOR, not a count: the game camera, the item preview, the
+        // agent's look camera and the render tool's two. If it drops, the
+        // scan has gone blind - re-point it rather than lowering this.
+        assert!(
+            seen >= 5,
+            "the scan found only {seen} camera spawns and has gone blind"
+        );
+    }
+
+    /// The scan above is only worth its run if it can see a camera without
+    /// the operator, across the line breaks and nested calls real spawns
+    /// are written with.
+    #[test]
+    fn the_tone_curve_scan_sees_a_camera_without_it() {
+        let offender = "commands.spawn((\n    Camera3d::default(),\n    \
+                        Camera { order: f(-1), ..default() },\n    \
+                        Transform::from_xyz(0.0, 1.0, 3.0),\n));";
+        let found = camera_bundles(offender);
+        assert_eq!(found.len(), 1, "one camera, read whole: {found:?}");
+        assert!(
+            found[0].contains("Transform"),
+            "the whole bundle came with it"
+        );
+        assert!(!found[0].contains("TONEMAPPING"), "and it names no curve");
+
+        let fixed = "world.spawn((Camera3d::default(), crate::camera::TONEMAPPING));";
+        assert!(camera_bundles(fixed)[0].contains("TONEMAPPING"));
+
+        let literal = "commands.spawn((Camera3d { ..default() }, Msaa::Off));";
+        assert_eq!(
+            camera_bundles(literal).len(),
+            1,
+            "a struct literal counts too"
+        );
+
+        let bare = "commands.spawn(Camera3d::default());";
+        assert!(
+            !camera_bundles(bare)[0].contains("TONEMAPPING"),
+            "a camera spawned on its own names no curve either"
         );
     }
 
@@ -2607,8 +2773,8 @@ mod tests {
             .expect("settings")
             .input_system_settings;
         assert!(
-            input.run_write_window_pointer_moved_messages_system
-                && input.run_write_pointer_button_messages_system
+            input.run_write_window_pointer_moved_messages
+                && input.run_write_pointer_button_messages
                 && input.run_write_mouse_wheel_messages_system,
             "egui's pointer back"
         );
@@ -2638,7 +2804,7 @@ mod tests {
             ],
             ..Default::default()
         };
-        let _ = ctx.run_ui(input, |_| {});
+        let _ = ctx.run_headless(input, |_| {});
         let chat = egui::Id::new("chat");
         ctx.memory_mut(|memory| memory.request_focus(chat));
         assert_eq!(

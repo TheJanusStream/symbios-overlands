@@ -290,7 +290,7 @@ fn sheltered_layer(
 /// reached from it standing under the damp margin over its level - the
 /// highest lake's where two reach one vertex. There the ground is damp to
 /// the lake's level and its snow and grass stop at its water, as they do at
-/// the sea's (`splat.wgsl`). `None` in a room without lakes: the ground
+/// the sea's (`splat.wesl`). `None` in a room without lakes: the ground
 /// reads the sea's alone.
 pub(crate) fn lake_layer(
     hm: &bevy_symbios_ground::HeightMap,

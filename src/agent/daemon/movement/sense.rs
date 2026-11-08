@@ -64,7 +64,7 @@ impl Sensing<'_, '_> {
     /// before there is anything under it to measure from.
     pub(super) fn craft(&self) -> Option<Craft> {
         let (entity, position, rotation, velocity, spin, collider) = self.body.single().ok()?;
-        let underside = collider.aabb(position.0, *rotation).min.y;
+        let underside = collider.aabb(position.0, *rotation, 0.0).min.y;
         // Resting on something, it is down. The sweep alone cannot say so:
         // a body pressed into a slope by its edge can have its shallowest
         // way out sideways, and a sweep straight down then passes through

@@ -572,7 +572,7 @@ mod tests {
     fn resource_names(world: &World) -> Vec<String> {
         world
             .iter_resources()
-            .map(|(info, _)| info.name().to_string())
+            .map(|(_, info, _)| info.name().to_string())
             .collect()
     }
 

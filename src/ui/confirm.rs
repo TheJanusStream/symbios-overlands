@@ -409,6 +409,7 @@ pub fn rename_dialog(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::headless::Headless as _;
 
     #[test]
     fn confirm_state_holds_payload_until_answered() {
@@ -507,7 +508,7 @@ mod tests {
         let mut state: ConfirmState<&'static str> = ConfirmState::default();
         state.request("Reset?", "Replaces everything.", "Reset", "payload");
         let mut returned = None;
-        let _ = ctx.run_ui(egui::RawInput::default(), |root| {
+        let _ = ctx.run_headless(egui::RawInput::default(), |root| {
             returned = state.show(root.ctx(), "test");
         });
         assert_eq!(returned, None);
@@ -529,7 +530,7 @@ mod tests {
 
         let mut state: ConfirmState<&'static str> = ConfirmState::default();
         state.request("Delete item?", "Cannot be undone.", "Delete", "payload");
-        let _ = ctx.run_ui(egui::RawInput::default(), |root| {
+        let _ = ctx.run_headless(egui::RawInput::default(), |root| {
             state.show(root.ctx(), "test");
         });
 
@@ -628,7 +629,7 @@ mod tests {
         assert!(!popup_is_open(&ctx), "nothing has drawn yet");
 
         let mut open = true;
-        let _ = ctx.run_ui(egui::RawInput::default(), |root| {
+        let _ = ctx.run_headless(egui::RawInput::default(), |root| {
             egui::Popup::new(
                 egui::Id::new("test-menu"),
                 root.ctx().clone(),
@@ -660,12 +661,12 @@ mod tests {
     #[test]
     fn the_popup_stamp_expires_after_one_pass() {
         let ctx = egui::Context::default();
-        let _ = ctx.run_ui(egui::RawInput::default(), |root| {
+        let _ = ctx.run_headless(egui::RawInput::default(), |root| {
             note_popup_open(root.ctx());
         });
         assert!(popup_is_open(&ctx));
         for _ in 0..3 {
-            let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
+            let _ = ctx.run_headless(egui::RawInput::default(), |_| {});
         }
         assert!(!popup_is_open(&ctx));
     }
@@ -678,7 +679,7 @@ mod tests {
         let ctx = egui::Context::default();
         let mut state: ConfirmState<&'static str> = ConfirmState::default();
         state.request("Delete item?", "Cannot be undone.", "Delete", "payload");
-        let _ = ctx.run_ui(egui::RawInput::default(), |root| {
+        let _ = ctx.run_headless(egui::RawInput::default(), |root| {
             state.show(root.ctx(), "test");
         });
         assert!(modal_is_open(&ctx));
@@ -686,7 +687,7 @@ mod tests {
         // Two quiet passes: one is within the tolerance that covers the
         // Update-runs-before-the-egui-pass ordering.
         for _ in 0..2 {
-            let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
+            let _ = ctx.run_headless(egui::RawInput::default(), |_| {});
         }
         assert!(!modal_is_open(&ctx));
     }
@@ -699,7 +700,7 @@ mod tests {
         let ctx = egui::Context::default();
         let mut draft = "existing".to_owned();
         let mut outcome = RenameOutcome::Cancelled;
-        let _ = ctx.run_ui(egui::RawInput::default(), |root| {
+        let _ = ctx.run_headless(egui::RawInput::default(), |root| {
             outcome = rename_dialog(root.ctx(), "Rename Item", "old", &mut draft, |s| {
                 s == "existing"
             });
@@ -772,7 +773,7 @@ mod tests {
         // Source one: a buttons-only confirm, invisible to the other gate.
         let mut state: ConfirmState<&'static str> = ConfirmState::default();
         state.request("Delete item?", "Cannot be undone.", "Delete", "payload");
-        let _ = ctx.run_ui(egui::RawInput::default(), |root| {
+        let _ = ctx.run_headless(egui::RawInput::default(), |root| {
             state.show(root.ctx(), "test");
         });
         assert!(
@@ -788,7 +789,7 @@ mod tests {
 
         // …and it RELEASES once the dialog stops drawing.
         for _ in 0..3 {
-            let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
+            let _ = ctx.run_headless(egui::RawInput::default(), |_| {});
         }
         assert!(
             !mirrored(&mut world),

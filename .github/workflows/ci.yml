@@ -33,17 +33,18 @@ jobs:
           components: rustfmt, clippy
           cache: false
 
-      # Bevy's default features link ALSA (bevy_audio), udev
-      # (bevy_winit input enumeration) and Wayland (`wayland-sys`
-      # pkg-config-probes wayland-client at build time; libxkbcommon is
-      # winit's keyboard-handling companion) on Linux, so the native
-      # test build needs their dev packages even though the tests run
-      # headless.
+      # The Bevy features Overlands builds link ALSA (bevy_audio) and
+      # Wayland (`wayland-sys` pkg-config-probes wayland-client at build
+      # time; libxkbcommon is winit's keyboard-handling companion) on Linux,
+      # so the native test build needs their dev packages even though the
+      # tests run headless. No udev since the feature trim (#1576): it was
+      # for gamepads alone (bevy_gilrs, #1155), and `cargo tree -i
+      # libudev-sys` finds nothing now.
       - name: Install Bevy system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+            libasound2-dev libwayland-dev libxkbcommon-dev
 
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
@@ -160,7 +161,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+            libasound2-dev libwayland-dev libxkbcommon-dev
 
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2

@@ -21,12 +21,12 @@
 //      just below it grows short, so a blade crossing the line shrinks
 //      away rather than popping.
 //   4. Shapes it - height, width, its own droop, the wind's lean (harder in
-//      a storm's gust front, `storm_common.wgsl`, #1684), a body's push, its
+//      a storm's gust front, `storm_common.wesl`, #1684), a body's push, its
 //      tussock's height, facing and lean (#1696), and a short near blade
 //      folded into a V, two for one (#1696) - and colours it: root to tip,
 //      a dry share, its tussock's shade, a flower share whose heads
 //      take the room's flower colours, and the ground's own tone fields
-//      (`ground_common.wgsl`): drier where the ground drifts lighter, a
+//      (`ground_common.wesl`): drier where the ground drifts lighter, a
 //      little taller or shorter patch by patch. Before its tile turns to
 //      fewer segments a blade, it takes their shape (#1694), so the turn
 //      changes nothing drawn; and each blade fades out at the field's edge
@@ -51,14 +51,14 @@
 // that name their Rust source (pinned by the same test, and by
 // `grass::tiles`'s).
 
-#import bevy_pbr::{
+import bevy_pbr::render::{
     forward_io::VertexOutput,
     mesh_functions,
     mesh_view_bindings::{globals, view},
     view_transformations::position_world_to_clip,
-}
-#import "shaders/ground_common.wgsl"::{hash21, ground_drift, ground_mottle, ground_vary, snow_settled, puddle_at, grass_density, grass_density_seen, carpet_cover, carpet_colour, carpet_normal, carpet_shade, gust_fineness, grass_gust, grass_lean, BLADE_SKYWARD, SNOW_ALBEDO, WET_DARKEN}
-#import "shaders/storm_common.wgsl"::storm_gust
+};
+import super::ground_common::{hash21, ground_drift, ground_mottle, ground_vary, snow_settled, puddle_at, grass_density, grass_density_seen, carpet_cover, carpet_colour, carpet_normal, carpet_shade, gust_fineness, grass_gust, grass_lean, BLADE_SKYWARD, SNOW_ALBEDO, WET_DARKEN};
+import super::storm_common::storm_gust;
 
 struct GrassUniforms {
     base: vec4<f32>,
@@ -80,19 +80,19 @@ struct GrassUniforms {
     shape: vec4<f32>,
 };
 
-@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> grass: GrassUniforms;
+@group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> grass: GrassUniforms;
 // Each heightmap vertex's height (its bits in r) and the terrain mesh's
 // normal there (x and z as snorms in g): `ground_cover::height`.
-@group(#{MATERIAL_BIND_GROUP}) @binding(101) var height_map: texture_2d<u32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(101) var height_map: texture_2d<u32>;
 // The ground's weight map, two layers: the weights, then how sheltered the
 // ground is from what falls in the second's red (#1685).
-@group(#{MATERIAL_BIND_GROUP}) @binding(102) var weight_map: texture_2d_array<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(103) var weight_sampler: sampler;
-@group(#{MATERIAL_BIND_GROUP}) @binding(104) var cover_map: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(105) var cover_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(102) var weight_map: texture_2d_array<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(103) var weight_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(104) var cover_map: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(105) var cover_sampler: sampler;
 // The bodies that part the grass, a texel each, nearest the camera first:
 // middle on XZ, underside on Y, reach in W; 0 past the last.
-@group(#{MATERIAL_BIND_GROUP}) @binding(106) var bender_map: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(106) var bender_map: texture_2d<f32>;
 
 // A tile's side (m): `config::grass::TILE_M`. A larger tile's 8 m cells are
 // numbered `i + CELLS_A_ROW * j` along X and Z (`tiles::CELLS_A_ROW`), and a
@@ -320,16 +320,13 @@ fn nothing(instance_index: u32, world_from_local: mat4x4<f32>, root: vec3<f32>) 
     out.world_position = vec4<f32>(root, 1.0);
     out.position = vec4<f32>(2.0, 2.0, 0.5, 1.0);
     out.world_normal = vec3<f32>(0.0, 1.0, 0.0);
-#ifdef VERTEX_COLORS
+    @if(VERTEX_COLORS)
     out.color = vec4<f32>(0.0, 0.0, 0.0, 1.0);
-#endif
-#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
+    @if(VERTEX_OUTPUT_INSTANCE_INDEX)
     out.instance_index = instance_index;
-#endif
-#ifdef VISIBILITY_RANGE_DITHER
+    @if(VISIBILITY_RANGE_DITHER)
     out.visibility_range_dither = mesh_functions::get_visibility_range_dither_level(
         instance_index, world_from_local[3]);
-#endif
     return out;
 }
 
@@ -484,7 +481,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
         + grass.flowers[3].rgb * grass.flowers[3].w) / max(flower_count, 1.0);
     let flowering = select(0.0, grass.frame.w, flower_count > 0.0);
 
-    // The ground's tone fields (`ground_common.wgsl`, #1676): the grass
+    // The ground's tone fields (`ground_common.wesl`, #1676): the grass
     // stands taller where the ground is darker - mostly patch by patch (the
     // mottle), a little stretch by stretch (the drift) - and is drier where
     // it drifts lighter (below).
@@ -549,7 +546,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     let gust = grass_gust(at, wind_dir, grass.wind.z, t);
     let flutter = 0.25 * sin(t * (2.3 + 2.0 * r1) + r2 * 6.2831853);
     // A storm's gust front (#1684) leans the blades harder as it passes,
-    // the foliage and the rain with them (`storm_common.wgsl`).
+    // the foliage and the rain with them (`storm_common.wesl`).
     let front = grass.shares.w * storm_gust(at, wind_dir, t);
     let lean = grass.wind.w * grass_lean(gust + flutter, front, grass.wind.z);
     bend = bend + vec3<f32>(wind_dir.x, 0.0, wind_dir.y) * lean * (height / grass.base.w);
@@ -675,15 +672,12 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     out.world_position = vec4<f32>(point.position, 1.0);
     out.position = position_world_to_clip(point.position);
     out.world_normal = point.normal;
-#ifdef VERTEX_COLORS
+    @if(VERTEX_COLORS)
     out.color = vec4<f32>(point.colour, 1.0);
-#endif
-#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
+    @if(VERTEX_OUTPUT_INSTANCE_INDEX)
     out.instance_index = vertex.instance_index;
-#endif
-#ifdef VISIBILITY_RANGE_DITHER
+    @if(VISIBILITY_RANGE_DITHER)
     out.visibility_range_dither = mesh_functions::get_visibility_range_dither_level(
         vertex.instance_index, world_from_local[3]);
-#endif
     return out;
 }

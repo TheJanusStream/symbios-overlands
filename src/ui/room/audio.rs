@@ -1513,6 +1513,7 @@ fn audio_editor_body(
 mod tests {
     use super::*;
     use crate::pds::audio::SovereignAudioPatch;
+    use crate::ui::headless::Headless as _;
 
     fn patch_slot() -> SovereignAudioConfig {
         SovereignAudioConfig::Patch {
@@ -2054,7 +2055,7 @@ mod tests {
                 ..Default::default()
             };
             let mut this_frame = None;
-            let output = ctx.run_ui(input, |ui| {
+            let output = ctx.run_headless(input, |ui| {
                 crate::ui::theme::apply_theme(ui.ctx(), &crate::ui::theme::Theme::dark());
                 let window = show_audio_editor_window(
                     ui.ctx(),

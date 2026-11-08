@@ -272,6 +272,7 @@ fn run_of(line: &[crate::pds::Fp2]) -> f32 {
 mod tests {
     use super::*;
     use crate::pds::{Fp, Fp2};
+    use crate::ui::headless::Headless as _;
 
     /// The section shown and not touched writes nothing (the rule of every
     /// editor widget): none, a seeded world's, and one a newer or hostile
@@ -326,7 +327,7 @@ mod tests {
             ctx.memory_mut(|m| m.set_everything_is_visible(true));
             let mut drawn = start.clone();
             let mut dirty = false;
-            let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let _ = ctx.run_headless(egui::RawInput::default(), |ui| {
                 draw_paths_section(ui, &mut drawn, &mut dirty);
             });
             assert_eq!(drawn, start);

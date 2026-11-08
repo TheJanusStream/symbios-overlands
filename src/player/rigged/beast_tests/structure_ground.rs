@@ -22,7 +22,7 @@ fn solid(min: Vec3, max: Vec3, body: RigidBody) -> Solid {
 fn bench(ground: &dyn Fn(f32, f32) -> f32, solids: &[Solid], trimeshes: &[Collider]) -> App {
     let ground = terrain(ground);
     let mut app = app();
-    app.add_plugins(avian3d::prelude::PhysicsPlugins::default());
+    app.add_plugins(crate::player::GamePhysics);
     app.world_mut().spawn(terrain_body(&ground));
     for (half, at, body) in solids {
         app.world_mut().spawn((

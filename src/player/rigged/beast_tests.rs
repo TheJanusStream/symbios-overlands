@@ -1860,7 +1860,7 @@ fn filled_drawn(
     app.add_plugins((
         MinimalPlugins,
         bevy::asset::AssetPlugin::default(),
-        avian3d::prelude::PhysicsPlugins::default(),
+        crate::player::GamePhysics,
     ));
     // Avian's collider cache listens for mesh events.
     app.init_asset::<Mesh>();
@@ -2071,7 +2071,7 @@ fn only_a_beast_on_the_terrain_is_handed_it() {
 fn grounded(ground: &dyn Fn(f32, f32) -> f32, solids: &[(Vec3, Transform)]) -> App {
     let ground = terrain(ground);
     let mut app = app();
-    app.add_plugins(avian3d::prelude::PhysicsPlugins::default());
+    app.add_plugins(crate::player::GamePhysics);
     app.world_mut().spawn(terrain_body(&ground));
     for &(half, at) in solids {
         app.world_mut().spawn((

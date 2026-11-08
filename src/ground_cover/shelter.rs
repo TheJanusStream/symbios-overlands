@@ -11,7 +11,7 @@
 //! slope, and everywhere else the highest point of the piece.
 //!
 //! Each texel holds two heights. What falls and the ground stop at the
-//! highest shape of all; the world's parts (#1686, `weathered.wgsl`) stand
+//! highest shape of all; the world's parts (#1686, `weathered.wesl`) stand
 //! dry under the highest shape that is not an instance set's voxel shell
 //! (`world_builder::instances::VoxelShell`), which stands up to a voxel
 //! over the roof it encloses - stepped where the roof slopes, so the roof

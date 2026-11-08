@@ -152,6 +152,7 @@ fn all_digits(text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::headless::Headless as _;
 
     /// Drive one widget for three frames: draw it, press the pointer on
     /// it, then drag to `to` while held. Returns the value afterwards.
@@ -189,7 +190,7 @@ mod tests {
                 events,
                 ..Default::default()
             };
-            let _ = ctx.run_ui(input, |ui| {
+            let _ = ctx.run_headless(input, |ui| {
                 rect = add(ui, &mut value).rect;
             });
         }

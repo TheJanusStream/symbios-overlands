@@ -598,6 +598,7 @@ fn resolved_replace(rig: &mut crate::pds::avatar::RiggedBody, body: EngineAvatar
 mod tests {
     use super::*;
     use crate::pds::avatar::LocomotionPreset;
+    use crate::ui::headless::Headless as _;
 
     fn listing() -> WardrobeListing {
         WardrobeListing::default()
@@ -723,7 +724,7 @@ mod tests {
                 screen_rect: Some(screen),
                 ..Default::default()
             };
-            let output = ctx.run_ui(input, |ui| {
+            let output = ctx.run_headless(input, |ui| {
                 changed |= draw_body_tab(ui, record, &mut listing, None, false).changed;
             });
             let update = output
@@ -826,7 +827,7 @@ mod tests {
                 events: std::mem::take(&mut events),
                 ..Default::default()
             };
-            let output = ctx.run_ui(input, |ui| {
+            let output = ctx.run_headless(input, |ui| {
                 let outcome = draw_body_tab(ui, record, &mut listing, None, false);
                 driven.changed |= outcome.changed;
                 driven.label = outcome.label.or(driven.label.take());
@@ -1129,7 +1130,7 @@ mod tests {
             };
             let mut outcome = BodyTabOutcome::default();
             let listing = &mut self.listing;
-            let output = self.ctx.run_ui(input, |ui| {
+            let output = self.ctx.run_headless(input, |ui| {
                 let drawn = draw_body_tab(ui, record, listing, None, false);
                 outcome.changed |= drawn.changed;
                 outcome.label = drawn.label.or(outcome.label.take());

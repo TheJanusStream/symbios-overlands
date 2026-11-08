@@ -866,6 +866,7 @@ mod tests {
     use crate::pds::{
         Environment, GeneratorKind, Placement, RoomRecord, ScatterBounds, TransformData,
     };
+    use crate::ui::headless::Headless as _;
     use bevy::prelude::{Quat, Vec3};
     use std::collections::HashMap;
 
@@ -1918,7 +1919,7 @@ mod tests {
         let ctx = egui::Context::default();
         for _ in 0..3 {
             let mut inv = world.resource_mut::<LiveInventoryRecord>();
-            let _ = ctx.run_ui(
+            let _ = ctx.run_headless(
                 egui::RawInput {
                     screen_rect: Some(egui::Rect::from_min_size(
                         egui::Pos2::ZERO,

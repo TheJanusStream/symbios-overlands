@@ -97,6 +97,7 @@ pub(crate) struct DrawDataHandles {
     Hash,
 )]
 #[reflect(Component)]
+#[extract_app(RenderApp)]
 pub(crate) struct GizmoDrawDataHandle(pub(crate) Handle<GizmoDrawData>);
 
 impl From<Handle<GizmoDrawData>> for GizmoDrawDataHandle {
@@ -120,7 +121,7 @@ fn extract_gizmo_data(mut commands: Commands, handles: Extract<Res<DrawDataHandl
     let handle_refs = handles.handles.values().cloned().collect::<HashSet<_>>();
 
     for handle in handle_refs {
-        commands.spawn((handle, TemporaryRenderEntity));
+        commands.spawn((handle, TemporaryRenderEntity::default()));
     }
 }
 
@@ -280,6 +281,7 @@ impl SpecializedRenderPipeline for TransformGizmoPipeline {
                         }],
                     },
                 ],
+                constants: Vec::new(),
             },
             fragment: Some(FragmentState {
                 shader: GIZMO_SHADER_HANDLE,
@@ -290,6 +292,7 @@ impl SpecializedRenderPipeline for TransformGizmoPipeline {
                     blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                     write_mask: ColorWrites::ALL,
                 })],
+                constants: Vec::new(),
             }),
             layout,
             primitive: PrimitiveState {

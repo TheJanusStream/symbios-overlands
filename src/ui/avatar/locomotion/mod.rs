@@ -368,6 +368,7 @@ mod inert_panel_tests {
     use super::*;
     use crate::pds::AvatarRecord;
     use crate::seeded_defaults::{AvatarPins, ChassisFamily, CraftType};
+    use crate::ui::headless::Headless as _;
     use bevy_egui::egui;
 
     /// One seed per craft type from the craft pin's own hunt (#1380), plus
@@ -471,7 +472,7 @@ mod inert_panel_tests {
                 screen_rect: Some(screen),
                 ..Default::default()
             };
-            let output = ctx.run_ui(input, |ui| {
+            let output = ctx.run_headless(input, |ui| {
                 draw_locomotion_tab(
                     ui,
                     &mut record.locomotion,
@@ -689,7 +690,7 @@ mod inert_panel_tests {
             )),
             ..Default::default()
         };
-        let output = ctx.run_ui(input, |ui| {
+        let output = ctx.run_headless(input, |ui| {
             draw_locomotion_tab(
                 ui,
                 &mut record.locomotion,
@@ -888,7 +889,7 @@ mod inert_panel_tests {
             events,
             ..Default::default()
         };
-        let output = ctx.run_ui(input, |ui| {
+        let output = ctx.run_headless(input, |ui| {
             draw_locomotion_tab(
                 ui,
                 &mut record.locomotion,

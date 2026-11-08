@@ -298,7 +298,7 @@ impl CopyRecorder {
         if !self.measuring {
             return;
         }
-        let Some(aabb) = meshes.get(mesh).and_then(MeshAabb::compute_aabb) else {
+        let Some(aabb) = meshes.get(mesh).and_then(MeshAabb::get_aabb) else {
             return;
         };
         let to_copy = self.frame * local.compute_affine();

@@ -1679,8 +1679,8 @@ mod tests {
     /// fixed step per update, as `tests/freeze_rigid_body.rs` stands it up.
     fn compile_app_with_physics(record: RoomRecord) -> App {
         let mut app = compile_app(record);
-        app.add_plugins((TransformPlugin, bevy::scene::ScenePlugin));
-        app.add_plugins(PhysicsPlugins::default());
+        app.add_plugins(TransformPlugin);
+        app.add_plugins(crate::player::GamePhysics);
         app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
             std::time::Duration::from_secs_f64(1.0 / 64.0),
         ));
@@ -1913,7 +1913,7 @@ mod tests {
                         let local = global.affine().inverse().transform_point3(at);
                         meshes
                             .get(mesh)
-                            .and_then(bevy::camera::primitives::MeshAabb::compute_aabb)
+                            .and_then(bevy::camera::primitives::MeshAabb::get_aabb)
                             .is_some_and(|aabb| {
                                 (local - Vec3::from(aabb.center))
                                     .abs()

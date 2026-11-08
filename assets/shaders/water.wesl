@@ -39,20 +39,21 @@
 // `pds::Environment` (room-wide, as drawn at the room's hour and under its
 // weather: `drawn_environment`).
 
-#import bevy_pbr::{
+import bevy_pbr::render::{
     pbr_fragment::pbr_input_from_standard_material,
     pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing, calculate_F0},
-    ambient::ambient_light,
+    pbr_ambient::ambient_light,
     mesh_view_bindings::{globals, view, lights},
     forward_io::{VertexOutput, FragmentOutput},
-    // Shoreline foam reads the opaque DEPTH prepass (camera-side
-    // `DepthPrepass`) to find how far the bottom sits behind the water.
-    // `prepass_utils::prepass_depth` only exists under `#ifdef
-    // DEPTH_PREPASS`, so every call is guarded by that def.
-    prepass_utils,
     view_transformations,
-}
-#import "shaders/sky_common.wgsl"::sky_toward
+};
+// Shoreline foam reads the opaque DEPTH prepass (camera-side
+// `DepthPrepass`) to find how far the bottom sits behind the water.
+// `prepass::utils::prepass_depth` only exists under `@if(DEPTH_PREPASS)`,
+// so every call is guarded by that flag.
+@if(DEPTH_PREPASS)
+import bevy_pbr::prepass::utils as prepass_utils;
+import super::sky_common::sky_toward;
 
 // The key light at which the glitter and the foam, drawn over the lit
 // colour, are at their full strength: the luminance of a white light of
@@ -112,7 +113,7 @@ struct WaterUniforms {
     rain: f32,
 };
 
-@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> water_uniforms: WaterUniforms;
+@group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> water_uniforms: WaterUniforms;
 
 // ---------------------------------------------------------------------------
 // Gerstner wave helpers
@@ -827,7 +828,7 @@ fn fragment(
     // the same `foam` accumulator the crest/streamline foam uses, so it
     // shares one foam colour and one noise breakup (no second look),
     // and is scaled by `foam_amount` like the streamline term.
-#ifdef DEPTH_PREPASS
+    @if(DEPTH_PREPASS)
     if water_uniforms.shore_foam_width > 0.0 {
         let scene_ndc = prepass_utils::prepass_depth(in.position, 0u);
         // Reverse-Z: the depth buffer clears to 0 (far / no geometry);
@@ -854,7 +855,6 @@ fn fragment(
             foam = clamp(foam + shore * wash * water_uniforms.foam_amount, 0.0, 1.0);
         }
     }
-#endif // DEPTH_PREPASS
 
     // Push the per-volume overrides into the PBR input before lighting runs.
     // Distance-based roughness boost (Toksvig-lite): widen the specular lobe

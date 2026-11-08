@@ -169,11 +169,20 @@ pub(crate) fn spawn_facing(yaw_deg: f32) -> Quat {
 /// outside the fixed schedules - portal teleports, the terrain-hot-load
 /// lift - are detected as teleports and snap for that timestep, which is
 /// the wanted shape.
+///
+/// `SpeculativeCcd::MAX` keeps the speculative contacts every dynamic body
+/// had by default up to avian 0.7, whose default margin was unbounded. Avian
+/// 0.8 made them opt-in (a body without the component gets only the fixed
+/// contact tolerance, plus swept CCD when it moves fast), and every vehicle
+/// and body here was tuned against them: without them a car landing hard
+/// sinks into the floor and is thrown back up at 1.4 m/s, and the contacts
+/// a flier's height and a car's air model read open late or not at all.
 pub(super) fn chassis_root_bundle(transform: Transform) -> impl Bundle {
     (
         transform,
         Visibility::default(),
         RigidBody::Dynamic,
+        SpeculativeCcd::MAX,
         TransformInterpolation,
         CollidingEntities::default(),
         LocalPlayer,
@@ -482,7 +491,7 @@ mod tests {
     fn drive_app(record: &AvatarRecord) -> (App, Entity) {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
-            .add_plugins(avian3d::prelude::PhysicsPlugins::default())
+            .add_plugins(crate::player::GamePhysics)
             .insert_resource(avian3d::prelude::Gravity(Vec3::ZERO))
             .insert_resource(Time::<Fixed>::from_hz(DRIVE_HZ))
             .init_resource::<ButtonInput<KeyCode>>()

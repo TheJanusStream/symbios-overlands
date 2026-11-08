@@ -5,7 +5,7 @@
 //! sky - where Bevy's ambient light had been one colour from every direction,
 //! and its reflection a flat sheen of that colour.
 //!
-//! The maps are made on the CPU from [`SkyModel`], the sky `sky.wgsl` draws
+//! The maps are made on the CPU from [`SkyModel`], the sky `sky.wesl` draws
 //! (`sky_common::sky_toward`) without its sun, moon and stars: the
 //! directional light already brings the sun, and a disc in the map would
 //! count it twice. Below the horizon the model is the ground, the horizon

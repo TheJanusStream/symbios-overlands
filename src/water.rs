@@ -1,7 +1,7 @@
 //! Water surface `MaterialExtension` for the animated water shader.
 //!
-//! Extends Bevy's `StandardMaterial` with a custom WGSL fragment shader
-//! (`assets/shaders/water.wgsl`) that computes Gerstner-wave displacement,
+//! Extends Bevy's `StandardMaterial` with a custom WESL fragment shader
+//! (`assets/shaders/water.wesl`) that computes Gerstner-wave displacement,
 //! Fresnel-driven alpha and the sky's reflection (#1672), scrolling detail
 //! normals, foam, sun-glitter and rain rings (#1683). Every knob that drives
 //! the shader flows through the `WaterUniforms` block on this extension - a
@@ -20,7 +20,7 @@ use bevy::{
 
 pub mod bodies;
 
-const WATER_SHADER_PATH: &str = "shaders/water.wgsl";
+const WATER_SHADER_PATH: &str = "shaders/water.wesl";
 
 /// Maximum number of live perturbations a single water plane renders
 /// per frame. Each occupies one slot across the two `wake_samples_*`
@@ -33,7 +33,7 @@ const WATER_SHADER_PATH: &str = "shaders/water.wgsl";
 /// bytes per water material - negligible against a 64 KB uniform block.
 pub const WAKE_SAMPLES_MAX: usize = 32;
 
-/// GPU uniform block shared with `water.wgsl`. Field ordering is chosen so
+/// GPU uniform block shared with `water.wesl`. Field ordering is chosen so
 /// `Vec4`s lead (16-byte aligned), `Vec2` sits where 8-byte alignment is
 /// cheapest, and scalars bring up the rear - the `ShaderType` derive still
 /// inserts any padding needed to round the struct up to 16 bytes.
@@ -87,7 +87,7 @@ pub struct WaterUniforms {
     /// Global: specular sun-glitter intensity.
     pub sun_glitter: f32,
     /// Global: shoreline foam band width (m). `0` disables; consumed
-    /// by `water.wgsl` via the opaque depth prepass.
+    /// by `water.wesl` via the opaque depth prepass.
     pub shore_foam_width: f32,
     /// Per-volume: flow-map blend in `[0, 1]`. Mirrors
     /// [`crate::pds::WaterSurface::flow_amount`]. `0` = full Gerstner
@@ -136,7 +136,7 @@ pub struct WaterUniforms {
     pub rain: f32,
 }
 
-/// [`MaterialExtension`] that drives `water.wgsl`.
+/// [`MaterialExtension`] that drives `water.wesl`.
 ///
 /// Bind-group slots (group `MATERIAL_BIND_GROUP`, 100 +):
 /// - 100 [`WaterUniforms`] uniform
@@ -507,11 +507,11 @@ mod tests {
     fn the_wgsl_block_mirrors_the_rust_one() {
         let src = std::fs::read_to_string(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/assets/shaders/water.wgsl"
+            "/assets/shaders/water.wesl"
         ))
-        .expect("water.wgsl is a tracked asset");
+        .expect("water.wesl is a tracked asset");
         let head = "struct WaterUniforms {";
-        let start = src.find(head).expect("struct not found in water.wgsl") + head.len();
+        let start = src.find(head).expect("struct not found in water.wesl") + head.len();
         let body = &src[start..start + src[start..].find("};").expect("unterminated struct")];
         let fields: Vec<(String, String)> = body
             .lines()
@@ -559,7 +559,7 @@ mod tests {
             .collect();
         assert_eq!(
             got, expected,
-            "water.wgsl's WaterUniforms drifted from the Rust block"
+            "water.wesl's WaterUniforms drifted from the Rust block"
         );
     }
 

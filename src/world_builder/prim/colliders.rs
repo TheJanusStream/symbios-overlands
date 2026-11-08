@@ -15,5 +15,5 @@ pub(super) fn convex_hull_from_mesh(mesh: &Mesh) -> Option<Collider> {
         return None;
     }
     let points: Vec<Vec3> = verts.iter().map(|p| Vec3::from_array(*p)).collect();
-    Collider::convex_hull(points)
+    Collider::convex_hull(&points)
 }

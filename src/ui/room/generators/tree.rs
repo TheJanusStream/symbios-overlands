@@ -736,6 +736,7 @@ pub(crate) fn node_salt(id: &GenNodeId) -> String {
 mod tests {
     use super::super::TreeViewState;
     use super::*;
+    use crate::ui::headless::Headless as _;
 
     /// A container node with `children` children, each with `grandchildren`
     /// leaves.
@@ -763,7 +764,7 @@ mod tests {
         let ctx = egui::Context::default();
         NODES_BUILT.with(|n| n.set(0));
         let pending: RefCell<Option<PendingAction>> = RefCell::new(None);
-        let _ = ctx.run_ui(
+        let _ = ctx.run_headless(
             egui::RawInput {
                 screen_rect: Some(egui::Rect::from_min_size(
                     egui::Pos2::ZERO,

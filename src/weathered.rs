@@ -1,7 +1,7 @@
 //! Weather on the world's parts (#1686): the material every part the world
 //! builder spawns is drawn with - roads, buildings, placed items, plants'
 //! trunks - a [`StandardMaterial`] that wets, gathers puddles and takes
-//! settled snow as the ground under it does (`assets/shaders/weathered.wgsl`).
+//! settled snow as the ground under it does (`assets/shaders/weathered.wesl`).
 //!
 //! # One block for every material
 //!
@@ -62,17 +62,16 @@ use bevy::render::erased_render_asset::prepare_erased_assets;
 use bevy::render::render_asset::{RenderAssets, prepare_assets};
 use bevy::render::render_resource::binding_types::{texture_2d, uniform_buffer};
 use bevy::render::render_resource::{
-    AsBindGroup, AsBindGroupError, BindGroupLayout, BindGroupLayoutEntry, BindingResources,
-    OwnedBindingResource, RenderPipelineDescriptor, ShaderStages, ShaderType,
-    SpecializedMeshPipelineError, TextureSampleType, TextureView, TextureViewDimension,
-    UniformBuffer, UnpreparedBindGroup,
+    AsBindGroup, AsBindGroupError, BindGroupBuilder, BindGroupLayout, BindGroupLayoutEntry,
+    RenderPipelineDescriptor, ShaderStages, ShaderType, SpecializedMeshPipelineError,
+    TextureSampleType, TextureView, TextureViewDimension, UniformBuffer, UnpreparedBindingResource,
 };
 use bevy::render::renderer::{RenderDevice, RenderQueue};
 use bevy::render::texture::{FallbackImage, GpuImage};
 use bevy::render::{Extract, ExtractSchedule, Render, RenderApp, RenderSystems};
 use bevy::shader::ShaderRef;
 
-const SHADER_PATH: &str = "shaders/weathered.wgsl";
+const SHADER_PATH: &str = "shaders/weathered.wesl";
 
 /// The material every part the world builder spawns is drawn with.
 pub type WeatheredMaterial = ExtendedMaterial<StandardMaterial, WeatherExtension>;
@@ -111,7 +110,7 @@ pub struct WeatherExtension {
     pub dusk_to_dawn: bool,
 }
 
-/// The block `weathered.wgsl` reads as `WorldWeather`, one for the world.
+/// The block `weathered.wesl` reads as `WorldWeather`, one for the world.
 #[derive(ShaderType, Clone, Copy, Debug, Default, PartialEq)]
 pub struct WorldWeatherUniforms {
     /// How wet, 0 to 1, as the ground (`terrain::GroundWeather`).
@@ -170,13 +169,16 @@ impl AsBindGroup for WeatherExtension {
         *self
     }
 
-    fn unprepared_bind_group(
+    /// Writes the extension's two bindings after the base material's: the
+    /// builder is shared, so they are pushed, never set.
+    fn build_bind_group(
         &self,
         _layout: &BindGroupLayout,
         _render_device: &RenderDevice,
         (gpu, fallback): &mut SystemParamItem<'_, '_, Self::Param>,
         _force_no_bindless: bool,
-    ) -> Result<UnpreparedBindGroup, AsBindGroupError> {
+        output: &mut BindGroupBuilder,
+    ) -> Result<(), AsBindGroupError> {
         let Some(buffer) = gpu.uniform.buffer() else {
             return Err(AsBindGroupError::RetryNextUpdate);
         };
@@ -187,15 +189,14 @@ impl AsBindGroup for WeatherExtension {
             // No map yet: the uniform's size of 0 keeps the shader off it.
             (None, _) => fallback.d2.texture_view.clone(),
         };
-        Ok(UnpreparedBindGroup {
-            bindings: BindingResources(vec![
-                (100, OwnedBindingResource::Buffer(buffer.clone())),
-                (
-                    101,
-                    OwnedBindingResource::TextureView(TextureViewDimension::D2, shelter),
-                ),
-            ]),
-        })
+        output
+            .binding_resources
+            .push((100, UnpreparedBindingResource::Buffer(buffer.clone())));
+        output.binding_resources.push((
+            101,
+            UnpreparedBindingResource::TextureView(TextureViewDimension::D2, shelter),
+        ));
+        Ok(())
     }
 
     fn bind_group_layout_entries(
@@ -369,7 +370,7 @@ mod tests {
     use crate::terrain::{GroundWeather, GroundWeatherNow};
     use bevy::asset::{AssetApp, AssetEvent, AssetPlugin};
 
-    const SHADER: &str = include_str!("../assets/shaders/weathered.wgsl");
+    const SHADER: &str = include_str!("../assets/shaders/weathered.wesl");
 
     /// The fields of WGSL struct `name` in `src`, name and type each.
     fn wgsl_fields(src: &str, name: &str) -> Vec<(String, String)> {
@@ -420,7 +421,7 @@ mod tests {
             "const SHELTER_CLEARANCE: f32 = {:?};",
             crate::config::terrain::ground_cover::SHELTER_CLEARANCE
         );
-        assert!(SHADER.contains(&line), "weathered.wgsl lacks `{line}`");
+        assert!(SHADER.contains(&line), "weathered.wesl lacks `{line}`");
     }
 
     /// Whether a material weathers, and whether its glow shows from dusk to

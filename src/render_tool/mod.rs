@@ -1747,7 +1747,7 @@ pub fn run() {
         // `Underfoot`, over avian's collider trees. So walking runs avian as a
         // drive or the editor already does, unless one of them brought it.
         if walks && !app.is_plugin_added::<avian3d::prelude::PhysicsSchedulePlugin>() {
-            app.add_plugins(avian3d::prelude::PhysicsPlugins::default());
+            app.add_plugins(crate::player::GamePhysics);
         }
     }
     // Rigged bodies for `--wear` (#1088), `--walker` and `--rigged` (#1482): the engine's

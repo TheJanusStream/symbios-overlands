@@ -96,7 +96,7 @@ pub struct WaterSurface {
 
 impl Default for WaterSurface {
     fn default() -> Self {
-        // Defaults tuned against the six-Gerstner-wave table in water.wgsl.
+        // Defaults tuned against the six-Gerstner-wave table in water.wesl.
         // Lower choppiness + moderate roughness keep the specular lobe wide
         // enough to absorb small residual normal errors without revealing
         // wave interference bands at grazing angles.

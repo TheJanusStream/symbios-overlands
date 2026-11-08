@@ -1349,6 +1349,7 @@ enum OfferAction {
 #[cfg(test)]
 mod gate_tests {
     use super::*;
+    use crate::ui::headless::Headless as _;
     use bevy_symbios_multiuser::prelude::PeerId;
 
     const THING: GiftKind = GiftKind::Generator;
@@ -1432,7 +1433,7 @@ mod gate_tests {
             ..Default::default()
         };
         let mut action = None;
-        let output = ctx.run_ui(input, |ui| {
+        let output = ctx.run_headless(input, |ui| {
             action = answer_row(ui, blocked);
         });
         fn texts_of(shape: &egui::Shape, out: &mut Vec<String>) {

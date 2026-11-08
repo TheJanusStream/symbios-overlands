@@ -327,8 +327,10 @@ pub(crate) fn resting_under<'a>(
 /// and where it fell on the step grid. A car at 12.5 frames a second drove off
 /// its run at 64 within five steps, and two players on different displays flew
 /// the same jump differently.
-pub(super) fn physics_pose(position: &Position, rotation: &Rotation) -> GlobalTransform {
-    GlobalTransform::from(Transform::from_translation(position.0).with_rotation(rotation.0))
+/// Taken as avian's `Forces` hands them over: since avian 0.8 its
+/// `position()` and `rotation()` are the plain vector and quaternion.
+pub(super) fn physics_pose(position: Vec3, rotation: Quat) -> GlobalTransform {
+    GlobalTransform::from(Transform::from_translation(position).with_rotation(rotation))
 }
 
 /// Steering-direction multiplier from a vehicle's signed longitudinal speed:
@@ -414,6 +416,36 @@ pub(crate) fn spawn_headless_chassis(
             .insert(gait::GaitAnimation::for_did(did, gait::GaitMode::Skiff));
     }
     entity
+}
+
+/// Avian, as every world here runs it: its plugins with contact recycling
+/// off, which is how the narrow phase worked up to avian 0.7.
+///
+/// Avian 0.8 recycles a pair's contact points from the step before while
+/// the two bodies have moved less than `NarrowPhaseConfig::recycle_distance`
+/// (5 cm) and turned less than `recycle_angle` relative to each other,
+/// updating only each point's depth. Every body here was tuned on contacts
+/// measured afresh each step, and two kinds of motion fall through the
+/// recycler's test: a lying beast's capsule turning beside a wall, its ends
+/// sweeping while its centre stays put, pressed into the wall on recycled
+/// points - the horse 37 mm, the dog 0.8 - where measured afresh it stops at
+/// under a thousandth of a millimetre; and a body standing still whose
+/// collider changes, a person re-rolled taller in place, whose recycled
+/// contacts were the old capsule's, so it stood half a metre into the ground
+/// for as long as it stood still.
+///
+/// Use it wherever avian is stood up, the game's tests and tools included,
+/// so what they measure is the physics the game runs.
+pub struct GamePhysics;
+
+impl Plugin for GamePhysics {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(PhysicsPlugins::default())
+            .insert_resource(NarrowPhaseConfig {
+                recycle_distance: 0.0,
+                ..default()
+            });
+    }
 }
 
 pub struct PlayerPlugin;

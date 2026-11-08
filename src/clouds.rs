@@ -5,16 +5,16 @@
 //! The deck is one horizontal plane drawn through [`CloudMaterial`]. Its
 //! shape is a domain-warped noise field over world XZ, drifting on the
 //! room's wind, cut at the room's cover and feathered by its softness -
-//! `assets/shaders/cloud_common.wgsl`, read by both shaders below, so the
+//! `assets/shaders/cloud_common.wesl`, read by both shaders below, so the
 //! shade on the ground is the cloud overhead.
 //!
-//! * **The clouds** (`cloud.wgsl`) take the scene's directional light: a
+//! * **The clouds** (`cloud.wesl`) take the scene's directional light: a
 //!   cloud lit through takes the room's cloud colour, one in the shade of
 //!   the cloud between it and the sun takes its shadow colour, and thin
 //!   cloud toward the sun glows. They haze into the horizon as the sky
 //!   behind them does (`sky_common::sky_toward`), so a warm sun warms them,
 //!   a low one shades their undersides, and a night leaves them dark.
-//! * **The shade** (`cloud_shadow.wgsl`) is drawn into the sun's shadow
+//! * **The shade** (`cloud_shadow.wesl`) is drawn into the sun's shadow
 //!   cascades, so the ground, the water, the buildings and the player all
 //!   pass in and out of it as the clouds drift.
 //!
@@ -46,11 +46,11 @@ use crate::config::lighting::clouds as cfg;
 use crate::pds::Environment;
 use crate::sky::SkyUniforms;
 
-const CLOUD_SHADER_PATH: &str = "shaders/cloud.wgsl";
-const CLOUD_SHADOW_SHADER_PATH: &str = "shaders/cloud_shadow.wgsl";
+const CLOUD_SHADER_PATH: &str = "shaders/cloud.wesl";
+const CLOUD_SHADOW_SHADER_PATH: &str = "shaders/cloud_shadow.wesl";
 
-/// What `cloud.wgsl` and `cloud_shadow.wgsl` are given, through
-/// `cloud_common.wgsl`'s copy of the block
+/// What `cloud.wesl` and `cloud_shadow.wesl` are given, through
+/// `cloud_common.wesl`'s copy of the block
 /// (`the_wgsl_block_mirrors_the_rust_one`). The `Vec4`s lead, for WGSL's
 /// 16-byte alignment, and the block is a multiple of 16 bytes, which WebGL2
 /// requires (`the_uniform_block_is_16_byte_aligned`).
@@ -86,7 +86,7 @@ pub struct CloudUniforms {
     pub shadow_reach: f32,
 }
 
-/// [`MaterialExtension`] that drives `cloud.wgsl`, and `cloud_shadow.wgsl`
+/// [`MaterialExtension`] that drives `cloud.wesl`, and `cloud_shadow.wesl`
 /// in the sun's shadow pass.
 ///
 /// Bind-group slots (group `MATERIAL_BIND_GROUP`, 100 +):
@@ -107,7 +107,7 @@ impl MaterialExtension for CloudExtension {
     }
 
     /// The shadow pass runs the prepass pipeline, and the deck's vertices
-    /// go through `cloud_shadow.wgsl` there: Bevy's own pancaking, made to
+    /// go through `cloud_shadow.wesl` there: Bevy's own pancaking, made to
     /// hold a kilometres-wide triangle whole where depth must be clipped by
     /// hand (WebGL2).
     fn prepass_vertex_shader() -> ShaderRef {
@@ -213,11 +213,11 @@ pub(crate) fn threshold(cover: f32, softness: f32) -> f32 {
     at(i) + (at(i + 1) - at(i)) * t
 }
 
-/// The softness `cloud_common.wgsl` feathers an edge across at the least.
+/// The softness `cloud_common.wesl` feathers an edge across at the least.
 const SOFTNESS_FLOOR: f32 = 1.0e-3;
 
 /// How far below its threshold a cloud's shade begins, in softness widths:
-/// `cloud_shadow.wgsl` casts from a mass of 0.25 (`SHADE_EDGE_FROM`), which
+/// `cloud_shadow.wesl` casts from a mass of 0.25 (`SHADE_EDGE_FROM`), which
 /// the edge's smoothstep reaches at `threshold - 0.347 * softness`.
 const SHADE_EDGE_REACH: f32 = 0.347;
 
@@ -228,13 +228,13 @@ const SHADE_EDGE_REACH: f32 = 0.347;
 /// The noise is sampled in world XZ, so moving the plane moves only the
 /// window the clouds are seen through, never the clouds. Its half-width
 /// grows with the deck's height over the camera
-/// ([`cfg::EDGE_ZENITH_TAN`]), so the fade at its edge (`cloud.wgsl`) runs
+/// ([`cfg::EDGE_ZENITH_TAN`]), so the fade at its edge (`cloud.wesl`) runs
 /// low toward the horizon, deep in the haze, however high the room sets
 /// its clouds - and a camera above the deck sees it reach as far. `.y` is
 /// the room's `cloud_height`, owned by `apply_environment_state`.
 ///
 /// The [`MeshTag`] is the height of the ground under the camera, which the
-/// shadow pass (`cloud_shadow.wgsl`) takes for the ground a cloud's shade
+/// shadow pass (`cloud_shadow.wesl`) takes for the ground a cloud's shade
 /// lands on when it fades the shade out before the cascades end. A tag is
 /// per-instance data, so the material is never touched for it. Over no
 /// heightmap the camera's own height stands in. Every write is guarded by
@@ -260,8 +260,8 @@ pub fn track_cloud_layer_to_camera(
             transform.scale = scale;
         }
         let bits = ground.to_bits();
-        if tag.0 != bits {
-            tag.0 = bits;
+        if tag.value != bits {
+            tag.value = bits;
         }
     }
 }
@@ -431,9 +431,9 @@ mod tests {
     fn the_wgsl_block_mirrors_the_rust_one() {
         let src = std::fs::read_to_string(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/assets/shaders/cloud_common.wgsl"
+            "/assets/shaders/cloud_common.wesl"
         ))
-        .expect("cloud_common.wgsl is a tracked asset");
+        .expect("cloud_common.wesl is a tracked asset");
         let head = "struct CloudUniforms {";
         let start = src.find(head).expect("struct not found") + head.len();
         let body = &src[start..start + src[start..].find("};").expect("unterminated struct")];
@@ -546,7 +546,7 @@ mod tests {
         assert_eq!(threshold(0.95, soft), cfg::FIELD_THRESHOLDS[18]);
     }
 
-    /// A Rust copy of `cloud_common.wgsl`'s field, to measure what share of
+    /// A Rust copy of `cloud_common.wesl`'s field, to measure what share of
     /// the sky a threshold covers. The table was measured on this field's
     /// numpy port; this holds the two to each other.
     mod field {
@@ -716,7 +716,7 @@ mod tests {
             .spawn((
                 CloudLayer,
                 Transform::from_xyz(0.0, 3_000.0, 0.0),
-                MeshTag(0),
+                MeshTag::new(0),
             ))
             .id();
         app.update();
@@ -725,7 +725,7 @@ mod tests {
         assert_eq!(transform.scale.x, deck_spread(2_988.0));
         assert_eq!(transform.scale.y, 1.0);
         let tag = app.world().get::<MeshTag>(deck).expect("a tag");
-        assert_eq!(f32::from_bits(tag.0), 12.0);
+        assert_eq!(f32::from_bits(tag.value), 12.0);
     }
 
     /// A deck with no strength, no density or no cloud the field can reach

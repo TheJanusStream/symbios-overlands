@@ -1548,13 +1548,14 @@ pub fn poll_or_expire_within(
 #[cfg(test)]
 mod recovery_reload_tests {
     use super::*;
+    use crate::ui::headless::Headless as _;
 
     /// Whether the button rendered for `dirty` was clickable, asked of egui
     /// itself rather than of our own bookkeeping.
     fn reload_button_is_enabled(dirty: bool) -> bool {
         let ctx = egui::Context::default();
         let mut enabled = false;
-        let _ = ctx.run_ui(egui::RawInput::default(), |root| {
+        let _ = ctx.run_headless(egui::RawInput::default(), |root| {
             root.scope(|ui| {
                 // Asked of the `Response` egui built, not of our own copy of
                 // the condition: `add_enabled(false, ..)` is what actually
@@ -2379,6 +2380,7 @@ mod audience_tests {
 
 #[cfg(test)]
 mod reroll_section_tests {
+    use crate::ui::headless::Headless as _;
     use bevy_egui::egui;
 
     use super::reroll_section;
@@ -2391,7 +2393,7 @@ mod reroll_section_tests {
         let body_ran = |everything_visible: bool| {
             let ctx = egui::Context::default();
             let mut ran = false;
-            let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let _ = ctx.run_headless(egui::RawInput::default(), |ui| {
                 ui.ctx()
                     .memory_mut(|m| m.set_everything_is_visible(everything_visible));
                 ran = reroll_section(ui, "test_reroll", "Seed & re-roll", |_| ()).is_some();

@@ -1668,7 +1668,7 @@ mod tests {
             let bounds = meshes
                 .get(mesh)
                 .expect("the mesh")
-                .compute_aabb()
+                .get_aabb()
                 .expect("bounds");
             (bounds.half_extents.y * 2.0, bounds.half_extents.z * 2.0)
         };

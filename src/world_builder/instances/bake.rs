@@ -172,7 +172,7 @@ fn bounds(parts: &[Placed]) -> Option<(Vec3, Vec3)> {
     parts
         .iter()
         .filter_map(|(mesh, ..)| {
-            let aabb = mesh.compute_aabb()?;
+            let aabb = mesh.get_aabb()?;
             let (centre, half) = (Vec3::from(aabb.center), Vec3::from(aabb.half_extents));
             Some((centre - half, centre + half))
         })
@@ -231,7 +231,7 @@ fn far_form(parts: &[Placed], materials: &Assets<WeatheredMaterial>) -> Option<M
                 .iter()
                 .map(|i| i as u32)
                 .collect();
-            let aabb = mesh.compute_aabb()?;
+            let aabb = mesh.get_aabb()?;
             let size = (Vec3::from(aabb.half_extents) * 2.0).max(Vec3::splat(FAR_MIN_THICKNESS_M));
             Some(Solid {
                 room: size.x * size.y * size.z,

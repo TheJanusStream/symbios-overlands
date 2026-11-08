@@ -43,12 +43,13 @@ the handler, and `gate_contract::only_the_shipped_build_stops_panicking_on_a_com
 fails if that stops being true - a handler reachable from a test would leave the
 regression tests for #1410 / #1411 asserting nothing.
 
-On Linux the build links Bevy's default backends, so their dev packages have to
-be present first - ALSA for `bevy_audio`, udev for input enumeration, and
-Wayland plus libxkbcommon for `winit`:
+On Linux the build links Bevy's audio and windowing backends, so their dev
+packages have to be present first - ALSA for `bevy_audio`, and Wayland plus
+libxkbcommon for `winit`. udev went with gamepad support in the feature trim
+(#1576):
 
 ```bash
-sudo apt-get install -y libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+sudo apt-get install -y libasound2-dev libwayland-dev libxkbcommon-dev
 ```
 
 That is the same set [`ci.yml`](../.github/workflows/ci.yml) installs before it
@@ -314,17 +315,24 @@ CI does **not** pass `--locked`, and should not: `Cargo.lock` is untracked by
 decision (see `.gitignore`), so `--locked` would fail outright for want of a
 lockfile to honour.
 
-**No cargo step compiles a shader.** The WGSL under `assets/shaders/` is
-composed by naga_oil when a pipeline is first made, at run time, so a shader
-the build accepts can still fail on screen.
-[`tests/shader_guards.rs`](../tests/shader_guards.rs) catches the two
-failures that cost the visual fidelity epic (#1668) the most time: a WGSL
-reserved word used as a name (`patch`, twice), and the terrain or the grass
-binding more textures than the WebGL2 build's 16 GLES slots or WebGPU's 16
-a stage allow - the WebGPU terrain uses all 16. Anything else shows only
-when the shader draws: render the change (a `failed to process shader` line
-in the render tool's log is the composer's error) and open both web
-bundles.
+**No cargo step compiles a shader.** The WESL under `assets/shaders/` is
+composed into WGSL by Bevy's WESL compiler when a pipeline is first made, at
+run time - once for each set of shader defs a pipeline asks for, so every
+`@if(..)` variant (the prepass, the shadow pass, the WebGL2 bundle's) fails
+or passes on its own - and a shader the build accepts can still fail on
+screen. [`tests/shader_guards.rs`](../tests/shader_guards.rs) checks that
+every file there is WESL and catches the two failures that cost the visual
+fidelity epic (#1668) the most time: a WGSL reserved word used as a name
+(`patch`, twice), and the terrain or the grass binding more textures than
+the WebGL2 build's 16 GLES slots or WebGPU's 16 a stage allow - the WebGPU
+terrain uses all 16. Anything else shows only when the shader draws: render
+the change and read the render tool's log - a `failed to process shader`
+error is the composer's, `failed to create shader module` is naga refusing
+the WGSL it composed (a type error or a missing field shows only here), and
+an import that names no module is only a warning (`has an unresolved
+import`), after which the pipeline waits for it for ever and the material
+never draws; `VERBOSE_SHADER_ERROR=1` names the pipeline beside an error -
+and open both web bundles.
 
 ### The dependency-bump checklist
 

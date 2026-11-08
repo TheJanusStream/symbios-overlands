@@ -433,7 +433,7 @@ pub(crate) fn sovereign_uv_transform(settings: &SovereignMaterialSettings) -> Af
 ///
 /// Keyed on the material's roughness as authored - the number the editor
 /// shows, and the factor its baked roughness map is scaled by. Rain still
-/// wets every part toward water's reflectance in `weathered.wgsl`, from
+/// wets every part toward water's reflectance in `weathered.wesl`, from
 /// whichever base it has, and a metal's sheen is its base colour's whatever
 /// this says.
 pub(crate) fn rough_reflectance(roughness: f32, reflectance: f32) -> f32 {

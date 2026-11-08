@@ -59,48 +59,119 @@ alloc-trace = []
 webgpu = ["bevy/webgpu"]
 
 [dependencies]
-bevy = "0.19"
+# Bevy without its default features (#1576): only what this crate and its
+# siblings' call sites reach. Features are additive across the graph, and no
+# sibling switches Bevy's defaults on, so this list is the union's floor -
+# anything Overlands touches must be named here, even where a sibling or a
+# Bevy crate happens to bring it along today. What goes with the defaults:
+# glTF and animation, morph targets, Bevy UI, text and its font, sprites,
+# gamepads (and with them libudev), Bevy's clipboard, custom cursor images,
+# FXAA/SMAA/TAA, HDR and PNG loading through the asset server, reflection
+# auto-registration - and the tonemapping LUTs: every camera here draws with
+# `camera::TONEMAPPING` (SomewhatBoringDisplayTransform), which needs none
+# (owner's decision on #1576, 2026-11-08: 918 KB raw / 627 KB gzip).
+bevy = { version = "0.20.1", default-features = false, features = [
+    # The app frame.
+    "async_executor",
+    "bevy_asset",
+    "bevy_log",
+    "bevy_state",
+    "std",
+    "multi_threaded",
+    "sysinfo_plugin",
+    # Windowing and input, native and web.
+    "bevy_winit",
+    "bevy_window",
+    "webgl2",
+    "x11",
+    "wayland",
+    "keyboard",
+    "mouse",
+    # Rendering. `bevy_extract` is new in 0.20 (the render world's
+    # extraction, which `bevy_render` and bevy_egui's renderer now sit on).
+    "bevy_render",
+    "bevy_extract",
+    "bevy_core_pipeline",
+    "bevy_pbr",
+    "bevy_light",
+    "bevy_camera",
+    "bevy_mesh",
+    "bevy_mikktspace",
+    "bevy_image",
+    "bevy_shader",
+    "bevy_material",
+    "bevy_color",
+    "bevy_gizmos",
+    "bevy_gizmos_render",
+    "bevy_post_process",
+    # FXAA, the WebGL2 build's edge smoothing (`camera::EdgeSmoothing`).
+    "bevy_anti_alias",
+    # Splines (swept prims, hulls and dressings): out of `bevy_math` in 0.20.
+    "bevy_curve",
+    # The render tool's and the editor's pointer rays.
+    "bevy_picking",
+    "mesh_picking",
+    # Sound.
+    "bevy_audio",
+    "vorbis",
+    "wav",
+] }
 # The sky light's environment maps are half floats (#1680); already in the
 # graph through bevy_image, so this adds no crate.
 half = "2"
-bevy_egui = "0.41"
-egui_ltreeview = "0.8"
+# 0.43.1, not 0.43.0: that release broke egui's shader on wasm. No default
+# features (#1576): its `bevy_ui` default would pull Bevy UI back in.
+bevy_egui = { version = "0.43.1", default-features = false, features = [
+    "manage_clipboard",
+    "open_url",
+    "default_fonts",
+    "render",
+    "picking",
+] }
+egui_ltreeview = "0.9"
 # No "bevy_egui" feature: its focus gate is all-or-nothing and privately
 # scheduled, which made right-drag dead over GUI windows. `camera.rs` owns
 # the equivalent gate with a right-button override instead (#702).
-bevy_panorbit_camera = "0.35"
-bevy_symbios = "0.11"
-bevy_symbios_ground = { version = "0.7", features = ["physics"] }
-# 0.7.4 is the floor, not a nicety: it is the release that stops asking for
-# proto-blue-oauth's default features, without which our own line below
-# cannot keep OpenSSL out of the graph (#1178).
-bevy_symbios_multiuser = "0.7.4"
-# 0.13.1: its patch writes into any material over a StandardMaterial, the
-# world's weathered parts among them (#1686).
-bevy_symbios_texture = { version = "0.13.1", features = ["egui"] }
+bevy_panorbit_camera = "0.36"
+bevy_symbios = "0.12"
+bevy_symbios_ground = { version = "0.8", features = ["physics"] }
+# Its default features stay off proto-blue-oauth's, without which our own
+# line below cannot keep OpenSSL out of the graph (#1178). 0.8's public
+# `auth::AtprotoSession.session` is a proto-blue-oauth 0.3 session, so the two
+# proto-blue lines below move with it.
+bevy_symbios_multiuser = "0.8"
+bevy_symbios_texture = { version = "0.14", features = ["egui"] }
 # The Bevy-free core, for its per-field texture registry: the mirrors in
 # `pds::texture` are generated from it (#1304). `bevy_symbios_texture`
 # re-exports the types, but a `$crate` path inside an exported macro
 # resolves to the crate that declared it.
 symbios-texture = "0.8"
-bevy_symbios_audio = { version = "0.6", features = ["egui"] }
-# Our copy of upstream 0.11.0's Bevy integration (crates/transform-gizmo-bevy,
-# README there): upstream lags Bevy releases by months, and the Bevy
-# upgrade (#1634) should not wait on it.
+bevy_symbios_audio = { version = "0.7", features = ["egui"] }
+# Our copy of upstream 0.11.0's Bevy integration, ported to Bevy 0.20
+# (crates/transform-gizmo-bevy, README there): upstream lags Bevy releases
+# by months, and the Bevy upgrade (#1634) should not wait on it.
 transform-gizmo-bevy = { path = "crates/transform-gizmo-bevy" }
-symbios-avatar = "0.23"
+symbios-avatar = "0.24"
 symbios = "1.5"
-symbios-turtle-3d = "0.6"
-symbios-shape = "0.4"
-bevy_symbios_shape = "0.10"
-symbios-tensor = "0.6"
-bevy_symbios_avatar = "0.25"
+symbios-turtle-3d = "0.7"
+symbios-shape = "0.5"
+bevy_symbios_shape = "0.11"
+symbios-tensor = "0.7"
+bevy_symbios_avatar = "0.26"
 gen-jobs = { path = "crates/gen-jobs" }
 # Geodata regions (#1580): where a region's square of Berlin lies, the
 # GDI Berlin request URLs, and the decoders for what they answer. The app
 # adds the fetching and the cache (`src/geodata`).
 geodata = { path = "crates/geodata" }
-avian3d = "0.7"
+# No default features (#1576): no debug renderer, no scene hierarchy colliders,
+# no avian picking. 0.8 has no `f32` feature: `parry-f32` is the precision.
+avian3d = { version = "0.8", default-features = false, features = [
+    "3d",
+    "parry-f32",
+    "xpbd_joints",
+    "parallel",
+    "collider-from-mesh",
+] }
 fast-surface-nets = "0.2"
 ndshape = "0.3"
 serde = { version = "1.0", features = ["derive"] }
@@ -148,7 +219,7 @@ libm = "0.2"
 # `oauth::capped_fetch::CappedFetcher` (#1176), never proto-blue's default
 # fetcher - and deny.toml now bans `openssl` outright, so an edge that turns
 # the defaults back on goes red rather than quietly linking it again.
-proto-blue-oauth = { version = "0.2", default-features = false }
+proto-blue-oauth = { version = "0.3", default-features = false }
 # `FetchHandler` and its request/response types. Already in the graph under
 # proto-blue-oauth, so this is a direct edge on a crate we were shipping
 # either way. Direct rather than dev-only since #1176: the OAuth transport
@@ -156,13 +227,13 @@ proto-blue-oauth = { version = "0.2", default-features = false }
 # bounded before it is buffered - proto-blue's own `ReqwestFetcher` reads
 # with `response.bytes()`, which has no ceiling. The refresh-dance tests
 # (#1151) inject a scripted handler through the same seam.
-proto-blue-common = "0.2"
+proto-blue-common = "0.3"
 # `FetchHandler` is declared with `#[async_trait]`, so implementing it needs
 # the same macro.
 async-trait = "0.1"
 url = "2"
 # The audio backend under Bevy's, and the WAV reader under it (both already in
-# the graph, at the minors bevy_audio 0.19 builds, on the web build too): a
+# the graph, at the minors bevy_audio 0.20 builds, on the web build too): a
 # fetched clip is built by the very decoder Bevy plays it with before any
 # voice may, because Bevy unwraps that decoder and bytes that are not audio
 # would crash every visitor (#1560); hound reads a WAV header first, since
@@ -177,15 +248,15 @@ hound = "3.5"
 ogg = "0.8"
 
 [dev-dependencies]
-glam = "0.32"
+glam = "0.33"
 # Bevy's Vorbis decoder (already in the graph): the #1560 tests check that a
 # crafted stream's identification header is one lewton accepts, so the
 # hostile headers behind it would really be read.
 lewton = "0.10"
-# The font parser epaint 0.35 reads faces with (already in the graph): the
+# The font parser epaint 0.36 reads faces with (already in the graph): the
 # UI glyph-coverage guard asks each bundled face's charmap directly, because
 # epaint's `has_glyph` compares faces, not glyphs (#1105).
-skrifa = "0.42.1"
+skrifa = "0.44"
 # The web worker's codec (already in the graph, through gen-jobs): a built body
 # is read back over msgpack as the browser reads it, so what crosses the worker
 # is tested over the bytes it really crosses in (#1875).
@@ -199,6 +270,11 @@ rmp-serde = "1"
 gif = "0.14"
 color_quant = "1.1"
 tiny_http = "0.12"
+# The shared HTTP runtime in `config.rs` is multi-threaded (several
+# `IoTaskPool` workers block on it at once). Named here since 0.20's graph no
+# longer brings the feature along; tokio's multi-threaded runtime does not
+# build for wasm32, hence a native-only line beside the shared one.
+tokio = { version = "1", features = ["rt-multi-thread"] }
 webbrowser = "1.0"
 arboard = "3"
 clap = { version = "4", features = ["derive"] }

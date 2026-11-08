@@ -55,7 +55,6 @@
 // it; a new `unsafe` anywhere else is a compile error.
 #![deny(unsafe_code)]
 
-use avian3d::PhysicsPlugins;
 use bevy::light::{GlobalAmbientLight, NotShadowCaster};
 use bevy::log::LogPlugin;
 #[cfg(not(target_arch = "wasm32"))]
@@ -384,7 +383,7 @@ pub(crate) fn build_client_app(app: &mut App, boot: boot_params::BootParams, she
             app.insert_resource(oauth::AuthHandoffPending);
         }
     }
-    app.add_plugins(PhysicsPlugins::default())
+    app.add_plugins(player::GamePhysics)
         // BootParams must be resident before DiagnosticsPlugin::build reads it
         // for the boot StartupSnapshot, so insert it here and add the plugin
         // right after. The plugin opens the native session-log sink, records
@@ -1066,7 +1065,7 @@ fn setup_lighting(
         MeshMaterial3d(cloud_mat),
         Transform::from_xyz(0.0, env.cloud_height.0, 0.0),
         // The ground's height under the camera, for the shadow pass.
-        bevy::mesh::MeshTag(0),
+        bevy::mesh::MeshTag::new(0),
         CloudLayer,
     ));
 }

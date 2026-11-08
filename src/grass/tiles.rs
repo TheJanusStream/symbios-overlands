@@ -4,7 +4,7 @@
 //! **Every tile draws one of a few shared meshes.** A blade's vertices
 //! carry where it stands in its 8 m cell, how far up the blade they are
 //! and which edge, and two numbers of its own: its *rank* and its *seed*.
-//! The vertex shader (`assets/shaders/grass.wgsl`) does the rest - it
+//! The vertex shader (`assets/shaders/grass.wesl`) does the rest - it
 //! stands the blade on the ground under it, lets it grow as thickly as the
 //! ground there grows grass, and shapes, bends and colours it - so a few
 //! meshes serve every tile of every room, and the tiles batch into a draw
@@ -85,7 +85,7 @@ impl Detail {
     /// at this detail, root first; the tip stands at 1, over the last. A
     /// middle blade's upper pair stands where a near one's upper pair does
     /// (#1694), so a near blade whose third-way pair is moved onto the line
-    /// between the others is the middle blade exactly - `grass.wgsl`'s
+    /// between the others is the middle blade exactly - `grass.wesl`'s
     /// geomorph, which a test pins to these.
     pub fn rungs(self) -> &'static [f32] {
         match self {
@@ -141,7 +141,7 @@ pub fn share_for(need: f32) -> Option<usize> {
 }
 
 /// The share of a near tile's blades the shader keeps `distance` metres
-/// from the camera, in field `field`: `grass.wgsl`'s `thinning`, which
+/// from the camera, in field `field`: `grass.wesl`'s `thinning`, which
 /// keeps them all out to the field's full distance, eases to
 /// [`cfg::MID_SHARE`] by [`cfg::MID_AT`] times it and to
 /// [`cfg::FAR_SHARE`] by [`cfg::FAR_AT`] times it, and past that falls as
@@ -170,8 +170,8 @@ pub fn thinning(distance: f32, field: &cfg::Field) -> f32 {
 
 /// The most the shader's density reaches on ground whose layers' shares
 /// reach at most `shares`, the layers growing grass as thickly as
-/// `layer_density`, under cover at most `cover` (`grass.wgsl`'s
-/// `ground_density`, clumped by `ground_common.wgsl`'s `grass_density`):
+/// `layer_density`, under cover at most `cover` (`grass.wesl`'s
+/// `ground_density`, clumped by `ground_common.wesl`'s `grass_density`):
 /// the layers' density, and on thin ground a clump at its thickest -
 /// [`cfg::CLUMP_PEAK`] times the ground's own density by
 /// [`cfg::CLUMP_SHARE`] of how thin it is times the world's `clumpiness`
@@ -197,7 +197,7 @@ pub fn most_density(shares: [f32; 4], layer_density: [f32; 4], cover: f32, clump
 /// How far toward its clump's thickness thin ground grows its grass in a
 /// world `clumpiness` clumpy (#1702): [`cfg::CLUMP_SHARE`] of the way unset,
 /// as much more or less as the clumpiness, at most all of it -
-/// `ground_common.wgsl`'s `clumped`.
+/// `ground_common.wesl`'s `clumped`.
 pub fn clump_share(clumpiness: f32) -> f32 {
     (cfg::CLUMP_SHARE * clumpiness.max(0.0)).min(1.0)
 }
@@ -216,7 +216,7 @@ pub struct TileKey {
 /// The largest tile's level: 32 m.
 pub const MAX_LEVEL: u32 = 2;
 
-/// The 8 m cells along a side of the largest tile, by which `grass.wgsl`
+/// The 8 m cells along a side of the largest tile, by which `grass.wesl`
 /// numbers a tile's cells ([`tile_mesh`]), and the cells it holds: a
 /// blade's number is its cell's plus `CELLS` times its mesh's detail.
 pub const CELLS_A_ROW: u32 = 1 << MAX_LEVEL;
@@ -374,7 +374,7 @@ pub fn blades_below(blades: usize, share: f32) -> usize {
 ///   in `[0, 1)`, its seed, and which of the tile's 8 m cells it stands in,
 ///   `i + CELLS_A_ROW * j` for the cell `i` along X and `j` along Z
 ///   ([`CELLS_A_ROW`]), plus [`CELLS`] times the detail's [`Detail::index`],
-///   as only a near blade folds (`grass.wgsl`, #1696). The shader writes the
+///   as only a near blade folds (`grass.wesl`, #1696). The shader writes the
 ///   colour itself; the attribute is there for its data, and so that Bevy's
 ///   PBR fragment reads the colour the shader writes.
 pub fn tile_mesh(roots: &[Vec2], detail: Detail, share: f32, level: u32) -> Mesh {
@@ -450,7 +450,7 @@ pub fn tile_heights(hm: &HeightMap, key: TileKey) -> (f32, f32) {
 /// neither a tile's bounds ([`tile_aabb`]) nor the horizon test
 /// (`super::horizon`) built on them culls a blade on screen. Per world -
 /// its grass's height, width and clumpiness grow it - and per quality,
-/// whose thinning widens the far blades. Mirrors `grass.wgsl`'s height,
+/// whose thinning widens the far blades. Mirrors `grass.wesl`'s height,
 /// width and bend.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BladeBounds {
@@ -489,18 +489,18 @@ impl BladeBounds {
 }
 
 /// The most a tussock lifts a blade (#1696) in grass `clumpiness` clumpy
-/// (#1702): `grass.wgsl`'s lift at a tussock's middle, as far over 1 as the
+/// (#1702): `grass.wesl`'s lift at a tussock's middle, as far over 1 as the
 /// clumpiness scales it from [`TUSSOCK_TALLEST`].
 pub fn tussock_tallest(clumpiness: f32) -> f32 {
     1.0 + clumpiness.max(0.0) * (TUSSOCK_TALLEST - 1.0)
 }
 
 /// The most a tussock lifts a blade (#1696) as grass clumps unset:
-/// `grass.wgsl`'s `(1 + TUSSOCK_HEIGHT) (1 + TUSSOCK_RIM TUSSOCK_RIM_MEAN)`
+/// `grass.wesl`'s `(1 + TUSSOCK_HEIGHT) (1 + TUSSOCK_RIM TUSSOCK_RIM_MEAN)`
 /// at its middle, rounded up - a test reads the shader's constants.
 pub const TUSSOCK_TALLEST: f32 = 1.28;
 
-/// The least width (m) of a blade a metre away (`grass.wgsl`'s
+/// The least width (m) of a blade a metre away (`grass.wesl`'s
 /// `MIN_WIDTH_PER_M`, a pixel and a half): a far blade is never drawn
 /// narrower than this times its distance.
 pub const MIN_WIDTH_PER_M: f32 = 0.0012;
@@ -763,14 +763,14 @@ mod tests {
     /// keeps at its reach.
     #[test]
     fn the_thinning_is_the_shaders() {
-        let wgsl = include_str!("../../assets/shaders/grass.wgsl");
+        let wgsl = include_str!("../../assets/shaders/grass.wesl");
         for line in [
             "return mix(1.0, grass.shares.x, smoothstep(grass.reach.x, grass.reach.y, distance));",
             "return mix(grass.shares.x, grass.shares.y, smoothstep(grass.reach.y, grass.reach.z, distance));",
             "let past = grass.reach.z / distance;",
             "return grass.shares.y * past * past;",
         ] {
-            assert!(wgsl.contains(line), "grass.wgsl's thinning moved: {line}");
+            assert!(wgsl.contains(line), "grass.wesl's thinning moved: {line}");
         }
         let field = cfg::HIGH;
         let far = cfg::FAR_AT * field.full;
@@ -807,7 +807,7 @@ mod tests {
     #[test]
     fn the_widest_blade_bounds_every_quality() {
         use crate::pds::sanitize::limits;
-        let wgsl = include_str!("../../assets/shaders/grass.wgsl");
+        let wgsl = include_str!("../../assets/shaders/grass.wesl");
         for line in [
             "var width = grass.tip.w * (0.7 + 0.6 * r2) * inverseSqrt(max(thinning(distance), 1.0e-3));".to_string(),
             "width = max(width, distance * MIN_WIDTH_PER_M)".to_string(),
@@ -815,7 +815,7 @@ mod tests {
             "half_width = 0.65 * blade.width;".to_string(),
             "var half_width = 0.5 * blade.width * pow(1.0 - up, 0.8);".to_string(),
         ] {
-            assert!(wgsl.contains(&line), "grass.wgsl's width moved: {line}");
+            assert!(wgsl.contains(&line), "grass.wesl's width moved: {line}");
         }
         let mut grass = super::super::profile::derived_profile(&crate::pds::RoomRecord::default());
         for width in [
@@ -854,13 +854,13 @@ mod tests {
     #[test]
     fn tussocks_and_folds_stay_inside_the_bounds() {
         use crate::pds::sanitize::limits;
-        let wgsl = include_str!("../../assets/shaders/grass.wgsl");
+        let wgsl = include_str!("../../assets/shaders/grass.wesl");
         let constant = |name: &str| -> f32 {
             let head = format!("const {name}: f32 = ");
             wgsl.lines()
                 .find_map(|l| l.strip_prefix(head.as_str()))
                 .and_then(|v| v.trim_end_matches(';').parse().ok())
-                .unwrap_or_else(|| panic!("grass.wgsl's {name}"))
+                .unwrap_or_else(|| panic!("grass.wesl's {name}"))
         };
         let lift = (1.0 + constant("TUSSOCK_HEIGHT"))
             * (1.0 + constant("TUSSOCK_RIM") * constant("TUSSOCK_RIM_MEAN"));
@@ -886,7 +886,7 @@ mod tests {
             "let arm_height = height * FOLD_ARM;",
             "select(0.0, 1.0, near_mesh && natural < FOLD_SHORT && !flower)",
         ] {
-            assert!(wgsl.contains(line), "grass.wgsl moved: {line}");
+            assert!(wgsl.contains(line), "grass.wesl moved: {line}");
         }
         // The tallest a world may set: its blades' height times the shader's
         // most - variation 1.45, a tall patch 1.25, a tussock's lift and a
@@ -909,7 +909,7 @@ mod tests {
     }
 
     /// A blade takes the shape of the fewer segments it is drawn with next
-    /// (`grass.wgsl`'s geomorph): its third-way pair onto the line between
+    /// (`grass.wesl`'s geomorph): its third-way pair onto the line between
     /// the root and the upper pair, which stands where a middle blade's
     /// does - the shader's `UPPER_RUNG`, pinned here - and that onto the
     /// line to the tip. The third-way pair has finished before the upper
@@ -918,7 +918,7 @@ mod tests {
     /// reads a large tile's cells as its mesh numbers them, along X first.
     #[test]
     fn the_shader_morphs_to_the_meshes_rungs() {
-        let wgsl = include_str!("../../assets/shaders/grass.wgsl");
+        let wgsl = include_str!("../../assets/shaders/grass.wesl");
         assert_eq!(NEAR_RUNGS[1] * 2.0, NEAR_RUNGS[2]);
         assert_eq!(MID_RUNGS[1], 2.0 / 3.0);
         for line in [
@@ -932,13 +932,13 @@ mod tests {
             "point = between(point, between(foot, upper, 0.5), to_mid);".to_string(),
             "between(foot, blade_point(blade, 1.0, 0.0), UPPER_RUNG)".to_string(),
         ] {
-            assert!(wgsl.contains(&line), "grass.wgsl moved: {line}");
+            assert!(wgsl.contains(&line), "grass.wesl moved: {line}");
         }
         let morph_from: f32 = wgsl
             .lines()
             .find_map(|l| l.strip_prefix("const MORPH_FROM: f32 = "))
             .and_then(|v| v.trim_end_matches(';').parse().ok())
-            .expect("grass.wgsl's MORPH_FROM");
+            .expect("grass.wesl's MORPH_FROM");
         assert!(morph_from > 0.0 && morph_from < 1.0, "{morph_from}");
         assert!(morph_from * cfg::FAR_AT >= cfg::MID_AT, "{morph_from}");
     }
@@ -946,12 +946,12 @@ mod tests {
     /// The most a tile's ground can grow is never under what the shader
     /// grows there, clumps included: over every ground density up to the
     /// most and every clump the noise can make, the shader's density
-    /// (`ground_common.wgsl`'s `grass_density`, whose clump literals are
+    /// (`ground_common.wesl`'s `grass_density`, whose clump literals are
     /// pinned here, and which the grass and the ground both read) stays at
     /// or under the bound - and the bound is reached.
     #[test]
     fn the_most_density_bounds_the_shaders() {
-        let wgsl = include_str!("../../assets/shaders/ground_common.wgsl");
+        let wgsl = include_str!("../../assets/shaders/ground_common.wesl");
         assert!(wgsl.contains(&format!(
             "let clump = {} * smoothstep(0.25, 0.75,",
             cfg::CLUMP_PEAK
@@ -967,8 +967,8 @@ mod tests {
             cfg::CLUMP_PEAK * 0.5
         )));
         for shader in [
-            include_str!("../../assets/shaders/grass.wgsl"),
-            include_str!("../../assets/shaders/splat.wgsl"),
+            include_str!("../../assets/shaders/grass.wesl"),
+            include_str!("../../assets/shaders/splat.wesl"),
         ] {
             assert!(
                 shader.contains("grass_density"),

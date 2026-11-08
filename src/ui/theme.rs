@@ -969,6 +969,7 @@ pub fn apply_theme_on_change(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::headless::Headless as _;
 
     /// Channel-space distance - crude but enough to assert "these are
     /// visibly different colours".
@@ -1007,9 +1008,9 @@ mod tests {
             };
             for zoom in [0.8_f32, 1.0, 1.5, 2.0] {
                 let ctx = egui::Context::default();
-                let _ = ctx.run_ui(input(), |_| {});
+                let _ = ctx.run_headless(input(), |_| {});
                 for sets_it in [true, false] {
-                    let _ = ctx.run_ui(input(), |ui| {
+                    let _ = ctx.run_headless(input(), |ui| {
                         let ctx = ui.ctx();
                         if sets_it {
                             ctx.set_zoom_factor(zoom);
@@ -1455,7 +1456,7 @@ mod tests {
                     ..Default::default()
                 };
                 strokes.clear();
-                let out = ctx.run_ui(input, |ui| {
+                let out = ctx.run_headless(input, |ui| {
                     ui.ctx().set_visuals(visuals_for(&theme));
                     // Both responses dropped on purpose: this test reads
                     // the PAINT, not the interaction. Leaving the field
@@ -1519,7 +1520,7 @@ mod tests {
                     ..Default::default()
                 };
                 strokes.clear();
-                let out = ctx.run_ui(input, |ui| {
+                let out = ctx.run_headless(input, |ui| {
                     // `apply_theme`, not `set_visuals` alone: the helper
                     // reads the palette back through `theme::current`, and
                     // installing only the `Visuals` left every palette
@@ -1625,7 +1626,7 @@ mod tests {
                         .events
                         .push(egui::Event::PointerMoved(target.center()));
                 }
-                let _ = ctx.run_ui(input, |ui| {
+                let _ = ctx.run_headless(input, |ui| {
                     ui.ctx().set_visuals(visuals_for(theme));
                     egui::Area::new("probe".into())
                         .fixed_pos(egui::pos2(10.0, 10.0))
@@ -1836,7 +1837,7 @@ mod tests {
         let ctx = egui::Context::default();
         apply_theme(&ctx, theme);
         let mut seen = None;
-        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+        let _ = ctx.run_headless(egui::RawInput::default(), |ui| {
             seen = Some((
                 bevy_symbios_audio::ui::editor_style(ui),
                 ui.visuals().clone(),
@@ -1953,7 +1954,7 @@ mod tests {
         let ctx = egui::Context::default();
         let installed = |ctx: &egui::Context| {
             let mut seen = None;
-            let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let _ = ctx.run_headless(egui::RawInput::default(), |ui| {
                 seen = Some(bevy_symbios_audio::ui::editor_style(ui));
             });
             seen.expect("the pass ran")

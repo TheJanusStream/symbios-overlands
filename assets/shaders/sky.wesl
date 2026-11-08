@@ -19,13 +19,13 @@
 // one derivative is taken first, in uniform control flow, as WGSL (and
 // Chrome's compiler) require.
 
-#import bevy_pbr::{
+import bevy_pbr::render::{
     mesh_view_bindings::{view, lights, globals},
-    forward_io::{Vertex, VertexOutput},
+    forward_io::{Vertex, VertexOutput, decompress_vertex},
     mesh_functions::{get_world_from_local, mesh_position_local_to_world},
     view_transformations::position_world_to_clip,
-}
-#import "shaders/sky_common.wgsl"::sky_toward
+};
+import super::sky_common::sky_toward;
 
 struct SkyUniforms {
     // The sky overhead, linear RGB; w a lightning flash's light (#1684),
@@ -37,7 +37,7 @@ struct SkyUniforms {
     look: vec4<f32>,
 };
 
-@group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> sky: SkyUniforms;
+@group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> sky: SkyUniforms;
 
 // The sun's disc, radians of angular radius - about twice the real sun's,
 // so it reads at play resolution.
@@ -120,15 +120,15 @@ fn stars(dir: vec3<f32>, px: f32) -> vec3<f32> {
 // nothing else does, whichever is drawn first; Bevy's own skybox does the
 // same. Only `world_position` reaches the fragment shader.
 @vertex
-fn vertex(vertex: Vertex) -> VertexOutput {
+fn vertex(vertex_in: Vertex) -> VertexOutput {
     var out: VertexOutput;
-    let world_from_local = get_world_from_local(vertex.instance_index);
+    let vertex = decompress_vertex(vertex_in, vertex_in.instance_index);
+    let world_from_local = get_world_from_local(vertex_in.instance_index);
     out.world_position = mesh_position_local_to_world(world_from_local, vec4<f32>(vertex.position, 1.0));
     out.position = position_world_to_clip(out.world_position.xyz);
     out.position.z = 0.0;
-#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
-    out.instance_index = vertex.instance_index;
-#endif
+    @if(VERTEX_OUTPUT_INSTANCE_INDEX)
+    out.instance_index = vertex_in.instance_index;
     return out;
 }
 

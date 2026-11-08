@@ -1743,6 +1743,7 @@ mod beast_socket_tests {
     use super::*;
     use crate::pds::Generator;
     use crate::pds::avatar::{ResolvedRig, RiggedBody};
+    use crate::ui::headless::Headless as _;
 
     /// What the Wearables tab draws over `record` with every worn row open
     /// and no body standing: the socket chips it offers, the text it
@@ -1769,7 +1770,7 @@ mod beast_socket_tests {
                 )),
                 ..Default::default()
             };
-            let output = ctx.run_ui(input, |ui| {
+            let output = ctx.run_headless(input, |ui| {
                 changed |= draw_attachments_tab(
                     ui,
                     record,

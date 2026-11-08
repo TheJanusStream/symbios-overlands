@@ -10,8 +10,10 @@
 //! solver's `pair.manifolds[manifold_index]` index-out-of-bounds panic - the
 //! crash the #739 UV-mapping dropdown edit exposed.
 //!
-//! **Still unfixed upstream as of avian 0.7.0** (re-run 2026-08-30 #1150,
-//! 2026-09-15 and 2026-09-17 #1358).
+//! **Unfixed upstream through avian 0.7.0** (re-run 2026-08-30 #1150,
+//! 2026-09-15 and 2026-09-17 #1358); **the canary passes on avian 0.8.0**
+//! (2026-11-08, #1634), so the workaround below can be revisited - an owner's
+//! call, not taken in the bump.
 //! It was first diagnosed on 0.6.1, where the assert fired inside
 //! `Islands::add_contact`; on 0.7.0 the same assertion lives at
 //! `dynamics/solver/islands/mod.rs:518` and is reached through
@@ -59,12 +61,14 @@ fn app_with_physics() -> App {
         MinimalPlugins,
         TransformPlugin,
         bevy::asset::AssetPlugin::default(),
-        bevy::scene::ScenePlugin,
     ));
-    // Avian's collider backend expects mesh assets and the scene spawner
-    // to exist even when no mesh-backed or scene-built colliders do.
+    // Avian's collider backend expects mesh assets to exist even when no
+    // mesh-backed collider does. It asked for a scene spawner too until
+    // avian 0.8, built without its `bevy_scene` feature (#1576): its
+    // scene-hierarchy colliders are compiled out, and with the feature on
+    // it takes the spawner as optional anyway.
     app.init_asset::<Mesh>();
-    app.add_plugins(PhysicsPlugins::default());
+    app.add_plugins(symbios_overlands::player::GamePhysics);
     // Deterministic 64 Hz stepping, one fixed step per `app.update()`,
     // matching the app's tick rate.
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
@@ -314,7 +318,8 @@ fn axis_lock_freeze_toggles_during_motion_keep_constraint_graph_in_sync() {
 /// Since #867 the app DEFERS the swap until the freeze releases (the
 /// rebuild system's `Without<VisualsEditFreeze>` gate), so this exact
 /// sequence no longer occurs in-game. The test pins down how avian behaves
-/// if it ever regresses - green on 0.7.0 as of 2026-08-30 (#1150): the body
+/// if it ever regresses - green on 0.7.0 as of 2026-08-30 (#1150) and on
+/// 0.8.0 as of 2026-11-08 (#1634): the body
 /// must stay finite, stay on the ground, and keep the constraint graph in
 /// sync through release.
 /// If this fails after an avian upgrade the deferral must stay; if the
@@ -399,6 +404,12 @@ fn collider_replace_while_parked_and_touching_survives_release() {
 /// `player::freeze_local_avatar_on_visuals_select`, and the #867-869
 /// deferred-collider-rebuild machinery layered on it, both stay.
 ///
+/// **Fired on avian 0.8.0 (2026-11-08, the Bevy 0.20 train #1634): it
+/// PASSES** - on `GamePhysics` and on avian's plain `PhysicsPlugins` defaults
+/// alike, the re-enabled body's 60 steps clean. Upstream appears to have
+/// fixed the island bookkeeping. The park and the deferral above are left in
+/// place: retiring them is a separate change, for the owner to schedule.
+///
 /// Run it after the next avian or Bevy bump - nothing in the gate does:
 ///
 /// ```text
@@ -411,8 +422,8 @@ fn collider_replace_while_parked_and_touching_survives_release() {
 /// [`CANARY_VERIFIED_AGAINST`], which is what makes the bump trip a gate at
 /// all.
 #[test]
-#[ignore = "canary: reproduces the upstream avian island-corruption bug (#740); \
-            still failing on 0.7.0 - see the doc block above"]
+#[ignore = "canary for the upstream avian island-corruption bug (#740): failing \
+            through 0.7.0, passing on 0.8.0 - see the doc block above"]
 fn plain_rigid_body_disabled_cycle() {
     let mut app = app_with_physics();
     app.world_mut()
@@ -435,7 +446,7 @@ fn plain_rigid_body_disabled_cycle() {
 /// The avian version [`plain_rigid_body_disabled_cycle`] was last actually
 /// run against. Bump it only after running it - see its doc block for the
 /// command and for what each outcome means.
-const CANARY_VERIFIED_AGAINST: &str = "0.7.0";
+const CANARY_VERIFIED_AGAINST: &str = "0.8.0";
 
 /// #1150. Makes an avian bump trip a gate, which is the whole problem this
 /// canary had.

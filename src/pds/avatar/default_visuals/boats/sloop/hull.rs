@@ -457,7 +457,7 @@ pub(super) fn trunk_path(hull: &HullProfile) -> Vec<([f32; 3], f32)> {
 /// duplicating them, and a hand-rolled spline that duplicated them put the
 /// first port 17.6 mm off.
 fn trunk_ports(path: &[([f32; 3], f32)]) -> Vec<([f32; 3], f32)> {
-    use bevy::math::cubic_splines::{CubicCardinalSpline, CubicGenerator};
+    use bevy::curve::cubic_splines::{CubicCardinalSpline, CubicGenerator};
     use bevy::math::{Vec3, Vec4};
 
     let ctrl: Vec<Vec4> = path

@@ -3,6 +3,7 @@
 //! egui_ltreeview trees - read and worked the way the daemon works them,
 //! one step and then one pass per frame.
 
+use crate::ui::headless::Headless as _;
 use std::collections::HashMap;
 
 use bevy_egui::egui;
@@ -272,7 +273,7 @@ impl Harness {
             ..Default::default()
         };
         let game = &mut self.game;
-        let output = self.ctx.run_ui(input, |ui| draw(ui.ctx(), game));
+        let output = self.ctx.run_headless(input, |ui| draw(ui.ctx(), game));
         self.last = output.platform_output.accesskit_update;
     }
 

@@ -59,7 +59,7 @@ use crate::config::vegetation_wind as cfg;
 use crate::pds::SovereignTextureConfig;
 use crate::weathered::WeatheredMaterial;
 
-const WIND_SHADER_PATH: &str = "shaders/wind.wgsl";
+const WIND_SHADER_PATH: &str = "shaders/wind.wesl";
 
 /// Ceiling on [`WindMaterialLinks`] before dead entries are swept. Distinct
 /// foliage materials number in the dozens per region, so this is far above
@@ -135,7 +135,7 @@ pub fn sways(texture: &SovereignTextureConfig) -> bool {
     )
 }
 
-/// GPU uniform block shared with `wind.wgsl`.
+/// GPU uniform block shared with `wind.wesl`.
 ///
 /// 32 bytes, which WebGL2 requires to be a multiple of 16 - the trailing
 /// `storm` is what makes it so, and `wgsl_block_mirrors_the_rust_one` below
@@ -162,14 +162,14 @@ pub struct WindUniforms {
     /// Cross-wind flutter as a fraction of [`Self::strength`].
     pub flutter: f32,
     /// How stormy, 0 to 1 (#1684): gust fronts push the foliage downwind as
-    /// they pass (`storm_common.wgsl`). Also what keeps the block at 32
+    /// they pass (`storm_common.wesl`). Also what keeps the block at 32
     /// bytes, as the pad it replaced did: WebGL2 rejects a uniform block
     /// whose size is not a multiple of 16, and only the device-side
-    /// validator catches it. Mirror this in `WindUniforms` in `wind.wgsl`.
+    /// validator catches it. Mirror this in `WindUniforms` in `wind.wesl`.
     pub storm: f32,
 }
 
-/// [`MaterialExtension`] that drives `wind.wgsl`.
+/// [`MaterialExtension`] that drives `wind.wesl`.
 ///
 /// Bind-group slots (group `MATERIAL_BIND_GROUP`, 100 +):
 /// - 100 [`WindUniforms`] uniform
@@ -205,7 +205,7 @@ impl MaterialExtension for WindExtension {
     /// Bevy renders shadow maps through the prepass pipeline, so the
     /// displacement has to be repeated here or every foliage shadow stays
     /// frozen in the mesh's rest pose while the geometry above it moves.
-    /// `wind.wgsl` serves both from one file, guarded by `PREPASS_PIPELINE`.
+    /// `wind.wesl` serves both from one file, guarded by `PREPASS_PIPELINE`.
     fn prepass_vertex_shader() -> ShaderRef {
         WIND_SHADER_PATH.into()
     }
@@ -236,7 +236,7 @@ pub struct VegetationWind {
     pub speed: f32,
     /// How stormy, 0 to 1 (#1684): how hard the drawn weather gusts - a
     /// storm's, or a dust storm's (#1735, `WeatherNow::gusts`) - for the
-    /// gust fronts the foliage and the grass take (`storm_common.wgsl`).
+    /// gust fronts the foliage and the grass take (`storm_common.wesl`).
     pub storm: f32,
 }
 
@@ -429,8 +429,8 @@ pub fn apply_wind_state(
 /// [`world_builder::register_headless_spawn`](crate::world_builder::register_headless_spawn).
 /// The render tool takes a still, so the sway contributes nothing to a
 /// contact sheet - but the headless path is where the foliage render pipeline
-/// is actually created, and `wind.wgsl` is loaded at runtime rather than
-/// compiled by the build. Registering it there is what makes a WGSL error
+/// is actually created, and `wind.wesl` is loaded at runtime rather than
+/// compiled by the build. Registering it there is what makes a shader error
 /// fail on the machine doing the editing instead of in a browser.
 pub struct VegetationWindPlugin;
 
@@ -467,7 +467,7 @@ mod tests {
             size % 16,
             0,
             "WindUniforms is {size} bytes - WebGL2 needs a multiple of 16. \
-             Add or adjust a `_pad` field, and mirror it in wind.wgsl."
+             Add or adjust a `_pad` field, and mirror it in wind.wesl."
         );
     }
 
@@ -492,7 +492,7 @@ mod tests {
 
     /// The Rust and WGSL declarations of the uniform block are two
     /// hand-written copies of one layout, and nothing in the build compiles
-    /// the shader - WGSL is loaded at runtime. Adding a field to one and
+    /// the shader - it is composed at runtime. Adding a field to one and
     /// forgetting the other produces no error anywhere: the GPU reads the
     /// block at the wrong offsets and the foliage sways wrongly, or not at
     /// all.
@@ -505,9 +505,9 @@ mod tests {
     fn wgsl_block_mirrors_the_rust_one() {
         let src = std::fs::read_to_string(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/assets/shaders/wind.wgsl"
+            "/assets/shaders/wind.wesl"
         ))
-        .expect("wind.wgsl is a tracked asset");
+        .expect("wind.wesl is a tracked asset");
 
         let expected = [
             ("wind_dir", "vec2<f32>"),
@@ -522,7 +522,7 @@ mod tests {
         assert_eq!(
             actual.len(),
             expected.len(),
-            "wind.wgsl declares {} fields, WindUniforms has {}: {actual:?}",
+            "wind.wesl declares {} fields, WindUniforms has {}: {actual:?}",
             actual.len(),
             expected.len()
         );
@@ -530,7 +530,7 @@ mod tests {
             assert_eq!(
                 (got.0.as_str(), got.1.as_str()),
                 want,
-                "wind.wgsl field order / naming drifted from WindUniforms"
+                "wind.wesl field order / naming drifted from WindUniforms"
             );
         }
 
@@ -547,49 +547,107 @@ mod tests {
 
     /// The prepass binds a smaller view layout than the main pass, and
     /// `Globals` sits at a *different index* in it - binding 1 rather than
-    /// 11. Reaching for `mesh_view_bindings::globals` in the prepass branch
-    /// compiles and composes perfectly happily, then panics at pipeline
-    /// creation with `Shader global ResourceBinding { group: 0, binding: 11 }
-    /// is not available in the pipeline layout` the first time a
-    /// shadow-casting light sees foliage.
+    /// 11 (Bevy 0.20 still: `prepass_view_layout_*` in bevy_pbr's
+    /// `prepass/mod.rs`, against `render/mesh_view_bindings.wesl`). Reaching
+    /// for `mesh_view_bindings::globals` in the prepass variant compiles and
+    /// composes perfectly happily, then panics at pipeline creation with
+    /// `Shader global ResourceBinding { group: 0, binding: 11 } is not
+    /// available in the pipeline layout` the first time a depth prepass or a
+    /// shadow pass draws foliage.
+    ///
+    /// In WESL a variant is not a region of the file but a condition on each
+    /// declaration: the prepass's own `globals` must carry
+    /// `@if(PREPASS_PIPELINE)`, and the import of the main pass's must carry
+    /// that condition's `@else` (or `@if(!PREPASS_PIPELINE)`). WESL also lets
+    /// code name a module inline, with no import (`a::b::item`), so no line
+    /// outside that import may name `mesh_view_bindings` at all.
     ///
     /// This is a textual guard rather than a real compile, because nothing in
-    /// the build compiles WGSL and the render tool renders without shadows -
-    /// so the prepass variant of this shader has no other automated check at
-    /// all. It locks the one mistake that has actually been made here.
+    /// the build composes a shader: the prepass variant is composed only at
+    /// run time, by the camera's depth prepass (any native render with
+    /// foliage in view) or by a shadow pass. It locks the one mistake that
+    /// has actually been made here.
     #[test]
     fn the_prepass_branch_binds_globals_at_its_own_index() {
         let src = std::fs::read_to_string(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/assets/shaders/wind.wgsl"
+            "/assets/shaders/wind.wesl"
         ))
-        .expect("wind.wgsl is a tracked asset");
-
-        let start = src
-            .find("#ifdef PREPASS_PIPELINE")
-            .expect("the shader must branch on PREPASS_PIPELINE");
-        let end = start
-            + src[start..]
-                .find("#else")
-                .expect("the PREPASS_PIPELINE branch must have an #else");
-        // Comments are stripped first: the branch *documents* the wrong
-        // import by name, and a prose mention of it is not a binding.
-        let prepass: String = src[start..end]
+        .expect("wind.wesl is a tracked asset");
+        // Comments are stripped first, trailing ones too: the file
+        // *documents* the wrong import by name, and a prose mention of it is
+        // not a binding. WGSL has no string literals, so `//` only ever
+        // starts a comment.
+        let lines: Vec<&str> = src
             .lines()
-            .filter(|l| !l.trim_start().starts_with("//"))
-            .collect::<Vec<_>>()
-            .join("\n");
+            .map(|l| l.split("//").next().unwrap_or_default().trim())
+            .filter(|l| !l.is_empty())
+            .collect();
+        // The condition a line carries: the attribute on the line before.
+        let condition = |at: usize| at.checked_sub(1).map(|i| lines[i]).unwrap_or("");
 
-        assert!(
-            prepass.contains("@group(0) @binding(1) var<uniform> globals: Globals;"),
-            "the prepass branch must declare Globals at its own binding index"
+        let declared = lines
+            .iter()
+            .position(|l| *l == "@group(0) @binding(1) var<uniform> globals: Globals;")
+            .expect("the prepass variant must declare Globals at its own binding index");
+        assert_eq!(
+            condition(declared),
+            "@if(PREPASS_PIPELINE)",
+            "the prepass's own Globals must be declared for the prepass only"
         );
-        assert!(
-            !prepass.contains("mesh_view_bindings::globals"),
-            "mesh_view_bindings declares Globals at binding 11, which the \
-             prepass view layout does not have - this panics at pipeline \
-             creation as soon as foliage casts a shadow"
+
+        // Every import statement that reaches the main pass's bindings, in
+        // any spelling (`mesh_view_bindings::{globals as clock}` too), must
+        // be the forward variant's; the lines they span are kept for the
+        // inline check below.
+        let mut imports = 0;
+        let mut spans = Vec::new();
+        for (at, line) in lines.iter().enumerate() {
+            if !line.starts_with("import ") {
+                continue;
+            }
+            let end = (at..lines.len())
+                .find(|&i| lines[i].ends_with(';'))
+                .expect("an import statement ends with `;`");
+            let statement = lines[at..=end].concat();
+            if !statement.contains("mesh_view_bindings") {
+                continue;
+            }
+            spans.push(at..=end);
+            if statement.contains("mesh_view_bindings::globals") {
+                imports += 1;
+            }
+            let carries = condition(at);
+            let forward_only = carries == "@if(!PREPASS_PIPELINE)"
+                || (carries == "@else"
+                    && lines[..at]
+                        .iter()
+                        .rev()
+                        .find(|l| l.starts_with("@if(") || l.starts_with("@elif("))
+                        .is_some_and(|l| *l == "@if(PREPASS_PIPELINE)"));
+            assert!(
+                forward_only,
+                "mesh_view_bindings declares Globals at binding 11, which the \
+                 prepass view layout does not have - this panics at pipeline \
+                 creation as soon as a depth prepass or a shadow pass draws \
+                 foliage (the import carries `{carries}`)"
+            );
+        }
+        assert_eq!(
+            imports, 1,
+            "the forward variant takes the main pass's Globals by one import, \
+             spelled `mesh_view_bindings::globals`"
         );
+        // A path written inline binds index 11 just as an import does, and
+        // in code shared by both variants (`wind_offset`) the prepass takes
+        // it too.
+        for (at, line) in lines.iter().enumerate() {
+            assert!(
+                !line.contains("mesh_view_bindings") || spans.iter().any(|s| s.contains(&at)),
+                "`{line}` names mesh_view_bindings outside the forward variant's import: \
+                 the prepass view layout has no binding 11"
+            );
+        }
     }
 
     /// The predicate is the whole scope of the feature: it decides what gets

@@ -848,6 +848,7 @@ pub(super) fn setup(
         }
         commands.spawn((
             Camera3d::default(),
+            crate::camera::TONEMAPPING,
             RenderTarget::Image(target.into()),
             Msaa::Off,
             AmbientLight {

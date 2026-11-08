@@ -1562,6 +1562,7 @@ pub fn latch_controls_seen(mut panels: ResMut<UiPanels>, mut was_open: Local<boo
 mod tests {
     use super::*;
     use crate::player::sim::{CAR_KEYS, InTheAir, OnTheGround};
+    use crate::ui::headless::Headless as _;
 
     /// #1271 f409. The dot's hover names the problem, not just a count.
     #[test]
@@ -2322,7 +2323,7 @@ mod tests {
         ctx.set_fonts(crate::ui::fonts::build_font_definitions(None));
         let mut measured = (0.0_f32, 0.0_f32);
         // Fonts are not available until the context has run a pass.
-        let _ = ctx.run_ui(
+        let _ = ctx.run_headless(
             egui::RawInput {
                 screen_rect: Some(egui::Rect::from_min_size(
                     egui::Pos2::ZERO,

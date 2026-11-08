@@ -1,10 +1,10 @@
 //! Spline-sweep meshers (#689): the Spine tube (circular profile swept along
 //! a Catmull-Rom path with per-point radius) and the Lathe revolve (a
 //! bottom-to-top silhouette spun around Y, with the SL-style path-cut /
-//! hollow closures). Both interpolate with `bevy_math::cubic_splines`, so
+//! hollow closures). Both interpolate with `bevy_curve::cubic_splines`, so
 //! the serialized recipe is just the control points.
 
-use bevy::math::cubic_splines::{CubicCardinalSpline, CubicGenerator};
+use bevy::curve::cubic_splines::{CubicCardinalSpline, CubicGenerator};
 use bevy::prelude::*;
 
 use crate::pds::generator::FaceKey;

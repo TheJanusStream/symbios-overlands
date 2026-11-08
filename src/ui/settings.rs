@@ -601,6 +601,7 @@ fn muted_people_section(
 
 #[cfg(test)]
 mod tests {
+    use crate::ui::headless::Headless as _;
     use bevy_egui::egui;
 
     use super::*;
@@ -611,7 +612,7 @@ mod tests {
         let ctx = egui::Context::default();
         let mut shown = value;
         let mut changed = false;
-        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+        let _ = ctx.run_headless(egui::RawInput::default(), |ui| {
             changed = ui.add(ground_cover_slider(&mut shown)).changed();
         });
         (shown, changed)

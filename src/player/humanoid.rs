@@ -3262,7 +3262,7 @@ mod feet_on_the_ground_tests {
         use crate::config::terrain::{CELL_SCALE, GRID_SIZE};
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
-            .add_plugins(PhysicsPlugins::default());
+            .add_plugins(crate::player::GamePhysics);
         let mut heightmap = bevy_symbios_ground::HeightMap::new(GRID_SIZE, GRID_SIZE, CELL_SCALE);
         for z in 0..GRID_SIZE {
             for x in 0..GRID_SIZE {
@@ -3547,7 +3547,9 @@ mod beast_on_foot {
             let record = beast_record(family);
             let p = params(&record).clone();
             let bench = WalkBench::standing(&record, 0.0, 0.0);
-            let bounds = bench.collider().aabb(bench.position(), bench.rotation());
+            let bounds = bench
+                .collider()
+                .aabb(bench.position(), bench.rotation(), 0.0);
             let size = bounds.max - bounds.min;
             assert!(
                 size.z > size.y * 1.5 && size.z > size.x * 1.5,

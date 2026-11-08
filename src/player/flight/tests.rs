@@ -717,7 +717,7 @@ fn take_off(record: &AvatarRecord) -> (f32, f32) {
         let mut bodies =
             world.query_filtered::<(&Collider, &Position, &Rotation), With<LocalPlayer>>();
         let (collider, position, rotation) = bodies.single(world).expect("one body");
-        lowest = collider.aabb(position.0, rotation.0).min.y;
+        lowest = collider.aabb(position.0, rotation.0, 0.0).min.y;
     });
     assert_eq!(
         bench.flight().mode(),

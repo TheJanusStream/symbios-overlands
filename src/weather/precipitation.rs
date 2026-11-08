@@ -2,7 +2,7 @@
 //!
 //! One mesh of [`cfg::DROPS`] quads, each a streak of rain or a flake of
 //! snow, placed, fallen and drifted by its vertex shader
-//! (`assets/shaders/precipitation.wgsl`) from the time alone - thousands of
+//! (`assets/shaders/precipitation.wesl`) from the time alone - thousands of
 //! them in one draw call, with no entity each and nothing for the CPU to do
 //! frame by frame. Each quad's corners carry where in the volume it starts
 //! and a rank: in rain or snow of amount `a` the quads ranked under `a` fall,
@@ -15,7 +15,7 @@
 //! is written only when the drawn environment is (`crate::drawn_environment`)
 //! and the volume is hidden while nothing falls, so a dry room pays nothing.
 //! In a storm the streaks slant harder in its gust fronts
-//! (`storm_common.wgsl`, the storm carried in the light's `w`), and a
+//! (`storm_common.wesl`, the storm carried in the light's `w`), and a
 //! lightning flash lights them (`lightning`, #1684).
 //!
 //! An orthographic view (#1603) folds every quad away: its eye stands far
@@ -45,12 +45,12 @@ use crate::config::lighting::weather::precipitation as cfg;
 use crate::drawn_environment::{DrawEnvironmentSet, DrawnEnvironment};
 use crate::pds::Environment;
 
-const PRECIPITATION_SHADER_PATH: &str = "shaders/precipitation.wgsl";
+const PRECIPITATION_SHADER_PATH: &str = "shaders/precipitation.wesl";
 
 // Four corners a quad, each indexed in 16 bits.
 const _: () = assert!(cfg::DROPS as usize * 4 <= u16::MAX as usize + 1);
 
-/// What `precipitation.wgsl` is given: two `Vec4`s, a 32-byte block - a
+/// What `precipitation.wesl` is given: two `Vec4`s, a 32-byte block - a
 /// multiple of 16, as WebGL2 requires.
 #[derive(Debug, Clone, Copy, Default, PartialEq, ShaderType)]
 pub struct PrecipitationUniforms {

@@ -317,7 +317,7 @@ pub(crate) mod lighting {
 
         /// Storms (#1684): the wind, the lightning and the thunder
         /// (`crate::weather::lightning`; the gust fronts are
-        /// `storm_common.wgsl`'s).
+        /// `storm_common.wesl`'s).
         pub mod storm {
             /// How much a full storm adds to the wind (`cloud_speed`), as a
             /// share of its own: the clouds, the grass, the foliage and the
@@ -373,7 +373,7 @@ pub(crate) mod lighting {
         }
 
         /// What falls (`crate::weather::precipitation`); the look of a
-        /// streak and a flake is `precipitation.wgsl`'s.
+        /// streak and a flake is `precipitation.wesl`'s.
         pub mod precipitation {
             /// Quads in the volume round the camera: all of them fall in the
             /// heaviest rain or snow, a share of them in lighter.
@@ -432,7 +432,7 @@ pub(crate) mod lighting {
         /// from the horizon's to the ground's.
         pub const GROUND_FADE: f32 = 0.08;
         /// The air mass just above the horizon - the sky shader's own cap
-        /// (`MAX_AIR_MASS` in `assets/shaders/sky_common.wgsl`), so the map
+        /// (`MAX_AIR_MASS` in `assets/shaders/sky_common.wesl`), so the map
         /// hazes the sky as the sky is drawn.
         pub const MAX_AIR_MASS: f32 = 1000.0;
         /// How much of the sky's hue the diffuse light keeps, `0` grey and
@@ -445,9 +445,9 @@ pub(crate) mod lighting {
         pub const MIN_UP_LUMINANCE: f32 = 1.0e-4;
         /// What Bevy's ambient light gave a matte surface of its level:
         /// `EnvBRDFApprox(colour, F_AB(1, NdotV))`, whose scale at
-        /// roughness 1 is 0.4524 at any view angle (bevy_pbr 0.19's
-        /// `pbr_lighting.wgsl`, its polynomial `F_AB` - Bevy's `dfg_lut`
-        /// feature, off here, would read a table instead).
+        /// roughness 1 is 0.4524 at any view angle (bevy_pbr 0.20's
+        /// `pbr_lighting.wesl`, its polynomial `F_AB` as in 0.19 - Bevy's
+        /// `dfg_lut` feature, off here, would read a table instead).
         pub const BEVY_AMBIENT_DIFFUSE: f32 = 0.4524;
         /// What the environment map gives the same surface of its light:
         /// what the specular lobe leaves of it (`Edss`), 0.95-0.98 for a
@@ -493,7 +493,7 @@ pub(crate) mod lighting {
     /// The cloud deck (`crate::clouds`, #1673): the defaults of the cloud
     /// fields on `pds::Environment`, and what the deck derives from them. The
     /// deck is a single horizontal plane at altitude `HEIGHT`, drawn by a
-    /// WGSL shader that synthesises domain-warped FBM clouds covering `COVER`
+    /// WESL shader that synthesises domain-warped FBM clouds covering `COVER`
     /// of the sky, softened by `SOFTNESS`, drifting along `wind_dir` at
     /// `SPEED` m/s, lit by the scene's sun and sky, hazed into the horizon as
     /// the sky is, and casting its shade into the sun's shadow cascades.
@@ -540,7 +540,7 @@ pub(crate) mod lighting {
         /// The field value a cloud's edge sits on for each twentieth of
         /// `cloud_cover` from 0.05 to 0.95: the field's `(1 - cover)`
         /// quantile, so the clouds cover that share of the sky (#1673).
-        /// Measured on a float32 numpy port of `cloud_common.wgsl` over
+        /// Measured on a float32 numpy port of `cloud_common.wesl` over
         /// 4,000,000 points 160 km across;
         /// `clouds::tests::a_cover_covers_its_share_of_the_sky` re-measures
         /// it on a Rust port. `clouds::threshold` adds the two ends, a
@@ -1082,7 +1082,7 @@ pub(crate) mod draw_distance {
     /// reused. On WebGL2, which has no GPU preprocessing, only the crossfade
     /// (dither) shader reads it, and a zero-margin range never compiles that
     /// shader, so overflowing it is not known to break anything; native GPU
-    /// culling reads the table too (`mesh_preprocess.wgsl`), but as an
+    /// culling reads the table too (`mesh_preprocess.wesl`), but as an
     /// unsized storage buffer. The feature still stays well inside the
     /// WebGL2 size by construction.
     pub const WEBGL2_RANGE_SLOTS: usize = 64;
@@ -1319,7 +1319,7 @@ pub(crate) mod terrain {
 
     // --- Splat stains overlay (interaction Phase 3, #245) -------------------
     /// CPU-stamped wetness / dust / footprint overlay sampled by
-    /// `splat.wgsl`. The texture addresses the world toroidally: world
+    /// `splat.wesl`. The texture addresses the world toroidally: world
     /// XZ → `fract(xz / WORLD_PERIOD)`, sampled with a Repeat sampler.
     /// There is therefore no camera-recentred ring buffer and no
     /// origin-pop (the "follows camera without re-centering pop"
@@ -1566,7 +1566,7 @@ pub(crate) mod grass {
     /// blades: at High about a third as many tiles, for up to a tenth more
     /// vertices (a large tile holds what its nearest point needs).
     pub const LARGE_AT: [f32; 2] = [1.25, 2.5];
-    /// Thin ground grows its grass in clumps (`ground_common.wgsl`'s
+    /// Thin ground grows its grass in clumps (`ground_common.wesl`'s
     /// `grass_density`, which the blades and the ground under them both
     /// read, #1695): up to this many times its own density in a clump, by
     /// this share of how thin the ground is - times the world's clumpiness
@@ -1601,7 +1601,7 @@ pub(crate) mod grass {
     /// How far a blade's tip leans in the room's wind at its default speed
     /// (m); a stronger wind leans it further, to two and a half times this,
     /// and a storm's gust front up to two and a half times that again
-    /// (`ground_common.wgsl`'s `STORM_LEAN`, #1684).
+    /// (`ground_common.wesl`'s `STORM_LEAN`, #1684).
     pub const WIND_LEAN: f32 = 0.12;
     /// The bodies the grass parts around, at most: the nearest to the
     /// camera.
@@ -1651,7 +1651,7 @@ pub(crate) mod grass {
         /// `width` wide ([`BLADE_WIDTH`] unset; #1702): wider by the inverse
         /// square root of the field's share (#1696), so a thinner field
         /// covers the ground as the square root of its share - as a far
-        /// field's blades widen by its thinning (`grass.wgsl`).
+        /// field's blades widen by its thinning (`grass.wesl`).
         pub fn blade_width(&self, width: f32) -> f32 {
             width / self.density.sqrt()
         }
@@ -3690,7 +3690,7 @@ const _: () =
 const _: () = assert!(lighting::CASCADE_MAX_DIST > camera::ORBIT_RADIUS);
 
 // The splat albedo fade (#1320) ramps between its two distances, and
-// splat.wgsl switches it off when they are equal or inverted, which quietly
+// splat.wesl switches it off when they are equal or inverted, which quietly
 // brings the far-ground cross-hatch back.
 const _: () = assert!(terrain::splat::ALBEDO_FADE_NEAR < terrain::splat::ALBEDO_FADE_FAR);
 // "The fade has to finish while the fog still shows the ground." A far

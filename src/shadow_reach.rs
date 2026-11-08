@@ -350,7 +350,7 @@ mod tests {
         }
     }
 
-    /// `shadows.wgsl`'s `get_cascade_index`: a fragment is shaded from the
+    /// `shadows.wesl`'s `get_cascade_index`: a fragment is shaded from the
     /// first cascade whose far bound lies beyond its depth, and from none
     /// past them all.
     fn cascade_at(bounds: &[f32], depth: f32) -> Option<usize> {

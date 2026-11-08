@@ -429,6 +429,7 @@ pub(super) fn spawn_world_camera(
     };
     let mut camera = commands.spawn((
         Camera3d::default(),
+        crate::camera::TONEMAPPING,
         WorldCamera,
         RenderTarget::Image(target.into()),
         edge_smoothing.components(),

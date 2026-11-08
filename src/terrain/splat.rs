@@ -749,7 +749,7 @@ pub(crate) fn ground_weather(now: &WeatherNow, low: f32, high: f32) -> GroundWea
 /// How many feathers from the snow line its edge reaches: the shader's
 /// blend spans half a feather either side, and the patches move the line
 /// up to 0.6 of one (`SNOW_PATCHINESS` 1.2 times a jitter of at most 0.5,
-/// in `ground_common.wgsl`).
+/// in `ground_common.wesl`).
 const SNOW_EDGE_FEATHERS: f32 = 1.1;
 
 /// What [`ground_weather`] gives the ground's shader (and the grass's).

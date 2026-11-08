@@ -636,10 +636,26 @@ fn walked(
     family: Family,
     place: Transform,
     key: KeyCode,
-    (held, seconds): (f32, f32),
+    timing: (f32, f32),
     hz: f32,
 ) -> Vec<Frame> {
+    walked_tuned(ground, solids, family, place, key, timing, hz, |_| {})
+}
+
+/// [`walked`], with `tune` run over the app before the first frame.
+#[allow(clippy::too_many_arguments)]
+fn walked_tuned(
+    ground: &dyn Fn(f32, f32) -> f32,
+    solids: &[(Vec3, Transform)],
+    family: Family,
+    place: Transform,
+    key: KeyCode,
+    (held, seconds): (f32, f32),
+    hz: f32,
+    tune: impl FnOnce(&mut App),
+) -> Vec<Frame> {
     let (mut app, chassis, root) = standing_still(ground, solids, Under::Local, family, place, hz);
+    tune(&mut app);
     let pressed = (held * hz) as usize;
     frames_of(
         &mut app,
@@ -683,6 +699,15 @@ fn worst_turn(log: &[Frame], pairs: impl Iterator<Item = usize>) -> f32 {
 /// turns it under 4. Held, the frames on and just after a lost step turn the
 /// trunk no more than half a degree past the most any other frame of the walk
 /// does, and the patch is handed over on every frame.
+///
+/// The walks run on avian 0.7's contact tolerance, 5 mm. Avian 0.8 raised
+/// the default to 2 cm, and the capsule's small hops over these grounds now
+/// stay inside it: on 0.8's own tolerance the six walks lose no step at all,
+/// and the guard would put nothing through. A step can still be lost - a
+/// hop past 2 cm, a bump the walk is not shown here - and the hold is what
+/// meets it, so the walks are run where they lose steps rather than the
+/// floor below being dropped. On 0.8 at 5 mm only the horse's walks lose
+/// any: 9 frames between them, where 0.7 lost 21.
 #[test]
 fn a_step_the_physics_loses_moves_the_trunk_no_more_than_any_other() {
     let grounds = grounds();
@@ -703,7 +728,11 @@ fn a_step_the_physics_loses_moves_the_trunk_no_more_than_any_other() {
         let record = beast_record(family);
         let place = Transform::from_xyz(0.0, ground(0.0, 0.0) + drop_of(&record) + 0.02, 0.0);
         for hz in [60.0f32, 144.0] {
-            let log = walked(&**ground, &[], family, place, key, (2.0, 4.0), hz);
+            let log = walked_tuned(&**ground, &[], family, place, key, (2.0, 4.0), hz, |app| {
+                app.world_mut()
+                    .resource_mut::<avian3d::prelude::NarrowPhaseConfig>()
+                    .contact_tolerance = 0.005;
+            });
             let near: Vec<usize> = log
                 .iter()
                 .enumerate()

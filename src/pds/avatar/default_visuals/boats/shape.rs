@@ -15,7 +15,7 @@
 //! The sloop keeps her own (`sloop/hull.rs`): she was built before these
 //! and her dumps are pinned byte for byte.
 
-use bevy::math::cubic_splines::{CubicCardinalSpline, CubicGenerator};
+use bevy::curve::cubic_splines::{CubicCardinalSpline, CubicGenerator};
 use bevy::math::{Vec3, Vec4};
 
 use crate::pds::generator::{Generator, GeneratorKind};

@@ -31,55 +31,10 @@ yanked = "deny"
 # unmaintained IS actionable, and this still catches that.
 unmaintained = "workspace"
 # Recorded exceptions, not suppressions: each is an advisory this repo
-# cannot resolve from inside itself, with the tracking issue that can. The
-# first four were found by this gate's FIRST run - the point of adding it.
+# cannot resolve from inside itself, with the tracking issue that can.
 # Review this list whenever bevy, bevy_symbios_multiuser or matchbox is
 # bumped; if an entry stops appearing, delete it rather than leaving it to rot.
 ignore = [
-    # Three VULNERABILITIES in rustls-webpki 0.101.7, all reached the same way:
-    #   rustls-webpki 0.101.7 <- rustls 0.21.12 <- async-tls 0.13
-    #     <- async-tungstenite 0.32 <- bevy_symbios_multiuser + matchbox_socket
-    # That is the EOL rustls 0.21 line, and it carries the relay signalling
-    # WebSocket. Two are name-constraint checks accepting certificates they
-    # should reject (wildcard names, URI names); one is a reachable panic
-    # parsing certificate revocation lists, which its own advisory says does
-    # not affect applications that do not use CRLs - this client configures
-    # none. So exposure is limited, but not zero, and none of it is fixable
-    # from inside this repo: async-tungstenite has to move off `async-tls`.
-    # Tracked in #1178, which this gate promoted from hygiene to an advisory
-    # fix on its very first run.
-    "RUSTSEC-2026-0098",
-    "RUSTSEC-2026-0099",
-    "RUSTSEC-2026-0104",
-    # Two in rustls itself on the same 0.21.12 path, fixed only in 0.23.46
-    # (the copy reqwest and webrtc use takes that fix; this one cannot).
-    # Neither reaches this client. 0346: the client session values' derived
-    # Debug prints the resumption secret, but only a custom session store
-    # formats them, and nothing on the path - nor this repo - implements one.
-    # 0349: a forged ServerHello can steer later handshakes off a
-    # post-quantum group, and rustls 0.21 has none to lose (X25519, P-256
-    # and P-384 only). Native only: rustls 0.21 is not in the wasm graph.
-    # Found by #1650; delete them with the three above when #1178 reopens.
-    "RUSTSEC-2026-0346",
-    "RUSTSEC-2026-0349",
-    # Two more on the same path, dated 2026-10-19 and -20 (CVE-2026-111943,
-    # Mozilla bug 2083449): the private keys of some emSign intermediates are
-    # now well known. 0381: webpki-roots 0.22.6, the roots async-tls 0.13
-    # trusts, includes "emSign ECC Root CA - G3" (1.0.10 drops it). 0382:
-    # rustls-webpki 0.101.7 does not reject those intermediates' keys (0.103.16
-    # does, and the copy reqwest and webrtc use takes it; this one cannot).
-    # Unlike the two above, this IS reachable: a certificate signed with a
-    # leaked key chains to a trusted root here, so someone between a native
-    # client (the desktop app, the agent daemon) and the relay could read or
-    # rewrite its signalling, and with it the DTLS fingerprints its SDP
-    # carries. Browsers are not exposed: their WebSocket uses the browser's
-    # own trust store, which distrusts these, and rustls 0.21 is not in the
-    # wasm graph. Accepted by the owner on 2026-10-21 (#1733) under #1178's
-    # wait for matchbox, re-checked on 2026-11-11; the in-repo async-tls
-    # stand-in on rustls 0.23 designed on #1178 would retire all seven.
-    # Delete them with the five above when #1178 reopens.
-    "RUSTSEC-2026-0381",
-    "RUSTSEC-2026-0382",
     # bincode 1.3.3 is unmaintained by the authors' explicit decision rather
     # than through neglect - they consider 1.3.3 complete and finished. It is
     # the multiuser wire codec, and this repo depends on it directly too
@@ -87,19 +42,6 @@ ignore = [
     # replacing it would be a wire-format change, not an upgrade. matchbox
     # does not bring it - its optional ggrs feature uses bincode 2.
     "RUSTSEC-2025-0141",
-    # A decompression bomb in ruzstd 0.8.3: a block's decompressed size is
-    # never bounded, so a tiny zstd input can grow to gigabytes. Fixed in
-    # 0.9.1, but bevy_image 0.19.1 asks for ruzstd 0.8, and so does
-    # bevy_image 0.20.0 (checked 2026-10-27, #1787): no update from here
-    # reaches it, and the Bevy 0.20 train (#1634) will not either. Its one
-    # caller is bevy_image's KTX2 loader (Zstandard supercompression), and
-    # nothing untrusted feeds that: this repo ships no .ktx2 file and
-    # registers no network asset source, so the only KTX2 it can load are
-    # bevy's own embedded tonemapping and SMAA tables, and every fetched
-    # image decodes through the `image` crate on a PNG, JPEG and WebP
-    # allowlist (world_builder/blob_fetch.rs), never through bevy_image.
-    # Delete this once bevy asks for ruzstd 0.9.1 or later. Tracked in #1633.
-    "RUSTSEC-2026-0344",
     # A timing side channel in crypto-bigint 0.5.5, dated 2026-10-23
     # (RustCrypto/crypto-bigint#1365).
     #
@@ -109,26 +51,24 @@ ignore = [
     # from 0.7.6 (0.7.6 to 0.7.8 have since been yanked; 0.7.9 and later
     # stand); the 0.5 line has no fix.
     #
-    # It arrives under elliptic-curve 0.13 by two paths:
-    #   k256 / p256 0.13 <- proto-blue-crypto 0.2.6 <- proto-blue-oauth 0.2.6
+    # It arrives under elliptic-curve 0.13 by one path since the Bevy 0.20
+    # train (#1634):
+    #   k256 / p256 0.13 <- proto-blue-crypto 0.3.3 and proto-blue-oauth 0.3.3
     #     (this repo and bevy_symbios_multiuser): the atproto keys, the OAuth
     #     DPoP key that signs each PDS request among them, on the web and
-    #     native;
-    #   p256 / p384 0.13 <- dtls 0.17.2 <- webrtc <- matchbox_socket: native
-    #     only, as a browser uses its own WebRTC.
+    #     native.
+    # The second path, p256 / p384 0.13 <- dtls 0.17.2 <- webrtc 0.17 <-
+    # matchbox_socket, left with matchbox_socket 0.15 (webrtc 0.21).
     #
     # Exposure: using it means timing the signing closely - a local process
     # reading the cache or the branch predictor, or very many remote samples.
     # Over the network a signature's timing is lost in the jitter.
     #
-    # Neither path can move yet (checked 2026-10-27, #1787): proto-blue-crypto
-    # 0.3.3, the newest, still asks for k256 / p256 0.13, so no proto-blue
-    # bump leaves crypto-bigint 0.5; and dtls 0.17.2 is still the newest dtls,
-    # which moves only when matchbox_socket leaves webrtc 0.17. The owner
-    # recorded this exception on 2026-10-24 and kept it after that close look.
-    # matchbox's and proto-blue's next releases ride the Bevy 0.20 train
-    # (#1634): look again there. Delete it when neither path asks for
-    # crypto-bigint 0.5.
+    # The proto-blue path cannot move yet (re-checked 2026-11-08 in the train):
+    # proto-blue-crypto 0.3.3, the newest, still asks for k256 / p256 0.13, so
+    # no proto-blue bump leaves crypto-bigint 0.5. The owner recorded this
+    # exception on 2026-10-24 and kept it after a close look (#1787). Delete
+    # it when proto-blue moves to the 0.14 curves.
     "RUSTSEC-2026-0387",
 ]
 
@@ -170,8 +110,6 @@ ignore = true
 [bans]
 multiple-versions = "warn"
 wildcards = "allow"
-# The second `rustls` is the EOL 0.21 line that `async-tls` pins (#1178's
-# advisory half, above); it stays a recorded duplicate until matchbox moves.
 skip = []
 
 # No OpenSSL, through any parent (#1178's OpenSSL half). It used to arrive as

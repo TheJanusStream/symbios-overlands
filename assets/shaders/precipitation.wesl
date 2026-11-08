@@ -23,11 +23,11 @@
 // here in the vertex shader. `globals.time` wraps every hour, when every
 // quad jumps at once - in falling rain, unseen.
 
-#import bevy_pbr::{
+import bevy_pbr::render::{
     mesh_view_bindings::{view, globals, lights},
     view_transformations::position_world_to_clip,
-}
-#import "shaders/storm_common.wgsl"::storm_gust
+};
+import super::storm_common::storm_gust;
 
 struct PrecipitationUniforms {
     // x: how hard it rains, y: how hard it snows (0 to 1); z, w: the wind
@@ -38,15 +38,15 @@ struct PrecipitationUniforms {
     light: vec4<f32>,
 };
 
-@group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> weather: PrecipitationUniforms;
+@group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> weather: PrecipitationUniforms;
 
 // The shelter from what falls (#1685): its red, the top of the highest
 // static shape over each texel of the ground cover's grid, minus infinity
 // under the open sky (`ground_cover::shelter`; green is the world's parts',
 // #1686). `shelter_frame`: xy the grid's low corner in
 // world XZ, z a texel's side (m), w its texels a side - 0 before it is drawn.
-@group(#{MATERIAL_BIND_GROUP}) @binding(1) var shelter: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(2) var<uniform> shelter_frame: vec4<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(1) var shelter: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(2) var<uniform> shelter_frame: vec4<f32>;
 
 // Whether `p` lies under something: below the highest top over its texel.
 fn sheltered(p: vec3<f32>) -> bool {

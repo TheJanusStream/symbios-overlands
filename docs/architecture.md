@@ -13,13 +13,14 @@ direct WebRTC mesh.
 
 ## Engine stack
 
-- **Engine:** Bevy 0.19 + Avian3D 0.7 (physics) +
+- **Engine:** Bevy 0.20 + Avian3D 0.8 (physics) +
   [`bevy_egui`](https://github.com/vladbat00/bevy_egui) + `egui_ltreeview`
   (UI, and the generator tree every editor is built around) +
   [`bevy_panorbit_camera`](https://github.com/Plonq/bevy_panorbit_camera)
   (third-person orbit) +
   [`transform-gizmo-bevy`](https://github.com/urholaukkarinen/transform-gizmo)
-  (in-world editor handles) + `fast-surface-nets` (the isosurface mesher
+  (in-world editor handles; its Bevy layer carried in
+  `crates/transform-gizmo-bevy`, ported to Bevy 0.20) + `fast-surface-nets` (the isosurface mesher
   behind `BlobGroup`).
 - **Web renderer:** two bundles of the one crate (#1670): WebGL2, which
   every browser runs, and WebGPU (Bevy's `webgpu` feature) where the
@@ -416,19 +417,19 @@ generation cores shared with the wasm Web Worker.
   and laid there in 16 and 32 m tiles, out to 128 m at the High setting
   (#1694), the ground past them showing the grass to the fog (#1695,
   `terrain::GroundGrass`); each blade stood
-  on the ground, grown and coloured by `assets/shaders/grass.wgsl` from the
+  on the ground, grown and coloured by `assets/shaders/grass.wesl` from the
   ground cover's textures and a profile: the terrain's grass settings
   (#1700, `src/pds/grass.rs`, the World Editor's Grass section), and for
   each one left on Auto what the record's own ground layers, grass tufts
   and flowers give; a per-account quality setting. The ground
   and the grass share their large-scale variation, a tone drift over tens of
-  metres and a mottle over a few (`assets/shaders/ground_common.wgsl`,
+  metres and a mottle over a few (`assets/shaders/ground_common.wesl`,
   #1676): the splat's tone follows them, and the grass is drier where the
   ground drifts lighter and taller where it is darker.
 - [`src/sky.rs`](../src/sky.rs), [`src/sky_light.rs`](../src/sky_light.rs) -
   the sky (#1671): a shader on the sky cuboid drawing the room's sky colour
   overhead, hazed toward its horizon as the fog hazes the world
-  (`assets/shaders/sky_common.wgsl`, shared with the cloud deck and the
+  (`assets/shaders/sky_common.wesl`, shared with the cloud deck and the
   water's reflection), with the sun's or the moon's disc and the stars by
   night; and the sky light (#1680), an environment map built on the CPU
   from that same sky, which lights every PBR surface on a sky-lit camera in
@@ -451,13 +452,13 @@ generation cores shared with the wasm Web Worker.
   sets, laid over the room's light and air, and the ground
   keeping what fell - its wetness and snow cover, which the ground's and
   the grass's shaders draw from the shared fields in
-  `assets/shaders/ground_common.wgsl`, the water's rings its rain (#1683);
+  `assets/shaders/ground_common.wesl`, the water's rings its rain (#1683);
   [`src/weather/precipitation.rs`](../src/weather/precipitation.rs) draws
   what falls as one volume round the camera, placed by its vertex shader
-  (`assets/shaders/precipitation.wgsl`);
+  (`assets/shaders/precipitation.wesl`);
   [`src/weather/lightning.rs`](../src/weather/lightning.rs) a storm's
   lightning, struck on the clock, and its thunder; and
-  `assets/shaders/storm_common.wgsl` the gust fronts the grass, the foliage
+  `assets/shaders/storm_common.wesl` the gust fronts the grass, the foliage
   and the rain bend to together (#1684).
 - [`src/terrain/`](../src/terrain/), [`src/urban/`](../src/urban/),
   [`src/splat.rs`](../src/splat.rs), [`src/water.rs`](../src/water.rs),

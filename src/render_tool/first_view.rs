@@ -847,6 +847,18 @@ fn frame_path(frames: &Path, seed: u64) -> PathBuf {
     frames.join(format!("seed-{seed}.png"))
 }
 
+/// What a render's log says when an asset or a shader failed, in Bevy 0.20's
+/// words: a file that is not there, WESL the composer refused, WGSL that naga
+/// refused once composed (Bevy 0.19 reported that one as the composer's), and
+/// an import that names no module - only a warning, after which the material
+/// waits for it and never draws.
+const ASSET_FAILURES: [&str; 4] = [
+    "Path not found",
+    "failed to process shader",
+    "failed to create shader module",
+    "has an unresolved import",
+];
+
 /// One arrival frame, drawn by this binary in a process of its own. A frame
 /// whose log says a shader or an asset failed to load is refused: the tool
 /// still writes a plausible picture without them (#1320).
@@ -867,7 +879,7 @@ fn draw_frame(exe: &Path, seed: u64, out: &Path, pass: &[String]) -> Result<(), 
     let log = String::from_utf8_lossy(&output.stderr);
     if let Some(line) = log
         .lines()
-        .find(|l| l.contains("Path not found") || l.contains("failed to process shader"))
+        .find(|l| ASSET_FAILURES.iter().any(|failure| l.contains(failure)))
     {
         return Err(format!("the frame drew without its assets: {line}"));
     }

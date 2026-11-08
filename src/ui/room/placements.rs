@@ -1478,6 +1478,7 @@ fn draw_naturalness(ui: &mut egui::Ui, n: &mut ScatterNaturalness, dirty: &mut b
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::headless::Headless as _;
 
     const POSE: PlayerPose = PlayerPose {
         x: 120.5,
@@ -1598,7 +1599,7 @@ mod tests {
         ctx.memory_mut(|m| m.set_everything_is_visible(true));
         let mut dirty = false;
         for _ in 0..3 {
-            let _ = ctx.run_ui(
+            let _ = ctx.run_headless(
                 egui::RawInput {
                     screen_rect: Some(egui::Rect::from_min_size(
                         egui::Pos2::ZERO,
@@ -1840,7 +1841,7 @@ mod tests {
         let mut sort = crate::ui::room::PlacementSort::Order;
         let mut extra: Vec<usize> = Vec::new();
         let mut bulk = crate::ui::confirm::ConfirmState::default();
-        let _ = ctx.run_ui(
+        let _ = ctx.run_headless(
             egui::RawInput {
                 screen_rect: Some(egui::Rect::from_min_size(
                     egui::Pos2::ZERO,
@@ -2003,7 +2004,7 @@ mod tests {
                 events,
                 ..Default::default()
             };
-            let output = ctx.run_ui(input, |ui| {
+            let output = ctx.run_headless(input, |ui| {
                 draw_placement_detail(
                     ui,
                     0,
@@ -2150,7 +2151,7 @@ mod tests {
                 events,
                 ..Default::default()
             };
-            let output = ctx.run_ui(input, |ui| {
+            let output = ctx.run_headless(input, |ui| {
                 draw_placement_detail(
                     ui,
                     0,
@@ -2389,7 +2390,7 @@ mod tests {
             ..Default::default()
         };
         let mut dirty = false;
-        let output = ctx.run_ui(input, |ui| {
+        let output = ctx.run_headless(input, |ui| {
             let placement = &mut placement;
             draw_placement_detail(
                 ui,

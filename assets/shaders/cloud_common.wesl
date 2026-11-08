@@ -1,5 +1,5 @@
-// The cloud deck's shape (#1673), shared by the deck itself (`cloud.wgsl`)
-// and the shadow it casts (`cloud_shadow.wgsl`): the shade on the ground is
+// The cloud deck's shape (#1673), shared by the deck itself (`cloud.wesl`)
+// and the shadow it casts (`cloud_shadow.wesl`): the shade on the ground is
 // the cloud overhead because both read this one field.
 //
 // The field is domain-warped FBM over the deck's world XZ, scrolled along

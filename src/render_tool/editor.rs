@@ -177,7 +177,7 @@ pub(super) fn register(
         // The Catalogue's picture of the selected entry.
         .add_plugins(crate::item_preview::ItemPreviewPlugin)
         // The collider tree a drop and the scene pick find the ground with.
-        .add_plugins(avian3d::prelude::PhysicsPlugins::default())
+        .add_plugins(crate::player::GamePhysics)
         .insert_resource(EditorHost)
         .insert_resource(opening)
         .insert_resource(layout)
@@ -440,6 +440,7 @@ const WARDROBE_RKEY: &str = "3jzfcijpj2z2a";
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::headless::Headless as _;
     use bevy::ecs::system::RunSystemOnce;
     use bevy_egui::egui;
 
@@ -536,7 +537,7 @@ mod tests {
                     ..Default::default()
                 };
                 let mut placed = None;
-                let _ = ctx.run_ui(input, |ui| {
+                let _ = ctx.run_headless(input, |ui| {
                     placed = Some(chrome.place(UiWindow::WorldEditor, ui.ctx()));
                 });
                 placed.expect("the pass ran")

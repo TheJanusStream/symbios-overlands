@@ -71,7 +71,7 @@ pub struct GrassProfile {
     /// How much it grows in tussocks and clumps: 1 as grass grows unset.
     pub clumpiness: f32,
     /// How much of the ground it hides seen 45 degrees from straight above,
-    /// as `1 - exp(-carpet_depth)` (`ground_common.wgsl`'s `carpet_cover`):
+    /// as `1 - exp(-carpet_depth)` (`ground_common.wesl`'s `carpet_cover`):
     /// [`cfg::CARPET_DEPTH`] for grass of the height its dry share makes it
     /// and [`cfg::BLADE_WIDTH`] wide - every world's grass on Auto - and as
     /// much more as its blades are taller or wider than that. Dry grass

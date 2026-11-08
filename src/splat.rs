@@ -14,9 +14,9 @@ use bevy::{
 
 use crate::pds::limits::{MAX_FIELD_CROPS, MAX_FIELDS};
 
-const SPLAT_SHADER_PATH: &str = "shaders/splat.wgsl";
+const SPLAT_SHADER_PATH: &str = "shaders/splat.wesl";
 
-/// GPU uniform block shared with `splat.wgsl`.
+/// GPU uniform block shared with `splat.wesl`.
 #[derive(Debug, Clone, Default, ShaderType)]
 pub struct SplatUniforms {
     /// How many times the tiling textures repeat across the terrain.
@@ -113,12 +113,12 @@ pub struct SplatUniforms {
 }
 
 /// GPU uniform block for the avatar-interaction stains overlay
-/// (Phase 3, #245), shared with `splat.wgsl`.
+/// (Phase 3, #245), shared with `splat.wesl`.
 ///
 /// Padded to 16 bytes so the UBO meets WebGL2's `min_uniform_buffer_offset_alignment`
 /// /  binding-size constraint (DownlevelFlags::BUFFER_BINDINGS_NOT_16_BYTE_ALIGNED
 /// is unsupported on WebGL2; the device-side validator rejects a struct sized 8).
-/// Mirror the trailing `_pad` fields in `StainsUniforms` in `splat.wgsl`.
+/// Mirror the trailing `_pad` fields in `StainsUniforms` in `splat.wesl`.
 #[derive(Debug, Clone, Default, ShaderType)]
 pub struct StainsUniforms {
     /// World-space side length (m) the toroidal stains texture tiles
@@ -138,7 +138,7 @@ pub struct StainsUniforms {
 /// the same pipeline (#1672, #1680), twelve off it with the depth prepass's.
 pub const SPLAT_TEXTURE_BIND_SLOTS: u32 = 4;
 
-/// [`MaterialExtension`] that drives `splat.wgsl`.
+/// [`MaterialExtension`] that drives `splat.wesl`.
 ///
 /// Bind-group slots (group `MATERIAL_BIND_GROUP`, 100 +):
 /// - 100/101  weight map, a two-layer `texture_2d_array` (the weights, then
@@ -242,7 +242,7 @@ mod uniform_layout_tests {
             size % 16,
             0,
             "SplatUniforms is {size} bytes - WebGL2 needs a multiple of 16. \
-             Add or adjust a `_pad` field, and mirror it in splat.wgsl."
+             Add or adjust a `_pad` field, and mirror it in splat.wesl."
         );
     }
 
@@ -273,7 +273,7 @@ mod uniform_layout_tests {
 
     /// The Rust and WGSL declarations of a uniform block are two hand-written
     /// copies of one layout, and nothing in the build compiles the shader -
-    /// WGSL is loaded at runtime. So adding a field to one and forgetting the
+    /// it is composed at runtime. So adding a field to one and forgetting the
     /// other produces no error anywhere: the GPU simply reads the block at the
     /// wrong offsets and the terrain renders subtly wrong. Each block's
     /// fields are pinned here in order, with their types, and its size to
@@ -282,9 +282,9 @@ mod uniform_layout_tests {
     fn wgsl_uniform_blocks_mirror_the_rust_ones() {
         let src = std::fs::read_to_string(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/assets/shaders/splat.wgsl"
+            "/assets/shaders/splat.wesl"
         ))
-        .expect("splat.wgsl is a tracked asset");
+        .expect("splat.wesl is a tracked asset");
         let field = |name: &'static str, ty: &'static str| (name, ty);
         let splat = [
             field("tile_scale", "f32"),
@@ -337,7 +337,7 @@ mod uniform_layout_tests {
                 .collect();
             assert_eq!(
                 actual, expected,
-                "splat.wgsl's {name} drifted from the Rust block"
+                "splat.wesl's {name} drifted from the Rust block"
             );
             // Four-byte scalars first, sixteen of them in the splat block,
             // then the vectors, then the arrays of them.
@@ -402,9 +402,9 @@ mod uniform_layout_tests {
         let bytes = buffer.into_inner();
         let src = std::fs::read_to_string(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/assets/shaders/splat.wgsl"
+            "/assets/shaders/splat.wesl"
         ))
-        .expect("splat.wgsl is a tracked asset");
+        .expect("splat.wesl is a tracked asset");
         let mut place = 0u32;
         let mut expected: Vec<u32> = Vec::new();
         for (_, ty) in wgsl_fields(&src, "SplatUniforms") {

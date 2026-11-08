@@ -791,7 +791,8 @@ now its square, walked at full detail to its edge:
   taught to read past the core.
 - **The detail patch** (P4.2, #1597): a core-sized street-level patch that
   followed a body past the core, cut into the far field by a shader hole
-  (`SPLAT_HOLE`, `splat_prepass.wgsl`).
+  (the `SPLAT_HOLE` shader def and a prepass shader of its own,
+  `splat_prepass.wgsl`, both removed with it).
 
 Their layer hashes (`horizon`, `ring`) went with every other layer hash in
 #1647. Their history and the lessons from them are in git and on the issues;

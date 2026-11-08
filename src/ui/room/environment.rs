@@ -1226,6 +1226,7 @@ fn centred_at(square: GeoSquare, lat: f64, lon: f64) -> Option<GeoSquare> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::headless::Headless as _;
     use std::f32::consts::FRAC_1_SQRT_2;
 
     /// The hour slider's clock face (#1677): shown as hours and minutes,
@@ -1513,7 +1514,7 @@ mod tests {
                 let ctx = egui::Context::default();
                 let mut source = start.clone();
                 let mut dirty = false;
-                let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+                let _ = ctx.run_headless(egui::RawInput::default(), |ui| {
                     draw_region_source(ui, &mut source, ground, &mut dirty);
                 });
                 assert_eq!(source, start);
@@ -1557,7 +1558,7 @@ mod tests {
             let ctx = egui::Context::default();
             let mut drawn = start;
             let mut dirty = false;
-            let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let _ = ctx.run_headless(egui::RawInput::default(), |ui| {
                 weather(ui, &mut drawn, &mut dirty);
             });
             assert_eq!(drawn, start);
@@ -1604,7 +1605,7 @@ mod tests {
                 let ctx = egui::Context::default();
                 let mut drawn = start;
                 let mut dirty = false;
-                let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+                let _ = ctx.run_headless(egui::RawInput::default(), |ui| {
                     draw_arrival_point(ui, &mut drawn, player_pose, berlin, &mut dirty);
                 });
                 assert_eq!(drawn, start);

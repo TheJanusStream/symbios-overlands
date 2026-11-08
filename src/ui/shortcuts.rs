@@ -1036,6 +1036,7 @@ mod tests {
     use super::*;
     use crate::pds::AvatarRecord;
     use crate::pds::avatar::{body, wardrobe};
+    use crate::ui::headless::Headless as _;
     use bevy::ecs::system::RunSystemOnce;
 
     const NOTHING_IN_THE_WAY: ShortcutGate = ShortcutGate {
@@ -1470,7 +1471,7 @@ mod tests {
     #[test]
     fn window_area_id_is_the_id_egui_keys_the_window_on() {
         let ctx = egui::Context::default();
-        let _ = ctx.run_ui(egui::RawInput::default(), |root| {
+        let _ = ctx.run_headless(egui::RawInput::default(), |root| {
             egui::Window::new(window_title(UiWindow::WorldEditor)).show(root.ctx(), |_ui| {});
         });
         let expected = window_area_id(UiWindow::WorldEditor);
@@ -1519,7 +1520,7 @@ mod tests {
                 events,
                 ..Default::default()
             };
-            let _ = ctx.run_ui(input, |ui| composing = ime_composing(ui.ctx()));
+            let _ = ctx.run_headless(input, |ui| composing = ime_composing(ui.ctx()));
             composing
         };
 
@@ -1588,7 +1589,7 @@ mod tests {
                 submitted: false,
                 unguarded: false,
             };
-            let _ = ctx.run_ui(input, |ui| {
+            let _ = ctx.run_headless(input, |ui| {
                 let response = ui.text_edit_singleline(text);
                 // Read the outcome BEFORE re-focusing. `lost_focus()` is
                 // "focused last pass, not now", so calling `request_focus`
@@ -1677,7 +1678,7 @@ mod tests {
                 time: Some(t),
                 ..Default::default()
             };
-            let _ = ctx.run_ui(input, |root| {
+            let _ = ctx.run_headless(input, |root| {
                 egui::Window::new(window_title(UiWindow::WorldEditor))
                     .collapsible(true)
                     .show(root.ctx(), |_ui| body_ran = true);
@@ -1731,7 +1732,7 @@ mod tests {
                     predicted_dt: FRAME as f32,
                     ..Default::default()
                 };
-                let _ = ctx.run_ui(input, |root| {
+                let _ = ctx.run_headless(input, |root| {
                     egui::Window::new(window_title(window))
                         .collapsible(true)
                         .show(root.ctx(), |_ui| body_ran = true);

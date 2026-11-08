@@ -5,7 +5,7 @@
 //! (`ground_cover`), and no scatter grows on them
 //! (`world_builder::compile::scatter`). A field (#1791) is painted wholly in
 //! that layer across its rectangle, its strips' colours the ground's
-//! shader's to draw (`splat.wgsl`).
+//! shader's to draw (`splat.wesl`).
 
 use bevy::math::Vec2;
 
@@ -377,11 +377,11 @@ mod tests {
     fn the_ground_draws_a_field_to_the_edge_it_is_painted_to() {
         let splat = std::fs::read_to_string(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/assets/shaders/splat.wgsl"
+            "/assets/shaders/splat.wesl"
         ))
-        .expect("splat.wgsl is a tracked asset");
+        .expect("splat.wesl is a tracked asset");
         let line = format!("const FIELD_FEATHER: f32 = {FEATHER:?};");
-        assert!(splat.contains(&line), "splat.wgsl: {line}");
+        assert!(splat.contains(&line), "splat.wesl: {line}");
     }
 
     /// #1791: a field the ground mostly floods is not drawn - nor painted -

@@ -65,7 +65,7 @@ pub fn read_callback_params() -> CallbackParams {
 /// The scrubbed URL has a trailing slash even though
 /// [`WASM_REDIRECT_URI`] does not. Without the slash the browser treats
 /// `/symbios-overlands` as a file and resolves subsequent relative
-/// fetches (e.g. Bevy's `assets/shaders/splat.wgsl`) against the parent
+/// fetches (e.g. Bevy's `assets/shaders/splat.wesl`) against the parent
 /// directory, producing 404s for every asset loaded post-login.
 pub fn scrub_url() {
     let Some(window) = web_sys::window() else {

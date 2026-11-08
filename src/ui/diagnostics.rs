@@ -1956,6 +1956,7 @@ pub fn diagnostics_ui(
 mod tests {
     use super::*;
     use crate::diagnostics::anomaly::{DebouncePolicy, Verdict, default_registry};
+    use crate::ui::headless::Headless as _;
 
     /// Note a violation for a real registered rule id so `active_badges` yields
     /// it (the ledger keys badges by header id).
@@ -2008,7 +2009,7 @@ mod tests {
                 now: 1.0,
             };
             let ctx = egui::Context::default();
-            let _ = ctx.run_ui(egui::RawInput::default(), |root| {
+            let _ = ctx.run_headless(egui::RawInput::default(), |root| {
                 egui::CentralPanel::default().show(root, |ui| {
                     render_anomaly_section(ui, reg, with_export.then_some(&mut export));
                 });
@@ -2051,7 +2052,7 @@ mod tests {
         fn render_once(log: &SessionLog) {
             let mut toasts = crate::notify::Toasts::default();
             let ctx = egui::Context::default();
-            let _ = ctx.run_ui(egui::RawInput::default(), |root| {
+            let _ = ctx.run_headless(egui::RawInput::default(), |root| {
                 egui::CentralPanel::default().show(root, |ui| {
                     render_log_export_controls(
                         ui,
@@ -2087,7 +2088,7 @@ mod tests {
     fn overview_tab_renders_empty_and_populated_without_panicking() {
         fn render_once(m: &MetricsRegistry, reg: &InvariantRegistry) {
             let ctx = egui::Context::default();
-            let _ = ctx.run_ui(egui::RawInput::default(), |root| {
+            let _ = ctx.run_headless(egui::RawInput::default(), |root| {
                 egui::CentralPanel::default().show(root, |ui| {
                     render_overview_tab(ui, m, reg);
                 });
@@ -2132,7 +2133,7 @@ mod tests {
     /// card, and so the mute button - into a headless frame.
     fn draw_offload_tab(muted: &mut bool) {
         let ctx = egui::Context::default();
-        let _ = ctx.run_ui(egui::RawInput::default(), |root| {
+        let _ = ctx.run_headless(egui::RawInput::default(), |root| {
             egui::CentralPanel::default().show(root, |ui| {
                 render_health_tab(
                     ui,
@@ -2188,7 +2189,7 @@ mod tests {
         fn render_once(tab: DiagTab, m: &MetricsRegistry, reg: &InvariantRegistry) {
             let ctx = egui::Context::default();
             let mut muted = true;
-            let _ = ctx.run_ui(egui::RawInput::default(), |root| {
+            let _ = ctx.run_headless(egui::RawInput::default(), |root| {
                 egui::CentralPanel::default().show(root, |ui| {
                     render_health_tab(ui, tab, m, reg, &mut muted);
                 });
@@ -2385,7 +2386,7 @@ mod tests {
         let mut out = 0.0;
         for _ in 0..SETTLE_PASSES {
             reset_log_rows_drawn();
-            let _ = ctx.run_ui(
+            let _ = ctx.run_headless(
                 egui::RawInput {
                     screen_rect: Some(egui::Rect::from_min_size(
                         egui::Pos2::ZERO,
@@ -2692,7 +2693,7 @@ mod tests {
         fn row_width(width: f32, wrapped: bool) -> f32 {
             let ctx = egui::Context::default();
             let mut w = 0.0;
-            let _ = ctx.run_ui(
+            let _ = ctx.run_headless(
                 egui::RawInput {
                     screen_rect: Some(egui::Rect::from_min_size(
                         egui::Pos2::ZERO,

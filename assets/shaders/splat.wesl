@@ -20,13 +20,13 @@
 //     colour, fully by `albedo_fade_far`, so the tile repeat does not read as
 //     a regular cross-hatch on far ground (#1320; see the fade block below).
 //   - The blend then varies with the ground's drift and mottle from
-//     `ground_common.wgsl` (#1676): tone drifting over tens of metres and
+//     `ground_common.wesl` (#1676): tone drifting over tens of metres and
 //     patches a few metres across, near and far, so no two stretches of one
 //     layer are the same colour - and the grass growing there varies with
 //     them.
 //   - Under a weather (#1683) the ground wets, gathers puddles on the flat
 //     and takes snow from its highest ground down, from the fields in
-//     `ground_common.wgsl` that the grass reads too (the weather block
+//     `ground_common.wesl` that the grass reads too (the weather block
 //     below).
 //   - Where grass grows the ground shows it (#1695), as much as the blades
 //     standing there hide it from the view - their colour, lit by the
@@ -38,11 +38,11 @@
 // StandardMaterial colour is passed through unchanged (useful for the disabled
 // state and while textures are still loading).
 //
-// NOTE: Bevy 0.19 places the material bind group at group 3 (MATERIAL_BIND_GROUP = 3).
-// All bindings use @group(#{MATERIAL_BIND_GROUP}) so this is correct regardless
-// of the Bevy version.
+// NOTE: Bevy 0.20 places the material bind group at group 3 (MATERIAL_BIND_GROUP = 3).
+// All bindings use @group(constants::MATERIAL_BIND_GROUP) so this is correct
+// regardless of the Bevy version.
 
-#import bevy_pbr::{
+import bevy_pbr::render::{
     pbr_fragment::pbr_input_from_standard_material,
     pbr_functions::{
         apply_pbr_lighting,
@@ -52,27 +52,29 @@
     },
     pbr_types::STANDARD_MATERIAL_FLAGS_FLIP_NORMAL_MAP_Y,
     mesh_view_bindings::view,
-}
+};
 
-#import "shaders/ground_common.wgsl"::{ground_drift, ground_mottle, ground_vary, snow_settled, puddle_at, grass_density_seen, carpet_cover, carpet_colour, carpet_normal, carpet_shade, gust_fineness, grass_gust, SNOW_ALBEDO, WET_DARKEN, WET_ROUGHNESS, PUDDLE_DARKEN, PUDDLE_ROUGHNESS, SNOW_ROUGHNESS, WATER_REFLECTANCE, WET_REFLECTANCE_SHARE}
-#import "shaders/storm_common.wgsl"::storm_gust
+import super::ground_common::{ground_drift, ground_mottle, ground_vary, snow_settled, puddle_at, grass_density_seen, carpet_cover, carpet_colour, carpet_normal, carpet_shade, gust_fineness, grass_gust, SNOW_ALBEDO, WET_DARKEN, WET_ROUGHNESS, PUDDLE_DARKEN, PUDDLE_ROUGHNESS, SNOW_ROUGHNESS, WATER_REFLECTANCE, WET_REFLECTANCE_SHARE};
+import super::storm_common::storm_gust;
 
-#ifdef PREPASS_PIPELINE
-#import bevy_pbr::{
-    prepass_io::{VertexOutput, FragmentOutput},
-    pbr_deferred_functions::deferred_output,
-}
-#import bevy_render::globals::Globals
-// The prepass view layout holds `Globals` at binding 1, not the main pass's
-// 11, and declares none of its own: see `wind.wgsl`, where importing
-// `mesh_view_bindings::globals` here panicked at pipeline creation.
-@group(0) @binding(1) var<uniform> globals: Globals;
-#else
-#import bevy_pbr::{
+@if(PREPASS_PIPELINE)
+import bevy_pbr::{
+    prepass::io::{VertexOutput, FragmentOutput},
+    deferred::functions::deferred_output,
+};
+@if(PREPASS_PIPELINE)
+import bevy_render::globals::Globals;
+@else
+import bevy_pbr::render::{
     forward_io::{VertexOutput, FragmentOutput},
     mesh_view_bindings::globals,
-}
-#endif
+};
+
+// The prepass view layout holds `Globals` at binding 1, not the main pass's
+// 11, and declares none of its own: see `wind.wesl`, where importing
+// `mesh_view_bindings::globals` here panicked at pipeline creation.
+@if(PREPASS_PIPELINE)
+@group(0) @binding(1) var<uniform> globals: Globals;
 
 // ---------------------------------------------------------------------------
 // Extension bindings (slots 100+ are reserved for material extensions).
@@ -81,16 +83,16 @@
 /// RGBA weight map - one texel per heightmap vertex, full-terrain coverage,
 /// two layers. Layer 0: R = Grass, G = Dirt, B = Rock, A = Snow. Layer 1:
 /// R = how sheltered from what falls (#1685), 1 under a roof.
-@group(#{MATERIAL_BIND_GROUP}) @binding(100) var splat_weight_map: texture_2d_array<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(101) var splat_weight_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(100) var splat_weight_map: texture_2d_array<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(101) var splat_weight_sampler: sampler;
 
 /// Albedo texture array - 4 layers (Grass=0, Dirt=1, Rock=2, Snow=3), sRGB.
-@group(#{MATERIAL_BIND_GROUP}) @binding(102) var albedo_array: texture_2d_array<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(103) var albedo_array_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(102) var albedo_array: texture_2d_array<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(103) var albedo_array_sampler: sampler;
 
 /// Normal map texture array - 4 layers (Grass=0, Dirt=1, Rock=2, Snow=3), linear.
-@group(#{MATERIAL_BIND_GROUP}) @binding(104) var normal_array: texture_2d_array<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(105) var normal_array_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(104) var normal_array: texture_2d_array<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(105) var normal_array_sampler: sampler;
 
 struct SplatUniforms {
     /// How many times the tiling textures repeat across the terrain.
@@ -159,7 +161,7 @@ struct SplatUniforms {
     field_crops: array<vec4<f32>, 16>,
 }
 
-@group(#{MATERIAL_BIND_GROUP}) @binding(106) var<uniform> splat_uniforms: SplatUniforms;
+@group(constants::MATERIAL_BIND_GROUP) @binding(106) var<uniform> splat_uniforms: SplatUniforms;
 
 // Wet ground, puddles and snow (#1683) take `ground_common`'s roughness,
 // darkening and reflectance, which the world's parts share (#1686).
@@ -185,8 +187,8 @@ const FIELD_STEP: f32 = 0.15;
 // it as a 17th texture against the GLES backend's 16 slots; on Bevy 0.19
 // the WebGL2 terrain takes 15 with it (`SplatExtension`'s doc,
 // `tests/shader_guards.rs`).
-@group(#{MATERIAL_BIND_GROUP}) @binding(107) var stains_tex: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(108) var stains_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(107) var stains_tex: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(108) var stains_sampler: sampler;
 
 struct StainsUniforms {
     // World-space side length (m) the stains texture tiles over.
@@ -200,7 +202,7 @@ struct StainsUniforms {
     _pad1: u32,
 }
 
-@group(#{MATERIAL_BIND_GROUP}) @binding(109) var<uniform> stains_uniforms: StainsUniforms;
+@group(constants::MATERIAL_BIND_GROUP) @binding(109) var<uniform> stains_uniforms: StainsUniforms;
 
 // ---------------------------------------------------------------------------
 // Triplanar helpers (used for the Rock layer only)
@@ -519,28 +521,28 @@ fn fragment(
         // the +V direction that bevy_symbios_texture::normal encodes against.
         // The flag negates Nt.y to compensate, restoring correct V/Z perturbation.
         // (The Rock triplanar path builds its own TBN and does not need this.)
-#ifdef VERTEX_TANGENTS
-        let tbn = calculate_tbn_mikktspace(in.world_normal, in.world_tangent);
+        @if(VERTEX_TANGENTS) {
+            let tbn = calculate_tbn_mikktspace(in.world_normal, in.world_tangent);
 
-        // Convert packed tangent-space normals → world space via the mesh TBN.
-        let n0 = textureSample(normal_array, normal_array_sampler, tiled_uv, 0).rgb;
-        let n1 = textureSample(normal_array, normal_array_sampler, tiled_uv, 1).rgb;
-        let n3 = textureSample(normal_array, normal_array_sampler, tiled_uv, 3).rgb;
-        let flip_y = STANDARD_MATERIAL_FLAGS_FLIP_NORMAL_MAP_Y;
-        let wn0 = apply_normal_mapping(flip_y, tbn, false, is_front, n0);
-        let wn1 = apply_normal_mapping(flip_y, tbn, false, is_front, n1);
-        let wn3 = apply_normal_mapping(flip_y, tbn, false, is_front, n3);
+            // Convert packed tangent-space normals → world space via the mesh TBN.
+            let n0 = textureSample(normal_array, normal_array_sampler, tiled_uv, 0).rgb;
+            let n1 = textureSample(normal_array, normal_array_sampler, tiled_uv, 1).rgb;
+            let n3 = textureSample(normal_array, normal_array_sampler, tiled_uv, 3).rgb;
+            let flip_y = STANDARD_MATERIAL_FLAGS_FLIP_NORMAL_MAP_Y;
+            let wn0 = apply_normal_mapping(flip_y, tbn, false, is_front, n0);
+            let wn1 = apply_normal_mapping(flip_y, tbn, false, is_front, n1);
+            let wn3 = apply_normal_mapping(flip_y, tbn, false, is_front, n3);
 
-        // Rock: triplanar world-space conversion per projection plane.
-        let wn2 = triplanar_normal_world(
-            normal_array, normal_array_sampler, 2,
-            world_pos, in.world_normal, splat_uniforms.triplanar_scale, tp_weights,
-        );
+            // Rock: triplanar world-space conversion per projection plane.
+            let wn2 = triplanar_normal_world(
+                normal_array, normal_array_sampler, 2,
+                world_pos, in.world_normal, splat_uniforms.triplanar_scale, tp_weights,
+            );
 
-        pbr_input.N = normalize(
-            wn0 * weights.r + wn1 * weights.g + wn2 * weights.b + wn3 * weights.a
-        );
-#endif // VERTEX_TANGENTS
+            pbr_input.N = normalize(
+                wn0 * weights.r + wn1 * weights.g + wn2 * weights.b + wn3 * weights.a
+            );
+        }
 
         // --- The grass on the ground (#1695) --------------------------------
         // Where grass grows - as thickly as the grass's shader grows it, by
@@ -724,13 +726,14 @@ fn fragment(
         pbr_input.material.perceptual_roughness = rough;
     }
 
-#ifdef PREPASS_PIPELINE
+    @if(PREPASS_PIPELINE)
     let out = deferred_output(in, pbr_input);
-#else
+    @if(!PREPASS_PIPELINE)
     var out: FragmentOutput;
+    @if(!PREPASS_PIPELINE)
     out.color = apply_pbr_lighting(pbr_input);
+    @if(!PREPASS_PIPELINE)
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
-#endif
 
     return out;
 }

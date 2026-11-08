@@ -3214,7 +3214,7 @@ fn a_beast_waits_under_a_stand_in_lying_along_its_collider() {
             .world()
             .resource::<Assets<Mesh>>()
             .get(&mesh)
-            .and_then(|mesh| mesh.compute_aabb())
+            .and_then(|mesh| mesh.get_aabb())
             .expect("a stand-in with a shape");
         (
             mesh,

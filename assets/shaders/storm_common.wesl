@@ -1,13 +1,13 @@
 // What a storm's gusts share (#1684): fronts of stronger wind crossing the
-// world downwind, imported by asset path by the grass (`grass.wgsl`), the
-// foliage (`wind.wgsl`), what falls (`precipitation.wgsl`) and the ground
-// showing the grass (`splat.wgsl`, #1695), so a gust bends them together as
+// world downwind, imported by asset path by the grass (`grass.wesl`), the
+// foliage (`wind.wesl`), what falls (`precipitation.wesl`) and the ground
+// showing the grass (`splat.wesl`, #1695), so a gust bends them together as
 // it passes. The storm's steady wind is the room's
 // own, raised by the storm (`weather::environment_in`); the fronts come and
 // go over it. Time is each client's own clock: a gust need not reach every
 // visitor at the same moment, as lightning must.
 
-#import "shaders/ground_common.wgsl"::value_noise
+import super::ground_common::value_noise;
 
 // Fronts about this far apart along the wind, broken this often across it,
 // travelling downwind this fast (m, m, m/s).

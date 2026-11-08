@@ -1896,6 +1896,7 @@ fn world_detail_panel(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::headless::Headless as _;
     use std::collections::HashSet;
 
     /// #1297's item-preview singleton, the `PlacementFocus` shape a
@@ -3036,7 +3037,7 @@ mod tests {
             ..Default::default()
         };
         let mut click = None;
-        let output = ctx.run_ui(input, |ui| {
+        let output = ctx.run_headless(input, |ui| {
             click = world_detail(ui, entry, load_blocked, copy_blocked, "Medieval world");
         });
         let buttons = output

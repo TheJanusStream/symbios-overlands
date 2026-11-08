@@ -1,6 +1,6 @@
 // The sky's colour toward a direction (#1671, #1672), shared by the sky
-// itself (`sky.wgsl`), the cloud deck that hazes into it (`cloud.wgsl`,
-// #1673) and the water that reflects it (`water.wgsl`), so a pond shows the
+// itself (`sky.wesl`), the cloud deck that hazes into it (`cloud.wesl`,
+// #1673) and the water that reflects it (`water.wesl`), so a pond shows the
 // sky that is over it.
 //
 // `sky_toward` takes the sky's own colour toward the direction - its
@@ -23,16 +23,15 @@
 // unhazed: Bevy binds the fog only under `DISTANCE_FOG`. WebGL2-safe:
 // uniforms and arithmetic only.
 
-#import bevy_pbr::{
+import bevy_pbr::render::{
     mesh_view_bindings::{view, lights},
     mesh_view_types,
-}
-#ifdef DISTANCE_FOG
-#import bevy_pbr::{
+};
+@if(DISTANCE_FOG)
+import bevy_pbr::render::{
     mesh_view_bindings::fog,
     fog::{linear_fog, exponential_fog, exponential_squared_fog, atmospheric_fog},
-}
-#endif
+};
 
 // The air mass just above the horizon: `1 / sin` capped where even a
 // 10 km visibility's haze is 99 % through.
@@ -41,18 +40,18 @@ const MAX_AIR_MASS: f32 = 1000.0;
 // What the room's distance fog makes of `body` at `distance` metres, with
 // the sun glow `scattering` - Bevy's own fog, mode by mode.
 fn fogged(body: vec3<f32>, distance: f32, scattering: vec3<f32>) -> vec3<f32> {
-#ifdef DISTANCE_FOG
-    let c = vec4<f32>(body, 1.0);
-    if fog.mode == mesh_view_types::FOG_MODE_LINEAR {
-        return linear_fog(fog, c, distance, scattering).rgb;
-    } else if fog.mode == mesh_view_types::FOG_MODE_EXPONENTIAL {
-        return exponential_fog(fog, c, distance, scattering).rgb;
-    } else if fog.mode == mesh_view_types::FOG_MODE_EXPONENTIAL_SQUARED {
-        return exponential_squared_fog(fog, c, distance, scattering).rgb;
-    } else if fog.mode == mesh_view_types::FOG_MODE_ATMOSPHERIC {
-        return atmospheric_fog(fog, c, distance, scattering).rgb;
+    @if(DISTANCE_FOG) {
+        let c = vec4<f32>(body, 1.0);
+        if fog.mode == mesh_view_types::FOG_MODE_LINEAR {
+            return linear_fog(fog, c, distance, scattering).rgb;
+        } else if fog.mode == mesh_view_types::FOG_MODE_EXPONENTIAL {
+            return exponential_fog(fog, c, distance, scattering).rgb;
+        } else if fog.mode == mesh_view_types::FOG_MODE_EXPONENTIAL_SQUARED {
+            return exponential_squared_fog(fog, c, distance, scattering).rgb;
+        } else if fog.mode == mesh_view_types::FOG_MODE_ATMOSPHERIC {
+            return atmospheric_fog(fog, c, distance, scattering).rgb;
+        }
     }
-#endif
     return body;
 }
 
@@ -62,7 +61,7 @@ fn fogged(body: vec3<f32>, distance: f32, scattering: vec3<f32>) -> vec3<f32> {
 // the editor allows - is never `pow(0, 0)`.
 fn sun_scattering(dir: vec3<f32>) -> vec3<f32> {
     var scattering = vec3<f32>(0.0);
-#ifdef DISTANCE_FOG
+    @if(DISTANCE_FOG)
     if lights.n_directional_lights > 0u {
         let light = lights.directional_lights[0];
         // The light's colour already carries its illuminance; times the
@@ -72,7 +71,6 @@ fn sun_scattering(dir: vec3<f32>) -> vec3<f32> {
             max(fog.directional_light_exponent, 1.0e-3),
         ) * light.color.rgb * view.exposure;
     }
-#endif
     return scattering;
 }
 

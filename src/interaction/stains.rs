@@ -3,7 +3,7 @@
 //!
 //! A low-res RGBA texture is CPU-stamped from terrain
 //! [`ContactSample`](crate::interaction::ContactSample)s
-//! and re-uploaded so `splat.wgsl` can darken/wet/dust the ground where
+//! and re-uploaded so `splat.wesl` can darken/wet/dust the ground where
 //! avatars have been:
 //!
 //! - **R - wetness**: deposited only while the avatar is still carrying

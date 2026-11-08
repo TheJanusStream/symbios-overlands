@@ -120,6 +120,42 @@ pub mod undo;
 pub mod unsaved_guard;
 pub mod world_title;
 
+/// One egui frame run outside Bevy, as the crate's interface tests run them.
+///
+/// egui 0.36 debug-asserts that a dropped `TexturesDelta` was applied, and
+/// the gate builds with debug assertions on. A headless test has no
+/// renderer to apply the font atlas egui uploads on a context's first frame,
+/// so every frame it ran panicked on drop (at the end of the test, or of the
+/// statement for a `let _ =`). [`Headless::run_headless`] is
+/// `egui::Context::run_ui` with that delta cleared: the output is otherwise
+/// whole, shapes, platform output and all, for the tests that read it.
+#[cfg(test)]
+pub(crate) mod headless {
+    use bevy_egui::egui;
+
+    /// [`egui::Context::run_ui`] for a test with no renderer behind it.
+    pub(crate) trait Headless {
+        /// Run one frame and drop the texture uploads nothing will apply.
+        fn run_headless(
+            &self,
+            input: egui::RawInput,
+            run_ui: impl FnMut(&mut egui::Ui),
+        ) -> egui::FullOutput;
+    }
+
+    impl Headless for egui::Context {
+        fn run_headless(
+            &self,
+            input: egui::RawInput,
+            run_ui: impl FnMut(&mut egui::Ui),
+        ) -> egui::FullOutput {
+            let mut output = self.run_ui(input, run_ui);
+            output.textures_delta.clear();
+            output
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     /// Paths outside `src/ui` that may import the ui layer in code - in

@@ -211,7 +211,7 @@ pub(super) fn parse_driver(text: &str) -> Result<AvatarRecord, String> {
 /// physics step, the log after it, and the car set down once the world has
 /// settled.
 pub(super) fn register(app: &mut App, spec: DriverSpec) {
-    app.add_plugins(avian3d::prelude::PhysicsPlugins::default())
+    app.add_plugins(crate::player::GamePhysics)
         .init_resource::<ButtonInput<KeyCode>>()
         .insert_resource(crate::state::LiveAvatarRecord(spec.record.clone()))
         .insert_resource(spec);

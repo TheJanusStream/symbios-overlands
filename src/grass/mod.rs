@@ -12,12 +12,12 @@
 //!   same. It varies as the ground under it
 //!   does (#1676): drier where the ground's tone drifts lighter, taller
 //!   where it is darker patch by patch - one pair of fields, in
-//!   `assets/shaders/ground_common.wgsl`, read by both shaders.
+//!   `assets/shaders/ground_common.wesl`, read by both shaders.
 //! * **How it grows**: in tussocks a pace or two across (#1696) - each a
 //!   little taller or shorter and a shade lighter or darker than the next,
 //!   its blades facing mostly one way and leaning out from its middle - and
 //!   a short blade close by is drawn folded into a V, two blades for the
-//!   same vertices (`grass.wgsl`). A lower quality grows fewer blades, each
+//!   same vertices (`grass.wesl`). A lower quality grows fewer blades, each
 //!   wider by the inverse square root of its share, as a far field's are.
 //!   How far a world's blades reach - taller, wider, clumpier - bounds its
 //!   tiles and the horizon test ([`tiles::BladeBounds`], #1702); an edit
@@ -41,7 +41,7 @@
 //!   once.
 //! * **What moves it**: the room's wind (the vegetation wind the cards
 //!   sway in) and a storm's gust fronts over it (#1684,
-//!   `storm_common.wgsl`), and the bodies nearest the camera, which part
+//!   `storm_common.wesl`), and the bodies nearest the camera, which part
 //!   it, each over its own collider's footprint - so a parked car stands
 //!   on flattened grass rather than in blades poking through its floor.
 //! * **The weather** on the ground weathers it too (#1683), from the
@@ -492,7 +492,7 @@ fn ground_grass(profile: &GrassProfile, wind: &VegetationWind) -> crate::terrain
 
 /// The mean of flower colours `flowers` (#1700), each flower taking one of
 /// them alike: what a field of them shows from afar - black, of none.
-/// `grass.wgsl` takes the same mean of its own flower colours, so the far
+/// `grass.wesl` takes the same mean of its own flower colours, so the far
 /// blades and the ground under them agree.
 fn flower_mean(flowers: &[[f32; 3]]) -> Vec3 {
     if flowers.is_empty() {

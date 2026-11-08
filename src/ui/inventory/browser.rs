@@ -571,6 +571,7 @@ pub(crate) fn draw_pane(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::headless::Headless as _;
 
     fn stash_of(names: &[&str]) -> InventoryRecord {
         let mut stash = InventoryRecord::default();
@@ -703,7 +704,7 @@ mod tests {
             };
             let mut rect = egui::Rect::NOTHING;
             let (browser, pending) = (&mut self.browser, &mut self.pending);
-            let _ = self.ctx.run_ui(input, |ui| {
+            let _ = self.ctx.run_headless(input, |ui| {
                 let selected = browser.is_selected("lantern");
                 let response = stash_row(ui, "lantern", "prim", kind, selected);
                 rect = response.rect;
@@ -915,7 +916,7 @@ mod tests {
                 ..Default::default()
             };
             let mut action = None;
-            let output = self.ctx.run_ui(input, |ui| {
+            let output = self.ctx.run_headless(input, |ui| {
                 action = draw(ui);
             });
             fn texts_of(shape: &egui::Shape, out: &mut Vec<String>) {

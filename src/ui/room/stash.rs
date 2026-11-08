@@ -158,6 +158,7 @@ pub(crate) fn save_world_row(ui: &mut egui::Ui, blocked: Option<&str>) -> bool {
 mod tests {
     use super::*;
     use crate::pds::inventory::world::tests::seeded_world;
+    use crate::ui::headless::Headless as _;
 
     /// Save to Inventory copies the world the owner SEES - the live record
     /// with its unsaved edit - names it for the world's own name, free
@@ -272,7 +273,7 @@ mod tests {
                 ..Default::default()
             };
             let mut clicked = false;
-            let output = ctx.run_ui(input, |ui| clicked = save_world_row(ui, blocked));
+            let output = ctx.run_headless(input, |ui| clicked = save_world_row(ui, blocked));
             let at = output
                 .platform_output
                 .accesskit_update

@@ -785,6 +785,7 @@ mod reserve_scan {
 /// layout that was never capable of growing.
 #[cfg(test)]
 mod growth {
+    use crate::ui::headless::Headless as _;
     use bevy_egui::egui;
 
     const SCREEN: f32 = 600.0;
@@ -818,7 +819,7 @@ mod growth {
             };
             // egui 0.35 renamed `Context::run` to `run_ui` and hands the
             // closure a root `Ui`; the window still goes on the context.
-            let _ = ctx.run_ui(input, |ui| {
+            let _ = ctx.run_headless(input, |ui| {
                 let response = egui::Window::new("growth")
                     .default_pos(egui::Pos2::ZERO)
                     .default_size(egui::vec2(300.0, START_HEIGHT))
@@ -913,7 +914,7 @@ mod growth {
                 screen_rect: Some(screen),
                 ..Default::default()
             };
-            let _ = ctx.run_ui(input, |ui| {
+            let _ = ctx.run_headless(input, |ui| {
                 let response = egui::Window::new("fixed")
                     .default_pos(egui::pos2(0.0, 40.0))
                     .default_size(egui::vec2(300.0, START_HEIGHT))
@@ -1034,7 +1035,7 @@ mod growth {
                 ..Default::default()
             };
             let block = if frame < 3 { 150.0 } else { top };
-            let _ = ctx.run_ui(input, |ui| {
+            let _ = ctx.run_headless(input, |ui| {
                 let mut drawn = None;
                 let response = egui::Window::new("avatar-like")
                     .default_pos(egui::pos2(0.0, 20.0))
@@ -1163,6 +1164,7 @@ mod growth {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::headless::Headless as _;
 
     /// A 1280x720 window with a ~30px toolbar carved off the top - the
     /// Bevy default the #833 acceptance criterion is stated against.
@@ -1318,7 +1320,7 @@ mod tests {
                     )),
                     ..Default::default()
                 };
-                let _ = ctx.run_ui(input, |ui| {
+                let _ = ctx.run_headless(input, |ui| {
                     crate::ui::theme::apply_theme(ui.ctx(), &theme);
                     egui::Window::new("Inventory")
                         .default_pos(egui::pos2(945.0, 40.0))
@@ -1497,6 +1499,7 @@ mod tests {
 
 #[cfg(test)]
 mod placement {
+    use crate::ui::headless::Headless as _;
     use bevy_egui::egui;
 
     const SCREEN: egui::Vec2 = egui::vec2(400.0, 600.0);
@@ -1522,7 +1525,7 @@ mod placement {
                 screen_rect: Some(screen),
                 ..Default::default()
             };
-            let _ = ctx.run_ui(input, |ui| {
+            let _ = ctx.run_headless(input, |ui| {
                 let shown = egui::Window::new("placement")
                     .default_pos(egui::Pos2::ZERO)
                     .default_size(WINDOW)
@@ -1657,7 +1660,7 @@ mod placement {
                 screen_rect: Some(screen),
                 ..Default::default()
             };
-            let _ = ctx.run_ui(input, |ui| {
+            let _ = ctx.run_headless(input, |ui| {
                 // `apply_theme`, not `set_visuals`: the palette is read
                 // back through `theme::current`, which only `apply_theme`
                 // stashes in the context data map (#1284's lesson).
@@ -1787,7 +1790,7 @@ mod placement {
                 screen_rect: Some(screen),
                 ..Default::default()
             };
-            let _ = ctx.run_ui(input, |ui| {
+            let _ = ctx.run_headless(input, |ui| {
                 egui::Window::new("old")
                     .default_pos(egui::Pos2::ZERO)
                     .default_size(WINDOW)
@@ -1823,6 +1826,7 @@ mod placement {
 
 #[cfg(test)]
 mod account_switch {
+    use crate::ui::headless::Headless as _;
     use bevy_egui::egui;
 
     use crate::ui::theme::{Theme, apply_theme, current};
@@ -1839,7 +1843,7 @@ mod account_switch {
                 screen_rect: Some(screen),
                 ..Default::default()
             };
-            let _ = ctx.run_ui(input, |ui| {
+            let _ = ctx.run_headless(input, |ui| {
                 shown = egui::Window::new("People")
                     .default_pos(pos)
                     .default_size(size)

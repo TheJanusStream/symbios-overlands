@@ -19,23 +19,24 @@
 // Runs in the shadow pass only: the deck stays out of the camera's depth
 // prepass (`CloudExtension::enable_prepass`). The prepass binds a smaller
 // view layout than the main pass, with `Globals` at binding 1 - see
-// `wind.wgsl`, which hit it first. WebGL2-safe: arithmetic only, and the
+// `wind.wesl`, which hit it first. WebGL2-safe: arithmetic only, and the
 // pancaking WebGL2 needs done by hand (`vertex`).
 
-#import bevy_pbr::{
-    prepass_io::{Vertex, VertexOutput},
-    mesh_view_bindings::view,
-    mesh_functions::{get_world_from_local, get_tag, mesh_position_local_to_world},
-    view_transformations::position_world_to_clip,
-}
-#ifdef PREPASS_FRAGMENT
-#import bevy_pbr::prepass_io::FragmentOutput
-#endif
-#import bevy_render::globals::Globals
-#import "shaders/cloud_common.wgsl"::{CloudUniforms, cloud_mass}
+import bevy_pbr::{
+    prepass::io::{Vertex, VertexOutput, decompress_vertex},
+    render::{
+        mesh_view_bindings::view,
+        mesh_functions::{get_world_from_local, get_tag, mesh_position_local_to_world},
+        view_transformations::position_world_to_clip,
+    },
+};
+@if(PREPASS_FRAGMENT)
+import bevy_pbr::prepass::io::FragmentOutput;
+import bevy_render::globals::Globals;
+import super::cloud_common::{CloudUniforms, cloud_mass};
 
 @group(0) @binding(1) var<uniform> globals: Globals;
-@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> cloud: CloudUniforms;
+@group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> cloud: CloudUniforms;
 
 // The field's depth here: two warp octaves and three of the field, the rest
 // held at their mean (`cloud_common::fbm`).
@@ -74,22 +75,21 @@ const LOW_SUN_TO: f32 = 0.2;
 // the triangle whole; the fragment still writes its true depth, which the
 // depth range then clamps as unclipped depth would.
 @vertex
-fn vertex(vertex: Vertex) -> VertexOutput {
+fn vertex(vertex_in: Vertex) -> VertexOutput {
     var out: VertexOutput;
-    let world_from_local = get_world_from_local(vertex.instance_index);
+    let vertex = decompress_vertex(vertex_in, vertex_in.instance_index);
+    let world_from_local = get_world_from_local(vertex_in.instance_index);
     out.world_position = mesh_position_local_to_world(world_from_local, vec4<f32>(vertex.position, 1.0));
     out.position = position_world_to_clip(out.world_position.xyz);
-#ifdef UNCLIPPED_DEPTH_ORTHO_EMULATION
-    out.unclipped_depth = out.position.z;
-    // The cascade is orthographic: w is 1.
-    out.position.z = clamp(out.position.z, 0.0, 1.0);
-#endif
-#ifdef VERTEX_UVS_A
+    @if(UNCLIPPED_DEPTH_ORTHO_EMULATION) {
+        out.unclipped_depth = out.position.z;
+        // The cascade is orthographic: w is 1.
+        out.position.z = clamp(out.position.z, 0.0, 1.0);
+    }
+    @if(VERTEX_UVS_A)
     out.uv = vertex.uv;
-#endif
-#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
-    out.instance_index = vertex.instance_index;
-#endif
+    @if(VERTEX_OUTPUT_INSTANCE_INDEX)
+    out.instance_index = vertex_in.instance_index;
     return out;
 }
 
@@ -146,23 +146,21 @@ fn casts(in: VertexOutput) -> bool {
     return smoothstep(SHADE_EDGE_FROM, SHADE_EDGE_TO, mass) * most > threshold;
 }
 
-#ifdef PREPASS_FRAGMENT
+@if(PREPASS_FRAGMENT)
 @fragment
 fn fragment(in: VertexOutput) -> FragmentOutput {
     if !casts(in) {
         discard;
     }
     var out: FragmentOutput;
-#ifdef UNCLIPPED_DEPTH_ORTHO_EMULATION
+    @if(UNCLIPPED_DEPTH_ORTHO_EMULATION)
     out.frag_depth = in.unclipped_depth;
-#endif
     return out;
 }
-#else
+@else
 @fragment
 fn fragment(in: VertexOutput) {
     if !casts(in) {
         discard;
     }
 }
-#endif

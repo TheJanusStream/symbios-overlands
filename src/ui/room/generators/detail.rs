@@ -2334,6 +2334,7 @@ mod lots_section_tests {
     use super::draw_road_editor;
     use crate::pds::Fp;
     use crate::pds::generator::{LotSettings, LotTierBias, RoadConfig};
+    use crate::ui::headless::Headless as _;
     use bevy_egui::egui;
     use bevy_egui::egui::accesskit::{Action, ActionRequest, Node, NodeId, Role, TreeId};
 
@@ -2386,7 +2387,7 @@ mod lots_section_tests {
     ) -> Pass {
         let mut labels = crate::ui::undo::PendingUndoLabels::default();
         let mut dirty = false;
-        let output = ctx.run_ui(
+        let output = ctx.run_headless(
             egui::RawInput {
                 screen_rect: Some(egui::Rect::from_min_size(
                     egui::Pos2::ZERO,
@@ -2998,6 +2999,7 @@ mod seed_field_tests {
 
 #[cfg(test)]
 mod collapsed_by_default_tests {
+    use crate::ui::headless::Headless as _;
     use bevy_egui::egui;
     use egui::accesskit::{NodeId, Role};
 
@@ -3080,7 +3082,7 @@ mod collapsed_by_default_tests {
                     events: events.take().unwrap_or_default(),
                     ..Default::default()
                 };
-                let output = self.ctx.clone().run_ui(input, |ui| {
+                let output = self.ctx.clone().run_headless(input, |ui| {
                     use crate::ui::room::assets::AssetPanel;
                     ui.ctx()
                         .memory_mut(|m| m.set_everything_is_visible(everything_visible));
@@ -3224,6 +3226,7 @@ mod collapsed_by_default_tests {
 
 #[cfg(test)]
 mod source_facts_tests {
+    use crate::ui::headless::Headless as _;
     use bevy_egui::egui;
     use egui::accesskit::Role;
 
@@ -3264,7 +3267,7 @@ mod source_facts_tests {
             )),
             ..Default::default()
         };
-        let output = ctx.run_ui(input, |ui| {
+        let output = ctx.run_headless(input, |ui| {
             let mut source = RoomTreeSource::new(record);
             draw_detail_panel(
                 ui,

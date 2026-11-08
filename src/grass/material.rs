@@ -1,7 +1,7 @@
 //! The grass's material (#1675): a `StandardMaterial`, lit as every other
 //! surface is - the sun and its shadows, the cloud shade, the sky light,
 //! the fog - with the vertex shader that stands each blade on the ground,
-//! `assets/shaders/grass.wgsl`.
+//! `assets/shaders/grass.wesl`.
 //!
 //! The shader reads the ground through [`GroundCover`]'s three textures,
 //! all in the vertex stage: the height texture by `textureLoad` (its
@@ -33,12 +33,12 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, ShaderType};
 use bevy::shader::ShaderRef;
 
-const GRASS_SHADER_PATH: &str = "shaders/grass.wgsl";
+const GRASS_SHADER_PATH: &str = "shaders/grass.wesl";
 
 /// The grass's material: a `StandardMaterial` and [`GrassExtension`].
 pub type GrassMaterial = ExtendedMaterial<StandardMaterial, GrassExtension>;
 
-/// The uniform block `grass.wgsl` reads, mirrored there as
+/// The uniform block `grass.wesl` reads, mirrored there as
 /// `GrassUniforms`: every member a `vec4`, so the two layouts cannot
 /// disagree about padding, and 288 bytes, a multiple of 16 as WebGL2
 /// requires. Colours are linear.
@@ -80,7 +80,7 @@ pub struct GrassUniforms {
     pub shape: Vec4,
 }
 
-/// [`MaterialExtension`] that drives `grass.wgsl`.
+/// [`MaterialExtension`] that drives `grass.wesl`.
 ///
 /// Bind-group slots (group `MATERIAL_BIND_GROUP`, 100 +):
 /// - 100 [`GrassUniforms`]

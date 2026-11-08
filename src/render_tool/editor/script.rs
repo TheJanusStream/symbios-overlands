@@ -1116,6 +1116,7 @@ pub(crate) fn paint_cursor(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::headless::Headless as _;
 
     /// A top-down scene: 10 px per metre, widgets at fixed points.
     struct FakeScene {
@@ -1385,7 +1386,7 @@ mod tests {
                 events: std::mem::take(&mut pending),
                 ..Default::default()
             };
-            let output = ctx.run_ui(input, |ui| {
+            let output = ctx.run_headless(input, |ui| {
                 egui::Window::new("World Editor").show(ui.ctx(), |ui| {
                     ui.horizontal(|ui| {
                         ui.label("Theme:");

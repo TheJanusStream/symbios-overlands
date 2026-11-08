@@ -1075,6 +1075,7 @@ pub(super) fn u64_field_width(ui: &egui::Ui) -> f32 {
 /// field shows what it holds whole (#1505).
 #[cfg(test)]
 pub(super) mod text_probe {
+    use crate::ui::headless::Headless as _;
     use bevy_egui::egui;
 
     /// The bounds of the text field that holds `text`, and of the text as
@@ -1092,7 +1093,7 @@ pub(super) mod text_probe {
         let mut drawn = None;
         // Fonts set before a pass land at the next, so the second is read.
         for _ in 0..2 {
-            let output = ctx.run_ui(
+            let output = ctx.run_headless(
                 egui::RawInput {
                     screen_rect: Some(screen),
                     ..Default::default()
@@ -1180,7 +1181,7 @@ pub(super) mod text_probe {
         let mut field = None;
         for frame in 0..frames {
             let events = field.map(|at| input(frame, at)).unwrap_or_default();
-            let output = ctx.run_ui(
+            let output = ctx.run_headless(
                 egui::RawInput {
                     screen_rect: Some(screen),
                     events,
@@ -1471,6 +1472,7 @@ mod forward_compat_tests {
 #[cfg(test)]
 mod draft_tests {
     use super::*;
+    use crate::ui::headless::Headless as _;
 
     /// #1238 f77. Sequence: type "Column, Silo" into Turned terminals. The
     /// buffer was regenerated from the record every frame and re-parsed on
@@ -1483,7 +1485,7 @@ mod draft_tests {
         let typed = ["Column", "Column,", "Column, ", "Column, Silo"];
         let mut seen = Vec::new();
         for (frame, text) in typed.iter().enumerate() {
-            let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let _ = ctx.run_headless(egui::RawInput::default(), |ui| {
                 // The record still says "Column" the whole way through -
                 // nothing is committed until focus is lost.
                 let out = text_draft_row(ui, "terminals", "Column", 100.0, "", |_| None);
@@ -1515,12 +1517,12 @@ mod draft_tests {
     #[test]
     fn a_record_change_underneath_replaces_the_draft() {
         let ctx = egui::Context::default();
-        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+        let _ = ctx.run_headless(egui::RawInput::default(), |ui| {
             let out = text_draft_row(ui, "seed", "1234", 100.0, "", |_| None);
             assert_eq!(out.draft, "1234");
         });
         let mut after = String::new();
-        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+        let _ = ctx.run_headless(egui::RawInput::default(), |ui| {
             after = text_draft_row(ui, "seed", "9999", 100.0, "", |_| None).draft;
         });
         assert_eq!(after, "9999");
@@ -1532,7 +1534,7 @@ mod draft_tests {
     fn a_refused_draft_is_kept_and_explained() {
         let ctx = egui::Context::default();
         let mut refused_text = String::new();
-        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+        let _ = ctx.run_headless(egui::RawInput::default(), |ui| {
             let id = ui.id().with("slot");
             ui.data_mut(|d| {
                 d.insert_temp(

@@ -331,6 +331,7 @@ fn layers(ui: &mut egui::Ui, layers: &mut [Fp; 4], dirty: &mut bool) -> egui::Re
 mod tests {
     use super::super::widgets::text_probe::button;
     use super::*;
+    use crate::ui::headless::Headless as _;
     use bevy_egui::egui::accesskit::{Node, Role};
 
     /// The grass the default world grows on Auto.
@@ -362,7 +363,7 @@ mod tests {
                 (2, Some(pos)) => vec![button(pos, false)],
                 _ => Vec::new(),
             };
-            let output = ctx.run_ui(
+            let output = ctx.run_headless(
                 egui::RawInput {
                     screen_rect: Some(screen),
                     events,

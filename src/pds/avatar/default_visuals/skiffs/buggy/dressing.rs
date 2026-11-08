@@ -17,8 +17,8 @@
 
 use std::f32::consts::FRAC_PI_2;
 
+use bevy::curve::cubic_splines::{CubicCardinalSpline, CubicGenerator};
 use bevy::math::Vec3;
-use bevy::math::cubic_splines::{CubicCardinalSpline, CubicGenerator};
 
 use crate::pds::avatar::livery::BuggyColours;
 use crate::pds::generator::Generator;

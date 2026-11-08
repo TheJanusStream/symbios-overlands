@@ -39,33 +39,37 @@
 // selects the matching IO structs; `wind_offset` is shared verbatim, which is
 // what keeps the two passes agreeing.
 
-#ifdef PREPASS_PIPELINE
-#import bevy_pbr::{
-    prepass_io::{Vertex, VertexOutput},
+@if(PREPASS_PIPELINE)
+import bevy_pbr::{
+    prepass::io::{Vertex, VertexOutput, decompress_vertex},
+    render::{
+        mesh_functions,
+        view_transformations::position_world_to_clip,
+    },
+};
+@if(PREPASS_PIPELINE)
+import bevy_render::globals::Globals;
+@else
+import bevy_pbr::render::{
+    forward_io::{Vertex, VertexOutput, decompress_vertex},
     mesh_functions,
+    mesh_view_bindings::globals,
     view_transformations::position_world_to_clip,
-}
-#import bevy_render::globals::Globals
+};
+import super::storm_common::storm_gust;
 
 // The prepass binds a *different, smaller* view layout than the main pass:
 // `Globals` sits at `@group(0) @binding(1)` here but at binding 11 there, and
-// `bevy_pbr::prepass_bindings` declares neither - the stock prepass shader
+// `bevy_pbr::prepass::bindings` declares neither - the stock prepass shader
 // has no use for the clock, so nothing in the tree declares it at the prepass
 // index. Importing `mesh_view_bindings::globals` instead compiles cleanly and
 // then fails at pipeline creation with
 // `Shader global ResourceBinding { group: 0, binding: 11 } is not available
-// in the pipeline layout` - a hard panic the moment a shadow-casting light
-// sees foliage, which no forward-only render reaches.
+// in the pipeline layout` - a hard panic the moment a depth prepass or a
+// shadow pass draws foliage. Write no `mesh_view_bindings` path inline
+// either: code shared by both variants would take binding 11 into the prepass.
+@if(PREPASS_PIPELINE)
 @group(0) @binding(1) var<uniform> globals: Globals;
-#else
-#import bevy_pbr::{
-    forward_io::{Vertex, VertexOutput},
-    mesh_functions,
-    mesh_view_bindings::globals,
-    view_transformations::position_world_to_clip,
-}
-#endif
-#import "shaders/storm_common.wgsl"::storm_gust
 
 // Mirror of `WindUniforms` in `src/wind.rs`. The two are hand-written copies
 // of one layout and nothing in the build compiles this file, so a field added
@@ -83,14 +87,14 @@ struct WindUniforms {
     storm: f32,
 };
 
-@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> wind: WindUniforms;
+@group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> wind: WindUniforms;
 
 // In a storm's gust front (#1684): how much more the foliage sways, and how
 // far it leans downwind, as shares of its calm sway.
 const STORM_SWAY: f32 = 1.2;
 const STORM_PUSH: f32 = 1.5;
 
-// David Hoskins' sine-free hash, as used by `cloud.wgsl` and `water.wgsl`.
+// David Hoskins' sine-free hash, as used by `cloud.wesl` and `water.wesl`.
 // Stays well-conditioned at the large world coordinates a region reaches,
 // where a `sin`-based hash degenerates into visible banding.
 fn hash21(p: vec2<f32>) -> f32 {
@@ -126,7 +130,7 @@ fn wind_offset(world_pos: vec3<f32>, origin: vec3<f32>) -> vec3<f32> {
     let flutter = sin(t * 1.7 + phase * 2.3 + (world_pos.y - origin.y) * 3.0);
     // A storm's gust front (#1684): the sway grows, and the plant leans
     // downwind, as it passes - one front for the foliage, the grass and the
-    // rain (`storm_common.wgsl`).
+    // rain (`storm_common.wesl`).
     let front = wind.storm * storm_gust(origin.xz, dir2, globals.time);
     let amp = wind.strength * weight * (1.0 + STORM_SWAY * front);
     let push = wind.strength * weight * STORM_PUSH * front;
@@ -139,21 +143,23 @@ fn wind_offset(world_pos: vec3<f32>, origin: vec3<f32>) -> vec3<f32> {
         - vec3<f32>(0.0, (abs(bend) * amp + push) * 0.25, 0.0);
 }
 
-#ifdef PREPASS_PIPELINE
-
-// Prepass / shadow-map variant. Mirrors `bevy_pbr::prepass::prepass.wgsl`'s
+// Prepass / shadow-map variant. Mirrors `bevy_pbr::prepass::prepass.wesl`'s
 // vertex entry point, minus the skinning and morph-target paths: this material
 // is only ever attached to foliage buckets and ground-cover cards, neither of
 // which is skinned or morphed. Everything else is kept faithfully, because
 // dropping any of it silently breaks a pass that only some configurations
 // reach - `UNCLIPPED_DEPTH_ORTHO_EMULATION` in particular is what keeps
 // directional-light shadow maps from clipping on hardware without native
-// depth-clip control.
+// depth-clip control. As there, the vertex is decompressed first and every
+// per-instance read takes `vertex_no_morph.instance_index` (a wgpu dx12
+// workaround, gfx-rs/naga#2416).
+@if(PREPASS_PIPELINE)
 @vertex
-fn vertex(vertex: Vertex) -> VertexOutput {
+fn vertex(vertex_no_morph: Vertex) -> VertexOutput {
     var out: VertexOutput;
+    let vertex = decompress_vertex(vertex_no_morph, vertex_no_morph.instance_index);
 
-    let world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
+    let world_from_local = mesh_functions::get_world_from_local(vertex_no_morph.instance_index);
     let rest_position = mesh_functions::mesh_position_local_to_world(
         world_from_local,
         vec4<f32>(vertex.position, 1.0)
@@ -163,128 +169,112 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 
     out.world_position = vec4<f32>(rest_position.xyz + offset, rest_position.w);
     out.position = position_world_to_clip(out.world_position.xyz);
-#ifdef UNCLIPPED_DEPTH_ORTHO_EMULATION
-    out.unclipped_depth = out.position.z;
-    out.position.z = min(out.position.z, 1.0); // Clamp depth to avoid clipping
-#endif
+    @if(UNCLIPPED_DEPTH_ORTHO_EMULATION) {
+        out.unclipped_depth = out.position.z;
+        out.position.z = min(out.position.z, 1.0); // Clamp depth to avoid clipping
+    }
 
-#ifdef VERTEX_UVS_A
+    @if(VERTEX_UVS_A)
     out.uv = vertex.uv;
-#endif
-#ifdef VERTEX_UVS_B
+    @if(VERTEX_UVS_B)
     out.uv_b = vertex.uv_b;
-#endif
 
-#ifdef NORMAL_PREPASS_OR_DEFERRED_PREPASS
-#ifdef VERTEX_NORMALS
-    // Left as the rest-pose normal. Recomputing it would mean rebuilding the
-    // tangent frame per vertex for a sub-degree change on geometry that is
-    // double-sided alpha-masked foliage - invisible, and it would have to be
-    // duplicated identically in the forward pass to avoid a shading seam.
-    out.world_normal = mesh_functions::mesh_normal_local_to_world(
-        vertex.normal,
-        vertex.instance_index
-    );
-#endif
-#ifdef VERTEX_TANGENTS
-    out.world_tangent = mesh_functions::mesh_tangent_local_to_world(
-        world_from_local,
-        vertex.tangent,
-        vertex.instance_index
-    );
-#endif
-#endif // NORMAL_PREPASS_OR_DEFERRED_PREPASS
+    @if(NORMAL_PREPASS_OR_DEFERRED_PREPASS) {
+        // Left as the rest-pose normal. Recomputing it would mean rebuilding the
+        // tangent frame per vertex for a sub-degree change on geometry that is
+        // double-sided alpha-masked foliage - invisible, and it would have to be
+        // duplicated identically in the forward pass to avoid a shading seam.
+        @if(VERTEX_NORMALS)
+        out.world_normal = mesh_functions::mesh_normal_local_to_world(
+            vertex.normal,
+            vertex_no_morph.instance_index
+        );
+        @if(VERTEX_TANGENTS)
+        out.world_tangent = mesh_functions::mesh_tangent_local_to_world(
+            world_from_local,
+            vertex.tangent,
+            vertex_no_morph.instance_index
+        );
+    }
 
-#ifdef VERTEX_COLORS
+    @if(VERTEX_COLORS)
     out.color = vertex.color;
-#endif
 
-#ifdef MOTION_VECTOR_PREPASS
-    // Displace the previous frame's position by the *current* offset rather
-    // than re-evaluating the sway at the previous time. The sway then
-    // contributes nothing to the motion vector, which is the conservative
-    // choice: a TAA pass reprojecting a fast per-vertex flutter smears worse
-    // than one that ignores it.
-    let prev_rest = mesh_functions::mesh_position_local_to_world(
-        mesh_functions::get_previous_world_from_local(vertex.instance_index),
-        vec4<f32>(vertex.position, 1.0)
-    );
-    out.previous_world_position = vec4<f32>(prev_rest.xyz + offset, prev_rest.w);
-#endif
+    @if(MOTION_VECTOR_PREPASS) {
+        // Displace the previous frame's position by the *current* offset rather
+        // than re-evaluating the sway at the previous time. The sway then
+        // contributes nothing to the motion vector, which is the conservative
+        // choice: a TAA pass reprojecting a fast per-vertex flutter smears worse
+        // than one that ignores it.
+        let prev_rest = mesh_functions::mesh_position_local_to_world(
+            mesh_functions::get_previous_world_from_local(vertex_no_morph.instance_index),
+            vec4<f32>(vertex.position, 1.0)
+        );
+        out.previous_world_position = vec4<f32>(prev_rest.xyz + offset, prev_rest.w);
+    }
 
-#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
-    out.instance_index = vertex.instance_index;
-#endif
+    @if(VERTEX_OUTPUT_INSTANCE_INDEX)
+    out.instance_index = vertex_no_morph.instance_index;
 
-#ifdef VISIBILITY_RANGE_DITHER
+    @if(VISIBILITY_RANGE_DITHER)
     out.visibility_range_dither = mesh_functions::get_visibility_range_dither_level(
-        vertex.instance_index, world_from_local[3]);
-#endif
+        vertex_no_morph.instance_index, world_from_local[3]);
 
     return out;
 }
 
-#else // PREPASS_PIPELINE
-
-// Forward variant. Mirrors `bevy_pbr::render::mesh.wgsl`'s vertex entry point
+// Forward variant. Mirrors `bevy_pbr::render::mesh.wesl`'s vertex entry point
 // (again without skinning / morph targets) so the standard PBR fragment
 // shader - which this material keeps, via `ShaderRef::Default` - receives
 // exactly the inputs it expects.
+@else
 @vertex
-fn vertex(vertex: Vertex) -> VertexOutput {
+fn vertex(vertex_no_morph: Vertex) -> VertexOutput {
     var out: VertexOutput;
+    let vertex = decompress_vertex(vertex_no_morph, vertex_no_morph.instance_index);
 
-    let world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
+    let world_from_local = mesh_functions::get_world_from_local(vertex_no_morph.instance_index);
 
-#ifdef VERTEX_NORMALS
     // See the note in the prepass variant: the rest-pose normal is used in
     // both passes so the two agree.
+    @if(VERTEX_NORMALS)
     out.world_normal = mesh_functions::mesh_normal_local_to_world(
         vertex.normal,
-        vertex.instance_index
+        vertex_no_morph.instance_index
     );
-#endif
 
-#ifdef VERTEX_POSITIONS
-    let rest_position = mesh_functions::mesh_position_local_to_world(
-        world_from_local,
-        vec4<f32>(vertex.position, 1.0)
-    );
-    let origin = world_from_local[3].xyz;
-    let offset = wind_offset(rest_position.xyz, origin);
-    out.world_position = vec4<f32>(rest_position.xyz + offset, rest_position.w);
-    out.position = position_world_to_clip(out.world_position.xyz);
-#endif
+    @if(VERTEX_POSITIONS) {
+        let rest_position = mesh_functions::mesh_position_local_to_world(
+            world_from_local,
+            vec4<f32>(vertex.position, 1.0)
+        );
+        let origin = world_from_local[3].xyz;
+        let offset = wind_offset(rest_position.xyz, origin);
+        out.world_position = vec4<f32>(rest_position.xyz + offset, rest_position.w);
+        out.position = position_world_to_clip(out.world_position.xyz);
+    }
 
-#ifdef VERTEX_UVS_A
+    @if(VERTEX_UVS_A)
     out.uv = vertex.uv;
-#endif
-#ifdef VERTEX_UVS_B
+    @if(VERTEX_UVS_B)
     out.uv_b = vertex.uv_b;
-#endif
 
-#ifdef VERTEX_TANGENTS
+    @if(VERTEX_TANGENTS)
     out.world_tangent = mesh_functions::mesh_tangent_local_to_world(
         world_from_local,
         vertex.tangent,
-        vertex.instance_index
+        vertex_no_morph.instance_index
     );
-#endif
 
-#ifdef VERTEX_COLORS
+    @if(VERTEX_COLORS)
     out.color = vertex.color;
-#endif
 
-#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
-    out.instance_index = vertex.instance_index;
-#endif
+    @if(VERTEX_OUTPUT_INSTANCE_INDEX)
+    out.instance_index = vertex_no_morph.instance_index;
 
-#ifdef VISIBILITY_RANGE_DITHER
+    @if(VISIBILITY_RANGE_DITHER)
     out.visibility_range_dither = mesh_functions::get_visibility_range_dither_level(
-        vertex.instance_index, world_from_local[3]);
-#endif
+        vertex_no_morph.instance_index, world_from_local[3]);
 
     return out;
 }
-
-#endif // PREPASS_PIPELINE
