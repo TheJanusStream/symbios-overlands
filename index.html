@@ -327,6 +327,17 @@
         // purpose is no failure (nothing here destroys one), and nor is one
         // lost once the page is going away - a reload, a sign-in's redirect -
         // which must not send a healthy machine to WebGL 2 for a week.
+        //
+        // That out-of-memory is Firefox's, not the app's (#1682): Firefox
+        // turns on wgpu's memory-budget check, which weighs every upload
+        // against the 256 MiB BAR heap of a GPU without Resizable BAR and
+        // refuses at 95 % of the process's budget there (Bugzilla 2049652,
+        // wgpu #10484). A second WebGPU page in one Firefox makes it likely.
+        // Ruled out (#1892): a per-frame upload cap (Bevy's leaves meshes
+        // out, and each page's standing use is what fills the budget) and
+        // reloading by itself (the tab stays frozen; re-tested with the tab
+        // kept in front - a background tab gets no frames at all, frozen or
+        // not, which is how a test can seem to show a reload recover).
         const WEBGPU_FAILED_LEAD = 'WebGPU failed in this browser.';
         const DEVICE_LOST_HINT = 'This tab can no longer draw. Open Symbios Overlands in a new tab to continue with WebGL 2 instead. The technical details below are worth including if you report it.';
         let leaving = false;
