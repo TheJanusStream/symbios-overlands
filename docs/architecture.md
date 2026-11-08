@@ -273,7 +273,12 @@ terrain within its reach (#1833): its chassis is held level, so on a slope that
 plane runs through the hill. One resting on static structures - a floor, a
 pad, a deck, a road - stands on their surfaces the same way: a surface joined
 to the one under its feet, neighbour to neighbour within a step, as it is, so
-a road is stood on as it climbs, crests and dips; other ground within a step
+a road is stood on as it climbs, crests and dips, and a beam as it rises past
+the floor (#1884) - and where the structure spans the stance, the terrain
+only down to a pelvis drop under the structure nearest it, so the terrain
+beside a road is followed over a crest and the ground round a ramp's foot,
+and neither the hill round a small platform under its downhill edge nor the
+ground under a deck's edge beside the ramp (#1883); other ground within a step
 of the plane it stands on, so a room's walls and the terrain under its floor
 are not, and legs over a deck's edge are held at the deck's plane (#1834);
 one on a boat,
@@ -610,12 +615,14 @@ generation cores shared with the wasm Web Worker.
   - which also fixes the room's default landing pose - with the owner-identity
   monument standing beside it, a light
   theme accent nudged back onto the natural derivers (fog tint, particle mood),
-  and the layered ambient soundtrack. Avatar side: one of seven chassis
-  families (boat / airship / humanoid / beast / skiff / helicopter / airplane)
-  plus its palette, body proportions and gait. The family is a staged pick
-  (#1614): a sixth of seeds are helicopters, a sixth airplanes (#1617), the
-  rest keep the four-way pick they always had, and one in eight of those it
-  puts on foot is a beast (#1808), about one avatar in 48. Every vehicle family is
+  and the layered ambient soundtrack. Avatar side: one of eight chassis
+  families (boat / airship / humanoid / beast / winged / skiff / helicopter /
+  airplane) plus its palette, body proportions and gait. The family is a
+  staged pick (#1614): a sixth of seeds are helicopters, a sixth airplanes
+  (#1617), the rest keep the four-way pick they always had, one in eight of
+  those it puts on foot is a beast (#1808), about one avatar in 48, and one in
+  eight of the persons left has wings (#1882), about one in 55 - each stage on
+  a salt of its own, hunted so every person the tree names stays one. Every vehicle family is
   drawn by one builder per seeded craft type, reading every line and mount
   off a single profile - `HullProfile` for the boat (#1363), `BodyPlan` for
   the skiff (#1364), `PodPlan` for the helicopter (#1614), `FusePlan` for
@@ -627,9 +634,10 @@ generation cores shared with the wasm Web Worker.
   floating and their mounts needing embed fudge factors. The humanoid family short-circuits both
   pipelines and rolls a seeded `symbios-avatar` engine record instead, whose
   stature the locomotion capsule is then cut to; the beast family rolls one on
-  four legs, with the capsule lying along its trunk. No seed rolls a winged
-  body yet (#1882); one made in the editor is fitted by its leading family's
-  posture, with the flight section its body flies by
+  four legs, with the capsule lying along its trunk; the winged family rolls a
+  bird, a bat, a glider or a cross as the engine mixes them, its size clamped
+  to the engine's range (#1882), fitted - as one made in the editor is - by its
+  leading family's posture, with the flight section its body flies by
   ([`fit.rs`](../src/pds/avatar/locomotion/fit.rs)).
 - [`src/catalogue/`](../src/catalogue/) - code-shipped read-only library of
   starter generator blueprints (~380 entries across 24 themes),
@@ -641,9 +649,10 @@ generation cores shared with the wasm Web Worker.
   (#1840): recipes, not stored records - each a slug, a name, its
   `AvatarPins` and a start seed, built on demand by the pinned re-roll's hunt
   and `AvatarRecord::default_for_seed` and cached for the process. One entry
-  per craft type, plus six people and six beasts chosen by what the engine's
-  own roll varies (no winged body yet, #1882); a drift test holds every entry
-  to its name. The Attachments category holds the wearables, a person's and
+  per craft type, plus six people, six beasts and five winged bodies (an owl,
+  a fruit bat, a sugar glider and two crosses, #1882) chosen by what the
+  engine's own roll varies; a drift test holds every entry to its name. The
+  Attachments category holds the wearables, a person's and
   an animal's: the collar and the ear bow for a beast or a winged body, the
   saddle pad for a beast, and the leg band (#1879) for a winged body.
   [`worlds.rs`](../src/catalogue/worlds.rs) lists its worlds (#1841) the

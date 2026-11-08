@@ -102,7 +102,7 @@ impl ParticleAura {
             ChassisFamily::Skiff | ChassisFamily::Helicopter | ChassisFamily::Airplane => {
                 Self::Exhaust
             }
-            ChassisFamily::Humanoid | ChassisFamily::Beast => Self::None,
+            ChassisFamily::Humanoid | ChassisFamily::Beast | ChassisFamily::Winged => Self::None,
         }
     }
 
@@ -117,6 +117,7 @@ impl ParticleAura {
             | ChassisFamily::Skiff
             | ChassisFamily::Humanoid
             | ChassisFamily::Beast
+            | ChassisFamily::Winged
             | ChassisFamily::Airplane => false,
         }
     }

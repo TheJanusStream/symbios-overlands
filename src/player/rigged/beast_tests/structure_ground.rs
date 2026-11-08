@@ -298,6 +298,175 @@ fn a_beast_at_a_decks_edge_holds_its_legs_at_the_deck() {
     }
 }
 
+/// **A beast at a deck's edge beside a ramp or a stair down holds its legs
+/// over the drop at the deck** (#1883 review). A deck 0.6 m over flat ground
+/// takes a dog and a horse resting with their rear end a hand short of its
+/// edge, and from that edge, 0.3 m to the body's side, a ramp runs down to
+/// the ground over a metre - on its right, and mirrored on its left - or a
+/// stair of two steps does, on either client. The ramp and the stair are
+/// followed down, every sample over them their surface, and the ground at
+/// their foot is joined through them; but the ground under the deck's edge
+/// behind the body, nearer that edge than the ramp's side, is held at the
+/// deck's plane, as at a bare edge, and every foot stands on the deck. The
+/// cut is measured from the structure sample nearest each, so within a
+/// sample's 0.25 m of where the two are as near the ground may be either.
+/// The
+/// cut measured from the structure each chain of steps left carried the
+/// ramp's foot, at the ground, along the ground and under the deck's edge:
+/// every sample there read the ground, 0.6 m down, and a horse's fore soles
+/// stood 42 to 55 mm under the deck.
+#[test]
+fn a_beast_at_a_decks_edge_beside_a_ramp_holds_its_legs_at_the_deck() {
+    const DECK: f32 = 0.6;
+    // The ramp's or the stair's near side, from the body's centre line, and
+    // their width and run.
+    const SIDE: f32 = 0.3;
+    const WIDE: f32 = 2.0;
+    const RUN: f32 = 1.0;
+    let flat = |_: f32, _: f32| 0.0;
+    let drop_limit = FootingConfig::default().max_pelvis_drop;
+    for family in [Family::Dog, Family::Horse] {
+        let capsule = capsule_of(family);
+        let record = beast_record(family);
+        // Facing -Z, its rear (the rig's -Z) is toward +Z.
+        let rear = -capsule.from + capsule.radius + 0.05;
+        let deck = solid(
+            Vec3::new(-4.0, 0.0, -6.0),
+            Vec3::new(4.0, DECK, rear),
+            RigidBody::Static,
+        );
+        // `way` is the side the structure is on: +1 the world's +X.
+        for (what, way) in [("ramp", 1.0f32), ("ramp", -1.0), ("stair", 1.0)] {
+            let (near, far) = (way * SIDE, way * (SIDE + WIDE));
+            let (low_x, high_x) = (near.min(far), near.max(far));
+            let ramp = Collider::trimesh(
+                vec![
+                    Vec3::new(low_x, DECK, rear),
+                    Vec3::new(high_x, DECK, rear),
+                    Vec3::new(low_x, 0.0, rear + RUN),
+                    Vec3::new(high_x, 0.0, rear + RUN),
+                ],
+                vec![[0, 2, 1], [1, 2, 3]],
+            );
+            // Two steps of 0.2 m, 0.3 m deep each.
+            let steps = [
+                solid(
+                    Vec3::new(low_x, 0.0, rear),
+                    Vec3::new(high_x, 0.4, rear + 0.3),
+                    RigidBody::Static,
+                ),
+                solid(
+                    Vec3::new(low_x, 0.0, rear + 0.3),
+                    Vec3::new(high_x, 0.2, rear + 0.6),
+                    RigidBody::Static,
+                ),
+            ];
+            let stair = what == "stair";
+            let (solids, trimeshes): (Vec<Solid>, Vec<Collider>) = if stair {
+                ([deck].into_iter().chain(steps).collect(), Vec::new())
+            } else {
+                (vec![deck], vec![ramp])
+            };
+            // Its surface `back` past the deck's edge, and how far that is
+            // from a change in it.
+            let surface = |back: f32| -> (f32, f32) {
+                if stair {
+                    let top = if back < 0.3 {
+                        0.4
+                    } else if back < 0.6 {
+                        0.2
+                    } else {
+                        0.0
+                    };
+                    let clear = [0.0f32, 0.3, 0.6]
+                        .iter()
+                        .map(|edge| (back - edge).abs())
+                        .fold(f32::INFINITY, f32::min);
+                    (top, clear)
+                } else {
+                    (
+                        (DECK * (1.0 - back / RUN)).max(0.0),
+                        back.min((back - RUN).abs()),
+                    )
+                }
+            };
+            let place = Transform::from_xyz(0.0, DECK + drop_of(&record) + 0.01, 0.0);
+            for under in [Under::Local, Under::Peer] {
+                let (app, _, root) = resting_on(&flat, &solids, &trimeshes, under, family, place);
+                let label = format!("{family:?} {under:?}, a {what} on its {way:+} side");
+                assert_eq!(
+                    stands_by(&app, root).0,
+                    Some(RestsOn::Structure),
+                    "{label}: not on the deck"
+                );
+                let posed = *app.world().get::<GlobalTransform>(root).expect("placed");
+                let drive = app.world().get::<Drive>(root).expect("a drive");
+                let (mut behind, mut held, mut on_it, mut at_foot) = (0, 0, 0, 0);
+                let mut wrong = Vec::new();
+                for (world, got) in patch_samples(drive, &posed) {
+                    let (back, toward) = (world.z - rear, world.x * way);
+                    let (want, why) = if back > 0.1 && back < SIDE - toward - 0.26 {
+                        // Behind the edge, nearer it than the structure's
+                        // side by more than the grid's step: the nearest
+                        // samples to it are the edge's.
+                        behind += 1;
+                        held += usize::from((got - (DECK - PAST_AN_EDGE)).abs() < 1e-3);
+                        (DECK - PAST_AN_EDGE, "held at the deck")
+                    } else if (SIDE + 0.1..SIDE + WIDE - 0.1).contains(&toward) && back > 0.0 {
+                        let (top, clear) = surface(back);
+                        if clear < 0.05 {
+                            continue;
+                        }
+                        if top > 0.0 {
+                            on_it += 1;
+                        } else {
+                            at_foot += 1;
+                        }
+                        (top, "its surface")
+                    } else {
+                        continue;
+                    };
+                    if (got - want).abs() >= 1e-3 {
+                        wrong.push(format!("{world}: {got:.3}, {why} {want:.3}"));
+                    }
+                }
+                let soles = soles_over(&app, root, &|_, _| DECK);
+                println!(
+                    "{label}: {held} of {behind} samples behind the edge held at the deck, \
+                     {on_it} on the {what} and {at_foot} at its foot; soles {:?} mm off the deck",
+                    soles
+                        .iter()
+                        .map(|(_, off)| (off * 1000.0).round())
+                        .collect::<Vec<_>>()
+                );
+                assert!(
+                    behind >= 3 && on_it >= 2,
+                    "{label}: the premise, {behind} samples behind the edge clear of the {what}, \
+                     {on_it} over it"
+                );
+                assert!(
+                    wrong.is_empty(),
+                    "{label}: {} samples off, {held} of {behind} behind the edge held:\n{}",
+                    wrong.len(),
+                    wrong.join("\n")
+                );
+                for (sole, off) in soles {
+                    let lowest = if PAST_AN_EDGE == 0.0 {
+                        -0.02
+                    } else {
+                        -drop_limit - 0.02
+                    };
+                    assert!(
+                        (lowest..=0.005).contains(&off),
+                        "{label}: a foot at {sole} stands {:+.1} mm off the deck",
+                        off * 1000.0
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// **A beast in a walled room stands on its floor** (#1834). A floor 0.25 m
 /// over flat ground, its walls two metres high standing on it a hand beyond
 /// the body on every side, takes a dog and a horse resting on it, on either
@@ -743,6 +912,97 @@ fn a_beast_on_a_road_over_a_crest_or_in_a_sag_stands_on_it() {
     }
 }
 
+/// **A beast near the edge of a road over a crest stands on the terrain past
+/// it** (#1883 review). The crest's ribbon above, 0.2 m over a crest falling
+/// away at 15 and at 20 degrees, takes a dog and a horse resting on it 0.4
+/// and 0.6 m from its edge, facing along the road, on either client: every
+/// sample past the edge is the terrain there, and every one over the road
+/// its top. The terrain past the edge is 0.2 m under the ribbon beside it
+/// all along, and so joined to it, however far under the floor the crest
+/// takes them both. Cut at a pelvis drop under the floor - the hill round a
+/// small platform's cut, where the platform is the floor - the terrain past
+/// that was held at the plane while the ribbon beside it was followed down,
+/// 0.58 m over the terrain on 15 degrees and 0.72 on 20 under a horse.
+#[test]
+fn a_beast_near_the_edge_of_a_road_over_a_crest_stands_on_the_terrain_past_it() {
+    const WIDTH: f32 = 6.0;
+    const LENGTH: f32 = 14.0;
+    const LIFT: f32 = 0.2;
+    for degrees in [15.0f32, 20.0] {
+        let grade = libm::tanf(degrees.to_radians());
+        let ground = move |_: f32, z: f32| -grade * z.abs();
+        let road = ribbon(&ground, WIDTH, LENGTH, &|_, _| LIFT);
+        let top = move |x: f32, z: f32| ground(x, z) + LIFT;
+        for family in [Family::Dog, Family::Horse] {
+            let record = beast_record(family);
+            for gap in [0.4f32, 0.6] {
+                let place =
+                    Transform::from_xyz(WIDTH * 0.5 - gap, LIFT + drop_of(&record) + 0.05, 0.0);
+                for under in [Under::Local, Under::Peer] {
+                    let (app, _, root) = resting_on(
+                        &ground,
+                        &[],
+                        std::slice::from_ref(&road),
+                        under,
+                        family,
+                        place,
+                    );
+                    let label = format!(
+                        "{family:?} {under:?} {gap} m from the edge of a {degrees} deg crest"
+                    );
+                    assert_eq!(
+                        stands_by(&app, root).0,
+                        Some(RestsOn::Structure),
+                        "{label}: not on the road"
+                    );
+                    let posed = *app.world().get::<GlobalTransform>(root).expect("placed");
+                    let floor = posed.translation().y;
+                    let drive = app.world().get::<Drive>(root).expect("a drive");
+                    let (mut over, mut past, mut deep) = (0, 0, 0);
+                    let (mut worst_over, mut worst_past) = (0.0f32, 0.0f32);
+                    for (world, got) in patch_samples(drive, &posed) {
+                        // Clear of the road's ends, and of its edge, where a
+                        // sample may be either.
+                        let x = world.x - WIDTH * 0.5;
+                        if world.z.abs() > LENGTH * 0.5 - 0.6 || x.abs() < 0.05 {
+                            continue;
+                        }
+                        let (want, worst) = if x < 0.0 {
+                            over += 1;
+                            (top(world.x, world.z), &mut worst_over)
+                        } else {
+                            past += 1;
+                            let want = ground(world.x, world.z);
+                            deep += usize::from(
+                                want - floor < -FootingConfig::default().max_pelvis_drop,
+                            );
+                            (want, &mut worst_past)
+                        };
+                        *worst = worst.max((got - want).abs());
+                        assert!(
+                            (got - want).abs() < 0.005,
+                            "{label}: at {world} the ground is {got:.3}, {want:.3} wanted, \
+                             {:.3} under the floor",
+                            floor - want
+                        );
+                    }
+                    assert!(
+                        over > 30 && deep > 0,
+                        "{label}: the premise, {over} samples over the road, {past} past its \
+                         edge, {deep} of them more than a pelvis drop under the floor"
+                    );
+                    println!(
+                        "{label}: {over} samples over the road within {:.1} mm, {past} past its \
+                         edge ({deep} more than a pelvis drop under the floor) within {:.1} mm",
+                        worst_over * 1000.0,
+                        worst_past * 1000.0
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// **A beast on a narrow sloped beam follows its slope** (#1834 review). A
 /// beam 0.2 m wide, sloped at 20 degrees along its length and two metres
 /// over flat ground - more than a pelvis drop over it all along the reach,
@@ -765,15 +1025,8 @@ fn a_beast_on_a_narrow_sloped_beam_follows_its_slope() {
     for family in [Family::Dog, Family::Horse] {
         let capsule = capsule_of(family);
         let record = beast_record(family);
-        // Under the patch column nearest the body's centre line: the grid is
-        // centred on the reach, a whole number of steps across.
-        let rig = built(&default_beast(family), 64).rig;
-        let reach = bevy_symbios_avatar::GroundPatch::reach(&rig).expect("a reach");
-        let side = ((reach.size().max_element() / 0.25).ceil() + 1.0).max(2.0);
-        let first = reach.center().x - (side - 1.0) * 0.25 * 0.5;
-        let column = first + ((0.0 - first) / 0.25).round() * 0.25;
-        // The rigged root's half turn mirrors the body's x into the world's.
-        let x = -column;
+        // Under the patch column nearest the body's centre line.
+        let x = centre_column(family);
         // The body over the centre line, the beam under the column.
         let beam = (
             HALF,
@@ -817,6 +1070,255 @@ fn a_beast_on_a_narrow_sloped_beam_follows_its_slope() {
             let soles = soles_over(&app, root, &|_, z| beam_top(z));
             println!(
                 "{label}: {on} samples on the beam, soles {:?} mm over its top",
+                soles
+                    .iter()
+                    .map(|(_, off)| (off * 1000.0).round())
+                    .collect::<Vec<_>>()
+            );
+            for (sole, off) in soles {
+                assert!(
+                    (-0.03..=0.03).contains(&off),
+                    "{label}: a foot at {sole} stands {:+.1} mm off the beam's top",
+                    off * 1000.0
+                );
+            }
+        }
+    }
+}
+
+/// **A beast on a small platform on a hill holds its legs over the
+/// platform's downhill edge at the platform** (#1883). A level platform a
+/// little larger than a dog's and a horse's stance stands on a 30 degree
+/// hill, its uphill edge meeting the hill and its downhill edge well over a
+/// pelvis drop over it, and each comes to rest on it, on either client: the
+/// reach runs past the platform's sides and its downhill edge, and every
+/// sample there is the hill where that is within a pelvis drop under the
+/// platform, and held at the platform's plane where it is further down - as
+/// at a deck's edge, the owner's call on #1834 - so no foot is put down
+/// under the platform less the engine's own `max_pelvis_drop`. Joined
+/// neighbour to neighbour, the hill beside the platform's uphill edge led the
+/// join down the hill along its sides and round under its downhill edge,
+/// and the samples there were the hill, far under the platform.
+///
+/// Every sole stands on the platform within a few centimetres: a dog's 5 mm
+/// under its top and a horse's hind 13, their pad joints' round undersides,
+/// as on any level floor (`lowest_foot`), and a horse's fore 24. The engine
+/// reads each girdle's ground as the mean over a cross 0.15 of the hip's
+/// height either side of each foot (`GIRDLE_SPREAD`), which for a horse's
+/// fore feet reaches past this narrow platform's sides onto the hill beside
+/// them, rightly within a pelvis drop and joined, and its shoulders are
+/// ridden lower: 13 mm on a wide platform or one over flat ground, 19 on a
+/// 10 degree hill, 24 on this one. A foot put down on the hill under the
+/// downhill edge would stand more than a pelvis drop under the top.
+#[test]
+fn a_beast_on_a_small_platform_on_a_hill_holds_its_legs_at_the_platform() {
+    let grade = libm::tanf(30f32.to_radians());
+    // The hill rises toward -Z, the way a chassis faces at no yaw.
+    let hill = move |_: f32, z: f32| -grade * z;
+    let drop_limit = FootingConfig::default().max_pelvis_drop;
+    for family in [Family::Dog, Family::Horse] {
+        let capsule = capsule_of(family);
+        let record = beast_record(family);
+        let rig = built(&default_beast(family), 64).rig;
+        let stance = bevy_symbios_avatar::GroundPatch::stance(&rig).expect("a stance");
+        let reach = bevy_symbios_avatar::GroundPatch::reach(&rig).expect("a reach");
+        // The rigged root's half turn mirrors the body's x and z into the
+        // world's. The platform covers the stance; its uphill edge is past
+        // the capsule's front, so the hill rising beyond it is clear of it.
+        let half = (stance.min.x.abs().max(stance.max.x.abs()) + 0.05)
+            .max(centre_column(family).abs() + 0.1);
+        let uphill = (-(capsule.to + capsule.radius)).min(-stance.max.y) - 0.02;
+        let downhill = -stance.min.y + 0.05;
+        let top = hill(0.0, uphill);
+        let below_edge = top - hill(0.0, downhill);
+        assert!(
+            below_edge > drop_limit + 0.1,
+            "{family:?}: the premise, the hill {below_edge:.2} m under the downhill edge"
+        );
+        let platform = solid(
+            Vec3::new(-half, top - 2.0, uphill),
+            Vec3::new(half, top, downhill),
+            RigidBody::Static,
+        );
+        let place = Transform::from_xyz(0.0, top + drop_of(&record) + 0.01, 0.0);
+        for under in [Under::Local, Under::Peer] {
+            let (app, _, root) = resting_on(&hill, &[platform], &[], under, family, place);
+            let label = format!("{family:?} {under:?} on a platform {half:.2} m half-wide");
+            assert_eq!(
+                stands_by(&app, root).0,
+                Some(RestsOn::Structure),
+                "{label}: not on the platform"
+            );
+            let posed = *app.world().get::<GlobalTransform>(root).expect("placed");
+            let drive = app.world().get::<Drive>(root).expect("a drive");
+            let (mut beside, mut behind, mut on_it, mut worst) = (0, 0, 0, 0.0f32);
+            for (world, got) in patch_samples(drive, &posed) {
+                assert!(
+                    got >= top - drop_limit - 1e-3,
+                    "{label}: at {world} a foot is put down at {got:.3}, {:.3} under the \
+                     platform, past the pelvis' drop",
+                    top - got
+                );
+                let on = world.x.abs() < half - 0.05
+                    && (uphill + 0.05..downhill - 0.05).contains(&world.z);
+                let off = world.x.abs() > half + 0.05
+                    || world.z < uphill - 0.05
+                    || world.z > downhill + 0.05;
+                let ground = hill(world.x, world.z);
+                // At the band's edge a sample may be either.
+                if !(on || off) || (ground - (top - drop_limit)).abs() < 0.01 {
+                    continue;
+                }
+                on_it += usize::from(on);
+                beside += usize::from(world.x.abs() > half + 0.05 && world.z > uphill);
+                behind += usize::from(world.z > downhill + 0.05 && ground < top - drop_limit);
+                let want = if on {
+                    top
+                } else if ground >= top - drop_limit {
+                    ground
+                } else {
+                    top - PAST_AN_EDGE
+                };
+                worst = worst.max((got - want).abs());
+                assert!(
+                    (got - want).abs() < ON_ITS_SURFACE,
+                    "{label}: at {world} the ground is {got:.3}, {want:.3} wanted (the hill {ground:.3})"
+                );
+            }
+            assert!(
+                on_it > 3 && beside > 4 && behind > 4,
+                "{label}: the premise, {on_it} samples on the platform and the reach going \
+                 round it ({beside} beside, {behind} past its downhill edge), the reach {reach:?}"
+            );
+            let soles = soles_over(&app, root, &|_, _| top);
+            println!(
+                "{label}: {beside} samples beside it, {behind} past its downhill edge, every \
+                 sample within {:.1} mm, soles {:?} mm off it",
+                worst * 1000.0,
+                soles
+                    .iter()
+                    .map(|(_, off)| (off * 1000.0).round())
+                    .collect::<Vec<_>>()
+            );
+            for (sole, off) in soles {
+                assert!(
+                    (-0.045..=0.005).contains(&off),
+                    "{label}: a foot at {sole} stands {:+.1} mm off the platform",
+                    off * 1000.0
+                );
+            }
+        }
+    }
+}
+
+/// The world `x` of the patch's column nearest a `family` beast's centre
+/// line, on a chassis at the origin facing `-Z`: the grid is centred on the
+/// reach, a whole number of steps across, and the rigged root's half turn
+/// mirrors the body's `x` into the world's.
+fn centre_column(family: Family) -> f32 {
+    let rig = built(&default_beast(family), 64).rig;
+    let reach = bevy_symbios_avatar::GroundPatch::reach(&rig).expect("a reach");
+    let side = ((reach.size().max_element() / 0.25).ceil() + 1.0).max(2.0);
+    let first = reach.center().x - (side - 1.0) * 0.25 * 0.5;
+    -(first + ((0.0 - first) / 0.25).round() * 0.25)
+}
+
+/// **A beast on a beam steepening ahead of it follows the beam up** (#1884).
+/// A beam 0.2 m wide and 0.1 m thick, two metres over flat ground, sloped at
+/// 20 degrees under a dog and a horse resting on it and at 30 from their
+/// front on, lies under one column of the patch's samples, and each comes to
+/// rest on it facing along it, on either client: the column is the beam's
+/// top out to where a ray down onto it starts inside it. Where the beam has
+/// risen past the floor by more than its thickness and a foot's room, a ray
+/// up from the floor meets its underside as it meets a table's, and those
+/// samples read the ground two metres down and were held at the plane of
+/// the beam under the feet - right on a straight beam (the 20 degree test
+/// above), and on this one the 20 degree plane under the 30 degree beam,
+/// a tenth of a metre under its top half a metre on.
+#[test]
+fn a_beast_on_a_beam_steepening_ahead_follows_it_up() {
+    const HIGH: f32 = 2.0;
+    const HALF: Vec3 = Vec3::new(0.1, 0.05, 0.0);
+    let flat = |_: f32, _: f32| 0.0;
+    let (gentle, steep) = (20f32.to_radians(), 30f32.to_radians());
+    for family in [Family::Dog, Family::Horse] {
+        let capsule = capsule_of(family);
+        let record = beast_record(family);
+        let x = centre_column(family);
+        let kink = -(capsule.to + capsule.radius);
+        let at_kink = HIGH - libm::tanf(gentle) * kink;
+        // The beam's top along its centre line, rising toward -Z.
+        let beam_top = move |z: f32| {
+            if z >= kink {
+                HIGH - libm::tanf(gentle) * z
+            } else {
+                at_kink + libm::tanf(steep) * (kink - z)
+            }
+        };
+        // A straight length of it at `tilt` over `z` from `near` to `far`,
+        // its top on the line through `beam_top`.
+        let length = |tilt: f32, near: f32, far: f32| {
+            let middle = (near + far) * 0.5;
+            let half = Vec3::new(HALF.x, HALF.y, (far - near).abs() * 0.5 / libm::cosf(tilt));
+            let top = if middle >= kink {
+                HIGH - libm::tanf(gentle) * middle
+            } else {
+                at_kink + libm::tanf(steep) * (kink - middle)
+            };
+            (
+                half,
+                Transform::from_xyz(x, top - HALF.y / libm::cosf(tilt), middle)
+                    .with_rotation(Quat::from_rotation_x(tilt)),
+                RigidBody::Static,
+            )
+        };
+        let beam = [length(gentle, kink - 0.02, 4.0), length(steep, -4.0, kink)];
+        let place = Transform::from_xyz(0.0, at_kink + drop_of(&record) + 0.05, 0.0);
+        let step_up = FootingConfig::default().max_step_up;
+        let thickness = 2.0 * HALF.y / libm::cosf(steep);
+        for under in [Under::Local, Under::Peer] {
+            let (app, _, root) = resting_on(&flat, &beam, &[], under, family, place);
+            let label = format!("{family:?} {under:?} on a 20 to 30 deg beam");
+            assert_eq!(
+                stands_by(&app, root).0,
+                Some(RestsOn::Structure),
+                "{label}: not on the beam"
+            );
+            let posed = *app.world().get::<GlobalTransform>(root).expect("placed");
+            let floor = posed.translation().y;
+            let drive = app.world().get::<Drive>(root).expect("a drive");
+            let (mut on, mut over_open, mut worst) = (0, 0, 0.0f32);
+            for (world, got) in patch_samples(drive, &posed) {
+                let want = beam_top(world.z);
+                // Clear of the kink's corners, and where a ray onto it
+                // starts over it.
+                if (world.x - x).abs() > 0.05
+                    || world.z.abs() > 3.5
+                    || (world.z - kink).abs() < 0.05
+                    || want - floor > step_up - 0.02
+                {
+                    continue;
+                }
+                on += 1;
+                over_open += usize::from(want - floor > thickness + 0.1 + 0.02);
+                worst = worst.max((got - want).abs());
+                assert!(
+                    (got - want).abs() < 0.01,
+                    "{label}: over the beam at {world} the ground is {got:.3}, its top {want:.3}, \
+                     {:.3} over the floor",
+                    want - floor
+                );
+            }
+            assert!(
+                on > 5 && over_open > 0,
+                "{label}: the premise, {on} samples on the beam, {over_open} of them over open \
+                 space from the floor"
+            );
+            let soles = soles_over(&app, root, &|_, z| beam_top(z));
+            println!(
+                "{label}: {on} samples on the beam within {:.1} mm, {over_open} over open space \
+                 from the floor, soles {:?} mm over its top",
+                worst * 1000.0,
                 soles
                     .iter()
                     .map(|(_, off)| (off * 1000.0).round())

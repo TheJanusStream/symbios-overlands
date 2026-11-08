@@ -2590,6 +2590,7 @@ mod tests {
         assert!(hits("Tandem").contains("avatar_helicopter_tandem"));
         for (query, family) in [
             ("beast", crate::seeded_defaults::ChassisFamily::Beast),
+            ("winged", crate::seeded_defaults::ChassisFamily::Winged),
             ("airship", crate::seeded_defaults::ChassisFamily::Airship),
             ("people", crate::seeded_defaults::ChassisFamily::Humanoid),
         ] {

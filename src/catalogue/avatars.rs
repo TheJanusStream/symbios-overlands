@@ -19,15 +19,16 @@
 //! with.
 //!
 //! **Coverage.** Every [`CraftType`] is its own entry, named for its type.
-//! A person and a beast are rigged engine bodies, and the seeded builder
-//! hands them to the engine's own roll (`engine_default_for_seed`,
-//! `engine_beast_for_seed`): the style, ornateness and wear axes feed only
+//! A person, a beast and a winged body are rigged engine bodies, and the
+//! seeded builder hands them to the engine's own roll
+//! (`engine_default_for_seed`, `engine_beast_for_seed`,
+//! `engine_winged_for_seed`): the style, ornateness and wear axes feed only
 //! the vehicle builders, so pinning them would choose nothing a person can
 //! see. What the engine roll varies is a person's frame (masculine to
-//! feminine), age and build, and a beast's family - dog, cat or horse - and
-//! whether it is a cross of two. So each rigged entry carries a [`Look`],
-//! the part of the roll its name promises, and its start seed is one whose
-//! roll shows it.
+//! feminine), age and build, a beast's family - dog, cat or horse - and a
+//! winged body's - bird, bat or sugar glider (#1882) - and whether it is a
+//! cross of two. So each rigged entry carries a [`Look`], the part of the
+//! roll its name promises, and its start seed is one whose roll shows it.
 //!
 //! **Seeds may draw differently in a later version** - cross-version
 //! determinism is not a constraint on the seeded builders. The test
@@ -68,6 +69,18 @@ pub enum Look {
         family: symbios_avatar::plan::Family,
         cross: Option<symbios_avatar::plan::Family>,
     },
+    /// A winged body of this family, crossed with `cross` when it is one,
+    /// and led by `family`, as its name puts it first (#1882): a cross past
+    /// an even blend is led by its second family and stands as that one does.
+    Winged {
+        family: symbios_avatar::WingedFamily,
+        cross: Option<symbios_avatar::WingedFamily>,
+    },
+    /// A bird and no cross whose head the engine draws as an owl's (#1882),
+    /// asked of the engine itself (`WingedParams::plumage_for_head`, an owl's
+    /// plumage for an owl's head alone), so an owl here is an owl in the
+    /// picture whatever line the engine draws one by.
+    Owl,
 }
 
 /// Where a person's body sits on the engine's masculine-feminine axis.
@@ -142,6 +155,22 @@ impl Look {
             Self::Beast { family, cross } => match body.map(|body| &body.archetype) {
                 Some(symbios_avatar::Archetype::Quadruped(params)) => {
                     params.family == family && params.hybrid == cross
+                }
+                _ => false,
+            },
+            Self::Winged { family, cross } => match body.map(|body| &body.archetype) {
+                Some(symbios_avatar::Archetype::Winged(params)) => {
+                    params.family == family
+                        && params.hybrid == cross
+                        && symbios_avatar::Kinship::of(params).leading == family
+                }
+                _ => false,
+            },
+            Self::Owl => match body.map(|body| &body.archetype) {
+                Some(symbios_avatar::Archetype::Winged(params)) => {
+                    params.family == symbios_avatar::WingedFamily::Bird
+                        && params.hybrid.is_none()
+                        && params.plumage_for_head() == symbios_avatar::Plumage::OWL
                 }
                 _ => false,
             },
@@ -262,6 +291,24 @@ impl AvatarEntry {
         }
     }
 
+    const fn winged(
+        slug: &'static str,
+        name: &'static str,
+        description: &'static str,
+        look: Look,
+        start: u64,
+    ) -> Self {
+        Self {
+            slug,
+            name,
+            description,
+            pins: pins(ChassisFamily::Winged, None),
+            start,
+            look,
+            built: OnceLock::new(),
+        }
+    }
+
     /// The family the entry is pinned to.
     pub fn family(&self) -> ChassisFamily {
         self.pins.chassis.unwrap_or(ChassisFamily::Humanoid)
@@ -272,8 +319,8 @@ impl AvatarEntry {
         self.pins.craft
     }
 
-    /// Whether the entry is a rigged body - a person or a beast - rather
-    /// than a vehicle's tree.
+    /// Whether the entry is a rigged body - a person, a beast or a winged
+    /// body - rather than a vehicle's tree.
     pub fn is_rigged(&self) -> bool {
         self.family().is_rigged()
     }
@@ -318,8 +365,8 @@ impl AvatarEntry {
     }
 
     /// The visuals tree a vehicle entry is pictured from; `None` for a
-    /// person or a beast, whose picture is the body itself, built by the
-    /// game's own job (#1842). Builds the entry.
+    /// rigged body, whose picture is the body itself, built by the game's own
+    /// job (#1842). Builds the entry.
     pub fn visuals(&self) -> Option<&crate::pds::Generator> {
         self.record().and_then(|record| record.body.visuals())
     }
@@ -370,6 +417,7 @@ pub fn family_label(family: ChassisFamily) -> &'static str {
     match family {
         ChassisFamily::Humanoid => "Person",
         ChassisFamily::Beast => "Beast",
+        ChassisFamily::Winged => "Winged",
         ChassisFamily::Boat => "Boat",
         ChassisFamily::Skiff => "Land-skiff",
         ChassisFamily::Helicopter => "Helicopter",
@@ -383,6 +431,7 @@ pub fn family_group(family: ChassisFamily) -> &'static str {
     match family {
         ChassisFamily::Humanoid => "People",
         ChassisFamily::Beast => "Beasts",
+        ChassisFamily::Winged => "Winged",
         ChassisFamily::Boat => "Boats",
         ChassisFamily::Skiff => "Land-skiffs",
         ChassisFamily::Helicopter => "Helicopters",
@@ -393,9 +442,10 @@ pub fn family_group(family: ChassisFamily) -> &'static str {
 
 /// The order the browse tree lists the families in: the rigged bodies
 /// first, then the vehicles by medium.
-pub const FAMILY_ORDER: [ChassisFamily; 7] = [
+pub const FAMILY_ORDER: [ChassisFamily; 8] = [
     ChassisFamily::Humanoid,
     ChassisFamily::Beast,
+    ChassisFamily::Winged,
     ChassisFamily::Boat,
     ChassisFamily::Skiff,
     ChassisFamily::Helicopter,
@@ -403,10 +453,11 @@ pub const FAMILY_ORDER: [ChassisFamily; 7] = [
     ChassisFamily::Airship,
 ];
 
+use symbios_avatar::WingedFamily as Wings;
 use symbios_avatar::plan::Family as Beast;
 
 /// Every avatar the Catalogue offers, in browse order.
-pub static AVATARS: [AvatarEntry; 40] = [
+pub static AVATARS: [AvatarEntry; 45] = [
     // ---- People: the engine's frame, age and build ----
     AvatarEntry::person(
         "avatar_person_young_woman",
@@ -498,6 +549,54 @@ pub static AVATARS: [AvatarEntry; 40] = [
         Beast::Horse,
         Some(Beast::Dog),
         1_846_494,
+    ),
+    // ---- Winged: the engine's family, and its crosses (#1882) ----
+    AvatarEntry::winged(
+        "avatar_winged_owl",
+        "Owl",
+        "An owl, its face a feathered disc, on two feet and on the wing.",
+        Look::Owl,
+        1_840_433,
+    ),
+    AvatarEntry::winged(
+        "avatar_winged_bat",
+        "Fruit bat",
+        "A fox-faced fruit bat, on all fours and on the wing.",
+        Look::Winged {
+            family: Wings::Bat,
+            cross: None,
+        },
+        1_840_231,
+    ),
+    AvatarEntry::winged(
+        "avatar_winged_glider",
+        "Sugar glider",
+        "A sugar glider, on all fours and gliding.",
+        Look::Winged {
+            family: Wings::Glider,
+            cross: None,
+        },
+        1_840_168,
+    ),
+    AvatarEntry::winged(
+        "avatar_winged_bird_bat",
+        "Bird and bat cross",
+        "A bird with a bat in its blood, on the wing.",
+        Look::Winged {
+            family: Wings::Bird,
+            cross: Some(Wings::Bat),
+        },
+        1_842_068,
+    ),
+    AvatarEntry::winged(
+        "avatar_winged_glider_bird",
+        "Glider and bird cross",
+        "A sugar glider with a bird in its blood.",
+        Look::Winged {
+            family: Wings::Glider,
+            cross: Some(Wings::Bird),
+        },
+        1_844_146,
     ),
     // ---- Boats ----
     AvatarEntry::craft(
@@ -728,6 +827,7 @@ mod tests {
         match family {
             ChassisFamily::Humanoid => AvatarKind::Person,
             ChassisFamily::Beast => AvatarKind::Beast,
+            ChassisFamily::Winged => AvatarKind::Winged,
             ChassisFamily::Boat => AvatarKind::Boat,
             ChassisFamily::Skiff => AvatarKind::Skiff,
             ChassisFamily::Airplane => AvatarKind::Airplane,
@@ -773,8 +873,8 @@ mod tests {
     }
 
     /// Every craft type is its own entry, exactly once; the rigged
-    /// families carry a spread, every entry a distinct seed - forty
-    /// different avatars, not one avatar forty times.
+    /// families carry a spread, every entry a distinct seed - forty-five
+    /// different avatars, not one avatar forty-five times.
     #[test]
     fn every_kind_is_covered_and_no_two_entries_are_one_avatar() {
         for family in FAMILY_ORDER {
@@ -786,9 +886,13 @@ mod tests {
                 assert_eq!(n, 1, "{} has {n} entries", craft.label());
             }
         }
-        for family in [ChassisFamily::Humanoid, ChassisFamily::Beast] {
+        for (family, entries) in [
+            (ChassisFamily::Humanoid, 6),
+            (ChassisFamily::Beast, 6),
+            (ChassisFamily::Winged, 5),
+        ] {
             let n = AVATARS.iter().filter(|e| e.family() == family).count();
-            assert_eq!(n, 6, "{} has {n} entries", family_group(family));
+            assert_eq!(n, entries, "{} has {n} entries", family_group(family));
         }
         let seeds: HashSet<u64> = AVATARS.iter().filter_map(AvatarEntry::seed).collect();
         assert_eq!(seeds.len(), AVATARS.len(), "two entries share a seed");
@@ -837,6 +941,11 @@ mod tests {
                 "avatar_beast_dog_cat",
                 "avatar_beast_cat_horse",
                 "avatar_beast_horse_dog",
+                "avatar_winged_owl",
+                "avatar_winged_bat",
+                "avatar_winged_glider",
+                "avatar_winged_bird_bat",
+                "avatar_winged_glider_bird",
                 "avatar_boat_sloop",
                 "avatar_boat_longship",
                 "avatar_boat_steamtug",
@@ -901,5 +1010,92 @@ mod tests {
             build: Build::Any,
         };
         assert!(!person.holds(Some(&cat)), "a beast is no person");
+
+        // And the winged looks (#1882): a bat is no owl, an owl no bat, a
+        // beast neither, and a cross led past an even blend by its second
+        // family is not the cross its first family leads.
+        let winged = |slug: &str| {
+            crate::pds::avatar::wardrobe::engine_winged_for_seed(
+                avatar_by_slug(slug).unwrap().seed().unwrap(),
+            )
+        };
+        let (owl, bat) = (winged("avatar_winged_owl"), winged("avatar_winged_bat"));
+        let bat_look = Look::Winged {
+            family: Wings::Bat,
+            cross: None,
+        };
+        assert!(Look::Owl.holds(Some(&owl)) && bat_look.holds(Some(&bat)));
+        assert!(!Look::Owl.holds(Some(&bat)), "a bat is no owl");
+        assert!(!bat_look.holds(Some(&owl)), "an owl is no bat");
+        assert!(!Look::Owl.holds(Some(&cat)) && !bat_look.holds(Some(&cat)));
+        assert!(!dog.holds(Some(&owl)), "an owl is no dog");
+        let mut discless = owl.clone();
+        if let symbios_avatar::Archetype::Winged(params) = &mut discless.archetype {
+            params.facial_disc = -1.0;
+        }
+        assert!(
+            !Look::Owl.holds(Some(&discless)),
+            "a bird with no disc is no owl"
+        );
+        let cross = Look::Winged {
+            family: Wings::Bird,
+            cross: Some(Wings::Bat),
+        };
+        let mut bat_led = winged("avatar_winged_bird_bat");
+        assert!(cross.holds(Some(&bat_led)));
+        if let symbios_avatar::Archetype::Winged(params) = &mut bat_led.archetype {
+            params.blend = 0.8;
+        }
+        assert!(!cross.holds(Some(&bat_led)), "a bat-led cross is no bird's");
+    }
+
+    /// **The Catalogue's winged entries are winged bodies that fly** (#1882):
+    /// each is pinned to the winged family, builds a winged engine body on the
+    /// preset fitted to it - its flight section with it, upright under a bird
+    /// and lying under a bat or a glider - copies to a winged item, and
+    /// meshes as a client builds it, at a small atlas: the shape is the same,
+    /// and a full one for each entry cost the suite seconds.
+    #[test]
+    fn the_winged_entries_build_winged_bodies_that_fly() {
+        use crate::pds::LocomotionConfig;
+        use crate::pds::avatar::RiggedKind;
+        let winged: Vec<&AvatarEntry> = AVATARS
+            .iter()
+            .filter(|e| e.slug.starts_with("avatar_winged_"))
+            .collect();
+        assert_eq!(winged.len(), 5, "an owl, a bat, a glider and two crosses");
+        let small = symbios_avatar::AvatarConfig {
+            atlas: 16,
+            ..Default::default()
+        };
+        for entry in winged {
+            let slug = entry.slug;
+            assert_eq!(entry.family(), ChassisFamily::Winged, "{slug}");
+            assert!(entry.is_rigged() && entry.visuals().is_none(), "{slug}");
+            let built = entry.built().expect("builds");
+            assert_eq!(
+                ChassisFamily::for_seed(built.seed),
+                ChassisFamily::Winged,
+                "{slug}"
+            );
+            let body = engine_body(&built.record).expect("a rigged body");
+            let kind = RiggedKind::of_record(body);
+            assert!(kind.is_winged(), "{slug}: a {kind:?}");
+            let LocomotionConfig::Humanoid(p) = &built.record.locomotion else {
+                panic!("{slug}: on {}", built.record.locomotion.kind_tag());
+            };
+            assert!(p.flies(), "{slug} cannot fly");
+            assert_eq!(
+                p.is_lying(),
+                kind.on_four(),
+                "{slug}: a {kind:?}'s collider"
+            );
+            let item = built.item.as_ref().expect("copies to an item");
+            assert_eq!(item.kind(), AvatarKind::Winged, "{slug}");
+            assert!(
+                symbios_avatar::Avatar::build_with(body, &small).is_some(),
+                "{slug} does not mesh"
+            );
+        }
     }
 }

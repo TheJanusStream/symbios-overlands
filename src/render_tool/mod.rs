@@ -299,8 +299,8 @@ struct Args {
     ride_height: Option<String>,
     /// List the first `--family-count` seeds whose
     /// [`ChassisFamily`](crate::seeded_defaults::ChassisFamily) matches
-    /// (`humanoid` | `beast` | `boat` | `airship` | `skiff` | `helicopter` |
-    /// `airplane`) and exit - a survey aid for
+    /// (`humanoid` | `beast` | `winged` | `boat` | `airship` | `skiff` |
+    /// `helicopter` | `airplane`) and exit - a survey aid for
     /// the avatar overhaul: pick seeds from the printed list, then render each
     /// with `--avatar <seed>`. Highest precedence (prints, never renders).
     #[arg(long)]
@@ -607,10 +607,12 @@ struct Args {
     /// `--walker-avatar` leads); the rest walk beside it, `--walker-spread`
     /// apart, so a clip can show a world with people in it (#1352). A seed
     /// that rolls a beast walks that beast (#1808): `--family-seeds beast`
-    /// lists them. A beast is set down as its game chassis rests, its lying
-    /// capsule on its uphill end, and one resting on the terrain alone stands
-    /// on the terrain under it, one on a static structure on the structure,
-    /// as in the game (#1833, #1834); see `--walker-level`.
+    /// lists them, and one that rolls a winged body that body (#1882,
+    /// `--family-seeds winged`). A beast is set down as its game chassis
+    /// rests, its lying capsule on its uphill end, and one resting on the
+    /// terrain alone stands on the terrain under it, one on a static
+    /// structure on the structure, as in the game (#1833, #1834); see
+    /// `--walker-level`.
     /// The world runs avian while anything walks, for the walkers to rest on.
     #[arg(long, value_delimiter = ',', action = clap::ArgAction::Append)]
     walker: Vec<u64>,

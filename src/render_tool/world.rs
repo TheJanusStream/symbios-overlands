@@ -146,8 +146,8 @@ pub(super) struct WalkerOutfit {
 
 /// The body one `--walker` seed rolls: the seed's default record - the
 /// same derivation a fresh account takes, outfit included since engine
-/// 0.10 rolls one (#358), and a beast on a seed that rolls one (#1808) - in the
-/// colours and lengths asked for.
+/// 0.10 rolls one (#358), and a beast or a winged body on a seed that rolls
+/// one (#1808, #1882) - in the colours and lengths asked for.
 pub(super) fn walker_record(
     seed: u64,
     outfit: Option<WalkerOutfit>,

@@ -19,9 +19,10 @@
 //! selection, the most recent pick is the one pictured ([`wanted_subject`]).
 //!
 //! A vehicle avatar in the Catalogue (#1840) is a third subject, pictured
-//! from the visuals tree its recipe builds. A person or a beast - an avatar
-//! item's or an avatar entry's - is pictured as the body itself (#1842; see
-//! below), so choosing one no longer means wearing it to see it.
+//! from the visuals tree its recipe builds. A person, a beast or a winged
+//! body - an avatar item's or an avatar entry's - is pictured as the body
+//! itself (#1842; see below), so choosing one no longer means wearing it to
+//! see it.
 //!
 //! ## A stash item is editable, a catalogue entry is not
 //!
@@ -90,7 +91,7 @@
 //! ceiling the splat material sits against is untouched - this is a
 //! second view, not a second texture on the first one.
 //!
-//! ## A person or a beast is built, not spawned
+//! ## A person, a beast or a winged body is built, not spawned
 //!
 //! A rigged body has no tree to hand the spawn path; it is meshed by the
 //! engine, which takes a few hundred milliseconds. The stage asks for it
@@ -149,7 +150,7 @@
 //! looks roots up *from* an entity that has a `GaitAnimation`, so a stage
 //! with no such parent is never reached.
 //!
-//! A staged person or beast is held to the same: its stand-in chassis is no
+//! A staged person, beast or winged body is held to the same: its stand-in chassis is no
 //! physics body and carries no player or network marker, its root no
 //! `RiggedRoot`, `Drive` or `AvatarDriver` - so the engine's motion driver,
 //! the underfoot sampler, the gait and the nametags, which all find a body
@@ -257,12 +258,12 @@ pub enum PreviewSubject {
     /// An avatar in the Catalogue (#1840), by
     /// [`crate::catalogue::avatars::AvatarEntry::slug`]: a vehicle pictured
     /// from the visuals tree the entry builds, as a vehicle avatar item is,
-    /// and a person or a beast as its built body (#1842). Like a catalogue
+    /// and a person, a beast or a winged body as its built body (#1842). Like a catalogue
     /// entry it is a recipe, so its picture never goes stale and it carries
     /// no tick.
     CatalogueAvatar(String),
     /// A stash item (#1301), by its key in [`InventoryRecord::generators`]
-    /// or, for an avatar (#1838 a vehicle, #1842 a person or a beast), in
+    /// or, for an avatar (#1838 a vehicle, #1842 a rigged body), in
     /// [`InventoryRecord::avatars`] - its NAME. The PDS rkey is derived from the name
     /// ([`crate::pds::inventory::item_rkey`]), so the name is the identity;
     /// a rename is a different subject.
@@ -295,8 +296,9 @@ pub struct ItemPreview {
     /// bounds - a freshly spawned tree has no `Aabb` until Bevy has
     /// computed one, so framing is a follow-up, not part of the spawn.
     framed: bool,
-    /// The person or beast the staged subject wants standing (#1842), until
-    /// it stands dressed - or turns out not to build. `None` for a tree.
+    /// The person, beast or winged body the staged subject wants standing
+    /// (#1842), until it stands dressed - or turns out not to build. `None`
+    /// for a tree.
     wants: Option<WantedBody>,
     /// The stage's one build in flight.
     build: Option<StageBuild>,
@@ -325,8 +327,8 @@ impl ItemPreview {
         self.staged.as_ref()
     }
 
-    /// The staged person or beast whose body could not be built (#1842), so
-    /// there is no picture of it and never will be until the subject
+    /// The staged person, beast or winged body that could not be built
+    /// (#1842), so there is no picture of it and never will be until the subject
     /// changes. The pane says so in place of a picture; `None` for anything
     /// else, a body still building included.
     pub fn failed(&self) -> Option<&PreviewSubject> {
@@ -356,7 +358,7 @@ impl ItemPreview {
     }
 }
 
-/// A person or a beast the stage wants standing (#1842): the engine record
+/// A person, a beast or a winged body the stage wants standing (#1842): the engine record
 /// to build, what to dress it in, and how far its chassis's centre sits
 /// above its feet - all read off the avatar record the subject wears as.
 struct WantedBody {
@@ -680,8 +682,8 @@ fn catalogue_subject(pick: Pick<'_>) -> Option<PreviewSubject> {
         return Some(PreviewSubject::Catalogue(slug.to_string()));
     }
     // An avatar entry (#1840) is asked for by its slug alone, which builds
-    // nothing: a vehicle has a tree to stage and a person or a beast a body
-    // to build (#1842). The restage builds the entry, once.
+    // nothing: a vehicle has a tree to stage, and a person, a beast or a
+    // winged body has a body to build (#1842). The restage builds the entry, once.
     // A world entry (#1841) is never asked for: it is a text card, and a
     // world is never built to be looked at.
     crate::catalogue::avatars::avatar_by_slug(slug)
@@ -712,7 +714,8 @@ fn inventory_subject(
     let name = pick.selected?;
     let (record, edit) = stash?;
     // An avatar item (#1838) is pictured from its visuals tree when it has
-    // one, and from its built body when it is a person or a beast (#1842).
+    // one, and from its built body when it is a person, a beast or a winged
+    // body (#1842).
     if record.picture_of(name).is_none() && record.body_picture_of(name).is_none() {
         return None;
     }

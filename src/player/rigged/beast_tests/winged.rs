@@ -377,6 +377,63 @@ fn a_rest_going_down_goes_on_as_the_new_familys() {
     }
 }
 
+/// **A rest asked for again while the body gets up is seated afresh on a
+/// new family** (#1886): a body held in its rest, told "get up" and told to
+/// rest again most of the way up - an owner changing their mind - and
+/// rebuilt as another family on that frame, is in the new family's rest near
+/// standing, going down, and held in it eight seconds on. Seated by how long
+/// the old rest had run, past its whole way down, it was put fully down in a
+/// frame from nearly standing.
+#[test]
+fn a_rest_asked_again_while_getting_up_is_seated_afresh() {
+    use WingedFamily::{Bat, Bird, Glider};
+    for (from, to) in [(Bird, Bat), (Bat, Glider), (Glider, Bird)] {
+        let label = format!("a {from:?} made a {to:?}");
+        let body = default_winged(from);
+        let (mut app, chassis) = standing(&body);
+        let root = root_of(&mut app, chassis);
+        let rest = rest_of(from);
+        let rig = rig_of(&app, root);
+        let down = emote::seconds(&rig, rest).expect("a rest");
+        let (_, up) = emote::getting_up(&rig, rest).expect("a getting up");
+        ask(&mut app, root, rest);
+        run(&mut app, down + 0.5);
+        ask(&mut app, root, emote::GET_UP);
+        run(&mut app, 0.7 * up);
+        assert_eq!(
+            gesture_of(&app, root).as_deref(),
+            Some(rest),
+            "{label}: the premise, getting up"
+        );
+        ask(&mut app, root, rest);
+        let next = default_winged(to);
+        let offset = crate::player::visuals::rigged_root_offset(&fitted_record(next.clone()));
+        land(&mut app, chassis, &next, 128, offset);
+        let new_root = root_of(&mut app, chassis);
+        let new_down = emote::seconds(&rig_of(&app, new_root), rest_of(to)).expect("a rest");
+        let seated = app
+            .world()
+            .get::<AvatarDriver>(new_root)
+            .expect("a driver")
+            .gesture()
+            .map(|(name, elapsed)| (name.to_string(), elapsed / new_down));
+        println!("{label}: seated {seated:?}");
+        let (name, through) = seated.unwrap_or_else(|| panic!("{label}: seated in nothing"));
+        assert_eq!(name, rest_of(to), "{label}");
+        assert!(
+            through < 0.1,
+            "{label}: seated {:.0} % of the way down from nearly standing",
+            through * 100.0
+        );
+        run(&mut app, 8.0);
+        assert_eq!(
+            gesture_under(&mut app, chassis).as_deref(),
+            Some(rest_of(to)),
+            "{label}: not resting eight seconds on"
+        );
+    }
+}
+
 /// `body` on a peer's chassis, landed at the draft atlas and stood a moment.
 fn standing(body: &EngineAvatarRecord) -> (App, Entity) {
     let record = fitted_record(body.clone());

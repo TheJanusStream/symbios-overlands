@@ -836,8 +836,17 @@ mod tests {
             waiting > 2.0 * half * (EYE_HEIGHT_FRACTION - 0.5) + 0.05,
             "from its trunk: {waiting}"
         );
-        for n in 0..12 {
-            let did = format!("did:plc:eyes-{n}");
+        // A person's line, and a vehicle's, over every seeded body among the
+        // first `did:plc:eyes-{n}` but a beast or a winged one - since #1882
+        // a seeded person may grow wings, and a winged body looks out of its
+        // own eyes as a beast does - until twelve persons have been held.
+        use crate::seeded_defaults::ChassisFamily;
+        let mut persons = 0;
+        for did in (0..400).map(|n| format!("did:plc:eyes-{n}")) {
+            let family = ChassisFamily::for_did(&did);
+            if matches!(family, ChassisFamily::Beast | ChassisFamily::Winged) {
+                continue;
+            }
             let body = crate::pds::AvatarRecord::default_for_did(&did).locomotion;
             let tall = locomotion_total_height(&body);
             assert_eq!(
@@ -845,7 +854,12 @@ mod tests {
                 ((EYE_HEIGHT_FRACTION - 0.5) * tall).to_bits(),
                 "{did}"
             );
+            persons += usize::from(family == ChassisFamily::Humanoid);
+            if persons == 12 {
+                break;
+            }
         }
+        assert_eq!(persons, 12, "twelve seeded persons among the first 400");
     }
 
     /// **A beast's eye view sees nothing of itself, whichever way it looks**

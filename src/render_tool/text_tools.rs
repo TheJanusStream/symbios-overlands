@@ -17,16 +17,18 @@ use super::Args;
 
 /// Print the first `count` u64 seeds whose
 /// [`ChassisFamily`] matches `fam`
-/// (case-insensitive `humanoid` | `beast` | `boat` | `airship` | `skiff` |
-/// `helicopter` | `airplane`). A survey aid for the avatar overhaul - a
-/// helicopter and an airplane are a sixth of the seeds each, the other four
-/// share the rest (#1614, #1617) and a beast is an eighth of the humanoid's
-/// share (#1808), so scanning a few thousand always finds enough.
+/// (case-insensitive `humanoid` | `beast` | `winged` | `boat` | `airship` |
+/// `skiff` | `helicopter` | `airplane`). A survey aid for the avatar overhaul -
+/// a helicopter and an airplane are a sixth of the seeds each, the other four
+/// share the rest (#1614, #1617), a beast is an eighth of the humanoid's
+/// share (#1808) and a winged body an eighth of the persons left (#1882), so
+/// scanning a few thousand always finds enough.
 pub(super) fn print_family_seeds(fam: &str, count: usize, craft: Option<&str>) {
     use crate::seeded_defaults::ChassisFamily;
     let want = match fam.to_lowercase().as_str() {
         "humanoid" => ChassisFamily::Humanoid,
         "beast" => ChassisFamily::Beast,
+        "winged" => ChassisFamily::Winged,
         "boat" => ChassisFamily::Boat,
         "airship" => ChassisFamily::Airship,
         "skiff" => ChassisFamily::Skiff,
@@ -34,7 +36,8 @@ pub(super) fn print_family_seeds(fam: &str, count: usize, craft: Option<&str>) {
         "airplane" => ChassisFamily::Airplane,
         other => {
             panic!(
-                "unknown family {other:?} (humanoid|beast|boat|airship|skiff|helicopter|airplane)"
+                "unknown family {other:?} \
+                 (humanoid|beast|winged|boat|airship|skiff|helicopter|airplane)"
             )
         }
     };
@@ -56,10 +59,11 @@ pub(super) fn print_family_seeds(fam: &str, count: usize, craft: Option<&str>) {
             seeds.len()
         );
     }
-    // Humanoid seeds are rigged bodies since #1060, and beast seeds since
-    // #1808 - there is no generator tree to render and no stylization tier to
-    // exemplify, so say where the instrument for them lives instead of
-    // printing a table about parts that no longer exist.
+    // Humanoid seeds are rigged bodies since #1060, beast seeds since #1808
+    // and winged seeds since #1882 - there is no generator tree to render
+    // and no stylization tier to exemplify, so say where the instrument for
+    // them lives instead of printing a table about parts that no longer
+    // exist.
     if want.is_rigged() {
         println!(
             "  ({} seeds are rigged symbios-avatar bodies - render them \n\
@@ -149,8 +153,8 @@ fn character_for(subject: &str) -> crate::seeded_defaults::AvatarCharacter {
     }
 }
 
-/// The seeded craft type of an avatar `subject`, or `None` for the two
-/// families without one (the rigged humanoid and beast).
+/// The seeded craft type of an avatar `subject`, or `None` for the three
+/// families without one (the rigged humanoid, beast and winged body).
 fn craft_for(subject: &str) -> Option<CraftType> {
     match subject.parse::<u64>() {
         Ok(seed) => CraftType::for_seed(seed),
@@ -171,6 +175,29 @@ fn beast_line(seed: u64) -> String {
     format!(
         "{:?}{cross}, {:.2} m at the back",
         params.family, params.height
+    )
+}
+
+/// What a seeded winged body is, in words (#1882): its family, a cross's other
+/// parent and share and the family that leads it, a bird's owl's disc, and its
+/// size - what a survey picks a winged body by.
+fn winged_line(seed: u64) -> String {
+    let record = crate::pds::avatar::wardrobe::engine_winged_for_seed(seed);
+    let symbios_avatar::Archetype::Winged(params) = &record.archetype else {
+        return "not winged".to_string();
+    };
+    let leading = symbios_avatar::Kinship::of(params).leading;
+    let cross = params.hybrid.map_or(String::new(), |other| {
+        format!(" x {other:?} at {:.2}, {leading:?}-led", params.blend)
+    });
+    let disc = if leading == symbios_avatar::WingedFamily::Bird {
+        format!(", facial disc {:.2}", params.facial_disc)
+    } else {
+        String::new()
+    };
+    format!(
+        "{:?}{cross}{disc}, {:.2} m long",
+        params.family, params.size
     )
 }
 
@@ -196,6 +223,9 @@ pub(super) fn print_outfit(subject: &str) {
     // no longer exists and #1382 removed it with the seam.
     if character.chassis == ChassisFamily::Beast {
         println!("  beast: {}", beast_line(character.seed));
+    }
+    if character.chassis == ChassisFamily::Winged {
+        println!("  winged: {}", winged_line(character.seed));
     }
     if let Some(craft) = craft_for(subject) {
         println!("  craft type: {}", craft.label());

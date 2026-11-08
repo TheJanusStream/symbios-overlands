@@ -82,6 +82,17 @@ impl FlightParams {
     /// section 8.4: the Flap state unlocks at about 0.3-0.5).
     pub const MIN_FLAP_POWER: f32 = 0.25;
 
+    /// The fastest wingbeat a record may carry, beats a second (#1885): a
+    /// winged body's is the engine's own (`fit::winged_flight`), which beats
+    /// about 24.8 a second at its smallest - the record's size floor of
+    /// 5 cm - and this keeps that with room, a third over it. It was 12,
+    /// which a tiny body's beat met under about 0.12 m, so its key beat half
+    /// as fast as its wings and, its push a beat cut for the beat it was
+    /// given, climbed on half its push. A record-format bound: a client
+    /// older than it sanitises such a record's wingbeat to 12, and flies the
+    /// tiny body as it always did there.
+    pub const FASTEST_WINGBEAT: f32 = 32.0;
+
     /// The defaults for a body standing `height` metres tall: the stand-in
     /// bird's at [`REFERENCE_HEIGHT_M`], every speed scaled as research-11's
     /// section 8.2 has it - cruise as mass to the 0.13, so as length to about
@@ -150,7 +161,7 @@ impl FlightParams {
         // Held under the trim, or a hands-off glide would fly stalled.
         self.stall_speed = held(self.stall_speed, 0.5, 0.9 * self.trim_speed.0);
         self.beat_speed = held(self.beat_speed, 0.0, 10.0);
-        self.wingbeat_rate = held(self.wingbeat_rate, 0.5, 12.0);
+        self.wingbeat_rate = held(self.wingbeat_rate, 0.5, Self::FASTEST_WINGBEAT);
         self.stamina_beats = held(self.stamina_beats, 1.0, 500.0);
         self.stamina_recovery = held(self.stamina_recovery, 0.5, 120.0);
         self.takeoff_speed = held(self.takeoff_speed, 0.0, 15.0);

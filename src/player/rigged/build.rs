@@ -456,6 +456,14 @@ impl Carried {
 /// or by moving - is let go, and stands up on the new body, whose roster lacks
 /// the old rest's name. Nothing else changes: an emote, a flight and a rest
 /// the new roster also has go on as they were.
+///
+/// **A rest asked for again while the body was getting up is seated afresh**
+/// (#1886): the engine gets the body up and then starts the rest again, from
+/// standing ([`StillResting::Afresh`]), so it is seated at the first instant
+/// of the new family's rest, and goes down from standing on the new body.
+/// Seated by how long the old rest had run - its clock runs on through the
+/// getting up, past its whole way down - a body nearly standing was put
+/// fully down in a frame.
 fn rest_onto(
     driver: &mut symbios_avatar::anim::Driver,
     drive: &Drive,
@@ -470,24 +478,34 @@ fn rest_onto(
     let Some(down) = emote::seconds(old, name) else {
         return;
     };
-    if emote::seconds(new, name).is_some() || !still_resting(driver, drive, old, name, down) {
+    if emote::seconds(new, name).is_some() {
+        return;
+    }
+    let resting = still_resting(driver, drive, old, name, down);
+    if resting == StillResting::No {
         return;
     }
     let Some(rest) = crate::player::emote::WingedEmote::Rest.gesture_name(family) else {
         return;
     };
-    let through = if down > 0.0 {
-        (elapsed / down).min(1.0)
-    } else {
+    let through = if down <= 0.0 {
         1.0
+    } else if resting == StillResting::Afresh {
+        // Its first instant: never nothing, which `seat` reads as standing
+        // and out of it.
+        f32::EPSILON
+    } else {
+        (elapsed / down).min(1.0)
     };
     driver.seat(new, rest, through);
 }
 
 /// Whether the rest `name` the driver plays on `rig`, which takes `down`
-/// seconds to go down, is still going down or held and nothing has got it up:
-/// not told to get up, nor to play another gesture, nor moved, since it began
-/// - nor about to be, by what `drive` asks of the next frame.
+/// seconds to go down, is still going down or held and nothing has got it up
+/// ([`StillResting::On`]): not told to get up, nor to play another gesture,
+/// nor moved, since it began - nor about to be, by what `drive` asks of the
+/// next frame. Anything else is [`StillResting::No`], but for the rest asked
+/// for again below.
 ///
 /// **Asked of the driver itself**, as nothing else knows. symbios-avatar 0.23
 /// says only the rest's name and how long it has run, and that clock runs on
@@ -499,20 +517,28 @@ fn rest_onto(
 /// the copy, and one getting up is over - by the engine's own rules for what
 /// gets a body up, not a copy of them here. The copy is dropped, and costs one
 /// frame of the motion, only on a change of family under a resting body.
+///
+/// A rest asked for again while the body was getting up is held on the copy
+/// too, started afresh (#1886, [`StillResting::Afresh`]): the engine gets
+/// the body up and then starts the rest again, and in symbios-avatar 0.23.1
+/// starts its clock after that frame's advance, so the copy's rest has run
+/// nothing at all, where one that went on has run the copy's whole step
+/// longer than before.
 fn still_resting(
     driver: &symbios_avatar::anim::Driver,
     drive: &Drive,
     rig: &symbios_avatar::Rig,
     name: &str,
     down: f32,
-) -> bool {
+) -> StillResting {
     use symbios_avatar::anim::{Inputs, emote, level_ground};
     let Some((_, up)) = emote::getting_up(rig, name) else {
-        return false;
+        return StillResting::No;
     };
     let mut copy = driver.clone();
+    let step = down + up + 1.0;
     let inputs = Inputs {
-        delta: down + up + 1.0,
+        delta: step,
         velocity: drive.velocity,
         at: drive.at,
         facing: drive.facing,
@@ -523,7 +549,24 @@ fn still_resting(
         ..Default::default()
     };
     let _ = copy.drive(rig, &inputs, level_ground);
-    copy.gesture().is_some_and(|(held, _)| held == name)
+    match copy.gesture().filter(|(held, _)| *held == name) {
+        None => StillResting::No,
+        Some((_, elapsed)) if elapsed < step => StillResting::Afresh,
+        Some(_) => StillResting::On,
+    }
+}
+
+/// What [`still_resting`] finds of a winged body's rest across a change of
+/// family (#1878, #1886).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StillResting {
+    /// Got up, or about to be: let go.
+    No,
+    /// Going down or held, untouched: seated as far down as it had gone.
+    On,
+    /// Asked for again while getting up: once up, it starts again from
+    /// standing, and is seated there.
+    Afresh,
 }
 
 /// [`install_carrying`] with nothing carried: a fresh driver, as a test lands

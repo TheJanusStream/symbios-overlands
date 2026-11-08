@@ -4,8 +4,9 @@
 //! it resolves the DID's [`ChassisFamily`] and dispatches to that
 //! family's builder, returning both halves of the avatar record - the
 //! body and a locomotion preset that *matches* it (boat → HoverBoat,
-//! airship and helicopter → Helicopter, humanoid → Humanoid, skiff → Car,
-//! airplane → Airplane), so the default chassis drives the way it looks.
+//! airship and helicopter → Helicopter, humanoid, beast and winged →
+//! Humanoid, skiff → Car, airplane → Airplane), so the default chassis drives
+//! the way it looks.
 //!
 //! **The humanoid family is rigged now** (#1060, epic #1054). The five
 //! vehicle families build a [`crate::pds::Generator`] tree, one module each -
@@ -24,6 +25,10 @@
 //! **The beast family is the same promise on four legs** (#1808): a dog, a cat,
 //! a horse or a cross of them rolled from the seed, standing on the on-foot
 //! preset cut to its own trunk.
+//!
+//! **And the winged family with wings** (#1882): a bird, a bat, a sugar glider
+//! or a cross of them rolled from the seed, standing on the on-foot preset
+//! fitted to its body, the flight section the fit gives it with it.
 //!
 //! **Boats and skiffs are drawn at airship class** (#1361, owner decision 1 of
 //! the #1359 redesign), and since #1364 both are there for real: [`boats`] and
@@ -361,6 +366,9 @@ fn build_seeded(seed: u64, livery: Option<usize>) -> (RecordBody, LocomotionConf
     if family == ChassisFamily::Beast {
         return (RecordBody::beast_seeded(seed), beast_locomotion(seed));
     }
+    if family == ChassisFamily::Winged {
+        return (RecordBody::winged_seeded(seed), winged_locomotion(seed));
+    }
     // No visual-root scale: the airship-class bridge of #1361 carried a
     // uniform factor here (and a matching one into the FX, because a particle
     // sprite is sized in world metres rather than in its emitter's frame)
@@ -379,7 +387,7 @@ fn build_seeded(seed: u64, livery: Option<usize>) -> (RecordBody, LocomotionConf
         ChassisFamily::Airplane => (airplanes::build(seed, livery), airplane_locomotion(seed)),
         // Handled above; a family added later lands here loudly rather
         // than silently assembling nothing.
-        ChassisFamily::Humanoid | ChassisFamily::Beast => {
+        ChassisFamily::Humanoid | ChassisFamily::Beast | ChassisFamily::Winged => {
             unreachable!("the rigged families return above")
         }
     };
@@ -457,7 +465,7 @@ fn engine_stature(seed: u64) -> f32 {
 fn fx_mount(aura: ParticleAura, family: ChassisFamily, seed: u64) -> [f32; 3] {
     match family {
         // A tight aura around the torso (chest height), not floating overhead.
-        ChassisFamily::Humanoid | ChassisFamily::Beast => [0.0, 0.45, 0.0],
+        ChassisFamily::Humanoid | ChassisFamily::Beast | ChassisFamily::Winged => [0.0, 0.45, 0.0],
         // A boat's aura is read off her own hull by the craft type that
         // drew it (#1363) - a wake leaves the transom of the boat that is
         // actually there, not a fraction of a nominal one.
@@ -522,6 +530,15 @@ fn humanoid_locomotion(seed: u64) -> LocomotionConfig {
 /// is its size's own (owner decision D4).
 fn beast_locomotion(seed: u64) -> LocomotionConfig {
     let body = super::wardrobe::engine_beast_for_seed(seed);
+    super::fit_on_foot(&body, &HumanoidParams::default()).into_config()
+}
+
+/// On-foot locomotion fitted to the winged body the seed rolls (#1882), on the
+/// beast's terms: the fit is all of it - the collider by the body's leading
+/// posture, upright for a bird and lying for a bat or a glider, and the flight
+/// section the body gives it (#1875).
+fn winged_locomotion(seed: u64) -> LocomotionConfig {
+    let body = super::wardrobe::engine_winged_for_seed(seed);
     super::fit_on_foot(&body, &HumanoidParams::default()).into_config()
 }
 
@@ -992,8 +1009,11 @@ pub fn seeded_gait(seed: u64) -> GaitParams {
         }
         // The airship's heave and nose wander are what her types keep
         // (#1656 decision 5); a rigged body has no craft type. The angular
-        // field keeps its old meaning for all three.
-        ChassisFamily::Airship | ChassisFamily::Humanoid | ChassisFamily::Beast => {}
+        // field keeps its old meaning for all four.
+        ChassisFamily::Airship
+        | ChassisFamily::Humanoid
+        | ChassisFamily::Beast
+        | ChassisFamily::Winged => {}
     }
     g
 }
@@ -1902,7 +1922,9 @@ mod tests {
             let expected = match fam {
                 ChassisFamily::Boat => "hover_boat",
                 ChassisFamily::Airship | ChassisFamily::Helicopter => "helicopter",
-                ChassisFamily::Humanoid | ChassisFamily::Beast => "humanoid",
+                ChassisFamily::Humanoid | ChassisFamily::Beast | ChassisFamily::Winged => {
+                    "humanoid"
+                }
                 ChassisFamily::Skiff => "car",
                 ChassisFamily::Airplane => "airplane",
             };
@@ -2449,6 +2471,144 @@ mod tests {
     fn seeded_beasts_build() {
         for seed in beast_seeds(4) {
             let record = super::super::wardrobe::engine_beast_for_seed(seed);
+            assert!(
+                symbios_avatar::Avatar::build_with(&record, &Default::default()).is_some(),
+                "seed {seed} does not build"
+            );
+        }
+    }
+
+    /// The first `count` seeds that roll a winged body, a family about one seed
+    /// in 55 lands in.
+    fn winged_seeds(count: usize) -> Vec<u64> {
+        (0u64..)
+            .filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Winged)
+            .take(count)
+            .collect()
+    }
+
+    /// #1060's contract with wings (#1882): a winged body is rolled locally
+    /// from the seed, so two clients agree on the animal and on its wardrobe
+    /// key with nothing exchanged, and it stands on the preset fitted to it -
+    /// upright under a bird, lying under a bat or a glider - with the flight
+    /// section the fit gives it, wearing nothing.
+    #[test]
+    fn the_winged_family_is_rigged_and_resolves_without_a_fetch() {
+        use crate::pds::avatar::RiggedKind;
+        for seed in winged_seeds(12) {
+            let (body, loco) = build_for_seed(seed);
+            let rig = body.rigged_ref().expect("the winged family is rigged");
+            let resolved = rig
+                .resolved
+                .as_ref()
+                .expect("seeded bodies resolve locally - no PDS round trip");
+            let kind = RiggedKind::of_record(&resolved.body);
+            assert!(kind.is_winged(), "seed {seed} rolled no winged body");
+            assert_eq!(rig.avatar.len(), 13, "a deterministic TID rkey");
+            assert!(body.visuals().is_none(), "no generator tree to walk");
+            assert!(
+                rig.attachments.is_empty() && resolved.attachments.is_empty(),
+                "seed {seed}: a seeded body wears nothing"
+            );
+            let LocomotionConfig::Humanoid(p) = &loco else {
+                panic!("seed {seed}: a winged body walks, on {}", loco.kind_tag());
+            };
+            assert!(p.flies(), "seed {seed}: a winged body that cannot fly");
+            assert_eq!(
+                p.is_lying(),
+                kind.on_four(),
+                "seed {seed}: a {kind:?} in the wrong posture's collider"
+            );
+            assert_eq!(
+                (body.clone(), loco.clone()),
+                build_for_seed(seed),
+                "seed {seed}: the winged body must be deterministic"
+            );
+        }
+    }
+
+    /// Decision 3 of #1862: the seeded winged bodies mix as the engine's own
+    /// roll mixes them, a family at a time and 15 % crosses, and the size's
+    /// clamp is the only thing this crate does to that roll. Over 400 a cross
+    /// is 60 with a standard deviation of about 7, so its band is five of them
+    /// wide.
+    #[test]
+    fn the_seeded_winged_bodies_are_the_engines_own_mix_at_a_size_it_accepts() {
+        use symbios_avatar::plan::winged_size_range;
+        use symbios_avatar::{Archetype, WingedFamily, WingedParams};
+        let (low, high) = winged_size_range();
+        let (mut birds, mut bats, mut gliders, mut crosses, mut clamped) = (0, 0, 0, 0, 0);
+        for seed in winged_seeds(400) {
+            let record = super::super::wardrobe::engine_winged_for_seed(seed);
+            let Archetype::Winged(params) = &record.archetype else {
+                panic!("seed {seed} rolled no winged body");
+            };
+            assert!(
+                (low..=high).contains(&params.size),
+                "seed {seed}: {} m long",
+                params.size
+            );
+            match params.family {
+                WingedFamily::Bird => birds += 1,
+                WingedFamily::Bat => bats += 1,
+                WingedFamily::Glider => gliders += 1,
+            }
+            crosses += i32::from(params.hybrid.is_some());
+            // The engine's roll, the clamp aside.
+            let mut rolled = symbios_avatar::AvatarRecord::rolled(
+                "Wanderer",
+                Archetype::Winged(WingedParams::default()),
+                seed as i64,
+            );
+            rolled.sanitize();
+            let Archetype::Winged(raw) = &mut rolled.archetype else {
+                panic!("seed {seed} rolled no winged body");
+            };
+            clamped += i32::from(!(low..=high).contains(&raw.size));
+            raw.size = params.size;
+            assert_eq!(
+                rolled, record,
+                "seed {seed} moved more than the engine's roll"
+            );
+        }
+        assert!(
+            birds > 60 && bats > 60 && gliders > 60,
+            "{birds} birds, {bats} bats and {gliders} gliders"
+        );
+        assert!((25..=95).contains(&crosses), "{crosses} crosses in 400");
+        assert!(
+            clamped > 0,
+            "no roll in 400 reached the clamp: what is it for?"
+        );
+    }
+
+    /// A seeded winged body's record is as a peer decodes it, and its own
+    /// client has nothing to correct: the sanitiser moves nothing, and the
+    /// owner's defence against a preset and a body written apart finds them
+    /// together (#1882, as `a_seeded_beast_is_settled_as_it_is_given`).
+    #[test]
+    fn a_seeded_winged_body_is_settled_as_it_is_given() {
+        for seed in winged_seeds(60) {
+            let record = crate::pds::AvatarRecord::default_for_seed(seed);
+            let mut again = record.clone();
+            again.sanitize();
+            assert_eq!(again, record, "seed {seed}: the sanitiser moved it");
+            assert!(
+                !super::super::locomotion::restore_body_shape(&mut again),
+                "seed {seed}: its owner's client refitted it"
+            );
+            let wire = serde_json::to_string(&record.locomotion).expect("a locomotion config");
+            let decoded: LocomotionConfig = serde_json::from_str(&wire).expect("it decodes");
+            assert_eq!(decoded, record.locomotion, "seed {seed}: the wire moved it");
+        }
+    }
+
+    /// Winged bodies are bodies the game must really draw, so a handful are
+    /// built whole, as a client builds them, as the beasts' are.
+    #[test]
+    fn seeded_winged_bodies_build() {
+        for seed in winged_seeds(4) {
+            let record = super::super::wardrobe::engine_winged_for_seed(seed);
             assert!(
                 symbios_avatar::Avatar::build_with(&record, &Default::default()).is_some(),
                 "seed {seed} does not build"

@@ -53,9 +53,16 @@
 //! under the body's feet, neighbour to neighbour within a step, is stood on
 //! as it is ([`joined`]): a road's ribbon on a hill, over a crest or in a sag,
 //! its curbs and the terrain past them, the hill around a stepping stone, the
-//! ground beside a log. Any other ground is taken while it is within a step's
-//! band of the plane the body stands on, and that plane otherwise - the
-//! structure's where its samples span the stance, the ground's beside it
+//! ground beside a log, and a beam or a thin ramp rising on past the floor,
+//! which a ray up from the floor meets as it meets a table (#1884). Where
+//! the structure spans the stance, the terrain is joined only within a pelvis
+//! drop under the structure nearest it (#1883): the terrain beside a road
+//! falling away over a crest is followed down with it, and the ground round
+//! the foot of a ramp down from a deck, but not the hill round a small
+//! platform down under its downhill edge, nor the ground under the deck's
+//! edge beside the ramp. Any other ground is taken while it is within a
+//! step's band of the plane the body stands on, and that plane otherwise -
+//! the structure's where its samples span the stance, the ground's beside it
 //! where they do not ([`Plane::fit`]). So a floor's walls - rays started
 //! inside them - and the terrain under the floor are not stood on, and a
 //! beast in a room stands on its floor; and the legs over a deck's edge, the
@@ -91,7 +98,19 @@
 //! floor at once, and one landing on the terrain from the air is handed the
 //! terrain at once: a held patch planted a falling body's feet on the ground
 //! under it, and a held level floor stood a landing body's on the air over a
-//! hill (review, findings 1 and 2). A peer's cast keeps it on the terrain a
+//! hill (review, findings 1 and 2). A winged body taking off is not handed
+//! the level floor at once (#1887): the engine's take-off holds its feet to
+//! the ground through its push, so from the take-off's first frame - its
+//! drive's flight a takeoff, which a landing held on the ground never is, or
+//! the frame of no flight a take-off from a held landing is handed before
+//! that, its chassis already leapt - the ground it rose off, terrain or
+//! structure, eases out over the push ([`TAKEOFF_SECS`]), carried up with
+//! the body as the level floor is, so no foot is held to the ground under
+//! it. The take-off is latched until the body lifts ([`Launch`]), so a first
+//! frame that dips does not lose it. One that comes down meanwhile is handed
+//! the level floor then, and one the physics still reads on the ground when
+//! the ease has run has that ground eased back in. A peer's cast keeps it on
+//! the terrain a
 //! little further over it than it takes to put it there ([`RESTING_BAND`]),
 //! so a pose played out near the line does not flip it. A structure is held
 //! and eased the same way, its own short cast standing for the terrain's
@@ -117,7 +136,7 @@ use avian3d::prelude::*;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_symbios_avatar::{Drive, GroundPatch};
-use symbios_avatar::{DriverConfig, FootingConfig, Rig};
+use symbios_avatar::{DriverConfig, FlightMode, FootingConfig, Rig};
 
 use super::stands_on_four;
 use crate::pds::avatar::locomotion::LyingCapsule;
@@ -226,6 +245,33 @@ pub(super) const HOLD_SECS: f32 = 0.15;
 /// eased at both ends this turns it at most 2.4 degrees a frame at 60 Hz and
 /// one at 144, against the 19 in a frame of a change read raw.
 pub(super) const BLEND_SECS: f32 = 0.2;
+
+/// How long the ground a winged body takes off from takes to ease out to the
+/// level floor, seconds (#1887, [`RestHold::settle`]): the engine's push,
+/// which holds the feet to the ground - its least, a tenth of a second, for
+/// every winged body the game builds (symbios-avatar's `MIN_PUSH`) - from
+/// the take-off's first frame under a chassis that launches it at once. So
+/// the feet the engine lets go over the 0.08 s after (`PLANT`) leave from
+/// the ground a level take-off's leave from. Eased on through that release
+/// too, over 0.18 s, the planted wing-hands of a bat and a glider swung out
+/// sideways and back as the release blended them out of a stance on a ground
+/// half gone: 46 mm off the level take-off's and back at 60 frames a second,
+/// and at 30, over two or three frames, 75 mm under the owner's chassis and
+/// 126 as a peer.
+///
+/// **A take-off from a held landing is handed a frame of no flight first**
+/// (`super::aloft`), on which its chassis has already leapt - 11 cm at 30
+/// frames a second, past where the terrain is still under it. That frame
+/// hands the ground as it was and carries it up with the body
+/// ([`Launch`], [`RestHold::afresh`]), and the ease starts on the takeoff
+/// after it, inside the engine's crouch (its `crouch_first`, at least
+/// 0.18 s even under a chassis). Read as any other frame, it handed the
+/// level floor at once, and the ease had nothing left to carry: a bat a
+/// tenth or three tenths of a second into its landing on a 20 degree hill
+/// moved a joint 89 mm further than on level ground on that frame at 30 Hz,
+/// and read by its own contacts, as the game's chassis is, 94 at 30 and 103
+/// at 60; carried, 44, 43 and 31.
+pub(super) const TAKEOFF_SECS: f32 = 0.1;
 
 /// How far over the terrain a body the physics has resting on it may be read
 /// straight down its centre line and still be on it, metres (#1835 end
@@ -389,7 +435,34 @@ enum Below {
 /// on (#1834, [`structure_sample`]), so the deck it stands on, a metre over
 /// the terrain, is not read as a table over it.
 fn below(structures: &[Structure<'_>], from: Vec3, terrain: f32, open: f32) -> Below {
+    below_and_over(structures, from, terrain, open).0
+}
+
+/// A surface a ray down from over a sample met standing over open space
+/// from the ground under it (#1884, [`below_and_over`]): its top there, and
+/// its underside the up-ray met, world heights.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Overhang {
+    top: f32,
+    underside: f32,
+}
+
+/// [`below`], and the highest surface over what it found that it passed by
+/// as standing over open space (#1884): what a body resting on a structure
+/// may still find its structure going on in ([`joined`]) - a beam or a thin
+/// ramp rising past the floor a body on it stands at, its underside over that
+/// floor by more than [`OPEN_UNDER`] where it has risen by that and its own
+/// thickness, which a ray up from the floor meets as it meets a table's.
+/// Whatever it finds is [`below`]'s, to the bit: the overhang is only kept
+/// beside it.
+fn below_and_over(
+    structures: &[Structure<'_>],
+    from: Vec3,
+    terrain: f32,
+    open: f32,
+) -> (Below, Option<Overhang>) {
     let mut found = Below::Nothing;
+    let mut over: Option<Overhang> = None;
     for structure in structures {
         let (min, max) = (structure.aabb.min, structure.aabb.max);
         if !(min.x..=max.x).contains(&from.x) || !(min.z..=max.z).contains(&from.z) {
@@ -404,28 +477,36 @@ fn below(structures: &[Structure<'_>], from: Vec3, terrain: f32, open: f32) -> B
             from.y - terrain,
             true,
         ) {
-            Some((distance, _)) if distance <= 0.0 => return Below::Inside,
+            Some((distance, _)) if distance <= 0.0 => return (Below::Inside, None),
             Some((distance, _)) => {
                 let top = from.y - distance;
                 let higher = !matches!(found, Below::Surface(was) if was >= top);
-                if higher && !over_open_space(structure, from, open, top) {
-                    found = Below::Surface(top);
+                if higher {
+                    match open_under(structure, from, open, top) {
+                        None => found = Below::Surface(top),
+                        Some(underside) if over.is_none_or(|was| was.top < top) => {
+                            over = Some(Overhang { top, underside });
+                        }
+                        Some(_) => {}
+                    }
                 }
             }
             None => {}
         }
     }
-    found
+    let over = over.filter(|over| !matches!(found, Below::Surface(was) if was >= over.top));
+    (found, over)
 }
 
-/// Whether `structure`, its top at `top` over `from`, stands there over open
-/// space from the ground at `terrain` up (#1833, [`below`]: the terrain, or
-/// for a body on a structure the floor under it). A top too low to have
-/// room for a foot under it is never asked, so a pad, a curb or a ribbon a
-/// few centimetres up costs no second ray.
-fn over_open_space(structure: &Structure<'_>, from: Vec3, terrain: f32, top: f32) -> bool {
+/// Where `structure`'s underside is, if it stands over open space from the
+/// ground at `terrain` up, its top at `top` over `from` (#1833, [`below`]:
+/// the terrain, or for a body on a structure the floor under it): the world
+/// height the up-ray met it at. A top too low to have room for a foot under
+/// it is never asked, so a pad, a curb or a ribbon a few centimetres up costs
+/// no second ray.
+fn open_under(structure: &Structure<'_>, from: Vec3, terrain: f32, top: f32) -> Option<f32> {
     if top - terrain < OPEN_UNDER + ONE_SURFACE {
-        return false;
+        return None;
     }
     structure
         .collider
@@ -437,9 +518,8 @@ fn over_open_space(structure: &Structure<'_>, from: Vec3, terrain: f32, top: f32
             top - terrain,
             true,
         )
-        .is_some_and(|(distance, _)| {
-            distance >= OPEN_UNDER && terrain + distance < top - ONE_SURFACE
-        })
+        .filter(|&(distance, _)| distance >= OPEN_UNDER && terrain + distance < top - ONE_SURFACE)
+        .map(|(distance, _)| terrain + distance)
 }
 
 /// Hand a body the physics has resting on the terrain the terrain's own
@@ -545,29 +625,43 @@ fn terrain_surface(found: Below, terrain: f32) -> f32 {
 /// What one sample of a body resting on a structure reads (#1834,
 /// [`fill_structure_ground`]): the ground a foot stands on there, by its
 /// height over the root's floor - `None` inside a wall - and whether a
-/// structure's own surface is what it is.
+/// structure's own surface is what it is; and a surface over it the rays
+/// passed by as standing over open space, by its top's and its underside's
+/// heights over the floor (#1884, [`Overhang`]).
 struct StructureSample {
     height: Option<f32>,
     on_structure: bool,
+    over: Option<Overhang>,
 }
 
 /// One sample of a body resting on a structure, at `world` with the root's
-/// floor at `floor` (#1834): what [`below`] finds of `structures` over the
-/// `terrain` there, the up-ray started from the higher of the terrain and
-/// the floor.
-fn structure_sample(found: Below, terrain: f32, floor: f32) -> StructureSample {
+/// floor at `floor` (#1834): what [`below_and_over`] finds of `structures`
+/// over the `terrain` there, the up-ray started from the higher of the
+/// terrain and the floor.
+fn structure_sample(
+    (found, over): (Below, Option<Overhang>),
+    terrain: f32,
+    floor: f32,
+) -> StructureSample {
+    let over = over.map(|over| Overhang {
+        top: over.top - floor,
+        underside: over.underside - floor,
+    });
     match found {
         Below::Surface(top) => StructureSample {
             height: Some(top.max(terrain) - floor),
             on_structure: top >= terrain,
+            over,
         },
         Below::Nothing => StructureSample {
             height: Some(terrain - floor),
             on_structure: false,
+            over,
         },
         Below::Inside => StructureSample {
             height: None,
             on_structure: false,
+            over: None,
         },
     }
 }
@@ -674,53 +768,212 @@ struct Fit {
     spans: bool,
 }
 
-/// Which samples of a body resting on a structure are ground joined to the
-/// structure under its feet (#1834 review, findings 1 and 2): every sample of
-/// the stance whose ground is a structure's surface within the step's `band`
-/// of the root's floor, and every sample reached from one of those through
-/// its four neighbours, each no further from the last than the same band -
-/// down by no more than a pelvis drops, up by no more than a step. A road
-/// over a crest or in a sag, its curbs and the terrain past them, a ramp, a
-/// stair, the hill around a stepping stone and the ground beside a log are
-/// joined, however far from any plane they curve away; the ground a metre
-/// past a deck's edge, and anything the other side of a wall (a ray started
-/// inside it reads no ground), are not. `side` is the grid's, `read` in its
-/// order.
+/// A sample joined to the structure under a body's feet ([`joined`]): the
+/// height it is joined at over the root's floor, and whether that is a
+/// structure's surface.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Joined {
+    height: f32,
+    on_structure: bool,
+}
+
+/// The four neighbours of sample `i` on a grid `side` samples square, in
+/// the grid's own order.
+fn neighbours(i: usize, side: usize) -> [Option<usize>; 4] {
+    let (column, row) = (i % side, i / side);
+    [
+        (column > 0).then(|| i - 1),
+        (column + 1 < side).then(|| i + 1),
+        (row > 0).then(|| i - side),
+        (row + 1 < side).then(|| i + side),
+    ]
+}
+
+/// [`joined`]'s steps: every sample of the stance whose ground is a
+/// structure's surface within `band` of the root's floor, and every sample
+/// reached from one of those through its four neighbours, each within
+/// `band` of the last and one `admits` - by its index, its height and
+/// whether that is a structure's surface - each at its own height. Which
+/// samples are reached hangs on nothing but the samples, so each is joined
+/// once and the order they are taken in changes nothing.
+fn steps(
+    read: &[(StructureSample, f32)],
+    side: usize,
+    band: &std::ops::RangeInclusive<f32>,
+    in_stance: impl Fn(usize) -> bool,
+    admits: impl Fn(usize, f32, bool) -> bool,
+) -> Vec<Option<Joined>> {
+    let mut joined: Vec<Option<Joined>> = vec![None; read.len()];
+    let mut open: Vec<usize> = Vec::new();
+    for (i, (sample, _)) in read.iter().enumerate() {
+        if let Some(height) = sample
+            .height
+            .filter(|h| in_stance(i) && sample.on_structure && band.contains(h))
+        {
+            joined[i] = Some(Joined {
+                height,
+                on_structure: true,
+            });
+            open.push(i);
+        }
+    }
+    while let Some(i) = open.pop() {
+        let Some(here) = joined[i] else { continue };
+        for next in neighbours(i, side).into_iter().flatten() {
+            let sample = &read[next].0;
+            if joined[next].is_some() {
+                continue;
+            }
+            let Some(height) = sample.height.filter(|&to| {
+                band.contains(&(to - here.height)) && admits(next, to, sample.on_structure)
+            }) else {
+                continue;
+            };
+            joined[next] = Some(Joined {
+                height,
+                on_structure: sample.on_structure,
+            });
+            open.push(next);
+        }
+    }
+    joined
+}
+
+/// How low the terrain at each sample of a body resting on a structure is
+/// joined to it where [`joined`] cuts it (#1883 review): a pelvis drop -
+/// `band`'s start - under the structure nearest the sample on the grid.
 ///
-/// A neighbour at a time, the ground under a deck's edge can be joined the
-/// long way round: a deck or a pad on a hill whose uphill edge meets the
-/// hill, short enough along it for the reach to run from that edge past the
-/// downhill one, joins the hill beside it and so the hill under its downhill
-/// edge, and a foot over that edge is put down on the hill. A seeded
-/// building's pad is longer than a beast's reach.
+/// **The structure is the one under the body's feet, as far as it goes by
+/// its own steps**: what [`steps`] joins from the stance's structure without
+/// the terrain - a deck, a ramp or a stair down from it, a road's ribbon and
+/// its curbs. A curb or a step stood on the ground and reached only over the
+/// terrain - at the foot of a ramp, or under a deck's edge - is joined, but
+/// is not measured from: the ground under the deck's edge beside it would
+/// be measured from a step down there and not from the deck.
+///
+/// **Nearest by steps along the grid**, through its four neighbours: every
+/// sample's found at once from all of the structure, a ring at a time
+/// (a breadth-first walk), a tie going to the lower - the more lenient cut,
+/// and one no order can change. With no structure joined, nothing is cut.
+fn lowest_joined(
+    read: &[(StructureSample, f32)],
+    side: usize,
+    band: &std::ops::RangeInclusive<f32>,
+    in_stance: impl Fn(usize) -> bool,
+) -> Vec<f32> {
+    let structure = steps(read, side, band, in_stance, |_, _, on_structure| {
+        on_structure
+    });
+    let mut nearest: Vec<Option<f32>> = structure
+        .iter()
+        .map(|joined| joined.map(|joined| joined.height))
+        .collect();
+    let mut ring: Vec<usize> = (0..read.len()).filter(|&i| nearest[i].is_some()).collect();
+    let mut steps_away: Vec<usize> = nearest
+        .iter()
+        .map(|near| if near.is_some() { 0 } else { usize::MAX })
+        .collect();
+    let mut away = 0;
+    while !ring.is_empty() {
+        away += 1;
+        let mut next_ring = Vec::new();
+        for &i in &ring {
+            // Final: every sample of the ring before took the lowest of all
+            // its own ring's neighbours before this one began.
+            let Some(here) = nearest[i] else { continue };
+            for next in neighbours(i, side).into_iter().flatten() {
+                if steps_away[next] == usize::MAX {
+                    steps_away[next] = away;
+                    nearest[next] = Some(here);
+                    next_ring.push(next);
+                } else if steps_away[next] == away {
+                    nearest[next] = nearest[next].map(|was| was.min(here));
+                }
+            }
+        }
+        ring = next_ring;
+    }
+    nearest
+        .into_iter()
+        .map(|near| near.map_or(f32::NEG_INFINITY, |height| height + *band.start()))
+        .collect()
+}
+
+/// Which samples of a body resting on a structure are ground joined to the
+/// structure under its feet (#1834 review, findings 1 and 2), each as it is
+/// [`Joined`]: every sample of the stance whose ground is a structure's
+/// surface within the step's `band` of the root's floor, and every sample
+/// reached from one of those through its four neighbours, each no further
+/// from the last than the same band - down by no more than a pelvis drops,
+/// up by no more than a step ([`steps`]). A road over a crest or in a sag,
+/// its curbs and the terrain past them, a ramp, a stair, the hill around a
+/// stepping stone and the ground beside a log are joined, however far from
+/// any plane they curve away; the ground a metre past a deck's edge, and
+/// anything the other side of a wall (a ray started inside it reads no
+/// ground), are not. `side` is the grid's, `read` in its order.
+///
+/// **Cut, the terrain is joined no lower than a pelvis drop under the
+/// structure nearest it** (#1883: `lowest`, from [`lowest_joined`], where
+/// the structure spans the stance, [`fill_structure_ground`]). A neighbour
+/// at a time, a small platform on a hill whose uphill edge meets the hill,
+/// short enough for the reach to go round it, joined the hill beside that
+/// edge, down the hill along its sides and so the hill under its downhill
+/// edge, and a foot over that edge was put down on the hill instead of being
+/// held at the platform's plane (the owner's deck-edge decision on #1834):
+/// the hill there is nearest the platform, and cut a pelvis drop under it.
+/// The terrain beside a road falling away over a crest is nearest the
+/// ribbon at its own row, a few centimetres under it all the way down, and
+/// is joined however far under the floor the two go; a cut at a pelvis drop
+/// under the floor held it at the plane, 0.7 m over it under a horse on 20
+/// degrees. The ground round the foot of a ramp or a stair down from a deck
+/// is nearest them and joined, and the ground under the deck's edge beside
+/// them is nearest the edge and is not; a cut from the structure each chain
+/// of steps left carried the ramp's foot along the ground and under the
+/// edge, and the legs over it went down to the ground (#1883 review). A
+/// structure's own surface joins step by step to any depth, and the terrain
+/// rising to any height. Uncut - a body the structure does not span, on a
+/// stepping stone on a hill or a log, stands on the ground beside it as
+/// much as on it - the ground beside it is joined step by step to any depth.
+///
+/// **A surface over open space goes on from ground it continues** (#1884): a
+/// sample not joined by what it reads - the ground under a beam, two metres
+/// down - is joined at the top of the surface the rays passed over it as one
+/// a foot stands under ([`below_and_over`]), where that is within the band
+/// of a joined neighbour and its underside less than [`OPEN_UNDER`] over
+/// that neighbour, no room for a foot between them. So a surface rising past
+/// the floor - where it reads as a table from the floor, more than
+/// [`OPEN_UNDER`] and its own thickness over it, and was held at the plane -
+/// is followed up it, every sample at its own surface, while it rises by
+/// less than [`OPEN_UNDER`] and its own thickness a [`GROUND_STEP`] along
+/// the grid: `0.25 tan(slope) - thickness / cos(slope) < 0.1`, so a beam
+/// 0.1 m thick to about 43 degrees, a ramp 3 cm thick to about 28 and a
+/// sheet to about 22. A bench or a table beside the ground a body stands on
+/// has that room under it, and it reads its own ground first.
 fn joined(
     read: &[(StructureSample, f32)],
     side: usize,
     band: &std::ops::RangeInclusive<f32>,
     in_stance: impl Fn(usize) -> bool,
-) -> Vec<bool> {
-    let height = |i: usize| read[i].0.height;
-    let mut joined = vec![false; read.len()];
-    let mut open: Vec<usize> = (0..read.len())
-        .filter(|&i| {
-            in_stance(i) && read[i].0.on_structure && height(i).is_some_and(|h| band.contains(&h))
-        })
-        .collect();
-    for &i in &open {
-        joined[i] = true;
-    }
+    lowest: Option<&[f32]>,
+) -> Vec<Option<Joined>> {
+    let mut joined = steps(read, side, band, in_stance, |next, height, on_structure| {
+        on_structure || lowest.is_none_or(|lowest| height >= lowest[next])
+    });
+    // Surfaces over open space going on from it: each joined at its top, a
+    // fixed height, so which neighbour reached it first changes nothing.
+    let mut open: Vec<usize> = (0..read.len()).filter(|&i| joined[i].is_some()).collect();
     while let Some(i) = open.pop() {
-        let Some(from) = height(i) else { continue };
-        let (column, row) = (i % side, i / side);
-        let neighbours = [
-            (column > 0).then(|| i - 1),
-            (column + 1 < side).then(|| i + 1),
-            (row > 0).then(|| i - side),
-            (row + 1 < side).then(|| i + side),
-        ];
-        for next in neighbours.into_iter().flatten() {
-            if !joined[next] && height(next).is_some_and(|to| band.contains(&(to - from))) {
-                joined[next] = true;
+        let Some(here) = joined[i] else { continue };
+        for next in neighbours(i, side).into_iter().flatten() {
+            let Some(over) = read[next].0.over.filter(|_| joined[next].is_none()) else {
+                continue;
+            };
+            if over.underside - here.height < OPEN_UNDER && band.contains(&(over.top - here.height))
+            {
+                joined[next] = Some(Joined {
+                    height: over.top,
+                    on_structure: true,
+                });
                 open.push(next);
             }
         }
@@ -738,18 +991,24 @@ fn joined(
 /// ([`joined`]), is taken as it is, however it curves away from any plane:
 /// a road's ribbon on a hill, over a crest or in a sag (#1834 review, finding
 /// 2), its curbs and the terrain past them, the hill around a stepping stone
-/// (finding 1). Ground not joined to it - past a drop, or the other side of
-/// a wall - is taken if it is no more than [`FootingConfig::max_pelvis_drop`]
-/// under the plane the body stands on and no more than a step over it;
-/// otherwise, and inside a wall, the plane, [`PAST_AN_EDGE`] under it past a
-/// drop. So a floor's walls - a ray started inside a solid one - and the
-/// terrain under the floor are not stood on, and a beast in a room stands on
-/// its floor; and the legs over a deck's edge, the ground a metre under
-/// them, are held at the deck's plane.
+/// (finding 1), a beam rising past the floor (#1884). Where the structure
+/// spans the stance, the terrain is joined only within a pelvis drop under
+/// the structure nearest it (#1883, [`lowest_joined`]), so the hill round a
+/// small platform is not followed down under its downhill edge, nor the
+/// ground under a deck's edge beside a ramp down from it, and the terrain
+/// beside a road over a crest is, and the ground at the ramp's foot. Ground
+/// not joined to it - past a drop, or the other side of a wall - is taken if
+/// it is no more than [`FootingConfig::max_pelvis_drop`] under the plane the
+/// body stands on and no more than a step over it; otherwise, and inside a
+/// wall, the plane, [`PAST_AN_EDGE`] under it past a drop. So a floor's
+/// walls - a ray started inside a solid one - and the terrain under the
+/// floor are not stood on, and a beast in a room stands on its floor; and the
+/// legs over a deck's edge, the ground a metre under them, are held at the
+/// deck's plane.
 ///
 /// **The plane is the structure's under the body's feet, where it spans
-/// them** ([`Plane::fit`]): fitted through every joined structure sample
-/// within its stance. On a deck or a floor it is that floor; on a road
+/// them** ([`Plane::fit`]): fitted through every structure sample within its
+/// stance joined before any cut. On a deck or a floor it is that floor; on a road
 /// climbing a hill it climbs with it. Near level it is level: a floor whose
 /// ray reads a millimetre off is handed that millimetre, and nothing
 /// switches on it. **Where the structure does not span the stance both
@@ -789,14 +1048,17 @@ fn fill_structure_ground(
         let terrain = heightmap.world_height_at(world.x, world.z);
         let from = Vec3::new(world.x, terrain.max(start.y) + step_up, world.z);
         let (structure, terrain_ground) = if structures.is_empty() {
-            (structure_sample(Below::Nothing, terrain, world.y), terrain)
+            (
+                structure_sample((Below::Nothing, None), terrain, world.y),
+                terrain,
+            )
         } else {
             let open = terrain.max(start.y);
-            let found = below(structures, from, terrain, open);
+            let found = below_and_over(structures, from, terrain, open);
             let terrain_ground = if share.terrain <= 0.0 {
                 terrain
             } else if open == terrain {
-                terrain_surface(found, terrain)
+                terrain_surface(found.0, terrain)
             } else {
                 terrain_surface(below(structures, from, terrain, terrain), terrain)
             };
@@ -810,19 +1072,36 @@ fn fill_structure_ground(
     let band = -footing.max_pelvis_drop..=step_up;
     let stance = GroundPatch::stance(rig).map_or(reach, |stance| stance.inflate(GROUND_STEP * 0.5));
     let in_stance = |i: usize| stance.contains(place(i));
-    let joined = joined(&read, side, &band, in_stance);
+    let by_steps = joined(&read, side, &band, in_stance, None);
     let covered = (0..read.len()).filter(|&i| in_stance(i)).map(place);
     let on = Plane::fit(
-        read.iter().enumerate().filter_map(|(i, (sample, _))| {
-            sample
-                .height
-                .filter(|_| sample.on_structure && joined[i] && in_stance(i))
-                .map(|h| (place(i), h))
+        by_steps.iter().enumerate().filter_map(|(i, joined)| {
+            joined
+                .filter(|joined| joined.on_structure && in_stance(i))
+                .map(|joined| (place(i), joined.height))
         }),
         covered.clone(),
     );
-    let plane = if on.spans {
-        on.plane
+    // Standing on the structure, the terrain past a pelvis drop under the
+    // structure nearest it is past its edge (#1883, [`joined`]): joined
+    // again with the cut, where the steps reached any such terrain. Where
+    // they reached none the cut join is this one: the cut admits or refuses
+    // a sample by itself alone, so a walk refusing none of the samples the
+    // uncut one reached reaches every one of them, and nothing else.
+    let lowest = on
+        .spans
+        .then(|| lowest_joined(&read, side, &band, in_stance));
+    let past_a_drop = lowest.as_deref().is_some_and(|lowest| {
+        by_steps.iter().zip(lowest).any(|(joined, lowest)| {
+            joined.is_some_and(|joined| !joined.on_structure && joined.height < *lowest)
+        })
+    });
+    let joined_on_it;
+    let (plane, joined) = if past_a_drop {
+        joined_on_it = joined(&read, side, &band, in_stance, lowest.as_deref());
+        (on.plane, &joined_on_it)
+    } else if on.spans {
+        (on.plane, &by_steps)
     } else {
         let beside = Plane::fit(
             read.iter().enumerate().filter_map(|(i, (sample, _))| {
@@ -833,7 +1112,10 @@ fn fill_structure_ground(
             }),
             covered,
         );
-        if beside.spans { beside.plane } else { on.plane }
+        (
+            if beside.spans { beside.plane } else { on.plane },
+            &by_steps,
+        )
     };
     let heights = read
         .iter()
@@ -841,10 +1123,10 @@ fn fill_structure_ground(
         .map(|(i, (sample, terrain))| {
             let at = place(i);
             let level = plane.at(at);
-            let ground = match sample.height {
-                Some(h) if joined[i] => h,
-                Some(h) if h < level - footing.max_pelvis_drop => level - PAST_AN_EDGE,
-                Some(h) if h <= level + step_up => h,
+            let ground = match (joined[i], sample.height) {
+                (Some(joined), _) => joined.height,
+                (None, Some(h)) if h < level - footing.max_pelvis_drop => level - PAST_AN_EDGE,
+                (None, Some(h)) if h <= level + step_up => h,
                 _ => level,
             };
             ground * share.structure + terrain * share.terrain
@@ -1015,6 +1297,59 @@ impl RestCast {
     }
 }
 
+/// How a body moves this frame, as [`RestHold::settle`] reads it.
+#[derive(Clone, Copy, Debug, Default)]
+struct Moving {
+    /// Its speed up, m/s.
+    vertical: f32,
+    /// Whether its drive carries a flight (#1877).
+    aloft: bool,
+    /// Whether a take-off has begun and its ease not yet (#1887, [`Launch`]):
+    /// from its first frame until the body lifts. Its first frame is the one
+    /// its drive's flight turns a takeoff, or - for a take-off from a held
+    /// landing - the frame of no flight before that (`aloft` false), on which
+    /// the chassis has already leapt. Never a landing held on the ground,
+    /// which keeps the physics' vertical speed, so that one sliding up a hill
+    /// rises past the launch speed with its feet on the ground.
+    takes_off: bool,
+}
+
+/// What a winged body's take-off has got to (#1887): read off its drive's
+/// flight once a frame by [`Underfoot::fill`], kept in [`Resting`], and
+/// handed to [`RestHold::settle`] as [`Moving::takes_off`].
+///
+/// **A take-off is latched from its first frame until the body lifts.** It
+/// begins on the frame the flight turns a takeoff, or on the frame of no
+/// flight a take-off from a held landing is handed first (`super::aloft`,
+/// "A takeoff from a held landing") - the frame after a landing - and is
+/// pending until a takeoff frame finds the body not coming down, the frame
+/// its ease starts, or until the flight is neither a takeoff nor that frame.
+/// Read on its first frame alone, a take-off whose body dipped on that frame
+/// (contact jitter, a peer's playout standing still) was never eased, and
+/// one from a held landing found the ground already handed over on the frame
+/// of no flight, its ease with nothing left to carry.
+#[derive(Clone, Copy, Debug, Default)]
+struct Launch {
+    /// What the drive's flight was last frame.
+    flew: Option<FlightMode>,
+    /// Whether a take-off begun has not yet found its body lifting.
+    pending: bool,
+}
+
+impl Launch {
+    /// Read this frame's `flight` and the body's speed up, `vertical`: whether
+    /// a take-off has begun and its ease not yet ([`Moving::takes_off`]).
+    fn read(&mut self, flight: Option<FlightMode>, vertical: f32) -> bool {
+        let flew = std::mem::replace(&mut self.flew, flight);
+        let takeoff = flight == Some(FlightMode::Takeoff);
+        // The frame of no flight between a held landing and its takeoff.
+        let afresh = flight.is_none() && flew == Some(FlightMode::Land);
+        let takes_off = afresh || (takeoff && (flew != Some(FlightMode::Takeoff) || self.pending));
+        self.pending = takes_off && !(takeoff && vertical >= 0.0);
+        takes_off
+    }
+}
+
 /// The answer a body stands by of what it rests on, and how much of the
 /// terrain's ground and the structure's its patch still carries (#1835,
 /// #1834): what keeps a step the physics loses the body from handing it the
@@ -1044,6 +1379,17 @@ struct RestHold {
     /// in the air - launched up or falling down faster than its
     /// [`DriverConfig`] says - so that its arrival is a landing.
     airborne: bool,
+    /// Whether the ground is easing out under a winged body's take-off
+    /// (#1887): from the take-off's first frame, over [`TAKEOFF_SECS`],
+    /// carried up with the body ([`Resting::lifted_from`]), and not eased
+    /// at its ends ([`Self::shares`]).
+    taking_off: bool,
+    /// Whether this frame is a take-off's frame of no flight, from a held
+    /// landing (#1887, [`Launch`]): the shares handed as they were last
+    /// frame, the ground carried up with the body as through the ease
+    /// ([`Resting::lifted_from`]), and nothing else moved on - so a frame of
+    /// no flight that is no take-off after all leaves the hold as it was.
+    afresh: bool,
 }
 
 impl RestHold {
@@ -1094,19 +1440,113 @@ impl RestHold {
     /// carries a flight - counts it in the air whatever its vertical speed,
     /// as a gliding bat comes down onto a roof at about 1.3 m/s, under the
     /// engine's fall, and eased in it stood its landing on the level floor.
+    ///
+    /// **But a winged body taking off eases the ground out** (#1887): on the
+    /// first frame of a take-off begun ([`Moving::takes_off`]) that its body
+    /// is not coming down, off a ground its patch carried some of, the
+    /// terrain's share and the structure's ease out over [`TAKEOFF_SECS`]
+    /// from what was `handed` the frame before - which a landing's ease back
+    /// in once it is level ([`Resting::levelling`]) may have held under the
+    /// hold's own - whatever the physics reads meanwhile ([`Self::lift`]),
+    /// until the ease has run, its flight ends or it comes down;
+    /// [`Underfoot::fill`] carries the ground up with the body as it does.
+    /// The engine's take-off pushes from the feet over that time, so its feet
+    /// are on the ground: handed the level floor at once, a bat taking off
+    /// from a 20 degree hillside under its owner's chassis moved a joint
+    /// 93 mm further than on level ground on that frame at 144 Hz and 92 at
+    /// 60, and a glider 147 and 138 (151 at 60 as a peer); eased, 12 and 30,
+    /// and 9 and 22. A take-off from a held landing begins on its frame of
+    /// no flight (`aloft` false), which hands what was handed and nothing
+    /// more ([`Self::afresh`]): its chassis has leapt on it, and read as any
+    /// other frame, the terrain fallen from under it was gone at once.
+    /// Only a take-off begun starts the ease: a landing held on the
+    /// ground keeps the physics' vertical speed, and gated on that, a bat
+    /// sliding up a hill in its held landing was eased out as if taking off,
+    /// passed by the withhold of a tilted body's patch, and handed the
+    /// terrain back whole as the ease ran out. A take-off the physics still
+    /// reads on the ground when its ease has run eases it back in over
+    /// [`BLEND_SECS`]. Anything else rising off the ground or falling from
+    /// over it - a body not flying, or one coming down - is handed the level
+    /// floor at once, as above.
     fn settle(
         &mut self,
         rests: RestsOn,
         under: impl FnOnce(bool) -> bool,
         on_structure: impl FnOnce() -> bool,
-        (vertical, aloft): (f32, bool),
+        moving: Moving,
+        handed: Share,
         delta: f32,
     ) -> Share {
         // A long frame - a tab in the background, a hitch - is not a long
         // hold: what the body did over it is not known (finding 4).
         let delta = delta.min(LONGEST_FRAME);
+        self.afresh = false;
         let config = DriverConfig::default();
+        let Moving {
+            vertical,
+            aloft,
+            takes_off,
+        } = moving;
         let flying = aloft || vertical > config.launch_speed || vertical < -config.fall_speed;
+        // Rising is not coming down: a peer's playout, read a frame at a
+        // time, stands still for a frame now and then as it rises.
+        let lifting = aloft && vertical >= 0.0;
+        // A take-off's ease runs on while the body flies and does not come
+        // down; one whose flight ends, or that falls, meanwhile is handed the
+        // level floor at once, as any body the ground has fallen away from.
+        // Run out with the physics still reading it on the ground - a take-off
+        // under a ceiling - the hold eases that ground back in, as an arrival
+        // that is no landing does, rather than counting the body in the air,
+        // which handed it back whole on the next frame.
+        if self.taking_off {
+            if !lifting {
+                self.level(flying);
+            } else if self.lift(delta) {
+                let grounded = match rests {
+                    RestsOn::Terrain => under(false),
+                    RestsOn::Structure => true,
+                    RestsOn::Elsewhere => false,
+                };
+                *self = Self {
+                    airborne: !grounded,
+                    ..Self::LEVEL
+                };
+            }
+            return self.shares();
+        }
+        // A take-off begun, off a ground the patch carried: eased out from
+        // what it carried as handed, whatever the physics reads meanwhile -
+        // the frames a peer's cast, or a step-old contact, still reads it
+        // there, held whole, put its feet on the ground it rose off.
+        let carried = Share {
+            terrain: self.shares().terrain.min(handed.terrain),
+            structure: self.shares().structure.min(handed.structure),
+        };
+        let carries = carried.terrain > 0.0 || carried.structure > 0.0;
+        // Its frame of no flight, from a held landing, the chassis already
+        // leapt: held as handed, and the ground carried up with the body,
+        // until its takeoff starts the ease on the next frame. Read as it
+        // is, the 11 cm a chassis rises over that frame at 30 a second took
+        // the terrain from under it and handed the level floor at once.
+        if takes_off && !aloft && carries && vertical >= 0.0 {
+            self.afresh = true;
+            return carried;
+        }
+        if takes_off && lifting && carries {
+            *self = Self {
+                held: Some(RestsOn::Elsewhere),
+                against: 0.0,
+                share: carried.terrain,
+                structure: carried.structure,
+                airborne: true,
+                taking_off: true,
+                afresh: false,
+            };
+            if self.lift(delta) {
+                self.level(true);
+            }
+            return self.shares();
+        }
         // Asked of a body read on the terrain too: contacts are a step old.
         let under = if rests == RestsOn::Terrain {
             under(false)
@@ -1181,14 +1621,38 @@ impl RestHold {
                 self.structure = (self.structure - ease).max(0.0);
             }
         }
-        // Eased at both ends, so the trunk starts to turn and stops turning
-        // without a jolt; nothing at all at either end. Easing from one
-        // ground to the other, the two still add up to the whole.
+        self.shares()
+    }
+
+    /// The shares the patch carries this frame: eased at both ends, so the
+    /// trunk starts to turn and stops turning without a jolt, nothing at all
+    /// at either end, and easing from one ground to the other the two still
+    /// add up to the whole - except through a take-off's ease (#1887), which
+    /// is carried as it runs, straight: it has the push's two frames at 30 a
+    /// second, and eased at both ends their middle step was half again as
+    /// long.
+    fn shares(&self) -> Share {
+        if self.taking_off {
+            return Share {
+                terrain: self.share,
+                structure: self.structure,
+            };
+        }
         let eased = |t: f32| t * t * (3.0 - 2.0 * t);
         Share {
             terrain: eased(self.share),
             structure: eased(self.structure),
         }
+    }
+
+    /// A take-off's ease, `delta` seconds on (#1887): both grounds' shares
+    /// toward none over [`TAKEOFF_SECS`], from wherever they started;
+    /// whether they have got there.
+    fn lift(&mut self, delta: f32) -> bool {
+        let ease = delta / TAKEOFF_SECS;
+        self.share = (self.share - ease).max(0.0);
+        self.structure = (self.structure - ease).max(0.0);
+        self.share <= 0.0 && self.structure <= 0.0
     }
 
     /// Stand by the answer held while the physics says `rests`, until it has
@@ -1219,6 +1683,8 @@ impl RestHold {
         share: 0.0,
         structure: 0.0,
         airborne: false,
+        taking_off: false,
+        afresh: false,
     };
 
     /// Whether the answer stood by is a ground a patch is handed for: the
@@ -1247,6 +1713,21 @@ pub(super) struct Resting {
     /// [`BLEND_SECS`]; `None` once it has, and for every body that has not
     /// flown.
     levelling: Option<f32>,
+    /// The height a winged body's root was drawn at on the last frame before
+    /// its take-off's ease began (#1887), while it runs - and from the frame
+    /// of no flight before it, for a take-off from a held landing
+    /// ([`RestHold::afresh`]): the ground eased out
+    /// is sampled through the root held at that height - its place across
+    /// the ground and its turn this frame's - and so carried up with the body
+    /// as the level floor is, and no foot is held to the ground it rises off.
+    lifted_from: Option<f32>,
+    /// The shares the patch carried last frame, as handed - after the
+    /// withhold and the ease back in of [`Self::levelling`]: what a take-off's
+    /// ease starts from (#1887, [`RestHold::settle`]).
+    handed: Share,
+    /// What its take-off has got to (#1887): latched from its first frame
+    /// until the body lifts.
+    launch: Launch,
 }
 
 impl Resting {
@@ -1325,8 +1806,26 @@ impl Underfoot<'_, '_> {
     /// it is down. What it rests on is still read and held meanwhile, and
     /// from the frame it is level the patch eases in over [`BLEND_SECS`], as
     /// an arrival that is no landing does: handed whole on that frame, a bat
-    /// come down across a 20 degree hillside moved a joint 309 mm in it,
-    /// against 67 before and 42 after, and a glider 46 against 15 and 14.
+    /// come down across a 20 degree hillside moved a joint 330 mm in it,
+    /// against at most 63 in the four frames before and 133 in the four
+    /// after, and a glider 176 against 33 and 33 (symbios-avatar 0.23.1);
+    /// eased in, 64 against 63 and 77, and 34 against 33 and 42.
+    ///
+    /// **Not withheld from a take-off's ease** (#1887, [`RestHold::settle`]):
+    /// a winged body taking off pitches up as its feet still push, past the
+    /// level within a frame or two, and withheld there its ground went in a
+    /// frame as the hold's once did. Through the ease the patch is sampled
+    /// through the root as it is drawn this frame - where it is across the
+    /// ground and how it is turned - but held at the height it was drawn at
+    /// on the last frame before the ease ([`Resting::lifted_from`]), so the
+    /// ground is carried up with the body: the level floor pitches and rises
+    /// with the chassis, and so does what eases out to it. Sampled at the
+    /// root's own height, a glider taking off from a pitched roof at 144 Hz
+    /// moved a joint 96 mm further than on level ground on one frame, against
+    /// 9 held. A take-off from a held landing has its ground held at that
+    /// height from its frame of no flight, before the ease
+    /// ([`RestHold::afresh`]), and handed on that frame as it was handed the
+    /// frame before, a landing's ease back in left where it was.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn fill(
         &self,
@@ -1338,7 +1837,12 @@ impl Underfoot<'_, '_> {
         memory: &mut Resting,
         delta: f32,
     ) {
+        let was = memory.drawn;
         memory.drawn_at(root.translation(), drive.velocity.length(), delta);
+        let takes_off = memory
+            .launch
+            .read(drive.flight.map(|flight| flight.mode), drive.velocity.y);
+        let mut lifted = None;
         let share = if let Some(heightmap) = wanted(drive, rig, heightmap) {
             let rests = self.rests_on(chassis, rig, root, memory);
             let cast = &mut memory.cast;
@@ -1347,10 +1851,31 @@ impl Underfoot<'_, '_> {
                 rests,
                 |exact| terrain_under(rig, root, heightmap, exact),
                 || self.structure_under(chassis, rig, root, cast),
-                (drive.velocity.y, aloft),
+                Moving {
+                    vertical: drive.velocity.y,
+                    aloft,
+                    takes_off,
+                },
+                memory.handed,
                 delta,
             );
-            if aloft && (root.rotation() * Vec3::Y).y < LEVEL_WITHIN.cos() {
+            let carried_up = memory.hold.taking_off || memory.hold.afresh;
+            memory.lifted_from = carried_up.then(|| {
+                memory
+                    .lifted_from
+                    .or(was.map(|was| was.y))
+                    .unwrap_or(root.translation().y)
+            });
+            lifted = memory.lifted_from;
+            if memory.hold.taking_off {
+                memory.levelling = None;
+                share
+            } else if memory.hold.afresh {
+                // Handed as last frame, a landing's ease back in already
+                // in it: left where it was, so a frame of no flight that is
+                // no take-off goes on with it.
+                share
+            } else if aloft && (root.rotation() * Vec3::Y).y < LEVEL_WITHIN.cos() {
                 memory.levelling = Some(0.0);
                 Share::default()
             } else if let Some(since) = memory.levelling {
@@ -1371,9 +1896,18 @@ impl Underfoot<'_, '_> {
             memory.cast.last = None;
             memory.hold = RestHold::default();
             memory.levelling = None;
+            memory.lifted_from = None;
             Share::default()
         };
-        self.fill_share(drive, rig, root, heightmap, share);
+        memory.handed = share;
+        match lifted {
+            Some(from) => {
+                let mut carried = root.affine();
+                carried.translation.y = from;
+                self.fill_share(drive, rig, &carried.into(), heightmap, share);
+            }
+            None => self.fill_share(drive, rig, root, heightmap, share),
+        }
     }
 
     /// [`Self::fill`] for a body whose resting is already known: the render
@@ -1784,7 +2318,7 @@ mod tests {
         ] {
             let mut share = was;
             for frame in 0..frames {
-                share = hold.settle(rests, |_| true, || true, (0.0, false), DELTA);
+                share = hold.settle(rests, |_| true, || true, Moving::default(), was, DELTA);
                 if !first {
                     let moved = (share.terrain - was.terrain)
                         .abs()
@@ -1827,11 +2361,27 @@ mod tests {
                     RestsOn::Elsewhere,
                     |_| false,
                     || false,
-                    (-1.3, aloft),
+                    Moving {
+                        vertical: -1.3,
+                        aloft,
+                        takes_off: false,
+                    },
+                    Share::default(),
                     DELTA,
                 );
             }
-            let share = hold.settle(RestsOn::Terrain, |_| true, || false, (-1.3, aloft), DELTA);
+            let share = hold.settle(
+                RestsOn::Terrain,
+                |_| true,
+                || false,
+                Moving {
+                    vertical: -1.3,
+                    aloft,
+                    takes_off: false,
+                },
+                Share::default(),
+                DELTA,
+            );
             if aloft {
                 assert_eq!(share, Share::TERRAIN, "aloft: eased in");
             } else {
@@ -1840,6 +2390,262 @@ mod tests {
                     "the premise: a slow arrival eases, {share:?}"
                 );
             }
+        }
+    }
+
+    /// **A landing held on a hill is no take-off** (#1887 review, finding
+    /// 1): a bat come down fast onto an upslope, its landing held on the
+    /// ground - its drive still carrying a flight, and the physics' speed up
+    /// as it slides up the hill, past the engine's launch speed and back - is
+    /// never eased out as a take-off, and stands on the terrain whole
+    /// throughout; so [`Underfoot::fill`] withholds its patch while it is
+    /// tilted. Gated on that speed, the ease began on the slide's first frame
+    /// and ran the terrain out to nothing, handed it back whole on the next
+    /// frame and began again.
+    #[test]
+    fn a_landing_sliding_up_a_hill_is_no_take_off() {
+        const DELTA: f32 = 1.0 / 60.0;
+        let mut hold = RestHold::default();
+        let coming = Moving {
+            vertical: -1.3,
+            aloft: true,
+            takes_off: false,
+        };
+        for _ in 0..30 {
+            hold.settle(
+                RestsOn::Elsewhere,
+                |_| false,
+                || false,
+                coming,
+                Share::default(),
+                DELTA,
+            );
+        }
+        let mut handed = hold.settle(
+            RestsOn::Terrain,
+            |_| true,
+            || false,
+            coming,
+            Share::default(),
+            DELTA,
+        );
+        assert_eq!(handed, Share::TERRAIN, "the premise: landed at once");
+        let slide = [
+            2.4f32, 2.1, 1.8, 1.4, 1.0, 0.7, 0.4, 0.2, 0.1, 0.05, 0.0, 0.0, -0.01, 0.0, 0.0, 2.1,
+            1.5,
+        ];
+        for (frame, vertical) in slide.into_iter().enumerate() {
+            let moving = Moving {
+                vertical,
+                aloft: true,
+                takes_off: false,
+            };
+            handed = hold.settle(RestsOn::Terrain, |_| true, || false, moving, handed, DELTA);
+            assert!(
+                !hold.taking_off && handed == Share::TERRAIN,
+                "frame {frame} of the slide, {vertical} m/s up: eased out as a take-off, \
+                 {handed:?}"
+            );
+        }
+    }
+
+    /// **A take-off held on the ground eases it back in** (#1887 review,
+    /// finding 1): a take-off whose body the physics still reads on the
+    /// terrain when its ease has run - under a ceiling, launched and stopped
+    /// at once - has the terrain eased back in over [`BLEND_SECS`], no frame
+    /// moving the share further than either ease's steepest. Counted in the
+    /// air instead, it was handed the terrain whole on the next frame.
+    #[test]
+    fn a_take_off_held_on_the_ground_eases_it_back_in() {
+        const DELTA: f32 = 1.0 / 60.0;
+        let mut hold = RestHold::default();
+        let mut handed = Share::default();
+        for _ in 0..30 {
+            handed = hold.settle(
+                RestsOn::Terrain,
+                |_| true,
+                || false,
+                Moving::default(),
+                handed,
+                DELTA,
+            );
+        }
+        assert_eq!(handed, Share::TERRAIN, "the premise: on the terrain");
+        let steepest = (DELTA / TAKEOFF_SECS).max(1.5 * DELTA / BLEND_SECS) + 1e-5;
+        let mut ran_out = false;
+        for frame in 0..60 {
+            let moving = Moving {
+                vertical: if frame == 0 { 2.4 } else { 0.0 },
+                aloft: true,
+                takes_off: frame == 0,
+            };
+            let share = hold.settle(RestsOn::Terrain, |_| true, || false, moving, handed, DELTA);
+            let moved = (share.terrain - handed.terrain).abs();
+            assert!(
+                moved <= steepest,
+                "frame {frame}: the share moved {moved:.3} in a frame, from {handed:?} to \
+                 {share:?}"
+            );
+            ran_out |= share.terrain == 0.0;
+            handed = share;
+        }
+        assert!(ran_out, "the premise: the take-off's ease ran out");
+        assert_eq!(handed, Share::TERRAIN, "not eased back in");
+    }
+
+    /// **A take-off eases out from what was handed** (#1887 review, LOW 3):
+    /// a body taking off while a landing's ease back in has handed it a
+    /// third of its terrain ([`Resting::levelling`]) carries no more than
+    /// that on the take-off's first frame, and less on each after.
+    #[test]
+    fn a_take_off_eases_out_from_what_was_handed() {
+        const DELTA: f32 = 1.0 / 60.0;
+        let mut hold = RestHold::default();
+        for _ in 0..30 {
+            hold.settle(
+                RestsOn::Terrain,
+                |_| true,
+                || false,
+                Moving::default(),
+                Share::TERRAIN,
+                DELTA,
+            );
+        }
+        let mut handed = Share {
+            terrain: 0.3,
+            structure: 0.0,
+        };
+        for frame in 0..10 {
+            let moving = Moving {
+                vertical: 2.4,
+                aloft: true,
+                takes_off: frame == 0,
+            };
+            // Read on the terrain on its first frame, and off it after.
+            let rests = if frame == 0 {
+                RestsOn::Terrain
+            } else {
+                RestsOn::Elsewhere
+            };
+            let share = hold.settle(rests, |_| frame == 0, || false, moving, handed, DELTA);
+            assert!(
+                share.terrain <= handed.terrain && (frame > 0 || hold.taking_off),
+                "frame {frame}: {share:?} after {handed:?} was handed"
+            );
+            handed = share;
+        }
+        assert_eq!(handed, Share::default(), "the ease never ran out");
+    }
+
+    /// **A take-off is latched until its body lifts** (#1887 end review), at
+    /// 60 frames a second, a body standing on the terrain:
+    ///
+    /// - its flight turns a takeoff on a frame it dips - contact jitter, a
+    ///   peer's playout standing still - and it rises off the terrain on the
+    ///   next: the ease starts there, rather than the terrain going at once;
+    /// - from a held landing, its frame of no flight rises off the terrain,
+    ///   the chassis already leapt: handed the terrain as it was, its ease
+    ///   starting on the takeoff after;
+    /// - a held landing let go standing still, two frames of no flight: the
+    ///   terrain stood on whole throughout, no ease begun.
+    ///
+    /// Each ease runs out with no frame moving the share further than its
+    /// steepest. Latched on the takeoff's first frame alone, the first two
+    /// handed the level floor at once on the frame the body rose.
+    #[test]
+    fn a_take_off_is_latched_until_it_lifts() {
+        const DELTA: f32 = 1.0 / 60.0;
+        let steepest = DELTA / TAKEOFF_SECS + 1e-5;
+        // Each frame: the drive's flight, the speed up, and whether the body
+        // is read on the terrain - off it, it is not under the body either.
+        type Frame = (Option<FlightMode>, f32, bool);
+        let land = (Some(FlightMode::Land), 0.0, true);
+        let cases: [(&str, Vec<Frame>, Option<usize>); 3] = [
+            (
+                "a takeoff whose first frame dips",
+                vec![
+                    (None, 0.0, true),
+                    (Some(FlightMode::Takeoff), -0.02, true),
+                    (Some(FlightMode::Takeoff), 2.4, false),
+                ],
+                Some(2),
+            ),
+            (
+                "a takeoff from a held landing",
+                vec![
+                    land,
+                    land,
+                    (None, 3.3, false),
+                    (Some(FlightMode::Takeoff), 2.9, false),
+                ],
+                Some(3),
+            ),
+            (
+                "a held landing let go",
+                vec![land, land, (None, 0.0, true), (None, 0.0, true)],
+                None,
+            ),
+        ];
+        for (label, frames, eases_from) in cases {
+            let mut hold = RestHold::default();
+            let mut launch = Launch::default();
+            let mut handed = Share::default();
+            for _ in 0..30 {
+                launch.read(None, 0.0);
+                handed = hold.settle(
+                    RestsOn::Terrain,
+                    |_| true,
+                    || false,
+                    Moving::default(),
+                    handed,
+                    DELTA,
+                );
+            }
+            assert_eq!(
+                handed,
+                Share::TERRAIN,
+                "{label}: the premise, on the terrain"
+            );
+            let mut ran_out = false;
+            for at in 0..frames.len() + 10 {
+                let (flight, vertical, on) =
+                    frames
+                        .get(at)
+                        .copied()
+                        .unwrap_or((Some(FlightMode::Takeoff), 2.0, false));
+                let moving = Moving {
+                    vertical,
+                    aloft: flight.is_some(),
+                    takes_off: launch.read(flight, vertical),
+                };
+                let rests = if on {
+                    RestsOn::Terrain
+                } else {
+                    RestsOn::Elsewhere
+                };
+                let share = hold.settle(rests, move |_| on, || false, moving, handed, DELTA);
+                match eases_from {
+                    Some(from) if at >= from => {
+                        let moved = handed.terrain - share.terrain;
+                        assert!(
+                            (0.0..=steepest).contains(&moved),
+                            "{label}, frame {at}: the share went from {handed:?} to {share:?}"
+                        );
+                        ran_out |= share.terrain == 0.0;
+                    }
+                    _ if at < frames.len() => assert_eq!(
+                        share,
+                        Share::TERRAIN,
+                        "{label}, frame {at}: not stood on whole"
+                    ),
+                    _ => {}
+                }
+                handed = share;
+            }
+            assert!(
+                eases_from.is_none() || ran_out,
+                "{label}: the ease never ran out"
+            );
         }
     }
 }

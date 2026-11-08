@@ -1314,7 +1314,7 @@ pub fn avatar_ui(
                             );
                         } else {
                             // Unreachable in practice (the furthest a legal
-                            // pin-set walks is 4 % of the cap,
+                            // pin-set walks is 5 % of the cap,
                             // `the_measured_worst_pin_sets_stay_far_inside_the_cap`);
                             // keep the record untouched rather than violate
                             // the locks.

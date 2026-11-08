@@ -1189,7 +1189,8 @@ pub async fn publish_avatar_bundle(
 /// [`super::AvatarRecord::default_for_did`], used when #1057 gives seeded
 /// defaults a rigged option. The archetype is the host's call and overlands
 /// says humanoid here, whichever family the DID's seed rolls - the seeded
-/// beast is [`engine_beast_for_seed`]; the name is a placeholder the identity's
+/// beast is [`engine_beast_for_seed`] and the seeded winged body
+/// [`engine_winged_for_seed`]; the name is a placeholder the identity's
 /// handle replaces in UI, not on the record.
 pub fn engine_default_for_did(did: &str) -> EngineAvatarRecord {
     engine_default_for_seed(crate::seeded_defaults::fnv1a_64(did))
@@ -1247,15 +1248,38 @@ pub fn engine_beast_for_seed(seed: u64) -> EngineAvatarRecord {
     record
 }
 
-/// The engine body a seed gives its identity (#1808): its beast on a seed that
-/// rolls one, and a person on any other, a vehicle's among them, whose identity
-/// has no rigged body of its own to come back to.
+/// The engine body the seeded winged family builds through (#1882): the
+/// engine's own roll, which mixes birds, bats, sugar gliders and their crosses
+/// as it does for an editor's re-roll (owner decision 3 of #1862).
+///
+/// **Its size is held to the engine's conservative range**, on the reasoning
+/// of [`engine_default_for_seed`]: the roll explores past it, and this is the
+/// body an identity is given before they have ever opened an editor.
+pub fn engine_winged_for_seed(seed: u64) -> EngineAvatarRecord {
+    let mut record = EngineAvatarRecord::rolled(
+        "Wanderer",
+        symbios_avatar::Archetype::Winged(symbios_avatar::WingedParams::default()),
+        seed as i64,
+    );
+    let (low, high) = symbios_avatar::plan::winged_size_range();
+    if let symbios_avatar::Archetype::Winged(params) = &mut record.archetype {
+        params.size = params.size.clamp(low, high);
+    }
+    // Re-quantised for the reason its person's is.
+    record.sanitize();
+    record
+}
+
+/// The engine body a seed gives its identity (#1808, #1882): its beast or its
+/// winged body on a seed that rolls one, and a person on any other, a
+/// vehicle's among them, whose identity has no rigged body of its own to come
+/// back to.
 pub fn engine_body_for_seed(seed: u64) -> EngineAvatarRecord {
     use crate::seeded_defaults::ChassisFamily;
-    if ChassisFamily::for_seed(seed) == ChassisFamily::Beast {
-        engine_beast_for_seed(seed)
-    } else {
-        engine_default_for_seed(seed)
+    match ChassisFamily::for_seed(seed) {
+        ChassisFamily::Beast => engine_beast_for_seed(seed),
+        ChassisFamily::Winged => engine_winged_for_seed(seed),
+        _ => engine_default_for_seed(seed),
     }
 }
 
@@ -1651,8 +1675,9 @@ mod tests {
 
     /// **"Rolled from your identity" means its own roll** (#1808): an identity
     /// seeded a beast gets that beast from the Body tab's fresh body, as its
-    /// Reset gives it, and the tab's refit stands it on the collider it takes.
-    /// Any other identity gets the person it always did.
+    /// Reset gives it, and the tab's refit stands it on the collider it takes;
+    /// one seeded a winged body gets that body, and the refit gives it its
+    /// flight (#1882). Any other identity gets the person it always did.
     #[test]
     fn a_fresh_body_is_the_one_the_identity_rolls() {
         const BEAST: &str = "did:plc:agentofflinebeast22222ia";
@@ -1675,6 +1700,40 @@ mod tests {
         assert!(
             crate::pds::avatar::locomotion::beast_on_foot(&record).is_some_and(|p| p.is_lying()),
             "a beast stands on a person's capsule"
+        );
+
+        const WINGED: &str = "did:plc:agentofflinewinged2222cu";
+        let mut record =
+            super::super::AvatarRecord::default_for_did("did:plc:agentofflinecar22222222e");
+        wear_new_engine_body(&mut record, WINGED);
+        let body = record
+            .body
+            .rigged_ref()
+            .and_then(|rig| rig.resolved.clone());
+        let body = body.expect("a fresh body resolves").body;
+        assert_eq!(
+            body,
+            engine_winged_for_seed(crate::seeded_defaults::fnv1a_64(WINGED))
+        );
+        // An owl, as the agent client's docs call it: a bird with no cross
+        // whose head the engine draws as an owl's.
+        let symbios_avatar::Archetype::Winged(params) = &body.archetype else {
+            panic!("{WINGED}: not winged");
+        };
+        assert!(
+            params.family == symbios_avatar::WingedFamily::Bird
+                && params.hybrid.is_none()
+                && params.plumage_for_head() == symbios_avatar::Plumage::OWL,
+            "{WINGED}: no owl"
+        );
+        assert!(crate::pds::avatar::locomotion::follow_body(
+            &mut record,
+            None,
+            &mut None
+        ));
+        assert!(
+            matches!(&record.locomotion, super::super::LocomotionConfig::Humanoid(p) if p.flies()),
+            "a winged body that cannot fly"
         );
 
         const PERSON: &str = "did:plc:agentofflinestandin22222";

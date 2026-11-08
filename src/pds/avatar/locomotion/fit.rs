@@ -1388,6 +1388,59 @@ mod tests {
         );
     }
 
+    /// **The smallest winged body beats at the rate its wings are drawn at,
+    /// and pushes as hard a second** (#1885): every family and every cross
+    /// either side of an even blend and on it, from the record's size floor
+    /// up, is fitted the engine's own wingbeat to within 5 % - the flap key
+    /// beats as the wings do - and a beat's push times the wingbeat is the
+    /// push a second [`FlightParams::for_height`] gives it (by
+    /// [`WEAKEST_PUSH`] for a weak flapper). The engine beats 22 to 24 a
+    /// second at the floor; held to 12 by the sanitiser, a tiny body's key beat
+    /// half as fast as its wings, and since its push a beat had been cut to
+    /// keep the push a second, it climbed on half its push.
+    #[test]
+    fn the_smallest_winged_body_beats_at_its_engine_rate() {
+        let (floor, _) = WingedParams::size_envelope();
+        let mut fastest = 0.0f32;
+        for (name, body) in winged_bodies() {
+            for size in [floor, floor * 1.5, floor * 2.0] {
+                let mut body = body.clone();
+                let Archetype::Winged(params) = &mut body.archetype else {
+                    unreachable!("winged");
+                };
+                params.size = size;
+                let kinship = Kinship::of(params);
+                let fit = fit_on_foot(&body, &HumanoidParams::default());
+                let flight = fit.flight.as_ref().expect("a flight section");
+                if !flight.can_flap() {
+                    continue;
+                }
+                let rig = Rig::from_skeleton(&body.skeleton()).expect("rigs");
+                let engine = engine_wingbeat(&rig, kinship).expect("an engine beat");
+                fastest = fastest.max(engine);
+                let label = format!("{name} at size {size:.3}");
+                assert!(
+                    (flight.wingbeat_rate.0 / engine - 1.0).abs() < 0.05,
+                    "{label}: the key beats {:.2} a second, the wings {engine:.2}",
+                    flight.wingbeat_rate.0
+                );
+                let unfitted = FlightParams::for_height(fit.stand_height());
+                let weak = (WEAKEST_PUSH / flight.flight_power.0).max(1.0);
+                let want = unfitted.beat_speed.0 * unfitted.wingbeat_rate.0 * weak;
+                let pushed = flight.beat_speed.0 * flight.wingbeat_rate.0;
+                assert!(
+                    (pushed / want - 1.0).abs() < 0.05,
+                    "{label}: pushed {pushed:.2} m/s a second, {want:.2} wanted"
+                );
+            }
+        }
+        println!("the fastest engine beat at the floor: {fastest:.2} a second");
+        assert!(
+            fastest > 12.0,
+            "the premise: {fastest:.2} a second at the floor"
+        );
+    }
+
     /// **A glider only glides; a bird flaps fully, a bat at 0.7, a cross by
     /// its shares** (#1875, the owner's decision on #1859): a body a glider
     /// leads has no flap power, so its take-off is the strong leap; any other

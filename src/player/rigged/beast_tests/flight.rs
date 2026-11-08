@@ -8,6 +8,7 @@ use super::*;
 use crate::pds::FlightParams;
 use crate::pds::avatar::locomotion::{default_winged, fitted_record};
 use crate::player::flight::{Approach, Flight, FlightKeys, FlightMode, PeerFlight, Reading, Wings};
+use crate::player::rigged::underfoot::TAKEOFF_SECS;
 use symbios_avatar::{Flown, Source, WingedFamily};
 
 /// The game's fixed step.
@@ -719,8 +720,10 @@ fn space_in_a_held_landing_takes_off_with_a_crouch_and_a_push() {
 /// frames either side and a hundredth of the trunk (the engine's own
 /// `winged_life` bound). Handed while still pitched, the patch - sampled for
 /// a root turned about `Y` alone - put the feet a tilted body reaches for on
-/// ground that is not there; handed whole once level, a glider across the
-/// hillside moved a joint 46 mm on that frame against 16 around it.
+/// ground that is not there; handed whole once level, a bat across the
+/// hillside moved a joint 330 mm on that frame against at most 133 in the
+/// four frames either side, and a glider 176 against 33 (symbios-avatar
+/// 0.23.1). Eased in, 64 against 77 and 34 against 42.
 #[test]
 fn a_body_landing_tilted_is_handed_no_patch_until_it_is_level() {
     const DECK: f32 = 0.6;
@@ -833,6 +836,514 @@ fn a_body_landing_tilted_is_handed_no_patch_until_it_is_level() {
                 around * 1000.0
             );
         }
+    }
+}
+
+/// One frame of a take-off ([`taking_off`]): the body's joints and their
+/// turns in its own frame, the least a foot stands over the ground under it,
+/// the flight it was handed, whether it was handed a patch, how much of the
+/// terrain's and a structure's ground its hold carries, and whether its
+/// chassis was rising.
+struct Lifting {
+    joints: Vec<Vec3>,
+    turns: Vec<Quat>,
+    clearance: f32,
+    handed: Option<Posed>,
+    patch: bool,
+    carried: f32,
+    rising: bool,
+}
+
+impl Lifting {
+    /// Whether its flight was handed on.
+    fn aloft(&self) -> bool {
+        self.handed.is_some()
+    }
+}
+
+/// How a take-off is begun and carried ([`taking_off`]).
+#[derive(Clone, Copy, Debug)]
+struct Launched {
+    /// Whose chassis carries it.
+    under: Under,
+    /// For the owner's chassis, whether it carries its own collider and is
+    /// read by its contacts, as the game's own is, rather than cast down as
+    /// a peer is.
+    contacts: bool,
+    /// Standing a second, or gliding down onto the ground and taking off this
+    /// many seconds into its held landing.
+    held: Option<f32>,
+}
+
+/// One frame of the owner's chassis ([`flown_by_the_owner`]): where it is,
+/// how it is turned, its velocity and its flight.
+type Owned = (Vec3, Quat, Vec3, Flight);
+
+/// The owner's chassis, frame by frame: what [`Sky`] leaves it at, at `hz`,
+/// on `ground`, with its flight. Standing a second and taking off with the
+/// flap key held for a second; or, `held` - seconds into the hold, and where
+/// along `z` it starts - gliding down from 1.5 m over the ground and taking
+/// off that long after its chassis is on its feet, the flap key held for a
+/// second. And where a glide's chassis went to its feet.
+fn flown_by_the_owner(
+    record: &AvatarRecord,
+    hz: f32,
+    ground: fn(f32, f32) -> f32,
+    held: Option<(f32, f32)>,
+) -> (Vec<Owned>, Option<Vec3>) {
+    let frame = 1.0 / hz;
+    let mut sky = Sky::of(record);
+    sky.ground = ground;
+    let mut owner = Vec::new();
+    let Some((wait, z)) = held else {
+        sky.at = Vec3::new(0.0, ground(0.0, 0.0) + sky.feet, 0.0);
+        for at in 0..(2.0 * hz).round() as usize {
+            let t = at as f32 * frame;
+            if (t - 1.0).abs() < frame * 0.5 {
+                sky.keys.press = true;
+            }
+            sky.keys.held = (1.0..2.0).contains(&t);
+            sky.advance(frame);
+            owner.push((sky.at, sky.rotation(), sky.velocity, sky.flight));
+        }
+        return (owner, None);
+    };
+    sky.at = Vec3::new(0.0, ground(0.0, 0.0) + sky.feet + 1.5, z);
+    sky.velocity = Vec3::new(0.0, -1.0, -4.0);
+    let mut gliding = Flight::default();
+    gliding.set_mode_for_tests(FlightMode::Glide);
+    sky.flight = gliding;
+    let mut landed: Option<(usize, Vec3)> = None;
+    let mut pressed: Option<usize> = None;
+    for at in 0..(4.0 * hz).round() as usize {
+        sky.keys.held = pressed.is_some_and(|from| (at - from) as f32 * frame < 1.0);
+        sky.advance(frame);
+        owner.push((sky.at, sky.rotation(), sky.velocity, sky.flight));
+        if sky.flight.mode() == FlightMode::Ground && pressed.is_none() {
+            let (since, _) = *landed.get_or_insert((at, sky.at));
+            // Pressed after this frame, as a key read once it is drawn.
+            if (at + 1 - since) as f32 * frame >= wait - 1e-4 {
+                sky.keys.press = true;
+                pressed = Some(at);
+            }
+        }
+    }
+    (owner, landed.map(|(_, at)| at))
+}
+
+/// What a take-off stands on ([`taking_off`]): the terrain's height, the
+/// ground's - the terrain's, or the top of what stands on it - and the static
+/// solids standing on the terrain.
+type Grounds<'a> = (
+    fn(f32, f32) -> f32,
+    fn(f32, f32) -> f32,
+    &'a [(Vec3, Transform)],
+);
+
+/// `family` taking off at `hz` on `ground` - the terrain's own, `terrain`,
+/// with `solids` standing on it - as `launched` says ([`flown_by_the_owner`]),
+/// every frame read: under its owner's chassis, written as the physics leaves
+/// it, or played out as a peer, its words heard as its owner's mode changed
+/// and its place [`crate::player::flight::PEER_DELAY_S`] late. A glide is
+/// started where along `z` it comes down over the middle of the ground.
+fn taking_off(
+    family: WingedFamily,
+    hz: f32,
+    (terrain, ground, solids): Grounds<'_>,
+    launched: Launched,
+) -> Vec<Lifting> {
+    let Launched {
+        under,
+        contacts,
+        held,
+    } = launched;
+    let body = default_winged(family);
+    let record = fitted_record(body.clone());
+    let offset = crate::player::visuals::rigged_root_offset(&record);
+    let frame = 1.0 / hz;
+    // The owner's chassis, frame by frame - a glide started back along its
+    // path by however far from the middle the last try came down.
+    let (owner, _) = match held {
+        None => flown_by_the_owner(&record, hz, ground, None),
+        Some(wait) => {
+            let mut z = 0.0;
+            let mut flown = flown_by_the_owner(&record, hz, ground, Some((wait, z)));
+            for _ in 0..3 {
+                let landed = flown.1.expect("the glide comes down").z;
+                if landed.abs() < 0.25 {
+                    break;
+                }
+                z -= landed;
+                flown = flown_by_the_owner(&record, hz, ground, Some((wait, z)));
+            }
+            let landed = flown.1.expect("the glide comes down");
+            assert!(
+                landed.z.abs() < 0.5,
+                "the premise: the glide comes down over the middle, at {landed}"
+            );
+            flown
+        }
+    };
+    let frames = owner.len();
+    let mut app = grounded(&terrain, solids);
+    app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f32(
+        frame,
+    )));
+    let chassis = if contacts {
+        // The game's own chassis, a dynamic body with the record's collider.
+        app.insert_resource(LiveAvatarRecord(record.clone()));
+        let chassis = app
+            .world_mut()
+            .spawn((
+                Transform::from_translation(owner[0].0),
+                avian3d::prelude::RigidBody::Dynamic,
+                avian3d::prelude::CollidingEntities::default(),
+                LocalPlayer,
+                LinearVelocity::ZERO,
+            ))
+            .id();
+        let mut commands = app.world_mut().commands();
+        crate::player::preset::build_preset_components(&mut commands, chassis, &record.locomotion);
+        app.world_mut().flush();
+        chassis
+    } else {
+        chassis(&mut app, under, record.clone(), owner[0].0)
+    };
+    if under == Under::Local {
+        app.world_mut()
+            .entity_mut(chassis)
+            .insert(Flight::default());
+    }
+    land(&mut app, chassis, &body, 64, offset);
+    let root = root_of(&mut app, chassis);
+    // One idle for every run: a body's room seed is the process' count, and
+    // unseeded, a head glancing on one run and not the one it is measured
+    // against turned 0.9 rad further in a frame.
+    app.world_mut()
+        .entity_mut(root)
+        .insert(AvatarDriver::seeded(INSTRUMENT_SEED));
+    let rig = rig_of(&app, root);
+    let feet: Vec<usize> = rig
+        .ground_contacts()
+        .iter()
+        .filter_map(|&limb| rig.in_zone(Zone::Extremity(limb)).first().copied())
+        .collect();
+    let delay = (crate::player::flight::PEER_DELAY_S as f32 / frame).round() as usize;
+    let mut heard = FlightMode::Ground;
+    let mut read = Vec::new();
+    for at in 0..frames {
+        match under {
+            Under::Local => {
+                let (place, turn, velocity, flight) = owner[at];
+                let mut entity = app.world_mut().entity_mut(chassis);
+                let mut transform = entity.get_mut::<Transform>().expect("a place");
+                transform.translation = place;
+                transform.rotation = turn;
+                entity.get_mut::<LinearVelocity>().expect("a velocity").0 = velocity;
+                *entity.get_mut::<Flight>().expect("a flight") = flight;
+            }
+            Under::Peer => {
+                let now = app.world().resource::<Time>().elapsed_secs_f64();
+                let said = owner[at].3.mode();
+                if said != heard {
+                    heard = said;
+                    let mut entity = app.world_mut().entity_mut(chassis);
+                    match entity.get_mut::<PeerFlight>() {
+                        Some(mut flight) => flight.hear(said, now),
+                        None => {
+                            entity.insert(PeerFlight::heard_at(said, now));
+                        }
+                    }
+                }
+                let (place, turn, ..) = owner[at.saturating_sub(delay)];
+                let mut transform = app
+                    .world_mut()
+                    .get_mut::<Transform>(chassis)
+                    .expect("a place");
+                transform.translation = place;
+                transform.rotation = turn;
+            }
+        }
+        app.update();
+        let world = app.world();
+        let posed = world
+            .get::<bevy_symbios_avatar::AvatarPose>(root)
+            .expect("posed")
+            .0
+            .forward(&rig);
+        let drawn = *world.get::<GlobalTransform>(root).expect("drawn");
+        let clearance = feet
+            .iter()
+            .map(|&foot| {
+                let at = drawn.transform_point(posed.positions[foot]);
+                at.y - ground(at.x, at.z)
+            })
+            .fold(f32::INFINITY, f32::min);
+        let drive = world.get::<Drive>(root).expect("a drive");
+        let trail = world.get::<RiggedTrail>(root).expect("a trail");
+        let place = match under {
+            Under::Local => at,
+            Under::Peer => at.saturating_sub(delay),
+        };
+        read.push(Lifting {
+            joints: posed.positions,
+            turns: posed.rotations,
+            clearance,
+            handed: drive.flight.map(|flight| flight.mode),
+            patch: drive.ground.is_some(),
+            carried: trail.rest.held().0 + trail.rest.stands_by().1,
+            rising: owner[place].2.y > 0.0 && place > 0 && owner[place].0.y > owner[place - 1].0.y,
+        });
+    }
+    read
+}
+
+/// How long the engine takes to let a winged body's feet go after its push,
+/// which [`TAKEOFF_SECS`] spans, seconds (symbios-avatar's `PLANT`).
+const RELEASE_SECS: f32 = 0.08;
+
+/// How long a takeoff asked of a held landing crouches before it pushes, at
+/// least, seconds (symbios-avatar's `MIN_CROUCH`, its `crouch_first`).
+const CROUCH_SECS: f32 = 0.18;
+
+/// The most a joint of a winged body taking off from a slope may move on one
+/// frame further than the same body taking off from level ground, as a
+/// share of its trunk (#1887): this much on any frame, and this much more a
+/// second of the frame's length - 0.21 of the trunk at 60 frames a second,
+/// 0.27 at 30 and 0.175 at 144.
+const MOVED_A_FRAME: f32 = 0.15;
+const MOVED_A_SECOND: f32 = 3.6;
+
+/// The most a joint of a winged body taking off from a slope may turn on one
+/// frame further than the same body taking off from level ground, radians
+/// (#1887).
+const TURNED_A_FRAME: f32 = 0.5;
+
+/// **A winged body taking off from a slope or a pitched roof eases the
+/// ground out** (#1887): a bat, a glider and a bird (on two legs, handed no
+/// patch at all) standing across a 20 degree hillside, and across a roof
+/// pitched 20 degrees over level terrain, take off at 30, 60 and 144 frames
+/// a second, under their owner's chassis and as a peer, beside the same
+/// body taking off from level ground. The bat and the glider also take off
+/// under their owner's chassis carrying its own collider, read by its
+/// contacts as the game's chassis is rather than cast down as a peer is;
+/// and, every way, from a held landing (#1887 end review): glided down onto
+/// the same ground and taking off a tenth and three tenths of a second after
+/// the chassis is on its feet, its landing still held, so that its flight
+/// goes from the landing to none for a frame and then to a takeoff. On each
+/// frame from the one before its takeoff is handed on - a held landing's
+/// frame of no flight - to a few after the engine has let its feet go
+/// (after its crouch, [`CROUCH_SECS`], from a held landing), how much
+/// further each joint moved than the level take-off's moved on the same
+/// frame is under [`MOVED_A_FRAME`] of the trunk and [`MOVED_A_SECOND`] of
+/// it a second of the frame's length, and how much further it turned under
+/// [`TURNED_A_FRAME`]: a bound of its own on every frame, which no
+/// neighbour's raises. Once the ease has run, a rising body carries none of
+/// the ground it rose off and is handed no patch, and no foot is held to
+/// that ground: each stands over it at least half as high as the level
+/// take-off's lowest stands over its own. Every run's idle is seeded alike:
+/// unseeded, a head glancing on one run and not on the one it is measured
+/// against turned 0.9 rad further in a frame.
+///
+/// Eased over the push from the take-off's first frame, the most any joint
+/// moved further than on level ground on one frame was 53 mm at 30 Hz, 30
+/// at 60 and 22 at 144, and turned 0.21 radians at 30, 0.10 at 60 and 0.26
+/// at 144 - the 144 Hz figures peers on the roof. Handed the level floor at
+/// once, under its owner's chassis, a bat moved one 93 mm further at 144 Hz
+/// and 92 at 60, and a glider 147 and 138 (151 at 60 as a peer), turning
+/// one up to 0.87 radians; and as a peer at 30 Hz, its hand-over a frame
+/// after its flight's first, a bat 93 mm and a glider 98. At 30 Hz the
+/// owner's rows pass with or without the ease (44 mm at most without it),
+/// since the engine already spreads the old jump over its push. Eased over
+/// 0.18 s from the frame it rose past the engine's launch speed, a bat
+/// taking off as a peer at 30 Hz swung its wing-hands out sideways and
+/// back, 103 mm further than on level ground on one frame.
+///
+/// From a held landing, the ground held as it was on the frame of no flight
+/// and eased out from the takeoff after it, the most was 52 mm at 30 Hz, 31
+/// at 60 and 17 at 144, and 0.28 radians. Read on that frame as any other,
+/// the ground handed over at once and the ease left nothing to carry, a bat
+/// three tenths of a second into its landing moved a joint 89 mm further
+/// than on level ground at 30 Hz under its owner's chassis cast down, and
+/// read by its contacts 94 at 30 and 103 at 60 - and 64 at 60 a tenth of a
+/// second in; the peers' rows passed.
+#[test]
+fn a_winged_take_off_from_a_slope_eases_the_ground_out() {
+    let level: fn(f32, f32) -> f32 = |_, _| 0.0;
+    let slope: fn(f32, f32) -> f32 = |x, _| x * 20f32.to_radians().tan();
+    // The roof's top: 0.6 m up over the body's middle, rising with `x`.
+    let roof: fn(f32, f32) -> f32 = |x, z| {
+        if x.abs() < 3.5 && z.abs() < 3.5 {
+            0.6 + x * 20f32.to_radians().tan()
+        } else {
+            0.0
+        }
+    };
+    let pitch = 20f32.to_radians();
+    let solids = [(
+        Vec3::new(4.0, 0.3, 4.0),
+        Transform::from_translation(Vec3::Y * (0.6 - 0.3 / pitch.cos()))
+            .with_rotation(Quat::from_rotation_z(pitch)),
+    )];
+    for family in [WingedFamily::Bat, WingedFamily::Glider, WingedFamily::Bird] {
+        let size = trunk(&default_rig(family));
+        let patched = family != WingedFamily::Bird;
+        for hz in [30.0f32, 60.0, 144.0] {
+            for (under, contacts) in [
+                (Under::Local, false),
+                (Under::Local, true),
+                (Under::Peer, false),
+            ] {
+                for held in [None, Some(0.1f32), Some(0.3)] {
+                    // A bird is handed no patch: one way of taking off is
+                    // enough to say so.
+                    if !patched && (contacts || held.is_some()) {
+                        continue;
+                    }
+                    let launched = Launched {
+                        under,
+                        contacts,
+                        held,
+                    };
+                    took_off_as_on_the_level(
+                        family,
+                        hz,
+                        launched,
+                        size,
+                        [level, slope, roof],
+                        &solids,
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// [`a_winged_take_off_from_a_slope_eases_the_ground_out`] for `family` at
+/// `hz`, `launched` so: on the slope and the roof against the level, of the
+/// ground functions `[level, slope, roof]`, with the roof's `solids`, its
+/// joints bounded by its trunk, `size`.
+fn took_off_as_on_the_level(
+    family: WingedFamily,
+    hz: f32,
+    launched: Launched,
+    size: f32,
+    [level, slope, roof]: [fn(f32, f32) -> f32; 3],
+    solids: &[(Vec3, Transform)],
+) {
+    let flat = taking_off(family, hz, (level, level, &[]), launched);
+    for (name, run) in [
+        (
+            "slope",
+            taking_off(family, hz, (slope, slope, &[]), launched),
+        ),
+        (
+            "roof",
+            taking_off(family, hz, (level, roof, solids), launched),
+        ),
+    ] {
+        let Launched {
+            under,
+            contacts,
+            held,
+        } = launched;
+        let label = format!(
+            "{family:?} at {hz} Hz on the {name}, {under:?}{}{}",
+            if contacts { " by its contacts" } else { "" },
+            held.map_or(String::new(), |wait| format!(
+                ", {wait} s into a held landing"
+            )),
+        );
+        // The take-off's first frame handed a takeoff: from a held landing,
+        // after the landing's own and a frame of no flight.
+        let lift = |frames: &[Lifting]| {
+            let from = frames
+                .iter()
+                .position(|frame| frame.handed == Some(Posed::Takeoff))
+                .unwrap_or_else(|| panic!("{label}: never took off"));
+            if held.is_some() {
+                assert!(
+                    from >= 2
+                        && frames[from - 1].handed.is_none()
+                        && frames[from - 2].handed == Some(Posed::Land),
+                    "{label}: the premise, a takeoff from a held landing: handed {:?}",
+                    frames[from.saturating_sub(4)..from]
+                        .iter()
+                        .map(|frame| frame.handed)
+                        .collect::<Vec<_>>()
+                );
+            }
+            from
+        };
+        let (from, level_from) = (lift(&run), lift(&flat));
+        let span = (hz / 3.0).ceil() as usize;
+        // The frames `k` from the flight's first, here and on the level.
+        let at = |k: i64| ((from as i64 + k) as usize, (level_from as i64 + k) as usize);
+        // How much further the worst joint moved, or turned, on frame `k`
+        // than on the level.
+        let beyond = |k: i64, turns: bool| -> f32 {
+            let ((r, l), (r0, l0)) = (at(k), at(k - 1));
+            (0..run[r].joints.len())
+                .map(|j| {
+                    if turns {
+                        let now = flat[l].turns[j].inverse() * run[r].turns[j];
+                        let was = flat[l0].turns[j].inverse() * run[r0].turns[j];
+                        now.angle_between(was)
+                    } else {
+                        ((run[r].joints[j] - flat[l].joints[j])
+                            - (run[r0].joints[j] - flat[l0].joints[j]))
+                            .length()
+                    }
+                })
+                .fold(0.0, f32::max)
+        };
+        // From the frame before the flight's first - a held landing's frame of
+        // no flight - to a few after the engine has let the feet go: the ease,
+        // and the push's release after it, which from a held landing waits
+        // for its crouch.
+        let crouch = if held.is_some() { CROUCH_SECS } else { 0.0 };
+        let release = ((crouch + TAKEOFF_SECS + RELEASE_SECS) * hz).ceil() as i64 + 4;
+        for (what, turns, most) in [
+            ("moved", false, (MOVED_A_FRAME + MOVED_A_SECOND / hz) * size),
+            ("turned", true, TURNED_A_FRAME),
+        ] {
+            let worst_of = |most: (i64, f32), step: (i64, f32)| {
+                if step.1 > most.1 { step } else { most }
+            };
+            let (worst_at, worst) = (-1..=release)
+                .map(|k| (k, beyond(k, turns)))
+                .fold((0, 0.0f32), worst_of);
+            assert!(
+                worst <= most,
+                "{label}: frame {worst_at} of the flight {what} {worst:.4} further than on the \
+                 level, past {most:.4}"
+            );
+        }
+        let eased = from + (TAKEOFF_SECS * hz).ceil() as usize + 1;
+        let mut checked = 0;
+        for frame in eased..from + span {
+            let (here, there) = (&run[frame], &flat[level_from + (frame - from)]);
+            if !(here.aloft() && here.rising) {
+                continue;
+            }
+            checked += 1;
+            assert!(
+                !here.patch && here.carried == 0.0,
+                "{label}: frame {} of the flight still carries {:.3} of the ground (patch {})",
+                frame - from,
+                here.carried,
+                here.patch
+            );
+            assert!(
+                here.clearance >= 0.5 * there.clearance,
+                "{label}: frame {} of the flight has a foot {:.3} m over the ground, against \
+                 {:.3} on the level",
+                frame - from,
+                here.clearance,
+                there.clearance
+            );
+        }
+        assert!(checked > 0, "{label}: the premise, rising after the ease");
     }
 }
 

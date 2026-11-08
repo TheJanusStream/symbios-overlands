@@ -251,24 +251,38 @@ mod tests {
 
     /// **An upright body writes the bytes it wrote before the shape existed**
     /// (#1802, D1): the default preset to the byte, and no seeded person's
-    /// record names a shape at all, where a seeded beast's does (#1808).
+    /// record names a shape at all, where a seeded beast's does (#1808), and a
+    /// seeded winged body's exactly when it lies, under a bat or a glider
+    /// (#1882).
     #[test]
     fn an_upright_body_writes_no_shape() {
         use crate::seeded_defaults::ChassisFamily;
         let wire = serde_json::to_string(&HumanoidParams::default()).expect("writes");
         assert_eq!(wire, DEFAULT_WIRE);
-        let (mut people, mut beasts) = (0, 0);
+        let (mut people, mut beasts, mut winged) = (0, 0, 0);
         for seed in 0u64..600 {
             if let LocomotionConfig::Humanoid(p) = AvatarRecord::default_for_seed(seed).locomotion {
-                let beast = ChassisFamily::for_seed(seed) == ChassisFamily::Beast;
-                people += i32::from(!beast);
-                beasts += i32::from(beast);
                 let wire = serde_json::to_string(&p).expect("writes");
-                assert_eq!(wire.contains("shape"), beast, "seed {seed}: {wire}");
+                let lies = match ChassisFamily::for_seed(seed) {
+                    ChassisFamily::Beast => {
+                        beasts += 1;
+                        true
+                    }
+                    ChassisFamily::Winged => {
+                        winged += 1;
+                        p.is_lying()
+                    }
+                    _ => {
+                        people += 1;
+                        false
+                    }
+                };
+                assert_eq!(wire.contains("shape"), lies, "seed {seed}: {wire}");
             }
         }
         assert!(people > 50, "the fixture: only {people} people under 600");
         assert!(beasts > 3, "the fixture: only {beasts} beasts under 600");
+        assert!(winged > 3, "the fixture: only {winged} winged under 600");
     }
 
     /// **A lying body writes its shape, on the wire's grid, and reads it

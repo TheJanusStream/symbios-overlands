@@ -1071,7 +1071,10 @@ mod tests {
                 }
                 // An airplane stands on her gear (#1617): a long one on her
                 // tall legs reaches past the metre, and is set down higher.
-                ChassisFamily::Humanoid | ChassisFamily::Beast | ChassisFamily::Airplane => {
+                ChassisFamily::Humanoid
+                | ChassisFamily::Beast
+                | ChassisFamily::Winged
+                | ChassisFamily::Airplane => {
                     raised += usize::from(height > cfg::SPAWN_HEIGHT_OFFSET);
                 }
             }

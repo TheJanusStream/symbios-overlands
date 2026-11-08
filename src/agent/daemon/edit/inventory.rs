@@ -385,10 +385,15 @@ mod tests {
         (entry.slug(), entry.name())
     }
 
-    /// A seeded avatar with a rigged body in hand: one that can wear.
+    /// A seeded avatar with a person's rigged body in hand, which can wear
+    /// what is cut for a person: since #1882 a seeded rigged body may be
+    /// winged, and a winged body is refused a prop on its back.
     fn rigged() -> AvatarRecord {
+        use crate::seeded_defaults::ChassisFamily;
         (0..200)
-            .map(|n| AvatarRecord::default_for_did(&format!("did:plc:inventorybody{n}")))
+            .map(|n| format!("did:plc:inventorybody{n}"))
+            .filter(|did| ChassisFamily::for_did(did) == ChassisFamily::Humanoid)
+            .map(|did| AvatarRecord::default_for_did(&did))
             .find(|avatar| {
                 avatar
                     .body

@@ -31,7 +31,7 @@ fn default_avatar_locomotion_matches_seeded_chassis_family() {
         let expected = match ChassisFamily::for_did(did) {
             ChassisFamily::Boat => "hover_boat",
             ChassisFamily::Airship | ChassisFamily::Helicopter => "helicopter",
-            ChassisFamily::Humanoid | ChassisFamily::Beast => "humanoid",
+            ChassisFamily::Humanoid | ChassisFamily::Beast | ChassisFamily::Winged => "humanoid",
             ChassisFamily::Skiff => "car",
             ChassisFamily::Airplane => "airplane",
         };

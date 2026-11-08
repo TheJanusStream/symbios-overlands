@@ -215,8 +215,8 @@ wrong and the offsets need tuning".
 - **A seeded account may be a vehicle.** The Avatar window's Body tab has
   "Wear a rigged body" (`ui click "Avatar > Wear a rigged body"`);
   `status.locomotion` then reads `humanoid`, or `four_legged` on an account
-  whose seed rolls a beast (see "A four-legged body"). No seed rolls a winged
-  body yet (see "A winged body").
+  whose seed rolls a beast (see "A four-legged body"), or `winged` on one
+  whose seed rolls a winged body (see "A winged body").
 - **The sculpt** is `avatar set /body/...`. Wire scale: 1000 = 1.0 on the
   axes (-1..1, explorable to +-3), height in millimetres, age in whole
   years; read symbios-avatar's `plan/*.rs` for the ranges, not memory.
@@ -349,8 +349,15 @@ or a bat's or a glider's coat. Or send a whole body with `A avatar set /body
 (`bird`, `bat` or `glider`), and for a cross a `hybrid` family and its
 `blend`. Either way the new body, its collider and its flight section are one
 undo step, and `status.locomotion` reads `winged`, whichever family leads.
-Others see it once it is saved (`A save avatar --wait`). No seed rolls one
-yet, and there is no offline stand-in or Catalogue avatar of one (#1882).
+Others see it once it is saved (`A save avatar --wait`).
+
+An account can also start as one: one seed in eight of the persons the beasts
+leave has wings, about one avatar in 55 (#1882), a bird, a bat, a glider or a
+cross as the engine's own roll mixes them. Offline,
+`A start --offline --stand-in did:plc:agentofflinewinged2222cu` is an owl,
+and the render tool's `--family-seeds winged` lists more seeds (`--outfit
+<seed>` says which family each is). The Catalogue's Avatars offer an owl, a
+fruit bat, a sugar glider and two crosses (`A catalogue winged`).
 
 - **The leading family decides its posture**, and a cross takes its leading
   family's (the one with the larger share; at an even blend the `hybrid`). A
@@ -524,7 +531,8 @@ change it, or a ready-made one from the Catalogue.
   and retires the outfit it replaced. A rigged body is resolved at once,
   with no fetch. The one already on is refused: "You are already wearing
   ...". `A inventory` marks the avatar item you wear `worn: true`.
-- The Catalogue's avatars - one per craft, a spread of people and beasts -
+- The Catalogue's avatars - one per craft, a spread of people, beasts and
+  winged bodies -
   are in `A catalogue <words>`'s `avatars`, by slug (`avatar_...`). `A wear
   <slug>` wears one as the Catalogue's Wear does; `A stash <slug>` copies it
   in under its name.

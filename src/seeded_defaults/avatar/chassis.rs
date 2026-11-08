@@ -2,11 +2,12 @@
 //!
 //! Sampled into the [`AvatarCharacter`](super::AvatarCharacter) anchor so the
 //! rest of the avatar pipeline can branch: a DID resolves to exactly one
-//! visual family (hover-boat, airship, humanoid, four-legged beast, land-skiff,
-//! helicopter, airplane), and only that family's build path runs. Locomotion
-//! follows the family (boat → HoverBoat, airship and helicopter → Helicopter,
-//! humanoid and beast → Humanoid, skiff → Car, airplane → Airplane) so the
-//! default chassis *feels* like what it looks like.
+//! visual family (hover-boat, airship, humanoid, four-legged beast, winged
+//! body, land-skiff, helicopter, airplane), and only that family's build path
+//! runs. Locomotion follows the family (boat → HoverBoat, airship and
+//! helicopter → Helicopter, humanoid, beast and winged → Humanoid, skiff →
+//! Car, airplane → Airplane) so the default chassis *feels* like what it looks
+//! like.
 //!
 //! # The pick is two stages (#1611, owner decision 1)
 //!
@@ -38,12 +39,25 @@
 //! the first under which every person the tree names by a DID literal or a
 //! seed stays one, and each of the first forty seeds with them.
 //!
+//! # And a fourth, inside the persons left (#1882, owner decision 3 of #1862)
+//!
+//! One seed in eight of the persons the beast stage leaves has wings, a bird,
+//! a bat, a sugar glider or a cross of them, about one in 55 of all avatars:
+//! the same draw once more, on a salt of its own, taking only from what the
+//! third stage left [`ChassisFamily::Humanoid`], so a seed is winged or
+//! exactly the family it was before - never a beast made anything else. Its
+//! salt was hunted as the beast's was: the first under which every person
+//! the tree names by a DID literal or a seed (Kairos, the one person among
+//! the agents' accounts - the others and the owner's roll vehicles, which
+//! neither stage on foot can move), the first forty seeds' persons and the
+//! persons the Catalogue's entries and the character hunt pin, stays one.
+//!
 //! Diversity inside a family is NOT one mechanism. A vehicle - a boat, a
 //! skiff, a helicopter, an airplane or an airship - rolls a
 //! [`CraftType`](super::CraftType) and is drawn by that type's own builder
-//! over one profile (#1363, #1364, #1614, #1617, #1657); a humanoid or a beast
-//! is a seeded `symbios-avatar` engine record (#1060, #1808). See [`super`]'s
-//! header for the two routes.
+//! over one profile (#1363, #1364, #1614, #1617, #1657); a humanoid, a beast
+//! or a winged body is a seeded `symbios-avatar` engine record (#1060, #1808,
+//! #1882). See [`super`]'s header for the two routes.
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
@@ -63,6 +77,11 @@ const AVATAR_AIRCRAFT_SALT: u64 = 0xA14C_4AF7_00E6_3FFB;
 /// hex can, and the low half is the first under which every person the tree
 /// names stays one (hunted; see the module header).
 const AVATAR_BEAST_SALT: u64 = 0xBEA5_7F00_0000_0AA2;
+
+/// The fourth stage's salt (#1882): the high half spells ALATED - winged - as
+/// near as hex can, and the low half is the first under which every person
+/// the tree names stays one (hunted; see the module header).
+const AVATAR_WINGED_SALT: u64 = 0xA1A7_ED00_0000_05E1;
 
 /// One sixth of the seed space, as the first stage deals it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -97,6 +116,19 @@ const ON_FOOT_SHARES: [ChassisFamily; 8] = [
     ChassisFamily::Humanoid,
 ];
 
+/// The fourth stage's eight equal shares of the persons the third left (owner
+/// decision 3 of #1862): one with wings and seven without.
+const PERSON_SHARES: [ChassisFamily; 8] = [
+    ChassisFamily::Winged,
+    ChassisFamily::Humanoid,
+    ChassisFamily::Humanoid,
+    ChassisFamily::Humanoid,
+    ChassisFamily::Humanoid,
+    ChassisFamily::Humanoid,
+    ChassisFamily::Humanoid,
+    ChassisFamily::Humanoid,
+];
+
 /// Discrete visual family of the default avatar. Picked first; how the
 /// silhouette follows from it is the family's own affair - see the module
 /// header.
@@ -115,6 +147,10 @@ pub enum ChassisFamily {
     /// own roll mixes them, walking on the on-foot preset cut to its trunk
     /// (#1808).
     Beast,
+    /// Wings - a bird, a bat, a sugar glider or a cross of them, as the
+    /// engine's own roll mixes them, on the on-foot preset fitted to the body,
+    /// its flight section with it (#1882).
+    Winged,
     /// Land vehicle - one of six seeded craft types, from a roadster to a
     /// six-wheeled rover ([`SkiffType`](super::SkiffType)).
     Skiff,
@@ -128,11 +164,12 @@ pub enum ChassisFamily {
 
 impl ChassisFamily {
     /// Every family, for a picker or a census.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Boat,
         Self::Airship,
         Self::Humanoid,
         Self::Beast,
+        Self::Winged,
         Self::Skiff,
         Self::Helicopter,
         Self::Airplane,
@@ -155,6 +192,7 @@ impl ChassisFamily {
                 <crate::pds::HumanoidParams as crate::pds::avatar::LocomotionPreset>::DISPLAY_LABEL
             }
             Self::Beast => "Four-legged",
+            Self::Winged => "Winged",
             Self::Skiff => "Land-skiff",
             Self::Helicopter => "Helicopter",
             Self::Airplane => "Airplane",
@@ -164,7 +202,7 @@ impl ChassisFamily {
     /// Whether this family is a rigged `symbios-avatar` body rather than a
     /// generator tree: no craft type, no seeded FX and no voice.
     pub fn is_rigged(self) -> bool {
-        matches!(self, Self::Humanoid | Self::Beast)
+        matches!(self, Self::Humanoid | Self::Beast | Self::Winged)
     }
 
     pub fn for_did(did: &str) -> Self {
@@ -183,7 +221,14 @@ impl ChassisFamily {
                 match pick(&Self::PRE_AIRCRAFT, &mut rng) {
                     Self::Humanoid => {
                         let mut third = ChaCha8Rng::seed_from_u64(seed ^ AVATAR_BEAST_SALT);
-                        pick(&ON_FOOT_SHARES, &mut third)
+                        match pick(&ON_FOOT_SHARES, &mut third) {
+                            Self::Humanoid => {
+                                let mut fourth =
+                                    ChaCha8Rng::seed_from_u64(seed ^ AVATAR_WINGED_SALT);
+                                pick(&PERSON_SHARES, &mut fourth)
+                            }
+                            beast => beast,
+                        }
                     }
                     family => family,
                 }
@@ -206,16 +251,16 @@ mod tests {
 
     #[test]
     fn all_families_reachable() {
-        // 1 500 seeds: the rarest family is one in 48 of them, so the odds
-        // of one never appearing are (47/48)^1500, about 10^-14 - a miss means
+        // 1 500 seeds: the rarest family is one in 55 of them, so the odds
+        // of one never appearing are (54/55)^1500, about 10^-12 - a miss means
         // the sampler is broken, not unlucky.
-        let mut seen = [false; 7];
+        let mut seen = [false; 8];
         for s in 0u64..1_500 {
             let f = ChassisFamily::for_did(&format!("did:test:{s}"));
             let i = ChassisFamily::ALL.iter().position(|x| *x == f).unwrap();
             seen[i] = true;
         }
-        assert_eq!(seen, [true; 7], "some chassis family never sampled");
+        assert_eq!(seen, [true; 8], "some chassis family never sampled");
     }
 
     /// The pick before the aircraft, written out: the second stage alone.
@@ -263,7 +308,7 @@ mod tests {
 
     /// Decision 1's promise: a seed is a helicopter, an airplane, or EXACTLY
     /// the family it was before the aircraft came - never a different one of
-    /// the four, a person's beast aside (see below) - and each aircraft family
+    /// the four, a person's beast or wings aside (see below) - and each aircraft family
     /// takes a sixth of the fleet. Over 24 000 seeds a sixth is 4 000 with a
     /// standard deviation of about 58, so each band is five of them wide. (CI
     /// runs this at opt-level 0: kept small.)
@@ -275,7 +320,7 @@ mod tests {
             match ChassisFamily::for_seed(s) {
                 ChassisFamily::Helicopter => helicopters += 1,
                 ChassisFamily::Airplane => airplanes += 1,
-                ChassisFamily::Beast => {
+                ChassisFamily::Beast | ChassisFamily::Winged => {
                     assert_eq!(pre_aircraft(s), ChassisFamily::Humanoid, "seed {s}")
                 }
                 f => assert_eq!(f, pre_aircraft(s), "seed {s} changed family"),
@@ -292,6 +337,8 @@ mod tests {
     /// Decision D10's promise: a beast is one seed in eight of those on foot.
     /// Over 24 000 seeds about 4 000 are on foot and an eighth of those is 500,
     /// with a standard deviation of about 21, so the band is five of them wide.
+    /// A winged body is one of them too: the fourth stage draws from the
+    /// persons the third left, so it moves no seed on or off foot.
     #[test]
     fn a_beast_is_an_eighth_of_the_seeds_on_foot() {
         const N: u64 = 24_000;
@@ -299,7 +346,7 @@ mod tests {
         for s in 0..N {
             match ChassisFamily::for_seed(s) {
                 ChassisFamily::Beast => beasts += 1,
-                ChassisFamily::Humanoid => persons += 1,
+                ChassisFamily::Humanoid | ChassisFamily::Winged => persons += 1,
                 _ => {}
             }
         }
@@ -312,6 +359,104 @@ mod tests {
             (395..=605).contains(&beasts),
             "{beasts} beasts of the {on_foot} seeds on foot, expected about an eighth"
         );
+    }
+
+    /// Decision 3 of #1862: a winged body is one seed in eight of the persons
+    /// the beast stage leaves, about one in 55 of all. Over 24 000 seeds about
+    /// 3 500 are persons before it and an eighth of those is about 440, with a
+    /// standard deviation of about 20, so the band is five of them wide (439
+    /// were counted under the hunted salt).
+    #[test]
+    fn a_winged_body_is_an_eighth_of_the_persons_the_beasts_leave() {
+        const N: u64 = 24_000;
+        let (mut winged, mut persons) = (0u64, 0u64);
+        for s in 0..N {
+            match ChassisFamily::for_seed(s) {
+                ChassisFamily::Winged => winged += 1,
+                ChassisFamily::Humanoid => persons += 1,
+                _ => {}
+            }
+        }
+        let left = winged + persons;
+        assert!(
+            (3_100..=3_900).contains(&left),
+            "{left} of {N} seeds persons before the fourth stage, expected about 7/48"
+        );
+        assert!(
+            (340..=540).contains(&winged),
+            "{winged} winged of the {left} persons left, expected about an eighth"
+        );
+    }
+
+    /// The pick before the winged stage, written out: the first three stages
+    /// alone, as [`pre_aircraft`] is the second. On its own it can only say
+    /// the stages agree with each other; [`PRE_WINGED_0_TO_199`] ties it to
+    /// the pick as it was.
+    fn pre_winged(seed: u64) -> ChassisFamily {
+        let mut first = ChaCha8Rng::seed_from_u64(seed ^ AVATAR_AIRCRAFT_SALT);
+        match pick(&SHARES, &mut first) {
+            Share::Helicopter => ChassisFamily::Helicopter,
+            Share::Airplane => ChassisFamily::Airplane,
+            Share::Rest => match pre_aircraft(seed) {
+                ChassisFamily::Humanoid => {
+                    let mut third = ChaCha8Rng::seed_from_u64(seed ^ AVATAR_BEAST_SALT);
+                    pick(&ON_FOOT_SHARES, &mut third)
+                }
+                family => family,
+            },
+        }
+    }
+
+    /// The families seeds 0 to 199 had before the winged stage (#1882), read
+    /// off the pick at ca5fe7a: Boat, Airship, Humanoid, Q for the beast,
+    /// Skiff, C for the helicopter and P for the airplane.
+    const PRE_WINGED_0_TO_199: &str = concat!(
+        "AHSSPPASACSAABCCBHCBHSCPSHSCBACCCAAHSCHP",
+        "BPSSBAAHAHCAAAHPSBSHPHAACCSABCASACSAPAAB",
+        "AHHPPAASABSAHBPASHAAQCSAHBSACBHHAPCACBBQ",
+        "ASSACHAASBCHCASCSHPBCABBSPASAPACASPSABSH",
+        "BSCCHSBBBPBHBPAPPBACHSPCPPHPPSBAHHPBHCHQ",
+    );
+
+    /// Decision 3's promise, as decision 1's was the aircraft's: a seed is
+    /// exactly the family it was before the winged stage, or winged where it
+    /// was a person - never a beast made anything else, and never a person
+    /// made a beast. The literal holds the first 200 to the pick as it was;
+    /// the 24 000 hold the rest to the first three stages written out.
+    #[test]
+    fn a_seed_keeps_its_family_or_grows_wings_only_from_a_person() {
+        let mut winged = 0;
+        for (seed, was) in (0u64..).zip(PRE_WINGED_0_TO_199.chars()) {
+            let was = match was {
+                'B' => ChassisFamily::Boat,
+                'A' => ChassisFamily::Airship,
+                'H' => ChassisFamily::Humanoid,
+                'Q' => ChassisFamily::Beast,
+                'S' => ChassisFamily::Skiff,
+                'C' => ChassisFamily::Helicopter,
+                'P' => ChassisFamily::Airplane,
+                other => panic!("no family {other:?}"),
+            };
+            assert_eq!(pre_winged(seed), was, "seed {seed}: the first stages moved");
+            match ChassisFamily::for_seed(seed) {
+                ChassisFamily::Winged => {
+                    assert_eq!(was, ChassisFamily::Humanoid, "seed {seed} grew wings");
+                    winged += 1;
+                }
+                now => assert_eq!(now, was, "seed {seed} changed family"),
+            }
+        }
+        // 47, 54, 81, 82, 97 and 193 under the hunted salt.
+        assert!(
+            (1..=15).contains(&winged),
+            "{winged} of the first 200 winged"
+        );
+        for s in 200u64..24_000 {
+            match (pre_winged(s), ChassisFamily::for_seed(s)) {
+                (ChassisFamily::Humanoid, ChassisFamily::Winged) => {}
+                (was, now) => assert_eq!(now, was, "seed {s} changed family"),
+            }
+        }
     }
 
     /// The airplane's sixth is the one the first stage drew for it since
@@ -344,7 +489,11 @@ mod tests {
     ///
     /// The beast stage's salt keeps the people here on two legs, and the one
     /// stand-in on four is hunted against it: its DID's last two letters are
-    /// the first to roll a dog (`--stand-in`, docs/building.md).
+    /// the first to roll a dog (`--stand-in`, docs/building.md). The winged
+    /// stage's salt keeps the persons here without wings, Kairos among them,
+    /// and the one stand-in with wings is hunted against it the same way: its
+    /// DID's last two letters are the first to roll a bird, an owl (which
+    /// `wardrobe`'s fresh-body test holds).
     #[test]
     fn the_stand_ins_keep_their_families() {
         use ChassisFamily::*;
@@ -356,7 +505,12 @@ mod tests {
             ("did:plc:agentofflineboat2222222d", Boat),
             ("did:plc:agentofflineair222222222", Airship),
             ("did:plc:agentofflinebeast22222ia", Beast),
-            // Jink, Hypha, Eigen and Reeve (docs/agent/accounts/).
+            ("did:plc:agentofflinewinged2222cu", Winged),
+            // Kairos, Catoid, Jink, Hypha, Eigen and Reeve
+            // (docs/agent/accounts/). The owner's own account flies an
+            // airplane, which no stage after the first can move (held below).
+            ("did:plc:aeblnmu75y5jnntjrllo3ouq", Humanoid),
+            ("did:plc:hl3tauh5rilw2baafaco2b5u", Boat),
             ("did:plc:lr2ocunor73lfqpwtgvt274o", Skiff),
             ("did:plc:ghkcajvgtvvfxavllty3pr57", Airship),
             ("did:plc:7po3qshysor5djaxoy7zme4s", Airship),
@@ -367,6 +521,11 @@ mod tests {
             let mut first = ChaCha8Rng::seed_from_u64(fnv1a_64(did) ^ AVATAR_AIRCRAFT_SALT);
             assert_eq!(pick(&SHARES, &mut first), Share::Rest, "{did}");
         }
+        assert_eq!(
+            ChassisFamily::for_did("did:plc:z5yhcebtrvzblrojezn6pjgi"),
+            Airplane,
+            "the owner's account"
+        );
         let seeds = [
             (1, Humanoid),
             (2, Skiff),
@@ -412,10 +571,10 @@ mod tests {
         }
     }
 
-    /// **The Chassis pin row offers both bodies on foot**, each by its own word
-    /// (#1808, owner decision D7), beside each other.
+    /// **The Chassis pin row offers the three rigged bodies**, each by its own
+    /// word (#1808, owner decision D7; #1882), beside each other.
     #[test]
-    fn the_chassis_row_tells_the_two_bodies_on_foot_apart() {
+    fn the_chassis_row_tells_the_rigged_bodies_apart() {
         let labels = ChassisFamily::ALL.map(ChassisFamily::label);
         assert_eq!(
             labels,
@@ -424,6 +583,7 @@ mod tests {
                 "Airship",
                 "On foot",
                 "Four-legged",
+                "Winged",
                 "Land-skiff",
                 "Helicopter",
                 "Airplane",

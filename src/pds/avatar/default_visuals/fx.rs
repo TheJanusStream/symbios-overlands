@@ -383,7 +383,9 @@ pub(super) fn drive_of(family: ChassisFamily, seed: u64) -> Propulsion {
         ChassisFamily::Helicopter => super::helicopters::propulsion(seed),
         ChassisFamily::Airplane => super::airplanes::propulsion(seed),
         ChassisFamily::Airship => super::airships::propulsion(seed),
-        ChassisFamily::Humanoid | ChassisFamily::Beast => Propulsion::Engine,
+        ChassisFamily::Humanoid | ChassisFamily::Beast | ChassisFamily::Winged => {
+            Propulsion::Engine
+        }
     }
 }
 
@@ -501,7 +503,10 @@ pub(super) fn voice_label(seed: u64) -> String {
         (Propulsion::Engine, ChassisFamily::Airship | ChassisFamily::Helicopter) => "rotor thump",
         (
             Propulsion::Engine,
-            ChassisFamily::Skiff | ChassisFamily::Humanoid | ChassisFamily::Beast,
+            ChassisFamily::Skiff
+            | ChassisFamily::Humanoid
+            | ChassisFamily::Beast
+            | ChassisFamily::Winged,
         ) => "putter",
         (Propulsion::Rolling, _) => "roll and creak",
         (Propulsion::Poled, _) => "lap and sweep creak",
@@ -583,7 +588,10 @@ fn family_drive(
         }
         (
             Propulsion::Engine,
-            ChassisFamily::Skiff | ChassisFamily::Humanoid | ChassisFamily::Beast,
+            ChassisFamily::Skiff
+            | ChassisFamily::Humanoid
+            | ChassisFamily::Beast
+            | ChassisFamily::Winged,
         ) => skiff_putter(g, detune),
         (Propulsion::Rolling, _) => wagon_roll(g),
         (Propulsion::Poled, _) => scow_lap(g),

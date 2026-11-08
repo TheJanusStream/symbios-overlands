@@ -656,7 +656,7 @@ impl VehicleBlueprint {
                 Some(Self::Airplane(AirplaneBlueprint::derive(body, &mut rng)))
             }
             // Rigged: no parts to size (#1060).
-            ChassisFamily::Humanoid | ChassisFamily::Beast => None,
+            ChassisFamily::Humanoid | ChassisFamily::Beast | ChassisFamily::Winged => None,
         }
     }
 
@@ -750,7 +750,7 @@ mod tests {
                         "seed {s} airplane"
                     );
                 }
-                ChassisFamily::Humanoid | ChassisFamily::Beast => {
+                ChassisFamily::Humanoid | ChassisFamily::Beast | ChassisFamily::Winged => {
                     assert!(bp.is_none(), "seed {s}: a rigged body got a blueprint")
                 }
             }

@@ -147,6 +147,13 @@ impl AvatarBody {
         Self::seeded_wearing(seed, super::wardrobe::engine_beast_for_seed(seed))
     }
 
+    /// The seeded default's winged body (#1882), on the terms of
+    /// [`Self::rigged_seeded`]: every peer derives the same bird, bat or
+    /// glider for a DID.
+    pub fn winged_seeded(seed: u64) -> Self {
+        Self::seeded_wearing(seed, super::wardrobe::engine_winged_for_seed(seed))
+    }
+
     /// A seeded engine body, resolved at the seed's own wardrobe key.
     fn seeded_wearing(seed: u64, body: super::wardrobe::EngineAvatarRecord) -> Self {
         Self::Rigged(Box::new(RiggedBody {

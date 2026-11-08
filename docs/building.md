@@ -968,7 +968,7 @@ cargo run --bin render -- --diff-sessions old.jsonl new.jsonl
 # Road-network graph diagnostics for a seed or DID:
 cargo run --bin render -- --road-dump 1
 # List seeds that produce a given avatar chassis family (boat, airship,
-# humanoid, beast, skiff, helicopter or airplane):
+# humanoid, beast, winged, skiff, helicopter or airplane):
 cargo run --bin render -- --family-seeds skiff --family-count 8
 # ...narrowed to one seeded craft type (#1362) - the survey each craft-type
 # slice opens with. A craft type is a property of the SEED, so this answers
@@ -1150,6 +1150,7 @@ $A start --offline                   # no account: a stand-in, alone, saves noth
 $A start --offline --stand-in did:plc:agentofflinecar22222222e   # ...that drives a car
 $A start --offline --stand-in did:plc:agentofflineair222222222   # ...that flies an airship
 $A start --offline --stand-in did:plc:agentofflinebeast22222ia   # ...that walks as a dog
+$A start --offline --stand-in did:plc:agentofflinewinged2222cu   # ...that is an owl
 # Editing its own world (#1422) - live for whoever is there, kept only once saved:
 $A placements --within 40            # what is placed, by index, where it is drawn
 $A catalogue lighthouse              # what can be placed, by slug
@@ -1300,8 +1301,8 @@ the agent knows it works (#1452).
 `did:plc:agentofflinecar22222222e` is a roadster,
 `did:plc:agentofflineboat2222222d` a steam tug,
 `did:plc:agentofflineair222222222` an airship (a twin envelope until #1657,
-a Zeppelin since), `did:plc:agentofflinebeast22222ia` a dog (#1808) - and the
-other
+a Zeppelin since), `did:plc:agentofflinebeast22222ia` a dog (#1808),
+`did:plc:agentofflinewinged2222cu` an owl (#1882) - and the other
 commands reach it with `--account <DID>`; `--room <DID>` puts it in another
 seeded world. Either DID has to be well formed (`did:plc:` and 24 of `a-z`
 and `2-7`): the directory refuses a malformed one, which the loading screen
@@ -1309,9 +1310,9 @@ takes for an outage and retries for minutes. None of the stand-ins is an
 airplane (a sixth of seeds are since #1617, but the stand-ins kept their
 families), so for testing, `start --offline --wear-airplane` (hidden from
 `--help`) flies the default airplane in place of the stand-in's own
-locomotion, its body left as it is. None is a winged body either, as no seed
-rolls one until #1882: a stand-in turned winged by `ui click "Avatar > body >
-winged"` or `avatar set /body` is one (`status.locomotion` reads `winged`).
+locomotion, its body left as it is. The owl is the one winged stand-in;
+any other turned winged by `ui click "Avatar > body > winged"` or `avatar set
+/body` is one too (`status.locomotion` reads `winged`).
 
 `look` renders a 1024x576 PNG only when asked: the daemon parks the world
 camera, so between pictures it draws nothing at all, and each picture gets a
