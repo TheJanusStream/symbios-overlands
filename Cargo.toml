@@ -25,7 +25,7 @@ default-run = "symbios-overlands"
 # the geodata decoders (crates/geodata, #1580). Keeping them in one workspace
 # gives a shared lockfile, target dir, and feature unification.
 [workspace]
-members = ["crates/gen-jobs", "crates/gen-worker", "crates/geodata"]
+members = ["crates/gen-jobs", "crates/gen-worker", "crates/geodata", "crates/transform-gizmo-bevy"]
 # Which packages a bare `cargo test` / `cargo clippy` / `cargo nextest run`
 # actually selects (#1147).
 #
@@ -40,8 +40,9 @@ members = ["crates/gen-jobs", "crates/gen-worker", "crates/geodata"]
 # command, so the gate is correct by default instead of correct only when
 # someone remembers a flag. `gen-worker` stays out on purpose: it is a
 # wasm-only binary with nothing to test on native, and the wasm check
-# already says `--workspace` explicitly to cover it.
-default-members = [".", "crates/gen-jobs", "crates/geodata"]
+# already says `--workspace` explicitly to cover it. The gizmo copy is in so
+# fmt, clippy and the doc gate hold it to this repository's standard.
+default-members = [".", "crates/gen-jobs", "crates/geodata", "crates/transform-gizmo-bevy"]
 
 [features]
 # Native allocation tracer (#811): wraps the global allocator and prints a
@@ -83,7 +84,10 @@ bevy_symbios_texture = { version = "0.13.1", features = ["egui"] }
 # resolves to the crate that declared it.
 symbios-texture = "0.8"
 bevy_symbios_audio = { version = "0.6", features = ["egui"] }
-transform-gizmo-bevy = "0.11"
+# Our copy of upstream 0.11.0's Bevy integration (crates/transform-gizmo-bevy,
+# README there): upstream lags Bevy releases by months, and the Bevy
+# upgrade (#1634) should not wait on it.
+transform-gizmo-bevy = { path = "crates/transform-gizmo-bevy" }
 symbios-avatar = "0.23"
 symbios = "1.5"
 symbios-turtle-3d = "0.6"
