@@ -189,6 +189,12 @@ pub fn run(request: RunRequest) -> Result<ExitCode, String> {
             (
                 turn_off_ime,
                 park_world_camera,
+                // A standing follow starts again before the steering takes
+                // it up (#1852).
+                movement::resume_standing
+                    .after(bevy::input::InputSystems)
+                    .before(movement::steer)
+                    .run_if(resource_exists::<movement::Movement>),
                 movement::steer
                     .after(bevy::input::InputSystems)
                     .run_if(resource_exists::<movement::Movement>),

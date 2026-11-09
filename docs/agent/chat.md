@@ -99,12 +99,14 @@ four minutes.
   and save as they allowed. Lines said while they are away reach nobody
   (`delivery: nobody_here`) and are not kept for them: write a two-line
   summary as you go and say it when they come back (`peer_joined`).
-- A standing "follow me for the session" ends when the admin leaves (the
-  follow's `movement_ended` says `peer_left`): start it again on their
-  `peer_joined`. Break it off only to stand somewhere that shows your work
-  better, then `walk-to @admin` (one command back, facing them) and
-  `follow` again. `halt` first: a new movement replaces the follow anyway,
-  but the halt's answer says what was stopped.
+- A standing "follow me for the session" is `follow @admin --standing`
+  (#1852): the follow ends when the admin leaves (`peer_left`) and the
+  daemon starts it again on their return, and after any errand you put in
+  its place (a walk-to, a face, a trip), saying `follow_resumed` - no
+  command on `peer_joined`. A restart forgets it: give it again after each
+  `start`. To stand somewhere that shows your work better, `walk-to` there:
+  the follow resumes once you arrive, so to stay put `halt` first (its
+  answer says `standing_ended`), and `follow --standing` again after.
 - A stranger arriving is `peer_joined` with another DID: carry on, mention
   it once. Their lines arrive as `chat_dropped` (who, never what) and their
   gift offers are declined unread (`gift_declined`).

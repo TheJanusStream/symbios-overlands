@@ -98,7 +98,12 @@ pub(super) fn list(world: &mut World) -> Result<Value, String> {
 fn inventory(world: &World) -> Result<&LiveInventoryRecord, String> {
     world
         .get_resource::<LiveInventoryRecord>()
-        .ok_or_else(|| "the agent's inventory has not loaded yet".to_owned())
+        .ok_or_else(not_loaded)
+}
+
+/// Why nothing can be taken from the inventory yet.
+pub(super) fn not_loaded() -> String {
+    "the agent's inventory has not loaded yet".to_owned()
 }
 
 /// Put `what` into the inventory: a thing in the agent's own world, by its
@@ -224,7 +229,7 @@ pub(super) fn unstash(world: &mut World, name: &str) -> Result<Value, String> {
     Ok(json!({ "unstashed": name }))
 }
 
-fn no_such(inventory: &InventoryRecord, name: &str) -> String {
+pub(super) fn no_such(inventory: &InventoryRecord, name: &str) -> String {
     // Items go by name, not by slug: `stash satchel` answers that it stashed
     // "Traveler's Satchel", and `wear satchel` found nothing (#1484). A slug
     // is named back as the items it was stashed as.
@@ -248,11 +253,59 @@ fn no_such(inventory: &InventoryRecord, name: &str) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
-        _ => format!(
-            "the inventory has nothing called {name:?} ({} items); `agent inventory` lists them",
-            inventory.item_count()
-        ),
+        _ => {
+            let near = near_names(inventory.names().map(String::as_str), name);
+            let near = if near.is_empty() {
+                String::new()
+            } else {
+                format!(" - it has {}", quoted(&near))
+            };
+            format!(
+                "the inventory has nothing called {name:?} ({} items){near}; `agent inventory` \
+                 lists them",
+                inventory.item_count()
+            )
+        }
     }
+}
+
+/// The names among `names` that `asked` could have meant, sorted, at most
+/// four (#1855): the same words in another case, or written with `_` or
+/// `-` for a space - `cat_cottage` for the "Cat Cottage" an owner gave -
+/// or one holding the other's words whole.
+pub(super) fn near_names<'a>(names: impl Iterator<Item = &'a str>, asked: &str) -> Vec<&'a str> {
+    let words = |name: &str| {
+        name.to_lowercase()
+            .replace(['_', '-'], " ")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let asked = words(asked);
+    if asked.is_empty() {
+        return Vec::new();
+    }
+    let mut near: Vec<&str> = names
+        .filter(|name| {
+            let name = words(name);
+            name == asked
+                || (asked.len() >= 3 && name.contains(&asked))
+                || (name.len() >= 3 && asked.contains(&name))
+        })
+        .collect();
+    near.sort_unstable();
+    near.dedup();
+    near.truncate(4);
+    near
+}
+
+/// `names`, each quoted, joined with commas.
+pub(super) fn quoted(names: &[&str]) -> String {
+    names
+        .iter()
+        .map(|n| format!("{n:?}"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Whether `item` is a name a catalogue entry called `entry` is stashed

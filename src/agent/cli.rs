@@ -127,6 +127,8 @@ pub enum Command {
     /// Follow another player in this world, keeping near them until halted,
     /// until they leave, or until the agent travels. A body that flies
     /// escorts them low, and lands beside them once they stand still.
+    /// `--standing` starts it again whenever they are back, and after each
+    /// errand, until `halt`.
     Follow(FollowArgs),
     /// Turn to face another player, or a point on the ground - on the spot,
     /// in the air or on the ground, for a body that flies.
@@ -138,8 +140,9 @@ pub enum Command {
     /// and worlds that can be worn or loaded - those matching a search,
     /// when given.
     Catalogue(CatalogueArgs),
-    /// Put a catalogue item down in the agent's own world. Everyone there
-    /// sees it at once; it stays only once saved.
+    /// Put a thing down in the agent's own world: one the world holds, an
+    /// inventory thing, or a catalogue entry. Everyone there sees it at
+    /// once; it stays only once saved.
     Place(PlaceArgs),
     /// Move something placed in the agent's own world to another point,
     /// keeping its height above the ground - or one copy of an instance set,
@@ -407,7 +410,10 @@ pub struct CatalogueArgs {
 pub struct PlaceArgs {
     #[command(flatten)]
     pub account: AccountArg,
-    /// The catalogue entry, by its slug (as `catalogue` lists them).
+    /// What to place, looked for in this order: a thing the world holds,
+    /// by its name (as `placements` lists them); an inventory thing, by its
+    /// name (as `inventory` lists them); a catalogue entry, by its slug (as
+    /// `catalogue` lists them).
     pub slug: String,
     /// Where: a point's x and z in world metres. A few metres ahead of the
     /// agent when absent.
@@ -422,6 +428,11 @@ pub struct PlaceArgs {
     /// -Z, 90 faces +X.
     #[arg(long, value_name = "DEGREES", allow_negative_numbers = true)]
     pub yaw: Option<f32>,
+    /// Look the name up in the inventory only, as a drop from the Inventory
+    /// window places it - for an inventory thing whose name the world
+    /// already holds.
+    #[arg(long)]
+    pub inventory: bool,
 }
 
 /// A placement by the index `placements` gives it, or one copy of an
@@ -558,6 +569,14 @@ pub struct FollowArgs {
     /// Run all the way, not only to catch up.
     #[arg(long)]
     pub run: bool,
+    /// A standing follow (#1852): when the follow ends - the player gone, or
+    /// an errand (a walk, a turn, a drive, a trip) put in its place - start
+    /// it again whenever the player is in the agent's world and nothing else
+    /// is under way, until `halt` or another `follow` (even a refused one).
+    /// Taken while they are away, to start when they come. A restart forgets
+    /// it.
+    #[arg(long)]
+    pub standing: bool,
     /// Wait for the follow to end - halted, the player gone, or travel - and
     /// print how.
     #[arg(long)]
@@ -1213,7 +1232,22 @@ mod tests {
         assert_eq!(place.slug, "lamp_post");
         assert_eq!(place.at.as_deref(), Some(&[-4.5, 12.0][..]));
         assert_eq!(place.yaw, Some(-90.0));
+        assert!(!place.inventory);
         assert!(parse(&["place", "lamp_post", "--at", "1"]).is_err());
+        let Command::Place(place) = parse(&["place", "Cat Cottage", "--inventory"]).unwrap() else {
+            panic!("place");
+        };
+        assert_eq!(place.slug, "Cat Cottage");
+        assert!(place.inventory);
+
+        let Command::Follow(follow) = parse(&["follow", "@friend", "--standing"]).unwrap() else {
+            panic!("follow");
+        };
+        assert!(follow.standing && !follow.run);
+        let Command::Follow(follow) = parse(&["follow", "@friend"]).unwrap() else {
+            panic!("follow");
+        };
+        assert!(!follow.standing);
 
         let Command::Move(moved) = parse(&["move", "3", "-1", "-2.5"]).unwrap() else {
             panic!("move");

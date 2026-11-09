@@ -22,15 +22,15 @@ what stands near, turns to the admin, and with --fleet hops up in its Skyfactory
 --fleet a factory also picks its body for the admin's pace: the Hexapod at a walk, the
 Skyfactory once they hurry, the Roadfactory when they drive, and with --water-level the
 Seafactory the moment it or the admin is in the water, and the Skyfactory when the admin
-climbs more than 3 m above it. Two agents near each other
+climbs more than 3 m above it, steeply and within NEAR metres across. Two agents near each other
 while the admin rests: the factory, the bigger body, steps aside.
 
 A follow steers straight at the admin, so a log, a trunk or a wall on that line stops it. A
 follow that stands still BLOCKED_FOR seconds short of them goes round: ROUND metres to one
 side and a metre back, then follows again, the other side and further out each time it blocks
 again; after GIVE_UP_AFTER tries it watches the admin instead, and tries again once they have
-moved MOVED_ON metres. When the admin is more than 3 m above it within NEAR metres across (up a tree, a tower
-or a roof), an agent without --fleet stops at the foot and watches them instead, a cat
+moved MOVED_ON metres. When the admin is more than 3 m above it within NEAR metres across and
+steeper than STEEP (up a tree, a tower or a roof, not up a hillside), an agent without --fleet stops at the foot and watches them instead, a cat
 sitting, and follows again once they come down to within 2 m of its height or move on.
 
 While --pause-file exists it sends nothing, so the session can take the agent over for a
@@ -65,9 +65,13 @@ CAT_LINES = {
 FLEET = {"walk": "Kairos Hexapod", "hurry": "Kairos Skyfactory", "drive": "Kairos Roadfactory",
          "water": "Kairos Seafactory"}
 WET, DRY = 0.2, 0.8  # metres under / over --water-level that count as in the water / clear of it
+# The admin's own: in the water from half a metre under the surface (wading deep, or swimming), clear of
+# it once over the surface - an admin on a low beach is on land, and a boat is not needed there.
+ADMIN_WET, ADMIN_DRY = 0.5, 0.0
 DRY_FOR = 8.0  # seconds both stay clear of the water before a boat goes back to legs
 WATER_SWITCH_EVERY = 8.0  # the least seconds between two body changes for the water
 CLIMB = 3.0  # metres the admin stands above the agent before a factory takes to the air
+STEEP = 0.7  # the least rise per metre across that reads as a climb (35 degrees): a hillside is a walk
 BLOCKED_FOR = 4.0  # seconds a follow may stand still short of the admin before it counts as blocked
 ROUND = 3.0  # metres a blocked follow steps off its line; one ROUND further out each second try
 GIVE_UP_AFTER = 6  # detours without reaching the admin before it stops trying
@@ -130,6 +134,7 @@ class Companion:
         self.watched = None  # the bearing it last turned to the admin at, while waiting there
         self.sat = False  # a cat has sat since that look
         self.waiting_for = None  # where the admin stood when it gave up going round to them
+        self.hopped = False  # the Skyfactory was put on for a hop, and the admin has not moved since
 
     # ---- reading the world ------------------------------------------------
 
@@ -160,6 +165,12 @@ class Companion:
 
     def idle_for(self):
         return time.time() - self.last_move
+
+    def resume(self):
+        """The pause file is gone: what it knew before the session took over is stale - the agent
+        and the admin have moved - so forget the stall, the waits and the admin's last place."""
+        self.stall, self.under, self.waiting_for, self.last_admin = None, False, None, None
+        self.speed, self.fast_since = 0.0, None
 
     # ---- choosing a spot ----------------------------------------------------
 
@@ -214,15 +225,15 @@ class Companion:
         return True
 
     def wet(self, st, admin):
-        """In the water, or the admin is: below --water-level by WET (the body) or at the surface."""
+        """In the water, or the admin is: below --water-level by WET (the body) or ADMIN_WET (the admin)."""
         level = self.opts.water_level
         if level is None:
             return False
-        return st["position"][1] < level - WET or admin["position"][1] < level + WET
+        return st["position"][1] < level - WET or admin["position"][1] < level - ADMIN_WET
 
     def dry(self, st, admin):
         level = self.opts.water_level
-        return level is None or (st["position"][1] > level + DRY and admin["position"][1] > level + DRY)
+        return level is None or (st["position"][1] > level + DRY and admin["position"][1] > level + ADMIN_DRY)
 
     def pick_body(self, st, admin):
         """The fleet body for the moment, or None to keep the one worn. The water comes first: a
@@ -241,13 +252,15 @@ class Companion:
             if self.dry_since is None or now - self.dry_since < DRY_FOR:
                 return None
             return FLEET["walk"]
-        if admin["position"][1] - st["position"][1] > CLIMB:
-            # The admin is up something - a tower, a roof, a hill: a follow steers straight at
+        if self.up_above(st, admin, CLIMB):
+            # The admin is up something - a tower, a roof, a tree: a follow steers straight at
             # them and a body on legs or wheels wedges at its foot (the Cat Tree), so fly.
             return FLEET["hurry"]
         if self.fast_since and now - self.fast_since > 3.0:
             return FLEET["drive"] if self.speed > DRIVE else FLEET["hurry"]
-        if self.idle_for() > 20.0:
+        if self.idle_for() < self.opts.idle:
+            self.hopped = False  # the admin moves: a hop is over
+        if self.idle_for() > 20.0 and not self.hopped:
             return FLEET["walk"]
         return None
 
@@ -259,8 +272,11 @@ class Companion:
             acts.append("hop")
         act = random.choice(acts)
         if act in ("wander", "hop"):
-            if act == "hop" and not self.wear(FLEET["hurry"]):
-                act = "wander"
+            if act == "hop":
+                if self.wear(FLEET["hurry"]):
+                    self.hopped = True  # kept while the admin rests: legs again once they move on
+                else:
+                    act = "wander"
             point = self.spot(admin, others, self.persona["ring"])
             if point:
                 ask("walk-to", f"{point[0]:.2f}", f"{point[1]:.2f}")
@@ -306,10 +322,12 @@ class Companion:
         return now - self.stall[1] > BLOCKED_FOR
 
     def up_above(self, st, admin, by):
-        """The admin stands more than `by` metres above it and within NEAR across: up a tree, a
-        tower or a roof, where a follow on legs or wheels presses at the foot."""
+        """The admin stands more than `by` metres above it, within NEAR across and steeper than
+        STEEP: up a tree, a tower or a roof, where a follow on legs or wheels presses at the foot -
+        not further up a hillside, which a follow walks."""
         rise = admin["position"][1] - st["position"][1]
-        return rise > by and math.dist(xz(st["position"]), xz(admin["position"])) < NEAR
+        across = math.dist(xz(st["position"]), xz(admin["position"]))
+        return rise > by and across < NEAR and rise > STEEP * across
 
     def go_round(self, st, admin):
         """Step off the blocked line, ROUND to one side and a metre back from what stopped it, then
@@ -319,7 +337,7 @@ class Companion:
         (mx, mz), (ax, az) = xz(st["position"]), xz(admin["position"])
         length = math.hypot(ax - mx, az - mz) or 1.0
         ux, uz = (ax - mx) / length, (az - mz) / length  # toward the admin
-        side = 1.0 if self.detours % 2 else -1.0
+        side = self.side if self.detours % 2 else -self.side  # its own --side first
         reach = ROUND * min(3, (self.detours + 1) // 2)
         x, z = mx - uz * side * reach - ux, mz + ux * side * reach - uz
         ask("halt")
@@ -389,7 +407,8 @@ class Companion:
         body = self.pick_body(st, admin)
         every = WATER_SWITCH_EVERY if FLEET["water"] in (body, self.body) else SWITCH_EVERY
         if body and self.wear(body, every):
-            self.follow(admin)
+            if body != FLEET["walk"] or self.idle_for() < self.opts.idle:
+                self.follow(admin)  # back on legs while the admin rests: it potters on instead
             return
         if self.waiting_for is not None:
             if math.dist(xz(admin["position"]), self.waiting_for) <= MOVED_ON:
@@ -438,10 +457,16 @@ class Companion:
         except Exception as err:  # noqa: BLE001 - a body not known is one to find out by wearing
             log("could not read the inventory:", repr(err))
         log("companion", self.opts.persona, "side", self.opts.side, "wearing", self.body)
+        paused = False
         while self.misses < 15:
             if self.opts.pause_file and os.path.exists(self.opts.pause_file):
+                paused = True
                 time.sleep(TICK)
                 continue
+            if paused:
+                paused = False
+                self.resume()
+                log("resumes")
             try:
                 self.step()
             except Exception as err:  # noqa: BLE001 - it runs for hours: one bad answer must not end it

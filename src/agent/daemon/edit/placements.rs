@@ -7,11 +7,14 @@
 //! Each is listed where it is drawn, which is not always where its record
 //! puts it: a seeded landmark is moved off water before it is set down.
 //!
-//! * `place` is a catalogue drop: the entry is built for the agent, keyed
-//!   the way a drop keys it - the same entry dropped twice shares one
-//!   generator - and set on the ground at its point, snapped to it, as the
-//!   editor's "place at my position" sets one. A name the world already
-//!   holds places another of that thing instead.
+//! * `place` is a drop with no mouse: a catalogue entry is built for the
+//!   agent, and an inventory thing (#1855) copied from the stash, each
+//!   keyed the way a drop keys it - the same entry or item dropped twice
+//!   shares one generator, and one that differs from a namesake the world
+//!   holds is keyed apart from it - and set on the ground at its point,
+//!   snapped to it, as the editor's "place at my position" sets one. A
+//!   name the world already holds places another of that thing instead;
+//!   `--inventory` asks the stash alone.
 //! * `move` is a sideways drag: the placement's new pose is written back by
 //!   the drag's own rule from where it is drawn, and it keeps its height
 //!   above the ground wherever it lands.
@@ -31,8 +34,10 @@ use serde_json::{Value, json};
 use crate::catalogue::by_slug;
 use crate::editor_gizmo::copy::InstanceCopyProxy;
 use crate::pds::inventory::is_drop_placeable;
-use crate::pds::{Fp4, Generator, GeneratorKind, Placement, RoomRecord, ScatterBounds};
-use crate::state::{CurrentRoomDid, LiveRoomRecord};
+use crate::pds::{
+    Fp4, Generator, GeneratorKind, InventoryRecord, Placement, RoomRecord, ScatterBounds,
+};
+use crate::state::{CurrentRoomDid, LiveInventoryRecord, LiveRoomRecord};
 use crate::terrain::FinishedHeightMap;
 use crate::ui::room::caps::Cap;
 use crate::world_builder::{PlacementMarker, snap_footprint_radius, snapped_ground_y};
@@ -259,13 +264,17 @@ fn not_placed(slug: &str) -> Option<String> {
 }
 
 /// Put `what` down in the agent's world at `at` - or ahead of the agent -
-/// turned to `yaw_deg`: a thing the world already holds, by its name, or a
-/// catalogue entry, by its slug.
+/// turned to `yaw_deg`: a thing the world already holds, by its name; else
+/// an inventory thing, by its name (#1855), as a drop from the Inventory
+/// window places it; else a catalogue entry, by its slug. With
+/// `inventory_only`, the inventory alone is asked - for an item whose name
+/// the world already holds.
 pub(super) fn place(
     world: &mut World,
     what: &str,
     at: Option<[f32; 2]>,
     yaw_deg: Option<f32>,
+    inventory_only: bool,
 ) -> Result<Value, String> {
     super::own_room(world)?;
     let pose = local_pose(world);
@@ -273,33 +282,37 @@ pub(super) fn place(
     if Cap::Placements.is_full(record.placements.len()) {
         return Err(Cap::Placements.full_reason());
     }
-    let (key, from, clearance) = if record.generators.contains_key(what) {
-        (what.to_owned(), "world", PLACED_CLEARANCE_M)
-    } else {
-        let entry = by_slug(what).ok_or_else(|| {
-            not_placed(what).unwrap_or_else(|| {
-                format!(
-                    "neither this world nor the catalogue has anything called {what:?}; \
-                     `agent placements` lists the world's things, `agent catalogue <words>` \
-                     searches the catalogue"
-                )
-            })
-        })?;
-        if Cap::Generators.is_full(record.generators.len()) {
-            return Err(Cap::Generators.full_reason());
+    let Found {
+        from,
+        generator,
+        clearance,
+    } = find(world, &record, what, inventory_only)?;
+    // A drop's keying: a tree the world holds under the name, or under a
+    // suffix of it, is shared; one that differs is never overwritten.
+    let (key, added) = match generator {
+        None => (what.to_owned(), false),
+        Some(generator) => {
+            if !is_drop_placeable(&generator) {
+                return Err(format!("{what} is not something that can stand in a world"));
+            }
+            let generator = settled(what, generator);
+            let key = crate::ui::inventory::choose_room_generator_key(
+                &record.generators,
+                what,
+                &generator,
+            );
+            let added = !record.generators.contains_key(&key);
+            if added {
+                if Cap::Generators.is_full(record.generators.len()) {
+                    return Err(Cap::Generators.full_reason());
+                }
+                if let Some(why) = past_the_ceiling(what, &key, &generator) {
+                    return Err(why);
+                }
+                record.generators.insert(key.clone(), generator);
+            }
+            (key, added)
         }
-        let did = world
-            .get_resource::<AtprotoSession>()
-            .map(|session| session.did.clone())
-            .ok_or("the agent is not signed in")?;
-        let generator = entry.build(&did);
-        if !is_drop_placeable(&generator) {
-            return Err(format!("{what} is not something that can stand in a world"));
-        }
-        let key =
-            crate::ui::inventory::choose_room_generator_key(&record.generators, what, &generator);
-        record.generators.entry(key.clone()).or_insert(generator);
-        (key, "catalogue", entry.footprint().clearance)
     };
     let point = match at {
         Some(at) => Vec2::from_array(at),
@@ -319,15 +332,214 @@ pub(super) fn place(
     record.placements.push(placement);
     let index = record.placements.len() - 1;
     super::write_room(world, record, format!("place of {key}"))?;
-    Ok(json!({
+    let mut answer = json!({
         "placed": {
             "index": index,
+            "pointer": format!("/placements/{index}"),
             "name": key,
+            "generator": format!("/generators/{}", key.replace('~', "~0").replace('/', "~1")),
             "from": from,
             "at": [hundredths(point.x), hundredths(point.y)],
             "yaw_deg": hundredths(yaw_deg.map_or(0.0, |yaw| yaw.rem_euclid(360.0))),
         },
-    }))
+    });
+    if from != "world" {
+        if let Some(adjusted) = keyed_apart(what, &key) {
+            answer["adjusted"] = json!(adjusted);
+        }
+    } else if let Some(differs) = inventory_differs(world, what) {
+        answer["inventory_differs"] = json!(differs);
+    }
+    // What the tree it added weighs, as `room set` says it (#1455, #1500).
+    if added {
+        let live = &world.resource::<LiveRoomRecord>().0;
+        answer["record_size"] = super::size::room(live);
+        let live_sync = super::size::live_sync(live);
+        if live_sync.get("refused").is_some() {
+            answer["live_sync"] = live_sync;
+        }
+    }
+    Ok(answer)
+}
+
+/// What [`place`] found to put down: where it came from (`world`,
+/// `inventory` or `catalogue`), the tree to copy into the world - none for
+/// a thing the world already holds - and the room to leave round it.
+struct Found {
+    from: &'static str,
+    generator: Option<Generator>,
+    clearance: f32,
+}
+
+/// Look `what` up for [`place`]: the world's things, then the inventory's,
+/// then the catalogue - or, `inventory_only`, the inventory alone.
+fn find(
+    world: &World,
+    record: &RoomRecord,
+    what: &str,
+    inventory_only: bool,
+) -> Result<Found, String> {
+    let inventory = world
+        .get_resource::<LiveInventoryRecord>()
+        .map(|live| &live.0);
+    if inventory_only {
+        return from_inventory(inventory.ok_or_else(super::inventory::not_loaded)?, what);
+    }
+    if record.generators.contains_key(what) {
+        return Ok(Found {
+            from: "world",
+            generator: None,
+            clearance: PLACED_CLEARANCE_M,
+        });
+    }
+    if let Some(inventory) = inventory.filter(|inventory| inventory.has_name(what)) {
+        return from_inventory(inventory, what);
+    }
+    let entry = by_slug(what).ok_or_else(|| {
+        not_placed(what).unwrap_or_else(|| nothing_called(what, record, inventory))
+    })?;
+    let did = world
+        .get_resource::<AtprotoSession>()
+        .map(|session| session.did.clone())
+        .ok_or("the agent is not signed in")?;
+    Ok(Found {
+        from: "catalogue",
+        generator: Some(entry.build(&did)),
+        clearance: entry.footprint().clearance,
+    })
+}
+
+/// The inventory item `name`, if it is a thing (#1855). A whole avatar or
+/// world is refused with the verb it is for, as the Inventory window's
+/// drag of one places nothing.
+fn from_inventory(inventory: &InventoryRecord, name: &str) -> Result<Found, String> {
+    if let Some(generator) = inventory.generators.get(name) {
+        return Ok(Found {
+            from: "inventory",
+            generator: Some(generator.clone()),
+            clearance: PLACED_CLEARANCE_M,
+        });
+    }
+    if inventory.avatars.contains_key(name) {
+        return Err(format!(
+            "the inventory's {name:?} is an avatar, which is worn, not placed: `agent wear \
+             {name:?}`"
+        ));
+    }
+    if inventory.worlds.contains_key(name) {
+        return Err(format!(
+            "the inventory's {name:?} is a world, which is loaded over the agent's own, not \
+             placed: `agent load {name:?}`"
+        ));
+    }
+    Err(super::inventory::no_such(inventory, name))
+}
+
+/// Why nothing called `what` is placed: no world thing, inventory item or
+/// catalogue entry has the name - with the names it could have meant.
+fn nothing_called(what: &str, record: &RoomRecord, inventory: Option<&InventoryRecord>) -> String {
+    let mut near = super::inventory::near_names(record.generators.keys().map(String::as_str), what);
+    if let Some(inventory) = inventory {
+        near.extend(super::inventory::near_names(
+            inventory.names().map(String::as_str),
+            what,
+        ));
+    }
+    near.sort_unstable();
+    near.dedup();
+    near.truncate(4);
+    let near = if near.is_empty() {
+        String::new()
+    } else {
+        format!(" (near: {})", super::inventory::quoted(&near))
+    };
+    let unloaded = if inventory.is_none() {
+        " - and the inventory has not loaded yet, so it was not asked"
+    } else {
+        ""
+    };
+    format!(
+        "neither this world, the inventory nor the catalogue has anything called {what:?}{near}\
+         {unloaded}; `agent placements` lists the world's things, `agent inventory` the \
+         inventory's, `agent catalogue <words>` searches the catalogue"
+    )
+}
+
+/// `generator` as the world holds it once written - through the record's
+/// wire form and the sanitiser - so that it is compared with the world's
+/// own trees, each written that way, as like with like: an inventory item
+/// stashed live and not yet saved can sit off the wire's grid, and its
+/// second placement would otherwise be keyed apart from its first.
+fn settled(name: &str, generator: Generator) -> Generator {
+    let mut alone = RoomRecord::default();
+    alone.generators.clear();
+    alone.placements.clear();
+    alone.generators.insert(name.to_owned(), generator.clone());
+    super::settle_room(alone)
+        .ok()
+        .and_then(|room| room.generators.into_values().next())
+        .unwrap_or(generator)
+}
+
+/// Why the tree `what` brings in, kept as `key`, is not placed, if it is
+/// not: alone it would be a record past the ceiling a save can write
+/// (`record_size::HARD_RECORD_CEILING_BYTES`), so the world could never be
+/// saved with it. A world saves a record per generator (#1455), so the tree
+/// is weighed as its own record. Past the soft budget it is placed, and the
+/// answer's `record_size` says so, as a `room set` does.
+fn past_the_ceiling(what: &str, key: &str, generator: &Generator) -> Option<String> {
+    use crate::pds::record_size::{HARD_RECORD_CEILING_BYTES, human_bytes};
+    let mut alone = RoomRecord::default();
+    alone.generators.clear();
+    alone.placements.clear();
+    alone.generators.insert(key.to_owned(), generator.clone());
+    let bytes = crate::pds::room::measure_publish(&alone).bytes?;
+    (bytes > HARD_RECORD_CEILING_BYTES).then(|| {
+        format!(
+            "{what:?} would be a record of {} in this world, past the {} a save can write, so \
+             it was not placed",
+            human_bytes(bytes),
+            human_bytes(HARD_RECORD_CEILING_BYTES)
+        )
+    })
+}
+
+/// What a placement of `what` kept as `key` says about the key, if the two
+/// differ: the world holds a different tree under the name, so this one
+/// was keyed apart, as a drop keys it - or the sanitiser cleaned the name.
+fn keyed_apart(what: &str, key: &str) -> Option<String> {
+    use crate::pds::{limits::MAX_GENERATOR_NAME_CHARS, sanitize::names::with_suffix};
+    if key == what {
+        return None;
+    }
+    let clean = with_suffix(what, "", MAX_GENERATOR_NAME_CHARS);
+    Some(if key == clean {
+        format!("the name is kept as {key:?}, as the world's record keeps names")
+    } else {
+        format!(
+            "the world already holds a different thing called {clean:?}, so this one is kept \
+             as {key:?}: `agent place {key:?}` places another of it"
+        )
+    })
+}
+
+/// When `what` placed from the world also names an inventory thing whose
+/// tree differs from the world's (#1855): the world's was placed, and
+/// `--inventory` places the inventory's beside it.
+fn inventory_differs(world: &World, what: &str) -> Option<String> {
+    let item = world
+        .get_resource::<LiveInventoryRecord>()?
+        .0
+        .generators
+        .get(what)?;
+    let held = world.resource::<LiveRoomRecord>().0.generators.get(what)?;
+    let item = settled(what, item.clone());
+    (serde_json::to_value(&item).ok() != serde_json::to_value(held).ok()).then(|| {
+        format!(
+            "the world's own {what:?} was placed; the inventory's {what:?} is a different \
+             tree, which `agent place {what:?} --inventory` places"
+        )
+    })
 }
 
 /// Room left around a thing placed again from the world's own record, which
@@ -623,7 +835,14 @@ mod tests {
         let slug = placeable_slug();
         let generators = record(&app).generators.len();
 
-        let placed = place(app.world_mut(), slug, Some([12.5, -3.25]), Some(90.0)).expect("placed");
+        let placed = place(
+            app.world_mut(),
+            slug,
+            Some([12.5, -3.25]),
+            Some(90.0),
+            false,
+        )
+        .expect("placed");
 
         let record = record(&app);
         let index = placed["placed"]["index"].as_u64().expect("an index") as usize;
@@ -650,8 +869,8 @@ mod tests {
         let slug = placeable_slug();
         let generators = record(&app).generators.len();
 
-        place(app.world_mut(), slug, Some([1.0, 1.0]), None).expect("placed");
-        place(app.world_mut(), slug, Some([5.0, 1.0]), None).expect("placed again");
+        place(app.world_mut(), slug, Some([1.0, 1.0]), None, false).expect("placed");
+        place(app.world_mut(), slug, Some([5.0, 1.0]), None, false).expect("placed again");
 
         let record = record(&app);
         assert_eq!(record.generators.len(), generators + 1);
@@ -671,13 +890,19 @@ mod tests {
         let generators = record(&app).generators.len();
         let placements = record(&app).placements.len();
 
-        let placed =
-            place(app.world_mut(), "owner_monument", Some([2.0, 2.0]), None).expect("placed");
+        let placed = place(
+            app.world_mut(),
+            "owner_monument",
+            Some([2.0, 2.0]),
+            None,
+            false,
+        )
+        .expect("placed");
 
         assert_eq!(placed["placed"]["from"], "world");
         assert_eq!(record(&app).generators.len(), generators);
         assert_eq!(record(&app).placements.len(), placements + 1);
-        let unknown = place(app.world_mut(), "no_such_thing_anywhere", None, None);
+        let unknown = place(app.world_mut(), "no_such_thing_anywhere", None, None, false);
         let why = unknown.expect_err("refused");
         assert!(why.contains("agent catalogue"), "{why}");
     }
@@ -696,7 +921,7 @@ mod tests {
         let slug = placeable_slug();
         let clearance = by_slug(slug).expect("an entry").footprint().clearance;
 
-        place(app.world_mut(), slug, None, None).expect("placed");
+        place(app.world_mut(), slug, None, None, false).expect("placed");
 
         let placement = record(&app).placements.last().expect("placed");
         let [x, _, z] = translation(placement);
@@ -717,7 +942,13 @@ mod tests {
             let one = live.0.placements[0].clone();
             live.0.placements.resize(Cap::Placements.max(), one);
         }
-        let refused = place(app.world_mut(), placeable_slug(), Some([0.0, 0.0]), None);
+        let refused = place(
+            app.world_mut(),
+            placeable_slug(),
+            Some([0.0, 0.0]),
+            None,
+            false,
+        );
         assert_eq!(refused.unwrap_err(), Cap::Placements.full_reason());
         assert_eq!(record(&app).placements.len(), Cap::Placements.max());
     }
@@ -831,8 +1062,8 @@ mod tests {
     fn remove_takes_one_placement_out() {
         let (mut app, _) = app_in(AGENT);
         let slug = placeable_slug();
-        place(app.world_mut(), slug, Some([1.0, 1.0]), None).expect("placed");
-        place(app.world_mut(), slug, Some([2.0, 1.0]), None).expect("placed");
+        place(app.world_mut(), slug, Some([1.0, 1.0]), None, false).expect("placed");
+        place(app.world_mut(), slug, Some([2.0, 1.0]), None, false).expect("placed");
         let count = record(&app).placements.len();
 
         let removed = remove(app.world_mut(), count - 2).expect("removed");
@@ -854,7 +1085,7 @@ mod tests {
         use crate::pds::{InstanceCopy, InstanceSolid};
         let (mut app, _) = app_in(AGENT);
         let slug = placeable_slug();
-        place(app.world_mut(), slug, Some([1.0, 1.0]), None).expect("placed");
+        place(app.world_mut(), slug, Some([1.0, 1.0]), None, false).expect("placed");
         let index = record(&app).placements.len() - 1;
         let name = generator_ref(&record(&app).placements[index])
             .expect("an item")
@@ -1004,9 +1235,11 @@ mod tests {
 
         // Neither is placed: each names the verb it is for.
         let (mut app, _) = super::super::harness::app_in(AGENT);
-        let why = place(app.world_mut(), avatar.slug, Some([1.0, 1.0]), None).expect_err("worn");
+        let why =
+            place(app.world_mut(), avatar.slug, Some([1.0, 1.0]), None, false).expect_err("worn");
         assert!(why.contains("`agent wear"), "{why}");
-        let why = place(app.world_mut(), world.slug, Some([1.0, 1.0]), None).expect_err("loaded");
+        let why =
+            place(app.world_mut(), world.slug, Some([1.0, 1.0]), None, false).expect_err("loaded");
         assert!(why.contains("`agent load"), "{why}");
     }
 
@@ -1046,5 +1279,279 @@ mod tests {
             .filter(|entry| entry.name().to_lowercase().contains("scrap"))
             .count();
         assert!(slugs(&catalogue(Some("scrap"))).len() > by_name);
+    }
+
+    /// An inventory thing to place (#1855): a cottage-shaped cuboid with a
+    /// door child, from wire JSON - the form `room set` takes - each decimal
+    /// off the wire's grid in its float form only through the sanitiser.
+    fn cottage() -> Generator {
+        serde_json::from_value(serde_json::json!({
+            "$type": "network.symbios.gen.cuboid", "size": [40000, 30000, 50000], "solid": true,
+            "children": [{
+                "$type": "network.symbios.gen.cuboid", "size": [6200, 9000, 1000],
+                "solid": false, "transform": {"translation": [0, 4500, 25000]}
+            }]
+        }))
+        .expect("wire JSON")
+    }
+
+    const COTTAGE: &str = "Cat Cottage";
+
+    /// The agent standing in `room`, its inventory holding [`cottage`] as
+    /// "Cat Cottage", the way a gift accepted from the owner leaves it.
+    fn given_a_cottage(room: &str) -> App {
+        let (mut app, _) = super::super::harness::app_in(room);
+        let given = app
+            .world_mut()
+            .resource_mut::<LiveInventoryRecord>()
+            .0
+            .put_item(COTTAGE.into(), cottage(), None);
+        assert!(given);
+        app
+    }
+
+    fn value(generator: &Generator) -> Value {
+        serde_json::to_value(generator).expect("serialises")
+    }
+
+    /// THE CASE (#1855, live session 20): the owner gave Catoid the Cat
+    /// Cottage, and `place "Cat Cottage"` answered that neither the world
+    /// nor the catalogue had it. Now it lands as a drop from the Inventory
+    /// window lands it: the item's tree copied into the record under the
+    /// item's name, an absolute placement of it on the ground where asked,
+    /// turned as asked - written, settled and read back, every placement
+    /// naming a generator the record holds - and the stash keeps the item,
+    /// since a drop copies it. `--inventory` places it the same way.
+    #[test]
+    fn an_inventory_thing_is_placed_as_a_drop_places_it() {
+        let mut app = given_a_cottage(AGENT);
+        let generators = record(&app).generators.len();
+        assert!(!record(&app).generators.contains_key(COTTAGE));
+
+        let placed = place(
+            app.world_mut(),
+            COTTAGE,
+            Some([3.0, 4.0]),
+            Some(160.0),
+            false,
+        )
+        .expect("placed");
+
+        let held = record(&app);
+        let index = held.placements.len() - 1;
+        assert_eq!(placed["placed"]["index"], index);
+        assert_eq!(placed["placed"]["pointer"], format!("/placements/{index}"));
+        assert_eq!(placed["placed"]["name"], COTTAGE);
+        assert_eq!(placed["placed"]["generator"], "/generators/Cat Cottage");
+        assert_eq!(placed["placed"]["from"], "inventory");
+        assert!(placed.get("adjusted").is_none(), "{placed}");
+        assert!(placed["record_size"]["bytes"].is_u64(), "{placed}");
+        assert_eq!(held.generators.len(), generators + 1);
+        assert_eq!(
+            value(&held.generators[COTTAGE]),
+            value(&cottage()),
+            "the item's own tree, children and all"
+        );
+        let placement = &held.placements[index];
+        assert!(matches!(
+            placement,
+            Placement::Absolute { generator_ref, snap_to_terrain: true, .. } if generator_ref == COTTAGE
+        ));
+        assert_eq!(translation(placement), [3.0, 0.0, 4.0]);
+        assert!((yaw_of(rotation(placement)) - 160.0).abs() < 0.01);
+        assert!(super::super::json::missing_generators(held).is_empty());
+        assert!(
+            app.world()
+                .resource::<LiveInventoryRecord>()
+                .0
+                .generators
+                .contains_key(COTTAGE),
+            "a drop copies; the item stays in the stash"
+        );
+
+        let mut app = given_a_cottage(AGENT);
+        let placed = place(app.world_mut(), COTTAGE, Some([3.0, 4.0]), None, true).expect("placed");
+        assert_eq!(placed["placed"]["from"], "inventory");
+        assert_eq!(
+            record(&app).placements.last().and_then(generator_ref),
+            Some(COTTAGE)
+        );
+    }
+
+    /// Placed twice, an inventory thing is one generator placed twice, as two
+    /// drops of it are. A different tree the world already holds under its
+    /// name is never overwritten: the item is keyed apart (`_2`), the answer
+    /// says so, and its second placement shares that `_2` rather than adding
+    /// a `_3` copy. Without `--inventory`, the world's own namesake is the
+    /// one placed, and the answer says the inventory's differs.
+    #[test]
+    fn a_second_placement_of_an_inventory_thing_shares_its_generator() {
+        let mut app = given_a_cottage(AGENT);
+        let generators = record(&app).generators.len();
+        place(app.world_mut(), COTTAGE, Some([1.0, 1.0]), None, false).expect("placed");
+        let again = place(app.world_mut(), COTTAGE, Some([9.0, 1.0]), None, false).expect("again");
+        assert_eq!(again["placed"]["name"], COTTAGE);
+        assert_eq!(record(&app).generators.len(), generators + 1);
+        let of_it = |app: &App, key: &str| {
+            record(app)
+                .placements
+                .iter()
+                .filter(|p| generator_ref(p) == Some(key))
+                .count()
+        };
+        assert_eq!(of_it(&app, COTTAGE), 2);
+
+        // A namesake that differs: the owner's own "Cat Cottage", a shed.
+        let mut app = given_a_cottage(AGENT);
+        let shed = Generator::default_cuboid();
+        app.world_mut()
+            .resource_mut::<LiveRoomRecord>()
+            .0
+            .generators
+            .insert(COTTAGE.into(), shed.clone());
+        let generators = record(&app).generators.len();
+        let apart = place(app.world_mut(), COTTAGE, Some([1.0, 1.0]), None, true).expect("placed");
+        let kept_as = "Cat Cottage_2";
+        assert_eq!(apart["placed"]["name"], kept_as);
+        assert!(
+            apart["adjusted"]
+                .as_str()
+                .is_some_and(|why| why.contains("different thing") && why.contains(kept_as)),
+            "{apart}"
+        );
+        let again = place(app.world_mut(), COTTAGE, Some([9.0, 1.0]), None, true).expect("again");
+        assert_eq!(again["placed"]["name"], kept_as, "{again}");
+        {
+            let held = record(&app);
+            assert_eq!(held.generators.len(), generators + 1, "no _3 copy");
+            assert_eq!(value(&held.generators[kept_as]), value(&cottage()));
+            assert_eq!(
+                value(&held.generators[COTTAGE]),
+                value(&settled(COTTAGE, shed)),
+                "the world's own namesake untouched"
+            );
+        }
+        assert_eq!(of_it(&app, kept_as), 2);
+
+        let worlds =
+            place(app.world_mut(), COTTAGE, Some([5.0, 5.0]), None, false).expect("placed");
+        assert_eq!(worlds["placed"]["from"], "world");
+        assert!(
+            worlds["inventory_differs"]
+                .as_str()
+                .is_some_and(|why| why.contains("--inventory")),
+            "{worlds}"
+        );
+    }
+
+    /// Each refusal says why, in a sentence that names what to do instead,
+    /// and leaves the world as it was: a whole avatar or world in the
+    /// inventory (worn or loaded, never placed), a name nothing holds (with
+    /// the item it could have meant), an inventory not loaded yet, a thing
+    /// that cannot stand in a world, and anyone else's world.
+    #[test]
+    fn placing_from_the_inventory_refuses_what_a_drop_would_not_place() {
+        use crate::pds::AvatarRecord;
+        use crate::pds::inventory::{AvatarItem, WorldItem};
+        let mut app = given_a_cottage(AGENT);
+        {
+            let mut live = app.world_mut().resource_mut::<LiveInventoryRecord>();
+            let body =
+                AvatarItem::from_record(&AvatarRecord::default_for_did(AGENT)).expect("copies");
+            assert!(live.0.put_avatar("Spare Body".into(), body));
+            let harbour = WorldItem::snapshot(&RoomRecord::default_for_did(AGENT)).expect("copies");
+            assert!(live.0.put_world("Harbour".into(), harbour));
+            let ground =
+                Generator::from_kind(crate::ui::room::construct::make_default_for_kind("Terrain"));
+            assert!(live.0.put_item("Hill".into(), ground, None));
+        }
+        let before = value_of(&app);
+        let ask = |app: &mut App, what: &str, only: bool| {
+            place(app.world_mut(), what, Some([1.0, 1.0]), None, only).expect_err("refused")
+        };
+
+        for only in [false, true] {
+            let why = ask(&mut app, "Spare Body", only);
+            assert!(
+                why.contains("is an avatar") && why.contains("`agent wear"),
+                "{why}"
+            );
+            let why = ask(&mut app, "Harbour", only);
+            assert!(
+                why.contains("is a world") && why.contains("`agent load"),
+                "{why}"
+            );
+            let why = ask(&mut app, "Hill", only);
+            assert!(why.contains("not something that can stand"), "{why}");
+            let why = ask(&mut app, "cat_cottage", only);
+            assert!(why.contains("\"Cat Cottage\""), "the near name: {why}");
+        }
+        let why = ask(&mut app, "cat_cottage", true);
+        assert!(why.contains("the inventory has nothing called"), "{why}");
+        let why = ask(&mut app, "cat_cottage", false);
+        assert!(
+            why.contains("agent inventory") && why.contains("agent catalogue"),
+            "{why}"
+        );
+
+        app.world_mut().remove_resource::<LiveInventoryRecord>();
+        let why = ask(&mut app, COTTAGE, true);
+        assert!(why.contains("has not loaded yet"), "{why}");
+        let why = ask(&mut app, COTTAGE, false);
+        assert!(why.contains("has not loaded yet"), "{why}");
+        assert_eq!(value_of(&app), before, "nothing written");
+
+        let mut visiting = given_a_cottage(super::super::harness::OTHER);
+        let before = value_of(&visiting);
+        let why = ask(&mut visiting, COTTAGE, true);
+        assert!(why.contains("not the agent's world"), "{why}");
+        assert_eq!(value_of(&visiting), before);
+    }
+
+    fn value_of(app: &App) -> Value {
+        serde_json::to_value(record(app)).expect("serialises")
+    }
+
+    /// A tree that, alone, would be a record past what a save can write is
+    /// not placed - the world could never be saved with it - and the world
+    /// is left as it was. Weighed as the world would hold it, sanitised (a
+    /// tree of more nodes than a generator may hold is cut to fit, so the
+    /// weight here is in grammar text each node may carry), and measured,
+    /// so the test cannot pass on a tree that fits.
+    #[test]
+    fn an_inventory_thing_past_the_save_ceiling_is_not_placed() {
+        use crate::pds::record_size::HARD_RECORD_CEILING_BYTES;
+        let mut grammar =
+            Generator::from_kind(crate::ui::room::construct::make_default_for_kind("Shape"));
+        if let GeneratorKind::Shape { grammar_source, .. } = &mut grammar.kind {
+            *grammar_source = format!("// {}", "a".repeat(16_000));
+        }
+        let mut heavy = Generator::default_cuboid();
+        heavy.children = vec![grammar; 70];
+        let mut alone = RoomRecord::default();
+        alone.generators.clear();
+        alone
+            .generators
+            .insert("Mountain".into(), settled("Mountain", heavy.clone()));
+        let bytes = crate::pds::room::measure_publish(&alone)
+            .bytes
+            .expect("measured");
+        assert!(bytes > HARD_RECORD_CEILING_BYTES, "{bytes} bytes fits");
+        let mut app = given_a_cottage(AGENT);
+        let given = app
+            .world_mut()
+            .resource_mut::<LiveInventoryRecord>()
+            .0
+            .put_item("Mountain".into(), heavy, None);
+        assert!(given);
+        let before = value_of(&app);
+
+        let why =
+            place(app.world_mut(), "Mountain", Some([1.0, 1.0]), None, true).expect_err("refused");
+
+        assert!(why.contains("past the") && why.contains("save"), "{why}");
+        assert_eq!(value_of(&app), before);
+        // And the cottage beside it still goes in.
+        place(app.world_mut(), COTTAGE, Some([1.0, 1.0]), None, true).expect("placed");
     }
 }

@@ -5,8 +5,9 @@
 use bevy::prelude::*;
 
 use crate::config::agent::{
-    ARRIVE_ON_FOOT_M, ARRIVE_WHEELED_M, FACE_STEP_SECS, FOLLOW_SLACK_M, PROGRESS_STEP_M,
-    STEER_DEAD_ZONE, STUCK_AFTER_SECS, SWING_FIRST_DEG, WHEELED_BRAKE_FLOOR_MS, WHEELED_BRAKE_MS2,
+    ARRIVE_ON_FOOT_M, ARRIVE_WHEELED_M, FACE_PULSE_SECS, FACE_STEP_SECS, FOLLOW_SLACK_M,
+    PROGRESS_STEP_M, STEER_DEAD_ZONE, STUCK_AFTER_SECS, SWING_FIRST_DEG, WHEELED_BRAKE_FLOOR_MS,
+    WHEELED_BRAKE_MS2,
 };
 
 use super::{Controls, heading_off};
@@ -21,18 +22,28 @@ pub(super) enum Ground {
 }
 
 impl Ground {
-    /// How close to its point a walk has arrived.
-    pub(super) fn arrive_within(self) -> f32 {
+    /// How close to its point a walk that set out `from` metres off it has
+    /// arrived: a walker within a metre; a driven body, which cannot stop
+    /// on a coin, within [`ARRIVE_WHEELED_M`] - or within half the way it
+    /// set out from where that is nearer, though never nearer than a
+    /// walker's metre (#1866). A car at rest 2.97-2.99 m from its point
+    /// began inside the fixed circle and ended its walk-to `arrived` at
+    /// once, with that much left and not a key pressed (live 21, Kairos's
+    /// Hexapod and Roadfactory); so a walk-to that ends `arrived` has at
+    /// least halved its way, or began within a metre.
+    pub(super) fn arrive_within(self, from: f32) -> f32 {
         match self {
             Self::OnFoot => ARRIVE_ON_FOOT_M,
-            Self::Wheeled => ARRIVE_WHEELED_M,
+            Self::Wheeled => (0.5 * from).clamp(ARRIVE_ON_FOOT_M, ARRIVE_WHEELED_M),
         }
     }
 
-    /// How long a turn may take: a step on foot, a swing round on wheels.
-    pub(super) fn turn_within(self) -> f64 {
+    /// How long a turn may take: a step on foot - and for a beast lying
+    /// along its capsule, which turns at most `sweep` rad/s, as much longer
+    /// as its longest step ([`face_pulse`]) - a swing round on wheels.
+    pub(super) fn turn_within(self, sweep: Option<f32>) -> f64 {
         match self {
-            Self::OnFoot => FACE_STEP_SECS,
+            Self::OnFoot => FACE_STEP_SECS + face_pulse(sweep) - FACE_PULSE_SECS,
             Self::Wheeled => STUCK_AFTER_SECS,
         }
     }
@@ -54,6 +65,47 @@ impl Ground {
             Self::Wheeled => swing(forward, dir),
         }
     }
+}
+
+/// How fast a beast lying along its capsule can turn (rad/s, #1820): the
+/// walk turns it toward its travel at `turn_rate` of the way a second, its
+/// ends sweeping round no faster than [`LONG_BODY_END_SPEED`] - Catoid's
+/// tabby, 0.41 m from its middle to its ends, at 9.8 rad/s. `None` for a
+/// person, whose facing is
+/// written round in a step, and for every body not on foot.
+///
+/// [`LONG_BODY_END_SPEED`]: crate::player::humanoid::LONG_BODY_END_SPEED
+pub(super) fn lying_sweep(locomotion: &crate::pds::LocomotionConfig) -> Option<f32> {
+    use crate::player::humanoid::LONG_BODY_END_SPEED;
+    match locomotion {
+        crate::pds::LocomotionConfig::Humanoid(p) if p.is_lying() => {
+            let reach = (p.capsule_length.0 * 0.5 + p.capsule_radius.0).max(0.05);
+            let rate = (LONG_BODY_END_SPEED / reach).min(p.turn_rate.0 * std::f32::consts::PI);
+            (rate > 0.0).then_some(rate)
+        }
+        _ => None,
+    }
+}
+
+/// How long one step of a turn on foot holds the walk (s): [`FACE_PULSE_SECS`]
+/// for a person, whose facing comes nine-tenths of the way round in it. A
+/// beast lying along its capsule turns by the physics at no more than
+/// `sweep` rad/s, so its step holds on until it faces the way asked, for
+/// up to half a turn at that rate, the eighth of a second its turn takes to
+/// speed up ([`LONG_BODY_END_ACCEL`]) and a person's step for the last of
+/// it (#1820). Held a person's quarter second, the horse came a third of
+/// the way round a 150-degree turn a step, and each step aimed the next
+/// past the way by all it had left - the shortfall of a slope's push, not
+/// of a turn still under way - so the turn hunted to and fro until it ran
+/// out of time.
+///
+/// [`LONG_BODY_END_ACCEL`]: crate::player::humanoid::LONG_BODY_END_ACCEL
+pub(super) fn face_pulse(sweep: Option<f32>) -> f64 {
+    use crate::player::humanoid::{LONG_BODY_END_ACCEL, LONG_BODY_END_SPEED};
+    sweep.map_or(FACE_PULSE_SECS, |rate| {
+        FACE_PULSE_SECS
+            + f64::from(std::f32::consts::PI / rate + LONG_BODY_END_SPEED / LONG_BODY_END_ACCEL)
+    })
 }
 
 /// A walker: face the camera at the point and walk.

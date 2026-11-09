@@ -531,6 +531,14 @@ change it, or a ready-made one from the Catalogue.
   and retires the outfit it replaced. A rigged body is resolved at once,
   with no fetch. The one already on is refused: "You are already wearing
   ...". `A inventory` marks the avatar item you wear `worn: true`.
+- A wear's answer says what the body is twice (#1866): `kind` in the
+  Inventory's and the Catalogue's words, where every generator body on the
+  car preset is a `skiff` (after the Catalogue's Land-skiffs), and
+  `locomotion` in `status.locomotion`'s - how the body now worn moves:
+  `car`, `hover_boat`, `airplane`, `helicopter`, `humanoid`,
+  `four_legged` or `winged`. Kairos's Hexapod and Roadfactory answer
+  `skiff` and `car`, as they were built: a generator body never walks, so
+  the Hexapod drives on car physics and only its legs walk.
 - The Catalogue's avatars - one per craft, a spread of people, beasts and
   winged bodies -
   are in `A catalogue <words>`'s `avatars`, by slug (`avatar_...`). `A wear

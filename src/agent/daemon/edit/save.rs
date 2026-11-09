@@ -276,6 +276,7 @@ mod tests {
                 slug: placeable_slug().to_owned(),
                 at: Some([3.0, 4.0]),
                 yaw_deg: None,
+                inventory: false,
             },
         )
         .expect("placed");

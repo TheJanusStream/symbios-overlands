@@ -10,11 +10,18 @@
                                            naming what the z-fighting check ran out of time in
                                            (z_fighting_unchecked, #1503: it stops at 3 s) and one
                                            per grammar that draws nothing, with why (grammars,
-                                           #1507: a line that does not parse); exits 3 after a
-                                           CHECK line when any answer was adjusted, ignored a key,
-                                           z-fights, left z-fighting unchecked or drew nothing
-                                           with a grammar, so `apply && save` stops there; a NOTE
-                                           line when the world is past the live ceiling
+                                           #1507: a line that does not parse), and after the
+                                           last answer one per generator that placements name and
+                                           the record does not hold, with the placements
+                                           (missing_generators, #1857: they draw nothing, and a
+                                           save keeps them); exits 3 after a CHECK line when any
+                                           answer was adjusted, ignored a key, z-fights, left
+                                           z-fighting unchecked or drew nothing with a grammar, or
+                                           the last left placements naming generators the record
+                                           does not hold that it did not before the first edit
+                                           (missing_generators_before: those already there are
+                                           warned of, not stopped for), so `apply && save` stops
+                                           there; a NOTE line when the world is past the live ceiling
                                            (live_sync, #1500: the edits reached nobody live - a
                                            save will, #1499)
   rec.py save room|avatar OUT.json [--log LOG "NOTE"] [--hold POINTER]
@@ -126,8 +133,15 @@ def main():
         record, ed = sys.argv[2], sys.argv[3]
         # the labels are the CHECK line's words: an answer naming dropped keys was still written
         flagged = {"adjusted": 0, "ignored a key": 0, "z-fight": 0, "left z-fighting unchecked": 0,
-                   "drew nothing with a grammar": 0}
+                   "drew nothing with a grammar": 0,
+                   "left placements naming generators the record does not hold": 0}
         past_ceiling = None
+        # every answer reads the whole record as it stands (#1857): only the last one's is the record
+        # this apply leaves, since a placement set before its generator's line names it until then
+        missing = []
+        # what the record held before the first edit, by generator: a placement an older session or a
+        # person's editor left dangling is warned of, but stops the chain only if this apply added to it
+        before = None
         for ptr, f, n in edits(ed):
             r = agentlib.result(agentlib.agent(record, "set", ptr, "--file", f), f"set {ptr}")
             # the world's whole record is past the live ceiling (#1500): written, but seen by nobody
@@ -150,9 +164,13 @@ def main():
             # it (#1507): the daemon names each, those that draw nothing first, with the editor's message
             undrawn = [g for g in r.get("grammars") or [] if "error" in g]
             flagged["drew nothing with a grammar"] += bool(undrawn)
+            missing = r.get("missing_generators") or []
+            if before is None:
+                before = r.get("missing_generators_before") or {}
+            dangling = f" missing_generators={len(missing)}" if missing else ""
             print(f"ok {ptr}{at}: adjusted_at={r.get('adjusted_at') or []} ignored_at={ignored} "
                   f"z_fighting={len(zf)} largest={size.get('largest')} "
-                  f"{size.get('bytes')}/{size.get('budget_bytes')}")
+                  f"{size.get('bytes')}/{size.get('budget_bytes')}{dangling}")
             if ignored:
                 # a key the record has no field for was dropped without a word (#1483): a guessed
                 # texture field name left the default in place
@@ -174,6 +192,20 @@ def main():
                 else:
                     print(f"   WARNING: the answer does not say where {ptr} landed (a daemon "
                           f"older than #1470?); a re-run appends it again")
+        grew = False
+        for m in missing:
+            # a placement naming a generator the record does not hold draws nothing, and a save keeps
+            # it (#1857: 66 far pads saved, the owner told the spirals were up)
+            shown = ", ".join(m.get("placements") or [])
+            more = m.get("count", 0) - len(m.get("placements") or [])
+            shown += f" and {more} more" if more > 0 else ""
+            held = (before or {}).get(m.get("generator"), 0)
+            ours = m.get("count", 0) > held
+            grew |= ours
+            whose = "" if ours else " - the record held them before this apply"
+            print(f"WARNING: the record holds no generator {m.get('generator')}: {m.get('count')} "
+                  f"placement(s) name it and draw nothing ({shown}){whose}")
+        flagged["left placements naming generators the record does not hold"] += grew
         if past_ceiling:
             print(f"NOTE: the world is past the live ceiling ({past_ceiling.get('bytes')} of "
                   f"{past_ceiling.get('ceiling_bytes')} bytes): these edits reached nobody live. "

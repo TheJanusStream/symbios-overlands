@@ -486,36 +486,42 @@ pub(crate) fn send_gift_offer(
 /// match the dragged blueprint (so repeated drops of the same inventory
 /// item all share one room generator), and otherwise falls back to a
 /// `_2`, `_3`, … suffix to avoid clobbering a pre-existing generator that
-/// happens to share the inventory name.
+/// happens to share the inventory name - and a suffixed key already holding
+/// the very same blueprint is reused too (#1855), so the second drop of an
+/// item that had to be keyed apart shares its first drop's generator
+/// rather than adding a `_3` copy of it.
 ///
 /// Equality is checked through `serde_json::to_value` because `Generator`
 /// doesn't derive `PartialEq` - same pattern the inventory's dirty diff uses.
 ///
-/// Crate-visible for the agent's `place` (#1422), which is a catalogue drop
-/// with no mouse and keys what it places by this same rule.
+/// Crate-visible for the agent's `place` (#1422, #1855), which is a drop
+/// with no mouse - of a catalogue entry or an inventory thing - and keys
+/// what it places by this same rule.
 pub(crate) fn choose_room_generator_key(
     existing: &HashMap<String, Generator>,
     inventory_name: &str,
     new_gen: &Generator,
 ) -> String {
     use crate::pds::{limits::MAX_GENERATOR_NAME_CHARS, sanitize::names::with_suffix};
+    let same =
+        |held: &Generator| serde_json::to_value(held).ok() == serde_json::to_value(new_gen).ok();
     // The name as the sanitiser keeps it (#1717): a raw name free here can
     // be cleaned onto a part's after this check, and the drop lost.
     let name = with_suffix(inventory_name, "", MAX_GENERATOR_NAME_CHARS);
-    if let Some(existing_gen) = existing.get(&name) {
-        if serde_json::to_value(existing_gen).ok() == serde_json::to_value(new_gen).ok() {
-            return name;
-        }
-    } else {
-        return name;
+    match existing.get(&name) {
+        Some(held) if same(held) => return name,
+        Some(_) => {}
+        None => return name,
     }
     for i in 2u32..u32::MAX {
         // Cut to leave the suffix room under the cap, or the sanitiser cuts
         // it back onto the name it was made unique from, and drops it
         // (#1717).
         let candidate = with_suffix(&name, &format!("_{i}"), MAX_GENERATOR_NAME_CHARS);
-        if !existing.contains_key(&candidate) {
-            return candidate;
+        match existing.get(&candidate) {
+            Some(held) if same(held) => return candidate,
+            Some(_) => {}
+            None => return candidate,
         }
     }
     name
@@ -904,5 +910,31 @@ mod place_drop_tests {
             panic!("the drop placed nothing");
         };
         assert_eq!(generator_ref, &key, "and its placement finds it");
+    }
+
+    /// #1855: an item keyed apart from a namesake it differs from goes in as
+    /// `NAME_2`, and its second drop shares that generator - it used to
+    /// see `NAME_2` taken and add a `_3` copy of the same tree.
+    #[test]
+    fn a_second_drop_of_an_item_keyed_apart_shares_its_generator() {
+        let kind = crate::ui::room::construct::make_default_for_kind;
+        let mut existing = HashMap::new();
+        existing.insert("Cottage".to_string(), Generator::from_kind(kind("Cuboid")));
+        let dropped = Generator::from_kind(kind("Sphere"));
+
+        let first = choose_room_generator_key(&existing, "Cottage", &dropped);
+        assert_eq!(first, "Cottage_2");
+        existing.insert(first.clone(), dropped.clone());
+        assert_eq!(
+            choose_room_generator_key(&existing, "Cottage", &dropped),
+            first,
+            "the second drop reuses the first's key"
+        );
+        let other = Generator::from_kind(kind("Cylinder"));
+        assert_eq!(
+            choose_room_generator_key(&existing, "Cottage", &other),
+            "Cottage_3",
+            "a third, different tree still gets a key of its own"
+        );
     }
 }

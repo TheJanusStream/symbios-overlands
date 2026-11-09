@@ -210,6 +210,7 @@ pub(super) fn follow(args: FollowArgs) -> Result<ExitCode, String> {
         did,
         distance: Some(args.distance),
         run: args.run,
+        standing: args.standing,
     };
     move_and_wait(args.account.name.as_deref(), &request, args.wait)
 }
@@ -411,6 +412,7 @@ pub(super) fn place(args: PlaceArgs) -> Result<ExitCode, String> {
             slug: args.slug,
             at: args.at.as_deref().map(|at| [at[0], at[1]]),
             yaw_deg: args.yaw,
+            inventory: args.inventory,
         },
     )
 }

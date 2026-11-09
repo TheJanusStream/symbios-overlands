@@ -770,14 +770,15 @@ fn worst_turn(log: &[Frame], pairs: impl Iterator<Item = usize>) -> f32 {
 /// than any other** (#1835). Turning round on the spot and walking on a hill
 /// or over rolling ground, the owner's own capsule is not touching the
 /// terrain for a fixed step now and then, and its contacts say it rests on
-/// nothing: a dog walking down 10 degrees, turning round as it goes and after
-/// it stops, and a horse walking ahead and to its left over rolling ground, at
-/// 60 and 144 frames a second, read 21 frames off such steps between them (at
-/// least one is asserted, so the guard is not empty). Read raw, each snapped the
-/// trunk level and back, 9 to 16 degrees in a frame where the walk itself
-/// turns it under 4. Held, the frames on and just after a lost step turn the
-/// trunk no more than half a degree past the most any other frame of the walk
-/// does, and the patch is handed over on every frame.
+/// nothing. On avian 0.7, before #1820, a dog walking down 10 degrees turning
+/// round as it went, and a horse walking ahead and to its left over rolling
+/// ground - each spinning on after its key was let go, as beasts did then -
+/// read 21 frames off such steps between them at 60 and 144 frames a second
+/// (at least one is asserted, so the guard is not empty). Read raw, each
+/// snapped the trunk level and back, 9 to 16 degrees in a frame where the walk
+/// itself turns it under 4. Held, the frames on and just after a lost step
+/// turn the trunk no more than half a degree past the most any other frame of
+/// the walk does, and the patch is handed over on every frame.
 ///
 /// The walks run on avian 0.7's contact tolerance, 5 mm. Avian 0.8 raised
 /// the default to 2 cm, and the capsule's small hops over these grounds now
@@ -785,8 +786,21 @@ fn worst_turn(log: &[Frame], pairs: impl Iterator<Item = usize>) -> f32 {
 /// and the guard would put nothing through. A step can still be lost - a
 /// hop past 2 cm, a bump the walk is not shown here - and the hold is what
 /// meets it, so the walks are run where they lose steps rather than the
-/// floor below being dropped. On 0.8 at 5 mm only the horse's walks lose
-/// any: 9 frames between them, where 0.7 lost 21.
+/// floor below being dropped. On 0.8 at 5 mm only the horse's walks lost
+/// any: 9 frames between them, where 0.7 lost 21 - every one over a second
+/// after its key was let go, while the horse spun on toward the creep its
+/// own spin made. A beast let go stops turning since #1820, and those walks
+/// lose none; a cat setting off to its left across 10 degrees, turning as
+/// it goes, loses one at 0.6 s (two at 144 Hz), the walk that puts the hold
+/// through now.
+///
+/// **A knife edge**: that cat walk alone keeps `lost > 0`, on a single lost
+/// step at 60 Hz (and two at 144). A physics, gait or contact change can tip
+/// it to none, and the guard then fails with nothing wrong in the hold. When
+/// it does, do not drop the floor: run the test with `--nocapture` (each walk
+/// prints its lost frames), find a walk that loses a step again - another
+/// family, key or ground, or a tighter contact tolerance - and add it to the
+/// list, so the hold is put through by something.
 #[test]
 fn a_step_the_physics_loses_moves_the_trunk_no_more_than_any_other() {
     let grounds = grounds();
@@ -802,6 +816,7 @@ fn a_step_the_physics_loses_moves_the_trunk_no_more_than_any_other() {
         ("10 deg", Family::Dog, KeyCode::KeyS),
         ("rolling", Family::Horse, KeyCode::KeyW),
         ("rolling", Family::Horse, KeyCode::KeyA),
+        ("10 deg", Family::Cat, KeyCode::KeyA),
     ] {
         let ground = ground(name);
         let record = beast_record(family);

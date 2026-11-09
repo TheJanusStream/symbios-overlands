@@ -40,13 +40,17 @@ pub enum Request {
     /// Take a picture of what the agent sees and write it to a PNG.
     Look(LookSpec),
     /// Follow the player `did`, `distance` metres behind (a default when
-    /// absent), running if `run`.
+    /// absent), running if `run` - and if `standing` (#1852), starting again
+    /// whenever they are back in the world, and after each errand, until a
+    /// `halt` or a plain follow.
     Follow {
         did: String,
         #[serde(default)]
         distance: Option<f32>,
         #[serde(default)]
         run: bool,
+        #[serde(default)]
+        standing: bool,
     },
     /// Turn to face the player `did`, or the point `at` (x, z) - one of them.
     Face {
@@ -66,14 +70,19 @@ pub enum Request {
         #[serde(default)]
         search: Option<String>,
     },
-    /// Put the catalogue entry `slug` down on the ground at `at` (x, z) - a
-    /// few metres ahead of the agent when absent - turned to `yaw_deg`.
+    /// Put `slug` down on the ground at `at` (x, z) - a few metres ahead of
+    /// the agent when absent - turned to `yaw_deg`: a thing the world holds
+    /// by its name, else an inventory thing by its name (#1855), else a
+    /// catalogue entry by its slug; only an inventory thing when
+    /// `inventory` is set.
     Place {
         slug: String,
         #[serde(default)]
         at: Option<[f32; 2]>,
         #[serde(default)]
         yaw_deg: Option<f32>,
+        #[serde(default)]
+        inventory: bool,
     },
     /// Move the placement `index` to (`x`, `z`), keeping its height above
     /// the ground, and turn it to `yaw_deg` when given.
@@ -382,6 +391,7 @@ pub enum WorldRequest {
         did: String,
         distance: f32,
         run: bool,
+        standing: bool,
     },
     Face {
         did: Option<String>,
@@ -416,6 +426,7 @@ pub enum EditRequest {
         slug: String,
         at: Option<[f32; 2]>,
         yaw_deg: Option<f32>,
+        inventory: bool,
     },
     Move {
         index: usize,
@@ -538,15 +549,31 @@ impl Request {
                 unsaved,
             }),
             Self::Look(spec) => Route::World(WorldRequest::Look(spec)),
-            Self::Follow { did, distance, run } => Route::World(WorldRequest::Follow {
+            Self::Follow {
+                did,
+                distance,
+                run,
+                standing,
+            } => Route::World(WorldRequest::Follow {
                 did,
                 distance: distance.unwrap_or(crate::config::agent::FOLLOW_DISTANCE_M),
                 run,
+                standing,
             }),
             Self::Face { did, at } => Route::World(WorldRequest::Face { did, at }),
             Self::Placements { within_m } => edit(EditRequest::Placements { within_m }),
             Self::Catalogue { search } => edit(EditRequest::Catalogue { search }),
-            Self::Place { slug, at, yaw_deg } => edit(EditRequest::Place { slug, at, yaw_deg }),
+            Self::Place {
+                slug,
+                at,
+                yaw_deg,
+                inventory,
+            } => edit(EditRequest::Place {
+                slug,
+                at,
+                yaw_deg,
+                inventory,
+            }),
             Self::Move {
                 index,
                 x,
@@ -783,7 +810,20 @@ mod tests {
             Request::Place {
                 slug: "lamp".into(),
                 at: Some([1.5, -2.0]),
-                yaw_deg: None
+                yaw_deg: None,
+                inventory: false
+            }
+        );
+        assert_eq!(
+            serde_json::from_str::<Request>(
+                r#"{"command":"place","slug":"Cat Cottage","inventory":true}"#
+            )
+            .unwrap(),
+            Request::Place {
+                slug: "Cat Cottage".into(),
+                at: None,
+                yaw_deg: None,
+                inventory: true
             }
         );
         assert_eq!(
@@ -821,6 +861,7 @@ mod tests {
                 slug: "lamp".into(),
                 at: None,
                 yaw_deg: None,
+                inventory: false,
             },
             Request::Remove { index: 0 },
             Request::RemoveCopy { index: 0, copy: 3 },
@@ -1017,6 +1058,35 @@ mod tests {
             WorldRequest::Ui(UiRequest::Summary { picture: false }).answer_within(),
             crate::config::agent::UI_ANSWER_TIMEOUT
         );
+    }
+
+    /// A follow is standing only when asked (#1852), and a standing one
+    /// routes to the world as one.
+    #[test]
+    fn a_follow_stands_only_when_asked() {
+        let plain: Request =
+            serde_json::from_str(r#"{"command":"follow","did":"did:plc:a"}"#).unwrap();
+        assert_eq!(
+            plain,
+            Request::Follow {
+                did: "did:plc:a".into(),
+                distance: None,
+                run: false,
+                standing: false
+            }
+        );
+        let standing: Request =
+            serde_json::from_str(r#"{"command":"follow","did":"did:plc:a","standing":true}"#)
+                .unwrap();
+        let Route::World(WorldRequest::Follow {
+            standing: true,
+            distance,
+            ..
+        }) = standing.route()
+        else {
+            panic!("a standing follow routes as one");
+        };
+        assert_eq!(distance, crate::config::agent::FOLLOW_DISTANCE_M);
     }
 
     #[test]

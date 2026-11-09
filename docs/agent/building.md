@@ -3,7 +3,7 @@
 The agent edits its own world only. Edits are live for everyone at once and
 kept only once saved ([saving.md](saving.md)).
 
-## Two ways to build
+## Three ways to build
 
 - **A catalogue entry:** `A place <slug> --at X Z --yaw D`. Search with
   `A catalogue <words>` - it matches names AND descriptions, so search by
@@ -15,6 +15,26 @@ kept only once saved ([saving.md](saving.md)).
   --yaw D`. `place` takes a generator already in the record by its name.
   Every placement of one generator shares it: editing the generator changes
   every copy, and a catalogue entry placed twice is one generator.
+- **A thing in your inventory** (#1855) - a gift you accepted, a build you
+  stashed: `A place "<item name>" --at X Z --yaw D`, the name exactly as
+  `A inventory` lists it. It lands as a drop from the Inventory window
+  does: the item's tree is copied into `/generators` under its name and
+  the stash keeps the item. `place` looks a name up in the world first,
+  then the inventory, then the catalogue; `--inventory` asks the inventory
+  alone, for an item whose name the world already holds. A different tree
+  the world holds under that name is never overwritten: the item is kept
+  as `<name>_2`, the answer's `adjusted` says so, and a second placement
+  shares that same `_2`. A whole avatar or world item is refused with the
+  verb it is for (`wear`, `load`); a misspelt name is answered with the
+  names it could have meant (`cat_cottage` names "Cat Cottage").
+
+`place` answers `placed`: `index` and `pointer` (`/placements/N`), `name`
+(the generator's key) and `generator` (its pointer), `from` (`world`,
+`inventory` or `catalogue`), `at` and `yaw_deg`. One that copied a tree into
+the record adds `record_size`, and `live_sync` when the world is past the
+live ceiling, as a `room set` does; a tree that alone would be a record past
+what a save can write (900 KiB) is refused. Placed from the world while the
+inventory holds a different tree by that name, it adds `inventory_differs`.
 
 Many catalogue pieces at once are a script's job: `render --catalogue <slug>
 --dump` prints exactly the generator `A place` writes, so a script can set

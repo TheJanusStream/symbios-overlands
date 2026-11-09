@@ -281,14 +281,111 @@ class Apply(unittest.TestCase):
         self.assertIn("NOTE: the world is past the live ceiling (1500000 of 921600 bytes)", text)
         self.assertNotIn("CHECK:", text)
 
+    def run_apply(self, answers, lines):
+        """rec.py apply over an EDITS file of `lines` (each value `{}`), the stubbed agent answering
+        each set with the next of `answers`: (stdout, exit code)."""
+        replies = iter(answers)
+        with tempfile.TemporaryDirectory() as d:
+            for line in lines:
+                with open(os.path.join(d, line.split()[1]), "w") as fh:
+                    json.dump({}, fh)
+            edits = os.path.join(d, "EDITS")
+            with open(edits, "w") as fh:
+                fh.write("".join(f"{line}\n" for line in lines))
+            out = io.StringIO()
+            code = 0
+            with mock.patch.object(rec.agentlib, "agent", lambda *args: next(replies)), \
+                    mock.patch.object(sys, "argv", ["rec.py", "apply", "room", edits]), \
+                    contextlib.redirect_stdout(out):
+                try:
+                    rec.main()
+                except SystemExit as stopped:
+                    code = stopped.code
+        return out.getvalue(), code
+
+    def test_a_placement_naming_a_missing_generator_stops_the_chain(self):
+        # live session 20 (#1857): 66 placements named ct_padfar_* generators never written, every set
+        # read as clean and the save kept pads that draw nothing. The record the apply leaves is the
+        # last answer's: a WARNING per generator with its placements, and a CHECK
+        clean = {"changed": True, "adjusted_at": [], "z_fighting": [], "ignored_at": [],
+                 "record_size": {"largest": "room", "bytes": 1, "budget_bytes": 2}}
+        missing = dict(clean, missing_generators=[
+            {"generator": "ct_padfar_pink", "count": 18,
+             "placements": [f"/placements/{i}" for i in range(40, 56)]}])
+        text, code = self.run_apply([{"ok": True, "result": missing}], ["/placements/40 pad.json"])
+        self.assertEqual(code, 3)
+        self.assertIn("missing_generators=1", text)
+        self.assertIn("WARNING: the record holds no generator ct_padfar_pink: 18 placement(s) name it and "
+                      "draw nothing (/placements/40, /placements/41, ", text)
+        self.assertIn("/placements/55 and 2 more)", text)
+        self.assertIn("CHECK: 1 edit(s) left placements naming generators the record does not hold", text)
+
+    def test_a_placement_set_before_its_generator_is_not_a_check(self):
+        # an EDITS file may place a thing before its generator's line: the record named it missing until
+        # then, but the apply left none, so the chain goes on
+        clean = {"changed": True, "adjusted_at": [], "z_fighting": [], "ignored_at": [],
+                 "record_size": {"largest": "room", "bytes": 1, "budget_bytes": 2}}
+        missing = dict(clean, missing_generators=[
+            {"generator": "pad", "count": 1, "placements": ["/placements/40"]}])
+        text, code = self.run_apply([{"ok": True, "result": missing}, {"ok": True, "result": clean}],
+                                    ["/placements/40 pad_place.json", "/generators/pad pad.json"])
+        self.assertEqual(code, 0, text)
+        self.assertIn("missing_generators=1", text)
+        self.assertNotIn("WARNING", text)
+        self.assertNotIn("CHECK:", text)
+
+    def test_a_world_already_dangling_applies_with_a_warning(self):
+        # a placement an older session or a person's editor left naming a generator the record does not
+        # hold is in every answer, the last included: it is warned of, but it is not this apply's, so it
+        # does not stop every `apply && save` on that world (the review of #1857)
+        clean = {"changed": True, "adjusted_at": [], "z_fighting": [], "ignored_at": [],
+                 "record_size": {"largest": "room", "bytes": 1, "budget_bytes": 2}}
+        old = dict(clean, missing_generators=[
+            {"generator": "pad", "count": 2, "placements": ["/placements/3", "/placements/9"]}],
+            missing_generators_before={"pad": 2})
+        text, code = self.run_apply([{"ok": True, "result": old}, {"ok": True, "result": old}],
+                                    ["/environment/fog_visibility fog.json", "/generators/barn barn.json"])
+        self.assertEqual(code, 0, text)
+        self.assertIn("WARNING: the record holds no generator pad: 2 placement(s) name it and draw "
+                      "nothing (/placements/3, /placements/9) - the record held them before this apply",
+                      text)
+        self.assertNotIn("CHECK:", text)
+
+    def test_an_apply_adding_a_dangling_placement_to_such_a_world_still_stops(self):
+        # the same world, and an edit that places one more thing naming a missing generator - an old
+        # one, or a new one - stops the chain as on a clean world
+        clean = {"changed": True, "adjusted_at": [], "z_fighting": [], "ignored_at": [],
+                 "record_size": {"largest": "room", "bytes": 1, "budget_bytes": 2}}
+        old = {"generator": "pad", "count": 2, "placements": ["/placements/3", "/placements/9"]}
+        first = dict(clean, missing_generators=[old], missing_generators_before={"pad": 2})
+        for added in ([dict(old, count=3, placements=old["placements"] + ["/placements/40"])],
+                      [old, {"generator": "ct_padfar_pink", "count": 1, "placements": ["/placements/40"]}]):
+            last = dict(clean, missing_generators=added, missing_generators_before={"pad": 2})
+            text, code = self.run_apply([{"ok": True, "result": first}, {"ok": True, "result": last}],
+                                        ["/environment/fog_visibility fog.json", "/placements/- pad.json"])
+            self.assertEqual(code, 3, text)
+            self.assertIn("CHECK: 1 edit(s) left placements naming generators the record does not hold",
+                          text)
+
+    def test_a_refused_copy_stops_the_apply_with_the_daemons_words(self):
+        # #1870: a copy written [x, z] read as no copy and was not drawn, unsaid; the daemon now refuses
+        # the set naming the copy, and apply stops there with its words (a set refused writes nothing)
+        why = ("the copy at /placements/26/copies/1 ([1200,3400]) has fewer than three numbers, so it "
+               "would not be drawn as written: ... an unturned copy is [x, z, 0]")
+        text, code = self.run_apply([{"ok": False, "error": why}], ["/placements/26 yard.json"])
+        self.assertEqual(code, f"set /placements/26 failed: {why}")
+        self.assertNotIn("ok /placements/26", text)
+
     def test_the_usage_names_every_reason_apply_stops(self):
         # the usage text is what rec.py prints for a bad call: it listed three reasons to exit 3 after
-        # the check's time limit (#1503) made a fourth (session 885's review)
+        # the check's time limit (#1503) made a fourth (session 885's review); #1857 made a sixth
         answer = {"ok": True, "result": {"changed": True, "adjusted_at": ["/generators/a/x"],
                                          "z_fighting": [{"a": "/generators/a", "b": "/generators/b"}],
                                          "z_fighting_unchecked": ["/generators/a"],
                                          "ignored_at": ["/generators/a/y"],
                                          "grammars": [{"node": "/generators/a", "error": "line 1: bad"}],
+                                         "missing_generators": [{"generator": "b", "count": 1,
+                                                                 "placements": ["/placements/0"]}],
                                          "record_size": {"largest": "room", "bytes": 1, "budget_bytes": 2}}}
         with tempfile.TemporaryDirectory() as d:
             with open(os.path.join(d, "a.json"), "w") as fh:
@@ -303,7 +400,7 @@ class Apply(unittest.TestCase):
                 rec.main()
         [check] = [line for line in out.getvalue().splitlines() if line.startswith("CHECK:")]
         labels = [part.split(" edit(s) ", 1)[1] for part in check[len("CHECK: "):].split(" - ")[0].split(", ")]
-        self.assertEqual(len(labels), 5, check)
+        self.assertEqual(len(labels), 6, check)
         usage = " ".join(rec.__doc__.split())
         for label in labels:
             self.assertIn(label, usage)
@@ -549,8 +646,8 @@ class CompanionTool(unittest.TestCase):
         self.assertEqual(self.walks(), [])
         self.clock.now += 1.0
         cat.step()
-        # a ROUND to its side and a metre back, away from the admin, then the follow again
-        self.assertEqual(self.walks(), [(3.0, 1.0)])
+        # a ROUND to its side (left, facing the admin north: west) and a metre back, then the follow again
+        self.assertEqual(self.walks(), [(-3.0, 1.0)])
         self.assertEqual(self.calls[-1], ("follow", "@owner.test", "--distance", "2.5"))
 
     def test_a_follow_that_keeps_moving_is_never_blocked(self):
@@ -566,8 +663,15 @@ class CompanionTool(unittest.TestCase):
         # the admin east this time: the step is across the line to them, the metre back along it
         for _ in range(8):
             cat.go_round({"position": [0.0, 0.0, 0.0]}, {"position": [10.0, 0.0, 0.0], "handle": "owner.test"})
-        self.assertEqual(self.walks(), [(-1.0, 3.0), (-1.0, -3.0), (-1.0, 6.0), (-1.0, -6.0),
-                                        (-1.0, 9.0), (-1.0, -9.0), (-1.0, 9.0), (-1.0, -9.0)])
+        self.assertEqual(self.walks(), [(-1.0, -3.0), (-1.0, 3.0), (-1.0, -6.0), (-1.0, 6.0),
+                                        (-1.0, -9.0), (-1.0, 9.0), (-1.0, -9.0), (-1.0, 9.0)])
+
+    def test_a_detour_steps_to_its_own_side_first(self):
+        # facing the admin north, the left is west (-X) and the right east (+X)
+        me, admin = {"position": [0.0, 0.0, 0.0]}, {"position": [0.0, 0.0, -10.0], "handle": "owner.test"}
+        self.make(side="left").go_round(me, admin)
+        self.make(side="right").go_round(me, admin)
+        self.assertEqual(self.walks(), [(-3.0, 1.0), (3.0, 1.0)])
 
     def test_reaching_the_admin_starts_the_next_block_afresh(self):
         cat = self.make()
@@ -622,6 +726,39 @@ class CompanionTool(unittest.TestCase):
         self.assertFalse(cat.under)
         self.assertEqual(self.calls[-1], ("follow", "@owner.test", "--distance", "2.5"))
 
+    def test_a_cat_blocked_on_a_hillside_goes_round_rather_than_wait_as_under_a_tree(self):
+        cat = self.make()
+        self.world((0, 0, 0), (0, 3.5, -10))  # 3.5 m higher but 10 m on: a 19 degree slope, not a trunk
+        cat.step()
+        self.clock.now += companion.BLOCKED_FOR + 0.5
+        cat.step()
+        self.assertFalse(cat.under)
+        self.assertEqual(len(self.walks()), 1)
+
+    def test_a_cat_stays_under_while_the_admin_is_two_to_three_metres_up(self):
+        cat = self.make()
+        cat.under = True
+        self.world((0, 0, 0), (2, 2.5, 0), doing=None)  # under CLIMB, over CLIMB - 1: still up there
+        cat.step()
+        self.assertTrue(cat.under)
+        self.assertEqual(self.calls[-1], ("face", "@owner.test"))
+
+    def test_a_cat_leaves_under_once_the_admin_is_beyond_near_however_high(self):
+        cat = self.make()
+        cat.under = True
+        self.world((0, 0, 0), (companion.NEAR + 0.5, 10, 0), doing=None)  # steep enough, but too far across
+        cat.step()
+        self.assertFalse(cat.under)
+        self.assertEqual(self.calls[-1], ("follow", "@owner.test", "--distance", "2.5"))
+
+    def test_spot_keeps_to_its_own_side_of_the_admin(self):
+        admin = {"position": [0.0, 0.0, 0.0], "facing": [0.0, -1.0]}  # facing north: left is -X, right +X
+        for side, sign in (("left", -1.0), ("right", 1.0)):
+            agent = self.make(side=side)
+            for _ in range(50):
+                x, _z = agent.spot(admin, [], (2.5, 5.0))
+                self.assertGreater(sign * x, 0.0, side)
+
     def test_a_factory_on_the_fleet_goes_round_where_a_cat_would_wait_as_it_flies_up(self):
         factory = self.make(**self.FACTORY)
         factory.body = companion.FLEET["hurry"]  # already in the air for the climb
@@ -657,6 +794,53 @@ class CompanionTool(unittest.TestCase):
         factory.step()
         self.assertEqual(self.count("wear"), 1)
 
+    def test_a_fleet_factory_climbs_into_the_air_only_for_a_steep_rise_near_the_admin(self):
+        factory = self.make(**self.FACTORY)
+        factory.body = companion.FLEET["walk"]
+        me = {"position": [0.0, 0.0, 0.0]}
+        self.assertEqual(factory.pick_body(me, {"position": [2.0, 7.0, 0.0]}), companion.FLEET["hurry"])  # a tree
+        self.assertIsNone(factory.pick_body(me, {"position": [0.0, 3.5, -10.0]}))  # up a hillside
+        self.assertIsNone(factory.pick_body(me, {"position": [0.0, 30.0, -40.0]}))  # far off, on a ridge
+
+    def test_an_admin_on_a_low_beach_is_on_land_for_the_fleet(self):
+        factory = self.make(**dict(self.FACTORY, water_level=10.0))
+        factory.body = companion.FLEET["walk"]
+        me = {"position": [0.0, 11.0, 0.0]}
+        self.assertIsNone(factory.pick_body(me, {"position": [3.0, 10.1, 0.0]}))  # on the sand, just over the surface
+        self.assertEqual(factory.pick_body(me, {"position": [3.0, 9.0, 0.0]}), companion.FLEET["water"])  # swimming
+        # a boat whose admin has come up that beach goes back to legs after DRY_FOR
+        factory.body = companion.FLEET["water"]
+        beach = {"position": [3.0, 10.4, 0.0]}
+        self.assertIsNone(factory.pick_body(me, beach))
+        self.clock.now += companion.DRY_FOR + 1.0
+        self.assertEqual(factory.pick_body(me, beach), companion.FLEET["walk"])
+
+    def test_a_hop_into_the_air_is_kept_while_the_admin_rests_and_nothing_follows_mid_potter(self):
+        factory = self.make(**self.FACTORY)
+        factory.body = companion.FLEET["walk"]
+        self.world((0, 0, 0), (0, 0, -6), doing=None)
+        factory.step()  # the admin only just seen: it follows them
+        self.clock.now += 30.0
+        follows = self.count("follow")
+        with mock.patch.object(companion.random, "choice", lambda seq: "hop" if "hop" in seq else seq[0]):
+            factory.potter(self.status, self.status["peers"][0], [])
+        self.assertEqual(factory.body, companion.FLEET["hurry"])
+        self.clock.now += companion.SWITCH_EVERY + 1.0
+        factory.step()
+        self.assertEqual(self.count("wear"), 1)  # still in the air: the hop is not undone by the rest
+        self.assertEqual(self.count("follow"), follows)
+        # the admin moves on and rests again: then the legs come back, without a follow mid-potter
+        self.world((0, 0, 0), (0, 0, -9), doing=None)
+        self.clock.now += 1.0
+        factory.step()
+        self.world((0, 0, 0), (0, 0, -9), doing=None)
+        self.clock.now += 21.0
+        follows = self.count("follow")
+        factory.step()
+        self.assertEqual(self.count("wear"), 2)
+        self.assertEqual(factory.body, companion.FLEET["walk"])
+        self.assertEqual(self.count("follow"), follows)
+
     def test_dry_for_counts_time_clear_of_the_water_without_a_break(self):
         boat = self.make(**dict(self.FACTORY, water_level=10.0))
         boat.body = companion.FLEET["water"]
@@ -685,6 +869,24 @@ class CompanionTool(unittest.TestCase):
         with tempfile.NamedTemporaryFile() as pause, mock.patch.object(companion, "PAUSE", pause.name):
             self.assertIsNone(companion.ask("follow", "@owner.test"))
         self.assertEqual(self.calls, [])
+
+    def test_a_resume_after_the_pause_forgets_the_stall_the_waits_and_the_admins_last_place(self):
+        fd, pause = tempfile.mkstemp()
+        os.close(fd)
+        self.addCleanup(lambda: os.path.exists(pause) and os.remove(pause))
+        cat = self.make(pause_file=pause)
+        cat.stall, cat.under, cat.waiting_for = ((0.0, 0.0), self.clock.now), True, (0.0, -20.0)
+        cat.last_admin = ((0.0, -20.0), self.clock.now)
+        real_sleep = self.clock.sleep
+
+        def sleep(seconds):  # the session hands the agent back during the first paused tick
+            if os.path.exists(pause):
+                os.remove(pause)
+            real_sleep(seconds)
+
+        self.clock.sleep = sleep
+        cat.run()  # no daemon: after the pause, 15 unanswered ticks end it
+        self.assertEqual((cat.stall, cat.under, cat.waiting_for, cat.last_admin), (None, False, None, None))
 
     def test_a_world_still_loading_is_waited_for_not_given_up_on(self):
         cat = self.make()

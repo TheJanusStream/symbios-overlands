@@ -119,7 +119,12 @@ fn answer(world: &mut World, request: WorldRequest, reply: mpsc::Sender<Response
             unsaved,
         } => travel::travel(world, room_did, label, unsaved)
             .map_or_else(Response::failure, Response::success),
-        WorldRequest::Follow { did, distance, run } => movement::follow(world, did, distance, run)
+        WorldRequest::Follow {
+            did,
+            distance,
+            run,
+            standing,
+        } => movement::follow(world, did, distance, run, standing)
             .map_or_else(Response::failure, Response::success),
         WorldRequest::Face { did, at } => {
             let target = match (did, at) {
@@ -214,6 +219,7 @@ mod one_edit_a_frame_tests {
             slug: placeable_slug().to_owned(),
             at: Some([x, 0.0]),
             yaw_deg: None,
+            inventory: false,
         })
     }
 
@@ -326,6 +332,7 @@ mod stop_tests {
                 slug: placeable_slug().to_owned(),
                 at: Some([1.0, 1.0]),
                 yaw_deg: None,
+                inventory: false,
             },
         )
         .expect("placed");

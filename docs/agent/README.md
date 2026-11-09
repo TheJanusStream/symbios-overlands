@@ -12,7 +12,7 @@ not repeat it, it says how to use it well.
 | [session.md](session.md) | a live session with the owner: starting from a short prompt, the modes, saving, signing an account in again, "session over" |
 | [accounts/](accounts/README.md) | playing one of the agent's accounts: who it is, its body and region, where its work is kept |
 | [chat.md](chat.md) | the first task: the event watcher, crossed lines, how to answer |
-| [building.md](building.md) | any `place`, `move`, `room set`: frames, sizes, JSON, z-fighting; buildings by shape grammar |
+| [building.md](building.md) | any `place` (a catalogue entry, a thing of your world or of your inventory), `move`, `room set`: frames, sizes, JSON, z-fighting; buildings by shape grammar |
 | [looking.md](looking.md) | trusting a `look` picture, judging something by eye, or rendering your world offline at an hour or under a weather |
 | [moving.md](moving.md) | `walk-to`, `follow`, `face`, getting somewhere to look from |
 | [saving.md](saving.md) | `save`, `undo`, a restart, anything that could lose edits; a whole avatar or world kept in the inventory (`stash-avatar`, `stash-world`, `load`) |
@@ -129,8 +129,10 @@ as long as you resume from the last `seq` you actually read.
 - A restart (`stop` then `start`) puts the body back at the world's landing
   point and throws away unsaved edits.
 - The admin may set a standing task ("follow me for the session"): it
-  outlives their comings and goings - start it again on every
-  `peer_joined` ([chat.md](chat.md)).
+  outlives their comings and goings - `follow @admin --standing` starts it
+  again on their return and after each errand, until `halt`; a restart
+  forgets it, so give it again after a `start`
+  ([moving.md](moving.md#a-standing-follow), [chat.md](chat.md)).
 - Every session so far lost time rewriting the same helpers from these
   pages: they ship in [tools/](tools/README.md) now - use them.
 - A person's browser tab left in the background is swept as gone after two
@@ -143,7 +145,9 @@ as long as you resume from the last `seq` you actually read.
   and `load` a world item put one back, each one undo step and unsaved
   until saved; `catalogue` lists ready-made `avatars` and `worlds` for the
   same verbs by slug ([saving.md](saving.md), [avatar.md](avatar.md),
-  [region.md](region.md)). `gift give` gives an avatar item, or a world
+  [region.md](region.md)). A thing item is set in your own world with
+  `place "<item>"` (#1855), as a drop from the Inventory window sets it
+  ([building.md](building.md)). `gift give` gives an avatar item, or a world
   item once the inventory is saved, to a player whose game can take one;
   `gift accept` of an offered world fetches it from the giver's saved copy
   and says how that ended as an event (#1847).

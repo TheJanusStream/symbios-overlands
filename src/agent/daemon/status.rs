@@ -332,7 +332,7 @@ fn holds(generator: &Generator, is: &dyn Fn(&GeneratorKind) -> bool) -> bool {
 /// what it is all the same (#1809): its collider and what it can wear are not a
 /// person's. So is a winged body (#1875), `winged`, whichever family leads it
 /// - a bat on four legs too: what it can do is a winged body's, not a beast's.
-fn locomotion_word(record: &crate::pds::AvatarRecord) -> &'static str {
+pub(super) fn locomotion_word(record: &crate::pds::AvatarRecord) -> &'static str {
     match &record.locomotion {
         LocomotionConfig::Humanoid(_)
             if crate::pds::avatar::locomotion::winged_on_foot(record).is_some() =>

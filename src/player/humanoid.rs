@@ -795,9 +795,20 @@ pub(super) fn apply_humanoid_walk(
             // not (#1746): A, D and S step it sideways and back - the rig
             // reads its travel against its facing
             // (`rigged::motion::heading_of`) - instead of turning it round.
+            //
+            // A beast lying along its capsule turns toward its travel only
+            // while it is walked (#1820). Spun on the ground, a lying
+            // capsule creeps from its own spin, 50-70 degrees ahead of its
+            // nose; turned toward that creep after its keys were let go, a
+            // beast spun on by itself at its full rate until the creep fell
+            // under 0.1 m/s - the dog round by 128 degrees past where it was
+            // walked. Let go, it stops turning where it faces, as it stops
+            // walking. A person's turn is a facing written to its transform,
+            // which moves nothing the physics sees, so it turns on toward its
+            // travel as it slows, as it always has.
             if looking && h_forward != Vec3::ZERO {
                 facing_target = Some(h_forward);
-            } else if new_h.length_squared() > 0.01 {
+            } else if new_h.length_squared() > 0.01 && (any_input || !p.is_lying()) {
                 facing_target = Some(new_h.normalize());
             }
 
@@ -3760,6 +3771,55 @@ mod beast_on_foot {
                 sunk * 1000.0
             );
         }
+    }
+
+    /// **A beast let go mid-turn does not spin on past the way it was walked**
+    /// (#1820). From facing -Z, D walks it toward +X (A toward -X) for a
+    /// sixteenth to a quarter of a second and is let go: it comes to rest
+    /// facing somewhere between where it stood and the way it was walked,
+    /// and stays there. A lying capsule spun on the ground gathers a creep
+    /// from its own spin, and the walk turned it toward its velocity until
+    /// that fell under 0.1 m/s: the creep kept 50-70 degrees ahead of its
+    /// nose, so the turn ran on at its full rate by itself - what made the
+    /// agent's `face`, which turns a body on foot in short steps, end `stuck`
+    /// 60 degrees off on Catoid's tabby in live 17.
+    #[test]
+    fn a_beast_let_go_mid_turn_does_not_spin_on() {
+        let mut failures = Vec::new();
+        for family in FAMILIES {
+            let record = beast_record(family);
+            for (key, way) in [(KeyCode::KeyD, -90.0_f32), (KeyCode::KeyA, 90.0)] {
+                for steps in [4, 8, 12, 16] {
+                    let mut bench = WalkBench::standing(&record, 0.0, 0.0);
+                    bench.hold(&[key]);
+                    for _ in 0..steps {
+                        bench.step();
+                    }
+                    let let_go = yaw(bench.rotation()).to_degrees();
+                    bench.hold(&[]);
+                    // The yaw carried on through whole turns, and how far
+                    // past the way it was walked it has swung, at most.
+                    let (mut turned, mut last, mut past) = (let_go, let_go, f32::MIN);
+                    for _ in 0..64 {
+                        bench.step();
+                        let now = yaw(bench.rotation()).to_degrees();
+                        turned += (now - last + 540.0).rem_euclid(360.0) - 180.0;
+                        last = now;
+                        past = past.max((way - turned) * -way.signum());
+                    }
+                    let rest = turned;
+                    let spin = bench.angular_velocity().y;
+                    if past > 2.0 || rest * way < 0.0 || spin.abs() > 1e-3 {
+                        failures.push(format!(
+                            "a {family:?} walked {key:?} {steps} steps, let go at {let_go:.1} \
+                             deg, swung {past:.1} past {way} and rests at {rest:.1}, turning at \
+                             {spin:.2} rad/s"
+                        ));
+                    }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{failures:#?}");
     }
 
     /// **A beast turning beside a wall stays out of it** (#1802): standing

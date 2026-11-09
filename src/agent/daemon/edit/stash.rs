@@ -243,12 +243,21 @@ fn with_wear_surface(
 }
 
 /// What a wear that landed answers: what is worn, and the step `agent undo`
-/// takes back.
-fn worn(name: &str, kind: &str) -> Value {
+/// takes back. `kind` is the Inventory's and the Catalogue's word for it,
+/// where every generator body on the car preset is a `skiff`; `locomotion`
+/// is how the body now worn moves, in `status.locomotion`'s words - `car`
+/// for that skiff (#1866: live 21 read `skiff` for Kairos's Hexapod and
+/// Roadfactory, car-preset bodies since they were built, and took it for a
+/// chassis they had not been built on).
+fn worn(world: &World, name: &str, kind: &str) -> Value {
+    let locomotion = world
+        .get_resource::<LiveAvatarRecord>()
+        .map(|live| super::super::status::locomotion_word(&live.0));
     json!({
         "wearing": name,
         "is": "avatar",
         "kind": kind,
+        "locomotion": locomotion,
         "undo": format!("wear {name}"),
         "unsaved_until": "agent save avatar",
     })
@@ -274,7 +283,7 @@ pub(super) fn wear_item(world: &mut World, name: &str, item: &AvatarItem) -> Res
             now,
         )
     })?;
-    Ok(worn(name, item.kind().label()))
+    Ok(worn(world, name, item.kind().label()))
 }
 
 /// `agent wear <avatar slug>`: the Catalogue's Wear on an avatar entry.
@@ -287,7 +296,7 @@ pub(super) fn wear_entry(world: &mut World, entry: &AvatarEntry) -> Result<Value
         .built()
         .and_then(|built| built.item.as_ref().ok())
         .map_or("avatar", |item| item.kind().label());
-    Ok(worn(entry.name, kind))
+    Ok(worn(world, entry.name, kind))
 }
 
 /// Whether a world load is under way - the one-at-a-time rule.
@@ -913,6 +922,60 @@ mod tests {
         let history = app.world().resource::<AvatarUndoHistory>();
         assert_eq!(history.len(), before + 1, "one undo step");
         assert!(unsaved(app.world_mut()).contains(&"avatar"));
+    }
+
+    /// #1866: a body on car physics wears as a `skiff` - the Inventory's
+    /// and the Catalogue's word for every generator body on the car preset,
+    /// after the Catalogue's Land-skiffs - and the answer says how it moves
+    /// in `status.locomotion`'s words: `car`. Live 21 read `skiff` for
+    /// Kairos's Hexapod and Roadfactory, two car-preset bodies since they
+    /// were built, and took it for a chassis they had not been built on.
+    /// An inventory item and a Catalogue entry answer alike.
+    #[test]
+    fn a_worn_avatar_says_how_it_moves() {
+        use crate::seeded_defaults::{AvatarPins, CraftType, SkiffType};
+        let (mut app, _) = app_in(AGENT);
+        app.world_mut().insert_resource(LiveAvatarRecord(rigged()));
+        let mut pins = AvatarPins::default();
+        pins.lock_craft(Some(CraftType::Skiff(SkiffType::Wagon)));
+        let car = AvatarRecord::default_for_seed(pins.find_seed(0).expect("a skiff seed"));
+        assert!(matches!(
+            car.locomotion,
+            crate::pds::LocomotionConfig::Car(_)
+        ));
+        let item = AvatarItem::from_record(&car).expect("copies");
+        app.world_mut()
+            .resource_mut::<LiveInventoryRecord>()
+            .0
+            .put_avatar("Kairos Hexapod".into(), item);
+
+        let worn = ask(
+            &mut app,
+            EditRequest::Wear {
+                name: "Kairos Hexapod".into(),
+            },
+        )
+        .expect("worn");
+        assert_eq!(
+            (worn["kind"].as_str(), worn["locomotion"].as_str()),
+            (Some("skiff"), Some("car")),
+            "{worn}"
+        );
+
+        let entry = crate::catalogue::avatars::avatar_by_slug("avatar_skiff_rover")
+            .expect("the rover Kairos's cars were built from");
+        let worn = ask(
+            &mut app,
+            EditRequest::Wear {
+                name: entry.slug.into(),
+            },
+        )
+        .expect("worn");
+        assert_eq!(
+            (worn["kind"].as_str(), worn["locomotion"].as_str()),
+            (Some("skiff"), Some("car")),
+            "{worn}"
+        );
     }
 
     /// A world item needs a grant newer than a sign-in made before #1839:

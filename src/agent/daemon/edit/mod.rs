@@ -90,7 +90,12 @@ pub(super) fn answer(world: &mut World, request: EditRequest) -> Result<Value, S
     match request {
         EditRequest::Placements { within_m } => placements::list(world, within_m),
         EditRequest::Catalogue { search } => Ok(placements::catalogue(search.as_deref())),
-        EditRequest::Place { slug, at, yaw_deg } => placements::place(world, &slug, at, yaw_deg),
+        EditRequest::Place {
+            slug,
+            at,
+            yaw_deg,
+            inventory,
+        } => placements::place(world, &slug, at, yaw_deg, inventory),
         EditRequest::Move {
             index,
             copy: None,
@@ -711,6 +716,7 @@ mod tests {
                 slug: placeable_slug().to_owned(),
                 at: Some(at),
                 yaw_deg: None,
+                inventory: false,
             },
         )
     }
@@ -992,6 +998,7 @@ mod describe_tests {
                 slug: placeable_slug().to_owned(),
                 at: Some([1.0, 1.0]),
                 yaw_deg: None,
+                inventory: false,
             },
         )
         .expect("placed");

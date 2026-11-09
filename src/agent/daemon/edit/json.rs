@@ -36,6 +36,15 @@
 //! nothing - the grammar forge's message, a line that does not parse or a
 //! derivation that failed - since an empty `z_fighting` can also mean a
 //! grammar drew nothing at all.
+//!
+//! Every set reads the record as it leaves it for placements naming a
+//! generator it does not hold, which draw nothing and which a save keeps,
+//! and names each such generator with the placements naming it
+//! (`missing_generators`, #1857) - and, by generator, how many placements
+//! named it before the edit (`missing_generators_before`). A copy of an
+//! instance set the record would not read as written - fewer than three
+//! whole numbers, more than six, or not a list at all - is refused by its
+//! pointer, as the reader drops it without a word (#1870).
 
 use bevy::prelude::*;
 use serde_json::{Value, json};
@@ -76,6 +85,8 @@ pub(super) fn room_set(world: &mut World, pointer: &str, value: Value) -> Result
     let mut document =
         serde_json::to_value(&record).map_err(|e| format!("the record does not serialise: {e}"))?;
     let appended = set_part(&mut document, pointer, value.clone())?;
+    // A copy the reader drops is refused here, where it can be named (#1870).
+    check_copies(&document)?;
     // An append is read back, and answered, where it landed (#1470).
     let at = appended.as_deref().unwrap_or(pointer);
     let before = super::settle_room(record)?;
@@ -111,6 +122,23 @@ pub(super) fn room_set(world: &mut World, pointer: &str, value: Value) -> Result
         "record_size": super::size::room(live),
     });
     z_fighting.answer(&mut answer);
+    // The record as the edit leaves it, not the value sent (#1857): an edit
+    // that takes away a generator still placed leaves its placements too.
+    let missing = missing_generators(live);
+    if !missing.is_empty() {
+        answer["missing_generators"] = json!(missing);
+    }
+    // And how many placements named each before the edit, by generator, so
+    // a caller can tell what its own edits added from a placement an older
+    // session or a person's editor left (`rec.py apply` stops only for the
+    // first).
+    let held: serde_json::Map<String, Value> = missing_generators(&before)
+        .into_iter()
+        .filter_map(|m| Some((m["generator"].as_str()?.to_owned(), m["count"].clone())))
+        .collect();
+    if !held.is_empty() {
+        answer["missing_generators_before"] = Value::Object(held);
+    }
     if appended.is_some() {
         answer["appended"] = json!(true);
     }
@@ -128,6 +156,108 @@ pub(super) fn room_set(world: &mut World, pointer: &str, value: Value) -> Result
         answer["live_sync"] = live_sync;
     }
     Ok(answer)
+}
+
+/// At most this many placements are named for each missing generator.
+const MAX_NAMED_PLACEMENTS: usize = 16;
+
+/// Each generator a placement of `record` names that the record does not
+/// hold (#1857), by name, sorted: how many placements name it (`count`)
+/// and the first [`MAX_NAMED_PLACEMENTS`] of them by pointer
+/// (`placements`). The world draws such a placement as nothing - the
+/// compile skips it with a log line no agent reads - and a save keeps it,
+/// so live session 20 saved 66 pads naming four generators its builder
+/// never wrote, and told the owner they were up. A placement names a
+/// generator of the record and nothing else: a catalogue or inventory
+/// item is copied into the record's `generators` when it is placed, and
+/// the compile looks a `generator_ref` up there alone, so every name is
+/// checked against the record. A placement of a kind this build does not
+/// know names nothing it can read, and is passed over.
+pub(super) fn missing_generators(record: &RoomRecord) -> Vec<Value> {
+    let mut missing: std::collections::BTreeMap<&str, Vec<usize>> = Default::default();
+    for (i, placement) in record.placements.iter().enumerate() {
+        if let Some(name) = placement.generator_ref()
+            && !record.generators.contains_key(name)
+        {
+            missing.entry(name).or_default().push(i);
+        }
+    }
+    missing
+        .into_iter()
+        .map(|(name, at)| {
+            let named: Vec<String> = at
+                .iter()
+                .take(MAX_NAMED_PLACEMENTS)
+                .map(|i| format!("/placements/{i}"))
+                .collect();
+            json!({ "generator": name, "count": at.len(), "placements": named })
+        })
+        .collect()
+}
+
+/// An instance set's `$type`.
+const INSTANCES: &str = "network.symbios.place.instances";
+
+/// How a copy of an instance set is written, for one that would not read.
+const COPY_FORM: &str = "a copy is a list of three to six whole numbers, [x, z, yaw, variant, \
+     scale, y], and only variant, scale and y may be left out - an unturned copy is [x, z, 0]";
+
+/// Refuse `document` - the whole record as sent - when an instance set in
+/// it holds a copy the record would not read as written (#1870). The
+/// reader drops a copy that is not a list of at least three whole numbers,
+/// and reads past every number after the sixth, without a word (#1119:
+/// bad data is never a bad parse), so a copy written `[x, z]` - its yaw
+/// left out as a trailing default is - was not drawn, and the set
+/// answered as clean: Kairos's gatehouse cabin was missing live until a
+/// look caught it. The reader is frozen, as every record written before
+/// must keep reading as it does, so the writer refuses such a copy instead,
+/// naming it by pointer; the live record only ever holds copies it writes
+/// in full, so only a copy sent can be named. A `copies` that is not a
+/// list reads as none, and is refused the same way.
+fn check_copies(document: &Value) -> Result<(), String> {
+    let Some(placements) = document.get("placements").and_then(Value::as_array) else {
+        return Ok(());
+    };
+    for (i, placement) in placements.iter().enumerate() {
+        if placement.get("$type").and_then(Value::as_str) != Some(INSTANCES) {
+            continue;
+        }
+        let Some(copies) = placement.get("copies") else {
+            continue;
+        };
+        let at = format!("/placements/{i}/copies");
+        let Some(copies) = copies.as_array() else {
+            return Err(format!(
+                "the copies at {at} are not a list, and none of them would be drawn: they are a \
+                 list of copies, and {COPY_FORM}"
+            ));
+        };
+        for (c, copy) in copies.iter().enumerate() {
+            if let Some(why) = copy_fault(copy) {
+                return Err(format!(
+                    "the copy at {at}/{c} ({copy}) {why}, so it would not be drawn as written: \
+                     {COPY_FORM}"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// What is wrong with one copy as written, or `None` for a copy the record
+/// reads whole: three to six whole numbers.
+fn copy_fault(copy: &Value) -> Option<&'static str> {
+    let Some(numbers) = copy.as_array() else {
+        return Some("is not a list");
+    };
+    if !numbers.iter().all(|n| n.is_i64() || n.is_u64()) {
+        return Some("holds what is not a whole number");
+    }
+    match numbers.len() {
+        0..=2 => Some("has fewer than three numbers"),
+        3..=6 => None,
+        _ => Some("has more than six numbers, and the record keeps six"),
+    }
 }
 
 /// Why `document` - JSON that did not read as `what` - did not: serde's
@@ -1312,6 +1442,229 @@ mod world_tests {
             set["grammars"],
             json!([{ "node": "/generators/house", "terminals": 2 }]),
             "{set}"
+        );
+    }
+
+    /// #1857, live session 20: 66 placements named `ct_padfar_*`
+    /// generators the builder never wrote, every set answered as clean and
+    /// the save kept 66 placements that draw nothing. A set that leaves a
+    /// placement naming a generator the record does not hold names the
+    /// generator and the placements, and a set that writes the generator
+    /// answers without it again.
+    #[test]
+    fn a_set_leaving_a_placement_naming_a_missing_generator_says_so() {
+        let (mut app, _) = app_in(AGENT);
+        let (mut placement, count) = prop_placement(&app);
+        let held = placement["generator_ref"]
+            .as_str()
+            .expect("a name")
+            .to_owned();
+        placement["generator_ref"] = json!("ct_padfar_pink");
+
+        let first = room_set(app.world_mut(), "/placements/-", placement.clone()).expect("set");
+        assert!(first.get("missing_generators_before").is_none(), "{first}");
+        assert_eq!(
+            first["missing_generators"],
+            json!([{
+                "generator": "ct_padfar_pink",
+                "count": 1,
+                "placements": [format!("/placements/{count}")],
+            }]),
+            "{first}"
+        );
+        let second = room_set(app.world_mut(), "/placements/-", placement).expect("set");
+        assert_eq!(
+            second["missing_generators_before"],
+            json!({ "ct_padfar_pink": 1 }),
+            "{second}"
+        );
+        assert_eq!(
+            second["missing_generators"],
+            json!([{
+                "generator": "ct_padfar_pink",
+                "count": 2,
+                "placements": [
+                    format!("/placements/{count}"),
+                    format!("/placements/{}", count + 1),
+                ],
+            }]),
+            "{second}"
+        );
+        // Any set reads the record as it stands: a fog change still names it.
+        let fog = room_set(
+            app.world_mut(),
+            "/environment/fog_visibility",
+            json!(1_234_500),
+        )
+        .expect("set");
+        assert_eq!(
+            fog["missing_generators"][0]["generator"], "ct_padfar_pink",
+            "{fog}"
+        );
+
+        let generator =
+            room_get(app.world_mut(), &format!("/generators/{held}")).expect("read")["value"]
+                .clone();
+        let mended =
+            room_set(app.world_mut(), "/generators/ct_padfar_pink", generator).expect("set");
+        assert!(mended.get("missing_generators").is_none(), "{mended}");
+        assert_eq!(
+            mended["missing_generators_before"],
+            json!({ "ct_padfar_pink": 2 }),
+            "{mended}"
+        );
+    }
+
+    /// The same check on the record after the edit, not on the value sent
+    /// (#1857): a set that takes away a generator a placement still names -
+    /// the whole `generators` map without it - names it and every placement
+    /// naming it.
+    #[test]
+    fn a_set_taking_away_a_generator_still_placed_says_so() {
+        let (mut app, _) = app_in(AGENT);
+        let (placement, _) = prop_placement(&app);
+        let name = placement["generator_ref"]
+            .as_str()
+            .expect("a name")
+            .to_owned();
+        let record =
+            serde_json::to_value(&app.world().resource::<LiveRoomRecord>().0).expect("serialises");
+        let naming: Vec<String> = record["placements"]
+            .as_array()
+            .expect("a list")
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p["generator_ref"] == name.as_str())
+            .map(|(i, _)| format!("/placements/{i}"))
+            .collect();
+        let mut generators = record["generators"].clone();
+        generators
+            .as_object_mut()
+            .expect("a map")
+            .remove(&name)
+            .expect("held");
+
+        let set = room_set(app.world_mut(), "/generators", generators).expect("set");
+
+        assert_eq!(
+            set["missing_generators"],
+            json!([{ "generator": name, "count": naming.len(), "placements": naming }]),
+            "{set}"
+        );
+    }
+
+    /// The seeded world's first absolute placement of a generator that is
+    /// not its terrain (the terrain is placed first, and no instance set
+    /// may draw it), and how many placements the world holds.
+    fn prop_placement(app: &App) -> (Value, usize) {
+        let record =
+            serde_json::to_value(&app.world().resource::<LiveRoomRecord>().0).expect("serialises");
+        let placements = record["placements"].as_array().expect("a list");
+        let found = placements
+            .iter()
+            .find(|p| {
+                p["$type"] == "network.symbios.place.absolute"
+                    && p["generator_ref"]
+                        .as_str()
+                        .and_then(|name| record["generators"].get(name))
+                        .is_some_and(|g| g["$type"] != "network.symbios.gen.terrain")
+            })
+            .expect("a prop");
+        (found.clone(), placements.len())
+    }
+
+    /// The seeded world's prop as an instance set of its generator holding
+    /// `copies`.
+    fn set_of(app: &App, copies: Value) -> (Value, usize) {
+        let (placement, count) = prop_placement(app);
+        let set = json!({
+            "$type": "network.symbios.place.instances",
+            "generator_ref": placement["generator_ref"],
+            "copies": copies,
+        });
+        (set, count)
+    }
+
+    /// #1870, live session 21: a copy written `[x, z]` - its yaw left out
+    /// as a trailing default is - read as no copy at all, and the set
+    /// answered as clean, so a gatehouse cabin was missing live until a
+    /// look caught it. The reader is frozen (old records read as they
+    /// always have), so the set refuses such a copy, naming its pointer and
+    /// the form, and writes nothing.
+    #[test]
+    fn a_copy_of_two_numbers_is_refused_by_its_pointer() {
+        let (mut app, _) = app_in(AGENT);
+        let (set, count) = set_of(&app, json!([[100, 200, 0], [1200, 3400]]));
+
+        let refused = room_set(app.world_mut(), "/placements/-", set).expect_err("refused");
+
+        assert!(
+            refused.contains(&format!("/placements/{count}/copies/1")),
+            "{refused}"
+        );
+        assert!(refused.contains("[x, z, 0]"), "{refused}");
+        let held = app.world().resource::<LiveRoomRecord>().0.placements.len();
+        assert_eq!(held, count, "nothing written");
+    }
+
+    /// Every other copy the reader drops, or reads only in part, is refused
+    /// the same way (#1870): fewer than three numbers, more than six (a
+    /// newer build's, read past), a number that is not whole, anything that
+    /// is not a list - and a `copies` that is not a list. An append to a
+    /// set's copies is checked where it lands.
+    #[test]
+    fn a_copy_the_reader_would_drop_is_refused() {
+        let (mut app, _) = app_in(AGENT);
+        for (copy, why) in [
+            (json!([]), "fewer than three numbers"),
+            (json!([5]), "fewer than three numbers"),
+            (json!([1, 2, 3, 0, 1000, 0, 7]), "more than six numbers"),
+            (json!([150.5, 200, 0]), "not a whole number"),
+            (json!(["1", 200, 0]), "not a whole number"),
+            (json!({"x": 1}), "is not a list"),
+            (json!(12), "is not a list"),
+        ] {
+            let (set, count) = set_of(&app, json!([[100, 200, 0], copy.clone()]));
+            let refused = room_set(app.world_mut(), "/placements/-", set).expect_err("refused");
+            assert!(
+                refused.contains(&format!("/placements/{count}/copies/1")),
+                "{copy}: {refused}"
+            );
+            assert!(refused.contains(why), "{copy}: {refused}");
+        }
+        let (set, count) = set_of(&app, json!({"0": [100, 200, 0]}));
+        let refused = room_set(app.world_mut(), "/placements/-", set).expect_err("refused");
+        assert!(
+            refused.contains(&format!(
+                "the copies at /placements/{count}/copies are not a list"
+            )),
+            "{refused}"
+        );
+
+        // Three to six whole numbers are a copy each, and all are kept (a
+        // trailing default is left out as the record writes it, so none is
+        // sent here).
+        let whole = json!([
+            [100, 200, 0],
+            [300, 400, 900, 0, 800],
+            [500, 600, 0, 0, 1500, 30]
+        ]);
+        let (set, count) = set_of(&app, whole.clone());
+        let landed = room_set(app.world_mut(), "/placements/-", set).expect("set");
+        assert_eq!(landed["kept"]["copies"], whole, "{landed}");
+        let refused = room_set(
+            app.world_mut(),
+            &format!("/placements/{count}/copies/-"),
+            json!([700, 800]),
+        )
+        .expect_err("refused");
+        assert!(
+            refused.contains(&format!("/placements/{count}/copies/3")),
+            "{refused}"
+        );
+        assert_eq!(
+            app.world().resource::<LiveRoomRecord>().0.placements.len(),
+            count + 1
         );
     }
 }

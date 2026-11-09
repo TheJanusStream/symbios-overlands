@@ -49,11 +49,13 @@ The inventory keeps whole avatars and whole worlds beside things (#1843);
   your own world as they are NOW, unsaved edits included. The copy is an
   inventory edit: unsaved until `A save inventory`, gone at a restart
   before it. `stash-world` works in your own world only.
-- **An inventory thing has no `place`** (#1855): `place` takes catalogue
-  slugs and the world's own generators. To set one in your own world, `room
-  set /generators/<name>` with its tree - keep the builder's output, as `A
-  inventory` does not print an item's tree - and append an absolute
-  placement (live session 20: the Cat Cottage, given to Catoid).
+- **An inventory thing is placed by its name** (#1855): `A place "<item>"
+  --at X Z --yaw D` in your own world, as a drop from the Inventory window
+  places it - its tree copied into the world, the item kept in the stash
+  ([building.md](building.md), "Three ways to build"). Live session 20 had no
+  such verb: Catoid set the Cat Cottage's tree with `room set` and wrote its
+  placement by hand. An avatar or world item is not placed: `wear` and
+  `load` are its verbs.
 - `A wear <avatar item>` replaces the avatar you wear and `A load <world
   item>` replaces EVERYTHING in your world - ground, sky, every placement.
   Each is one step of its own history: `A undo avatar` or `A undo` takes it

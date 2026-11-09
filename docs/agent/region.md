@@ -1181,9 +1181,16 @@ manifest's budget.
   with their own), the turn in TENTHS of a degree clockwise seen from above (as
   `placements`' `yaw_deg`: 0 faces -Z, 900 faces +X), the variant's index,
   the size in THOUSANDTHS, and centimetres above the ground under it.
-  Leave trailing defaults out: variant 0, scale 1000, y 0. Never the yaw: a
-  copy of two numbers is silently not drawn (#1870; Kairos's gatehouse cabin,
-  live 21), so an unturned copy is `[x, z, 0]`.
+  Leave trailing defaults out: variant 0, scale 1000, y 0. Never the yaw:
+  an unturned copy is `[x, z, 0]`. A record's reader drops a copy of fewer
+  than three numbers, one with a number that is not whole, or anything that
+  is not a list, and reads past every number after the sixth, all without a
+  word - Kairos's gatehouse cabin, written `[x, z]`, was missing live 21
+  until a look caught it - so `room set` refuses a set holding such a copy,
+  or a `copies` that is not a list, and names it (#1870: "the copy at
+  /placements/26/copies/1 ([1200,3400]) has fewer than three numbers, so it
+  would not be drawn as written: ..."). A refused set writes nothing, and
+  `rec.py apply` stops there with those words.
 - **Each copy snaps by itself** (`snap_to_terrain`, true by default): it
   stands on the ground under its own centre, raised by its y, so a row
   follows a slope. Off, y is above the anchor. A seeded hamlet's house
@@ -1363,7 +1370,9 @@ Still worth knowing:
   generator, placed or not. Strike them out with ONE `room set /generators
   FILE`, FILE the pulled record's whole `generators` map without them (grep
   the record for each name first: no placement's `generator_ref` may name
-  it). Ashmere's ten unplaced cottage generators were 58 KB (session 885).
+  it - a placement naming a generator the record does not hold draws
+  nothing, and since #1857 every `room set` names each such generator with
+  its placements as `missing_generators`). Ashmere's ten unplaced cottage generators were 58 KB (session 885).
   A whole-map set of Ashmere is past 1 MiB, which the control socket
   refused with a bare "Broken pipe" until #1511 (16 MiB since).
 - **Buildings of one size can share one generator**, each placement
@@ -1535,7 +1544,16 @@ where people stand, and `rec.py apply` sending each edit live. A `room set
 /placements/-` APPENDS, and its answer names where it landed (`"pointer":
 "/placements/150", "appended": true`, #1470); `rec.py apply` rewrites that
 EDITS line to the index, so a re-run sets the placement instead of adding it
-again.
+again. Every answer also names each generator that placements name and the
+record does not hold (`"missing_generators": [{"generator": "ct_padfar_pink",
+"count": 18, "placements": ["/placements/40", ...]}]`, the first 16 by
+pointer, #1857): such a placement draws nothing, and a save keeps it - live
+session 20 saved 66 pads naming four generators its builder never wrote. A
+placement set before its generator's line is named until that line;
+`rec.py apply` reads the last answer, prints a WARNING per generator still
+missing and exits 3 after its CHECK line - unless every one was already
+missing before its first edit (each answer's `missing_generators_before`,
+by generator), a world left dangling earlier: then it warns and goes on.
 Session 876 laid four landmarks, an outer forest and the paths between them
 this way in about an hour, each saved as it went.
 

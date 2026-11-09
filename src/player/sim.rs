@@ -346,6 +346,39 @@ impl FlightBench {
         }
     }
 
+    /// Wear `record` in place, as the game's locomotion hot-swap does a
+    /// worn avatar of another kind (#1851): the record live, the old
+    /// preset's physics stripped and the new one's built, the body raised by
+    /// what the new collider reaches below the old one. No visuals: the
+    /// bench draws nothing.
+    #[cfg(test)]
+    pub(crate) fn wear(&mut self, record: &AvatarRecord) {
+        let body = self.body;
+        let world = self.app.world_mut();
+        let old = world.get::<Collider>(body).cloned();
+        let pose = world
+            .get::<Position>(body)
+            .zip(world.get::<Rotation>(body))
+            .map(|(position, rotation)| (position.0, rotation.0));
+        if let (Some(old), Some((at, rotation))) = (old, pose)
+            && let Some(y) = super::preset::re_seat(
+                at,
+                rotation,
+                &old,
+                &super::preset::chassis_collider(&record.locomotion),
+                None,
+            )
+            && let Some(mut position) = world.get_mut::<Position>(body)
+        {
+            position.y = y;
+        }
+        world.insert_resource(LiveAvatarRecord(record.clone()));
+        let mut commands = world.commands();
+        super::preset::strip_preset_components(&mut commands, body);
+        super::preset::build_preset_components(&mut commands, body, &record.locomotion);
+        world.flush();
+    }
+
     /// One fixed step of the game's loop: the flight systems, then avian's
     /// step.
     pub(crate) fn step(&mut self) {
@@ -577,6 +610,7 @@ impl DriveBench {
 pub(crate) struct WalkBench {
     app: App,
     body: Entity,
+    steps: u64,
 }
 
 #[cfg(test)]
@@ -607,7 +641,11 @@ impl WalkBench {
         app.insert_resource(crate::water::WaterSurfaces { planes: Vec::new() })
             .init_resource::<super::humanoid::JumpQueued>()
             .init_resource::<super::RigHold>();
-        Self { app, body }
+        Self {
+            app,
+            body,
+            steps: 0,
+        }
     }
 
     /// A body wearing `record` set down on the floor at `(x, z)` facing -Z,
@@ -633,6 +671,12 @@ impl WalkBench {
     /// One fixed step: the walk's systems, then avian's step.
     pub(crate) fn step(&mut self) {
         fixed_step(&mut self.app);
+        self.steps += 1;
+    }
+
+    /// Seconds of physics stepped so far.
+    pub(crate) fn elapsed(&self) -> f64 {
+        self.steps as f64 / BENCH_HZ
     }
 
     /// Step for `secs` seconds with the keys as they are held.

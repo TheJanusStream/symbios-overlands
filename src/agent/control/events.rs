@@ -80,6 +80,11 @@ pub enum EventKind {
         position: [f64; 3],
         distance_m: f64,
     },
+    /// A standing follow (#1852) started again by itself: the player it
+    /// follows came back into the agent's world, or the errand that replaced
+    /// it - a walk, a turn, a drive, a trip - ended. `goal_id` is the new
+    /// follow's.
+    FollowResumed { goal_id: u64, did: String },
     /// A save of the agent's `record` - `room` or `avatar` - landed on its
     /// account, where every visitor now sees it (#1422).
     Saved { record: String },
@@ -179,6 +184,12 @@ pub enum MoveOutcome {
     Interrupted,
     /// Every segment of a `drive` was held for its time (#1527).
     Driven,
+    /// The agent's body changed under it (#1851) - a `wear`, a locomotion
+    /// edit - to one that cannot carry the movement on: an airplane, which
+    /// cannot follow; or any new way of moving under a `drive`'s keys, which
+    /// were meant for the body on wheels it began with. Any other movement
+    /// carries on under the new body.
+    BodyChanged,
 }
 
 /// What a `drive` did (#1527), measured every frame it ran. Lengths in

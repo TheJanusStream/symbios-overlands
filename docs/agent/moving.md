@@ -1,9 +1,11 @@
 # Moving
 
 The agent moves as a player does - by the keys, in straight lines, with no
-path-finding. A walk ends `arrived` (within about a metre), `stuck` (no
-closer for a while: something is in the way - turning nearer the point
-counts as getting somewhere too), `halted`, or `replaced`.
+path-finding. A walk ends `arrived` (within about a metre on foot; a car
+or a hover-boat at rest within 3 m, or within half the way it set out from
+where that is nearer - never under a metre - so a short walk-to still drives
+it), `stuck` (no closer for a while: something is in the way - turning nearer
+the point counts as getting somewhere too), `halted`, or `replaced`.
 Add `--wait` to get the ending as the command's answer.
 
 ## Going to a player
@@ -31,11 +33,57 @@ and follows again, the other side and further out each time it blocks again
 fly waits at the foot of what the admin has climbed
 (live session 20: Catoid against a fallen oak, then the Cat Tree's trunk).
 
-A follow keeps the body it began with (#1851). Kairos followed the owner on
-foot, wore an airship, and the follow went on pressing a walker's keys on
-the landed craft until it said `follow_blocked` 1.5 minutes later; `halt`
-and `follow` again after any `wear` or locomotion edit, and it escorts at
-once.
+A movement takes up the body the agent wears now (#1851). Live 19: Kairos
+followed the owner on foot, wore an airship, and the follow went on pressing
+a walker's keys on the landed craft until it said `follow_blocked` 1.5
+minutes later. Now a `wear` or a locomotion edit mid-movement begins it again
+from where the body is, under the new body: a follow on foot becomes an
+escort once the body flies, a walk-to flies, a `face` swings round. What the
+new body cannot do ends `body_changed`: a follow in an airplane (which
+cannot follow), and a `drive`, whose keys were meant for the car it began
+on. No `halt` and `follow` again after a wear.
+
+### A standing follow
+
+"Follow me while you do not need to be somewhere else" (the owner, live 17)
+is `follow @handle --standing` (#1852). The follow ends as any follow does -
+`peer_left` when they go, a tab asleep two minutes included - but the aim
+stays: with nothing else under way the daemon starts it again whenever the
+player is in the agent's world, and says `follow_resumed` (the new follow's
+`goal_id`). So it starts again when they come back, and after each errand
+put in its place - a `walk-to`, a `face`, a `drive`, a `travel` home and back
+to a world they are in - with no command. Taken while they are away, it
+waits for them (its answer has `goal_id: null` and why it waits).
+`status.movement.standing` (`peer`, `keep_m`, `run`) is there whenever one
+is set, whatever is under way; with nothing under way `status.movement` is
+`doing: "waiting_to_follow"` with the reason in `waiting` (the player is
+not in this world; the body is an airplane). Only `halt` ends it (its answer
+says `standing_ended`), or another `follow`, which replaces it - even one
+refused (a player not in the world, a `--standing` one the body cannot take
+up): the refusal ends with `the standing follow of <did> has ended`, and a
+follow already under way runs on until it ends but does not start again.
+**A restart forgets it**: the daemon keeps no movement across one, so after
+a `start` give the `follow --standing` again. It does not follow anyone to
+another world: the agent cannot see where a player went.
+
+## Turning
+
+`face` turns a person in short steps, each re-aimed by however far the last
+came to rest from the way asked (a slope pushes a step sideways), and ends
+`faced` within 10 degrees, `facing_off_deg` in its ending. A beast on four
+legs turns to the same 10 degrees (#1820), more slowly: the physics turns
+its long body, its nose and tail sweeping no faster than about 4 m/s, so its
+steps hold on until it faces the way asked - up to half a turn at that rate
+- and a turn may take up to a second longer than a person's (Catoid's
+tabby turns at up to about 10 rad/s, a longer horse slower). Each step
+holds the walk (up to about 1.4 s for the horse), so a turn walks a little:
+a person 0.05-0.11 m, a dog, a cat or the tabby 0.15-0.55 m, the longer
+horse 0.4 m for 45 degrees, 0.9 m for 90 and 1.7 m for a half turn. Face
+before a narrow approach, not on it. Live 17's `face` on the tabby ended
+`stuck` 60 degrees off: a beast let go mid-turn spun on by itself toward a
+creep its own spin made, and each step overshot; let go now, a beast stops
+turning where it faces, as it stops walking - under the keys in the game
+too.
 
 ## Getting somewhere
 
@@ -94,7 +142,12 @@ the hang time, do not guess it.
   and ends `arrived` at rest within 3 m of it (#1536); before, it let go at
   that circle's edge and rolled 7-11 m on, once to within 9 m of a gateway,
   and Jink's `b/place.py` (short throttle-and-brake moves) was written to
-  get round it. Then turn it to the exact bearing:
+  get round it. A walk-to that sets out nearer than 6 m comes within half
+  its way instead, never under a metre (#1866): in live 21 Kairos's Hexapod
+  and Roadfactory, at rest 2.97-2.99 m from the teleporter's deck, began
+  inside the 3 m circle and each ended a walk-to there `arrived` at once,
+  with not a key pressed. One that cannot close in - a wall between - ends
+  `stuck` with what it had left. Then turn it to the exact bearing:
   `face` stops within 10 degrees, 10 m off at 60 m, which misses a 6 m
   ramp. Short A/D pulses as `drive` segments (`D@0.05 none@1.2`, then read
   `status.heading_deg`) turn a car at rest about 2.4 degrees a pulse - but

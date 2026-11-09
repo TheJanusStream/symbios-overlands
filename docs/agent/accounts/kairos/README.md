@@ -41,14 +41,17 @@ First, every session:
   in the background keeps the rule (a pause file `exports/kairos/dockwatch.pause`
   holds it).
 - **The owner's standing follow** (2026-11-05: "have him follow me whenever I
-  am logged in"): `A follow @codewright.bsky.social` whenever they are in the
-  world - at once if `status.peers` shows them, and again on every
-  `peer_joined`, after each restart, errand or wear. A follow ends when they
-  leave; when they travel elsewhere Kairos cannot tell where, so it waits in
-  their home region.
-- **Re-issue the follow after any `wear`** that changes how the body moves: a
-  follow started on foot kept steering as a person after the body became an
-  airship and ended `follow_blocked` 1.5 minutes later (session 1000, #1851).
+  am logged in"): `A follow @codewright.bsky.social --standing` once after
+  each `start` (#1852) - the daemon starts the follow again on every return
+  of theirs and after each errand, until `halt`; a restart forgets it. When
+  they travel elsewhere Kairos cannot tell where, so it waits in their home
+  region. Not in its own world while `dockwatch.py` keeps the dock rule: a
+  standing follow starts again as soon as the walk to the dock arrives, so
+  there the plain `follow` the script gives is the one to use.
+- **A `wear` keeps the follow going** under the new body (#1851): a follow
+  started on foot used to keep steering as a person after the body became an
+  airship, and ended `follow_blocked` 1.5 minutes later (session 1000); it
+  now escorts at once. Only the airplane cannot follow (`body_changed`).
 - **The companion keeps the follow** (live 20): `AGENT_ACCOUNT=kairos-ai.bsky.social
   docs/agent/tools/companion.py factory --side right --fleet --water-level <the
   world's water level> --pause-file exports/kairos/companion.pause` in the
@@ -67,7 +70,7 @@ First, every session:
 - **The fleet** (the owner, 2026-11-05: variants "each optimized for one of
   the various locomotion modes ... so you can switch quickly"): `A wear
   "Kairos <Name>"` swaps the whole avatar in one undo step, unsaved until
-  `A save avatar`. After a wear, `halt` and `follow` again (#1851). See "The
+  `A save avatar`. A follow under way carries on under the new body (#1851). See "The
   fleet" below for which to wear when.
 
 ## Who Kairos is
@@ -379,7 +382,10 @@ body.
   there needs room made first, or a lighter part.
 - The yard soundscape's volumes are a first guess; the owner has not said.
 - #1866: the Hexapod and the Roadfactory wear as 'skiff', and a walk-to on
-  land ends 'arrived' without moving.
+  land ends 'arrived' without moving. Answered: 'skiff' is the Inventory's
+  word for any car-preset body, and both are cars, as built (`wear` now
+  says `locomotion: car` too); the walk-to began inside a car's 3 m arrival
+  circle and never pressed a key. A short walk-to now drives them in.
 - #1870 (low): an instance copy of two numbers is silently not drawn; write
   the yaw.
 - #1856: the low findings of the companion's review (a needless boat on a

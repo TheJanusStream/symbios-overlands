@@ -1153,7 +1153,7 @@ $A events --since 0 --wait 30        # admin chat, arrivals, departures, walks e
 $A say "hello"
 $A walk-to -104.9 125.7 --wait       # straight line; ends arrived/stuck/halted
 $A walk-to @friend.example.com       # "come here": 3 m short of them (--distance), then face them
-$A follow @friend.example.com        # stay about 3 m behind them (--distance, --run)
+$A follow @friend.example.com        # stay about 3 m behind them (--distance, --run, --standing)
 $A face @friend.example.com          # turn to face them - or a point: face X Z
 $A drive W@4 W+D@0.6 W@3 none@2 --wait   # a body on wheels, by the keys; ends with the run's report
 $A travel @alice.example.com --wait  # a DID, a handle, or `home`
@@ -1245,6 +1245,18 @@ waits for a player whose body has not been placed yet (a sleeping browser
 tab) rather than walking to the stand-in at the map's centre; it ends only
 when halted or replaced, when the player leaves, or on travel, and says
 `follow_blocked` once when the agent itself has got nowhere for a while.
+`follow --standing` (#1852) keeps the aim after that: with no movement under
+way the daemon starts the follow again whenever the player is in the agent's
+world - back from away, or after the errand that replaced it - and says
+`follow_resumed`; `status.movement.standing` shows it, `doing:
+"waiting_to_follow"` while it waits, and only `halt` (answering
+`standing_ended`) or another `follow`, even a refused one, ends it; it
+waits too while there is not exactly one local body (`steer` needs one). It
+lives in the daemon's memory: a restart forgets it. A movement under way
+takes up the body the agent wears now (#1851): a `wear` or a locomotion edit
+begins it again under the new body - a follow on foot escorts once the body
+flies - and what the new body cannot do (a follow in an airplane, a `drive`
+on anything but the car it began on) ends `body_changed`.
 `drive` (#1527) is
 for a body on wheels, a car or a hover-boat: it holds each segment's keys
 for that segment's seconds - no aiming, no stopping for what is in the way -
@@ -1270,7 +1282,10 @@ frame or two. A walker or a body that flies is refused. `face` turns the
 way a person turns: on foot in short steps, each re-aimed by however far the
 last one came to rest from the way asked (a slope pushes a step sideways),
 judged only once the body is still; its `movement_ended` carries
-`facing_off_deg`. A body that flies (every airship: a helicopter under the
+`facing_off_deg`. A beast lying along its capsule is turned by the physics,
+no faster than its ends may sweep, so its steps hold on until it faces the
+way asked, up to half a turn at that rate (#1820), and it stops turning the
+moment its keys are let go. A body that flies (every airship: a helicopter under the
 keys) flies a `walk-to` and lands on its point. It climbs, swinging its
 nose round to the point before it moves; cruises 20 m above the highest
 ground on the next 45 m of its course, and at least 5 m over whatever stands
@@ -1358,8 +1373,12 @@ they see a person's edits, and the game's own undo history takes one step
 for it - the history Ctrl+Z steps, 32 steps deep, cleared by travel for the
 world and kept for the avatar. `undo`, `redo` and `revert` (back to what
 was last saved) work on either record, and `status.editing` says what is
-unsaved and what an undo would step. `place` is a catalogue drop - the same
-entry placed twice shares one generator - set on the ground at its point;
+unsaved and what an undo would step. `place` is a drop with no mouse - of a
+catalogue entry, or of an inventory thing by its name (#1855), as the
+Inventory window drops one, with `--inventory` to ask the stash alone; the
+same entry or item placed twice shares one generator, and one that differs
+from a namesake the world holds is keyed apart from it (`_2`), never over
+it - set on the ground at its point;
 `placements` names each thing by the index `move` and `remove` take, which
 shifts when one before it is removed. An absolute placement may carry a
 grammar seed of its own (#1505), `seed`, a quoted decimal like a Shape
@@ -1440,7 +1459,20 @@ each Shape node it derived drew (`grammars`, #1507), since an empty
 `terminals`, how many it derived, or `error`, the World Editor grammar
 forge's reason it drew nothing; those that drew nothing first, at most 16,
 with `grammars_total` when there were more, and `placement` where a
-placement's seed drew it. `room set` and
+placement's seed drew it. Every `room set` reads the record as it leaves
+it for placements naming a generator it does not hold - a catalogue or
+inventory item is copied into the record when it is placed, so a placement
+names the record's own generators alone - which draw nothing and which a
+save keeps, and names each such generator with how many placements name it
+and the first 16 by pointer (`missing_generators`, #1857): live session 20
+saved 66 pads naming generators its builder never wrote. How many named
+each before the edit is beside it (`missing_generators_before`), so
+`rec.py apply` stops a chain only for what its own edits added. A copy of an
+instance set that the record would not read as written - fewer than three
+whole numbers, more than six, a number that is not whole, or not a list at
+all, each of which the reader drops or reads in part without a word - is
+refused by its pointer, as is a `copies` that is not a list (#1870: a copy
+written `[x, z]` was not drawn). `room set` and
 `avatar set` also weigh the record as a save would write it - a world as
 its manifest and one record per generator, the avatar as one - and name the
 largest with its size against

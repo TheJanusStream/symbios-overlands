@@ -62,8 +62,8 @@ use serde_json::{Value, json};
 
 use crate::camera::WorldCamera;
 use crate::config::agent::{
-    CAMERA_CAUGHT_UP_DEG, FACE_PULSE_SECS, FACE_SETTLE_SECS, FACE_TOLERANCE_DEG,
-    FOLLOW_RUN_BEYOND_M, PROGRESS_STEP_M, PROGRESS_TURN_DEG, STUCK_AFTER_SECS, WHEELED_STOPPED_MS,
+    CAMERA_CAUGHT_UP_DEG, FACE_SETTLE_SECS, FACE_TOLERANCE_DEG, FOLLOW_RUN_BEYOND_M,
+    PROGRESS_STEP_M, PROGRESS_TURN_DEG, STUCK_AFTER_SECS, WHEELED_STOPPED_MS,
 };
 use crate::network::PeerResolve;
 use crate::pds::LocomotionConfig;
@@ -179,6 +179,10 @@ struct Goal {
     /// started.
     best_distance: f32,
     best_at: f64,
+    /// How far a walk-to set out from its point - what a driven body's
+    /// arrival circle shrinks to half of (#1866); infinite for every other
+    /// movement.
+    set_out: f32,
     /// The least a driven body has been turned from its way, degrees either
     /// side: turning nearer it is progress too (#1541), and moves `best_at` -
     /// on a follow, the blockage clock `still_since`.
@@ -189,13 +193,38 @@ struct Goal {
     flight: Option<Flight>,
     /// An airplane's, from the frame it first flies.
     sortie: Option<Sortie>,
+    /// The fastest a beast lying along its capsule turns (rad/s, #1820),
+    /// from its record: it is turned by the physics, its ends no faster
+    /// than the walk lets them sweep, so a turn takes it the time the angle
+    /// needs, where a person's facing comes round in a step. `None` for
+    /// every other body.
+    sweep: Option<f32>,
 }
 
-/// The movement under way, if any.
+/// The movement under way, if any - and a standing follow (#1852), which
+/// outlives it.
 #[derive(Resource, Default)]
 pub(super) struct Movement {
     goal: Option<Goal>,
     last_id: u64,
+    standing: Option<Standing>,
+}
+
+/// A standing follow (#1852): `follow --standing`. The follow it starts ends
+/// as any follow does, but the aim stays: with no movement under way the
+/// daemon starts it again ([`resume_standing`]) whenever the player is in
+/// the agent's world - when they come back, and after each errand (a walk, a
+/// turn, a drive, a trip away and back). Only `halt`, or another `follow`
+/// (even a refused one), ends it. Kept in the daemon's memory alone: a
+/// restart forgets it.
+#[derive(Clone, Debug, PartialEq)]
+struct Standing {
+    did: String,
+    keep: f32,
+    run: bool,
+    /// Why it could not start again the last time it tried, while it waits:
+    /// the player is not in this world, or the body cannot follow.
+    waiting: Option<String>,
 }
 
 /// What to hold this frame: keys, and for a walker the camera's yaw.
@@ -239,12 +268,17 @@ pub(super) fn walk_to(world: &mut World, target: Vec2, run: bool) -> Result<Valu
 }
 
 /// Start following the player `did`, `keep` metres behind, replacing any
-/// movement under way.
+/// movement under way. `standing` (#1852) keeps the aim after the follow
+/// ends, to start it again whenever the player is back ([`Standing`]) - and
+/// is taken while they are away, to start once they come. Any other follow
+/// past the argument checks - plain, or a `standing` one refused - ends an
+/// older standing follow; a refusal says so.
 pub(super) fn follow(
     world: &mut World,
     did: String,
     keep: f32,
     run: bool,
+    standing: bool,
 ) -> Result<Value, String> {
     if !keep.is_finite() || keep < 0.0 {
         return Err("the distance must be a number of metres, 0 or more".to_owned());
@@ -255,6 +289,58 @@ pub(super) fn follow(
     {
         return Err("the agent cannot follow itself".to_owned());
     }
+    // Past its argument checks above (which change nothing), any follow ends
+    // an older standing follow, refused or not - a refused `--standing` one
+    // too: the newest word is the aim, and an old one carrying on unasked is
+    // the surprise. The follow under way, if a refusal leaves one, runs on
+    // until it ends, and does not start again.
+    let old = world.get_resource_or_init::<Movement>().standing.take();
+    let started = start_follow(world, &did, keep, run);
+    let aim = Standing {
+        did: did.clone(),
+        keep,
+        run,
+        waiting: started.as_ref().err().cloned(),
+    };
+    match started {
+        Ok(mut answer) => {
+            world.get_resource_or_init::<Movement>().standing = standing.then_some(aim);
+            if standing {
+                answer["standing"] = json!(true);
+            }
+            Ok(answer)
+        }
+        // Away: a standing follow waits for them.
+        Err(why) if standing && !peer_here(world, &did) => {
+            let mut movement = world.get_resource_or_init::<Movement>();
+            movement.standing = Some(aim);
+            Ok(json!({
+                "goal_id": null,
+                "following": did,
+                "keep_m": hundredths(keep),
+                "standing": true,
+                "waiting": why,
+            }))
+        }
+        Err(why) => Err(match old {
+            Some(old) => format!("{why}; the standing follow of {} has ended", old.did),
+            None => why,
+        }),
+    }
+}
+
+/// Whether the player `did` is in the agent's world, placed or not.
+fn peer_here(world: &mut World, did: &str) -> bool {
+    world
+        .query::<&RemotePeer>()
+        .iter(world)
+        .any(|peer| peer.did.as_deref() == Some(did))
+}
+
+/// Begin a follow of `did`, replacing any movement under way: what `follow`
+/// and a standing follow's resumption share.
+fn start_follow(world: &mut World, did: &str, keep: f32, run: bool) -> Result<Value, String> {
+    let did = did.to_owned();
     let seen = world
         .query::<(&RemotePeer, &GlobalTransform, Option<&PeerResolve>)>()
         .iter(world)
@@ -393,6 +479,7 @@ fn begin(world: &mut World, aim: Aim, run: bool) -> Result<(Started, Vec3), Stri
         .locomotion;
     let drive = Drive::of(locomotion)?;
     let stopping = Stopping::of(locomotion);
+    let sweep = ground::lying_sweep(locomotion);
     if let Drive::Wing(wing) = drive {
         match &aim {
             Aim::Peer { .. } => {
@@ -433,10 +520,12 @@ fn begin(world: &mut World, aim: Aim, run: bool) -> Result<(Started, Vec3), Stri
         drive,
         best_distance,
         best_at: now,
+        set_out: best_distance,
         best_off: f32::INFINITY,
         stopping,
         flight: None,
         sortie: None,
+        sweep,
     });
     if let Some(old) = replaced {
         end(world, &old, MoveOutcome::Replaced, position);
@@ -448,6 +537,16 @@ fn begin(world: &mut World, aim: Aim, run: bool) -> Result<(Started, Vec3), Stri
 /// Stop moving, if moving. A body that flies and is up in the air comes
 /// straight down first, and the movement ends once it is down.
 pub(super) fn halt(world: &mut World) -> Result<Value, String> {
+    let mut answer = halt_goal(world)?;
+    // A halt ends a standing follow too (#1852): it is how one is ended.
+    if let Some(standing) = world.get_resource_or_init::<Movement>().standing.take() {
+        answer["standing_ended"] = json!(standing.did);
+    }
+    Ok(answer)
+}
+
+/// Stop the movement under way, if any - see [`halt`].
+fn halt_goal(world: &mut World) -> Result<Value, String> {
     let goal = world.get_resource_or_init::<Movement>().goal.take();
     let Some(mut goal) = goal else {
         return Ok(json!({ "halted": null }));
@@ -507,8 +606,26 @@ pub(super) fn describe(world: &mut World) -> Value {
     let Some(movement) = world.get_resource::<Movement>() else {
         return Value::Null;
     };
+    // A standing follow (#1852), whatever is under way: the follow it keeps
+    // starting, or what it waits for.
+    let standing = movement.standing.as_ref().map(|standing| {
+        json!({
+            "peer": standing.did,
+            "keep_m": hundredths(standing.keep),
+            "run": standing.run,
+        })
+    });
     let Some(goal) = movement.goal.as_ref() else {
-        return Value::Null;
+        let Some(waiting) = movement.standing.as_ref() else {
+            return Value::Null;
+        };
+        return json!({
+            "goal_id": null,
+            "doing": "waiting_to_follow",
+            "peer": waiting.did,
+            "waiting": waiting.waiting,
+            "standing": standing,
+        });
     };
     let phase = match goal.drive {
         Drive::Wing(_) => goal
@@ -565,7 +682,65 @@ pub(super) fn describe(world: &mut World) -> Value {
     if flying && matches!(goal.aim, Aim::Point(_) | Aim::Peer { .. }) {
         described["phase"] = json!(phase);
     }
+    if let Some(standing) = standing {
+        described["standing"] = standing;
+    }
     described
+}
+
+/// `PreUpdate`, before the steering: start a standing follow again (#1852)
+/// when nothing is under way and its player is in the agent's world - back
+/// from away, or after the errand that replaced it - saying so with a
+/// `follow_resumed`. One it cannot start (an airplane cannot follow) waits,
+/// the reason in `status.movement.waiting`, and is tried again each frame.
+pub(super) fn resume_standing(world: &mut World) {
+    let Some(movement) = world.get_resource::<Movement>() else {
+        return;
+    };
+    let Some(standing) = movement.standing.clone() else {
+        return;
+    };
+    if movement.goal.is_some()
+        || *world.resource::<State<AppState>>().get() != AppState::InGame
+        || world.contains_resource::<TravelingTo>()
+    {
+        return;
+    }
+    // The one body the steering reads (`steer` takes `single()`, as here):
+    // two would let a follow begin on the first and end `interrupted` the same
+    // frame, to begin again the next - a loop of `follow_resumed` and
+    // `movement_ended`. It waits for one body instead.
+    let one_body = world
+        .query_filtered::<&GlobalTransform, With<LocalPlayer>>()
+        .single(world)
+        .is_ok();
+    let started = if !one_body {
+        Err("the agent has no single body to follow with".to_owned())
+    } else if peer_here(world, &standing.did) {
+        start_follow(world, &standing.did, standing.keep, standing.run)
+    } else {
+        Err(format!("{} is not in this world", standing.did))
+    };
+    let waiting = match started {
+        Ok(answer) => {
+            if let Some(goal_id) = answer["goal_id"].as_u64() {
+                world
+                    .resource::<EventSink>()
+                    .0
+                    .push(EventKind::FollowResumed {
+                        goal_id,
+                        did: standing.did.clone(),
+                    });
+            }
+            None
+        }
+        Err(why) => Some(why),
+    };
+    if let Some(aim) = world.resource_mut::<Movement>().standing.as_mut()
+        && aim.waiting != waiting
+    {
+        aim.waiting = waiting;
+    }
 }
 
 fn local_body(world: &mut World) -> Option<GlobalTransform> {
@@ -690,6 +865,8 @@ pub(super) fn steer(
     contact: Query<&crate::player::CarContact, With<LocalPlayer>>,
     // How fast the body rolls: a driven walk brakes onto its point (#1536).
     velocity: Query<&avian3d::prelude::LinearVelocity, With<LocalPlayer>>,
+    // How the body moves now: a wear changes it under a movement (#1851).
+    live: Option<Res<LiveAvatarRecord>>,
 ) {
     let Some(goal) = movement.goal.as_mut() else {
         return;
@@ -700,8 +877,13 @@ pub(super) fn steer(
     let velocity = velocity.single().map_or(Vec3::ZERO, |moving| moving.0);
     let now = time.elapsed_secs_f64();
     let craft = sensing.as_ref().and_then(sense::Sensing::craft);
+    let changed = live
+        .as_deref()
+        .and_then(|live| take_up_body(goal, &live.0.locomotion, position, craft.as_ref(), now));
     let step = if *state.get() != AppState::InGame || traveling.is_some() || body.is_none() {
         Step::End(MoveOutcome::Interrupted)
+    } else if let Some(outcome) = changed {
+        Step::End(outcome)
     } else if let Aim::Keys(run) = &mut goal.aim {
         // A drive holds what it was told whatever the body is doing, and
         // notes each frame what that was (#1527).
@@ -798,6 +980,92 @@ pub(super) fn steer(
     }
 }
 
+/// Carry `goal` on under the body the agent wears now, moving by
+/// `locomotion` (#1851): the outcome to end it with when that body cannot.
+///
+/// A movement used to work out how to drive the body once, when it began,
+/// and steer by that to its end: Kairos followed the owner on foot, wore an
+/// airship, and the follow pressed a walker's W on the landed craft - which
+/// only Space lifts off - until it said `follow_blocked` 1.5 minutes later
+/// (live 19). Now each frame reads how the body moves. The same way with new
+/// numbers (an edit of the preset's tuning) carries straight on with them; a
+/// new way begins the movement again from where the body is - a flight or a
+/// sortie from scratch, the clocks `stuck` and `follow_blocked` are measured
+/// by restarted, a turn's re-aiming forgotten - so a follow escorts, a walk
+/// flies, a turn swings round, under the body it has. A body that comes
+/// down from a halt comes down as its new self, or is down already. What
+/// the new body cannot do ends: an airplane cannot follow, and a `drive`'s
+/// keys were meant for the body on wheels it began with.
+fn take_up_body(
+    goal: &mut Goal,
+    locomotion: &LocomotionConfig,
+    position: Vec3,
+    craft: Option<&Craft>,
+    now: f64,
+) -> Option<MoveOutcome> {
+    let Ok(drive) = Drive::of(locomotion) else {
+        return Some(MoveOutcome::BodyChanged);
+    };
+    // A person become a beast, or a beast re-fitted, walks on: its turn
+    // takes the time the new body needs.
+    goal.sweep = ground::lying_sweep(locomotion);
+    goal.stopping = Stopping::of(locomotion);
+    let same_way = match (drive, goal.drive) {
+        (Drive::Ground(now), Drive::Ground(was)) => now == was,
+        (Drive::Rotor(_), Drive::Rotor(_)) | (Drive::Wing(_), Drive::Wing(_)) => true,
+        _ => false,
+    };
+    goal.drive = drive;
+    if same_way {
+        return None;
+    }
+    match (&mut goal.aim, drive) {
+        (Aim::Keys(_), _) | (Aim::Peer { .. }, Drive::Wing(_)) => {
+            return Some(MoveOutcome::BodyChanged);
+        }
+        (Aim::Point(target), _) => {
+            goal.best_distance = position.xz().distance(*target);
+            goal.set_out = goal.best_distance;
+        }
+        (
+            Aim::Peer {
+                closing,
+                still_at,
+                still_since,
+                blocked,
+                ..
+            },
+            _,
+        ) => {
+            *closing = true;
+            *still_at = position.xz();
+            *still_since = now;
+            *blocked = false;
+        }
+        (
+            Aim::Heading {
+                bias_deg, phase, ..
+            },
+            _,
+        ) => {
+            *bias_deg = 0.0;
+            *phase = TurnPhase::Moving { since: now };
+        }
+        (Aim::Down { .. }, _) => {}
+    }
+    goal.best_at = now;
+    goal.best_off = f32::INFINITY;
+    goal.flight = None;
+    goal.sortie = None;
+    if let (Aim::Down { .. }, Some(craft)) = (&goal.aim, craft) {
+        goal.flight = Some(Flight::landing(craft, now));
+        if let Drive::Wing(wing) = drive {
+            goal.sortie = Some(Sortie::landing_ahead(&wing, craft, now));
+        }
+    }
+    None
+}
+
 /// Where a body on the ground is, which way it faces, and how it moves.
 #[derive(Clone, Copy)]
 struct Body {
@@ -827,8 +1095,10 @@ fn steer_ground(
         run,
         best_distance,
         best_at,
+        set_out,
         best_off,
         stopping,
+        sweep,
         ..
     } = goal;
     // A driven body that lets go rolls on (#1536): a walk-to used to say it
@@ -847,7 +1117,8 @@ fn steer_ground(
             }
             // Planned to stop half the arrival radius short of the point; it
             // has arrived once in the circle and at rest.
-            if distance <= ground.arrive_within() {
+            let arrive_within = ground.arrive_within(*set_out);
+            if distance <= arrive_within {
                 if wheeled && rolling > WHEELED_STOPPED_MS {
                     Step::Drive(brake(forward, velocity))
                 } else {
@@ -855,9 +1126,7 @@ fn steer_ground(
                 }
             } else if now - *best_at >= STUCK_AFTER_SECS {
                 Step::End(MoveOutcome::Stuck)
-            } else if wheeled
-                && rolling > stopping.approach_speed(distance - ground.arrive_within() * 0.5)
-            {
+            } else if wheeled && rolling > stopping.approach_speed(distance - arrive_within * 0.5) {
                 Step::Drive(brake(forward, velocity))
             } else {
                 Step::Drive(ground.toward(position, forward, *target, *run && !swims))
@@ -931,7 +1200,7 @@ fn steer_ground(
             if wheeled {
                 turning(best_off, best_at, off, now);
             }
-            let out_of_time = now - *best_at >= ground.turn_within();
+            let out_of_time = now - *best_at >= ground.turn_within(*sweep);
             match *phase {
                 TurnPhase::Settling { since } if now - since < FACE_SETTLE_SECS => Step::Stand,
                 TurnPhase::Settling { .. } if aligned => Step::End(MoveOutcome::Faced),
@@ -946,7 +1215,8 @@ fn steer_ground(
                     Step::Drive(ground.turn(position, forward, *dir, *bias_deg))
                 }
                 TurnPhase::Moving { since } => {
-                    let stepped = ground == Ground::OnFoot && now - since >= FACE_PULSE_SECS;
+                    let stepped =
+                        ground == Ground::OnFoot && now - since >= ground::face_pulse(*sweep);
                     if aligned || stepped {
                         *phase = TurnPhase::Settling { since: now };
                         Step::Stand
@@ -1194,12 +1464,15 @@ mod tests {
                 drive: Drive::Ground(Ground::OnFoot),
                 best_distance: 50.0,
                 best_at: 0.0,
+                set_out: 50.0,
                 best_off: f32::INFINITY,
                 stopping: Stopping::default(),
                 flight: None,
                 sortie: None,
+                sweep: None,
             }),
             last_id: 4,
+            standing: None,
         });
         world
             .resource_mut::<ButtonInput<KeyCode>>()
@@ -1269,12 +1542,15 @@ mod tests {
                     drive: Drive::Ground(Ground::OnFoot),
                     best_distance: f32::INFINITY,
                     best_at: 0.0,
+                    set_out: f32::INFINITY,
                     best_off: f32::INFINITY,
                     stopping: Stopping::default(),
                     flight: None,
                     sortie: None,
+                    sweep: None,
                 }),
                 last_id: 7,
+                standing: None,
             })
             .add_systems(Update, steer);
         app.world_mut().spawn((
@@ -1341,6 +1617,446 @@ mod tests {
         assert!(app.world().resource::<Movement>().goal.is_none());
     }
 
+    /// A person on foot.
+    fn person() -> crate::pds::avatar::AvatarRecord {
+        let mut person = crate::pds::avatar::AvatarRecord::default_for_did("did:plc:agentperson");
+        person.locomotion = LocomotionConfig::Humanoid(Box::default());
+        person
+    }
+
+    /// The daemon's movement systems as it schedules them - a standing
+    /// follow's resumption, then the steering - over a person at the origin
+    /// and nobody else (#1852).
+    fn standing_app() -> (App, Arc<EventLog>, Entity) {
+        let log = Arc::new(EventLog::new(64, "test".into()));
+        let mut app = App::new();
+        app.insert_resource(EventSink(Arc::clone(&log)))
+            .insert_resource(State::new(AppState::InGame))
+            .insert_resource(LiveAvatarRecord(person()))
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<Time<Real>>()
+            .init_resource::<Movement>()
+            .add_systems(Update, (resume_standing, steer).chain());
+        let me = app
+            .world_mut()
+            .spawn((LocalPlayer, GlobalTransform::default()))
+            .id();
+        (app, log, me)
+    }
+
+    /// The friend, placed `z` metres down +Z.
+    fn friend_at(app: &mut App, z: f32) -> Entity {
+        app.world_mut()
+            .spawn((
+                peer("did:plc:friend"),
+                placed(true),
+                GlobalTransform::from(Transform::from_xyz(0.0, 0.0, z)),
+            ))
+            .id()
+    }
+
+    /// Every event of the log, in order.
+    fn events(log: &EventLog) -> Vec<EventKind> {
+        log.after(0, Duration::ZERO)
+            .events
+            .into_iter()
+            .map(|e| e.what)
+            .collect()
+    }
+
+    fn following(app: &App) -> bool {
+        app.world()
+            .resource::<Movement>()
+            .goal
+            .as_ref()
+            .is_some_and(|goal| matches!(goal.aim, Aim::Peer { .. }))
+    }
+
+    /// **A standing follow starts again when its player comes back**
+    /// (#1852; the owner, live 17: "Please follow me, while you do not need
+    /// to be somewhere else in the region"). The follow ends `peer_left` as
+    /// any does - a tab asleep two minutes is gone - and the aim stays:
+    /// `status.movement` says it is waiting, and on the player's return the
+    /// follow starts again by itself, saying so.
+    #[test]
+    fn a_standing_follow_starts_again_when_its_player_comes_back() {
+        let (mut app, log, _) = standing_app();
+        let friend = friend_at(&mut app, 10.0);
+        let answer = follow(app.world_mut(), "did:plc:friend".into(), 3.0, false, true)
+            .expect("a standing follow");
+        assert_eq!(answer["standing"], true, "{answer}");
+        app.update();
+        assert!(walking(&app), "following");
+
+        app.world_mut().entity_mut(friend).despawn();
+        app.update();
+        app.update();
+        assert!(
+            !following(&app) && !walking(&app),
+            "they left: nobody to follow"
+        );
+        let status = describe(app.world_mut());
+        assert_eq!(status["doing"], "waiting_to_follow", "{status}");
+        assert_eq!(status["standing"]["peer"], "did:plc:friend", "{status}");
+
+        friend_at(&mut app, 10.0);
+        app.update();
+        assert!(
+            following(&app) && walking(&app),
+            "they came back: following again"
+        );
+        let status = describe(app.world_mut());
+        assert_eq!(status["doing"], "following", "{status}");
+        assert_eq!(status["standing"]["peer"], "did:plc:friend", "{status}");
+        let kinds = events(&log);
+        assert!(
+            matches!(
+                kinds.as_slice(),
+                [
+                    EventKind::MovementEnded {
+                        outcome: MoveOutcome::PeerLeft,
+                        ..
+                    },
+                    EventKind::FollowResumed { did, .. },
+                ] if did == "did:plc:friend"
+            ),
+            "{kinds:?}"
+        );
+    }
+
+    /// **A standing follow resumes after the agent's errands, and a halt
+    /// ends it** (#1852): a walk-to replaces the follow, and once it has
+    /// arrived the follow starts again; a trip away (out of the world and
+    /// back) the same. `halt` ends the follow and the aim with it, and
+    /// nothing starts again after; a plain `follow` ends the aim too.
+    #[test]
+    fn a_standing_follow_resumes_after_an_errand_and_ends_on_halt() {
+        let (mut app, log, me) = standing_app();
+        friend_at(&mut app, 10.0);
+        follow(app.world_mut(), "did:plc:friend".into(), 3.0, false, true)
+            .expect("a standing follow");
+        app.update();
+
+        walk_to(app.world_mut(), Vec2::new(5.0, 0.0), false).expect("an errand");
+        app.update();
+        assert!(!following(&app) && walking(&app), "on the errand");
+        assert_eq!(
+            describe(app.world_mut())["standing"]["peer"],
+            "did:plc:friend",
+            "the aim outlives the errand"
+        );
+        *app.world_mut().get_mut::<GlobalTransform>(me).expect("me") =
+            GlobalTransform::from(Transform::from_xyz(5.0, 0.0, 0.0));
+        app.update();
+        app.update();
+        assert!(following(&app), "back to following once it arrived");
+
+        // Away to another world and back.
+        app.insert_resource(State::new(AppState::Loading));
+        app.update();
+        app.update();
+        assert!(!following(&app), "travel cuts a follow off");
+        app.insert_resource(State::new(AppState::InGame));
+        app.update();
+        assert!(
+            following(&app),
+            "back in a world with them: following again"
+        );
+
+        let halted = halt(app.world_mut()).expect("a halt");
+        assert_eq!(halted["standing_ended"], "did:plc:friend", "{halted}");
+        for _ in 0..3 {
+            app.update();
+        }
+        assert!(!following(&app), "a halt ends a standing follow");
+        assert!(describe(app.world_mut()).is_null());
+
+        let outcomes: Vec<MoveOutcome> = events(&log)
+            .into_iter()
+            .filter_map(|kind| match kind {
+                EventKind::MovementEnded { outcome, .. } => Some(outcome),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            outcomes,
+            [
+                MoveOutcome::Replaced,
+                MoveOutcome::Arrived,
+                MoveOutcome::Interrupted,
+                MoveOutcome::Halted
+            ]
+        );
+        let resumed = events(&log)
+            .iter()
+            .filter(|kind| matches!(kind, EventKind::FollowResumed { .. }))
+            .count();
+        assert_eq!(resumed, 2, "after the errand, and after the trip");
+
+        // A plain follow ends a standing one; a standing follow is taken
+        // while its player is away, a plain one is not.
+        follow(app.world_mut(), "did:plc:friend".into(), 3.0, false, true).expect("standing");
+        follow(app.world_mut(), "did:plc:friend".into(), 3.0, false, false).expect("plain");
+        assert!(app.world().resource::<Movement>().standing.is_none());
+        let away = follow(app.world_mut(), "did:plc:away".into(), 3.0, false, true)
+            .expect("taken while they are away");
+        assert!(
+            away["goal_id"].is_null() && away["waiting"].is_string(),
+            "{away}"
+        );
+        assert!(follow(app.world_mut(), "did:plc:gone".into(), 3.0, false, false).is_err());
+    }
+
+    /// **A refused follow still ends an older standing follow** (#1852): a
+    /// plain `follow` of a player not in the world, and a `follow --standing`
+    /// refused while its player is here (the agent between worlds), each
+    /// leave no standing aim behind - and the refusal says it ended.
+    #[test]
+    fn a_refused_follow_ends_a_standing_follow() {
+        let (mut app, log, _) = standing_app();
+        friend_at(&mut app, 10.0);
+
+        follow(app.world_mut(), "did:plc:friend".into(), 3.0, false, true).expect("standing");
+        let refused = follow(app.world_mut(), "did:plc:gone".into(), 3.0, false, false)
+            .expect_err("nobody to follow");
+        assert!(
+            refused.contains("the standing follow of did:plc:friend has ended"),
+            "{refused}"
+        );
+        assert!(app.world().resource::<Movement>().standing.is_none());
+
+        follow(app.world_mut(), "did:plc:friend".into(), 3.0, false, true).expect("standing");
+        app.insert_resource(State::new(AppState::Loading));
+        let refused = follow(app.world_mut(), "did:plc:friend".into(), 3.0, false, true)
+            .expect_err("not in a world");
+        assert!(refused.contains("has ended"), "{refused}");
+        assert!(app.world().resource::<Movement>().standing.is_none());
+        // The follow under way runs on (a refusal changes no movement), and
+        // once it ends nothing starts it again.
+        app.insert_resource(State::new(AppState::InGame));
+        app.update();
+        assert!(following(&app), "the follow under way runs on");
+        halt_goal(app.world_mut()).expect("its end");
+        for _ in 0..3 {
+            app.update();
+        }
+        assert!(!following(&app), "nothing starts the old aim again");
+        let kinds = events(&log);
+        assert!(
+            !kinds
+                .iter()
+                .any(|kind| matches!(kind, EventKind::FollowResumed { .. })),
+            "{kinds:?}"
+        );
+    }
+
+    /// **A standing follow waits for the one body the steering needs**: with
+    /// two local players `steer` cannot take `single()` and ends a follow
+    /// `interrupted` the frame it begins, so a resumption that took the first
+    /// body went round `follow_resumed` / `movement_ended` every frame (9 of
+    /// each in 10 frames). It waits, saying why, and resumes once there is
+    /// one body again.
+    #[test]
+    fn a_standing_follow_waits_while_there_are_two_bodies() {
+        let (mut app, log, _) = standing_app();
+        friend_at(&mut app, 10.0);
+        follow(app.world_mut(), "did:plc:friend".into(), 3.0, false, true).expect("standing");
+        app.update();
+        assert!(following(&app), "following");
+
+        let second = app
+            .world_mut()
+            .spawn((LocalPlayer, GlobalTransform::default()))
+            .id();
+        for _ in 0..10 {
+            app.update();
+        }
+        let count = |log: &EventLog| {
+            let kinds = events(log);
+            let resumed = kinds
+                .iter()
+                .filter(|kind| matches!(kind, EventKind::FollowResumed { .. }))
+                .count();
+            let ended = kinds
+                .iter()
+                .filter(|kind| matches!(kind, EventKind::MovementEnded { .. }))
+                .count();
+            (resumed, ended)
+        };
+        assert_eq!(count(&log), (0, 1), "{:?}", events(&log));
+        let status = describe(app.world_mut());
+        assert_eq!(status["doing"], "waiting_to_follow", "{status}");
+        assert!(status["waiting"].is_string(), "{status}");
+
+        app.world_mut().entity_mut(second).despawn();
+        app.update();
+        assert!(following(&app), "one body again: following");
+        assert_eq!(count(&log), (1, 1), "{:?}", events(&log));
+    }
+
+    /// A goal under way, by the body that began it (#1851).
+    fn goal_on(aim: Aim, locomotion: &LocomotionConfig) -> Goal {
+        Goal {
+            id: 1,
+            aim,
+            run: false,
+            drive: Drive::of(locomotion).expect("a known way of moving"),
+            best_distance: 40.0,
+            best_at: 0.0,
+            set_out: 40.0,
+            best_off: 5.0,
+            stopping: Stopping::of(locomotion),
+            flight: None,
+            sortie: None,
+            sweep: ground::lying_sweep(locomotion),
+        }
+    }
+
+    fn peer_aim() -> Aim {
+        Aim::Peer {
+            did: "did:plc:friend".into(),
+            keep: 3.0,
+            closing: false,
+            still_at: Vec2::ZERO,
+            still_since: 0.0,
+            blocked: true,
+            gap: 10.0,
+        }
+    }
+
+    /// **A movement takes up the body the agent wears now** (#1851): a new
+    /// way of moving begins it again from where the body is, under the new
+    /// drive, its clocks restarted; new numbers for the same way carry on
+    /// with them; and what the new body cannot do ends `body_changed` - a
+    /// follow in an airplane, a drive's keys on anything new.
+    #[test]
+    fn a_movement_takes_up_the_body_the_agent_wears_now() {
+        let on_foot = person().locomotion;
+        let rotor = stand_in(false).locomotion;
+        let airplane = stand_in(true).locomotion;
+        assert!(
+            matches!(rotor, LocomotionConfig::Helicopter(_)),
+            "the premise"
+        );
+        let at = Vec3::new(1.0, 0.0, 2.0);
+
+        let mut goal = goal_on(peer_aim(), &on_foot);
+        assert_eq!(take_up_body(&mut goal, &on_foot, at, None, 9.0), None);
+        assert_eq!(goal.best_at, 0.0, "the same body: nothing begun again");
+
+        assert_eq!(take_up_body(&mut goal, &rotor, at, None, 9.0), None);
+        assert!(matches!(goal.drive, Drive::Rotor(_)));
+        assert_eq!(goal.best_at, 9.0);
+        assert!(matches!(
+            goal.aim,
+            Aim::Peer { closing: true, blocked: false, still_since, still_at, .. }
+                if still_since == 9.0 && still_at == at.xz()
+        ));
+
+        let mut goal = goal_on(peer_aim(), &rotor);
+        assert_eq!(
+            take_up_body(&mut goal, &airplane, at, None, 9.0),
+            Some(MoveOutcome::BodyChanged),
+            "an airplane cannot follow"
+        );
+
+        let mut goal = goal_on(Aim::Point(Vec2::new(0.0, -40.0)), &on_foot);
+        assert_eq!(take_up_body(&mut goal, &airplane, at, None, 9.0), None);
+        assert!(
+            matches!(goal.drive, Drive::Wing(_)),
+            "an airplane flies a walk-to"
+        );
+        assert_eq!(goal.best_distance, at.xz().distance(Vec2::new(0.0, -40.0)));
+
+        let mut goal = goal_on(
+            Aim::Heading {
+                dir: Vec2::X,
+                bias_deg: 40.0,
+                phase: TurnPhase::Settling { since: 1.0 },
+            },
+            &on_foot,
+        );
+        let car = LocomotionConfig::Car(Box::default());
+        assert_eq!(take_up_body(&mut goal, &car, at, None, 9.0), None);
+        assert!(matches!(
+            goal.aim,
+            Aim::Heading {
+                bias_deg: 0.0,
+                phase: TurnPhase::Moving { since: 9.0 },
+                ..
+            }
+        ));
+
+        // A car tuned in place: the same way of moving, its new braking.
+        let mut slow = crate::pds::CarParams::default();
+        slow.drive_force.0 *= 0.1;
+        let slow = LocomotionConfig::Car(Box::new(slow));
+        let mut goal = goal_on(Aim::Point(Vec2::new(0.0, -40.0)), &car);
+        assert_eq!(take_up_body(&mut goal, &slow, at, None, 9.0), None);
+        assert_eq!(goal.stopping, Stopping::of(&slow));
+        assert_eq!(goal.best_at, 0.0, "carried straight on");
+
+        let mut goal = goal_on(
+            Aim::Keys(Box::new(keys::KeyRun::new(
+                keys::segments(vec![DriveSegment {
+                    keys: vec!["W".to_owned()],
+                    secs: 2.0,
+                }])
+                .expect("a segment"),
+                0.0,
+                keys::airborne_above(&car).expect("a car drives"),
+            ))),
+            &car,
+        );
+        assert_eq!(
+            take_up_body(&mut goal, &on_foot, at, None, 9.0),
+            Some(MoveOutcome::BodyChanged),
+            "a drive's keys were for the car"
+        );
+    }
+
+    /// **A follow begun on foot escorts once the body flies** (#1851). Live
+    /// 19: Kairos followed the owner on foot and wore an airship; the follow
+    /// went on pressing a walker's W on the landed craft, which only Space
+    /// lifts off, and said `follow_blocked` 1.5 minutes later. Here a person
+    /// follows a player 40 m off, puts the airship on a second in, and is
+    /// flying their escort, never blocked, within 20 s.
+    #[test]
+    fn a_follow_begun_on_foot_escorts_once_the_body_flies() {
+        let walker = person();
+        let mut daemon = Daemon::over(FlightBench::set_down(&walker, 0.0, 0.0));
+        daemon.world().spawn((
+            peer("did:plc:friend"),
+            placed(true),
+            GlobalTransform::from(Transform::from_xyz(0.0, 0.0, -40.0)),
+        ));
+        follow(daemon.world(), "did:plc:friend".into(), 3.0, false, false).expect("a follow");
+        let from = daemon.bench.position();
+        for _ in 0..30 {
+            daemon.frame();
+        }
+        assert!(
+            daemon.bench.position().distance(from) > 0.5,
+            "the premise: it walks after them"
+        );
+
+        daemon.bench.wear(&stand_in(false));
+        daemon.until(20.0, |daemon| daemon.height() > 5.0);
+
+        let blocked = daemon
+            .log
+            .after(0, Duration::ZERO)
+            .events
+            .into_iter()
+            .any(|e| matches!(e.what, EventKind::FollowBlocked { .. }));
+        assert!(!blocked, "said to be blocked after the wear");
+        assert!(daemon.endings().is_empty(), "{:?}", daemon.endings());
+        assert!(
+            describe(daemon.world())["phase"].is_string(),
+            "escorting in the air"
+        );
+    }
+
     /// The daemon's own steering, flying the airship stand-in on the flight
     /// bench - or driving a car on the drive bench (#1531): the `steer`
     /// system, the event log it writes to, and the clock it reads, turned on
@@ -1386,6 +2102,31 @@ mod tests {
         }
     }
 
+    impl Bench for crate::player::sim::WalkBench {
+        fn world_of(&mut self) -> &mut World {
+            self.world_mut()
+        }
+        fn seconds(&self) -> f64 {
+            self.elapsed()
+        }
+        fn step_physics(&mut self) {
+            self.step();
+        }
+    }
+
+    /// The orbit camera's turn landing, as the camera plugin lands it at
+    /// the end of a frame: the world camera's transform looks along the yaw
+    /// the steering set, level - what a walker walks along. A bench with no
+    /// camera has nothing to turn.
+    fn land_the_camera_turn(world: &mut World) {
+        let mut cameras =
+            world.query_filtered::<(&PanOrbitCamera, &mut GlobalTransform), With<WorldCamera>>();
+        for (orbit, mut at) in cameras.iter_mut(world) {
+            let yaw = orbit.yaw.unwrap_or(orbit.target_yaw);
+            *at = GlobalTransform::from(Transform::from_rotation(Quat::from_rotation_y(yaw)));
+        }
+    }
+
     /// A daemon frame, as the agent's loop runs them.
     const FRAME: f64 = 1.0 / 30.0;
 
@@ -1415,6 +2156,113 @@ mod tests {
         fn wearing(record: &crate::pds::avatar::AvatarRecord, at: Vec3) -> Self {
             Self::over(FlightBench::new(record, at))
         }
+    }
+
+    impl Daemon<crate::player::sim::WalkBench> {
+        /// A body on foot wearing `record`, standing on the floor at the
+        /// origin facing -Z, with the orbit camera a walker is steered by.
+        fn on_foot(record: &crate::pds::avatar::AvatarRecord) -> Self {
+            let mut bench = crate::player::sim::WalkBench::standing(record, 0.0, 0.0);
+            bench.world_mut().spawn((
+                Camera3d::default(),
+                WorldCamera,
+                PanOrbitCamera::default(),
+                GlobalTransform::default(),
+            ));
+            Self::over(bench)
+        }
+    }
+
+    /// The bodies on foot a turn is held to: the default person, the
+    /// default dog, cat and horse lying along their capsules (#1802), and
+    /// Catoid's tabby as its record carries its locomotion
+    /// (`exports/catoid/src/avatar.json`, pulled 2026-10-31, the body live
+    /// session 17's `face` ended `stuck` on, #1820) - each with how far a
+    /// `face` may carry it from where it stood (m), a fifth to a third over
+    /// the most measured.
+    fn on_foot_bodies() -> Vec<(&'static str, crate::pds::avatar::AvatarRecord, f32)> {
+        use crate::pds::avatar::locomotion::beast_record;
+        use symbios_avatar::plan::Family;
+        let mut person = crate::pds::avatar::AvatarRecord::default_for_did("did:plc:agentface");
+        person.locomotion = LocomotionConfig::Humanoid(Box::default());
+        let mut tabby = beast_record(Family::Cat);
+        let mut locomotion: LocomotionConfig = serde_json::from_value(serde_json::json!({
+            "$type": "network.symbios.locomotion.humanoid",
+            "acceleration": 120000,
+            "capsule_length": 4727,
+            "capsule_radius": 1731,
+            "jump_impulse": 749706,
+            "linear_damping": 3000,
+            "mass": 133281,
+            "shape": {
+                "$type": "network.symbios.locomotion.humanoid#lying",
+                "ahead": 26,
+                "height": 5910
+            },
+            "stop_damping": 200000,
+            "swim_speed": 25000,
+            "swim_vertical_speed": 18000,
+            "turn_rate": 120000,
+            "wading_speed_factor": 5000,
+            "walk_speed": 40009
+        }))
+        .expect("Catoid's locomotion reads");
+        locomotion.sanitize();
+        assert!(
+            matches!(&locomotion, LocomotionConfig::Humanoid(p) if p.is_lying()),
+            "the tabby lies along its capsule"
+        );
+        tabby.locomotion = locomotion;
+        vec![
+            ("the default person", person, 0.15),
+            ("the default dog", beast_record(Family::Dog), 0.7),
+            ("the default cat", beast_record(Family::Cat), 0.6),
+            ("the default horse", beast_record(Family::Horse), 2.0),
+            ("Catoid's tabby", tabby, 0.65),
+        ]
+    }
+
+    /// The body's facing on the bench, as `steer` reads it.
+    fn bench_forward(daemon: &Daemon<crate::player::sim::WalkBench>) -> Vec3 {
+        daemon.bench.rotation() * Vec3::NEG_Z
+    }
+
+    /// **A beast faces the way asked, as a person does** (#1820). Live 17:
+    /// `face` on Catoid's tabby ended `stuck` with `facing_off` 60 degrees.
+    /// Each body on foot here turns to a point at each of these angles off
+    /// its nose, either side, and ends `faced` within the tolerance a
+    /// person is promised - and no further from where it stood than its
+    /// bound in [`on_foot_bodies`], which `moving.md` ("Turning") quotes.
+    /// A face step holds the walk ([`ground::face_pulse`]), up to about
+    /// 1.4 s for the horse, so a turn walks a little: measured 2026-11-09,
+    /// the person 0.05-0.11 m, the dog 0.18-0.55, the cat 0.15-0.45, the
+    /// tabby 0.18-0.49 and the horse 0.38 m (45 degrees), 0.91 (90), 1.15
+    /// (-120), 1.43 (150) and 1.71 (180). A bound that breaks after a
+    /// physics or gait change: measure again, and move the doc with it.
+    #[test]
+    fn a_beast_faces_the_way_asked_as_a_person_does() {
+        let mut failures = Vec::new();
+        for (name, record, travel) in on_foot_bodies() {
+            for degrees in [45.0_f32, 90.0, 150.0, 180.0, -60.0, -120.0] {
+                let mut daemon = Daemon::on_foot(&record);
+                let start = daemon.bench.position().xz();
+                let way = ground::turned(Vec2::NEG_Y, degrees);
+                face(daemon.world(), FaceTarget::Point(start + way * 30.0)).expect("a face");
+                daemon.until(15.0, |daemon| !daemon.endings().is_empty());
+                let (outcome, _) = daemon.endings()[0];
+                let off = heading_off(bench_forward(&daemon), way);
+                let moved = daemon.bench.position().xz().distance(start);
+                if outcome != MoveOutcome::Faced || off.abs() > FACE_TOLERANCE_DEG || moved > travel
+                {
+                    failures.push(format!(
+                        "{name}, {degrees} degrees: {outcome:?} {off:.1} off after {:.2} s, \
+                         {moved:.2} m from where it stood (at most {travel:.2})",
+                        daemon.now
+                    ));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{failures:#?}");
     }
 
     impl<B: Bench> Daemon<B> {
@@ -1450,6 +2298,7 @@ mod tests {
                 .update_with_duration(Duration::from_secs_f64(FRAME));
             world.run_system(self.steer).expect("the steering runs");
             world.run_system(self.park).expect("the parking runs");
+            land_the_camera_turn(world);
             while self.bench.seconds() - self.start < self.now {
                 self.bench.step_physics();
             }
@@ -1566,7 +2415,7 @@ mod tests {
                 GlobalTransform::from(Transform::from_xyz(0.0, 0.0, -40.0)),
             ))
             .id();
-        follow(daemon.world(), "did:plc:friend".into(), 3.0, false).expect("a follow");
+        follow(daemon.world(), "did:plc:friend".into(), 3.0, false, false).expect("a follow");
         daemon.until(20.0, |daemon| daemon.height() > 5.0);
 
         daemon.world().entity_mut(friend).despawn();
@@ -1613,7 +2462,7 @@ mod tests {
             GlobalTransform::from(Transform::from_xyz(0.0, 0.0, -40.0)),
         ));
 
-        let followed = follow(daemon.world(), "did:plc:friend".into(), 3.0, false);
+        let followed = follow(daemon.world(), "did:plc:friend".into(), 3.0, false, false);
         assert!(followed.is_err_and(|e| e.contains("cannot follow")));
 
         walk_to(daemon.world(), Vec2::new(0.0, -300.0), false).expect("a walk-to");
@@ -1726,6 +2575,150 @@ mod tests {
         ]
     }
 
+    /// Kairos's Hexapod and Roadfactory (#1866), as their items carry their
+    /// locomotion (`exports/kairos/gen/fleet_hex_loco.json` and
+    /// `fleet_road_loco.json`, built by `b/fleet.py` from the Catalogue
+    /// rover on 2026-11-05 and worn in live sessions 20 and 21): the car
+    /// preset on a 2.9 m by 3.1 m box, the Hexapod at half the
+    /// Roadfactory's drive. Their visuals do not move them, so the default
+    /// body stands in for the factory's.
+    fn kairos_cars() -> Vec<(&'static str, crate::pds::avatar::AvatarRecord)> {
+        let car = |drive_force: u64| {
+            let mut locomotion: LocomotionConfig = serde_json::from_value(serde_json::json!({
+                "$type": "network.symbios.locomotion.car",
+                "air_angular_damping": 10000,
+                "air_control_accel": 40000,
+                "air_level_accel": 60000,
+                "air_linear_damping": 500,
+                "angular_damping": 30000,
+                "center_of_mass_drop": 6000,
+                "chassis_half_extents": [14500, 1316, 15500],
+                "drive_force": drive_force,
+                "handbrake_grip_factor": 2500,
+                "lateral_grip": 131448720,
+                "linear_damping": 9000,
+                "mass": 5915192,
+                "suspension_damping": 8938513,
+                "suspension_rest_length": 6000,
+                "suspension_stiffness": 110416920,
+                "turn_torque": 21259723,
+                "upright_assist_accel": 25000,
+                "upright_assist_damping": 8000,
+                "upright_engage_tilt_degrees": 600000
+            }))
+            .expect("Kairos's locomotion reads");
+            locomotion.sanitize();
+            assert!(
+                matches!(locomotion, LocomotionConfig::Car(_)),
+                "a car after the sanitiser, as when it was built"
+            );
+            let mut record =
+                crate::pds::avatar::AvatarRecord::default_for_did("did:plc:agentkairoscar");
+            record.locomotion = locomotion;
+            record
+        };
+        vec![
+            ("Kairos Hexapod", car(26618364)),
+            ("Kairos Roadfactory", car(53236728)),
+        ]
+    }
+
+    /// How far each movement that has ended still had to go.
+    fn distances_left<B: Bench>(daemon: &Daemon<B>) -> Vec<f64> {
+        daemon
+            .log
+            .after(0, Duration::ZERO)
+            .events
+            .into_iter()
+            .filter_map(|e| match e.what {
+                EventKind::MovementEnded {
+                    distance_left_m, ..
+                } => Some(distance_left_m),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A car's short walk-to drives (#1866). Live 21: Kairos's Hexapod and
+    /// Roadfactory, at rest 2.97-2.99 m from the teleporter's deck, each
+    /// ended a walk-to there `arrived` at once, with that much left and not
+    /// a key pressed - a car's arrival circle is 3 m, and they began inside
+    /// it. A car at rest can close in; a walk-to now asks it to come within
+    /// half the way it set out from (never nearer than a walker's metre),
+    /// ahead of it or beside it.
+    #[test]
+    fn a_cars_short_walk_to_drives_it_closer() {
+        let from = 2.98;
+        for (name, record) in kairos_cars().into_iter().chain(swinging_cars()) {
+            for (side, target) in [
+                ("ahead", Vec2::new(0.0, -from)),
+                ("beside", Vec2::new(from, 0.0)),
+            ] {
+                let mut daemon = Daemon::over(DriveBench::parked(&record, 0.0, 0.0));
+                let start = daemon.bench.position().xz();
+                let target = start + target;
+                walk_to(daemon.world(), target, false).expect("a walk-to");
+
+                daemon.until(30.0, |daemon| !daemon.endings().is_empty());
+                let off = daemon.bench.position().xz().distance(target);
+                assert_eq!(
+                    daemon.endings()[0].0,
+                    MoveOutcome::Arrived,
+                    "{name}'s walk-to of a point {from} m {side}: {off:.2} m left"
+                );
+                assert!(
+                    off <= from * 0.5,
+                    "{name} arrived {off:.2} m from a point {from} m {side} of where it stood"
+                );
+                for _ in 0..60 {
+                    daemon.frame();
+                }
+                let off = daemon.bench.position().xz().distance(target);
+                assert!(
+                    off <= from * 0.5,
+                    "two seconds after it arrived {name} is {off:.2} m from its point {side}"
+                );
+            }
+        }
+    }
+
+    /// And a car that cannot close in says so (#1866): nosed against a wall
+    /// with its point 2.98 m off beyond it, a car used to end its walk-to
+    /// `arrived` at once, as live 21's did on open ground, without trying;
+    /// it ends `stuck`, with the metres it has left, once it has gone
+    /// [`STUCK_AFTER_SECS`] no nearer.
+    #[test]
+    fn a_car_walled_in_short_of_its_point_ends_stuck() {
+        let from = 2.98;
+        for (name, record) in kairos_cars() {
+            let LocomotionConfig::Car(params) = &record.locomotion else {
+                unreachable!("a car");
+            };
+            let nose = params.chassis_half_extents.0[2];
+            let mut bench = DriveBench::parked(&record, 0.0, 0.0);
+            let start = bench.position().xz();
+            // A wall 0.15 m off the nose, 0.5 m thick: the point is beyond it.
+            bench.block(
+                Transform::from_xyz(start.x, 1.0, start.y - nose - 0.4),
+                Vec3::new(6.0, 1.0, 0.25),
+            );
+            let mut daemon = Daemon::over(bench);
+            let target = start + Vec2::new(0.0, -from);
+            walk_to(daemon.world(), target, false).expect("a walk-to");
+
+            daemon.until(30.0, |daemon| !daemon.endings().is_empty());
+            assert_eq!(daemon.endings()[0].0, MoveOutcome::Stuck, "{name}");
+            // It rears up against the wall, its front corners' rays on the
+            // wall's top, and leans there: its middle comes a metre nearer
+            // and no further, short of the circle it was asked to reach.
+            let left = distances_left(&daemon)[0];
+            assert!(
+                left > f64::from(from) * 0.5,
+                "{name} ended stuck with {left} m left, the wall between"
+            );
+        }
+    }
+
     /// A car's walk-to of a point behind it arrives (#1541). It swings round
     /// on the spot first - the default car at about 25 degrees a second -
     /// and with progress counted by distance alone the walk ended stuck
@@ -1809,7 +2802,7 @@ mod tests {
                 placed(true),
                 GlobalTransform::from(Transform::from_translation(player)),
             ));
-            follow(daemon.world(), "did:plc:friend".into(), 3.0, false).expect("a follow");
+            follow(daemon.world(), "did:plc:friend".into(), 3.0, false, false).expect("a follow");
             let mut moved_at = None;
             for _ in 0..(15.0 / FRAME) as usize {
                 daemon.frame();
@@ -1857,7 +2850,8 @@ mod tests {
                     placed(true),
                     GlobalTransform::from(Transform::from_translation(player)),
                 ));
-                follow(daemon.world(), "did:plc:friend".into(), keep, false).expect("a follow");
+                follow(daemon.world(), "did:plc:friend".into(), keep, false, false)
+                    .expect("a follow");
 
                 let mut nearest = f32::MAX;
                 for _ in 0..(20.0 / FRAME) as usize {

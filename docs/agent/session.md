@@ -134,8 +134,8 @@ without waiting for approval. The owner logs in now and then with hints.
   `clearings.py` before building in woodland; an offline try with
   `views.py` and `compare.py`; live with `rec.py apply`
   ([tools/](tools/README.md), "The loop they make"). Look live once
-  `world_building` is false; read `z_fighting`, `adjusted_at`, `ignored_at`
-  and `record_size`; run `--floating-report` on anything spread over ground;
+  `world_building` is false; read `z_fighting`, `adjusted_at`, `ignored_at`,
+  `missing_generators` and `record_size`; run `--floating-report` on anything spread over ground;
   prove a gateway by walking in (`status.zone`); save; say what was kept.
 - At each milestone review again, re-rank and keep going: places, detail,
   life (sound, smoke, the work of the season), whatever reads wrong. When
@@ -160,9 +160,10 @@ hints in chat; you turn each into an improvement, one small step at a time.
   -d` replaces whole), weighing the owner's wishes on the page.
 - **Greet them, come to them** (`A walk-to @codewright.bsky.social`) and
   give two lines: what the region is, and that it is as saved (or what
-  differs). Offer a short tour. "Follow me" holds until they say otherwise
-  but ends when they leave or you restart: start it again on their return
-  and after each restart. A `peer_left` and `peer_joined` minutes apart is
+  differs). Offer a short tour. "Follow me" holds until they say otherwise:
+  `follow --standing` starts it again on their return and after each errand
+  by itself (#1852), but a restart forgets it - give it again after each
+  restart. A `peer_left` and `peer_joined` minutes apart is
   their tab going to the background: say nothing.
 - **Change things only for their hints** (offline preparation is fine);
   take up your own list only when asked. Hints come as short lines, often
