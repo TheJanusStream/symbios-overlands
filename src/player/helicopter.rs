@@ -199,9 +199,9 @@ fn stabilize_torque(chassis_up: Vec3, strength: f32) -> Vec3 {
 /// lived in [`apply_helicopter_forces`], so focusing any egui text field
 /// (or touching a portal) cut the rotor and the airship fell out of the
 /// sky (#821). The one legitimate suppressor is the avatar-editor freeze:
-/// while [`VisualsEditFreeze`] parks the chassis (all axes locked,
-/// gravity zeroed, velocity re-zeroed per frame, #814) applying hover
-/// thrust would only fight it, so frozen bodies are filtered out.
+/// while [`VisualsEditFreeze`] holds the chassis (#814; the body is
+/// disabled, out of the simulation, since #1894) hover thrust has nothing
+/// to act on, so frozen bodies are filtered out.
 #[allow(clippy::type_complexity)]
 pub(super) fn apply_helicopter_stabilization(
     live: Res<LiveAvatarRecord>,

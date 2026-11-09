@@ -146,29 +146,23 @@ pub(super) fn detect_local_locomotion_change(
 /// sees the removed/inserted components on the next physics step without
 /// a race.
 ///
-/// DEFERRED while the visuals-edit freeze parks the chassis (#867,
-/// `Without<VisualsEditFreeze>`): stripping + reinserting the `Collider`
-/// on a parked body that is touching the terrain corrupts avian's
-/// contact/island bookkeeping - the same class as the #740
-/// `RigidBodyDisabled` cycle the freeze itself avoids - and the broken
-/// pair surfaces on freeze release as a clean fall through the world
-/// followed by a runaway respawn→NaN feedback (the #867 meltdown).
-/// `NeedsLocomotionRebuild` simply stays parked on the entity; the
-/// freeze holds the pose so the stale body is invisible mid-edit, and
-/// the marker is removed at release-time flush, so this system applies
-/// the rebuild on the first frame the body is live again. Visuals-only
-/// edits keep flowing through [`rebuild_local_visuals`] regardless.
+/// Runs under the visuals-edit freeze too. From #867 until #1894 it was
+/// deferred to the freeze's release, because the freeze then "parked" a
+/// body that stayed in the simulation, touching the terrain, and a
+/// collider replaced under it was blamed for the #867 meltdown (a fall
+/// through the world on release, then a runaway respawn into NaN). The
+/// freeze now disables the body: it has no contacts while it holds, avian
+/// files the new collider as a disabled body's, and the release finds
+/// the ground afresh. `a_frozen_body_is_rebuilt_and_repainted_at_once`,
+/// below, holds this system and [`rebuild_local_visuals`] to running on a
+/// frozen body, and the freeze tests in `player` hold the body to standing
+/// on the ground after the release
+/// (`a_re_seed_under_the_freeze_stands_on_the_ground_after_release`
+/// re-seeds through three families under it).
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(super) fn apply_local_locomotion_rebuild(
     mut commands: Commands,
-    players: Query<
-        (Entity, Option<&Children>),
-        (
-            With<LocalPlayer>,
-            With<NeedsLocomotionRebuild>,
-            Without<super::VisualsEditFreeze>,
-        ),
-    >,
+    players: Query<(Entity, Option<&Children>), (With<LocalPlayer>, With<NeedsLocomotionRebuild>)>,
     orphan_visuals: Query<Entity, (With<AvatarVisualPrim>, Without<ChildOf>)>,
     live: Res<LiveAvatarRecord>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -225,28 +219,17 @@ fn despawn_orphan_avatar_visuals(
 /// visuals-tree edits) only need new visual children - rigid-body
 /// identity stays intact.
 ///
-/// The `NeedsLocomotionRebuild` skip only applies while the body rebuild
-/// can actually run this frame: since #867 defers that rebuild for the
-/// whole frozen editing session, a kind-changing re-seed would otherwise
-/// starve the cosmetic repaint too and the re-roll stayed invisible
-/// until the editor closed (#870). While the freeze marker is present
-/// the visuals repaint here on every record change - physics components
-/// stay untouched, which is exactly what the deferral protects - at the
-/// cost of one redundant repaint when the deferred rebuild lands at
-/// release.
+/// A body owed a rebuild is skipped: [`apply_local_locomotion_rebuild`]
+/// paints its visuals, and runs before this in the same frame. (#870 had
+/// let a frozen body repaint here as well, while #867 deferred its
+/// rebuild for the whole editing session; #1894 ended the deferral.)
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(super) fn rebuild_local_visuals(
     mut commands: Commands,
     live: Res<LiveAvatarRecord>,
     players: Query<
         (Entity, Option<&Children>, Option<&AppliedLocalBody>),
-        (
-            With<LocalPlayer>,
-            Or<(
-                Without<NeedsLocomotionRebuild>,
-                With<super::VisualsEditFreeze>,
-            )>,
-        ),
+        (With<LocalPlayer>, Without<NeedsLocomotionRebuild>),
     >,
     orphan_visuals: Query<Entity, (With<AvatarVisualPrim>, Without<ChildOf>)>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -486,6 +469,109 @@ mod tests {
         assert!(needs_visual_respawn(Some(&gen_a), &gen_b));
         assert!(needs_visual_respawn(Some(&gen_a), &rigged("did:plc:a")));
         assert!(needs_visual_respawn(Some(&rigged("did:plc:a")), &gen_a));
+    }
+
+    /// **The Avatar editor's freeze defers nothing** (#1894): a re-seed that
+    /// changes the locomotion kind while the freeze holds the body is
+    /// rebuilt and repainted on that frame, through the real
+    /// [`apply_local_locomotion_rebuild`] and [`rebuild_local_visuals`] in
+    /// the order `PlayerPlugin` chains them, and a body edit after it is
+    /// repainted at once; the freeze still holds after both. From #867
+    /// until #1894 both waited for the release (`Without<VisualsEditFreeze>`
+    /// on the rebuild's query), which this fails on.
+    #[test]
+    fn a_frozen_body_is_rebuilt_and_repainted_at_once() {
+        use super::super::VisualsEditFreeze;
+        use super::super::preset::{CarPreset, ChassisBuilt, HumanoidPreset};
+        use crate::pds::LocomotionConfig;
+        use bevy::ecs::system::RunSystemOnce;
+
+        let mut app = super::super::visuals::spawn_path_app();
+        app.init_resource::<crate::diagnostics::MetricsRegistry>();
+        let mut person = AvatarRecord::default_for_did("did:plc:hotswap-freeze");
+        person.body = rigged("did:plc:hotswap-freeze");
+        person.locomotion = LocomotionConfig::Humanoid(Box::default());
+        app.insert_resource(LiveAvatarRecord(person.clone()));
+        let body = app
+            .world_mut()
+            .spawn((
+                LocalPlayer,
+                RigidBody::Dynamic,
+                Transform::default(),
+                GlobalTransform::default(),
+            ))
+            .id();
+        let mut commands = app.world_mut().commands();
+        build_preset_components(&mut commands, body, &person.locomotion);
+        app.world_mut().flush();
+        app.world_mut().entity_mut(body).insert((
+            AppliedLocalBody::painted(&person.body),
+            VisualsEditFreeze,
+            RigidBodyDisabled,
+        ));
+        let run = |app: &mut App| {
+            app.world_mut()
+                .run_system_once(apply_local_locomotion_rebuild)
+                .expect("the rebuild runs");
+            app.world_mut()
+                .run_system_once(rebuild_local_visuals)
+                .expect("the repaint runs");
+        };
+        let frozen = |app: &App| {
+            let at = app.world().entity(body);
+            at.contains::<VisualsEditFreeze>() && at.contains::<RigidBodyDisabled>()
+        };
+
+        // A re-seed to a car: what `detect_local_locomotion_change` flags.
+        let mut car = person.clone();
+        car.locomotion = LocomotionConfig::Car(Box::default());
+        app.insert_resource(LiveAvatarRecord(car.clone()));
+        app.world_mut()
+            .entity_mut(body)
+            .insert(NeedsLocomotionRebuild);
+        run(&mut app);
+        let want = {
+            let mut world = World::new();
+            let fresh = world.spawn_empty().id();
+            let mut commands = world.commands();
+            build_preset_components(&mut commands, fresh, &car.locomotion);
+            world.flush();
+            *world.get::<ChassisBuilt>(fresh).expect("a stamp")
+        };
+        let at = app.world().entity(body);
+        assert!(
+            !at.contains::<NeedsLocomotionRebuild>(),
+            "the rebuild waited for the freeze to let go"
+        );
+        assert_eq!(
+            at.get::<ChassisBuilt>(),
+            Some(&want),
+            "the frozen body was not rebuilt as the car"
+        );
+        assert!(
+            at.contains::<CarPreset>() && !at.contains::<HumanoidPreset>(),
+            "the frozen body kept the person's preset"
+        );
+        assert!(frozen(&app), "the rebuild let go of the freeze");
+
+        // A body edit after it: the repaint's snapshot moves on at once.
+        let mut edited = car.clone();
+        edited.body = rigged("did:plc:hotswap-freeze-edited");
+        assert_ne!(
+            edited.body, car.body,
+            "the fixture: the edit changes the body"
+        );
+        app.insert_resource(LiveAvatarRecord(edited.clone()));
+        run(&mut app);
+        let painted = app
+            .world()
+            .get::<AppliedLocalBody>(body)
+            .map(|applied| applied.0.clone());
+        assert!(
+            painted == Some(edited.body.sans_attachments()),
+            "the frozen body was not repainted for the edit"
+        );
+        assert!(frozen(&app), "the repaint let go of the freeze");
     }
 
     /// The peer half of the same decision (#1112). A live-preview

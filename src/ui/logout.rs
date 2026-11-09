@@ -191,7 +191,7 @@ session_scoped_resources! {
 /// `init_resource`s, so they are *reset*, never removed. The avatar half is
 /// the one that bit: a worn-prop selection made before logging out keeps
 /// `holds_avatar_still()` true on the first `InGame` frame of the NEXT
-/// login, which parks the new chassis with ALL_LOCKED and pins the rig to
+/// login, which freezes the new chassis and pins the rig to
 /// rest - while `sync_gizmo_selection` finds no entity carrying that rkey,
 /// so there is no gizmo on screen to explain it or to click away. The
 /// release path (`release_hidden_selections`) only runs under

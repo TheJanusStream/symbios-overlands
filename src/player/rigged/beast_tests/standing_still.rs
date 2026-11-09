@@ -627,6 +627,85 @@ fn an_answer_lost_for_a_frame_or_three_moves_nothing() {
     }
 }
 
+/// **An owner's beast frozen on a hill keeps its hill** (#1894). The Avatar
+/// editor's freeze (`player::freeze_local_avatar_while_editing`) disables the
+/// chassis' body, which takes every contact it had: read off its contacts, a
+/// frozen owner rests on nothing, and past the hold the patch eased out to the
+/// level floor under a gizmo - feet sunk into the hill on one side and over it
+/// on the other - and back in after the release. A dog and a horse stand on 20
+/// degrees at 60 frames a second, frozen for three seconds - many times the
+/// hold and the ease - and released: the chassis has no contact while frozen
+/// (the fixture), and the answer stood by is the terrain with the whole of its
+/// share on every frame, through the freeze and after it, and the trunk turns
+/// no more than [`STILL_TURN`] in any frame.
+#[test]
+fn an_owners_beast_frozen_on_a_hill_keeps_its_hill() {
+    let ground = hill();
+    let hz = 60.0f32;
+    let (freeze, release) = (hz as usize / 4, hz as usize / 4 + 3 * hz as usize);
+    for family in [Family::Dog, Family::Horse] {
+        let record = beast_record(family);
+        let place = Transform::from_xyz(0.0, ground(0.0, 0.0) + drop_of(&record) + 0.02, 0.0);
+        let (mut app, chassis, root) =
+            standing_still(&ground, &[], Under::Local, family, place, hz);
+        let mut shares = Vec::new();
+        let mut disabled = Vec::new();
+        let log = frames_of(
+            &mut app,
+            chassis,
+            root,
+            Under::Local,
+            release + hz as usize,
+            |app, i| {
+                if i > 0 {
+                    shares.push(held(app, root));
+                }
+                app.world_mut()
+                    .resource_mut::<crate::player::RigHold>()
+                    .still = (freeze..release).contains(&i);
+                app.world_mut()
+                    .run_system_once(crate::player::freeze_local_avatar_while_editing)
+                    .expect("the freeze runs");
+                disabled.push(
+                    app.world()
+                        .get::<avian3d::prelude::RigidBodyDisabled>(chassis)
+                        .is_some(),
+                );
+            },
+        );
+        shares.push(held(&app, root));
+        assert!(
+            disabled
+                .iter()
+                .enumerate()
+                .all(|(i, &off)| off == (freeze..release).contains(&i)),
+            "{family:?}: the fixture: the freeze did not hold frames {freeze} to {release} alone"
+        );
+        assert!(
+            log[freeze + 1..release]
+                .iter()
+                .all(|frame| frame.contacts == Some(RestsOn::Elsewhere) && !frame.touching),
+            "{family:?}: the fixture: a frozen chassis kept a contact"
+        );
+        let lost: Vec<(usize, (f32, bool))> = shares
+            .iter()
+            .copied()
+            .enumerate()
+            .filter(|&(_, (share, on))| share != 1.0 || !on)
+            .collect();
+        assert!(
+            lost.is_empty(),
+            "{family:?}: frozen from frame {freeze} to {release}, the patch carried (frame, \
+             (share, stands by the terrain)) {lost:?}"
+        );
+        let (worst, found) = jumps(&log, STILL_TURN);
+        assert!(
+            log.iter().all(|frame| frame.patched) && found.is_empty(),
+            "{family:?}: the trunk turned up to {worst:.3} deg in a frame, on frames {found:?}"
+        );
+    }
+}
+
 /// A `family` beast on its owner's client set down at `place` over `ground`
 /// and `solids`, walked by `key` held for the first of `(held, seconds)` at
 /// `hz`: every frame of it, from the first the key is down.

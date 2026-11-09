@@ -1254,7 +1254,11 @@ pub(crate) struct Underfoot<'w, 's> {
     terrain: Query<'w, 's, (), (With<TerrainMesh>, Without<OutgoingTerrain>)>,
     /// Every terrain, outgoing or not: none is a structure.
     any_terrain: Query<'w, 's, (), With<TerrainMesh>>,
-    simulated: Query<'w, 's, (), With<Collider>>,
+    /// A chassis the physics simulates here: the owner's, with a collider -
+    /// but not while the Avatar editor's freeze has disabled its body
+    /// (`player::freeze_local_avatar_while_editing`, #1894), which leaves it
+    /// no contacts to read. A frozen owner is read by the cast, as a peer is.
+    simulated: Query<'w, 's, (), (With<Collider>, Without<RigidBodyDisabled>)>,
     solids: Query<'w, 's, Solid, Without<Sensor>>,
     bodies: Query<'w, 's, &'static RigidBody>,
 }
@@ -1950,8 +1954,9 @@ impl Underfoot<'_, '_> {
     }
 
     /// What the chassis rests on: its contacts, for one the physics simulates
-    /// here ([`Self::contacts_say`]); for one it does not, its body's lying
-    /// capsule cast down from a little above where it stands
+    /// here ([`Self::contacts_say`]); for one it does not - a peer, or the
+    /// owner's while the Avatar editor's freeze has disabled its body - its
+    /// body's lying capsule cast down from a little above where it stands
     /// ([`Self::rest_of`]), or the last such cast's answer while it has not
     /// moved since ([`RestCast`]). This frame's answer, raw: [`RestHold`]
     /// decides what the body stands by.
@@ -1971,6 +1976,8 @@ impl Underfoot<'_, '_> {
         };
         let memory = &mut memory.cast;
         if self.simulated.contains(chassis) {
+            // A cast kept from a freeze is not read back after it.
+            memory.last = None;
             return self.contacts_say(chassis);
         }
         if memory.capsule_of(rig).is_none() {
@@ -1988,7 +1995,8 @@ impl Underfoot<'_, '_> {
         let Some((_, capsule)) = memory.capsule.as_ref() else {
             return RestsOn::Elsewhere;
         };
-        let rests = self.cast_within(capsule, root, within);
+        // A frozen owner's chassis keeps its collider where it stands.
+        let rests = self.cast_within(capsule, root, within, Some(chassis));
         memory.last = Some(LastRest {
             at,
             rotation,
@@ -2078,15 +2086,22 @@ impl Underfoot<'_, '_> {
     /// cast: for a test to read a fresh cast beside the fill's.
     #[cfg(test)]
     pub(super) fn resting_cast(&self, capsule: &Collider, root: &GlobalTransform) -> RestsOn {
-        self.cast_within(capsule, root, RESTING_WITHIN)
+        self.cast_within(capsule, root, RESTING_WITHIN, None)
     }
 
     /// What `capsule` posed at `root` rests on, cast down from [`CAST_RISE`]
     /// over it: [`Self::rest_of`]'s answer, if it fell no further than
     /// `within` - further, it is in the air. That is [`RESTING_WITHIN`], and
     /// [`RESTING_BAND`] more for a body standing by the terrain (#1835).
-    fn cast_within(&self, capsule: &Collider, root: &GlobalTransform, within: f32) -> RestsOn {
-        match self.rest_of(capsule, root, CAST_RISE, CAST_FALL, None) {
+    /// `exclude` is passed over, as [`Self::rest_of`] passes it.
+    fn cast_within(
+        &self,
+        capsule: &Collider,
+        root: &GlobalTransform,
+        within: f32,
+        exclude: Option<Entity>,
+    ) -> RestsOn {
+        match self.rest_of(capsule, root, CAST_RISE, CAST_FALL, exclude) {
             Some((fell, rests)) if fell <= within => rests,
             _ => RestsOn::Elsewhere,
         }
@@ -2100,7 +2115,7 @@ impl Underfoot<'_, '_> {
     /// terrain (#1834), or anything else, as the owner's contacts are read
     /// ([`Self::contacts_say`]). `None` when nothing is under it that far
     /// down. `exclude` is passed over: the chassis' own collider, for one
-    /// simulated here.
+    /// simulated here or frozen by the Avatar editor.
     ///
     /// The capsule is the one [`crate::pds::avatar::locomotion::fit_on_foot`]
     /// cuts from the rig ([`LyingCapsule`]), the chassis' own shape, held

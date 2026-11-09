@@ -261,6 +261,16 @@ skrifa = "0.44"
 # is read back over msgpack as the browser reads it, so what crosses the worker
 # is tested over the bytes it really crosses in (#1875).
 rmp-serde = "1"
+# Bevy's WESL composer, wgpu's WGSL front end and validator, and wgpu's map
+# from device features to naga's capabilities (all three already in the graph,
+# at these features: naga is built with `wgsl-in` for wgpu, wesl with
+# `naga-ext` for bevy_shader, so neither crate builds twice): every shader is
+# composed as Bevy's `ShaderCache` composes it and validated as wgpu validates
+# it, with no GPU (#1893, `tests/shader_compose.rs`). Caret requirements on
+# purpose - CI resolves fresh - so each follows the version Bevy resolves.
+wesl = { version = "0.6", default-features = false, features = ["naga-ext"] }
+naga = { version = "30", default-features = false, features = ["wgsl-in"] }
+wgpu-naga-bridge = "30"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # The headless render tool's animated output (`--frames N`, `.gif`). `gif`

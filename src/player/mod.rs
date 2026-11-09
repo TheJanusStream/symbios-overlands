@@ -733,8 +733,8 @@ pub struct RigHold {
 /// user put it.
 ///
 /// The actual full-body freeze lives in
-/// [`freeze_local_avatar_while_editing`], which parks the chassis with a
-/// full axis lock, and the cosmetic sway hold lives in
+/// [`freeze_local_avatar_while_editing`], which takes the chassis out of
+/// the simulation, and the cosmetic sway hold lives in
 /// [`gait::animate_avatar_gait`] - both keyed on
 /// [`RigHold::still`], which since #1103 is true exactly while a gizmo
 /// is aimed at the avatar or something it wears
@@ -747,31 +747,26 @@ fn avatar_visuals_row_selected(hold: Res<RigHold>) -> bool {
     hold.visuals_row
 }
 
-/// Marker carried by the chassis while the visuals-edit freeze is
-/// engaged, remembering the [`LockedAxes`] to restore on release (the
-/// humanoid preset locks rotation; the vehicle presets carry none).
+/// Marker carried by the chassis while the visuals-edit freeze holds it,
+/// beside the `RigidBodyDisabled` that does the holding.
 ///
-/// `pub(super)` since #867: the locomotion hot-swap defers its body
-/// rebuild while this marker is present - replacing the `Collider` on a
-/// parked, touching body corrupts avian's contact bookkeeping the
-/// same way the #740 `RigidBodyDisabled` cycle does, and the corrupted
-/// pair surfaces on release as a fall-through-the-world + runaway
-/// respawn feedback that ends in NaN.
+/// `pub(super)` for the drive systems that stand down while it is present
+/// (the airplane's flight model, the winged flight, the helicopter): a
+/// disabled body is outside the solver, but the forces and key state those
+/// systems keep are theirs, and a frozen body owes them nothing.
 #[derive(Component)]
-pub(super) struct VisualsEditFreeze {
-    prior_locked_axes: Option<LockedAxes>,
-}
+pub(super) struct VisualsEditFreeze;
 
-/// Hold the local player's chassis fully frozen while a gizmo is aimed
-/// at the avatar or at something it wears
-/// ([`RigHold::still`]): lock every axis, zero
-/// gravity, and re-zero momentum each frame until the selection releases.
-/// Freezing the chassis (rather than just gating the drive systems) stops
-/// the passive movers too - suspension, buoyancy, gravity/falling, slope
-/// creep - so the avatar holds its exact pose during the edit, even
-/// mid-air. That matters for correctness as well as ergonomics: the drag
-/// commit's world→local conversion reads the parent chassis's
-/// `GlobalTransform`, which must be stable while the gizmo is attached.
+/// Hold the local player's chassis frozen while a gizmo is aimed at the
+/// avatar or at something it wears ([`RigHold::still`]), and while a
+/// portal travel is in flight: the body takes avian's `RigidBodyDisabled`
+/// until the selection releases. Freezing the chassis (rather than just
+/// gating the drive systems) stops the passive movers too - suspension,
+/// buoyancy, gravity/falling, slope creep - so the avatar holds its exact
+/// pose during the edit, even mid-air. That matters for correctness as
+/// well as ergonomics: the drag commit's world→local conversion reads the
+/// parent chassis's `GlobalTransform`, which must be stable while the
+/// gizmo is attached.
 ///
 /// The gate matches the cosmetic gait/sway hold in
 /// [`gait::animate_avatar_gait`]: both key on the same selection-scoped
@@ -783,31 +778,37 @@ pub(super) struct VisualsEditFreeze {
 /// round. Every path that hides the window releases the selections, so a
 /// closed editor never holds.
 ///
-/// Deliberately NOT `RigidBodyDisabled` (#740): an insert/remove
-/// cycle of `RigidBodyDisabled` on a body with touching
-/// contacts corrupts the physics-island bookkeeping - the contact edge
-/// keeps its island link across the disable, the re-enable island-links
-/// it a second time, and the constraint graph is left holding manifold
-/// handles past the pair's manifold list. In release builds that
-/// surfaces as the solver's `manifolds[manifold_index]` index-out-of-
-/// bounds panic on the next edit (the #739 UV-dropdown crash was this).
-/// `tests/freeze_rigid_body.rs` carries the ignored upstream repro,
-/// which STILL FAILS on avian 0.7.0 (re-run 2026-08-30, #1150) - two
-/// majors and a Bevy train on, so this is not a legacy workaround; the
-/// axis-lock freeze below never changes the body's simulation
-/// membership, so islands and the constraint graph stay untouched.
-/// Revisit when the engine moves to Bevy 0.19 / avian 0.7+.
+/// From #740 until #1894 this froze by "parking" instead - a full axis
+/// lock, zero gravity and per-frame momentum zeroing, the body left in
+/// the simulation - because through avian 0.7 an insert/remove cycle of
+/// `RigidBodyDisabled` on a body with touching contacts linked the
+/// contact into an island twice and later panicked the solver. Avian 0.8
+/// rebuilt that bookkeeping, and `tests/freeze_rigid_body.rs`'s
+/// `plain_rigid_body_disabled_cycle`, which runs in every gate, holds it
+/// to that with a live ground contact on both sides of the cycle.
 ///
-/// State-synced rather than edge-triggered, so both recovery paths heal
-/// on the next frame: a fresh chassis entity (room travel respawn) has
-/// no marker and re-engages from scratch, while a locomotion hot-swap
-/// mid-edit (record Load/Reset strips + rebuilds preset components on
-/// the same entity) re-inserts the new preset's `LockedAxes` over the
-/// full lock - the re-assert arm below locks it again and re-captures
-/// the *new* preset's axes as the restore target. The per-frame
-/// velocity re-zero (not just at engage) discards anything the
-/// still-running solver injects - penetration recovery, restitution
-/// residue - so nothing accumulates toward a burst on release.
+/// State-synced rather than edge-triggered, so recovery heals on the next
+/// frame: a fresh chassis entity (room travel respawn) has neither
+/// component and is frozen from scratch, and a body that lost its
+/// `RigidBodyDisabled` mid-hold gets it back. A locomotion rebuild under
+/// the freeze needs nothing from here: it leaves `RigidBody` and both
+/// components alone, and avian files the new collider as a disabled
+/// body's.
+///
+/// The momentum clear while frozen is not physics - a disabled body
+/// integrates nothing. The drive systems gate on the visuals ROW only
+/// ([`avatar_visuals_row_selected`]), so under a worn prop's gizmo the walk
+/// still writes the velocity WASD asks for each fixed step; the clear here
+/// keeps that velocity from being what the body carries out of the freeze
+/// on release. It does not keep the network broadcast honest: that runs in
+/// `FixedUpdate`, unordered against the drives, while this runs in
+/// `Update`, so a drive's velocity written in a fixed step can still go out
+/// to peers before this clears it (pre-existing, #1897). Written only when
+/// there is something to clear.
+///
+/// The release hands the body back to the broad phase
+/// ([`rejoin_broad_phase`]), so its ground contact is found on the first
+/// step rather than after it has sunk out of its enlarged AABB.
 #[allow(clippy::type_complexity)]
 fn freeze_local_avatar_while_editing(
     mut commands: Commands,
@@ -818,8 +819,8 @@ fn freeze_local_avatar_while_editing(
             Entity,
             &mut LinearVelocity,
             &mut AngularVelocity,
-            Option<&LockedAxes>,
-            Option<&mut VisualsEditFreeze>,
+            Has<VisualsEditFreeze>,
+            Has<RigidBodyDisabled>,
         ),
         (With<LocalPlayer>, With<RigidBody>),
     >,
@@ -827,47 +828,105 @@ fn freeze_local_avatar_while_editing(
     // Held for an avatar-editing session AND while a portal travel is in
     // flight (#842): travel suppresses the drive systems but used to
     // leave the chassis loose under gravity/physics, so aircraft sagged
-    // and boats drifted through the fetch. Same park/release machinery
-    // either way.
+    // and boats drifted through the fetch. Same freeze/release either way.
     let held = hold.still || traveling.is_some();
-    for (entity, mut lin, mut ang, locked_axes, freeze) in q.iter_mut() {
+    for (entity, mut lin, mut ang, frozen, disabled) in q.iter_mut() {
         if held {
-            lin.0 = Vec3::ZERO;
-            ang.0 = Vec3::ZERO;
-            match freeze {
-                None => {
-                    commands.entity(entity).try_insert((
-                        VisualsEditFreeze {
-                            prior_locked_axes: locked_axes.copied(),
-                        },
-                        LockedAxes::ALL_LOCKED,
-                        GravityScale(0.0),
-                    ));
-                }
-                // `LockedAxes` has no `PartialEq`; compare the bit masks.
-                Some(mut freeze)
-                    if locked_axes.map(LockedAxes::to_bits)
-                        != Some(LockedAxes::ALL_LOCKED.to_bits()) =>
-                {
-                    // A mid-edit locomotion hot-swap replaced the lock
-                    // with the new preset's axes: those are now what
-                    // release must restore; lock everything again.
-                    freeze.prior_locked_axes = locked_axes.copied();
-                    commands.entity(entity).try_insert(LockedAxes::ALL_LOCKED);
-                }
-                Some(_) => {}
+            if lin.0 != Vec3::ZERO {
+                lin.0 = Vec3::ZERO;
             }
-        } else if let Some(freeze) = freeze {
-            let mut entity_commands = commands.entity(entity);
-            match freeze.prior_locked_axes {
-                Some(prior) => {
-                    entity_commands.try_insert(prior);
-                }
-                None => {
-                    entity_commands.try_remove::<LockedAxes>();
-                }
+            if ang.0 != Vec3::ZERO {
+                ang.0 = Vec3::ZERO;
             }
-            entity_commands.try_remove::<(GravityScale, VisualsEditFreeze)>();
+            if !(frozen && disabled) {
+                commands
+                    .entity(entity)
+                    .try_insert((VisualsEditFreeze, RigidBodyDisabled));
+            }
+        } else if frozen {
+            commands
+                .entity(entity)
+                .try_remove::<(RigidBodyDisabled, VisualsEditFreeze)>();
+            commands.queue(move |world: &mut World| rejoin_broad_phase(world, entity));
+        }
+    }
+}
+
+/// Hand a body that has just lost its `RigidBodyDisabled` back to avian's
+/// broad phase, so its pairs are looked for on the next step.
+///
+/// Avian 0.8 drops a body's contacts when it is disabled and again when
+/// it is enabled, so they are re-created fresh - but it re-creates them
+/// only for a collider in `MovedProxies`, and a re-enabled body that has
+/// not moved is not in it. Left to itself, a body released on the ground
+/// falls with no contact until its AABB leaves the enlarged one avian
+/// keeps for it (a margin of up to 5 cm), then is pushed back out: the
+/// humanoid chassis of `tests/freeze_rigid_body.rs` sank 6 cm over seven
+/// steps. Marking its colliders moved finds the ground on the first step.
+///
+/// Two more things avian leaves behind, put right here:
+///
+/// - **The proxy's `BODY_DISABLED` flag.** Avian sets it from an observer of
+///   `Discard<RigidBodyDisabled>` that reads whether the body has the
+///   component - which it still does while the observer runs - so the flag
+///   is set by the removal and stays set on a live body. The narrow phase
+///   makes its pairs generate constraints regardless, but swept CCD of
+///   other bodies passes over a proxy flagged so. Cleared on each proxy;
+///   `tests/freeze_rigid_body.rs` pins avian's side, so the clear can go
+///   when upstream reads the flag right.
+/// - **The colliders' own `CollidingEntities`.** Disabling the body drops
+///   its contacts and takes it out of every other collider's set, but not
+///   the others out of its own, so a body moved out of a sensor while
+///   frozen still reads the sensor after the release (the gateway picker
+///   and the portal read the chassis's set). Cleared on each collider that
+///   holds anything; every pair still touching adds itself back on the next
+///   step.
+///
+/// Call it after the removal has applied. A collider not in its tree any
+/// more is skipped (the broad phase would unwrap its proxy), and one that
+/// leaves its tree before the step takes its key out of `MovedProxies` on
+/// the way. A body that is gone, or still disabled, is left alone.
+pub fn rejoin_broad_phase(world: &mut World, body: Entity) {
+    use avian3d::collider_tree::{
+        ColliderTreeProxyFlags, ColliderTreeProxyKey, ColliderTrees, MovedProxies,
+    };
+    let Ok(entity) = world.get_entity(body) else {
+        return;
+    };
+    if entity.contains::<RigidBodyDisabled>() {
+        return;
+    }
+    let Some(colliders) = entity.get::<RigidBodyColliders>() else {
+        return;
+    };
+    let colliders: Vec<Entity> = colliders.iter().collect();
+    for &collider in &colliders {
+        if let Some(mut colliding) = world.get_mut::<CollidingEntities>(collider)
+            && !colliding.0.is_empty()
+        {
+            colliding.0.clear();
+        }
+    }
+    let mut keys: Vec<ColliderTreeProxyKey> = colliders
+        .iter()
+        .filter_map(|&collider| world.get::<ColliderTreeProxyKey>(collider).copied())
+        .collect();
+    match world.get_resource_mut::<ColliderTrees>() {
+        Some(mut trees) => keys.retain(|&key| {
+            let flagged = match trees.get_proxy(key) {
+                Some(proxy) => proxy.flags.contains(ColliderTreeProxyFlags::BODY_DISABLED),
+                None => return false,
+            };
+            if flagged && let Some(proxy) = trees.get_proxy_mut(key) {
+                proxy.flags.remove(ColliderTreeProxyFlags::BODY_DISABLED);
+            }
+            true
+        }),
+        None => keys.clear(),
+    }
+    if let Some(mut moved) = world.get_resource_mut::<MovedProxies>() {
+        for key in keys {
+            moved.insert(key);
         }
     }
 }
@@ -1022,6 +1081,303 @@ mod hair_lod_tests {
             crate::config::camera::HAIR_SWITCH,
             "init_resource must keep an inserted value - if this ever fails, \
              the order above stopped mattering and the comment is stale"
+        );
+    }
+}
+
+/// The visuals-edit freeze on a real walker (#1894): avian's
+/// `RigidBodyDisabled` in, out, and the body back on the ground.
+#[cfg(test)]
+mod freeze_tests {
+    use super::*;
+    use crate::pds::avatar::AvatarRecord;
+    use crate::pds::{Fp, LocomotionConfig};
+    use crate::player::sim::WalkBench;
+    use crate::state::LiveAvatarRecord;
+    use bevy::ecs::system::RunSystemOnce;
+
+    /// A person on foot, the preset's defaults.
+    fn person() -> AvatarRecord {
+        let mut record = AvatarRecord::default_for_did("did:plc:visuals-edit-freeze");
+        record.locomotion = LocomotionConfig::Humanoid(Box::default());
+        record
+    }
+
+    /// The same person re-rolled 0.6 m taller: a collider changed in place
+    /// by `preset::sync_chassis`.
+    fn taller(record: &AvatarRecord) -> AvatarRecord {
+        let mut taller = record.clone();
+        let LocomotionConfig::Humanoid(p) = &mut taller.locomotion else {
+            unreachable!("a person")
+        };
+        p.capsule_length = Fp(p.capsule_length.0 + 0.6);
+        taller
+    }
+
+    fn standing_height(record: &AvatarRecord) -> f32 {
+        let LocomotionConfig::Humanoid(p) = &record.locomotion else {
+            unreachable!("a person")
+        };
+        p.total_height() * 0.5
+    }
+
+    /// The body has a touching pair with manifolds that makes constraints:
+    /// the ground holds it up this step.
+    fn on_the_ground(bench: &mut WalkBench) -> bool {
+        let body = bench.body();
+        bench
+            .world_mut()
+            .resource::<ContactGraph>()
+            .contact_pairs_with(body)
+            .any(|pair| {
+                pair.is_touching() && !pair.manifolds.is_empty() && pair.generates_constraints()
+            })
+    }
+
+    fn set_hold(bench: &mut WalkBench, still: bool) {
+        *bench.world_mut().resource_mut::<RigHold>() = RigHold {
+            still,
+            ..RigHold::default()
+        };
+        bench
+            .world_mut()
+            .run_system_once(freeze_local_avatar_while_editing)
+            .expect("the freeze runs");
+    }
+
+    fn frozen(bench: &mut WalkBench) -> (bool, bool) {
+        let body = bench.body();
+        let entity = bench.world_mut().entity(body);
+        (
+            entity.contains::<VisualsEditFreeze>(),
+            entity.contains::<RigidBodyDisabled>(),
+        )
+    }
+
+    /// Whether avian's proxy of the body's collider is flagged as a disabled
+    /// body's, which swept CCD of other bodies passes over.
+    fn flagged_disabled(bench: &mut WalkBench) -> bool {
+        use avian3d::collider_tree::{ColliderTreeProxyFlags, ColliderTreeProxyKey, ColliderTrees};
+        let body = bench.body();
+        let world = bench.world_mut();
+        let key = *world
+            .get::<ColliderTreeProxyKey>(body)
+            .expect("the collider is in a tree");
+        world
+            .resource::<ColliderTrees>()
+            .get_proxy(key)
+            .expect("a proxy")
+            .flags
+            .contains(ColliderTreeProxyFlags::BODY_DISABLED)
+    }
+
+    /// What the body's own `CollidingEntities` holds.
+    fn colliding(bench: &mut WalkBench) -> Vec<Entity> {
+        let body = bench.body();
+        bench
+            .world_mut()
+            .get::<CollidingEntities>(body)
+            .expect("the chassis keeps its collisions")
+            .iter()
+            .copied()
+            .collect()
+    }
+
+    /// A gizmo on a worn prop (the visuals row is NOT selected, so the walk
+    /// still runs) with W held: the body does not move, and on release it
+    /// stands where it stood, on the ground from the first step - not
+    /// sinking out of its enlarged AABB first - with its proxy no longer
+    /// flagged as a disabled body's.
+    #[test]
+    fn the_freeze_holds_the_body_still_and_lets_it_go_on_the_ground() {
+        let record = person();
+        let mut bench = WalkBench::standing(&record, 0.0, 0.0);
+        assert!(on_the_ground(&mut bench), "the fixture: it stands");
+
+        bench.hold(&[KeyCode::KeyW]);
+        set_hold(&mut bench, true);
+        assert_eq!(frozen(&mut bench), (true, true), "the freeze took hold");
+        let held = bench.position();
+        for step in 0..64 {
+            bench.step();
+            set_hold(&mut bench, true);
+            assert_eq!(bench.position(), held, "it moved at frozen step {step}");
+        }
+
+        bench.hold(&[]);
+        set_hold(&mut bench, false);
+        assert_eq!(frozen(&mut bench), (false, false), "the release let go");
+        bench.step();
+        assert!(
+            on_the_ground(&mut bench),
+            "no ground contact on the first step after the release"
+        );
+        assert!(
+            !flagged_disabled(&mut bench),
+            "the released body's proxy is still flagged as a disabled body's"
+        );
+        for step in 0..64 {
+            bench.step();
+            let y = bench.position().y;
+            assert!(
+                (y - held.y).abs() < 2e-3,
+                "{:+.1} mm from where it was held, {step} steps after the release",
+                (y - held.y) * 1e3
+            );
+        }
+    }
+
+    /// The chassis' own `CollidingEntities` across a freeze, as the gateway
+    /// picker and the portal read it: a body frozen standing in a sensor
+    /// reads it again on the first step after the release, and one moved out
+    /// of it while frozen reads it no more. Avian's disable takes the body
+    /// out of the sensor's set but leaves the sensor in the body's, for good.
+    #[test]
+    fn a_body_moved_out_of_a_sensor_while_frozen_reads_it_no_more() {
+        let record = person();
+        let mut bench = WalkBench::standing(&record, 0.0, 0.0);
+        let body = bench.body();
+        let at = bench.position();
+        let sensor = bench
+            .world_mut()
+            .spawn((
+                RigidBody::Static,
+                Collider::cuboid(2.0, 4.0, 2.0),
+                Sensor,
+                Transform::from_translation(at),
+            ))
+            .id();
+        bench.run(0.1);
+        assert!(
+            colliding(&mut bench).contains(&sensor),
+            "the fixture: it does not read the sensor it stands in"
+        );
+
+        // Frozen where it stands, and let go.
+        set_hold(&mut bench, true);
+        for _ in 0..8 {
+            bench.step();
+            set_hold(&mut bench, true);
+        }
+        set_hold(&mut bench, false);
+        bench.step();
+        assert!(
+            colliding(&mut bench).contains(&sensor),
+            "released in the sensor, it does not read it on the first step"
+        );
+
+        // Frozen, moved out of it, and let go.
+        set_hold(&mut bench, true);
+        let out = at + Vec3::X * 6.0;
+        let mut entity = bench.world_mut().entity_mut(body);
+        entity.get_mut::<Position>().expect("a position").0 = out;
+        entity
+            .get_mut::<Transform>()
+            .expect("a transform")
+            .translation = out;
+        for _ in 0..8 {
+            bench.step();
+            set_hold(&mut bench, true);
+        }
+        set_hold(&mut bench, false);
+        for step in 0..8 {
+            bench.step();
+            assert!(
+                !colliding(&mut bench).contains(&sensor),
+                "moved out of the sensor while frozen, it still reads it {step} steps after the \
+                 release"
+            );
+        }
+        assert!(
+            (bench.position() - out).xz().length() < 0.05,
+            "the fixture: the body is not where it was moved: {:?}",
+            bench.position()
+        );
+    }
+
+    /// #867, on the new freeze: kind-changing re-seeds (the locomotion
+    /// rebuild's strip and build - a car, a hover-boat, a person again)
+    /// and a re-roll changing the collider in place, all while the body is
+    /// disabled. Released, it settles on its new capsule standing on the
+    /// ground, finite throughout, and walks on it.
+    #[test]
+    fn a_re_seed_under_the_freeze_stands_on_the_ground_after_release() {
+        let record = person();
+        let mut bench = WalkBench::standing(&record, 0.0, 0.0);
+        set_hold(&mut bench, true);
+        let body = bench.body();
+
+        let mut car = record.clone();
+        car.locomotion = LocomotionConfig::Car(Box::default());
+        let mut boat = record.clone();
+        boat.locomotion = LocomotionConfig::HoverBoat(Box::default());
+        for (round, seed) in [&car, &boat, &record].into_iter().enumerate() {
+            let mut commands = bench.world_mut().commands();
+            preset::strip_preset_components(&mut commands, body);
+            preset::build_preset_components(&mut commands, body, &seed.locomotion);
+            bench.world_mut().flush();
+            bench
+                .world_mut()
+                .insert_resource(LiveAvatarRecord(seed.clone()));
+            for _ in 0..16 {
+                bench.step();
+                set_hold(&mut bench, true);
+            }
+            assert_eq!(
+                frozen(&mut bench),
+                (true, true),
+                "re-seed {round} thawed it"
+            );
+        }
+        // Same kind, taller: `sync_chassis` changes the capsule in place.
+        let tall = taller(&record);
+        bench
+            .world_mut()
+            .insert_resource(LiveAvatarRecord(tall.clone()));
+        for _ in 0..16 {
+            bench.step();
+            set_hold(&mut bench, true);
+        }
+
+        set_hold(&mut bench, false);
+        let mut grounded = false;
+        for step in 0..192 {
+            bench.step();
+            let at = bench.position();
+            assert!(at.is_finite(), "non-finite at step {step}: {at:?}");
+            assert!(
+                at.y > 0.0,
+                "fell through the floor at step {step}: y = {}",
+                at.y
+            );
+            grounded = on_the_ground(&mut bench);
+        }
+        assert!(
+            grounded,
+            "no ground contact three seconds after the release"
+        );
+        let want = standing_height(&tall);
+        let y = bench.position().y;
+        assert!(
+            (y - want).abs() < 0.01,
+            "stands {:+.1} cm off its new capsule's height",
+            (y - want) * 100.0
+        );
+
+        bench.hold(&[KeyCode::KeyW]);
+        for step in 0..64 {
+            bench.step();
+            let y = bench.position().y;
+            assert!((y - want).abs() < 0.05, "walking, {y} at step {step}");
+            assert!(
+                on_the_ground(&mut bench),
+                "walked off the ground at step {step}"
+            );
+        }
+        assert!(
+            bench.position().xz().length() > 0.5,
+            "the walk went nowhere: {:?}",
+            bench.position()
         );
     }
 }

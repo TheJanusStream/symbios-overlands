@@ -315,54 +315,60 @@ CI does **not** pass `--locked`, and should not: `Cargo.lock` is untracked by
 decision (see `.gitignore`), so `--locked` would fail outright for want of a
 lockfile to honour.
 
-**No cargo step compiles a shader.** The WESL under `assets/shaders/` is
-composed into WGSL by Bevy's WESL compiler when a pipeline is first made, at
-run time - once for each set of shader defs a pipeline asks for, so every
-`@if(..)` variant (the prepass, the shadow pass, the WebGL2 bundle's) fails
-or passes on its own - and a shader the build accepts can still fail on
-screen. [`tests/shader_guards.rs`](../tests/shader_guards.rs) checks that
-every file there is WESL and catches the two failures that cost the visual
+**The build does not compile a shader; a test composes them.** The WESL
+under `assets/shaders/` is composed into WGSL by Bevy's WESL compiler when a
+pipeline is first made, at run time - once for each set of shader defs a
+pipeline asks for, so every `@if(..)` variant (the prepass, the shadow pass,
+the WebGL2 bundle's) fails or passes on its own - and a shader the build
+accepts can still fail on screen. [`tests/shader_compose.rs`](../tests/shader_compose.rs)
+does at `cargo test` what the game does at run time (#1893): it composes
+every shader the way Bevy 0.20's `ShaderCache` does, against the Bevy shader
+sources the build resolved (found with `cargo metadata`), under the def sets
+the game's pipelines ask for on the desktop and on both web bundles - the
+forward pass through the game camera and a bare one, the depth prepass,
+shadow maps with and without clipped-depth emulation, deferred, our
+`WEATHERED` and `DUSK_TO_DAWN` - and validates each composition with naga
+as wgpu would, with no GPU. A WESL syntax error, an import that names no
+module, a type error or missing field only naga sees, a pipeline stage left
+without its entry point, a breakage only the WebGL2 defs reach, and a prepass
+or shadow pass reading a view binding the prepass layout lacks (the
+`mesh_view_bindings::globals` trap) each fail it. Every def it pushes cites
+the Bevy source it comes from; after a Bevy bump, re-derive them there.
+[`tests/shader_guards.rs`](../tests/shader_guards.rs) checks that every
+file there is WESL and catches the two failures that cost the visual
 fidelity epic (#1668) the most time: a WGSL reserved word used as a name
 (`patch`, twice), and the terrain or the grass binding more textures than
 the WebGL2 build's 16 GLES slots or WebGPU's 16 a stage allow - the WebGPU
-terrain uses all 16. Anything else shows only when the shader draws: render
-the change and read the render tool's log - a `failed to process shader`
-error is the composer's, `failed to create shader module` is naga refusing
-the WGSL it composed (a type error or a missing field shows only here), and
-an import that names no module is only a warning (`has an unresolved
-import`), after which the pipeline waits for it for ever and the material
-never draws; `VERBOSE_SHADER_ERROR=1` names the pipeline beside an error -
-and open both web bundles.
+terrain uses all 16. What still shows only when the shader draws: a
+main-pass binding the pipeline layout lacks (the test checks the prepass
+layout only), a uniform whose WGSL layout drifted from its Rust mirror (each
+material's own mirror test covers that), GPU limits beyond the bind-group
+count and the texture slots above, the GLSL naga writes for the WebGL2
+bundle, driver and browser behaviour, and whether it looks right. For those,
+render the change and read the render tool's log - a `failed to process
+shader` error is the composer's, `failed to create shader module` is naga
+refusing the WGSL it composed, and an import that names no module is only a
+warning (`has an unresolved import`), after which the pipeline waits for it
+for ever and the material never draws; `VERBOSE_SHADER_ERROR=1` names the
+pipeline beside an error - and open both web bundles.
 
 ### The dependency-bump checklist
 
 Two things the eight-command gate does not cover.
 
-**Fire the avian canary.** One test is `#[ignore]`d on purpose:
-`plain_rigid_body_disabled_cycle` in
-[`tests/freeze_rigid_body.rs`](../tests/freeze_rigid_body.rs) reproduces an
-unfixed upstream island-corruption bug - inserting and then removing
-`RigidBodyDisabled` on a body with touching contacts. Both the avatar
-visuals-edit freeze and the deferred collider rebuild that rides on it exist
-only to route around it. Nothing in the gate or in ci.yml runs ignored tests,
-so it is fired by hand:
-
-```bash
-cargo nextest run --cargo-profile test-release \
-    --run-ignored ignored-only -E 'test(plain_rigid_body_disabled_cycle)'
-```
-
-The test's own doc block records which avian version it was last run against
-and what happened. While it still fails, both workarounds stay; if it ever
-*passes*, upstream has fixed the bug and they can be retired.
-
-Beside it, `the_canary_names_the_avian_version_the_build_actually_resolved` is
-not ignored, runs in every gate and costs nothing: it fails the moment
-`avian3d` resolves to a version the canary has not been run against
-(`build.rs` reads that version out of `Cargo.lock`, the only place a dependent
-can see a dependency's resolved version). It cannot fire the canary for you -
-what it does is stop a bump from being silent, which is how an ignored test
-becomes a comment.
+**Read a red `freeze_rigid_body` test after an avian bump as the game's
+freeze breaking.** `plain_rigid_body_disabled_cycle` in
+[`tests/freeze_rigid_body.rs`](../tests/freeze_rigid_body.rs) inserts and
+then removes `RigidBodyDisabled` on a body resting on the ground, asserting a
+live ground contact on both sides. Through avian 0.7.0 that cycle corrupted
+the physics islands (#740), so it was `#[ignore]`d and fired by hand while
+the avatar visuals-edit freeze routed around it; since #1894 the freeze
+disables the chassis with it, and the test runs in every gate. Beside it,
+`a_re_enabled_body_needs_the_broad_phase_to_find_the_ground_at_once` pins
+an avian gap the freeze's release works around: if it fails because avian
+now finds a re-enabled body's contact by itself,
+`player::rejoin_broad_phase` can go. The file's module docs say what avian
+changed in 0.8.0.
 
 **Re-read the doc prose.** `cargo doc` checks that links resolve, not that
 sentences are true, so a bump that changes a version literal or an upstream

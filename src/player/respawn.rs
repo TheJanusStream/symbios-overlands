@@ -549,10 +549,8 @@ pub(super) fn respawn_if_fallen(
     // body never integrates back to sanity. Strip + rebuild the whole
     // physics body via the locomotion hot-swap machinery - fresh
     // collider, fresh contact pairs - so the world is recoverable
-    // without a restart. Deferred automatically while the visuals-edit
-    // freeze parks the chassis (the rebuild system's
-    // `Without<VisualsEditFreeze>` gate), though a parked body cannot
-    // fall here in the first place.
+    // without a restart. A body held by the visuals-edit freeze is
+    // disabled and cannot fall here in the first place.
     if escalating {
         commands
             .entity(entity)

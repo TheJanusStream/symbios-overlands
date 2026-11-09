@@ -517,13 +517,12 @@ pub(super) fn build_preset_components(
 /// step, the other way round gained 0.52. Avian's own update, run here;
 /// its step repeats it to the same numbers.
 ///
-/// DEFERRED while the visuals-edit freeze parks the chassis, as the
-/// rebuild is (`hotswap::apply_local_locomotion_rebuild`, #867): a grown
-/// collider on a parked, fully locked body cannot be pushed out of the
-/// ground it now overlaps, and a collider changed under a parked body
-/// touching the terrain is the class of edit behind the #867 meltdown. The
-/// stamp keeps what is owed, so the first step after the release applies
-/// it.
+/// Runs under the visuals-edit freeze too, as the rebuild does
+/// (`hotswap::apply_local_locomotion_rebuild`). Until #1894 both waited for
+/// the release, while the freeze "parked" a fully locked body in the
+/// simulation that a grown collider could not be pushed out of; the freeze
+/// now disables the body, and the release pushes a grown collider out of
+/// the ground as it would a live one.
 #[allow(clippy::type_complexity)]
 pub(super) fn sync_chassis(
     mut commands: Commands,
@@ -543,10 +542,7 @@ pub(super) fn sync_chassis(
                 Option<&mut LockedAxes>,
                 Option<&super::flight::Flight>,
             ),
-            (
-                With<crate::state::LocalPlayer>,
-                Without<super::VisualsEditFreeze>,
-            ),
+            With<crate::state::LocalPlayer>,
         >,
         MassPropertyHelper,
     )>,
@@ -1103,11 +1099,11 @@ mod tests {
         assert_eq!(read(&world, body), before);
     }
 
-    /// A body parked by the visuals-edit freeze is left as it is, as the
-    /// rebuild leaves it (#867), and is owed the change the moment the
-    /// freeze lets go: the first sync after the release applies it.
+    /// A body held by the visuals-edit freeze is brought into step at once,
+    /// as a live one is (#1894: the freeze disables the body, where it used
+    /// to park it in the simulation and the sync waited for the release).
     #[test]
-    fn a_parked_body_is_brought_into_step_on_its_release() {
+    fn a_frozen_body_is_brought_into_step_at_once() {
         let (was, now) = every_preset_moved()
             .into_iter()
             .find(|(was, _)| matches!(was.locomotion, LocomotionConfig::Car(_)))
@@ -1116,23 +1112,16 @@ mod tests {
         let before = read(&world, body);
         world
             .entity_mut(body)
-            .insert(super::super::VisualsEditFreeze {
-                prior_locked_axes: None,
-            });
+            .insert((super::super::VisualsEditFreeze, RigidBodyDisabled));
         world.insert_resource(LiveAvatarRecord(now.clone()));
-        world.run_system_once(sync_chassis).expect("the sync runs");
-        assert_eq!(read(&world, body), before, "a parked body was rewritten");
-
-        world
-            .entity_mut(body)
-            .remove::<super::super::VisualsEditFreeze>();
         world.run_system_once(sync_chassis).expect("the sync runs");
         let (rebuilt, fresh) = bare_body(&now);
         let (kept, want) = (read(&world, body), read(&rebuilt, fresh));
+        assert_ne!(kept, before, "the fixture: the record moved the body");
         assert_eq!(
             (kept.0, kept.1, kept.3, kept.4, kept.5),
             (want.0, want.1, want.3, want.4, want.5),
-            "the released body was not brought into step"
+            "the frozen body was not brought into step"
         );
     }
 

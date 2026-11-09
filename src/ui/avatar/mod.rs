@@ -2118,7 +2118,7 @@ mod tests {
     /// freezes under the gizmo, press Esc. The Esc back-out ladder tested
     /// `has_visuals_selection`, which is FALSE for a worn prop and for a
     /// worn part - so the rung was skipped, the press closed an unrelated
-    /// window, and the chassis stayed axis-locked at `GravityScale(0)`.
+    /// window, and the chassis stayed frozen.
     /// The ladder now asks `has_gizmo_selection` and answers with
     /// `clear_gizmo_selections`, which is exactly the difference this
     /// pins.

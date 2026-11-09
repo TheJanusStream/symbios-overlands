@@ -1,33 +1,41 @@
-//! #740 regression coverage for the avatar visuals-edit chassis freeze.
+//! The avatar visuals-edit chassis freeze, and the avian behaviour it rests
+//! on (#740, #867, #1894).
 //!
-//! Root cause of the original crash: inserting and later removing
-//! `RigidBodyDisabled` on a body with touching contacts corrupts the
-//! physics-island bookkeeping - the contact edge keeps its island link
-//! across the disable, the re-enable island-links it a second time
-//! (`debug_assert!(contact.island.is_none())` catches it in debug builds),
-//! and the constraint graph ends up holding manifold handles that outrange
-//! their pair's manifold list. In release builds that surfaces later as the
-//! solver's `pair.manifolds[manifold_index]` index-out-of-bounds panic - the
-//! crash the #739 UV-mapping dropdown edit exposed.
+//! The freeze (`player::freeze_local_avatar_while_editing`) takes the local
+//! chassis out of the simulation with avian's `RigidBodyDisabled` while a
+//! gizmo is aimed at the avatar, and puts it back on release
+//! (`player::rejoin_broad_phase` then hands it to the broad phase, so its
+//! ground contact is found on the first step).
 //!
-//! **Unfixed upstream through avian 0.7.0** (re-run 2026-08-30 #1150,
-//! 2026-09-15 and 2026-09-17 #1358); **the canary passes on avian 0.8.0**
-//! (2026-11-08, #1634), so the workaround below can be revisited - an owner's
-//! call, not taken in the bump.
-//! It was first diagnosed on 0.6.1, where the assert fired inside
-//! `Islands::add_contact`; on 0.7.0 the same assertion lives at
-//! `dynamics/solver/islands/mod.rs:518` and is reached through
-//! `update_narrow_phase`. Same defect, two majors and a Bevy train later, so
-//! `plain_rigid_body_disabled_cycle` stays `#[ignore]`d as a canary rather
-//! than becoming a deletion notice for the workaround.
+//! From #740 (2026-07-11) until #1894 it could not. Through avian 0.7.0 an
+//! insert/remove cycle of `RigidBodyDisabled` on a body with touching
+//! contacts corrupted the physics-island bookkeeping: the contact kept its
+//! island link across the disable and the re-enable linked it a second time
+//! (`debug_assert!(contact.island.is_none())` in `Islands::add_contact` on
+//! 0.6.1, at `dynamics/solver/islands/mod.rs:518` on 0.7.0), leaving the
+//! constraint graph holding manifold handles past their pair's manifold
+//! list - the solver's `pair.manifolds[manifold_index]` out-of-bounds panic
+//! in release builds, the crash the #739 UV-mapping dropdown exposed. The
+//! freeze "parked" the body instead - a full axis lock, zero gravity and
+//! per-frame momentum zeroing, the body left in the simulation - and #867
+//! deferred the locomotion rebuild's collider replace to the release.
 //!
-//! The fix (`player::freeze_local_avatar_on_visuals_select`) freezes via
-//! `LockedAxes::ALL_LOCKED` + `GravityScale(0)` + per-frame velocity
-//! zeroing instead - the body never leaves the simulation, so islands
-//! and the constraint graph stay untouched. The two sequence tests here
-//! drive that recipe through the full reported scenario (walk on bumpy
-//! terrain → freeze → visuals-children rebuilds → unfreeze → walk) and
-//! assert the solver invariant after every step.
+//! Avian 0.8.0 rebuilt that bookkeeping. A contact's island link moved out
+//! of the contact edge into `PhysicsIslands::contact_nodes`, indexed by
+//! contact id; every constraint and island change now goes through the
+//! narrow phase's `ContactStatusChangeQueue`, applied by
+//! `apply_contact_status_changes` (`dynamics/solver/plugin.rs`), which
+//! unlinks a contact only if `contact_node` holds one; and a new observer,
+//! `on_body_remove_rigid_body_disabled`
+//! (`collision/narrow_phase/mod.rs:478`), drops a re-enabled body's
+//! contacts so they are re-created fresh. [`plain_rigid_body_disabled_cycle`]
+//! holds avian to it in every gate, with a live, island-linked ground
+//! contact on both sides of the cycle.
+//!
+//! The sequence tests below drive the freeze recipe through the reported
+//! scenarios (walk on bumpy terrain, freeze, visual-children rebuilds or a
+//! collider replace, release, walk) and assert the solver invariant after
+//! every step.
 
 use std::time::Duration;
 
@@ -137,21 +145,22 @@ fn set_velocity(app: &mut App, chassis: Entity, v: Vec3) {
 }
 
 /// Engage the visuals-edit freeze the way
-/// `player::freeze_local_avatar_on_visuals_select` does since #740:
-/// full axis lock + zero gravity, body stays in the simulation.
+/// `player::freeze_local_avatar_while_editing` does: momentum cleared and
+/// the body disabled.
 fn engage_freeze(app: &mut App, chassis: Entity) {
     set_velocity(app, chassis, Vec3::ZERO);
     app.world_mut()
         .entity_mut(chassis)
-        .insert((LockedAxes::ALL_LOCKED, GravityScale(0.0)));
+        .insert(RigidBodyDisabled);
 }
 
-/// Release the freeze: restore the preset's axes, drop the gravity
-/// override.
+/// Release the freeze the way the game does: enable the body, then hand it
+/// back to the broad phase.
 fn release_freeze(app: &mut App, chassis: Entity) {
-    let mut e = app.world_mut().entity_mut(chassis);
-    e.insert(HUMANOID_AXES);
-    e.remove::<GravityScale>();
+    app.world_mut()
+        .entity_mut(chassis)
+        .remove::<RigidBodyDisabled>();
+    symbios_overlands::player::rejoin_broad_phase(app.world_mut(), chassis);
 }
 
 /// The exact invariant whose violation was the reported panic: every
@@ -194,8 +203,8 @@ fn step_checked(app: &mut App, n: usize, phase: &str) {
     }
 }
 
-/// Step while frozen: the app's freeze system re-zeroes momentum every
-/// frame, so the harness does too.
+/// Step while frozen: the game's freeze clears the momentum the drives
+/// write under a prop gizmo, so the harness does too.
 fn step_frozen(app: &mut App, chassis: Entity, n: usize, phase: &str) {
     for i in 0..n {
         set_velocity(app, chassis, Vec3::ZERO);
@@ -216,12 +225,56 @@ fn max_manifolds(app: &App) -> usize {
         .unwrap_or(0)
 }
 
-/// The reported crash sequence on the fixed freeze recipe: walk (manifold
+/// What the contact graph and the island manager say about one collider
+/// pair: the state the #740 defect needed (a touching pair with manifolds
+/// whose contact is linked into an island).
+#[derive(Debug, Clone, Copy, Default)]
+struct GroundContact {
+    /// The pair exists in `ContactGraph` at all.
+    exists: bool,
+    touching: bool,
+    manifolds: usize,
+    generates_constraints: bool,
+    /// `PhysicsIslands::contact_node` holds a link for this contact - the
+    /// link avian 0.7 added a second time on re-enable.
+    island_linked: bool,
+}
+
+impl GroundContact {
+    fn is_live(&self) -> bool {
+        self.exists
+            && self.touching
+            && self.manifolds > 0
+            && self.generates_constraints
+            && self.island_linked
+    }
+}
+
+fn ground_contact(app: &App, body: Entity, ground: Entity) -> GroundContact {
+    use avian3d::dynamics::solver::islands::PhysicsIslands;
+    let graph = app.world().resource::<ContactGraph>();
+    let Some((edge, pair)) = graph.get(body, ground) else {
+        return GroundContact::default();
+    };
+    let island_linked = app
+        .world()
+        .get_resource::<PhysicsIslands>()
+        .is_some_and(|islands| islands.contact_node(edge.id).is_some());
+    GroundContact {
+        exists: true,
+        touching: pair.is_touching(),
+        manifolds: pair.manifolds.len(),
+        generates_constraints: pair.generates_constraints(),
+        island_linked,
+    }
+}
+
+/// The reported crash sequence on the freeze recipe: walk (manifold
 /// churn) → idle to sleep → freeze → visuals rebuilds (edit flushes) →
 /// unfreeze → walk again. Passes when the constraint graph stays in sync
 /// and no avian system panics.
 #[test]
-fn axis_lock_freeze_edit_unfreeze_keeps_constraint_graph_in_sync() {
+fn freeze_edit_unfreeze_keeps_constraint_graph_in_sync() {
     let mut app = app_with_physics();
     app.world_mut()
         .spawn((RigidBody::Static, heightfield_ground(), Transform::IDENTITY));
@@ -279,7 +332,7 @@ fn axis_lock_freeze_edit_unfreeze_keeps_constraint_graph_in_sync() {
 /// motion), plus rapid select/deselect toggles - the freeze/release edges
 /// land on consecutive steps with live, changing contacts.
 #[test]
-fn axis_lock_freeze_toggles_during_motion_keep_constraint_graph_in_sync() {
+fn freeze_toggles_during_motion_keep_constraint_graph_in_sync() {
     let mut app = app_with_physics();
     app.world_mut()
         .spawn((RigidBody::Static, heightfield_ground(), Transform::IDENTITY));
@@ -305,41 +358,44 @@ fn axis_lock_freeze_toggles_during_motion_keep_constraint_graph_in_sync() {
     }
 }
 
-/// #867 canary: replace the COLLIDER (the locomotion hot-swap's strip +
-/// rebuild) on a chassis that is parked by the freeze and touching the
-/// ground - the sequence behind the avatar re-roll meltdown (re-seed
-/// changes the chassis family while the Avatar editor freeze holds the
-/// body, then the editor closes). Mimics the app systems exactly:
-/// `strip_preset_components` removes `Collider`/`Mass`/`LockedAxes` and
-/// the build inserts the new family's in the same command flush; the
-/// freeze's re-assert arm re-locks on the following frame; visual
-/// children rebuild alongside; release restores the preset's axes.
+/// #867 on the freeze: replace the COLLIDER (the locomotion rebuild's strip
+/// and build) on a chassis held by the freeze - the sequence behind the
+/// avatar re-roll meltdown (a re-seed changes the chassis family while the
+/// Avatar editor's freeze holds the body, then the editor closes). Mimics
+/// the game: `strip_preset_components` removes `Collider`, `Mass` and
+/// `LockedAxes` and the build inserts the new family's in the same command
+/// flush, with the visual children rebuilt alongside.
 ///
-/// Since #867 the app DEFERS the swap until the freeze releases (the
-/// rebuild system's `Without<VisualsEditFreeze>` gate), so this exact
-/// sequence no longer occurs in-game. The test pins down how avian behaves
-/// if it ever regresses - green on 0.7.0 as of 2026-08-30 (#1150) and on
-/// 0.8.0 as of 2026-11-08 (#1634): the body
-/// must stay finite, stay on the ground, and keep the constraint graph in
-/// sync through release.
-/// If this fails after an avian upgrade the deferral must stay; if the
-/// upgrade also fixes #740, both workarounds can be revisited together.
+/// The game has run this in-game since #1894, which ended #867's deferral
+/// of the rebuild to the release (the game-side test with the real systems
+/// is `a_re_seed_under_the_freeze_stands_on_the_ground_after_release`, in
+/// `player`'s freeze tests). The body
+/// starts on a live ground contact, and after the release it must find the
+/// ground again, stay finite, stay above it and keep the constraint graph
+/// in sync.
 #[test]
-fn collider_replace_while_parked_and_touching_survives_release() {
+fn collider_replace_while_frozen_survives_release() {
     let mut app = app_with_physics();
-    app.world_mut()
-        .spawn((RigidBody::Static, heightfield_ground(), Transform::IDENTITY));
+    let ground = app
+        .world_mut()
+        .spawn((RigidBody::Static, heightfield_ground(), Transform::IDENTITY))
+        .id();
     let chassis = spawn_chassis(&mut app);
     spawn_visual_children(&mut app, chassis);
 
     // Land and settle into a touching contact.
     step_checked(&mut app, 60, "settle");
+    let settled = ground_contact(&app, chassis, ground);
+    assert!(
+        settled.is_live(),
+        "the fixture: no live ground contact before the freeze ({settled:?})"
+    );
     engage_freeze(&mut app, chassis);
     step_frozen(&mut app, chassis, 20, "frozen");
 
-    // Four kind-changing re-seeds while parked: strip + rebuild with a
-    // different collider shape each round (capsule ↔ cuboid hull), the
-    // freeze re-assert re-locking one frame later, visuals churning too.
+    // Four kind-changing re-seeds while frozen: strip + rebuild with a
+    // different collider shape each round (capsule, cuboid hull), visuals
+    // churning too.
     let shapes = [
         Collider::cuboid(1.6, 0.6, 0.8), // boat-ish hull
         Collider::capsule(0.35, 0.9),    // humanoid
@@ -349,24 +405,16 @@ fn collider_replace_while_parked_and_touching_survives_release() {
     for (round, shape) in shapes.into_iter().enumerate() {
         {
             let mut e = app.world_mut().entity_mut(chassis);
-            // strip_preset_components: collider + mass + axes gone…
+            // strip_preset_components: collider + mass + axes gone...
             e.remove::<(Collider, Mass, LockedAxes)>();
-            // …build_preset_components: new family, preset axes.
+            // ...build_preset_components: new family, preset axes.
             e.insert((shape, Mass(60.0), HUMANOID_AXES));
         }
         rebuild_children(&mut app, chassis);
-        // One step with the preset's axes before the freeze re-assert
-        // arm notices and re-locks (state-synced, next frame).
-        set_velocity(&mut app, chassis, Vec3::ZERO);
-        app.update();
-        assert_graph_in_sync(&mut app, "reseed-swap", round);
-        app.world_mut()
-            .entity_mut(chassis)
-            .insert(LockedAxes::ALL_LOCKED);
-        step_frozen(&mut app, chassis, 20, &format!("reseed-parked-{round}"));
+        step_frozen(&mut app, chassis, 20, &format!("reseed-frozen-{round}"));
     }
 
-    // Close the editor: freeze releases, gravity + preset axes return.
+    // Close the editor: the freeze releases.
     release_freeze(&mut app, chassis);
 
     // ~5 s of live simulation: the meltdown signature was a clean free
@@ -386,101 +434,180 @@ fn collider_replace_while_parked_and_touching_survives_release() {
             tf.translation.y
         );
     }
+    let after = ground_contact(&app, chassis, ground);
+    assert!(
+        after.is_live(),
+        "no live ground contact five seconds after the release ({after:?})"
+    );
 }
 
-/// Upstream canary, kept `#[ignore]`d: the raw `RigidBodyDisabled`
-/// insert→remove cycle this file's freeze recipe exists to avoid. It dies on
+/// The raw `RigidBodyDisabled` insert/remove cycle on a body resting on the
+/// ground, which through avian 0.7.0 died on
 /// `debug_assert!(contact.island.is_none())` when the re-enabled body's
-/// contacts are island-linked a second time - the debug-build tripwire of the
-/// release-mode solver OOB panic from #740.
+/// contact was linked into an island a second time - the debug-build
+/// tripwire of #740's release-mode solver panic. It failed on every run
+/// from #740 to 0.7.0 (last on 2026-09-17, #1358) and passes on 0.8.0.
 ///
-/// Last run against **avian 0.7.0** (2026-08-30, #1150) - the upgrade this
-/// canary was armed for - and it still fails, at
-/// `dynamics/solver/islands/mod.rs:518` via `update_narrow_phase`. Fired again
-/// on 2026-09-15 for the `symbios-avatar` 0.8.1 / `bevy_symbios_avatar` 0.9.1
-/// take and again on 2026-09-17 for the 0.9.0 / 0.10.0 one (#1358), still on
-/// avian 0.7.0 both times: the same panic at the same line. So the
-/// `LockedAxes::ALL_LOCKED` + `GravityScale(0)` + velocity-zeroing park in
-/// `player::freeze_local_avatar_on_visuals_select`, and the #867-869
-/// deferred-collider-rebuild machinery layered on it, both stay.
-///
-/// **Fired on avian 0.8.0 (2026-11-08, the Bevy 0.20 train #1634): it
-/// PASSES** - on `GamePhysics` and on avian's plain `PhysicsPlugins` defaults
-/// alike, the re-enabled body's 60 steps clean. Upstream appears to have
-/// fixed the island bookkeeping. The park and the deferral above are left in
-/// place: retiring them is a separate change, for the owner to schedule.
-///
-/// Run it after the next avian or Bevy bump - nothing in the gate does:
-///
-/// ```text
-/// cargo nextest run --cargo-profile test-release \
-///     --run-ignored ignored-only -E 'test(plain_rigid_body_disabled_cycle)'
-/// ```
-///
-/// If it PASSES, upstream has fixed it and the freeze can go back to
-/// `RigidBodyDisabled`. Either way, re-date this block and
-/// [`CANARY_VERIFIED_AGAINST`], which is what makes the bump trip a gate at
-/// all.
+/// The game's freeze relies on it since #1894, so it runs in every gate.
+/// It asserts what a pass needs in order to mean anything: a touching,
+/// constraint-making, island-linked ground contact right before the
+/// disable (an empty pass is what an avian change of contact defaults
+/// could otherwise hand it), the contact gone while the body is disabled,
+/// and the contact re-formed, linked again, after the re-enable. If it
+/// fails after an avian bump, the freeze in `player` is what breaks.
 #[test]
-#[ignore = "canary for the upstream avian island-corruption bug (#740): failing \
-            through 0.7.0, passing on 0.8.0 - see the doc block above"]
 fn plain_rigid_body_disabled_cycle() {
     let mut app = app_with_physics();
-    app.world_mut()
-        .spawn((RigidBody::Static, heightfield_ground(), Transform::IDENTITY));
+    let ground = app
+        .world_mut()
+        .spawn((RigidBody::Static, heightfield_ground(), Transform::IDENTITY))
+        .id();
     let chassis = spawn_chassis(&mut app);
 
     step_checked(&mut app, 60, "settle");
+
+    // The precondition of the defect: a live, touching, island-linked
+    // contact at the moment `RigidBodyDisabled` goes in.
+    let before = ground_contact(&app, chassis, ground);
+    assert!(
+        before.is_live(),
+        "canary is vacuous: no live chassis-ground contact before the disable ({before:?})"
+    );
 
     app.world_mut()
         .entity_mut(chassis)
         .insert(RigidBodyDisabled);
     step_checked(&mut app, 5, "disabled");
+    let during = ground_contact(&app, chassis, ground);
+    assert!(
+        !during.exists,
+        "the disabled body kept its ground contact ({during:?})"
+    );
 
     app.world_mut()
         .entity_mut(chassis)
         .remove::<RigidBodyDisabled>();
     step_checked(&mut app, 60, "re-enabled");
+
+    // The re-enable is where the double island link happened: the contact
+    // must come back, touching and linked, not merely not panic.
+    let after = ground_contact(&app, chassis, ground);
+    assert!(
+        after.is_live(),
+        "the chassis-ground contact did not re-form after the re-enable ({after:?})"
+    );
 }
 
-/// The avian version [`plain_rigid_body_disabled_cycle`] was last actually
-/// run against. Bump it only after running it - see its doc block for the
-/// command and for what each outcome means.
-const CANARY_VERIFIED_AGAINST: &str = "0.8.0";
-
-/// #1150. Makes an avian bump trip a gate, which is the whole problem this
-/// canary had.
+/// Why the freeze's release calls `player::rejoin_broad_phase`, pinned on
+/// avian as it stands: a body re-enabled where it rests has no contact
+/// until its AABB leaves the enlarged one avian keeps for it, so it falls
+/// into the ground first (the humanoid capsule here: no contact for seven
+/// steps, 6 cm in); marked moved, it has its contact on the first step and
+/// does not move.
 ///
-/// The canary is `#[ignore]`d because it reproduces a live upstream panic, and
-/// nothing in the documented gate or in ci.yml runs ignored tests. So #1085
-/// took avian from 0.6 to 0.7 - the exact upgrade the canary was armed for -
-/// and the canary was not consulted for six days, while the test's ignore
-/// string, its doc block and building.md all went on describing 0.6. An
-/// ignored test nothing ever runs is a comment, and a comment about a version
-/// two majors back is a wrong one.
-///
-/// This test runs in every gate and costs nothing. It cannot run the canary
-/// for you; what it can do is refuse to let the dependency move without
-/// somebody noticing, by comparing the version the canary claims against the
-/// one the build actually resolved. `Cargo.lock` is the only place a
-/// dependent can read that (see `build.rs`), which is why it is read there.
+/// If the unmarked half starts finding the ground on the first step, avian
+/// re-pairs a re-enabled body itself and `rejoin_broad_phase` can go.
 #[test]
-fn the_canary_names_the_avian_version_the_build_actually_resolved() {
-    // `option_env!` rather than `env!` because `build.rs` is written to be
-    // removable (see its header) - but a guard that quietly passes when its
-    // input is gone is worse than no guard, so absence fails here too.
-    let Some(resolved) = option_env!("SYMBIOS_AVIAN_VERSION") else {
-        panic!(
-            "build.rs no longer publishes SYMBIOS_AVIAN_VERSION, so nothing is watching the avian version any more"
-        );
+fn a_re_enabled_body_needs_the_broad_phase_to_find_the_ground_at_once() {
+    for rejoin in [false, true] {
+        let mut app = app_with_physics();
+        let ground = app
+            .world_mut()
+            .spawn((RigidBody::Static, heightfield_ground(), Transform::IDENTITY))
+            .id();
+        let chassis = spawn_chassis(&mut app);
+        step_checked(&mut app, 60, "settle");
+        let rest = app.world().get::<Position>(chassis).unwrap().0;
+
+        app.world_mut()
+            .entity_mut(chassis)
+            .insert(RigidBodyDisabled);
+        step_checked(&mut app, 5, "disabled");
+        app.world_mut()
+            .entity_mut(chassis)
+            .remove::<RigidBodyDisabled>();
+        if rejoin {
+            symbios_overlands::player::rejoin_broad_phase(app.world_mut(), chassis);
+        }
+        step_checked(&mut app, 1, "re-enabled");
+
+        let contact = ground_contact(&app, chassis, ground);
+        let sunk = rest.y - app.world().get::<Position>(chassis).unwrap().0.y;
+        if rejoin {
+            assert!(
+                contact.is_live(),
+                "rejoined, no ground contact on the first step ({contact:?})"
+            );
+            assert!(sunk.abs() < 1e-4, "rejoined, it moved {sunk} m");
+        } else {
+            assert!(
+                !contact.exists,
+                "avian found a re-enabled body's ground contact on the first \
+                 step by itself: `player::rejoin_broad_phase` can go ({contact:?})"
+            );
+        }
+    }
+}
+
+/// Why `player::rejoin_broad_phase` clears the proxy's `BODY_DISABLED` flag,
+/// pinned on avian as it stands: the flag is set by an observer of
+/// `Discard<RigidBodyDisabled>` that reads whether the body has the
+/// component, which it still has while the observer runs
+/// (`collider_tree/update.rs`, Case 11), so a body re-enabled is left
+/// flagged as a disabled one, and swept CCD of other bodies passes over it
+/// (`dynamics/ccd/mod.rs`). Rejoined, the flag is clear.
+///
+/// If the half without the rejoin starts reading clear, avian sets the flag
+/// right on re-enable and the clear in `rejoin_broad_phase` can go.
+#[test]
+fn a_re_enabled_body_is_left_flagged_disabled_without_the_rejoin() {
+    use avian3d::collider_tree::{ColliderTreeProxyFlags, ColliderTreeProxyKey, ColliderTrees};
+    let flagged = |app: &App, chassis: Entity| {
+        let key = *app
+            .world()
+            .get::<ColliderTreeProxyKey>(chassis)
+            .expect("the collider is in a tree");
+        app.world()
+            .resource::<ColliderTrees>()
+            .get_proxy(key)
+            .expect("a proxy")
+            .flags
+            .contains(ColliderTreeProxyFlags::BODY_DISABLED)
     };
-    assert_eq!(
-        resolved, CANARY_VERIFIED_AGAINST,
-        "avian moved to {resolved} but the island-corruption canary was last \
-         run against {CANARY_VERIFIED_AGAINST}. Run it - `cargo nextest run \
-         --cargo-profile test-release --run-ignored ignored-only -E \
-         'test(plain_rigid_body_disabled_cycle)'` - then re-date its doc block \
-         and CANARY_VERIFIED_AGAINST with the result. If it now PASSES, the \
-         #740 freeze workaround and the #867-869 deferral can be revisited."
-    );
+    for rejoin in [false, true] {
+        let mut app = app_with_physics();
+        app.world_mut()
+            .spawn((RigidBody::Static, heightfield_ground(), Transform::IDENTITY));
+        let chassis = spawn_chassis(&mut app);
+        step_checked(&mut app, 60, "settle");
+        assert!(
+            !flagged(&app, chassis),
+            "the fixture: a live body's proxy is flagged disabled before any freeze"
+        );
+
+        app.world_mut()
+            .entity_mut(chassis)
+            .insert(RigidBodyDisabled);
+        step_checked(&mut app, 5, "disabled");
+        app.world_mut()
+            .entity_mut(chassis)
+            .remove::<RigidBodyDisabled>();
+        if rejoin {
+            symbios_overlands::player::rejoin_broad_phase(app.world_mut(), chassis);
+        }
+        step_checked(&mut app, 2, "re-enabled");
+
+        if rejoin {
+            assert!(
+                !flagged(&app, chassis),
+                "rejoined, the body's proxy is still flagged as a disabled body's"
+            );
+        } else {
+            assert!(
+                flagged(&app, chassis),
+                "avian cleared a re-enabled body's BODY_DISABLED flag by itself: the clear in \
+                 `player::rejoin_broad_phase` can go"
+            );
+        }
+    }
 }

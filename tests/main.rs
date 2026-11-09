@@ -22,13 +22,6 @@
 //! The module path is part of every test's name here (`pds_sanitize::a_room_…`),
 //! so a bare substring filter still selects exactly one file's tests.
 //!
-//! The avian island-corruption canary (#740/#1150) is `#[ignore]`d and no gate
-//! runs it. Its invocation is now:
-//!
-//! ```text
-//! cargo test --test integration -- --ignored freeze_rigid_body
-//! ```
-//!
 //! ## Why one process is safe here, and where the line is
 //!
 //! Sharing a target means sharing a process under `cargo test` (nextest still
@@ -67,6 +60,7 @@ mod pds_records;
 mod pds_sanitize;
 mod prim_wire;
 mod publish_snapshot;
+mod shader_compose;
 mod shader_guards;
 mod sign_generator;
 mod texture_referenced;

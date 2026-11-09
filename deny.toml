@@ -85,7 +85,6 @@ allow = [
     "OFL-1.1",
     "Unicode-3.0",
     "CC0-1.0",
-    "MPL-2.0",
     "Unlicense",
     "BSL-1.0",
     # encase (via bevy) - MIT with the attribution clause dropped.

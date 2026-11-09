@@ -1320,7 +1320,7 @@ mod tests {
     /// `has_visuals_selection`, which is one of THREE avatar gizmo
     /// selections; with only a worn prop or a worn part aimed, the rung
     /// was skipped and the press closed the Chat window behind instead,
-    /// leaving the chassis axis-locked at `GravityScale(0)` until Esc had
+    /// leaving the chassis frozen until Esc had
     /// chewed through enough windows to close the Avatar one.
     ///
     /// The behavioural half is

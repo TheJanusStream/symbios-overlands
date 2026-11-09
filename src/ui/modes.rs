@@ -8,7 +8,7 @@
 //! sentence that also says how to leave it.
 //!
 //! * **Held still** (#1240 f170) - clicking a row in Avatar › Visuals, or
-//!   a worn prop, locks every axis and zeroes gravity
+//!   a worn prop, takes the chassis out of the simulation
 //!   (`player::freeze_local_avatar_while_editing`). A grep of `src/ui` for
 //!   "frozen", "held still" and "movement paused" returned nothing.
 //! * **Unrecognised preset** (#1241 f161) - a record written by a newer

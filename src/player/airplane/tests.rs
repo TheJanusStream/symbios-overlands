@@ -1169,9 +1169,7 @@ fn a_step_without_its_keys_read_is_a_step_with_none() {
         .single(world)
         .expect("one airplane");
     world.entity_mut(body).insert((
-        super::super::VisualsEditFreeze {
-            prior_locked_axes: None,
-        },
+        super::super::VisualsEditFreeze,
         Stick {
             roll: -1,
             ..Stick::default()

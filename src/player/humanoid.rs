@@ -942,8 +942,8 @@ pub(super) fn apply_humanoid_walk(
     // chassis) follows.
     //
     // Skipped while the avatar-edit freeze holds the chassis (#852):
-    // this is a raw `Transform` write, which `LockedAxes::ALL_LOCKED`
-    // cannot constrain - with the Avatar window open and no row
+    // this is a raw `Transform` write, which a frozen (disabled) body
+    // still takes - with the Avatar window open and no row
     // selected the drive gates (deliberately selection-scoped, see
     // `super::avatar_visuals_row_selected`) let this system run, and
     // WASD slewed the "frozen" avatar's facing mid-edit.
