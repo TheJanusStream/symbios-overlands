@@ -11,7 +11,7 @@ use crate::pds::AvatarRecord;
 use crate::state::{LiveAvatarRecord, LocalPlayer, RemotePeer};
 use crate::world_builder::AvatarVisualPrim;
 
-use super::preset::{build_preset_components, strip_preset_components};
+use super::preset::{build_preset_components, chassis_collider, re_seat, strip_preset_components};
 use super::visuals;
 
 /// [`visuals::spawn_avatar_visuals`] with its synchronous main-thread wall
@@ -158,11 +158,25 @@ pub(super) fn detect_local_locomotion_change(
 /// frozen body, and the freeze tests in `player` hold the body to standing
 /// on the ground after the release
 /// (`a_re_seed_under_the_freeze_stands_on_the_ground_after_release`
-/// re-seeds through three families under it).
+/// re-seeds through three families under it, and
+/// `reroll_tests::a_person_re_rolled_under_the_freeze_stands_on_the_ground`
+/// re-rolls a body of every family into a person under it).
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(super) fn apply_local_locomotion_rebuild(
     mut commands: Commands,
-    players: Query<(Entity, Option<&Children>), (With<LocalPlayer>, With<NeedsLocomotionRebuild>)>,
+    players: Query<
+        (
+            Entity,
+            Option<&Children>,
+            Option<&Collider>,
+            Option<(&Position, &Rotation)>,
+        ),
+        (With<LocalPlayer>, With<NeedsLocomotionRebuild>),
+    >,
+    // Where the rebuilt body stands (#1898). Absent from a world with no
+    // physics.
+    ground: Option<SpatialQuery>,
+    sensors: Query<Entity, With<Sensor>>,
     orphan_visuals: Query<Entity, (With<AvatarVisualPrim>, Without<ChildOf>)>,
     live: Res<LiveAvatarRecord>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -170,9 +184,34 @@ pub(super) fn apply_local_locomotion_rebuild(
     mut images: ResMut<Assets<Image>>,
     mut avatar_deps: visuals::AvatarSpawnDeps,
 ) {
-    for (entity, children) in players.iter() {
+    for (entity, children, built, pose) in players.iter() {
+        // Stood on the ground it stood on (#1898): centred where the old
+        // chassis was, a person's capsule rebuilt from a helicopter's box
+        // started with its core in the terrain, made no contact with it, and
+        // fell through the world.
+        if let (Some(old), Some((position, rotation))) = (built, pose) {
+            let filter = super::ground_ray_filter(entity, sensors.iter());
+            if let Some(y) = re_seat(
+                position.0,
+                rotation.0,
+                old,
+                &chassis_collider(&live.0.locomotion),
+                ground.as_ref().map(|query| (query, &filter)),
+            ) {
+                commands.queue(move |world: &mut World| {
+                    if let Some(mut position) = world.get_mut::<Position>(entity) {
+                        position.y = y;
+                    }
+                });
+            }
+        }
         strip_preset_components(&mut commands, entity);
         build_preset_components(&mut commands, entity, &live.0.locomotion);
+        // As `preset::sync_chassis` wakes a body it reshapes in place: avian
+        // wakes a sleeping body for a changed pose, never for a new collider.
+        // Silenced as avian queues it itself: a body outside the simulation
+        // has nothing to wake.
+        commands.queue_silenced(WakeBody(entity));
         despawn_orphan_avatar_visuals(&mut commands, &orphan_visuals);
         timed_spawn_avatar_visuals(
             &mut commands,

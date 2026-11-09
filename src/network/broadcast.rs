@@ -2,7 +2,7 @@
 //! `FixedUpdate`, plus the live-preview avatar/room broadcasts that fire
 //! the same frame an editor slider changes the resource.
 
-use avian3d::prelude::{AngularVelocity, LinearVelocity};
+use avian3d::prelude::{AngularVelocity, LinearVelocity, RigidBodyDisabled};
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use bevy_symbios_multiuser::prelude::*;
@@ -11,7 +11,7 @@ use crate::config;
 use crate::protocol::OverlandsMessage;
 use crate::state::{CurrentRoomDid, LiveAvatarRecord, LiveRoomRecord, LocalPlayer};
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(super) fn broadcast_local_state(
     query: Query<
         (
@@ -19,6 +19,7 @@ pub(super) fn broadcast_local_state(
             &LinearVelocity,
             &AngularVelocity,
             Option<&crate::player::Flight>,
+            Has<RigidBodyDisabled>,
         ),
         With<LocalPlayer>,
     >,
@@ -32,7 +33,7 @@ pub(super) fn broadcast_local_state(
 ) {
     *tick = tick.wrapping_add(1);
 
-    let Ok((tf, lin_vel, ang_vel, flight)) = query.single() else {
+    let Ok((tf, lin_vel, ang_vel, flight, disabled)) = query.single() else {
         return;
     };
 
@@ -44,8 +45,18 @@ pub(super) fn broadcast_local_state(
     let turned = sent_rotation.is_none_or(|sent| {
         sent.angle_between(tf.rotation) > config::network::STATIONARY_TURN_RADIANS
     });
-    let stationary = lin_vel.0.length() <= config::network::STATIONARY_SPEED_THRESHOLD
-        && ang_vel.0.length() <= config::network::STATIONARY_ANGULAR_THRESHOLD
+    // A body avian has taken out of the simulation - the editor freeze, a
+    // portal travel in flight - cannot move, whatever velocity it carries:
+    // under a worn prop's gizmo the walk, gated on the visuals row only,
+    // still writes WASD's velocity each fixed step (#1897). It rests at the
+    // rest rate; a turn written into its rotation still streams.
+    let (speed, spin) = if disabled {
+        (0.0, 0.0)
+    } else {
+        (lin_vel.0.length(), ang_vel.0.length())
+    };
+    let stationary = speed <= config::network::STATIONARY_SPEED_THRESHOLD
+        && spin <= config::network::STATIONARY_ANGULAR_THRESHOLD
         && !turned;
     // Force one final broadcast on the tick we cross into rest so peers land
     // on the true parked pose instead of interpolating toward a stale sample.
@@ -493,6 +504,41 @@ mod tests {
             "still again, {} poses in eleven ticks",
             landed + after
         );
+    }
+
+    /// **A body out of the simulation rests at the rest rate, whatever
+    /// velocity it carries** (#1897). Under a worn prop's gizmo the editor
+    /// freeze takes the chassis out with avian's `RigidBodyDisabled`, while
+    /// the walk - gated on the visuals row only - still writes the velocity
+    /// WASD asks for each fixed step. The body cannot move, so streaming its
+    /// unchanged pose every tick was bandwidth spent on nothing; free again
+    /// with the same velocity, it streams every tick.
+    #[test]
+    fn a_disabled_body_rests_at_the_rest_rate_whatever_it_carries() {
+        let (mut app, body) = local_state_app();
+        let poses = |app: &mut App| {
+            app.update();
+            app.world()
+                .resource::<Messages<Broadcast<OverlandsMessage>>>()
+                .iter_current_update_messages()
+                .filter(|sent| matches!(sent.payload, OverlandsMessage::Transform { .. }))
+                .count()
+        };
+        // A walking pace, well past the stationary threshold.
+        app.world_mut()
+            .entity_mut(body)
+            .insert((LinearVelocity(Vec3::new(0.0, 0.0, -3.0)), RigidBodyDisabled));
+        let ticks = config::network::STATIONARY_BROADCAST_DIVISOR as usize;
+        let frozen: usize = (0..ticks).map(|_| poses(&mut app)).sum();
+        // The body's first pose, the one that lands it at rest, and at most
+        // one rest-rate pose in the window - against one every tick (30)
+        // while the drive's velocity counted.
+        assert!(frozen <= 3, "frozen, {frozen} poses in {ticks} ticks");
+        app.world_mut()
+            .entity_mut(body)
+            .remove::<RigidBodyDisabled>();
+        let free: usize = (0..10).map(|_| poses(&mut app)).sum();
+        assert_eq!(free, 10, "free again at a walk, a pose every tick");
     }
 
     /// **The once-a-second repeat goes only to peers that read it** (#1746):

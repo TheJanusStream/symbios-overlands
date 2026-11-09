@@ -297,6 +297,15 @@ pub(crate) fn spawn_path_app() -> bevy::app::App {
         bevy::app::TaskPoolPlugin::default(),
         bevy::asset::AssetPlugin::default(),
     ));
+    add_spawn_path(&mut app);
+    app
+}
+
+/// What the spawn path reaches, added to an `app` that already has its asset
+/// plugin - [`spawn_path_app`]'s list, for an app standing on other plugins
+/// (the re-roll bench in `player::reroll_tests`, which runs avian too).
+#[cfg(test)]
+pub(crate) fn add_spawn_path(app: &mut bevy::app::App) {
     app.init_asset::<Mesh>();
     app.init_asset::<StandardMaterial>();
     app.init_asset::<crate::weathered::WeatheredMaterial>();
@@ -320,7 +329,6 @@ pub(crate) fn spawn_path_app() -> bevy::app::App {
     app.init_resource::<crate::world_builder::compile::CompileJob>();
     app.init_resource::<crate::diagnostics::SessionLog>();
     app.init_resource::<Time>();
-    app
 }
 
 #[cfg(test)]

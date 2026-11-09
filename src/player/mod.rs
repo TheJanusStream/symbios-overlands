@@ -91,6 +91,8 @@ mod hover_boat;
 pub mod humanoid;
 mod portal;
 mod preset;
+#[cfg(test)]
+mod reroll_tests;
 mod respawn;
 mod rigged;
 #[cfg(test)]
@@ -800,11 +802,11 @@ pub(super) struct VisualsEditFreeze;
 /// ([`avatar_visuals_row_selected`]), so under a worn prop's gizmo the walk
 /// still writes the velocity WASD asks for each fixed step; the clear here
 /// keeps that velocity from being what the body carries out of the freeze
-/// on release. It does not keep the network broadcast honest: that runs in
-/// `FixedUpdate`, unordered against the drives, while this runs in
-/// `Update`, so a drive's velocity written in a fixed step can still go out
-/// to peers before this clears it (pre-existing, #1897). Written only when
-/// there is something to clear.
+/// on release. The network broadcast does not lean on it: that runs in
+/// `FixedUpdate`, unordered against both the drives and this, so it reads
+/// `RigidBodyDisabled` itself and rests a frozen body at the rest rate
+/// whatever velocity a drive wrote (#1897). Written only when there is
+/// something to clear.
 ///
 /// The release hands the body back to the broad phase
 /// ([`rejoin_broad_phase`]), so its ground contact is found on the first

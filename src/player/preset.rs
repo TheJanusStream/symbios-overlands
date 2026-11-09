@@ -441,6 +441,105 @@ fn chassis_spec(locomotion: &LocomotionConfig) -> Option<ChassisSpec> {
     }
 }
 
+/// The collider `locomotion`'s preset builds: its chassis' shape, or for a
+/// record whose preset this build does not model the stand-in box
+/// [`build_preset_components`] gives it.
+pub(super) fn chassis_collider(locomotion: &LocomotionConfig) -> Collider {
+    chassis_spec(locomotion).map_or_else(unknown_collider, |spec| spec.shape.collider())
+}
+
+/// The box a record whose preset this build does not model is given, so the
+/// simulation does not explode.
+fn unknown_collider() -> Collider {
+    Collider::cuboid(0.5, 0.5, 0.5)
+}
+
+/// How far over the most [`re_seat`] could raise a body its cast starts the
+/// new collider (m), so the cast starts clear of what the body stands on.
+const RE_SEAT_CLEARANCE_M: f32 = 0.1;
+
+/// Where a body standing at `at`, turned by `rotation`, stands once `new`
+/// is swapped in for `old` (#1898): the height to raise its origin to, or
+/// `None` where it stands as it is.
+///
+/// A body changes its collider where it stands - a seed re-roll, Revert, an
+/// undo, a Locomotion slider - and the new one is centred where the old one
+/// was. When the new one reaches lower, its bottom starts in the ground the
+/// old one stood on, and against the game's terrain avian does not push it
+/// out: a capsule whose core runs through a heightfield's surface makes no
+/// contact with it at all - the pair is there, its manifolds are empty - so
+/// the body falls through the ground. A person re-rolled from a helicopter,
+/// its capsule's core starting 18 cm under the surface, fell out of the
+/// world; one re-rolled from a beast or a winged body on a slope sank to
+/// the chest; one whose core only just cleared the surface was shoved up
+/// out of the ground.
+///
+/// So the new collider is swept down onto what is under it, from above
+/// anything it could reach into - `ground`, the physics' own shape cast,
+/// past the body and every sensor - and the body raised to where it
+/// touches: it stands on the ground it stood on, terrain or roof. One that
+/// touches nothing at its old height stands there, as it did before - a
+/// person rolled from a hover-boat, its capsule clear of the ground, drops
+/// the few centimetres it always did rather than the boat's whole ride
+/// height. Without a physics world to ask, the body is raised by what the
+/// new shape reaches below the old one.
+pub(super) fn re_seat(
+    at: Vec3,
+    rotation: Quat,
+    old: &Collider,
+    new: &Collider,
+    ground: Option<(&SpatialQuery, &SpatialQueryFilter)>,
+) -> Option<f32> {
+    let lift = re_seat_lift(old, new, rotation);
+    if lift <= 0.0 {
+        return None;
+    }
+    let Some((query, filter)) = ground else {
+        return Some(at.y + lift);
+    };
+    let climb = lift + RE_SEAT_CLEARANCE_M;
+    // What it starts in is over it, not under it: a roof, a bough.
+    let config = ShapeCastConfig {
+        ignore_origin_penetration: true,
+        ..ShapeCastConfig::from_max_distance(climb)
+    };
+    query
+        .cast_shape(
+            new,
+            at + Vec3::Y * climb,
+            rotation,
+            Dir3::NEG_Y,
+            &config,
+            filter,
+        )
+        .map(|hit| at.y + climb - hit.distance)
+}
+
+/// How far a body turned by `rotation` must be raised for `new`, swapped in
+/// for `old`, to reach no lower than `old` did (m), and 0 for a collider
+/// that reaches no lower: the most [`re_seat`] raises a body.
+///
+/// Measured both down the world and down the body - the ground's way for a
+/// body standing flush on a slope, where the world's down alone falls short:
+/// a helicopter's box reaches its lowest at its downhill edge, below the
+/// ground under a person's capsule, and matched by the world's down it left
+/// the capsule 9 cm in the slope. The more of the two, for a body upright
+/// within 60 degrees; one tipped further, by the world's down.
+fn re_seat_lift(old: &Collider, new: &Collider, rotation: Quat) -> f32 {
+    let bottom = |collider: &Collider| collider.aabb(Vec3::ZERO, rotation, 0.0).min.y;
+    let world = bottom(old) - bottom(new);
+    let up = rotation * Vec3::Y;
+    let body = if up.y > 0.5 {
+        // How far each reaches below the body's origin, down the body; the
+        // origin moves along the world's up, which gains `up.y` of that.
+        let reach = |collider: &Collider| -collider.aabb(Vec3::ZERO, Quat::IDENTITY, 0.0).min.y;
+        (reach(new) - reach(old)) / up.y
+    } else {
+        world
+    };
+    world.max(body).max(0.0)
+}
+
 /// Build `preset`'s body on `entity`: its chassis, stamped as built, and
 /// the rest of what it carries.
 fn build_preset(
@@ -475,7 +574,7 @@ pub(super) fn build_preset_components(
             // explode. The owner's editor flags the unrecognised variant.
             commands
                 .entity(entity)
-                .insert((Collider::cuboid(0.5, 0.5, 0.5), Mass(40.0)));
+                .insert((unknown_collider(), Mass(40.0)));
         }
     }
 }
@@ -517,12 +616,18 @@ pub(super) fn build_preset_components(
 /// step, the other way round gained 0.52. Avian's own update, run here;
 /// its step repeats it to the same numbers.
 ///
+/// And stands a body whose new shape reaches lower than the old one on the
+/// ground it stood on ([`re_seat`], #1898), rather than starting it in that
+/// ground: avian pushed a capsule only just in the ground back out of it,
+/// but one whose core started below the terrain's surface made no contact
+/// with it at all and sank - a beast re-rolled into a person on a slope
+/// stood buried to the chest.
+///
 /// Runs under the visuals-edit freeze too, as the rebuild does
 /// (`hotswap::apply_local_locomotion_rebuild`). Until #1894 both waited for
 /// the release, while the freeze "parked" a fully locked body in the
-/// simulation that a grown collider could not be pushed out of; the freeze
-/// now disables the body, and the release pushes a grown collider out of
-/// the ground as it would a live one.
+/// simulation; the freeze now disables the body, which is stood on its new
+/// shape as a live one is.
 #[allow(clippy::type_complexity)]
 pub(super) fn sync_chassis(
     mut commands: Commands,
@@ -541,19 +646,54 @@ pub(super) fn sync_chassis(
                 Option<&mut CenterOfMass>,
                 Option<&mut LockedAxes>,
                 Option<&super::flight::Flight>,
+                Option<(&mut Position, &Rotation)>,
             ),
             With<crate::state::LocalPlayer>,
         >,
         MassPropertyHelper,
+        // Where a reshaped body stands (#1898): the cast reads every
+        // collider's pose. Absent from a world with no physics.
+        Option<SpatialQuery>,
     )>,
+    sensors: Query<Entity, With<Sensor>>,
 ) {
     let locomotion = &live.0.locomotion;
     let Some(mut spec) = chassis_spec(locomotion) else {
         return;
     };
+    // Where the body stands on its new shape, read before it is written.
+    let reshaped = match bodies.p0().single() {
+        Ok((body, built, (collider, ..), .., Some((position, rotation))))
+            if built.kind == locomotion.kind_tag() && built.spec.shape != spec.shape =>
+        {
+            Some((body, position.0, rotation.0, collider.clone()))
+        }
+        _ => None,
+    };
+    let seat = reshaped.and_then(|(body, at, rotation, old)| {
+        let filter = super::ground_ray_filter(body, sensors.iter());
+        let ground = bodies.p2();
+        re_seat(
+            at,
+            rotation,
+            &old,
+            &spec.shape.collider(),
+            ground.as_ref().map(|query| (query, &filter)),
+        )
+    });
     let mut player = bodies.p0();
-    let Ok((body, mut built, shape, mut mass, mut linear, mut angular, center, locked, flight)) =
-        player.single_mut()
+    let Ok((
+        body,
+        mut built,
+        shape,
+        mut mass,
+        mut linear,
+        mut angular,
+        center,
+        locked,
+        flight,
+        pose,
+    )) = player.single_mut()
     else {
         return;
     };
@@ -574,6 +714,11 @@ pub(super) fn sync_chassis(
     commands.queue_silenced(WakeBody(body));
     let was = built.spec;
     if spec.shape != was.shape {
+        // Stood on the ground it stood on (#1898), or a capsule whose core
+        // starts in the terrain falls through it.
+        if let (Some(y), Some((mut position, _))) = (seat, pose) {
+            position.y = y;
+        }
         *collider = spec.shape.collider();
         // As avian's own collider update computes them in its step.
         *collider_mass = ColliderMassProperties::from_shape(&*collider, density.0);
