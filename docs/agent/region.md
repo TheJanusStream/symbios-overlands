@@ -1190,7 +1190,13 @@ manifest's budget.
   or a `copies` that is not a list, and names it (#1870: "the copy at
   /placements/26/copies/1 ([1200,3400]) has fewer than three numbers, so it
   would not be drawn as written: ..."). A refused set writes nothing, and
-  `rec.py apply` stops there with those words.
+  `rec.py apply` stops there with those words. A copy naming a variant its
+  set does not have - a negative index, or one past its `variants`; 0 with
+  no variants is the generator as it is - is drawn as the generator as it
+  is, also without a word, so `room set` refuses that too, by pointer
+  (#1901). A record keeps such a copy's index as written, so a world that
+  already holds one still takes every set: only a copy a set brings is
+  refused, and editing the old copy brings it.
 - **Each copy snaps by itself** (`snap_to_terrain`, true by default): it
   stands on the ground under its own centre, raised by its y, so a row
   follows a slope. Off, y is above the anchor. A seeded hamlet's house
@@ -1202,8 +1208,10 @@ manifest's budget.
   serves every size of building it is written for. No `variants` is one:
   the generator as it is. A `seed` is a quoted decimal, as every seed is,
   and a value a whole number: a variant written otherwise is read as the
-  generator as it is. An absolute placement takes `params` too, beside its
-  `seed`.
+  generator as it is, in its place, and a `variants` that is not a list as
+  none, so `room set` refuses either, naming it (#1901: "the variant at
+  /placements/7/variants/0 ({"seed":11}) is not one the record can read").
+  An absolute placement takes `params` too, beside its `seed`.
 - **`solid` is what a walker meets**: `shell` (a 1 m voxel shell, the
   default: buildings), `box` (the box the parts fill: props), `trunk` (a
   cylinder as wide as the base, up to 3 m tall: trees), `none`. Parts carry

@@ -84,9 +84,14 @@ pub(super) fn room_set(world: &mut World, pointer: &str, value: Value) -> Result
     let record = super::room_for_edit(world)?;
     let mut document =
         serde_json::to_value(&record).map_err(|e| format!("the record does not serialise: {e}"))?;
+    // What the live record already holds, so a set is refused only for a
+    // copy naming no variant that it brings (#1901).
+    let held = variant_faults(&document);
     let appended = set_part(&mut document, pointer, value.clone())?;
     // A copy the reader drops is refused here, where it can be named (#1870).
     check_copies(&document)?;
+    // And one it would draw as the generator as it is (#1901).
+    check_variants(&document, &held)?;
     // An append is read back, and answered, where it landed (#1470).
     let at = appended.as_deref().unwrap_or(pointer);
     let before = super::settle_room(record)?;
@@ -258,6 +263,113 @@ fn copy_fault(copy: &Value) -> Option<&'static str> {
         3..=6 => None,
         _ => Some("has more than six numbers, and the record keeps six"),
     }
+}
+
+/// What a variant and a copy's variant are, for a refusal's answer.
+const VARIANT_FORM: &str = "a variant is {\"seed\": \"11\", \"params\": {\"Storeys\": 40000}} - \
+    a seed as a quoted decimal and values as whole numbers, either left out - and a copy's \
+    fourth number is the index of one of its set's variants, from 0, or 0 for a set with none";
+
+/// Refuse `document` - the whole record as sent - when an instance set in
+/// it would draw a copy as the generator as it is without a word (#1901):
+/// a `variants` that is not a list (read as none), a variant the record
+/// cannot read (read as the default, in its place), or a copy naming a
+/// variant its set does not have. The reader is frozen (#1870), so the
+/// writer refuses, by pointer. The live record only ever holds variants it
+/// wrote, so only one sent can be unreadable; but a read keeps a copy's
+/// index as written, so a copy naming no variant that an older record
+/// already holds is in `held`, and only one this set brings is refused: a
+/// world holding such a copy still takes every set.
+fn check_variants(document: &Value, held: &[VariantFault]) -> Result<(), String> {
+    let Some(placements) = document.get("placements").and_then(Value::as_array) else {
+        return Ok(());
+    };
+    for (i, placement) in placements.iter().enumerate() {
+        if placement.get("$type").and_then(Value::as_str) != Some(INSTANCES) {
+            continue;
+        }
+        let Some(variants) = placement.get("variants") else {
+            continue;
+        };
+        let at = format!("/placements/{i}/variants");
+        let Some(variants) = variants.as_array() else {
+            return Err(format!(
+                "the variants at {at} are not a list, so every copy of the set would be drawn as \
+                 the generator as it is: {VARIANT_FORM}"
+            ));
+        };
+        for (k, variant) in variants.iter().enumerate() {
+            if serde_json::from_value::<crate::pds::instances::InstanceVariant>(variant.clone())
+                .is_err()
+            {
+                return Err(format!(
+                    "the variant at {at}/{k} ({variant}) is not one the record can read, so every \
+                     copy naming it would be drawn as the generator as it is: {VARIANT_FORM}"
+                ));
+            }
+        }
+    }
+    let mut held: Vec<&(String, String)> = held.iter().map(|fault| &fault.copy).collect();
+    for fault in variant_faults(document) {
+        match held.iter().position(|copy| **copy == fault.copy) {
+            Some(found) => {
+                held.swap_remove(found);
+            }
+            None => return Err(fault.why),
+        }
+    }
+    Ok(())
+}
+
+/// A copy naming a variant its set does not have (#1901): what it is - its
+/// set's generator and its numbers, which an edit moving it leaves alone -
+/// and the refusal naming it where it stands.
+struct VariantFault {
+    copy: (String, String),
+    why: String,
+}
+
+/// Every copy in `document` naming a variant its set does not have: a
+/// negative index, or one past the set's variants - bar 0, which with no
+/// variants is the generator as it is (#1901).
+fn variant_faults(document: &Value) -> Vec<VariantFault> {
+    let mut faults = Vec::new();
+    let Some(placements) = document.get("placements").and_then(Value::as_array) else {
+        return faults;
+    };
+    for (i, placement) in placements.iter().enumerate() {
+        if placement.get("$type").and_then(Value::as_str) != Some(INSTANCES) {
+            continue;
+        }
+        let Some(copies) = placement.get("copies").and_then(Value::as_array) else {
+            continue;
+        };
+        let have = placement
+            .get("variants")
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len);
+        let generator = placement
+            .get("generator_ref")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        for (c, copy) in copies.iter().enumerate() {
+            let Some(index) = copy.get(3) else {
+                continue;
+            };
+            if index.as_u64().is_some_and(|v| v == 0 || v < have as u64) {
+                continue;
+            }
+            faults.push(VariantFault {
+                copy: (generator.to_owned(), copy.to_string()),
+                why: format!(
+                    "the copy at /placements/{i}/copies/{c} ({copy}) names variant {index}, and \
+                     its set has {have}, so it would be drawn as the generator as it is: \
+                     {VARIANT_FORM}"
+                ),
+            });
+        }
+    }
+    faults
 }
 
 /// Why `document` - JSON that did not read as `what` - did not: serde's
@@ -1666,5 +1778,115 @@ mod world_tests {
             app.world().resource::<LiveRoomRecord>().0.placements.len(),
             count + 1
         );
+    }
+
+    /// The placements the world holds.
+    fn placements(app: &App) -> usize {
+        app.world().resource::<LiveRoomRecord>().0.placements.len()
+    }
+
+    /// #1901: a copy naming a variant its set does not have was drawn as
+    /// the generator as it is, and the set answered as clean. The reader is
+    /// frozen, so the set refuses it, by pointer, and writes nothing. Index
+    /// 0 with no variants is the generator as it is, and an index the set
+    /// has is drawn as that variant: both go in.
+    #[test]
+    fn a_copy_naming_no_variant_of_its_set_is_refused() {
+        let (mut app, _) = app_in(AGENT);
+        let (mut set, _) = set_of(&app, json!([[0, 0, 0], [100, 0, 0, 0]]));
+        room_set(app.world_mut(), "/placements/-", set.clone()).expect("0 with no variants");
+        let two = json!([{"seed": "11"}, {"seed": "12"}]);
+        for (copies, variants, at) in [
+            (json!([[0, 0, 0, 1]]), json!([]), "copies/0"),
+            (json!([[0, 0, 0], [5, 0, 0, 2]]), two.clone(), "copies/1"),
+            (json!([[0, 0, 0, -1]]), json!([{"seed": "11"}]), "copies/0"),
+        ] {
+            set["copies"] = copies;
+            set["variants"] = variants;
+            let held = placements(&app);
+            let refused =
+                room_set(app.world_mut(), "/placements/-", set.clone()).expect_err("refused");
+            assert!(
+                refused.contains(&format!("/placements/{held}/{at}")),
+                "{refused}"
+            );
+            assert!(
+                refused.contains("drawn as the generator as it is"),
+                "{refused}"
+            );
+            assert_eq!(placements(&app), held, "nothing written");
+        }
+        set["copies"] = json!([[0, 0, 0, 1], [5, 0, 0]]);
+        set["variants"] = two;
+        room_set(app.world_mut(), "/placements/-", set).expect("an index the set has");
+    }
+
+    /// A variant the record cannot read is read as the generator as it is,
+    /// in its place, and a `variants` that is not a list as none (#1901):
+    /// both are refused by pointer.
+    #[test]
+    fn an_unreadable_variant_is_refused_by_its_pointer() {
+        let (mut app, _) = app_in(AGENT);
+        let (mut set, count) = set_of(&app, json!([[0, 0, 0]]));
+        for (variants, at) in [
+            // A seed is a quoted decimal.
+            (
+                json!([{"seed": 11}]),
+                format!("/placements/{count}/variants/0"),
+            ),
+            // A value is a whole number.
+            (
+                json!([{"seed": "11"}, {"params": {"Storeys": 4.5}}]),
+                format!("/placements/{count}/variants/1"),
+            ),
+            (
+                json!({"seed": "11"}),
+                format!("/placements/{count}/variants"),
+            ),
+        ] {
+            set["variants"] = variants;
+            let refused =
+                room_set(app.world_mut(), "/placements/-", set.clone()).expect_err("refused");
+            assert!(refused.contains(&at), "{refused}");
+            assert_eq!(placements(&app), count, "nothing written");
+        }
+    }
+
+    /// A read keeps a copy's index as written, so an older record can hold
+    /// a copy naming no variant; such a world still takes every set, one of
+    /// that very set that leaves its copies alone included, and only a copy
+    /// a set brings is refused (#1901): the old copy edited, or a second
+    /// like it, counts as brought.
+    #[test]
+    fn a_world_holding_a_copy_naming_no_variant_still_takes_sets() {
+        let (mut app, _) = app_in(AGENT);
+        let (set, count) = set_of(&app, json!([[0, 0, 0, 3]]));
+        let old: crate::pds::Placement = serde_json::from_value(set).expect("a set");
+        app.world_mut()
+            .resource_mut::<LiveRoomRecord>()
+            .0
+            .placements
+            .push(old);
+
+        let pointer = "/environment/fog_visibility";
+        let same = fog(&app);
+        room_set(app.world_mut(), pointer, same).expect("an unrelated set goes in");
+        room_set(
+            app.world_mut(),
+            &format!("/placements/{count}/solid"),
+            json!("box"),
+        )
+        .expect("the set's own edit, its copies left alone");
+        room_set(
+            app.world_mut(),
+            &format!("/placements/{count}/copies/0/0"),
+            json!(250),
+        )
+        .expect_err("the old copy edited is a copy brought");
+        let copies = format!("/placements/{count}/copies/-");
+        room_set(app.world_mut(), &copies, json!([900, 0, 0])).expect("a good copy beside it");
+        let refused =
+            room_set(app.world_mut(), &copies, json!([0, 0, 0, 3])).expect_err("a second");
+        assert!(refused.contains("names variant 3"), "{refused}");
     }
 }
