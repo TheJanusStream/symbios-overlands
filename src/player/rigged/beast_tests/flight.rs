@@ -1009,6 +1009,16 @@ fn taking_off(
     } else {
         chassis(&mut app, under, record.clone(), owner[0].0)
     };
+    if under == Under::Peer {
+        // A peer's chassis stands a frame before its body lands, as the
+        // game's always does - its build lands frames after it spawns - so
+        // its first speed is differenced from where it stands (#1889). Landed
+        // in the frame it spawned, its place was differenced against the
+        // origin its transform had not yet been carried from: the root's
+        // height in one frame, a leap of 13.7 m/s at 144 Hz, and the body was
+        // still in it a second later, a hind leg turning 2.7 rad a frame.
+        app.update();
+    }
     if under == Under::Local {
         app.world_mut()
             .entity_mut(chassis)
@@ -1147,8 +1157,10 @@ const TURNED_A_FRAME: f32 = 0.5;
 ///
 /// Eased over the push from the take-off's first frame, the most any joint
 /// moved further than on level ground on one frame was 53 mm at 30 Hz, 30
-/// at 60 and 22 at 144, and turned 0.21 radians at 30, 0.10 at 60 and 0.26
-/// at 144 - the 144 Hz figures peers on the roof. Handed the level floor at
+/// at 60 and 13 at 144, and turned 0.21 radians at 30, 0.09 at 60 and 0.07
+/// at 144. A peer's body landed in the frame its chassis spawned once made
+/// the 144 Hz figures 22 mm and 0.26 rad (#1889, #1890: see
+/// [`a_peer_standing_on_a_pitched_roof_stands_as_on_the_level`]). Handed the level floor at
 /// once, under its owner's chassis, a bat moved one 93 mm further at 144 Hz
 /// and 92 at 60, and a glider 147 and 138 (151 at 60 as a peer), turning
 /// one up to 0.87 radians; and as a peer at 30 Hz, its hand-over a frame
@@ -1161,7 +1173,7 @@ const TURNED_A_FRAME: f32 = 0.5;
 ///
 /// From a held landing, the ground held as it was on the frame of no flight
 /// and eased out from the takeoff after it, the most was 52 mm at 30 Hz, 31
-/// at 60 and 17 at 144, and 0.28 radians. Read on that frame as any other,
+/// at 60 and 13 at 144, and 0.25 radians. Read on that frame as any other,
 /// the ground handed over at once and the ease left nothing to carry, a bat
 /// three tenths of a second into its landing moved a joint 89 mm further
 /// than on level ground at 30 Hz under its owner's chassis cast down, and
@@ -1169,22 +1181,7 @@ const TURNED_A_FRAME: f32 = 0.5;
 /// second in; the peers' rows passed.
 #[test]
 fn a_winged_take_off_from_a_slope_eases_the_ground_out() {
-    let level: fn(f32, f32) -> f32 = |_, _| 0.0;
-    let slope: fn(f32, f32) -> f32 = |x, _| x * 20f32.to_radians().tan();
-    // The roof's top: 0.6 m up over the body's middle, rising with `x`.
-    let roof: fn(f32, f32) -> f32 = |x, z| {
-        if x.abs() < 3.5 && z.abs() < 3.5 {
-            0.6 + x * 20f32.to_radians().tan()
-        } else {
-            0.0
-        }
-    };
-    let pitch = 20f32.to_radians();
-    let solids = [(
-        Vec3::new(4.0, 0.3, 4.0),
-        Transform::from_translation(Vec3::Y * (0.6 - 0.3 / pitch.cos()))
-            .with_rotation(Quat::from_rotation_z(pitch)),
-    )];
+    let ([level, slope, roof], solids) = level_slope_and_roof();
     for family in [WingedFamily::Bat, WingedFamily::Glider, WingedFamily::Bird] {
         let size = trunk(&default_rig(family));
         let patched = family != WingedFamily::Bird;
@@ -1344,6 +1341,236 @@ fn took_off_as_on_the_level(
             );
         }
         assert!(checked > 0, "{label}: the premise, rising after the ease");
+    }
+}
+
+/// A ground's height at each world `(x, z)`.
+type Ground = fn(f32, f32) -> f32;
+
+/// The level ground, a hillside rising 20 degrees with `x`, and a roof pitched
+/// 20 degrees over level terrain - its top 0.6 m up over the body's middle -
+/// with the roof's solid ([`a_winged_take_off_from_a_slope_eases_the_ground_out`]'s).
+fn level_slope_and_roof() -> ([Ground; 3], [(Vec3, Transform); 1]) {
+    let level: fn(f32, f32) -> f32 = |_, _| 0.0;
+    let slope: fn(f32, f32) -> f32 = |x, _| x * 20f32.to_radians().tan();
+    let roof: fn(f32, f32) -> f32 = |x, z| {
+        if x.abs() < 3.5 && z.abs() < 3.5 {
+            0.6 + x * 20f32.to_radians().tan()
+        } else {
+            0.0
+        }
+    };
+    let pitch = 20f32.to_radians();
+    let solids = [(
+        Vec3::new(4.0, 0.3, 4.0),
+        Transform::from_translation(Vec3::Y * (0.6 - 0.3 / pitch.cos()))
+            .with_rotation(Quat::from_rotation_z(pitch)),
+    )];
+    ([level, slope, roof], solids)
+}
+
+/// The first frame of `frames` handed a takeoff.
+fn first_takeoff(frames: &[Lifting]) -> usize {
+    frames
+        .iter()
+        .position(|frame| frame.handed == Some(Posed::Takeoff))
+        .expect("took off")
+}
+
+/// The most joint `j` moved and turned between frames `r - 1` and `r` of
+/// `run`, further than it did between frames `l - 1` and `l` of `flat`.
+fn beyond_on(run: &[Lifting], r: usize, flat: &[Lifting], l: usize, j: usize) -> (f32, f32) {
+    let moved = ((run[r].joints[j] - flat[l].joints[j])
+        - (run[r - 1].joints[j] - flat[l - 1].joints[j]))
+        .length();
+    let now = flat[l].turns[j].inverse() * run[r].turns[j];
+    let was = flat[l - 1].turns[j].inverse() * run[r - 1].turns[j];
+    (moved, now.angle_between(was))
+}
+
+/// How far joint `j` moved and turned between frames `r - 1` and `r` of
+/// `run`.
+fn step_of(run: &[Lifting], r: usize, j: usize) -> (f32, f32) {
+    (
+        (run[r].joints[j] - run[r - 1].joints[j]).length(),
+        run[r].turns[j].angle_between(run[r - 1].turns[j]),
+    )
+}
+
+/// The most a joint of a winged body standing still may move on one frame,
+/// as a share of its trunk, and turn, radians - on its own and further than
+/// the same body standing on level ground (#1889). A standing bat, glider
+/// or bird moved one at most 1.0 mm and turned one 0.018 rad a frame.
+const STOOD_MOVED: f32 = 0.01;
+const STOOD_TURNED: f32 = 0.05;
+
+/// **A peer standing on a pitched roof stands as on level ground** (#1889):
+/// a bat, a glider and a bird on a peer's client, standing a second on a roof
+/// pitched 20 degrees and on level ground before it takes off, at 30, 60 and
+/// 144 frames a second, every idle seeded alike: on every frame before its
+/// takeoff is handed on, no joint moves more than [`STOOD_MOVED`] of its trunk
+/// or turns more than [`STOOD_TURNED`] - on either ground, and further on the
+/// roof than on the level on the same frame.
+///
+/// The take-off's harness once landed a peer's body in the frame its chassis
+/// spawned, before the chassis' transform had been carried to its place: its
+/// first speed was differenced from the origin, the root's height in one
+/// frame, a leap of 13.7 m/s at 144 Hz, and the body was still in it a second
+/// later, the level run's hind leg turning 2.7 rad and its foot moving 199 mm
+/// in a frame seven frames before its flight (a glider's 3.1 rad and 197 mm).
+/// Compared against it, the roof's peer - whose structure set it down - was
+/// the figure filed. Stood a frame first, as the game's chassis always is, a
+/// peer stands as its owner does: 1.0 mm and 0.018 rad a frame at most.
+#[test]
+fn a_peer_standing_on_a_pitched_roof_stands_as_on_the_level() {
+    let ([level, _, roof], solids) = level_slope_and_roof();
+    let launched = Launched {
+        under: Under::Peer,
+        contacts: false,
+        held: None,
+    };
+    for family in [WingedFamily::Bat, WingedFamily::Glider, WingedFamily::Bird] {
+        let size = trunk(&default_rig(family));
+        for hz in [30.0f32, 60.0, 144.0] {
+            let flat = taking_off(family, hz, (level, level, &[]), launched);
+            let run = taking_off(family, hz, (level, roof, &solids), launched);
+            let (from, level_from) = (first_takeoff(&run), first_takeoff(&flat));
+            let joints = run[0].joints.len();
+            let mut checked = 0;
+            for (name, frames, until) in [("level", &flat, level_from), ("roof", &run, from)] {
+                for r in 1..until {
+                    for j in 0..joints {
+                        let (moved, turned) = step_of(frames, r, j);
+                        assert!(
+                            moved <= STOOD_MOVED * size && turned <= STOOD_TURNED,
+                            "{family:?} at {hz} Hz standing on the {name}: frame {r} moved joint \
+                             {j} {:.1} mm and turned it {turned:.3} rad",
+                            moved * 1000.0
+                        );
+                    }
+                }
+            }
+            // Frames `k` before the takeoff, here and on the level.
+            for k in -(from.min(level_from) as i64) + 1..0 {
+                let (r, l) = ((from as i64 + k) as usize, (level_from as i64 + k) as usize);
+                checked += 1;
+                for j in 0..joints {
+                    let (moved, turned) = beyond_on(&run, r, &flat, l, j);
+                    assert!(
+                        moved <= STOOD_MOVED * size && turned <= STOOD_TURNED,
+                        "{family:?} at {hz} Hz on the roof: {} frames before its takeoff joint \
+                         {j} moved {:.1} mm and turned {turned:.3} rad further than on the level",
+                        -k,
+                        moved * 1000.0
+                    );
+                }
+            }
+            assert!(
+                checked as f32 >= 0.9 * hz,
+                "{family:?} at {hz} Hz: the premise, standing a second ({checked} frames)"
+            );
+        }
+    }
+}
+
+/// The most a winged body's hind foot may move further, on one frame of its
+/// take-off from a slope or a pitched roof, than the same body's taking off
+/// from level ground, as a share of its trunk a second of the frame's length,
+/// and turn, radians a second (#1890). A glider's moved 14 mm and turned
+/// 0.10 rad further at 30 Hz, 7.9 and 0.052 at 60 and 4.2 and 0.022 at 144:
+/// about two trunks and three radians a second.
+const HIND_BEYOND_A_SECOND: f32 = 4.0;
+const HIND_TURNED_BEYOND_A_SECOND: f32 = 6.0;
+
+/// The fastest a winged body's hind foot may move through its take-off, as a
+/// share of its trunk a second, and turn, radians a second (#1890). A
+/// glider's tucks at about 12 trunks (3.1 m/s) and 20 rad a second, at every
+/// frame rate.
+const HIND_SPEED: f32 = 16.0;
+const HIND_SPIN: f32 = 30.0;
+
+/// **A peer glider's hind feet go up with its take-off as its owner's do**
+/// (#1890): a glider taking off from level ground, a 20 degree hillside and
+/// a roof pitched 20 degrees, at 30, 60 and 144 frames a second, on a peer's
+/// client and under its owner's chassis, every idle seeded alike. On every
+/// frame from the one before its takeoff is handed on to a few after the
+/// engine has let its feet go, no joint of a hind foot moves faster than
+/// [`HIND_SPEED`] trunks a second or turns faster than [`HIND_SPIN`] radians a
+/// second, and none moves further than on the level by more than
+/// [`HIND_BEYOND_A_SECOND`] trunks a second of the frame's length or turns
+/// further by more than [`HIND_TURNED_BEYOND_A_SECOND`] radians a second.
+///
+/// Filed at 35 mm and 0.40 rad a frame beyond the level at 144 Hz as a peer,
+/// with an unseeded idle and the take-off's harness landing a peer's body in
+/// the frame its chassis spawned (see
+/// [`a_peer_standing_on_a_pitched_roof_stands_as_on_the_level`]): that peer
+/// was still in a leap it had been handed on its first frame as its take-off
+/// began, and seeded it was 10.5 mm and 0.175 rad. A peer's hind foot now
+/// moves as its owner's to a tenth of a millimetre: 22 mm and 0.14 rad a frame
+/// at 144 Hz on the level, its push's own tuck, 4.2 mm and 0.022 rad further
+/// on the roof.
+#[test]
+fn a_peer_gliders_hind_feet_take_off_as_its_owners() {
+    use symbios_avatar::plan::Limb;
+    let ([level, slope, roof], solids) = level_slope_and_roof();
+    let family = WingedFamily::Glider;
+    let rig = default_rig(family);
+    let size = trunk(&rig);
+    let hind: Vec<usize> = (0..rig.joints.len())
+        .filter(|&j| {
+            matches!(
+                rig.joints[j].zone,
+                Zone::Extremity(Limb::HindLeft | Limb::HindRight)
+            )
+        })
+        .collect();
+    assert!(!hind.is_empty(), "the premise: hind feet");
+    for hz in [30.0f32, 60.0, 144.0] {
+        let release = ((TAKEOFF_SECS + RELEASE_SECS) * hz).ceil() as i64 + 4;
+        for under in [Under::Peer, Under::Local] {
+            let launched = Launched {
+                under,
+                contacts: false,
+                held: None,
+            };
+            let flat = taking_off(family, hz, (level, level, &[]), launched);
+            let level_from = first_takeoff(&flat);
+            for (name, run) in [
+                ("level", None),
+                (
+                    "slope",
+                    Some(taking_off(family, hz, (slope, slope, &[]), launched)),
+                ),
+                (
+                    "roof",
+                    Some(taking_off(family, hz, (level, roof, &solids), launched)),
+                ),
+            ] {
+                let run = run.as_deref().unwrap_or(&flat[..]);
+                let from = first_takeoff(run);
+                let label = format!("{family:?} at {hz} Hz on the {name}, {under:?}");
+                for k in -1..=release {
+                    let (r, l) = ((from as i64 + k) as usize, (level_from as i64 + k) as usize);
+                    for &j in &hind {
+                        let (moved, turned) = step_of(run, r, j);
+                        assert!(
+                            moved * hz <= HIND_SPEED * size && turned * hz <= HIND_SPIN,
+                            "{label}: frame {k} of the flight moved hind joint {j} {:.1} mm and \
+                             turned it {turned:.3} rad",
+                            moved * 1000.0
+                        );
+                        let (moved, turned) = beyond_on(run, r, &flat, l, j);
+                        assert!(
+                            moved * hz <= HIND_BEYOND_A_SECOND * size
+                                && turned * hz <= HIND_TURNED_BEYOND_A_SECOND,
+                            "{label}: frame {k} of the flight moved hind joint {j} {:.1} mm and \
+                             turned it {turned:.3} rad further than on the level",
+                            moved * 1000.0
+                        );
+                    }
+                }
+            }
+        }
     }
 }
 

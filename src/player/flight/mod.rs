@@ -189,6 +189,11 @@ const PRESS_BEAT_SHARE: f32 = 0.5;
 const EXHAUSTED_UNTIL: f32 = 0.25;
 /// How much faster stamina comes back standing on something than gliding.
 const GROUND_RECOVERY: f32 = 3.0;
+/// How far under a beat's cost what is left of a stamina may fall and still
+/// beat, as a share of the cost (#1888): a thousandth of a beat, the float a
+/// stamina loses counting down its beats, so a full one holds every whole
+/// beat its record gives it.
+const STAMINA_SLACK: f32 = 1.0e-3;
 
 /// How fast (1/s) the air turns the path toward the nose, at the speed's
 /// own scale.
@@ -267,7 +272,7 @@ pub struct Flight {
     stamina: f32,
     /// Out of stamina until it is back to [`EXHAUSTED_UNTIL`].
     exhausted: bool,
-    /// Seconds since the last beat.
+    /// Seconds since the last beat fell due ([`Self::beat`]).
     since_beat: f32,
     /// Seconds in this mode.
     in_mode: f32,
@@ -616,18 +621,42 @@ impl Flight {
         }
     }
 
-    /// One beat: the push along its wings, for its stamina - or nothing, and
-    /// exhausted, when it has too little left.
-    fn beat(&mut self, wings: &Wings, velocity: Vec3) -> Vec3 {
+    /// One beat, in a step of `dt` seconds: the push along its wings, for its
+    /// stamina - or nothing, and exhausted, when it has too little left.
+    ///
+    /// **A full stamina holds `stamina_beats x flight_power` beats, the whole
+    /// ones** (#1888): a beat is taken while what is left holds one, to a
+    /// thousandth of a beat ([`STAMINA_SLACK`]), and nothing comes back while
+    /// the body beats - so a held key empties a full stamina in that many of
+    /// its wingbeat's periods. Compared exactly, the float left over after 23
+    /// of a 24-beat stamina's beats fell a hair under a beat's cost, and a
+    /// full-power flapper beat 23.
+    ///
+    /// **A beat that fell due inside this step carries the rest of the step
+    /// to the next** (#1888): the clock is set back by one period rather than
+    /// to nothing, so a held key beats at the record's own rate. Started
+    /// afresh at each step a beat came in, a period that is not a whole
+    /// number of fixed steps was rounded up to one - 64 / ceil(64 x period)
+    /// beats a second, every rate from about 21.4 to 32 beating 21.33 and the
+    /// 5 cm owl's 24.2 getting 88 % of its push. A beat that fell due before
+    /// this step began - the first after a glide, a press before its period,
+    /// the take-off's leap - starts its period afresh, so a pause owes no
+    /// beats. **At most one beat a step**: a step owes two only when the
+    /// period is shorter than the step, and a record beats at most
+    /// [`crate::pds::FlightParams::FASTEST_WINGBEAT`] (32) a second against
+    /// the game's 64 Hz step; on any longer step the push would come at once
+    /// as two, which is not a wingbeat.
+    fn beat(&mut self, wings: &Wings, velocity: Vec3, dt: f32) -> Vec3 {
         if !wings.can_flap {
             return velocity;
         }
-        if self.stamina < wings.beat_cost {
+        if self.stamina < wings.beat_cost * (1.0 - STAMINA_SLACK) {
             self.exhausted = true;
             return velocity;
         }
-        self.stamina -= wings.beat_cost;
-        self.since_beat = 0.0;
+        self.stamina = (self.stamina - wings.beat_cost).max(0.0);
+        let over = self.since_beat - wings.beat_period;
+        self.since_beat = if (0.0..dt).contains(&over) { over } else { 0.0 };
         self.mode_beats += 1;
         self.beats = self.beats.wrapping_add(1);
         let up = self.rotation() * Vec3::Y;
@@ -765,13 +794,13 @@ impl Flight {
                     && self.mode_beats < TAKEOFF_BEATS
                     && self.since_beat >= wings.beat_period
                 {
-                    velocity = self.beat(wings, velocity);
+                    velocity = self.beat(wings, velocity, dt);
                 }
             }
             FlightMode::Flap => {
                 let pressed = keys.press && self.since_beat >= PRESS_BEAT_SHARE * wings.beat_period;
                 if pressed || self.since_beat >= wings.beat_period {
-                    velocity = self.beat(wings, velocity);
+                    velocity = self.beat(wings, velocity, dt);
                 }
             }
             _ => self.recover(wings.recovery, dt),
@@ -805,7 +834,7 @@ impl Flight {
             self.enter(FlightMode::Takeoff);
             let leap = wings.takeoff * if wings.can_flap { 1.0 } else { GLIDER_LEAP };
             velocity += (self.level_nose() * LEAP_FORWARD + Vec3::Y * LEAP_UP) * leap;
-            velocity = self.beat(wings, velocity);
+            velocity = self.beat(wings, velocity, dt);
             return (self, Some(velocity));
         }
         let footing = now.on_ground || now.resting;
@@ -826,7 +855,7 @@ impl Flight {
             };
             self.enter(next);
             if next == FlightMode::Flap {
-                velocity = self.beat(wings, velocity);
+                velocity = self.beat(wings, velocity, dt);
             }
             return (self, Some(velocity));
         }

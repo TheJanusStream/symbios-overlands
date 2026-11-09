@@ -286,7 +286,7 @@ fn a_bank_turns_and_levels() {
 #[test]
 fn stamina_drains_and_recovers() {
     let record = bird();
-    let (flight, wings) = params(&record);
+    let (flight, _) = params(&record);
     let mut bench = launched(
         &record,
         Vec3::new(0.0, 150.0, 200.0),
@@ -295,12 +295,16 @@ fn stamina_drains_and_recovers() {
         Vec3::new(0.0, 0.0, -6.5),
     );
     bench.hold(&[KeyCode::Space]);
+    // Flown until it is spent, and no further: gliding on, its stamina comes
+    // back and a held key beats again once it is a quarter full.
     let mut spent_at = None;
-    fly(&mut bench, 12.0, |bench| {
-        if spent_at.is_none() && bench.flight().stamina() < wings.beat_cost {
+    for _ in 0..(12.0 * BENCH_HZ) as usize {
+        bench.step();
+        if bench.flight().exhausted {
             spent_at = Some(bench.elapsed());
+            break;
         }
-    });
+    }
     let spent_at = spent_at.expect("the stamina never ran out");
     let expected = flight.stamina_beats.0 / flight.wingbeat_rate.0;
     assert!(
@@ -1046,6 +1050,265 @@ fn probe_how_the_winged_fits_fly() {
             f.beat_speed.0,
             f.wingbeat_rate.0,
             f.takeoff_speed.0,
+        );
+    }
+}
+
+/// The flappers the game seeds (#1888): the default owl, a bat, a bird and a
+/// bat crossed evenly, and the owl and the bat at the record's size floor
+/// and at its largest - fitted as the editor fits them.
+fn seeded_flappers() -> Vec<(String, AvatarRecord)> {
+    use crate::pds::avatar::locomotion::{default_winged, fitted_record};
+    use symbios_avatar::{Archetype, WingedFamily, WingedParams};
+    let (floor, largest) = WingedParams::size_envelope();
+    let body = |family: WingedFamily, other: Option<WingedFamily>, size: Option<f32>| {
+        let mut body = default_winged(family);
+        if let Archetype::Winged(params) = &mut body.archetype {
+            if let Some(other) = other {
+                params.set_kind(family, Some(other), 0.5);
+                params.blend = 0.5;
+            }
+            if let Some(size) = size {
+                params.size = size;
+            }
+        }
+        fitted_record(body)
+    };
+    use WingedFamily::{Bat, Bird};
+    vec![
+        ("owl".into(), body(Bird, None, None)),
+        ("bat".into(), body(Bat, None, None)),
+        ("bird x bat at 0.5".into(), body(Bird, Some(Bat), None)),
+        (
+            format!("owl at the floor ({floor:.3})"),
+            body(Bird, None, Some(floor)),
+        ),
+        (
+            format!("bat at the floor ({floor:.3})"),
+            body(Bat, None, Some(floor)),
+        ),
+        (
+            format!("owl at its largest ({largest:.3})"),
+            body(Bird, None, Some(largest)),
+        ),
+        (
+            format!("bat at its largest ({largest:.3})"),
+            body(Bat, None, Some(largest)),
+        ),
+    ]
+}
+
+/// `wings` beating with the flap key held, high over nothing at its trim
+/// speed, through the pure model at the game's fixed step - from a full
+/// stamina until it is spent, or `seconds` at most: when each beat came
+/// (s), and when it was spent, if it was.
+fn beats_held(wings: &Wings, seconds: f32) -> (Vec<f32>, Option<f32>) {
+    const STEP: f32 = 1.0 / BENCH_HZ as f32;
+    let mut flight = Flight {
+        mode: FlightMode::Flap,
+        pitch: 0.1,
+        ..Flight::default()
+    };
+    let keys = FlightKeys {
+        held: true,
+        ..FlightKeys::default()
+    };
+    let mut velocity = Vec3::NEG_Z * wings.trim;
+    let mut beats = Vec::new();
+    for step in 0..(seconds / STEP).round() as usize {
+        let now = Reading {
+            position: Vec3::Y * 500.0,
+            velocity,
+            facing: 0.0,
+            on_ground: false,
+            resting: false,
+            approach: None,
+            in_water: false,
+            gravity: 9.81,
+        };
+        let (next, moved) = flight.stepped(wings, keys, now, STEP);
+        let at = (step + 1) as f32 * STEP;
+        if next.beats() != flight.beats() {
+            beats.push(at);
+        }
+        if next.exhausted {
+            return (beats, Some(at));
+        }
+        flight = next;
+        velocity = moved.unwrap_or(velocity) - Vec3::Y * 9.81 * STEP;
+    }
+    (beats, None)
+}
+
+/// The beats a second `beats` (their times, s) came at, first to last.
+fn delivered(beats: &[f32]) -> f32 {
+    (beats.len() - 1) as f32 / (beats[beats.len() - 1] - beats[0])
+}
+
+/// **Probe, not a gate** (#1888): the feel table - each seeded flapper on the
+/// bench through the game's own systems and avian, flapping with its key
+/// held from its trim speed and a full stamina until it is spent: the beats
+/// a second its record promises and the bench delivered, how many beats a
+/// full stamina held and how long it took to spend them, how fast it climbed
+/// meanwhile and how much height it held over them.
+#[test]
+#[ignore = "a probe: prints the feel table of the seeded flappers"]
+fn probe_the_flappers_feel_table() {
+    println!(
+        "| body | power | promised /s | delivered /s | beats a stamina | s to empty | climb m/s | height over the stamina m |"
+    );
+    for (name, record) in seeded_flappers() {
+        let (flight, wings) = params(&record);
+        let mut bench = launched(
+            &record,
+            Vec3::new(0.0, 300.0, 0.0),
+            FlightMode::Flap,
+            0.1,
+            Vec3::NEG_Z * wings.trim,
+        );
+        bench.hold(&[KeyCode::Space]);
+        let start = bench.position().y;
+        let mut beats = Vec::new();
+        let mut was = bench.flight().beats();
+        let mut spent = None;
+        let mut steps = 0;
+        while spent.is_none() && steps < (30.0 * BENCH_HZ) as usize {
+            bench.step();
+            steps += 1;
+            let now = bench.flight();
+            if now.beats() != was {
+                beats.push(bench.elapsed() as f32);
+                was = now.beats();
+            }
+            if now.exhausted {
+                spent = Some((bench.elapsed() as f32, bench.position().y));
+            }
+        }
+        let (seconds, height) = spent.expect("a held key spends its stamina");
+        let t0 = beats[0] - 1.0 / BENCH_HZ as f32;
+        println!(
+            "| {name} | {:.2} | {:.2} | {:.2} | {} | {:.2} | {:.2} | {:+.2} |",
+            flight.flight_power.0,
+            flight.wingbeat_rate.0,
+            delivered(&beats),
+            beats.len(),
+            seconds - t0,
+            (height - start) / (seconds - t0),
+            height - start,
+        );
+    }
+}
+
+/// `record` with a stamina of `beats` full-power beats.
+fn with_stamina(record: &AvatarRecord, beats: f32) -> AvatarRecord {
+    let mut record = record.clone();
+    let LocomotionConfig::Humanoid(p) = &mut record.locomotion else {
+        panic!("on foot");
+    };
+    p.flight.as_mut().expect("a flight").stamina_beats = Fp(beats);
+    record.sanitize();
+    record
+}
+
+/// **A held key beats at its record's rate** (#1888): the default owl and
+/// bat at the record's size floor, half again and twice over it, their own
+/// size and their largest, a bird and a bat crossed, and the stand-in bird at
+/// 12 and at the fastest a record may beat ([`FlightParams::FASTEST_WINGBEAT`]),
+/// each given a stamina it does not spend in eight seconds, beat within 1 %
+/// of their record's wingbeat over those eight seconds. Beating at most once
+/// a fixed step and starting each beat's period afresh at the step it came
+/// in, a body delivered 64 / ceil(64 x period) beats a second: every rate
+/// from about 21.4 to 32 beat 21.33 (the 5 cm owl's 24.21 at 88 %), and
+/// 12 beat 10.67.
+#[test]
+fn a_held_key_beats_at_the_records_rate() {
+    use crate::pds::avatar::locomotion::{default_winged, fitted_record};
+    use symbios_avatar::{Archetype, WingedFamily, WingedParams};
+    let (floor, largest) = WingedParams::size_envelope();
+    let mut bodies: Vec<(String, AvatarRecord)> = Vec::new();
+    for family in [WingedFamily::Bird, WingedFamily::Bat] {
+        for size in [
+            Some(floor),
+            Some(1.5 * floor),
+            Some(2.0 * floor),
+            None,
+            Some(largest),
+        ] {
+            let mut body = default_winged(family);
+            if let (Archetype::Winged(params), Some(size)) = (&mut body.archetype, size) {
+                params.size = size;
+            }
+            bodies.push((format!("{family:?} at size {size:?}"), fitted_record(body)));
+        }
+    }
+    bodies.extend(
+        seeded_flappers()
+            .into_iter()
+            .filter(|(name, _)| name.contains(" x ")),
+    );
+    for rate in [12.0, FlightParams::FASTEST_WINGBEAT] {
+        bodies.push((
+            format!("the stand-in bird at {rate}"),
+            bird_flying(|f| f.wingbeat_rate = Fp(rate)),
+        ));
+    }
+    let mut fast = 0;
+    for (name, record) in &bodies {
+        let (flight, wings) = params(&with_stamina(record, 500.0));
+        assert!(flight.can_flap(), "the premise: {name} flaps");
+        let (beats, spent) = beats_held(&wings, 8.0);
+        assert!(spent.is_none(), "the premise: {name} spent its stamina");
+        let rate = flight.wingbeat_rate.0;
+        let got = delivered(&beats);
+        fast += usize::from(rate > 21.4);
+        assert!(
+            (got / rate - 1.0).abs() < 0.01,
+            "{name}: beat {got:.3} a second, its record {rate:.3}"
+        );
+    }
+    assert!(
+        fast >= 2,
+        "the premise: {fast} bodies beating over 21.4 a second"
+    );
+}
+
+/// **A full stamina holds its record's beats, at full power** (#1888): a
+/// flapper spends `stamina_beats x flight_power` beats - the whole ones - from
+/// a full stamina, and nothing comes back while it beats, so its key held
+/// empties it in that many of its wingbeat's periods, whatever its rate: the
+/// 5 cm owl's 24 beats in about a second, the bat's 16 in about six. Every
+/// seeded flapper, and the stand-in bird at 7 beats a second and 48 beats a
+/// stamina - spent within two fixed steps after the beats over the rate.
+#[test]
+fn a_full_stamina_holds_its_records_beats() {
+    let mut bodies = seeded_flappers();
+    bodies.push((
+        "the stand-in bird at 7 a second, 48 a stamina".into(),
+        bird_flying(|f| {
+            f.wingbeat_rate = Fp(7.0);
+            f.stamina_beats = Fp(48.0);
+        }),
+    ));
+    for (name, record) in bodies {
+        let (flight, wings) = params(&record);
+        let held = (flight.stamina_beats.0 * flight.flight_power.0 + 1e-3).floor() as usize;
+        let (beats, spent) = beats_held(&wings, 60.0);
+        let spent = spent.unwrap_or_else(|| panic!("{name}: never spent"));
+        assert_eq!(
+            beats.len(),
+            held,
+            "{name}: a full stamina of {} beats at power {} held {}",
+            flight.stamina_beats.0,
+            flight.flight_power.0,
+            beats.len()
+        );
+        // The first beat comes on the first step, and the spending is found
+        // on the step the beat after the last falls due in.
+        let periods = held as f32 / flight.wingbeat_rate.0;
+        assert!(
+            (periods..=periods + 2.0 / BENCH_HZ as f32).contains(&spent),
+            "{name}: spent in {spent:.3} s, {held} beats at {:.2} a second {periods:.3} s",
+            flight.wingbeat_rate.0
         );
     }
 }
