@@ -1124,6 +1124,26 @@ const CROUCH_SECS: f32 = 0.18;
 const MOVED_A_FRAME: f32 = 0.15;
 const MOVED_A_SECOND: f32 = 3.6;
 
+/// How much more than [`MOVED_A_FRAME`] and [`MOVED_A_SECOND`] allow a bat's
+/// joint may move on a frame of the ground's ease-out - [`TAKEOFF_SECS`] from
+/// the flight's first frame - as a share of its trunk: its hands peeling off
+/// the slope (#1903).
+///
+/// Since symbios-avatar 0.24.2 (its #441, `keep_clear`) a bat's crawling
+/// hands lie along the ground they stand on, so they turn back upright as
+/// this crate eases that ground out from the take-off's first frame
+/// ([`TAKEOFF_SECS`]) - over the push itself, and from a held landing over
+/// the crouch before the push, the ground easing out as the body crouches.
+/// Under its owner's chassis at 30 frames a second, a bat taking off across
+/// a 20 degree slope then moved a joint 80.5 mm - 0.30 of its trunk -
+/// further than from level ground on the flight's second frame, and 73.4 mm
+/// on it three tenths of a second into a held landing, where the bound is
+/// 72.6 mm (0.27) and its hands standing upright had moved 53 at most; at 60
+/// and 144 frames a second it stays inside the bound. The owner took it as
+/// the hands' own motion rather than the ground's (2026-11-10) over a release
+/// of each hand's tilt kept and eased out by the engine itself.
+const HANDS_PEEL: f32 = 0.06;
+
 /// The most a joint of a winged body taking off from a slope may turn on one
 /// frame further than the same body taking off from level ground, radians
 /// (#1887).
@@ -1146,9 +1166,10 @@ const TURNED_A_FRAME: f32 = 0.5;
 /// (after its crouch, [`CROUCH_SECS`], from a held landing), how much
 /// further each joint moved than the level take-off's moved on the same
 /// frame is under [`MOVED_A_FRAME`] of the trunk and [`MOVED_A_SECOND`] of
-/// it a second of the frame's length, and how much further it turned under
-/// [`TURNED_A_FRAME`]: a bound of its own on every frame, which no
-/// neighbour's raises. Once the ease has run, a rising body carries none of
+/// it a second of the frame's length - and a bat's, on the frames the ground
+/// eases out over, [`HANDS_PEEL`] more, its hands peeling off the slope - and how much
+/// further it turned under [`TURNED_A_FRAME`]: a bound of its own on every
+/// frame, which no neighbour's raises. Once the ease has run, a rising body carries none of
 /// the ground it rose off and is handed no patch, and no foot is held to
 /// that ground: each stands over it at least half as high as the level
 /// take-off's lowest stands over its own. Every run's idle is seeded alike:
@@ -1158,7 +1179,10 @@ const TURNED_A_FRAME: f32 = 0.5;
 /// Eased over the push from the take-off's first frame, the most any joint
 /// moved further than on level ground on one frame was 53 mm at 30 Hz, 30
 /// at 60 and 13 at 144, and turned 0.21 radians at 30, 0.09 at 60 and 0.07
-/// at 144. A peer's body landed in the frame its chassis spawned once made
+/// at 144, while a bat's hands stood upright on the slope. Since
+/// symbios-avatar 0.24.2 they lie along it and peel off it in the push: a
+/// bat under its owner's chassis at 30 Hz moved one 80.5 mm further on the
+/// flight's second frame ([`HANDS_PEEL`]). A peer's body landed in the frame its chassis spawned once made
 /// the 144 Hz figures 22 mm and 0.26 rad (#1889, #1890: see
 /// [`a_peer_standing_on_a_pitched_roof_stands_as_on_the_level`]). Handed the level floor at
 /// once, under its owner's chassis, a bat moved one 93 mm further at 144 Hz
@@ -1300,20 +1324,39 @@ fn took_off_as_on_the_level(
         // for its crouch.
         let crouch = if held.is_some() { CROUCH_SECS } else { 0.0 };
         let release = ((crouch + TAKEOFF_SECS + RELEASE_SECS) * hz).ceil() as i64 + 4;
+        // The frames the ground eases out over, from the flight's first,
+        // where a bat's hands peel off the slope ([`HANDS_PEEL`]): the push,
+        // or from a held landing the crouch before it.
+        let easing = 0..=(TAKEOFF_SECS * hz).ceil() as i64;
+        let peel = |k: i64| {
+            if family == WingedFamily::Bat && easing.contains(&k) {
+                HANDS_PEEL * size
+            } else {
+                0.0
+            }
+        };
         for (what, turns, most) in [
             ("moved", false, (MOVED_A_FRAME + MOVED_A_SECOND / hz) * size),
             ("turned", true, TURNED_A_FRAME),
         ] {
-            let worst_of = |most: (i64, f32), step: (i64, f32)| {
-                if step.1 > most.1 { step } else { most }
-            };
-            let (worst_at, worst) = (-1..=release)
-                .map(|k| (k, beyond(k, turns)))
-                .fold((0, 0.0f32), worst_of);
+            // Each frame against its own bound: the worst is the one most past
+            // it, and it is reported with that bound.
+            let bound = |k: i64| if turns { most } else { most + peel(k) };
+            let (worst_at, worst) =
+                (-1..=release)
+                    .map(|k| (k, beyond(k, turns)))
+                    .fold((0, 0.0f32), |worse, step| {
+                        if step.1 - bound(step.0) > worse.1 - bound(worse.0) {
+                            step
+                        } else {
+                            worse
+                        }
+                    });
+            let allowed = bound(worst_at);
             assert!(
-                worst <= most,
+                worst <= allowed,
                 "{label}: frame {worst_at} of the flight {what} {worst:.4} further than on the \
-                 level, past {most:.4}"
+                 level, past {allowed:.4}"
             );
         }
         let eased = from + (TAKEOFF_SECS * hz).ceil() as usize + 1;
