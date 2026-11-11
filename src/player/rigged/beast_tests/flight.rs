@@ -101,7 +101,7 @@ impl Sky {
         let approach = match self.roof {
             Some(tau) => Some(tau),
             None => (looking && self.velocity.y < 0.0 && self.velocity.length() >= 0.5)
-                .then(|| over / -self.velocity.y)
+                .then_some(over / -self.velocity.y)
                 .filter(|tau| *tau <= 1.5),
         }
         .filter(|_| looking)

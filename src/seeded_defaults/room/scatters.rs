@@ -356,7 +356,7 @@ pub fn stand_naturalness(
         above_water_band,
         // `-10_000` rather than 0: terrain dips below the origin plane, and
         // a floor at 0 would silently strip every stand in a low valley.
-        altitude_band: (ceiling < 1.0).then(|| Fp2([-10_000.0, water_y + ceiling * relief])),
+        altitude_band: (ceiling < 1.0).then_some(Fp2([-10_000.0, water_y + ceiling * relief])),
     }
 }
 

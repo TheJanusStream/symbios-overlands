@@ -673,7 +673,7 @@ impl Facing {
             d(px, pz + 1) - d(px, pz.saturating_sub(1)),
         );
         let g = libm::hypotf(gx, gz);
-        (g > 0.0 && g.is_finite()).then(|| (-gx / g, -gz / g))
+        (g > 0.0 && g.is_finite()).then_some((-gx / g, -gz / g))
     }
 }
 

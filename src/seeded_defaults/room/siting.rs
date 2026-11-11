@@ -269,7 +269,7 @@ impl TerrainProbe {
                 }
             }
         }
-        (inside > 0).then(|| ok as f32 / inside as f32)
+        (inside > 0).then_some(ok as f32 / inside as f32)
     }
 
     /// Drop any height band on `naturalness` that too little of the
@@ -617,7 +617,7 @@ impl TerrainProbe {
         let gz = (h(0.0, s) - h(0.0, -s)) / (2.0 * s);
         // Square root, not `hypot` (#1132): the slope decides the facing.
         let slope = (gx * gx + gz * gz).sqrt();
-        (slope >= steeper_than && slope > 0.0).then(|| [-gx / slope, -gz / slope])
+        (slope >= steeper_than && slope > 0.0).then_some([-gx / slope, -gz / slope])
     }
 
     /// The buildable cell of `region`, clear of `keep_clear`, under whose

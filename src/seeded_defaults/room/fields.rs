@@ -457,7 +457,7 @@ fn contour(siting: &Siting, at: [f32; 2]) -> Option<[f32; 2]> {
     let landing = siting.view.landing;
     let (dx, dz) = (landing[0] - at[0], landing[1] - at[1]);
     let far = (dx * dx + dz * dz).sqrt();
-    (far > 1e-3).then(|| [dx / far, dz / far])
+    (far > 1e-3).then_some([dx / far, dz / far])
 }
 
 /// The compass bearing (degrees, clockwise from north, folded into

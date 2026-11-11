@@ -66,7 +66,7 @@ pub(super) fn seat(
     joint: usize,
     fit_beast_mm: u32,
 ) -> Option<Transform> {
-    let cut = (fit_beast_mm != 0).then(|| fit_beast_mm as f32 / 1000.0);
+    let cut = (fit_beast_mm != 0).then_some(fit_beast_mm as f32 / 1000.0);
     match socket {
         Socket::Crown => between_the_ears(avatar, joint, cut),
         Socket::Neck => collar(avatar, joint, cut),
