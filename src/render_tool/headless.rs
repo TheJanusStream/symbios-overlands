@@ -1012,7 +1012,7 @@ pub(super) fn dress_wear_bodies(
 ) {
     for (root, body, joints, wear) in &pending {
         ensure_joint_visibility(&mut commands, joints);
-        for (joint, transform, attachment) in placements(&body.avatar, &wear.0) {
+        for (joint, transform, attachment) in placements(&body.avatar, None, &wear.0) {
             let Some(&carrier) = joints.0.get(joint) else {
                 continue;
             };

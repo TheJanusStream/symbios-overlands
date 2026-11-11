@@ -324,7 +324,8 @@ impl FingerprintPass {
         // landing turns to, the signature feature (#1781) and the crafts'
         // places (#1782), water-avoiding or not, snapped or not - not its
         // generator, seed or params, whose edits leave every scatter as it
-        // was.
+        // was, but for which craft's place the generator is (#1905).
+        let mut rooms = super::scatter::CraftRooms::new(record);
         let structures: Vec<[f32; 8]> = record
             .placements
             .iter()
@@ -336,21 +337,31 @@ impl FingerprintPass {
                     avoid_water,
                     avoid_water_clearance,
                     ..
-                } if *snap_to_terrain
-                    && (*avoid_water || generator_ref == super::water::GATEWAY)
-                    || super::scatter::KEPT_BY_NAME.contains(&generator_ref.as_str()) =>
-                {
-                    Some([
-                        transform.translation.0[0],
-                        transform.translation.0[2],
-                        avoid_water_clearance.0,
-                        transform.scale.0[0],
-                        f32::from(u8::from(generator_ref == super::scatter::LANDMARK)),
-                        f32::from(u8::from(*avoid_water)),
-                        f32::from(u8::from(*snap_to_terrain)),
-                        // A craft's room round its place (#1798), by its name.
-                        super::scatter::kept_room(generator_ref),
-                    ])
+                } => {
+                    // A craft's room round its place (#1798), however it was
+                    // placed (#1905): by its name, or by the catalogue entry
+                    // its generator is - which an edit of that generator can
+                    // change, so the room and the clearance it keeps are
+                    // part of the key.
+                    let craft = rooms.of(generator_ref);
+                    let kept = *snap_to_terrain
+                        && (*avoid_water || generator_ref == super::water::GATEWAY)
+                        || super::scatter::KEPT_BY_NAME.contains(&generator_ref.as_str())
+                        || craft.is_some();
+                    kept.then(|| {
+                        [
+                            transform.translation.0[0],
+                            transform.translation.0[2],
+                            craft.map_or(avoid_water_clearance.0, |craft| {
+                                craft.clearance(avoid_water_clearance.0)
+                            }),
+                            transform.scale.0[0],
+                            f32::from(u8::from(generator_ref == super::scatter::LANDMARK)),
+                            f32::from(u8::from(*avoid_water)),
+                            f32::from(u8::from(*snap_to_terrain)),
+                            craft.map_or(0.0, |craft| craft.room),
+                        ]
+                    })
                 }
                 _ => None,
             })

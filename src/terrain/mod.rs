@@ -21,10 +21,10 @@
 //! ## Sub-module map
 //!
 //! * [`heightmap`] - distils the terrain config into the offload job's
-//!   params, dispatches / polls that job, and spawns the
-//!   mesh + heightfield-collider; the generator itself (FBM /
-//!   DiamondSquare / Voronoi + erosion passes) lives in the Bevy-free
-//!   `gen_jobs` crate.
+//!   params, dispatches / polls that job, builds the mesh +
+//!   heightfield-collider behind it on the compute pool (#1904) and spawns
+//!   them; the generator itself (FBM / DiamondSquare / Voronoi + erosion
+//!   passes) lives in the Bevy-free `gen_jobs` crate.
 //! * [`splat`] - the four-layer procedural texture tasks, the
 //!   texture-array atlas build, the splat weight map, and the material
 //!   flip from placeholder to triplanar splat blending (also publishes
@@ -40,6 +40,8 @@
 //!   network's enclosed lots at load time.
 //! * [`lifecycle`] - logout cleanup and the in-place regenerate trigger
 //!   that watches the live record's terrain config fingerprint.
+//! * [`tangents`] - the ground mesh's tangents, mikktspace's bit for bit,
+//!   read off the grid (#1904).
 //!
 //! The shared task / state resources live here in `mod.rs` (private to
 //! the terrain tree; child modules reach them via `super::`) because
@@ -60,6 +62,7 @@ pub(crate) use paths::ways as path_ways;
 pub mod referenced;
 mod roads;
 mod splat;
+mod tangents;
 pub use splat::{GroundGrass, GroundGrassSet, GroundWeather, GroundWeatherNow};
 // The render tool's terrain report reads the ground's weights with it (#1461);
 // the web build has no render tool.
@@ -90,7 +93,8 @@ pub struct TerrainMesh;
 
 /// Marker inserted on the previous terrain entity during an in-place
 /// regenerate. Kept alive (with its collider + textured mesh) until the new
-/// heightmap task completes and `spawn_terrain_mesh` swaps in the fresh one -
+/// terrain task completes - the heightmap and the mesh and collider built
+/// from it (#1904) - and `spawn_terrain_mesh` swaps in the fresh one -
 /// otherwise the player would fall through the world for the ~frame(s) the
 /// generator takes, and every peer would see a jarring flash to empty sky.
 #[derive(Component)]
@@ -102,7 +106,9 @@ pub struct WaterVolume;
 
 /// The completed heightmap of the active room. Its insertion (and any later
 /// change) is the readiness signal `world_builder` keys off - room
-/// compilation and avatar spawning both gate on this resource.
+/// compilation and avatar spawning both gate on this resource. The terrain
+/// task lands it in the frame its ground is spawned (#1904), so the heights
+/// it holds are always the ground that stands.
 ///
 /// For a region built from real Berlin it also carries what covers the
 /// ground and where its water lies ([`geo::GeoGround`], #1586), decoded
@@ -350,22 +356,42 @@ pub(crate) fn ground_height(hm: &HeightMap, x: f32, z: f32) -> f32 {
     hm.get_height_at((x + half).clamp(0.0, extent), (z + half).clamp(0.0, extent))
 }
 
-/// The in-flight terrain generation, dispatched through [`crate::offload`]
-/// (native: `AsyncComputeTaskPool`; wasm: its task pool / Web Worker). Carries
-/// the platform-agnostic [`crate::offload::GenResult`] which `poll_terrain_task`
-/// turns back into a [`HeightMap`].
+/// The in-flight terrain generation: the heightmap job, dispatched through
+/// [`crate::offload`] (native: `AsyncComputeTaskPool`; wasm: a Web Worker),
+/// and behind it, on the compute pool, the mesh and the heightfield
+/// collider built from its heights (#1904). `poll_terrain_task` lands the
+/// whole ground at once - the [`FinishedHeightMap`] in the frame its terrain
+/// is spawned - so for as long as this stands the old ground stands, drawn
+/// and solid, and every guard that waits on a terrain in flight (a second
+/// edit, the start system, the editor's "Rebuilding" line) waits on the
+/// build too.
 #[derive(Resource)]
 pub struct TerrainTask(
-    pub bevy::tasks::Task<crate::offload::GenResult>,
+    bevy::tasks::Task<Option<heightmap::BuiltGround>>,
     /// Session-relative seconds at dispatch, for the E-4 completion latency.
     pub f64,
     /// The [`terrain_source_key`] of the record the task started on: the
     /// [`HeightMapSource`] its heightmap is written with.
     pub Option<String>,
-    /// The ground a geodata region's heightmap lands beside (#1586), for
-    /// its [`FinishedHeightMap`].
-    pub(crate) Option<geo::GeoGround>,
 );
+
+impl TerrainTask {
+    /// The terrain task for the heightmap `job` will answer with, and the
+    /// `ground` a geodata region's heightmap lands beside (#1586): the job,
+    /// then its ground built on the compute pool. On the web that pool is
+    /// the main thread, so the build is the same work there, done between
+    /// two frames rather than inside one system.
+    pub(crate) fn new(
+        job: bevy::tasks::Task<crate::offload::GenResult>,
+        started: f64,
+        source: Option<String>,
+        ground: Option<geo::GeoGround>,
+    ) -> Self {
+        let task = bevy::tasks::AsyncComputeTaskPool::get()
+            .spawn(async move { heightmap::build_ground(job.await, ground) });
+        Self(task, started, source)
+    }
+}
 
 /// Shared marker on an in-flight splat-texture-bake entity. The bake task and
 /// its layer index live on the splat module's `SplatTexTask`; this lightweight

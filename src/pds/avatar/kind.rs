@@ -141,6 +141,7 @@ mod tests {
                 record: Box::new(body.clone()),
                 atlas: 16,
                 far_hair: false,
+                measure_head: false,
             }
             .run();
             let crate::offload::GenResult::Avatar(Some(here)) = &built else {
@@ -163,6 +164,16 @@ mod tests {
                     RiggedKind::of_rig(&avatar.rig),
                     stored,
                     "seed {} drawn {how}",
+                    body.seed
+                );
+                // The web's worker measures a person's head for the dressing
+                // (#1815) by its own copy of this answer, which it cannot
+                // import: it must be this one, or a browser's person goes
+                // unfitted or its beast is measured as one.
+                assert_eq!(
+                    gen_jobs::reads_a_persons_head(&avatar.rig),
+                    stored == RiggedKind::Person,
+                    "seed {} drawn {how}: the worker measures another set of heads",
                     body.seed
                 );
             }

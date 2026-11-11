@@ -208,6 +208,26 @@ pub(super) fn draw_uv_transform_rows(
     m.uv_rotation = Fp(rotation);
 }
 
+/// Whether `edited` is kept differently from `stored` (#1907): each as a
+/// peer reads it back ([`crate::pds::read_back`]), on the wire's 1/10 000
+/// grid, which is all a save, a peer or the undo ring ever sees of it.
+///
+/// Not [`crate::state::records_differ`], which compares the written bytes:
+/// a texture mirror leaves a field out while it equals its default in
+/// memory, so a colour a float's last bits off its default is written out
+/// in full - as the default's own integers, which read back as the default.
+/// The bytes differ and the colour kept does not. A value that cannot be
+/// written at all is kept differently, so an edit of it still lands.
+pub(super) fn kept_differently<T>(edited: &T, stored: &T) -> bool
+where
+    T: serde::Serialize + serde::de::DeserializeOwned + PartialEq,
+{
+    match (crate::pds::read_back(edited), crate::pds::read_back(stored)) {
+        (Some(edited), Some(stored)) => edited != stored,
+        _ => true,
+    }
+}
+
 pub(super) fn draw_texture_bridge(
     ui: &mut egui::Ui,
     texture: &mut SovereignTextureConfig,
@@ -489,13 +509,23 @@ fn draw_texture_bridge_in(
     ui.data_mut(|d| d.insert_temp(filter_id, filter));
 
     let id = egui::Id::new(salt);
+    // A writeback is a claim and the record is the fact (#1907): a colour
+    // picker held open hands back egui's HSV round trip, which lands a
+    // float's last bits off the colour it was given, and the editors report
+    // that as a writeback on the picker's first frame. Taken at its word it
+    // marked the world dirty and moved the stored colour for an edit nobody
+    // made, so the config is written only where it is kept differently
+    // ([`kept_differently`]).
     macro_rules! run {
         ($c:expr, $sov:ty, $editor:path) => {{
             let mut native = $c.to_native();
             let (wb, _regen) = $editor(ui, &mut native, id);
             if wb {
-                *$c = <$sov>::from_native(&native);
-                *dirty = true;
+                let edited = <$sov>::from_native(&native);
+                if kept_differently(&edited, &*$c) {
+                    *$c = edited;
+                    *dirty = true;
+                }
             }
         }};
     }
@@ -834,5 +864,217 @@ fn draw_texture_bridge_in(
             SovereignLogEndConfig,
             bevy_symbios_texture::ui::log_end_config_editor
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::headless::Headless as _;
+    use egui::accesskit::{Action, ActionData, ActionRequest, Node, NodeId, Role, TreeId};
+
+    /// One texture slot's bridge, drawn frame after frame in one egui
+    /// context, as the editor draws a selected material.
+    struct Bridge {
+        ctx: egui::Context,
+        texture: SovereignTextureConfig,
+    }
+
+    impl Bridge {
+        fn new(texture: SovereignTextureConfig) -> Self {
+            let ctx = egui::Context::default();
+            ctx.enable_accesskit();
+            Self { ctx, texture }
+        }
+
+        /// One frame with `events` as its input: whether it marked the
+        /// world dirty, and the AccessKit tree it drew.
+        fn frame(&mut self, events: Vec<egui::Event>) -> (bool, Vec<(NodeId, Node)>) {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1280.0, 4000.0),
+                )),
+                events,
+                ..Default::default()
+            };
+            let images = crate::world_builder::image_cache::BlobImageCache::default();
+            let audio = crate::world_builder::audio_resolver::BlobAudioCache::default();
+            let clips = crate::interaction::audio::AudioClipCache::default();
+            let layers = crate::terrain::referenced::ReferencedLayerStatus::default();
+            let mut retries = crate::world_builder::asset_failure::AssetRetryRequests::default();
+            let mut dirty = false;
+            let texture = &mut self.texture;
+            let output = self.ctx.run_headless(input, |ui| {
+                draw_texture_bridge(
+                    ui,
+                    texture,
+                    "bridge_probe",
+                    &mut dirty,
+                    &mut super::super::assets::AssetPanel {
+                        images: &images,
+                        audio: &audio,
+                        clips: &clips,
+                        layers: &layers,
+                        retries: &mut retries,
+                        now: 0.0,
+                        allow_external: true,
+                        world_parts: true,
+                    },
+                );
+            });
+            let update = output
+                .platform_output
+                .accesskit_update
+                .expect("accesskit was enabled, so the pass has a tree");
+            (dirty, update.nodes)
+        }
+    }
+
+    /// An AccessKit `action` on `target`, as a screen reader sends one.
+    fn act(target: NodeId, action: Action, data: Option<ActionData>) -> egui::Event {
+        egui::Event::AccessKitActionRequest(ActionRequest {
+            action,
+            target_tree: TreeId::ROOT,
+            target_node: target,
+            data,
+        })
+    }
+
+    /// The node `nodes` labels `label`.
+    fn labelled(nodes: &[(NodeId, Node)], label: &str) -> NodeId {
+        nodes
+            .iter()
+            .find(|(_, n)| n.label() == Some(label))
+            .map(|(id, _)| *id)
+            .unwrap_or_else(|| panic!("the bridge draws no {label:?}"))
+    }
+
+    /// The colour wells `nodes` holds, in the order they were drawn.
+    fn wells(nodes: &[(NodeId, Node)]) -> Vec<NodeId> {
+        nodes
+            .iter()
+            .filter(|(_, n)| n.role() == Role::ColorWell)
+            .map(|(id, _)| *id)
+            .collect()
+    }
+
+    const ESCAPE: egui::Event = egui::Event::Key {
+        key: egui::Key::Escape,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    };
+
+    /// A brick slot with its panel and every weathering section opened by a
+    /// click on its header, the way a person opens them.
+    fn opened_brick() -> (Bridge, Vec<(NodeId, Node)>) {
+        let mut bridge = Bridge::new(SovereignTextureConfig::Brick(Default::default()));
+        let (_, mut nodes) = bridge.frame(Vec::new());
+        for header in [
+            "Brick Config",
+            "Weathering",
+            "Edge Wear",
+            "Corrosion",
+            "Crevice Dirt",
+            "Streaks",
+        ] {
+            let mut events = vec![act(labelled(&nodes, header), Action::Click, None)];
+            for _ in 0..12 {
+                let (dirty, drawn) = bridge.frame(std::mem::take(&mut events));
+                assert!(!dirty, "opening {header:?} marked the world dirty");
+                nodes = drawn;
+            }
+        }
+        (bridge, nodes)
+    }
+
+    /// **A colour picker held open on a material writes nothing** (#1907).
+    /// The texture editors report egui's HSV round trip as a writeback on a
+    /// picker's first frame, and the bridge took it at its word: it marked
+    /// the world dirty and stored the round trip, a float's last bits off
+    /// the colour it was - before the fix, four of the brick slot's six
+    /// wells, 1 frame of 20 each. Every colour well - its brick and mortar colours and its
+    /// weathering's - clicked open in turn and held for twenty frames with
+    /// no other input: no frame marks the world dirty, and the stored config
+    /// keeps its bits.
+    #[test]
+    fn a_colour_picker_held_open_on_a_material_writes_nothing() {
+        let (mut bridge, nodes) = opened_brick();
+        let before = bridge.texture.clone();
+        let wells = wells(&nodes);
+        assert!(
+            wells.len() >= 6,
+            "the premise: the brick, the mortar and the weathering colours; {} wells",
+            wells.len()
+        );
+        let mut reported = Vec::new();
+        for (index, well) in wells.into_iter().enumerate() {
+            let mut events = vec![act(well, Action::Click, None)];
+            let mut frames = 0;
+            for _ in 0..20 {
+                let (dirty, _) = bridge.frame(std::mem::take(&mut events));
+                frames += usize::from(dirty);
+            }
+            if frames > 0 {
+                reported.push(format!("well {index}: {frames} of 20 frames"));
+            }
+            let _ = bridge.frame(vec![ESCAPE]);
+            for _ in 0..3 {
+                let _ = bridge.frame(Vec::new());
+            }
+        }
+        assert!(
+            reported.is_empty(),
+            "a colour picker held open marked the world dirty: {reported:?}"
+        );
+        assert_eq!(
+            format!("{:?}", bridge.texture),
+            format!("{before:?}"),
+            "holding a picker open moved the stored config"
+        );
+    }
+
+    /// **A real colour edit still lands, on its first frame** (#1907): the
+    /// brick colour's picker opened and its red channel set through the
+    /// picker's own R field marks the world dirty on that frame and stores a
+    /// different brick colour.
+    #[test]
+    fn a_colour_picked_on_a_material_marks_it_dirty() {
+        let (mut bridge, nodes) = opened_brick();
+        let before = bridge.texture.clone();
+        // The first well drawn: the brick colour, above the mortar's.
+        let brick = wells(&nodes)[0];
+        let mut events = vec![act(brick, Action::Click, None)];
+        let mut nodes = Vec::new();
+        for _ in 0..3 {
+            let (dirty, drawn) = bridge.frame(std::mem::take(&mut events));
+            assert!(!dirty, "opening the picker marked the world dirty");
+            nodes = drawn;
+        }
+        let red = nodes
+            .iter()
+            .find(|(_, n)| {
+                n.role() == Role::SpinButton && n.value().is_some_and(|v| v.starts_with("R "))
+            })
+            .map(|(id, _)| *id)
+            .expect("the open picker draws its R field");
+        let set = act(red, Action::SetValue, Some(ActionData::NumericValue(10.0)));
+        let (dirty, _) = bridge.frame(vec![set]);
+        assert!(dirty, "a picked colour did not mark the world dirty");
+        let (SovereignTextureConfig::Brick(was), SovereignTextureConfig::Brick(now)) =
+            (&before, &bridge.texture)
+        else {
+            panic!("the slot stopped being brick");
+        };
+        assert_ne!(
+            was.color_brick, now.color_brick,
+            "the brick colour did not move"
+        );
+        assert_eq!(
+            was.color_mortar, now.color_mortar,
+            "the mortar moved with it"
+        );
     }
 }

@@ -135,6 +135,8 @@ pub fn loading_gate_total_secs(m: &mut MetricsRegistry, secs: f64) {
 // ---- async / offload ------------------------------------------------------
 
 /// A heightmap generation job completed; `secs` is its spawn→complete latency.
+/// Since #1904 that runs to the ground built behind the heights - the mesh,
+/// its tangents and the collider - which on the web is main-thread time.
 pub fn heightmap_latency_secs(m: &mut MetricsRegistry, secs: f64) {
     m.observe_hist(names::OFFLOAD_HEIGHTMAP_LATENCY_MS, ms(secs));
 }

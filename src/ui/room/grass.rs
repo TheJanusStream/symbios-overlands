@@ -271,11 +271,7 @@ fn setting<T: Clone>(
 
 /// A colour's swatch, which opens the picker.
 fn colour(ui: &mut egui::Ui, value: &mut Fp3, dirty: &mut bool) -> egui::Response {
-    let response = linear_color_button(ui, value);
-    if response.changed() {
-        *dirty = true;
-    }
-    response
+    linear_color_button(ui, value, dirty)
 }
 
 /// The flowers' colours: a swatch and a remove button each, and a button to

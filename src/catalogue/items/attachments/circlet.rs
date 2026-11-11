@@ -3,8 +3,9 @@
 //! declares one fit dimension ([`WearFit::HeadBand`]) - the band's authored
 //! inner diameter - and at dress time every client scales the worn subtree
 //! so that diameter matches the wearer's brow circumference / π, read off
-//! the built body through the engine's public measure surface
-//! (`src/player/attachments.rs`, `brow_circumference`). Placed as world
+//! the closed head surface at the hat line (`hat_line` in
+//! crates/gen-jobs/src/head.rs, which the web worker measures beside the
+//! body since #1815; the fit is `src/player/attachments.rs`). Placed as world
 //! decor, and on any body whose head cannot be measured, it stays exactly
 //! this authored size.
 //!

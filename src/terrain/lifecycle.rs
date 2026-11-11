@@ -90,6 +90,7 @@ pub(super) fn cleanup_terrain(
     commands.remove_resource::<SplatMaterialHandle>();
     commands.remove_resource::<TextureTasksStarted>();
     commands.remove_resource::<TerrainTask>();
+    commands.remove_resource::<super::heightmap::PrebuiltGround>();
     commands.remove_resource::<super::TerrainGenFailed>();
     // Drop the interaction CPU terrain mirror with its terrain so the
     // classifier doesn't probe a stale heightmap after logout.
@@ -561,6 +562,185 @@ mod tests {
         assert!(
             app.world().contains_resource::<geo::GeoTerrainJob>(),
             "a recolour abandoned the square's fetch"
+        );
+    }
+
+    /// The terrain's whole pipeline from no ground at all - the regenerate
+    /// trigger, the terrain task's landing and the spawn, and the heightmap's
+    /// start - over `record`, with nothing standing yet.
+    ///
+    /// The start runs LAST, after the landing, where the plugin starts before
+    /// it lands: so a build started in one frame is still in flight when the
+    /// next begins, and an edit made between the two meets it there. In the
+    /// plugin's order a build of this small world can finish on the pool
+    /// thread and land in the very frame it started, and the mid-build case
+    /// a test sets up is then never met (it was, under a loaded gate run).
+    /// The landing and the spawn keep the plugin's order, which is what the
+    /// swap's rules are about.
+    fn ground_app(record: RoomRecord) -> App {
+        bevy::tasks::AsyncComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+        bevy::tasks::IoTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()))
+            .init_asset::<Mesh>()
+            .init_asset::<Image>()
+            .init_asset::<SplatTerrainMaterial>()
+            .init_asset::<crate::weathered::WeatheredMaterial>()
+            .init_resource::<crate::diagnostics::SessionLog>()
+            .init_resource::<crate::diagnostics::MetricsRegistry>()
+            .init_resource::<TerrainSplatState>()
+            .init_resource::<LastTerrainConfigJson>()
+            .init_resource::<PendingTerrainConfigJson>()
+            .insert_resource(LiveRoomRecord(record))
+            .add_systems(
+                Update,
+                (
+                    super::maybe_regenerate_terrain,
+                    heightmap::poll_terrain_task.run_if(resource_exists::<TerrainTask>),
+                    the_landing_brings_its_ground,
+                    heightmap::spawn_terrain_mesh.run_if(
+                        resource_exists::<FinishedHeightMap>
+                            .and_then(not(resource_exists::<SplatMaterialHandle>)),
+                    ),
+                    heightmap::start_terrain_generation.run_if(
+                        not(resource_exists::<TerrainTask>)
+                            .and_then(not(resource_exists::<FinishedHeightMap>)),
+                    ),
+                )
+                    .chain(),
+            );
+        app
+    }
+
+    /// Between the landing and the spawn: heights a terrain task lands come
+    /// with the ground the task built (#1904), so a landing that dropped it -
+    /// leaving the spawn to build the mesh and the collider inline, on the
+    /// schedule, as before the fix - fails here.
+    fn the_landing_brings_its_ground(
+        finished: Option<Res<FinishedHeightMap>>,
+        prebuilt: Option<Res<heightmap::PrebuiltGround>>,
+    ) {
+        if finished.is_some_and(|finished| finished.is_added()) {
+            assert!(
+                prebuilt.is_some_and(|prebuilt| prebuilt.holds_parts()),
+                "the heights landed without the ground the task built"
+            );
+        }
+    }
+
+    /// Whether `collider` is the heightfield of `hm`, sample for sample.
+    fn collider_of(collider: &avian3d::prelude::Collider, hm: &HeightMap) -> bool {
+        let Some(field) = collider.shape().as_heightfield() else {
+            return false;
+        };
+        let heights = field.heights();
+        heights.nrows() == hm.height()
+            && heights.ncols() == hm.width()
+            && (0..hm.width()).all(|x| (0..hm.height()).all(|z| heights[(z, x)] == hm.get(x, z)))
+    }
+
+    /// What the world holds at the end of a frame, held to the swap's two
+    /// rules (#1904): a ground stands, solid, in every frame once the first
+    /// has landed; and wherever the heights are readable, exactly one ground
+    /// stands and it is the one they describe - no reader of the heights
+    /// sees heights the drawn and colliding ground does not have.
+    fn hold_the_swap(world: &mut World, landed: &mut bool, frame: usize) {
+        let grounds: Vec<(avian3d::prelude::Collider, bool)> = world
+            .query_filtered::<(&avian3d::prelude::Collider, Has<super::OutgoingTerrain>), With<super::TerrainMesh>>()
+            .iter(world)
+            .map(|(collider, outgoing)| (collider.clone(), outgoing))
+            .collect();
+        if let Some(finished) = world.get_resource::<FinishedHeightMap>() {
+            *landed = true;
+            assert_eq!(
+                grounds.len(),
+                1,
+                "frame {frame}: the heights are readable beside {} grounds",
+                grounds.len()
+            );
+            let (collider, outgoing) = &grounds[0];
+            assert!(
+                !outgoing,
+                "frame {frame}: the heights' ground is on its way out"
+            );
+            assert!(
+                collider_of(collider, &finished.0),
+                "frame {frame}: the heights readable are not the ground that stands"
+            );
+        } else if *landed {
+            assert!(!grounds.is_empty(), "frame {frame}: no ground stands");
+        }
+    }
+
+    /// Run frames, each held to [`hold_the_swap`], until a ground stands
+    /// with nothing in flight or pending: the tasks land off the schedule.
+    fn settle(app: &mut App, landed: &mut bool, frame: &mut usize) {
+        let start = std::time::Instant::now();
+        loop {
+            app.update();
+            *frame += 1;
+            hold_the_swap(app.world_mut(), landed, *frame);
+            let world = app.world();
+            if world.contains_resource::<FinishedHeightMap>()
+                && !world.contains_resource::<TerrainTask>()
+                && world.resource::<PendingTerrainConfigJson>().0.is_none()
+            {
+                return;
+            }
+            assert!(start.elapsed().as_secs() < 60, "the ground never settled");
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
+
+    /// #1904: an edit that moves the ground builds the new one off the
+    /// schedule and swaps it in whole, and a second edit landing while that
+    /// build is in flight ends with exactly one ground standing - the second
+    /// edit's. Every frame on the way holds the swap's rules
+    /// ([`hold_the_swap`]): the old ground stands, drawn and solid, until
+    /// the new one is in, and the heights are never readable beside a
+    /// ground they do not describe.
+    #[test]
+    fn a_second_ground_edit_mid_build_ends_on_one_ground_its_own() {
+        let mut app = ground_app(world());
+        let mut landed = false;
+        let mut frame = 0;
+        settle(&mut app, &mut landed, &mut frame);
+
+        // The first edit starts a build...
+        let mut first = app.world().resource::<LiveRoomRecord>().0.clone();
+        terrain(&mut first).height_scale = Fp(terrain(&mut first).height_scale.0 + 5.0);
+        app.world_mut().resource_mut::<LiveRoomRecord>().0 = first;
+        app.update();
+        frame += 1;
+        hold_the_swap(app.world_mut(), &mut landed, frame);
+        assert!(
+            app.world().contains_resource::<TerrainTask>(),
+            "the first edit started no build"
+        );
+        // ...and the second lands while it is in flight.
+        let mut second = app.world().resource::<LiveRoomRecord>().0.clone();
+        terrain(&mut second).seed ^= 1;
+        terrain(&mut second).height_scale = Fp(terrain(&mut second).height_scale.0 + 5.0);
+        app.world_mut().resource_mut::<LiveRoomRecord>().0 = second.clone();
+        settle(&mut app, &mut landed, &mut frame);
+
+        let world = app.world_mut();
+        let grounds = world
+            .query_filtered::<&avian3d::prelude::Collider, With<super::TerrainMesh>>()
+            .iter(world)
+            .count();
+        assert_eq!(grounds, 1, "{grounds} grounds stand");
+        assert_eq!(
+            world.resource::<super::super::HeightMapSource>().0,
+            super::super::terrain_source_key(&second),
+            "the ground standing is not the second edit's"
+        );
+        let wanted = super::super::rebuild_heightmap_for_record(&second);
+        let finished = world.resource::<FinishedHeightMap>();
+        assert_eq!(
+            finished.0.data(),
+            wanted.data(),
+            "the heights are not the second edit's"
         );
     }
 }

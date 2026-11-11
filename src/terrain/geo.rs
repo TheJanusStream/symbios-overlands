@@ -895,7 +895,7 @@ fn land(
             job: "heightmap".into(),
         },
     );
-    commands.insert_resource(TerrainTask(task, started, source, ground));
+    commands.insert_resource(TerrainTask::new(task, started, source, ground));
     commands.remove_resource::<GeoTerrainJob>();
 }
 

@@ -24,6 +24,9 @@ use symbios_ground::{
 };
 use symbios_texture::generator::{TextureGenerator, TextureMap};
 
+mod head;
+pub use head::{HatLine, hat_line, reads_a_persons_head};
+
 /// Re-export of the texture core's registry macro so the app can generate its
 /// own per-generator tables (e.g. the `TextureConfig` → [`TextureBakeJob`]
 /// mapper) in lock-step with [`TextureBakeJob`] itself, without taking a
@@ -519,6 +522,25 @@ pub enum GenJob {
         /// decodes, as the body it was always asking for.
         #[serde(default)]
         far_hair: bool,
+        /// Measure a person's head before the body leaves (#1815), and
+        /// answer [`GenResult::MeasuredAvatar`] with the measure beside it.
+        ///
+        /// For the web's page: the measure ([`hat_line`]) reads the closed
+        /// surface, which does not cross the worker boundary, so a page that
+        /// wants a fitted circlet sized must have the worker take it. A
+        /// native caller holds the whole body and measures it itself, only
+        /// when something worn declares a fit, so it leaves this off and
+        /// pays nothing.
+        ///
+        /// `serde(default)` for the same cached-bundle reason as
+        /// `far_hair`, in both directions: an older page's job has no such
+        /// key and a newer worker answers it with the plain
+        /// [`GenResult::Avatar`] that page knows; an older worker skips the
+        /// key it does not know and answers the same, which a newer page
+        /// reads as no measure - a fitted circlet at its authored size, as
+        /// before.
+        #[serde(default)]
+        measure_head: bool,
     },
 }
 
@@ -541,6 +563,18 @@ pub enum GenResult {
     /// What crosses is **drawable, not rebuildable**: see the
     /// `serde-avatar` feature on `symbios-avatar`.
     Avatar(Option<Box<symbios_avatar::Avatar>>),
+    /// A built body, as [`GenResult::Avatar`] carries it, with its head's
+    /// measure taken before the closed surface was dropped (#1815): the
+    /// answer to an `AvatarBuild` that asked for it (`measure_head`), and
+    /// only to one, since a page that never asks may not know this variant.
+    ///
+    /// `hat_line` is `None` for a body that is not a person
+    /// ([`reads_a_persons_head`]), for one whose head does not measure, and
+    /// for no body at all.
+    MeasuredAvatar {
+        body: Option<Box<symbios_avatar::Avatar>>,
+        hat_line: Option<HatLine>,
+    },
 }
 
 // Hydraulic-erosion tuning fixed by the app (mirror of
@@ -563,8 +597,9 @@ impl GenJob {
                 record,
                 atlas,
                 far_hair,
-            } => GenResult::Avatar(
-                symbios_avatar::Avatar::build_with(
+                measure_head,
+            } => {
+                let body = symbios_avatar::Avatar::build_with(
                     &record,
                     &symbios_avatar::AvatarConfig {
                         atlas,
@@ -572,8 +607,19 @@ impl GenJob {
                         ..symbios_avatar::AvatarConfig::default()
                     },
                 )
-                .map(Box::new),
-            ),
+                .map(Box::new);
+                if !measure_head {
+                    return GenResult::Avatar(body);
+                }
+                let measured = body
+                    .as_deref()
+                    .filter(|body| reads_a_persons_head(&body.rig))
+                    .and_then(hat_line);
+                GenResult::MeasuredAvatar {
+                    body,
+                    hat_line: measured,
+                }
+            }
         }
     }
 }
@@ -995,6 +1041,7 @@ mod tests {
             record: Box::new(record),
             atlas: 64,
             far_hair: true,
+            measure_head: false,
         }
         .run() else {
             unreachable!("an avatar job must return an avatar result");
@@ -1058,6 +1105,7 @@ mod tests {
             record: Box::new(record),
             atlas: 64,
             far_hair: true,
+            measure_head: false,
         }
         .run() else {
             unreachable!("an avatar job must return an avatar result");
@@ -1123,6 +1171,7 @@ mod tests {
             record: Box::new(record),
             atlas: 64,
             far_hair: false,
+            measure_head: false,
         }
         .run() else {
             unreachable!("an avatar job must return an avatar result");
@@ -1202,6 +1251,7 @@ mod tests {
                 record: Box::new(record.clone()),
                 atlas: 64,
                 far_hair,
+                measure_head: false,
             }
             .run() else {
                 unreachable!("an avatar job must return an avatar result");
@@ -1240,6 +1290,121 @@ mod tests {
             unreachable!("the variant is unchanged by dropping one of its fields");
         };
         assert!(!far_hair, "a missing far_hair must default to near-only");
+    }
+
+    /// A job that asks for a person's head measure gets it beside the body,
+    /// across the worker's codec, and it is the measure of the body as built -
+    /// the closed surface the trip drops (#1815). A beast asked the same gets
+    /// none: its head is not a person's.
+    ///
+    /// And both sides of a cached bundle: a page's job with the new key still
+    /// decodes as today's worker reads it (serde skips a key it does not
+    /// know, so that worker answers the plain body), and an older page's job
+    /// without it decodes as one that asks for nothing - which a worker
+    /// answers with the [`GenResult::Avatar`] that page knows.
+    #[test]
+    fn a_job_asking_for_the_head_measure_gets_it_beside_the_body() {
+        let measured = |archetype| {
+            let mut record = symbios_avatar::AvatarRecord::new("Worker", archetype);
+            record.reroll(11);
+            let built = GenJob::AvatarBuild {
+                record: Box::new(record),
+                atlas: 16,
+                far_hair: false,
+                measure_head: true,
+            }
+            .run();
+            let GenResult::MeasuredAvatar {
+                body: Some(here),
+                hat_line: carried,
+            } = &built
+            else {
+                unreachable!("a job asking for the measure must answer a measured body");
+            };
+            assert_eq!(
+                *carried,
+                reads_a_persons_head(&here.rig)
+                    .then(|| hat_line(here))
+                    .flatten()
+            );
+            let bytes = rmp_serde::to_vec_named(&built).expect("encode result");
+            let GenResult::MeasuredAvatar {
+                body: Some(back),
+                hat_line: crossed,
+            } = rmp_serde::from_slice(&bytes).expect("decode result")
+            else {
+                unreachable!("a measured body must decode as one");
+            };
+            assert!(
+                back.parts.body.positions.is_empty(),
+                "the premise: the closed surface stays behind"
+            );
+            assert_eq!(
+                hat_line(&back),
+                None,
+                "the premise: the page cannot measure"
+            );
+            assert_eq!(crossed, *carried, "the measure changed on the way");
+            crossed
+        };
+        let person =
+            measured(symbios_avatar::Archetype::default()).expect("a person's head measures");
+        assert!(
+            (0.3..1.2).contains(&person.circumference),
+            "a brow circumference of {} m is not a head's",
+            person.circumference
+        );
+        assert_eq!(
+            measured(symbios_avatar::Archetype::Quadruped(Default::default())),
+            None,
+            "a beast is never measured as a person"
+        );
+
+        let record =
+            symbios_avatar::AvatarRecord::new("Worker", symbios_avatar::Archetype::default());
+        let newer = rmp_serde::to_vec_named(&GenJob::AvatarBuild {
+            record: Box::new(record.clone()),
+            atlas: 64,
+            far_hair: true,
+            measure_head: true,
+        })
+        .expect("encode the job");
+        // Today's worker's job, as it was before the key existed.
+        #[derive(Deserialize)]
+        enum TodaysGenJob {
+            AvatarBuild {
+                #[allow(dead_code)]
+                record: Box<symbios_avatar::AvatarRecord>,
+                atlas: u32,
+                #[serde(default)]
+                far_hair: bool,
+            },
+        }
+        let TodaysGenJob::AvatarBuild {
+            atlas, far_hair, ..
+        } = rmp_serde::from_slice(&newer).expect("an older worker reads the newer job");
+        assert_eq!((atlas, far_hair), (64, true));
+
+        #[derive(Serialize)]
+        enum OlderGenJob<'a> {
+            AvatarBuild {
+                record: &'a symbios_avatar::AvatarRecord,
+                atlas: u32,
+                far_hair: bool,
+            },
+        }
+        let older = rmp_serde::to_vec_named(&OlderGenJob::AvatarBuild {
+            record: &record,
+            atlas: 64,
+            far_hair: true,
+        })
+        .expect("encode the older job");
+        let GenJob::AvatarBuild { measure_head, .. } =
+            rmp_serde::from_slice(&older).expect("a job with no measure_head key still decodes")
+        else {
+            unreachable!("the variant is unchanged by dropping one of its fields");
+        };
+        assert!(!measure_head, "a missing measure_head must ask for nothing");
     }
 
     /// #1385 and #1387: a warm Patch bake, faded or not, is exactly as long

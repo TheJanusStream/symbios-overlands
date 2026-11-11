@@ -88,7 +88,7 @@ pub(super) fn site(siting: &Siting, craft: Craft) -> Option<Standing> {
 
 impl Standing {
     /// Its ground and its craft's room round it ([`Craft::room`]), which
-    /// the scatters keep off too (`compile::scatter::kept_room`).
+    /// the scatters keep off too (`compile::scatter::craft_room`).
     pub(super) fn ground(&self) -> Vec<Ground> {
         vec![Ground::disc(self.at, self.radius + self.craft.room())]
     }

@@ -3,6 +3,7 @@ use bevy::prelude::*;
 use bevy_symbios_avatar::{AvatarBody, AvatarDriver, Drive, spawn_avatar};
 use symbios_avatar::Avatar;
 
+use crate::player::attachments::{CarriedHatLine, HatLine};
 // The three questions a rigged body is built and hung by live beside the
 // avatar spawn path (#1482), so the render tool's `--rigged` asks them the
 // same way; `rigged_root_transform` is re-exported for this module's tests.
@@ -287,11 +288,16 @@ pub(in crate::player) fn land_rigged_builds(
         };
         // The job roster is shared, so the variant is matched rather than
         // assumed: anything else here is a dispatch bug, not a bad body.
-        let result = match result {
-            crate::offload::GenResult::Avatar(avatar) => avatar.map(|boxed| *boxed),
+        // A web build brings its head's measure with it (#1815); a native
+        // one, or one from an older worker, brings none.
+        let (result, hat_line) = match result {
+            crate::offload::GenResult::Avatar(avatar) => (avatar.map(|boxed| *boxed), None),
+            crate::offload::GenResult::MeasuredAvatar { body, hat_line } => {
+                (body.map(|boxed| *boxed), hat_line)
+            }
             _ => {
                 error!("an avatar build returned some other job's result");
-                None
+                (None, None)
             }
         };
         // `try_*` here for the same reason as the kick above (#1411), and
@@ -372,6 +378,7 @@ pub(in crate::player) fn land_rigged_builds(
             chassis,
             record.map_or(build.offset, rigged_root_offset),
             avatar,
+            hat_line,
             &stale,
             carried,
             &mut meshes,
@@ -589,6 +596,7 @@ pub(in crate::player) fn install_built_body(
         chassis,
         offset,
         avatar,
+        None,
         stale_roots,
         None,
         meshes,
@@ -615,12 +623,16 @@ pub(in crate::player) fn install_built_body(
 /// **A beast takes over what `carried` says of the old body** ([`Carried`]).
 /// A carried trail's surface lift goes onto the new root as well, which the
 /// fill reads the hang back out from under.
+///
+/// **A head measure the build took goes onto the root beside the body**
+/// (#1815, [`CarriedHatLine`]), for the dressing to fit a circlet to.
 #[allow(clippy::too_many_arguments)]
 fn install_carrying(
     commands: &mut Commands,
     chassis: Entity,
     offset: f32,
     avatar: Avatar,
+    hat_line: Option<HatLine>,
     stale_roots: &[Entity],
     carried: Option<Carried>,
     meshes: &mut Assets<Mesh>,
@@ -658,6 +670,9 @@ fn install_carrying(
             ChildOf(chassis),
         ))
         .id();
+    if let Some(hat_line) = hat_line {
+        commands.entity(root).insert(CarriedHatLine(hat_line));
+    }
     spawn_avatar(
         commands, root, avatar, 0.0, meshes, materials, images, bindposes,
     );

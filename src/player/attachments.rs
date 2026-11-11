@@ -24,7 +24,10 @@
 //!     measured hat line, subtree scaled uniformly so the declared band
 //!     diameter matches the wearer's brow circumference ([`fitted_seat`],
 //!     [`hat_line`]); an unmeasurable head falls back to the plain seat at
-//!     authored size;
+//!     authored size. A body built on the web's worker arrives without the
+//!     closed surface the measure reads, so the worker measures it before it
+//!     leaves and the answer rides beside it ([`CarriedHatLine`], #1815): a
+//!     browser fits the same record a native client does;
 //!   - an authored offset → taken verbatim, in the joint's rest-pose frame:
 //!     a full transform, per-axis scale included (#1095);
 //!   - a beast (#1807) → only what [`crate::pds::avatar::dresses`] allows,
@@ -44,6 +47,8 @@
 use bevy::prelude::*;
 use bevy_symbios_avatar::{AvatarBody as BuiltBody, AvatarJoints};
 
+pub(crate) use gen_jobs::{HatLine, hat_line};
+
 use super::rigged::RiggedRoot;
 use super::visuals::{AvatarSpawnDeps, spawn_attachment_tree};
 use crate::pds::avatar::ResolvedAttachment;
@@ -52,16 +57,18 @@ use crate::state::{LiveAvatarRecord, LocalPlayer, RemotePeer};
 /// Air left between a default-seated prop's origin and the skin, in metres.
 const SEAT_MARGIN: f32 = 0.02;
 
-/// Height samples walked between the eye line and the dome cap when hunting
-/// the hat line ([`hat_line`]). The vault's perimeter varies
-/// slowly in height - [`symbios_avatar::face::Skull`] itself holds a
-/// handful of bands - so a dense scan buys nothing.
-const HAT_LINE_STEPS: usize = 16;
-
-/// Azimuth samples the perimeter polygon is summed over. At 64 the chord
-/// shortfall of a circle is under 0.1%, far inside the wire's own
-/// millimetre quantisation.
-const HAT_LINE_AZIMUTHS: usize = 64;
+/// The head measure a body's build took where the whole body was (#1815),
+/// on the [`RiggedRoot`] the body hangs off.
+///
+/// Only a body built on the web's worker carries one: the measure
+/// ([`hat_line`]) reads the closed surface, which stays behind in the worker,
+/// so the worker takes it before the body leaves
+/// ([`gen_jobs::GenResult::MeasuredAvatar`]). A native body has its surface
+/// and is measured where it is dressed, as it always was; a worker that sent
+/// no measure (an older `gen-worker.js` from a browser's cache) leaves none,
+/// and a fitted prop keeps its authored size, as it did before.
+#[derive(Component, Clone, Copy, Debug)]
+pub(crate) struct CarriedHatLine(pub(crate) HatLine);
 
 /// The root entity of one worn prop, a child of its rig joint's entity.
 #[derive(Component)]
@@ -221,6 +228,7 @@ pub(super) fn sync_rigged_attachments(
             Entity,
             &ChildOf,
             &BuiltBody,
+            Option<&CarriedHatLine>,
             &AvatarJoints,
             Option<&mut AttachmentsApplied>,
         ),
@@ -286,7 +294,7 @@ pub(super) fn sync_rigged_attachments(
             crate::diagnostics::samplers::attachment_orphan_swept(metrics);
         }
     }
-    for (root, child_of, body, joints, mut applied) in &mut roots {
+    for (root, child_of, body, carried, joints, mut applied) in &mut roots {
         let chassis = child_of.parent();
         // Whose record dresses this body: the local player's live record, or
         // the peer's fetched one. A chassis that is neither (mid-despawn)
@@ -366,7 +374,8 @@ pub(super) fn sync_rigged_attachments(
         let is_local = locals.contains(chassis);
         let mut spawned = kept;
         ensure_joint_visibility(&mut commands, joints);
-        for (joint, transform, attachment) in placements(&body.avatar, &to_spawn) {
+        let carried = carried.map(|carried| carried.0);
+        for (joint, transform, attachment) in placements(&body.avatar, carried, &to_spawn) {
             let Some(&carrier) = joints.0.get(joint) else {
                 continue;
             };
@@ -431,14 +440,20 @@ type Seat = fn(&symbios_avatar::Avatar, symbios_avatar::Socket, usize, u32) -> O
 /// Which joint carries each wearable attachment, and at what local
 /// transform. Pure - the whole placement decision, kept apart from the ECS
 /// so it can be tested against a real build without a world.
+///
+/// `carried` is the head measure the body's build took, if it took one
+/// ([`CarriedHatLine`]): a body from the web's worker, whose closed surface
+/// stayed behind. Without one the body is measured here.
 pub(crate) fn placements<'a>(
     avatar: &symbios_avatar::Avatar,
+    carried: Option<HatLine>,
     desired: &'a [ResolvedAttachment],
 ) -> Vec<(usize, Transform, &'a ResolvedAttachment)> {
     let mut out = Vec::new();
     // One head measurement dresses the whole outfit: `Skull::measure` walks
     // the full body mesh, so it runs at most once per dress, and only when
-    // something worn actually declares a fit.
+    // something worn actually declares a fit - and not at all for a body
+    // that brought its measure with it.
     let mut measured: Option<Option<HatLine>> = None;
     // What is drawn (#1875): the rig, which crosses the web's worker, and
     // never its anatomy, which reads a winged body as a beast.
@@ -498,7 +513,8 @@ pub(crate) fn placements<'a>(
         let transform = if attachment.record.offset.is_identity() {
             let fitted = (attachment.record.fit_band_mm != 0)
                 .then(|| {
-                    let hat = (*measured.get_or_insert_with(|| hat_line(avatar)))?;
+                    let hat =
+                        (*measured.get_or_insert_with(|| carried.or_else(|| hat_line(avatar))))?;
                     let scale = fit_scale(Some(hat.circumference), attachment.record.fit_band_mm)?;
                     Some(fitted_seat(&hat, avatar, socket, joint, scale))
                 })
@@ -531,30 +547,17 @@ pub(crate) fn fit_scale(circumference: Option<f32>, fit_band_mm: u32) -> Option<
     fitted.is_finite().then_some(fitted)
 }
 
-/// The measured hat line of one built head: what a fitted headband seats
-/// against. Heights are head-local metres (relative to the head joint), the
-/// unit every [`symbios_avatar::face::Skull`] profile speaks.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct HatLine {
-    /// The head joint the measurement is anchored to.
-    pub(crate) head: usize,
-    /// Horizontal perimeter of the vault at the hat line, metres.
-    pub(crate) circumference: f32,
-    /// Height of the hat line above the head joint, metres.
-    pub(crate) height: f32,
-}
-
 /// The seat of a **fitted** headband (#1089): the prop origin lands on the
 /// head's vertical axis at the measured hat line, with the fit scale
 /// applied uniformly.
 ///
 /// Deliberately NOT [`symbios_avatar::Socket::seat`]: the generic seat
 /// pushes an anchor *out of* the body so a first-attach prop is visible -
-/// measured on the crown it lands 8–9 cm **forward** of the head axis
+/// measured on the crown it lands 8-9 cm **forward** of the head axis
 /// (the horizontal-push rule with a straight-up anchor), which is right
 /// for a pendant and wrong for a band that must encircle the head. A
 /// fitted band's authoring convention is therefore: the band circles the
-/// **origin**, in the X–Z plane, at `y = 0` - and this seat puts that
+/// **origin**, in the X-Z plane, at `y = 0` - and this seat puts that
 /// origin exactly where the measurement says the band belongs.
 fn fitted_seat(
     hat: &HatLine,
@@ -569,73 +572,6 @@ fn fitted_seat(
         rotation: outward_yaw(socket),
         scale: Vec3::splat(scale),
     }
-}
-
-/// The wearer's hat line - where it sits and how far round it is - measured
-/// from the built body through the engine's public measure surface.
-///
-/// The hat line is found the way a hatter finds it: the largest horizontal
-/// perimeter of the cranial vault between the eye line and the dome's cap -
-/// the line that runs just above the brow ridge and around the occiput.
-/// Hunted rather than pinned to a landmark because the vault's widest line
-/// moves with the head-breadth and face-length axes, and a band seated
-/// anywhere narrower would slide down to it anyway.
-///
-/// Instruments, all public engine API: [`symbios_avatar::face::Skull`]
-/// measures the built head (the same measured-not-planned argument as
-/// `rig::Surface` - the mesh sits well inside the node radius);
-/// [`symbios_avatar::Canon`] hands back the eye line so its constant is not
-/// copied here (its docs record how copies drift); `Skull::surface_at`
-/// answers "where is the surface at this height, in this direction", and
-/// the perimeter is that polygon's length. The scan stops one band short of
-/// the crown: the top band is closed to a pole and a perimeter there is
-/// noise, not a hat line.
-///
-/// `None` for a body with no measurable head - hair never counts, the
-/// engine measures the bare skull - and the caller falls back to authored
-/// size. The eye-line ruler ignores its `EyeParams` argument for the
-/// landmark read here (only pupil spacing reads it), so the default params
-/// are not a guess smuggled in.
-pub(crate) fn hat_line(avatar: &symbios_avatar::Avatar) -> Option<HatLine> {
-    let skull = symbios_avatar::face::Skull::measure(&avatar.parts.body, &avatar.rig)?;
-    let canon =
-        symbios_avatar::Canon::measure(&avatar.rig, &skull, &symbios_avatar::EyeParams::default());
-    let floor = canon.level;
-    let (_, crown) = skull.throat_and_crown();
-    let ceiling = crown - skull.crown_band();
-    if ceiling <= floor {
-        return None;
-    }
-    let mut best: Option<(f32, f32)> = None;
-    for step in 0..=HAT_LINE_STEPS {
-        let height = floor + (ceiling - floor) * step as f32 / HAT_LINE_STEPS as f32;
-        let perimeter = perimeter_at(&skull, height);
-        if best.is_none_or(|(widest, _)| perimeter > widest) {
-            best = Some((perimeter, height));
-        }
-    }
-    let (circumference, height) = best?;
-    (circumference > f32::EPSILON && circumference.is_finite()).then_some(HatLine {
-        head: skull.head,
-        circumference,
-        height,
-    })
-}
-
-/// The head's horizontal perimeter at one height: the closed polygon of
-/// [`symbios_avatar::face::Skull::surface_at`] samples around the full
-/// turn. Engine-space (`glam`) arithmetic throughout - every sample shares
-/// the height, so each chord is horizontal by construction.
-fn perimeter_at(skull: &symbios_avatar::face::Skull, height: f32) -> f32 {
-    let mut total = 0.0;
-    let mut prev = skull.surface_at(height, 0.0);
-    for step in 1..=HAT_LINE_AZIMUTHS {
-        let azimuth = std::f32::consts::TAU * step as f32 / HAT_LINE_AZIMUTHS as f32;
-        let next = skull.surface_at(height, azimuth);
-        total += (next - prev).length();
-        prev = next;
-    }
-    total
 }
 
 /// Give every joint entity the visibility components a worn prop's
@@ -765,7 +701,7 @@ pub(super) mod tests {
             .iter()
             .filter(|slug| {
                 let item = [catalogue_worn(slug)];
-                !placements(avatar, &item).is_empty()
+                !placements(avatar, None, &item).is_empty()
             })
             .map(|slug| String::from(*slug))
             .collect()
@@ -775,33 +711,46 @@ pub(super) mod tests {
     const BEAST_CUT: [&str; 3] = ["beast_collar", "saddle_pad", "ear_bow"];
     const WINGED_CUT: [&str; 3] = ["beast_collar", "ear_bow", "leg_band"];
 
-    /// A body as it is built here, and as the same job comes back across the
-    /// web's worker boundary: over a self-describing codec, as the worker's own
-    /// is, whose `serde(skip)`s are the same. The premise of every test on it is
-    /// checked here: what a body may not read there is gone.
+    /// A body as it is built here, and as the web's job for it comes back
+    /// across the worker boundary, with the head measure the worker took
+    /// there (#1815): over the worker's own msgpack codec, whose `serde(skip)`s
+    /// drop what a page may not read. One build serves both, since the
+    /// measure changes nothing in it: before the trip it is the body a native
+    /// client holds. The premise of every test on it is checked here: what a
+    /// body may not read there is gone.
     fn built_here_and_on_the_worker(
         body: &crate::pds::avatar::EngineAvatarRecord,
-    ) -> (symbios_avatar::Avatar, symbios_avatar::Avatar) {
+    ) -> (
+        symbios_avatar::Avatar,
+        symbios_avatar::Avatar,
+        Option<HatLine>,
+    ) {
         let built = crate::offload::GenJob::AvatarBuild {
             record: Box::new(body.clone()),
             atlas: 16,
             far_hair: false,
+            measure_head: true,
         }
         .run();
-        let bytes = serde_json::to_vec(&built).expect("a result encodes");
-        let crate::offload::GenResult::Avatar(Some(back)) =
-            serde_json::from_slice(&bytes).expect("a result decodes")
+        let bytes = rmp_serde::to_vec_named(&built).expect("a result encodes");
+        let crate::offload::GenResult::MeasuredAvatar {
+            body: Some(back),
+            hat_line: carried,
+        } = rmp_serde::from_slice(&bytes).expect("a result decodes")
         else {
             panic!("no body came back");
         };
-        let crate::offload::GenResult::Avatar(Some(here)) = built else {
+        let crate::offload::GenResult::MeasuredAvatar {
+            body: Some(here), ..
+        } = built
+        else {
             panic!("the body does not build");
         };
         assert!(
             back.parts.body.positions.is_empty() && back.parts.beast.is_none(),
             "the worker's body kept what it was to drop"
         );
-        (*here, *back)
+        (*here, *back, carried)
     }
 
     /// Whether two seats turn the same way, to within a sixth of a degree.
@@ -865,8 +814,15 @@ pub(super) mod tests {
             )
         });
         for (family, body, worn) in beasts.into_iter().chain(winged) {
-            let (here, back) = built_here_and_on_the_worker(&body);
-            let (there, here) = (placements(&back, worn), placements(&here, worn));
+            let (here, back, carried) = built_here_and_on_the_worker(&body);
+            assert_eq!(
+                carried, None,
+                "{family}: an animal's head is not a person's"
+            );
+            let (there, here) = (
+                placements(&back, carried, worn),
+                placements(&here, None, worn),
+            );
             assert_eq!(there.len(), worn.len(), "{family}: left something off");
             assert_eq!(here.len(), worn.len(), "{family}");
             for ((far, seat, _), (near, same, item)) in there.iter().zip(&here) {
@@ -882,6 +838,66 @@ pub(super) mod tests {
         }
     }
 
+    /// **A browser's person wears a fitted circlet as a native client fits
+    /// it** (#1815), to the bit. The measure reads the closed surface, which a
+    /// body from the web's worker arrives without, so a browser once wore the
+    /// circlet at its authored size where a native client fitted the same
+    /// record; the worker now measures before the body leaves, and the page
+    /// seats the band on the measure that came back. Several seeded persons,
+    /// so one head that happens to fit its authored band proves nothing.
+    ///
+    /// And a body from a worker that sent no measure - an older
+    /// `gen-worker.js` from a browser's cache, which answers a plain
+    /// `GenResult::Avatar` - wears it at its authored size, at the plain
+    /// seat, exactly as a browser did before.
+    #[test]
+    fn a_person_from_the_web_worker_wears_the_circlet_fitted_as_here() {
+        use crate::pds::avatar::wardrobe::engine_default_for_seed;
+        let worn = [catalogue_worn("circlet")];
+        for seed in [0u64, 1, 2, 5, 7] {
+            let (here, back, carried) =
+                built_here_and_on_the_worker(&engine_default_for_seed(seed));
+            let measured = hat_line(&here);
+            assert!(
+                measured.is_some(),
+                "seed {seed}: the premise, a person's head measures"
+            );
+            assert_eq!(
+                carried, measured,
+                "seed {seed}: the worker measured another head"
+            );
+
+            let near = placements(&here, None, &worn);
+            let far = placements(&back, carried, &worn);
+            let (&[(joint, seat, _)], &[(same_joint, same, _)]) = (&far[..], &near[..]) else {
+                panic!(
+                    "seed {seed}: the circlet is not worn, {} there, {} here",
+                    far.len(),
+                    near.len()
+                );
+            };
+            assert_ne!(
+                same.scale,
+                Vec3::ONE,
+                "seed {seed}: the premise, a native client fits it"
+            );
+            assert_eq!(joint, same_joint, "seed {seed}: another joint");
+            assert_eq!(
+                seat, same,
+                "seed {seed}: seated {seat:?} there, {same:?} here"
+            );
+
+            let older = placements(&back, None, &worn);
+            let socket = worn[0].record.socket().expect("a socket this build knows");
+            assert_eq!(
+                older[0].1,
+                seated_default(socket, &back, joint),
+                "seed {seed}: with no measure, the plain seat at authored size"
+            );
+            assert_eq!(older[0].1.scale, Vec3::ONE, "seed {seed}");
+        }
+    }
+
     /// **A winged body wears an animal's cut at its own sockets, here or from
     /// the web's worker** (#1879): its collar, the bow and the circlet at its
     /// crown and a band on its leg, and none of a person's props nor the
@@ -892,7 +908,7 @@ pub(super) mod tests {
     fn a_winged_body_wears_its_cut_at_its_own_sockets() {
         use symbios_avatar::WingedFamily;
         for family in [WingedFamily::Bird, WingedFamily::Bat, WingedFamily::Glider] {
-            let (here, back) = built_here_and_on_the_worker(
+            let (here, back, _) = built_here_and_on_the_worker(
                 &crate::pds::avatar::locomotion::default_winged(family),
             );
             for (how, avatar) in [("here", &here), ("from the worker", &back)] {
@@ -917,7 +933,7 @@ pub(super) mod tests {
                     "a {family:?} {how}"
                 );
                 let circlet = [catalogue_worn("circlet")];
-                let (_, seat, _) = placements(avatar, &circlet)[0];
+                let (_, seat, _) = placements(avatar, None, &circlet)[0];
                 assert_eq!(
                     seat.scale,
                     Vec3::ONE,
@@ -951,7 +967,7 @@ pub(super) mod tests {
             );
             assert_eq!(slugs_placed(&avatar, &BEAST_CUT).len(), 3, "{family:?}");
             let circlet = [catalogue_worn("circlet")];
-            let (joint, seat, _) = placements(&avatar, &circlet)[0];
+            let (joint, seat, _) = placements(&avatar, None, &circlet)[0];
             assert_eq!(seat.scale, Vec3::ONE, "{family:?}: resized the circlet");
             assert_eq!(
                 Some(joint),
@@ -965,13 +981,16 @@ pub(super) mod tests {
             nudged.record.offset.translation.0 = [0.0, 0.1, 0.0];
             let nudged = [nudged];
             assert_eq!(
-                placements(&avatar, &nudged)[0].1.translation,
+                placements(&avatar, None, &nudged)[0].1.translation,
                 Vec3::new(0.0, 0.1, 0.0),
                 "{family:?}"
             );
             let mut banner = catalogue_worn("sashimono");
             banner.record.offset.translation.0 = [0.0, 0.1, 0.0];
-            assert!(placements(&avatar, &[banner]).is_empty(), "{family:?}");
+            assert!(
+                placements(&avatar, None, &[banner]).is_empty(),
+                "{family:?}"
+            );
         }
     }
 
@@ -1514,7 +1533,7 @@ pub(super) mod tests {
         ));
 
         let outfit = [crown, hand, alien, tail];
-        let placed = placements(&avatar, &outfit);
+        let placed = placements(&avatar, None, &outfit);
         assert_eq!(placed.len(), 2, "two of four props are wearable here");
 
         let (crown_joint, crown_tf, _) = &placed[0];
@@ -1565,7 +1584,7 @@ pub(super) mod tests {
             );
         }
         let seated = |avatar: &symbios_avatar::Avatar, outfit: &[ResolvedAttachment]| {
-            placements(avatar, outfit)
+            placements(avatar, None, outfit)
                 .into_iter()
                 .map(|(_, _, a)| a.record.socket.clone())
                 .collect::<Vec<String>>()
@@ -1835,7 +1854,7 @@ pub(super) mod tests {
             // And placements() applies it: a fitted identity-offset record
             // dresses at exactly that uniform scale, seated on the head's
             // own axis at the hat line - NOT at the generic crown seat,
-            // which stands 8–9 cm forward of the head (the render finding
+            // which stands 8-9 cm forward of the head (the render finding
             // that produced `fitted_seat`) - while an unfitted one keeps
             // the authored size at the generic seat.
             let mut fitted =
@@ -1843,7 +1862,7 @@ pub(super) mod tests {
             fitted.fit_band_mm = band_mm;
             let plain = AttachmentRecord::new(Generator::default(), symbios_avatar::Socket::Crown);
             let outfit = [worn(fitted), worn(plain)];
-            let placed = placements(&avatar, &outfit);
+            let placed = placements(&avatar, None, &outfit);
             assert_eq!(placed.len(), 2);
             assert!(
                 (placed[0].1.scale - Vec3::splat(scale)).length() < 1e-5,
@@ -1905,7 +1924,7 @@ pub(super) mod tests {
             symbios_avatar::Socket::Waist,
         ] {
             let attachment = worn(AttachmentRecord::new(Generator::default(), socket));
-            let placed = placements(&avatar, std::slice::from_ref(&attachment));
+            let placed = placements(&avatar, None, std::slice::from_ref(&attachment));
             let (joint, transform, _) = placed.first().expect("wearable");
             let world = avatar.rig.joints[*joint].position + transform.translation;
             let clearance = avatar

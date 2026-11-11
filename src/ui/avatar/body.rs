@@ -316,6 +316,92 @@ fn body_kind(body: &EngineAvatarRecord) -> RiggedKind {
     }
 }
 
+/// The name field's typed text while it differs from what the record keeps
+/// (#1906): the record holds the settled name, `settled`, and the field shows
+/// `typed`, which is the same but for its leading or trailing whitespace.
+#[derive(Clone)]
+struct TypedName {
+    /// What the field shows, cut to the engine's name length.
+    typed: String,
+    /// `typed` as the record keeps it: the model state the text belongs to.
+    settled: String,
+    /// The text field that holds focus while the text is typed.
+    field: egui::Id,
+}
+
+/// `typed` cut to the engine's name length: the first half of
+/// [`symbios_avatar::AvatarRecord::sanitize`]'s rule for the name, whose
+/// second half is the trim.
+fn cut_name(typed: &str) -> String {
+    typed
+        .chars()
+        .take(symbios_avatar::record::MAX_NAME_CHARS)
+        .collect()
+}
+
+/// The engine's `identity` section with a name field that keeps what is
+/// typed into it (#1906).
+///
+/// The host sanitizes the engine body after every keystroke, and the
+/// engine's sanitize trims the name, so a space typed at the end of it was
+/// gone by the next frame and "Bob Smith" could not be typed in order. The
+/// record still holds the trimmed name at the end of every frame - no
+/// trailing space reaches the editor's debounce, a save, a peer or the undo
+/// ring, and a space alone changes nothing so reports nothing - while the
+/// field shows the typed text, kept in egui memory beside the name it
+/// settles to. It is shown again only while the record still holds that
+/// name and the field still holds focus: an undo, a roll, a wardrobe load or
+/// "Save as copy" moves the name and drops it, and leaving the field shows
+/// the name as saved. The memory is salted with the worn body's `avatar`
+/// rkey, so typing on one body never shows on the next.
+fn identity_keeping_typed_name(
+    ui: &mut egui::Ui,
+    engine: &mut EngineAvatarRecord,
+    avatar: &str,
+) -> (bool, bool) {
+    let id = egui::Id::new(("avatar_body_typed_name", avatar));
+    let focused = ui.ctx().memory(|m| m.focused());
+    let kept = ui
+        .ctx()
+        .data(|d| d.get_temp::<TypedName>(id))
+        .filter(|kept| kept.settled == engine.name && focused == Some(kept.field));
+    if let Some(kept) = &kept {
+        engine.name = kept.typed.clone();
+    }
+    let (rebuilt, noted) = sections::identity(ui, engine);
+    if kept.is_none() && !noted {
+        // An idle frame: nothing typed, nothing shown, nothing written.
+        ui.ctx().data_mut(|d| d.remove::<TypedName>(id));
+        return (rebuilt, noted);
+    }
+    let typed = cut_name(&engine.name);
+    let settled = typed.trim().to_string();
+    if engine.name != settled {
+        engine.name = settled.clone();
+    }
+    // A keystroke is typed into the focused field; between keystrokes the
+    // field is the one the text was kept for.
+    let field = if noted {
+        ui.ctx().memory(|m| m.focused())
+    } else {
+        kept.map(|kept| kept.field)
+    };
+    ui.ctx().data_mut(|d| match field {
+        Some(field) if typed != settled => {
+            d.insert_temp(
+                id,
+                TypedName {
+                    typed,
+                    settled,
+                    field,
+                },
+            );
+        }
+        _ => d.remove::<TypedName>(id),
+    });
+    (rebuilt, noted)
+}
+
 /// The Body tab's own drawing, before locomotion follows what it did.
 ///
 /// `before` is the engine body as the frame began; the engine sections'
@@ -403,6 +489,7 @@ fn draw_body_sections(
             let Some(rig) = record.body.rigged_mut() else {
                 return;
             };
+            let avatar = rig.avatar.clone();
             let Some(resolved) = rig.resolved.as_mut() else {
                 return;
             };
@@ -422,7 +509,7 @@ fn draw_body_sections(
                  replaces the entire avatar, including which kind of body it is.",
             );
             let was = body_kind(engine);
-            let (rebuilt, noted) = sections::identity(ui, engine);
+            let (rebuilt, noted) = identity_keeping_typed_name(ui, engine, &avatar);
             // The viewer's body toggle reports a change and nothing about
             // what it was, so the switch is read off the archetype either
             // side of the draw (#1803): a kind, not a bool, since the toggle
@@ -1134,6 +1221,24 @@ mod tests {
             record: &mut AvatarRecord,
             events: Vec<egui::Event>,
         ) -> (BodyTabOutcome, Vec<(egui::accesskit::NodeId, String)>) {
+            let (outcome, nodes) = self.frame_tree(record, events);
+            let mut controls: Vec<_> = nodes
+                .iter()
+                .filter_map(|(id, n)| n.label().map(|label| (*id, label.to_string())))
+                .collect();
+            controls.sort_by_key(|(id, _)| id.0);
+            (outcome, controls)
+        }
+
+        /// [`Self::frame`], with the AccessKit tree whole.
+        fn frame_tree(
+            &mut self,
+            record: &mut AvatarRecord,
+            events: Vec<egui::Event>,
+        ) -> (
+            BodyTabOutcome,
+            Vec<(egui::accesskit::NodeId, egui::accesskit::Node)>,
+        ) {
             let input = egui::RawInput {
                 screen_rect: Some(egui::Rect::from_min_size(
                     egui::Pos2::ZERO,
@@ -1153,13 +1258,7 @@ mod tests {
                 .platform_output
                 .accesskit_update
                 .expect("accesskit was enabled, so the pass has a tree");
-            let mut controls: Vec<_> = update
-                .nodes
-                .iter()
-                .filter_map(|(id, n)| n.label().map(|label| (*id, label.to_string())))
-                .collect();
-            controls.sort_by_key(|(id, _)| id.0);
-            (outcome, controls)
+            (outcome, update.nodes)
         }
     }
 
@@ -1756,5 +1855,168 @@ mod tests {
             "a colour picker held open reported a change: {reported:?}"
         );
         assert_eq!(record, before, "holding a picker open rewrote the record");
+    }
+
+    /// The name field of the Body tab `tab` draws over `record`, after one
+    /// frame of `events`: what the frame reported, the field's node and the
+    /// text it shows. The field is the text field showing the worn body's
+    /// name as the frame began.
+    fn name_frame(
+        tab: &mut Tab,
+        record: &mut AvatarRecord,
+        events: Vec<egui::Event>,
+    ) -> (BodyTabOutcome, egui::accesskit::NodeId, String) {
+        let name = worn_name(record).to_string();
+        let field = tab
+            .ctx
+            .data(|d| d.get_temp::<egui::accesskit::NodeId>(egui::Id::new("test_name_field")));
+        let (outcome, nodes) = tab.frame_tree(record, events);
+        let fields: Vec<_> = nodes
+            .iter()
+            .filter(|(id, n)| {
+                n.role() == egui::accesskit::Role::TextInput
+                    && field.map_or(n.value() == Some(name.as_str()), |field| *id == field)
+            })
+            .map(|(id, n)| (*id, n.value().unwrap_or_default().to_string()))
+            .collect();
+        let [(field, shown)] = fields.as_slice() else {
+            panic!("the Body tab draws {} name fields", fields.len());
+        };
+        tab.ctx
+            .data_mut(|d| d.insert_temp(egui::Id::new("test_name_field"), *field));
+        (outcome, *field, shown.clone())
+    }
+
+    /// One key press, as a keyboard sends it.
+    fn key(key: egui::Key) -> egui::Event {
+        egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }
+    }
+
+    /// The name `record`'s worn body keeps.
+    fn worn_name(record: &AvatarRecord) -> &str {
+        &worn_body(record).expect("resolved").name
+    }
+
+    /// A Body tab over seed 17's person, its sections folded, its name field
+    /// focused from the frame after the first: what typing starts from.
+    fn focused_name_field() -> (Tab, AvatarRecord) {
+        let mut record = wearing(EngineAvatarRecord::rolled(
+            "Rolled",
+            symbios_avatar::Archetype::Humanoid(Default::default()),
+            17,
+        ));
+        let mut tab = Tab::new();
+        tab.ctx.memory_mut(|m| m.set_everything_is_visible(false));
+        let (_, field, shown) = name_frame(&mut tab, &mut record, Vec::new());
+        assert_eq!(shown, "Rolled", "the premise: the field shows the name");
+        let focus = act(field, egui::accesskit::Action::Focus);
+        let _ = name_frame(&mut tab, &mut record, vec![focus]);
+        (tab, record)
+    }
+
+    /// **"Bob Smith" types in order** (#1906). The host sanitizes the body
+    /// after every keystroke and the engine's sanitize trims the name, so a
+    /// space typed at the end of "Bob" was gone by the next frame and the
+    /// "S" stuck straight on: "BobSmith". Typed here keystroke by keystroke
+    /// into the focused field, after deleting "Rolled" a letter a frame: the
+    /// field ends "Bob Smith" and so does the record, no frame leaves the
+    /// record's name with a space at either end, the space alone reports no
+    /// change, and every other keystroke reports one.
+    #[test]
+    fn a_two_word_name_types_in_order_and_the_record_never_keeps_a_space() {
+        let (mut tab, mut record) = focused_name_field();
+        let mut keystrokes: Vec<(String, egui::Event)> = (0..6)
+            .map(|_| (String::from("backspace"), key(egui::Key::Backspace)))
+            .collect();
+        keystrokes.extend(
+            "Bob Smith"
+                .chars()
+                .map(|c| (format!("{c:?}"), egui::Event::Text(c.to_string()))),
+        );
+        let mut shown = String::new();
+        for (name, event) in keystrokes {
+            let (outcome, _, now) = name_frame(&mut tab, &mut record, vec![event]);
+            shown = now;
+            let kept = worn_name(&record);
+            assert_eq!(
+                kept,
+                kept.trim(),
+                "typing {name} left the record's name {kept:?}"
+            );
+            assert_eq!(
+                outcome.changed,
+                name != "' '",
+                "typing {name} reported {}, field {shown:?}, record {kept:?}",
+                outcome.changed
+            );
+        }
+        assert_eq!(shown, "Bob Smith", "the field");
+        assert_eq!(worn_name(&record), "Bob Smith", "the record");
+    }
+
+    /// **The typed text is kept only for the name and the body it was typed
+    /// on** (#1906). With "Bob " typed, the field shows the space while the
+    /// record holds "Bob"; it shows "Bob" once the name moves under it (an
+    /// undo, a roll) and moves back, once the field loses focus, and on
+    /// another body that happens to be named "Bob" too - a list's detail
+    /// panel once wrote one item's typing into the next on the click that
+    /// changed the selection. The record is never written by any of it.
+    #[test]
+    fn a_typed_space_is_shown_only_for_its_name_its_body_and_its_focus() {
+        let typed_bob = || {
+            let (mut tab, mut record) = focused_name_field();
+            for _ in 0..6 {
+                let _ = name_frame(&mut tab, &mut record, vec![key(egui::Key::Backspace)]);
+            }
+            for c in "Bob ".chars() {
+                let _ = name_frame(&mut tab, &mut record, vec![egui::Event::Text(c.into())]);
+            }
+            let (_, _, shown) = name_frame(&mut tab, &mut record, Vec::new());
+            assert_eq!(shown, "Bob ", "the premise: the field keeps the space");
+            assert_eq!(
+                worn_name(&record),
+                "Bob",
+                "the premise: the record does not"
+            );
+            (tab, record)
+        };
+        let rename = |record: &mut AvatarRecord, name: &str| {
+            let rig = record.body.rigged_mut().expect("rigged");
+            rig.resolved.as_mut().expect("resolved").body.name = name.to_string();
+        };
+
+        // The name moves under the field, and back: an undo and a redo.
+        let (mut tab, mut record) = typed_bob();
+        rename(&mut record, "Alice");
+        let (outcome, _, shown) = name_frame(&mut tab, &mut record, Vec::new());
+        assert_eq!(shown, "Alice", "an undo under the field");
+        assert!(!outcome.changed);
+        rename(&mut record, "Bob");
+        let (_, _, shown) = name_frame(&mut tab, &mut record, Vec::new());
+        assert_eq!(
+            shown, "Bob",
+            "the text survived a move of the name and back"
+        );
+
+        // The field loses focus.
+        let (mut tab, mut record) = typed_bob();
+        let (outcome, _, shown) = name_frame(&mut tab, &mut record, vec![key(egui::Key::Escape)]);
+        assert_eq!(shown, "Bob", "leaving the field");
+        assert!(!outcome.changed);
+        assert_eq!(worn_name(&record), "Bob");
+
+        // Another body, also named "Bob", worn under the focused field.
+        let (mut tab, record) = typed_bob();
+        let mut other = record.clone();
+        other.body.rigged_mut().expect("rigged").avatar = String::from("3jzfcijpj2z2b");
+        let (_, _, shown) = name_frame(&mut tab, &mut other, Vec::new());
+        assert_eq!(shown, "Bob", "the next body showed this one's typing");
+        assert_eq!(worn_name(&other), "Bob");
     }
 }

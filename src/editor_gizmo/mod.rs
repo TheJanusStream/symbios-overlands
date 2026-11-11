@@ -1073,11 +1073,11 @@ impl SceneHit {
 /// ~19 MB per re-roll that would never be returned to a wasm heap), so
 /// [`MeshRayCast`] returns `None` for them and would happily report a prop
 /// *behind* a hill as the nearest hit. The heightfield collider
-/// `spawn_terrain_mesh` builds from the same `HeightMap` describes the same
-/// surface, so a physics ray recovers exactly what the mesh ray lost. The two
-/// results are then merged by distance, which restores the single ordering
-/// the old one-ray version had: the nearest surface wins, and terrain occludes
-/// what is behind it.
+/// `spawn_terrain_mesh` spawns, built from the same `HeightMap`, describes
+/// the same surface, so a physics ray recovers exactly what the mesh ray
+/// lost. The two results are then merged by distance, which restores the
+/// single ordering the old one-ray version had: the nearest surface wins, and
+/// terrain occludes what is behind it.
 ///
 /// The physics ray is predicate-filtered to the terrain rather than run
 /// unfiltered, because from most camera angles the nearest collider under the

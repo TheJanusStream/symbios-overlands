@@ -204,6 +204,12 @@ pub(crate) fn draft_atlas() -> u32 {
 /// resting 12 m orbit already sits 12.38 m from its root. Asking for the far
 /// tier is therefore not a peer-only optimisation: it is what keeps a
 /// zoomed-out owner and the peers beside them drawing the same thing (#1358).
+///
+/// **On the web, with the head measured where the body is built** (#1815): the
+/// worker keeps the closed surface a fitted circlet is sized from, so it
+/// measures a person's head before the body leaves and the answer lands
+/// beside it ([`super::attachments::CarriedHatLine`]). A native build holds
+/// the whole body and is measured when something worn asks, as it always was.
 pub(crate) fn rigged_build_job(
     body: &crate::pds::avatar::EngineAvatarRecord,
     atlas: u32,
@@ -212,6 +218,7 @@ pub(crate) fn rigged_build_job(
         record: Box::new(body.clone()),
         atlas,
         far_hair: true,
+        measure_head: cfg!(target_arch = "wasm32"),
     }
 }
 

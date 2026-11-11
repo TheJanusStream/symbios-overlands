@@ -16,6 +16,83 @@ use crate::state::LiveRoomRecord;
 
 use super::{FinishedHeightMap, OutgoingTerrain, SplatMaterialHandle, TerrainMesh, TerrainTask};
 
+/// A new ground as the terrain task hands it over (#1904): its heights, and
+/// the mesh and heightfield collider built from them off the main thread.
+pub(super) struct BuiltGround {
+    /// The heights and, for a Berlin region, what covers them: what lands as
+    /// the [`FinishedHeightMap`].
+    heights: FinishedHeightMap,
+    /// The job's own grid and the content digest of its samples (#1146),
+    /// for the session log and the world digest.
+    width: u32,
+    height: u32,
+    digest: u64,
+    mesh: Mesh,
+    collider: Collider,
+}
+
+/// Build the ground `result` describes: the task half of the terrain's
+/// landing (#1904). `None` where the job answered with something that is
+/// not a heightmap.
+///
+/// The mesh, its tangents and the collider were built inline in
+/// [`spawn_terrain_mesh`], about 0.94 s on the shipped 512-square grid, all
+/// of it a frame the game did not draw. Built here, in the task the
+/// heightmap job lands through, the standing ground stays drawn and solid
+/// while it runs, and the frame the new one lands in only spawns it. On the
+/// web the task pool is the main thread, so there it is the same work at
+/// another moment; what took it from a second to a few tens of milliseconds
+/// on both is [`super::tangents`].
+pub(super) fn build_ground(
+    result: GenResult,
+    ground: Option<super::geo::GeoGround>,
+) -> Option<BuiltGround> {
+    let GenResult::Heightmap(data) = result else {
+        return None;
+    };
+    let (width, height) = (data.width, data.height);
+    // Content digest of what the generator produced (#1146). This is the
+    // part of the world digest that the cross-target determinism work
+    // (#1132) actually moves: erosion and the octave amplitudes run on
+    // `exp`/`powf`, whose results Rust documents as platform-dependent. It
+    // is quantised to a millimetre, so it reports a terrain two peers would
+    // SEE differently and stays quiet about last-bit arithmetic.
+    let digest = crate::world_digest::heightmap_digest(width, height, &data.data);
+    let hm = heightmap_from_data(data);
+    let mesh = build_terrain_mesh(&hm, (hm.width() - 1) as f32 * hm.scale());
+    // Built with parry's internal-edge fix since bevy_symbios_ground 0.6: on
+    // the plain heightfield a box meeting the ground at speed took the edge
+    // between two cells for a wall and lost most of its speed in one step
+    // (#1538).
+    let collider = build_heightfield_collider(&hm);
+    Some(BuiltGround {
+        heights: FinishedHeightMap(hm, ground),
+        width,
+        height,
+        digest,
+        mesh,
+        collider,
+    })
+}
+
+/// The mesh and the collider the terrain task built for the
+/// [`FinishedHeightMap`] landed beside them, for [`spawn_terrain_mesh`] to
+/// spawn (#1904). Both are inserted by [`poll_terrain_task`] and the spawn
+/// runs right after it, in the same frame, so this never outlives the frame
+/// it lands in; a heightmap inserted without one - by a test or a tool -
+/// is built inline.
+#[derive(Resource)]
+pub(super) struct PrebuiltGround(Option<(Mesh, Collider)>);
+
+impl PrebuiltGround {
+    /// Whether the task's mesh and collider are still here for the spawn to
+    /// take: a landing's heights come with them (#1904).
+    #[cfg(test)]
+    pub(super) fn holds_parts(&self) -> bool {
+        self.0.is_some()
+    }
+}
+
 pub(super) fn start_terrain_generation(
     mut commands: Commands,
     record: Res<LiveRoomRecord>,
@@ -66,7 +143,7 @@ pub(super) fn start_terrain_generation(
             job: "heightmap".into(),
         },
     );
-    commands.insert_resource(TerrainTask(task, now, source, None));
+    commands.insert_resource(TerrainTask::new(task, now, source, None));
 }
 
 pub(super) fn poll_terrain_task(
@@ -89,20 +166,15 @@ pub(super) fn poll_terrain_task(
         let spawned_at = task_res.1;
         commands.remove_resource::<TerrainTask>();
         match result {
-            GenResult::Heightmap(data) => {
+            // Since #1904 the task lands a BUILT ground, so the latency and
+            // the durations below run to the mesh and the collider built
+            // behind the heightmap (tens of milliseconds of them).
+            Some(built) => {
                 crate::diagnostics::samplers::heightmap_latency_secs(
                     &mut metrics,
                     now - spawned_at,
                 );
-                // Content digest of what the generator produced (#1146). This
-                // is the part of the world digest that the cross-target
-                // determinism work (#1132) actually moves: erosion and the
-                // octave amplitudes run on `exp`/`powf`, whose results Rust
-                // documents as platform-dependent. It is quantised to a
-                // millimetre, so it reports a terrain two peers would SEE
-                // differently and stays quiet about last-bit arithmetic.
-                let hm_digest =
-                    crate::world_digest::heightmap_digest(data.width, data.height, &data.data);
+                let hm_digest = built.digest;
                 if let Some(digest) = digest.as_deref_mut() {
                     if let Some(record) = record.as_ref() {
                         digest.retarget(crate::world_digest::record_fingerprint(&record.0));
@@ -115,8 +187,8 @@ pub(super) fn poll_terrain_task(
                     now,
                     crate::diagnostics::event::EventPayload::HeightmapGenCompleted {
                         duration_secs: now - spawned_at,
-                        width: data.width,
-                        height: data.height,
+                        width: built.width,
+                        height: built.height,
                         digest: hm_digest,
                     },
                 );
@@ -130,19 +202,24 @@ pub(super) fn poll_terrain_task(
                         duration_secs: now - spawned_at,
                     },
                 );
-                // A geodata region's ground lands with its heights (#1586).
-                let ground = task_res.3.take();
-                commands.insert_resource(FinishedHeightMap(heightmap_from_data(data), ground));
+                // The heights land with the ground built from them, which
+                // `spawn_terrain_mesh` spawns next in this same frame: no
+                // reader of the heights sees them while the old ground
+                // still stands (#1904). A geodata region's ground rides in
+                // the heights (#1586).
+                commands.insert_resource(built.heights);
                 commands.insert_resource(super::HeightMapSource(task_res.2.clone()));
+                commands.insert_resource(PrebuiltGround(Some((built.mesh, built.collider))));
             }
-            // A heightmap job only ever yields a heightmap; count an unexpected
-            // variant as an offload error (E-4) rather than panicking - and
-            // say so on the loading screen (#1230 f21). Marking the failure
-            // is what stops `start_terrain_generation` re-dispatching the
-            // same job on the next frame and every frame after it: the task
-            // resource is already gone by the time this arm runs, so the
-            // start condition was satisfied again immediately.
-            _ => {
+            // A heightmap job only ever yields a heightmap, so no ground was
+            // built; count the unexpected variant as an offload error (E-4)
+            // rather than panicking - and say so on the loading screen
+            // (#1230 f21). Marking the failure is what stops
+            // `start_terrain_generation` re-dispatching the same job on the
+            // next frame and every frame after it: the task resource is
+            // already gone by the time this arm runs, so the start condition
+            // was satisfied again immediately.
+            None => {
                 crate::diagnostics::samplers::offload_job_error(&mut metrics);
                 let reason = String::from("the terrain job returned something that isn't terrain");
                 session_log.error(
@@ -186,8 +263,10 @@ fn build_terrain_mesh(hm: &HeightMap, world_extent: f32) -> Mesh {
         .with_uv_tile_size(world_extent)
         .build(hm);
 
-    mesh.generate_tangents()
-        .expect("terrain tangent generation failed");
+    // mikktspace's tangents, read off the grid in a few tens of milliseconds
+    // rather than the 0.93 s `Mesh::generate_tangents` took (#1904).
+    let tangents = super::tangents::of(&mesh);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_TANGENT, tangents);
 
     mesh.asset_usage = RenderAssetUsages::RENDER_WORLD;
     mesh
@@ -201,6 +280,7 @@ pub(super) fn spawn_terrain_mesh(
     mut materials: ResMut<Assets<SplatTerrainMaterial>>,
     mut road_materials: ResMut<Assets<crate::weathered::WeatheredMaterial>>,
     hm_res: Res<FinishedHeightMap>,
+    mut prebuilt: Option<ResMut<PrebuiltGround>>,
     did: Option<Res<crate::state::CurrentRoomDid>>,
     outgoing: Query<Entity, With<OutgoingTerrain>>,
 ) {
@@ -218,13 +298,18 @@ pub(super) fn spawn_terrain_mesh(
     let world_extent = (hm.width() - 1) as f32 * hm.scale();
     let half = world_extent * 0.5;
 
-    let mesh = build_terrain_mesh(hm, world_extent);
-
-    // Built with parry's internal-edge fix since bevy_symbios_ground 0.6: on
-    // the plain heightfield a box meeting the ground at speed took the edge
-    // between two cells for a wall and lost most of its speed in one step
-    // (#1538).
-    let collider = build_heightfield_collider(hm);
+    // The ground the terrain task built off the main thread (#1904); one
+    // inserted directly, by a test or a tool, is built here.
+    let parts = prebuilt.as_mut().and_then(|prebuilt| prebuilt.0.take());
+    if prebuilt.is_some() {
+        commands.remove_resource::<PrebuiltGround>();
+    }
+    let (mesh, collider) = parts.unwrap_or_else(|| {
+        (
+            build_terrain_mesh(hm, world_extent),
+            build_heightfield_collider(hm),
+        )
+    });
 
     // Generate D2Array placeholders to satisfy WGPU validation until the real arrays load
     let albedo_placeholder = images.add(Image::new(
@@ -738,5 +823,61 @@ mod tests {
                 "at ({x}, {z}) the collider stands at {solid:.3} m, the ground is drawn at {drawn:.3}"
             );
         }
+    }
+
+    /// #1904: the frame a ground lands in spawns the mesh and the collider
+    /// the terrain task built, and builds neither itself - that build, run
+    /// inline here, was the 0.94 s frame. The task's parts are told apart
+    /// from what these heights would build by their size: a single cell
+    /// against the heights' 64 x 64.
+    #[test]
+    fn the_landing_frame_spawns_the_ground_the_task_built() {
+        use bevy::ecs::system::RunSystemOnce;
+
+        let cell = HeightMap::new(2, 2, 128.0);
+        let mut world = World::new();
+        world.init_resource::<Assets<Mesh>>();
+        world.init_resource::<Assets<Image>>();
+        world.init_resource::<Assets<crate::weathered::WeatheredMaterial>>();
+        world.init_resource::<Assets<SplatTerrainMaterial>>();
+        world.insert_resource(FinishedHeightMap(HeightMap::new(65, 65, 2.0), None));
+        world.insert_resource(PrebuiltGround(Some((
+            build_terrain_mesh(&cell, 128.0),
+            build_heightfield_collider(&cell),
+        ))));
+        world
+            .run_system_once(spawn_terrain_mesh)
+            .expect("the spawn runs");
+
+        let (root, collider) = world
+            .query_filtered::<(Entity, &Collider), With<TerrainMesh>>()
+            .single(&world)
+            .map(|(root, collider)| (root, collider.clone()))
+            .expect("one terrain");
+        let heights = collider
+            .shape()
+            .as_heightfield()
+            .expect("a heightfield")
+            .heights();
+        assert_eq!(
+            (heights.nrows(), heights.ncols()),
+            (2, 2),
+            "the landing frame built its own collider"
+        );
+        let child = world.get::<Children>(root).expect("the ground's mesh")[0];
+        let mesh = &world.get::<Mesh3d>(child).expect("a mesh").0;
+        assert_eq!(
+            world
+                .resource::<Assets<Mesh>>()
+                .get(mesh)
+                .unwrap()
+                .count_vertices(),
+            4,
+            "the landing frame built its own mesh"
+        );
+        assert!(
+            !world.contains_resource::<PrebuiltGround>(),
+            "the task's parts outlived the frame they landed in"
+        );
     }
 }

@@ -464,7 +464,7 @@ const ARRIVAL_STEPS: usize = 3;
 /// `(centre_x, centre_z, radius²)` of the ground every scatter keeps off
 /// (#1776): each seeded structure's footprint where the compile stands it -
 /// walked as [`super::pad::snapped_absolute_anchor`] walks it, a craft's
-/// pad or mast with its craft's room round it ([`kept_room`]) - the world's
+/// pad or mast with its craft's room round it ([`craft_room`]) - the world's
 /// landing as a body is set down there ([`super::water::landing_on`]) with
 /// the ground behind it the arrival camera looks from (#1785), and a seeded
 /// viewpoint's view down to its landmark (#1777). So no tree,
@@ -478,7 +478,10 @@ const ARRIVAL_STEPS: usize = 3;
 /// `pad`), so an editor's own placements are never ground a scatter avoids -
 /// and the world's signature feature ([`FEATURE`]) and its crafts' places
 /// ([`KEPT_BY_NAME`]), whose giant tree or
-/// sea stack avoids no water and keeps its ground all the same (#1781).
+/// sea stack avoids no water and keeps its ground all the same (#1781). A
+/// place for a helicopter or an airship is kept off however it was placed
+/// (#1905), an editor's own too: a helipad dropped from the Catalogue keeps
+/// its ground and its rotor's room, as its owner placed it for.
 /// With no heightmap yet, each stands where its record put it. Its paths,
 /// fields and orchard are kept off too, and its hamlet's houses, each where
 /// its copy stands ([`hamlet_grounds`], #1797).
@@ -491,6 +494,7 @@ pub(crate) fn structure_exclusions(
     let mut keep: Vec<(f32, f32, f32)> = Vec::new();
     // The settlement's landmark, where it stands, and its ground's radius.
     let mut landmark = None;
+    let mut rooms = CraftRooms::new(record);
     for placement in &record.placements {
         let crate::pds::Placement::Absolute {
             generator_ref,
@@ -503,12 +507,21 @@ pub(crate) fn structure_exclusions(
         else {
             continue;
         };
-        if !(KEPT_BY_NAME.contains(&generator_ref.as_str()) || *snap_to_terrain && *avoid_water) {
+        // A place for a craft keeps its ground and its craft's room however
+        // it was placed (#1905): the room is the craft's, not its siting's.
+        let craft = rooms.of(generator_ref);
+        if !(KEPT_BY_NAME.contains(&generator_ref.as_str())
+            || *snap_to_terrain && *avoid_water
+            || craft.is_some())
+        {
             continue;
         }
-        // A craft's built place with its craft's room round it (#1798).
+        // A craft's place with its craft's room round it (#1798).
+        let clearance = craft.map_or(avoid_water_clearance.0, |craft| {
+            craft.clearance(avoid_water_clearance.0)
+        });
         let radius =
-            avoid_water_clearance.0 * transform.scale.0[0].max(0.0) + kept_room(generator_ref);
+            clearance * transform.scale.0[0].max(0.0) + craft.map_or(0.0, |craft| craft.room);
         // A snapped one where the compile stands it; an unsnapped one where
         // its record does - but a seeded place for a craft where the ground
         // takes it, and one it does not keeps nothing clear (#1782).
@@ -729,27 +742,178 @@ pub(crate) const WINDSOCK: &str = "craft_windsock";
 pub(crate) const TYRES: &str = "craft_tyres";
 /// The built places for crafts (#1782): a helicopter's pad, an airship's
 /// mast - kept clear of as any building is, with their craft's room round
-/// them ([`kept_room`]), and drawn only where the ground the compile draws
+/// them ([`craft_room`]), and drawn only where the ground the compile draws
 /// takes them (`pad::place_stands`).
 pub(crate) const PAD: &str = "craft_pad";
 pub(crate) const MAST: &str = "craft_mast";
 
-/// How far past its own ground the scatters keep off what `generator_ref`
-/// places (m, #1798): a craft's built place's craft's room
-/// ([`crate::catalogue::Craft::room`]) - a helicopter's rotor round its pad,
-/// an airship swinging round its mast - as its siting keeps that room
-/// clear (`seeded_defaults::room::crafts`); nothing for the rest. Its water
+/// The room the scatters keep round a place for a craft (#1798, #1905): a
+/// helicopter's rotor round its pad, an airship swinging round its mast
+/// ([`crate::catalogue::Craft::room`]), past the place's own ground, as its
+/// siting keeps that room clear (`seeded_defaults::room::crafts`). Its water
 /// clearance stays its own ground, the disc it snaps to and the water walks
 /// it off: the mast's 3 m kept a tree's trunk out of its lattice and not
-/// the tree's crown. The cross-theme pad and mast and a theme's own (a
-/// space outpost's landing pad, a steampunk airship dock) are placed by
-/// these names alike, so each keeps its own clearance and its craft's room.
-pub(crate) fn kept_room(generator_ref: &str) -> f32 {
-    match generator_ref {
-        PAD => crate::catalogue::Craft::Helicopter.room(),
-        MAST => crate::catalogue::Craft::Airship.room(),
-        _ => 0.0,
+/// the tree's crown.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct CraftRoom {
+    /// The ground its catalogue entry stands on (m, at scale 1), which a
+    /// placement recording less clearance keeps all the same - a helipad
+    /// placed by hand records none. `None` for a seeded place, whose
+    /// placement records its entry's clearance itself.
+    ground: Option<f32>,
+    /// Its craft's room past that ground (m).
+    pub(crate) room: f32,
+}
+
+impl CraftRoom {
+    /// The clearance the scatters keep round a placement recording
+    /// `clearance`: its own, or its entry's ground where that is wider.
+    pub(crate) fn clearance(&self, clearance: f32) -> f32 {
+        self.ground
+            .map_or(clearance, |ground| clearance.max(ground))
     }
+}
+
+/// The place for a craft `generator_ref` places in `record`, with the room
+/// its craft takes (see [`CraftRoom`]), or none for anything else.
+///
+/// A seeded world's pad and mast by their names ([`PAD`], [`MAST`]) - the
+/// cross-theme helipad and mooring mast and a theme's own (a space
+/// outpost's landing pad, a steampunk airship dock) alike - exactly as
+/// they always were. Any other placement by the catalogue entry its
+/// generator is, where that entry serves a craft that takes room
+/// ([`crate::catalogue::CatalogueEntry::serves`]): named by the entry's
+/// slug, as a drop from the Catalogue names it (`helipad`, or `helipad_2`
+/// beside another), or built as the entry builds it, whatever its name - a
+/// renamed pad, or one dropped from an inventory. A seeded settlement's own
+/// buildings are left out ([`settlement_member`]): a rich steampunk or
+/// space outpost settlement stands its dock or landing pad among them, and
+/// the ground a seeded world keeps clear is never moved by a later build.
+pub(crate) fn craft_room(
+    record: &crate::pds::RoomRecord,
+    generator_ref: &str,
+) -> Option<CraftRoom> {
+    use crate::catalogue::Craft;
+    let seeded = |craft: Craft| CraftRoom {
+        ground: None,
+        room: craft.room(),
+    };
+    match generator_ref {
+        PAD => return Some(seeded(Craft::Helicopter)),
+        MAST => return Some(seeded(Craft::Airship)),
+        _ if settlement_member(generator_ref) => return None,
+        _ => {}
+    }
+    let (craft, ground) = craft_entry_named(generator_ref).or_else(|| {
+        record
+            .generators
+            .get(generator_ref)
+            .and_then(craft_entry_built)
+    })?;
+    Some(CraftRoom {
+        ground: Some(ground),
+        room: craft.room(),
+    })
+}
+
+/// [`craft_room`] once per generator for one pass over a record's
+/// placements: a generator matched by its tree is written out to compare
+/// (`craft_entry_built`), and a world can stand a thousand copies of one
+/// generator, which the editor re-reads on every change of the record.
+pub(crate) struct CraftRooms<'a> {
+    record: &'a crate::pds::RoomRecord,
+    known: std::collections::HashMap<&'a str, Option<CraftRoom>>,
+}
+
+impl<'a> CraftRooms<'a> {
+    pub(crate) fn new(record: &'a crate::pds::RoomRecord) -> Self {
+        Self {
+            record,
+            known: std::collections::HashMap::new(),
+        }
+    }
+
+    /// The place for a craft `generator_ref` places, as [`craft_room`]
+    /// answers it, resolved the first time this pass asks.
+    pub(crate) fn of(&mut self, generator_ref: &'a str) -> Option<CraftRoom> {
+        let record = self.record;
+        *self
+            .known
+            .entry(generator_ref)
+            .or_insert_with(|| craft_room(record, generator_ref))
+    }
+}
+
+/// Whether `generator_ref` names one of a seeded settlement's own members
+/// (`seeded_defaults::room::build`): its landmarks (`landmark`,
+/// `landmark_1`, ...), secondaries and props (`settlement_...`).
+fn settlement_member(generator_ref: &str) -> bool {
+    generator_ref.starts_with(LANDMARK) || generator_ref.starts_with("settlement_")
+}
+
+/// The craft and the ground of the catalogue entry `name` names, where it
+/// serves a craft that takes room: its slug, or its slug with the `_2`,
+/// `_3`, ... a drop beside a different generator of that name is given
+/// (`ui::inventory::drop::choose_room_generator_key`).
+fn craft_entry_named(name: &str) -> Option<(crate::catalogue::Craft, f32)> {
+    let unsuffixed = name
+        .rsplit_once('_')
+        .filter(|(_, n)| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+        .map(|(base, _)| base);
+    [Some(name), unsuffixed]
+        .into_iter()
+        .flatten()
+        .filter_map(crate::catalogue::by_slug)
+        .find_map(|entry| {
+            let craft = entry.serves().filter(|craft| craft.room() > 0.0)?;
+            Some((craft, entry.footprint().clearance))
+        })
+}
+
+/// The craft and the ground of the catalogue entry that builds `generator`,
+/// where it serves a craft that takes room: the same tree as the entry
+/// builds it, compared as the wire writes it. Each such entry's tree is
+/// built once; one whose kind or count of children differs is not written
+/// out to compare.
+fn craft_entry_built(generator: &crate::pds::Generator) -> Option<(crate::catalogue::Craft, f32)> {
+    use std::sync::OnceLock;
+    type Tree = (
+        std::mem::Discriminant<crate::pds::GeneratorKind>,
+        usize,
+        serde_json::Value,
+        crate::catalogue::Craft,
+        f32,
+    );
+    static TREES: OnceLock<Vec<Tree>> = OnceLock::new();
+    let trees = TREES.get_or_init(|| {
+        crate::catalogue::items::ENTRIES
+            .iter()
+            .filter_map(|entry| {
+                let craft = entry.serves().filter(|craft| craft.room() > 0.0)?;
+                // Every such entry builds the same tree for every owner.
+                let tree = entry.build("");
+                Some((
+                    std::mem::discriminant(&tree.kind),
+                    tree.children.len(),
+                    serde_json::to_value(&tree).ok()?,
+                    craft,
+                    entry.footprint().clearance,
+                ))
+            })
+            .collect()
+    });
+    let kind = std::mem::discriminant(&generator.kind);
+    let mut written = None;
+    trees
+        .iter()
+        .filter(|(k, children, ..)| *k == kind && *children == generator.children.len())
+        .find(|(_, _, tree, ..)| {
+            written
+                .get_or_insert_with(|| serde_json::to_value(generator).ok())
+                .as_ref()
+                == Some(tree)
+        })
+        .map(|&(_, _, _, craft, ground)| (craft, ground))
 }
 
 /// The generator a seeded world's orchard is placed by (#1791): a grid of
@@ -1323,7 +1487,10 @@ mod tests {
                             super::super::pad::PlaceStand::At(at) => Some((
                                 generator_ref.clone(),
                                 at,
-                                avoid_water_clearance.0 + kept_room(generator_ref),
+                                avoid_water_clearance.0
+                                    + craft_room(&record, generator_ref)
+                                        .expect("a seeded pad or mast")
+                                        .room,
                             )),
                             _ => None,
                         }
@@ -2350,5 +2517,186 @@ mod tests {
                 "a seeded tree at ({x}, {z}) under a linden"
             );
         }
+    }
+
+    /// A placement of `generator_ref` at (`x`, `z`) as a drop from the
+    /// Catalogue or an inventory lands one (`ui::inventory::drop`): where
+    /// its ray hit, unsnapped, avoiding no water, recording no clearance.
+    fn dropped(generator_ref: &str, x: f32, z: f32) -> crate::pds::Placement {
+        crate::pds::Placement::Absolute {
+            generator_ref: generator_ref.into(),
+            transform: crate::pds::TransformData {
+                translation: crate::pds::Fp3([x, 0.0, z]),
+                rotation: crate::pds::Fp4([0.0, 0.0, 0.0, 1.0]),
+                scale: crate::pds::Fp3([1.0, 1.0, 1.0]),
+            },
+            snap_to_terrain: false,
+            avoid_water: false,
+            avoid_water_clearance: crate::pds::Fp(0.0),
+            seed: None,
+            params: Default::default(),
+        }
+    }
+
+    /// The generator the catalogue entry `slug` builds.
+    fn built(slug: &str) -> crate::pds::Generator {
+        crate::catalogue::by_slug(slug)
+            .unwrap_or_else(|| panic!("no catalogue entry {slug:?}"))
+            .build("did:plc:owner")
+    }
+
+    /// **A craft's place placed by hand keeps its craft's room** (#1905):
+    /// its entry's ground and its craft's room past it, however it is
+    /// named and however it was placed. The room was resolved by the seeded
+    /// names alone, `craft_pad` and `craft_mast`, and kept only for a
+    /// snapped, water-avoiding placement, so a helipad dropped from the
+    /// Catalogue (named `helipad`, unsnapped) kept no ground at all and
+    /// trees grew in its rotor's room. Here: a helipad by its slug (7 m and
+    /// a rotor's 6 m), a mooring mast renamed (3 m and an airship's 14 m,
+    /// known by its tree), a second helipad whose tree was edited, named
+    /// `helipad_2` beside the first (known by its name), and a steampunk
+    /// airship dock dropped as `airship_dock` (8 m and 14 m). A seeded
+    /// settlement's own dock keeps its clearance alone, as it always has,
+    /// and a bench placed by hand keeps nothing, as an editor's own
+    /// placement never has.
+    #[test]
+    fn a_hand_placed_crafts_place_keeps_its_crafts_room() {
+        let mut edited = built("helipad");
+        edited.transform.translation = crate::pds::Fp3([0.0, 0.5, 0.0]);
+        let mut seeded_dock = dropped("settlement_secondary_0", 300.0, -10.0);
+        if let crate::pds::Placement::Absolute {
+            snap_to_terrain,
+            avoid_water,
+            avoid_water_clearance,
+            ..
+        } = &mut seeded_dock
+        {
+            (*snap_to_terrain, *avoid_water) = (true, true);
+            *avoid_water_clearance = crate::pds::Fp(8.0);
+        }
+        let mut record = crate::pds::RoomRecord {
+            placements: vec![
+                dropped("helipad", 0.0, -10.0),
+                dropped("Mast by the lake", 100.0, -10.0),
+                dropped("helipad_2", -100.0, -10.0),
+                dropped("airship_dock", 200.0, -10.0),
+                seeded_dock,
+                dropped("bench", -200.0, -10.0),
+            ],
+            default_landing: None,
+            ..Default::default()
+        };
+        record.generators.insert("helipad".into(), built("helipad"));
+        record
+            .generators
+            .insert("Mast by the lake".into(), built("mooring_mast"));
+        record.generators.insert("helipad_2".into(), edited);
+        record
+            .generators
+            .insert("airship_dock".into(), built("airship_dock"));
+        record
+            .generators
+            .insert("settlement_secondary_0".into(), built("airship_dock"));
+        record.generators.insert("bench".into(), built("bench"));
+        // The seeded terrain's own paths aside (#1779).
+        for generator in record.generators.values_mut() {
+            if let crate::pds::GeneratorKind::Terrain(terrain) = &mut generator.kind {
+                terrain.paths = Default::default();
+            }
+        }
+        let keep_off =
+            structure_exclusions(&record, None, &crate::water::bodies::RoomWater::default());
+        let kept = |x: f32| inside_any(&keep_off, x, -10.0);
+        for (name, at, reach) in [
+            ("helipad", 0.0, 13.0),
+            ("the renamed mast", 100.0, 17.0),
+            ("helipad_2", -100.0, 13.0),
+            ("airship_dock", 200.0, 22.0),
+            ("the settlement's dock", 300.0, 8.0),
+        ] {
+            assert!(kept(at + reach - 0.1), "{name}: inside its {reach} m");
+            assert!(!kept(at + reach + 0.1), "{name}: past its {reach} m");
+        }
+        assert!(!kept(-200.0), "a bench placed by hand keeps nothing");
+    }
+
+    /// **A helipad and a mast placed by hand keep trees out of their room**
+    /// (#1905), on seed 90's ground: each dropped where a copy of a scatter
+    /// grew, the helipad named as the Catalogue names it and the mast
+    /// renamed, and no copy grows within its ground and its craft's room
+    /// once it stands there. Before, three copies grew in their room: one under the
+    /// helipad, one under the mast and one 7.8 m from it.
+    #[test]
+    fn a_hand_placed_helipad_and_mast_keep_trees_out_of_their_room() {
+        let seed = 90u64;
+        let mut record =
+            crate::pds::RoomRecord::default_for_seed(seed, &format!("did:render:{seed}"));
+        let terrain = crate::terrain::FinishedHeightMap(
+            crate::terrain::rebuild_heightmap_for_record(&record),
+            None,
+        );
+        let copies = |record: &crate::pds::RoomRecord| -> Vec<(f32, f32)> {
+            super::super::census::scatter_points(record, &terrain)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .collect()
+        };
+        let grown = copies(&record);
+        let pad = grown[0];
+        let mast = *grown
+            .iter()
+            .find(|(x, z)| (x - pad.0).hypot(z - pad.1) > 60.0)
+            .expect("a copy 60 m from the first");
+        record.generators.insert("helipad".into(), built("helipad"));
+        record
+            .generators
+            .insert("Mast by the lake".into(), built("mooring_mast"));
+        record.placements.push(dropped("helipad", pad.0, pad.1));
+        record
+            .placements
+            .push(dropped("Mast by the lake", mast.0, mast.1));
+        let mut inside = Vec::new();
+        for (x, z) in copies(&record) {
+            for (name, at, reach) in [("helipad", pad, 13.0), ("mast", mast, 17.0)] {
+                let off = (x - at.0).hypot(z - at.1);
+                if off < reach - 1e-3 {
+                    inside.push(format!("{name}: a copy {off:.1} m off"));
+                }
+            }
+        }
+        assert!(
+            inside.is_empty(),
+            "{} copies grow in a hand-placed craft's room: {:?}",
+            inside.len(),
+            &inside[..inside.len().min(8)]
+        );
+    }
+
+    /// **No seeded world's place moves** (#1905): of every placement the
+    /// seeder stands on 128 seeds, only its pad and its mast, by their
+    /// names, are a craft's place - the rest keep exactly the ground they
+    /// kept before the room was resolved by entry. (A rich steampunk or
+    /// space outpost settlement can stand its dock or landing pad among its
+    /// own buildings; those are left out by name, [`settlement_member`].)
+    #[test]
+    fn a_seeded_world_has_no_crafts_place_but_its_pad_and_mast() {
+        let (mut pads, mut masts) = (0, 0);
+        for seed in 0u64..128 {
+            let record =
+                crate::pds::RoomRecord::default_for_seed(seed, &format!("did:render:{seed}"));
+            for placement in &record.placements {
+                let crate::pds::Placement::Absolute { generator_ref, .. } = placement else {
+                    continue;
+                };
+                let craft = craft_room(&record, generator_ref);
+                match generator_ref.as_str() {
+                    PAD => pads += usize::from(craft.is_some()),
+                    MAST => masts += usize::from(craft.is_some()),
+                    other => assert!(craft.is_none(), "seed {seed}: {other} is a craft's place"),
+                }
+            }
+        }
+        assert!(pads > 0 && masts > 0, "the premise: seeded pads and masts");
     }
 }

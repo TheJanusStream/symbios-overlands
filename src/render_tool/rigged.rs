@@ -1051,7 +1051,7 @@ impl RiggedBuilt {
 /// spawn path's, which draws no part of a kind this build does not know,
 /// nor anything under it.
 fn seating(avatar: &symbios_avatar::Avatar, worn: &[ResolvedAttachment]) -> Vec<String> {
-    let seated = placements(avatar, worn);
+    let seated = placements(avatar, None, worn);
     worn.iter()
         .map(|item| {
             let rkey = &item.rkey;

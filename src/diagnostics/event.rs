@@ -232,6 +232,9 @@ pub enum EventPayload {
         reason: String,
     },
     HeightmapGenCompleted {
+        /// From the job's dispatch to its landing: since #1904 that includes
+        /// the ground built behind the heights (the mesh, its tangents and
+        /// the collider), main-thread time on the web.
         duration_secs: f64,
         width: u32,
         height: u32,
@@ -545,6 +548,8 @@ pub enum EventPayload {
     },
     OffloadJobCompleted {
         job: String,
+        /// From dispatch to landing; a `"heightmap"` job's includes the
+        /// ground built behind it since #1904.
         duration_secs: f64,
     },
     OffloadJobFailed {

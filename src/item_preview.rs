@@ -175,7 +175,7 @@ use bevy::ecs::change_detection::Tick;
 use crate::offload::GenResult;
 use crate::pds::avatar::{EngineAvatarRecord, ResolvedAttachment};
 use crate::pds::{AvatarRecord, Generator, InventoryRecord};
-use crate::player::attachments::{dressed_by, ensure_joint_visibility, placements};
+use crate::player::attachments::{HatLine, dressed_by, ensure_joint_visibility, placements};
 use crate::player::visuals::{
     AvatarSpawnDeps, draft_atlas, rigged_build_job, rigged_root_offset, rigged_root_transform,
     spawn_visual_tree, standing_box, standing_pose,
@@ -418,7 +418,8 @@ enum Kept {
     /// It could not be built: the engine's one failure.
     Failed,
     /// Built, and not spawned: it landed while another subject was wanted.
-    Built(Box<symbios_avatar::Avatar>),
+    /// With the head measure a web build brings (#1815).
+    Built(Box<symbios_avatar::Avatar>, Option<HatLine>),
     /// Spawned on the stage, shown or hidden.
     Standing(StandingBody),
 }
@@ -444,6 +445,11 @@ struct StandingBody {
     /// spawned with the dressing have bounds and a layer before they are
     /// measured.
     settle: u8,
+    /// The head measure the build took where the whole body was: a body
+    /// from the web's worker, whose closed surface stayed behind (#1815).
+    /// What the game's root carries as
+    /// [`crate::player::attachments::CarriedHatLine`].
+    hat_line: Option<HatLine>,
 }
 
 /// Marks the preview's own camera (#1300).
@@ -1001,11 +1007,12 @@ fn stand_staged_body(
     if let Some(result) = preview.build.as_mut().and_then(|build| build.task.poll())
         && let Some(build) = preview.build.take()
     {
-        let avatar = match result {
-            GenResult::Avatar(avatar) => avatar,
+        let (avatar, hat_line) = match result {
+            GenResult::Avatar(avatar) => (avatar, None),
+            GenResult::MeasuredAvatar { body, hat_line } => (body, hat_line),
             _ => {
                 error!("the item preview's body build returned another job's result");
-                None
+                (None, None)
             }
         };
         if avatar.is_none() {
@@ -1021,7 +1028,7 @@ fn stand_staged_body(
             }
             preview.kept = Some(KeptBody {
                 record: build.record,
-                state: avatar.map_or(Kept::Failed, Kept::Built),
+                state: avatar.map_or(Kept::Failed, |avatar| Kept::Built(avatar, hat_line)),
             });
         }
     }
@@ -1053,12 +1060,13 @@ fn stand_staged_body(
         }
         return;
     }
-    if matches!(kept.state, Kept::Built(_))
-        && let Kept::Built(avatar) = std::mem::replace(&mut kept.state, Kept::Failed)
+    if matches!(kept.state, Kept::Built(..))
+        && let Kept::Built(avatar, hat_line) = std::mem::replace(&mut kept.state, Kept::Failed)
     {
         kept.state = Kept::Standing(stand_body(
             &mut commands,
             *avatar,
+            hat_line,
             &kept.record,
             wants.offset,
             &mut meshes,
@@ -1091,7 +1099,8 @@ fn stand_staged_body(
             commands.entity(prop).try_despawn();
         }
         ensure_joint_visibility(&mut commands, joints);
-        for (joint, transform, attachment) in placements(&built.avatar, &wants.worn) {
+        for (joint, transform, attachment) in placements(&built.avatar, body.hat_line, &wants.worn)
+        {
             let Some(&carrier) = joints.0.get(joint) else {
                 continue;
             };
@@ -1129,6 +1138,7 @@ fn stand_staged_body(
 fn stand_body(
     commands: &mut Commands,
     avatar: symbios_avatar::Avatar,
+    hat_line: Option<HatLine>,
     record: &EngineAvatarRecord,
     offset: f32,
     meshes: &mut Assets<Mesh>,
@@ -1165,6 +1175,7 @@ fn stand_body(
         standing_box,
         shown: true,
         settle: 1,
+        hat_line,
     }
 }
 
@@ -1774,6 +1785,7 @@ mod body_tests {
                 record: asked,
                 atlas,
                 far_hair,
+                ..
             } => {
                 assert_eq!(**asked, *record, "the subject's own engine record");
                 assert_eq!(*atlas, draft_atlas(), "at the draft rung");

@@ -469,12 +469,20 @@ pub(super) fn color_picker(
 ///
 /// egui's button writes its HSV round trip back every frame it is drawn,
 /// edited or not, which moves a colour by a float's last bits with no input
-/// at all; so it is given a copy, written back only on a change.
-pub(super) fn linear_color_button(ui: &mut egui::Ui, value: &mut Fp3) -> egui::Response {
+/// at all; so it is given a copy. Its picker, held open, also REPORTS that
+/// round trip as a change on its first frame (#1907) - 21 of 43 colours
+/// swept - so the copy is written back, and `dirty` marked, only where it
+/// is kept differently: as the wire's integers.
+pub(super) fn linear_color_button(
+    ui: &mut egui::Ui,
+    value: &mut Fp3,
+    dirty: &mut bool,
+) -> egui::Response {
     let mut linear = value.0;
     let response = ui.color_edit_button_rgb(&mut linear);
-    if response.changed() {
+    if response.changed() && Fp3(linear).wire() != value.wire() {
         value.0 = linear;
+        *dirty = true;
     }
     response
 }
@@ -515,13 +523,18 @@ pub(super) fn color_picker_rgba(
             value.0[3],
         ];
         let picker = ui.color_edit_button_rgba_unmultiplied(&mut rgba);
-        if picker.changed() {
-            *value = Fp4([
-                egui::ecolor::gamma_from_linear(rgba[0]),
-                egui::ecolor::gamma_from_linear(rgba[1]),
-                egui::ecolor::gamma_from_linear(rgba[2]),
-                rgba[3],
-            ]);
+        // Held open, the picker can report its HSV round trip as a change
+        // (#1907) - one of 43 colours swept, on every frame, a float's last
+        // bits off - so it is written, and `dirty` marked, only where the
+        // colour is kept differently: as the wire's integers.
+        let picked = Fp4([
+            egui::ecolor::gamma_from_linear(rgba[0]),
+            egui::ecolor::gamma_from_linear(rgba[1]),
+            egui::ecolor::gamma_from_linear(rgba[2]),
+            rgba[3],
+        ]);
+        if picker.changed() && picked.wire() != value.wire() {
+            *value = picked;
             *dirty = true;
         }
         label | picker
@@ -1421,6 +1434,178 @@ mod colour_space_tests {
             "these files edit a stored sRGB colour through egui's LINEAR widget: \
              {offenders:?} - route them through `widgets::edit_srgb_rgb`"
         );
+    }
+}
+
+#[cfg(test)]
+mod held_picker_tests {
+    use super::*;
+    use crate::ui::headless::Headless as _;
+    use egui::accesskit::{Action, ActionData, ActionRequest, NodeId, Role, TreeId};
+
+    fn act(target: NodeId, action: Action, data: Option<ActionData>) -> egui::Event {
+        egui::Event::AccessKitActionRequest(ActionRequest {
+            action,
+            target_tree: TreeId::ROOT,
+            target_node: target,
+            data,
+        })
+    }
+
+    /// `draw`'s one colour well clicked open, then twenty frames with no
+    /// other input - or, with `red`, one frame setting the open picker's R
+    /// field to it: how many frames reported a change.
+    fn held(red: Option<f64>, mut draw: impl FnMut(&mut egui::Ui) -> bool) -> usize {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let frame = |events, draw: &mut dyn FnMut(&mut egui::Ui) -> bool| {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(800.0, 800.0),
+                )),
+                events,
+                ..Default::default()
+            };
+            let mut changed = false;
+            let output = ctx.run_headless(input, |ui| changed |= draw(ui));
+            let nodes = output
+                .platform_output
+                .accesskit_update
+                .expect("accesskit was enabled")
+                .nodes;
+            (changed, nodes)
+        };
+        let (_, nodes) = frame(Vec::new(), &mut draw);
+        let well = nodes
+            .iter()
+            .find(|(_, n)| n.role() == Role::ColorWell)
+            .map(|(id, _)| *id)
+            .expect("a colour well");
+        let mut events = vec![act(well, Action::Click, None)];
+        let mut frames = 0;
+        for index in 0..20 {
+            let (changed, nodes) = frame(std::mem::take(&mut events), &mut draw);
+            frames += usize::from(changed);
+            if let Some(red) = red
+                && index == 2
+            {
+                let field = nodes
+                    .iter()
+                    .find(|(_, n)| {
+                        n.role() == Role::SpinButton
+                            && n.value().is_some_and(|v| v.starts_with("R "))
+                    })
+                    .map(|(id, _)| *id)
+                    .expect("the open picker draws its R field");
+                let set = act(field, Action::SetValue, Some(ActionData::NumericValue(red)));
+                let (changed, _) = frame(vec![set], &mut draw);
+                return frames + usize::from(changed);
+            }
+        }
+        frames
+    }
+
+    /// Forty-three colours as a record keeps them, on the wire's grid: a
+    /// spread over the cube and three a material carries. (Off the grid, a
+    /// channel a hair either side of a half step - 0.65625 - can round to
+    /// the next integer from a float's last bits.)
+    fn colours() -> Vec<[f32; 3]> {
+        let mut colours: Vec<_> = (0..40u32)
+            .map(|i| {
+                let channel = |k: u32| ((i * k + 7) % 97) as f32 / 96.0;
+                Fp3([channel(13), channel(29), channel(61)]).on_wire().0
+            })
+            .collect();
+        colours.extend([[0.92, 0.5, 0.07], [0.56, 0.28, 0.18], [0.76, 0.73, 0.67]]);
+        colours
+    }
+
+    /// **A colour picker held open writes nothing** (#1907), for every
+    /// colour helper the editor draws: clicked open and held for twenty
+    /// frames with nothing touched, none reports a change and every stored
+    /// colour keeps its bits. egui's picker reports its HSV round trip as a
+    /// change, and before the fix the linear button (the grass's colours)
+    /// took it at its word on 21 of these 43 colours, on the first frame,
+    /// moving each by a float's last bits, and the RGBA picker (fog, sun
+    /// glow, particle colours) on one, on all twenty frames. The sRGB
+    /// helpers reported none either way and are held to it.
+    #[test]
+    fn a_colour_picker_held_open_reports_nothing_and_keeps_its_bits() {
+        let mut reported = Vec::new();
+        for start in colours() {
+            let mut srgb = Fp3(start);
+            let frames = held(None, |ui| {
+                let mut dirty = false;
+                let _ = color_picker(ui, "c", &mut srgb, &mut dirty);
+                dirty
+            });
+            if frames > 0 || srgb.0 != start {
+                reported.push(format!("color_picker {start:?}: {frames}, {:?}", srgb.0));
+            }
+            let rgba_start = [start[0], start[1], start[2], 0.6];
+            let mut rgba = Fp4(rgba_start);
+            let frames = held(None, |ui| {
+                let mut dirty = false;
+                let _ = color_picker_rgba(ui, "c", &mut rgba, &mut dirty);
+                dirty
+            });
+            if frames > 0 || rgba.0 != rgba_start {
+                reported.push(format!(
+                    "color_picker_rgba {start:?}: {frames}, {:?}",
+                    rgba.0
+                ));
+            }
+            let mut linear = Fp3(start);
+            let frames = held(None, |ui| {
+                let mut dirty = false;
+                let _ = linear_color_button(ui, &mut linear, &mut dirty);
+                dirty
+            });
+            if frames > 0 || linear.0 != start {
+                reported.push(format!(
+                    "linear_color_button {start:?}: {frames}, {:?}",
+                    linear.0
+                ));
+            }
+            let mut raw = start;
+            let frames = held(None, |ui| edit_srgb_rgb(ui, &mut raw).changed());
+            if frames > 0 || raw != start {
+                reported.push(format!("edit_srgb_rgb {start:?}: {frames}, {raw:?}"));
+            }
+        }
+        assert!(
+            reported.is_empty(),
+            "{} held pickers reported a change or moved a colour: {reported:#?}",
+            reported.len()
+        );
+    }
+
+    /// **A picked colour still lands, on its frame** (#1907): the linear
+    /// button's and the RGBA picker's red channel set through the open
+    /// picker's own R field marks the value dirty and moves it.
+    #[test]
+    fn a_colour_picked_marks_it_dirty() {
+        let start = [0.56, 0.28, 0.18];
+        let mut linear = Fp3(start);
+        let frames = held(Some(10.0), |ui| {
+            let mut dirty = false;
+            let _ = linear_color_button(ui, &mut linear, &mut dirty);
+            dirty
+        });
+        assert_eq!(frames, 1, "the linear button's pick");
+        assert_ne!(
+            linear.0[0], start[0],
+            "the linear button's red did not move"
+        );
+        let mut rgba = Fp4([start[0], start[1], start[2], 0.6]);
+        let frames = held(Some(10.0), |ui| {
+            let mut dirty = false;
+            let _ = color_picker_rgba(ui, "c", &mut rgba, &mut dirty);
+            dirty
+        });
+        assert_eq!(frames, 1, "the RGBA picker's pick");
+        assert_ne!(rgba.0[0], start[0], "the RGBA picker's red did not move");
     }
 }
 

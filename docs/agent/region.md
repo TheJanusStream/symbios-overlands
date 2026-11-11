@@ -590,9 +590,16 @@ boathouse, a steampunk airship dock); a space outpost's own landing pad and
 a steampunk airship dock stand in place of the plain pad and mast. Trees,
 rocks and tufts keep off a pad's and a mast's ground and their craft's room
 round it besides (#1798): 6 m past a pad for a helicopter's rotor, 14 m past
-a mast for an airship swinging round it, by the names `craft_pad` and
-`craft_mast` - its `avoid_water_clearance` stays the ground it stands on and
-is walked off the water by. The jetty
+a mast for an airship swinging round it - its `avoid_water_clearance` stays
+the ground it stands on and is walked off the water by. A place for a craft
+you set by hand keeps the same room (#1905), snapped or not, avoiding water
+or not: the compile knows it by its catalogue name (`helipad`, `helipad_2`)
+or, renamed, by a generator still built as the entry builds it, and keeps
+trees, rocks and tufts off its entry's ground (or its
+`avoid_water_clearance`, if larger) times its scale, plus the room - at
+scale 1, 13 m round a `helipad`, 17 m round a `mooring_mast`, 14 m round a
+`landing_pad` and 22 m round an `airship_dock`. A generator named
+`landmark...` or `settlement_...` (a settlement's own) takes no room. The jetty
 is placed at its deck's height over the water, unsnapped, and the compile
 walks it along its own axis to the water's edge the ground draws - so its
 outline stands there in the editor too, whatever its record says, and
@@ -1777,7 +1784,9 @@ Session 879's village and its fields filled the middle 300 m of a world about
   turbary's three cuttings read as pale plates on the lawn. Cut as rows of
   narrow trenches with turf showing between (as turbaries were worked) they
   read as cut peat near to; toward the sun they still shine.
-- **Scatters do not avoid each other, or your buildings**: a second pose of a
+- **Scatters do not avoid each other, or your buildings** (only a place for
+  a helicopter or an airship, whose room they keep clear: "Places for
+  crafts"): a second pose of a
   beast in its own scatter over the same pasture can stand inside the first;
   give each its own ground, or place the few by hand, and check a hand-placed
   spot against the record's placements before rendering (`tools/near.py`: a
