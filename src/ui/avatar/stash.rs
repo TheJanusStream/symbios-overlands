@@ -470,6 +470,107 @@ mod tests {
         );
     }
 
+    /// The listing records the body as the save WROTE it (#1845): a body
+    /// with an empty name and no `createdAt` is written as "Wanderer" with a
+    /// stamp, and the entry the landed save leaves at its key says the
+    /// same, not the live body it was made from. Driven through the real spawn
+    /// (whose network task is swapped for one already landed) and the real
+    /// poll.
+    #[test]
+    fn a_landed_save_lists_the_body_as_it_was_written() {
+        use crate::state::PublishFeedback;
+        use bevy::ecs::system::RunSystemOnce;
+        use bevy::prelude::*;
+        use bevy_symbios_multiuser::auth::AtprotoSession;
+        use bevy_symbios_multiuser::prelude::{Broadcast, SendTo};
+
+        // A `did:key` names no data server, so the swapped-out task never
+        // reaches a network.
+        const ME: &str = "did:key:zwardrobewhosesavelandsatonce";
+        let mut record = rigged_record();
+        let rig = record.body.rigged_mut().expect("rigged");
+        let key = rig.avatar.clone();
+        let resolved = rig.resolved.as_mut().expect("resolved");
+        resolved.body.name = String::new();
+        resolved.body.created_at = None;
+        let live_body = resolved.body.clone();
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.init_resource::<crate::diagnostics::SessionLog>();
+        app.init_resource::<crate::diagnostics::MetricsRegistry>();
+        app.init_resource::<crate::ui::toolbar::UiPanels>();
+        app.init_resource::<crate::notify::Toasts>();
+        app.init_resource::<PublishFeedback<AvatarRecord>>();
+        app.add_message::<Broadcast<crate::protocol::OverlandsMessage>>();
+        app.add_message::<SendTo<crate::protocol::OverlandsMessage>>();
+        app.insert_resource(
+            crate::oauth::stand_in::stand_in_session(ME, "me.test").expect("a session"),
+        );
+        app.insert_resource(crate::oauth::stand_in::stand_in_refresh_ctx().expect("a context"));
+        let mut editor = super::super::AvatarEditorState::default();
+        editor.wardrobe.entries = Some(vec![(key.clone(), live_body.clone())]);
+        app.insert_resource(editor);
+        app.add_systems(Update, super::super::poll_publish_avatar_tasks);
+
+        app.world_mut()
+            .run_system_once(
+                move |mut commands: Commands,
+                      session: Res<AtprotoSession>,
+                      refresh: Res<crate::oauth::OauthRefreshCtx>| {
+                    super::super::spawn_publish_avatar_task(
+                        &mut commands,
+                        &session,
+                        &refresh,
+                        record.clone(),
+                        Vec::new(),
+                        0.0,
+                    );
+                },
+            )
+            .expect("spawns");
+        let world = app.world_mut();
+        let mut tasks = world.query::<&mut super::super::PublishAvatarTask>();
+        for mut task in tasks.iter_mut(world) {
+            task.task = bevy::tasks::IoTaskPool::get().spawn(async { Ok(()) });
+        }
+        for _ in 0..2_000 {
+            app.update();
+            let world = app.world_mut();
+            if world
+                .query::<&super::super::PublishAvatarTask>()
+                .iter(world)
+                .next()
+                .is_none()
+            {
+                break;
+            }
+        }
+
+        let editor = app.world().resource::<super::super::AvatarEditorState>();
+        let entries = editor.wardrobe_entries().expect("the listing stays");
+        let [(listed_key, listed)] = entries else {
+            panic!("one entry: {entries:?}");
+        };
+        assert_eq!(listed_key, &key);
+        assert_eq!(
+            listed.name, "Wanderer",
+            "the name the record was written with"
+        );
+        assert!(
+            listed
+                .created_at
+                .as_deref()
+                .is_some_and(|at| !at.is_empty()),
+            "and its stamp: {:?}",
+            listed.created_at
+        );
+        let mut unfilled = listed.clone();
+        unfilled.name = String::new();
+        unfilled.created_at = None;
+        assert_eq!(unfilled, live_body, "nothing else differs");
+    }
+
     /// A tree whose root is a kind of a newer build makes the whole avatar
     /// unreadable, as it makes a generator item unreadable (critic of
     /// #1838): worn, it would dress the live avatar in what its Save cannot

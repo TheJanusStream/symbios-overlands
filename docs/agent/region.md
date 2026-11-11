@@ -135,7 +135,10 @@ ones: one procedural world per theme, one square of real Berlin per borough
   its kind and `bytes`. `A gift accept <id>` answers `fetching`: it is
   fetched from their saved copy into your inventory - your own world does
   not change - and a `gift_world_landed` event says under which name, or
-  `gift_world_not_landed` why not (`--wait` waits for either). A sign-in
+  `gift_world_not_landed` why not (`--wait` waits for either). The answer
+  and the events name `offer_arrived_epoch`, which tells two offers of one
+  id apart (an admin who signs in again counts ids from 0 again, #1845);
+  match on it as well as `offer_id` when you read the events yourself. A sign-in
   from before world items cannot take one: `gift_offered` says so in
   `cannot_accept`, and an accept is refused with the offer left waiting -
   decline it, and tell the owner the account needs signing in again
@@ -530,8 +533,9 @@ World Editor: Generators, the terrain, Paths):
   Paths section lists them, with Add a field (at the world's middle) and
   each one's Remove.
 
-A path edit builds the terrain anew, its heightmap included, as a layer or
-rule edit does, and regrows the scatters but not a district's lots. Clear
+A path edit paints the standing ground again, as a layer or rule edit does
+(#1743: no heightmap is built), and regrows the scatters but not a
+district's lots. Clear
 them with the editor's Clear paths, or `room set` the group to `{}`. The
 paths are kept as they were routed: a building moved keeps its old path,
 and paths of your own are `lines` you write. The props that line them are
@@ -583,7 +587,12 @@ each with a width of its own - and the World Editor's Paths section lists
 them. A craft goes without where no ground near takes its place (a jetty
 where no water lies near), and where the settlement already has one (a
 boathouse, a steampunk airship dock); a space outpost's own landing pad and
-a steampunk airship dock stand in place of the plain pad and mast. The jetty
+a steampunk airship dock stand in place of the plain pad and mast. Trees,
+rocks and tufts keep off a pad's and a mast's ground and their craft's room
+round it besides (#1798): 6 m past a pad for a helicopter's rotor, 14 m past
+a mast for an airship swinging round it, by the names `craft_pad` and
+`craft_mast` - its `avoid_water_clearance` stays the ground it stands on and
+is walked off the water by. The jetty
 is placed at its deck's height over the water, unsnapped, and the compile
 walks it along its own axis to the water's edge the ground draws - so its
 outline stands there in the editor too, whatever its record says, and
@@ -1946,14 +1955,15 @@ built this way; its builder is `exports/eigen/b/city.py`.
   in place of five helix towers and four holo billboards, 2,581 parts
   against about 1,000. A street-field or layout edit regrows the district
   by design, and so does a terrain edit that moves the ground. Until #1741
-  deploys so did a recolour, which moves none: a splat-layer edit builds a
+  deploys so did a recolour, which moves none: a splat-layer edit built a
   new heightmap of the same ground, and the lot layer took it for moved
   ground. Isoline's live ground edit regrew its district that way, `rec.py
   apply` said nothing, and two saves carried it before a listing of the
   generators showed it (put back from the last pull before the edit:
   `exports/eigen/b/restore956.py`). After any terrain or street edit, count
   the `lot_building_*` placements per kind against the last pull before you
-  save.
+  save. Since #1743 a recolour or a path edit builds no heightmap at all:
+  the standing ground is painted again.
 - **Streets on a slope stood proud until #1737.** A junction is flat, and
   its arms used to ramp down from it at 9 m in 100 in absolute height: on
   ground falling faster a downhill street never came back down, and its

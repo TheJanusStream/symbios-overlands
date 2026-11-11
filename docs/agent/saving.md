@@ -20,7 +20,16 @@
   Then `A save --wait` (the world),
   `A save avatar --wait` or `A save inventory --wait`; the answer's
   `result.kind` is `saved`, or it is `ok: false` with the reason as `error`
-  (`save_failed`). An avatar save took about 2 s live. Confirm afterwards
+  (`save_failed`). A save's own answer (without `--wait`) says how long the
+  game waits for it before giving it up, `gives_up_after_secs`: 60 for the
+  world and the avatar, several minutes for the inventory (its save reads
+  the saved inventory first, and is longest when it writes a world, #1845),
+  and `--wait` waits that long and 30 s more - so a slow inventory save is
+  not reported not landed while the game still waits for it. A failed
+  inventory save may still have landed, so `unsaved` keeps listing
+  `inventory` - even after `A revert inventory` - until a save lands: save
+  it again, and the save writes whatever the account does not already hold
+  (#1845). An avatar save took about 2 s live. Confirm afterwards
   that `unsaved` is empty, and tell the admin it is kept for every visitor.
 - When you report a build, say it is unsaved ("say 'save' to keep it") so
   the admin knows a choice is theirs.

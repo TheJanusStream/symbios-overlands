@@ -463,7 +463,8 @@ const ARRIVAL_STEPS: usize = 3;
 
 /// `(centre_x, centre_z, radius²)` of the ground every scatter keeps off
 /// (#1776): each seeded structure's footprint where the compile stands it -
-/// walked as [`super::pad::snapped_absolute_anchor`] walks it - the world's
+/// walked as [`super::pad::snapped_absolute_anchor`] walks it, a craft's
+/// pad or mast with its craft's room round it ([`kept_room`]) - the world's
 /// landing as a body is set down there ([`super::water::landing_on`]) with
 /// the ground behind it the arrival camera looks from (#1785), and a seeded
 /// viewpoint's view down to its landmark (#1777). So no tree,
@@ -505,7 +506,9 @@ pub(crate) fn structure_exclusions(
         if !(KEPT_BY_NAME.contains(&generator_ref.as_str()) || *snap_to_terrain && *avoid_water) {
             continue;
         }
-        let radius = avoid_water_clearance.0 * transform.scale.0[0].max(0.0);
+        // A craft's built place with its craft's room round it (#1798).
+        let radius =
+            avoid_water_clearance.0 * transform.scale.0[0].max(0.0) + kept_room(generator_ref);
         // A snapped one where the compile stands it; an unsnapped one where
         // its record does - but a seeded place for a craft where the ground
         // takes it, and one it does not keeps nothing clear (#1782).
@@ -725,10 +728,29 @@ pub(crate) const JETTY: &str = "craft_jetty";
 pub(crate) const WINDSOCK: &str = "craft_windsock";
 pub(crate) const TYRES: &str = "craft_tyres";
 /// The built places for crafts (#1782): a helicopter's pad, an airship's
-/// mast - kept clear of as any building is, and drawn only where the
-/// ground the compile draws takes them (`pad::place_stands`).
+/// mast - kept clear of as any building is, with their craft's room round
+/// them ([`kept_room`]), and drawn only where the ground the compile draws
+/// takes them (`pad::place_stands`).
 pub(crate) const PAD: &str = "craft_pad";
 pub(crate) const MAST: &str = "craft_mast";
+
+/// How far past its own ground the scatters keep off what `generator_ref`
+/// places (m, #1798): a craft's built place's craft's room
+/// ([`crate::catalogue::Craft::room`]) - a helicopter's rotor round its pad,
+/// an airship swinging round its mast - as its siting keeps that room
+/// clear (`seeded_defaults::room::crafts`); nothing for the rest. Its water
+/// clearance stays its own ground, the disc it snaps to and the water walks
+/// it off: the mast's 3 m kept a tree's trunk out of its lattice and not
+/// the tree's crown. The cross-theme pad and mast and a theme's own (a
+/// space outpost's landing pad, a steampunk airship dock) are placed by
+/// these names alike, so each keeps its own clearance and its craft's room.
+pub(crate) fn kept_room(generator_ref: &str) -> f32 {
+    match generator_ref {
+        PAD => crate::catalogue::Craft::Helicopter.room(),
+        MAST => crate::catalogue::Craft::Airship.room(),
+        _ => 0.0,
+    }
+}
 
 /// The generator a seeded world's orchard is placed by (#1791): a grid of
 /// its fruit tree, whose ground the scatters keep off ([`orchard_grounds`]).
@@ -1203,6 +1225,140 @@ mod tests {
         };
         assert!(kept(FEATURE));
         assert!(!kept("g"), "an editor's own placement");
+    }
+
+    /// #1798: a craft's built place keeps the scatters off its craft's room
+    /// round its ground - 14 m past a mast for its airship's swing, 6 m past
+    /// a pad for a rotor - where any other seeded building keeps its
+    /// clearance alone. The mast's 3 m clearance let a tree stand just past
+    /// it and fill the lattice with its crown (seed 90).
+    #[test]
+    fn a_crafts_place_keeps_its_crafts_room() {
+        let placed =
+            |generator_ref: &str, x: f32, clearance: f32| crate::pds::Placement::Absolute {
+                generator_ref: generator_ref.into(),
+                transform: crate::pds::TransformData {
+                    translation: crate::pds::Fp3([x, 0.0, -10.0]),
+                    rotation: crate::pds::Fp4([0.0, 0.0, 0.0, 1.0]),
+                    scale: crate::pds::Fp3([1.0, 1.0, 1.0]),
+                },
+                snap_to_terrain: true,
+                avoid_water: true,
+                avoid_water_clearance: crate::pds::Fp(clearance),
+                seed: None,
+                params: Default::default(),
+            };
+        let mut record = crate::pds::RoomRecord {
+            placements: vec![
+                placed(MAST, 100.0, 3.0),
+                placed(PAD, -100.0, 7.0),
+                placed("settlement_secondary_0", 0.0, 3.0),
+            ],
+            default_landing: None,
+            ..Default::default()
+        };
+        // The seeded terrain's own paths aside (#1779).
+        for generator in record.generators.values_mut() {
+            if let crate::pds::GeneratorKind::Terrain(terrain) = &mut generator.kind {
+                terrain.paths = Default::default();
+            }
+        }
+        let keep_off =
+            structure_exclusions(&record, None, &crate::water::bodies::RoomWater::default());
+        let kept = |x: f32| inside_any(&keep_off, x, -10.0);
+        // The mast: its 3 m and its airship's 14 m.
+        assert!(kept(100.0 + 16.9), "inside the airship's swing");
+        assert!(!kept(100.0 + 17.1), "past it");
+        // The pad: its 7 m and the rotor's 6 m.
+        assert!(kept(-100.0 - 12.9), "under the rotor");
+        assert!(!kept(-100.0 - 13.1), "past it");
+        // Any other building: its clearance alone.
+        assert!(kept(2.9));
+        assert!(!kept(3.1), "a building keeps its clearance and no more");
+    }
+
+    /// #1798 on the worlds that show it: no copy of any scatter stands
+    /// within a seeded mast's or pad's ground and its craft's room, where
+    /// the compile stands it - seed 90's plain mast (a tree grew in its
+    /// lattice) and helipad, the steampunk airship docks of seeds 146, 182
+    /// and 249 and seed 9's space outpost landing pad, placed by the same
+    /// names. (Seed 84's dock is one the ground it draws does not take.)
+    #[test]
+    fn no_scatter_grows_in_a_crafts_room() {
+        // Each kind that stands: the plain mast and pad (3 m, 7 m), a
+        // theme's own dock and landing pad (8 m each).
+        let mut kinds = std::collections::BTreeSet::new();
+        for seed in [90u64, 146, 182, 249, 9] {
+            let record =
+                crate::pds::RoomRecord::default_for_seed(seed, &format!("did:render:{seed}"));
+            let terrain = crate::terrain::FinishedHeightMap(
+                crate::terrain::rebuild_heightmap_for_record(&record),
+                None,
+            );
+            let water = super::super::water::drawn_water(&record, Some(&terrain));
+            let ground = super::super::pad::AnchorGround::new(&terrain, &water);
+            let tracks =
+                crate::pds::find_terrain_config(&record).map_or(&[][..], |t| &t.paths.tracks);
+            let places: Vec<(String, bevy::math::Vec3, f32)> = record
+                .placements
+                .iter()
+                .filter_map(|placement| match placement {
+                    crate::pds::Placement::Absolute {
+                        generator_ref,
+                        transform,
+                        snap_to_terrain,
+                        avoid_water,
+                        avoid_water_clearance,
+                        ..
+                    } if generator_ref == MAST || generator_ref == PAD => {
+                        match super::super::pad::place_stands(
+                            &ground,
+                            generator_ref,
+                            transform,
+                            *snap_to_terrain,
+                            *avoid_water,
+                            avoid_water_clearance.0,
+                            tracks,
+                        ) {
+                            super::super::pad::PlaceStand::At(at) => Some((
+                                generator_ref.clone(),
+                                at,
+                                avoid_water_clearance.0 + kept_room(generator_ref),
+                            )),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                })
+                .collect();
+            for points in super::super::census::scatter_points(&record, &terrain)
+                .into_iter()
+                .flatten()
+            {
+                for (x, z) in points {
+                    for (name, at, room) in &places {
+                        let off = (x - at.x).hypot(z - at.z);
+                        assert!(
+                            off >= room - 1e-3,
+                            "seed {seed}: a copy grows {off:.1} m from its {name}, inside its {room} m"
+                        );
+                    }
+                }
+            }
+            for (name, _, room) in &places {
+                kinds.insert(format!("{name} {room}"));
+            }
+        }
+        assert_eq!(
+            kinds.into_iter().collect::<Vec<_>>(),
+            [
+                "craft_mast 17",
+                "craft_mast 22",
+                "craft_pad 13",
+                "craft_pad 14"
+            ],
+            "each kind of pad and mast stands somewhere"
+        );
     }
 
     /// #1791: a field's or an orchard's rectangle is kept off whole by its

@@ -36,6 +36,7 @@ use bevy_symbios_multiuser::prelude::*;
 use crate::diagnostics::SessionLog;
 use crate::diagnostics::event::EventPayload;
 use crate::pds::InventoryRecord;
+use crate::pds::inventory::world::JoinRefusal;
 use crate::pds::inventory::{WorldHead, WorldItem};
 use crate::protocol::{DeclineReason, OverlandsMessage};
 use crate::state::{LiveInventoryRecord, PublishFeedback, StoredInventoryRecord};
@@ -83,16 +84,40 @@ pub struct GiftWorldEnded {
     pub giver_did: String,
     /// The name it was offered under.
     pub name: String,
+    /// Wall-clock seconds its offer arrived (#1845): with the offer id and
+    /// the giver, which offer this was - a giver who signs in again counts
+    /// their offer ids from 0 again, so two of their offers can share one.
+    pub offer_arrived_epoch: i64,
     /// Where it landed - its key, and whether a save was started - or why
-    /// it did not, in the toast's words.
+    /// it did not, in the toast's words; a fetch that failed adds the
+    /// fetch's own sentence after them, in brackets (#1845), and a world
+    /// this client would not keep says its own sentence.
     pub outcome: Result<crate::ui::people::AcceptedGift, String>,
+}
+
+/// Why a given world did not land (#1845): told apart because they are
+/// said differently - the giver's saved copy could not be fetched or read,
+/// or this client could not keep the world it read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GiftWorldFailure {
+    /// The parts could not be fetched, or did not join into the world
+    /// their head names ([`crate::pds::inventory::world::fetch_parts`],
+    /// [`JoinRefusal::Damaged`]), or the fetch ran out of time: the load's
+    /// own sentence, which the toast puts in the gift's words - the giver's
+    /// saved copy changed or could not be reached.
+    NotFetched(String),
+    /// The world was read whole, and this client will not keep it: it holds
+    /// what a newer version of Overlands wrote ([`JoinRefusal::Newer`]), or
+    /// [`WorldItem::snapshot`] refuses it. Its own sentence, shown as it is:
+    /// the recipient's own limit, and it says what to do ("Update").
+    NotKept(String),
 }
 
 /// A given world being fetched (#1844): this client's own snapshot of it,
 /// or the sentence saying why not - with everything its landing needs.
 #[derive(Component)]
 pub struct GiftWorldTask {
-    pub task: bevy::tasks::Task<Result<WorldItem, String>>,
+    pub task: bevy::tasks::Task<Result<WorldItem, GiftWorldFailure>>,
     /// The offer being answered.
     pub offer_id: u64,
     /// The giver, as the relay authenticated them: whose data server the
@@ -128,6 +153,32 @@ fn answer_due(offer_arrived_epoch: i64) -> bool {
     crate::state::real_secs_since(offer_arrived_epoch)
         >= crate::config::network::PENDING_OFFER_TIMEOUT_SECS
             - crate::config::network::GIFT_WORLD_ANSWER_MARGIN_SECS
+}
+
+/// The most of a given world's name the not-kept toast quotes (#1845): with
+/// the refusal's own sentence it stays inside the toast's cap
+/// ([`crate::config::ui::toast::MAX_TEXT_CHARS`]), so the advice at the end
+/// of the sentence is never cut off.
+const NOT_KEPT_NAME_CHARS: usize = 16;
+
+/// The toast for a given world this client will not keep (#1845): its name,
+/// elided - a giver may name a gift up to 256 characters - and the
+/// refusal's own sentence whole, whose end says what to do.
+fn not_kept_toast(name: &str, reason: &str) -> String {
+    format!(
+        "Couldn't take \"{}\" - {reason}",
+        crate::notify::elide(name, NOT_KEPT_NAME_CHARS)
+    )
+}
+
+/// Why a given world did not land when its fetch or join failed (#1845), in
+/// the gift's words: what failed is the giver's saved copy, never anything
+/// of the recipient's.
+fn not_fetched_words(giver_label: &str) -> String {
+    format!(
+        "{giver_label}'s saved copy of it has changed since it was offered, or could not be \
+         reached"
+    )
 }
 
 /// What a given world's fetch needs to know about the offer.
@@ -167,9 +218,15 @@ pub(crate) fn spawn_gift_world_task(
     let head = offer.head.clone();
     let parts = (fetch.0)(offer.giver_did.to_owned(), head.clone());
     let task = bevy::tasks::IoTaskPool::get().spawn(async move {
-        let parts = parts.await?;
-        let world = crate::pds::inventory::world::join_parts(&head, &parts)?;
-        WorldItem::snapshot(&world)
+        let parts = parts.await.map_err(GiftWorldFailure::NotFetched)?;
+        let world =
+            crate::pds::inventory::world::join_parts_why(&head, &parts).map_err(|refusal| {
+                match refusal {
+                    JoinRefusal::Damaged(reason) => GiftWorldFailure::NotFetched(reason),
+                    JoinRefusal::Newer(reason) => GiftWorldFailure::NotKept(reason),
+                }
+            })?;
+        WorldItem::snapshot(&world).map_err(GiftWorldFailure::NotKept)
     });
     commands.spawn(GiftWorldTask {
         task,
@@ -210,9 +267,11 @@ pub fn poll_gift_world_tasks(
                 None if now - task.spawned_at > task.deadline_secs
                     || answer_due(task.offer_arrived_epoch) =>
                 {
-                    Err(crate::config::http::timed_out_after(
-                        "Fetching the world",
-                        std::time::Duration::from_secs_f64((now - task.spawned_at).max(0.0)),
+                    Err(GiftWorldFailure::NotFetched(
+                        crate::config::http::timed_out_after(
+                            "Fetching the world",
+                            std::time::Duration::from_secs_f64((now - task.spawned_at).max(0.0)),
+                        ),
                     ))
                 }
                 None => continue,
@@ -247,17 +306,39 @@ pub fn poll_gift_world_tasks(
                     offer_id: task.offer_id,
                     giver_did: task.giver_did.clone(),
                     name: task.name.clone(),
+                    offer_arrived_epoch: task.offer_arrived_epoch,
                     outcome,
                 });
             }
         };
         let world = match result {
             Ok(world) => world,
-            Err(reason) => {
-                tell(Err(format!(
-                    "it could not be fetched from {}'s saved copy - {reason}",
-                    task.giver_label
-                )));
+            Err(GiftWorldFailure::NotKept(reason)) => {
+                // This client's own refusal (#1845): its sentence is the
+                // recipient's to read - "Update, and try again" - so it is
+                // shown as it is, never blamed on the giver's copy.
+                tell(Err(format!("it could not be kept - {reason}")));
+                answer(&mut writer, false, DeclineReason::NotFetched);
+                session_log.warn(
+                    now,
+                    EventPayload::ItemOfferRejected {
+                        offer_id: task.offer_id,
+                        reason: format!("a given world was not kept: {reason}"),
+                    },
+                );
+                toasts.warn(not_kept_toast(&task.name, &reason), now);
+                continue;
+            }
+            Err(GiftWorldFailure::NotFetched(reason)) => {
+                // Said in the gift's words (#1845): the fetch and the join
+                // speak of a load - "damaged", "nothing was loaded" - which
+                // a recipient reads as their own world harmed. What went
+                // wrong with the fetch or the join is the giver's saved copy:
+                // changed since it was offered, or out of reach. The load's
+                // own sentence is kept in the session log, and for the
+                // agent's player.
+                let why = not_fetched_words(&task.giver_label);
+                tell(Err(format!("{why} ({reason})")));
                 answer(&mut writer, false, DeclineReason::NotFetched);
                 session_log.warn(
                     now,
@@ -266,13 +347,7 @@ pub fn poll_gift_world_tasks(
                         reason: format!("a given world was not fetched: {reason}"),
                     },
                 );
-                toasts.warn(
-                    format!(
-                        "Couldn't fetch \"{}\" from {}'s saved copy - {reason}",
-                        task.name, task.giver_label
-                    ),
-                    now,
-                );
+                toasts.warn(format!("Couldn't fetch \"{}\" - {why}.", task.name), now);
                 continue;
             }
         };
@@ -633,7 +708,8 @@ pub(crate) mod tests {
         let ended = |app: &App| app.world().resource::<GiftWorldsEnded>().0.clone();
         let mut app = app_for(ME, InventoryRecord::default(), InventoryRecord::default());
         app.init_resource::<GiftWorldsEnded>();
-        start(&mut app, &fetch, item.head(), ME);
+        let arrived = crate::state::now_epoch_secs();
+        start_arrived(&mut app, &fetch, item.head(), ME, arrived);
         settle(&mut app);
         assert_eq!(
             ended(&app),
@@ -641,6 +717,7 @@ pub(crate) mod tests {
                 offer_id: 4,
                 giver_did: GIVER.to_owned(),
                 name: String::from("harbour"),
+                offer_arrived_epoch: arrived,
                 outcome: Ok(crate::ui::people::AcceptedGift {
                     key: String::from("harbour"),
                     saving: true,
@@ -701,12 +778,29 @@ pub(crate) mod tests {
             answers(&app),
             [(4, GIVER.to_owned(), false, DeclineReason::NotFetched)]
         );
+        // In the gift's words (#1845): the giver's saved copy changed or
+        // was out of reach - never the load's "damaged" or "nothing was
+        // loaded", which read as the recipient's own world harmed. The
+        // load's sentence is kept in the session log.
+        let toasts = toast_lines(&app);
         assert!(
-            toast_lines(&app)
+            toasts.iter().any(|line| line
+                == "Couldn't fetch \"harbour\" - @giver.test's saved copy of it has changed \
+                    since it was offered, or could not be reached."),
+            "{toasts:?}"
+        );
+        assert!(
+            toasts
                 .iter()
-                .any(|line| line.contains("saved copy") && line.contains("part 2 is missing")),
-            "{:?}",
-            toast_lines(&app)
+                .all(|line| !line.contains("part 2 is missing")),
+            "{toasts:?}"
+        );
+        assert!(
+            app.world()
+                .resource::<SessionLog>()
+                .iter()
+                .any(|entry| format!("{:?}", entry.payload).contains("part 2 is missing")),
+            "the detail is kept in the session log"
         );
         // Parts that do not add up to the head fail the same way.
         let mut app = app_for(ME, InventoryRecord::default(), InventoryRecord::default());
@@ -714,6 +808,82 @@ pub(crate) mod tests {
         start(&mut app, &fetch, item.head(), ME);
         settle(&mut app);
         assert_eq!(answers(&app)[0].3, DeclineReason::NotFetched);
+    }
+
+    /// #1845 (critic): a world fetched whole that this client will not keep,
+    /// here for a placement from a newer Overlands, is the recipient's own
+    /// limit, not the giver's copy: the toast passes the refusal's own
+    /// sentence on, "Update" advice and all, and never says the giver's
+    /// saved copy changed or could not be reached.
+    #[test]
+    fn a_world_this_client_will_not_keep_says_its_own_reason() {
+        let mut json: serde_json::Value = serde_json::from_str(
+            &crate::pds::inventory::world::canonical_json(&seeded_world(53)).expect("encodes"),
+        )
+        .expect("decodes");
+        json["placements"]
+            .as_array_mut()
+            .expect("placements")
+            .push(serde_json::json!({ "$type": "network.symbios.place.future" }));
+        let text = serde_json::to_string(&json).expect("encodes");
+        let item = WorldItem::of_text(&text, crate::pds::inventory::world::PART_DATA_BUDGET);
+        let parts = item.slices().expect("held").to_vec();
+        let Err(JoinRefusal::Newer(refusal)) =
+            crate::pds::inventory::world::join_parts_why(item.head(), &parts)
+        else {
+            panic!("the parts join whole, into a world this build will not keep");
+        };
+        assert!(refusal.contains("Update"), "{refusal}");
+
+        let mut app = app_for(ME, InventoryRecord::default(), InventoryRecord::default());
+        let (fetch, _) = recording_fetch(Ok(parts));
+        start(&mut app, &fetch, item.head(), ME);
+        settle(&mut app);
+
+        let toasts = toast_lines(&app);
+        assert_eq!(
+            toasts,
+            [format!("Couldn't take \"harbour\" - {refusal}")],
+            "the snapshot's own sentence"
+        );
+        assert!(
+            toasts.iter().all(|line| !line.contains("saved copy")),
+            "{toasts:?}"
+        );
+        assert!(
+            toasts[0].ends_with("try again."),
+            "not cut short: {toasts:?}"
+        );
+        assert!(
+            app.world()
+                .resource::<LiveInventoryRecord>()
+                .0
+                .worlds
+                .is_empty()
+        );
+        assert_eq!(
+            answers(&app),
+            [(4, GIVER.to_owned(), false, DeclineReason::NotFetched)]
+        );
+    }
+
+    /// #1845 (end review): a giver's 256-character name does not cut the
+    /// refusal's advice off the toast - the name is elided, never the
+    /// sentence - even with a four-digit placement number in it.
+    #[test]
+    fn a_long_gift_name_never_cuts_off_the_advice() {
+        let reason = "placement #1234 could not be read in full: it was saved by a newer \
+                      version of Overlands, or a record holding its copies is damaged. Update, \
+                      or remove placement #1234, and try again.";
+        let mut toasts = crate::notify::Toasts::default();
+        toasts.warn(not_kept_toast(&"w".repeat(256), reason), 0.0);
+        let shown = toasts.shown();
+        assert!(shown[0].1.ends_with("and try again."), "{:?}", shown[0].1);
+        assert!(
+            shown[0].1.contains("\u{2026}\" - "),
+            "the name elided: {:?}",
+            shown[0].1
+        );
     }
 
     /// #1844: a stash that filled while the world was fetched takes

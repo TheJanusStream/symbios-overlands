@@ -445,10 +445,12 @@ pub struct PublishFeedback<R: Send + Sync + 'static> {
     pub live_bytes_at: Option<f64>,
     /// How long the save in flight may run before it is given up, when that
     /// is not the fixed [`crate::config::http::PUBLISH_TASK_DEADLINE`]: an
-    /// Inventory save that writes a world is many requests, each bounded on
-    /// its own, and its deadline grows with them (#1839) - so the status
-    /// line names THAT deadline ([`crate::ui::editable::status_line_text_within`]).
-    /// `None`: the fixed one. Kept by the save's poll.
+    /// Inventory save is many requests - the listing of the saved stash,
+    /// the probes, the batches - each bounded on its own, and its deadline
+    /// grows with them (#1839, #1845) - so the status line names THAT
+    /// deadline ([`crate::ui::editable::status_line_text_within`]). Set for
+    /// every Inventory save; `None` for the World and the Avatar, whose
+    /// deadline is the fixed one. Kept by the save's poll.
     pub gives_up_after_secs: Option<f64>,
     _record: PhantomData<fn() -> R>,
 }
@@ -542,6 +544,21 @@ pub struct InventoryRecordRecovery {
     /// Human-readable fetch error, shown in the banner.
     pub reason: String,
 }
+
+/// Present after an inventory save failed (#1845) until one lands or a
+/// fresh copy of the stash is fetched: a failed save's outcome is not
+/// known - a timeout, or a connection lost after the request was sent, may
+/// have landed some or all of it - so `stored` may be behind the data
+/// server. While it stands the inventory counts as having something to
+/// save even when `live` equals `stored`: a Revert after such a failure
+/// (`live = stored`) would otherwise read "nothing to save", and the
+/// reverted edit - or an item deleted and then reverted - would be what
+/// the next login shows. A save plans against what the data server holds,
+/// so the save it allows writes exactly what is needed, nothing when
+/// nothing is. Read by the Save row, Ctrl+S, the logout guard and the
+/// agent's `save inventory`.
+#[derive(Resource, Debug, Clone, Copy, Default)]
+pub struct InventorySaveUnsettled;
 
 /// The local player's **live** avatar record - what the editor sliders
 /// mutate in real time and what gets broadcast to peers. Diverges from

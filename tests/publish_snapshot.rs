@@ -158,7 +158,7 @@ fn an_inventory_edit_made_during_a_save_stays_dirty() {
             spawned_at: 0.0,
             record_bytes: Some(1),
             published: published.clone(),
-            bound: symbios_overlands::pds::inventory::SaveBound::Whole,
+            bound: symbios_overlands::pds::inventory::SaveBound(0),
         });
 
     run_until_landed(&mut app, |app| {
@@ -204,18 +204,17 @@ fn a_save_writing_a_world_outlives_the_fixed_deadline() {
         symbios_overlands::oauth::stand_in::stand_in_session("did:plc:world", "world.test")
             .expect("a stand-in session"),
     );
-    let fixed = SaveBound::Whole.deadline();
-    let world = SaveBound::PerRequest(20);
+    // A bound of no requests is the fixed deadline alone; a save of twenty
+    // requests is given a request's bound for each (#1839, #1845).
+    let fixed = SaveBound(0).deadline();
+    let world = SaveBound(20);
     assert!(world.deadline() > fixed * 4);
     app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(fixed));
     // The virtual clock clamps a step to a quarter second by default.
     app.world_mut()
         .resource_mut::<Time<Virtual>>()
         .set_max_delta(fixed * 2);
-    for (did, bound) in [
-        ("did:plc:whole", SaveBound::Whole),
-        ("did:plc:world", world),
-    ] {
+    for (did, bound) in [("did:plc:whole", SaveBound(0)), ("did:plc:world", world)] {
         let pending: bevy::tasks::Task<Result<(), String>> =
             bevy::tasks::IoTaskPool::get().spawn(std::future::pending());
         app.world_mut().spawn(PublishInventoryTask {
@@ -279,6 +278,7 @@ fn an_avatar_edit_made_during_a_save_stays_dirty() {
             spawned_at: 0.0,
             record_bytes: Some(1),
             published: published.clone(),
+            written_body: None,
         });
 
     run_until_landed(&mut app, |app| {
@@ -333,6 +333,7 @@ fn saving_a_rigged_body_tells_the_room_its_records_moved() {
             spawned_at: 0.0,
             record_bytes: Some(1),
             published: published.clone(),
+            written_body: None,
         });
 
     run_until_landed(&mut app, |app| {
@@ -504,6 +505,7 @@ fn a_recovery_marker_outlives_a_failed_write_and_retires_on_a_landed_one() {
                 spawned_at: 0.0,
                 record_bytes: Some(1),
                 published,
+                written_body: None,
             });
         run_until_landed(&mut app, |app| {
             app.world()
@@ -540,7 +542,7 @@ fn a_recovery_marker_outlives_a_failed_write_and_retires_on_a_landed_one() {
                 spawned_at: 0.0,
                 record_bytes: Some(1),
                 published,
-                bound: symbios_overlands::pds::inventory::SaveBound::Whole,
+                bound: symbios_overlands::pds::inventory::SaveBound(0),
             });
         run_until_landed(&mut app, |app| {
             app.world()
@@ -610,7 +612,7 @@ fn an_inventory_write_in_flight_does_not_hold_a_portal_travel() {
             spawned_at: 0.0,
             record_bytes: Some(1),
             published: InventoryRecord::default(),
-            bound: symbios_overlands::pds::inventory::SaveBound::Whole,
+            bound: symbios_overlands::pds::inventory::SaveBound(0),
         });
     app.update();
     let (travel, logout) = guard_probe(&app);

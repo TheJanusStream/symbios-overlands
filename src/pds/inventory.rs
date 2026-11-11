@@ -18,9 +18,11 @@
 //! `rkey = hex(fnv1a_64(name))` - deterministic, clock-free (wasm-safe),
 //! stable across content edits, and unique because item names are unique
 //! across the whole stash. The collection **is** the stash: reads walk
-//! `com.atproto.repo.listRecords` (no manifest record), and writes commit
-//! the live-vs-stored diff as ONE atomic `com.atproto.repo.applyWrites`
-//! batch, so a failed save leaves the published stash untouched.
+//! `com.atproto.repo.listRecords` (no manifest record), and a save walks it
+//! again and commits the difference between the live stash and what the
+//! data server holds (#1845) in `com.atproto.repo.applyWrites` batches -
+//! never from the stored copy alone, which a save whose answer was lost
+//! leaves behind it.
 //!
 //! A record carries exactly ONE payload: `generator` (a blueprint, with its
 //! optional `wear`), `avatar` (#1838) or `world` (#1839). A generator
@@ -559,27 +561,43 @@ pub fn max_item_bytes(record: &InventoryRecord) -> Option<usize> {
 /// `skip_serializing`, and until this was measured the only symptom was a
 /// Save button that never lit up.
 pub fn measure_publish(record: &InventoryRecord) -> super::record_size::SizeReadout {
+    measure_publish_and_total(record).0
+}
+
+/// [`measure_publish`], and the sum of every item record's serialized
+/// size, from the one pass (#1845): what a save's bound is sized from
+/// ([`SaveBound::of`]) without serializing the stash a second time.
+pub fn measure_publish_and_total(
+    record: &InventoryRecord,
+) -> (super::record_size::SizeReadout, usize) {
     let mut readout = super::record_size::SizeReadout::default();
+    let mut total = 0usize;
     for (name, generator) in &record.generators {
-        readout.consider(
-            &InventoryItemRecord::new(name, generator, record.wear.get(name)),
-            &format!("inventory item \"{name}\""),
-        );
+        total += readout
+            .consider_sized(
+                &InventoryItemRecord::new(name, generator, record.wear.get(name)),
+                &format!("inventory item \"{name}\""),
+            )
+            .unwrap_or(0);
     }
     for (name, item) in &record.avatars {
-        readout.consider(
-            &InventoryItemRecord::for_avatar(name, item),
-            &format!("inventory item \"{name}\""),
-        );
+        total += readout
+            .consider_sized(
+                &InventoryItemRecord::for_avatar(name, item),
+                &format!("inventory item \"{name}\""),
+            )
+            .unwrap_or(0);
     }
     // A world's head; its parts are each under one request by construction.
     for (name, item) in &record.worlds {
-        readout.consider(
-            &InventoryItemRecord::for_world(name, item.head()),
-            &format!("inventory item \"{name}\""),
-        );
+        total += readout
+            .consider_sized(
+                &InventoryItemRecord::for_world(name, item.head()),
+                &format!("inventory item \"{name}\""),
+            )
+            .unwrap_or(0);
     }
-    readout
+    (readout, total)
 }
 
 // ---------------------------------------------------------------------------
@@ -598,6 +616,9 @@ struct ListRecordsResponse {
 
 #[derive(Deserialize)]
 struct ListedRecord {
+    /// The record's AT-URI; the save's listing keys on its rkey (#1845).
+    #[serde(default)]
+    uri: String,
     value: serde_json::Value,
 }
 
@@ -610,23 +631,22 @@ struct ListedRecord {
 /// `stored` nor `live`, so no save ever deletes it.
 fn fold_listed_items(values: Vec<serde_json::Value>, into: &mut InventoryRecord) {
     for value in values {
-        let Ok(item) = serde_json::from_value::<InventoryItemRecord>(value) else {
-            continue;
-        };
-        let name = item.name.clone();
-        match item.into_payload() {
-            Some(ItemPayload::Generator(generator, wear)) => {
-                into.put_item(name, *generator, wear);
-            }
-            Some(ItemPayload::Avatar(avatar)) => {
-                into.put_avatar(name, *avatar);
-            }
-            Some(ItemPayload::World(head)) => {
-                into.put_world(name, WorldItem::from_head(*head));
-            }
-            None => {}
-        }
+        fold_listed_item(value, into);
     }
+}
+
+/// Fold one listed record value in, as [`fold_listed_items`] does: the
+/// name it was put under, or `None` when it was skipped (no payload, two,
+/// one that does not decode) or refused (another kind holds the name).
+fn fold_listed_item(value: serde_json::Value, into: &mut InventoryRecord) -> Option<String> {
+    let item = serde_json::from_value::<InventoryItemRecord>(value).ok()?;
+    let name = item.name.clone();
+    let put = match item.into_payload()? {
+        ItemPayload::Generator(generator, wear) => into.put_item(name.clone(), *generator, wear),
+        ItemPayload::Avatar(avatar) => into.put_avatar(name.clone(), *avatar),
+        ItemPayload::World(head) => into.put_world(name.clone(), WorldItem::from_head(*head)),
+    };
+    put.then_some(name)
 }
 
 /// Fetch the inventory for `did`. Walks the item collection first (up to
@@ -747,12 +767,217 @@ async fn fetch_legacy_inventory_record(
 // Publish
 // ---------------------------------------------------------------------------
 
-/// Build the `applyWrites` batch that turns the published stash (`stored`)
-/// into the edited one (`live`): creates for new names, updates for changed
-/// items, deletes for removed names - all in sorted-name order across every
-/// kind so the batch is deterministic - plus the legacy-monolith delete when
-/// `legacy_present`. Every written item is size-checked against the
-/// [`super::record_size`] hard ceiling before any network I/O.
+/// What the data server holds in the item collection, read by one
+/// `listRecords` walk before a save plans (#1845) - what the plan diffs
+/// `live` against, rather than `stored`.
+///
+/// `stored` is this client's claim about the data server, and it can be
+/// wrong: a save whose commit landed and whose answer was lost leaves it
+/// behind, and a Revert or a re-add then puts back what the data server no
+/// longer holds. `applyWrites` has no upsert - `#create` over a record that
+/// exists, or `#update` or `#delete` of one that does not, fails the WHOLE
+/// batch - so planning from `stored` failed every later save until a
+/// re-fetch, and an item deleted and then re-added unchanged was skipped as
+/// "unchanged", shown all session and gone at the next login.
+///
+/// The listing is read the way the stash fetch reads it: every record
+/// folded into one [`InventoryRecord`] ([`fold_listed_item`]: exactly one
+/// payload) and sanitised once, so an item the data server holds compares
+/// equal - typed, field by field - to the item `live` holds unchanged
+/// since its own fetch. Nothing is encoded again to compare, and no
+/// record's JSON outlives the page it came on.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct HeldItems {
+    /// The records the stash fetch would load, as it would load them.
+    items: InventoryRecord,
+    /// Every listed rkey: `Some(name)` when it is `item_rkey(name)` of an
+    /// item in [`Self::items`]; `None` for a record the stash never shows -
+    /// no payload, two, or one this build cannot decode, a record its
+    /// sanitiser drops, or one at a key that is not its name's - which a
+    /// save never deletes and never writes over.
+    at: HashMap<String, Option<String>>,
+    /// Whether the walk read the WHOLE collection: it ran out of records,
+    /// not out of pages or of its byte budget. Only a complete listing is
+    /// evidence that a record is ABSENT; past a truncated one the plan
+    /// falls back to `stored` for the keys it did not see.
+    complete: bool,
+}
+
+impl HeldItems {
+    /// Fold one listed record, at `rkey`, in.
+    fn fold(&mut self, rkey: &str, value: serde_json::Value) {
+        let name = fold_listed_item(value, &mut self.items).filter(|name| item_rkey(name) == rkey);
+        self.at.insert(rkey.to_owned(), name);
+    }
+
+    /// Sanitise what was folded, as the stash fetch does, and forget a name
+    /// the sanitiser dropped or renamed: the stash never shows it.
+    fn settle(&mut self) {
+        self.items.sanitize();
+        for name in self.at.values_mut() {
+            if name.as_ref().is_some_and(|name| !self.items.has_name(name)) {
+                *name = None;
+            }
+        }
+    }
+
+    /// The item the data server holds at `name`'s key: `Some(Some(name))`
+    /// when it is one the stash can show, `Some(None)` for a record it
+    /// never shows, `None` when nothing was listed there.
+    fn at_name(&self, name: &str) -> Option<Option<&str>> {
+        self.at.get(&item_rkey(name)).map(Option::as_deref)
+    }
+}
+
+/// Whether `name`'s item in `a` equals `b_name`'s in `b`, kind by kind.
+fn same_item(a: &InventoryRecord, name: &str, b: &InventoryRecord, b_name: &str) -> bool {
+    if let Some(generator) = a.generators.get(name) {
+        b.generators.get(b_name) == Some(generator) && b.wear.get(b_name) == a.wear.get(name)
+    } else if let Some(avatar) = a.avatars.get(name) {
+        b.avatars.get(b_name) == Some(avatar)
+    } else if let Some(item) = a.worlds.get(name) {
+        b.worlds
+            .get(b_name)
+            .is_some_and(|theirs| theirs.head() == item.head())
+    } else {
+        false
+    }
+}
+
+/// Whether `name`'s item in `live`, written and read back as the stash
+/// fetch reads it, equals `theirs` in `held` (#1845). The cheap typed
+/// comparison ([`same_item`]) answers for an item `live` holds as fetched;
+/// an item made this session (copied from the Catalogue, stashed, edited)
+/// can hold values the wire rounds to its 1/10 000 grid, so the data
+/// server's copy of the very record a save wrote differs from it field by
+/// field. Only such an item pays for the round trip, once per save.
+fn same_as_written(
+    live: &InventoryRecord,
+    name: &str,
+    held: &InventoryRecord,
+    theirs: &str,
+) -> bool {
+    let Some(value) = item_record(live, name).and_then(|record| serde_json::to_value(record).ok())
+    else {
+        return false;
+    };
+    let mut read_back = InventoryRecord::default();
+    let Some(read_name) = fold_listed_item(value, &mut read_back) else {
+        return false;
+    };
+    read_back.sanitize();
+    read_back.has_name(&read_name) && same_item(&read_back, &read_name, held, theirs)
+}
+
+/// The record `name`'s item in `stash` is written as, or `None` when the
+/// stash holds no such name.
+fn item_record(stash: &InventoryRecord, name: &str) -> Option<InventoryItemRecord> {
+    if let Some(generator) = stash.generators.get(name) {
+        Some(InventoryItemRecord::new(
+            name,
+            generator,
+            stash.wear.get(name),
+        ))
+    } else if let Some(avatar) = stash.avatars.get(name) {
+        Some(InventoryItemRecord::for_avatar(name, avatar))
+    } else {
+        stash
+            .worlds
+            .get(name)
+            .map(|item| InventoryItemRecord::for_world(name, item.head()))
+    }
+}
+
+/// Whether `name`'s item in `live` equals the one in `stored` - the old
+/// dirty test, which the plan falls back on past a truncated listing.
+fn unchanged_from_stored(live: &InventoryRecord, stored: &InventoryRecord, name: &str) -> bool {
+    stored.has_name(name) && same_item(live, name, stored, name)
+}
+
+/// What a save does with one live item.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ItemWrite {
+    /// The data server holds it as it is.
+    Skip,
+    Create,
+    Update,
+}
+
+/// What a save does with `name`'s item in `live` (#1845), from what the
+/// data server holds at its key: nothing when it holds the same item, an
+/// `#update` when it holds a different one the stash can show, an
+/// `#create` when a complete listing has no record there. A record the
+/// stash never shows at that key is never written over: an untouched item
+/// (unchanged from `stored`) writes nothing, and a new or edited one
+/// refuses the save by its name. Past a truncated listing a key not seen
+/// is judged by `stored`, as every save was before #1845.
+fn item_write(
+    live: &InventoryRecord,
+    stored: &InventoryRecord,
+    held: &HeldItems,
+    name: &str,
+) -> Result<ItemWrite, String> {
+    match held.at_name(name) {
+        Some(Some(theirs)) => Ok(
+            if same_item(live, name, &held.items, theirs)
+                || same_as_written(live, name, &held.items, theirs)
+            {
+                ItemWrite::Skip
+            } else {
+                ItemWrite::Update
+            },
+        ),
+        Some(None) if unchanged_from_stored(live, stored, name) => Ok(ItemWrite::Skip),
+        Some(None) => Err(format!(
+            "\"{name}\" can't be saved: your saved inventory already holds an item under that \
+             name that this version of Overlands can't read - perhaps one saved by a newer \
+             version. Rename it and save again."
+        )),
+        None if held.complete => Ok(ItemWrite::Create),
+        None if unchanged_from_stored(live, stored, name) => Ok(ItemWrite::Skip),
+        None if stored.has_name(name) => Ok(ItemWrite::Update),
+        None => Ok(ItemWrite::Create),
+    }
+}
+
+/// `stored`'s worlds as the part planning should see them (#1845): the
+/// world heads the item plan writes count as written. A stored head equal
+/// to the live one is dropped from the map when the data server lacks it or
+/// holds another - a deleted world re-added unchanged - so its parts are
+/// probed and created like any written head's, never assumed there.
+fn worlds_as_planned(
+    live: &InventoryRecord,
+    stored: &InventoryRecord,
+    held: &HeldItems,
+) -> HashMap<String, WorldItem> {
+    stored
+        .worlds
+        .iter()
+        .filter(|(name, item)| {
+            live.worlds.get(*name) != Some(*item)
+                || !matches!(
+                    item_write(live, stored, held, name),
+                    Ok(ItemWrite::Create | ItemWrite::Update)
+                )
+        })
+        .map(|(name, item)| (name.clone(), item.clone()))
+        .collect()
+}
+
+/// Build the `applyWrites` batch that turns what the data server holds
+/// (`held`, #1845) into the edited stash (`live`): creates for items it
+/// lacks, updates for items it holds differently, deletes for items the
+/// stash loaded (`stored`) that `live` no longer has and the data server
+/// still holds - all in sorted-name order across every kind so the batch is
+/// deterministic - plus the legacy-monolith delete when `legacy_present`.
+/// Every written item is size-checked against the [`super::record_size`]
+/// hard ceiling before any network I/O.
+///
+/// A record the data server holds that this build cannot read is never
+/// deleted and never overwritten ([`HeldItems`]); a delete is planned only
+/// for a name `stored` holds, so an item the stash fetch never read (past
+/// its page or byte budget, #1292) is never deleted either, and an orphan a
+/// lost save created is left for the next login to show.
 ///
 /// A world item's parts (#1839) wrap the item writes in the order that
 /// keeps every read safe: the parts a written head names and the data
@@ -760,54 +985,37 @@ async fn fetch_legacy_inventory_record(
 /// ([`world::plan_part_creates`]), so a head never names a part that is not
 /// there; the parts a stored head named, no live one does, and the data
 /// server holds come LAST ([`world::plan_part_deletes`]), so a head is gone
-/// before its parts are. A plan without worlds writes exactly what it did
-/// before #1839.
+/// before its parts are. Which heads count as written follows the item plan
+/// ([`worlds_as_planned`]). A plan without worlds writes no parts.
 ///
 /// An item that changed KIND under one name (deleted, then the name reused
 /// by another kind) is one rkey, so it is an update - never a delete and a
 /// create of the same key in one batch.
 ///
-/// Pure so the diff/migration policy is unit-testable; the create-vs-update
-/// choice trusts `stored` to mirror the PDS (single-writer assumption - on
-/// drift the PDS rejects the batch atomically and the save stays retryable).
+/// Pure so the diff/migration policy is unit-testable.
 fn plan_item_writes(
     live: &InventoryRecord,
     stored: &InventoryRecord,
     legacy_present: bool,
     existing_parts: &HashSet<String>,
+    held: &HeldItems,
 ) -> Result<Vec<RepoWrite>, String> {
-    let mut writes = world::plan_part_creates(&live.worlds, &stored.worlds, existing_parts)?;
+    let stored_worlds = worlds_as_planned(live, stored, held);
+    let mut writes = world::plan_part_creates(&live.worlds, &stored_worlds, existing_parts)?;
 
     let mut live_names: Vec<&String> = live.names().collect();
     live_names.sort();
     for name in live_names {
-        let exists = stored.has_name(name);
-        let item = if let Some(generator) = live.generators.get(name) {
-            let wear = live.wear.get(name);
-            let unchanged = stored
-                .generators
-                .get(name)
-                .is_some_and(|old| old == generator && stored.wear.get(name) == wear);
-            if unchanged {
-                continue;
-            }
-            InventoryItemRecord::new(name, generator, wear)
-        } else if let Some(avatar) = live.avatars.get(name) {
-            if stored.avatars.get(name) == Some(avatar) {
-                continue;
-            }
-            InventoryItemRecord::for_avatar(name, avatar)
-        } else if let Some(item) = live.worlds.get(name) {
-            if stored.worlds.get(name) == Some(item) {
-                continue;
-            }
-            InventoryItemRecord::for_world(name, item.head())
-        } else {
+        let verb = item_write(live, stored, held, name)?;
+        if verb == ItemWrite::Skip {
+            continue;
+        }
+        let Some(item) = item_record(live, name) else {
             continue;
         };
         super::record_size::preflight(&item, &format!("inventory item \"{name}\""))?;
         let value = serde_json::to_value(&item).map_err(|e| format!("serialize: {e}"))?;
-        let write = if exists {
+        let write = if verb == ItemWrite::Update {
             RepoWrite::Update {
                 collection: INVENTORY_ITEM_COLLECTION.into(),
                 rkey: item_rkey(name),
@@ -848,10 +1056,22 @@ fn plan_item_writes(
     let mut removed: Vec<&String> = stored.names().filter(|name| !live.has_name(name)).collect();
     removed.sort();
     for name in removed {
-        writes.push(RepoWrite::Delete {
-            collection: INVENTORY_ITEM_COLLECTION.into(),
-            rkey: item_rkey(name),
-        });
+        let rkey = item_rkey(name);
+        let delete = match held.at_name(name) {
+            // There, and an item the stash can show: the one it loaded.
+            Some(Some(_)) => true,
+            // There, but one the stash would not show - another client's
+            // since: left alone.
+            Some(None) => false,
+            // Gone already, by a complete listing; else as `stored` says.
+            None => !held.complete,
+        };
+        if delete {
+            writes.push(RepoWrite::Delete {
+                collection: INVENTORY_ITEM_COLLECTION.into(),
+                rkey,
+            });
+        }
     }
 
     if legacy_present {
@@ -863,18 +1083,163 @@ fn plan_item_writes(
 
     writes.extend(world::plan_part_deletes(
         &live.worlds,
-        &stored.worlds,
+        &stored_worlds,
         existing_parts,
     ));
     Ok(writes)
 }
 
+/// [`plan_item_writes`] with the data server holding exactly what `stored`
+/// says, as it does whenever `stored` is true to it. Test-only: the tests
+/// of everything but the listing plan from it.
+#[cfg(test)]
+fn plan_trusting_stored(
+    live: &InventoryRecord,
+    stored: &InventoryRecord,
+    legacy_present: bool,
+    existing_parts: &HashSet<String>,
+) -> Result<Vec<RepoWrite>, String> {
+    plan_item_writes(
+        live,
+        stored,
+        legacy_present,
+        existing_parts,
+        &held_as_stored(stored),
+    )
+}
+
+/// What the data server holds when it holds exactly `stored`. Test-only.
+#[cfg(test)]
+fn held_as_stored(stored: &InventoryRecord) -> HeldItems {
+    HeldItems {
+        items: stored.clone(),
+        at: stored
+            .names()
+            .map(|name| (item_rkey(name), Some(name.clone())))
+            .collect(),
+        complete: true,
+    }
+}
+
+/// One page of the item collection, within what is left of the walk's
+/// byte budget: the page, and the bytes it took - or `None` when the page
+/// would take more than is left, which ends the walk as a truncated one,
+/// as the page cap does.
+async fn list_item_page(
+    client: &reqwest::Client,
+    pds: &str,
+    did: &str,
+    cursor: Option<String>,
+    budget: usize,
+) -> Result<Option<(ListRecordsResponse, usize)>, String> {
+    let url = format!("{pds}/xrpc/com.atproto.repo.listRecords");
+    let mut query: Vec<(&str, String)> = vec![
+        ("repo", did.to_string()),
+        ("collection", INVENTORY_ITEM_COLLECTION.to_string()),
+        ("limit", "100".to_string()),
+    ];
+    if let Some(cursor) = cursor {
+        query.push(("cursor", cursor));
+    }
+    let resp = client
+        .get(&url)
+        .query(&query)
+        .send()
+        .await
+        .map_err(|e| format!("couldn't read your saved inventory: {e}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(format!(
+            "couldn't read your saved inventory: the data server answered {status}"
+        ));
+    }
+    if resp.content_length().is_some_and(|len| len > budget as u64) {
+        return Ok(None);
+    }
+    let Some(bytes) = super::xrpc::read_capped_body(resp, budget).await else {
+        return Ok(None);
+    };
+    let read = bytes.len();
+    serde_json::from_slice(&bytes)
+        .map(|page| Some((page, read)))
+        .map_err(|e| format!("couldn't read your saved inventory: {e}"))
+}
+
+/// Read [`HeldItems`] from `did`'s data server at `pds`: one `listRecords`
+/// walk of the item collection, paged and budgeted exactly as the stash
+/// fetch is ([`fetch_inventory_record`]: at most
+/// [`crate::config::state::MAX_INVENTORY_LIST_PAGES`] pages of 100 within
+/// [`crate::config::state::MAX_INVENTORY_FETCH_BYTES`]), each page bounded
+/// on its own (`run_or`). Running out of pages or of the budget leaves the
+/// listing incomplete, never fails the save. Each page is folded in as it
+/// arrives and its JSON let go; the whole is sanitised once at the end.
+async fn list_held_items(
+    client: &reqwest::Client,
+    pds: &str,
+    did: &str,
+) -> Result<HeldItems, String> {
+    use crate::config::http::{run_or, timed_out};
+    let mut held = HeldItems::default();
+    let mut cursor: Option<String> = None;
+    let mut budget = crate::config::state::MAX_INVENTORY_FETCH_BYTES;
+    for _ in 0..crate::config::state::MAX_INVENTORY_LIST_PAGES {
+        let Some((page, read)) = run_or(
+            list_item_page(client, pds, did, cursor.take(), budget),
+            Err(timed_out("Reading your saved inventory")),
+        )
+        .await?
+        else {
+            break;
+        };
+        budget = budget.saturating_sub(read);
+        let empty_page = page.records.is_empty();
+        for listed in page.records {
+            // at://did/collection/rkey - the rkey is the last path segment.
+            let rkey = listed.uri.rsplit('/').next().unwrap_or_default().to_owned();
+            if !rkey.is_empty() {
+                held.fold(&rkey, listed.value);
+            }
+        }
+        cursor = page.cursor;
+        if cursor.is_none() || empty_page {
+            held.complete = true;
+            break;
+        }
+        if budget == 0 {
+            break;
+        }
+    }
+    held.settle();
+    Ok(held)
+}
+
+/// The writes a save of `live` over `stored` makes against `did`'s data
+/// server at `pds`: the item collection read ([`list_held_items`]), the
+/// parts it may write or delete probed ([`world::probe_parts`]), then
+/// [`plan_item_writes`] from the answers.
+async fn plan_save(
+    client: &reqwest::Client,
+    pds: &str,
+    did: &str,
+    live: &InventoryRecord,
+    stored: &InventoryRecord,
+    legacy_present: bool,
+) -> Result<Vec<RepoWrite>, String> {
+    let held = list_held_items(client, pds, did).await?;
+    let stored_worlds = worlds_as_planned(live, stored, &held);
+    let parts = world::parts_to_probe(&live.worlds, &stored_worlds);
+    let existing_parts = world::probe_parts(client, pds, did, &parts).await?;
+    plan_item_writes(live, stored, legacy_present, &existing_parts, &held)
+}
+
 /// Publish the live stash to the signed-in user's PDS as per-item records
-/// (#696): diff against `stored`, then commit creates / updates / deletes -
-/// plus the legacy-monolith delete on first save after migration - as ONE
-/// atomic `com.atproto.repo.applyWrites` batch. A failure leaves the
-/// published stash exactly as it was, so the caller keeps `stored`
-/// unchanged and the save stays dirty and retryable.
+/// (#696): diff against what the data server holds (#1845), then commit
+/// creates / updates / deletes - plus the legacy-monolith delete on first
+/// save after migration - in `com.atproto.repo.applyWrites` batches. A
+/// failure leaves the caller's `stored` unchanged and the save stays dirty
+/// and retryable: the next save diffs against the data server again, so a
+/// batch that landed before a later one failed - or a whole save whose
+/// answer was lost - is planned from what it left there.
 ///
 /// Neither the write COUNT nor the write BYTES bound the stash:
 /// `xrpc::chunk_writes` splits on both. Count matters because
@@ -893,17 +1258,19 @@ fn plan_item_writes(
 ///
 /// A save that writes or deletes a world item (#1839) from a sign-in whose
 /// grant predates the parts collection is refused here, before anything is
-/// read or written ([`world::world_grant_refusal`]). The parts it needs and
-/// the parts it may delete are probed first ([`world::probe_parts`]): an
-/// `#create` over a part that is there and an `#delete` of one that is not
-/// each fail the batch, and a head must never name a part that is gone.
+/// read or written ([`world::world_grant_refusal`]). Before planning, the
+/// item collection is read in one walk ([`list_held_items`]) and the parts
+/// it needs and may delete are probed ([`world::probe_parts`]): an
+/// `#create` over a record that is there and an `#update` or `#delete` of
+/// one that is not each fail the batch, and a head must never name a part
+/// that is gone.
 ///
 /// Every request is bounded on its own (`run_or`) - the data server's
-/// resolution, the legacy check, each probe and each batch - because a save
-/// writing a world is many requests, as a load reading one is
-/// ([`world::fetch_parts`]): one bound over the whole would fail a world of
-/// a few megabytes on a slow uplink every time. How long the caller waits
-/// for the whole is [`SaveBound`].
+/// resolution, the legacy check, each listing page, each probe and each
+/// batch - because a save is many requests, as a load reading a world is
+/// ([`world::fetch_parts`]): one bound over the whole would fail a full
+/// stash's listing or a world of a few megabytes on a slow uplink every
+/// time. How long the caller waits for the whole is [`SaveBound`].
 pub async fn publish_inventory_record(
     client: &reqwest::Client,
     session: &AtprotoSession,
@@ -938,9 +1305,7 @@ pub async fn publish_inventory_record(
     .map_err(|e| format!("legacy inventory check failed: {e}"))?
     .is_some();
 
-    let probe = world::parts_to_probe(&live.worlds, &stored.worlds);
-    let existing_parts = world::probe_parts(client, &pds, &session.did, &probe).await?;
-    let writes = plan_item_writes(live, stored, legacy_present, &existing_parts)?;
+    let writes = plan_save(client, &pds, &session.did, live, stored, legacy_present).await?;
     if writes.is_empty() {
         return Ok(());
     }
@@ -962,92 +1327,109 @@ pub async fn publish_inventory_record(
 }
 
 /// How long a save of `live` over `stored` may take, as its task is
-/// spawned and polled (#1839).
+/// spawned and polled (#1839, #1845): at most this many requests, each
+/// bounded on its own inside [`publish_inventory_record`], and the poll's
+/// deadline grows by a request's bound for every one ([`Self::deadline`]).
 ///
-/// A save that leaves every world alone is what it was before world items:
-/// ONE bound over the whole (`run_or` around the task) and the fixed
-/// [`crate::config::http::PUBLISH_TASK_DEADLINE`] behind it. A save that
-/// writes or deletes a world is many requests - each bounded inside
-/// [`publish_inventory_record`] - so it has no outer bound, and the poll's
-/// deadline grows by a request's bound for every request it can make
-/// ([`Self::PerRequest`], from [`Self::of`]).
+/// Before #1845 a save that left every world alone ran under ONE bound over
+/// the whole and the fixed deadline. A save now reads the item collection
+/// first, up to [`crate::config::state::MAX_INVENTORY_LIST_PAGES`] pages
+/// and [`crate::config::state::MAX_INVENTORY_FETCH_BYTES`] for a full stash,
+/// and one bound over that and the batches would fail a full stash's save
+/// on a slow uplink every time, so every save is bounded per request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SaveBound {
-    /// One bound over the whole save.
-    Whole,
-    /// Each request bounded on its own; at most this many of them.
-    PerRequest(usize),
+pub struct SaveBound(pub usize);
+
+/// What one `#delete` weighs in a request at most: the item and part keys
+/// are 16 and 32 characters, the legacy one `self`.
+fn delete_wire_bytes() -> usize {
+    RepoWrite::Delete {
+        collection: INVENTORY_ITEM_COLLECTION.into(),
+        rkey: "0".repeat(32),
+    }
+    .wire_bytes()
+    .max(
+        RepoWrite::Delete {
+            collection: crate::pds::INVENTORY_PART_COLLECTION.into(),
+            rkey: "0".repeat(32),
+        }
+        .wire_bytes(),
+    )
+}
+
+/// What an item's `#update` adds to its record's bytes in a request: the
+/// write's `$type`, collection and 16-character key.
+fn update_wrapper_bytes() -> usize {
+    RepoWrite::Update {
+        collection: INVENTORY_ITEM_COLLECTION.into(),
+        rkey: "0".repeat(16),
+        value: serde_json::Value::Null,
+    }
+    .wire_bytes()
 }
 
 impl SaveBound {
     /// The bound a save of `live` over `stored` runs under, estimated
-    /// before it is spawned from what it can write and probe - an upper
-    /// bound on its requests: the data server's resolution and the legacy
-    /// check, every probe window, and every batch the plan can need with
-    /// every probed part answered the costly way (each needed part absent,
-    /// each part it may delete there). A part's create fills a request, and
-    /// every item write is counted as one too; the deletes are small, so
-    /// they fill batches by count.
-    pub fn of(live: &InventoryRecord, stored: &InventoryRecord) -> Self {
-        if !world::touches_worlds(&live.worlds, &stored.worlds) {
-            return Self::Whole;
-        }
-        let probes =
-            world::probe_windows(world::parts_to_probe(&live.worlds, &stored.worlds).len());
-        let item_writes = live
-            .names()
-            .filter(|name| {
-                if let Some(generator) = live.generators.get(*name) {
-                    stored.generators.get(*name) != Some(generator)
-                        || stored.wear.get(*name) != live.wear.get(*name)
-                } else if let Some(avatar) = live.avatars.get(*name) {
-                    stored.avatars.get(*name) != Some(avatar)
-                } else if let Some(item) = live.worlds.get(*name) {
-                    stored.worlds.get(*name) != Some(item)
-                } else {
-                    false
-                }
-            })
-            .count();
+    /// before it is spawned - an upper bound on its calls whatever the data
+    /// server turns out to hold: the data server's resolution and the
+    /// legacy check, every page the listing may read, every probe window
+    /// for the parts it may need or delete, and every batch the plan can
+    /// need with EVERY live item written (the listing may find any of them
+    /// missing or different), every part a live head names that this
+    /// session holds created, and every possible delete.
+    ///
+    /// The batches are bounded as `xrpc::chunk_writes` cuts the plan. The
+    /// part creates come first and each nearly fills a request, so each is
+    /// counted as a batch of its own. Of the writes after them - items and
+    /// deletes - a batch closes when it is full by count, at most
+    /// `count / MAX_APPLY_WRITES` times, or when the next write would carry
+    /// it past `MAX_APPLY_WRITES_BYTES`; two such neighbours together hold
+    /// more than that, so at most `2 * ceil(bytes / MAX_APPLY_WRITES_BYTES)`
+    /// times. Plus the last batch - and never more batches than writes.
+    ///
+    /// The item writes' bytes are `item_bytes` - the sum of every item
+    /// record's size, which the caller measures in the pass that finds the
+    /// largest ([`measure_publish_and_total`]) - plus each write's wrapper,
+    /// so this serialises nothing (#1845): it runs in the frame a Save is
+    /// clicked in, and serialising a stash of 500 large items item by item
+    /// a second time took 52 ms.
+    ///
+    /// Each call is one request's bound ([`crate::config::http::run_or`])
+    /// in the browser, where `run_or` races the whole call against its
+    /// timer, so there the count is a true upper bound. Natively the client
+    /// bounds each HTTP request instead, and a call can make more than one:
+    /// a batch whose access token is refreshed or whose DPoP nonce is
+    /// renewed is sent again, and resolving the data server can take more
+    /// than one lookup. So natively the deadline can pass while a save is
+    /// still working - its task is let go and the save may yet land, which
+    /// leaves `stored` behind the data server exactly as a lost answer does,
+    /// and the next save plans from what the data server holds
+    /// ([`HeldItems`]). A probe window's requests run together on both
+    /// targets (`world::join_window`).
+    pub fn of(live: &InventoryRecord, stored: &InventoryRecord, item_bytes: usize) -> Self {
+        let pages = crate::config::state::MAX_INVENTORY_LIST_PAGES;
+        let none = HashMap::new();
+        let probes = world::probe_windows(world::most_parts_to_probe(&live.worlds, &stored.worlds));
+        let part_creates = world::most_part_creates(&live.worlds, &none);
+        let items = live.item_count();
         let deletes = stored.names().filter(|name| !live.has_name(name)).count()
             + 1
             + world::most_part_deletes(&live.worlds, &stored.worlds);
-        let batches = world::most_part_creates(&live.worlds, &stored.worlds)
-            + item_writes
-            + deletes.div_ceil(super::xrpc::MAX_APPLY_WRITES)
+        let writes = items + deletes;
+        let bytes = item_bytes + items * update_wrapper_bytes() + deletes * delete_wire_bytes();
+        let cut = writes / super::xrpc::MAX_APPLY_WRITES
+            + 2 * bytes.div_ceil(super::xrpc::MAX_APPLY_WRITES_BYTES)
             + 1;
-        Self::PerRequest(2 + probes + batches)
-    }
-
-    /// Run `save` - a [`publish_inventory_record`] - under this bound, as
-    /// its task does: inside one `run_or` over the whole for a
-    /// [`Self::Whole`] save, and simply awaited for a [`Self::PerRequest`]
-    /// one. The save bounds each of its requests either way, so a whole save
-    /// nests one bounded call in another (#1853).
-    pub async fn run<F>(self, save: F) -> Result<(), String>
-    where
-        F: std::future::Future<Output = Result<(), String>>,
-    {
-        use crate::config::http::{run_or, timed_out};
-        match self {
-            Self::Whole => run_or(save, Err(timed_out("Saving your inventory"))).await,
-            Self::PerRequest(_) => save.await,
-        }
+        Self(2 + pages + probes + part_creates + cut.min(writes))
     }
 
     /// How long the poll waits for the save before declaring it dead: the
-    /// fixed deadline for a [`Self::Whole`] save, and beyond it a request's
-    /// bound per request for a [`Self::PerRequest`] one - as a world load's
-    /// grows with its windows of parts.
+    /// fixed deadline, and beyond it a request's bound per request - as a
+    /// world load's grows with its windows of parts.
     pub fn deadline(self) -> std::time::Duration {
         use crate::config::http::{PUBLISH_TASK_DEADLINE, REQUEST_TIMEOUT};
-        match self {
-            Self::Whole => PUBLISH_TASK_DEADLINE,
-            Self::PerRequest(requests) => {
-                PUBLISH_TASK_DEADLINE
-                    + REQUEST_TIMEOUT.saturating_mul(u32::try_from(requests).unwrap_or(u32::MAX))
-            }
-        }
+        PUBLISH_TASK_DEADLINE
+            + REQUEST_TIMEOUT.saturating_mul(u32::try_from(self.0).unwrap_or(u32::MAX))
     }
 }
 
@@ -1215,7 +1597,7 @@ mod tests {
             g.transform.translation.0[0] = 5.0;
         }
 
-        let writes = plan_item_writes(&live, &stored, false, &HashSet::new()).unwrap();
+        let writes = plan_trusting_stored(&live, &stored, false, &HashSet::new()).unwrap();
         assert_eq!(
             writes,
             vec![
@@ -1251,7 +1633,7 @@ mod tests {
     fn plan_appends_legacy_migration_delete() {
         let live = stash(&["a"]);
         let stored = stash(&[]);
-        let writes = plan_item_writes(&live, &stored, true, &HashSet::new()).unwrap();
+        let writes = plan_trusting_stored(&live, &stored, true, &HashSet::new()).unwrap();
         assert_eq!(
             writes.last(),
             Some(&RepoWrite::Delete {
@@ -1261,7 +1643,7 @@ mod tests {
         );
         // And with nothing else to do, the legacy delete alone still commits
         // (a Reset after migration ends with an empty collection).
-        let none = plan_item_writes(&stash(&[]), &stash(&[]), false, &HashSet::new()).unwrap();
+        let none = plan_trusting_stored(&stash(&[]), &stash(&[]), false, &HashSet::new()).unwrap();
         assert!(none.is_empty());
     }
 
@@ -1290,7 +1672,7 @@ mod tests {
         let new_names: Vec<String> = (0..cap).map(|i| format!("new_{i}")).collect();
         let stored = stash(&old_names.iter().map(String::as_str).collect::<Vec<_>>());
         let live = stash(&new_names.iter().map(String::as_str).collect::<Vec<_>>());
-        let writes = plan_item_writes(&live, &stored, true, &HashSet::new()).unwrap();
+        let writes = plan_trusting_stored(&live, &stored, true, &HashSet::new()).unwrap();
         assert_eq!(writes.len(), cap * 2 + 1);
 
         let batches = super::super::xrpc::chunk_writes(writes.clone()).unwrap();
@@ -1409,12 +1791,12 @@ mod tests {
         };
         let mut live = stored.clone();
         assert!(
-            plan_item_writes(&live, &stored, false, &HashSet::new())
+            plan_trusting_stored(&live, &stored, false, &HashSet::new())
                 .unwrap()
                 .is_empty()
         );
         live.wear.get_mut("s").unwrap().fit_band_mm = 178;
-        let writes = plan_item_writes(&live, &stored, false, &HashSet::new()).unwrap();
+        let writes = plan_trusting_stored(&live, &stored, false, &HashSet::new()).unwrap();
         assert!(
             matches!(writes.as_slice(), [RepoWrite::Update { .. }]),
             "a fit change alone must republish the item: {writes:?}"
@@ -1879,7 +2261,7 @@ pub(crate) mod avatar_item_tests {
 
         let mut live = stored.clone();
         live.remove_item("good");
-        let writes = plan_item_writes(&live, &stored, false, &HashSet::new()).expect("plans");
+        let writes = plan_trusting_stored(&live, &stored, false, &HashSet::new()).expect("plans");
         assert_eq!(
             writes,
             vec![RepoWrite::Delete {
@@ -1915,7 +2297,7 @@ pub(crate) mod avatar_item_tests {
             .expect("refuses the save");
         assert!(reason.contains("\"future\""), "{reason}");
         assert!(
-            plan_item_writes(&stored.clone(), &stored, false, &HashSet::new())
+            plan_trusting_stored(&stored.clone(), &stored, false, &HashSet::new())
                 .expect("plans")
                 .is_empty()
         );
@@ -2107,7 +2489,7 @@ pub(crate) mod avatar_item_tests {
         live.put_avatar(String::from("c_new"), rigged_item());
         live.avatars.get_mut("b_changed").expect("held").gait = None;
 
-        let writes = plan_item_writes(&live, &stored, false, &HashSet::new()).expect("plans");
+        let writes = plan_trusting_stored(&live, &stored, false, &HashSet::new()).expect("plans");
         let avatar_value =
             |name: &str| value_of(&InventoryItemRecord::for_avatar(name, &live.avatars[name]));
         assert_eq!(
@@ -2134,7 +2516,8 @@ pub(crate) mod avatar_item_tests {
         let mut swapped = stored.clone();
         swapped.remove_item("a_kept");
         swapped.put_avatar(String::from("a_kept"), generator_item());
-        let writes = plan_item_writes(&swapped, &stored, false, &HashSet::new()).expect("plans");
+        let writes =
+            plan_trusting_stored(&swapped, &stored, false, &HashSet::new()).expect("plans");
         assert!(
             matches!(writes.as_slice(), [RepoWrite::Update { rkey, .. }] if *rkey == item_rkey("a_kept")),
             "{writes:?}"
@@ -2146,7 +2529,7 @@ pub(crate) mod avatar_item_tests {
         }
         let mut over = stored.clone();
         over.put_avatar(String::from("galleon"), heavy);
-        let refusal = plan_item_writes(&over, &stored, false, &HashSet::new())
+        let refusal = plan_trusting_stored(&over, &stored, false, &HashSet::new())
             .expect_err("past the request cap");
         assert!(refusal.starts_with("\"galleon\" is "), "{refusal}");
     }
@@ -2269,7 +2652,7 @@ mod world_item_tests {
         let mut live = seen.clone();
         live.remove_item("lamp");
         live.put_item(String::from("bench"), Generator::default_cuboid(), None);
-        let writes = plan_item_writes(&live, &seen, true, &HashSet::new()).expect("plans");
+        let writes = plan_trusting_stored(&live, &seen, true, &HashSet::new()).expect("plans");
         let home = item_rkey("home");
         assert!(
             writes
@@ -2295,7 +2678,7 @@ mod world_item_tests {
         // The data server holds the stored head's parts.
         let on_server: HashSet<String> = old.head().parts.iter().cloned().collect();
 
-        let writes = plan_item_writes(&live, &stored, true, &on_server).expect("plans");
+        let writes = plan_trusting_stored(&live, &stored, true, &on_server).expect("plans");
         assert_eq!(
             writes,
             vec![
@@ -2348,7 +2731,7 @@ mod world_item_tests {
             .into_iter()
             .map(part_rkey)
             .collect();
-        let writes = plan_item_writes(&live, &stored, false, &on_server).expect("plans");
+        let writes = plan_trusting_stored(&live, &stored, false, &on_server).expect("plans");
         assert_eq!(
             writes,
             vec![
@@ -2362,7 +2745,7 @@ mod world_item_tests {
         // And the second delete takes the shared part with it.
         let mut empty = live.clone();
         empty.remove_item("two");
-        let writes = plan_item_writes(&empty, &live, false, &on_server).expect("plans");
+        let writes = plan_trusting_stored(&empty, &live, false, &on_server).expect("plans");
         assert!(writes.contains(&part_delete("aaaaaaaa")), "{writes:?}");
         assert!(writes.contains(&part_delete("cccccccc")), "{writes:?}");
     }
@@ -2382,7 +2765,7 @@ mod world_item_tests {
             stored.put_world(String::from("home"), item);
             let mut live = stored.clone();
             assert!(live.rename_item("home", String::from("cottage")));
-            let writes = plan_item_writes(&live, &stored, false, &on_server).expect("plans");
+            let writes = plan_trusting_stored(&live, &stored, false, &on_server).expect("plans");
             assert_eq!(
                 writes,
                 vec![
@@ -2419,7 +2802,7 @@ mod world_item_tests {
             "every part no stored head names is probed"
         );
         let orphan: HashSet<String> = [part_rkey("aaaaaaaa")].into_iter().collect();
-        let writes = plan_item_writes(&live, &stored, false, &orphan).expect("plans");
+        let writes = plan_trusting_stored(&live, &stored, false, &orphan).expect("plans");
         assert_eq!(writes.first(), Some(&part_create("bbbbbbbb")));
         assert!(!writes.contains(&part_create("aaaaaaaa")), "{writes:?}");
         assert_eq!(writes.len(), 2, "the part and the head: {writes:?}");
@@ -2452,7 +2835,7 @@ mod world_item_tests {
 
         // Only "aaaaaaaa" is still there.
         let on_server: HashSet<String> = [part_rkey("aaaaaaaa")].into_iter().collect();
-        let writes = plan_item_writes(&live, &stored, false, &on_server).expect("plans");
+        let writes = plan_trusting_stored(&live, &stored, false, &on_server).expect("plans");
         let parts: Vec<&RepoWrite> = writes
             .iter()
             .filter(|write| write.key().0 == INVENTORY_PART_COLLECTION)
@@ -2486,7 +2869,7 @@ mod world_item_tests {
             sorted,
             "a stored head naming them is no proof they are there"
         );
-        let writes = plan_item_writes(&live, &stored, false, &HashSet::new()).expect("plans");
+        let writes = plan_trusting_stored(&live, &stored, false, &HashSet::new()).expect("plans");
         assert_eq!(
             &writes[..2],
             &[part_create("aaaaaaaa"), part_create("bbbbbbbb")],
@@ -2499,13 +2882,13 @@ mod world_item_tests {
             String::from("copy"),
             WorldItem::from_head(world.head().clone()),
         );
-        let refusal = plan_item_writes(&listed, &stored, false, &HashSet::new())
+        let refusal = plan_trusting_stored(&listed, &stored, false, &HashSet::new())
             .expect_err("a head naming nothing is never written");
         assert!(refusal.starts_with("\"copy\""), "{refusal}");
 
         // And with the parts there, only the head.
         let on_server: HashSet<String> = world.head().parts.iter().cloned().collect();
-        let writes = plan_item_writes(&listed, &stored, false, &on_server).expect("plans");
+        let writes = plan_trusting_stored(&listed, &stored, false, &on_server).expect("plans");
         assert_eq!(writes.len(), 1, "{writes:?}");
         assert_eq!(
             writes[0].key(),
@@ -2513,20 +2896,18 @@ mod world_item_tests {
         );
     }
 
-    /// A save that leaves every world alone is bounded as it always was:
-    /// one bound over the whole, the fixed deadline. One that writes a world
-    /// is bounded per request, its deadline grown by a request's bound for
-    /// every request it can make - the resolution, the legacy check, the
-    /// probe windows, one batch per part and per item write, the deletes.
-    /// #1853: a save that touches no world runs under one bound over the
-    /// whole, and the save bounds each of its requests inside it. On native
-    /// both were `block_on` on the shared runtime: the inner one panicked
-    /// ("Cannot start a runtime from within a runtime") and the panic took
-    /// the client down with its task - Kairos's first save of a thing, live.
-    /// Here the save gets as far as its first request, resolving the data
-    /// server of a `did:key`, which answers at once with no network.
+    /// #1853: the save bounds each of its requests (`run_or`), and once ran
+    /// under one more bound over the whole as well. On native both were
+    /// `block_on` on the shared runtime: the inner one panicked ("Cannot
+    /// start a runtime from within a runtime") and the panic took the client
+    /// down with its task - Kairos's first save of a thing, live. Since
+    /// #1845 there is no outer bound, but a save still runs its bounded
+    /// requests from a pool thread with no runtime AND from inside the
+    /// shared one without panicking. Here the save gets as far as its first
+    /// request, resolving the data server of a `did:key`, which answers at
+    /// once with no network.
     #[test]
-    fn a_save_without_a_world_runs_its_requests_under_the_whole_bound() {
+    fn a_save_runs_its_bounded_requests_with_or_without_a_runtime() {
         let mut live = InventoryRecord::default();
         assert!(live.put_item(
             String::from("Cat Cottage"),
@@ -2534,8 +2915,6 @@ mod world_item_tests {
             None
         ));
         let stored = InventoryRecord::default();
-        let bound = SaveBound::of(&live, &stored);
-        assert_eq!(bound, SaveBound::Whole);
         let session = crate::oauth::stand_in::stand_in_session(
             "did:key:zkairoswhosesavegoesnowhere",
             "kairos.example",
@@ -2544,37 +2923,50 @@ mod world_item_tests {
         let refresh = crate::oauth::stand_in::stand_in_refresh_ctx().expect("builds");
         let client = reqwest::Client::new();
         let save = publish_inventory_record(&client, &session, &refresh, &live, &stored);
-        let answer = futures_lite::future::block_on(bound.run(save));
+        let answer = futures_lite::future::block_on(save);
+        assert_eq!(answer, Err(String::from("Failed to resolve PDS")));
+        let save = publish_inventory_record(&client, &session, &refresh, &live, &stored);
+        let answer = crate::config::http::block_on(save);
         assert_eq!(answer, Err(String::from("Failed to resolve PDS")));
     }
 
+    /// Every save is bounded per request (#1845), its deadline grown by a
+    /// request's bound for every request it can make whatever the data
+    /// server holds: the resolution, the legacy check, every page the item
+    /// listing may read, the part probe windows, one batch per part create,
+    /// and the item writes and deletes as `chunk_writes` can cut them.
     #[test]
-    fn a_save_writing_a_world_is_bounded_per_request() {
+    fn a_save_is_bounded_per_request() {
         use crate::config::http::{PUBLISH_TASK_DEADLINE, REQUEST_TIMEOUT};
+        use crate::config::state::MAX_INVENTORY_LIST_PAGES as PAGES;
         let mut stored = InventoryRecord::default();
         stored.put_item(String::from("lamp"), Generator::default_cuboid(), None);
         let mut live = stored.clone();
         live.put_item(String::from("bench"), Generator::default_cuboid(), None);
-        assert_eq!(SaveBound::of(&live, &stored), SaveBound::Whole);
-        assert_eq!(SaveBound::Whole.deadline(), PUBLISH_TASK_DEADLINE);
+        // 2 + the listing's pages + no probes + (two small item writes and
+        // the legacy delete: 0 full by count, 2 by bytes, + 1).
+        assert_eq!(
+            SaveBound::of(&live, &stored, measure_publish_and_total(&live).1),
+            SaveBound(2 + PAGES + 3)
+        );
+        assert_eq!(SaveBound(0).deadline(), PUBLISH_TASK_DEADLINE);
 
-        // A world of 40 parts: 2 + 10 probe windows + 40 part creates + 2
-        // item writes (the world's head and the bench) + one batch of
-        // deletes (the legacy check's) + 1.
+        // A world of 40 parts: + 10 part probe windows + 40 part creates.
         let text: String = (0..40).map(|i| format!("{i:08}")).collect();
         live.put_world(String::from("home"), WorldItem::of_text(&text, BUDGET));
         assert_eq!(live.worlds["home"].head().parts.len(), 40);
-        let bound = SaveBound::of(&live, &stored);
-        assert_eq!(bound, SaveBound::PerRequest(2 + 10 + 40 + 2 + 1 + 1));
+        let bound = SaveBound::of(&live, &stored, measure_publish_and_total(&live).1);
+        assert_eq!(bound, SaveBound(2 + PAGES + 10 + 40 + 3));
         assert_eq!(
             bound.deadline(),
-            PUBLISH_TASK_DEADLINE + REQUEST_TIMEOUT * 56,
+            PUBLISH_TASK_DEADLINE + REQUEST_TIMEOUT * u32::try_from(2 + PAGES + 53).unwrap(),
             "it grows with the requests"
         );
 
-        // Deleting it probes its parts and deletes them: still per request.
-        let bound = SaveBound::of(&stored, &live);
-        assert_eq!(bound, SaveBound::PerRequest(2 + 10 + 1 + 1));
+        // Deleting it probes its 40 parts and deletes them with the two
+        // removed names' records: 43 small deletes and the lamp's write.
+        let bound = SaveBound::of(&stored, &live, measure_publish_and_total(&stored).1);
+        assert_eq!(bound, SaveBound(2 + PAGES + 10 + 3));
     }
 
     /// A world whose contents this session no longer holds cannot have its
@@ -2588,8 +2980,9 @@ mod world_item_tests {
             String::from("home"),
             WorldItem::from_head(world.head().clone()),
         );
-        let refusal = plan_item_writes(&live, &InventoryRecord::default(), false, &HashSet::new())
-            .expect_err("nothing to write the parts from");
+        let refusal =
+            plan_trusting_stored(&live, &InventoryRecord::default(), false, &HashSet::new())
+                .expect_err("nothing to write the parts from");
         assert!(refusal.starts_with("\"home\""), "{refusal}");
     }
 
@@ -2701,5 +3094,657 @@ mod world_item_tests {
             "a world the save did not write keeps its contents"
         );
         assert!(live.holds_world_contents());
+    }
+}
+
+/// A save planned against what the data server holds (#1845): `stored` can
+/// be behind it - a save whose commit landed and whose answer was lost, a
+/// Revert or a re-add since - and the plan must come from the data
+/// server's own records, read in one listing walk. Driven through the real
+/// listing and probes against a stand-in data server on a local port.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod retry_tests {
+    use super::*;
+    use std::collections::BTreeMap;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::{Arc, Mutex};
+
+    const DID: &str = "did:plc:answerlost22222222222222";
+
+    /// What the stand-in data server holds: (collection, rkey) -> value.
+    type Held = Arc<Mutex<BTreeMap<(String, String), serde_json::Value>>>;
+    /// Every request it answered, as `xrpc-method collection`.
+    type Asked = Arc<Mutex<Vec<String>>>;
+
+    /// One query parameter of a request line's target.
+    fn param(target: &str, name: &str) -> Option<String> {
+        target
+            .split(['?', '&'])
+            .find_map(|pair| pair.strip_prefix(&format!("{name}=")))
+            .map(str::to_owned)
+    }
+
+    /// The answer to one request: `getRecord` from `held` (the record, or
+    /// `RecordNotFound` as the reference server says it), `listRecords`
+    /// in rkey order, `limit` a page after `cursor` - with a cursor (its
+    /// last rkey) on EVERY non-empty page, as the reference server gives
+    /// one, so a walk ends on an empty page.
+    fn answer(held: &Held, target: &str) -> (&'static str, String) {
+        let held = held.lock().expect("unpoisoned");
+        let collection = param(target, "collection").unwrap_or_default();
+        if target.contains("listRecords") {
+            let limit: usize = param(target, "limit")
+                .and_then(|l| l.parse().ok())
+                .unwrap_or(50);
+            let after = param(target, "cursor").unwrap_or_default();
+            let mut page: Vec<serde_json::Value> = Vec::new();
+            for ((c, rkey), value) in held.iter() {
+                if *c != collection || rkey.as_str() <= after.as_str() {
+                    continue;
+                }
+                if page.len() == limit {
+                    break;
+                }
+                page.push(serde_json::json!({
+                    "uri": format!("at://{DID}/{c}/{rkey}"),
+                    "cid": "bafy",
+                    "value": value,
+                }));
+            }
+            let cursor = page
+                .last()
+                .and_then(|r| r["uri"].as_str())
+                .and_then(|uri| uri.rsplit('/').next())
+                .map(str::to_owned);
+            let body = serde_json::json!({ "records": page, "cursor": cursor });
+            return ("200 OK", body.to_string());
+        }
+        let key = (collection, param(target, "rkey").unwrap_or_default());
+        match held.get(&key) {
+            Some(value) => ("200 OK", serde_json::json!({ "value": value }).to_string()),
+            None => (
+                "400 Bad Request",
+                String::from(r#"{"error":"RecordNotFound","message":"Could not locate record"}"#),
+            ),
+        }
+    }
+
+    /// A data server answering from `held`, one request a connection, for
+    /// as long as the test runs, writing down every request in `asked`.
+    fn serve(held: Held, asked: Asked) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        std::thread::spawn(move || {
+            for sock in listener.incoming() {
+                let Ok(mut sock) = sock else {
+                    return;
+                };
+                let mut request = [0u8; 8192];
+                let read = sock.read(&mut request).unwrap_or(0);
+                let request = String::from_utf8_lossy(&request[..read]);
+                let target = request.split_whitespace().nth(1).unwrap_or_default();
+                let method = target
+                    .split('?')
+                    .next()
+                    .and_then(|path| path.rsplit('.').next())
+                    .unwrap_or_default();
+                asked.lock().expect("unpoisoned").push(format!(
+                    "{method} {}",
+                    param(target, "collection").unwrap_or_default()
+                ));
+                let (status, body) = answer(&held, target);
+                let response = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = sock.write_all(response.as_bytes());
+                let _ = sock.flush();
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    /// Commit `batch` to `held` as `applyWrites` does: all or nothing, and
+    /// refused whole for a create over a record that exists, or an update
+    /// or a delete of one that does not.
+    fn commit(held: &Held, batch: &[RepoWrite]) -> Result<(), String> {
+        let mut held = held.lock().expect("unpoisoned");
+        let mut after = held.clone();
+        for write in batch {
+            let (collection, rkey) = write.key();
+            let key = (collection.to_owned(), rkey.to_owned());
+            match write {
+                RepoWrite::Create { value, .. } => {
+                    if after.insert(key.clone(), value.clone()).is_some() {
+                        return Err(format!("create over an existing record: {key:?}"));
+                    }
+                }
+                RepoWrite::Update { value, .. } => {
+                    if after.insert(key.clone(), value.clone()).is_none() {
+                        return Err(format!("update of a missing record: {key:?}"));
+                    }
+                }
+                RepoWrite::Delete { .. } => {
+                    if after.remove(&key).is_none() {
+                        return Err(format!("delete of a missing record: {key:?}"));
+                    }
+                }
+            }
+        }
+        *held = after;
+        Ok(())
+    }
+
+    /// Commit a whole plan, batch by batch.
+    fn commit_all(held: &Held, writes: Vec<RepoWrite>) -> Result<(), String> {
+        for batch in crate::pds::xrpc::chunk_writes(writes)? {
+            commit(held, &batch)?;
+        }
+        Ok(())
+    }
+
+    /// One save's plan, through the listing and the probes, against the
+    /// stand-in.
+    fn plan(
+        pds: &str,
+        live: &InventoryRecord,
+        stored: &InventoryRecord,
+    ) -> Result<Vec<RepoWrite>, String> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .expect("client");
+        crate::config::http::block_on(plan_save(&client, pds, DID, live, stored, false))
+    }
+
+    /// What a stash puts on the data server: every item's record, and every
+    /// part its world heads name.
+    fn records_of(stash: &InventoryRecord) -> BTreeMap<(String, String), serde_json::Value> {
+        let items = stash.names().map(|name| {
+            let record = item_record(stash, name).expect("an item");
+            (
+                (INVENTORY_ITEM_COLLECTION.to_owned(), item_rkey(name)),
+                serde_json::to_value(record).expect("serialises"),
+            )
+        });
+        let parts = stash.worlds.values().flat_map(|item| {
+            item.head().parts.iter().map(|key| {
+                (
+                    (
+                        crate::pds::INVENTORY_PART_COLLECTION.to_owned(),
+                        key.clone(),
+                    ),
+                    serde_json::json!({}),
+                )
+            })
+        });
+        items.chain(parts).collect()
+    }
+
+    /// The (collection, rkey) keys the stand-in holds.
+    fn keys(held: &Held) -> Vec<(String, String)> {
+        held.lock().expect("unpoisoned").keys().cloned().collect()
+    }
+
+    fn keys_of(stash: &InventoryRecord) -> Vec<(String, String)> {
+        records_of(stash).into_keys().collect()
+    }
+
+    fn stand_in(stash: &InventoryRecord) -> (Held, Asked, String) {
+        let held: Held = Arc::new(Mutex::new(records_of(stash)));
+        let asked: Asked = Arc::new(Mutex::new(Vec::new()));
+        let pds = serve(Arc::clone(&held), Arc::clone(&asked));
+        (held, asked, pds)
+    }
+
+    fn stash_of(names: &[&str]) -> InventoryRecord {
+        let mut stash = InventoryRecord::default();
+        for name in names {
+            assert!(stash.put_item((*name).to_owned(), Generator::default_cuboid(), None));
+        }
+        stash
+    }
+
+    /// The commit lands, its answer is lost - `stored` stays what it was -
+    /// and the same save is tried again: it must land, leaving the data
+    /// server holding exactly the live stash. Before #1845 the retry
+    /// `#create`d the new item over the record the first commit wrote, and
+    /// the data server refused it whole - every later save too, until a
+    /// re-fetch.
+    #[test]
+    fn a_save_whose_answer_was_lost_is_retried_from_what_the_data_server_holds() {
+        let stored = stash_of(&["kept", "removed"]);
+        let mut live = stored.clone();
+        assert!(live.remove_item("removed"));
+        assert!(live.put_item(String::from("added"), Generator::default_cuboid(), None));
+        assert!(live.put_world(
+            String::from("home"),
+            WorldItem::of_text("aaaaaaaabbbbbbbb", 8)
+        ));
+        let (held, asked, pds) = stand_in(&stored);
+
+        // The first save lands; its answer never comes back.
+        commit_all(&held, plan(&pds, &live, &stored).expect("plans")).expect("lands");
+        // One page and the empty page its cursor leads to.
+        let listings = |asked: &Asked| {
+            asked
+                .lock()
+                .expect("unpoisoned")
+                .iter()
+                .filter(|request| request.starts_with("listRecords"))
+                .count()
+        };
+        assert_eq!(
+            listings(&asked),
+            2,
+            "{:?}",
+            asked.lock().expect("unpoisoned")
+        );
+        assert_eq!(keys(&held), keys_of(&live));
+
+        // The retry, from the same `stored`: nothing left to write.
+        let retry = plan(&pds, &live, &stored).expect("plans");
+        assert!(retry.is_empty(), "the data server holds it all: {retry:?}");
+
+        // And a save over an up-to-date `stored` still writes what it did:
+        // a create of a new name, a delete of a removed one.
+        let mut next = live.clone();
+        assert!(next.remove_item("kept"));
+        assert!(next.put_item(String::from("fresh"), Generator::default_cuboid(), None));
+        let writes = plan(&pds, &next, &live).expect("plans");
+        assert!(writes.contains(&RepoWrite::Delete {
+            collection: INVENTORY_ITEM_COLLECTION.into(),
+            rkey: item_rkey("kept"),
+        }));
+        assert!(writes.iter().any(|write| matches!(
+            write,
+            RepoWrite::Create { rkey, .. } if *rkey == item_rkey("fresh")
+        )));
+        commit_all(&held, writes).expect("lands");
+        assert_eq!(keys(&held), keys_of(&next));
+    }
+
+    /// The critic's case (#1845): `x` is removed and the save lands, its
+    /// answer lost; the owner then has an `x` again that differs from
+    /// `stored`'s - a Revert and an edit, a re-add, a rename back - and
+    /// saves. Planned from `stored` that was an `#update` of a record the
+    /// data server no longer holds, refused whole on every later save.
+    #[test]
+    fn an_item_back_after_a_lost_delete_is_created_not_updated() {
+        let stored = stash_of(&["kept", "x"]);
+        let (held, _, pds) = stand_in(&stored);
+        let mut without = stored.clone();
+        assert!(without.remove_item("x"));
+        commit_all(&held, plan(&pds, &without, &stored).expect("plans")).expect("lands");
+
+        let mut back = stored.clone();
+        back.generators
+            .get_mut("x")
+            .expect("x")
+            .transform
+            .translation
+            .0[0] = 5.0;
+        let writes = plan(&pds, &back, &stored).expect("plans");
+        assert!(
+            matches!(writes.as_slice(), [RepoWrite::Create { rkey, .. }] if *rkey == item_rkey("x")),
+            "{writes:?}"
+        );
+        commit_all(&held, writes).expect("the save lands");
+        assert_eq!(keys(&held), keys_of(&back));
+    }
+
+    /// An item deleted and put back exactly as it was (#1845): the delete
+    /// landed with its answer lost, then a Revert or a re-add put the same
+    /// item back. Planned from `stored` it was "unchanged" and skipped, so
+    /// the Inventory showed it all session and it was gone at the next
+    /// login - silent item loss.
+    #[test]
+    fn an_item_deleted_then_put_back_unchanged_is_saved_again() {
+        let stored = stash_of(&["kept", "x"]);
+        let (held, _, pds) = stand_in(&stored);
+        let mut without = stored.clone();
+        assert!(without.remove_item("x"));
+        commit_all(&held, plan(&pds, &without, &stored).expect("plans")).expect("lands");
+        assert!(!keys(&held).contains(&(INVENTORY_ITEM_COLLECTION.to_owned(), item_rkey("x"))));
+
+        let back = stored.clone();
+        let writes = plan(&pds, &back, &stored).expect("plans");
+        assert!(
+            matches!(writes.as_slice(), [RepoWrite::Create { rkey, .. }] if *rkey == item_rkey("x")),
+            "{writes:?}"
+        );
+        commit_all(&held, writes).expect("the save lands");
+        assert_eq!(keys(&held), keys_of(&back));
+    }
+
+    /// The listing reads the data server's own values (#1845): after a lost
+    /// save changed `x`, a Revert puts `stored`'s `x` back in `live` - equal
+    /// to `stored`, different from the data server - and the save must
+    /// write it, or the next login shows the change the owner reverted.
+    #[test]
+    fn a_revert_over_a_lost_edit_is_written() {
+        let stored = stash_of(&["x"]);
+        let (held, _, pds) = stand_in(&stored);
+        let mut edited = stored.clone();
+        edited
+            .generators
+            .get_mut("x")
+            .expect("x")
+            .transform
+            .translation
+            .0[1] = 3.0;
+        commit_all(&held, plan(&pds, &edited, &stored).expect("plans")).expect("lands");
+
+        let writes = plan(&pds, &stored, &stored).expect("plans");
+        assert!(
+            matches!(writes.as_slice(), [RepoWrite::Update { rkey, .. }] if *rkey == item_rkey("x")),
+            "{writes:?}"
+        );
+        commit_all(&held, writes).expect("lands");
+        assert_eq!(
+            held.lock().expect("unpoisoned")
+                [&(INVENTORY_ITEM_COLLECTION.to_owned(), item_rkey("x"))],
+            records_of(&stored)[&(INVENTORY_ITEM_COLLECTION.to_owned(), item_rkey("x"))]
+        );
+    }
+
+    /// A world whose delete landed with its answer lost (#1845, end
+    /// review): the delete took its head AND its parts. Put back with its
+    /// contents - stashed again from the same world, the same head - the
+    /// save must write the parts as well as the head, though the head
+    /// equals `stored`'s ([`worlds_as_planned`]); put back without them - a
+    /// Revert, which holds heads only - it is refused by name, never saved
+    /// as a head naming parts that are gone (a damaged world at the next
+    /// login).
+    #[test]
+    fn a_world_back_after_a_lost_delete_gets_its_parts_or_is_refused() {
+        let world = WorldItem::of_text("aaaaaaaabbbbbbbb", 8);
+        assert_eq!(world.head().parts.len(), 2);
+        let mut stored = stash_of(&["kept"]);
+        assert!(stored.put_world(
+            String::from("home"),
+            WorldItem::from_head(world.head().clone())
+        ));
+        let mut without = stored.clone();
+        assert!(without.remove_item("home"));
+        let lost_delete = || {
+            let (held, _, pds) = stand_in(&stored);
+            commit_all(&held, plan(&pds, &without, &stored).expect("plans")).expect("lands");
+            assert_eq!(keys(&held), keys_of(&without), "head and parts gone");
+            (held, pds)
+        };
+
+        let (held, pds) = lost_delete();
+        let mut back = stored.clone();
+        assert!(back.put_world(String::from("home"), world.clone()));
+        let writes = plan(&pds, &back, &stored).expect("plans");
+        let part_creates = writes
+            .iter()
+            .filter(|w| {
+                matches!(w, RepoWrite::Create { collection, .. }
+                    if collection == crate::pds::INVENTORY_PART_COLLECTION)
+            })
+            .count();
+        assert_eq!(part_creates, 2, "{writes:?}");
+        assert!(
+            matches!(writes.last(), Some(RepoWrite::Create { rkey, .. }) if *rkey == item_rkey("home")),
+            "{writes:?}"
+        );
+        commit_all(&held, writes).expect("lands");
+        assert_eq!(keys(&held), keys_of(&back), "head and both parts back");
+
+        let (_, pds) = lost_delete();
+        let refusal = plan(&pds, &stored, &stored).expect_err("a head naming nothing");
+        assert!(refusal.starts_with("\"home\""), "{refusal}");
+    }
+
+    /// An item made this session holds values the wire rounds (#1845 end
+    /// review): saved once, the data server's copy is the rounded one, and
+    /// a typed comparison alone calls them different - every later save
+    /// would write it again. Read back through the wire, it is the same.
+    #[test]
+    fn an_item_made_this_session_is_not_written_again_every_save() {
+        let stored = stash_of(&["kept"]);
+        let (held, _, pds) = stand_in(&stored);
+        let mut live = stored.clone();
+        let mut made = Generator::default_cuboid();
+        made.transform.translation.0[0] = 0.123_456_79;
+        assert!(live.put_item(String::from("made"), made, None));
+        commit_all(&held, plan(&pds, &live, &stored).expect("plans")).expect("lands");
+
+        let again = plan(&pds, &live, &live).expect("plans");
+        assert!(again.is_empty(), "written once, not every save: {again:?}");
+    }
+
+    /// A listing page past what is left of the walk's byte budget ends the
+    /// walk as a truncated one, as the page cap does, never failing the
+    /// save (#1845 end review): the docs said so, and the decode errored.
+    #[test]
+    fn a_page_past_the_byte_budget_truncates_the_listing() {
+        let (_, _, pds) = stand_in(&stash_of(&["a", "b"]));
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .expect("client");
+        let page = crate::config::http::block_on(list_item_page(&client, &pds, DID, None, 16))
+            .expect("not an error");
+        assert!(page.is_none(), "over the budget: the walk stops there");
+        let page = crate::config::http::block_on(list_item_page(&client, &pds, DID, None, 1 << 20))
+            .expect("reads")
+            .expect("within the budget");
+        assert_eq!(page.0.records.len(), 2);
+    }
+
+    /// A record this build cannot read - a newer client's kind, or two
+    /// payloads - is never deleted and never overwritten (#1845, the
+    /// inventory epic's trap): not by a delete of the name the stash loaded
+    /// there before another client replaced it, not by a Reset, not by the
+    /// untouched copy the stash still holds of what was there before (which
+    /// writes nothing, and blocks no save), and a new or edited item on its
+    /// key refuses the save by name rather than write over it. Nor does a
+    /// save touch a readable record the stash never loaded (past the
+    /// fetch's budget, or an orphan).
+    #[test]
+    fn a_record_this_build_cannot_read_is_left_alone() {
+        let stored = stash_of(&["mine", "replaced"]);
+        let (held, _, pds) = stand_in(&stored);
+        let newer = serde_json::json!({
+            "$type": INVENTORY_ITEM_COLLECTION,
+            "name": "replaced",
+            "starship": { "$type": "network.symbios.overlands.inventory.item#starship" },
+        });
+        let both = serde_json::json!({
+            "$type": INVENTORY_ITEM_COLLECTION,
+            "name": "both",
+            "generator": serde_json::to_value(Generator::default_cuboid()).expect("encodes"),
+            "world": serde_json::to_value(WorldItem::of_text("aaaaaaaa", 8).head()).expect("encodes"),
+        });
+        let orphan = records_of(&stash_of(&["orphan"]));
+        {
+            let mut held = held.lock().expect("unpoisoned");
+            held.insert(
+                (INVENTORY_ITEM_COLLECTION.to_owned(), item_rkey("replaced")),
+                newer.clone(),
+            );
+            held.insert(
+                (INVENTORY_ITEM_COLLECTION.to_owned(), item_rkey("both")),
+                both.clone(),
+            );
+            held.extend(orphan);
+        }
+        let mut listed = HeldItems::default();
+        listed.fold(&item_rkey("replaced"), newer.clone());
+        listed.fold(&item_rkey("both"), both.clone());
+        listed.settle();
+        assert_eq!(listed.at_name("replaced"), Some(None), "never shown");
+        assert_eq!(listed.at_name("both"), Some(None), "never shown");
+
+        // A Reset: only the one record the stash loaded and can read goes.
+        let writes = plan(&pds, &InventoryRecord::default(), &stored).expect("plans");
+        assert_eq!(
+            writes,
+            [RepoWrite::Delete {
+                collection: INVENTORY_ITEM_COLLECTION.into(),
+                rkey: item_rkey("mine"),
+            }]
+        );
+
+        // A new item on an unreadable record's key: refused, by name.
+        let mut live = stored.clone();
+        assert!(live.put_item(String::from("both"), Generator::default_cuboid(), None));
+        let refusal = plan(&pds, &live, &stored).expect_err("never written over");
+        assert!(refusal.starts_with("\"both\" can't be saved"), "{refusal}");
+
+        // The stash still holding, untouched, the name another client has
+        // since replaced: nothing written over it, and the save goes on.
+        let mut other = stored.clone();
+        assert!(other.put_item(String::from("fresh"), Generator::default_cuboid(), None));
+        let writes = plan(&pds, &other, &stored).expect("an untouched copy blocks nothing");
+        assert!(
+            matches!(writes.as_slice(), [RepoWrite::Create { rkey, .. }] if *rkey == item_rkey("fresh")),
+            "{writes:?}"
+        );
+        // Edited, it would write over the newer record: refused by name.
+        let mut edited = stored.clone();
+        edited
+            .generators
+            .get_mut("replaced")
+            .expect("replaced")
+            .transform
+            .translation
+            .0[0] = 2.0;
+        let refusal = plan(&pds, &edited, &stored).expect_err("never written over");
+        assert!(
+            refusal.starts_with("\"replaced\" can't be saved"),
+            "{refusal}"
+        );
+    }
+
+    /// An avatar of a body kind this build has no arm for (#1838) is loaded
+    /// into the stash but never serialises: the listing loads it the same
+    /// way, so an untouched copy compares equal and writes nothing (it once
+    /// planned nothing from `stored`, and must still), and the owner may
+    /// still delete the item the stash showed them.
+    #[test]
+    fn an_avatar_this_build_cannot_write_writes_nothing_and_can_be_deleted() {
+        let vehicle = AvatarItem::from_record(&crate::pds::AvatarRecord::default_for_seed(42))
+            .expect("a vehicle copies");
+        let mut future = serde_json::to_value(InventoryItemRecord::for_avatar("future", &vehicle))
+            .expect("encodes");
+        future["avatar"]["body"] =
+            serde_json::json!({"$type": "network.symbios.overlands.inventory.item#hologram"});
+        let mut stored = stash_of(&["lamp"]);
+        fold_listed_items(vec![future.clone()], &mut stored);
+        assert!(stored.avatars.contains_key("future"));
+        let (held, _, pds) = stand_in(&stash_of(&["lamp"]));
+        held.lock().expect("unpoisoned").insert(
+            (INVENTORY_ITEM_COLLECTION.to_owned(), item_rkey("future")),
+            future,
+        );
+
+        let untouched = plan(&pds, &stored, &stored).expect("plans");
+        assert!(untouched.is_empty(), "{untouched:?}");
+
+        let mut without = stored.clone();
+        assert!(without.remove_item("future"));
+        let writes = plan(&pds, &without, &stored).expect("plans");
+        assert_eq!(
+            writes,
+            [RepoWrite::Delete {
+                collection: INVENTORY_ITEM_COLLECTION.into(),
+                rkey: item_rkey("future"),
+            }]
+        );
+    }
+
+    /// A Reset of a full stash plans from ONE listing walk - a handful of
+    /// pages - not one request per item (#1845 critic): per-key probes made
+    /// it 500 requests, past the one bound a web save then ran under. Its
+    /// bound counts the pages, and the deletes go in a few batches.
+    #[test]
+    fn a_reset_of_a_full_stash_reads_pages_not_items() {
+        use crate::config::state::{MAX_INVENTORY_ITEMS, MAX_INVENTORY_LIST_PAGES};
+        let names: Vec<String> = (0..MAX_INVENTORY_ITEMS)
+            .map(|i| format!("item {i}"))
+            .collect();
+        let stored = stash_of(&names.iter().map(String::as_str).collect::<Vec<_>>());
+        let (held, asked, pds) = stand_in(&stored);
+        let empty = InventoryRecord::default();
+
+        let writes = plan(&pds, &empty, &stored).expect("plans");
+
+        let asked = asked.lock().expect("unpoisoned").clone();
+        assert!(
+            asked
+                .iter()
+                .all(|request| request == &format!("listRecords {INVENTORY_ITEM_COLLECTION}")),
+            "only the listing: {asked:?}"
+        );
+        // Five full pages, and the empty one the last cursor leads to.
+        assert_eq!(
+            asked.len(),
+            MAX_INVENTORY_ITEMS / 100 + 1,
+            "{} requests for {MAX_INVENTORY_ITEMS} items",
+            asked.len()
+        );
+        assert!(asked.len() <= MAX_INVENTORY_LIST_PAGES);
+        assert_eq!(writes.len(), MAX_INVENTORY_ITEMS);
+        let batches = crate::pds::xrpc::chunk_writes(writes.clone()).expect("chunks");
+        let bound = SaveBound::of(&empty, &stored, 0);
+        assert!(
+            2 + MAX_INVENTORY_LIST_PAGES + batches.len() <= bound.0,
+            "the bound {bound:?} holds the {} batches",
+            batches.len()
+        );
+        assert!(bound.0 <= 2 + MAX_INVENTORY_LIST_PAGES + 6, "{bound:?}");
+        commit_all(&held, writes).expect("lands");
+        assert!(keys(&held).is_empty());
+    }
+
+    /// A window's probes are in flight together natively too (#1845): the
+    /// stand-in answers none of four requests until all four have arrived,
+    /// so a window that sent them one after another would wait out the
+    /// client's timeout on the first. Called from a thread with no runtime,
+    /// as the save's task runs.
+    #[test]
+    fn a_probe_windows_requests_run_together_natively() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        std::thread::spawn(move || {
+            let mut waiting = Vec::new();
+            for sock in listener.incoming().take(world::PART_FETCH_CONCURRENCY) {
+                let Ok(mut sock) = sock else {
+                    return;
+                };
+                let mut request = [0u8; 4096];
+                let _ = sock.read(&mut request);
+                waiting.push(sock);
+            }
+            for mut sock in waiting {
+                let body = r#"{"value":{}}"#;
+                let _ = sock.write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                         Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .as_bytes(),
+                );
+                let _ = sock.flush();
+            }
+        });
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .expect("client");
+        let keys: Vec<String> = (0..world::PART_FETCH_CONCURRENCY)
+            .map(|i| format!("{i:032x}"))
+            .collect();
+        let pds = format!("http://{addr}");
+        let held = futures_lite::future::block_on(world::probe_parts(&client, &pds, DID, &keys))
+            .expect("all four answered together");
+        assert_eq!(held.len(), keys.len());
     }
 }

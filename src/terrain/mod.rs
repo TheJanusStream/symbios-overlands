@@ -137,24 +137,15 @@ pub(crate) fn heightmap_is_current(
     source.is_none_or(|s| s.0 == terrain_source_key(record))
 }
 
-/// The key a record's terrain is generated from: its terrain config (the
-/// default one where it has none, as the terrain task falls back to) and its
-/// geodata source's square, as JSON. Equal keys build the same heightmap.
+/// The key a record's heightmap is generated from, as JSON: its ground
+/// ([`SovereignTerrainConfig::ground`](crate::pds::SovereignTerrainConfig::ground)),
+/// which is its terrain config - the default one where it has none, as the
+/// terrain task falls back to - without the splat material and the paths
+/// painted on it, which shape none of it, and its geodata source's square.
+/// Equal keys build the same heightmap: a recolour keeps the key, so neither
+/// the heightmap (#1743) nor what was cut from it, a district's lots
+/// (#1741), is taken for another ground's.
 pub(crate) fn terrain_source_key(record: &crate::pds::RoomRecord) -> Option<String> {
-    terrain_fingerprint(
-        &crate::pds::find_terrain_config(record)
-            .cloned()
-            .unwrap_or_default(),
-        record,
-    )
-}
-
-/// The key of a record's ground (#1741): [`terrain_source_key`] without
-/// the splat material. A recolour builds a new heightmap all the same - the
-/// terrain's fingerprint holds the material, so the terrain is torn down,
-/// heightmap and splat together - but of the same ground, so what was cut
-/// from that ground, a district's lots, stays where it stands.
-pub(crate) fn ground_source_key(record: &crate::pds::RoomRecord) -> Option<String> {
     terrain_fingerprint(
         &crate::pds::find_terrain_config(record)
             .cloned()
@@ -164,12 +155,15 @@ pub(crate) fn ground_source_key(record: &crate::pds::RoomRecord) -> Option<Strin
     )
 }
 
-/// What a heightmap built from `cfg` for `record` depends on, as one string:
-/// the terrain config and the square of the record's geodata source
-/// (#1584), so switching a region to real Berlin, or moving its square,
-/// builds a new heightmap exactly as a terrain edit does. The rest of the
-/// source is the mark of what was seeded into the record (#1647), which
-/// moves no ground: a seeding must not rebuild the city under it.
+/// What a terrain built from `cfg` for `record` draws, as one string: the
+/// land of the terrain config - its ground with the splat material and the
+/// paths painted on it, not its grass (#1700) - and the square of the
+/// record's geodata source (#1584), so switching a region to real Berlin,
+/// or moving its square, builds a new heightmap exactly as a terrain edit
+/// does. The rest of the source is the mark of what was seeded into the
+/// record (#1647), which moves no ground: a seeding must not rebuild the
+/// city under it. Read of the ground alone ([`terrain_source_key`]) it is
+/// the heightmap's key.
 pub(crate) fn terrain_fingerprint(
     cfg: &crate::pds::SovereignTerrainConfig,
     record: &crate::pds::RoomRecord,
@@ -178,8 +172,35 @@ pub(crate) fn terrain_fingerprint(
         .geo_source
         .as_ref()
         .map(|source| (source.dataset.as_str(), source.square()));
-    // Its land only: a grass edit (#1700) builds no new heightmap.
     serde_json::to_string(&(cfg.land(), square)).ok()
+}
+
+/// What the live regenerate tells a terrain edit by (#1743): the key of the
+/// ground its heightmap is built from ([`terrain_source_key`]), and the key
+/// of the terrain as drawn ([`terrain_fingerprint`]) - that ground with the
+/// splat material and the paths painted on it. An edit that changes the
+/// first builds the heightmap again; one that changes the second alone - a
+/// splat layer's texture or colours, a rule, the tile scale, a path - paints
+/// the standing ground again.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct TerrainKeys {
+    ground: String,
+    drawn: String,
+}
+
+impl TerrainKeys {
+    /// The keys of `record`'s terrain: its own config, or the default one
+    /// where it has none, as the terrain task falls back to. `None` where
+    /// either does not serialise.
+    pub(crate) fn of(record: &crate::pds::RoomRecord) -> Option<Self> {
+        let cfg = crate::pds::find_terrain_config(record)
+            .cloned()
+            .unwrap_or_default();
+        Some(Self {
+            ground: terrain_fingerprint(&cfg.ground(), record)?,
+            drawn: terrain_fingerprint(&cfg, record)?,
+        })
+    }
 }
 
 /// The terrain generation gave an answer that is not a heightmap (#1230
@@ -373,17 +394,19 @@ impl TerrainSplatState {
 #[derive(Resource)]
 struct SplatMaterialHandle(Handle<SplatTerrainMaterial>);
 
-/// Serialised fingerprint of the terrain config currently compiled into the
-/// live heightmap. `maybe_regenerate_terrain` compares the active
-/// `RoomRecord`'s terrain config against this and, on mismatch, triggers a
-/// full heightmap/texture/mesh rebuild in place. Without this, a room owner
+/// The keys of the terrain the live ground was built and painted from
+/// ([`TerrainKeys`]). `maybe_regenerate_terrain` compares the active
+/// `RoomRecord`'s terrain against these and, on a mismatch of the ground,
+/// triggers a full heightmap/texture/mesh rebuild in place - or, where only
+/// what is painted on the ground changed, bakes and lays the splat again
+/// over the standing heightmap (#1743). Without this, a room owner
 /// editing noise parameters would desync every guest: the live terrain would
 /// stay frozen for everyone already in the room, while a new guest joining
 /// afterwards would enter `Loading` and generate the *new* terrain - so
 /// older peers and newcomers end up driving on fundamentally different
 /// ground.
 #[derive(Resource, Default)]
-struct LastTerrainConfigJson(Option<String>);
+struct LastTerrainConfigJson(Option<TerrainKeys>);
 
 /// Latest observed terrain target that has not yet been acted on.
 ///
@@ -396,13 +419,13 @@ struct LastTerrainConfigJson(Option<String>);
 /// generator finishes.
 ///
 /// The nesting is load-bearing: the outer `Option` is "is there a pending
-/// change to apply", while the inner `Option<String>` is the *target* -
-/// `Some(fingerprint)` for a terrain config, or `None` when the owner has
+/// change to apply", while the inner `Option<TerrainKeys>` is the *target* -
+/// `Some(keys)` for a terrain config, or `None` when the owner has
 /// deleted the terrain generator and the live heightfield must be torn
 /// down. Collapsing these would lose the deletion signal and leave the
 /// old mesh as orphaned geometry.
 #[derive(Resource, Default)]
-struct PendingTerrainConfigJson(Option<Option<String>>);
+struct PendingTerrainConfigJson(Option<Option<TerrainKeys>>);
 
 /// Synchronously reproduce a record's heightmap off the schedule - the same
 /// params and deterministic [`crate::offload`] core the async terrain task runs,
@@ -980,6 +1003,37 @@ mod fingerprint_tests {
             .expect("the seeded world has a terrain");
         terrain.height_scale = Fp(terrain.height_scale.0 + 1.0);
         assert_ne!(super::terrain_source_key(&record), key);
+    }
+
+    /// #1743: a recolour or a path edit builds no heightmap, so the one
+    /// standing stays the record's own - the lot layer and the Berlin
+    /// seeder go on deciding on it - while an edit of the ground's shape
+    /// leaves it another terrain's until the new one lands.
+    #[test]
+    fn a_recolour_keeps_the_heightmap_current() {
+        use crate::pds::{Fp, GeneratorKind, SovereignTerrainConfig};
+        fn terrain(record: &mut RoomRecord) -> &mut SovereignTerrainConfig {
+            record
+                .generators
+                .values_mut()
+                .find_map(|generator| match &mut generator.kind {
+                    GeneratorKind::Terrain(terrain) => Some(terrain),
+                    _ => None,
+                })
+                .expect("the seeded world has a terrain")
+        }
+        let mut record = RoomRecord::default_for_did("did:plc:print");
+        let source = super::HeightMapSource(super::terrain_source_key(&record));
+        let drawn = super::TerrainKeys::of(&record).expect("keys");
+        terrain(&mut record).material.layers.swap(0, 2);
+        terrain(&mut record).material.rules[1].sharpness = Fp(3.0);
+        terrain(&mut record).paths.width = Fp(terrain(&mut record).paths.width.0 + 1.0);
+        assert!(super::heightmap_is_current(&record, Some(&source)));
+        let painted = super::TerrainKeys::of(&record).expect("keys");
+        assert_eq!(painted.ground, drawn.ground, "the same ground");
+        assert_ne!(painted.drawn, drawn.drawn, "painted otherwise");
+        terrain(&mut record).seed ^= 1;
+        assert!(!super::heightmap_is_current(&record, Some(&source)));
     }
 }
 

@@ -130,6 +130,16 @@ fn ramped(current: Vec3, proposed: Vec3, toward: Vec3, dt: f32) -> Vec3 {
 ///
 /// [`apply_humanoid_walk`]'s step on land and in the wading shallows, and the
 /// render tool's for a walker that sets off as a player does (#1759).
+///
+/// **A body settles under its target, by design** (#1810, measured
+/// 2026-11-10). The chassis meets the ground at avian's default friction
+/// (0.5; nothing here sets `Friction`), which this lerp works against, and
+/// the record's `linear_damping` drags on top: a 1.79 m person walked 1.35 m/s
+/// in the game against its 1.76 target (friction 0.37 m/s of the gap, damping
+/// 0.04) and ran 4.2 against 4.66 (damping 0.10 there). The walk was tuned by
+/// eye at that delivered speed (#1323), and the owner kept the feel over
+/// walking at the target; giving the chassis zero friction, or adding the
+/// loss back here, would speed every on-foot body up by about 0.4 m/s.
 pub(crate) fn land_velocity_step(
     current: Vec3,
     desired: Vec3,

@@ -3137,44 +3137,133 @@ mod tests {
         assert_eq!(click, None, "a disabled Copy does nothing");
     }
 
-    /// Nothing is built on selection or per frame: thirty frames of a world
-    /// entry's detail, the tree that lists it, a search that finds it and
-    /// the preview mirror holding it build no world.
+    /// Nothing is built or written on selection or per frame (#1845): thirty
+    /// frames of the REAL `catalogue_ui` with a world entry selected and a
+    /// search that finds it - the window, the tree, the detail panel reading
+    /// its reasons from the live world and the World Editor - and the
+    /// preview mirror holding it build no world, and leave the live world
+    /// and the editor's state unchanged (the guarded-dirty rule: their
+    /// `ResMut`s are written only on a confirmed Load). It once drew the
+    /// detail alone with reasons worked out beforehand, so neither the
+    /// window's reads nor its change ticks were ever under test.
     #[test]
     fn nothing_is_built_on_selection_or_per_frame() {
         use crate::item_preview::PreviewRequest;
+        use crate::state::{CurrentRoomDid, LiveRoomRecord};
+        use crate::ui::room::RoomEditorState;
         use crate::ui::toolbar::UiPanels;
         use bevy::ecs::system::RunSystemOnce;
 
-        let ctx = egui::Context::default();
-        ctx.enable_accesskit();
         let mut world_app = World::new();
+        world_app.init_resource::<bevy_egui::EguiUserTextures>();
+        let context = world_app
+            .spawn((
+                bevy_egui::EguiContext::default(),
+                bevy_egui::PrimaryEguiContext,
+            ))
+            .id();
+        let ctx = world_app
+            .get_mut::<bevy_egui::EguiContext>(context)
+            .expect("the context entity just spawned")
+            .get_mut()
+            .clone();
         world_app.init_resource::<PreviewRequest>();
         world_app.insert_resource(UiPanels {
             catalogue: true,
             ..Default::default()
         });
+        world_app.init_resource::<crate::ui::layout::WindowLayout>();
+        world_app.init_resource::<crate::ui::layout::LiveWindowRects>();
+        world_app.init_resource::<crate::ui::layout::PanelFreeRect>();
+        world_app.init_resource::<bevy::diagnostic::FrameCount>();
+        world_app.init_resource::<PendingGeneratorDrop>();
+        world_app.init_resource::<crate::ui::avatar::AvatarEditorState>();
+        world_app.init_resource::<crate::ui::undo::PendingUndoLabels>();
+        world_app.init_resource::<crate::notify::Toasts>();
+        world_app.insert_resource(Time::<()>::default());
+        // The owner in their own world, the World Editor holding a
+        // selection: Load is armed, and both resources it may write exist.
+        world_app.insert_resource(crate::ui::room::placement_focus_tests::session(OWNER));
+        world_app.insert_resource(CurrentRoomDid(String::from(OWNER)));
+        world_app.insert_resource(LiveRoomRecord(crate::pds::RoomRecord::default_for_did(
+            OWNER,
+        )));
+        let mut editor = RoomEditorState::default();
+        editor.selected_placement = Some(0);
+        world_app.insert_resource(editor);
         let mut browser = CatalogueBrowser::default();
         browser.select_for_test(Some("worlds_berlin_mitte"), 1.0);
+        browser.search = String::from("mitte");
         world_app.insert_resource(browser);
 
+        let ticks = |world: &World| {
+            (
+                world
+                    .get_resource_change_ticks::<LiveRoomRecord>()
+                    .expect("the live world")
+                    .changed,
+                world
+                    .get_resource_change_ticks::<RoomEditorState>()
+                    .expect("the editor")
+                    .changed,
+            )
+        };
+        let before = ticks(&world_app);
+        fn texts(shape: &egui::Shape, out: &mut Vec<String>) {
+            match shape {
+                egui::Shape::Text(text) => out.push(text.galley.text().to_string()),
+                egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| texts(s, out)),
+                _ => {}
+            }
+        }
+        let mut painted = Vec::new();
         crate::catalogue::worlds::take_build_count();
         for frame in 0..30 {
-            for slug in ["worlds_berlin_mitte", "worlds_fantasy"] {
-                let entry = world(slug);
-                let blocked = world_entry_load_blocked(true, false, true);
-                draw_world_detail(&ctx, entry, blocked, None, vec![], frame);
-            }
-            let _ = build_nodes(BrowseMode::Hierarchy, "mitte");
-            world_app
-                .run_system_once(mirror_preview_request)
-                .expect("the mirror runs");
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1280.0, 720.0),
+                )),
+                time: Some(f64::from(frame) / 60.0),
+                ..Default::default()
+            };
+            let output = ctx.run_headless(input, |_| {
+                world_app
+                    .run_system_once(catalogue_ui)
+                    .expect("the catalogue window draws");
+                world_app
+                    .run_system_once(mirror_preview_request)
+                    .expect("the mirror runs");
+            });
+            painted.clear();
+            output
+                .shapes
+                .iter()
+                .for_each(|clipped| texts(&clipped.shape, &mut painted));
         }
+        // The premise: the window drew the selected world's detail, with
+        // Load armed (no reason painted under it).
+        let name = world("worlds_berlin_mitte").name;
+        for text in [name, "Load into my world", "Copy to inventory"] {
+            assert!(
+                painted.iter().any(|p| p.contains(text)),
+                "the window paints {text}: {painted:?}"
+            );
+        }
+        assert!(
+            !painted.iter().any(|p| p.starts_with("Load: ")),
+            "Load is armed: {painted:?}"
+        );
         assert_eq!(world_app.resource::<PreviewRequest>().0, None);
         assert_eq!(
             crate::catalogue::worlds::take_build_count(),
             0,
             "a world is built only on a click"
+        );
+        assert_eq!(
+            ticks(&world_app),
+            before,
+            "browsing marks neither the live world nor the editor changed"
         );
     }
 

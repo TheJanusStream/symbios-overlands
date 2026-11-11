@@ -16,11 +16,6 @@ use crate::seeded_defaults::room::settlement::SITE_SLOPE;
 const PAD_RELIEF: f32 = 0.3;
 const MAST_RELIEF: f32 = 0.5;
 
-/// How much room a craft takes round its place (m): a helicopter's rotor,
-/// an airship swinging round its mast in the wind.
-const ROTOR: f32 = 6.0;
-const SWING: f32 = 14.0;
-
 /// How much farther a place in front of the view reads than one beside it
 /// (m): it stands there only where nothing that much nearer beside does.
 const AHEAD: f32 = 60.0;
@@ -54,10 +49,11 @@ fn cross_theme(craft: Craft) -> Option<&'static dyn CatalogueEntry> {
 pub(super) fn site(siting: &Siting, craft: Craft) -> Option<Standing> {
     let entry = own_entry(siting.theme, craft).or_else(|| cross_theme(craft))?;
     let radius = entry.footprint().clearance;
-    let (relief, room) = match craft {
-        Craft::Helicopter => (PAD_RELIEF, ROTOR),
-        _ => (MAST_RELIEF, SWING),
+    let relief = match craft {
+        Craft::Helicopter => PAD_RELIEF,
+        _ => MAST_RELIEF,
     };
+    let room = craft.room();
     // Nearest first, those in front of the view as if AHEAD farther.
     let mut points = siting.lattice(1.0, FARTHEST, radius);
     let key = |at: [f32; 2], far: f32| {
@@ -91,13 +87,10 @@ pub(super) fn site(siting: &Siting, craft: Craft) -> Option<Standing> {
 }
 
 impl Standing {
-    /// Its ground and its craft's room round it.
+    /// Its ground and its craft's room round it ([`Craft::room`]), which
+    /// the scatters keep off too (`compile::scatter::kept_room`).
     pub(super) fn ground(&self) -> Vec<Ground> {
-        let room = match self.craft {
-            Craft::Helicopter => ROTOR,
-            _ => SWING,
-        };
-        vec![Ground::disc(self.at, self.radius + room)]
+        vec![Ground::disc(self.at, self.radius + self.craft.room())]
     }
 
     /// Its generator and its placement: built as a building is, off the

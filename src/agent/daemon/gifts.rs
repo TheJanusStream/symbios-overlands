@@ -243,6 +243,7 @@ pub(super) fn record_given_worlds(ended: Option<ResMut<GiftWorldsEnded>>, sink: 
             Ok(landed) => EventKind::GiftWorldLanded {
                 offer_id: world.offer_id,
                 from_did: world.giver_did,
+                offer_arrived_epoch: world.offer_arrived_epoch,
                 item: world.name,
                 landed_as: landed.key,
                 saving: landed.saving,
@@ -250,6 +251,7 @@ pub(super) fn record_given_worlds(ended: Option<ResMut<GiftWorldsEnded>>, sink: 
             Err(reason) => EventKind::GiftWorldNotLanded {
                 offer_id: world.offer_id,
                 from_did: world.giver_did,
+                offer_arrived_epoch: world.offer_arrived_epoch,
                 item: world.name,
                 reason,
             },
@@ -323,11 +325,15 @@ fn respond(world: &mut World, offer_id: u64, accept: bool) -> Result<Value, Stri
     let why_not_saving = |saving: bool| (!saving).then(|| profile.save_refused()).flatten();
     if let (OfferAnswer::Accept { publish }, true) = (answer, is_world) {
         // Answered once its parts land, not now: the game's own fetch is
-        // under way, and its end is an event.
-        let fetching = world
-            .query::<&GiftWorldTask>()
-            .iter(world)
-            .any(|task| task.offer_id == offer_id && task.giver_did == offer.sender_did);
+        // under way, and its end is an event. Matched on when the offer
+        // arrived too (#1845): an admin who signed in again counts offer
+        // ids from 0 again, and an earlier world of the same id may still
+        // be fetching.
+        let fetching = world.query::<&GiftWorldTask>().iter(world).any(|task| {
+            task.offer_id == offer_id
+                && task.giver_did == offer.sender_did
+                && task.offer_arrived_epoch == offer.arrived_at_epoch
+        });
         if !fetching {
             return Err(format!(
                 "the world {:?} could not be fetched; the offer lapses unanswered",
@@ -339,6 +345,7 @@ fn respond(world: &mut World, offer_id: u64, accept: bool) -> Result<Value, Stri
             "is": "world",
             "fetching": offer.item_name,
             "from_did": offer.sender_did,
+            "offer_arrived_epoch": offer.arrived_at_epoch,
             "saves_when_landed": publish,
             "why_not_saving": why_not_saving(publish),
             "ends_with": ["gift_world_landed", "gift_world_not_landed"],
@@ -1291,11 +1298,15 @@ mod tests {
         crate::ui::inventory::gift_world::tests::settle(&mut app);
 
         assert_eq!(*asked.lock().expect("unpoisoned"), [ADMIN.to_owned()]);
+        let arrived = accepted["offer_arrived_epoch"]
+            .as_i64()
+            .expect("the answer names when the offer arrived");
         assert_eq!(
             landings(&log),
             [EventKind::GiftWorldLanded {
                 offer_id: 7,
                 from_did: ADMIN.into(),
+                offer_arrived_epoch: arrived,
                 item: "Harbour".into(),
                 landed_as: "Harbour".into(),
                 saving: true,

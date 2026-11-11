@@ -172,6 +172,12 @@ fn rebuilt_resting_peer(
     app.world_mut()
         .entity_mut(chassis)
         .insert(TransformBuffer::default());
+    // The chassis stands an update before its body lands, as a peer's does
+    // in the game, whose build lands frames after the chassis spawns (#1902,
+    // the rule #1889 found). Here the first fill read the chassis' real place
+    // either way - no launch - and the stand moves what these tests read
+    // only by the frame it adds.
+    app.update();
     land(&mut app, chassis, body, 64, offset);
     let cfg = app
         .world()
@@ -434,12 +440,16 @@ fn a_rest_asked_again_while_getting_up_is_seated_afresh() {
     }
 }
 
-/// `body` on a peer's chassis, landed at the draft atlas and stood a moment.
+/// `body` on a peer's chassis, landed at the draft atlas an update after the
+/// chassis spawned, and stood a moment.
 fn standing(body: &EngineAvatarRecord) -> (App, Entity) {
     let record = fitted_record(body.clone());
     let offset = crate::player::visuals::rigged_root_offset(&record);
     let mut app = app();
     let chassis = chassis(&mut app, Under::Peer, record, Vec3::Y * offset);
+    // Stood an update before its body lands, as a peer's chassis always is
+    // (#1902): see `rebuilt_resting_peer`.
+    app.update();
     land(&mut app, chassis, body, 64, offset);
     run(&mut app, 0.5);
     (app, chassis)

@@ -669,6 +669,71 @@ mod tests {
         );
     }
 
+    /// #1845 (end review), THE REAL PATH: a save fails without a known
+    /// outcome - it may have landed - and the agent reverts. `live` equals
+    /// `stored` again, but the data server may hold the edit, so the
+    /// inventory stays unsaved and `save inventory` is taken, not refused
+    /// as "nothing to save": the save that follows plans against what the
+    /// data server holds and puts the reverted stash back. A landed save
+    /// settles it.
+    #[test]
+    fn a_revert_after_a_failed_save_can_still_be_saved() {
+        use bevy::ecs::system::RunSystemOnce;
+        bevy::tasks::IoTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+        let (mut app, _) = app_as(UNRESOLVABLE, UNRESOLVABLE);
+        let world = app.world_mut();
+        world.init_resource::<crate::diagnostics::SessionLog>();
+        world.init_resource::<crate::diagnostics::MetricsRegistry>();
+        world.init_resource::<crate::ui::toolbar::UiPanels>();
+        world.init_resource::<crate::notify::Toasts>();
+        let land = |app: &mut App, result: Result<(), String>| {
+            let world = app.world_mut();
+            let mut tasks = world.query::<&mut crate::ui::inventory::PublishInventoryTask>();
+            for mut task in tasks.iter_mut(world) {
+                let result = result.clone();
+                task.task = bevy::tasks::IoTaskPool::get().spawn(async move { result });
+            }
+            for _ in 0..2_000 {
+                world
+                    .run_system_once(crate::ui::inventory::poll_publish_inventory_tasks)
+                    .expect("the poll runs");
+                if world
+                    .query::<&crate::ui::inventory::PublishInventoryTask>()
+                    .iter(world)
+                    .next()
+                    .is_none()
+                {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            panic!("the save never landed");
+        };
+        let (slug, _) = wearable();
+        stash(app.world_mut(), slug, None).expect("stashed");
+        answer(app.world_mut(), EditRequest::Save(EditRecord::Inventory)).expect("saving");
+        land(
+            &mut app,
+            Err(String::from("Saving your inventory timed out after 30s")),
+        );
+
+        answer(app.world_mut(), EditRequest::Revert(EditRecord::Inventory)).expect("reverted");
+        assert!(items(&app).is_empty(), "live is stored again");
+        assert_eq!(
+            super::super::unsaved(app.world_mut()),
+            ["inventory"],
+            "the data server may hold the edit"
+        );
+        answer(app.world_mut(), EditRequest::Save(EditRecord::Inventory))
+            .expect("taken, not refused as nothing to save");
+
+        land(&mut app, Ok(()));
+        assert!(super::super::unsaved(app.world_mut()).is_empty(), "settled");
+        let refused = answer(app.world_mut(), EditRequest::Save(EditRecord::Inventory))
+            .expect_err("nothing to save now");
+        assert!(refused.contains("nothing to save"), "{refused}");
+    }
+
     /// The listing names each item, what it is, where it is worn and
     /// whether it is on the avatar.
     #[test]

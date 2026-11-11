@@ -523,6 +523,11 @@ fn peer_life(family: WingedFamily) -> (Vec<Frame>, f32) {
     }
     let mut app = app();
     let chassis = chassis(&mut app, Under::Peer, record, owner[0].0);
+    // The chassis stands an update before its body lands, as a peer's does
+    // in the game, whose build lands frames after the chassis spawns (#1902,
+    // the rule #1889 found in `taking_off`). Here the first fill read
+    // the chassis' real place either way, and no figure below moved.
+    app.update();
     land(&mut app, chassis, &body, 64, offset);
     let root = root_of(&mut app, chassis);
     let delay = (crate::player::flight::PEER_DELAY_S as f32 / frame).round() as usize;

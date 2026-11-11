@@ -261,7 +261,7 @@ pub(super) fn draw_body_tab(
     // The body as it was, which the run of a tuned beast is carried across
     // an edit from. Only the engine record is copied, never the outfit.
     let before = worn_body(record).cloned();
-    let outcome = draw_body_sections(ui, record, listing, did, build_failed);
+    let outcome = draw_body_sections(ui, record, listing, did, build_failed, before.as_ref());
     if outcome.changed {
         let id = egui::Id::new("avatar_body_run_anchor");
         let mut anchor = ui.ctx().data(|d| d.get_temp::<RunAnchor>(id));
@@ -317,12 +317,16 @@ fn body_kind(body: &EngineAvatarRecord) -> RiggedKind {
 }
 
 /// The Body tab's own drawing, before locomotion follows what it did.
+///
+/// `before` is the engine body as the frame began; the engine sections'
+/// change is reported only where the body now differs from it (#1811).
 fn draw_body_sections(
     ui: &mut egui::Ui,
     record: &mut AvatarRecord,
     listing: &mut WardrobeListing,
     did: Option<&str>,
     build_failed: bool,
+    before: Option<&EngineAvatarRecord>,
 ) -> BodyTabOutcome {
     let mut outcome = BodyTabOutcome::default();
     if build_failed {
@@ -452,7 +456,17 @@ fn draw_body_sections(
             if changed || noted {
                 engine.sanitize();
             }
-            outcome.changed |= changed || noted;
+            // A section's report is a claim and the body is the fact
+            // (#1811): the Fabric panel's colour pickers, held open with
+            // nothing touched, report a change on every frame - egui's
+            // linear colour button (the texture crate's) hands back its own
+            // HSV round trip, and the garment writes back the surface it
+            // parses from that, which lands on the very value it was. Taken
+            // at its word, that re-armed the editor's debounce and named a
+            // "body edit" every frame for a body nobody edited, so the report
+            // stands only where the sanitized body differs from the one the
+            // frame began with.
+            outcome.changed |= (changed || noted) && before.is_none_or(|was| was != &*engine);
 
             // --- Wardrobe ---------------------------------------------------
             ui.separator();
@@ -1589,5 +1603,158 @@ mod tests {
         };
         assert_ne!(after.seed, switched.seed, "the premise: the arrow rolled");
         assert_eq!(size(after), size(&switched), "the stature lock let go");
+    }
+
+    /// The persons, beasts and winged bodies the engine rolls from `seeds`.
+    fn rolled_bodies(seeds: std::ops::Range<i64>) -> Vec<(String, EngineAvatarRecord)> {
+        use symbios_avatar::{Archetype, QuadrupedParams};
+        let kinds = [
+            ("person", Archetype::Humanoid(Default::default())),
+            ("beast", Archetype::Quadruped(QuadrupedParams::default())),
+            ("winged", Archetype::Winged(Default::default())),
+        ];
+        kinds
+            .iter()
+            .flat_map(|(kind, archetype)| {
+                seeds.clone().map(move |seed| {
+                    (
+                        format!("{kind} {seed}"),
+                        EngineAvatarRecord::rolled("Rolled", archetype.clone(), seed),
+                    )
+                })
+            })
+            .collect()
+    }
+
+    /// **An idle Body tab reports no change, whatever body it draws**
+    /// (#1811). Seed 17's person - and persons 0, 7, 8, 14 and 21 of the
+    /// twenty-four drawn here (eleven of the first forty) - wears
+    /// a Fabric garment, and the Fabric panel's colour pickers, drawn open,
+    /// report a change on every frame with nothing touched: egui's
+    /// `color_edit_button_rgb` hands back its HSV round trip, the garment
+    /// writes the surface it parses from that back, and the surface lands on
+    /// the very value it was. The record stayed bit-identical while the tab
+    /// said it changed, frame after frame - which re-arms the editor's
+    /// debounce, names a "body edit" for the undo ring and, once the picker
+    /// shuts, republishes and rebuilds a body nobody edited.
+    ///
+    /// `set_everything_is_visible` opens every section and every popup at
+    /// once; a person reaches the same state one picker at a time (the
+    /// click-driven test below). Four frames each, for persons, beasts and
+    /// winged bodies off twenty-four seeds: no report and no write.
+    #[test]
+    fn an_idle_body_tab_reports_no_change_for_any_rolled_body() {
+        let mut reported = Vec::new();
+        for (name, body) in rolled_bodies(0..24) {
+            let mut record = wearing(body);
+            let before = record.clone();
+            let mut tab = Tab::new();
+            for frame in 0..4 {
+                let (outcome, _) = tab.frame(&mut record, Vec::new());
+                if outcome.changed {
+                    reported.push(format!("{name} frame {frame}"));
+                }
+            }
+            assert_eq!(record, before, "{name}: drawing the Body tab rewrote it");
+        }
+        assert!(
+            reported.is_empty(),
+            "an idle Body tab reported a change: {reported:?}"
+        );
+    }
+
+    /// **A colour picker held open on seed 17's trousers reports nothing**
+    /// (#1811), the way a person reaches it: the outfit, the trousers and
+    /// every section of their Fabric panel opened by a click on its header,
+    /// then each colour well drawn clicked open in turn and held for twenty
+    /// frames with no other input. Before the fix four of them - the Fabric
+    /// panel's warp colour and its corrosion, crevice-dirt and streak
+    /// colours - reported a change on every one of those frames.
+    #[test]
+    fn a_colour_picker_held_open_on_seed_17s_trousers_reports_nothing() {
+        use egui::accesskit::{Action, Role};
+        let person = EngineAvatarRecord::rolled(
+            "Rolled",
+            symbios_avatar::Archetype::Humanoid(Default::default()),
+            17,
+        );
+        assert!(
+            person.outfit.trousers.texture.is_some(),
+            "the premise: seed 17's person wears textured trousers"
+        );
+        let mut record = wearing(person);
+        let before = record.clone();
+        let mut tab = Tab::new();
+        tab.ctx.memory_mut(|m| m.set_everything_is_visible(false));
+        let (_, mut controls) = tab.frame(&mut record, Vec::new());
+        for header in [
+            "outfit",
+            "trousers",
+            "Fabric Config",
+            "Weathering",
+            "Edge Wear",
+            "Corrosion",
+            "Crevice Dirt",
+            "Streaks",
+        ] {
+            let mut events = vec![act(control(&controls, header), Action::Click)];
+            for _ in 0..12 {
+                let (outcome, drawn) = tab.frame(&mut record, std::mem::take(&mut events));
+                assert!(!outcome.changed, "opening {header:?} reported a change");
+                controls = drawn;
+            }
+        }
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1280.0, 6000.0),
+            )),
+            ..Default::default()
+        };
+        let output = tab.ctx.run_headless(input, |ui| {
+            let _ = draw_body_tab(ui, &mut record, &mut tab.listing, None, false);
+        });
+        let wells: Vec<_> = output
+            .platform_output
+            .accesskit_update
+            .expect("accesskit was enabled, so the pass has a tree")
+            .nodes
+            .iter()
+            .filter(|(_, n)| n.role() == Role::ColorWell)
+            .map(|(id, _)| *id)
+            .collect();
+        assert!(
+            wells.len() >= 7,
+            "the premise: the trousers' colour and the Fabric panel's six; {} wells",
+            wells.len()
+        );
+        let mut reported = Vec::new();
+        for (index, well) in wells.into_iter().enumerate() {
+            let mut events = vec![act(well, Action::Click)];
+            let mut frames = 0;
+            for _ in 0..20 {
+                let (outcome, _) = tab.frame(&mut record, std::mem::take(&mut events));
+                frames += usize::from(outcome.changed);
+            }
+            if frames > 0 {
+                reported.push(format!("well {index}: {frames} of 20 frames"));
+            }
+            let escape = egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            };
+            let _ = tab.frame(&mut record, vec![escape]);
+            for _ in 0..3 {
+                let _ = tab.frame(&mut record, Vec::new());
+            }
+        }
+        assert!(
+            reported.is_empty(),
+            "a colour picker held open reported a change: {reported:?}"
+        );
+        assert_eq!(record, before, "holding a picker open rewrote the record");
     }
 }

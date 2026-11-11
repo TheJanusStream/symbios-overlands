@@ -318,13 +318,14 @@ pub(super) struct FingerprintPass {
 impl FingerprintPass {
     pub(super) fn new(record: &RoomRecord, room_water: &crate::water::bodies::RoomWater) -> Self {
         // Only what the keep-outs read: where each seeded structure's record
-        // stands it, how wide its ground, and whether it is the landmark a
+        // stands it, how wide its ground and its craft's room past it
+        // (#1798), and whether it is the landmark a
         // seeded landing looks at (#1777) - and the gate a walked Berlin
         // landing turns to, the signature feature (#1781) and the crafts'
         // places (#1782), water-avoiding or not, snapped or not - not its
         // generator, seed or params, whose edits leave every scatter as it
         // was.
-        let structures: Vec<[f32; 7]> = record
+        let structures: Vec<[f32; 8]> = record
             .placements
             .iter()
             .filter_map(|placement| match placement {
@@ -347,6 +348,8 @@ impl FingerprintPass {
                         f32::from(u8::from(generator_ref == super::scatter::LANDMARK)),
                         f32::from(u8::from(*avoid_water)),
                         f32::from(u8::from(*snap_to_terrain)),
+                        // A craft's room round its place (#1798), by its name.
+                        super::scatter::kept_room(generator_ref),
                     ])
                 }
                 _ => None,

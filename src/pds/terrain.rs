@@ -175,8 +175,10 @@ impl SovereignTerrainConfig {
     /// grass, which only the grass's and the ground's shaders draw, from
     /// the live record - nor its fields' crops and strips (#1791), which
     /// only the ground's shader draws. The key for everything a grass edit
-    /// must not rebuild - the heightmap (`terrain::terrain_fingerprint`),
-    /// and the compile units laid on the land or riding on its anchor - so
+    /// must not rebuild - the terrain as drawn (`terrain::terrain_fingerprint`;
+    /// the heightmap itself is keyed on [`Self::ground`] since #1743,
+    /// `terrain::terrain_source_key`), and the compile units laid on the land
+    /// or riding on its anchor - so
     /// an owner dragging a grass slider recolours the grass and nothing
     /// else, and one recolouring a field its strips.
     pub fn land(&self) -> SovereignTerrainConfig {
@@ -195,10 +197,10 @@ impl SovereignTerrainConfig {
     /// This terrain's ground alone (#1741): its land without the splat
     /// material and the paths painted with it (#1779), which paint the
     /// ground and shape none of it - the heightmap job reads neither, nor
-    /// the grass. The key for what was cut from the ground's shape
-    /// (`terrain::ground_source_key`): a recolour or a path edit tears the
-    /// terrain down and builds its heightmap again, but of the same ground,
-    /// so a saved district on it must stand.
+    /// the grass. The key of the heightmap and of what was cut from the
+    /// ground's shape (`terrain::terrain_source_key`): a recolour or a path
+    /// edit builds no heightmap and moves no saved district, the standing
+    /// ground being painted again (#1743).
     pub fn ground(&self) -> SovereignTerrainConfig {
         SovereignTerrainConfig {
             material: SovereignMaterialConfig::default(),

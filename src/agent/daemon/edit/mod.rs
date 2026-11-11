@@ -291,13 +291,15 @@ fn avatar_unsaved(world: &mut World) -> bool {
 /// Whether the inventory has edits no save has taken - see
 /// [`room_unsaved`].
 fn inventory_unsaved(world: &mut World) -> bool {
+    // A failed save may have left `stored` behind the data server (#1845).
+    let unsettled = world.contains_resource::<crate::state::InventorySaveUnsettled>();
     let (Some(live), Some(stored)) = (
         world.get_resource::<LiveInventoryRecord>(),
         world.get_resource::<StoredInventoryRecord>(),
     ) else {
         return false;
     };
-    if !records_differ(&live.0, &stored.0) {
+    if !unsettled && !records_differ(&live.0, &stored.0) {
         return false;
     }
     let live = live.0.clone();

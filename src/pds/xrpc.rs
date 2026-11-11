@@ -43,7 +43,7 @@ async fn fetch_capped_bytes(client: &reqwest::Client, url: &str, cap: usize) -> 
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-async fn read_capped_body(mut resp: reqwest::Response, cap: usize) -> Option<Vec<u8>> {
+pub(crate) async fn read_capped_body(mut resp: reqwest::Response, cap: usize) -> Option<Vec<u8>> {
     let mut buf: Vec<u8> = Vec::new();
     loop {
         match resp.chunk().await {
@@ -65,7 +65,7 @@ async fn read_capped_body(mut resp: reqwest::Response, cap: usize) -> Option<Vec
 // pre-check in `fetch_capped_bytes` already rejects the obvious case;
 // this post-check catches servers that lie about / omit the header.
 #[cfg(target_arch = "wasm32")]
-async fn read_capped_body(resp: reqwest::Response, cap: usize) -> Option<Vec<u8>> {
+pub(crate) async fn read_capped_body(resp: reqwest::Response, cap: usize) -> Option<Vec<u8>> {
     let bytes = resp.bytes().await.ok()?;
     if bytes.len() > cap {
         return None;

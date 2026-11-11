@@ -129,6 +129,10 @@ pub enum EventKind {
     GiftWorldLanded {
         offer_id: u64,
         from_did: String,
+        /// When the offer arrived, wall-clock seconds (#1845): what tells
+        /// two offers of one id apart - an admin who signs in again counts
+        /// their offer ids from 0 again. `gift accept`'s answer names it.
+        offer_arrived_epoch: i64,
         item: String,
         #[serde(rename = "as")]
         landed_as: String,
@@ -140,6 +144,8 @@ pub enum EventKind {
     GiftWorldNotLanded {
         offer_id: u64,
         from_did: String,
+        /// As [`Self::GiftWorldLanded`]'s.
+        offer_arrived_epoch: i64,
         item: String,
         reason: String,
     },

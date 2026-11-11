@@ -1758,7 +1758,7 @@ pub(crate) mod tests {
             .init_resource::<crate::diagnostics::SessionLog>()
             .init_resource::<TerrainSplatState>()
             .init_resource::<PendingTerrainConfigJson>()
-            .insert_resource(LastTerrainConfigJson(super::super::terrain_source_key(
+            .insert_resource(LastTerrainConfigJson(super::super::TerrainKeys::of(
                 &record,
             )))
             .insert_resource(GeoTerrainJob::Decoding {
@@ -1834,13 +1834,16 @@ pub(crate) mod tests {
         let mut app = App::new();
         app.init_resource::<TerrainSplatState>()
             .init_resource::<PendingTerrainConfigJson>()
-            .insert_resource(LastTerrainConfigJson(Some("an earlier square".into())))
+            .insert_resource(LastTerrainConfigJson(Some(super::super::TerrainKeys {
+                ground: "an earlier square".into(),
+                drawn: "an earlier square".into(),
+            })))
             .insert_resource(LiveRoomRecord(record.clone()))
             .add_systems(Update, lifecycle::maybe_regenerate_terrain);
         app.update();
         assert_eq!(
             app.world().resource::<LastTerrainConfigJson>().0,
-            super::super::terrain_source_key(&record),
+            super::super::TerrainKeys::of(&record),
             "the target is the Berlin terrain on the default grid, not a teardown"
         );
     }

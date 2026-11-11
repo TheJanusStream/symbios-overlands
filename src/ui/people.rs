@@ -1045,11 +1045,18 @@ impl OfferAnswering<'_, '_> {
         let mut landed = None;
         // A world is answered when its parts land, not at the click (#1844).
         let mut answered_later = false;
+        // An accepted world whose fetch could not start - nobody signed in
+        // (#1845) - is answered now, as one that cannot land, rather than
+        // left for the giver to wait out its lapse.
+        let mut not_fetched = false;
         if let OfferAnswer::Accept { publish } = answer {
             let item = match &dialog.item {
                 GiftItem::World(head) => {
-                    self.fetch_given_world(dialog, head, publish, now);
-                    answered_later = true;
+                    if self.fetch_given_world(dialog, head, publish, now) {
+                        answered_later = true;
+                    } else {
+                        not_fetched = true;
+                    }
                     None
                 }
                 GiftItem::Generator { generator, wear } => {
@@ -1078,14 +1085,19 @@ impl OfferAnswering<'_, '_> {
         // Fire the response back to the sender. Broadcast-with-address: the
         // `target_did` field is the *sender's* DID so only they pick it up.
         if !answered_later {
+            let (accepted, reason) = if not_fetched {
+                (false, crate::protocol::DeclineReason::Unavailable)
+            } else {
+                // A person answered (#1220 f127) - including "Mute &
+                // Decline", which reports as a plain decline for privacy.
+                (accepted, crate::protocol::DeclineReason::Declined)
+            };
             self.writer.write(Broadcast {
                 payload: OverlandsMessage::item_offer_response(
                     dialog.offer_id,
                     dialog.sender_did.clone(),
                     accepted,
-                    // A person answered (#1220 f127) - including "Mute &
-                    // Decline", which reports as a plain decline for privacy.
-                    crate::protocol::DeclineReason::Declined,
+                    reason,
                 ),
                 channel: ChannelKind::Reliable,
             });
@@ -1170,17 +1182,19 @@ impl OfferAnswering<'_, '_> {
     /// Start fetching an accepted world from the giver's saved copy (#1844):
     /// from the data server of the relay-authenticated sender the offer
     /// arrived under, never any DID the payload names. It lands, and the
-    /// sender hears the answer, when the parts arrive.
+    /// sender hears the answer, when the parts arrive. `false` when nothing
+    /// was started - nobody is signed in, so there is no stash to land it
+    /// in - and the caller answers at once (#1845).
     fn fetch_given_world(
         &mut self,
         dialog: &IncomingOfferDialog,
         head: &crate::pds::inventory::WorldHead,
         publish: bool,
         now: f64,
-    ) {
+    ) -> bool {
         let Some(recipient) = self.session.as_deref().map(|s| s.did.clone()) else {
             warn!("A world was accepted with nobody signed in; nothing was fetched");
-            return;
+            return false;
         };
         let fetch = self.gift_fetch.as_deref().cloned().unwrap_or_default();
         crate::ui::inventory::gift_world::spawn_gift_world_task(
@@ -1206,6 +1220,7 @@ impl OfferAnswering<'_, '_> {
             ),
             now,
         );
+        true
     }
 }
 

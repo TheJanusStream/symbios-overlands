@@ -670,6 +670,38 @@ mod tests {
         ));
     }
 
+    /// An inventory save that writes a world is given far longer than a
+    /// minute by the game (#1839, #1845), and its answer says how long, so
+    /// `save --wait` waits as long as the game does rather than the fixed
+    /// 90 s.
+    #[test]
+    fn a_world_saves_answer_names_its_own_longer_deadline() {
+        use crate::config::http::PUBLISH_TASK_DEADLINE;
+        use crate::state::{LiveInventoryRecord, StoredInventoryRecord};
+        bevy::tasks::IoTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+        let unresolvable = super::super::harness::UNRESOLVABLE;
+        let (mut app, _) = super::super::harness::app_as(unresolvable, unresolvable);
+        ask(
+            &mut app,
+            EditRequest::StashWorld {
+                name: Some("Harbour".into()),
+            },
+        )
+        .expect("stashed");
+        let live = &app.world().resource::<LiveInventoryRecord>().0;
+        let expected = crate::pds::inventory::SaveBound::of(
+            live,
+            &app.world().resource::<StoredInventoryRecord>().0,
+            crate::pds::inventory::measure_publish_and_total(live).1,
+        )
+        .deadline();
+        assert!(expected > PUBLISH_TASK_DEADLINE, "{expected:?}");
+
+        let started = ask(&mut app, EditRequest::Save(EditRecord::Inventory)).expect("saving");
+
+        assert_eq!(started["gives_up_after_secs"], expected.as_secs());
+    }
+
     /// THE WORLD'S ROUND TRIP: `stash-world` copies the world as it stands,
     /// its unsaved edit included, and `load` of the item, once the world
     /// has moved on, starts the Inventory's own load; the game's poll lands

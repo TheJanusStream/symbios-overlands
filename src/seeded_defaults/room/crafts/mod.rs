@@ -17,7 +17,9 @@
 //! ([`CatalogueEntry::serves`]).
 //!
 //! The pad and the mast are built as a building is, kept off the water and
-//! snapped onto the highest ground under them. The jetty stands at the
+//! snapped onto the highest ground under them; the scatters keep off them
+//! and their craft's room round them, as their siting does
+//! ([`Craft::room`], #1798). The jetty stands at the
 //! water, not on the ground: placed at its deck's height over the sea, its
 //! boats afloat beside its head. The airstrip and the track are tracks
 //! (`pds::SovereignTrack`), painted as the paths are and kept clear of trees

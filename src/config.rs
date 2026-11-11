@@ -2623,8 +2623,10 @@ pub(crate) mod http {
             // this arm can never produce `on_timeout`.
             drop(on_timeout);
             // A bounded call may run inside another (#1853): an inventory
-            // save bounds each of its requests, and a save that touches no
-            // world is bounded whole by its caller as well. The outer call's
+            // save once ran under one bound over the whole as well as one
+            // per request (#1845 removed the outer one), and a probe window
+            // is driven on the shared runtime with its requests inside it
+            // (`pds::inventory::world::join_window`). The outer call's
             // `block_on` has entered the shared runtime, so awaiting drives
             // this future there; a second `block_on` would panic ("Cannot
             // start a runtime from within a runtime") and take the client
@@ -3086,10 +3088,18 @@ pub(crate) mod agent {
     /// no point puts it ahead of the agent (m): clear of the body, near
     /// enough to see it land.
     pub const PLACE_AHEAD_M: f32 = 2.0;
-    /// The longest `agent save --wait` waits for the save to land. A save
-    /// is given up on by the game after `PUBLISH_TASK_DEADLINE` (a minute);
-    /// this is that and a margin.
+    /// How long `agent save --wait` waits for a save whose answer names no
+    /// deadline - a daemon from before the answer carried one. The game
+    /// gives a world or avatar save up after `PUBLISH_TASK_DEADLINE` (a
+    /// minute), and this is that and [`SAVE_WAIT_MARGIN`]. An inventory save
+    /// is given longer - a request's bound for every request it can make
+    /// (#1839, #1845, `SaveBound`) - so a save's answer names the game's own
+    /// deadline (`gives_up_after_secs`) and the wait is that and the margin.
     pub const SAVE_WAIT: Duration = Duration::from_secs(90);
+    /// What `agent save --wait` waits beyond the deadline the game gives the
+    /// save up at (#1845): the event that says it ended comes a frame or so
+    /// after, and the CLI asks for events in long polls.
+    pub const SAVE_WAIT_MARGIN: Duration = Duration::from_secs(30);
     /// The longest `agent load --wait` waits for an inventory world to land
     /// (#1843). The game gives a load up after `PUBLISH_TASK_DEADLINE` and
     /// a request's timeout per four parts fetched - 90 s for a world of up

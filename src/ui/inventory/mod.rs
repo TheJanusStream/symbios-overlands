@@ -14,8 +14,9 @@
 //! expands in place to carry that item's controls - Wear / Take off,
 //! Rename, delete - and a pane beside the list pictures it and says what
 //! the row does not ([`browser`]). Once the stash diverges from the
-//! PDS-persisted copy, "Save" commits the live-vs-stored diff as one atomic
-//! `com.atproto.repo.applyWrites` batch - one record per item (#696).
+//! PDS-persisted copy, "Save" commits the difference between the live stash
+//! and what the data server holds (#1845) in `com.atproto.repo.applyWrites`
+//! batches - one record per item (#696).
 //! The stash is loaded during `AppState::Loading`
 //! (see [`crate::loading::start_inventory_record_fetch`]) so a freshly-logged-in
 //! owner always sees the previously-saved items the moment they land in-game.
@@ -246,8 +247,9 @@ pub struct PublishInventoryTask {
     /// computed against, so the loss compounds instead of self-healing.
     pub published: InventoryRecord,
     /// How the save is bounded (#1839): the poll declares the task dead
-    /// past [`crate::pds::inventory::SaveBound::deadline`], which a save
-    /// writing a world grows by the requests it can make.
+    /// past [`crate::pds::inventory::SaveBound::deadline`], which grows by
+    /// the requests the save can make (#1845: every save, not only one
+    /// writing a world).
     pub bound: crate::pds::inventory::SaveBound,
 }
 
@@ -400,6 +402,16 @@ pub struct WearSurface<'w> {
     pub(crate) avatar_editor: ResMut<'w, crate::ui::avatar::AvatarEditorState>,
     pub(crate) undo_labels: ResMut<'w, crate::ui::undo::PendingUndoLabels>,
     pub(crate) toasts: ResMut<'w, crate::notify::Toasts>,
+}
+
+/// What the Inventory window knows about the stored copy's standing
+/// besides the copy itself, bundled because `inventory_ui` sits at Bevy's
+/// parameter ceiling: the degraded-fetch marker (#840) and a failed save's
+/// doubt about it (#1845).
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct SaveMarkers<'w> {
+    recovery: Option<Res<'w, crate::state::InventoryRecordRecovery>>,
+    unsettled: Option<Res<'w, crate::state::InventorySaveUnsettled>>,
 }
 
 /// What a stash row reads and writes besides the stash itself (#1301): the
@@ -580,9 +592,13 @@ pub fn inventory_ui(
     mut state: Local<InventoryEditorState>,
     time: Res<Time>,
     mut publish_shortcut: ResMut<crate::ui::shortcuts::PublishShortcut>,
-    recovery: Option<Res<crate::state::InventoryRecordRecovery>>,
+    markers: SaveMarkers,
     mut wear: WearSurface,
 ) {
+    let SaveMarkers {
+        recovery,
+        unsettled,
+    } = markers;
     let WearSurface {
         live_avatar,
         stored_avatar,
@@ -834,10 +850,13 @@ pub fn inventory_ui(
                     .live_baseline
                     .as_ref()
                     .and_then(|(_, value)| value.clone());
-                let dirty = match state.stored_baseline.as_ref() {
-                    Some((_, baseline)) => *baseline != live_value,
-                    None => true,
-                };
+                // A failed save may have left `stored` behind the data
+                // server (#1845): saveable even when live equals it.
+                let dirty = unsettled.is_some()
+                    || match state.stored_baseline.as_ref() {
+                        Some((_, baseline)) => *baseline != live_value,
+                        None => true,
+                    };
                 let can_reset = state
                     .default_baseline
                     .as_ref()
@@ -1455,10 +1474,11 @@ pub fn inventory_ui(
     }
 }
 
-/// Spawn the async inventory publish. Since #696 this commits the
-/// live-vs-`stored` diff as per-item records in ONE atomic `applyWrites`
-/// batch (see [`crate::pds::inventory`]), so the caller must pass the
-/// stored snapshot the diff is computed against. `pub(crate)` because the
+/// Spawn the async inventory publish. Since #696 this commits the stash as
+/// per-item records in `applyWrites` batches (see [`crate::pds::inventory`]),
+/// diffed since #1845 against what the data server holds; the caller passes
+/// the stored snapshot, which says which items the stash loaded (only those
+/// are ever deleted) and sizes the save's bound. `pub(crate)` because the
 /// unsaved-edits guard ([`crate::ui::unsaved_guard`]) and the offer-accept
 /// path ([`crate::ui::people`]) drive the same pipeline - the shared
 /// [`poll_publish_inventory_tasks`] system lands the result either way.
@@ -1477,11 +1497,13 @@ pub(crate) fn spawn_publish_inventory_task(
     let refresh_clone = refresh.clone();
     // Per-item wire format → the budget gauge tracks the largest single
     // item record, not the whole stash (#694/#696).
-    let record_bytes = crate::pds::inventory::max_item_bytes(&record);
+    let (size, item_bytes) = crate::pds::inventory::measure_publish_and_total(&record);
+    let record_bytes = size.bytes;
     let published = record.clone();
-    // A save that writes a world is many requests, each bounded inside the
-    // publish (#1839); any other is one bound over the whole, as before.
-    let bound = crate::pds::inventory::SaveBound::of(&record, &stored);
+    // A save is many requests - the item collection's listing (#1845), the
+    // probes and the batches - each bounded inside the publish; the poll
+    // waits as long as they can take.
+    let bound = crate::pds::inventory::SaveBound::of(&record, &stored, item_bytes);
     let pool = bevy::tasks::IoTaskPool::get();
     let task = pool.spawn(async move {
         let fut = async {
@@ -1495,7 +1517,7 @@ pub(crate) fn spawn_publish_inventory_task(
             )
             .await
         };
-        bound.run(fut).await
+        fut.await
     });
     commands.spawn(PublishInventoryTask {
         task,
@@ -1590,8 +1612,10 @@ pub fn poll_publish_inventory_tasks(
                         .forget_saved_world_contents(&task.published);
                 }
                 // The stored copy is now exactly what was written, so the
-                // recovery marker retires where success is known (#1199).
+                // recovery marker retires where success is known (#1199),
+                // and so does a failed save's doubt about it (#1845).
                 commands.remove_resource::<crate::state::InventoryRecordRecovery>();
+                commands.remove_resource::<crate::state::InventorySaveUnsettled>();
                 feedback.status = PublishStatus::Success { at_secs: now };
                 crate::ui::editable::report_publish_success(
                     RecordKind::Inventory,
@@ -1613,19 +1637,25 @@ pub fn poll_publish_inventory_tasks(
             // failure used to be invisible - the item looked saved and
             // evaporated on the next login. Since #1137 all three records
             // report through the one helper.
-            Err(e) => crate::ui::editable::report_publish_failure(
-                RecordKind::Inventory,
-                crate::ui::editable::WriteOp::Save,
-                did,
-                e,
-                now,
-                crate::ui::editable::FailureSinks {
-                    session_log: &mut session_log,
-                    feedback: &mut feedback,
-                    toasts: &mut toasts,
-                    panels: &mut panels,
-                },
-            ),
+            Err(e) => {
+                // Its outcome is not known - it may have landed in part or
+                // whole - so `stored` may be behind the data server, and
+                // the stash stays saveable until a save lands (#1845).
+                commands.insert_resource(crate::state::InventorySaveUnsettled);
+                crate::ui::editable::report_publish_failure(
+                    RecordKind::Inventory,
+                    crate::ui::editable::WriteOp::Save,
+                    did,
+                    e,
+                    now,
+                    crate::ui::editable::FailureSinks {
+                        session_log: &mut session_log,
+                        feedback: &mut feedback,
+                        toasts: &mut toasts,
+                        panels: &mut panels,
+                    },
+                )
+            }
         }
     }
 }

@@ -223,6 +223,7 @@ pub struct EditorDirtyState<'w> {
     stored_avatar: Option<Res<'w, StoredAvatarRecord>>,
     live_inventory: Option<Res<'w, LiveInventoryRecord>>,
     stored_inventory: Option<Res<'w, StoredInventoryRecord>>,
+    inventory_unsettled: Option<Res<'w, crate::state::InventorySaveUnsettled>>,
 }
 
 impl EditorDirtyState<'_> {
@@ -249,8 +250,11 @@ impl EditorDirtyState<'_> {
                 }
                 _ => false,
             },
+            // A failed save may have left `stored` behind (#1845).
             EditorKind::Inventory => match (&self.live_inventory, &self.stored_inventory) {
-                (Some(live), Some(stored)) => records_differ(&live.0, &stored.0),
+                (Some(live), Some(stored)) => {
+                    self.inventory_unsettled.is_some() || records_differ(&live.0, &stored.0)
+                }
                 _ => false,
             },
         }
@@ -1413,6 +1417,28 @@ mod tests {
         assert!(
             dirty,
             "Ctrl+S must see the same unsaved work the Save row does"
+        );
+    }
+
+    /// #1845 (end review). Sequence: an Inventory save fails (a timeout:
+    /// it may have landed), then Revert puts `stored` back in `live`.
+    /// Ctrl+S must still save - the data server may hold the reverted edit
+    /// - so the gate reads the failed save's mark, as the Save row does.
+    #[test]
+    fn ctrl_s_saves_an_inventory_reverted_after_a_failed_save() {
+        let mut world = World::new();
+        world.insert_resource(LiveInventoryRecord(crate::pds::InventoryRecord::default()));
+        world.insert_resource(StoredInventoryRecord(crate::pds::InventoryRecord::default()));
+        let dirty = |world: &mut World| {
+            world
+                .run_system_once(|state: EditorDirtyState| state.dirty(EditorKind::Inventory))
+                .expect("dirty query")
+        };
+        assert!(!dirty(&mut world), "live is stored: nothing to save");
+        world.insert_resource(crate::state::InventorySaveUnsettled);
+        assert!(
+            dirty(&mut world),
+            "after a failed save the stash stays saveable until one lands"
         );
     }
 

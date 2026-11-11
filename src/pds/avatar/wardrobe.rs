@@ -716,18 +716,10 @@ pub fn plan_avatar_publish(
     if let Some(rig) = record.body.rigged_ref()
         && let Some(resolved) = rig.resolved.as_ref()
     {
-        let mut body = resolved.body.clone();
-        if body.name.trim().is_empty() {
-            body.name = String::from("Wanderer");
-        }
-        if body
-            .created_at
-            .as_deref()
-            .is_none_or(|at| at.trim().is_empty())
-        {
-            body.created_at = Some(now_iso.to_string());
-        }
-        plan.wardrobe = Some((rig.avatar.clone(), body));
+        plan.wardrobe = Some((
+            rig.avatar.clone(),
+            publishable_body(&resolved.body, now_iso),
+        ));
         plan.attachments = resolved
             .attachments
             .iter()
@@ -739,6 +731,26 @@ pub fn plan_avatar_publish(
         ));
     }
     plan
+}
+
+/// `body` as a save writes it (#1059): an empty name published as
+/// "Wanderer" and a missing or empty `createdAt` stamped `now_iso`. The
+/// body [`plan_avatar_publish`] lays out at the wardrobe key, so also what
+/// the editor's wardrobe listing records for that key once the save lands
+/// (#1845, `AvatarEditorState::note_published_body`).
+pub fn publishable_body(body: &EngineAvatarRecord, now_iso: &str) -> EngineAvatarRecord {
+    let mut body = body.clone();
+    if body.name.trim().is_empty() {
+        body.name = String::from("Wanderer");
+    }
+    if body
+        .created_at
+        .as_deref()
+        .is_none_or(|at| at.trim().is_empty())
+    {
+        body.created_at = Some(now_iso.to_string());
+    }
+    body
 }
 
 /// The attachment record keys an avatar record references, in record order.

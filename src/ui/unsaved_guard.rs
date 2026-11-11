@@ -306,6 +306,8 @@ pub struct GuardRecords<'w> {
     stored_avatar: Option<Res<'w, StoredAvatarRecord>>,
     live_inventory: Option<Res<'w, LiveInventoryRecord>>,
     stored_inventory: Option<Res<'w, StoredInventoryRecord>>,
+    /// A failed inventory save's doubt about `stored` (#1845).
+    inventory_unsettled: Option<Res<'w, crate::state::InventorySaveUnsettled>>,
     /// The two `AudioEditorState`s - the room's and the avatar's. There
     /// are two because the pop-out serves two windows, and a fix that
     /// looked at one of them would lose the other's work exactly as
@@ -356,8 +358,12 @@ impl GuardRecords<'_> {
                 (Some(live), Some(stored)) => avatar_is_dirty(&live.0, &stored.0),
                 _ => false,
             };
+        // A failed save may have left `stored` behind the data server
+        // (#1845): what the stash shows may not be what is kept.
         let differ_inventory = match (&self.live_inventory, &self.stored_inventory) {
-            (Some(live), Some(stored)) => records_differ(&live.0, &stored.0),
+            (Some(live), Some(stored)) => {
+                self.inventory_unsettled.is_some() || records_differ(&live.0, &stored.0)
+            }
             _ => false,
         };
         DirtyRecords {

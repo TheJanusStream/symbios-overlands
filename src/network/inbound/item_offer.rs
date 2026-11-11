@@ -688,4 +688,83 @@ mod tests {
         );
         assert!(!app.world().contains_resource::<IncomingOfferDialog>());
     }
+
+    /// #1845 (G1 review). A world accepted with nobody signed in starts no
+    /// fetch - there is no stash to land it in - so it is answered at once,
+    /// `Unavailable`, rather than left for the giver to wait out the three
+    /// minutes their offer lapses after. Unreachable in practice (the offer
+    /// handler needs a session, and logout scrubs the dialog); the answer
+    /// is the honest one if it ever is.
+    #[test]
+    fn a_world_accepted_with_nobody_signed_in_is_answered_at_once() {
+        use crate::ui::inventory::gift_world::tests::recording_fetch;
+        use crate::ui::people::{OfferAnswer, OfferAnswering};
+        bevy::tasks::IoTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+        let mut app = app_with(false);
+        offer(&mut app, wire(&GiftItem::World(head())), false);
+        let dialog = app
+            .world()
+            .get_resource::<IncomingOfferDialog>()
+            .cloned()
+            .expect("a dialog");
+        app.world_mut()
+            .remove_resource::<bevy_symbios_multiuser::auth::AtprotoSession>();
+
+        let (fetch, asked) = recording_fetch(Err(String::from("not needed")));
+        app.insert_resource(fetch)
+            .insert_resource(Time::<()>::default())
+            .insert_resource(crate::state::LiveInventoryRecord(Default::default()))
+            .insert_resource(crate::state::StoredInventoryRecord(Default::default()))
+            .init_resource::<crate::state::PublishFeedback<crate::pds::InventoryRecord>>()
+            .init_resource::<crate::notify::Toasts>()
+            .init_resource::<crate::state::MutedDids>();
+        let mut state = SystemState::<OfferAnswering>::new(app.world_mut());
+        let landed = state
+            .get_mut(app.world_mut())
+            .expect("answerable")
+            .answer(&dialog, OfferAnswer::Accept { publish: true });
+        state.apply(app.world_mut());
+
+        assert_eq!(landed, None);
+        assert!(
+            asked.lock().expect("unpoisoned").is_empty(),
+            "nothing fetched"
+        );
+        assert_eq!(
+            app.world_mut()
+                .query::<&crate::ui::inventory::GiftWorldTask>()
+                .iter(app.world())
+                .count(),
+            0
+        );
+        let sent = app
+            .world()
+            .resource::<Messages<Broadcast<OverlandsMessage>>>();
+        let answered: Vec<(u64, String, bool, DeclineReason)> = sent
+            .get_cursor()
+            .read(sent)
+            .filter_map(|broadcast| match &broadcast.payload {
+                OverlandsMessage::ItemOfferResponse {
+                    offer_id,
+                    target_did,
+                    payload_json,
+                } => {
+                    let payload = OverlandsMessage::decode_item_offer_response(payload_json)?;
+                    Some((
+                        *offer_id,
+                        target_did.clone(),
+                        payload.accepted,
+                        payload.reason,
+                    ))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            answered,
+            [(9, GIVER.to_owned(), false, DeclineReason::Unavailable)],
+            "answered now, as a gift that cannot land"
+        );
+        assert!(!app.world().contains_resource::<IncomingOfferDialog>());
+    }
 }

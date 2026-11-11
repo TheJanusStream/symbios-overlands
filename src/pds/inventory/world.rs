@@ -35,11 +35,12 @@
 //! item renamed (a new head over the same parts), name the same records.
 //! The save asks the data server about every part a head it writes names
 //! and every part it may delete ([`probe_parts`]) - the stored copy can be
-//! behind it - and plans from the answers: it creates the needed parts
-//! that are not there ([`plan_part_creates`]), refusing by name when one is
-//! missing and its text is gone, and deletes a part only when a stored head
-//! named it, no live head does, and it is there to delete
-//! ([`plan_part_deletes`]). The inventory's own plan
+//! behind it - and plans from the answers, as it plans the item records
+//! from a listing of what the data server holds (#1845): it creates the
+//! needed parts that are not there ([`plan_part_creates`]), refusing by
+//! name when one is missing and its text is gone, and deletes a part only
+//! when a stored head named it, no live head does, and it is there to
+//! delete ([`plan_part_deletes`]). The inventory's own plan
 //! (`plan_item_writes`) puts them around the heads in the order that keeps
 //! every read safe: part creates, heads, head deletes, part deletes.
 //!
@@ -527,40 +528,74 @@ pub fn check_head(head: &WorldHead) -> Result<usize, String> {
 /// every part the record its key names ([`part_rkey`]), the whole the
 /// length and digest the head says, the JSON a world this build reads
 /// whole - then the same sanitiser a fetched room goes through. Refusals
-/// are the sentence to show; nothing is changed by one.
+/// are the sentence to show; nothing is changed by one. [`join_parts_why`]
+/// says which kind of refusal it was.
 pub fn join_parts(head: &WorldHead, parts: &[String]) -> Result<RoomRecord, String> {
-    let bytes = check_head(head)?;
+    join_parts_why(head, parts).map_err(|refusal| match refusal {
+        JoinRefusal::Damaged(reason) => reason,
+        JoinRefusal::Newer(reason) => format!(
+            "This world was saved by a newer version of Overlands, so this build cannot load it \
+             whole - {reason}"
+        ),
+    })
+}
+
+/// Why a world's parts did not join into a world this build keeps whole
+/// (#1845): told apart for a world given to this client, whose damage is
+/// the giver's saved copy and whose newer content is this build's own limit.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum JoinRefusal {
+    /// The parts are not the head's - missing, changed, cut short, or not
+    /// a world's JSON.
+    Damaged(String),
+    /// A world this build reads, holding what a newer version wrote:
+    /// [`crate::pds::room::write_refused`]'s own sentence, which says to
+    /// update. [`join_parts`] puts a load's words in front of it.
+    Newer(String),
+}
+
+/// [`join_parts`], saying which kind of refusal it was.
+pub fn join_parts_why(head: &WorldHead, parts: &[String]) -> Result<RoomRecord, JoinRefusal> {
+    let damaged = JoinRefusal::Damaged;
+    let bytes = check_head(head).map_err(damaged)?;
     const DAMAGED: &str = "This world item is damaged, so nothing was loaded";
     if parts.len() != head.parts.len() {
-        return Err(format!(
+        return Err(damaged(format!(
             "{DAMAGED}: {} of its {} parts arrived.",
             parts.len(),
             head.parts.len()
-        ));
+        )));
     }
     let mut text = String::with_capacity(bytes);
     for (index, (key, data)) in head.parts.iter().zip(parts).enumerate() {
         if part_rkey(data) != *key {
-            return Err(format!(
+            return Err(damaged(format!(
                 "{DAMAGED}: part {} is not the part its record names.",
                 index + 1
-            ));
+            )));
         }
         if text.len() + data.len() > bytes {
-            return Err(format!("{DAMAGED}: its parts are longer than it says."));
+            return Err(damaged(format!(
+                "{DAMAGED}: its parts are longer than it says."
+            )));
         }
         text.push_str(data);
     }
     if text.len() != bytes {
-        return Err(format!("{DAMAGED}: its parts are shorter than it says."));
+        return Err(damaged(format!(
+            "{DAMAGED}: its parts are shorter than it says."
+        )));
     }
     if digest_of(&text) != head.digest {
-        return Err(format!(
+        return Err(damaged(format!(
             "{DAMAGED}: its parts do not add up to what it saved."
-        ));
+        )));
     }
-    let mut record: RoomRecord = serde_json::from_str(&text)
-        .map_err(|e| format!("This world item could not be read as a world - {e}"))?;
+    let mut record: RoomRecord = serde_json::from_str(&text).map_err(|e| {
+        damaged(format!(
+            "This world item could not be read as a world - {e}"
+        ))
+    })?;
     record.lex_type = crate::pds::COLLECTION.into();
     // A snapshot never carries a reference into somebody's room
     // (`snapshot_refused`); one that does was not written by this app, and
@@ -569,10 +604,7 @@ pub fn join_parts(head: &WorldHead, parts: &[String]) -> Result<RoomRecord, Stri
     record.opaque_refs.clear();
     record.sanitize();
     if let Some(reason) = crate::pds::room::write_refused(&record) {
-        return Err(format!(
-            "This world was saved by a newer version of Overlands, so this build cannot load it \
-             whole - {reason}"
-        ));
+        return Err(JoinRefusal::Newer(reason));
     }
     Ok(record)
 }
@@ -772,8 +804,10 @@ pub(crate) fn plan_part_deletes(
 
 /// The most part creates a save of `live` over `stored` can make: every
 /// needed part this session holds the text of, as if none were on the
-/// data server yet. A part's write fills a request ([`PART_DATA_BUDGET`]),
-/// so this counts requests too - what the save's deadline is grown by.
+/// data server yet. The save's bound passes an empty `stored` (#1845): the
+/// item plan may rewrite any live head. A part's write fills a request
+/// ([`PART_DATA_BUDGET`]), so this counts requests too - what the save's
+/// deadline is grown by.
 pub(crate) fn most_part_creates(
     live: &HashMap<String, WorldItem>,
     stored: &HashMap<String, WorldItem>,
@@ -787,6 +821,20 @@ pub(crate) fn most_part_creates(
         .into_iter()
         .filter(|key| held.contains(key))
         .count()
+}
+
+/// The most parts a save of `live` over `stored` can probe (#1845): every
+/// part a live head a load would follow names - the item plan may find any
+/// head missing on the data server and write it - and every part it may
+/// delete.
+pub(crate) fn most_parts_to_probe(
+    live: &HashMap<String, WorldItem>,
+    stored: &HashMap<String, WorldItem>,
+) -> usize {
+    let none = HashMap::new();
+    let mut keys = parts_needed(live, &none);
+    keys.extend(parts_doomed(live, stored));
+    keys.len()
 }
 
 /// The most part deletes a save of `live` over `stored` can make.
@@ -823,19 +871,37 @@ async fn join_all<F: std::future::Future>(futures: Vec<F>) -> Vec<F::Output> {
     outputs.into_iter().flatten().collect()
 }
 
+/// Run one window of requests together, each to the end (#1845): what
+/// [`probe_parts`] and [`fetch_parts`] count as ONE request's bound.
+///
+/// In the browser the window's fetches are in flight together as
+/// [`join_all`] polls them. Natively a request's `run_or` blocks its thread
+/// on the shared runtime unless it already runs inside one, so the same
+/// window joined on a pool thread ran its requests one after another - four
+/// requests' bounds where the deadlines counted one. Driving the window on
+/// the shared runtime makes each `run_or` inside it await instead, so its
+/// requests are in flight together natively too.
+async fn join_window<F: std::future::Future>(futures: Vec<F>) -> Vec<F::Output> {
+    #[cfg(not(target_arch = "wasm32"))]
+    if tokio::runtime::Handle::try_current().is_err() {
+        return crate::config::http::block_on(join_all(futures));
+    }
+    join_all(futures).await
+}
+
 /// How many requests [`probe_parts`] makes for `keys` keys, one window of
-/// [`PART_FETCH_CONCURRENCY`] at a time: what the save's deadline is grown
-/// by, a request's bound per window.
+/// [`PART_FETCH_CONCURRENCY`] at a time ([`join_window`]): what the save's
+/// deadline is grown by, a request's bound per window.
 pub fn probe_windows(keys: usize) -> usize {
     keys.div_ceil(PART_FETCH_CONCURRENCY)
 }
 
 /// Which of `keys` the owner's repo already holds as parts, asked a few at
-/// a time ([`crate::pds::xrpc::record_exists`]), each request bounded on
-/// its own as a load's are ([`fetch_parts`]). An existence check that
-/// fails fails the save: guessing "absent" would turn a blip into an
-/// `#create` over a record that exists, guessing "there" a head naming
-/// nothing or an `#delete` of nothing.
+/// a time ([`crate::pds::xrpc::record_exists`], [`join_window`]), each
+/// request bounded on its own as a load's are ([`fetch_parts`]). An
+/// existence check that fails fails the save: guessing "absent" would turn
+/// a blip into an `#create` over a record that exists, guessing "there" a
+/// head naming nothing or an `#delete` of nothing.
 pub async fn probe_parts(
     client: &reqwest::Client,
     pds: &str,
@@ -844,7 +910,7 @@ pub async fn probe_parts(
 ) -> Result<HashSet<String>, String> {
     let mut existing = HashSet::new();
     for window in keys.chunks(PART_FETCH_CONCURRENCY) {
-        let answers = join_all(
+        let answers = join_window(
             window
                 .iter()
                 .map(|key| {
@@ -951,8 +1017,9 @@ pub async fn fetch_parts(
         let first = window_index * PART_FETCH_CONCURRENCY;
         // Each request bounded on its own (`run_or`): a world of many
         // parts takes longer than one request may, and must not be cut
-        // off as if it were one.
-        let answers = join_all(
+        // off as if it were one. The window's requests run together on
+        // both targets (`join_window`), as the deadlines count them.
+        let answers = join_window(
             window
                 .iter()
                 .enumerate()

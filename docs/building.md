@@ -1489,7 +1489,10 @@ through the Save button's own pipeline, refused for the button's reasons -
 nothing unsaved, a save already under way, a record past the ceiling - and
 where the editor would stop to ask a person, over a saved record that could
 not be read when the agent arrived. How a save ends arrives as a `saved` or
-`save_failed` event. Offline there is no account, and `save` says so.
+`save_failed` event; the answer says how long the game waits for it
+(`gives_up_after_secs`: a minute, longer for an inventory save),
+and `save --wait` waits that long and a margin (#1845). Offline there is no
+account, and `save` says so.
 Leaving the agent's world would lose its unsaved edits, and nobody is there
 to answer the dialog the game raises, so `travel` is refused over them
 unless told `--discard-edits` or `--save-edits` (which leaves once the save
@@ -1566,7 +1569,9 @@ saved copy first, as the game's Accept fetches it: the answer says
 `fetching`, and how it ended arrives as a `gift_world_landed` event (`as`
 the name it took, `saving`) or a `gift_world_not_landed` event with the
 game's reason - `gift accept --wait` waits for it, and the admin hears the
-answer only then. Accepting a world on a sign-in from before world items is
+answer only then. The answer and both events name `offer_arrived_epoch`, when
+the offer arrived, and the wait matches on it as well as on the offer id: an
+admin who signs in again counts offer ids from 0 again (#1845). Accepting a world on a sign-in from before world items is
 refused with the game's sign-in-again sentence and the offer left waiting,
 to decline. `gift give` offers an inventory item - a thing, a whole avatar,
 or a whole world once the inventory holding it is saved - or a catalogue

@@ -124,6 +124,12 @@ pub struct PublishAvatarTask {
     /// was not makes the NEXT save compute a delete for a record the PDS
     /// never had, and `applyWrites` rejects the whole batch.
     pub published: AvatarRecord,
+    /// The engine body this task writes, at its wardrobe key - the plan's
+    /// own ([`pds::avatar::wardrobe::AvatarPublishPlan::wardrobe`]), with
+    /// the "Wanderer" name and the `createdAt` a save fills in - which the
+    /// editor's wardrobe listing records on success (#1845). `None` for a
+    /// generator body, which writes none.
+    pub written_body: Option<(String, pds::avatar::EngineAvatarRecord)>,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
@@ -395,6 +401,9 @@ impl AvatarEditorState {
     /// the body the key held when it was fetched, and a worn avatar item
     /// equal to that old body could be put back over the saved one. A
     /// listing never fetched stays unfetched: its first fetch is fresh.
+    /// `body` is the body as WRITTEN ([`PublishAvatarTask::written_body`],
+    /// #1845), so the entry matches the record in the name and `createdAt`
+    /// a save fills in, not the live body it was made from.
     pub(crate) fn note_published_body(
         &mut self,
         rkey: &str,
@@ -1860,17 +1869,19 @@ pub(crate) fn spawn_publish_avatar_task(
     let session_clone = session.clone();
     let refresh_clone = refresh.clone();
     let record_bytes = pds::record_size::serialized_record_bytes(&record);
-    let published = record.clone();
     // The engine crate is clock-free by design (std::time panics on wasm),
     // so the ISO timestamp the wardrobe lexicon requires is stamped here -
     // chrono is already the app's wasm-safe clock (#846).
     let now_iso = chrono::Utc::now().to_rfc3339();
+    // Laid out here rather than in the task, so the poll learns the body it
+    // writes - fill-ins and all - from the plan itself (#1845).
+    let plan = pds::avatar::wardrobe::plan_avatar_publish(&record, &stored_attachments, &now_iso);
+    let written_body = plan.wardrobe.clone();
+    let published = record;
     let pool = bevy::tasks::IoTaskPool::get();
     let task = pool.spawn(async move {
         let fut = async {
             let client = crate::config::http::default_client();
-            let plan =
-                pds::avatar::wardrobe::plan_avatar_publish(&record, &stored_attachments, &now_iso);
             pds::avatar::wardrobe::publish_avatar_bundle(
                 &client,
                 &session_clone,
@@ -1891,6 +1902,7 @@ pub(crate) fn spawn_publish_avatar_task(
         spawned_at: now,
         record_bytes,
         published,
+        written_body,
     });
 }
 
@@ -1956,11 +1968,10 @@ pub fn poll_publish_avatar_tasks(
                 if let Some(stored) = stored.as_mut() {
                     stored.0 = task.published.clone();
                 }
-                if let Some(rig) = task.published.body.rigged_ref()
-                    && let Some(resolved) = rig.resolved.as_ref()
+                if let Some((rkey, body)) = task.written_body.as_ref()
                     && let Some(editor) = editor.as_mut()
                 {
-                    editor.note_published_body(&rig.avatar, &resolved.body);
+                    editor.note_published_body(rkey, body);
                 }
                 // The stored copy is now exactly what was written, so the
                 // recovery marker retires where success is known (#1199).

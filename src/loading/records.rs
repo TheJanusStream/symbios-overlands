@@ -170,6 +170,9 @@ impl LoadedRecord for InventoryRecord {
         self.sanitize();
         commands.insert_resource(LiveInventoryRecord(self.clone()));
         commands.insert_resource(StoredInventoryRecord(self));
+        // A fresh copy is what the data server holds: no failed save's
+        // doubt about `stored` outlives it (#1845).
+        commands.remove_resource::<crate::state::InventorySaveUnsettled>();
     }
 
     /// The session runs "degraded": the stash shows empty while items

@@ -1140,9 +1140,10 @@ pub(super) fn maybe_populate_lots(
     // when it builds other ground. Logging out and back into the same
     // room brought the same ground back, and the old rule - any heightmap
     // change once a decision stood - regrew the saved district. Keyed by
-    // the ground alone (#1741): a recolour of a splat layer builds a new
-    // heightmap of the same ground, and taken for a terrain edit it grew
-    // the saved district again from today's catalogue.
+    // the ground alone (#1741): a recolour of a splat layer built a new
+    // heightmap of the same ground until #1743, and taken for a terrain edit
+    // it grew the saved district again from today's catalogue; the same
+    // ground's heightmap arriving again for any other cause must not either.
     mut session_terrain: Local<Option<String>>,
     source: Option<Res<HeightMapSource>>,
     mut toasts: ResMut<crate::notify::Toasts>,
@@ -1207,9 +1208,10 @@ pub(super) fn maybe_populate_lots(
     // a repopulate there would destroy the buildings a loaded record
     // carries - which is the whole of the `Adopt` arm.
     //
-    // The ground, not the whole terrain source (#1741): the source carries
-    // the splat material, and a recolour moves no lot.
-    let terrain = super::ground_source_key(&record.0);
+    // The ground, not the whole terrain (#1741): the terrain carries the
+    // splat material, and a recolour moves no lot. The heightmap's own key
+    // is the ground's since #1743, a recolour building no heightmap at all.
+    let terrain = super::terrain_source_key(&record.0);
     let terrain_moved = heightmap.is_changed()
         && session_terrain.is_some()
         && *session_terrain != terrain
@@ -3628,8 +3630,8 @@ mod tests {
     }
 
     /// #1741: a recolour is no terrain edit. Re-texturing a splat layer
-    /// builds a new heightmap - the terrain's fingerprint holds the
-    /// material - but of the same ground, so the saved district stands.
+    /// built a new heightmap until #1743 - the terrain's fingerprint held
+    /// the material - but of the same ground, so the saved district stands.
     /// Taken for moved ground it was grown again from today's catalogue:
     /// Isoline's five helix towers came back as street houses.
     #[test]
@@ -3648,14 +3650,23 @@ mod tests {
                 cfg.material.layers.swap(0, 2);
             }
         }
+        // Since #1743 a recolour builds no heightmap - the key is the
+        // ground's - and the same ground's heightmap arriving again (a
+        // regeneration for any other cause, a client that still rebuilds)
+        // must move no lot either.
         let source = super::super::terrain_source_key(&edited);
-        assert_ne!(
+        assert_eq!(
             source,
             super::super::terrain_source_key(&saved),
-            "the recolour builds a new heightmap, as a live client does"
+            "a recolour is the same ground's heightmap"
         );
+        // The record and the heightmap change in the same frame, so the lot
+        // layer decides on the arriving ground with the recoloured record in
+        // hand: keyed on anything that holds the paint (the #1741 bug) it takes
+        // the same ground for moved ground here. Frames run between the two let
+        // it settle on the record first, and then a lot layer keyed on the
+        // paint passed too (#1743's critic put the bug back and it did).
         app.world_mut().resource_mut::<LiveRoomRecord>().0 = edited.clone();
-        run_frames(&mut app, 3);
         app.world_mut().insert_resource(FinishedHeightMap(
             crate::urban::test_support::pilot_heightmap(),
             None,

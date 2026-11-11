@@ -141,6 +141,9 @@ session_scoped_resources! {
     RoomRecordRecovery,
     crate::state::AvatarRecordRecovery,
     crate::state::InventoryRecordRecovery,
+    // A failed inventory save's doubt about `stored` (#1845) is about the
+    // previous session's stash.
+    crate::state::InventorySaveUnsettled,
     // Defensive: the unsaved-edits guard removes itself when it proceeds,
     // but if anything else ever drives the InGame->Login edge while a
     // dialog is open, a stale guard must not greet the next login.
@@ -770,6 +773,7 @@ mod tests {
             spawned_at: 0.0,
             record_bytes: None,
             published: AvatarRecord::default_for_did("did:plc:alice"),
+            written_body: None,
         });
         world.spawn(crate::ui::inventory::PublishInventoryTask {
             task: pending(),
@@ -777,7 +781,7 @@ mod tests {
             spawned_at: 0.0,
             record_bytes: None,
             published: InventoryRecord::default(),
-            bound: crate::pds::inventory::SaveBound::Whole,
+            bound: crate::pds::inventory::SaveBound(0),
         });
         world.spawn(crate::world_builder::audio_resolver::BlobAudioTask {
             key: crate::world_builder::audio_resolver::AudioReferenceKey::Url(

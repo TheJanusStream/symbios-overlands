@@ -11,14 +11,21 @@
 //! saving over it could overwrite work the agent never saw.
 //!
 //! A save is a round trip to the account's server, so the answer says only
-//! that it started; how it ends arrives as a `saved` or `save_failed`
-//! event, which `agent save --wait` waits for.
+//! that it started, and how long the game waits for it before giving it up
+//! (`gives_up_after_secs`, #1845): a minute for the world and the avatar,
+//! longer for the inventory, whose save is bounded per request
+//! ([`crate::pds::inventory::SaveBound`]). How it ends arrives as a
+//! `saved` or `save_failed` event, which `agent save --wait` waits for that
+//! long and a margin.
+
+use std::time::Duration;
 
 use bevy::ecs::world::CommandQueue;
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use serde_json::{Value, json};
 
+use crate::config::http::PUBLISH_TASK_DEADLINE;
 use crate::oauth::OauthRefreshCtx;
 use crate::pds::avatar::avatar_is_dirty;
 use crate::pds::record_size::{SizeClass, SizeReadout};
@@ -47,15 +54,16 @@ pub(in crate::agent::daemon) fn save(
     if let Some(why) = profile.save_refused() {
         return Err(why.to_owned());
     }
-    let size = match record {
-        EditRecord::Room => save_room(world)?,
-        EditRecord::Avatar => save_avatar(world)?,
+    let (size, gives_up) = match record {
+        EditRecord::Room => (save_room(world)?, PUBLISH_TASK_DEADLINE),
+        EditRecord::Avatar => (save_avatar(world)?, PUBLISH_TASK_DEADLINE),
         EditRecord::Inventory => save_inventory(world)?,
     };
     let events_seq = world.resource::<EventSink>().0.last_seq();
     Ok(json!({
         "saving": record.word(),
         "events_seq": events_seq,
+        "gives_up_after_secs": gives_up.as_secs(),
         "largest_record": size.largest,
         "largest_bytes": size.bytes,
         "over_soft_budget": size.class() == Some(SizeClass::OverSoftBudget),
@@ -132,7 +140,11 @@ fn save_avatar(world: &mut World) -> Result<SizeReadout, String> {
     Ok(size)
 }
 
-fn save_inventory(world: &mut World) -> Result<SizeReadout, String> {
+/// Start the inventory's save; with what it measured, how long the game
+/// waits for it before giving it up - longer than a minute, by the
+/// requests the save can make, most for one that writes a world (#1845,
+/// [`crate::pds::inventory::SaveBound`]).
+fn save_inventory(world: &mut World) -> Result<(SizeReadout, Duration), String> {
     super::in_world(world)?;
     if let Some(recovery) = world.get_resource::<InventoryRecordRecovery>() {
         return Err(recovery_refusal("inventory", &recovery.reason));
@@ -152,8 +164,11 @@ fn save_inventory(world: &mut World) -> Result<SizeReadout, String> {
             live.0.item_count()
         ));
     }
-    let dirty = records_differ(&live.0, &stored.0);
-    let size = crate::pds::inventory::measure_publish(&live.0);
+    // A failed save may have left `stored` behind the data server: the
+    // Save row's own rule, saveable until a save lands (#1845).
+    let dirty = world.contains_resource::<crate::state::InventorySaveUnsettled>()
+        || records_differ(&live.0, &stored.0);
+    let (size, item_bytes) = crate::pds::inventory::measure_publish_and_total(&live.0);
     let status = &world.resource::<PublishFeedback<InventoryRecord>>().status;
     if let Some(why) = save_refusal(dirty, true, &size, saving, status) {
         return Err(why);
@@ -171,6 +186,8 @@ fn save_inventory(world: &mut World) -> Result<SizeReadout, String> {
         return Err(why.to_owned());
     }
     let (record, stored) = (live.0.clone(), stored.0.clone());
+    // The bound the spawn gives the task, from the same two records.
+    let gives_up = crate::pds::inventory::SaveBound::of(&record, &stored, item_bytes).deadline();
     let now = world.resource::<Time>().elapsed_secs_f64();
     with_session(world, |commands, session, refresh| {
         crate::ui::inventory::spawn_publish_inventory_task(
@@ -180,7 +197,7 @@ fn save_inventory(world: &mut World) -> Result<SizeReadout, String> {
     world
         .resource_mut::<PublishFeedback<InventoryRecord>>()
         .status = PublishStatus::Publishing { since_secs: now };
-    Ok(size)
+    Ok((size, gives_up))
 }
 
 /// Run `spawn` with the session a save writes as, and apply what it
@@ -338,6 +355,11 @@ mod tests {
         let started = save(app.world_mut(), EditRecord::Room).expect("saving");
 
         assert_eq!(started["saving"], "room");
+        // How long the game waits for it (#1845): the fixed deadline.
+        assert_eq!(
+            started["gives_up_after_secs"],
+            PUBLISH_TASK_DEADLINE.as_secs()
+        );
         let live = app.world().resource::<LiveRoomRecord>().0.clone();
         let written = published(&mut app);
         assert_eq!(written.len(), 1);

@@ -2027,6 +2027,108 @@ mod body_tests {
         assert_eq!(take_build_kicks(), 0, "and builds nothing");
     }
 
+    /// A body is framed with what it wears (#1845): the camera holds every
+    /// corner of the worn prop's own bounds as well as the posed body's box,
+    /// so it stands where the posed body's corners and the union of the
+    /// props' bounds put it - not where the body alone would. The stage app
+    /// computes no bounds, so here Bevy's own `calculate_bounds` runs as the
+    /// renderer's frame runs it; without it no prop had an `Aabb`, and the
+    /// union was never under test.
+    #[test]
+    fn a_bodys_worn_props_are_framed_with_it() {
+        let mut app = stage_app();
+        app.add_systems(PostUpdate, bevy::camera::visibility::calculate_bounds);
+        let mut stash = InventoryRecord::default();
+        let person = AvatarItem::from_record(&rigged_record()).expect("copies");
+        let AvatarItemBody::Rigged(rigged) = &person.body else {
+            panic!("a rigged item");
+        };
+        let record = rigged.record.clone();
+        stash.put_avatar("me".into(), person);
+        app.world_mut().insert_resource(LiveInventoryRecord(stash));
+        ask(
+            &mut app,
+            Some(PreviewSubject::Inventory {
+                name: "me".into(),
+                edit: Tick::new(1),
+            }),
+        );
+        frame(&mut app);
+        the_build(&record).build();
+        frame_until_shown(&mut app);
+
+        let body = preview(&app).shown_body().expect("on show");
+        assert_eq!(body.props.len(), 1, "the circlet is worn");
+        let world = app.world();
+        let layer = RenderLayers::layer(PREVIEW_LAYER);
+        let boxes: Vec<(Vec3, Vec3)> = tree_of(world, body.props[0])
+            .into_iter()
+            .filter_map(|entity| {
+                let e = world.entity(entity);
+                let aabb = e.get::<Aabb>()?;
+                assert_eq!(
+                    e.get::<RenderLayers>(),
+                    Some(&layer),
+                    "on the stage's layer"
+                );
+                let centre = Vec3::from(aabb.center);
+                let half = Vec3::from(aabb.half_extents);
+                Some(transformed_box(
+                    e.get::<GlobalTransform>()?,
+                    (centre - half, centre + half),
+                ))
+            })
+            .collect();
+        assert!(!boxes.is_empty(), "the worn prop has bounds to frame by");
+        let (props_min, props_max) = boxes.iter().fold(
+            (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)),
+            |(min, max), &(lo, hi)| (min.min(lo), max.max(hi)),
+        );
+        let prop_corners: Vec<Vec3> = boxes
+            .iter()
+            .flat_map(|&(lo, hi)| box_corners(lo, hi))
+            .collect();
+
+        let built = world.get::<BuiltBody>(body.root).expect("built");
+        let root = world.get::<GlobalTransform>(body.root).expect("placed");
+        let (min, max) = standing_box(&built.avatar);
+        let body_corners: Vec<Vec3> = box_corners(min, max)
+            .map(|corner| root.transform_point(corner))
+            .collect();
+        let held = |placement: &Transform, corner: Vec3| {
+            let local = placement
+                .compute_affine()
+                .inverse()
+                .transform_point3(corner);
+            let depth = -local.z;
+            let reach = (VIEW_FOV * 0.5).tan() / FRAMING_MARGIN + 1e-4;
+            depth > 0.01 && local.x.abs() / depth <= reach && local.y.abs() / depth <= reach
+        };
+        // The premise: the prop reaches past what the body alone frames.
+        let alone = framing_of_the_posed_body(&app);
+        assert!(
+            prop_corners.iter().any(|&corner| !held(&alone, corner)),
+            "the prop sits inside the body's own framing, so this measures nothing"
+        );
+
+        let camera = world
+            .get::<Transform>(preview(&app).camera)
+            .copied()
+            .expect("a camera");
+        for &corner in body_corners.iter().chain(&prop_corners) {
+            assert!(held(&camera, corner), "{corner} falls outside the margin");
+        }
+        let mut points = body_corners.clone();
+        points.extend(box_corners(props_min, props_max));
+        let expected = body_placement(&points);
+        assert!(
+            camera.translation.distance(expected.translation) < 1e-3,
+            "framed at {:?}, the body and its props' framing is {:?}",
+            camera.translation,
+            expected.translation
+        );
+    }
+
     /// A newer selection while a build is out starts nothing until that build
     /// lands; then the newer one is built, and it is the newer body that
     /// stands - turned and framed as a beast.

@@ -132,17 +132,26 @@ impl SizeReadout {
     /// `largest` if it is the biggest so far, or the refusal if it does not
     /// serialize. `label` is the preflight label for this record.
     pub fn consider<T: Serialize>(&mut self, record: &T, label: &str) {
+        self.consider_sized(record, label);
+    }
+
+    /// [`Self::consider`], answering the record's serialized size (`None`
+    /// when it does not serialize) - so a caller that also needs the sum
+    /// (the inventory save's bound, #1845) serializes each record once.
+    pub fn consider_sized<T: Serialize>(&mut self, record: &T, label: &str) -> Option<usize> {
         match serde_json::to_vec(record) {
             Ok(bytes) => {
                 if self.bytes.is_none_or(|largest| bytes.len() > largest) {
                     self.bytes = Some(bytes.len());
                     self.largest = Some(label.to_string());
                 }
+                Some(bytes.len())
             }
             Err(e) => {
                 if self.unserializable.is_none() {
                     self.unserializable = Some(unserializable_reason(label, &e.to_string()));
                 }
+                None
             }
         }
     }

@@ -217,6 +217,21 @@ pub enum Craft {
     Car,
 }
 
+impl Craft {
+    /// How much room the craft takes round the ground of its place (m): a
+    /// helicopter's rotor over its pad, an airship swinging round its mast
+    /// in the wind. A seeded world sites the place with that room clear of
+    /// all it keeps, and the scatters keep off it (#1798); the rest take
+    /// none past their place's own ground.
+    pub fn room(self) -> f32 {
+        match self {
+            Craft::Helicopter => 6.0,
+            Craft::Airship => 14.0,
+            Craft::Boat | Craft::Airplane | Craft::Car => 0.0,
+        }
+    }
+}
+
 /// Where on a world's land a seeded building of an entry belongs, beyond
 /// ground that fits it (#1775): what the settlement scores the sites it
 /// fits on by, against the walk from where it was wanted.

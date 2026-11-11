@@ -517,7 +517,7 @@ pub(super) fn save(args: SaveArgs) -> Result<ExitCode, String> {
     let since = result["events_seq"]
         .as_u64()
         .ok_or("the save has no events_seq")?;
-    let ended = wait_for_event(&socket, since, config::agent::SAVE_WAIT, |event| {
+    let ended = wait_for_event(&socket, since, save_patience(result), |event| {
         (event["kind"] == "saved" || event["kind"] == "save_failed")
             && event["record"] == record.word()
     })
@@ -528,6 +528,20 @@ pub(super) fn save(args: SaveArgs) -> Result<ExitCode, String> {
         )
     })?;
     print_response(&save_ended(ended))
+}
+
+/// How long `save --wait` follows a save that answered `started` (#1845):
+/// as long as the game waits for it - the answer's `gives_up_after_secs`,
+/// more than a minute for an inventory save, which reads the saved
+/// inventory and may write a world - and
+/// [`config::agent::SAVE_WAIT_MARGIN`]; [`config::agent::SAVE_WAIT`] when the
+/// answer names no deadline (a daemon from before it did).
+fn save_patience(started: &serde_json::Value) -> std::time::Duration {
+    started["gives_up_after_secs"]
+        .as_u64()
+        .map_or(config::agent::SAVE_WAIT, |secs| {
+            std::time::Duration::from_secs(secs) + config::agent::SAVE_WAIT_MARGIN
+        })
 }
 
 /// What `save --wait` prints once the save has ended, wrapped as every
@@ -646,8 +660,7 @@ pub(super) fn gift(args: GiftArgs) -> Result<ExitCode, String> {
                 return print_response(&started);
             };
             let landed = wait_for_event(&socket, since, config::agent::GIFT_WAIT, |event| {
-                (event["kind"] == "gift_world_landed" || event["kind"] == "gift_world_not_landed")
-                    && event["offer_id"].as_u64() == Some(offer_id)
+                ends_given_world(event, offer_id, result)
             })
             .map_err(|waited| {
                 format!(
@@ -664,6 +677,24 @@ pub(super) fn gift(args: GiftArgs) -> Result<ExitCode, String> {
             },
         ),
     }
+}
+
+/// Whether `event` ends the wait for the world `gift accept` of `offer_id`
+/// answered `accepted` for: its landing or its failure, for that offer -
+/// by id, and by when it arrived (#1845). An admin who signs in again
+/// counts their offer ids from 0 again, so a first world still fetching
+/// and a second offered since can share an id; only the arrival tells
+/// their landings apart. An answer naming no arrival - a daemon from
+/// before it did - matches by id alone.
+fn ends_given_world(
+    event: &serde_json::Value,
+    offer_id: u64,
+    accepted: &serde_json::Value,
+) -> bool {
+    let arrived = accepted["offer_arrived_epoch"].as_i64();
+    (event["kind"] == "gift_world_landed" || event["kind"] == "gift_world_not_landed")
+        && event["offer_id"].as_u64() == Some(offer_id)
+        && arrived.is_none_or(|arrived| event["offer_arrived_epoch"].as_i64() == Some(arrived))
 }
 
 /// `ui` and its verbs (#1424): each one request, answered once the
@@ -695,7 +726,10 @@ pub(super) fn ui(args: UiArgs) -> Result<ExitCode, String> {
 mod tests {
     use serde_json::json;
 
-    use super::{drive_segment, gift_world_ended, load_ended, save_ended, stand_off, xz};
+    use super::{
+        drive_segment, ends_given_world, gift_world_ended, load_ended, save_ended, save_patience,
+        stand_off, xz,
+    };
 
     /// #1527: `KEYS@SECONDS`, keys joined by `+`, `none` for none; the keys'
     /// names are the daemon's to check, the shape is this side's.
@@ -762,6 +796,88 @@ mod tests {
                 "error": "the record is past its ceiling",
             })
         );
+    }
+
+    /// `save --wait` follows a save as long as the game waits for it, and a
+    /// margin (#1845): an inventory save is given far longer than a minute
+    /// (a world save longest), and the fixed 90 s reported it not landed
+    /// while the game still rightly waited. An answer naming no deadline - a daemon
+    /// from before it did - is waited the fixed 90 s.
+    #[test]
+    fn a_save_is_waited_for_as_long_as_the_game_waits() {
+        use crate::config::agent::{SAVE_WAIT, SAVE_WAIT_MARGIN};
+        use std::time::Duration;
+        let world_save =
+            json!({ "saving": "inventory", "events_seq": 3, "gives_up_after_secs": 1770 });
+        assert_eq!(
+            save_patience(&world_save),
+            Duration::from_secs(1770) + SAVE_WAIT_MARGIN
+        );
+        assert!(save_patience(&world_save) > SAVE_WAIT);
+        let room_save = json!({ "saving": "room", "events_seq": 3, "gives_up_after_secs": 60 });
+        assert_eq!(
+            save_patience(&room_save),
+            Duration::from_secs(60) + SAVE_WAIT_MARGIN
+        );
+        assert_eq!(
+            save_patience(&json!({ "saving": "room", "events_seq": 3 })),
+            SAVE_WAIT
+        );
+    }
+
+    /// `gift accept --wait` ends on ITS world's landing (#1845): an admin who
+    /// signed in again counts offer ids from 0 again, so the landing of an
+    /// earlier world with the same id - offered before, still fetching -
+    /// must not end the wait for the one just accepted. Told apart by when
+    /// each offer arrived; an answer naming no arrival (an older daemon)
+    /// matches by id, as before.
+    #[test]
+    fn a_given_worlds_wait_ends_on_its_own_offers_landing() {
+        let accepted = json!({ "accepted": 0, "fetching": "Second", "offer_arrived_epoch": 2_000 });
+        let landing = |arrived: i64, kind: &str| {
+            json!({
+                "kind": kind,
+                "offer_id": 0,
+                "from_did": "did:plc:admin",
+                "offer_arrived_epoch": arrived,
+                "item": "First",
+            })
+        };
+        assert!(
+            !ends_given_world(&landing(1_900, "gift_world_landed"), 0, &accepted),
+            "the first world's landing, same id"
+        );
+        assert!(!ends_given_world(
+            &landing(1_900, "gift_world_not_landed"),
+            0,
+            &accepted
+        ));
+        assert!(ends_given_world(
+            &landing(2_000, "gift_world_landed"),
+            0,
+            &accepted
+        ));
+        assert!(ends_given_world(
+            &landing(2_000, "gift_world_not_landed"),
+            0,
+            &accepted
+        ));
+        assert!(!ends_given_world(
+            &landing(2_000, "gift_world_landed"),
+            1,
+            &accepted
+        ));
+        assert!(!ends_given_world(
+            &landing(2_000, "gift_answered"),
+            0,
+            &accepted
+        ));
+        let older = json!({ "accepted": 0, "fetching": "Second" });
+        assert!(ends_given_world(
+            &landing(1_900, "gift_world_landed"),
+            0,
+            &older
+        ));
     }
 
     /// `load --wait` (#1843) ends as `save --wait` does: a landed world is
