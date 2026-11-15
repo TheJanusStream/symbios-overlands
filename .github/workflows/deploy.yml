@@ -318,7 +318,16 @@ jobs:
           # 995,242 B the gate read on 0.19.6 (#1861), over both budgets. The
           # engine's winged bodies are built here: wings, feathers, plumage,
           # contour cards, toes and beaks. Raised to about 5 % above.
-          check ./dist/gen-worker_bg.wasm 4640000 1135000
+          #              4,579,443 B raw / 1,148,127 B gzip on 2026-11-15, built
+          # locally by `scripts/gate.sh --patched --worker` against
+          # symbios-avatar 0.24.6 before its publish (#1916): 2.5 % raw / 4.2 %
+          # gzip over the 4,468,512 / 1,101,672 B the gate read on 0.24.5
+          # (#1915), 1.2 % over the gzip budget. The engine's person face
+          # charts are built here now, flattened along the skin with a solver
+          # of their own, with an atlas packer that tries several layouts and
+          # the moustache's outline and painted strands. Raised to about 5 %
+          # above.
+          check ./dist/gen-worker_bg.wasm 4810000 1206000
           exit $fail
 
       - name: Setup Pages
