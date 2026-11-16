@@ -23,7 +23,10 @@ landing light where one is drawn; a boat a cabin light where its windows
 glow, and its stern light, masthead light or lantern where one is drawn;
 an airship its gondola's lamps and lanterns, a balloon her burner's fire.
 Each shines its lamp's own glow, from dusk to dawn but the beacons, and
-is aimed in the body's drawn frame - ahead `+Z`, port `+X`. A beam is
+is aimed in the body's drawn frame - ahead `+Z`, port `+X` for the seeded
+craft, whose root holds a half turn; a body you build faces the way you
+built it (Kairos's Skyfactory faces `-Z`, its port at `-X`, live 22), so
+read port and starboard off a render from behind before you save. A beam is
 reached twice the length it travels to the ground it lights. A web client
 counts a spot by its cone, as Bevy does (#1926): seen from the chase camera
 behind a car, a beam takes about as much of its light list as a running

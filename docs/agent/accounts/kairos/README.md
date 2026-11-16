@@ -4,13 +4,15 @@ Kairos (@kairos-ai.bsky.social) is the owner's building assistant: it keeps
 the owner company and builds for them. Its body is a hovering robotic
 building factory with a build plate on deck, the workbench where things are
 made and previewed, then stashed and gifted to the owner to place. As of
-2026-11-07, after its third session (live 21, in its own world with the owner
+2026-11-16, after its fourth session (live 22, in its own world with the owner
 visiting): its world is built out at the owner's word - an open-air workshop
 with its own teleporter and sign, a giant arm three times life size and a
 hang-out for persons and beasts on the arrival block, and on the park east of
 it a spaceship yard, a 63 m frigate left half built in its cradle under three
-tower cranes - all saved (the last 2026-11-06 21:09, seq 60). The Skyfactory,
-body v4.1, is worn and saved, with a fleet of five bodies and the Cat Cottage
+tower cranes - standing at a late-evening 19:30 in a standing fog, with light
+sources in the workshop and the yard since live 22 - all saved (the last
+2026-11-16 14:20, seq 15). The Skyfactory, body v4.1, lit since live 22
+(navigation lights, a strobe, a plate lamp), is worn and saved, with a fleet of five bodies and the Cat Cottage
 in its inventory. It made a profile picture for each of the six agents, which
 the owner set on Bluesky.
 
@@ -22,8 +24,8 @@ the owner set on Bluesky.
 | Commands | every agent command takes `--account kairos-ai.bsky.social`; every tool call starts `AGENT_ACCOUNT=kairos-ai.bsky.social` ([../../session.md](../../session.md)) |
 | Admin | `@codewright.bsky.social`, the owner: `start --admin @codewright.bsky.social --allow-save`, then `travel @codewright.bsky.social --wait` |
 | Region | its own (`did:plc:aeblnmu75y5jnntjrllo3ouq`), built out at the owner's word in live 21: the workshop, giant arm and hang-out on the arrival block, the spaceship yard east of it (see "The region"); in the owner's home region (`did:plc:z5yhcebtrvzblrojezn6pjgi`) it can edit nothing but its body |
-| Working folder | `exports/kairos/` (gitignored, on this machine only), kept across sessions: `A` the wrapper; `b/body.py` the body's builder (v1-v3 kept beside it), `b/fleet.py` the fleet, `b/cathouse.py` the Cat Cottage; the world's builders `b/workshop.py` (with `ws_common.py`, `teleporter.py`, `sign.py`), `b/giant_arm.py`, `b/hangout.py` and `b/yard_*.py` (`yard_common.py` and `yard_ship_parts.py` the reusable parts; `yard_site`, `yard_groundworks`, `yard_cranes`, `yard_dock`, `yard_busy`, `yard_ship` the six stages, `yard_look` the look pass; `yard_sweep`, `yard_crane_pairs`, `yard_weld_sweep` the clearance sweeps), each edit as applied in `b/*.edits`; `b/dockwatch.py` the dock rule; `b/depthcheck.py` the nesting depth count, `b/zcheck.py` z-fighting. Last saves: the world `src/room.json`, pulled after its last save (2026-11-06 21:09, seq 60 of session 1004's daemon: the weld arms); the avatar `src/avatar.json` (2026-11-05 10:01, the Skyfactory v4.1, unchanged since); the inventory 2026-11-05 12:01 (seq 354). The seeded records in `src/avatar_seeded.json` and `src/room_seeded.json`; the save log `log.md`. The profile pictures are in `exports/promo/pfp/` |
-| Last session | chainlink session 1004 (live session 21, 2026-11-06 11:48 to 2026-11-07 07:45, in its own world with the owner visiting), parent #1864 - read its comments (`chainlink show 1864`) |
+| Working folder | `exports/kairos/` (gitignored, on this machine only), kept across sessions: `A` the wrapper; `b/body.py` the body's builder (v1-v3 kept beside it), `b/fleet.py` the fleet, `b/cathouse.py` the Cat Cottage; the world's builders `b/workshop.py` (with `ws_common.py`, `teleporter.py`, `sign.py`), `b/giant_arm.py`, `b/hangout.py` and `b/yard_*.py` (`yard_common.py` and `yard_ship_parts.py` the reusable parts; `yard_site`, `yard_groundworks`, `yard_cranes`, `yard_dock`, `yard_busy`, `yard_ship` the six stages, `yard_look` the look pass; `yard_sweep`, `yard_crane_pairs`, `yard_weld_sweep` the clearance sweeps), each edit as applied in `b/*.edits`; `b/dockwatch.py` the dock rule; `b/lights.py` the light sources (live 22: `b/lights_workshop.edits`, `b/lights_yard.edits`, `b/lights_avatar.edits` applied; `b/lights_yard_masts.edits` prepared, not applied); `b/depthcheck.py` the nesting depth count, `b/zcheck.py` z-fighting. Last saves: the world `src/room.json`, pulled after its last save (2026-11-16 14:20, seq 15 of session 1022's daemon: the lights; seq 9 the 19:30 hour, seq 14 the fog); the avatar `src/avatar.json` (2026-11-16 14:20, seq 16: the Skyfactory v4.1 with its lights); the inventory 2026-11-05 12:01 (seq 354). The seeded records in `src/avatar_seeded.json` and `src/room_seeded.json`; the save log `log.md`. The profile pictures are in `exports/promo/pfp/` |
+| Last session | chainlink session 1022 (live session 22, 2026-11-16 13:28 to 16:40, in its own world with the owner visiting twice), parent #1928 - read its comments (`chainlink show 1928`) |
 | Default mode | [chat tasks](../../session.md#chat-tasks): the owner asks in chat, Kairos builds on its plate |
 | Never | touch Hypha's world (the Understory) or avatar ([hypha/](../hypha/README.md)), Reeve's world (Ashmere) or avatar ([reeve/](../reeve/README.md)), Jink's world (Parabola Flats) or avatar ([jink/](../jink/README.md)), Eigen's world (Isoline) or avatar ([eigen/](../eigen/README.md)), or Catoid's world or avatar ([catoid/](../catoid/README.md)); close a live session's parent before the owner has committed its work |
 
@@ -212,7 +214,12 @@ stands in for that.
 
 ### Land, water and sky
 
-The seed's, unchanged; the seeded records are in `src/room_seeded.json`.
+The seed's land and water; the seeded records are in `src/room_seeded.json`.
+The sky since live 22 (2026-11-16, the owner's word in chat): the world stands
+at 19:30 (`/environment/time_of_day` `{"hour": 195000, "day_minutes": 0}`) in
+a standing fog (`/environment/weather` fog at 6000, `spell_minutes` 0), "so
+the lighting stands out"; the records before each are
+`1022/room_before_evening.json` and `1022/room_before_fog.json`.
 
 ### Arrival
 
@@ -265,9 +272,9 @@ and counts against the avatar record's 100 KiB. The Cat Cottage: 161 parts,
 16,632 triangles, 35 KB. The Seafactory (2026-11-05 12:01): 14,660 triangles
 and 259 parts, the avatar record 68.5 KB.
 
-The world (2026-11-07, `status.editing`): live sync 830,367 of 921,600 bytes
-(90 %), the yard and ship about 220 KiB of it - about 90 KB left. The avatar
-record 61,751 of 102,400 bytes.
+The world (2026-11-16, `status.editing`, after live 22's lights): live sync
+835,936 of 921,600 bytes (91 %), the yard and ship about 220 KiB of it - about
+85 KB left. The avatar record 62,962 of 102,400 bytes.
 
 ## Standing decisions
 
@@ -290,6 +297,11 @@ record 61,751 of 102,400 bytes.
 - 2026-11-06 (chat, #1864, 15:21): on its own block Kairos rests on its
   landing dock and follows the owner only once they leave the block
   (`b/dockwatch.py`).
+- 2026-11-16 (chat, #1928, 13:31 and 13:35): the world stands at late
+  evening (19:30) in a standing fog, "so the lighting stands out a bit more".
+- 2026-11-16 (terminal, #1927): a lamp that carries a light also glows
+  (emissive) where it is seen - each light on the glowing part the eye reads
+  as the lamp.
 
 ## Working material
 
@@ -309,6 +321,21 @@ body.
 
 ## History
 
+- **1022 - 2026-11-16, live 22, #1928, in its own world (chat tasks).**
+  At the owner's word (terminal): light sources worked into the workshop and
+  the spaceship yard; in chat: the world to late evening (13:31, set to a
+  standing 19:30), the avatar lit too (13:31), and a fog (13:35, 0.6). The
+  lights were designed offline by one delegation (`b/lights.py`, renders in
+  `1022/renders/`) and applied live without an adjustment: 14 in the
+  workshop (mast floods, bench lamps, the plate crane's light, the
+  teleporter's cyan downlight, the sign's spill), 26 drawn in the yard (the
+  cranes' red aviation beacons, the gantries' floods, the weld tips'
+  blue-white flicker, gate and cabin lamps), 6 on the Skyfactory (red, green
+  and white navigation lights, a red strobe on its crane mast, a plate lamp,
+  a hover glow), each on an emissive part; saved 14:20 (seq 15, 16). The
+  owner (16:34): "Your avatar and region look great". The daemon ran on
+  copies of the agent and render binaries (`1022/bin/`) while another agent
+  built in the repository.
 - **1004 - 2026-11-06/07, live 21, #1864, in its own world (chat tasks).**
   The owner visited Kairos's world and had it built out, saving at will
   (12:58): the open-air workshop on the arrival block (12:53, #1865); a giant
@@ -378,7 +405,17 @@ body.
 
 ## Open threads
 
-- The world is at 90 % of the live ceiling (about 90 KB left): a next build
+- Asked at session over (live 22), unanswered: light the yard's eight
+  floodlight masts - one instance set (placement 41), and instance copies
+  draw no light, so `b/lights_yard_masts.edits` turns it into eight
+  placements (their colliders become the mast's own solids, only its foot);
+  light the fleet bodies in the inventory; light the rotating amber beacons
+  (the workshop tower's, the yard gates' and gantries'), where a spot sweeps
+  the ground every 1.5 s.
+- In the fog the yard reads dimmer than the workshop (the frigate's pearl
+  hull already glows); the tower cranes' jibs carry no floods (one generator
+  serves three crane heights and slews 65 degrees each way).
+- The world is at 91 % of the live ceiling (about 85 KB left): a next build
   there needs room made first, or a lighter part.
 - The yard soundscape's volumes are a first guess; the owner has not said.
 - #1866: the Hexapod and the Roadfactory wear as 'skiff', and a walk-to on

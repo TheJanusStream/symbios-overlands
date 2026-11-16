@@ -143,7 +143,12 @@ The record's wire form, as the World Editor's Raw JSON tab shows it:
   flicker or pulse are in [region.md](region.md) ("A node can give off
   light"). A light on a turning node turns with it. The catalogue's lamps,
   lanterns, torches and beacons carry lights already (#1923), so a copy of
-  one brings its light along.
+  one brings its light along. Put a light on the part the eye reads as the
+  lamp and make that part glow: a light on a flame hidden inside an opaque
+  lantern reads as an unlit lamp beside its own pool, as nothing here is
+  see-through but alpha cards (#1927, the owner's rule). An instance set's
+  copies draw no light (nor sound nor turn): a lamp meant to light stands in
+  a placement of its own (Kairos's yard masts, live 22).
 - **A part can turn** (#1604): `"spin": {"axis": [0, 0, 10000], "terms":
   [...]}` on any node but terrain, water or a road network. Every visitor's
   client turns the node, and everything below it, about `axis` - a direction
