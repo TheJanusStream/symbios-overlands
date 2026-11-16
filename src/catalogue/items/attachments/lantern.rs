@@ -173,24 +173,28 @@ fn build_tree() -> Generator {
             [0.0, -0.27, 0.0],
             id_quat(),
         ),
-        // Glass housing: one warm block just inside the corner posts.
-        prim(
-            solid(cuboid_tapered(
-                [0.82, 1.10, 0.82],
-                0.0,
-                uv_for_scale(glow_glass(), scale),
-            )),
-            [0.0, -1.0, 0.0],
-            id_quat(),
-        ),
-        // Flame core, low in the housing where a wick burns.
+        // Glass housing: one warm block just inside the corner posts. It
+        // carries the lantern's light (#1927): the glass is opaque, so the
+        // flame inside it is never seen, and the glowing glass is what the
+        // eye reads as the lamp - its glow is the one a poor world leaves
+        // undimmed beside the light (`pds::material_finish`).
         lit(
             prim(
-                solid(sphere(0.15, 2, uv_for_scale(flame_core(), scale))),
-                [0.0, -1.30, 0.0],
+                solid(cuboid_tapered(
+                    [0.82, 1.10, 0.82],
+                    0.0,
+                    uv_for_scale(glow_glass(), scale),
+                )),
+                [0.0, -1.0, 0.0],
                 id_quat(),
             ),
             Lamp::Flame { over: 1.0 },
+        ),
+        // Flame core, low in the housing where a wick burns.
+        prim(
+            solid(sphere(0.15, 2, uv_for_scale(flame_core(), scale))),
+            [0.0, -1.30, 0.0],
+            id_quat(),
         ),
         // Base pan.
         prim(

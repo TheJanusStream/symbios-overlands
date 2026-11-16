@@ -123,10 +123,13 @@ fn portrait(did: &str) -> Vec<Generator> {
             [0.0, 5.12, z - 0.08],
             id_quat(),
         ),
+        // The glass stands proud of the lower part of its hood, so the lamp
+        // reads lit from every side (#1927): no material is transparent, and
+        // a lens inside the solid hood never showed.
         lit(
             prim(
-                cuboid_tapered([0.2, 0.22, 0.2], 0.2, glow(LAMP_GAS, 2.0)),
-                [0.0, 5.1, z - 0.08],
+                cuboid_tapered([0.36, 0.23, 0.36], 0.0, glow(LAMP_GAS, 2.0)),
+                [0.0, 5.045, z - 0.08],
                 id_quat(),
             ),
             Lamp::Bulb { over: 5.1 },

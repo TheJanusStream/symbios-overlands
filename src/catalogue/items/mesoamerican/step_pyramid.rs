@@ -187,21 +187,24 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Sacred fire on a low altar before the temple doorway (front, −Z).
-    let fire_z = -1.9;
+    // Sacred fire on a low altar before the temple doorway (front, −Z), on
+    // the strip of summit between the doorway and the stair head. It stood
+    // 1.9 m in, inside the cella, where no eye ever saw it (#1927); the
+    // altar is narrower now, to stand clear of the doorway's recess.
+    let fire_z = -3.1;
     prims.push(prim(
         solid(cuboid_tapered(
-            [1.4, 0.7, 1.4],
+            [1.0, 0.5, 0.5],
             0.1,
             limestone(STUCCO_CREAM),
         )),
-        [0.0, summit + 0.35, fire_z],
+        [0.0, summit + 0.25, fire_z],
         id_quat(),
     ));
     prims.push(lit(
         prim(
-            sphere(0.55, 3, glow(FIRE_ORANGE, 5.0)),
-            [0.0, summit + 0.9, fire_z],
+            sphere(0.4, 3, glow(FIRE_ORANGE, 5.0)),
+            [0.0, summit + 0.65, fire_z],
             id_quat(),
         ),
         Lamp::Fire { over: 2.0 },
@@ -215,11 +218,11 @@ fn build_tree() -> Generator {
     // Signature life: the sacred fire's flame and embers, a ritual drum.
     attach(
         &mut root,
-        fx::sacred_flame([0.0, summit + 1.1, fire_z], 0x5AC0_F1E0),
+        fx::sacred_flame([0.0, summit + 0.75, fire_z], 0x5AC0_F1E0),
     );
     attach(
         &mut root,
-        fx::fire_embers([0.0, summit + 1.4, fire_z], 0xE3BE_F1E0),
+        fx::fire_embers([0.0, summit + 1.05, fire_z], 0xE3BE_F1E0),
     );
     root.audio = fx::ritual_drum();
     root

@@ -521,6 +521,8 @@ fn fit_out(parts: &mut Vec<Generator>) {
     ));
     // The lantern: a small housing with a smaller lens, hung under the deck.
     // A broad panel at strength blooms white; a small one reads as a colour.
+    // The lens hangs out of the housing's foot (#1927): set flush with it,
+    // it showed only a face at the housing's own bottom, fighting it.
     parts.push(prim(
         solid(cuboid_tapered(
             [0.24, 0.3, 0.24],
@@ -533,12 +535,10 @@ fn fit_out(parts: &mut Vec<Generator>) {
     parts.push(lit(
         prim(
             cuboid_tapered([0.16, 0.18, 0.16], 0.0, glow(LAMP_WARM, 2.6)),
-            [-0.9, FOOT_H + 3.24, FRONT + 2.2],
+            [-0.9, FOOT_H + 3.1, FRONT + 2.2],
             id_quat(),
         ),
-        Lamp::Street {
-            over: FOOT_H + 3.24,
-        },
+        Lamp::Street { over: FOOT_H + 3.1 },
     ));
 }
 

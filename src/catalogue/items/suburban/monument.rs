@@ -189,10 +189,13 @@ fn coach_lamp(x: f32) -> Generator {
     );
     nest(
         housing,
+        // The glass stands proud of the lower part of its hood, so the lamp
+        // reads lit from every side (#1927): no material is transparent, and
+        // a lens inside the solid hood never showed.
         vec![lit(
             prim(
-                cuboid_tapered([0.13, 0.17, 0.13], 0.2, glow(LAMP, 1.9)),
-                [x, 2.78, -0.02],
+                cuboid_tapered([0.24, 0.19, 0.24], 0.0, glow(LAMP, 1.9)),
+                [x, 2.715, -0.02],
                 id_quat(),
             ),
             Lamp::Bulb { over: 2.8 },

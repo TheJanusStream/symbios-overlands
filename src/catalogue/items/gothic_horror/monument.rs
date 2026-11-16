@@ -158,10 +158,13 @@ fn lantern(x: f32) -> Generator {
                 [x, 1.9, -0.75],
                 id_quat(),
             ),
+            // The glass stands proud of the lower part of its hood, so the lamp
+            // reads lit from every side (#1927): no material is transparent, and
+            // a lens inside the solid hood never showed.
             lit(
                 prim(
-                    cuboid_tapered([0.15, 0.2, 0.15], 0.2, glow(CANDLE, 2.0)),
-                    [x, 1.88, -0.75],
+                    cuboid_tapered([0.28, 0.22, 0.28], 0.0, glow(CANDLE, 2.0)),
+                    [x, 1.83, -0.75],
                     id_quat(),
                 ),
                 Lamp::Flame { over: 1.9 },

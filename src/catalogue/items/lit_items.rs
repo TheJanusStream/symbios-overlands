@@ -6,6 +6,11 @@
 //! Which glowing parts are lamps is decided where each item is built (see
 //! [`super::fx::light`]); this pins the outcome, item by item, in [`LIT`],
 //! so a lamp that loses its light or a glow that gains one shows up here.
+//!
+//! A lamp with a light also glows where it is seen (#1927, the owner's rule
+//! of 2026-11-16): read as drawn ([`super::lamp_sight`]), in the form a
+//! placement carries - from the Catalogue, and as a seeded world finishes
+//! and ruins it - after the sanitiser and the wire.
 
 use bevy::math::{Affine3A, UVec2, Vec3};
 
@@ -358,6 +363,41 @@ fn built(entry: &dyn CatalogueEntry) -> Generator {
     entry.build("did:plc:lit-items")
 }
 
+/// `tree` as a placement carries it: sanitised, as a publish leaves it, and
+/// written to the wire and read back, as a peer reads it.
+fn on_the_wire(mut tree: Generator) -> Generator {
+    crate::pds::sanitize_generator(&mut tree);
+    let wire = serde_json::to_string(&tree).expect("serialises");
+    serde_json::from_str(&wire).expect("reads back")
+}
+
+/// `entry` by its slug.
+fn entry_of(slug: &str) -> &'static dyn CatalogueEntry {
+    *ENTRIES
+        .iter()
+        .find(|e| e.slug() == slug)
+        .unwrap_or_else(|| panic!("{slug}: no such item"))
+}
+
+/// What is wrong with how the lamps of `tree` glow, each line led by `tag`,
+/// seen by eyes on the item's ground (its origin); and every light must hang
+/// on a part it draws, or it is not read at all.
+fn lamp_faults(tag: &str, tree: &Generator, min_glow: f32) -> Vec<String> {
+    use super::lamp_sight::{glow_faults, lamp_sights};
+    let mut faults: Vec<String> = glow_faults(tree, 0.0, min_glow)
+        .into_iter()
+        .map(|fault| format!("{tag}: {fault}"))
+        .collect();
+    let read = lamp_sights(tree, 0.0, min_glow).len();
+    let lit = lights(tree).len();
+    if read != lit {
+        faults.push(format!(
+            "{tag}: {lit} lights, {read} of them on a drawn part"
+        ));
+    }
+    faults
+}
+
 /// Every item named in [`LIT`] carries exactly the lights it names, and no
 /// other item carries any.
 #[test]
@@ -637,3 +677,62 @@ fn every_lit_item_sanitises_stably_and_fits_its_record() {
         );
     }
 }
+
+/// Every lit lamp, placed from the Catalogue, glows on every face it draws
+/// at a lamp's strength, and is seen glowing from where a player stands -
+/// its glass, lens or flame not hidden inside an opaque shade, housing or
+/// beam, nor glowing at the dim amber of an unlit lantern's glass (#1927).
+#[test]
+fn every_lit_lamp_glows_where_it_is_seen() {
+    use super::lamp_sight::MIN_GLOW;
+    let faults: Vec<String> = LIT
+        .iter()
+        .flat_map(|&(slug, _)| lamp_faults(slug, &on_the_wire(built(entry_of(slug))), MIN_GLOW))
+        .collect();
+    assert!(faults.is_empty(), "{}", faults.join("\n"));
+}
+
+/// Every lit lamp glows where it is seen as a seeded world places it
+/// (#1927). Its gate and monument, after the socio finish of its poorest,
+/// most fought-over world (prosperity 0, escalation 1, which dims every
+/// unlit glow to two fifths), glow on every face at a lamp's strength and
+/// are seen glowing as the Catalogue's copy is: a lit lamp's glow is not
+/// dimmed by a poor world, as its light is not (`pds::material_finish`). A
+/// rich world only raises a glow, so it is not read.
+///
+/// A settlement's member is also ruined at full conflict, and every lamp
+/// its ruin leaves lit must still glow on every face it draws: where a
+/// ruin snuffs a lamp's glass it takes the lamp's light (`pds::ruin`). That
+/// glow is read on the part alone; whether a ruin's lamp is seen is not
+/// read - a ruin topples parts and buries some under others, a lamp among
+/// them.
+#[test]
+fn every_lit_lamp_glows_as_a_seeded_world_places_it() {
+    use super::lamp_sight::{MIN_GLOW, lamp_glows};
+    use crate::pds::material_finish::apply_socio_finish;
+    let mut faults = Vec::new();
+    for &(slug, _) in LIT {
+        let entry = entry_of(slug);
+        let mut gate = built(entry);
+        apply_socio_finish(&mut gate, 0.0, 1.0);
+        let tag = format!("{slug} in the poorest world");
+        faults.extend(lamp_faults(&tag, &on_the_wire(gate), MIN_GLOW));
+        for seed in 0..RUIN_SEEDS {
+            let mut member = built(entry);
+            apply_socio_finish(&mut member, 0.0, 1.0);
+            crate::pds::ruin::apply_ruin_level(&mut member, 1.0, seed, entry.ruin_max_lean());
+            for (path, least) in lamp_glows(&on_the_wire(member)) {
+                if least <= 0.0 {
+                    faults.push(format!(
+                        "{slug} ruined by seed {seed}: the lamp at {path} has a face that does not glow"
+                    ));
+                }
+            }
+        }
+    }
+    assert!(faults.is_empty(), "{}", faults.join("\n"));
+}
+
+/// How many ruins of each lit item [`every_lit_lamp_glows_as_a_seeded_world_places_it`]
+/// reads: each seed breaks other glass and leans other parts.
+const RUIN_SEEDS: u64 = 3;

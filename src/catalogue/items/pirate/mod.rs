@@ -521,6 +521,21 @@ pub(super) fn tinted_glass(color: [f32; 3], lit: f32) -> SovereignMaterialSettin
     }
 }
 
+/// A lit [`lantern`]'s glass: the amber of its tinted glass, glowing with
+/// its flame's colour (#1927) at a strength that holds a hue on a face the
+/// size of the drum rather than blooming it white - so its light, read from
+/// this glow, is the flame's.
+fn lit_glass() -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        emission_color: Fp3(LAMP_TALLOW),
+        emission_strength: Fp(LIT_GLASS_GLOW),
+        ..tinted_glass(GLASS_AMBER, 0.0)
+    }
+}
+
+/// How strongly a lit [`lantern`]'s glass glows.
+const LIT_GLASS_GLOW: f32 = 1.2;
+
 /// Limewash over rubble and coral stone - the painted fronts of a colonial
 /// harbour town's houses (#1598): a coarse plaster grain, its shadow a
 /// little darker than its colour, faded by the sun and the salt.
@@ -632,11 +647,18 @@ const LANTERN_OVER_M: f32 = 2.0;
 /// 2. **The flame is small.** It sits at real strength because a lantern is
 ///    genuinely a bright point; what makes an emissive bloom to a white blank
 ///    is *area*, and this one is a sphere of a few centimetres inside the
-///    glass. A lit face the size of the drum would go white at a quarter of
-///    the strength.
+///    glass. A face the size of the drum glows far weaker: a lit lantern's
+///    glass at little more than a third of the flame's strength, where it
+///    holds a pale warm hue rather than going white (#1927).
 ///
-/// Its flame carries a flickering light ([`Lamp::Flame`]) - a lantern
-/// hung out of doors. One hung indoors is an [`indoor_lantern`].
+/// Hung out of doors it is lit (#1923, #1927): its glass glows as a lit
+/// lantern's does and carries a flickering light ([`Lamp::Flame`]). The
+/// glass is opaque - a material here has no transparency - so the flame
+/// inside it is never seen, and a drum glowing at the dim amber of
+/// [`indoor_lantern`]'s glass read as an unlit lantern beside its own pool
+/// of light; the glowing drum is what the eye reads as the lamp, so it is
+/// the part the light hangs on (and a ruin that snuffs the glass takes the
+/// light with it). One hung indoors is an [`indoor_lantern`].
 pub(super) fn lantern(at: [f32; 3], h: f32, seed: u32) -> Generator {
     lantern_drum(at, h, seed, true)
 }
@@ -658,25 +680,28 @@ fn lantern_drum(at: [f32; 3], h: f32, seed: u32, lit_flame: bool) -> Generator {
         [at[0], at[1] - h * 0.05, at[2]],
         id_quat(),
     );
-    nest(
+    let glass = |glass| {
         prim(
-            cylinder_tapered(r, h * 0.62, 10, 0.12, tinted_glass(GLASS_AMBER, 0.35)),
+            cylinder_tapered(r, h * 0.62, 10, 0.12, glass),
             at,
             id_quat(),
-        ),
-        vec![
-            // Flame, well inside the glass so the drum reads as lit rather
-            // than as a glowing object.
-            if lit_flame {
-                lit(
-                    flame,
-                    Lamp::Flame {
-                        over: LANTERN_OVER_M,
-                    },
-                )
-            } else {
-                flame
+        )
+    };
+    let drum = if lit_flame {
+        lit(
+            glass(lit_glass()),
+            Lamp::Flame {
+                over: LANTERN_OVER_M,
             },
+        )
+    } else {
+        glass(tinted_glass(GLASS_AMBER, 0.35))
+    };
+    nest(
+        drum,
+        vec![
+            // Flame, well inside the glass.
+            flame,
             // Bronze cap, flared so rain runs off it.
             prim(
                 solid(cylinder_tapered(

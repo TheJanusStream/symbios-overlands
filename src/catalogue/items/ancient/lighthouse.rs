@@ -1,4 +1,4 @@
-//! Lighthouse - a tapered banded tower with a glowing lamp room,
+//! Lighthouse - a tapered banded tower with a glowing, framed lamp room,
 //! gallery ring, cone roof, and a keeper's hut at the base. The lamp
 //! is strongly emissive, so the structure doubles as a night beacon
 //! visible across a coastal or archipelago home region.
@@ -18,14 +18,22 @@ use crate::pds::{Fp, Fp3, Generator, SovereignMaterialSettings, SovereignTexture
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier, ThemeArchetype};
 
 use crate::catalogue::items::util::{
-    cone, cuboid_tapered, cylinder_tapered, foundation_block, foundation_disc, glow, id_quat, prim,
-    solid, sphere, torus,
+    cone, cuboid_tapered, cylinder_tapered, foundation_block, foundation_disc, id_quat, prim,
+    quat_y, solid, torus,
 };
 
 /// How far the beacon's fire lights down over its own lantern room (m): its
 /// gallery and the top of the tower, not the ground some sixteen metres
 /// under it, which no light reaches (#1923).
 const BEACON_LIGHT_M: f32 = 4.0;
+
+/// How strongly the lamp room's glazing glows: a broad face, so at a
+/// strength that holds the beacon's hue rather than blooming white.
+const LAMP_ROOM_GLOW: f32 = 1.6;
+
+/// The lamp room's glazing's radius (m), and the mullions round it.
+const LAMP_ROOM_R: f32 = 1.2;
+const MULLIONS: usize = 8;
 
 pub struct Lighthouse;
 
@@ -142,25 +150,55 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    // Lamp room: iron drum with the beacon orb inside (the orb is
-    // oversized so it reads through the drum silhouette at distance).
+    // Lamp room: a drum of lit glazing in an iron frame. No material here
+    // is transparent, so a beacon inside a drum is never seen: the glazing
+    // itself glows with the beacon's colour (#1927) - an iron drum round a
+    // glowing orb read dark beside its own light - and carries the
+    // beacon's light, as the part the eye reads as the lamp. Mullions and a
+    // sill and head ring frame it, so by day it reads as a glazed room.
     let lamp_h = 1.8;
-    let mut lamp_room = prim(
-        solid(cylinder_tapered(1.2, lamp_h, 16, 0.05, band_mat(iron))),
-        [0.0, rel(tower_top + 0.25 + lamp_h * 0.5), 0.0],
-        id_quat(),
-    );
-    lamp_room.children.push(lit(
+    let room_mid = rel(tower_top + 0.25 + lamp_h * 0.5);
+    root.children.push(lit(
         prim(
-            sphere(0.85, 3, glow(lamp_glow, 8.0)),
-            [0.0, 0.1, 0.0],
+            solid(cylinder_tapered(
+                LAMP_ROOM_R,
+                lamp_h,
+                16,
+                0.0,
+                SovereignMaterialSettings {
+                    emission_color: Fp3(lamp_glow),
+                    emission_strength: Fp(LAMP_ROOM_GLOW),
+                    ..band_mat(lamp_glow)
+                },
+            )),
+            [0.0, room_mid, 0.0],
             id_quat(),
         ),
         Lamp::Fire {
             over: BEACON_LIGHT_M,
         },
     ));
-    root.children.push(lamp_room);
+    for k in 0..MULLIONS {
+        let a = k as f32 * std::f32::consts::TAU / MULLIONS as f32;
+        root.children.push(prim(
+            cuboid_tapered([0.07, lamp_h, 0.07], 0.0, band_mat(iron)),
+            [
+                (LAMP_ROOM_R + 0.01) * a.sin(),
+                room_mid,
+                (LAMP_ROOM_R + 0.01) * a.cos(),
+            ],
+            quat_y(a),
+        ));
+    }
+    // Sill and head rings, a hair inside the glazing's ends so no face of
+    // theirs lies in one of its caps.
+    for dy in [-1.0_f32, 1.0] {
+        root.children.push(prim(
+            cylinder_tapered(LAMP_ROOM_R + 0.07, 0.12, 16, 0.0, band_mat(iron)),
+            [0.0, room_mid + dy * (lamp_h * 0.5 - 0.05), 0.0],
+            id_quat(),
+        ));
+    }
 
     // Cone roof above the lamp room.
     root.children.push(prim(
@@ -190,27 +228,24 @@ fn build_tree() -> Generator {
 mod tests {
     use super::*;
     use crate::catalogue::items::util::assert_sanitize_stable;
-    use crate::pds::PrimCommon;
 
     #[test]
     fn build_round_trips_through_sanitize() {
         assert_sanitize_stable(&Lighthouse.build(""), "lighthouse");
     }
 
+    /// Its lamp room's glazing glows and carries the beacon's light.
     #[test]
     fn has_emissive_beacon() {
-        fn any_emissive(g: &Generator) -> bool {
-            let own = match &g.kind {
-                crate::pds::GeneratorKind::Sphere {
-                    common: PrimCommon { material, .. },
-                    ..
-                } => material.emission_strength.0 > 1.0,
-                _ => false,
-            };
-            own || g.children.iter().any(any_emissive)
+        fn lit_glow(g: &Generator) -> bool {
+            let own = g.light.is_some()
+                && g.kind
+                    .material()
+                    .is_some_and(|m| m.emission_strength.0 > 1.0);
+            own || g.children.iter().any(lit_glow)
         }
         assert!(
-            any_emissive(&Lighthouse.build("")),
+            lit_glow(&Lighthouse.build("")),
             "lighthouse lost its glowing beacon"
         );
     }

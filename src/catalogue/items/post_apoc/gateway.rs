@@ -165,7 +165,8 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
     // Warm caged worklight hung over the opening - a rusted ring cage around a
-    // salvaged bulb.
+    // salvaged bulb, which hangs out of the cage's open foot (#1927): set in
+    // the middle of the solid tube it showed only from under it.
     prims.push(prim(
         solid(tube(0.16, 0.13, 0.34, 6, rusted(STEEL_GREY))),
         [0.0, slab_top + 3.1, -0.45],
@@ -174,10 +175,12 @@ fn build_tree() -> Generator {
     prims.push(lit(
         prim(
             sphere(0.12, 3, glow(WORKLIGHT, 3.0)),
-            [0.0, slab_top + 3.1, -0.45],
+            [0.0, slab_top + 2.95, -0.45],
             id_quat(),
         ),
-        Lamp::Bulb { over: 3.4 },
+        Lamp::Bulb {
+            over: slab_top + 2.95,
+        },
     ));
     // Red signal beacon bolted to the crown of the girder - the true-red
     // warning light the ruin pass can snuff.

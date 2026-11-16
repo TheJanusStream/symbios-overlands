@@ -54,6 +54,8 @@ pub mod measure;
 mod util;
 
 #[cfg(test)]
+mod lamp_sight;
+#[cfg(test)]
 mod lit_items;
 #[cfg(test)]
 mod overhaul;

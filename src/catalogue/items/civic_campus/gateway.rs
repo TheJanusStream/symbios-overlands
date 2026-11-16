@@ -61,17 +61,21 @@ impl CatalogueEntry for CivicCampusGateway {
     }
 }
 
+/// How far either side of the middle the lanterns stand on the architrave
+/// (m): near its ends (it spans 2.4 either way), clear of all but the foot
+/// of the pediment's slope.
+const LANTERN_X: f32 = 2.2;
+
 /// One gate pier at `x`, standing on `base_y` (the slab top): a marble plinth
-/// foot, a dressed stone ashlar shaft, a marble cornice cap and a warm copper
-/// lantern crown - the solid support, echoing the town-hall portico's
-/// stone-and-marble register. Its globe is emissive trim the ruin pass darkens.
+/// foot, a dressed stone ashlar shaft and a marble cornice cap - the solid
+/// support, echoing the town-hall portico's stone-and-marble register. Its
+/// lantern stands over it on the architrave ([`corner_lantern`]).
 fn gate_pier(x: f32, base_y: f32) -> Vec<Generator> {
     let foot_h = 0.4_f32;
     let shaft_h = 3.2_f32;
     let cap_h = 0.34_f32;
     let foot_top = base_y + foot_h;
     let shaft_top = foot_top + shaft_h;
-    let cap_top = shaft_top + cap_h;
     vec![
         // Marble plinth foot, oversailing the shaft so its base is not flush.
         prim(
@@ -103,24 +107,35 @@ fn gate_pier(x: f32, base_y: f32) -> Vec<Generator> {
             [x, shaft_top + cap_h * 0.5, 0.0],
             id_quat(),
         ),
-        // Verdigris copper lantern base seated on the cap.
+    ]
+}
+
+/// A warm copper lantern crown at `x`, standing on `top` - a corner of the
+/// architrave, over a pier. Its globe is emissive trim the ruin pass darkens.
+///
+/// It stood on the pier's own cap until #1927, under the architrave that
+/// spans both caps, where it and its light were buried in the beam: the
+/// gate showed no lamp at all beside the pools its lanterns lit.
+fn corner_lantern(x: f32, top: f32) -> Vec<Generator> {
+    vec![
+        // Verdigris copper lantern base.
         prim(
             solid(cuboid_tapered(
                 [0.3, 0.32, 0.3],
                 0.1,
                 copper(COPPER_VERDIGRIS),
             )),
-            [x, cap_top + 0.16, 0.0],
+            [x, top + 0.16, 0.0],
             id_quat(),
         ),
         // Warm lit globe - emissive trim.
         lit(
             prim(
                 sphere(0.16, 3, glow(LAMP_WARM, 3.0)),
-                [x, cap_top + 0.44, 0.0],
+                [x, top + 0.44, 0.0],
                 id_quat(),
             ),
-            Lamp::Bulb { over: 4.7 },
+            Lamp::Bulb { over: 5.2 },
         ),
         // Copper finial spike.
         prim(
@@ -131,7 +146,7 @@ fn gate_pier(x: f32, base_y: f32) -> Vec<Generator> {
                 0.9,
                 copper(COPPER_VERDIGRIS),
             )),
-            [x, cap_top + 0.74, 0.0],
+            [x, top + 0.74, 0.0],
             id_quat(),
         ),
     ]
@@ -174,6 +189,11 @@ fn build_tree() -> Generator {
     // Triangular pediment gable over the architrave - pinch the front X width
     // to an apex ridge, keep the full depth (a pediment, not a hipped pyramid).
     let arch_top = arch_bot + 0.5;
+    // A lantern at each end of the architrave, where an acroterion stands,
+    // seated a little into the foot of the pediment's slope.
+    for x in [-LANTERN_X, LANTERN_X] {
+        prims.extend(corner_lantern(x, arch_top));
+    }
     prims.push(prim(
         solid(cuboid_tapered_xz(
             [4.8, 1.1, 0.95],

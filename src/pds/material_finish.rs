@@ -7,7 +7,10 @@
 //!
 //! - **prosperity** (poor → rich): rich surfaces lose roughness, gain
 //!   metallic and emissive punch, and brighten; poor surfaces gain
-//!   roughness, lose emissive, and drift toward a grimy rust-brown.
+//!   roughness, lose emissive, and drift toward a grimy rust-brown - but
+//!   for a lamp: a part carrying an authored light keeps its glow in a
+//!   poor world (#1927), as its light keeps its strength, so a lit lamp
+//!   never reads unlit beside its own pool.
 //! - **escalation** (peaceful → conflict): conflict darkens and
 //!   desaturates the base colour and blends it toward soot - the scorch of
 //!   a fought-over settlement.
@@ -69,8 +72,9 @@ pub fn apply_socio_finish(node: &mut Generator, prosperity: f32, escalation: f32
 }
 
 fn finish_tree(node: &mut Generator, wealth: f32, scorch: f32) {
+    let lamp = node.light.is_some();
     for mat in node_materials_mut(&mut node.kind) {
-        finish_material(mat, wealth, scorch);
+        finish_material(mat, wealth, scorch, lamp);
     }
     for child in &mut node.children {
         finish_tree(child, wealth, scorch);
@@ -122,12 +126,14 @@ pub(crate) fn node_materials_mut(kind: &mut GeneratorKind) -> Vec<&mut Sovereign
     }
 }
 
-fn finish_material(mat: &mut SovereignMaterialSettings, wealth: f32, scorch: f32) {
+/// `lamp`: the material is a lit lamp's (its node carries a light), whose
+/// glow a poor world does not dim - only a rich one raises it.
+fn finish_material(mat: &mut SovereignMaterialSettings, wealth: f32, scorch: f32, lamp: bool) {
     // --- Prosperity: surface finish ---
     mat.roughness = Fp((mat.roughness.0 - wealth * ROUGHNESS_SWING).clamp(0.0, 1.0));
     mat.metallic = Fp((mat.metallic.0 + wealth.max(0.0) * METALLIC_SWING).clamp(0.0, 1.0));
-    mat.emission_strength =
-        Fp((mat.emission_strength.0 * (1.0 + wealth * EMISSION_SWING)).max(0.0));
+    let swing = if lamp { wealth.max(0.0) } else { wealth };
+    mat.emission_strength = Fp((mat.emission_strength.0 * (1.0 + swing * EMISSION_SWING)).max(0.0));
 
     // --- Base colour: prosperity tint, then escalation scorch ---
     let mut c = mat.base_color.0;
@@ -318,6 +324,25 @@ mod tests {
         // Rich brightens emissive, poor dims it.
         assert!(r.emission_strength.0 > 1.0, "rich emissive up");
         assert!(p.emission_strength.0 < 1.0, "poor emissive down");
+    }
+
+    /// A lit lamp keeps its glow in a poor world, as its light keeps its
+    /// strength (#1927), and still brightens in a rich one; an unlit glow
+    /// beside it dims as before.
+    #[test]
+    fn a_lit_lamp_keeps_its_glow_in_a_poor_world() {
+        let mut lamp = cuboid([0.5, 0.4, 0.3], 0.5, 0.2, 2.0);
+        lamp.light = Some(crate::pds::LightSource::default());
+        let mut poor = lamp.clone();
+        apply_socio_finish(&mut poor, 0.0, 1.0);
+        assert_eq!(only_material(&poor).emission_strength.0, 2.0);
+        let mut rich = lamp.clone();
+        apply_socio_finish(&mut rich, 1.0, 0.0);
+        assert!(only_material(&rich).emission_strength.0 > 2.0);
+        let mut glow = lamp;
+        glow.light = None;
+        apply_socio_finish(&mut glow, 0.0, 1.0);
+        assert!(only_material(&glow).emission_strength.0 < 2.0);
     }
 
     #[test]
