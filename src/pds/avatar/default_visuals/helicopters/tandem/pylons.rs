@@ -10,6 +10,7 @@
 //! tower's middle on the nominal boom, and 0.8 cm either side of that at the
 //! boom's extremes.
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::generator::Generator;
 
 use super::super::super::common::{cylinder, id_quat, prim, sphere, superellipsoid, sweep};
@@ -149,11 +150,11 @@ pub(super) fn aft(kids: &mut Vec<Generator>, plan: &PodPlan, c: &TandemColours) 
 
 /// The white light on the aft pylon's tail.
 pub(super) fn tail_light(kids: &mut Vec<Generator>, plan: &PodPlan, c: &TandemColours) {
-    kids.push(prim(
+    kids.push(lights::running(prim(
         sphere(dim(plan.len(TAIL_LIGHT_R)), 3, c.white.clone()),
         plan.at_off(0.0, pylon_y(plan), PYLON_Z, -PYLON[2] + TAIL_LIGHT_IN),
         id_quat(),
-    ));
+    )));
 }
 
 /// Her port engine pod's tail, in the drawn frame: its last station's

@@ -3,6 +3,7 @@
 //! box (hibukuro), a pyramidal cap, and an onion finial. Its emissive light
 //! box is the trim escalation's ruin pass snuffs to cold dead stone.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     assemble, cone, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, solid, sphere,
 };
@@ -81,10 +82,13 @@ fn build_tree() -> Generator {
     let box_y = 2.62;
     let box_h = 0.6;
     let box_r = 0.34;
-    prims.push(prim(
-        cylinder_tapered(box_r, box_h, 6, 0.0, glow(LANTERN_GLOW, 3.0)),
-        [0.0, box_y, 0.0],
-        id_quat(),
+    prims.push(lit(
+        prim(
+            cylinder_tapered(box_r, box_h, 6, 0.0, glow(LANTERN_GLOW, 3.0)),
+            [0.0, box_y, 0.0],
+            id_quat(),
+        ),
+        Lamp::Flame { over: 2.6 },
     ));
     for k in 0..6 {
         let a = k as f32 / 6.0 * TAU;

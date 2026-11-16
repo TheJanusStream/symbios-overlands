@@ -9,6 +9,7 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::solarpunk::{crop_tufts, foliage};
 use crate::catalogue::items::util::{
     self, cuboid_tapered, cuboid_tapered_xz, footing, glow, id_quat, nest, pfp_panel, prim, solid,
@@ -188,10 +189,13 @@ fn coach_lamp(x: f32) -> Generator {
     );
     nest(
         housing,
-        vec![prim(
-            cuboid_tapered([0.13, 0.17, 0.13], 0.2, glow(LAMP, 1.9)),
-            [x, 2.78, -0.02],
-            id_quat(),
+        vec![lit(
+            prim(
+                cuboid_tapered([0.13, 0.17, 0.13], 0.2, glow(LAMP, 1.9)),
+                [x, 2.78, -0.02],
+                id_quat(),
+            ),
+            Lamp::Bulb { over: 2.8 },
         )],
     )
 }

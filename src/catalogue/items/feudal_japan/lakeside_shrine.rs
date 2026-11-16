@@ -10,6 +10,7 @@
 //! torii, the boardwalk and the hall's open front are the -Z hero face; the
 //! torii stands on the court, within the footing, not in the water.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::street::lit_from_dusk;
 use crate::catalogue::items::util::{
     attach, cone, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, glow, id_quat,
@@ -501,10 +502,13 @@ fn lantern(x: f32, z: f32) -> Generator {
             [x, b + 1.45, z],
             id_quat(),
         ),
-        prim(
-            cylinder_tapered(0.28, 0.5, 6, 0.0, glow(LANTERN_GLOW, 2.2)),
-            [x, b + 1.8, z],
-            id_quat(),
+        lit(
+            prim(
+                cylinder_tapered(0.28, 0.5, 6, 0.0, glow(LANTERN_GLOW, 2.2)),
+                [x, b + 1.8, z],
+                id_quat(),
+            ),
+            Lamp::Flame { over: 2.1 },
         ),
         prim(
             solid(cone(0.62, 0.5, 6, stone(STONE_GREY))),

@@ -653,6 +653,7 @@ fn generator_node_transform_rejects_non_finite_fields() {
         children: Vec::new(),
         audio: symbios_overlands::pds::SovereignAudioConfig::None,
         spin: None,
+        light: None,
     };
     // Must not panic.
     sanitize_generator(&mut generator);

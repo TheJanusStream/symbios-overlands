@@ -2,6 +2,7 @@
 //! escalation-Calm scatter prop: maintained street lighting signals a safe,
 //! orderly settlement in any setting.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     cone, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, solid, sphere, torus,
 };
@@ -82,10 +83,13 @@ fn build_tree() -> Generator {
         // Deep-amber glow core, set inside the cage so the bronze frame
         // breaks it up - saturated colour at moderate strength reads
         // incandescent instead of washing to a pale near-white box.
-        prim(
-            cuboid_tapered([0.21, 0.36, 0.21], 0.0, glow(LANTERN_WARM, 2.6)),
-            [0.0, head_y, 0.0],
-            id_quat(),
+        lit(
+            prim(
+                cuboid_tapered([0.21, 0.36, 0.21], 0.0, glow(LANTERN_WARM, 2.6)),
+                [0.0, head_y, 0.0],
+                id_quat(),
+            ),
+            Lamp::Bulb { over: head_y },
         ),
         // Top frame collar.
         prim(

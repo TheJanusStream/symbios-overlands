@@ -3,6 +3,7 @@
 //! altar flame, drifting embers, and a fire crackle. Its emissive coals are
 //! the trim escalation's ruin pass snuffs to a cold dead bowl.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     assemble, attach, cylinder_tapered, glow, id_quat, prim, solid, torus,
 };
@@ -77,16 +78,19 @@ fn build_tree() -> Generator {
 
     // Glowing coals heaped in the bowl - the emissive heart, crackling.
     let coals = [0.0, bowl_y + 0.22, 0.0];
-    let mut fire = prim(
-        solid(cylinder_tapered(
-            0.5,
-            0.22,
-            12,
-            0.4,
-            glow(EMBER_ORANGE, 4.0),
-        )),
-        coals,
-        id_quat(),
+    let mut fire = lit(
+        prim(
+            solid(cylinder_tapered(
+                0.5,
+                0.22,
+                12,
+                0.4,
+                glow(EMBER_ORANGE, 4.0),
+            )),
+            coals,
+            id_quat(),
+        ),
+        Lamp::Fire { over: 1.8 },
     );
     fire.audio = fx::fire_crackle();
     prims.push(fire);

@@ -11,6 +11,7 @@
 //! set-dressing framing that opening so it reads as a threshold you grow
 //! through.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::{FRAC_PI_2, TAU};
 
 use crate::catalogue::items::util::{
@@ -167,11 +168,14 @@ fn build_tree() -> Generator {
         [0.0, lintel_y, panel_z - 0.02],
         quat_x(FRAC_PI_2),
     ));
-    prims.push(prim_scaled(
-        sphere(0.2, 6, glow(LAMP_WARM, 2.2)),
-        [0.0, lintel_y, panel_z],
-        id_quat(),
-        [1.0, 1.0, 0.35],
+    prims.push(lit(
+        prim_scaled(
+            sphere(0.2, 6, glow(LAMP_WARM, 2.2)),
+            [0.0, lintel_y, panel_z],
+            id_quat(),
+            [1.0, 1.0, 0.35],
+        ),
+        Lamp::Bulb { over: 4.2 },
     ));
     for i in 0..8 {
         let theta = i as f32 / 8.0 * TAU;

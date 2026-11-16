@@ -8,6 +8,7 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     cuboid_tapered, footing, glow, id_quat, nest, pfp_panel, prim, solid,
 };
@@ -165,11 +166,23 @@ fn housing(did: &str) -> Vec<Generator> {
             [i as f32 * 0.72, 4.94, z - 0.1],
             id_quat(),
         ));
-        out.push(prim(
+        let lens = prim(
             cuboid_tapered([0.34, 0.2, 0.06], 0.0, glow(FLOOD_LIT, 2.2)),
             [i as f32 * 0.72, 4.94, z - 0.24],
             id_quat(),
-        ));
+        );
+        // The middle head's light stands for the bank (#1923).
+        out.push(if i == 0 {
+            lit(
+                lens,
+                Lamp::Flood {
+                    over: 4.94,
+                    aim: [0.0, -1.0, -0.5],
+                },
+            )
+        } else {
+            lens
+        });
     }
     out
 }

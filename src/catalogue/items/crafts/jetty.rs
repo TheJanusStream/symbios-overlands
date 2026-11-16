@@ -1,7 +1,7 @@
 //! Jetty - a place for a boat (#1782): a timber deck on paired piles running
 //! out from the shore to a wider head where a boat moors, steel bollards at
 //! the head's outer corners, a ladder down to the water and a lamp that is
-//! lit from dusk to dawn.
+//! lit from dusk to dawn and lights the head round it (#1923).
 //!
 //! [`jetty`] draws one of any length: its origin where the deck leaves the
 //! land, its deck's top at the origin's height, running out along its front
@@ -13,6 +13,7 @@
 //! catalogue's own is [`ENTRY_LENGTH`] long, with no boat.
 
 use super::{PAINT_WHITE, STEEL, TIMBER, TIMBER_DARK, lamp, paint, steel, timber, timber_plain};
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{cuboid_tapered, cylinder_tapered, id_quat, nest, prim, solid};
 use crate::catalogue::{CatalogueEntry, Craft, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -222,10 +223,13 @@ pub fn jetty(length: f32) -> Generator {
         [lamp_x, LAMP_POST * 0.5, lamp_z],
         id_quat(),
     ));
-    parts.push(prim(
-        cuboid_tapered([0.22, 0.3, 0.22], 0.0, lamp([1.0, 0.78, 0.45], 3.0)),
-        [lamp_x, LAMP_POST + 0.15, lamp_z],
-        id_quat(),
+    parts.push(lit(
+        prim(
+            cuboid_tapered([0.22, 0.3, 0.22], 0.0, lamp([1.0, 0.78, 0.45], 3.0)),
+            [lamp_x, LAMP_POST + 0.15, lamp_z],
+            id_quat(),
+        ),
+        Lamp::Bulb { over: LAMP_POST },
     ));
     parts.push(prim(
         cuboid_tapered([0.3, 0.05, 0.3], 0.3, steel(STEEL)),

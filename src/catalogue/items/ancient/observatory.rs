@@ -7,6 +7,7 @@
 //! its base at the generator origin; dome, slit, railing, and door are
 //! children positioned relative to the drum centre.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{tile, tiles_per_metre};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{
@@ -174,10 +175,13 @@ fn build_tree() -> Generator {
         [0.0, rel(0.95), -(drum_r - 0.05)],
         id_quat(),
     ));
-    root.children.push(prim(
-        sphere(0.14, 2, glow([0.95, 0.85, 0.55], 4.0)),
-        [0.0, rel(1.85), -(drum_r + 0.08)],
-        id_quat(),
+    root.children.push(lit(
+        prim(
+            sphere(0.14, 2, glow([0.95, 0.85, 0.55], 4.0)),
+            [0.0, rel(1.85), -(drum_r + 0.08)],
+            id_quat(),
+        ),
+        Lamp::Flame { over: 1.85 },
     ));
 
     root

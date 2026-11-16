@@ -3,9 +3,10 @@
 //! the per-kind detail editor (delegated to [`primitive`](super::primitive),
 //! [`sign`](super::sign), [`particles`](super::particles),
 //! [`water`](super::water), or the Terrain / LSystem / Shape forges in
-//! sibling modules of the room editor), then the node's own audio slot and
-//! its [`spin`](super::spin). Every section the kind picker, the transform
-//! and the per-kind editors draw is collapsed until it is opened (#1632).
+//! sibling modules of the room editor), then the node's own audio slot, its
+//! [`spin`](super::spin) and its [`light`](super::light). Every section the
+//! kind picker, the transform and the per-kind editors draw is collapsed
+//! until it is opened (#1632).
 
 use bevy_egui::egui;
 
@@ -190,6 +191,13 @@ pub(super) fn draw_detail_panel(
     let berlin_ground = source.ground_is_berlin();
     // And what a terrain water layer draws (#1760).
     let water_layer = source.water_layer(&id);
+    // And why a light on this node draws nowhere, if it does not (#1922):
+    // water at a root is no place the world draws.
+    let light_refusal = if is_root && kind_tag == "Water" {
+        Some(super::light::ROOT_WATER_REFUSAL)
+    } else {
+        source.light_refusal(&id.root)
+    };
 
     if let Some(node) = find_node_mut(source, &id) {
         let child_count = node.children.len();
@@ -376,6 +384,18 @@ pub(super) fn draw_detail_panel(
                     &mut node.spin,
                     &node.kind,
                     spin_refusal,
+                    &salt,
+                    dirty,
+                );
+
+                // The light every client draws at this node (#1922).
+                ui.add_space(6.0);
+                ui.separator();
+                super::light::draw_light_section(
+                    ui,
+                    &mut node.light,
+                    &node.kind,
+                    light_refusal,
                     &salt,
                     dirty,
                 );
@@ -3422,5 +3442,253 @@ mod source_facts_tests {
                 "{field} is still drawn, to edit: {berlin:?}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod light_section_tests {
+    use crate::ui::headless::Headless as _;
+    use bevy_egui::egui;
+    use egui::accesskit::Role;
+
+    use super::lots_section_tests::click;
+    use super::{GenNodeId, draw_detail_panel};
+    use crate::pds::{Generator, LightSource, RoomRecord};
+    use crate::ui::room::generators::{
+        AttachmentTreeSource, AvatarVisualsTreeSource, GeneratorTreeSource, RoomTreeSource,
+        TreeSelection,
+    };
+
+    /// One pass of the node panel over `source` with `selection`, `events`
+    /// as the input: the "Light this part" checkbox it drew, if any, and
+    /// whether it marked the record edited.
+    fn pass(
+        ctx: &egui::Context,
+        source: &mut dyn GeneratorTreeSource,
+        selection: &mut TreeSelection,
+        events: Vec<egui::Event>,
+    ) -> (Option<egui::accesskit::NodeId>, bool) {
+        let (checkbox, dirty, _) = pass_reading(ctx, source, selection, events);
+        (checkbox, dirty)
+    }
+
+    /// [`pass`], and every text the pass painted.
+    fn pass_reading(
+        ctx: &egui::Context,
+        source: &mut dyn GeneratorTreeSource,
+        selection: &mut TreeSelection,
+        events: Vec<egui::Event>,
+    ) -> (Option<egui::accesskit::NodeId>, bool, Vec<String>) {
+        use crate::ui::room::assets::AssetPanel;
+        let mut audio = crate::ui::room::audio::AudioEditorState::default();
+        let grammar = crate::world_builder::grammar_diag::GrammarDiagnostics::default();
+        let mut confirm = crate::ui::confirm::ConfirmState::<(GenNodeId, &'static str)>::default();
+        let mut labels = crate::ui::undo::PendingUndoLabels::default();
+        let mut face_pick = crate::editor_gizmo::FacePick::default();
+        let images = crate::world_builder::image_cache::BlobImageCache::default();
+        let blobs = crate::world_builder::audio_resolver::BlobAudioCache::default();
+        let clips = crate::interaction::audio::AudioClipCache::default();
+        let layers = crate::terrain::referenced::ReferencedLayerStatus::default();
+        let mut retries = crate::world_builder::asset_failure::AssetRetryRequests::default();
+        let mut dirty = false;
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1280.0, 8000.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        let output = ctx.run_headless(input, |ui| {
+            draw_detail_panel(
+                ui,
+                source,
+                selection,
+                &mut audio,
+                &grammar,
+                &mut dirty,
+                &mut None,
+                &mut confirm,
+                &mut labels.slot(crate::ui::shortcuts::EditorKind::World),
+                None,
+                None,
+                &mut face_pick,
+                &mut AssetPanel {
+                    images: &images,
+                    audio: &blobs,
+                    clips: &clips,
+                    layers: &layers,
+                    retries: &mut retries,
+                    now: 0.0,
+                    allow_external: true,
+                    world_parts: true,
+                },
+            );
+        });
+        let nodes = output
+            .platform_output
+            .accesskit_update
+            .expect("AccessKit is on")
+            .nodes;
+        let checkbox = nodes
+            .iter()
+            .find(|(_, node)| {
+                node.role() == Role::CheckBox && node.label() == Some("Light this part")
+            })
+            .map(|(id, _)| *id);
+        let texts = nodes
+            .iter()
+            .filter_map(|(_, node)| node.value().or(node.label()).map(str::to_owned))
+            .collect();
+        (checkbox, dirty, texts)
+    }
+
+    /// Ticks "Light this part" on the node `selection` names in `source`.
+    fn light_one(source: &mut dyn GeneratorTreeSource, mut selection: TreeSelection) {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let (checkbox, dirty) = pass(&ctx, source, &mut selection, Vec::new());
+        assert!(!dirty, "drawing edits nothing");
+        let checkbox = checkbox.expect("a Light section on this node");
+        let (_, dirty) = pass(&ctx, source, &mut selection, click(checkbox));
+        assert!(dirty, "the tick marks the record edited");
+    }
+
+    fn select(root: &str, path: Vec<usize>) -> TreeSelection {
+        TreeSelection {
+            root: Some(root.to_owned()),
+            path: Some(path),
+        }
+    }
+
+    fn tree() -> Generator {
+        let mut tree = Generator::default_cuboid();
+        tree.children.push(Generator::default_cuboid());
+        tree
+    }
+
+    /// #1922: the Light section serves every tree the node panel edits,
+    /// as the Spin section does - a world's item, a body's visuals and a
+    /// worn prop's parts - and a tick lights the selected node, and only
+    /// it.
+    #[test]
+    fn the_light_section_serves_a_world_item_a_body_and_a_worn_prop() {
+        let mut record = RoomRecord::default();
+        record.generators.insert("lamp".into(), tree());
+        light_one(
+            &mut RoomTreeSource::new(&mut record),
+            select("lamp", vec![0]),
+        );
+        let lamp = &record.generators["lamp"];
+        assert_eq!(lamp.children[0].light, Some(LightSource::default()));
+        assert_eq!(lamp.light, None, "its root is left as it was");
+
+        let mut visuals = tree();
+        light_one(
+            &mut AvatarVisualsTreeSource::new(&mut visuals),
+            select(AvatarVisualsTreeSource::ROOT_NAME, vec![0]),
+        );
+        assert_eq!(visuals.children[0].light, Some(LightSource::default()));
+
+        let mut worn = tree();
+        light_one(
+            &mut AttachmentTreeSource::new("hat", &mut worn),
+            select("hat", Vec::new()),
+        );
+        assert_eq!(worn.light, Some(LightSource::default()));
+        assert_eq!(worn.children[0].light, None);
+    }
+
+    /// #1922: where a light would draw nowhere, the section says why in
+    /// place of its controls - on every node of an item placed only as an
+    /// instance set, whose copies draw shapes alone, and on water at an
+    /// item's root - while a light already there can still be taken off. An
+    /// item placed on its own as well is offered a light.
+    #[test]
+    fn the_light_section_says_where_a_light_draws_nowhere() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut record = RoomRecord::default();
+        record.generators.insert("lamp".into(), tree());
+        record.placements.push(
+            serde_json::from_str(
+                r#"{"$type":"network.symbios.place.instances","generator_ref":"lamp","copies":[[100,200,0]]}"#,
+            )
+            .expect("an instance set"),
+        );
+        let refused = "Placed only as an instance set";
+        for path in [Vec::new(), vec![0]] {
+            let mut selection = select("lamp", path.clone());
+            let (checkbox, dirty, texts) = pass_reading(
+                &ctx,
+                &mut RoomTreeSource::new(&mut record),
+                &mut selection,
+                Vec::new(),
+            );
+            assert!(!dirty);
+            assert!(checkbox.is_none(), "no light offered at {path:?}");
+            assert!(
+                texts.iter().any(|t| t.starts_with(refused)),
+                "{path:?}: {texts:#?}"
+            );
+        }
+        // A light already there (a hand-written record) can be taken off.
+        record.generators.get_mut("lamp").expect("lamp").children[0].light =
+            Some(LightSource::default());
+        let mut selection = select("lamp", vec![0]);
+        let (checkbox, _, texts) = pass_reading(
+            &ctx,
+            &mut RoomTreeSource::new(&mut record),
+            &mut selection,
+            Vec::new(),
+        );
+        assert!(texts.iter().any(|t| t.starts_with(refused)));
+        let checkbox = checkbox.expect("the light can be unticked");
+        let (_, dirty) = pass(
+            &ctx,
+            &mut RoomTreeSource::new(&mut record),
+            &mut selection,
+            super::lots_section_tests::click(checkbox),
+        );
+        assert!(dirty);
+        assert_eq!(record.generators["lamp"].children[0].light, None);
+
+        // Placed on its own as well: its own copy draws the light.
+        record.placements.push(
+            serde_json::from_str(
+                r#"{"$type":"network.symbios.place.absolute","generator_ref":"lamp"}"#,
+            )
+            .expect("an absolute placement"),
+        );
+        let mut selection = select("lamp", vec![0]);
+        let (checkbox, _, texts) = pass_reading(
+            &ctx,
+            &mut RoomTreeSource::new(&mut record),
+            &mut selection,
+            Vec::new(),
+        );
+        assert!(checkbox.is_some(), "control: a light is offered");
+        assert!(!texts.iter().any(|t| t.starts_with(refused)));
+
+        // Water at an item's root.
+        let mut water = Generator::default_cuboid();
+        water.kind = crate::pds::GeneratorKind::Water {
+            surface: Default::default(),
+        };
+        record.generators.insert("pond".into(), water);
+        let mut selection = select("pond", Vec::new());
+        let (checkbox, _, texts) = pass_reading(
+            &ctx,
+            &mut RoomTreeSource::new(&mut record),
+            &mut selection,
+            Vec::new(),
+        );
+        assert!(checkbox.is_none());
+        assert!(
+            texts
+                .iter()
+                .any(|t| t == super::super::light::ROOT_WATER_REFUSAL),
+            "{texts:#?}"
+        );
     }
 }

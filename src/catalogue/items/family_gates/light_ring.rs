@@ -9,6 +9,7 @@
 //! space outpost, alien monolithic and cyberpunk pools through
 //! `kindred_gates`.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::space_outpost::{
@@ -214,10 +215,13 @@ fn pylon(foot: [f32; 3], sx: f32) -> Vec<Generator> {
             [x, y + h * 0.45, z - 0.165],
             id_quat(),
         ),
-        prim(
-            sphere(0.1, 3, glow(beacon, 6.0)),
-            [x, y + h + 0.06, z],
-            id_quat(),
+        lit(
+            prim(
+                sphere(0.1, 3, glow(beacon, 6.0)),
+                [x, y + h + 0.06, z],
+                id_quat(),
+            ),
+            Lamp::Beacon { over: 2.9 },
         ),
     ]
 }

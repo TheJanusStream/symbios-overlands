@@ -157,8 +157,9 @@ impl SpinClock {
         Self::Utc { offset: None }
     }
 
-    /// The time now (s).
-    fn now(&mut self, time: &Time, real: &Time<Real>) -> f64 {
+    /// The time now (s) - also the clock a light's flicker reads
+    /// (`world_builder::light`).
+    pub(crate) fn now(&mut self, time: &Time, real: &Time<Real>) -> f64 {
         match self {
             Self::Scene => time.elapsed_secs_f64(),
             Self::Utc { offset } => {

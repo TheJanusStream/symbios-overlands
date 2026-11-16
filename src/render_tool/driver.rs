@@ -309,6 +309,8 @@ pub(super) fn spawn_driver(
         &mut images,
         &mut deps,
         false,
+        // The chassis's DID, which seeds the body's lights (#1924).
+        Some(&did.0),
     );
     // The first segment's step, on the exact virtual clock rather than the
     // tool's own float one (which drifts from it by milliseconds over a long

@@ -8,6 +8,7 @@
 
 use std::f32::consts::FRAC_PI_2;
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::generator::Generator;
 use crate::pds::types::Fp3;
 use crate::seeded_defaults::OrnatenessTier;
@@ -144,11 +145,23 @@ fn stub_wings(kids: &mut Vec<Generator>, plan: &PodPlan, c: &CoaxialColours) {
             [0.0; 3],
             id_quat(),
         ));
-        kids.push(prim(
+        let lamp = prim(
             sphere(dim(plan.len(LAMP_R)), 3, c.white.clone()),
             plan.at(x, y, WING_Z + POD[0].0),
             id_quat(),
-        ));
+        );
+        // One landing light for the pair of pod lamps (#1924), between them.
+        kids.push(if side < 0.0 {
+            let [_, ly, lz] = plan.at(0.0, y, WING_Z + POD[0].0);
+            lights::beam(
+                lamp,
+                [0.0, ly, lz],
+                -plan.datum_height(),
+                lights::LANDING_AHEAD_M,
+            )
+        } else {
+            lamp
+        });
     }
 }
 
@@ -164,9 +177,9 @@ const BEACON_R: f32 = 0.020;
 fn beacon(kids: &mut Vec<Generator>, plan: &PodPlan, c: &CoaxialColours) {
     let (z, r) = FAIRING[BEACON_STATION];
     let top = plan.crown(z) - FAIRING_SINK + r * FAIRING_SQUASH;
-    kids.push(prim(
+    kids.push(lights::strobe(prim(
         sphere(dim(plan.len(BEACON_R)), 3, c.beacon.clone()),
         plan.at(0.0, top + BEACON_R * 0.5, z),
         id_quat(),
-    ));
+    )));
 }

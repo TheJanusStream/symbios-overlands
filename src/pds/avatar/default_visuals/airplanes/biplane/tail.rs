@@ -7,6 +7,7 @@
 //! the fin 0.09 as wide. They stand aft of the cockpits, so the cabin
 //! stretch carries them rigidly aft rather than drawing them out.
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::generator::Generator;
 use crate::pds::types::Fp3;
 
@@ -123,11 +124,11 @@ pub(super) fn tail_light(kids: &mut Vec<Generator>, plan: &FusePlan, c: &Biplane
     let ((r0, z0, c0), (r1, z1, c1)) = (FIN[0], FIN[1]);
     let t = (TAIL_LIGHT_RISE - r0) / (r1 - r0);
     let edge = z0 + (z1 - z0) * t - (c0 + (c1 - c0) * t);
-    kids.push(prim(
+    kids.push(lights::running(prim(
         sphere(dim(plan.len(0.016)), 3, c.white.clone()),
         plan.at(0.0, fin_root(plan) + TAIL_LIGHT_RISE, edge + TAIL_LIGHT_IN),
         id_quat(),
-    ));
+    )));
 }
 
 /// The fin's top (prototype frame): where an ornate machine's beacon sits,

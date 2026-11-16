@@ -11,6 +11,7 @@ use super::super::super::common::{bevel, cuboid, id_quat, prim, quat_x, quat_xyz
 use super::super::{SkiffColours, dim};
 use super::RoadsterPlan;
 use super::{SECTION, TUB_HOLLOW, WING_ARC, WING_R, WING_SCALE_X, line, sweep, turned};
+use crate::pds::avatar::default_visuals::lights;
 
 /// How far the radiator's turned filler cap is seated into the shell it stands
 /// on, as a fraction of the length (#1367 defect 1).
@@ -326,32 +327,41 @@ pub(super) fn lamps_and_bumper(kids: &mut Vec<Generator>, plan: &RoadsterPlan, c
         6,
         c.brightwork.clone(),
     ));
+    // One beam for the pair of lenses (#1924), and one red glow for the
+    // pair of tail lamps, each from its near lamp.
+    let ground = -plan.datum_height();
+    let tz = plan.tail_lamps_z();
+    let ty = plan.crown_at(tz) * 0.10;
     for (i, &m) in mounts.iter().enumerate() {
         let side = if i == 0 { -1.0f32 } else { 1.0 };
         kids.push(turned(&shell, 20, true, c.brightwork.clone(), m, turn));
-        kids.push(turned(
+        let lens = turned(
             &[(0.0, 0.0), (0.084 * k, 0.0), (0.084 * k, 0.010 * k)],
             18,
             false,
             c.lamp.clone(),
             [m[0], m[1], m[2] + 0.058 * k],
             turn,
-        ));
+        );
+        kids.push(if i == 0 {
+            lights::headlights(lens, ground)
+        } else {
+            lens
+        });
         // Tail lamp on the quarter, seated on the body's own flank at the
         // station the BODY names (#1367 defect 3): restated as a fraction of
         // the length, it stood behind a bobtail's back in open air. Centred ON
         // the flank: stood 2 % proud of it, the lamp on a 1.9 m car missed the
         // tail that is drawn by under a millimetre (#1393).
-        let tz = plan.tail_lamps_z();
-        let ty = plan.crown_at(tz) * 0.10;
-        kids.push(turned(
+        let tail = turned(
             &[(0.0, 0.0), (0.034 * k, 0.0), (0.034 * k, 0.012 * k)],
             12,
             false,
             c.tail_lamp.clone(),
             [side * plan.side_at(tz, ty), ty, tz - l * 0.004],
             quat_x(-FRAC_PI_2),
-        ));
+        );
+        kids.push(if i == 0 { lights::running(tail) } else { tail });
     }
     // Bumper: a bowed bar on two short irons, ahead of the radiator and INSIDE
     // the guard line - a bar as wide as the track reads as a chrome moustache

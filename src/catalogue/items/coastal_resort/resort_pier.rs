@@ -7,6 +7,7 @@
 //! Primitive-built; authored in one flat ground-relative frame via
 //! [`assemble`], which reparents every piece under the deck.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     assemble, attach, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_z, solid,
 };
@@ -182,10 +183,13 @@ fn build_tree() -> Generator {
                 [sx * 1.95, deck_y + 1.5, z],
                 id_quat(),
             ));
-            prims.push(prim(
-                cuboid_tapered([0.24, 0.3, 0.24], 0.0, glow(LAMP_WARM, 2.4)),
-                [sx * 1.95, deck_y + 2.1, z],
-                id_quat(),
+            prims.push(lit(
+                prim(
+                    cuboid_tapered([0.24, 0.3, 0.24], 0.0, glow(LAMP_WARM, 2.4)),
+                    [sx * 1.95, deck_y + 2.1, z],
+                    id_quat(),
+                ),
+                Lamp::Bulb { over: 3.5 },
             ));
         }
     }

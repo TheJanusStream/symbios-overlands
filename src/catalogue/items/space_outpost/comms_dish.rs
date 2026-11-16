@@ -7,6 +7,7 @@
 //! concave dish rather than a convex pebble; the feed strut and horn run along
 //! the same dish axis.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
@@ -128,10 +129,13 @@ fn build_tree() -> Generator {
         axis,
     ));
     // Red warning light on the rim.
-    prims.push(prim(
-        sphere(0.18, 4, glow(BEACON_RED, 2.5)),
-        [2.4, 4.9, -0.1],
-        id_quat(),
+    prims.push(lit(
+        prim(
+            sphere(0.18, 4, glow(BEACON_RED, 2.5)),
+            [2.4, 4.9, -0.1],
+            id_quat(),
+        ),
+        Lamp::Beacon { over: 3.0 },
     ));
 
     let mut root = assemble(prims);

@@ -13,6 +13,7 @@ use crate::catalogue::items::feudal_japan::{
     LACQUER_RED, LANTERN_GLOW, PAPER_CREAM, STONE_GREY, TILE_SLATE, TIMBER_DARK, lacquer, paper,
     roof_tile, rough_stone, stone, timber,
 };
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, glow, id_quat, nest, pfp_panel,
     prim, solid, sphere,
@@ -93,10 +94,13 @@ fn toro() -> Generator {
     let mut fire_box = vec![
         // The fire seen through the box: deep amber at low strength, so it
         // reads as a lit lantern rather than a white blank.
-        prim(
-            cylinder_tapered(0.25, 0.6, 6, 0.0, glow(LANTERN_GLOW, 1.8)),
-            [x, 3.17, 0.0],
-            id_quat(),
+        lit(
+            prim(
+                cylinder_tapered(0.25, 0.6, 6, 0.0, glow(LANTERN_GLOW, 1.8)),
+                [x, 3.17, 0.0],
+                id_quat(),
+            ),
+            Lamp::Flame { over: 3.2 },
         ),
         nest(
             hat,

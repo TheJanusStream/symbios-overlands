@@ -9,6 +9,7 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::medieval::{
     FORGE_ORANGE, IRON_DARK, STONE_GREY, STONE_PALE, iron, stone,
 };
@@ -228,10 +229,13 @@ fn lantern() -> Generator {
         vec![nest(
             cap,
             vec![
-                prim(
-                    cuboid_tapered([0.2, 0.3, 0.2], 0.2, glow(FORGE_ORANGE, 2.2)),
-                    [1.42, 3.64, -0.3],
-                    id_quat(),
+                lit(
+                    prim(
+                        cuboid_tapered([0.2, 0.3, 0.2], 0.2, glow(FORGE_ORANGE, 2.2)),
+                        [1.42, 3.64, -0.3],
+                        id_quat(),
+                    ),
+                    Lamp::Flame { over: 3.6 },
                 ),
                 prim(
                     solid(cuboid_tapered([0.26, 0.06, 0.26], 0.0, iron(IRON_DARK))),

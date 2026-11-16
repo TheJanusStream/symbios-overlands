@@ -8,6 +8,7 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     cuboid_tapered, cuboid_tapered_xz, footing, glow, id_quat, nest, pfp_panel, prim, solid,
 };
@@ -197,10 +198,13 @@ fn yard_lamp(x: f32) -> Generator {
                 [x - 0.52, 3.78, -0.24],
                 id_quat(),
             ),
-            prim(
-                cuboid_tapered([0.22, 0.08, 0.22], 0.0, glow(LAMP_WARM, 1.9)),
-                [x - 0.52, 3.66, -0.24],
-                id_quat(),
+            lit(
+                prim(
+                    cuboid_tapered([0.22, 0.08, 0.22], 0.0, glow(LAMP_WARM, 1.9)),
+                    [x - 0.52, 3.66, -0.24],
+                    id_quat(),
+                ),
+                Lamp::Street { over: 3.7 },
             ),
         ],
     )

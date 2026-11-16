@@ -8,6 +8,7 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     cuboid_tapered, cylinder_tapered, footing, glow, id_quat, nest, pfp_panel, prim, solid,
 };
@@ -136,10 +137,13 @@ fn board(did: &str) -> Vec<Generator> {
             [0.0, 4.48, z - 0.35],
             id_quat(),
         ),
-        prim(
-            cuboid_tapered([0.4, 0.1, 0.16], 0.0, glow(FLOOD_WHITE, 2.0)),
-            [0.0, 4.38, z - 0.42],
-            id_quat(),
+        lit(
+            prim(
+                cuboid_tapered([0.4, 0.1, 0.16], 0.0, glow(FLOOD_WHITE, 2.0)),
+                [0.0, 4.38, z - 0.42],
+                id_quat(),
+            ),
+            Lamp::Street { over: 4.4 },
         ),
         // Blank ident strip under the board, where the site name is stencilled.
         prim(

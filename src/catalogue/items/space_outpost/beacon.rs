@@ -2,6 +2,7 @@
 //! glowing red light with a small solar cell. Scatter clutter marking the
 //! base perimeter; its light is emissive trim the ruin pass can darken.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::TAU;
 
 use crate::catalogue::items::util::{
@@ -108,10 +109,13 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
-    let mut lamp = prim(
-        sphere(0.2, 4, glow(BEACON_RED, 2.5)),
-        [0.0, mast_top + 0.27, 0.0],
-        id_quat(),
+    let mut lamp = lit(
+        prim(
+            sphere(0.2, 4, glow(BEACON_RED, 2.5)),
+            [0.0, mast_top + 0.27, 0.0],
+            id_quat(),
+        ),
+        Lamp::Beacon { over: 2.6 },
     );
     lamp.audio = fx::beacon_ping();
     prims.push(lamp);

@@ -2,6 +2,7 @@
 //! warm glowing light. Scatter clutter lighting the garden paths; its lamp is
 //! emissive trim the ruin pass can darken.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::TAU;
 
 use crate::catalogue::items::util::{
@@ -73,10 +74,13 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
     // Warm glowing lens - emissive trim the ruin pass can darken.
-    prims.push(prim(
-        sphere(0.15, 5, glow(LAMP_WARM, 2.2)),
-        [0.0, head_y + 0.12, 0.0],
-        id_quat(),
+    prims.push(lit(
+        prim(
+            sphere(0.15, 5, glow(LAMP_WARM, 2.2)),
+            [0.0, head_y + 0.12, 0.0],
+            id_quat(),
+        ),
+        Lamp::Bulb { over: 1.7 },
     ));
     // Cage bars round the lens.
     for i in 0..4 {

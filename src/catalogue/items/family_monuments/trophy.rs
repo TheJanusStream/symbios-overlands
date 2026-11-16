@@ -9,6 +9,7 @@
 //! rules this family shares.
 
 use crate::catalogue::items::civic::marble;
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::sports_rec::{
     CONCRETE_GREY, FLOOD_LIT, SEAT_BLUE, SEAT_RED, STEEL_GREY, concrete, enamel, steel,
 };
@@ -181,10 +182,16 @@ fn uplighter(x: f32) -> Generator {
     );
     nest(
         housing,
-        vec![prim(
-            cuboid_tapered([0.22, 0.03, 0.22], 0.0, glow(FLOOD_LIT, 2.4)),
-            [x, 0.49, -0.85],
-            id_quat(),
+        vec![lit(
+            prim(
+                cuboid_tapered([0.22, 0.03, 0.22], 0.0, glow(FLOOD_LIT, 2.4)),
+                [x, 0.49, -0.85],
+                id_quat(),
+            ),
+            Lamp::Flood {
+                over: 2.5,
+                aim: [-x, PEDESTAL_TOP - 0.2, 0.85],
+            },
         )],
     )
 }

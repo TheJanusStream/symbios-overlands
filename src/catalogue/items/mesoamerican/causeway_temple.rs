@@ -11,6 +11,7 @@
 //! The settlement turns a shore building's front to the water, so the
 //! causeway and the stair are the -Z hero face.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::PI;
 
 use crate::catalogue::items::util::{
@@ -209,10 +210,13 @@ fn platform() -> Generator {
         [0.0, top + 0.38, fire_z],
         id_quat(),
     ));
-    parts.push(prim(
-        sphere(0.45, 4, glow(FIRE_ORANGE, 5.0)),
-        [0.0, top + 0.85, fire_z],
-        id_quat(),
+    parts.push(lit(
+        prim(
+            sphere(0.45, 4, glow(FIRE_ORANGE, 5.0)),
+            [0.0, top + 0.85, fire_z],
+            id_quat(),
+        ),
+        Lamp::Fire { over: 2.0 },
     ));
     parts.push(fx::sacred_flame([0.0, top + 1.0, fire_z], 0xCA05_E7A1));
 

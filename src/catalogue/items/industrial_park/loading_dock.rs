@@ -2,6 +2,7 @@
 //! roller bay doors and rubber bumpers under a steel canopy, a side ramp, and
 //! a box trailer backed up to one bay.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     assemble, cuboid_tapered, footing, glow, id_quat, prim, quat_x, solid,
 };
@@ -107,10 +108,13 @@ fn build_tree() -> Generator {
             [bx, dock_h + 3.4, face - 0.3],
             id_quat(),
         ));
-        prims.push(prim(
-            cuboid_tapered([0.52, 0.2, 0.06], 0.0, glow(LAMP_AMBER, 3.8)),
-            [bx, dock_h + 3.28, face - 0.36],
-            id_quat(),
+        prims.push(lit(
+            prim(
+                cuboid_tapered([0.52, 0.2, 0.06], 0.0, glow(LAMP_AMBER, 3.8)),
+                [bx, dock_h + 3.28, face - 0.36],
+                id_quat(),
+            ),
+            Lamp::Street { over: 4.5 },
         ));
     }
 

@@ -161,6 +161,9 @@ pub(crate) fn compile_room_record(
             placement_index: WaterPlane::NO_OWNER,
             avatar_mode: false,
             weathers: true,
+            lights: true,
+            light_owner: Default::default(),
+            light_frame: None,
             local_avatar_mode: false,
             attachment_rkey: None,
             copy: &mut job.copy,
@@ -172,6 +175,7 @@ pub(crate) fn compile_room_record(
             // Set per node and per copy by the dispatch (#1604).
             spinning: false,
             spin_epoch: 0.0,
+            grid_layer: 0,
             shape_variant: None,
         };
 
@@ -946,7 +950,12 @@ fn step_unit(
                     Transform::from_xyz(local_x, final_local_y, local_z).with_rotation(rotation);
                 // A cell is a copy, and a small one is cut by distance (#1480).
                 ctx.begin_copy(generator_ref, &cell_tf);
+                // The copies of one column share a spinner's clock (it
+                // reads where a copy stands across the ground); their
+                // lights are told apart by their layer.
+                ctx.grid_layer = iy;
                 dispatch_top_level(ctx, generator_ref, cell_tf, cursor.anchor);
+                ctx.grid_layer = 0;
                 ctx.end_copy(generator_ref);
             }
             StepOutcome::Done
@@ -1845,6 +1854,146 @@ mod tests {
             assert_eq!(hub, pendulum, "one copy, one clock");
         }
         assert_ne!(node(0, &[0]).2, node(1, &[0]).2, "two copies, two clocks");
+    }
+
+    /// #1921: a lit node carries its light as a child - a point light where
+    /// the record says, a spot turned to its aim, under a turning node that
+    /// carries it round - each at nothing until the budget fades it in, its
+    /// seed the copy's own; a node without a light gets none.
+    #[test]
+    fn a_lit_node_carries_its_light_and_an_unlit_one_none() {
+        use crate::world_builder::PrimMarker;
+        use crate::world_builder::light::NodeLight;
+        use crate::world_builder::spin::Spinner;
+        let lamp: Generator = serde_json::from_value(serde_json::json!({
+            "$type": "network.symbios.gen.cuboid", "size": [10000, 10000, 10000], "solid": false,
+            "light": {"offset": [0, 20000, 0]},
+            "children": [
+                {"$type": "network.symbios.gen.cylinder", "radius": 2000, "height": 2000,
+                 "resolution": 12, "solid": false, "transform": {"translation": [0, 60000, 0]},
+                 "spin": {"terms": [{"$type": "network.symbios.spin.constant", "rate": 300000}]},
+                 "light": {"range": 120000, "dusk_to_dawn": false,
+                           "shape": {"$type": "network.symbios.light.spot",
+                                     "aim": [10000, 0, 0], "inner": 100000, "outer": 200000}}},
+                {"$type": "network.symbios.gen.cuboid", "size": [5000, 5000, 5000], "solid": false}
+            ]
+        }))
+        .expect("wire JSON");
+        let mut record = test_record(2);
+        record.generators.insert("box".into(), lamp);
+        let mut app = compile_app(record);
+        settle(&mut app);
+
+        type Lit<'a> = (
+            &'a ChildOf,
+            &'a NodeLight,
+            &'a Transform,
+            Option<&'a PointLight>,
+            Option<&'a SpotLight>,
+            &'a Visibility,
+        );
+        let mut lights = app.world_mut().query::<Lit>();
+        type Drawn = (
+            Entity,
+            NodeLight,
+            Transform,
+            Option<PointLight>,
+            Option<SpotLight>,
+            Visibility,
+        );
+        let lit: Vec<Drawn> = lights
+            .iter(app.world())
+            .map(|(parent, light, tf, point, spot, visibility)| {
+                (
+                    parent.parent(),
+                    light.clone(),
+                    *tf,
+                    point.cloned(),
+                    spot.cloned(),
+                    *visibility,
+                )
+            })
+            .collect();
+        assert_eq!(lit.len(), 4, "two lit nodes in each of two copies");
+        let world = app.world();
+        let node_of = |e: Entity| {
+            let marker = world.get::<PrimMarker>(e).expect("a room node");
+            let unit = world.get::<PlacementUnit>(e).expect("a placed node").0;
+            (unit, marker.path.clone())
+        };
+        let mut seeds = Vec::new();
+        for (parent, light, tf, point, spot, visibility) in &lit {
+            let (unit, path) = node_of(*parent);
+            assert_eq!(light.level, 0.0, "faded in by the budget, not the spawn");
+            assert_eq!(*visibility, Visibility::Hidden);
+            seeds.push((unit, path.clone(), light.seed));
+            match path.as_slice() {
+                [] => {
+                    let point = point.as_ref().expect("a point light");
+                    assert_eq!(point.intensity, 0.0);
+                    assert!(!point.shadow_maps_enabled);
+                    assert_eq!(point.range, crate::pds::light::DEFAULT_RANGE_M);
+                    assert!(light.dusk_to_dawn);
+                    assert_eq!(tf.translation, Vec3::new(0.0, 2.0, 0.0));
+                }
+                [0] => {
+                    let spot = spot.as_ref().expect("a spot");
+                    assert_eq!(spot.range, 12.0);
+                    assert!((spot.outer_angle - 20f32.to_radians()).abs() < 1e-6);
+                    assert!(!light.dusk_to_dawn);
+                    assert!(
+                        tf.forward().dot(Vec3::X) > 0.999,
+                        "the spot shines along its aim: {:?}",
+                        tf.forward()
+                    );
+                    assert!(
+                        world.get::<Spinner>(*parent).is_some(),
+                        "under the turning hub"
+                    );
+                }
+                other => panic!("a light on {other:?}"),
+            }
+        }
+        seeds.sort();
+        assert_ne!(seeds[0].2, seeds[1].2, "two nodes, two seeds");
+        assert_ne!(seeds[0].2, seeds[2].2, "two copies, two seeds");
+    }
+
+    /// #1922: the copies of one grid column share a spinner's clock (it
+    /// reads where a copy stands across the ground), but each copy's light
+    /// has a seed of its own - so they flicker apart, and a respawned one
+    /// takes up only its own fade - while the spinners keep their clock.
+    #[test]
+    fn a_grid_columns_stacked_lamps_have_seeds_of_their_own() {
+        use crate::world_builder::light::NodeLight;
+        let mut record = test_record(0);
+        let mut lamp = Generator::default_cuboid();
+        lamp.light = Some(crate::pds::LightSource::default());
+        record.generators.insert("box".into(), lamp);
+        record.placements.push(
+            serde_json::from_value(serde_json::json!({
+                "$type": "network.symbios.place.grid",
+                "generator_ref": "box",
+                "counts": [2, 3, 1],
+                "gaps": [40000, 30000, 40000],
+                "snap_to_terrain": false,
+            }))
+            .expect("a grid reads"),
+        );
+        let mut app = compile_app(record);
+        settle(&mut app);
+        let mut lights = app.world_mut().query::<&NodeLight>();
+        let mut seeds: Vec<u64> = lights.iter(app.world()).map(|l| l.seed).collect();
+        assert_eq!(seeds.len(), 6, "a lamp in each of six copies");
+        seeds.sort_unstable();
+        seeds.dedup();
+        assert_eq!(seeds.len(), 6, "six lamps, six seeds");
+        let epoch = |y: f32| crate::world_builder::spin::copy_epoch(0, Vec3::new(-2.0, y, 0.0));
+        assert_eq!(
+            epoch(-3.0),
+            epoch(3.0),
+            "control: a column shares its clock"
+        );
     }
 
     /// #1506: a Shape node's terminals listed solid collide where they are

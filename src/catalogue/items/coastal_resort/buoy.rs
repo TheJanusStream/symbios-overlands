@@ -2,6 +2,7 @@
 //! enamel float with a painted band, a short topmast and a steel cage ball,
 //! beached on a patch of sand.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     assemble, cone, cylinder_tapered, glow, id_quat, prim, solid, sphere,
 };
@@ -86,10 +87,13 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
         // Glowing green navigation light below the topmark.
-        prim(
-            sphere(0.1, 4, glow(NAV_GREEN, 2.6)),
-            [0.0, 1.78, 0.0],
-            id_quat(),
+        lit(
+            prim(
+                sphere(0.1, 4, glow(NAV_GREEN, 2.6)),
+                [0.0, 1.78, 0.0],
+                id_quat(),
+            ),
+            Lamp::Beacon { over: 1.8 },
         ),
     ];
 

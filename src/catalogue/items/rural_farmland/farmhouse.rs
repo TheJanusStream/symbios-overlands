@@ -25,6 +25,7 @@
 //! zero, so the house wears lap siding rather than the generator's hard-coded
 //! three-butt-joints-per-tile grid, which read at a glance as brick.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
@@ -460,10 +461,13 @@ fn entrance(parts: &mut Vec<Generator>) {
         [x + 1.05, FOOT_H + 2.05, FRONT - 0.06],
         id_quat(),
     ));
-    parts.push(prim(
-        cuboid_tapered([0.12, 0.16, 0.06], 0.0, glow(LAMP_AMBER, 2.0)),
-        [x + 1.05, FOOT_H + 2.05, FRONT - 0.12],
-        id_quat(),
+    parts.push(lit(
+        prim(
+            cuboid_tapered([0.12, 0.16, 0.06], 0.0, glow(LAMP_AMBER, 2.0)),
+            [x + 1.05, FOOT_H + 2.05, FRONT - 0.12],
+            id_quat(),
+        ),
+        Lamp::Bulb { over: 2.5 },
     ));
 }
 

@@ -12,6 +12,7 @@
 //! wall (#945). The false front is only the parapet *above* the roofline so
 //! it never buries the storefront (render FRONT = −Z).
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
@@ -326,10 +327,13 @@ fn build_tree() -> Generator {
             [sx * 1.4, slab_h + 2.45, front_z - 0.3],
             id_quat(),
         ));
-        prims.push(prim(
-            solid(sphere(0.17, 3, glow([1.0, 0.5, 0.14], 3.4))),
-            [sx * 1.4, slab_h + 2.35, front_z - 0.55],
-            id_quat(),
+        prims.push(lit(
+            prim(
+                solid(sphere(0.17, 3, glow([1.0, 0.5, 0.14], 3.4))),
+                [sx * 1.4, slab_h + 2.35, front_z - 0.55],
+                id_quat(),
+            ),
+            Lamp::Flame { over: 2.6 },
         ));
     }
     // Batwing doors: two half-height louvered leaves in the doorway, with a

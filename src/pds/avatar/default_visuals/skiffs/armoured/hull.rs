@@ -6,6 +6,7 @@
 //! ([`ArmouredPlan::flank`], [`ArmouredPlan::flank_x`]), so nothing can float
 //! off the drawn flank or sink into it at any size.
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::avatar::livery::ArmouredColours;
 use crate::pds::generator::Generator;
 
@@ -198,6 +199,9 @@ pub(super) fn lamps(kids: &mut Vec<Generator>, plan: &ArmouredPlan, c: &Armoured
     let l = plan.length;
     let zf = plan.nose();
     let k = l / 2.7 * 0.62;
+    // One beam for the pair of lenses (#1924), and one red glow for the
+    // pair of tail lamps, each from its near lamp.
+    let ground = -plan.datum_height();
     for s in [-1.0f32, 1.0] {
         let hw = plan.half_width_at(zf);
         let x = s * hw * 0.70;
@@ -212,14 +216,12 @@ pub(super) fn lamps(kids: &mut Vec<Generator>, plan: &ArmouredPlan, c: &Armoured
         ];
         let lens = [(0.0, 0.0), (0.070 * k, 0.0), (0.070 * k, 0.010 * k)];
         kids.push(solid(&shell, 12, true, &c.hull, [x, y, z], along_z()));
-        kids.push(solid(
-            &lens,
-            10,
-            false,
-            &c.lamp,
-            [x, y, z + 0.038 * k],
-            along_z(),
-        ));
+        let glass = solid(&lens, 10, false, &c.lamp, [x, y, z + 0.038 * k], along_z());
+        kids.push(if s < 0.0 {
+            lights::headlights(glass, ground)
+        } else {
+            glass
+        });
         kids.push(line(
             &[
                 (
@@ -251,14 +253,16 @@ pub(super) fn lamps(kids: &mut Vec<Generator>, plan: &ArmouredPlan, c: &Armoured
     ];
     for s in [-1.0f32, 1.0] {
         let hw = plan.half_width_at(zt);
-        kids.push(solid(
+        let (y, z) = (plan.crown_at(zt) * 0.52, zt - plan.at(0.006));
+        let lamp = solid(
             &tail,
             10,
             false,
             &c.tail_lamp,
-            [s * hw * 0.62, plan.crown_at(zt) * 0.52, zt - plan.at(0.006)],
+            [s * hw * 0.62, y, z],
             along_z(),
-        ));
+        );
+        kids.push(if s < 0.0 { lights::running(lamp) } else { lamp });
     }
 }
 

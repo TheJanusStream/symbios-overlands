@@ -9,6 +9,7 @@
 //! flat ground-relative frame via [`assemble`], which reparents every piece
 //! under the slab.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     assemble, attach, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x,
     quat_y, solid,
@@ -187,10 +188,13 @@ fn build_tree() -> Generator {
         [-3.4, base_h + 5.1, 2.4],
         id_quat(),
     ));
-    prims.push(prim(
-        cuboid_tapered([0.5, 0.3, 0.4], 0.0, glow(WORKLIGHT, 3.0)),
-        [-3.4, base_h + 5.7, 2.2],
-        quat_x(-0.4),
+    prims.push(lit(
+        prim(
+            cuboid_tapered([0.5, 0.3, 0.4], 0.0, glow(WORKLIGHT, 3.0)),
+            [-3.4, base_h + 5.7, 2.2],
+            quat_x(-0.4),
+        ),
+        Lamp::Street { over: 6.3 },
     ));
 
     // Burning barrel in the open gate (−Z front), right of centre - emissive,
@@ -201,10 +205,13 @@ fn build_tree() -> Generator {
         [barrel[0], base_h + 0.5, barrel[1]],
         id_quat(),
     ));
-    let mut fire = prim(
-        solid(cylinder_tapered(0.36, 0.5, 10, 0.0, glow(FIRE_ORANGE, 4.5))),
-        [barrel[0], base_h + 1.15, barrel[1]],
-        id_quat(),
+    let mut fire = lit(
+        prim(
+            solid(cylinder_tapered(0.36, 0.5, 10, 0.0, glow(FIRE_ORANGE, 4.5))),
+            [barrel[0], base_h + 1.15, barrel[1]],
+            id_quat(),
+        ),
+        Lamp::Fire { over: 1.8 },
     );
     fire.audio = fx::fire_crackle();
     prims.push(fire);

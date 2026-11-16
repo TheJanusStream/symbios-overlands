@@ -7,6 +7,7 @@
 //! into to open the destination picker; everything else is set-dressing that
 //! reads as a temple gate you pass through.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
@@ -190,10 +191,13 @@ fn build_tree() -> Generator {
             [bx, 2.1, -0.3],
             id_quat(),
         ));
-        prims.push(prim(
-            sphere(0.17, 4, glow(FIRE_ORANGE, 6.0)),
-            [bx, 2.35, -0.3],
-            id_quat(),
+        prims.push(lit(
+            prim(
+                sphere(0.17, 4, glow(FIRE_ORANGE, 6.0)),
+                [bx, 2.35, -0.3],
+                id_quat(),
+            ),
+            Lamp::Flame { over: 2.4 },
         ));
     }
 

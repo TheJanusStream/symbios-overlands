@@ -55,6 +55,7 @@ use crate::player::attachments::{ensure_joint_visibility, placements};
 use crate::player::visuals::{AvatarSpawnDeps, spawn_visual_tree};
 use crate::state::LiveRoomRecord;
 use crate::terrain::FinishedHeightMap;
+use crate::world_builder::light::LightOwner;
 use crate::world_builder::particles::{Particle, ParticleEmitterMarker};
 
 use super::driver::{Driver, driver_pose};
@@ -882,6 +883,7 @@ pub(super) fn setup(
                 &mut images,
                 &mut deps,
                 false,
+                Some(LightOwner::default()),
             );
         }
         Subject::Lineup(variants) => {
@@ -902,6 +904,7 @@ pub(super) fn setup(
                     &mut images,
                     &mut deps,
                     false,
+                    Some(LightOwner::default()),
                 );
             }
         }
@@ -1030,6 +1033,10 @@ pub(super) fn dress_wear_bodies(
                 &mut images,
                 &mut deps,
                 false,
+                Some(LightOwner {
+                    did: None,
+                    prop: Some(&attachment.rkey),
+                }),
             );
         }
         commands.entity(root).remove::<PendingWear>();
@@ -1060,7 +1067,15 @@ fn spawn_room(
                 };
                 let chassis = commands.spawn(to_transform(transform)).id();
                 spawn_visual_tree(
-                    commands, chassis, generator, meshes, materials, images, deps, false,
+                    commands,
+                    chassis,
+                    generator,
+                    meshes,
+                    materials,
+                    images,
+                    deps,
+                    false,
+                    Some(LightOwner::default()),
                 );
             }
             // Expand scatters at full count so `--room` renders (and, with
@@ -1098,7 +1113,15 @@ fn spawn_room(
                 for _ in 0..*count {
                     let chassis = commands.spawn(preview.next_pose()).id();
                     spawn_visual_tree(
-                        commands, chassis, generator, meshes, materials, images, deps, false,
+                        commands,
+                        chassis,
+                        generator,
+                        meshes,
+                        materials,
+                        images,
+                        deps,
+                        false,
+                        Some(LightOwner::default()),
                     );
                 }
             }

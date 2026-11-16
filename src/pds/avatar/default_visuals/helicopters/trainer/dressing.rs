@@ -5,6 +5,7 @@
 //! [`MaterialKit`](crate::seeded_defaults::MaterialKit)'s grime on every
 //! surface, as on the utility.
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::generator::Generator;
 use crate::pds::texture::SovereignMaterialSettings;
 use crate::pds::types::Fp3;
@@ -56,14 +57,18 @@ fn searchlight(kids: &mut Vec<Generator>, plan: &PodPlan, c: &TrainerColours) {
     // A turn of `aim` about +X carries the housing's +Y to (cos, sin) in
     // (y, z): the lens stands on its forward face.
     let reach = 0.026;
-    kids.push(prim(
-        cylinder(plan.len(0.030), dim(plan.len(0.006)), 14, c.lamp.clone()),
-        plan.at(
-            0.0,
-            centre.0 + reach * aim.cos(),
-            centre.1 + reach * aim.sin(),
+    // Her landing light (#1924).
+    kids.push(lights::landing_light(
+        prim(
+            cylinder(plan.len(0.030), dim(plan.len(0.006)), 14, c.lamp.clone()),
+            plan.at(
+                0.0,
+                centre.0 + reach * aim.cos(),
+                centre.1 + reach * aim.sin(),
+            ),
+            turn,
         ),
-        turn,
+        -plan.datum_height(),
     ));
 }
 

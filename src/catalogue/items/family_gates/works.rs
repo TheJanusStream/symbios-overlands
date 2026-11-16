@@ -8,6 +8,7 @@
 //! `themes()` stays empty, as `civic_gateway`'s does: the gate reaches the
 //! industrial park and steampunk pools through `kindred_gates`.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::{FRAC_PI_2, PI};
 
 use crate::catalogue::items::coastal_resort::enamel;
@@ -99,10 +100,13 @@ fn build_tree() -> Generator {
             [x, PIER_TOP + 0.19 + 0.2, 0.0],
             id_quat(),
         ));
-        prims.push(prim(
-            sphere(0.17, 3, glow(LAMP_GAS, 1.6)),
-            [x, PIER_TOP + 0.74, 0.0],
-            id_quat(),
+        prims.push(lit(
+            prim(
+                sphere(0.17, 3, glow(LAMP_GAS, 1.6)),
+                [x, PIER_TOP + 0.74, 0.0],
+                id_quat(),
+            ),
+            Lamp::Bulb { over: 5.2 },
         ));
     }
 

@@ -1,7 +1,7 @@
 //! Helipad - a place for a helicopter (#1782): a round concrete pad on a
 //! skirt that reaches down to the ground round it, a yellow ring painted on
 //! it, a white H across its middle and eight edge lights that are lit from
-//! dusk to dawn.
+//! dusk to dawn, each casting a green pool on the concrete round it (#1923).
 //!
 //! Its top stands [`TOP`] over its origin, which a seeded world stands on
 //! the highest ground under it; its skirt reaches [`SKIRT`] under the
@@ -10,6 +10,7 @@
 //! (`world_builder::compile::pad::place_stands`).
 
 use super::{CONCRETE, PAINT_WHITE, PAINT_YELLOW, STEEL, concrete, lamp, paint, steel};
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     cuboid_tapered, cylinder_tapered, id_quat, nest, prim, solid, tube,
 };
@@ -101,7 +102,8 @@ pub fn helipad() -> Generator {
         [0.0, coat_y, 0.0],
         id_quat(),
     ));
-    // The edge lights, round its rim: a steel base and a lit dome.
+    // The edge lights, round its rim: a steel base and a lit dome, its
+    // light a marker's pool on the pad.
     for k in 0..LIGHTS {
         let a = k as f32 * std::f32::consts::TAU / LIGHTS as f32;
         // libm (#1132): where a light stands is in the record every peer
@@ -115,10 +117,13 @@ pub fn helipad() -> Generator {
             [x, TOP + 0.04, z],
             id_quat(),
         ));
-        parts.push(prim(
-            cylinder_tapered(0.07, 0.07, 10, 0.4, lamp([0.55, 1.0, 0.6], 4.0)),
-            [x, TOP + 0.115, z],
-            id_quat(),
+        parts.push(lit(
+            prim(
+                cylinder_tapered(0.07, 0.07, 10, 0.4, lamp([0.55, 1.0, 0.6], 4.0)),
+                [x, TOP + 0.115, z],
+                id_quat(),
+            ),
+            Lamp::Marker,
         ));
     }
     nest(slab, parts)

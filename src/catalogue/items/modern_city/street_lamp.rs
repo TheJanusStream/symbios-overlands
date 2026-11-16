@@ -1,6 +1,7 @@
 //! Street lamp - a Modern-City prop. A tall steel pole with a curved mast
 //! arm and a warm glowing luminaire leaning over the roadway.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     assemble, cuboid_tapered, cylinder_tapered, glow, id_quat, prim, quat_z, solid,
 };
@@ -102,10 +103,15 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
     // Warm glowing lens on the underside of the head.
-    prims.push(prim(
-        cuboid_tapered([0.62, 0.12, 0.36], 0.1, glow(LAMP_WARM, 3.5)),
-        [2.3, arm_base + 0.08, 0.0],
-        id_quat(),
+    prims.push(lit(
+        prim(
+            cuboid_tapered([0.62, 0.12, 0.36], 0.1, glow(LAMP_WARM, 3.5)),
+            [2.3, arm_base + 0.08, 0.0],
+            id_quat(),
+        ),
+        Lamp::Street {
+            over: arm_base + 0.08,
+        },
     ));
 
     assemble(prims)

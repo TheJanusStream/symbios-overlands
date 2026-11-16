@@ -21,6 +21,7 @@
 //!    a metre off the bottom one to the sand. Every angle in a contact sheet
 //!    shows two plausible steps; none of them shows that you cannot use them.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
@@ -437,10 +438,13 @@ fn shore_elevation(parts: &mut Vec<Generator>) {
         [dx + 0.85, FLOOR + 1.85, FRONT - 0.065],
         id_quat(),
     ));
-    parts.push(prim(
-        cuboid_tapered([0.11, 0.14, 0.05], 0.0, glow(LAMP_WARM, 2.2)),
-        [dx + 0.85, FLOOR + 1.83, FRONT - 0.13],
-        id_quat(),
+    parts.push(lit(
+        prim(
+            cuboid_tapered([0.11, 0.14, 0.05], 0.0, glow(LAMP_WARM, 2.2)),
+            [dx + 0.85, FLOOR + 1.83, FRONT - 0.13],
+            id_quat(),
+        ),
+        Lamp::Bulb { over: 2.5 },
     ));
 }
 

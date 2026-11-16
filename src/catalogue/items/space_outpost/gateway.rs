@@ -7,6 +7,7 @@
 //! [`GeneratorKind::Gateway`] zone standing in the opening - walking into it
 //! opens the destination picker; everything else is airlock set-dressing.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
@@ -154,10 +155,13 @@ fn build_tree() -> Generator {
     // Red caution lamps flanking the lintel - small hot orbs the ruin pass can
     // snuff.
     for x in [-1.75_f32, 1.75] {
-        prims.push(prim(
-            sphere(0.12, 4, glow(BEACON_RED, 5.5)),
-            [x, header_y - 0.2, -0.47],
-            id_quat(),
+        prims.push(lit(
+            prim(
+                sphere(0.12, 4, glow(BEACON_RED, 5.5)),
+                [x, header_y - 0.2, -0.47],
+                id_quat(),
+            ),
+            Lamp::Beacon { over: 3.0 },
         ));
     }
 

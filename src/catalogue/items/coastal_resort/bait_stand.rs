@@ -2,6 +2,7 @@
 //! under a lean-to plank roof on two posts, a hand-lettered board out front
 //! and a pair of chum buckets: the bait shop of the fishing hamlet.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x, quat_z, solid,
 };
@@ -117,10 +118,13 @@ fn build_tree() -> Generator {
     }
 
     // A dim bulb under the lean-to.
-    prims.push(prim(
-        cuboid_tapered([0.16, 0.2, 0.16], 0.0, glow(LAMP_WARM, 1.6)),
-        [0.0, 1.95, -0.2],
-        id_quat(),
+    prims.push(lit(
+        prim(
+            cuboid_tapered([0.16, 0.2, 0.16], 0.0, glow(LAMP_WARM, 1.6)),
+            [0.0, 1.95, -0.2],
+            id_quat(),
+        ),
+        Lamp::Bulb { over: 1.9 },
     ));
 
     assemble(prims)

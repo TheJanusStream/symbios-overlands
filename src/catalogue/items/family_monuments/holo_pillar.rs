@@ -10,6 +10,7 @@
 //! rules this family shares.
 
 use crate::catalogue::items::cyberpunk::NEON_CYAN;
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::space_outpost::{
     BEACON_RED, HAZARD_YELLOW, PAD_GREY, STEEL_DARK, concrete, painted, steel,
 };
@@ -196,10 +197,13 @@ fn screen(did: &str) -> Vec<Generator> {
     }
     vec![
         nest(backing, face),
-        prim(
-            sphere(0.08, 4, glow(BEACON_RED, 4.0)),
-            [0.0, 4.8, 0.12],
-            id_quat(),
+        lit(
+            prim(
+                sphere(0.08, 4, glow(BEACON_RED, 4.0)),
+                [0.0, 4.8, 0.12],
+                id_quat(),
+            ),
+            Lamp::Beacon { over: 3.0 },
         ),
     ]
 }

@@ -22,6 +22,7 @@
 //! bracket → lantern → roof → finial - and every part above the bracket is
 //! carried by the thing under it.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
@@ -426,10 +427,15 @@ fn lantern() -> Generator {
         [0.0, CAGE_BOT + 0.17, 0.0],
         id_quat(),
     ));
-    let mut mantle = prim(
-        sphere(0.115, 4, glow(LAMP_GAS, 3.0)),
-        [0.0, CAGE_BOT + 0.46, 0.0],
-        id_quat(),
+    let mut mantle = lit(
+        prim(
+            sphere(0.115, 4, glow(LAMP_GAS, 3.0)),
+            [0.0, CAGE_BOT + 0.46, 0.0],
+            id_quat(),
+        ),
+        Lamp::Bulb {
+            over: CAGE_BOT + 0.46,
+        },
     );
     mantle.audio = fx::gas_mantle_hiss();
     parts.push(mantle);

@@ -12,6 +12,7 @@
 //! firelight. The gate front is `-Z` (hero convention): the pediment, the
 //! wreath emblem, and the gilded frieze inscription all face `-Z`.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     assemble, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, glow, id_quat, prim,
     quat_x, solid, sphere, torus,
@@ -168,10 +169,13 @@ fn build_tree() -> Generator {
     // Two votive fire orbs at the front column bases, framing the threshold
     // at foot level and lighting the passage floor.
     for x in [-1.4, 1.4] {
-        prims.push(prim(
-            sphere(0.13, 6, glow(EMBER_ORANGE, 4.0)),
-            [x, syl_top + 0.22, -0.65],
-            id_quat(),
+        prims.push(lit(
+            prim(
+                sphere(0.13, 6, glow(EMBER_ORANGE, 4.0)),
+                [x, syl_top + 0.22, -0.65],
+                id_quat(),
+            ),
+            Lamp::Flame { over: 1.0 },
         ));
     }
 

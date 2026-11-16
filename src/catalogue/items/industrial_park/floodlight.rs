@@ -2,7 +2,10 @@
 //! carrying a bank of four glaring floodlight heads on a crossbar, lighting
 //! the yard. Its emissive lamps are the trim escalation's ruin pass kills.
 
+use bevy::math::{Quat, Vec3};
+
 use crate::catalogue::items::fx::ballast_buzz;
+use crate::catalogue::items::fx::light::{Lamp, lit_at};
 use crate::catalogue::items::util::{assemble, cuboid_tapered, glow, id_quat, prim, quat_x, solid};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -77,25 +80,51 @@ fn build_tree() -> Generator {
     crossbar.audio = ballast_buzz();
     prims.push(crossbar);
 
-    // Four floodlight heads, aimed down at the -Z yard - glare on the hero
+    // Four floodlight heads, raked down at the -Z yard - glare on the hero
     // front. Each is a rigid subtree (housing root + lens + hood children) so
-    // the down-tilt keeps the lens and visor aligned to the housing.
-    for hx in [-1.15_f32, -0.4, 0.4, 1.15] {
+    // the down-tilt keeps the lens and visor aligned to the housing. Raked
+    // 45 degrees, so the beam from 7 m up meets the yard 10 m along its aim,
+    // inside the reach of its light (#1923).
+    let rake = -std::f32::consts::FRAC_PI_4;
+    let turn = Quat::from_rotation_x(rake);
+    for (k, hx) in [-1.15_f32, -0.4, 0.4, 1.15].into_iter().enumerate() {
+        let at = [hx, top + 0.22, -0.12];
         let mut head = prim(
             solid(cuboid_tapered(
                 [0.52, 0.42, 0.42],
                 0.0,
                 tank_steel([0.2, 0.2, 0.22]),
             )),
-            [hx, top + 0.22, -0.12],
-            quat_x(-0.42),
+            at,
+            quat_x(rake),
         );
         // Bright lit lens on the -Z (front) face.
-        head.children.push(prim(
-            cuboid_tapered([0.46, 0.34, 0.05], 0.0, glow(FLOOD_WHITE, 5.0)),
-            [0.0, 0.0, -0.23],
-            id_quat(),
-        ));
+        let lens = |at: [f32; 3], turned| {
+            prim(
+                cuboid_tapered([0.46, 0.34, 0.05], 0.0, glow(FLOOD_WHITE, 5.0)),
+                at,
+                turned,
+            )
+        };
+        if k == 1 {
+            // One light for the bank, from its middle, shining out of the
+            // lens the way the heads are raked: four would cost the cluster
+            // list four times one and light the yard no better. This lens
+            // stands beside its housing in the item's frame, turned with
+            // it, so its light's aim and throw are read in a level frame
+            // (`fx::light::lit`); it draws where its siblings' lenses do.
+            let face = Vec3::from(at) + turn * Vec3::new(0.0, 0.0, -0.23);
+            prims.push(lit_at(
+                lens(face.to_array(), quat_x(rake)),
+                Lamp::Flood {
+                    over: top,
+                    aim: (turn * Vec3::NEG_Z).to_array(),
+                },
+                [0.0, face.y, face.z],
+            ));
+        } else {
+            head.children.push(lens([0.0, 0.0, -0.23], id_quat()));
+        }
         // Reflector hood shading the lens from above.
         head.children.push(prim(
             solid(cuboid_tapered(

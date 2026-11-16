@@ -13,6 +13,7 @@
 
 use std::f32::consts::PI;
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::generator::Generator;
 
 use super::super::JunkColours;
@@ -92,7 +93,8 @@ pub(super) fn lantern(kids: &mut Vec<Generator>, hull: &HullProfile, c: &JunkCol
         5,
         &c.iron,
     ));
-    kids.push(turned(
+    // Its flame, white astern (#1924).
+    kids.push(lights::own_lantern(turned(
         &[(r * 0.45, 0.0), (r, h * 0.28), (r, h * 0.72), (r * 0.45, h)],
         14,
         true,
@@ -100,7 +102,7 @@ pub(super) fn lantern(kids: &mut Vec<Generator>, hull: &HullProfile, c: &JunkCol
         hang,
         UPRIGHT,
         0.0,
-    ));
+    )));
 }
 
 /// Adorned: a woven-mat shelter over the main deck abaft the mainmast - a

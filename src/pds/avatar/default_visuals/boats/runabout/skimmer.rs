@@ -7,6 +7,7 @@
 
 use std::f32::consts::FRAC_PI_2;
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::avatar::parts::PartCtx;
 use crate::pds::generator::Generator;
 use crate::seeded_defaults::OrnatenessTier;
@@ -90,7 +91,7 @@ fn pod(kids: &mut Vec<Generator>, hull: &HullProfile, c: &RunaboutColours, side:
         lay,
         0.0,
     ));
-    kids.push(turned(
+    let nozzle = turned(
         &[(r * 0.70, h - l * 0.006), (r * 0.70, h + l * 0.004)],
         16,
         false,
@@ -98,7 +99,14 @@ fn pod(kids: &mut Vec<Generator>, hull: &HullProfile, c: &RunaboutColours, side:
         [x, y, zc],
         lay,
         0.0,
-    ));
+    );
+    // One glow astern for the pair of nozzles (#1924), between them: her
+    // tail light, the colour her thrusters burn.
+    kids.push(if side < 0.0 {
+        lights::running_at(nozzle, [0.0, y, zc - h])
+    } else {
+        nozzle
+    });
     Pod {
         at: [x, y, zc],
         half: h,

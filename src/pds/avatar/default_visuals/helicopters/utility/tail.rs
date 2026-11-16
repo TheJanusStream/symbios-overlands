@@ -5,6 +5,7 @@
 //! Everything here stands on boom stations, so the blueprint's boom stretch
 //! carries it ([`PodPlan::at`]); sizes are the prototype's, scaled.
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::generator::Generator;
 
 use super::super::super::common::{
@@ -119,11 +120,11 @@ pub(super) fn stabiliser(kids: &mut Vec<Generator>, plan: &PodPlan, c: &Helicopt
             plan.at_off(side * STABILISER_HALF_SPAN, 0.69, STABILISER_Z, -0.01),
             id_quat(),
         ));
-        kids.push(prim(
+        kids.push(lights::running(prim(
             sphere(dim(plan.len(0.012)), 3, light.clone()),
             plan.at_off(side * 0.237, 0.72, STABILISER_Z, 0.01),
             id_quat(),
-        ));
+        )));
     }
 }
 
@@ -142,9 +143,9 @@ pub(super) fn beacon(kids: &mut Vec<Generator>, plan: &PodPlan, c: &HelicopterCo
     // toward +Z by its sine, so a negative rake carries it aft.
     let rake = FIN_RAKE_DEG.to_radians();
     let up = FIN_SPAN * 0.5 + BEACON_SEAT;
-    kids.push(prim(
+    kids.push(lights::strobe(prim(
         sphere(dim(plan.len(BEACON_R)), 3, c.beacon.clone()),
         plan.at_off(0.0, FIN.1 + up * rake.cos(), FIN.0, up * rake.sin()),
         id_quat(),
-    ));
+    )));
 }

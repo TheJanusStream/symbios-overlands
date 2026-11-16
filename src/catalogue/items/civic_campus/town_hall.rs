@@ -10,6 +10,7 @@
 //! flat ground-relative frame via [`assemble`], which reparents every piece
 //! under the base.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::space_outpost::dome_ribs;
 use crate::catalogue::items::util::{
     assemble, attach, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, glow, id_quat,
@@ -173,10 +174,13 @@ fn build_tree() -> Generator {
             [sx * 5.5, base_h + 1.1, fz * 6.0],
             id_quat(),
         ));
-        prims.push(prim(
-            sphere(0.3, 3, glow(LAMP_WARM, 3.0)),
-            [sx * 5.5, base_h + 2.4, fz * 6.0],
-            id_quat(),
+        prims.push(lit(
+            prim(
+                sphere(0.3, 3, glow(LAMP_WARM, 3.0)),
+                [sx * 5.5, base_h + 2.4, fz * 6.0],
+                id_quat(),
+            ),
+            Lamp::Bulb { over: 3.3 },
         ));
     }
 

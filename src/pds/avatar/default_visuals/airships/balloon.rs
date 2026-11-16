@@ -17,6 +17,7 @@
 //!    one burns a second, smaller flame beside the first, inside her
 //!    burner's rim, so even she carries three lit parts.
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::avatar::parts::PartCtx;
 use crate::pds::generator::Generator;
 use crate::seeded_defaults::{AirshipBlueprint, OrnatenessTier, ParticleAura};
@@ -212,7 +213,13 @@ fn basket(kids: &mut Vec<Generator>, plan: &HullPlan, c: &BalloonColours) {
         [0.0, yb, 0.0],
         id_quat(),
     ));
-    kids.push(flame(plan, [0.0, yb + plan.len(0.02), 0.0], 1.0, c));
+    // Her burner's fire lights her basket and her envelope's throat (#1924).
+    kids.push(lights::own_fire(flame(
+        plan,
+        [0.0, yb + plan.len(0.02), 0.0],
+        1.0,
+        c,
+    )));
 }
 
 /// A burner's flame standing at `at`, `size` times her main one.
@@ -245,11 +252,11 @@ fn dress(kids: &mut Vec<Generator>, plan: &HullPlan, c: &BalloonColours, tier: O
             id_quat(),
         ));
     }
-    kids.push(prim(
+    kids.push(lights::own_lamp(prim(
         sphere(plan.len(0.025), 3, c.lamp.clone()),
         [-(hx + plan.len(0.012)), top - plan.len(0.09), 0.0],
         id_quat(),
-    ));
+    )));
     if tier == OrnatenessTier::Ornate {
         // A pennant on a short staff off the basket's corner, and a second,
         // smaller flame beside the first, inside the burner's rim.

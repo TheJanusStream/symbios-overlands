@@ -13,6 +13,7 @@
 //! stations whatever the cockpit does - a longer cockpit carries her tail
 //! aft over it and leaves the wing where it is.
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::generator::Generator;
 use crate::pds::types::Fp3;
 use crate::seeded_defaults::OrnatenessTier;
@@ -129,10 +130,10 @@ pub(super) fn lights(
         } else {
             on_wing(plan, side * (HALF_SPAN - NAV_IN), y, z)
         };
-        kids.push(prim(
+        kids.push(lights::running(prim(
             sphere(dim(plan.len(NAV_R)), 3, lamp.clone()),
             at,
             id_quat(),
-        ));
+        )));
     }
 }

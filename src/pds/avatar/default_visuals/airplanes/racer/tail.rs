@@ -8,6 +8,7 @@
 //! drawn a tenth as thick as its chord, the fin 0.09 as wide. Both stand aft
 //! of the cockpit's run, so its stretch carries them rigidly aft.
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::generator::Generator;
 use crate::pds::types::Fp3;
 
@@ -122,9 +123,9 @@ pub(super) fn fin(kids: &mut Vec<Generator>, plan: &FusePlan, c: &RacerColours) 
 /// The white tail light, just aft of the tail post's end.
 pub(super) fn tail_light(kids: &mut Vec<Generator>, plan: &FusePlan, c: &RacerColours) {
     let (z, y, _) = plan.stations().last().expect("the fuselage has stations");
-    kids.push(prim(
+    kids.push(lights::running(prim(
         sphere(dim(plan.len(TAIL_LIGHT_R)), 3, c.white.clone()),
         plan.at_off(0.0, y, z, -TAIL_LIGHT_AFT),
         id_quat(),
-    ));
+    )));
 }

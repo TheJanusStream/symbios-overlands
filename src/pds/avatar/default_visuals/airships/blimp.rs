@@ -22,6 +22,7 @@
 
 use std::f32::consts::FRAC_PI_2;
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::avatar::parts::PartCtx;
 use crate::pds::generator::Generator;
 use crate::pds::{Fp, Spin, SpinTerm};
@@ -201,11 +202,11 @@ fn envelope(kids: &mut Vec<Generator>, plan: &HullPlan, c: &BlimpColours, tier: 
             kids.push(skin(&c.lamp, 0.005, cut, SIGN_RUN));
         }
     }
-    kids.push(prim(
+    kids.push(lights::running(prim(
         sphere(plan.len(0.016), 3, c.white.clone()),
         [0.0, 0.0, plan.z(1.0) - plan.len(0.004)],
         id_quat(),
-    ));
+    )));
 }
 
 /// `(z of her car's nose, its centreline's height)`: her crown CAR_BURY
@@ -261,7 +262,7 @@ fn car(kids: &mut Vec<Generator>, plan: &HullPlan, c: &BlimpColours) {
     // Nav lights low on her flanks under the windscreen: red to port (+X).
     let (zf, cy) = car_axis(plan);
     for (side, lamp) in [(1.0, &c.port), (-1.0, &c.starboard)] {
-        kids.push(prim(
+        kids.push(lights::running(prim(
             sphere(plan.len(0.015), 3, lamp.clone()),
             [
                 side * plan.len(CAR_R * CAR_FLAT - 0.004),
@@ -269,7 +270,7 @@ fn car(kids: &mut Vec<Generator>, plan: &HullPlan, c: &BlimpColours) {
                 zf - plan.len(0.10),
             ],
             id_quat(),
-        ));
+        )));
     }
 }
 
@@ -381,11 +382,11 @@ fn dress(kids: &mut Vec<Generator>, plan: &HullPlan, c: &BlimpColours, tier: Orn
         return;
     }
     // A red beacon on her crown, amidships.
-    kids.push(prim(
+    kids.push(lights::strobe(prim(
         sphere(plan.len(0.02), 3, c.beacon.clone()),
         [0.0, plan.radius(0.40) + plan.len(0.006), plan.z(0.40)],
         id_quat(),
-    ));
+    )));
     if tier == OrnatenessTier::Ornate {
         // The broadcast camera pod under her car's bow: the pod, its lens
         // and its red tally light half sunk in its face.

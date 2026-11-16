@@ -30,6 +30,7 @@
 //!
 //! [`util::bonded_boards`]: crate::catalogue::items::util::bonded_boards
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
@@ -529,10 +530,15 @@ fn fit_out(parts: &mut Vec<Generator>) {
         [-0.9, FOOT_H + 3.3, FRONT + 2.2],
         id_quat(),
     ));
-    parts.push(prim(
-        cuboid_tapered([0.16, 0.18, 0.16], 0.0, glow(LAMP_WARM, 2.6)),
-        [-0.9, FOOT_H + 3.24, FRONT + 2.2],
-        id_quat(),
+    parts.push(lit(
+        prim(
+            cuboid_tapered([0.16, 0.18, 0.16], 0.0, glow(LAMP_WARM, 2.6)),
+            [-0.9, FOOT_H + 3.24, FRONT + 2.2],
+            id_quat(),
+        ),
+        Lamp::Street {
+            over: FOOT_H + 3.24,
+        },
     ));
 }
 

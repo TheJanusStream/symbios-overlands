@@ -4,6 +4,7 @@
 //! functional infrastructure rather than decorative trim; frames the gaps
 //! between the bigger structures.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
@@ -202,10 +203,13 @@ fn build_tree() -> Generator {
         [0.0, rel(top - 0.48), 0.0],
         id_quat(),
     ));
-    root.children.push(prim(
-        sphere(0.17, 3, glow([1.0, 0.95, 0.8], 7.0)),
-        [0.0, rel(top - 0.64), 0.0],
-        id_quat(),
+    root.children.push(lit(
+        prim(
+            sphere(0.17, 3, glow([1.0, 0.95, 0.8], 7.0)),
+            [0.0, rel(top - 0.64), 0.0],
+            id_quat(),
+        ),
+        Lamp::Bulb { over: 3.6 },
     ));
 
     root

@@ -21,6 +21,7 @@
 
 use std::f32::consts::FRAC_PI_2;
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::avatar::parts::PartCtx;
 use crate::pds::generator::Generator;
 use crate::pds::{Fp, Spin, SpinTerm};
@@ -424,7 +425,7 @@ fn tail(kids: &mut Vec<Generator>, plan: &HullPlan, c: &HybridColours) {
             if let Some(side) = lamp {
                 let tip = plan.len(0.05) + 2.0 * hs - plan.len(0.01);
                 let light = if side > 0.0 { &c.port } else { &c.starboard };
-                kids.push(prim(
+                kids.push(lights::running(prim(
                     sphere(plan.len(0.016), 3, light.clone()),
                     [
                         lx - r.sin() * tip,
@@ -432,7 +433,7 @@ fn tail(kids: &mut Vec<Generator>, plan: &HullPlan, c: &HybridColours) {
                         zc - plan.len(0.10) + plan.len(0.01),
                     ],
                     id_quat(),
-                ));
+                )));
             }
         }
     }
@@ -455,7 +456,7 @@ fn dress(kids: &mut Vec<Generator>, plan: &HullPlan, c: &HybridColours, tier: Or
         id_quat(),
     ));
     for side in [1.0f32, -1.0] {
-        kids.push(prim(
+        kids.push(lights::strobe(prim(
             sphere(plan.len(0.016), 3, c.white.clone()),
             [
                 side * lobe_x(plan, 0.5),
@@ -463,7 +464,7 @@ fn dress(kids: &mut Vec<Generator>, plan: &HullPlan, c: &HybridColours, tier: Or
                 plan.z(0.5),
             ],
             id_quat(),
-        ));
+        )));
     }
     if tier == OrnatenessTier::Ornate {
         // Her air-cushion landing pads under each lobe.

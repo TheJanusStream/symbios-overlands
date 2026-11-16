@@ -14,6 +14,7 @@
 //! a full-chord blob that drew the tips square (#1616). The chord is drawn in
 //! over the last 30 cm, so the wing ends rounded in plan.
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::generator::Generator;
 use crate::pds::types::Fp3;
 
@@ -104,16 +105,19 @@ pub(super) fn lights(kids: &mut Vec<Generator>, plan: &FusePlan, c: &AirplaneCol
     for (side, lamp) in [(1.0f32, &c.port), (-1.0, &c.starboard)] {
         let x = side * (half - 0.015);
         let [px, py, pz] = mid_chord(plan, x, wing_y(plan, half));
-        kids.push(prim(
+        kids.push(lights::running(prim(
             sphere(dim(plan.len(0.022)), 3, lamp.clone()),
             [px, py, pz + plan.len(0.02)],
             id_quat(),
-        ));
+        )));
     }
     const LANDING_X: f32 = 1.05;
-    kids.push(prim(
-        sphere(dim(plan.len(0.026)), 3, c.white.clone()),
-        plan.at_off(LANDING_X, wing_y(plan, LANDING_X), WING_LE, -0.02),
-        id_quat(),
+    kids.push(lights::landing_light(
+        prim(
+            sphere(dim(plan.len(0.026)), 3, c.white.clone()),
+            plan.at_off(LANDING_X, wing_y(plan, LANDING_X), WING_LE, -0.02),
+            id_quat(),
+        ),
+        super::ground(plan),
     ));
 }

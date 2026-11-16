@@ -39,8 +39,8 @@ use crate::seeded_defaults::{ProsperityBand, ThemeArchetype};
 
 use super::{
     BRONZE_FITTING, DECK_HOLY, HULL_OAK, IRON_BLACK, PORT_BAND, ROPE_HEMP, SHINGLE_GREY,
-    STONE_LIME, STONE_QUAY, WHARF_GREY, ashlar, board, bronze, cobbles, fx, hemp, iron, lantern,
-    shingle,
+    STONE_LIME, STONE_QUAY, WHARF_GREY, ashlar, board, bronze, cobbles, fx, hemp, indoor_lantern,
+    iron, shingle,
 };
 
 /// Cobbled apron - the sub-root every footprint guard measures against.
@@ -306,7 +306,11 @@ fn store() -> Vec<Generator> {
     // apron the eye enters a 2 m opening almost level, so a lantern up at the
     // vault crown is behind the head and invisible (#972 lesson 10, in the
     // corrected cone form the battery arrived at).
-    out.push(lantern([1.55, FLOOR + 1.25, FRONT_Z + 1.5], 0.5, 0xE1));
+    out.push(indoor_lantern(
+        [1.55, FLOOR + 1.25, FRONT_Z + 1.5],
+        0.5,
+        0xE1,
+    ));
     out
 }
 

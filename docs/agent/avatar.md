@@ -10,6 +10,25 @@ is one generator tree at
 once; other clients fetch a rigged body's sculpt and worn items from your
 PDS, so they see a change to those only after `A save avatar --wait`.
 
+A node of a generator body, or of anything worn, can carry a `light`, as a
+building's can ([region.md](region.md)), and every client draws it on you,
+in the same budget of nearest lights as a world's lamps (#1924). The seeded
+vehicles' lamps carry theirs: a car one beam from a headlamp onto the road
+5 m ahead and one red light astern; an aircraft red to port, green to starboard and
+white astern, its anti-collision beacon pulsing at every hour and a short
+landing light where one is drawn; a boat a cabin light where its windows
+glow, and its stern light, masthead light or lantern where one is drawn;
+an airship its gondola's lamps and lanterns, a balloon her burner's fire.
+Each shines its lamp's own glow, from dusk to dawn but the beacons, and
+is aimed in the body's drawn frame - ahead `+Z`, port `+X`. A beam is
+reached twice the length it travels to the ground it lights, and one beam
+takes as much of a web client's light list as ten running lights:
+share one between a pair of lamps. A spot on the default cone (25 and 40
+degrees) writes no cone, and a light at its node's own place no offset -
+what a car's record, near its budget, is lit with. A flicker or pulse
+keeps one phase on every client: it is seeded by your DID, the tree (your
+body, or a worn item by its record) and the node's place in it.
+
 ## Choosing how it moves
 
 `/record/locomotion` decides. For building and inspecting, a rotorcraft (the

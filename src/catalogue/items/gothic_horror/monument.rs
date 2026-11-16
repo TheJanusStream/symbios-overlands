@@ -8,6 +8,7 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     cuboid_tapered, cylinder_tapered, footing, glow, id_quat, nest, pfp_panel, prim, solid,
 };
@@ -157,10 +158,13 @@ fn lantern(x: f32) -> Generator {
                 [x, 1.9, -0.75],
                 id_quat(),
             ),
-            prim(
-                cuboid_tapered([0.15, 0.2, 0.15], 0.2, glow(CANDLE, 2.0)),
-                [x, 1.88, -0.75],
-                id_quat(),
+            lit(
+                prim(
+                    cuboid_tapered([0.15, 0.2, 0.15], 0.2, glow(CANDLE, 2.0)),
+                    [x, 1.88, -0.75],
+                    id_quat(),
+                ),
+                Lamp::Flame { over: 1.9 },
             ),
         ],
     )

@@ -12,6 +12,7 @@
 
 use std::f32::consts::FRAC_PI_2;
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::generator::Generator;
 use crate::pds::{Fp, Spin, SpinTerm};
 
@@ -270,13 +271,13 @@ pub(super) fn shroud(kids: &mut Vec<Generator>, plan: &PodPlan, c: &CoaxialColou
 pub(super) fn lights(kids: &mut Vec<Generator>, plan: &PodPlan, c: &CoaxialColours) {
     let y = stab_y(plan);
     for (side, lamp) in [(1.0f32, &c.port), (-1.0, &c.starboard)] {
-        kids.push(prim(
+        kids.push(lights::running(prim(
             sphere(dim(plan.len(NAV_R)), 3, lamp.clone()),
             plan.at_off(side * (FIN_X + NAV_OUT), y + NAV_RISE, STAB_Z, -NAV_AFT),
             id_quat(),
-        ));
+        )));
     }
-    kids.push(prim(
+    kids.push(lights::running(prim(
         sphere(dim(plan.len(TAIL_LIGHT_R)), 3, c.white.clone()),
         plan.at_off(
             0.0,
@@ -285,5 +286,5 @@ pub(super) fn lights(kids: &mut Vec<Generator>, plan: &PodPlan, c: &CoaxialColou
             TAIL_LIGHT_AHEAD,
         ),
         id_quat(),
-    ));
+    )));
 }

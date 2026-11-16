@@ -11,6 +11,7 @@
 
 use std::f32::consts::FRAC_PI_2;
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::generator::Generator;
 
 use super::super::super::common::quat_x;
@@ -153,7 +154,8 @@ pub(super) fn signal_mast(
         6,
         &c.mast,
     ));
-    kids.push(turned(
+    // Her masthead light (#1924).
+    kids.push(lights::running(turned(
         &[(l * 0.010, 0.0), (l * 0.010, l * 0.018)],
         10,
         false,
@@ -161,7 +163,7 @@ pub(super) fn signal_mast(
         [0.0, y0 + h - l * 0.006, z],
         UPRIGHT,
         0.0,
-    ));
+    )));
 }
 
 /// Worn: a quadrant of the working deck re-laid in new pale boards, a hair

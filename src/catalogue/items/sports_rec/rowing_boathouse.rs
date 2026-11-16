@@ -10,6 +10,7 @@
 //! slipway with its flagpole, and the outside rack each hang off the
 //! footing as one nested sub-assembly.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::modern_city::timber;
@@ -166,10 +167,13 @@ fn hall_front() -> Vec<Generator> {
     // Bay lamps under the balcony's soffit, lit at every hour.
     for i in 0..3 {
         let x = -HX + pier_w + bay_w * 0.5 + i as f32 * (pier_w + bay_w);
-        out.push(prim(
-            cuboid_tapered([0.36, 0.24, 0.36], 0.0, glow(LAMP_WARM, 3.0)),
-            [x, FLOOR - 0.1, -HZ - 0.6],
-            id_quat(),
+        out.push(lit(
+            prim(
+                cuboid_tapered([0.36, 0.24, 0.36], 0.0, glow(LAMP_WARM, 3.0)),
+                [x, FLOOR - 0.1, -HZ - 0.6],
+                id_quat(),
+            ),
+            Lamp::Bulb { over: 4.1 },
         ));
     }
     out

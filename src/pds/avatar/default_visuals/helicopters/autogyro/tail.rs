@@ -8,6 +8,7 @@
 //! the fin 0.09 as wide. They stand aft of the boom's root, so each rides
 //! its own station's stretch rigidly, rather than being drawn out with it.
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::generator::Generator;
 use crate::pds::types::Fp3;
 
@@ -165,7 +166,7 @@ pub(super) fn fin(kids: &mut Vec<Generator>, plan: &PodPlan, c: &AutogyroColours
 pub(super) fn lights(kids: &mut Vec<Generator>, plan: &PodPlan, c: &AutogyroColours) {
     let y = stab_y(plan);
     for (side, lamp) in [(1.0f32, &c.port), (-1.0, &c.starboard)] {
-        kids.push(prim(
+        kids.push(lights::running(prim(
             sphere(dim(plan.len(0.02)), 3, lamp.clone()),
             plan.at_off(
                 side * (STAB_HALF - PLATE_IN + NAV_OUT),
@@ -174,12 +175,12 @@ pub(super) fn lights(kids: &mut Vec<Generator>, plan: &PodPlan, c: &AutogyroColo
                 -NAV_AFT,
             ),
             id_quat(),
-        ));
+        )));
     }
     let ((r0, z0, c0), (r1, z1, c1)) = (FIN[0], FIN[1]);
     let t = (TAIL_LIGHT_RISE - r0) / (r1 - r0);
     let edge = z0 + (z1 - z0) * t - (c0 + (c1 - c0) * t);
-    kids.push(prim(
+    kids.push(lights::running(prim(
         sphere(dim(plan.len(0.016)), 3, c.white.clone()),
         plan.at_off(
             0.0,
@@ -188,5 +189,5 @@ pub(super) fn lights(kids: &mut Vec<Generator>, plan: &PodPlan, c: &AutogyroColo
             edge + TAIL_LIGHT_IN,
         ),
         id_quat(),
-    ));
+    )));
 }

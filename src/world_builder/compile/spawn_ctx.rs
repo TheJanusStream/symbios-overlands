@@ -273,6 +273,24 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// `avatar_mode`), but not an avatar's, what it wears or rides, or an
     /// item preview's.
     pub(crate) weathers: bool,
+    /// Whether a node carrying a light source spawns it (#1921, #1924):
+    /// a room's nodes, an avatar's and what it wears, its own and every
+    /// peer's - but not an item preview's, whose light would light the
+    /// world round the player as well as its picture, nor an instance
+    /// set's template, whose copies are drawn merged and have no node to
+    /// light from (see [`crate::world_builder::light`]).
+    pub(crate) lights: bool,
+    /// Whose avatar tree this is, and which of their trees (#1924): what
+    /// an avatar's light seeds are salted with
+    /// ([`avatar_light_seed`](crate::world_builder::light::avatar_light_seed)),
+    /// so two players' craft built alike flicker apart. Unread outside
+    /// `avatar_mode`.
+    pub(crate) light_owner: crate::world_builder::light::LightOwner<'a>,
+    /// The entity an avatar's tree hangs under - its chassis, a worn prop's
+    /// root - in whose frame its lights' fades are kept
+    /// ([`BodyLight`](crate::world_builder::light::BodyLight)). `None`
+    /// outside `avatar_mode`.
+    pub(crate) light_frame: Option<Entity>,
     /// `true` only when the avatar being spawned is the **local** player's
     /// own avatar - implies `avatar_mode` is also `true`. Drives
     /// `AvatarVisualPrim` insertion so the editor gizmo can target the
@@ -304,6 +322,11 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// see [`crate::world_builder::spin::copy_epoch`]. Zero outside a room
     /// placement.
     pub(crate) spin_epoch: f64,
+    /// Which of a grid's stacked layers the copy being spawned stands on
+    /// (its count up, from 0), 0 for every other placement: what tells
+    /// apart the lights of one grid column, whose copies share one
+    /// [`Self::spin_epoch`] - see [`crate::world_builder::light::light_seed`].
+    pub(crate) grid_layer: u32,
     /// The variant of an instance set a template is grown with (#1643):
     /// its seed and values in place of any placement's. `None` outside a
     /// template.

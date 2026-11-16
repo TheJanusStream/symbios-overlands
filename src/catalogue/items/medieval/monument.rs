@@ -9,6 +9,7 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
@@ -173,10 +174,13 @@ fn cresset(x: f32) -> Generator {
                 [x - 0.52, 2.66, -0.2],
                 id_quat(),
             ),
-            prim(
-                cuboid_tapered([0.22, 0.3, 0.22], 0.7, glow(FORGE_ORANGE, 2.4)),
-                [x - 0.52, 2.88, -0.2],
-                id_quat(),
+            lit(
+                prim(
+                    cuboid_tapered([0.22, 0.3, 0.22], 0.7, glow(FORGE_ORANGE, 2.4)),
+                    [x - 0.52, 2.88, -0.2],
+                    id_quat(),
+                ),
+                Lamp::Flame { over: 2.9 },
             ),
         ],
     )

@@ -33,6 +33,7 @@
 //! [`util::bonded_siding`]: crate::catalogue::items::util::bonded_siding
 //! [`util::bonded_brick`]: crate::catalogue::items::util::bonded_brick
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::solarpunk::{crop_tufts, foliage};
@@ -335,10 +336,13 @@ fn shell() -> Generator {
         [1.05, BASE_H + 2.05, FRONT - 0.065],
         id_quat(),
     ));
-    parts.push(prim(
-        cuboid_tapered([0.13, 0.18, 0.06], 0.0, glow(LAMP_AMBER, 2.0)),
-        [1.05, BASE_H + 2.05, FRONT - 0.13],
-        id_quat(),
+    parts.push(lit(
+        prim(
+            cuboid_tapered([0.13, 0.18, 0.06], 0.0, glow(LAMP_AMBER, 2.0)),
+            [1.05, BASE_H + 2.05, FRONT - 0.13],
+            id_quat(),
+        ),
+        Lamp::Bulb { over: 2.5 },
     ));
 
     let deck = prim(

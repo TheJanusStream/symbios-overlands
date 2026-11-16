@@ -73,6 +73,8 @@
 //! * [`spatial_audio`] - per-construct bake-and-attach: the
 //!   [`crate::loading`] ambient pipeline at per-entity granularity, so a
 //!   node's `audio` field plays from that node's own position.
+//! * [`light`] - each lit node's light (#1921), the nearest drawn at once
+//!   within WebGL2's cluster index list, faded in and out.
 //! * [`voice_budget`] - the looping-voice budget (#1557): only the nearest
 //!   audible construct hums and engine voices hold a player, and the rest
 //!   leave the mixer until the listener comes near.
@@ -102,6 +104,7 @@ mod generator_cache;
 pub mod grammar_diag;
 pub mod image_cache;
 pub(crate) mod instances;
+pub mod light;
 // `pub(crate)` for the render tool's `--room-census` (#810), which calls the
 // pure `build_lsystem_geometry` to count spawn-time L-system expansion.
 pub(crate) mod lsystem;
@@ -211,6 +214,8 @@ pub fn register_headless_spawn(app: &mut App) {
     spin::register(app, spin::SpinClock::Scene);
     // The world's banner (#1783), so a render shows it as the game does.
     crate::banner::register(app);
+    // Authored lights (#1921), so a render lights the world as the game does.
+    light::register(app);
 }
 
 /// Register the room-compile systems themselves - the half of
@@ -640,6 +645,8 @@ impl Plugin for WorldBuilderPlugin {
         spin::register(app, spin::SpinClock::utc());
         // The world's banner (#1783), drawn for every sign that shows it.
         crate::banner::register(app);
+        // Authored lights (#1921): the nearest drawn, faded in and out.
+        light::register(app);
     }
 }
 

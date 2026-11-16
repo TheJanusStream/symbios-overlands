@@ -15,7 +15,7 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::coastal_resort::water;
-use crate::catalogue::items::pirate::lantern;
+use crate::catalogue::items::pirate::{indoor_lantern, lantern};
 use crate::catalogue::items::util::{
     attach, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, id_quat, nest, prim,
     quat_mul, quat_x, quat_y, quat_z, solid, sphere, torus, tube, with_cut,
@@ -412,7 +412,7 @@ fn west_front() -> Generator {
         [0.0, (door_apex + 0.05 + hang_lamp + 0.33) * 0.5, -0.3],
         id_quat(),
     ));
-    parts.push(lantern([0.0, hang_lamp, -0.3], 0.6, 0x5EA2));
+    parts.push(indoor_lantern([0.0, hang_lamp, -0.3], 0.6, 0x5EA2));
     // One leaf of the sea door, hung from the left jamb and swung in.
     let swing = 1.0_f32;
     let (s, c) = swing.sin_cos();

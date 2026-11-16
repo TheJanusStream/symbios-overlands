@@ -102,7 +102,11 @@ fn display(did: &str) -> Vec<Generator> {
         pfp_panel(did, PANEL, [0.0, PANEL_Y, z]),
         // Uplight washing the panel from a slot in the bezel's foot. The
         // portrait is unlit and legible on its own; this is what stops the
-        // steel around it going dead after sunset.
+        // steel around it going dead after sunset. It glows but carries no
+        // light (#1923): what it would wash is brushed steel (metallic
+        // 0.85, next to no diffuse light) and an unlit portrait, and a lit
+        // one rendered at 23:00 showed nothing over the unlit (x1.42 at its
+        // brightest against x1.39 between two unlit frames).
         prim(
             cuboid_tapered([PANEL * 0.8, 0.06, 0.1], 0.0, glow(LAMP_WARM, 1.6)),
             [0.0, PANEL_Y - PANEL * 0.5 - 0.2, z - 0.05],

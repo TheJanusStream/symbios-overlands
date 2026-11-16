@@ -8,6 +8,7 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     cuboid_tapered, cylinder_tapered, footing, glow, id_quat, nest, pfp_panel, prim, quat_z, solid,
 };
@@ -143,10 +144,13 @@ fn board(did: &str) -> Vec<Generator> {
             [0.85, 4.36, z - 0.28],
             id_quat(),
         ),
-        prim(
-            cuboid_tapered([0.2, 0.1, 0.14], 0.0, glow(WORKLIGHT, 2.1)),
-            [0.85, 4.28, z - 0.36],
-            id_quat(),
+        lit(
+            prim(
+                cuboid_tapered([0.2, 0.1, 0.14], 0.0, glow(WORKLIGHT, 2.1)),
+                [0.85, 4.28, z - 0.36],
+                id_quat(),
+            ),
+            Lamp::Street { over: 4.3 },
         ),
     ];
     // Welded surround - deliberately uneven, because it was cut with an angle

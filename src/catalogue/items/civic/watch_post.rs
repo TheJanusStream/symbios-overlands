@@ -25,6 +25,7 @@
 //! interpolation; a rung spans the axis the rails are *separated* along,
 //! which the guard derives from the two built rails rather than assumes.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::{FRAC_PI_4, SQRT_2};
 
 use crate::catalogue::items::util::{
@@ -220,10 +221,13 @@ fn build_tree() -> Generator {
     ));
 
     // A warning lantern hung under the eave at the open front.
-    prims.push(prim(
-        cuboid_tapered([0.16, 0.22, 0.16], 0.0, glow(LANTERN_WARM, 2.6)),
-        [0.0, EAVE_Y - 0.2, -0.5],
-        id_quat(),
+    prims.push(lit(
+        prim(
+            cuboid_tapered([0.16, 0.22, 0.16], 0.0, glow(LANTERN_WARM, 2.6)),
+            [0.0, EAVE_Y - 0.2, -0.5],
+            id_quat(),
+        ),
+        Lamp::Flame { over: EAVE_Y - 0.2 },
     ));
     prims.push(prim(
         solid(cuboid_tapered([0.04, 0.18, 0.04], 0.0, wood(WOOD))),

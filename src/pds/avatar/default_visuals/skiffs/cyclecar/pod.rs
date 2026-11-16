@@ -12,6 +12,7 @@ use crate::pds::avatar::livery::CyclecarColours;
 use crate::pds::generator::Generator;
 
 use super::{BAND_RUN, CyclecarPlan, PROUD, along_z, line, solid, sweep};
+use crate::pds::avatar::default_visuals::lights;
 
 /// The pod: ONE full barrel over the plan's stations, in the scheme - or, on
 /// a two-tone, an upper half-pipe in the scheme's colour and a lower one in
@@ -128,23 +129,32 @@ pub(super) fn lamps(kids: &mut Vec<Generator>, plan: &CyclecarPlan, c: &Cyclecar
     ];
     let lens = [(0.0, 0.0), (0.077 * k, 0.0), (0.077 * k, 0.010 * k)];
     let ang = 0.20f32;
+    // One beam for the pair (#1924), from the near lens.
+    let ground = -plan.datum_height();
     for s in [-1.0f32, 1.0] {
         let p = plan.surface(zl, if s > 0.0 { ang } else { PI - ang });
         let at = [p[0] * 0.80, p[1], zl];
         kids.push(solid(&shell, 18, true, &c.body, at, along_z()));
-        kids.push(solid(
+        let glass = solid(
             &lens,
             16,
             false,
             &c.lamp,
             [at[0], at[1], at[2] + 0.052 * k],
             along_z(),
-        ));
+        );
+        kids.push(if s < 0.0 {
+            lights::headlights(glass, ground)
+        } else {
+            glass
+        });
     }
     let zt = plan.at(-0.420);
     let bar: Vec<([f32; 3], f32)> = [0.30f32, 0.95, PI / 2.0, PI - 0.95, PI - 0.30]
         .into_iter()
         .map(|a| (plan.surface(zt, a), plan.at(0.011)))
         .collect();
-    kids.push(line(&bar, 6, &c.tail_lamp));
+    // The bar's red glow from its middle, over the tail (#1924).
+    let mid = plan.surface(zt, PI / 2.0);
+    kids.push(lights::running_at(line(&bar, 6, &c.tail_lamp), mid));
 }

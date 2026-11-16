@@ -24,6 +24,7 @@
 //! lantern inside becomes the point, and a hut that small has nothing else to
 //! be about.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
@@ -448,10 +449,13 @@ fn fit_out(parts: &mut Vec<Generator>) {
         [DOOR_X + 0.05, FLOOR + 1.55, ROOM_Z - 0.06],
         id_quat(),
     ));
-    parts.push(prim(
-        cuboid_tapered([0.1, 0.12, 0.05], 0.0, glow(LAMP_WARM, 2.2)),
-        [DOOR_X + 0.05, FLOOR + 1.53, ROOM_Z - 0.14],
-        id_quat(),
+    parts.push(lit(
+        prim(
+            cuboid_tapered([0.1, 0.12, 0.05], 0.0, glow(LAMP_WARM, 2.2)),
+            [DOOR_X + 0.05, FLOOR + 1.53, ROOM_Z - 0.14],
+            id_quat(),
+        ),
+        Lamp::Bulb { over: 2.7 },
     ));
 }
 

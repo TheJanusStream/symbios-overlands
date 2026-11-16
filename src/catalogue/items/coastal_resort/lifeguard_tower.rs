@@ -24,6 +24,7 @@
 //!
 //! [`util::railing`]: crate::catalogue::items::util::railing
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
@@ -305,10 +306,13 @@ fn cabin() -> Generator {
         [0.85, CAB_TOP - 0.16, FRONT - 0.07],
         id_quat(),
     ));
-    parts.push(prim(
-        cuboid_tapered([0.14, 0.12, 0.05], 0.0, glow(LAMP_WARM, 2.5)),
-        [0.85, CAB_TOP - 0.2, FRONT - 0.14],
-        id_quat(),
+    parts.push(lit(
+        prim(
+            cuboid_tapered([0.14, 0.12, 0.05], 0.0, glow(LAMP_WARM, 2.5)),
+            [0.85, CAB_TOP - 0.2, FRONT - 0.14],
+            id_quat(),
+        ),
+        Lamp::Bulb { over: 4.8 },
     ));
 
     parts.push(roof());

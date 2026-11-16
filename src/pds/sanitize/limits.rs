@@ -495,3 +495,66 @@ pub const MAX_LEAN_GAIN: f32 = 30.0;
 pub const MAX_LEAN_PERIOD_S: f32 = 10.0;
 /// Widest a wind term may sway a part either way (degrees).
 pub const MAX_WIND_AMPLITUDE_DEG: f32 = 90.0;
+
+// --- Node light (#1921) ----------------------------------------------------
+/// Shortest reach a light may have (m): a pilot lamp's glow on what it is
+/// set into.
+pub const MIN_LIGHT_RANGE_M: f32 = 0.5;
+/// Longest reach a light may have (m). WebGL2 holds every light's place in
+/// each screen cluster it touches in one list of 16,384, and a light
+/// touches more clusters the further it reaches; the drawing counts them
+/// as Bevy does (`world_builder::light::clusters`), so lights that overlap
+/// round the camera are drawn fewer at a time. Lights spaced about their
+/// own reach apart keep all 64 places at every reach to this, and at this
+/// reach even lights packed 2 m apart round the eye keep
+/// [`MIN_LIGHTS_AT_MAX_RANGE`] - one alone takes under a quarter of the list
+/// wherever it stands (#1921).
+pub const MAX_LIGHT_RANGE_M: f32 = 20.0;
+/// How many lights of [`MAX_LIGHT_RANGE_M`] packed round the camera the
+/// drawing still keeps, counted as Bevy counts them and with the room the
+/// budget leaves for the camera's move (#1921).
+pub const MIN_LIGHTS_AT_MAX_RANGE: usize = 3;
+/// Brightest a light may be, as a share of the reference lamp's (see
+/// `LightSource::brightness`), at a reach of half [`MAX_LIGHT_RANGE_M`] or
+/// less: 1,280 lx at four fifths of its reach. A light's brightness costs
+/// WebGL2 nothing (its range alone sets its clusters), so the bound only
+/// keeps one owner's lamp from glaring in a visitor's view - and that is
+/// its POWER, which grows with the brightness and the square of the reach:
+/// a light is held to the power of [`MAX_LIGHT_BRIGHTNESS_AT_MAX_RANGE`] at
+/// [`MAX_LIGHT_RANGE_M`] too (`sanitize::light::max_light_brightness`), so
+/// no light is stronger than the strongest at the longest reach. A tall
+/// lamp needs the headroom at a modest reach: a spot 8 m up at a 12 m reach
+/// lit a clear pool under the world's moon at 23:00 only from about 22, a
+/// 5 m one at 10 m from about 16, where 8 was faint (#1922).
+pub const MAX_LIGHT_BRIGHTNESS: f32 = 32.0;
+/// Brightest a light of [`MAX_LIGHT_RANGE_M`] may be: 320 lx at four fifths
+/// of its reach, a lamp's pool read plainly under the world's moon (#1921).
+/// Its power bounds every light's (see [`MAX_LIGHT_BRIGHTNESS`]).
+pub const MAX_LIGHT_BRIGHTNESS_AT_MAX_RANGE: f32 = 8.0;
+/// Largest radius a light's source may have (m): a big lantern's globe.
+pub const MAX_LIGHT_SIZE_M: f32 = 1.0;
+/// Furthest a light may sit from its node's origin, each axis (m).
+pub const MAX_LIGHT_OFFSET_M: f32 = 50.0;
+/// Widest a spot's outer cone may open (degrees from its aim): a degree
+/// short of a hemisphere, the widest cone Bevy draws.
+pub const MAX_SPOT_ANGLE_DEG: f32 = 89.0;
+/// Narrowest a spot's outer cone may close (degrees from its aim).
+pub const MIN_SPOT_ANGLE_DEG: f32 = 1.0;
+/// Slowest a flicker or pulse may move (times a second): once in twenty
+/// seconds.
+pub const MIN_LIGHT_FLICKER_RATE_HZ: f32 = 0.05;
+/// Fastest a flicker or pulse may move (times a second): a shallow one,
+/// one that never dips past [`LIGHT_FLASH_DEPTH`]. A deeper one is held to
+/// [`MAX_LIGHT_FLASHES_HZ`].
+pub const MAX_LIGHT_FLICKER_RATE_HZ: f32 = 8.0;
+/// A light's dip deeper than this share of its power counts as a flash:
+/// WCAG's general flash threshold, a change of a tenth of the light.
+pub const LIGHT_FLASH_DEPTH: f32 = 0.1;
+/// The most flashes a light may make in a second, at every Effects setting
+/// and so at the Full every visitor starts at: two, as lightning holds
+/// itself to (`weather::lightning`), under the three a second at which
+/// flashing light can set off a seizure. A pulse flashes once a period; a
+/// flicker's broad waver once a period of its rate and its fine shimmer
+/// (`pds::light::FLICKER_FINE_RATE` times quicker) once of its own, each
+/// counted only where its share of the dip passes [`LIGHT_FLASH_DEPTH`].
+pub const MAX_LIGHT_FLASHES_HZ: f32 = 2.0;

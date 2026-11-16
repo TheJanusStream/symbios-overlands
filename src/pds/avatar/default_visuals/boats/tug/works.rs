@@ -4,6 +4,7 @@
 //! funnel abaft that, turned. Every part of them, and every mount over them,
 //! reads one [`Works`].
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::generator::Generator;
 use crate::seeded_defaults::WearTier;
 
@@ -165,13 +166,19 @@ pub(super) fn wheelhouse(kids: &mut Vec<Generator>, hull: &HullProfile, c: &TugC
     let wy = w.top + h * 0.66;
     let t = 0.012 + l * 0.004;
     for side in [-1.0f32, 1.0] {
-        kids.push(panel(
+        let band = panel(
             [t, band_h, ln * 0.80],
             &c.window,
             [side * w.whw, wy, zm],
             UPRIGHT,
             0.0,
-        ));
+        );
+        // The wheelhouse's light, amid its windows (#1924).
+        kids.push(if side < 0.0 {
+            lights::cabin(band, [0.0, wy, zm])
+        } else {
+            band
+        });
     }
     for z in [w.wf, w.wa] {
         kids.push(panel(

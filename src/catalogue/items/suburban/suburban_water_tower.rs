@@ -8,6 +8,7 @@
 //! the footing as one sub-assembly rooted on its riser, so a ruined suburb
 //! leans it whole; the pump house is the other.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::{FRAC_PI_2, TAU};
 
 use crate::catalogue::items::nordic::gable_roof;
@@ -295,10 +296,13 @@ fn pump_house() -> Generator {
                 [PUMP_X + 1.0, GRADE + 1.5, front - 0.08],
                 id_quat(),
             ),
-            prim(
-                cuboid_tapered([0.26, 0.26, 0.26], 0.0, glow(PORCH_WARM, 3.0)),
-                [PUMP_X - 0.6, GRADE + 2.45, front - 0.12],
-                id_quat(),
+            lit(
+                prim(
+                    cuboid_tapered([0.26, 0.26, 0.26], 0.0, glow(PORCH_WARM, 3.0)),
+                    [PUMP_X - 0.6, GRADE + 2.45, front - 0.12],
+                    id_quat(),
+                ),
+                Lamp::Bulb { over: 2.6 },
             ),
         ],
     )

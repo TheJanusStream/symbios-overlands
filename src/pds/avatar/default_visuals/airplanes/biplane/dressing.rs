@@ -7,6 +7,7 @@
 //! [`MaterialKit`](crate::seeded_defaults::MaterialKit)'s grime on every
 //! surface.
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::generator::Generator;
 use crate::pds::types::Fp3;
 use crate::seeded_defaults::OrnatenessTier;
@@ -133,9 +134,9 @@ fn spats(kids: &mut Vec<Generator>, plan: &FusePlan, c: &BiplaneColours) {
 /// The anti-collision beacon, its lowest point in the fin's top.
 fn beacon(kids: &mut Vec<Generator>, plan: &FusePlan, c: &BiplaneColours) {
     let (y, z) = fin_top(plan);
-    kids.push(prim(
+    kids.push(lights::strobe(prim(
         sphere(dim(plan.len(0.018)), 3, c.beacon.clone()),
         plan.at(0.0, y + BEACON_OVER, z),
         id_quat(),
-    ));
+    )));
 }

@@ -5,6 +5,7 @@
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
+use bevy_symbios_multiuser::auth::AtprotoSession;
 
 use crate::config::rover as cfg;
 use crate::pds::AvatarRecord;
@@ -36,6 +37,7 @@ fn timed_spawn_avatar_visuals(
     images: &mut Assets<Image>,
     deps: &mut visuals::AvatarSpawnDeps,
     is_local: bool,
+    owner: Option<&str>,
 ) {
     let start = bevy::platform::time::Instant::now();
     visuals::spawn_avatar_visuals(
@@ -48,6 +50,7 @@ fn timed_spawn_avatar_visuals(
         images,
         deps,
         is_local,
+        owner,
     );
     let elapsed = start.elapsed().as_secs_f64();
     if let Some(m) = deps.caches.metrics.as_deref_mut() {
@@ -179,11 +182,13 @@ pub(super) fn apply_local_locomotion_rebuild(
     sensors: Query<Entity, With<Sensor>>,
     orphan_visuals: Query<Entity, (With<AvatarVisualPrim>, Without<ChildOf>)>,
     live: Res<LiveAvatarRecord>,
+    session: Option<Res<AtprotoSession>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut avatar_deps: visuals::AvatarSpawnDeps,
 ) {
+    let owner = session.as_deref().map(|s| s.did.as_str());
     for (entity, children, built, pose) in players.iter() {
         // Stood on the ground it stood on (#1898): centred where the old
         // chassis was, a person's capsule rebuilt from a helicopter's box
@@ -223,6 +228,7 @@ pub(super) fn apply_local_locomotion_rebuild(
             &mut images,
             &mut avatar_deps,
             true,
+            owner,
         );
         commands
             .entity(entity)
@@ -271,6 +277,7 @@ pub(super) fn rebuild_local_visuals(
         (With<LocalPlayer>, Without<NeedsLocomotionRebuild>),
     >,
     orphan_visuals: Query<Entity, (With<AvatarVisualPrim>, Without<ChildOf>)>,
+    session: Option<Res<AtprotoSession>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
@@ -279,6 +286,7 @@ pub(super) fn rebuild_local_visuals(
     if !live.is_changed() {
         return;
     }
+    let owner = session.as_deref().map(|s| s.did.as_str());
     let live_body = live.0.body.sans_attachments();
     for (entity, children, applied) in players.iter() {
         // Attachment-only edits, and rigged-to-rigged body edits, owe no
@@ -307,6 +315,7 @@ pub(super) fn rebuild_local_visuals(
             &mut images,
             &mut avatar_deps,
             true,
+            owner,
         );
     }
 }
@@ -381,6 +390,7 @@ pub(super) fn detect_remote_change(
                 &mut images,
                 &mut avatar_deps,
                 false,
+                peer.did.as_deref(),
             );
         }
         // `try_`: a peer can be despawned by another system this frame (#1410).
@@ -479,6 +489,186 @@ mod tests {
             });
         }
         body
+    }
+
+    /// **A peer's seeded vehicle arrives lit** (#1924): its record crosses
+    /// the wire as a broadcast does, is read and sanitised as a guest reads
+    /// it, and the peer's body is painted by the real system - every light
+    /// its record carries spawns under the peer's chassis.
+    #[test]
+    fn a_peers_seeded_vehicle_from_the_wire_spawns_its_lights() {
+        use bevy::ecs::system::RunSystemOnce;
+        let seed = (0u64..400)
+            .find(|&s| {
+                crate::seeded_defaults::CraftType::for_seed(s)
+                    == Some(crate::seeded_defaults::CraftType::Skiff(
+                        crate::seeded_defaults::SkiffType::Roadster,
+                    ))
+            })
+            .expect("a roadster seed");
+        let record = crate::pds::AvatarRecord::default_for_seed(seed);
+        fn lights(g: &crate::pds::Generator) -> usize {
+            usize::from(g.light.is_some()) + g.children.iter().map(lights).sum::<usize>()
+        }
+        let carried = lights(record.body.visuals().expect("a vehicle"));
+        assert!(carried >= 2, "the premise: her headlights and tail light");
+        let crate::protocol::OverlandsMessage::AvatarStateUpdate { record_json } =
+            crate::protocol::OverlandsMessage::avatar_state_update(&record).expect("broadcasts")
+        else {
+            panic!("an avatar update");
+        };
+        let mut arrived =
+            crate::protocol::OverlandsMessage::decode_avatar_state(&record_json).expect("reads");
+        arrived.sanitize();
+
+        let mut app = crate::player::visuals::spawn_path_app();
+        app.init_resource::<crate::diagnostics::MetricsRegistry>();
+        let peer_id = serde_json::from_value(serde_json::Value::String(String::from(
+            "00000000-0000-0000-0000-000000000001",
+        )))
+        .expect("valid uuid");
+        let peer = app
+            .world_mut()
+            .spawn((
+                RemotePeer {
+                    peer_id,
+                    did: Some(String::from("did:plc:peer")),
+                    handle: None,
+                    muted: false,
+                    avatar: Some(arrived),
+                    build: None,
+                    connected_at: 0.0,
+                },
+                Transform::default(),
+            ))
+            .id();
+        app.world_mut()
+            .run_system_once(detect_remote_change)
+            .expect("paints");
+        let world = app.world_mut();
+        let lit: Vec<Entity> = world
+            .query_filtered::<Entity, With<crate::world_builder::light::NodeLight>>()
+            .iter(world)
+            .collect();
+        assert_eq!(lit.len(), carried, "a light for each its record carries");
+        for light in lit {
+            let mut up = light;
+            while up != peer {
+                up = world.get::<ChildOf>(up).expect("under the peer").parent();
+            }
+        }
+    }
+
+    /// A seeded roadster's record: a body with several lights.
+    fn a_lit_roadster() -> crate::pds::AvatarRecord {
+        let seed = (0u64..400)
+            .find(|&s| {
+                crate::seeded_defaults::CraftType::for_seed(s)
+                    == Some(crate::seeded_defaults::CraftType::Skiff(
+                        crate::seeded_defaults::SkiffType::Roadster,
+                    ))
+            })
+            .expect("a roadster seed");
+        crate::pds::AvatarRecord::default_for_seed(seed)
+    }
+
+    /// Whose client draws a body, for [`seeds_drawn`].
+    enum Client<'a> {
+        /// The owner's own, signed in as this DID.
+        Owner(&'a str),
+        /// Another's, seeing a peer who announced this DID.
+        Peer(&'a str),
+    }
+
+    /// The seeds of the lights `record`'s body spawns on `client`, sorted,
+    /// through the real system that paints it there, and the chassis it
+    /// hangs on - spawned after `spare` other entities, as each client
+    /// numbers its entities for itself.
+    fn seeds_drawn(
+        record: &crate::pds::AvatarRecord,
+        client: Client,
+        spare: usize,
+    ) -> (Vec<u64>, Entity) {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut app = crate::player::visuals::spawn_path_app();
+        app.init_resource::<crate::diagnostics::MetricsRegistry>();
+        for _ in 0..spare {
+            app.world_mut().spawn_empty();
+        }
+        let chassis = match client {
+            Client::Owner(did) => {
+                app.insert_resource(crate::player::visuals::signed_in(did));
+                app.insert_resource(LiveAvatarRecord(record.clone()));
+                let chassis = app
+                    .world_mut()
+                    .spawn((LocalPlayer, Transform::default()))
+                    .id();
+                app.world_mut()
+                    .run_system_once(rebuild_local_visuals)
+                    .expect("paints");
+                chassis
+            }
+            Client::Peer(did) => {
+                let peer_id = serde_json::from_value(serde_json::Value::String(String::from(
+                    "00000000-0000-0000-0000-000000000001",
+                )))
+                .expect("valid uuid");
+                let chassis = app
+                    .world_mut()
+                    .spawn((
+                        RemotePeer {
+                            peer_id,
+                            did: Some(String::from(did)),
+                            handle: None,
+                            muted: false,
+                            avatar: Some(record.clone()),
+                            build: None,
+                            connected_at: 0.0,
+                        },
+                        Transform::default(),
+                    ))
+                    .id();
+                app.world_mut()
+                    .run_system_once(detect_remote_change)
+                    .expect("paints");
+                chassis
+            }
+        };
+        let world = app.world_mut();
+        let mut seeds: Vec<u64> = world
+            .query::<&crate::world_builder::light::NodeLight>()
+            .iter(world)
+            .map(|light| light.seed)
+            .collect();
+        seeds.sort_unstable();
+        (seeds, chassis)
+    }
+
+    /// **A body's lights are seeded alike wherever it is drawn** (#1924):
+    /// its owner's client and a peer's each number the chassis for
+    /// themselves, yet a flicker or pulse on the body keeps one phase on
+    /// both - its seeds read from whose body it is and the tree. And two
+    /// players' craft built alike are seeded apart, so they do not pulse in
+    /// step, nor take up each other's fades when one is respawned beside
+    /// the other.
+    #[test]
+    fn a_bodys_light_seeds_are_its_owners_on_every_client() {
+        let record = a_lit_roadster();
+        let (own, own_chassis) = seeds_drawn(&record, Client::Owner("did:plc:alice"), 0);
+        let (seen, seen_chassis) = seeds_drawn(&record, Client::Peer("did:plc:alice"), 9);
+        assert!(own.len() >= 2, "the premise: her lights, {own:?}");
+        assert_ne!(
+            own_chassis.index(),
+            seen_chassis.index(),
+            "the premise: two clients number the chassis apart"
+        );
+        assert_eq!(own, seen, "her lights' seeds on her client and a peer's");
+        let (other, _) = seeds_drawn(&record, Client::Peer("did:plc:bob"), 0);
+        assert_eq!(other.len(), own.len());
+        assert!(
+            other.iter().all(|seed| !own.contains(seed)),
+            "two players' craft built alike share a seed: {own:?} {other:?}"
+        );
     }
 
     /// The respawn decision (#1104), case by case: a fresh chassis paints;

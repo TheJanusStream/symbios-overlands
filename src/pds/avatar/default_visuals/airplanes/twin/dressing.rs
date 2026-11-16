@@ -7,6 +7,7 @@
 //! [`MaterialKit`](crate::seeded_defaults::MaterialKit)'s grime on every
 //! surface.
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::generator::Generator;
 use crate::pds::texture::SovereignMaterialSettings;
 use crate::seeded_defaults::OrnatenessTier;
@@ -98,11 +99,11 @@ const BEACON_OVER: f32 = 0.012;
 
 /// The anti-collision beacon on the cabin's roof.
 fn beacon(kids: &mut Vec<Generator>, plan: &FusePlan, c: &TwinColours) {
-    kids.push(prim(
+    kids.push(lights::strobe(prim(
         sphere(dim(plan.len(0.026)), 3, c.beacon.clone()),
         plan.at(0.0, plan.crown(BEACON_Z) + BEACON_OVER, BEACON_Z),
         id_quat(),
-    ));
+    )));
 }
 
 /// A tip tank (prototype frame): its middle's `x`, a centimetre in from the

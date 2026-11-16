@@ -57,8 +57,8 @@ use crate::seeded_defaults::{ProsperityBand, ThemeArchetype};
 use super::{
     BRONZE_GUN, CANVAS_BONE, CANVAS_SHADE, DECK_HOLY, ENSIGN_RED, GOLD_LEAF, HULL_OAK, HULL_TAR,
     IRON_BLACK, PORT_BAND, ROPE_HEMP, SHINGLE_GREY, STONE_LIME, STONE_QUAY, STRAND_SHINGLE,
-    WHARF_GREY, ashlar, board, bronze, cobbles, fx, hemp, iron, jolly_roger, lantern, sailcloth,
-    shingle, strake, strand,
+    WHARF_GREY, ashlar, board, bronze, cobbles, fx, hemp, indoor_lantern, iron, jolly_roger,
+    sailcloth, shingle, strake, strand,
 };
 
 // ---------------------------------------------------------------------------
@@ -534,7 +534,7 @@ fn casemate(x: f32, seed: u32) -> Generator {
         // `every_chamber_is_lit_within_the_cone_its_own_opening_admits` for
         // what that means and why "hang it low" is the wrong reading of #972
         // lesson 10 for an opening whose sill is near eye height.
-        lantern(
+        indoor_lantern(
             [x + PORT_W * 0.42, floor_y + 1.05, CHAMBER_BACK - 0.45],
             0.5,
             seed,
@@ -585,7 +585,7 @@ fn guard_house() -> Generator {
             id_quat(),
         ),
         // Lantern under the head, on the same reasoning as the casemates'.
-        lantern([0.62, floor_y + 1.55, CHAMBER_BACK - 0.5], 0.6, 0x61),
+        indoor_lantern([0.62, floor_y + 1.55, CHAMBER_BACK - 0.5], 0.6, 0x61),
         // Powder budge-barrel and a table - a bay with nothing in it is a
         // black rectangle however well the shell is built (#972 lesson 9).
         prim(

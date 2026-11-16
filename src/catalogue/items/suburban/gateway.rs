@@ -14,6 +14,7 @@
 //! under the base slab. The render front is -Z, so the lit name-board faces the
 //! approach.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::roadside::sign_board;
 use crate::catalogue::items::solarpunk::{crop_tufts, foliage};
 use crate::catalogue::items::util::{
@@ -124,10 +125,13 @@ fn build_tree() -> Generator {
             [sx * px, 4.51, 0.0],
             id_quat(),
         ));
-        prims.push(prim(
-            sphere(0.14, 4, glow(PORCH_WARM, 2.6)),
-            [sx * px, 4.77, 0.0],
-            id_quat(),
+        prims.push(lit(
+            prim(
+                sphere(0.14, 4, glow(PORCH_WARM, 2.6)),
+                [sx * px, 4.77, 0.0],
+                id_quat(),
+            ),
+            Lamp::Bulb { over: 4.8 },
         ));
     }
 

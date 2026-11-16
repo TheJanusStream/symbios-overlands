@@ -24,6 +24,10 @@
 //! [`ballast_buzz`] are shared outright, and [`wired`] builds a node together
 //! with its inputs, which is most of the text of any patch.
 //!
+//! The lights a lamp, a lantern, a flame or a beacon carries are made in
+//! [`light`] (#1923): [`light::lit`] lights a glowing part in one line, its
+//! light's colour its glow's, its reach and brightness its mount's.
+//!
 //! Two properties of the audio graph shape every patch here. A construct's
 //! patch is baked to a one-second buffer and looped whole
 //! (`world_builder::spatial_audio::CONSTRUCT_PATCH_SECS`), so anything that
@@ -38,6 +42,8 @@
 //! LFO's `offset` at or above its `depth`, or decays on a sawtooth as
 //! [`WaterDrip`] does. `gain_troughs` measures it, and a catalogue test
 //! holds every shipped patch to it (#1348).
+
+pub(crate) mod light;
 
 use bevy_symbios_audio::{
     AudioPatch, BiquadBandpass, BiquadLowpass, Connection, Gain, GraphNode, Lfo, LfoShape,
@@ -119,6 +125,7 @@ impl Emitter {
             children: Vec::new(),
             audio: SovereignAudioConfig::None,
             spin: None,
+            light: None,
         }
     }
 }

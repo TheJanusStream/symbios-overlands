@@ -3,6 +3,7 @@
 
 use std::f32::consts::PI;
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::avatar::livery::WagonColours;
 use crate::pds::generator::Generator;
 
@@ -252,6 +253,8 @@ pub(super) fn lanterns(
         (0.0, lh * 0.45),
     ];
     let iron = dim(l * 0.006);
+    // One flame for the pair (#1924), from between them.
+    let ground = -plan.datum_height();
     for s in [-1.0f32, 1.0] {
         let x0 = s * (plan.half_w() - l * 0.004);
         let [x1, yl, _] = lantern_at(plan, z, y_base, s * x_out);
@@ -264,7 +267,12 @@ pub(super) fn lanterns(
             5,
             &c.iron,
         ));
-        kids.push(solid(&body, 14, false, &c.lamp, [x1, yl, z], UPRIGHT));
+        let lamp = solid(&body, 14, false, &c.lamp, [x1, yl, z], UPRIGHT);
+        kids.push(if s < 0.0 {
+            lights::lantern_at(lamp, [0.0, yl, z], ground)
+        } else {
+            lamp
+        });
         kids.push(solid(
             &cap,
             12,

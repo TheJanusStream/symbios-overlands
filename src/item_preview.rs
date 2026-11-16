@@ -841,6 +841,9 @@ pub(crate) fn restage_preview(
         // Not the local avatar: this must not carry the visuals-node gizmo
         // marker, which is what makes a node selectable in the editor.
         false,
+        // No lights (#1924): a lamp's light would light the world round the
+        // player, not only the picture.
+        None,
     );
 
     preview.stage = Some(stage);
@@ -1119,6 +1122,8 @@ fn stand_staged_body(
                 &mut images,
                 &mut deps,
                 false,
+                // A worn lamp's light would light the world (#1924).
+                None,
             );
             body.props.push(prop);
         }
@@ -1891,6 +1896,45 @@ mod body_tests {
             .map(|corner| root.transform_point(corner))
             .collect();
         body_placement(&corners)
+    }
+
+    /// **The stage lights nothing** (#1924). A light does not take its
+    /// layer from the node it hangs on, and Bevy lights the world camera's
+    /// view with every light it does not keep to another, so a lamp's light
+    /// on the stage would light the ground round the player as well as the
+    /// picture: a lit catalogue item and a vehicle with its lamps are
+    /// staged with none.
+    #[test]
+    fn the_stage_lights_nothing_from_a_lit_item_or_a_lit_vehicle() {
+        let lamp = crate::catalogue::by_slug("street_lamp").expect("an entry");
+        let vehicle = crate::catalogue::avatars::avatar_by_slug(VEHICLE)
+            .and_then(|entry| entry.visuals())
+            .expect("a vehicle's tree");
+        fn carries_a_light(g: &Generator) -> bool {
+            g.light.is_some() || g.children.iter().any(carries_a_light)
+        }
+        assert!(
+            carries_a_light(&lamp.build("")) && carries_a_light(vehicle),
+            "the premise: both carry lights"
+        );
+        let mut app = stage_app();
+        for subject in [
+            PreviewSubject::Catalogue("street_lamp".into()),
+            PreviewSubject::CatalogueAvatar(VEHICLE.into()),
+        ] {
+            ask(&mut app, Some(subject.clone()));
+            frame(&mut app);
+            assert_eq!(preview(&app).staged(), Some(&subject), "staged");
+            let world = app.world_mut();
+            let lit = world
+                .query_filtered::<Entity, Or<(
+                    With<crate::world_builder::light::NodeLight>,
+                    With<SpotLight>,
+                )>>()
+                .iter(world)
+                .count();
+            assert_eq!(lit, 0, "{subject:?} lights the world from the stage");
+        }
     }
 
     /// A catalogue person is built by the game's own job, off the frame, and

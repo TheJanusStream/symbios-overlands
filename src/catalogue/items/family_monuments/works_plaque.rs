@@ -9,6 +9,7 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::industrial_park::{BRICK_DARK, CONCRETE_GREY, brick, concrete};
 use crate::catalogue::items::steampunk::{BRASS, IRON_DARK, LAMP_GAS, brass, iron};
 use crate::catalogue::items::util::{
@@ -187,10 +188,13 @@ fn gas_lamp() -> Generator {
         vec![nest(
             seat,
             vec![
-                prim(
-                    cylinder_tapered(0.13, 0.36, 10, -0.2, glow(LAMP_GAS, 2.4)),
-                    [0.0, 4.99, z],
-                    id_quat(),
+                lit(
+                    prim(
+                        cylinder_tapered(0.13, 0.36, 10, -0.2, glow(LAMP_GAS, 2.4)),
+                        [0.0, 4.99, z],
+                        id_quat(),
+                    ),
+                    Lamp::Bulb { over: 5.0 },
                 ),
                 nest(
                     cap,

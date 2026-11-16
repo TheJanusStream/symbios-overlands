@@ -1,6 +1,7 @@
 //! The deckhouse aft - the one mass the chase camera sees whole, and so where
 //! the scow wears her scheme - and the stovepipe up through its roof.
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::generator::Generator;
 
 use super::super::super::common::quat_z;
@@ -142,13 +143,19 @@ pub(super) fn deckhouse(kids: &mut Vec<Generator>, hull: &HullProfile, c: &ScowC
     let band_h = l * 0.024;
     let wy = h.base + wall_h * 0.62;
     for side in [-1.0f32, 1.0] {
-        kids.push(panel(
+        let band = panel(
             [l * 0.006 + 0.012, band_h, h.ln * 0.58],
             &c.window,
             [side * h.hw, wy, h.zm + h.ln * 0.04],
             UPRIGHT,
             0.0,
-        ));
+        );
+        // The house's light, amid its windows (#1924).
+        kids.push(if side < 0.0 {
+            lights::cabin(band, [0.0, wy, h.zm])
+        } else {
+            band
+        });
     }
     kids.push(panel(
         [h.hw * 0.62, wall_h * 0.78, 0.012 + l * 0.004],

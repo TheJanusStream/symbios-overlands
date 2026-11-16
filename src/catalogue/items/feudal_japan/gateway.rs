@@ -10,6 +10,7 @@
 //! picker of the room owner's mutual follows. Everything else frames that
 //! zone so it reads as a sacred threshold you pass through.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_z, solid,
 };
@@ -179,10 +180,13 @@ fn build_tree() -> Generator {
             [lx, nuki_y - 0.45, -0.34],
             id_quat(),
         ));
-        prims.push(prim(
-            cylinder_tapered(0.16, 0.42, 12, 0.1, glow(LANTERN_GLOW, 2.2)),
-            [lx, nuki_y - 0.9, -0.34],
-            id_quat(),
+        prims.push(lit(
+            prim(
+                cylinder_tapered(0.16, 0.42, 12, 0.1, glow(LANTERN_GLOW, 2.2)),
+                [lx, nuki_y - 0.9, -0.34],
+                id_quat(),
+            ),
+            Lamp::Flame { over: 2.8 },
         ));
     }
 

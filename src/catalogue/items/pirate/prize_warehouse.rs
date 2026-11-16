@@ -32,7 +32,7 @@ use crate::seeded_defaults::{ProsperityBand, ThemeArchetype};
 use super::{
     CANVAS_BONE, CANVAS_SHADE, DECK_HOLY, GLASS_AMBER, HULL_OAK, HULL_TAR, IRON_BLACK, PORT_BAND,
     ROPE_HEMP, SHINGLE_GREY, STONE_LIME, STONE_QUAY, WHARF_GREY, ashlar, board, cobbles, fx, hemp,
-    iron, lantern, pane_grid, sailcloth, shingle, strake,
+    indoor_lantern, iron, pane_grid, sailcloth, shingle, strake,
 };
 
 /// Cobbled apron - the sub-root every footprint guard measures against.
@@ -332,7 +332,11 @@ fn store() -> Vec<Generator> {
             id_quat(),
         ));
     }
-    out.push(lantern([-3.1, BASE_TOP + 1.9, ROOM_BACK - 0.7], 0.56, 0x83));
+    out.push(indoor_lantern(
+        [-3.1, BASE_TOP + 1.9, ROOM_BACK - 0.7],
+        0.56,
+        0x83,
+    ));
     out
 }
 

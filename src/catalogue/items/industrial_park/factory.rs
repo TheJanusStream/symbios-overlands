@@ -26,6 +26,7 @@
 //!
 //! [`util::bonded_brick`]: crate::catalogue::items::util::bonded_brick
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
@@ -631,10 +632,13 @@ fn fit_out(parts: &mut Vec<Generator>) {
         [x - 1.4, sill + 1.9, ROOM_Z - 0.1],
         id_quat(),
     ));
-    parts.push(prim(
-        cuboid_tapered([0.2, 0.22, 0.1], 0.0, glow(LAMP_AMBER, 2.6)),
-        [x - 1.4, sill + 1.86, ROOM_Z - 0.24],
-        id_quat(),
+    parts.push(lit(
+        prim(
+            cuboid_tapered([0.2, 0.22, 0.1], 0.0, glow(LAMP_AMBER, 2.6)),
+            [x - 1.4, sill + 1.86, ROOM_Z - 0.24],
+            id_quat(),
+        ),
+        Lamp::Street { over: 3.9 },
     ));
 }
 

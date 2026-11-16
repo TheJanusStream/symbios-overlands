@@ -8,6 +8,7 @@
 
 use std::f32::consts::FRAC_PI_2;
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::generator::{Generator, GeneratorKind};
 
 use super::super::super::common::{
@@ -130,10 +131,10 @@ const NAV_BACK: f32 = 0.02;
 pub(super) fn nav_lights(kids: &mut Vec<Generator>, plan: &PodPlan, c: &TandemColours) {
     let (x, y) = sponson_middle(plan);
     for (side, lamp) in [(1.0f32, &c.port), (-1.0, &c.starboard)] {
-        kids.push(prim(
+        kids.push(lights::running(prim(
             sphere(dim(plan.len(NAV_R)), 3, lamp.clone()),
             plan.at_off(side * x, y, SPONSON_Z + SPONSON_REACH, -NAV_BACK),
             id_quat(),
-        ));
+        )));
     }
 }

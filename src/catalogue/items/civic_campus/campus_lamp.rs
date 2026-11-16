@@ -2,6 +2,7 @@
 //! glowing globe on a steel column. Scatter clutter lighting the quad paths;
 //! its globe is emissive trim the ruin pass can darken.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
@@ -104,10 +105,13 @@ fn build_tree() -> Generator {
         [0.0, 3.6, 0.0],
         id_quat(),
     ));
-    prims.push(prim(
-        sphere(0.2, 3, glow(LAMP_WARM, 3.0)),
-        [0.0, 3.45, 0.0],
-        id_quat(),
+    prims.push(lit(
+        prim(
+            sphere(0.2, 3, glow(LAMP_WARM, 3.0)),
+            [0.0, 3.45, 0.0],
+            id_quat(),
+        ),
+        Lamp::Bulb { over: 3.5 },
     ));
     // Finial spike on the cap.
     prims.push(prim(

@@ -8,6 +8,7 @@
 //! forge mouth is what the trim escalation's ruin pass snuffs to a cold dead
 //! hearth.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
@@ -165,10 +166,13 @@ fn build_tree() -> Generator {
     // Glowing forge mouth set into the −Z face of the hearth - the emissive
     // heart, crackling. A flat face so the glow reads cleanly.
     let mouth = [hx, foot_h + 0.7, hearth_z - 0.66];
-    let mut fire = prim(
-        cuboid_tapered([0.7, 0.6, 0.12], 0.0, glow(FORGE_ORANGE, 4.5)),
-        mouth,
-        id_quat(),
+    let mut fire = lit(
+        prim(
+            cuboid_tapered([0.7, 0.6, 0.12], 0.0, glow(FORGE_ORANGE, 4.5)),
+            mouth,
+            id_quat(),
+        ),
+        Lamp::Fire { over: 1.1 },
     );
     fire.audio = fx::fire_crackle();
     prims.push(fire);

@@ -9,6 +9,7 @@
 
 use bevy::math::Vec3;
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::generator::Generator;
 use crate::pds::types::Fp3;
 use crate::seeded_defaults::OrnatenessTier;
@@ -128,9 +129,9 @@ const BEACON_AFT: f32 = 0.06;
 fn beacon(kids: &mut Vec<Generator>, plan: &PodPlan, c: &AutogyroColours) {
     let off = rotor::lean() * Vec3::new(0.0, -plan.len(BEACON_DOWN), -plan.len(BEACON_AFT));
     let at = Vec3::from(rotor::housing_at(plan)) + off;
-    kids.push(prim(
+    kids.push(lights::strobe(prim(
         sphere(dim(plan.len(0.018)), 3, c.beacon.clone()),
         at.to_array(),
         id_quat(),
-    ));
+    )));
 }

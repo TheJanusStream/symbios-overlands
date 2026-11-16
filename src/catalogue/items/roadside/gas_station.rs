@@ -10,6 +10,7 @@
 //! flat ground-relative frame via [`assemble`], which reparents every piece
 //! under the forecourt pad.
 
+use crate::catalogue::items::fx::light::{Lamp, lit_at};
 use crate::catalogue::items::modern_city::curtain_wall;
 use crate::catalogue::items::util::{
     assemble, attach, cuboid_tapered, footing, glow, id_quat, prim, solid,
@@ -173,12 +174,24 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
     for gx in [-3.0_f32, 0.0, 3.0] {
-        for gz in [-2.2_f32, 2.2] {
-            prims.push(prim(
+        for (k, gz) in [-2.2_f32, 2.2].into_iter().enumerate() {
+            let panel = prim(
                 cuboid_tapered([2.2, 0.1, 1.6], 0.0, glow(CANOPY_LIT, 2.2)),
                 [ci[0] + gx, pad_top + 4.46, ci[1] + gz],
                 id_quat(),
-            ));
+            );
+            // One downlight's light for each pair of panels, between them
+            // (#1923): six overlapping pools cost the cluster list twice
+            // what three do and light the forecourt no better.
+            prims.push(if k == 0 {
+                lit_at(
+                    panel,
+                    Lamp::Street { over: 4.46 },
+                    [ci[0] + gx, pad_top + 4.46, ci[1]],
+                )
+            } else {
+                panel
+            });
         }
     }
     // Lit brand strip on the −Z fascia, facing the camera.

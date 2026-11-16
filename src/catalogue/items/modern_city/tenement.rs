@@ -34,6 +34,7 @@
 //!
 //! [`util::bonded_brick`]: crate::catalogue::items::util::bonded_brick
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
@@ -498,10 +499,13 @@ fn entrance(parts: &mut Vec<Generator>) {
         [x, head + 0.36, FRONT - 0.09],
         id_quat(),
     ));
-    parts.push(prim(
-        cuboid_tapered([0.14, 0.15, 0.06], 0.0, glow(LAMP_WARM, 2.2)),
-        [x, head + 0.34, FRONT - 0.17],
-        id_quat(),
+    parts.push(lit(
+        prim(
+            cuboid_tapered([0.14, 0.15, 0.06], 0.0, glow(LAMP_WARM, 2.2)),
+            [x, head + 0.34, FRONT - 0.17],
+            id_quat(),
+        ),
+        Lamp::Bulb { over: head + 0.34 },
     ));
 }
 

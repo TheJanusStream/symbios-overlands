@@ -14,6 +14,7 @@
 //! under the plinth. The render front is -Z, so the lit name-board and the
 //! awning face the approach.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x, solid, sphere,
 };
@@ -120,10 +121,13 @@ fn build_tree() -> Generator {
     // Warm lantern orbs on the lintel above each pier, lighting the
     // threshold at dusk.
     for sx in [-1.0_f32, 1.0] {
-        prims.push(prim(
-            sphere(0.17, 4, glow(LAMP_WARM, 2.6)),
-            [sx * px, 4.45, 0.0],
-            id_quat(),
+        prims.push(lit(
+            prim(
+                sphere(0.17, 4, glow(LAMP_WARM, 2.6)),
+                [sx * px, 4.45, 0.0],
+                id_quat(),
+            ),
+            Lamp::Bulb { over: 4.5 },
         ));
     }
 

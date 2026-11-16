@@ -7,6 +7,7 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     cuboid_tapered, cylinder_tapered, footing_disc, glow, id_quat, nest, pfp_panel, prim, solid,
     sphere,
@@ -110,13 +111,16 @@ fn placard(did: &str) -> Vec<Generator> {
             [0.62, 5.75, 0.0],
             id_quat(),
         ),
-        prim(
-            // Resolution 6: the sanitiser clamps a sphere there, and anything
-            // higher is silently rewritten - which fails the round-trip test
-            // rather than rendering differently.
-            solid(sphere(0.12, 6, glow(BEACON_RED, 2.0))),
-            [0.62, 6.34, 0.0],
-            id_quat(),
+        lit(
+            prim(
+                // Resolution 6: the sanitiser clamps a sphere there, and anything
+                // higher is silently rewritten - which fails the round-trip test
+                // rather than rendering differently.
+                solid(sphere(0.12, 6, glow(BEACON_RED, 2.0))),
+                [0.62, 6.34, 0.0],
+                id_quat(),
+            ),
+            Lamp::Beacon { over: 3.0 },
         ),
         prim(
             cuboid_tapered([0.16, 0.16, 0.06], 0.0, glow(STATUS_GREEN, 1.6)),

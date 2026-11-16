@@ -10,6 +10,7 @@
 //! it closes on a raked stem rather than a spoon. Everything aboard hangs off
 //! the deck, so a ruined holdout leans the ship as one.
 
+use crate::catalogue::items::fx::light::{Lamp, lit, lit_at};
 use std::f32::consts::{FRAC_PI_2, PI};
 
 use crate::catalogue::items::street::lit_from_dusk;
@@ -44,7 +45,9 @@ const BOW_TIP: f32 = -12.5;
 /// How much of its depth the bow keeps at the stem.
 const STEM_DEPTH: f32 = 0.75;
 /// Top of the deck planking amidships and of the raised forecastle.
-const DECK_TOP: f32 = DECK + 0.05;
+pub(in crate::catalogue::items) const DECK_TOP: f32 = DECK + 0.05;
+/// How high over the deck the wheelhouse worklight's light stands (m).
+const WORKLIGHT_OVER_DECK: f32 = 6.0;
 const FORE_TOP: f32 = DECK + 0.65;
 
 /// Where the mast stands, and its height above the deck.
@@ -401,10 +404,21 @@ fn bridge() -> Generator {
                 [1.4, top + wh + 0.55, wz - 0.6],
                 id_quat(),
             ),
-            prim(
-                cuboid_tapered([0.5, 0.32, 0.36], 0.0, glow(WORKLIGHT, 3.0)),
-                [1.4, top + wh + 1.1, wz - 0.75],
-                quat_x(-0.45),
+            // Its light shines forward and down over the well deck from
+            // just in front of the wheelhouse, where the roof under the
+            // lamp does not take the hot spot of its beam (no light casts a
+            // shadow), and meets the deck 8.5 m along its aim (#1923).
+            lit_at(
+                prim(
+                    cuboid_tapered([0.5, 0.32, 0.36], 0.0, glow(WORKLIGHT, 3.0)),
+                    [1.4, top + wh + 1.1, wz - 0.75],
+                    quat_x(-0.45),
+                ),
+                Lamp::Flood {
+                    over: WORKLIGHT_OVER_DECK,
+                    aim: [0.0, -1.0, -1.0],
+                },
+                [1.4, DECK_TOP + WORKLIGHT_OVER_DECK, wz - wd * 0.5 - 0.4],
             ),
         ],
     ));
@@ -565,10 +579,13 @@ fn barrel_fire(at: [f32; 2]) -> Generator {
         [at[0], DECK_TOP + 0.475, at[1]],
         id_quat(),
     );
-    let mut fire = prim(
-        cylinder_tapered(0.33, 0.4, 10, 0.0, glow(FIRE_ORANGE, 4.2)),
-        [at[0], DECK_TOP + 1.05, at[1]],
-        id_quat(),
+    let mut fire = lit(
+        prim(
+            cylinder_tapered(0.33, 0.4, 10, 0.0, glow(FIRE_ORANGE, 4.2)),
+            [at[0], DECK_TOP + 1.05, at[1]],
+            id_quat(),
+        ),
+        Lamp::Fire { over: 1.5 },
     );
     fire.audio = fx::fire_crackle();
     nest(

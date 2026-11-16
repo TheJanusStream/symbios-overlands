@@ -132,14 +132,20 @@ fn build_tree() -> Generator {
 
     // Four corner floodlight masts carrying gridded lamp banks aimed inward
     // at the pitch - the lamp grid reads as an array and keeps each head from
-    // blooming into a flat white blob. Emissive.
+    // blooming into a flat white blob. Emissive. Each bank's light shines
+    // across the pitch at its own quarter, (5, 2.5) in from the middle,
+    // rather than straight out of its face down the side stands; from 12 m
+    // up it lights that quarter from partway down its beam (#1923).
     for (sx, sz) in [(-1.0_f32, -1.0_f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
         prims.push(prim(
             solid(cylinder_tapered(0.4, 12.0, 8, 0.1, steel(STEEL_GREY))),
             [sx * 14.0, 6.0, sz * 10.0],
             id_quat(),
         ));
-        for g in super::lamp_bank([sx * 14.0, 12.3, sz * 9.5], 2.6, 1.2, 4, 2, -sz) {
+        let bank = [sx * 14.0, 12.3, sz * 9.5];
+        let pool = [sx * 5.0, 0.0, sz * 2.5];
+        let aim = [pool[0] - bank[0], pool[1] - bank[1], pool[2] - bank[2]];
+        for g in super::lamp_bank(bank, 2.6, 1.2, 4, 2, -sz, aim) {
             prims.push(g);
         }
     }

@@ -5,6 +5,7 @@
 //! tall, so it anchors the city and reads as a temple-mountain across the
 //! home region.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     assemble, attach, cuboid_tapered, footing, glow, id_quat, prim, quat_x, solid, sphere,
 };
@@ -197,10 +198,13 @@ fn build_tree() -> Generator {
         [0.0, summit + 0.35, fire_z],
         id_quat(),
     ));
-    prims.push(prim(
-        sphere(0.55, 3, glow(FIRE_ORANGE, 5.0)),
-        [0.0, summit + 0.9, fire_z],
-        id_quat(),
+    prims.push(lit(
+        prim(
+            sphere(0.55, 3, glow(FIRE_ORANGE, 5.0)),
+            [0.0, summit + 0.9, fire_z],
+            id_quat(),
+        ),
+        Lamp::Fire { over: 2.0 },
     ));
 
     // Buried footing under the base course, carrying the temple-mountain

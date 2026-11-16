@@ -3,6 +3,7 @@
 
 use std::f32::consts::PI;
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::generator::Generator;
 use crate::pds::texture::SovereignMaterialSettings;
 use crate::pds::types::Fp3;
@@ -498,17 +499,28 @@ pub(super) fn deck_furniture(kids: &mut Vec<Generator>, hull: &HullProfile, c: &
     // height, its station and the radius it is pressed into all come from the
     // one sweep - the rule the rest of the family follows.
     let h = loa * 0.0164;
-    for ([_, y, z], r) in trunk_ports(&trunk) {
+    // Her cabin's light, inside the trunk under its ports (#1924): lit from
+    // the first port, standing on the centreline amid them.
+    let ports = trunk_ports(&trunk);
+    let cabin_at = ports.first().map(|&([_, y, _], _)| {
+        let z = ports.iter().map(|&([_, _, z], _)| z).sum::<f32>() / ports.len() as f32;
+        [0.0, y + h, z]
+    });
+    for (i, ([_, y, z], r)) in ports.into_iter().enumerate() {
         // The half-width of the crowned section at the port's own height.
         // Its centre sits ON that surface, the same seat every trim line on
         // this boat takes, so half the port is let into the coachroof.
         let x = r * (1.0 - (h / (r * TRUNK_CROWN)).powi(2)).max(0.04).sqrt();
         for side in [-1.0f32, 1.0] {
-            kids.push(block(
+            let port = block(
                 [loa * 0.005, loa * 0.0214, loa * 0.0375],
                 c.window.clone(),
                 [side * x, y + h, z],
-            ));
+            );
+            kids.push(match cabin_at {
+                Some(at) if i == 0 && side < 0.0 => lights::cabin(port, at),
+                _ => port,
+            });
         }
     }
     // Companionway in the trunk's after face, so the cockpit leads somewhere.

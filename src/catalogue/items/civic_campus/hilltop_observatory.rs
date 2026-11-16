@@ -9,6 +9,7 @@
 //! width over the crown; the shutter, slid back, is a torus arc lying in
 //! the slit over the rear half.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::{FRAC_PI_2, PI};
 
 use crate::catalogue::items::util::{
@@ -415,10 +416,13 @@ fn lamp() -> Generator {
             [x, 1.7, z],
             id_quat(),
         ),
-        vec![prim(
-            sphere(0.24, 3, glow(LAMP_WARM, 3.0)),
-            [x, 3.55, z],
-            id_quat(),
+        vec![lit(
+            prim(
+                sphere(0.24, 3, glow(LAMP_WARM, 3.0)),
+                [x, 3.55, z],
+                id_quat(),
+            ),
+            Lamp::Bulb { over: 3.5 },
         )],
     )
 }

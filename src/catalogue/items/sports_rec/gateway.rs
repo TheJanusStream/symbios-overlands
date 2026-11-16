@@ -114,7 +114,15 @@ fn build_tree() -> Generator {
             [sx * 1.15, 4.72, -0.1],
             id_quat(),
         ));
-        for g in super::lamp_bank([sx * 1.15, 4.95, -0.28], 0.75, 0.5, 3, 2, -1.0) {
+        for g in super::lamp_bank(
+            [sx * 1.15, 4.95, -0.28],
+            0.75,
+            0.5,
+            3,
+            2,
+            -1.0,
+            super::bank_aim(-1.0),
+        ) {
             prims.push(g);
         }
     }

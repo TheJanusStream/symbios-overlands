@@ -10,6 +10,7 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     cuboid_tapered, cylinder_tapered, footing, glow, id_quat, nest, pfp_panel, prim, quat_x, solid,
 };
@@ -135,11 +136,16 @@ fn frame(did: &str) -> Vec<Generator> {
             quat_x(-0.26),
         ),
         // Warm lamp under the canopy. The portrait is unlit and reads on its
-        // own; this is what keeps the timber and greenery alive at dusk.
-        prim(
-            cuboid_tapered([0.9, 0.07, 0.14], 0.0, glow(LAMP_WARM, 1.5)),
-            [0.0, 4.3, z - 0.3],
-            id_quat(),
+        // own; this is what keeps the timber and greenery alive at dusk. It
+        // lights down over the portrait and the planting at its foot
+        // (#1923).
+        lit(
+            prim(
+                cuboid_tapered([0.9, 0.07, 0.14], 0.0, glow(LAMP_WARM, 1.5)),
+                [0.0, 4.3, z - 0.3],
+                id_quat(),
+            ),
+            Lamp::Street { over: 4.3 },
         ),
     ];
     for sx in [-1.0_f32, 1.0] {

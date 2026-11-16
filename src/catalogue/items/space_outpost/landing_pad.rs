@@ -6,6 +6,7 @@
 //! Primitive-built; authored in one flat ground-relative frame via
 //! [`assemble`], which reparents every piece under the pad.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::TAU;
 
 use crate::catalogue::items::util::{
@@ -114,10 +115,13 @@ fn build_tree() -> Generator {
             [px, pad_top + 0.25, pz],
             id_quat(),
         ));
-        prims.push(prim(
-            sphere(0.16, 4, glow(BEACON_RED, 2.6)),
-            [px, pad_top + 0.62, pz],
-            id_quat(),
+        prims.push(lit(
+            prim(
+                sphere(0.16, 4, glow(BEACON_RED, 2.6)),
+                [px, pad_top + 0.62, pz],
+                id_quat(),
+            ),
+            Lamp::Marker,
         ));
     }
 

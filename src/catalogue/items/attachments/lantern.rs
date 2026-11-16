@@ -16,6 +16,7 @@
 //! child, and the emitter and the audio live beside the draft in the
 //! root's true-scale frame.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::fx::{Emitter, node, patch};
 use crate::catalogue::items::util::{
     cuboid_tapered, cylinder_tapered, id_quat, nest, prim, prim_scaled, quat_x, solid, sphere,
@@ -183,10 +184,13 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
         // Flame core, low in the housing where a wick burns.
-        prim(
-            solid(sphere(0.15, 2, uv_for_scale(flame_core(), scale))),
-            [0.0, -1.30, 0.0],
-            id_quat(),
+        lit(
+            prim(
+                solid(sphere(0.15, 2, uv_for_scale(flame_core(), scale))),
+                [0.0, -1.30, 0.0],
+                id_quat(),
+            ),
+            Lamp::Flame { over: 1.0 },
         ),
         // Base pan.
         prim(

@@ -25,6 +25,7 @@
 //! spar the rig already drew - never off a restated fraction - which is what
 //! lets the whole ladder stand on any rig and any hull form.
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::generator::Generator;
 use crate::seeded_defaults::{OrnatenessTier, WearTier};
 
@@ -166,11 +167,12 @@ fn stern_lantern(kids: &mut Vec<Generator>, hull: &HullProfile, c: &BoatColours)
         8,
         c.brightwork.clone(),
     ));
-    kids.push(block(
+    // Her stern light, white astern (#1924).
+    kids.push(lights::running(block(
         [loa * 0.030, loa * 0.034, loa * 0.030],
         c.window.clone(),
         [x, top + loa * 0.012, z],
-    ));
+    )));
 }
 
 /// A tarp lashed over the coachroof: a sweep over the trunk's own stations at

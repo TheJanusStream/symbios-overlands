@@ -53,6 +53,7 @@ use super::rigged::RiggedRoot;
 use super::visuals::{AvatarSpawnDeps, spawn_attachment_tree};
 use crate::pds::avatar::ResolvedAttachment;
 use crate::state::{LiveAvatarRecord, LocalPlayer, RemotePeer};
+use crate::world_builder::light::LightOwner;
 
 /// Air left between a default-seated prop's origin and the skin, in metres.
 const SEAT_MARGIN: f32 = 0.02;
@@ -265,6 +266,7 @@ pub(super) fn sync_rigged_attachments(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut deps: AvatarSpawnDeps,
+    session: Option<Res<bevy_symbios_multiuser::auth::AtprotoSession>>,
 ) {
     // Any sweep below removes a prop from under the record's feet, so the
     // dressed latches stop describing the world and every root is re-derived
@@ -299,14 +301,21 @@ pub(super) fn sync_rigged_attachments(
         // Whose record dresses this body: the local player's live record, or
         // the peer's fetched one. A chassis that is neither (mid-despawn)
         // keeps whatever it wears until it goes.
-        let (desired, source_changed) = if locals.contains(chassis) {
+        // And whose DID seeds its props' lights (#1924).
+        let (desired, source_changed, owner) = if locals.contains(chassis) {
+            let owner = session.as_deref().map(|s| s.did.as_str());
             match live.as_ref() {
-                Some(live) => (Some(dressed_by(&live.0)), live.is_changed()),
-                None => (None, false),
+                Some(live) => (Some(dressed_by(&live.0)), live.is_changed(), owner),
+                None => (None, false, owner),
             }
         } else if let Ok(peer) = peers.get(chassis) {
             let changed = peer.is_changed();
-            (peer.into_inner().avatar.as_ref().map(dressed_by), changed)
+            let peer = peer.into_inner();
+            (
+                peer.avatar.as_ref().map(dressed_by),
+                changed,
+                peer.did.as_deref(),
+            )
         } else {
             continue;
         };
@@ -412,6 +421,12 @@ pub(super) fn sync_rigged_attachments(
                 &mut deps,
                 false,
                 is_local.then_some(attachment.rkey.as_str()),
+                // A worn lamp shines (#1924), on the owner and on a peer,
+                // seeded by whose prop it is: its owner and its record.
+                Some(LightOwner {
+                    did: owner,
+                    prop: Some(attachment.rkey.as_str()),
+                }),
             );
             spawned.push((attachment.clone(), prop));
         }
@@ -1097,6 +1112,192 @@ pub(super) mod tests {
             .query_filtered::<Entity, With<AttachmentRoot>>();
         let prop = props.single(app.world()).expect("one worn prop");
         (app, prop)
+    }
+
+    /// **A lamp worn on a body from the web's worker is lit** (#1924). The
+    /// worker sends back a drawable body and nothing of the worn props, which
+    /// are dressed from the record here; the ship's lantern a person carries
+    /// is dressed onto that body with its flame's light, as on a native one.
+    #[test]
+    fn a_lamp_worn_on_a_body_from_the_web_worker_is_lit() {
+        use crate::pds::avatar::wardrobe::engine_default_for_seed;
+        use bevy::ecs::system::RunSystemOnce;
+        let body = engine_default_for_seed(5);
+        let (_, back, carried) = built_here_and_on_the_worker(&body);
+        let lantern = catalogue_worn("ships_lantern");
+        assert!(
+            !placements(&back, carried, std::slice::from_ref(&lantern)).is_empty(),
+            "the premise: a person carries the lantern"
+        );
+        let mut app = crate::player::visuals::spawn_path_app();
+        app.init_resource::<crate::diagnostics::MetricsRegistry>();
+        let mut record = crate::pds::AvatarRecord::wearing("3jzfcijpj2z2a");
+        if let Some(rig) = record.body.rigged_mut() {
+            rig.resolved = Some(crate::pds::avatar::ResolvedRig {
+                body,
+                attachments: vec![lantern],
+            });
+        }
+        app.insert_resource(crate::state::LiveAvatarRecord(record));
+        let chassis = app
+            .world_mut()
+            .spawn((
+                crate::state::LocalPlayer,
+                bevy::prelude::Transform::default(),
+                bevy::prelude::GlobalTransform::default(),
+            ))
+            .id();
+        let mut take = Some(back);
+        app.world_mut()
+            .run_system_once(
+                move |mut commands: Commands,
+                      mut meshes: ResMut<Assets<Mesh>>,
+                      mut materials: ResMut<Assets<StandardMaterial>>,
+                      mut images: ResMut<Assets<Image>>,
+                      mut bindposes: ResMut<
+                    Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>,
+                >| {
+                    let Some(avatar) = take.take() else { return };
+                    super::super::rigged::install_built_body(
+                        &mut commands,
+                        chassis,
+                        0.9,
+                        avatar,
+                        &[],
+                        &mut meshes,
+                        &mut materials,
+                        &mut images,
+                        &mut bindposes,
+                    );
+                },
+            )
+            .expect("installs");
+        app.world_mut()
+            .run_system_once(sync_rigged_attachments)
+            .expect("dresses");
+        let world = app.world_mut();
+        let prop = world
+            .query_filtered::<Entity, With<AttachmentRoot>>()
+            .single(world)
+            .expect("the lantern is worn");
+        let lit: Vec<Entity> = world
+            .query_filtered::<Entity, With<crate::world_builder::light::NodeLight>>()
+            .iter(world)
+            .collect();
+        assert_eq!(lit.len(), 1, "the flame's light");
+        let mut up = lit[0];
+        while up != prop {
+            up = world
+                .get::<ChildOf>(up)
+                .expect("the light hangs under the worn lantern")
+                .parent();
+        }
+    }
+
+    /// Whose client dresses a body, for [`worn_light_seed`].
+    enum Wearer<'a> {
+        /// The owner's own, signed in as this DID.
+        Owner(&'a str),
+        /// Another's, seeing a peer who announced this DID.
+        Peer(&'a str),
+    }
+
+    /// The seed of the light of the ship's lantern a person wears, dressed
+    /// by the real system on `wearer`'s client onto a chassis spawned after
+    /// `spare` other entities (each client numbers its own).
+    fn worn_light_seed(wearer: Wearer, spare: usize) -> u64 {
+        use crate::pds::avatar::wardrobe::engine_default_for_seed;
+        use bevy::ecs::system::RunSystemOnce;
+        let body = engine_default_for_seed(5);
+        let (here, _, _) = built_here_and_on_the_worker(&body);
+        let mut record = crate::pds::AvatarRecord::wearing("3jzfcijpj2z2a");
+        if let Some(rig) = record.body.rigged_mut() {
+            rig.resolved = Some(crate::pds::avatar::ResolvedRig {
+                body,
+                attachments: vec![catalogue_worn("ships_lantern")],
+            });
+        }
+        let mut app = crate::player::visuals::spawn_path_app();
+        app.init_resource::<crate::diagnostics::MetricsRegistry>();
+        for _ in 0..spare {
+            app.world_mut().spawn_empty();
+        }
+        let place = (
+            bevy::prelude::Transform::default(),
+            bevy::prelude::GlobalTransform::default(),
+        );
+        let chassis = match wearer {
+            Wearer::Owner(did) => {
+                app.insert_resource(crate::player::visuals::signed_in(did));
+                app.insert_resource(crate::state::LiveAvatarRecord(record));
+                app.world_mut()
+                    .spawn((crate::state::LocalPlayer, place))
+                    .id()
+            }
+            Wearer::Peer(did) => {
+                let peer = RemotePeer {
+                    peer_id: serde_json::from_str("\"00000000-0000-0000-0000-000000000001\"")
+                        .expect("a well-formed uuid"),
+                    did: Some(String::from(did)),
+                    handle: None,
+                    muted: false,
+                    avatar: Some(record),
+                    build: None,
+                    connected_at: 0.0,
+                };
+                app.world_mut().spawn((peer, place)).id()
+            }
+        };
+        let mut take = Some(here);
+        app.world_mut()
+            .run_system_once(
+                move |mut commands: Commands,
+                      mut meshes: ResMut<Assets<Mesh>>,
+                      mut materials: ResMut<Assets<StandardMaterial>>,
+                      mut images: ResMut<Assets<Image>>,
+                      mut bindposes: ResMut<
+                    Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>,
+                >| {
+                    let Some(avatar) = take.take() else { return };
+                    super::super::rigged::install_built_body(
+                        &mut commands,
+                        chassis,
+                        0.9,
+                        avatar,
+                        &[],
+                        &mut meshes,
+                        &mut materials,
+                        &mut images,
+                        &mut bindposes,
+                    );
+                },
+            )
+            .expect("installs");
+        app.world_mut()
+            .run_system_once(sync_rigged_attachments)
+            .expect("dresses");
+        let world = app.world_mut();
+        let seeds: Vec<u64> = world
+            .query::<&crate::world_builder::light::NodeLight>()
+            .iter(world)
+            .map(|light| light.seed)
+            .collect();
+        assert_eq!(seeds.len(), 1, "the lantern's flame");
+        seeds[0]
+    }
+
+    /// **A worn lamp is seeded by whose it is, on every client** (#1924):
+    /// the lantern its owner wears flickers in one phase on her own client
+    /// and on a peer's - whose outfit is dressed without the editor's
+    /// record marker, so its prop is named to the seed apart from it - and
+    /// another player's lantern flickers apart from hers.
+    #[test]
+    fn a_worn_lamps_light_seed_is_its_owners_on_every_client() {
+        let own = worn_light_seed(Wearer::Owner("did:plc:alice"), 0);
+        let seen = worn_light_seed(Wearer::Peer("did:plc:alice"), 9);
+        assert_eq!(own, seen, "her lantern on her client and a peer's");
+        let other = worn_light_seed(Wearer::Peer("did:plc:bob"), 0);
+        assert_ne!(own, other, "two players' lanterns");
     }
 
     /// #1135: a body already dressed as its record says latches, so the

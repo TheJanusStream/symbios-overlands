@@ -28,6 +28,7 @@ use bevy_symbios::materials::MaterialPalette;
 
 use super::compile::{GeneratorCaches, SpawnCtx, spawn_generator};
 use super::image_cache::BlobImageCache;
+use super::light::LightOwner;
 use crate::pds::{Generator, RoomRecord};
 use crate::state::CurrentRoomDid;
 use crate::terrain::{FinishedHeightMap, OutgoingTerrain, TerrainMesh};
@@ -75,6 +76,10 @@ pub fn spawn_avatar_visuals_subtree(
     // node then carries an `AttachmentPrim` marker instead of the local
     // avatar's visuals-path marker. `None` for body visuals.
     attachment: Option<&str>,
+    // Whether its lit nodes spawn their lights (#1924), and whose they are:
+    // a body's and a worn prop's do, an item preview's do not - see
+    // `SpawnCtx::lights` and `SpawnCtx::light_owner`.
+    lights: Option<LightOwner<'_>>,
 ) {
     // Synthetic generator-ref namespace so the persistent caches don't
     // collide between simultaneous avatar spawns and room generators.
@@ -114,6 +119,7 @@ pub fn spawn_avatar_visuals_subtree(
         None,
         // An avatar, what it wears and rides, and an item preview draw dry.
         false,
+        lights,
     );
     if let Some(root) = root {
         commands.entity(root).insert(super::AvatarVisualRoot {
@@ -134,7 +140,10 @@ pub fn spawn_avatar_visuals_subtree(
 /// instance set each variant's template under its own (#1643), its Shape
 /// nodes drawn with `variant`'s seed and values. Its parts are drawn under
 /// the weather when `weathers` (#1686): an instance set's are, an
-/// avatar's are not.
+/// avatar's are not. Its lit nodes spawn their lights when `lights` is
+/// `Some` (#1924), seeded as that owner's and kept in the frame of
+/// `parent`: an avatar's and what it wears do, an instance set's template
+/// and an item preview do not (see `SpawnCtx::lights`).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn spawn_detached_tree(
     commands: &mut Commands,
@@ -160,6 +169,7 @@ pub(crate) fn spawn_detached_tree(
     attachment: Option<&str>,
     variant: Option<&crate::pds::InstanceVariant>,
     weathers: bool,
+    lights: Option<LightOwner<'_>>,
 ) -> (Option<Entity>, u32) {
     // Touch-sets are scratch state for the room compiler's GC pass at
     // the end of compile_room_record. Avatar spawning doesn't run
@@ -221,6 +231,9 @@ pub(crate) fn spawn_detached_tree(
         placement_index: crate::water::WaterPlane::NO_OWNER,
         avatar_mode: true,
         weathers,
+        lights: lights.is_some(),
+        light_owner: lights.unwrap_or_default(),
+        light_frame: Some(parent),
         local_avatar_mode: is_local,
         attachment_rkey: attachment.map(str::to_string),
         // An avatar is no scattered copy: nothing here is cut by distance
@@ -231,6 +244,7 @@ pub(crate) fn spawn_detached_tree(
         // placement's copy, so its spinners share the clock unshifted.
         spinning: false,
         spin_epoch: 0.0,
+        grid_layer: 0,
         shape_variant: variant,
     };
     let root = spawn_generator(&mut ctx, tree, cache_key, &[], transform, Some(parent));

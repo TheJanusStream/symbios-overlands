@@ -8,6 +8,7 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     cuboid_tapered, cylinder_tapered, footing, glow, id_quat, nest, pfp_panel, prim, quat_z, solid,
 };
@@ -176,10 +177,13 @@ fn brazier(x: f32) -> Generator {
     );
     nest(
         bowl,
-        vec![prim(
-            cuboid_tapered([0.36, 0.28, 0.36], 0.6, glow(FIRE_ORANGE, 2.3)),
-            [x, 1.32, -0.75],
-            id_quat(),
+        vec![lit(
+            prim(
+                cuboid_tapered([0.36, 0.28, 0.36], 0.6, glow(FIRE_ORANGE, 2.3)),
+                [x, 1.32, -0.75],
+                id_quat(),
+            ),
+            Lamp::Flame { over: 1.3 },
         )],
     )
 }

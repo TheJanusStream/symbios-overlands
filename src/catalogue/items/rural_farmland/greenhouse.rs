@@ -28,6 +28,7 @@
 //! and the benches, soil, trays and pots stand in a lit interior a metre behind
 //! the glass, which is what the masked-away panes actually show.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::solarpunk::{CROP_GREEN, crop_tufts, foliage};
@@ -844,10 +845,13 @@ fn interior() -> Generator {
         [0.0, RIDGE - 0.55, 0.0],
         id_quat(),
     ));
-    parts.push(prim(
-        cuboid_tapered([0.3, 0.2, 0.3], 0.55, glow(LAMP_WARM, 2.4)),
-        [0.0, RIDGE - 1.05, 0.0],
-        id_quat(),
+    parts.push(lit(
+        prim(
+            cuboid_tapered([0.3, 0.2, 0.3], 0.55, glow(LAMP_WARM, 2.4)),
+            [0.0, RIDGE - 1.05, 0.0],
+            id_quat(),
+        ),
+        Lamp::Bulb { over: RIDGE - 1.05 },
     ));
     for bx in [-2.6_f32, 2.6] {
         parts.push(prim(

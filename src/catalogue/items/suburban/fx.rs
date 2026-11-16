@@ -75,6 +75,7 @@ pub(super) fn sprinkler_mist(pos: [f32; 3], seed: u64) -> Generator {
         children: Vec::new(),
         audio: SovereignAudioConfig::None,
         spin: None,
+        light: None,
     }
 }
 

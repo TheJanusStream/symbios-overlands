@@ -10,6 +10,7 @@
 
 use std::f32::consts::FRAC_PI_2;
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_z, solid,
 };
@@ -147,11 +148,17 @@ fn build_tree() -> Generator {
     ));
 
     // Threshold beam under the truss - a thin amber tube runs hot across the
-    // opening so the gate reads as an active passage from the front.
-    prims.push(prim(
-        cuboid_tapered([3.2, 0.1, 0.14], 0.0, glow(LAMP_AMBER, 6.0)),
-        [0.0, bottom_y - 0.3, front + 0.15],
-        id_quat(),
+    // opening so the gate reads as an active passage from the front. It
+    // lights the passage under it, down onto the apron (#1923).
+    prims.push(lit(
+        prim(
+            cuboid_tapered([3.2, 0.1, 0.14], 0.0, glow(LAMP_AMBER, 6.0)),
+            [0.0, bottom_y - 0.3, front + 0.15],
+            id_quat(),
+        ),
+        Lamp::Street {
+            over: bottom_y - 0.3 - base_y,
+        },
     ));
 
     // Lit indicator gauges on the inner face of each pylon, facing the hero

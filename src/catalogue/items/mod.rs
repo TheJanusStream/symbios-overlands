@@ -54,6 +54,8 @@ pub mod measure;
 mod util;
 
 #[cfg(test)]
+mod lit_items;
+#[cfg(test)]
 mod overhaul;
 #[cfg(test)]
 mod shape_grammar_test;

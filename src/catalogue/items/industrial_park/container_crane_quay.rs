@@ -8,6 +8,7 @@
 //! crane, the container stack and the office each hang off the footing as
 //! one nested sub-assembly, so a ruined quay knocks each as a whole.
 
+use crate::catalogue::items::fx::light::{Lamp, lit, lit_at};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
@@ -344,11 +345,24 @@ fn crane() -> Generator {
         (-BOOM_HX, -5.0),
         (BOOM_HX, -5.0),
     ] {
-        parts.push(prim(
+        let flood = prim(
             cuboid_tapered([0.5, 0.3, 0.5], 0.0, glow(FLOOD_WHITE, 4.0)),
             [x, BOOM_Y - 0.13, z],
             id_quat(),
-        ));
+        );
+        // One light for each pair across the boom, between them (#1923).
+        parts.push(if x < 0.0 {
+            lit_at(
+                flood,
+                Lamp::Flood {
+                    over: BOOM_Y,
+                    aim: [0.0, -1.0, 0.0],
+                },
+                [0.0, BOOM_Y - 0.13, z],
+            )
+        } else {
+            flood
+        });
     }
     // The trolley between the girders, its cab slung under it, and the
     // hoist ropes down to a spreader holding a container over the water.
@@ -510,10 +524,13 @@ fn office() -> Generator {
                 [cx, DECK_TOP + 2.5, front - 0.25],
                 id_quat(),
             ),
-            vec![prim(
-                cuboid_tapered([0.3, 0.2, 0.3], 0.0, glow(LAMP_AMBER, 3.0)),
-                [cx, DECK_TOP + 2.38, front - 0.45],
-                id_quat(),
+            vec![lit(
+                prim(
+                    cuboid_tapered([0.3, 0.2, 0.3], 0.0, glow(LAMP_AMBER, 3.0)),
+                    [cx, DECK_TOP + 2.38, front - 0.45],
+                    id_quat(),
+                ),
+                Lamp::Bulb { over: 2.4 },
             )],
         ),
     ];

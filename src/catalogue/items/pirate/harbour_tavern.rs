@@ -42,7 +42,7 @@ use crate::seeded_defaults::{ProsperityBand, ThemeArchetype};
 use super::{
     BRONZE_FITTING, DECK_HOLY, GLASS_AMBER, GOLD_LEAF, HULL_OAK, HULL_TAR, IRON_BLACK, OAK_JOINERY,
     PORT_BAND, ROPE_HEMP, SHINGLE_GREY, SIGN_AMBER, STONE_QUAY, WHARF_GREY, board, bronze, cobbles,
-    fx, hemp, iron, lantern, pane_grid, shingle, strake,
+    fx, hemp, indoor_lantern, iron, lantern, pane_grid, shingle, strake,
 };
 
 // --- The building, stated once ---------------------------------------------
@@ -272,7 +272,7 @@ fn taproom() -> Vec<Generator> {
             ));
         }
     }
-    out.push(lantern(
+    out.push(indoor_lantern(
         [bar_x + 1.1, FLOOR + 1.75, FRONT_Z + 1.4],
         0.5,
         0x72,
@@ -317,7 +317,11 @@ fn taproom() -> Vec<Generator> {
             id_quat(),
         ));
     }
-    out.push(lantern([tab_x, FLOOR + 1.25, FRONT_Z + 1.7], 0.44, 0x74));
+    out.push(indoor_lantern(
+        [tab_x, FLOOR + 1.25, FRONT_Z + 1.7],
+        0.44,
+        0x74,
+    ));
     out
 }
 

@@ -2907,6 +2907,11 @@ pub struct Generator {
     /// older client ignores the key. See [`super::spin`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spin: Option<super::spin::Spin>,
+    /// The light this node gives off (#1921), drawn by every client among
+    /// the nearest few - see [`super::light`]. `None` (the common case,
+    /// left off the wire) gives none; an older client ignores the key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub light: Option<super::light::LightSource>,
 }
 
 impl Generator {
@@ -2920,6 +2925,7 @@ impl Generator {
             children: Vec::new(),
             audio: super::audio::SovereignAudioConfig::None,
             spin: None,
+            light: None,
         }
     }
 

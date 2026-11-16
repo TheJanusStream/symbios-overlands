@@ -619,6 +619,9 @@ impl Build {
                         Some(&slot.variant),
                         // An instance set's copies are the world's parts.
                         true,
+                        // Drawn merged, with no node to light from: the
+                        // tree is stripped of its lights anyway.
+                        None,
                     );
                     slot.template = Some(template);
                     self.stage = Stage::Templates(v + 1);
@@ -799,6 +802,9 @@ impl Build {
                         Some(&slot.variant),
                         // An instance set's copies are the world's parts.
                         true,
+                        // Drawn merged, with no node to light from: the
+                        // tree is stripped of its lights anyway.
+                        None,
                     );
                     if let Some(whole) = whole {
                         commands.entity(whole).insert(tag);

@@ -14,6 +14,7 @@
 //! walk through. The gate front is `-Z` (hero convention): the seal faces the
 //! render front.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, foundation_mat, glow, id_quat,
     prim, quat_x, solid, sphere, torus,
@@ -154,10 +155,13 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
         // Small warm orb - compact enough to run a touch hotter than the strip.
-        prims.push(prim(
-            sphere(0.14, 3, glow(LANTERN_WARM, 4.2)),
-            [sx * 1.34, 2.6, -0.12],
-            id_quat(),
+        prims.push(lit(
+            prim(
+                sphere(0.14, 3, glow(LANTERN_WARM, 4.2)),
+                [sx * 1.34, 2.6, -0.12],
+                id_quat(),
+            ),
+            Lamp::Bulb { over: 2.6 },
         ));
     }
 

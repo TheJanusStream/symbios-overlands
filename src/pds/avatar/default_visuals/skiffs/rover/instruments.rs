@@ -14,6 +14,7 @@
 //! Its top is held under rule 6's cap BY CONSTRUCTION
 //! ([`RoverPlan::cap_y`]), never checked against it after the fact.
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::avatar::livery::RoverColours;
 use crate::pds::generator::Generator;
 use crate::seeded_defaults::{ParticleAura, RoverVariant};
@@ -61,13 +62,14 @@ pub(super) fn mast(kids: &mut Vec<Generator>, plan: &RoverPlan, c: &RoverColours
             [0.42, 0.42],
             [0.0; 2],
         ));
-        kids.push(plate(
+        let pane = plate(
             [plan.at(0.070), hy * 0.62, plan.at(0.070)],
             &c.glass,
             [x, yh, z],
             NO_TURN,
             0.06,
-        ));
+        );
+        kids.push(work_light(pane, plan, [x, yh, z + plan.at(0.036)]));
         return;
     }
     kids.push(line(
@@ -80,13 +82,21 @@ pub(super) fn mast(kids: &mut Vec<Generator>, plan: &RoverPlan, c: &RoverColours
         &c.body,
     ));
     kids.push(plate([hx, hy, hz], &c.body, [x, yh, z], NO_TURN, 0.18));
-    kids.push(plate(
+    let pane = plate(
         [hx * 1.10, hy * 0.46, hz * 1.12],
         &c.glass,
         [x, yh, z],
         NO_TURN,
         0.18,
-    ));
+    );
+    kids.push(work_light(pane, plan, [x, yh, z + hz * 0.56]));
+}
+
+/// The camera head's lit pane, throwing her one beam onto the ground ahead
+/// from the front of the head at `at` (#1924): she carries no headlamp, and
+/// a rover lights her way from the instruments that see it.
+fn work_light(pane: Generator, plan: &RoverPlan, at: [f32; 3]) -> Generator {
+    lights::headlight_at(pane, at, -plan.datum_height())
 }
 
 /// The variant's own mass, and the dead cell a battered surveyor carries.

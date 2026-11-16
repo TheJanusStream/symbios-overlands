@@ -13,6 +13,7 @@
 //! reparents every piece under the flat iron threshold plate (the root - never
 //! tilt it, or the whole gate would spin with it).
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
@@ -147,10 +148,13 @@ fn build_tree() -> Generator {
             [inner_x, 2.75, -0.18],
             quat_x(FRAC_PI_2),
         ));
-        prims.push(prim(
-            sphere(0.13, 3, glow(LAMP_GAS, 3.0)),
-            [inner_x, 2.75, -0.18],
-            id_quat(),
+        prims.push(lit(
+            prim(
+                sphere(0.13, 3, glow(LAMP_GAS, 3.0)),
+                [inner_x, 2.75, -0.18],
+                id_quat(),
+            ),
+            Lamp::Bulb { over: 2.75 },
         ));
         // Brass finial spike atop the pylon.
         prims.push(prim(

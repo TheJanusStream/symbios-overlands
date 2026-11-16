@@ -137,6 +137,13 @@ The record's wire form, as the World Editor's Raw JSON tab shows it:
 - **The generator's origin stands on the ground** at the placement's point:
   local y = 0 is the ground there. On dunes or a slope, sink walls about a
   metre below 0 so no gap shows under them.
+- **A part can give off light** (#1921): `"light": {}` on any node is a
+  warm lamp every visitor's client draws, lighting what stands round it;
+  its colour, brightness, reach, a spot's aim and cone, dusk to dawn and a
+  flicker or pulse are in [region.md](region.md) ("A node can give off
+  light"). A light on a turning node turns with it. The catalogue's lamps,
+  lanterns, torches and beacons carry lights already (#1923), so a copy of
+  one brings its light along.
 - **A part can turn** (#1604): `"spin": {"axis": [0, 0, 10000], "terms":
   [...]}` on any node but terrain, water or a road network. Every visitor's
   client turns the node, and everything below it, about `axis` - a direction

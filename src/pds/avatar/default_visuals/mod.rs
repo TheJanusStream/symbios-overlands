@@ -54,7 +54,10 @@
 //! and the catalogue, the outfit that filled its slots and the assembler
 //! that hung them together are gone.
 //!
-//! Shared primitive/material vocabulary lives in [`common`].
+//! Shared primitive/material vocabulary lives in [`common`]; the lights the
+//! vehicles' lamps carry - headlights, navigation lights, beacons, cabin
+//! lights - are authored where each lamp is drawn, through [`lights`]
+//! (#1924).
 
 mod airplanes;
 mod airships;
@@ -63,6 +66,7 @@ mod boats;
 pub(crate) mod common;
 mod fx;
 mod helicopters;
+mod lights;
 mod skiffs;
 
 // Aliased: `crate::seeded_defaults::AvatarBody` (imported below) is the

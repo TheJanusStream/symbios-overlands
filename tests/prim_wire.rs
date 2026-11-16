@@ -219,9 +219,12 @@ fn seeded_room_bytes_are_pinned() {
 /// `1..=40`: the square, every generator's rkey, the placements and the
 /// landing. Moving the gate's spot, the monument's or the draw moves every
 /// unsaved Berlin room on every peer - a migration, never a re-bless.
-/// Moved twice, by the owner's decisions: #1637 made every seeded square a
-/// kilometre, and only the squares moved; #1789 wrapped the landing's yaw
-/// into [0, 360), as the sanitiser holds it, and only the yaws moved.
+/// Moved three times, by the owner's decisions: #1637 made every seeded square
+/// a kilometre, and only the squares moved; #1789 wrapped the landing's yaw
+/// into [0, 360), as the sanitiser holds it, and only the yaws moved; #1923
+/// gave the catalogue's lamps authored lights (seeded worlds get lights, the
+/// owner chose, 2026-11-15), and only the generator hashes moved - the
+/// squares, placements, landings and generator counts held.
 #[test]
 fn seeded_berlin_room_bytes_are_pinned() {
     use symbios_overlands::pds::RoomRecord;

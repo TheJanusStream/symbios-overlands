@@ -241,3 +241,9 @@ fn hub(plan: &FusePlan, at: [f32; 3], c: &AirplaneColours) -> Generator {
     let side = dim(plan.len(HUB_CUBE));
     prim(cuboid([side; 3], c.dark.clone()), at, id_quat())
 }
+
+/// The ground under her mains, in her drawn frame (m): a main wheel's lowest
+/// point - what her landing light is aimed onto (#1924).
+pub(super) fn ground(plan: &FusePlan) -> f32 {
+    plan.at(TRACK, WHEEL_R, MAIN_Z)[1] - plan.len(WHEEL_R)
+}

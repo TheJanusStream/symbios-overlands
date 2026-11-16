@@ -7,6 +7,7 @@
 //! [`MaterialKit`](crate::seeded_defaults::MaterialKit)'s grime on every
 //! surface.
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::generator::Generator;
 use crate::seeded_defaults::OrnatenessTier;
 
@@ -156,7 +157,7 @@ pub(super) fn pylon_back(up: f32) -> f32 {
 /// at 0.55 of the pylon's half-length aft of its middle, it stood 10 cm
 /// inside the pylon - none of it showed.
 fn beacon(kids: &mut Vec<Generator>, plan: &PodPlan, c: &TandemColours) {
-    kids.push(prim(
+    kids.push(lights::strobe(prim(
         sphere(dim(plan.len(BEACON_R)), 3, c.beacon.clone()),
         plan.at_off(
             0.0,
@@ -165,5 +166,5 @@ fn beacon(kids: &mut Vec<Generator>, plan: &PodPlan, c: &TandemColours) {
             -(pylon_back(BEACON_UP) + BEACON_R * 0.5),
         ),
         id_quat(),
-    ));
+    )));
 }

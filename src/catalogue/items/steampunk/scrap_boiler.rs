@@ -4,6 +4,7 @@
 //!
 //! The tank is a cylinder tipped on its side with a [`quat_x`] of π/2.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
@@ -113,10 +114,13 @@ fn build_tree() -> Generator {
         [0.0, 0.4, -1.7],
         id_quat(),
     ));
-    prims.push(prim(
-        cuboid_tapered([0.7, 0.55, 0.12], 0.0, glow(FURNACE_ORANGE, 3.2)),
-        [0.0, 0.42, -2.07],
-        id_quat(),
+    prims.push(lit(
+        prim(
+            cuboid_tapered([0.7, 0.55, 0.12], 0.0, glow(FURNACE_ORANGE, 3.2)),
+            [0.0, 0.42, -2.07],
+            id_quat(),
+        ),
+        Lamp::Fire { over: 1.0 },
     ));
     prims.push(prim(
         solid(cuboid_tapered([0.78, 0.12, 0.74], 0.0, iron(IRON_DARK))),

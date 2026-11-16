@@ -8,6 +8,7 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares - square panel, blank-legible frame, backing plate.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     cuboid_tapered, cylinder_tapered, footing, glow, id_quat, nest, pfp_panel, prim, solid,
 };
@@ -181,10 +182,13 @@ fn brazier(x: f32) -> Generator {
                 [x, 2.42, -0.95],
                 id_quat(),
             ),
-            prim(
-                cuboid_tapered([0.34, 0.24, 0.34], 0.6, glow(EMBER_ORANGE, 2.2)),
-                [x, 2.58, -0.95],
-                id_quat(),
+            lit(
+                prim(
+                    cuboid_tapered([0.34, 0.24, 0.34], 0.6, glow(EMBER_ORANGE, 2.2)),
+                    [x, 2.58, -0.95],
+                    id_quat(),
+                ),
+                Lamp::Flame { over: 2.6 },
             ),
         ],
     )

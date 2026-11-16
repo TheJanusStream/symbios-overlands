@@ -17,6 +17,7 @@
 
 use std::f32::consts::{FRAC_PI_2, PI};
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::avatar::parts::PartCtx;
 use crate::pds::generator::Generator;
 use crate::seeded_defaults::{AirshipBlueprint, OrnatenessTier, ParticleAura};
@@ -359,16 +360,16 @@ fn dress(kids: &mut Vec<Generator>, plan: &HullPlan, c: &GalleonColours, tier: O
     let ys = yd + plan.len(SHEER[SHEER.len() - 1]);
     let yb = yd + plan.len(SHEER[0]);
     // Lanterns: one on the sterncastle's roof, one at the bowsprit's foot.
-    kids.push(prim(
+    kids.push(lights::own_lantern(prim(
         sphere(plan.len(0.026), 3, c.lamp.clone()),
         [0.0, ys + plan.len(0.21), zs + plan.len(0.03)],
         id_quat(),
-    ));
-    kids.push(prim(
+    )));
+    kids.push(lights::own_lantern(prim(
         sphere(plan.len(0.022), 3, c.lamp.clone()),
         [0.0, yb + plan.len(0.02), zb + plan.len(0.02)],
         id_quat(),
-    ));
+    )));
     if tier == OrnatenessTier::Ornate {
         // A gilded figurehead under the bowsprit, and a pennant streaming
         // aft and down off the gasbag's tail.

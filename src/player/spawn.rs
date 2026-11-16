@@ -23,6 +23,7 @@ pub(super) fn spawn_local_player(
     room: Option<Res<LiveRoomRecord>>,
     mut avatar_deps: visuals::AvatarSpawnDeps,
     mut facing_set: MessageWriter<super::FacingSet>,
+    session: Option<Res<bevy_symbios_multiuser::auth::AtprotoSession>>,
 ) {
     let mut pose = spawn_pose(
         placement.as_deref(),
@@ -59,6 +60,8 @@ pub(super) fn spawn_local_player(
         &mut images,
         &mut avatar_deps,
         true,
+        // Its lights are seeded by whose body it is (#1924).
+        session.as_deref().map(|s| s.did.as_str()),
     );
     // What was just painted (#1104), so the first record edit compares
     // against it instead of respawning unconditionally.

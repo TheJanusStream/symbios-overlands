@@ -5,6 +5,7 @@
 
 use std::f32::consts::FRAC_PI_2;
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::generator::Generator;
 
 use super::super::super::common::{
@@ -178,9 +179,9 @@ pub(super) fn tail_cap(kids: &mut Vec<Generator>, plan: &HullPlan, c: &AirshipCo
         [0.0, 0.0, z + plan.len(TAIL_SET)],
         quat_xyzw(quat_x(-FRAC_PI_2)),
     ));
-    kids.push(prim(
+    kids.push(lights::running(prim(
         sphere(plan.len(TAIL_LAMP_R), 3, c.white.clone()),
         [0.0, 0.0, z - plan.len(TAIL_LAMP_AFT)],
         id_quat(),
-    ));
+    )));
 }

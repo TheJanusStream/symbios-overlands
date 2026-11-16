@@ -21,6 +21,7 @@
 //!
 //! [`util::railing`]: crate::catalogue::items::util::railing
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     self, cone, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, lit_interior, nest, prim,
     quat_x, solid, torus,
@@ -204,10 +205,13 @@ fn build_tree() -> Generator {
         [lamp_x, DECK_TOP + 3.12, FRONT - 0.9],
         id_quat(),
     ));
-    parts.push(prim(
-        cuboid_tapered([0.2, 0.2, 0.2], 0.0, glow(SIGN_GOLD, 2.4)),
-        [lamp_x, DECK_TOP + 2.94, FRONT - 0.9],
-        id_quat(),
+    parts.push(lit(
+        prim(
+            cuboid_tapered([0.2, 0.2, 0.2], 0.0, glow(SIGN_GOLD, 2.4)),
+            [lamp_x, DECK_TOP + 2.94, FRONT - 0.9],
+            id_quat(),
+        ),
+        Lamp::Bulb { over: 2.94 },
     ));
 
     nest(deck, parts)

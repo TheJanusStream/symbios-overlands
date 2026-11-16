@@ -462,7 +462,9 @@ fn workshop(parts: &mut Vec<Generator>, inner: [f32; 2]) {
     // it hangs at the opening's head height, and the rolled door's drum sits
     // right across that sightline - a real garage hides its own ceiling light
     // the same way. A small source down at bench level cannot be occluded by
-    // anything, so *something* in the bay is visibly lit from any angle.
+    // anything, so *something* in the bay is visibly lit from any angle. It
+    // glows but carries no light: no light casts a shadow, so one inside the
+    // walls would light the lot outside them as much as the bench (#1923).
     parts.push(prim(
         cuboid_tapered([0.16, 0.14, 0.14], 0.0, glow([1.0, 0.92, 0.72], 1.6)),
         [BAY_X + 1.1, BASE_H + 1.05, 1.6],

@@ -12,6 +12,7 @@
 //! scale and then turned is not a similarity, which the connectivity guard
 //! asserts.
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::generator::Generator;
 use crate::pds::texture::SovereignMaterialSettings;
 
@@ -105,11 +106,11 @@ pub(super) fn tail(kids: &mut Vec<Generator>, plan: &HullPlan, c: &AirshipColour
             _ => None,
         };
         if let Some(lamp) = lamp {
-            kids.push(prim(
+            kids.push(lights::running(prim(
                 sphere(plan.len(LAMP_R), 3, lamp.clone()),
                 lamp_at(plan, dir),
                 id_quat(),
-            ));
+            )));
         }
     }
 }

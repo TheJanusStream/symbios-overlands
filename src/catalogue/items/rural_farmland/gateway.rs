@@ -9,6 +9,7 @@
 //! the room owner's mutual follows. Everything else frames that opening so it
 //! reads as a farm gate you pass through.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     assemble, cuboid_tapered, cuboid_tapered_xz, footing, foundation_mat, glow, id_quat, prim,
     quat_z, solid, sphere,
@@ -166,10 +167,13 @@ fn build_tree() -> Generator {
             [sx * (gap_half - 0.24), 3.05, -0.16],
             id_quat(),
         ));
-        prims.push(prim(
-            sphere(0.15, 4, glow([1.0, 0.6, 0.24], 6.0)),
-            [sx * 1.5, 2.85, -0.3],
-            id_quat(),
+        prims.push(lit(
+            prim(
+                sphere(0.15, 4, glow([1.0, 0.6, 0.24], 6.0)),
+                [sx * 1.5, 2.85, -0.3],
+                id_quat(),
+            ),
+            Lamp::Bulb { over: 2.9 },
         ));
     }
 

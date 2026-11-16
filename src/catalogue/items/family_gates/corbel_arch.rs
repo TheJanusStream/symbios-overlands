@@ -9,6 +9,7 @@
 //! Mesoamerican pool through `kindred_gates`.
 
 use crate::catalogue::items::fx::Emitter;
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::mesoamerican::{
     FIRE_ORANGE, JADE_GREEN, LIMESTONE_PALE, OBSIDIAN_BLACK, STONE_GREY, STUCCO_CREAM, STUCCO_RED,
     TIMBER_BROWN, jade, limestone, obsidian, painted, timber,
@@ -267,11 +268,14 @@ fn censer(foot: [f32; 3], seed: u64) -> Vec<Generator> {
             [x, y - 0.01, z],
             id_quat(),
         ),
-        prim_scaled(
-            sphere(0.17, 3, glow(FIRE_ORANGE, 3.0)),
-            [x, y + h - 0.02, z],
-            id_quat(),
-            [1.0, 0.3, 1.0],
+        lit(
+            prim_scaled(
+                sphere(0.17, 3, glow(FIRE_ORANGE, 3.0)),
+                [x, y + h - 0.02, z],
+                id_quat(),
+                [1.0, 0.3, 1.0],
+            ),
+            Lamp::Flame { over: 0.9 },
         ),
         Emitter {
             shape: EmitterShape::Cone {

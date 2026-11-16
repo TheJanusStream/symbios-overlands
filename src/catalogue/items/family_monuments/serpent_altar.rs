@@ -9,6 +9,7 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::mesoamerican::{
     BONE_WHITE, CLAY_TERRACOTTA, FIRE_ORANGE, GOLD_WARM, JADE_GREEN, LIMESTONE_PALE,
     OBSIDIAN_BLACK, STONE_GREY, STUCCO_RED, gold, jade, limestone, obsidian, painted,
@@ -212,10 +213,13 @@ fn altar() -> Generator {
                 ),
                 vec![nest(
                     bowl,
-                    vec![prim(
-                        cuboid_tapered([0.34, 0.1, 0.34], 0.4, glow(FIRE_ORANGE, 2.4)),
-                        [0.0, DECK + 1.1, z],
-                        id_quat(),
+                    vec![lit(
+                        prim(
+                            cuboid_tapered([0.34, 0.1, 0.34], 0.4, glow(FIRE_ORANGE, 2.4)),
+                            [0.0, DECK + 1.1, z],
+                            id_quat(),
+                        ),
+                        Lamp::Flame { over: 1.6 },
                     )],
                 )],
             ),

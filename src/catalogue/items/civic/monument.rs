@@ -26,6 +26,7 @@
 //!    without one the monument is see-through from behind. The plate is also
 //!    what the portrait reads as being fixed *to*.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     cuboid_tapered, footing, glow, id_quat, nest, pfp_panel, prim, solid,
 };
@@ -202,10 +203,13 @@ fn lamp(x: f32) -> Generator {
                 [x, 1.86, -0.55],
                 id_quat(),
             ),
-            prim(
-                cuboid_tapered([0.26, 0.2, 0.26], 0.5, glow(FLAME, 2.2)),
-                [x, 2.0, -0.55],
-                id_quat(),
+            lit(
+                prim(
+                    cuboid_tapered([0.26, 0.2, 0.26], 0.5, glow(FLAME, 2.2)),
+                    [x, 2.0, -0.55],
+                    id_quat(),
+                ),
+                Lamp::Flame { over: 2.0 },
             ),
         ],
     )

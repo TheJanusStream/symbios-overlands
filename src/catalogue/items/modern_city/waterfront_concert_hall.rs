@@ -9,6 +9,7 @@
 //! pressed shallow, so its mouth is a pointed-looking half ellipse; the
 //! glazing that fills it is a half disc stretched the same way.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
@@ -227,10 +228,13 @@ fn lamp(x: f32, z: f32) -> Generator {
             id_quat(),
         ),
         vec![
-            prim(
-                cylinder_tapered(0.26, 0.5, 12, 0.0, glow(LAMP_WARM, 3.0)),
-                [x, PODIUM_TOP + h + 0.2, z],
-                id_quat(),
+            lit(
+                prim(
+                    cylinder_tapered(0.26, 0.5, 12, 0.0, glow(LAMP_WARM, 3.0)),
+                    [x, PODIUM_TOP + h + 0.2, z],
+                    id_quat(),
+                ),
+                Lamp::Bulb { over: 5.6 },
             ),
             prim(
                 cylinder_tapered(0.34, 0.1, 12, 0.3, steel(STEEL_GREY)),

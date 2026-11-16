@@ -9,6 +9,7 @@
 
 use std::f32::consts::FRAC_PI_2;
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::avatar::livery::BuggyColours;
 use crate::pds::generator::Generator;
 use crate::seeded_defaults::BuggyVariant;
@@ -315,25 +316,29 @@ pub(super) fn lamps(kids: &mut Vec<Generator>, f: &Frame, c: &BuggyColours) {
         (0.0, 0.012 * l),
     ];
     let (xn, hi) = (f.plan.hw(f.nose_z), f.plan.shoulder(f.nose_z));
+    // One beam for the pair of headlamps (#1924), and one red glow for the
+    // pair of tail lamps, each from its near lamp.
+    let ground = -f.plan.datum_height();
     for s in [-1.0f32, 1.0] {
         let at = [s * xn, hi + 0.012 * l, f.nose_z + 0.020 * l];
         kids.push(solid(&shell, 18, true, &c.bright, at, along_z()));
-        kids.push(solid(
+        let glass = solid(
             &lens,
             16,
             false,
             &c.lamp,
             [at[0], at[1], at[2] + 0.052 * k],
             along_z(),
-        ));
-        kids.push(solid(
-            &tail,
-            12,
-            false,
-            &c.tail_lamp,
-            [s * f.tail_x * 0.92, f.tail_y, f.tail_z - 0.004 * l],
-            quat_x(-FRAC_PI_2),
-        ));
+        );
+        let tail_at = [s * f.tail_x * 0.92, f.tail_y, f.tail_z - 0.004 * l];
+        let red = solid(&tail, 12, false, &c.tail_lamp, tail_at, quat_x(-FRAC_PI_2));
+        if s < 0.0 {
+            kids.push(lights::headlights(glass, ground));
+            kids.push(lights::running(red));
+        } else {
+            kids.push(glass);
+            kids.push(red);
+        }
     }
 }
 

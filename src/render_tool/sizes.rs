@@ -240,6 +240,7 @@ fn spawn_entries(
             &mut images,
             &mut deps,
             false,
+            None,
         );
     }
 }

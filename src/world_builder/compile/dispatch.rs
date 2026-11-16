@@ -415,6 +415,30 @@ fn spawn_node(
         {
             ctx.commands.entity(e).insert(spinner);
         }
+        // A lit node carries its light (#1921) as a child, so a turning node
+        // turns it and a moving body carries it: a room's, and an avatar's
+        // and what it wears (#1924), but not a preview's or an instance
+        // set's template - see `world_builder::light`.
+        if ctx.lights
+            && let Some(light) = generator.light.as_ref()
+        {
+            let seed = if ctx.avatar_mode {
+                crate::world_builder::light::avatar_light_seed(ctx.light_owner, path)
+            } else {
+                crate::world_builder::light::light_seed(
+                    base_ref,
+                    path,
+                    ctx.spin_epoch,
+                    ctx.grid_layer,
+                )
+            };
+            if ctx.avatar_mode {
+                let frame = ctx.light_frame.unwrap_or(e);
+                crate::world_builder::light::attach_to_body(ctx.commands, e, light, seed, frame);
+            } else {
+                crate::world_builder::light::attach(ctx.commands, e, light, seed);
+            }
+        }
         // Recurse into the children list, parenting each child entity to
         // this node's generated entity so the hierarchy mirrors the
         // blueprint shape.

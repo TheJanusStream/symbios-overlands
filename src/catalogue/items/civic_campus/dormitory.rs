@@ -24,6 +24,7 @@
 //! in a reveal over a room that is lit or dim by turns, and the tree is nested
 //! plinth → body → storey trim → parapet → roof.
 
+use crate::catalogue::items::fx::light::{self, Lamp};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
@@ -302,10 +303,13 @@ fn apron() -> Generator {
             [bx, APRON_T + 0.475, APRON_Z - 0.35],
             id_quat(),
         ));
-        parts.push(prim(
-            cuboid_tapered([0.17, 0.16, 0.17], 0.25, glow([1.0, 0.88, 0.6], 2.2)),
-            [bx, APRON_T + 1.02, APRON_Z - 0.35],
-            id_quat(),
+        parts.push(light::lit(
+            prim(
+                cuboid_tapered([0.17, 0.16, 0.17], 0.25, glow([1.0, 0.88, 0.6], 2.2)),
+                [bx, APRON_T + 1.02, APRON_Z - 0.35],
+                id_quat(),
+            ),
+            Lamp::Bulb { over: 1.02 },
         ));
     }
     nest(slab, parts)
@@ -563,10 +567,13 @@ fn entrance(bx: f32, parts: &mut Vec<Generator>) {
     }
     // Lamp under the canopy - below anything that spans the head, so it lights
     // something the approach can see (#972 lesson 10).
-    parts.push(prim(
-        cuboid_tapered([0.3, 0.12, 0.3], 0.2, glow([1.0, 0.9, 0.68], 2.4)),
-        [bx, soffit - 0.08, FRONT - 0.6],
-        id_quat(),
+    parts.push(light::lit(
+        prim(
+            cuboid_tapered([0.3, 0.12, 0.3], 0.2, glow([1.0, 0.9, 0.68], 2.4)),
+            [bx, soffit - 0.08, FRONT - 0.6],
+            id_quat(),
+        ),
+        Lamp::Street { over: 3.4 },
     ));
 }
 

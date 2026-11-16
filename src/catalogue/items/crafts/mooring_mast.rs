@@ -2,12 +2,13 @@
 //! lattice tapering up from a concrete base, braced in a zigzag on every
 //! face, to a railed platform, and over it a red-and-white head mast with
 //! the cup an airship's nose is made fast in and a red aviation light lit
-//! from dusk to dawn.
+//! from dusk to dawn, its light breathing red over the head (#1923).
 //!
 //! [`HEIGHT`] tall over its origin, which a seeded world stands on the
 //! highest ground under its base.
 
 use super::{CONCRETE, PAINT_WHITE, SIGNAL_RED, STEEL, concrete, lamp, paint, steel};
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     cone, cuboid_tapered, cylinder_tapered, id_quat, nest, prim, quat_x, solid, strut,
 };
@@ -34,6 +35,11 @@ const HEAD_MAST: f32 = 2.2;
 /// stands only where its ground falls no further.
 const BASE_TOP: f32 = 0.1;
 pub const BASE_DEPTH: f32 = 3.5;
+
+/// How far the warning lamp's light reaches down over its head (m): it
+/// lights the mast's head and a moored craft's nose, not the ground some
+/// sixteen metres under it, which no light reaches (#1923).
+const MAST_HEAD_LIGHT_M: f32 = 3.0;
 
 pub struct MooringMast;
 
@@ -170,10 +176,15 @@ pub fn mooring_mast() -> Generator {
         [0.0, head_top + 0.3, 0.0],
         quat_x(std::f32::consts::PI),
     ));
-    parts.push(prim(
-        cylinder_tapered(0.12, 0.22, 10, 0.3, lamp([1.0, 0.12, 0.08], 6.0)),
-        [0.0, head_top + 0.71, 0.0],
-        id_quat(),
+    parts.push(lit(
+        prim(
+            cylinder_tapered(0.12, 0.22, 10, 0.3, lamp([1.0, 0.12, 0.08], 6.0)),
+            [0.0, head_top + 0.71, 0.0],
+            id_quat(),
+        ),
+        Lamp::Beacon {
+            over: MAST_HEAD_LIGHT_M,
+        },
     ));
     nest(base, parts)
 }

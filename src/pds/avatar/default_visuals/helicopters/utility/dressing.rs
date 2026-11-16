@@ -5,6 +5,7 @@
 //! [`MaterialKit`](crate::seeded_defaults::MaterialKit)'s grime on every
 //! surface, as the owner took it.
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::generator::Generator;
 use crate::seeded_defaults::OrnatenessTier;
 
@@ -72,19 +73,23 @@ fn searchlight(kids: &mut Vec<Generator>, plan: &PodPlan, c: &HelicopterColours)
         quat_xyzw(quat_x(aim)),
     ));
     let reach = 0.036;
-    kids.push(prim(
-        cylinder(
-            dim(plan.len(0.038)),
-            dim(plan.len(0.012)),
-            12,
-            c.lamp.clone(),
+    // Her landing light (#1924).
+    kids.push(lights::landing_light(
+        prim(
+            cylinder(
+                dim(plan.len(0.038)),
+                dim(plan.len(0.012)),
+                12,
+                c.lamp.clone(),
+            ),
+            plan.at(
+                0.0,
+                centre.0 + reach * aim.cos(),
+                centre.1 + reach * aim.sin(),
+            ),
+            quat_xyzw(quat_x(aim)),
         ),
-        plan.at(
-            0.0,
-            centre.0 + reach * aim.cos(),
-            centre.1 + reach * aim.sin(),
-        ),
-        quat_xyzw(quat_x(aim)),
+        -plan.datum_height(),
     ));
 }
 

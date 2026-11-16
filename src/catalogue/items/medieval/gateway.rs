@@ -12,6 +12,7 @@
 //! the room owner's mutual follows. Everything else is masonry framing that
 //! reads the box as a gate you pass under.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
@@ -259,10 +260,13 @@ fn build_tree() -> Generator {
             [cx, 2.5, front * 0.7],
             id_quat(),
         ));
-        prims.push(prim(
-            cone(0.11, 0.4, 8, glow(FORGE_ORANGE, 5.5)),
-            [cx, 2.78, front * 0.7],
-            id_quat(),
+        prims.push(lit(
+            prim(
+                cone(0.11, 0.4, 8, glow(FORGE_ORANGE, 5.5)),
+                [cx, 2.78, front * 0.7],
+                id_quat(),
+            ),
+            Lamp::Flame { over: 2.8 },
         ));
     }
 

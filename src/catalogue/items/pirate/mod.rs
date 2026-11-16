@@ -67,6 +67,7 @@ pub mod careening_slip;
 pub mod fx;
 
 use super::util::{ageing, tile, tiles_per_metre};
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::pds::Generator;
 use bevy_symbios_texture::fabric::WeaveKind;
 use bevy_symbios_texture::metal::MetalStyle;
@@ -604,6 +605,11 @@ pub(super) fn bone(color: [f32; 3]) -> SovereignMaterialSettings {
 // Shared geometry
 // ---------------------------------------------------------------------------
 
+/// How high a [`lantern`]'s flame is taken to hang over what it lights (m),
+/// for its light's reach (#1923): about where a bracket or a hook holds one,
+/// so it lights a pool under it and the wall it hangs on.
+const LANTERN_OVER_M: f32 = 2.0;
+
 /// A ship's lantern: a bronze-capped glazed drum with a flame inside it.
 ///
 /// Lives here rather than in whichever file needed it first (#972 lesson 5).
@@ -628,9 +634,30 @@ pub(super) fn bone(color: [f32; 3]) -> SovereignMaterialSettings {
 ///    is *area*, and this one is a sphere of a few centimetres inside the
 ///    glass. A lit face the size of the drum would go white at a quarter of
 ///    the strength.
+///
+/// Its flame carries a flickering light ([`Lamp::Flame`]) - a lantern
+/// hung out of doors. One hung indoors is an [`indoor_lantern`].
 pub(super) fn lantern(at: [f32; 3], h: f32, seed: u32) -> Generator {
+    lantern_drum(at, h, seed, true)
+}
+
+/// A [`lantern`] hung indoors - a tavern table's, a chamber's, a
+/// magazine's: its flame glows but carries no light. No light casts a
+/// shadow, so one inside walls lights the ground outside them as much as
+/// the room, and spends a place in a client's few for a glow the room's
+/// own lit interior already gives (#1923).
+pub(super) fn indoor_lantern(at: [f32; 3], h: f32, seed: u32) -> Generator {
+    lantern_drum(at, h, seed, false)
+}
+
+fn lantern_drum(at: [f32; 3], h: f32, seed: u32, lit_flame: bool) -> Generator {
     use super::util::{cylinder_tapered, glow, id_quat, nest, prim, quat_x, solid, sphere, torus};
     let r = h * 0.34;
+    let flame = prim(
+        sphere(r * 0.42, 3, glow(LAMP_TALLOW, 3.2)),
+        [at[0], at[1] - h * 0.05, at[2]],
+        id_quat(),
+    );
     nest(
         prim(
             cylinder_tapered(r, h * 0.62, 10, 0.12, tinted_glass(GLASS_AMBER, 0.35)),
@@ -640,11 +667,16 @@ pub(super) fn lantern(at: [f32; 3], h: f32, seed: u32) -> Generator {
         vec![
             // Flame, well inside the glass so the drum reads as lit rather
             // than as a glowing object.
-            prim(
-                sphere(r * 0.42, 3, glow(LAMP_TALLOW, 3.2)),
-                [at[0], at[1] - h * 0.05, at[2]],
-                id_quat(),
-            ),
+            if lit_flame {
+                lit(
+                    flame,
+                    Lamp::Flame {
+                        over: LANTERN_OVER_M,
+                    },
+                )
+            } else {
+                flame
+            },
             // Bronze cap, flared so rain runs off it.
             prim(
                 solid(cylinder_tapered(

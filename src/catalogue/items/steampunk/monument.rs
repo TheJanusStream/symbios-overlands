@@ -8,6 +8,7 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
@@ -122,10 +123,13 @@ fn portrait(did: &str) -> Vec<Generator> {
             [0.0, 5.12, z - 0.08],
             id_quat(),
         ),
-        prim(
-            cuboid_tapered([0.2, 0.22, 0.2], 0.2, glow(LAMP_GAS, 2.0)),
-            [0.0, 5.1, z - 0.08],
-            id_quat(),
+        lit(
+            prim(
+                cuboid_tapered([0.2, 0.22, 0.2], 0.2, glow(LAMP_GAS, 2.0)),
+                [0.0, 5.1, z - 0.08],
+                id_quat(),
+            ),
+            Lamp::Bulb { over: 5.1 },
         ),
     ];
     // Brass bezel round the plate.

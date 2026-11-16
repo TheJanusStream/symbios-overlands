@@ -171,20 +171,54 @@ fn ruin(node: &mut Generator, tier: EscalationTier, seed: u64, max_lean: Option<
 /// flickering neon of a fought-over settlement. Cross-theme safe: materials
 /// with no emission (most non-cyberpunk surfaces) are left untouched, so
 /// this is a no-op anywhere there's nothing to break.
+///
+/// A lamp's light goes as its glass does (#1923): a part whose glow dies
+/// loses its light, and one whose glow gutters keeps a light as dim, which
+/// wavers ([`guttering`]). Neither draws on `rng`, so a room ruins as it
+/// did before lights.
 fn break_emissives(node: &mut Generator, prob: f32, rng: &mut ChaCha8Rng) {
+    let glow = |node: &Generator| node.kind.material().map_or(0.0, |m| m.emission_strength.0);
+    let before = glow(node);
     for mat in node_materials_mut(&mut node.kind) {
         if mat.emission_strength.0 > 0.0 && unit_f32(rng) < prob {
             // Half die outright; half gutter at a dim flicker.
             mat.emission_strength = Fp(if unit_f32(rng) < 0.5 {
                 0.0
             } else {
-                mat.emission_strength.0 * 0.15
+                mat.emission_strength.0 * GUTTER_SHARE
             });
+        }
+    }
+    let after = glow(node);
+    if after < before {
+        if after <= 0.0 {
+            node.light = None;
+        } else if let Some(light) = node.light.as_mut() {
+            guttering(light);
         }
     }
     for child in &mut node.children {
         break_emissives(child, prob, rng);
     }
+}
+
+/// The share of its glow a guttering emissive keeps.
+const GUTTER_SHARE: f32 = 0.15;
+
+/// A guttering lamp's waver (amount, rate): deep, so slow - inside the
+/// flash cap the sanitiser holds a light to.
+const GUTTER_FLICKER: (f32, f32) = (0.5, 0.7);
+
+/// `light` as its guttering glass leaves it: [`GUTTER_SHARE`] as bright,
+/// wavering by [`GUTTER_FLICKER`], and sanitised, so it is on the wire's
+/// grid as a peer reads it back.
+fn guttering(light: &mut super::LightSource) {
+    light.brightness = Fp(light.brightness.0 * GUTTER_SHARE);
+    light.flicker = Some(super::LightFlicker::Flicker {
+        amount: Fp(GUTTER_FLICKER.0),
+        rate: Fp(GUTTER_FLICKER.1),
+    });
+    super::sanitize::Sanitize::sanitize(light);
 }
 
 /// Compose a lean about the horizontal axis `(ax, _, az)` onto a node's
@@ -749,6 +783,7 @@ fn scatter_rubble(node: &mut Generator, rng: &mut ChaCha8Rng) {
             children: Vec::new(),
             audio: super::audio::SovereignAudioConfig::None,
             spin: None,
+            light: None,
         });
     }
 }
@@ -812,6 +847,7 @@ mod tests {
             children: Vec::new(),
             audio: super::super::audio::SovereignAudioConfig::None,
             spin: None,
+            light: None,
         };
         let mut root = part(0.5);
         root.children = vec![part(1.5), part(2.5), part(3.5)];
@@ -1043,6 +1079,7 @@ mod tests {
                 children: Vec::new(),
                 audio: super::super::audio::SovereignAudioConfig::None,
                 spin: None,
+                light: None,
             }
         }
         fn neon_strengths(n: &Generator, out: &mut Vec<f32>) {
@@ -1081,6 +1118,80 @@ mod tests {
             v.iter().all(|&x| (x - 8.0).abs() < 1e-6),
             "calm keeps neon intact"
         );
+    }
+
+    /// #1923: a lamp whose glass a conflict snuffs loses its light, one
+    /// whose glass gutters keeps a light as dim that wavers, inside the
+    /// flash cap, and an unbroken lamp keeps its light as it was.
+    #[test]
+    fn a_ruined_lamp_loses_or_gutters_its_light_with_its_glass() {
+        fn lamp(y: f32) -> Generator {
+            let mut node = Generator::default_cuboid();
+            node.kind
+                .material_mut()
+                .map(|m| {
+                    m.emission_color = Fp3([1.0, 0.8, 0.5]);
+                    m.emission_strength = Fp(3.0);
+                })
+                .expect("a primitive");
+            node.transform.translation = Fp3([0.0, y, 0.0]);
+            node.light = Some(super::super::LightSource {
+                brightness: Fp(8.0),
+                ..Default::default()
+            });
+            node
+        }
+        fn lamps<'a>(n: &'a Generator, out: &mut Vec<&'a Generator>) {
+            if n.kind
+                .material()
+                .is_some_and(|m| m.emission_color.0 == [1.0, 0.8, 0.5])
+            {
+                out.push(n);
+            }
+            for c in &n.children {
+                lamps(c, out);
+            }
+        }
+        let (mut dead, mut dim, mut whole) = (0, 0, 0);
+        for seed in 0u64..40 {
+            let mut node = lamp(0.5);
+            node.children = (1..6).map(|k| lamp(k as f32)).collect();
+            apply_ruin(&mut node, 0.95, seed);
+            let mut out = Vec::new();
+            lamps(&node, &mut out);
+            for part in out {
+                let glow = part
+                    .kind
+                    .material()
+                    .expect("a primitive")
+                    .emission_strength
+                    .0;
+                if glow <= 0.0 {
+                    dead += 1;
+                    assert!(part.light.is_none(), "a dead lamp still lit");
+                } else if glow < 3.0 {
+                    dim += 1;
+                    let light = part
+                        .light
+                        .as_ref()
+                        .expect("a guttering lamp keeps its light");
+                    assert!(light.brightness.0 < 8.0 * 0.2, "{light:?}");
+                    assert!(matches!(
+                        light.flicker,
+                        Some(super::super::LightFlicker::Flicker { .. })
+                    ));
+                    let mut again = light.clone();
+                    super::super::sanitize::Sanitize::sanitize(&mut again);
+                    assert_eq!(&again, light, "off the grid or past the flash cap");
+                } else {
+                    whole += 1;
+                    let light = part.light.as_ref().expect("a whole lamp keeps its light");
+                    assert_eq!(light.brightness, Fp(8.0));
+                    assert_eq!(light.flicker, None);
+                }
+            }
+        }
+        assert!(dead > 0 && dim > 0 && whole > 0, "{dead} {dim} {whole}");
     }
 
     #[test]
@@ -1122,6 +1233,7 @@ mod tests {
             children: Vec::new(),
             audio: super::super::audio::SovereignAudioConfig::None,
             spin: None,
+            light: None,
         }
     }
 
@@ -1145,6 +1257,7 @@ mod tests {
             children: Vec::new(),
             audio: super::super::audio::SovereignAudioConfig::None,
             spin: None,
+            light: None,
         }
     }
 

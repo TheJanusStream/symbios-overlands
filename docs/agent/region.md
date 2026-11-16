@@ -1144,6 +1144,81 @@ A forest is a few generators and a scatter placement each:
   colour by day 0.4 of its light's. Give it to a lit room or a lamp, not
   to a sign or a neon line meant to glow at noon. A sign, and anything an
   avatar wears or rides, glows at every hour whatever it says.
+- **A node can give off light** (#1921): `light` on any node is a real
+  light every client draws, lighting the ground and parts round it - a glow
+  alone (emission) lights nothing. `"light": {}` is a warm lamp: sRGB
+  `color` [1.0, 0.85, 0.65], `brightness` 1 (a lamp's working 40 lx at four
+  fifths of its reach, whatever the reach; up to 32 at a reach of 10 m or
+  less, and no stronger than 8 at 20 m - 22.2222 at 12 m, a power cap the
+  sanitiser holds), `range` 5.6 m (where
+  it reaches nothing; 0.5 to 20), `size` 0.05 m (the bulb's radius; a
+  bigger one draws softer highlights; up to 1), `offset` [0, 0, 0] in the
+  node's frame, and lit from dusk to dawn as the material flag is
+  (`"dusk_to_dawn": false` lights it at every hour). A spot is `"shape":
+  {"$type": "network.symbios.light.spot", "aim": [x, y, z], "inner": deg,
+  "outer": deg}`: `aim` a direction in the node's frame (down, [0, -1, 0],
+  by default), full inside `inner` degrees of it and fading to nothing at
+  `outer` (half angles, defaults 25 and 40, at most 89). A flicker is
+  `"flicker": {"$type": "network.symbios.light.flicker", "amount": a,
+  "rate": hz}` (an uneven waver with a quicker shimmer over it: 0.12 and 4
+  by default) or `network.symbios.light.pulse` (an even breath: 0.6 and
+  0.5); `amount` is the share it dips by, `rate` 0.05 to 8 a second, and
+  every peer sees it alike. A light that dips by more than a tenth flashes,
+  and flashes at most twice a second, as lightning does: a pulse deeper
+  than 0.1 at most 2 a second, a flicker deeper than 0.15 at most 2 and one
+  deeper than 0.3 (its shimmer flashes too) at most 0.74 - a faster rate is
+  saved slowed to that. A viewer's Effects setting calms it further:
+  Reduced halves the dip and moves it at most once a second, Off holds it
+  steady. Like every number, each is scaled by 10 000 on the wire. A lamp
+  on a turning node turns with it: a spot on a spinning hub is a
+  lighthouse. The World Editor's Light section, under Spin on every part,
+  sets all of it, writing values already on the wire's grid.
+
+  ```json
+  {"$type": "network.symbios.gen.sphere", "radius": 700, "resolution": 12,
+   "solid": false, "transform": {"translation": [0, 32000, 0]},
+   "light": {"color": [10000, 7800, 5200], "range": 120000,
+             "offset": [0, -1000, 0],
+             "shape": {"$type": "network.symbios.light.spot",
+                       "inner": 300000, "outer": 550000}}}
+  ```
+
+  Only the nearest lights are drawn at once - 64 at Effects Full, 32 at
+  Reduced, none at Off - faded in and out, and only as many as WebGL2's
+  list of each screen cluster's lights holds, counted as the engine counts
+  it: lights that reach far over the same ground count more. Lamps spaced
+  about their own `range` apart keep all 64 places, while long lights
+  crowded round a viewer drop to a handful (three of 20 m packed 2 m
+  apart). So give a lamp the reach it needs, not the most - but a lamp
+  high on a post lights the ground from further off: give it a reach of
+  about twice its height (for a spot raked to one side, twice the distance
+  along its aim to the ground, which is further than its height), at the
+  most brightness that reach allows. The engine's range window has taken
+  a light to about a third of itself at four fifths of its reach, so at
+  one and a half times the height the ground under the head gets under two
+  thirds of its light; at twice it, 0.88. Rendered at 23:00 under the world's moon on pale stone, lamps 1 to
+  8 m up at the brightest their reach allows drew pools 2.0 to 2.2 times
+  as bright as the unlit ground at a reach of 1.5 times their height, 3.5
+  to 3.8 times at twice it and 4 to 5 times at 2.5 times; past 5 m up the
+  brightness is held by the light's power, so an 8 m head draws a wider,
+  fainter pool however it is set (2.4 times at reach 16). Brightness costs
+  a browser nothing, reach does. A floodlight further than 8 m from what
+  it lights - on a stadium's 12 m mast, under a crane's boom - lights it
+  best from a light set partway down its own beam, 8 m short of its pool,
+  at a reach of 16: no shadow shows where a light stands, only what it
+  lights. The catalogue's lamps, lanterns, torches and beacons carry
+  lights made this way, a point light for a bulb or a lantern, a spot for
+  a street light or a floodlight, a flicker for a flame and a gentle pulse
+  for a beacon (its glass glows steady), all lit from dusk to dawn. No
+  light casts a shadow, so a lamp indoors stays a glow: a light inside
+  walls lights the ground outside them as much as the room. A light on an
+  instance set's copy is not drawn (place a lit piece as a placement of
+  its own; the World Editor says so on an item placed only as a set), nor
+  one in an item's picture. A light on an avatar's body or what it wears
+  is drawn as a world's is (#1924), and every seeded vehicle's lamps carry
+  theirs ([avatar.md](avatar.md)). A light
+  adds 10 bytes to a record (`{}`), at most about 330 with everything
+  set.
 - **A texture on a twisted or tapered part (`torture`) shears with the
   deform**: a curtain-wall grid laid on one twisted box read "crooked" to
   the owner. Build a twist from straight pieces instead - one box a floor,
@@ -1232,7 +1307,7 @@ manifest's budget.
   default: buildings), `box` (the box the parts fill: props), `trunk` (a
   cylinder as wide as the base, up to 3 m tall: trees), `none`. Parts carry
   no colliders of their own in a set.
-- **A set draws geometry only.** Sounds, spins, particles, signs, portals
+- **A set draws geometry only.** Sounds, spins, lights, particles, signs, portals
   and gateways are left off its copies, and an L-system plant keeps its own
   seed: place those as ordinary placements.
 - **Its budget is the world's, shared by need** (#1648): 22,000 near

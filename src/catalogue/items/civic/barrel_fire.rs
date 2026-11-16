@@ -9,6 +9,7 @@
 //! combustion modelled as fixed cones reads as an orange plastic decoration
 //! no matter how it is shaded.
 
+use crate::catalogue::items::fx::light::{Lamp, lit_at};
 use crate::catalogue::items::util::{
     cylinder_tapered, glow, id_quat, prim, quat_x, solid, sphere, torus, with_cut,
 };
@@ -119,10 +120,16 @@ fn build_tree() -> Generator {
         ),
         // The coal bed resting on the ash: a deep-saturated ember mass at
         // moderate strength so it reads hot, not a washed near-white blob.
-        prim(
-            sphere(0.2, 3, glow(EMBER, 3.5)),
-            [0.0, bed_y, 0.0],
-            id_quat(),
+        lit_at(
+            prim(
+                sphere(0.2, 3, glow(EMBER, 3.5)),
+                [0.0, bed_y, 0.0],
+                id_quat(),
+            ),
+            Lamp::Fire {
+                over: drum_h + 0.25,
+            },
+            [0.0, drum_h + 0.25, 0.0],
         ),
     ];
 

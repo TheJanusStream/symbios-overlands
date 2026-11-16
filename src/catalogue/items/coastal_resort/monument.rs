@@ -8,6 +8,7 @@
 //! See [`civic::monument`](crate::catalogue::items::civic::monument) for the
 //! rules this family shares.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
@@ -189,10 +190,13 @@ fn string_lamp(x: f32) -> Generator {
     );
     nest(
         bracket,
-        vec![prim(
-            solid(cylinder_tapered(0.15, 0.28, 10, -0.3, glow(LAMP_WARM, 1.7))),
-            [x - 0.38, 3.78, -0.2],
-            id_quat(),
+        vec![lit(
+            prim(
+                solid(cylinder_tapered(0.15, 0.28, 10, -0.3, glow(LAMP_WARM, 1.7))),
+                [x - 0.38, 3.78, -0.2],
+                id_quat(),
+            ),
+            Lamp::Bulb { over: 3.8 },
         )],
     )
 }

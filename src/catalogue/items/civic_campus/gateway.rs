@@ -12,6 +12,7 @@
 //! one flat ground-relative frame via [`assemble`], which reparents every
 //! piece under the base slab.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
@@ -113,10 +114,13 @@ fn gate_pier(x: f32, base_y: f32) -> Vec<Generator> {
             id_quat(),
         ),
         // Warm lit globe - emissive trim.
-        prim(
-            sphere(0.16, 3, glow(LAMP_WARM, 3.0)),
-            [x, cap_top + 0.44, 0.0],
-            id_quat(),
+        lit(
+            prim(
+                sphere(0.16, 3, glow(LAMP_WARM, 3.0)),
+                [x, cap_top + 0.44, 0.0],
+                id_quat(),
+            ),
+            Lamp::Bulb { over: 4.7 },
         ),
         // Copper finial spike.
         prim(

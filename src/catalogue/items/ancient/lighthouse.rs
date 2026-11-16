@@ -12,6 +12,7 @@
 //! placement puts the slab base at ground level; every child is
 //! positioned relative to the slab centre.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp, Fp3, Generator, SovereignMaterialSettings, SovereignTextureConfig};
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier, ThemeArchetype};
@@ -20,6 +21,11 @@ use crate::catalogue::items::util::{
     cone, cuboid_tapered, cylinder_tapered, foundation_block, foundation_disc, glow, id_quat, prim,
     solid, sphere, torus,
 };
+
+/// How far the beacon's fire lights down over its own lantern room (m): its
+/// gallery and the top of the tower, not the ground some sixteen metres
+/// under it, which no light reaches (#1923).
+const BEACON_LIGHT_M: f32 = 4.0;
 
 pub struct Lighthouse;
 
@@ -144,10 +150,15 @@ fn build_tree() -> Generator {
         [0.0, rel(tower_top + 0.25 + lamp_h * 0.5), 0.0],
         id_quat(),
     );
-    lamp_room.children.push(prim(
-        sphere(0.85, 3, glow(lamp_glow, 8.0)),
-        [0.0, 0.1, 0.0],
-        id_quat(),
+    lamp_room.children.push(lit(
+        prim(
+            sphere(0.85, 3, glow(lamp_glow, 8.0)),
+            [0.0, 0.1, 0.0],
+            id_quat(),
+        ),
+        Lamp::Fire {
+            over: BEACON_LIGHT_M,
+        },
     ));
     root.children.push(lamp_room);
 

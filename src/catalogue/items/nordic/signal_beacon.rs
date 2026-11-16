@@ -6,6 +6,7 @@
 //! alive. Its emissive core is the trim escalation's ruin pass snuffs to a
 //! cold dead brazier.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::TAU;
 
 use crate::catalogue::items::util::{
@@ -185,10 +186,13 @@ fn build_tree() -> Generator {
     }
 
     // Glowing fire core inside the basket - the emissive heart, crackling.
-    let mut fire = prim(
-        sphere(0.62, 6, glow(FIRE_ORANGE, 6.5)),
-        [0.0, basket_y + 0.05, 0.0],
-        id_quat(),
+    let mut fire = lit(
+        prim(
+            sphere(0.62, 6, glow(FIRE_ORANGE, 6.5)),
+            [0.0, basket_y + 0.05, 0.0],
+            id_quat(),
+        ),
+        Lamp::Fire { over: 6.2 },
     );
     fire.audio = fx::fire_crackle();
     prims.push(fire);

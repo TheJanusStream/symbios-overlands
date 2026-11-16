@@ -27,6 +27,7 @@ use std::f32::consts::FRAC_PI_2;
 
 use bevy::math::Vec3;
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::generator::Generator;
 use crate::pds::texture::SovereignMaterialSettings;
 
@@ -208,11 +209,11 @@ pub(super) fn elevator(kids: &mut Vec<Generator>, plan: &PodPlan, c: &TrainerCol
             plan.at(side * ELEVATOR_HALF_SPAN, f.lower_y + 0.02, f.z),
             id_quat(),
         ));
-        kids.push(prim(
+        kids.push(lights::running(prim(
             sphere(dim(plan.len(0.012)), 3, light.clone()),
             plan.at(side * 0.228, f.lower_y + 0.055, f.z),
             id_quat(),
-        ));
+        )));
     }
 }
 
@@ -220,15 +221,15 @@ pub(super) fn elevator(kids: &mut Vec<Generator>, plan: &PodPlan, c: &TrainerCol
 /// red beacon on the upper longeron behind the mast.
 pub(super) fn lights(kids: &mut Vec<Generator>, plan: &PodPlan, c: &TrainerColours) {
     let end = frame_at(1.0);
-    kids.push(prim(
+    kids.push(lights::running(prim(
         sphere(dim(plan.len(0.013)), 3, c.white.clone()),
         plan.at_off(0.0, end.upper_y + 0.02, end.z, -0.01),
         id_quat(),
-    ));
+    )));
     let first = frame_at(1.0 / BAYS as f32);
-    kids.push(prim(
+    kids.push(lights::strobe(prim(
         sphere(dim(plan.len(0.016)), 3, c.beacon.clone()),
         plan.at(0.0, first.upper_y + 0.02, first.z),
         id_quat(),
-    ));
+    )));
 }

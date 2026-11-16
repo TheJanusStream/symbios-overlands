@@ -23,6 +23,7 @@
 
 use std::f32::consts::{FRAC_PI_2, PI};
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::avatar::parts::PartCtx;
 use crate::pds::generator::Generator;
 use crate::pds::{Fp, Spin, SpinTerm};
@@ -381,11 +382,11 @@ fn dress(kids: &mut Vec<Generator>, plan: &HullPlan, c: &SteamColours, tier: Orn
             [0.0, yd + plan.len(0.09), z],
             c,
         ));
-        kids.push(prim(
+        kids.push(lights::own_lantern(prim(
             sphere(plan.len(0.024), 3, c.lamp.clone()),
             [0.0, yd + plan.len(0.10), z],
             id_quat(),
-        ));
+        )));
     }
     if tier == OrnatenessTier::Ornate {
         // A pennant streaming aft and down off the spar's nose.

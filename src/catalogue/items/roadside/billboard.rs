@@ -5,6 +5,7 @@
 //! Primitive-built; authored in one flat ground-relative frame via
 //! [`assemble`], which reparents every piece under the footing pad.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     assemble, cuboid_tapered, footing, glow, id_quat, prim, quat_x, solid,
 };
@@ -152,10 +153,16 @@ fn build_tree() -> Generator {
 
     // Floodlights on the catwalk, raked up to wash the −Z face.
     for x in [-2.2_f32, 0.0, 2.2] {
-        prims.push(prim(
-            cuboid_tapered([0.34, 0.18, 0.3], 0.0, glow(PRICE_AMBER, 2.6)),
-            [x, board_bottom + 0.15, -0.7],
-            quat_x(0.4),
+        prims.push(lit(
+            prim(
+                cuboid_tapered([0.34, 0.18, 0.3], 0.0, glow(PRICE_AMBER, 2.6)),
+                [x, board_bottom + 0.15, -0.7],
+                quat_x(0.4),
+            ),
+            Lamp::Flood {
+                over: 2.0,
+                aim: [0.0, 1.0, 0.3],
+            },
         ));
     }
 

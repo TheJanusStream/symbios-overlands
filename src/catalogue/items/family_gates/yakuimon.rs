@@ -12,6 +12,7 @@ use crate::catalogue::items::feudal_japan::{
     LANTERN_GLOW, PAPER_CREAM, STONE_GREY, TILE_SLATE, TIMBER_BROWN, TIMBER_DARK, roof_tile, stone,
     timber,
 };
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::medieval::{IRON_DARK, iron};
 use crate::catalogue::items::util::{
     assemble, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, glow, id_quat, prim,
@@ -266,10 +267,13 @@ fn lantern(at: [f32; 3]) -> Vec<Generator> {
         ),
         // A broad lit paper face at low strength, so it reads as warm paper
         // rather than a white ball.
-        prim(
-            cylinder_tapered(0.17, body_h, 14, 0.12, glow(LANTERN_GLOW, 1.3)),
-            [x, body_y, z],
-            id_quat(),
+        lit(
+            prim(
+                cylinder_tapered(0.17, body_h, 14, 0.12, glow(LANTERN_GLOW, 1.3)),
+                [x, body_y, z],
+                id_quat(),
+            ),
+            Lamp::Flame { over: 3.4 },
         ),
         prim(
             cylinder_tapered(0.13, 0.06, 12, 0.0, timber(PAPER_CREAM)),

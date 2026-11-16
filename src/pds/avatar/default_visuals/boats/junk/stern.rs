@@ -21,6 +21,7 @@
 
 use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::generator::Generator;
 
 use super::super::super::common::{cuboid, prim, quat_x, quat_xyzw};
@@ -185,18 +186,26 @@ pub(super) fn roundel(kids: &mut Vec<Generator>, hull: &HullProfile, c: &JunkCol
 /// bands, no glass.
 pub(super) fn quarter_windows(kids: &mut Vec<Generator>, hull: &HullProfile, c: &JunkColours) {
     let l = hull.loa;
-    for zf in WINDOWS_ZF {
+    // The stern cabin's light, on the centreline amid its windows (#1924),
+    // lit from the first of them.
+    let zm = WINDOWS_ZF.iter().sum::<f32>() / WINDOWS_ZF.len() as f32 * l;
+    for (i, zf) in WINDOWS_ZF.into_iter().enumerate() {
         let z = zf * l;
         for side in [-1.0f32, 1.0] {
             let (p, n) = side_point(hull, z, 0.30, side);
-            kids.push(prim(
+            let pane = prim(
                 cuboid(
                     [dim(l * 0.050), dim(l * 0.004 + 0.004), dim(l * 0.028)],
                     c.window.clone(),
                 ),
                 [p[0] - n[0] * l * 0.0015, p[1] - n[1] * l * 0.0015, z],
                 quat_xyzw(lay_on(n)),
-            ));
+            );
+            kids.push(if i == 0 && side < 0.0 {
+                lights::cabin(pane, [0.0, p[1], zm])
+            } else {
+                pane
+            });
         }
     }
 }

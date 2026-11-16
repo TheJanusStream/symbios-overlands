@@ -8,6 +8,7 @@
 //! Primitive-built on a footing; the drum, the platform and the stair are
 //! each a subtree rooted where it stands, so the ruin pass leans each whole.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
 use crate::catalogue::items::space_outpost::dome_ribs;
@@ -378,7 +379,10 @@ fn platform() -> Generator {
             [x, base + ped_h * 0.5, z],
             id_quat(),
         ),
-        prim(sphere(0.45, 6, glow(LAMP_GAS, 2.6)), sun, id_quat()),
+        lit(
+            prim(sphere(0.45, 6, glow(LAMP_GAS, 2.6)), sun, id_quat()),
+            Lamp::Bulb { over: ped_h + 0.4 },
+        ),
     ];
     let planets = [
         (0.9_f32, 0.2_f32, 0.30_f32, copper(COPPER_ORANGE)),

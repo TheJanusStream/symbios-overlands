@@ -24,6 +24,7 @@ use crate::water::{WaterMaterial, WaterSurfaces};
 use crate::world_builder::avatar_spawn::spawn_avatar_visuals_subtree;
 use crate::world_builder::compile::GeneratorCaches;
 use crate::world_builder::image_cache::BlobImageCache;
+use crate::world_builder::light::LightOwner;
 
 /// Bundle of every shared `world_builder` resource the avatar spawn
 /// path needs to reach. Bundled because Bevy 0.18 caps `IntoSystem`
@@ -60,6 +61,10 @@ pub struct AvatarSpawnDeps<'w, 's> {
 /// `existing_children` is the chassis's current child list, despawned
 /// before the new tree spawns to avoid double-instantiation on hot-swap.
 /// Pass `None` on first spawn (no prior visuals to clear).
+///
+/// `owner` is the DID of whose body it is, where known: the body's lights
+/// are seeded by it (#1924, [`LightOwner`]), so two players' craft built
+/// alike flicker apart and every peer agrees on each.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_avatar_visuals(
     commands: &mut Commands,
@@ -71,6 +76,7 @@ pub fn spawn_avatar_visuals(
     images: &mut Assets<Image>,
     deps: &mut AvatarSpawnDeps,
     is_local: bool,
+    owner: Option<&str>,
 ) {
     if let Some(children) = existing_children {
         for child in children.iter() {
@@ -81,8 +87,17 @@ pub fn spawn_avatar_visuals(
         return;
     };
     let visuals = with_still_root(visuals);
+    // A body's lights shine (#1924), the local player's and every peer's.
     spawn_visual_tree(
-        commands, chassis, &visuals, meshes, materials, images, deps, is_local,
+        commands,
+        chassis,
+        &visuals,
+        meshes,
+        materials,
+        images,
+        deps,
+        is_local,
+        Some(LightOwner::body(owner)),
     );
 }
 
@@ -105,6 +120,14 @@ fn with_still_root(visuals: &crate::pds::Generator) -> std::borrow::Cow<'_, crat
 /// [`spawn_avatar_visuals`] because the render tool feeds bare `Generator`
 /// trees (catalogue items, avatar parts) through the avatar spawn path
 /// without any record around them.
+///
+/// `lights`: whether the tree's lit nodes spawn their lights (#1924), and
+/// whose they are ([`LightOwner`], which seeds them) - a body's do, and so
+/// does a tree the render tool stands in the world, but an item preview's
+/// never (`None`): Bevy lights the world camera's view with every
+/// light it does not keep to another layer, and a light does not take its
+/// layer from its node, so a preview's lamp would light the ground round
+/// the player as well as its picture.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_visual_tree(
     commands: &mut Commands,
@@ -115,9 +138,10 @@ pub fn spawn_visual_tree(
     images: &mut Assets<Image>,
     deps: &mut AvatarSpawnDeps,
     is_local: bool,
+    lights: Option<LightOwner<'_>>,
 ) {
     spawn_attachment_tree(
-        commands, chassis, visuals, meshes, materials, images, deps, is_local, None,
+        commands, chassis, visuals, meshes, materials, images, deps, is_local, None, lights,
     );
 }
 
@@ -127,6 +151,8 @@ pub fn spawn_visual_tree(
 /// marker so the part can be tree-selected, scene-picked and gizmo-dragged
 /// like a region asset's. Pass `None` for a peer's outfit - their records
 /// are not editable here - which makes this exactly [`spawn_visual_tree`].
+/// `lights` as [`spawn_visual_tree`] takes it: a worn prop's lamp shines,
+/// its owner naming the prop (`LightOwner::prop`) for a peer's outfit too.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_attachment_tree(
     commands: &mut Commands,
@@ -138,6 +164,7 @@ pub fn spawn_attachment_tree(
     deps: &mut AvatarSpawnDeps,
     is_local: bool,
     attachment: Option<&str>,
+    lights: Option<LightOwner<'_>>,
 ) {
     // The avatar spawner's `record` parameter is unused on every reachable
     // dispatch arm, so it is the shared sentinel (#638).
@@ -163,6 +190,7 @@ pub fn spawn_attachment_tree(
         deps.current_room.as_deref(),
         is_local,
         attachment,
+        lights,
     );
 }
 
@@ -308,6 +336,34 @@ pub(crate) fn spawn_path_app() -> bevy::app::App {
     app
 }
 
+/// A signed-in account of `did` (#1924): the spawn path reads only its
+/// DID, which seeds a body's lights; the rest is the live signing session
+/// the type insists on (the fixture `prefs`' tests use).
+#[cfg(test)]
+pub(crate) fn signed_in(did: &str) -> bevy_symbios_multiuser::auth::AtprotoSession {
+    use std::sync::Arc;
+    bevy_symbios_multiuser::auth::AtprotoSession {
+        did: String::from(did),
+        handle: String::from("someone"),
+        pds_url: String::from("https://pds.example"),
+        session: Arc::new(proto_blue_oauth::session::OAuthSession::with_fetch_handler(
+            proto_blue_oauth::types::TokenSet {
+                issuer: String::from("https://as.example"),
+                sub: String::from(did),
+                scope: String::from("atproto"),
+                access_token: String::from("access"),
+                refresh_token: Some(String::from("refresh")),
+                token_type: String::from("DPoP"),
+                expires_at: Some(String::from("2099-01-01T00:00:00Z")),
+                aud: Some(String::from("https://as.example")),
+            },
+            proto_blue_oauth::DpopKey::generate().expect("DPoP key"),
+            proto_blue_oauth::DpopNonceCache::new(),
+            Arc::new(crate::oauth::capped_fetch::CappedFetcher::new()),
+        )),
+    }
+}
+
 /// What the spawn path reaches, added to an `app` that already has its asset
 /// plugin - [`spawn_path_app`]'s list, for an app standing on other plugins
 /// (the re-roll bench in `player::reroll_tests`, which runs avian too).
@@ -336,6 +392,233 @@ pub(crate) fn add_spawn_path(app: &mut bevy::app::App) {
     app.init_resource::<crate::world_builder::compile::CompileJob>();
     app.init_resource::<crate::diagnostics::SessionLog>();
     app.init_resource::<Time>();
+}
+
+/// #1924: a body's lights and a worn prop's are drawn in the world, the
+/// local player's and a peer's alike, through the real spawn path and the
+/// real drawing.
+#[cfg(test)]
+mod light_tests {
+    use super::*;
+    use crate::pds::avatar::AvatarBody;
+    use crate::pds::{Generator, LightSource};
+    use crate::world_builder::light::{NodeLight, follow_node_lights};
+    use bevy::camera::visibility::RenderLayers;
+    use bevy::ecs::system::RunSystemOnce;
+
+    /// A hull with one lamp on it.
+    fn lit_tree() -> Generator {
+        let mut tree = Generator::default_cuboid();
+        let mut lamp = Generator::default_cuboid();
+        lamp.light = Some(LightSource::default());
+        tree.children.push(lamp);
+        tree
+    }
+
+    /// Every entity under `entity`, itself included.
+    fn tree_of(world: &World, entity: Entity) -> Vec<Entity> {
+        let mut out = vec![entity];
+        let mut at = 0;
+        while at < out.len() {
+            if let Some(children) = world.get::<Children>(out[at]) {
+                out.extend(children.iter());
+            }
+            at += 1;
+        }
+        out
+    }
+
+    /// By night the local player's body, a peer's body and a worn prop
+    /// each spawn their lamp's light, and the drawing fades all three in
+    /// and lights them - each kept off any layer its body is moved to, so
+    /// a body the first-person view hides still lights the road.
+    #[test]
+    fn a_bodys_and_a_worn_props_lights_shine_by_night() {
+        let tree = lit_tree();
+        let body = AvatarBody::generator(tree.clone());
+        let mut app = spawn_path_app();
+        app.add_plugins(bevy::time::TimePlugin)
+            .insert_resource(crate::weathered::WorldWeather::default())
+            .add_systems(Update, follow_node_lights);
+        app.world_mut()
+            .resource_mut::<crate::weathered::WorldWeather>()
+            .uniforms
+            .lights = 1.0;
+        app.world_mut().spawn((
+            Camera::default(),
+            Projection::Perspective(PerspectiveProjection::default()),
+            crate::camera::WorldCamera,
+            GlobalTransform::from(
+                Transform::from_xyz(0.0, 2.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
+            ),
+        ));
+        let local = app.world_mut().spawn(Transform::default()).id();
+        let peer = app.world_mut().spawn(Transform::default()).id();
+        let socket = app.world_mut().spawn(Transform::default()).id();
+        app.world_mut()
+            .run_system_once(
+                move |mut commands: Commands,
+                      mut meshes: ResMut<Assets<Mesh>>,
+                      mut materials: ResMut<Assets<StandardMaterial>>,
+                      mut images: ResMut<Assets<Image>>,
+                      mut deps: AvatarSpawnDeps| {
+                    for (chassis, is_local) in [(local, true), (peer, false)] {
+                        spawn_avatar_visuals(
+                            &mut commands,
+                            chassis,
+                            &body,
+                            None,
+                            &mut meshes,
+                            &mut materials,
+                            &mut images,
+                            &mut deps,
+                            is_local,
+                            None,
+                        );
+                    }
+                    spawn_attachment_tree(
+                        &mut commands,
+                        socket,
+                        &tree,
+                        &mut meshes,
+                        &mut materials,
+                        &mut images,
+                        &mut deps,
+                        false,
+                        None,
+                        Some(LightOwner::default()),
+                    );
+                },
+            )
+            .expect("spawns");
+        // What Bevy's visibility propagation gives every node of a body on
+        // show (this app runs none).
+        let world = app.world_mut();
+        for root in [local, peer, socket] {
+            for entity in tree_of(world, root) {
+                if !world.entity(entity).contains::<NodeLight>() {
+                    world
+                        .entity_mut(entity)
+                        .insert(InheritedVisibility::VISIBLE);
+                }
+            }
+        }
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_millis(100),
+        ));
+        for _ in 0..12 {
+            app.update();
+        }
+        let world = app.world();
+        for (root, what) in [
+            (local, "the local body"),
+            (peer, "a peer's body"),
+            (socket, "a worn prop"),
+        ] {
+            let lights: Vec<Entity> = tree_of(world, root)
+                .into_iter()
+                .filter(|&e| world.entity(e).contains::<NodeLight>())
+                .collect();
+            assert_eq!(lights.len(), 1, "{what}: its lamp's light");
+            let light = world.entity(lights[0]);
+            let state = light.get::<NodeLight>().expect("a light");
+            assert!(
+                state.held && state.level == 1.0,
+                "{what}: not drawn, {state:?}"
+            );
+            assert!(
+                light.get::<PointLight>().is_some_and(|p| p.intensity > 0.0),
+                "{what}: dark"
+            );
+            assert_eq!(
+                light.get::<Visibility>(),
+                Some(&Visibility::Inherited),
+                "{what}"
+            );
+            assert!(
+                light.contains::<bevy::app::PropagateOver<RenderLayers>>(),
+                "{what}: its light would follow its body onto a hidden layer"
+            );
+        }
+    }
+
+    /// #1924: a body's light and a worn prop's at the same place in one
+    /// tree are seeded apart, and so are the lights of two props an owner
+    /// wears, through the real spawn path; a body of no known owner is
+    /// seeded by its tree alone, as every body was before.
+    #[test]
+    fn a_bodys_and_a_worn_props_lights_at_one_path_are_seeded_apart() {
+        const ALICE: &str = "did:plc:alice";
+        let tree = lit_tree();
+        let body = AvatarBody::generator(tree.clone());
+        let mut app = spawn_path_app();
+        let roots: Vec<Entity> = (0..4)
+            .map(|_| app.world_mut().spawn(Transform::default()).id())
+            .collect();
+        let at = roots.clone();
+        app.world_mut()
+            .run_system_once(
+                move |mut commands: Commands,
+                      mut meshes: ResMut<Assets<Mesh>>,
+                      mut materials: ResMut<Assets<StandardMaterial>>,
+                      mut images: ResMut<Assets<Image>>,
+                      mut deps: AvatarSpawnDeps| {
+                    for (chassis, owner) in [(at[0], Some(ALICE)), (at[1], None)] {
+                        spawn_avatar_visuals(
+                            &mut commands,
+                            chassis,
+                            &body,
+                            None,
+                            &mut meshes,
+                            &mut materials,
+                            &mut images,
+                            &mut deps,
+                            false,
+                            owner,
+                        );
+                    }
+                    for (socket, prop) in [(at[2], "3lantern"), (at[3], "3torch")] {
+                        spawn_attachment_tree(
+                            &mut commands,
+                            socket,
+                            &tree,
+                            &mut meshes,
+                            &mut materials,
+                            &mut images,
+                            &mut deps,
+                            false,
+                            None,
+                            Some(LightOwner {
+                                did: Some(ALICE),
+                                prop: Some(prop),
+                            }),
+                        );
+                    }
+                },
+            )
+            .expect("spawns");
+        let world = app.world();
+        let seed = |root: Entity| {
+            let seeds: Vec<u64> = tree_of(world, root)
+                .into_iter()
+                .filter_map(|e| world.get::<NodeLight>(e).map(|l| l.seed))
+                .collect();
+            assert_eq!(seeds.len(), 1, "its lamp's light");
+            seeds[0]
+        };
+        let [body, guest, lantern, torch] = [roots[0], roots[1], roots[2], roots[3]].map(seed);
+        assert_ne!(
+            body, lantern,
+            "a body's and a worn prop's light at one path"
+        );
+        assert_ne!(lantern, torch, "two worn props' lights at one path");
+        assert_eq!(
+            guest,
+            crate::world_builder::light::light_seed("avatar", &[0], 0.0, 0),
+            "with no owner, the tree's own seed"
+        );
+        assert_ne!(body, guest, "an owner's body and no one's");
+    }
 }
 
 #[cfg(test)]
@@ -385,6 +668,7 @@ mod spin_tests {
                         &mut images,
                         &mut deps,
                         false,
+                        None,
                     );
                     spawn_attachment_tree(
                         &mut commands,
@@ -396,6 +680,7 @@ mod spin_tests {
                         &mut deps,
                         false,
                         None,
+                        Some(LightOwner::default()),
                     );
                 },
             )
@@ -446,6 +731,7 @@ mod spin_tests {
                         &mut images,
                         &mut deps,
                         false,
+                        None,
                     );
                     spawn_attachment_tree(
                         &mut commands,
@@ -457,6 +743,7 @@ mod spin_tests {
                         &mut deps,
                         false,
                         None,
+                        Some(LightOwner::default()),
                     );
                 },
             )

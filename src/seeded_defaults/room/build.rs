@@ -320,6 +320,7 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
         children: Vec::new(),
         audio: crate::pds::SovereignAudioConfig::None,
         spin: None,
+        light: None,
     });
 
     // Seeded rooms grow no road network: the RoadNetwork generator (and
@@ -1144,6 +1145,7 @@ pub fn build_room_with_source(seed: u64, did: &str, berlin: Option<GeoSquare>) -
             children: Vec::new(),
             audio: crate::pds::SovereignAudioConfig::None,
             spin: None,
+            light: None,
         });
     }
 
@@ -1867,6 +1869,58 @@ fn apply_nightfall(luminosity: f32, env: &mut Environment) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #1923: a seeded world lights its own lamps with the lights their
+    /// catalogue items carry - its helipad's ring of eight, each lamp post
+    /// lining its paths, and the lamps of its gate, its monument and its
+    /// settlement - so a seeded world at night is lit by what stands in it.
+    #[test]
+    fn a_seeded_world_lights_its_lamps() {
+        fn lights(node: &Generator) -> usize {
+            usize::from(node.light.is_some()) + node.children.iter().map(lights).sum::<usize>()
+        }
+        const POSTS: [&str; 6] = [
+            "lantern",
+            "street_lamp",
+            "stone_lantern",
+            "solar_lamp",
+            "campus_lamp",
+            "gas_lamp",
+        ];
+        let (mut lit, mut pads, mut posts, mut dark, mut total) = (0, 0, 0, 0, 0);
+        let worlds = 40;
+        for n in 0..worlds {
+            let record = RoomRecord::default_for_did(&format!("did:plc:lamps{n}"));
+            let mut in_world = 0;
+            for (name, generator) in &record.generators {
+                let count = lights(generator);
+                in_world += count;
+                if name == "craft_pad" {
+                    pads += 1;
+                    assert_eq!(count, 8, "world {n}: the helipad's ring");
+                }
+                if let Some(slug) = name.strip_prefix("settlement_prop_")
+                    && POSTS.contains(&slug)
+                {
+                    // One light, unless a fought-over world's ruin snuffed
+                    // its glass (`pds::ruin`), which takes its light too.
+                    posts += 1;
+                    dark += usize::from(count == 0);
+                    assert!(count <= 1, "world {n}: {count} lights on a {slug}");
+                }
+            }
+            total += in_world;
+            lit += usize::from(in_world > 0);
+        }
+        assert!(pads > 0 && posts > 0, "{pads} pads, {posts} lamp posts");
+        assert!(dark * 4 <= posts, "{dark} of {posts} lamp posts dark");
+        // A world whose gate, monument and settlement are all of a kit that
+        // glows without a lamp (an alien one, say) stands unlit.
+        assert!(
+            lit * 4 >= worlds * 3 && total > lit,
+            "only {lit} of {worlds} worlds lit, by {total} lights"
+        );
+    }
 
     /// #1779: a world seeded on its own ground carries its settlement's
     /// paths - the first from its landing to its landmark's door, the

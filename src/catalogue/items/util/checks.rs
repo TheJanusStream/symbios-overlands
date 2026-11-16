@@ -9,7 +9,8 @@ use crate::pds::{Generator, GeneratorKind, SovereignTextureConfig};
 /// geometrically untouched. Rotations are compared with an epsilon
 /// because the sanitiser renormalises every quaternion, which can
 /// shift the last ulp of an already-normalised rotation; everything
-/// else must be bit-identical.
+/// else must be bit-identical - a node's light (#1923) as much as its
+/// geometry.
 pub(in crate::catalogue::items) fn assert_sanitize_stable(built: &Generator, name: &str) {
     fn tree_eq(a: &Generator, b: &Generator, name: &str) {
         assert_eq!(a.kind, b.kind, "{name}: kind rewritten by sanitiser");
@@ -29,6 +30,7 @@ pub(in crate::catalogue::items) fn assert_sanitize_stable(built: &Generator, nam
                 b.transform.rotation
             );
         }
+        assert_eq!(a.light, b.light, "{name}: light rewritten by sanitiser");
         assert_eq!(a.children.len(), b.children.len(), "{name}: child dropped");
         for (ca, cb) in a.children.iter().zip(b.children.iter()) {
             tree_eq(ca, cb, name);

@@ -3,6 +3,7 @@
 //! salvage, and a dim hanging lamp warmed by a burn-barrel; a makeshift
 //! undercity stall.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     assemble, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x, solid,
     sphere, with_cut,
@@ -110,10 +111,13 @@ fn build_tree() -> Generator {
     ));
 
     // Dim lamp hanging under the tarp.
-    prims.push(prim(
-        sphere(0.16, 3, glow(NEON_CYAN, 3.0)),
-        [0.2, eave - 0.45, 0.0],
-        id_quat(),
+    prims.push(lit(
+        prim(
+            sphere(0.16, 3, glow(NEON_CYAN, 3.0)),
+            [0.2, eave - 0.45, 0.0],
+            id_quat(),
+        ),
+        Lamp::Bulb { over: eave - 0.45 },
     ));
     // A burn-barrel brazier in the corner keeping the shelter warm.
     prims.push(fx::brazier_flame([-0.7, 0.4, -0.5], 0xB7A2_F1A3));

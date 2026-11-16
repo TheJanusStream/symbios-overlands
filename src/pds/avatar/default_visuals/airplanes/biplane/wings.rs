@@ -22,6 +22,7 @@
 //! (`her_struts_and_wires_end_inside_her_wings`), and a cabane foot is in
 //! the fuselage's crown.
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::generator::Generator;
 use crate::pds::texture::SovereignMaterialSettings;
 use crate::pds::types::Fp3;
@@ -237,15 +238,18 @@ pub(super) fn lights(kids: &mut Vec<Generator>, plan: &FusePlan, c: &BiplaneColo
     let half = UPPER_SPAN * 0.5;
     for (side, lamp) in [(1.0f32, &c.port), (-1.0, &c.starboard)] {
         let [px, py, pz] = on_wing(plan, side * (half - 0.015), upper_y(plan), UPPER_LE, 0.5);
-        kids.push(prim(
+        kids.push(lights::running(prim(
             sphere(dim(plan.len(0.022)), 3, lamp.clone()),
             [px, py, pz + plan.len(0.02)],
             id_quat(),
-        ));
+        )));
     }
-    kids.push(prim(
-        sphere(dim(plan.len(0.026)), 3, c.white.clone()),
-        plan.at_off(LANDING_X, lower_y(plan, LANDING_X), LOWER_LE, -0.02),
-        id_quat(),
+    kids.push(lights::landing_light(
+        prim(
+            sphere(dim(plan.len(0.026)), 3, c.white.clone()),
+            plan.at_off(LANDING_X, lower_y(plan, LANDING_X), LOWER_LE, -0.02),
+            id_quat(),
+        ),
+        super::ground(plan),
     ));
 }

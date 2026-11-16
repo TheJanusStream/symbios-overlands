@@ -9,6 +9,7 @@
 //! Where the classical [lighthouse](crate::catalogue::items::ancient) is a
 //! working beacon on a harbour mole, this one is kept for the view.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
 use crate::catalogue::items::street::lit_from_dusk;
@@ -58,6 +59,11 @@ const COTTAGE: [f32; 3] = [5.4, 2.8, 4.0];
 /// The viewing terrace's deck: centre in plan, size and its front edge.
 const TERRACE_AT: [f32; 2] = [-0.8, -4.6];
 const TERRACE: [f32; 3] = [9.0, 0.2, 4.4];
+
+/// How far the lamp lights down over its own lantern room (m): the gallery
+/// and the lantern's glazing, not the cliff some twenty metres under it,
+/// which no light reaches (#1923).
+const LANTERN_LIGHT_M: f32 = 4.0;
 
 pub struct ClifftopLighthouse;
 
@@ -195,10 +201,15 @@ fn lantern(deck_top: f32) -> Generator {
         id_quat(),
     ));
     let lens_y = sill + 0.95;
-    parts.push(prim(
-        cylinder_tapered(0.5, 1.0, 16, 0.0, glow([1.0, 0.80, 0.42], 4.2)),
-        [x, lens_y, z],
-        id_quat(),
+    parts.push(lit(
+        prim(
+            cylinder_tapered(0.5, 1.0, 16, 0.0, glow([1.0, 0.80, 0.42], 4.2)),
+            [x, lens_y, z],
+            id_quat(),
+        ),
+        Lamp::Bulb {
+            over: LANTERN_LIGHT_M,
+        },
     ));
     for dy in [-0.3_f32, 0.0, 0.3] {
         parts.push(prim(

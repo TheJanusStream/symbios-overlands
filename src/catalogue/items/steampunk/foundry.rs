@@ -5,6 +5,7 @@
 //! Primitive-built; authored in one flat ground-relative frame via
 //! [`assemble`], which reparents every piece under the hall.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
@@ -94,10 +95,13 @@ fn build_tree() -> Generator {
     // cream after tonemapping, so a saturated colour reads hotter than raw power.
     let fire = [1.0_f32, 0.36, 0.09];
     let door_x = -2.8_f32;
-    prims.push(prim(
-        cuboid_tapered([2.6, 2.6, 0.3], 0.0, glow(fire, 2.8)),
-        [door_x, 1.5, wall - 0.1],
-        id_quat(),
+    prims.push(lit(
+        prim(
+            cuboid_tapered([2.6, 2.6, 0.3], 0.0, glow(fire, 2.8)),
+            [door_x, 1.5, wall - 0.1],
+            id_quat(),
+        ),
+        Lamp::Fire { over: 1.5 },
     ));
     // Semicircle iron arch hood springing from the door head.
     prims.push(prim(

@@ -7,6 +7,7 @@
 //! `themes()` stays empty, as `civic_gateway`'s does: the gate reaches the
 //! suburban and solarpunk pools through `kindred_gates`.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::PI;
 
 use crate::catalogue::items::solarpunk::{LEAF_GREEN, MOSS_GREEN, foliage};
@@ -284,10 +285,13 @@ fn lamp_post(foot: [f32; 3]) -> Vec<Generator> {
             id_quat(),
         ),
         // The lantern's glass, small and warm.
-        prim(
-            cylinder_tapered(0.1, 0.3, 8, 0.0, glow(PORCH_WARM, 2.6)),
-            [x, head_y, z],
-            id_quat(),
+        lit(
+            prim(
+                cylinder_tapered(0.1, 0.3, 8, 0.0, glow(PORCH_WARM, 2.6)),
+                [x, head_y, z],
+                id_quat(),
+            ),
+            Lamp::Bulb { over: 2.8 },
         ),
         prim(
             cylinder_tapered(0.17, 0.14, 8, 0.9, iron()),

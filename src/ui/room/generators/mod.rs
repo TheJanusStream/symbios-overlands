@@ -38,8 +38,11 @@
 //! * [`sign`] - Sign-generator panel (source picker, UV, alpha mode).
 //! * [`particles`] - ParticleSystem panel (emitter shape, dynamics, atlas).
 //! * [`water`] - Water volume editor.
+//! * [`spin`] - every node's Spin section: whether and how it turns.
+//! * [`light`] - every node's Light section: the light it gives off.
 
 mod detail;
+mod light;
 mod particles;
 mod primitive;
 mod reparent;
@@ -237,6 +240,15 @@ pub(crate) trait GeneratorTreeSource {
     /// The Spin section paints the reason in place of its controls: a
     /// control hidden without a word reads as a feature that is missing.
     fn root_spin_refusal(&self) -> Option<&'static str> {
+        None
+    }
+    /// Why a light on any node of `root`'s tree draws nowhere (#1922), or
+    /// `None` where it may draw. The Light section paints the reason in
+    /// place of its controls, as the Spin section does its refusal. Only
+    /// the room's placements can draw a tree in a way that lights nothing:
+    /// as an instance set's copies alone, which draw its shapes and no
+    /// light (`world_builder::instances`).
+    fn light_refusal(&self, _root: &str) -> Option<&'static str> {
         None
     }
     /// Why the Seed of a shape grammar in `root`'s tree draws nothing
@@ -542,6 +554,20 @@ impl GeneratorTreeSource for RoomTreeSource<'_> {
             .iter()
             .filter(|p| placement_root(p) == Some(root))
             .count()
+    }
+    fn light_refusal(&self, root: &str) -> Option<&'static str> {
+        let mut placements = self
+            .record
+            .placements
+            .iter()
+            .filter(|placement| placement_root(placement) == Some(root))
+            .peekable();
+        let placed = placements.peek().is_some();
+        (placed && placements.all(|p| matches!(p, Placement::Instances { .. }))).then_some(
+            "Placed only as an instance set, whose copies draw the item's shapes \
+             and nothing else: a light here shows nowhere. Place the lit part \
+             as a placement of its own to light it.",
+        )
     }
     fn grammar_seed_note(&self, root: &str) -> Option<String> {
         // How each placement of the tree derives its grammars, as the world

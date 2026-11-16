@@ -125,6 +125,8 @@
 //! * [`serde_util`] - the serde adaptors the lexicons share.
 //! * [`spin`] - a generator node's client-side [`Spin`] (#1604): an axis
 //!   and the open-union [`SpinTerm`]s each client turns the node by.
+//! * [`light`] - a generator node's [`LightSource`] (#1921): a point or spot
+//!   light every client draws, the nearest few at once.
 
 pub(crate) const COLLECTION: &str = "network.symbios.overlands.room";
 pub(crate) const AVATAR_COLLECTION: &str = "network.symbios.overlands.avatar";
@@ -200,6 +202,7 @@ pub mod grass;
 pub mod identity;
 pub mod instances;
 pub mod inventory;
+pub mod light;
 pub mod material_finish;
 pub mod paths;
 pub mod prim;
@@ -244,6 +247,7 @@ pub use instances::{GrammarParams, InstanceCopy, InstanceSolid, InstanceVariant}
 pub use inventory::{
     InventoryItemRecord, InventoryRecord, fetch_inventory_record, publish_inventory_record,
 };
+pub use light::{LightFlicker, LightShape, LightSource};
 pub use paths::{SovereignField, SovereignPathsConfig, SovereignTrack};
 pub use prim::PropMeshType;
 pub use room::{

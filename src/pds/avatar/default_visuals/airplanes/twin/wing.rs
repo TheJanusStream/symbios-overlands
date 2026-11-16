@@ -11,6 +11,7 @@
 //! cockpit's back wall at every span station: a longer cabin carries her
 //! tail aft under it and leaves the wing where it is.
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::generator::Generator;
 use crate::pds::types::Fp3;
 use crate::seeded_defaults::OrnatenessTier;
@@ -121,10 +122,10 @@ pub(super) fn lights(
     };
     for (side, lamp) in [(1.0f32, &c.port), (-1.0, &c.starboard)] {
         let [_, y, z] = on_chord(plan, HALF_SPAN, wing_y(HALF_SPAN), 0.5);
-        kids.push(prim(
+        kids.push(lights::running(prim(
             sphere(dim(plan.len(NAV_R)), 3, lamp.clone()),
             [plan.len(side * out), y, z],
             id_quat(),
-        ));
+        )));
     }
 }

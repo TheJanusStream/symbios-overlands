@@ -14,7 +14,8 @@
 //! `material.sanitize()` rather than `sanitize_material_settings(material)`.
 //! Per-domain impls live in the sibling modules - [`transform`],
 //! [`material`], [`terrain`] (with its [`grass`] group, #1700), [`water`],
-//! [`sign`], [`particles`], [`primitive`], and [`contact_effects`] - with
+//! [`sign`], [`particles`], [`primitive`], [`contact_effects`], [`spin`]
+//! and [`light`] (a node's light source, #1921) - with
 //! [`common`] holding
 //! shared clamp helpers (NaN-finite checks, allow-list filters) and
 //! [`limits`] holding every numeric bound as a `pub const` so callers
@@ -29,6 +30,7 @@ mod common;
 mod contact_effects;
 mod grass;
 pub(crate) mod instances;
+pub(crate) mod light;
 pub mod limits;
 mod material;
 pub mod names;
@@ -108,6 +110,9 @@ fn sanitize_generator_node(
 
     sanitize_kind_with(&mut node.kind, max_dim);
     sanitize_node_spin(node);
+    if let Some(light) = node.light.as_mut() {
+        light.sanitize();
+    }
 
     // Water is a leaf - `spawn_water_volume` does not consume children, so
     // strip authored children to keep the editor and spawner in sync.

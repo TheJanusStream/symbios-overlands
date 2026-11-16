@@ -42,6 +42,7 @@ pub mod tire_stack;
 pub mod fx;
 
 use super::util::{tile, tiles_per_metre};
+use crate::catalogue::items::fx::light::{Lamp, lit_at};
 use bevy_symbios_texture::metal::MetalStyle;
 
 use crate::catalogue::items::util::{cuboid_tapered, glow, id_quat, prim, solid};
@@ -279,12 +280,26 @@ pub(super) fn score_display(cx: f32, cy: f32, face_z: f32, w: f32, h: f32) -> Ve
     out
 }
 
+/// How steeply a [`lamp_bank`]'s light is raked down, as a share of how far
+/// it looks out: about 40 degrees below the level, onto the ground in front
+/// of its mast.
+const BANK_RAKE: f32 = 0.85;
+
+/// A [`lamp_bank`]'s aim straight out of its face (`face` as the bank's),
+/// raked [`BANK_RAKE`] down.
+pub(super) fn bank_aim(face: f32) -> [f32; 3] {
+    [0.0, -BANK_RAKE, face]
+}
+
 /// A floodlight lamp bank: a dark backing frame carrying a grid of small
 /// warm-white lit cells. The gridded cells (with dark gaps between them) read
 /// as an array of lamps and keep the bank from blooming into one flat white
 /// rectangle the way a single lit panel does. `center` is the lit-cell face;
 /// `w,h` the bank size; `cols,rows` the lamp grid; `face` is the look
-/// direction (`+1` = cells face `+Z`, backing toward `-Z`).
+/// direction (`+1` = cells face `+Z`, backing toward `-Z`); `aim` the way
+/// its one light shines, in the frame the bank is built in ([`bank_aim`]
+/// for straight out of its face). A bank high on a mast lights its pool
+/// from partway down its beam (`fx::light::LONGEST_THROW_M`).
 pub(super) fn lamp_bank(
     center: [f32; 3],
     w: f32,
@@ -292,6 +307,7 @@ pub(super) fn lamp_bank(
     cols: u32,
     rows: u32,
     face: f32,
+    aim: [f32; 3],
 ) -> Vec<Generator> {
     let [cx, cy, cz] = center;
     let mut out = vec![
@@ -312,11 +328,19 @@ pub(super) fn lamp_bank(
         for c in 0..cols {
             let fx = (c as f32 + 0.5) / cols as f32 - 0.5;
             let fy = (r as f32 + 0.5) / rows as f32 - 0.5;
-            out.push(prim(
+            let cell = prim(
                 cuboid_tapered([cw, ch, 0.06], 0.0, glow(FLOOD_LIT, 3.0)),
                 [cx + fx * w, cy + fy * h, cz],
                 id_quat(),
-            ));
+            );
+            // One floodlight's light for the whole bank, from its middle,
+            // raked down along `aim` (#1923): a light a cell would cost the
+            // cluster list eight times over.
+            out.push(if r == 0 && c == 0 {
+                lit_at(cell, Lamp::Flood { over: cy, aim }, center)
+            } else {
+                cell
+            });
         }
     }
     out

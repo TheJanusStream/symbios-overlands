@@ -14,6 +14,7 @@
 //! under the concrete slab. The gate front is `-Z` (hero convention): the
 //! hazard board and beacon face the approaching player.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::util::{
     assemble, attach, cuboid_tapered, cylinder_tapered, footing, glow, id_quat, prim, quat_x,
     quat_z, solid, sphere, torus, tube,
@@ -170,17 +171,23 @@ fn build_tree() -> Generator {
         [0.0, slab_top + 3.1, -0.45],
         id_quat(),
     ));
-    prims.push(prim(
-        sphere(0.12, 3, glow(WORKLIGHT, 3.0)),
-        [0.0, slab_top + 3.1, -0.45],
-        id_quat(),
+    prims.push(lit(
+        prim(
+            sphere(0.12, 3, glow(WORKLIGHT, 3.0)),
+            [0.0, slab_top + 3.1, -0.45],
+            id_quat(),
+        ),
+        Lamp::Bulb { over: 3.4 },
     ));
     // Red signal beacon bolted to the crown of the girder - the true-red
     // warning light the ruin pass can snuff.
-    prims.push(prim(
-        sphere(0.16, 4, glow(SIGNAL_RED, 5.0)),
-        [0.0, slab_top + 4.7, 0.0],
-        id_quat(),
+    prims.push(lit(
+        prim(
+            sphere(0.16, 4, glow(SIGNAL_RED, 5.0)),
+            [0.0, slab_top + 4.7, 0.0],
+            id_quat(),
+        ),
+        Lamp::Beacon { over: 3.0 },
     ));
 
     // Fitted to the opening (#1006): the veil spans the mouth and buries

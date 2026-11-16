@@ -36,7 +36,7 @@
 //! World Editor can pick one ([`InstanceBuilds::pick`]) and move it.
 //!
 //! A set draws its generator's geometry and nothing else: its sounds,
-//! spins, particles, signs, portals and gateways are left out
+//! spins, lights, particles, signs, portals and gateways are left out
 //! ([`strip_for_distance`]), as a merged part has no transform of its own
 //! to turn or emit from. Those are placed as placements of their own.
 //!
@@ -282,12 +282,14 @@ pub(crate) fn ray_box_distance(
 
 /// Strip from a tree drawn merged what it only costs: every sound, every
 /// spin (#1604 - a merged part has no transform of its own to turn, so a
-/// copy drawn whole would turn where its neighbours stand still), and
+/// copy drawn whole would turn where its neighbours stand still), every
+/// light (#1921 - a light is drawn from a node of its own), and
 /// every node that is no geometry to see - particles, signs, portals,
 /// gateways, and any water, terrain or road a tree should not carry.
 pub(crate) fn strip_for_distance(tree: &mut Generator) {
     tree.audio = SovereignAudioConfig::None;
     tree.spin = None;
+    tree.light = None;
     tree.children.retain(|child| kept_afar(&child.kind));
     for child in &mut tree.children {
         strip_for_distance(child);
@@ -1275,6 +1277,19 @@ mod tests {
         app.world_mut().entity_mut(first).despawn();
         app.update();
         assert_eq!(app.world().resource::<InstanceBuilds>().builds.len(), 1);
+    }
+
+    /// #1921: a copy drawn merged draws no light, at its root or below.
+    #[test]
+    fn a_tree_drawn_merged_loses_its_lights() {
+        let mut tree = Generator::default_cuboid();
+        tree.light = Some(crate::pds::LightSource::default());
+        let mut lamp = Generator::default_cuboid();
+        lamp.light = Some(crate::pds::LightSource::spot());
+        tree.children.push(lamp);
+        strip_for_distance(&mut tree);
+        assert!(tree.light.is_none() && tree.children[0].light.is_none());
+        assert_eq!(tree.children.len(), 1, "the lamp's geometry stays");
     }
 
     #[test]

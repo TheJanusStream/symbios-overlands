@@ -3,6 +3,7 @@
 //! embers, and a fire crackle. Its emissive core is the trim escalation's
 //! ruin pass snuffs to a cold dead bowl.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::TAU;
 
 use crate::catalogue::items::util::{
@@ -131,15 +132,18 @@ fn build_tree() -> Generator {
 
     // Glowing coals mounded in the bowl - a dome of emissive embers, the
     // emissive heart escalation's ruin pass snuffs to a cold dead bowl.
-    prims.push(prim(
-        solid(with_cut(
-            sphere(0.55, 6, glow(FIRE_ORANGE, 5.0)),
-            [0.0, 1.0],
-            [0.5, 1.0],
-            0.0,
-        )),
-        [0.0, bowl_y - 0.22, 0.0],
-        id_quat(),
+    prims.push(lit(
+        prim(
+            solid(with_cut(
+                sphere(0.55, 6, glow(FIRE_ORANGE, 5.0)),
+                [0.0, 1.0],
+                [0.5, 1.0],
+                0.0,
+            )),
+            [0.0, bowl_y - 0.22, 0.0],
+            id_quat(),
+        ),
+        Lamp::Fire { over: 2.3 },
     ));
 
     let flame_y = bowl_y + 0.3;

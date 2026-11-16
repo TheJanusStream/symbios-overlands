@@ -5,6 +5,7 @@
 //!
 //! The tanks are cylinders laid on their sides with a [`quat_x`] of π/2.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::catalogue::items::util::{
@@ -172,10 +173,13 @@ fn build_tree() -> Generator {
         [3.2, 1.7, -1.6],
         id_quat(),
     ));
-    prims.push(prim(
-        cuboid_tapered([0.5, 0.3, 0.4], 0.0, glow(WORKLIGHT, 3.0)),
-        [3.2, 3.3, -1.3],
-        quat_x(-0.4),
+    prims.push(lit(
+        prim(
+            cuboid_tapered([0.5, 0.3, 0.4], 0.0, glow(WORKLIGHT, 3.0)),
+            [3.2, 3.3, -1.3],
+            quat_x(-0.4),
+        ),
+        Lamp::Street { over: 3.3 },
     ));
 
     let mut root = assemble(prims);

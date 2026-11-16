@@ -7,6 +7,7 @@
 //! `themes()` stays empty, as `civic_gateway`'s does: the gate reaches the
 //! Nordic and medieval pools through `kindred_gates`.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use crate::catalogue::items::nordic::{
     FIRE_ORANGE, IRON_DARK, WOOD_DARK, WOOD_WARM, boards, iron, shingle, timber,
 };
@@ -256,10 +257,13 @@ fn torch(at: [f32; 3]) -> Vec<Generator> {
         ),
         // The flame - a small hot core, so it reads as fire rather than as
         // a lit ball.
-        prim(
-            sphere(0.09, 3, glow(FIRE_ORANGE, 4.0)),
-            [x, y + 0.6, cup_z],
-            id_quat(),
+        lit(
+            prim(
+                sphere(0.09, 3, glow(FIRE_ORANGE, 4.0)),
+                [x, y + 0.6, cup_z],
+                id_quat(),
+            ),
+            Lamp::Flame { over: 3.2 },
         ),
     ]
 }

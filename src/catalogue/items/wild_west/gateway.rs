@@ -13,6 +13,7 @@
 //! root - a rotated root would spin every post, beam and lamp with it. The
 //! render FRONT is −Z, so the hung sign and its emblem face −Z.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
 
 use crate::catalogue::items::util::{
@@ -194,10 +195,13 @@ fn build_tree() -> Generator {
         ));
         // The amber flame - deep-saturated warm glow, small so it stays lit
         // colour not white bloom.
-        prims.push(prim(
-            sphere(0.14, 4, glow([1.0, 0.66, 0.28], 4.0)),
-            [sx * 1.05, 3.12, -0.1],
-            id_quat(),
+        prims.push(lit(
+            prim(
+                sphere(0.14, 4, glow([1.0, 0.66, 0.28], 4.0)),
+                [sx * 1.05, 3.12, -0.1],
+                id_quat(),
+            ),
+            Lamp::Flame { over: 3.1 },
         ));
     }
 

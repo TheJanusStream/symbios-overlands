@@ -9,6 +9,7 @@
 //! a flattened sweep offers `touch` no axis to meet (#1624). They stand aft
 //! of the cabin, so the cabin's stretch carries them rigidly aft.
 
+use crate::pds::avatar::default_visuals::lights;
 use crate::pds::generator::Generator;
 use crate::pds::types::Fp3;
 
@@ -142,9 +143,9 @@ pub(super) fn fins(kids: &mut Vec<Generator>, plan: &FusePlan, c: &TwinColours) 
 /// The white tail light, just aft of the tail post's end.
 pub(super) fn tail_light(kids: &mut Vec<Generator>, plan: &FusePlan, c: &TwinColours) {
     let (z, y, _) = plan.stations().last().expect("the fuselage has stations");
-    kids.push(prim(
+    kids.push(lights::running(prim(
         sphere(dim(plan.len(0.020)), 3, c.white.clone()),
         plan.at_off(0.0, y, z, -TAIL_LIGHT_AFT),
         id_quat(),
-    ));
+    )));
 }

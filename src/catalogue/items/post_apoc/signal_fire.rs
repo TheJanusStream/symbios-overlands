@@ -2,6 +2,7 @@
 //! burning as a beacon. Scatter clutter marking the holdout; its fire is
 //! emissive trim the ruin pass can darken.
 
+use crate::catalogue::items::fx::light::{Lamp, lit};
 use std::f32::consts::TAU;
 
 use crate::catalogue::items::util::{
@@ -91,10 +92,13 @@ fn build_tree() -> Generator {
     }
     // Glowing fire core - emissive, leaping proud of the cage rim. Held at a
     // moderate strength so bloom keeps it incandescent orange, not white-hot.
-    let mut fire = prim(
-        solid(cylinder_tapered(0.38, 0.62, 8, 0.0, glow(FIRE_ORANGE, 4.0))),
-        [0.0, pole_h + 0.62, 0.0],
-        id_quat(),
+    let mut fire = lit(
+        prim(
+            solid(cylinder_tapered(0.38, 0.62, 8, 0.0, glow(FIRE_ORANGE, 4.0))),
+            [0.0, pole_h + 0.62, 0.0],
+            id_quat(),
+        ),
+        Lamp::Fire { over: 3.2 },
     );
     fire.audio = fx::fire_crackle();
     prims.push(fire);
