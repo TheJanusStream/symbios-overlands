@@ -100,13 +100,9 @@ fn pod(kids: &mut Vec<Generator>, hull: &HullProfile, c: &RunaboutColours, side:
         lay,
         0.0,
     );
-    // One glow astern for the pair of nozzles (#1924), between them: her
-    // tail light, the colour her thrusters burn.
-    kids.push(if side < 0.0 {
-        lights::running_at(nozzle, [0.0, y, zc - h])
-    } else {
-        nozzle
-    });
+    // A glow astern from each nozzle's mouth (#1925): her tail lights, the
+    // colour her thrusters burn.
+    kids.push(lights::running_at(nozzle, [x, y, zc - h]));
     Pod {
         at: [x, y, zc],
         half: h,

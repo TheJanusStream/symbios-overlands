@@ -93,7 +93,9 @@ pub(crate) const MIN_REACH_M: f32 = 3.0;
 /// would allow: the power cap holds a 20 m reach to brightness 8 and a
 /// 16 m one to 12.5, so a pool lit from 8 m is about two and a half times
 /// as bright as one lit from 10 m, for less of the cluster list (the
-/// stadium's four banks took 10,780 places from 10 m, 8,818 from 8).
+/// stadium's four banks took 10,780 places from 10 m, 8,818 from 8, each
+/// spot counted as the sphere of its reach; counted by their cones, as
+/// Bevy counts them since #1926, they take 3,029 from 8).
 pub(crate) const LONGEST_THROW_M: f32 = 8.0;
 
 /// The least a floodlight's aim may fall or rise (the vertical part of its
@@ -104,8 +106,10 @@ const FLOOD_LEAST_FALL: f32 = 0.2;
 /// item's lights may take together, seen from beside it (the catalogue test
 /// `every_lit_item_stays_in_its_cluster_cost`): under the 12,000 the budget
 /// admits lights while, so every one of an item's lights can be drawn at
-/// once. One lamp of a 5 m head takes about 3,300 of them from a couple of
-/// metres off; most items light by one or two.
+/// once. A bulb on a 5 m post takes about 3,300 of them from a couple of
+/// metres off, a street light's cone down from a 5 m head about 2,400 (a
+/// spot is counted by its cone, #1926); most items light by one or two,
+/// and the dearest takes about 7,300.
 #[cfg(test)]
 pub(crate) const ITEM_CLUSTER_COST: u32 = 10_000;
 

@@ -13,7 +13,7 @@ use super::ENTRIES;
 use super::fx::light::ITEM_CLUSTER_COST;
 use crate::catalogue::CatalogueEntry;
 use crate::pds::{Generator, LightFlicker, LightShape, LightSource};
-use crate::world_builder::light::ClusterView;
+use crate::world_builder::light::{ClusterView, Cone};
 
 /// Every lit item and its lights, by kind: `B` a steady point light (a
 /// bulb, a lantern's lamp, a marker), `S` a spot (a street light, a
@@ -285,14 +285,33 @@ const STANDOFF_M: f32 = 2.0;
 /// Eye height (m).
 const EYE_Y: f32 = 1.7;
 
+/// One light as [`cluster_cost`] reads it: its centre, its reach, and for
+/// a spot the way it shines (unit) and its outer angle (radians).
+type Lit = (Vec3, f32, Option<(Vec3, f32)>);
+
 /// The most places of WebGL2's cluster index list the lights of `tree`
 /// take, seen by a first-person eye standing beside it from any of eight
 /// sides, looking level at its middle on a 1920 x 1080 screen - counted as
-/// Bevy counts them (`world_builder::light::clusters`).
+/// Bevy counts them (`world_builder::light::clusters`), a spot by its cone.
 fn cluster_cost(tree: &Generator) -> u32 {
-    let lit: Vec<(Vec3, f32)> = lights(tree)
-        .iter()
-        .map(|(_, l, at)| (*at, l.range.0))
+    // Each light's centre, reach and, for a spot, the way it shines and
+    // its outer angle: Bevy culls a spot's clusters by its cone (#1926).
+    let lit: Vec<Lit> = framed(tree)
+        .into_iter()
+        .map(|(_, light, world)| {
+            let spot = match light.shape {
+                LightShape::Spot { aim, outer, .. } => Some((
+                    world.transform_vector3(Vec3::from(aim.0)).normalize(),
+                    outer.0.to_radians(),
+                )),
+                _ => None,
+            };
+            (
+                world.transform_point3(Vec3::from(light.offset.0)),
+                light.range.0,
+                spot,
+            )
+        })
         .collect();
     let bounds = super::measure::tree_bounds(tree).expect("a lit item draws");
     let middle = bounds.center();
@@ -311,25 +330,25 @@ fn cluster_cost(tree: &Generator) -> u32 {
                 middle.z + away * yaw.cos(),
             );
             let look = Vec3::new(middle.x, EYE_Y, middle.z);
-            let to_view = bevy::transform::components::GlobalTransform::from(
-                bevy::transform::components::Transform::from_translation(eye)
-                    .looking_at(look, Vec3::Y),
-            )
-            .affine()
-            .inverse();
-            let in_view: Vec<(Vec3, f32)> = lit
+            let to_view = bevy::math::Mat4::from(
+                bevy::transform::components::GlobalTransform::from(
+                    bevy::transform::components::Transform::from_translation(eye)
+                        .looking_at(look, Vec3::Y),
+                )
+                .affine()
+                .inverse(),
+            );
+            let in_view: Vec<_> = lit
                 .iter()
-                .map(|&(at, range)| (to_view.transform_point3(at), range))
+                .map(|&(at, range, spot)| {
+                    (
+                        to_view.transform_point3(at),
+                        range,
+                        spot.map(|(aim, outer)| Cone::new(&to_view, -aim, outer)),
+                    )
+                })
                 .collect();
-            let far = in_view
-                .iter()
-                .filter_map(|&(c, r)| view.reach(c, r))
-                .fold(0.0, f32::max);
-            let slices = view.slices(far);
-            in_view
-                .iter()
-                .map(|&(c, r)| view.count(&slices, c, r))
-                .sum::<u32>()
+            view.cost(&in_view)
         })
         .max()
         .unwrap_or(0)

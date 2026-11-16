@@ -129,7 +129,7 @@ pub(super) fn lamps(kids: &mut Vec<Generator>, plan: &CyclecarPlan, c: &Cyclecar
     ];
     let lens = [(0.0, 0.0), (0.077 * k, 0.0), (0.077 * k, 0.010 * k)];
     let ang = 0.20f32;
-    // One beam for the pair (#1924), from the near lens.
+    // A beam from each lens (#1925).
     let ground = -plan.datum_height();
     for s in [-1.0f32, 1.0] {
         let p = plan.surface(zl, if s > 0.0 { ang } else { PI - ang });
@@ -143,11 +143,7 @@ pub(super) fn lamps(kids: &mut Vec<Generator>, plan: &CyclecarPlan, c: &Cyclecar
             [at[0], at[1], at[2] + 0.052 * k],
             along_z(),
         );
-        kids.push(if s < 0.0 {
-            lights::headlights(glass, ground)
-        } else {
-            glass
-        });
+        kids.push(lights::headlights(glass, ground));
     }
     let zt = plan.at(-0.420);
     let bar: Vec<([f32; 3], f32)> = [0.30f32, 0.95, PI / 2.0, PI - 0.95, PI - 0.30]

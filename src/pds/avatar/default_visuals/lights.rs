@@ -5,13 +5,15 @@
 //!
 //! What each family carries:
 //!
-//! * **Road vehicles** (the skiffs): headlights, one forward spot for the
-//!   pair onto the road [`HEADLIGHT_AHEAD_M`] ahead ([`headlights`]), and
-//!   red tail lights, one running light for the pair ([`running`]), each
-//!   from one lamp of its pair. A carriage's lanterns are one flame, and
-//!   the rover - which carries no headlamp - lights the road from her
-//!   camera head's lit pane. A dune buggy's roof bar stays a glow: a second
-//!   beam would double her cost in the list (below).
+//! * **Road vehicles** (the skiffs): headlights, a forward spot from each
+//!   headlamp onto the road [`HEADLIGHT_AHEAD_M`] ahead ([`headlights`]),
+//!   and red tail lights, a running light at each tail lamp ([`running`]):
+//!   every lamp of a pair lit, from its own place, so neither side of the
+//!   pool nor of the glow astern is lopsided (#1925). A cyclecar's tail bar
+//!   is one lamp and one light; a carriage's two lanterns each carry a
+//!   flame ([`lantern`]), and the rover - which carries no headlamp -
+//!   lights the road from her camera head's lit pane. A dune buggy's roof
+//!   bar stays a glow.
 //! * **Aircraft** (airplanes, helicopters, airships): navigation lights -
 //!   red to port, green to starboard, white astern ([`running`]) - and the
 //!   anti-collision beacons and strobes as pulses ([`strobe`]), with a
@@ -20,22 +22,24 @@
 //! * **Boats**: a cabin's light where its windows glow ([`cabin`]), a white
 //!   light astern and at the masthead where they are drawn, the lanterns of
 //!   the craft that hang them as flames, and a skimmer's thrusters as her
-//!   glow astern.
+//!   glow astern, one at each nozzle.
 //!
 //! # What a craft costs
 //!
 //! Each light takes its own places in WebGL2's cluster list
 //! (`world_builder::light`), and the player's own vehicle is always the
-//! nearest thing to the camera, so its lights always take budget places. So
-//! lights share where a pair of lamps sits close together - a car's two
-//! headlamps throw one beam, its two tail lamps one glow - and a beam that
-//! lights nothing for most of a craft's life is short: an aircraft's landing
-//! light reaches only the ground just ahead of her parked
-//! ([`LANDING_AHEAD_M`]). Seen by the chase camera a road vehicle's beam,
-//! reaching past 7 m, fills the screen and takes about 3,400 places, a
-//! running light about 300; every seeded craft stays under a third of the
-//! line the budget admits lights by (the tests' bound), so three parked
-//! side by side by the camera draw whole.
+//! nearest thing to the camera, so its lights always take budget places. A
+//! beam that lights nothing for most of a craft's life is short: an
+//! aircraft's landing light reaches only the ground just ahead of her
+//! parked ([`LANDING_AHEAD_M`]). A spot is counted by its cone, as Bevy
+//! counts it (#1926): seen by the chase camera from behind, a road
+//! vehicle's 10 m beam takes about 300 places, a tenth of what its sphere
+//! would, and a car's four lights at most about 2,100 from any side; a
+//! running light takes about 300. Every seeded craft stays under a third of
+//! the line the budget admits lights by (the tests' bound), so three parked
+//! side by side by the camera draw whole - and a row of seven roadsters by
+//! the camera draws every lamp. From inside a car (the first-person view)
+//! her two beams fill the view and take about 7,000 places together.
 //!
 //! Every light but the anti-collision beacon shows from dusk to dawn; the
 //! beacon is on at every hour, as an aircraft's is whenever her engine runs.
@@ -51,12 +55,12 @@
 //! # What a car's record holds
 //!
 //! A road vehicle's record has few bytes to spare (the skiffs' own budget
-//! guard), so each of its lights is written as short as it can be: from
+//! guard, raised for the second lamp of each pair by the owner's decision
+//! of #1925), so each of its lights is written as short as it can be: from
 //! the lamp's own place (a light standing off its part writes an offset)
 //! and, for a beam, on the record's default cone, which is left off the
-//! wire. A beam a lamp's width off the middle draws the same pool as one
-//! from between the pair. The rover alone, with bytes to spare, lights her
-//! beam from the front of her camera head rather than from its pane.
+//! wire. The rover alone, with bytes to spare, lights her beam from the
+//! front of her camera head rather than from its pane.
 
 use crate::catalogue::items::fx::light::{Lamp, lit, lit_at};
 use crate::pds::Generator;
@@ -91,10 +95,10 @@ fn lit_if(part: Generator, lamp: Lamp, at: Option<[f32; 3]>) -> Generator {
     }
 }
 
-/// A pair of headlamps lit by one beam: `lens` (one of the pair's glowing
-/// lenses) carries a spot at its own place, its height over `ground`
-/// ([`headlight_at`]). At the lens, not between the pair: a light standing
-/// off its part writes an offset into the record (the module docs).
+/// A headlamp's beam: `lens` (its glowing lens) carries a spot at its own
+/// place, its height over `ground` ([`headlight_at`]), so a light standing
+/// off its part writes no offset into the record (the module docs). Each
+/// lamp of a pair carries its own (#1925).
 pub(super) fn headlights(lens: Generator, ground: f32) -> Generator {
     let at = lens.transform.translation.0;
     headlight_at(lens, at, ground)
@@ -132,9 +136,9 @@ pub(super) fn running(part: Generator) -> Generator {
     lit_if(part, Lamp::Running, None)
 }
 
-/// A running light on `part` standing at `at`: the middle of a pair one
-/// light stands for, or of a lamp bar whose part stands at the craft's
-/// origin, where its part stands elsewhere.
+/// A running light on `part` standing at `at`, where its part stands
+/// elsewhere: the middle of a lamp bar whose part stands at the craft's
+/// origin, a thruster's mouth at the end of its nacelle.
 pub(super) fn running_at(part: Generator, at: [f32; 3]) -> Generator {
     lit_if(part, Lamp::Running, Some(at))
 }
@@ -145,16 +149,11 @@ pub(super) fn strobe(part: Generator) -> Generator {
     lit_if(part, Lamp::Strobe, None)
 }
 
-/// A lantern's flame on `part`, standing at `at` (the middle of a pair one
-/// light stands for), `at.y - ground` over the ground.
-pub(super) fn lantern_at(part: Generator, at: [f32; 3], ground: f32) -> Generator {
-    lit_if(
-        part,
-        Lamp::Flame {
-            over: at[1] - ground,
-        },
-        Some(at),
-    )
+/// A lantern's flame on `part`, at its own place, its height over
+/// `ground`: a carriage's lantern.
+pub(super) fn lantern(part: Generator, ground: f32) -> Generator {
+    let over = part.transform.translation.0[1] - ground;
+    lit_if(part, Lamp::Flame { over }, None)
 }
 
 /// How high over what it lights a lamp a craft carries for itself stands
@@ -212,14 +211,14 @@ pub(super) fn own_fire(part: Generator) -> Generator {
 
 #[cfg(test)]
 mod tests {
-    use bevy::math::{Affine3A, UVec2, Vec3};
+    use bevy::math::{Affine3A, Mat4, UVec2, Vec3};
 
     use super::*;
     use crate::pds::{LightFlicker, LightShape, LightSource};
     use crate::seeded_defaults::{
         AirplaneType, AirshipType, BoatType, ChassisFamily, CraftType, HelicopterType, SkiffType,
     };
-    use crate::world_builder::light::ClusterView;
+    use crate::world_builder::light::{ClusterView, Cone};
 
     /// Up to `n` seeds of `craft`.
     fn seeds_of(craft: CraftType, n: usize) -> Vec<u64> {
@@ -291,41 +290,53 @@ mod tests {
             .join(" ")
     }
 
-    /// The places of WebGL2's cluster list `lit` (each light's centre in the
-    /// world and its reach) take, seen from `eye` looking at `look` on a
-    /// 1920 x 1080 screen, counted as Bevy counts them.
-    fn cost_from(lit: &[(Vec3, f32)], eye: Vec3, look: Vec3) -> u32 {
+    /// One light in the world as the cluster count reads it: its centre,
+    /// its reach, and for a spot the way it shines (unit) and its outer
+    /// angle (radians).
+    type Lit = (Vec3, f32, Option<(Vec3, f32)>);
+
+    /// The places of WebGL2's cluster list `lit` take, seen from `eye`
+    /// looking at `look` on a 1920 x 1080 screen, counted as Bevy counts
+    /// them - a spot by its cone (#1926).
+    fn cost_from(lit: &[Lit], eye: Vec3, look: Vec3) -> u32 {
         let view = ClusterView::of(
             &bevy::camera::Projection::Perspective(Default::default()),
             UVec2::new(1920, 1080),
         );
-        let to_view = bevy::transform::components::GlobalTransform::from(
-            bevy::transform::components::Transform::from_translation(eye).looking_at(look, Vec3::Y),
-        )
-        .affine()
-        .inverse();
-        let in_view: Vec<(Vec3, f32)> = lit
+        let to_view = Mat4::from(
+            bevy::transform::components::GlobalTransform::from(
+                bevy::transform::components::Transform::from_translation(eye)
+                    .looking_at(look, Vec3::Y),
+            )
+            .affine()
+            .inverse(),
+        );
+        let in_view: Vec<_> = lit
             .iter()
-            .map(|&(at, range)| (to_view.transform_point3(at), range))
+            .map(|&(at, range, spot)| {
+                (
+                    to_view.transform_point3(at),
+                    range,
+                    spot.map(|(aim, outer)| Cone::new(&to_view, -aim, outer)),
+                )
+            })
             .collect();
-        let far = in_view
-            .iter()
-            .filter_map(|&(c, r)| view.reach(c, r))
-            .fold(0.0, f32::max);
-        let slices = view.slices(far);
-        in_view
-            .iter()
-            .map(|&(c, r)| view.count(&slices, c, r))
-            .sum()
+        view.cost(&in_view)
     }
 
-    /// Each of `root`'s lights in the world, with its reach, for the craft
-    /// standing with its drawn frame's `ground` on `y = 0` at `x` along the
-    /// line of a parked fleet.
-    fn parked(root: &Generator, ground: f32, x: f32) -> Vec<(Vec3, f32)> {
+    /// Each of `root`'s lights in the world, with its reach and a spot's
+    /// cone, for the craft standing with its drawn frame's `ground` on
+    /// `y = 0` at `x` along the line of a parked fleet.
+    fn parked(root: &Generator, ground: f32, x: f32) -> Vec<Lit> {
         framed(root)
             .into_iter()
-            .map(|(l, f)| (at(l, f) + Vec3::new(x, -ground, 0.0), l.range.0))
+            .map(|(l, f)| {
+                let spot = match l.shape {
+                    LightShape::Spot { outer, .. } => Some((beam_of(l, f), outer.0.to_radians())),
+                    _ => None,
+                };
+                (at(l, f) + Vec3::new(x, -ground, 0.0), l.range.0, spot)
+            })
             .collect()
     }
 
@@ -342,7 +353,7 @@ mod tests {
     /// The most of the cluster list `lit` takes seen by the game's chase
     /// camera - its orbit's radius and pitch round `look` - from any of
     /// eight sides.
-    fn play_cost(lit: &[(Vec3, f32)], look: Vec3) -> u32 {
+    fn play_cost(lit: &[Lit], look: Vec3) -> u32 {
         let (r, pitch) = (
             crate::config::camera::ORBIT_RADIUS,
             crate::config::camera::ORBIT_PITCH,
@@ -382,17 +393,17 @@ mod tests {
     /// floater draw none - the longship's one lit part is her vane, the
     /// floater's a creature's glow.
     const LIT: &[(CraftType, &[&str])] = &[
-        (CraftType::Skiff(SkiffType::Roadster), &["1H 1R"]),
-        (CraftType::Skiff(SkiffType::DuneBuggy), &["1H 1R"]),
-        (CraftType::Skiff(SkiffType::ArmouredCar), &["1H 1R"]),
-        (CraftType::Skiff(SkiffType::Cyclecar), &["1H 1R"]),
-        (CraftType::Skiff(SkiffType::Wagon), &["", "1F"]),
+        (CraftType::Skiff(SkiffType::Roadster), &["2H 2R"]),
+        (CraftType::Skiff(SkiffType::DuneBuggy), &["2H 2R"]),
+        (CraftType::Skiff(SkiffType::ArmouredCar), &["2H 2R"]),
+        (CraftType::Skiff(SkiffType::Cyclecar), &["2H 1R"]),
+        (CraftType::Skiff(SkiffType::Wagon), &["", "2F"]),
         (CraftType::Skiff(SkiffType::Rover), &["1H"]),
         (CraftType::Boat(BoatType::Sloop), &["1B", "1R 1B"]),
         (CraftType::Boat(BoatType::Longship), &[""]),
         (CraftType::Boat(BoatType::SteamTug), &["1B", "1R 1B"]),
         (CraftType::Boat(BoatType::Junk), &["1B", "1F 1B"]),
-        (CraftType::Boat(BoatType::Runabout), &["", "1R"]),
+        (CraftType::Boat(BoatType::Runabout), &["", "2R"]),
         (CraftType::Boat(BoatType::Scow), &["1B"]),
         (
             CraftType::Helicopter(HelicopterType::Utility),
@@ -408,7 +419,7 @@ mod tests {
         ),
         (
             CraftType::Helicopter(HelicopterType::Coaxial),
-            &["1H 3R 1S", "3R"],
+            &["2H 3R 1S", "3R"],
         ),
         (
             CraftType::Helicopter(HelicopterType::Tandem),
@@ -474,6 +485,132 @@ mod tests {
             assert_eq!(seen, want, "{c:?}'s lights");
         }
     }
+
+    /// The craft types that draw lamps in pairs side by side, and the kinds
+    /// of light ([`kind`]) each pair carries (#1925): a car's headlamps and
+    /// tail lamps, a carriage's lanterns, a skimmer's thrusters, a coaxial's
+    /// pod lamps. A lamp drawn once - a cyclecar's tail bar, a landing light
+    /// under a nose, a cabin's lamp seen through two windows - is not here.
+    const PAIRS: &[(CraftType, &[char])] = &[
+        (CraftType::Skiff(SkiffType::Roadster), &['H', 'R']),
+        (CraftType::Skiff(SkiffType::DuneBuggy), &['H', 'R']),
+        (CraftType::Skiff(SkiffType::ArmouredCar), &['H', 'R']),
+        (CraftType::Skiff(SkiffType::Cyclecar), &['H']),
+        (CraftType::Skiff(SkiffType::Wagon), &['F']),
+        (CraftType::Boat(BoatType::Runabout), &['R']),
+        (CraftType::Helicopter(HelicopterType::Coaxial), &['H']),
+    ];
+
+    /// Each lit node of `root`'s tree, its light, and the frame it stands
+    /// in (its parent's, in the craft's drawn frame).
+    fn lamps(root: &Generator) -> Vec<(&Generator, &LightSource, Affine3A)> {
+        fn visit<'a>(
+            g: &'a Generator,
+            parent: Affine3A,
+            out: &mut Vec<(&'a Generator, &'a LightSource, Affine3A)>,
+        ) {
+            if let Some(light) = &g.light {
+                out.push((g, light, parent));
+            }
+            let world = parent
+                * crate::catalogue::items::measure::transform_of(&g.transform).compute_affine();
+            for child in &g.children {
+                visit(child, world, out);
+            }
+        }
+        let mut out = Vec::new();
+        for child in &root.children {
+            visit(child, Affine3A::IDENTITY, &mut out);
+        }
+        out
+    }
+
+    /// Every lamp of every pair carries its own light (#1925): each pair's
+    /// kind of light comes twice, once to port and once to starboard,
+    /// mirrored across the craft's middle; each light shines its own lamp's
+    /// glow and stands on its own lamp, not between the two; and a pair of
+    /// beams light the road ahead from both sides, so neither is lopsided.
+    #[test]
+    fn every_pair_of_lamps_carries_a_light_on_each_lamp_mirrored() {
+        let mut pairs = 0;
+        for &(c, kinds) in PAIRS {
+            for seed in seeds_of(c, SEEDS) {
+                let root = craft(seed);
+                let what = format!("{c:?} seed {seed}");
+                let lit = lamps(&root);
+                for &k in kinds {
+                    let of_kind: Vec<_> = lit.iter().filter(|(_, l, _)| kind(l) == k).collect();
+                    if of_kind.is_empty()
+                        && matches!(
+                            c,
+                            CraftType::Skiff(SkiffType::Wagon)
+                                | CraftType::Boat(BoatType::Runabout)
+                                | CraftType::Helicopter(HelicopterType::Coaxial)
+                        )
+                    {
+                        // A seed that draws no such pair (a plain carriage,
+                        // a runabout of another hull, a coaxial with no pod
+                        // lamps); the signature table holds which do.
+                        continue;
+                    }
+                    assert_eq!(
+                        of_kind.len(),
+                        2,
+                        "{what}: {} lights of kind {k}",
+                        of_kind.len()
+                    );
+                    let mut places = Vec::new();
+                    for &&(node, light, parent) in &of_kind {
+                        let p = parent.transform_point3(
+                            crate::catalogue::items::measure::transform_of(&node.transform)
+                                .compute_affine()
+                                .transform_point3(Vec3::from(light.offset.0)),
+                        );
+                        let glow = node
+                            .kind
+                            .material()
+                            .map(|m| m.emission_color.on_wire())
+                            .expect("a lit lamp glows");
+                        assert_eq!(
+                            light.color, glow,
+                            "{what}: the {k} light at {p} is not its lamp's"
+                        );
+                        let mut drawn = node.clone();
+                        drawn.children.clear();
+                        let b = crate::catalogue::items::measure::tree_bounds(&drawn)
+                            .expect("a lamp draws");
+                        let (lo, hi) = (
+                            parent.transform_point3(b.min),
+                            parent.transform_point3(b.max),
+                        );
+                        let slack = Vec3::splat(LAMP_SLACK_M);
+                        assert!(
+                            p.cmpge(lo.min(hi) - slack).all() && p.cmple(lo.max(hi) + slack).all(),
+                            "{what}: the {k} light at {p} stands off its lamp ({lo} to {hi})"
+                        );
+                        places.push(p);
+                    }
+                    let (port, starboard) = if places[0].x > 0.0 {
+                        (places[0], places[1])
+                    } else {
+                        (places[1], places[0])
+                    };
+                    assert!(port.x > 0.05, "{what}: no {k} light to port: {places:?}");
+                    let mirror = Vec3::new(-port.x, port.y, port.z);
+                    assert!(
+                        (mirror - starboard).length() < 0.01,
+                        "{what}: the {k} lights at {port} and {starboard} do not mirror"
+                    );
+                    pairs += 1;
+                }
+            }
+        }
+        assert!(pairs > 200, "{pairs} pairs read");
+    }
+
+    /// How far outside its lamp's drawn box a light may stand (m): a hair,
+    /// for a light at a turned lens's middle or a thruster's mouth.
+    const LAMP_SLACK_M: f32 = 0.02;
 
     /// Each light is where and what a real one is, in its craft's drawn frame
     /// (ahead `+Z`, port `+X`): an aircraft's red light to port and its
@@ -638,7 +775,7 @@ mod tests {
                     cost <= VEHICLE_CLUSTER_COST,
                     "{c:?} seed {seed}: its lights take {cost} places of the list"
                 );
-                let side_by_side: Vec<(Vec3, f32)> = (-1..=1)
+                let side_by_side: Vec<Lit> = (-1..=1)
                     .flat_map(|i| parked(&root, ground, i as f32 * PARKED_APART_M))
                     .collect();
                 let parked_cost = play_cost(&side_by_side, look);

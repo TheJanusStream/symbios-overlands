@@ -19,6 +19,8 @@ fn slot(at: Vec3, range: f32) -> Slot {
     Slot {
         view: at,
         range,
+        cone: None,
+        group: None,
         eligible: true,
         held: false,
         drawn: false,
@@ -293,7 +295,7 @@ fn one_light_takes_a_bounded_share() {
             for z in -10..=60 {
                 let at = Vec3::new(x as f32 * 2.0, y as f32, -(z as f32));
                 let far = view.reach(at, range).unwrap_or(0.0);
-                worst = worst.max(view.count(&view.slices(far), at, range));
+                worst = worst.max(view.count(&view.slices(far), at, range, None));
             }
         }
     }
@@ -376,12 +378,187 @@ fn the_costliest_light_for_its_distance_is_cut_first() {
     assert!(Planner::drawn_cost(&slots, &verdicts, &lens()) <= CUT_LIMIT);
 }
 
-/// One frame of a scene: a light standing at `at` of `range`, with what
-/// the drawing keeps of it.
+/// A light of a body or of what it wears (#1925): `slot`, in `group`.
+fn grouped(at: Vec3, range: f32, group: u64) -> Slot {
+    Slot {
+        group: Some(group),
+        ..slot(at, range)
+    }
+}
+
+/// The lights of one body are drawn all or none (#1925). With room in the
+/// count for a lamp ahead and one of a car's two, the car's pair waits
+/// whole - though its nearer lamp, ranked alone, would come in - and a
+/// lamp farther off takes the place it leaves; with room for both, the
+/// pair comes in together; and drawn, a pair the count no longer holds
+/// fades out together.
+#[test]
+fn a_bodys_lights_are_drawn_all_or_none() {
+    use Verdict::{Draw, Fade};
+    let lone = slot(Vec3::new(0.0, 0.0, -5.0), 1.0);
+    let port = grouped(Vec3::new(-0.6, 0.0, -6.0), 1.0, 7);
+    let starboard = grouped(Vec3::new(0.6, 0.0, -6.5), 1.0, 7);
+    let farther = slot(Vec3::new(0.0, 0.0, -9.0), 1.0);
+    let slots = [lone, port, starboard, farther];
+    assert_eq!(plan(&slots, 2, &lens()), vec![Draw, Fade, Fade, Draw]);
+    assert_eq!(plan(&slots, 3, &lens()), vec![Draw, Draw, Draw, Fade]);
+    let drawn = |s: Slot| Slot {
+        drawn: true,
+        held: true,
+        ..s
+    };
+    let verdicts = plan(&[lone, drawn(port), drawn(starboard)], 2, &lens());
+    assert_eq!(verdicts, vec![Fade, Fade, Fade]);
+}
+
+/// A body that could never come in whole goes light by light, as a
+/// room's lights do (#1925): five lamps of the longest reach round the
+/// eye of their own avatar cost more together than the list lets in, and
+/// a body of six lamps is more than a count of five - each still draws
+/// its nearest lights, rather than going dark. A body that fits beside
+/// them still comes in whole.
+#[test]
+fn a_body_too_big_to_come_in_whole_draws_its_nearest_lights() {
+    let costly: Vec<Slot> = [
+        Vec3::new(-1.0, 0.0, -1.0),
+        Vec3::new(1.0, 0.0, -1.5),
+        Vec3::new(0.0, 1.0, -2.0),
+        Vec3::new(0.0, -1.0, -0.5),
+        Vec3::new(1.5, 0.5, 0.5),
+    ]
+    .map(|at| grouped(at, limits::MAX_LIGHT_RANGE_M, 3))
+    .to_vec();
+    let all = vec![Verdict::Draw; costly.len()];
+    let whole = Planner::drawn_cost(&costly, &all, &lens());
+    assert!(whole > ADMIT_LIMIT, "the premise: {whole}");
+    let lit = drawn(&plan(&costly, FULL_BUDGET, &lens()));
+    assert!(
+        !lit.is_empty() && lit.len() < costly.len(),
+        "its nearest, not all and not none: {lit:?}"
+    );
+    // Six lamps of one body against a count of five, and a pair beside.
+    let mut slots: Vec<Slot> = (0..6)
+        .map(|k| grouped(Vec3::new(0.0, 0.0, -5.0 - k as f32), 1.0, 9))
+        .collect();
+    slots.push(grouped(Vec3::new(-0.6, 0.0, -7.2), 1.0, 4));
+    slots.push(grouped(Vec3::new(0.6, 0.0, -7.4), 1.0, 4));
+    let verdicts = plan(&slots, 5, &lens());
+    assert_eq!(drawn(&verdicts), vec![0, 1, 2, 6, 7], "{verdicts:?}");
+}
+
+/// Turned toward more light than the list holds, a drawn body is cut
+/// whole, never one lamp of it.
+#[test]
+fn past_the_list_a_body_is_cut_whole() {
+    let view = view_of(Vec3::new(0.0, 1.7, 0.0), Vec3::NEG_Z);
+    let slots: Vec<Slot> = (0..12)
+        .map(|k| {
+            // A pair's lamps far apart along the view, so the lamps of
+            // other pairs stand between them.
+            let (side, back) = if k % 2 == 0 { (-0.6, 0.0) } else { (0.6, 7.5) };
+            let at = Vec3::new(side, 2.0, -3.0 * (k / 2) as f32 - 2.0 - back);
+            Slot {
+                drawn: true,
+                held: true,
+                ..grouped(view(at), 20.0, k as u64 / 2)
+            }
+        })
+        .collect();
+    let verdicts = plan(&slots, FULL_BUDGET, &lens());
+    assert!(verdicts.contains(&Verdict::Cut), "{verdicts:?}");
+    for pair in verdicts.chunks(2) {
+        assert_eq!(pair[0], pair[1], "{verdicts:?}");
+    }
+    assert!(Planner::drawn_cost(&slots, &verdicts, &lens()) <= CUT_LIMIT);
+}
+
+/// Walking past a row of parked cars with room in the count for an odd
+/// number of lamps (#1925): every frame each car shows both its lamps or
+/// neither, fading in and out together, and the count is never passed.
+#[test]
+fn walking_past_parked_cars_never_lights_one_lamp_of_a_pair() {
+    let lamps: Vec<(Vec3, u64)> = (0..12u64)
+        .flat_map(|car| {
+            let z = -6.0 * car as f32;
+            [
+                (Vec3::new(2.4, 0.7, z), car),
+                (Vec3::new(3.6, 0.7, z - 0.3), car),
+            ]
+        })
+        .collect();
+    let count = 5;
+    let lens = lens();
+    let mut levels = vec![0.0f32; lamps.len()];
+    let mut held = vec![false; lamps.len()];
+    let mut planner = Planner::default();
+    let mut eye = Vec3::new(0.0, 1.7, 20.0);
+    let mut lit_most = 0;
+    for frame in 0..900 {
+        eye.z -= 0.12;
+        let view = view_of(eye, Vec3::new(0.15, -0.1, -1.0));
+        let slots: Vec<Slot> = lamps
+            .iter()
+            .enumerate()
+            .map(|(i, &(at, car))| Slot {
+                held: held[i],
+                drawn: levels[i] > 0.0,
+                ..grouped(view(at), 3.0, car)
+            })
+            .collect();
+        let verdicts = planner.plan(&slots, count, &lens);
+        for (i, verdict) in verdicts.iter().enumerate() {
+            held[i] = *verdict == Verdict::Draw;
+            levels[i] = match verdict {
+                Verdict::Cut => 0.0,
+                Verdict::Hurry => faded(levels[i], false, FADE_S / budget::HURRY_FADE_S / 60.0),
+                v => faded(levels[i], *v == Verdict::Draw, 1.0 / 60.0),
+            };
+        }
+        planner.settle(&slots, &lens, |i| levels[i] > 0.0);
+        for (car, pair) in levels.chunks(2).enumerate() {
+            assert_eq!(pair[0], pair[1], "frame {frame}, car {car}: {levels:?}");
+        }
+        let lit = levels.iter().filter(|l| **l > 0.0).count();
+        assert!(lit <= count, "frame {frame}: {lit} drawn");
+        lit_most = lit_most.max(lit);
+    }
+    assert_eq!(lit_most, 4, "two cars at a time, never a fifth lamp");
+}
+
+/// The planner ends next frame's slices where Bevy will (#1926): at the
+/// lights still lit once this frame's fades are drawn, not at one that
+/// faded to nothing - which Bevy no longer clusters - though the verdicts
+/// left it drawn.
+#[test]
+fn the_slices_end_at_the_lights_still_lit() {
+    let near = Slot {
+        drawn: true,
+        held: true,
+        ..slot(Vec3::new(0.0, 0.0, -5.0), 2.0)
+    };
+    let far = Slot {
+        drawn: true,
+        held: true,
+        ..slot(Vec3::new(0.0, 0.0, -30.0), 5.0)
+    };
+    let view = lens();
+    let mut planner = Planner::default();
+    let slots = [near, far];
+    let verdicts = planner.plan(&slots, 1, &view).to_vec();
+    assert_eq!(verdicts, vec![Verdict::Draw, Verdict::Fade]);
+    assert_eq!(planner.last_end(), view.reach(far.view, far.range));
+    planner.settle(&slots, &view, |i| i == 0);
+    assert_eq!(planner.last_end(), view.reach(near.view, near.range));
+}
+
+/// One frame of a scene: a light standing at `at` of `range` - a spot
+/// shining along `aim` with an outer angle (radians) if it has one - with
+/// what the drawing keeps of it.
 #[derive(Clone)]
 struct Lamp {
     at: Vec3,
     range: f32,
+    aim: Option<(Vec3, f32)>,
     level: f32,
     held: bool,
     turns: u32,
@@ -391,6 +568,7 @@ fn lamp(at: Vec3, range: f32) -> Lamp {
     Lamp {
         at,
         range,
+        aim: None,
         level: 0.0,
         held: false,
         turns: 0,
@@ -410,20 +588,34 @@ struct Run {
 /// Run `poses` through the budget as the game does: the plan reads the
 /// camera's pose of this frame (it runs after propagation), and Bevy then
 /// counts the lights drawn there, ending the slices where the lights it
-/// drew the frame before reached - from where the camera stood then.
+/// drew the frame before reached - from where the camera stood then. One
+/// view and one planner the whole run, as the drawing keeps them, so what
+/// they keep from frame to frame is what is counted with.
 fn run(lamps: &mut [Lamp], poses: &[Transform], screen: UVec2, count: usize) -> Run {
-    let view = ClusterView::of(&Projection::default(), screen);
+    let mut view = ClusterView::of(&Projection::default(), screen);
     let mut planner = Planner::default();
     let mut bevy_far = 1000.0;
     let mut out = Run::default();
-    let inverse = |pose: &Transform| GlobalTransform::from(*pose).affine().inverse();
     for pose in poses {
-        let to_view: Affine3A = inverse(pose);
+        let eye = GlobalTransform::from(*pose);
+        view.set_eye(&eye);
+        let to_view: Affine3A = eye.affine().inverse();
+        let to_view_matrix = Mat4::from(to_view);
+        let cones: Vec<Option<Cone>> = lamps
+            .iter()
+            .map(|l| {
+                l.aim
+                    .map(|(aim, outer)| Cone::new(&to_view_matrix, -aim.normalize(), outer))
+            })
+            .collect();
         let slots: Vec<Slot> = lamps
             .iter()
-            .map(|l| Slot {
+            .zip(&cones)
+            .map(|(l, &cone)| Slot {
                 view: to_view.transform_point3(l.at),
                 range: l.range,
+                cone,
+                group: None,
                 eligible: true,
                 held: l.held,
                 drawn: l.level > 0.0,
@@ -446,17 +638,23 @@ fn run(lamps: &mut [Lamp], poses: &[Transform], screen: UVec2, count: usize) -> 
                 Verdict::Draw | Verdict::Fade => faded(l.level, want, 1.0 / 60.0),
             };
         }
-        let shown: Vec<(Vec3, f32)> = lamps
+        planner.settle(&slots, &view, |i| lamps[i].level > 0.0);
+        // Bevy's count, on slices of its own laid out afresh.
+        let shown: Vec<(Vec3, f32, Option<Cone>)> = lamps
             .iter()
-            .filter(|l| l.level > 0.0)
-            .map(|l| (to_view.transform_point3(l.at), l.range))
+            .zip(&cones)
+            .filter(|(l, _)| l.level > 0.0)
+            .map(|(l, &cone)| (to_view.transform_point3(l.at), l.range, cone))
             .collect();
         let slices = view.slices(bevy_far);
-        let total: u32 = shown.iter().map(|&(c, r)| view.count(&slices, c, r)).sum();
+        let total: u32 = shown
+            .iter()
+            .map(|&(c, r, cone)| view.count(&slices, c, r, cone))
+            .sum();
         out.worst = out.worst.max(total);
         bevy_far = shown
             .iter()
-            .filter_map(|&(c, r)| view.reach(c, r))
+            .filter_map(|&(c, r, _)| view.reach(c, r))
             .fold(0.0, f32::max);
     }
     out
@@ -548,6 +746,44 @@ fn slow_motion_fades_lights_and_cuts_none() {
         assert_eq!(run.cuts, 0, "{name}: {run:?}");
         assert!(run.turns <= 10, "{name}: {run:?}");
     }
+}
+
+/// A town lit by street lamps that shine down (#1926), walked through
+/// while the camera sways and turns: each lamp is counted by its cone,
+/// the planner's counts kept from frame to frame and far end to far end,
+/// and the list stays whole - Bevy's own count, on slices laid out afresh
+/// each frame, never past the cut line - with no lamp cut. A count kept
+/// for slices laid out for another far end is off by much of itself, and
+/// a walk among this many lamps then draws past the line.
+#[test]
+fn a_town_of_spot_lamps_keeps_the_list() {
+    let mut lamps = Vec::new();
+    for i in -12..=12 {
+        for j in -12..=12 {
+            let at = Vec3::new(i as f32 * 3.0 + 0.3, 5.0, j as f32 * 3.0 + 0.2);
+            lamps.push(Lamp {
+                aim: Some((Vec3::new(0.1, -1.0, 0.05), 60f32.to_radians())),
+                ..lamp(at, 10.0)
+            });
+        }
+    }
+    let poses: Vec<Transform> = (0..600)
+        .map(|f| {
+            let t = f as f32 / 60.0;
+            eye(
+                Vec3::new(2.0 * (t * 0.7).sin(), 1.7, 20.0 - 4.0 * t),
+                t * 0.6,
+                -0.15 + 0.1 * (t * 1.3).sin(),
+            )
+        })
+        .collect();
+    let run = run(&mut lamps, &poses, HD, FULL_BUDGET);
+    assert!(
+        run.worst > ADMIT_LIMIT / 2,
+        "the list is what binds: {run:?}"
+    );
+    assert!(run.worst <= CUT_LIMIT, "{run:?}");
+    assert_eq!(run.cuts, 0, "{run:?}");
 }
 
 /// A light's flicker is a function of the clock and its seed alone:
@@ -1174,4 +1410,72 @@ fn a_body_respawned_while_it_moves_keeps_its_lights_fades() {
         let level = by_seed(&now, 2).level;
         assert!(level < 0.5, "a room's lamp {step} m off: {level}");
     }
+}
+
+/// The drawing groups a body's lights (#1925): at Effects Reduced, with
+/// room in the count for every lamp nearer the camera than a car and one
+/// of the car's two lamps, the car lights neither - and once one of the
+/// nearer lamps goes out, both.
+#[test]
+fn the_drawing_lights_a_body_whole() {
+    let (mut app, dusk, always) = lit_app(1.0);
+    app.insert_resource(crate::state::LocalSettings {
+        effects_intensity: EffectsIntensity::Reduced,
+        ..Default::default()
+    });
+    // The camera stands at (0, 2, 10) looking at the origin: 31 small
+    // lamps stand nearer it than the car, in place of `lit_app`'s two.
+    app.world_mut().despawn(dusk);
+    app.world_mut().despawn(always);
+    let small = LightSource {
+        range: Fp(0.5),
+        ..LightSource::default()
+    };
+    let mut room = Vec::new();
+    for k in 0..31 {
+        let node = app
+            .world_mut()
+            .spawn((Transform::default(), InheritedVisibility::VISIBLE))
+            .id();
+        let mut commands = app.world_mut().commands();
+        attach(&mut commands, node, &small, 100 + k);
+        app.world_mut().flush();
+        let light = app.world().get::<Children>(node).expect("its light")[0];
+        let at = Vec3::new(k as f32 * 0.3 - 4.5, 1.0, 4.0);
+        app.world_mut()
+            .entity_mut(light)
+            .insert(GlobalTransform::from_translation(at));
+        room.push(light);
+    }
+    let chassis = app.world_mut().spawn_empty().id();
+    let car: Vec<Entity> = [(-0.6, 1001), (0.6, 1002)]
+        .into_iter()
+        .map(|(side, seed)| {
+            let node = body_at(
+                &mut app,
+                chassis,
+                Vec3::new(0.0, 0.0, -2.0),
+                Quat::IDENTITY,
+                Vec3::new(side, 0.7, 1.8),
+                seed,
+            );
+            app.world().get::<Children>(node).expect("its light")[0]
+        })
+        .collect();
+    let levels = |app: &App, lights: &[Entity]| -> Vec<f32> {
+        lights
+            .iter()
+            .map(|&l| app.world().get::<NodeLight>(l).unwrap().level)
+            .collect()
+    };
+    settle(&mut app);
+    assert_eq!(budget(EffectsIntensity::Reduced), room.len() + 1);
+    assert!(
+        levels(&app, &room).iter().all(|&l| l == 1.0),
+        "the room's lamps"
+    );
+    assert_eq!(levels(&app, &car), vec![0.0, 0.0], "neither of the car's");
+    app.world_mut().despawn(room[30]);
+    settle(&mut app);
+    assert_eq!(levels(&app, &car), vec![1.0, 1.0], "both of the car's");
 }

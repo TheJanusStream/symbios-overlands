@@ -316,8 +316,8 @@ pub(super) fn lamps(kids: &mut Vec<Generator>, f: &Frame, c: &BuggyColours) {
         (0.0, 0.012 * l),
     ];
     let (xn, hi) = (f.plan.hw(f.nose_z), f.plan.shoulder(f.nose_z));
-    // One beam for the pair of headlamps (#1924), and one red glow for the
-    // pair of tail lamps, each from its near lamp.
+    // A beam from each headlamp and a red glow from each tail lamp
+    // (#1925), each light at its own lamp.
     let ground = -f.plan.datum_height();
     for s in [-1.0f32, 1.0] {
         let at = [s * xn, hi + 0.012 * l, f.nose_z + 0.020 * l];
@@ -332,13 +332,8 @@ pub(super) fn lamps(kids: &mut Vec<Generator>, f: &Frame, c: &BuggyColours) {
         );
         let tail_at = [s * f.tail_x * 0.92, f.tail_y, f.tail_z - 0.004 * l];
         let red = solid(&tail, 12, false, &c.tail_lamp, tail_at, quat_x(-FRAC_PI_2));
-        if s < 0.0 {
-            kids.push(lights::headlights(glass, ground));
-            kids.push(lights::running(red));
-        } else {
-            kids.push(glass);
-            kids.push(red);
-        }
+        kids.push(lights::headlights(glass, ground));
+        kids.push(lights::running(red));
     }
 }
 

@@ -150,18 +150,8 @@ fn stub_wings(kids: &mut Vec<Generator>, plan: &PodPlan, c: &CoaxialColours) {
             plan.at(x, y, WING_Z + POD[0].0),
             id_quat(),
         );
-        // One landing light for the pair of pod lamps (#1924), between them.
-        kids.push(if side < 0.0 {
-            let [_, ly, lz] = plan.at(0.0, y, WING_Z + POD[0].0);
-            lights::beam(
-                lamp,
-                [0.0, ly, lz],
-                -plan.datum_height(),
-                lights::LANDING_AHEAD_M,
-            )
-        } else {
-            lamp
-        });
+        // A landing light from each pod lamp (#1925).
+        kids.push(lights::landing_light(lamp, -plan.datum_height()));
     }
 }
 

@@ -12,18 +12,23 @@ PDS, so they see a change to those only after `A save avatar --wait`.
 
 A node of a generator body, or of anything worn, can carry a `light`, as a
 building's can ([region.md](region.md)), and every client draws it on you,
-in the same budget of nearest lights as a world's lamps (#1924). The seeded
-vehicles' lamps carry theirs: a car one beam from a headlamp onto the road
-5 m ahead and one red light astern; an aircraft red to port, green to starboard and
+in the same budget of nearest lights as a world's lamps (#1924), the
+lights of your body - or of one thing you wear - drawn all together or
+not at all (#1925). The seeded
+vehicles' lamps carry theirs: a car a beam from each headlamp onto the road
+5 m ahead and a red light at each tail lamp, every lamp of a pair lit
+(#1925); an aircraft red to port, green to starboard and
 white astern, its anti-collision beacon pulsing at every hour and a short
 landing light where one is drawn; a boat a cabin light where its windows
 glow, and its stern light, masthead light or lantern where one is drawn;
 an airship its gondola's lamps and lanterns, a balloon her burner's fire.
 Each shines its lamp's own glow, from dusk to dawn but the beacons, and
 is aimed in the body's drawn frame - ahead `+Z`, port `+X`. A beam is
-reached twice the length it travels to the ground it lights, and one beam
-takes as much of a web client's light list as ten running lights:
-share one between a pair of lamps. A spot on the default cone (25 and 40
+reached twice the length it travels to the ground it lights. A web client
+counts a spot by its cone, as Bevy does (#1926): seen from the chase camera
+behind a car, a beam takes about as much of its light list as a running
+light, but seen from inside the car (first person) it fills the view and
+takes about ten times that. A spot on the default cone (25 and 40
 degrees) writes no cone, and a light at its node's own place no offset -
 what a car's record, near its budget, is lit with. A flicker or pulse
 keeps one phase on every client: it is seeded by your DID, the tree (your

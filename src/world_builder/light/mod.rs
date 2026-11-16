@@ -44,7 +44,9 @@
 //! the same number on every bundle - [`budget()`]: 64 at Effects Full, 32
 //! at Reduced, none at Off - and only as many of them as the list holds,
 //! counted as Bevy counts it ([`clusters`]): lights that reach far take
-//! more of the list, so fewer are drawn while they are near.
+//! more of the list, so fewer are drawn while they are near. The lights of
+//! one body, or of one thing it wears, go together (#1925): a car near the
+//! end of the count shows both its headlights or neither, never one.
 //!
 //! Which ([`mod@budget`]): the lights in the dark enough to show,
 //! nearest first, a light already wanted ranked as if a share nearer, so
@@ -95,7 +97,7 @@ use crate::weathered::WorldWeather;
 
 use super::spin::SpinClock;
 pub use budget::{Planner, Slot, Verdict, plan};
-pub use clusters::ClusterView;
+pub use clusters::{ClusterView, Cone};
 
 /// The illuminance (lx) a light of brightness 1 gives at four fifths of its
 /// range - a lamp's working light, the faintest still seen beside the
@@ -499,6 +501,7 @@ pub(crate) fn follow_node_lights(
     )>,
     mut slots: Local<Vec<Slot>>,
     mut order: Local<Vec<Entity>>,
+    mut lit_after: Local<Vec<bool>>,
     mut planner: Local<Planner>,
     mut clusters: Local<ClusterView>,
     mut kept: Local<Kept>,
@@ -553,31 +556,45 @@ pub(crate) fn follow_node_lights(
             }
             _ => clusters.set_projection(projection, UVec2::new(1280, 720)),
         }
-        eye.affine().inverse()
+        clusters.set_eye(eye);
+        // Bevy's view-from-world, which it reads a light's centre and a
+        // spot's way through.
+        Mat4::from(eye.affine().inverse())
     });
     let now = clock.map(|mut clock| clock.now(&time, &real));
     let on = |light: &NodeLight| if light.dusk_to_dawn { night } else { 1.0 };
 
     slots.clear();
     order.clear();
-    slots.extend(lights.iter().map(|(entity, at, parent, light, ..)| {
-        order.push(entity);
-        let shown = parents.get(parent.parent()).is_ok_and(|v| v.get());
-        let lit = on(light) > 0.0;
-        Slot {
-            view: to_view.map_or(Vec3::splat(f32::INFINITY), |to_view| {
-                to_view.transform_point3(at.translation())
+    slots.extend(
+        lights
+            .iter()
+            .map(|(entity, at, parent, light, _, spot, _, body)| {
+                order.push(entity);
+                let shown = parents.get(parent.parent()).is_ok_and(|v| v.get());
+                let lit = on(light) > 0.0;
+                Slot {
+                    view: to_view.map_or(Vec3::splat(f32::INFINITY), |to_view| {
+                        (to_view * at.translation().extend(1.0)).truncate()
+                    }),
+                    range: light.range,
+                    cone: to_view
+                        .zip(spot)
+                        .map(|(to_view, spot)| Cone::new(&to_view, *at.back(), spot.outer_angle)),
+                    // A body's lights, and a worn prop's, go together.
+                    group: body.map(|body| body.frame.to_bits()),
+                    eligible: lit && shown && to_view.is_some(),
+                    held: light.held,
+                    drawn: lit && shown && light.level > 0.0,
+                }
             }),
-            range: light.range,
-            eligible: lit && shown && to_view.is_some(),
-            held: light.held,
-            drawn: lit && shown && light.level > 0.0,
-        }
-    }));
+    );
     let verdicts = planner.plan(&slots, budget(effects), &clusters);
 
     let dt = time.delta_secs();
-    for (&entity, &verdict) in order.iter().zip(verdicts) {
+    lit_after.clear();
+    lit_after.resize(slots.len(), false);
+    for (k, (&entity, &verdict)) in order.iter().zip(verdicts).enumerate() {
         let Ok((_, at, _, mut light, point, spot, mut visibility, body)) = lights.get_mut(entity)
         else {
             continue;
@@ -595,6 +612,7 @@ pub(crate) fn follow_node_lights(
         if light.level != level {
             light.level = level;
         }
+        lit_after[k] = slots[k].eligible && level > 0.0;
         // Only a light drawn this frame or the last touches the map: the
         // many waiting at nothing cost no lookup.
         if level > 0.0
@@ -640,6 +658,9 @@ pub(crate) fn follow_node_lights(
             *visibility = shown;
         }
     }
+    // Bevy ends next frame's slices at the lights it clusters this frame:
+    // those still lit once faded.
+    planner.settle(&slots, &clusters, |k| lit_after[k]);
 }
 
 /// How long a light that has gone keeps its place for one respawned in

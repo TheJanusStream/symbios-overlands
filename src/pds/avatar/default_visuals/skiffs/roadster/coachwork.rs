@@ -327,8 +327,8 @@ pub(super) fn lamps_and_bumper(kids: &mut Vec<Generator>, plan: &RoadsterPlan, c
         6,
         c.brightwork.clone(),
     ));
-    // One beam for the pair of lenses (#1924), and one red glow for the
-    // pair of tail lamps, each from its near lamp.
+    // A beam from each lens and a red glow from each tail lamp (#1925),
+    // each light at its own lamp.
     let ground = -plan.datum_height();
     let tz = plan.tail_lamps_z();
     let ty = plan.crown_at(tz) * 0.10;
@@ -343,11 +343,7 @@ pub(super) fn lamps_and_bumper(kids: &mut Vec<Generator>, plan: &RoadsterPlan, c
             [m[0], m[1], m[2] + 0.058 * k],
             turn,
         );
-        kids.push(if i == 0 {
-            lights::headlights(lens, ground)
-        } else {
-            lens
-        });
+        kids.push(lights::headlights(lens, ground));
         // Tail lamp on the quarter, seated on the body's own flank at the
         // station the BODY names (#1367 defect 3): restated as a fraction of
         // the length, it stood behind a bobtail's back in open air. Centred ON
@@ -361,7 +357,7 @@ pub(super) fn lamps_and_bumper(kids: &mut Vec<Generator>, plan: &RoadsterPlan, c
             [side * plan.side_at(tz, ty), ty, tz - l * 0.004],
             quat_x(-FRAC_PI_2),
         );
-        kids.push(if i == 0 { lights::running(tail) } else { tail });
+        kids.push(lights::running(tail));
     }
     // Bumper: a bowed bar on two short irons, ahead of the radiator and INSIDE
     // the guard line - a bar as wide as the track reads as a chrome moustache

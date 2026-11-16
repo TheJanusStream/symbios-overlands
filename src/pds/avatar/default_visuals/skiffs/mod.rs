@@ -1981,7 +1981,8 @@ mod tests {
     }
 
     /// A seeded skiff's saved record stays well under the soft budget
-    /// (#1359 rule 9), at a THIRD of it.
+    /// (#1359 rule 9), at [`SKIFF_RECORD_GUARD_BYTES`] - a third of it until
+    /// the road lights of #1925 (below).
     ///
     /// Two sweeps, in the sloop's form (#1366). The live seeds, as saved - FX
     /// emitter and engine voice included - and the heaviest thing the family
@@ -2002,8 +2003,20 @@ mod tests {
     /// visual body alone; a publish writes the whole
     /// [`AvatarRecord`](crate::pds::avatar::AvatarRecord), about 770 B more.
     /// The heaviest skiff in the population (seed 1731) is the heaviest saved
-    /// record in the fleet, so this is the guard that had the least to spare
-    /// and still has over 2 KB of it.
+    /// record in the fleet, so this is the guard with the least to spare:
+    /// 1,070 B at the worst blueprint corner and 1,232 B at the heaviest live
+    /// seed since the road lights (below).
+    ///
+    /// # The road lights raised it (#1925)
+    ///
+    /// The avatar lights of #1924 took the roadster's worst corner to 7 B
+    /// under the third, with one beam and one tail light per car; lighting
+    /// each lamp of every pair - the owner's decision of 2026-11-16, who
+    /// let the guard rise for it - took it to 34,330 B and the heaviest live
+    /// seed to 34,168, past the third (34,133). The guard went up to
+    /// [`SKIFF_RECORD_GUARD_BYTES`], the least round figure leaving about
+    /// 1 KB of headroom at that corner; no other family's guard moved, and
+    /// nothing was cut from any vehicle.
     #[test]
     fn a_seeded_skiffs_record_stays_well_inside_the_budget() {
         use crate::pds::avatar::AvatarRecord;
@@ -2117,13 +2130,20 @@ mod tests {
             ("fully dressed rover", worst_rover),
         ] {
             assert!(
-                worst * 3 < SOFT_RECORD_BUDGET_BYTES,
-                "the heaviest {what} is {worst} bytes, past a third of the \
-                 {SOFT_RECORD_BUDGET_BYTES}-byte soft budget - a craft type is \
-                 spending nodes where it should be spending shape"
+                worst <= SKIFF_RECORD_GUARD_BYTES,
+                "the heaviest {what} is {worst} bytes, past the skiffs' guard of \
+                 {SKIFF_RECORD_GUARD_BYTES} in the {SOFT_RECORD_BUDGET_BYTES}-byte \
+                 soft budget - a craft type is spending nodes where it should be \
+                 spending shape"
             );
         }
     }
+
+    /// The most bytes a seeded skiff's saved record may take
+    /// (`a_seeded_skiffs_record_stays_well_inside_the_budget`): a third of
+    /// the 102,400-byte soft budget (34,133) until #1925 lit both lamps of
+    /// every pair, then this - the owner's decision of 2026-11-16.
+    const SKIFF_RECORD_GUARD_BYTES: usize = 35_400;
 
     /// #1604: a wheel's hubs move no part of it. The rebase is exact: every
     /// part, composed through the axle hub and (steering) the kingpin above

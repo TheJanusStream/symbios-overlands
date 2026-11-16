@@ -199,8 +199,8 @@ pub(super) fn lamps(kids: &mut Vec<Generator>, plan: &ArmouredPlan, c: &Armoured
     let l = plan.length;
     let zf = plan.nose();
     let k = l / 2.7 * 0.62;
-    // One beam for the pair of lenses (#1924), and one red glow for the
-    // pair of tail lamps, each from its near lamp.
+    // A beam from each lens and a red glow from each tail lamp (#1925),
+    // each light at its own lamp.
     let ground = -plan.datum_height();
     for s in [-1.0f32, 1.0] {
         let hw = plan.half_width_at(zf);
@@ -217,11 +217,7 @@ pub(super) fn lamps(kids: &mut Vec<Generator>, plan: &ArmouredPlan, c: &Armoured
         let lens = [(0.0, 0.0), (0.070 * k, 0.0), (0.070 * k, 0.010 * k)];
         kids.push(solid(&shell, 12, true, &c.hull, [x, y, z], along_z()));
         let glass = solid(&lens, 10, false, &c.lamp, [x, y, z + 0.038 * k], along_z());
-        kids.push(if s < 0.0 {
-            lights::headlights(glass, ground)
-        } else {
-            glass
-        });
+        kids.push(lights::headlights(glass, ground));
         kids.push(line(
             &[
                 (
@@ -262,7 +258,7 @@ pub(super) fn lamps(kids: &mut Vec<Generator>, plan: &ArmouredPlan, c: &Armoured
             [s * hw * 0.62, y, z],
             along_z(),
         );
-        kids.push(if s < 0.0 { lights::running(lamp) } else { lamp });
+        kids.push(lights::running(lamp));
     }
 }
 
