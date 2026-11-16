@@ -827,7 +827,7 @@ fn shares(app: &mut App, light: Entity, frames: usize) -> Vec<f32> {
             let world = app.world();
             let state = world.get::<NodeLight>(light).expect("state");
             let intensity = world.get::<PointLight>(light).expect("light").intensity;
-            (state.level > 0.0).then(|| intensity / (state.lumens * state.level))
+            (state.level > 0.0).then_some(intensity / (state.lumens * state.level))
         })
         .collect()
 }
